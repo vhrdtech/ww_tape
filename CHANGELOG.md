@@ -135,6 +135,7 @@ Covers `ww_tape` 0.1.0.
 
 ### 🐛 Fixes
 
+- `TapeReader::open` finds finished pieces by their tails when an unfinished piece without a checkpoint follows them (STD-134).
 - An index block of no entries reads back; the reader refused the entry length as longer than the block (STD-131).
 - `Element::Unknown` codes past 255 no longer truncate to a known element's code (STD-131).
 - A delta column of 4 GiB or more is refused instead of panicking the encoder (STD-131).
