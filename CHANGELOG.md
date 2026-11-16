@@ -10,6 +10,7 @@ Covers `ww_tape` 0.1.0.
 
 ### ⚠️ Breaking
 
+- Finished pieces end on 4 KiB: the finish block carries zero padding, stated at offset 172; `write_finish` takes `padding` (STD-134).
 - Repository: ww_tape, ww_tape_fuzz and ww_tape_benchmarks live in vhrdtech/ww_tape; take ww_tape by git from there, not from wire_weaver.
 - Feature `bundle` is gone, and with it the dependency on `ww_self`: `name_path`, `key_in_bundle` and `NamePathError` are in `ww_tape_bundle` (R11).
 - `ChainOptions` is `{ writer: WriterOptions, cut: CutPolicy }`; `TapeWriter` and `PieceChain` are generic over their sink, files by default (STD-132).
