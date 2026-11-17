@@ -30,6 +30,22 @@ fn write(head: &IndexHead, entries: &[IndexEntry]) -> Vec<u8> {
     buf
 }
 
+/// An index of no entries is shorter than one entry: the entry length is bounded by the format's cap, not the block.
+#[test]
+fn empty_index_round_trip() {
+    for kind in [IndexKind::Checkpoint, IndexKind::Final] {
+        let head = IndexHead {
+            kind,
+            self_offset: 10,
+            prev: Some(7),
+        };
+        let bytes = write(&head, &[]);
+        assert!(bytes.len() < ENTRY_LEN, "{kind:?}: {} bytes", bytes.len());
+        let ix = IndexBlock::read(&Block::read(&bytes).unwrap()).unwrap();
+        assert_eq!((ix.kind(), ix.entry_count(), ix.prev()), (kind, 0, Some(7)));
+    }
+}
+
 #[test]
 fn checkpoint_round_trip() {
     let entries: Vec<_> = (0..5).map(|i| entry(i % 2, 1000 + i * 300)).collect();

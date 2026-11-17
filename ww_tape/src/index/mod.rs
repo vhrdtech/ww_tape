@@ -555,7 +555,8 @@ impl<'b> IndexBlock<'b> {
         let len = crate::block_len(bytes)?;
         let bad = IndexError::BadHead;
         let flags = le_u16(bytes, 56).ok_or(bad)?;
-        let entry_len = file_u16(bytes, 58).ok_or(bad)?.within(len)?;
+        // an index of no entries is shorter than one entry: bounded by the format, not the block
+        let entry_len = file_u16(bytes, 58).ok_or(bad)?.at_most(INDEX_LEN_MAX)?;
         let tracks = file_u32(bytes, 36).ok_or(bad)?.within(len)?;
         let entries = file_u32(bytes, 12).ok_or(bad)?.within(len)?;
         let kind = if flags & FLAG_FINAL != 0 {

@@ -39,6 +39,7 @@ pub const KNOWN_INPUTS: &[(&str, &str, &str)] = &[];
 
 /// Inputs these tests found that failed until STD-131 fixed them: target, name (seed `fixed-<name>`), hex.
 pub const FIXED_INPUTS: &[(&str, &str, &str)] = &[
+    ("tape-index", "empty-index-reads-back", "0a"),
     (
         "tape-times-hostile",
         "chunk-count-unbounded",
