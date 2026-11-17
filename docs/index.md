@@ -24,12 +24,22 @@ The format has four goals, and most of its choices follow from them:
 The link tap is one producer of tapes; a device log, a simulator or an analysis program writes
 the same blocks. Nothing in the format knows any producer.
 
-The chapter has four pages. This one covers records, clocks and the anatomy of a file. [Events and
-series](events_and_series.md) covers how large tracks are stored: event chunks, the time codec, series and summaries.
-[Damage and recovery](recovery.md) covers checksums, crashes, raw media and the limits of the format. The [format
-reference](format.md) lists every part of the format, block by block. The exact byte
-layouts are in the module docs of `ww_tape`, linked from each section; this chapter explains them and does not repeat
-them.
+A reader new to the format starts with [Tape concepts](concepts.md), which names every part of a tape and shows one
+file from start to end. This page gives an overview of the whole format: records, clocks, blocks, definitions and the
+anatomy of a file. The other pages go deeper, in the order a reader needs them:
+
+- [Tape concepts](concepts.md): the words, and one picture of a file.
+- [Writing a tape](writing.md): the writer, definitions and puts, syncing, cuts, relays and resuming after a crash.
+- [Pieces and files](pieces_and_files.md): chains, many pieces in one file, copies, and addressing one item.
+- [Reading a tape](reading.md): opening a file, the index, state at a place, damage and salvage.
+- [Events and series](events_and_series.md): event chunks, the time codec, series and summaries.
+- [Numbers](numbers.md): sizes and speeds, and why fixed point comes first.
+- [Damage and recovery](recovery.md): checksums, crashes, raw media and the limits of the format.
+- [Tapes and logring](logring.md): how a tape differs from a device's log store, and when to use which.
+- [Format reference](format.md): every part of the format, block by block.
+
+The exact byte layouts are in the module docs of `ww_tape`, linked from each section; this chapter explains them and
+does not repeat them.
 
 ## Records, tracks and clocks
 
@@ -215,37 +225,8 @@ Large tracks go into chunks, which the [next page](events_and_series.md) describ
 ## Anatomy of a file
 
 A complete file is a **piece**: a piece head, the layout and producer, the data with the definitions it needs put
-near it and periodic index blocks between it, and at the end a final index, a finish block and a tail. The diagram
-shows one piece, start at the top.
-
-```
- piece start ─► ┌─────────────────────────────┐
-                │ piece head                  │ ids, the previous piece's hash
-                ├─────────────────────────────┤
-                │ puts           (track 0)    │ layout and producer
-                ├─────────────────────────────┤
-                │ puts           (track 0)    │ clocks, maps, tracks 1-3
-                │ events chunk   (track 3)    │ first data block
-                │ records        (tracks 1,2) │ small tracks, many per block
-                │ puts           (track 0, 6) │ track 6's definition and state
-                │ series chunk   (track 5)    │
-                │ summary        (track 3)    │
-                │ ...                         │
-                │ copies         (track 0, 6) │ at a use 1 MiB after the first
-                │ index (checkpoint) ◄──┐     │ every 4 MiB: the blocks placed
-                │ ...                   │     │ since the previous checkpoint,
-                │ index (checkpoint) ───┘     │ and a pointer back to it
-                │ ...                         │
-                │ puts           (track 0)    │ a definition 32 MiB on, still
-                │ records        (track 1)    │ in use
-                │ ...                         │
-                ├─────────────────────────────┤
-                │ final index    ◄──────┐     │ every block again, by track
-                │ finish         ◄──┐   │     │ BLAKE3 hash of all bytes before it,
-                │                   │   │     │ zero padding to the 4 KiB end
-                │ tail (164 B) ─────┴───┘     │ piece length, where the finish is
-   end of file ─► └─────────────────────────────┘ a multiple of 4 KiB from the start
-```
+near it and periodic index blocks between it, and at the end a final index, a finish block and a tail. [Tape
+concepts](concepts.md#one-file-start-to-end) shows one piece in a diagram.
 
 A reader of a finished file starts at the end. It reads the last 164 bytes, the **tail**, which give the piece's length
 and where its finish block is. The **finish** block holds a BLAKE3 hash of every byte before it, per-track totals

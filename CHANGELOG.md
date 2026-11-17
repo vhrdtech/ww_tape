@@ -74,6 +74,7 @@ Covers `ww_tape` 0.1.0.
 
 ### 🚀 Features
 
+- Book pages a newcomer starts from: tape concepts, writing and resume, pieces and files, reading, numbers, and tapes against logring.
 - `IndexPolicy::state_entries_max` caps a piece's state entries (`IndexError::StateEntries`); `PieceChain` cuts when it is reached (STD-135).
 - `api()`: the crate's `FullVersion`, to find its bundle in `wire_weaver_snapshots` (STD-135).
 - `Definitions`: the application holds its definitions and passes them with each write; it reports `len` and `bytes` (STD-135).

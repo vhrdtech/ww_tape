@@ -81,9 +81,9 @@ Track 0 and every track whose `repeat` is `TrackRepeat::State` hold **state**, n
 takes the newest record of each slot behind it. A state track's records fill one slot, the track's. A
 `StatePolicy` says how a writer keeps such records near their use: `near` (32 MiB by default) is how far behind
 a use the item must lie in the same piece, and `copies` (1 by default) how many more records an item gets after its
-first one in a piece. Track 0's policy is in the layout (`Layout::definitions`). A series track has the state policy because
-its records are its timing (its [segments](#series-tracks)): they are state, kept near the samples they time. Its
-sample chunks are data and are never repeated.
+first one in a piece. Track 0's policy is in the layout (`Layout::definitions`). A series track has the state
+policy because its records are its timing (its [segments](#series-tracks)): they are state, kept near the samples
+they time. Its sample chunks are data and are never repeated.
 
 An item is known by its **hash** (`ItemHash`): BLAKE3 of its bytes, cut to 128 bits. A **put** writes an item unless
 the newest record of its slot is the same item at most `near` bytes behind, measured to where the data lands. The

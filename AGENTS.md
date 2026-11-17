@@ -11,11 +11,12 @@ WireWeaver: it takes [shrink_wrap](https://github.com/romixlab/shrink_wrap),
 [ww_base](https://github.com/vhrdtech/ww_base) by git, and depends on nothing of the framework, dev-dependencies
 included. WireWeaver (the link tap, the client's recorder, `ww explain`) and applications take it by git.
 
-Read `docs/index.md` first, then `docs/events_and_series.md`, `docs/recovery.md` and `docs/format.md` (the reference,
-block by block). The exact byte layouts are in the module docs (`ww_tape/src/lib.rs` and each module's `mod.rs`).
-The docs are published as the Tapes chapter of the WireWeaver book, which assembles them from this repository: links
-to other pages of the book (`../transport/tap.md`, `../serdes/series.md`) only resolve there. Where the docs are
-unclear, the source and its comments are authoritative.
+Read `docs/concepts.md` first (the words), then `docs/index.md`, `docs/writing.md`, `docs/reading.md`,
+`docs/events_and_series.md`, `docs/recovery.md` and `docs/format.md` (the reference, block by block). The pages and
+their order are listed in `docs/index.md`. The exact byte layouts are in the module docs (`ww_tape/src/lib.rs` and each
+module's `mod.rs`). The docs are published as the Tapes chapter of the WireWeaver book, which assembles them from this
+repository: links to other pages of the book (`../transport/tap.md`, `../serdes/series.md`) only resolve there. Where
+the docs are unclear, the source and its comments are authoritative.
 
 ## Layout
 
