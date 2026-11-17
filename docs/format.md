@@ -10,19 +10,20 @@ format, [Events and series](events_and_series.md) and [Damage and recovery](reco
 
 ## Files
 
-A capture is [tape](#tape-blocks) blocks appended back to back. `ww_tape::TapeWriter` writes it the way databases
+A tape file is [tape blocks](#tape-blocks) appended back to back. `ww_tape::TapeWriter` writes it the way databases
 write their logs: a new file as `NAME.partial`, renamed when finished, the file and its directory synced after the
 create and after the rename; the data synced by a `SyncPolicy` (none, every N blocks, or an interval, 1 s by default:
 `fdatasync` on Linux, `F_FULLFSYNC` on macOS, `FlushFileBuffers` on Windows); and a failed write or sync is the end of
 the file, never retried (after a failed `fsync` Linux may drop the dirty pages, and a retry succeeds without them).
 `ww_tape::FileBlocks` reads the longest valid prefix: it stops at the first block with a bad magic, length or CRC,
 a cut one or one whose seq goes back, and says where; blank bytes at the end (all 0x00 or all 0xFF) are the end. `Recovery::Resync` reads on past
-damage instead. A capture ends with an index, a finish block and a tail ([below](#index-finish-and-tail)); cutting a recording into several files is [tape pieces](#tape-pieces); preallocating space is not built yet. The describe blocks carry the device's API
-bundle, so `ww explain FILE` explains the requests and replies of a capture on any PC, without the device.
+damage instead. A file ends with an index, a finish block and a tail ([below](#index-finish-and-tail)); cutting a recording into several files is [tape pieces](#tape-pieces); preallocating space is not built yet. The describe blocks carry the producer's API
+bundle, so a reader explains a recording on any PC without the producer (WireWeaver's `ww explain FILE` does so for
+link captures).
 
 ## Tape blocks
 
-`ww_tape` is the generic block format the tap writes; nothing in it knows the tap. A block is a 32 byte header
+`ww_tape` is a generic block format: nothing in it knows its producers (WireWeaver's link tap is one). A block is a 32 byte header
 (magic `WWTP`, version, kind, length, record count, the block number in its run, the run tag), a body and a CRC-32C,
 as long as its records and never padded. A run is one writer's unbroken append (a producer start, a device boot): its
 blocks carry the same random 32-bit run tag (`ww_tape::RunTag`, never 0 nor FFFFFFFFh, derived from the piece id
@@ -95,7 +96,7 @@ The header and the CRC at the end stay the same in every version: a later versio
 
 ## Runs, media and damage
 
-[Damage and recovery](../tape/recovery.md) explains these rules with examples.
+[Damage and recovery](recovery.md) explains these rules with examples.
 
 A **run** is one writer's unbroken append: a producer start, a device boot, one pass of an importer. Every block of a run carries the same run tag in header bytes 24..28, and its seq counts from 0. A writer picks the tag at random, except for the first piece of a chain, whose tag is derived from the piece id so the same input gives the same bytes. A piece head names the run that ended before it (`PieceHead::prev_run`). A reader keeps to one run at a time: a block of another run is stale data, unless a run may start there. In a file a new run starts at a describe block (another producer appended) or a piece head; on a raw medium only at a piece head that names the current run as the one before it. A piece on a raw medium is therefore one run: a writer that carries a producer's blocks, each with the producer's own run, renumbers them into its own run with `TapeWriter::adopt_block`. Lost blocks stay visible: a jump in the producer's seq leaves the same jump in the writer's, and a producer restart (another run) leaves none. Passed through with `write_block`, they read whole from a file but as stale data on a raw medium.
 
@@ -135,7 +136,7 @@ Some numbers are reserved so later features need no format change; today's reade
 
 ## Sample codecs
 
-[Events and series](../tape/events_and_series.md#series) explains series, sample codecs and why fixed point comes
+[Events and series](events_and_series.md#series) explains series, sample codecs and why fixed point comes
 first.
 
 A series chunk's sample columns (`ColumnKind::Samples`) are coded by the column's codec id; what a sample is comes from the track: `ww_tape::SampleShape`, an `Element` (`I8` to `U64`, `F32`, `F64`, `ComplexI16`, `ComplexF32`, `Bool`; its code, 0 to 12, is how other blocks name it) and the channels interleaved in the column. `ww_tape::Samples` reads a column in place and decodes any range of samples; `ww_tape::samples::encode` writes one. Every codec gives the same bytes for the same values.

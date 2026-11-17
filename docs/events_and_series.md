@@ -29,7 +29,7 @@ and still reads the others.
 Columns are read in place. All numbers are little-endian and need no alignment, and the payload ends with 16 zero bytes,
 so a 16-byte load at any column byte stays inside the block. The bytes a reader holds in memory are the bytes in the
 file: there is no decoded copy to build or cache. The layout is in the [chunk module
-docs](https://github.com/vhrdtech/wire_weaver/blob/master/ww_tape/src/chunk/mod.rs).
+docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/chunk/mod.rs).
 
 ## Event times
 
@@ -50,8 +50,8 @@ A read needs no decode. Item `j` is one group record and one load. A search for 
 bisects the groups' first ticks, then uses the slope to narrow the items inside the group to the few the residual width
 allows. Whole groups decode with hand-written kernels for AVX-512, AVX2 and NEON, chosen at run time, beside a scalar
 path that gives the same values. The layout is in the [time codec
-docs](https://github.com/vhrdtech/wire_weaver/blob/master/ww_tape/src/times/mod.rs), the bit packing in
-[bitpack](https://github.com/vhrdtech/wire_weaver/blob/master/ww_tape/src/bitpack/mod.rs).
+docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/times/mod.rs), the bit packing in
+[bitpack](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/bitpack/mod.rs).
 
 ### What it costs
 
@@ -103,7 +103,7 @@ An item's payload is its WireWeaver value in shrink_wrap bytes. An events chunk 
 packed per group of 128 above the group's shortest, and the payload bytes back to back. Each group record says where its
 first payload starts, so item `i`'s payload is found from one record and one group of lengths. The payload bytes are
 stored raw and read in place, or coded with lz4 when that is smaller and decoded once when the chunk is opened. The
-layout is in the [payload codec docs](https://github.com/vhrdtech/wire_weaver/blob/master/ww_tape/src/payloads/mod.rs).
+layout is in the [payload codec docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/payloads/mod.rs).
 
 ## Series
 
@@ -128,7 +128,7 @@ ALP finds floats that began as decimals, such as an ADC count times 0.1, and sto
 bit-packed per group of 128. Floats with full mantissas take ALP's second scheme, which codes their front bits through a
 small dictionary. Values that don't come back bit for bit (NaN, infinities, `-0.0`) are kept whole as exceptions. The
 encoder never lets a group grow by more than 7 bytes over its raw size. The layout is in the [ALP
-docs](https://github.com/vhrdtech/wire_weaver/blob/master/ww_tape/src/samples/alp/mod.rs).
+docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/samples/alp/mod.rs).
 
 Fixed point beats every float codec, on every data set measured. `just bench-sample-codecs` stores the same data as
 fixed-point integers with DELTA and as floats with ALP and with the other float codecs it keeps for comparison (XOR
@@ -163,7 +163,7 @@ Some devices send samples in their own packing: 12-bit values two to three bytes
 series column may hold them exactly as sent, with codec ids for big-endian and for 10-, 12- and 24-bit packing in either
 bit order. A reader converts only the samples it reads, and any sample reads in place. The recording path then copies
 the device's bytes and does no arithmetic. The table of sample codecs is in the [samples module
-docs](https://github.com/vhrdtech/wire_weaver/blob/master/ww_tape/src/samples/mod.rs).
+docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/samples/mod.rs).
 
 ### Series segments: where samples are in time
 
@@ -241,7 +241,7 @@ reads those nodes and no items. Zoomed in, a viewer reads the nodes of the visib
 
 Summary blocks are small, a few KiB, and listed in the index like any block. A lost summary block costs nothing that
 can't be rebuilt from the data. The layout is in the [summary module
-docs](https://github.com/vhrdtech/wire_weaver/blob/master/ww_tape/src/summary/mod.rs).
+docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/summary/mod.rs).
 
 ## See also
 

@@ -261,4 +261,4 @@ The format does not do everything. These limits follow from the design:
 
 ## See also
 
-- [The link tap](../transport/tap.md#runs-media-and-damage): runs, media, gaps and describe copies as a reference.
+- [Format reference](format.md#runs-media-and-damage): runs, media, gaps and describe copies as a reference.

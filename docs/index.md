@@ -113,7 +113,7 @@ The block kinds fall into four groups:
 | Structure | piece head, index, finish, tail | where things are, how the file ends, how files chain |
 
 The byte layout of the header and of record blocks is in the [`ww_tape` crate
-docs](https://github.com/vhrdtech/wire_weaver/blob/master/ww_tape/src/lib.rs).
+docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/lib.rs).
 
 ### Describe blocks
 
@@ -138,7 +138,7 @@ reader asks `TapeReader::describe_set` for a piece's current set: the newest who
 offsets of describe blocks that did not read. For example, a recorder that starts capturing a second camera an hour in
 writes one addition with that track; the 128 MiB repeat after it and the backup before the finish both describe both
 cameras, so the track survives even if the addition block itself is damaged. The layout is in the [describe module
-docs](https://github.com/vhrdtech/wire_weaver/blob/master/ww_tape/src/describe.rs).
+docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/describe.rs).
 
 ### Record blocks
 
@@ -196,8 +196,8 @@ While the file is written there is no tail. The writer places a **checkpoint** i
 every block placed since the previous checkpoint and pointing back at it. A reader of an unfinished file finds the
 newest checkpoint from the end, follows the chain back, and scans only the stretch after the newest one. All offsets
 count from the start of the piece, so an index stays valid wherever the piece sits. The layouts are in the module docs
-of [index](https://github.com/vhrdtech/wire_weaver/blob/master/ww_tape/src/index/mod.rs) and
-[piece](https://github.com/vhrdtech/wire_weaver/blob/master/ww_tape/src/piece/mod.rs).
+of [index](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/index/mod.rs) and
+[piece](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/piece/mod.rs).
 
 A file that a writer started without a piece head (a plain stream of blocks) is still a valid tape; it is one piece with
 no ids.
@@ -240,5 +240,5 @@ recorded the same feed confirm they hold the same data.
 
 ## See also
 
-- [The link tap](../transport/tap.md): the producer that records a WireWeaver link into tapes, and a reference to
-  every part of the format.
+- [Format reference](format.md): every part of the format, block by block.
+- [The link tap](../transport/tap.md): the producer that records a WireWeaver link into tapes.
