@@ -952,3 +952,130 @@ fn every_block_of_data_has_its_definitions_behind_it() {
     }
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// A chain of pieces in memory.
+fn chain_in_memory(mem: &ww_tape::MemTapes) -> Vec<PathBuf> {
+    let mut chain = PieceChain::create_on(
+        mem.clone(),
+        Path::new("chain"),
+        OwnerId([0x44; 32]),
+        0,
+        &[],
+        ww_tape::ChainOptions {
+            writer: ww_tape::WriterOptions {
+                sync: SyncPolicy::None,
+                ..Default::default()
+            },
+            cut: ww_tape::CutPolicy {
+                chunks: 2,
+                ..Default::default()
+            },
+        },
+    )
+    .unwrap();
+    let mut defs = crate::definitions::base_defs().clone();
+    defs.define(&crate::definitions::state(5)).unwrap();
+    for k in 0..8u8 {
+        assert!(chain.put(&defs, 5, i64::from(k), &[k]).unwrap());
+        let (h, c) = chunk(0, u64::from(k));
+        chain.write_chunk(&defs, &h, &column(&c)).unwrap();
+    }
+    chain
+        .finish()
+        .unwrap()
+        .into_iter()
+        .map(|f| f.path)
+        .collect()
+}
+
+/// A chain in memory whose first pieces were removed reads as a head cut, as the same chain in files does, and each
+/// remaining piece gives its definitions and its newest state from its own head.
+#[test]
+fn a_chain_in_memory_without_its_first_pieces_is_head_cut() {
+    let mem = ww_tape::MemTapes::new();
+    let paths = chain_in_memory(&mem);
+    assert!(paths.len() >= 4, "{} pieces", paths.len());
+    let bytes: Vec<Vec<u8>> = paths
+        .iter()
+        .map(|p| mem.get(p).unwrap().unwrap().to_vec().unwrap())
+        .collect();
+    // whole: no head cut
+    let all = bytes.concat();
+    let r = TapeReader::open(&all[..]).unwrap();
+    assert!(r.chain().is_whole());
+
+    // a reader that holds the first piece keeps reading it after its removal
+    let held = mem.get(&paths[0]).unwrap().unwrap();
+    for p in &paths[..2] {
+        assert!(mem.remove(p).unwrap());
+        assert!(mem.get(p).unwrap().is_none());
+    }
+    assert_eq!(held.to_vec().unwrap(), bytes[0]);
+    let left: Vec<Vec<u8>> = mem
+        .paths()
+        .unwrap()
+        .iter()
+        .map(|p| mem.get(p).unwrap().unwrap().to_vec().unwrap())
+        .collect();
+    assert_eq!(left, bytes[2..]);
+
+    let rest = left.concat();
+    let r = TapeReader::open(&rest[..]).unwrap();
+    let c = r.chain();
+    assert!(c.head_cut);
+    assert!(c.links.iter().all(|l| *l == ChainLink::Linked));
+    assert_eq!(c.end, ChainEnd::Complete);
+    // every remaining piece alone knows the tracks and its newest state
+    let mut newest_per_piece = Vec::new();
+    for i in 0..left.len() {
+        let defs = r.definitions_at(i, u64::MAX).unwrap();
+        assert!(
+            defs.items.contains_key(&Slot::Track { number: 1 }),
+            "piece {i}: {:?}",
+            defs.items.keys().collect::<Vec<_>>()
+        );
+        let newest = r
+            .state_at(i, Slot::State { track: 5 }, u64::MAX)
+            .unwrap()
+            .item
+            .unwrap_or_else(|| panic!("piece {i} has no state"));
+        newest_per_piece.push(newest.item[0]);
+    }
+    // the first pieces' puts are gone, yet every piece holds one of its own, and the last the newest
+    assert!(newest_per_piece.iter().all(|k| *k >= 2));
+    assert!(newest_per_piece.windows(2).all(|w| w[0] <= w[1]));
+    assert_eq!(newest_per_piece.last(), Some(&7));
+}
+
+/// Removing a piece: one still being written is refused, one that isn't there says so, and a reader holding a
+/// removed piece reads it on.
+#[test]
+fn mem_tapes_remove_a_finished_piece_only() {
+    let mem = ww_tape::MemTapes::new();
+    let mut chain = PieceChain::create_on(
+        mem.clone(),
+        Path::new("c"),
+        OwnerId([0x45; 32]),
+        0,
+        &[],
+        ww_tape::ChainOptions::default(),
+    )
+    .unwrap();
+    let open = Path::new("c").join(ww_tape::piece::piece_name(0));
+    assert!(matches!(
+        mem.remove(&open),
+        Err(ww_tape::WriteError::Unfinished(p)) if p == open
+    ));
+    assert!(mem.get(&open).unwrap().is_some(), "refused: still there");
+    assert!(!mem.remove(Path::new("none")).unwrap());
+    let reader = mem.get(&open).unwrap().unwrap();
+    chain.writer().unwrap();
+    let done = chain.finish().unwrap();
+    assert_eq!(done.len(), 1);
+    assert!(mem.remove(&open).unwrap());
+    assert!(!mem.remove(&open).unwrap());
+    assert!(mem.paths().unwrap().is_empty());
+    assert!(TapeReader::open(&reader.to_vec().unwrap()[..]).is_ok());
+    // the name is free again
+    assert!(ww_tape::SinkFactory::create(&mut mem.clone(), &open).is_ok());
+}

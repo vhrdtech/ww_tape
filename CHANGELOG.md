@@ -83,6 +83,7 @@ Covers `ww_tape` 0.1.0.
 
 ### 🚀 Features
 
+- `MemTapes::remove` takes a finished piece out (readers keep their bytes, an unfinished piece is `WriteError::Unfinished`); `PieceChain` makes a `MemSink` reserve its cut size (`CUT_SLACK`), a reader's worst wait 0.5 to 0.6 ms down to 0.1 to 0.16 ms (TAPE-6).
 - One CRC-32C everywhere; SSE4.2/ARMv8 hardware kernels cut `write_chunk`'s CRC from 237 to 89 µs/MiB (TAPE-5).
 - `write_chunk` no longer reads its own chunk back; caller blocks are CRC-checked once: 1 MiB chunk 857 to 466 µs (TAPE-4).
 - `TapeReader::read_chunk_head` and `series_timeline`: a track's grids from chunk heads, 287 bytes per 1 MiB chunk (TAPE-3).

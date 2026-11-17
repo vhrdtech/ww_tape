@@ -93,6 +93,8 @@ pub enum WriteError {
     Failed,
     /// `create` of a file that is already there.
     Exists(PathBuf),
+    /// [MemTapes::remove](crate::MemTapes::remove) of a piece still being written.
+    Unfinished(PathBuf),
     /// A deferred block isn't a good block.
     Block(crate::BlockError),
     /// A chunk doesn't encode.
@@ -135,6 +137,7 @@ impl core::fmt::Display for WriteError {
                 "an earlier write or sync failed, the file takes no more blocks"
             ),
             WriteError::Exists(p) => write!(f, "{} exists", p.display()),
+            WriteError::Unfinished(p) => write!(f, "{} is still being written", p.display()),
             WriteError::Block(e) => write!(f, "not a good block: {e:?}"),
             WriteError::Chunk(e) => write!(f, "chunk doesn't encode: {e:?}"),
             WriteError::Index(e) => write!(f, "index or piece block: {e:?}"),
@@ -389,6 +392,11 @@ impl<S: TapeSink> TapeWriter<S> {
         self.set_index_policy(options.index)?;
         self.set_near_policy(options.near);
         Ok(())
+    }
+
+    /// Ask the sink to make room for `bytes` more ([TapeSink::reserve]).
+    pub(crate) fn reserve(&mut self, bytes: u64) {
+        self.sink.reserve(bytes);
     }
 
     /// The sink, for its bytes ([crate::sink::MemSink::tape]).

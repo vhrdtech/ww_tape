@@ -70,6 +70,10 @@ bench-tracks *args:
 bench-chunks *args:
     cargo run -q --release -p ww_tape_benchmarks --bin chunks -- {{ args }}
 
+# Worst wait of a reader of a memory piece while it is written, with and without reserving it (TAPE-6); `just bench-mem-reader --help`
+bench-mem-reader *args:
+    cargo run -q --release -p ww_tape_benchmarks --bin mem_reader -- {{ args }}
+
 # Rewrite the figures of the book pages drawn from the format (docs/plots/*.svg, ww_tape_figures); a test fails until
 # they match what it draws
 book-figures:

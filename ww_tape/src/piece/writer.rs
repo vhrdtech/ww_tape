@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use super::{FinishState, OwnerId, PieceHead, PieceId, PieceIdent, TAIL_LEN, TrackStart};
 use crate::index::IndexError;
 use crate::reader::{ByteSource, TapeReader};
-use crate::sink::{Files, SinkFactory};
+use crate::sink::{Files, SinkFactory, TapeSink};
 use crate::writer::{
     Finished, NextPiece, Placed, Resumed, TapeWriter, WriteError, WriterOptions, block_id,
 };
@@ -21,6 +21,17 @@ pub struct CutPolicy {
     pub chunks: u64,
     /// Once a piece is this old (since it was started or resumed).
     pub interval: Option<Duration>,
+}
+
+/// What a piece may hold past [CutPolicy::bytes]: the chunk that takes it over the limit, the index, finish and tail.
+pub const CUT_SLACK: u64 = 1 << 20;
+
+/// Ask a new piece's sink to make room for a piece cut by `cut`, see [TapeSink::reserve]: a memory sink then never
+/// grows by doubling under its write lock while readers read.
+fn reserve_piece<S: TapeSink>(writer: &mut TapeWriter<S>, cut: CutPolicy) {
+    if cut.bytes > 0 {
+        writer.reserve(cut.bytes.saturating_add(CUT_SLACK));
+    }
 }
 
 /// Name of piece `seq` in its chain's directory: the sequence number in 8 digits, so names sort in chain order.
@@ -97,6 +108,7 @@ impl<F: SinkFactory> PieceChain<F> {
         let sink = factory.create(&dir.join(piece_name(0)))?;
         let mut writer = TapeWriter::create_on(sink, options.writer.sync);
         writer.apply(&options.writer)?;
+        reserve_piece(&mut writer, options.cut);
         writer.begin_piece(&first_head(owner, chain), tracks)?;
         Ok(PieceChain {
             factory,
@@ -134,6 +146,7 @@ impl<F: SinkFactory> PieceChain<F> {
         let (writer, resumed) = match factory.reopen(&path)? {
             Some(sink) => {
                 let (mut w, resumed) = TapeWriter::resume_on(sink, options.writer.clone())?;
+                reserve_piece(&mut w, options.cut);
                 if w.bytes() == 0 {
                     // cut off inside its head: the piece starts again (a first piece without carried-over tracks)
                     match finished.last() {
@@ -155,7 +168,8 @@ impl<F: SinkFactory> PieceChain<F> {
                 }
                 let next = next_piece(done, last)?;
                 let sink = factory.create(&path)?;
-                let w = TapeWriter::start_next(sink, &options.writer, next)?;
+                let mut w = TapeWriter::start_next(sink, &options.writer, next)?;
+                reserve_piece(&mut w, options.cut);
                 let resumed = Resumed::started(w.bytes());
                 (w, resumed)
             }
@@ -286,7 +300,8 @@ impl<F: SinkFactory> PieceChain<F> {
             w.flush_deferred()?;
         }
         let current = self.writer.take().ok_or(WriteError::Failed)?;
-        let (done, next) = current.cut_with(&mut self.factory, &next_path)?;
+        let (done, mut next) = current.cut_with(&mut self.factory, &next_path)?;
+        reserve_piece(&mut next, self.cut);
         self.writer = Some(next);
         self.finished.push(done);
         self.seq = seq;

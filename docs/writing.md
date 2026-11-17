@@ -26,6 +26,8 @@ directory, and `MemTapes` keeps every piece in memory under its name. Any other 
 network store, needs its own `TapeSink`: a sink appends, syncs, reports its size and its path, gives the piece its
 final name at the finish, and for a resume reads back at an offset and truncates.
 
+A `MemSink` of a chain reserves the room of the chain's cut size (`CutPolicy::bytes` plus `CUT_SLACK`) when its piece starts, so a reader's `read_at` never waits for the piece to be copied into a bigger buffer. `MemTapes::remove(path)` takes a finished piece out of the map: a reader that holds its `MemTape` reads on, the piece still being written is refused (`WriteError::Unfinished`), and what remains of the chain reads as a head cut, each piece giving its definitions and newest state from its own head. A chain with removed pieces is not resumed.
+
 The writer's settings are its `WriterOptions`: the sync policy, the index policy, the layout (how blocks are placed),
 the producer's name and the near policy. The writer puts the layout and the producer at the start of every piece. They
 are the writer's own, and a caller can't write them.

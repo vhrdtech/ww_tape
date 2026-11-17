@@ -36,6 +36,10 @@ pub trait TapeSink {
     /// Drop every byte from `len` on: what resume keeps.
     fn truncate(&mut self, len: u64) -> io::Result<()>;
 
+    /// Make room for `bytes` more, so that appending them never moves what is written: a hint, nothing changes when
+    /// it can't be met. A file does nothing.
+    fn reserve(&mut self, _bytes: u64) {}
+
     /// The name of the bytes once finished.
     fn path(&self) -> &Path;
 
@@ -332,6 +336,13 @@ impl TapeSink for MemSink {
         ByteSource::read_at(&self.tape, offset, buf)
     }
 
+    fn reserve(&mut self, bytes: u64) {
+        if let (Ok(more), Ok(mut vec)) = (usize::try_from(bytes), self.tape.write()) {
+            // one allocation up front: growing by doubling copies the piece under the write lock, and `read_at` waits
+            _ = vec.try_reserve_exact(more);
+        }
+    }
+
     fn truncate(&mut self, len: u64) -> io::Result<()> {
         let mut bytes = self.tape.write()?;
         if let Ok(len) = usize::try_from(len) {
@@ -358,6 +369,23 @@ impl MemTapes {
     /// The bytes under `path`, finished or not.
     pub fn get(&self, path: &Path) -> Result<Option<MemTape>, WriteError> {
         Ok(self.lock()?.get(path).cloned())
+    }
+
+    /// Take the finished piece under `path` out of the map: true when it was there, false when it was not.
+    ///
+    /// A [MemTape] a reader already holds keeps its bytes (they are freed with the last holder), and reads on as
+    /// before: nothing a reader holds ever changes or fails. After the call [Self::get] and [SinkFactory::finished]
+    /// find nothing under `path`. A piece still being written is not removed: [WriteError::Unfinished], so a writer
+    /// never writes into bytes nobody can find. Removing the oldest pieces of a chain leaves a head cut
+    /// ([ChainReport::head_cut](crate::piece::ChainReport::head_cut)); a [PieceChain](crate::PieceChain) resumes only
+    /// from its first piece, so a chain with removed pieces is not resumed.
+    pub fn remove(&self, path: &Path) -> Result<bool, WriteError> {
+        let mut map = self.lock()?;
+        match map.get(path) {
+            None => Ok(false),
+            Some(t) if !t.is_finished() => Err(WriteError::Unfinished(path.to_path_buf())),
+            Some(_) => Ok(map.remove(path).is_some()),
+        }
     }
 
     /// Every path with bytes, in order.
