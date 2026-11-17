@@ -562,3 +562,94 @@ fn caller_chunks_are_checked_once() {
     assert_eq!(b.chunk().unwrap().head(), head);
     _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A chunk that can't be a block is refused before anything is allocated or written: a grid whose scale doesn't
+/// encode in `SCALE_LEN_MAX` bytes, and a column longer than a block.
+#[test]
+fn writer_refuses_chunks_too_long_without_a_panic() {
+    let dir = scratch("too_long");
+    let mut w = TapeWriter::create(&dir.join("t.wwt"), SyncPolicy::None).unwrap();
+    w.set_session(crate::id(0).session).unwrap();
+    w.set_alignment(ww_tape::ALIGNMENT).unwrap();
+    let defs = series_defs();
+    // a product of large-prime ratios: more factors than the scale bytes hold
+    let primes = [
+        (4_294_967_291, 4_294_967_279),
+        (4_294_967_231, 4_294_967_197),
+        (4_294_967_189, 4_294_967_161),
+        (4_294_967_143, 4_294_967_111),
+        (4_294_967_087, 4_294_967_029),
+        (4_294_966_997, 4_294_966_981),
+        (4_294_966_943, 4_294_966_927),
+        (4_294_966_909, 4_294_966_877),
+    ];
+    let scale = primes
+        .iter()
+        .fold(Magnitude::ONE, |m, (n, d)| m.mul(Magnitude::ratio(*n, *d)));
+    let mut bytes = [0u8; 256];
+    assert!(
+        scale
+            .to_ww_bytes(&mut bytes)
+            .map_or(true, |b| b.len() > ww_tape::series::SCALE_LEN_MAX),
+        "the scale is longer than a chunk head holds"
+    );
+    let grid = SeriesGrid::start(0, START, scale);
+    let (first_tick, last_tick) = grid.chunk_ticks(period(), 0, 4).unwrap();
+    let head = ChunkHead {
+        kind: BlockKind::Series,
+        track_id: 7,
+        track_number: TRACK,
+        first_item: 0,
+        count: 4,
+        first_tick,
+        last_tick,
+        latest_end: last_tick,
+        time_mode: 0,
+        end_mode: EndMode::Absent,
+        grid: Some(grid),
+    };
+    let samples = [0u8; 32];
+    let spec = ColumnSpec {
+        kind: ColumnKind::Samples,
+        codec: Codec::RAW,
+        param: 0,
+        len: samples.len(),
+    };
+    assert!(matches!(
+        w.write_chunk(defs, &head, &[(spec, &samples)]),
+        Err(ww_tape::WriteError::Describe(
+            ww_tape::DescribeError::Kind {
+                track: TRACK,
+                error: ww_tape::SeriesError::ScaleTooLong { first_item: 0 }
+            }
+        ))
+    ));
+    // a column spec longer than a block, its bytes short: refused, not allocated
+    let head = ChunkHead {
+        grid: Some(series_def().first_grid(START)),
+        ..head
+    };
+    let (first_tick, last_tick) = series_def()
+        .first_grid(START)
+        .chunk_ticks(period(), 0, 4)
+        .unwrap();
+    let head = ChunkHead {
+        first_tick,
+        last_tick,
+        latest_end: last_tick,
+        ..head
+    };
+    let huge = ColumnSpec {
+        len: usize::MAX / 2,
+        ..spec
+    };
+    assert!(matches!(
+        w.write_chunk(defs, &head, &[(huge, &samples)]),
+        Err(ww_tape::WriteError::Chunk(
+            ww_tape::chunk::ChunkError::TooLong { .. }
+        ))
+    ));
+    assert_eq!(w.bytes(), 0, "nothing written");
+    w.write_chunk(defs, &head, &[(spec, &samples)]).unwrap();
+    _ = std::fs::remove_dir_all(&dir);
+}

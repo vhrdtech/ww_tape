@@ -1116,12 +1116,20 @@ impl<S: TapeSink> TapeWriter<S> {
         // the head and the column table are checked here and as the chunk is encoded: the payload is the caller's
         // columns, copied, not read back
         defs.check_chunk_head(head).map_err(WriteError::Describe)?;
+        let specs: Vec<crate::ColumnSpec> = columns.iter().map(|(c, _)| *c).collect();
+        // the longest the block can be, its padding at most the alignment: refused before anything is allocated or put
+        let chunk_max =
+            crate::chunk::chunk_len(head, &specs, crate::times::u32_to_usize(self.alignment()));
+        if chunk_max > crate::MAX_BLOCK_LEN {
+            return Err(WriteError::Chunk(crate::chunk::ChunkError::TooLong {
+                len: chunk_max,
+            }));
+        }
         let needs = self.needed(defs, &[head.track_number]);
         self.room(0, !self.head_put)?;
         self.ensure_head()?;
-        let payload: usize = columns.iter().map(|(c, _)| c.len).sum();
+        let payload = specs.iter().fold(0usize, |n, c| n.saturating_add(c.len));
         let head_len = crate::chunk::chunk_head_len(head, columns.len(), payload);
-        let specs: Vec<crate::ColumnSpec> = columns.iter().map(|(c, _)| *c).collect();
         if self.alignment() != 0 {
             // what this call may write: the deferred blocks, a checkpoint, the puts and the chunk
             let checkpoint = if self.index_due {
@@ -1129,8 +1137,6 @@ impl<S: TapeSink> TapeWriter<S> {
             } else {
                 0
             };
-            let chunk_max =
-                crate::chunk::chunk_len(head, &specs, crate::times::u32_to_usize(self.alignment()));
             let ahead = self
                 .deferred_bytes
                 .saturating_add(checkpoint)

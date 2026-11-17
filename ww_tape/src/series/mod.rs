@@ -150,6 +150,8 @@ pub enum SeriesError {
     /// A new grid whose first sample is at or before the last tick of the chunk before, or whose last is at or
     /// after the first tick of the chunk after.
     TimeNotIncreasing { first_item: u64 },
+    /// The grid's scale doesn't encode in [SCALE_LEN_MAX] bytes.
+    ScaleTooLong { first_item: u64 },
 }
 
 impl core::fmt::Display for SeriesError {
@@ -184,6 +186,10 @@ impl core::fmt::Display for SeriesError {
             SeriesError::TimeNotIncreasing { first_item } => write!(
                 f,
                 "chunk at sample {first_item}: a new grid not after the chunk before or before the chunk after"
+            ),
+            SeriesError::ScaleTooLong { first_item } => write!(
+                f,
+                "chunk at sample {first_item}: a scale that doesn't encode in {SCALE_LEN_MAX} bytes"
             ),
         }
     }
@@ -257,7 +263,8 @@ impl SeriesGrid {
         Ok((first, last))
     }
 
-    /// The grid of a series chunk's head, checked: its first and last tick are its samples' on the grid.
+    /// The grid of a series chunk's head, checked: its first and last tick are its samples' on the grid, its scale encodes
+    /// in [SCALE_LEN_MAX] bytes.
     pub fn of_chunk(head: &ChunkHead, period: Ratio64) -> Result<SeriesGrid, SeriesError> {
         let grid = match (head.kind, head.grid) {
             (BlockKind::Series, Some(g)) => g,
@@ -270,6 +277,12 @@ impl SeriesGrid {
         let (first, last) = grid.chunk_ticks(period, head.first_item, head.count)?;
         if head.first_tick != first || head.last_tick != last {
             return Err(SeriesError::ChunkTicks {
+                first_item: head.first_item,
+            });
+        }
+        let mut buf = [0u8; SCALE_LEN_MAX];
+        if scale_bytes(&grid.scale, &mut buf).is_err() {
+            return Err(SeriesError::ScaleTooLong {
                 first_item: head.first_item,
             });
         }
