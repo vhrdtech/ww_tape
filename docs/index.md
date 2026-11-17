@@ -24,9 +24,10 @@ The format has four goals, and most of its choices follow from them:
 The link tap is one producer of tapes; a device log, a simulator or an analysis program writes
 the same blocks. Nothing in the format knows any producer.
 
-The chapter has three pages. This one covers records, clocks and the anatomy of a file. [Events and
+The chapter has four pages. This one covers records, clocks and the anatomy of a file. [Events and
 series](events_and_series.md) covers how large tracks are stored: event chunks, the time codec, series and summaries.
-[Damage and recovery](recovery.md) covers checksums, crashes, raw media and the limits of the format. The exact byte
+[Damage and recovery](recovery.md) covers checksums, crashes, raw media and the limits of the format. The [format
+reference](format.md) lists every part of the format, block by block. The exact byte
 layouts are in the module docs of `ww_tape`, linked from each section; this chapter explains them and does not repeat
 them.
 
