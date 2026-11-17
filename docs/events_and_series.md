@@ -26,6 +26,13 @@ a series. Each column names its kind and its **codec**, the rule its bytes follo
 another codec than the chunk before it. A reader that meets a column kind or codec it doesn't know refuses that column
 and still reads the others.
 
+<figure class="ww-figure" markdown="0">
+--8<-- "docs/figures/events_series.svg"
+<figcaption>The two kinds of chunk. An events chunk stores a start per item, beside optional ends, flags and payloads;
+a series chunk stores only samples, and its head's grid gives each sample's tick. Both end their payload with 16 zero
+bytes and the block CRC.</figcaption>
+</figure>
+
 Columns are read in place. All numbers are little-endian and need no alignment, and the payload ends with 16 zero bytes,
 so a 16-byte load at any column byte stays inside the block. The bytes a reader holds in memory are the bytes in the
 file: there is no decoded copy to build or cache. The layout is in the [chunk module
@@ -110,7 +117,8 @@ layout is in the [payload codec docs](https://github.com/vhrdtech/ww_tape/blob/m
 A **series** is a track of samples at an exact period: an ADC channel, an audio stream, a motor's phase currents. It
 stores no time per sample. The track's definition (`SeriesDef`) gives the type of one value as the API declares it, the
 storage element (`I16`, `F32`, `ComplexI16` and so on) and channel count derived from it, the period as an exact
-fraction of ticks per sample, and the summaries the writer builds.
+fraction of ticks per sample, the scale of the stored numbers at the start, the summaries the writer builds and, for
+samples kept in a media file, the stream.
 
 ### Fixed point first
 
@@ -159,7 +167,7 @@ bench-sample-codecs` in the repository; it fetches the speech sample once and pr
 
 ### Raw device formats
 
-Some devices send samples in their own packing: 12-bit values two to three bytes, 24-bit values, big-endian words. A
+Some devices send samples in their own packing: two 12-bit values in three bytes, 24-bit values, big-endian words. A
 series column may hold them exactly as sent, with codec ids for big-endian and for 10-, 12- and 24-bit packing in either
 bit order. A reader converts only the samples it reads, and any sample reads in place. The recording path then copies
 the device's bytes and does no arithmetic. The table of sample codecs is in the [samples module
@@ -183,18 +191,32 @@ their ticks are known, their values are not. The chunks are data, not state: eac
 so a series track takes the plain policy like any data. The index lists each chunk's first sample and first tick, so a
 reader finds the chunk of a sample or of a time without reading any head.
 
+<figure class="ww-figure" markdown="0">
+--8<-- "docs/plots/grids.svg"
+<figcaption>A 48 kHz series on a 1 ns clock, in chunks of six samples. The first four chunks share grid 1: the third is
+lost, yet its ticks are known; the fourth holds milliamperes after a prefix change and keeps the grid. The fifth
+starts grid 2 more than a period after the fourth, a gap. Drawn by <code>ww_tape_figures</code>; the ticks are
+<code>SeriesTimeline</code>'s.</figcaption>
+</figure>
+
 A track's grids, its `SeriesTimeline`, come from its chunk heads alone: `TapeReader::series_timeline(i, track_id,
 period)` reads each chunk's head with `TapeReader::read_chunk_head`, its header and then its bytes up to the payload,
-checked by the head CRC, and none of its samples. A chunk whose head is damaged is left out with its error, as a lost
-chunk. In a file aligned for direct I/O, the head reaches up to the alignment boundary, so a head read takes about one
-aligned block. A track of 256 chunks of 1 MiB, read in memory (`just bench-chunks`):
+checked by the head CRC, and none of its samples. A chunk whose head is damaged, or out of line with its neighbours (a new grid too close to the chunk
+before, samples on two grids), is left out and its error returned beside the timeline: the chunk counts as lost. The
+writer checks each chunk against its own grid only; the rules between neighbouring chunks are checked here, when the
+timeline is built. In a file aligned for direct I/O, the head reaches up to the alignment boundary, so a head read takes about one
+aligned block. A track of 256 chunks of 1 MiB, read in memory (`just bench-chunks`, on an AMD EPYC Genoa virtual machine with
+14 vCPUs at a load average of about 20):
 
 | Alignment | Read | Bytes read per chunk | ns per chunk |
 |---|---|---:|---:|
-| none | heads alone | 287 | 633 |
-| none | every whole block | 1 048 847 | 225 529 |
-| 4096 | heads alone | 4 088 | 2 446 |
-| 4096 | every whole block | 1 052 648 | 230 512 |
+| none | heads alone | 287 | 670 |
+| none | every whole block | 1 048 847 | 90 444 |
+| 4096 | heads alone | 4 088 | 2 169 |
+| 4096 | every whole block | 1 052 648 | 84 258 |
+
+A whole block costs its read and its CRC checks; a head read never touches the samples, so it costs the same however
+large the chunk.
 
 ### Example: an autoranging channel changes prefix
 
@@ -207,7 +229,7 @@ grid as before at scale 10⁻⁶: its integers mean microamperes. Sample 10 000'
 time moves.
 
 A summary node that covers samples 8192 to 12 287 holds samples of both scales. It is kept at their **common scale**,
-the largest scale both are whole multiples of: 10⁻⁶ here. Every millampere number in it is multiplied by 1000, so 1234
+the largest scale both are whole multiples of: 10⁻⁶ here. Every milliampere number in it is multiplied by 1000, so 1234
 becomes 1 234 000, and the node's minimum and maximum stay exact integers. Each summary block states its scale, so it
 reads without the chunks. Two scales without a common one (a ratio that isn't a fraction of integers) are
 refused, never mixed.
@@ -236,7 +258,7 @@ I/O block. The chunk head sits just before its payload, and small blocks waiting
 fill the gap before the head, so alignment costs little space. Event files are not aligned. The file's definitions
 state which it is.
 
-Each series chunk carries a CRC-32C per 64 KiB of payload (a **CRC segment**), so a flipped bit in a 4 MiB chunk costs
+Every chunk carries a CRC-32C per 64 KiB of payload (a **CRC segment**), so a flipped bit in a 4 MiB chunk costs
 one 64 KiB CRC segment, not the chunk. [Damage and recovery](recovery.md) continues from there.
 
 ## Summaries
