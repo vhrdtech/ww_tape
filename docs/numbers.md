@@ -64,8 +64,7 @@ rerun them, run `just bench-sample-codecs`, which takes about 20 s.
 Event start ticks are stored per group of 128 items as distances from a line through the group, bit-packed. Periodic
 data with jitter costs the bits of its jitter, not of its period. The table gives bytes and nanoseconds per event for 10
 million events per workload (6.4 million for the journal), in chunks of 4096 items. The bench ran on a virtual machine with 14 vCPUs of an AMD EPYC Genoa host. Raw 64-bit ticks take 8.01 bytes. These
-figures come from `eventfull_benchmarks` in the eventfull repository, where the codec was chosen; this repository has
-no bench of its own for event times.
+figures come from `eventfull_benchmarks`; this repository has no bench of its own for event times.
 
 | Workload | Bytes per event | Coding, ns per event | Fetch item `j`, ns | First at or after a tick, ns |
 |---|---:|---:|---:|---:|

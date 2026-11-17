@@ -50,7 +50,7 @@ len-4 u32 crc over bytes 0..len-4
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/plots/block.svg"
 <figcaption>A records block of two records, byte by byte: the header, the body (the clock table, then each record's
-head, time delta, length and item) and the CRC. Drawn by <code>ww_tape_figures</code> from a block
+head, time delta, length and item) and the CRC. Its head CRC is 0: only chunk and index blocks have one. Drawn by <code>ww_tape_figures</code> from a block
 <code>BlockWriter</code> wrote.</figcaption>
 </figure>
 
@@ -69,7 +69,7 @@ The kinds (`BlockKind`):
 | 9 | tail |
 | 10 | piece head |
 
-A reader reads a block of any other kind as one it doesn't know, and skips it by its length. A session is one writer's unbroken append (a producer start, a
+A reader reads a block of kind 2 or of a kind not listed as one it doesn't know, and skips it by its length. A session is one writer's unbroken append (a producer start, a
 device boot): its blocks carry the same random 32-bit session tag (`ww_tape::SessionTag`, never 0 nor FFFFFFFFh,
 derived from the piece id for a chain's first piece so the same input gives the same bytes), and their numbers count from 0. The version byte is 1.
 The body of a records block starts with a clock table (the clocks its records count), then the records; `uvar` is
@@ -354,7 +354,7 @@ The piece is kept up to the end of its last good block, counted or not. What end
 
 `ww_tape::TapeReader` reads a tape through a `ByteSource`, anything with a size that reads bytes at an offset: a byte slice, a `File`, or an HTTP resource read by range requests. It needs no file system and no threads, so it builds for `wasm32-unknown-unknown` (feature `alloc` without `std`). It finds the pieces from the end: a good tail gives a piece's start and finish, and the previous piece's tail sits just before that start, so concatenated pieces cost one small read each. A piece without a tail is found from its newest checkpoint, looked for backwards from the end, and the stretch after it is read block by block; a piece without any checkpoint is read from the start. `entries` and `track_entries` give where a piece's blocks are, `read_block` reads and checks one, `verify` checks the content hash, `chain` how the pieces link up. A raw medium is read forward instead (`OpenOptions::medium`, [below](#sessions-media-and-damage)).
 
-State is looked up by the index's state entries, not by a scan: `state_at` gives the record of a slot in force at a place, `item_by_hash` an item by its hash, `definitions_at` every definition in force at a place, `state_entries` a piece's entries. A lookup takes the newest entry of the slot whose block starts before the place, and the next older one when that block doesn't read or its record isn't the one the entry names. Damage is never an error: what didn't read is listed, and so are the stretches between the record and the place the index doesn't cover (`uncovered`: a gap a scan read past, the bytes past a cut), since a newer record may lie there. The reader keeps the sorted entries in one cache over all pieces, at most `OpenOptions::state_cache_max` entries (`STATE_CACHE_MAX`, 2 Mi, by default), the piece used longest ago out first. A lookup reads at most `OpenOptions::state_read_max` bytes (`STATE_READ_MAX`, 1 GiB, by default) and charges a coded body's decoded length before it decodes it; when the budget runs out it stops and sets `spent`, which is not damage.
+State is looked up by the index's state entries, not by a scan: `state_at` gives the record of a slot in force at a place, `item_by_hash` an item by its hash, `definitions_at` every definition in force at a place, `state_entries` a piece's entries. A lookup takes the newest entry of the slot whose block starts before the place, and the next older one when that block doesn't read or its record isn't the one the entry names. Damage is never an error: what didn't read is listed, and so are the stretches the index doesn't cover (`uncovered`: a gap a scan read past, the bytes past a cut), since a newer record may lie there: for `state_at` between the record and the place, for `definitions_at` before the place, for `item_by_hash` after the record. The reader keeps the sorted entries in one cache over all pieces, at most `OpenOptions::state_cache_max` entries (`STATE_CACHE_MAX`, 2 Mi, by default), the piece used longest ago out first. A lookup reads at most `OpenOptions::state_read_max` bytes (`STATE_READ_MAX`, 1 GiB, by default) and charges a coded body's decoded length before it decodes it; when the budget runs out it stops and sets `spent`, which is not damage.
 
 The header and the CRC at the end stay the same in every version: a later version changes only the body. A block of another version that goes on with the data ends the piece the reader is in and starts a piece of that version, which the reader lists with its version (`PieceInfo::version`) and refuses to read. A reader skips a block of a kind it doesn't know by its length, as it skips definitions of a variant it doesn't know.
 

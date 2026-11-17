@@ -146,8 +146,9 @@ how much that can be:
 | `None` | only at the finish | everything the system hasn't written yet |
 
 `Interval` acts when a block arrives. A producer whose input may stop for a while calls `TapeWriter::tick` now and then,
-so the last blocks are synced even when no new block comes; with `IndexPolicy::interval` set, `tick` also places a
-checkpoint when its time is up. `TapeWriter::sync` syncs at once.
+so the last blocks are synced even when no new block comes; with `IndexPolicy::interval` set, `tick` also
+places a checkpoint when its time is up. In an unaligned file the checkpoint goes in at once; in an aligned file `tick`
+only marks it due, and it goes into the gap before the next chunk. `TapeWriter::sync` syncs at once.
 
 A failed write or sync ends the file. The writer reports it and refuses every later write. It never retries, because
 after a failed `fsync` Linux may drop the pages it couldn't write, and a second `fsync` then succeeds without them.

@@ -215,8 +215,8 @@ aligned block. A track of 256 chunks of 1 MiB, read in memory (`just bench-chunk
 | 4096 | heads alone | 4 088 | 2 169 |
 | 4096 | every whole block | 1 052 648 | 84 258 |
 
-A whole block costs its read and its CRC checks; a head read never touches the samples, so it costs the same however
-large the chunk.
+A whole block costs its read and its CRC checks; a head read never touches the samples. The head grows only by its segment CRCs, 4 bytes
+per 64 KiB of payload, so its cost hardly grows with the chunk.
 
 ### Example: an autoranging channel changes prefix
 

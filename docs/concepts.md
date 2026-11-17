@@ -107,8 +107,8 @@ Puts after it write nothing, except one copy at a use 1 MiB or more after the fi
 after the newest record writes the session again. A reader that starts anywhere finds the session within 32 MiB behind it, and one damaged block
 never takes the only record of it.
 
-The drawing shows the rule at work. Its writer runs with `near` shrunk to 8 KiB and the copy spacing to 2 KiB, so that
-a whole cycle fits on one line; the default numbers give the same picture 4096 times wider.
+The drawing shows the rule at work. Its writer runs with `near` shrunk to 8 KiB and the copy spacing to 2 KiB, so that a whole cycle fits on one line. With the defaults, 32 MiB and 1 MiB, the near span is 4096 times longer and the
+copy spacing 512 times.
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/plots/puts.svg"

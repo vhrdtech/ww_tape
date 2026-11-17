@@ -199,8 +199,9 @@ write past that is refused, and `PieceChain` cuts to a new piece. `TapeReader::s
 force at a place, `item_by_hash` an item by its hash, and `definitions_at` every definition in force at a place. The
 reader keeps the state entries it sorted in one cache over all pieces, at most `OpenOptions::state_cache_max` entries
 (about two pieces' worth), and drops the piece used longest ago first. A block that doesn't read is reported as lost,
-and the next older record of the slot is taken. A stretch the index doesn't cover between the record and the place (a
-gap a scan read past, the bytes past a cut) is reported too, since a newer record may lie there. A lookup reads at
+and the next older record of the slot is taken. A stretch the index doesn't cover (`uncovered`: a gap a scan read past, the bytes past a cut) is reported
+too, since a newer record may lie there: for `state_at` between the record and the place, for `definitions_at` before
+the place, for `item_by_hash` after the record. A lookup reads at
 most `OpenOptions::state_read_max` bytes (1 GiB by default), and charges a coded body's decoded length before it
 decodes it. When that budget runs out, the lookup stops and sets `spent`: the answer is incomplete, but nothing in the
 file is damaged.
