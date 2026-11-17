@@ -97,18 +97,17 @@ doesn't compare a series chunk's grid with the chunk before it; a reader's `Seri
 
 Every CRC is a CRC-32C, computed with the CPU's CRC instructions where it has them (SSE4.2 on x86-64, the CRC extension
 of ARMv8) and by a table elsewhere, with the same result. `just bench-chunks` measures what the writer spends on a
-series chunk of 1 MiB (524 288 `i16` samples). On an AMD EPYC Genoa virtual machine with 14 vCPUs at a load average of
-about 20, best of 5 rounds of 256 chunks:
+series chunk of 1 MiB (524 288 `i16` samples). On an AMD EPYC Genoa virtual machine with 14 vCPUs at a load average of about 5, best of 5 rounds of 256 chunks:
 
 | What | µs per chunk | GB/s |
 |---|---:|---:|
-| `chunk::write_chunk`: copy and CRCs | 68 | 15.31 |
-| `Block::read`: the CRCs checked | 43 | 24.16 |
-| `ItemHash::of`: BLAKE3 | 253 | 4.14 |
-| `TapeWriter::write_chunk` from columns | 338 | 3.10 |
-| `chunk::write_chunk`, then `TapeWriter::write_block` | 422 | 2.48 |
+| `chunk::write_chunk`: copy and CRCs | 53 | 19.82 |
+| `Block::read`: the CRCs checked | 33 | 31.32 |
+| `ItemHash::of`: BLAKE3 | 213 | 4.92 |
+| `TapeWriter::write_chunk` from columns | 254 | 4.12 |
+| `chunk::write_chunk`, then `TapeWriter::write_block` | 281 | 3.73 |
 
-The content hash is most of the cost: a writer that hands over columns spends about 85 µs per MiB besides it.
+The content hash is most of the cost: a writer that hands over columns spends about 41 µs per MiB besides it.
 
 ### Puts, near and copies
 

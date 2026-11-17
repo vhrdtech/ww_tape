@@ -88,26 +88,39 @@ chosen at run time, and a portable form) with exact integer sums, so the order o
 
 `just bench-summaries` measures summaries per element type, with nodes of 1024 samples, 16 384 frames per push and
 every statistic, beside the raw sample codec and both together. One run on an AMD EPYC Genoa virtual machine with
-14 vCPUs (AVX2 and AVX-512) at a load average of about 20, one channel:
+14 vCPUs (AVX2 and AVX-512) at a load average of about 5, one channel:
 
 | Element | Summaries | Raw codec and summaries |
 |---|---:|---:|
-| `i16` | 3445 MB/s | 3834 MB/s |
-| complex `i16` | 5107 MB/s | 4524 MB/s |
-| `i32` | 5313 MB/s | 4475 MB/s |
-| `i64` | 3785 MB/s | 3945 MB/s |
-| `f32` | 1717 MB/s | 1697 MB/s |
-| `f64` | 3683 MB/s | 3272 MB/s |
+| `i16` | 5123 MB/s | 4731 MB/s |
+| complex `i16` | 6423 MB/s | 5907 MB/s |
+| `i32` | 7858 MB/s | 7086 MB/s |
+| `i64` | 5276 MB/s | 4878 MB/s |
+| `f32` | 2428 MB/s | 2463 MB/s |
+| `f64` | 4901 MB/s | 5084 MB/s |
 
 MB/s counts sample bytes. The bench prints the CPU's vector extensions and the load average with its table, since a
-loaded machine measures less; this run's load makes its numbers a lower bound.
+loaded machine measures less.
+
+The vector kernels are why summaries keep up. Against a summariser that keeps one statistic at a time, in one pass per
+statistic, the same bench settings measured on one AMD EPYC Genoa core at a load average of 4:
+
+| Element | One statistic at a time | Single-pass kernels |
+|---|---:|---:|
+| `i16` | 812 MB/s | 4586 MB/s |
+| complex `i16` | 486 MB/s | 5341 MB/s |
+| `i32` | 1084 MB/s | 7055 MB/s |
+
+The portable kernel alone, without AVX, summarised complex `i16` at 2108 MB/s. Neither the one-statistic summariser nor
+a switch to the portable kernel is part of `just bench-summaries`, so this table is a record of that measurement, not a
+run anyone can repeat with the bench.
 
 ## Writing chunks
 
 The writer's own cost per chunk is a copy, the CRCs and the content hash. `just bench-chunks` measures it on series
 chunks of 1 MiB; [Writing a tape](writing.md#writing-data) gives its table. On the machine above, `TapeWriter::write_chunk`
-took 338 µs per chunk, of which BLAKE3 took 253 µs and the copy with its CRCs 68 µs. The CRCs run on the CPU's CRC
-instructions where it has them (SSE4.2, ARMv8), and checking a 1 MiB block's CRCs took 43 µs.
+took 254 µs per chunk, of which BLAKE3 took 213 µs and the copy with its CRCs 53 µs. The CRCs run on the CPU's CRC
+instructions where it has them (SSE4.2, ARMv8), and checking a 1 MiB block's CRCs took 33 µs.
 
 ## Definitions and puts
 
