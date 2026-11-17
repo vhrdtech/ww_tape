@@ -6,7 +6,7 @@ use std::path::Path;
 use anyhow::{Context, ensure};
 use ww_tape::chunk::ChunkHead;
 use ww_tape::index::IndexPolicy;
-use ww_tape::piece::piece_name;
+use ww_tape::piece::{FinishBlock, finish_len, piece_name};
 use ww_tape::{
     BlockKind, BlockWriter, ChainOptions, ClockTime, Codec, ColumnKind, ColumnSpec, CutPolicy,
     Definitions, EndMode, FLAG_REPEAT, FileBlocks, MemTapes, OwnerId, PieceChain, SyncPolicy,
@@ -24,8 +24,8 @@ const FRAMES: u32 = 2;
 const ROW: u64 = 1024;
 /// [ww_tape::piece::PIECE_ALIGN] as a byte count.
 const PIECE_ALIGN: u64 = ww_tape::piece::PIECE_ALIGN as u64;
-/// Finish offset of the padding's length.
-const FINISH_PADDING_AT: usize = 172;
+/// [ww_tape::CRC_LEN] as a byte count.
+const CRC_LEN: u64 = ww_tape::CRC_LEN as u64;
 
 /// What a block is, as the drawing names and colours it.
 #[derive(Copy, Clone, PartialEq, Eq)]
@@ -163,14 +163,21 @@ fn parts() -> anyhow::Result<(u64, Vec<Span>)> {
     while let Some(b) = walk.next_block() {
         let b = b.or_debug()?;
         let (n, kind, flags) = (u64::try_from(b.len())?, b.kind, b.flags);
-        blocks.push((walk.offset(), n, kind, flags));
+        // a finish's padding: its length past a finish of its tracks
+        let pad = if kind == BlockKind::Finish {
+            let tracks = FinishBlock::read(&b).or_debug()?.tracks().count();
+            n - u64::try_from(finish_len(tracks))?
+        } else {
+            0
+        };
+        blocks.push((walk.offset(), n, kind, flags, pad));
     }
     let last_data = blocks
         .iter()
         .rposition(|b| matches!(b.2, BlockKind::Records | BlockKind::Events))
         .context("data blocks")?;
     let mut out = Vec::new();
-    for (i, &(at, n, kind, flags)) in blocks.iter().enumerate() {
+    for (i, &(at, n, kind, flags, pad)) in blocks.iter().enumerate() {
         let part = match kind {
             BlockKind::PieceHead => Part::Head,
             BlockKind::Records if flags & FLAG_REPEAT != 0 => Part::Puts,
@@ -179,15 +186,10 @@ fn parts() -> anyhow::Result<(u64, Vec<Span>)> {
             BlockKind::Index if i < last_data => Part::Checkpoint,
             BlockKind::Index => Part::FinalIndex,
             BlockKind::Finish => {
-                let at_usize = usize::try_from(at)?;
-                let pad = bytes
-                    .get(at_usize + FINISH_PADDING_AT..at_usize + FINISH_PADDING_AT + 4)
-                    .context("the finish's padding")?;
-                let pad = u64::from(u32::from_le_bytes(pad.try_into()?));
                 // the padding lies after the finish's tracks, before its CRC
-                out.push((at, n - pad - 4, Part::Finish));
-                out.push((at + n - pad - 4, pad, Part::Padding));
-                out.push((at + n - 4, 4, Part::Finish));
+                out.push((at, n - pad - CRC_LEN, Part::Finish));
+                out.push((at + n - pad - CRC_LEN, pad, Part::Padding));
+                out.push((at + n - CRC_LEN, CRC_LEN, Part::Finish));
                 continue;
             }
             BlockKind::Tail => Part::Tail,

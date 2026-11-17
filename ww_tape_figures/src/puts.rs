@@ -45,7 +45,8 @@ struct Placed {
     flags: u16,
 }
 
-fn run() -> anyhow::Result<(u64, Vec<Placed>)> {
+/// The run: the end of its bytes, its record blocks, and how many puts the writer reported as written.
+fn run() -> anyhow::Result<(u64, Vec<Placed>, usize)> {
     let mut w = TapeWriter::create_on(MemSink::new(Path::new("puts")), SyncPolicy::None);
     w.set_producer("figures");
     w.set_index_policy(IndexPolicy::NONE)?;
@@ -66,9 +67,12 @@ fn run() -> anyhow::Result<(u64, Vec<Placed>)> {
             }),
         ),
     ])?;
+    let mut written = 0;
     for k in 0..BLOCKS {
         let tick = i64::from(k) * 1_000_000;
-        w.put(&defs, STATE, tick, b"session 7: 2 Mbit/s, CRC on")?;
+        if w.put(&defs, STATE, tick, b"session 7: 2 Mbit/s, CRC on")? {
+            written += 1;
+        }
         let mut buf = vec![0u8; RECORD + 64];
         let mut b =
             BlockWriter::new(&mut buf, BlockKind::Records, w.next_id(), &[CLOCK]).or_debug()?;
@@ -121,7 +125,7 @@ fn run() -> anyhow::Result<(u64, Vec<Placed>)> {
         });
         end = at + len;
     }
-    Ok((end, out))
+    Ok((end, out, written))
 }
 
 fn flag_names(flags: u16) -> String {
@@ -136,7 +140,11 @@ fn flag_names(flags: u16) -> String {
 }
 
 pub fn puts() -> anyhow::Result<String> {
-    let (end, placed) = run()?;
+    let (end, placed, written) = run()?;
+    ensure!(
+        placed.iter().filter(|p| p.kind == Kind::State).count() == written,
+        "a block of the state track for every put the writer reports as written"
+    );
     let (left, width_plot) = (128.0, 560.0);
     let kib = 1024.0;
     let end_kib = (end as f64 / kib).ceil();
@@ -145,7 +153,11 @@ pub fn puts() -> anyhow::Result<String> {
     let mut s = Svg::new(
         left + width_plot + 24.0,
         axis + 86.0,
-        "A state track put before every block of data: most puts write nothing; the first writes the item, a use 2 KiB on writes one copy, and a use more than 8 KiB after the newest record writes it again",
+        &format!(
+            "A state track put before every block of data: most puts write nothing; the first writes the item, a use {} KiB on writes one copy, and a use more than {} KiB after the newest record writes it again",
+            COPY_SPACING / 1024,
+            NEAR / 1024
+        ),
     );
     s.text(left - 12.0, lane_defs + 4.0, "end", "", "track 0");
     s.text(
@@ -166,7 +178,10 @@ pub fn puts() -> anyhow::Result<String> {
     s.text(left - 12.0, lane_data + 4.0, "end", "", "track 1");
     s.text(left - 12.0, lane_data + 19.0, "end", "soft small", "data");
 
+    // the newest record of the state item, the first of its cycle, and whether the cycle has its copy
     let mut last_state: Option<u64> = None;
+    let mut cycle_first = 0u64;
+    let mut copied = false;
     let mut state_flags = None;
     for p in &placed {
         let (x, w) = (px(p.at), (px(p.at + p.len) - px(p.at)).max(2.0));
@@ -185,11 +200,24 @@ pub fn puts() -> anyhow::Result<String> {
                 s.rect((x, lane_defs - 8.0), (w.max(3.0), 22.0), 1.0, "purple");
             }
             Kind::State => {
+                // the near rule, checked against where the writer put each record
                 let what = match last_state {
                     None => "first",
-                    Some(prev) if p.at - prev < u64::from(NEAR) => "copy",
+                    Some(prev) if p.at - prev < u64::from(NEAR) => {
+                        ensure!(!copied, "one copy per cycle");
+                        ensure!(
+                            p.at - cycle_first >= COPY_SPACING,
+                            "a copy lies the copy spacing on"
+                        );
+                        copied = true;
+                        "copy"
+                    }
                     Some(_) => "again",
                 };
+                if what != "copy" {
+                    cycle_first = p.at;
+                    copied = false;
+                }
                 // where a use finds this record near: up to NEAR bytes on
                 let reach = (p.at + u64::from(NEAR)).min(end);
                 s.rect(

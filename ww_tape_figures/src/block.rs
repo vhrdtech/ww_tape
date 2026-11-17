@@ -2,7 +2,9 @@
 //! boundaries are checked against them before anything is drawn.
 
 use anyhow::{Context, ensure};
-use ww_tape::{Block, BlockId, BlockKind, BlockWriter, ClockTime, SessionTag};
+use ww_tape::{
+    Block, BlockId, BlockKind, BlockWriter, CRC_LEN, ClockTime, HEADER_LEN, MAGIC, SessionTag,
+};
 
 use crate::OrDebug;
 use crate::defs::CLOCK;
@@ -47,6 +49,11 @@ fn uvar_of(v: u64) -> Vec<u8> {
     out
 }
 
+fn le_u16(b: &[u8], at: usize) -> anyhow::Result<u16> {
+    let bytes = b.get(at..at + 2).context("a u16 inside the block")?;
+    Ok(u16::from_le_bytes(bytes.try_into()?))
+}
+
 fn le_u32(b: &[u8], at: usize) -> anyhow::Result<u32> {
     let bytes = b.get(at..at + 4).context("a u32 inside the block")?;
     Ok(u32::from_le_bytes(bytes.try_into()?))
@@ -71,8 +78,10 @@ fn fields() -> anyhow::Result<(Vec<u8>, Vec<Field>)> {
     let bytes = buf.get(..len).context("the finished block")?.to_vec();
     let block = Block::read(&bytes).or_debug()?;
     ensure!(block.kind == BlockKind::Records && block.seq == SEQ);
-    ensure!(bytes.get(..4) == Some(b"WWTP".as_slice()), "magic at 0");
+    ensure!(bytes.get(..4) == Some(MAGIC.as_slice()), "magic at 0");
     ensure!(bytes.get(4) == Some(&block.version), "version at 4");
+    ensure!(bytes.get(5) == Some(&1), "kind 1, records, at 5");
+    ensure!(le_u16(&bytes, 6)? == block.flags, "flags at 6");
     ensure!(le_u32(&bytes, 8)? == u32::try_from(len)?, "length at 8");
     ensure!(le_u32(&bytes, 12)? == block.record_count, "records at 12");
     ensure!(le_u64(&bytes, 16)? == SEQ, "seq at 16");
@@ -147,7 +156,7 @@ fn fields() -> anyhow::Result<(Vec<u8>, Vec<Field>)> {
 
     // the body: a clock table, then per record a head, a time delta, a length and the item
     let mut body = Vec::new();
-    let mut at = 32;
+    let mut at = HEADER_LEN;
     let mut push = |f: &mut Vec<Field>, part: Vec<u8>, name, value: String, class| {
         let len = part.len();
         f.push(Field {
@@ -195,14 +204,14 @@ fn fields() -> anyhow::Result<(Vec<u8>, Vec<Field>)> {
         push(&mut f, item.to_vec(), "item", shown, "ink");
     }
     ensure!(
-        bytes.get(32..len - 4) == Some(body.as_slice()),
+        bytes.get(HEADER_LEN..len - CRC_LEN) == Some(body.as_slice()),
         "the body is the clock table and the records as drawn"
     );
     f.push(Field {
-        at: len - 4,
-        len: 4,
+        at: len - CRC_LEN,
+        len: CRC_LEN,
         name: "CRC-32C",
-        value: "of bytes 0..".to_owned() + &(len - 4).to_string(),
+        value: "of bytes 0..".to_owned() + &(len - CRC_LEN).to_string(),
         class: "accent",
     });
     Ok((bytes, f))
@@ -211,12 +220,12 @@ fn fields() -> anyhow::Result<(Vec<u8>, Vec<Field>)> {
 pub fn block() -> anyhow::Result<String> {
     let (bytes, fields) = fields()?;
     let len = bytes.len();
-    let body_end = len - 4;
+    let body_end = len - CRC_LEN;
     // rows: the header in two rows of 16, the body, the CRC; each starts at its offset
     let rows: [(usize, usize, &str); 4] = [
         (0, 16, "header"),
-        (16, 32, ""),
-        (32, body_end, "body"),
+        (16, HEADER_LEN, ""),
+        (HEADER_LEN, body_end, "body"),
         (body_end, len, ""),
     ];
     let (cell, ch, left, top, pitch) = (34.0, 24.0, 92.0, 30.0, 88.0);
@@ -226,7 +235,7 @@ pub fn block() -> anyhow::Result<String> {
         width,
         height,
         &format!(
-            "A records block of {len} bytes: a 32-byte header, a body of a clock table and two records, a CRC-32C"
+            "A records block of {len} bytes: a {HEADER_LEN}-byte header, a body of a clock table and two records, a CRC-32C"
         ),
     );
     for (r, &(from, to, title)) in rows.iter().enumerate() {
@@ -270,7 +279,7 @@ pub fn block() -> anyhow::Result<String> {
     for (i, (_, _, item)) in RECORDS.iter().enumerate() {
         let n = fields
             .iter()
-            .filter(|f| f.at >= 32 && f.at < body_end && f.name != "clocks")
+            .filter(|f| f.at >= HEADER_LEN && f.at < body_end && f.name != "clocks")
             .skip(i * 4)
             .take(4)
             .map(|f| f.len)

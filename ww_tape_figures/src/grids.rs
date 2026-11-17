@@ -1,11 +1,14 @@
 //! `grids.svg`: series chunks on their grids, as [SeriesTimeline] reads them from their heads. Samples of 48 kHz on a
 //! 1 ns clock: chunks of one grid, a lost chunk whose ticks are still known, a prefix change that keeps the grid,
-//! and a gap to a new grid.
+//! and a gap to a new grid. Each chunk is written as a block by `chunk::write_chunk` and its head read back.
 
 use anyhow::{Context, ensure};
-use ww_tape::chunk::ChunkHead;
+use ww_tape::chunk::{ChunkHead, chunk_len, write_chunk};
 use ww_tape::series::is_gap;
-use ww_tape::{BlockKind, EndMode, Magnitude, Ratio64, SeriesGrid, SeriesTimeline};
+use ww_tape::{
+    BlockId, BlockKind, Codec, ColumnKind, ColumnSpec, EndMode, Magnitude, Ratio64, SeriesGrid,
+    SeriesTimeline, SessionTag,
+};
 
 use crate::OrDebug;
 use crate::svg::Svg;
@@ -21,9 +24,10 @@ fn period() -> anyhow::Result<Ratio64> {
     Ratio64::new(62_500, 3).context("48 kHz on a 1 ns clock")
 }
 
+/// The head of a series chunk of `COUNT` samples from `first` on `grid`, as read back from the block written.
 fn head(grid: SeriesGrid, first: u64) -> anyhow::Result<ChunkHead> {
     let (first_tick, last_tick) = grid.chunk_ticks(period()?, first, COUNT).or_debug()?;
-    Ok(ChunkHead {
+    let head = ChunkHead {
         kind: BlockKind::Series,
         track_id: 7,
         track_number: 1,
@@ -35,7 +39,20 @@ fn head(grid: SeriesGrid, first: u64) -> anyhow::Result<ChunkHead> {
         time_mode: 0,
         end_mode: EndMode::Absent,
         grid: Some(grid),
-    })
+    };
+    let samples: Vec<u8> = (0..COUNT).flat_map(|i| (i as i16).to_le_bytes()).collect();
+    let spec = ColumnSpec {
+        kind: ColumnKind::Samples,
+        codec: Codec::RAW,
+        param: 0,
+        len: samples.len(),
+    };
+    let mut block = vec![0u8; chunk_len(&head, &[spec], 0)];
+    let id = BlockId::new(SessionTag::from_u32(1), first);
+    let n = write_chunk(&mut block, id, &head, &[(spec, &samples)], 0).or_debug()?;
+    let read = ChunkHead::read_head(block.get(..n).context("the block")?).or_debug()?;
+    ensure!(read == head, "the head reads back as written");
+    Ok(read)
 }
 
 fn scale_name(m: &Magnitude) -> &'static str {
