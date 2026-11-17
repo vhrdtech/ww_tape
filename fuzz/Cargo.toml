@@ -1,0 +1,144 @@
+[package]
+name = "ww_tape_fuzz_targets"
+version = "0.0.0"
+edition = "2024"
+description = "cargo-fuzz targets of ww_tape's decoders, writers and readers"
+license = "MIT"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+# Built by cargo-fuzz on a nightly toolchain with its own flags: not a member of the root workspace.
+# The target bodies live in ww_tape_fuzz, where seed replay runs them in `just test`.
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+ww_tape_fuzz = { path = "../ww_tape_fuzz" }
+
+[[bin]]
+name = "tape-reader"
+path = "src/tape_reader.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tape-resume"
+path = "src/tape_resume.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tape-chunk"
+path = "src/tape_chunk.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tape-summary"
+path = "src/tape_summary.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tape-index"
+path = "src/tape_index.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tape-times"
+path = "src/tape_times.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tape-samples"
+path = "src/tape_samples.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tape-series"
+path = "src/tape_series.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tape-payloads"
+path = "src/tape_payloads.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tape-records-hostile"
+path = "src/tape_records_hostile.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tape-chunk-hostile"
+path = "src/tape_chunk_hostile.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tape-times-hostile"
+path = "src/tape_times_hostile.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tape-payloads-hostile"
+path = "src/tape_payloads_hostile.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tape-samples-hostile"
+path = "src/tape_samples_hostile.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tape-series-hostile"
+path = "src/tape_series_hostile.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tape-summary-hostile"
+path = "src/tape_summary_hostile.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tape-index-hostile"
+path = "src/tape_index_hostile.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tape-reader-hostile"
+path = "src/tape_reader_hostile.rs"
+test = false
+doc = false
+bench = false
