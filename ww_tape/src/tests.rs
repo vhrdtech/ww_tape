@@ -1558,7 +1558,7 @@ fn typed_items_hash() {
 }
 
 /// A track with an empty bundle, path and keys, no item and a stream reads back: the empty bundle starts mid-byte,
-/// after the API version's bits (SW-81).
+/// after the API version's bits.
 #[test]
 fn bare_track_round_trips() {
     let d = Describe::Track(TrackDef {

@@ -1,6 +1,6 @@
 // ww_tape 0.1.0 traits and types, saved by `ww api save`.
 // Do not edit, bump the crate version and save a new snapshot instead.
-// shrink_wrap sha256: 180826e7007338b3df3694caf7ca570666ddbb654ab4d375b060d20e8f0fc87c
+// shrink_wrap sha256: fdd6ded13f80e38468acf7eaf51a6a1a72fd09b5886892af4eac58b4cc31c6e4
 (magic: 2837124336, ww_self_version: (major: 0, minor: 3, patch: 0), root: (docs: [
     "Tape blocks: the unit a producer of records hands over, a live consumer reads and a log file is made of.",
     "",
@@ -489,7 +489,7 @@
             "Resource path of the track\'s stream in the API: `ww_trait` ids, array indices included.",
         ], slot: None, series_opaque: false),
         (ident: Some("keys"), default: None, since: None, ty: Vec(OutOfLine(type_idx: 22)), docs: [
-            "Keys of the elements of keyed arrays (API-67) on `path`, in ascending order of position: what the track\'s",
+            "Keys of the elements of keyed arrays on `path`, in ascending order of position: what the track\'s",
             "[key](Self::key) hashes instead of those indices. Empty when `path` crosses no keyed array.",
         ], slot: None, series_opaque: false),
         (ident: Some("item"), default: None, since: None, ty: Option(some_ty: OutOfLine(type_idx: 23)), docs: [

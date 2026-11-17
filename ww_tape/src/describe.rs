@@ -399,7 +399,7 @@ pub struct TrackDef<'i> {
     pub bundle: RefVec<'i, u8>,
     /// Resource path of the track's stream in the API: `ww_trait` ids, array indices included.
     pub path: RefVec<'i, UNib32>,
-    /// Keys of the elements of keyed arrays (API-67) on `path`, in ascending order of position: what the track's
+    /// Keys of the elements of keyed arrays on `path`, in ascending order of position: what the track's
     /// [key](Self::key) hashes instead of those indices. Empty when `path` crosses no keyed array.
     pub keys: RefVec<'i, KeySegment<'i>>,
     /// The item type when the path doesn't give it (a producer's result, a map track); None: the stream's type. None
