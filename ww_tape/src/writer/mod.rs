@@ -1118,7 +1118,7 @@ impl<S: TapeSink> TapeWriter<S> {
         self.room(0, !self.head_put)?;
         self.ensure_head()?;
         let payload: usize = columns.iter().map(|(c, _)| c.len).sum();
-        let head_len = crate::chunk::chunk_head_len(columns.len(), payload);
+        let head_len = crate::chunk::chunk_head_len(head, columns.len(), payload);
         let specs: Vec<crate::ColumnSpec> = columns.iter().map(|(c, _)| *c).collect();
         if self.alignment() != 0 {
             // what this call may write: the deferred blocks, a checkpoint, the puts and the chunk
@@ -1128,7 +1128,7 @@ impl<S: TapeSink> TapeWriter<S> {
                 0
             };
             let chunk_max =
-                crate::chunk::chunk_len(&specs, crate::times::u32_to_usize(self.alignment()));
+                crate::chunk::chunk_len(head, &specs, crate::times::u32_to_usize(self.alignment()));
             let ahead = self
                 .deferred_bytes
                 .saturating_add(checkpoint)
@@ -1161,7 +1161,7 @@ impl<S: TapeSink> TapeWriter<S> {
         let at = self.at()?.saturating_add(wide(puts));
         let padding = crate::chunk::chunk_padding(at, head_len, self.alignment())
             .ok_or(WriteError::Alignment(self.alignment()))?;
-        let len = crate::chunk::chunk_len(&specs, padding);
+        let len = crate::chunk::chunk_len(head, &specs, padding);
         let mut buf = core::mem::take(&mut self.chunk_buf);
         buf.resize(len, 0);
         let r = crate::chunk::write_chunk(&mut buf, self.next_id(), head, columns, padding)

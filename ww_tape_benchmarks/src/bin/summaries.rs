@@ -7,7 +7,7 @@ use std::hint::black_box;
 use std::time::Instant;
 use ww_tape::samples::{encode, max_encoded_len};
 use ww_tape::summary::{Scalar, SeriesStart, SeriesStats, SeriesSummaries, SeriesSummarySpec};
-use ww_tape::{Codec, Element, Magnitude, Ratio64, Sample, SampleShape, SeriesSegment};
+use ww_tape::{Codec, Element, Magnitude, Ratio64, Sample, SampleShape, SeriesGrid};
 
 #[derive(Parser)]
 #[command(about = "Series summaries of ww_tape: MB/s per element type with and without summaries")]
@@ -99,7 +99,7 @@ fn rate<T: Gen>(args: &Args, shape: SampleShape, batch: &[T], work: Work) -> any
         track_number: 1,
         shape,
         first_item: 0,
-        segment: SeriesSegment::start(0, 0, Magnitude::ONE),
+        grid: SeriesGrid::start(0, 0, Magnitude::ONE),
         period: Ratio64::ONE,
     };
     let mut best = f64::MAX;

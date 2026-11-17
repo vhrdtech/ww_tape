@@ -169,6 +169,7 @@ fn entries_of_blocks() {
         latest_end: 45,
         time_mode: 0,
         end_mode: EndMode::Durations,
+        grid: None,
     };
     let col = [0u8; 24];
     let cols = [(
@@ -180,7 +181,7 @@ fn entries_of_blocks() {
         },
         &col[..],
     )];
-    let mut cb = vec![0u8; crate::chunk::chunk_len(&[cols[0].0], 0)];
+    let mut cb = vec![0u8; crate::chunk::chunk_len(&head, &[cols[0].0], 0)];
     let n = crate::chunk::write_chunk(&mut cb, id(1), &head, &cols, 0).unwrap();
     let e = IndexEntry::of_block(4000, &Block::read(&cb[..n]).unwrap()).unwrap();
     assert_eq!(Some(e), IndexEntry::of_chunk(4000, n, &head));

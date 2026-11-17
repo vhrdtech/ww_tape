@@ -42,7 +42,7 @@ fn block(payloads: &[Vec<u8>]) -> Vec<u8> {
 fn write<'a>(head: &ChunkHead, cols: impl Iterator<Item = (ColumnSpec, &'a [u8])>) -> Vec<u8> {
     let cols: Vec<_> = cols.collect();
     let specs: Vec<ColumnSpec> = cols.iter().map(|c| c.0).collect();
-    let mut buf = std::vec![0u8; chunk_len(&specs, 0)];
+    let mut buf = std::vec![0u8; chunk_len(head, &specs, 0)];
     let len = write_chunk(&mut buf, id(1), head, &cols, 0).unwrap();
     buf.truncate(len);
     buf

@@ -1,29 +1,51 @@
-//! [SeriesTimeline]: a series' segments in order, checked as they come, and the tick and scale of any sample.
+//! [SeriesTimeline]: the grids of a series' chunks in order, checked between neighbours, and the tick and scale of
+//! any sample.
 
 use alloc::vec::Vec;
 
 use exact_units::{Magnitude, Ratio64};
 
-use super::{SeriesError, SeriesSegment};
-use crate::{BlockKind, ChunkHead};
+use super::{SeriesError, SeriesGrid};
+use crate::ChunkHead;
 
-/// The segments of one series track, checked one by one as a reader finds them in records, puts and copies.
+/// Samples `first_item..end_item` of a series on one grid at one scale: one chunk, or consecutive chunks merged.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct SeriesStretch {
+    /// The first sample.
+    pub first_item: u64,
+    /// One past the last sample.
+    pub end_item: u64,
+    /// The samples' grid and scale.
+    pub grid: SeriesGrid,
+}
+
+impl SeriesStretch {
+    /// Index of the last sample: `end_item` is above `first_item` in a stretch of a timeline.
+    fn last_item(&self) -> u64 {
+        self.end_item.saturating_sub(1)
+    }
+}
+
+/// The grids of one series track, from its chunk heads in any order, checked as they come.
 ///
-/// Every segment is checked before it is kept, so a damaged or forged record is refused and the ones kept stay
-/// consistent: ascending first indexes, a grid at or before the first sample, ticks that fit in i64, a new grid after
-/// the last tick of the segment before. A segment seen again (a copy, or a put of the same segment) is taken once.
+/// Each chunk is checked against its own grid ([SeriesGrid::of_chunk]) and against the chunks next to it in sample
+/// order: no sample held twice on two grids or at two scales, and a chunk on a new grid (a gap) after the last tick
+/// of the one before and before the first tick of the one after. A damaged or forged head is refused and the
+/// stretches kept stay consistent. A chunk seen again (a piece read twice) is taken once. Consecutive chunks on one
+/// grid at one scale are kept as one [SeriesStretch], so a timeline holds one entry per gap or change of scale, plus
+/// one per run of lost chunks.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SeriesTimeline {
     period: Ratio64,
-    segments: Vec<SeriesSegment>,
+    stretches: Vec<SeriesStretch>,
 }
 
 impl SeriesTimeline {
-    /// No segments yet, for a series of `period` ticks per sample.
+    /// No chunks yet, for a series of `period` ticks per sample.
     pub fn new(period: Ratio64) -> Self {
         SeriesTimeline {
             period,
-            segments: Vec::new(),
+            stretches: Vec::new(),
         }
     }
 
@@ -31,165 +53,149 @@ impl SeriesTimeline {
         self.period
     }
 
-    /// The segments, in order of first index.
-    pub fn segments(&self) -> &[SeriesSegment] {
-        &self.segments
+    /// The stretches, in order of first sample, none overlapping.
+    pub fn stretches(&self) -> &[SeriesStretch] {
+        &self.stretches
     }
 
-    /// Add `s` after the segments there. A segment equal to one there is taken as a repeat and changes nothing.
-    pub fn push(&mut self, s: SeriesSegment) -> Result<(), SeriesError> {
-        let first = s.first_tick(self.period)?;
-        // the segments ascend by first index: a repeat is the one with its first index, found in log time
-        if self
-            .segments
-            .binary_search_by_key(&s.first_index, |x| x.first_index)
-            .is_ok_and(|i| self.segments.get(i) == Some(&s))
-        {
-            return Ok(());
-        }
-        let Some(prev) = self.segments.last() else {
-            self.segments.push(s);
-            return Ok(());
+    /// Add the chunk `head`: its grid checked against its ticks, then against the stretches before and after it.
+    pub fn push_chunk(&mut self, head: &ChunkHead) -> Result<(), SeriesError> {
+        let grid = SeriesGrid::of_chunk(head, self.period)?;
+        self.push(head.first_item, head.count, grid)
+    }
+
+    /// Add `count` samples from `first_item` on `grid`, checked against the stretches before and after them: what
+    /// a writer that holds no chunk head yet (a summary builder) adds.
+    pub fn push(
+        &mut self,
+        first_item: u64,
+        count: u32,
+        grid: SeriesGrid,
+    ) -> Result<(), SeriesError> {
+        let (first_tick, last_tick) = grid.chunk_ticks(self.period, first_item, count)?;
+        let end_item = first_item
+            .checked_add(u64::from(count))
+            .ok_or(SeriesError::NoSamples { first_item })?;
+        let new = SeriesStretch {
+            first_item,
+            end_item,
+            grid,
         };
-        if s.first_index == prev.first_index {
-            return Err(SeriesError::Conflict {
-                first_index: s.first_index,
-            });
+        // the stretches ascend and don't overlap: `at` is the first one ending after the new samples start
+        let at = self.stretches.partition_point(|s| s.end_item <= first_item);
+        if let Some(s) = self.stretches.get(at)
+            && s.first_item < end_item
+        {
+            // samples held already: a repeat when inside one stretch of the same grid and scale
+            return if s.grid == grid && s.first_item <= first_item && end_item <= s.end_item {
+                Ok(())
+            } else {
+                Err(SeriesError::Overlap { first_item })
+            };
         }
-        if s.first_index < prev.first_index {
-            return Err(SeriesError::NotAscending {
-                first_index: s.first_index,
-                previous: prev.first_index,
-            });
-        }
-        if !s.same_grid(prev) {
-            let last_index = s
-                .first_index
-                .checked_sub(1)
-                .ok_or(SeriesError::NotAscending {
-                    first_index: s.first_index,
-                    previous: prev.first_index,
-                })?;
-            let last = prev
-                .tick(self.period, last_index)
-                .ok_or(SeriesError::TickOverflow { index: last_index })?;
-            if first <= last {
-                return Err(SeriesError::TimeNotIncreasing {
-                    first_index: s.first_index,
-                });
+        let before = at.checked_sub(1).and_then(|i| self.stretches.get(i));
+        if let Some(b) = before
+            && !b.grid.same_grid(&grid)
+        {
+            let last = self.tick_on(b, b.last_item())?;
+            if first_tick <= last {
+                return Err(SeriesError::TimeNotIncreasing { first_item });
             }
         }
-        self.segments.push(s);
+        let after = self.stretches.get(at);
+        if let Some(a) = after
+            && !a.grid.same_grid(&grid)
+        {
+            let first = self.tick_on(a, a.first_item)?;
+            if last_tick >= first {
+                return Err(SeriesError::TimeNotIncreasing { first_item });
+            }
+        }
+        let joins_before = before.is_some_and(|b| b.grid == grid && b.end_item == first_item);
+        let joins_after = after.is_some_and(|a| a.grid == grid && a.first_item == end_item);
+        match (joins_before, joins_after) {
+            (true, true) => {
+                let a = self.stretches.remove(at);
+                if let Some(b) = at.checked_sub(1).and_then(|i| self.stretches.get_mut(i)) {
+                    b.end_item = a.end_item;
+                }
+            }
+            (true, false) => {
+                if let Some(b) = at.checked_sub(1).and_then(|i| self.stretches.get_mut(i)) {
+                    b.end_item = end_item;
+                }
+            }
+            (false, true) => {
+                if let Some(a) = self.stretches.get_mut(at) {
+                    a.first_item = first_item;
+                }
+            }
+            (false, false) => self.stretches.insert(at, new),
+        }
         Ok(())
     }
 
-    /// Add the segment a series record holds, whose record time is `tick`: refused when the time isn't the
-    /// segment's first sample's tick, as for a damaged record.
-    pub fn push_record(&mut self, tick: i64, item: &[u8]) -> Result<(), SeriesError> {
-        let s = record_segment(self.period, tick, item)?;
-        self.push(s)
-    }
-
-    /// The segments of a track's records in any order (record blocks, puts, copies), each `(record
-    /// tick, item)`: decoded, checked against its record time, sorted by first index and pushed. A record that fails
-    /// a check is left out and its error returned beside the timeline, so one damaged record costs only its segment.
-    pub fn from_records<'b>(
+    /// The timeline of a track's chunk heads in any order. A head that fails a check is left out and its error
+    /// returned beside the timeline, so one damaged head costs only its chunk.
+    pub fn from_chunks<'h>(
         period: Ratio64,
-        records: impl IntoIterator<Item = (i64, &'b [u8])>,
+        heads: impl IntoIterator<Item = &'h ChunkHead>,
     ) -> (Self, Vec<SeriesError>) {
-        let mut errors = Vec::new();
-        let mut segments = Vec::new();
-        for (tick, item) in records {
-            match record_segment(period, tick, item) {
-                Ok(s) => segments.push(s),
-                Err(e) => errors.push(e),
-            }
-        }
-        segments.sort_by_key(|s| s.first_index);
         let mut t = SeriesTimeline::new(period);
-        for s in segments {
-            if let Err(e) = t.push(s) {
+        let mut errors = Vec::new();
+        for h in heads {
+            if let Err(e) = t.push_chunk(h) {
                 errors.push(e);
             }
         }
         (t, errors)
     }
 
-    /// The segment sample `index` is in, None before the first.
-    pub fn segment_of(&self, index: u64) -> Option<&SeriesSegment> {
-        let after = self.segments.partition_point(|s| s.first_index <= index);
-        after.checked_sub(1).and_then(|i| self.segments.get(i))
+    /// The stretch holding sample `index`; None when no chunk seen holds it.
+    pub fn stretch_of(&self, index: u64) -> Option<&SeriesStretch> {
+        let at = self.stretches.partition_point(|s| s.end_item <= index);
+        self.stretches.get(at).filter(|s| s.first_item <= index)
     }
 
-    /// First index of the segment after the one sample `index` is in; None in the last segment.
-    pub fn segment_end(&self, index: u64) -> Option<u64> {
-        let after = self.segments.partition_point(|s| s.first_index <= index);
-        self.segments.get(after).map(|s| s.first_index)
+    /// The grid sample `index` is on: its stretch's, or for a sample no chunk seen holds, the grid of the stretch
+    /// before when the stretch after is on the same grid (a lost chunk). None before the first stretch, in a gap,
+    /// or past the last.
+    pub fn grid_of(&self, index: u64) -> Option<&SeriesGrid> {
+        let at = self.stretches.partition_point(|s| s.end_item <= index);
+        let after = self.stretches.get(at)?;
+        if after.first_item <= index {
+            return Some(&after.grid);
+        }
+        let before = self.stretches.get(at.checked_sub(1)?)?;
+        before.grid.same_grid(&after.grid).then_some(&before.grid)
     }
 
-    /// Tick of sample `index`, rounded down; None before the first segment or past i64.
+    /// Tick of sample `index`, rounded down: on its stretch's grid, or on the grid around it when it is a lost
+    /// sample ([Self::grid_of]); None where no grid holds it or past i64.
     pub fn tick(&self, index: u64) -> Option<i64> {
-        self.segment_of(index)?.tick(self.period, index)
+        self.grid_of(index)?.tick(self.period, index)
     }
 
-    /// The scale of sample `index`'s stored numbers; None before the first segment.
+    /// The scale of sample `index`'s stored numbers; None when no chunk seen holds it.
     pub fn scale(&self, index: u64) -> Option<Magnitude> {
-        self.segment_of(index).map(|s| s.scale)
+        self.stretch_of(index).map(|s| s.grid.scale)
     }
 
-    /// First and last tick of `count` samples from `first_index`, which must lie in one segment: what a series chunk
-    /// head of them holds.
-    pub fn chunk_ticks(&self, first_index: u64, count: u32) -> Result<(i64, i64), SeriesError> {
-        let span = SeriesError::ChunkSpan {
-            first_item: first_index,
-        };
-        let last_index = u64::from(count)
-            .checked_sub(1)
-            .and_then(|n| first_index.checked_add(n))
-            .ok_or(span)?;
-        let s = self
-            .segment_of(first_index)
-            .ok_or(SeriesError::NoSegment { index: first_index })?;
-        if self
-            .segment_end(first_index)
-            .is_some_and(|end| last_index >= end)
-        {
-            return Err(span);
+    /// Whether a gap comes before stretch `i`: the stretch before is on another grid.
+    pub fn gap_before(&self, i: usize) -> bool {
+        match (
+            i.checked_sub(1).and_then(|p| self.stretches.get(p)),
+            self.stretches.get(i),
+        ) {
+            (Some(b), Some(s)) => !b.grid.same_grid(&s.grid),
+            _ => false,
         }
-        let first = s
-            .tick(self.period, first_index)
-            .ok_or(SeriesError::TickOverflow { index: first_index })?;
-        let last = s
-            .tick(self.period, last_index)
-            .ok_or(SeriesError::TickOverflow { index: last_index })?;
-        Ok((first, last))
     }
 
-    /// Check a series chunk's head against the segments: its samples in one segment, its first and last tick theirs.
-    pub fn check_chunk(&self, head: &ChunkHead) -> Result<(), SeriesError> {
-        if head.kind != BlockKind::Series {
-            return Err(SeriesError::ChunkSpan {
-                first_item: head.first_item,
-            });
-        }
-        let (first, last) = self.chunk_ticks(head.first_item, head.count)?;
-        if head.first_tick != first || head.last_tick != last {
-            return Err(SeriesError::ChunkTicks {
-                first_item: head.first_item,
-            });
-        }
-        Ok(())
-    }
-}
-
-/// The segment of a series record at `tick`, checked: it decodes, and `tick` is its first sample's.
-fn record_segment(period: Ratio64, tick: i64, item: &[u8]) -> Result<SeriesSegment, SeriesError> {
-    let s = SeriesSegment::from_record(item)?;
-    if s.first_tick(period)? == tick {
-        Ok(s)
-    } else {
-        Err(SeriesError::RecordTime {
-            first_index: s.first_index,
-        })
+    /// Tick of sample `index` of stretch `s`.
+    fn tick_on(&self, s: &SeriesStretch, index: u64) -> Result<i64, SeriesError> {
+        s.grid
+            .tick(self.period, index)
+            .ok_or(SeriesError::TickOverflow { index })
     }
 }

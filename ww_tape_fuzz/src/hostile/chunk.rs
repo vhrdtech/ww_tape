@@ -6,14 +6,32 @@ use super::{
 };
 use ww_tape::chunk::{
     CHUNK_FIXED_LEN, COLUMN_ENTRY_LEN, MAX_COLUMNS, SEGMENT_SHIFT_MAX, SEGMENT_SHIFT_MIN,
-    chunk_len, write_chunk,
+    SERIES_GRID_LEN, chunk_len, write_chunk,
 };
+use ww_tape::series::SCALE_LEN_MAX;
 use ww_tape::{
     BlockId, BlockKind, ChunkHead, Codec, ColumnKind, ColumnSpec, EndMode, MAX_BLOCK_LEN,
+    Magnitude, SeriesGrid,
 };
 
-/// Where the column table starts.
+/// Where the column table of an events chunk starts: after the fixed head.
 pub(crate) const TABLE: usize = super::HEADER_LEN + CHUNK_FIXED_LEN;
+
+/// The grid fields of a series chunk: grid index, grid tick, scale length.
+const GRID_FIELDS: [Field<'static>; 3] = [
+    Field::new(TABLE, 8, &[]),
+    Field::new(TABLE + 8, 8, &[i64::MAX as u64]),
+    Field::new(TABLE + 16, 1, &[SCALE_LEN_MAX as u64]),
+];
+
+/// Where the column table of the chunk `b` starts, from its own head: after the grid and scale of a series chunk.
+pub(crate) fn table(b: &[u8]) -> usize {
+    if get(b, 5, 1) == u64::from(BlockKind::Series.to_u8()) {
+        TABLE + SERIES_GRID_LEN + get(b, TABLE + 16, 1) as usize
+    } else {
+        TABLE
+    }
+}
 
 /// The fixed fields of a chunk head after the block header.
 pub(crate) const HEAD_FIELDS: [Field<'static>; 11] = [
@@ -38,9 +56,9 @@ pub(crate) const HEAD_FIELDS: [Field<'static>; 11] = [
     Field::new(83, 1, &[]),
 ];
 
-/// The fields of column `i`'s entry in the table: kind, codec, param, offset.
-pub(crate) fn column_fields(i: usize) -> [Field<'static>; 4] {
-    let at = TABLE + i * COLUMN_ENTRY_LEN;
+/// The fields of column `i`'s entry in the table of the chunk `b`: kind, codec, param, offset.
+pub(crate) fn column_fields(b: &[u8], i: usize) -> [Field<'static>; 4] {
+    let at = table(b) + i * COLUMN_ENTRY_LEN;
     [
         Field::new(at, 1, &[]),
         Field::new(at + 1, 1, &[Codec::OUTER as u64]),
@@ -52,7 +70,7 @@ pub(crate) fn column_fields(i: usize) -> [Field<'static>; 4] {
 /// Write a whole chunk of `columns` with `head`.
 pub(crate) fn build(head: &ChunkHead, columns: &[(ColumnSpec, &[u8])]) -> Vec<u8> {
     let specs: Vec<ColumnSpec> = columns.iter().map(|c| c.0).collect();
-    let mut buf = vec![0u8; chunk_len(&specs, 0)];
+    let mut buf = vec![0u8; chunk_len(head, &specs, 0)];
     let n =
         write_chunk(&mut buf, BlockId::new(SESSION, 1), head, columns, 0).expect("a valid chunk");
     buf.truncate(n);
@@ -62,7 +80,7 @@ pub(crate) fn build(head: &ChunkHead, columns: &[(ColumnSpec, &[u8])]) -> Vec<u8
 /// Where column `i`'s bytes start in the block, from the block's own head (None when outside the block).
 pub(crate) fn column_start(b: &[u8], i: usize) -> Option<usize> {
     let payload = get(b, 32, 4) as usize;
-    let at = get(b, TABLE + i * COLUMN_ENTRY_LEN + 4, 4) as usize;
+    let at = get(b, table(b) + i * COLUMN_ENTRY_LEN + 4, 4) as usize;
     let start = payload.checked_add(at)?;
     (start < b.len()).then_some(start)
 }
@@ -75,11 +93,11 @@ pub(crate) fn reseal(b: &mut [u8], stale_segments: bool) {
     let payload = get(b, 32, 4) as usize;
     let shift = get(b, 80, 1) as u32;
     let columns = get(b, 81, 1) as usize;
-    let fits = payload >= TABLE && payload.checked_add(4).is_some_and(|e| e <= len);
+    let fits = payload >= table(b) && payload.checked_add(4).is_some_and(|e| e <= len);
     if fits && (u32::from(SEGMENT_SHIFT_MIN)..=u32::from(SEGMENT_SHIFT_MAX)).contains(&shift) {
         let payload_len = len - 4 - payload;
         let segments = payload_len.div_ceil(1 << shift);
-        let table = TABLE + columns * COLUMN_ENTRY_LEN;
+        let table = table(b) + columns * COLUMN_ENTRY_LEN;
         if !stale_segments && table + 4 * segments <= payload {
             for s in 0..segments {
                 let from = payload + (s << shift);
@@ -106,10 +124,15 @@ pub(crate) fn hit_head(d: &mut Draw<'_>, b: &mut [u8]) {
             let f = HEADER_FIELDS[d.below(HEADER_FIELDS.len())];
             hit(d, b, f);
         }
-        4..10 => hit_some(d, b, &HEAD_FIELDS),
+        4..8 => hit_some(d, b, &HEAD_FIELDS),
+        8..10 if get(b, 5, 1) == u64::from(BlockKind::Series.to_u8()) => {
+            hit_some(d, b, &GRID_FIELDS);
+        }
+        8..10 => hit_some(d, b, &HEAD_FIELDS),
         _ => {
             let i = d.below(columns + 1);
-            hit_some(d, b, &column_fields(i));
+            let fields = column_fields(b, i);
+            hit_some(d, b, &fields);
         }
     }
 }
@@ -145,6 +168,7 @@ pub fn chunk(data: &[u8]) -> Vec<u8> {
         })
         .collect();
     let count = 1 + u32::from(d.u8());
+    let first_item = u64::from(d.u16());
     let first_tick = i64::from(d.u32() as i32);
     let last_tick = first_tick + i64::from(d.u16());
     let head = ChunkHead {
@@ -155,13 +179,21 @@ pub fn chunk(data: &[u8]) -> Vec<u8> {
         },
         track_id: 7,
         track_number: 1,
-        first_item: u64::from(d.u16()),
+        first_item,
         count,
         first_tick,
         last_tick,
         latest_end: last_tick,
         time_mode: 0,
         end_mode: EndMode::Absent,
+        grid: series.then(|| {
+            let grid_index = first_item.saturating_sub(u64::from(d.u8()));
+            SeriesGrid::start(
+                grid_index,
+                first_tick,
+                Magnitude::pow10(-((d.u8() % 19) as i8)),
+            )
+        }),
     };
     let mut b = build(&head, &columns);
     hit_head(&mut d, &mut b);

@@ -37,6 +37,7 @@ fn events(first_item: u64, n: u32) -> (ChunkHead, Vec<Vec<u8>>) {
         latest_end: *starts.last().unwrap() + 4,
         time_mode: 0,
         end_mode: EndMode::Durations,
+        grid: None,
     };
     let cols = vec![
         i64s(starts),
@@ -69,6 +70,7 @@ fn series(first: u64, n: u32) -> (ChunkHead, Vec<Vec<u8>>) {
         latest_end: (first + u64::from(n) - 1) as i64 * 20,
         time_mode: 0,
         end_mode: EndMode::Absent,
+        grid: Some(crate::SeriesGrid::start(0, 0, crate::Magnitude::ONE)),
     };
     let ch = |c: u64| -> Vec<u8> {
         (0..u64::from(n))
@@ -87,7 +89,7 @@ fn series_columns(cols: &[Vec<u8>]) -> Vec<(ColumnSpec, &[u8])> {
 
 fn encode(head: &ChunkHead, cols: &[(ColumnSpec, &[u8])], seq: u64, padding: usize) -> Vec<u8> {
     let specs: Vec<ColumnSpec> = cols.iter().map(|c| c.0).collect();
-    let mut buf = vec![0u8; chunk_len(&specs, padding)];
+    let mut buf = vec![0u8; chunk_len(head, &specs, padding)];
     let n = write_chunk(&mut buf, id(seq), head, cols, padding).unwrap();
     assert_eq!(n, buf.len());
     buf
@@ -139,6 +141,72 @@ fn events_chunk_round_trip() {
     assert!(p[p.len() - PAYLOAD_PADDING..].iter().all(|b| *b == 0));
     // head: header, fixed part, 4 columns, 1 segment CRC
     assert_eq!(chunk.payload_offset(), 32 + 52 + 4 * 8 + 4);
+}
+
+/// A series chunk's head carries its grid and scale; an events chunk has none, and the columns start right after the
+/// fixed head.
+#[test]
+fn series_head_carries_its_grid() {
+    let (mut head, cols) = series(10, 5);
+    head.grid = Some(crate::SeriesGrid::start(
+        3,
+        -7,
+        crate::Magnitude::pow10(-6).mul(crate::Magnitude::PI),
+    ));
+    head.first_tick = 7 * 20 - 7;
+    head.last_tick = 11 * 20 - 7;
+    head.latest_end = head.last_tick;
+    let bytes = encode(&head, &series_columns(&cols), 1, 0);
+    let chunk = Block::read(&bytes).unwrap().chunk().unwrap();
+    assert_eq!(chunk.head(), head);
+    assert_eq!(chunk.column(1).unwrap().bytes, &cols[1][..]);
+    let scale_len = usize::from(bytes[100]);
+    assert!(
+        scale_len > 2,
+        "a scale with pi takes more than a power of 10"
+    );
+    assert_eq!(&bytes[84..92], &3u64.to_le_bytes());
+    assert_eq!(&bytes[92..100], &(-7i64).to_le_bytes());
+    // the column entries follow the scale
+    assert_eq!(bytes[101 + scale_len], ColumnKind::Samples.to_u8());
+
+    // a series chunk without a grid, a grid after the first sample, an events chunk with one
+    let mut buf = vec![0u8; 4096];
+    let write = |h: ChunkHead, buf: &mut [u8]| ChunkWriter::new(buf, id(0), &h, &[], 0).err();
+    let columns: Vec<ColumnSpec> = series_columns(&cols).iter().map(|c| c.0).collect();
+    for bad in [
+        ChunkHead { grid: None, ..head },
+        ChunkHead {
+            grid: Some(crate::SeriesGrid::start(11, 0, crate::Magnitude::ONE)),
+            ..head
+        },
+    ] {
+        assert!(matches!(
+            ChunkWriter::new(&mut buf, id(0), &bad, &columns, 0),
+            Err(ChunkError::Invalid(_))
+        ));
+    }
+    let (events_head, _) = events(0, 3);
+    assert!(
+        write(
+            ChunkHead {
+                grid: head.grid,
+                ..events_head
+            },
+            &mut buf
+        )
+        .is_some()
+    );
+
+    // a scale length of 0 or past SCALE_LEN_MAX, or one that cuts the scale: a bad head, even with a good head CRC
+    for len in [0u8, 1, SCALE_LEN_MAX as u8 + 1] {
+        let mut b = bytes.clone();
+        b[100] = len;
+        let at = u32::from_le_bytes(b[32..36].try_into().unwrap()) as usize;
+        let crc = head_crc(&b, at).unwrap();
+        b[28..32].copy_from_slice(&crc.to_le_bytes());
+        assert!(Chunk::read_head(&b).is_err(), "scale length {len}");
+    }
 }
 
 #[test]
@@ -301,7 +369,7 @@ fn padding_puts_the_payload_on_the_alignment() {
     let columns = series_columns(&cols);
     let specs: Vec<ColumnSpec> = columns.iter().map(|c| c.0).collect();
     let payload = specs.iter().map(|s| s.len).sum();
-    let head_len = chunk_head_len(2, payload);
+    let head_len = chunk_head_len(&head, 2, payload);
     for offset in [0u64, 1, 100, 4096 - head_len as u64, 4097, 123_456] {
         let pad = chunk_padding(offset, head_len, 4096).unwrap();
         let bytes = encode(&head, &columns, 0, pad);
@@ -353,8 +421,8 @@ fn overflowing_column_lengths_are_too_long() {
         len: usize::MAX / 2 + 1,
     };
     let specs = [spec(ColumnKind::Starts), spec(ColumnKind::Payloads)];
-    assert_eq!(chunk_len(&specs, 0), usize::MAX);
-    assert_eq!(chunk_head_len(usize::MAX, 0), usize::MAX);
+    assert_eq!(chunk_len(&head, &specs, 0), usize::MAX);
+    assert_eq!(chunk_head_len(&head, usize::MAX, 0), usize::MAX);
     let mut buf = vec![0u8; 4096];
     assert!(matches!(
         ChunkWriter::new(&mut buf, id(0), &head, &specs, 0),
@@ -393,8 +461,14 @@ fn write_tape(path: &std::path::Path, layout: Layout) -> Vec<u8> {
     w.set_producer("test");
     w.set_layout(layout).unwrap();
     let mut defs = crate::Definitions::new();
-    defs.define_all(&crate::tests::test_definitions(1, &[2, 4, 7]))
-        .unwrap();
+    let mut held = crate::tests::test_definitions(1, &[2, 4]);
+    held.push(crate::tests::test_series_track(
+        1,
+        7,
+        2,
+        crate::Ratio64::int(20).unwrap(),
+    ));
+    defs.define_all(&held).unwrap();
     let small = |n: i64| {
         let mut buf = [0u8; 128];
         let mut b = BlockWriter::new(&mut buf, BlockKind::Records, id(0), &[1]).unwrap();

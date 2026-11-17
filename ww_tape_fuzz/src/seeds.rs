@@ -14,7 +14,7 @@ use ww_tape::piece::{
 use ww_tape::times::EncodedTimes;
 use ww_tape::{
     Block, BlockId, BlockKind, BlockWriter, ClockTime, ColumnKind, Describe, Element, FLAG_REPEAT,
-    GAP_MAX_MAX, GAP_PROBES_MAX, Layout, Producer, SeriesSegment, SessionTag, TrackKind,
+    GAP_MAX_MAX, GAP_PROBES_MAX, Layout, Producer, SessionTag, TrackKind,
 };
 
 /// Longest seed file.
@@ -142,7 +142,7 @@ fn golden_samples() -> Vec<Seed> {
     out
 }
 
-/// The describe records of series tracks and the segment records in the golden series blocks.
+/// The describe records of series tracks in the golden series blocks.
 fn golden_series() -> Vec<Seed> {
     let mut out = vec![];
     for b in golden(GOLDEN_SERIES) {
@@ -154,7 +154,6 @@ fn golden_series() -> Vec<Seed> {
         for r in decoded.records().flatten() {
             let name = match Describe::from_ww_bytes(r.item) {
                 Ok(Describe::Track(t)) if matches!(t.kind, TrackKind::Series(_)) => "track",
-                _ if r.at.is_some() && SeriesSegment::from_ww_bytes(r.item).is_ok() => "segment",
                 _ => continue,
             };
             let n = out.len();
@@ -172,11 +171,12 @@ fn golden_series() -> Vec<Seed> {
 fn chunk_block(enc: &EncodedTimes) -> Vec<u8> {
     let cols: Vec<_> = enc.columns().collect();
     let specs: Vec<_> = cols.iter().map(|c| c.0).collect();
-    let mut buf = vec![0u8; ww_tape::chunk::chunk_len(&specs, 0)];
+    let head = enc.head.chunk_head(1, 1, 0);
+    let mut buf = vec![0u8; ww_tape::chunk::chunk_len(&head, &specs, 0)];
     let n = ww_tape::chunk::write_chunk(
         &mut buf,
         BlockId::new(SessionTag::writable(1), 1),
-        &enc.head.chunk_head(1, 1, 0),
+        &head,
         &cols,
         0,
     )

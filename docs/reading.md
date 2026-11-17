@@ -89,7 +89,8 @@ How a reader gets at the items depends on the block:
   `last_at_or_before(t)` the last item at or before it, and `end(j)` and `flag(j)` its end and flags. `Payloads::read`
   gives each item's bytes with `get(j)`, in place, without decoding the items before it.
 - **A series chunk.** `Samples::decode` decodes any range of samples from the group that holds its first sample. The
-  track's series segments give each sample's tick; `SeriesTimeline` collects them and checks each chunk against them.
+  chunk's grid gives each sample's tick and its scale; `SeriesTimeline` collects the grids of a track's chunks, checks
+  each chunk against its neighbours and says where the gaps are.
 - **A summary block.** It holds coarse statistics of a long track, for an overview without reading the items. [Events
   and series](events_and_series.md#summaries) describes them.
 

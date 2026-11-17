@@ -5,8 +5,8 @@ use ww_tape::summary::{
     EventTree, ItemRun, SeriesStart, SeriesStats, SeriesSummaries, SeriesSummarySpec, Stat,
 };
 use ww_tape::{
-    Block, BlockId, Element, EventFields, Magnitude, Ratio64, SampleShape, SeriesSegment,
-    SessionTag, set_id,
+    Block, BlockId, Element, EventFields, Magnitude, Ratio64, SampleShape, SeriesGrid, SessionTag,
+    set_id,
 };
 
 /// Look at everything a summary block read from `data` gives.
@@ -123,7 +123,7 @@ pub fn summary(data: &[u8]) {
         track_number: 2,
         shape,
         first_item: first,
-        segment: SeriesSegment::start(first, -5, Magnitude::pow10(-3)),
+        grid: SeriesGrid::start(first, -5, Magnitude::pow10(-3)),
         period: Ratio64::new(3, 2).expect("a ratio"),
     };
     let spec = SeriesSummarySpec {
@@ -133,7 +133,7 @@ pub fn summary(data: &[u8]) {
     };
     let mut s = SeriesSummaries::<i16>::new(start, spec).expect("a valid spec");
     s.set_max_block_bytes(512);
-    let mut segment = start.segment;
+    let mut grid = start.grid;
     for (i, part) in xs
         .chunks(lanes * (1 + usize::from(data[3] % 5)))
         .enumerate()
@@ -141,8 +141,8 @@ pub fn summary(data: &[u8]) {
         // a prefix change (milli, micro, nano) where a part's first number says so
         if part.first().is_some_and(|x| x % 5 == 0) && s.next_item() > first {
             let e = -3 - 3 * (part[0] / 5).rem_euclid(3) as i8;
-            segment = segment.rescaled(s.next_item(), Magnitude::pow10(e));
-            s.segment(segment).expect("an i16 rescaled to nano fits");
+            grid = grid.rescaled(Magnitude::pow10(e));
+            s.set_grid(grid).expect("an i16 rescaled to nano fits");
         }
         s.push(part, i as u32).expect("pushes");
     }

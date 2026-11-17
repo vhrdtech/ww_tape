@@ -10,19 +10,19 @@
 //!   An overview of a track reads only the level whose nodes are about as many as the pixels, never the items.
 //! - **Series summaries** ([Tree::Series]): nodes of `2^base_shift` samples at level 0 ([SeriesSummarySpec]). A node
 //!   holds per channel the statistics the track declares ([SeriesStats]); no ticks, since a series' sample ticks
-//!   follow from its segments' grids and period.
+//!   follow from the grids its chunks carry and its period.
 //!
 //! Every statistic merges: a parent is its 16 children merged ([EventNode::merge], [ChannelStats::merge]), in item
 //! order, so a reader building coarser bins (a view cache) gets what the writer would have written.
 //!
 //! # Scales
 //!
-//! A series segment may change the scale of the stored numbers (an autoranging device changes prefix), and nodes run
+//! A series chunk may change the scale of the stored numbers (an autoranging device changes prefix), and nodes run
 //! over sample indexes, so a node may hold samples of two scales. Such a node is kept at their common scale
 //! ([common_scale]: the largest scale both are whole multiples of, `10⁻⁶` for `10⁻³` and `10⁻⁶`): every number of the
 //! coarser samples is multiplied by a whole factor, so minimum and maximum stay exact integers and sums don't mix
 //! scales ([ChannelStats::rescaled], [SeriesNode::merge]). A summary block states its scale: the common scale of
-//! all its nodes, which it stores at that scale, so a block is read alone, without the segment records. Merging nodes
+//! all its nodes, which it stores at that scale, so a block is read alone, without the chunks. Merging nodes
 //! of two blocks (a view cache across a change of scale) goes through [SeriesNode::merge], which brings both to their
 //! common scale first; two scales with no common scale (a ratio that isn't a fraction of integers) are refused, never
 //! mixed.
@@ -107,8 +107,7 @@ pub const EVENT_BASE_SHIFT: u8 = 11;
 pub const FANOUT_SHIFT: u8 = 4;
 /// Largest node shift: a node holds at most 2^62 items.
 pub const NODE_SHIFT_MAX: u8 = 62;
-/// Most bytes of a series block's scale: a power of 10 takes 2, one with two more primes about 10.
-pub const SCALE_LEN_MAX: usize = 64;
+pub use crate::series::SCALE_LEN_MAX;
 /// Highest level of a tree: a node of the level above would hold more than `2^NODE_SHIFT_MAX` items, so neither tree
 /// grows past it.
 pub const LEVEL_MAX: u8 = NODE_SHIFT_MAX / FANOUT_SHIFT;
@@ -366,7 +365,7 @@ pub enum SummaryError {
     ScaleBytes(shrink_wrap::Error),
     /// Statistics at two scales can't be brought to one.
     Scale(ScaleError),
-    /// A segment a series writer was handed breaks a rule of the series' timeline.
+    /// A grid a series writer was handed breaks a rule of the series' timeline.
     Series(SeriesError),
     /// Samples handed to a series writer are not whole frames of `stride` scalars.
     PartialFrame { stride: usize },
@@ -768,18 +767,7 @@ fn read_scale(bytes: &[u8]) -> Result<Magnitude, SummaryError> {
     if bytes.is_empty() {
         return Err(SummaryError::Invalid("a series block without a scale"));
     }
-    let scale = Magnitude::from_ww_bytes(bytes).map_err(SummaryError::ScaleBytes)?;
-    let mut again = [0u8; SCALE_LEN_MAX];
-    if scale
-        .to_ww_bytes(&mut again)
-        .map_err(SummaryError::ScaleBytes)?
-        != bytes
-    {
-        return Err(SummaryError::Invalid(
-            "scale bytes not as the scale writes them",
-        ));
-    }
-    Ok(scale)
+    crate::series::read_scale(bytes).map_err(SummaryError::ScaleBytes)
 }
 
 /// One statistic of one channel and component over the nodes of a summary block.

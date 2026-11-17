@@ -1,4 +1,4 @@
-//! Series tracks: what a fixed-rate series is ([SeriesDef]), where its samples are in time ([SeriesSegment]) and
+//! Series tracks: what a fixed-rate series is ([SeriesDef]), where its samples are in time ([SeriesGrid]) and
 //! how its numbers come from wire_weaver's quantity types ([SeriesValue]).
 //!
 //! A series track ([TrackKind::Series](crate::TrackKind::Series)) holds samples at an exact period, with no time per
@@ -8,33 +8,36 @@
 //! 48 kHz on a 1 ns clock is `62500/3`), the scale of the stored numbers at the start, the summaries the writer
 //! builds ([SeriesSummarySpec]) and, for samples kept in a media file, the stream they are in ([MediaStream]).
 //!
-//! # Segments
+//! # Grids
 //!
-//! The records of a series track are its [SeriesSegment]s, one at the start and one at every gap, restart or change
-//! of scale. A segment names its first sample's index, a time grid and the scale from there on:
+//! A series track has no records: its samples are in series chunks ([BlockKind::Series]),
+//! and each chunk's head carries the [SeriesGrid] its samples are on, so a chunk times and scales its samples alone.
+//! A grid names a sample index, its tick and the scale of the stored numbers:
 //!
-//! - sample `i` is at tick `grid_tick + (i - grid_index) · period`, rounded down;
-//! - a gap or a restart on the same clock starts a new grid (`grid_index == first_index`) after the last tick of the
-//!   one before;
-//! - a change of scale (a prefix change of an autoranging device) keeps the grid of the segment before, so no sample
-//!   time moves by rounding; the stored numbers mean `number · scale` of the sample type's unit from `first_index` on;
-//! - indexes never go back and no sample is between two segments: segment `k` holds samples `first_index(k)` up to
-//!   `first_index(k + 1)`;
-//! - a device restart that is a new clock is a new track on that clock.
+//! - sample `i` is at tick `grid_tick + (i - grid_index) · period`, rounded down; the grid starts at or before the
+//!   chunk's first sample, and the head's first and last tick are its first and last sample's on it;
+//! - consecutive chunks of one stretch of recording carry the same grid, so no sample time moves by rounding however
+//!   the samples are cut into chunks;
+//! - a change of scale (a prefix change of an autoranging device) keeps the grid ([SeriesGrid::rescaled]): the
+//!   stored numbers of the chunk mean `number · scale` of the sample type's unit; a chunk has one scale, so a writer
+//!   seals the open chunk at a change of scale;
+//! - a gap or a restart on the same clock starts a new grid ([SeriesGrid::start]) whose first sample is after the
+//!   last tick of the chunk before; a device restart that is a new clock is a new track on that clock.
 //!
-//! A segment record's time is its first sample's tick, so record blocks code it like any record. Segments are state,
-//! so the track has the state policy: the caller puts its segment before the chunks, so each tape piece holds the
-//! segment its first samples are in. A segment is self-contained (its grid and scale), so that one record is enough.
-//! The sample chunks are data: each is written once and never repeated.
+//! A **gap** is a chunk whose grid isn't the one of the chunk before it: its first sample's tick is past the last
+//! tick of that chunk by more than a period, and no sample lies between them. A reader draws no line across a gap.
+//! Missing sample indexes between two chunks of one grid are lost samples (a chunk damaged or not in this piece):
+//! their ticks are known, their values not. [SeriesTimeline] collects the grids of a track from its chunk heads and
+//! checks each chunk against its neighbours.
 //!
-//! A series chunk ([BlockKind::Series](crate::BlockKind::Series)) never spans two segments: its head's first and last
-//! tick are its first and last sample's on the segment's grid ([SeriesTimeline::check_chunk]), and its numbers are at
-//! one scale. A writer seals the open chunk at a segment.
+//! The sample chunks are data, like event chunks: each is written once and never repeated, so a series track takes
+//! the plain policy ([TrackRepeat::Stream](crate::TrackRepeat::Stream)). The index lists each chunk's first sample
+//! and first tick, so a reader finds the chunk of a sample or a time without reading any head.
 //!
 //! Summary nodes run over sample indexes, so a node may span a change of scale. It is kept at the common scale of its
 //! samples, every number of the coarser ones multiplied by a whole factor, and each summary block states its scale
-//! ([summary](crate::summary#scales)). The writer takes each segment with
-//! [SeriesSummaries::segment](crate::summary::SeriesSummaries::segment).
+//! ([summary](crate::summary#scales)). The writer gives each grid to
+//! [SeriesSummaries::set_grid](crate::summary::SeriesSummaries::set_grid).
 //!
 //! # Sample codecs and `Series<T>` codecs
 //!
@@ -46,7 +49,7 @@
 //! | reads | from the start, item by item, all columns in step | any sample range, a group of 128 (delta) or 1024 (XOR) alone, in place |
 //! | codecs | delta, delta of delta, packed, prefix code, XOR; picked per column and batch | raw device formats, delta and delta of delta bit-packed per group, XOR (Gorilla, Chimp) |
 //! | costs | MCU-sized: a few hundred instructions per item, a few KB of flash | host-sized: SIMD unpack kernels, about 0.2 ns per value |
-//! | scale | a prefix run and a number type per item (`Quantity`) or in the type (`Fixed`); a prefix change restarts the numeric column | one scale per segment; a prefix change starts a segment, and the chunk is sealed there |
+//! | scale | a prefix run and a number type per item (`Quantity`) or in the type (`Fixed`); a prefix change restarts the numeric column | one scale per chunk; a prefix change seals the chunk |
 //!
 //! Neither is a container of the other. A batch is decoded once on the host and its numbers coded again for the
 //! file: the wire codec is tuned for a small encoder, the file codec for random access and fast reads.
@@ -58,24 +61,24 @@
 //! 1. Decode the batch with `Series::<T>::from_ww_bytes` and walk its items (`iter()`), zero-copy.
 //! 2. `T` is a `Fixed<U, P, R>` (or a `Complex`): the stored number is `item.get()`, an `R`, the element is `R`'s and
 //!    the scale is `P`'s ([SeriesValue::ELEMENT], [SeriesValue::SCALE]): [SeriesValue::write_parts] puts the
-//!    numbers into the open chunk's column, channels interleaved. The scale never changes, so no segment does.
-//! 3. `T` is a `ww_si` quantity: its prefix is the segment's scale (`Prefix::magnitude`); while it stays the same,
+//!    numbers into the open chunk's column, channels interleaved. The scale never changes.
+//! 3. `T` is a `ww_si` quantity: its prefix is the grid's scale (`Prefix::magnitude`); while it stays the same,
 //!    the number of its `NumericValue` goes into the column as the track's element, widened exactly (an `i16` into
-//!    an `i32` column), never narrowed. An item with another prefix seals the chunk and starts a segment with the
-//!    same grid and the new scale ([SeriesSegment::rescaled]). The `Series` itself restarts its numeric column at
-//!    the same item, so both layers break at the same place.
+//!    an `i32` column), never narrowed. An item with another prefix seals the chunk; the next chunk carries the same
+//!    grid with the new scale ([SeriesGrid::rescaled]). The `Series` itself restarts its numeric column at the same
+//!    item, so both layers break at the same place.
 //! 4. A sealed column is coded with [samples::encode](crate::samples::encode) in the track's codec and written as a
-//!    chunk whose head [SeriesTimeline::chunk_ticks] gives.
+//!    chunk whose head carries its grid and the ticks [SeriesGrid::chunk_ticks] gives.
 //!
 //! The batch's time column (`Series<Timed<T>>`) is not stored: the grid gives every sample's tick. A host checks it
-//! against the grid and starts a segment where the device's samples left it (a gap, a restart).
+//! against the grid and starts a new grid where the device's samples left it (a gap, a restart).
 
 #[cfg(test)]
 mod tests;
 #[cfg(feature = "alloc")]
 mod timeline;
 #[cfg(feature = "alloc")]
-pub use timeline::SeriesTimeline;
+pub use timeline::{SeriesStretch, SeriesTimeline};
 
 use exact_units::{
     Bounds, Complex, ComplexStorage, Fixed, FixedScale, Magnitude, Ratio64, Rounding, Storage,
@@ -86,7 +89,7 @@ use shrink_wrap::prelude::*;
 #[cfg(feature = "std")]
 use crate::TypeRefOwned;
 use crate::summary::SeriesSummarySpec;
-use crate::{Element, Sample, SampleShape, TypeRef};
+use crate::{BlockKind, ChunkHead, Element, Sample, SampleShape, TypeRef};
 
 /// Most channels of a series: a chunk column and a summary name a channel by a `u16`.
 #[expect(
@@ -107,7 +110,7 @@ pub struct SeriesDef<'i> {
     /// Ticks of the track's clock from one sample to the next, exact.
     pub period: Ratio64,
     /// What a stored number is worth in the sample type's unit at the start: `10⁻³` for `Fixed<Ampere, Milli, i32>`,
-    /// 1 for a float. A [SeriesSegment] may change it.
+    /// 1 for a float. A chunk's [SeriesGrid] may change it.
     pub scale: Magnitude,
     /// The summaries the writer builds; None for none (a wide vector series).
     pub summaries: Option<SeriesSummarySpec>,
@@ -124,68 +127,92 @@ pub struct MediaStream<'i> {
     pub stream: UNib32,
 }
 
-/// Why a series definition, segment or chunk doesn't fit.
+/// Why a series definition or chunk doesn't fit.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum SeriesError {
-    /// A record doesn't decode as a [SeriesSegment].
-    Decode(shrink_wrap::Error),
     /// The definition's shape, period or summaries break a rule: an element this reader doesn't know, no channels or
-    /// more than [SERIES_CHANNELS_MAX], a summary spec [SeriesSummaries](crate::summary::SeriesSummaries) refuses.
+    /// more than [SERIES_CHANNELS_MAX], a summary spec [SeriesSummaries](crate::summary::SeriesSummaries) refuses,
+    /// a state policy.
     Def(&'static str),
-    /// The grid starts after the segment's first sample.
-    GridAfterFirst { first_index: u64, grid_index: u64 },
+    /// A chunk that isn't a series chunk with a grid.
+    NotSeriesChunk { first_item: u64 },
+    /// A run of no samples, or one numbered past u64.
+    NoSamples { first_item: u64 },
+    /// The grid starts after the chunk's first sample.
+    GridAfterFirst { first_item: u64, grid_index: u64 },
     /// A sample's tick doesn't fit in i64.
     TickOverflow { index: u64 },
-    /// A segment's first index isn't above the one before.
-    NotAscending { first_index: u64, previous: u64 },
-    /// A segment with the same first index as one already there, but other content.
-    Conflict { first_index: u64 },
-    /// A new grid starts at or before the last sample of the segment before.
-    TimeNotIncreasing { first_index: u64 },
-    /// The record's time isn't its first sample's tick.
-    RecordTime { first_index: u64 },
-    /// A sample before the first segment.
-    NoSegment { index: u64 },
-    /// A chunk that isn't a series chunk of samples inside one segment.
-    ChunkSpan { first_item: u64 },
-    /// A chunk head's first or last tick isn't its samples' on the grid.
+    /// A chunk head's first or last tick isn't its samples' on its grid.
     ChunkTicks { first_item: u64 },
+    /// A chunk holds samples another chunk holds, on another grid or at another scale.
+    Overlap { first_item: u64 },
+    /// A new grid whose first sample is at or before the last tick of the chunk before, or whose last is at or
+    /// after the first tick of the chunk after.
+    TimeNotIncreasing { first_item: u64 },
 }
 
-/// The start of a stretch of a series: its first sample, its time grid and its scale. A record of the series track,
-/// at its first sample's tick; see the [module docs](self#segments).
-#[derive_shrink_wrap(
-    borrowed,
-    owned(feature = "std"),
-    derive(Debug, PartialEq, Eq, Clone, Copy, Hash)
-)]
-pub struct SeriesSegment {
-    /// Index of the segment's first sample in the track.
-    pub first_index: u64,
-    /// The sample the grid counts from, at most [Self::first_index].
+impl core::fmt::Display for SeriesError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            SeriesError::Def(why) => write!(f, "series definition: {why}"),
+            SeriesError::NotSeriesChunk { first_item } => {
+                write!(
+                    f,
+                    "chunk at sample {first_item}: not a series chunk with a grid"
+                )
+            }
+            SeriesError::NoSamples { first_item } => {
+                write!(f, "chunk at sample {first_item}: no samples, or past u64")
+            }
+            SeriesError::GridAfterFirst {
+                first_item,
+                grid_index,
+            } => write!(
+                f,
+                "chunk at sample {first_item}: grid starts later, at sample {grid_index}"
+            ),
+            SeriesError::TickOverflow { index } => write!(f, "sample {index}: tick past i64"),
+            SeriesError::ChunkTicks { first_item } => write!(
+                f,
+                "chunk at sample {first_item}: first or last tick not its samples' on its grid"
+            ),
+            SeriesError::Overlap { first_item } => write!(
+                f,
+                "chunk at sample {first_item}: holds samples of another chunk on another grid or scale"
+            ),
+            SeriesError::TimeNotIncreasing { first_item } => write!(
+                f,
+                "chunk at sample {first_item}: a new grid not after the chunk before or before the chunk after"
+            ),
+        }
+    }
+}
+
+/// The time grid and scale of a series chunk's samples, carried in its head; see the [module docs](self#grids).
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct SeriesGrid {
+    /// The sample the grid counts from, at most the chunk's first sample.
     pub grid_index: u64,
     /// Tick of sample [Self::grid_index].
     pub grid_tick: i64,
-    /// What a stored number is worth in the sample type's unit, from [Self::first_index] on.
+    /// What a stored number of the chunk is worth in the sample type's unit.
     pub scale: Magnitude,
 }
 
-impl SeriesSegment {
-    /// A segment with a grid of its own: the start of a series, or after a gap or a restart.
-    pub const fn start(first_index: u64, tick: i64, scale: Magnitude) -> Self {
-        SeriesSegment {
-            first_index,
-            grid_index: first_index,
+impl SeriesGrid {
+    /// A grid of its own from sample `index` at `tick`: the start of a series, or after a gap or a restart.
+    pub const fn start(index: u64, tick: i64, scale: Magnitude) -> Self {
+        SeriesGrid {
+            grid_index: index,
             grid_tick: tick,
             scale,
         }
     }
 
-    /// The segment that changes the scale from `first_index` on and keeps this one's grid.
-    pub const fn rescaled(&self, first_index: u64, scale: Magnitude) -> Self {
-        SeriesSegment {
-            first_index,
+    /// The same grid at another scale: after a prefix change.
+    pub const fn rescaled(&self, scale: Magnitude) -> Self {
+        SeriesGrid {
             grid_index: self.grid_index,
             grid_tick: self.grid_tick,
             scale,
@@ -199,28 +226,77 @@ impl SeriesSegment {
             .checked_add(period.apply_rounded(steps, Rounding::Floor)?)
     }
 
-    /// Tick of the first sample, checked: the grid starts at or before it and the tick fits.
-    pub fn first_tick(&self, period: Ratio64) -> Result<i64, SeriesError> {
-        if self.grid_index > self.first_index {
+    /// Whether `other` is the same grid, whatever its scale.
+    pub fn same_grid(&self, other: &SeriesGrid) -> bool {
+        self.grid_index == other.grid_index && self.grid_tick == other.grid_tick
+    }
+
+    /// First and last tick of `count` samples from `first_item` on the grid: what a series chunk head of them holds.
+    pub fn chunk_ticks(
+        &self,
+        period: Ratio64,
+        first_item: u64,
+        count: u32,
+    ) -> Result<(i64, i64), SeriesError> {
+        let last_item = u64::from(count)
+            .checked_sub(1)
+            .and_then(|n| first_item.checked_add(n))
+            .ok_or(SeriesError::NoSamples { first_item })?;
+        if self.grid_index > first_item {
             return Err(SeriesError::GridAfterFirst {
-                first_index: self.first_index,
+                first_item,
                 grid_index: self.grid_index,
             });
         }
-        self.tick(period, self.first_index)
-            .ok_or(SeriesError::TickOverflow {
-                index: self.first_index,
-            })
+        let first = self
+            .tick(period, first_item)
+            .ok_or(SeriesError::TickOverflow { index: first_item })?;
+        let last = self
+            .tick(period, last_item)
+            .ok_or(SeriesError::TickOverflow { index: last_item })?;
+        Ok((first, last))
     }
 
-    /// The segment a series record's item holds.
-    pub fn from_record(item: &[u8]) -> Result<Self, SeriesError> {
-        SeriesSegment::from_ww_bytes(item).map_err(SeriesError::Decode)
+    /// The grid of a series chunk's head, checked: its first and last tick are its samples' on the grid.
+    pub fn of_chunk(head: &ChunkHead, period: Ratio64) -> Result<SeriesGrid, SeriesError> {
+        let grid = match (head.kind, head.grid) {
+            (BlockKind::Series, Some(g)) => g,
+            _ => {
+                return Err(SeriesError::NotSeriesChunk {
+                    first_item: head.first_item,
+                });
+            }
+        };
+        let (first, last) = grid.chunk_ticks(period, head.first_item, head.count)?;
+        if head.first_tick != first || head.last_tick != last {
+            return Err(SeriesError::ChunkTicks {
+                first_item: head.first_item,
+            });
+        }
+        Ok(grid)
     }
+}
 
-    /// Whether `other` is on the same time grid.
-    pub fn same_grid(&self, other: &SeriesSegment) -> bool {
-        self.grid_index == other.grid_index && self.grid_tick == other.grid_tick
+/// Bytes a scale takes at most: a power of 10 takes 2, one with two more primes about 10.
+pub const SCALE_LEN_MAX: usize = 64;
+
+/// The shrink_wrap bytes of `scale` in `buf`.
+pub(crate) fn scale_bytes(
+    scale: &Magnitude,
+    buf: &mut [u8; SCALE_LEN_MAX],
+) -> Result<usize, shrink_wrap::Error> {
+    scale.to_ww_bytes(buf).map(<[u8]>::len)
+}
+
+/// The scale `bytes` hold, refused unless they are exactly the bytes [scale_bytes] writes for it.
+pub(crate) fn read_scale(bytes: &[u8]) -> Result<Magnitude, shrink_wrap::Error> {
+    let scale = Magnitude::from_ww_bytes(bytes)?;
+    let mut again = [0u8; SCALE_LEN_MAX];
+    let n = scale_bytes(&scale, &mut again)?;
+    if again.get(..n) == Some(bytes) {
+        Ok(scale)
+    } else {
+        Err(shrink_wrap::Error::SubtypeOutOfRange)
     }
 }
 
@@ -290,9 +366,9 @@ impl<'i> SeriesDef<'i> {
         check_def(self.shape, self.summaries)
     }
 
-    /// The first segment: sample 0 at `tick`, at the definition's scale.
-    pub fn first_segment(&self, tick: i64) -> SeriesSegment {
-        SeriesSegment::start(0, tick, self.scale)
+    /// The grid of the first chunk: sample 0 at `tick`, at the definition's scale.
+    pub fn first_grid(&self, tick: i64) -> SeriesGrid {
+        SeriesGrid::start(0, tick, self.scale)
     }
 }
 

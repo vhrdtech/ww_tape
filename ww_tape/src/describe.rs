@@ -407,8 +407,8 @@ pub struct TrackDef<'i> {
     pub item: Option<TypeRef<'i>>,
     /// A name for people (`link[1].rx.frames`); readers go by `path`.
     pub label: &'i str,
-    /// Whether the track's records are events or state. Always [TrackRepeat::State] for a series, whose records are
-    /// its [SeriesSegment](crate::series::SeriesSegment)s.
+    /// Whether the track's records are events or state. Always [TrackRepeat::Stream] for a series: its chunks are
+    /// data and carry their own grid ([SeriesGrid](crate::series::SeriesGrid)).
     pub repeat: TrackRepeat,
     /// How the track's items are stored: events or a fixed-rate series.
     pub kind: TrackKind<'i>,
@@ -480,7 +480,7 @@ pub enum TrackKind<'i> {
     /// chunks ([BlockKind::Events](crate::BlockKind::Events)).
     Events(EventsDef),
     /// Samples at an exact period, no time per sample: in series chunks ([BlockKind::Series](crate::BlockKind::Series)),
-    /// timed by the track's [SeriesSegment](crate::series::SeriesSegment) records.
+    /// each timed and scaled by the [SeriesGrid](crate::series::SeriesGrid) its head carries.
     Series(SeriesDef<'i>),
 }
 
@@ -565,15 +565,15 @@ impl<'i> TrackDef<'i> {
         }
     }
 
-    /// Check what the kind asks of the track: a series has the state policy (its segments are state, its sample
-    /// chunks data), names its sample type in its definition (not in [Self::item]) and has a valid [SeriesDef].
+    /// Check what the kind asks of the track: a series has the plain policy (its chunks are data and carry their
+    /// grids), names its sample type in its definition (not in [Self::item]) and has a valid [SeriesDef].
     pub fn check_kind(&self) -> Result<(), crate::SeriesError> {
         let Some(s) = self.series() else {
             return Ok(());
         };
-        if self.repeat.state().is_none() {
+        if self.repeat.state().is_some() {
             return Err(crate::SeriesError::Def(
-                "a series track takes the state policy: its segments are state",
+                "a series track takes the plain policy: its chunks are data",
             ));
         }
         if self.item.is_some() {

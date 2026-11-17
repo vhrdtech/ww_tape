@@ -463,6 +463,7 @@ fn samples_golden() {
         latest_end: (n as i64 - 1) * 20,
         time_mode: 0,
         end_mode: crate::EndMode::Absent,
+        grid: Some(crate::SeriesGrid::start(1000, 0, crate::Magnitude::ONE)),
     };
     let spec = |codec, param, len| crate::ColumnSpec {
         kind: crate::ColumnKind::Samples,
@@ -475,7 +476,7 @@ fn samples_golden() {
         (spec(Codec::DELTA, 1, c1.len()), &c1[..]),
     ];
     let specs: Vec<_> = cols.iter().map(|c| c.0).collect();
-    let mut block = vec![0u8; crate::chunk::chunk_len(&specs, 0)];
+    let mut block = vec![0u8; crate::chunk::chunk_len(&head, &specs, 0)];
     let len = crate::chunk::write_chunk(&mut block, id(1), &head, &cols, 0).unwrap();
     block.truncate(len);
     let read = crate::Block::read(&block).unwrap();

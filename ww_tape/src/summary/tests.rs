@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use super::*;
-use crate::{Block, BlockError, Ratio64, SampleShape, SeriesSegment};
+use crate::{Block, BlockError, Ratio64, SampleShape, SeriesGrid};
 
 /// xorshift64*: workloads without a dependency.
 struct Rng(u64);
@@ -328,7 +328,7 @@ fn series_blocks<T: Scalar>(
         track_number: 2,
         shape,
         first_item,
-        segment: SeriesSegment::start(first_item, 1000, Magnitude::ONE),
+        grid: SeriesGrid::start(first_item, 1000, Magnitude::ONE),
         period: Ratio64::new(62_500, 3).unwrap(),
     };
     let mut s = SeriesSummaries::<T>::new(start, spec).unwrap();
@@ -661,7 +661,7 @@ fn series_refuses_partial_frames() {
         track_number: 1,
         shape,
         first_item: 0,
-        segment: SeriesSegment::start(0, 0, Magnitude::ONE),
+        grid: SeriesGrid::start(0, 0, Magnitude::ONE),
         period: Ratio64::ONE,
     };
     let mut s =
@@ -680,7 +680,7 @@ fn series_refuses_bad_specs() {
         track_number: 1,
         shape,
         first_item: 0,
-        segment: SeriesSegment::start(0, 0, Magnitude::ONE),
+        grid: SeriesGrid::start(0, 0, Magnitude::ONE),
         period: Ratio64::ONE,
     };
     let s = |shape, spec| SeriesSummaries::<i16>::new(start(shape), spec).err();
@@ -853,7 +853,7 @@ fn series_head_caps() {
         track_number: 1,
         shape: SampleShape::scalar(Element::I16),
         first_item: 0,
-        segment: SeriesSegment::start(0, 0, Magnitude::pow10(-3)),
+        grid: SeriesGrid::start(0, 0, Magnitude::pow10(-3)),
         period: Ratio64::int(1000).unwrap(),
     };
     let mut s =
@@ -911,14 +911,20 @@ fn summaries_fill_alignment_gaps() {
         let mut w = TapeWriter::create(&path, SyncPolicy::None).unwrap();
         w.set_alignment(crate::ALIGNMENT).unwrap();
         let mut defs = crate::Definitions::new();
-        defs.define_all(&crate::tests::test_definitions(1, &[1]))
-            .unwrap();
+        let mut held = crate::tests::test_definitions(1, &[]);
+        held.push(crate::tests::test_series_track(
+            1,
+            1,
+            1,
+            Ratio64::int(1000).unwrap(),
+        ));
+        defs.define_all(&held).unwrap();
         let start = SeriesStart {
             track_id: 7,
             track_number: 1,
             shape,
             first_item: 0,
-            segment: SeriesSegment::start(0, 0, Magnitude::pow10(-3)),
+            grid: SeriesGrid::start(0, 0, Magnitude::pow10(-3)),
             period: Ratio64::int(1000).unwrap(),
         };
         let mut s =
@@ -946,6 +952,7 @@ fn summaries_fill_alignment_gaps() {
                 latest_end: (first as i64 + chunk as i64 - 1) * 1000,
                 time_mode: 0,
                 end_mode: EndMode::Absent,
+                grid: Some(crate::SeriesGrid::start(0, 0, Magnitude::ONE)),
             };
             let col = ColumnSpec {
                 kind: ColumnKind::Samples,
@@ -1040,7 +1047,7 @@ fn summary_golden() {
             track_number: 3,
             shape,
             first_item: 30,
-            segment: SeriesSegment::start(30, -100, Magnitude::pow10(-3)),
+            grid: SeriesGrid::start(30, -100, Magnitude::pow10(-3)),
             period: Ratio64::new(62_500, 3).unwrap(),
         };
         let mut s =
@@ -1052,8 +1059,8 @@ fn summary_golden() {
         // a prefix change from milli to micro at sample 170, mid-node
         let (a, b) = xs.split_at((170 - 30) * 4);
         s.push(a, 0x10).unwrap();
-        let micro = start.segment.rescaled(170, Magnitude::pow10(-6));
-        s.segment(micro).unwrap();
+        s.set_grid(start.grid.rescaled(Magnitude::pow10(-6)))
+            .unwrap();
         s.push(b, 0x10).unwrap();
         s.finish().unwrap();
         blocks.extend(s.take_blocks());
@@ -1190,13 +1197,13 @@ fn series_prefix_changes_match_naive_model_in_the_unit() {
             .collect();
         at.sort_unstable();
         at.dedup();
-        let first = SeriesSegment::start(first_item, 0, scales[0]);
+        let first = SeriesGrid::start(first_item, 0, scales[0]);
         let start = SeriesStart {
             track_id: 9,
             track_number: 1,
             shape,
             first_item,
-            segment: first,
+            grid: first,
             period: Ratio64::new(62_500, 3).unwrap(),
         };
         let mut s =
@@ -1226,8 +1233,8 @@ fn series_prefix_changes_match_naive_model_in_the_unit() {
                 k_push += 1;
             }
             if to < end {
-                seg = seg.rescaled(to, scales[rng.below(4) as usize]);
-                s.segment(seg).unwrap();
+                seg = seg.rescaled(scales[rng.below(4) as usize]);
+                s.set_grid(seg).unwrap();
             }
         }
         for (i, scale) in scale_of.iter().enumerate() {
@@ -1349,45 +1356,54 @@ fn series_prefix_changes_match_naive_model_in_the_unit() {
 /// A change of scale that can't be kept exactly is an error, never a silent mix.
 #[test]
 fn series_scale_changes_refused() {
-    let start = |first: SeriesSegment| SeriesStart {
+    let start = |first: SeriesGrid| SeriesStart {
         track_id: 1,
         track_number: 1,
         shape: SampleShape::scalar(Element::I64),
         first_item: 0,
-        segment: first,
+        grid: first,
         period: Ratio64::ONE,
     };
     let sp = spec(4, SeriesStats::all(Element::I64), None);
-    let first = SeriesSegment::start(0, 0, Magnitude::ONE);
+    let first = SeriesGrid::start(0, 0, Magnitude::ONE);
     let mut s = SeriesSummaries::<i64>::new(start(first), sp).unwrap();
     s.push(&[1, 2, 3], 0).unwrap();
     assert_eq!(
-        s.segment(first.rescaled(3, Magnitude::PI)),
+        s.set_grid(first.rescaled(Magnitude::PI)),
         Err(SummaryError::Scale(ScaleError::NoCommonScale))
     );
     assert!(
         matches!(
-            s.segment(first.rescaled(2, Magnitude::pow10(-3))),
-            Err(SummaryError::Invalid(_))
+            s.set_grid(SeriesGrid::start(3, 2, Magnitude::ONE)),
+            Err(SummaryError::Series(SeriesError::TimeNotIncreasing {
+                first_item: 3
+            }))
         ),
-        "a segment not at the next sample"
+        "a new grid not after the last sample"
+    );
+    assert!(
+        matches!(
+            s.set_grid(SeriesGrid::start(4, 9, Magnitude::ONE)),
+            Err(SummaryError::Series(SeriesError::GridAfterFirst { .. }))
+        ),
+        "a grid after the next sample"
     );
     // a value that doesn't fit i64 at the finer scale
     s.push(&[i64::MAX / 2], 0).unwrap();
-    s.segment(first.rescaled(4, Magnitude::pow10(-3))).unwrap();
+    s.set_grid(first.rescaled(Magnitude::pow10(-3))).unwrap();
     s.push(&[5], 0).unwrap();
     assert_eq!(s.finish(), Err(SummaryError::Scale(ScaleError::Overflow)));
     // a pending open node across the change reports it too
     let mut s = SeriesSummaries::<i64>::new(start(first), sp).unwrap();
     s.push(&[i64::MAX / 2], 0).unwrap();
-    s.segment(first.rescaled(1, Magnitude::pow10(-3))).unwrap();
+    s.set_grid(first.rescaled(Magnitude::pow10(-3))).unwrap();
     s.push(&[5], 0).unwrap();
     assert_eq!(
         s.pending(0).err(),
         Some(SummaryError::Scale(ScaleError::Overflow))
     );
-    // a first sample before its segment
-    let late = SeriesSegment::start(10, 0, Magnitude::ONE);
+    // a grid that starts after the first sample
+    let late = SeriesGrid::start(10, 0, Magnitude::ONE);
     assert!(SeriesSummaries::<i64>::new(start(late), sp).is_err());
 }
 
@@ -1395,14 +1411,14 @@ fn series_scale_changes_refused() {
 #[test]
 fn series_block_scale_is_checked() {
     let shape = SampleShape::scalar(Element::I16);
-    let first = SeriesSegment::start(0, 0, Magnitude::pow10(-3));
+    let first = SeriesGrid::start(0, 0, Magnitude::pow10(-3));
     let mut s = SeriesSummaries::<i16>::new(
         SeriesStart {
             track_id: 1,
             track_number: 1,
             shape,
             first_item: 0,
-            segment: first,
+            grid: first,
             period: Ratio64::ONE,
         },
         spec(4, SeriesStats::all(shape.element), None),
@@ -1450,7 +1466,7 @@ fn series_block_scale_is_checked() {
 fn series_cut_into_pieces_keeps_node_ticks() {
     let shape = SampleShape::scalar(Element::I16);
     let period = Ratio64::new(62_500, 3).unwrap();
-    let segment = SeriesSegment::start(0, 1000, Magnitude::ONE);
+    let segment = SeriesGrid::start(0, 1000, Magnitude::ONE);
     let data: Vec<i16> = (0..9000).map(|i| ((i * 31) % 2000 - 1000) as i16).collect();
     let summarise = |from: usize, to: usize| -> Vec<Vec<u8>> {
         let start = SeriesStart {
@@ -1458,7 +1474,7 @@ fn series_cut_into_pieces_keeps_node_ticks() {
             track_number: 2,
             shape,
             first_item: from as u64,
-            segment,
+            grid: segment,
             period,
         };
         let mut s =

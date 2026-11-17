@@ -8,7 +8,7 @@ use std::path::Path;
 use ww_tape::times::EventTimes;
 use ww_tape::{
     Block, Describe, Element, ItemHash, Layout, Medium, MemSink, OpenOptions, Ratio64, SampleShape,
-    Samples, SeriesSegment, SeriesTimeline, Slot, TapeReader, TapeSink, TapeWriter, TrackKind,
+    Samples, SeriesGrid, SeriesTimeline, Slot, TapeReader, TapeSink, TapeWriter, TrackKind,
     block_len,
 };
 
@@ -111,7 +111,7 @@ fn series_def(b: &[u8]) -> Option<(SampleShape, Ratio64)> {
             let _ = (t.check_kind(), t.id(), t.dimensions_canonical());
             match t.kind {
                 TrackKind::Series(s) => {
-                    let _ = (s.check(), s.first_segment(0));
+                    let _ = (s.check(), s.first_grid(0));
                     Some((s.shape, s.period))
                 }
                 _ => None,
@@ -184,23 +184,20 @@ pub fn series_hostile(data: &[u8]) {
         .first()
         .and_then(|b| series_def(b))
         .map_or(Ratio64::new(1, 1).expect("a ratio"), |(_, p)| p);
-    let Some(Ok(block)) = bs.get(1).map(|b| Block::read(b)) else {
-        return;
-    };
-    let records: Vec<(i64, &[u8])> = block
-        .records()
-        .flatten()
-        .filter_map(|r| Some((r.at?.ticks, r.item)))
+    let heads: Vec<_> = bs
+        .iter()
+        .skip(1)
+        .filter_map(|b| Some(Block::read(b).ok()?.chunk()?.head()))
         .collect();
-    for (_, item) in &records {
-        if let Ok(s) = SeriesSegment::from_record(item) {
-            let _ = (s.first_tick(period), s.tick(period, s.first_index));
+    for h in &heads {
+        if let Ok(g) = SeriesGrid::of_chunk(h, period) {
+            let _ = g.tick(period, h.first_item);
         }
     }
-    let (t, _) = SeriesTimeline::from_records(period, records.iter().copied());
+    let (t, _) = SeriesTimeline::from_chunks(period, &heads);
     series::check(&t);
     let count = data.len() as u32 % 300;
-    let firsts: Vec<u64> = t.segments().iter().map(|s| s.first_index).collect();
+    let firsts: Vec<u64> = t.stretches().iter().map(|s| s.first_item).collect();
     for at in firsts {
         series::query(&t, at, count);
     }

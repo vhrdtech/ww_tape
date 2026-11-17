@@ -112,9 +112,9 @@ A record written by a put or as a copy goes into a block marked with the header 
 already holds the same item in that slot takes the record as nothing new. A state item is never written ahead of a use:
 a track whose data has stopped costs nothing until its data continues.
 
-A series track shows where the line between state and data runs. Its records are its **series segments**, which say
-where its samples sit in time; they are state and lie near the samples they time. Its sample chunks are data: each is
-written once and never repeated.
+A series track shows where the line between state and data runs: it holds no state at all. Each sample chunk carries
+its own **grid**, the tick of one sample, and the scale of its numbers, so it places its samples in time alone and
+nothing has to be kept near it. The chunks are data: each is written once and never repeated.
 
 ## Sessions, pieces, chains and owners
 

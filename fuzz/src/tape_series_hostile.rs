@@ -1,5 +1,5 @@
-//! A ww_tape series track and segment records of hostile indexes, ticks and scales (ww_tape_fuzz::hostile::series),
-//! built into a timeline and queried.
+//! A ww_tape series track and series chunks of hostile first samples, ticks, grids and scales
+//! (ww_tape_fuzz::hostile::series), built into a timeline and queried.
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;

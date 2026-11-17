@@ -78,8 +78,8 @@ Data goes into the file in four forms:
 - **State items.** Put a state track's item with `TapeWriter::put` each time the producer uses it.
 
 A state track takes its items only through puts. A caller's records on a state track in a block of data are refused, and
-so is an events chunk on a state track. A series track is the one state track with chunks: its series segments are put,
-and its samples go into series chunks as data.
+so is an events chunk on a state track. A series track has no records: its samples go into series chunks as data, each
+chunk's head carrying its grid and scale, and a record, a put or an events chunk on it is refused.
 
 ### Puts, near and copies
 

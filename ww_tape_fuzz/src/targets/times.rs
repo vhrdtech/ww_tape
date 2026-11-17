@@ -99,7 +99,7 @@ pub fn times(data: &[u8]) {
     let enc = EncodedTimes::encode(&starts, Some(&ends), Some(&flags)).expect("valid times");
     let cols: Vec<_> = enc.columns().collect();
     let specs: Vec<ColumnSpec> = cols.iter().map(|c| c.0).collect();
-    let mut buf = vec![0u8; chunk_len(&specs, 0)];
+    let mut buf = vec![0u8; chunk_len(&enc.head.chunk_head(1, 1, 0), &specs, 0)];
     let len = write_chunk(
         &mut buf,
         ww_tape::BlockId::new(ww_tape::SessionTag::writable(1), 1),

@@ -22,7 +22,7 @@ use crate::state::{DefinitionKind, ItemHash, Slot};
 use crate::{
     Block, BlockId, BlockKind, BlockWriter, CRC_LEN, ClockOrigin, ClockTime, DESCRIBE_TRACK,
     Describe, HEADER_LEN, MAX_BLOCK_CLOCKS, MAX_BLOCK_LEN, MAX_CLOCK_TABLE, MAX_RECORD_HEAD,
-    StatePolicy, TrackKind,
+    StatePolicy,
 };
 
 /// Bytes of a record block before its records: header, the longest clock table and CRC.
@@ -69,6 +69,8 @@ pub enum DescribeError {
         track: u32,
         error: crate::SeriesError,
     },
+    /// A record or an events chunk on a series track, or a series chunk on an events track.
+    WrongKind { track: u32 },
     /// An events chunk of a state track: its items are put one by one.
     StateChunk { track: u32 },
     /// A record of a state track in a caller's block: its items are put ([TapeWriter::put](crate::TapeWriter::put)).
@@ -131,7 +133,11 @@ impl core::fmt::Display for DescribeError {
                 f,
                 "the producer and the layout are the writer's own (WriterOptions), not definitions to hold"
             ),
-            DescribeError::Kind { track, error } => write!(f, "track {track}: {error:?}"),
+            DescribeError::Kind { track, error } => write!(f, "track {track}: {error}"),
+            DescribeError::WrongKind { track } => write!(
+                f,
+                "track {track}: a record or events chunk on a series track, or a series chunk on an events track"
+            ),
             DescribeError::StateChunk { track } => write!(
                 f,
                 "track {track} is a state track: its items are put, not written in events chunks"
@@ -170,8 +176,8 @@ pub struct TrackFacts {
     pub clock: u32,
     /// [TrackDef::repeat](crate::TrackDef::repeat)'s policy, None for a stream.
     pub state: Option<StatePolicy>,
-    /// An events track (not a series).
-    pub events: bool,
+    /// The period of a series track, in ticks per sample; None for an events track.
+    pub period: Option<crate::Ratio64>,
 }
 
 impl TrackFacts {
@@ -179,7 +185,7 @@ impl TrackFacts {
         TrackFacts {
             clock: t.clock.0,
             state: t.repeat.state(),
-            events: matches!(t.kind, TrackKind::Events(_)),
+            period: t.series().map(|s| s.period),
         }
     }
 }
@@ -626,6 +632,9 @@ impl Definitions {
                 return Err(DescribeError::DefinitionBlock);
             };
             let t = self.check_on_track(r.track, at)?;
+            if t.period.is_some() {
+                return Err(DescribeError::WrongKind { track: r.track });
+            }
             if t.state.is_some() {
                 return Err(DescribeError::StateRecord { track: r.track });
             }
@@ -648,23 +657,37 @@ impl Definitions {
         Ok(t)
     }
 
-    /// Check a chunk or summary block's track before a writer writes it: held, and an events chunk never on a state
-    /// track.
+    /// Check a chunk or summary block's track before a writer writes it: held, an events chunk on an events track
+    /// that isn't a state track, a series chunk on a series track with its ticks on its grid.
     fn check_track_block(&self, b: &Block<'_>) -> Result<(), DescribeError> {
-        let (track, events) = if let Some(c) = b.chunk() {
-            (c.head().track_number, b.kind == BlockKind::Events)
+        if let Some(c) = b.chunk() {
+            self.check_chunk_head(&c.head())
         } else if let Some(s) = b.summary() {
-            (s.head().track_number, false)
+            let track = s.head().track_number;
+            self.track(track)
+                .map(|_| ())
+                .ok_or(DescribeError::UnknownTrack { track })
         } else {
-            return Ok(());
-        };
+            Ok(())
+        }
+    }
+
+    /// Check a chunk head's track before a writer writes it, as [Self::check_block] does.
+    pub fn check_chunk_head(&self, head: &crate::ChunkHead) -> Result<(), DescribeError> {
+        let track = head.track_number;
         let t = self
             .track(track)
             .ok_or(DescribeError::UnknownTrack { track })?;
-        if events && t.state.is_some() {
-            return Err(DescribeError::StateChunk { track });
+        match (head.kind, t.period) {
+            (BlockKind::Events, None) if t.state.is_some() => {
+                Err(DescribeError::StateChunk { track })
+            }
+            (BlockKind::Events, None) => Ok(()),
+            (BlockKind::Series, Some(period)) => crate::SeriesGrid::of_chunk(head, period)
+                .map(|_| ())
+                .map_err(|error| DescribeError::Kind { track, error }),
+            _ => Err(DescribeError::WrongKind { track }),
         }
-        Ok(())
     }
 }
 

@@ -6,7 +6,7 @@ use ww_tape::summary::{
     EventTree, ItemRun, NODE_SHIFT_MAX, SCALE_LEN_MAX, SUMMARY_FIXED_LEN, SeriesStart, SeriesStats,
     SeriesSummaries, SeriesSummarySpec,
 };
-use ww_tape::{Element, EventFields, Magnitude, Ratio64, SampleShape, SeriesSegment};
+use ww_tape::{Element, EventFields, Magnitude, Ratio64, SampleShape, SeriesGrid};
 
 /// The fields of a summary head after the block header.
 const HEAD_FIELDS: [Field; 16] = [
@@ -88,7 +88,7 @@ fn series(d: &mut Draw<'_>) -> Vec<Vec<u8>> {
         track_number: 2,
         shape,
         first_item: first,
-        segment: SeriesSegment::start(first, -5, Magnitude::pow10(-3)),
+        grid: SeriesGrid::start(first, -5, Magnitude::pow10(-3)),
         period: Ratio64::new(3, 2).expect("a ratio"),
     };
     let spec = SeriesSummarySpec {
@@ -100,15 +100,15 @@ fn series(d: &mut Draw<'_>) -> Vec<Vec<u8>> {
         return vec![];
     };
     s.set_max_block_bytes(512);
-    let mut segment = start.segment;
+    let mut grid = start.grid;
     let mut r = d.bits();
     for i in 0..d.below(12) {
         let part: Vec<i16> = (0..lanes * (1 + r.below(40)))
             .map(|_| r.u64() as i16)
             .collect();
         if r.u8().is_multiple_of(5) && s.next_item() > first {
-            segment = segment.rescaled(s.next_item(), Magnitude::pow10(-3 - 3 * r.below(3) as i8));
-            if s.segment(segment).is_err() {
+            grid = grid.rescaled(Magnitude::pow10(-3 - 3 * r.below(3) as i8));
+            if s.set_grid(grid).is_err() {
                 break;
             }
         }

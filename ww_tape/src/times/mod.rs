@@ -450,6 +450,7 @@ impl TimeHead {
             latest_end: self.latest_end,
             time_mode: self.time_mode.to_u8(),
             end_mode: self.end_mode,
+            grid: None,
         }
     }
 }

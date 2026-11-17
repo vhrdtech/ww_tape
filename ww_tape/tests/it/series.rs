@@ -1,5 +1,5 @@
-//! A series track written and read back with ww_tape alone: its definition, its segments (a start, an autorange
-//! prefix change, a gap) and its samples, from `Series<Fixed<..>>` batches to chunk columns without a float.
+//! A series track written and read back with ww_tape alone: its definition, its chunks' grids (a start, an
+//! autorange prefix change, a gap) and its samples, from `Series<Fixed<..>>` batches to chunk columns without a float.
 
 use std::path::PathBuf;
 
@@ -13,7 +13,7 @@ use ww_tape::samples::{Samples, encode, max_encoded_len};
 use ww_tape::{
     BlockKind, ClockDef, ClockOrigin, Codec, ColumnKind, ColumnSpec, Describe, DescribeOwned,
     EndMode, FileBlocks, FullVersion, Layout, Magnitude, Producer, Ratio64, Recovery, SampleShape,
-    Segment, SeriesDef, SeriesSegment, SeriesTimeline, SeriesValue, SyncPolicy, TapeReader,
+    Segment, SeriesDef, SeriesGrid, SeriesTimeline, SeriesValue, SyncPolicy, TapeReader,
     TapeWriter, TrackDef, TrackKind, TypeRef, Version, clock_key, track_key,
 };
 
@@ -107,11 +107,6 @@ fn series_def() -> SeriesDef<'static> {
     SeriesDef::of::<MicroAmps>(Some(sample_type()), CHANNELS, period())
 }
 
-fn encode_value<T: SerializeShrinkWrap>(v: &T) -> Vec<u8> {
-    let mut buf = [0u8; 256];
-    v.to_ww_bytes(&mut buf).unwrap().to_vec()
-}
-
 /// The definitions of the recording.
 fn definitions() -> Vec<Describe<'static>> {
     vec![
@@ -138,7 +133,7 @@ fn definitions() -> Vec<Describe<'static>> {
             keys: RefVec::Slice { slice: &[] },
             item: None,
             label: "phase.current",
-            repeat: ww_tape::TrackRepeat::STATE,
+            repeat: ww_tape::TrackRepeat::Stream,
             kind: TrackKind::Series(series_def()),
         }),
     ]
@@ -158,19 +153,13 @@ fn series_defs() -> &'static ww_tape::Definitions {
     })
 }
 
-/// Put segment `s` of the series: the state its next chunks are in.
-fn put_segment(w: &mut TapeWriter, s: &SeriesSegment) {
-    let tick = s.first_tick(period()).unwrap();
-    assert!(w.put(series_defs(), TRACK, tick, &encode_value(s)).unwrap());
-}
-
-/// Write the open column as chunks of at most [CHUNK_MAX] samples, all in the newest segment.
-fn seal(w: &mut TapeWriter, t: &SeriesTimeline, first: &mut u64, column: &mut Vec<i32>) {
+/// Write the open column as chunks of at most [CHUNK_MAX] samples on `grid`.
+fn seal(w: &mut TapeWriter, grid: SeriesGrid, first: &mut u64, column: &mut Vec<i32>) {
     let shape = SampleShape::new(i32::ELEMENT, CHANNELS);
     let lanes = CHANNELS as usize;
     for part in column.chunks(CHUNK_MAX as usize * lanes) {
         let count = (part.len() / lanes) as u32;
-        let (first_tick, last_tick) = t.chunk_ticks(*first, count).unwrap();
+        let (first_tick, last_tick) = grid.chunk_ticks(period(), *first, count).unwrap();
         let mut bytes = vec![0u8; max_encoded_len(Codec::DELTA, shape, count as usize).unwrap()];
         let n = encode(Codec::DELTA, shape, part, &mut bytes).unwrap();
         bytes.truncate(n);
@@ -185,6 +174,7 @@ fn seal(w: &mut TapeWriter, t: &SeriesTimeline, first: &mut u64, column: &mut Ve
             latest_end: last_tick,
             time_mode: 0,
             end_mode: EndMode::Absent,
+            grid: Some(grid),
         };
         let spec = ColumnSpec {
             kind: ColumnKind::Samples,
@@ -199,12 +189,13 @@ fn seal(w: &mut TapeWriter, t: &SeriesTimeline, first: &mut u64, column: &mut Ve
     column.clear();
 }
 
-/// The recording: batches as they come, a segment at the start, at the prefix change and after the gap.
+/// The recording: batches as they come, a grid at the start, the same grid at a new scale at the prefix change and
+/// a new grid after the gap.
 fn write(path: &std::path::Path) {
     let p = period();
     let mut w = TapeWriter::create(path, SyncPolicy::None).unwrap();
     w.set_alignment(ww_tape::ALIGNMENT).unwrap();
-    let first = series_def().first_segment(START);
+    let mut grid = series_def().first_grid(START);
     w.set_session(crate::id(0).session).unwrap();
     for d in definitions() {
         match d {
@@ -213,9 +204,6 @@ fn write(path: &std::path::Path) {
             _ => {}
         }
     }
-    put_segment(&mut w, &first);
-    let mut t = SeriesTimeline::new(p);
-    t.push(first).unwrap();
     let mut next = 0u64;
     let mut column = Vec::new();
     for (from, to, unit, gap) in STRETCHES {
@@ -227,31 +215,30 @@ fn write(path: &std::path::Path) {
                 Unit::Milli => ingest::<MilliAmps>(&bytes, &mut numbers),
             };
             let at = next + column.len() as u64 / u64::from(CHANNELS);
-            let newest = *t.segments().last().unwrap();
-            let segment = if gap && b == from {
-                let last = t.tick(at - 1).unwrap();
-                Some(SeriesSegment::start(at, last + GAP, scale))
-            } else if scale != newest.scale {
-                Some(newest.rescaled(at, scale))
+            let new = if gap && b == from {
+                let last = grid.tick(p, at - 1).unwrap();
+                Some(SeriesGrid::start(at, last + GAP, scale))
+            } else if scale != grid.scale {
+                Some(grid.rescaled(scale))
             } else {
                 None
             };
-            if let Some(s) = segment {
-                seal(&mut w, &t, &mut next, &mut column);
-                t.push(s).unwrap();
-                put_segment(&mut w, &s);
+            if let Some(g) = new {
+                seal(&mut w, grid, &mut next, &mut column);
+                grid = g;
             }
             column.extend(numbers);
             if column.len() as u64 >= CHUNK_MAX * u64::from(CHANNELS) {
-                seal(&mut w, &t, &mut next, &mut column);
+                seal(&mut w, grid, &mut next, &mut column);
             }
         }
     }
-    seal(&mut w, &t, &mut next, &mut column);
+    seal(&mut w, grid, &mut next, &mut column);
     w.finish().unwrap();
 }
 
-/// What a reader with ww_tape alone gets: the definition, the segments, every chunk's head and numbers.
+/// What a reader with ww_tape alone gets: the definition, the timeline of its chunk heads, every chunk's head and
+/// numbers.
 struct Read {
     shape: SampleShape,
     period: Ratio64,
@@ -264,7 +251,6 @@ fn read(bytes: &[u8]) -> Read {
     let r = TapeReader::open(bytes).unwrap();
     assert_eq!(r.pieces().len(), 1);
     let mut def = None;
-    let mut records: Vec<(i64, Vec<u8>)> = vec![];
     let mut chunks = vec![];
     let mut buf = vec![];
     for e in r.entries(0).unwrap() {
@@ -280,11 +266,8 @@ fn read(bytes: &[u8]) -> Read {
                         {
                             def = Some(s);
                         }
-                    } else if rec.track == TRACK
-                        && records.last().is_none_or(|(_, last)| last != rec.item)
-                    {
-                        // a copy of the segment in force is nothing new
-                        records.push((rec.at.unwrap().ticks, rec.item.to_vec()));
+                    } else {
+                        assert_ne!(rec.track, TRACK, "a series track has no records");
                     }
                 }
             }
@@ -303,8 +286,7 @@ fn read(bytes: &[u8]) -> Read {
         }
     }
     let def = def.expect("a series track");
-    let (timeline, errors) =
-        SeriesTimeline::from_records(def.period, records.iter().map(|(t, b)| (*t, &b[..])));
+    let (timeline, errors) = SeriesTimeline::from_chunks(def.period, chunks.iter().map(|(h, _)| h));
     assert!(errors.is_empty(), "{errors:?}");
     Read {
         shape: def.shape,
@@ -337,18 +319,25 @@ fn series_reads_back_to_samples_ticks_and_scales() {
     let milli = Magnitude::pow10(-3);
     let p = period();
     let t = &got.timeline;
-    // the three segments: start, prefix change on the same grid, gap
-    let s = t.segments();
+    // the three stretches: start, prefix change on the same grid, gap
+    let s = t.stretches();
     assert_eq!(s.len(), 3);
-    assert_eq!(s[0], SeriesSegment::start(0, START, micro));
-    assert_eq!(s[1], s[0].rescaled(320, milli));
-    let after_gap = s[0].tick(p, 479).unwrap() + GAP;
-    assert_eq!(s[2], SeriesSegment::start(480, after_gap, micro));
+    let first = SeriesGrid::start(0, START, micro);
+    assert_eq!((s[0].first_item, s[0].end_item, s[0].grid), (0, 320, first));
+    assert_eq!(
+        (s[1].first_item, s[1].end_item, s[1].grid),
+        (320, 480, first.rescaled(milli))
+    );
+    let after_gap = first.tick(p, 479).unwrap() + GAP;
+    assert_eq!(s[2].grid, SeriesGrid::start(480, after_gap, micro));
+    assert!(!t.gap_before(1) && t.gap_before(2));
 
     let mut index = 0u64;
     for (head, numbers) in &got.chunks {
         assert_eq!(head.first_item, index, "chunks follow each other");
-        t.check_chunk(head).unwrap();
+        // each chunk times and scales its samples alone
+        let grid = SeriesGrid::of_chunk(head, p).unwrap();
+        assert_eq!(Some(grid.scale), t.scale(index));
         for (k, sample) in numbers.chunks(CHANNELS as usize).enumerate() {
             let i = index + k as u64;
             for (c, n) in sample.iter().enumerate() {
@@ -420,5 +409,83 @@ fn series_file_is_deterministic_and_golden() {
         })
         .collect();
     assert_eq!(read(&want).chunks.len(), read(&bytes).chunks.len());
+    _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A series track has no records and holds only series chunks whose ticks are on their grid.
+#[test]
+fn writer_refuses_what_a_series_track_does_not_hold() {
+    let dir = scratch("refuse");
+    let mut w = TapeWriter::create(&dir.join("r.wwt"), SyncPolicy::None).unwrap();
+    w.set_session(crate::id(0).session).unwrap();
+    let defs = series_defs();
+    let grid = series_def().first_grid(START);
+    let (first_tick, last_tick) = grid.chunk_ticks(period(), 0, 4).unwrap();
+    let head = ChunkHead {
+        kind: BlockKind::Series,
+        track_id: 7,
+        track_number: TRACK,
+        first_item: 0,
+        count: 4,
+        first_tick,
+        last_tick,
+        latest_end: last_tick,
+        time_mode: 0,
+        end_mode: EndMode::Absent,
+        grid: Some(grid),
+    };
+    let bytes = [0u8; 32];
+    let spec = ColumnSpec {
+        kind: ColumnKind::Samples,
+        codec: Codec::RAW,
+        param: 0,
+        len: bytes.len(),
+    };
+    let off_grid = ChunkHead {
+        last_tick: last_tick + 1,
+        latest_end: last_tick + 1,
+        ..head
+    };
+    assert!(matches!(
+        w.write_chunk(defs, &off_grid, &[(spec, &bytes)]),
+        Err(ww_tape::WriteError::Describe(
+            ww_tape::DescribeError::Kind {
+                track: TRACK,
+                error: ww_tape::SeriesError::ChunkTicks { first_item: 0 }
+            }
+        ))
+    ));
+    // an events chunk on the series track
+    let events = ChunkHead {
+        kind: BlockKind::Events,
+        grid: None,
+        ..head
+    };
+    let starts = ColumnSpec {
+        kind: ColumnKind::Starts,
+        ..spec
+    };
+    assert!(matches!(
+        w.write_chunk(defs, &events, &[(starts, &bytes)]),
+        Err(ww_tape::WriteError::Describe(
+            ww_tape::DescribeError::WrongKind { track: TRACK }
+        ))
+    ));
+    // a put: the track is not a state track
+    assert!(w.put(defs, TRACK, START, &[1, 2, 3]).is_err());
+    w.write_chunk(defs, &head, &[(spec, &bytes)]).unwrap();
+    // a record in a caller's block
+    let mut buf = [0u8; 128];
+    let mut b =
+        ww_tape::BlockWriter::new(&mut buf, BlockKind::Records, w.next_id(), &[CLOCK]).unwrap();
+    b.push(TRACK, ww_tape::ClockTime::new(CLOCK, START), &[b"x"])
+        .unwrap();
+    let len = b.finish();
+    assert!(matches!(
+        w.write_block(defs, &buf[..len]),
+        Err(ww_tape::WriteError::Describe(
+            ww_tape::DescribeError::WrongKind { track: TRACK }
+        ))
+    ));
     _ = std::fs::remove_dir_all(&dir);
 }

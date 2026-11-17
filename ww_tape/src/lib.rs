@@ -114,7 +114,7 @@
 //! | [CHECKPOINT_ENTRIES_MAX](index::CHECKPOINT_ENTRIES_MAX) | 14562 | entries a writer puts in a checkpoint index block |
 //! | [NODE_SHIFT_MAX](summary::NODE_SHIFT_MAX) | 62 | a summary node's items, as a power of 2 |
 //! | [LEVEL_MAX](summary::LEVEL_MAX) | 15 | a summary tree's level |
-//! | [SCALE_LEN_MAX](summary::SCALE_LEN_MAX) | 64 | a series summary's scale bytes |
+//! | [SCALE_LEN_MAX](series::SCALE_LEN_MAX) | 64 | the scale bytes of a series chunk or summary |
 //! | [FACTOR_MAX](summary::FACTOR_MAX) | 2^53 | a factor to the common scale |
 //! | [SeriesSummarySpec::BASE_SHIFT_MAX](summary::SeriesSummarySpec::BASE_SHIFT_MAX) | 24 | a series summary's base node, as a power of 2 |
 //! | [SERIES_CHANNELS_MAX](series::SERIES_CHANNELS_MAX) | 65535 | a series track's channels |
@@ -196,11 +196,11 @@ pub mod samples;
 pub use samples::{Element, Sample, SampleError, SampleShape, Samples};
 
 pub mod series;
-#[cfg(feature = "alloc")]
-pub use series::SeriesTimeline;
-pub use series::{MediaStream, SeriesDef, SeriesError, SeriesSegment, SeriesValue};
+pub use series::{MediaStream, SeriesDef, SeriesError, SeriesGrid, SeriesValue};
 #[cfg(feature = "std")]
 pub use series::{MediaStreamOwned, SeriesDefOwned};
+#[cfg(feature = "alloc")]
+pub use series::{SeriesStretch, SeriesTimeline};
 
 pub mod index;
 pub use index::{

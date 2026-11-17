@@ -1012,7 +1012,7 @@ mod builder {
     use crate::summary::{
         Layout, SCALE_LEN_MAX, SummaryError, SummaryHead, Tree, summary_len, write_series_summary,
     };
-    use crate::{Element, Ratio64, SampleShape, SeriesSegment, SeriesTimeline};
+    use crate::{Element, Ratio64, SampleShape, SeriesError, SeriesGrid, SeriesTimeline};
 
     impl LevelNode for SeriesNode {
         fn merge(&mut self, next: &Self, items: u64, next_items: u64) -> Result<(), SummaryError> {
@@ -1023,7 +1023,7 @@ mod builder {
     /// Builds the summary tree of one series track as samples come, and encodes its summary blocks.
     ///
     /// Samples go in as interleaved frames ([Self::push]): per sample every channel, per channel every component.
-    /// A segment ([Self::segment]) may change the scale of the numbers from the next sample on; a node holding
+    /// A grid ([Self::set_grid]) may change the scale of the numbers from the next sample on; a node holding
     /// samples of two scales is kept at their [common_scale](super::common_scale), so every node's minimum and maximum
     /// are exact in the sample type's unit. Finished blocks wait in [Self::take_blocks] for
     /// [TapeWriter::defer_block](crate::TapeWriter::defer_block); [Self::finish] writes the partial nodes at the end.
@@ -1049,6 +1049,8 @@ mod builder {
         spec: SeriesSummarySpec,
         origin: u64,
         timeline: SeriesTimeline,
+        /// Grid of the next samples
+        grid: SeriesGrid,
         /// Scale of the samples from [Self::acc_from] on
         scale: Magnitude,
         /// Common scale of every sample so far
@@ -1067,7 +1069,7 @@ mod builder {
         kernel: Kernel,
     }
 
-    /// Where a series starts: its track, its samples and the segment of its first sample.
+    /// Where a series starts: its track, its samples and the grid of its first sample.
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     pub struct SeriesStart {
         /// [TrackDef::id](crate::TrackDef::id).
@@ -1078,8 +1080,8 @@ mod builder {
         pub shape: SampleShape,
         /// Index of the first sample in the track (a later tape piece starts past 0).
         pub first_item: u64,
-        /// The segment the first sample is in: its grid and scale.
-        pub segment: SeriesSegment,
+        /// The grid and scale of the first sample, as its chunk's head carries them.
+        pub grid: SeriesGrid,
         /// Ticks from one sample to the next, exact.
         pub period: Ratio64,
     }
@@ -1113,13 +1115,13 @@ mod builder {
             if (spec.stats.power_mean || spec.stats.power_max) && !is_complex(element) {
                 return Err(SummaryError::Invalid("power of a real element"));
             }
-            if start.segment.first_index > start.first_item {
-                return Err(SummaryError::Invalid(
-                    "the first sample is before its segment",
-                ));
+            if start.grid.grid_index > start.first_item {
+                return Err(SummaryError::Series(SeriesError::GridAfterFirst {
+                    first_item: start.first_item,
+                    grid_index: start.grid.grid_index,
+                }));
             }
-            let mut timeline = SeriesTimeline::new(start.period);
-            timeline.push(start.segment).map_err(SummaryError::Series)?;
+            let timeline = SeriesTimeline::new(start.period);
             let (lo, hi) = match spec.clip {
                 None => (T::LOWEST, T::HIGHEST),
                 Some(c) => (T::from_f64(c.low, false), T::from_f64(c.high, true)),
@@ -1147,8 +1149,9 @@ mod builder {
                 spec,
                 origin: start.first_item,
                 timeline,
-                scale: start.segment.scale,
-                common: start.segment.scale,
+                grid: start.grid,
+                scale: start.grid.scale,
+                common: start.grid.scale,
                 lo,
                 hi,
                 acc: vec![Acc::NEW; usize::from(channels)],
@@ -1181,27 +1184,36 @@ mod builder {
             self.next_item
         }
 
-        /// The segments seen so far.
+        /// The grids of the samples so far.
         pub fn timeline(&self) -> &SeriesTimeline {
             &self.timeline
         }
 
-        /// Start segment `s` at the next sample ([Self::next_item]): a new grid (a gap, a restart) or a new scale (a
-        /// prefix change). Refused when it doesn't start at the next sample, breaks a rule of [SeriesTimeline], or
-        /// its scale has no common scale with the ones before.
-        pub fn segment(&mut self, s: SeriesSegment) -> Result<(), SummaryError> {
-            if s.first_index != self.next_item {
-                return Err(SummaryError::Invalid(
-                    "a segment that doesn't start at the next sample",
-                ));
+        /// Put the samples from the next one ([Self::next_item]) on grid `g`: a new grid (a gap, a restart) or the
+        /// same grid at a new scale (a prefix change), as the next chunk's head carries it. Refused when the grid
+        /// starts after the next sample, a new grid's first sample isn't after the last sample's tick, or the scale
+        /// has no common scale with the ones before.
+        pub fn set_grid(&mut self, g: SeriesGrid) -> Result<(), SummaryError> {
+            let next = self.next_item;
+            let first = g
+                .chunk_ticks(self.timeline.period(), next, 1)
+                .map_err(SummaryError::Series)?
+                .0;
+            if !g.same_grid(&self.grid)
+                && let Some(last) = next.checked_sub(1).and_then(|i| self.timeline.tick(i))
+                && first <= last
+            {
+                return Err(SummaryError::Series(SeriesError::TimeNotIncreasing {
+                    first_item: next,
+                }));
             }
-            let common = common_scale(self.common, s.scale).map_err(SummaryError::Scale)?;
-            self.timeline.push(s).map_err(SummaryError::Series)?;
-            if s.scale != self.scale {
+            let common = common_scale(self.common, g.scale).map_err(SummaryError::Scale)?;
+            if g.scale != self.scale {
                 self.flush_acc()?;
-                self.scale = s.scale;
+                self.scale = g.scale;
                 self.common = common;
             }
+            self.grid = g;
             Ok(())
         }
 
@@ -1230,6 +1242,11 @@ mod builder {
                 let (now, later) = rest
                     .split_at_checked(frames.checked_mul(stride).ok_or(partial)?)
                     .ok_or(partial)?;
+                // at most a node of 2^BASE_SHIFT_MAX samples
+                let count = u32::try_from(frames).map_err(|_| past)?;
+                self.timeline
+                    .push(self.next_item, count, self.grid)
+                    .map_err(SummaryError::Series)?;
                 self.add(now, flags);
                 self.next_item = u64::try_from(frames)
                     .ok()

@@ -10,6 +10,12 @@ Covers `ww_tape` 0.1.0.
 
 ### ⚠️ Breaking
 
+- Format: a series chunk head carries its grid and scale; series goldens rewritten, old v1 series files don't read (TAPE-3).
+- `SeriesSegment` records are gone: a series track has no records, takes `TrackRepeat::Stream`; put a `SeriesGrid` in `ChunkHead::grid` (TAPE-3).
+- `SeriesTimeline` is built from chunk heads (`from_chunks`, `push_chunk`); `from_records`, `check_chunk`, `chunk_ticks` are gone (TAPE-3).
+- `SeriesSummaries::segment` is `set_grid`; `SeriesStart::segment` is `grid`; `SeriesDef::first_segment` is `first_grid` (TAPE-3).
+- `chunk_len` and `chunk_head_len` take the `ChunkHead`; `TrackFacts::events` is `period` (TAPE-3).
+- A record, put or events chunk on a series track is refused (`DescribeError::WrongKind`), as is a series chunk off its grid (TAPE-3).
 - `TapeWriter::write_chunk`, `write_block` and `adopt_block`, and `PieceChain::write_chunk`, return where the block landed (`Placed`, `ChunkPlaced`) (TAPE-2).
 - Format version 1: definitions are records on track 0; `BlockKind::Describe` is gone, kind 2 reserved (STD-135).
 - `FLAG_SET_FIRST`, `FLAG_SET_LAST` and `FLAG_COPY` are gone; `FLAG_REPEAT` marks blocks of puts and copies (STD-135).

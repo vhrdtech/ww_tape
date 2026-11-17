@@ -1,11 +1,13 @@
-//! Series tracks: the describe record of the track (shape, period, scale) and its segment records (first index,
-//! grid index, grid tick, scale, the record's time), in a block of definitions and a records block.
+//! Series tracks: the describe record of the track (shape, period, scale) in a block of definitions, and series
+//! chunks of it whose heads (first sample, count, ticks, grid index, grid tick, scale) take hostile values.
 
-use super::{Draw, SESSION, clock_item, definition, describe_block, records_block};
+use super::chunk::{build, hit_head, reseal};
+use super::{Draw, SESSION, clock_item, definition, describe_block};
 use shrink_wrap::prelude::*;
 use ww_tape::{
-    BlockId, Describe, FullVersion, Magnitude, Ratio64, SampleShape, Segment, SeriesDef,
-    SeriesSegment, TrackDef, TrackKind, Version, track_key,
+    BlockId, BlockKind, ChunkHead, Codec, ColumnKind, ColumnSpec, Describe, EndMode, FullVersion,
+    Magnitude, Ratio64, SampleShape, Segment, SeriesDef, SeriesGrid, TrackDef, TrackKind, Version,
+    track_key,
 };
 
 /// The track number of the hostile series.
@@ -35,7 +37,7 @@ pub(crate) fn track_item(shape: SampleShape, period: Ratio64, scale: Magnitude) 
         keys: RefVec::Slice { slice: &[] },
         item: None,
         label: "hostile",
-        repeat: ww_tape::TrackRepeat::STATE,
+        repeat: ww_tape::TrackRepeat::Stream,
         kind: TrackKind::Series(def),
     });
     definition(&track)
@@ -60,8 +62,9 @@ fn period(d: &mut Draw<'_>) -> Ratio64 {
         .expect("parts above 0")
 }
 
-/// A block of definitions of a series track and a records block of its segments, whose indexes, grid ticks, scales,
-/// record times and period take hostile values.
+/// A block of definitions of a series track and series chunks of it, whose first samples, counts, grid indexes,
+/// grid ticks, scales, head ticks and period take hostile values; each chunk's head CRC holds, so a reader takes
+/// the head.
 pub fn series(data: &[u8]) -> Vec<u8> {
     let mut d = Draw::new(data);
     let period = period(&mut d);
@@ -73,53 +76,73 @@ pub fn series(data: &[u8]) -> Vec<u8> {
     };
     let item = track_item(shape, period, scale);
     let mut out = describe_block(BlockId::new(SESSION, 0), &[&clock_item(), &item]);
-    // segments, valid ones first, then hostile fields
-    let mut segs: Vec<SeriesSegment> = vec![];
+    // chunks on valid grids first, then hostile fields
+    let mut heads: Vec<ChunkHead> = vec![];
     let mut first = u64::from(d.u16());
-    let mut tick = i64::from(d.u32() as i32);
+    let mut grid = SeriesGrid::start(first, i64::from(d.u32() as i32), magnitude(&mut d));
     for k in 0..1 + d.below(5) {
-        let s = if k % 3 == 2 && !segs.is_empty() {
-            segs[segs.len() - 1].rescaled(first, magnitude(&mut d))
-        } else {
-            SeriesSegment::start(first, tick, magnitude(&mut d))
-        };
-        segs.push(s);
-        first = first.saturating_add(1 + u64::from(d.u16()));
-        tick = tick.saturating_add(i64::from(d.u32()));
+        if k % 3 == 2 {
+            grid = grid.rescaled(magnitude(&mut d));
+        } else if k > 0 {
+            let tick = grid
+                .tick(period, first)
+                .unwrap_or(0)
+                .saturating_add(i64::from(d.u32()));
+            grid = SeriesGrid::start(first, tick, magnitude(&mut d));
+        }
+        let count = 1 + u32::from(d.u8());
+        let (first_tick, last_tick) = grid.chunk_ticks(period, first, count).unwrap_or((0, 0));
+        heads.push(ChunkHead {
+            kind: BlockKind::Series,
+            track_id: 7,
+            track_number: TRACK,
+            first_item: first,
+            count,
+            first_tick,
+            last_tick,
+            latest_end: last_tick,
+            time_mode: 0,
+            end_mode: EndMode::Absent,
+            grid: Some(grid),
+        });
+        first = first.saturating_add(u64::from(count) + u64::from(d.u8() % 3));
     }
     let caps = &[u64::MAX / 2, i64::MAX as u64, 1 << 53];
     for _ in 0..1 + d.below(3) {
-        let i = d.below(segs.len());
-        let own = [segs[i].first_index, segs[i].grid_index];
-        let s = &mut segs[i];
-        match d.u8() % 4 {
-            0 => s.first_index = d.value(64, caps, &own),
-            1 => s.grid_index = d.value(64, caps, &own),
-            2 => s.grid_tick = d.value(64, caps, &[s.grid_tick as u64]) as i64,
-            _ => s.scale = magnitude(&mut d),
+        let i = d.below(heads.len());
+        let h = &mut heads[i];
+        let Some(g) = h.grid.as_mut() else { continue };
+        let own = [h.first_item, g.grid_index];
+        match d.u8() % 6 {
+            0 => h.first_item = d.value(64, caps, &own),
+            1 => g.grid_index = d.value(64, caps, &own).min(h.first_item),
+            2 => g.grid_tick = d.value(64, caps, &[g.grid_tick as u64]) as i64,
+            3 => g.scale = magnitude(&mut d),
+            4 => h.first_tick = d.value(64, caps, &[h.first_tick as u64]) as i64,
+            _ => h.count = 1 + d.value(32, &[u64::from(u32::MAX - 1)], &[]) as u32 % 1_000_000,
+        }
+        h.last_tick = h.last_tick.max(h.first_tick);
+        h.latest_end = h.last_tick;
+        h.first_item = h.first_item.min(u64::MAX - u64::from(h.count));
+        if g.grid_index > h.first_item {
+            g.grid_index = h.first_item;
         }
     }
-    let encoded: Vec<(i64, Vec<u8>)> = segs
-        .iter()
-        .map(|s| {
-            let mut buf = [0u8; 128];
-            let bytes = s
-                .to_ww_bytes(&mut buf)
-                .map(<[u8]>::to_vec)
-                .unwrap_or_default();
-            let at = s.first_tick(period).unwrap_or(s.grid_tick);
-            (at, bytes)
-        })
-        .collect();
-    let mut records: Vec<(u32, i64, &[u8])> = encoded
-        .iter()
-        .map(|(t, b)| (TRACK, *t, b.as_slice()))
-        .collect();
-    // a record time off its segment's first tick
-    if d.u8() % 4 == 3 {
-        let i = d.below(records.len());
-        records[i].1 = d.value(64, &[], &[records[i].1 as u64]) as i64;
+    let samples = vec![0u8; 2 * shape.channels.0 as usize];
+    for h in &heads {
+        let spec = ColumnSpec {
+            kind: ColumnKind::Samples,
+            codec: Codec::RAW,
+            param: 0,
+            len: samples.len(),
+        };
+        let mut b = build(h, &[(spec, &samples)]);
+        // a scale length or grid field over the written one, the head CRC made to hold
+        if d.u8() % 4 == 3 {
+            hit_head(&mut d, &mut b);
+            reseal(&mut b, false);
+        }
+        out.extend(b);
     }
-    out.extend(records_block(BlockId::new(SESSION, 0), &records));
     out
 }

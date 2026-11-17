@@ -22,13 +22,23 @@
 //!  81  u8  columns n, 1 and up
 //!  82  u8  time mode, the time codec's (events; 0 in series chunks)
 //!  83  u8  end mode (events: EndMode; 0 in series chunks)
-//!  84 ...  n × column: kind u8, codec u8, param u16, offset u32 (from the payload start; the first 0, ascending)
+//!  84 ...  series chunks only, the grid of the samples (SeriesGrid):
+//!          84 u64  grid index: the sample the grid counts from, at most the first item
+//!          92 i64  grid tick: the tick of that sample; sample i is at grid tick + (i - grid index) · period,
+//!                  rounded down, the period the track's SeriesDef gives
+//!         100  u8  scale length s, 1 to SCALE_LEN_MAX
+//!         101 ...  scale: what a stored number is worth in the sample type's unit, as the shrink_wrap bytes of an
+//!                  exact_units Magnitude (10⁻³ is fa 00)
+//!     ...  n × column: kind u8, codec u8, param u16, offset u32 (from the payload start; the first 0, ascending)
 //!     ...  segment CRCs: one u32 per segment of the payload, CRC-32C of its bytes
 //!     ...  zeros up to the payload offset
 //!  payload: the columns back to back, then 16 zero bytes, so an unaligned 16-byte load at any column byte stays in
 //!           the block
 //! len-4 u32 CRC over bytes 0..len-4, as in every block
 //! ```
+//!
+//! A series chunk's head carries its grid and scale ([SeriesGrid]), so the chunk times and scales its samples
+//! alone: a reader needs the track's period from its definition and nothing else ([series](crate::series#grids)).
 //!
 //! A column runs from its offset to the next one's (the last to the padding). The head CRC lets a reader trust the
 //! head, and so the block length, the chunk's place and the segment CRCs, when the payload is damaged: a reader in
@@ -61,6 +71,7 @@
 use core::num::NonZeroUsize;
 
 use crate::bytes::{file_u8, file_u32, le_i64, le_u8, le_u32, le_u64};
+use crate::series::{SCALE_LEN_MAX, SeriesGrid, read_scale, scale_bytes};
 use crate::{BlockKind, BoundError, CRC_LEN, HEADER_LEN, MAX_BLOCK_LEN};
 
 /// The CRC of chunk blocks: the same CRC-32C as every block, with a 16-entry table for the large payloads.
@@ -69,6 +80,8 @@ const CRC16: crc::Crc<u32, crc::Table<16>> =
 
 /// Bytes of the fixed part of the chunk head (32..84).
 pub const CHUNK_FIXED_LEN: usize = 52;
+/// Bytes of the grid of a series chunk before its scale: grid index, grid tick, scale length (84..101).
+pub const SERIES_GRID_LEN: usize = 17;
 /// Bytes of one column entry.
 pub const COLUMN_ENTRY_LEN: usize = 8;
 /// Zero bytes after the columns.
@@ -86,6 +99,12 @@ pub const MAX_COLUMNS: usize = 255;
 
 /// Bytes of the head before the column entries: the block header and the fixed part.
 const FIXED_END: usize = HEADER_LEN + CHUNK_FIXED_LEN;
+/// Where a series chunk's grid tick is: after the grid index.
+const GRID_TICK_AT: usize = FIXED_END + 8;
+/// Where a series chunk's scale length is: after the grid index and tick.
+const GRID_SCALE_LEN_AT: usize = FIXED_END + 16;
+/// Where a series chunk's scale starts.
+const GRID_SCALE_AT: usize = FIXED_END + SERIES_GRID_LEN;
 /// Bytes of a segment writers use, 2^[SEGMENT_SHIFT].
 const SEGMENT_BYTES: usize = 1 << SEGMENT_SHIFT;
 /// Bytes of a segment CRC.
@@ -252,6 +271,8 @@ pub struct ChunkHead {
     pub time_mode: u8,
     /// [EndMode] (events); [EndMode::Absent] in a series chunk.
     pub end_mode: EndMode,
+    /// The grid and scale of a series chunk's samples; None in an events chunk.
+    pub grid: Option<SeriesGrid>,
 }
 
 /// A column to write: what it is and how long its bytes are.
@@ -289,15 +310,60 @@ pub enum ChunkError {
     Invalid(&'static str),
 }
 
-/// Bytes of the head (block header included) of a chunk with `columns` columns and `payload_len` bytes of columns,
-/// before any alignment padding; saturating at `usize::MAX`, a length over [MAX_BLOCK_LEN] no writer takes.
-pub const fn chunk_head_len(columns: usize, payload_len: usize) -> usize {
+/// Bytes of the head (block header included) of a chunk with `head`, `columns` columns and `payload_len` bytes of
+/// columns, before any alignment padding; saturating at `usize::MAX`, a length over [MAX_BLOCK_LEN] no writer takes.
+pub fn chunk_head_len(head: &ChunkHead, columns: usize, payload_len: usize) -> usize {
+    let grid = GridBytes::of(head).map_or(usize::MAX, |g| g.len);
     let entries = columns.saturating_mul(COLUMN_ENTRY_LEN);
     let crcs = payload_len
         .saturating_add(PAYLOAD_PADDING)
         .div_ceil(SEGMENT_BYTES)
         .saturating_mul(SEGMENT_CRC_LEN);
-    FIXED_END.saturating_add(entries).saturating_add(crcs)
+    FIXED_END
+        .saturating_add(grid)
+        .saturating_add(entries)
+        .saturating_add(crcs)
+}
+
+/// The grid bytes of a series chunk's head (84..101 + scale), none in an events chunk.
+struct GridBytes {
+    buf: [u8; SERIES_GRID_LEN + SCALE_LEN_MAX],
+    len: usize,
+}
+
+impl GridBytes {
+    /// The bytes of `head`'s grid; an error when its scale doesn't encode or takes more than [SCALE_LEN_MAX].
+    fn of(head: &ChunkHead) -> Result<Self, ChunkError> {
+        let mut buf = [0u8; SERIES_GRID_LEN + SCALE_LEN_MAX];
+        let Some(g) = head.grid else {
+            return Ok(GridBytes { buf, len: 0 });
+        };
+        let mut scale = [0u8; SCALE_LEN_MAX];
+        let scale_len = scale_bytes(&g.scale, &mut scale)
+            .map_err(|_| ChunkError::Invalid("a scale that doesn't encode"))?;
+        let s = u8::try_from(scale_len)
+            .ok()
+            .filter(|s| *s != 0)
+            .ok_or(ChunkError::Invalid("scale bytes out of range"))?;
+        let fields = g
+            .grid_index
+            .to_le_bytes()
+            .into_iter()
+            .chain(g.grid_tick.to_le_bytes())
+            .chain([s])
+            .chain(scale.into_iter().take(scale_len));
+        for (d, b) in buf.iter_mut().zip(fields) {
+            *d = b;
+        }
+        Ok(GridBytes {
+            buf,
+            len: SERIES_GRID_LEN.saturating_add(scale_len),
+        })
+    }
+
+    fn bytes(&self) -> &[u8] {
+        self.buf.get(..self.len).unwrap_or(&[])
+    }
 }
 
 /// Zero bytes to put between the head and the payload so the payload of a block written at `offset` in a file
@@ -324,16 +390,19 @@ pub(crate) const fn to_boundary(end: u64, mask: u32) -> usize {
     u32_len(u32::from_le_bytes([b0, b1, b2, b3]) & mask)
 }
 
-/// Bytes of a whole chunk block: head, `padding`, payload and CRC; saturating at `usize::MAX`, a length over
-/// [MAX_BLOCK_LEN] no writer takes.
-pub fn chunk_len(columns: &[ColumnSpec], padding: usize) -> usize {
-    Parts::new(columns, padding)
+/// Bytes of a whole chunk block with `head`: head, `padding`, payload and CRC; saturating at `usize::MAX`, a length
+/// over [MAX_BLOCK_LEN] no writer takes.
+pub fn chunk_len(head: &ChunkHead, columns: &[ColumnSpec], padding: usize) -> usize {
+    GridBytes::of(head)
+        .ok()
+        .and_then(|g| Parts::new(g.len, columns, padding))
         .and_then(|p| p.len())
         .unwrap_or(usize::MAX)
 }
 
 /// Bytes of the parts of a chunk block to write.
 struct Parts {
+    grid: usize,
     entries: usize,
     seg_crcs: usize,
     padding: usize,
@@ -342,12 +411,13 @@ struct Parts {
 
 impl Parts {
     /// None when a length overflows a usize.
-    fn new(columns: &[ColumnSpec], padding: usize) -> Option<Self> {
+    fn new(grid: usize, columns: &[ColumnSpec], padding: usize) -> Option<Self> {
         let columns_len = columns
             .iter()
             .try_fold(0usize, |n, c| n.checked_add(c.len))?;
         let payload = columns_len.checked_add(PAYLOAD_PADDING)?;
         Some(Parts {
+            grid,
             entries: columns.len().checked_mul(COLUMN_ENTRY_LEN)?,
             seg_crcs: payload
                 .div_ceil(SEGMENT_BYTES)
@@ -359,6 +429,7 @@ impl Parts {
 
     fn len(&self) -> Option<usize> {
         FIXED_END
+            .checked_add(self.grid)?
             .checked_add(self.entries)?
             .checked_add(self.seg_crcs)?
             .checked_add(self.padding)?
@@ -378,6 +449,8 @@ pub struct ChunkWriter<'b> {
     pre: &'b mut [u8; PRE_CRC_LEN],
     head_crc: &'b mut [u8; 4],
     fixed: &'b mut [u8; CHUNK_FIXED_LEN],
+    /// The grid of a series chunk, empty in an events chunk
+    grid: &'b mut [u8],
     entries: &'b mut [u8],
     seg_crcs: &'b mut [u8],
     /// Zeros up to the payload offset
@@ -404,11 +477,13 @@ impl<'b> ChunkWriter<'b> {
         let column_count = u8::try_from(columns.len())
             .ok()
             .ok_or(ChunkError::Invalid("more than 255 columns"))?;
-        let len = chunk_len(columns, padding);
+        let grid_bytes = GridBytes::of(head)?;
+        let len = chunk_len(head, columns, padding);
         if len > MAX_BLOCK_LEN {
             return Err(ChunkError::TooLong { len });
         }
-        let parts = Parts::new(columns, padding).ok_or(ChunkError::TooLong { len })?;
+        let parts =
+            Parts::new(grid_bytes.len, columns, padding).ok_or(ChunkError::TooLong { len })?;
         let short = ChunkError::Full { needed: len };
         let buf = buf.get_mut(..len).ok_or(short)?;
         buf.fill(0);
@@ -417,6 +492,8 @@ impl<'b> ChunkWriter<'b> {
         let (fixed, rest) = rest
             .split_first_chunk_mut::<CHUNK_FIXED_LEN>()
             .ok_or(short)?;
+        let (grid, rest) = rest.split_at_mut_checked(parts.grid).ok_or(short)?;
+        grid.copy_from_slice(grid_bytes.bytes());
         let (entries, rest) = rest.split_at_mut_checked(parts.entries).ok_or(short)?;
         let (seg_crcs, rest) = rest.split_at_mut_checked(parts.seg_crcs).ok_or(short)?;
         let (gap, rest) = rest.split_at_mut_checked(parts.padding).ok_or(short)?;
@@ -474,6 +551,7 @@ impl<'b> ChunkWriter<'b> {
             pre,
             head_crc,
             fixed,
+            grid,
             entries,
             seg_crcs,
             padding: gap,
@@ -508,6 +586,7 @@ impl<'b> ChunkWriter<'b> {
         }
         let after_crc = [
             self.fixed.as_slice(),
+            self.grid,
             self.entries,
             self.seg_crcs,
             self.padding,
@@ -641,6 +720,20 @@ fn check_head(head: &ChunkHead, kinds: impl Iterator<Item = ColumnKind>) -> Resu
             "a series chunk has no time or end mode",
         ));
     }
+    match (head.kind, head.grid) {
+        (BlockKind::Series, None) => {
+            return Err(ChunkError::Invalid("a series chunk without a grid"));
+        }
+        (BlockKind::Series, Some(g)) if g.grid_index > head.first_item => {
+            return Err(ChunkError::Invalid(
+                "a grid that starts after the first sample",
+            ));
+        }
+        (BlockKind::Events, Some(_)) => {
+            return Err(ChunkError::Invalid("an events chunk with a grid"));
+        }
+        _ => {}
+    }
     let mut any = false;
     for k in kinds {
         if !k.fits(head.kind) {
@@ -740,6 +833,8 @@ pub enum ChunkHeadError {
 struct Layout {
     seg_len: NonZeroUsize,
     columns: usize,
+    /// Start of the column entries: after the fixed head and, in a series chunk, its grid
+    table_start: usize,
     /// End of the column entries
     table_end: usize,
     /// End of the segment CRCs, at most the payload offset
@@ -787,6 +882,23 @@ impl Layout {
         if columns == 0 {
             return Err(ChunkHeadError::BadHead);
         }
+        let table_start = match BlockKind::from_u8(le_u8(block, 5).ok_or(ChunkHeadError::BadHead)?)
+        {
+            BlockKind::Series => {
+                let scale_len = file_u8(block, GRID_SCALE_LEN_AT)
+                    .ok_or(ChunkHeadError::BadHead)?
+                    .at_most(SCALE_LEN_MAX)
+                    .map_err(ChunkHeadError::Bound)?;
+                if scale_len == 0 {
+                    return Err(ChunkHeadError::BadHead);
+                }
+                FIXED_END
+                    .checked_add(SERIES_GRID_LEN)
+                    .and_then(|n| n.checked_add(scale_len))
+                    .ok_or(ChunkHeadError::BadHead)?
+            }
+            _ => FIXED_END,
+        };
         let seg_len = 1usize
             .checked_shl(u32::from(shift))
             .and_then(NonZeroUsize::new)
@@ -795,7 +907,7 @@ impl Layout {
         let segments = payload_len.div_ceil(seg_len.get());
         let table_end = columns
             .checked_mul(COLUMN_ENTRY_LEN)
-            .and_then(|n| n.checked_add(FIXED_END))
+            .and_then(|n| n.checked_add(table_start))
             .ok_or(ChunkHeadError::BadHead)?;
         let seg_crcs_end = segments
             .checked_mul(SEGMENT_CRC_LEN)
@@ -805,6 +917,7 @@ impl Layout {
         Ok(Layout {
             seg_len,
             columns,
+            table_start,
             table_end,
             seg_crcs_end,
             payload_end,
@@ -812,8 +925,17 @@ impl Layout {
     }
 }
 
-/// The fixed part of the head of `block` of `kind`; None when the block is shorter or the end mode unknown.
-fn read_fixed(block: &[u8], kind: BlockKind) -> Option<ChunkHead> {
+/// The fixed part of the head of `block` of `kind`, with its grid in a series chunk (its scale ending at
+/// `table_start`); None when the block is shorter, the end mode unknown or the scale not one.
+fn read_fixed(block: &[u8], kind: BlockKind, table_start: usize) -> Option<ChunkHead> {
+    let grid = match kind {
+        BlockKind::Series => Some(SeriesGrid {
+            grid_index: le_u64(block, FIXED_END)?,
+            grid_tick: le_i64(block, GRID_TICK_AT)?,
+            scale: read_scale(block.get(GRID_SCALE_AT..table_start)?).ok()?,
+        }),
+        _ => None,
+    };
     Some(ChunkHead {
         kind,
         track_id: le_u64(block, 40)?,
@@ -825,6 +947,7 @@ fn read_fixed(block: &[u8], kind: BlockKind) -> Option<ChunkHead> {
         latest_end: le_i64(block, 72)?,
         time_mode: le_u8(block, 82)?,
         end_mode: EndMode::from_u8(le_u8(block, 83)?)?,
+        grid,
     })
 }
 
@@ -854,9 +977,9 @@ impl<'b> Chunk<'b> {
             return Err(ChunkHeadError::BadHeadCrc);
         }
         let l = Layout::of(block, payload_at)?;
-        let head = read_fixed(block, kind).ok_or(ChunkHeadError::BadHead)?;
+        let head = read_fixed(block, kind, l.table_start).ok_or(ChunkHeadError::BadHead)?;
         let entries = block
-            .get(FIXED_END..l.table_end)
+            .get(l.table_start..l.table_end)
             .ok_or(ChunkHeadError::BadHead)?
             .as_chunks::<COLUMN_ENTRY_LEN>()
             .0;

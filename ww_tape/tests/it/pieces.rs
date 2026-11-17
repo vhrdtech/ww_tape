@@ -45,6 +45,7 @@ pub(crate) fn chunk(t: u64, k: u64) -> (ChunkHead, Vec<u8>) {
         latest_end: (first + 49) as i64 * 10 + t as i64,
         time_mode: 0,
         end_mode: EndMode::Absent,
+        grid: None,
     };
     (head, starts)
 }
@@ -733,6 +734,7 @@ fn big_chunk(k: u64) -> (ChunkHead, Vec<u8>) {
         latest_end: (first + n - 1) as i64,
         time_mode: 0,
         end_mode: EndMode::Absent,
+        grid: None,
     };
     (head, starts)
 }

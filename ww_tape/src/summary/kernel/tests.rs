@@ -496,7 +496,7 @@ fn batches_are_exact_at_the_ends_of_every_type() {
 #[test]
 fn blocks_are_the_same_with_every_kernel() {
     use crate::summary::{SeriesStart, SeriesSummaries, SeriesSummarySpec};
-    use crate::{Magnitude, Ratio64, SampleShape, SeriesSegment};
+    use crate::{Magnitude, Ratio64, SampleShape, SeriesGrid};
     let mut rng = Rng(5);
     let data: Vec<i16> = (0..2 * 3 * 20_000).map(|_| rng.next() as i16).collect();
     let shape = SampleShape::new(Element::ComplexI16, 3);
@@ -506,7 +506,7 @@ fn blocks_are_the_same_with_every_kernel() {
             track_number: 2,
             shape,
             first_item: 100,
-            segment: SeriesSegment::start(0, 0, Magnitude::ONE),
+            grid: SeriesGrid::start(0, 0, Magnitude::ONE),
             period: Ratio64::ONE,
         };
         let spec = SeriesSummarySpec {

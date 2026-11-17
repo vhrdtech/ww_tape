@@ -165,21 +165,23 @@ bit order. A reader converts only the samples it reads, and any sample reads in 
 the device's bytes and does no arithmetic. The table of sample codecs is in the [samples module
 docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/samples/mod.rs).
 
-### Series segments: where samples are in time
+### Grids: where samples are in time
 
-A series track's records are its **series segments**. A series segment names its first sample's index, a time grid, and
-the scale of the stored numbers from there on. Sample `i` sits at `grid_tick + (i - grid_index) · period`, rounded down.
-One series segment starts the track, and a new one starts at every gap, every restart and every change of scale.
+A series track has no records. Each series chunk's head carries the **grid** its samples are on: a sample index at or
+before the chunk's first sample, that sample's tick, and the scale of the chunk's stored numbers. Sample `i` sits at
+`grid_tick + (i - grid_index) · period`, rounded down, the period from the track's definition. A chunk thus times and
+scales its samples alone: nothing else has to be found, linked or kept near it.
 
-A gap or a restart starts a new grid after the last tick of the one before. A change of scale keeps the grid, so no
-sample moves by rounding.
+Consecutive chunks of one stretch of recording carry the same grid, so no sample moves by rounding however the samples
+are cut into chunks. A change of scale keeps the grid at the new scale. A gap or a restart starts a new grid after the
+last tick of the chunk before. A chunk has one grid and one scale, and its head's first and last tick are its samples'
+ticks on the grid.
 
-Series segments are state: a reader needs the one in force to place any sample. So a series track has the state
-policy, and its only records are its series segments. The producer puts the series segment before each chunk, and
-the writer writes it only where it doesn't lie near behind, so every piece holds the series segment its first samples
-are in. The samples are data, not state: each series chunk is written once and never repeated. A series chunk never
-spans two series segments: its samples share one grid and one scale, and its head's first and last tick are its
-samples' ticks on the grid.
+A **gap** is a chunk on another grid than the chunk before it: no sample lies between them, and a viewer draws no line
+across. Sample indexes missing between two chunks of one grid are lost samples, a chunk damaged or in another piece:
+their ticks are known, their values are not. The chunks are data, not state: each is written once and never repeated,
+so a series track takes the plain policy like any data. The index lists each chunk's first sample and first tick, so a
+reader finds the chunk of a sample or of a time without reading any head.
 
 ### Example: an autoranging channel changes prefix
 
@@ -187,14 +189,14 @@ A current meter reports a `ww_si` quantity whose prefix follows its range. It re
 then switches to its micro range at sample 10 000 and reports 980 µA as 980 with prefix micro. On the wire, the `Series`
 batch restarts its numeric column at the item where the prefix changed.
 
-The writer does the same in the file. It seals the open chunk after sample 9 999 and writes a new series segment: first
-index 10 000, the same grid as before, scale 10⁻⁶. The next chunk's integers mean microamperes. Sample 10 000's tick is
-the one the old grid gives it, so no time moves.
+The writer does the same in the file. It seals the open chunk after sample 9 999, and the next chunk carries the same
+grid as before at scale 10⁻⁶: its integers mean microamperes. Sample 10 000's tick is the one the grid gives it, so no
+time moves.
 
 A summary node that covers samples 8192 to 12 287 holds samples of both scales. It is kept at their **common scale**,
 the largest scale both are whole multiples of: 10⁻⁶ here. Every millampere number in it is multiplied by 1000, so 1234
 becomes 1 234 000, and the node's minimum and maximum stay exact integers. Each summary block states its scale, so it
-reads without the series segments. Two scales without a common one (a ratio that isn't a fraction of integers) are
+reads without the chunks. Two scales without a common one (a ratio that isn't a fraction of integers) are
 refused, never mixed.
 
 ### Wire batches and file columns
@@ -207,12 +209,12 @@ sample columns. The two layers code the same numbers for different readers:
 | Size | a batch of about 32 items | a chunk of up to megabytes |
 | Read | from the start, item by item | any sample range, by group, in place |
 | Encoder | sized for a microcontroller | sized for a host, with SIMD kernels |
-| Scale | a prefix per item or in the type | one per series segment |
+| Scale | a prefix per item or in the type | one per chunk |
 
 Neither layer holds the other. The host decodes a batch once and codes its numbers again for the file. The integers pass
 through unchanged, and a `ww_si` prefix change ends the chunk where the batch restarts its column. The batch's time
-column is not stored: the grid gives every sample's tick, and the host starts a new series segment where the device's
-samples leave the grid.
+column is not stored: the grid gives every sample's tick, and the host starts a new grid where the device's samples
+leave it.
 
 ### Series files
 
@@ -235,7 +237,7 @@ coarse view of a track that the writer builds as it goes, in a tree over item nu
 - **Series summaries.** A level-0 node covers a power of two of samples that the track chooses, and each level up again
   covers 16 nodes. A node holds, per channel, the statistics the track declares: minimum, maximum, sum, sum of squares,
   a count of clipped or NaN samples, a flags OR, and for complex samples the mean and maximum of `I² + Q²`. It holds no
-  ticks, since the series segments give them.
+  ticks, since the chunks' grids give them.
 
 Nodes run over item numbers, not time, so a sparse track has no empty nodes, and the nodes of consecutive pieces of one
 track line up. Every statistic merges: a parent is its 16 children merged in item order. A reader that builds coarser

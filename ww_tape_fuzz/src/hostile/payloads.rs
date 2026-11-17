@@ -46,7 +46,7 @@ pub fn payloads(data: &[u8]) -> Vec<u8> {
             1 => {
                 // a payload column's codec or kind
                 let i = d.below(kinds.len());
-                let f = column_fields(i)[d.below(2)];
+                let f = column_fields(&b, i)[d.below(2)];
                 let caps: &'static [u64] = &[
                     Codec::RAW.0 as u64,
                     Codec::LZ4.0 as u64,

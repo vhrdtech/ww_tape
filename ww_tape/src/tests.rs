@@ -1053,6 +1053,26 @@ pub(crate) fn test_definitions(clock: u32, tracks: &[u32]) -> Vec<Describe<'stat
     out
 }
 
+/// Series track `number` on `clock`: i16 samples on `channels` channels, one per `period` ticks.
+pub(crate) fn test_series_track(
+    clock: u32,
+    number: u32,
+    channels: u32,
+    period: crate::Ratio64,
+) -> Describe<'static> {
+    let Describe::Track(t) = &sample_describe()[1] else {
+        unreachable!("the second sample is a track")
+    };
+    Describe::Track(TrackDef {
+        number: UNib32(number),
+        clock: UNib32(clock),
+        item: None,
+        repeat: crate::TrackRepeat::Stream,
+        kind: crate::TrackKind::Series(crate::SeriesDef::of::<i16>(None, channels, period)),
+        ..t.clone()
+    })
+}
+
 /// The definitions [tape]'s records need (clock C1, tracks 1 to 3) and its `n` blocks: what a writer takes.
 fn defined_tape(n: u64) -> (Definitions, Vec<u8>, Vec<usize>) {
     let mut defs = Definitions::new();
