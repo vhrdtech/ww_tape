@@ -1,0 +1,70 @@
+<svg class="ww-svg" viewBox="0 0 680 300" width="680" height="300" role="img" aria-label="An events chunk holds a start tick per item in columns beside ends, flags and payloads; a series chunk holds only samples, timed by the grid in its head" xmlns="http://www.w3.org/2000/svg">
+  <text x="20" y="22" text-anchor="start" class="strong">events chunk: items with times of their own</text>
+  <line x1="150" y1="50" x2="660" y2="50" class="thin"/>
+  <circle cx="158" cy="50" r="3.2" class="blue"/>
+  <circle cx="190" cy="50" r="3.2" class="blue"/>
+  <circle cx="204" cy="50" r="3.2" class="blue"/>
+  <circle cx="262" cy="50" r="3.2" class="blue"/>
+  <circle cx="330" cy="50" r="3.2" class="blue"/>
+  <circle cx="342" cy="50" r="3.2" class="blue"/>
+  <circle cx="351" cy="50" r="3.2" class="blue"/>
+  <circle cx="420" cy="50" r="3.2" class="blue"/>
+  <circle cx="497" cy="50" r="3.2" class="blue"/>
+  <circle cx="560" cy="50" r="3.2" class="blue"/>
+  <circle cx="600" cy="50" r="3.2" class="blue"/>
+  <circle cx="640" cy="50" r="3.2" class="blue"/>
+  <path d="M262 42 v16 M300 42 v16" class="thin"/>
+  <line x1="262" y1="42" x2="300" y2="42" class="thin"/>
+  <text x="281" y="37" text-anchor="middle" class="soft small">a span</text>
+  <rect x="20.5" y="80" width="129" height="34" rx="2" class="tint-ink"/>
+  <text x="85" y="101.5" text-anchor="middle" class="small">head</text>
+  <rect x="150.5" y="80" width="99" height="34" rx="2" class="tint-blue"/>
+  <text x="200" y="101.5" text-anchor="middle" class="small">starts</text>
+  <rect x="250.5" y="80" width="69" height="34" rx="2" class="tint-blue"/>
+  <text x="285" y="101.5" text-anchor="middle" class="small">ends</text>
+  <rect x="320.5" y="80" width="59" height="34" rx="2" class="tint-blue"/>
+  <text x="350" y="101.5" text-anchor="middle" class="small">flags</text>
+  <rect x="380.5" y="80" width="79" height="34" rx="2" class="tint-green"/>
+  <text x="420" y="101.5" text-anchor="middle" class="small">lengths</text>
+  <rect x="460.5" y="80" width="149" height="34" rx="2" class="tint-green"/>
+  <text x="535" y="101.5" text-anchor="middle" class="small">payloads</text>
+  <rect x="610.5" y="80" width="29" height="34" rx="2" class="faint"/>
+  <text x="625" y="101.5" text-anchor="middle" class="small">0×16</text>
+  <rect x="640.5" y="80" width="23" height="34" rx="2" class="tint-accent"/>
+  <text x="652" y="101.5" text-anchor="middle" class="small">CRC</text>
+  <text x="20" y="136" text-anchor="start" class="soft small">head: track, first item, item count, first and last tick, latest end, time and end mode, columns, a CRC per 64 KiB</text>
+  <text x="20" y="152" text-anchor="start" class="soft small">of payload. Item j is found in each column by its position, without decoding the items before it.</text>
+  <text x="20" y="186" text-anchor="start" class="strong">series chunk: samples at a fixed period</text>
+  <line x1="150" y1="214" x2="660" y2="214" class="thin"/>
+  <line x1="156" y1="198" x2="156" y2="214" class="accent-line"/>
+  <text x="162" y="200" text-anchor="start" class="accent small">grid: sample g at tick t</text>
+  <circle cx="166" cy="214" r="3.2" class="blue"/>
+  <circle cx="191" cy="214" r="3.2" class="blue"/>
+  <circle cx="216" cy="214" r="3.2" class="blue"/>
+  <circle cx="241" cy="214" r="3.2" class="blue"/>
+  <circle cx="266" cy="214" r="3.2" class="blue"/>
+  <circle cx="291" cy="214" r="3.2" class="blue"/>
+  <circle cx="316" cy="214" r="3.2" class="blue"/>
+  <circle cx="341" cy="214" r="3.2" class="blue"/>
+  <circle cx="366" cy="214" r="3.2" class="blue"/>
+  <circle cx="391" cy="214" r="3.2" class="blue"/>
+  <circle cx="416" cy="214" r="3.2" class="blue"/>
+  <circle cx="441" cy="214" r="3.2" class="blue"/>
+  <circle cx="466" cy="214" r="3.2" class="blue"/>
+  <circle cx="491" cy="214" r="3.2" class="blue"/>
+  <circle cx="516" cy="214" r="3.2" class="blue"/>
+  <circle cx="541" cy="214" r="3.2" class="blue"/>
+  <circle cx="566" cy="214" r="3.2" class="blue"/>
+  <circle cx="591" cy="214" r="3.2" class="blue"/>
+  <circle cx="616" cy="214" r="3.2" class="blue"/>
+  <circle cx="641" cy="214" r="3.2" class="blue"/>
+  <rect x="20.5" y="234" width="129" height="34" rx="2" class="tint-ink"/>
+  <text x="85" y="255.5" text-anchor="middle" class="small">head + grid</text>
+  <rect x="150.5" y="234" width="459" height="34" rx="2" class="tint-blue"/>
+  <text x="380" y="255.5" text-anchor="middle" class="small">samples: one column, coded per group of 128</text>
+  <rect x="610.5" y="234" width="29" height="34" rx="2" class="faint"/>
+  <text x="625" y="255.5" text-anchor="middle" class="small">0×16</text>
+  <rect x="640.5" y="234" width="23" height="34" rx="2" class="tint-accent"/>
+  <text x="652" y="255.5" text-anchor="middle" class="small">CRC</text>
+  <text x="20" y="290" text-anchor="start" class="soft small">No time is stored per sample: sample i sits at t + ⌊(i − g) · period⌋, the period from the track's definition.</text>
+</svg>

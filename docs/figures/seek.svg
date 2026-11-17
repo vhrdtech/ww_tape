@@ -1,0 +1,60 @@
+<svg class="ww-svg" viewBox="0 0 680 262" width="680" height="262" role="img" aria-label="A finished piece is opened from its tail: tail, finish, the final index's directory, one track's list, then the block. An unfinished piece is found from its newest checkpoint, whose back pointers list the blocks before it; the blocks after it are scanned" xmlns="http://www.w3.org/2000/svg">
+  <text x="20" y="22" text-anchor="start" class="strong">finished piece</text>
+  <rect x="20.5" y="84" width="39" height="30" rx="2" class="tint-ink"/>
+  <text x="40" y="103.5" text-anchor="middle" class="small">head</text>
+  <rect x="60.5" y="84" width="139" height="30" rx="2" class="tint-blue"/>
+  <text x="130" y="103.5" text-anchor="middle" class="small">data</text>
+  <rect x="200.5" y="84" width="15" height="30" rx="2" class="tint-amber"/>
+  <rect x="216.5" y="84" width="113" height="30" rx="2" class="tint-blue"/>
+  <text x="273" y="103.5" text-anchor="middle" class="small">data</text>
+  <rect x="330.5" y="84" width="15" height="30" rx="2" class="tint-amber"/>
+  <rect x="346.5" y="84" width="103" height="30" rx="2" class="tint-blue"/>
+  <text x="398" y="103.5" text-anchor="middle" class="small">data</text>
+  <rect x="450.5" y="84" width="27" height="30" rx="2" class="tint-amber"/>
+  <text x="464" y="103.5" text-anchor="middle" class="small">dir</text>
+  <rect x="478.5" y="84" width="61" height="30" rx="2" class="tint-amber"/>
+  <text x="509" y="103.5" text-anchor="middle" class="small">tracks</text>
+  <rect x="540.5" y="84" width="59" height="30" rx="2" class="tint-green"/>
+  <text x="570" y="103.5" text-anchor="middle" class="small">finish</text>
+  <rect x="600.5" y="84" width="39" height="30" rx="2" class="tint-ink"/>
+  <text x="620" y="103.5" text-anchor="middle" class="small">tail</text>
+  <text x="495" y="128" text-anchor="middle" class="soft small">final index</text>
+  <text x="273" y="128" text-anchor="middle" class="soft small">checkpoints every 4 MiB</text>
+  <line x1="208" y1="116" x2="250" y2="120" class="thin"/>
+  <line x1="338" y1="116" x2="300" y2="120" class="thin"/>
+  <path d="M620 82 Q598 52 572 80" class="accent-line"/>
+  <path d="M572.0 80.0 L574.2 72.5 L579.3 77.3 Z" class="accent-line head"/>
+  <text x="598" y="46" text-anchor="middle" class="accent small">1</text>
+  <path d="M566 82 Q520 34 466 80" class="accent-line"/>
+  <path d="M466.0 80.0 L469.1 72.8 L473.6 78.1 Z" class="accent-line head"/>
+  <text x="520" y="38" text-anchor="middle" class="accent small">2</text>
+  <path d="M466 82 Q488 58 508 80" class="accent-line"/>
+  <path d="M508.0 80.0 L500.7 77.2 L505.9 72.5 Z" class="accent-line head"/>
+  <text x="488" y="58" text-anchor="middle" class="accent small">3</text>
+  <path d="M506 82 Q400 10 290 80" class="accent-line"/>
+  <path d="M290.0 80.0 L294.0 73.3 L297.8 79.2 Z" class="accent-line head"/>
+  <text x="400" y="32" text-anchor="middle" class="accent small">4</text>
+  <text x="660" y="98" text-anchor="start" class="soft small">end</text>
+  <text x="20" y="170" text-anchor="start" class="strong">unfinished piece</text>
+  <rect x="20.5" y="200" width="39" height="30" rx="2" class="tint-ink"/>
+  <text x="40" y="219.5" text-anchor="middle" class="small">head</text>
+  <rect x="60.5" y="200" width="139" height="30" rx="2" class="tint-blue"/>
+  <text x="130" y="219.5" text-anchor="middle" class="small">data</text>
+  <rect x="200.5" y="200" width="15" height="30" rx="2" class="tint-amber"/>
+  <rect x="216.5" y="200" width="113" height="30" rx="2" class="tint-blue"/>
+  <text x="273" y="219.5" text-anchor="middle" class="small">data</text>
+  <rect x="330.5" y="200" width="15" height="30" rx="2" class="tint-amber"/>
+  <rect x="346.5" y="200" width="123" height="30" rx="2" class="tint-blue"/>
+  <text x="408" y="219.5" text-anchor="middle" class="small">data</text>
+  <rect x="470.5" y="200" width="29" height="30" rx="2" class="tint-accent"/>
+  <path d="M471 200 h29 v30 h-29 Z" class="thin dash"/>
+  <text x="485" y="248" text-anchor="middle" class="accent small">torn</text>
+  <path d="M334 198 Q270 160 212 198" class="accent-line"/>
+  <path d="M212.0 198.0 L215.9 191.2 L219.8 197.1 Z" class="accent-line head"/>
+  <text x="272" y="172" text-anchor="middle" class="accent small">points back</text>
+  <text x="352" y="192" text-anchor="start" class="soft small">newest checkpoint</text>
+  <path d="M347 240 v4 H469 v-4" class="thin"/>
+  <text x="408" y="258" text-anchor="middle" class="soft small">scanned block by block</text>
+  <path d="M21 240 v4 H329 v-4" class="thin"/>
+  <text x="175" y="258" text-anchor="middle" class="soft small">listed by the checkpoints</text>
+</svg>

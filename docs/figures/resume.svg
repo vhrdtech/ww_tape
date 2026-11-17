@@ -1,0 +1,45 @@
+<svg class="ww-svg" viewBox="0 0 680 236" width="680" height="236" role="img" aria-label="An unfinished piece after a crash: a resume keeps every byte up to its last good block of data and cuts off the puts marked FLAG_WITH_NEXT after it and the torn block; the producer gives the call again and the same bytes are written" xmlns="http://www.w3.org/2000/svg">
+  <text x="20" y="22" text-anchor="start" class="strong">after the crash</text>
+  <rect x="20.5" y="64" width="29" height="30" rx="2" class="tint-ink"/>
+  <text x="35" y="83.5" text-anchor="middle" class="small">head</text>
+  <rect x="50.5" y="64" width="79" height="30" rx="2" class="tint-blue"/>
+  <text x="90" y="83.5" text-anchor="middle" class="small">data</text>
+  <rect x="130.5" y="64" width="21" height="30" rx="2" class="tint-purple"/>
+  <rect x="152.5" y="64" width="79" height="30" rx="2" class="tint-blue"/>
+  <text x="192" y="83.5" text-anchor="middle" class="small">data</text>
+  <rect x="232.5" y="64" width="15" height="30" rx="2" class="tint-amber"/>
+  <rect x="248.5" y="64" width="81" height="30" rx="2" class="tint-blue"/>
+  <text x="289" y="83.5" text-anchor="middle" class="small">data</text>
+  <rect x="330.5" y="64" width="21" height="30" rx="2" class="tint-purple"/>
+  <rect x="352.5" y="64" width="21" height="30" rx="2" class="tint-purple"/>
+  <rect x="374.5" y="64" width="69" height="30" rx="2" class="tint-accent"/>
+  <path d="M375 64 h69 v30 h-69 Z" class="thin dash"/>
+  <text x="410" y="83.5" text-anchor="middle" class="small">torn</text>
+  <rect x="444" y="64" width="40" height="30" rx="2" class="faint"/>
+  <path d="M21 56 v-4 H329 v4" class="thin"/>
+  <text x="175" y="44" text-anchor="middle" class="small">kept: every byte up to the end of the last good block of data</text>
+  <path d="M331 102 v4 H443 v-4" class="thin"/>
+  <text x="387" y="121" text-anchor="middle" class="accent small">cut off</text>
+  <text x="363" y="139" text-anchor="middle" class="soft small">puts marked FLAG_WITH_NEXT, and the torn block they belong with</text>
+  <text x="20" y="170" text-anchor="start" class="strong">resumed</text>
+  <rect x="20.5" y="184" width="29" height="30" rx="2" class="tint-ink"/>
+  <text x="35" y="203.5" text-anchor="middle" class="small">head</text>
+  <rect x="50.5" y="184" width="79" height="30" rx="2" class="tint-blue"/>
+  <text x="90" y="203.5" text-anchor="middle" class="small">data</text>
+  <rect x="130.5" y="184" width="21" height="30" rx="2" class="tint-purple"/>
+  <rect x="152.5" y="184" width="79" height="30" rx="2" class="tint-blue"/>
+  <text x="192" y="203.5" text-anchor="middle" class="small">data</text>
+  <rect x="232.5" y="184" width="15" height="30" rx="2" class="tint-amber"/>
+  <rect x="248.5" y="184" width="81" height="30" rx="2" class="tint-blue"/>
+  <text x="289" y="203.5" text-anchor="middle" class="small">data</text>
+  <rect x="330.5" y="184" width="21" height="30" rx="2" class="tint-purple"/>
+  <rect x="352.5" y="184" width="21" height="30" rx="2" class="tint-purple"/>
+  <rect x="374.5" y="184" width="69" height="30" rx="2" class="tint-blue"/>
+  <text x="409" y="203.5" text-anchor="middle" class="small">data</text>
+  <rect x="444.5" y="184" width="75" height="30" rx="2" class="tint-blue"/>
+  <text x="482" y="203.5" text-anchor="middle" class="small">data</text>
+  <path d="M331 176 v-4 H443 v4" class="thin"/>
+  <text x="387" y="164" text-anchor="middle" class="small">the call given again: the same bytes</text>
+  <text x="560" y="203" text-anchor="middle" class="soft">…</text>
+  <text x="20" y="232" text-anchor="start" class="soft small">Purple: puts. A put is idempotent, so the producer puts again what it uses and needs no record of what reached the disk.</text>
+</svg>
