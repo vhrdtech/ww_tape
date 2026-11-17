@@ -52,7 +52,7 @@ own; a **series chunk** holds samples at a fixed rate, which need no time each. 
 series](events_and_series.md) explains both.
 
 For example, a firmware's log lines arrive a few per second, so they go into record blocks together with other slow
-tracks. A 25 kHz phase current fills a 4 MiB series chunk every few seconds, and a viewer reads any sample range of it
+tracks. A 25 kHz phase current fills series chunks one after another, and a viewer reads any sample range of them
 without touching the rest.
 
 Other kinds of block hold no items:
@@ -80,9 +80,8 @@ first data that needs it. [Writing a tape](writing.md#what-the-application-does-
 ## State, near and copies
 
 Most tracks are streams of events: a frame received at one tick says nothing about the next tick. Some tracks hold
-**state** instead: an item that stays in force until the next one replaces it. A link's session parameters, the run a
-recorder is in, and the timing grid of a series are state. A reader needs the item in force at a place to understand the
-data after it. Definitions are state too, on track 0.
+**state** instead: an item that stays in force until the next one replaces it. A link's session parameters and the run a
+recorder is in are state. A reader needs the item in force at a place to understand the data after it. Definitions are state too, on track 0.
 
 A reader that reads a file from its start always knows the state, because it has seen every record. A reader that starts
 in the middle can look backwards for the newest record of the track. That works only when the record lies in bytes the
@@ -104,9 +103,20 @@ the put writes the item again, so a reader at this place finds it close behind. 
 before every block of data. A put is idempotent, so the producer needs no record of what it put before.
 
 For example, a recorder puts a link's session before each block of that link's frames. The first put writes the session.
-Puts in the next 32 MiB write nothing, except one copy at a use 1 MiB or more after the first record. A put 32 MiB on
-writes the session again. A reader that starts anywhere finds the session within 32 MiB behind it, and one damaged block
+Puts after it write nothing, except one copy at a use 1 MiB or more after the first record. A put more than 32 MiB
+after the newest record writes the session again. A reader that starts anywhere finds the session within 32 MiB behind it, and one damaged block
 never takes the only record of it.
+
+The drawing shows the rule at work. Its writer runs with `near` shrunk to 8 KiB and the copy spacing to 2 KiB, so that
+a whole cycle fits on one line; the default numbers give the same picture 4096 times wider.
+
+<figure class="ww-figure" markdown="0">
+--8<-- "docs/plots/puts.svg"
+<figcaption>A state track put before each of 26 blocks of data. Only four puts write: the first, one copy 2 KiB on,
+and the item again each time the newest record lies more than <code>near</code> behind. Track 0's definitions are put
+the same way, by the layout's own policy. Drawn by <code>ww_tape_figures</code> from the blocks
+<code>TapeWriter</code> wrote.</figcaption>
+</figure>
 
 A record written by a put or as a copy goes into a block marked with the header flag `FLAG_REPEAT`. A reader that
 already holds the same item in that slot takes the record as nothing new. A state item is never written ahead of a use:
@@ -153,8 +163,9 @@ words; `ww_tape` sees only sessions, pieces, chains and an opaque owner id.
 
 A **cut** ends the current piece and starts the next piece of the chain. The writer writes the piece's final index,
 finish and tail, then a new piece head. In the new piece, the writer puts the layout and the producer first, and every
-definition and state item again at its first use, since nothing in the old piece counts as near. A chain cuts by size,
-by chunk count or by age, and only before a chunk.
+definition and state item again at its first use, since nothing in the old piece counts as near. A chain cuts by its
+policy (size, chunk count or age) only before a chunk. It also cuts before a write the piece's index has no room left
+for, and wherever the application asks.
 
 A slow input never waits for a cut. Records reach the file in record blocks as they come, a sync policy bounds what a
 crash can lose, and a reader of the unfinished piece reads them at once. A cut only bounds how large one file grows. For
@@ -185,8 +196,9 @@ The diagram shows one finished piece, start at the top.
                 │ puts           (track 0)    │ clocks, maps, tracks 1-3
                 │ events chunk   (track 3)    │ first data block
                 │ records        (tracks 1,2) │ small tracks, many per block
-                │ puts           (track 0, 6) │ track 6's definition and state
+                │ puts           (track 0)    │ track 5's definition
                 │ series chunk   (track 5)    │
+                │ puts           (track 0, 6) │ track 6's definition and state
                 │ summary        (track 3)    │
                 │ ...                         │
                 │ copies         (track 0, 6) │ at a use 1 MiB after the first
@@ -207,6 +219,16 @@ The diagram shows one finished piece, start at the top.
 
 A reader of this file starts at the bottom. It reads the tail, then the finish, then the part of the final index for the
 tracks it wants, and then only the blocks it needs. [Reading a tape](reading.md) follows that path.
+
+Drawn to scale, a small piece of 8 KiB shows how the end falls on the 4 KiB grid. The final index, the finish and the
+tail take the bytes after the data, and the finish's zero padding fills the rest up to the boundary.
+
+<figure class="ww-figure" markdown="0">
+--8<-- "docs/plots/piece.svg"
+<figcaption>A finished piece of a chain, each block to scale on rows of 1 KiB: four records blocks and four events
+chunks with the puts they need, a checkpoint, the final index, the finish with its padding, and the 164-byte tail
+ending on 8 KiB. Drawn by <code>ww_tape_figures</code> from a piece <code>PieceChain</code> wrote.</figcaption>
+</figure>
 
 ## Addressing one item
 

@@ -158,7 +158,7 @@ An application that writes a tape does three things:
 The writer does the rest: it puts the definitions a block needs before it, writes a state item only where the same
 item doesn't lie near behind, and adds copies at later uses. For example, a recorder of 10 000 sensors keeps 10 000
 track definitions and passes them with each block; a block of 3 sensors' readings gets those 3 definitions and their
-clock written before it, and only once per 32 MiB.
+clock written before it, once per 32 MiB plus one copy.
 
 ```rust
 let mut defs = Definitions::new();
@@ -169,7 +169,7 @@ writer.write_block(&defs, &readings)?; // the definitions it needs go first
 
 ### State tracks and near use
 
-Some tracks hold a **state** rather than a stream of events: a link's session, a series' current timing. A reader
+Some tracks hold a **state** rather than a stream of events: a link's session, the run a recorder is in. A reader
 that starts in the middle needs the item in force, not the history. A track says so with `TrackRepeat::State`, which
 carries a `StatePolicy`: how near behind a place its item must lie (`near`, 32 MiB by default) and how many copies an
 item gets (`copies`, one by default). Track 0 is a state track too, with its policy in the layout.
@@ -207,8 +207,9 @@ file is damaged.
 
 A block of summaries or other small data can wait for a gap with `TapeWriter::defer_block`. The writer puts the
 definitions the block needs at once, when the block is deferred, and places the block later with no puts of its own.
-The block waits at most `DEFER_WINDOW` (1 MiB) of writes, so it lies at most its tracks' `near` plus that window
-after their definitions. A cut or a finish places every deferred block first, so a deferred block never leaves its piece. The definitions are
+In an aligned file it waits for the gap before a chunk's payload, at most `DEFER_WINDOW` (1 MiB) of writes, so it lies
+at most its tracks' `near` plus that window after their definitions; in a file that isn't aligned it is placed at
+once. A cut or a finish places every deferred block first, so a deferred block never leaves its piece. The definitions are
 in the [describe module docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/describe.rs) and the
 slots in the [state module docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/state.rs).
 
@@ -246,8 +247,8 @@ no ids.
 
 ### Pieces and chains
 
-A long recording can be cut into several pieces, each a complete file that reads alone. A writer cuts only between
-chunks, by size, by chunk count or by age, and names the files `00000000.wwt`, `00000001.wwt` and so on. Bounded files
+A long recording can be cut into several pieces, each a complete file that reads alone. A `PieceChain` cuts by
+size, by chunk count or by age, always before a chunk, and names the files `00000000.wwt`, `00000001.wwt` and so on. Bounded files
 make retention simple (delete the oldest piece), and a crash costs only the piece being written.
 
 The pieces of one recording form a **chain**, checked in both directions. Each piece head names the previous piece by

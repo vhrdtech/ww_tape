@@ -16,14 +16,15 @@ block needs, checkpoints, the final index, the finish and the tail. The producer
 The writer puts its bytes into a **sink**. Two sinks come with `ww_tape`:
 
 - `FileSink`, the default, writes a file. `TapeWriter::create(path, sync)` creates it as `NAME.partial` and renames it
-  to `NAME` at the finish. `TapeWriter::append(path, sync)` appends to a file that is already there, in a new session.
+  to `NAME` at the finish. It refuses a `NAME` that is there (`WriteError::Exists`) and writes over a
+  `NAME.partial` left behind; reopen such a piece with `TapeWriter::resume` to keep it. `TapeWriter::append(path, sync)` appends to a file in a new session, and creates the file when it isn't there.
 - `MemSink` keeps the bytes in memory, where a `TapeReader` reads them while they are written. Tests use it to cut a
   piece at any byte and check what a reader makes of it.
 
 A chain of pieces takes a **sink factory** instead, which makes the sink of each piece: `Files` makes files in a
 directory, and `MemTapes` keeps every piece in memory under its name. Any other place, such as a raw SD card or a
-network store, needs its own `TapeSink`: a sink appends, syncs, reports its size, and for a resume reads back at an
-offset and truncates.
+network store, needs its own `TapeSink`: a sink appends, syncs, reports its size and its path, gives the piece its
+final name at the finish, and for a resume reads back at an offset and truncates.
 
 The writer's settings are its `WriterOptions`: the sync policy, the index policy, the layout (how blocks are placed),
 the producer's name and the near policy. The writer puts the layout and the producer at the start of every piece. They
@@ -53,9 +54,13 @@ writer.put(&defs, MODE, ticks, &mode_bytes)?; // a state item, at its use
 writer.write_block(&defs, &readings)?; // the definitions it needs go first
 ```
 
+Here `clock` and the two tracks are `Describe` values (a `ClockDef` and two `TrackDef`s), and `readings` is a finished
+records block from a `BlockWriter` (see below). The repository runs these lines
+as a test (`ww_tape/tests/it/book.rs`).
+
 How many definitions to hold is the application's choice; `Definitions::len` and `Definitions::bytes` say how much is
 held. For example, a recorder of 10 000 sensors holds 10 000 track definitions and passes them with each block. A block
-of 3 sensors' readings gets those 3 definitions and their clock written before it, and only once per 32 MiB. A track
+of 3 sensors' readings gets those 3 definitions and their clock written before it, once per 32 MiB plus one copy. A track
 added an hour in costs one record at its first block. A typed item that isn't a track's, such as a run record, is put
 with `TapeWriter::put_item`.
 
@@ -68,14 +73,16 @@ Data goes into the file in four forms:
 
 - **Record blocks.** Build one with `BlockWriter`: start it with the block's kind, its id (`TapeWriter::next_id`) and
   the clocks its records use, `push` records, then `finish` it and hand the bytes to `TapeWriter::write_block`, which
-  gives back where it landed (`Placed`: its offset in the piece and its length), or `None` for a block of puts, which
-  lands as no single block of its own. Use record blocks for tracks that produce a few items at a time.
+  gives back where it landed (`Placed`: its `offset` from the start of the piece and its `len`), or `None` for a block
+  of puts, which lands as no single block of its own. Use record blocks for tracks that produce a few items at a time.
 - **Chunks.** Hand a chunk head and its columns to `TapeWriter::write_chunk`, which encodes the chunk block and gives
   back where it landed (`Placed`). `PieceChain::write_chunk` gives back a `ChunkPlaced` too: the same, with the seq of
-  the piece it landed in, since a call may cut to a new piece first. Use chunks for tracks with many items.
+  the piece it landed in, since a call may cut to a new piece first. `PieceChain::write_block` gives back nothing. Use chunks for tracks with many items.
 - **Deferred blocks.** Hand small blocks that may wait, such as summary blocks, to `TapeWriter::defer_block`. The writer
-  puts their definitions at once and places the block in the next gap, at most `DEFER_WINDOW` (1 MiB) of writes later.
-- **State items.** Put a state track's item with `TapeWriter::put` each time the producer uses it.
+  puts their definitions at once. In an aligned file it places the block in the gap before a chunk's payload, at most
+  `DEFER_WINDOW` (1 MiB) of writes later; in a file that isn't aligned it places the block at once.
+- **State items.** Put a state track's item with `TapeWriter::put` each time the producer uses it. It returns whether
+  it wrote the item.
 
 A state track takes its items only through puts. A caller's records on a state track in a block of data are refused, and
 so is an events chunk on a state track. A series track has no records: its samples go into series chunks as data, each
@@ -84,9 +91,24 @@ chunk's head carrying its grid and scale, and a record, a put or an events chunk
 The writer checks what it is handed in proportion to its cost. A chunk it encodes from columns has its head and column
 table checked, its track against the definitions and a series chunk's ticks against its grid; the payload is the
 caller's columns copied, and is not read back. A caller's whole block (`write_block`, `adopt_block`, `defer_block`) is
-read once with every CRC checked. Past that, each byte placed costs one pass more, the content hash. On a 1 MiB series
-chunk, `write_chunk` takes 466 µs, of which the encoding (copy and CRCs) is 226 µs and BLAKE3 207 µs; it took 857 µs
-when it read the chunk back twice (`just bench-chunks`).
+read once with every CRC checked. Past that, each byte placed costs one pass more, the content hash. The writer
+doesn't compare a series chunk's grid with the chunk before it; a reader's `SeriesTimeline` does
+([Events and series](events_and_series.md#grids-where-samples-are-in-time)).
+
+Every CRC is a CRC-32C, computed with the CPU's CRC instructions where it has them (SSE4.2 on x86-64, the CRC extension
+of ARMv8) and by a table elsewhere, with the same result. `just bench-chunks` measures what the writer spends on a
+series chunk of 1 MiB (524 288 `i16` samples). On an AMD EPYC Genoa virtual machine with 14 vCPUs at a load average of
+about 20, best of 5 rounds of 256 chunks:
+
+| What | µs per chunk | GB/s |
+|---|---:|---:|
+| `chunk::write_chunk`: copy and CRCs | 68 | 15.31 |
+| `Block::read`: the CRCs checked | 43 | 24.16 |
+| `ItemHash::of`: BLAKE3 | 253 | 4.14 |
+| `TapeWriter::write_chunk` from columns | 338 | 3.10 |
+| `chunk::write_chunk`, then `TapeWriter::write_block` | 422 | 2.48 |
+
+The content hash is most of the cost: a writer that hands over columns spends about 85 µs per MiB besides it.
 
 ### Puts, near and copies
 
@@ -124,7 +146,8 @@ how much that can be:
 | `None` | only at the finish | everything the system hasn't written yet |
 
 `Interval` acts when a block arrives. A producer whose input may stop for a while calls `TapeWriter::tick` now and then,
-so the last blocks are synced even when no new block comes. `TapeWriter::sync` syncs at once.
+so the last blocks are synced even when no new block comes; with `IndexPolicy::interval` set, `tick` also places a
+checkpoint when its time is up. `TapeWriter::sync` syncs at once.
 
 A failed write or sync ends the file. The writer reports it and refuses every later write. It never retries, because
 after a failed `fsync` Linux may drop the pages it couldn't write, and a second `fsync` then succeeds without them.
@@ -142,15 +165,17 @@ a checkpoint waits for the gap before the next chunk payload.
 
 ## Cuts: ending one piece and starting the next
 
-A **cut** ends the current piece and starts the next piece of the chain. `TapeWriter::cut(next_path)` places every
-deferred block, writes the final index, the finish and the tail, renames the file, and returns a writer on the next
-piece. The next piece starts with a piece head and the layout and producer. Its definitions and state are put again at
+A **cut** ends the current piece and starts the next piece of the chain. Only a piece of a chain can be cut: a writer
+starts one with `TapeWriter::begin_piece`, which writes the piece head first in the file. `TapeWriter::cut(next_path)`
+places every deferred block, writes the final index, the finish and the tail, renames the file, and returns the
+finished piece (`Finished`) and a writer on the next piece. The next piece starts with a piece head and the layout and producer. Its definitions and state are put again at
 their first uses, since near is measured inside a piece.
 
-`PieceChain` writes a whole chain and cuts by itself by a `CutPolicy`: after a number of bytes, a number of chunks, or
-an age. It checks the policy before each chunk, so it never cuts after the last chunk and never leaves a piece empty. It
-also cuts when a piece has no room left for state entries in its index (`IndexPolicy::state_entries_max`).
-`PieceChain::cut_now` cuts at once.
+`PieceChain` writes a whole chain and cuts by itself by a `CutPolicy`, which has three limits: `bytes`, `chunks` and
+`interval`, an age counted from the piece's start or its resume. A limit of 0 or `None` is off, and the first limit
+reached cuts. The chain checks the policy before each chunk, so a cut by policy never comes after the last chunk and
+never leaves a piece without data. The chain also cuts before any write that would need more state entries than the
+piece's index may hold (`IndexPolicy::state_entries_max`), and `PieceChain::cut_now` cuts at once.
 
 Nothing waits for a cut. Durability comes from the sync policy and the checkpoints, which work inside a piece; the cut
 only bounds how large one file grows. A slow input, such as one log line a minute, is written in a record block as it
@@ -184,14 +209,22 @@ sequence numbers stays a jump in the writer's, so a reader still sees blocks tha
 
 ## Resuming after a crash
 
-`TapeWriter::resume(path, options)` reopens an unfinished `NAME.partial` and goes on writing the same piece. It works in
-three steps:
+`TapeWriter::resume(path, options)` reopens the unfinished piece of `path`, the file `NAME.partial` that
+`TapeWriter::create(NAME)` wrote, and goes on writing the same piece. It returns the writer and a `Resumed`, which says
+how many bytes it kept and dropped and where the piece was cut. It works in three steps:
 
-1. It finds the piece as a reader would: from the newest checkpoint, then by a scan that stops at the first bad block.
+1. It finds the piece as a reader would: by its tail when it has one, else from the newest checkpoint and a scan after
+   it, else by a scan from the start. A scan stops at the first bad block.
 2. It keeps every byte up to the end of the last good block. It cuts off the rest: a torn block, an end of piece, and
    blocks marked `FLAG_WITH_NEXT` at the end of what it keeps, since the block they belong with didn't survive.
 3. It replays the kept blocks to rebuild the writer as it was: the content hash, the index entries, the track ranges,
    the record of what lies near, the session and the next sequence number.
+
+<figure class="ww-figure" markdown="0">
+--8<-- "docs/figures/resume.svg"
+<figcaption>What a resume keeps. The puts at the end belong with the block of data that was torn, so they go with it;
+the producer gives that call again, and it writes the same puts and the same block.</figcaption>
+</figure>
 
 The producer then gives again every call from the block `TapeWriter::next_seq` reports, with the same definitions. Since
 what the writer adds depends only on the bytes before it, the calls and the options, the resumed piece ends with the
