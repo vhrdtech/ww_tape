@@ -81,6 +81,7 @@ Covers `ww_tape` 0.1.0.
 
 ### 🚀 Features
 
+- `just bench-chunks`: ns per 1 MiB series chunk the writer spends, and its parts (TAPE-4).
 - Book pages a newcomer starts from: tape concepts, writing and resume, pieces and files, reading, numbers, and tapes against logring.
 - `IndexPolicy::state_entries_max` caps a piece's state entries (`IndexError::StateEntries`); `PieceChain` cuts when it is reached (STD-135).
 - `api()`: the crate's `FullVersion`, to find its bundle in `wire_weaver_snapshots` (STD-135).

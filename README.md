@@ -39,7 +39,7 @@ the book work there. The exact byte layouts are in the crate's module docs.
 | `docs/` | the pages of the format |
 
 `just --list` shows the recipes: `just test`, `just lint`, `just check`, `just fuzz-tape-<target>`,
-`just bench-sample-codecs`, `just bench-summaries`, `just bench-tracks`, `just tape-golden-update`.
+`just bench-sample-codecs`, `just bench-summaries`, `just bench-tracks`, `just bench-chunks`, `just tape-golden-update`.
 
 ## Depending on it
 

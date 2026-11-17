@@ -2,7 +2,7 @@
 name = "ww_tape_benchmarks"
 version = "0.1.0"
 authors.workspace = true
-description = "Benchmarks of ww_tape: its float sample codec and bench-only ones on simulated, decoded and sensor data"
+description = "Benchmarks of ww_tape: its float sample codec and bench-only ones, summaries, tracks and the writer's cost per chunk"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
