@@ -43,7 +43,7 @@
 //!
 //! Two layers code the same numbers for different readers:
 //!
-//! | | `shrink_wrap` `Series<T>` (SW-60) | ww_tape [sample codecs](crate::samples) (STD-119) |
+//! | | `shrink_wrap` `Series<T>` | ww_tape [sample codecs](crate::samples) |
 //! |---|---|---|
 //! | where | on the wire, device to host, a batch of about 32 items | in a file, a chunk of up to megabytes |
 //! | reads | from the start, item by item, all columns in step | any sample range, a group of 128 (delta) or 1024 (XOR) alone, in place |

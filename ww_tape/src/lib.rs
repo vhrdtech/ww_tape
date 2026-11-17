@@ -382,7 +382,7 @@ pub enum Segment<'a> {
     Name(&'a str),
     /// An index into a plain resource array.
     Index(u32),
-    /// The key of an element of a keyed resource array (API-67): the key's shrink_wrap bytes. Two sessions that
+    /// The key of an element of a keyed resource array: the key's shrink_wrap bytes. Two sessions that
     /// number the elements differently give the same key.
     Key(&'a [u8]),
 }
