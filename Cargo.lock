@@ -501,6 +501,7 @@ dependencies = [
  "lewton",
  "libm",
  "motor_sim",
+ "shrink_wrap",
  "ww_tape",
 ]
 

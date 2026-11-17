@@ -23,7 +23,7 @@ unclear, the source and its comments are authoritative.
 | --- | --- |
 | `ww_tape/` | blocks, definitions on track 0, state tracks and their lookups, chunks, the time, sample and payload codecs, `bitpack`, summaries, index, finish and tail, pieces, `TapeWriter`, `FileBlocks`, `TapeReader`; `golden/` the golden files |
 | `ww_tape_fuzz/` | the fuzz target bodies (`targets`), hostile block builders (`hostile`), `seeds/` and their replay as tests, `ww_tape_fuzz_seeds` |
-| `ww_tape_benchmarks/` | float sample codecs on simulated, decoded and sensor data; series summaries (`--bin summaries`) |
+| `ww_tape_benchmarks/` | float sample codecs on simulated, decoded and sensor data; series summaries (`--bin summaries`); tracks added one by one, puts and copies (`--bin tracks`) |
 | `fuzz/` | cargo-fuzz targets (`tape-*`), a workspace of its own on nightly; each target calls `ww_tape_fuzz` |
 | `docs/` | the pages of the format |
 
@@ -51,6 +51,7 @@ just fuzz-tape-<target>   # one fuzz target until stopped, with its libFuzzer li
 just tape-golden-update   # rewrite golden/*.hex after a deliberate format change
 just bench-sample-codecs  # float codecs (fetches a public-domain speech file once)
 just bench-summaries      # series summary throughput
+just bench-tracks         # tracks added one by one; puts and copies per 256 MiB piece
 ```
 
 Single test: `cargo nextest run -p ww_tape <test>` (nextest is required). Plain `cargo sort` flattens grouped

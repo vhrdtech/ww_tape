@@ -15,3 +15,10 @@ The `summaries` binary measures series summaries: MB/s of sample bytes per eleme
 just bench-summaries
 just bench-summaries --frames 1024 --mib 64
 ```
+
+The `tracks` binary adds tracks one by one, as a recorder that learns of a new source does: it defines each (`TapeWriter::define`), writes one records block on it, finishes the piece and reads its definitions back, and prints the time to add the first 1 000, 5 000 and all tracks. It then writes a piece of `--piece-mib` (256 by default) with every track defined and records blocks of `--block-kib` (4) on the tracks in use in turn, and prints the bytes the writer put and copied: with every track in use, and with 1 % in use.
+
+```sh
+just bench-tracks
+just bench-tracks --tracks 100000
+```

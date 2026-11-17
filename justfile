@@ -57,6 +57,10 @@ bench-sample-codecs *args:
 bench-summaries *args:
     cargo run -q --release -p ww_tape_benchmarks --bin summaries -- {{ args }}
 
+# ww_tape tracks added one by one, then the bytes put and copied per 256 MiB piece (STD-135); `just bench-tracks --help`
+bench-tracks *args:
+    cargo run -q --release -p ww_tape_benchmarks --bin tracks -- {{ args }}
+
 # Install cargo-fuzz (fuzzing needs a nightly toolchain)
 fuzz-install:
     cargo install cargo-fuzz

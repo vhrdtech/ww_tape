@@ -34,12 +34,12 @@ the book work there. The exact byte layouts are in the crate's module docs.
 | --- | --- |
 | `ww_tape/` | the format: blocks, definitions and state on track 0, chunks, codecs, summaries, index, pieces, writers and readers; `golden/` the golden files |
 | `ww_tape_fuzz/` | fuzz target bodies, hostile block builders, the seed files (`seeds/`) and their replay as tests |
-| `ww_tape_benchmarks/` | the float sample codec and series summary benchmarks |
+| `ww_tape_benchmarks/` | the float sample codec, series summary and tracks benchmarks |
 | `fuzz/` | cargo-fuzz targets (`tape-*`), a workspace of its own on nightly |
 | `docs/` | the pages of the format |
 
 `just --list` shows the recipes: `just test`, `just lint`, `just check`, `just fuzz-tape-<target>`,
-`just bench-sample-codecs`, `just bench-summaries`, `just tape-golden-update`.
+`just bench-sample-codecs`, `just bench-summaries`, `just bench-tracks`, `just tape-golden-update`.
 
 ## Depending on it
 
