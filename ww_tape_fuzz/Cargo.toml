@@ -3,6 +3,7 @@ name = "ww_tape_fuzz"
 version = "0.1.0"
 publish = false
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -14,3 +15,6 @@ crc.workspace = true
 exact_units = { workspace = true, features = ["information"] }
 shrink_wrap = { workspace = true, features = ["std"] }
 ww_tape = { workspace = true, features = ["std"] }
+
+[lints]
+workspace = true
