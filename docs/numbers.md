@@ -63,8 +63,9 @@ rerun them, run `just bench-sample-codecs`, which takes about 20 s.
 
 Event start ticks are stored per group of 128 items as distances from a line through the group, bit-packed. Periodic
 data with jitter costs the bits of its jitter, not of its period. The table gives bytes and nanoseconds per event for 10
-million events per workload (6.4 million for the journal), in chunks of 4096 items. The bench ran on a virtual machine
-with 14 vCPUs of an AMD EPYC Genoa host. Raw 64-bit ticks take 8.01 bytes.
+million events per workload (6.4 million for the journal), in chunks of 4096 items. The bench ran on a virtual machine with 14 vCPUs of an AMD EPYC Genoa host. Raw 64-bit ticks take 8.01 bytes. These
+figures come from `eventfull_benchmarks` in the eventfull repository, where the codec was chosen; this repository has
+no bench of its own for event times.
 
 | Workload | Bytes per event | Coding, ns per event | Fetch item `j`, ns | First at or after a tick, ns |
 |---|---:|---:|---:|---:|
@@ -86,18 +87,28 @@ keeps every statistic in one pass over a batch. Integers up to 32 bits go throug
 chosen at run time, and a portable form) with exact integer sums, so the order of addition never changes a result.
 64-bit integers and floats take one sample at a time in sample order, because a float sum depends on the order.
 
-`just bench-summaries` measured summaries alone, with nodes of 1024 samples, 16 384 frames per push and every statistic,
-on one AMD EPYC Genoa core at a load of 4:
+`just bench-summaries` measures summaries per element type, with nodes of 1024 samples, 16 384 frames per push and
+every statistic, beside the raw sample codec and both together. One run on an AMD EPYC Genoa virtual machine with
+14 vCPUs (AVX2 and AVX-512) at a load average of about 20, one channel:
 
-| Element | One statistic at a time | Single-pass kernels |
+| Element | Summaries | Raw codec and summaries |
 |---|---:|---:|
-| `i16` | 812 MB/s | 4586 MB/s |
-| complex `i16` | 486 MB/s | 5341 MB/s |
-| `i32` | 1084 MB/s | 7055 MB/s |
+| `i16` | 3445 MB/s | 3834 MB/s |
+| complex `i16` | 5107 MB/s | 4524 MB/s |
+| `i32` | 5313 MB/s | 4475 MB/s |
+| `i64` | 3785 MB/s | 3945 MB/s |
+| `f32` | 1717 MB/s | 1697 MB/s |
+| `f64` | 3683 MB/s | 3272 MB/s |
 
-MB/s counts sample bytes. The portable kernel alone, without AVX, summarised complex `i16` at 2108 MB/s. `just
-bench-summaries` also measures the raw sample codec and both together, per element type, and prints the CPU's vector
-extensions and the load average, since a loaded machine measures less.
+MB/s counts sample bytes. The bench prints the CPU's vector extensions and the load average with its table, since a
+loaded machine measures less; this run's load makes its numbers a lower bound.
+
+## Writing chunks
+
+The writer's own cost per chunk is a copy, the CRCs and the content hash. `just bench-chunks` measures it on series
+chunks of 1 MiB; [Writing a tape](writing.md#writing-data) gives its table. On the machine above, `TapeWriter::write_chunk`
+took 338 µs per chunk, of which BLAKE3 took 253 µs and the copy with its CRCs 68 µs. The CRCs run on the CPU's CRC
+instructions where it has them (SSE4.2, ARMv8), and checking a 1 MiB block's CRCs took 43 µs.
 
 ## Definitions and puts
 

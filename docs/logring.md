@@ -22,13 +22,19 @@ CSV, MCAP or MF4.
 a test run, an analysis result. A file grows until the producer stops or the writer cuts a piece. Its index, summaries
 and column-coded chunks are built for reading one track out of thousands, or an overview of a week, in a few reads.
 
+<figure class="ww-figure" markdown="0">
+--8<-- "docs/figures/logring.svg"
+<figcaption>Two ways to keep data. A logring is a fixed ring on the device: its newest segment overwrites the oldest.
+A tape grows by appending pieces, and a piece goes only when someone deletes it.</figcaption>
+</figure>
+
 ## Comparison
 
 | | logring | tape (`ww_tape`) |
 |---|---|---|
-| Where it is written | firmware on a microcontroller: a preallocated ring file on an SD card's exFAT volume, written by raw sector address, or any `LogMedium` such as NOR flash | a host program into a file; also a live feed or a raw medium |
+| Where it is written | firmware on a microcontroller: a preallocated ring file on an SD card's exFAT volume, written by raw sector address, or another medium behind its `LogMedium` trait (NOR flash is simulated in its tests) | a host program into a file; also a live feed or a raw medium |
 | Size | a fixed ring; when full, the oldest segment is overwritten (the default) or new records are refused | grows by appending; nothing is dropped unless a person deletes whole pieces |
-| Power loss | loses what the stage buffer held since the last flush: at most 64 KB or 1 s of data by default | loses what wasn't synced yet: about 1 s by default; a reader rescans at most about 4 MiB after the newest checkpoint |
+| Power loss | loses what the stage buffer held since the last flush: at most 64 KB (or the size measured when the card is formatted) or 1 s of data by default | loses what wasn't synced yet: about 1 s by default; a reader rescans at most about 4 MiB after the newest checkpoint |
 | Wear and erase | 512-byte blocks written once per lap of the ring; segments match the card's allocation unit | blocks are appended and never rewritten; a raw NAND writer pads a page at each sync; erase and wear are left to the medium |
 | Unit of writing | a flush: whole 512-byte blocks, each with an 8-byte trailer | a block of any length: 32-byte header, body, CRC-32C |
 | Per-record overhead | a record head delta-coded per flush: about 4 bytes for a small item on a busy track | record blocks: track, time delta and length as varints; chunks: columns per track, 0.022 to 3.84 bytes per event start ([Numbers](numbers.md#event-times)) |
@@ -63,7 +69,6 @@ The formats are separate, and a logring block is not a tape block. They share a 
 - **Varints.** Both code unsigned numbers as LEB128 (7 bits per byte, low bits first) and signed numbers zigzag first.
 - **Checksums.** Both use CRC-32C, over different spans.
 - **Track keys.** Both build stable track keys with 64-bit FNV-1a, but over different inputs. logring hashes the API
-  root (the crate's name and major version) and the path's numeric ids. `ww_tape` hashes the crate's name and the path's
-  names and indices, so its key survives renumbered ids. The same track therefore has different keys in the two formats.
+  root (the crate's name and major version) and the path's numeric ids. `ww_tape` hashes the crate's name and the path's names, indices and keys, so its key survives renumbered ids. The same track therefore has different keys in the two formats.
 
 Everything else differs: blocks, record heads, what track 0 means, how time is stored, and how a reader finds data.
