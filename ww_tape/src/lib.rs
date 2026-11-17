@@ -908,7 +908,8 @@ pub(crate) fn mark_with_next(block: &mut [u8]) -> Result<(), BlockError> {
 enum Reread {
     /// Whole, every CRC checked ([Block::read]).
     Whole,
-    /// Its header and a chunk's head only, its CRCs known good ([Block::read_trusted]).
+    /// Its header and a chunk's head only, its CRCs known good ([Block::read_trusted]); only the writer has such.
+    #[cfg(feature = "std")]
     Head,
 }
 
@@ -916,6 +917,7 @@ enum Reread {
 fn restamp(block: &mut [u8], id: BlockId, set: u16, read: Reread) -> Result<(), BlockError> {
     let b = match read {
         Reread::Whole => Block::read(block)?,
+        #[cfg(feature = "std")]
         Reread::Head => Block::read_trusted(block)?,
     };
     if b.len() != block.len() {
@@ -1041,6 +1043,7 @@ impl<'b> Block<'b> {
 
     /// The block of a whole block whose CRCs are known good (one this crate made, or read with [Self::read] already):
     /// the header, and for a chunk block its head with its head CRC, read; no pass over the payload or the records.
+    #[cfg(feature = "std")]
     pub(crate) fn read_trusted(bytes: &'b [u8]) -> Result<Self, BlockError> {
         Self::read_unchecked(bytes).map(|(b, _)| b)
     }
