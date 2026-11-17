@@ -89,7 +89,7 @@ Covers `ww_tape` 0.1.0.
 - `just bench-chunks`: ns per 1 MiB series chunk the writer spends, its parts, and a timeline's cost (TAPE-4).
 - Book pages a newcomer starts from: tape concepts, writing and resume, pieces and files, reading, numbers, and tapes against logring.
 - Book figures: `ww_tape_figures` draws 4 from blocks ww_tape writes (`just book-figures`, checked by a test); 6 drawn by hand.
-- Book pages match the code: the format reference holds every block layout of the module docs, checked by a test.
+- Book pages match the code: tests check format.md's layouts, offsets, kinds and caps against the crate, and run the pages' example.
 - `IndexPolicy::state_entries_max` caps a piece's state entries (`IndexError::StateEntries`); `PieceChain` cuts when it is reached (STD-135).
 - `api()`: the crate's `FullVersion`, to find its bundle in `wire_weaver_snapshots` (STD-135).
 - `Definitions`: the application holds its definitions and passes them with each write; it reports `len` and `bytes` (STD-135).

@@ -90,7 +90,9 @@ With header flag `FLAG_BODY_CODED` the body is coded ([`body`](https://github.co
 u8    codec (BodyCodec): 0 stored, 1 lz4 block
 uvar  decoded length: the body as it would be stored, at most MAX_BLOCK_LEN - 36
 ...   coded bytes: stored, the body itself; lz4, one lz4 block (no frame, no checksum)
-``` Record times are signed i64 ticks of the track's clock, each delta against the previous record on the same
+```
+
+Record times are signed i64 ticks of the track's clock, each delta against the previous record on the same
 clock, so a block reads alone and one clock costs no bit. Records on track 0 have no time delta. No wall time is in a block.
 
 A **chunk** block holds one chunk of one track, read in place: an events chunk (up to a few thousand items of an event track) or a series chunk (a run of samples of a fixed-rate series). Its head says where it belongs without the definitions or an index: the track's identity hash and number, the first item number, the item count, the first and last tick and the latest end of any item (so an overlap query needs no decode of the ends), then the segment shift, the column count, the time and end modes, in a series chunk its grid (grid index, grid tick and the scale of its numbers, see [Series tracks](#series-tracks)), one entry per column (its kind, its codec id, a parameter such as a samples column's first channel, its offset) and a CRC-32C per 64 KiB segment of the payload. The columns follow back to back, then 16 zero bytes, so an unaligned 16-byte load at any column byte stays in the block; numbers are little endian. The head has a CRC of its own: when a payload is damaged, `Recovery::Resync` still trusts the head, skips the block by its length and hands it out with its bad segments marked (`Block::is_intact` false, `Chunk::bad_segments`, `Chunk::column_damaged`), so a flipped bit in a 4 MiB series chunk loses one 64 KiB segment. A block with a bad head is skipped one byte on, to the next magic. The head ([chunk module docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/chunk/mod.rs)):
