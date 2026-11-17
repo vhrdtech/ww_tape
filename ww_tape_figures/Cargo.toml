@@ -1,0 +1,19 @@
+[package]
+name = "ww_tape_figures"
+version = "0.1.0"
+authors.workspace = true
+description = "The figures of ww_tape's book pages that hold bytes or numbers, drawn as SVG from blocks ww_tape writes"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+exact_units = { workspace = true, features = ["counting", "information"] }
+shrink_wrap.workspace = true
+ww_tape = { workspace = true, features = ["std"] }
+
+[lints]
+workspace = true

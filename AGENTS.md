@@ -25,8 +25,9 @@ the docs are unclear, the source and its comments are authoritative.
 | `ww_tape/` | blocks, definitions on track 0, state tracks and their lookups, chunks, the time, sample and payload codecs, `bitpack`, summaries, index, finish and tail, pieces, `TapeWriter`, `FileBlocks`, `TapeReader`; `golden/` the golden files |
 | `ww_tape_fuzz/` | the fuzz target bodies (`targets`), hostile block builders (`hostile`), `seeds/` and their replay as tests, `ww_tape_fuzz_seeds` |
 | `ww_tape_benchmarks/` | float sample codecs on simulated, decoded and sensor data; series summaries (`--bin summaries`); tracks added one by one, puts and copies (`--bin tracks`); the writer's cost per series chunk (`--bin chunks`) |
+| `ww_tape_figures/` | the book's figures that show bytes or numbers, drawn from blocks ww_tape writes into `docs/plots/` (`just book-figures`; a test checks them) |
 | `fuzz/` | cargo-fuzz targets (`tape-*`), a workspace of its own on nightly; each target calls `ww_tape_fuzz` |
-| `docs/` | the pages of the format |
+| `docs/` | the pages of the format; `figures/` drawings by hand, `plots/` drawn by `ww_tape_figures` |
 
 What builds on ww_tape stays in WireWeaver: `ww_tape_bundle` (track name paths from an API bundle, above `ww_self`),
 `ww_tap` (the link recorder), `tests/tape_identity`, the client's tap decoder.

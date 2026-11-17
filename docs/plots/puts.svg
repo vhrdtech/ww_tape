@@ -1,0 +1,93 @@
+<svg class="ww-svg" viewBox="0 0 712 272" width="712" height="272" role="img" aria-label="A state track put before every block of data: most puts write nothing; the first writes the item, a use 2 KiB on writes one copy, and a use more than 8 KiB after the newest record writes it again" xmlns="http://www.w3.org/2000/svg">
+<text x="116.0" y="38.0" text-anchor="end">track 0</text>
+<text x="116.0" y="53.0" text-anchor="end" class="soft small">definitions</text>
+<text x="116.0" y="96.0" text-anchor="end">track 5, state</text>
+<text x="116.0" y="111.0" text-anchor="end" class="soft small">put at every use</text>
+<text x="116.0" y="154.0" text-anchor="end">track 1</text>
+<text x="116.0" y="169.0" text-anchor="end" class="soft small">data</text>
+<rect x="128.0" y="26.0" width="3.0" height="22.0" rx="1" class="purple"/>
+<rect x="129.6" y="86.0" width="179.2" height="18.0" rx="2" class="tint-purple"/>
+<rect x="129.6" y="84.0" width="3.2" height="22.0" rx="1" class="purple"/>
+<text x="134.6" y="79.0" text-anchor="start" class="purple small">first</text>
+<rect x="132.8" y="26.0" width="3.0" height="22.0" rx="1" class="purple"/>
+<rect x="135.1" y="142.0" width="19.6" height="22.0" rx="2" class="tint-blue"/>
+<line x1="134.6" y1="110.0" x2="134.6" y2="118.0" class="thin"/>
+<rect x="155.7" y="142.0" width="19.6" height="22.0" rx="2" class="tint-blue"/>
+<line x1="155.2" y1="110.0" x2="155.2" y2="118.0" class="thin"/>
+<rect x="175.8" y="86.0" width="179.2" height="18.0" rx="2" class="tint-purple"/>
+<rect x="175.8" y="84.0" width="3.3" height="22.0" rx="1" class="purple"/>
+<text x="180.8" y="79.0" text-anchor="start" class="purple small">copy</text>
+<rect x="179.1" y="26.0" width="3.0" height="22.0" rx="1" class="purple"/>
+<rect x="181.4" y="142.0" width="19.7" height="22.0" rx="2" class="tint-blue"/>
+<line x1="180.9" y1="110.0" x2="180.9" y2="118.0" class="thin"/>
+<rect x="202.1" y="142.0" width="19.7" height="22.0" rx="2" class="tint-blue"/>
+<line x1="201.6" y1="110.0" x2="201.6" y2="118.0" class="thin"/>
+<rect x="222.8" y="142.0" width="19.7" height="22.0" rx="2" class="tint-blue"/>
+<line x1="222.3" y1="110.0" x2="222.3" y2="118.0" class="thin"/>
+<rect x="243.5" y="142.0" width="19.7" height="22.0" rx="2" class="tint-blue"/>
+<line x1="243.0" y1="110.0" x2="243.0" y2="118.0" class="thin"/>
+<rect x="264.1" y="142.0" width="19.7" height="22.0" rx="2" class="tint-blue"/>
+<line x1="263.6" y1="110.0" x2="263.6" y2="118.0" class="thin"/>
+<rect x="284.8" y="142.0" width="19.7" height="22.0" rx="2" class="tint-blue"/>
+<line x1="284.3" y1="110.0" x2="284.3" y2="118.0" class="thin"/>
+<rect x="305.5" y="142.0" width="19.7" height="22.0" rx="2" class="tint-blue"/>
+<line x1="305.0" y1="110.0" x2="305.0" y2="118.0" class="thin"/>
+<rect x="326.1" y="142.0" width="19.7" height="22.0" rx="2" class="tint-blue"/>
+<line x1="325.6" y1="110.0" x2="325.6" y2="118.0" class="thin"/>
+<rect x="346.8" y="142.0" width="19.7" height="22.0" rx="2" class="tint-blue"/>
+<line x1="346.3" y1="110.0" x2="346.3" y2="118.0" class="thin"/>
+<rect x="367.0" y="86.0" width="179.2" height="18.0" rx="2" class="tint-purple"/>
+<rect x="367.0" y="84.0" width="3.0" height="22.0" rx="1" class="purple"/>
+<text x="372.0" y="79.0" text-anchor="start" class="purple small">again</text>
+<rect x="369.0" y="142.0" width="19.7" height="22.0" rx="2" class="tint-blue"/>
+<line x1="368.5" y1="110.0" x2="368.5" y2="118.0" class="thin"/>
+<rect x="389.7" y="142.0" width="19.7" height="22.0" rx="2" class="tint-blue"/>
+<line x1="389.2" y1="110.0" x2="389.2" y2="118.0" class="thin"/>
+<rect x="410.4" y="142.0" width="19.7" height="22.0" rx="2" class="tint-blue"/>
+<line x1="409.9" y1="110.0" x2="409.9" y2="118.0" class="thin"/>
+<rect x="431.1" y="142.0" width="19.7" height="22.0" rx="2" class="tint-blue"/>
+<line x1="430.6" y1="110.0" x2="430.6" y2="118.0" class="thin"/>
+<rect x="451.7" y="142.0" width="19.7" height="22.0" rx="2" class="tint-blue"/>
+<line x1="451.2" y1="110.0" x2="451.2" y2="118.0" class="thin"/>
+<rect x="472.4" y="142.0" width="19.7" height="22.0" rx="2" class="tint-blue"/>
+<line x1="471.9" y1="110.0" x2="471.9" y2="118.0" class="thin"/>
+<rect x="493.1" y="142.0" width="19.7" height="22.0" rx="2" class="tint-blue"/>
+<line x1="492.6" y1="110.0" x2="492.6" y2="118.0" class="thin"/>
+<rect x="513.7" y="142.0" width="19.7" height="22.0" rx="2" class="tint-blue"/>
+<line x1="513.2" y1="110.0" x2="513.2" y2="118.0" class="thin"/>
+<rect x="534.4" y="142.0" width="19.7" height="22.0" rx="2" class="tint-blue"/>
+<line x1="533.9" y1="110.0" x2="533.9" y2="118.0" class="thin"/>
+<rect x="554.6" y="86.0" width="125.6" height="18.0" rx="2" class="tint-purple"/>
+<rect x="554.6" y="84.0" width="3.0" height="22.0" rx="1" class="purple"/>
+<text x="559.6" y="79.0" text-anchor="start" class="purple small">again</text>
+<rect x="556.6" y="142.0" width="19.7" height="22.0" rx="2" class="tint-blue"/>
+<line x1="556.1" y1="110.0" x2="556.1" y2="118.0" class="thin"/>
+<rect x="577.3" y="142.0" width="19.7" height="22.0" rx="2" class="tint-blue"/>
+<line x1="576.8" y1="110.0" x2="576.8" y2="118.0" class="thin"/>
+<rect x="598.0" y="142.0" width="19.7" height="22.0" rx="2" class="tint-blue"/>
+<line x1="597.5" y1="110.0" x2="597.5" y2="118.0" class="thin"/>
+<rect x="618.7" y="142.0" width="19.7" height="22.0" rx="2" class="tint-blue"/>
+<line x1="618.2" y1="110.0" x2="618.2" y2="118.0" class="thin"/>
+<rect x="639.3" y="142.0" width="19.7" height="22.0" rx="2" class="tint-blue"/>
+<line x1="638.8" y1="110.0" x2="638.8" y2="118.0" class="thin"/>
+<rect x="660.0" y="142.0" width="19.7" height="22.0" rx="2" class="tint-blue"/>
+<line x1="659.5" y1="110.0" x2="659.5" y2="118.0" class="thin"/>
+<line x1="128.0" y1="186.0" x2="688.0" y2="186.0" class="thin"/>
+<line x1="128.0" y1="186.0" x2="128.0" y2="190.0" class="thin"/>
+<text x="128.0" y="203.0" text-anchor="middle" class="soft small">0</text>
+<line x1="217.6" y1="186.0" x2="217.6" y2="190.0" class="thin"/>
+<text x="217.6" y="203.0" text-anchor="middle" class="soft small">4</text>
+<line x1="307.2" y1="186.0" x2="307.2" y2="190.0" class="thin"/>
+<text x="307.2" y="203.0" text-anchor="middle" class="soft small">8</text>
+<line x1="396.8" y1="186.0" x2="396.8" y2="190.0" class="thin"/>
+<text x="396.8" y="203.0" text-anchor="middle" class="soft small">12</text>
+<line x1="486.4" y1="186.0" x2="486.4" y2="190.0" class="thin"/>
+<text x="486.4" y="203.0" text-anchor="middle" class="soft small">16</text>
+<line x1="576.0" y1="186.0" x2="576.0" y2="190.0" class="thin"/>
+<text x="576.0" y="203.0" text-anchor="middle" class="soft small">20</text>
+<line x1="665.6" y1="186.0" x2="665.6" y2="190.0" class="thin"/>
+<text x="665.6" y="203.0" text-anchor="middle" class="soft small">24</text>
+<text x="408.0" y="220.0" text-anchor="middle" class="small">offset in the piece, KiB</text>
+<text x="128.0" y="244.0" text-anchor="start" class="soft small">Shaded: the 8 KiB after a record where a use finds it near. Puts that write go in blocks marked FLAG_REPEAT.</text>
+<text x="128.0" y="262.0" text-anchor="start" class="soft small">Ticks under the state lane: the uses, one before each block of data.</text>
+</svg>

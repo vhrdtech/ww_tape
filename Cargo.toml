@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["ww_tape", "ww_tape_benchmarks", "ww_tape_fuzz"]
+members = ["ww_tape", "ww_tape_benchmarks", "ww_tape_figures", "ww_tape_fuzz"]
 # cargo-fuzz targets, a workspace of its own (nightly)
 exclude = ["fuzz"]
 

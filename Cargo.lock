@@ -506,6 +506,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ww_tape_figures"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "exact_units",
+ "shrink_wrap",
+ "ww_tape",
+]
+
+[[package]]
 name = "ww_tape_fuzz"
 version = "0.1.0"
 dependencies = [

@@ -70,6 +70,11 @@ bench-tracks *args:
 bench-chunks *args:
     cargo run -q --release -p ww_tape_benchmarks --bin chunks -- {{ args }}
 
+# Rewrite the figures of the book pages drawn from the format (docs/plots/*.svg, ww_tape_figures); a test fails until
+# they match what it draws
+book-figures:
+    cargo run -q -p ww_tape_figures -- docs/plots
+
 # Install cargo-fuzz (fuzzing needs a nightly toolchain)
 fuzz-install:
     cargo install cargo-fuzz

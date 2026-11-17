@@ -1,0 +1,16 @@
+# ww_tape_figures
+
+The figures of the book pages in `docs/` that show bytes, offsets or numbers. Each is drawn from blocks `ww_tape`
+writes and reads back, so a figure cannot drift from the format: a block's header and body, a finished piece on the
+4 KiB grid, puts and copies of a state track, and the grids of a series track.
+
+The figures are SVG files in `docs/plots/`, kept in git so the WireWeaver book takes them with the pages. Their
+classes (`ww-svg`, `line`, `thin`, `faint`, `accent`, ...) take the book's colours in light and dark.
+
+```sh
+just book-figures   # rewrite docs/plots/*.svg
+```
+
+A test (`tests/current.rs`) draws every figure again and fails when a file in `docs/plots/` differs, so a format
+change that moves a byte also asks for the figures to be redrawn. Concept drawings that hold no numbers are drawn by
+hand in `docs/figures/`.
