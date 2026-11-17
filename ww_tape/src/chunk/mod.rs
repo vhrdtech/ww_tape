@@ -473,6 +473,19 @@ impl<'b> ChunkWriter<'b> {
         columns: &[ColumnSpec],
         padding: usize,
     ) -> Result<Self, ChunkError> {
+        Self::make(buf, id, head, columns, padding, true)
+    }
+
+    /// [Self::new]; the column bytes are left as they are in `buf` unless `zero_columns`, for a caller that fills
+    /// every column, so the payload is written once. The rest of the block is written or zeroed either way.
+    fn make(
+        buf: &'b mut [u8],
+        id: crate::BlockId,
+        head: &ChunkHead,
+        columns: &[ColumnSpec],
+        padding: usize,
+        zero_columns: bool,
+    ) -> Result<Self, ChunkError> {
         check_head(head, columns.iter().map(|c| c.kind))?;
         let column_count = u8::try_from(columns.len())
             .ok()
@@ -486,7 +499,6 @@ impl<'b> ChunkWriter<'b> {
             Parts::new(grid_bytes.len, columns, padding).ok_or(ChunkError::TooLong { len })?;
         let short = ChunkError::Full { needed: len };
         let buf = buf.get_mut(..len).ok_or(short)?;
-        buf.fill(0);
         let (pre, rest) = buf.split_first_chunk_mut::<PRE_CRC_LEN>().ok_or(short)?;
         let (head_crc, rest) = rest.split_first_chunk_mut::<4>().ok_or(short)?;
         let (fixed, rest) = rest
@@ -498,6 +510,13 @@ impl<'b> ChunkWriter<'b> {
         let (seg_crcs, rest) = rest.split_at_mut_checked(parts.seg_crcs).ok_or(short)?;
         let (gap, rest) = rest.split_at_mut_checked(parts.padding).ok_or(short)?;
         let (payload, crc) = rest.split_last_chunk_mut::<CRC_LEN>().ok_or(short)?;
+        // every other byte of the head is written below or in finish; the gap and the payload's padding are zeros
+        gap.fill(0);
+        if zero_columns {
+            payload.fill(0);
+        } else if let Some(tail) = payload.last_chunk_mut::<PAYLOAD_PADDING>() {
+            tail.fill(0);
+        }
         // the payload starts after the head and the padding, within a block of at most MAX_BLOCK_LEN
         let payload_at = len
             .checked_sub(payload.len())
@@ -683,7 +702,8 @@ pub fn write_chunk(
         }
         *slot = *spec;
     }
-    let mut w = ChunkWriter::new(buf, id, head, specs, padding)?;
+    // every column is copied in below: its bytes need no zeros first
+    let mut w = ChunkWriter::make(buf, id, head, specs, padding, false)?;
     for (i, (_, bytes)) in columns.iter().enumerate() {
         w.column_mut(i)
             .ok_or(ChunkError::Invalid("a column the writer was not made with"))?

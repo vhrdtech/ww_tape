@@ -690,3 +690,22 @@ fn chunks_golden() {
         "the format changed: bytes differ from golden/v1-chunks.hex"
     );
 }
+
+/// `write_chunk` writes every byte of the block once: a buffer full of other bytes gives the same block as zeros,
+/// for an events and a series chunk with padding.
+#[test]
+fn write_chunk_needs_no_zeroed_buffer() {
+    let (eh, ec) = events(5, 30);
+    let (sh, sc) = series(0, 40_000);
+    for (head, columns) in [(eh, event_columns(&ec)), (sh, series_columns(&sc))] {
+        let specs: Vec<ColumnSpec> = columns.iter().map(|c| c.0).collect();
+        let len = chunk_len(&head, &specs, 777);
+        let mut zeros = vec![0u8; len];
+        let mut dirty = vec![0xa5u8; len];
+        let a = write_chunk(&mut zeros, id(3), &head, &columns, 777).unwrap();
+        let b = write_chunk(&mut dirty, id(3), &head, &columns, 777).unwrap();
+        assert_eq!(a, b);
+        assert_eq!(zeros, dirty);
+        assert!(Block::read(&dirty).unwrap().is_intact());
+    }
+}
