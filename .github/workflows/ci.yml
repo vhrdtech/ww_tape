@@ -1,0 +1,110 @@
+name: CI
+
+# The checks of `just lint`, `just test` and `just check`, one job each.
+
+on:
+  merge_group:
+  workflow_dispatch:
+  workflow_call:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fmt:
+    name: rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
+        with:
+          components: rustfmt
+          cache: false
+      - run: cargo fmt --all --check
+
+  cargo-sort:
+    name: cargo sort
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-sort
+      # --grouped keeps the blank line separated groups in [workspace.dependencies]
+      - run: cargo sort --workspace --grouped --check
+
+  typos:
+    name: typos
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: crate-ci/typos@v1
+
+  clippy:
+    name: clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
+        with:
+          components: clippy
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+  doc:
+    name: rustdoc
+    runs-on: ubuntu-latest
+    env:
+      RUSTDOCFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
+      - run: cargo doc --workspace --no-deps --all-features
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+      # the seed replay and hostile streams of every fuzz target run here
+      - run: cargo nextest run --workspace --all-targets --profile ci
+      # nextest does not run doctests
+      - run: cargo test --workspace --doc
+
+  wasm:
+    name: positional reader on wasm32
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
+        with:
+          target: wasm32-unknown-unknown
+      - run: cargo check -p ww_tape --no-default-features --features=alloc --target wasm32-unknown-unknown
+
+  fuzz:
+    name: fuzz smoke run
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
+        with:
+          toolchain: nightly
+          cache-workspaces: fuzz
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-fuzz,just
+      - run: just fuzz-smoke
