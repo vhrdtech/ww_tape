@@ -19,7 +19,8 @@ piece. Cutting a recording into pieces gives three things:
   were deleted reads as "head cut", not as damage.
 
 A `PieceChain` writes pieces as `00000000.wwt`, `00000001.wwt` and so on, so names sort in chain order. It cuts by a
-`CutPolicy` (bytes, chunks, or age), always before a chunk. The application chooses the size, for example 256 MiB.
+`CutPolicy` (bytes, chunks, or age) always before a chunk, and before any write the piece's index has no room left
+for. The application chooses the size, for example 256 MiB.
 
 A piece reads alone because the writer measures near inside the piece. The first block of each track in a new piece gets
 the track's definition, its clock and its state put before it, even when the piece before held them a few bytes earlier.
@@ -49,7 +50,8 @@ The pieces of a chain are checked in both directions:
   id instead. The writer derives that id at the cut from the piece's own id and its content hash (`PieceId::after`), and
   the next piece head repeats it.
 
-`ww_tape::piece::check_chain` puts the pieces at hand in order and reports each link between neighbours, whether the
+`ww_tape::piece::check_chain` takes a `PieceSummary` of each piece at hand (`PieceInfo::summary` gives one for a
+piece a `TapeReader` found), puts them in order and reports each link between neighbours, whether the
 chain's start was deleted (`head_cut`), how it ends, and pieces that don't belong (`ChainReport`; `is_whole` when all is
 well). Each piece head also says, per track, which item number the piece starts with and the tick before which none of
 its items start (`TrackStart`). A reader of one piece so knows where its items fall in the whole recording.
@@ -58,20 +60,15 @@ its items start (`TrackStart`). A reader of one piece so knows where its items f
 
 Pieces written back to back are one valid tape. A reader finds the last piece's tail at the end of the file, the piece's
 start from the tail, and the previous piece's tail just before that start. It walks back through any number of pieces
-with one small read each. An unfinished piece after them, one being written or cut off by a crash, is found from its
+with a few small reads each: the tail, the finish and the piece head. An unfinished piece after them, one being written or cut off by a crash, is found from its
 checkpoints or by a scan, and the finished pieces before it still by their tails.
 
-```
- start of file                                                                    end of file
- ┌─────────────── piece 0 ───────────────┬─────────────── piece 1 ───────────────┬── piece 2 ──────
- │ head ... data ... final index ... tail│ head ... data ... final index ... tail│ head ... data
- └───────────────────────────────────────┴───────────────────────────────────────┴─────────────────
-   finished, a multiple of 4 KiB           finished, a multiple of 4 KiB           unfinished
-
- 1. piece 2 has no tail: the reader finds its newest checkpoint from the end and scans after it
- 2. just before piece 2's start lies piece 1's tail: it gives piece 1's length, so its start
- 3. just before piece 1's start lies piece 0's tail, and so on to the start of the file
-```
+<figure class="ww-figure" markdown="0">
+--8<-- "docs/figures/chain.svg"
+<figcaption>Three pieces in one file. The reader finds the unfinished last piece from its newest checkpoint (1), then
+the tail just before its start, which gives piece 1's length and so its start (2), and so on back to the start of the
+file (3). Each piece head names the piece before it by that piece's content hash.</figcaption>
+</figure>
 
 So `cat 00000000.wwt 00000001.wwt > all.wwt` gives a file any reader takes. An application that wants one file per
 recording appends pieces to one file this way.
