@@ -108,7 +108,7 @@ The block kinds fall into four groups:
 
 | Group | Kinds | Holds |
 |---|---|---|
-| Description | describe | what the tape is: the producer, clocks, maps, tracks, API bundles |
+| Description | records on track 0 | what the tape is: the producer, clocks, maps, tracks, API bundles |
 | Data | records, events chunk, series chunk | the items |
 | Overview | summary | coarse views of long tracks, rebuilt from the data when lost |
 | Structure | piece head, index, finish, tail | where things are, how the file ends, how files chain |
@@ -116,30 +116,91 @@ The block kinds fall into four groups:
 The byte layout of the header and of record blocks is in the [`ww_tape` crate
 docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/lib.rs).
 
-### Describe blocks
+### Definitions on track 0
 
-A **describe set** is one or more describe blocks that together say everything a reader needs before the data: the
-producer, how blocks are placed (the layout), the API bundles, every clock, clock map and track definition in use, and
-typed items such as a run record. After those come the newest records of every **sticky** track: state a reader joining
-late needs, such as a link's session or a series' current timing.
+What a reader needs before the data is said by **definitions**: the producer, how blocks are placed (the layout), the
+API bundles, every clock, clock map and track, and typed items such as a run record. Each definition is a record on
+track 0, which is reserved for them, in an ordinary record block. A definition has a **slot**, worked out from the
+definition itself: a track's slot is its number, a clock's its number, a map's the two clocks it links, and a bundle's
+its hash. A newer definition in the same slot replaces the older one. A block that holds definitions holds nothing
+else.
 
-The set is written in a canonical order, so the same input gives the same bytes in whatever order the producer added its
-tracks. A producer writes a describe set at the start, when it adds a track, when a live consumer joins, and after
-blocks were lost. It never repeats one on a timer, so a slow trickle of records costs a block header each, not a
-description each. Its first and last blocks carry flags, so a reader can tell a whole set from part of one.
+The application keeps the definitions it works with in a `Definitions` container. `Definitions::define` holds a
+definition in its slot, checked against those held: a track names a clock held, and an epoch clock comes with its link
+through `define_all`. Nothing is written then. The writer puts each definition before the first data that needs it,
+so adding a track mid-piece costs one record, however many tracks the piece already has. `Definitions::close` drops a
+track, and the clocks, maps and bundles no held track names go with it. The container reports how many definitions it
+holds and their bytes (`len`, `bytes`); how many to keep is the application's choice.
 
-The writer also writes the newest set again as a **copy**: right after the first data block, after the first checkpoint
-index (about 4 MiB in), then about every 128 MiB, and once more before the end of the file. A copy carries a flag and adds
-nothing for a reader that read the original; it keeps a file readable when its first set is damaged.
+The producer and the layout are the writer's own: `WriterOptions::producer` and `WriterOptions::layout`. The writer
+puts them after every piece head, before the first block of a file and when a block starts another session. A
+caller's block of definitions is refused. A relay passes a live producer's blocks of puts on with
+`TapeWriter::relay_block`, which holds their definitions and puts their records by the writer's own rule.
 
-A producer that adds a track mid-piece writes an **addition**: describe blocks with an extra flag that hold only the new
-records. The additions join the newest whole set before them, and a record replaces the one with the same key, such as
-a track with the same number. The writer keeps the merged set, so every copy after an addition carries the whole set. A
-reader asks `TapeReader::describe_set` for a piece's current set: the newest whole set, the additions after it, and the
-offsets of describe blocks that did not read. For example, a recorder that starts capturing a second camera an hour in
-writes one addition with that track; the 128 MiB repeat after it and the backup before the finish both describe both
-cameras, so the track survives even if the addition block itself is damaged. The layout is in the [describe module
-docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/describe.rs).
+### What an application does
+
+An application that writes a tape does three things:
+
+1. It keeps the definitions of what it works on in a `Definitions`, and drops a track it stops using.
+2. It passes them with every write of data (`write_block`, `write_chunk`, `defer_block`) and every put.
+3. It puts a state track's item each time it uses it (`TapeWriter::put`).
+
+The writer does the rest: it puts the definitions a block needs before it, writes a state item only where the same
+item doesn't lie near behind, and adds copies at later uses. For example, a recorder of 10 000 sensors keeps 10 000
+track definitions and passes them with each block; a block of 3 sensors' readings gets those 3 definitions and their
+clock written before it, and only once per 32 MiB.
+
+```rust
+let mut defs = Definitions::new();
+defs.define_all(&[clock, temperature_track, mode_track])?;
+writer.put(&defs, MODE, ticks, &mode_bytes)?; // a state item, at its use
+writer.write_block(&defs, &readings)?; // the definitions it needs go first
+```
+
+### State tracks and near use
+
+Some tracks hold a **state** rather than a stream of events: a link's session, a series' current timing. A reader
+that starts in the middle needs the item in force, not the history. A track says so with `TrackRepeat::State`, which
+carries a `StatePolicy`: how near behind a place its item must lie (`near`, 32 MiB by default) and how many copies an
+item gets (`copies`, one by default). Track 0 is a state track too, with its policy in the layout.
+
+The producer **puts** a state item with `TapeWriter::put` each time it uses it. The writer writes the item only when
+the newest record of its slot isn't the same item within `near` bytes behind; items are compared by a 128-bit BLAKE3
+hash. Before every block of data the writer puts the definitions the block's tracks need in the same way: the clocks,
+maps and bundles they name, then the track itself. The distance is measured to where the data lands, after the puts.
+So every block has the definitions it needs not far behind it, and a piece that never uses a track never repeats its
+definition.
+
+Copies are written at uses, never ahead of them. While fewer than `1 + copies` records of an item lie in the piece, a
+use at least `copy_spacing` after the newest one (1 MiB by default, `NearPolicy`) writes the item again, so one
+damaged block doesn't lose it. For example, a track added an hour in costs one record, and its next use 1 MiB later
+writes a copy.
+
+Puts and copies go in blocks marked with the header flag `FLAG_REPEAT`. Such a block carries the seq of the block
+before it and is not counted, so the producer's seq stays its own count. A reader holding the same item in that slot
+takes the record as nothing new. Puts that belong with the block after them are also marked `FLAG_WITH_NEXT`: a
+resume drops them when they end what it keeps, so the call, given again, writes them again with the same bytes. The
+writer's memory of what it wrote is capped (`NearPolicy::memory_max`) and forgets the slot written longest ago first;
+a slot forgotten costs one more write, never a wrong read.
+
+A reader looks state up by the index instead of reading everything: each state record has its own index entry with
+its slot and hash. A piece lists at most `IndexPolicy::state_entries_max` of them (about a million by default); a
+write past that is refused, and `PieceChain` cuts to a new piece. `TapeReader::state_at` gives the record of a slot in
+force at a place, `item_by_hash` an item by its hash, and `definitions_at` every definition in force at a place. The
+reader keeps the state entries it sorted in one cache over all pieces, at most `OpenOptions::state_cache_max` entries
+(about two pieces' worth), and drops the piece used longest ago first. A block that doesn't read is reported as lost,
+and the next older record of the slot is taken. A stretch the index doesn't cover between the record and the place (a
+gap a scan read past, the bytes past a cut) is reported too, since a newer record may lie there. A lookup reads at
+most `OpenOptions::state_read_max` bytes (1 GiB by default), and charges a coded body's decoded length before it
+decodes it. When that budget runs out, the lookup stops and sets `spent`: the answer is incomplete, but nothing in the
+file is damaged.
+
+A block of summaries or other small data can wait for a gap with `TapeWriter::defer_block`. The writer puts the
+definitions the block needs at once, when the block is deferred, and places the block later with no puts of its own.
+The block waits at most `DEFER_WINDOW` (1 MiB) of writes, so it lies at most its tracks' `near` plus that window
+after their definitions. A cut or a finish places every deferred block first, so a deferred block never leaves its piece. The definitions are
+in the [describe module docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/describe.rs) and the
+slots in the [state module docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/state.rs).
 
 ### Record blocks
 
@@ -153,35 +214,33 @@ Large tracks go into chunks, which the [next page](events_and_series.md) describ
 
 ## Anatomy of a file
 
-A complete file is a **piece**: a piece head, a describe set, the data with periodic index blocks between it, and at the
-end a final index, a backup of the describe set, a finish block and a tail. The diagram shows one piece, start at the
-top.
+A complete file is a **piece**: a piece head, the layout and producer, the data with the definitions it needs put
+near it and periodic index blocks between it, and at the end a final index, a finish block and a tail. The diagram
+shows one piece, start at the top.
 
 ```
  piece start ─► ┌─────────────────────────────┐
                 │ piece head                  │ ids, the previous piece's hash
                 ├─────────────────────────────┤
-                │ describe set                │ producer, layout, clocks, maps,
-                │                             │ tracks, bundles, sticky records
+                │ puts           (track 0)    │ layout and producer
                 ├─────────────────────────────┤
+                │ puts           (track 0)    │ clocks, maps, tracks 1-3
                 │ events chunk   (track 3)    │ first data block
-                │ describe copy               │ the set again, flagged as a copy
                 │ records        (tracks 1,2) │ small tracks, many per block
+                │ puts           (track 0, 6) │ track 6's definition and state
                 │ series chunk   (track 5)    │
                 │ summary        (track 3)    │
                 │ ...                         │
-                │ index (checkpoint)          │ the first, about 4 MiB in
-                │ describe copy               │ the set again, after it
-                │ ...                         │
+                │ copies         (track 0, 6) │ at a use 1 MiB after the first
                 │ index (checkpoint) ◄──┐     │ every 4 MiB: the blocks placed
                 │ ...                   │     │ since the previous checkpoint,
                 │ index (checkpoint) ───┘     │ and a pointer back to it
                 │ ...                         │
-                │ describe copy               │ about every 128 MiB
+                │ puts           (track 0)    │ a definition 32 MiB on, still
+                │ records        (track 1)    │ in use
                 │ ...                         │
                 ├─────────────────────────────┤
                 │ final index    ◄──────┐     │ every block again, by track
-                │ describe backup       │     │
                 │ finish         ◄──┐   │     │ BLAKE3 hash of all bytes before it,
                 │                   │   │     │ zero padding to the 4 KiB end
                 │ tail (164 B) ─────┴───┘     │ piece length, where the finish is
@@ -190,9 +249,9 @@ top.
 
 A reader of a finished file starts at the end. It reads the last 164 bytes, the **tail**, which give the piece's length
 and where its finish block is. The **finish** block holds a BLAKE3 hash of every byte before it, per-track totals
-(items, ticks), and the offsets of the final index and the describe backup. The **final index** lists every block of the
-piece sorted by track, with a directory in its head, so a reader of one track out of thousands reads that directory and
-that track's list.
+(items, ticks), and the offsets of the final index and the newest checkpoint. The **final index** lists every block of
+the piece sorted by track, with a directory in its head, so a reader of one track out of thousands reads that directory
+and that track's list.
 
 While the file is written there is no tail. The writer places a **checkpoint** index block about every 4 MiB, listing
 every block placed since the previous checkpoint and pointing back at it. A reader of an unfinished file finds the
@@ -213,8 +272,8 @@ make retention simple (delete the oldest piece), and a crash costs only the piec
 The pieces of one recording form a **chain**, checked in both directions. Each piece head names the previous piece by
 the content hash in its finish block. The tail cannot name the next piece's hash, since that piece isn't written yet, so
 it names the next piece's id instead, derived from its own id and hash at the cut. The next head repeats that id. Each
-piece also names the recording it belongs to (the owner id, opaque to `ww_tape`), its sequence number in the chain, and for each track where
-its items continue.
+piece also names the recording it belongs to (the owner id, opaque to `ww_tape`), its sequence number in the chain, and
+for each track where its items continue.
 
 Pieces written back to back are one valid tape: `cat 00000000.wwt 00000001.wwt` gives a file any reader takes. A reader
 finds the last piece's tail at the end, the piece's start from it, and the previous piece's tail just before that start,
@@ -226,8 +285,8 @@ bytes of the piece, ends on the boundary; the padding is part of the finish bloc
 covers the bytes before the finish as before. Files are then cloned back to back on btrfs and XFS (`cp --reflink`,
 `copy_file_range`, which `std::io::copy` uses between files on Linux): one file holds many pieces with no byte copied
 and nothing between them. Only the end is aligned: blocks inside a piece stay where the writer put them, and a piece
-without a finish ends where it ends, until a resume finishes it on a boundary. A chain whose first pieces were deleted reads as
-"head cut", not as damage.
+without a finish ends where it ends, until a resume finishes it on a boundary. A chain whose first pieces were deleted
+reads as "head cut", not as damage.
 
 ### Reading by position
 
@@ -237,8 +296,8 @@ opened with a few small reads (tail, finish, the final index's directory) and th
 
 ## Same input, same bytes
 
-A writer given the same input writes the same bytes. Blocks hold no wall time, describe records go in canonical order,
-blocks are cut by size rather than by time, and every codec is integer-only or uses arithmetic that every platform
+A writer given the same input writes the same bytes. Blocks hold no wall time, definitions go in the order they are
+made, puts and copies follow from the bytes before them, blocks are cut by size rather than by time, and every codec is integer-only or uses arithmetic that every platform
 rounds the same way. A producer that seals blocks on a timer, or cuts pieces by age, gives up this property for the
 blocks it seals that way.
 

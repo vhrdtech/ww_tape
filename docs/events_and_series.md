@@ -18,7 +18,7 @@ samples of a fixed-rate series, which have no time of their own.
 
 The chunk's head places it without any other block. It names the track by its identity hash and number, and gives the
 first item number, the item count, the first and last tick, and the latest end of any item. A reader that lost the
-describe set and the index around a chunk still knows which track the chunk belongs to and which items and times it
+definitions and the index around a chunk still knows which track the chunk belongs to and which items and times it
 holds. An overlap query ("which spans cover tick t?") uses the latest end without decoding the ends.
 
 After the head come the **columns**: starts, ends, flags, payload lengths and payloads for events, or sample values for
@@ -172,8 +172,9 @@ the scale of the stored numbers from there on. Sample `i` sits at `grid_tick + (
 One series segment starts the track, and a new one starts at every gap, every restart and every change of scale.
 
 A gap or a restart starts a new grid after the last tick of the one before. A change of scale keeps the grid, so no
-sample moves by rounding. The track is sticky, so every describe set repeats its newest series segment, and every piece
-holds the series segment its first samples are in. A series chunk never spans two series segments: its samples share one
+sample moves by rounding. The track is a state track: the producer puts its series segment before each chunk, and
+the writer writes it only where it doesn't lie near behind, so every piece holds the series segment its first samples
+are in. A series chunk never spans two series segments: its samples share one
 grid and one scale, and its head's first and last tick are its samples' ticks on the grid.
 
 ### Example: an autoranging channel changes prefix
@@ -213,8 +214,8 @@ samples leave the grid.
 
 Files that hold series are aligned: every chunk's sample payload starts on a 4 KiB boundary, a memory page and a direct
 I/O block. The chunk head sits just before its payload, and small blocks waiting for a place (summaries, checkpoints)
-fill the gap before the head, so alignment costs little space. Event files are not aligned. The file's describe set
-states which it is.
+fill the gap before the head, so alignment costs little space. Event files are not aligned. The file's definitions
+state which it is.
 
 Each series chunk carries a CRC-32C per 64 KiB of payload (a **CRC segment**), so a flipped bit in a 4 MiB chunk costs
 one 64 KiB CRC segment, not the chunk. [Damage and recovery](recovery.md) continues from there.

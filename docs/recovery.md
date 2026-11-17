@@ -53,8 +53,7 @@ makes every item of the chunk suspect, since the column decodes as a whole.
 1. It creates the file as `NAME.partial` and syncs the file and its directory, so the name can't vanish in a crash.
 2. It syncs the data by a policy: never, every N blocks, or at most an interval apart (1 s by default). What a crash can
    lose is bounded by the policy.
-3. At the finish it writes the final index, the describe backup, the finish block (padded so the piece ends on 4 KiB)
-   and the tail, then renames the file to `NAME` and syncs the directory again.
+3. At the finish it writes the final index, the finish block (padded so the piece ends on 4 KiB) and the tail, then renames the file to `NAME` and syncs the directory again.
 
 A failed write or sync ends the file. The writer reports it and refuses every later write; it never retries, because
 after a failed `fsync` Linux may drop the unwritten pages, and a second `fsync` then succeeds without them. A file that
@@ -63,19 +62,25 @@ still ends in `.partial` was never finished.
 ### Resuming after a crash
 
 `TapeWriter::resume` reopens `NAME.partial` and continues the same piece. It reads the piece the way `TapeReader` does,
-from the newest checkpoint and then by a scan that stops at the first bad block. It keeps every byte up to the end of the
-last block the producer wrote, and cuts off the rest: a torn block, and the checkpoint, copy or end sequence the writer
-had placed after that block. It then places those again by the same rules, so a resumed piece ends with the same bytes,
-and the same content hash, as one written without the crash. The producer passes the same writer options it wrote the
-piece with (`TapeWriter::options` gives them), and writes again from the sequence number `next_seq` reports. A piece
-found with its finish (a crash after the finish, before the rename) is opened again the same way: its finish and tail
-are cut off, and the next finish pads the piece to 4 KiB again.
+from the newest checkpoint and then by a scan that stops at the first bad block. It keeps every good block up to the
+end of the piece's data, and cuts off the rest: a torn block, an end sequence, and puts marked `FLAG_WITH_NEXT` that
+end what it keeps (they belong with a block that didn't survive). The resume replays every block it keeps, so the
+writer knows again what it put and where. A damaged block the index still lists counts as a newer record of each slot it held,
+item unknown, so the next put of such a slot writes. The producer passes the same writer options it wrote the piece
+with (`TapeWriter::options` gives them) and gives again every call from the block `next_seq` reports, with the same
+definitions: a resumed piece then ends with the same bytes, and the same content hash, as one written without the
+crash. A piece found with its finish (a crash after the finish, before the rename) is opened again the same way: its
+finish and tail are cut off, and the next finish pads the piece to 4 KiB again.
 
-The resume checks those options against the layout the piece's describe set states, before it cuts or writes anything.
+The resume checks those options against the piece before it cuts or writes anything. The newest layout and producer
+the piece kept must be the ones the options give (`WriteError::Layout`, `WriteError::Producer`, each naming both).
 Options with another chunk alignment would place blocks the way the file says it doesn't, and a reader trusts the
-layout when it looks for the end of the data, so the resume refuses them with an error naming both alignments. The
-layout's gap settings need no check, because the writer never leaves a gap. A piece cut off inside its first describe
-set, with no copy after it, states no layout; it resumes unchecked, and the result reports no layout.
+layout when it looks for the end of the data. The layout's gap settings need no check, because the writer never leaves
+a gap.
+
+The writer holds no definitions of its own, so a resume needs none from the file: the application passes its
+definitions with each call, as before the crash, and the writer puts what each block needs again where it doesn't lie
+near behind.
 
 For example, a recorder loses power while writing piece 3 of a chain. On restart it calls `PieceChain::resume` with the
 directory and the chain options. The chain reads pieces 0 to 2 back from their tails, reopens `00000003.wwt.partial`,
@@ -97,7 +102,7 @@ block before it, without reading them. It then scans the blocks after the newest
 the torn block, which fails its CRC. The reader reports the piece as unfinished, cut at that offset.
 
 The recording loses the torn block and whatever the writer had not yet synced: at most about one second of data.
-Everything else reads, including the describe set and the summary blocks written so far. The content hash can't be
+Everything else reads, including the definitions and the summary blocks written so far. The content hash can't be
 checked, because the finish block was never written; that is how a reader knows the file was not closed.
 
 ## Sessions and stale data
@@ -113,10 +118,13 @@ reader keeps to one session at a time. A good block of another session is **stal
 
 Where a new session may start depends on the **medium**:
 
-- In a file, any describe block (another producer appended its blocks) or any piece head (files concatenated) may start
-  a session.
+- In a file, any record block that starts with a definition (another producer appended its blocks) or any piece head
+  (files concatenated) may start a session.
 - On a raw medium, a new session starts only at a piece head that names the session just ended as its previous session. Stale data
   from an earlier recording names some other session and is never taken, even when it starts with a piece head of its own.
+
+A block is judged by its session before its format version. Stale data written by an older firmware in another format
+is therefore the end of the data, like any other stale data, not a piece of that format.
 
 A raw medium is therefore read forward, from its start or from a hint the medium layer gives, never from its end, where
 a stale tail could pass for the newest piece.
@@ -132,7 +140,7 @@ divides 4 KiB (a 512-byte sector).
 starts with either, so a blank stretch running to the end of the file or medium is the end of the data.
 
 A blank or damaged stretch in the middle is not always the end. A NAND writer whose page program failed moves on to the
-next block; a writer padding a NAND page at a sync leaves 0xFF behind. The describe set's **layout** says how far a
+next block; a writer padding a NAND page at a sync leaves 0xFF behind. The definitions' **layout** says how far a
 writer may skip and where it resumes:
 
 | Medium | Longest gap | Resumes at a multiple of |
@@ -171,20 +179,18 @@ that names B as the previous session. That session, C, is taken by the next read
 
 The three cases below cover where damage lands in a file. "Lost" means unreadable: overwritten, zeroed or bad sectors.
 
-**The first 4 KiB are lost.** These hold the piece head, the describe set and perhaps the first data blocks.
+**The first 4 KiB are lost.** These hold the piece head, the first definitions and perhaps the first data blocks.
 
 - A finished file opens from its tail as usual. The final index lists every block, and every block outside the lost
-  range reads. The describe set comes from the newest copy that reads whole: the one after the first data block, the
-  one after the first checkpoint, a 128 MiB repeat, or the backup before the finish. The records and chunks inside the lost range are lost, and the content
-  hash no longer matches. The link back to the previous piece in a chain can't be checked, since the head named it; the
-  link forward still can.
-- An unfinished file with at least one checkpoint opens from its newest checkpoint, and the same holds, without the
-  backup.
+  range reads. Each definition comes from its newest record that reads: a copy at a use 1 MiB after its first write,
+  or a put of it near a later block of its data. The records and chunks inside the lost range are lost, and the content hash no
+  longer matches. The link back to the previous piece in a chain can't be checked, since the head named it; the link
+  forward still can.
+- An unfinished file with at least one checkpoint opens from its newest checkpoint, and the same holds.
 - An unfinished file shorter than one checkpoint interval (about 4 MiB) is scanned from its start, and the scan stops at
   the damage: `TapeReader` lists nothing after it. A walk in Resync mode reads every good block after the damage.
 
-**The last 4 KiB are lost.** These hold the tail and the finish, and often the describe backup and part of the final
-index. The reader finds no tail and reads the file as unfinished: it finds the newest checkpoint and scans up to the
+**The last 4 KiB are lost.** These hold the tail and the finish, and often part of the final index. The reader finds no tail and reads the file as unfinished: it finds the newest checkpoint and scans up to the
 damage. Every data block before the damage reads. The content hash and the link forward to the next piece are lost, and
 the file reports as unfinished instead of complete.
 
@@ -197,7 +203,7 @@ the file reports as unfinished instead of complete.
 | series chunk | one 64 KiB CRC segment per hit with a good head; the whole chunk with a bad head |
 | record block | its records; the index entry says how many, the gap in sequence numbers how many blocks |
 | summary | nothing; it is rebuilt from the data |
-| describe | nothing while a copy reads whole |
+| definitions or puts | nothing once a copy or a later put of each of its items reads; until then, what it held |
 | checkpoint index | the stretch it covered is scanned instead |
 
 In a finished file a reader reads blocks by the final index, so a lost block in the middle costs that block alone. In an
@@ -246,13 +252,13 @@ The format does not do everything. These limits follow from the design:
   writes or reads it.
 - **Unfinished small files.** A file without a checkpoint yet, under about 4 MiB, is read by a scan from its start,
   which stops at the first bad block. Only a Resync walk reads past it.
-- **Describe set near the start.** The first describe copy follows the first data block. In an event file of small
-  blocks the head's set and that copy can both sit in the first 4 KiB, so one bad sector can take both. The next copy
-  follows the first checkpoint, about 4 MiB in; an unfinished file shorter than that has no other. Chunks then still
-  place themselves by track id, item number and tick, but without clock rates and item types a reader can't turn ticks
-  into seconds or bytes into values.
-- **Lost additions in a scanned stretch.** `describe_set` names a damaged addition only when an index entry or a
-  checkpoint lists it. A damaged block where a scan stopped has no known kind; the piece reports it as its cut.
+- **Definitions near the start.** A definition's copy is written at a use at least 1 MiB after its first write. An
+  unfinished file shorter than that holds each definition once, so one bad sector can take it. Chunks then still place themselves by track id,
+  item number and tick, but without clock rates and item types a reader can't turn ticks into seconds or bytes into
+  values.
+- **Lost state in a scanned stretch.** The lookups (`TapeReader::state_at`, `definitions_at`) go by index entries.
+  A damaged block where a scan stopped has no known kind and no entries; the piece reports it as its cut, the lookups
+  take the newest record before it and name the stretch past the cut as one the index doesn't cover.
 - **A damaged chunk head costs the chunk.** The head CRC protects the payload's CRC segments, not itself.
 - **lz4 payload columns.** One bad byte makes every item of the chunk suspect.
 - **32-bit session tags.** Stale data matches the current session by chance with probability 2⁻³² per stale session.
@@ -268,4 +274,4 @@ The format does not do everything. These limits follow from the design:
 
 ## See also
 
-- [Format reference](format.md#sessions-media-and-damage): sessions, media, gaps and describe copies as a reference.
+- [Format reference](format.md#sessions-media-and-damage): sessions, media, gaps and state records as a reference.
