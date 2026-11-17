@@ -1,13 +1,16 @@
 # ww_tape changelog
 
+ww_tape was developed inside the wire_weaver repo from October 2026, first as `ww_logbook`, and moved to its own repo
+([vhrdtech/ww_tape](https://github.com/vhrdtech/ww_tape)) in November 2026 with its history, its fuzz targets and seeds,
+its benchmarks, its golden files and its book pages.
+
 ## Unreleased
 
-### 🚀 Features
-
-- `SeriesSummaries::push` keeps every statistic in one pass, integers up to 32 bits through AVX-512, AVX2 or portable kernels (STD-133).
+Covers `ww_tape` 0.1.0.
 
 ### ⚠️ Breaking
 
+- Repository: ww_tape, ww_tape_fuzz and ww_tape_benchmarks live in vhrdtech/ww_tape; take ww_tape by git from there, not from wire_weaver.
 - Feature `bundle` is gone, and with it the dependency on `ww_self`: `name_path`, `key_in_bundle` and `NamePathError` are in `ww_tape_bundle` (R11).
 - `ChainOptions` is `{ writer: WriterOptions, cut: CutPolicy }`; `TapeWriter` and `PieceChain` are generic over their sink, files by default (STD-132).
 - `TapeReader::describe_set` returns `DescribeBlocks`: the newest whole set, not the first, plus additions and lost blocks (STD-132).
@@ -43,7 +46,6 @@
 - `TrackDef` gains `keys: RefVec<KeySegment>`, the keys of keyed arrays on its path (STD-125).
 - Series summary blocks state their scale (head bytes 52..54, `Magnitude` after the head); `SeriesStart` takes `segment` instead of `first_tick` (STD-128).
 - `summary_len` returns a `Result`; `StatColumn::value` is `get`, None past the end; `SeriesSummaries::pending` returns `SeriesNode`s (STD-128).
-
 - `TrackDef` gains `kind: TrackKind` (events with `Ends` and flags, or a series); set `TrackKind::Events(EventsDef::INSTANTS)` for plain records (STD-127).
 - `DescribeSet::insert` refuses a series track that isn't sticky or names an item type: `DescribeError::Kind` (STD-127).
 - `TapeWriter::finish` returns `Finished` and ends the file with a final index, describe backup, finish and tail block (STD-122).
@@ -51,32 +53,14 @@
 - Header bytes 24..32 hold a chunk block's payload offset and head CRC; `BlockError::Chunk` for a bad chunk head (STD-118).
 - `BlockError` gains `Summary` for a bad summary block head or body (STD-121).
 - `WriteError` gains `Block` and `Chunk`; `Describe` gains `Layout`, which takes variant 6 (STD-118).
-
 - Format version 2 (STD-117): record times are signed i64 ticks of the track's clock (`Record::at: Option<ClockTime>`), deltas coded per clock after a clock table in the body; header bytes 24..32 are reserved, `Block::t_base` is gone.
 - `BlockWriter::new` takes the block's clocks instead of a time base; `push` / `push_with` take a `ClockTime`, describe records go through `push_describe` / `push_describe_with`.
 - `BlockKind::Data` is `BlockKind::Records`; `Producer` has only its name: `wall_ns_at_zero` is a wall clock and a `ClockMap` (STD-117).
 - `TrackDef` names its `clock`, carries `dimensions` (part of its identity, `track_id`) and an optional item type `item` (STD-117).
 
-### 🐛 Fixes
-
-- `Element::Unknown` codes past 255 no longer truncate to a known element's code (STD-131).
-- A delta column of 4 GiB or more is refused instead of panicking the encoder (STD-131).
-- A uvar whose 10th byte holds more than bit 63 is refused, not truncated (STD-131).
-- Item numbers near `u64::MAX` no longer wrap in summary nodes, event trees and walk probes (STD-131).
-- A piece number past the last, an over-long `Read`, or an offset past u64 is an error, not a panic (STD-131).
-- `EventTimes::is_suspect` and the column `is_suspect*` are false past the last item instead of panicking (STD-131).
-- Index blocks with a zero-length, oversized or overflowing entry are refused on read and on write (STD-131).
-- `bitpack::Width::read` and `packed_len` saturate instead of overflowing on huge indices and counts (STD-131).
-- Merging series stats with huge clipped counts saturates; `SeriesTimeline::from_records` is no longer quadratic (STD-131).
-- `TapeReader` reads the stretch after a checkpoint with the piece's gap rules, as `FileBlocks` does (STD-129).
-- `TapeWriter` copies only a whole describe set, never part of one still being written (STD-129).
-- A replaced block leaves the index as it leaves a walk, in `TapeWriter`'s index and in scans (STD-129).
-- On a raw medium blank space longer than the gap ends the walk; the rest of the medium isn't read (STD-129).
-- Gap probing is bounded: `Layout::is_valid`, `GAP_MAX_MAX`, `GAP_PROBES_MAX`, `GAP_CHECKS_MAX`; probes read header by header (STD-129).
-- A duplicate of the last block after a gap resumes the data instead of cutting it (STD-129).
-
 ### 🚀 Features
 
+- `SeriesSummaries::push` keeps every statistic in one pass, integers up to 32 bits through AVX-512, AVX2 or portable kernels (STD-133).
 - `TapeWriter::resume` and `PieceChain::resume` reopen a crashed piece; it finishes with an uninterrupted write's bytes (STD-132).
 - `TapeSink`, `SinkFactory`, `FileSink`, `Files`, `MemSink` and `MemTapes`: writers write to files or memory, read while written (STD-132).
 - `PieceChain::cut_due`, `finish_as` and `TapeWriter::chunks`, `cut_with`, `cut_on`, `create_on` (STD-132).
@@ -134,7 +118,7 @@
 - Chunk blocks (`BlockKind::Events`, `Series`): self-locating `ChunkHead` (track, first item, tick range, latest end), typed columns with codec ids, read in place (STD-118).
 - A CRC-32C per 64 KiB payload segment; `Block::salvage` and `Recovery::Resync` hand out damaged chunks with bad segments marked (STD-118).
 - `Describe::Layout` and `TapeWriter::set_alignment`: chunk payloads on 4 KiB boundaries, deferred blocks filling the gaps (STD-118).
-- `TypeRef` and `TypedItem` (and their owned forms) derive `Eq` and `Hash` (P2401#15nov-1358).
+- `TypeRef` and `TypedItem` (and their owned forms) derive `Eq` and `Hash`.
 - `set_seq` renumbers a block; `BlockKind::Parity` reserved, not written (STD-118).
 - `Describe::Clock` (`ClockDef`: number, key, exact rate and resolution as `Magnitude`, `ClockOrigin`, label), `clock_key`, `UNIX_CLOCK_KEY` (STD-117).
 - `Describe::Map`: `ClockMap` of `MapSegment`s, slope an exact_units `Ratio64`, error bound; `MapSegment::map` takes a `Rounding` (STD-117).
@@ -145,13 +129,25 @@
 - `ClockOrigin::Epoch`: a counter's next epoch, linked by an exact offset map to the previous epoch's clock (STD-117).
 - A `ClockMap` must increase strictly across its segments, checked on decode and by `DescribeSet` (STD-117).
 - Golden file `golden/v2.hex` and a test that two writes of the same input are byte-identical (STD-117).
-
-### 🐛 Fixes
-
-- The format text says what describe copies (repeats, backup, next piece) hold: sticky state as of the run they copy (STD-122).
-
-### 🚀 Features
-
 - First version (STD-42): tape blocks, the generic unit of records for live feeds and log files: a 32-byte header (magic `WWTP`, version, kind, length, record count, block seq, time base), records (`uvar` track, `ivar` time delta, `uvar` length, item bytes) and a CRC-32C, variable length and never padded. `BlockWriter` (`push`, `push_with` to encode an item in place, `finish`), `Block::read` / `Block::records` reading in place, `block_len`; describe records on track 0 (`Describe`: `Producer`, `TrackDef` with stable key, API, bundle hash, resource path, label and `sticky`, `Bundle`), `api_root_id` and `track_key` as in logring; with `std`, `FileBlocks` reads blocks appended back to back from a file or stream, skipping a bad block to the next magic and reporting a cut last one (`FileBlocks::next_good` skips them, handing each to a callback), `BlockBuf` an owned checked block. Extensible: the 32-byte header and the CRC trailer are the same in every version, so a block of a later version (`Block::version`) or of a kind a reader doesn't know (`BlockKind::Other`) is checked and given out without records (`Block::body_known` false) instead of being taken for damage; `Describe` is evolvable, a variant a reader doesn't know reads as `Describe::Unknown`.
 - `TapeWriter` (`create`, `append`, `write_block`, `tick`, `sync`, `finish`): blocks into a file with database-style durability: a new file as `NAME.partial` renamed at `finish`, file and directory synced after create and rename, data synced by a `SyncPolicy` (`None`, `EveryBlocks(n)`, `Interval(t)`, default 1 s; `File::sync_data`: `fdatasync` / `F_FULLFSYNC` / `FlushFileBuffers`), a failed write or sync fatal for the file (`WriteError::Failed` afterwards, never retried).
 - `FileBlocks` reads the longest valid prefix by default (`Recovery::Prefix`): it stops at the first block with a bad magic, length or CRC, a cut one or a data block whose seq goes back, reporting `FileError::Cut`; zeros at the end are the end. `Recovery::Resync` (`FileBlocks::with_recovery`) skips damage to the next magic, also past a damaged length. A block is at most `MAX_BLOCK_LEN` (64 MiB) and the reader's buffer grows only with the bytes that come, so a damaged length doesn't allocate what it says. Tests cut a capture at every byte and flip every byte; fuzz target `tape-reader`.
+
+### 🐛 Fixes
+
+- `Element::Unknown` codes past 255 no longer truncate to a known element's code (STD-131).
+- A delta column of 4 GiB or more is refused instead of panicking the encoder (STD-131).
+- A uvar whose 10th byte holds more than bit 63 is refused, not truncated (STD-131).
+- Item numbers near `u64::MAX` no longer wrap in summary nodes, event trees and walk probes (STD-131).
+- A piece number past the last, an over-long `Read`, or an offset past u64 is an error, not a panic (STD-131).
+- `EventTimes::is_suspect` and the column `is_suspect*` are false past the last item instead of panicking (STD-131).
+- Index blocks with a zero-length, oversized or overflowing entry are refused on read and on write (STD-131).
+- `bitpack::Width::read` and `packed_len` saturate instead of overflowing on huge indices and counts (STD-131).
+- Merging series stats with huge clipped counts saturates; `SeriesTimeline::from_records` is no longer quadratic (STD-131).
+- `TapeReader` reads the stretch after a checkpoint with the piece's gap rules, as `FileBlocks` does (STD-129).
+- `TapeWriter` copies only a whole describe set, never part of one still being written (STD-129).
+- A replaced block leaves the index as it leaves a walk, in `TapeWriter`'s index and in scans (STD-129).
+- On a raw medium blank space longer than the gap ends the walk; the rest of the medium isn't read (STD-129).
+- Gap probing is bounded: `Layout::is_valid`, `GAP_MAX_MAX`, `GAP_PROBES_MAX`, `GAP_CHECKS_MAX`; probes read header by header (STD-129).
+- A duplicate of the last block after a gap resumes the data instead of cutting it (STD-129).
+- The format text says what describe copies (repeats, backup, next piece) hold: sticky state as of the run they copy (STD-122).
