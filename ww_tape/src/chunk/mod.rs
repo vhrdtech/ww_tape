@@ -76,9 +76,8 @@ use crate::{
     BlockError, BlockKind, BoundError, CRC_LEN, FLAG_BODY_CODED, HEADER_LEN, MAX_BLOCK_LEN, VERSION,
 };
 
-/// The CRC of chunk blocks: the same CRC-32C as every block, with a 16-entry table for the large payloads.
-const CRC16: crc::Crc<u32, crc::Table<16>> =
-    crc::Crc::<u32, crc::Table<16>>::new(&crc::CRC_32_ISCSI);
+// The CRC of chunk blocks: the same CRC-32C as every block.
+use crate::CRC as CRC16;
 
 /// Bytes of the fixed part of the chunk head (32..84).
 pub const CHUNK_FIXED_LEN: usize = 52;
@@ -820,66 +819,8 @@ fn head_crc(block: &[u8], payload_at: usize) -> Option<u32> {
     Some(d.finalize())
 }
 
-/// The polynomial of CRC-32C, reflected.
-const POLY: u32 = 0x82f6_3b78;
-
-/// `a · b` modulo the polynomial, both reflected (zlib's `multmodp`, over all 32 bits of `a`).
-const fn multmodp(a: u32, mut b: u32) -> u32 {
-    let mut p = 0u32;
-    let mut m = 1u32 << 31;
-    while m != 0 {
-        if a & m != 0 {
-            p ^= b;
-        }
-        m = m.wrapping_shr(1);
-        b = if b & 1 != 0 {
-            b.wrapping_shr(1) ^ POLY
-        } else {
-            b.wrapping_shr(1)
-        };
-    }
-    p
-}
-
-/// `x^(2^k)` modulo the polynomial, k = 0..32.
-const X2N: [u32; 32] = {
-    let mut t = [0u32; 32];
-    let mut p = 1u32 << 30; // x^1
-    let mut k = 0;
-    while k < 32 {
-        #[expect(clippy::indexing_slicing, reason = "k is under 32, the table's length")]
-        let slot = &mut t[k];
-        *slot = p;
-        p = multmodp(p, p);
-        k += 1;
-    }
-    t
-};
-
-/// `x^(8·n)` modulo the polynomial.
-const fn x8nmodp(mut n: u64) -> u32 {
-    let mut p = 1u32 << 31; // x^0
-    // x^(2^k) repeats with period 32 in k: X2N is indexed modulo 32
-    let mut k = 3usize;
-    while n != 0 {
-        if n & 1 != 0 {
-            #[expect(
-                clippy::indexing_slicing,
-                reason = "k % 32 is under 32, the table's length"
-            )]
-            let x = X2N[k % 32];
-            p = multmodp(x, p);
-        }
-        n = n.wrapping_shr(1);
-        k = k.wrapping_add(1) % 32;
-    }
-    p
-}
-
-/// The CRC-32C of `A` then `B` from the CRC of `A`, the CRC of `B` and the length of `B`.
-pub const fn crc32c_combine(crc_a: u32, crc_b: u32, len_b: u64) -> u32 {
-    multmodp(x8nmodp(len_b), crc_a) ^ crc_b
-}
+// crc32c_combine lives in crc32c: the hardware kernels' three-way interleave uses it too.
+pub use crate::crc32c::crc32c_combine;
 
 /// Why a chunk block's head can't be read.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]

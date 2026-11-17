@@ -95,6 +95,21 @@ jobs:
           target: wasm32-unknown-unknown
       - run: cargo check -p ww_tape --no-default-features --features=alloc --target wasm32-unknown-unknown
 
+  arm:
+    name: test and clippy on aarch64
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
+        with:
+          components: clippy
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+      # the ARMv8 CRC extension kernel (ww_tape/src/crc32c/hw_aarch64.rs) only runs here
+      - run: cargo nextest run --workspace --all-targets --profile ci
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
   fuzz:
     name: fuzz smoke run
     runs-on: ubuntu-latest

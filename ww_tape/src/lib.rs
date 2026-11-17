@@ -187,6 +187,7 @@ pub use chunk::{
 };
 
 mod bytes;
+mod crc32c;
 pub mod from_file;
 pub use from_file::{BoundError, FromFile};
 pub mod lz4;
@@ -288,7 +289,7 @@ pub const MAX_RECORD_HEAD: usize = 10 + 10 + 5;
 /// Longest clock table.
 pub const MAX_CLOCK_TABLE: usize = 1 + 5 * MAX_BLOCK_CLOCKS;
 
-const CRC: crc::Crc<u32> = crc::Crc::<u32>::new(&crc::CRC_32_ISCSI);
+const CRC: crc32c::Crc32c = crc32c::Crc32c;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum BlockKind {
