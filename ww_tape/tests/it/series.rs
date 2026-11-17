@@ -489,3 +489,76 @@ fn writer_refuses_what_a_series_track_does_not_hold() {
     ));
     _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A caller's block gets its CRCs checked once: a series chunk with one payload byte flipped is refused by
+/// `write_block`, `adopt_block` and `defer_block`; the same chunk of another session intact is adopted, renumbered
+/// into the writer's session.
+#[test]
+fn caller_chunks_are_checked_once() {
+    let dir = scratch("caller");
+    let mut w = TapeWriter::create(&dir.join("c.wwt"), SyncPolicy::None).unwrap();
+    w.set_session(crate::id(0).session).unwrap();
+    let defs = series_defs();
+    let grid = series_def().first_grid(START);
+    let (first_tick, last_tick) = grid.chunk_ticks(period(), 0, 4).unwrap();
+    let head = ChunkHead {
+        kind: BlockKind::Series,
+        track_id: 7,
+        track_number: TRACK,
+        first_item: 0,
+        count: 4,
+        first_tick,
+        last_tick,
+        latest_end: last_tick,
+        time_mode: 0,
+        end_mode: EndMode::Absent,
+        grid: Some(grid),
+    };
+    let samples = [3u8; 32];
+    let spec = ColumnSpec {
+        kind: ColumnKind::Samples,
+        codec: Codec::RAW,
+        param: 0,
+        len: samples.len(),
+    };
+    let mut good = vec![0u8; ww_tape::chunk::chunk_len(&head, &[spec], 0)];
+    let theirs = ww_tape::BlockId::new(ww_tape::SessionTag::writable(99), 41);
+    let n = ww_tape::chunk::write_chunk(&mut good, theirs, &head, &[(spec, &samples)], 0).unwrap();
+    good.truncate(n);
+    let at = ww_tape::Block::read(&good)
+        .unwrap()
+        .chunk()
+        .unwrap()
+        .payload_offset();
+    let mut bad = good.clone();
+    bad[at] ^= 1;
+    let crc = |r: Result<_, ww_tape::WriteError>| {
+        matches!(
+            r,
+            Err(ww_tape::WriteError::Block(ww_tape::BlockError::BadCrc))
+        )
+    };
+    assert!(crc(w.write_block(defs, &bad)));
+    assert!(crc(w.adopt_block(defs, &bad)));
+    assert!(crc(w.defer_block(defs, bad.clone()).map(|()| None)));
+    let placed = w.adopt_block(defs, &good).unwrap().unwrap();
+    w.finish().unwrap();
+    let bytes = std::fs::read(dir.join("c.wwt")).unwrap();
+    let r = TapeReader::open(&bytes[..]).unwrap();
+    let mut buf = vec![];
+    let entry = r
+        .entries(0)
+        .unwrap()
+        .into_iter()
+        .find(|e| e.offset == placed.offset)
+        .unwrap();
+    let b = r.read_block(0, &entry, &mut buf).unwrap();
+    assert!(b.is_intact());
+    assert_eq!(
+        b.session,
+        crate::id(0).session,
+        "renumbered into the writer's session"
+    );
+    assert_eq!(b.chunk().unwrap().head(), head);
+    _ = std::fs::remove_dir_all(&dir);
+}

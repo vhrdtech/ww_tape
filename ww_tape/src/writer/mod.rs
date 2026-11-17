@@ -850,9 +850,8 @@ impl<S: TapeSink> TapeWriter<S> {
     /// Check a block of the caller's against `defs`: a records, events, series or summary block of this version
     /// whose body this writer knows ([Definitions::check_block]): no definitions, every record on a held track that
     /// isn't a state track. Other kinds (the reserved kind 2 among them), other versions and bodies of an unknown
-    /// codec are refused.
-    fn check_data(defs: &Definitions, block: &[u8]) -> Result<(), WriteError> {
-        let b = crate::Block::read(block).map_err(WriteError::Block)?;
+    /// codec are refused. `b` is read with its CRCs checked ([crate::Block::read]).
+    fn check_data(defs: &Definitions, b: &crate::Block<'_>) -> Result<(), WriteError> {
         let ours = matches!(
             b.kind,
             BlockKind::Records | BlockKind::Events | BlockKind::Series | BlockKind::Summary
@@ -921,7 +920,8 @@ impl<S: TapeSink> TapeWriter<S> {
     /// marked [FLAG_REPEAT](crate::FLAG_REPEAT)) noted as written there ([near]). Returns the data tracks it holds
     /// records or a chunk of.
     fn learn(&mut self, block: &[u8], at: u64) -> Vec<u32> {
-        let Ok(b) = crate::Block::read(block) else {
+        // every block placed was made or checked whole before: its CRCs are not checked again
+        let Ok(b) = crate::Block::read_trusted(block) else {
             return Vec::new();
         };
         if let Some(c) = b.chunk() {
@@ -1029,7 +1029,7 @@ impl<S: TapeSink> TapeWriter<S> {
         if b.is_repeat() {
             return self.put_block(defs, &block);
         }
-        let needs = self.defer_needs(defs, &block)?;
+        let needs = self.defer_needs(defs, &b)?;
         if self.alignment() == 0 {
             self.ensure_head()?;
             self.put_needed(&needs)?;
@@ -1055,16 +1055,15 @@ impl<S: TapeSink> TapeWriter<S> {
     fn defer_needs(
         &self,
         defs: &Definitions,
-        block: &[u8],
+        b: &crate::Block<'_>,
     ) -> Result<Vec<Candidate<'static>>, WriteError> {
-        let b = crate::Block::read(block).map_err(WriteError::Block)?;
         if crate::index::is_structural(b.kind) {
             return Err(WriteError::Index(IndexError::Invalid(
                 "index, finish, tail and piece head blocks are written by the writer",
             )));
         }
-        Self::check_data(defs, block)?;
-        let needs = self.needed(defs, &data_tracks(block));
+        Self::check_data(defs, b)?;
+        let needs = self.needed(defs, &data_tracks(b));
         self.room(0, !self.head_put)?;
         Ok(needs)
     }
@@ -1098,7 +1097,7 @@ impl<S: TapeSink> TapeWriter<S> {
     /// Place a deferred block (checked, and its definitions put, when it was deferred) as the writer's next counted
     /// block, nothing put before it, then what is due after it.
     fn place(&mut self, mut block: Vec<u8>) -> Result<(), WriteError> {
-        crate::set_id(&mut block, self.next_id()).map_err(WriteError::Block)?;
+        crate::set_id_trusted(&mut block, self.next_id()).map_err(WriteError::Block)?;
         self.write_own(&block)?;
         self.after_block()
     }
@@ -1114,6 +1113,9 @@ impl<S: TapeSink> TapeWriter<S> {
         columns: &[(crate::ColumnSpec, &[u8])],
     ) -> Result<Placed, WriteError> {
         self.check()?;
+        // the head and the column table are checked here and as the chunk is encoded: the payload is the caller's
+        // columns, copied, not read back
+        defs.check_chunk_head(head).map_err(WriteError::Describe)?;
         let needs = self.needed(defs, &[head.track_number]);
         self.room(0, !self.head_put)?;
         self.ensure_head()?;
@@ -1168,7 +1170,6 @@ impl<S: TapeSink> TapeWriter<S> {
             .map_err(WriteError::Chunk)
             .and_then(|n| {
                 buf.truncate(n);
-                Self::check_data(defs, &buf)?;
                 self.write_chosen(&needs, &chosen, true)?;
                 if self.at()? != at {
                     return Err(WriteError::Index(IndexError::Invalid(
@@ -1201,11 +1202,22 @@ impl<S: TapeSink> TapeWriter<S> {
         block: &[u8],
     ) -> Result<Option<Placed>, WriteError> {
         self.check()?;
-        if is_repeat(block) {
+        let b = crate::Block::read(block).map_err(WriteError::Block)?;
+        if b.is_repeat() {
             return self.put_block(defs, block).map(|()| None);
         }
-        Self::check_data(defs, block)?;
-        let needs = self.needed(defs, &data_tracks(block));
+        self.write_read(defs, &b)
+    }
+
+    /// [Self::write_block] of a block that isn't a block of puts, read with its CRCs checked.
+    fn write_read(
+        &mut self,
+        defs: &Definitions,
+        b: &crate::Block<'_>,
+    ) -> Result<Option<Placed>, WriteError> {
+        let block = b.bytes();
+        Self::check_data(defs, b)?;
+        let needs = self.needed(defs, &data_tracks(b));
         // a block of another session starts it: a reader takes a new session where track 0 comes first, so the
         // layout and the producer are put again in it
         let session = block_id(block).filter(|theirs| theirs.session != self.session);
@@ -1221,7 +1233,7 @@ impl<S: TapeSink> TapeWriter<S> {
         self.put_needed(&needs)?;
         let placed = if block_id(block) == Some(before) && self.next_id() != before {
             let mut own = block.to_vec();
-            crate::set_id(&mut own, self.next_id()).map_err(WriteError::Block)?;
+            crate::set_id_trusted(&mut own, self.next_id()).map_err(WriteError::Block)?;
             self.write_own(&own)?
         } else {
             self.write_own(block)?
@@ -1258,8 +1270,8 @@ impl<S: TapeSink> TapeWriter<S> {
                 "index, finish, tail and piece head blocks are written by the writer",
             )));
         }
-        Self::check_data(defs, block)?;
-        let needs = self.needed(defs, &data_tracks(block));
+        Self::check_data(defs, &b)?;
+        let needs = self.needed(defs, &data_tracks(&b));
         self.room(0, !self.head_put)?;
         self.flush_deferred()?;
         self.ensure_head()?;
@@ -1272,7 +1284,7 @@ impl<S: TapeSink> TapeWriter<S> {
         }
         self.adopted = Some(theirs);
         let mut own = block.to_vec();
-        crate::set_id(&mut own, self.next_id()).map_err(WriteError::Block)?;
+        crate::set_id_trusted(&mut own, self.next_id()).map_err(WriteError::Block)?;
         let placed = self.write_own(&own)?;
         self.after_block()?;
         Ok(Some(placed))
@@ -1386,7 +1398,8 @@ impl<S: TapeSink> TapeWriter<S> {
     pub fn relay_block(&mut self, defs: &mut Definitions, block: &[u8]) -> Result<(), WriteError> {
         let b = crate::Block::read(block).map_err(WriteError::Block)?;
         if !b.is_repeat() {
-            return self.write_block(defs, block).map(|_| ());
+            self.check()?;
+            return self.write_read(defs, &b).map(|_| ());
         }
         let mut buf = Vec::new();
         defs.take_block(&b.decode(&mut buf).map_err(WriteError::Block)?)?;
@@ -1754,11 +1767,8 @@ pub(crate) fn block_id(block: &[u8]) -> Option<BlockId> {
 }
 
 /// The data tracks a block names: the tracks of a record block's records past track 0, a chunk's or summary's
-/// track; none for a block that doesn't read.
-fn data_tracks(block: &[u8]) -> Vec<u32> {
-    let Ok(b) = crate::Block::read(block) else {
-        return Vec::new();
-    };
+/// track; none for a body that doesn't read.
+fn data_tracks(b: &crate::Block<'_>) -> Vec<u32> {
     if let Some(c) = b.chunk() {
         return vec![c.head().track_number];
     }
@@ -1778,9 +1788,4 @@ fn data_tracks(block: &[u8]) -> Vec<u32> {
     tracks.sort_unstable();
     tracks.dedup();
     tracks
-}
-
-/// Whether `block` is a good block of puts or copies.
-fn is_repeat(block: &[u8]) -> bool {
-    crate::Block::read(block).is_ok_and(|b| b.is_repeat())
 }

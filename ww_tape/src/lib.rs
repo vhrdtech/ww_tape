@@ -880,12 +880,19 @@ pub fn block_len(bytes: &[u8]) -> Result<usize, BlockError> {
 /// CRC too), so a writer that places blocks later than it made them (a summary block filling the gap before an
 /// aligned chunk) keeps seqs ascending in the file and every block in its session.
 pub fn set_id(block: &mut [u8], id: BlockId) -> Result<(), BlockError> {
-    restamp(block, id, 0)
+    restamp(block, id, 0, Reread::Whole)
+}
+
+/// [set_id] of a block whose CRCs are known good, read whole once already: only its header and a chunk's head are
+/// read again, no pass over its payload or records.
+#[cfg(feature = "std")]
+pub(crate) fn set_id_trusted(block: &mut [u8], id: BlockId) -> Result<(), BlockError> {
+    restamp(block, id, 0, Reread::Head)
 }
 
 /// [set_id], and mark the block as one of put or copied state records ([FLAG_REPEAT]).
 pub fn mark_repeat(block: &mut [u8], id: BlockId) -> Result<(), BlockError> {
-    restamp(block, id, FLAG_REPEAT)
+    restamp(block, id, FLAG_REPEAT, Reread::Whole)
 }
 
 /// Mark the whole, good block `block` as belonging with the block after it ([FLAG_WITH_NEXT]), its CRCs rewritten.
@@ -893,12 +900,24 @@ pub fn mark_repeat(block: &mut [u8], id: BlockId) -> Result<(), BlockError> {
 pub(crate) fn mark_with_next(block: &mut [u8]) -> Result<(), BlockError> {
     let b = Block::read(block)?;
     let id = BlockId::new(b.session, b.seq);
-    restamp(block, id, FLAG_WITH_NEXT)
+    restamp(block, id, FLAG_WITH_NEXT, Reread::Whole)
 }
 
-/// Give the good block `block` the id `id` and the header flags `set` too, its CRCs rewritten.
-fn restamp(block: &mut [u8], id: BlockId, set: u16) -> Result<(), BlockError> {
-    let b = Block::read(block)?;
+/// How [restamp] reads the block it is given.
+#[derive(Copy, Clone)]
+enum Reread {
+    /// Whole, every CRC checked ([Block::read]).
+    Whole,
+    /// Its header and a chunk's head only, its CRCs known good ([Block::read_trusted]).
+    Head,
+}
+
+/// Give the good block `block`, read as `read` says, the id `id` and the header flags `set` too, its CRCs rewritten.
+fn restamp(block: &mut [u8], id: BlockId, set: u16, read: Reread) -> Result<(), BlockError> {
+    let b = match read {
+        Reread::Whole => Block::read(block)?,
+        Reread::Head => Block::read_trusted(block)?,
+    };
     if b.len() != block.len() {
         return Err(BlockError::BadLength(
             u32::try_from(block.len()).unwrap_or(u32::MAX),
@@ -1018,6 +1037,12 @@ impl<'b> Block<'b> {
             crc: self.crc,
             intact: self.intact,
         })
+    }
+
+    /// The block of a whole block whose CRCs are known good (one this crate made, or read with [Self::read] already):
+    /// the header, and for a chunk block its head with its head CRC, read; no pass over the payload or the records.
+    pub(crate) fn read_trusted(bytes: &'b [u8]) -> Result<Self, BlockError> {
+        Self::read_unchecked(bytes).map(|(b, _)| b)
     }
 
     /// The header, and for a chunk block its head checked; no CRC over the payload yet.

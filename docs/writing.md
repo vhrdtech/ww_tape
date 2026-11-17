@@ -81,6 +81,13 @@ A state track takes its items only through puts. A caller's records on a state t
 so is an events chunk on a state track. A series track has no records: its samples go into series chunks as data, each
 chunk's head carrying its grid and scale, and a record, a put or an events chunk on it is refused.
 
+The writer checks what it is handed in proportion to its cost. A chunk it encodes from columns has its head and column
+table checked, its track against the definitions and a series chunk's ticks against its grid; the payload is the
+caller's columns copied, and is not read back. A caller's whole block (`write_block`, `adopt_block`, `defer_block`) is
+read once with every CRC checked. Past that, each byte placed costs one pass more, the content hash. On a 1 MiB series
+chunk, `write_chunk` takes 466 µs, of which the encoding (copy and CRCs) is 226 µs and BLAKE3 207 µs; it took 857 µs
+when it read the chunk back twice (`just bench-chunks`).
+
 ### Puts, near and copies
 
 A put writes its item unless the newest record of the item's slot is the same item, by its 128-bit BLAKE3 hash, less
