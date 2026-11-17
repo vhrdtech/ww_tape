@@ -172,10 +172,14 @@ the scale of the stored numbers from there on. Sample `i` sits at `grid_tick + (
 One series segment starts the track, and a new one starts at every gap, every restart and every change of scale.
 
 A gap or a restart starts a new grid after the last tick of the one before. A change of scale keeps the grid, so no
-sample moves by rounding. The track is a state track: the producer puts its series segment before each chunk, and
+sample moves by rounding.
+
+Series segments are state: a reader needs the one in force to place any sample. So a series track has the state
+policy, and its only records are its series segments. The producer puts the series segment before each chunk, and
 the writer writes it only where it doesn't lie near behind, so every piece holds the series segment its first samples
-are in. A series chunk never spans two series segments: its samples share one
-grid and one scale, and its head's first and last tick are its samples' ticks on the grid.
+are in. The samples are data, not state: each series chunk is written once and never repeated. A series chunk never
+spans two series segments: its samples share one grid and one scale, and its head's first and last tick are its
+samples' ticks on the grid.
 
 ### Example: an autoranging channel changes prefix
 

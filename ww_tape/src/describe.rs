@@ -565,14 +565,16 @@ impl<'i> TrackDef<'i> {
         }
     }
 
-    /// Check what the kind asks of the track: a series is a state track, names its sample type in its definition (not in
-    /// [Self::item]) and has a valid [SeriesDef].
+    /// Check what the kind asks of the track: a series has the state policy (its segments are state, its sample
+    /// chunks data), names its sample type in its definition (not in [Self::item]) and has a valid [SeriesDef].
     pub fn check_kind(&self) -> Result<(), crate::SeriesError> {
         let Some(s) = self.series() else {
             return Ok(());
         };
         if self.repeat.state().is_none() {
-            return Err(crate::SeriesError::Def("a series track is a state track"));
+            return Err(crate::SeriesError::Def(
+                "a series track takes the state policy: its segments are state",
+            ));
         }
         if self.item.is_some() {
             return Err(crate::SeriesError::Def(
