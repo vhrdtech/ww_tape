@@ -1,11 +1,12 @@
 //! ww_tape index, finish, tail and piece head blocks and the positional reader on any bytes: decoding never panics,
-//! a reader opens any bytes and every entry it gives lies in its piece; index blocks built from the input read back
-//! equal, a final one also track by track from its head.
+//! a reader opens any bytes and every entry it gives lies in its piece, a good chunk's head reads alone and a series
+//! timeline builds from the heads; index blocks built from the input read back equal, a final one also track by track
+//! from its head.
 use ww_tape::index::{
     IndexBlock, IndexEntry, IndexHead, IndexKind, index_len, track_count, write_index,
 };
 use ww_tape::piece::{FinishBlock, PieceHeadBlock};
-use ww_tape::{Block, BlockKind, Layout, Medium, OpenOptions, Tail, TapeReader};
+use ww_tape::{Block, BlockKind, Layout, Medium, OpenOptions, Ratio64, Tail, TapeReader};
 
 /// Look at everything the block decoders give for `data`.
 pub(crate) fn decode(data: &[u8]) {
@@ -47,10 +48,32 @@ pub(crate) fn read(data: &[u8], options: OpenOptions) {
         assert!(p.start >= end && p.end >= p.start && p.end <= data.len() as u64);
         end = p.end;
         if let Ok(entries) = r.entries(i) {
+            let mut series = Vec::new();
             for e in &entries {
                 assert!(p.start + e.offset < data.len() as u64);
                 let mut buf = vec![];
-                let _ = r.read_block(i, e, &mut buf);
+                let block = r.read_block(i, e, &mut buf);
+                let chunk = block
+                    .as_ref()
+                    .ok()
+                    .and_then(|b| b.chunk())
+                    .map(|c| c.head());
+                let mut hbuf = vec![];
+                let head = r.read_chunk_head(i, e, &mut hbuf);
+                // a whole chunk block that reads has a head that reads alone, the same one
+                if let Some(c) = chunk {
+                    assert_eq!(head.ok(), Some(c), "a good chunk's head reads alone");
+                }
+                if e.kind == BlockKind::Series && !series.contains(&e.track_id) {
+                    series.push(e.track_id);
+                }
+            }
+            for track_id in series {
+                if let Ok((t, _)) = r.series_timeline(i, track_id, Ratio64::new(5, 3).unwrap()) {
+                    for s in t.stretches() {
+                        assert!(s.first_item < s.end_item);
+                    }
+                }
             }
         }
         let _ = r.track_entries(i, 0);

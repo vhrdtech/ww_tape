@@ -70,9 +70,11 @@
 
 use core::num::NonZeroUsize;
 
-use crate::bytes::{file_u8, file_u32, le_i64, le_u8, le_u32, le_u64};
+use crate::bytes::{file_u8, file_u32, le_i64, le_u8, le_u16, le_u32, le_u64};
 use crate::series::{SCALE_LEN_MAX, SeriesGrid, read_scale, scale_bytes};
-use crate::{BlockKind, BoundError, CRC_LEN, HEADER_LEN, MAX_BLOCK_LEN};
+use crate::{
+    BlockError, BlockKind, BoundError, CRC_LEN, FLAG_BODY_CODED, HEADER_LEN, MAX_BLOCK_LEN, VERSION,
+};
 
 /// The CRC of chunk blocks: the same CRC-32C as every block, with a 16-entry table for the large payloads.
 const CRC16: crc::Crc<u32, crc::Table<16>> =
@@ -273,6 +275,46 @@ pub struct ChunkHead {
     pub end_mode: EndMode,
     /// The grid and scale of a series chunk's samples; None in an events chunk.
     pub grid: Option<SeriesGrid>,
+}
+
+/// Bytes of a chunk block [ChunkHead::head_len] reads: the block header and the payload offset.
+pub const CHUNK_HEAD_PREFIX: usize = HEADER_LEN + 4;
+
+impl ChunkHead {
+    /// Bytes of the head of the chunk block whose first [CHUNK_HEAD_PREFIX] bytes are `header`: what
+    /// [Self::read_head] needs, the bytes up to the payload. A block of another kind or format version, or with a
+    /// coded body, is [BlockError::NotChunk].
+    pub fn head_len(header: &[u8]) -> Result<usize, BlockError> {
+        let len = crate::block_len(header)?;
+        if header.len() < CHUNK_HEAD_PREFIX {
+            return Err(BlockError::Short {
+                needed: CHUNK_HEAD_PREFIX,
+            });
+        }
+        let kind = le_u8(header, 5).map(BlockKind::from_u8);
+        let flags = le_u16(header, 6).ok_or(BlockError::NotChunk)?;
+        if le_u8(header, 4) != Some(VERSION)
+            || !matches!(kind, Some(BlockKind::Events | BlockKind::Series))
+            || flags & FLAG_BODY_CODED != 0
+        {
+            return Err(BlockError::NotChunk);
+        }
+        payload_offset(header, len).map_err(BlockError::Chunk)
+    }
+
+    /// Read the head of a chunk block from `bytes`, its first [Self::head_len] bytes or more: head CRC, ranges,
+    /// column entries, as [Block::read](crate::Block::read) checks them. The payload is neither read nor checked:
+    /// for a series chunk, its grid and scale come without its samples.
+    pub fn read_head(bytes: &[u8]) -> Result<Self, BlockError> {
+        let payload_at = Self::head_len(bytes)?;
+        let len = crate::block_len(bytes)?;
+        let head = bytes
+            .get(..payload_at)
+            .ok_or(BlockError::Short { needed: payload_at })?;
+        HeadBytes::read(head, len)
+            .map(|h| h.head)
+            .map_err(BlockError::Chunk)
+    }
 }
 
 /// A column to write: what it is and how long its bytes are.
@@ -632,8 +674,11 @@ impl<'b> ChunkWriter<'b> {
 /// CRCs it holds: no pass over the payload. An error says why the block's head is out of range (its head CRC is not
 /// checked: the header changed); nothing is written then.
 pub(crate) fn restamp(block: &mut [u8]) -> Result<(), ChunkHeadError> {
-    let payload_at = payload_offset(block)?;
-    let l = Layout::of(block, payload_at)?;
+    let payload_at = payload_offset(block, block.len())?;
+    let l = Layout::of(
+        block.get(..payload_at).ok_or(ChunkHeadError::BadHead)?,
+        block.len(),
+    )?;
     let payload = block
         .get(payload_at..l.payload_end)
         .ok_or(ChunkHeadError::BadHead)?;
@@ -863,13 +908,14 @@ struct Layout {
     payload_end: usize,
 }
 
-/// The payload offset of a chunk block (bytes 32..36): after the fixed head, with room for the padding and the CRC
-/// after it. Read before the head CRC can be checked, so out of range is [ChunkHeadError::BadHeadCrc].
-fn payload_offset(block: &[u8]) -> Result<usize, ChunkHeadError> {
-    let Some(max) = block.len().checked_sub(PAYLOAD_PADDING + CRC_LEN) else {
+/// The payload offset of a chunk block of `block_len` bytes (bytes 32..36 of `header`, its first bytes): after the
+/// fixed head, with room for the padding and the CRC after it. Read before the head CRC can be checked, so out of
+/// range is [ChunkHeadError::BadHeadCrc].
+fn payload_offset(header: &[u8], block_len: usize) -> Result<usize, ChunkHeadError> {
+    let Some(max) = block_len.checked_sub(PAYLOAD_PADDING + CRC_LEN) else {
         return Err(ChunkHeadError::BadHeadCrc);
     };
-    let Some(at) = file_u32(block, 32) else {
+    let Some(at) = file_u32(header, 32) else {
         return Err(ChunkHeadError::BadHeadCrc);
     };
     match at.within(max) {
@@ -879,33 +925,33 @@ fn payload_offset(block: &[u8]) -> Result<usize, ChunkHeadError> {
 }
 
 impl Layout {
-    /// The layout of `block` whose payload starts at `payload_at` ([payload_offset]).
-    fn of(block: &[u8], payload_at: usize) -> Result<Self, ChunkHeadError> {
-        let payload_end = block
-            .len()
+    /// The layout of a chunk block of `block_len` bytes whose head is `head` (its bytes up to the payload offset,
+    /// [payload_offset]).
+    fn of(head: &[u8], block_len: usize) -> Result<Self, ChunkHeadError> {
+        let payload_at = head.len();
+        let payload_end = block_len
             .checked_sub(CRC_LEN)
             .ok_or(ChunkHeadError::BadHead)?;
         let payload_len = payload_end
             .checked_sub(payload_at)
             .ok_or(ChunkHeadError::BadHead)?;
-        let shift = file_u8(block, 80)
+        let shift = file_u8(head, 80)
             .ok_or(ChunkHeadError::BadHead)?
             .bounded(SEGMENT_SHIFT_MAX)
             .map_err(ChunkHeadError::Bound)?;
         if shift < SEGMENT_SHIFT_MIN {
             return Err(ChunkHeadError::BadHead);
         }
-        let columns = file_u8(block, 81)
+        let columns = file_u8(head, 81)
             .ok_or(ChunkHeadError::BadHead)?
             .at_most(MAX_COLUMNS)
             .map_err(ChunkHeadError::Bound)?;
         if columns == 0 {
             return Err(ChunkHeadError::BadHead);
         }
-        let table_start = match BlockKind::from_u8(le_u8(block, 5).ok_or(ChunkHeadError::BadHead)?)
-        {
+        let table_start = match BlockKind::from_u8(le_u8(head, 5).ok_or(ChunkHeadError::BadHead)?) {
             BlockKind::Series => {
-                let scale_len = file_u8(block, GRID_SCALE_LEN_AT)
+                let scale_len = file_u8(head, GRID_SCALE_LEN_AT)
                     .ok_or(ChunkHeadError::BadHead)?
                     .at_most(SCALE_LEN_MAX)
                     .map_err(ChunkHeadError::Bound)?;
@@ -971,6 +1017,69 @@ fn read_fixed(block: &[u8], kind: BlockKind, table_start: usize) -> Option<Chunk
     })
 }
 
+/// The head of a chunk block read from its bytes up to the payload offset, checked: what [Chunk::read_head] and
+/// [ChunkHead::read_head] share.
+struct HeadBytes<'b> {
+    head: ChunkHead,
+    layout: Layout,
+    entries: &'b [[u8; COLUMN_ENTRY_LEN]],
+    seg_crcs: &'b [[u8; SEGMENT_CRC_LEN]],
+}
+
+impl<'b> HeadBytes<'b> {
+    /// Read `bytes`, a chunk block's bytes 0..payload offset, in a block of `block_len` bytes: head CRC, ranges,
+    /// column entries and their offsets within the payload, zeros between the head and the payload.
+    fn read(bytes: &'b [u8], block_len: usize) -> Result<Self, ChunkHeadError> {
+        let kind = BlockKind::from_u8(le_u8(bytes, 5).ok_or(ChunkHeadError::BadHeadCrc)?);
+        if head_crc(bytes, bytes.len()) != le_u32(bytes, 28) {
+            return Err(ChunkHeadError::BadHeadCrc);
+        }
+        let l = Layout::of(bytes, block_len)?;
+        let head = read_fixed(bytes, kind, l.table_start).ok_or(ChunkHeadError::BadHead)?;
+        let entries = bytes
+            .get(l.table_start..l.table_end)
+            .ok_or(ChunkHeadError::BadHead)?
+            .as_chunks::<COLUMN_ENTRY_LEN>()
+            .0;
+        if entries.len() != l.columns
+            || check_head(&head, entries.iter().map(|[k, ..]| ColumnKind::from_u8(*k))).is_err()
+        {
+            return Err(ChunkHeadError::BadHead);
+        }
+        // the payload lies between the head and the block CRC, its padding last
+        let columns_len = l
+            .payload_end
+            .checked_sub(bytes.len())
+            .and_then(|n| n.checked_sub(PAYLOAD_PADDING))
+            .ok_or(ChunkHeadError::BadHead)?;
+        let mut prev = 0usize;
+        for (i, e) in entries.iter().enumerate() {
+            let off = column_offset(e)
+                .within(columns_len)
+                .map_err(ChunkHeadError::Bound)?;
+            if (i == 0 && off != 0) || off < prev {
+                return Err(ChunkHeadError::BadHead);
+            }
+            prev = off;
+        }
+        let (seg_crcs, _) = bytes
+            .get(l.table_end..l.seg_crcs_end)
+            .ok_or(ChunkHeadError::BadHead)?
+            .as_chunks::<SEGMENT_CRC_LEN>();
+        // padding between the head and the payload is zeros
+        let gap = bytes.get(l.seg_crcs_end..).ok_or(ChunkHeadError::BadHead)?;
+        if gap.iter().any(|b| *b != 0) {
+            return Err(ChunkHeadError::BadHead);
+        }
+        Ok(HeadBytes {
+            head,
+            layout: l,
+            entries,
+            seg_crcs,
+        })
+    }
+}
+
 /// The chunk of a chunk block, read in place.
 #[derive(Copy, Clone, Debug)]
 pub struct Chunk<'b> {
@@ -991,59 +1100,19 @@ impl<'b> Chunk<'b> {
     /// Read and check the head of the chunk block `block` (exactly its bytes, length checked by the caller): head
     /// CRC, ranges. The payload is not checked here.
     pub(crate) fn read_head(block: &'b [u8]) -> Result<Self, ChunkHeadError> {
-        let kind = BlockKind::from_u8(le_u8(block, 5).ok_or(ChunkHeadError::BadHeadCrc)?);
-        let payload_at = payload_offset(block)?;
-        if head_crc(block, payload_at) != le_u32(block, 28) {
-            return Err(ChunkHeadError::BadHeadCrc);
-        }
-        let l = Layout::of(block, payload_at)?;
-        let head = read_fixed(block, kind, l.table_start).ok_or(ChunkHeadError::BadHead)?;
-        let entries = block
-            .get(l.table_start..l.table_end)
-            .ok_or(ChunkHeadError::BadHead)?
-            .as_chunks::<COLUMN_ENTRY_LEN>()
-            .0;
-        if entries.len() != l.columns
-            || check_head(&head, entries.iter().map(|[k, ..]| ColumnKind::from_u8(*k))).is_err()
-        {
-            return Err(ChunkHeadError::BadHead);
-        }
-        let payload = block
-            .get(payload_at..l.payload_end)
-            .ok_or(ChunkHeadError::BadHead)?;
-        let columns_len = payload
-            .len()
-            .checked_sub(PAYLOAD_PADDING)
-            .ok_or(ChunkHeadError::BadHead)?;
-        let mut prev = 0usize;
-        for (i, e) in entries.iter().enumerate() {
-            let off = column_offset(e)
-                .within(columns_len)
-                .map_err(ChunkHeadError::Bound)?;
-            if (i == 0 && off != 0) || off < prev {
-                return Err(ChunkHeadError::BadHead);
-            }
-            prev = off;
-        }
-        let (seg_crcs, _) = block
-            .get(l.table_end..l.seg_crcs_end)
-            .ok_or(ChunkHeadError::BadHead)?
-            .as_chunks::<SEGMENT_CRC_LEN>();
-        // padding between the head and the payload is zeros
-        let gap = block
-            .get(l.seg_crcs_end..payload_at)
-            .ok_or(ChunkHeadError::BadHead)?;
-        if gap.iter().any(|b| *b != 0) {
-            return Err(ChunkHeadError::BadHead);
-        }
+        let payload_at = payload_offset(block, block.len())?;
+        let head_bytes = block.get(..payload_at).ok_or(ChunkHeadError::BadHeadCrc)?;
+        let h = HeadBytes::read(head_bytes, block.len())?;
         Ok(Chunk {
-            head,
-            head_bytes: block.get(..payload_at).ok_or(ChunkHeadError::BadHead)?,
-            entries,
-            seg_crcs,
-            payload,
-            block_crc: le_u32(block, l.payload_end).ok_or(ChunkHeadError::BadHead)?,
-            seg_len: l.seg_len,
+            head: h.head,
+            head_bytes,
+            entries: h.entries,
+            seg_crcs: h.seg_crcs,
+            payload: block
+                .get(payload_at..h.layout.payload_end)
+                .ok_or(ChunkHeadError::BadHead)?,
+            block_crc: le_u32(block, h.layout.payload_end).ok_or(ChunkHeadError::BadHead)?,
+            seg_len: h.layout.seg_len,
         })
     }
 

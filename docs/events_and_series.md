@@ -174,14 +174,27 @@ scales its samples alone: nothing else has to be found, linked or kept near it.
 
 Consecutive chunks of one stretch of recording carry the same grid, so no sample moves by rounding however the samples
 are cut into chunks. A change of scale keeps the grid at the new scale. A gap or a restart starts a new grid more than a
-period, rounded up, after the last tick of the chunk before. A chunk has one grid and one scale, and its head's first and last tick are its samples'
-ticks on the grid.
+period, rounded up, after the last tick of the chunk before. A chunk has one grid and one scale, and its head's first
+and last tick are its samples' ticks on the grid.
 
 A **gap** is a chunk on another grid than the chunk before it: no sample lies between them, and a viewer draws no line
 across. Sample indexes missing between two chunks of one grid are lost samples, a chunk damaged or in another piece:
 their ticks are known, their values are not. The chunks are data, not state: each is written once and never repeated,
 so a series track takes the plain policy like any data. The index lists each chunk's first sample and first tick, so a
 reader finds the chunk of a sample or of a time without reading any head.
+
+A track's grids, its `SeriesTimeline`, come from its chunk heads alone: `TapeReader::series_timeline(i, track_id,
+period)` reads each chunk's head with `TapeReader::read_chunk_head`, its header and then its bytes up to the payload,
+checked by the head CRC, and none of its samples. A chunk whose head is damaged is left out with its error, as a lost
+chunk. In a file aligned for direct I/O, the head reaches up to the alignment boundary, so a head read takes about one
+aligned block. A track of 256 chunks of 1 MiB, read in memory (`just bench-chunks`):
+
+| Alignment | Read | Bytes read per chunk | ns per chunk |
+|---|---|---:|---:|
+| none | heads alone | 287 | 633 |
+| none | every whole block | 1 048 847 | 225 529 |
+| 4096 | heads alone | 4 088 | 2 446 |
+| 4096 | every whole block | 1 052 648 | 230 512 |
 
 ### Example: an autoranging channel changes prefix
 

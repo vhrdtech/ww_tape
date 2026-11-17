@@ -47,6 +47,8 @@ A reader finds blocks through the piece's index, never by walking the whole file
   directory and that track's list, each checked by its own CRC, so a reader of one track out of thousands reads a few
   hundred bytes of index. Track id 0 gives the record blocks of data, and `STATE_TRACK_ID` the state entries.
 - `TapeReader::read_block(i, entry, buf)` reads the block an entry names and checks it.
+- `TapeReader::read_chunk_head(i, entry, buf)` reads only the head of the chunk an entry names, up to its payload, and
+  checks it by the head CRC: what a chunk is, and a series chunk's grid and scale, without its samples.
 
 An entry tells a reader whether it needs a block before reading it. A query for the items between two ticks takes the
 entries whose tick range overlaps; a query for item 1 000 000 takes the entry whose item range holds it.

@@ -7,9 +7,9 @@ use shrink_wrap::DeserializeShrinkWrap;
 use std::path::Path;
 use ww_tape::times::EventTimes;
 use ww_tape::{
-    Block, Describe, Element, ItemHash, Layout, Medium, MemSink, OpenOptions, Ratio64, SampleShape,
-    Samples, SeriesGrid, SeriesTimeline, Slot, TapeReader, TapeSink, TapeWriter, TrackKind,
-    block_len,
+    Block, ChunkHead, Describe, Element, ItemHash, Layout, Medium, MemSink, OpenOptions, Ratio64,
+    SampleShape, Samples, SeriesGrid, SeriesTimeline, Slot, TapeReader, TapeSink, TapeWriter,
+    TrackKind, block_len,
 };
 
 /// The blocks back to back at the start of `f`, up to the first that doesn't parse.
@@ -175,8 +175,8 @@ pub fn samples_hostile(data: &[u8]) {
     }
 }
 
-/// `tape-series-hostile`: a series track and its segment records of hostile indexes, ticks and scales, built into a
-/// timeline that is then asked about every segment.
+/// `tape-series-hostile`: a series track and its chunks of hostile grids, ticks and scales, their heads read alone
+/// (the same as read from the whole block) and built into a timeline that is then asked about every stretch.
 pub fn series_hostile(data: &[u8]) {
     let f = hostile::series(data);
     let bs = blocks(&f);
@@ -187,7 +187,13 @@ pub fn series_hostile(data: &[u8]) {
     let heads: Vec<_> = bs
         .iter()
         .skip(1)
-        .filter_map(|b| Some(Block::read(b).ok()?.chunk()?.head()))
+        .filter_map(|b| {
+            let head = ChunkHead::read_head(b).ok();
+            if let Some(whole) = Block::read(b).ok().and_then(|b| b.chunk()) {
+                assert_eq!(head, Some(whole.head()), "a good chunk's head reads alone");
+            }
+            head
+        })
         .collect();
     for h in &heads {
         if let Ok(g) = SeriesGrid::of_chunk(h, period) {

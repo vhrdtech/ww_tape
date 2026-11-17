@@ -182,8 +182,8 @@ pub mod bitpack;
 pub mod chunk;
 pub mod times;
 pub use chunk::{
-    Chunk, ChunkError, ChunkHead, ChunkHeadError, ChunkWriter, Codec, ColumnKind, ColumnSpec,
-    EndMode,
+    CHUNK_HEAD_PREFIX, Chunk, ChunkError, ChunkHead, ChunkHeadError, ChunkWriter, Codec,
+    ColumnKind, ColumnSpec, EndMode,
 };
 
 mod bytes;
@@ -826,6 +826,8 @@ pub enum BlockError {
     BadRecords,
     /// The records of a coded body are read from [Block::decode].
     Coded,
+    /// A chunk's head was asked of a block that isn't a chunk block this reader reads ([ChunkHead::head_len]).
+    NotChunk,
 }
 
 /// A block read from bytes, CRC checked. Records are read in place, see [Block::records].

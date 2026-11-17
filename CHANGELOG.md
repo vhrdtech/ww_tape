@@ -84,7 +84,8 @@ Covers `ww_tape` 0.1.0.
 ### 🚀 Features
 
 - `write_chunk` no longer reads its own chunk back; caller blocks are CRC-checked once: 1 MiB chunk 857 to 466 µs (TAPE-4).
-- `just bench-chunks`: ns per 1 MiB series chunk the writer spends, and its parts (TAPE-4).
+- `TapeReader::read_chunk_head` and `series_timeline`: a track's grids from chunk heads, 287 bytes per 1 MiB chunk (TAPE-3).
+- `just bench-chunks`: ns per 1 MiB series chunk the writer spends, its parts, and a timeline's cost (TAPE-4).
 - Book pages a newcomer starts from: tape concepts, writing and resume, pieces and files, reading, numbers, and tapes against logring.
 - `IndexPolicy::state_entries_max` caps a piece's state entries (`IndexError::StateEntries`); `PieceChain` cuts when it is reached (STD-135).
 - `api()`: the crate's `FullVersion`, to find its bundle in `wire_weaver_snapshots` (STD-135).

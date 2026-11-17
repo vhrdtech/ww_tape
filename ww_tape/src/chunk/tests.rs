@@ -343,6 +343,63 @@ fn flipped_bit_in_a_series_chunk_loses_one_segment() {
     assert_eq!(b.chunk().unwrap().bad_segments().count(), 0);
 }
 
+/// The head alone reads as the whole block's head does: from the bytes up to the payload, which may be damaged or
+/// absent; a flipped bit in those bytes is refused as by the whole read, and a block of another kind is not a chunk.
+#[test]
+fn head_reads_without_the_payload() {
+    let (events_head, events_cols) = events(5, 20);
+    let (mut series_head, series_cols) = series(10, 5);
+    series_head.grid = Some(crate::SeriesGrid::start(
+        3,
+        -7,
+        crate::Magnitude::pow10(-6).mul(crate::Magnitude::PI),
+    ));
+    series_head.first_tick = 7 * 20 - 7;
+    series_head.last_tick = 11 * 20 - 7;
+    series_head.latest_end = series_head.last_tick;
+    for (head, bytes) in [
+        (
+            events_head,
+            encode(&events_head, &event_columns(&events_cols), 1, 0),
+        ),
+        (
+            series_head,
+            encode(&series_head, &series_columns(&series_cols), 1, 0),
+        ),
+    ] {
+        let payload_at = Block::read(&bytes)
+            .unwrap()
+            .chunk()
+            .unwrap()
+            .payload_offset();
+        let n = ChunkHead::head_len(&bytes[..CHUNK_HEAD_PREFIX]).unwrap();
+        assert_eq!(n, payload_at);
+        assert_eq!(ChunkHead::read_head(&bytes[..n]).unwrap(), head);
+        assert_eq!(
+            ChunkHead::read_head(&bytes[..n - 1]).unwrap_err(),
+            BlockError::Short { needed: n }
+        );
+        // the payload isn't read: damaged, the head still reads
+        let mut bad = bytes.clone();
+        bad[payload_at] ^= 1;
+        assert_eq!(Block::read(&bad).unwrap_err(), BlockError::BadCrc);
+        assert_eq!(ChunkHead::read_head(&bad).unwrap(), head);
+        for at in (0..payload_at).filter(|at| !(8..12).contains(at)) {
+            let mut bad = bytes.clone();
+            bad[at] ^= 0x04;
+            assert!(ChunkHead::read_head(&bad).is_err(), "flip at {at}");
+        }
+    }
+    let mut records = [0u8; 64];
+    let mut w = BlockWriter::new(&mut records, crate::BlockKind::Records, id(0), &[]).unwrap();
+    w.push_describe(&[b"a describe record"]).unwrap();
+    w.finish();
+    assert_eq!(
+        ChunkHead::head_len(&records[..CHUNK_HEAD_PREFIX]).unwrap_err(),
+        BlockError::NotChunk
+    );
+}
+
 /// A damaged head is not salvaged: nothing in the block, its length neither, can be trusted.
 #[test]
 fn damaged_head_is_not_salvaged() {

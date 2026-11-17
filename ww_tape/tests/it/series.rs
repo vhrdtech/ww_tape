@@ -368,6 +368,94 @@ fn series_reads_back_to_samples_ticks_and_scales() {
     _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Bytes that count what is read of them.
+struct Counted<'a> {
+    bytes: &'a [u8],
+    read: std::cell::Cell<u64>,
+    reads: std::cell::Cell<u64>,
+}
+
+impl ww_tape::ByteSource for Counted<'_> {
+    type Error = ();
+
+    fn size(&self) -> Result<u64, ()> {
+        Ok(self.bytes.len() as u64)
+    }
+
+    fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), ()> {
+        let at = offset as usize;
+        buf.copy_from_slice(self.bytes.get(at..at + buf.len()).ok_or(())?);
+        self.read.set(self.read.get() + buf.len() as u64);
+        self.reads.set(self.reads.get() + 1);
+        Ok(())
+    }
+}
+
+/// The timeline from the chunk heads alone is the one from whole blocks: two reads per chunk, its header and its
+/// head (up to the payload, past the alignment padding), none of its samples. A damaged payload doesn't change it; a
+/// damaged head loses its chunk, and the samples around it keep their grid.
+#[test]
+fn series_timeline_reads_chunk_heads_alone() {
+    let dir = scratch("heads");
+    let path = dir.join("s.wwt");
+    write(&path);
+    let bytes = std::fs::read(&path).unwrap();
+    let want = read(&bytes);
+    let track_id = want.chunks[0].0.track_id;
+    let src = Counted {
+        bytes: &bytes,
+        read: 0.into(),
+        reads: 0.into(),
+    };
+    let r = TapeReader::open(&src).unwrap();
+    let entries = r.track_entries(0, track_id).unwrap();
+    let chunks: Vec<_> = entries
+        .iter()
+        .filter(|e| e.kind == BlockKind::Series)
+        .collect();
+    assert_eq!(chunks.len(), want.chunks.len());
+    let (read0, reads0) = (src.read.get(), src.reads.get());
+    let (timeline, errors) = r.series_timeline(0, track_id, period()).unwrap();
+    assert!(errors.is_empty(), "{errors:?}");
+    assert_eq!(timeline, want.timeline);
+    let head_bytes = src.read.get() - read0;
+    let block_bytes: u64 = chunks.iter().map(|e| u64::from(e.len)).sum();
+    // the track's index entries again, then two reads per chunk
+    assert!(src.reads.get() - reads0 <= 2 * chunks.len() as u64 + 4);
+    assert!(head_bytes < block_bytes);
+
+    // a flipped bit in a payload: the head still reads; in a head: that chunk is lost, with its error
+    let mut buf = Vec::new();
+    let e = chunks[1];
+    let payload_at = {
+        let b = r.read_block(0, e, &mut buf).unwrap();
+        b.chunk().unwrap().payload_offset() as u64
+    };
+    let mut bad = bytes.clone();
+    bad[(e.offset + payload_at) as usize] ^= 1;
+    let r = TapeReader::open(&bad[..]).unwrap();
+    assert!(r.read_block(0, e, &mut buf).is_err());
+    assert_eq!(r.read_chunk_head(0, e, &mut buf).unwrap(), want.chunks[1].0);
+    let (timeline, errors) = r.series_timeline(0, track_id, period()).unwrap();
+    assert!(errors.is_empty(), "{errors:?}");
+    assert_eq!(timeline, want.timeline);
+    let mut bad = bytes.clone();
+    bad[(e.offset + 60) as usize] ^= 1;
+    let r = TapeReader::open(&bad[..]).unwrap();
+    let (timeline, errors) = r.series_timeline(0, track_id, period()).unwrap();
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    let lost = &want.chunks[1].0;
+    assert_eq!(timeline.stretch_of(lost.first_item), None);
+    for i in lost.first_item..lost.first_item + u64::from(lost.count) {
+        assert_eq!(
+            timeline.tick(i),
+            want.timeline.tick(i),
+            "tick of lost sample {i}"
+        );
+    }
+    _ = std::fs::remove_dir_all(&dir);
+}
+
 /// The same recording gives the same bytes, and they are golden/v1-series.hex's (`WW_TAPE_GOLDEN=update` rewrites
 /// it): one block per line, in hex.
 #[test]

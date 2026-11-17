@@ -20,12 +20,16 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
+use exact_units::Ratio64;
+
 use crate::bytes::le_u8;
+use crate::chunk::{CHUNK_HEAD_PREFIX, ChunkHead};
 use crate::index::{HEAD_LEN_PREFIX, INDEX_LEN_MAX, IndexBlock, IndexEntry, IndexError, IndexKind};
 use crate::piece::{
     ChainReport, Finish, FinishBlock, PieceHead, PieceHeadBlock, PieceSummary, TAIL_LEN, Tail,
     TrackRange, TrackStart, check_chain,
 };
+use crate::series::{SeriesError, SeriesTimeline};
 use crate::walk::{Head, SessionState, Verdict, is_free};
 use crate::{
     Block, BlockError, BlockKind, GAP_CHECKS_MAX, HEADER_LEN, Layout, MAGIC, MAX_BLOCK_LEN, Medium,
@@ -146,6 +150,8 @@ pub enum ReadError<E> {
     NoPiece(usize),
     /// The piece at `offset` is of another format version, `found` ([PieceInfo::version]).
     Version { offset: u64, found: u8 },
+    /// The series chunk at `offset` doesn't fit its own grid or the chunks next to it.
+    Series { offset: u64, error: SeriesError },
 }
 
 impl<E: core::fmt::Debug> core::fmt::Display for ReadError<E> {
@@ -161,6 +167,9 @@ impl<E: core::fmt::Debug> core::fmt::Display for ReadError<E> {
                 "a piece of format version {found} (at byte {offset}); this reader reads version {}",
                 crate::VERSION
             ),
+            ReadError::Series { offset, error } => {
+                write!(f, "series chunk at byte {offset}: {error}")
+            }
         }
     }
 }
@@ -362,6 +371,9 @@ pub struct TapeReader<S> {
 }
 
 type R<T, S> = Result<T, ReadError<<S as ByteSource>::Error>>;
+
+/// A series timeline and the chunks left out of it, each with its error.
+type Timeline<S> = (SeriesTimeline, Vec<ReadError<<S as ByteSource>::Error>>);
 
 impl<S: ByteSource> TapeReader<S> {
     /// Find the pieces of `src` with the default [OpenOptions].
@@ -994,6 +1006,82 @@ impl<S: ByteSource> TapeReader<S> {
         entry: &IndexEntry,
         buf: &'b mut Vec<u8>,
     ) -> R<Block<'b>, S> {
+        let (offset, len) = self.place(i, entry)?;
+        buf.resize(len, 0);
+        self.src.read_at(offset, buf).map_err(ReadError::Source)?;
+        Block::read(buf).map_err(|error| ReadError::Block { offset, error })
+    }
+
+    /// Read the head of the chunk block of `entry` in piece `i`, using `buf`: its header, then its bytes up to the
+    /// payload, head CRC and ranges checked ([ChunkHead::read_head]). The payload is neither read nor checked, so a
+    /// series' grids cost a few hundred bytes per chunk, not its samples.
+    pub fn read_chunk_head(
+        &self,
+        i: usize,
+        entry: &IndexEntry,
+        buf: &mut Vec<u8>,
+    ) -> R<ChunkHead, S> {
+        let (offset, len) = self.place(i, entry)?;
+        let block = |error| ReadError::Block { offset, error };
+        if len < CHUNK_HEAD_PREFIX {
+            return Err(block(BlockError::Short {
+                needed: CHUNK_HEAD_PREFIX,
+            }));
+        }
+        buf.resize(CHUNK_HEAD_PREFIX, 0);
+        self.src.read_at(offset, buf).map_err(ReadError::Source)?;
+        // the entry's length bounds the read, as in read_block: the block lies within it
+        let n = block_len(buf).map_err(block)?;
+        if n > len {
+            return Err(block(BlockError::Short { needed: n }));
+        }
+        let head_len = ChunkHead::head_len(buf).map_err(block)?;
+        // head_len is within the block, whose length is within the piece
+        buf.resize(head_len, 0);
+        self.src.read_at(offset, buf).map_err(ReadError::Source)?;
+        ChunkHead::read_head(buf).map_err(block)
+    }
+
+    /// The timeline of the series track `track_id` in piece `i`, of `period` ticks per sample, from the heads of its
+    /// chunks alone ([Self::read_chunk_head]). A chunk whose head is damaged, or out of line with its neighbours, is
+    /// left out with its error beside the timeline, as a lost chunk: the samples around it keep their grid. An
+    /// index that can't be read, or a failing source, is an error.
+    pub fn series_timeline(&self, i: usize, track_id: u64, period: Ratio64) -> R<Timeline<S>, S> {
+        let start = self.piece(i)?.start;
+        let mut buf = Vec::new();
+        let mut heads = Vec::new();
+        let mut errors = Vec::new();
+        for e in self.track_entries(i, track_id)? {
+            if e.kind != BlockKind::Series {
+                continue;
+            }
+            let offset = start.saturating_add(e.offset);
+            match self.read_chunk_head(i, &e, &mut buf) {
+                Ok(h) if h.track_id == track_id => heads.push((h, offset)),
+                // the index names a chunk of another track: it is damaged
+                Ok(_) => errors.push(ReadError::Block {
+                    offset,
+                    error: BlockError::NotChunk,
+                }),
+                Err(ReadError::Block { offset, error }) => {
+                    errors.push(ReadError::Block { offset, error });
+                }
+                Err(other) => return Err(other),
+            }
+        }
+        heads.sort_by_key(|(h, _)| h.first_item);
+        let mut timeline = SeriesTimeline::new(period);
+        for (h, offset) in heads {
+            if let Err(error) = timeline.push_chunk(&h) {
+                errors.push(ReadError::Series { offset, error });
+            }
+        }
+        Ok((timeline, errors))
+    }
+
+    /// Where the block of `entry` in piece `i` starts in the source, and its length: at most [MAX_BLOCK_LEN] and
+    /// within the piece.
+    fn place(&self, i: usize, entry: &IndexEntry) -> R<(u64, usize), S> {
         let p = self.piece(i)?;
         let at = p.start.saturating_add(entry.offset);
         // a block is never longer: the entry is damaged
@@ -1012,9 +1100,7 @@ impl<S: ByteSource> TapeReader<S> {
                 error: BlockError::Short { needed: len },
             });
         };
-        buf.resize(len, 0);
-        self.src.read_at(offset, buf).map_err(ReadError::Source)?;
-        Block::read(buf).map_err(|error| ReadError::Block { offset, error })
+        Ok((offset, len))
     }
 
     /// Whether piece `i`'s bytes before its finish block hash to the finish's content hash.

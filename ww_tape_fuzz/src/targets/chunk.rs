@@ -1,15 +1,27 @@
 //! ww_tape chunk blocks on any bytes, and on chunks built from the input with one byte flipped: reading and salvaging
-//! never panic, a salvaged chunk's head reads back, a byte flipped in the payload of a good chunk costs exactly the
+//! never panic, a salvaged chunk's head reads back, alone too, a byte flipped in the payload of a good chunk costs exactly the
 //! segment it is in, and a block given another session and seq stays good.
 use ww_tape::chunk::{chunk_len, write_chunk};
 use ww_tape::{
     Block, BlockId, BlockKind, ChunkHead, Codec, ColumnKind, ColumnSpec, EndMode, SessionTag,
-    set_id,
+    block_len, set_id,
 };
 
-/// Look at everything a block read or salvaged from `data` gives.
+/// Look at everything a block read or salvaged from `data` gives. The head read alone, from the bytes up to the
+/// payload, gives the head a salvage gives, and fails where the salvage of a whole chunk block fails.
 pub(crate) fn walk(data: &[u8]) {
-    if let Ok(b) = Block::salvage(data) {
+    let head = ChunkHead::read_head(data);
+    let salvaged = Block::salvage(data);
+    match (&head, &salvaged) {
+        (Ok(h), Ok(b)) => assert_eq!(Some(*h), b.chunk().map(|c| c.head())),
+        (Ok(_), Err(_)) => assert!(
+            block_len(data).is_ok_and(|n| n > data.len()),
+            "a head that reads is of a chunk that salvages, when the block is whole"
+        ),
+        (Err(_), Ok(b)) => assert!(b.chunk().is_none(), "a salvaged chunk's head reads alone"),
+        (Err(_), Err(_)) => {}
+    }
+    if let Ok(b) = salvaged {
         if b.is_intact() {
             assert!(Block::read(data).is_ok());
         }
