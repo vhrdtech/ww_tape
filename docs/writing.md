@@ -67,10 +67,12 @@ lies near the data that needs it.
 Data goes into the file in four forms:
 
 - **Record blocks.** Build one with `BlockWriter`: start it with the block's kind, its id (`TapeWriter::next_id`) and
-  the clocks its records use, `push` records, then `finish` it and hand the bytes to `TapeWriter::write_block`. Use
-  record blocks for tracks that produce a few items at a time.
-- **Chunks.** Hand a chunk head and its columns to `TapeWriter::write_chunk`, which encodes the chunk block. Use chunks
-  for tracks with many items.
+  the clocks its records use, `push` records, then `finish` it and hand the bytes to `TapeWriter::write_block`, which
+  gives back where it landed (`Placed`: its offset in the piece and its length), or `None` for a block of puts, which
+  lands as no single block of its own. Use record blocks for tracks that produce a few items at a time.
+- **Chunks.** Hand a chunk head and its columns to `TapeWriter::write_chunk`, which encodes the chunk block and gives
+  back where it landed (`Placed`). `PieceChain::write_chunk` gives back a `ChunkPlaced` too: the same, with the seq of
+  the piece it landed in, since a call may cut to a new piece first. Use chunks for tracks with many items.
 - **Deferred blocks.** Hand small blocks that may wait, such as summary blocks, to `TapeWriter::defer_block`. The writer
   puts their definitions at once and places the block in the next gap, at most `DEFER_WINDOW` (1 MiB) of writes later.
 - **State items.** Put a state track's item with `TapeWriter::put` each time the producer uses it.
@@ -170,8 +172,8 @@ other.
 
 On a raw medium a piece must be one session, as [Damage and recovery](recovery.md#sessions-and-stale-data) explains. A
 writer for raw media passes a producer's blocks with `TapeWriter::adopt_block`, which renumbers each block into the
-writer's own session. A jump in the producer's sequence numbers stays a jump in the writer's, so a reader still sees
-blocks that were lost on the way.
+writer's own session and gives back where it landed (`Placed`), `None` for a block of puts. A jump in the producer's
+sequence numbers stays a jump in the writer's, so a reader still sees blocks that were lost on the way.
 
 ## Resuming after a crash
 

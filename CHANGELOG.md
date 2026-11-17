@@ -10,6 +10,7 @@ Covers `ww_tape` 0.1.0.
 
 ### ⚠️ Breaking
 
+- `TapeWriter::write_chunk`, `write_block` and `adopt_block`, and `PieceChain::write_chunk`, return where the block landed (`Placed`, `ChunkPlaced`) (TAPE-2).
 - Format version 1: definitions are records on track 0; `BlockKind::Describe` is gone, kind 2 reserved (STD-135).
 - `FLAG_SET_FIRST`, `FLAG_SET_LAST` and `FLAG_COPY` are gone; `FLAG_REPEAT` marks blocks of puts and copies (STD-135).
 - `write_describe` is gone: hold definitions in `Definitions` and pass them to each write; data on an unheld track is refused (STD-135).

@@ -208,7 +208,7 @@ pub use index::{
 };
 pub mod piece;
 #[cfg(feature = "std")]
-pub use piece::{ChainOptions, CutPolicy, PieceChain};
+pub use piece::{ChainOptions, ChunkPlaced, CutPolicy, PieceChain};
 pub use piece::{
     ContentHash, Finish, FinishState, OwnerId, PIECE_ALIGN, PieceHead, PieceId, PieceIdent,
     TAIL_LEN, Tail, TrackRange, TrackStart,
@@ -245,8 +245,8 @@ pub use sink::{FileSink, Files, MemSink, MemTape, MemTapes, SinkFactory, TapeSin
 pub mod writer;
 #[cfg(feature = "std")]
 pub use writer::{
-    DEFER_WINDOW, Finished, HEAD_ENTRIES, NearPolicy, PutWork, Resumed, SyncPolicy, TapeWriter,
-    WriteError, WriterOptions,
+    DEFER_WINDOW, Finished, HEAD_ENTRIES, NearPolicy, Placed, PutWork, Resumed, SyncPolicy,
+    TapeWriter, WriteError, WriterOptions,
 };
 
 /// `WWTP`

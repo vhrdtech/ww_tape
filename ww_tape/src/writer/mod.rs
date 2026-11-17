@@ -289,6 +289,16 @@ pub struct Finished {
     pub next: Option<PieceId>,
 }
 
+/// Where [TapeWriter::write_chunk], [TapeWriter::write_block] or [TapeWriter::adopt_block] placed the block it was
+/// asked to write.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct Placed {
+    /// Where the block starts, from the start of the piece.
+    pub offset: u64,
+    /// The whole block's length.
+    pub len: u32,
+}
+
 /// Most bytes of a block of definitions or of puts the writer makes; a longer record gets a block of its own.
 pub const DEFINITION_BLOCK_LEN: usize = 64 << 10;
 
@@ -800,7 +810,8 @@ impl<S: TapeSink> TapeWriter<S> {
     }
 
     /// Write `block` at the end: one the writer made itself, or a caller's checked before ([Self::check_data]).
-    fn write_own(&mut self, block: &[u8]) -> Result<(), WriteError> {
+    /// Where it landed in the piece.
+    fn write_own(&mut self, block: &[u8]) -> Result<Placed, WriteError> {
         self.check()?;
         let (Some(header), Some(crc)) = (
             block.first_chunk::<{ crate::HEADER_LEN }>(),
@@ -810,6 +821,10 @@ impl<S: TapeSink> TapeWriter<S> {
                 needed: crate::HEADER_LEN,
             }));
         };
+        // a Block is at most MAX_BLOCK_LEN long: its length fits a u32
+        let len = u32::try_from(block.len()).map_err(|_| {
+            WriteError::Index(IndexError::Invalid("a block longer than u32::MAX bytes"))
+        })?;
         self.end_after(block.len())?;
         if let Err(error) = self.sink.write_all(block) {
             self.failed = true;
@@ -818,6 +833,7 @@ impl<S: TapeSink> TapeWriter<S> {
                 error,
             });
         }
+        let offset = self.offset();
         self.account(block, header, *crc)?;
         self.unsynced = self.unsynced.saturating_add(1);
         let due = match self.policy {
@@ -825,7 +841,10 @@ impl<S: TapeSink> TapeWriter<S> {
             SyncPolicy::EveryBlocks(n) => self.unsynced >= n.max(1),
             SyncPolicy::Interval(t) => self.last_sync.elapsed() >= t,
         };
-        if due { self.sync() } else { Ok(()) }
+        if due {
+            self.sync()?;
+        }
+        Ok(Placed { offset, len })
     }
 
     /// Check a block of the caller's against `defs`: a records, events, series or summary block of this version
@@ -1087,13 +1106,13 @@ impl<S: TapeSink> TapeWriter<S> {
     /// Encode and append a chunk block numbered [Self::next_seq], its track checked against `defs`. In an aligned
     /// file its payload lands on a multiple of the alignment: deferred blocks fill the gap in front of it while they
     /// fit, in the order they came, the rest of the gap is zeros in its head. The chunk is made and checked before
-    /// the definitions it needs are put, so a refused chunk leaves nothing of its own.
+    /// the definitions it needs are put, so a refused chunk leaves nothing of its own. Where the chunk landed.
     pub fn write_chunk(
         &mut self,
         defs: &Definitions,
         head: &crate::ChunkHead,
         columns: &[(crate::ColumnSpec, &[u8])],
-    ) -> Result<(), WriteError> {
+    ) -> Result<Placed, WriteError> {
         self.check()?;
         let needs = self.needed(defs, &[head.track_number]);
         self.room(0, !self.head_put)?;
@@ -1159,8 +1178,9 @@ impl<S: TapeSink> TapeWriter<S> {
                 self.write_own(&buf)
             });
         self.chunk_buf = buf;
-        r?;
-        self.after_block()
+        let placed = r?;
+        self.after_block()?;
+        Ok(placed)
     }
 
     /// Append one whole block (its bytes as [crate::Block::bytes] gives them, its session and seq as made, see
@@ -1173,11 +1193,16 @@ impl<S: TapeSink> TapeWriter<S> {
     /// needs are put. A block numbered [Self::next_id] before that is renumbered after it ([crate::set_id]).
     ///
     /// A producer's block of puts or copies ([FLAG_REPEAT](crate::FLAG_REPEAT)) is not written as it is: its records
-    /// are put on this tape ([Self::put_block]), where this writer's own near rule decides what is written.
-    pub fn write_block(&mut self, defs: &Definitions, block: &[u8]) -> Result<(), WriteError> {
+    /// are put on this tape ([Self::put_block]), where this writer's own near rule decides what is written; `None`
+    /// then, there being no single block it landed as. Else where it landed.
+    pub fn write_block(
+        &mut self,
+        defs: &Definitions,
+        block: &[u8],
+    ) -> Result<Option<Placed>, WriteError> {
         self.check()?;
         if is_repeat(block) {
-            return self.put_block(defs, block);
+            return self.put_block(defs, block).map(|()| None);
         }
         Self::check_data(defs, block)?;
         let needs = self.needed(defs, &data_tracks(block));
@@ -1194,14 +1219,15 @@ impl<S: TapeSink> TapeWriter<S> {
         let before = self.next_id();
         self.ensure_head()?;
         self.put_needed(&needs)?;
-        if block_id(block) == Some(before) && self.next_id() != before {
+        let placed = if block_id(block) == Some(before) && self.next_id() != before {
             let mut own = block.to_vec();
             crate::set_id(&mut own, self.next_id()).map_err(WriteError::Block)?;
-            self.write_own(&own)?;
+            self.write_own(&own)?
         } else {
-            self.write_own(block)?;
-        }
-        self.after_block()
+            self.write_own(block)?
+        };
+        self.after_block()?;
+        Ok(Some(placed))
     }
 
     /// Append a block of any session as the writer's own: renumbered into the writer's session and next seq ([crate::set_id]),
@@ -1213,11 +1239,18 @@ impl<S: TapeSink> TapeWriter<S> {
     /// Lost blocks stay visible: a jump in the producer's seq (a subscriber that fell behind) leaves the same jump in
     /// the writer's, so a reader of the adopted session sees the gap. A block of another producer session is a restart, with
     /// no gap.
-    pub fn adopt_block(&mut self, defs: &Definitions, block: &[u8]) -> Result<(), WriteError> {
+    ///
+    /// A block of puts or copies ([FLAG_REPEAT](crate::FLAG_REPEAT)) is passed to [Self::put_block] instead, `None`
+    /// returned: it lands as no single block. Else where it landed.
+    pub fn adopt_block(
+        &mut self,
+        defs: &Definitions,
+        block: &[u8],
+    ) -> Result<Option<Placed>, WriteError> {
         self.check()?;
         let b = crate::Block::read(block).map_err(WriteError::Block)?;
         if b.is_repeat() {
-            return self.put_block(defs, block);
+            return self.put_block(defs, block).map(|()| None);
         }
         let (kind, theirs) = (b.kind, BlockId::new(b.session, b.seq));
         if crate::index::is_structural(kind) {
@@ -1240,8 +1273,9 @@ impl<S: TapeSink> TapeWriter<S> {
         self.adopted = Some(theirs);
         let mut own = block.to_vec();
         crate::set_id(&mut own, self.next_id()).map_err(WriteError::Block)?;
-        self.write_own(&own)?;
-        self.after_block()
+        let placed = self.write_own(&own)?;
+        self.after_block()?;
+        Ok(Some(placed))
     }
 
     /// Put the records of a producer's block of puts or copies ([FLAG_REPEAT](crate::FLAG_REPEAT)) on this tape, as
@@ -1352,7 +1386,7 @@ impl<S: TapeSink> TapeWriter<S> {
     pub fn relay_block(&mut self, defs: &mut Definitions, block: &[u8]) -> Result<(), WriteError> {
         let b = crate::Block::read(block).map_err(WriteError::Block)?;
         if !b.is_repeat() {
-            return self.write_block(defs, block);
+            return self.write_block(defs, block).map(|_| ());
         }
         let mut buf = Vec::new();
         defs.take_block(&b.decode(&mut buf).map_err(WriteError::Block)?)?;

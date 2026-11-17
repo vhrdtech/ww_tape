@@ -135,7 +135,7 @@ impl<S: TapeSink> Rig<S> {
     }
 
     pub(crate) fn write_block(&mut self, block: &[u8]) -> Result<(), WriteError> {
-        self.w.write_block(&self.defs, block)
+        self.w.write_block(&self.defs, block).map(|_| ())
     }
 
     pub(crate) fn defer_block(&mut self, block: Vec<u8>) -> Result<(), WriteError> {

@@ -8,7 +8,7 @@ use crate::index::IndexError;
 use crate::reader::{ByteSource, TapeReader};
 use crate::sink::{Files, SinkFactory};
 use crate::writer::{
-    Finished, NextPiece, Resumed, TapeWriter, WriteError, WriterOptions, block_id,
+    Finished, NextPiece, Placed, Resumed, TapeWriter, WriteError, WriterOptions, block_id,
 };
 use crate::{ChunkHead, ColumnSpec, Definitions, HEADER_LEN, SessionTag};
 
@@ -26,6 +26,15 @@ pub struct CutPolicy {
 /// Name of piece `seq` in its chain's directory: the sequence number in 8 digits, so names sort in chain order.
 pub fn piece_name(seq: u64) -> String {
     format!("{seq:08}.wwt")
+}
+
+/// Where [PieceChain::write_chunk] placed the chunk: the seq of the piece it landed in ([PieceChain::seq] by the
+/// time the call returns, past a cut when one happened) and where in that piece.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct ChunkPlaced {
+    pub seq: u64,
+    pub offset: u64,
+    pub len: u32,
 }
 
 /// Writes one recording as pieces `dir/`[piece_name] (`seq`) on the sinks of a [SinkFactory] (files by default),
@@ -202,7 +211,7 @@ impl<F: SinkFactory> PieceChain<F> {
 
     /// A record block ([TapeWriter::write_block]).
     pub fn write_block(&mut self, defs: &Definitions, block: &[u8]) -> Result<(), WriteError> {
-        self.with_room(|w| w.write_block(defs, block))
+        self.with_room(|w| w.write_block(defs, block)).map(|_| ())
     }
 
     /// Put a state track's item ([TapeWriter::put]).
@@ -245,17 +254,22 @@ impl<F: SinkFactory> PieceChain<F> {
     }
 
     /// A chunk ([TapeWriter::write_chunk]), in a new piece when [Self::cut_due]: a cut happens before a chunk, never
-    /// after the last one, so no piece is left empty.
+    /// after the last one, so no piece is left empty. Where it landed.
     pub fn write_chunk(
         &mut self,
         defs: &Definitions,
         head: &ChunkHead,
         columns: &[(ColumnSpec, &[u8])],
-    ) -> Result<(), WriteError> {
+    ) -> Result<ChunkPlaced, WriteError> {
         if self.cut_due() {
             self.cut_now()?;
         }
-        self.with_room(|w| w.write_chunk(defs, head, columns))
+        let Placed { offset, len } = self.with_room(|w| w.write_chunk(defs, head, columns))?;
+        Ok(ChunkPlaced {
+            seq: self.seq,
+            offset,
+            len,
+        })
     }
 
     /// Cut to a new piece now.

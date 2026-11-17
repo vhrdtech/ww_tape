@@ -67,7 +67,9 @@ fn added() -> Vec<Describe<'static>> {
 fn apply<S: TapeSink>(w: &mut TapeWriter<S>, defs: &mut Definitions, op: Op) {
     match op {
         Op::Add(i) => defs.define(&added()[i]).unwrap(),
-        Op::Records(n) => w.write_block(defs, &records(w.next_id(), n)).unwrap(),
+        Op::Records(n) => {
+            w.write_block(defs, &records(w.next_id(), n)).unwrap();
+        }
         Op::Defer(n) => w.defer_block(defs, records(id(0), n)).unwrap(),
         Op::Chunk(t, k) => {
             let (h, c) = chunk(t, k);

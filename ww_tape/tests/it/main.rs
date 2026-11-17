@@ -20,6 +20,7 @@ mod definitions;
 mod media;
 mod order;
 mod pieces;
+mod placed;
 mod puts;
 mod reader;
 mod resume;
