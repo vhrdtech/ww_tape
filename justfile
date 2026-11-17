@@ -112,7 +112,7 @@ fuzz-tape-times:
 fuzz-tape-samples:
     cargo +nightly fuzz run tape-samples -- -max_len=65536 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10
 
-# Fuzz ww_tape series tracks: track kinds and segment records from any bytes, damaged segment records (STD-127)
+# Fuzz ww_tape series tracks: track kinds from any bytes, chunk heads on grids, damaged and in any order (STD-127)
 [working-directory('fuzz')]
 fuzz-tape-series:
     cargo +nightly fuzz run tape-series -- -max_len=4096 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10
@@ -147,7 +147,7 @@ fuzz-tape-payloads-hostile:
 fuzz-tape-samples-hostile:
     cargo +nightly fuzz run tape-samples-hostile -- -max_len=256 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10
 
-# Fuzz ww_tape series tracks of hostile periods and segment records (STD-131)
+# Fuzz ww_tape series tracks of hostile periods and chunk heads of hostile grids (STD-131)
 [working-directory('fuzz')]
 fuzz-tape-series-hostile:
     cargo +nightly fuzz run tape-series-hostile -- -max_len=256 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10

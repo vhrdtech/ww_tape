@@ -1,6 +1,6 @@
 // ww_tape 0.1.0 traits and types, saved by `ww api save`.
 // Do not edit, bump the crate version and save a new snapshot instead.
-// shrink_wrap sha256: 6898782d4acd94245c7f1f69f19ea5e12b0fbbd3d9f3edf33c45d639878ff885
+// shrink_wrap sha256: 180826e7007338b3df3694caf7ca570666ddbb654ab4d375b060d20e8f0fc87c
 (magic: 2837124336, ww_self_version: (major: 0, minor: 3, patch: 0), root: (docs: [
     "Tape blocks: the unit a producer of records hands over, a live consumer reads and a log file is made of.",
     "",
@@ -118,7 +118,7 @@
     "| [CHECKPOINT_ENTRIES_MAX](index::CHECKPOINT_ENTRIES_MAX) | 14562 | entries a writer puts in a checkpoint index block |",
     "| [NODE_SHIFT_MAX](summary::NODE_SHIFT_MAX) | 62 | a summary node\'s items, as a power of 2 |",
     "| [LEVEL_MAX](summary::LEVEL_MAX) | 15 | a summary tree\'s level |",
-    "| [SCALE_LEN_MAX](summary::SCALE_LEN_MAX) | 64 | a series summary\'s scale bytes |",
+    "| [SCALE_LEN_MAX](series::SCALE_LEN_MAX) | 64 | the scale bytes of a series chunk or summary |",
     "| [FACTOR_MAX](summary::FACTOR_MAX) | 2^53 | a factor to the common scale |",
     "| [SeriesSummarySpec::BASE_SHIFT_MAX](summary::SeriesSummarySpec::BASE_SHIFT_MAX) | 24 | a series summary\'s base node, as a power of 2 |",
     "| [SERIES_CHANNELS_MAX](series::SERIES_CHANNELS_MAX) | 65535 | a series track\'s channels |",
@@ -500,8 +500,8 @@
             "A name for people (`link[1].rx.frames`); readers go by `path`.",
         ], slot: None, series_opaque: false),
         (ident: Some("repeat"), default: None, since: None, ty: OutOfLine(type_idx: 24), docs: [
-            "Whether the track\'s records are events or state. Always [TrackRepeat::State] for a series, whose records are",
-            "its [SeriesSegment](crate::series::SeriesSegment)s.",
+            "Whether the track\'s records are events or state. Always [TrackRepeat::Stream] for a series: its chunks are",
+            "data and carry their own grid ([SeriesGrid](crate::series::SeriesGrid)).",
         ], slot: None, series_opaque: false),
         (ident: Some("kind"), default: None, since: None, ty: OutOfLine(type_idx: 25), docs: [
             "How the track\'s items are stored: events or a fixed-rate series.",
@@ -621,7 +621,7 @@
         ]), discriminant: 0, since: None),
         (docs: [
             "Samples at an exact period, no time per sample: in series chunks ([BlockKind::Series](crate::BlockKind::Series)),",
-            "timed by the track\'s [SeriesSegment](crate::series::SeriesSegment) records.",
+            "each timed and scaled by the [SeriesGrid](crate::series::SeriesGrid) its head carries.",
         ], ident: "Series", fields: Unnamed([
             (ident: None, default: None, since: None, ty: OutOfLine(type_idx: 28), docs: [], slot: None, series_opaque: false),
         ]), discriminant: 1, since: None),
@@ -672,7 +672,7 @@
         ], slot: None, series_opaque: false),
         (ident: Some("scale"), default: None, since: None, ty: OutOfLine(type_idx: 1), docs: [
             "What a stored number is worth in the sample type\'s unit at the start: `10⁻³` for `Fixed<Ampere, Milli, i32>`,",
-            "1 for a float. A [SeriesSegment] may change it.",
+            "1 for a float. A chunk\'s [SeriesGrid] may change it.",
         ], slot: None, series_opaque: false),
         (ident: Some("summaries"), default: None, since: None, ty: Option(some_ty: OutOfLine(type_idx: 31)), docs: [
             "The summaries the writer builds; None for none (a wide vector series).",
@@ -799,23 +799,6 @@
     InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
         "The block does not fit: nothing was written.",
     ], ident: "Full", generics: [], fields: Unit, sparse: false, path: None, instance_of: None, extra: None)), crate_idx: 0),
-    InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
-        "The start of a stretch of a series: its first sample, its time grid and its scale. A record of the series track,",
-        "at its first sample\'s tick; see the [module docs](self#segments).",
-    ], ident: "SeriesSegment", generics: [], fields: Named([
-        (ident: Some("first_index"), default: None, since: None, ty: NumericAny(Base(U64)), docs: [
-            "Index of the segment\'s first sample in the track.",
-        ], slot: None, series_opaque: false),
-        (ident: Some("grid_index"), default: None, since: None, ty: NumericAny(Base(U64)), docs: [
-            "The sample the grid counts from, at most [Self::first_index].",
-        ], slot: None, series_opaque: false),
-        (ident: Some("grid_tick"), default: None, since: None, ty: NumericAny(Base(I64)), docs: [
-            "Tick of sample [Self::grid_index].",
-        ], slot: None, series_opaque: false),
-        (ident: Some("scale"), default: None, since: None, ty: OutOfLine(type_idx: 1), docs: [
-            "What a stored number is worth in the sample type\'s unit, from [Self::first_index] on.",
-        ], slot: None, series_opaque: false),
-    ]), sparse: false, path: None, instance_of: None, extra: None)), crate_idx: 0),
     InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
         "A read past the end of a byte slice.",
     ], ident: "OutOfRange", generics: [], fields: Unit, sparse: false, path: Some([
