@@ -77,7 +77,7 @@ use crate::{
 };
 
 // The CRC of chunk blocks: the same CRC-32C as every block.
-use crate::CRC as CRC16;
+use crate::CRC;
 
 /// Bytes of the fixed part of the chunk head (32..84).
 pub const CHUNK_FIXED_LEN: usize = 52;
@@ -637,7 +637,7 @@ impl<'b> ChunkWriter<'b> {
         let mut payload_crc: Option<u32> = None;
         let (slots, _) = self.seg_crcs.as_chunks_mut::<SEGMENT_CRC_LEN>();
         for (segment, slot) in self.payload.chunks(SEGMENT_BYTES).zip(slots) {
-            let c = CRC16.checksum(segment);
+            let c = CRC.checksum(segment);
             payload_crc = Some(match payload_crc {
                 None => c,
                 Some(p) => crc32c_combine(p, c, len_u64(segment.len())),
@@ -651,11 +651,11 @@ impl<'b> ChunkWriter<'b> {
             self.seg_crcs,
             self.padding,
         ];
-        let mut d = CRC16.digest();
+        let mut d = CRC.digest();
         d.update(self.pre);
         after_crc.iter().for_each(|p| d.update(p));
         *self.head_crc = d.finalize().to_le_bytes();
-        let mut d = CRC16.digest();
+        let mut d = CRC.digest();
         d.update(self.pre);
         d.update(self.head_crc);
         after_crc.iter().for_each(|p| d.update(p));
@@ -707,7 +707,7 @@ pub(crate) fn restamp(block: &mut [u8]) -> Result<(), ChunkHeadError> {
     let head_rest = rest
         .get(..payload_at.saturating_sub(PRE_CRC_LEN + 4))
         .ok_or(ChunkHeadError::BadHead)?;
-    let mut d = CRC16.digest();
+    let mut d = CRC.digest();
     d.update(pre);
     d.update(head_crc_slot);
     d.update(head_rest);
@@ -813,7 +813,7 @@ fn check_head(head: &ChunkHead, kinds: impl Iterator<Item = ColumnKind>) -> Resu
 
 /// CRC-32C over bytes 0..28 and 32..`payload_at` of a chunk block; None when the block is shorter.
 fn head_crc(block: &[u8], payload_at: usize) -> Option<u32> {
-    let mut d = CRC16.digest();
+    let mut d = CRC.digest();
     d.update(block.get(..PRE_CRC_LEN)?);
     d.update(block.get(PRE_CRC_LEN + 4..payload_at)?);
     Some(d.finalize())
@@ -1129,7 +1129,7 @@ impl<'b> Chunk<'b> {
     /// Whether segment `i` doesn't match its CRC; false past the last segment.
     fn segment_bad(&self, i: usize) -> bool {
         match (self.segment(i), self.seg_crcs.get(i)) {
-            (Some(s), Some(c)) => CRC16.checksum(s) != u32::from_le_bytes(*c),
+            (Some(s), Some(c)) => CRC.checksum(s) != u32::from_le_bytes(*c),
             _ => false,
         }
     }
@@ -1137,9 +1137,9 @@ impl<'b> Chunk<'b> {
     /// Check every segment against its CRC and the block CRC against them: true when all match. One pass over the
     /// payload.
     pub(crate) fn check_payload(&self) -> bool {
-        let mut combined = CRC16.checksum(self.head_bytes);
+        let mut combined = CRC.checksum(self.head_bytes);
         for (s, crc) in self.segments() {
-            let c = CRC16.checksum(s);
+            let c = CRC.checksum(s);
             if c != crc {
                 return false;
             }
@@ -1156,7 +1156,7 @@ impl<'b> Chunk<'b> {
     pub fn bad_segments(&self) -> impl Iterator<Item = usize> + '_ {
         self.segments()
             .enumerate()
-            .filter(|(_, (s, c))| CRC16.checksum(s) != *c)
+            .filter(|(_, (s, c))| CRC.checksum(s) != *c)
             .map(|(i, _)| i)
     }
 
