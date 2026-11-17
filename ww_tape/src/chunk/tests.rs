@@ -98,11 +98,11 @@ fn encode(head: &ChunkHead, cols: &[(ColumnSpec, &[u8])], seq: u64, padding: usi
 #[test]
 fn crc_combine_is_the_crc_of_both() {
     let data: Vec<u8> = (0..5000u32).map(|i| (i * 7 + i / 13) as u8).collect();
-    let whole = CRC16.checksum(&data);
+    let whole = CRC.checksum(&data);
     for split in [0, 1, 3, 64, 1000, 4999, 5000] {
         let (a, b) = data.split_at(split);
         assert_eq!(
-            crc32c_combine(CRC16.checksum(a), CRC16.checksum(b), b.len() as u64),
+            crc32c_combine(CRC.checksum(a), CRC.checksum(b), b.len() as u64),
             whole,
             "split at {split}"
         );
