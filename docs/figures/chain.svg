@@ -21,7 +21,7 @@
   <text x="550" y="142" text-anchor="middle" class="small">piece 2, unfinished</text>
   <path d="M640 90 Q624 68 608 90" class="accent-line"/>
   <path d="M608.0 90.0 L609.3 82.3 L614.9 86.4 Z" class="accent-line head"/>
-  <text x="624" y="66" text-anchor="middle" class="accent small">1</text>
+  <text x="624" y="66" text-anchor="end" class="accent small">1: newest checkpoint</text>
   <path d="M451 90 Q345 22 242 90" class="accent-line"/>
   <path d="M242.0 90.0 L245.9 83.2 L249.8 89.1 Z" class="accent-line head"/>
   <text x="345" y="50" text-anchor="middle" class="accent small">2: piece 1's tail gives its length</text>
