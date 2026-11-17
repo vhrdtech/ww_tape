@@ -79,5 +79,8 @@ fn format_page_layouts_are_the_module_docs() {
         );
         blocks += 1;
     }
-    assert!(blocks >= 8, "the layouts of every block kind are on the page");
+    assert!(
+        blocks >= 8,
+        "the layouts of every block kind are on the page"
+    );
 }
