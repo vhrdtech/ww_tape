@@ -94,6 +94,8 @@ release, and the numbers go into the commit body or the docs page they change.
   `Cargo.lock` that names a patched path.
 - A change that WireWeaver must follow (an API it calls, a format change) is checked there before it lands: develop
   WireWeaver with a `[patch."https://github.com/vhrdtech/ww_tape"]` and run its tap tests.
+- `ww_tape/api_snapshots/` is the crate's API snapshot, written by WireWeaver's CLI (no framework dependency here):
+  after a change to `Describe` or a type it names, run `ww api save ww_tape` in this repository and commit it.
 - Dependencies live in the root `[workspace.dependencies]`; crates inherit `authors`, `edition`, `rust-version`,
   `license`, `repository` and `[lints]` (`ww_tape` keeps its own `[lints]` table: the workspace's plus the
   panic-class lints).
