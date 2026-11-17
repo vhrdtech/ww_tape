@@ -56,7 +56,6 @@ fn finish_and_tail_round_trip() {
         hash: ContentHash([9; 32]),
         checkpoint: Some(4 << 20),
         final_index: Some(5 << 20),
-        describe: None,
         ident: Some(ident(1)),
         next: Some(PieceId([0x55; 16])),
     };
@@ -255,7 +254,6 @@ fn finish_padding_is_checked_against_the_length() {
         hash: ContentHash([3; 32]),
         checkpoint: None,
         final_index: None,
-        describe: None,
         ident: None,
         next: None,
     };

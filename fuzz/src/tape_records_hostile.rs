@@ -1,5 +1,5 @@
-//! A ww_tape records or describe block whose clock table, record heads, lengths or coded body take hostile values
-//! (ww_tape_fuzz::hostile::records), read alone and walked as a file.
+//! A ww_tape records block, of data or of definitions, whose clock table, record heads, lengths or coded body take
+//! hostile values (ww_tape_fuzz::hostile::records), read alone and walked as a file.
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;

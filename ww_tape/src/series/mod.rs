@@ -22,8 +22,8 @@
 //!   `first_index(k + 1)`;
 //! - a device restart that is a new clock is a new track on that clock.
 //!
-//! A segment record's time is its first sample's tick, so record blocks code it like any record. The track is sticky:
-//! every describe set repeats its newest segment, so each tape piece holds the segment its first samples are in. A
+//! A segment record's time is its first sample's tick, so record blocks code it like any record. The track is a state track:
+//! the caller puts its segment before the chunks, so each tape piece holds the segment its first samples are in. A
 //! segment is self-contained (its grid and scale), so that one record is enough.
 //!
 //! A series chunk ([BlockKind::Series](crate::BlockKind::Series)) never spans two segments: its head's first and last

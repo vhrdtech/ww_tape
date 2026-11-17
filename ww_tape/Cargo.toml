@@ -12,7 +12,7 @@ repository.workspace = true
 default = ["std"]
 # the positional reader (TapeReader over a ByteSource) and the piece chain check, without std (WASM)
 alloc = []
-# owned describe records, DescribeSet, file reading and writing
+# owned describe records, file reading and writing
 std = ["alloc", "blake3/std", "exact_units/std", "shrink_wrap/std", "ww_version/std"]
 
 [dependencies]

@@ -10,7 +10,7 @@ use crate::sink::{Files, SinkFactory};
 use crate::writer::{
     Finished, NextPiece, Resumed, TapeWriter, WriteError, WriterOptions, block_id,
 };
-use crate::{BlockKind, ChunkHead, ColumnSpec, HEADER_LEN, SessionTag};
+use crate::{ChunkHead, ColumnSpec, Definitions, HEADER_LEN, SessionTag};
 
 /// When a [PieceChain] cuts to a new piece; checked before each chunk. Zero or None turns a limit off.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
@@ -42,7 +42,7 @@ pub struct PieceChain<F: SinkFactory = Files> {
 }
 
 /// Options of a new [PieceChain].
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct ChainOptions {
     /// Each piece's writer.
     pub writer: WriterOptions,
@@ -87,9 +87,7 @@ impl<F: SinkFactory> PieceChain<F> {
     ) -> Result<Self, WriteError> {
         let sink = factory.create(&dir.join(piece_name(0)))?;
         let mut writer = TapeWriter::create_on(sink, options.writer.sync);
-        writer.set_alignment(options.writer.alignment)?;
-        writer.set_index_policy(options.writer.index);
-        writer.set_describe_repeat(options.writer.describe_repeat);
+        writer.apply(&options.writer)?;
         writer.begin_piece(&first_head(owner, chain), tracks)?;
         Ok(PieceChain {
             factory,
@@ -103,8 +101,7 @@ impl<F: SinkFactory> PieceChain<F> {
     }
 
     /// Reopen chain `chain` of `owner` under `dir` after a crash: the finished pieces are read from their tails
-    /// ([Self::finished]), the unfinished last one is resumed ([TapeWriter::resume_on]; when its head's describe copy
-    /// was cut off, the piece before's newest describe set is written again). After a crash between a cut's finish
+    /// ([Self::finished]), the unfinished last one is resumed ([TapeWriter::resume_on]). After a crash between a cut's finish
     /// and the next piece's start, the next piece is started as the cut would have. `options` are the ones the chain
     /// was written with. A chain whose last piece ended complete or aborted is refused ([WriteError::Ended]).
     pub fn resume_on(
@@ -125,11 +122,9 @@ impl<F: SinkFactory> PieceChain<F> {
                 )))?;
         }
         let path = dir.join(piece_name(seq));
-        let prev_describe = finished.last().map(|(_, l)| l.describe.clone());
         let (writer, resumed) = match factory.reopen(&path)? {
             Some(sink) => {
-                let (mut w, resumed) =
-                    TapeWriter::resume_with(sink, options.writer, prev_describe)?;
+                let (mut w, resumed) = TapeWriter::resume_on(sink, options.writer.clone())?;
                 if w.bytes() == 0 {
                     // cut off inside its head: the piece starts again (a first piece without carried-over tracks)
                     match finished.last() {
@@ -190,19 +185,51 @@ impl<F: SinkFactory> PieceChain<F> {
         &self.factory
     }
 
-    /// A records or describe block ([TapeWriter::write_block]).
-    pub fn write_block(&mut self, block: &[u8]) -> Result<(), WriteError> {
-        self.writer()?.write_block(block)
+    /// `call` on the writer; when the piece lists all the state entries it may ([IndexError::StateEntries]), again
+    /// on a new piece. A call refused so has written nothing: it checks its room first.
+    fn with_room<T>(
+        &mut self,
+        mut call: impl FnMut(&mut TapeWriter<F::Sink>) -> Result<T, WriteError>,
+    ) -> Result<T, WriteError> {
+        match call(self.writer()?) {
+            Err(WriteError::Index(IndexError::StateEntries { .. })) => {
+                self.cut_now()?;
+                call(self.writer()?)
+            }
+            r => r,
+        }
     }
 
-    /// A whole describe set or addition ([TapeWriter::write_describe]).
-    pub fn write_describe<B: AsRef<[u8]>>(&mut self, blocks: &[B]) -> Result<(), WriteError> {
-        self.writer()?.write_describe(blocks)
+    /// A record block ([TapeWriter::write_block]).
+    pub fn write_block(&mut self, defs: &Definitions, block: &[u8]) -> Result<(), WriteError> {
+        self.with_room(|w| w.write_block(defs, block))
+    }
+
+    /// Put a state track's item ([TapeWriter::put]).
+    pub fn put(
+        &mut self,
+        defs: &Definitions,
+        track: u32,
+        ticks: i64,
+        item: &[u8],
+    ) -> Result<bool, WriteError> {
+        self.with_room(|w| w.put(defs, track, ticks, item))
+    }
+
+    /// Put a typed item ([TapeWriter::put_item]).
+    pub fn put_item(
+        &mut self,
+        defs: &Definitions,
+        item: &crate::TypedItem<'_>,
+    ) -> Result<bool, WriteError> {
+        self.with_room(|w| w.put_item(defs, item))
     }
 
     /// A small block placed in the next gap ([TapeWriter::defer_block]).
-    pub fn defer_block(&mut self, block: Vec<u8>) -> Result<(), WriteError> {
-        self.writer()?.defer_block(block)
+    /// When the piece has no room for the state entries of the definitions it needs, on a new piece.
+    pub fn defer_block(&mut self, defs: &Definitions, block: Vec<u8>) -> Result<(), WriteError> {
+        // a small block: a copy for the retry costs little
+        self.with_room(|w| w.defer_block(defs, block.clone()))
     }
 
     /// Whether the policy says the current piece is full: checked before a chunk, by its bytes, its chunk blocks
@@ -221,13 +248,14 @@ impl<F: SinkFactory> PieceChain<F> {
     /// after the last one, so no piece is left empty.
     pub fn write_chunk(
         &mut self,
+        defs: &Definitions,
         head: &ChunkHead,
         columns: &[(ColumnSpec, &[u8])],
     ) -> Result<(), WriteError> {
         if self.cut_due() {
             self.cut_now()?;
         }
-        self.writer()?.write_chunk(head, columns)
+        self.with_room(|w| w.write_chunk(defs, head, columns))
     }
 
     /// Cut to a new piece now.
@@ -239,6 +267,10 @@ impl<F: SinkFactory> PieceChain<F> {
                 "piece seq past u64::MAX",
             )))?;
         let next_path = self.dir.join(piece_name(seq));
+        // what may fail before the piece ends fails here, the writer kept
+        if let Some(w) = self.writer.as_mut() {
+            w.flush_deferred()?;
+        }
         let current = self.writer.take().ok_or(WriteError::Failed)?;
         let (done, next) = current.cut_with(&mut self.factory, &next_path)?;
         self.writer = Some(next);
@@ -255,6 +287,9 @@ impl<F: SinkFactory> PieceChain<F> {
 
     /// Finish the last piece in `state` (complete or aborted); every piece of the chain.
     pub fn finish_as(mut self, state: FinishState) -> Result<Vec<Finished>, WriteError> {
+        if let Some(w) = self.writer.as_mut() {
+            w.flush_deferred()?;
+        }
         let last = self
             .writer
             .take()
@@ -284,7 +319,6 @@ fn next_piece(done: &Finished, last: &LastPiece) -> Result<NextPiece, WriteError
         &last.head,
         done,
         last.next_tracks.clone(),
-        last.describe.clone(),
         last.session,
         last.next_seq,
     )
@@ -295,13 +329,11 @@ struct LastPiece {
     state: FinishState,
     head: PieceHead,
     next_tracks: Vec<TrackStart>,
-    /// The newest describe set: the backup before the finish
-    describe: Vec<Vec<u8>>,
     session: SessionTag,
     next_seq: u64,
 }
 
-/// The finished piece in `src`, named `path`, from its tail, finish, head and describe backup.
+/// The finished piece in `src`, named `path`, from its tail, finish and head.
 fn read_finished<B: ByteSource<Error = std::io::Error>>(
     src: &B,
     path: &Path,
@@ -328,7 +360,6 @@ fn read_finished<B: ByteSource<Error = std::io::Error>>(
     src.read_at(tail_at, &mut header)
         .map_err(crate::sink::io_err("reading a tail"))?;
     let id = block_id(&header).ok_or(bad("a tail shorter than a header"))?;
-    let describe = newest_describe(&reader, finish.describe)?;
     // the tail's seq is the last counted block's, or 0 (a first piece) or the piece before's when it holds none
     let next_seq = if head.prev.is_none() && !holds_counted(&reader)? {
         0
@@ -347,64 +378,20 @@ fn read_finished<B: ByteSource<Error = std::io::Error>>(
             state: finish.state,
             head: *head,
             next_tracks: crate::index::next_starts(starts, ranges),
-            describe,
             session: id.session,
             next_seq,
         },
     ))
 }
 
-/// The describe backup at `at` in the only piece of `reader`: the whole set starting there; empty when there is none.
-fn newest_describe<B: ByteSource<Error = std::io::Error>>(
-    reader: &TapeReader<B>,
-    at: Option<u64>,
-) -> Result<Vec<Vec<u8>>, WriteError> {
-    let Some(at) = at else {
-        return Ok(Vec::new());
-    };
-    let entries = reader
-        .track_entries(0, u64::from(crate::DESCRIBE_TRACK))
-        .map_err(WriteError::Read)?;
-    let mut set = Vec::new();
-    let mut next = at;
-    let mut buf = Vec::new();
-    for e in entries
-        .iter()
-        .filter(|e| e.kind == BlockKind::Describe && e.offset >= at)
-    {
-        if e.offset != next {
-            break;
-        }
-        let b = reader
-            .read_block(0, e, &mut buf)
-            .map_err(WriteError::Read)?;
-        let last = b.flags & crate::FLAG_SET_LAST != 0;
-        next = e.offset.saturating_add(crate::reader::wide(b.len()));
-        set.push(b.bytes().to_vec());
-        if last {
-            return Ok(set);
-        }
-    }
-    Ok(Vec::new())
-}
-
-/// Whether the only piece of `reader` holds a block its writer counted: one the index lists that isn't a describe
-/// copy.
+/// Whether the only piece of `reader` holds a block its writer counted: one the index lists that isn't marked
+/// FLAG_REPEAT.
 fn holds_counted<B: ByteSource<Error = std::io::Error>>(
     reader: &TapeReader<B>,
 ) -> Result<bool, WriteError> {
-    let mut buf = Vec::new();
-    for e in reader.entries(0).map_err(WriteError::Read)? {
-        if e.kind != BlockKind::Describe {
-            return Ok(true);
-        }
-        if !reader
-            .read_block(0, &e, &mut buf)
-            .map_err(WriteError::Read)?
-            .is_copy()
-        {
-            return Ok(true);
-        }
-    }
-    Ok(false)
+    Ok(reader
+        .entries(0)
+        .map_err(WriteError::Read)?
+        .iter()
+        .any(|e| !e.repeat))
 }

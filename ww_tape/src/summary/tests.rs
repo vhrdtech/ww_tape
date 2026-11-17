@@ -910,6 +910,9 @@ fn summaries_fill_alignment_gaps() {
         let path = dir.join(name);
         let mut w = TapeWriter::create(&path, SyncPolicy::None).unwrap();
         w.set_alignment(crate::ALIGNMENT).unwrap();
+        let mut defs = crate::Definitions::new();
+        defs.define_all(&crate::tests::test_definitions(1, &[1]))
+            .unwrap();
         let start = SeriesStart {
             track_id: 7,
             track_number: 1,
@@ -927,7 +930,7 @@ fn summaries_fill_alignment_gaps() {
             if with_summaries {
                 s.push(xs, 0).unwrap();
                 for b in s.take_blocks() {
-                    w.defer_block(b).unwrap();
+                    w.defer_block(&defs, b).unwrap();
                 }
             }
             let bytes: Vec<u8> = xs.iter().flat_map(|x| x.to_le_bytes()).collect();
@@ -950,13 +953,13 @@ fn summaries_fill_alignment_gaps() {
                 param: 0,
                 len: bytes.len(),
             };
-            w.write_chunk(&head, &[(col, &bytes)]).unwrap();
+            w.write_chunk(&defs, &head, &[(col, &bytes)]).unwrap();
             chunk_ends.push(w.bytes());
         }
         if with_summaries {
             s.finish().unwrap();
             for b in s.take_blocks() {
-                w.defer_block(b).unwrap();
+                w.defer_block(&defs, b).unwrap();
             }
         }
         let path = w.finish().unwrap().path;
@@ -981,7 +984,7 @@ fn summaries_fill_alignment_gaps() {
     let mut seq = None;
     while let Some(b) = rd.next_block() {
         let b = b.unwrap();
-        if crate::index::is_structural(b.kind) {
+        if crate::index::is_structural(b.kind) || b.is_repeat() {
             continue;
         }
         assert!(seq.is_none_or(|s| b.seq == s + 1), "seqs ascend");
@@ -1066,15 +1069,15 @@ fn summary_golden() {
         }
         hex.push('\n');
     }
-    let golden = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("golden/v2-summary.hex");
+    let golden = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("golden/v1-summary.hex");
     if std::env::var("WW_TAPE_GOLDEN").as_deref() == Ok("update") {
         std::fs::write(&golden, &hex).unwrap();
     }
     let want = std::fs::read_to_string(&golden)
-        .expect("golden/v2-summary.hex: run with WW_TAPE_GOLDEN=update");
+        .expect("golden/v1-summary.hex: run with WW_TAPE_GOLDEN=update");
     assert!(
         hex == want,
-        "the format changed: bytes differ from golden/v2-summary.hex"
+        "the format changed: bytes differ from golden/v1-summary.hex"
     );
 }
 

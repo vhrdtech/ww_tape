@@ -4,10 +4,12 @@
 use super::{chunk, index, payloads, reader, samples, series, summary, times};
 use crate::hostile;
 use shrink_wrap::DeserializeShrinkWrap;
+use std::path::Path;
 use ww_tape::times::EventTimes;
 use ww_tape::{
-    Block, Describe, Element, Layout, Medium, OpenOptions, Ratio64, SampleShape, Samples,
-    SeriesSegment, SeriesTimeline, TapeReader, TrackKind, block_len,
+    Block, Describe, Element, ItemHash, Layout, Medium, MemSink, OpenOptions, Ratio64, SampleShape,
+    Samples, SeriesSegment, SeriesTimeline, Slot, TapeReader, TapeSink, TapeWriter, TrackKind,
+    block_len,
 };
 
 /// The blocks back to back at the start of `f`, up to the first that doesn't parse.
@@ -48,8 +50,8 @@ fn records_of(b: &[u8]) {
     }
 }
 
-/// `tape-records-hostile`: a records or describe block of hostile clock tables, record heads, lengths and coded
-/// bodies, read alone and walked as a file.
+/// `tape-records-hostile`: a records block, of data or of definitions, of hostile clock tables, record heads, lengths
+/// and coded bodies, read alone and walked as a file.
 pub fn records_hostile(data: &[u8]) {
     let b = hostile::records(data);
     records_of(&b);
@@ -100,7 +102,7 @@ pub fn payloads_hostile(data: &[u8]) {
     payloads::walk(&b, None);
 }
 
-/// The shape of the series track a describe block names; None when it names none.
+/// The shape of the series track a block of definitions names; None when it names none.
 fn series_def(b: &[u8]) -> Option<(SampleShape, Ratio64)> {
     let block = Block::read(b).ok()?;
     let r = block.records().flatten().next()?;
@@ -221,8 +223,8 @@ pub fn index_hostile(data: &[u8]) {
 }
 
 /// `tape-reader-hostile`: a piece of hostile offsets, lengths, layout or stretches between blocks, opened by the
-/// positional reader as a file and as a raw medium, every piece's entries, blocks and describe set read, and walked
-/// block by block.
+/// positional reader as a file and as a raw medium, every piece's entries, blocks, state entries and definitions
+/// read, and walked block by block.
 pub fn reader_hostile(data: &[u8]) {
     let f = hostile::file(data);
     let raw = OpenOptions {
@@ -234,9 +236,239 @@ pub fn reader_hostile(data: &[u8]) {
         index::read(&f, options);
         if let Ok(r) = TapeReader::open_with(&f[..], options) {
             for i in 0..r.pieces().len() {
-                let _ = r.describe_set(i);
+                let _ = r.definitions_at(i, u64::MAX);
+                let _ = r.state_entries(i);
             }
         }
     }
     reader(&f);
+}
+
+/// `tape-state-hostile`: a piece of puts, copies and definitions whose blocks of state records and index state
+/// entries lie behind good CRCs, or which is cut. Every lookup of the reader hands out only a record that is the one
+/// its entry names (its hash, its slot) and lies before the place asked; a resume of it takes new definitions, puts
+/// and blocks, and finishes whole. The piece is read as a file, as a raw medium, with a small cache and small
+/// read budgets.
+pub fn state_hostile(data: &[u8]) {
+    let a = hostile::state_attacked(data);
+    let f = a.bytes;
+    for options in state_readers() {
+        if let Ok(r) = TapeReader::open_with(&f[..], options) {
+            for i in 0..r.pieces().len() {
+                lookups(&r, i);
+            }
+            if !a.forged {
+                model(&r, f.len() as u64);
+            }
+        }
+    }
+    resume_state(&f);
+}
+
+/// The readers of a state piece: a file; a raw medium, which reads past damage as gaps; a state cache too small for
+/// the piece, which sorts its entries again for each lookup; read budgets that run out in a lookup or in its first
+/// block.
+fn state_readers() -> [OpenOptions; 5] {
+    let file = OpenOptions::default();
+    [
+        file,
+        OpenOptions {
+            medium: Medium::Raw,
+            layout: Some(hostile::state_options().layout),
+            ..file
+        },
+        OpenOptions {
+            state_cache_max: 1,
+            ..file
+        },
+        OpenOptions {
+            state_read_max: 2000,
+            ..file
+        },
+        OpenOptions {
+            state_read_max: 60,
+            ..file
+        },
+    ]
+}
+
+/// The model of a piece damaged where a CRC finds it, or cut, nothing forged behind a good CRC: a lookup that
+/// doesn't hand out what the template holds there names why, a block it lost, a stretch the index doesn't cover or
+/// a budget spent. Each slot's record in force, every definition and each item by its hash are asked for. The
+/// template's records past a cut aren't asked for at the piece's end.
+fn model(r: &TapeReader<&[u8]>, len: u64) {
+    let Some(p) = r
+        .pieces()
+        .first()
+        .filter(|p| p.start == 0 && p.version.is_none())
+    else {
+        return;
+    };
+    let truth = template_reader();
+    let Ok(entries) = truth.state_entries(0) else {
+        return;
+    };
+    let mut slots: Vec<Slot> = entries.iter().map(|(_, s)| s.slot).collect();
+    slots.sort();
+    slots.dedup();
+    // the end of the piece found: where the bytes stop, unless the piece reads past a cut
+    let end = p.end.min(len);
+    let places = entries
+        .iter()
+        .map(|(e, _)| e.offset.saturating_add(1))
+        .chain([u64::MAX]);
+    for place in places.step_by(3) {
+        let held = if place == u64::MAX { end } else { place };
+        for slot in &slots {
+            let want = truth
+                .state_at(0, *slot, held)
+                .expect("the template's lookup")
+                .item;
+            let Ok(got) = r.state_at(0, *slot, place) else {
+                continue;
+            };
+            if got.item.as_ref().map(|s| (s.offset, &s.item))
+                != want.as_ref().map(|s| (s.offset, &s.item))
+            {
+                assert!(
+                    !got.is_whole(),
+                    "{slot:?} at {place}: {:?} instead of {:?}, nothing named",
+                    got.item.map(|s| s.offset),
+                    want.map(|s| s.offset)
+                );
+            }
+        }
+        let want = truth
+            .definitions_at(0, held)
+            .expect("the template's lookup");
+        if let Ok(got) = r.definitions_at(0, place)
+            && placed(&got.items) != placed(&want.items)
+        {
+            assert!(
+                !got.is_whole(),
+                "definitions at {place}: {:?} instead of {:?}, nothing named",
+                placed(&got.items),
+                placed(&want.items)
+            );
+        }
+    }
+    // each item by its hash: the newest of the template's records of it in the piece found
+    let mut hashes: Vec<ItemHash> = entries.iter().map(|(_, s)| s.hash).collect();
+    hashes.sort();
+    hashes.dedup();
+    for hash in hashes {
+        let want = entries
+            .iter()
+            .filter(|(e, s)| s.hash == hash && e.offset < end)
+            .map(|(e, _)| e.offset)
+            .max();
+        let Ok(got) = r.item_by_hash(0, hash) else {
+            continue;
+        };
+        if got.item.as_ref().map(|s| s.offset) != want {
+            assert!(
+                !got.is_whole(),
+                "item {hash:?}: at {:?} instead of {want:?}, nothing named",
+                got.item.map(|s| s.offset)
+            );
+        }
+    }
+}
+
+/// The template opened once: its sorted state entries stay in its cache across runs.
+fn template_reader() -> &'static TapeReader<&'static [u8]> {
+    static T: std::sync::OnceLock<TapeReader<&'static [u8]>> = std::sync::OnceLock::new();
+    T.get_or_init(|| TapeReader::open(hostile::state_template()).expect("the template opens"))
+}
+
+/// Where each definition found lies, by slot.
+fn placed(
+    items: &std::collections::BTreeMap<Slot, ww_tape::reader::StateItem>,
+) -> Vec<(Slot, u64)> {
+    items.iter().map(|(slot, s)| (*slot, s.offset)).collect()
+}
+
+/// The lookups of piece `i` at its first, middle and last state entry and at its end: each slot's record in force,
+/// each hash's record, every definition.
+fn lookups(r: &TapeReader<&[u8]>, i: usize) {
+    let Ok(entries) = r.state_entries(i) else {
+        return;
+    };
+    let mut slots: Vec<Slot> = entries.iter().map(|(_, s)| s.slot).collect();
+    slots.sort();
+    slots.dedup();
+    let mut hashes: Vec<ItemHash> = entries.iter().map(|(_, s)| s.hash).collect();
+    hashes.sort();
+    hashes.dedup();
+    let n = entries.len();
+    let places = [0, n / 2, n.saturating_sub(1)]
+        .into_iter()
+        .filter_map(|k| entries.get(k).map(|(e, _)| e.offset.saturating_add(1)))
+        .chain([u64::MAX]);
+    for place in places {
+        for slot in &slots {
+            if let Ok(found) = r.state_at(i, *slot, place)
+                && let Some(item) = &found.item
+            {
+                assert_eq!(item.slot, *slot, "the slot asked");
+                assert_eq!(
+                    ItemHash::of(&item.item),
+                    item.hash,
+                    "the item its entry names"
+                );
+                assert!(item.offset < place, "before the place asked");
+            }
+        }
+        if let Ok(defs) = r.definitions_at(i, place) {
+            for (slot, item) in &defs.items {
+                assert!(slot.is_definition(), "a definition's slot");
+                assert_eq!(item.slot, *slot);
+                assert_eq!(ItemHash::of(&item.item), item.hash);
+                assert!(item.offset < place);
+            }
+        }
+    }
+    for hash in hashes {
+        if let Ok(found) = r.item_by_hash(i, hash)
+            && let Some(item) = &found.item
+        {
+            assert_eq!(ItemHash::of(&item.item), hash, "the hash asked");
+        }
+    }
+}
+
+/// A resume of `f`: when it resumes, the definitions again, a put on each state track and a records block, then a
+/// finish that a reader finds whole.
+fn resume_state(f: &[u8]) {
+    let mut sink = MemSink::new(Path::new("s"));
+    sink.write_all(f).expect("memory takes the bytes");
+    let tape = sink.tape();
+    let Ok((mut w, _)) = TapeWriter::resume_on(sink, hostile::state_options()) else {
+        return;
+    };
+    let defs = hostile::state_definitions();
+    for t in hostile::STATES {
+        w.put(&defs, t, 1000, b"resumed")
+            .expect("a resumed piece takes puts");
+    }
+    w.write_block(&defs, &hostile::state_records(w.next_id(), 1000))
+        .expect("a resumed piece takes blocks");
+    w.finish().expect("a resumed piece finishes");
+    let out = tape.to_vec().expect("the bytes");
+    let r = TapeReader::open(&out[..]).expect("a finished piece opens");
+    let last = r.pieces().len().checked_sub(1).expect("a piece");
+    assert!(
+        r.verify(last).expect("a finished piece"),
+        "the content hash verifies"
+    );
+    let found = r
+        .state_at(
+            last,
+            Slot::State {
+                track: hostile::STATES[0],
+            },
+            u64::MAX,
+        )
+        .expect("a lookup");
+    assert_eq!(found.item.map(|s| s.item), Some(b"resumed".to_vec()));
 }

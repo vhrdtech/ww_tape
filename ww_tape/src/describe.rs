@@ -1,7 +1,8 @@
 //! What describe records say: the producer, clocks, clock maps, tracks, API bundles and typed items.
 
+use exact_units::units::Item;
 use exact_units::units::{Per, Second, Tick};
-use exact_units::{Bytes, MagnitudeOf, Ratio64, Rounding};
+use exact_units::{Bytes, Count, MagnitudeOf, Ratio64, Rounding};
 use shrink_wrap::prelude::*;
 
 #[cfg(feature = "std")]
@@ -9,9 +10,9 @@ use crate::FullVersionOwned;
 use crate::series::SeriesDef;
 #[cfg(feature = "std")]
 use crate::series::SeriesDefOwned;
-use crate::{FNV_OFFSET, FullVersion, fnv1a};
+use crate::{FNV_OFFSET, FullVersion, Version, fnv1a};
 
-/// What a describe block says, one per record on track 0.
+/// A definition: one per record on track 0, its item's whole bytes.
 #[derive_shrink_wrap(owned(feature = "std"), derive(Debug, PartialEq, Clone), ww_repr = u4)]
 pub enum Describe<'i> {
     Producer(Producer<'i>),
@@ -27,7 +28,7 @@ pub enum Describe<'i> {
     Map(ClockMap<'i>),
     /// Any wire_weaver value, typed by its bundle and type path: a run record, a media reference, settings.
     Item(TypedItem<'i>),
-    /// How the file's blocks are placed; a file whose describe set has none is not aligned.
+    /// How the file's blocks are placed; a file that defines none is not aligned.
     Layout(Layout),
 }
 
@@ -49,6 +50,8 @@ pub struct Layout {
     /// Where a writer resumes after such a stretch: at a multiple of it in the file or medium, 1 and up (a sector,
     /// a NAND page). A reader probes these places and the first non-blank byte.
     pub resume_align: Bytes<u32>,
+    /// How track 0, the definitions, is repeated: what [TrackRepeat::State] says of a state track.
+    pub definitions: StatePolicy,
 }
 
 /// The alignment of an aligned file: 4 KiB, a page and a direct I/O block.
@@ -74,6 +77,7 @@ impl Layout {
         alignment: Bytes::new(0),
         gap_max: Bytes::new(0),
         resume_align: Bytes::new(1),
+        definitions: StatePolicy::DEFAULT,
     };
     /// Chunk payloads on 4 KiB boundaries, a file: no gaps.
     pub const ALIGNED: Layout = Layout {
@@ -102,6 +106,14 @@ impl Layout {
         Layout {
             gap_max: Bytes::new(erase_block.saturating_mul(2)),
             resume_align: Bytes::new(page),
+            ..self
+        }
+    }
+
+    /// This layout with the definitions repeated as `policy` says.
+    pub const fn with_definitions(self, policy: StatePolicy) -> Layout {
+        Layout {
+            definitions: policy,
             ..self
         }
     }
@@ -143,7 +155,7 @@ pub struct Producer<'i> {
 /// by [ClockMap]s. Wall time is a clock too: origin [ClockOrigin::UnixEpoch], key [UNIX_CLOCK_KEY].
 #[derive_shrink_wrap(owned(feature = "std"), derive(Debug, PartialEq, Clone))]
 pub struct ClockDef<'i> {
-    /// Number in the describe set, 1 and up ([NO_CLOCK] is none): [TrackDef::clock] and [ClockMap] name it, and record
+    /// Number among the definitions, 1 and up ([NO_CLOCK] is none): [TrackDef::clock] and [ClockMap] name it, and record
     /// blocks list it. Stays the same for the producer's life.
     pub number: UNib32,
     /// Stable identity across files and runs, see [clock_key].
@@ -182,7 +194,7 @@ pub enum ClockOrigin {
     /// The next epoch of the same counter: a long capture at fine ticks is cut into clock epochs so ticks stay in
     /// i64. Its epoch link fixes tick 0: a [ClockMap] from this clock to the previous epoch's clock with one segment
     /// from tick 0 to the end, slope 1, error 0 and `b0 > 0`, so tick 0 here is tick `b0` there
-    /// ([ClockMap::is_epoch_link]); a [DescribeSet](crate::DescribeSet) requires it. Unlike a restart
+    /// ([ClockMap::is_epoch_link]); a writer requires it ([Current::check_batch](crate::Current::check_batch)). Unlike a restart
     /// ([Self::Boot]), the two clocks are one counter.
     Epoch,
 }
@@ -192,7 +204,7 @@ pub enum ClockOrigin {
 /// A map is strictly increasing over all its segments, or item order would flip between the clocks: each segment
 /// starts above the last value the one before maps to. A tick in no segment is unmapped. A forward jump (NTP step,
 /// drift correction) starts a new segment; a backward step is a gap or a new clock, never a decreasing segment. A
-/// map written here is known when the describe set is written (a wall clock reading at the start); a map estimated
+/// map written here is known when it is defined (a wall clock reading at the start); a map estimated
 /// over time is a track whose items are [MapSegment]s.
 #[derive_shrink_wrap(owned(feature = "std"), derive(Debug, PartialEq, Clone), validate = map_increasing)]
 pub struct ClockMap<'i> {
@@ -395,11 +407,61 @@ pub struct TrackDef<'i> {
     pub item: Option<TypeRef<'i>>,
     /// A name for people (`link[1].rx.frames`); readers go by `path`.
     pub label: &'i str,
-    /// The newest record of this track is repeated in every describe set. Always set for a series, whose records are
-    /// its [SeriesSegment](crate::series::SeriesSegment)s: each piece then holds the segment its samples are in.
-    pub sticky: bool,
+    /// Whether the track's records are events or state. Always [TrackRepeat::State] for a series, whose records are
+    /// its [SeriesSegment](crate::series::SeriesSegment)s.
+    pub repeat: TrackRepeat,
     /// How the track's items are stored: events or a fixed-rate series.
     pub kind: TrackKind<'i>,
+}
+
+/// What a track's records are to a reader that starts later, see [state](crate::state).
+#[derive_shrink_wrap(borrowed, owned(feature = "std"), derive(Debug, PartialEq, Eq, Clone, Copy), ww_repr = u4)]
+pub enum TrackRepeat {
+    /// A stream of events: each record is an item, nothing of the track is repeated.
+    Stream,
+    /// Each record is the track's state from then on: a writer puts it ([TapeWriter::put](crate::TapeWriter::put))
+    /// so that a copy lies at most `near` behind wherever it is used, and a reader takes the nearest record behind a
+    /// place.
+    State(StatePolicy),
+}
+
+/// How a writer repeats the items of a state track, or of track 0 ([Layout::definitions]).
+#[derive_shrink_wrap(
+    borrowed,
+    owned(feature = "std"),
+    derive(Debug, PartialEq, Eq, Clone, Copy)
+)]
+pub struct StatePolicy {
+    /// An item used at a place has a copy at most this many bytes behind it, in the same piece: how far a reader
+    /// looks back for it.
+    pub near: Bytes<u32>,
+    /// Copies an item gets after it is first written in a piece, spaced apart (a writer's
+    /// [NearPolicy::copy_spacing](crate::writer::NearPolicy)), against damage around one place; 0 for none.
+    pub copies: Count<Item, u8>,
+}
+
+impl StatePolicy {
+    /// A copy at most [NEAR_DEFAULT] behind, one more copy at the first write.
+    pub const DEFAULT: StatePolicy = StatePolicy {
+        near: Bytes::new(NEAR_DEFAULT),
+        copies: Count::new(1),
+    };
+}
+
+/// [StatePolicy::near] of [StatePolicy::DEFAULT]: 32 MiB.
+pub const NEAR_DEFAULT: u32 = 32 << 20;
+
+impl TrackRepeat {
+    /// A state track repeated as [StatePolicy::DEFAULT].
+    pub const STATE: TrackRepeat = TrackRepeat::State(StatePolicy::DEFAULT);
+
+    /// The state policy, None for a stream.
+    pub const fn state(self) -> Option<StatePolicy> {
+        match self {
+            TrackRepeat::State(p) => Some(p),
+            TrackRepeat::Stream | TrackRepeat::Unknown(_) => None,
+        }
+    }
 }
 
 /// The key of the keyed-array element a [TrackDef::path] index points at.
@@ -503,14 +565,14 @@ impl<'i> TrackDef<'i> {
         }
     }
 
-    /// Check what the kind asks of the track: a series is sticky, names its sample type in its definition (not in
+    /// Check what the kind asks of the track: a series is a state track, names its sample type in its definition (not in
     /// [Self::item]) and has a valid [SeriesDef].
     pub fn check_kind(&self) -> Result<(), crate::SeriesError> {
         let Some(s) = self.series() else {
             return Ok(());
         };
-        if !self.sticky {
-            return Err(crate::SeriesError::Def("a series track is sticky"));
+        if self.repeat.state().is_none() {
+            return Err(crate::SeriesError::Def("a series track is a state track"));
         }
         if self.item.is_some() {
             return Err(crate::SeriesError::Def(
@@ -539,37 +601,17 @@ impl<'i> TrackDef<'i> {
     }
 }
 
-/// Where a describe record goes in the canonical order: its rank, then what it is sorted by within the rank.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Rank {
-    Producer,
-    Layout,
-    Bundle,
-    Clock(u32),
-    Map {
-        from: u32,
-        to: u32,
-    },
-    Track(u32),
-    /// Typed items and variants a reader doesn't know: in the order of their encoded bytes.
-    Other,
-}
-
-impl Describe<'_> {
-    /// Its place in the canonical order: producer, layout, bundles, clocks, maps, tracks by number, then typed items. Within
-    /// a rank bundles go by hash and typed items by their encoded bytes ([DescribeSet](crate::DescribeSet)).
-    pub fn rank(&self) -> Rank {
-        match self {
-            Describe::Producer(_) => Rank::Producer,
-            Describe::Layout(_) => Rank::Layout,
-            Describe::Bundle { .. } => Rank::Bundle,
-            Describe::Clock(c) => Rank::Clock(c.number.0),
-            Describe::Map(m) => Rank::Map {
-                from: m.from.0,
-                to: m.to.0,
-            },
-            Describe::Track(t) => Rank::Track(t.number.0),
-            Describe::Item(_) | Describe::Unknown(_) => Rank::Other,
-        }
-    }
+/// The API [Describe] and the types it names are in: this crate. A producer that wants its definitions read without
+/// this crate at hand adds the bundle of this API (`ww_tape` in `wire_weaver_snapshots`) as a [Describe::Bundle].
+pub fn api() -> FullVersion<'static> {
+    // Cargo gives digits only, so a parse never falls back to 0
+    let n = |s: &str| s.parse().unwrap_or(0);
+    FullVersion::new(
+        env!("CARGO_PKG_NAME"),
+        Version::new(
+            n(env!("CARGO_PKG_VERSION_MAJOR")),
+            n(env!("CARGO_PKG_VERSION_MINOR")),
+            n(env!("CARGO_PKG_VERSION_PATCH")),
+        ),
+    )
 }

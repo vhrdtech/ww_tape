@@ -10,6 +10,19 @@ Covers `ww_tape` 0.1.0.
 
 ### ⚠️ Breaking
 
+- Format version 1: definitions are records on track 0; `BlockKind::Describe` is gone, kind 2 reserved (STD-135).
+- `FLAG_SET_FIRST`, `FLAG_SET_LAST` and `FLAG_COPY` are gone; `FLAG_REPEAT` marks blocks of puts and copies (STD-135).
+- `write_describe` is gone: hold definitions in `Definitions` and pass them to each write; data on an unheld track is refused (STD-135).
+- `WriterOptions` carries `layout` and `producer`, written at each piece head and checked by a resume (STD-135).
+- A caller's block of definitions is refused (`DescribeError::DefinitionBlock`); relay a producer's puts with `put_block` (STD-135).
+- `TrackDef::sticky` is `TrackDef::repeat`; a caller's records on a state track are refused, put them instead (STD-135).
+- `DescribeSet`, `DescribeBlocks` and `describe_set` are gone: look definitions up with `TapeReader::definitions_at` (STD-135).
+- `WriterOptions` takes `near` in place of `describe_repeat`; nothing is repeated by size or at the finish (STD-135).
+- `IndexEntry` gains `repeat` and `second`; each state record gets an entry under `STATE_TRACK_ID` (STD-135).
+- `Finish::describe` is gone, its offset 88 reserved; a resume keeps every good block and takes definitions per call (STD-135).
+- `defer_block` puts a block's definitions when deferred; it is placed within `DEFER_WINDOW` (STD-135).
+- `put_block` refuses a definition other than the one held (`DescribeError::NotHeld`): relay with `relay_block` (STD-135).
+- `set_index_policy` returns a `Result`, refusing a cap below `HEAD_ENTRIES` (STD-135).
 - Finished pieces end on 4 KiB: the finish block carries zero padding, stated at offset 172; `write_finish` takes `padding` (STD-134).
 - Repository: ww_tape, ww_tape_fuzz and ww_tape_benchmarks live in vhrdtech/ww_tape; take ww_tape by git from there, not from wire_weaver.
 - Feature `bundle` is gone, and with it the dependency on `ww_self`: `name_path`, `key_in_bundle` and `NamePathError` are in `ww_tape_bundle` (R11).
@@ -61,6 +74,17 @@ Covers `ww_tape` 0.1.0.
 
 ### 🚀 Features
 
+- `IndexPolicy::state_entries_max` caps a piece's state entries (`IndexError::StateEntries`); `PieceChain` cuts when it is reached (STD-135).
+- `api()`: the crate's `FullVersion`, to find its bundle in `wire_weaver_snapshots` (STD-135).
+- `Definitions`: the application holds its definitions and passes them with each write; it reports `len` and `bytes` (STD-135).
+- `TapeWriter::put` and `put_item`: state items written unless the same item lies within the track's `near` (STD-135).
+- The writer puts the definitions a block needs before it, and a copy at a use `NearPolicy::copy_spacing` on (STD-135).
+- `FLAG_WITH_NEXT` marks puts belonging with the next block; a resume drops trailing ones for byte-equal pieces (STD-135).
+- `TapeWriter::relay_block` passes on a live producer's stream; `writer::near::Near` and `Rule` are public (STD-135).
+- `TapeWriter::put_block`: a producer's block of puts is put on the tape by the writer's own near rule (STD-135).
+- `TapeReader::state_at`, `item_by_hash`, `definitions_at` and `state_entries`: state lookups by index entry, damage listed (STD-135).
+- `Slot`, `ItemHash` (BLAKE3-128), `StatePolicy`, `TrackRepeat::State`: what identifies and repeats a state item (STD-135).
+- `TapeWriter::put_work` (`PutWork`): bytes puts hashed and copied; `Definitions::held` shares an item and its hash (STD-135).
 - `SeriesSummaries::push` keeps every statistic in one pass, integers up to 32 bits through AVX-512, AVX2 or portable kernels (STD-133).
 - `TapeWriter::resume` and `PieceChain::resume` reopen a crashed piece; it finishes with an uninterrupted write's bytes (STD-132).
 - `TapeSink`, `SinkFactory`, `FileSink`, `Files`, `MemSink` and `MemTapes`: writers write to files or memory, read while written (STD-132).
@@ -136,6 +160,17 @@ Covers `ww_tape` 0.1.0.
 
 ### 🐛 Fixes
 
+- State lookups keep a piece's entries sorted once (`STATE_CACHE_MAX`) and spend decoded and kept bytes from `STATE_READ_MAX` (STD-135).
+- `Lookup` and `DefinitionsAt` gain `uncovered`: stretches before the place the index doesn't cover (STD-135).
+- A piece of another format version is reported where met (`PieceInfo::version`), not refusing or skipping the tape (STD-135).
+- A full state-entry cap no longer stops a cut or a finish: deferred blocks are placed with no puts (STD-135).
+- `write_chunk` makes and checks a chunk before putting its definitions; a refused chunk writes nothing (STD-135).
+- `put_block` gives each relayed record what it needs, batched into few blocks (STD-135).
+- State lookups charge a coded body's decoded length before decoding; a spent budget sets `spent`, not `lost` (STD-135).
+- `OpenOptions::state_read_max` sets a state lookup's read budget (STD-135).
+- A reader keeps sorted state entries in one cache over all pieces, least recently used out (`OpenOptions::state_cache_max`) (STD-135).
+- On a raw medium, stale data of another version ends the data instead of starting a piece (STD-135).
+- `TapeWriter::finish` returns `WriteError::Index` instead of panicking when the finish padding misses 4 KiB (STD-134).
 - `TapeReader::open` finds finished pieces by their tails when an unfinished piece without a checkpoint follows them (STD-134).
 - An index block of no entries reads back; the reader refused the entry length as longer than the block (STD-131).
 - `Element::Unknown` codes past 255 no longer truncate to a known element's code (STD-131).

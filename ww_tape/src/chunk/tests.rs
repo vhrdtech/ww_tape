@@ -1,8 +1,8 @@
 use super::*;
 use crate::tests::id;
 use crate::{
-    Block, BlockError, BlockId, BlockWriter, ClockTime, Describe, DescribeSet, FileBlocks,
-    FileError, Layout, Producer, Recovery, SessionTag, SyncPolicy, TapeWriter, set_id,
+    Block, BlockError, BlockId, BlockWriter, ClockTime, FileBlocks, FileError, Layout, Recovery,
+    SessionTag, SyncPolicy, TapeWriter, set_id,
 };
 
 fn raw(kind: ColumnKind, param: u16, bytes: &[u8]) -> (ColumnSpec, &[u8]) {
@@ -384,22 +384,17 @@ fn restamp_refuses_a_head_out_of_range() {
     assert_eq!(restamp(&mut [0u8; 8]), Err(ChunkHeadError::BadHeadCrc));
 }
 
-/// A describe block, small records blocks deferred into the gaps, and chunks, through [TapeWriter].
+/// Definitions, small records blocks deferred into the gaps, and chunks, through [TapeWriter].
 fn write_tape(path: &std::path::Path, layout: Layout) -> Vec<u8> {
     _ = std::fs::remove_file(path);
     let mut w = TapeWriter::create(path, SyncPolicy::None).unwrap();
+    w.set_session(crate::tests::TEST_SESSION).unwrap();
     w.set_alignment(layout.alignment.get()).unwrap();
-    let mut set = DescribeSet::new();
-    set.insert(&Describe::Producer(Producer { name: "test" }))
+    w.set_producer("test");
+    w.set_layout(layout).unwrap();
+    let mut defs = crate::Definitions::new();
+    defs.define_all(&crate::tests::test_definitions(1, &[2, 4, 7]))
         .unwrap();
-    set.insert(&Describe::Layout(layout)).unwrap();
-    let mut seq = id(0);
-    let mut blocks = vec![];
-    set.write_blocks(&mut seq, 4096, &[], |b| blocks.push(b.to_vec()))
-        .unwrap();
-    for b in &blocks {
-        w.write_block(b).unwrap();
-    }
     let small = |n: i64| {
         let mut buf = [0u8; 128];
         let mut b = BlockWriter::new(&mut buf, BlockKind::Records, id(0), &[1]).unwrap();
@@ -408,15 +403,15 @@ fn write_tape(path: &std::path::Path, layout: Layout) -> Vec<u8> {
         buf[..len].to_vec()
     };
     let (sh, sc) = series(0, 900);
-    w.write_chunk(&sh, &series_columns(&sc)).unwrap();
-    w.defer_block(small(1)).unwrap();
-    w.defer_block(small(2)).unwrap();
+    w.write_chunk(&defs, &sh, &series_columns(&sc)).unwrap();
+    w.defer_block(&defs, small(1)).unwrap();
+    w.defer_block(&defs, small(2)).unwrap();
     let (eh, ec) = events(0, 40);
-    w.write_chunk(&eh, &event_columns(&ec)).unwrap();
-    w.defer_block(small(3)).unwrap();
+    w.write_chunk(&defs, &eh, &event_columns(&ec)).unwrap();
+    w.defer_block(&defs, small(3)).unwrap();
     let (sh, sc) = series(900, 300);
-    w.write_chunk(&sh, &series_columns(&sc)).unwrap();
-    w.defer_block(small(4)).unwrap();
+    w.write_chunk(&defs, &sh, &series_columns(&sc)).unwrap();
+    w.defer_block(&defs, small(4)).unwrap();
     w.finish().unwrap();
     std::fs::read(path).unwrap()
 }
@@ -443,6 +438,32 @@ fn walk(bytes: &[u8], recovery: Recovery) -> (Vec<Seen>, usize) {
     (out, errors)
 }
 
+/// The blocks [walk] gives that aren't marked FLAG_REPEAT: the puts passed over.
+fn counted(bytes: &[u8]) -> Vec<Seen> {
+    let reps = repeats(bytes);
+    let (blocks, _) = walk(bytes, Recovery::Prefix);
+    blocks
+        .into_iter()
+        .enumerate()
+        .filter(|(i, _)| !reps.contains(i))
+        .map(|(_, b)| b)
+        .collect()
+}
+
+/// Where the blocks marked FLAG_REPEAT (puts and copies) are among a file's blocks.
+fn repeats(bytes: &[u8]) -> Vec<usize> {
+    let mut rd = FileBlocks::new(bytes);
+    let mut out = vec![];
+    let mut i = 0;
+    while let Some(b) = rd.next_block() {
+        if b.unwrap().is_repeat() {
+            out.push(i);
+        }
+        i += 1;
+    }
+    out
+}
+
 #[test]
 fn aligned_file_puts_payloads_on_pages_and_fills_gaps() {
     let dir = std::env::temp_dir().join(format!("ww_tape_aligned_{}", std::process::id()));
@@ -452,45 +473,33 @@ fn aligned_file_puts_payloads_on_pages_and_fills_gaps() {
     let plain = write_tape(&dir.join("c.wwtape"), Layout::UNALIGNED);
     std::fs::remove_dir_all(&dir).unwrap();
     assert_eq!(file, again, "same input, same bytes");
-    let (blocks, errors) = walk(&file, Recovery::Prefix);
+    let (_, errors) = walk(&file, Recovery::Prefix);
     assert_eq!(errors, 0);
-    // the describe backup, final index, finish and tail at the end carry the last counted seq
+    let blocks = counted(&file);
+    // the final index, finish and tail at the end carry the last counted seq
     let seqs: Vec<u64> = blocks.iter().map(|b| b.1).collect();
     assert_eq!(
         seqs,
-        [0, 1, 1]
-            .into_iter()
-            .chain(2..8)
-            .chain([7; 4])
-            .collect::<Vec<_>>(),
+        (0..7).chain([6; 3]).collect::<Vec<_>>(),
         "seqs ascend"
     );
     let kinds: Vec<BlockKind> = blocks.iter().map(|b| b.2).collect();
     use BlockKind::*;
-    // the writer's describe copy after the first data block; the deferred blocks 1 and 2 fill the gap before the
-    // events chunk, 3 that before the second series chunk; 4 has no chunk after it and goes at the end
-    // then the writer's describe backup, final index, finish and tail
-    assert_eq!(
-        kinds,
-        [
-            Describe, Series, Describe, Records, Records, Events, Records, Series, Records,
-            Describe, Index, Finish, Tail
-        ]
-    );
+    // the deferred blocks 1 and 2 fill the gap before the events chunk, 3 that before the second series chunk; 4 has
+    // no chunk after it and goes at the end, then the writer's final index, finish and tail. Between them, the puts
+    // of the layout, the producer and the definitions each block needs.
+    let want = [
+        Series, Records, Records, Events, Records, Series, Records, Index, Finish, Tail,
+    ];
+    assert_eq!(kinds, want);
+    assert_eq!(repeats(&file)[0], 0, "the layout and the producer first");
     for (_, _, _, payload, _) in &blocks {
         if let Some(p) = payload {
             assert_eq!(p % 4096, 0);
         }
     }
-    let (blocks, _) = walk(&plain, Recovery::Prefix);
-    let kinds: Vec<BlockKind> = blocks.iter().map(|b| b.2).collect();
-    assert_eq!(
-        kinds,
-        [
-            Describe, Series, Describe, Records, Records, Events, Records, Series, Records,
-            Describe, Index, Finish, Tail
-        ]
-    );
+    let kinds: Vec<BlockKind> = counted(&plain).iter().map(|b| b.2).collect();
+    assert_eq!(kinds, want);
     assert!(plain.len() < file.len());
 }
 
@@ -531,7 +540,7 @@ fn resync_salvages_chunks_in_a_file() {
     let file = write_tape(&dir.join("t.wwtape"), Layout::ALIGNED);
     std::fs::remove_dir_all(&dir).unwrap();
     let (blocks, _) = walk(&file, Recovery::Prefix);
-    let series = blocks[1];
+    let series = *blocks.iter().find(|b| b.2 == BlockKind::Series).unwrap();
     let payload = series.3.unwrap() as usize;
     let mut bad = file.clone();
     bad[payload + 100] ^= 0x01;
@@ -596,14 +605,14 @@ fn chunks_golden() {
         }
         hex.push('\n');
     }
-    let golden = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("golden/v2-chunks.hex");
+    let golden = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("golden/v1-chunks.hex");
     if std::env::var("WW_TAPE_GOLDEN").as_deref() == Ok("update") {
         std::fs::write(&golden, &hex).unwrap();
     }
     let want = std::fs::read_to_string(&golden)
-        .expect("golden/v2-chunks.hex: run with WW_TAPE_GOLDEN=update");
+        .expect("golden/v1-chunks.hex: run with WW_TAPE_GOLDEN=update");
     assert!(
         hex == want,
-        "the format changed: bytes differ from golden/v2-chunks.hex"
+        "the format changed: bytes differ from golden/v1-chunks.hex"
     );
 }

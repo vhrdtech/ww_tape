@@ -6,7 +6,7 @@ use alloc::vec::Vec;
 
 use super::{
     CHECKPOINT_ENTRIES_MAX, ENTRY_LEN, IndexEntry, IndexError, IndexHead, IndexKind, IndexPolicy,
-    index_len, track_count, write_index,
+    STATE_TRACK_ID, index_len, track_count, write_index,
 };
 use crate::bytes::le_u8;
 use crate::chunk::len_u64;
@@ -23,6 +23,8 @@ pub(crate) struct Indexer {
     policy: IndexPolicy,
     pending: Vec<IndexEntry>,
     all: Vec<IndexEntry>,
+    /// Entries of state records among `all`
+    states: usize,
     /// Bytes placed since the last checkpoint
     since: u64,
     last_checkpoint: Option<u64>,
@@ -48,21 +50,41 @@ impl Indexer {
     /// Note the block `bytes` (exactly one block, written by this writer) placed at `offset` in the piece. Its
     /// CRC is not checked again: a chunk block's head is read by its head CRC.
     pub(crate) fn placed(&mut self, offset: u64, bytes: &[u8]) {
-        match of_placed(offset, bytes) {
-            Some(e) => self.placed_entry(e, bytes.len()),
-            None => self.placed_unlisted(bytes.len()),
+        let entries = of_placed(offset, bytes);
+        self.placed_entries(&entries, bytes.len());
+    }
+
+    /// Note a `len`-byte block placed whose entries are `entries` (none: a block no index lists; one per state record
+    /// of a block of them): also a block a resume finds damaged, listed by the index read back.
+    pub(crate) fn placed_entries(&mut self, entries: &[IndexEntry], len: usize) {
+        self.placed_unlisted(len);
+        for e in entries {
+            if matches!(e.kind, BlockKind::Events | BlockKind::Series) {
+                add_to_range(&mut self.tracks, e);
+            }
+            if e.track_id == STATE_TRACK_ID {
+                self.states = self.states.saturating_add(1);
+            }
+            self.pending.push(*e);
+            self.all.push(*e);
         }
     }
 
-    /// Note a `len`-byte block placed whose entry is `e`: a block a resume finds damaged, listed by the index read
-    /// back.
-    pub(crate) fn placed_entry(&mut self, e: IndexEntry, len: usize) {
-        self.placed_unlisted(len);
-        if matches!(e.kind, BlockKind::Events | BlockKind::Series) {
-            add_to_range(&mut self.tracks, &e);
+    /// Entries of state records the piece lists.
+    pub(crate) fn states(&self) -> usize {
+        self.states
+    }
+
+    /// Refuse to list `n` more state entries past the policy's cap.
+    pub(crate) fn room_for_states(&self, n: usize) -> Result<(), IndexError> {
+        let max = self.policy.state_entries_max;
+        if self.states.saturating_add(n) > max {
+            return Err(IndexError::StateEntries {
+                max,
+                used: self.states,
+            });
         }
-        self.pending.push(e);
-        self.all.push(e);
+        Ok(())
     }
 
     /// Every entry of the piece so far, in the order placed.
@@ -76,13 +98,19 @@ impl Indexer {
         self.since = self.since.saturating_add(len_u64(len));
     }
 
-    /// Drop the entry of the block at `offset`: a later block with its id and other bytes takes its place, as
-    /// readers take it. A checkpoint placed already keeps it; the final index doesn't.
+    /// Drop the entries of the block at `offset`: a later block with its id and other bytes takes its place, as
+    /// readers take it. A checkpoint placed already keeps them; the final index doesn't.
     pub(crate) fn replaced(&mut self, offset: u64) {
-        let Some(i) = self.all.iter().rposition(|e| e.offset == offset) else {
+        let Some(gone) = self.all.iter().rfind(|e| e.offset == offset).copied() else {
             return;
         };
-        let gone = self.all.remove(i);
+        let states = self
+            .all
+            .iter()
+            .filter(|e| e.offset == offset && e.track_id == STATE_TRACK_ID)
+            .count();
+        self.states = self.states.saturating_sub(states);
+        self.all.retain(|e| e.offset != offset);
         self.pending.retain(|e| e.offset != offset);
         if matches!(gone.kind, BlockKind::Events | BlockKind::Series) {
             self.tracks.remove(&gone.track_id);
@@ -97,6 +125,18 @@ impl Indexer {
         self.pending.len()
     }
 
+    /// Bytes of the checkpoint blocks listing the pending entries ([Self::checkpoint] until none is left).
+    pub(crate) fn checkpoint_bytes(&self) -> usize {
+        let mut left = self.pending.len();
+        let mut n = 0usize;
+        while left > 0 {
+            let listed = left.min(CHECKPOINT_ENTRIES_MAX);
+            n = n.saturating_add(index_len(listed, 0));
+            left = left.saturating_sub(listed);
+        }
+        n
+    }
+
     /// Whether the policy's byte count, or the entry limit, asks for a checkpoint now.
     pub(crate) fn due(&self) -> bool {
         !self.pending.is_empty()
@@ -104,7 +144,8 @@ impl Indexer {
                 || self.pending.len() >= CHECKPOINT_ENTRIES_MAX)
     }
 
-    /// The checkpoint index block listing the pending entries, to be placed at `offset` as block `id`.
+    /// The checkpoint index block listing the pending entries, at most [CHECKPOINT_ENTRIES_MAX] of them (the rest
+    /// wait for the next one), to be placed at `offset` as block `id`.
     pub(crate) fn checkpoint(
         &mut self,
         offset: u64,
@@ -115,9 +156,11 @@ impl Indexer {
             self_offset: offset,
             prev: self.last_checkpoint,
         };
-        let mut buf = vec![0u8; index_len(self.pending.len(), 0)];
-        write_index(&mut buf, id, &head, &self.pending)?;
-        self.pending.clear();
+        let n = self.pending.len().min(CHECKPOINT_ENTRIES_MAX);
+        let listed = self.pending.get(..n).unwrap_or_default();
+        let mut buf = vec![0u8; index_len(listed.len(), 0)];
+        write_index(&mut buf, id, &head, listed)?;
+        self.pending.drain(..n);
         self.since = 0;
         self.last_checkpoint = Some(offset);
         Ok(buf)
@@ -132,7 +175,7 @@ impl Indexer {
     /// they fit, a track longer than a block over several.
     pub(crate) fn final_parts(&self) -> Vec<Vec<IndexEntry>> {
         let mut all = self.all.clone();
-        all.sort_by_key(|e| (e.track_id, e.offset));
+        all.sort_by_key(IndexEntry::order);
         let mut parts: Vec<Vec<IndexEntry>> = Vec::new();
         for track in all.chunk_by(|a, b| a.track_id == b.track_id) {
             for run in track.chunks(FINAL_ENTRIES_MAX) {
@@ -226,17 +269,21 @@ fn add_to_range(tracks: &mut BTreeMap<u64, TrackRange>, e: &IndexEntry) {
         });
 }
 
-/// The entry of the block `bytes` (exactly one) a writer placed at `offset`: a chunk block's head is checked
-/// by its head CRC alone, without a pass over the payload; other blocks by their CRC.
-fn of_placed(offset: u64, bytes: &[u8]) -> Option<IndexEntry> {
+/// The entries of the block `bytes` (exactly one) a writer placed at `offset`: a chunk block's head is checked by its
+/// head CRC alone, without a pass over the payload; other blocks by their CRC.
+fn of_placed(offset: u64, bytes: &[u8]) -> Vec<IndexEntry> {
     let chunk = bytes.len() > HEADER_LEN
         && le_u8(bytes, 4) == Some(VERSION)
         && le_u8(bytes, 5).is_some_and(|k| {
             matches!(BlockKind::from_u8(k), BlockKind::Events | BlockKind::Series)
         });
     if chunk {
-        let c = Chunk::read_head(bytes).ok()?;
-        return IndexEntry::of_chunk(offset, bytes.len(), &c.head());
+        let Ok(c) = Chunk::read_head(bytes) else {
+            return Vec::new();
+        };
+        return IndexEntry::of_chunk(offset, bytes.len(), &c.head())
+            .into_iter()
+            .collect();
     }
-    IndexEntry::of_block(offset, &Block::read(bytes).ok()?)
+    Block::read(bytes).map_or_else(|_| Vec::new(), |b| IndexEntry::all_of_block(offset, &b))
 }

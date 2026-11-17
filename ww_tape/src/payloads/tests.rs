@@ -346,7 +346,7 @@ fn damaged_lz4_marks_every_item() {
     assert_eq!((runs.next(), runs.next()), (Some(0..50), None));
 }
 
-/// The same payloads give the same bytes, and they are golden/v2-payloads.hex's (`WW_TAPE_GOLDEN=update` rewrites
+/// The same payloads give the same bytes, and they are golden/v1-payloads.hex's (`WW_TAPE_GOLDEN=update` rewrites
 /// it): one chunk block per line, in hex.
 #[test]
 fn payloads_deterministic_and_golden() {
@@ -368,15 +368,15 @@ fn payloads_deterministic_and_golden() {
         }
         hex.push('\n');
     }
-    let golden = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("golden/v2-payloads.hex");
+    let golden = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("golden/v1-payloads.hex");
     if std::env::var("WW_TAPE_GOLDEN").as_deref() == Ok("update") {
         std::fs::write(&golden, &hex).unwrap();
     }
     let want = std::fs::read_to_string(&golden)
-        .expect("golden/v2-payloads.hex: run with WW_TAPE_GOLDEN=update");
+        .expect("golden/v1-payloads.hex: run with WW_TAPE_GOLDEN=update");
     assert_eq!(
         hex, want,
-        "the format changed: bytes differ from golden/v2-payloads.hex"
+        "the format changed: bytes differ from golden/v1-payloads.hex"
     );
 }
 

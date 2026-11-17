@@ -7,11 +7,11 @@ use exact_units::{Magnitude, Ratio64};
 use super::{SeriesError, SeriesSegment};
 use crate::{BlockKind, ChunkHead};
 
-/// The segments of one series track, checked one by one as a reader finds them in records and describe sets.
+/// The segments of one series track, checked one by one as a reader finds them in records, puts and copies.
 ///
 /// Every segment is checked before it is kept, so a damaged or forged record is refused and the ones kept stay
 /// consistent: ascending first indexes, a grid at or before the first sample, ticks that fit in i64, a new grid after
-/// the last tick of the segment before. A segment seen again (a describe set repeats the newest) is taken once.
+/// the last tick of the segment before. A segment seen again (a copy, or a put of the same segment) is taken once.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SeriesTimeline {
     period: Ratio64,
@@ -90,7 +90,7 @@ impl SeriesTimeline {
         self.push(s)
     }
 
-    /// The segments of a track's records in any order (record blocks, describe sets, backups), each `(record
+    /// The segments of a track's records in any order (record blocks, puts, copies), each `(record
     /// tick, item)`: decoded, checked against its record time, sorted by first index and pushed. A record that fails
     /// a check is left out and its error returned beside the timeline, so one damaged record costs only its segment.
     pub fn from_records<'b>(

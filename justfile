@@ -4,7 +4,7 @@ jobs := ""
 export CARGO_BUILD_JOBS := if jobs != "" { jobs } else { env_var_or_default('CARGO_BUILD_JOBS', num_cpus()) }
 export NEXTEST_TEST_THREADS := if jobs != "" { jobs } else { env_var_or_default('NEXTEST_TEST_THREADS', 'num-cpus') }
 
-fuzz_targets := "reader resume chunk summary index times samples series payloads records-hostile chunk-hostile times-hostile payloads-hostile samples-hostile series-hostile summary-hostile index-hostile reader-hostile"
+fuzz_targets := "reader resume chunk summary index times samples series payloads records-hostile chunk-hostile times-hostile payloads-hostile samples-hostile series-hostile summary-hostile index-hostile reader-hostile state-hostile"
 
 # List all available targets
 default:
@@ -40,7 +40,7 @@ lint:
     cargo clippy --workspace --all-targets --all-features -- -D warnings
     RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features
 
-# Rewrite ww_tape's golden files (golden/*.hex) after a deliberate format change (STD-117, STD-118, STD-120, STD-121)
+# Rewrite ww_tape's golden files (golden/v1*.hex) after a deliberate format change (STD-117, STD-118, STD-120, STD-121, STD-135)
 tape-golden-update:
     WW_TAPE_GOLDEN=update cargo nextest run -p ww_tape golden
 
@@ -114,7 +114,7 @@ fuzz-tape-series:
 fuzz-tape-payloads:
     cargo +nightly fuzz run tape-payloads -- -max_len=65536 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10
 
-# Fuzz ww_tape records and describe blocks of hostile clock tables, record heads, lengths and coded bodies (STD-131)
+# Fuzz ww_tape records blocks, of data or of definitions, of hostile clock tables, record heads, lengths and coded bodies (STD-131)
 [working-directory('fuzz')]
 fuzz-tape-records-hostile:
     cargo +nightly fuzz run tape-records-hostile -- -max_len=256 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10
@@ -171,3 +171,8 @@ deploy:
     if [ -n "$dirty" ]; then echo "local changes, not deploying:"; echo "$dirty"; exit 1; fi
     git pull --ff-only
     just install
+
+# Fuzz ww_tape state records and their index entries lying behind good CRCs: lookups and resume (STD-135)
+[working-directory('fuzz')]
+fuzz-tape-state-hostile:
+    cargo +nightly fuzz run tape-state-hostile -- -max_len=256 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10

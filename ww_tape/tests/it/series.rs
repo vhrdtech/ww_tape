@@ -1,7 +1,6 @@
 //! A series track written and read back with ww_tape alone: its definition, its segments (a start, an autorange
 //! prefix change, a gap) and its samples, from `Series<Fixed<..>>` batches to chunk columns without a float.
 
-use crate::id;
 use std::path::PathBuf;
 
 use exact_units::prefix::{Micro, Milli};
@@ -12,11 +11,10 @@ use shrink_wrap::series::Series;
 use ww_tape::chunk::ChunkHead;
 use ww_tape::samples::{Samples, encode, max_encoded_len};
 use ww_tape::{
-    BlockKind, BlockWriter, ClockDef, ClockOrigin, ClockTime, Codec, ColumnKind, ColumnSpec,
-    Describe, DescribeOwned, DescribeSet, EndMode, FileBlocks, FullVersion, Layout, Magnitude,
-    Producer, Ratio64, Recovery, SampleShape, Segment, SeriesDef, SeriesSegment, SeriesTimeline,
-    SeriesValue, Sticky, SyncPolicy, TapeReader, TapeWriter, TrackDef, TrackKind, TypeRef, Version,
-    clock_key, track_key,
+    BlockKind, ClockDef, ClockOrigin, Codec, ColumnKind, ColumnSpec, Describe, DescribeOwned,
+    EndMode, FileBlocks, FullVersion, Layout, Magnitude, Producer, Ratio64, Recovery, SampleShape,
+    Segment, SeriesDef, SeriesSegment, SeriesTimeline, SeriesValue, SyncPolicy, TapeReader,
+    TapeWriter, TrackDef, TrackKind, TypeRef, Version, clock_key, track_key,
 };
 
 const CLOCK: u32 = 1;
@@ -114,59 +112,56 @@ fn encode_value<T: SerializeShrinkWrap>(v: &T) -> Vec<u8> {
     v.to_ww_bytes(&mut buf).unwrap().to_vec()
 }
 
-fn describe_blocks(first: &SeriesSegment, seq: &mut ww_tape::BlockId) -> Vec<Vec<u8>> {
-    let mut set = DescribeSet::new();
-    set.insert(&Describe::Producer(Producer { name: "series" }))
-        .unwrap();
-    set.insert(&Describe::Layout(Layout::ALIGNED)).unwrap();
-    set.insert(&Describe::Clock(ClockDef {
-        number: UNib32(CLOCK),
-        key: clock_key(0x5e, &[], 1),
-        rate: MagnitudeOf::<Per<Tick, Second>>::from(Magnitude::pow10(9)),
-        resolution: Magnitude::pow10(-9).into(),
-        origin: ClockOrigin::Boot,
-        label: "dev",
-    }))
-    .unwrap();
-    set.insert(&Describe::Track(TrackDef {
-        number: UNib32(TRACK),
-        key: track_key(0x5e, &[Segment::Name("phase")]),
-        clock: UNib32(CLOCK),
-        dimensions: RefVec::Slice { slice: &[] },
-        api: FullVersion::new("motor_api", Version::new(0, 1, 0)),
-        bundle: RefVec::Slice { slice: &[] },
-        path: RefVec::Slice {
-            slice: &[UNib32(3)],
-        },
-        keys: RefVec::Slice { slice: &[] },
-        item: None,
-        label: "phase.current",
-        sticky: true,
-        kind: TrackKind::Series(series_def()),
-    }))
-    .unwrap();
-    let item = encode_value(first);
-    let sticky = [Sticky {
-        track: TRACK,
-        at: ClockTime::new(CLOCK, first.first_tick(period()).unwrap()),
-        item: &item,
-    }];
-    let mut blocks = vec![];
-    set.write_blocks(seq, 4096, &sticky, |b| blocks.push(b.to_vec()))
-        .unwrap();
-    blocks
+/// The definitions of the recording.
+fn definitions() -> Vec<Describe<'static>> {
+    vec![
+        Describe::Producer(Producer { name: "series" }),
+        Describe::Layout(Layout::ALIGNED),
+        Describe::Clock(ClockDef {
+            number: UNib32(CLOCK),
+            key: clock_key(0x5e, &[], 1),
+            rate: MagnitudeOf::<Per<Tick, Second>>::from(Magnitude::pow10(9)),
+            resolution: Magnitude::pow10(-9).into(),
+            origin: ClockOrigin::Boot,
+            label: "dev",
+        }),
+        Describe::Track(TrackDef {
+            number: UNib32(TRACK),
+            key: track_key(0x5e, &[Segment::Name("phase")]),
+            clock: UNib32(CLOCK),
+            dimensions: RefVec::Slice { slice: &[] },
+            api: FullVersion::new("motor_api", Version::new(0, 1, 0)),
+            bundle: RefVec::Slice { slice: &[] },
+            path: RefVec::Slice {
+                slice: &[UNib32(3)],
+            },
+            keys: RefVec::Slice { slice: &[] },
+            item: None,
+            label: "phase.current",
+            repeat: ww_tape::TrackRepeat::STATE,
+            kind: TrackKind::Series(series_def()),
+        }),
+    ]
 }
 
-/// The records block of one segment.
-fn segment_block(s: &SeriesSegment, seq: u64) -> Vec<u8> {
-    let mut buf = [0u8; 256];
-    let mut w = BlockWriter::new(&mut buf, BlockKind::Records, id(seq), &[CLOCK]).unwrap();
-    let item = encode_value(s);
+/// The definitions of [definitions] a [ww_tape::Definitions] holds, made once.
+fn series_defs() -> &'static ww_tape::Definitions {
+    static D: std::sync::OnceLock<ww_tape::Definitions> = std::sync::OnceLock::new();
+    D.get_or_init(|| {
+        let held: Vec<_> = definitions()
+            .into_iter()
+            .filter(|d| !matches!(d, Describe::Producer(_) | Describe::Layout(_)))
+            .collect();
+        let mut d = ww_tape::Definitions::new();
+        d.define_all(&held).unwrap();
+        d
+    })
+}
+
+/// Put segment `s` of the series: the state its next chunks are in.
+fn put_segment(w: &mut TapeWriter, s: &SeriesSegment) {
     let tick = s.first_tick(period()).unwrap();
-    w.push(TRACK, ClockTime::new(CLOCK, tick), &[&item])
-        .unwrap();
-    let len = w.finish();
-    buf[..len].to_vec()
+    assert!(w.put(series_defs(), TRACK, tick, &encode_value(s)).unwrap());
 }
 
 /// Write the open column as chunks of at most [CHUNK_MAX] samples, all in the newest segment.
@@ -197,7 +192,8 @@ fn seal(w: &mut TapeWriter, t: &SeriesTimeline, first: &mut u64, column: &mut Ve
             param: 0,
             len: bytes.len(),
         };
-        w.write_chunk(&head, &[(spec, &bytes)]).unwrap();
+        w.write_chunk(series_defs(), &head, &[(spec, &bytes)])
+            .unwrap();
         *first += u64::from(count);
     }
     column.clear();
@@ -209,10 +205,15 @@ fn write(path: &std::path::Path) {
     let mut w = TapeWriter::create(path, SyncPolicy::None).unwrap();
     w.set_alignment(ww_tape::ALIGNMENT).unwrap();
     let first = series_def().first_segment(START);
-    let mut seq = id(0);
-    for b in describe_blocks(&first, &mut seq) {
-        w.write_block(&b).unwrap();
+    w.set_session(crate::id(0).session).unwrap();
+    for d in definitions() {
+        match d {
+            Describe::Producer(p) => w.set_producer(p.name),
+            Describe::Layout(l) => w.set_layout(l).unwrap(),
+            _ => {}
+        }
     }
+    put_segment(&mut w, &first);
     let mut t = SeriesTimeline::new(p);
     t.push(first).unwrap();
     let mut next = 0u64;
@@ -238,7 +239,7 @@ fn write(path: &std::path::Path) {
             if let Some(s) = segment {
                 seal(&mut w, &t, &mut next, &mut column);
                 t.push(s).unwrap();
-                w.defer_block(segment_block(&s, w.next_seq())).unwrap();
+                put_segment(&mut w, &s);
             }
             column.extend(numbers);
             if column.len() as u64 >= CHUNK_MAX * u64::from(CHANNELS) {
@@ -269,7 +270,7 @@ fn read(bytes: &[u8]) -> Read {
     for e in r.entries(0).unwrap() {
         let b = r.read_block(0, &e, &mut buf).unwrap();
         match b.kind {
-            BlockKind::Describe | BlockKind::Records => {
+            BlockKind::Records => {
                 for rec in b.records() {
                     let rec = rec.unwrap();
                     if rec.track == 0 {
@@ -279,7 +280,10 @@ fn read(bytes: &[u8]) -> Read {
                         {
                             def = Some(s);
                         }
-                    } else if rec.track == TRACK {
+                    } else if rec.track == TRACK
+                        && records.last().is_none_or(|(_, last)| last != rec.item)
+                    {
+                        // a copy of the segment in force is nothing new
                         records.push((rec.at.unwrap().ticks, rec.item.to_vec()));
                     }
                 }
@@ -375,7 +379,7 @@ fn series_reads_back_to_samples_ticks_and_scales() {
     _ = std::fs::remove_dir_all(&dir);
 }
 
-/// The same recording gives the same bytes, and they are golden/v2-series.hex's (`WW_TAPE_GOLDEN=update` rewrites
+/// The same recording gives the same bytes, and they are golden/v1-series.hex's (`WW_TAPE_GOLDEN=update` rewrites
 /// it): one block per line, in hex.
 #[test]
 fn series_file_is_deterministic_and_golden() {
@@ -397,15 +401,15 @@ fn series_file_is_deterministic_and_golden() {
         }
         hex.push('\n');
     }
-    let golden = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("golden/v2-series.hex");
+    let golden = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("golden/v1-series.hex");
     if std::env::var("WW_TAPE_GOLDEN").as_deref() == Ok("update") {
         std::fs::write(&golden, &hex).unwrap();
     }
     let want = std::fs::read_to_string(&golden)
-        .expect("golden/v2-series.hex: run with WW_TAPE_GOLDEN=update");
+        .expect("golden/v1-series.hex: run with WW_TAPE_GOLDEN=update");
     assert_eq!(
         hex, want,
-        "the format changed: bytes differ from golden/v2-series.hex"
+        "the format changed: bytes differ from golden/v1-series.hex"
     );
     let want: Vec<u8> = want
         .lines()

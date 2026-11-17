@@ -13,9 +13,8 @@ use ww_tape::piece::{
 };
 use ww_tape::times::EncodedTimes;
 use ww_tape::{
-    Block, BlockId, BlockKind, BlockWriter, ClockTime, ColumnKind, Describe, Element,
-    FLAG_SET_FIRST, GAP_MAX_MAX, GAP_PROBES_MAX, Layout, Producer, SeriesSegment, SessionTag,
-    TrackKind,
+    Block, BlockId, BlockKind, BlockWriter, ClockTime, ColumnKind, Describe, Element, FLAG_REPEAT,
+    GAP_MAX_MAX, GAP_PROBES_MAX, Layout, Producer, SeriesSegment, SessionTag, TrackKind,
 };
 
 /// Longest seed file.
@@ -94,14 +93,14 @@ fn golden(text: &str) -> Vec<Vec<u8>> {
         .collect()
 }
 
-const GOLDEN_V2: &str = include_str!("../../ww_tape/golden/v2.hex");
-const GOLDEN_CHUNKS: &str = include_str!("../../ww_tape/golden/v2-chunks.hex");
-const GOLDEN_INDEX: &str = include_str!("../../ww_tape/golden/v2-index.hex");
-const GOLDEN_PAYLOADS: &str = include_str!("../../ww_tape/golden/v2-payloads.hex");
-const GOLDEN_SAMPLES: &str = include_str!("../../ww_tape/golden/v2-samples.hex");
-const GOLDEN_SERIES: &str = include_str!("../../ww_tape/golden/v2-series.hex");
-const GOLDEN_SUMMARY: &str = include_str!("../../ww_tape/golden/v2-summary.hex");
-const GOLDEN_TIMES: &str = include_str!("../../ww_tape/golden/v2-times.hex");
+const GOLDEN_V1: &str = include_str!("../../ww_tape/golden/v1.hex");
+const GOLDEN_CHUNKS: &str = include_str!("../../ww_tape/golden/v1-chunks.hex");
+const GOLDEN_INDEX: &str = include_str!("../../ww_tape/golden/v1-index.hex");
+const GOLDEN_PAYLOADS: &str = include_str!("../../ww_tape/golden/v1-payloads.hex");
+const GOLDEN_SAMPLES: &str = include_str!("../../ww_tape/golden/v1-samples.hex");
+const GOLDEN_SERIES: &str = include_str!("../../ww_tape/golden/v1-series.hex");
+const GOLDEN_SUMMARY: &str = include_str!("../../ww_tape/golden/v1-summary.hex");
+const GOLDEN_TIMES: &str = include_str!("../../ww_tape/golden/v1-times.hex");
 
 /// Each block of a golden file as a seed of `target`.
 fn golden_blocks(target: &'static str, file: &str, text: &str) -> Vec<Seed> {
@@ -138,7 +137,7 @@ fn golden_samples() -> Vec<Seed> {
         b.extend_from_slice(&count.to_le_bytes());
         b.extend_from_slice(&0u16.to_le_bytes());
         b.extend(unhex(hex.trim()));
-        out.push(seed("tape-samples", format!("golden-v2-samples-{i:02}"), b));
+        out.push(seed("tape-samples", format!("golden-v1-samples-{i:02}"), b));
     }
     out
 }
@@ -161,7 +160,7 @@ fn golden_series() -> Vec<Seed> {
             let n = out.len();
             out.push(seed(
                 "tape-series",
-                format!("golden-v2-series-{name}-{n:02}"),
+                format!("golden-v1-series-{name}-{n:02}"),
                 r.item.to_vec(),
             ));
         }
@@ -302,7 +301,6 @@ fn finish_only(final_index: u64, piece_len: Option<u64>) -> Vec<u8> {
         hash: ContentHash([0; 32]),
         checkpoint: None,
         final_index: Some(final_index),
-        describe: None,
         ident: None,
         next: None,
     };
@@ -350,20 +348,22 @@ fn records(id: BlockId) -> Vec<u8> {
     buf[..len].to_vec()
 }
 
-fn describe(id: BlockId, layout: Layout, flags: u16) -> Vec<u8> {
-    let mut items = [[0u8; 64]; 2];
-    let [a, b] = &mut items;
-    let producer = Describe::Producer(Producer { name: "media" })
-        .to_ww_bytes(a)
-        .expect("a producer encodes");
-    let layout = Describe::Layout(layout)
-        .to_ww_bytes(b)
-        .expect("a layout encodes");
+/// A track-0 item: `d` encoded.
+fn definition(d: &Describe<'_>) -> Vec<u8> {
+    ww_tape::open::encode(d).expect("encodes")
+}
+
+/// A block of definitions: a producer and `layout`; with `put`, a block of puts (FLAG_REPEAT).
+fn describe(id: BlockId, layout: Layout, put: bool) -> Vec<u8> {
     let mut buf = [0u8; 256];
-    let mut w = BlockWriter::new(&mut buf, BlockKind::Describe, id, &[]).expect("a block");
-    w.push_describe(&[producer]).expect("fits");
-    w.push_describe(&[layout]).expect("fits");
-    w.set_flags(flags);
+    let mut w = BlockWriter::new(&mut buf, BlockKind::Records, id, &[]).expect("a block");
+    if put {
+        w.set_flags(FLAG_REPEAT);
+    }
+    let producer = definition(&Describe::Producer(Producer { name: "media" }));
+    w.push_describe(&[&producer]).expect("fits");
+    w.push_describe(&[&definition(&Describe::Layout(layout))])
+        .expect("fits");
     let len = w.finish();
     buf[..len].to_vec()
 }
@@ -376,7 +376,7 @@ fn layout(gap_max: u32, resume_align: u32) -> Layout {
     }
 }
 
-/// A session on a medium: a piece head, a describe block with `layout`, then `n` records blocks.
+/// A session on a medium: a piece head, a block of definitions with `layout`, then `n` records blocks.
 fn session(layout: Layout, n: u64) -> Vec<u8> {
     let mut out = vec![0u8; piece_head_len(0)];
     let head = PieceHead {
@@ -390,15 +390,14 @@ fn session(layout: Layout, n: u64) -> Vec<u8> {
     };
     let len = write_piece_head(&mut out, BlockId::new(SESSION, 0), &head, &[]).expect("a head");
     out.truncate(len);
-    let first_last = FLAG_SET_FIRST | ww_tape::FLAG_SET_LAST;
-    out.extend(describe(BlockId::new(SESSION, 0), layout, first_last));
-    for seq in 0..n {
+    out.extend(describe(BlockId::new(SESSION, 0), layout, false));
+    for seq in 1..=n {
         out.extend(records(BlockId::new(SESSION, seq)));
     }
     out
 }
 
-/// fix 74e52ec33, 23ceb1731, 4205a405e and the describe set and gap fixes: media with gaps, erased space, stale
+/// fix 74e52ec33, 23ceb1731, 4205a405e and the definitions and gap fixes: media with gaps, erased space, stale
 /// blocks and layouts past the limits.
 fn media_fixes() -> Vec<Seed> {
     let mut out = vec![];
@@ -409,7 +408,7 @@ fn media_fixes() -> Vec<Seed> {
         ("probes-past-max", layout(GAP_PROBES_MAX + 1, 1)),
         ("resume-align-0", layout(512, 0)),
     ] {
-        let mut b = describe(BlockId::new(SESSION, 0), l, 0);
+        let mut b = describe(BlockId::new(SESSION, 0), l, false);
         b.push(0x41);
         out.push(seed(
             "tape-reader",
@@ -452,10 +451,10 @@ fn media_fixes() -> Vec<Seed> {
         self_offset: b.len() as u64,
         prev: None,
     };
-    let n = write_index(&mut ix, BlockId::new(SESSION, 19), &head, &entries).expect("an index");
+    let n = write_index(&mut ix, BlockId::new(SESSION, 20), &head, &entries).expect("an index");
     b.extend_from_slice(&ix[..n]);
     b.extend_from_slice(&[0; 512]);
-    for seq in 20..25 {
+    for seq in 21..26 {
         b.extend(records(BlockId::new(SESSION, seq)));
     }
     out.push(seed(
@@ -464,19 +463,15 @@ fn media_fixes() -> Vec<Seed> {
         b.clone(),
     ));
     out.push(seed("tape-index", "fix-4205a405e-gap-after-checkpoint", b));
-    // part of a describe set: a block marked first and no block marked last
-    let mut b = describe(BlockId::new(SESSION, 0), layout(4096, 512), FLAG_SET_FIRST);
+    // the layout only in a block of puts, before the first counted block
+    let mut b = describe(BlockId::new(SESSION, 0), layout(4096, 512), true);
     b.extend(records(BlockId::new(SESSION, 0)));
-    out.push(seed(
-        "tape-reader",
-        "fix-47ab14ea2-part-of-a-describe-set",
-        b,
-    ));
+    out.push(seed("tape-reader", "layout-put-before-data", b));
     // a block written again after a gap
     let mut b = session(layout(4096, 512), 3);
     b.resize(b.len().next_multiple_of(512) + 512, 0);
-    b.extend(records(BlockId::new(SESSION, 2)));
     b.extend(records(BlockId::new(SESSION, 3)));
+    b.extend(records(BlockId::new(SESSION, 4)));
     out.push(seed(
         "tape-reader",
         "fix-67e392294-duplicate-after-a-gap",
@@ -486,7 +481,7 @@ fn media_fixes() -> Vec<Seed> {
 }
 
 /// Inputs of `tape-resume`: each template piece whole, cut halfway, and cut with a flipped byte in its head
-/// describe set; then a stream.
+/// definitions; then a stream.
 fn resume_seeds() -> Vec<Seed> {
     let mut out = vec![];
     for mode in 0..4u8 {
@@ -498,7 +493,7 @@ fn resume_seeds() -> Vec<Seed> {
         ));
         out.push(seed(
             "tape-resume",
-            format!("mode{mode}-head-describe-flipped"),
+            format!("mode{mode}-head-definitions-flipped"),
             vec![mode, 0x00, 0x30, 0xc8, 0x00, 0x01],
         ));
     }
@@ -527,32 +522,32 @@ fn stream(target: &'static str, mut x: u64) -> Vec<Seed> {
 pub fn all() -> Vec<Seed> {
     let mut out = vec![];
     let concat = |text: &str| golden(text).concat();
-    out.push(seed("tape-reader", "golden-v2-file", concat(GOLDEN_V2)));
+    out.push(seed("tape-reader", "golden-v1-file", concat(GOLDEN_V1)));
     out.push(seed(
         "tape-reader",
-        "golden-v2-index-piece",
+        "golden-v1-index-piece",
         concat(GOLDEN_INDEX),
     ));
     out.extend(media_fixes());
     out.extend(resume_seeds());
-    out.extend(golden_blocks("tape-chunk", "v2-chunks", GOLDEN_CHUNKS));
-    out.extend(golden_blocks("tape-index", "v2-index", GOLDEN_INDEX));
+    out.extend(golden_blocks("tape-chunk", "v1-chunks", GOLDEN_CHUNKS));
+    out.extend(golden_blocks("tape-index", "v1-index", GOLDEN_INDEX));
     out.push(seed(
         "tape-index",
-        "golden-v2-index-piece",
+        "golden-v1-index-piece",
         concat(GOLDEN_INDEX),
     ));
     out.extend(index_fixes());
     out.extend(golden_blocks(
         "tape-payloads",
-        "v2-payloads",
+        "v1-payloads",
         GOLDEN_PAYLOADS,
     ));
     out.extend(golden_samples());
     out.extend(lz4_fixes());
     out.extend(golden_series());
-    out.extend(golden_blocks("tape-summary", "v2-summary", GOLDEN_SUMMARY));
-    out.extend(golden_blocks("tape-times", "v2-times", GOLDEN_TIMES));
+    out.extend(golden_blocks("tape-summary", "v1-summary", GOLDEN_SUMMARY));
+    out.extend(golden_blocks("tape-times", "v1-times", GOLDEN_TIMES));
     out.extend(times_fixes());
     for (i, (name, _)) in crate::targets::ALL.iter().enumerate() {
         if name.ends_with("-hostile") {

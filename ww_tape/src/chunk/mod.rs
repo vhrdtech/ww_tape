@@ -11,7 +11,7 @@
 //!  28 u32  head CRC: CRC-32C over bytes 0..28, then 32..payload offset
 //!  32 u32  payload offset from the block start (in an aligned file a multiple of the alignment in the file)
 //!  36 u32  track number (TrackDef::number)
-//!  40 u64  track id, the identity hash of the track (TrackDef::id): the chunk places itself without the describe set
+//!  40 u64  track id, the identity hash of the track (TrackDef::id): the chunk places itself without the definitions
 //!  48 u64  first item number of the track (sample index in a series)
 //!  56 i64  first tick: the first item's start (the first sample's tick)
 //!  64 i64  last tick: the last item's start (the last sample's tick); at least the first

@@ -6,8 +6,8 @@ use shrink_wrap::prelude::*;
 use super::*;
 use crate::summary::{SeriesStats, SeriesSummarySpec};
 use crate::{
-    BlockKind, Describe, DescribeError, DescribeSet, Dimension, EndMode, Ends, EventsDef,
-    FullVersion, TrackDef, TrackKind, Version,
+    BlockKind, Describe, DescribeError, Dimension, EndMode, Ends, EventsDef, FullVersion, TrackDef,
+    TrackKind, Version,
 };
 
 /// 48 kHz on a 1 ns clock.
@@ -134,7 +134,7 @@ fn bad_defs_are_refused_on_decode() {
     }
 }
 
-fn track(kind: TrackKind<'static>, sticky: bool) -> TrackDef<'static> {
+fn track(kind: TrackKind<'static>, state: bool) -> TrackDef<'static> {
     TrackDef {
         number: UNib32(2),
         key: 0x5e71e5,
@@ -153,7 +153,11 @@ fn track(kind: TrackKind<'static>, sticky: bool) -> TrackDef<'static> {
         keys: RefVec::Slice { slice: &[] },
         item: None,
         label: "phase[a].current",
-        sticky,
+        repeat: if state {
+            crate::TrackRepeat::STATE
+        } else {
+            crate::TrackRepeat::Stream
+        },
         kind,
     }
 }
@@ -181,15 +185,14 @@ fn track_kind_round_trips_and_is_checked() {
     assert!(!Ends::Instants.allows(EndMode::Durations));
     assert!(Ends::Spans.allows(EndMode::NextStart));
 
-    let not_sticky = track(TrackKind::Series(def()), false);
+    let not_state = track(TrackKind::Series(def()), false);
     let with_item = TrackDef {
         item: Some(sample_type()),
         ..t.clone()
     };
-    for t in [not_sticky, with_item] {
-        let mut set = DescribeSet::new();
+    for t in [not_state, with_item] {
         assert!(matches!(
-            set.insert(&Describe::Track(t)),
+            crate::open::check_definition(&Describe::Track(t)),
             Err(DescribeError::Kind { track: 2, .. })
         ));
     }

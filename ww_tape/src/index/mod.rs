@@ -1,7 +1,7 @@
 //! Index blocks: where the blocks of a tape piece are, without a scan.
 //!
 //! An index block ([BlockKind::Index]) is a checkpoint: it lists every block placed since the previous index block
-//! of the piece, chunk, summary, record and describe blocks alike, and points back at that previous one, so the
+//! of the piece, chunk, summary and record blocks alike, and points back at that previous one, so the
 //! chain from the newest checkpoint reaches every block. A writer places one every few MiB ([IndexPolicy]); after a
 //! crash a reader finds the newest one from the end of the file and scans only the stretch after it. At the finish
 //! a **final** index lists every block of the piece again, sorted by track, with a directory of tracks in its head:
@@ -20,25 +20,40 @@
 //!  40 u64  self offset: where this block starts in the piece
 //!  48 u64  previous index block of the piece (a checkpoint's previous checkpoint, a final block's previous final
 //!          block), u64::MAX for none
-//!  56 u16  flags: bit 0 final (entries sorted by track id, then offset; a directory of tracks follows)
+//!  56 u16  flags: bit 0 final (entries sorted by track id, then offset, state records of one block in block order; a directory
+//!          of tracks follows)
 //!  58 u16  entry length, 72 (a reader takes longer entries and reads their first 72 bytes)
 //!  60 ...  n × track: id u64, first entry u32, entry count u32, CRC-32C of its entries u32, reserved u32
 //!  ...     entries, each:
 //!            0 u64 offset of the block in the piece    8 u32 its length        12 u8 its block kind
-//!           13 u8  summary level (0 for other kinds)   14 u8 summary tree      15 u8 reserved
-//!           16 u64 track id (0: none)                 24 u32 track number      28 u32 reserved
+//!           13 u8  summary level (0 for other kinds)   14 u8 summary tree      15 u8 flags: bit 0 repeat
+//!           16 u64 track id (0: none)                 24 u32 track number      28 u32 0 (a state record's below)
 //!           32 u64 first item number                  40 u64 items (samples, records)
 //!           48 i64 first tick                         56 i64 last tick         64 i64 latest end
 //! len-4 u32 CRC over bytes 0..len-4, as in every block
 //! ```
 //!
-//! Record and describe blocks have no track id, item numbers or ticks (their records may be on many tracks and
-//! clocks); their entry says where they are and how many records they hold. The final index lists them under track
-//! id 0. A final index longer than [INDEX_LEN_MAX] is several final blocks, chained like checkpoints, each holding
-//! whole tracks in ascending track id order.
+//! Record blocks of data have no track id, item numbers or ticks (their records may be on many tracks and clocks);
+//! their entry says where they are and how many records they hold, under track id 0. A block of state records (a
+//! block of definitions, its first record on track 0, or any block marked [FLAG_REPEAT](crate::FLAG_REPEAT)) gets
+//! one entry per record instead, under [STATE_TRACK_ID], so a reader finds the item in force at a place, or an item
+//! by its hash, without reading the blocks ([state](crate::state)):
+//!
+//! ```text
+//!  13 u8  the record's slot: 0 a state track's record, else what it defines (DefinitionKind)
+//!  15 u8  bit 0: the block is marked FLAG_REPEAT
+//!  24 u32 the state track, or the number the definition defines (a track's, a clock's, a map's from clock)
+//!  28 u32 a map's to clock, else 0
+//!  32 u64 0, reserved for the record's item number       40 u64 0, reserved
+//!  48 16 bytes the item's hash (ItemHash)                 64 i64 the record's time in ticks, 0 on track 0
+//! ```
+//!
+//! A final index longer than [INDEX_LEN_MAX] is several final blocks, chained like checkpoints, each holding whole
+//! tracks in ascending track id order.
 
 use crate::bytes::{file_u16, file_u32, le_u16, le_u32, le_u64};
 use crate::chunk::u32_len;
+use crate::state::{ItemHash, Slot};
 use crate::{
     Block, BlockError, BlockId, BlockKind, BoundError, CRC, CRC_LEN, ChunkHead, HEADER_LEN,
     MAX_BLOCK_LEN, VERSION, put_header,
@@ -58,6 +73,11 @@ pub const INDEX_LEN_MAX: usize = 1 << 20;
 /// Most entries in a checkpoint index block.
 pub const CHECKPOINT_ENTRIES_MAX: usize =
     (INDEX_LEN_MAX - HEADER_LEN - INDEX_FIXED_LEN - CRC_LEN) / ENTRY_LEN;
+/// The track id the index lists state records under, one entry each: no track's identity hash, by convention (a
+/// hash of all ones is as likely as any other, and would share the list).
+pub const STATE_TRACK_ID: u64 = u64::MAX;
+/// Bit 0 of an entry's byte 15: the block is marked [FLAG_REPEAT](crate::FLAG_REPEAT).
+const ENTRY_REPEAT: u8 = 1;
 /// Offset that means none.
 pub const NONE: u64 = u64::MAX;
 
@@ -69,10 +89,10 @@ const DIR_AT: usize = HEADER_LEN + INDEX_FIXED_LEN;
 /// Shortest block an entry may name: a header and a CRC.
 const BLOCK_LEN_MIN: usize = HEADER_LEN + CRC_LEN;
 
-/// Whether blocks of `kind` belong to the file structure (index, finish, tail, piece head): they carry the seq of
-/// the last counted block before them and take no part in the seq order, so seq stays the producer's count of its
-/// own blocks. A reader checks neither order nor gaps on them. Describe blocks a writer repeats are stamped the
-/// same way.
+/// Whether blocks of `kind` belong to the file structure (index, finish, tail, piece head): they carry the seq of the
+/// last counted block before them and take no part in the seq order, so seq stays the producer's count of its own
+/// blocks. A reader checks neither order nor gaps on them. Blocks marked [FLAG_REPEAT](crate::FLAG_REPEAT) are stamped
+/// the same way.
 pub fn is_structural(kind: BlockKind) -> bool {
     matches!(
         kind,
@@ -92,21 +112,115 @@ pub struct IndexEntry {
     pub level: u8,
     /// A summary block's tree (1 events, 2 series), else 0.
     pub tree: u8,
-    /// The track's identity hash ([TrackDef::id](crate::TrackDef::id)); 0 for record and describe blocks.
+    /// The track's identity hash ([TrackDef::id](crate::TrackDef::id)); 0 for record blocks of data,
+    /// [STATE_TRACK_ID] for a state record.
     pub track_id: u64,
     pub track_number: u32,
+    /// A state record's second number ([IndexEntry::state]), else 0.
+    pub second: u32,
     /// First item number (sample index) the block holds or covers.
     pub first_item: u64,
-    /// Items (samples) the block holds or covers; records of a record or describe block.
+    /// Items (samples) the block holds or covers; records of a record block.
     pub count: u64,
     pub first_tick: i64,
     pub last_tick: i64,
     pub latest_end: i64,
+    /// The block is marked [FLAG_REPEAT](crate::FLAG_REPEAT).
+    pub repeat: bool,
+}
+
+/// What an index entry of a state record says, see the [module docs](self).
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct StateEntry {
+    pub slot: Slot,
+    pub hash: ItemHash,
+    /// The record's time in ticks of its track's clock, 0 on track 0.
+    pub ticks: i64,
 }
 
 impl IndexEntry {
+    /// The entries of the good block `block` at `offset` in its piece: one per record of a block of state records,
+    /// else one ([Self::of_block]).
+    #[cfg(feature = "alloc")]
+    pub fn all_of_block(offset: u64, block: &Block<'_>) -> alloc::vec::Vec<Self> {
+        let Some(e) = Self::of_block(offset, block) else {
+            return alloc::vec::Vec::new();
+        };
+        if block.kind != BlockKind::Records || !block.body_known() {
+            return alloc::vec![e];
+        }
+        let mut buf = alloc::vec::Vec::new();
+        let Ok(b) = block.decode(&mut buf) else {
+            return alloc::vec![e];
+        };
+        if !b.is_repeat() && b.first_track() != Some(crate::DESCRIBE_TRACK) {
+            return alloc::vec![e];
+        }
+        let mut out = alloc::vec::Vec::new();
+        for r in b.records() {
+            // a record that doesn't read ends the block's records
+            let Ok(r) = r else { break };
+            let Some(slot) = Slot::of(r.track, r.item) else {
+                continue;
+            };
+            let state = StateEntry {
+                slot,
+                hash: ItemHash::of(r.item),
+                ticks: r.at.map_or(0, |at| at.ticks),
+            };
+            out.push(e.with_state(&state));
+        }
+        out
+    }
+
+    /// This entry of a block, listing the state record `s` in it.
+    fn with_state(&self, s: &StateEntry) -> Self {
+        let (level, number, second) = s.slot.code();
+        let mut halves = [[0u8; 8]; 2];
+        for (d, b) in halves.iter_mut().flatten().zip(s.hash.0) {
+            *d = b;
+        }
+        let [a, b] = halves.map(i64::from_le_bytes);
+        IndexEntry {
+            level,
+            tree: 0,
+            track_id: STATE_TRACK_ID,
+            track_number: number,
+            second,
+            first_item: 0,
+            count: 0,
+            first_tick: a,
+            last_tick: b,
+            latest_end: s.ticks,
+            ..*self
+        }
+    }
+
+    /// The state record this entry lists, None for an entry of a block.
+    pub fn state(&self) -> Option<StateEntry> {
+        if self.track_id != STATE_TRACK_ID || self.kind != BlockKind::Records {
+            return None;
+        }
+        let mut hash = [0u8; crate::state::ITEM_HASH_LEN];
+        let halves = self
+            .first_tick
+            .to_le_bytes()
+            .into_iter()
+            .chain(self.last_tick.to_le_bytes());
+        for (d, s) in hash.iter_mut().zip(halves) {
+            *d = s;
+        }
+        let hash = ItemHash(hash);
+        Some(StateEntry {
+            slot: Slot::from_code(self.level, self.track_number, self.second, hash)?,
+            hash,
+            ticks: self.latest_end,
+        })
+    }
+
     /// The entry of the good block `bytes` at `offset` in its piece; None for blocks an index doesn't list (index,
-    /// finish, tail, piece head and parity blocks).
+    /// finish, tail, piece head and parity blocks). A block of state records is listed per record:
+    /// [Self::all_of_block].
     pub fn of_block(offset: u64, block: &Block<'_>) -> Option<Self> {
         let bytes = block.bytes();
         // a Block is at most MAX_BLOCK_LEN long: its length fits a u32
@@ -119,11 +233,13 @@ impl IndexEntry {
             tree: 0,
             track_id: 0,
             track_number: 0,
+            second: 0,
             first_item: 0,
             count: u64::from(block.record_count),
             first_tick: 0,
             last_tick: 0,
             latest_end: 0,
+            repeat: false,
         };
         match block.kind {
             BlockKind::Index
@@ -150,6 +266,7 @@ impl IndexEntry {
                     e.latest_end = h.latest_end;
                 }
             }
+            BlockKind::Records => e.repeat = block.is_repeat(),
             _ => {}
         }
         Some(e)
@@ -168,12 +285,26 @@ impl IndexEntry {
             tree: 0,
             track_id: head.track_id,
             track_number: head.track_number,
+            second: 0,
             first_item: head.first_item,
             count: u64::from(head.count),
             first_tick: head.first_tick,
             last_tick: head.last_tick,
             latest_end: head.latest_end,
+            repeat: false,
         })
+    }
+
+    /// Where the entry goes in a final index: by track id, then offset. The state records of one block share both
+    /// and keep their block order (a stable sort).
+    pub(crate) fn order(&self) -> (u64, u64) {
+        (self.track_id, self.offset)
+    }
+
+    /// Whether `next` may follow this entry in a final index: a later place, or the next state record of one block.
+    pub(crate) fn precedes(&self, next: &Self) -> bool {
+        self.order() < next.order()
+            || (self.order() == next.order() && self.track_id == STATE_TRACK_ID)
     }
 
     /// Item numbers past the last one the block holds.
@@ -188,10 +319,15 @@ impl IndexEntry {
             .to_le_bytes()
             .into_iter()
             .chain(self.len.to_le_bytes())
-            .chain([self.kind.to_u8(), self.level, self.tree, 0])
+            .chain([
+                self.kind.to_u8(),
+                self.level,
+                self.tree,
+                if self.repeat { ENTRY_REPEAT } else { 0 },
+            ])
             .chain(self.track_id.to_le_bytes())
             .chain(self.track_number.to_le_bytes())
-            .chain([0; 4])
+            .chain(self.second.to_le_bytes())
             .chain(self.first_item.to_le_bytes())
             .chain(self.count.to_le_bytes())
             .chain(self.first_tick.to_le_bytes())
@@ -207,8 +343,8 @@ impl IndexEntry {
     pub fn decode(b: &[u8; ENTRY_LEN]) -> Self {
         #[rustfmt::skip]
         let [
-            o0, o1, o2, o3, o4, o5, o6, o7, l0, l1, l2, l3, kind, level, tree, _,
-            t0, t1, t2, t3, t4, t5, t6, t7, n0, n1, n2, n3, _, _, _, _,
+            o0, o1, o2, o3, o4, o5, o6, o7, l0, l1, l2, l3, kind, level, tree, flags,
+            t0, t1, t2, t3, t4, t5, t6, t7, n0, n1, n2, n3, r0, r1, r2, r3,
             i0, i1, i2, i3, i4, i5, i6, i7, c0, c1, c2, c3, c4, c5, c6, c7,
             f0, f1, f2, f3, f4, f5, f6, f7, s0, s1, s2, s3, s4, s5, s6, s7,
             e0, e1, e2, e3, e4, e5, e6, e7,
@@ -221,11 +357,13 @@ impl IndexEntry {
             tree,
             track_id: u64::from_le_bytes([t0, t1, t2, t3, t4, t5, t6, t7]),
             track_number: u32::from_le_bytes([n0, n1, n2, n3]),
+            second: u32::from_le_bytes([r0, r1, r2, r3]),
             first_item: u64::from_le_bytes([i0, i1, i2, i3, i4, i5, i6, i7]),
             count: u64::from_le_bytes([c0, c1, c2, c3, c4, c5, c6, c7]),
             first_tick: i64::from_le_bytes([f0, f1, f2, f3, f4, f5, f6, f7]),
             last_tick: i64::from_le_bytes([s0, s1, s2, s3, s4, s5, s6, s7]),
             latest_end: i64::from_le_bytes([e0, e1, e2, e3, e4, e5, e6, e7]),
+            repeat: flags & ENTRY_REPEAT != 0,
         }
     }
 
@@ -320,6 +458,12 @@ pub enum IndexError {
     Invalid(&'static str),
     /// A count, length or offset of the head is over its bound.
     Bound(BoundError),
+    /// A write would list more than `max` state entries in the piece, which lists `used`
+    /// ([IndexPolicy::state_entries_max]): the piece is full of state records, a new piece takes them.
+    StateEntries {
+        max: usize,
+        used: usize,
+    },
 }
 
 impl From<BlockError> for IndexError {
@@ -384,7 +528,7 @@ fn head_crc(b: &[u8], entries_at: usize) -> Option<u32> {
 }
 
 /// Write an index block listing `entries` into `buf`; returns its length ([index_len]). A final index's entries
-/// must be sorted by track id, then offset.
+/// must be sorted by track id, then offset, the state records of one block in block order.
 pub fn write_index(
     buf: &mut [u8],
     id: BlockId,
@@ -396,7 +540,7 @@ pub fn write_index(
         IndexKind::Final => {
             if entries
                 .windows(2)
-                .any(|w| matches!(w, [a, b] if (a.track_id, a.offset) >= (b.track_id, b.offset)))
+                .any(|w| matches!(w, [a, b] if !a.precedes(b)))
             {
                 return Err(IndexError::Invalid(
                     "final index not sorted by track and offset",
@@ -735,13 +879,20 @@ pub struct IndexPolicy {
     /// Also when blocks wait unlisted and the previous checkpoint is this long ago, at a block or a writer's tick;
     /// None by default, since a checkpoint placed by time makes the bytes depend on it.
     pub interval: Option<core::time::Duration>,
+    /// Most state entries a piece lists, one per state record ([STATE_ENTRIES_MAX]): a write that would list more
+    /// is refused ([IndexError::StateEntries]).
+    pub state_entries_max: usize,
 }
+
+/// State entries a piece lists by default ([IndexPolicy::state_entries_max]): 72 MiB of final index.
+pub const STATE_ENTRIES_MAX: usize = 1 << 20;
 
 impl IndexPolicy {
     /// No checkpoints; the final index is still written at the finish.
     pub const NONE: IndexPolicy = IndexPolicy {
         bytes: 0,
         interval: None,
+        state_entries_max: STATE_ENTRIES_MAX,
     };
 }
 
@@ -750,6 +901,7 @@ impl Default for IndexPolicy {
         IndexPolicy {
             bytes: DEFAULT_CHECKPOINT_BYTES,
             interval: None,
+            state_entries_max: STATE_ENTRIES_MAX,
         }
     }
 }

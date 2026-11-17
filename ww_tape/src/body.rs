@@ -1,4 +1,4 @@
-//! Coded bodies of records and describe blocks ([crate::FLAG_BODY_CODED]).
+//! Coded bodies of record blocks ([crate::FLAG_BODY_CODED]).
 //!
 //! ```text
 //! u8    codec (BodyCodec): 0 stored, 1 lz4 block
@@ -82,7 +82,7 @@ pub(crate) fn coded(body: &[u8]) -> Option<Coded<'_>> {
 pub enum CodeError {
     /// The input is not one good block.
     Block(BlockError),
-    /// Only records and describe blocks of this version, not yet coded, are coded.
+    /// Only record blocks of this version, not yet coded, are coded.
     NotRecords,
     /// A codec this writer doesn't have.
     UnknownCodec(BodyCodec),
@@ -101,7 +101,7 @@ pub const fn coded_len_max(len: usize) -> usize {
         .saturating_add(lz4_flex::block::get_maximum_output_size(len))
 }
 
-/// Write the records or describe block `block` with its body coded by `codec` into `out` (at least
+/// Write the records block `block` with its body coded by `codec` into `out` (at least
 /// [coded_len_max] bytes); returns the bytes written. When lz4 does not shrink the block, the block is written as
 /// it is, not coded. The session, seq, other flags and record count stay.
 pub fn code_body(block: &[u8], codec: BodyCodec, out: &mut [u8]) -> Result<usize, CodeError> {
@@ -112,7 +112,7 @@ pub fn code_body(block: &[u8], codec: BodyCodec, out: &mut [u8]) -> Result<usize
     if b.len() != block.len() {
         return Err(bad_length);
     }
-    let records = matches!(b.kind, BlockKind::Records | BlockKind::Describe);
+    let records = b.kind == BlockKind::Records;
     if !(records && b.body_known() && b.body_codec().is_none()) {
         return Err(CodeError::NotRecords);
     }
@@ -221,7 +221,7 @@ pub(crate) fn decode_into<'d>(
 mod tests {
     use super::*;
     use crate::tests::id;
-    use crate::{BlockWriter, ClockTime, FLAG_COPY, Record, mark_copy};
+    use crate::{BlockWriter, ClockTime, FLAG_REPEAT, Record, mark_repeat};
 
     /// A records block of `n` alike records.
     fn records_block(n: u32) -> Vec<u8> {
@@ -282,11 +282,11 @@ mod tests {
         let d = b.decode(&mut buf).unwrap();
         assert_eq!((d.body_codec(), d.flags, d.len()), (None, 0, plain.len()));
         assert_eq!(records(&d), want);
-        // a copy mark set later keeps the body coded
+        // a repeat mark set later keeps the body coded
         let mut copy = coded.clone();
-        mark_copy(&mut copy, id(9)).unwrap();
+        mark_repeat(&mut copy, id(9)).unwrap();
         let c = Block::read(&copy).unwrap();
-        assert_eq!(c.flags, FLAG_BODY_CODED | FLAG_COPY);
+        assert_eq!(c.flags, FLAG_BODY_CODED | FLAG_REPEAT);
         assert_eq!(records(&c.decode(&mut buf).unwrap()), want);
     }
 
@@ -413,15 +413,12 @@ mod tests {
     }
 
     #[test]
-    fn a_coded_describe_block_gives_its_layout_to_a_walk() {
-        use shrink_wrap::prelude::*;
+    fn a_coded_block_of_definitions_gives_its_layout_to_a_walk() {
         let layout = crate::Layout::ALIGNED.on_sd_card();
-        let item = crate::Describe::Layout(layout)
-            .to_ww_bytes(&mut [0u8; 64])
-            .unwrap()
-            .to_vec();
+        let d = crate::Describe::Layout(layout);
+        let item = crate::open::encode(&d).unwrap();
         let mut buf = vec![0u8; 4096];
-        let mut w = BlockWriter::new(&mut buf, BlockKind::Describe, id(0), &[]).unwrap();
+        let mut w = BlockWriter::new(&mut buf, BlockKind::Records, id(0), &[]).unwrap();
         for _ in 0..20 {
             w.push_describe(&[&item]).unwrap();
         }

@@ -17,6 +17,7 @@ mod payloads;
 mod records;
 mod samples;
 mod series;
+mod state;
 mod summary;
 mod times;
 
@@ -28,10 +29,18 @@ pub use records::records;
 pub(crate) use samples::CODECS;
 pub use samples::samples;
 pub use series::series;
+pub use state::{Attacked, attacked as state_attacked, state, state_template};
+pub(crate) use state::{
+    STATES, definitions as state_definitions, options as state_options, records as state_records,
+};
 pub use summary::summary;
 pub use times::times;
 
-use ww_tape::{BlockId, BlockKind, BlockWriter, ClockTime, SessionTag};
+use shrink_wrap::prelude::UNib32;
+use ww_tape::{
+    BlockId, BlockKind, BlockWriter, ClockDef, ClockOrigin, ClockTime, Describe, Magnitude,
+    SessionTag,
+};
 
 /// The session every hostile block is written in.
 pub(crate) const SESSION: SessionTag = SessionTag::writable(0x5eed);
@@ -242,17 +251,34 @@ pub(crate) fn span(b: &[u8], from: usize, to: usize) -> Option<&[u8]> {
     b.get(from..to)
 }
 
-/// A describe block holding `items` as describe records, marked a whole set.
+/// A block of definitions holding `items` as records on track 0.
 pub(crate) fn describe_block(id: BlockId, items: &[&[u8]]) -> Vec<u8> {
     let mut buf = vec![0u8; 4096];
-    let mut w = BlockWriter::new(&mut buf, BlockKind::Describe, id, &[]).expect("a describe block");
+    let mut w =
+        BlockWriter::new(&mut buf, BlockKind::Records, id, &[]).expect("a block of definitions");
     for item in items {
         w.push_describe(&[item]).expect("items fit 4 KiB");
     }
-    w.set_flags(ww_tape::FLAG_SET_FIRST | ww_tape::FLAG_SET_LAST);
     let n = w.finish();
     buf.truncate(n);
     buf
+}
+
+/// `d` as a track-0 item, empty when it doesn't encode.
+pub(crate) fn definition(d: &Describe<'_>) -> Vec<u8> {
+    ww_tape::open::encode(d).unwrap_or_default()
+}
+
+/// The definition of clock 1, which the drawn tracks run on.
+pub(crate) fn clock_item() -> Vec<u8> {
+    definition(&Describe::Clock(ClockDef {
+        number: UNib32(1),
+        key: 1,
+        rate: Magnitude::pow10(9).into(),
+        resolution: Magnitude::pow10(-9).into(),
+        origin: ClockOrigin::Free,
+        label: "hostile",
+    }))
 }
 
 /// A records block of `records` (track, tick, item) on clock 1.

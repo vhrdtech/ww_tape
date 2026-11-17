@@ -10,9 +10,12 @@ use ww_tape_fuzz::targets;
 /// Inputs per decoder group: a block each.
 const CASES: usize = 1_000_000;
 /// Inputs of the positional reader: a piece of about 5 blocks each, so about 130,000 blocks. A piece costs about 230 us
-/// in the test profile (opened as a file and as a raw medium, every entry, block and describe set read, verified,
+/// in the test profile (opened as a file and as a raw medium, every entry, block and its definitions read, verified,
 /// walked four ways), most of it in blake3 and lz4_flex, which the test profile leaves unoptimized.
 const PIECES: usize = 25_000;
+/// Inputs of the state target: a piece of about 70 blocks each. One costs about 12 ms in the test profile (the
+/// lookups at four places, a resume, its finish and a content hash check).
+const STATE_PIECES: usize = 300;
 /// Bytes of each input: enough for every draw of a builder.
 const INPUT_LEN: usize = 96;
 /// Tests per stream: shard `k` runs the cases `k * cases / SHARDS .. (k + 1) * cases / SHARDS` of the one stream.
@@ -125,4 +128,5 @@ streams! {
     summary_hostile_stream: "tape-summary-hostile" => targets::summary_hostile, 0x3c6e_f372_fe94_f82b, CASES;
     index_hostile_stream: "tape-index-hostile" => targets::index_hostile, 0xa54f_f53a_5f1d_36f1, CASES;
     reader_hostile_stream: "tape-reader-hostile" => targets::reader_hostile, 0x510e_527f_ade6_82d1, PIECES;
+    state_hostile_stream: "tape-state-hostile" => targets::state_hostile, 0x9b05_688c_2b3e_6c1f, STATE_PIECES;
 }

@@ -2,11 +2,10 @@
 
 use core::num::NonZeroU64;
 
-use shrink_wrap::prelude::*;
-
 use crate::piece::PieceHeadBlock;
 use crate::{
-    Block, BlockKind, Describe, FLAG_COPY, HEADER_LEN, Layout, Medium, SessionTag, block_len,
+    Block, BlockKind, DESCRIBE_TRACK, Describe, FLAG_REPEAT, HEADER_LEN, Layout, Medium,
+    SessionTag, block_len,
 };
 
 /// Whether a good block met in a walk belongs to the data.
@@ -36,7 +35,7 @@ pub(crate) struct Head {
     kind: BlockKind,
     session: SessionTag,
     seq: u64,
-    copy: bool,
+    repeat: bool,
 }
 
 impl Head {
@@ -52,7 +51,7 @@ impl Head {
             kind: BlockKind::from_u8(kind),
             session: SessionTag::from_u32(session),
             seq,
-            copy: u16::from_le_bytes([f0, f1]) & FLAG_COPY != 0,
+            repeat: u16::from_le_bytes([f0, f1]) & FLAG_REPEAT != 0,
         })
     }
 }
@@ -81,7 +80,7 @@ impl SessionState {
         }
     }
 
-    /// Take `layout`'s gap rules (before any describe block says them, for a medium layer that knows them).
+    /// Take `layout`'s gap rules (before any definition says them, for a medium layer that knows them).
     ///
     /// # Panics
     ///
@@ -125,12 +124,13 @@ impl SessionState {
         }
     }
 
-    /// Whether `b`, of another session than `current`, may start a session here: on a file a describe block (another
-    /// producer session appended) or a piece head (concatenated pieces); on a raw medium only a piece head naming
-    /// `current` as the session before it.
+    /// Whether `b`, of another session than `current`, may start a session here: on a file a record block whose
+    /// first record is on track 0 (another producer session appended, starting with its definitions or a full
+    /// repeat) or a piece head (concatenated pieces); on a raw medium only a piece head naming `current` as the
+    /// session before it.
     fn starts_session(&self, b: &Block<'_>, current: SessionTag) -> bool {
         match self.medium {
-            Medium::File => matches!(b.kind, BlockKind::Describe | BlockKind::PieceHead),
+            Medium::File => b.kind == BlockKind::PieceHead || starts_with_definitions(b),
             Medium::Raw => {
                 b.kind == BlockKind::PieceHead
                     && PieceHeadBlock::read(b).is_ok_and(|h| h.head().prev_session == current)
@@ -138,7 +138,7 @@ impl SessionState {
         }
     }
 
-    /// Note `b`, taken: its session and seq, and the layout its describe records say.
+    /// Note `b`, taken: its session and seq, and the layout its track-0 records say.
     pub(crate) fn take(&mut self, b: &Block<'_>) {
         if self.session != Some(b.session) {
             self.session = Some(b.session);
@@ -172,11 +172,11 @@ impl SessionState {
         };
         if h.session != session {
             return match self.medium {
-                Medium::File => matches!(h.kind, BlockKind::Describe | BlockKind::PieceHead),
+                Medium::File => matches!(h.kind, BlockKind::Records | BlockKind::PieceHead),
                 Medium::Raw => h.kind == BlockKind::PieceHead,
             };
         }
-        if crate::index::is_structural(h.kind) || h.copy {
+        if crate::index::is_structural(h.kind) || h.repeat {
             return true;
         }
         self.last_seq.is_none_or(|after| h.seq >= after)
@@ -201,25 +201,39 @@ impl SessionState {
 }
 
 /// Whether `b` takes no part in the seq order: a block of the file structure (it carries the last counted seq) or a
-/// [copy](crate::FLAG_COPY) a writer made.
+/// block of puts and copies ([FLAG_REPEAT](crate::FLAG_REPEAT)).
 pub(crate) fn is_free(b: &Block<'_>) -> bool {
-    crate::index::is_structural(b.kind) || b.is_copy()
+    crate::index::is_structural(b.kind) || b.is_repeat()
 }
 
-/// The [Layout] a describe block says, the last one in it; None for any other block.
+/// Whether `b` is a record block whose first record is on track 0: definitions, made or put.
+pub(crate) fn starts_with_definitions(b: &Block<'_>) -> bool {
+    if b.kind != BlockKind::Records {
+        return false;
+    }
+    let mut buf = alloc::vec::Vec::new();
+    b.decode(&mut buf).ok().and_then(|d| d.first_track()) == Some(DESCRIBE_TRACK)
+}
+
+/// The [Layout] the track-0 records of record block `b` say, the last one in it; None for any other block.
 pub(crate) fn layout_in(b: &Block<'_>) -> Option<Layout> {
-    if b.kind != BlockKind::Describe {
+    if b.kind != BlockKind::Records {
         return None;
     }
     let mut buf = alloc::vec::Vec::new();
-    b.decode(&mut buf)
-        .ok()?
-        .records()
-        .filter_map(Result::ok)
-        .filter(|r| r.track == crate::DESCRIBE_TRACK)
-        .filter_map(|r| match Describe::from_ww_bytes(r.item) {
-            Ok(Describe::Layout(l)) => Some(l),
-            _ => None,
+    let d = b.decode(&mut buf).ok()?;
+    // a block of data holds no track-0 record: one look at its first
+    if d.first_track() != Some(DESCRIBE_TRACK) {
+        return None;
+    }
+    d.records()
+        .map_while(Result::ok)
+        .filter(|r| r.track == DESCRIBE_TRACK)
+        .filter_map(|r| {
+            match <Describe<'_> as shrink_wrap::DeserializeShrinkWrap>::from_ww_bytes(r.item) {
+                Ok(Describe::Layout(l)) => Some(l),
+                _ => None,
+            }
         })
         .last()
 }

@@ -685,7 +685,7 @@ fn golden_blocks() -> Vec<Vec<u8>> {
     out
 }
 
-/// The same times give the same bytes, and they are golden/v2-times.hex's (`WW_TAPE_GOLDEN=update` rewrites it):
+/// The same times give the same bytes, and they are golden/v1-times.hex's (`WW_TAPE_GOLDEN=update` rewrites it):
 /// one chunk block per line, in hex.
 #[test]
 fn times_deterministic_and_golden() {
@@ -698,15 +698,15 @@ fn times_deterministic_and_golden() {
         }
         hex.push('\n');
     }
-    let golden = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("golden/v2-times.hex");
+    let golden = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("golden/v1-times.hex");
     if std::env::var("WW_TAPE_GOLDEN").as_deref() == Ok("update") {
         std::fs::write(&golden, &hex).unwrap();
     }
     let want = std::fs::read_to_string(&golden)
-        .expect("golden/v2-times.hex: run with WW_TAPE_GOLDEN=update");
+        .expect("golden/v1-times.hex: run with WW_TAPE_GOLDEN=update");
     assert_eq!(
         hex, want,
-        "the format changed: bytes differ from golden/v2-times.hex"
+        "the format changed: bytes differ from golden/v1-times.hex"
     );
     // and the golden blocks read back to the workloads' starts
     let starts: Vec<Vec<i64>> = workloads()

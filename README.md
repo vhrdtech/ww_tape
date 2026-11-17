@@ -16,7 +16,7 @@ a raw medium such as an SD card in a data logger.
   was lost.
 
 `ww_tape` is `no_std` with the `alloc` feature for the positional reader (it builds for `wasm32-unknown-unknown`);
-`std` (the default) adds the writers, file reading and owned describe records. It depends on
+`std` (the default) adds the writers, file reading and owned definitions. It depends on
 [shrink_wrap](https://github.com/romixlab/shrink_wrap), [exact_units](https://github.com/romixlab/exact_units) and
 `ww_version` from [ww_base](https://github.com/vhrdtech/ww_base), and on nothing of the WireWeaver framework.
 
@@ -32,7 +32,7 @@ the book work there. The exact byte layouts are in the crate's module docs.
 
 | Path | What |
 | --- | --- |
-| `ww_tape/` | the format: blocks, describe records, chunks, codecs, summaries, index, pieces, writers and readers; `golden/` the golden files |
+| `ww_tape/` | the format: blocks, definitions and state on track 0, chunks, codecs, summaries, index, pieces, writers and readers; `golden/` the golden files |
 | `ww_tape_fuzz/` | fuzz target bodies, hostile block builders, the seed files (`seeds/`) and their replay as tests |
 | `ww_tape_benchmarks/` | the float sample codec and series summary benchmarks |
 | `fuzz/` | cargo-fuzz targets (`tape-*`), a workspace of its own on nightly |

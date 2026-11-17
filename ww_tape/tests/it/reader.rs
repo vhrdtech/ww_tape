@@ -35,7 +35,6 @@ fn finish_only(final_index: u64) -> Vec<u8> {
         hash: ContentHash([0; 32]),
         checkpoint: None,
         final_index: Some(final_index),
-        describe: None,
         ident: None,
         next: None,
     };
@@ -72,11 +71,13 @@ fn entry_past_the_piece_is_an_error() {
             tree: 0,
             track_id: 1,
             track_number: 1,
+            second: 0,
             first_item: 0,
             count: 0,
             first_tick: 0,
             last_tick: 0,
             latest_end: 0,
+            repeat: false,
         };
         assert!(
             matches!(
@@ -96,7 +97,7 @@ fn a_piece_number_past_the_pieces_is_an_error() {
     assert!(matches!(r.entries(n), Err(ReadError::NoPiece(i)) if i == n));
     assert!(matches!(r.track_entries(n, 0), Err(ReadError::NoPiece(_))));
     assert!(matches!(
-        r.describe_set(usize::MAX),
+        r.definitions_at(usize::MAX, 0),
         Err(ReadError::NoPiece(_))
     ));
     assert!(matches!(r.verify(n), Err(ReadError::NoPiece(_))));
@@ -114,11 +115,13 @@ fn an_entry_longer_than_any_block_is_refused_before_reading() {
         tree: 0,
         track_id: 1,
         track_number: 1,
+        second: 0,
         first_item: 0,
         count: 0,
         first_tick: 0,
         last_tick: 0,
         latest_end: 0,
+        repeat: false,
     };
     let mut buf = Vec::new();
     let e = r.read_block(0, &entry, &mut buf);

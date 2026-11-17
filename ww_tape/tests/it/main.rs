@@ -15,9 +15,12 @@
 )]
 //! Integration tests of ww_tape, through the public API.
 
-mod additions;
+mod checks;
+mod definitions;
 mod media;
+mod order;
 mod pieces;
+mod puts;
 mod reader;
 mod resume;
 mod series;

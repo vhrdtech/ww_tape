@@ -1,7 +1,7 @@
 //! Series tracks: the describe record of the track (shape, period, scale) and its segment records (first index,
-//! grid index, grid tick, scale, the record's time), in a describe block and a records block.
+//! grid index, grid tick, scale, the record's time), in a block of definitions and a records block.
 
-use super::{Draw, SESSION, describe_block, records_block};
+use super::{Draw, SESSION, clock_item, definition, describe_block, records_block};
 use shrink_wrap::prelude::*;
 use ww_tape::{
     BlockId, Describe, FullVersion, Magnitude, Ratio64, SampleShape, Segment, SeriesDef,
@@ -35,14 +35,10 @@ pub(crate) fn track_item(shape: SampleShape, period: Ratio64, scale: Magnitude) 
         keys: RefVec::Slice { slice: &[] },
         item: None,
         label: "hostile",
-        sticky: true,
+        repeat: ww_tape::TrackRepeat::STATE,
         kind: TrackKind::Series(def),
     });
-    let mut buf = [0u8; 256];
-    track
-        .to_ww_bytes(&mut buf)
-        .map(<[u8]>::to_vec)
-        .unwrap_or_default()
+    definition(&track)
 }
 
 /// A power of ten from the input, the extremes a magnitude holds (10^-63, 10^63) included.
@@ -64,7 +60,7 @@ fn period(d: &mut Draw<'_>) -> Ratio64 {
         .expect("parts above 0")
 }
 
-/// A describe block of a series track and a records block of its segments, whose indexes, grid ticks, scales,
+/// A block of definitions of a series track and a records block of its segments, whose indexes, grid ticks, scales,
 /// record times and period take hostile values.
 pub fn series(data: &[u8]) -> Vec<u8> {
     let mut d = Draw::new(data);
@@ -76,7 +72,7 @@ pub fn series(data: &[u8]) -> Vec<u8> {
         channels,
     };
     let item = track_item(shape, period, scale);
-    let mut out = describe_block(BlockId::new(SESSION, 0), &[&item]);
+    let mut out = describe_block(BlockId::new(SESSION, 0), &[&clock_item(), &item]);
     // segments, valid ones first, then hostile fields
     let mut segs: Vec<SeriesSegment> = vec![];
     let mut first = u64::from(d.u16());

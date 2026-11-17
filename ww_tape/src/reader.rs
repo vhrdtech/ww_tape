@@ -28,16 +28,12 @@ use crate::piece::{
 };
 use crate::walk::{Head, SessionState, Verdict, is_free};
 use crate::{
-    Block, BlockError, BlockKind, FLAG_SET_ADD, FLAG_SET_FIRST, FLAG_SET_LAST, GAP_CHECKS_MAX,
-    HEADER_LEN, Layout, MAGIC, MAX_BLOCK_LEN, Medium, VERSION, block_len,
+    Block, BlockError, BlockKind, GAP_CHECKS_MAX, HEADER_LEN, Layout, MAGIC, MAX_BLOCK_LEN, Medium,
+    VERSION, block_len,
 };
 
-/// Most blocks [TapeReader::describe_set] skips past a scan's cut looking for a describe copy: the damaged head set,
-/// the first data block and the summary blocks placed with it fit many times over.
-pub const DESCRIBE_SEEK_BLOCKS_MAX: usize = 64;
-
-/// Most bytes of the blocks [TapeReader::describe_set] keeps of a set and its additions; an addition past it is lost.
-pub const DESCRIBE_LEN_MAX: usize = crate::MAX_BLOCK_LEN;
+mod state;
+pub use state::{DefinitionsAt, Lookup, Lost, STATE_CACHE_MAX, STATE_READ_MAX, StateItem};
 
 /// Bytes that read at an offset.
 pub trait ByteSource {
@@ -148,6 +144,8 @@ pub enum ReadError<E> {
     Unfinished,
     /// No piece has this number: the reader has fewer.
     NoPiece(usize),
+    /// The piece at `offset` is of another format version, `found` ([PieceInfo::version]).
+    Version { offset: u64, found: u8 },
 }
 
 impl<E: core::fmt::Debug> core::fmt::Display for ReadError<E> {
@@ -158,12 +156,21 @@ impl<E: core::fmt::Debug> core::fmt::Display for ReadError<E> {
             ReadError::Block { offset, error } => write!(f, "block at byte {offset}: {error:?}"),
             ReadError::Unfinished => write!(f, "the piece has no finish block"),
             ReadError::NoPiece(i) => write!(f, "no piece {i}"),
+            ReadError::Version { offset, found } => write!(
+                f,
+                "a piece of format version {found} (at byte {offset}); this reader reads version {}",
+                crate::VERSION
+            ),
         }
     }
 }
 
 #[cfg(feature = "std")]
 impl<E: core::fmt::Debug> std::error::Error for ReadError<E> {}
+
+/// Most bytes of blocks of definitions a reader reads looking for the layout of a piece's stretch after its newest
+/// checkpoint: the layout's newest record behind that stretch.
+pub const LAYOUT_READ_MAX: u64 = 256 << 20;
 
 /// How [TapeReader::open] looks for pieces.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -177,8 +184,12 @@ pub struct OpenOptions {
     pub medium: Medium,
     /// Where a [Medium::Raw] walk starts: the medium's start, or a hint the medium layer gives (its own superblock).
     pub start: u64,
-    /// The gap rules of a [Medium::Raw] from its start, before a describe block says them; None: none until then.
+    /// The gap rules of a [Medium::Raw] from its start, before the definitions say them; None: none until then.
     pub layout: Option<Layout>,
+    /// Most bytes one state lookup spends, coded, decoded and held ([state::STATE_READ_MAX] by default).
+    pub state_read_max: u64,
+    /// Most state entries the reader keeps sorted over all its pieces ([state::STATE_CACHE_MAX] by default).
+    pub state_cache_max: usize,
 }
 
 /// Default of [OpenOptions::scan_back_max]: 256 MiB, room for a few checkpoint intervals of the largest chunks.
@@ -191,6 +202,8 @@ impl Default for OpenOptions {
             medium: Medium::File,
             start: 0,
             layout: None,
+            state_read_max: state::STATE_READ_MAX,
+            state_cache_max: state::STATE_CACHE_MAX,
         }
     }
 }
@@ -229,6 +242,9 @@ pub struct PieceInfo {
     /// Blocks a scan took in place of the block before them: the same session and seq with other bytes (the later
     /// copy wins); their offsets. A copy with the same bytes is dropped silently.
     pub replaced: Vec<u64>,
+    /// The format version of a piece of another one: its first block met is good and of that version, and the
+    /// stretch from it to the end of the scan is read no further ([ReadError::Version] from every lookup).
+    pub version: Option<u8>,
     /// Entries a scan or the checkpoint chain gave, in file order; None for a piece read by its tail
     entries: Option<Vec<IndexEntry>>,
     /// The walk where a scan was cut: the sessions and seqs a block past the cut must go on with
@@ -248,6 +264,7 @@ impl PieceInfo {
             cut: None,
             gaps: Vec::new(),
             replaced: Vec::new(),
+            version: None,
             entries: Some(Vec::new()),
             cut_walk: None,
         }
@@ -338,6 +355,10 @@ pub struct TapeReader<S> {
     src: S,
     len: u64,
     pieces: Vec<PieceInfo>,
+    /// [OpenOptions::state_read_max]
+    state_read_max: u64,
+    /// The pieces' state entries sorted, shared by the reader's lookups
+    states: state::StateCache,
 }
 
 type R<T, S> = Result<T, ReadError<<S as ByteSource>::Error>>;
@@ -359,6 +380,8 @@ impl<S: ByteSource> TapeReader<S> {
             src,
             len,
             pieces: Vec::new(),
+            state_read_max: options.state_read_max,
+            states: state::StateCache::new(options.state_cache_max),
         };
         if options.medium == Medium::Raw {
             let mut walk = SessionState::new(Medium::Raw);
@@ -433,8 +456,16 @@ impl<S: ByteSource> TapeReader<S> {
         check_chain(&s)
     }
 
+    /// Piece `i`, one of this reader's version.
     fn piece(&self, i: usize) -> R<&PieceInfo, S> {
-        self.pieces.get(i).ok_or(ReadError::NoPiece(i))
+        let p = self.pieces.get(i).ok_or(ReadError::NoPiece(i))?;
+        match p.version {
+            Some(found) => Err(ReadError::Version {
+                offset: p.start,
+                found,
+            }),
+            None => Ok(p),
+        }
     }
 
     /// `n` bytes at `offset`: at most [READ_LEN_MAX], within the source.
@@ -607,7 +638,7 @@ impl<S: ByteSource> TapeReader<S> {
         if ix.kind() == IndexKind::Final {
             entries.sort_by_key(|e| e.offset);
         }
-        // the stretch after the checkpoint is read with the gap rules the piece's describe blocks state
+        // the stretch after the checkpoint is read with the gap rules the piece's definitions state
         let mut walk = SessionState::new(Medium::File);
         if let Some(layout) = self.layout_of(start, &entries, at)? {
             walk.set_layout(&layout);
@@ -616,14 +647,27 @@ impl<S: ByteSource> TapeReader<S> {
         self.scan_with(end, hi, piece, walk)
     }
 
-    /// The newest [Layout] the describe blocks among `entries` (of the piece at `start`, within `hi`) state.
+    /// The newest [Layout] the blocks of definitions among `entries` (of the piece at `start`, within `hi`) state.
+    /// Each block is read once, newest first, within [LAYOUT_READ_MAX] bytes: a hostile index naming one big
+    /// block many times costs one read.
     fn layout_of(&self, start: u64, entries: &[IndexEntry], hi: u64) -> R<Option<Layout>, S> {
-        for e in entries
+        let mut offsets: Vec<(u64, u32)> = entries
             .iter()
-            .rev()
-            .filter(|e| e.kind == BlockKind::Describe)
-        {
-            let Some(at) = start.checked_add(e.offset) else {
+            .filter(|e| {
+                e.state()
+                    .is_some_and(|s| s.slot == crate::state::Slot::Layout)
+            })
+            .map(|e| (e.offset, e.len))
+            .collect();
+        offsets.sort_unstable();
+        offsets.dedup_by_key(|(o, _)| *o);
+        let mut budget = LAYOUT_READ_MAX;
+        for (offset, len) in offsets.into_iter().rev() {
+            let Some(left) = budget.checked_sub(u64::from(len)) else {
+                break;
+            };
+            budget = left;
+            let Some(at) = start.checked_add(offset) else {
                 continue;
             };
             if let Ok((b, _)) = self.good_block(at, hi)?
@@ -691,7 +735,8 @@ impl<S: ByteSource> TapeReader<S> {
         let mut last_counted: Option<u64> = None;
         while at < hi {
             let mut replaces = false;
-            let taken = match self.good_block(at, hi)? {
+            let got = self.good_block(at, hi)?;
+            let taken = match got {
                 Ok((b, end)) => match walk.verdict(&b.block(), true) {
                     Verdict::Take => Some((b, end)),
                     // the same block again: dropped
@@ -710,6 +755,25 @@ impl<S: ByteSource> TapeReader<S> {
                 },
                 Err(_) => None,
             };
+            // a block of another version that goes on with the data starts a piece of that version: its blocks
+            // would read as ones this reader skips; stale data of another version is judged by its session first
+            if let Some((b, _)) = &taken
+                && b.block().version != crate::VERSION
+            {
+                if replaces {
+                    piece.replaced.pop();
+                }
+                if piece.end > piece.start {
+                    set_scanned(&mut piece, since(at, from));
+                    out.push(piece);
+                }
+                let mut other = PieceInfo::new(at, Found::Scan { scanned: 0 });
+                other.version = Some(b.block().version);
+                other.end = hi;
+                set_scanned(&mut other, since(hi, from));
+                out.push(other);
+                return Ok(out);
+            }
             let Some((ob, end)) = taken else {
                 if let Some(next) = self.past_gap(at, hi, &walk)?
                     && let Some(len) = next.checked_sub(at)
@@ -775,10 +839,9 @@ impl<S: ByteSource> TapeReader<S> {
                 }
                 _ => {
                     if let Some(off) = in_piece
-                        && let Some(e) = IndexEntry::of_block(off, &block)
                         && let Some(list) = piece.entries.as_mut()
                     {
-                        list.push(e);
+                        list.extend(IndexEntry::all_of_block(off, &block));
                     }
                 }
             }
@@ -868,7 +931,8 @@ impl<S: ByteSource> TapeReader<S> {
         within_piece(p, out)
     }
 
-    /// The blocks of track `track_id` in piece `i` (0: record and describe blocks), in file order. A finished piece
+    /// The blocks of track `track_id` in piece `i` (0: record blocks of data, [STATE_TRACK_ID](crate::index::STATE_TRACK_ID):
+    /// state records, one entry each), in file order. A finished piece
     /// reads only the final index's head and that track's entries.
     pub fn track_entries(&self, i: usize, track_id: u64) -> R<Vec<IndexEntry>, S> {
         let p = self.piece(i)?;
@@ -902,95 +966,6 @@ impl<S: ByteSource> TapeReader<S> {
         }
         out.sort_by_key(|e| e.offset);
         within_piece(p, out)
-    }
-
-    /// The current describe set of piece `i`: the newest whole set of describe blocks in it (one marked
-    /// [FLAG_SET_FIRST] followed back to back by blocks up to one marked [FLAG_SET_LAST]) with the whole additions
-    /// ([FLAG_SET_ADD]) after it. The newest whole set is the head's or a writer's copy (after the first data block,
-    /// at the first checkpoint, the repeats, the backup before the finish), which carries the additions before it.
-    /// When none of the piece's describe blocks makes a whole set and a scan stopped in it, the blocks of its sessions
-    /// past the stop are looked through too ([DESCRIBE_SEEK_BLOCKS_MAX]). Damage is a reason to look further, never an
-    /// error: what didn't read is listed in [DescribeBlocks::lost].
-    pub fn describe_set(&self, i: usize) -> R<DescribeBlocks, S> {
-        let describe: Vec<IndexEntry> = self
-            .track_entries(i, u64::from(crate::DESCRIBE_TRACK))?
-            .into_iter()
-            .filter(|e| e.kind == BlockKind::Describe)
-            .collect();
-        let mut buf = Vec::new();
-        let mut set = SetReader::default();
-        for e in &describe {
-            match self.read_block(i, e, &mut buf) {
-                Ok(b) => {
-                    let flags = b.flags;
-                    set.good(e.offset, flags, &buf);
-                }
-                Err(ReadError::Block { .. }) => set.damaged(e.offset),
-                Err(other) => return Err(other),
-            }
-        }
-        // a scan stops at the first damaged block, the head's set too: the copy after the first data block is past it
-        let p = self.piece(i)?;
-        if let (None, Some(cut), Some(walk)) = (set.out.base, p.cut, p.cut_walk) {
-            set.other();
-            self.describe_past(i, cut, walk, &mut set)?;
-        }
-        Ok(set.finish())
-    }
-
-    /// Read the describe blocks after `cut` in piece `i` into `set`, the blocks between skipped by the lengths in their
-    /// headers: at most [DESCRIBE_SEEK_BLOCKS_MAX] blocks, only of the sessions `walk` goes on with (never an earlier
-    /// life's behind the end of data), never past the piece's stretch or into the next piece.
-    fn describe_past(
-        &self,
-        i: usize,
-        cut: u64,
-        mut walk: SessionState,
-        set: &mut SetReader,
-    ) -> R<(), S> {
-        let p = self.piece(i)?;
-        let hi = match i.checked_add(1).and_then(|j| self.pieces.get(j)) {
-            Some(next) => next.start,
-            None => self.len,
-        };
-        let mut at = cut;
-        for _ in 0..DESCRIBE_SEEK_BLOCKS_MAX {
-            if hi.saturating_sub(at) < wide(HEADER_LEN) {
-                break;
-            }
-            let Ok(len) = block_len(&self.read(at, HEADER_LEN)?) else {
-                break;
-            };
-            let Some(end) = at.checked_add(wide(len)).filter(|e| *e <= hi) else {
-                break;
-            };
-            match self.good_block(at, hi)? {
-                Ok((b, _)) => {
-                    let block = b.block();
-                    if !matches!(
-                        walk.verdict(&block, true),
-                        Verdict::Take | Verdict::Duplicate { .. }
-                    ) {
-                        break;
-                    }
-                    walk.take(&block);
-                    match block.kind {
-                        BlockKind::Describe => {
-                            let Some(off) = at.checked_sub(p.start) else {
-                                break;
-                            };
-                            set.good(off, block.flags, block.bytes());
-                        }
-                        BlockKind::PieceHead | BlockKind::Tail => break,
-                        _ => set.other(),
-                    }
-                }
-                // a damaged block of unknown kind: a set or addition it was in isn't whole
-                Err(_) => set.other(),
-            }
-            at = end;
-        }
-        Ok(())
     }
 
     /// Call `f` with each final index block of finished piece `p`, newest first.
@@ -1065,105 +1040,6 @@ impl<S: ByteSource> TapeReader<S> {
             at = at.saturating_add(wide(n));
         }
         Ok(*h.finalize().as_bytes() == fin.hash.0)
-    }
-}
-
-/// A piece's current describe set as read, see [TapeReader::describe_set].
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-#[non_exhaustive]
-pub struct DescribeBlocks {
-    /// Offset in the piece of the first block of the newest whole set; None when no whole set reads (then the blocks
-    /// are only additions).
-    pub base: Option<u64>,
-    /// The newest whole set's blocks, then the blocks of each whole addition after it: offsets in the piece and the
-    /// blocks, in file order.
-    pub blocks: Vec<(u64, Vec<u8>)>,
-    /// Offsets of the describe blocks after the newest whole set that are in neither: damaged, or part of a set or
-    /// addition that isn't whole. An addition among them is lost; a copy among them lost nothing.
-    pub lost: Vec<u64>,
-}
-
-impl DescribeBlocks {
-    /// Whether no block reads.
-    pub fn is_empty(&self) -> bool {
-        self.blocks.is_empty()
-    }
-
-    /// The blocks, without their offsets.
-    pub fn bytes(&self) -> impl Iterator<Item = &[u8]> {
-        self.blocks.iter().map(|(_, b)| b.as_slice())
-    }
-}
-
-/// Describe blocks read in file order into a [DescribeBlocks].
-#[derive(Default)]
-struct SetReader {
-    out: DescribeBlocks,
-    /// The open set or addition's blocks
-    open: Vec<(u64, Vec<u8>)>,
-    /// Where the open set's next block starts
-    next: Option<u64>,
-    /// Whether the open blocks are an addition
-    add: bool,
-}
-
-impl SetReader {
-    /// The good describe block `bytes` at `offset` with header `flags`.
-    fn good(&mut self, offset: u64, flags: u16, bytes: &[u8]) {
-        let add = flags & FLAG_SET_ADD != 0;
-        if flags & FLAG_SET_FIRST != 0 {
-            self.other();
-            self.add = add;
-        } else if self.open.is_empty() || self.next != Some(offset) || self.add != add {
-            self.other();
-            self.out.lost.push(offset);
-            return;
-        }
-        self.next = offset.checked_add(wide(bytes.len()));
-        self.open.push((offset, bytes.to_vec()));
-        if flags & FLAG_SET_LAST == 0 {
-            return;
-        }
-        let run = core::mem::take(&mut self.open);
-        self.next = None;
-        if !self.add {
-            self.out.base = run.first().map(|(off, _)| *off);
-            self.out.blocks = run;
-            self.out.lost.clear();
-            return;
-        }
-        let len: usize = self
-            .out
-            .blocks
-            .iter()
-            .chain(&run)
-            .map(|(_, b)| b.len())
-            .sum();
-        if len > DESCRIBE_LEN_MAX {
-            self.out.lost.extend(run.iter().map(|(off, _)| *off));
-        } else {
-            self.out.blocks.extend(run);
-        }
-    }
-
-    /// A damaged describe block at `offset`.
-    fn damaged(&mut self, offset: u64) {
-        self.other();
-        self.out.lost.push(offset);
-    }
-
-    /// A block that isn't a good describe block next to the open ones: they aren't whole.
-    fn other(&mut self) {
-        self.out
-            .lost
-            .extend(self.open.drain(..).map(|(off, _)| off));
-        self.next = None;
-    }
-
-    fn finish(mut self) -> DescribeBlocks {
-        self.other();
-        self.out.lost.sort_unstable();
-        self.out
     }
 }
 

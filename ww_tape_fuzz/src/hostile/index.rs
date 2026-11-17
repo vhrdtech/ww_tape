@@ -98,11 +98,13 @@ fn entries(d: &mut Draw<'_>, n: usize, sorted: bool) -> Vec<IndexEntry> {
                 tree: d.u8() % 3,
                 track_id: u64::from(d.u8() % 4),
                 track_number: u32::from(d.u8() % 4),
+                second: u32::from(d.u8() % 4),
                 first_item: u64::from(d.u16()),
                 count: 1 + u64::from(d.u8()),
                 first_tick: i64::from(d.u16() as i16),
                 last_tick: i64::from(i16::MAX) + i64::from(d.u8()),
                 latest_end: i64::from(i16::MAX) + 256 + i64::from(d.u8()),
+                repeat: d.bool(),
             }
         })
         .collect();
@@ -173,11 +175,11 @@ fn ident(d: &mut Draw<'_>) -> PieceIdent {
     }
 }
 
-/// A finish block of tracks drawn from the input, naming `offsets` (checkpoint, final index, describe).
+/// A finish block of tracks drawn from the input, naming `offsets` (checkpoint, final index).
 pub(crate) fn finish_block(
     d: &mut Draw<'_>,
     id: BlockId,
-    offsets: [Option<u64>; 3],
+    offsets: [Option<u64>; 2],
     hash: ContentHash,
 ) -> Vec<u8> {
     let tracks: Vec<TrackRange> = (0..d.below(3))
@@ -197,7 +199,6 @@ pub(crate) fn finish_block(
         hash,
         checkpoint: offsets[0],
         final_index: offsets[1],
-        describe: offsets[2],
         ident: d.bool().then(|| ident(d)),
         next: None,
     };
@@ -293,7 +294,7 @@ pub fn index(data: &[u8]) -> Vec<u8> {
     let id = BlockId::new(SESSION, u64::from(d.u8()));
     match d.u8() % 6 {
         0 => {
-            let mut b = finish_block(&mut d, id, [Some(0), Some(64), None], ContentHash([7; 32]));
+            let mut b = finish_block(&mut d, id, [Some(0), Some(64)], ContentHash([7; 32]));
             let tracks = get(&b, 12, 4) as usize;
             let len = [b.len() as u64];
             let fields = finish_fields(&mut d, tracks, &len);

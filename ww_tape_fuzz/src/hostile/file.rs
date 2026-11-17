@@ -1,14 +1,15 @@
-//! Whole pieces for the positional reader and the file walk: a piece head, a describe block with a layout, records
-//! blocks, an events chunk, a checkpoint and a final index, a finish and a tail, whose offsets, lengths, layout and
-//! stretches between blocks take hostile values.
+//! Whole pieces for the positional reader and the file walk: a piece head, a block of definitions with a layout,
+//! records blocks, an events chunk, a checkpoint and a final index, a finish and a tail, whose offsets, lengths, layout
+//! and stretches between blocks take hostile values.
 
 use super::chunk::{build, reseal};
 use super::index::{
     TAIL_FIELDS, finish_block, finish_fields, hit_index, index_block, piece_head_block,
     reseal_index, tail_block,
 };
-use super::{Draw, Field, SESSION, describe_block, get, hit, hit_some, put, records_block, seal};
-use shrink_wrap::prelude::*;
+use super::{
+    Draw, Field, SESSION, definition, describe_block, get, hit, hit_some, put, records_block, seal,
+};
 use ww_tape::index::{IndexEntry, IndexKind};
 use ww_tape::piece::{ContentHash, TAIL_LEN};
 use ww_tape::times::EncodedTimes;
@@ -40,14 +41,11 @@ fn layout(d: &mut Draw<'_>) -> Option<Vec<u8>> {
                 alignment: v(),
                 gap_max: v(),
                 resume_align: v(),
+                definitions: ww_tape::StatePolicy::DEFAULT,
             }
         }
     };
-    let mut buf = [0u8; 64];
-    Describe::Layout(layout)
-        .to_ww_bytes(&mut buf)
-        .ok()
-        .map(<[u8]>::to_vec)
+    Some(definition(&Describe::Layout(layout))).filter(|item| !item.is_empty())
 }
 
 /// A block placed in the file.
@@ -75,21 +73,16 @@ pub fn file(data: &[u8]) -> Vec<u8> {
         let b = piece_head_block(&mut d, BlockId::new(SESSION, 0));
         place(&mut f, &mut placed, &b, BlockKind::PieceHead);
     }
-    let mut buf = [0u8; 64];
-    let producer = Describe::Producer(Producer { name: "hostile" })
-        .to_ww_bytes(&mut buf)
-        .map(<[u8]>::to_vec)
-        .expect("a producer encodes");
+    let producer = definition(&Describe::Producer(Producer { name: "hostile" }));
     let layout = layout(&mut d);
     let items: Vec<&[u8]> = core::iter::once(producer.as_slice())
         .chain(layout.as_deref())
         .collect();
-    let describe_at = f.len() as u64;
     place(
         &mut f,
         &mut placed,
         &describe_block(BlockId::new(SESSION, 0), &items),
-        BlockKind::Describe,
+        BlockKind::Records,
     );
     let mut seq = 0;
     for _ in 0..d.below(4) {
@@ -133,7 +126,7 @@ pub fn file(data: &[u8]) -> Vec<u8> {
     let finish_at = f.len();
     // the content hash is filled in at the end, over the bytes as they are then
     let hash = ContentHash([0; 32]);
-    let offsets = [Some(checkpoint_at), Some(final_at), Some(describe_at)];
+    let offsets = [Some(checkpoint_at), Some(final_at)];
     let b = finish_block(&mut d, id, offsets, hash);
     let finish_len = b.len();
     place(&mut f, &mut placed, &b, BlockKind::Finish);

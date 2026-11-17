@@ -108,7 +108,7 @@ fn deltas_per_clock() {
 #[test]
 fn describe_records_have_no_time() {
     let mut buf = [0u8; 64];
-    let mut w = BlockWriter::new(&mut buf, BlockKind::Describe, id(0), &[]).unwrap();
+    let mut w = BlockWriter::new(&mut buf, BlockKind::Records, id(0), &[]).unwrap();
     w.push_describe(&[b"xy"]).unwrap();
     let len = w.finish();
     assert_eq!(len, HEADER_LEN + 1 + 1 + 1 + 2 + CRC_LEN);
@@ -194,7 +194,7 @@ fn tape_writer_refuses_bad_settings() {
         Err(WriteError::Session(_))
     ));
     assert!(matches!(
-        w.write_block(&[0; 8]),
+        w.write_block(&Definitions::new(), &[0; 8]),
         Err(WriteError::Block(BlockError::Short { .. }))
     ));
     drop(w);
@@ -232,7 +232,7 @@ fn push_with_big_item_moves_down() {
 #[test]
 fn corrupt_blocks_are_refused() {
     let mut buf = [0u8; 64];
-    let mut w = BlockWriter::new(&mut buf, BlockKind::Describe, id(0), &[]).unwrap();
+    let mut w = BlockWriter::new(&mut buf, BlockKind::Records, id(0), &[]).unwrap();
     w.push_describe(&[b"x"]).unwrap();
     let len = w.finish();
     let mut bad = buf;
@@ -320,7 +320,7 @@ fn sample_describe() -> Vec<Describe<'static>> {
             keys: RefVec::Slice { slice: &KEYS },
             item: Some(item_type),
             label: "link[3].tx.frames",
-            sticky: true,
+            repeat: crate::TrackRepeat::STATE,
             kind: TrackKind::Events(EventsDef::INSTANTS),
         }),
         Describe::Map(ClockMap {
@@ -502,104 +502,186 @@ fn track_identity() {
         ..t.clone()
     };
     assert!(!t.dimensions_canonical());
-    let mut set = DescribeSet::new();
     assert_eq!(
-        set.insert(&Describe::Track(t)),
+        open::check_definition(&Describe::Track(t)),
         Err(DescribeError::Dimensions { track: 4 })
     );
 }
 
-fn describe_set(records: impl IntoIterator<Item = Describe<'static>>) -> DescribeSet {
-    let mut set = DescribeSet::new();
-    for d in records {
-        set.insert(&d).unwrap();
-    }
-    set
-}
-
-/// Records go in canonical order whatever order they were added in; a record replaces the one with its key.
-#[test]
-fn describe_set_is_canonical() {
-    let forward = describe_set(sample_describe());
-    let backward = describe_set(sample_describe().into_iter().rev());
-    let ranks: Vec<Rank> = forward
-        .records()
-        .map(|r| Describe::from_ww_bytes(r).unwrap().rank())
+/// `records` held as one batch (the producer, layout and typed items passed over) and written as blocks of
+/// definitions from seq 0: the definitions held and the blocks.
+fn defined(records: impl IntoIterator<Item = Describe<'static>>) -> (Definitions, Vec<Vec<u8>>) {
+    let records: Vec<_> = records.into_iter().collect();
+    let items: Vec<Vec<u8>> = records.iter().map(|d| open::encode(d).unwrap()).collect();
+    let mut table = Definitions::new();
+    table.define_all(&held(&records)).unwrap();
+    let refs: Vec<RecordRef<'_>> = items
+        .iter()
+        .map(|item| RecordRef {
+            track: DESCRIBE_TRACK,
+            at: None,
+            item,
+        })
         .collect();
-    assert_eq!(
-        ranks,
-        [
-            Rank::Producer,
-            Rank::Bundle,
-            Rank::Clock(HOST),
-            Rank::Clock(WALL),
-            Rank::Clock(EPOCH),
-            Rank::Map {
-                from: HOST,
-                to: WALL
-            },
-            Rank::Map {
-                from: EPOCH,
-                to: HOST
-            },
-            Rank::Track(4),
-            Rank::Other,
-        ]
-    );
-    assert!(forward.records().eq(backward.records()));
-    let mut replaced = forward.clone();
-    replaced
-        .insert(&Describe::Producer(Producer { name: "other" }))
-        .unwrap();
-    assert_eq!(replaced.len(), forward.len());
-    assert!(!replaced.records().eq(forward.records()));
+    let mut blocks = vec![];
+    let mut seq = 0;
+    open::write_records(
+        &refs,
+        4096,
+        0,
+        || {
+            seq += 1;
+            id(seq - 1)
+        },
+        |b| {
+            blocks.push(b.to_vec());
+            Ok::<(), DescribeError>(())
+        },
+    )
+    .unwrap();
+    (table, blocks)
 }
 
+fn open_of(records: impl IntoIterator<Item = Describe<'static>>) -> Definitions {
+    defined(records).0
+}
+
+/// The records of `records` a [Definitions] holds: not the producer, the layout or a typed item.
+pub(crate) fn held(records: &[Describe<'static>]) -> Vec<Describe<'static>> {
+    records
+        .iter()
+        .filter(|d| open::is_held(d))
+        .cloned()
+        .collect()
+}
+
+/// A definition is held in its slot whatever order the batch came in, and replaces the one there; a typed item, the
+/// producer and the layout are not held.
 #[test]
-fn describe_set_needs_its_clocks() {
+fn definitions_open_by_slot() {
+    let forward = open_of(sample_describe());
+    let backward = open_of(sample_describe().into_iter().rev());
+    assert_eq!(forward, backward);
+    let slots: Vec<Slot> = forward.definitions().map(|(s, _)| *s).collect();
+    assert_eq!(
+        slots
+            .iter()
+            .filter(|s| matches!(s, Slot::Clock { .. }))
+            .count(),
+        3
+    );
+    assert!(!slots.iter().any(|s| matches!(
+        s,
+        Slot::Own {
+            kind: DefinitionKind::Item,
+            ..
+        }
+    )));
+    assert!(!slots.contains(&Slot::Producer));
+    let mut replaced = forward.clone();
+    let mut other = test_definitions(HOST, &[]);
+    if let Describe::Clock(c) = &mut other[0] {
+        c.label = "other";
+    }
+    replaced.define(&other[0]).unwrap();
+    assert_eq!(replaced.len(), forward.len());
+    let host = Slot::Clock { number: HOST };
+    assert_ne!(replaced.get(&host), forward.get(&host));
+    assert_eq!(
+        replaced.define(&Describe::Producer(Producer { name: "p" })),
+        Err(DescribeError::WriterOwned)
+    );
+}
+
+/// A track or map names an open clock, in the batch or open already; definitions that break this are refused when
+/// they are made (writing side point 1).
+#[test]
+fn definitions_need_their_clocks() {
     let no_wall: Vec<_> = sample_describe()
         .into_iter()
-        .filter(|d| d.rank() != Rank::Clock(WALL))
+        .filter(|d| !matches!(d, Describe::Clock(c) if c.number.0 == WALL))
         .collect();
-    let set = describe_set(no_wall);
-    assert_eq!(
-        set.check(),
-        Err(DescribeError::UnknownClock { clock: WALL })
-    );
+    let unknown = Err(DescribeError::UnknownClock { clock: WALL });
+    assert_eq!(check_defs(&Definitions::new(), &held(&no_wall)), unknown);
+    // one at a time, a track before its clock is refused too
+    let track = no_wall
+        .iter()
+        .find(|d| matches!(d, Describe::Track(_)))
+        .unwrap();
+    assert!(matches!(
+        check_defs(&Definitions::new(), [track]),
+        Err(DescribeError::UnknownClock { .. })
+    ));
 }
 
-/// A record's clock is its track's (T11): a sticky record on another clock, or on a track not described, is refused.
+/// A record block of `records` on their clocks.
+fn records_block(seq: BlockId, records: &[(u32, ClockTime, &[u8])]) -> Vec<u8> {
+    let mut clocks: Vec<u32> = records.iter().map(|r| r.1.clock).collect();
+    clocks.sort();
+    clocks.dedup();
+    let mut buf = [0u8; 1024];
+    let mut w = BlockWriter::new(&mut buf, BlockKind::Records, seq, &clocks).unwrap();
+    for (track, at, item) in records {
+        w.push(*track, *at, &[item]).unwrap();
+    }
+    let len = w.finish();
+    buf[..len].to_vec()
+}
+
+/// A record's clock is its track's (T11): a record on another clock, or on a track not open, is refused; a state
+/// track's items are put, never in a caller's block.
 #[test]
-fn sticky_records_are_on_their_tracks_clock() {
-    let set = describe_set(sample_describe());
-    let write = |track, clock| {
-        let sticky = [Sticky {
-            track,
-            at: at(clock, 0),
-            item: b"s",
-        }];
-        set.write_blocks(&mut id(0), 1024, &sticky, |_| {})
+fn records_are_on_their_tracks_clock() {
+    let table = open_of(sample_with_wall_track());
+    let check = |track, clock| {
+        let b = records_block(id(0), &[(track, at(clock, 0), b"s")]);
+        table.check_block(&Block::read(&b).unwrap())
     };
-    assert_eq!(write(4, HOST), Ok(()));
+    assert_eq!(check(10, HOST), Ok(()));
     assert_eq!(
-        write(4, WALL),
+        check(10, WALL),
         Err(DescribeError::WrongClock {
-            track: 4,
+            track: 10,
             clock: WALL,
             track_clock: HOST
         })
     );
     assert_eq!(
-        write(4, 9),
+        check(10, 9),
         Err(DescribeError::WrongClock {
-            track: 4,
+            track: 10,
             clock: 9,
             track_clock: HOST
         })
     );
     assert_eq!(
-        write(5, HOST),
+        check(5, HOST),
         Err(DescribeError::UnknownTrack { track: 5 })
+    );
+    assert_eq!(check(4, HOST), Err(DescribeError::StateRecord { track: 4 }));
+}
+
+/// A caller's block holds no definitions: they are held in [Definitions] and put by the writer.
+#[test]
+fn definitions_are_not_in_a_callers_block() {
+    let table = open_of(sample_with_wall_track());
+    let (_, blocks) = defined([Describe::Producer(Producer { name: "p" })]);
+    let item = Block::read(&blocks[0])
+        .unwrap()
+        .records()
+        .next()
+        .unwrap()
+        .unwrap()
+        .item
+        .to_vec();
+    let mut buf = [0u8; 256];
+    let mut w = BlockWriter::new(&mut buf, BlockKind::Records, id(0), &[HOST]).unwrap();
+    w.push_describe(&[&item]).unwrap();
+    w.push(10, at(HOST, 0), &[b"s"]).unwrap();
+    let len = w.finish();
+    assert_eq!(
+        table.check_block(&Block::read(&buf[..len]).unwrap()),
+        Err(DescribeError::DefinitionBlock)
     );
 }
 
@@ -634,12 +716,12 @@ fn maps_increase_across_segments() {
         },
     ];
     static AFTER_OPEN: [MapSegment; 2] = [SEGMENTS[1], SEGMENTS[1]];
-    let mut set = DescribeSet::new();
-    assert_eq!(set.insert(&map(HOST, WALL, &SEGMENTS)), Ok(()));
+    let check = open::check_definition;
+    assert_eq!(check(&map(HOST, WALL, &SEGMENTS)), Ok(()));
     for bad in [&AT_LAST[..], &OVERLAP, &AFTER_OPEN] {
         let d = map(HOST, WALL, bad);
         assert_eq!(
-            set.insert(&d),
+            check(&d),
             Err(DescribeError::MapNotIncreasing {
                 from: HOST,
                 to: WALL
@@ -658,7 +740,7 @@ fn maps_increase_across_segments() {
             ..SEGMENTS[1]
         },
     ];
-    assert_eq!(set.insert(&map(HOST, WALL, &ABOVE)), Ok(()));
+    assert_eq!(check(&map(HOST, WALL, &ABOVE)), Ok(()));
     assert_eq!(fitted.last(), None);
 }
 
@@ -666,19 +748,13 @@ fn maps_increase_across_segments() {
 /// tick 0 to the end with `b0 > 0`. The reverse direction, a fitted segment, a bounded one or a second one don't do.
 #[test]
 fn epoch_clocks_need_their_link() {
-    let without: Vec<_> = sample_describe()
+    let without: Vec<_> = held(&sample_describe())
         .into_iter()
-        .filter(|d| {
-            d.rank()
-                != (Rank::Map {
-                    from: EPOCH,
-                    to: HOST,
-                })
-        })
+        .filter(|d| !matches!(d, Describe::Map(m) if m.from.0 == EPOCH && m.to.0 == HOST))
         .collect();
-    let set = describe_set(without);
+    let empty = Definitions::new();
     let unmapped = Err(DescribeError::EpochUnmapped { clock: EPOCH });
-    assert_eq!(set.check(), unmapped);
+    assert_eq!(check_defs(&empty, &without), unmapped);
     let seg = MapSegment::offset(0, 4_000);
     static REVERSED: [MapSegment; 1] = [MapSegment::offset(4_000, 0)];
     static FITTED: [MapSegment; 1] = [MapSegment {
@@ -712,13 +788,22 @@ fn epoch_clocks_need_their_link() {
         (EPOCH, HOST, &TWO),
         (EPOCH, HOST, &[]),
     ] {
-        let mut s = set.clone();
-        s.insert(&map(from, to, segments)).unwrap();
-        assert_eq!(s.check(), unmapped, "{from} -> {to}: {segments:?}");
+        let link = map(from, to, segments);
+        assert_eq!(
+            check_defs(&empty, without.iter().chain([&link])),
+            unmapped,
+            "{from} -> {to}: {segments:?}"
+        );
     }
-    let mut s = set.clone();
-    s.insert(&map(EPOCH, HOST, &EPOCH_START)).unwrap();
-    assert_eq!(s.check(), Ok(()));
+    let link = map(EPOCH, HOST, &EPOCH_START);
+    assert_eq!(check_defs(&empty, without.iter().chain([&link])), Ok(()));
+    // a link already open does
+    let linked = open_of(sample_describe());
+    let epoch = sample_describe()
+        .into_iter()
+        .find(|d| matches!(d, Describe::Clock(c) if c.number.0 == EPOCH))
+        .unwrap();
+    assert_eq!(check_defs(&linked, [&epoch]), Ok(()));
     assert!(seg.is_exact_offset());
 }
 
@@ -735,7 +820,6 @@ fn clock_resolution_at_least_a_tick() {
             label: "c",
         })
     };
-    let mut set = DescribeSet::new();
     let ns = Magnitude::pow10(9);
     // exactly one tick, more than one, a 32 kHz counter read in ns, an NTSC frame clock
     for (rate, resolution) in [
@@ -748,7 +832,7 @@ fn clock_resolution_at_least_a_tick() {
         ),
     ] {
         assert_eq!(
-            set.insert(&clock(rate, resolution)),
+            open::check_definition(&clock(rate, resolution)),
             Ok(()),
             "{rate} {resolution}"
         );
@@ -762,61 +846,60 @@ fn clock_resolution_at_least_a_tick() {
         (Magnitude::pow10(3), Magnitude::new(1, 4000, 0, 0, 1)),
     ] {
         assert_eq!(
-            set.insert(&clock(rate, resolution)),
+            open::check_definition(&clock(rate, resolution)),
             Err(DescribeError::Resolution { clock: 1 }),
             "{rate} {resolution}"
         );
     }
 }
 
-/// A describe set written as blocks: definitions on track 0, then the sticky records on their tracks and clocks;
-/// split over several blocks when they are small.
+/// Records are written as blocks of at most the length asked, a longer record in a block of its own, all with the
+/// flags and ids given; they read back in order.
 #[test]
-fn describe_set_as_blocks() {
-    let mut set = describe_set(sample_describe());
-    let Describe::Track(t) = &sample_describe()[1] else {
-        unreachable!("the second sample is a track")
-    };
-    let on_wall = TrackDef {
-        number: UNib32(9),
-        clock: UNib32(WALL),
-        ..t.clone()
-    };
-    set.insert(&Describe::Track(on_wall)).unwrap();
-    let sticky = [
-        Sticky {
-            track: 9,
-            at: at(WALL, 5),
-            item: b"late",
-        },
-        Sticky {
-            track: 4,
-            at: at(HOST, -3),
-            item: b"session",
-        },
-    ];
+fn records_as_blocks() {
+    let items: Vec<Vec<u8>> = sample_describe()
+        .iter()
+        .map(|d| open::encode(d).unwrap())
+        .collect();
+    let mut want: Vec<(u32, Option<ClockTime>, Vec<u8>)> =
+        items.iter().map(|i| (0, None, i.clone())).collect();
+    want.push((4, Some(at(HOST, -3)), b"session".to_vec()));
+    want.push((9, Some(at(WALL, 5)), b"late".to_vec()));
+    let refs: Vec<RecordRef<'_>> = want
+        .iter()
+        .map(|(track, at, item)| RecordRef {
+            track: *track,
+            at: *at,
+            item,
+        })
+        .collect();
     for block_len_max in [64, 4096] {
         let mut blocks = vec![];
-        let mut seq = id(10);
-        set.write_blocks(&mut seq, block_len_max, &sticky, |b| {
-            blocks.push(b.to_vec())
-        })
+        open::write_records(
+            &refs,
+            block_len_max,
+            FLAG_REPEAT,
+            || id(10),
+            |b| {
+                blocks.push(b.to_vec());
+                Ok::<(), DescribeError>(())
+            },
+        )
         .unwrap();
-        assert_eq!(seq, id(10 + blocks.len() as u64));
         assert_eq!(blocks.len() > 1, block_len_max == 64);
-        let mut records = vec![];
+        let mut got = vec![];
         for b in &blocks {
             let b = Block::read(b).unwrap();
-            assert_eq!(b.kind, BlockKind::Describe);
+            assert_eq!(
+                (b.kind, b.seq, b.is_repeat()),
+                (BlockKind::Records, 10, true)
+            );
             for r in b.records() {
                 let r = r.unwrap();
-                records.push((r.track, r.at, r.item.to_vec()));
+                got.push((r.track, r.at, r.item.to_vec()));
             }
         }
-        let mut want: Vec<_> = set.records().map(|r| (0, None, r.to_vec())).collect();
-        want.push((4, Some(at(HOST, -3)), b"session".to_vec()));
-        want.push((9, Some(at(WALL, 5)), b"late".to_vec()));
-        assert_eq!(records, want);
+        assert_eq!(got, want);
     }
 }
 
@@ -907,6 +990,9 @@ fn unknown_versions_kinds_and_describe_variants_are_skipped() {
         Map(ClockMap<'i>),
         Item(TypedItem<'i>),
         Layout(Layout),
+        Repeat {
+            records: UNib32,
+        },
         Index {
             first_seq: u64,
         },
@@ -917,7 +1003,7 @@ fn unknown_versions_kinds_and_describe_variants_are_skipped() {
         .unwrap();
     assert!(matches!(
         Describe::from_ww_bytes(bytes),
-        Ok(Describe::Unknown(7))
+        Ok(Describe::Unknown(8))
     ));
 }
 
@@ -941,6 +1027,38 @@ fn tape(n: u64) -> (Vec<u8>, Vec<usize>) {
         ends.push(file.len());
     }
     (file, ends)
+}
+
+/// Clock `clock` and events tracks `tracks` on it, all streams: what test records, chunks and summaries need.
+pub(crate) fn test_definitions(clock: u32, tracks: &[u32]) -> Vec<Describe<'static>> {
+    let Describe::Track(t) = &sample_describe()[1] else {
+        unreachable!("the second sample is a track")
+    };
+    let mut out = vec![Describe::Clock(ClockDef {
+        number: UNib32(clock),
+        key: u64::from(clock),
+        rate: Magnitude::pow10(9).into(),
+        resolution: Magnitude::pow10(-9).into(),
+        origin: ClockOrigin::Free,
+        label: "test",
+    })];
+    for number in tracks {
+        out.push(Describe::Track(TrackDef {
+            number: UNib32(*number),
+            clock: UNib32(clock),
+            repeat: crate::TrackRepeat::Stream,
+            ..t.clone()
+        }));
+    }
+    out
+}
+
+/// The definitions [tape]'s records need (clock C1, tracks 1 to 3) and its `n` blocks: what a writer takes.
+fn defined_tape(n: u64) -> (Definitions, Vec<u8>, Vec<usize>) {
+    let mut defs = Definitions::new();
+    defs.define_all(&test_definitions(C1, &[1, 2, 3])).unwrap();
+    let (data, ends) = tape(n);
+    (defs, data, ends)
 }
 
 /// Seqs of the blocks a reader gives, and whether it reported a cut or damage.
@@ -1017,14 +1135,19 @@ fn blank_at_the_end_is_the_end() {
     }
 }
 
-/// Within a session a data block whose seq goes back is a cut; a describe block of another session starts that session; the same
-/// (session, seq) again is a duplicate, not a cut: dropped with the same bytes, taken and reported with other bytes.
+/// Within a session a data block whose seq goes back is a cut; a block of definitions of another session starts that
+/// session; the same (session, seq) again is a duplicate, not a cut: dropped with the same bytes, taken and reported
+/// with other bytes.
 #[test]
 fn seq_order_and_duplicates() {
-    let block = |kind, id, item: &[u8]| {
+    let block = |track, id, item: &[u8]| {
         let mut buf = [0u8; 64];
-        let mut w = BlockWriter::new(&mut buf, kind, id, &[C1]).unwrap();
-        w.push(1, at(C1, 0), &[item]).unwrap();
+        let mut w = BlockWriter::new(&mut buf, BlockKind::Records, id, &[C1]).unwrap();
+        if track == DESCRIBE_TRACK {
+            w.push_describe(&[item]).unwrap();
+        } else {
+            w.push(track, at(C1, 0), &[item]).unwrap();
+        }
         let len = w.finish();
         buf[..len].to_vec()
     };
@@ -1041,15 +1164,15 @@ fn seq_order_and_duplicates() {
         (got, errors)
     };
     let file: Vec<u8> = [
-        block(BlockKind::Records, id(5), b"a"),
-        block(BlockKind::Records, id(6), b"b"),
-        block(BlockKind::Describe, other(0), b"d"),
-        block(BlockKind::Records, other(1), b"c"),
-        block(BlockKind::Records, other(1), b"c"),
-        block(BlockKind::Records, other(2), b"e"),
-        block(BlockKind::Records, other(2), b"E"),
-        block(BlockKind::Records, other(3), b"f"),
-        block(BlockKind::Records, other(2), b"g"),
+        block(1, id(5), b"a"),
+        block(1, id(6), b"b"),
+        block(DESCRIBE_TRACK, other(0), b"d"),
+        block(1, other(1), b"c"),
+        block(1, other(1), b"c"),
+        block(1, other(2), b"e"),
+        block(1, other(2), b"E"),
+        block(1, other(3), b"f"),
+        block(1, other(2), b"g"),
     ]
     .concat();
     let (got, errors) = walk(&file);
@@ -1080,11 +1203,7 @@ fn seq_order_and_duplicates() {
         "{errors:?}"
     );
     // a records block can't start a session on a file: another session's data block is stale
-    let file = [
-        block(BlockKind::Records, id(5), b"a"),
-        block(BlockKind::Records, other(6), b"b"),
-    ]
-    .concat();
+    let file = [block(1, id(5), b"a"), block(1, other(6), b"b")].concat();
     let (got, errors) = walk(&file);
     assert_eq!(got.len(), 1);
     assert!(matches!(
@@ -1102,46 +1221,51 @@ fn writer_partial_then_renamed() {
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("cap.wwtape");
     let _ = std::fs::remove_file(&path);
-    let (file, ends) = tape(4);
+    let (defs, file, ends) = defined_tape(3);
     let mut w = TapeWriter::create(&path, SyncPolicy::EveryBlocks(2)).unwrap();
     assert_eq!(w.current_path(), writer::partial_name(&path));
     let mut start = 0;
     for end in &ends {
-        w.write_block(&file[start..*end]).unwrap();
+        w.write_block(&defs, &file[start..*end]).unwrap();
         start = *end;
     }
     assert!(!path.exists(), "named only when finished");
-    assert_eq!(std::fs::read(w.current_path()).unwrap(), file);
-    assert_eq!((w.blocks(), w.bytes()), (4, file.len() as u64));
+    // the layout and the producer, then each block after the definitions it needs
+    let written = std::fs::read(w.current_path()).unwrap();
+    let mut start = 0;
+    for end in &ends {
+        let b = &file[start..*end];
+        assert!(written.windows(b.len()).any(|w| w == b));
+        start = *end;
+    }
     assert_eq!(w.finish().unwrap().path, path);
-    // the final index, finish and tail after the blocks
-    assert!(std::fs::read(&path).unwrap().starts_with(&file));
     assert!(!writer::partial_name(&path).exists());
     assert!(matches!(
         TapeWriter::create(&path, SyncPolicy::None),
         Err(WriteError::Exists(_))
     ));
-    // appended: the second session's blocks start with a describe block
+    // appended: the second session's blocks start with its layout and producer
     let mut w = TapeWriter::append(&path, SyncPolicy::default()).unwrap();
-    let mut buf = [0u8; 64];
-    let mut d = BlockWriter::new(&mut buf, BlockKind::Describe, w.next_id(), &[]).unwrap();
-    d.set_flags(FLAG_SET_FIRST | FLAG_SET_LAST);
-    let len = d.finish();
-    w.write_block(&buf[..len]).unwrap();
+    w.set_producer("p");
     w.tick().unwrap();
     w.finish().unwrap();
-    let (seqs, errors) = read_all(&std::fs::read(&path).unwrap(), Recovery::Prefix);
-    // each session ends with its final index, finish and tail, the second also with its describe backup: they carry
-    // the seq of the last counted block
-    assert_eq!(
-        (seqs, errors),
-        (vec![0, 1, 2, 3, 3, 3, 3, 0, 0, 0, 0, 0], 0)
-    );
+    let bytes = std::fs::read(&path).unwrap();
+    let (_, errors) = read_all(&bytes, Recovery::Prefix);
+    assert_eq!(errors, 0);
+    let mut rd = FileBlocks::new(&bytes[..]);
+    let mut data = vec![];
+    while let Some(b) = rd.next_block() {
+        let b = b.unwrap();
+        if b.kind == BlockKind::Records && !b.is_repeat() {
+            data.push(b.seq);
+        }
+    }
+    assert_eq!(data, [0, 1, 2]);
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
-/// A capture passes the producer's blocks through with their own seqs: the checkpoints and describe repeats the
-/// writer adds between them take no seq of their own, so the prefix walk reads the whole file.
+/// A capture passes the producer's blocks through with their own seqs: the checkpoints and puts the writer adds
+/// between them take no seq of their own, so the prefix walk reads the whole file.
 #[test]
 fn pass_through_capture_reads_to_the_end() {
     let dir = std::env::temp_dir().join(format!("ww_tape_pass_{}", std::process::id()));
@@ -1152,45 +1276,40 @@ fn pass_through_capture_reads_to_the_end() {
     w.set_index_policy(IndexPolicy {
         bytes: 1024,
         interval: None,
+        ..IndexPolicy::default()
+    })
+    .expect("a policy with room for a piece head");
+    w.set_near_policy(writer::NearPolicy {
+        copy_spacing: 2048,
+        ..Default::default()
     });
-    w.set_describe_repeat(2048);
-    let mut buf = [0u8; 64];
-    // the producer's session: its describe set of one block, then its records
-    let mut d = BlockWriter::new(&mut buf, BlockKind::Describe, id(0), &[]).unwrap();
-    d.set_flags(FLAG_SET_FIRST | FLAG_SET_LAST);
-    let len = d.finish();
-    w.write_block(&buf[..len]).unwrap();
-    let (file, ends) = tape(60);
+    // the producer's session: its records numbered 0 and up
+    let (defs, file, ends) = defined_tape(60);
     let mut start = 0;
     for end in &ends {
-        // the producer numbers its blocks 1 and up after its describe block
-        let mut b = file[start..*end].to_vec();
-        let seq = Block::read(&b).unwrap().seq;
-        set_id(&mut b, id(seq + 1)).unwrap();
-        w.write_block(&b).unwrap();
+        w.write_block(&defs, &file[start..*end]).unwrap();
         start = *end;
     }
     w.finish().unwrap();
     let bytes = std::fs::read(&path).unwrap();
     std::fs::remove_dir_all(&dir).unwrap();
     let mut rd = FileBlocks::new(&bytes[..]);
-    let (mut kinds, mut counted) = (vec![], vec![]);
+    let (mut kinds, mut counted, mut repeats) = (vec![], vec![], 0);
     while let Some(b) = rd.next_block() {
         let b = b.expect("no cut");
         kinds.push(b.kind);
-        if b.kind == BlockKind::Records {
+        if b.is_repeat() {
+            repeats += 1;
+        } else if b.kind == BlockKind::Records {
             counted.push(b.seq);
         }
     }
-    assert_eq!(counted, (1..=60).collect::<Vec<_>>());
+    assert_eq!(counted, (0..60).collect::<Vec<_>>());
     assert!(
         kinds.iter().filter(|k| **k == BlockKind::Index).count() >= 3,
         "checkpoints and the final index"
     );
-    assert!(
-        kinds.iter().filter(|k| **k == BlockKind::Describe).count() >= 3,
-        "repeats and the backup"
-    );
+    assert!(repeats >= 2, "the definitions put, and copies on use");
     assert_eq!(kinds.last(), Some(&BlockKind::Tail));
 }
 
@@ -1199,12 +1318,12 @@ fn pass_through_capture_reads_to_the_end() {
 #[test]
 fn writer_stops_after_a_failure() {
     let mut w = TapeWriter::append(std::path::Path::new("/dev/full"), SyncPolicy::None).unwrap();
-    let (file, ends) = tape(1);
+    let (defs, file, ends) = defined_tape(1);
     // /dev/full takes nothing: the write fails with ENOSPC
-    let first = w.write_block(&file[..ends[0]]);
+    let first = w.write_block(&defs, &file[..ends[0]]);
     assert!(matches!(first, Err(WriteError::Io { .. })), "{first:?}");
     assert!(matches!(
-        w.write_block(&file[..ends[0]]),
+        w.write_block(&defs, &file[..ends[0]]),
         Err(WriteError::Failed)
     ));
     assert!(matches!(w.sync(), Err(WriteError::Failed)));
@@ -1235,38 +1354,70 @@ fn varints() {
     );
 }
 
-/// A tape of the sample describe set, a sticky record and a records block on two clocks, written through
-/// [TapeWriter] to `path`, the describe records added in the order given.
+/// The sample definitions and track 9 on the wall clock, which the sample tape's records need.
+fn sample_with_wall_track() -> Vec<Describe<'static>> {
+    let mut records = sample_describe();
+    let Describe::Track(t) = &records[1] else {
+        unreachable!("the second sample is a track")
+    };
+    let on_wall = TrackDef {
+        number: UNib32(9),
+        clock: UNib32(WALL),
+        repeat: crate::TrackRepeat::Stream,
+        ..t.clone()
+    };
+    let on_host = TrackDef {
+        number: UNib32(10),
+        repeat: crate::TrackRepeat::Stream,
+        ..t.clone()
+    };
+    records.push(Describe::Track(on_wall));
+    records.push(Describe::Track(on_host));
+    records
+}
+
+/// A tape of `describe` defined in the order given (a typed item put), a state record put and a records block on two
+/// clocks, written through [TapeWriter] to `path`: the bytes before the writer's end.
 fn write_sample_tape(path: &std::path::Path, describe: Vec<Describe<'static>>) -> Vec<u8> {
     _ = std::fs::remove_file(path);
     let mut w = TapeWriter::create(path, SyncPolicy::None).unwrap();
-    let set = describe_set(describe);
-    let sticky = [Sticky {
-        track: 4,
-        at: at(HOST, 7),
-        item: b"session",
-    }];
-    let mut seq = id(0);
-    let mut blocks = vec![];
-    set.write_blocks(&mut seq, 4096, &sticky, |b| blocks.push(b.to_vec()))
-        .unwrap();
-    let mut buf = [0u8; 256];
-    let mut b = BlockWriter::new(&mut buf, BlockKind::Records, seq, &[HOST, WALL]).unwrap();
-    b.push(4, at(HOST, 1_000), &[b"one"]).unwrap();
-    b.push(4, at(HOST, 1_250), &[b"two"]).unwrap();
-    b.push(9, at(WALL, 1_763_164_800_000_000_000), &[b"wall"])
-        .unwrap();
-    let len = b.finish();
-    blocks.push(buf[..len].to_vec());
-    for b in &blocks {
-        w.write_block(b).unwrap();
+    w.set_session(TEST_SESSION).unwrap();
+    for d in &describe {
+        match d {
+            Describe::Producer(p) => w.set_producer(p.name),
+            Describe::Layout(l) => w.set_layout(*l).unwrap(),
+            _ => {}
+        }
     }
+    let mut defs = Definitions::new();
+    defs.define_all(&held(&describe)).unwrap();
+    for d in &describe {
+        if let Describe::Item(item) = d {
+            assert!(w.put_item(&defs, item).unwrap());
+        }
+    }
+    assert!(w.put(&defs, 4, 7, b"session").unwrap());
+    assert!(
+        !w.put(&defs, 4, 8, b"session").unwrap(),
+        "close behind: not again"
+    );
+    w.write_block(
+        &defs,
+        &records_block(
+            w.next_id(),
+            &[
+                (10, at(HOST, 1_000), b"one"),
+                (10, at(HOST, 1_250), b"two"),
+                (9, at(WALL, 1_763_164_800_000_000_000), b"wall"),
+            ],
+        ),
+    )
+    .unwrap();
+    let len = w.bytes() as usize;
     w.finish().unwrap();
     let bytes = std::fs::read(path).unwrap();
-    // the writer's final index, describe backup, finish and tail follow; their golden file is golden/v2-index.hex
-    let written = blocks.concat();
-    assert!(bytes.starts_with(&written));
-    written
+    // the writer's final index, finish and tail follow; their golden file is golden/v1-index.hex
+    bytes[..len].to_vec()
 }
 
 fn to_hex_lines(tape: &[u8]) -> String {
@@ -1281,34 +1432,32 @@ fn to_hex_lines(tape: &[u8]) -> String {
     out
 }
 
-/// The same input gives the same bytes, whatever order the describe records came in, and those bytes are the
-/// golden file's (`WW_TAPE_GOLDEN=update` rewrites it): one block per line, in hex.
+/// The same input gives the same bytes, and those bytes are the golden file's (`WW_TAPE_GOLDEN=update` rewrites it):
+/// one block per line, in hex.
 #[test]
 fn deterministic_and_golden() {
     let dir = std::env::temp_dir().join(format!("ww_tape_golden_{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
-    let a = write_sample_tape(&dir.join("a.wwtape"), sample_describe());
-    let b = write_sample_tape(
-        &dir.join("b.wwtape"),
-        sample_describe().into_iter().rev().collect(),
-    );
+    let a = write_sample_tape(&dir.join("a.wwtape"), sample_with_wall_track());
+    let b = write_sample_tape(&dir.join("b.wwtape"), sample_with_wall_track());
     std::fs::remove_dir_all(&dir).unwrap();
     assert_eq!(a, b, "two writes of the same input");
 
     let hex = to_hex_lines(&a);
-    let golden = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("golden/v2.hex");
+    let golden = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("golden/v1.hex");
     if std::env::var("WW_TAPE_GOLDEN").as_deref() == Ok("update") {
         std::fs::create_dir_all(golden.parent().unwrap()).unwrap();
         std::fs::write(&golden, &hex).unwrap();
     }
     let want =
-        std::fs::read_to_string(&golden).expect("golden/v2.hex: run with WW_TAPE_GOLDEN=update");
+        std::fs::read_to_string(&golden).expect("golden/v1.hex: run with WW_TAPE_GOLDEN=update");
     assert_eq!(
         hex, want,
-        "the format changed: bytes differ from golden/v2.hex"
+        "the format changed: bytes differ from golden/v1.hex"
     );
 
-    // and the golden file reads back to the same records
+    // and the golden file reads back to the same records: the definitions the data and items use (the writer's
+    // layout among them) once each, the state record put, the data
     let mut describe = vec![];
     let mut times = vec![];
     let mut rd = FileBlocks::new(&a[..]);
@@ -1322,22 +1471,40 @@ fn deterministic_and_golden() {
             }
         }
     }
-    let mut want: Vec<_> = sample_describe();
-    want.sort_by_key(Describe::rank);
-    let want: Vec<DescribeOwned> = want
+    let mut want: Vec<_> = sample_with_wall_track();
+    want.push(Describe::Layout(Layout::UNALIGNED));
+    let mut want: Vec<DescribeOwned> = want
         .iter()
         .map(|d| {
             let mut scratch = [0u8; 256];
             DescribeOwned::from_ww_bytes_owned(d.to_ww_bytes(&mut scratch).unwrap()).unwrap()
         })
         .collect();
-    assert_eq!(describe, want);
+    let key = |d: &DescribeOwned| format!("{d:?}");
+    want.sort_by_key(key);
+    describe.sort_by_key(key);
+    let mut once = describe.clone();
+    once.dedup();
+    assert_eq!(once, describe, "each once");
+    assert!(describe.iter().all(|d| want.contains(d)), "{describe:?}");
+    let numbers: Vec<u32> = describe
+        .iter()
+        .filter_map(|d| match d {
+            DescribeOwned::Track(t) => Some(t.number.0),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        numbers.len(),
+        3,
+        "the tracks with data or items: {numbers:?}"
+    );
     assert_eq!(
         times,
         [
             (4, at(HOST, 7)),
-            (4, at(HOST, 1_000)),
-            (4, at(HOST, 1_250)),
+            (10, at(HOST, 1_000)),
+            (10, at(HOST, 1_250)),
             (9, at(WALL, 1_763_164_800_000_000_000)),
         ]
     );
@@ -1370,7 +1537,7 @@ fn typed_items_hash() {
     assert_eq!(set.len(), 2);
 }
 
-/// A track with an empty bundle, path and keys, no item and not sticky reads back: the empty bundle starts mid-byte,
+/// A track with an empty bundle, path and keys, no item and a stream reads back: the empty bundle starts mid-byte,
 /// after the API version's bits (SW-81).
 #[test]
 fn bare_track_round_trips() {
@@ -1385,7 +1552,7 @@ fn bare_track_round_trips() {
         keys: RefVec::Slice { slice: &[] },
         item: None,
         label: "x",
-        sticky: false,
+        repeat: crate::TrackRepeat::Stream,
         kind: TrackKind::Events(EventsDef::INSTANTS),
     });
     let mut buf = [0u8; 256];
@@ -1395,4 +1562,14 @@ fn bare_track_round_trips() {
         DescribeOwned::from_ww_bytes_owned(bytes).map(|o| o.to_ww_bytes_owned()),
         Ok(Ok(bytes.to_vec()))
     );
+}
+
+/// Check `defs` as one batch against `table`.
+fn check_defs<'a, 'd: 'a>(
+    table: &Definitions,
+    defs: impl IntoIterator<Item = &'a Describe<'d>>,
+) -> Result<(), DescribeError> {
+    let defs: Vec<&Describe<'_>> = defs.into_iter().collect();
+    let items: Vec<Vec<u8>> = defs.iter().map(|d| open::encode(d).unwrap()).collect();
+    table.check_batch(defs.iter().zip(&items).map(|(d, i)| (*d, i.as_slice())))
 }

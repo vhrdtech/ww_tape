@@ -15,15 +15,15 @@
 //! ```text
 //! off size field
 //!   0   4  magic "WWTP"
-//!   4  u8  version, 2
-//!   5  u8  kind: 1 records, 2 describe (BlockKind)
-//!   6 u16  flags: bit 0 body coded (FLAG_BODY_CODED, records and describe blocks only), bit 1 copy (FLAG_COPY),
-//!          bits 2 and 3 first and last block of a describe set (FLAG_SET_FIRST, FLAG_SET_LAST); others 0 (a
+//!   4  u8  version, 1
+//!   5  u8  kind: 1 records, 3 and up other kinds (BlockKind); 2 is reserved (RESERVED_KIND)
+//!   6 u16  flags: bit 0 body coded (FLAG_BODY_CODED, record blocks only), bit 1 state records a writer put or
+//!          copied (FLAG_REPEAT), bit 2 puts that belong with the next block (FLAG_WITH_NEXT); others 0 (a
 //!          reader ignores bits it doesn't know)
 //!   8 u32  len: the whole block, header and CRC included
 //!  12 u32  records in the block
 //!  16 u64  seq: the block number in its session, from 0, +1 per block; a gap is lost blocks. Index, finish, tail and
-//!          piece head blocks, and describe blocks a writer repeats, carry the seq of the block before them and are
+//!          piece head blocks, and blocks marked FLAG_REPEAT, carry the seq of the block before them and are
 //!          not counted (index::is_structural)
 //!  24 u32  session tag (SessionTag): the same in every block of one writer's unbroken append, never 0 nor FFFFFFFFh
 //!  28 u32  head CRC in chunk and index blocks (their own docs), else 0
@@ -31,7 +31,7 @@
 //! len-4 u32 crc over bytes 0..len-4
 //! ```
 //!
-//! The body of a records or describe block is a clock table, then records back to back:
+//! The body of a record block is a clock table, then records back to back:
 //!
 //! ```text
 //! uvar n, n × uvar clock number (ascending, 1 and up): the clocks of the block's records; slot i is the i-th
@@ -44,7 +44,7 @@
 //!
 //! The item of a record on an events track whose [EventsDef] has spans or flags is an [EventRecord]: the duration
 //! (uvar, spans only), the flags (uvar, only with flags), then the payload; the record's time is the start. A track
-//! of plain instants carries the payload alone. A sticky record of an events track carries the same item.
+//! of plain instants carries the payload alone. A state record of an events track carries the same item.
 //!
 //! With [FLAG_BODY_CODED] that body is coded: a codec byte, its decoded length and the coded bytes ([body]).
 //!
@@ -52,39 +52,36 @@
 //! no bit in the head. No wall clock is in a block: wall time is a clock of its own, mapped to the others.
 //!
 //! A record's clock is always its track's ([TrackDef::clock]). The slot repeats it on purpose, so a block's times read
-//! without the describe set; a writer keeps the two in agreement, and a reader may take a record whose slot names
+//! without the definitions; a writer keeps the two in agreement, and a reader may take a record whose slot names
 //! another clock than its track's for damage.
 //!
 //! The header and the CRC at the end are the same in every version, so any reader can check a block and skip it by its
 //! length. A later version bumps the version byte and changes only the body; new block kinds and flag bits are added
-//! the same way. A reader takes such a block as it is ([Block::body_known] false, no records) and goes on with the
-//! next, instead of taking it for damage. [Describe] is an evolvable enum, so a describe record of a variant a reader
-//! doesn't know reads as [Describe::Unknown] and is skipped.
+//! the same way. A block of another version that goes on with the data ends the piece the reader is in and starts a
+//! piece of that version, which the reader lists with its version and refuses to read ([reader::ReadError::Version]).
+//! A block of an unknown kind reads as it is ([Block::body_known] false, no records), not as damage. [Describe] is an
+//! evolvable enum, so a describe record of a variant a reader doesn't know reads as [Describe::Unknown] and is
+//! skipped.
 //!
 //! Numbers are little endian; `uvar` is LEB128 (7 bits per byte, low bits first, at most 10 bytes), `ivar` zigzag
 //! then `uvar`, as in the logring format. Blocks are as long as their records, never padded, except a piece's finish
 //! block, which ends the piece on 4 KiB ([piece]): a file is blocks appended back to back, a live feed sends one block
 //! per message.
 //!
-//! A **describe** block carries records on track 0 only, each a [Describe]: the [Producer], the API bundles, every
-//! [ClockDef], [ClockMap] and [TrackDef] in use and typed items ([TypedItem]: a run record, a media reference), in
-//! the canonical order of [Describe::rank]; after them, on their own tracks, the newest record of every *sticky*
-//! track (state a reader joining late needs, e.g. a link's session). A producer writes a describe set at the start of
-//! a file, when a track is added, when a live consumer joins and after blocks were lost, never by time, so record
-//! blocks carry only records and a trickle of records costs a block header each, not a description.
+//! **Track 0** holds the definitions: one [Describe] per record, its item's whole bytes: the [Producer], the
+//! [Layout], the API bundles, the [ClockDef]s, [ClockMap]s and [TrackDef]s in use and typed items ([TypedItem]: a run
+//! record, a media reference). Two facts about it are built in: its item type is [Describe], and its records have no
+//! time (clocks are defined on it). Definitions sit in record blocks of their own (no other track in them).
 //!
-//! Describe blocks a writer writes again (after a piece's first data block, after its first checkpoint, the repeats,
-//! the backup before a piece's finish, the start of the next piece) are copies of the newest describe run, sticky records included, marked
-//! [FLAG_COPY] and with the seq of the block before them.
-//! Their sticky records are the state as of the run they copy, at its times, not at the copy's place in the file. A
-//! reader that read on to a copy takes no sticky record from it: the records read since are newer. A reader starting
-//! at a copy takes them as the state at their times.
-//!
-//! A describe set's first block is marked [FLAG_SET_FIRST] and its last [FLAG_SET_LAST]: a set is whole when a block
-//! marked first is followed, back to back, by blocks up to one marked last; part of a set is never taken for one.
-//! A set whose blocks are all marked [FLAG_SET_ADD] is an **addition**: its records join the current set (the newest
-//! whole set before it plus the additions since), replacing records of the same key and sticky records of the same
-//! track. The current set is what a writer copies, merged into one whole set in canonical order.
+//! **State.** Track 0 and every track whose policy is [TrackRepeat::State] hold state, not events: a reader at any
+//! place takes the nearest record of each slot behind it ([state]). A writer keeps that record close behind every use
+//! ([StatePolicy::near]): before a block of data of a track it puts the track's definition and the clock, maps and
+//! bundles it names, and the application puts a state track's item where it is used ([TapeWriter::put]); either is
+//! written again only when the same item doesn't lie close behind in the same piece. Such writes are records in
+//! blocks marked [FLAG_REPEAT], with the seq of the block before them; an item first written in a piece gets spaced
+//! copies too ([StatePolicy::copies]). The index lists every state record by its slot and hash, so a reader finds
+//! the item in force at a place without a scan, and a piece read alone, a file whose head is cut off and a consumer
+//! joining a live feed all find what they need close behind the data.
 //!
 //! **Gaps.** A [Layout] says how far a writer may leave a blank or bad stretch and go on after it ([Layout::gap_max])
 //! and where it resumes ([Layout::resume_align]). A reader's cost per gap is bounded by the format: `gap_max` is at
@@ -124,11 +121,12 @@
 //! | [GAP_MAX_MAX] | 64 MiB | a layout's gap |
 //! | [GAP_PROBES_MAX] | 8192 | the resume places a reader probes in one gap |
 //! | [GAP_CHECKS_MAX] | 4 | the blocks a reader checks whole past one gap |
-//! | [DESCRIBE_SEEK_BLOCKS_MAX] | 64 | the blocks a reader skips looking for a describe copy |
+//! | [STATE_READ_MAX](reader::STATE_READ_MAX) | 1 GiB | the bytes of blocks one state lookup reads |
 //! | [DEFERRED_BYTES_MAX](writer::DEFERRED_BYTES_MAX) | 1 MiB | the deferred blocks a writer keeps |
 //!
-//! The same input gives the same bytes: blocks hold no wall time, describe records go in canonical order
-//! ([DescribeSet] with `std`) and blocks are cut by size, not by time, unless the producer seals them on a timer.
+//! The same input gives the same bytes: blocks hold no wall time, definitions go in the order they are made, what a
+//! writer puts and copies follows from the blocks before ([writer]) and blocks are cut by size, not by time, unless
+//! the producer seals them on a timer.
 //! One exception: an [lz4] payload column is identical only for one `lz4_flex` version on targets of the
 //! same pointer width and endianness (decoding is unaffected).
 
@@ -164,8 +162,9 @@ mod describe;
 pub use describe::{
     ALIGNMENT, ClockDef, ClockMap, ClockOrigin, ClockRate, ClockResolution, Describe, Dimension,
     Ends, EventsDef, GAP_CHECKS_MAX, GAP_MAX_MAX, GAP_PROBES_MAX, KeySegment, Layout, MapSegment,
-    NO_CLOCK, Producer, Rank, SD_GAP_MAX, SD_RESUME_ALIGN, TrackDef, TrackKind, TypeRef, TypedItem,
-    UNIX_CLOCK_KEY, clock_key, segments_increasing, track_id,
+    NEAR_DEFAULT, NO_CLOCK, Producer, SD_GAP_MAX, SD_RESUME_ALIGN, StatePolicy, TrackDef,
+    TrackKind, TrackRepeat, TypeRef, TypedItem, UNIX_CLOCK_KEY, api, clock_key,
+    segments_increasing, track_id,
 };
 #[cfg(feature = "std")]
 pub use describe::{
@@ -173,6 +172,8 @@ pub use describe::{
     TrackDefOwned, TrackKindOwned, TypeRefOwned, TypedItemOwned,
 };
 pub use exact_units::{Magnitude, MagnitudeOf, Ratio64, Rounding};
+pub mod state;
+pub use state::{DefinitionKind, ItemHash, Slot};
 
 pub mod summary;
 pub use summary::{EventFields, EventNode, Summary, SummaryError, SummaryHead};
@@ -202,7 +203,9 @@ pub use series::{MediaStream, SeriesDef, SeriesError, SeriesSegment, SeriesValue
 pub use series::{MediaStreamOwned, SeriesDefOwned};
 
 pub mod index;
-pub use index::{IndexBlock, IndexEntry, IndexError, IndexHead, IndexKind, IndexPolicy};
+pub use index::{
+    IndexBlock, IndexEntry, IndexError, IndexHead, IndexKind, IndexPolicy, StateEntry,
+};
 pub mod piece;
 #[cfg(feature = "std")]
 pub use piece::{ChainOptions, CutPolicy, PieceChain};
@@ -213,10 +216,7 @@ pub use piece::{
 #[cfg(feature = "alloc")]
 pub mod reader;
 #[cfg(feature = "alloc")]
-pub use reader::{
-    ByteSource, DESCRIBE_LEN_MAX, DESCRIBE_SEEK_BLOCKS_MAX, DescribeBlocks, OpenOptions, PieceInfo,
-    ReadError, TapeReader,
-};
+pub use reader::{ByteSource, OpenOptions, PieceInfo, ReadError, TapeReader};
 
 mod event;
 pub use event::{EventRecord, EventRecordError};
@@ -233,10 +233,10 @@ pub use varint::{ivar_len, uvar_len};
 mod file;
 #[cfg(feature = "std")]
 pub use file::{BlockBuf, Cut, FileBlocks, FileError, Recovery};
-#[cfg(feature = "std")]
-mod set;
-#[cfg(feature = "std")]
-pub use set::{DescribeError, DescribeReadError, DescribeSet, Sticky, StickyRecord};
+#[cfg(feature = "alloc")]
+pub mod open;
+#[cfg(feature = "alloc")]
+pub use open::{Definitions, DescribeError, RecordRef, STATE_ITEM_MAX, TrackFacts};
 #[cfg(feature = "std")]
 pub mod sink;
 #[cfg(feature = "std")]
@@ -244,41 +244,42 @@ pub use sink::{FileSink, Files, MemSink, MemTape, MemTapes, SinkFactory, TapeSin
 #[cfg(feature = "std")]
 pub mod writer;
 #[cfg(feature = "std")]
-pub use writer::{Finished, Resumed, SyncPolicy, TapeWriter, WriteError, WriterOptions};
+pub use writer::{
+    DEFER_WINDOW, Finished, HEAD_ENTRIES, NearPolicy, PutWork, Resumed, SyncPolicy, TapeWriter,
+    WriteError, WriterOptions,
+};
 
 /// `WWTP`
 pub const MAGIC: [u8; 4] = *b"WWTP";
-pub const VERSION: u8 = 2;
+/// The format version: 1, the first.
+pub const VERSION: u8 = 1;
 /// Bytes of the block header.
 pub const HEADER_LEN: usize = 32;
 /// Longest block a reader takes (64 MiB): a longer length is damage. Blocks are small (a producer hands over 64 KiB
-/// ones); the largest are describe blocks with big API bundles.
+/// ones); the largest are blocks of definitions with big API bundles.
 pub const MAX_BLOCK_LEN: usize = 64 << 20;
 const _: () = assert!(
     MAX_BLOCK_LEN >> 31 == 0,
     "a block length is a u32 in the header"
 );
-/// Header flag: the block is a copy a writer made of a block it wrote before (a describe block written again: a
-/// repeat, the backup before a piece's finish, the start of the next piece). It carries the seq of the block before
-/// it and takes no part in the seq order; a reader that read the original takes nothing new from it.
-pub const FLAG_COPY: u16 = 1 << 1;
-/// Header flag: the first block of a describe set. With [FLAG_SET_LAST] it tells a whole set from part of one: a set
-/// is whole when a block marked first is followed, back to back, by blocks up to one marked last (the same block for
-/// a set of one block). [DescribeSet::write_blocks] marks them.
-pub const FLAG_SET_FIRST: u16 = 1 << 2;
-/// Header flag: the last block of a describe set, see [FLAG_SET_FIRST].
-pub const FLAG_SET_LAST: u16 = 1 << 3;
-/// Header flag: every block of a describe set that adds records to the current set instead of being the whole set
-/// (a track added during a session): the records replace those of the same key, the sticky records those of their track,
-/// in canonical order over the union. [DescribeSet::write_addition] marks them. A writer's copies carry the whole
-/// current set, additions merged.
-pub const FLAG_SET_ADD: u16 = 1 << 4;
-/// Header flag: the body of a records or describe block is coded ([body]); on another kind the body is one this
+/// Header flag: the block holds state records a writer put or copied ([state]), not new items of the producer's: it
+/// carries the seq of the block before it and takes no part in the seq order. A reader holding an item of the same
+/// hash in the same slot takes such a record as nothing new.
+pub const FLAG_REPEAT: u16 = 1 << 1;
+/// Header flag, on a block marked [FLAG_REPEAT] only: the block belongs with the block after it, and a run of such
+/// blocks ends in the block they belong to (the block of data their puts serve, or the last block of a put's
+/// records), all of one writer call. A writer resumed after a crash drops such blocks at the end of what it keeps,
+/// and the call given again writes them as it did. A reader takes the block as any other.
+pub const FLAG_WITH_NEXT: u16 = 1 << 2;
+/// Block kind 2, which earlier drafts gave describe blocks: reserved, never written, read as a kind this reader
+/// doesn't know.
+pub const RESERVED_KIND: u8 = 2;
+/// Header flag: the body of a record block is coded ([body]); on another kind the body is one this
 /// reader doesn't know. Off unless a writer codes the block with [code_body].
 pub const FLAG_BODY_CODED: u16 = 1 << 0;
 /// Bytes of the CRC at the end of a block.
 pub const CRC_LEN: usize = 4;
-/// Track 0: the producer's own, describe records.
+/// Track 0: the definitions, [Describe] records without time.
 pub const DESCRIBE_TRACK: u32 = 0;
 /// Most clocks in one block's clock table; a producer writing on more starts another block.
 pub const MAX_BLOCK_CLOCKS: usize = 16;
@@ -293,7 +294,6 @@ const CRC: crc::Crc<u32> = crc::Crc::<u32>::new(&crc::CRC_32_ISCSI);
 pub enum BlockKind {
     /// Records of any tracks, interleaved.
     Records,
-    Describe,
     /// One chunk of one event track ([chunk]).
     Events,
     /// One chunk of one fixed-rate series ([chunk]).
@@ -319,7 +319,6 @@ impl BlockKind {
     pub fn from_u8(v: u8) -> Self {
         match v {
             1 => BlockKind::Records,
-            2 => BlockKind::Describe,
             3 => BlockKind::Events,
             4 => BlockKind::Series,
             5 => BlockKind::Parity,
@@ -335,7 +334,6 @@ impl BlockKind {
     pub fn to_u8(self) -> u8 {
         match self {
             BlockKind::Records => 1,
-            BlockKind::Describe => 2,
             BlockKind::Events => 3,
             BlockKind::Series => 4,
             BlockKind::Parity => 5,
@@ -729,8 +727,7 @@ impl<'b> BlockWriter<'b> {
     }
 
     /// Write the header's length and count and the CRC; returns the block's length (`&buf[..len]` is the block).
-    /// Set the header flags (0 when not set), before [Self::finish]: [FLAG_SET_FIRST] and [FLAG_SET_LAST] on the
-    /// describe blocks of a set made without [DescribeSet::write_blocks].
+    /// Set the header flags (0 when not set), before [Self::finish]: [FLAG_REPEAT] on blocks of put or copied state records.
     pub fn set_flags(&mut self, flags: u16) {
         // new wrote the header: buf holds HEADER_LEN bytes
         _ = bytes::put_u16(self.buf, 6, flags);
@@ -840,7 +837,7 @@ pub struct Block<'b> {
     pub seq: u64,
     /// The session the block belongs to, as written: a reader decides whether it is the current one.
     pub session: SessionTag,
-    /// Header flags ([FLAG_COPY]); bits this reader doesn't know are kept, not read.
+    /// Header flags ([FLAG_REPEAT]); bits this reader doesn't know are kept, not read.
     pub flags: u16,
     pub record_count: u32,
     bytes: &'b [u8],
@@ -886,9 +883,17 @@ pub fn set_id(block: &mut [u8], id: BlockId) -> Result<(), BlockError> {
     restamp(block, id, 0)
 }
 
-/// [set_id], and mark the block a [copy](FLAG_COPY) a writer made of a block written before.
-pub fn mark_copy(block: &mut [u8], id: BlockId) -> Result<(), BlockError> {
-    restamp(block, id, FLAG_COPY)
+/// [set_id], and mark the block as one of put or copied state records ([FLAG_REPEAT]).
+pub fn mark_repeat(block: &mut [u8], id: BlockId) -> Result<(), BlockError> {
+    restamp(block, id, FLAG_REPEAT)
+}
+
+/// Mark the whole, good block `block` as belonging with the block after it ([FLAG_WITH_NEXT]), its CRCs rewritten.
+#[cfg(feature = "std")]
+pub(crate) fn mark_with_next(block: &mut [u8]) -> Result<(), BlockError> {
+    let b = Block::read(block)?;
+    let id = BlockId::new(b.session, b.seq);
+    restamp(block, id, FLAG_WITH_NEXT)
 }
 
 /// Give the good block `block` the id `id` and the header flags `set` too, its CRCs rewritten.
@@ -1045,7 +1050,7 @@ impl<'b> Block<'b> {
 
     /// The records parse to the end and are as many as the header says.
     fn check_records(&self) -> Result<(), BlockError> {
-        let records = matches!(self.kind, BlockKind::Records | BlockKind::Describe);
+        let records = self.kind == BlockKind::Records;
         if self.version == VERSION && records && self.is_coded() && self.coded().is_none() {
             return Err(BlockError::BadRecords);
         }
@@ -1067,9 +1072,15 @@ impl<'b> Block<'b> {
         Ok(())
     }
 
-    /// Whether the block is a [copy](FLAG_COPY) a writer made.
-    pub fn is_copy(&self) -> bool {
-        self.flags & FLAG_COPY != 0
+    /// Whether the block holds put or copied state records ([FLAG_REPEAT]).
+    pub fn is_repeat(&self) -> bool {
+        self.flags & FLAG_REPEAT != 0
+    }
+
+    /// The track of its first record, None for a block without records this reader reads in place: what tells a
+    /// block of definitions (track 0) from a block of data.
+    pub fn first_track(&self) -> Option<u32> {
+        self.records().next()?.ok().map(|r| r.track)
     }
 
     /// The block's CRC, the last 4 bytes: with its length, what tells two blocks of one id apart.
@@ -1099,7 +1110,7 @@ impl<'b> Block<'b> {
     }
 
     fn has_records(&self) -> bool {
-        self.body_known() && matches!(self.kind, BlockKind::Records | BlockKind::Describe)
+        self.body_known() && self.kind == BlockKind::Records
     }
 
     /// The chunk of an events or series block whose body this reader knows.
@@ -1158,16 +1169,25 @@ impl<'b> Block<'b> {
         self.flags & FLAG_BODY_CODED != 0
     }
 
-    /// The parts of a coded records or describe body; None for any other block, or one that doesn't parse.
+    /// The parts of a coded record body; None for any other block, or one that doesn't parse.
     fn coded(&self) -> Option<body::Coded<'b>> {
-        let records = matches!(self.kind, BlockKind::Records | BlockKind::Describe);
+        let records = self.kind == BlockKind::Records;
         if !(self.is_coded() && records) {
             return None;
         }
         body::coded(self.body)
     }
 
-    /// The codec of a coded records or describe body ([FLAG_BODY_CODED]); None for a plain body.
+    /// The length of the plain block [Self::decode] makes of a body coded with lz4, from the body's head; None for
+    /// any other block.
+    #[cfg(feature = "alloc")]
+    pub(crate) fn decoded_len(&self) -> Option<usize> {
+        self.coded()
+            .filter(|c| c.codec == BodyCodec::LZ4 && self.body_known())
+            .map(|c| c.decoded_len.saturating_add(HEADER_LEN + CRC_LEN))
+    }
+
+    /// The codec of a coded record body ([FLAG_BODY_CODED]); None for a plain body.
     pub fn body_codec(&self) -> Option<BodyCodec> {
         self.coded().map(|c| c.codec)
     }

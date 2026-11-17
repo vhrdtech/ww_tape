@@ -1,16 +1,16 @@
 //! Tape pieces: one recording cut into complete files, and how a piece ends.
 //!
-//! A **piece** is a complete tape file: a [piece head](PieceHead) block, describe blocks, chunk, summary and record
-//! blocks with checkpoint [index](crate::index) blocks between them, then at the finish a final index, a backup of
-//! the describe blocks, a [finish](Finish) block and a fixed-size [tail](Tail) block. Any piece reads alone; pieces
-//! written back to back are one valid tape. A file a writer started without a piece head is one piece too, with no
-//! ids.
+//! A **piece** is a complete tape file: a [piece head](PieceHead) block, blocks of definitions, chunk, summary and
+//! record blocks with checkpoint [index](crate::index) blocks between them, then at the finish a final index, a
+//! [finish](Finish) block and a fixed-size [tail](Tail) block. Any piece reads alone: a writer puts the definitions
+//! each block of data needs close behind it in the same piece ([state](crate::state)); pieces written back to back are one valid tape. A file a writer started without a piece head is one piece
+//! too, with no ids.
 //!
-//! A writer cuts a recording into pieces at chunk boundaries ([PieceChain]). The head names the
-//! previous piece by its content hash and its id; the previous piece's tail names this piece's id, derived at the cut
-//! from the previous piece's id and the content hash in its finish ([PieceId::after]), so the chain is checked both ways ([check_chain]). Each piece carries the owner id, its
-//! sequence number in the chain and, per track, where its items continue (head) and the items and ticks it holds
-//! (finish). A chain whose first piece is gone reads as head cut, not as damage.
+//! A writer cuts a recording into pieces at chunk boundaries ([PieceChain]). The head names the previous piece by its
+//! content hash and its id; the previous piece's tail names this piece's id, derived at the cut from the previous
+//! piece's id and the content hash in its finish ([PieceId::after]), so the chain is checked both ways ([check_chain]).
+//! Each piece carries the owner id, its sequence number in the chain and, per track, where its items continue (head)
+//! and the items and ticks it holds (finish). A chain whose first piece is gone reads as head cut, not as damage.
 //!
 //! The finish block is the last thing a writer places before the tail. Its content hash is BLAKE3 over the piece's
 //! bytes before it; a piece without one is live or was cut off, and reads up to its last good block. The tail sits
@@ -35,7 +35,7 @@
 //! finish (kind 8)
 //!  32 u8   state (1 complete, 2 continued in the next piece, 3 aborted)    33 [7] reserved
 //!  40 [32] content hash: BLAKE3 of the piece's bytes before this block
-//!  72 u64  newest checkpoint index offset    80 u64 last final index offset    88 u64 describe backup offset
+//!  72 u64  newest checkpoint index offset    80 u64 last final index offset    88 u64 reserved, u64::MAX
 //!          (u64::MAX for none)
 //!  96 [16] piece id    112 [16] next piece id    128 [32] owner id    160 u64 sequence number
 //! 168 u32  flags: bit 0 the piece has a head    172 u32 padding: zero bytes after the tracks, below [PIECE_ALIGN]
@@ -397,8 +397,6 @@ pub struct Finish {
     pub checkpoint: Option<u64>,
     /// The last final index block (each points at the one before).
     pub final_index: Option<u64>,
-    /// The first describe block of the backup before the finish.
-    pub describe: Option<u64>,
     /// The piece's ident; None for a file written without a piece head.
     pub ident: Option<PieceIdent>,
     /// The next piece's id, chosen at the cut: some when [FinishState::Continued].
@@ -458,7 +456,7 @@ fn fill_finish(b: &mut [u8], finish: &Finish, tracks: &[TrackRange]) -> Option<(
     put(b, 40, finish.hash.0)?;
     put_u64(b, 72, opt(finish.checkpoint))?;
     put_u64(b, 80, opt(finish.final_index))?;
-    put_u64(b, 88, opt(finish.describe))?;
+    put_u64(b, 88, opt(None))?;
     if let Some(ident) = &finish.ident {
         put_ident(b, 96, 128, 160, ident)?;
         put_u32(b, 168, u32::from(FLAG_PIECE))?;
@@ -547,7 +545,6 @@ fn read_finish(b: &[u8]) -> Option<Finish> {
         hash: ContentHash(array(b, 40)?),
         checkpoint: get_opt(b, 72)?,
         final_index: get_opt(b, 80)?,
-        describe: get_opt(b, 88)?,
         ident,
         next: (!next.is_none()).then_some(next),
     })

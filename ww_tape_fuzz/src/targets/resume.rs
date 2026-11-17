@@ -7,15 +7,17 @@
 use std::path::Path;
 use std::sync::OnceLock;
 
-use shrink_wrap::prelude::UNib32;
+use shrink_wrap::prelude::{RefVec, UNib32};
 use ww_tape::chunk::ChunkHead;
 use ww_tape::index::IndexPolicy;
 use ww_tape::piece::{OwnerId, PieceHead, PieceId, PieceIdent};
 use ww_tape::reader::Found;
+use ww_tape::writer::NearPolicy;
 use ww_tape::{
-    ALIGNMENT, BlockId, BlockKind, BlockWriter, ClockDef, ClockOrigin, ClockTime, Codec,
-    ColumnKind, ColumnSpec, Describe, DescribeSet, EndMode, Layout, Magnitude, MemSink, Producer,
-    SessionTag, SyncPolicy, TapeReader, TapeSink, TapeWriter, WriterOptions, clock_key,
+    BlockId, BlockKind, BlockWriter, ClockDef, ClockOrigin, ClockTime, Codec, ColumnKind,
+    ColumnSpec, Definitions, Describe, EndMode, EventsDef, FullVersion, Layout, Magnitude, MemSink,
+    Segment, SessionTag, SyncPolicy, TapeReader, TapeSink, TapeWriter, TrackDef, TrackKind,
+    Version, WriterOptions, clock_key, track_key,
 };
 
 /// Rounds of blocks in a template piece.
@@ -27,9 +29,18 @@ fn options(aligned: bool) -> WriterOptions {
         index: IndexPolicy {
             bytes: 1024,
             interval: None,
+            ..IndexPolicy::default()
         },
-        alignment: if aligned { ALIGNMENT } else { 0 },
-        describe_repeat: 4 << 10,
+        layout: if aligned {
+            Layout::ALIGNED
+        } else {
+            Layout::UNALIGNED
+        },
+        producer: "fuzz".to_owned(),
+        near: NearPolicy {
+            copy_spacing: 2 << 10,
+            memory_max: 4,
+        },
     }
 }
 
@@ -63,7 +74,7 @@ fn chunk(t: u64, k: u64) -> (ChunkHead, Vec<u8>) {
     (head, starts)
 }
 
-fn write_chunk<S: TapeSink>(w: &mut TapeWriter<S>, t: u64, k: u64) {
+fn write_chunk<S: TapeSink>(w: &mut TapeWriter<S>, defs: &Definitions, t: u64, k: u64) {
     let (h, c) = chunk(t, k);
     let spec = ColumnSpec {
         kind: ColumnKind::Starts,
@@ -71,17 +82,20 @@ fn write_chunk<S: TapeSink>(w: &mut TapeWriter<S>, t: u64, k: u64) {
         param: 0,
         len: c.len(),
     };
-    w.write_chunk(&h, &[(spec, &c)]).expect("a chunk writes");
+    w.write_chunk(defs, &h, &[(spec, &c)])
+        .expect("a chunk writes");
 }
 
-/// An unfinished piece: a describe set of several blocks, then rounds of chunks, records and deferred records, a
-/// describe addition of several blocks after half of them.
+/// An unfinished piece: rounds of chunks, records and deferred records, a clock and a track defined after half of
+/// them; the writer puts the definitions each block needs before it.
 fn template(aligned: bool, head: bool) -> Vec<u8> {
     let o = options(aligned);
     let mut w = TapeWriter::create_on(MemSink::new(Path::new("t")), o.sync);
-    w.set_alignment(o.alignment).expect("a valid alignment");
-    w.set_index_policy(o.index);
-    w.set_describe_repeat(o.describe_repeat);
+    w.set_layout(o.layout).expect("a new piece takes a layout");
+    w.set_producer(&o.producer);
+    w.set_index_policy(o.index)
+        .expect("a policy with room for a piece head");
+    w.set_near_policy(o.near);
     if head {
         let owner = OwnerId([1; 32]);
         let h = PieceHead {
@@ -95,52 +109,49 @@ fn template(aligned: bool, head: bool) -> Vec<u8> {
         };
         w.begin_piece(&h, &[]).expect("a head writes");
     }
-    let mut set = DescribeSet::new();
-    set.insert(&Describe::Producer(Producer { name: "fuzz" }))
-        .expect("a producer");
-    let layout = if aligned {
-        Layout::ALIGNED
-    } else {
-        Layout::UNALIGNED
-    };
-    set.insert(&Describe::Layout(layout)).expect("a layout");
-    let mut id = w.next_id();
-    let mut blocks = vec![];
-    set.write_blocks(&mut id, 60, &[], |b| blocks.push(b.to_vec()))
-        .expect("the set writes");
-    for b in &blocks {
-        w.write_block(b).expect("a describe block writes");
-    }
+    let mut defs = Definitions::new();
+    defs.define_all(&[clock(1), track(1, 1), track(2, 1), track(9, 1)])
+        .expect("the definitions hold");
     for k in 0..ROUNDS {
         if k == ROUNDS / 2 {
-            let mut add = DescribeSet::new();
-            add.insert(&Describe::Producer(Producer {
-                name: "fuzz, resumed",
-            }))
-            .expect("a producer");
-            add.insert(&clock()).expect("a clock");
-            let mut id = w.next_id();
-            let mut blocks = vec![];
-            add.write_addition(&mut id, 60, &[], |b| blocks.push(b.to_vec()))
-                .expect("the addition writes");
-            w.write_describe(&blocks)
-                .expect("the addition joins the set");
+            defs.define_all(&[clock(2), track(10, 2)])
+                .expect("the definitions hold");
         }
-        write_chunk(&mut w, 0, k);
-        w.write_block(&records(w.next_id(), k))
+        write_chunk(&mut w, &defs, 0, k);
+        w.write_block(&defs, &records(w.next_id(), k))
             .expect("a records block writes");
-        write_chunk(&mut w, 1, k);
-        w.defer_block(records(w.next_id(), 100 + k))
+        write_chunk(&mut w, &defs, 1, k);
+        w.defer_block(&defs, records(w.next_id(), 100 + k))
             .expect("a deferred block");
     }
     w.flush_deferred().expect("deferred blocks write");
     w.sink().tape().to_vec().expect("the bytes")
 }
 
-fn clock() -> Describe<'static> {
+/// Events track `number` on clock `clock`.
+fn track(number: u32, clock: u32) -> Describe<'static> {
+    Describe::Track(TrackDef {
+        number: UNib32(number),
+        key: track_key(0xf2, &[Segment::Index(number)]),
+        clock: UNib32(clock),
+        dimensions: RefVec::Slice { slice: &[] },
+        api: FullVersion::new("fuzz_api", Version::new(0, 1, 0)),
+        bundle: RefVec::Slice { slice: &[] },
+        path: RefVec::Slice {
+            slice: &[UNib32(1)],
+        },
+        keys: RefVec::Slice { slice: &[] },
+        item: None,
+        label: "fuzz",
+        repeat: ww_tape::TrackRepeat::Stream,
+        kind: TrackKind::Events(EventsDef::INSTANTS),
+    })
+}
+
+fn clock(number: u32) -> Describe<'static> {
     Describe::Clock(ClockDef {
-        number: UNib32(1),
-        key: clock_key(0xf2, &[], 1),
+        number: UNib32(number),
+        key: clock_key(0xf2, &[], number.into()),
         rate: Magnitude::pow10(9).into(),
         resolution: Magnitude::pow10(-9).into(),
         origin: ClockOrigin::Boot,
@@ -186,10 +197,13 @@ pub fn resume(data: &[u8]) {
             .iter()
             .all(|e| e.offset < resumed.kept_bytes)
     );
+    let mut defs = Definitions::new();
+    defs.define_all(&[clock(1), track(1, 1), track(9, 1)])
+        .expect("the definitions hold");
     for k in 0..2 {
-        w.write_block(&records(w.next_id(), 200 + k))
+        w.write_block(&defs, &records(w.next_id(), 200 + k))
             .expect("a resumed piece takes blocks");
-        write_chunk(&mut w, 0, ROUNDS + k);
+        write_chunk(&mut w, &defs, 0, ROUNDS + k);
     }
     let finished = w.finish().expect("a resumed piece finishes");
     let out = tape.to_vec().expect("the bytes");

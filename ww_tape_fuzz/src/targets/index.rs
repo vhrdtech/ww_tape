@@ -88,11 +88,13 @@ pub fn index(data: &[u8]) {
             tree: 0,
             track_id: u64::from(c[0] % 5),
             track_number: c[0].into(),
+            second: 0,
             first_item: 0,
             count: 1,
             first_tick: -1,
             last_tick: 1,
             latest_end: 2,
+            repeat: c[0] & 0x80 != 0,
         })
         .collect();
     let kind = if flag & 1 == 1 {

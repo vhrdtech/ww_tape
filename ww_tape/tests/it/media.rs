@@ -2,9 +2,8 @@
 
 use ww_tape::piece::{OwnerId, PieceHead, PieceId, PieceIdent, piece_head_len, write_piece_head};
 use ww_tape::{
-    BlockId, BlockKind, BlockWriter, ClockTime, Cut, Describe, DescribeSet, FileBlocks, FileError,
-    Layout, Medium, OpenOptions, Producer, Recovery, SessionTag, SyncPolicy, TapeReader,
-    TapeWriter,
+    BlockId, BlockKind, BlockWriter, ClockTime, Cut, Describe, FileBlocks, FileError, Layout,
+    Medium, OpenOptions, Recovery, SessionTag, SyncPolicy, TapeReader, TapeWriter,
 };
 
 const OLD: SessionTag = SessionTag::writable(0x0bad_0001);
@@ -35,16 +34,48 @@ fn piece_head(session: SessionTag, prev_session: SessionTag) -> Vec<u8> {
     buf
 }
 
-/// A session on a medium: its piece head naming `prev_session`, a describe block with `layout`, then `n` records blocks.
+/// Blocks of the definitions the tests' data needs ([crate::definitions::base]) as a producer on a medium writes
+/// them, of at most `max` bytes each, numbered from `first` on.
+fn describe_blocks_max(layout: Layout, first: BlockId, max: usize) -> Vec<Vec<u8>> {
+    let items: Vec<Vec<u8>> = crate::definitions::base(layout)
+        .iter()
+        .map(|d| ww_tape::open::encode(d).unwrap())
+        .collect();
+    let refs: Vec<ww_tape::RecordRef<'_>> = items
+        .iter()
+        .map(|item| ww_tape::RecordRef {
+            track: ww_tape::DESCRIBE_TRACK,
+            at: None,
+            item,
+        })
+        .collect();
+    let mut id = first;
+    let mut blocks = vec![];
+    ww_tape::open::write_records(
+        &refs,
+        max,
+        0,
+        || {
+            let this = id;
+            id = id.next();
+            this
+        },
+        |b| {
+            blocks.push(b.to_vec());
+            Ok::<(), ww_tape::DescribeError>(())
+        },
+    )
+    .unwrap();
+    blocks
+}
+
+/// A session on a medium: its piece head naming `prev_session`, a block of definitions with `layout`, then `n`
+/// records blocks.
 fn session(session: SessionTag, prev_session: SessionTag, layout: Layout, n: u64) -> Vec<u8> {
     let mut out = piece_head(session, prev_session);
-    let mut set = DescribeSet::new();
-    set.insert(&Describe::Producer(Producer { name: "media" }))
-        .unwrap();
-    set.insert(&Describe::Layout(layout)).unwrap();
-    let mut id = BlockId::new(session, 0);
-    set.write_blocks(&mut id, 4096, &[], |b| out.extend_from_slice(b))
-        .unwrap();
+    let defs = describe_blocks_max(layout, BlockId::new(session, 0), 4096);
+    out.extend(defs.concat());
+    let mut id = BlockId::new(session, defs.len() as u64);
     for _ in 0..n {
         out.extend(records(id));
         id = id.next();
@@ -52,13 +83,15 @@ fn session(session: SessionTag, prev_session: SessionTag, layout: Layout, n: u64
     out
 }
 
-/// What a walk gives: (session, seq) of each records block, and the errors.
+/// What a walk gives: (session, seq) of each records block of data (not of definitions), and the errors.
 fn walk(bytes: &[u8], medium: Medium) -> (Vec<(SessionTag, u64)>, Vec<FileError>) {
     let mut rd = FileBlocks::new(bytes).on(medium);
     let (mut got, mut errors) = (vec![], vec![]);
     while let Some(b) = rd.next_block() {
         match b {
-            Ok(b) if b.kind == BlockKind::Records => got.push((b.session, b.seq)),
+            Ok(b) if b.kind == BlockKind::Records && b.first_track() != Some(0) => {
+                got.push((b.session, b.seq))
+            }
             Ok(_) => {}
             Err(e) => errors.push(e),
         }
@@ -123,7 +156,7 @@ fn stale_blocks_behind_the_end_are_not_data() {
     let (mut got, mut stale) = (vec![], 0);
     while let Some(b) = rd.next_block() {
         match b {
-            Ok(b) if b.kind == BlockKind::Records => got.push(b.seq),
+            Ok(b) if b.kind == BlockKind::Records && b.first_track() != Some(0) => got.push(b.seq),
             Ok(_) => {}
             Err(FileError::Stale { session, .. }) if session == OLD => stale += 1,
             Err(e) => panic!("{e}"),
@@ -220,7 +253,7 @@ fn a_torn_unit_then_the_next_block_on_a_boundary_is_a_gap() {
     assert!(matches!(errors[..], [FileError::Cut { offset: o, .. }] if o == at as u64));
 }
 
-/// A finished file of session `session` (describe with `layout`, `n` records blocks, final index, finish, tail).
+/// A finished file of session `session` (definitions with `layout`, `n` records blocks, final index, finish, tail).
 fn finished(session: SessionTag, layout: Layout, n: u64) -> Vec<u8> {
     let dir = std::env::temp_dir().join(format!(
         "ww_tape_media_{}_{}",
@@ -231,20 +264,11 @@ fn finished(session: SessionTag, layout: Layout, n: u64) -> Vec<u8> {
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("old.wwt");
     let mut w = TapeWriter::create(&path, SyncPolicy::None).unwrap();
+    w.set_layout(layout).unwrap();
     w.set_session(session).unwrap();
-    let mut set = DescribeSet::new();
-    set.insert(&Describe::Producer(Producer { name: "media" }))
-        .unwrap();
-    set.insert(&Describe::Layout(layout)).unwrap();
-    let mut id = w.next_id();
-    let mut blocks = vec![];
-    set.write_blocks(&mut id, 4096, &[], |b| blocks.push(b.to_vec()))
-        .unwrap();
-    for b in &blocks {
-        w.write_block(b).unwrap();
-    }
     for _ in 0..n {
-        w.write_block(&records(w.next_id())).unwrap();
+        w.write_block(crate::definitions::base_defs(), &records(w.next_id()))
+            .unwrap();
     }
     w.finish().unwrap();
     let bytes = std::fs::read(&path).unwrap();
@@ -300,7 +324,33 @@ fn a_raw_medium_opens_forward_and_never_takes_a_stale_tail() {
         (r.pieces()[0].start, r.pieces()[0].end),
         (hint, new.len() as u64)
     );
-    assert_eq!(r.entries(0).unwrap().len(), 11, "records 10 to 20");
+    assert_eq!(listed_blocks(&r), 11, "records 10 to 20");
+}
+
+/// Stale data of another version after the end of a shorter new session is stale, the end of the data, not a piece
+/// of that version: the walk judges a block's session before its version (reading side review 3, point 3).
+#[test]
+fn stale_data_of_another_version_ends_a_raw_medium() {
+    let sd = Layout::UNALIGNED.on_sd_card();
+    let old = finished(OLD, sd, 200);
+    let new = session(NEW, SessionTag::NONE, sd, 20);
+    // the new session ends where a block of the old one starts
+    let at = block_start(&old, 30);
+    let mut card = new.clone();
+    card.extend_from_slice(&crate::checks::of_version(&old[at..], ww_tape::VERSION + 1));
+    let r = TapeReader::open_with(&card[..], raw()).unwrap();
+    assert_eq!(r.pieces().len(), 1);
+    let p = &r.pieces()[0];
+    assert_eq!(p.version, None);
+    assert_eq!((p.end, p.cut), (new.len() as u64, Some(new.len() as u64)));
+    assert_eq!(listed_blocks(&r), 21);
+}
+
+/// The blocks piece 0 of `r` lists: a block of definitions has an entry per record.
+fn listed_blocks<S: ww_tape::reader::ByteSource>(r: &TapeReader<S>) -> usize {
+    let mut offsets: Vec<u64> = r.entries(0).unwrap().iter().map(|e| e.offset).collect();
+    offsets.dedup();
+    offsets.len()
 }
 
 /// The positional reader reads past a gap as the walk does, and lists it.
@@ -314,8 +364,8 @@ fn the_positional_reader_reads_past_a_gap() {
     let p = &r.pieces()[0];
     assert_eq!(p.gaps, [(offset, len)]);
     assert_eq!((p.end, p.cut), (card.len() as u64, None));
-    // describe block and 10 records blocks
-    assert_eq!(r.entries(0).unwrap().len(), 11);
+    // a block of definitions and 10 records blocks
+    assert_eq!(listed_blocks(&r), 11);
 }
 
 /// A block written twice (a rewrite after a failed write, two copies merged) is a duplicate, not a cut, for the
@@ -331,7 +381,7 @@ fn a_duplicate_block_is_not_a_cut() {
     assert_eq!((p.end, p.cut), (dup.len() as u64, None));
     assert!(p.replaced.is_empty());
     assert_eq!(
-        r.entries(0).unwrap().len(),
+        listed_blocks(&r),
         7,
         "describe and 6 records, the copy dropped"
     );
@@ -350,7 +400,7 @@ fn a_duplicate_block_is_not_a_cut() {
     let r = TapeReader::open_with(&rewritten[..], raw()).unwrap();
     let p = &r.pieces()[0];
     assert_eq!((p.cut, p.replaced.as_slice()), (None, &[at as u64][..]));
-    assert_eq!(r.entries(0).unwrap().len(), 7);
+    assert_eq!(listed_blocks(&r), 7);
     let (got, errors) = walk(&rewritten, Medium::Raw);
     assert_eq!(got, [seqs(NEW, 1..4), seqs(NEW, 3..7)].concat());
     assert!(
@@ -406,7 +456,6 @@ fn a_duplicate_after_a_gap_resumes_the_data() {
 #[test]
 fn a_layout_past_the_gap_limits_is_refused() {
     use exact_units::Bytes;
-    use shrink_wrap::prelude::*;
     let layout = |gap_max: u32, resume_align: u32| Layout {
         gap_max: Bytes::new(gap_max),
         resume_align: Bytes::new(resume_align),
@@ -427,17 +476,22 @@ fn a_layout_past_the_gap_limits_is_refused() {
         layout(512, 0),
     ] {
         assert!(!bad.is_valid(), "{bad:?}");
-        let mut item = [0u8; 64];
-        let item = Describe::Layout(bad).to_ww_bytes(&mut item).unwrap();
+        let d = Describe::Layout(bad);
+        let mut scratch = [0u8; 256];
+        let item = shrink_wrap::SerializeShrinkWrap::to_ww_bytes(&d, &mut scratch)
+            .unwrap()
+            .to_vec();
         let mut buf = [0u8; 256];
         let mut b =
-            BlockWriter::new(&mut buf, BlockKind::Describe, BlockId::new(NEW, 0), &[]).unwrap();
-        b.push_describe(&[item]).unwrap();
+            BlockWriter::new(&mut buf, BlockKind::Records, BlockId::new(NEW, 0), &[]).unwrap();
+        b.push_describe(&[&item]).unwrap();
         let len = b.finish();
         let mut bytes = buf[..len].to_vec();
         let parsed = ww_tape::Block::read(&bytes).unwrap();
         let rec = parsed.records().next().unwrap().unwrap();
-        assert!(Describe::from_ww_bytes(rec.item).is_err());
+        assert!(
+            <Describe<'_> as shrink_wrap::DeserializeShrinkWrap>::from_ww_bytes(rec.item).is_err()
+        );
         // a byte after it: no gap rules, the end of data at once
         bytes.push(0x41);
         let (got, errors) = walk(&bytes, Medium::Raw);
@@ -578,31 +632,24 @@ fn erased_space_past_the_gap_ends_a_raw_walk() {
     );
 }
 
-/// On a raw medium a piece whose head describe set is damaged and whose session ends there, with an earlier life's
-/// describe set behind it, has no describe set: the stale one is never taken for it.
+/// On a raw medium a piece whose first block of definitions is damaged and whose session ends there, with an earlier
+/// life's definitions behind it, has no definitions: the stale ones are never taken for its.
 #[test]
-fn a_stale_describe_set_is_not_the_pieces() {
+fn stale_definitions_are_not_the_pieces() {
     let set = |session: SessionTag| {
-        let mut s = DescribeSet::new();
-        s.insert(&Describe::Producer(Producer { name: "media" }))
-            .unwrap();
-        s.insert(&Describe::Layout(Layout::UNALIGNED)).unwrap();
-        let mut id = BlockId::new(session, 0);
-        let mut out = vec![];
-        s.write_blocks(&mut id, 64, &[], |b| out.push(b.to_vec()))
-            .unwrap();
-        assert_eq!(out.len(), 2);
+        let out = describe_blocks_max(Layout::UNALIGNED, BlockId::new(session, 0), 64);
+        assert!(out.len() >= 2);
         out
     };
     let mut card = piece_head(NEW, SessionTag::NONE);
     let new = set(NEW);
-    let damaged_at = card.len() + new[0].len();
+    let damaged_at = card.len();
     card.extend(new.concat());
     card[damaged_at + 40] ^= 1;
     card.extend(set(OLD).concat());
     let r = TapeReader::open_with(&card[..], raw()).unwrap();
     assert_eq!(r.pieces()[0].cut, Some(damaged_at as u64));
-    assert!(r.describe_set(0).unwrap().is_empty());
+    assert!(r.definitions_at(0, u64::MAX).unwrap().items.is_empty());
 }
 
 /// A file that allows gaps, read from its newest checkpoint: the stretch after it is read with the file's gap rules,
@@ -616,26 +663,20 @@ fn a_gap_after_the_newest_checkpoint_is_read_past() {
     w.set_index_policy(ww_tape::IndexPolicy {
         bytes: 2048,
         interval: None,
-    });
-    let mut set = DescribeSet::new();
-    set.insert(&Describe::Producer(Producer { name: "media" }))
-        .unwrap();
-    set.insert(&Describe::Layout(Layout::UNALIGNED.on_sd_card()))
-        .unwrap();
-    let mut id = w.next_id();
-    let mut blocks = vec![];
-    set.write_blocks(&mut id, 4096, &[], |b| blocks.push(b.to_vec()))
-        .unwrap();
-    for b in &blocks {
-        w.write_block(b).unwrap();
-    }
+        ..ww_tape::IndexPolicy::default()
+    })
+    .expect("a policy with room for a piece head");
+    w.set_layout(Layout::UNALIGNED.on_sd_card()).unwrap();
     for _ in 0..100 {
-        w.write_block(&records(w.next_id())).unwrap();
+        w.write_block(crate::definitions::base_defs(), &records(w.next_id()))
+            .unwrap();
     }
     // a few after the newest checkpoint
-    w.set_index_policy(ww_tape::IndexPolicy::NONE);
+    w.set_index_policy(ww_tape::IndexPolicy::NONE)
+        .expect("a policy with room for a piece head");
     for _ in 0..5 {
-        w.write_block(&records(w.next_id())).unwrap();
+        w.write_block(crate::definitions::base_defs(), &records(w.next_id()))
+            .unwrap();
     }
     let bytes = std::fs::read(w.current_path()).unwrap();
     drop(w);
@@ -677,12 +718,12 @@ fn a_raw_piece_is_one_session() {
     let dir = std::env::temp_dir().join(format!("ww_tape_media_adopt_{}", std::process::id()));
     _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    // the producer's session: its describe set, then records
+    // the producer's session: its definitions, which the relay holds, then records
     let producer = session(OLD, SessionTag::NONE, Layout::UNALIGNED.on_sd_card(), 10);
     let mut rd = FileBlocks::new(&producer[..]);
     let mut blocks = vec![];
     while let Some(Ok(b)) = rd.next_block() {
-        if b.kind != BlockKind::PieceHead {
+        if b.kind != BlockKind::PieceHead && b.first_track() != Some(ww_tape::DESCRIBE_TRACK) {
             blocks.push(b.bytes().to_vec());
         }
     }
@@ -702,9 +743,9 @@ fn a_raw_piece_is_one_session() {
         w.begin_piece(&head, &[]).unwrap();
         for b in &blocks {
             if adopt {
-                w.adopt_block(b).unwrap();
+                w.adopt_block(crate::definitions::base_defs(), b).unwrap();
             } else {
-                w.write_block(b).unwrap();
+                w.write_block(crate::definitions::base_defs(), b).unwrap();
             }
         }
         let bytes = std::fs::read(w.current_path()).unwrap();
@@ -717,13 +758,22 @@ fn a_raw_piece_is_one_session() {
             assert_eq!((got.len(), errors.len()), (10, 0), "{errors:?}");
             assert_eq!(r.pieces()[0].cut, None);
         } else {
-            let head_len = piece_head_len(0) as u64;
+            // the producer's session starts where the writer puts the layout again in it
+            let mut rd = FileBlocks::new(&bytes[..]);
+            let mut first_old = None;
+            while let Some(Ok(b)) = rd.next_block() {
+                if b.session == OLD && first_old.is_none() {
+                    first_old = Some(rd.offset());
+                }
+            }
+            let first_old = first_old.unwrap();
+            assert!(first_old >= piece_head_len(0) as u64);
             assert!(got.is_empty());
             assert!(
-                matches!(errors[..], [FileError::Cut { offset, why: Cut::Stale { session } }] if offset == head_len && session == OLD),
+                matches!(errors[..], [FileError::Cut { offset, why: Cut::Stale { session } }] if offset == first_old && session == OLD),
                 "{errors:?}"
             );
-            assert_eq!(r.pieces()[0].cut, Some(head_len));
+            assert_eq!(r.pieces()[0].cut, Some(first_old));
         }
     }
     std::fs::remove_dir_all(&dir).unwrap();
@@ -738,11 +788,19 @@ fn adopting_keeps_lost_blocks_visible() {
     std::fs::create_dir_all(&dir).unwrap();
     let mut w = TapeWriter::create(&dir.join("l.wwt"), SyncPolicy::None).unwrap();
     for seq in [0, 1, 2, 5, 6] {
-        w.adopt_block(&records(BlockId::new(OLD, seq))).unwrap();
+        w.adopt_block(
+            crate::definitions::base_defs(),
+            &records(BlockId::new(OLD, seq)),
+        )
+        .unwrap();
     }
     // the producer restarted: its new session counts from 0 again
     for seq in [0, 1] {
-        w.adopt_block(&records(BlockId::new(NEW, seq))).unwrap();
+        w.adopt_block(
+            crate::definitions::base_defs(),
+            &records(BlockId::new(NEW, seq)),
+        )
+        .unwrap();
     }
     let bytes = std::fs::read(w.current_path()).unwrap();
     drop(w);

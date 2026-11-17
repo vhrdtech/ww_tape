@@ -276,7 +276,7 @@ impl<R: Read> FileBlocks<R> {
         self
     }
 
-    /// Take `layout`'s gap rules from the start, before a describe block says them (a medium layer that knows the
+    /// Take `layout`'s gap rules from the start, before a layout record says them (a medium layer that knows the
     /// medium); a [crate::Layout] read later replaces them.
     ///
     /// # Panics

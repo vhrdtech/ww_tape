@@ -1,8 +1,7 @@
-//! Records and describe blocks: the clock table, record heads, time deltas, item lengths, the coded body's decoded
-//! length and the describe records of a layout.
+//! Record blocks, of data or of definitions: the clock table, record heads, time deltas, item lengths, the coded body's
+//! decoded length and the describe records of a layout.
 
-use super::{Draw, HEADER_FIELDS, HEADER_LEN, LEN_FIELD, SESSION, hit, seal};
-use shrink_wrap::prelude::*;
+use super::{Draw, HEADER_FIELDS, HEADER_LEN, LEN_FIELD, SESSION, definition, hit, seal};
 use ww_tape::body::DECODED_BODY_MAX;
 use ww_tape::lz4::{lz4_encode, lz4_max_len};
 use ww_tape::{
@@ -50,9 +49,8 @@ fn slot_bits(n: u64) -> u32 {
     }
 }
 
-/// A describe record's item: a producer, or a layout with hostile gap rules.
+/// A definition track-0 item: a producer, or a layout with hostile gap rules.
 fn describe_item(d: &mut Draw<'_>) -> Vec<u8> {
-    let mut buf = [0u8; 128];
     let caps: &[u64] = &[
         u64::from(GAP_MAX_MAX),
         u64::from(GAP_PROBES_MAX),
@@ -68,14 +66,14 @@ fn describe_item(d: &mut Draw<'_>) -> Vec<u8> {
             alignment: v(),
             gap_max: v(),
             resume_align: v(),
+            definitions: ww_tape::StatePolicy::DEFAULT,
         })
     };
-    d.to_ww_bytes(&mut buf)
-        .map(<[u8]>::to_vec)
-        .unwrap_or_default()
+    definition(&d)
 }
 
-/// A records or describe block whose clock table, record heads and lengths take hostile values.
+/// A records block, of data or of definitions on track 0, whose clock table, record heads and lengths take hostile
+/// values.
 pub fn records(data: &[u8]) -> Vec<u8> {
     let mut d = Draw::new(data);
     let describe = d.bool();
@@ -143,12 +141,7 @@ pub fn records(data: &[u8]) -> Vec<u8> {
     let mut b = vec![0u8; HEADER_LEN];
     b[..4].copy_from_slice(&ww_tape::MAGIC);
     b[4] = ww_tape::VERSION;
-    b[5] = if describe {
-        BlockKind::Describe
-    } else {
-        BlockKind::Records
-    }
-    .to_u8();
+    b[5] = BlockKind::Records.to_u8();
     b[6..8].copy_from_slice(&flags.to_le_bytes());
     b[12..16].copy_from_slice(&(n as u32).to_le_bytes());
     b[24..28].copy_from_slice(&SESSION.get().to_le_bytes());

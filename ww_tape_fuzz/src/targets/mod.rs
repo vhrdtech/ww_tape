@@ -15,7 +15,7 @@ mod times;
 pub use chunk::chunk;
 pub use hostile::{
     chunk_hostile, index_hostile, payloads_hostile, reader_hostile, records_hostile,
-    samples_hostile, series_hostile, summary_hostile, times_hostile,
+    samples_hostile, series_hostile, state_hostile, summary_hostile, times_hostile,
 };
 pub use index::index;
 pub use payloads::payloads;
@@ -30,7 +30,7 @@ pub use times::times;
 pub type Target = fn(&[u8]);
 
 /// Every ww_tape fuzz target by its name in `fuzz/Cargo.toml`.
-pub const ALL: [(&str, Target); 18] = [
+pub const ALL: [(&str, Target); 19] = [
     ("tape-chunk", chunk),
     ("tape-index", index),
     ("tape-payloads", payloads),
@@ -48,6 +48,7 @@ pub const ALL: [(&str, Target); 18] = [
     ("tape-series-hostile", series_hostile),
     ("tape-summary-hostile", summary_hostile),
     ("tape-times-hostile", times_hostile),
+    ("tape-state-hostile", state_hostile),
     ("tape-resume", resume),
 ];
 

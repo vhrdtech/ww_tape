@@ -16,23 +16,21 @@
 //!
 //! The writer indexes what it places: a checkpoint [index](crate::index) block every few MiB ([IndexPolicy]), so a
 //! reader after a crash rescans only the stretch after the newest one. [TapeWriter::finish] ends the file as a
-//! [piece](crate::piece): the final index sorted by track, a backup of the newest describe blocks, the finish block
-//! with the BLAKE3 content hash of everything before it, and the tail.
+//! [piece](crate::piece): the final index sorted by track, the finish block with the BLAKE3 content hash of
+//! everything before it, and the tail.
 //!
-//! The newest describe blocks are written again as [copies](crate::FLAG_COPY), so a piece whose head describe set is
-//! damaged still reads: once right after the piece's first records or chunk block, once after its first checkpoint
-//! (about [DEFAULT_CHECKPOINT_BYTES](crate::index::DEFAULT_CHECKPOINT_BYTES) in), then about every
-//! [DESCRIBE_REPEAT_BYTES] ([TapeWriter::set_describe_repeat]), and as the backup before the finish. A piece so holds
-//! one describe set while it holds no data, two, apart by that block, from its first data on, three, the third a
-//! checkpoint interval in, from its first checkpoint on, one more per repeat, and one more once finished; one copy
-//! serves both when the first data block is also the one the first checkpoint follows. A piece after a cut starts
-//! with a copy of the one before's. [TapeWriter::cut] ends a piece and starts the next one of the chain;
-//! [crate::PieceChain] cuts by size, chunk count or time.
+//! The application keeps the definitions of what it works on ([Definitions]) and passes them with every call that
+//! writes data or puts an item; the writer checks the data against them and keeps no table of its own. State is put
+//! ([state](crate::state)): before a block of data of a track the writer puts the track's definition and what it
+//! names, the application puts a state track's items ([TapeWriter::put]) at each use, and each is written only when
+//! the same item doesn't lie close behind in the piece, or as a copy ([near]). The layout and the producer are the
+//! writer's own ([WriterOptions]), put at each piece head. [TapeWriter::cut] ends a piece and starts the next one of
+//! the chain; [crate::PieceChain] cuts by size, chunk count or time.
 //!
-//! The writer acts after every block it counts, whoever placed it (the caller, or the writer from its deferred
-//! blocks): a checkpoint when due (in an aligned file, in the gap before the next chunk), then a describe copy when
-//! due. So what the writer adds is a function of the blocks before it, and [TapeWriter::resume] rebuilds the writer
-//! of an unfinished piece from its bytes alone ([resume]).
+//! The writer acts around every block of data it places, whoever made it (the caller, or the writer from its
+//! deferred blocks): before it, the definitions it puts; after it, a checkpoint when due (in an aligned file, in the
+//! gap before the next chunk). So what the writer adds is a function of the blocks before it and the calls since, and
+//! [TapeWriter::resume] rebuilds the writer of an unfinished piece from its bytes alone ([resume]).
 //!
 //! A writer puts its bytes in a [TapeSink]: a file ([FileSink], the default) or memory ([crate::sink::MemSink]).
 
@@ -41,6 +39,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use crate::index::{IndexPolicy, Indexer};
+use crate::open::{RecordRef, write_records};
 use crate::piece::{
     ContentHash, Finish, FinishState, PIECE_ALIGN, PieceHead, PieceId, PieceIdent, TAIL_LEN, Tail,
     TrackStart, finish_len, finish_padding, piece_head_len, write_finish, write_piece_head,
@@ -48,12 +47,17 @@ use crate::piece::{
 use crate::reader::{ReadError, wide};
 pub use crate::sink::partial_name;
 use crate::sink::{FileSink, Files, SinkFactory, TapeSink, io_err};
+use crate::state::{ItemHash, Slot};
 use crate::{
-    BlockId, BlockKind, DescribeReadError, DescribeSet, IndexError, SessionTag, Sticky,
-    StickyRecord,
+    BlockId, BlockKind, ClockTime, DESCRIBE_TRACK, Definitions, Describe, DescribeError,
+    IndexError, Layout, Producer, STATE_ITEM_MAX, SessionTag, TypedItem,
 };
+use std::collections::BTreeSet;
 
+pub mod near;
 pub mod resume;
+pub use near::NearPolicy;
+use near::Rule;
 pub use resume::Resumed;
 
 /// When a [TapeWriter] syncs the data to the disk, besides at [TapeWriter::finish].
@@ -104,13 +108,22 @@ pub enum WriteError {
     Read(ReadError<io::Error>),
     /// The piece or chain to resume ended already in this state.
     Ended(FinishState),
-    /// A describe addition ([crate::FLAG_SET_ADD]) doesn't join the current set.
-    Describe(DescribeReadError),
-    /// The piece to resume describes a layout the options contradict: its chunk alignment isn't `alignment`.
-    Layout {
-        described: crate::Layout,
-        alignment: u32,
-    },
+    /// A put or a block's records don't agree with the definitions passed.
+    Describe(DescribeError),
+    /// The piece to resume describes another layout than the one `given` in the [WriterOptions], or a layout set
+    /// after the first block.
+    Layout { described: Layout, given: Layout },
+    /// The piece to resume names another producer than the one `given` in the [WriterOptions].
+    Producer { described: String, given: String },
+    /// A caller's block the writer doesn't take: a kind it makes itself or doesn't know (the reserved kind 2), a
+    /// block of another format version, or a body of a codec it doesn't know.
+    Unknown { version: u8, kind: BlockKind },
+}
+
+impl From<DescribeError> for WriteError {
+    fn from(e: DescribeError) -> Self {
+        WriteError::Describe(e)
+    }
 }
 
 impl core::fmt::Display for WriteError {
@@ -131,14 +144,19 @@ impl core::fmt::Display for WriteError {
             WriteError::Session(r) => write!(f, "session tag {r:?} is not one a writer may use"),
             WriteError::Read(e) => write!(f, "reading back the piece to resume: {e}"),
             WriteError::Ended(s) => write!(f, "the piece or chain ended already ({s:?})"),
-            WriteError::Describe(e) => write!(f, "describe addition: {e}"),
-            WriteError::Layout {
-                described,
-                alignment,
-            } => write!(
+            WriteError::Describe(e) => write!(f, "{e}"),
+            WriteError::Layout { described, given } => write!(
                 f,
-                "the piece describes chunk alignment {}, the options give {alignment}",
-                described.alignment.get()
+                "the piece describes layout {described:?}, the writer was given {given:?} (or a layout set after the first block)"
+            ),
+            WriteError::Producer { described, given } => write!(
+                f,
+                "the piece names producer {described:?}, the writer was given {given:?}"
+            ),
+            WriteError::Unknown { version, kind } => write!(
+                f,
+                "a caller's block of version {version}, kind {kind:?}: the writer takes records, events, series and summary blocks of version {} it knows the body of",
+                crate::VERSION
             ),
         }
     }
@@ -157,14 +175,17 @@ impl std::error::Error for WriteError {
 
 /// How a [TapeWriter] places what it adds: what [TapeWriter::resume] needs to rebuild one, and what a
 /// [crate::PieceChain] gives each of its pieces.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WriterOptions {
     pub sync: SyncPolicy,
     pub index: IndexPolicy,
-    /// 0 or [crate::ALIGNMENT].
-    pub alignment: u32,
-    /// [TapeWriter::set_describe_repeat].
-    pub describe_repeat: u64,
+    /// [TapeWriter::set_layout]: how the file's blocks are placed, put at each piece head; its alignment is 0 or
+    /// [crate::ALIGNMENT].
+    pub layout: Layout,
+    /// [TapeWriter::set_producer]: the producer named at each piece head.
+    pub producer: String,
+    /// [TapeWriter::set_near_policy].
+    pub near: NearPolicy,
 }
 
 impl Default for WriterOptions {
@@ -172,8 +193,9 @@ impl Default for WriterOptions {
         WriterOptions {
             sync: SyncPolicy::default(),
             index: IndexPolicy::default(),
-            alignment: 0,
-            describe_repeat: DESCRIBE_REPEAT_BYTES,
+            layout: Layout::UNALIGNED,
+            producer: String::new(),
+            near: NearPolicy::default(),
         }
     }
 }
@@ -189,14 +211,18 @@ pub struct TapeWriter<S: TapeSink = FileSink> {
     bytes: u64,
     /// Length of the file before this writer appended to it
     start: u64,
-    /// 0 or [crate::ALIGNMENT]: where chunk payloads go
-    alignment: u32,
+    /// How blocks are placed; its alignment (0 or [crate::ALIGNMENT]) is where chunk payloads go
+    layout: Layout,
+    /// The producer named at each piece head
+    producer: String,
+    /// The layout and the producer are put: after the piece head, or before the first block of a file without one
+    head_put: bool,
     /// Seq of the next block placed by the writer: after the last block written
     next_seq: u64,
     /// Session of the blocks the writer makes: its own, or the session of the last counted block written
     session: SessionTag,
-    /// Small blocks waiting for the gap before an aligned chunk payload
-    deferred: Vec<Vec<u8>>,
+    /// Small blocks waiting for the gap before an aligned chunk payload, each with the definitions it needs
+    deferred: Vec<Deferred>,
     deferred_bytes: usize,
     /// Reused for encoding chunk blocks
     chunk_buf: Vec<u8>,
@@ -209,30 +235,45 @@ pub struct TapeWriter<S: TapeSink = FileSink> {
     hash: blake3::Hasher,
     /// The piece head written first, and its track starts
     head: Option<(PieceHead, Vec<TrackStart>)>,
-    /// The newest whole describe set (first to last mark), for the head of a next piece, the repeats and the backup
-    /// before the finish
-    describe: Vec<Vec<u8>>,
-    /// The blocks of a describe set written so far, not yet up to its last block: never copied
-    describe_open: Vec<Vec<u8>>,
-    /// Describe blocks written again by the writer itself don't start a new session
-    replaying: bool,
-    /// Bytes placed since the newest describe blocks
-    since_describe: u64,
-    /// Bytes after which the newest describe blocks are written again
-    describe_repeat: u64,
-    /// The describe copy after the piece's first records or chunk block is still to be written
-    data_copy_due: bool,
-    /// A records or chunk block was placed while that copy is due
-    data_placed: bool,
-    /// The describe copy after the piece's first checkpoint is still to be written
-    checkpoint_copy_due: bool,
+    /// The state records of the piece the writer remembers
+    near: near::Near,
+    near_policy: NearPolicy,
     /// Chunk blocks counted in this piece
     chunks: u64,
     /// The last counted block written: its id, length, CRC and offset, to tell a block written again
     last_counted: Option<(BlockId, usize, [u8; 4], u64)>,
     /// Id of the last block [Self::adopt_block] took, as its producer numbered it
     adopted: Option<BlockId>,
+    /// A counted records or chunk block of data is in the piece
+    holds_data: bool,
+    /// Bytes puts hashed and copied
+    work: PutWork,
 }
+
+/// Bytes a writer's puts hashed and copied since it started ([TapeWriter::put_work]): what deciding and writing
+/// them costs. A definition's hash is kept with it ([Definitions]), so a block of data whose definitions all lie
+/// close behind costs none of either.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct PutWork {
+    /// Bytes of items hashed: a caller's items put, a relayed block's records.
+    pub hashed: exact_units::Bytes<u64>,
+    /// Bytes of items copied into blocks of puts: those written.
+    pub copied: exact_units::Bytes<u64>,
+}
+
+impl PutWork {
+    fn hash(&mut self, len: usize) {
+        self.hashed = exact_units::Bytes::new(self.hashed.get().saturating_add(wide(len)));
+    }
+
+    fn copy(&mut self, len: usize) {
+        self.copied = exact_units::Bytes::new(self.copied.get().saturating_add(wide(len)));
+    }
+}
+
+/// State entries the layout and the producer take after a piece head ([IndexPolicy::state_entries_max] is at least
+/// this).
+pub const HEAD_ENTRIES: usize = 2;
 
 /// What a finished piece is.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -248,15 +289,16 @@ pub struct Finished {
     pub next: Option<PieceId>,
 }
 
-/// About how many bytes apart a writer writes the newest describe blocks again: 128 MiB.
-pub const DESCRIBE_REPEAT_BYTES: u64 = 128 << 20;
+/// Most bytes of a block of definitions or of puts the writer makes; a longer record gets a block of its own.
+pub const DEFINITION_BLOCK_LEN: usize = 64 << 10;
 
 /// Most bytes of deferred blocks a [TapeWriter] keeps before writing them out anyway.
 pub const DEFERRED_BYTES_MAX: usize = 1 << 20;
 
-/// Most bytes of one describe set a writer keeps to write again; a longer set is written once and never copied, so
-/// a resume reading it back from a file holds at most this much of it.
-pub const DESCRIBE_SET_LEN_MAX: usize = crate::MAX_BLOCK_LEN;
+/// Bytes a deferred block may wait for a gap, from where it was deferred: it is placed before a call would carry
+/// the piece past that. Its definitions are put when it is deferred and none when it is placed, so a deferred block
+/// lies at most its tracks' `near` plus this after them ([TapeWriter::defer_block]).
+pub const DEFER_WINDOW: u64 = 1 << 20;
 
 impl TapeWriter<FileSink> {
     /// A new file at `path`, written as `path.partial` until [Self::finish]; fails if `path` is there.
@@ -265,7 +307,7 @@ impl TapeWriter<FileSink> {
     }
 
     /// Append to the file at `path` in place, created if it isn't there. The blocks of another producer session start
-    /// with a describe block, which a reader takes as the next part of the file.
+    /// with its definitions, which a reader takes as the next part of the file.
     pub fn append(path: &Path, policy: SyncPolicy) -> Result<Self, WriteError> {
         let sink = FileSink::append(path)?;
         let start = sink.size().map_err(io_err("reading the file's length"))?;
@@ -307,7 +349,9 @@ impl<S: TapeSink> TapeWriter<S> {
             blocks: 0,
             bytes: 0,
             start: 0,
-            alignment: 0,
+            layout: Layout::UNALIGNED,
+            producer: String::new(),
+            head_put: false,
             next_seq: 0,
             session: SessionTag::random(),
             deferred: Vec::new(),
@@ -318,25 +362,22 @@ impl<S: TapeSink> TapeWriter<S> {
             last_checkpoint: Instant::now(),
             hash: blake3::Hasher::new(),
             head: None,
-            describe: Vec::new(),
-            describe_open: Vec::new(),
-            replaying: false,
-            since_describe: 0,
-            describe_repeat: DESCRIBE_REPEAT_BYTES,
-            data_copy_due: true,
-            data_placed: false,
-            checkpoint_copy_due: true,
+            near: near::Near::default(),
+            near_policy: NearPolicy::default(),
             chunks: 0,
             last_counted: None,
             adopted: None,
+            holds_data: false,
+            work: PutWork::default(),
         }
     }
 
     /// Set what `options` say, past the sync policy given at creation.
-    fn apply(&mut self, options: &WriterOptions) -> Result<(), WriteError> {
-        self.set_alignment(options.alignment)?;
-        self.set_index_policy(options.index);
-        self.set_describe_repeat(options.describe_repeat);
+    pub(crate) fn apply(&mut self, options: &WriterOptions) -> Result<(), WriteError> {
+        self.set_layout(options.layout)?;
+        self.set_producer(&options.producer);
+        self.set_index_policy(options.index)?;
+        self.set_near_policy(options.near);
         Ok(())
     }
 
@@ -350,19 +391,284 @@ impl<S: TapeSink> TapeWriter<S> {
         self.chunks
     }
 
-    /// Write the newest describe blocks again after about this many bytes ([DESCRIBE_REPEAT_BYTES] by default; 512 MiB
-    /// or 1 GiB trade copies for space). It carries over to the next piece of a [cut](Self::cut).
-    pub fn set_describe_repeat(&mut self, bytes: u64) {
-        self.describe_repeat = bytes;
+    /// How the writer remembers and copies state records ([near]); it applies from the next block on and carries
+    /// over to the next piece of a [cut](Self::cut).
+    pub fn set_near_policy(&mut self, policy: NearPolicy) {
+        self.near_policy = policy;
+    }
+
+    /// Slots the writer remembers in this piece, against [NearPolicy::memory_max].
+    pub fn near_usage(&self) -> usize {
+        self.near.len()
+    }
+
+    /// State entries the piece lists, against [IndexPolicy::state_entries_max].
+    pub fn state_entries(&self) -> usize {
+        self.indexer.states()
+    }
+
+    /// Bytes the writer's puts hashed and copied so far ([PutWork]).
+    pub fn put_work(&self) -> PutWork {
+        self.work
+    }
+
+    /// Whether the piece has room for `puts` more state entries and, with `head`, the layout and the producer: the
+    /// head checked before a call writes anything, the puts once chosen, so a refused call writes nothing of its own
+    /// (deferred blocks it places were taken on before). A deferred block is placed with no puts, so a cut or a
+    /// finish never meets the cap.
+    fn room(&self, puts: usize, head: bool) -> Result<(), WriteError> {
+        let head = if head { HEAD_ENTRIES } else { 0 };
+        let n = puts.saturating_add(head);
+        self.indexer.room_for_states(n).map_err(WriteError::Index)
+    }
+
+    /// Put `item` on state track `track` of `defs` at `ticks` of its clock: the producer uses it now, and puts it at
+    /// each use. It is written, after the track's definition and what it names where those don't lie close behind,
+    /// unless the newest record of the track is the same item at most the track's `near` behind in the piece and no
+    /// copy is due ([near]). Deferred blocks are placed first. Whether the item was written.
+    pub fn put(
+        &mut self,
+        defs: &Definitions,
+        track: u32,
+        ticks: i64,
+        item: &[u8],
+    ) -> Result<bool, WriteError> {
+        self.check()?;
+        let facts = defs
+            .track(track)
+            .ok_or(DescribeError::UnknownTrack { track })?;
+        let policy = facts.state.ok_or(DescribeError::NotState { track })?;
+        if item.len() > STATE_ITEM_MAX {
+            return Err(DescribeError::TooLong { len: item.len() }.into());
+        }
+        let mut cands = self.needed(defs, &[track]);
+        self.work.hash(item.len());
+        cands.push(Candidate {
+            slot: Slot::State { track },
+            rule: self.rule(policy),
+            track,
+            at: Some(ClockTime {
+                clock: facts.clock,
+                ticks,
+            }),
+            hash: ItemHash::of(item),
+            item: Item::Given(item),
+        });
+        self.room(0, !self.head_put)?;
+        self.flush_deferred()?;
+        self.ensure_head()?;
+        self.put_last(&cands)
+    }
+
+    /// Put the typed item `item` on track 0, after its bundle where `defs` holds it and it doesn't lie close behind:
+    /// written unless the same item lies within track 0's `near` ([crate::Layout::definitions]) and no copy is due.
+    /// Whether it was written.
+    pub fn put_item(
+        &mut self,
+        defs: &Definitions,
+        item: &TypedItem<'_>,
+    ) -> Result<bool, WriteError> {
+        self.check()?;
+        let d = Describe::Item(item.clone());
+        let bytes = crate::open::encode(&d)?;
+        if bytes.len() > STATE_ITEM_MAX {
+            return Err(DescribeError::TooLong { len: bytes.len() }.into());
+        }
+        let rule = self.definitions_rule();
+        let mut cands = Vec::new();
+        let bundle: Vec<u8> = item.ty.bundle.iter().filter_map(Result::ok).collect();
+        if let Some((slot, _)) = defs.bundle(&bundle)
+            && let Some(held) = defs.held(&slot)
+        {
+            cands.push(Candidate::held(slot, rule, held));
+        }
+        self.work.hash(bytes.len());
+        let hash = ItemHash::of(&bytes);
+        cands.push(Candidate {
+            slot: Slot::of_definition(&d, || hash),
+            rule,
+            track: DESCRIBE_TRACK,
+            at: None,
+            hash,
+            item: Item::Owned(bytes),
+        });
+        self.room(0, !self.head_put)?;
+        self.flush_deferred()?;
+        self.ensure_head()?;
+        self.put_last(&cands)
+    }
+
+    /// Put `cands` ([Self::choose]); whether the last one was written.
+    fn put_last(&mut self, cands: &[Candidate<'_>]) -> Result<bool, WriteError> {
+        self.put_chosen(cands, false)
+    }
+
+    /// Put `cands` ([Self::choose]), the last block marked as belonging with the next with `with_next`; whether the
+    /// last one was written.
+    /// Refused with nothing written when the piece has no room for the state entries of those chosen.
+    fn put_chosen(&mut self, cands: &[Candidate<'_>], with_next: bool) -> Result<bool, WriteError> {
+        let chosen = self.choose(cands)?;
+        self.room(chosen.iter().filter(|c| **c).count(), false)?;
+        let writes = chosen.last().copied().unwrap_or(false);
+        self.write_chosen(cands, &chosen, with_next)?;
+        Ok(writes)
+    }
+
+    /// How a put of a record of a state track of `policy` decides.
+    fn rule(&self, policy: crate::StatePolicy) -> Rule {
+        Rule {
+            near: u64::from(policy.near.get()),
+            copies: policy.copies.get(),
+            spacing: self.near_policy.copy_spacing,
+        }
+    }
+
+    /// How a put of a definition decides: track 0's policy, the layout's.
+    fn definitions_rule(&self) -> Rule {
+        self.rule(self.layout.definitions)
+    }
+
+    /// The writer's chunk alignment: 0 or [crate::ALIGNMENT].
+    fn alignment(&self) -> u32 {
+        self.layout.alignment.get()
+    }
+
+    /// The definitions data of `tracks` needs ([Definitions::needs]), each once, as candidates to put: shared with
+    /// `defs`, nothing copied or hashed.
+    fn needed(&self, defs: &Definitions, tracks: &[u32]) -> Vec<Candidate<'static>> {
+        let mut seen = BTreeSet::new();
+        let mut out = Vec::new();
+        for t in tracks {
+            self.push_needs(defs, defs.needs(*t), &mut seen, &mut out);
+        }
+        out
+    }
+
+    /// Push the definitions held in `slots` not `seen` yet onto `out`, as candidates.
+    fn push_needs(
+        &self,
+        defs: &Definitions,
+        slots: impl IntoIterator<Item = Slot>,
+        seen: &mut BTreeSet<Slot>,
+        out: &mut Vec<Candidate<'static>>,
+    ) {
+        let rule = self.definitions_rule();
+        for slot in slots {
+            if let Some(held) = defs.held(&slot)
+                && seen.insert(slot)
+            {
+                out.push(Candidate::held(slot, rule, held));
+            }
+        }
+    }
+
+    /// Which of `cands` a put writes: each whose slot's newest record isn't the same item within its `near` of
+    /// where the next block goes after the blocks written for the chosen ones, or is due a copy there; so a record
+    /// skipped lies within `near` of the data or item that follows. Choosing one moves that place on and may choose
+    /// more: repeated until nothing changes, at most once per candidate.
+    fn choose(&self, cands: &[Candidate<'_>]) -> Result<Vec<bool>, WriteError> {
+        let mut chosen = vec![false; cands.len()];
+        loop {
+            let end = self
+                .offset()
+                .saturating_add(wide(puts_len(&chosen_records(cands, &chosen))?));
+            let mut more = false;
+            for (c, pick) in cands.iter().zip(chosen.iter_mut()) {
+                if !*pick && self.near.writes(&c.slot, c.hash, end, c.rule) {
+                    *pick = true;
+                    more = true;
+                }
+            }
+            if !more {
+                return Ok(chosen);
+            }
+        }
+    }
+
+    /// Write the records of `cands` that `chosen` marks, in order.
+    fn write_chosen(
+        &mut self,
+        cands: &[Candidate<'_>],
+        chosen: &[bool],
+        with_next: bool,
+    ) -> Result<(), WriteError> {
+        let records = chosen_records(cands, chosen);
+        for r in &records {
+            self.work.copy(r.item.len());
+        }
+        self.write_puts(&records, with_next)
+    }
+
+    /// Before a block of data needing `cands`: put them, belonging with it.
+    fn put_needed(&mut self, cands: &[Candidate<'_>]) -> Result<(), WriteError> {
+        self.put_chosen(cands, true).map(|_| ())
+    }
+
+    /// Write the layout and the producer, whatever lies close behind: after a piece head, before the first block of a
+    /// file without one, and where a caller's block starts another session.
+    fn ensure_head(&mut self) -> Result<(), WriteError> {
+        if self.head_put {
+            return Ok(());
+        }
+        self.head_put = true;
+        let layout = crate::open::encode(&Describe::Layout(self.layout))?;
+        let producer = crate::open::encode(&Describe::Producer(Producer {
+            name: &self.producer,
+        }))?;
+        let record = |item| RecordRef {
+            track: DESCRIBE_TRACK,
+            at: None,
+            item,
+        };
+        // they belong with the call's block; at a piece head a resume puts them again when nothing follows
+        self.write_puts(&[record(&layout), record(&producer)], true)
+    }
+
+    /// Write `records` as blocks marked [FLAG_REPEAT](crate::FLAG_REPEAT), with the seq of the last counted block,
+    /// not counted themselves; the call that writes them checked their room first ([Self::room]).
+    /// Every block but the last is marked [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT), the last one too with `with_next`:
+    /// the call goes on with a block of data they serve.
+    fn write_puts(&mut self, records: &[RecordRef<'_>], with_next: bool) -> Result<(), WriteError> {
+        if records.is_empty() {
+            return Ok(());
+        }
+        let id = self.structural_id();
+        let mut blocks = Vec::new();
+        write_records(
+            records,
+            DEFINITION_BLOCK_LEN,
+            crate::FLAG_REPEAT,
+            || id,
+            |b| {
+                blocks.push(b.to_vec());
+                Ok::<(), DescribeError>(())
+            },
+        )?;
+        let last = blocks.len().saturating_sub(1);
+        for (i, mut b) in blocks.into_iter().enumerate() {
+            if i < last || with_next {
+                crate::mark_with_next(&mut b).map_err(WriteError::Block)?;
+            }
+            self.write_own(&b)?;
+        }
+        Ok(())
     }
 
     /// When checkpoint index blocks are placed (by default every 4 MiB).
-    pub fn set_index_policy(&mut self, policy: IndexPolicy) {
+    /// A policy whose [IndexPolicy::state_entries_max] has no room for a piece head's [HEAD_ENTRIES] is refused:
+    /// every new piece of a chain would fail.
+    pub fn set_index_policy(&mut self, policy: IndexPolicy) -> Result<(), WriteError> {
+        if policy.state_entries_max < HEAD_ENTRIES {
+            return Err(WriteError::Index(IndexError::StateEntries {
+                max: policy.state_entries_max,
+                used: HEAD_ENTRIES,
+            }));
+        }
         self.indexer.set_policy(policy);
+        Ok(())
     }
 
-    /// Start the file as a piece of a chain: the piece head block, first in the file, then (for a piece after the
-    /// first) the describe blocks of the piece before, so the piece reads alone. The session of a chain's first piece is
+    /// Start the file as a piece of a chain: the piece head block, first in the file. The session of a chain's first piece is
     /// [SessionTag::of_piece] its id, so the same input gives the same bytes.
     pub fn begin_piece(
         &mut self,
@@ -390,9 +696,12 @@ impl<S: TapeSink> TapeWriter<S> {
         let n = write_piece_head(&mut buf, self.structural_id(), head, tracks)
             .map_err(WriteError::Index)?;
         buf.truncate(n);
-        self.write_raw(&buf)?;
+        self.write_own(&buf)?;
         self.head = Some((*head, tracks.to_vec()));
-        Ok(())
+        self.near.clear();
+        // the layout and the producer follow every piece head
+        self.head_put = false;
+        self.ensure_head()
     }
 
     /// Where the next block goes, from the start of the piece.
@@ -422,14 +731,36 @@ impl<S: TapeSink> TapeWriter<S> {
         self.bytes
     }
 
-    /// Place chunk payloads on multiples of `alignment` (0 or [crate::ALIGNMENT]), counted from the start of the file;
-    /// the file's describe set says so with a [crate::Layout] record. Another alignment is refused.
+    /// Place chunk payloads on multiples of `alignment` (0 or [crate::ALIGNMENT]), counted from the start of the file:
+    /// the writer's layout with that alignment ([Self::set_layout]).
     pub fn set_alignment(&mut self, alignment: u32) -> Result<(), WriteError> {
+        let layout = Layout {
+            alignment: exact_units::Bytes::new(alignment),
+            ..self.layout
+        };
+        self.set_layout(layout)
+    }
+
+    /// The layout the file's blocks are placed by, put at each piece head; its alignment is 0 or [crate::ALIGNMENT].
+    /// Set before the first block: another layout after it is refused ([WriteError::Layout]).
+    pub fn set_layout(&mut self, layout: Layout) -> Result<(), WriteError> {
+        let alignment = layout.alignment.get();
         if alignment != 0 && alignment != crate::ALIGNMENT {
             return Err(WriteError::Alignment(alignment));
         }
-        self.alignment = alignment;
+        if self.head_put && layout != self.layout {
+            return Err(WriteError::Layout {
+                described: self.layout,
+                given: layout,
+            });
+        }
+        self.layout = layout;
         Ok(())
+    }
+
+    /// The producer named at each piece head, from the next head on.
+    pub fn set_producer(&mut self, name: &str) {
+        name.clone_into(&mut self.producer);
     }
 
     /// Seq the writer gives the next block it places itself ([Self::write_chunk], [Self::defer_block]): one after
@@ -462,13 +793,14 @@ impl<S: TapeSink> TapeWriter<S> {
         Ok(())
     }
 
-    /// Id of the blocks the file structure adds (index, finish, tail, piece head, repeated describe blocks): the
-    /// seq of the last counted block before them, 0 before the first.
+    /// Id of the blocks the file structure adds (index, finish, tail, piece head) and of puts: the seq of the last
+    /// counted block before them, 0 before the first.
     fn structural_id(&self) -> BlockId {
         BlockId::new(self.session, self.next_seq.saturating_sub(1))
     }
 
-    fn write_raw(&mut self, block: &[u8]) -> Result<(), WriteError> {
+    /// Write `block` at the end: one the writer made itself, or a caller's checked before ([Self::check_data]).
+    fn write_own(&mut self, block: &[u8]) -> Result<(), WriteError> {
         self.check()?;
         let (Some(header), Some(crc)) = (
             block.first_chunk::<{ crate::HEADER_LEN }>(),
@@ -479,10 +811,6 @@ impl<S: TapeSink> TapeWriter<S> {
             }));
         };
         self.end_after(block.len())?;
-        // an addition that doesn't join the current set is refused before it is written
-        let set = self
-            .describe_after(block, header)
-            .map_err(WriteError::Describe)?;
         if let Err(error) = self.sink.write_all(block) {
             self.failed = true;
             return Err(WriteError::Io {
@@ -490,7 +818,7 @@ impl<S: TapeSink> TapeWriter<S> {
                 error,
             });
         }
-        self.account_with(block, header, *crc, set)?;
+        self.account(block, header, *crc)?;
         self.unsynced = self.unsynced.saturating_add(1);
         let due = match self.policy {
             SyncPolicy::None => false,
@@ -498,6 +826,27 @@ impl<S: TapeSink> TapeWriter<S> {
             SyncPolicy::Interval(t) => self.last_sync.elapsed() >= t,
         };
         if due { self.sync() } else { Ok(()) }
+    }
+
+    /// Check a block of the caller's against `defs`: a records, events, series or summary block of this version
+    /// whose body this writer knows ([Definitions::check_block]): no definitions, every record on a held track that
+    /// isn't a state track. Other kinds (the reserved kind 2 among them), other versions and bodies of an unknown
+    /// codec are refused.
+    fn check_data(defs: &Definitions, block: &[u8]) -> Result<(), WriteError> {
+        let b = crate::Block::read(block).map_err(WriteError::Block)?;
+        let ours = matches!(
+            b.kind,
+            BlockKind::Records | BlockKind::Events | BlockKind::Series | BlockKind::Summary
+        );
+        if !ours || !b.body_known() {
+            return Err(WriteError::Unknown {
+                version: b.version,
+                kind: b.kind,
+            });
+        }
+        let mut buf = Vec::new();
+        let b = b.decode(&mut buf).map_err(WriteError::Block)?;
+        defs.check_block(&b).map_err(WriteError::Describe)
     }
 
     /// Where the piece ends once `len` more bytes are placed.
@@ -510,43 +859,34 @@ impl<S: TapeSink> TapeWriter<S> {
     }
 
     /// Note the whole block `block` placed at the end, with its `header` and `crc`: the content hash, the index,
-    /// the describe set, the counts, the session and seq. What a resume replays for each block it keeps.
+    /// the state records it holds ([near]), the counts, the session and seq. What a resume replays for each block it
+    /// keeps.
     fn account(
         &mut self,
         block: &[u8],
         header: &[u8; crate::HEADER_LEN],
         crc: [u8; crate::CRC_LEN],
     ) -> Result<(), WriteError> {
-        // read back from a file: an addition that doesn't join the set is left out of it
-        let set = self.describe_after(block, header).ok().flatten();
-        self.account_with(block, header, crc, set)
-    }
-
-    /// [Self::account] with `set`, the whole describe set once `block` is placed ([Self::describe_after]).
-    fn account_with(
-        &mut self,
-        block: &[u8],
-        header: &[u8; crate::HEADER_LEN],
-        crc: [u8; crate::CRC_LEN],
-        set: Option<Vec<Vec<u8>>>,
-    ) -> Result<(), WriteError> {
         let bytes = self.end_after(block.len())?;
         self.hash.update(block);
         // blocks the file structure adds are not counted: seq stays the producer's count of its own blocks
         let kind = BlockKind::from_u8(header[5]);
-        let counted = !self.replaying && !crate::index::is_structural(kind);
+        let flags = u16::from_le_bytes([header[6], header[7]]);
+        let repeat = kind == BlockKind::Records && flags & crate::FLAG_REPEAT != 0;
+        let counted = !repeat && !crate::index::is_structural(kind);
         self.index(block, crc, counted);
-        self.note_describe(block, header, set);
+        let at = self.bytes;
         self.bytes = bytes;
+        let tracks = self.learn(block, at);
         // counts against thresholds: past u64::MAX they stay due
         self.blocks = self.blocks.saturating_add(1);
-        self.since_describe = self.since_describe.saturating_add(wide(block.len()));
-        let data = matches!(
-            kind,
-            BlockKind::Records | BlockKind::Events | BlockKind::Series
-        );
+        let data = match kind {
+            BlockKind::Records => !tracks.is_empty(),
+            BlockKind::Events | BlockKind::Series => true,
+            _ => false,
+        };
         if counted && data {
-            self.data_placed = true;
+            self.holds_data = true;
         }
         if counted && matches!(kind, BlockKind::Events | BlockKind::Series) {
             self.chunks = self.chunks.saturating_add(1);
@@ -556,6 +896,41 @@ impl<S: TapeSink> TapeWriter<S> {
             self.next_seq = id.seq.wrapping_add(1);
         }
         Ok(())
+    }
+
+    /// Take what the block `block` placed at `at` says: every state record (track 0's, and every record of a block
+    /// marked [FLAG_REPEAT](crate::FLAG_REPEAT)) noted as written there ([near]). Returns the data tracks it holds
+    /// records or a chunk of.
+    fn learn(&mut self, block: &[u8], at: u64) -> Vec<u32> {
+        let Ok(b) = crate::Block::read(block) else {
+            return Vec::new();
+        };
+        if let Some(c) = b.chunk() {
+            return vec![c.head().track_number];
+        }
+        if b.kind != BlockKind::Records {
+            return Vec::new();
+        }
+        let mut buf = Vec::new();
+        let Ok(b) = b.decode(&mut buf) else {
+            return Vec::new();
+        };
+        let repeat = b.is_repeat();
+        let mut tracks = Vec::new();
+        for r in b.records().flatten() {
+            if r.track != DESCRIBE_TRACK && !repeat {
+                tracks.push(r.track);
+                continue;
+            }
+            let Some(slot) = Slot::of(r.track, r.item) else {
+                continue;
+            };
+            self.near
+                .wrote(slot, Some(ItemHash::of(r.item)), at, &self.near_policy);
+        }
+        tracks.sort_unstable();
+        tracks.dedup();
+        tracks
     }
 
     /// List `block`, placed here, in the index as readers take it: a counted block with the id of the last one is
@@ -580,115 +955,15 @@ impl<S: TapeSink> TapeWriter<S> {
         }
     }
 
-    /// Keep the current whole describe set: blocks from one marked [crate::FLAG_SET_FIRST] up to one marked
-    /// [crate::FLAG_SET_LAST], back to back, or the set before with such an addition ([crate::FLAG_SET_ADD]) merged;
-    /// `set` is that set when `block` ends one ([Self::describe_after]). A set another block interrupts is dropped.
-    fn note_describe(
-        &mut self,
-        block: &[u8],
-        header: &[u8; crate::HEADER_LEN],
-        set: Option<Vec<Vec<u8>>>,
-    ) {
-        if BlockKind::from_u8(header[5]) != BlockKind::Describe {
-            self.describe_open.clear();
-            return;
-        }
-        self.since_describe = 0;
-        if self.replaying {
-            return;
-        }
-        let flags = u16::from_le_bytes([header[6], header[7]]);
-        if flags & crate::FLAG_SET_FIRST != 0 {
-            self.describe_open.clear();
-        } else if self.describe_open.is_empty() {
-            return;
-        }
-        if flags & crate::FLAG_SET_LAST != 0 {
-            self.describe_open.clear();
-            if let Some(set) = set {
-                self.describe = set;
-            }
-            return;
-        }
-        let open: usize = self.describe_open.iter().map(Vec::len).sum();
-        if open.saturating_add(block.len()) > DESCRIBE_SET_LEN_MAX {
-            // too long to keep: never copied, and a resume reads back no more of it
-            self.describe_open.clear();
-            return;
-        }
-        self.describe_open.push(block.to_vec());
-    }
-
-    /// The whole describe set once `block` is placed, when it ends a set: the set, or for an addition the current
-    /// set with it merged (canonical order, records replaced by key, sticky records by track). None for a block that
-    /// ends none, or a set longer than [DESCRIBE_SET_LEN_MAX]; an error for an addition that doesn't merge.
-    fn describe_after(
-        &self,
-        block: &[u8],
-        header: &[u8; crate::HEADER_LEN],
-    ) -> Result<Option<Vec<Vec<u8>>>, DescribeReadError> {
-        let flags = u16::from_le_bytes([header[6], header[7]]);
-        let last = flags & crate::FLAG_SET_LAST != 0;
-        if BlockKind::from_u8(header[5]) != BlockKind::Describe || self.replaying || !last {
-            return Ok(None);
-        }
-        let first = flags & crate::FLAG_SET_FIRST != 0;
-        if !first && self.describe_open.is_empty() {
-            return Ok(None);
-        }
-        let open = if first {
-            &[][..]
-        } else {
-            &self.describe_open[..]
-        };
-        let len: usize = open.iter().map(Vec::len).sum();
-        if len.saturating_add(block.len()) > DESCRIBE_SET_LEN_MAX {
-            return Ok(None);
-        }
-        let mut set: Vec<Vec<u8>> = open.to_vec();
-        set.push(block.to_vec());
-        if flags & crate::FLAG_SET_ADD == 0 {
-            return Ok(Some(set));
-        }
-        let merged = merge_describe(&self.describe, set.iter().map(Vec::as_slice), self.session)?;
-        let len: usize = merged.iter().map(Vec::len).sum();
-        Ok((len <= DESCRIBE_SET_LEN_MAX).then_some(merged))
-    }
-
-    /// Write the newest describe blocks again with the seq of the last counted block, not counted themselves; the
-    /// offset of the first. None when there are none.
-    fn replay_describe(&mut self) -> Result<Option<u64>, WriteError> {
-        if self.describe.is_empty() {
-            return Ok(None);
-        }
-        let at = self.offset();
-        self.copy_taken();
-        self.replaying = true;
-        let blocks = core::mem::take(&mut self.describe);
-        let id = self.structural_id();
-        let r = blocks.iter().try_for_each(|b| {
-            let mut b = b.clone();
-            crate::mark_copy(&mut b, id).map_err(WriteError::Block)?;
-            self.write_raw(&b)
-        });
-        self.describe = blocks;
-        self.replaying = false;
-        r.map(|()| Some(at))
-    }
-
     /// After every counted block, whoever placed it: a checkpoint when due (in an aligned file, in the gap before
-    /// the next chunk), then a describe copy when due.
+    /// the next chunk).
     fn after_block(&mut self) -> Result<(), WriteError> {
-        // never inside a describe set or addition being written, which would split it: placed after its last block
-        if self.describe_open.is_empty() && self.checkpoint_due() {
-            if self.alignment == 0 {
+        if self.checkpoint_due() {
+            if self.alignment() == 0 {
                 self.place_checkpoint()?;
             } else {
                 self.index_due = true;
             }
-        }
-        if self.copy_due() {
-            self.replay_describe()?;
         }
         Ok(())
     }
@@ -703,114 +978,170 @@ impl<S: TapeSink> TapeWriter<S> {
         self.indexer.due() || by_time
     }
 
-    /// Whether the newest describe set is to be written again now: a second set as soon as the piece holds data and
-    /// a third after its first checkpoint, so a damaged head set doesn't make it unreadable, and the repeats; never
-    /// inside a set being written, which would split it.
-    fn copy_due(&self) -> bool {
-        if self.describe.is_empty() || !self.describe_open.is_empty() {
-            return false;
-        }
-        let early = self.data_copy_due && self.data_placed;
-        let at_checkpoint = self.checkpoint_copy_due && self.indexer.last_checkpoint().is_some();
-        early || at_checkpoint || self.since_describe >= self.describe_repeat
-    }
-
-    /// A describe copy is placed now: it is the early copy once the piece holds data, the checkpoint copy once it
-    /// holds a checkpoint.
-    fn copy_taken(&mut self) {
-        if self.data_placed {
-            self.data_copy_due = false;
-        }
-        if self.indexer.last_checkpoint().is_some() {
-            self.checkpoint_copy_due = false;
-        }
-    }
-
     fn place_checkpoint(&mut self) -> Result<(), WriteError> {
         self.index_due = false;
         self.last_checkpoint = Instant::now();
         if self.indexer.pending() == 0 {
             return Ok(());
         }
-        let b = self
-            .indexer
-            .checkpoint(self.offset(), self.structural_id())
-            .map_err(WriteError::Index)?;
-        self.write_raw(&b)
+        // a checkpoint holds at most CHECKPOINT_ENTRIES_MAX entries: one block of many state records may need more
+        loop {
+            let b = self
+                .indexer
+                .checkpoint(self.offset(), self.structural_id())
+                .map_err(WriteError::Index)?;
+            self.write_own(&b)?;
+            if self.indexer.pending() < crate::index::CHECKPOINT_ENTRIES_MAX {
+                return Ok(());
+            }
+        }
     }
 
-    /// A small summary or data block that may wait for the gap in front of the next aligned chunk payload. It is
-    /// renumbered into the writer's session when placed ([crate::set_id]), so seqs ascend in the file. In an unaligned file it is written at
-    /// once; past [DEFERRED_BYTES_MAX] waiting, all are. Index, finish, tail and piece head blocks are the writer's
-    /// own: refused with [WriteError::Index].
-    pub fn defer_block(&mut self, block: Vec<u8>) -> Result<(), WriteError> {
+    /// A small summary or data block that may wait for the gap in front of the next aligned chunk payload: checked
+    /// against `defs` and the definitions it needs put now, as for a block written now; when it is placed, nothing
+    /// is put. It waits at most [DEFER_WINDOW] bytes and lies at most its tracks' `near` plus that after their
+    /// definitions; a deferred block is placed in the piece it was deferred in. It is renumbered into the writer's
+    /// session when placed ([crate::set_id]), so seqs ascend in the file. In an unaligned file it is written at once;
+    /// past [DEFERRED_BYTES_MAX] waiting, all are. Index, finish, tail and piece head blocks are the writer's own:
+    /// refused with [WriteError::Index]. A producer's block of puts or copies is put at once ([Self::put_block]).
+    pub fn defer_block(&mut self, defs: &Definitions, block: Vec<u8>) -> Result<(), WriteError> {
         self.check()?;
         let b = crate::Block::read(&block).map_err(WriteError::Block)?;
-        if crate::index::is_structural(b.kind) {
-            return Err(WriteError::Index(IndexError::Invalid(
-                "index, finish, tail and piece head blocks are written by the writer",
-            )));
+        if b.is_repeat() {
+            return self.put_block(defs, &block);
         }
-        if self.alignment == 0 {
+        let needs = self.defer_needs(defs, &block)?;
+        if self.alignment() == 0 {
+            self.ensure_head()?;
+            self.put_needed(&needs)?;
             return self.place(block);
         }
+        self.place_overdue(puts_len_upper(&needs))?;
+        self.ensure_head()?;
+        self.put_chosen(&needs, false)?;
+        let d = Deferred {
+            block,
+            at: self.offset(),
+        };
         // flushed once over DEFERRED_BYTES_MAX: never near usize::MAX
-        self.deferred_bytes = self.deferred_bytes.saturating_add(block.len());
-        self.deferred.push(block);
+        self.deferred_bytes = self.deferred_bytes.saturating_add(d.block.len());
+        self.deferred.push(d);
         if self.deferred_bytes > DEFERRED_BYTES_MAX {
             self.flush_deferred()?;
         }
         Ok(())
     }
 
-    /// Write every deferred block now.
-    pub fn flush_deferred(&mut self) -> Result<(), WriteError> {
-        for b in core::mem::take(&mut self.deferred) {
-            self.place(b)?;
+    /// Check `block` for [Self::defer_block] and the piece's room for the definitions it needs: those.
+    fn defer_needs(
+        &self,
+        defs: &Definitions,
+        block: &[u8],
+    ) -> Result<Vec<Candidate<'static>>, WriteError> {
+        let b = crate::Block::read(block).map_err(WriteError::Block)?;
+        if crate::index::is_structural(b.kind) {
+            return Err(WriteError::Index(IndexError::Invalid(
+                "index, finish, tail and piece head blocks are written by the writer",
+            )));
         }
-        self.deferred_bytes = 0;
+        Self::check_data(defs, block)?;
+        let needs = self.needed(defs, &data_tracks(block));
+        self.room(0, !self.head_put)?;
+        Ok(needs)
+    }
+
+    /// Place every deferred block now when a call that writes at most `ahead` more bytes would carry the piece past
+    /// [DEFER_WINDOW] from where the oldest was deferred.
+    fn place_overdue(&mut self, ahead: usize) -> Result<(), WriteError> {
+        let due = self.deferred.first().is_some_and(|d| {
+            self.offset().saturating_add(wide(ahead)) > d.at.saturating_add(DEFER_WINDOW)
+        });
+        if due { self.flush_deferred() } else { Ok(()) }
+    }
+
+    /// Write every deferred block now, in the order they came; on an error the ones not yet placed stay.
+    pub fn flush_deferred(&mut self) -> Result<(), WriteError> {
+        while !self.deferred.is_empty() {
+            let d = self.take_deferred();
+            self.place(d.block)?;
+        }
         Ok(())
     }
 
-    /// Place a deferred block as the writer's next counted block, then what is due after it.
+    /// The oldest deferred block, no longer waiting.
+    fn take_deferred(&mut self) -> Deferred {
+        let d = self.deferred.remove(0);
+        // the sum of the deferred blocks' lengths
+        self.deferred_bytes = self.deferred_bytes.saturating_sub(d.block.len());
+        d
+    }
+
+    /// Place a deferred block (checked, and its definitions put, when it was deferred) as the writer's next counted
+    /// block, nothing put before it, then what is due after it.
     fn place(&mut self, mut block: Vec<u8>) -> Result<(), WriteError> {
         crate::set_id(&mut block, self.next_id()).map_err(WriteError::Block)?;
-        self.write_raw(&block)?;
+        self.write_own(&block)?;
         self.after_block()
     }
 
-    /// Encode and append a chunk block numbered [Self::next_seq]. In an aligned file its payload lands on a multiple
-    /// of the alignment: deferred blocks fill the gap in front of it while they fit, in the order they came, the
-    /// rest of the gap is zeros in its head.
+    /// Encode and append a chunk block numbered [Self::next_seq], its track checked against `defs`. In an aligned
+    /// file its payload lands on a multiple of the alignment: deferred blocks fill the gap in front of it while they
+    /// fit, in the order they came, the rest of the gap is zeros in its head. The chunk is made and checked before
+    /// the definitions it needs are put, so a refused chunk leaves nothing of its own.
     pub fn write_chunk(
         &mut self,
+        defs: &Definitions,
         head: &crate::ChunkHead,
         columns: &[(crate::ColumnSpec, &[u8])],
     ) -> Result<(), WriteError> {
         self.check()?;
+        let needs = self.needed(defs, &[head.track_number]);
+        self.room(0, !self.head_put)?;
+        self.ensure_head()?;
         let payload: usize = columns.iter().map(|(c, _)| c.len).sum();
         let head_len = crate::chunk::chunk_head_len(columns.len(), payload);
-        if self.alignment != 0 {
-            // the gap is measured again after each block: a describe copy due after one takes room too
+        let specs: Vec<crate::ColumnSpec> = columns.iter().map(|(c, _)| *c).collect();
+        if self.alignment() != 0 {
+            // what this call may write: the deferred blocks, a checkpoint, the puts and the chunk
+            let checkpoint = if self.index_due {
+                self.indexer.checkpoint_bytes()
+            } else {
+                0
+            };
+            let chunk_max =
+                crate::chunk::chunk_len(&specs, crate::times::u32_to_usize(self.alignment()));
+            let ahead = self
+                .deferred_bytes
+                .saturating_add(checkpoint)
+                .saturating_add(puts_len_upper(&needs))
+                .saturating_add(chunk_max);
+            self.place_overdue(ahead)?;
             loop {
-                let gap = crate::chunk::chunk_padding(self.at()?, head_len, self.alignment)
-                    .ok_or(WriteError::Alignment(self.alignment))?;
-                if !self.deferred.first().is_some_and(|next| next.len() <= gap) {
+                let gap = crate::chunk::chunk_padding(self.at()?, head_len, self.alignment())
+                    .ok_or(WriteError::Alignment(self.alignment()))?;
+                if !self
+                    .deferred
+                    .first()
+                    .is_some_and(|next| next.block.len() <= gap)
+                {
                     break;
                 }
-                let b = self.deferred.remove(0);
-                // the sum of the deferred blocks' lengths
-                self.deferred_bytes = self.deferred_bytes.saturating_sub(b.len());
-                self.place(b)?;
+                let d = self.take_deferred();
+                self.place(d.block)?;
             }
             // a checkpoint goes before the chunk, in the gap when it fits
             if self.index_due {
                 self.place_checkpoint()?;
             }
         }
-        let padding = crate::chunk::chunk_padding(self.at()?, head_len, self.alignment)
-            .ok_or(WriteError::Alignment(self.alignment))?;
-        let specs: Vec<crate::ColumnSpec> = columns.iter().map(|(c, _)| *c).collect();
+        // right before the chunk, after every counted block this call places: a resume after one of them puts the
+        // same
+        let chosen = self.choose(&needs)?;
+        self.room(chosen.iter().filter(|c| **c).count(), false)?;
+        let puts = puts_len(&chosen_records(&needs, &chosen))?;
+        let at = self.at()?.saturating_add(wide(puts));
+        let padding = crate::chunk::chunk_padding(at, head_len, self.alignment())
+            .ok_or(WriteError::Alignment(self.alignment()))?;
         let len = crate::chunk::chunk_len(&specs, padding);
         let mut buf = core::mem::take(&mut self.chunk_buf);
         buf.resize(len, 0);
@@ -818,7 +1149,14 @@ impl<S: TapeSink> TapeWriter<S> {
             .map_err(WriteError::Chunk)
             .and_then(|n| {
                 buf.truncate(n);
-                self.write_raw(&buf)
+                Self::check_data(defs, &buf)?;
+                self.write_chosen(&needs, &chosen, true)?;
+                if self.at()? != at {
+                    return Err(WriteError::Index(IndexError::Invalid(
+                        "the puts before a chunk took other bytes than chosen",
+                    )));
+                }
+                self.write_own(&buf)
             });
         self.chunk_buf = buf;
         r?;
@@ -828,34 +1166,42 @@ impl<S: TapeSink> TapeWriter<S> {
     /// Append one whole block (its bytes as [crate::Block::bytes] gives them, its session and seq as made, see
     /// [Self::next_id]), then sync if the policy says so. A block of another session starts that session: the blocks the
     /// writer makes from there on are in it.
-    pub fn write_block(&mut self, block: &[u8]) -> Result<(), WriteError> {
-        self.write_raw(block)?;
-        self.after_block()
-    }
-
-    /// A whole describe set or addition: its blocks as [crate::DescribeSet::write_blocks] or
-    /// [crate::DescribeSet::write_addition] made them, numbered from [Self::next_id] on, each written as
-    /// [Self::write_block] writes it. An addition that doesn't join the current set is refused ([WriteError::Describe])
-    /// before any of its blocks is written; [Self::write_block] can refuse only the last block of one.
-    pub fn write_describe<B: AsRef<[u8]>>(&mut self, blocks: &[B]) -> Result<(), WriteError> {
+    ///
+    /// The block is checked against `defs` ([Definitions::check_block]): no definitions (they are held in `defs` and
+    /// put by the writer), every record on a held track that isn't a state track and on its clock; a chunk or
+    /// summary block's track is held, and no events chunk is on a state track. Then the definitions the block's data
+    /// needs are put. A block numbered [Self::next_id] before that is renumbered after it ([crate::set_id]).
+    ///
+    /// A producer's block of puts or copies ([FLAG_REPEAT](crate::FLAG_REPEAT)) is not written as it is: its records
+    /// are put on this tape ([Self::put_block]), where this writer's own near rule decides what is written.
+    pub fn write_block(&mut self, defs: &Definitions, block: &[u8]) -> Result<(), WriteError> {
         self.check()?;
-        let mut add = false;
-        for b in blocks {
-            let b = crate::Block::read(b.as_ref()).map_err(WriteError::Block)?;
-            add |= b.flags & crate::FLAG_SET_ADD != 0;
+        if is_repeat(block) {
+            return self.put_block(defs, block);
         }
-        if add {
-            merge_describe(
-                &self.describe,
-                blocks.iter().map(AsRef::as_ref),
-                self.session,
-            )
-            .map_err(WriteError::Describe)?;
+        Self::check_data(defs, block)?;
+        let needs = self.needed(defs, &data_tracks(block));
+        // a block of another session starts it: a reader takes a new session where track 0 comes first, so the
+        // layout and the producer are put again in it
+        let session = block_id(block).filter(|theirs| theirs.session != self.session);
+        self.room(0, !self.head_put || session.is_some())?;
+        self.flush_deferred()?;
+        if let Some(theirs) = session {
+            self.session = theirs.session;
+            self.next_seq = theirs.seq;
+            self.head_put = false;
         }
-        for b in blocks {
-            self.write_block(b.as_ref())?;
+        let before = self.next_id();
+        self.ensure_head()?;
+        self.put_needed(&needs)?;
+        if block_id(block) == Some(before) && self.next_id() != before {
+            let mut own = block.to_vec();
+            crate::set_id(&mut own, self.next_id()).map_err(WriteError::Block)?;
+            self.write_own(&own)?;
+        } else {
+            self.write_own(block)?;
         }
-        Ok(())
+        self.after_block()
     }
 
     /// Append a block of any session as the writer's own: renumbered into the writer's session and next seq ([crate::set_id]),
@@ -867,28 +1213,150 @@ impl<S: TapeSink> TapeWriter<S> {
     /// Lost blocks stay visible: a jump in the producer's seq (a subscriber that fell behind) leaves the same jump in
     /// the writer's, so a reader of the adopted session sees the gap. A block of another producer session is a restart, with
     /// no gap.
-    pub fn adopt_block(&mut self, block: &[u8]) -> Result<(), WriteError> {
+    pub fn adopt_block(&mut self, defs: &Definitions, block: &[u8]) -> Result<(), WriteError> {
+        self.check()?;
         let b = crate::Block::read(block).map_err(WriteError::Block)?;
+        if b.is_repeat() {
+            return self.put_block(defs, block);
+        }
         let (kind, theirs) = (b.kind, BlockId::new(b.session, b.seq));
         if crate::index::is_structural(kind) {
             return Err(WriteError::Index(IndexError::Invalid(
                 "index, finish, tail and piece head blocks are written by the writer",
             )));
         }
-        let free = b.is_copy();
-        if !free {
-            if let Some(last) = self.adopted
-                && last.session == theirs.session
-            {
-                let lost = theirs.seq.saturating_sub(last.seq).saturating_sub(1);
-                self.next_seq = self.next_seq.wrapping_add(lost);
-            }
-            self.adopted = Some(theirs);
+        Self::check_data(defs, block)?;
+        let needs = self.needed(defs, &data_tracks(block));
+        self.room(0, !self.head_put)?;
+        self.flush_deferred()?;
+        self.ensure_head()?;
+        self.put_needed(&needs)?;
+        if let Some(last) = self.adopted
+            && last.session == theirs.session
+        {
+            let lost = theirs.seq.saturating_sub(last.seq).saturating_sub(1);
+            self.next_seq = self.next_seq.wrapping_add(lost);
         }
+        self.adopted = Some(theirs);
         let mut own = block.to_vec();
         crate::set_id(&mut own, self.next_id()).map_err(WriteError::Block)?;
-        self.write_raw(&own)?;
+        self.write_own(&own)?;
         self.after_block()
+    }
+
+    /// Put the records of a producer's block of puts or copies ([FLAG_REPEAT](crate::FLAG_REPEAT)) on this tape, as
+    /// a relay of a live producer passes them on, each with what it needs as [Self::put] does, all decided at once
+    /// and written in as few blocks as they fit: a definition of a kind `defs` holds must be the one held (a relay
+    /// holds the block's definitions first, [Self::relay_block]) and is put after what it names; a typed item or a
+    /// kind this crate doesn't know is put as it is, a typed item after its bundle; a producer's producer and layout
+    /// are passed over (this tape's are the writer's own); every other record is put on its state track after the
+    /// track's definitions. A record on a track that isn't a state track of `defs`, or on another clock than its
+    /// track's, or a definition other than the one held, is refused before anything is put. The block itself is not
+    /// written.
+    pub fn put_block(&mut self, defs: &Definitions, block: &[u8]) -> Result<(), WriteError> {
+        self.check()?;
+        let b = crate::Block::read(block).map_err(WriteError::Block)?;
+        let mut buf = Vec::new();
+        let b = b.decode(&mut buf).map_err(WriteError::Block)?;
+        if b.kind != BlockKind::Records {
+            return Err(WriteError::Unknown {
+                version: b.version,
+                kind: b.kind,
+            });
+        }
+        let rule = self.definitions_rule();
+        let mut cands: Vec<Candidate<'_>> = Vec::new();
+        let mut seen = BTreeSet::new();
+        // the hash of the newest record of each state track in the block: the same item again adds nothing
+        let mut newest: std::collections::BTreeMap<u32, ItemHash> = Default::default();
+        for r in b.records() {
+            let r = r.map_err(WriteError::Block)?;
+            let Some(at) = r.at else {
+                let d = <Describe<'_> as shrink_wrap::DeserializeShrinkWrap>::from_ww_bytes(r.item)
+                    .map_err(DescribeError::Decode)?;
+                if matches!(d, Describe::Producer(_) | Describe::Layout(_)) {
+                    continue;
+                }
+                if crate::open::is_held(&d) {
+                    let slot = Slot::of_definition(&d, || ItemHash::of(r.item));
+                    if defs.get(&slot) != Some(r.item) {
+                        return Err(DescribeError::NotHeld { slot }.into());
+                    }
+                    let named = match &d {
+                        Describe::Track(t) => defs.needs(t.number.0),
+                        Describe::Map(m) => vec![
+                            Slot::Clock { number: m.from.0 },
+                            Slot::Clock { number: m.to.0 },
+                            slot,
+                        ],
+                        _ => vec![slot],
+                    };
+                    let mut needs = Vec::new();
+                    self.push_needs(defs, named, &mut seen, &mut needs);
+                    cands.extend(needs);
+                    continue;
+                }
+                if let Describe::Item(item) = &d {
+                    let bundle: Vec<u8> = item.ty.bundle.iter().filter_map(Result::ok).collect();
+                    if let Some((slot, _)) = defs.bundle(&bundle) {
+                        let mut needs = Vec::new();
+                        self.push_needs(defs, [slot], &mut seen, &mut needs);
+                        cands.extend(needs);
+                    }
+                }
+                self.work.hash(r.item.len());
+                let hash = ItemHash::of(r.item);
+                cands.push(Candidate {
+                    slot: Slot::of_definition(&d, || hash),
+                    rule,
+                    track: DESCRIBE_TRACK,
+                    at: None,
+                    hash,
+                    item: Item::Given(r.item),
+                });
+                continue;
+            };
+            let facts = defs.check_on_track(r.track, at)?;
+            let policy = facts
+                .state
+                .ok_or(DescribeError::NotState { track: r.track })?;
+            if r.item.len() > STATE_ITEM_MAX {
+                return Err(DescribeError::TooLong { len: r.item.len() }.into());
+            }
+            self.work.hash(r.item.len());
+            let hash = ItemHash::of(r.item);
+            if newest.insert(r.track, hash) == Some(hash) {
+                continue;
+            }
+            let mut needs = Vec::new();
+            self.push_needs(defs, defs.needs(r.track), &mut seen, &mut needs);
+            cands.extend(needs);
+            cands.push(Candidate {
+                slot: Slot::State { track: r.track },
+                rule: self.rule(policy),
+                track: r.track,
+                at: Some(at),
+                hash,
+                item: Item::Given(r.item),
+            });
+        }
+        self.room(0, !self.head_put)?;
+        self.flush_deferred()?;
+        self.ensure_head()?;
+        self.put_last(&cands).map(|_| ())
+    }
+
+    /// Pass on a live producer's block, as a relay does: a block of puts ([FLAG_REPEAT](crate::FLAG_REPEAT)) has its
+    /// definitions held in `defs` ([Definitions::take_block]) and its records put ([Self::put_block]); any other
+    /// block is written under `defs` ([Self::write_block]).
+    pub fn relay_block(&mut self, defs: &mut Definitions, block: &[u8]) -> Result<(), WriteError> {
+        let b = crate::Block::read(block).map_err(WriteError::Block)?;
+        if !b.is_repeat() {
+            return self.write_block(defs, block);
+        }
+        let mut buf = Vec::new();
+        defs.take_block(&b.decode(&mut buf).map_err(WriteError::Block)?)?;
+        self.put_block(defs, block)
     }
 
     /// Sync now if blocks wait and the interval of [SyncPolicy::Interval] is up; call it when no blocks come.
@@ -899,7 +1367,7 @@ impl<S: TapeSink> TapeWriter<S> {
             .policy()
             .interval
             .is_some_and(|t| self.indexer.pending() > 0 && self.last_checkpoint.elapsed() >= t);
-        if by_time && self.alignment == 0 {
+        if by_time && self.alignment() == 0 {
             self.place_checkpoint()?;
         } else if by_time {
             self.index_due = true;
@@ -934,8 +1402,8 @@ impl<S: TapeSink> TapeWriter<S> {
         self.finish_as(FinishState::Complete)
     }
 
-    /// End the file as a piece in `state`: the deferred blocks, the final index, the describe backup, the finish
-    /// and the tail; then sync, rename and sync the directory as [Self::finish].
+    /// End the file as a piece in `state`: the definitions made, the deferred blocks, the final index, the finish and
+    /// the tail; then sync, rename and sync the directory as [Self::finish].
     pub fn finish_as(self, state: FinishState) -> Result<Finished, WriteError> {
         if state == FinishState::Continued {
             return Err(WriteError::Index(IndexError::Invalid(
@@ -957,8 +1425,8 @@ impl<S: TapeSink> TapeWriter<S> {
 
     /// End this piece as [FinishState::Continued] and start the next piece of the chain on `next`: its id
     /// [PieceId::after] this one's id and final content hash (the finish's), its head naming this piece, the track
-    /// starts moved on by this piece's chunks, then the newest describe blocks. Seqs go on from this piece; policies,
-    /// alignment and the describe repeat carry over.
+    /// starts moved on by this piece's chunks, then the layout and the producer put; a definition is put again
+    /// before the next data that needs it. Seqs go on from this piece; the options carry over.
     pub fn cut_on(self, next: S) -> Result<(Finished, Self), WriteError> {
         self.cut_into(|| Ok(next))
     }
@@ -975,16 +1443,9 @@ impl<S: TapeSink> TapeWriter<S> {
         };
         let options = self.options();
         let tracks = self.indexer.next_starts(&starts);
-        let describe = self.describe.clone();
         let done = self.end(FinishState::Continued)?;
-        let next_piece = NextPiece::after(
-            &head,
-            &done.finished,
-            tracks,
-            describe,
-            done.session,
-            done.next_seq,
-        )?;
+        let next_piece =
+            NextPiece::after(&head, &done.finished, tracks, done.session, done.next_seq)?;
         let next = TapeWriter::start_next(next()?, &options, next_piece)?;
         Ok((done.finished, next))
     }
@@ -994,13 +1455,14 @@ impl<S: TapeSink> TapeWriter<S> {
         WriterOptions {
             sync: self.policy,
             index: self.indexer.policy(),
-            alignment: self.alignment,
-            describe_repeat: self.describe_repeat,
+            layout: self.layout,
+            producer: self.producer.clone(),
+            near: self.near_policy,
         }
     }
 
-    /// A writer on `sink` starting the piece `next` of a chain: its head, then the newest describe blocks of the
-    /// piece before as copies. Seqs go on from that piece.
+    /// A writer on `sink` starting the piece `next` of a chain: its head, then the layout and the producer put.
+    /// Seqs go on from that piece.
     pub(crate) fn start_next(
         sink: S,
         options: &WriterOptions,
@@ -1016,23 +1478,20 @@ impl<S: TapeSink> TapeWriter<S> {
     pub(crate) fn begin_next(&mut self, next: NextPiece) -> Result<(), WriteError> {
         self.next_seq = next.next_seq;
         self.session = next.session;
-        self.write_piece_head(&next.head, &next.tracks)?;
-        self.describe = next.describe;
-        self.replay_describe()?;
-        Ok(())
+        self.write_piece_head(&next.head, &next.tracks)
     }
 
     /// End the piece in `state`; a continued piece with a head names the next piece's id, [PieceId::after] its own
     /// and the content hash in its finish.
     fn end(mut self, state: FinishState) -> Result<Ended, WriteError> {
         self.flush_deferred()?;
-        let describe = self.replay_describe()?;
+        self.ensure_head()?;
         let mut prev = None;
         for part in self.indexer.final_parts() {
             let at = self.offset();
             let b = Indexer::final_block(&part, at, prev, self.structural_id())
                 .map_err(WriteError::Index)?;
-            self.write_raw(&b)?;
+            self.write_own(&b)?;
             prev = Some(at);
         }
         let hash = ContentHash(*self.hash.clone().finalize().as_bytes());
@@ -1045,7 +1504,6 @@ impl<S: TapeSink> TapeWriter<S> {
             hash,
             checkpoint: self.indexer.last_checkpoint(),
             final_index: prev,
-            describe,
             ident,
             next,
         };
@@ -1057,13 +1515,16 @@ impl<S: TapeSink> TapeWriter<S> {
         let n = write_finish(&mut buf, self.structural_id(), &finish, &ranges, padding)
             .map_err(WriteError::Index)?;
         buf.truncate(n);
-        self.write_raw(&buf)?;
+        self.write_own(&buf)?;
         let too_long = WriteError::Index(IndexError::Invalid("a piece past u64::MAX bytes"));
         let piece_len = self.offset().checked_add(wide(TAIL_LEN)).ok_or(too_long)?;
-        assert!(
-            piece_len.is_multiple_of(u64::from(PIECE_ALIGN)),
-            "the finish padding ends the piece on {PIECE_ALIGN} bytes"
-        );
+        // finish_padding sizes the finish block so the tail ends the piece on PIECE_ALIGN; a piece that doesn't is
+        // refused before its tail is written, so it never reads as finished
+        if !piece_len.is_multiple_of(u64::from(PIECE_ALIGN)) {
+            return Err(WriteError::Index(IndexError::Invalid(
+                "the finish padding doesn't end the piece on PIECE_ALIGN bytes",
+            )));
+        }
         let tail = Tail {
             piece_len,
             finish_offset,
@@ -1079,7 +1540,7 @@ impl<S: TapeSink> TapeWriter<S> {
         };
         let mut tb = [0u8; TAIL_LEN];
         tail.write(&mut tb, self.structural_id());
-        self.write_raw(&tb)?;
+        self.write_own(&tb)?;
         self.sync()?;
         self.sink
             .finish()
@@ -1111,47 +1572,112 @@ impl<S: TapeSink> TapeWriter<S> {
     }
 }
 
-/// Most bytes of a block of a describe set the writer merges from a set and its additions; a longer record gets a
-/// block of its own.
-pub const MERGED_DESCRIBE_BLOCK_LEN: usize = 64 << 10;
+/// The bytes of a candidate's item: a held definition's, shared, the caller's, or made for the put.
+#[derive(Clone, Debug)]
+enum Item<'a> {
+    Held(std::sync::Arc<[u8]>),
+    Given(&'a [u8]),
+    Owned(Vec<u8>),
+}
 
-/// The whole set of `current` (blocks of a whole set) with `addition` merged, as describe blocks of session `session`
-/// (renumbered when copied).
-fn merge_describe<'a>(
-    current: &'a [Vec<u8>],
-    addition: impl IntoIterator<Item = &'a [u8]>,
-    session: SessionTag,
-) -> Result<Vec<Vec<u8>>, DescribeReadError> {
-    let (set, sticky) =
-        DescribeSet::read_blocks(current.iter().map(Vec::as_slice).chain(addition))?;
-    let sticky: Vec<Sticky<'_>> = sticky.iter().map(StickyRecord::as_sticky).collect();
-    let mut out = Vec::new();
-    let mut id = BlockId::new(session, 0);
-    set.write_blocks(&mut id, MERGED_DESCRIBE_BLOCK_LEN, &sticky, |b| {
-        out.push(b.to_vec());
+impl Item<'_> {
+    fn bytes(&self) -> &[u8] {
+        match self {
+            Item::Held(b) => b,
+            Item::Given(b) => b,
+            Item::Owned(b) => b,
+        }
+    }
+}
+
+/// A record a put may write: its slot, the rule of its track, the record and its item's hash.
+#[derive(Clone, Debug)]
+struct Candidate<'a> {
+    slot: Slot,
+    rule: Rule,
+    track: u32,
+    at: Option<ClockTime>,
+    item: Item<'a>,
+    hash: ItemHash,
+}
+
+impl Candidate<'static> {
+    /// The definition `held` in `slot`, on track 0 of `rule`: shared, its hash the one kept with it.
+    fn held(slot: Slot, rule: Rule, held: &crate::open::Held) -> Self {
+        Candidate {
+            slot,
+            rule,
+            track: DESCRIBE_TRACK,
+            at: None,
+            item: Item::Held(held.item.clone()),
+            hash: held.hash,
+        }
+    }
+}
+
+/// The records of `cands` that `chosen` marks, in order.
+fn chosen_records<'c>(cands: &'c [Candidate<'_>], chosen: &[bool]) -> Vec<RecordRef<'c>> {
+    cands
+        .iter()
+        .zip(chosen)
+        .filter(|(_, c)| **c)
+        .map(|(c, _)| RecordRef {
+            track: c.track,
+            at: c.at,
+            item: c.item.bytes(),
+        })
+        .collect()
+}
+
+/// A block waiting for the gap before an aligned chunk payload, its definitions put when it came, and where the
+/// piece was then.
+struct Deferred {
+    block: Vec<u8>,
+    at: u64,
+}
+
+/// Bytes of the blocks of puts holding `records`, as [TapeWriter::write_puts] writes them.
+fn puts_len(records: &[RecordRef<'_>]) -> Result<usize, WriteError> {
+    let mut len = 0usize;
+    write_records(
+        records,
+        DEFINITION_BLOCK_LEN,
+        crate::FLAG_REPEAT,
+        || BlockId::new(SessionTag::NONE, 0),
+        |b| {
+            len = len.saturating_add(b.len());
+            Ok::<(), DescribeError>(())
+        },
+    )?;
+    Ok(len)
+}
+
+/// At least the bytes of the blocks of puts holding all of `cands`, without making them: each record in a block of
+/// its own at most.
+fn puts_len_upper(cands: &[Candidate<'_>]) -> usize {
+    cands.iter().fold(0usize, |n, c| {
+        n.saturating_add(c.item.bytes().len())
+            .saturating_add(crate::MAX_RECORD_HEAD)
+            .saturating_add(crate::open::EMPTY_LEN)
     })
-    .map_err(DescribeReadError::Set)?;
-    Ok(out)
 }
 
 /// What the next piece of a chain starts with, from the piece before.
 pub(crate) struct NextPiece {
     head: PieceHead,
     tracks: Vec<TrackStart>,
-    describe: Vec<Vec<u8>>,
     session: SessionTag,
     next_seq: u64,
 }
 
 impl NextPiece {
     /// The piece after the one headed `head` that ended as `done`, continued: its id [PieceId::after] that one's id
-    /// and content hash, its head naming that piece, its track starts `tracks`, the describe set `describe`; seqs go
-    /// on in `session` from `next_seq`.
+    /// and content hash, its head naming that piece, its track starts `tracks`; seqs go on in `session` from
+    /// `next_seq`.
     pub(crate) fn after(
         head: &PieceHead,
         done: &Finished,
         tracks: Vec<TrackStart>,
-        describe: Vec<Vec<u8>>,
         session: SessionTag,
         next_seq: u64,
     ) -> Result<Self, WriteError> {
@@ -1173,7 +1699,6 @@ impl NextPiece {
                 prev_session: session,
             },
             tracks,
-            describe,
             session,
             next_seq,
         })
@@ -1192,4 +1717,36 @@ pub(crate) fn block_id(block: &[u8]) -> Option<BlockId> {
     let seq = u64::from_le_bytes(block.get(16..24)?.try_into().ok()?);
     let session = u32::from_le_bytes(block.get(24..28)?.try_into().ok()?);
     Some(BlockId::new(SessionTag::from_u32(session), seq))
+}
+
+/// The data tracks a block names: the tracks of a record block's records past track 0, a chunk's or summary's
+/// track; none for a block that doesn't read.
+fn data_tracks(block: &[u8]) -> Vec<u32> {
+    let Ok(b) = crate::Block::read(block) else {
+        return Vec::new();
+    };
+    if let Some(c) = b.chunk() {
+        return vec![c.head().track_number];
+    }
+    if let Some(s) = b.summary() {
+        return vec![s.head().track_number];
+    }
+    let mut buf = Vec::new();
+    let Ok(d) = b.decode(&mut buf) else {
+        return Vec::new();
+    };
+    let mut tracks: Vec<u32> = d
+        .records()
+        .flatten()
+        .map(|r| r.track)
+        .filter(|t| *t != crate::DESCRIBE_TRACK)
+        .collect();
+    tracks.sort_unstable();
+    tracks.dedup();
+    tracks
+}
+
+/// Whether `block` is a good block of puts or copies.
+fn is_repeat(block: &[u8]) -> bool {
+    crate::Block::read(block).is_ok_and(|b| b.is_repeat())
 }

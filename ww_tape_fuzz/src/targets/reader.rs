@@ -1,6 +1,6 @@
 //! The ww_tape file reader on any bytes: it never panics, every block it gives is a good one (or, in the salvage walk,
 //! a chunk with a good head), and the salvage walk gives every block of the prefix walk, in order. Describe records of a good block decode or fail, never panic.
-//! A good records or describe block coded with each body codec decodes to the same records.
+//! A good records block coded with each body codec decodes to the same records.
 //! Walked as a raw medium with the gap rules of an SD card too: every step still consumes bytes.
 use shrink_wrap::DeserializeShrinkWrap;
 use ww_tape::{
@@ -39,7 +39,7 @@ pub(crate) fn walk(data: &[u8], recovery: Recovery, medium: Medium) -> Vec<Vec<u
     blocks
 }
 
-/// Code a plain records or describe block's body with each codec: it reads back to the same records.
+/// Code a plain records block's body with each codec: it reads back to the same records.
 fn round_trip(b: &Block<'_>) {
     if b.body_codec().is_some() || !b.is_intact() {
         return;

@@ -142,3 +142,10 @@ path = "src/tape_reader_hostile.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "tape-state-hostile"
+path = "src/tape_state_hostile.rs"
+test = false
+doc = false
+bench = false

@@ -1,10 +1,10 @@
-//! Series chunks of the sample codecs, behind the describe block of their track: the group end table, each group's
-//! lane headers (first value, minimum, width; ALP's scheme, exponents, dictionary bits and exception counts), the
-//! packed values, the chunk's sample count and the track's element and channels.
+//! Series chunks of the sample codecs, behind the block of definitions of their track: the group end table, each
+//! group's lane headers (first value, minimum, width; ALP's scheme, exponents, dictionary bits and exception counts),
+//! the packed values, the chunk's sample count and the track's element and channels.
 
 use super::chunk::{build, column_start, hit_head, reseal};
 use super::series::track_item;
-use super::{Draw, Field, SESSION, describe_block, hit};
+use super::{Draw, Field, SESSION, clock_item, describe_block, hit};
 use ww_tape::samples::{Element, SampleShape, encode, max_encoded_len};
 use ww_tape::series::SERIES_CHANNELS_MAX;
 use ww_tape::{
@@ -99,8 +99,8 @@ fn lane_fields(codec: Codec, b: usize, at: usize) -> Vec<Field<'static>> {
     }
 }
 
-/// A describe block of a series track and one series chunk of a sample column whose table, group headers, count or
-/// shape take hostile values.
+/// A block of definitions of a series track and one series chunk of a sample column whose table, group headers, count
+/// or shape take hostile values.
 pub fn samples(data: &[u8]) -> Vec<u8> {
     let mut d = Draw::new(data);
     let mut codec = CODECS[d.below(CODECS.len())];
@@ -189,7 +189,7 @@ pub fn samples(data: &[u8]) -> Vec<u8> {
         channels: shrink_wrap::prelude::UNib32(channels),
     };
     let item = track_item(def, period, Magnitude::pow10(0));
-    let mut out = describe_block(BlockId::new(SESSION, 0), &[&item]);
+    let mut out = describe_block(BlockId::new(SESSION, 0), &[&clock_item(), &item]);
     out.extend_from_slice(&b);
     out
 }

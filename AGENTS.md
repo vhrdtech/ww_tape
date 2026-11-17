@@ -21,7 +21,7 @@ unclear, the source and its comments are authoritative.
 
 | Path | What |
 | --- | --- |
-| `ww_tape/` | blocks, describe records and sets, chunks, the time, sample and payload codecs, `bitpack`, summaries, index, finish and tail, pieces, `TapeWriter`, `FileBlocks`, `TapeReader`; `golden/` the golden files |
+| `ww_tape/` | blocks, definitions on track 0, state tracks and their lookups, chunks, the time, sample and payload codecs, `bitpack`, summaries, index, finish and tail, pieces, `TapeWriter`, `FileBlocks`, `TapeReader`; `golden/` the golden files |
 | `ww_tape_fuzz/` | the fuzz target bodies (`targets`), hostile block builders (`hostile`), `seeds/` and their replay as tests, `ww_tape_fuzz_seeds` |
 | `ww_tape_benchmarks/` | float sample codecs on simulated, decoded and sensor data; series summaries (`--bin summaries`) |
 | `fuzz/` | cargo-fuzz targets (`tape-*`), a workspace of its own on nightly; each target calls `ww_tape_fuzz` |
@@ -59,7 +59,7 @@ warning. `ww_tape` and `ww_tape_fuzz` build at opt-level 3 in tests: the hostile
 
 ## The format is a contract
 
-- The bytes of every block kind are pinned by golden files (`ww_tape/golden/v2*.hex`) and a determinism test: the
+- The bytes of every block kind are pinned by golden files (`ww_tape/golden/v1*.hex`) and a determinism test: the
   same input gives the same bytes. A change of what any input writes is a format change: say so in a breaking
   CHANGELOG entry, rewrite the goldens with `just tape-golden-update` in the same commit, and check the version
   byte and the readers of old files.

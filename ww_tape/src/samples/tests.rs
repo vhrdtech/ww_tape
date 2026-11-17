@@ -493,15 +493,15 @@ fn samples_golden() {
         block.iter().map(|b| format!("{b:02x}")).collect::<String>()
     ));
     let text = lines.join("\n") + "\n";
-    let golden = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("golden/v2-samples.hex");
+    let golden = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("golden/v1-samples.hex");
     if std::env::var("WW_TAPE_GOLDEN").as_deref() == Ok("update") {
         std::fs::write(&golden, &text).unwrap();
     }
     let want = std::fs::read_to_string(&golden)
-        .expect("golden/v2-samples.hex: run with WW_TAPE_GOLDEN=update");
+        .expect("golden/v1-samples.hex: run with WW_TAPE_GOLDEN=update");
     assert!(
         text == want,
-        "the format changed: bytes differ from golden/v2-samples.hex"
+        "the format changed: bytes differ from golden/v1-samples.hex"
     );
 }
 

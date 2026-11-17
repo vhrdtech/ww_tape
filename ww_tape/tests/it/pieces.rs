@@ -7,9 +7,9 @@ use ww_tape::index::IndexPolicy;
 use ww_tape::piece::{ChainEnd, ChainLink, PieceId, check_chain};
 use ww_tape::reader::{Found, OpenOptions};
 use ww_tape::{
-    BlockId, BlockKind, BlockWriter, ClockTime, Codec, ColumnKind, ColumnSpec, Describe,
-    DescribeSet, EndMode, FileBlocks, FinishState, Layout, OwnerId, PieceChain, Producer, Recovery,
-    SessionTag, SyncPolicy, TapeReader, TapeWriter,
+    BlockId, BlockKind, BlockWriter, ClockTime, Codec, ColumnKind, ColumnSpec, EndMode, FileBlocks,
+    FinishState, OwnerId, PieceChain, Recovery, SessionTag, Slot, SyncPolicy, TapeReader,
+    TapeWriter,
 };
 
 /// A fresh scratch directory.
@@ -18,24 +18,6 @@ pub(crate) fn scratch(name: &str) -> PathBuf {
     _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     dir
-}
-
-/// Describe blocks numbered from `first` on.
-fn describe_blocks(layout: Layout, first: BlockId) -> Vec<Vec<u8>> {
-    describe_blocks_max(layout, first, 4096)
-}
-
-/// The describe set of [describe_blocks] in blocks of at most `max` bytes.
-pub(crate) fn describe_blocks_max(layout: Layout, first: BlockId, max: usize) -> Vec<Vec<u8>> {
-    let mut set = DescribeSet::new();
-    set.insert(&Describe::Producer(Producer { name: "pieces" }))
-        .unwrap();
-    set.insert(&Describe::Layout(layout)).unwrap();
-    let mut seq = first;
-    let mut blocks = vec![];
-    set.write_blocks(&mut seq, max, &[], |b| blocks.push(b.to_vec()))
-        .unwrap();
-    blocks
 }
 
 pub(crate) fn records(id: BlockId, n: i64) -> Vec<u8> {
@@ -79,21 +61,25 @@ pub(crate) fn column(bytes: &[u8]) -> [(ColumnSpec, &[u8]); 1] {
     )]
 }
 
-/// Describe blocks, then `rounds` × (a chunk of each of 3 tracks, a records block), checkpoints every 2 KiB.
+/// `rounds` × (a chunk of each of 3 tracks, a records block), checkpoints every 2 KiB.
 fn write_tape(w: &mut TapeWriter, rounds: u64) {
     w.set_index_policy(IndexPolicy {
         bytes: 2048,
         interval: None,
-    });
-    for b in describe_blocks(Layout::UNALIGNED, w.next_id()) {
-        w.write_block(&b).unwrap();
-    }
+        ..IndexPolicy::default()
+    })
+    .expect("a policy with room for a piece head");
     for k in 0..rounds {
         for t in 0..3 {
             let (h, c) = chunk(t, k);
-            w.write_chunk(&h, &column(&c)).unwrap();
+            w.write_chunk(crate::definitions::base_defs(), &h, &column(&c))
+                .unwrap();
         }
-        w.write_block(&records(w.next_id(), k as i64)).unwrap();
+        w.write_block(
+            crate::definitions::base_defs(),
+            &records(w.next_id(), k as i64),
+        )
+        .unwrap();
     }
 }
 
@@ -150,12 +136,14 @@ fn finished_file_is_found_by_its_tail() {
 
     // the index lists every block a walk finds, but the index, finish and tail blocks
     let want: Vec<_> = walk(&bytes).into_iter().filter(|b| listed(b.2)).collect();
-    let got: Vec<_> = r
+    let mut got: Vec<_> = r
         .entries(0)
         .unwrap()
         .iter()
         .map(|e| (e.offset, e.len, e.kind))
         .collect();
+    // a block of definitions has an entry per record
+    got.dedup();
     assert_eq!(got, want);
 
     // one track from the final index's head and its own entries
@@ -170,11 +158,13 @@ fn finished_file_is_found_by_its_tail() {
         rec.iter().filter(|e| e.kind == BlockKind::Records).count(),
         20
     );
+    let defs = r.track_entries(0, ww_tape::index::STATE_TRACK_ID).unwrap();
     assert_eq!(
-        rec.iter().filter(|e| e.kind == BlockKind::Describe).count(),
-        4,
-        "first, the copies after the first data block and the first checkpoint, and the backup"
+        defs.len(),
+        7,
+        "an entry each: the layout, the producer, the clock and the four tracks with data, all close behind it"
     );
+    assert!(defs.iter().all(|e| e.repeat && e.state().is_some()));
 
     // a flipped byte before the finish fails the content hash
     let mut bad = bytes.clone();
@@ -209,7 +199,7 @@ fn crash_anywhere_loses_only_the_cut_block() {
             .filter(|b| b.0 + u64::from(b.1) <= at as u64 && listed(b.2))
             .map(|b| (b.0, b.1, b.2))
             .collect();
-        let got: Vec<_> = match r.pieces() {
+        let mut got: Vec<_> = match r.pieces() {
             [] => vec![],
             [p] => r
                 .entries(0)
@@ -219,6 +209,8 @@ fn crash_anywhere_loses_only_the_cut_block() {
                 .collect(),
             more => panic!("one piece, got {}", more.len()),
         };
+        // a block of definitions has an entry per record
+        got.dedup();
         assert_eq!(got, want, "cut at {at}");
         if let Some(p) = r.pieces().first() {
             assert!(p.finish.is_none());
@@ -242,10 +234,9 @@ fn crash_anywhere_loses_only_the_cut_block() {
     )
     .unwrap();
     assert!(matches!(r.pieces()[0].found, Found::Scan { .. }));
-    assert_eq!(
-        r.entries(0).unwrap().len(),
-        blocks.iter().filter(|b| listed(b.2)).count()
-    );
+    let mut offsets: Vec<u64> = r.entries(0).unwrap().iter().map(|e| e.offset).collect();
+    offsets.dedup();
+    assert_eq!(offsets.len(), blocks.iter().filter(|b| listed(b.2)).count());
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -289,6 +280,7 @@ fn write_chain(dir: &Path, n: u64) -> Vec<PathBuf> {
                 index: IndexPolicy {
                     bytes: 2048,
                     interval: None,
+                    ..IndexPolicy::default()
                 },
                 ..Default::default()
             },
@@ -299,13 +291,12 @@ fn write_chain(dir: &Path, n: u64) -> Vec<PathBuf> {
         },
     )
     .unwrap();
-    for b in describe_blocks(Layout::UNALIGNED, chain.writer().unwrap().next_id()) {
-        chain.write_block(&b).unwrap();
-    }
     for k in 0..6 {
         for t in 0..2 {
             let (h, c) = chunk(t, k);
-            chain.write_chunk(&h, &column(&c)).unwrap();
+            chain
+                .write_chunk(crate::definitions::base_defs(), &h, &column(&c))
+                .unwrap();
         }
     }
     chain
@@ -314,6 +305,49 @@ fn write_chain(dir: &Path, n: u64) -> Vec<PathBuf> {
         .into_iter()
         .map(|f| f.path)
         .collect()
+}
+
+/// A chain whose piece lists all the state entries it may cuts to a new piece and puts there (writing side review
+/// 2, point 8).
+#[test]
+fn a_chain_cuts_when_its_piece_is_full_of_state_entries() {
+    let dir = scratch("state_full");
+    let mut chain = PieceChain::create(
+        &dir,
+        OwnerId([0x43; 32]),
+        0,
+        &[],
+        ww_tape::ChainOptions {
+            writer: ww_tape::WriterOptions {
+                sync: SyncPolicy::None,
+                index: IndexPolicy {
+                    // a piece's head, the clock, the track and its first item take 5
+                    state_entries_max: 8,
+                    ..IndexPolicy::default()
+                },
+                ..Default::default()
+            },
+            cut: ww_tape::CutPolicy::default(),
+        },
+    )
+    .unwrap();
+    let mut defs = crate::definitions::base_defs().clone();
+    defs.define(&crate::definitions::state(5)).unwrap();
+    for k in 0..6u8 {
+        assert!(chain.put(&defs, 5, i64::from(k), &[k]).unwrap());
+    }
+    let pieces: Vec<PathBuf> = chain
+        .finish()
+        .unwrap()
+        .into_iter()
+        .map(|f| f.path)
+        .collect();
+    assert_eq!(pieces.len(), 2);
+    let bytes = std::fs::read(&pieces[1]).unwrap();
+    let r = TapeReader::open(&bytes[..]).unwrap();
+    let found = r.state_at(0, Slot::State { track: 5 }, u64::MAX).unwrap();
+    assert_eq!(found.item.unwrap().item, [5]);
+    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 /// Two chains of one owner (an events chain and a series chain) have their own piece ids and session tags, so their
@@ -379,12 +413,11 @@ fn chain_of_pieces_links_both_ways() {
         let p = &r.pieces()[0];
         let (head, starts) = p.head.as_ref().unwrap();
         assert_eq!(head.ident.seq, i as u64);
-        // every piece carries the describe blocks
+        // every piece carries the definitions
         assert!(
-            r.track_entries(0, 0)
+            !r.track_entries(0, ww_tape::index::STATE_TRACK_ID)
                 .unwrap()
-                .iter()
-                .any(|e| e.kind == BlockKind::Describe)
+                .is_empty()
         );
         // items continue: the head's starts are where the previous piece's ranges ended
         let (_, ranges) = p.finish.as_ref().unwrap();
@@ -555,6 +588,7 @@ fn index_golden() {
                 index: IndexPolicy {
                     bytes: 1000,
                     interval: None,
+                    ..IndexPolicy::default()
                 },
                 ..Default::default()
             },
@@ -562,18 +596,21 @@ fn index_golden() {
         },
     )
     .unwrap();
-    for b in describe_blocks(Layout::UNALIGNED, chain.writer().unwrap().next_id()) {
-        chain.write_block(&b).unwrap();
-    }
     for k in 0..2 {
         let (h, c) = chunk(0, k);
-        chain.write_chunk(&h, &column(&c)).unwrap();
+        chain
+            .write_chunk(crate::definitions::base_defs(), &h, &column(&c))
+            .unwrap();
         let id = chain.writer().unwrap().next_id();
-        chain.write_block(&records(id, k as i64)).unwrap();
+        chain
+            .write_block(crate::definitions::base_defs(), &records(id, k as i64))
+            .unwrap();
     }
     chain.cut_now().unwrap();
     let (h, c) = chunk(0, 2);
-    chain.write_chunk(&h, &column(&c)).unwrap();
+    chain
+        .write_chunk(crate::definitions::base_defs(), &h, &column(&c))
+        .unwrap();
     let paths: Vec<PathBuf> = chain
         .finish()
         .unwrap()
@@ -592,15 +629,15 @@ fn index_golden() {
         }
     }
     std::fs::remove_dir_all(&dir).unwrap();
-    let golden = Path::new(env!("CARGO_MANIFEST_DIR")).join("golden/v2-index.hex");
+    let golden = Path::new(env!("CARGO_MANIFEST_DIR")).join("golden/v1-index.hex");
     if std::env::var("WW_TAPE_GOLDEN").as_deref() == Ok("update") {
         std::fs::write(&golden, &hex).unwrap();
     }
     let want = std::fs::read_to_string(&golden)
-        .expect("golden/v2-index.hex: run with WW_TAPE_GOLDEN=update");
+        .expect("golden/v1-index.hex: run with WW_TAPE_GOLDEN=update");
     assert!(
         hex == want,
-        "the format changed: bytes differ from golden/v2-index.hex"
+        "the format changed: bytes differ from golden/v1-index.hex"
     );
 }
 
@@ -635,38 +672,46 @@ fn every_block_of_a_chain_carries_its_session() {
             }
         }
     }
-    // the describe blocks a cut writes again repeat the seq before them; data blocks count on across pieces
+    // puts carry the seq before them; data blocks count on across pieces
     seqs.dedup();
     assert!(seqs.windows(2).all(|w| w[0] < w[1]), "{seqs:?}");
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
-/// The describe blocks a writer writes again (a cut's next piece, the backup before each finish) are marked copies;
-/// the producer's own are not.
+/// The blocks of definitions in `bytes` as a walk finds them: offset, and whether put ([ww_tape::FLAG_REPEAT]).
+fn definitions_at(bytes: &[u8]) -> Vec<(u64, bool)> {
+    crate::definitions::record_blocks(bytes)
+        .into_iter()
+        .filter(|b| b.first_track == Some(0))
+        .map(|b| (b.offset, b.repeat))
+        .collect()
+}
+
+/// Every piece of the chain holds only what the writer put: the layout and the producer after its head, each
+/// track's definitions before its data.
 #[test]
-fn a_describe_copy_is_marked() {
-    let dir = scratch("copies");
+fn definitions_are_put_in_each_piece() {
+    let dir = scratch("puts");
     let paths = write_chain(&dir, 0);
-    let mut marks = vec![];
-    for p in &paths {
-        let bytes = std::fs::read(p).unwrap();
-        let mut rd = FileBlocks::new(&bytes[..]);
-        let mut piece = vec![];
-        while let Some(b) = rd.next_block() {
-            let b = b.unwrap();
-            if b.kind == BlockKind::Describe {
-                piece.push(b.is_copy());
-            }
-        }
-        marks.push(piece);
-    }
-    // the first piece: the producer's describe block, the copy after the first data block, the copy after the first
-    // checkpoint, the backup; each later one: the copy at its start, then the same three
-    assert_eq!(marks[0], [false, true, true, true], "{marks:?}");
+    let marks: Vec<Vec<bool>> = paths
+        .iter()
+        .map(|p| {
+            let bytes = std::fs::read(p).unwrap();
+            definitions_at(&bytes).into_iter().map(|d| d.1).collect()
+        })
+        .collect();
     assert!(
-        marks[1..].iter().all(|m| m == &[true, true, true, true]),
+        marks.iter().all(|m| !m.is_empty() && m.iter().all(|r| *r)),
         "{marks:?}"
     );
+    for p in &paths[1..] {
+        let bytes = std::fs::read(p).unwrap();
+        let r = TapeReader::open(&bytes[..]).unwrap();
+        let defs = r.definitions_at(0, u64::MAX).unwrap();
+        for slot in [Slot::Layout, Slot::Producer, Slot::Clock { number: 1 }] {
+            assert!(defs.items.contains_key(&slot), "{p:?}: {slot:?}");
+        }
+    }
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -692,13 +737,13 @@ fn big_chunk(k: u64) -> (ChunkHead, Vec<u8>) {
     (head, starts)
 }
 
-/// A piece with a damaged head describe block still has its describe set: the newest copy, the one the writer placed
-/// after the first data block when there is no other, found past the scan's stop in an unfinished 1 MiB piece (no checkpoint yet), through the checkpoints
-/// of an unfinished 10 MiB piece and through the final index of a finished one.
+/// A piece with a damaged block of definitions still has them, from the copies the writer put on later uses; the
+/// damaged block is reported where it was the newest; found through the checkpoints of an unfinished piece and
+/// through the final index of a finished one.
 #[test]
-fn a_damaged_head_describe_set_reads_from_the_next_copy() {
-    for (chunks, finished) in [(16, false), (160, false), (160, true)] {
-        let dir = scratch(&format!("damaged_describe_{chunks}_{finished}"));
+fn a_damaged_block_of_definitions_reads_from_their_copies() {
+    for finished in [false, true] {
+        let dir = scratch(&format!("damaged_describe_{finished}"));
         let path = dir.join("p.wwt");
         let mut w = TapeWriter::create(&path, SyncPolicy::None).unwrap();
         let owner = OwnerId([7; 32]);
@@ -712,13 +757,10 @@ fn a_damaged_head_describe_set_reads_from_the_next_copy() {
             prev_session: SessionTag::NONE,
         };
         w.begin_piece(&head, &[]).unwrap();
-        let originals = describe_blocks(Layout::UNALIGNED, w.next_id());
-        for b in &originals {
-            w.write_block(b).unwrap();
-        }
-        for k in 0..chunks {
+        for k in 0..64 {
             let (h, c) = big_chunk(k);
-            w.write_chunk(&h, &column(&c)).unwrap();
+            w.write_chunk(crate::definitions::base_defs(), &h, &column(&c))
+                .unwrap();
         }
         let bytes = if finished {
             let f = w.finish().unwrap();
@@ -727,68 +769,49 @@ fn a_damaged_head_describe_set_reads_from_the_next_copy() {
             drop(w);
             std::fs::read(dir.join("p.wwt.partial")).unwrap()
         };
-        assert!(bytes.len() as u64 > chunks << 16, "{} bytes", bytes.len());
-        let describe: Vec<(u64, bool)> = walk(&bytes)
-            .into_iter()
-            .filter(|b| b.2 == BlockKind::Describe)
-            .map(|b| {
-                (
-                    b.0,
-                    ww_tape::Block::read(&bytes[b.0 as usize..])
-                        .unwrap()
-                        .is_copy(),
-                )
-            })
-            .collect();
-        // the head's set, the copy after the first chunk, the copy after the first checkpoint (about 4 MiB in) of a
-        // piece past it, and the backup of a finished piece
-        let want = 2 + usize::from(chunks > 64) + usize::from(finished);
-        assert_eq!(describe.len(), want, "{describe:?}");
-        assert!(!describe[0].1 && describe[1..].iter().all(|d| d.1));
-        assert!(describe[1].0 < 128 << 10, "{describe:?}");
-        if chunks > 64 {
-            assert!((4 << 20..5 << 20).contains(&describe[2].0), "{describe:?}");
-        }
+        assert!(definitions_at(&bytes).iter().all(|d| d.1), "all put");
+        // track 1's definition put before its first chunk, then copied on a use one copy spacing (1 MiB) on
+        let describe = crate::definitions::writes_of(&bytes, Slot::Track { number: 1 });
+        assert!(describe.len() >= 2, "{describe:?}");
+        assert!((1 << 20..2 << 20).contains(&describe[1]), "{describe:?}");
 
         let mut damaged = bytes.clone();
-        damaged[describe[0].0 as usize + 40] ^= 1;
-        for (src, copy) in [(&bytes, false), (&damaged, true)] {
-            let rd = TapeReader::open(&src[..]).unwrap();
-            assert_eq!(rd.pieces().len(), 1);
-            if chunks == 16 && copy {
-                // no checkpoint yet: the scan from the start stops at the damaged head set
-                assert_eq!(rd.pieces()[0].cut, Some(describe[0].0));
-            }
-            // the newest whole set: the last copy, also when the head's set reads
-            let set = rd.describe_set(0).unwrap();
-            assert_eq!(set.blocks.len(), originals.len());
-            assert!(set.lost.is_empty(), "{:?}", set.lost);
-            assert_eq!(
-                set.base,
-                describe.last().map(|d| d.0),
-                "{chunks} chunks, finished {finished}, damaged {copy}"
-            );
-            for (got, want) in set.bytes().zip(&originals) {
-                let got = ww_tape::Block::read(got).unwrap();
-                let want = ww_tape::Block::read(want).unwrap();
-                assert!(got.is_copy());
-                assert_eq!(
-                    got.records().collect::<Vec<_>>(),
-                    want.records().collect::<Vec<_>>()
-                );
-            }
-        }
+        damaged[describe[0] as usize + 40] ^= 1;
+        let whole = TapeReader::open(&bytes[..])
+            .unwrap()
+            .definitions_at(0, u64::MAX)
+            .unwrap();
+        let rd = TapeReader::open(&damaged[..]).unwrap();
+        assert_eq!(rd.pieces().len(), 1);
+        let defs = rd.definitions_at(0, u64::MAX).unwrap();
+        assert!(
+            defs.is_whole(),
+            "the copies are the newest: {:?}",
+            defs.lost
+        );
+        assert_eq!(defs.items(), whole.items(), "finished {finished}");
+        // just after the damaged block, before any copy, the definitions of track 1 are lost
+        let early = rd
+            .state_at(0, Slot::Track { number: 1 }, describe[0] + 1)
+            .unwrap();
+        assert_eq!(early.item, None);
+        assert_eq!(early.lost.len(), 1);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
 
-/// The describe repeat set on a writer carries over to the next piece of a cut.
+/// The near policy set on a writer carries over to the next piece of a cut.
 #[test]
-fn the_describe_repeat_carries_over_a_cut() {
-    let dir = scratch("repeat_cut");
+fn the_near_policy_carries_over_a_cut() {
+    let dir = scratch("near_cut");
     let mut w = TapeWriter::create(&dir.join("a.wwt"), SyncPolicy::None).unwrap();
-    w.set_index_policy(IndexPolicy::NONE);
-    w.set_describe_repeat(64 << 10);
+    w.set_index_policy(IndexPolicy::NONE)
+        .expect("a policy with room for a piece head");
+    let policy = ww_tape::writer::NearPolicy {
+        copy_spacing: 64 << 10,
+        ..Default::default()
+    };
+    w.set_near_policy(policy);
     let owner = OwnerId([8; 32]);
     let head = ww_tape::PieceHead {
         ident: ww_tape::PieceIdent {
@@ -800,42 +823,39 @@ fn the_describe_repeat_carries_over_a_cut() {
         prev_session: SessionTag::NONE,
     };
     w.begin_piece(&head, &[]).unwrap();
-    for b in describe_blocks(Layout::UNALIGNED, w.next_id()) {
-        w.write_block(&b).unwrap();
-    }
     let (_, mut next) = w.cut(&dir.join("b.wwt")).unwrap();
+    assert_eq!(next.options().near, policy);
     for k in 0..4 {
         let (h, c) = big_chunk(k);
-        next.write_chunk(&h, &column(&c)).unwrap();
+        next.write_chunk(crate::definitions::base_defs(), &h, &column(&c))
+            .unwrap();
     }
     let f = next.finish().unwrap();
     let bytes = std::fs::read(f.path).unwrap();
-    let copies = walk(&bytes)
-        .iter()
-        .filter(|b| b.2 == BlockKind::Describe)
-        .count();
-    // the copy at its start, a repeat after each chunk of over 64 KiB, the backup; 2 with the default repeat
-    assert_eq!(copies, 6);
+    let puts = crate::definitions::puts(&bytes);
+    // the head's layout and producer, track 1's definitions before its first chunk, then their copies 64 KiB on
+    assert!(puts.len() >= 3, "{puts:?}");
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
-/// A block written again with other bytes (the order a writer makes: records, the describe copy, the records again)
+/// A block written again with other bytes (the order a writer makes: records, a full repeat, the records again)
 /// takes the place of the first in the index as in a walk, whether the piece is read by its final index or scanned.
 #[test]
 fn a_replaced_block_leaves_the_index() {
     let dir = scratch("replaced");
     let path = dir.join("r.wwt");
     let mut w = TapeWriter::create(&path, SyncPolicy::None).unwrap();
-    for b in describe_blocks(Layout::UNALIGNED, w.next_id()) {
-        w.write_block(&b).unwrap();
-    }
     let id = w.next_id();
-    w.write_block(&records(id, 1)).unwrap();
-    w.write_block(&records(id, 2)).unwrap();
+    w.write_block(crate::definitions::base_defs(), &records(id, 1))
+        .unwrap();
+    w.write_block(crate::definitions::base_defs(), &records(id, 2))
+        .unwrap();
     // the same bytes again: dropped, never listed
-    w.write_block(&records(id, 2)).unwrap();
+    w.write_block(crate::definitions::base_defs(), &records(id, 2))
+        .unwrap();
     for n in 3..6 {
-        w.write_block(&records(w.next_id(), n)).unwrap();
+        w.write_block(crate::definitions::base_defs(), &records(w.next_id(), n))
+            .unwrap();
     }
     let partial = std::fs::read(w.current_path()).unwrap();
     w.finish().unwrap();
@@ -847,10 +867,10 @@ fn a_replaced_block_leaves_the_index() {
         while let Some(b) = rd.next_block() {
             match b {
                 Ok(b) if listed(b.kind) => {
-                    if b.kind == BlockKind::Records {
+                    if b.kind == BlockKind::Records && b.first_track() != Some(0) {
                         seqs.push(b.seq);
                     }
-                    if !b.is_copy() {
+                    if !b.is_repeat() {
                         last = Some(walked.len());
                     }
                     walked.push(rd.offset());
@@ -866,41 +886,22 @@ fn a_replaced_block_leaves_the_index() {
         }
         assert_eq!(replaced, 1);
         let r = TapeReader::open(&bytes[..]).unwrap();
-        let listed: Vec<u64> = r.entries(0).unwrap().iter().map(|e| e.offset).collect();
+        let mut listed: Vec<u64> = r.entries(0).unwrap().iter().map(|e| e.offset).collect();
+        listed.dedup();
         assert_eq!(listed, walked);
         assert_eq!(seqs, [id.seq, id.seq + 1, id.seq + 2, id.seq + 3]);
     }
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
-/// Every describe set in `bytes` a walk reads, as the offsets of its blocks: a set opens at a block marked first and
-/// closes at one marked last; a describe block outside such a run is listed alone.
-fn describe_runs(bytes: &[u8]) -> Vec<Vec<(u64, bool)>> {
-    let mut runs: Vec<Vec<(u64, bool)>> = vec![];
-    let mut open = false;
-    for (at, _, kind) in walk(bytes) {
-        if kind != BlockKind::Describe {
-            open = false;
-            continue;
-        }
-        let b = ww_tape::Block::read(&bytes[at as usize..]).unwrap();
-        if b.flags & ww_tape::FLAG_SET_FIRST != 0 || !open {
-            runs.push(vec![]);
-        }
-        runs.last_mut().unwrap().push((at, b.is_copy()));
-        open = b.flags & ww_tape::FLAG_SET_LAST == 0;
-    }
-    runs
-}
-
-/// A describe set of two blocks written after the first records: the writer copies it only once its last block is
-/// in, so every copy, the backup and the next piece's head carry both blocks.
+/// Definitions in many small blocks, at the head and mid-piece: every block of data, in this piece and the next of a
+/// cut, has the definitions it needs close behind it.
 #[test]
-fn copies_carry_the_whole_describe_set() {
-    let dir = scratch("whole_set");
+fn every_block_of_data_has_its_definitions_behind_it() {
+    let dir = scratch("behind");
     let mut w = TapeWriter::create(&dir.join("a.wwt"), SyncPolicy::None).unwrap();
-    w.set_index_policy(IndexPolicy::NONE);
-    w.set_describe_repeat(4 << 10);
+    w.set_index_policy(IndexPolicy::NONE)
+        .expect("a policy with room for a piece head");
     let owner = OwnerId([9; 32]);
     let head = ww_tape::PieceHead {
         ident: ww_tape::PieceIdent {
@@ -912,62 +913,40 @@ fn copies_carry_the_whole_describe_set() {
         prev_session: SessionTag::NONE,
     };
     w.begin_piece(&head, &[]).unwrap();
-    w.write_block(&records(w.next_id(), 0)).unwrap();
-    let set = describe_blocks_max(Layout::UNALIGNED, w.next_id(), 64);
-    assert_eq!(set.len(), 2);
-    for b in &set {
-        w.write_block(b).unwrap();
+    let mut defs = crate::definitions::base_defs().clone();
+    for n in 0..50 {
+        w.write_block(&defs, &records(w.next_id(), n)).unwrap();
     }
-    for n in 1..100 {
-        w.write_block(&records(w.next_id(), n)).unwrap();
+    defs.define(&crate::definitions::track(10, crate::definitions::CLOCK))
+        .unwrap();
+    for n in 50..100 {
+        w.write_block(&defs, &records(w.next_id(), n)).unwrap();
     }
-    let (done, next) = w.cut(&dir.join("b.wwt")).unwrap();
+    let (done, mut next) = w.cut(&dir.join("b.wwt")).unwrap();
+    for n in 100..110 {
+        next.write_block(&defs, &records(next.next_id(), n))
+            .unwrap();
+    }
     let finished = next.finish().unwrap();
     for path in [done.path, finished.path] {
         let bytes = std::fs::read(&path).unwrap();
-        let runs = describe_runs(&bytes);
-        assert!(runs.len() >= 2, "{runs:?}");
-        for run in &runs {
-            assert_eq!(run.len(), 2, "{path:?}: {runs:?}");
+        let r = TapeReader::open(&bytes[..]).unwrap();
+        let data: Vec<u64> = r
+            .track_entries(0, 0)
+            .unwrap()
+            .iter()
+            .map(|e| e.offset)
+            .collect();
+        assert!(!data.is_empty());
+        for at in data {
+            for slot in [Slot::Track { number: 9 }, Slot::Clock { number: 1 }] {
+                let found = r.state_at(0, slot, at).unwrap();
+                assert!(found.item.is_some(), "{path:?} at {at}: {slot:?}");
+            }
         }
-    }
-    std::fs::remove_dir_all(&dir).unwrap();
-}
-
-/// A head describe set of two blocks, either damaged, in a scanned piece: the set read is the copy, both blocks,
-/// never the head's good block alone.
-#[test]
-fn part_of_a_describe_set_is_not_the_set() {
-    let dir = scratch("part_set");
-    let path = dir.join("p.wwt");
-    let mut w = TapeWriter::create(&path, SyncPolicy::None).unwrap();
-    w.set_index_policy(IndexPolicy::NONE);
-    let originals = describe_blocks_max(Layout::UNALIGNED, w.next_id(), 64);
-    assert_eq!(originals.len(), 2);
-    for b in &originals {
-        w.write_block(b).unwrap();
-    }
-    for n in 0..20 {
-        w.write_block(&records(w.next_id(), n)).unwrap();
-    }
-    drop(w);
-    let bytes = std::fs::read(dir.join("p.wwt.partial")).unwrap();
-    let runs = describe_runs(&bytes);
-    assert_eq!(runs.len(), 2, "the head's set and the copy: {runs:?}");
-    let copy_at = runs[1][0].0;
-    for k in 0..2 {
-        let mut damaged = bytes.clone();
-        damaged[runs[0][k].0 as usize + 40] ^= 1;
-        let rd = TapeReader::open(&damaged[..]).unwrap();
-        assert_eq!(rd.pieces()[0].cut, Some(runs[0][k].0));
-        let set = rd.describe_set(0).unwrap();
-        let at: Vec<u64> = set.blocks.iter().map(|(o, _)| *o).collect();
-        assert_eq!(
-            at,
-            runs[1].iter().map(|r| r.0).collect::<Vec<_>>(),
-            "block {k} damaged"
-        );
-        assert_eq!(at[0], copy_at);
+        // track 10 has no data: its definition is in no piece
+        let ten = r.definitions_at(0, u64::MAX).unwrap();
+        assert!(!ten.items.contains_key(&Slot::Track { number: 10 }));
     }
     std::fs::remove_dir_all(&dir).unwrap();
 }

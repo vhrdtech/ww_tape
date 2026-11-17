@@ -11,11 +11,13 @@ fn entry(track_id: u64, offset: u64) -> IndexEntry {
         tree: 0,
         track_id,
         track_number: track_id as u32 + 1,
+        second: 0,
         first_item: offset * 10,
         count: 10,
         first_tick: -(offset as i64),
         last_tick: offset as i64,
         latest_end: offset as i64 + 3,
+        repeat: offset % 2 == 1,
     }
 }
 
@@ -288,6 +290,9 @@ fn structural_blocks_are_not_deferred() {
     _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let mut w = crate::TapeWriter::create(&dir.join("t.wwt"), crate::SyncPolicy::None).unwrap();
+    let mut defs = crate::Definitions::new();
+    defs.define_all(&crate::tests::test_definitions(1, &[1]))
+        .unwrap();
     let head = IndexHead {
         kind: IndexKind::Checkpoint,
         self_offset: 0,
@@ -295,7 +300,7 @@ fn structural_blocks_are_not_deferred() {
     };
     let index = write(&head, &[entry(1, 0)]);
     assert!(matches!(
-        w.defer_block(index),
+        w.defer_block(&defs, index),
         Err(crate::WriteError::Index(IndexError::Invalid(_)))
     ));
     let mut tail = [0u8; crate::piece::TAIL_LEN];
@@ -309,12 +314,12 @@ fn structural_blocks_are_not_deferred() {
         next: None,
     }
     .write(&mut tail, id(0));
-    assert!(w.defer_block(tail.to_vec()).is_err());
+    assert!(w.defer_block(&defs, tail.to_vec()).is_err());
     let mut buf = [0u8; 64];
     let mut b = BlockWriter::new(&mut buf, BlockKind::Records, id(0), &[1]).unwrap();
     b.push(1, ClockTime::new(1, 5), &[b"x"]).unwrap();
     let len = b.finish();
-    w.defer_block(buf[..len].to_vec()).unwrap();
+    w.defer_block(&defs, buf[..len].to_vec()).unwrap();
     w.finish().unwrap();
     _ = std::fs::remove_dir_all(&dir);
 }

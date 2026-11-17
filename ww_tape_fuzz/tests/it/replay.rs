@@ -68,6 +68,7 @@ replays! {
     replay_tape_records_hostile: "tape-records-hostile";
     replay_tape_samples_hostile: "tape-samples-hostile";
     replay_tape_series_hostile: "tape-series-hostile";
+    replay_tape_state_hostile: "tape-state-hostile";
     replay_tape_summary_hostile: "tape-summary-hostile";
     replay_tape_times_hostile: "tape-times-hostile";
 }
