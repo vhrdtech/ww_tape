@@ -26,6 +26,10 @@ The head CRC matters most. A chunk's head gives its length, its track, its item 
 finds the next block) and still knows exactly which items were hit. A flipped bit in a 4 MiB series chunk costs one 64
 KiB CRC segment of samples.
 
+Every CRC is CRC-32C. A writer and a reader compute it with the CPU's CRC instructions where it has them (SSE4.2 on
+x86-64, the CRC extension of ARMv8) and with a table elsewhere, such as in a browser or on a microcontroller; the
+result is the same, so the choice never shows in the file.
+
 The checks detect damage; they do not correct it. Correcting is left to the medium: a disk's or flash controller's error
 correction, or a file system. A block kind is reserved for parity blocks, but no writer writes them.
 
@@ -33,8 +37,10 @@ correction, or a file system. A block kind is reserved for parity blocks, but no
 
 `FileBlocks` walks the blocks of a byte stream in order, in one of two modes:
 
-- **Prefix** (the default) takes the longest valid prefix. It stops at the first block with a bad magic, length or CRC,
-  at a block cut short, and at a sequence number that goes backwards, and says where it stopped. This is what a crash
+- **Prefix** (the default) takes the longest valid prefix. It stops at the first block with a bad magic, length or CRC, at a block cut short, at a sequence number that goes
+  backwards, and at a good block of another session where no session may start (stale data), and says where it
+  stopped. A blank or bad stretch within the layout's longest gap is reported as a gap and read past
+  ([below](#blank-space-and-gaps)). This is what a crash
   leaves: good blocks, then a torn one.
 - **Resync** reads on. It reports a bad block and looks for the next block magic one byte after the bad block's start.
   Any byte may start a block, and a block is taken only when its CRCs match. A chunk with a good head and a damaged
@@ -175,6 +181,13 @@ They are stale, so the data ends at the torn block, and none of A's 70 remaining
 When the logger boots again, it finds the same end of data and writes its next session after it, starting with a piece head
 that names B as the previous session. That session, C, is taken by the next reader; A's leftovers beyond C stay stale.
 
+<figure class="ww-figure" markdown="0">
+--8<-- "docs/figures/sessions.svg"
+<figcaption>The card of the example. Above, after the power failure: B's blocks end at the torn one, and A's older
+blocks behind it carry another session tag. Below, after the next boot: session C starts with a piece head naming B,
+so a reader goes on into C and stops at A's leftovers again.</figcaption>
+</figure>
+
 ## What a damaged file still gives
 
 The three cases below cover where damage lands in a file. "Lost" means unreadable: overwritten, zeroed or bad sectors.
@@ -204,9 +217,11 @@ the file reports as unfinished instead of complete.
 | record block | its records; the index entry says how many, the gap in sequence numbers how many blocks |
 | summary | nothing; it is rebuilt from the data |
 | definitions or puts | nothing once a copy or a later put of each of its items reads; until then, what it held |
-| checkpoint index | the stretch it covered is scanned instead |
+| checkpoint index | in an unfinished piece, the piece up to the next good checkpoint is scanned instead |
+| final index | in a finished piece, the lists of blocks: a read of every entry fails, while a track's own list still reads when the index head and that list are good |
 
-In a finished file a reader reads blocks by the final index, so a lost block in the middle costs that block alone. In an
+In a finished file a reader reads blocks by the final index, so a lost block in the middle other than the final
+index costs that block alone. In an
 unfinished file the same holds before the newest checkpoint. After it, the reader's scan stops at the lost block, and a
 Resync walk reads what follows.
 
@@ -259,6 +274,9 @@ The format does not do everything. These limits follow from the design:
 - **Lost state in a scanned stretch.** The lookups (`TapeReader::state_at`, `definitions_at`) go by index entries.
   A damaged block where a scan stopped has no known kind and no entries; the piece reports it as its cut, the lookups
   take the newest record before it and name the stretch past the cut as one the index doesn't cover.
+- **A damaged final index.** A finished piece whose final index doesn't read lists no blocks through
+  `TapeReader::entries`; `track_entries` still gives each track whose own list reads. The checkpoints of the piece
+  are not used in its place.
 - **A damaged chunk head costs the chunk.** The head CRC protects the payload's CRC segments, not itself.
 - **lz4 payload columns.** One bad byte makes every item of the chunk suspect.
 - **32-bit session tags.** Stale data matches the current session by chance with probability 2⁻³² per stale session.
