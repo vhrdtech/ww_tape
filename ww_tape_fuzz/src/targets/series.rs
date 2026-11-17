@@ -6,6 +6,7 @@ use shrink_wrap::prelude::*;
 use ww_tape::chunk::ChunkHead;
 use ww_tape::{
     BlockKind, Describe, EndMode, Magnitude, Ratio64, SeriesGrid, SeriesTimeline, TrackKind,
+    series::is_gap,
 };
 
 /// A series chunk head of `count` samples from `first` on `grid`, its ticks the grid's (or 0 where they overflow).
@@ -50,9 +51,18 @@ pub(crate) fn check(t: &SeriesTimeline) {
     for w in s.windows(2) {
         assert!(w[0].end_item <= w[1].first_item, "ascending, apart");
         if !w[0].grid.same_grid(&w[1].grid) {
-            let last = w[0].grid.tick(t.period(), w[0].end_item - 1);
-            let first = w[1].grid.tick(t.period(), w[1].first_item);
-            assert!(last < first, "a new grid after the one before");
+            let last = w[0]
+                .grid
+                .tick(t.period(), w[0].end_item - 1)
+                .expect("a kept tick");
+            let first = w[1]
+                .grid
+                .tick(t.period(), w[1].first_item)
+                .expect("a kept tick");
+            assert!(
+                is_gap(t.period(), last, first),
+                "a new grid more than a period after the one before"
+            );
         }
         assert!(
             w[0].grid != w[1].grid || w[0].end_item < w[1].first_item,
@@ -107,7 +117,12 @@ pub fn series(data: &[u8]) {
                 let last = grid.tick(period, first.saturating_sub(1)).unwrap_or(0);
                 let gap = i64::from(c.get(1).copied().unwrap_or(0))
                     << (c.get(2).copied().unwrap_or(0) % 40);
-                SeriesGrid::start(first, last.saturating_add(1).saturating_add(gap), scale)
+                // a period rounded up after the last tick (gap 0: not a gap, refused), or more
+                let step = period
+                    .apply_rounded(1, ww_tape::Rounding::Ceil)
+                    .unwrap_or(1);
+                let at = last.saturating_add(step).saturating_add(gap);
+                SeriesGrid::start(first, at, scale)
             }
             _ => grid,
         };

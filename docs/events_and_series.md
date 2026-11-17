@@ -173,8 +173,8 @@ before the chunk's first sample, that sample's tick, and the scale of the chunk'
 scales its samples alone: nothing else has to be found, linked or kept near it.
 
 Consecutive chunks of one stretch of recording carry the same grid, so no sample moves by rounding however the samples
-are cut into chunks. A change of scale keeps the grid at the new scale. A gap or a restart starts a new grid after the
-last tick of the chunk before. A chunk has one grid and one scale, and its head's first and last tick are its samples'
+are cut into chunks. A change of scale keeps the grid at the new scale. A gap or a restart starts a new grid more than a
+period, rounded up, after the last tick of the chunk before. A chunk has one grid and one scale, and its head's first and last tick are its samples'
 ticks on the grid.
 
 A **gap** is a chunk on another grid than the chunk before it: no sample lies between them, and a viewer draws no line

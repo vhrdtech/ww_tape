@@ -21,8 +21,8 @@
 //! - a change of scale (a prefix change of an autoranging device) keeps the grid ([SeriesGrid::rescaled]): the
 //!   stored numbers of the chunk mean `number · scale` of the sample type's unit; a chunk has one scale, so a writer
 //!   seals the open chunk at a change of scale;
-//! - a gap or a restart on the same clock starts a new grid ([SeriesGrid::start]) whose first sample is after the
-//!   last tick of the chunk before; a device restart that is a new clock is a new track on that clock.
+//! - a gap or a restart on the same clock starts a new grid ([SeriesGrid::start]) whose first sample is more than a
+//!   period after the last tick of the chunk before ([is_gap]); a device restart that is a new clock is a new track on that clock.
 //!
 //! A **gap** is a chunk whose grid isn't the one of the chunk before it: its first sample's tick is past the last
 //! tick of that chunk by more than a period, and no sample lies between them. A reader draws no line across a gap.
@@ -147,9 +147,9 @@ pub enum SeriesError {
     ChunkTicks { first_item: u64 },
     /// A chunk holds samples another chunk holds, on another grid or at another scale.
     Overlap { first_item: u64 },
-    /// A new grid whose first sample is at or before the last tick of the chunk before, or whose last is at or
-    /// after the first tick of the chunk after.
-    TimeNotIncreasing { first_item: u64 },
+    /// A new grid whose first sample isn't more than a period after the last tick of the chunk before, or whose
+    /// last isn't more than a period before the first tick of the chunk after ([is_gap]).
+    GridTooClose { first_item: u64 },
     /// The grid's scale doesn't encode in [SCALE_LEN_MAX] bytes.
     ScaleTooLong { first_item: u64 },
 }
@@ -183,9 +183,9 @@ impl core::fmt::Display for SeriesError {
                 f,
                 "chunk at sample {first_item}: holds samples of another chunk on another grid or scale"
             ),
-            SeriesError::TimeNotIncreasing { first_item } => write!(
+            SeriesError::GridTooClose { first_item } => write!(
                 f,
-                "chunk at sample {first_item}: a new grid not after the chunk before or before the chunk after"
+                "chunk at sample {first_item}: a new grid not a period apart from the chunk before or after"
             ),
             SeriesError::ScaleTooLong { first_item } => write!(
                 f,
@@ -288,6 +288,17 @@ impl SeriesGrid {
         }
         Ok(grid)
     }
+}
+
+/// Whether a chunk whose first sample is at `first_tick` lies on a new grid after a gap following a chunk whose last
+/// sample is at `last_tick`: more than one `period` after it, rounded up. A chunk on the same grid at the next sample
+/// lies at most that far after, so the ticks of two neighbouring chunks (their index entries) tell a gap from a
+/// continuation alone.
+pub fn is_gap(period: Ratio64, last_tick: i64, first_tick: i64) -> bool {
+    // the next sample on a grid is at most the period rounded up after the last
+    let whole = period.apply_rounded(1, Rounding::Ceil).unwrap_or(i64::MAX);
+    // two i64 differ by less than 2^64: the difference fits an i128
+    i128::from(first_tick).wrapping_sub(i128::from(last_tick)) > i128::from(whole)
 }
 
 /// Bytes a scale takes at most: a power of 10 takes 2, one with two more primes about 10.

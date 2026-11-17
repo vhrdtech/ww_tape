@@ -1375,7 +1375,7 @@ fn series_scale_changes_refused() {
     assert!(
         matches!(
             s.set_grid(SeriesGrid::start(3, 2, Magnitude::ONE)),
-            Err(SummaryError::Series(SeriesError::TimeNotIncreasing {
+            Err(SummaryError::Series(SeriesError::GridTooClose {
                 first_item: 3
             }))
         ),

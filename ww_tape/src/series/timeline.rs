@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 
 use exact_units::{Magnitude, Ratio64};
 
-use super::{SeriesError, SeriesGrid};
+use super::{SeriesError, SeriesGrid, is_gap};
 use crate::ChunkHead;
 
 /// Samples `first_item..end_item` of a series on one grid at one scale: one chunk, or consecutive chunks merged.
@@ -58,7 +58,8 @@ impl SeriesTimeline {
         &self.stretches
     }
 
-    /// Add the chunk `head`: its grid checked against its ticks, then against the stretches before and after it.
+    /// Add the chunk `head`: its grid checked against its ticks, then against the stretches before and after it. A
+    /// push before the last stretch moves the stretches after it: for many heads out of order, use [Self::from_chunks].
     pub fn push_chunk(&mut self, head: &ChunkHead) -> Result<(), SeriesError> {
         let grid = SeriesGrid::of_chunk(head, self.period)?;
         self.push(head.first_item, head.count, grid)
@@ -98,8 +99,8 @@ impl SeriesTimeline {
             && !b.grid.same_grid(&grid)
         {
             let last = self.tick_on(b, b.last_item())?;
-            if first_tick <= last {
-                return Err(SeriesError::TimeNotIncreasing { first_item });
+            if !is_gap(self.period, last, first_tick) {
+                return Err(SeriesError::GridTooClose { first_item });
             }
         }
         let after = self.stretches.get(at);
@@ -107,8 +108,8 @@ impl SeriesTimeline {
             && !a.grid.same_grid(&grid)
         {
             let first = self.tick_on(a, a.first_item)?;
-            if last_tick >= first {
-                return Err(SeriesError::TimeNotIncreasing { first_item });
+            if !is_gap(self.period, last_tick, first) {
+                return Err(SeriesError::GridTooClose { first_item });
             }
         }
         let joins_before = before.is_some_and(|b| b.grid == grid && b.end_item == first_item);
@@ -135,12 +136,16 @@ impl SeriesTimeline {
         Ok(())
     }
 
-    /// The timeline of a track's chunk heads in any order. A head that fails a check is left out and its error
-    /// returned beside the timeline, so one damaged head costs only its chunk.
+    /// The timeline of a track's chunk heads in any order. They are sorted by first sample (stably) and pushed in
+    /// that order, so the result doesn't depend on the order given and each push appends or merges: n log n. A head
+    /// that fails a check is left out and its error returned beside the timeline, so one damaged head costs only its
+    /// chunk.
     pub fn from_chunks<'h>(
         period: Ratio64,
         heads: impl IntoIterator<Item = &'h ChunkHead>,
     ) -> (Self, Vec<SeriesError>) {
+        let mut heads: Vec<&ChunkHead> = heads.into_iter().collect();
+        heads.sort_by_key(|h| h.first_item);
         let mut t = SeriesTimeline::new(period);
         let mut errors = Vec::new();
         for h in heads {

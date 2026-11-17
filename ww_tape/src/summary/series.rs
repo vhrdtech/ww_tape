@@ -1191,7 +1191,7 @@ mod builder {
 
         /// Put the samples from the next one ([Self::next_item]) on grid `g`: a new grid (a gap, a restart) or the
         /// same grid at a new scale (a prefix change), as the next chunk's head carries it. Refused when the grid
-        /// starts after the next sample, a new grid's first sample isn't after the last sample's tick, or the scale
+        /// starts after the next sample, a new grid's first sample isn't more than a period after the last sample's tick ([is_gap](crate::series::is_gap)), or the scale
         /// has no common scale with the ones before.
         pub fn set_grid(&mut self, g: SeriesGrid) -> Result<(), SummaryError> {
             let next = self.next_item;
@@ -1201,9 +1201,9 @@ mod builder {
                 .0;
             if !g.same_grid(&self.grid)
                 && let Some(last) = next.checked_sub(1).and_then(|i| self.timeline.tick(i))
-                && first <= last
+                && !crate::series::is_gap(self.timeline.period(), last, first)
             {
-                return Err(SummaryError::Series(SeriesError::TimeNotIncreasing {
+                return Err(SummaryError::Series(SeriesError::GridTooClose {
                     first_item: next,
                 }));
             }

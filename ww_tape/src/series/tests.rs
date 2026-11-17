@@ -276,19 +276,33 @@ fn chunks_are_checked_against_their_neighbours() {
         t.push_chunk(&head_on(a.rescaled(milli()), 15, 10)),
         Err(SeriesError::Overlap { first_item: 15 })
     );
-    // sample 19 is at 9 · 62500/3 = 187500: a new grid must start after it
+    // sample 19 is at 9 · 62500/3 = 187500: a new grid starts more than a period (20833.3, rounded up 20834) after
+    // it, so a phase shift of less than a period on the next sample is refused, never taken as a gap
+    for shift in [0, 1, 20_834] {
+        assert_eq!(
+            t.push_chunk(&head_on(
+                SeriesGrid::start(20, 187_500 + shift, micro()),
+                20,
+                5
+            )),
+            Err(SeriesError::GridTooClose { first_item: 20 }),
+            "shift {shift}"
+        );
+    }
+    assert!(!is_gap(p, 187_500, 187_500 + 20_834));
+    assert!(is_gap(p, 187_500, 187_500 + 20_835));
     assert_eq!(
         t.push_chunk(&head_on(SeriesGrid::start(20, 187_500, micro()), 20, 5)),
-        Err(SeriesError::TimeNotIncreasing { first_item: 20 })
+        Err(SeriesError::GridTooClose { first_item: 20 })
     );
     // a chunk before the first must end before its first tick, 0
     assert_eq!(
         t.push_chunk(&head_on(SeriesGrid::start(0, -100, micro()), 0, 10)),
-        Err(SeriesError::TimeNotIncreasing { first_item: 0 })
+        Err(SeriesError::GridTooClose { first_item: 0 })
     );
     t.push_chunk(&head_on(SeriesGrid::start(0, -1_000_000, micro()), 0, 10))
         .unwrap();
-    let gap = SeriesGrid::start(20, 187_501, micro());
+    let gap = SeriesGrid::start(20, 187_500 + 20_835, micro());
     t.push_chunk(&head_on(gap, 20, 5)).unwrap();
     assert!(t.gap_before(1) && t.gap_before(2));
     // a lost chunk between two of one grid: its samples' ticks are known, their scale not
@@ -296,7 +310,7 @@ fn chunks_are_checked_against_their_neighbours() {
     assert_eq!(t.tick(30), gap.tick(p, 30));
     assert_eq!(t.scale(30), None);
     assert!(!t.gap_before(3));
-    // a lost chunk at a gap: no tick
+    // a lost sample right after a stretch, before one on the same grid: its tick is known
     assert_eq!(t.tick(25), gap.tick(p, 25));
     let grid_after = SeriesGrid::start(31, 0, micro());
     let mut head = head_on(gap, 30, 2);
@@ -349,10 +363,47 @@ fn timeline_from_chunks_in_any_order() {
     assert_eq!(
         errors,
         [
-            SeriesError::ChunkTicks { first_item: 600 },
-            SeriesError::Overlap { first_item: 400 }
+            SeriesError::Overlap { first_item: 400 },
+            SeriesError::ChunkTicks { first_item: 600 }
         ]
     );
+}
+
+/// A grid shifted by less than a period between two chunks of one grid is refused, so a lost chunk between them is
+/// never timed on a grid it wasn't on.
+#[test]
+fn a_phase_shift_under_a_period_is_not_a_gap() {
+    let p = period();
+    let g = SeriesGrid::start(0, 0, micro());
+    // H earlier than G by 7 ticks: H is refused, G again joins the first G
+    let h = SeriesGrid::start(10, g.tick(p, 10).unwrap() - 7, micro());
+    let heads = [head_on(g, 0, 10), head_on(h, 10, 10), head_on(g, 20, 10)];
+    let (t, errors) = SeriesTimeline::from_chunks(p, &heads);
+    assert_eq!(errors, [SeriesError::GridTooClose { first_item: 10 }]);
+    assert_eq!(t.stretches().len(), 2);
+    assert_eq!(t.tick(15), g.tick(p, 15), "a lost sample on G");
+    // H later by 7 ticks is a gap of 7 ticks; G again is then less than a period after H, refused
+    let h = SeriesGrid::start(10, g.tick(p, 10).unwrap() + 7, micro());
+    let heads = [head_on(g, 0, 10), head_on(h, 10, 10), head_on(g, 20, 10)];
+    let (t, errors) = SeriesTimeline::from_chunks(p, &heads);
+    assert_eq!(errors, [SeriesError::GridTooClose { first_item: 20 }]);
+    assert!(t.gap_before(1));
+    assert_eq!(t.tick(25), None, "past the last chunk, no grid");
+}
+
+/// 100 000 heads given in descending order build the timeline in one pass after a sort, the same as in order.
+#[test]
+fn many_heads_out_of_order() {
+    let p = period();
+    let g = SeriesGrid::start(0, 0, micro());
+    let mut heads: std::vec::Vec<ChunkHead> =
+        (0..100_000u64).map(|k| head_on(g, k * 64, 64)).collect();
+    let (forward, _) = SeriesTimeline::from_chunks(p, &heads);
+    heads.reverse();
+    let (t, errors) = SeriesTimeline::from_chunks(p, &heads);
+    assert!(errors.is_empty());
+    assert_eq!(t, forward);
+    assert_eq!(t.stretches().len(), 1, "one grid, one stretch");
 }
 
 #[test]
