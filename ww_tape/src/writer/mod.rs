@@ -757,6 +757,11 @@ impl<S: TapeSink> TapeWriter<S> {
         self.bytes
     }
 
+    /// Whether the piece has a piece head: written by [Self::begin_piece], or read back by a resume.
+    pub(crate) fn has_head(&self) -> bool {
+        self.head.is_some()
+    }
+
     /// Place chunk payloads on multiples of `alignment` (0 or [crate::ALIGNMENT]), counted from the start of the file:
     /// the writer's layout with that alignment ([Self::set_layout]).
     pub fn set_alignment(&mut self, alignment: u32) -> Result<(), WriteError> {

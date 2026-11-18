@@ -924,3 +924,44 @@ fn a_closed_one_file_chain_reopens_in_a_new_piece() {
     one_file_reopened(&InMemory);
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// A chain whose unfinished last piece lost its piece head resumes to an error, in a file per piece and in one file:
+/// the blocks after the head would make a piece without a link to the chain, which can't be cut.
+#[test]
+fn a_chain_whose_last_piece_lost_its_head_is_refused() {
+    let dir = scratch("headless");
+    for files in [ww_tape::PieceFiles::Each, ww_tape::PieceFiles::One] {
+        let options = ChainOptions {
+            files,
+            ..chain_options()
+        };
+        let at = match files {
+            ww_tape::PieceFiles::Each => dir.join("each"),
+            ww_tape::PieceFiles::One => dir.join("one.wwt"),
+        };
+        if files == ww_tape::PieceFiles::Each {
+            std::fs::create_dir(&at).unwrap();
+        }
+        let mut c = PieceChain::create(&at, OwnerId([9; 32]), 0, &[], options.clone()).unwrap();
+        let mut defs = base_defs().clone();
+        for op in ops(14) {
+            apply_chain(&mut c, &mut defs, op);
+        }
+        assert!(c.seq() > 0, "{files:?}: a piece was cut");
+        let w = c.writer().unwrap();
+        w.flush_deferred().unwrap();
+        let (file, start) = (w.sink().current_path().to_path_buf(), w.sink().base());
+        drop(c);
+        let mut bytes = std::fs::read(&file).unwrap();
+        // inside the piece head's rows of carried-over tracks
+        bytes[start as usize + 160] ^= 0x40;
+        std::fs::write(&file, &bytes).unwrap();
+        let resumed = PieceChain::resume(&at, OwnerId([9; 32]), 0, options);
+        assert!(
+            matches!(resumed, Err(WriteError::Index(_))),
+            "{files:?}: {:?}",
+            resumed.map(|(_, r)| r)
+        );
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}
