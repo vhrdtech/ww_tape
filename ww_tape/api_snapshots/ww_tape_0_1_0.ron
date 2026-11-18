@@ -1,6 +1,6 @@
 // ww_tape 0.1.0 traits and types, saved by `ww api save`.
 // Do not edit, bump the crate version and save a new snapshot instead.
-// shrink_wrap sha256: 06cecec510dcae08029bb0fa1bd8bbf920e801c9d2edb60c513d622fab657744
+// shrink_wrap sha256: f6c58e31cdc95fbc40f42ca120f2c3f9176e4ce6d5081c9b6fd9c80482b3d97a
 (magic: 2837124336, ww_self_version: (major: 0, minor: 4, patch: 0), root: (docs: [
     "Tape blocks: the unit a producer of records hands over, a live consumer reads and a log file is made of.",
     "",
@@ -129,6 +129,7 @@
     "| [RESYNC_AHEAD_MAX] | 128 MiB | the bytes a salvage walk ([Recovery::Resync]) reads ahead |",
     "| [STATE_READ_MAX](reader::STATE_READ_MAX) | 1 GiB | the bytes of blocks one state lookup reads |",
     "| [DEFERRED_BYTES_MAX](writer::DEFERRED_BYTES_MAX) | 1 MiB | the deferred blocks a writer keeps |",
+    "| [TRACKS_PER_PIECE_MAX] | 493416 | the tracks with data in one piece a writer takes: its finish fits a block |",
     "| [WALK_MISS_BASE_MAX](piece::WALK_MISS_BASE_MAX) | 1 MiB | the bytes a content-hash walk\'s missed blocks claim at its start |",
     "| [WALK_MISS_PER_BYTE_MAX](piece::WALK_MISS_PER_BYTE_MAX) | 4 | the bytes they claim per byte walked, past that |",
     "| [RESUME_LOOK_MAX](writer::RESUME_LOOK_MAX) | 128 MiB | the bytes past a reader\'s stop a resume looks through for a good block |",

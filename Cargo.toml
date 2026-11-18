@@ -21,6 +21,8 @@ exact_units = { version = "0.1.0", git = "https://github.com/romixlab/exact_unit
 # ww_tape_benchmarks: the motor simulation data set
 motor_sim = { git = "https://github.com/vhrdtech/motor_sim", default-features = false }
 shrink_wrap = { version = "0.2.0", git = "https://github.com/romixlab/shrink_wrap", default-features = false }
+# ww_tape's tests/evolution.rs: the API snapshot check `ww api check` runs, as a test
+wire_weaver_evolution = { version = "0.5.0", git = "https://github.com/vhrdtech/wire_weaver", default-features = false, features = ["source"] }
 ww_version = { version = "0.2.0", git = "https://github.com/vhrdtech/ww_base", default-features = false }
 
 anyhow = "1"
