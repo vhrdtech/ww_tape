@@ -17,6 +17,7 @@
 
 mod book;
 mod checks;
+mod clock;
 mod definitions;
 mod media;
 mod order;

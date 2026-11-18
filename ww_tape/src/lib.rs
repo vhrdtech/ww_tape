@@ -256,6 +256,12 @@ pub use open::{Definitions, DescribeError, RecordRef, STATE_ITEM_MAX, TrackFacts
 pub mod sink;
 #[cfg(feature = "std")]
 pub use sink::{FileSink, Files, MemSink, MemTape, MemTapes, SinkFactory, TapeSink};
+#[cfg(feature = "alloc")]
+mod clock;
+#[cfg(feature = "std")]
+pub use clock::SystemClock;
+#[cfg(feature = "alloc")]
+pub use clock::{Clock, ClockRef};
 #[cfg(feature = "std")]
 pub mod writer;
 #[cfg(feature = "std")]

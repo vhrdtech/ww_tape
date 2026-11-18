@@ -259,6 +259,7 @@ pub(crate) fn writes_of(bytes: &[u8], slot: Slot) -> Vec<u64> {
 pub(crate) fn options(copy_spacing: u64) -> WriterOptions {
     WriterOptions {
         sync: SyncPolicy::None,
+        clock: ww_tape::ClockRef::NONE,
         index: IndexPolicy {
             bytes: 1024,
             interval: None,

@@ -36,8 +36,9 @@
 
 use std::io;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
+use crate::clock::ClockRef;
 use crate::index::{IndexPolicy, Indexer, TrackKey};
 use crate::open::{RecordRef, write_records};
 use crate::piece::{
@@ -308,6 +309,8 @@ pub struct WriterOptions {
     pub producer: String,
     /// [TapeWriter::set_near_policy].
     pub near: NearPolicy,
+    /// [TapeWriter::set_clock]: when intervals are up (the system clock with `std`).
+    pub clock: ClockRef,
 }
 
 impl Default for WriterOptions {
@@ -318,6 +321,7 @@ impl Default for WriterOptions {
             layout: Layout::UNALIGNED,
             producer: String::new(),
             near: NearPolicy::default(),
+            clock: ClockRef::default(),
         }
     }
 }
@@ -327,7 +331,9 @@ pub struct TapeWriter<S: TapeSink = FileSink> {
     sink: S,
     policy: SyncPolicy,
     unsynced: u32,
-    last_sync: Instant,
+    clock: ClockRef,
+    /// When the writer last synced, by [Self::clock]
+    last_sync: Option<u64>,
     failed: bool,
     blocks: u64,
     bytes: u64,
@@ -352,7 +358,7 @@ pub struct TapeWriter<S: TapeSink = FileSink> {
     indexer: Indexer,
     /// A checkpoint waits for the gap before the next aligned chunk
     index_due: bool,
-    last_checkpoint: Instant,
+    last_checkpoint: Option<u64>,
     /// The piece's content hash so far: BLAKE3 of its bytes, each chunk payload by its hash
     hash: blake3::Hasher,
     /// The piece head written first, and its track starts
@@ -448,11 +454,14 @@ impl<S: TapeSink> TapeWriter<S> {
     /// A writer appending to `sink` (empty, or a writer's start is its length with [Self::create_on] and
     /// [TapeWriter::append] alike: offsets in the index are from where the writer starts).
     pub fn create_on(sink: S, policy: SyncPolicy) -> Self {
+        let clock = ClockRef::default();
+        let now = clock.now_ms();
         TapeWriter {
+            clock,
             sink,
             policy,
             unsynced: 0,
-            last_sync: Instant::now(),
+            last_sync: now,
             failed: false,
             blocks: 0,
             bytes: 0,
@@ -467,7 +476,7 @@ impl<S: TapeSink> TapeWriter<S> {
             chunk_buf: Vec::new(),
             indexer: Indexer::new(IndexPolicy::default()),
             index_due: false,
-            last_checkpoint: Instant::now(),
+            last_checkpoint: now,
             hash: blake3::Hasher::new(),
             head: None,
             near: near::Near::default(),
@@ -489,7 +498,20 @@ impl<S: TapeSink> TapeWriter<S> {
         self.set_producer(&options.producer);
         self.set_index_policy(options.index)?;
         self.set_near_policy(options.near);
+        self.set_clock(options.clock.clone());
         Ok(())
+    }
+
+    /// Read time from `clock` from now on ([ClockRef]); the intervals start again at its reading now.
+    pub fn set_clock(&mut self, clock: ClockRef) {
+        self.last_sync = clock.now_ms();
+        self.last_checkpoint = self.last_sync;
+        self.clock = clock;
+    }
+
+    /// The clock the writer reads.
+    pub fn clock(&self) -> &ClockRef {
+        &self.clock
     }
 
     /// Ask the sink to make room for `bytes` more ([TapeSink::reserve]).
@@ -984,7 +1006,7 @@ impl<S: TapeSink> TapeWriter<S> {
         let due = match self.policy {
             SyncPolicy::None => false,
             SyncPolicy::EveryBlocks(n) => self.unsynced >= n.max(1),
-            SyncPolicy::Interval(t) => self.last_sync.elapsed() >= t,
+            SyncPolicy::Interval(t) => self.clock.passed(self.last_sync, t),
         };
         if due {
             self.sync()?;
@@ -1192,17 +1214,15 @@ impl<S: TapeSink> TapeWriter<S> {
 
     /// Whether the index policy asks for a checkpoint now.
     fn checkpoint_due(&self) -> bool {
-        let by_time = self
-            .indexer
-            .policy()
-            .interval
-            .is_some_and(|t| self.indexer.pending() > 0 && self.last_checkpoint.elapsed() >= t);
+        let by_time = self.indexer.policy().interval.is_some_and(|t| {
+            self.indexer.pending() > 0 && self.clock.passed(self.last_checkpoint, t)
+        });
         self.indexer.due() || by_time
     }
 
     fn place_checkpoint(&mut self) -> Result<(), WriteError> {
         self.index_due = false;
-        self.last_checkpoint = Instant::now();
+        self.last_checkpoint = self.clock.now_ms();
         if self.indexer.pending() == 0 {
             return Ok(());
         }
@@ -1751,18 +1771,18 @@ impl<S: TapeSink> TapeWriter<S> {
     /// Sync now if blocks wait and the interval of [SyncPolicy::Interval] is up; call it when no blocks come.
     pub fn tick(&mut self) -> Result<(), WriteError> {
         self.check()?;
-        let by_time = self
-            .indexer
-            .policy()
-            .interval
-            .is_some_and(|t| self.indexer.pending() > 0 && self.last_checkpoint.elapsed() >= t);
+        let by_time = self.indexer.policy().interval.is_some_and(|t| {
+            self.indexer.pending() > 0 && self.clock.passed(self.last_checkpoint, t)
+        });
         if by_time && self.alignment() == 0 {
             self.place_checkpoint()?;
         } else if by_time {
             self.index_due = true;
         }
         match self.policy {
-            SyncPolicy::Interval(t) if self.unsynced > 0 && self.last_sync.elapsed() >= t => {
+            SyncPolicy::Interval(t)
+                if self.unsynced > 0 && self.clock.passed(self.last_sync, t) =>
+            {
                 self.sync()
             }
             _ => Ok(()),
@@ -1781,7 +1801,7 @@ impl<S: TapeSink> TapeWriter<S> {
             });
         }
         self.unsynced = 0;
-        self.last_sync = Instant::now();
+        self.last_sync = self.clock.now_ms();
         Ok(())
     }
 
@@ -1898,6 +1918,7 @@ impl<S: TapeSink> TapeWriter<S> {
             layout: self.layout,
             producer: self.producer.clone(),
             near: self.near_policy,
+            clock: self.clock.clone(),
         }
     }
 

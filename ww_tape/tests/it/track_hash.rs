@@ -49,6 +49,7 @@ fn options(shape: Shape) -> ChainOptions {
         files: shape.files,
         writer: WriterOptions {
             sync: SyncPolicy::None,
+            clock: ww_tape::ClockRef::NONE,
             index: IndexPolicy {
                 bytes: 1024,
                 interval: None,

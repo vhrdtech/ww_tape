@@ -153,6 +153,11 @@ so the last blocks are synced even when no new block comes; with `IndexPolicy::i
 places a checkpoint when its time is up. In an unaligned file the checkpoint goes in at once; in an aligned file `tick`
 only marks it due, and it goes into the gap before the next chunk. `TapeWriter::sync` syncs at once.
 
+The writer reads time only through its clock, `WriterOptions::clock` (`TapeWriter::set_clock`). With `std` the
+default is the system's monotonic clock (`SystemClock`). Without `std` there is no clock by default, `ClockRef::NONE`,
+and then no interval is ever due: only the block and byte rules apply. Firmware passes its own `Clock`, and a test
+passes a clock it moves by hand. Time decides only when a writer syncs, places a checkpoint or cuts, never the bytes.
+
 A failed write or sync ends the file. The writer reports it and refuses every later write. It never retries, because
 after a failed `fsync` Linux may drop the pages it couldn't write, and a second `fsync` then succeeds without them.
 

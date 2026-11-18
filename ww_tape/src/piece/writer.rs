@@ -3,7 +3,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use super::fs::piece_name;
 use super::{FinishState, OwnerId, PieceHead, PieceId, PieceIdent, TAIL_LEN, TrackStart};
@@ -80,7 +80,8 @@ pub struct PieceChain<F: SinkFactory = Files> {
     /// None after a failed cut: the chain takes no more blocks
     writer: Option<TapeWriter<F::Sink>>,
     cut: CutPolicy,
-    started: Instant,
+    /// When the current piece was started or resumed, by its writer's clock
+    started: Option<u64>,
     seq: u64,
     finished: Vec<Finished>,
 }
@@ -122,7 +123,7 @@ impl<F: SinkFactory> PieceChain<F> {
             files: options.files,
             writer: Some(writer),
             cut: options.cut,
-            started: Instant::now(),
+            started: options.writer.clock.now_ms(),
             seq: 0,
             finished: Vec::new(),
         })
@@ -234,7 +235,7 @@ impl<F: SinkFactory> PieceChain<F> {
                 files: options.files,
                 writer: Some(writer),
                 cut: options.cut,
-                started: Instant::now(),
+                started: options.writer.clock.now_ms(),
                 seq,
                 finished: finished.into_iter().map(|(f, _)| f).collect(),
             },
@@ -302,7 +303,7 @@ impl<F: SinkFactory> PieceChain<F> {
                 files: options.files,
                 writer: Some(writer),
                 cut: options.cut,
-                started: Instant::now(),
+                started: options.writer.clock.now_ms(),
                 seq,
                 finished: finished.into_iter().map(|(f, _)| f).collect(),
             },
@@ -386,7 +387,8 @@ impl<F: SinkFactory> PieceChain<F> {
         let c = self.cut;
         (c.bytes > 0 && w.bytes() >= c.bytes)
             || (c.chunks > 0 && w.chunks() >= c.chunks)
-            || c.interval.is_some_and(|t| self.started.elapsed() >= t)
+            || c.interval
+                .is_some_and(|t| w.clock().passed(self.started, t))
     }
 
     /// A chunk ([TapeWriter::write_chunk]), in a new piece when [Self::cut_due]: a cut happens before a chunk, never
@@ -431,7 +433,7 @@ impl<F: SinkFactory> PieceChain<F> {
         self.writer = Some(next);
         self.finished.push(done);
         self.seq = seq;
-        self.started = Instant::now();
+        self.started = self.writer.as_ref().and_then(|w| w.clock().now_ms());
         Ok(())
     }
 

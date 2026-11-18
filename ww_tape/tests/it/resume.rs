@@ -132,6 +132,7 @@ fn apply<S: TapeSink>(w: &mut TapeWriter<S>, defs: &mut Definitions, op: Op) {
 fn options(alignment: u32) -> WriterOptions {
     WriterOptions {
         sync: SyncPolicy::None,
+        clock: ww_tape::ClockRef::NONE,
         index: IndexPolicy {
             bytes: 1024,
             interval: None,

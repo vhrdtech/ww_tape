@@ -38,6 +38,7 @@ const fn policy(near: u32, copies: u8) -> StatePolicy {
 pub(crate) fn options() -> ww_tape::WriterOptions {
     ww_tape::WriterOptions {
         sync: SyncPolicy::None,
+        clock: ww_tape::ClockRef::NONE,
         index: IndexPolicy {
             bytes: 1024,
             interval: None,

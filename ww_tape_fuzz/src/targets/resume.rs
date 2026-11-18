@@ -34,6 +34,7 @@ const ROUNDS: u64 = 6;
 fn options(aligned: bool) -> WriterOptions {
     WriterOptions {
         sync: SyncPolicy::None,
+        clock: ww_tape::ClockRef::NONE,
         index: IndexPolicy {
             bytes: 1024,
             interval: None,

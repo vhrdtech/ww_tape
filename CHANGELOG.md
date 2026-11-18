@@ -10,6 +10,7 @@ Covers `ww_tape` 0.1.0.
 
 ### ⚠️ Breaking
 
+- `WriterOptions` gains `clock`: intervals are read from a `ClockRef`; a struct literal adds `clock: ClockRef::default()` (TAPE-12).
 - `verify` and `track_entries` refuse a monotone relation decreasing across chunks without a break: `ReadError::RelationOrder` (TAPE-7).
 - `IndexEntry` gains `relation_break`; an events chunk block takes header flag `FLAG_RELATION_BREAK` from callers (TAPE-7).
 - A chain carries at most `HEAD_TRACKS_MAX` tracks into a piece head; a track past it is refused (`WriteError::TooManyCarried`) (TAPE-8).
@@ -126,6 +127,7 @@ Covers `ww_tape` 0.1.0.
 
 ### 🚀 Features
 
+- `Clock`, `ClockRef` and `SystemClock`: a writer's sync, checkpoint and cut intervals run on an injected clock (TAPE-12).
 - `ww_tape_codecs`: bit packing, CRC-32C, varints, lz4 and summary kernels as a crate; `ww_tape` re-exports them (TAPE-12).
 - `TapeReader::relation_breaks`: the chunks where a track's monotone relations start again, by piece and entry (TAPE-7).
 - `TapeWriter::accept_relation_break`: the caller goes on past an unread monotone relation from its own value (TAPE-7).
