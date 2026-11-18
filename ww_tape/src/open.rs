@@ -94,6 +94,10 @@ pub enum DescribeError {
         relation: u16,
         item: u64,
     },
+    /// An events chunk of a track whose newest value of monotone relation `relation` lies in a chunk that doesn't read
+    /// (damaged, kept by a resume or the last of the track in a piece before): the chunk can't be checked, so it is
+    /// refused rather than written unchecked.
+    RelationUnread { track: u32, relation: u16 },
     /// An events chunk of a state track: its items are put one by one.
     StateChunk { track: u32 },
     /// A record of a state track in a caller's block: its items are put ([TapeWriter::put](crate::TapeWriter::put)).
@@ -195,6 +199,10 @@ impl core::fmt::Display for DescribeError {
             } => write!(
                 f,
                 "track {track}: item {item}'s value of monotone relation {relation} is below the item's before it"
+            ),
+            DescribeError::RelationUnread { track, relation } => write!(
+                f,
+                "track {track}: the newest value of monotone relation {relation} is in a chunk that doesn't read"
             ),
             DescribeError::StateChunk { track } => write!(
                 f,
