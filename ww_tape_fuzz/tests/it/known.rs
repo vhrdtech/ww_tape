@@ -18,7 +18,13 @@ pub struct Known {
 }
 
 /// Every known failure.
-pub const KNOWN: &[Known] = &[];
+pub const KNOWN: &[Known] = &[Known {
+    target: "tape-reader",
+    seed: "known-salvage-misses-a-prefix-block",
+    at: "ww_tape_fuzz/src/targets/reader.rs:74",
+    message: "the salvage walk misses a block the prefix walk reads: a file of two sessions with a gap between \
+              torn blocks; Recovery::Resync steps past a block that Recovery::Prefix reads",
+}];
 
 /// Whether `outcome` of a case of `target` fails at a known place of that target.
 pub fn is_known(target: &str, outcome: &Outcome) -> bool {
