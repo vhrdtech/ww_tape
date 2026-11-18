@@ -969,7 +969,7 @@ fn summaries_fill_alignment_gaps() {
                 w.defer_block(&defs, b).unwrap();
             }
         }
-        let path = w.finish().unwrap().path;
+        w.finish().unwrap();
         (std::fs::read(path).unwrap(), chunk_ends)
     };
     let (plain, plain_ends) = write("plain.wwtape", false);

@@ -124,7 +124,10 @@ fn create_keeps_an_unfinished_file() {
     assert!(!before.is_empty());
     let r = TapeWriter::create(&path, SyncPolicy::None);
     assert!(
-        matches!(&r, Err(ww_tape::WriteError::Exists(p)) if *p == partial),
+        matches!(
+            &r,
+            Err(ww_tape::WriteError::Sink { error: ww_tape::FsError::Exists(p), .. }) if *p == partial
+        ),
         "{:?}",
         r.err()
     );
@@ -326,7 +329,7 @@ fn write_chain(dir: &Path, n: u64) -> Vec<PathBuf> {
         n,
         &[],
         ww_tape::ChainOptions {
-            files: ww_tape::PieceFiles::Each,
+            tapes: ww_tape::PieceTapes::Each,
             writer: ww_tape::WriterOptions {
                 sync: SyncPolicy::None,
                 index: IndexPolicy {
@@ -355,7 +358,7 @@ fn write_chain(dir: &Path, n: u64) -> Vec<PathBuf> {
         .finish()
         .unwrap()
         .into_iter()
-        .map(|f| f.path)
+        .map(|f| ww_tape::Files::new(dir).path_of(f.tape))
         .collect()
 }
 
@@ -370,7 +373,7 @@ fn a_chain_cuts_when_its_piece_is_full_of_state_entries() {
         0,
         &[],
         ww_tape::ChainOptions {
-            files: ww_tape::PieceFiles::Each,
+            tapes: ww_tape::PieceTapes::Each,
             writer: ww_tape::WriterOptions {
                 sync: SyncPolicy::None,
                 index: IndexPolicy {
@@ -393,7 +396,7 @@ fn a_chain_cuts_when_its_piece_is_full_of_state_entries() {
         .finish()
         .unwrap()
         .into_iter()
-        .map(|f| f.path)
+        .map(|f| ww_tape::Files::new(&dir).path_of(f.tape))
         .collect();
     assert_eq!(pieces.len(), 2);
     let bytes = std::fs::read(&pieces[1]).unwrap();
@@ -657,7 +660,7 @@ fn index_golden() {
         0,
         &[],
         ww_tape::ChainOptions {
-            files: ww_tape::PieceFiles::Each,
+            tapes: ww_tape::PieceTapes::Each,
             writer: ww_tape::WriterOptions {
                 sync: SyncPolicy::None,
                 index: IndexPolicy {
@@ -707,7 +710,7 @@ fn index_golden() {
         .finish()
         .unwrap()
         .into_iter()
-        .map(|f| f.path)
+        .map(|f| ww_tape::Files::new(&dir).path_of(f.tape))
         .collect();
     let mut hex = String::new();
     for p in &paths {
@@ -742,7 +745,7 @@ fn incomplete_golden() {
     let dir = scratch("golden_incomplete");
     let owner = OwnerId([7; 32]);
     let options = || ChainOptions {
-        files: ww_tape::PieceFiles::Each,
+        tapes: ww_tape::PieceTapes::Each,
         writer: WriterOptions {
             sync: SyncPolicy::None,
             index: IndexPolicy {
@@ -784,7 +787,7 @@ fn incomplete_golden() {
         .finish()
         .unwrap()
         .into_iter()
-        .map(|f| f.path)
+        .map(|f| ww_tape::Files::new(&dir).path_of(f.tape))
         .collect();
     assert_eq!(paths.len(), 2);
     let Describe::Track(t9) = crate::definitions::track(9, crate::definitions::CLOCK) else {
@@ -953,8 +956,8 @@ fn a_damaged_block_of_definitions_reads_from_their_copies() {
                 .unwrap();
         }
         let bytes = if finished {
-            let f = w.finish().unwrap();
-            std::fs::read(f.path).unwrap()
+            w.finish().unwrap();
+            std::fs::read(&path).unwrap()
         } else {
             drop(w);
             std::fs::read(dir.join("p.wwt.partial")).unwrap()
@@ -1021,8 +1024,8 @@ fn the_near_policy_carries_over_a_cut() {
         next.write_chunk(crate::definitions::base_defs(), &h, &column(&c))
             .unwrap();
     }
-    let f = next.finish().unwrap();
-    let bytes = std::fs::read(f.path).unwrap();
+    next.finish().unwrap();
+    let bytes = std::fs::read(dir.join("b.wwt")).unwrap();
     let puts = crate::definitions::puts(&bytes);
     // the head's layout and producer, track 1's definitions before its first chunk, then their copies 64 KiB on
     assert!(puts.len() >= 3, "{puts:?}");
@@ -1114,13 +1117,13 @@ fn every_block_of_data_has_its_definitions_behind_it() {
     for n in 50..100 {
         w.write_block(&defs, &records(w.next_id(), n)).unwrap();
     }
-    let (done, mut next) = w.cut(&dir.join("b.wwt")).unwrap();
+    let (_, mut next) = w.cut(&dir.join("b.wwt")).unwrap();
     for n in 100..110 {
         next.write_block(&defs, &records(next.next_id(), n))
             .unwrap();
     }
-    let finished = next.finish().unwrap();
-    for path in [done.path, finished.path] {
+    next.finish().unwrap();
+    for path in [dir.join("a.wwt"), dir.join("b.wwt")] {
         let bytes = std::fs::read(&path).unwrap();
         let r = TapeReader::open(&bytes[..]).unwrap();
         let data: Vec<u64> = r
@@ -1143,16 +1146,15 @@ fn every_block_of_data_has_its_definitions_behind_it() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
-/// A chain of pieces in memory.
-fn chain_in_memory(mem: &ww_tape::MemTapes) -> Vec<PathBuf> {
+/// A chain of pieces in memory; the keys of its tapes.
+fn chain_in_memory(mem: &ww_tape::MemTapes) -> Vec<u64> {
     let mut chain = PieceChain::create_on(
         mem.clone(),
-        Path::new("chain"),
         OwnerId([0x44; 32]),
         0,
         &[],
         ww_tape::ChainOptions {
-            files: ww_tape::PieceFiles::Each,
+            tapes: ww_tape::PieceTapes::Each,
             writer: ww_tape::WriterOptions {
                 sync: SyncPolicy::None,
                 ..Default::default()
@@ -1175,7 +1177,7 @@ fn chain_in_memory(mem: &ww_tape::MemTapes) -> Vec<PathBuf> {
         .finish()
         .unwrap()
         .into_iter()
-        .map(|f| f.path)
+        .map(|f| f.tape)
         .collect()
 }
 
@@ -1203,7 +1205,7 @@ fn a_chain_in_memory_without_its_first_pieces_is_head_cut() {
     }
     assert_eq!(held.to_vec().unwrap(), bytes[0]);
     let left: Vec<Vec<u8>> = mem
-        .paths()
+        .keys()
         .unwrap()
         .iter()
         .map(|p| mem.get(p).unwrap().unwrap().to_vec().unwrap())
@@ -1245,28 +1247,27 @@ fn mem_tapes_remove_a_finished_piece_only() {
     let mem = ww_tape::MemTapes::new();
     let mut chain = PieceChain::create_on(
         mem.clone(),
-        Path::new("c"),
         OwnerId([0x45; 32]),
         0,
         &[],
         ww_tape::ChainOptions::default(),
     )
     .unwrap();
-    let open = Path::new("c").join(ww_tape::piece::piece_name(0));
+    let open = 0;
     assert!(matches!(
         mem.remove(&open),
-        Err(ww_tape::WriteError::Unfinished(p)) if p == open
+        Err(ww_tape::MemError::Unfinished)
     ));
     assert!(mem.get(&open).unwrap().is_some(), "refused: still there");
-    assert!(!mem.remove(Path::new("none")).unwrap());
+    assert!(!mem.remove(&1).unwrap());
     let reader = mem.get(&open).unwrap().unwrap();
     chain.writer().unwrap();
     let done = chain.finish().unwrap();
     assert_eq!(done.len(), 1);
     assert!(mem.remove(&open).unwrap());
     assert!(!mem.remove(&open).unwrap());
-    assert!(mem.paths().unwrap().is_empty());
+    assert!(mem.keys().unwrap().is_empty());
     assert!(TapeReader::open(&reader.to_vec().unwrap()[..]).is_ok());
     // the name is free again
-    assert!(ww_tape::SinkFactory::create(&mut mem.clone(), &open).is_ok());
+    assert!(ww_tape::Tapes::create(&mut mem.clone(), &open).is_ok());
 }

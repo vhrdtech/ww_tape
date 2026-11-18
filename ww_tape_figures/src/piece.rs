@@ -1,12 +1,10 @@
 //! `piece.svg`: a finished piece of a chain, every block to scale on rows of 1 KiB, the 4 KiB boundaries marked. The
 //! piece is written by [PieceChain] into memory and walked back block by block.
 
-use std::path::Path;
-
 use anyhow::{Context, ensure};
 use ww_tape::chunk::ChunkHead;
 use ww_tape::index::IndexPolicy;
-use ww_tape::piece::{FinishBlock, finish_len, piece_name};
+use ww_tape::piece::{FinishBlock, finish_len};
 use ww_tape::{
     BlockKind, BlockWriter, ChainOptions, ClockTime, Codec, ColumnKind, ColumnSpec, CutPolicy,
     Definitions, EndMode, FLAG_REPEAT, FileBlocks, MemTapes, OwnerId, PieceChain, SyncPolicy,
@@ -111,7 +109,7 @@ type Span = (u64, u64, Part);
 
 fn parts() -> anyhow::Result<(u64, Vec<Span>)> {
     let options = ChainOptions {
-        files: ww_tape::PieceFiles::Each,
+        tapes: ww_tape::PieceTapes::Each,
         writer: WriterOptions {
             sync: SyncPolicy::None,
             index: IndexPolicy {
@@ -134,9 +132,7 @@ fn parts() -> anyhow::Result<(u64, Vec<Span>)> {
         track(LOG, "log", TrackRepeat::Stream),
         track(FRAMES, "frames", TrackRepeat::Stream),
     ])?;
-    let dir = Path::new("figures");
-    let mut chain =
-        PieceChain::create_on(MemTapes::new(), dir, OwnerId([0xf1; 32]), 0, &[], options)?;
+    let mut chain = PieceChain::create_on(MemTapes::new(), OwnerId([0xf1; 32]), 0, &[], options)?;
     for k in 0..4 {
         let w = chain.writer()?;
         let line = log_line(w, i64::try_from(k)? * 40)?;
@@ -150,12 +146,9 @@ fn parts() -> anyhow::Result<(u64, Vec<Span>)> {
         };
         chain.write_chunk(&defs, &head, &[(spec, &starts)])?;
     }
-    let tapes = chain.factory().clone();
+    let tapes = chain.tapes().clone();
     chain.finish()?;
-    let bytes = tapes
-        .get(&dir.join(piece_name(0)))?
-        .context("the finished piece")?
-        .to_vec()?;
+    let bytes = tapes.get(&0)?.context("the finished piece")?.to_vec()?;
     let len = u64::try_from(bytes.len())?;
     ensure!(len % PIECE_ALIGN == 0, "a finished piece ends on 4 KiB");
 

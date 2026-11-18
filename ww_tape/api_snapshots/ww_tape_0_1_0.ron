@@ -1,6 +1,6 @@
 // ww_tape 0.1.0 traits and types, saved by `ww api save`.
 // Do not edit, bump the crate version and save a new snapshot instead.
-// shrink_wrap sha256: 15a07bd0dcabcd3bb7e2fbc900a9888590a9184dfdeaebc083abff6b4f5a30d5
+// shrink_wrap sha256: 3c2be440902c67da5e2746c8029776679c0a82342c9672bf0cc9434e59541c1c
 (magic: 2837124336, ww_self_version: (major: 0, minor: 4, patch: 0), root: (docs: [
     "Tape blocks: the unit a producer of records hands over, a live consumer reads and a log file is made of.",
     "",
@@ -873,9 +873,6 @@
     ]), sparse: false, path: Some([
         "summary",
     ]), instance_of: None, extra: None)), crate_idx: 0),
-    InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
-        "Piece files in directories: [FileSink]s.",
-    ], ident: "Files", generics: [], fields: Unit, sparse: false, path: None, instance_of: None, extra: None)), crate_idx: 0),
     InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
         "The block does not fit: nothing was written.",
     ], ident: "Full", generics: [], fields: Unit, sparse: false, path: None, instance_of: None, extra: None)), crate_idx: 0),

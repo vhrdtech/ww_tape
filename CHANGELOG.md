@@ -10,6 +10,11 @@ Covers `ww_tape` 0.1.0.
 
 ### ⚠️ Breaking
 
+- `TapeSink` has an `Error` type; `WriteError<E>` carries it in `WriteError::Sink`, and `FsError` or `MemError` the store's refusals (TAPE-12).
+- `SinkFactory` is `Tapes`, keyed by `Tapes::Key` and `key_of(seq)`: `Files::new(dir)`, `Files::file(path)`, `MemTapes<K = u64>` (TAPE-12).
+- `PieceChain::create_on` and `resume_on` take no path; `finished` and `finish` return `ChainPiece { tape, piece }` (TAPE-12).
+- `Finished` and `TapeSink` lose `path`; `FileSink::path`, `TapeWriter<FileSink>::current_path` stay; `MemSink::new()` takes no name (TAPE-12).
+- `PieceFiles` is `PieceTapes`, `ChainOptions::files` is `tapes`; a missing piece to resume is `ResumeError::NoPiece` (TAPE-12).
 - `WriteError` groups refused input in `WriteError::Input(InputError)` and refused resumes in `WriteError::Resume(ResumeError)` (TAPE-12).
 - `WriterOptions` gains `clock`: intervals are read from a `ClockRef`; a struct literal adds `clock: ClockRef::default()` (TAPE-12).
 - `verify` and `track_entries` refuse a monotone relation decreasing across chunks without a break: `ReadError::RelationOrder` (TAPE-7).
@@ -23,7 +28,7 @@ Covers `ww_tape` 0.1.0.
 - A chunk or summary whose head names its track under another id than the definition's is refused (`DescribeError::TrackId`) (TAPE-8).
 - A piece takes data of at most `TRACKS_PER_PIECE_MAX` tracks, so its finish fits a block (`InputError::TooManyTracks`) (TAPE-8).
 - `cut_in_place` returns `CutError`: a refused cut hands the writer back (`CutError::writer`); it was dropped (TAPE-8).
-- `create` refuses a `.partial` with bytes (`WriteError::Exists`), never empties it; a `.partial` renamed before its lock gets `WriteError::Replaced` (TAPE-8).
+- `create` refuses a `.partial` with bytes (`FsError::Exists`), never empties it; a `.partial` renamed before its lock gets `FsError::Replaced` (TAPE-8).
 - A caller's block with header flags its kind doesn't take is refused (`InputError::Flags`); records take only a coded body (TAPE-4).
 - A resume refuses to cut off good blocks behind bytes it can't read (`ResumeError::GoodBlockAfterCut`); only a torn end goes (TAPE-8).
 - A resume whose look for good blocks ends before the bytes do refuses (`ResumeError::LookSpent`), never cuts (TAPE-8).
@@ -31,11 +36,11 @@ Covers `ww_tape` 0.1.0.
 - A resume refuses bytes whose content-hash walk spent its miss budget (`ResumeError::HashWalkSpent`): appended blocks wouldn't verify (TAPE-8).
 - A relation name is at most `RELATION_NAME_MAX` (64) bytes; a longer one is refused (`DescribeError::RelationName`) (TAPE-7).
 - `cut_in_place` refuses a sink of one piece (`NAME.partial`, `MemSink::new`): `TapeSink::holds_pieces` (TAPE-8).
-- One writer per file: sinks hold an exclusive lock (files) or mark their memory tape; a second gets `WriteError::Locked` (TAPE-8).
+- One writer per file: sinks hold an exclusive lock (files) or mark their memory tape; a second gets `FsError::Locked` or `MemError::Locked` (TAPE-8).
 - `DescribeError::RelationDecrease`: a monotone relation's value below the track's newest, across chunks, cuts and resumes, is refused (TAPE-7).
 - `DescribeError::RelationUnread`: a chunk is refused when its track's newest monotone value is in a chunk that doesn't read (TAPE-7).
 - `DescribeError::RelationColumnRead`: a relation column that doesn't read for every item is refused, not written (TAPE-7).
-- `ChainOptions` gains `files`; `Finished` gains `start` and `tracks`; `SinkFactory` gains `create_whole` and `open_whole` (TAPE-8).
+- `ChainOptions` gains `tapes`; `Finished` gains `start` and `tracks`; `Tapes` has `create_whole` and `open_whole` (TAPE-8).
 - Format: piece head rows (96 B) and finish rows (136 B) carry owner and track hash, each with a row length (TAPE-8).
 - Format: piece head rows carry the incomplete mark at byte 12 (`TrackStart::incomplete`); later finish rows keep it (TAPE-8).
 - Format: a finish row's flags mark a track hash incomplete (`TrackRange::incomplete`) after a resume kept unread units (TAPE-8).
@@ -135,7 +140,7 @@ Covers `ww_tape` 0.1.0.
 - Format: header flag bit 4 and entry flag bit 3 mark a relation break (`FLAG_RELATION_BREAK`, `IndexEntry::relation_break`) (TAPE-7).
 - `RangeHash::stated`: chunks folded by the unit hash their entry states, which only `verify` proves (TAPE-9).
 - Logo: mark, wordmark, lockups, icons and social card in `assets/logo`, exported by `just logo` from one Typst source.
-- `PieceFiles::One`: a chain's pieces back to back in one file or memory tape; a cut appends in place (`cut_in_place`) (TAPE-8).
+- `PieceTapes::One`: a chain's pieces back to back in one file or memory tape; a cut appends in place (`cut_in_place`) (TAPE-8).
 - `PieceChain::resume_on` of a one-file chain resumes its unfinished last piece, or starts a new write session's piece behind it (TAPE-8).
 - `TrackDef::owner`: opaque 32 bytes outside the identity telling apart tracks of several owners in one file (TAPE-8).
 - A running hash per track (`TrackHash`), alike alone or interleaved, in one piece or many; `Finished::tracks` reports it (TAPE-8).
@@ -166,7 +171,7 @@ Covers `ww_tape` 0.1.0.
 - `TapeWriter::put_work` (`PutWork`): bytes puts hashed and copied; `Definitions::held` shares an item and its hash (STD-135).
 - `SeriesSummaries::push` keeps every statistic in one pass, integers up to 32 bits through AVX-512, AVX2 or portable kernels (STD-133).
 - `TapeWriter::resume` and `PieceChain::resume` reopen a crashed piece; it finishes with an uninterrupted write's bytes (STD-132).
-- `TapeSink`, `SinkFactory`, `FileSink`, `Files`, `MemSink` and `MemTapes`: writers write to files or memory, read while written (STD-132).
+- `TapeSink`, `Tapes`, `FileSink`, `Files`, `MemSink` and `MemTapes`: writers write to files or memory, read while written (STD-132).
 - `PieceChain::cut_due`, `finish_as` and `TapeWriter::chunks`, `cut_with`, `cut_on`, `create_on` (STD-132).
 - A resume refuses options whose alignment contradicts the piece's described layout; `TapeWriter::options`, `Resumed::layout` (STD-132).
 - Describe additions: `FLAG_SET_ADD`, `DescribeSet::write_addition`, `read_blocks`, `write_describe`; copies carry the merged set (STD-132).

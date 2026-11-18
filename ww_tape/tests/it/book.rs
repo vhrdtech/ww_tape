@@ -5,9 +5,9 @@ use std::path::Path;
 
 use ww_tape::chunk::{ChunkHead, Codec, ColumnKind, ColumnSpec};
 use ww_tape::{
-    Block, BlockId, BlockKind, BlockWriter, ChainOptions, ClockTime, Definitions, EndMode,
-    Finished, Magnitude, MemSink, OwnerId, PieceChain, PieceFiles, Ratio64, SeriesGrid, SessionTag,
-    SyncPolicy, TapeWriter, WriteError,
+    Block, BlockId, BlockKind, BlockWriter, ChainOptions, ChainPiece, ClockTime, Definitions,
+    EndMode, FsError, Magnitude, MemError, MemSink, OwnerId, PieceChain, PieceTapes, Ratio64,
+    SeriesGrid, SessionTag, SyncPolicy, TapeWriter, WriteError,
 };
 
 use crate::definitions::{CLOCK, clock, state, track};
@@ -15,7 +15,7 @@ use crate::definitions::{CLOCK, clock, state, track};
 const MODE: u32 = 5;
 
 /// The lines of "What the application does with its definitions", between the setup and the checks.
-fn example(writer: &mut TapeWriter<MemSink>) -> Result<(), WriteError> {
+fn example(writer: &mut TapeWriter<MemSink>) -> Result<(), WriteError<MemError>> {
     let (clock, temperature_track, mode_track) = (clock(CLOCK), track(1, CLOCK), state(MODE));
     let ticks = 1_000;
     let mode_bytes = b"mode: run".to_vec();
@@ -37,7 +37,7 @@ fn example(writer: &mut TapeWriter<MemSink>) -> Result<(), WriteError> {
 
 #[test]
 fn book_definitions_example() {
-    let mut writer = TapeWriter::create_on(MemSink::new(Path::new("book")), SyncPolicy::None);
+    let mut writer = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     example(&mut writer).unwrap();
     let tape = writer.sink().tape();
     writer.finish().unwrap();
@@ -47,6 +47,9 @@ fn book_definitions_example() {
     assert!(defs.is_whole(), "every definition reads: {defs:?}");
 }
 
+/// The finished pieces of a chain of files.
+type Pieces = Vec<ChainPiece<u64>>;
+
 /// The lines of "Writing a chain into one file", between the setup and the checks: the finished pieces of the first
 /// session and those of the second.
 fn one_file_example(
@@ -55,10 +58,10 @@ fn one_file_example(
     defs: &Definitions,
     head: &ChunkHead,
     columns: &[(ColumnSpec, &[u8])],
-) -> Result<(Vec<Finished>, Vec<Finished>), WriteError> {
+) -> Result<(Pieces, Pieces), WriteError<FsError>> {
     // as on the pieces page
     let options = ChainOptions {
-        files: PieceFiles::One,
+        tapes: PieceTapes::One,
         ..ChainOptions::default()
     };
     let mut chain = PieceChain::create(path, owner, 0, &[], options.clone())?;
@@ -519,10 +522,8 @@ fn format_page_piece_rows_read_a_chain() {
             .collect::<Vec<_>>()
     };
     let tapes = MemTapes::new();
-    let dir = Path::new("rows");
     let mut chain = PieceChain::create_on(
         tapes.clone(),
-        dir,
         OwnerId([7; 32]),
         0,
         &[],
@@ -540,7 +541,7 @@ fn format_page_piece_rows_read_a_chain() {
     let done = chain.finish().unwrap();
     let fold = |n: i64| (0..n).fold(TrackHash::START, |h, k| h.record(k, &[k as u8; 30]));
 
-    let second = tapes.get(&done[1].path).unwrap().unwrap().to_vec().unwrap();
+    let second = tapes.get(&done[1].tape).unwrap().unwrap().to_vec().unwrap();
     // the piece head is the first block, one row: the track of records with its hash after piece 0
     assert_eq!(at("track row length"), [144, 34]);
     assert_eq!(u16::from_le_bytes([second[144], second[145]]), 96);
@@ -553,7 +554,7 @@ fn format_page_piece_rows_read_a_chain() {
     assert_eq!(at("flags, as a finish row's"), [12]);
     assert_eq!(second[head_row + 12..][..4], [0; 4]);
 
-    let finish_at = (done[1].len as usize) - ww_tape::TAIL_LEN;
+    let finish_at = (done[1].piece.len as usize) - ww_tape::TAIL_LEN;
     let tail = ww_tape::Tail::read(&second[finish_at..]).unwrap();
     let f = &second[tail.finish_offset as usize..];
     assert_eq!(u16::from_le_bytes([f[34], f[35]]), 136);
@@ -565,7 +566,7 @@ fn format_page_piece_rows_read_a_chain() {
         1
     );
     assert_eq!(f[finish_row + hash_after..][..32], fold(4).0);
-    assert_eq!(done[1].tracks[0].hash, fold(4));
+    assert_eq!(done[1].piece.tracks[0].hash, fold(4));
     // a piece written whole: no row flag
     let flags = at("flags: bit 0 incomplete")[0];
     assert_eq!(f[finish_row + flags..][..4], [0; 4]);
@@ -624,7 +625,6 @@ fn format_page_relations_and_owner_read_a_chain() {
     let tapes = MemTapes::new();
     let mut chain = PieceChain::create_on(
         tapes.clone(),
-        Path::new("relations"),
         OwnerId([7; 32]),
         0,
         &[],
@@ -643,7 +643,7 @@ fn format_page_relations_and_owner_read_a_chain() {
     }
     let done = chain.finish().unwrap();
     assert_eq!(done.len(), 2);
-    let second = tapes.get(&done[1].path).unwrap().unwrap().to_vec().unwrap();
+    let second = tapes.get(&done[1].tape).unwrap().unwrap().to_vec().unwrap();
     // byte 146 of the piece head, the first block: Full; 1 there, its CRC made good, is CrcOnly, which is refused
     assert_eq!(second[146], 0);
     let mut crc_only = second.clone();
@@ -662,7 +662,7 @@ fn format_page_relations_and_owner_read_a_chain() {
     let head_row = 32 + 120;
     assert_eq!(second[head_row + 32..][..32], owner);
     // the finish row names the owner (rows from 176, owner at 56)
-    let finish_at = (done[1].len as usize) - ww_tape::TAIL_LEN;
+    let finish_at = (done[1].piece.len as usize) - ww_tape::TAIL_LEN;
     let tail = ww_tape::Tail::read(&second[finish_at..]).unwrap();
     let f = &second[tail.finish_offset as usize..];
     assert_eq!(f[176 + 56..][..32], owner);

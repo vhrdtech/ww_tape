@@ -7,7 +7,6 @@
 use clap::Parser;
 use shrink_wrap::prelude::*;
 use std::hint::black_box;
-use std::path::Path;
 use std::time::Instant;
 use ww_tape::times::{EncodedRelation, EncodedTimes, RelationColumn, StoredRelations};
 use ww_tape::{
@@ -228,7 +227,7 @@ fn main() -> anyhow::Result<()> {
         let id = track(1, if with { RELATIONS } else { &[] }).id();
         let mut best_ns = f64::MAX;
         for _ in 0..args.rounds {
-            let mut w = TapeWriter::create_on(MemSink::new(Path::new("bench")), SyncPolicy::None);
+            let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
             let t = Instant::now();
             for (k, source) in (0..u64::from(args.chunks)).zip(&sources) {
                 let head = times.head.chunk_head(id, 1, k * N as u64);

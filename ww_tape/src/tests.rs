@@ -1268,11 +1268,15 @@ fn writer_partial_then_renamed() {
         assert!(written.windows(b.len()).any(|w| w == b));
         start = *end;
     }
-    assert_eq!(w.finish().unwrap().path, path);
+    w.finish().unwrap();
+    assert!(path.exists(), "named when finished");
     assert!(!writer::partial_name(&path).exists());
     assert!(matches!(
         TapeWriter::create(&path, SyncPolicy::None),
-        Err(WriteError::Exists(_))
+        Err(WriteError::Sink {
+            error: FsError::Exists(_),
+            ..
+        })
     ));
     // appended: the second session's blocks start with its layout and producer
     let mut w = TapeWriter::append(&path, SyncPolicy::default()).unwrap();
@@ -1351,7 +1355,16 @@ fn writer_stops_after_a_failure() {
     let (defs, file, ends) = defined_tape(1);
     // /dev/full takes nothing: the write fails with ENOSPC
     let first = w.write_block(&defs, &file[..ends[0]]);
-    assert!(matches!(first, Err(WriteError::Io { .. })), "{first:?}");
+    assert!(
+        matches!(
+            first,
+            Err(WriteError::Sink {
+                error: FsError::Io { .. },
+                ..
+            })
+        ),
+        "{first:?}"
+    );
     assert!(matches!(
         w.write_block(&defs, &file[..ends[0]]),
         Err(WriteError::Failed)
@@ -1720,8 +1733,7 @@ fn records_on(id: BlockId, tracks: &[u32]) -> Vec<u8> {
 fn a_piece_takes_data_of_at_most_its_track_limit() {
     let (defs, ids) = distinct_tracks(6);
     for layout in [Layout::UNALIGNED, Layout::ALIGNED] {
-        let mut w =
-            TapeWriter::create_on(MemSink::new(std::path::Path::new("t")), SyncPolicy::None);
+        let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
         w.set_layout(layout).unwrap();
         w.tracks_max = 3;
         let tape = w.sink().tape();
@@ -1729,7 +1741,7 @@ fn a_piece_takes_data_of_at_most_its_track_limit() {
             .unwrap();
         w.defer_block(&defs, records_on(w.next_id(), &[3])).unwrap();
         let len = tape.to_vec().unwrap().len();
-        let refused = |r: Result<(), WriteError>| {
+        let refused = |r: Result<(), WriteError<MemError>>| {
             matches!(
                 r,
                 Err(WriteError::Input(InputError::TooManyTracks { max: 3 }))
@@ -1778,7 +1790,7 @@ fn a_piece_head_carries_at_most_its_track_limit() {
         hash: TrackHash::START,
         incomplete: false,
     };
-    let mut w = TapeWriter::create_on(MemSink::new(std::path::Path::new("h")), SyncPolicy::None);
+    let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     w.head_rows_max = 3;
     w.begin_piece(&head, &[carried(5), carried(6)]).unwrap();
     let tape = w.sink().tape();
@@ -1846,8 +1858,7 @@ fn a_finish_of_the_most_tracks_fits_a_block() {
 fn verify_holds_entries_per_track_list_not_per_block() {
     let (defs, _) = distinct_tracks(3);
     let held = |n: u32| {
-        let mut w =
-            TapeWriter::create_on(MemSink::new(std::path::Path::new("v")), SyncPolicy::None);
+        let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
         let tape = w.sink().tape();
         for k in 0..n {
             let b = records_on(w.next_id(), &[1 + k % 3]);

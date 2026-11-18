@@ -3,7 +3,7 @@
 //! its content hash verifies. The bytes it cuts off hold no good block of the piece's session but puts belonging with
 //! a block after them and what ends a piece.
 //!
-//! `PieceChain::resume_on` on a file of several pieces ([PieceFiles::One]) whose last piece is cut and mutated: it
+//! `PieceChain::resume_on` on a file of several pieces ([PieceTapes::One]) whose last piece is cut and mutated: it
 //! never panics, and a chain it resumes keeps the pieces before byte for byte, takes more blocks and finishes whole: a
 //! reader finds every piece, each verifies, and they link up from the first to a complete end. A last piece the input
 //! left finished but damaged is kept as it is: the chain starts a new piece behind it.
@@ -11,7 +11,6 @@
 //! Input: a mode byte (bit 0 aligned; bit 2 a file of several pieces; bit 1 no piece head for a single piece, the last
 //! piece finished for a file of several), a cut (u16 little endian, modulo the last piece's length + 1), then flips of
 //! three bytes each (an offset, u16 little endian, modulo the cut last piece's length, and the bits to flip).
-use std::path::Path;
 use std::sync::OnceLock;
 
 use shrink_wrap::prelude::{RefVec, UNib32};
@@ -23,9 +22,9 @@ use ww_tape::writer::NearPolicy;
 use ww_tape::{
     BlockId, BlockKind, BlockWriter, ChainOptions, ClockDef, ClockOrigin, ClockTime, Codec,
     ColumnKind, ColumnSpec, CutPolicy, Definitions, Describe, EndMode, EventsDef, FullVersion,
-    Layout, Magnitude, MemSink, MemTapes, PieceChain, PieceFiles, Segment, SessionTag, SinkFactory,
-    SyncPolicy, TapeReader, TapeSink, TapeWriter, TrackDef, TrackKind, Version, WriterOptions,
-    clock_key, track_key,
+    Layout, Magnitude, MemSink, MemTapes, PieceChain, PieceTapes, Segment, SessionTag, SyncPolicy,
+    TapeReader, TapeSink, TapeWriter, TrackDef, TrackKind, Version, WriterOptions, clock_key,
+    track_key,
 };
 
 /// Rounds of blocks in a template piece.
@@ -100,7 +99,7 @@ fn write_chunk<S: TapeSink>(w: &mut TapeWriter<S>, defs: &Definitions, t: u64, k
 /// them; the writer puts the definitions each block needs before it.
 fn template(aligned: bool, head: bool) -> Vec<u8> {
     let o = options(aligned);
-    let mut w = TapeWriter::create_on(MemSink::new(Path::new("t")), o.sync);
+    let mut w = TapeWriter::create_on(MemSink::new(), o.sync);
     w.set_layout(o.layout).expect("a new piece takes a layout");
     w.set_producer(&o.producer);
     w.set_index_policy(o.index)
@@ -142,12 +141,12 @@ fn template(aligned: bool, head: bool) -> Vec<u8> {
 /// The owner of the fuzzed chains.
 const OWNER: OwnerId = OwnerId([1; 32]);
 
-/// The file of a chain in memory.
-const CHAIN_FILE: &str = "one";
+/// The tape of a chain in memory: a chain in one tape is under the key of its first piece.
+const CHAIN_TAPE: u64 = 0;
 
 fn chain_options(aligned: bool) -> ChainOptions {
     ChainOptions {
-        files: PieceFiles::One,
+        tapes: PieceTapes::One,
         writer: options(aligned),
         cut: CutPolicy {
             chunks: 4,
@@ -178,8 +177,7 @@ fn chain_records(c: &mut PieceChain<MemTapes>, defs: &Definitions, n: u64) {
 /// A file of several pieces: three finished, the last one finished too when `finished`, else stopped after its
 /// deferred blocks; the bytes and where the last piece starts.
 pub(crate) fn chain_template(aligned: bool, finished: bool) -> (Vec<u8>, usize) {
-    let path = Path::new(CHAIN_FILE);
-    let mut c = PieceChain::create_on(MemTapes::new(), path, OWNER, 0, &[], chain_options(aligned))
+    let mut c = PieceChain::create_on(MemTapes::new(), OWNER, 0, &[], chain_options(aligned))
         .expect("a chain starts");
     let mut defs = Definitions::new();
     defs.define_all(&[clock(1), track(1, 1), track(2, 1), track(9, 1)])
@@ -192,12 +190,12 @@ pub(crate) fn chain_template(aligned: bool, finished: bool) -> (Vec<u8>, usize) 
     let w = c.writer().expect("a chain writing");
     w.flush_deferred().expect("deferred blocks write");
     let last = w.sink().base();
-    let mem = c.factory().clone();
+    let mem = c.tapes().clone();
     if finished {
         c.finish().expect("a chain finishes");
     }
     let bytes = mem
-        .get(path)
+        .get(&CHAIN_TAPE)
         .expect("memory")
         .expect("the file")
         .to_vec()
@@ -275,7 +273,7 @@ pub fn resume(data: &[u8]) {
         resume_chain(aligned, &bytes, *last, open);
         return;
     }
-    let mut sink = MemSink::new(Path::new("p"));
+    let mut sink = MemSink::new();
     sink.write_all(&bytes).expect("memory takes the bytes");
     let tape = sink.tape();
     let Ok((mut w, resumed)) = TapeWriter::resume_on(sink, options(aligned)) else {
@@ -363,14 +361,12 @@ fn folds_alike(out: &[u8], final_index: Option<u64>) {
 /// Resume the chain of `bytes`, whose pieces before `last` are whole, and finish it; `open` the last piece before the
 /// input mutated it, when it was unfinished.
 fn resume_chain(aligned: bool, bytes: &[u8], last: usize, open: Option<&[u8]>) {
-    let path = Path::new(CHAIN_FILE);
-    let mut mem = MemTapes::new();
-    mem.create_whole(path)
+    let mem = MemTapes::new();
+    mem.create_whole(&CHAIN_TAPE)
         .expect("memory takes a file")
         .write_all(bytes)
         .expect("memory takes the bytes");
-    let Ok((mut c, resumed)) = PieceChain::resume_on(mem, path, OWNER, 0, chain_options(aligned))
-    else {
+    let Ok((mut c, resumed)) = PieceChain::resume_on(mem, OWNER, 0, chain_options(aligned)) else {
         return;
     };
     if let (Some(template), Some(piece)) = (open, bytes.get(last..)) {
@@ -383,16 +379,16 @@ fn resume_chain(aligned: bool, bytes: &[u8], last: usize, open: Option<&[u8]>) {
         chain_records(&mut c, &defs, 200 + k);
         chain_chunk(&mut c, &defs, 0, 100 + k);
     }
-    let mem = c.factory().clone();
+    let mem = c.tapes().clone();
     let done = c.finish().expect("a resumed chain finishes");
     let out = mem
-        .get(path)
+        .get(&CHAIN_TAPE)
         .expect("memory")
         .expect("the file")
         .to_vec()
         .expect("the bytes");
     assert_eq!(out[..last], bytes[..last], "the pieces before stay");
-    let end = done.last().map(|f| f.start + f.len);
+    let end = done.last().map(|f| f.piece.start + f.piece.len);
     assert_eq!(end, Some(out.len() as u64), "the last piece ends the file");
     let r = TapeReader::open(&out[..]).expect("a finished chain opens");
     let n = r.pieces().len();

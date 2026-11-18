@@ -13,7 +13,6 @@
 use clap::Parser;
 use shrink_wrap::prelude::*;
 use std::io;
-use std::path::{Path, PathBuf};
 use std::time::Instant;
 use ww_tape::piece::{OwnerId, PieceHead, PieceId, PieceIdent};
 use ww_tape::{
@@ -38,12 +37,13 @@ struct Args {
 
 /// A sink that keeps no bytes: it counts them, and those of blocks marked FLAG_REPEAT.
 struct Counting {
-    path: PathBuf,
     bytes: u64,
     repeat: u64,
 }
 
 impl TapeSink for Counting {
+    type Error = io::Error;
+
     fn write_all(&mut self, bytes: &[u8]) -> io::Result<()> {
         let len = bytes.len() as u64;
         self.bytes += len;
@@ -82,17 +82,20 @@ impl TapeSink for Counting {
         ))
     }
 
-    fn path(&self) -> &Path {
-        &self.path
+    fn rebase(&mut self, base: u64) -> io::Result<()> {
+        if base == 0 {
+            Ok(())
+        } else {
+            Err(io::ErrorKind::Unsupported.into())
+        }
     }
 }
 
 /// Bytes put or copied, and bytes in all, in a piece of `piece` bytes with `tracks` tracks defined and records
 /// blocks of `block` bytes on the first `in_use` of them in turn.
 fn repeat_bytes(tracks: u32, in_use: u32, piece: u64, block: usize) -> anyhow::Result<(u64, u64)> {
-    let e = |e: ww_tape::WriteError| anyhow::anyhow!("{e:?}");
+    let e = |e: ww_tape::WriteError<_>| anyhow::anyhow!("{e:?}");
     let sink = Counting {
-        path: PathBuf::from("repeats"),
         bytes: 0,
         repeat: 0,
     };
@@ -120,8 +123,8 @@ fn repeat_bytes(tracks: u32, in_use: u32, piece: u64, block: usize) -> anyhow::R
 /// Bytes hashed and copied per records block on a track whose definition is `label_len` long, over `blocks` blocks
 /// after the first one (which puts the definition): what a block costs when nothing needs writing.
 fn idle_work(blocks: u32, label_len: usize) -> anyhow::Result<(f64, f64)> {
-    let e = |e: ww_tape::WriteError| anyhow::anyhow!("{e:?}");
-    let mut w = TapeWriter::create_on(MemSink::new(Path::new("idle")), SyncPolicy::None);
+    let e = |e: ww_tape::WriteError<_>| anyhow::anyhow!("{e:?}");
+    let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     let label = "x".repeat(label_len);
     let Describe::Track(t) = track(1) else {
         anyhow::bail!("track() gives a track");
@@ -194,11 +197,11 @@ fn records(id: BlockId, track: u32) -> anyhow::Result<Vec<u8>> {
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
-    let e = |e: ww_tape::WriteError| anyhow::anyhow!("{e:?}");
+    let e = |e: ww_tape::WriteError<_>| anyhow::anyhow!("{e:?}");
     let load = std::fs::read_to_string("/proc/loadavg")
         .map(|l| l.split_whitespace().take(3).collect::<Vec<_>>().join(" "))
         .unwrap_or_else(|_| "unknown".to_owned());
-    let mut w = TapeWriter::create_on(MemSink::new(Path::new("tracks")), SyncPolicy::None);
+    let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     let tape = w.sink().tape();
     let owner = OwnerId([7; 32]);
     let head = PieceHead {

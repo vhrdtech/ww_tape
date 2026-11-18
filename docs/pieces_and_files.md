@@ -80,14 +80,14 @@ An application chooses per chain whether each piece gets a file of its own or ev
 of many files suits retention, since old pieces are deleted file by file. One file per recording suits an application
 that keeps a recording as one document, such as a project file.
 
-`ChainOptions::files` makes the choice. `PieceFiles::Each`, the default, writes `00000000.wwt`, `00000001.wwt` and so
-on. `PieceFiles::One` writes every piece into the one file the chain was created with. A cut then ends the piece and
+`ChainOptions::tapes` makes the choice. `PieceTapes::Each`, the default, writes `00000000.wwt`, `00000001.wwt` and so
+on. `PieceTapes::One` writes every piece into the one file the chain was created with. A cut then ends the piece and
 starts the next one right behind it in the same file (`TapeWriter::cut_in_place`), and the bytes are the same as the
 pieces of a chain of many files placed back to back. One writer writes a file at a time.
 
 ```rust
 let options = ChainOptions {
-    files: PieceFiles::One,
+    tapes: PieceTapes::One,
     ..ChainOptions::default()
 };
 let mut chain = PieceChain::create(path, owner, 0, &[], options.clone())?;

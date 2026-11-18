@@ -1,13 +1,13 @@
 //! The hash of a range of a track's chunks from the index ([TapeReader::range_hash]) against a fold that reads them.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::definitions::base_defs;
 use crate::pieces::{chunk, column, records};
 use ww_tape::index::IndexPolicy;
 use ww_tape::piece::payload_hash;
 use ww_tape::{
-    ChainOptions, CutPolicy, FileBlocks, Finished, MemTapes, OwnerId, PieceChain, PieceFiles,
+    ChainOptions, CutPolicy, FileBlocks, Finished, MemTapes, OwnerId, PieceChain, PieceTapes,
     SyncPolicy, TapeReader, TrackHash, WriterOptions,
 };
 
@@ -34,10 +34,10 @@ pub(crate) fn id_of(t: u64) -> u64 {
 
 /// A chain of 60 chunks on tracks 0 to 2 in a random order, with record blocks between, cut every 7 chunks: the
 /// finished pieces and the bytes of each file, in order.
-pub(crate) fn write(files: PieceFiles, seed: u64) -> (Vec<Finished>, Vec<Vec<u8>>) {
+pub(crate) fn write(files: PieceTapes, seed: u64) -> (Vec<Finished>, Vec<Vec<u8>>) {
     let mut rng = Rng(seed);
     let options = ChainOptions {
-        files,
+        tapes: files,
         writer: WriterOptions {
             sync: SyncPolicy::None,
             index: IndexPolicy {
@@ -53,15 +53,7 @@ pub(crate) fn write(files: PieceFiles, seed: u64) -> (Vec<Finished>, Vec<Vec<u8>
             ..CutPolicy::default()
         },
     };
-    let mut c = PieceChain::create_on(
-        MemTapes::new(),
-        Path::new("range"),
-        OwnerId([4; 32]),
-        0,
-        &[],
-        options,
-    )
-    .unwrap();
+    let mut c = PieceChain::create_on(MemTapes::new(), OwnerId([4; 32]), 0, &[], options).unwrap();
     let defs = base_defs();
     let mut next = [0u64; 3];
     for n in 0..60 {
@@ -75,19 +67,19 @@ pub(crate) fn write(files: PieceFiles, seed: u64) -> (Vec<Finished>, Vec<Vec<u8>
             w.write_block(defs, &records(id, n)).unwrap();
         }
     }
-    let mem = c.factory().clone();
+    let mem = c.tapes().clone();
     let done = c.finish().unwrap();
-    let mut paths: Vec<&PathBuf> = vec![];
+    let mut keys: Vec<u64> = vec![];
     for f in &done {
-        if !paths.contains(&&f.path) {
-            paths.push(&f.path);
+        if !keys.contains(&f.tape) {
+            keys.push(f.tape);
         }
     }
-    let bytes = paths
+    let bytes = keys
         .iter()
-        .map(|p| mem.get(p).unwrap().unwrap().to_vec().unwrap())
+        .map(|k| mem.get(k).unwrap().unwrap().to_vec().unwrap())
         .collect();
-    (done, bytes)
+    (done.into_iter().map(|f| f.piece).collect(), bytes)
 }
 
 /// The hash of track `t`'s chunks holding an item of `items` in `files`, read block by block, and the items they
@@ -132,17 +124,17 @@ fn index_fold(files: &[&[u8]], t: u64, items: &std::ops::Range<u64>) -> (TrackHa
 #[test]
 fn a_range_hash_from_the_index_is_the_read_fold() {
     let mut rng = Rng(0x7a6e_5eed);
-    for files in [PieceFiles::One, PieceFiles::Each] {
+    for files in [PieceTapes::One, PieceTapes::Each] {
         let (done, bytes) = write(files, 0x5eed + files as u64);
         assert!(done.len() >= 5, "{files:?}: {} pieces", done.len());
         let all: Vec<&[u8]> = bytes.iter().map(Vec::as_slice).collect();
         // the first pieces gone: from piece 2 of the one file, or from the third file
         let tail: Vec<&[u8]> = match files {
-            PieceFiles::One => {
+            PieceTapes::One => {
                 let r = TapeReader::open(&bytes[0][..]).unwrap();
                 vec![&bytes[0][r.pieces()[2].start as usize..]]
             }
-            PieceFiles::Each => all[2..].to_vec(),
+            PieceTapes::Each => all[2..].to_vec(),
         };
         for set in [&all, &tail] {
             for _ in 0..40 {
@@ -175,7 +167,7 @@ fn a_range_hash_from_the_index_is_the_read_fold() {
 /// A piece whose final index is lost folds by reading its chunks, to the same hash.
 #[test]
 fn a_range_hash_reads_the_chunks_of_a_piece_without_an_index() {
-    let (_, bytes) = write(PieceFiles::One, 0xdead);
+    let (_, bytes) = write(PieceTapes::One, 0xdead);
     let mut damaged = bytes[0].clone();
     let r = TapeReader::open(&damaged[..]).unwrap();
     let p = &r.pieces()[1];
@@ -256,7 +248,7 @@ pub(crate) fn rewrite_final_entries_of(
 #[test]
 fn an_index_naming_a_chunk_many_times_is_refused() {
     use ww_tape::index::ENTRY_LEN;
-    let (_, bytes) = write(PieceFiles::One, 0xd0b1e);
+    let (_, bytes) = write(PieceTapes::One, 0xd0b1e);
     let good = TapeReader::open(&bytes[0][..]).unwrap();
     let t = 1;
     let entries = good.track_entries(1, id_of(t)).unwrap();
@@ -300,7 +292,7 @@ fn index_lost(bytes: &[u8], i: usize) -> Vec<u8> {
 /// never a hash of the chunks around it; another track's hash is whole, the lost index counted as skipped bytes.
 #[test]
 fn a_range_hash_without_an_index_reports_a_damaged_chunk() {
-    let (_, bytes) = write(PieceFiles::One, 0x5eed);
+    let (_, bytes) = write(PieceTapes::One, 0x5eed);
     let good = TapeReader::open(&bytes[0][..]).unwrap();
     let (t, c) = (0..3)
         .find_map(|t| {
@@ -342,7 +334,7 @@ fn a_range_hash_without_an_index_reports_a_damaged_chunk() {
 /// chunk's place: folded once, the hash unchanged.
 #[test]
 fn a_range_hash_folds_a_copied_chunk_once() {
-    let (_, bytes) = write(PieceFiles::One, 0x5eed);
+    let (_, bytes) = write(PieceTapes::One, 0x5eed);
     let good = TapeReader::open(&bytes[0][..]).unwrap();
     let p = &good.pieces()[1];
     let t = 2;
@@ -404,7 +396,7 @@ fn chunks_of(bytes: &[u8], i: usize, t: u64) -> Vec<(usize, usize)> {
 /// fold goes on with the bytes no block explains counted.
 #[test]
 fn a_range_hash_without_an_index_reports_damage() {
-    let (_, bytes) = write(PieceFiles::One, 0x5eed);
+    let (_, bytes) = write(PieceTapes::One, 0x5eed);
     let all = 0..u64::MAX;
     let t = (0..3)
         .find(|t| !chunks_of(&bytes[0], 1, *t).is_empty())
@@ -439,7 +431,7 @@ fn a_range_hash_without_an_index_reports_damage() {
 /// earlier chunk, after chunks past it, overlaps them and is an error.
 #[test]
 fn a_range_hash_folds_a_chunk_written_again_once() {
-    let (_, bytes) = write(PieceFiles::One, 0x5eed);
+    let (_, bytes) = write(PieceTapes::One, 0x5eed);
     let all = 0..u64::MAX;
     let t = (0..3)
         .find(|t| chunks_of(&bytes[0], 1, *t).len() >= 2)
@@ -477,7 +469,7 @@ fn a_range_hash_folds_a_chunk_written_again_once() {
 fn a_checkpoint_naming_a_chunk_many_times_is_refused() {
     use ww_tape::index::{ENTRY_LEN, IndexBlock, IndexKind};
     use ww_tape::{BlockKind, MemSink, TapeWriter};
-    let mut w = TapeWriter::create_on(MemSink::new(Path::new("open")), SyncPolicy::None);
+    let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     let tape = w.sink().tape();
     w.set_index_policy(IndexPolicy {
         bytes: 2048,
@@ -552,7 +544,7 @@ fn a_checkpoint_naming_a_chunk_many_times_is_refused() {
 #[test]
 fn an_unchecked_chunk_folds_by_its_entry_and_fails_verify() {
     use ww_tape::{BlockKind, ChunkHead};
-    let (_, bytes) = write(PieceFiles::One, 0x9a7);
+    let (_, bytes) = write(PieceTapes::One, 0x9a7);
     let good = TapeReader::open(&bytes[0][..]).unwrap();
     let want = good
         .range_hash(id_of(1), OwnerId::NONE, 0..u64::MAX, TrackHash::START)
@@ -592,7 +584,7 @@ fn an_unchecked_chunk_folds_by_its_entry_and_fails_verify() {
 fn an_unhashed_entry_naming_another_tracks_chunk_is_refused() {
     use ww_tape::BlockKind;
     use ww_tape::index::IndexEntry;
-    let (_, files) = write(PieceFiles::One, 0x5eed);
+    let (_, files) = write(PieceTapes::One, 0x5eed);
     let mut bytes = files[0].clone();
     let good = TapeReader::open(&bytes[..]).unwrap();
     let i = good.pieces().len() - 1;
@@ -658,7 +650,7 @@ fn an_unhashed_entry_naming_another_tracks_chunk_is_refused() {
 #[test]
 fn two_chunks_stating_the_same_items_overlap() {
     use ww_tape::BlockKind;
-    let (_, files) = write(PieceFiles::One, 0x5eed);
+    let (_, files) = write(PieceTapes::One, 0x5eed);
     let mut bytes = files[0].clone();
     let r = TapeReader::open(&bytes[..]).unwrap();
     let i = r.pieces().len() - 1;
@@ -745,7 +737,7 @@ fn last_and_track(bytes: &[u8]) -> (usize, u64) {
 #[test]
 fn verify_compares_each_entry_with_its_block() {
     use ww_tape::BlockKind;
-    let (_, files) = write(PieceFiles::One, 0x5eed);
+    let (_, files) = write(PieceTapes::One, 0x5eed);
     let (i, t) = last_and_track(&files[0]);
     // resealed unchanged, the piece verifies: what fails below is the change
     let mut same = files[0].clone();
@@ -809,7 +801,7 @@ fn verify_compares_each_entry_with_its_block() {
 #[test]
 fn a_range_its_chunk_does_not_have_is_refused_on_read() {
     use ww_tape::BlockKind;
-    let (_, files) = write(PieceFiles::One, 0x5eed);
+    let (_, files) = write(PieceTapes::One, 0x5eed);
     let (i, t) = last_and_track(&files[0]);
     let mut bytes = files[0].clone();
     let mut done = false;
@@ -842,7 +834,7 @@ fn a_range_its_chunk_does_not_have_is_refused_on_read() {
 /// A finish row whose track hash isn't its track's fold, its CRC made good: `verify` fails.
 #[test]
 fn verify_compares_each_finish_row_with_its_fold() {
-    let (_, files) = write(PieceFiles::One, 0x5eed);
+    let (_, files) = write(PieceTapes::One, 0x5eed);
     let (i, t) = last_and_track(&files[0]);
     let mut bytes = files[0].clone();
     let r = TapeReader::open(&bytes[..]).unwrap();
@@ -880,7 +872,7 @@ fn verify_compares_each_finish_row_with_its_fold() {
 #[test]
 fn verify_refuses_a_chunk_its_index_lists_past_the_blocks() {
     use ww_tape::BlockKind;
-    let (_, files) = write(PieceFiles::One, 0x5eed);
+    let (_, files) = write(PieceTapes::One, 0x5eed);
     let mut bytes = files[0].clone();
     let good = TapeReader::open(&bytes[..]).unwrap();
     let i = good.pieces().len() - 1;
@@ -964,7 +956,7 @@ fn verify_refuses_a_chunk_its_index_lists_past_the_blocks() {
 /// heads lost to it, and a file of this layout with one head damaged; 0 over whole heads.
 #[test]
 fn a_range_hash_over_pieces_without_a_head_says_so() {
-    let (_, files) = write(PieceFiles::One, 0x5eed);
+    let (_, files) = write(PieceTapes::One, 0x5eed);
     let (i, t) = last_and_track(&files[0]);
     let whole = TapeReader::open(&files[0][..])
         .unwrap()

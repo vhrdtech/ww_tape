@@ -11,7 +11,6 @@ use clap::Parser;
 use shrink_wrap::prelude::*;
 use std::hint::black_box;
 use std::io;
-use std::path::{Path, PathBuf};
 use std::time::Instant;
 use ww_tape::chunk::{ChunkHead, chunk_len, write_chunk};
 use ww_tape::piece::payload_hash;
@@ -39,11 +38,12 @@ struct Args {
 
 /// A sink that keeps no bytes: the writer's own work is measured, not a file's.
 struct Discard {
-    path: PathBuf,
     bytes: u64,
 }
 
 impl TapeSink for Discard {
+    type Error = io::Error;
+
     fn write_all(&mut self, bytes: &[u8]) -> io::Result<()> {
         self.bytes += bytes.len() as u64;
         Ok(())
@@ -75,8 +75,12 @@ impl TapeSink for Discard {
         ))
     }
 
-    fn path(&self) -> &Path {
-        &self.path
+    fn rebase(&mut self, base: u64) -> io::Result<()> {
+        if base == 0 {
+            Ok(())
+        } else {
+            Err(io::ErrorKind::Unsupported.into())
+        }
     }
 }
 
@@ -182,15 +186,9 @@ fn main() -> anyhow::Result<()> {
     let n = write_chunk(&mut block, id, &h0, &columns, 0).map_err(|e| anyhow::anyhow!("{e:?}"))?;
     block.truncate(n);
     let defs = definitions()?;
-    let e = |e: ww_tape::WriteError| anyhow::anyhow!("{e:?}");
+    let e = |e: ww_tape::WriteError<_>| anyhow::anyhow!("{e:?}");
     let writer = || {
-        let mut w = TapeWriter::create_on(
-            Discard {
-                path: PathBuf::from("chunks"),
-                bytes: 0,
-            },
-            SyncPolicy::None,
-        );
+        let mut w = TapeWriter::create_on(Discard { bytes: 0 }, SyncPolicy::None);
         w.set_alignment(ALIGNMENT)?;
         Ok::<_, anyhow::Error>(w)
     };
@@ -231,12 +229,12 @@ fn main() -> anyhow::Result<()> {
         Ok(())
     })?;
     // into memory, as a setup kept in RAM writes: every byte kept (rounds x chunks of them)
-    let mut mem = TapeWriter::create_on(MemSink::new(Path::new("mem")), SyncPolicy::None);
+    let mut mem = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     mem.set_alignment(ALIGNMENT)?;
     let in_memory = best(r, c, |_| {
         let k = mem.next_id().seq;
         mem.write_chunk(&defs, &head(k, count)?, &columns)
-            .map_err(e)?;
+            .map_err(|e| anyhow::anyhow!("{e:?}"))?;
         Ok(())
     })?;
     drop(mem);
@@ -303,7 +301,7 @@ fn timeline(
     args: &Args,
     alignment: u32,
 ) -> anyhow::Result<()> {
-    let e = |e: ww_tape::WriteError| anyhow::anyhow!("{e:?}");
+    let e = |e: ww_tape::WriteError<_>| anyhow::anyhow!("{e:?}");
     let dir = std::env::temp_dir().join(format!("ww_tape_bench_chunks_{}", std::process::id()));
     std::fs::create_dir_all(&dir)?;
     let path = dir.join("timeline.wwt");

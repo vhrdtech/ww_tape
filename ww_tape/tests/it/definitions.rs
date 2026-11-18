@@ -3,7 +3,6 @@
 //! with blocks damaged.
 
 use std::cell::Cell;
-use std::path::Path;
 
 use shrink_wrap::prelude::*;
 use ww_tape::index::IndexPolicy;
@@ -145,23 +144,28 @@ impl<S: TapeSink> Rig<S> {
         self.defs.close(number)
     }
 
-    pub(crate) fn write_block(&mut self, block: &[u8]) -> Result<(), WriteError> {
+    pub(crate) fn write_block(&mut self, block: &[u8]) -> Result<(), WriteError<S::Error>> {
         self.w.write_block(&self.defs, block).map(|_| ())
     }
 
-    pub(crate) fn defer_block(&mut self, block: Vec<u8>) -> Result<(), WriteError> {
+    pub(crate) fn defer_block(&mut self, block: Vec<u8>) -> Result<(), WriteError<S::Error>> {
         self.w.defer_block(&self.defs, block)
     }
 
-    pub(crate) fn put(&mut self, track: u32, ticks: i64, item: &[u8]) -> Result<bool, WriteError> {
+    pub(crate) fn put(
+        &mut self,
+        track: u32,
+        ticks: i64,
+        item: &[u8],
+    ) -> Result<bool, WriteError<S::Error>> {
         self.w.put(&self.defs, track, ticks, item)
     }
 
-    pub(crate) fn put_item(&mut self, item: &TypedItem<'_>) -> Result<bool, WriteError> {
+    pub(crate) fn put_item(&mut self, item: &TypedItem<'_>) -> Result<bool, WriteError<S::Error>> {
         self.w.put_item(&self.defs, item)
     }
 
-    pub(crate) fn finish(self) -> Result<ww_tape::writer::Finished, WriteError> {
+    pub(crate) fn finish(self) -> Result<ww_tape::writer::Finished, WriteError<S::Error>> {
         self.w.finish()
     }
 }
@@ -276,7 +280,7 @@ pub(crate) fn options(copy_spacing: u64) -> WriterOptions {
 
 /// A first piece on a memory sink with a producer, `layout`, a clock and track 1 defined, not yet flushed.
 fn begin_with(o: WriterOptions, layout: Layout) -> Rig {
-    let mut w = TapeWriter::create_on(MemSink::new(Path::new("p")), o.sync);
+    let mut w = TapeWriter::create_on(MemSink::new(), o.sync);
     w.set_index_policy(o.index)
         .expect("a policy with room for a piece head");
     w.set_near_policy(o.near);
@@ -921,10 +925,7 @@ fn definitions_that_do_not_hold_together_are_refused() {
     assert_eq!(tracks(&r.definitions_at(0, u64::MAX).unwrap()), [1]);
 
     // an aligned writer: a deferred block on a track not held is refused, a good one is placed at the finish
-    let mut w = Rig::new(TapeWriter::create_on(
-        MemSink::new(Path::new("a")),
-        SyncPolicy::None,
-    ));
+    let mut w = Rig::new(TapeWriter::create_on(MemSink::new(), SyncPolicy::None));
     w.set_alignment(ww_tape::ALIGNMENT).unwrap();
     define_all(&mut w, &base(Layout::ALIGNED));
     let tape = w.sink().tape();
@@ -952,7 +953,7 @@ fn a_resumed_piece_takes_the_definitions_passed() {
     let dir = crate::pieces::scratch("definitions_resume");
     let o = options(u64::MAX);
     let opts = ww_tape::ChainOptions {
-        files: ww_tape::PieceFiles::Each,
+        tapes: ww_tape::PieceTapes::Each,
         writer: o,
         cut: ww_tape::CutPolicy::default(),
     };
@@ -979,7 +980,7 @@ fn a_resumed_piece_takes_the_definitions_passed() {
     write(&mut c, &defs, 9, 30);
     write(&mut c, &defs, 5, 40);
     let pieces = c.finish().unwrap();
-    let bytes = std::fs::read(&pieces[2].path).unwrap();
+    let bytes = std::fs::read(ww_tape::Files::new(&dir).path_of(pieces[2].tape)).unwrap();
     let r = TapeReader::open(&bytes[..]).unwrap();
     for b in record_blocks(&bytes)
         .iter()

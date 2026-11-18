@@ -633,7 +633,7 @@ fn caller_chunks_are_checked_once() {
         .payload_offset();
     let mut bad = good.clone();
     bad[at] ^= 1;
-    let crc = |r: Result<_, ww_tape::WriteError>| {
+    let crc = |r: Result<_, ww_tape::WriteError<_>>| {
         matches!(
             r,
             Err(ww_tape::WriteError::Block(ww_tape::BlockError::BadCrc))

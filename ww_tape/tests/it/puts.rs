@@ -2,8 +2,6 @@
 //! with no puts, relayed puts with what they need, the work a block of data costs when nothing is written (writing
 //! side review 3).
 
-use std::path::Path;
-
 use crate::definitions::{
     CLOCK, Rig, base, begin, labeled, on_tracks, options, puts, puts_of, record_blocks, state,
     track, write_on, writes_of,
@@ -18,10 +16,7 @@ use ww_tape::{
 
 /// An aligned writer on a memory sink with [base] held, no checkpoints, at most `max` state entries a piece.
 fn aligned(max: usize) -> Rig {
-    let mut w = Rig::new(TapeWriter::create_on(
-        MemSink::new(Path::new("a")),
-        SyncPolicy::None,
-    ));
+    let mut w = Rig::new(TapeWriter::create_on(MemSink::new(), SyncPolicy::None));
     w.set_index_policy(IndexPolicy {
         state_entries_max: max,
         ..IndexPolicy::NONE
@@ -33,7 +28,7 @@ fn aligned(max: usize) -> Rig {
 }
 
 /// Whether `e` is the cap's refusal.
-fn is_cap(e: &WriteError) -> bool {
+fn is_cap<E>(e: &WriteError<E>) -> bool {
     matches!(e, WriteError::Index(IndexError::StateEntries { .. }))
 }
 
@@ -82,7 +77,7 @@ fn a_full_cap_never_stops_a_cut() {
         0,
         &[],
         ChainOptions {
-            files: ww_tape::PieceFiles::Each,
+            tapes: ww_tape::PieceTapes::Each,
             writer: WriterOptions {
                 sync: SyncPolicy::None,
                 index: IndexPolicy {
@@ -107,7 +102,7 @@ fn a_full_cap_never_stops_a_cut() {
     }
     let pieces = chain.finish().unwrap();
     assert!(pieces.len() >= 2, "the chain cut");
-    let bytes = std::fs::read(&pieces[0].path).unwrap();
+    let bytes = std::fs::read(ww_tape::Files::new(&dir).path_of(pieces[0].tape)).unwrap();
     let data = data_on(&bytes, 2);
     assert!(writes_of(&bytes, Slot::Track { number: 2 })[0] < data);
     std::fs::remove_dir_all(&dir).unwrap();
@@ -162,7 +157,7 @@ fn a_relayed_put_takes_its_definitions_into_each_piece() {
     w.write_block(&puts_of(producer, &[], &[(7, 1, b"A")]))
         .unwrap();
     let Rig { w: first, defs } = w;
-    let (_, next) = first.cut_on(MemSink::new(Path::new("next"))).unwrap();
+    let (_, next) = first.cut_on(MemSink::new()).unwrap();
     let mut w = Rig { w: next, defs };
     let tape = w.sink().tape();
     w.write_block(&puts_of(producer.next(), &[], &[(7, 2, b"B")]))
@@ -234,7 +229,7 @@ fn a_refused_chunk_leaves_no_puts() {
 /// (writing side review 3, point 7).
 #[test]
 fn a_cap_below_a_piece_head_is_refused() {
-    let mut w = TapeWriter::create_on(MemSink::new(Path::new("c")), SyncPolicy::None);
+    let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     let small = IndexPolicy {
         state_entries_max: HEAD_ENTRIES - 1,
         ..IndexPolicy::NONE
@@ -255,7 +250,7 @@ fn a_cap_below_a_piece_head_is_refused() {
         0,
         &[],
         ChainOptions {
-            files: ww_tape::PieceFiles::Each,
+            tapes: ww_tape::PieceTapes::Each,
             writer: WriterOptions {
                 index: small,
                 ..WriterOptions::default()

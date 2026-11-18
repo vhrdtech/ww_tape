@@ -102,7 +102,7 @@ directory and the chain options. The chain reads pieces 0 to 2 back from their t
 and the recorder goes on from the first block the file lacks. A crash between finishing one piece and creating the next
 resumes too: the chain creates the next piece.
 
-A chain written into one file (`PieceFiles::One`) resumes the same way. The chain finds the pieces by their tails from
+A chain written into one file (`PieceTapes::One`) resumes the same way. The chain finds the pieces by their tails from
 the end of the file, then resumes the unfinished last piece behind the finished ones, or starts a new piece when the
 last piece is finished. The finished pieces keep every byte. A resume cuts off only a torn end of the last piece; a last
 piece whose head is damaged is refused (`WriteError::Index`), since keeping its blocks would leave them outside the
@@ -110,7 +110,7 @@ chain, and dropping them would lose more than a torn end.
 
 A writer writes through a **sink**: a file (`FileSink`) or memory (`MemSink`). A memory sink reads back as a byte source,
 so `TapeReader` reads a piece while it is being written, and tests drive crashes by cutting the bytes anywhere.
-`PieceChain` takes a factory that makes the sink for each piece, `Files` or `MemTapes`.
+`PieceChain` takes a store of tapes (`Tapes`) that makes the sink for each piece under a key, `Files` or `MemTapes`.
 
 ### Example: a recorder that lost power
 

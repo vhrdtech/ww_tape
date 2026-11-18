@@ -1,7 +1,6 @@
 //! The running hash of each track ([TrackHash]) and the owner of a track ([TrackDef::owner]), through the public API.
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
 
 use crate::definitions::{CLOCK, base_defs, state, track};
 use crate::id;
@@ -11,8 +10,8 @@ use ww_tape::index::IndexPolicy;
 use ww_tape::piece::payload_hash;
 use ww_tape::writer::NearPolicy;
 use ww_tape::{
-    BlockKind, ChainOptions, CutPolicy, Definitions, Describe, FileBlocks, Finished, Layout,
-    MemTapes, OwnerId, PieceChain, PieceFiles, SyncPolicy, TapeReader, TrackDef, TrackHash,
+    BlockKind, ChainOptions, ChainPiece, CutPolicy, Definitions, Describe, FileBlocks, Finished,
+    Layout, MemTapes, OwnerId, PieceChain, PieceTapes, SyncPolicy, TapeReader, TrackDef, TrackHash,
     WriterOptions,
 };
 
@@ -23,7 +22,7 @@ struct Shape {
     interleaved: bool,
     /// A cut once a piece holds this many chunks; 0 never.
     cut: u64,
-    files: PieceFiles,
+    tapes: PieceTapes,
     layout: Layout,
     /// How the blocks of track 9 and the chunks of track 1 reach the writer.
     way: Way,
@@ -46,7 +45,7 @@ enum Way {
 
 fn options(shape: Shape) -> ChainOptions {
     ChainOptions {
-        files: shape.files,
+        tapes: shape.tapes,
         writer: WriterOptions {
             sync: SyncPolicy::None,
             clock: ww_tape::ClockRef::NONE,
@@ -66,18 +65,22 @@ fn options(shape: Shape) -> ChainOptions {
     }
 }
 
-/// The bytes of the files the pieces `done` were written to, in the order written.
-fn files_of(mem: &MemTapes, done: &[Finished]) -> Vec<u8> {
-    let mut paths: Vec<&PathBuf> = vec![];
+/// The bytes of the tapes the pieces `done` were written to, in the order written.
+fn files_of(mem: &MemTapes, done: &[ChainPiece<u64>]) -> Vec<u8> {
+    let mut keys: Vec<u64> = vec![];
     for f in done {
-        if !paths.contains(&&f.path) {
-            paths.push(&f.path);
+        if !keys.contains(&f.tape) {
+            keys.push(f.tape);
         }
     }
-    paths
-        .iter()
-        .flat_map(|p| mem.get(p).unwrap().unwrap().to_vec().unwrap())
+    keys.iter()
+        .flat_map(|k| mem.get(k).unwrap().unwrap().to_vec().unwrap())
         .collect()
+}
+
+/// The pieces of the chain `done`, without their tapes.
+fn pieces(done: Vec<ChainPiece<u64>>) -> Vec<Finished> {
+    done.into_iter().map(|f| f.piece).collect()
 }
 
 /// Each track's hash after the chain `done`, by id and owner.
@@ -95,24 +98,15 @@ fn hashes(done: &[Finished]) -> BTreeMap<(u64, OwnerId), TrackHash> {
 fn write(shape: Shape) -> (Vec<Finished>, Vec<u8>) {
     let mut defs = base_defs().clone();
     defs.define(&state(11)).unwrap();
-    let mut c = PieceChain::create_on(
-        MemTapes::new(),
-        Path::new("hash"),
-        OwnerId([5; 32]),
-        0,
-        &[],
-        options(shape),
-    )
-    .unwrap();
+    let mut c =
+        PieceChain::create_on(MemTapes::new(), OwnerId([5; 32]), 0, &[], options(shape)).unwrap();
     for k in 0..12u64 {
         if shape.resume && k == 6 {
             c.writer().unwrap().flush_deferred().unwrap();
-            let mem = c.factory().clone();
+            let mem = c.tapes().clone();
             // a crash: the open piece is left as it is
             drop(c);
-            (c, _) =
-                PieceChain::resume_on(mem, Path::new("hash"), OwnerId([5; 32]), 0, options(shape))
-                    .unwrap();
+            (c, _) = PieceChain::resume_on(mem, OwnerId([5; 32]), 0, options(shape)).unwrap();
         }
         if shape.interleaved {
             let (h, b) = chunk(1, k);
@@ -154,10 +148,10 @@ fn write(shape: Shape) -> (Vec<Finished>, Vec<u8>) {
             }
         }
     }
-    let mem = c.factory().clone();
+    let mem = c.tapes().clone();
     let done = c.finish().unwrap();
     let bytes = files_of(&mem, &done);
-    (done, bytes)
+    (pieces(done), bytes)
 }
 
 /// The whole chunk block of `head` and its raw starts `starts`, for a writer to number.
@@ -224,7 +218,7 @@ fn a_track_hash_is_the_same_however_the_track_is_written() {
     let alone = Shape {
         interleaved: false,
         cut: 0,
-        files: PieceFiles::Each,
+        tapes: PieceTapes::Each,
         layout: Layout::UNALIGNED,
         way: Way::Write,
         resume: false,
@@ -245,12 +239,12 @@ fn a_track_hash_is_the_same_however_the_track_is_written() {
         ..alone
     }];
     for cut in 1..=5 {
-        for files in [PieceFiles::Each, PieceFiles::One] {
+        for files in [PieceTapes::Each, PieceTapes::One] {
             for layout in [Layout::UNALIGNED, Layout::ALIGNED] {
                 shapes.push(Shape {
                     interleaved: true,
                     cut,
-                    files,
+                    tapes: files,
                     layout,
                     ..alone
                 });
@@ -260,16 +254,16 @@ fn a_track_hash_is_the_same_however_the_track_is_written() {
     // deferred, replaced and adopted blocks, and a resume, in one piece and cut, in either layout
     for way in [Way::Write, Way::Defer, Way::Replace, Way::Adopt] {
         for (cut, files) in [
-            (0, PieceFiles::Each),
-            (3, PieceFiles::Each),
-            (3, PieceFiles::One),
+            (0, PieceTapes::Each),
+            (3, PieceTapes::Each),
+            (3, PieceTapes::One),
         ] {
             for layout in [Layout::UNALIGNED, Layout::ALIGNED] {
                 for resume in [false, true] {
                     shapes.push(Shape {
                         interleaved: true,
                         cut,
-                        files,
+                        tapes: files,
                         layout,
                         way,
                         resume,
@@ -347,20 +341,13 @@ fn write_owned(tracks: &[TrackDef<'static>]) -> Vec<Finished> {
     let shape = Shape {
         interleaved: false,
         cut: 5,
-        files: PieceFiles::One,
+        tapes: PieceTapes::One,
         layout: Layout::UNALIGNED,
         way: Way::Write,
         resume: false,
     };
-    let mut c = PieceChain::create_on(
-        MemTapes::new(),
-        Path::new("owned"),
-        OwnerId([5; 32]),
-        0,
-        &[],
-        options(shape),
-    )
-    .unwrap();
+    let mut c =
+        PieceChain::create_on(MemTapes::new(), OwnerId([5; 32]), 0, &[], options(shape)).unwrap();
     for k in 0..8 {
         for (i, t) in tracks.iter().enumerate() {
             let (mut h, b) = chunk(i as u64, k);
@@ -369,7 +356,7 @@ fn write_owned(tracks: &[TrackDef<'static>]) -> Vec<Finished> {
             c.write_chunk(&defs, &h, &column(&b)).unwrap();
         }
     }
-    c.finish().unwrap()
+    pieces(c.finish().unwrap())
 }
 
 /// Two tracks of one identity with other owners are two tracks: each has its own items and hash, the same as
@@ -406,14 +393,13 @@ fn tracks_of_one_key_with_two_owners_are_two_tracks() {
     defs.define(&Describe::Track(tb.clone())).unwrap();
     let mut c = PieceChain::create_on(
         MemTapes::new(),
-        Path::new("alone_b"),
         OwnerId([5; 32]),
         0,
         &[],
         options(Shape {
             interleaved: false,
             cut: 0,
-            files: PieceFiles::Each,
+            tapes: PieceTapes::Each,
             layout: Layout::UNALIGNED,
             way: Way::Write,
             resume: false,
@@ -426,6 +412,6 @@ fn tracks_of_one_key_with_two_owners_are_two_tracks() {
         h.track_number = 21;
         c.write_chunk(&defs, &h, &column(&bytes)).unwrap();
     }
-    let alone_b = hashes(&c.finish().unwrap());
+    let alone_b = hashes(&pieces(c.finish().unwrap()));
     assert_eq!(alone_b[&(id, OwnerId(b))], rows[1].hash);
 }

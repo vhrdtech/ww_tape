@@ -1,7 +1,5 @@
 //! What a writer refuses of a caller's blocks and settings, and what a reader refuses of a file's version.
 
-use std::path::Path;
-
 use crate::definitions::{base, begin, on_tracks, options, track_id, write_records};
 use crate::pieces::{chunk, column};
 use ww_tape::{
@@ -132,7 +130,7 @@ fn a_callers_block_with_flags_its_kind_does_not_take_is_refused() {
 #[test]
 fn the_layout_and_the_producer_are_the_writers() {
     for alignment in [0, ALIGNMENT] {
-        let mut w = TapeWriter::create_on(MemSink::new(Path::new("l")), SyncPolicy::None);
+        let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
         w.set_alignment(alignment).unwrap();
         w.set_producer("checks");
         let tape = w.sink().tape();
@@ -194,7 +192,7 @@ fn a_resume_checks_the_layout_and_producer_it_is_given() {
     let bytes = tape.to_vec().unwrap();
     drop(w);
     let resume = |bytes: &[u8], o: ww_tape::WriterOptions| {
-        let mut sink = MemSink::new(Path::new("n"));
+        let mut sink = MemSink::new();
         ww_tape::TapeSink::write_all(&mut sink, bytes).unwrap();
         TapeWriter::resume_on(sink, o)
     };

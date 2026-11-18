@@ -5,7 +5,6 @@
 //! the load average at the start.
 
 use clap::Parser;
-use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use ww_tape::reader::ByteSource;
@@ -26,7 +25,7 @@ struct Args {
 
 /// (worst, p99.9) of the reader's waits, in the order of the writer's progress.
 fn round(piece_mib: usize, reserve: bool) -> (Duration, Duration, usize) {
-    let mut sink = MemSink::new(Path::new("piece"));
+    let mut sink = MemSink::new();
     let tape = sink.tape();
     if reserve {
         sink.reserve(((piece_mib + 1) << 20) as u64);

@@ -2,8 +2,6 @@
 //! [PieceChain::write_chunk] say a block landed: the offset and length read back as that block with
 //! [TapeReader::read_block].
 
-use std::path::Path;
-
 use ww_tape::index::{IndexEntry, IndexPolicy};
 use ww_tape::piece::piece_name;
 use ww_tape::{
@@ -41,7 +39,7 @@ fn at(offset: u64, len: u32) -> IndexEntry {
 /// and a checkpoint due right after it (a small [IndexPolicy::bytes]).
 #[test]
 fn write_chunk_and_write_block_say_where_they_landed() {
-    let mut w = TapeWriter::create_on(MemSink::new(Path::new("p")), SyncPolicy::None);
+    let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     w.set_index_policy(IndexPolicy {
         bytes: 128,
         interval: None,
@@ -113,7 +111,7 @@ fn write_chunk_and_write_block_say_where_they_landed() {
 /// [TapeWriter::adopt_block] says where a producer's block landed, once renumbered into the writer's own session.
 #[test]
 fn adopt_block_says_where_it_landed() {
-    let mut w = TapeWriter::create_on(MemSink::new(Path::new("p")), SyncPolicy::None);
+    let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     let defs = crate::definitions::base_defs();
     let foreign = BlockId::new(SessionTag::writable(0x1234_5678), 3);
     let placed = w
@@ -146,7 +144,7 @@ fn piece_chain_write_chunk_says_which_piece_it_landed_in() {
         0,
         &[],
         ChainOptions {
-            files: ww_tape::PieceFiles::Each,
+            tapes: ww_tape::PieceTapes::Each,
             writer: WriterOptions {
                 sync: SyncPolicy::None,
                 ..Default::default()

@@ -13,10 +13,10 @@ use ww_tape::times::{EncodedRelation, EncodedTimes};
 use ww_tape::writer::NearPolicy;
 use ww_tape::{
     ALIGNMENT, BlockKind, ChainOptions, ChunkHead, ColumnSpec, CutPolicy, Definitions, Describe,
-    FileBlocks, Files, InputError, Layout, MemSink, MemTapes, OwnerId, PieceChain, PieceHead,
-    PieceIdent, Recovery, RelationDef, RelationIndex, RelationValues, ResumeError, SessionTag,
-    SinkFactory, Slot, StatePolicy, SyncPolicy, TapeReader, TapeSink, TapeWriter, TrackDef,
-    WriteError, WriterOptions,
+    FileBlocks, Files, FsError, InputError, Layout, MemError, MemSink, MemTapes, OwnerId,
+    PieceChain, PieceHead, PieceIdent, Recovery, RelationDef, RelationIndex, RelationValues,
+    ResumeError, SessionTag, Slot, StatePolicy, SyncPolicy, TapeReader, TapeSink, TapeWriter,
+    Tapes, TrackDef, WriteError, WriterOptions,
 };
 
 /// One call a test makes: on a writer (each but a put places one counted block) or on the definitions.
@@ -169,7 +169,7 @@ fn head() -> PieceHead {
 
 /// A first piece of `ops` on a memory sink with `options`, begun but given no call yet.
 fn begin(alignment: u32) -> TapeWriter<MemSink> {
-    let mut w = TapeWriter::create_on(MemSink::new(Path::new("p")), SyncPolicy::None);
+    let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     let o = options(alignment);
     w.set_layout(o.layout).unwrap();
     w.set_producer(&o.producer);
@@ -349,7 +349,7 @@ fn cut_anywhere(alignment: u32) {
     assert!(forgotten, "items of track 11 written again");
     let mut ended = 0;
     for cut in cut_points(&want, 40) {
-        let mut sink = MemSink::new(Path::new("p"));
+        let mut sink = MemSink::new();
         sink.write_all(&want[..cut]).unwrap();
         let (mut w, resumed) = TapeWriter::resume_on(sink, options(alignment)).unwrap();
         assert!(resumed.kept_bytes <= cut as u64);
@@ -396,7 +396,7 @@ fn a_resume_with_another_alignment_is_refused() {
     for (written, given) in [(ALIGNMENT, 0), (0, ALIGNMENT)] {
         let (want, _) = reference(written, &ops);
         let cut = want.len() / 2;
-        let mut sink = MemSink::new(Path::new("p"));
+        let mut sink = MemSink::new();
         sink.write_all(&want[..cut]).unwrap();
         let tape = sink.tape();
         let Err(e) = TapeWriter::resume_on(sink, options(given)) else {
@@ -424,7 +424,7 @@ fn a_resume_with_another_alignment_is_refused() {
         );
 
         // the options it was written with resume it, and say what was checked
-        let mut sink = MemSink::new(Path::new("p"));
+        let mut sink = MemSink::new();
         sink.write_all(&want[..cut]).unwrap();
         let (_, resumed) = TapeWriter::resume_on(sink, options(written)).unwrap();
         assert_eq!(resumed.layout.map(|l| l.alignment.get()), Some(written));
@@ -444,7 +444,7 @@ fn a_piece_without_its_layout_resumes_unchecked() {
         .unwrap();
     // inside the block of the layout and the producer
     let cut = (first.offset + 10) as usize;
-    let mut sink = MemSink::new(Path::new("p"));
+    let mut sink = MemSink::new();
     sink.write_all(&want[..cut]).unwrap();
     let (_, resumed) = TapeWriter::resume_on(sink, options(ALIGNMENT)).unwrap();
     assert_eq!(resumed.layout, None);
@@ -475,12 +475,15 @@ fn resume_reopens_the_partial_file() {
             apply(&mut w, &mut defs, *op);
         }
     }
-    let f = w.finish().unwrap();
-    assert_eq!(std::fs::read(&f.path).unwrap(), want);
+    w.finish().unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(), want);
     // finished: nothing to resume
     assert!(matches!(
         TapeWriter::resume(&path, options(0)),
-        Err(ww_tape::WriteError::Exists(_))
+        Err(ww_tape::WriteError::Sink {
+            error: FsError::Exists(_),
+            ..
+        })
     ));
     std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -503,7 +506,7 @@ fn a_damaged_block_of_definitions_is_put_again_after_a_resume() {
         .unwrap()
         .0;
     let flipped = newest.offset as usize + 40;
-    let mut sink = MemSink::new(Path::new("p"));
+    let mut sink = MemSink::new();
     let mut damaged = want[..cut].to_vec();
     damaged[flipped] ^= 1;
     sink.write_all(&damaged).unwrap();
@@ -556,7 +559,7 @@ fn a_damaged_chunk_kept_by_a_resume_counts_in_its_track_hash() {
         .unwrap();
     // a byte of its payload: the chunk doesn't read, its entry in a checkpoint stands for it
     let flipped = (listed.offset + u64::from(listed.len)) as usize - 20;
-    let mut sink = MemSink::new(Path::new("p"));
+    let mut sink = MemSink::new();
     let mut damaged = want[..cut].to_vec();
     damaged[flipped] ^= 1;
     sink.write_all(&damaged).unwrap();
@@ -600,7 +603,7 @@ fn a_damaged_record_block_kept_by_a_resume_marks_its_tracks_incomplete() {
         })
         .unwrap();
     let flipped = (listed.offset + u64::from(listed.len)) as usize - 8;
-    let mut sink = MemSink::new(Path::new("p"));
+    let mut sink = MemSink::new();
     let mut damaged = want[..cut].to_vec();
     damaged[flipped] ^= 1;
     sink.write_all(&damaged).unwrap();
@@ -667,7 +670,7 @@ fn an_incomplete_track_hash_stays_marked_in_later_pieces() {
         unreachable!("track() gives a track")
     };
     for (i, f) in done.iter().enumerate() {
-        let b = std::fs::read(&f.path).unwrap();
+        let b = std::fs::read(Files::new(&dir).path_of(f.tape)).unwrap();
         let r = TapeReader::open(&b[..]).unwrap();
         let p = &r.pieces()[0];
         let row = p
@@ -704,7 +707,7 @@ fn an_incomplete_track_hash_stays_marked_in_later_pieces() {
 fn a_chain_in_memory_reads_and_matches_files() {
     let dir = scratch("mem_chain");
     let opts = ChainOptions {
-        files: ww_tape::PieceFiles::Each,
+        tapes: ww_tape::PieceTapes::Each,
         writer: options(0),
         cut: CutPolicy {
             chunks: 5,
@@ -713,8 +716,7 @@ fn a_chain_in_memory_reads_and_matches_files() {
     };
     let owner = OwnerId([5; 32]);
     let mem = MemTapes::new();
-    let mut in_mem =
-        PieceChain::create_on(mem.clone(), Path::new("mem"), owner, 1, &[], opts.clone()).unwrap();
+    let mut in_mem = PieceChain::create_on(mem.clone(), owner, 1, &[], opts.clone()).unwrap();
     let mut on_disk = PieceChain::create(&dir, owner, 1, &[], opts).unwrap();
     let (mut a, mut b) = (base_defs().clone(), base_defs().clone());
     for op in ops(10) {
@@ -722,10 +724,7 @@ fn a_chain_in_memory_reads_and_matches_files() {
         apply_chain(&mut on_disk, &mut b, op);
     }
     // the open piece reads while it is written
-    let live = mem
-        .get(&Path::new("mem").join(piece_name(in_mem.seq())))
-        .unwrap()
-        .unwrap();
+    let live = mem.get(&in_mem.seq()).unwrap().unwrap();
     let r = TapeReader::open(live.clone()).unwrap();
     assert!(!r.pieces().is_empty());
     assert!(
@@ -740,11 +739,15 @@ fn a_chain_in_memory_reads_and_matches_files() {
     assert_eq!(a.len(), b.len());
     let mut all = vec![];
     for (fa, fb) in a.iter().zip(&b) {
-        let tape = mem.get(&fa.path).unwrap().unwrap();
+        let tape = mem.get(&fa.tape).unwrap().unwrap();
         assert!(tape.is_finished());
         let bytes = tape.to_vec().unwrap();
-        assert_eq!(bytes, std::fs::read(&fb.path).unwrap());
-        assert_eq!(fa.hash, fb.hash);
+        assert_eq!(
+            bytes,
+            std::fs::read(Files::new(&dir).path_of(fb.tape)).unwrap()
+        );
+        assert_eq!(fa.tape, fb.tape);
+        assert_eq!(fa.piece.hash, fb.piece.hash);
         let r = TapeReader::open(tape).unwrap();
         assert!(r.verify(0).unwrap());
         all.extend(bytes);
@@ -755,7 +758,7 @@ fn a_chain_in_memory_reads_and_matches_files() {
 }
 
 /// The calls of a chain: each chunk through [PieceChain::write_chunk], so cuts come before chunks.
-fn apply_chain<F: SinkFactory>(c: &mut PieceChain<F>, defs: &mut Definitions, op: Op) {
+fn apply_chain<F: Tapes>(c: &mut PieceChain<F>, defs: &mut Definitions, op: Op) {
     match op {
         Op::Chunk(t, k) => {
             let (h, b) = chunk(t, k);
@@ -772,7 +775,7 @@ fn apply_chain<F: SinkFactory>(c: &mut PieceChain<F>, defs: &mut Definitions, op
 
 fn chain_options() -> ChainOptions {
     ChainOptions {
-        files: ww_tape::PieceFiles::Each,
+        tapes: ww_tape::PieceTapes::Each,
         writer: options(0),
         cut: CutPolicy {
             chunks: 6,
@@ -803,7 +806,12 @@ fn reference_chain(dir: &Path, ops: &[Op]) -> (Vec<PathBuf>, Made) {
             .push(c.writer().unwrap().next_seq().wrapping_sub(1));
         made.pieces.push(c.seq());
     }
-    let paths: Vec<PathBuf> = c.finish().unwrap().into_iter().map(|f| f.path).collect();
+    let paths: Vec<PathBuf> = c
+        .finish()
+        .unwrap()
+        .into_iter()
+        .map(|f| Files::new(dir).path_of(f.tape))
+        .collect();
     let mut placed = BTreeMap::new();
     for p in &paths {
         placed.extend(record_seqs(&std::fs::read(p).unwrap()));
@@ -817,7 +825,7 @@ fn reference_chain(dir: &Path, ops: &[Op]) -> (Vec<PathBuf>, Made) {
 }
 
 /// Give a chain resumed keeping `kept` bytes of its last piece the calls it lost.
-fn replay_chain<F: SinkFactory>(c: &mut PieceChain<F>, ops: &[Op], made: &Made, kept: u64) {
+fn replay_chain<F: Tapes>(c: &mut PieceChain<F>, ops: &[Op], made: &Made, kept: u64) {
     let next = c.writer().unwrap().next_seq();
     let piece = c.seq();
     let mut defs = base_defs().clone();
@@ -892,16 +900,15 @@ fn a_chain_in_memory_resumes() {
     let ops = ops(10);
     let (paths, made) = reference_chain(&tmp, &ops);
     let mem = MemTapes::new();
-    let dir = Path::new("a");
     let mut c =
-        PieceChain::create_on(mem.clone(), dir, OwnerId([9; 32]), 0, &[], chain_options()).unwrap();
+        PieceChain::create_on(mem.clone(), OwnerId([9; 32]), 0, &[], chain_options()).unwrap();
     let mut defs = base_defs().clone();
     for op in &ops[..ops.len() / 2] {
         apply_chain(&mut c, &mut defs, *op);
     }
     drop(c);
     let (mut c, resumed) =
-        PieceChain::resume_on(mem.clone(), dir, OwnerId([9; 32]), 0, chain_options()).unwrap();
+        PieceChain::resume_on(mem.clone(), OwnerId([9; 32]), 0, chain_options()).unwrap();
     assert!(!resumed.entries.is_empty());
     assert!(!c.finished().is_empty());
     replay_chain(&mut c, &ops, &made, resumed.kept_bytes);
@@ -909,36 +916,41 @@ fn a_chain_in_memory_resumes() {
     assert_eq!(got.len(), paths.len());
     for (f, p) in got.iter().zip(&paths) {
         assert_eq!(
-            mem.get(&f.path).unwrap().unwrap().to_vec().unwrap(),
+            mem.get(&f.tape).unwrap().unwrap().to_vec().unwrap(),
             std::fs::read(p).unwrap()
         );
     }
     // no piece of a chain in a place: nothing to resume
-    assert!(Files.finished(&tmp.join("none")).unwrap().is_none());
+    assert!(
+        Files::new(&tmp.join("none"))
+            .finished(&0)
+            .unwrap()
+            .is_none()
+    );
     assert!(PieceChain::resume(&tmp.join("none"), OwnerId([9; 32]), 0, chain_options()).is_err());
     std::fs::remove_dir_all(&tmp).unwrap();
 }
 
 /// Where a test keeps a chain of pieces in one file: on disk or in memory, through the same test body.
 trait OneFile {
-    type F: SinkFactory + Clone;
-    /// A fresh place holding `bytes` as the chain's file; the factory and the file's path.
-    fn plant(&self, name: &str, bytes: &[u8]) -> (Self::F, PathBuf);
-    /// The bytes of the file at `path`.
-    fn bytes(&self, f: &Self::F, path: &Path) -> Vec<u8>;
+    type F: Tapes<Key = u64> + Clone;
+    /// A fresh place named `name` holding `bytes` as the chain's file; the store and the file's key.
+    fn plant(&self, name: &str, bytes: &[u8]) -> (Self::F, u64);
+    /// The bytes of the file under `key`.
+    fn bytes(&self, f: &Self::F, key: u64) -> Vec<u8>;
 }
 
 struct OnDisk(PathBuf);
 
 impl OneFile for OnDisk {
     type F = Files;
-    fn plant(&self, name: &str, bytes: &[u8]) -> (Files, PathBuf) {
+    fn plant(&self, name: &str, bytes: &[u8]) -> (Files, u64) {
         let path = self.0.join(name);
         std::fs::write(&path, bytes).unwrap();
-        (Files, path)
+        (Files::file(&path), 0)
     }
-    fn bytes(&self, _: &Files, path: &Path) -> Vec<u8> {
-        std::fs::read(path).unwrap()
+    fn bytes(&self, f: &Files, key: u64) -> Vec<u8> {
+        std::fs::read(f.path_of(key)).unwrap()
     }
 }
 
@@ -946,21 +958,20 @@ struct InMemory;
 
 impl OneFile for InMemory {
     type F = MemTapes;
-    fn plant(&self, name: &str, bytes: &[u8]) -> (MemTapes, PathBuf) {
-        let mut mem = MemTapes::new();
-        let path = PathBuf::from(name);
-        let mut sink = mem.create_whole(&path).unwrap();
+    fn plant(&self, _: &str, bytes: &[u8]) -> (MemTapes, u64) {
+        let mem = MemTapes::new();
+        let mut sink = mem.create_whole(&0).unwrap();
         sink.write_all(bytes).unwrap();
-        (mem, path)
+        (mem, 0)
     }
-    fn bytes(&self, f: &MemTapes, path: &Path) -> Vec<u8> {
-        f.get(path).unwrap().unwrap().to_vec().unwrap()
+    fn bytes(&self, f: &MemTapes, key: u64) -> Vec<u8> {
+        f.get(&key).unwrap().unwrap().to_vec().unwrap()
     }
 }
 
 fn one_file_options() -> ChainOptions {
     ChainOptions {
-        files: ww_tape::PieceFiles::One,
+        tapes: ww_tape::PieceTapes::One,
         ..chain_options()
     }
 }
@@ -978,8 +989,7 @@ fn one_file_is_its_pieces<P: OneFile>(place: &P, scratch_dir: &Path) {
         .collect();
     let (f, path) = place.plant("one.wwt", &[]);
     // planted empty: a new chain takes the place of the empty file
-    let (mut c, _) =
-        PieceChain::resume_on(f, &path, OwnerId([9; 32]), 0, one_file_options()).unwrap();
+    let (mut c, _) = PieceChain::resume_on(f, OwnerId([9; 32]), 0, one_file_options()).unwrap();
     let mut defs = base_defs().clone();
     for op in &ops {
         if matches!(op, Op::Chunk(..) | Op::Ranged(_)) && c.cut_due() {
@@ -987,15 +997,15 @@ fn one_file_is_its_pieces<P: OneFile>(place: &P, scratch_dir: &Path) {
         }
         apply_chain(&mut c, &mut defs, *op);
     }
-    let f = c.factory().clone();
+    let f = c.tapes().clone();
     let done = c.finish().unwrap();
     assert_eq!(done.len(), paths.len());
-    let got = place.bytes(&f, &path);
+    let got = place.bytes(&f, path);
     assert!(got == want, "{} vs {} bytes", got.len(), want.len());
     let mut at = 0;
     for d in &done {
-        assert_eq!((d.path.as_path(), d.start), (path.as_path(), at));
-        at += d.len;
+        assert_eq!((d.tape, d.piece.start), (path, at));
+        at += d.piece.len;
     }
     // the same items whether read from the one file or from each piece's file
     let one = TapeReader::open(&got[..]).unwrap();
@@ -1046,7 +1056,7 @@ fn one_file_cut_anywhere<P: OneFile>(place: &P, scratch_dir: &Path, extra: usize
             let (f, path) = place.plant(&format!("run{runs}.wwt"), &want[..start + cut]);
             runs += 1;
             let (mut c, resumed) =
-                PieceChain::resume_on(f, &path, OwnerId([9; 32]), 0, one_file_options())
+                PieceChain::resume_on(f, OwnerId([9; 32]), 0, one_file_options())
                     .unwrap_or_else(|e| panic!("piece {i}, cut {cut}: {e}"));
             let whole = cut == piece.len() && i + 1 < pieces.len();
             assert_eq!(
@@ -1055,10 +1065,10 @@ fn one_file_cut_anywhere<P: OneFile>(place: &P, scratch_dir: &Path, extra: usize
                 "piece {i}, cut {cut}"
             );
             replay_chain(&mut c, &ops, &made, resumed.kept_bytes);
-            let f = c.factory().clone();
+            let f = c.tapes().clone();
             let got = c.finish().unwrap();
             assert_eq!(got.len(), pieces.len(), "piece {i}, cut {cut}");
-            let bytes = place.bytes(&f, &path);
+            let bytes = place.bytes(&f, path);
             let first = bytes.iter().zip(&want).position(|(a, b)| a != b);
             assert!(
                 bytes == want,
@@ -1087,12 +1097,11 @@ fn one_file_reopened<P: OneFile>(place: &P) {
     let (first, second) = ops.split_at(ops.len() / 2);
     let (f, path) = place.plant("reopen.wwt", &[]);
     let write = |f: P::F, part: &[Op], defs: &mut Definitions| {
-        let (mut c, _) =
-            PieceChain::resume_on(f, &path, OwnerId([9; 32]), 0, one_file_options()).unwrap();
+        let (mut c, _) = PieceChain::resume_on(f, OwnerId([9; 32]), 0, one_file_options()).unwrap();
         for op in part {
             apply_chain(&mut c, defs, *op);
         }
-        let f = c.factory().clone();
+        let f = c.tapes().clone();
         (f, c.finish().unwrap())
     };
     let mut defs = base_defs().clone();
@@ -1100,7 +1109,7 @@ fn one_file_reopened<P: OneFile>(place: &P) {
     let (f, b) = write(f, second, &mut defs);
     assert!(b.len() > a.len(), "{} then {} pieces", a.len(), b.len());
     assert_eq!(b[..a.len()], a[..], "the first session's pieces stay");
-    let bytes = place.bytes(&f, &path);
+    let bytes = place.bytes(&f, path);
     let r = TapeReader::open(&bytes[..]).unwrap();
     let chain = r.chain();
     assert!(chain.is_whole(), "{chain:?}");
@@ -1125,23 +1134,16 @@ fn one_file_reopened<P: OneFile>(place: &P) {
 
     // the same calls in one session: every track's hash is the same
     let mem = MemTapes::new();
-    let mut c = PieceChain::create_on(
-        mem,
-        Path::new("x"),
-        OwnerId([9; 32]),
-        0,
-        &[],
-        one_file_options(),
-    )
-    .unwrap();
+    let mut c = PieceChain::create_on(mem, OwnerId([9; 32]), 0, &[], one_file_options()).unwrap();
     let mut defs = base_defs().clone();
     for op in &ops {
         apply_chain(&mut c, &mut defs, *op);
     }
     let once = c.finish().unwrap();
-    let hashes = |d: &[ww_tape::Finished]| {
+    let hashes = |d: &[ww_tape::ChainPiece<u64>]| {
         d.last()
             .unwrap()
+            .piece
             .tracks
             .iter()
             .map(|t| (t.track_id, t.owner, t.hash))
@@ -1163,16 +1165,16 @@ fn a_closed_one_file_chain_reopens_in_a_new_piece() {
 #[test]
 fn a_chain_whose_last_piece_lost_its_head_is_refused() {
     let dir = scratch("headless");
-    for files in [ww_tape::PieceFiles::Each, ww_tape::PieceFiles::One] {
+    for files in [ww_tape::PieceTapes::Each, ww_tape::PieceTapes::One] {
         let options = ChainOptions {
-            files,
+            tapes: files,
             ..chain_options()
         };
         let at = match files {
-            ww_tape::PieceFiles::Each => dir.join("each"),
-            ww_tape::PieceFiles::One => dir.join("one.wwt"),
+            ww_tape::PieceTapes::Each => dir.join("each"),
+            ww_tape::PieceTapes::One => dir.join("one.wwt"),
         };
-        if files == ww_tape::PieceFiles::Each {
+        if files == ww_tape::PieceTapes::Each {
             std::fs::create_dir(&at).unwrap();
         }
         let mut c = PieceChain::create(&at, OwnerId([9; 32]), 0, &[], options.clone()).unwrap();
@@ -1199,9 +1201,26 @@ fn a_chain_whose_last_piece_lost_its_head_is_refused() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+/// A store's refusal for another writer holding the bytes.
+trait Held {
+    fn is_locked(&self) -> bool;
+}
+
+impl Held for FsError {
+    fn is_locked(&self) -> bool {
+        matches!(self, FsError::Locked(_))
+    }
+}
+
+impl Held for MemError {
+    fn is_locked(&self) -> bool {
+        matches!(self, MemError::Locked)
+    }
+}
+
 /// Whether `r` is refused for another writer holding the bytes.
-fn locked<T>(r: Result<T, WriteError>) -> bool {
-    matches!(r, Err(WriteError::Locked(_)))
+fn locked<T, E: Held>(r: Result<T, WriteError<E>>) -> bool {
+    matches!(r, Err(WriteError::Sink { error, .. }) if error.is_locked())
 }
 
 /// One writer per file: a second chain resumed on a one-file chain another one writes is refused, on files and in
@@ -1210,11 +1229,11 @@ fn locked<T>(r: Result<T, WriteError>) -> bool {
 fn a_second_writer_of_one_file_is_refused() {
     let dir = scratch("second_writer");
     let options = || ChainOptions {
-        files: ww_tape::PieceFiles::One,
+        tapes: ww_tape::PieceTapes::One,
         ..chain_options()
     };
     let owner = OwnerId([7; 32]);
-    fn write<F: SinkFactory>(c: &mut PieceChain<F>, k: u64) {
+    fn write<F: Tapes>(c: &mut PieceChain<F>, k: u64) {
         let (h, b) = chunk(0, k);
         c.write_chunk(base_defs(), &h, &column(&b)).unwrap();
     }
@@ -1235,27 +1254,24 @@ fn a_second_writer_of_one_file_is_refused() {
     assert!(r.chain().is_whole(), "{:?}", r.chain());
 
     let mem = MemTapes::new();
-    let at = Path::new("run");
-    let mut a = PieceChain::create_on(mem.clone(), at, owner, 0, &[], options()).unwrap();
+    let mut a = PieceChain::create_on(mem.clone(), owner, 0, &[], options()).unwrap();
     assert!(locked(PieceChain::resume_on(
         mem.clone(),
-        at,
         owner,
         0,
         options()
     )));
     write(&mut a, 0);
     a.finish().unwrap();
-    let (a, _) = PieceChain::resume_on(mem.clone(), at, owner, 0, options()).unwrap();
+    let (a, _) = PieceChain::resume_on(mem.clone(), owner, 0, options()).unwrap();
     assert!(locked(PieceChain::resume_on(
         mem.clone(),
-        at,
         owner,
         0,
         options()
     )));
     drop(a);
-    PieceChain::resume_on(mem.clone(), at, owner, 0, options()).unwrap();
+    PieceChain::resume_on(mem.clone(), owner, 0, options()).unwrap();
 
     // a piece file: its partial file is held from create to close
     let piece = dir.join("piece.wwt");
@@ -1334,7 +1350,7 @@ fn a_resume_of_another_layout_cuts_off_only_the_piece_end() {
     }
     let finish_at = blocks.iter().find(|(_, k)| *k == 8).unwrap().0;
     for cut in [piece.len(), piece.len() - 300, finish_at + 10] {
-        let mut sink = MemSink::new(Path::new("p"));
+        let mut sink = MemSink::new();
         sink.write_all(&piece[..cut]).unwrap();
         let (_, resumed) = TapeWriter::resume_on(
             sink,
@@ -1358,7 +1374,7 @@ fn a_resume_of_another_layout_cuts_off_only_the_piece_end() {
 /// them off with the damage, more than a torn end, so it refuses and leaves the bytes as they are.
 #[test]
 fn a_resume_never_cuts_off_good_blocks() {
-    let mut w = TapeWriter::create_on(MemSink::new(Path::new("p")), SyncPolicy::None);
+    let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     let tape = w.sink().tape();
     let defs = base_defs();
     for n in 0..6 {
@@ -1373,7 +1389,7 @@ fn a_resume_never_cuts_off_good_blocks() {
     assert!(starts.len() >= 6, "{starts:?}");
     let bad = starts[starts.len() - 3];
     bytes[bad + 40] ^= 1;
-    let mut sink = MemSink::new(Path::new("q"));
+    let mut sink = MemSink::new();
     sink.write_all(&bytes).unwrap();
     let tape = sink.tape();
     match TapeWriter::resume_on(sink, WriterOptions::default()) {
@@ -1386,7 +1402,7 @@ fn a_resume_never_cuts_off_good_blocks() {
     // undamaged, with its last block torn: that alone is cut off
     let mut torn = bytes[..starts[starts.len() - 1] + 20].to_vec();
     torn[bad + 40] ^= 1;
-    let mut sink = MemSink::new(Path::new("r"));
+    let mut sink = MemSink::new();
     sink.write_all(&torn).unwrap();
     let (_, resumed) = TapeWriter::resume_on(sink, WriterOptions::default()).unwrap();
     assert_eq!(resumed.kept_bytes, starts[starts.len() - 1] as u64);
@@ -1458,7 +1474,7 @@ fn a_resume_of_a_whole_finish_names_it_and_writes_nothing() {
         "named, bytes as they were"
     );
     assert!(!partial.exists());
-    let mut sink = MemSink::new(Path::new("m"));
+    let mut sink = MemSink::new();
     sink.write_all(&done).unwrap();
     let tape = sink.tape();
     match TapeWriter::resume_on(sink, WriterOptions::default()) {
@@ -1510,7 +1526,7 @@ fn a_resume_refuses_where_its_look_is_spent() {
     let mut fake = good.clone();
     *fake.last_mut().unwrap() ^= 0xff;
     let resume = |bytes: &[u8]| {
-        let mut sink = MemSink::new(Path::new("q"));
+        let mut sink = MemSink::new();
         sink.write_all(bytes).unwrap();
         let tape = sink.tape();
         let r = TapeWriter::resume_on(sink, options(0)).map(|(_, r)| r);
@@ -1570,7 +1586,7 @@ fn a_resume_refuses_where_the_hash_walk_is_spent() {
     for (claim, spent) in [(budget * 4, true), (budget / 16, false)] {
         let mut bytes = good.clone();
         bytes[bad + 8..bad + 12].copy_from_slice(&claim.to_le_bytes());
-        let mut sink = MemSink::new(Path::new("q"));
+        let mut sink = MemSink::new();
         sink.write_all(&bytes).unwrap();
         let tape = sink.tape();
         match (TapeWriter::resume_on(sink, options(0)), spent) {
@@ -1660,7 +1676,7 @@ fn a_piece_of_another_integrity_level_is_refused_everywhere() {
             let chain = r.chain();
             assert_eq!(chain.refused, [0], "{level}: {chain:?}");
             assert!(!chain.is_whole());
-            let mut sink = MemSink::new(Path::new("p"));
+            let mut sink = MemSink::new();
             sink.write_all(&bytes).unwrap();
             let resumed = TapeWriter::resume_on(sink, options(0)).map(|(_, r)| r);
             assert!(

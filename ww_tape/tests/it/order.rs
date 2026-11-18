@@ -1,8 +1,6 @@
 //! File order is call order: what a writer writes for a call (a definition, a put, a deferred block) lands in the
 //! file in the order of the calls, whatever waits for an aligned chunk's gap.
 
-use std::path::Path;
-
 use shrink_wrap::prelude::*;
 
 use crate::definitions::{CLOCK, Rig, base, clock, on_tracks, record_blocks, track};
@@ -12,10 +10,7 @@ use ww_tape::{
 
 /// An aligned writer on a memory sink with [base] and clock 2 held.
 fn aligned() -> Rig {
-    let mut w = Rig::new(TapeWriter::create_on(
-        MemSink::new(Path::new("o")),
-        SyncPolicy::None,
-    ));
+    let mut w = Rig::new(TapeWriter::create_on(MemSink::new(), SyncPolicy::None));
     w.set_alignment(ALIGNMENT).unwrap();
     let mut defs = base(Layout::ALIGNED);
     defs.push(clock(2));

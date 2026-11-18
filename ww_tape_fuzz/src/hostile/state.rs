@@ -2,7 +2,6 @@
 //! blocks of state records and the state entries of its index blocks (slot code, number, hash, offset, length) take
 //! hostile values behind good CRCs, or the piece is cut.
 
-use std::path::Path;
 use std::sync::OnceLock;
 
 use super::index::reseal_index;
@@ -113,7 +112,7 @@ pub(crate) fn records(id: ww_tape::BlockId, k: i64) -> Vec<u8> {
 /// label changed now and then; finished.
 fn template() -> Vec<u8> {
     let o = options();
-    let mut w = TapeWriter::create_on(MemSink::new(Path::new("s")), o.sync);
+    let mut w = TapeWriter::create_on(MemSink::new(), o.sync);
     w.set_index_policy(o.index)
         .expect("a policy with room for a piece head");
     w.set_near_policy(o.near);

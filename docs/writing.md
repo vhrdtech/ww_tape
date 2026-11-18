@@ -17,17 +17,19 @@ The writer puts its bytes into a **sink**. Two sinks come with `ww_tape`:
 
 - `FileSink`, the default, writes a file. `TapeWriter::create(path, sync)` creates it as `NAME.partial` and renames it
   to `NAME` at the finish. It refuses a `NAME` that is there and a `NAME.partial` a crash left with bytes in it
-  (`WriteError::Exists`), and never empties a file: reopen such a piece with `TapeWriter::resume`, or remove it. A
-  `NAME.partial` renamed or replaced between its open and its lock is refused too (`WriteError::Replaced`). `TapeWriter::append(path, sync)` appends to a file in a new session, and creates the file when it isn't there.
+  (`FsError::Exists`), and never empties a file: reopen such a piece with `TapeWriter::resume`, or remove it. A
+  `NAME.partial` renamed or replaced between its open and its lock is refused too (`FsError::Replaced`). `TapeWriter::append(path, sync)` appends to a file in a new session, and creates the file when it isn't there.
 - `MemSink` keeps the bytes in memory, where a `TapeReader` reads them while they are written. Tests use it to cut a
   piece at any byte and check what a reader makes of it.
 
-A chain of pieces takes a **sink factory** instead, which makes the sink of each piece: `Files` makes files in a
-directory, and `MemTapes` keeps every piece in memory under its name. Any other place, such as a raw SD card or a
-network store, needs its own `TapeSink`: a sink appends, syncs, reports its size and its path, gives the piece its
-final name at the finish, and for a resume reads back at an offset and truncates.
+A chain of pieces takes a **store of tapes** instead (`Tapes`), which makes the sink of each piece under a key: `Files`
+makes files in a directory, key `seq` the file `00000000.wwt` counted up, and `MemTapes` keeps every piece in memory
+under its key. Any other place, such as a raw SD card or a network store, needs its own `TapeSink` and `Tapes`: a sink
+appends, syncs, reports its size, completes the piece at the finish (a file takes its final name), and for a resume
+reads back at an offset and truncates. Each sink and store has its own error type (`FsError`, `MemError`), which a
+`WriteError` carries in `WriteError::Sink`; a store refuses a tape that is there already or held by another writer.
 
-A `MemSink` of a chain reserves the room of the chain's cut size (`CutPolicy::bytes` plus `CUT_SLACK`) when its piece starts, so a reader's `read_at` never waits for the piece to be copied into a bigger buffer. `MemTapes::remove(path)` takes a finished piece out of the map: a reader that holds its `MemTape` reads on, the piece still being written is refused (`WriteError::Unfinished`), and what remains of the chain reads as a head cut, each piece giving its definitions and newest state from its own head. A chain with removed pieces is not resumed.
+A `MemSink` of a chain reserves the room of the chain's cut size (`CutPolicy::bytes` plus `CUT_SLACK`) when its piece starts, so a reader's `read_at` never waits for the piece to be copied into a bigger buffer. `MemTapes::remove(key)` takes a finished piece out of the map: a reader that holds its `MemTape` reads on, the piece still being written is refused (`MemError::Unfinished`), and what remains of the chain reads as a head cut, each piece giving its definitions and newest state from its own head. A chain with removed pieces is not resumed.
 
 The writer's settings are its `WriterOptions`: the sync policy, the index policy, the layout (how blocks are placed),
 the producer's name and the near policy. The writer puts the layout and the producer at the start of every piece. They
@@ -186,8 +188,8 @@ reached cuts. The chain checks the policy before each chunk, so a cut by policy 
 never leaves a piece without data. The chain also cuts before any write that would need more state entries than the
 piece's index may hold (`IndexPolicy::state_entries_max`), and `PieceChain::cut_now` cuts at once.
 
-A chain writes each piece into a file of its own, or, with `ChainOptions::files` set to `PieceFiles::One`, every
-piece into one file. `TapeWriter::cut_in_place` is the cut of a writer into one file: the next piece starts right
+A chain writes each piece into a tape of its own, or, with `ChainOptions::tapes` set to `PieceTapes::One`, every
+piece into one tape. `TapeWriter::cut_in_place` is the cut of a writer into one file: the next piece starts right
 behind the finished one in the same sink, and the file keeps its name. [Pieces and
 files](pieces_and_files.md#writing-a-chain-into-one-file) explains when to choose which.
 
@@ -267,7 +269,7 @@ finish are cut off, and the next finish pads the piece to 4 KiB again.
 `PieceChain::resume` does the same for a chain. It reads the finished pieces back from their tails and resumes the last,
 or starts the next piece when the crash came between a cut's finish and the next piece's start, renaming a finished
 piece the crash left as `NAME.partial`. A chain whose last piece already ended complete or aborted is refused with
-`WriteError::Ended`. A chain in one file (`PieceFiles::One`) is not refused there: it starts a new piece behind the
+`WriteError::Ended`. A chain in one file (`PieceTapes::One`) is not refused there: it starts a new piece behind the
 finished last one, so each session that opens the file adds a piece. A
 last piece whose piece head is damaged is refused in both cases, because the blocks after the head would form a piece
 with no link to the chain. [Damage and

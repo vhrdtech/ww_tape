@@ -7,7 +7,7 @@ use ww_tape::piece::{
     ChainEnd, ContentHash, Finish, FinishState, TAIL_LEN, Tail, finish_len, write_finish,
 };
 use ww_tape::reader::ReadError;
-use ww_tape::{BlockKind, PieceFiles, TapeReader};
+use ww_tape::{BlockKind, PieceTapes, TapeReader};
 
 fn tail(piece_len: u64, finish_offset: u64, finish_len: u32) -> [u8; TAIL_LEN] {
     let t = Tail {
@@ -155,7 +155,7 @@ fn reseal_block(bytes: &mut [u8], at: usize) {
 /// piece's `finish_error`: the tail behind it ends no chain, so the chain is open, not whole.
 #[test]
 fn a_refused_finish_leaves_the_chain_open() {
-    let (_, files) = write(PieceFiles::One, 0x5eed);
+    let (_, files) = write(PieceTapes::One, 0x5eed);
     let good = TapeReader::open(&files[0][..]).unwrap();
     assert!(good.chain().is_whole());
     let i = good.pieces().len() - 1;
@@ -189,7 +189,7 @@ fn a_refused_finish_leaves_the_chain_open() {
 #[test]
 fn a_final_index_out_of_order_is_refused_by_every_path() {
     use ww_tape::index::{ENTRY_LEN, IndexError};
-    let (_, files) = write(PieceFiles::One, 0x5eed);
+    let (_, files) = write(PieceTapes::One, 0x5eed);
     let good = TapeReader::open(&files[0][..]).unwrap();
     let i = 1;
     let t = (0..3)
@@ -218,7 +218,7 @@ fn a_final_index_out_of_order_is_refused_by_every_path() {
 #[test]
 fn file_blocks_refuse_a_piece_head_of_another_integrity_level() {
     use ww_tape::{BlockError, FileBlocks, FileError, Recovery};
-    let (_, files) = write(PieceFiles::One, 0x5eed);
+    let (_, files) = write(PieceTapes::One, 0x5eed);
     let at = TapeReader::open(&files[0][..]).unwrap().pieces()[1].start as usize;
     for level in [1u8, 2, 200] {
         let mut bytes = files[0].clone();
@@ -258,10 +258,7 @@ fn resync_reports_a_seq_met_again_past_other_blocks_as_a_conflict() {
     use crate::definitions::base_defs;
     use crate::pieces::{chunk, column, records};
     use ww_tape::{Block, FileBlocks, FileError, MemSink, Recovery, SyncPolicy, TapeWriter};
-    let mut w = TapeWriter::create_on(
-        MemSink::new(std::path::Path::new("resync-far")),
-        SyncPolicy::None,
-    );
+    let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     let tape = w.sink().tape();
     let defs = base_defs();
     let (h, c) = chunk(1, 0);
@@ -365,10 +362,7 @@ fn resync_reports_two_blocks_of_one_seq_as_a_conflict() {
     use crate::definitions::base_defs;
     use crate::pieces::{chunk, column, records};
     use ww_tape::{Block, FileBlocks, FileError, MemSink, Recovery, SyncPolicy, TapeWriter};
-    let mut w = TapeWriter::create_on(
-        MemSink::new(std::path::Path::new("resync")),
-        SyncPolicy::None,
-    );
+    let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     let tape = w.sink().tape();
     let defs = base_defs();
     let (h, c) = chunk(1, 0);

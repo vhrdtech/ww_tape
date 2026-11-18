@@ -34,7 +34,6 @@
 //!
 //! A writer puts its bytes in a [TapeSink]: a file ([FileSink], the default) or memory ([crate::sink::MemSink]).
 
-use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::clock::ClockRef;
@@ -47,7 +46,7 @@ use crate::piece::{
 };
 use crate::reader::wide;
 pub use crate::sink::partial_name;
-use crate::sink::{FileSink, SinkFactory, TapeSink, io_err};
+use crate::sink::{FileSink, TapeSink, Tapes, sink_err};
 use crate::state::{ItemHash, Slot};
 use crate::{
     BlockId, BlockKind, ClockTime, DESCRIBE_TRACK, Definitions, Describe, DescribeError,
@@ -213,8 +212,6 @@ pub const HEAD_ENTRIES: usize = 2;
 /// What a finished piece is.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finished {
-    /// The piece's name: its file, or its key in memory.
-    pub path: PathBuf,
     /// BLAKE3 of the piece's bytes before its finish block.
     pub hash: ContentHash,
     /// Bytes of the piece, its tail included.
@@ -294,7 +291,7 @@ impl<S: TapeSink> TapeWriter<S> {
     }
 
     /// Set what `options` say, past the sync policy given at creation.
-    pub(crate) fn apply(&mut self, options: &WriterOptions) -> Result<(), WriteError> {
+    pub(crate) fn apply(&mut self, options: &WriterOptions) -> Result<(), WriteError<S::Error>> {
         self.set_layout(options.layout)?;
         self.set_producer(&options.producer);
         self.set_index_policy(options.index)?;
@@ -367,7 +364,7 @@ impl<S: TapeSink> TapeWriter<S> {
 
     /// Refuse data on `tracks` (numbers held in `defs`) when it would bring the tracks with data in the piece,
     /// those of the deferred blocks counted, past [Self::tracks_max]: the finish of the piece must fit a block.
-    fn track_room(&self, defs: &Definitions, tracks: &[u32]) -> Result<(), WriteError> {
+    fn track_room(&self, defs: &Definitions, tracks: &[u32]) -> Result<(), WriteError<S::Error>> {
         let mut new = self.new_tracks(defs, tracks);
         if new.is_empty() {
             return Ok(());
@@ -388,7 +385,7 @@ impl<S: TapeSink> TapeWriter<S> {
         Ok(())
     }
 
-    fn room(&self, puts: usize, head: bool) -> Result<(), WriteError> {
+    fn room(&self, puts: usize, head: bool) -> Result<(), WriteError<S::Error>> {
         let head = if head { HEAD_ENTRIES } else { 0 };
         let n = puts.saturating_add(head);
         self.indexer.room_for_states(n).map_err(WriteError::Index)
@@ -404,7 +401,7 @@ impl<S: TapeSink> TapeWriter<S> {
         track: u32,
         ticks: i64,
         item: &[u8],
-    ) -> Result<bool, WriteError> {
+    ) -> Result<bool, WriteError<S::Error>> {
         self.check()?;
         let facts = defs
             .track(track)
@@ -439,7 +436,7 @@ impl<S: TapeSink> TapeWriter<S> {
         &mut self,
         defs: &Definitions,
         item: &TypedItem<'_>,
-    ) -> Result<bool, WriteError> {
+    ) -> Result<bool, WriteError<S::Error>> {
         self.check()?;
         let d = Describe::Item(item.clone());
         let bytes = crate::open::encode(&d)?;
@@ -471,14 +468,18 @@ impl<S: TapeSink> TapeWriter<S> {
     }
 
     /// Put `cands` ([Self::choose]); whether the last one was written.
-    fn put_last(&mut self, cands: &[Candidate<'_>]) -> Result<bool, WriteError> {
+    fn put_last(&mut self, cands: &[Candidate<'_>]) -> Result<bool, WriteError<S::Error>> {
         self.put_chosen(cands, false)
     }
 
     /// Put `cands` ([Self::choose]), the last block marked as belonging with the next with `with_next`; whether the
     /// last one was written.
     /// Refused with nothing written when the piece has no room for the state entries of those chosen.
-    fn put_chosen(&mut self, cands: &[Candidate<'_>], with_next: bool) -> Result<bool, WriteError> {
+    fn put_chosen(
+        &mut self,
+        cands: &[Candidate<'_>],
+        with_next: bool,
+    ) -> Result<bool, WriteError<S::Error>> {
         let chosen = self.choose(cands)?;
         self.room(chosen.iter().filter(|c| **c).count(), false)?;
         let writes = chosen.last().copied().unwrap_or(false);
@@ -538,7 +539,7 @@ impl<S: TapeSink> TapeWriter<S> {
     /// where the next block goes after the blocks written for the chosen ones, or is due a copy there; so a record
     /// skipped lies within `near` of the data or item that follows. Choosing one moves that place on and may choose
     /// more: repeated until nothing changes, at most once per candidate.
-    fn choose(&self, cands: &[Candidate<'_>]) -> Result<Vec<bool>, WriteError> {
+    fn choose(&self, cands: &[Candidate<'_>]) -> Result<Vec<bool>, WriteError<S::Error>> {
         let mut chosen = vec![false; cands.len()];
         loop {
             let end = self
@@ -563,7 +564,7 @@ impl<S: TapeSink> TapeWriter<S> {
         cands: &[Candidate<'_>],
         chosen: &[bool],
         with_next: bool,
-    ) -> Result<(), WriteError> {
+    ) -> Result<(), WriteError<S::Error>> {
         let records = chosen_records(cands, chosen);
         for r in &records {
             self.work.copy(r.item.len());
@@ -572,13 +573,13 @@ impl<S: TapeSink> TapeWriter<S> {
     }
 
     /// Before a block of data needing `cands`: put them, belonging with it.
-    fn put_needed(&mut self, cands: &[Candidate<'_>]) -> Result<(), WriteError> {
+    fn put_needed(&mut self, cands: &[Candidate<'_>]) -> Result<(), WriteError<S::Error>> {
         self.put_chosen(cands, true).map(|_| ())
     }
 
     /// Write the layout and the producer, whatever lies close behind: after a piece head, before the first block of a
     /// file without one, and where a caller's block starts another session.
-    fn ensure_head(&mut self) -> Result<(), WriteError> {
+    fn ensure_head(&mut self) -> Result<(), WriteError<S::Error>> {
         if self.head_put {
             return Ok(());
         }
@@ -600,7 +601,11 @@ impl<S: TapeSink> TapeWriter<S> {
     /// not counted themselves; the call that writes them checked their room first ([Self::room]).
     /// Every block but the last is marked [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT), the last one too with `with_next`:
     /// the call goes on with a block of data they serve.
-    fn write_puts(&mut self, records: &[RecordRef<'_>], with_next: bool) -> Result<(), WriteError> {
+    fn write_puts(
+        &mut self,
+        records: &[RecordRef<'_>],
+        with_next: bool,
+    ) -> Result<(), WriteError<S::Error>> {
         if records.is_empty() {
             return Ok(());
         }
@@ -629,7 +634,7 @@ impl<S: TapeSink> TapeWriter<S> {
     /// When checkpoint index blocks are placed (by default every 4 MiB).
     /// A policy whose [IndexPolicy::state_entries_max] has no room for a piece head's [HEAD_ENTRIES] is refused:
     /// every new piece of a chain would fail.
-    pub fn set_index_policy(&mut self, policy: IndexPolicy) -> Result<(), WriteError> {
+    pub fn set_index_policy(&mut self, policy: IndexPolicy) -> Result<(), WriteError<S::Error>> {
         if policy.state_entries_max < HEAD_ENTRIES {
             return Err(WriteError::Index(IndexError::StateEntries {
                 max: policy.state_entries_max,
@@ -646,7 +651,7 @@ impl<S: TapeSink> TapeWriter<S> {
         &mut self,
         head: &PieceHead,
         tracks: &[TrackStart],
-    ) -> Result<(), WriteError> {
+    ) -> Result<(), WriteError<S::Error>> {
         if head.prev.is_none() {
             self.session = SessionTag::of_piece(&head.ident.id);
         }
@@ -657,7 +662,7 @@ impl<S: TapeSink> TapeWriter<S> {
         &mut self,
         head: &PieceHead,
         tracks: &[TrackStart],
-    ) -> Result<(), WriteError> {
+    ) -> Result<(), WriteError<S::Error>> {
         self.check()?;
         if self.bytes != 0 {
             return Err(WriteError::Index(IndexError::Invalid(
@@ -683,17 +688,12 @@ impl<S: TapeSink> TapeWriter<S> {
     }
 
     /// Where the next block goes, from the start of the file.
-    fn at(&self) -> Result<u64, WriteError> {
+    fn at(&self) -> Result<u64, WriteError<S::Error>> {
         self.start
             .checked_add(self.bytes)
             .ok_or(WriteError::Index(IndexError::Invalid(
                 "a file past u64::MAX bytes",
             )))
-    }
-
-    /// Where the file is while it is written (`NAME.partial` for a new file).
-    pub fn current_path(&self) -> &Path {
-        self.sink.current_path()
     }
 
     pub fn blocks(&self) -> u64 {
@@ -711,7 +711,7 @@ impl<S: TapeSink> TapeWriter<S> {
 
     /// Place chunk payloads on multiples of `alignment` (0 or [crate::ALIGNMENT]), counted from the start of the file:
     /// the writer's layout with that alignment ([Self::set_layout]).
-    pub fn set_alignment(&mut self, alignment: u32) -> Result<(), WriteError> {
+    pub fn set_alignment(&mut self, alignment: u32) -> Result<(), WriteError<S::Error>> {
         let layout = Layout {
             alignment: exact_units::Bytes::new(alignment),
             ..self.layout
@@ -721,7 +721,7 @@ impl<S: TapeSink> TapeWriter<S> {
 
     /// The layout the file's blocks are placed by, put at each piece head; its alignment is 0 or [crate::ALIGNMENT].
     /// Set before the first block: another layout after it is refused ([InputError::Layout]).
-    pub fn set_layout(&mut self, layout: Layout) -> Result<(), WriteError> {
+    pub fn set_layout(&mut self, layout: Layout) -> Result<(), WriteError<S::Error>> {
         let alignment = layout.alignment.get();
         if alignment != 0 && alignment != crate::ALIGNMENT {
             return Err(WriteError::Input(InputError::Alignment(alignment)));
@@ -762,7 +762,7 @@ impl<S: TapeSink> TapeWriter<S> {
 
     /// Make the blocks from here on part of session `session` (a deterministic producer's own tag), its seqs from 0. A tag
     /// a writer may not use ([SessionTag::is_session]) is refused.
-    pub fn set_session(&mut self, session: SessionTag) -> Result<(), WriteError> {
+    pub fn set_session(&mut self, session: SessionTag) -> Result<(), WriteError<S::Error>> {
         if !session.is_session() {
             return Err(WriteError::Input(InputError::Session(session)));
         }
@@ -779,7 +779,7 @@ impl<S: TapeSink> TapeWriter<S> {
 
     /// Write `block` at the end: one the writer made itself, or a caller's checked before ([Self::check_data]).
     /// Where it landed in the piece.
-    fn write_own(&mut self, block: &[u8]) -> Result<Placed, WriteError> {
+    fn write_own(&mut self, block: &[u8]) -> Result<Placed, WriteError<S::Error>> {
         self.check()?;
         let (Some(header), Some(crc)) = (
             block.first_chunk::<{ crate::HEADER_LEN }>(),
@@ -796,7 +796,7 @@ impl<S: TapeSink> TapeWriter<S> {
         self.end_after(block.len())?;
         if let Err(error) = self.sink.write_all(block) {
             self.failed = true;
-            return Err(WriteError::Io {
+            return Err(WriteError::Sink {
                 what: "writing a block",
                 error,
             });
@@ -819,7 +819,7 @@ impl<S: TapeSink> TapeWriter<S> {
     /// whose body this writer knows ([Definitions::check_block]): no definitions, every record on a held track that
     /// isn't a state track. Other kinds (the reserved kind 2 among them), other versions, bodies of an unknown
     /// codec and header flags the kind doesn't take ([caller_flags]) are refused. `b` is read with its CRCs checked ([crate::Block::read]).
-    fn check_data(defs: &Definitions, b: &crate::Block<'_>) -> Result<(), WriteError> {
+    fn check_data(defs: &Definitions, b: &crate::Block<'_>) -> Result<(), WriteError<S::Error>> {
         let ours = matches!(
             b.kind,
             BlockKind::Records | BlockKind::Events | BlockKind::Series | BlockKind::Summary
@@ -842,7 +842,7 @@ impl<S: TapeSink> TapeWriter<S> {
     }
 
     /// Where the piece ends once `len` more bytes are placed.
-    fn end_after(&self, len: usize) -> Result<u64, WriteError> {
+    fn end_after(&self, len: usize) -> Result<u64, WriteError<S::Error>> {
         self.bytes
             .checked_add(wide(len))
             .ok_or(WriteError::Index(IndexError::Invalid(
@@ -858,7 +858,7 @@ impl<S: TapeSink> TapeWriter<S> {
         block: &[u8],
         header: &[u8; crate::HEADER_LEN],
         crc: [u8; crate::CRC_LEN],
-    ) -> Result<(), WriteError> {
+    ) -> Result<(), WriteError<S::Error>> {
         let bytes = self.end_after(block.len())?;
         let chunk = hash_block(&mut self.hash, block);
         // the unit hash goes into the chunk's index entry and its track's hash: computed once, here
@@ -1002,7 +1002,7 @@ impl<S: TapeSink> TapeWriter<S> {
 
     /// After every counted block, whoever placed it: a checkpoint when due (in an aligned file, in the gap before
     /// the next chunk).
-    fn after_block(&mut self) -> Result<(), WriteError> {
+    fn after_block(&mut self) -> Result<(), WriteError<S::Error>> {
         if self.checkpoint_due() {
             if self.alignment() == 0 {
                 self.place_checkpoint()?;
@@ -1021,7 +1021,7 @@ impl<S: TapeSink> TapeWriter<S> {
         self.indexer.due() || by_time
     }
 
-    fn place_checkpoint(&mut self) -> Result<(), WriteError> {
+    fn place_checkpoint(&mut self) -> Result<(), WriteError<S::Error>> {
         self.index_due = false;
         self.last_checkpoint = self.clock.now_ms();
         if self.indexer.pending() == 0 {
@@ -1047,7 +1047,11 @@ impl<S: TapeSink> TapeWriter<S> {
     /// session when placed ([crate::set_id]), so seqs ascend in the file. In an unaligned file it is written at once;
     /// past [DEFERRED_BYTES_MAX] waiting, all are. Index, finish, tail and piece head blocks are the writer's own:
     /// refused with [WriteError::Index]. A producer's block of puts or copies is put at once ([Self::put_block]).
-    pub fn defer_block(&mut self, defs: &Definitions, block: Vec<u8>) -> Result<(), WriteError> {
+    pub fn defer_block(
+        &mut self,
+        defs: &Definitions,
+        block: Vec<u8>,
+    ) -> Result<(), WriteError<S::Error>> {
         self.check()?;
         let b = crate::Block::read(&block).map_err(WriteError::Block)?;
         if b.is_repeat() {
@@ -1097,7 +1101,7 @@ impl<S: TapeSink> TapeWriter<S> {
         defs: &Definitions,
         c: &crate::chunk::Chunk<'_>,
         replacing: bool,
-    ) -> Result<bool, WriteError> {
+    ) -> Result<bool, WriteError<S::Error>> {
         let head = c.head();
         if head.kind != BlockKind::Events {
             return Ok(false);
@@ -1131,7 +1135,7 @@ impl<S: TapeSink> TapeWriter<S> {
         track: u32,
         relation: u16,
         from: u64,
-    ) -> Result<(), WriteError> {
+    ) -> Result<(), WriteError<S::Error>> {
         self.check()?;
         let (Some(facts), Some((id, _))) = (defs.track(track), defs.track_key(track)) else {
             return Err(WriteError::Describe(DescribeError::UnknownTrack { track }));
@@ -1158,7 +1162,7 @@ impl<S: TapeSink> TapeWriter<S> {
         defs: &Definitions,
         b: &crate::Block<'_>,
         replacing: bool,
-    ) -> Result<(), WriteError> {
+    ) -> Result<(), WriteError<S::Error>> {
         let Some(c) = b.chunk() else {
             return Ok(());
         };
@@ -1176,7 +1180,7 @@ impl<S: TapeSink> TapeWriter<S> {
         &self,
         defs: &Definitions,
         b: &crate::Block<'_>,
-    ) -> Result<Vec<Candidate<'static>>, WriteError> {
+    ) -> Result<Vec<Candidate<'static>>, WriteError<S::Error>> {
         if crate::index::is_structural(b.kind) {
             return Err(WriteError::Index(IndexError::Invalid(
                 "index, finish, tail and piece head blocks are written by the writer",
@@ -1192,7 +1196,7 @@ impl<S: TapeSink> TapeWriter<S> {
 
     /// Place every deferred block now when a call that writes at most `ahead` more bytes would carry the piece past
     /// [DEFER_WINDOW] from where the oldest was deferred.
-    fn place_overdue(&mut self, ahead: usize) -> Result<(), WriteError> {
+    fn place_overdue(&mut self, ahead: usize) -> Result<(), WriteError<S::Error>> {
         let due = self.deferred.first().is_some_and(|d| {
             self.offset().saturating_add(wide(ahead)) > d.at.saturating_add(DEFER_WINDOW)
         });
@@ -1200,7 +1204,7 @@ impl<S: TapeSink> TapeWriter<S> {
     }
 
     /// Write every deferred block now, in the order they came; on an error the ones not yet placed stay.
-    pub fn flush_deferred(&mut self) -> Result<(), WriteError> {
+    pub fn flush_deferred(&mut self) -> Result<(), WriteError<S::Error>> {
         while !self.deferred.is_empty() {
             let d = self.take_deferred();
             self.place(d.block)?;
@@ -1218,7 +1222,7 @@ impl<S: TapeSink> TapeWriter<S> {
 
     /// Place a deferred block (checked, and its definitions put, when it was deferred) as the writer's next counted
     /// block, nothing put before it, then what is due after it.
-    fn place(&mut self, mut block: Vec<u8>) -> Result<(), WriteError> {
+    fn place(&mut self, mut block: Vec<u8>) -> Result<(), WriteError<S::Error>> {
         crate::set_id_trusted(&mut block, self.next_id()).map_err(WriteError::Block)?;
         self.write_own(&block)?;
         self.after_block()
@@ -1233,7 +1237,7 @@ impl<S: TapeSink> TapeWriter<S> {
         defs: &Definitions,
         head: &crate::ChunkHead,
         columns: &[(crate::ColumnSpec, &[u8])],
-    ) -> Result<Placed, WriteError> {
+    ) -> Result<Placed, WriteError<S::Error>> {
         self.check()?;
         // the head and the column table are checked here and as the chunk is encoded: the payload is the caller's
         // columns, copied, not read back
@@ -1350,7 +1354,7 @@ impl<S: TapeSink> TapeWriter<S> {
         &mut self,
         defs: &Definitions,
         block: &[u8],
-    ) -> Result<Option<Placed>, WriteError> {
+    ) -> Result<Option<Placed>, WriteError<S::Error>> {
         self.check()?;
         let b = crate::Block::read(block).map_err(WriteError::Block)?;
         if b.is_repeat() {
@@ -1364,7 +1368,7 @@ impl<S: TapeSink> TapeWriter<S> {
         &mut self,
         defs: &Definitions,
         b: &crate::Block<'_>,
-    ) -> Result<Option<Placed>, WriteError> {
+    ) -> Result<Option<Placed>, WriteError<S::Error>> {
         let block = b.bytes();
         Self::check_data(defs, b)?;
         let tracks = data_tracks(b);
@@ -1418,7 +1422,7 @@ impl<S: TapeSink> TapeWriter<S> {
         &mut self,
         defs: &Definitions,
         block: &[u8],
-    ) -> Result<Option<Placed>, WriteError> {
+    ) -> Result<Option<Placed>, WriteError<S::Error>> {
         self.check()?;
         let b = crate::Block::read(block).map_err(WriteError::Block)?;
         if b.is_repeat() {
@@ -1462,7 +1466,11 @@ impl<S: TapeSink> TapeWriter<S> {
     /// track's definitions. A record on a track that isn't a state track of `defs`, or on another clock than its
     /// track's, or a definition other than the one held, is refused before anything is put. The block itself is not
     /// written.
-    pub fn put_block(&mut self, defs: &Definitions, block: &[u8]) -> Result<(), WriteError> {
+    pub fn put_block(
+        &mut self,
+        defs: &Definitions,
+        block: &[u8],
+    ) -> Result<(), WriteError<S::Error>> {
         self.check()?;
         let b = crate::Block::read(block).map_err(WriteError::Block)?;
         let mut buf = Vec::new();
@@ -1558,7 +1566,11 @@ impl<S: TapeSink> TapeWriter<S> {
     /// Pass on a live producer's block, as a relay does: a block of puts ([FLAG_REPEAT](crate::FLAG_REPEAT)) has its
     /// definitions held in `defs` ([Definitions::take_block]) and its records put ([Self::put_block]); any other
     /// block is written under `defs` ([Self::write_block]).
-    pub fn relay_block(&mut self, defs: &mut Definitions, block: &[u8]) -> Result<(), WriteError> {
+    pub fn relay_block(
+        &mut self,
+        defs: &mut Definitions,
+        block: &[u8],
+    ) -> Result<(), WriteError<S::Error>> {
         let b = crate::Block::read(block).map_err(WriteError::Block)?;
         if !b.is_repeat() {
             self.check()?;
@@ -1570,7 +1582,7 @@ impl<S: TapeSink> TapeWriter<S> {
     }
 
     /// Sync now if blocks wait and the interval of [SyncPolicy::Interval] is up; call it when no blocks come.
-    pub fn tick(&mut self) -> Result<(), WriteError> {
+    pub fn tick(&mut self) -> Result<(), WriteError<S::Error>> {
         self.check()?;
         let by_time = self.indexer.policy().interval.is_some_and(|t| {
             self.indexer.pending() > 0 && self.clock.passed(self.last_checkpoint, t)
@@ -1591,12 +1603,12 @@ impl<S: TapeSink> TapeWriter<S> {
     }
 
     /// Sync the data written so far to the disk.
-    pub fn sync(&mut self) -> Result<(), WriteError> {
+    pub fn sync(&mut self) -> Result<(), WriteError<S::Error>> {
         self.check()?;
         if let Err(error) = self.sink.sync() {
             // never retried, see the module docs
             self.failed = true;
-            return Err(WriteError::Io {
+            return Err(WriteError::Sink {
                 what: "syncing the file",
                 error,
             });
@@ -1608,13 +1620,13 @@ impl<S: TapeSink> TapeWriter<S> {
 
     /// End the file as a complete piece ([FinishState::Complete]) and sync it; a new file gets its name, and its
     /// directory is synced.
-    pub fn finish(self) -> Result<Finished, WriteError> {
+    pub fn finish(self) -> Result<Finished, WriteError<S::Error>> {
         self.finish_as(FinishState::Complete)
     }
 
     /// End the file as a piece in `state`: the definitions made, the deferred blocks, the final index, the finish and
     /// the tail; then sync, rename and sync the directory as [Self::finish].
-    pub fn finish_as(self, state: FinishState) -> Result<Finished, WriteError> {
+    pub fn finish_as(self, state: FinishState) -> Result<Finished, WriteError<S::Error>> {
         if state == FinishState::Continued {
             return Err(WriteError::Index(IndexError::Invalid(
                 "a continued piece ends by cut",
@@ -1623,29 +1635,33 @@ impl<S: TapeSink> TapeWriter<S> {
         self.end(state, true).map(|e| e.finished)
     }
 
-    /// End this piece as [FinishState::Continued] and start the next piece of the chain on the sink `factory` makes
-    /// for `next_path`, see [Self::cut_on].
-    pub fn cut_with<F: SinkFactory<Sink = S>>(
+    /// End this piece as [FinishState::Continued] and start the next piece of the chain on the tape `tapes` makes
+    /// under `next`, see [Self::cut_on].
+    pub fn cut_with<T: Tapes<Sink = S, Error = S::Error>>(
         self,
-        factory: &mut F,
-        next_path: &Path,
-    ) -> Result<(Finished, Self), WriteError> {
-        self.cut_into(|| factory.create(next_path))
+        tapes: &mut T,
+        next: &T::Key,
+    ) -> Result<(Finished, Self), WriteError<S::Error>> {
+        self.cut_into(|| {
+            tapes
+                .create(next)
+                .map_err(sink_err("creating the next piece"))
+        })
     }
 
     /// End this piece as [FinishState::Continued] and start the next piece of the chain on `next`: its id
     /// [PieceId::after] this one's id and final content hash (the finish's), its head naming this piece, the track
     /// starts moved on by this piece's chunks, then the layout and the producer put; a definition is put again
     /// before the next data that needs it. Seqs go on from this piece; the options carry over.
-    pub fn cut_on(self, next: S) -> Result<(Finished, Self), WriteError> {
+    pub fn cut_on(self, next: S) -> Result<(Finished, Self), WriteError<S::Error>> {
         self.cut_into(|| Ok(next))
     }
 
     /// [Self::cut_on] with the next sink made once this piece is finished.
     fn cut_into(
         self,
-        next: impl FnOnce() -> Result<S, WriteError>,
-    ) -> Result<(Finished, Self), WriteError> {
+        next: impl FnOnce() -> Result<S, WriteError<S::Error>>,
+    ) -> Result<(Finished, Self), WriteError<S::Error>> {
         let Some((head, starts)) = self.head.clone() else {
             return Err(WriteError::Index(IndexError::Invalid(
                 "a cut needs a piece head",
@@ -1666,7 +1682,7 @@ impl<S: TapeSink> TapeWriter<S> {
     /// sink, as [Self::cut_on] does on a new one: the sink's window ([TapeSink::rebase]) moves to the end of this
     /// piece, a multiple of [PIECE_ALIGN] when this one started on one. The sink stays open: it isn't finished, a
     /// file keeps its name. A sink of one piece (`NAME.partial`, [TapeSink::holds_pieces] false) is refused before
-    /// anything is written: a file of several pieces is written under its own name ([SinkFactory::create_whole]).
+    /// anything is written: a file of several pieces is written under its own name ([Tapes::create_whole]).
     ///
     /// A refusal before the cut hands the writer back in [CutError::writer], to go on with.
     pub fn cut_in_place(self) -> Result<(Finished, Self), CutError<S>> {
@@ -1689,7 +1705,7 @@ impl<S: TapeSink> TapeWriter<S> {
         self,
         head: &PieceHead,
         starts: &[TrackStart],
-    ) -> Result<(Finished, Self), WriteError> {
+    ) -> Result<(Finished, Self), WriteError<S::Error>> {
         let options = self.options();
         let tracks = self.indexer.next_starts(starts);
         let newest = self.relations.newest().clone();
@@ -1706,7 +1722,7 @@ impl<S: TapeSink> TapeWriter<S> {
             )))?;
         done.sink
             .rebase(base)
-            .map_err(io_err("starting the next piece behind the last"))?;
+            .map_err(sink_err("starting the next piece behind the last"))?;
         let next = TapeWriter::start_next(done.sink, &options, next_piece)?;
         Ok((done.finished, next))
     }
@@ -1729,7 +1745,7 @@ impl<S: TapeSink> TapeWriter<S> {
         sink: S,
         options: &WriterOptions,
         next: NextPiece,
-    ) -> Result<Self, WriteError> {
+    ) -> Result<Self, WriteError<S::Error>> {
         let mut w = TapeWriter::create_on(sink, options.sync);
         w.apply(options)?;
         w.begin_next(next)?;
@@ -1737,7 +1753,7 @@ impl<S: TapeSink> TapeWriter<S> {
     }
 
     /// Start the empty sink as the piece `next` of a chain, see [Self::start_next].
-    pub(crate) fn begin_next(&mut self, next: NextPiece) -> Result<(), WriteError> {
+    pub(crate) fn begin_next(&mut self, next: NextPiece) -> Result<(), WriteError<S::Error>> {
         self.next_seq = next.next_seq;
         self.session = next.session;
         self.relations.take_newest(&next.newest);
@@ -1752,7 +1768,7 @@ impl<S: TapeSink> TapeWriter<S> {
     /// End the piece in `state`; a continued piece with a head names the next piece's id, [PieceId::after] its own
     /// and the content hash in its finish. With `close` the sink is finished ([TapeSink::finish]), else it is
     /// synced and handed back for the next piece.
-    fn end(mut self, state: FinishState, close: bool) -> Result<Ended<S>, WriteError> {
+    fn end(mut self, state: FinishState, close: bool) -> Result<Ended<S>, WriteError<S::Error>> {
         self.flush_deferred()?;
         self.ensure_head()?;
         let mut prev = None;
@@ -1821,12 +1837,11 @@ impl<S: TapeSink> TapeWriter<S> {
         if close {
             self.sink
                 .finish()
-                .map_err(io_err("giving the finished piece its name"))?;
+                .map_err(sink_err("giving the finished piece its name"))?;
         }
         let start = self.sink.base().saturating_add(self.start);
         Ok(Ended {
             finished: Finished {
-                path: self.sink.path().to_path_buf(),
                 hash,
                 len: self.bytes,
                 ident,
@@ -1845,7 +1860,7 @@ impl<S: TapeSink> TapeWriter<S> {
         self.indexer.pending()
     }
 
-    fn check(&self) -> Result<(), WriteError> {
+    fn check(&self) -> Result<(), WriteError<S::Error>> {
         if self.failed {
             Err(WriteError::Failed)
         } else {
@@ -1923,7 +1938,7 @@ struct Deferred {
 }
 
 /// Bytes of the blocks of puts holding `records`, as [TapeWriter::write_puts] writes them.
-fn puts_len(records: &[RecordRef<'_>]) -> Result<usize, WriteError> {
+fn puts_len<E>(records: &[RecordRef<'_>]) -> Result<usize, WriteError<E>> {
     let mut len = 0usize;
     write_records(
         records,
@@ -1962,13 +1977,13 @@ impl NextPiece {
     /// The piece after the one headed `head` that ended as `done`, continued: its id [PieceId::after] that one's id
     /// and content hash, its head naming that piece, its track starts `tracks`; seqs go on in `session` from
     /// `next_seq`.
-    pub(crate) fn after(
+    pub(crate) fn after<E>(
         head: &PieceHead,
         done: &Finished,
         tracks: Vec<TrackStart>,
         session: SessionTag,
         next_seq: u64,
-    ) -> Result<Self, WriteError> {
+    ) -> Result<Self, WriteError<E>> {
         let seq = head
             .ident
             .seq
@@ -2009,12 +2024,12 @@ impl NextPiece {
     /// aborted, or continued with no piece after it): its id [PieceId::after] that one's id and content hash, its
     /// head naming that piece and `prev_session`, the session that wrote it; its own session [SessionTag::of_piece]
     /// its id, seqs from 0; its track starts `tracks`.
-    pub(crate) fn reopened(
+    pub(crate) fn reopened<E>(
         head: &PieceHead,
         done: &Finished,
         tracks: Vec<TrackStart>,
         prev_session: SessionTag,
-    ) -> Result<Self, WriteError> {
+    ) -> Result<Self, WriteError<E>> {
         let mut next = Self::after(head, done, tracks, prev_session, 0)?;
         next.session = SessionTag::of_piece(&next.head.ident.id);
         Ok(next)

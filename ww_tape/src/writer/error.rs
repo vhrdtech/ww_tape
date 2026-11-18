@@ -1,34 +1,20 @@
 //! [WriteError]: why a [TapeWriter] stopped, and [CutError].
 
-use std::io;
-use std::path::PathBuf;
-
 use super::{TapeWriter, caller_flags};
 use crate::piece::FinishState;
 use crate::reader::ReadError;
 use crate::sink::TapeSink;
 use crate::{BlockKind, DescribeError, IndexError, Layout, SessionTag};
 
-/// Why a [TapeWriter] stopped.
+/// Why a [TapeWriter] stopped; `E` is the error of its sink ([TapeSink::Error]).
 #[derive(Debug)]
 #[non_exhaustive]
-pub enum WriteError {
-    /// Opening, writing, syncing or renaming failed, with what was being done.
-    Io {
-        what: &'static str,
-        error: io::Error,
-    },
+pub enum WriteError<E> {
+    /// The sink or its store failed or refused (another writer holds the bytes, a new piece is there already),
+    /// with what was being done.
+    Sink { what: &'static str, error: E },
     /// An earlier write or sync failed (said then); the file takes no more blocks.
     Failed,
-    /// `create` of a file that is already there.
-    Exists(PathBuf),
-    /// Another writer holds the file or memory tape: one writer per file ([crate::sink]).
-    Locked(PathBuf),
-    /// The `.partial` file `create` opened is no longer the one its name points to once locked: another writer
-    /// finished and renamed it, or it was replaced. Nothing is written.
-    Replaced(PathBuf),
-    /// [MemTapes::remove](crate::MemTapes::remove) of a piece still being written.
-    Unfinished(PathBuf),
     /// A deferred block isn't a good block.
     Block(crate::BlockError),
     /// A chunk doesn't encode.
@@ -37,7 +23,7 @@ pub enum WriteError {
     /// after other blocks, a cut of a file without a piece head).
     Index(IndexError),
     /// Reading back the piece to resume failed.
-    Read(ReadError<io::Error>),
+    Read(ReadError<E>),
     /// The piece or chain to resume ended already in this state.
     Ended(FinishState),
     /// A put or a block's records don't agree with the definitions passed.
@@ -81,6 +67,8 @@ pub enum InputError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ResumeError {
+    /// There is no piece to resume: no unfinished piece, or no first piece of the chain.
+    NoPiece,
     /// The resume would cut off a good block of the piece at `offset`, behind bytes the reader didn't take: more
     /// than a torn end.
     GoodBlockAfterCut { offset: u64 },
@@ -98,13 +86,13 @@ pub enum ResumeError {
 /// written.
 pub struct CutError<S: TapeSink> {
     /// Why.
-    pub error: WriteError,
+    pub error: WriteError<S::Error>,
     /// The writer as it was, when the cut was refused before the piece ended; None once it failed past that.
     pub writer: Option<Box<TapeWriter<S>>>,
 }
 
-impl<S: TapeSink> From<WriteError> for CutError<S> {
-    fn from(error: WriteError) -> Self {
+impl<S: TapeSink> From<WriteError<S::Error>> for CutError<S> {
+    fn from(error: WriteError<S::Error>) -> Self {
         CutError {
             error,
             writer: None,
@@ -112,7 +100,7 @@ impl<S: TapeSink> From<WriteError> for CutError<S> {
     }
 }
 
-impl<S: TapeSink> From<CutError<S>> for WriteError {
+impl<S: TapeSink> From<CutError<S>> for WriteError<S::Error> {
     fn from(e: CutError<S>) -> Self {
         e.error
     }
@@ -142,40 +130,32 @@ impl<S: TapeSink> core::error::Error for CutError<S> {
     }
 }
 
-impl From<InputError> for WriteError {
+impl<E> From<InputError> for WriteError<E> {
     fn from(e: InputError) -> Self {
         WriteError::Input(e)
     }
 }
 
-impl From<ResumeError> for WriteError {
+impl<E> From<ResumeError> for WriteError<E> {
     fn from(e: ResumeError) -> Self {
         WriteError::Resume(e)
     }
 }
 
-impl From<DescribeError> for WriteError {
+impl<E> From<DescribeError> for WriteError<E> {
     fn from(e: DescribeError) -> Self {
         WriteError::Describe(e)
     }
 }
 
-impl core::fmt::Display for WriteError {
+impl<E: core::fmt::Display + core::fmt::Debug> core::fmt::Display for WriteError<E> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            WriteError::Io { what, error } => write!(f, "{what}: {error}"),
+            WriteError::Sink { what, error } => write!(f, "{what}: {error}"),
             WriteError::Failed => write!(
                 f,
                 "an earlier write or sync failed, the file takes no more blocks"
             ),
-            WriteError::Exists(p) => write!(f, "{} exists", p.display()),
-            WriteError::Locked(p) => write!(f, "another writer holds {}", p.display()),
-            WriteError::Replaced(p) => write!(
-                f,
-                "{} was renamed or replaced while it was opened",
-                p.display()
-            ),
-            WriteError::Unfinished(p) => write!(f, "{} is still being written", p.display()),
             WriteError::Block(e) => write!(f, "not a good block: {e:?}"),
             WriteError::Chunk(e) => write!(f, "chunk doesn't encode: {e:?}"),
             WriteError::Index(e) => write!(f, "index or piece block: {e:?}"),
@@ -230,6 +210,7 @@ impl core::error::Error for InputError {}
 impl core::fmt::Display for ResumeError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
+            ResumeError::NoPiece => write!(f, "there is no piece to resume"),
             ResumeError::GoodBlockAfterCut { offset } => write!(
                 f,
                 "a resume would cut off a good block at {offset}, more than a torn end"
@@ -248,10 +229,10 @@ impl core::fmt::Display for ResumeError {
 
 impl core::error::Error for ResumeError {}
 
-impl core::error::Error for WriteError {
+impl<E: core::error::Error + 'static> core::error::Error for WriteError<E> {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
-            WriteError::Io { error, .. } => Some(error),
+            WriteError::Sink { error, .. } => Some(error),
             WriteError::Read(e) => Some(e),
             WriteError::Describe(e) => Some(e),
             WriteError::Input(e) => Some(e),

@@ -46,13 +46,12 @@
 //! the walk moves on at least one byte a step, so it ends within the piece's length.
 
 use std::collections::BTreeMap;
-use std::io;
 
 use super::{InputError, ResumeError, TapeWriter, WriteError, WriterOptions};
 use crate::index::{IndexBlock, IndexEntry, IndexKind, STATE_TRACK_ID, is_structural};
 use crate::piece::{FinishState, PieceHeadBlock, Walked, hash_block, walk_piece};
 use crate::reader::{ByteSource, ReadError, TapeReader, wide};
-use crate::sink::{TapeSink, io_err};
+use crate::sink::{TapeSink, sink_err};
 use crate::{
     Block, BlockKind, CRC_LEN, FLAG_REPEAT, FromFile, HEADER_LEN, MAX_BLOCK_LEN, block_len,
 };
@@ -105,13 +104,13 @@ impl Resumed {
 pub(crate) struct SinkSource<'a, S>(pub(crate) &'a S);
 
 impl<S: TapeSink> ByteSource for SinkSource<'_, S> {
-    type Error = io::Error;
+    type Error = S::Error;
 
-    fn size(&self) -> io::Result<u64> {
+    fn size(&self) -> Result<u64, S::Error> {
         self.0.size()
     }
 
-    fn read_at(&self, offset: u64, buf: &mut [u8]) -> io::Result<()> {
+    fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), S::Error> {
         self.0.read_at(offset, buf)
     }
 }
@@ -188,7 +187,7 @@ struct Layout {
 
 impl Layout {
     /// The step at `at` (before [Self::end]), its header read from `src`.
-    fn step<S: TapeSink>(&self, src: &S, at: u64) -> Result<Step, WriteError> {
+    fn step<S: TapeSink>(&self, src: &S, at: u64) -> Result<Step, WriteError<S::Error>> {
         let left = self.end.saturating_sub(at);
         if let Some(&len) = self.gaps.get(&at) {
             return Ok(Step {
@@ -201,7 +200,7 @@ impl Layout {
         let has_header = left >= wide(HEADER_LEN);
         if has_header {
             src.read_at(at, &mut header)
-                .map_err(io_err("reading back a block header"))?;
+                .map_err(sink_err("reading back a block header"))?;
         }
         let flags = u16::from_le_bytes([header[6], header[7]]);
         if let Some(e) = self.entries.get(&at).and_then(|e| e.first()) {
@@ -289,7 +288,7 @@ fn good_block_after<S: TapeSink>(
     from: u64,
     size: u64,
     sessions: &std::collections::BTreeSet<u32>,
-) -> Result<Option<u64>, WriteError> {
+) -> Result<Option<u64>, WriteError<S::Error>> {
     // the places looked at: a header starting before `end` is read whole, up to `size`
     let end = size.min(from.saturating_add(RESUME_LOOK_MAX));
     let mut probes = 0;
@@ -305,7 +304,7 @@ fn good_block_after<S: TapeSink>(
         .unwrap_or(JUNK_READ_MAX);
         let w = window.get_mut(..n).unwrap_or_default();
         src.read_at(at, w)
-            .map_err(io_err("reading back the bytes a resume cuts off"))?;
+            .map_err(sink_err("reading back the bytes a resume cuts off"))?;
         // the places a whole header fits in this window, before `end`; the next window starts at the first that
         // doesn't
         let fits = n
@@ -333,7 +332,7 @@ fn good_block_after<S: TapeSink>(
             probes = probes.saturating_add(1);
             let mut block = vec![0u8; len];
             src.read_at(place, &mut block)
-                .map_err(io_err("reading back a block a resume cuts off"))?;
+                .map_err(sink_err("reading back a block a resume cuts off"))?;
             if Block::read(&block).is_ok() {
                 return Ok(Some(place));
             }
@@ -354,7 +353,7 @@ fn taken_after_end<S: TapeSink>(
     layout: &Layout,
     from: u64,
     sessions: &std::collections::BTreeSet<u32>,
-) -> Result<Option<u64>, WriteError> {
+) -> Result<Option<u64>, WriteError<S::Error>> {
     let mut at = from;
     while at < layout.end {
         let step = layout.step(src, at)?;
@@ -364,7 +363,7 @@ fn taken_after_end<S: TapeSink>(
         {
             let mut tag = [0u8; 4];
             src.read_at(step.at.saturating_add(24), &mut tag)
-                .map_err(io_err("reading back a block's session"))?;
+                .map_err(sink_err("reading back a block's session"))?;
             if sessions.is_empty() || sessions.contains(&u32::from_le_bytes(tag)) {
                 return Ok(Some(step.at));
             }
@@ -375,7 +374,7 @@ fn taken_after_end<S: TapeSink>(
 }
 
 /// Whether step `s` of the piece in `src` ends the piece: a finish, a tail or a final index block.
-fn ends_piece<S: TapeSink>(src: &S, s: &Step) -> Result<bool, WriteError> {
+fn ends_piece<S: TapeSink>(src: &S, s: &Step) -> Result<bool, WriteError<S::Error>> {
     let What::Block { kind, .. } = s.what else {
         return Ok(false);
     };
@@ -386,7 +385,7 @@ fn ends_piece<S: TapeSink>(src: &S, s: &Step) -> Result<bool, WriteError> {
             let len = usize::try_from(s.len).map_err(|_overflow| too_long(s.len))?;
             let mut buf = vec![0u8; len];
             src.read_at(s.at, &mut buf)
-                .map_err(io_err("reading back an index block"))?;
+                .map_err(sink_err("reading back an index block"))?;
             Ok(Block::read(&buf)
                 .ok()
                 .and_then(|b| {
@@ -409,7 +408,7 @@ struct Named {
 
 impl Named {
     /// Take the layout and producer records of the good record block of `step` in `src`.
-    fn take<S: TapeSink>(&mut self, src: &S, step: &Step) -> Result<(), WriteError> {
+    fn take<S: TapeSink>(&mut self, src: &S, step: &Step) -> Result<(), WriteError<S::Error>> {
         let What::Block {
             kind: BlockKind::Records,
             ..
@@ -421,7 +420,7 @@ impl Named {
         let len = usize::try_from(step.len).map_err(|_overflow| too_long(step.len))?;
         let mut buf = vec![0u8; len];
         src.read_at(step.at, &mut buf)
-            .map_err(io_err("reading back a block"))?;
+            .map_err(sink_err("reading back a block"))?;
         let Ok(b) = Block::read(&buf) else {
             return Ok(());
         };
@@ -452,10 +451,13 @@ impl<S: TapeSink> TapeWriter<S> {
     /// from [Self::next_id] on, with the puts between them. Definitions in a damaged block are lost to the writer
     /// unless a later block holds them. The producer seq of [Self::adopt_block] starts again: the first block
     /// adopted shows no gap.
-    pub fn resume_on(mut sink: S, options: WriterOptions) -> Result<(Self, Resumed), WriteError> {
+    pub fn resume_on(
+        mut sink: S,
+        options: WriterOptions,
+    ) -> Result<(Self, Resumed), WriteError<S::Error>> {
         let size = sink
             .size()
-            .map_err(io_err("reading the length to resume"))?;
+            .map_err(sink_err("reading the length to resume"))?;
         let (layout, cut, ended) = read_layout(&sink)?;
         if let Some(state) = ended.whole {
             // bytes after the tail: junk a crash left (a torn block, garbage) is cut off; a good block refuses, as
@@ -468,10 +470,10 @@ impl<S: TapeSink> TapeWriter<S> {
                     }));
                 }
                 sink.truncate(layout.end)
-                    .map_err(io_err("cutting the bytes after the tail"))?;
+                    .map_err(sink_err("cutting the bytes after the tail"))?;
             }
             sink.finish()
-                .map_err(io_err("giving the finished piece its name"))?;
+                .map_err(sink_err("giving the finished piece its name"))?;
             return Err(WriteError::Ended(state));
         }
         let ended = ended.state;
@@ -488,7 +490,7 @@ impl<S: TapeSink> TapeWriter<S> {
             if let What::Block { .. } = step.what {
                 let mut tag = [0u8; 4];
                 sink.read_at(step.at.saturating_add(24), &mut tag)
-                    .map_err(io_err("reading back a block's session"))?;
+                    .map_err(sink_err("reading back a block's session"))?;
                 sessions.insert(u32::from_le_bytes(tag));
             }
             kept.take(&step);
@@ -535,7 +537,7 @@ impl<S: TapeSink> TapeWriter<S> {
                 pos = pos.saturating_add(len);
             },
         )
-        .map_err(io_err("reading back the piece to hash"))?;
+        .map_err(sink_err("reading back the piece to hash"))?;
         if !tries {
             return Err(WriteError::Resume(ResumeError::HashWalkSpent {
                 end: kept_bytes,
@@ -550,7 +552,7 @@ impl<S: TapeSink> TapeWriter<S> {
                 buf.resize(len, 0);
                 w.sink
                     .read_at(s.at, &mut buf)
-                    .map_err(io_err("reading back a block"))?;
+                    .map_err(sink_err("reading back a block"))?;
                 let kind = BlockKind::from_u8(buf.get(5).copied().unwrap_or(0));
                 w.replay_good(s.at, &buf)?;
                 let step = Step {
@@ -593,7 +595,7 @@ impl<S: TapeSink> TapeWriter<S> {
                 buf.resize(len, 0);
                 w.sink
                     .read_at(x, &mut buf)
-                    .map_err(io_err("reading back a damaged block"))?;
+                    .map_err(sink_err("reading back a damaged block"))?;
                 w.replay_damaged(entries, *e, e.kind, &buf)?;
                 done = end;
             }
@@ -620,7 +622,7 @@ impl<S: TapeSink> TapeWriter<S> {
         if size > kept_bytes {
             w.sink
                 .truncate(kept_bytes)
-                .map_err(io_err("truncating the piece to resume"))?;
+                .map_err(sink_err("truncating the piece to resume"))?;
         }
         w.hash = hash;
         let entries = w.indexer.entries().to_vec();
@@ -642,7 +644,7 @@ impl<S: TapeSink> TapeWriter<S> {
         Ok((w, resumed))
     }
 
-    fn replay_good(&mut self, at: u64, block: &[u8]) -> Result<(), WriteError> {
+    fn replay_good(&mut self, at: u64, block: &[u8]) -> Result<(), WriteError<S::Error>> {
         let b = Block::read(block).map_err(WriteError::Block)?;
         let (Some(header), Some(crc)) = (
             block.first_chunk::<HEADER_LEN>(),
@@ -698,7 +700,7 @@ impl<S: TapeSink> TapeWriter<S> {
         e: IndexEntry,
         kind: BlockKind,
         bytes: &[u8],
-    ) -> Result<(), WriteError> {
+    ) -> Result<(), WriteError<S::Error>> {
         let end = self.end_after(bytes.len())?;
         self.hash.update(bytes);
         self.indexer.placed_entries(entries, bytes.len());
@@ -752,7 +754,7 @@ impl<S: TapeSink> TapeWriter<S> {
     }
 
     /// Bytes no block or entry explains: hashed, placed, never listed.
-    fn replay_junk(&mut self, step: &Step, buf: &mut Vec<u8>) -> Result<(), WriteError> {
+    fn replay_junk(&mut self, step: &Step, buf: &mut Vec<u8>) -> Result<(), WriteError<S::Error>> {
         let mut at = step.at;
         let end = step.end();
         while at < end {
@@ -761,7 +763,7 @@ impl<S: TapeSink> TapeWriter<S> {
             buf.resize(n, 0);
             self.sink
                 .read_at(at, buf)
-                .map_err(io_err("reading back damaged bytes"))?;
+                .map_err(sink_err("reading back damaged bytes"))?;
             self.hash.update(buf);
             self.indexer.placed_unlisted(n);
             self.bytes = self.end_after(n)?;
@@ -783,7 +785,9 @@ struct EndFound {
 
 /// The piece at the start of `sink` as a reader finds it: its blocks by index entry and gap, where it ends, where a
 /// scan was cut, and how it ended.
-fn read_layout<S: TapeSink>(sink: &S) -> Result<(Layout, Option<u64>, EndFound), WriteError> {
+fn read_layout<S: TapeSink>(
+    sink: &S,
+) -> Result<(Layout, Option<u64>, EndFound), WriteError<S::Error>> {
     let reader = TapeReader::open(SinkSource(sink)).map_err(WriteError::Read)?;
     let Some(p) = reader.pieces().first() else {
         return Ok((
@@ -818,7 +822,7 @@ fn read_layout<S: TapeSink>(sink: &S) -> Result<(Layout, Option<u64>, EndFound),
     ))
 }
 
-fn too_long(len: u64) -> WriteError {
+fn too_long<E>(len: u64) -> WriteError<E> {
     WriteError::Block(crate::BlockError::BadLength(
         u32::try_from(len).unwrap_or(u32::MAX),
     ))

@@ -1,14 +1,58 @@
 //! Pieces in memory: [MemSink], [MemTape] and [MemTapes].
 
 use std::collections::BTreeMap;
-use std::io;
-use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
-use super::{SinkFactory, TapeSink, check_base, past_base};
-use crate::reader::{ByteSource, wide};
-use crate::writer::WriteError;
+use super::{BaseRefused, TapeSink, Tapes, check_base, past_base};
+use crate::reader::{ByteSource, OutOfRange, wide};
+
+/// Why a [MemSink], [MemTape] or [MemTapes] failed or refused.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum MemError {
+    /// A new tape under a name that has one.
+    Exists,
+    /// Another sink writes the tape: one writer per tape ([crate::sink]).
+    Locked,
+    /// [MemTapes::remove] of a tape still being written.
+    Unfinished,
+    /// A writer panicked while it held the bytes: they may be half written.
+    Poisoned,
+    /// A read past the end of the bytes.
+    OutOfRange,
+    /// A piece start refused: past the end of the bytes, or any but 0 on a sink of one piece.
+    Base,
+}
+
+impl core::fmt::Display for MemError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(match self {
+            MemError::Exists => "the memory tape exists",
+            MemError::Locked => "another writer holds the memory tape",
+            MemError::Unfinished => "the memory tape is still being written",
+            MemError::Poisoned => "a writer of the memory tape panicked",
+            MemError::OutOfRange => "a read past the end of the memory tape",
+            MemError::Base => {
+                "a piece can't start there: past the end, or in a memory tape of one piece"
+            }
+        })
+    }
+}
+
+impl core::error::Error for MemError {}
+
+impl From<OutOfRange> for MemError {
+    fn from(_: OutOfRange) -> Self {
+        MemError::OutOfRange
+    }
+}
+
+impl From<BaseRefused> for MemError {
+    fn from(_: BaseRefused) -> Self {
+        MemError::Base
+    }
+}
 
 /// Bytes in memory that a [MemSink] writes and readers read at the same time: a [ByteSource] whose size grows.
 #[derive(Clone, Debug, Default)]
@@ -24,7 +68,7 @@ struct MemBytes {
 
 impl MemTape {
     /// A copy of the bytes.
-    pub fn to_vec(&self) -> io::Result<Vec<u8>> {
+    pub fn to_vec(&self) -> Result<Vec<u8>, MemError> {
         Ok(self.read()?.clone())
     }
 
@@ -33,73 +77,57 @@ impl MemTape {
         self.0.finished.load(Ordering::Acquire)
     }
 
-    /// A sink named `path` writing these bytes, the only one while it lives: [WriteError::Locked] while another
-    /// one does.
-    fn hold(&self, path: &Path) -> Result<MemSink, WriteError> {
+    /// A sink writing these bytes, the only one while it lives: [MemError::Locked] while another one does.
+    fn hold(&self) -> Result<MemSink, MemError> {
         self.0
             .held
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .map_err(|_held| WriteError::Locked(path.to_path_buf()))?;
+            .map_err(|_held| MemError::Locked)?;
         Ok(MemSink {
             tape: self.clone(),
-            path: path.to_path_buf(),
             base: 0,
             whole: false,
         })
     }
 
-    fn read(&self) -> io::Result<std::sync::RwLockReadGuard<'_, Vec<u8>>> {
-        self.0.bytes.read().map_err(|_poisoned| poisoned())
+    fn read(&self) -> Result<std::sync::RwLockReadGuard<'_, Vec<u8>>, MemError> {
+        self.0.bytes.read().map_err(|_poisoned| MemError::Poisoned)
     }
 
-    fn write(&self) -> io::Result<std::sync::RwLockWriteGuard<'_, Vec<u8>>> {
-        self.0.bytes.write().map_err(|_poisoned| poisoned())
+    fn write(&self) -> Result<std::sync::RwLockWriteGuard<'_, Vec<u8>>, MemError> {
+        self.0.bytes.write().map_err(|_poisoned| MemError::Poisoned)
     }
-}
-
-/// A writer panicked while it held the bytes: they may be half written.
-fn poisoned() -> io::Error {
-    io::Error::other("a writer of the memory tape panicked")
 }
 
 impl ByteSource for MemTape {
-    type Error = io::Error;
+    type Error = MemError;
 
-    fn size(&self) -> io::Result<u64> {
+    fn size(&self) -> Result<u64, MemError> {
         Ok(wide(self.read()?.len()))
     }
 
-    fn read_at(&self, offset: u64, buf: &mut [u8]) -> io::Result<()> {
-        let bytes = self.read()?;
-        let src = usize::try_from(offset)
-            .ok()
-            .and_then(|from| Some(from..from.checked_add(buf.len())?))
-            .and_then(|r| bytes.get(r))
-            .ok_or_else(|| io::Error::from(io::ErrorKind::UnexpectedEof))?;
-        buf.copy_from_slice(src);
-        Ok(())
+    fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), MemError> {
+        Ok(self.read()?.as_slice().read_at(offset, buf)?)
     }
 }
 
-/// A piece in memory under a path, readers reading its [MemTape] as it grows.
+/// A piece in memory, readers reading its [MemTape] as it grows.
 #[derive(Debug)]
 pub struct MemSink {
     tape: MemTape,
-    path: PathBuf,
     /// Where the piece being written starts in the bytes
     base: u64,
-    /// The tape holds pieces back to back ([SinkFactory::create_whole], [SinkFactory::open_whole])
+    /// The tape holds pieces back to back ([Tapes::create_whole], [Tapes::open_whole])
     whole: bool,
 }
 
 impl MemSink {
-    /// An empty sink named `path`, not kept in any [MemTapes].
-    pub fn new(path: &Path) -> Self {
+    /// An empty sink, not kept in any [MemTapes].
+    pub fn new() -> Self {
         let tape = MemTape::default();
         tape.0.held.store(true, Ordering::Release);
         MemSink {
             tape,
-            path: path.to_path_buf(),
             base: 0,
             whole: false,
         }
@@ -119,26 +147,29 @@ impl Drop for MemSink {
 }
 
 impl TapeSink for MemSink {
-    fn write_all(&mut self, bytes: &[u8]) -> io::Result<()> {
+    type Error = MemError;
+
+    fn write_all(&mut self, bytes: &[u8]) -> Result<(), MemError> {
         self.tape.write()?.extend_from_slice(bytes);
         Ok(())
     }
 
-    fn sync(&mut self) -> io::Result<()> {
+    fn sync(&mut self) -> Result<(), MemError> {
         Ok(())
     }
 
-    fn finish(&mut self) -> io::Result<()> {
+    fn finish(&mut self) -> Result<(), MemError> {
         self.tape.0.finished.store(true, Ordering::Release);
         Ok(())
     }
 
-    fn size(&self) -> io::Result<u64> {
+    fn size(&self) -> Result<u64, MemError> {
         Ok(ByteSource::size(&self.tape)?.saturating_sub(self.base))
     }
 
-    fn read_at(&self, offset: u64, buf: &mut [u8]) -> io::Result<()> {
-        ByteSource::read_at(&self.tape, past_base(self.base, offset)?, buf)
+    fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), MemError> {
+        let at = past_base(self.base, offset).ok_or(MemError::OutOfRange)?;
+        ByteSource::read_at(&self.tape, at, buf)
     }
 
     fn base(&self) -> u64 {
@@ -149,7 +180,7 @@ impl TapeSink for MemSink {
         self.whole
     }
 
-    fn rebase(&mut self, base: u64) -> io::Result<()> {
+    fn rebase(&mut self, base: u64) -> Result<(), MemError> {
         self.base = check_base(base, ByteSource::size(&self.tape)?, self.whole)?;
         Ok(())
     }
@@ -161,106 +192,143 @@ impl TapeSink for MemSink {
         }
     }
 
-    fn truncate(&mut self, len: u64) -> io::Result<()> {
-        let len = past_base(self.base, len)?;
+    fn truncate(&mut self, len: u64) -> Result<(), MemError> {
+        let len = past_base(self.base, len).ok_or(MemError::OutOfRange)?;
         let mut bytes = self.tape.write()?;
         if let Ok(len) = usize::try_from(len) {
             bytes.truncate(len);
         }
         Ok(())
     }
+}
 
-    fn path(&self) -> &Path {
-        &self.path
+impl Default for MemSink {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
-/// Pieces in memory by path, shared by every clone: the factory of an in-memory store, and where its readers find
-/// each piece ([Self::get]).
-#[derive(Clone, Debug, Default)]
-pub struct MemTapes(Arc<Mutex<BTreeMap<PathBuf, MemTape>>>);
+/// Pieces in memory by key, shared by every clone: a store of [Tapes] (keyed by a piece's seq with `K = u64`), and
+/// where its readers find each piece ([Self::get]). Another key lets an application keep the pieces of many chains
+/// in one map, behind a [Tapes] of its own that names each chain's keys.
+#[derive(Clone, Debug)]
+pub struct MemTapes<K = u64>(Arc<Mutex<BTreeMap<K, MemTape>>>);
 
-impl MemTapes {
+impl<K> Default for MemTapes<K> {
+    fn default() -> Self {
+        MemTapes(Arc::default())
+    }
+}
+
+impl<K: Ord + Clone> MemTapes<K> {
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// The bytes under `path`, finished or not.
-    pub fn get(&self, path: &Path) -> Result<Option<MemTape>, WriteError> {
-        Ok(self.lock()?.get(path).cloned())
+    /// The bytes under `key`, finished or not.
+    pub fn get(&self, key: &K) -> Result<Option<MemTape>, MemError> {
+        Ok(self.lock()?.get(key).cloned())
     }
 
-    /// Take the finished piece under `path` out of the map: true when it was there, false when it was not.
+    /// Take the finished piece under `key` out of the map: true when it was there, false when it was not.
     ///
     /// A [MemTape] a reader already holds keeps its bytes (they are freed with the last holder), and reads on as
-    /// before: nothing a reader holds ever changes or fails. After the call [Self::get] and [SinkFactory::finished]
-    /// find nothing under `path`. A piece still being written is not removed: [WriteError::Unfinished], so a writer
-    /// never writes into bytes nobody can find. Removing the oldest pieces of a chain leaves a head cut
+    /// before: nothing a reader holds ever changes or fails. After the call [Self::get] and [Self::finished] find
+    /// nothing under `key`. A piece still being written is not removed: [MemError::Unfinished], so a writer never
+    /// writes into bytes nobody can find. Removing the oldest pieces of a chain leaves a head cut
     /// ([ChainReport::head_cut](crate::piece::ChainReport::head_cut)); a [PieceChain](crate::PieceChain) resumes only
     /// from its first piece, so a chain with removed pieces is not resumed.
-    pub fn remove(&self, path: &Path) -> Result<bool, WriteError> {
+    pub fn remove(&self, key: &K) -> Result<bool, MemError> {
         let mut map = self.lock()?;
-        match map.get(path) {
+        match map.get(key) {
             None => Ok(false),
-            Some(t) if !t.is_finished() => Err(WriteError::Unfinished(path.to_path_buf())),
-            Some(_) => Ok(map.remove(path).is_some()),
+            Some(t) if !t.is_finished() => Err(MemError::Unfinished),
+            Some(_) => Ok(map.remove(key).is_some()),
         }
     }
 
-    /// Every path with bytes, in order.
-    pub fn paths(&self) -> Result<Vec<PathBuf>, WriteError> {
+    /// Every key with bytes, in order.
+    pub fn keys(&self) -> Result<Vec<K>, MemError> {
         Ok(self.lock()?.keys().cloned().collect())
     }
 
-    fn lock(&self) -> Result<std::sync::MutexGuard<'_, BTreeMap<PathBuf, MemTape>>, WriteError> {
-        self.0.lock().map_err(|_poisoned| WriteError::Io {
-            what: "listing the memory tapes",
-            error: poisoned(),
-        })
-    }
-}
-
-impl SinkFactory for MemTapes {
-    type Sink = MemSink;
-    type Source = MemTape;
-
-    fn create(&mut self, path: &Path) -> Result<MemSink, WriteError> {
+    /// A new sink under `key` ([Tapes::create]): [MemError::Exists] when the key has a tape.
+    pub fn create(&self, key: &K) -> Result<MemSink, MemError> {
         let mut map = self.lock()?;
-        if map.contains_key(path) {
-            return Err(WriteError::Exists(path.to_path_buf()));
+        if map.contains_key(key) {
+            return Err(MemError::Exists);
         }
-        let sink = MemSink::new(path);
-        map.insert(path.to_path_buf(), sink.tape());
+        let sink = MemSink::new();
+        map.insert(key.clone(), sink.tape());
         Ok(sink)
     }
 
-    fn reopen(&mut self, path: &Path) -> Result<Option<MemSink>, WriteError> {
+    /// The unfinished tape under `key`, to resume ([Tapes::reopen]).
+    pub fn reopen(&self, key: &K) -> Result<Option<MemSink>, MemError> {
         self.lock()?
-            .get(path)
+            .get(key)
             .filter(|t| !t.is_finished())
-            .map(|tape| tape.hold(path))
+            .map(MemTape::hold)
             .transpose()
     }
 
-    fn finished(&self, path: &Path) -> Result<Option<MemTape>, WriteError> {
-        Ok(self.lock()?.get(path).filter(|t| t.is_finished()).cloned())
+    /// The finished tape under `key` ([Tapes::finished]).
+    pub fn finished(&self, key: &K) -> Result<Option<MemTape>, MemError> {
+        Ok(self.lock()?.get(key).filter(|t| t.is_finished()).cloned())
     }
 
-    fn create_whole(&mut self, path: &Path) -> Result<MemSink, WriteError> {
-        let mut sink = self.create(path)?;
+    /// A new tape of several pieces under `key` ([Tapes::create_whole]).
+    pub fn create_whole(&self, key: &K) -> Result<MemSink, MemError> {
+        let mut sink = self.create(key)?;
         sink.whole = true;
         Ok(sink)
     }
 
-    /// The tape under `path`, which is written again: it reads as unfinished until its next finish.
-    fn open_whole(&mut self, path: &Path) -> Result<Option<MemSink>, WriteError> {
+    /// The tape of several pieces under `key`, which is written again: it reads as unfinished until its next finish
+    /// ([Tapes::open_whole]).
+    pub fn open_whole(&self, key: &K) -> Result<Option<MemSink>, MemError> {
         let map = self.lock()?;
-        let Some(tape) = map.get(path) else {
+        let Some(tape) = map.get(key) else {
             return Ok(None);
         };
-        let mut sink = tape.hold(path)?;
+        let mut sink = tape.hold()?;
         sink.whole = true;
         tape.0.finished.store(false, Ordering::Release);
         Ok(Some(sink))
+    }
+
+    fn lock(&self) -> Result<std::sync::MutexGuard<'_, BTreeMap<K, MemTape>>, MemError> {
+        self.0.lock().map_err(|_poisoned| MemError::Poisoned)
+    }
+}
+
+impl Tapes for MemTapes<u64> {
+    type Key = u64;
+    type Error = MemError;
+    type Sink = MemSink;
+    type Source = MemTape;
+
+    fn key_of(&self, seq: u64) -> u64 {
+        seq
+    }
+
+    fn create(&mut self, key: &u64) -> Result<MemSink, MemError> {
+        MemTapes::create(self, key)
+    }
+
+    fn reopen(&mut self, key: &u64) -> Result<Option<MemSink>, MemError> {
+        MemTapes::reopen(self, key)
+    }
+
+    fn finished(&self, key: &u64) -> Result<Option<MemTape>, MemError> {
+        MemTapes::finished(self, key)
+    }
+
+    fn create_whole(&mut self, key: &u64) -> Result<MemSink, MemError> {
+        MemTapes::create_whole(self, key)
+    }
+
+    fn open_whole(&mut self, key: &u64) -> Result<Option<MemSink>, MemError> {
+        MemTapes::open_whole(self, key)
     }
 }

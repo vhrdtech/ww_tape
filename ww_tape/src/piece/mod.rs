@@ -1175,7 +1175,9 @@ pub use fs::piece_name;
 #[cfg(feature = "std")]
 mod writer;
 #[cfg(feature = "std")]
-pub use writer::{CUT_SLACK, ChainOptions, ChunkPlaced, CutPolicy, PieceChain, PieceFiles};
+pub use writer::{
+    CUT_SLACK, ChainOptions, ChainPiece, ChunkPlaced, CutPolicy, PieceChain, PieceTapes,
+};
 
 #[cfg(test)]
 mod tests;

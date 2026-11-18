@@ -4,7 +4,6 @@
 use super::{chunk, index, payloads, reader, samples, series, summary, times};
 use crate::hostile;
 use shrink_wrap::DeserializeShrinkWrap;
-use std::path::Path;
 use ww_tape::times::EventTimes;
 use ww_tape::{
     Block, ChunkHead, Describe, Element, ItemHash, Layout, Medium, MemSink, OpenOptions, Ratio64,
@@ -444,7 +443,7 @@ fn lookups(r: &TapeReader<&[u8]>, i: usize) {
 /// finish that a reader finds whole. Unless the input was `forged` (a block behind a good CRC that isn't the one its
 /// index entry states, which a resume keeps the entry of), the piece verifies.
 fn resume_state(f: &[u8], forged: bool) {
-    let mut sink = MemSink::new(Path::new("s"));
+    let mut sink = MemSink::new();
     sink.write_all(f).expect("memory takes the bytes");
     let tape = sink.tape();
     let Ok((mut w, _)) = TapeWriter::resume_on(sink, hostile::state_options()) else {

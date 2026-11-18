@@ -220,7 +220,7 @@ pub use index::{
 };
 pub mod piece;
 #[cfg(feature = "std")]
-pub use piece::{ChainOptions, ChunkPlaced, CutPolicy, PieceChain, PieceFiles};
+pub use piece::{ChainOptions, ChainPiece, ChunkPlaced, CutPolicy, PieceChain, PieceTapes};
 pub use piece::{
     ContentHash, Finish, FinishState, HEAD_TRACKS_MAX, Integrity, OwnerId, PIECE_ALIGN, PieceHead,
     PieceId, PieceIdent, TAIL_LEN, TRACKS_PER_PIECE_MAX, Tail, TrackHash, TrackRange, TrackStart,
@@ -255,7 +255,7 @@ pub use open::{Definitions, DescribeError, RecordRef, STATE_ITEM_MAX, TrackFacts
 #[cfg(feature = "std")]
 pub mod sink;
 #[cfg(feature = "std")]
-pub use sink::{FileSink, Files, MemSink, MemTape, MemTapes, SinkFactory, TapeSink};
+pub use sink::{FileSink, Files, FsError, MemError, MemSink, MemTape, MemTapes, TapeSink, Tapes};
 #[cfg(feature = "alloc")]
 mod clock;
 #[cfg(feature = "std")]

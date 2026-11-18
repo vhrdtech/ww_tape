@@ -2,8 +2,6 @@
 //! writer runs with its near rule shrunk to fit the drawing: `near` 8 KiB and copies 2 KiB apart instead of 32 MiB and
 //! 1 MiB. What is written, and where, is read back from the bytes.
 
-use std::path::Path;
-
 use anyhow::{Context, ensure};
 use exact_units::{Bytes, Count};
 use ww_tape::index::IndexPolicy;
@@ -47,7 +45,7 @@ struct Placed {
 
 /// The run: the end of its bytes, its record blocks, and how many puts the writer reported as written.
 fn run() -> anyhow::Result<(u64, Vec<Placed>, usize)> {
-    let mut w = TapeWriter::create_on(MemSink::new(Path::new("puts")), SyncPolicy::None);
+    let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     w.set_producer("figures");
     w.set_index_policy(IndexPolicy::NONE)?;
     w.set_near_policy(NearPolicy {

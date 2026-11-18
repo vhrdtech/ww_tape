@@ -2,14 +2,12 @@
 //! bits on blocks other than chunks, index entries longer than a reader knows, and a raw medium holding appended
 //! pieces.
 
-use std::path::Path;
-
 use crate::definitions::base_defs;
 use crate::pieces::{chunk, column, records};
 use ww_tape::index::{IndexBlock, IndexKind, IndexPolicy};
 use ww_tape::{
     BlockId, BlockKind, ChainOptions, CutPolicy, FileBlocks, Layout, MemSink, MemTapes, OwnerId,
-    PieceChain, PieceFiles, SyncPolicy, TapeReader, TapeWriter, TrackHash, WriterOptions,
+    PieceChain, PieceTapes, SyncPolicy, TapeReader, TapeWriter, TrackHash, WriterOptions,
 };
 use ww_tape::{Medium, OpenOptions};
 
@@ -26,7 +24,7 @@ fn reseal(block: &mut [u8]) {
 
 /// An unfinished piece of chunks of tracks 0 and 1 and record blocks, with a checkpoint every 1 KiB; its bytes.
 fn unfinished() -> Vec<u8> {
-    let mut w = TapeWriter::create_on(MemSink::new(Path::new("open")), SyncPolicy::None);
+    let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     let tape = w.sink().tape();
     w.set_index_policy(IndexPolicy {
         bytes: 1024,
@@ -253,7 +251,7 @@ fn index_entries_longer_than_a_reader_knows_read_end_to_end() {
 #[test]
 fn a_raw_medium_reads_appended_pieces() {
     let options = ChainOptions {
-        files: PieceFiles::One,
+        tapes: PieceTapes::One,
         writer: WriterOptions {
             sync: SyncPolicy::None,
             layout: Layout::UNALIGNED.on_sd_card(),
@@ -271,9 +269,7 @@ fn a_raw_medium_reads_appended_pieces() {
         },
     };
     let mem = MemTapes::new();
-    let path = Path::new("card");
-    let mut c =
-        PieceChain::create_on(mem.clone(), path, OwnerId([8; 32]), 0, &[], options).unwrap();
+    let mut c = PieceChain::create_on(mem.clone(), OwnerId([8; 32]), 0, &[], options).unwrap();
     let defs = base_defs();
     for k in 0..16 {
         let (h, b) = chunk(k % 2, k / 2);
@@ -281,7 +277,7 @@ fn a_raw_medium_reads_appended_pieces() {
     }
     let done = c.finish().unwrap();
     assert!(done.len() >= 3, "{} pieces", done.len());
-    let bytes = mem.get(&done[0].path).unwrap().unwrap().to_vec().unwrap();
+    let bytes = mem.get(&done[0].tape).unwrap().unwrap().to_vec().unwrap();
     let file = TapeReader::open(&bytes[..]).unwrap();
     let raw = TapeReader::open_with(
         &bytes[..],

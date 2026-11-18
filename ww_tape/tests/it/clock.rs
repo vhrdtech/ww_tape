@@ -1,6 +1,5 @@
 //! Time reaches a writer only through its clock: intervals are due when the clock says so, never without one.
 
-use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -8,7 +7,7 @@ use std::time::Duration;
 use ww_tape::index::IndexPolicy;
 use ww_tape::{
     BlockKind, ChainOptions, Clock, ClockRef, CutPolicy, FileBlocks, MemSink, MemTapes, OwnerId,
-    PieceChain, PieceFiles, Recovery, SyncPolicy, TapeWriter, WriterOptions,
+    PieceChain, PieceTapes, Recovery, SyncPolicy, TapeWriter, WriterOptions,
 };
 
 use crate::pieces::{chunk, column};
@@ -32,12 +31,11 @@ impl Clock for HandClock {
 fn chain(clock: ClockRef) -> PieceChain<MemTapes> {
     PieceChain::create_on(
         MemTapes::new(),
-        Path::new("c"),
         OwnerId([7; 32]),
         0,
         &[],
         ChainOptions {
-            files: PieceFiles::Each,
+            tapes: PieceTapes::Each,
             writer: WriterOptions {
                 sync: SyncPolicy::None,
                 clock,
@@ -88,7 +86,7 @@ fn without_a_clock_no_interval_is_due() {
 #[test]
 fn a_checkpoint_is_placed_when_the_clock_says_the_interval_is_up() {
     let hand = HandClock::default();
-    let mut w = TapeWriter::create_on(MemSink::new(Path::new("p")), SyncPolicy::None);
+    let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     w.set_clock(ClockRef::new(hand.clone()));
     w.set_index_policy(IndexPolicy {
         bytes: 0,
