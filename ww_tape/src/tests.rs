@@ -322,9 +322,7 @@ fn sample_describe() -> Vec<Describe<'static>> {
             label: "link[3].tx.frames",
             repeat: crate::TrackRepeat::STATE,
             kind: TrackKind::Events(EventsDef::INSTANTS),
-            parent: None,
-            context: RefVec::Slice { slice: &[] },
-            entity_key: None,
+            relations: RefVec::Slice { slice: &[] },
             owner: [0; 32],
         }),
         Describe::Map(ClockMap {
@@ -1578,9 +1576,7 @@ fn bare_track_round_trips() {
         label: "x",
         repeat: crate::TrackRepeat::Stream,
         kind: TrackKind::Events(EventsDef::INSTANTS),
-        parent: None,
-        context: RefVec::Slice { slice: &[] },
-        entity_key: None,
+        relations: RefVec::Slice { slice: &[] },
         owner: [0; 32],
     });
     let mut buf = [0u8; 256];

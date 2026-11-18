@@ -135,9 +135,7 @@ fn definitions() -> Vec<Describe<'static>> {
             label: "phase.current",
             repeat: ww_tape::TrackRepeat::Stream,
             kind: TrackKind::Series(series_def()),
-            parent: None,
-            context: RefVec::Slice { slice: &[] },
-            entity_key: None,
+            relations: RefVec::Slice { slice: &[] },
             owner: [0; 32],
         }),
     ]

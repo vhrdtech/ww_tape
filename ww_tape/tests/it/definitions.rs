@@ -13,9 +13,10 @@ use ww_tape::writer::NearPolicy;
 use ww_tape::{
     Block, BlockId, BlockKind, BlockWriter, ClockDef, ClockOrigin, ClockTime, Definitions,
     Describe, DescribeError, DescribeOwned, EventsDef, FileBlocks, FullVersion, Layout, Magnitude,
-    MemSink, Producer, Recovery, STATE_ITEM_MAX, Segment, SessionTag, Slot, StatePolicy,
-    SyncPolicy, TapeReader, TapeSink, TapeWriter, TrackDef, TrackKind, TrackRepeat, TypeRef,
-    TypedItem, Version, WriteError, WriterOptions, clock_key, track_key,
+    MemSink, Producer, Recovery, RelationDef, RelationIndex, RelationTarget, RelationValues,
+    STATE_ITEM_MAX, Segment, SessionTag, Slot, StatePolicy, SyncPolicy, TapeReader, TapeSink,
+    TapeWriter, TrackDef, TrackKind, TrackRepeat, TypeRef, TypedItem, Version, WriteError,
+    WriterOptions, clock_key, track_key,
 };
 
 /// The clock of the tests' tracks.
@@ -54,9 +55,7 @@ pub(crate) fn labeled(number: u32, clock: u32, label: &'static str) -> Describe<
         label,
         repeat: TrackRepeat::Stream,
         kind: TrackKind::Events(EventsDef::INSTANTS),
-        parent: None,
-        context: RefVec::Slice { slice: &[] },
-        entity_key: None,
+        relations: RefVec::Slice { slice: &[] },
         owner: [0; 32],
     })
 }
@@ -1130,97 +1129,144 @@ fn near_is_measured_to_the_data() {
     assert!(newest >= before, "track 2 put again before the data");
 }
 
-/// Events track `number` on [CLOCK] nested under `parent`, read with state tracks `context`, keyed by `key`.
-fn related(
-    number: u32,
-    parent: Option<u32>,
-    context: &'static [UNib32],
-    key: Option<&'static str>,
-) -> Describe<'static> {
+/// Events track `number` on [CLOCK] declaring `relations`.
+fn related(number: u32, relations: &'static [RelationDef<'static>]) -> Describe<'static> {
     let Describe::Track(t) = track(number, CLOCK) else {
         unreachable!("track() gives a track")
     };
     Describe::Track(TrackDef {
-        parent: parent.map(UNib32),
-        context: RefVec::Slice { slice: context },
-        entity_key: key,
+        relations: RefVec::Slice { slice: relations },
         owner: [0; 32],
         ..t
     })
 }
 
-/// A track's parent, context and entity key round-trip; the parent is an open events track and the context open
-/// state tracks, in the batch or held; a relation that names the track itself, repeats or is out of order is
-/// refused, and so is a parent of a series or an empty key.
-#[test]
-fn a_tracks_relations_name_open_tracks_of_the_right_kind() {
-    let words = related(3, Some(2), &[UNib32(4), UNib32(5)], Some("speaker.id"));
-    let bytes = ww_tape::open::encode(&words).unwrap();
-    assert_eq!(Describe::from_ww_bytes(&bytes).unwrap(), words);
+/// A relation named `name`.
+const fn rel(
+    name: &'static str,
+    values: RelationValues,
+    monotone: bool,
+    index: RelationIndex,
+) -> RelationDef<'static> {
+    RelationDef {
+        name,
+        target: Some(RelationTarget {
+            run: [7; 16],
+            track: 0x5eed,
+        }),
+        values,
+        monotone,
+        index,
+    }
+}
 
-    let check = |defs: &Definitions, batch: &[Describe<'static>]| {
+const SOURCE: RelationDef<'static> =
+    rel("source", RelationValues::Stored, true, RelationIndex::Range);
+const CONTEXT: RelationDef<'static> =
+    rel("context", RelationValues::None, false, RelationIndex::None);
+
+/// A track's relations round-trip and are checked by themselves: names not empty and unique, values only with a
+/// meaning (monotone, an index), one range index on a monotone relation; their targets name runs, not open tracks.
+/// Reserved kinds read, and a writer's definitions refuse them.
+#[test]
+fn a_tracks_relations_are_checked_by_themselves() {
+    let decoded = related(3, &[SOURCE, CONTEXT]);
+    let bytes = ww_tape::open::encode(&decoded).unwrap();
+    assert_eq!(Describe::from_ww_bytes(&bytes).unwrap(), decoded);
+
+    let check = |batch: &[Describe<'static>]| {
         let items: Vec<Vec<u8>> = batch
             .iter()
             .map(|d| ww_tape::open::encode(d).unwrap())
             .collect();
-        defs.check_batch(batch.iter().zip(items.iter().map(Vec::as_slice)))
+        Definitions::new().check_batch(batch.iter().zip(items.iter().map(Vec::as_slice)))
     };
-    let empty = Definitions::new();
-    let base = [clock(CLOCK), track(2, CLOCK), state(4), state(5)];
-    let with = |d: Describe<'static>| base.iter().cloned().chain([d]).collect::<Vec<_>>();
-    assert_eq!(check(&empty, &with(words.clone())), Ok(()));
-    // held, then a batch of the child alone
-    let mut held = Definitions::new();
-    for d in &base {
-        held.define(d).unwrap();
-    }
-    assert_eq!(check(&held, core::slice::from_ref(&words)), Ok(()));
+    let with = |d: Describe<'static>| vec![clock(CLOCK), d];
+    // the target is another run's track: nothing in this file needs to hold it
+    assert_eq!(check(&with(decoded.clone())), Ok(()));
 
-    let unknown = |related| Err(DescribeError::UnknownRelated { track: 3, related });
-    assert_eq!(
-        check(&empty, &with(related(3, Some(9), &[], None))),
-        unknown(9)
-    );
-    assert_eq!(
-        check(&empty, &with(related(3, Some(4), &[], None))),
-        unknown(4),
-        "a state track as parent"
-    );
-    assert_eq!(
-        check(&empty, &with(related(3, None, &[UNib32(2)], None))),
-        unknown(2),
-        "an events track as context"
-    );
     let shape = Err(DescribeError::Relations { track: 3 });
-    assert_eq!(
-        check(&empty, &with(related(3, Some(3), &[], None))),
-        shape,
-        "its own parent"
-    );
-    assert_eq!(
-        check(&empty, &with(related(3, None, &[UNib32(3)], None))),
-        shape,
-        "its own context"
-    );
-    assert_eq!(
-        check(
-            &empty,
-            &with(related(3, None, &[UNib32(5), UNib32(4)], None))
+    const REFUSED: [(&[RelationDef<'static>], &str); 7] = [
+        (
+            &[rel("", RelationValues::Stored, false, RelationIndex::None)],
+            "an empty name",
         ),
-        shape,
-        "out of order"
-    );
-    assert_eq!(
-        check(
-            &empty,
-            &with(related(3, None, &[UNib32(4), UNib32(4)], None))
+        (&[SOURCE, SOURCE], "a name twice"),
+        (
+            &[rel("c", RelationValues::None, true, RelationIndex::None)],
+            "monotone without values",
         ),
-        shape,
-        "repeated"
-    );
+        (
+            &[rel(
+                "c",
+                RelationValues::None,
+                false,
+                RelationIndex::Postings,
+            )],
+            "an index without values",
+        ),
+        (
+            &[rel(
+                "k",
+                RelationValues::IndexOnly,
+                false,
+                RelationIndex::None,
+            )],
+            "index-only values without an index",
+        ),
+        (
+            &[rel(
+                "s",
+                RelationValues::Stored,
+                false,
+                RelationIndex::Range,
+            )],
+            "a range on values that may decrease",
+        ),
+        (
+            &[
+                SOURCE,
+                rel("parent", RelationValues::Stored, true, RelationIndex::Range),
+            ],
+            "two range indexes",
+        ),
+    ];
+    for (relations, why) in REFUSED {
+        assert_eq!(check(&with(related(3, relations))), shape, "{why}");
+    }
+    const MANY: [RelationDef<'static>; 17] = {
+        let names = [
+            "r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12", "r13",
+            "r14", "r15", "r16",
+        ];
+        let mut out = [CONTEXT; 17];
+        let mut i = 0;
+        while i < 17 {
+            out[i] = rel(names[i], RelationValues::None, false, RelationIndex::None);
+            i += 1;
+        }
+        out
+    };
     assert_eq!(
-        check(&empty, &with(related(3, None, &[], Some("")))),
-        shape,
-        "an empty key"
+        check(&with(related(3, &MANY[..16]))),
+        Ok(()),
+        "16 relations"
     );
+    assert_eq!(check(&with(related(3, &MANY))), shape, "17 relations");
+
+    // reserved kinds: read and checked, but not defined by a writer
+    const KEYS: &[RelationDef<'static>] = &[rel(
+        "entity.piece",
+        RelationValues::IndexOnly,
+        false,
+        RelationIndex::Postings,
+    )];
+    assert_eq!(check(&with(related(3, KEYS))), Ok(()));
+    let mut defs = Definitions::new();
+    defs.define(&clock(CLOCK)).unwrap();
+    assert_eq!(
+        defs.define(&related(3, KEYS)),
+        Err(DescribeError::RelationNotBuilt { track: 3 })
+    );
+    assert_eq!(defs.define(&decoded), Ok(()));
 }

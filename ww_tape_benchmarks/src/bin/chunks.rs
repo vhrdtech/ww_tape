@@ -113,9 +113,7 @@ fn definitions() -> anyhow::Result<Definitions> {
             label: "bench",
             repeat: ww_tape::TrackRepeat::Stream,
             kind: TrackKind::Series(SeriesDef::of::<i16>(None, 1, period())),
-            parent: None,
-            context: RefVec::Slice { slice: &[] },
-            entity_key: None,
+            relations: RefVec::Slice { slice: &[] },
             owner: [0; 32],
         }),
     ])
