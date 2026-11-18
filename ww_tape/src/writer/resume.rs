@@ -320,6 +320,34 @@ fn good_block_after<S: TapeSink>(
     Ok(None)
 }
 
+/// The offset of a block the reader took from `from` up to its end, after a block that ends the piece, which a resume
+/// would cut off: a block of one of `sessions` (any with none known) that neither ends a piece itself nor is a put
+/// belonging with a block after it ([crate::FLAG_WITH_NEXT]).
+fn taken_after_end<S: TapeSink>(
+    src: &S,
+    layout: &Layout,
+    from: u64,
+    sessions: &std::collections::BTreeSet<u32>,
+) -> Result<Option<u64>, WriteError> {
+    let mut at = from;
+    while at < layout.end {
+        let step = layout.step(src, at)?;
+        if let What::Block { flags, .. } = step.what
+            && flags & crate::FLAG_WITH_NEXT == 0
+            && !ends_piece(src, &step)?
+        {
+            let mut tag = [0u8; 4];
+            src.read_at(step.at.saturating_add(24), &mut tag)
+                .map_err(io_err("reading back a block's session"))?;
+            if sessions.is_empty() || sessions.contains(&u32::from_le_bytes(tag)) {
+                return Ok(Some(step.at));
+            }
+        }
+        at = step.end();
+    }
+    Ok(None)
+}
+
 /// Whether step `s` of the piece in `src` ends the piece: a finish, a tail or a final index block.
 fn ends_piece<S: TapeSink>(src: &S, s: &Step) -> Result<bool, WriteError> {
     let What::Block { kind, .. } = s.what else {
@@ -412,9 +440,11 @@ impl<S: TapeSink> TapeWriter<S> {
         let mut kept = KeptEnd::default();
         let mut sessions = std::collections::BTreeSet::new();
         let mut at = 0;
+        let mut ended_at = None;
         while at < layout.end {
             let step = layout.step(&sink, at)?;
             if ends_piece(&sink, &step)? {
+                ended_at = Some(step.end());
                 break;
             }
             if let What::Block { .. } = step.what {
@@ -425,6 +455,11 @@ impl<S: TapeSink> TapeWriter<S> {
             }
             kept.take(&step);
             at = step.end();
+        }
+        if let Some(from) = ended_at
+            && let Some(offset) = taken_after_end(&sink, &layout, from, &sessions)?
+        {
+            return Err(WriteError::GoodBlockAfterCut { offset });
         }
         if let Some(offset) = good_block_after(&sink, layout.end, size, &sessions)? {
             return Err(WriteError::GoodBlockAfterCut { offset });
