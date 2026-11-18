@@ -1,7 +1,7 @@
 // ww_tape 0.1.0 traits and types, saved by `ww api save`.
 // Do not edit, bump the crate version and save a new snapshot instead.
-// shrink_wrap sha256: 51c852c6cb1ccf15201944b791305058f91675040339e79bfd25395455f501f2
-(magic: 2837124336, ww_self_version: (major: 0, minor: 3, patch: 0), root: (docs: [
+// shrink_wrap sha256: 06cecec510dcae08029bb0fa1bd8bbf920e801c9d2edb60c513d622fab657744
+(magic: 2837124336, ww_self_version: (major: 0, minor: 4, patch: 0), root: (docs: [
     "Tape blocks: the unit a producer of records hands over, a live consumer reads and a log file is made of.",
     "",
     "A tape is the recording unit whatever it is recorded on: blocks handed over live, appended to a file, replayed.",
