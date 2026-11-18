@@ -1,5 +1,5 @@
 # https://github.com/crate-ci/typos/blob/master/docs/reference.md
 
 [files]
-# binary seed files of the fuzz targets
-extend-exclude = ["ww_tape_fuzz/seeds/"]
+# binary seed files of the fuzz targets; the logo's exported SVG files (glyph ids are hashes)
+extend-exclude = ["ww_tape_fuzz/seeds/", "assets/logo/*.svg"]

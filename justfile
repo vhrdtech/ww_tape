@@ -79,6 +79,41 @@ bench-mem-reader *args:
 book-figures:
     cargo run -q -p ww_tape_figures -- docs/plots
 
+# Export the logo from assets/logo/logo.typ: SVG of each variant, PNG files at fixed sizes. Needs typst 0.13 or
+# newer; the font (JetBrains Mono Bold, SIL OFL) is in assets/logo/fonts, system fonts are ignored
+logo: logo-vector logo-png
+
+logo-vector:
+    just _logo ww_tape-light.svg lockup light
+    just _logo ww_tape-dark.svg lockup dark
+    just _logo mark-light.svg mark light
+    just _logo mark-dark.svg mark dark
+    just _logo wordmark-light.svg wordmark light
+    just _logo wordmark-dark.svg wordmark dark
+    just _logo icon.svg icon dark
+    just _logo icon-small.svg icon-small dark
+
+logo-png:
+    just _logo png/ww_tape-light-640.png lockup light 640
+    just _logo png/ww_tape-light-1280.png lockup light 1280
+    just _logo png/ww_tape-dark-640.png lockup dark 640
+    just _logo png/ww_tape-dark-1280.png lockup dark 1280
+    just _logo png/mark-light-256.png mark light 256
+    just _logo png/mark-light-512.png mark light 512
+    just _logo png/mark-dark-256.png mark dark 256
+    just _logo png/mark-dark-512.png mark dark 512
+    just _logo png/icon-small-16.png icon-small dark 16
+    just _logo png/icon-small-32.png icon-small dark 32
+    just _logo png/icon-small-48.png icon-small dark 48
+    just _logo png/icon-128.png icon dark 128
+    just _logo png/icon-256.png icon dark 256
+    just _logo png/icon-512.png icon dark 512
+    just _logo png/social.png social dark
+
+# One variant: the output's extension picks the format, size is the longer side in pixels (empty: natural size)
+_logo out kind theme size="":
+    typst compile --ppi 72 --font-path assets/logo/fonts --ignore-system-fonts --input kind={{ kind }} --input theme={{ theme }} --input size={{ size }} assets/logo/render.typ assets/logo/{{ out }}
+
 # Install cargo-fuzz (fuzzing needs a nightly toolchain)
 fuzz-install:
     cargo install cargo-fuzz
