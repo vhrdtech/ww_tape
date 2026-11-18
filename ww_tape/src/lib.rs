@@ -1047,7 +1047,6 @@ impl<'b> Block<'b> {
 
     /// The block of a whole block whose CRCs are known good (one this crate made, or read with [Self::read] already):
     /// the header, and for a chunk block its head with its head CRC, read; no pass over the payload or the records.
-    #[cfg(feature = "std")]
     pub(crate) fn read_trusted(bytes: &'b [u8]) -> Result<Self, BlockError> {
         Self::read_unchecked(bytes).map(|(b, _)| b)
     }
