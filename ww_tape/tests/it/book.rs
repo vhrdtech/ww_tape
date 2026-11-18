@@ -5,8 +5,9 @@ use std::path::Path;
 
 use ww_tape::chunk::{ChunkHead, Codec, ColumnKind, ColumnSpec};
 use ww_tape::{
-    Block, BlockId, BlockKind, BlockWriter, ClockTime, Definitions, EndMode, Magnitude, MemSink,
-    Ratio64, SeriesGrid, SessionTag, SyncPolicy, TapeWriter, WriteError,
+    Block, BlockId, BlockKind, BlockWriter, ChainOptions, ClockTime, Definitions, EndMode,
+    Finished, Magnitude, MemSink, OwnerId, PieceChain, PieceFiles, Ratio64, SeriesGrid, SessionTag,
+    SyncPolicy, TapeWriter, WriteError,
 };
 
 use crate::definitions::{CLOCK, clock, state, track};
@@ -44,6 +45,66 @@ fn book_definitions_example() {
     let r = ww_tape::TapeReader::open(&bytes[..]).unwrap();
     let defs = r.definitions_at(0, u64::MAX).unwrap();
     assert!(defs.is_whole(), "every definition reads: {defs:?}");
+}
+
+/// The lines of "Writing a chain into one file", between the setup and the checks: the finished pieces of the first
+/// session and those of the second.
+fn one_file_example(
+    path: &Path,
+    owner: OwnerId,
+    defs: &Definitions,
+    head: &ChunkHead,
+    columns: &[(ColumnSpec, &[u8])],
+) -> Result<(Vec<Finished>, Vec<Finished>), WriteError> {
+    // as on the pieces page
+    let options = ChainOptions {
+        files: PieceFiles::One,
+        ..ChainOptions::default()
+    };
+    let mut chain = PieceChain::create(path, owner, 0, &[], options.clone())?;
+    chain.write_chunk(defs, head, columns)?;
+    let first = chain.finish()?;
+    // opened again: a new piece behind the finished one
+    let (mut chain, _) = PieceChain::resume(path, owner, 0, options)?;
+    chain.write_chunk(defs, head, columns)?;
+    let second = chain.finish()?;
+    // end of the pieces page's lines
+    Ok((first, second))
+}
+
+#[test]
+fn book_one_file_example() {
+    let dir = crate::pieces::scratch("book_one_file");
+    let path = dir.join("run.wwt");
+    let (head, starts) = crate::pieces::chunk(0, 0);
+    let (first, second) = one_file_example(
+        &path,
+        OwnerId([7; 32]),
+        crate::definitions::base_defs(),
+        &head,
+        &crate::pieces::column(&starts),
+    )
+    .unwrap();
+    assert_eq!((first.len(), second.len()), (1, 2));
+    assert_eq!(second[0], first[0]);
+    let bytes = std::fs::read(&path).unwrap();
+    let r = ww_tape::TapeReader::open(&bytes[..]).unwrap();
+    assert_eq!(r.pieces().len(), 2);
+    let chain = r.chain();
+    assert!(chain.is_whole(), "{chain:?}");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// The lines of `tests/it/book.rs` between `start` and `end`, unindented once.
+fn lines_between(start: &str, end: &str) -> String {
+    let source = read("tests/it/book.rs");
+    let from = source.find(start).unwrap();
+    let to = source.find(end).unwrap();
+    source[from..to]
+        .lines()
+        .skip(1)
+        .map(|l| format!("{}\n", l.strip_prefix("    ").unwrap_or(l)))
+        .collect()
 }
 
 fn read(path: &str) -> String {
@@ -91,14 +152,10 @@ fn fenced(text: &str, what: &str) -> Vec<(String, String)> {
 
 #[test]
 fn pages_show_the_example_the_test_runs() {
-    let source = read("tests/it/book.rs");
-    let start = source.find("    // as on the pages\n").unwrap();
-    let end = source.find("    // end of the pages' lines\n").unwrap();
-    let lines: String = source[start..end]
-        .lines()
-        .skip(1)
-        .map(|l| format!("{}\n", l.strip_prefix("    ").unwrap_or(l)))
-        .collect();
+    let lines = lines_between(
+        "    // as on the pages\n",
+        "    // end of the pages' lines\n",
+    );
     for page in ["../docs/index.md", "../docs/writing.md"] {
         let blocks = fenced(&read(page), page);
         assert!(
@@ -108,6 +165,22 @@ fn pages_show_the_example_the_test_runs() {
             "{page} shows the lines `book_definitions_example` runs:\n{lines}"
         );
     }
+}
+
+#[test]
+fn pieces_page_shows_the_example_the_test_runs() {
+    let lines = lines_between(
+        "    // as on the pieces page\n",
+        "    // end of the pieces page's lines\n",
+    );
+    let page = "../docs/pieces_and_files.md";
+    let blocks = fenced(&read(page), page);
+    assert!(
+        blocks
+            .iter()
+            .any(|(lang, body)| lang == "rust" && *body == lines),
+        "{page} shows the lines `book_one_file_example` runs:\n{lines}"
+    );
 }
 
 /// The module docs of every source file under `dir`, `//!` stripped, one after another.
