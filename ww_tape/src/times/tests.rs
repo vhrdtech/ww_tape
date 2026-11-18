@@ -727,3 +727,144 @@ fn times_deterministic_and_golden() {
         assert!(starts.contains(&got));
     }
 }
+
+/// A chunk block of `n` instants with the relation columns `relations` (index, values, monotone) after the times.
+fn relation_block(relations: &[(u16, &[u64], bool)]) -> Vec<u8> {
+    let n = relations.first().map_or(1, |r| r.1.len());
+    let starts: Vec<i64> = (0..n as i64).collect();
+    let enc = EncodedTimes::encode(&starts, None, None).expect("valid times");
+    let encoded: Vec<EncodedRelation> = relations
+        .iter()
+        .map(|(i, v, m)| EncodedRelation::encode(*i, v, *m).expect("values encode"))
+        .collect();
+    let mut cols: Vec<(ColumnSpec, &[u8])> = enc.columns().collect();
+    cols.extend(encoded.iter().map(EncodedRelation::column));
+    let specs: Vec<ColumnSpec> = cols.iter().map(|c| c.0).collect();
+    let head = enc.head.chunk_head(9, 1, 1000);
+    let mut buf = std::vec![0u8; chunk_len(&head, &specs, 0)];
+    let len = write_chunk(&mut buf, id(1), &head, &cols, 0).expect("a valid chunk");
+    buf.truncate(len);
+    buf
+}
+
+/// Every read of relation 3 in a chunk of `values` against the plain values: get, range, lower bound and its codec.
+fn relation_round_trip(values: &[u64], monotone: bool) {
+    let b = relation_block(&[(3, values, monotone)]);
+    let block = Block::read(&b).expect("a good block");
+    let chunk = block.chunk().expect("a chunk");
+    assert!(
+        RelationColumn::read(&chunk, 2).expect("reads").is_none(),
+        "no column of relation 2"
+    );
+    let c = RelationColumn::read(&chunk, 3)
+        .expect("reads")
+        .expect("relation 3's column");
+    assert_eq!(c.len(), values.len());
+    for (i, v) in values.iter().enumerate() {
+        assert_eq!(c.get(i), *v, "value {i}");
+    }
+    let lo = values.iter().copied().min().unwrap();
+    let hi = values.iter().copied().max().unwrap();
+    assert_eq!(c.range(), (lo, hi));
+    let sorted = values.windows(2).all(|w| w[0] <= w[1]);
+    assert_eq!(
+        c.codec() == STARTS,
+        sorted,
+        "codec 1 exactly when the values never decrease"
+    );
+    match c.lower_bound(lo) {
+        Some(_) => {
+            let mut probes: Vec<u64> = values
+                .iter()
+                .flat_map(|v| [v.saturating_sub(1), *v, v.saturating_add(1)])
+                .collect();
+            probes.extend([0, u64::MAX]);
+            for p in probes {
+                assert_eq!(
+                    c.lower_bound(p),
+                    Some(values.partition_point(|v| *v < p)),
+                    "lower bound of {p}"
+                );
+            }
+        }
+        None => assert!(!sorted),
+    }
+}
+
+#[test]
+fn relation_values_read_as_written() {
+    let mut r = Rng(0x7e1a);
+    for n in [1usize, 2, 127, 128, 129, 300, 4096] {
+        // a source ordinal per output item: 1:1, with drops, several children per parent, sparse
+        for step in [
+            |_: &mut Rng| 1u64,
+            |r: &mut Rng| 1 + u64::from(r.below(50) == 0),
+            |r: &mut Rng| u64::from(r.below(10) == 0),
+            |r: &mut Rng| 500 + r.below(1001),
+        ] {
+            let mut v = 1_000_000u64;
+            let values: Vec<u64> = (0..n)
+                .map(|_| {
+                    v += step(&mut r);
+                    v
+                })
+                .collect();
+            relation_round_trip(&values, true);
+            relation_round_trip(&values, false);
+        }
+        // any values: keys, wide and small
+        let keys: Vec<u64> = (0..n).map(|_| r.next()).collect();
+        relation_round_trip(&keys, false);
+        let small: Vec<u64> = (0..n).map(|_| r.below(20)).collect();
+        relation_round_trip(&small, false);
+    }
+    // the edges of u64, either side of i64's sign
+    relation_round_trip(
+        &[0, 0, 1, (1 << 63) - 1, 1 << 63, u64::MAX - 1, u64::MAX],
+        true,
+    );
+    relation_round_trip(&[u64::MAX, 0, 1 << 63, (1 << 63) - 1], false);
+}
+
+#[test]
+fn a_monotone_relation_refuses_a_decrease() {
+    assert_eq!(
+        EncodedRelation::encode(0, &[1, 2, 2, 1], true),
+        Err(EncodeError::Unsorted { at: 3 })
+    );
+    assert_eq!(
+        EncodedRelation::encode(0, &[], false),
+        Err(EncodeError::Empty)
+    );
+    let c = EncodedRelation::encode(0, &[5, 4], false).expect("any values");
+    assert_eq!(c.column().0.codec, DURATIONS);
+}
+
+#[test]
+fn a_relation_column_in_an_unknown_codec_is_refused_and_the_times_still_read() {
+    let starts = [1i64, 2, 3];
+    let enc = EncodedTimes::encode(&starts, None, None).expect("valid times");
+    let odd = [0xa5u8; 24];
+    let mut cols: Vec<(ColumnSpec, &[u8])> = enc.columns().collect();
+    cols.push((
+        ColumnSpec {
+            kind: ColumnKind::Relation,
+            codec: Codec(77),
+            param: 0,
+            len: odd.len(),
+        },
+        &odd,
+    ));
+    let specs: Vec<ColumnSpec> = cols.iter().map(|c| c.0).collect();
+    let head = enc.head.chunk_head(9, 1, 1000);
+    let mut b = std::vec![0u8; chunk_len(&head, &specs, 0)];
+    let len = write_chunk(&mut b, id(1), &head, &cols, 0).expect("a valid chunk");
+    b.truncate(len);
+    let block = Block::read(&b).expect("a good block");
+    let chunk = block.chunk().unwrap();
+    assert_eq!(
+        RelationColumn::read(&chunk, 0).err(),
+        Some(TimesError::UnknownCodec(ColumnKind::Relation, Codec(77)))
+    );
+    assert_eq!(EventTimes::read(&chunk).expect("times read").len(), 3);
+}

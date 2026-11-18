@@ -76,6 +76,9 @@ pub enum DescribeError {
     },
     /// A record or an events chunk on a series track, or a series chunk on an events track.
     WrongKind { track: u32 },
+    /// An events chunk whose relation columns are not one per stored relation of its track, or one in a codec its
+    /// relation doesn't take (a monotone relation's values in [DURATIONS](crate::times::DURATIONS)).
+    RelationColumns { track: u32 },
     /// An events chunk of a state track: its items are put one by one.
     StateChunk { track: u32 },
     /// A record of a state track in a caller's block: its items are put ([TapeWriter::put](crate::TapeWriter::put)).
@@ -153,6 +156,10 @@ impl core::fmt::Display for DescribeError {
                 f,
                 "track {track}: a record or events chunk on a series track, or a series chunk on an events track"
             ),
+            DescribeError::RelationColumns { track } => write!(
+                f,
+                "track {track}: an events chunk's relation columns don't match its stored relations"
+            ),
             DescribeError::StateChunk { track } => write!(
                 f,
                 "track {track} is a state track: its items are put, not written in events chunks"
@@ -193,15 +200,39 @@ pub struct TrackFacts {
     pub state: Option<StatePolicy>,
     /// The period of a series track, in ticks per sample; None for an events track.
     pub period: Option<crate::Ratio64>,
+    /// Which relations, by index, keep their values in a column: bit `i` for relation `i`.
+    pub stored: u16,
+    /// Which relations' values never decrease: bit `i` for relation `i`.
+    pub monotone: u16,
+    /// The relation whose values' smallest and largest go into each chunk's index entry.
+    pub range: Option<u16>,
 }
 
 impl TrackFacts {
     fn of(t: &crate::TrackDef<'_>) -> Self {
-        TrackFacts {
+        let mut facts = TrackFacts {
             clock: t.clock.0,
             state: t.repeat.state(),
             period: t.series().map(|s| s.period),
+            stored: 0,
+            monotone: 0,
+            range: None,
+        };
+        // at most RELATIONS_MAX (16), as checked: each has a bit
+        for (i, r) in t.relations.iter().enumerate().take(crate::RELATIONS_MAX) {
+            let Ok(r) = r else { continue };
+            let bit = 1u16 << i;
+            if r.values == crate::RelationValues::Stored {
+                facts.stored |= bit;
+            }
+            if r.monotone {
+                facts.monotone |= bit;
+            }
+            if r.index == crate::RelationIndex::Range {
+                facts.range = u16::try_from(i).ok();
+            }
         }
+        facts
     }
 }
 
@@ -682,10 +713,25 @@ impl Definitions {
     }
 
     /// Check a chunk or summary block's track before a writer writes it: held, an events chunk on an events track
-    /// that isn't a state track, a series chunk on a series track with its ticks on its grid.
+    /// that isn't a state track with its relation columns as its definition says, a series chunk on a series track
+    /// with its ticks on its grid.
     fn check_track_block(&self, b: &Block<'_>) -> Result<(), DescribeError> {
         if let Some(c) = b.chunk() {
-            self.check_chunk_head(&c.head())
+            let head = c.head();
+            self.check_chunk_head(&head)?;
+            if head.kind != BlockKind::Events {
+                return Ok(());
+            }
+            let specs: Vec<crate::ColumnSpec> = c
+                .columns()
+                .map(|col| crate::ColumnSpec {
+                    kind: col.kind,
+                    codec: col.codec,
+                    param: col.param,
+                    len: col.bytes.len(),
+                })
+                .collect();
+            self.check_relation_columns(head.track_number, &specs)
         } else if let Some(s) = b.summary() {
             let track = s.head().track_number;
             self.track(track)
@@ -694,6 +740,39 @@ impl Definitions {
         } else {
             Ok(())
         }
+    }
+
+    /// Check the relation columns of an events chunk of track `track` against its definition: one column per stored
+    /// relation, none for another, a monotone relation's in [STARTS](crate::times::STARTS).
+    pub fn check_relation_columns(
+        &self,
+        track: u32,
+        columns: &[crate::ColumnSpec],
+    ) -> Result<(), DescribeError> {
+        let t = self
+            .track(track)
+            .ok_or(DescribeError::UnknownTrack { track })?;
+        let mut seen = 0u16;
+        for c in columns
+            .iter()
+            .filter(|c| c.kind == crate::ColumnKind::Relation)
+        {
+            let bit = 1u16
+                .checked_shl(u32::from(c.param))
+                .filter(|b| t.stored & b != 0 && seen & b == 0)
+                .ok_or(DescribeError::RelationColumns { track })?;
+            let monotone = t.monotone & bit != 0;
+            let codec_ok = c.codec == crate::times::STARTS
+                || (!monotone && c.codec == crate::times::DURATIONS);
+            if !codec_ok {
+                return Err(DescribeError::RelationColumns { track });
+            }
+            seen |= bit;
+        }
+        if seen != t.stored {
+            return Err(DescribeError::RelationColumns { track });
+        }
+        Ok(())
     }
 
     /// Check a chunk head's track before a writer writes it, as [Self::check_block] does.

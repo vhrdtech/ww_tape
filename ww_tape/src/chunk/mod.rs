@@ -177,6 +177,9 @@ pub enum ColumnKind {
     Payloads,
     /// Samples of one channel, or of the channels a codec interleaves; the param names the (first) channel (series).
     Samples,
+    /// One relation's values, a u64 per item; the param names the relation by its index in
+    /// [TrackDef::relations](crate::TrackDef::relations) (events, [RelationColumn](crate::times::RelationColumn)).
+    Relation,
     /// A kind this reader doesn't know.
     Other(u8),
 }
@@ -194,6 +197,7 @@ impl ColumnKind {
             4 => ColumnKind::PayloadLengths,
             5 => ColumnKind::Payloads,
             6 => ColumnKind::Samples,
+            8 => ColumnKind::Relation,
             other => ColumnKind::Other(other),
         }
     }
@@ -206,6 +210,7 @@ impl ColumnKind {
             ColumnKind::PayloadLengths => 4,
             ColumnKind::Payloads => 5,
             ColumnKind::Samples => 6,
+            ColumnKind::Relation => 8,
             ColumnKind::Other(v) => v,
         }
     }

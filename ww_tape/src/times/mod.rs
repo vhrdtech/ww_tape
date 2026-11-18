@@ -59,6 +59,7 @@
 
 mod groups;
 mod packed;
+mod relation;
 mod starts;
 #[cfg(test)]
 mod tests;
@@ -67,6 +68,9 @@ mod tests;
 pub(crate) use groups::encode_groups;
 pub(crate) use groups::u32_to_usize;
 pub use packed::{Durations, Flags};
+#[cfg(feature = "std")]
+pub use relation::EncodedRelation;
+pub use relation::RelationColumn;
 pub use starts::{Iter, SLOPE_MAX, Starts};
 
 /// Most items of an events chunk (16 Mi): a reader's work on a chunk grows with its items, and implicit times store
@@ -246,7 +250,14 @@ impl<'b> EventTimes<'b> {
                     });
                 }
                 let max = head.latest_end.abs_diff(head.first_tick);
-                Ends::Durations(Durations::parse(n, max, e.bytes, tail(&e)?, damaged(&e))?)
+                Ends::Durations(Durations::parse(
+                    ColumnKind::Ends,
+                    n,
+                    max,
+                    e.bytes,
+                    tail(&e)?,
+                    damaged(&e),
+                )?)
             }
             (EndMode::Durations, None) => return Err(TimesError::Missing(ColumnKind::Ends)),
             (_, Some(_)) => return Err(TimesError::Unexpected(ColumnKind::Ends)),

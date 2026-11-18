@@ -1177,6 +1177,10 @@ impl<S: TapeSink> TapeWriter<S> {
         // columns, copied, not read back
         defs.check_chunk_head(head).map_err(WriteError::Describe)?;
         let specs: Vec<crate::ColumnSpec> = columns.iter().map(|(c, _)| *c).collect();
+        if head.kind == crate::BlockKind::Events {
+            defs.check_relation_columns(head.track_number, &specs)
+                .map_err(WriteError::Describe)?;
+        }
         // the longest the block can be, its padding at most the alignment: refused before anything is allocated or put
         let chunk_max =
             crate::chunk::chunk_len(head, &specs, crate::times::u32_to_usize(self.alignment()));
