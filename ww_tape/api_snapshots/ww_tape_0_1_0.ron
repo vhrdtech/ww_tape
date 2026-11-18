@@ -1,7 +1,7 @@
 // ww_tape 0.1.0 traits and types, saved by `ww api save`.
 // Do not edit, bump the crate version and save a new snapshot instead.
-// shrink_wrap sha256: 8b848973338ea43d8d92b5c04f0f93ea1726e74a9e7e75b846e5a8637ef7c297
-(magic: 2837124336, ww_self_version: (major: 0, minor: 4, patch: 0), root: (docs: [
+// shrink_wrap sha256: 205d7d08757f63e54329172c4a0b03537c9c5843d85edffed2f1084b2e59a165
+(magic: 2837124336, ww_self_version: (major: 0, minor: 3, patch: 0), root: (docs: [
     "Tape blocks: the unit a producer of records hands over, a live consumer reads and a log file is made of.",
     "",
     "A tape is the recording unit whatever it is recorded on: blocks handed over live, appended to a file, replayed.",
@@ -125,7 +125,6 @@
     "| [GAP_MAX_MAX] | 64 MiB | a layout\'s gap |",
     "| [GAP_PROBES_MAX] | 8192 | the resume places a reader probes in one gap |",
     "| [GAP_CHECKS_MAX] | 4 | the blocks a reader checks whole past one gap |",
-    "| [RESYNC_AHEAD_MAX] | 128 MiB | the bytes a salvage walk ([Recovery::Resync]) reads ahead |",
     "| [STATE_READ_MAX](reader::STATE_READ_MAX) | 1 GiB | the bytes of blocks one state lookup reads |",
     "| [DEFERRED_BYTES_MAX](writer::DEFERRED_BYTES_MAX) | 1 MiB | the deferred blocks a writer keeps |",
     "",
@@ -506,6 +505,24 @@
         ], slot: None, series_opaque: false),
         (ident: Some("kind"), default: None, since: None, ty: OutOfLine(type_idx: 25), docs: [
             "How the track\'s items are stored: events or a fixed-rate series.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("parent"), default: None, since: None, ty: Option(some_ty: NumericAny(Base(UNib32))), docs: [
+            "The [number](Self::number) of the events track whose items this track\'s items nest under: a word under its",
+            "segment, a field under its frame. None for a track at the top. An events track itself, never its own parent.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("context"), default: None, since: None, ty: Vec(NumericAny(Base(UNib32))), docs: [
+            "The [numbers](Self::number) of the state tracks this track is read with, in ascending order, each once: an",
+            "RF series with its tuning and gain, a decoded track with its decoder settings. A reader takes each one\'s",
+            "value at an item\'s start.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("entity_key"), default: None, since: None, ty: Option(some_ty: String), docs: [
+            "The field of the item type that names an item\'s entity (a piece id, a face track, a CAN id), as a path of",
+            "field names joined by `.`; None when items have no entity. Writers give the key\'s value with each item.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("owner"), default: Some(Bool(false)), since: None, ty: Array(len: Fixed(32), ty: NumericAny(Base(U8))), docs: [
+            "Whose track this is, opaque to `ww_tape` (a run, a capture): with the [id](Self::id), it tells apart tracks of",
+            "one identity written into one file by several owners. Not part of the identity: [Self::id] and",
+            "[key](Self::key) don\'t hash it. All zeros: the owner of the piece ([OwnerId](crate::OwnerId)).",
         ], slot: None, series_opaque: false),
     ]), sparse: false, path: None, instance_of: None, extra: None)), crate_idx: 0),
     InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
