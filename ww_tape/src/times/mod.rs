@@ -176,7 +176,7 @@ pub enum Ends<'b> {
 }
 
 /// The times and flags of an events chunk, read in place.
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct EventTimes<'b> {
     starts: Starts<'b>,
     ends: Ends<'b>,

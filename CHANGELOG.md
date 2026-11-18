@@ -10,6 +10,7 @@ Covers `ww_tape` 0.1.0.
 
 ### ⚠️ Breaking
 
+- `EventTimes`, `Starts` and `RelationColumn` are `Clone`, not `Copy`: a salvaged column keeps its group verdicts (STD-120).
 - `verify` holds only when the final index and the walk are the same set; over `VERIFY_ENTRIES_MAX` entries: `ReadError::VerifyEntries` (TAPE-9).
 - A resume that meets a finish, tail or final index before the end of what its reader took refuses (`WriteError::GoodBlockAfterCut`) where a block of the piece's session follows it; it cut them off (TAPE-8).
 - A chunk or summary whose head names its track under another id than the definition's is refused (`DescribeError::TrackId`) (TAPE-8).
@@ -225,6 +226,7 @@ Covers `ww_tape` 0.1.0.
 
 ### 🐛 Fixes
 
+- A salvaged starts column decides each group once on read; `get` and `is_suspect` decode no group per item (STD-120).
 - A resume replays the kept bytes along verify's walk: good blocks in junk are taken, damaged ones listed inside it kept (TAPE-8).
 - `verify` takes every damaged block listed inside bytes no block explains, and runs linear in blocks and entries (TAPE-9).
 - `RangeHash::headless` counts the pieces folded whose head doesn't read: what the hash covers there no head vouched for (TAPE-8).

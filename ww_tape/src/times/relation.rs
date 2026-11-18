@@ -95,7 +95,7 @@ pub(crate) const fn unordered(v: i64) -> u64 {
     v.cast_unsigned() ^ (1 << 63)
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 enum Repr<'b> {
     /// Values that never decrease, as [ordered] starts.
     Monotone(Starts<'b>),
@@ -105,7 +105,7 @@ enum Repr<'b> {
 
 /// One relation's values in an events chunk, read in place. Reads never panic on any bytes; [Self::get] panics only
 /// for an item past the end.
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct RelationColumn<'b> {
     repr: Repr<'b>,
 }

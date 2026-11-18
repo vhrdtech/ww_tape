@@ -9,6 +9,7 @@ use super::{TimeMode, TimesError};
 use crate::FromFile;
 use crate::bitpack::{self, GROUP, Kernel, Width};
 use crate::chunk::ColumnKind;
+use alloc::vec::Vec;
 use core::ops::Range;
 
 /// Largest slope a group takes (Q16 ticks per item, exclusive): 2^39 ticks per item.
@@ -140,11 +141,12 @@ fn ceil_div(a: i128, b: i128) -> Option<i128> {
 }
 
 /// A starts column of linear groups.
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 struct Linear<'b> {
     groups: Groups<'b, RECORD_LEN>,
-    /// Read from a damaged column: groups are checked as they are read.
-    salvaged: bool,
+    /// Read from a damaged column: a bit per group, set for a group that doesn't hold up ([Self::group_ok]), decided
+    /// once when the column is read.
+    suspect: Option<Vec<u64>>,
     /// The chunk's first and last ticks, first at most last.
     first: i64,
     last: i64,
@@ -191,25 +193,59 @@ impl<'b> Linear<'b> {
         (h.value(0) == h.first && self.ascending(g, &h)).then_some(h)
     }
 
-    /// Group `g` of a salvaged column when it holds up: readable, in order with its readable neighbours (its first
-    /// tick at or after the previous group's last item, its last item at or before the next group's first tick),
-    /// and the last group ending on the chunk's last tick. Either side of a broken order may be the damaged one, so
-    /// both groups fail.
-    fn group_ok(&self, g: usize) -> Option<Group<'b>> {
-        let h = self.readable(g)?;
-        let last = self.last_value(g, &h)?;
-        let after_previous = match g.checked_sub(1) {
-            None => true,
-            Some(p) => self
-                .readable(p)
-                .and_then(|ph| self.last_value(p, &ph))
-                .is_none_or(|l| l <= h.first),
+    /// Whether group `g` of a salvaged column holds up, given whether its neighbours and it read on their own
+    /// (`readable`: first tick and last item): in order with its readable neighbours (its first tick at or after the
+    /// previous group's last item, its last item at or before the next group's first tick), and the last group ending
+    /// on the chunk's last tick. Either side of a broken order may be the damaged one, so both groups fail.
+    fn group_ok(
+        &self,
+        g: usize,
+        prev: Option<(i64, i64)>,
+        this: Option<(i64, i64)>,
+        next: Option<(i64, i64)>,
+    ) -> bool {
+        let Some((first, last)) = this else {
+            return false;
         };
+        let after_previous = prev.is_none_or(|(_, l)| l <= first);
         let before_next = match g.checked_add(1).filter(|&n| n < self.groups.count()) {
-            Some(next) => self.readable(next).is_none_or(|nh| last <= nh.first),
+            Some(_) => next.is_none_or(|(nf, _)| last <= nf),
             None => last == self.last,
         };
-        (after_previous && before_next).then_some(h)
+        after_previous && before_next
+    }
+
+    /// The first tick and the last item of group `g` when it reads on its own ([Self::readable]).
+    fn ends(&self, g: usize) -> Option<(i64, i64)> {
+        let h = self.readable(g)?;
+        Some((h.first, self.last_value(g, &h)?))
+    }
+
+    /// A bit per group, set for each group of a salvaged column that doesn't hold up: each group decoded once.
+    fn verdicts(&self) -> Vec<u64> {
+        let count = self.groups.count();
+        let mut bits = alloc::vec![0u64; count.div_ceil(64)];
+        let mut prev = None;
+        let mut this = (count > 0).then(|| self.ends(0)).flatten();
+        for g in 0..count {
+            let next = g
+                .checked_add(1)
+                .filter(|&n| n < count)
+                .and_then(|n| self.ends(n));
+            if !self.group_ok(g, prev, this, next)
+                && let Some(w) = bits.get_mut(g / 64)
+            {
+                *w |= 1 << (g % 64);
+            }
+            prev = this;
+            this = next;
+        }
+        bits
+    }
+
+    /// Whether the column was read by salvage.
+    fn salvaged(&self) -> bool {
+        self.suspect.is_some()
     }
 
     /// Group `g`'s line; in a salvaged column, a suspect group's is flat at its first tick, kept inside the chunk.
@@ -218,11 +254,15 @@ impl<'b> Linear<'b> {
     ///
     /// When `g` is past the last group: the public accessors assert it first.
     fn group(&self, g: usize) -> Group<'b> {
-        if !self.salvaged {
+        if !self.salvaged() {
             return Group::new(self.line(g), self.groups.checked(g));
         }
-        match self.group_ok(g) {
-            Some(h) => h,
+        match self
+            .groups
+            .group_fits(g)
+            .filter(|_| !self.is_suspect_group(g))
+        {
+            Some(p) => Group::new(self.line(g), p),
             None => Group::flat(self.line(g).first.clamp(self.first, self.last)),
         }
     }
@@ -232,7 +272,7 @@ impl<'b> Linear<'b> {
     #[inline]
     fn item(&self, h: &Group<'_>, j: usize) -> i64 {
         let v = h.value(j);
-        if self.salvaged {
+        if self.salvaged() {
             v.clamp(self.first, self.last)
         } else {
             v
@@ -240,7 +280,12 @@ impl<'b> Linear<'b> {
     }
 
     fn is_suspect_group(&self, g: usize) -> bool {
-        self.salvaged && g < self.groups.count() && self.group_ok(g).is_none()
+        g < self.groups.count()
+            && self
+                .suspect
+                .as_ref()
+                .and_then(|bits| bits.get(g / 64))
+                .is_some_and(|w| w & (1 << (g % 64)) != 0)
     }
 
     /// Check every record and item of an intact column: placed in the column, lines in range, each group's item 0
@@ -305,7 +350,7 @@ impl<'b> Linear<'b> {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 enum Repr<'b> {
     Implicit { period: i64 },
     Linear(Linear<'b>),
@@ -316,7 +361,7 @@ enum Repr<'b> {
 /// Reads never panic on any bytes; [Starts::get] and [Starts::decode_group] panic only for an item or group past
 /// the end. In a column read by salvage, the items of a group whose record doesn't hold up ([Starts::is_suspect])
 /// read as that group's first tick, and every item is kept inside the chunk's tick range.
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct Starts<'b> {
     n: usize,
     first: i64,
@@ -361,14 +406,15 @@ impl<'b> Starts<'b> {
                 Repr::Implicit { period }
             }
             TimeMode::Linear => {
-                let lin = Linear {
+                let mut lin = Linear {
                     groups: Groups::split(kind, n, LAYOUT, column, tail)?,
-                    salvaged: salvage,
+                    suspect: None,
                     first,
                     last,
                 };
-                if !salvage {
-                    lin.check()?;
+                match salvage {
+                    true => lin.suspect = Some(lin.verdicts()),
+                    false => lin.check()?,
                 }
                 Repr::Linear(lin)
             }
@@ -403,7 +449,7 @@ impl<'b> Starts<'b> {
 
     /// The time mode the column is in.
     pub fn mode(&self) -> TimeMode {
-        match self.repr {
+        match &self.repr {
             Repr::Implicit { .. } => TimeMode::Implicit,
             Repr::Linear(_) => TimeMode::Linear,
         }
@@ -411,8 +457,8 @@ impl<'b> Starts<'b> {
 
     /// The period of an implicit chunk.
     pub fn period(&self) -> Option<i64> {
-        match self.repr {
-            Repr::Implicit { period } => Some(period),
+        match &self.repr {
+            &Repr::Implicit { period } => Some(period),
             Repr::Linear(_) => None,
         }
     }
@@ -424,7 +470,7 @@ impl<'b> Starts<'b> {
 
     /// Whether the column was read by salvage.
     pub(crate) fn salvaged(&self) -> bool {
-        matches!(self.repr, Repr::Linear(Linear { salvaged: true, .. }))
+        matches!(&self.repr, Repr::Linear(lin) if lin.salvaged())
     }
 
     /// Whether item `i` is in a group a salvage found damaged; its start is then a stand-in. False past the last
@@ -435,7 +481,7 @@ impl<'b> Starts<'b> {
 
     /// Whether group `g` is one a salvage found damaged; false past the last group.
     pub fn is_suspect_group(&self, g: usize) -> bool {
-        match self.repr {
+        match &self.repr {
             Repr::Implicit { .. } => false,
             Repr::Linear(lin) => lin.is_suspect_group(g),
         }
@@ -449,9 +495,9 @@ impl<'b> Starts<'b> {
     #[inline]
     pub fn get(&self, i: usize) -> i64 {
         assert!(i < self.len(), "item {i} of {}", self.n);
-        match self.repr {
+        match &self.repr {
             // the tick lies between the first and the last: the wrapping product gives it exactly
-            Repr::Implicit { period } => self.first.wrapping_add(item_i64(i).wrapping_mul(period)),
+            &Repr::Implicit { period } => self.first.wrapping_add(item_i64(i).wrapping_mul(period)),
             Repr::Linear(lin) => lin.item(&lin.group(i / GROUP), i % GROUP),
         }
     }
@@ -467,8 +513,8 @@ impl<'b> Starts<'b> {
             "group {g} of {}",
             self.group_count()
         );
-        match self.repr {
-            Repr::Implicit { period } => self.implicit_group_first(g, period),
+        match &self.repr {
+            &Repr::Implicit { period } => self.implicit_group_first(g, period),
             Repr::Linear(lin) => lin.group(g).first,
         }
     }
@@ -500,8 +546,8 @@ impl<'b> Starts<'b> {
             "group {g} of {}",
             self.group_count()
         );
-        match self.repr {
-            Repr::Implicit { period } => {
+        match &self.repr {
+            &Repr::Implicit { period } => {
                 let mut t = self.implicit_group_first(g, period);
                 for o in out.iter_mut() {
                     *o = t;
@@ -514,7 +560,7 @@ impl<'b> Starts<'b> {
                     .width
                     .decode_line_with(kernel, h.values, h.base, h.slope, out);
                 assert!(r.is_ok(), "{kernel:?} doesn't run on this CPU");
-                if lin.salvaged {
+                if lin.salvaged() {
                     for t in out.iter_mut() {
                         *t = (*t).clamp(self.first, self.last);
                     }
@@ -532,8 +578,8 @@ impl<'b> Starts<'b> {
         if t > self.last {
             return self.len();
         }
-        match self.repr {
-            Repr::Implicit { period } => {
+        match &self.repr {
+            &Repr::Implicit { period } => {
                 // first < t <= last: the distance is exact, the period above 0
                 let d = t.abs_diff(self.first);
                 let p = period.unsigned_abs();
@@ -562,7 +608,7 @@ impl<'b> Starts<'b> {
     pub fn range(&self, range: Range<usize>) -> Iter<'b> {
         assert!(range.start <= range.end, "items {range:?} of {}", self.n);
         assert!(range.end <= self.len(), "items {range:?} of {}", self.n);
-        Iter::new(*self, range)
+        Iter::new(self.clone(), range)
     }
 
     /// The starts of all items, either way.
