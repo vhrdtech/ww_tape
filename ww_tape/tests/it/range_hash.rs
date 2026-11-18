@@ -211,6 +211,16 @@ pub(crate) fn rewrite_final_entries(
     bytes: &mut [u8],
     i: usize,
     t: u64,
+    change: impl FnMut(usize, &mut [u8]),
+) {
+    rewrite_final_entries_of(bytes, i, id_of(t), change);
+}
+
+/// [rewrite_final_entries] of the track of id `track_id`.
+pub(crate) fn rewrite_final_entries_of(
+    bytes: &mut [u8],
+    i: usize,
+    track_id: u64,
     mut change: impl FnMut(usize, &mut [u8]),
 ) {
     use ww_tape::index::{ENTRY_LEN, INDEX_FIXED_LEN, IndexBlock, TRACK_LEN};
@@ -220,7 +230,7 @@ pub(crate) fn rewrite_final_entries(
     let len = ww_tape::block_len(&bytes[at..]).unwrap();
     let block = &mut bytes[at..at + len];
     let ix = IndexBlock::read_head(block).unwrap();
-    let k = ix.tracks().position(|l| l.track_id == id_of(t)).unwrap();
+    let k = ix.tracks().position(|l| l.track_id == track_id).unwrap();
     let list = ix.tracks().nth(k).unwrap();
     let (from, n) = ix.track_range(&list);
     let entries_at = IndexBlock::head_len(block).unwrap();
@@ -682,7 +692,7 @@ fn two_chunks_stating_the_same_items_overlap() {
 
 /// Recompute the content hash of piece `i` of `bytes` (its blocks back to back from its start to its finish) and write
 /// it into its finish and tail, their CRCs made good: what a hostile writer does after changing the piece.
-fn reseal(bytes: &mut [u8], i: usize) {
+pub(crate) fn reseal(bytes: &mut [u8], i: usize) {
     use ww_tape::Block;
     let r = TapeReader::open(&bytes[..]).unwrap();
     let p = r.pieces()[i].clone();

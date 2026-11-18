@@ -160,6 +160,14 @@ pub enum ReadError<E> {
     Series { offset: u64, error: SeriesError },
     /// The chunk at `offset` starts before `end`, the end of the track's chunk before it: the track's chunks overlap.
     Overlap { offset: u64, end: u64 },
+    /// The events chunk at `offset` of track `track_id` starts a monotone relation below the track's chunk before it,
+    /// and isn't marked a break ([FLAG_RELATION_BREAK](crate::FLAG_RELATION_BREAK)): `relation` by its index in the
+    /// track's definition, None for the range relation read from the index entries, which don't name it.
+    RelationOrder {
+        offset: u64,
+        track_id: u64,
+        relation: Option<u16>,
+    },
 }
 
 impl<E: core::fmt::Debug> core::fmt::Display for ReadError<E> {
@@ -184,6 +192,15 @@ impl<E: core::fmt::Debug> core::fmt::Display for ReadError<E> {
                     "chunk at byte {offset} starts before item {end}, the end of the chunk before"
                 )
             }
+            ReadError::RelationOrder {
+                offset,
+                track_id,
+                relation,
+            } => write!(
+                f,
+                "chunk at byte {offset} of track {track_id:#x}: monotone relation {relation:?} goes below the chunk \
+                 before, with no break marked"
+            ),
         }
     }
 }
@@ -1036,8 +1053,38 @@ impl<S: ByteSource> TapeReader<S> {
     /// The blocks of track `track_id` in piece `i` (0: record blocks of data, [STATE_TRACK_ID](crate::index::STATE_TRACK_ID):
     /// state records, one entry each), in file order. A finished piece
     /// reads only the final index's head and that track's entries.
+    ///
+    /// The range relation of a track never decreases ([RelationIndex::Range](crate::RelationIndex::Range) is only on a
+    /// monotone relation): each chunk's range starts at or above the top of the range before it of its track number,
+    /// but at a chunk marked as a break ([IndexEntry::relation_break]); else [ReadError::RelationOrder].
     pub fn track_entries(&self, i: usize, track_id: u64) -> R<Vec<IndexEntry>, S> {
         let p = self.piece(i)?;
+        let entries = self.track_entries_unordered(p, track_id)?;
+        ranges_in_order(p, &entries)?;
+        Ok(entries)
+    }
+
+    /// The breaks of the monotone relations of track `track_id` owned by `owner` over the pieces in order: each chunk
+    /// marked [FLAG_RELATION_BREAK](crate::FLAG_RELATION_BREAK), by its piece and its index entry (where it lies, its
+    /// first item, its range). A lookup by a monotone relation's value holds within the stretch between two breaks;
+    /// one that spans a break may find the value on both sides of it.
+    pub fn relation_breaks(&self, track_id: u64, owner: OwnerId) -> R<Vec<(usize, IndexEntry)>, S> {
+        let mut out = Vec::new();
+        for i in 0..self.pieces.len() {
+            let numbers = self.numbers_of(i, track_id, owner)?;
+            out.extend(
+                self.track_entries(i, track_id)?
+                    .into_iter()
+                    .filter(|e| e.kind == BlockKind::Events && e.relation_break)
+                    .filter(|e| numbers.takes(e.track_number))
+                    .map(|e| (i, e)),
+            );
+        }
+        Ok(out)
+    }
+
+    /// [Self::track_entries] of piece `p`, the ranges unchecked.
+    fn track_entries_unordered(&self, p: &PieceInfo, track_id: u64) -> R<Vec<IndexEntry>, S> {
         if let Some(e) = &p.entries {
             let track = e.iter().filter(|e| e.track_id == track_id).copied();
             return in_order(p, track.collect());
@@ -1207,7 +1254,8 @@ impl<S: ByteSource> TapeReader<S> {
     /// read whole in bytes no block explains, ending before the finish and before the next block walked; and each
     /// finish row states the hash its track's blocks fold to from the head row's, or says it incomplete exactly where
     /// a damaged block kept or the head leaves units out. The strict check of what [Self::range_hash] takes from the
-    /// index unread.
+    /// index unread. Each monotone relation of a track starts each chunk at or above the chunk before it in the piece,
+    /// but at a chunk marked [FLAG_RELATION_BREAK](crate::FLAG_RELATION_BREAK): else [ReadError::RelationOrder].
     ///
     /// The final index is read as the piece is walked, its track lists merged in file order: verify holds one entry
     /// per track list and the entries of one block, whatever the piece's size. A final index of more than
@@ -1273,6 +1321,13 @@ impl<S: ByteSource> TapeReader<S> {
         )?;
         if let Some(e) = replay.listed().take_error() {
             return Err(ReadError::Source(e));
+        }
+        if let Some((offset, track_id, relation)) = replay.order() {
+            return Err(ReadError::RelationOrder {
+                offset: p.start.saturating_add(offset),
+                track_id,
+                relation,
+            });
         }
         Ok(verify::Verified {
             holds: *h.finalize().as_bytes() == fin.hash.0 && replay.check(rows),
@@ -1606,6 +1661,32 @@ fn in_piece<E>(p: &PieceInfo, off: u64, n: usize) -> Result<u64, ReadError<E>> {
 /// index naming a block past it is damaged.
 /// `entries` of piece `p` in file order, each block listed once (a block's state records excepted) and within the
 /// piece: a block named twice would be read and folded twice.
+/// Refuse entries `entries` of one track id in piece `p`, in file order, where a chunk's range starts below the top of
+/// the range before it of its track number without a break marked.
+fn ranges_in_order<E>(p: &PieceInfo, entries: &[IndexEntry]) -> Result<(), ReadError<E>> {
+    let mut top: alloc::collections::BTreeMap<u32, u64> = alloc::collections::BTreeMap::new();
+    for e in entries
+        .iter()
+        .filter(|e| e.kind == BlockKind::Events && !e.repeat)
+    {
+        if e.relation_break {
+            top.remove(&e.track_number);
+        }
+        let Some((lo, hi)) = e.range else {
+            continue;
+        };
+        if top.get(&e.track_number).is_some_and(|t| lo < *t) {
+            return Err(ReadError::RelationOrder {
+                offset: p.start.saturating_add(e.offset),
+                track_id: e.track_id,
+                relation: None,
+            });
+        }
+        top.insert(e.track_number, hi);
+    }
+    Ok(())
+}
+
 fn in_order<E>(
     p: &PieceInfo,
     mut entries: Vec<IndexEntry>,

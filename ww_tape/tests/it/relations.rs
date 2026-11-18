@@ -1257,3 +1257,94 @@ fn a_chain_piece_with_an_incomplete_row_and_two_monotone_relations_resumes_anywh
         }
     }
 }
+
+/// Clear the break mark in the header of the chunk block at `at` in `bytes`, its head CRC and block CRC made good.
+fn clear_break_mark(bytes: &mut [u8], at: usize) {
+    use crate::range_hash::crc32c;
+    let len = ww_tape::block_len(&bytes[at..]).unwrap();
+    let po = ww_tape::Block::read(&bytes[at..at + len])
+        .unwrap()
+        .chunk()
+        .unwrap()
+        .payload_offset();
+    let flags = u16::from_le_bytes([bytes[at + 6], bytes[at + 7]]) & !ww_tape::FLAG_RELATION_BREAK;
+    bytes[at + 6..at + 8].copy_from_slice(&flags.to_le_bytes());
+    let head = crc32c(&[&bytes[at..at + 28], &bytes[at + 32..at + po]]);
+    bytes[at + 28..at + 32].copy_from_slice(&head.to_le_bytes());
+    let crc = crc32c(&[&bytes[at..at + len - 4]]);
+    bytes[at + len - 4..at + len].copy_from_slice(&crc.to_le_bytes());
+}
+
+/// A reader holds a track's monotone relations to their order across chunks: a chunk below the one before is taken
+/// only where it is marked a break, and the breaks are reported. With the mark cleared from the chunk and its entry,
+/// the content hash resealed, verify refuses the chunk by its columns and the index by its ranges; a relation without
+/// a range index only verify can see.
+#[test]
+fn a_reader_refuses_a_decrease_across_chunks_that_isnt_marked_a_break() {
+    use ww_tape::{OwnerId, ReadError};
+    let mut defs = Definitions::new();
+    defs.define_all(&[clock(CLOCK), two_monotone()]).unwrap();
+    let write = |w: &mut TapeWriter<MemSink>, first: u64, source: &[u64], seq: &[u64]| {
+        let (h, cols) = two_chunk(first, source, seq);
+        let cols: Vec<_> = cols.iter().map(|(s, b)| (*s, &b[..])).collect();
+        w.write_chunk(&defs, &h, &cols).unwrap().offset
+    };
+    // (the second chunk's source, which relations break, the error verify gives with the mark cleared)
+    for (source, breaks, relation) in [
+        ([1, 2], &[0u16, 1][..], Some(0)),
+        ([21, 22], &[1u16][..], Some(1)),
+    ] {
+        let mut w = TapeWriter::create_on(MemSink::new(Path::new("t")), SyncPolicy::None);
+        let tape = w.sink().tape();
+        write(&mut w, 0, &[10, 20], &[100, 101]);
+        for r in breaks {
+            w.accept_relation_break(&defs, 3, *r, 0).unwrap();
+        }
+        let at = write(&mut w, 2, &source, &[5, 6]);
+        w.finish().unwrap();
+        let mut bytes = tape.to_vec().unwrap();
+        let r = TapeReader::open(&bytes[..]).unwrap();
+        assert!(r.verify(0).unwrap(), "marked: holds");
+        assert_eq!(r.track_entries(0, track_id()).unwrap().len(), 2);
+        let marked = r.relation_breaks(track_id(), OwnerId::NONE).unwrap();
+        assert_eq!(
+            marked
+                .iter()
+                .map(|(i, e)| (*i, e.offset, e.first_item))
+                .collect::<Vec<_>>(),
+            vec![(0, at, 2)],
+            "the break is reported"
+        );
+        drop(r);
+        clear_break_mark(&mut bytes, at as usize);
+        crate::range_hash::rewrite_final_entries_of(&mut bytes, 0, track_id(), |_, e| e[15] &= !8);
+        crate::range_hash::reseal(&mut bytes, 0);
+        let r = TapeReader::open(&bytes[..]).unwrap();
+        let breaks = r.relation_breaks(track_id(), OwnerId::NONE);
+        match relation {
+            Some(0) => assert!(
+                matches!(breaks, Err(ReadError::RelationOrder { .. })),
+                "{breaks:?}"
+            ),
+            _ => assert!(breaks.is_ok_and(|b| b.is_empty())),
+        }
+        match r.verify(0) {
+            Err(ReadError::RelationOrder {
+                offset,
+                track_id: id,
+                relation: got,
+            }) => {
+                assert_eq!((offset, id, got), (at, track_id(), relation));
+            }
+            other => panic!("{relation:?}: {other:?}"),
+        }
+        let entries = r.track_entries(0, track_id());
+        match relation {
+            Some(0) => assert!(
+                matches!(entries, Err(ReadError::RelationOrder { offset, relation: None, .. }) if offset == at),
+                "{entries:?}"
+            ),
+            _ => assert!(entries.is_ok(), "{entries:?}"),
+        }
+    }
+}

@@ -216,6 +216,11 @@ pub(super) struct Replay<L> {
     touched: BTreeSet<Key>,
     /// Tracks whose hash leaves units out: by the head, or a damaged block kept
     incomplete: BTreeSet<Key>,
+    /// The top of each monotone relation of each track so far, by relation index
+    tops: BTreeMap<(Key, u16), u64>,
+    /// The first chunk whose monotone relation goes below the one before without a break: its offset, track id and
+    /// relation (None: the range relation, from a damaged chunk's entry)
+    order: Option<(u64, u64, Option<u16>)>,
 }
 
 impl<L: Listed> Replay<L> {
@@ -237,6 +242,8 @@ impl<L: Listed> Replay<L> {
             hashes: BTreeMap::new(),
             touched: BTreeSet::new(),
             incomplete: BTreeSet::new(),
+            tops: BTreeMap::new(),
+            order: None,
         };
         for t in starts {
             let key = (t.track_id, t.owner);
@@ -252,6 +259,25 @@ impl<L: Listed> Replay<L> {
     /// The steps taken so far.
     pub(super) fn steps(&self) -> u64 {
         self.steps
+    }
+
+    /// The first chunk whose monotone relation goes below the chunk before it of its track without a break marked: its
+    /// offset in the piece, its track id and the relation (None: the range relation, by a damaged chunk's entry).
+    pub(super) fn order(&self) -> Option<(u64, u64, Option<u16>)> {
+        self.order
+    }
+
+    /// Take relation `relation`'s values `lo..=hi` of the chunk of track `key` at `at`, after the track's chunks before.
+    fn monotone(&mut self, at: u64, key: Key, relation: u16, (lo, hi): (u64, u64)) {
+        let top = self.tops.insert((key, relation), hi);
+        if top.is_some_and(|t| lo < t) && self.order.is_none() {
+            self.order = Some((at, key.0, Some(relation)));
+        }
+    }
+
+    /// A chunk of track `key` marked a break: its monotone relations start again.
+    fn restart(&mut self, key: Key) {
+        self.tops.retain(|(k, _), _| *k != key);
     }
 
     /// Most entries of one block held at once.
@@ -372,9 +398,38 @@ impl<L: Listed> Replay<L> {
             let head = c.head();
             if let Some(key) = self.key_of(head.track_number, Some(head.track_id)) {
                 self.fold(key, |h| h.then(&unit));
+                if head.kind == BlockKind::Events {
+                    self.order_of(at, key, c);
+                }
             }
         }
         self.learn(&b, counted);
+    }
+
+    /// Take the monotone relations of the counted events chunk `c` of track `key` at `at`: each must start at or above
+    /// its top in the track's chunks before, but in a chunk marked a break.
+    fn order_of(&mut self, at: u64, key: Key, c: &Chunk<'_>) {
+        if c.relation_break() {
+            self.restart(key);
+        }
+        let Some(facts) = self.facts.get(&c.head().track_number).copied() else {
+            return;
+        };
+        for relation in (0..crate::RELATIONS_MAX).filter_map(|i| u16::try_from(i).ok()) {
+            let monotone = 1u16
+                .checked_shl(u32::from(relation))
+                .is_some_and(|bit| facts.stored & facts.monotone & bit != 0);
+            if !monotone {
+                continue;
+            }
+            match RelationColumn::open(c, relation, |_| false) {
+                Ok(Some(col)) => self.monotone(at, key, relation, col.range()),
+                // a column that doesn't read says nothing of its values: the next chunk can't be checked against it
+                _ => {
+                    self.tops.remove(&(key, relation));
+                }
+            }
+        }
     }
 
     /// What the records of block `b` say, as the writer took them: each definition of a track names it from here
@@ -434,6 +489,7 @@ impl<L: Listed> Replay<L> {
             match e.kind {
                 BlockKind::Events | BlockKind::Series => {
                     if let Some(key) = self.key_of(e.track_number, Some(e.track_id)) {
+                        self.order_of_damaged(e, key);
                         match e.unit == UnitHash::NONE {
                             true => {
                                 self.touched.insert(key);
@@ -463,6 +519,29 @@ impl<L: Listed> Replay<L> {
                     }
                 }
                 _ => {}
+            }
+        }
+    }
+
+    /// Take the monotone relations of damaged chunk `e` of track `key`: the range relation by the range its entry
+    /// states, the others unread, so the next chunk can't be checked against them.
+    fn order_of_damaged(&mut self, e: &IndexEntry, key: Key) {
+        if e.kind != BlockKind::Events {
+            return;
+        }
+        if e.relation_break {
+            self.restart(key);
+        }
+        let range = self.facts.get(&e.track_number).and_then(|f| f.range);
+        self.tops.retain(|(k, r), _| *k != key || Some(*r) == range);
+        if let (Some(relation), Some(values)) = (range, e.range) {
+            self.monotone(e.offset, key, relation, values);
+            if let Some((at, id, Some(r))) = self.order
+                && at == e.offset
+                && id == key.0
+                && r == relation
+            {
+                self.order = Some((at, id, None));
             }
         }
     }

@@ -128,7 +128,9 @@ listed blocks fold to, from the head row's, or say it incomplete exactly where t
 kept leaves units out. The index and the walk must be the same set. Every block walked that its writer lists is listed,
 except a byte-identical copy of the listed block before it (a block written again), which adds to no track. Every entry
 names a block walked, or a damaged block in bytes no block explains that ends before the next block walked and before
-the finish. Each block and entry costs a bounded number of steps. The final index is read as the piece is walked: its
+the finish. Each monotone relation of a track starts each chunk at or above the chunk before it, but at a chunk marked
+a [relation break](format.md#tape-blocks); else verify gives `ReadError::RelationOrder`, as `TapeReader::track_entries`
+does for the range relation's ranges. Each block and entry costs a bounded number of steps. The final index is read as the piece is walked: its
 track lists, each in file order, are merged into one stream, so verify holds one entry per list and the entries of one
 block, whatever the piece's size. A final index of more than `VERIFY_LISTS_MAX` track lists names more tracks than a
 writer gives a piece, and doesn't hold. `TapeReader::chain` checks the links between the pieces at hand: each piece head against the piece before it,

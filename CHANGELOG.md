@@ -10,6 +10,7 @@ Covers `ww_tape` 0.1.0.
 
 ### ⚠️ Breaking
 
+- `verify` and `track_entries` refuse a monotone relation decreasing across chunks without a break: `ReadError::RelationOrder` (TAPE-7).
 - `IndexEntry` gains `relation_break`; an events chunk block takes header flag `FLAG_RELATION_BREAK` from callers (TAPE-7).
 - A chain carries at most `HEAD_TRACKS_MAX` tracks into a piece head; a track past it is refused (`WriteError::TooManyCarried`) (TAPE-8).
 - `Recovery::Resync` reports two blocks of one seq with other bytes as `FileError::Conflict`, both named; the second is no block (TAPE-8).
@@ -124,6 +125,7 @@ Covers `ww_tape` 0.1.0.
 
 ### 🚀 Features
 
+- `TapeReader::relation_breaks`: the chunks where a track's monotone relations start again, by piece and entry (TAPE-7).
 - `TapeWriter::accept_relation_break`: the caller goes on past an unread monotone relation from its own value (TAPE-7).
 - Format: header flag bit 4 and entry flag bit 3 mark a relation break (`FLAG_RELATION_BREAK`, `IndexEntry::relation_break`) (TAPE-7).
 - `RangeHash::stated`: chunks folded by the unit hash their entry states, which only `verify` proves (TAPE-9).
