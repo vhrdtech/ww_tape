@@ -8,8 +8,9 @@ ww_tape is the tape format of [WireWeaver](https://github.com/vhrdtech/wire_weav
 in self-checking, variable-length blocks, for live feeds, log files and raw media. It is layer 3 (storage) of
 WireWeaver: it takes [shrink_wrap](https://github.com/romixlab/shrink_wrap),
 [exact_units](https://github.com/romixlab/exact_units) and `ww_version` from
-[ww_base](https://github.com/vhrdtech/ww_base) by git, and depends on nothing of the framework, dev-dependencies
-included. WireWeaver (the link tap, the client's recorder, `ww explain`) and applications take it by git.
+[ww_base](https://github.com/vhrdtech/ww_base) by git, and depends on nothing of the framework but one
+dev-dependency, `wire_weaver_evolution`, for the API snapshot check. WireWeaver (the link tap, the client's recorder,
+`ww explain`) and applications take it by git.
 
 Read `docs/concepts.md` first (the words), then `docs/index.md`, `docs/writing.md`, `docs/reading.md`,
 `docs/events_and_series.md`, `docs/recovery.md` and `docs/format.md` (the reference, block by block). The pages and
@@ -97,8 +98,9 @@ release, and the numbers go into the commit body or the docs page they change.
   `Cargo.lock` that names a patched path.
 - A change that WireWeaver must follow (an API it calls, a format change) is checked there before it lands: develop
   WireWeaver with a `[patch."https://github.com/vhrdtech/ww_tape"]` and run its tap tests.
-- `ww_tape/api_snapshots/` is the crate's API snapshot, written by WireWeaver's CLI (no framework dependency here):
-  after a change to `Describe` or a type it names, run `ww api save ww_tape` in this repository and commit it.
+- `ww_tape/api_snapshots/` is the crate's API snapshot, written by WireWeaver's CLI; `ww_tape/tests/evolution.rs`
+  checks the source against it (`wire_weaver_evolution`, a dev-dependency only). After a change to `Describe`, a type
+  it names or the crate docs, run `ww api save ww_tape` in this repository and commit it.
 - Dependencies live in the root `[workspace.dependencies]`; crates inherit `authors`, `edition`, `rust-version`,
   `license`, `repository` and `[lints]` (`ww_tape` keeps its own `[lints]` table: the workspace's plus the
   panic-class lints).
