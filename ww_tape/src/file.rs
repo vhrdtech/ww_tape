@@ -5,7 +5,7 @@ use std::ops::Deref;
 
 use crate::piece::PieceHeadBlock;
 use crate::reader::{OwnedBlock, report_len, wide};
-use crate::walk::{Head, SessionState, Verdict};
+use crate::walk::{Head, SessionState, Verdict, is_free};
 use crate::{
     Block, BlockError, BlockKind, GAP_CHECKS_MAX, HEADER_LEN, MAGIC, MAX_BLOCK_LEN, Medium,
     SessionTag, block_len, is_blank,
@@ -153,12 +153,25 @@ pub enum FileError {
         offset: u64,
         len: u64,
     },
-    /// A good block at `offset` with the session and seq of the block before it but other bytes: the later copy wins,
-    /// it comes next. (A copy with the same bytes is dropped silently.)
+    /// [Recovery::Prefix]: a good block at `offset` with the session and seq of the block before it but other bytes:
+    /// the later copy wins (a writer that retried a write), it comes next. (A copy with the same bytes is dropped
+    /// silently.)
     Replaced {
         offset: u64,
         session: SessionTag,
         seq: u64,
+    },
+    /// [Recovery::Resync]: two good blocks of session `session` and seq `seq` with other bytes, the one handed out at
+    /// `first` and `block`, met at `offset`. In damage a salvage can't tell a copy from a rewrite, so neither is
+    /// taken for the other: `block` comes only here, never as a block of its own, and the caller marks both. The walk
+    /// goes on after `block`. Blocks of puts share seqs by design ([FLAG_REPEAT](crate::FLAG_REPEAT)) and are never a
+    /// conflict.
+    Conflict {
+        first: u64,
+        offset: u64,
+        session: SessionTag,
+        seq: u64,
+        block: Vec<u8>,
     },
     /// [Recovery::Resync]: a good block of session `session` at `offset`, `len` bytes, where no session may start: stale data
     /// (an earlier life of a medium), never data. Skipped by its length.
@@ -237,6 +250,18 @@ impl core::fmt::Display for FileError {
                 "block {seq} of session {:08x} again at byte {offset} with other bytes: the later copy is taken",
                 session.get()
             ),
+            FileError::Conflict {
+                first,
+                offset,
+                session,
+                seq,
+                block,
+            } => write!(
+                f,
+                "block {seq} of session {:08x} at bytes {first} and {offset} ({} bytes) with other bytes: a conflict",
+                session.get(),
+                block.len()
+            ),
             FileError::Stale {
                 offset,
                 session,
@@ -268,8 +293,8 @@ pub enum Recovery {
     #[default]
     Prefix,
     /// Salvage: report a bad block and read on at the next block magic one byte after its start ([FileError::Bad]);
-    /// no seq check, but a block with the session and seq of the block before it and other bytes is reported
-    /// ([FileError::Replaced]) and comes next, as in [Recovery::Prefix]; a block of a session that may not start there is reported ([FileError::Stale]) and skipped. A
+    /// no seq check, but a block with the session and seq of the block before it and other bytes is a conflict
+    /// ([FileError::Conflict]): it comes only in the report, which names both; a block of a session that may not start there is reported ([FileError::Stale]) and skipped. A
     /// chunk block whose head is good (head CRC) but whose payload isn't is handed out instead, with
     /// [Block::is_intact] false and its bad segments marked ([crate::Chunk::bad_segments]), and the walk goes on
     /// after it by its length. Any byte may start a block, also in a file aligned for its chunk payloads: a block is
@@ -299,6 +324,8 @@ pub struct FileBlocks<R> {
     done: bool,
     /// The block at the start of `buf` replaces the one taken before with its id (reported already)
     replacing: bool,
+    /// Where the last data block taken starts (a block of the seq order, [crate::walk::is_free] not)
+    last_data: Option<u64>,
     /// [Recovery::Resync] in a stretch a [Recovery::Prefix] walk reads past as a gap: the medium offset where that walk
     /// goes on. Blocks before it change no session of `walk`, and none is passed over beyond it.
     gap_end: Option<u64>,
@@ -346,6 +373,7 @@ impl<R: Read> FileBlocks<R> {
             walk: SessionState::new(Medium::File),
             done: false,
             replacing: false,
+            last_data: None,
             gap_end: None,
             gap_walk: SessionState::new(Medium::File),
             prefix_over: false,
@@ -622,6 +650,9 @@ impl<R: Read> FileBlocks<R> {
         let (session, seq) = (b.session, b.seq);
         if matches!(verdict, Verdict::Take) && self.gap_end.is_none() {
             self.walk.take(&b);
+            if !is_free(&b) {
+                self.last_data = Some(self.offset);
+            }
         }
         match (verdict, self.recovery) {
             (Verdict::Take, _) => Ok(Next::Block(c)),
@@ -630,7 +661,19 @@ impl<R: Read> FileBlocks<R> {
                 self.consume(c.len)?;
                 Ok(Next::Dropped)
             }
-            (Verdict::Duplicate { same: false }, _) => {
+            (Verdict::Duplicate { same: false }, Recovery::Resync) => {
+                let offset = self.offset;
+                let block = b.bytes().to_vec();
+                self.consume(self.within_gap(c.len))?;
+                Err(FileError::Conflict {
+                    first: self.last_data.unwrap_or(offset),
+                    offset,
+                    session,
+                    seq,
+                    block,
+                })
+            }
+            (Verdict::Duplicate { same: false }, Recovery::Prefix) => {
                 self.replacing = true;
                 Err(FileError::Replaced {
                     offset: self.offset,

@@ -247,11 +247,11 @@ fn file_blocks_refuse_a_piece_head_of_another_integrity_level() {
     }
 }
 
-/// A damaged chunk whose payload holds a good copy of the next data block with other bytes: a Resync walk takes the
-/// copy at the magic it finds in the payload, and reports the real block, of the same session and seq, as replacing
-/// it.
+/// A damaged chunk whose payload holds a good copy of the next data block with other bytes: a Resync walk hands out
+/// the copy at the magic it finds in the payload, then reports the real block, of the same session and seq, as a
+/// conflict naming both, never as a block of its own: a salvage can't tell which one is real.
 #[test]
-fn resync_reports_a_block_found_again_with_other_bytes() {
+fn resync_reports_two_blocks_of_one_seq_as_a_conflict() {
     use crate::definitions::base_defs;
     use crate::pieces::{chunk, column, records};
     use ww_tape::{Block, FileBlocks, FileError, MemSink, Recovery, SyncPolicy, TapeWriter};
@@ -309,19 +309,28 @@ fn resync_reports_a_block_found_again_with_other_bytes() {
         .iter()
         .position(|s| matches!(s, Ok((o, _, true)) if *o == fake_at))
         .unwrap_or_else(|| panic!("the copy is taken: {seen:?}"));
-    let replaced: Vec<usize> = (0..seen.len())
-        .filter(|k| matches!(seen[*k], Err(FileError::Replaced { .. })))
+    let conflicts: Vec<usize> = (0..seen.len())
+        .filter(|k| matches!(seen[*k], Err(FileError::Conflict { .. })))
         .collect();
-    let [k] = replaced[..] else {
-        panic!("one block reported replaced: {seen:?}")
+    let [k] = conflicts[..] else {
+        panic!("one conflict reported: {seen:?}")
     };
     assert!(k > i, "{seen:?}");
+    // the conflict names both copies and carries the second; neither is taken for the other: the real block is no
+    // block of its own
     assert!(
         matches!(
-            &seen[k..],
-            [Err(FileError::Replaced { offset, seq, .. }), Ok((o, s, false)), ..]
-                if *offset == r_at as u64 && *seq == r_seq && *o == r_at as u64 && *s == r_seq
+            &seen[k],
+            Err(FileError::Conflict { first, offset, seq, block, .. })
+                if *first == fake_at && *offset == r_at as u64 && *seq == r_seq
+                    && block[..] == bytes[r_at..r_at + r_len]
         ),
+        "{seen:?}"
+    );
+    assert!(
+        !seen
+            .iter()
+            .any(|s| matches!(s, Ok((o, _, _)) if *o == r_at as u64)),
         "{seen:?}"
     );
 }

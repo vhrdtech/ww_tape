@@ -825,6 +825,9 @@ fn blocks(bytes: &[u8], recovery: Recovery, medium: Medium) -> Vec<Vec<u8>> {
                 "{recovery:?} gives a block that doesn't read"
             );
             out.push(b.bytes().to_vec());
+        } else if let Err(FileError::Conflict { block, .. }) = b {
+            // the second of two blocks of one seq comes in the conflict report
+            out.push(block);
         }
         steps += 1;
         assert!(steps <= bytes.len() + 1, "every step consumes bytes");
@@ -832,7 +835,8 @@ fn blocks(bytes: &[u8], recovery: Recovery, medium: Medium) -> Vec<Vec<u8>> {
     out
 }
 
-/// Whether the Resync walk of `bytes` gives every block the Prefix walk gives, in order, on `medium`.
+/// Whether the Resync walk of `bytes` gives every block the Prefix walk gives, in order, on `medium`: as a block, or
+/// as the second block of a conflict.
 fn resync_reads_the_prefix(bytes: &[u8], medium: Medium) -> Result<(), String> {
     let prefix = blocks(bytes, Recovery::Prefix, medium);
     let resync = blocks(bytes, Recovery::Resync, medium);
@@ -889,6 +893,9 @@ fn resync_misses_no_block(bytes: &[u8], medium: Medium) -> Result<(), String> {
                     ));
                 }
                 met.push((offset, len));
+            }
+            Err(FileError::Conflict { offset, block, .. }) => {
+                met.push((offset, block.len() as u64))
             }
             Err(_) => {}
         }
