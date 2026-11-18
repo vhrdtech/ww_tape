@@ -234,8 +234,10 @@ how many bytes it kept and dropped and where the piece was cut. It works in thre
    so many blocks that don't read that a reader's content-hash walk stops trying blocks before their end
    (`WALK_MISS_PER_BYTE_MAX`), a block written after them would not verify: the resume refuses
    (`WriteError::HashWalkSpent`) and leaves the bytes as they are.
-3. It replays the kept blocks to rebuild the writer as it was: the content hash, the index entries, the track ranges,
-   the record of what lies near, the session and the next sequence number.
+3. It replays the kept bytes to rebuild the writer as it was: the content hash, the index entries, the track ranges,
+   the record of what lies near, the session and the next sequence number. It walks them as a reader's verify does:
+   a good block wherever the walk meets one, and in bytes no block explains, a block the index lists is a damaged
+   block kept by its entry when it ends before the next good block; other bytes are junk, kept and never listed.
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/figures/resume.svg"

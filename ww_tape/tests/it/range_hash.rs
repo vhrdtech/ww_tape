@@ -750,8 +750,9 @@ fn verify_compares_each_entry_with_its_block() {
         first
     };
     type Change = fn(&mut [u8]);
-    let cases: [(&str, Change); 3] = [
+    let cases: [(&str, Change); 4] = [
         ("unit hash", |e| e[88] ^= 1),
+        ("unit hash at 100", |e| e[100] ^= 1),
         ("kind 11", |e| e[12] = 11),
         ("range", |e| {
             e[15] |= 2;
@@ -860,6 +861,87 @@ fn verify_compares_each_finish_row_with_its_fold() {
         r.pieces()[i].finish.as_ref().unwrap().1,
         p.finish.as_ref().unwrap().1
     );
+    assert!(!r.verify(i).unwrap());
+}
+
+/// A track's last chunk taken out of the fold: its entry moved past the blocks walked (onto the finish) with another
+/// unit hash, the finish row stating the fold without it, every CRC and the content hash made good. `verify` fails:
+/// the chunk walked has no entry, and the entry names no block walked before the finish.
+#[test]
+fn verify_refuses_a_chunk_its_index_lists_past_the_blocks() {
+    use ww_tape::BlockKind;
+    let (_, files) = write(PieceFiles::One, 0x5eed);
+    let mut bytes = files[0].clone();
+    let good = TapeReader::open(&bytes[..]).unwrap();
+    let i = good.pieces().len() - 1;
+    let p = good.pieces()[i].clone();
+    let fin = p.finish_offset.unwrap();
+    let t = (0..3u64)
+        .find(|t| {
+            let e = good.track_entries(i, id_of(*t)).unwrap();
+            e.len() >= 2
+                && e.last().unwrap().kind == BlockKind::Events
+                && fin + u64::from(e.last().unwrap().len) <= p.end - p.start
+        })
+        .unwrap();
+    let entries = good.track_entries(i, id_of(t)).unwrap();
+    let last = *entries.last().unwrap();
+    let mut fold = p
+        .head
+        .as_ref()
+        .unwrap()
+        .1
+        .iter()
+        .find(|s| s.track_id == id_of(t))
+        .map_or(TrackHash::START, |s| s.hash);
+    let mut buf = vec![];
+    for e in entries
+        .iter()
+        .filter(|e| e.kind == BlockKind::Events && e.offset != last.offset)
+    {
+        let c = good.read_block(i, e, &mut buf).unwrap().chunk().unwrap();
+        fold = fold.chunk(&c, &payload_hash(c.payload()));
+    }
+    let row = p
+        .finish
+        .as_ref()
+        .unwrap()
+        .1
+        .iter()
+        .find(|r| r.track_id == id_of(t))
+        .unwrap()
+        .hash;
+    drop(good);
+    rewrite_final_entries(&mut bytes, i, t, |_, e| {
+        if u64::from_le_bytes(e[0..8].try_into().unwrap()) == last.offset {
+            e[0..8].copy_from_slice(&fin.to_le_bytes());
+            e[88] ^= 1;
+        }
+    });
+    let at = (p.start + fin) as usize;
+    let flen = ww_tape::block_len(&bytes[at..]).unwrap();
+    let k = bytes[at..at + flen]
+        .windows(32)
+        .position(|w| w == row.0)
+        .unwrap();
+    bytes[at + k..at + k + 32].copy_from_slice(&fold.0);
+    let crc = crc32c(&[&bytes[at..at + flen - 4]]);
+    bytes[at + flen - 4..at + flen].copy_from_slice(&crc.to_le_bytes());
+    reseal(&mut bytes, i);
+    let r = TapeReader::open(&bytes[..]).unwrap();
+    assert_eq!(
+        r.pieces()[i]
+            .finish
+            .as_ref()
+            .unwrap()
+            .1
+            .iter()
+            .find(|r| r.track_id == id_of(t))
+            .unwrap()
+            .hash,
+        fold
+    );
+    assert!(r.chain().is_whole());
     assert!(!r.verify(i).unwrap());
 }
 

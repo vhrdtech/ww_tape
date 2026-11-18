@@ -288,8 +288,9 @@ pub const WALK_MISS_BASE_MAX: u64 = 1 << 20;
 
 /// Feed the first `end` bytes of a piece, read by `read`, to its content hash: each block of [walk_piece] whole
 /// ([hash_block]), the bytes between as they are. The hash depends on the bytes alone, not on how a writer or a resume
-/// walked them. Whether the walk tries a block at `end`, as [walk_piece] gives it.
-#[cfg(feature = "std")]
+/// walked them. Whether the walk tries a block at `end`, as [walk_piece] gives it. A resume and a verify walk with
+/// [walk_piece] themselves, as they replay each step.
+#[cfg(test)]
 pub(crate) fn hash_piece<E>(
     h: &mut blake3::Hasher,
     end: u64,
