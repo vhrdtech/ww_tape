@@ -26,6 +26,7 @@ mod puts;
 mod reader;
 mod resume;
 mod series;
+mod track_hash;
 
 use ww_tape::{BlockId, SessionTag};
 
