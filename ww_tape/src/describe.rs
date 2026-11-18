@@ -412,6 +412,16 @@ pub struct TrackDef<'i> {
     pub repeat: TrackRepeat,
     /// How the track's items are stored: events or a fixed-rate series.
     pub kind: TrackKind<'i>,
+    /// The [number](Self::number) of the events track whose items this track's items nest under: a word under its
+    /// segment, a field under its frame. None for a track at the top. An events track itself, never its own parent.
+    pub parent: Option<UNib32>,
+    /// The [numbers](Self::number) of the state tracks this track is read with, in ascending order, each once: an
+    /// RF series with its tuning and gain, a decoded track with its decoder settings. A reader takes each one's
+    /// value at an item's start.
+    pub context: RefVec<'i, UNib32>,
+    /// The field of the item type that names an item's entity (a piece id, a face track, a CAN id), as a path of
+    /// field names joined by `.`; None when items have no entity. Writers give the key's value with each item.
+    pub entity_key: Option<&'i str>,
 }
 
 /// What a track's records are to a reader that starts later, see [state](crate::state).
@@ -587,6 +597,27 @@ impl<'i> TrackDef<'i> {
     /// Id of the track's identity, see [track_id].
     pub fn id(&self) -> u64 {
         track_id(self.key, self.dimensions.iter().filter_map(Result::ok))
+    }
+
+    /// Whether the relations to other tracks are well formed by themselves: neither the parent nor a context track
+    /// is the track itself, the context is in ascending order with no repeats, a series has no parent, and the
+    /// entity key is not empty. Whether the tracks named exist is checked with the definitions held.
+    pub fn relations_canonical(&self) -> bool {
+        let own = self.number.0;
+        if self.parent.is_some_and(|p| p.0 == own)
+            || (self.parent.is_some() && self.series().is_some())
+        {
+            return false;
+        }
+        let mut prev: Option<u32> = None;
+        for c in self.context.iter() {
+            let Ok(c) = c else { return false };
+            if c.0 == own || prev.is_some_and(|p| p >= c.0) {
+                return false;
+            }
+            prev = Some(c.0);
+        }
+        self.entity_key.is_none_or(|k| !k.is_empty())
     }
 
     /// Whether the dimensions are in ascending order of name, names unique.

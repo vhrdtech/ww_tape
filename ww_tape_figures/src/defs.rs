@@ -37,5 +37,8 @@ pub fn track(number: u32, label: &'static str, repeat: TrackRepeat) -> Describe<
         label,
         repeat,
         kind: TrackKind::Events(EventsDef::INSTANTS),
+        parent: None,
+        context: RefVec::Slice { slice: &[] },
+        entity_key: None,
     })
 }

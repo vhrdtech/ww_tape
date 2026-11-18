@@ -64,6 +64,12 @@ pub enum DescribeError {
     TooLong { len: usize },
     /// A producer or layout definition: those are the writer's own ([crate::WriterOptions]).
     WriterOwned,
+    /// A track's parent or context names itself, repeats or is out of order, a series names a parent, or its entity
+    /// key is empty ([TrackDef::relations_canonical](crate::TrackDef::relations_canonical)).
+    Relations { track: u32 },
+    /// A track names as its parent a track that is not an open events track, or as context one that is not an open
+    /// state track.
+    UnknownRelated { track: u32, related: u32 },
     /// A track's kind breaks a rule ([TrackDef::check_kind](crate::TrackDef::check_kind)).
     Kind {
         track: u32,
@@ -102,6 +108,16 @@ impl core::fmt::Display for DescribeError {
                     "track {track}: dimensions not in ascending order of name"
                 )
             }
+            DescribeError::Relations { track } => {
+                write!(
+                    f,
+                    "track {track}: parent or context names itself, repeats or is out of order"
+                )
+            }
+            DescribeError::UnknownRelated { track, related } => write!(
+                f,
+                "track {track}: track {related} is not an open events track as parent, or state track as context"
+            ),
             DescribeError::UnknownClock { clock } => write!(f, "clock {clock} is not open"),
             DescribeError::Resolution { clock } => {
                 write!(f, "clock {clock}: resolution under one tick")
@@ -235,6 +251,9 @@ pub fn check_definition(d: &Describe<'_>) -> Result<(), DescribeError> {
             if !t.dimensions_canonical() {
                 return Err(DescribeError::Dimensions { track: t.number.0 });
             }
+            if !t.relations_canonical() {
+                return Err(DescribeError::Relations { track: t.number.0 });
+            }
             t.check_kind().map_err(|error| DescribeError::Kind {
                 track: t.number.0,
                 error,
@@ -276,6 +295,8 @@ fn track_bundles(t: &crate::TrackDef<'_>) -> Vec<Vec<u8>> {
 #[derive(Default)]
 struct Layer {
     clocks: BTreeMap<u32, bool>,
+    /// Tracks by number, and whether each is a state track; None for a series
+    tracks: BTreeMap<u32, Option<bool>>,
     /// Maps by (from, to), and whether each is an epoch link
     maps: BTreeMap<(u32, u32), bool>,
 }
@@ -481,9 +502,41 @@ impl Definitions {
                     layer.maps.insert((m.from.0, m.to.0), m.is_epoch_link());
                     touched.insert(m.from.0);
                 }
+                Describe::Track(t) => {
+                    let state = t.series().is_none().then(|| t.repeat.state().is_some());
+                    layer.tracks.insert(t.number.0, state);
+                }
                 _ => {}
             }
             named.push(d);
+        }
+        // a track's parent is an events track and its context state tracks, in the batch or held
+        let state_of = |n: u32| {
+            layer.tracks.get(&n).copied().or_else(|| {
+                self.tracks
+                    .get(&n)
+                    .map(|h| h.facts.period.is_none().then(|| h.facts.state.is_some()))
+            })
+        };
+        for d in &named {
+            let Describe::Track(t) = d else { continue };
+            let track = t.number.0;
+            if let Some(p) = t.parent
+                && state_of(p.0) != Some(Some(false))
+            {
+                return Err(DescribeError::UnknownRelated {
+                    track,
+                    related: p.0,
+                });
+            }
+            for c in t.context.iter().filter_map(Result::ok) {
+                if state_of(c.0) != Some(Some(true)) {
+                    return Err(DescribeError::UnknownRelated {
+                        track,
+                        related: c.0,
+                    });
+                }
+            }
         }
         for d in named {
             let clocks = match d {

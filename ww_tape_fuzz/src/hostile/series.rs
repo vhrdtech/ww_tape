@@ -39,6 +39,9 @@ pub(crate) fn track_item(shape: SampleShape, period: Ratio64, scale: Magnitude) 
         label: "hostile",
         repeat: ww_tape::TrackRepeat::Stream,
         kind: TrackKind::Series(def),
+        parent: None,
+        context: RefVec::Slice { slice: &[] },
+        entity_key: None,
     });
     definition(&track)
 }
