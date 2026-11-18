@@ -1067,7 +1067,6 @@ impl<'b> Block<'b> {
         Self::read_unchecked(bytes).map(|(b, _)| b)
     }
 
-    /// The header, and for a chunk block its head checked; no CRC over the payload yet.
     /// Refuse a chunk block marked [FLAG_PAYLOAD_UNCHECKED]: this build handles full integrity only.
     fn check_integrity(&self, chunk: bool) -> Result<(), BlockError> {
         match chunk && self.flags & FLAG_PAYLOAD_UNCHECKED != 0 {
@@ -1076,6 +1075,7 @@ impl<'b> Block<'b> {
         }
     }
 
+    /// The header, and for a chunk block its head checked; no CRC over the payload yet.
     fn read_unchecked(bytes: &'b [u8]) -> Result<(Self, Option<Chunk<'b>>), BlockError> {
         let len = block_len(bytes)?;
         let short = BlockError::Short { needed: len };
