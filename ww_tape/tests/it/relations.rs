@@ -1116,3 +1116,144 @@ fn a_resume_replays_a_relation_break() {
         c.finish().unwrap();
     }
 }
+
+/// Op `k` on a chain: even a chunk of track 3 of [two_monotone] (3 items, both relations rising), odd a records
+/// block on track 9. One counted block each.
+fn chain_op(
+    c: &mut ww_tape::PieceChain<ww_tape::MemTapes>,
+    defs: &Definitions,
+    k: u64,
+) -> Result<(), WriteError> {
+    if k.is_multiple_of(2) {
+        let f = (k / 2) * 3;
+        let (h, cols) = two_chunk(f, &[f, f + 1, f + 2], &[100 + f, 101 + f, 102 + f]);
+        let cols: Vec<_> = cols.iter().map(|(s, b)| (*s, &b[..])).collect();
+        c.write_chunk(defs, &h, &cols).map(|_| ())
+    } else {
+        let b = crate::pieces::records(c.writer()?.next_id(), k as i64);
+        c.write_block(defs, &b)
+    }
+}
+
+/// Power loss at every byte of the second piece of a chain, in both layouts: its first piece has an incomplete row
+/// (a damaged record block a resume kept) and a track of two monotone relations. Each cut resumes, writes the rest
+/// and finishes to the bytes of the piece written without the loss.
+#[test]
+fn a_chain_piece_with_an_incomplete_row_and_two_monotone_relations_resumes_anywhere() {
+    use ww_tape::index::IndexPolicy;
+    use ww_tape::{
+        ChainOptions, CutPolicy, Layout, MemTapes, OwnerId, PieceChain, PieceFiles,
+        SinkFactory as _, WriterOptions,
+    };
+    let mut defs = Definitions::new();
+    defs.define_all(&[clock(CLOCK), two_monotone(), track(9, CLOCK)])
+        .unwrap();
+    let (at, owner) = (Path::new("chain"), OwnerId([4; 32]));
+    let piece = |n| at.join(ww_tape::piece::piece_name(n));
+    for layout in [Layout::UNALIGNED, Layout::ALIGNED] {
+        let options = || ChainOptions {
+            files: PieceFiles::Each,
+            writer: WriterOptions {
+                sync: SyncPolicy::None,
+                index: IndexPolicy {
+                    bytes: 512,
+                    interval: None,
+                    ..IndexPolicy::default()
+                },
+                layout,
+                producer: "sweep".to_owned(),
+                ..WriterOptions::default()
+            },
+            cut: CutPolicy::default(),
+        };
+        let f = MemTapes::new();
+        let mut c = PieceChain::create_on(f.clone(), at, owner, 0, &[], options()).unwrap();
+        for k in 0..30 {
+            chain_op(&mut c, &defs, k).unwrap();
+        }
+        drop(c);
+        // the fourth record block of data damaged: the resume keeps it, its track's row is incomplete
+        let mut bytes = f.get(&piece(0)).unwrap().unwrap().to_vec().unwrap();
+        let e = TapeReader::open(&bytes[..])
+            .unwrap()
+            .entries(0)
+            .unwrap()
+            .into_iter()
+            .filter(|e| {
+                e.kind == BlockKind::Records
+                    && !e.repeat
+                    && e.track_id != ww_tape::index::STATE_TRACK_ID
+            })
+            .nth(3)
+            .unwrap();
+        bytes[(e.offset + u64::from(e.len)) as usize - 8] ^= 1;
+        {
+            let mut f = f.clone();
+            let mut sink = f.reopen(&piece(0)).unwrap().unwrap();
+            sink.truncate(0).unwrap();
+            sink.write_all(&bytes).unwrap();
+        }
+        let (mut c, _) = PieceChain::resume_on(f.clone(), at, owner, 0, options()).unwrap();
+        let n = c.writer().unwrap().next_seq();
+        for k in n..32 {
+            chain_op(&mut c, &defs, k).unwrap();
+        }
+        c.cut_now().unwrap();
+        let seq0 = c.writer().unwrap().next_seq();
+        for k in 32..44 {
+            chain_op(&mut c, &defs, k).unwrap();
+        }
+        let open = f.get(&piece(1)).unwrap().unwrap().to_vec().unwrap();
+        c.finish().unwrap();
+        let fin = f.get(&piece(1)).unwrap().unwrap().to_vec().unwrap();
+        let first = f.get(&piece(0)).unwrap().unwrap().to_vec().unwrap();
+        let rows = TapeReader::open(&first[..]).unwrap().pieces()[0]
+            .finish
+            .clone()
+            .unwrap()
+            .1;
+        assert!(
+            rows.iter().any(|r| r.incomplete),
+            "{layout:?}: piece 0 has an incomplete row"
+        );
+        for (src, from) in [(&open, 0usize), (&fin, open.len())] {
+            for cut in from..=src.len() {
+                let w = MemTapes::new();
+                let mut s = w.clone().create(&piece(0)).unwrap();
+                s.write_all(&first).unwrap();
+                s.finish().unwrap();
+                drop(s);
+                let mut s = w.clone().create(&piece(1)).unwrap();
+                s.write_all(&src[..cut]).unwrap();
+                drop(s);
+                let r = PieceChain::resume_on(w.clone(), at, owner, 0, options());
+                if cut == fin.len() {
+                    // the whole finished piece: named finished, the chain ended
+                    assert!(
+                        matches!(
+                            r,
+                            Err(WriteError::Ended(ww_tape::piece::FinishState::Complete))
+                        ),
+                        "{layout:?}: {:?}",
+                        r.err()
+                    );
+                    assert!(w.get(&piece(1)).unwrap().unwrap().to_vec().unwrap() == fin);
+                    continue;
+                }
+                let (mut c, _) = r.unwrap_or_else(|e| panic!("{layout:?}, cut at {cut}: {e:?}"));
+                let n = c.writer().unwrap().next_seq();
+                for k in (32 + n - seq0)..44 {
+                    chain_op(&mut c, &defs, k)
+                        .unwrap_or_else(|e| panic!("{layout:?}, cut at {cut}, op {k}: {e:?}"));
+                }
+                c.finish().unwrap();
+                let got = w.get(&piece(1)).unwrap().unwrap().to_vec().unwrap();
+                assert!(
+                    got == fin,
+                    "{layout:?}, cut at {cut} of {}: other bytes",
+                    src.len()
+                );
+            }
+        }
+    }
+}
