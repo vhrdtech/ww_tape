@@ -79,7 +79,8 @@ item unknown, so the next put of such a slot writes. The producer passes the sam
 with (`TapeWriter::options` gives them) and gives again every call from the block `next_seq` reports, with the same
 definitions: a resumed piece then ends with the same bytes, and the same content hash, as one written without the
 crash. A piece whose finish and tail read whole (a crash after the finish, before the rename) is complete: the resume
-renames it, writes nothing and returns `WriteError::Ended`. A piece cut inside its end is opened again the same way:
+renames it, writes nothing and returns `WriteError::Ended`; junk after the tail is cut off first, a good block there
+refuses. A piece cut inside its end is opened again the same way:
 its final index and finish are cut off, and the next finish pads the piece to 4 KiB again.
 
 The resume checks those options against the piece before it cuts or writes anything. The newest layout and producer

@@ -1390,6 +1390,45 @@ fn a_resume_never_cuts_off_good_blocks() {
     assert_eq!(resumed.kept_bytes, starts[starts.len() - 1] as u64);
 }
 
+/// A finished piece followed by junk a crash left (garbage, a torn block): the resume cuts off only what follows the
+/// tail, names the piece and writes nothing; the bytes up to the tail stay. A good block after the tail refuses.
+#[test]
+fn a_resume_of_a_whole_finish_cuts_only_the_junk_after_its_tail() {
+    let dir = scratch("junk_after_tail");
+    let path = dir.join("p.wwt");
+    let mut w = TapeWriter::create(&path, SyncPolicy::None).unwrap();
+    for n in 0..6 {
+        let block = records(w.next_id(), n);
+        w.write_block(base_defs(), &block).unwrap();
+    }
+    let next = w.next_id();
+    w.finish().unwrap();
+    let done = std::fs::read(&path).unwrap();
+    std::fs::remove_file(&path).unwrap();
+    let good = records(next, 9);
+    let partial = ww_tape::writer::partial_name(&path);
+    for (name, junk) in [
+        ("garbage", vec![0xab; 100]),
+        ("a torn block", good[..40].to_vec()),
+    ] {
+        std::fs::write(&partial, [&done[..], &junk[..]].concat()).unwrap();
+        match TapeWriter::resume(&path, WriterOptions::default()) {
+            Err(WriteError::Ended(ww_tape::FinishState::Complete)) => {}
+            other => panic!("{name}: {:?}", other.map(|(_, r)| r)),
+        }
+        assert_eq!(std::fs::read(&path).unwrap(), done, "{name}");
+        assert!(!partial.exists(), "{name}");
+        std::fs::remove_file(&path).unwrap();
+    }
+    let bytes = [&done[..], &good[..]].concat();
+    std::fs::write(&partial, &bytes).unwrap();
+    match TapeWriter::resume(&path, WriterOptions::default()) {
+        Err(WriteError::GoodBlockAfterCut { offset }) => assert_eq!(offset, done.len() as u64),
+        other => panic!("{:?}", other.map(|(_, r)| r)),
+    }
+    assert_eq!(std::fs::read(&partial).unwrap(), bytes, "left as it was");
+}
+
 /// A piece whose finish and tail read whole, left as `NAME.partial` by a crash before its rename: a resume names it
 /// and writes nothing ([WriteError::Ended]); in memory the bytes stay as they are.
 #[test]

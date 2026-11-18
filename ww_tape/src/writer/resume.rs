@@ -18,8 +18,10 @@
 //! - a checkpoint index block moves the indexer on as placing it did; in an aligned piece a checkpoint due after a
 //!   block waits for the next chunk, as it did.
 //!
-//! A piece whose finish and tail read whole and end the bytes (a crash after the finish, before the name) is complete:
-//! the resume gives it its name ([TapeSink::finish]), writes nothing and returns [WriteError::Ended].
+//! A piece whose finish and tail read whole (a crash after the finish, before the name) is complete: the resume cuts
+//! off what follows the tail when no good block is in it (junk a crash left), gives the piece its name
+//! ([TapeSink::finish]), writes nothing else and returns [WriteError::Ended]. A good block after the tail refuses
+//! ([WriteError::GoodBlockAfterCut]).
 //!
 //! Else the piece is kept up to the end of its last good block, counted or not: the puts after the last counted block
 //! stay. What ends a piece (the final index, a finish without its tail) is dropped: the piece is open again, and so are
@@ -456,6 +458,16 @@ impl<S: TapeSink> TapeWriter<S> {
             .map_err(io_err("reading the length to resume"))?;
         let (layout, cut, ended) = read_layout(&sink)?;
         if let Some(state) = ended.whole {
+            // bytes after the tail: junk a crash left (a torn block, garbage) is cut off; a good block refuses, as
+            // cutting it off would lose more than a torn end
+            if size > layout.end {
+                let none = std::collections::BTreeSet::new();
+                if let Some(offset) = good_block_after(&sink, layout.end, size, &none)? {
+                    return Err(WriteError::GoodBlockAfterCut { offset });
+                }
+                sink.truncate(layout.end)
+                    .map_err(io_err("cutting the bytes after the tail"))?;
+            }
             sink.finish()
                 .map_err(io_err("giving the finished piece its name"))?;
             return Err(WriteError::Ended(state));
@@ -756,16 +768,13 @@ impl<S: TapeSink> TapeWriter<S> {
 struct EndFound {
     /// The state of a finish found
     state: Option<FinishState>,
-    /// That state, when the finish and the tail read whole and end the bytes
+    /// That state, when the finish and the tail read whole (bytes after the tail are the caller's to judge)
     whole: Option<FinishState>,
 }
 
 /// The piece at the start of `sink` as a reader finds it: its blocks by index entry and gap, where it ends, where a
 /// scan was cut, and how it ended.
 fn read_layout<S: TapeSink>(sink: &S) -> Result<(Layout, Option<u64>, EndFound), WriteError> {
-    let size = sink
-        .size()
-        .map_err(io_err("reading the length to resume"))?;
     let reader = TapeReader::open(SinkSource(sink)).map_err(WriteError::Read)?;
     let Some(p) = reader.pieces().first() else {
         return Ok((
@@ -792,8 +801,7 @@ fn read_layout<S: TapeSink>(sink: &S) -> Result<(Layout, Option<u64>, EndFound),
     }
     let gaps = p.gaps.iter().copied().collect();
     let state = p.finish.as_ref().map(|(f, _)| f.state);
-    let whole =
-        state.filter(|_| p.found == crate::reader::Found::Tail && p.tail.is_some() && end == size);
+    let whole = state.filter(|_| p.found == crate::reader::Found::Tail && p.tail.is_some());
     Ok((
         Layout { entries, gaps, end },
         p.cut,

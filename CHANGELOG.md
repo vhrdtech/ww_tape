@@ -21,7 +21,7 @@ Covers `ww_tape` 0.1.0.
 - A caller's block with header flags its kind doesn't take is refused (`WriteError::Flags`); records take only a coded body (TAPE-4).
 - A resume refuses to cut off good blocks behind bytes it can't read (`WriteError::GoodBlockAfterCut`); only a torn end goes (TAPE-8).
 - A resume whose look for good blocks ends before the bytes do refuses (`WriteError::LookSpent`), never cuts (TAPE-8).
-- A resume of a piece whose finish and tail read whole renames it and returns `WriteError::Ended`, writing nothing (TAPE-8).
+- A resume of a piece whose finish and tail read whole cuts junk after the tail, renames it, returns `WriteError::Ended` (TAPE-8).
 - A resume refuses bytes whose content-hash walk spent its miss budget (`WriteError::HashWalkSpent`): appended blocks wouldn't verify (TAPE-8).
 - A relation name is at most `RELATION_NAME_MAX` (64) bytes; a longer one is refused (`DescribeError::RelationName`) (TAPE-7).
 - `cut_in_place` refuses a sink of one piece (`NAME.partial`, `MemSink::new`): `TapeSink::holds_pieces` (TAPE-8).

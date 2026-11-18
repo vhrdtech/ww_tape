@@ -255,7 +255,8 @@ A resume checks the options against the piece before it cuts or writes anything.
 with; `TapeWriter::options` gives them. A layout or producer other than the newest the piece kept is refused
 (`WriteError::Layout`, `WriteError::Producer`), because the writer would place blocks the way the file says it doesn't.
 A piece whose finish and tail read whole (a crash after the finish, before the rename) is complete: the resume renames
-it, writes nothing and returns `WriteError::Ended`. A piece cut inside its end is opened again: its final index and
+it, writes nothing and returns `WriteError::Ended`. Junk a crash left after the tail (garbage, a torn block) is cut
+off first; a good block there refuses (`WriteError::GoodBlockAfterCut`). A piece cut inside its end is opened again: its final index and
 finish are cut off, and the next finish pads the piece to 4 KiB again.
 
 `PieceChain::resume` does the same for a chain. It reads the finished pieces back from their tails and resumes the last,
