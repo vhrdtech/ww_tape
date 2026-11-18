@@ -164,13 +164,21 @@ pub fn index(data: &[u8]) {
         self_offset: u64::from(flag),
         prev: (flag & 2 == 2).then_some(7),
     };
-    // write_index refuses an entry whose end passes a u64, and a range that decreases or sits on no chunk's entry
+    // write_index refuses an entry whose end passes a u64, a range that decreases or sits on no chunk's entry, and
+    // in a final index a track whose blocks overlap (only a state record's entries share a block)
     let valid = entries.iter().all(|e| {
         e.offset.checked_add(u64::from(e.len)).is_some()
             && e.range.is_none_or(|(lo, hi)| {
                 lo <= hi && matches!(e.kind, BlockKind::Events | BlockKind::Series)
             })
-    });
+    }) && (kind == IndexKind::Checkpoint
+        || entries.windows(2).all(|w| {
+            w[0].track_id != w[1].track_id
+                || w[0].offset.saturating_add(u64::from(w[0].len)) <= w[1].offset
+                || (w[0].offset == w[1].offset
+                    && w[0].len == w[1].len
+                    && w[0].track_id == ww_tape::index::STATE_TRACK_ID)
+        }));
     let n = match write_index(
         &mut buf,
         ww_tape::BlockId::new(ww_tape::SessionTag::writable(1), 1),

@@ -39,6 +39,11 @@ pub const KNOWN_INPUTS: &[(&str, &str, &str)] = &[];
 /// Inputs these tests and the fuzz targets found that failed until a fix: target, name (seed `fixed-<name>`), hex.
 pub const FIXED_INPUTS: &[(&str, &str, &str)] = &[
     ("tape-index", "empty-index-reads-back", "0a"),
+    (
+        "tape-index",
+        "final-index-overlapping-blocks",
+        "ff050100000000000007050500000000000000000a02020202002e00000000000000000000020200000000070505000007050500000000000000000a020202020000000000000000000000020000000000b7000000022f02020202",
+    ),
     ("tape-resume", "finished-last-piece-damaged", "070030c80101"),
     (
         "tape-resume",

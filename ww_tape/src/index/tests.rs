@@ -5,7 +5,8 @@ use crate::{BlockWriter, ClockTime, EndMode};
 fn entry(track_id: u64, offset: u64) -> IndexEntry {
     IndexEntry {
         offset,
-        len: 100 + offset as u32,
+        // blocks of 64 bytes, a writer's own entries spaced at least that far apart
+        len: 64,
         kind: BlockKind::Events,
         level: 0,
         tree: 0,
@@ -150,6 +151,36 @@ fn final_index_must_be_sorted() {
         write_index(short, id(0), &head, &[]),
         Err(IndexError::Full { .. })
     ));
+}
+
+/// A final index whose track lists overlapping blocks is refused when written, as every reader refuses it.
+#[test]
+fn final_index_refuses_overlapping_blocks() {
+    let head = IndexHead {
+        kind: IndexKind::Final,
+        self_offset: 0,
+        prev: None,
+    };
+    let mut buf = vec![0u8; 4096];
+    // a block of 100 bytes at 0 and one at 64 of the same track overlap
+    let overlap = [
+        IndexEntry {
+            len: 100,
+            ..entry(1, 0)
+        },
+        entry(1, 64),
+    ];
+    assert_eq!(
+        write_index(&mut buf, id(0), &head, &overlap),
+        Err(IndexError::Invalid("a track's blocks overlap"))
+    );
+    // blocks of different tracks are listed apart, each track in file order
+    let n = write_index(&mut buf, id(0), &head, &[entry(1, 0), entry(2, 64)]).unwrap();
+    let ix = IndexBlock::read(&Block::read(&buf[..n]).unwrap()).unwrap();
+    for t in ix.tracks() {
+        let (from, len) = ix.track_range(&t);
+        assert!(ix.track_entries(&t, &buf[from..from + len]).is_ok());
+    }
 }
 
 #[test]

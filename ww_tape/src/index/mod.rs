@@ -656,6 +656,13 @@ pub fn write_index(
                     "final index not sorted by track and offset",
                 ));
             }
+            // a reader refuses a track whose blocks overlap (IndexBlock::track_entries), so no writer writes one
+            if entries
+                .chunk_by(|a, b| a.track_id == b.track_id)
+                .any(|t| !in_file_order(t))
+            {
+                return Err(IndexError::Invalid("a track's blocks overlap"));
+            }
             track_count(entries)
         }
     };
