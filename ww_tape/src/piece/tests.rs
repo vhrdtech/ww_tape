@@ -15,6 +15,7 @@ fn piece_head_round_trip() {
         ident: ident(3),
         prev: Some((ContentHash([7; 32]), PieceId([3; 16]))),
         prev_session: crate::SessionTag::writable(0x1234_abcd),
+        integrity: crate::Integrity::Full,
     };
     let tracks = [
         TrackStart {
@@ -47,6 +48,7 @@ fn piece_head_round_trip() {
         ident: ident(0),
         prev: None,
         prev_session: crate::SessionTag::NONE,
+        integrity: crate::Integrity::Full,
     };
     let n = write_piece_head(&mut buf, id(0), &first, &[]).unwrap();
     let block = Block::read(&buf[..n]).unwrap();
@@ -280,27 +282,50 @@ fn finish_padding_is_checked_against_the_length() {
     }
 }
 
-/// A piece head of an integrity level other than full (byte 146, reserved) is refused as a level this build doesn't
-/// handle, not read as damage; a block read as such stays good.
+/// The integrity byte (146) is read through [Integrity]: a level other than full is refused as a level this build
+/// doesn't handle, a byte no level has as unknown, neither as damage; the writer writes full only.
 #[test]
 fn a_piece_head_of_another_integrity_level_is_refused() {
-    let head = PieceHead {
+    let mut head = PieceHead {
         ident: ident(0),
         prev: None,
         prev_session: crate::SessionTag::NONE,
+        integrity: Integrity::Full,
     };
     let mut buf = vec![0u8; piece_head_len(0)];
     let n = write_piece_head(&mut buf, id(0), &head, &[]).unwrap();
-    assert_eq!(buf[146], INTEGRITY_FULL);
-    for level in [1u8, 2, 3, 255] {
+    assert_eq!(buf[146], u8::from(Integrity::Full));
+    let block = Block::read(&buf[..n]).unwrap();
+    assert_eq!(PieceHeadBlock::read(&block).unwrap().head(), head);
+    let refused = [
+        (
+            1u8,
+            IndexError::UnhandledIntegrity {
+                level: Integrity::CrcOnly,
+            },
+        ),
+        (
+            2,
+            IndexError::UnhandledIntegrity {
+                level: Integrity::None,
+            },
+        ),
+        (3, IndexError::UnknownIntegrity { level: 3 }),
+        (255, IndexError::UnknownIntegrity { level: 255 }),
+    ];
+    for (level, error) in refused {
         let mut b = buf[..n].to_vec();
         b[146] = level;
         let crc = crate::CRC.checksum(&b[..n - 4]);
         b[n - 4..].copy_from_slice(&crc.to_le_bytes());
         let block = Block::read(&b).expect("a good block");
+        assert_eq!(PieceHeadBlock::read(&block).err(), Some(error));
+    }
+    for level in [Integrity::CrcOnly, Integrity::None] {
+        head.integrity = level;
         assert_eq!(
-            PieceHeadBlock::read(&block).err(),
-            Some(IndexError::UnknownIntegrity { level })
+            write_piece_head(&mut buf, id(0), &head, &[]),
+            Err(IndexError::UnhandledIntegrity { level })
         );
     }
 }

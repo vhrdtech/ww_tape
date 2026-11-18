@@ -575,7 +575,18 @@ fn format_page_integrity_reservations_are_the_constants() {
     );
     assert_eq!(ww_tape::index::ENTRY_UNHASHED, 1 << 2);
     assert!(page.contains("bit 2 unhashed (reserved, 0)"));
-    assert_eq!(ww_tape::piece::INTEGRITY_FULL, 0);
-    assert!(page.contains("146 u8   integrity: 0 full, 1 CRC only, 2 none"));
+    use ww_tape::Integrity;
+    let levels = [
+        (Integrity::Full, 0, "Full"),
+        (Integrity::CrcOnly, 1, "CrcOnly"),
+        (Integrity::None, 2, "None"),
+    ];
+    for (level, byte, name) in levels {
+        assert_eq!(level as u8, byte);
+        assert_eq!(u8::from(level), byte);
+        assert_eq!(Integrity::try_from(byte), Ok(level));
+        assert_eq!(format!("{level:?}"), name);
+    }
+    assert!(page.contains("146 u8   integrity (Integrity): 0 Full, 1 CrcOnly, 2 None"));
     assert!(page.contains("| piece head byte 146 `integrity`, header flag bit 3 `FLAG_PAYLOAD_UNCHECKED`, index entry flag bit 2 `ENTRY_UNHASHED` |"));
 }

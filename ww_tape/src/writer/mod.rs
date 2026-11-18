@@ -1859,6 +1859,7 @@ impl NextPiece {
                 },
                 prev: Some((done.hash, head.ident.id)),
                 prev_session: session,
+                integrity: crate::Integrity::Full,
             },
             tracks,
             session,

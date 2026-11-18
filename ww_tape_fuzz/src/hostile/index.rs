@@ -258,6 +258,7 @@ pub(crate) fn piece_head_block(d: &mut Draw<'_>, id: BlockId) -> Vec<u8> {
             .bool()
             .then(|| (ContentHash([d.u8(); 32]), PieceId([d.u8() | 1; 16]))),
         prev_session: SessionTag::from_u32(d.u32()),
+        integrity: ww_tape::Integrity::Full,
     };
     let mut buf = vec![0u8; piece_head_len(tracks.len())];
     let n = write_piece_head(&mut buf, id, &head, &tracks).expect("a valid piece head");

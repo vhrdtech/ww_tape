@@ -213,8 +213,8 @@ pub mod piece;
 #[cfg(feature = "std")]
 pub use piece::{ChainOptions, ChunkPlaced, CutPolicy, PieceChain, PieceFiles};
 pub use piece::{
-    ContentHash, Finish, FinishState, OwnerId, PIECE_ALIGN, PieceHead, PieceId, PieceIdent,
-    TAIL_LEN, Tail, TrackHash, TrackRange, TrackStart, UnitHash,
+    ContentHash, Finish, FinishState, Integrity, OwnerId, PIECE_ALIGN, PieceHead, PieceId,
+    PieceIdent, TAIL_LEN, Tail, TrackHash, TrackRange, TrackStart, UnitHash,
 };
 #[cfg(feature = "alloc")]
 pub mod reader;
@@ -274,9 +274,9 @@ pub const FLAG_REPEAT: u16 = 1 << 1;
 /// records), all of one writer call. A writer resumed after a crash drops such blocks at the end of what it keeps,
 /// and the call given again writes them as it did. A reader takes the block as any other.
 pub const FLAG_WITH_NEXT: u16 = 1 << 2;
-/// Header flag, reserved, on chunk blocks: the payload's CRCs were not computed (an integrity level below full).
-/// Written 0; a reader of this build refuses such a chunk as [BlockError::PayloadUnchecked], a level it doesn't
-/// handle, not damage.
+/// Header flag on chunk blocks: the payload's CRCs were not computed, set on each chunk of a piece of
+/// [Integrity::None]. Written 0; a reader of this build refuses such a chunk as [BlockError::PayloadUnchecked], a
+/// level it doesn't handle, not damage.
 pub const FLAG_PAYLOAD_UNCHECKED: u16 = 1 << 3;
 /// Block kind 2, which earlier drafts gave describe blocks: reserved, never written, read as a kind this reader
 /// doesn't know.

@@ -88,7 +88,8 @@ pub const STATE_TRACK_ID: u64 = u64::MAX;
 const ENTRY_REPEAT: u8 = 1;
 /// Entry flag: the entry carries the range of its chunk's range relation.
 const ENTRY_RANGE: u8 = 2;
-/// Entry flag, reserved: the chunk's unit hash was not computed (an integrity level below full). Written 0; a reader
+/// Entry flag: the chunk's unit hash was not computed, set on each entry of a piece of
+/// [Integrity::CrcOnly](crate::Integrity::CrcOnly) or [Integrity::None](crate::Integrity::None). Written 0; a reader
 /// of this build refuses an index with it set ([IndexError::Unhashed]).
 pub const ENTRY_UNHASHED: u8 = 4;
 /// Offset that means none.
@@ -495,10 +496,14 @@ pub enum IndexError {
     BadHead,
     /// A track's entries don't match their CRC or its list, or an entry names no block (a length outside a block's).
     BadEntries,
-    /// A piece head states an integrity level this build doesn't handle (byte 146, 0 is full integrity): a level, not
-    /// damage.
+    /// A piece head's integrity byte (146) is no [Integrity](crate::piece::Integrity) level.
     UnknownIntegrity {
         level: u8,
+    },
+    /// A piece head of an integrity level this build doesn't read or write (all but
+    /// [Integrity::Full](crate::piece::Integrity::Full)): a level, not damage.
+    UnhandledIntegrity {
+        level: crate::piece::Integrity,
     },
     /// An index entry is marked unhashed ([ENTRY_UNHASHED]), an integrity level this build doesn't handle: a level,
     /// not damage.

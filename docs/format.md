@@ -320,7 +320,7 @@ piece head (kind 10)
  88 u32  flags: bit 0 has a previous piece                        92 u32 previous session tag (0: none or unknown)
  96 [32] previous piece's content hash                           128 [16] previous piece's id
 144 u16  track row length, 96 (a reader takes longer rows and reads their first 96 bytes)
-146 u8   integrity: 0 full, 1 CRC only, 2 none (reserved: written 0, a reader refuses another)    147 [5] reserved
+146 u8   integrity (Integrity): 0 Full, 1 CrcOnly, 2 None (written Full; a reader refuses another)    147 [5] reserved
 152 ...  tracks × 96, one per track carried over from the pieces before:
            0 u64 id    8 u32 number    12 u32 reserved    16 u64 next item (the first item number this piece holds)
           24 i64 from tick (no item of the track here starts before it)
@@ -467,7 +467,7 @@ Some numbers are reserved so later features need no format change; today's reade
 | column kind 7 (`ColumnKind::PAYLOAD_LEAF`) | one leaf of the items' payload struct, the param naming the leaf |
 | block kinds 11 and 12 (`BlockKind::POSTINGS`, `DICTIONARY`) | a relation's index per events chunk: each distinct value with its items; the distinct values and each item's index into them. Skipped by readers; writers refuse a definition that asks for one |
 | `RelationValues::IndexOnly` | values given with each item only to feed an index, no column; writers refuse it until an index is built |
-| piece head byte 146 `integrity`, header flag bit 3 `FLAG_PAYLOAD_UNCHECKED`, index entry flag bit 2 `ENTRY_UNHASHED` | integrity levels below full: CRC only or none for a piece, a chunk whose payload CRCs weren't computed, an entry without its unit hash. Written 0 (full); readers refuse another value as a level they don't handle (`IndexError::UnknownIntegrity`, `BlockError::PayloadUnchecked`, `IndexError::Unhashed`), never as damage |
+| piece head byte 146 `integrity`, header flag bit 3 `FLAG_PAYLOAD_UNCHECKED`, index entry flag bit 2 `ENTRY_UNHASHED` | integrity levels below `Full`: a piece of level `CrcOnly` computes no hashes and marks each index entry `ENTRY_UNHASHED`; a piece of level `None` also skips payload CRCs (chunk head CRCs and structure blocks stay checked) and marks each chunk `FLAG_PAYLOAD_UNCHECKED`. Written as `Full` and 0; a reader refuses `CrcOnly` and `None` as levels it doesn't handle (`IndexError::UnhandledIntegrity`), another byte as `IndexError::UnknownIntegrity`, the bits as `BlockError::PayloadUnchecked` and `IndexError::Unhashed`, never as damage |
 | summary head bytes 54..56 | the first channel or leaf of the block, 0 today |
 
 ## Sample codecs

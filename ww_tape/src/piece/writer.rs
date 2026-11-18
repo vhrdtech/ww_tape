@@ -465,6 +465,7 @@ fn first_head(owner: OwnerId, chain: u64) -> PieceHead {
         },
         prev: None,
         prev_session: SessionTag::NONE,
+        integrity: crate::Integrity::Full,
     }
 }
 
