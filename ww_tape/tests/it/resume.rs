@@ -1286,6 +1286,65 @@ fn a_resume_never_cuts_off_good_blocks() {
     assert_eq!(resumed.kept_bytes, starts[starts.len() - 1] as u64);
 }
 
+/// A piece whose finish and tail read whole, left as `NAME.partial` by a crash before its rename: a resume names it
+/// and writes nothing ([WriteError::Ended]); in memory the bytes stay as they are.
+#[test]
+fn a_resume_of_a_whole_finish_names_it_and_writes_nothing() {
+    let dir = scratch("whole_finish");
+    let path = dir.join("p.wwt");
+    let mut w = TapeWriter::create(&path, SyncPolicy::None).unwrap();
+    for n in 0..6 {
+        let block = records(w.next_id(), n);
+        w.write_block(base_defs(), &block).unwrap();
+    }
+    w.finish().unwrap();
+    let done = std::fs::read(&path).unwrap();
+    let partial = ww_tape::writer::partial_name(&path);
+    std::fs::rename(&path, &partial).unwrap();
+    match TapeWriter::resume(&path, WriterOptions::default()) {
+        Err(WriteError::Ended(ww_tape::FinishState::Complete)) => {}
+        other => panic!("{:?}", other.map(|(_, r)| r)),
+    }
+    assert_eq!(
+        std::fs::read(&path).unwrap(),
+        done,
+        "named, bytes as they were"
+    );
+    assert!(!partial.exists());
+    let mut sink = MemSink::new(Path::new("m"));
+    sink.write_all(&done).unwrap();
+    let tape = sink.tape();
+    match TapeWriter::resume_on(sink, WriterOptions::default()) {
+        Err(WriteError::Ended(ww_tape::FinishState::Complete)) => {}
+        other => panic!("{:?}", other.map(|(_, r)| r)),
+    }
+    assert_eq!(tape.to_vec().unwrap(), done);
+    // a chain of files, a crash after a cut's finish and before its rename: the piece is named, the next one starts
+    let chain = dir.join("chain");
+    std::fs::create_dir(&chain).unwrap();
+    let owner = OwnerId([9; 32]);
+    let mut c = PieceChain::create(&chain, owner, 0, &[], chain_options()).unwrap();
+    for n in 0..3 {
+        let block = records(c.writer().unwrap().next_id(), n);
+        c.write_block(base_defs(), &block).unwrap();
+    }
+    c.cut_now().unwrap();
+    drop(c);
+    let first = chain.join(piece_name(0));
+    let done = std::fs::read(&first).unwrap();
+    std::fs::rename(&first, ww_tape::writer::partial_name(&first)).unwrap();
+    std::fs::remove_file(ww_tape::writer::partial_name(&chain.join(piece_name(1)))).unwrap();
+    let (c, _) = PieceChain::resume(&chain, owner, 0, chain_options()).unwrap();
+    assert_eq!((c.finished().len(), c.seq()), (1, 1));
+    assert_eq!(
+        std::fs::read(&first).unwrap(),
+        done,
+        "named, bytes as they were"
+    );
+    drop(c);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 /// Past where the reader stopped, more places of the piece's session that don't read than a resume reads whole, then a
 /// good block; or a good block farther than a resume looks: it can't tell the bytes after hold none, so it refuses and
 /// leaves them. As many such places as it reads, and nothing after them, are a torn end: cut off.
