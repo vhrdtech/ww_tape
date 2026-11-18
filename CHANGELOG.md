@@ -10,6 +10,7 @@ Covers `ww_tape` 0.1.0.
 
 ### ⚠️ Breaking
 
+- `cut_in_place` returns `CutError`: a refused cut hands the writer back (`CutError::writer`); it was dropped (TAPE-8).
 - `create` refuses a `.partial` with bytes (`WriteError::Exists`), never empties it; a `.partial` renamed before its lock gets `WriteError::Replaced` (TAPE-8).
 - A caller's block with header flags its kind doesn't take is refused (`WriteError::Flags`); records take only a coded body (TAPE-4).
 - A resume refuses to cut off good blocks behind bytes it can't read (`WriteError::GoodBlockAfterCut`); only a torn end goes (TAPE-8).

@@ -1255,7 +1255,8 @@ fn a_second_writer_of_one_file_is_refused() {
 }
 
 /// A cut in place takes a sink of pieces back to back: a writer of one piece (`NAME.partial`, a plain memory sink)
-/// is refused before anything is written, so its piece stays open and resumes.
+/// is refused before anything is written and handed back, so its piece goes on and finishes, or resumes after a
+/// crash.
 #[test]
 fn a_sink_of_one_piece_takes_no_cut_in_place() {
     let dir = scratch("one_piece_cut");
@@ -1266,9 +1267,11 @@ fn a_sink_of_one_piece_takes_no_cut_in_place() {
     w.write_chunk(base_defs(), &h, &column(&c)).unwrap();
     w.flush_deferred().unwrap();
     let len = w.bytes();
-    assert!(matches!(w.cut_in_place(), Err(WriteError::Index(_))));
+    let refused = w.cut_in_place().err().unwrap();
+    assert!(matches!(refused.error, WriteError::Index(_)), "{refused}");
     let partial = ww_tape::writer::partial_name(&path);
     assert_eq!(std::fs::metadata(&partial).unwrap().len(), len);
+    drop(refused);
     let (w, resumed) = TapeWriter::resume(&path, WriterOptions::default()).unwrap();
     assert_eq!(resumed.kept_bytes, len);
     w.finish().unwrap();
@@ -1276,7 +1279,24 @@ fn a_sink_of_one_piece_takes_no_cut_in_place() {
     let mut w = begin(0);
     let (h, c) = chunk(0, 0);
     w.write_chunk(base_defs(), &h, &column(&c)).unwrap();
-    assert!(matches!(w.cut_in_place(), Err(WriteError::Index(_))));
+    let refused = w.cut_in_place().err().unwrap();
+    assert!(matches!(refused.error, WriteError::Index(_)), "{refused}");
+    let mut w = *refused.writer.unwrap();
+    let (h, c) = chunk(0, 1);
+    w.write_chunk(base_defs(), &h, &column(&c)).unwrap();
+    let bytes = w.sink().tape();
+    w.finish().unwrap();
+    let bytes = bytes.to_vec().unwrap();
+    let r = TapeReader::open(&bytes[..]).unwrap();
+    assert_eq!(r.pieces().len(), 1);
+    assert_eq!(
+        r.entries(0)
+            .unwrap()
+            .iter()
+            .filter(|e| e.kind == ww_tape::BlockKind::Events)
+            .count(),
+        2
+    );
     std::fs::remove_dir_all(&dir).unwrap();
 }
 

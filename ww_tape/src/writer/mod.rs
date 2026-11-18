@@ -153,6 +153,54 @@ pub enum WriteError {
     HashWalkSpent { end: u64 },
 }
 
+/// Why [TapeWriter::cut_in_place] failed: the error, and the writer when the cut was refused before anything was
+/// written.
+pub struct CutError<S: TapeSink> {
+    /// Why.
+    pub error: WriteError,
+    /// The writer as it was, when the cut was refused before the piece ended; None once it failed past that.
+    pub writer: Option<Box<TapeWriter<S>>>,
+}
+
+impl<S: TapeSink> From<WriteError> for CutError<S> {
+    fn from(error: WriteError) -> Self {
+        CutError {
+            error,
+            writer: None,
+        }
+    }
+}
+
+impl<S: TapeSink> From<CutError<S>> for WriteError {
+    fn from(e: CutError<S>) -> Self {
+        e.error
+    }
+}
+
+impl<S: TapeSink> core::fmt::Debug for CutError<S> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("CutError")
+            .field("error", &self.error)
+            .field("writer", &self.writer.is_some())
+            .finish()
+    }
+}
+
+impl<S: TapeSink> core::fmt::Display for CutError<S> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self.writer {
+            Some(_) => write!(f, "cut refused, the writer handed back: {}", self.error),
+            None => write!(f, "cut failed: {}", self.error),
+        }
+    }
+}
+
+impl<S: TapeSink> std::error::Error for CutError<S> {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.error)
+    }
+}
+
 impl From<DescribeError> for WriteError {
     fn from(e: DescribeError) -> Self {
         WriteError::Describe(e)
@@ -1716,23 +1764,35 @@ impl<S: TapeSink> TapeWriter<S> {
     /// piece, a multiple of [PIECE_ALIGN] when this one started on one. The sink stays open: it isn't finished, a
     /// file keeps its name. A sink of one piece (`NAME.partial`, [TapeSink::holds_pieces] false) is refused before
     /// anything is written: a file of several pieces is written under its own name ([SinkFactory::create_whole]).
-    pub fn cut_in_place(self) -> Result<(Finished, Self), WriteError> {
+    ///
+    /// A refusal before the cut hands the writer back in [CutError::writer], to go on with.
+    pub fn cut_in_place(self) -> Result<(Finished, Self), CutError<S>> {
+        let refuse = |w: Self, what| CutError {
+            error: WriteError::Index(IndexError::Invalid(what)),
+            writer: Some(Box::new(w)),
+        };
         let Some((head, starts)) = self.head.clone() else {
-            return Err(WriteError::Index(IndexError::Invalid(
-                "a cut needs a piece head",
-            )));
+            return Err(refuse(self, "a cut needs a piece head"));
         };
         if !self.sink.holds_pieces() {
-            return Err(WriteError::Index(IndexError::Invalid(
-                "a sink of one piece takes no cut in place",
-            )));
+            return Err(refuse(self, "a sink of one piece takes no cut in place"));
         }
+        self.cut_in_place_with(&head, &starts)
+            .map_err(CutError::from)
+    }
+
+    /// [Self::cut_in_place] once checked: the piece ends.
+    fn cut_in_place_with(
+        self,
+        head: &PieceHead,
+        starts: &[TrackStart],
+    ) -> Result<(Finished, Self), WriteError> {
         let options = self.options();
-        let tracks = self.indexer.next_starts(&starts);
+        let tracks = self.indexer.next_starts(starts);
         let newest = self.relations.newest().clone();
         let mut done = self.end(FinishState::Continued, false)?;
         let mut next_piece =
-            NextPiece::after(&head, &done.finished, tracks, done.session, done.next_seq)?;
+            NextPiece::after(head, &done.finished, tracks, done.session, done.next_seq)?;
         next_piece.newest = newest;
         let base = done
             .finished
