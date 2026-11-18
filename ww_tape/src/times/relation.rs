@@ -1,10 +1,12 @@
 //! A relation's values in an events chunk ([ColumnKind::Relation], its param the relation's index in
 //! [TrackDef::relations](crate::TrackDef::relations)): one u64 per item, read in place.
 //!
-//! Two codecs. [STARTS] for values that never decrease: a head of 17 bytes (the starts column's time mode, then the
-//! first and the last value as order-keeping i64s, little endian), then the starts column of those i64s, a line per
-//! group of 128 with residuals above it, or one period for values a fixed step apart. [DURATIONS] for any values:
-//! per group the smallest (u64), a width and an offset, then the values above the smallest.
+//! Every relation column starts with its item count (u32, little endian), which a reader checks against the chunk's:
+//! the values never depend on the chunk head alone. Two codecs follow. [STARTS] for values that never decrease: the
+//! starts column's time mode, the first and the last value as order-keeping i64s, little endian, then the starts
+//! column of those i64s, a line per group of 128 with residuals above it, or one period for values a fixed step
+//! apart. [DURATIONS] for any values: per group the smallest (u64), a width and an offset, then the values above the
+//! smallest.
 //!
 //! A reader checks a chunk's relation columns against its track's definition ([StoredRelations]) before it reads one:
 //! a column per relation that keeps its values in one, none for another, a relation that never decreases in
@@ -77,7 +79,10 @@ impl StoredRelations {
     }
 }
 
-/// Bytes of the head of a [STARTS] relation column: time mode, first, last.
+/// Bytes of the item count every relation column starts with.
+const COUNT_LEN: usize = 4;
+
+/// Bytes of the head of a [STARTS] relation column after its count: time mode, first, last.
 const HEAD_LEN: usize = 17;
 
 /// The order-keeping i64 of a u64: its sign bit flipped.
@@ -157,10 +162,20 @@ impl<'b> RelationColumn<'b> {
             what,
         };
         let payload = chunk.payload();
+        if c.codec != STARTS && c.codec != DURATIONS {
+            return Err(TimesError::UnknownCodec(ColumnKind::Relation, c.codec));
+        }
+        let (count, bytes) = c
+            .bytes
+            .split_first_chunk::<COUNT_LEN>()
+            .ok_or(corrupt("no count"))?;
+        if u32::from_le_bytes(*count) != head.count {
+            return Err(corrupt("an item count other than the chunk's"));
+        }
+        let offset = c.offset.saturating_add(COUNT_LEN);
         let repr = match c.codec {
             STARTS => {
-                let (h, body) = c
-                    .bytes
+                let (h, body) = bytes
                     .split_first_chunk::<HEAD_LEN>()
                     .ok_or(corrupt("no head"))?;
                 let [
@@ -186,7 +201,7 @@ impl<'b> RelationColumn<'b> {
                 let first = i64::from_le_bytes([f0, f1, f2, f3, f4, f5, f6, f7]);
                 let last = i64::from_le_bytes([l0, l1, l2, l3, l4, l5, l6, l7]);
                 let tail = payload
-                    .get(c.offset.saturating_add(HEAD_LEN)..)
+                    .get(offset.saturating_add(HEAD_LEN)..)
                     .ok_or(corrupt("column past the payload"))?;
                 Repr::Monotone(Starts::parse(
                     ColumnKind::Relation,
@@ -200,13 +215,13 @@ impl<'b> RelationColumn<'b> {
             }
             DURATIONS => {
                 let tail = payload
-                    .get(c.offset..)
+                    .get(offset..)
                     .ok_or(corrupt("column past the payload"))?;
                 Repr::Any(Durations::parse(
                     ColumnKind::Relation,
                     n,
                     u64::MAX,
-                    c.bytes,
+                    bytes,
                     tail,
                     salvage,
                 )?)
@@ -313,6 +328,8 @@ impl EncodedRelation {
         if values.len() > ITEMS_MAX {
             return Err(EncodeError::TooMany);
         }
+        // at most ITEMS_MAX, which a u32 holds
+        let count = u32::try_from(values.len()).map_err(|_| EncodeError::TooMany)?;
         let decrease = values
             .iter()
             .zip(values.iter().skip(1))
@@ -320,17 +337,22 @@ impl EncodedRelation {
             .map(|i| i.saturating_add(1));
         let (codec, bytes) = match decrease {
             Some(at) if monotone => return Err(EncodeError::Unsorted { at }),
-            Some(_) => (
-                DURATIONS,
-                super::packed::encode_durations(values).ok_or(EncodeError::TooMany)?,
-            ),
+            Some(_) => {
+                let body = super::packed::encode_durations(values).ok_or(EncodeError::TooMany)?;
+                let mut bytes = std::vec::Vec::with_capacity(COUNT_LEN.saturating_add(body.len()));
+                bytes.extend_from_slice(&count.to_le_bytes());
+                bytes.extend_from_slice(&body);
+                (DURATIONS, bytes)
+            }
             None => {
                 let ticks: std::vec::Vec<i64> = values.iter().map(|v| ordered(*v)).collect();
                 let (mode, body) = super::starts::encode(&ticks).ok_or(EncodeError::TooMany)?;
                 let (Some(first), Some(last)) = (ticks.first(), ticks.last()) else {
                     return Err(EncodeError::Empty);
                 };
-                let mut bytes = std::vec::Vec::with_capacity(HEAD_LEN.saturating_add(body.len()));
+                let mut bytes =
+                    std::vec::Vec::with_capacity((COUNT_LEN + HEAD_LEN).saturating_add(body.len()));
+                bytes.extend_from_slice(&count.to_le_bytes());
                 bytes.push(mode.to_u8());
                 bytes.extend_from_slice(&first.to_le_bytes());
                 bytes.extend_from_slice(&last.to_le_bytes());

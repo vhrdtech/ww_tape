@@ -24,6 +24,7 @@ Covers `ww_tape` 0.1.0.
 - `IndexEntry` gains `unit`; `TrackHash::chunk` and `record` fold unit hashes (`TrackHash::then`) (TAPE-8).
 - `TrackStart` gains `owner` and `hash`, `TrackRange` gains `owner`, `hash` and `records`; tracks key by id and owner (TAPE-8).
 - Format: `TrackDef` gains `relations` (read both ways); TAPE-7's unreleased `parent`, `context` and `entity_key` are gone (TAPE-7).
+- Format: a relation column starts with its item count (u32), checked against the chunk's; both codecs (TAPE-7).
 - Format: column kind 8 holds a relation's values; index entry bytes 72..88 a chunk's range, flag bit 1 (TAPE-7).
 - `ColumnKind::Relation`, `IndexEntry::range`, `TrackFacts` `stored`/`monotone`/`range`; `DescribeError::RelationColumns`, `RelationNotBuilt` (TAPE-7).
 - `Durations::parse` takes the column kind it reads (TAPE-7).
