@@ -209,7 +209,8 @@ pub struct TrackFacts {
 }
 
 impl TrackFacts {
-    fn of(t: &crate::TrackDef<'_>) -> Self {
+    /// The facts of track definition `t`.
+    pub(crate) fn of(t: &crate::TrackDef<'_>) -> Self {
         let mut facts = TrackFacts {
             clock: t.clock.0,
             state: t.repeat.state(),

@@ -3,17 +3,19 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use crate::definitions::{base_defs, clock, state, track, tracks};
+use crate::definitions::{CLOCK, base_defs, clock, state, track, tracks};
 use crate::id;
 use crate::pieces::{chunk, column, records, scratch};
+use shrink_wrap::prelude::*;
 use ww_tape::index::IndexPolicy;
 use ww_tape::piece::{PieceId, piece_name};
+use ww_tape::times::{EncodedRelation, EncodedTimes};
 use ww_tape::writer::NearPolicy;
 use ww_tape::{
-    ALIGNMENT, BlockKind, ChainOptions, CutPolicy, Definitions, Describe, FileBlocks, Files,
-    Layout, MemSink, MemTapes, OwnerId, PieceChain, PieceHead, PieceIdent, Recovery, SessionTag,
-    SinkFactory, Slot, StatePolicy, SyncPolicy, TapeReader, TapeSink, TapeWriter, WriteError,
-    WriterOptions,
+    ALIGNMENT, BlockKind, ChainOptions, ChunkHead, ColumnSpec, CutPolicy, Definitions, Describe,
+    FileBlocks, Files, Layout, MemSink, MemTapes, OwnerId, PieceChain, PieceHead, PieceIdent,
+    Recovery, RelationDef, RelationIndex, RelationValues, SessionTag, SinkFactory, Slot,
+    StatePolicy, SyncPolicy, TapeReader, TapeSink, TapeWriter, TrackDef, WriteError, WriterOptions,
 };
 
 /// One call a test makes: on a writer (each but a put places one counted block) or on the definitions.
@@ -29,11 +31,13 @@ enum Op {
     Chunk(u64, u64),
     /// Put item `k` on state track `t`.
     Put(u32, u64),
+    /// Chunk `k` of track 13, whose range relation's range goes into the chunk's entry.
+    Ranged(u64),
 }
 
 /// The calls of a recording: `rounds` rounds of two chunks, a records block and a deferred one, definitions added
-/// after half of them, and puts on the two state tracks they hold from then on: with the writer's memory of three
-/// slots, puts of items the memory forgot.
+/// after half of them, and puts on the two state tracks and chunks of the ranged track they hold from then on: with
+/// the writer's memory of three slots, puts of items the memory forgot.
 fn ops(rounds: u64) -> Vec<Op> {
     let mut out = vec![];
     for k in 0..rounds {
@@ -45,7 +49,7 @@ fn ops(rounds: u64) -> Vec<Op> {
         }
         out.extend([Op::Chunk(0, k), Op::Records(k as i64)]);
         if k >= rounds / 2 {
-            out.push(Op::Put(11, (k + 1) % 3));
+            out.extend([Op::Put(11, (k + 1) % 3), Op::Ranged(k)]);
         }
         out.extend([Op::Chunk(1, k), Op::Defer(1000 + k as i64)]);
     }
@@ -58,9 +62,41 @@ const DEFINITIONS: StatePolicy = StatePolicy {
     copies: exact_units::Count::new(2),
 };
 
-/// The definitions added mid-piece: clock 2, track 10 on it, state tracks 11 and 12.
+/// The definitions added mid-piece: clock 2, track 10 on it, state tracks 11 and 12, ranged track 13.
 fn added() -> Vec<Describe<'static>> {
-    vec![clock(2), track(10, 2), state(11), state(12)]
+    vec![clock(2), track(10, 2), state(11), state(12), ranged()]
+}
+
+/// Track 13's relation: its values never decrease and feed the range index.
+const SOURCE: &[RelationDef<'static>] = &[RelationDef {
+    name: "source",
+    target: None,
+    values: RelationValues::Stored,
+    monotone: true,
+    index: RelationIndex::Range,
+}];
+
+/// Events track 13 on [CLOCK] with the relation [SOURCE].
+fn ranged() -> Describe<'static> {
+    let Describe::Track(t) = track(13, CLOCK) else {
+        unreachable!("track() gives a track")
+    };
+    Describe::Track(TrackDef {
+        relations: RefVec::Slice { slice: SOURCE },
+        ..t
+    })
+}
+
+/// Track 13's chunk `k`: 20 items, their sources from `7k` on; its head and columns.
+fn ranged_chunk(k: u64) -> (ChunkHead, Vec<(ColumnSpec, Vec<u8>)>) {
+    let starts: Vec<i64> = (0..20).map(|i| (k * 20 + i) as i64 * 10).collect();
+    let sources: Vec<u64> = (0..20).map(|i| 7 * k + i / 3).collect();
+    let times = EncodedTimes::encode(&starts, None, None).unwrap();
+    let source = EncodedRelation::encode(0, &sources, true).unwrap();
+    let mut cols: Vec<_> = times.columns().map(|(s, b)| (s, b.to_vec())).collect();
+    let (s, b) = source.column();
+    cols.push((s, b.to_vec()));
+    (times.head.chunk_head(0x2000, 13, k * 20), cols)
 }
 
 /// Make the call `op` on `w` with the definitions `defs`.
@@ -77,6 +113,11 @@ fn apply<S: TapeSink>(w: &mut TapeWriter<S>, defs: &mut Definitions, op: Op) {
         }
         Op::Put(t, k) => {
             w.put(defs, t, k as i64, &[k as u8; 40]).unwrap();
+        }
+        Op::Ranged(k) => {
+            let (h, cols) = ranged_chunk(k);
+            let cols: Vec<_> = cols.iter().map(|(s, b)| (*s, &b[..])).collect();
+            w.write_chunk(defs, &h, &cols).unwrap();
         }
     }
 }
@@ -191,6 +232,18 @@ fn reference(alignment: u32, ops: &[Op]) -> (Vec<u8>, Made) {
     let tape = w.sink().tape();
     w.finish().unwrap();
     let bytes = tape.to_vec().unwrap();
+    let ranged: Vec<_> = TapeReader::open(&bytes[..])
+        .unwrap()
+        .entries(0)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.track_number == 13 && e.kind == BlockKind::Events)
+        .map(|e| e.range)
+        .collect();
+    assert!(
+        !ranged.is_empty() && ranged.iter().all(Option::is_some),
+        "every chunk of track 13 has its range: {ranged:?}"
+    );
     // a deferred block takes its seq where it is placed
     let placed = record_seqs(&bytes);
     for (op, seq) in ops.iter().zip(&mut made.seqs) {
@@ -274,7 +327,7 @@ fn cut_anywhere(alignment: u32) {
     let all = r.definitions_at(0, u64::MAX).unwrap();
     assert_eq!(
         tracks(&all),
-        [1, 2, 9, 11, 12],
+        [1, 2, 9, 11, 12, 13],
         "the tracks with data or items, those added mid-piece among them"
     );
     let forgotten = (0..3u64).all(|k| {
@@ -534,6 +587,11 @@ fn apply_chain<F: SinkFactory>(c: &mut PieceChain<F>, defs: &mut Definitions, op
             let (h, b) = chunk(t, k);
             c.write_chunk(defs, &h, &column(&b)).unwrap();
         }
+        Op::Ranged(k) => {
+            let (h, cols) = ranged_chunk(k);
+            let cols: Vec<_> = cols.iter().map(|(s, b)| (*s, &b[..])).collect();
+            c.write_chunk(defs, &h, &cols).unwrap();
+        }
         _ => apply(c.writer().unwrap(), defs, op),
     }
 }
@@ -561,7 +619,7 @@ fn reference_chain(dir: &Path, ops: &[Op]) -> (Vec<PathBuf>, Made) {
     };
     for op in ops {
         // a chunk may cut first: the bytes before it are in the piece it lands in
-        if matches!(op, Op::Chunk(..)) && c.cut_due() {
+        if matches!(op, Op::Chunk(..) | Op::Ranged(_)) && c.cut_due() {
             c.cut_now().unwrap();
         }
         made.before.push(c.writer().unwrap().bytes());
@@ -750,7 +808,7 @@ fn one_file_is_its_pieces<P: OneFile>(place: &P, scratch_dir: &Path) {
         PieceChain::resume_on(f, &path, OwnerId([9; 32]), 0, one_file_options()).unwrap();
     let mut defs = base_defs().clone();
     for op in &ops {
-        if matches!(op, Op::Chunk(..)) && c.cut_due() {
+        if matches!(op, Op::Chunk(..) | Op::Ranged(_)) && c.cut_due() {
             c.cut_now().unwrap();
         }
         apply_chain(&mut c, &mut defs, *op);

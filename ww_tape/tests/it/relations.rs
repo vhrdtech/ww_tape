@@ -200,3 +200,98 @@ fn a_chunk_without_its_relation_columns_is_refused() {
     // the writer goes on: a good chunk after it is written
     write_chunk(&mut w, &defs, 0, &[1, 2, 3], &[9, 8, 7]).unwrap();
 }
+
+/// The chunk `write_chunk` makes of track 3: its head and columns, for a writer of any kind.
+fn chunk_of(
+    first: u64,
+    sources: &[u64],
+    keys: &[u64],
+) -> (ww_tape::ChunkHead, Vec<(ww_tape::ColumnSpec, Vec<u8>)>) {
+    let starts: Vec<i64> = (0..sources.len() as i64)
+        .map(|i| first as i64 * 10 + i * 10)
+        .collect();
+    let times = EncodedTimes::encode(&starts, None, None).unwrap();
+    let source = EncodedRelation::encode(0, sources, true).unwrap();
+    let key = EncodedRelation::encode(2, keys, false).unwrap();
+    let mut cols: Vec<_> = times.columns().map(|(s, b)| (s, b.to_vec())).collect();
+    cols.extend([source.column(), key.column()].map(|(s, b)| (s, b.to_vec())));
+    (times.head.chunk_head(track_id(), 3, first), cols)
+}
+
+/// The ranges of the events chunks' entries of piece `piece` of `bytes`, in file order.
+fn ranges(bytes: &[u8], piece: usize) -> Vec<Option<(u64, u64)>> {
+    let reader = TapeReader::open(bytes).unwrap();
+    reader
+        .entries(piece)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.kind == BlockKind::Events)
+        .map(|e| e.range)
+        .collect()
+}
+
+#[test]
+fn a_resume_keeps_the_ranges_written_before_the_crash() {
+    use ww_tape::{ChainOptions, MemTapes, OwnerId, PieceChain};
+    let mut defs = Definitions::new();
+    defs.define_all(&[clock(CLOCK), decoded()]).unwrap();
+    let mem = MemTapes::new();
+    let dir = Path::new("p");
+    let write = |c: &mut PieceChain<MemTapes>, k: u64| {
+        let (head, cols) = chunk_of(k * 3, &[10 * k, 10 * k + 1, 10 * k + 2], &[5, 4, 3]);
+        let cols: Vec<_> = cols.iter().map(|(s, b)| (*s, &b[..])).collect();
+        c.write_chunk(&defs, &head, &cols).unwrap();
+    };
+    let options = ChainOptions::default;
+    let mut c =
+        PieceChain::create_on(mem.clone(), dir, OwnerId([9; 32]), 0, &[], options()).unwrap();
+    for k in 0..4 {
+        write(&mut c, k);
+    }
+    c.writer().unwrap().flush_deferred().unwrap();
+    // a crash: the piece is left unfinished
+    drop(c);
+    let (mut c, _) =
+        PieceChain::resume_on(mem.clone(), dir, OwnerId([9; 32]), 0, options()).unwrap();
+    write(&mut c, 4);
+    let done = c.finish().unwrap();
+    let bytes = mem.get(&done[0].path).unwrap().unwrap().to_vec().unwrap();
+    let want: Vec<_> = (0..5).map(|k| Some((10 * k, 10 * k + 2))).collect();
+    assert_eq!(ranges(&bytes, 0), want);
+}
+
+#[test]
+fn a_whole_chunk_block_written_or_adopted_keeps_its_range() {
+    let mut defs = Definitions::new();
+    defs.define_all(&[clock(CLOCK), decoded()]).unwrap();
+    let mut w = TapeWriter::create_on(MemSink::new(Path::new("a")), SyncPolicy::None);
+    let tape = w.sink().tape();
+    write_chunk(&mut w, &defs, 0, &[1, 2, 3], &[9, 8, 7]).unwrap();
+    w.finish().unwrap();
+    let bytes = tape.to_vec().unwrap();
+    let r = TapeReader::open(&bytes[..]).unwrap();
+    let e = r
+        .entries(0)
+        .unwrap()
+        .into_iter()
+        .find(|e| e.kind == BlockKind::Events)
+        .unwrap();
+    let block = &bytes[e.offset as usize..][..e.len as usize];
+    for adopt in [false, true] {
+        let mut w = TapeWriter::create_on(MemSink::new(Path::new("b")), SyncPolicy::None);
+        let tape = w.sink().tape();
+        if adopt {
+            w.adopt_block(&defs, block).unwrap();
+        } else {
+            let mut own = block.to_vec();
+            ww_tape::set_id(&mut own, w.next_id()).unwrap();
+            w.write_block(&defs, &own).unwrap();
+        }
+        w.finish().unwrap();
+        assert_eq!(
+            ranges(&tape.to_vec().unwrap(), 0),
+            [Some((1, 3))],
+            "adopted {adopt}"
+        );
+    }
+}
