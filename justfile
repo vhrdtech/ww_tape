@@ -4,6 +4,9 @@ jobs := ""
 export CARGO_BUILD_JOBS := if jobs != "" { jobs } else { env_var_or_default('CARGO_BUILD_JOBS', num_cpus()) }
 export NEXTEST_TEST_THREADS := if jobs != "" { jobs } else { env_var_or_default('NEXTEST_TEST_THREADS', 'num-cpus') }
 
+# The WireWeaver command line that checks and saves API snapshots: `ww` from PATH, or the binary `WW` names
+ww := env_var_or_default('WW', 'ww')
+
 fuzz_targets := "reader resume chunk summary index times samples series payloads records-hostile chunk-hostile times-hostile payloads-hostile samples-hostile series-hostile summary-hostile index-hostile reader-hostile state-hostile"
 # cargo-fuzz defaults its fuzz target to the triple its own binary was built for; a
 # prebuilt cargo-fuzz release (taiki-e/install-action's cargo-binstall fallback uses
@@ -35,7 +38,7 @@ test-all: check
 check:
     cargo check -p ww_tape --no-default-features --features=alloc --target wasm32-unknown-unknown
 
-# Format, manifests, spelling, clippy and rustdoc as CI runs them, warnings are errors
+# Format, manifests, spelling, clippy and rustdoc as CI runs them, warnings are errors; then `just api-check`
 lint:
     cargo fmt --all --check
     cd fuzz && cargo +nightly fmt --check
@@ -44,6 +47,17 @@ lint:
     cargo clippy --workspace --all-targets -- -D warnings
     cargo clippy --workspace --all-targets --all-features -- -D warnings
     RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features
+    just api-check
+
+# ww_tape's version and wire line against its newest snapshot (`ww api check`); skipped with a note without `ww`
+api-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! command -v {{ ww }} >/dev/null 2>&1; then
+        echo "skipped: ww api check, ww missing (install WireWeaver's ww, or set WW to its path)"
+        exit 0
+    fi
+    {{ ww }} api check ww_tape
 
 # Rewrite ww_tape's golden files (golden/v1*.hex) after a deliberate format change (STD-117, STD-118, STD-120, STD-121, STD-135)
 tape-golden-update:
