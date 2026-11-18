@@ -348,6 +348,58 @@ fn a_relation_column_that_does_not_read_is_refused() {
     assert_eq!(ranges(&tape.to_vec().unwrap(), 0), [Some((1, 5))]);
 }
 
+/// A STARTS relation column of 3 items in one linear group: count, mode 1, first and last (ordered), a 25-byte group
+/// record (first, slope 0, rmin, width 8, offset 0), then the residuals.
+fn crafted_starts(first: u64, last: u64, rmin: i32, residuals: [u8; 3]) -> Vec<u8> {
+    let ord = |v: u64| (v ^ (1 << 63)) as i64;
+    let mut b = Vec::new();
+    b.extend_from_slice(&3u32.to_le_bytes());
+    b.push(1);
+    b.extend_from_slice(&ord(first).to_le_bytes());
+    b.extend_from_slice(&ord(last).to_le_bytes());
+    b.extend_from_slice(&ord(first).to_le_bytes());
+    b.extend_from_slice(&0i64.to_le_bytes());
+    b.extend_from_slice(&rmin.to_le_bytes());
+    b.push(8);
+    b.extend_from_slice(&0u32.to_le_bytes());
+    b.extend_from_slice(&residuals);
+    b
+}
+
+#[test]
+fn a_callers_monotone_column_out_of_order_is_refused() {
+    let mut defs = Definitions::new();
+    defs.define_all(&[clock(CLOCK), decoded()]).unwrap();
+    let times = EncodedTimes::encode(&[0, 10, 20], None, None).unwrap();
+    let head = times.head.chunk_head(track_id(), 3, 0);
+    let keys = EncodedRelation::encode(2, &[1, 1, 1], false).unwrap();
+    // first 10 and last 20 in the head; the items 10, 3, 20 decrease, 10, 99, 20 leave [first, last]
+    for (rmin, residuals) in [(-7, [7u8, 0, 17]), (0, [0u8, 89, 10])] {
+        let source = crafted_starts(10, 20, rmin, residuals);
+        let mut w = TapeWriter::create_on(MemSink::new(Path::new("starts")), SyncPolicy::None);
+        let mut cols: Vec<_> = times.columns().collect();
+        let spec = ww_tape::ColumnSpec {
+            kind: ww_tape::ColumnKind::Relation,
+            codec: ww_tape::times::STARTS,
+            param: 0,
+            len: source.len(),
+        };
+        cols.extend([(spec, &source[..]), keys.column()]);
+        let refused = w.write_chunk(&defs, &head, &cols);
+        assert!(
+            matches!(
+                refused,
+                Err(WriteError::Describe(DescribeError::RelationColumnRead {
+                    track: 3,
+                    relation: 0,
+                    ..
+                }))
+            ),
+            "{residuals:?}: {refused:?}"
+        );
+    }
+}
+
 /// The whole chunk block of [chunk_of], numbered `id`.
 fn chunk_block(id: ww_tape::BlockId, first: u64, sources: &[u64], keys: &[u64]) -> Vec<u8> {
     let (head, cols) = chunk_of(first, sources, keys);
