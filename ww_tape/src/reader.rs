@@ -1076,7 +1076,8 @@ impl<S: ByteSource> TapeReader<S> {
         Ok(())
     }
 
-    /// Read the block of `entry` in piece `i` into `buf` and check it.
+    /// Read the block of `entry` in piece `i` into `buf` and check it. Only the entry's offset and length are used:
+    /// what the block holds is the caller's to compare with the entry ([Self::read_chunk_head] compares a chunk's).
     pub fn read_block<'b>(
         &self,
         i: usize,
@@ -1091,7 +1092,8 @@ impl<S: ByteSource> TapeReader<S> {
 
     /// Read the head of the chunk block of `entry` in piece `i`, using `buf`: its header, then its bytes up to the
     /// payload, head CRC and ranges checked ([ChunkHead::read_head]). The payload is neither read nor checked, so a
-    /// series' grids cost a few hundred bytes per chunk, not its samples.
+    /// series' grids cost a few hundred bytes per chunk, not its samples. A head other than the one the entry names
+    /// (kind, track id and number, first item, count) is refused ([IndexError::BadEntries]).
     pub fn read_chunk_head(
         &self,
         i: usize,
@@ -1116,7 +1118,11 @@ impl<S: ByteSource> TapeReader<S> {
         // head_len is within the block, whose length is within the piece
         buf.resize(head_len, 0);
         self.src.read_at(offset, buf).map_err(ReadError::Source)?;
-        ChunkHead::read_head(buf).map_err(block)
+        let head = ChunkHead::read_head(buf).map_err(block)?;
+        if !entry.names_chunk(&head) {
+            return Err(ReadError::Index(IndexError::BadEntries));
+        }
+        Ok(head)
     }
 
     /// The timeline of the series track `track_id` in piece `i`, of `period` ticks per sample, from the heads of its
@@ -1134,9 +1140,9 @@ impl<S: ByteSource> TapeReader<S> {
             }
             let offset = start.saturating_add(e.offset);
             match self.read_chunk_head(i, &e, &mut buf) {
-                Ok(h) if h.track_id == track_id => heads.push((h, offset)),
-                // the index names a chunk of another track: it is damaged
-                Ok(_) => errors.push(ReadError::Block {
+                Ok(h) => heads.push((h, offset)),
+                // the index names another chunk than the one there: it is damaged
+                Err(ReadError::Index(IndexError::BadEntries)) => errors.push(ReadError::Block {
                     offset,
                     error: BlockError::NotChunk,
                 }),
@@ -1199,7 +1205,8 @@ impl<S: ByteSource> TapeReader<S> {
     /// `from` ([TrackHash::then]) over the pieces in order. Folded from [TrackHash::START], it doesn't depend on where
     /// the chunks lie: the same chunks in other pieces or files give the same hash. Each chunk's unit hash comes from
     /// its index entry, so no payload is read; a chunk whose entry holds none, and every chunk of a piece whose index
-    /// doesn't read, is read and hashed instead. A piece's head and finish rows tell which track number is that
+    /// doesn't read, is read and hashed instead; a chunk read by its entry must be the one the entry names
+    /// ([IndexError::BadEntries] else). A piece's head and finish rows tell which track number is that
     /// track; with none for the track there, any number another owner's row doesn't name. Records are not chunks: a
     /// track's records are left out.
     ///
@@ -1233,7 +1240,11 @@ impl<S: ByteSource> TapeReader<S> {
                         let offset = p.start.saturating_add(e.offset);
                         let (unit, read) = if e.unit.is_none() {
                             let b = self.read_block(i, e, &mut buf)?;
-                            let c = b.chunk().ok_or(ReadError::Index(IndexError::BadEntries))?;
+                            // the chunk the entry names, or the index is damaged
+                            let c = b
+                                .chunk()
+                                .filter(|c| e.names_chunk(&c.head()))
+                                .ok_or(ReadError::Index(IndexError::BadEntries))?;
                             (TrackHash::chunk_unit(&c, &payload_hash(c.payload())), true)
                         } else {
                             (e.unit, false)

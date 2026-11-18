@@ -223,6 +223,7 @@ Covers `ww_tape` 0.1.0.
 
 ### 🐛 Fixes
 
+- A chunk read by its index entry must be the chunk the entry names (kind, track id and number, first item, count): `range_hash` on an unhashed entry and `read_chunk_head` refuse another (`IndexError::BadEntries`) (TAPE-9).
 - A chain resume keeps every monotone relation's newest value, read from each track's last chunk, not only the range relation's (TAPE-7).
 - A deferred chunk of a track with an owner counts for its monotone relations; a later decrease passed (TAPE-7).
 - Starts and monotone relation values that decrease inside a group are refused on read, suspect in salvage (STD-120, TAPE-7).

@@ -220,6 +220,17 @@ impl IndexEntry {
         }
     }
 
+    /// Whether `head` is the chunk this entry names: its kind, track id and number, first item and count. A chunk
+    /// read by its entry is compared with it, so an entry pointed at another block reads as damaged, never as that
+    /// block.
+    pub(crate) fn names_chunk(&self, head: &ChunkHead) -> bool {
+        self.kind == head.kind
+            && self.track_id == head.track_id
+            && self.track_number == head.track_number
+            && self.first_item == head.first_item
+            && self.count == u64::from(head.count)
+    }
+
     /// The state record this entry lists, None for an entry of a block.
     pub fn state(&self) -> Option<StateEntry> {
         if self.track_id != STATE_TRACK_ID || self.kind != BlockKind::Records {
