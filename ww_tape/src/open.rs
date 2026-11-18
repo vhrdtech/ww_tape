@@ -79,6 +79,12 @@ pub enum DescribeError {
     /// An events chunk whose relation columns are not one per stored relation of its track, or one in a codec its
     /// relation doesn't take (a monotone relation's values in [DURATIONS](crate::times::DURATIONS)).
     RelationColumns { track: u32 },
+    /// An events chunk's column of relation `relation` doesn't read for every item of the chunk.
+    RelationColumnRead {
+        track: u32,
+        relation: u16,
+        error: crate::times::TimesError,
+    },
     /// An events chunk of a state track: its items are put one by one.
     StateChunk { track: u32 },
     /// A record of a state track in a caller's block: its items are put ([TapeWriter::put](crate::TapeWriter::put)).
@@ -159,6 +165,14 @@ impl core::fmt::Display for DescribeError {
             DescribeError::RelationColumns { track } => write!(
                 f,
                 "track {track}: an events chunk's relation columns don't match its stored relations"
+            ),
+            DescribeError::RelationColumnRead {
+                track,
+                relation,
+                error,
+            } => write!(
+                f,
+                "track {track}: the column of relation {relation} doesn't read: {error}"
             ),
             DescribeError::StateChunk { track } => write!(
                 f,
@@ -242,6 +256,24 @@ impl TrackFacts {
 struct HeldTrack {
     facts: TrackFacts,
     bundles: Vec<Vec<u8>>,
+}
+
+/// Check that every relation column of the events chunk `c` reads, one value for each of its items.
+pub(crate) fn relation_columns_read(c: &crate::Chunk<'_>) -> Result<(), DescribeError> {
+    let head = c.head();
+    for col in c
+        .columns()
+        .filter(|col| col.kind == crate::ColumnKind::Relation)
+    {
+        let error = |error| DescribeError::RelationColumnRead {
+            track: head.track_number,
+            relation: col.param,
+            error,
+        };
+        // a column that reads holds one value per item: its length is the head's count
+        crate::times::RelationColumn::read(c, col.param).map_err(error)?;
+    }
+    Ok(())
 }
 
 /// `d` encoded, into a buffer grown until it fits.
@@ -732,7 +764,8 @@ impl Definitions {
                     len: col.bytes.len(),
                 })
                 .collect();
-            self.check_relation_columns(head.track_number, &specs)
+            self.check_relation_columns(head.track_number, &specs)?;
+            relation_columns_read(&c)
         } else if let Some(s) = b.summary() {
             let track = s.head().track_number;
             self.track(track)
