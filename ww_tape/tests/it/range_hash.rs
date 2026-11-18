@@ -575,3 +575,70 @@ fn an_unchecked_chunk_folds_by_its_entry_and_fails_verify() {
     assert!(good.verify(1).unwrap());
     assert!(!r.verify(1).unwrap(), "the content hash takes it as bytes");
 }
+
+/// An entry without a unit hash pointed at another track's chunk, its CRCs good, is refused when the chunk is read:
+/// the chunk read is compared with the entry, never folded as the track's.
+#[test]
+fn an_unhashed_entry_naming_another_tracks_chunk_is_refused() {
+    use ww_tape::BlockKind;
+    use ww_tape::index::IndexEntry;
+    let (_, files) = write(PieceFiles::One, 0x5eed);
+    let mut bytes = files[0].clone();
+    let good = TapeReader::open(&bytes[..]).unwrap();
+    let i = good.pieces().len() - 1;
+    let chunks = |t: u64| -> Vec<IndexEntry> {
+        good.track_entries(i, id_of(t))
+            .unwrap()
+            .into_iter()
+            .filter(|e| e.kind == BlockKind::Events)
+            .collect()
+    };
+    // track t's last chunk entry re-pointed at a chunk of track u that keeps t's list in file order
+    let fits = |t: u64, last: &IndexEntry, other: &IndexEntry| {
+        good.track_entries(i, id_of(t)).unwrap().iter().all(|x| {
+            x.offset == last.offset
+                || (x.offset < last.offset && x.offset + u64::from(x.len) <= other.offset)
+                || (x.offset > last.offset && other.offset + u64::from(other.len) <= x.offset)
+        })
+    };
+    let (t, last, other) = (0..3u64)
+        .flat_map(|t| (0..3u64).filter(move |u| *u != t).map(move |u| (t, u)))
+        .find_map(|(t, u)| {
+            let last = *chunks(t).last()?;
+            let other = chunks(u).into_iter().find(|o| fits(t, &last, o))?;
+            Some((t, last, other))
+        })
+        .expect("a chunk to point at");
+    drop(good);
+    rewrite_final_entries(&mut bytes, i, t, |_, e| {
+        if u64::from_le_bytes(e[0..8].try_into().unwrap()) == last.offset {
+            e[0..8].copy_from_slice(&other.offset.to_le_bytes());
+            e[8..12].copy_from_slice(&other.len.to_le_bytes());
+            e[88..120].fill(0);
+        }
+    });
+    let r = TapeReader::open(&bytes[..]).unwrap();
+    let got = r.range_hash(id_of(t), OwnerId::NONE, 0..u64::MAX, TrackHash::START);
+    assert!(
+        matches!(
+            got,
+            Err(ww_tape::ReadError::Index(
+                ww_tape::index::IndexError::BadEntries
+            ))
+        ),
+        "{got:?}"
+    );
+    let e = r
+        .track_entries(i, id_of(t))
+        .unwrap()
+        .into_iter()
+        .find(|e| e.offset == other.offset)
+        .unwrap();
+    let mut buf = vec![];
+    assert!(matches!(
+        r.read_chunk_head(i, &e, &mut buf),
+        Err(ww_tape::ReadError::Index(
+            ww_tape::index::IndexError::BadEntries
+        ))
+    ));
+}
