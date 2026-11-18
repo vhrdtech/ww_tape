@@ -2,8 +2,14 @@
 //! piece it resumes takes more blocks and finishes whole: a reader finds it by its tail at the start of the bytes and
 //! its content hash verifies.
 //!
-//! Input: a mode byte (bit 0 aligned, bit 1 no piece head), a cut (u16 little endian, modulo the piece's length + 1),
-//! then flips of three bytes each (an offset, u16 little endian, modulo the cut length, and the bits to flip).
+//! `PieceChain::resume_on` on a file of several pieces ([PieceFiles::One]) whose last piece is cut and mutated: it
+//! never panics, and a chain it resumes keeps the pieces before byte for byte, takes more blocks and finishes whole: a
+//! reader finds every piece, each verifies, and they link up from the first to a complete end. A last piece the input
+//! left finished but damaged is kept as it is: the chain starts a new piece behind it.
+//!
+//! Input: a mode byte (bit 0 aligned; bit 2 a file of several pieces; bit 1 no piece head for a single piece, the last
+//! piece finished for a file of several), a cut (u16 little endian, modulo the last piece's length + 1), then flips of
+//! three bytes each (an offset, u16 little endian, modulo the cut last piece's length, and the bits to flip).
 use std::path::Path;
 use std::sync::OnceLock;
 
@@ -14,10 +20,11 @@ use ww_tape::piece::{OwnerId, PieceHead, PieceId, PieceIdent};
 use ww_tape::reader::Found;
 use ww_tape::writer::NearPolicy;
 use ww_tape::{
-    BlockId, BlockKind, BlockWriter, ClockDef, ClockOrigin, ClockTime, Codec, ColumnKind,
-    ColumnSpec, Definitions, Describe, EndMode, EventsDef, FullVersion, Layout, Magnitude, MemSink,
-    Segment, SessionTag, SyncPolicy, TapeReader, TapeSink, TapeWriter, TrackDef, TrackKind,
-    Version, WriterOptions, clock_key, track_key,
+    BlockId, BlockKind, BlockWriter, ChainOptions, ClockDef, ClockOrigin, ClockTime, Codec,
+    ColumnKind, ColumnSpec, CutPolicy, Definitions, Describe, EndMode, EventsDef, FullVersion,
+    Layout, Magnitude, MemSink, MemTapes, PieceChain, PieceFiles, Segment, SessionTag, SinkFactory,
+    SyncPolicy, TapeReader, TapeSink, TapeWriter, TrackDef, TrackKind, Version, WriterOptions,
+    clock_key, track_key,
 };
 
 /// Rounds of blocks in a template piece.
@@ -129,6 +136,72 @@ fn template(aligned: bool, head: bool) -> Vec<u8> {
     w.sink().tape().to_vec().expect("the bytes")
 }
 
+/// The owner of the fuzzed chains.
+const OWNER: OwnerId = OwnerId([1; 32]);
+
+/// The file of a chain in memory.
+const CHAIN_FILE: &str = "one";
+
+fn chain_options(aligned: bool) -> ChainOptions {
+    ChainOptions {
+        files: PieceFiles::One,
+        writer: options(aligned),
+        cut: CutPolicy {
+            chunks: 4,
+            ..CutPolicy::default()
+        },
+    }
+}
+
+fn chain_chunk(c: &mut PieceChain<MemTapes>, defs: &Definitions, t: u64, k: u64) {
+    let (h, b) = chunk(t, k);
+    let spec = ColumnSpec {
+        kind: ColumnKind::Starts,
+        codec: Codec::RAW,
+        param: 0,
+        len: b.len(),
+    };
+    c.write_chunk(defs, &h, &[(spec, &b)])
+        .expect("a chunk writes");
+}
+
+fn chain_records(c: &mut PieceChain<MemTapes>, defs: &Definitions, n: u64) {
+    let w = c.writer().expect("a chain writing");
+    let id = w.next_id();
+    w.write_block(defs, &records(id, n))
+        .expect("a records block writes");
+}
+
+/// A file of several pieces: three finished, the last one finished too when `finished`, else stopped after its
+/// deferred blocks; the bytes and where the last piece starts.
+pub(crate) fn chain_template(aligned: bool, finished: bool) -> (Vec<u8>, usize) {
+    let path = Path::new(CHAIN_FILE);
+    let mut c = PieceChain::create_on(MemTapes::new(), path, OWNER, 0, &[], chain_options(aligned))
+        .expect("a chain starts");
+    let mut defs = Definitions::new();
+    defs.define_all(&[clock(1), track(1, 1), track(2, 1), track(9, 1)])
+        .expect("the definitions hold");
+    for k in 0..7 {
+        chain_chunk(&mut c, &defs, 0, k);
+        chain_records(&mut c, &defs, k);
+        chain_chunk(&mut c, &defs, 1, k);
+    }
+    let w = c.writer().expect("a chain writing");
+    w.flush_deferred().expect("deferred blocks write");
+    let last = w.sink().base();
+    let mem = c.factory().clone();
+    if finished {
+        c.finish().expect("a chain finishes");
+    }
+    let bytes = mem
+        .get(path)
+        .expect("memory")
+        .expect("the file")
+        .to_vec()
+        .expect("the bytes");
+    (bytes, usize::try_from(last).expect("a small file"))
+}
+
 /// Events track `number` on clock `clock`.
 fn track(number: u32, clock: u32) -> Describe<'static> {
     Describe::Track(TrackDef {
@@ -164,26 +237,41 @@ fn clock(number: u32) -> Describe<'static> {
     })
 }
 
-/// The template pieces by mode, made once.
-fn templates() -> &'static [Vec<u8>; 4] {
-    static T: OnceLock<[Vec<u8>; 4]> = OnceLock::new();
-    T.get_or_init(|| core::array::from_fn(|m| template(m & 1 != 0, m & 2 == 0)))
+/// The templates by mode, made once: the bytes and where the last piece starts.
+fn templates() -> &'static [(Vec<u8>, usize); 8] {
+    static T: OnceLock<[(Vec<u8>, usize); 8]> = OnceLock::new();
+    T.get_or_init(|| {
+        core::array::from_fn(|m| {
+            if m & 4 == 0 {
+                (template(m & 1 != 0, m & 2 == 0), 0)
+            } else {
+                chain_template(m & 1 != 0, m & 2 != 0)
+            }
+        })
+    })
 }
 
 pub fn resume(data: &[u8]) {
     let (mode, rest) = data.split_first().map_or((0, data), |(m, r)| (*m, r));
     let aligned = mode & 1 != 0;
-    let mut bytes = templates()[usize::from(mode & 3)].clone();
+    let (template, last) = &templates()[usize::from(mode & 7)];
+    let mut bytes = template.clone();
     let (cut, flips) = match rest {
         [a, b, flips @ ..] => (usize::from(u16::from_le_bytes([*a, *b])), flips),
         _ => (usize::MAX, rest),
     };
-    bytes.truncate(cut % (bytes.len() + 1));
-    if !bytes.is_empty() {
+    let piece = bytes.len() - last;
+    bytes.truncate(last + cut % (piece + 1));
+    let piece = bytes.len() - last;
+    if piece != 0 {
         for [lo, hi, bits] in flips.as_chunks::<3>().0 {
-            let at = usize::from(u16::from_le_bytes([*lo, *hi])) % bytes.len();
+            let at = last + usize::from(u16::from_le_bytes([*lo, *hi])) % piece;
             bytes[at] ^= bits;
         }
+    }
+    if mode & 4 != 0 {
+        resume_chain(aligned, &bytes, *last);
+        return;
     }
     let mut sink = MemSink::new(Path::new("p"));
     sink.write_all(&bytes).expect("memory takes the bytes");
@@ -225,4 +313,53 @@ pub fn resume(data: &[u8]) {
         r.verify(last).expect("a finished piece"),
         "the content hash verifies"
     );
+}
+
+/// Resume the chain of `bytes`, whose pieces before `last` are whole, and finish it.
+fn resume_chain(aligned: bool, bytes: &[u8], last: usize) {
+    let path = Path::new(CHAIN_FILE);
+    let mut mem = MemTapes::new();
+    mem.create_whole(path)
+        .expect("memory takes a file")
+        .write_all(bytes)
+        .expect("memory takes the bytes");
+    let Ok((mut c, _)) = PieceChain::resume_on(mem, path, OWNER, 0, chain_options(aligned)) else {
+        return;
+    };
+    let mut defs = Definitions::new();
+    defs.define_all(&[clock(1), track(1, 1), track(9, 1)])
+        .expect("the definitions hold");
+    for k in 0..6 {
+        chain_records(&mut c, &defs, 200 + k);
+        chain_chunk(&mut c, &defs, 0, 100 + k);
+    }
+    let mem = c.factory().clone();
+    let done = c.finish().expect("a resumed chain finishes");
+    let out = mem
+        .get(path)
+        .expect("memory")
+        .expect("the file")
+        .to_vec()
+        .expect("the bytes");
+    assert_eq!(out[..last], bytes[..last], "the pieces before stay");
+    let end = done.last().map(|f| f.start + f.len);
+    assert_eq!(end, Some(out.len() as u64), "the last piece ends the file");
+    let r = TapeReader::open(&out[..]).expect("a finished chain opens");
+    let n = r.pieces().len();
+    assert!(n >= 4, "{n} pieces");
+    // a last piece the input left finished stays as the input made it, damage included: resume starts behind it
+    let kept = (bytes.len() > last && out.get(last..bytes.len()) == Some(&bytes[last..]))
+        .then(|| r.pieces().iter().position(|p| p.start == last as u64))
+        .flatten();
+    let damaged = kept.filter(|i| !r.verify(*i).expect("a finished piece"));
+    for (i, p) in r.pieces().iter().enumerate() {
+        assert_eq!(p.found, Found::Tail, "piece {i} found whole by its tail");
+        if Some(i) != damaged {
+            assert!(r.verify(i).expect("a finished piece"), "piece {i} verifies");
+        }
+    }
+    if damaged.is_none() {
+        let chain = r.chain();
+        assert!(chain.is_whole(), "{chain:?}");
+    }
 }

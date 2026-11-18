@@ -39,6 +39,7 @@ pub const KNOWN_INPUTS: &[(&str, &str, &str)] = &[];
 /// Inputs these tests and the fuzz targets found that failed until a fix: target, name (seed `fixed-<name>`), hex.
 pub const FIXED_INPUTS: &[(&str, &str, &str)] = &[
     ("tape-index", "empty-index-reads-back", "0a"),
+    ("tape-resume", "finished-last-piece-damaged", "070030c80101"),
     (
         "tape-times-hostile",
         "chunk-count-unbounded",
@@ -485,11 +486,11 @@ fn media_fixes() -> Vec<Seed> {
     out
 }
 
-/// Inputs of `tape-resume`: each template piece whole, cut halfway, and cut with a flipped byte in its head
-/// definitions; then a stream.
+/// Inputs of `tape-resume`: each template whole, its last piece cut halfway, and cut with a flipped byte in the last
+/// piece's head definitions; then a stream.
 fn resume_seeds() -> Vec<Seed> {
     let mut out = vec![];
-    for mode in 0..4u8 {
+    for mode in 0..8u8 {
         out.push(seed("tape-resume", format!("mode{mode}-whole"), vec![mode]));
         out.push(seed(
             "tape-resume",
@@ -503,6 +504,24 @@ fn resume_seeds() -> Vec<Seed> {
         ));
     }
     out.extend(stream("tape-resume", 0x5eed_0000_7e50_0001));
+    out
+}
+
+/// Inputs of the file readers (`tape-reader`, `tape-index`): a file of several pieces whole, its last piece torn
+/// halfway, and its last piece with a flipped byte in its head and one in its middle.
+fn chain_seeds() -> Vec<Seed> {
+    let (whole, last) = crate::targets::chain_template(false, true);
+    let half = last + (whole.len() - last) / 2;
+    let torn = whole[..half].to_vec();
+    let mut damaged = whole.clone();
+    damaged[last + 160] ^= 0x40;
+    damaged[half] ^= 0x01;
+    let mut out = vec![];
+    for target in ["tape-reader", "tape-index"] {
+        out.push(seed(target, "one-file-chain", whole.clone()));
+        out.push(seed(target, "one-file-chain-last-torn", torn.clone()));
+        out.push(seed(target, "one-file-chain-last-damaged", damaged.clone()));
+    }
     out
 }
 
@@ -535,6 +554,7 @@ pub fn all() -> Vec<Seed> {
     ));
     out.extend(media_fixes());
     out.extend(resume_seeds());
+    out.extend(chain_seeds());
     out.extend(golden_blocks("tape-chunk", "v1-chunks", GOLDEN_CHUNKS));
     out.extend(golden_blocks("tape-index", "v1-index", GOLDEN_INDEX));
     out.push(seed(
