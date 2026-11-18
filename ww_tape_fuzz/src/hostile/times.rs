@@ -5,7 +5,7 @@ use super::chunk::{build, column_start, hit_head, reseal};
 use super::{Draw, Field, hit};
 use ww_tape::ColumnKind;
 use ww_tape::bitpack::{GROUP, WIDTH_MAX};
-use ww_tape::times::{EncodedTimes, SLOPE_MAX};
+use ww_tape::times::{DURATIONS, EncodedRelation, EncodedTimes, SLOPE_MAX, TimeMode};
 
 /// Bytes of a linear starts group record, a durations record and a flags record.
 const STARTS_RECORD: usize = 25;
@@ -14,9 +14,38 @@ const FLAGS_RECORD: usize = 8;
 
 const WIDTH_CAPS: &[u64] = &[WIDTH_MAX as u64, 32, 63];
 
-/// The fields of group `g`'s record in a column of `kind` starting at `at`.
-fn record_fields(kind: ColumnKind, linear: bool, at: usize, g: usize) -> Vec<Field<'static>> {
+/// Bytes of a relation column's head in the starts codec: mode, first, last.
+const RELATION_HEAD: usize = 17;
+
+/// The fields of group `g`'s record in a column of `kind` starting at `at`; a relation column's head and records by
+/// its codec (`any`: the durations record) and its own mode byte.
+fn record_fields(
+    kind: ColumnKind,
+    linear: bool,
+    any: bool,
+    b: &[u8],
+    at: usize,
+    g: usize,
+) -> Vec<Field<'static>> {
     match kind {
+        ColumnKind::Relation if any => record_fields(ColumnKind::Ends, linear, false, b, at, g),
+        ColumnKind::Relation => {
+            let mode_linear = b.get(at) == Some(&TimeMode::Linear.to_u8());
+            let mut f = vec![
+                Field::new(at, 1, &[]),
+                Field::new(at + 1, 8, &[]),
+                Field::new(at + 9, 8, &[]),
+            ];
+            f.extend(record_fields(
+                ColumnKind::Starts,
+                mode_linear,
+                false,
+                b,
+                at + RELATION_HEAD,
+                g,
+            ));
+            f
+        }
         ColumnKind::Starts if !linear => vec![Field::new(at, 8, &[SLOPE_MAX as u64])],
         ColumnKind::Starts => {
             let r = at + g * STARTS_RECORD;
@@ -67,7 +96,23 @@ pub fn times(data: &[u8]) -> Vec<u8> {
     let ends = d.bool().then_some(ends.as_slice());
     let flags = d.bool().then_some(flags.as_slice());
     let enc = EncodedTimes::encode(&starts, ends, flags).expect("valid times");
-    let cols: Vec<_> = enc.columns().collect();
+    // relation values: a source ordinal that never decreases, keys in any order
+    let mut src = u64::from(d.u32()) << d.below(33);
+    let sources: Vec<u64> = (0..starts.len())
+        .map(|_| {
+            src = src.saturating_add(d.below(3) as u64);
+            src
+        })
+        .collect();
+    let keys: Vec<u64> = (0..starts.len())
+        .map(|_| u64::from(d.u32()) << d.below(33))
+        .collect();
+    let source = EncodedRelation::encode(0, &sources, true).expect("values that never decrease");
+    let key = EncodedRelation::encode(2, &keys, false).expect("any values");
+    let mut cols: Vec<_> = enc.columns().collect();
+    if d.bool() {
+        cols.extend([source.column(), key.column()]);
+    }
     let mut b = build(&enc.head.chunk_head(1, 1, 0), &cols);
     let groups = starts.len().div_ceil(GROUP);
     let linear = enc.head.time_mode == ww_tape::times::TimeMode::Linear;
@@ -88,7 +133,8 @@ pub fn times(data: &[u8]) -> Vec<u8> {
                 let i = d.below(kinds.len());
                 let g = d.below(groups + 1);
                 if let Some(at) = column_start(&b, i) {
-                    let fields = record_fields(kinds[i], linear, at, g);
+                    let any = cols[i].0.codec == DURATIONS;
+                    let fields = record_fields(kinds[i], linear, any, &b, at, g);
                     let f = fields[d.below(fields.len())];
                     hit(&mut d, &mut b, f);
                 }
