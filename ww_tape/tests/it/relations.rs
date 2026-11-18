@@ -295,3 +295,51 @@ fn a_whole_chunk_block_written_or_adopted_keeps_its_range() {
         );
     }
 }
+
+#[test]
+fn a_relation_column_that_does_not_read_is_refused() {
+    let mut defs = Definitions::new();
+    defs.define_all(&[clock(CLOCK), decoded()]).unwrap();
+    let mut w = TapeWriter::create_on(MemSink::new(Path::new("len")), SyncPolicy::None);
+    let tape = w.sink().tape();
+    let times = EncodedTimes::encode(&[0, 10, 20, 30, 40], None, None).unwrap();
+    let head = times.head.chunk_head(track_id(), 3, 0);
+    let keys = EncodedRelation::encode(2, &[1, 2, 3, 4, 5], false).unwrap();
+    // 2 sources for 5 items: one period that doesn't reach the last value
+    let short = EncodedRelation::encode(0, &[10, 11], true).unwrap();
+    let mut cols: Vec<_> = times.columns().collect();
+    cols.extend([short.column(), keys.column()]);
+    let refused = w.write_chunk(&defs, &head, &cols);
+    assert!(
+        matches!(
+            refused,
+            Err(WriteError::Describe(DescribeError::RelationColumnRead {
+                track: 3,
+                relation: 0,
+                error: ww_tape::times::TimesError::Corrupt {
+                    kind: ww_tape::ColumnKind::Relation,
+                    ..
+                },
+            }))
+        ),
+        "{refused:?}"
+    );
+    // the same chunk as a whole block of another writer's
+    let mut other = TapeWriter::create_on(MemSink::new(Path::new("other")), SyncPolicy::None);
+    let specs: Vec<_> = cols.iter().map(|c| c.0).collect();
+    let mut block = vec![0u8; ww_tape::chunk::chunk_len(&head, &specs, 0)];
+    let n = ww_tape::chunk::write_chunk(&mut block, other.next_id(), &head, &cols, 0).unwrap();
+    block.truncate(n);
+    assert!(matches!(
+        other.write_block(&defs, &block),
+        Err(WriteError::Describe(DescribeError::RelationColumnRead {
+            track: 3,
+            relation: 0,
+            ..
+        }))
+    ));
+    // nothing of the refused chunk is written: a good chunk after it is the first block of data
+    write_chunk(&mut w, &defs, 0, &[1, 2, 3, 4, 5], &[9, 8, 7, 6, 5]).unwrap();
+    w.finish().unwrap();
+    assert_eq!(ranges(&tape.to_vec().unwrap(), 0), [Some((1, 5))]);
+}

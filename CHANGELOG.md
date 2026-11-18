@@ -10,6 +10,7 @@ Covers `ww_tape` 0.1.0.
 
 ### ⚠️ Breaking
 
+- `DescribeError::RelationColumnRead`: a relation column that doesn't read for every item is refused, not written (TAPE-7).
 - `ChainOptions` gains `files`; `Finished` gains `start` and `tracks`; `SinkFactory` gains `create_whole` and `open_whole` (TAPE-8).
 - Format: piece head rows (96 B) and finish rows (128 B) carry owner and track hash, each with a row length (TAPE-8).
 - Format: the content hash takes each chunk payload by its BLAKE3 hash; goldens, seeds and figures rewritten (TAPE-8).

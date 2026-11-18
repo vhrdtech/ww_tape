@@ -1250,6 +1250,12 @@ impl<S: TapeSink> TapeWriter<S> {
             .map_err(WriteError::Chunk)
             .and_then(|n| {
                 buf.truncate(n);
+                if head.kind == crate::BlockKind::Events {
+                    let chunk = crate::chunk::Chunk::read_head(&buf)
+                        .map_err(crate::BlockError::Chunk)
+                        .map_err(WriteError::Block)?;
+                    crate::open::relation_columns_read(&chunk)?;
+                }
                 self.write_chosen(&needs, &chosen, true)?;
                 if self.at()? != at {
                     return Err(WriteError::Index(IndexError::Invalid(
