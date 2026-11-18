@@ -53,7 +53,9 @@ The pieces of a chain are checked in both directions:
 `ww_tape::piece::check_chain` takes a `PieceSummary` of each piece at hand (`PieceInfo::summary` gives one for a
 piece a `TapeReader` found), puts them in order and reports each link between neighbours, whether the
 chain's start was deleted (`head_cut`), how it ends, and pieces that don't belong (`ChainReport`; `is_whole` when all is
-well). Each piece head also says, per track, which item number the piece starts with and the tick before which none of
+well). A piece whose head is damaged keeps its place by the ident its finish carries, linked one way (`HeadLost`); a
+piece whose head is of an integrity level the reader doesn't handle is listed in `refused`, and every lookup in it
+returns that level's error. Each piece head also says, per track, which item number the piece starts with and the tick before which none of
 its items start (`TrackStart`). A reader of one piece so knows where its items fall in the whole recording.
 
 ## Many pieces in one file
@@ -132,7 +134,9 @@ original's hash. [The file format](format.md) lists the bytes the hash takes in.
 The hash of a part of a track works the same way. Folded from 32 zero bytes over a run of whole chunks, it depends only
 on those chunks. `TapeReader::range_hash` gives it for the chunks that hold any item of an item range. The writer stores
 each chunk's share of the hash in the chunk's index entry, so the fold reads only the index, never a payload. Where the
-index is damaged or missing, the reader reads the chunks and computes the same hash. For example, a program that
+index is damaged or missing, the reader reads the chunks and computes the same hash; a damaged chunk of the track is
+an error there as by the index, bytes no block explains are counted (`RangeHash::skipped`), and a chunk written again
+folds once. For example, a program that
 processed items 1,000 to 50,000 of a track can record the range hash of its input, and anyone can later check that a
 file still holds exactly that input. A track's records are not chunks, so a range hash leaves them out.
 
