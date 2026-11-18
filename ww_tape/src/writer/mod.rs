@@ -128,6 +128,10 @@ pub enum WriteError {
     /// A resume would cut off a good block of the piece at `offset`, behind bytes the reader didn't take: more than a
     /// torn end. The bytes stay as they are.
     GoodBlockAfterCut { offset: u64 },
+    /// A resume looked for good blocks past where the reader stopped and ran out of its look ([RESUME_LOOK_MAX]) or
+    /// of the places it reads whole ([RESUME_PROBES_MAX]) at `offset`, before the end of the bytes: it can't tell the
+    /// bytes from there on hold no good block, so it cuts nothing. The bytes stay as they are.
+    LookSpent { offset: u64 },
     /// The content-hash walk of the bytes a resume keeps spent its budget of missed blocks
     /// ([crate::piece::WALK_MISS_PER_BYTE_MAX]): a block written at `end` would not verify. The bytes stay as they are.
     HashWalkSpent { end: u64 },
@@ -171,6 +175,10 @@ impl core::fmt::Display for WriteError {
             WriteError::GoodBlockAfterCut { offset } => write!(
                 f,
                 "a resume would cut off a good block at {offset}, more than a torn end"
+            ),
+            WriteError::LookSpent { offset } => write!(
+                f,
+                "a resume looked for good blocks it would cut off up to {offset}, short of the end of the bytes"
             ),
             WriteError::HashWalkSpent { end } => write!(
                 f,

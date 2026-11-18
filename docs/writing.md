@@ -226,7 +226,9 @@ how many bytes it kept and dropped and where the piece was cut. It works in thre
    blocks marked `FLAG_WITH_NEXT` at the end of what it keeps, since the block they belong with didn't survive. When a
    good block of the piece's sessions lies behind the bytes the reader didn't take, cutting would lose more than a
    torn end: the resume refuses (`WriteError::GoodBlockAfterCut`) and leaves the bytes as they are. It looks
-   `RESUME_LOOK_MAX` bytes far and reads at most `RESUME_PROBES_MAX` places whole. When the bytes it keeps claim
+   `RESUME_LOOK_MAX` bytes far and reads at most `RESUME_PROBES_MAX` places whole. When either runs out before the
+   end of the bytes, it can't tell the rest holds no good block: it refuses (`WriteError::LookSpent`) and leaves the
+   bytes as they are. With no block kept, a good block of any session counts. When the bytes it keeps claim
    so many blocks that don't read that a reader's content-hash walk stops trying blocks before their end
    (`WALK_MISS_PER_BYTE_MAX`), a block written after them would not verify: the resume refuses
    (`WriteError::HashWalkSpent`) and leaves the bytes as they are.

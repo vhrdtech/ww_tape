@@ -1286,6 +1286,62 @@ fn a_resume_never_cuts_off_good_blocks() {
     assert_eq!(resumed.kept_bytes, starts[starts.len() - 1] as u64);
 }
 
+/// Past where the reader stopped, more places of the piece's session that don't read than a resume reads whole, then a
+/// good block; or a good block farther than a resume looks: it can't tell the bytes after hold none, so it refuses and
+/// leaves them. As many such places as it reads, and nothing after them, are a torn end: cut off.
+#[test]
+fn a_resume_refuses_where_its_look_is_spent() {
+    let mut w = begin(0);
+    let tape = w.sink().tape();
+    let defs = base_defs();
+    for n in 0..6 {
+        let block = records(w.next_id(), n);
+        w.write_block(defs, &block).unwrap();
+    }
+    let good = records(w.next_id(), 77);
+    let open = tape.to_vec().unwrap();
+    drop(w);
+    let mut fake = good.clone();
+    *fake.last_mut().unwrap() ^= 0xff;
+    let resume = |bytes: &[u8]| {
+        let mut sink = MemSink::new(Path::new("q"));
+        sink.write_all(bytes).unwrap();
+        let tape = sink.tape();
+        let r = TapeWriter::resume_on(sink, options(0)).map(|(_, r)| r);
+        (r, tape.to_vec().unwrap())
+    };
+    // as many places as it reads whole, then a good block
+    let mut bytes = open.clone();
+    bytes.extend_from_slice(&[0xab; 7]);
+    for _ in 0..ww_tape::writer::RESUME_PROBES_MAX {
+        bytes.extend_from_slice(&fake);
+    }
+    let good_at = bytes.len() as u64;
+    bytes.extend_from_slice(&good);
+    match resume(&bytes) {
+        (Err(WriteError::LookSpent { offset }), after) => {
+            assert_eq!(offset, good_at);
+            assert_eq!(after, bytes, "the bytes stay");
+        }
+        (other, _) => panic!("{other:?}"),
+    }
+    // the same places alone: a torn end
+    let (r, after) = resume(&bytes[..good_at as usize]);
+    assert_eq!(r.unwrap().kept_bytes, open.len() as u64);
+    assert_eq!(after, open);
+    // a good block past the bytes a resume looks through
+    let mut far = open.clone();
+    far.resize(open.len() + ww_tape::writer::RESUME_LOOK_MAX as usize, 0);
+    far.extend_from_slice(&good);
+    match resume(&far) {
+        (Err(WriteError::LookSpent { offset }), after) => {
+            assert_eq!(offset, open.len() as u64 + ww_tape::writer::RESUME_LOOK_MAX);
+            assert_eq!(after.len(), far.len(), "the bytes stay");
+        }
+        (other, _) => panic!("{other:?}"),
+    }
+}
+
 /// A block early in the piece whose length damage made claim more than the content-hash walk may miss: blocks written
 /// after the resume would be bytes no block explains to a reader's walk, so the resume refuses and leaves the bytes. A
 /// claim within the walk's budget resumes, and the finished piece verifies.

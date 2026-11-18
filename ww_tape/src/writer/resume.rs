@@ -252,30 +252,37 @@ impl KeptEnd {
 
 /// The offset of a good block of one of `sessions` in the bytes of `src` from `from` to `size`, which a resume would
 /// cut off: more than a torn end. It looks [RESUME_LOOK_MAX] bytes far and reads at most [RESUME_PROBES_MAX] places
-/// whole, so crafted bytes cost a bounded read.
+/// whole, so crafted bytes cost a bounded read; where either runs out before the end of the bytes it can't tell they
+/// hold no good block: [WriteError::LookSpent]. With no session known (no block kept, a head the reader didn't
+/// take), a good block of any session is the piece's.
 fn good_block_after<S: TapeSink>(
     src: &S,
     from: u64,
     size: u64,
     sessions: &std::collections::BTreeSet<u32>,
 ) -> Result<Option<u64>, WriteError> {
+    // the places looked at: a header starting before `end` is read whole, up to `size`
     let end = size.min(from.saturating_add(RESUME_LOOK_MAX));
     let mut probes = 0;
     let mut window = vec![0u8; JUNK_READ_MAX];
     let mut at = from;
-    while at < end && probes < RESUME_PROBES_MAX {
+    while at < end {
         // at most JUNK_READ_MAX, as min says
-        let n = usize::try_from(end.saturating_sub(at).min(wide(JUNK_READ_MAX)))
-            .unwrap_or(JUNK_READ_MAX);
+        let n = usize::try_from(
+            size.min(end.saturating_add(wide(HEADER_LEN - 1)))
+                .saturating_sub(at)
+                .min(wide(JUNK_READ_MAX)),
+        )
+        .unwrap_or(JUNK_READ_MAX);
         let w = window.get_mut(..n).unwrap_or_default();
         src.read_at(at, w)
             .map_err(io_err("reading back the bytes a resume cuts off"))?;
-        // the places a whole header fits in this window; the next window starts at the first that doesn't
-        let fits = n.saturating_sub(HEADER_LEN - 1);
+        // the places a whole header fits in this window, before `end`; the next window starts at the first that
+        // doesn't
+        let fits = n
+            .saturating_sub(HEADER_LEN - 1)
+            .min(usize::try_from(end.saturating_sub(at)).unwrap_or(usize::MAX));
         for i in 0..fits {
-            if probes >= RESUME_PROBES_MAX {
-                break;
-            }
             let Some(header) = w.get(i..i.saturating_add(HEADER_LEN)) else {
                 break;
             };
@@ -287,8 +294,12 @@ fn good_block_after<S: TapeSink>(
             };
             let Ok(len) = block_len(header) else { continue };
             let place = at.saturating_add(wide(i));
-            if !sessions.contains(&session) || place.saturating_add(wide(len)) > size {
+            let ours = sessions.is_empty() || sessions.contains(&session);
+            if !ours || place.saturating_add(wide(len)) > size {
                 continue;
+            }
+            if probes >= RESUME_PROBES_MAX {
+                return Err(WriteError::LookSpent { offset: place });
             }
             probes = probes.saturating_add(1);
             let mut block = vec![0u8; len];
@@ -299,6 +310,9 @@ fn good_block_after<S: TapeSink>(
             }
         }
         at = at.saturating_add(wide(fits.max(1)));
+    }
+    if end < size {
+        return Err(WriteError::LookSpent { offset: end });
     }
     Ok(None)
 }
