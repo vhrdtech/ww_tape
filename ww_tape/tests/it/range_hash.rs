@@ -460,3 +460,77 @@ fn a_range_hash_folds_a_chunk_written_again_once() {
         }
     }
 }
+
+/// An unfinished piece whose checkpoint names one chunk of a track many times, its CRCs good, is refused as a final
+/// index naming it so is: the entries don't read, and the range hash reads the chunks instead, each once.
+#[test]
+fn a_checkpoint_naming_a_chunk_many_times_is_refused() {
+    use ww_tape::index::{ENTRY_LEN, IndexBlock, IndexKind};
+    use ww_tape::{BlockKind, MemSink, TapeWriter};
+    let mut w = TapeWriter::create_on(MemSink::new(Path::new("open")), SyncPolicy::None);
+    let tape = w.sink().tape();
+    w.set_index_policy(IndexPolicy {
+        bytes: 2048,
+        interval: None,
+        ..IndexPolicy::default()
+    })
+    .unwrap();
+    let defs = base_defs();
+    for k in 0..24 {
+        let (h, b) = chunk(1, k);
+        w.write_chunk(defs, &h, &column(&b)).unwrap();
+    }
+    let bytes = tape.to_vec().unwrap();
+    drop(w);
+    let good = TapeReader::open(&bytes[..]).unwrap();
+    let want = good
+        .range_hash(id_of(1), OwnerId::NONE, 0..u64::MAX, TrackHash::START)
+        .unwrap();
+    // the newest checkpoint, its chunk entries all made the first one's
+    let at = (0..bytes.len() - 4)
+        .rev()
+        .find(|&i| {
+            bytes[i..i + 4] == *b"WWTP"
+                && ww_tape::Block::read(&bytes[i..])
+                    .ok()
+                    .and_then(|b| IndexBlock::read(&b).ok())
+                    .is_some_and(|ix| ix.kind() == IndexKind::Checkpoint)
+        })
+        .expect("a checkpoint");
+    let mut crafted = bytes.clone();
+    let len = ww_tape::block_len(&crafted[at..]).unwrap();
+    let block = &mut crafted[at..at + len];
+    let entries_at = IndexBlock::head_len(block).unwrap();
+    let mut first: Option<[u8; ENTRY_LEN]> = None;
+    let mut changed = 0;
+    for e in block[entries_at..len - 4].as_chunks_mut::<ENTRY_LEN>().0 {
+        // kind at 12: an events chunk
+        if e[12] != BlockKind::Events.to_u8() {
+            continue;
+        }
+        match first {
+            None => first = Some(*e),
+            Some(f) => {
+                e.copy_from_slice(&f);
+                changed += 1;
+            }
+        }
+    }
+    assert!(changed > 1, "{changed} entries changed");
+    let head = crc32c(&[&block[..28], &block[32..entries_at]]);
+    block[28..32].copy_from_slice(&head.to_le_bytes());
+    let crc = crc32c(&[&block[..len - 4]]);
+    block[len - 4..].copy_from_slice(&crc.to_le_bytes());
+    let r = TapeReader::open(&crafted[..]).unwrap();
+    assert!(matches!(
+        r.entries(0),
+        Err(ww_tape::ReadError::Index(
+            ww_tape::index::IndexError::BadEntries
+        ))
+    ));
+    assert!(r.track_entries(0, id_of(1)).is_err());
+    let got = r
+        .range_hash(id_of(1), OwnerId::NONE, 0..u64::MAX, TrackHash::START)
+        .unwrap();
+    assert_eq!((got.hash, got.chunks), (want.hash, want.chunks));
+}

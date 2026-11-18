@@ -1006,18 +1006,19 @@ impl<S: ByteSource> TapeReader<S> {
         Ok(self.non_blank(at, hi)?.is_none())
     }
 
-    /// Every block of piece `i` its index or scan knows, in file order; offsets from the piece's start.
+    /// Every block of piece `i` its index or scan knows, in file order; offsets from the piece's start. Entries
+    /// that overlap, but for a block's state records, are refused ([IndexError::BadEntries]): from a final index,
+    /// checkpoints or a scan alike.
     pub fn entries(&self, i: usize) -> R<Vec<IndexEntry>, S> {
         let p = self.piece(i)?;
         if let Some(e) = &p.entries {
-            return within_piece(p, e.clone());
+            return in_order(p, e.clone());
         }
         let mut out = Vec::new();
         self.for_final(p, |ix| {
             out.extend(ix.entries());
         })?;
-        out.sort_by_key(|e| e.offset);
-        within_piece(p, out)
+        in_order(p, out)
     }
 
     /// The blocks of track `track_id` in piece `i` (0: record blocks of data, [STATE_TRACK_ID](crate::index::STATE_TRACK_ID):
@@ -1027,7 +1028,7 @@ impl<S: ByteSource> TapeReader<S> {
         let p = self.piece(i)?;
         if let Some(e) = &p.entries {
             let track = e.iter().filter(|e| e.track_id == track_id).copied();
-            return within_piece(p, track.collect());
+            return in_order(p, track.collect());
         }
         let mut out = Vec::new();
         let mut at = p.finish.as_ref().and_then(|(f, _)| f.final_index);
@@ -1053,12 +1054,7 @@ impl<S: ByteSource> TapeReader<S> {
             }
             at = ix.prev().filter(|p| *p < off);
         }
-        out.sort_by_key(|e| e.offset);
-        // final index blocks list each block once: a block named twice would be read and folded twice
-        if !crate::index::in_file_order(&out) {
-            return Err(ReadError::Index(IndexError::BadEntries));
-        }
-        within_piece(p, out)
+        in_order(p, out)
     }
 
     /// Call `f` with each final index block of finished piece `p`, newest first.
@@ -1458,6 +1454,19 @@ fn in_piece<E>(p: &PieceInfo, off: u64, n: usize) -> Result<u64, ReadError<E>> {
 
 /// `entries` of piece `p` (from its index or a scan's checkpoints), when every block they name lies in the piece; an
 /// index naming a block past it is damaged.
+/// `entries` of piece `p` in file order, each block listed once (a block's state records excepted) and within the
+/// piece: a block named twice would be read and folded twice.
+fn in_order<E>(
+    p: &PieceInfo,
+    mut entries: Vec<IndexEntry>,
+) -> Result<Vec<IndexEntry>, ReadError<E>> {
+    entries.sort_by_key(|e| e.offset);
+    if !crate::index::in_file_order(&entries) {
+        return Err(ReadError::Index(IndexError::BadEntries));
+    }
+    within_piece(p, entries)
+}
+
 fn within_piece<E>(
     p: &PieceInfo,
     entries: Vec<IndexEntry>,
