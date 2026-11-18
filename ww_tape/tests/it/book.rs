@@ -641,8 +641,20 @@ fn format_page_relations_and_owner_read_a_chain() {
     let done = chain.finish().unwrap();
     assert_eq!(done.len(), 2);
     let second = tapes.get(&done[1].path).unwrap().unwrap().to_vec().unwrap();
-    // byte 146 of the piece head, the first block: Full
+    // byte 146 of the piece head, the first block: Full; 1 there, its CRC made good, is CrcOnly, which is refused
     assert_eq!(second[146], 0);
+    let mut crc_only = second.clone();
+    crc_only[146] = 1;
+    let head_len = ww_tape::block_len(&crc_only).unwrap();
+    let crc = crc::Crc::<u32>::new(&crc::CRC_32_ISCSI).checksum(&crc_only[..head_len - 4]);
+    crc_only[head_len - 4..head_len].copy_from_slice(&crc.to_le_bytes());
+    let refused = ww_tape::TapeReader::open(&crc_only[..]).unwrap();
+    assert_eq!(
+        refused.pieces()[0].head_error,
+        Some(ww_tape::index::IndexError::UnhandledIntegrity {
+            level: ww_tape::Integrity::CrcOnly
+        })
+    );
     // the head row carries the track over with its owner (head rows from 152)
     let head_row = 32 + 120;
     assert_eq!(second[head_row + 32..][..32], owner);
