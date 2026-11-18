@@ -106,6 +106,7 @@ fn entries(d: &mut Draw<'_>, n: usize, sorted: bool) -> Vec<IndexEntry> {
                 latest_end: i64::from(i16::MAX) + 256 + i64::from(d.u8()),
                 repeat: d.bool(),
                 unit: ww_tape::UnitHash::NONE,
+                range: None,
             }
         })
         .collect();

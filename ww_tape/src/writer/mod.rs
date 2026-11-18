@@ -1240,7 +1240,9 @@ impl<S: TapeSink> TapeWriter<S> {
             .map_err(WriteError::Chunk)
             .and_then(|n| {
                 buf.truncate(n);
+                let range = range_of(defs, head, &buf);
                 self.write_chosen(&needs, &chosen, true)?;
+                self.indexer.chunk_range(range);
                 if self.at()? != at {
                     return Err(WriteError::Index(IndexError::Invalid(
                         "the puts before a chunk took other bytes than chosen",
@@ -1928,4 +1930,16 @@ fn data_tracks(b: &crate::Block<'_>) -> Vec<u32> {
     tracks.sort_unstable();
     tracks.dedup();
     tracks
+}
+
+/// The smallest and largest value of the range relation of `head`'s track in the chunk block `block`; None when the
+/// track has none, or its column doesn't read.
+fn range_of(defs: &Definitions, head: &crate::ChunkHead, block: &[u8]) -> Option<(u64, u64)> {
+    let relation = defs.track(head.track_number)?.range?;
+    let chunk = crate::chunk::Chunk::read_head(block).ok()?;
+    Some(
+        crate::times::RelationColumn::read(&chunk, relation)
+            .ok()??
+            .range(),
+    )
 }

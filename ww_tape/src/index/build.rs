@@ -49,6 +49,8 @@ pub(crate) struct Indexer {
     tallies: BTreeMap<TrackKey, Tally>,
     /// The tallies before the last counted block of data, to take it back ([Self::undo_block])
     undo: Vec<(TrackKey, Option<Tally>)>,
+    /// The range relation's range of the next chunk placed ([Self::chunk_range])
+    next_range: Option<(u64, u64)>,
 }
 
 impl Indexer {
@@ -156,8 +158,14 @@ impl Indexer {
 
     /// Note the block `bytes` (exactly one block, written by this writer) placed at `offset` in the piece, a chunk
     /// with its unit hash `unit`. Its CRC is not checked again: a chunk block's head is read by its head CRC.
+    /// The next chunk placed carries `range` in its entry: its range relation's smallest and largest value.
+    pub(crate) fn chunk_range(&mut self, range: Option<(u64, u64)>) {
+        self.next_range = range;
+    }
+
     pub(crate) fn placed(&mut self, offset: u64, bytes: &[u8], unit: UnitHash) {
-        let entries = of_placed(offset, bytes, unit);
+        let range = self.next_range.take();
+        let entries = of_placed(offset, bytes, unit, range);
         self.placed_entries(&entries, bytes.len());
     }
 
@@ -424,7 +432,12 @@ fn add_to_range(tracks: &mut BTreeMap<TrackKey, TrackRange>, key: TrackKey, e: &
 
 /// The entries of the block `bytes` (exactly one) a writer placed at `offset`: a chunk block's head is checked by its
 /// head CRC alone, without a pass over the payload; other blocks by their CRC.
-fn of_placed(offset: u64, bytes: &[u8], unit: UnitHash) -> Vec<IndexEntry> {
+fn of_placed(
+    offset: u64,
+    bytes: &[u8],
+    unit: UnitHash,
+    range: Option<(u64, u64)>,
+) -> Vec<IndexEntry> {
     let chunk = bytes.len() > HEADER_LEN
         && le_u8(bytes, 4) == Some(VERSION)
         && le_u8(bytes, 5).is_some_and(|k| {
@@ -435,7 +448,7 @@ fn of_placed(offset: u64, bytes: &[u8], unit: UnitHash) -> Vec<IndexEntry> {
             return Vec::new();
         };
         return IndexEntry::of_chunk(offset, bytes.len(), &c.head())
-            .map(|e| IndexEntry { unit, ..e })
+            .map(|e| IndexEntry { unit, range, ..e })
             .into_iter()
             .collect();
     }

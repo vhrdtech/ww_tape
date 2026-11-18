@@ -19,6 +19,12 @@ fn entry(track_id: u64, offset: u64) -> IndexEntry {
         latest_end: offset as i64 + 3,
         repeat: offset % 2 == 1,
         unit: crate::piece::UnitHash([offset.to_le_bytes()[0]; 32]),
+        // every third entry a chunk with a range relation, (0, 0) and values past i64 among them
+        range: match offset % 3 {
+            0 => None,
+            1 => Some((0, 0)),
+            _ => Some((offset, u64::MAX - offset)),
+        },
     }
 }
 
