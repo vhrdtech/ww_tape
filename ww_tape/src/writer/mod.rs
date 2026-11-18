@@ -1658,13 +1658,19 @@ impl<S: TapeSink> TapeWriter<S> {
     /// End this piece as [FinishState::Continued] and start the next piece of the chain right behind it in the same
     /// sink, as [Self::cut_on] does on a new one: the sink's window ([TapeSink::rebase]) moves to the end of this
     /// piece, a multiple of [PIECE_ALIGN] when this one started on one. The sink stays open: it isn't finished, a
-    /// file keeps its name. A sink holding one piece only refuses ([TapeSink::rebase]).
+    /// file keeps its name. A sink of one piece (`NAME.partial`, [TapeSink::holds_pieces] false) is refused before
+    /// anything is written: a file of several pieces is written under its own name ([SinkFactory::create_whole]).
     pub fn cut_in_place(self) -> Result<(Finished, Self), WriteError> {
         let Some((head, starts)) = self.head.clone() else {
             return Err(WriteError::Index(IndexError::Invalid(
                 "a cut needs a piece head",
             )));
         };
+        if !self.sink.holds_pieces() {
+            return Err(WriteError::Index(IndexError::Invalid(
+                "a sink of one piece takes no cut in place",
+            )));
+        }
         let options = self.options();
         let tracks = self.indexer.next_starts(&starts);
         let newest = self.relations.newest().clone();

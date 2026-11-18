@@ -63,6 +63,13 @@ pub trait TapeSink {
         0
     }
 
+    /// Whether the sink holds pieces back to back ([SinkFactory::create_whole], [SinkFactory::open_whole], a file
+    /// appended to in place), so a writer may cut in place ([TapeWriter::cut_in_place](crate::TapeWriter::cut_in_place)).
+    /// A sink of one piece (`NAME.partial`, a piece of a chain of files) doesn't.
+    fn holds_pieces(&self) -> bool {
+        false
+    }
+
     /// Let the piece being written start at `base` in the bytes, at most their whole length: the next piece of a
     /// file of several, or the last piece of one to resume. A sink that holds one piece only refuses any base but 0
     /// ([io::ErrorKind::Unsupported]).
@@ -76,8 +83,11 @@ pub trait TapeSink {
 }
 
 /// The whole length of the bytes of a sink whose window starts at `base` and holds `size` bytes, checked against a
-/// new base.
-fn check_base(base: u64, whole: u64) -> io::Result<u64> {
+/// new base; any base but 0 refused for a sink of one piece (`pieces` false).
+fn check_base(base: u64, whole: u64, pieces: bool) -> io::Result<u64> {
+    if base != 0 && !pieces {
+        return Err(io::ErrorKind::Unsupported.into());
+    }
     if base > whole {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -296,8 +306,12 @@ impl TapeSink for FileSink {
         self.base
     }
 
+    fn holds_pieces(&self) -> bool {
+        self.partial.is_none()
+    }
+
     fn rebase(&mut self, base: u64) -> io::Result<()> {
-        self.base = check_base(base, self.file.metadata()?.len())?;
+        self.base = check_base(base, self.file.metadata()?.len(), self.holds_pieces())?;
         Ok(())
     }
 
@@ -430,6 +444,7 @@ impl MemTape {
             tape: self.clone(),
             path: path.to_path_buf(),
             base: 0,
+            whole: false,
         })
     }
 
@@ -473,6 +488,8 @@ pub struct MemSink {
     path: PathBuf,
     /// Where the piece being written starts in the bytes
     base: u64,
+    /// The tape holds pieces back to back ([SinkFactory::create_whole], [SinkFactory::open_whole])
+    whole: bool,
 }
 
 impl MemSink {
@@ -484,6 +501,7 @@ impl MemSink {
             tape,
             path: path.to_path_buf(),
             base: 0,
+            whole: false,
         }
     }
 
@@ -527,8 +545,12 @@ impl TapeSink for MemSink {
         self.base
     }
 
+    fn holds_pieces(&self) -> bool {
+        self.whole
+    }
+
     fn rebase(&mut self, base: u64) -> io::Result<()> {
-        self.base = check_base(base, ByteSource::size(&self.tape)?)?;
+        self.base = check_base(base, ByteSource::size(&self.tape)?, self.whole)?;
         Ok(())
     }
 
@@ -625,7 +647,9 @@ impl SinkFactory for MemTapes {
     }
 
     fn create_whole(&mut self, path: &Path) -> Result<MemSink, WriteError> {
-        self.create(path)
+        let mut sink = self.create(path)?;
+        sink.whole = true;
+        Ok(sink)
     }
 
     /// The tape under `path`, which is written again: it reads as unfinished until its next finish.
@@ -634,7 +658,8 @@ impl SinkFactory for MemTapes {
         let Some(tape) = map.get(path) else {
             return Ok(None);
         };
-        let sink = tape.hold(path)?;
+        let mut sink = tape.hold(path)?;
+        sink.whole = true;
         tape.0.finished.store(false, Ordering::Release);
         Ok(Some(sink))
     }

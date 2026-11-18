@@ -1128,3 +1128,29 @@ fn a_second_writer_of_one_file_is_refused() {
     TapeWriter::resume(&piece, options().writer).unwrap();
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// A cut in place takes a sink of pieces back to back: a writer of one piece (`NAME.partial`, a plain memory sink)
+/// is refused before anything is written, so its piece stays open and resumes.
+#[test]
+fn a_sink_of_one_piece_takes_no_cut_in_place() {
+    let dir = scratch("one_piece_cut");
+    let path = dir.join("one.wwt");
+    let mut w = TapeWriter::create(&path, SyncPolicy::None).unwrap();
+    w.begin_piece(&head(), &[]).unwrap();
+    let (h, c) = chunk(0, 0);
+    w.write_chunk(base_defs(), &h, &column(&c)).unwrap();
+    w.flush_deferred().unwrap();
+    let len = w.bytes();
+    assert!(matches!(w.cut_in_place(), Err(WriteError::Index(_))));
+    let partial = ww_tape::writer::partial_name(&path);
+    assert_eq!(std::fs::metadata(&partial).unwrap().len(), len);
+    let (w, resumed) = TapeWriter::resume(&path, WriterOptions::default()).unwrap();
+    assert_eq!(resumed.kept_bytes, len);
+    w.finish().unwrap();
+
+    let mut w = begin(0);
+    let (h, c) = chunk(0, 0);
+    w.write_chunk(base_defs(), &h, &column(&c)).unwrap();
+    assert!(matches!(w.cut_in_place(), Err(WriteError::Index(_))));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
