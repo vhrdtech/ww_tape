@@ -32,7 +32,9 @@
 //! 144 u16  track row length, 96 (a reader takes longer rows and reads their first 96 bytes)
 //! 146 u8   integrity (Integrity): 0 Full, 1 CrcOnly, 2 None (written Full; a reader refuses another)    147 [5] reserved
 //! 152 ...  tracks × 96, one per track carried over from the pieces before:
-//!            0 u64 id    8 u32 number    12 u32 reserved    16 u64 next item (the first item number this piece holds)
+//!            0 u64 id    8 u32 number
+//!           12 u32 flags, as a finish row's: bit 0 incomplete (from the pieces before)
+//!           16 u64 next item (the first item number this piece holds)
 //!           24 i64 from tick (no item of the track here starts before it)
 //!           32 [32] owner (TrackDef::owner; zeros: the piece's owner)
 //!           64 [32] track hash before this piece ([TrackHash])
@@ -116,6 +118,8 @@ const HEAD_TRACK_LEN: usize = 96;
 const HEAD_ROW_LEN_AT: usize = 144;
 /// Where a piece head's integrity level is, an [Integrity] byte.
 const HEAD_INTEGRITY_AT: usize = 146;
+/// Where a piece head's track row holds its flags, those of a finish's row ([ROW_INCOMPLETE]).
+const HEAD_ROW_FLAGS_AT: usize = 12;
 /// Where a piece head's tracks start.
 const HEAD_TRACKS_AT: usize = HEADER_LEN + HEAD_FIXED_LEN;
 /// Bytes of the fixed part of a finish body.
@@ -529,6 +533,8 @@ pub struct TrackStart {
     pub owner: OwnerId,
     /// The track's hash before this piece.
     pub hash: TrackHash,
+    /// The hash leaves out units a resume kept unread in a piece before ([TrackRange::incomplete]).
+    pub incomplete: bool,
 }
 
 /// The items and ticks of one track's chunk blocks in a piece, its counted records and its hash, from its finish.
@@ -683,6 +689,7 @@ fn fill_piece_head(b: &mut [u8], head: &PieceHead, tracks: &[TrackStart]) -> Opt
     for (row, t) in rows.zip(tracks) {
         put_u64(row, 0, t.track_id)?;
         put_u32(row, 8, t.track_number)?;
+        put_u32(row, HEAD_ROW_FLAGS_AT, row_flags(t.incomplete))?;
         put_u64(row, 16, t.next_item)?;
         put_i64(row, 24, t.from_tick)?;
         put(row, 32, t.owner.0)?;
@@ -748,6 +755,25 @@ fn body<'b>(
         .ok_or(IndexError::BadHead)
 }
 
+/// A track row's flags word.
+fn row_flags(incomplete: bool) -> u32 {
+    if incomplete { ROW_INCOMPLETE } else { 0 }
+}
+
+/// Refuse rows of `row` bytes each (at least the fixed row length, so each holds the u32 at `at`) whose flags at
+/// `at` hold a bit this build doesn't know.
+fn known_row_flags(rows: &[u8], row: usize, at: usize) -> Result<(), IndexError> {
+    if rows
+        .chunks_exact(row)
+        .any(|r| le_u32(r, at).is_none_or(|f| f & !ROW_INCOMPLETE != 0))
+    {
+        return Err(IndexError::Invalid(
+            "a track row flag this build doesn't know",
+        ));
+    }
+    Ok(())
+}
+
 /// A piece head block read in place.
 #[derive(Copy, Clone, Debug)]
 pub struct PieceHeadBlock<'b> {
@@ -772,6 +798,7 @@ impl<'b> PieceHeadBlock<'b> {
         if integrity != Integrity::Full {
             return Err(IndexError::UnhandledIntegrity { level: integrity });
         }
+        known_row_flags(rows, row, HEAD_ROW_FLAGS_AT)?;
         let link = read_link(block.bytes()).ok_or(IndexError::BadHead)?;
         let head = PieceHead {
             ident: link.ident,
@@ -815,6 +842,7 @@ impl<'b> PieceHeadBlock<'b> {
                 from_tick: le_i64(row, 24)?,
                 owner: OwnerId(array(row, 32)?),
                 hash: TrackHash(array(row, 64)?),
+                incomplete: le_u32(row, HEAD_ROW_FLAGS_AT)? & ROW_INCOMPLETE != 0,
             })
         })
     }
@@ -939,11 +967,7 @@ fn fill_finish(b: &mut [u8], finish: &Finish, tracks: &[TrackRange]) -> Option<(
         put(row, 56, t.owner.0)?;
         put(row, 88, t.hash.0)?;
         put_u64(row, 120, t.records)?;
-        put_u32(
-            row,
-            ROW_FLAGS_AT,
-            if t.incomplete { ROW_INCOMPLETE } else { 0 },
-        )?;
+        put_u32(row, ROW_FLAGS_AT, row_flags(t.incomplete))?;
     }
     Some(())
 }
@@ -974,15 +998,7 @@ impl<'b> FinishBlock<'b> {
             padding,
         )?;
         let finish = read_finish(block.bytes()).ok_or(IndexError::BadHead)?;
-        // row is at least FINISH_TRACK_LEN: every row holds its flags
-        if rows
-            .chunks_exact(row)
-            .any(|r| le_u32(r, ROW_FLAGS_AT).is_none_or(|f| f & !ROW_INCOMPLETE != 0))
-        {
-            return Err(IndexError::Invalid(
-                "a track row flag this build doesn't know",
-            ));
-        }
+        known_row_flags(rows, row, ROW_FLAGS_AT)?;
         Ok(FinishBlock { finish, rows, row })
     }
 

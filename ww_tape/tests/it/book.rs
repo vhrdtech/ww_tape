@@ -549,6 +549,9 @@ fn format_page_piece_rows_read_a_chain() {
     let hash_before = at("track hash before")[0];
     assert_eq!(second[head_row + owner_at..][..32], [0; 32]);
     assert_eq!(second[head_row + hash_before..][..32], fold(3).0);
+    // its flags: none for a chain written whole
+    assert_eq!(at("flags, as a finish row's"), [12]);
+    assert_eq!(second[head_row + 12..][..4], [0; 4]);
 
     let finish_at = (done[1].len as usize) - ww_tape::TAIL_LEN;
     let tail = ww_tape::Tail::read(&second[finish_at..]).unwrap();

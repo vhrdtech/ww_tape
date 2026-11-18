@@ -81,7 +81,7 @@ impl Indexer {
                     hash: t.hash,
                     records: 0,
                     touched: false,
-                    incomplete: false,
+                    incomplete: t.incomplete,
                 },
             );
         }
@@ -395,10 +395,11 @@ impl Indexer {
             row.records = t.records;
             row.incomplete = t.incomplete;
         }
-        // a track with chunks but no unit tallied keeps the hash the head carried
+        // a track with chunks but no unit tallied keeps the hash the head carried, and its mark
         for (key, row) in &mut rows {
             if let Some(t) = self.tallies.get(key).filter(|t| !t.touched) {
                 row.hash = t.hash;
+                row.incomplete |= t.incomplete;
             }
         }
         rows.into_values().collect()
@@ -427,9 +428,11 @@ pub(crate) fn next_starts<'r>(
             from_tick: i64::MIN,
             owner: t.owner,
             hash: TrackHash::START,
+            incomplete: false,
         });
         s.track_number = t.track_number;
         s.hash = t.hash;
+        s.incomplete |= t.incomplete;
         if t.chunks > 0 {
             s.next_item = t.end_item();
             s.from_tick = s.from_tick.max(t.last_tick);
