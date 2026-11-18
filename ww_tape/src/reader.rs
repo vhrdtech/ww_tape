@@ -39,6 +39,7 @@ use crate::{
 };
 
 mod state;
+mod verify;
 pub use state::{DefinitionsAt, Lookup, Lost, STATE_CACHE_MAX, STATE_READ_MAX, StateItem};
 
 /// Bytes that read at an offset.
@@ -1186,19 +1187,50 @@ impl<S: ByteSource> TapeReader<S> {
         Ok((offset, len))
     }
 
-    /// Whether piece `i`'s bytes before its finish block hash to the finish's content hash: each block that reads
-    /// whole as it is, a chunk's payload by its hash, other bytes as they are ([piece](crate::piece) docs).
+    /// Whether finished piece `i` holds up as a whole: its bytes before its finish block hash to the finish's content
+    /// hash (each block that reads whole as it is, a chunk's payload by its hash, other bytes as they are,
+    /// [piece](crate::piece) docs); its final index lists exactly the entries its writer made of the blocks walked,
+    /// field for field (offset, length, kind, track, items, ticks, a chunk's unit hash of its bytes and its range
+    /// relation's range from its column), a block that doesn't read whole only where no block walked is; and each
+    /// finish row states the hash its track's blocks fold to from the head row's, or says it incomplete exactly where
+    /// a damaged block kept or the head leaves units out. The strict check of what [Self::range_hash] takes from the
+    /// index unread.
     pub fn verify(&self, i: usize) -> R<bool, S> {
         let p = self.piece(i)?;
-        let (Some((fin, _)), Some(end)) = (&p.finish, p.finish_offset) else {
+        let (Some((fin, rows)), Some(end)) = (&p.finish, p.finish_offset) else {
             return Err(ReadError::Unfinished);
         };
+        // the final index's entries, whatever a walk of the piece found
+        let mut listed = Vec::new();
+        let listed = match self
+            .for_final(p, |ix| listed.extend(ix.entries()))
+            .and_then(|()| in_order(p, listed))
+        {
+            Ok(e) => e,
+            Err(ReadError::Index(_) | ReadError::Block { .. }) => return Ok(false),
+            Err(e) => return Err(e),
+        };
+        let starts = p.head.as_ref().map_or(&[][..], |(_, t)| &t[..]);
+        let mut replay = verify::Replay::new(starts, &listed);
         let mut h = blake3::Hasher::new();
-        crate::piece::hash_piece(&mut h, end, |at, buf| {
-            let off = in_piece(p, at, buf.len())?;
-            self.src.read_at(off, buf).map_err(ReadError::Source)
-        })?;
-        Ok(*h.finalize().as_bytes() == fin.hash.0)
+        walk_piece(
+            end,
+            |at, buf| {
+                let off = in_piece(p, at, buf.len())?;
+                self.src.read_at(off, buf).map_err(ReadError::Source)
+            },
+            |step| match step {
+                Walked::Block(block) => {
+                    let chunk = crate::piece::hash_block(&mut h, block);
+                    replay.block(block, chunk);
+                }
+                Walked::Raw(raw) => {
+                    h.update(raw);
+                    replay.raw(raw.len());
+                }
+            },
+        )?;
+        Ok(*h.finalize().as_bytes() == fin.hash.0 && replay.check(rows))
     }
 
     /// The hash of the whole chunks of track `track_id` owned by `owner` that hold an item in `items`, folded from
@@ -1236,14 +1268,20 @@ impl<S: ByteSource> TapeReader<S> {
             match self.track_entries(i, track_id) {
                 Ok(entries) => {
                     let mut buf = Vec::new();
+                    // an entry of the track of a kind this reader doesn't fold: its bytes are counted, never dropped
+                    for e in entries.iter().filter(|e| unfolded(e.kind)) {
+                        fold.skip_bytes(u64::from(e.len));
+                    }
                     for e in entries.iter().filter(|e| ours(e)) {
                         let offset = p.start.saturating_add(e.offset);
                         let (unit, read) = if e.unit.is_none() {
                             let b = self.read_block(i, e, &mut buf)?;
-                            // the chunk the entry names, or the index is damaged
+                            // the chunk the entry names with the range it states, or the index is damaged
                             let c = b
                                 .chunk()
-                                .filter(|c| e.names_chunk(&c.head()))
+                                .filter(|c| {
+                                    e.names_chunk(&c.head()) && range_of_columns(c, e.range)
+                                })
                                 .ok_or(ReadError::Index(IndexError::BadEntries))?;
                             (TrackHash::chunk_unit(&c, &payload_hash(c.payload())), true)
                         } else {
@@ -1428,7 +1466,12 @@ impl Fold {
 
     /// Count `n` bytes a walk found no block in.
     fn skip(&mut self, n: usize) {
-        self.out.skipped = self.out.skipped.saturating_add(wide(n));
+        self.skip_bytes(wide(n));
+    }
+
+    /// Count `n` bytes left out: of no block, or of a block of a kind not folded.
+    fn skip_bytes(&mut self, n: u64) {
+        self.out.skipped = self.out.skipped.saturating_add(n);
     }
 
     fn finish(mut self) -> RangeHash {
@@ -1453,11 +1496,36 @@ pub struct RangeHash {
     /// whose index doesn't read.
     pub read: u64,
     /// Bytes of pieces walked without their index that no block explains: damage that may have held chunks of the
-    /// range whose heads are lost too. 0 when every byte walked is a block.
+    /// range whose heads are lost too; and bytes of blocks the track's index entries list of a kind this reader
+    /// doesn't fold (a reserved kind). 0 when every byte walked is a block and every entry one folded.
     pub skipped: u64,
 }
 
 /// Where `n` bytes at `off` from the start of piece `p` begin in the source, when they lie within the piece.
+/// Whether a track's entry of kind `kind` is one [TapeReader::range_hash] doesn't fold: not a chunk, records or a
+/// summary (a reserved kind, or another kind's byte).
+fn unfolded(kind: BlockKind) -> bool {
+    !matches!(
+        kind,
+        BlockKind::Events | BlockKind::Series | BlockKind::Records | BlockKind::Summary
+    )
+}
+
+/// Whether `range`, an index entry's, holds for chunk `c`: none, or the range of one of its relation columns.
+fn range_of_columns(c: &crate::Chunk<'_>, range: Option<(u64, u64)>) -> bool {
+    let Some(range) = range else {
+        return true;
+    };
+    c.columns()
+        .filter(|col| col.kind == crate::ColumnKind::Relation)
+        .any(|col| {
+            crate::times::RelationColumn::open(c, col.param, |_| false)
+                .ok()
+                .flatten()
+                .is_some_and(|values| values.range() == range)
+        })
+}
+
 fn in_piece<E>(p: &PieceInfo, off: u64, n: usize) -> Result<u64, ReadError<E>> {
     p.start
         .checked_add(off)
