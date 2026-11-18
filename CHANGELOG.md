@@ -214,6 +214,7 @@ Covers `ww_tape` 0.1.0.
 
 ### 🐛 Fixes
 
+- Starts and monotone relation values that decrease inside a group are refused on read, suspect in salvage (STD-120, TAPE-7).
 - A damaged chunk a resume keeps goes into its track hash by its entry's unit hash, not left out (TAPE-8).
 - A deferred block goes before any later block of its track; `write_block` after deferred blocks no longer replaces one (TAPE-8).
 - A chunk's range comes from its own relation column: kept by a resume, `write_block` and `adopt_block` (TAPE-7).
