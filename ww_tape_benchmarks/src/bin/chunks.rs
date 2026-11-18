@@ -130,7 +130,8 @@ fn head(k: u64, count: u32) -> anyhow::Result<ChunkHead> {
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
     Ok(ChunkHead {
         kind: BlockKind::Series,
-        track_id: 7,
+        // the track's id: its key, it has no dimensions
+        track_id: track_key(0xc4, &[Segment::Name("samples")]),
         track_number: TRACK,
         first_item: first,
         count,

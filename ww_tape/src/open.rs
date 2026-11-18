@@ -98,6 +98,9 @@ pub enum DescribeError {
     /// (damaged, kept by a resume or the last of the track in a piece before): the chunk can't be checked, so it is
     /// refused rather than written unchecked.
     RelationUnread { track: u32, relation: u16 },
+    /// A chunk or summary whose head names track `track` with id `id`, not the id `defined` its held definition
+    /// gives ([TrackDef::id](crate::TrackDef::id)).
+    TrackId { track: u32, id: u64, defined: u64 },
     /// An events chunk of a state track: its items are put one by one.
     StateChunk { track: u32 },
     /// A record of a state track in a caller's block: its items are put ([TapeWriter::put](crate::TapeWriter::put)).
@@ -203,6 +206,10 @@ impl core::fmt::Display for DescribeError {
             DescribeError::RelationUnread { track, relation } => write!(
                 f,
                 "track {track}: the newest value of monotone relation {relation} is in a chunk that doesn't read"
+            ),
+            DescribeError::TrackId { track, id, defined } => write!(
+                f,
+                "a chunk or summary of track {track} under id {id:#x}: its definition's id is {defined:#x}"
             ),
             DescribeError::StateChunk { track } => write!(
                 f,
@@ -787,7 +794,8 @@ impl Definitions {
         Ok(t)
     }
 
-    /// Check a chunk or summary block's track before a writer writes it: held, an events chunk on an events track
+    /// Check a chunk or summary block's track before a writer writes it: held and under its definition's id, an
+    /// events chunk on an events track
     /// that isn't a state track with its relation columns as its definition says, a series chunk on a series track
     /// with its ticks on its grid.
     fn check_track_block(&self, b: &Block<'_>) -> Result<(), DescribeError> {
@@ -809,10 +817,9 @@ impl Definitions {
             self.check_relation_columns(head.track_number, &specs)?;
             relation_columns_read(&c)
         } else if let Some(s) = b.summary() {
-            let track = s.head().track_number;
-            self.track(track)
+            let head = s.head();
+            self.check_track_id(head.track_number, head.track_id)
                 .map(|_| ())
-                .ok_or(DescribeError::UnknownTrack { track })
         } else {
             Ok(())
         }
@@ -851,12 +858,24 @@ impl Definitions {
         Ok(())
     }
 
-    /// Check a chunk head's track before a writer writes it, as [Self::check_block] does.
+    /// Check that track `track` is held and named by its definition's id `id` in a chunk or summary head.
+    fn check_track_id(&self, track: u32, id: u64) -> Result<TrackFacts, DescribeError> {
+        let held = self
+            .tracks
+            .get(&track)
+            .ok_or(DescribeError::UnknownTrack { track })?;
+        let defined = held.key.0;
+        if id != defined {
+            return Err(DescribeError::TrackId { track, id, defined });
+        }
+        Ok(held.facts)
+    }
+
+    /// Check a chunk head's track before a writer writes it, as [Self::check_block] does: held, under its
+    /// definition's id, of its kind.
     pub fn check_chunk_head(&self, head: &crate::ChunkHead) -> Result<(), DescribeError> {
         let track = head.track_number;
-        let t = self
-            .track(track)
-            .ok_or(DescribeError::UnknownTrack { track })?;
+        let t = self.check_track_id(track, head.track_id)?;
         match (head.kind, t.period) {
             (BlockKind::Events, None) if t.state.is_some() => {
                 Err(DescribeError::StateChunk { track })

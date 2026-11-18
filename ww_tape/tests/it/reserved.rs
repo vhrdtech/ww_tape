@@ -75,8 +75,13 @@ fn raw_block(kind: u8, id: BlockId, body: usize) -> Vec<u8> {
 
 /// Track `t`'s range hash over all its items, as `pieces::chunk` numbers it.
 fn hash_of<S: ww_tape::reader::ByteSource>(r: &TapeReader<S>, t: u64) -> ww_tape::RangeHash {
-    r.range_hash(0x1000 + t, OwnerId::NONE, 0..u64::MAX, TrackHash::START)
-        .unwrap()
+    r.range_hash(
+        crate::pieces::chunk_id(t),
+        OwnerId::NONE,
+        0..u64::MAX,
+        TrackHash::START,
+    )
+    .unwrap()
 }
 
 /// Blocks of the reserved kinds 11 and 12 (a relation's postings and dictionary) in a piece are blocks like any:
@@ -236,8 +241,8 @@ fn index_entries_longer_than_a_reader_knows_read_end_to_end() {
     assert_eq!(ea, eb);
     for t in 0..2 {
         assert_eq!(
-            a.track_entries(0, 0x1000 + t).unwrap(),
-            b.track_entries(0, 0x1000 + t).unwrap()
+            a.track_entries(0, crate::pieces::chunk_id(t)).unwrap(),
+            b.track_entries(0, crate::pieces::chunk_id(t)).unwrap()
         );
         assert_eq!(hash_of(&a, t), hash_of(&b, t), "track {t}");
     }

@@ -28,7 +28,12 @@ pub(crate) fn records(id: BlockId, n: i64) -> Vec<u8> {
     buf[..len].to_vec()
 }
 
-/// Track `t`'s chunk `k`: 50 items with raw starts.
+/// The id [chunk] writes track `t` under: that of track `t + 1` of [crate::definitions::base].
+pub(crate) fn chunk_id(t: u64) -> u64 {
+    crate::definitions::track_id(t as u32 + 1)
+}
+
+/// Track `t`'s chunk `k`: 50 items with raw starts, on track number `t + 1`.
 pub(crate) fn chunk(t: u64, k: u64) -> (ChunkHead, Vec<u8>) {
     let first = k * 50;
     let starts: Vec<u8> = (0..50)
@@ -36,7 +41,7 @@ pub(crate) fn chunk(t: u64, k: u64) -> (ChunkHead, Vec<u8>) {
         .collect();
     let head = ChunkHead {
         kind: BlockKind::Events,
-        track_id: 0x1000 + t,
+        track_id: chunk_id(t),
         track_number: t as u32 + 1,
         first_item: first,
         count: 50,
@@ -174,14 +179,10 @@ fn finished_file_is_found_by_its_tail() {
             .hash,
         want
     );
+    let t1 = ranges.iter().find(|t| t.track_number == 2).unwrap();
     assert_eq!(
-        (
-            ranges[1].track_id,
-            ranges[1].chunks,
-            ranges[1].first_item,
-            ranges[1].items
-        ),
-        (0x1001, 20, 0, 1000)
+        (t1.track_id, t1.chunks, t1.first_item, t1.items),
+        (chunk_id(1), 20, 0, 1000)
     );
 
     // the index lists every block a walk finds, but the index, finish and tail blocks
@@ -197,7 +198,7 @@ fn finished_file_is_found_by_its_tail() {
     assert_eq!(got, want);
 
     // one track from the final index's head and its own entries
-    let t1 = r.track_entries(0, 0x1001).unwrap();
+    let t1 = r.track_entries(0, chunk_id(1)).unwrap();
     assert_eq!(t1.len(), 20);
     assert!(t1.windows(2).all(|w| w[0].end_item() == w[1].first_item));
     let mut buf = vec![];
@@ -224,7 +225,7 @@ fn finished_file_is_found_by_its_tail() {
     // the same through a file
     let f = std::fs::File::open(&path).unwrap();
     let r = TapeReader::open(f).unwrap();
-    assert_eq!(r.track_entries(0, 0x1001).unwrap(), t1);
+    assert_eq!(r.track_entries(0, chunk_id(1)).unwrap(), t1);
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -313,7 +314,7 @@ fn aligned_file_places_checkpoints_in_gaps() {
     assert!(checkpoints >= 3);
     let r = TapeReader::open(&bytes[..]).unwrap();
     assert!(r.verify(0).unwrap());
-    assert_eq!(r.track_entries(0, 0x1002).unwrap().len(), 10);
+    assert_eq!(r.track_entries(0, chunk_id(2)).unwrap().len(), 10);
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -497,7 +498,7 @@ fn chain_of_pieces_links_both_ways() {
     assert!(r.chain().is_whole());
     assert!((0..3).all(|i| r.verify(i).unwrap()));
     let t0: usize = (0..3)
-        .map(|i| r.track_entries(i, 0x1000).unwrap().len())
+        .map(|i| r.track_entries(i, chunk_id(0)).unwrap().len())
         .sum();
     assert_eq!(t0, 6);
     // and a stream reader walks it without a cut
@@ -911,7 +912,7 @@ fn big_chunk(k: u64) -> (ChunkHead, Vec<u8>) {
         .collect();
     let head = ChunkHead {
         kind: BlockKind::Events,
-        track_id: 0x1000,
+        track_id: chunk_id(0),
         track_number: 1,
         first_item: first,
         count: n as u32,

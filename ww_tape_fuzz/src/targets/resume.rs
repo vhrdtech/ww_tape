@@ -61,7 +61,7 @@ fn records(id: BlockId, n: u64) -> Vec<u8> {
     buf[..len].to_vec()
 }
 
-/// Track `t`'s chunk `k`: 16 items with raw starts.
+/// Track `t`'s chunk `k`: 16 items with raw starts, on track number `t + 1` under its id.
 fn chunk(t: u64, k: u64) -> (ChunkHead, Vec<u8>) {
     let first = k * 16;
     let starts: Vec<u8> = (first..first + 16)
@@ -69,7 +69,7 @@ fn chunk(t: u64, k: u64) -> (ChunkHead, Vec<u8>) {
         .collect();
     let head = ChunkHead {
         kind: BlockKind::Events,
-        track_id: 0x1000 + t,
+        track_id: track_key(0xf2, &[Segment::Index(t as u32 + 1)]),
         track_number: t as u32 + 1,
         first_item: first,
         count: 16,
@@ -331,7 +331,7 @@ fn folds_alike(out: &[u8], final_index: Option<u64>) {
     let Some(at) = final_index.and_then(|a| usize::try_from(a).ok()) else {
         return;
     };
-    let id = 0x1000;
+    let id = track_key(0xf2, &[Segment::Index(1)]);
     let hash = |b: &[u8]| {
         TapeReader::open(b)
             .ok()?

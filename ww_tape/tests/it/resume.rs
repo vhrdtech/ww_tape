@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use crate::definitions::{CLOCK, base_defs, clock, state, track, tracks};
 use crate::id;
-use crate::pieces::{chunk, column, records, scratch};
+use crate::pieces::{chunk, chunk_id, column, records, scratch};
 use shrink_wrap::prelude::*;
 use ww_tape::index::IndexPolicy;
 use ww_tape::piece::{PieceId, piece_name};
@@ -96,7 +96,12 @@ fn ranged_chunk(k: u64) -> (ChunkHead, Vec<(ColumnSpec, Vec<u8>)>) {
     let mut cols: Vec<_> = times.columns().map(|(s, b)| (s, b.to_vec())).collect();
     let (s, b) = source.column();
     cols.push((s, b.to_vec()));
-    (times.head.chunk_head(0x2000, 13, k * 20), cols)
+    (
+        times
+            .head
+            .chunk_head(crate::definitions::track_id(13), 13, k * 20),
+        cols,
+    )
 }
 
 /// Make the call `op` on `w` with the definitions `defs`.
@@ -557,7 +562,10 @@ fn a_damaged_chunk_kept_by_a_resume_counts_in_its_track_hash() {
     assert!(resumed.kept_bytes > listed.offset + u64::from(listed.len));
     let got = finish_resumed(w, &ops, &made, resumed.kept_bytes);
     assert_ne!(got, want, "the damaged byte is kept");
-    assert_eq!(finish_hash(&got, 0x1000), finish_hash(&want, 0x1000));
+    assert_eq!(
+        finish_hash(&got, chunk_id(0)),
+        finish_hash(&want, chunk_id(0))
+    );
     assert!(
         finish_rows(&got).iter().all(|t| !t.incomplete),
         "a chunk's unit hash stands for it"
@@ -609,7 +617,10 @@ fn a_damaged_record_block_kept_by_a_resume_marks_its_tracks_incomplete() {
         "{marked:?}"
     );
     // the chunks' tracks that hold no records keep their hash
-    assert_eq!(finish_hash(&got, 0x1000), finish_hash(&want, 0x1000));
+    assert_eq!(
+        finish_hash(&got, chunk_id(0)),
+        finish_hash(&want, chunk_id(0))
+    );
 }
 
 /// A track hash a resume left incomplete stays marked in the pieces after: the next piece's head row carries the mark

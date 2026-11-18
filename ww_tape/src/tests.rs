@@ -1055,6 +1055,14 @@ pub(crate) fn test_definitions(clock: u32, tracks: &[u32]) -> Vec<Describe<'stat
     out
 }
 
+/// The id of every track of [test_definitions] and [test_series_track]: what their chunks' heads carry.
+pub(crate) fn test_track_id() -> u64 {
+    let Describe::Track(t) = &sample_describe()[1] else {
+        unreachable!("the second sample is a track")
+    };
+    t.id()
+}
+
 /// Series track `number` on `clock`: i16 samples on `channels` channels, one per `period` ticks.
 pub(crate) fn test_series_track(
     clock: u32,

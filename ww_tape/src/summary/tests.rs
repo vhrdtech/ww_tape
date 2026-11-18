@@ -920,7 +920,7 @@ fn summaries_fill_alignment_gaps() {
         ));
         defs.define_all(&held).unwrap();
         let start = SeriesStart {
-            track_id: 7,
+            track_id: crate::tests::test_track_id(),
             track_number: 1,
             shape,
             first_item: 0,
@@ -943,7 +943,7 @@ fn summaries_fill_alignment_gaps() {
             let first = (c * chunk) as u64;
             let head = ChunkHead {
                 kind: BlockKind::Series,
-                track_id: 7,
+                track_id: crate::tests::test_track_id(),
                 track_number: 1,
                 first_item: first,
                 count: chunk as u32,
@@ -1003,7 +1003,7 @@ fn summaries_fill_alignment_gaps() {
     // the final index lists every summary block under its track, with its level
     let r = crate::TapeReader::open(&file[..]).unwrap();
     let listed: Vec<_> = r
-        .track_entries(0, 7)
+        .track_entries(0, crate::tests::test_track_id())
         .unwrap()
         .into_iter()
         .filter(|e| e.kind == BlockKind::Summary)

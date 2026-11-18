@@ -455,7 +455,7 @@ fn long_block() -> Vec<u8> {
     let starts: Vec<u8> = (0..600i64).flat_map(|i| i.to_le_bytes()).collect();
     let head = ww_tape::ChunkHead {
         kind: BlockKind::Events,
-        track_id: 0x4444,
+        track_id: crate::definitions::track_id(4),
         track_number: 4,
         first_item: 0,
         count: 600,
@@ -508,6 +508,47 @@ fn a_deferred_chunk_counts_before_the_chunks_after_it() {
         .map(|e| (e.first_item, e.range))
         .collect();
     assert_eq!(firsts, [(0, Some((100, 101))), (2, Some((101, 102)))]);
+}
+
+/// A chunk or summary whose head names its track's number under another id than the track's definition is refused
+/// by every call taking one: its index entry would list the track under two ids.
+#[test]
+fn a_chunk_under_another_track_id_is_refused() {
+    let mut defs = Definitions::new();
+    defs.define_all(&[clock(CLOCK), decoded()]).unwrap();
+    let mut w = TapeWriter::create_on(MemSink::new(Path::new("i")), SyncPolicy::None);
+    let tape = w.sink().tape();
+    write_chunk(&mut w, &defs, 0, &[100, 101], &[1, 1]).unwrap();
+    let len = tape.to_vec().unwrap().len();
+    let (mut head, cols) = chunk_of(2, &[101, 102], &[1, 1]);
+    head.track_id = 0xdead;
+    let wrong = |r: Result<(), WriteError>| {
+        matches!(
+            r,
+            Err(WriteError::Describe(DescribeError::TrackId { track: 3, id: 0xdead, defined })) if defined == track_id()
+        )
+    };
+    let refs: Vec<_> = cols.iter().map(|(s, b)| (*s, &b[..])).collect();
+    assert!(wrong(w.write_chunk(&defs, &head, &refs).map(|_| ())));
+    let specs: Vec<_> = refs.iter().map(|c| c.0).collect();
+    let mut block = vec![0u8; ww_tape::chunk::chunk_len(&head, &specs, 0)];
+    let n = ww_tape::chunk::write_chunk(&mut block, w.next_id(), &head, &refs, 0).unwrap();
+    block.truncate(n);
+    assert!(wrong(w.write_block(&defs, &block).map(|_| ())));
+    assert!(wrong(w.adopt_block(&defs, &block).map(|_| ())));
+    assert!(wrong(w.defer_block(&defs, block)));
+    assert_eq!(tape.to_vec().unwrap().len(), len, "nothing written");
+    w.finish().unwrap();
+    let bytes = tape.to_vec().unwrap();
+    let ids: Vec<_> = TapeReader::open(&bytes[..])
+        .unwrap()
+        .entries(0)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.kind == BlockKind::Events)
+        .map(|e| e.track_id)
+        .collect();
+    assert_eq!(ids, [track_id()]);
 }
 
 /// Two deferred chunks of a track whose definition names an owner: the second's values below the first's are refused,

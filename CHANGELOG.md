@@ -10,6 +10,7 @@ Covers `ww_tape` 0.1.0.
 
 ### ⚠️ Breaking
 
+- A chunk or summary whose head names its track under another id than the definition's is refused (`DescribeError::TrackId`) (TAPE-8).
 - A piece takes data of at most `TRACKS_PER_PIECE_MAX` tracks, so its finish fits a block (`WriteError::TooManyTracks`) (TAPE-8).
 - `cut_in_place` returns `CutError`: a refused cut hands the writer back (`CutError::writer`); it was dropped (TAPE-8).
 - `create` refuses a `.partial` with bytes (`WriteError::Exists`), never empties it; a `.partial` renamed before its lock gets `WriteError::Replaced` (TAPE-8).
