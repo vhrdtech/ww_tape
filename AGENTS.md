@@ -47,8 +47,9 @@ and update the matching item in the same change when finishing one (conventions 
 ```sh
 just test --changed   # the crates changed against main and their dependents; before a session's work is ready
 just test             # everything: nextest, doctests, just check, a smoke run of every fuzz target
-just lint             # fmt, cargo sort -w -g, typos, clippy and rustdoc -D warnings
+just lint             # fmt, cargo sort -w -g, typos, clippy, rustdoc -D warnings, just api-check
 just check            # the positional reader for wasm32 without std (STD-124)
+just api-check        # ww_tape's version and wire line against ww_tape/api_snapshots/; skipped without `ww`
 just fuzz-tape-<target>   # one fuzz target until stopped, with its libFuzzer limits
 just tape-golden-update   # rewrite golden/*.hex after a deliberate format change
 just bench-sample-codecs  # float codecs (fetches a public-domain speech file once)
@@ -99,6 +100,7 @@ release, and the numbers go into the commit body or the docs page they change.
   WireWeaver with a `[patch."https://github.com/vhrdtech/ww_tape"]` and run its tap tests.
 - `ww_tape/api_snapshots/` is the crate's API snapshot, written by WireWeaver's CLI (no framework dependency here):
   after a change to `Describe` or a type it names, run `ww api save ww_tape` in this repository and commit it.
+  `just lint` runs `just api-check` (`ww api check ww_tape`) to catch a snapshot left stale.
 - Dependencies live in the root `[workspace.dependencies]`; crates inherit `authors`, `edition`, `rust-version`,
   `license`, `repository` and `[lints]` (`ww_tape` keeps its own `[lints]` table: the workspace's plus the
   panic-class lints).
