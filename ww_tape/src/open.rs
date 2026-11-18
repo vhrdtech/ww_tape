@@ -98,6 +98,9 @@ pub enum DescribeError {
     /// (damaged, kept by a resume or the last of the track in a piece before): the chunk can't be checked, so it is
     /// refused rather than written unchecked.
     RelationUnread { track: u32, relation: u16 },
+    /// A break accepted for relation `relation` of track `track`, which is not a monotone relation with stored values
+    /// ([TapeWriter::accept_relation_break](crate::TapeWriter::accept_relation_break)).
+    NotMonotone { track: u32, relation: u16 },
     /// A chunk or summary whose head names track `track` with id `id`, not the id `defined` its held definition
     /// gives ([TrackDef::id](crate::TrackDef::id)).
     TrackId { track: u32, id: u64, defined: u64 },
@@ -202,6 +205,10 @@ impl core::fmt::Display for DescribeError {
             } => write!(
                 f,
                 "track {track}: item {item}'s value of monotone relation {relation} is below the item's before it"
+            ),
+            DescribeError::NotMonotone { track, relation } => write!(
+                f,
+                "track {track}: relation {relation} is not a monotone relation with stored values"
             ),
             DescribeError::RelationUnread { track, relation } => write!(
                 f,

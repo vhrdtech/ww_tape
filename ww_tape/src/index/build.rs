@@ -535,7 +535,12 @@ fn of_placed(
             return Vec::new();
         };
         return IndexEntry::of_chunk(offset, bytes.len(), &c.head())
-            .map(|e| IndexEntry { unit, range, ..e })
+            .map(|e| IndexEntry {
+                unit,
+                range,
+                relation_break: c.relation_break(),
+                ..e
+            })
             .into_iter()
             .collect();
     }

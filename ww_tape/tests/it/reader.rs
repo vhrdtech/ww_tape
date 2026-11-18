@@ -81,6 +81,7 @@ fn entry_past_the_piece_is_an_error() {
             last_tick: 0,
             latest_end: 0,
             repeat: false,
+            relation_break: false,
             unit: ww_tape::UnitHash::NONE,
             range: None,
         };
@@ -127,6 +128,7 @@ fn an_entry_longer_than_any_block_is_refused_before_reading() {
         last_tick: 0,
         latest_end: 0,
         repeat: false,
+        relation_break: false,
         unit: ww_tape::UnitHash::NONE,
         range: None,
     };

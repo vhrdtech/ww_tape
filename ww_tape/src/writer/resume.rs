@@ -700,7 +700,8 @@ impl<S: TapeSink> TapeWriter<S> {
             .filter(|e| e.kind == BlockKind::Events && !e.repeat)
         {
             if let Some(key) = self.indexer.key_of(e.track_number, Some(e.track_id)) {
-                self.relations.seed_damaged(key, e.range.map(|(_, hi)| hi));
+                self.relations
+                    .seed_damaged(key, e.range.map(|(_, hi)| hi), e.relation_break);
             }
         }
         self.bytes = end;

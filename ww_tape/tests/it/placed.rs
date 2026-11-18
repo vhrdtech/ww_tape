@@ -30,6 +30,7 @@ fn at(offset: u64, len: u32) -> IndexEntry {
         last_tick: 0,
         latest_end: 0,
         repeat: false,
+        relation_break: false,
         unit: ww_tape::UnitHash::NONE,
         range: None,
     }

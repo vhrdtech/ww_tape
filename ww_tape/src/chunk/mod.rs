@@ -1083,6 +1083,13 @@ impl<'b> Chunk<'b> {
         self.head
     }
 
+    /// Whether the chunk is an events chunk whose track's monotone relations start again
+    /// ([FLAG_RELATION_BREAK](crate::FLAG_RELATION_BREAK)).
+    pub fn relation_break(&self) -> bool {
+        self.head.kind == BlockKind::Events
+            && le_u16(self.head_bytes, 6).is_some_and(|f| f & crate::FLAG_RELATION_BREAK != 0)
+    }
+
     /// Where the payload starts in the block.
     pub fn payload_offset(&self) -> usize {
         self.head_bytes.len()

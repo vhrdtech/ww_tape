@@ -86,6 +86,7 @@ impl Default for SyncPolicy {
 fn caller_flags(kind: BlockKind) -> u16 {
     match kind {
         BlockKind::Records => crate::FLAG_BODY_CODED,
+        BlockKind::Events => crate::FLAG_RELATION_BREAK,
         _ => 0,
     }
 }
@@ -1268,9 +1269,7 @@ impl<S: TapeSink> TapeWriter<S> {
             return self.put_block(defs, &block);
         }
         let needs = self.defer_needs(defs, &b)?;
-        if let Some(c) = b.chunk() {
-            self.check_relations(defs, &c, false)?;
-        }
+        self.check_caller_relations(defs, &b, false)?;
         if self.alignment() == 0 {
             self.ensure_head()?;
             self.put_needed(&needs)?;
@@ -1313,20 +1312,78 @@ impl<S: TapeSink> TapeWriter<S> {
         defs: &Definitions,
         c: &crate::chunk::Chunk<'_>,
         replacing: bool,
-    ) -> Result<(), WriteError> {
+    ) -> Result<bool, WriteError> {
         let head = c.head();
         if head.kind != BlockKind::Events {
-            return Ok(());
+            return Ok(false);
         }
         let (Some(facts), Some(key)) = (
             defs.track(head.track_number),
             self.indexer.key_of(head.track_number, Some(head.track_id)),
         ) else {
-            return Ok(());
+            return Ok(false);
         };
         self.relations
             .check(key, &facts, c, replacing)
             .map_err(WriteError::Describe)
+    }
+
+    /// Go on past monotone relation `relation` of track number `track` from `from`: the track's next events chunk is
+    /// checked against `from` for that relation, not against the newest value before it, and is marked
+    /// [FLAG_RELATION_BREAK](crate::FLAG_RELATION_BREAK) in its header and its index entry, where readers see the
+    /// break. From that chunk on the relation's order is checked again. This is how a caller goes on where the chunk
+    /// holding the newest value doesn't read ([DescribeError::RelationUnread]); the writer never does it by itself.
+    ///
+    /// The break waits for the track's next chunk, through cuts; a crash before that chunk drops it, and the
+    /// resumed writer refuses as before. A chunk the writer encodes ([Self::write_chunk]) is marked by the writer; a
+    /// caller's block ([Self::write_block], [Self::adopt_block], [Self::defer_block]) carries the flag itself
+    /// ([crate::mark_relation_break]) exactly when a break waits, else [WriteError::Flags]. A track `defs` doesn't hold is refused
+    /// ([DescribeError::UnknownTrack]), as is a relation that isn't monotone with stored values
+    /// ([DescribeError::NotMonotone]).
+    pub fn accept_relation_break(
+        &mut self,
+        defs: &Definitions,
+        track: u32,
+        relation: u16,
+        from: u64,
+    ) -> Result<(), WriteError> {
+        self.check()?;
+        let (Some(facts), Some((id, _))) = (defs.track(track), defs.track_key(track)) else {
+            return Err(WriteError::Describe(DescribeError::UnknownTrack { track }));
+        };
+        let monotone = 1u16
+            .checked_shl(u32::from(relation))
+            .is_some_and(|bit| facts.stored & facts.monotone & bit != 0);
+        let key = self.indexer.key_of(track, Some(id));
+        let (true, Some(key)) = (monotone, key) else {
+            return Err(WriteError::Describe(DescribeError::NotMonotone {
+                track,
+                relation,
+            }));
+        };
+        self.relations.accept_break(key, relation, from);
+        Ok(())
+    }
+
+    /// [Self::check_relations] of a caller's chunk block `b`: it is marked
+    /// [FLAG_RELATION_BREAK](crate::FLAG_RELATION_BREAK) exactly when a break the caller accepted waits for its
+    /// track, else [WriteError::Flags].
+    fn check_caller_relations(
+        &self,
+        defs: &Definitions,
+        b: &crate::Block<'_>,
+        replacing: bool,
+    ) -> Result<(), WriteError> {
+        let Some(c) = b.chunk() else {
+            return Ok(());
+        };
+        if self.check_relations(defs, &c, replacing)? != c.relation_break() {
+            return Err(WriteError::Flags {
+                kind: b.kind,
+                flags: b.flags,
+            });
+        }
+        Ok(())
     }
 
     /// Check `block` for [Self::defer_block] and the piece's room for the definitions it needs: those.
@@ -1474,7 +1531,9 @@ impl<S: TapeSink> TapeWriter<S> {
                         .map_err(crate::BlockError::Chunk)
                         .map_err(WriteError::Block)?;
                     crate::open::relation_columns_read(&chunk)?;
-                    self.check_relations(defs, &chunk, false)?;
+                    if self.check_relations(defs, &chunk, false)? {
+                        crate::mark_relation_break(&mut buf).map_err(WriteError::Block)?;
+                    }
                 }
                 self.write_chosen(&needs, &chosen, true)?;
                 if self.at()? != at {
@@ -1534,14 +1593,12 @@ impl<S: TapeSink> TapeWriter<S> {
         let asked = self.next_id();
         self.flush_deferred()?;
         let renumbered = block_id(block) == Some(asked) && self.next_id() != asked;
-        if let Some(c) = b.chunk() {
-            // a counted block with the last one's id takes its place
-            let replacing = !renumbered
-                && self
-                    .last_counted
-                    .is_some_and(|(id, ..)| block_id(block) == Some(id));
-            self.check_relations(defs, &c, replacing)?;
-        }
+        // a counted block with the last one's id takes its place
+        let replacing = !renumbered
+            && self
+                .last_counted
+                .is_some_and(|(id, ..)| block_id(block) == Some(id));
+        self.check_caller_relations(defs, b, replacing)?;
         if let Some(theirs) = session {
             self.session = theirs.session;
             self.next_seq = theirs.seq;
@@ -1594,9 +1651,7 @@ impl<S: TapeSink> TapeWriter<S> {
         let needs = self.needed(defs, &tracks);
         self.room(0, !self.head_put)?;
         self.flush_deferred()?;
-        if let Some(c) = b.chunk() {
-            self.check_relations(defs, &c, false)?;
-        }
+        self.check_caller_relations(defs, &b, false)?;
         self.ensure_head()?;
         self.put_needed(&needs)?;
         if let Some(last) = self.adopted

@@ -19,6 +19,7 @@ fn entry(track_id: u64, offset: u64) -> IndexEntry {
         last_tick: offset as i64,
         latest_end: offset as i64 + 3,
         repeat: offset % 2 == 1,
+        relation_break: false,
         unit: crate::piece::UnitHash([offset.to_le_bytes()[0]; 32]),
         // every third entry a chunk with a range relation, (0, 0) and values past i64 among them
         range: match offset % 3 {
@@ -537,11 +538,11 @@ fn refused_both_ways(change: impl Fn(&mut [u8]), error: IndexError) {
 }
 
 /// One check of an entry on every read: unhashed and unknown flag bits, a range that decreases or sits on a block
-/// that isn't a chunk, refused by a whole index and by one track's entries alike.
+/// that isn't a chunk, a relation break on a block that isn't an events chunk, refused by a whole index and by one track's entries alike.
 #[test]
 fn an_entry_is_checked_the_same_on_every_read() {
     refused_both_ways(|e| e[15] |= ENTRY_UNHASHED, IndexError::Unhashed);
-    for bit in 3..8 {
+    for bit in 4..8 {
         refused_both_ways(
             |e| e[15] |= 1 << bit,
             IndexError::Invalid("an entry flag this build doesn't know"),
@@ -559,6 +560,13 @@ fn an_entry_is_checked_the_same_on_every_read() {
         |e| {
             e[15] |= ENTRY_RANGE;
             e[12] = BlockKind::Summary.to_u8();
+        },
+        IndexError::BadEntries,
+    );
+    refused_both_ways(
+        |e| {
+            e[15] |= ENTRY_BREAK;
+            e[12] = BlockKind::Series.to_u8();
         },
         IndexError::BadEntries,
     );

@@ -272,7 +272,13 @@ A chain resume also restores the newest value of each monotone relation. It take
 finished piece's index entries, which it reads anyway. The other relations' values are in chunks: for each track it reads
 one chunk, the track's last in the newest finished piece that holds a chunk of it, at most `MAX_BLOCK_LEN` (64 MiB). A
 resume of a chain of N tracks therefore reads up to N chunks besides each piece's head, finish, tail and index. Where
-that chunk doesn't read, the track's next chunk is refused (`DescribeError::RelationUnread`).
+that chunk doesn't read, the track's next chunk is refused (`DescribeError::RelationUnread`). The writer can't vouch
+for an order it can't read, so only the caller goes on: `TapeWriter::accept_relation_break(defs, track, relation,
+from)` checks the track's next chunk against `from` for that relation and marks it as a [relation
+break](format.md#tape-blocks) (`FLAG_RELATION_BREAK`), which readers see. The break waits for the track's next chunk
+through cuts; a crash before that chunk drops it, and the resumed writer refuses again. The writer marks a chunk it
+encodes itself; a caller's block carries the flag (`mark_relation_break`) exactly when a break waits, else
+`WriteError::Flags`.
 
 ## Same input, same bytes
 

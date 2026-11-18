@@ -26,7 +26,7 @@
 //!  60 ...  n × track: id u64, first entry u32, entry count u32, CRC-32C of its entries u32, reserved u32
 //!  ...     entries, each:
 //!            0 u64 offset of the block in the piece    8 u32 its length        12 u8 its block kind
-//!           13 u8  summary level (0 for other kinds)   14 u8 summary tree      15 u8 flags: bit 0 repeat, bit 1 range, bit 2 unhashed (reserved, 0)
+//!           13 u8  summary level (0 for other kinds)   14 u8 summary tree      15 u8 flags: bit 0 repeat, bit 1 range, bit 2 unhashed (reserved, 0), bit 3 relation break
 //!           16 u64 track id (0: none)                 24 u32 track number      28 u32 0 (a state record's below)
 //!           32 u64 first item number                  40 u64 items (samples, records)
 //!           48 i64 first tick                         56 i64 last tick         64 i64 latest end
@@ -92,8 +92,10 @@ const ENTRY_RANGE: u8 = 2;
 /// [Integrity::CrcOnly](crate::Integrity::CrcOnly) or [Integrity::None](crate::Integrity::None). Written 0; a reader
 /// of this build refuses an index with it set ([IndexError::Unhashed]).
 pub const ENTRY_UNHASHED: u8 = 4;
+/// Entry flag: the chunk is marked [FLAG_RELATION_BREAK](crate::FLAG_RELATION_BREAK).
+const ENTRY_BREAK: u8 = 8;
 /// Entry flag bits this build knows; an entry with another set is refused ([IndexError::Invalid]).
-const ENTRY_FLAGS_KNOWN: u8 = ENTRY_REPEAT | ENTRY_RANGE | ENTRY_UNHASHED;
+const ENTRY_FLAGS_KNOWN: u8 = ENTRY_REPEAT | ENTRY_RANGE | ENTRY_UNHASHED | ENTRY_BREAK;
 /// Where an entry's flag byte is.
 const ENTRY_FLAGS_AT: usize = 15;
 /// Offset that means none.
@@ -145,6 +147,9 @@ pub struct IndexEntry {
     pub latest_end: i64,
     /// The block is marked [FLAG_REPEAT](crate::FLAG_REPEAT).
     pub repeat: bool,
+    /// The events chunk is marked [FLAG_RELATION_BREAK](crate::FLAG_RELATION_BREAK): its track's monotone relations
+    /// start again, no order across its start.
+    pub relation_break: bool,
     /// A chunk's unit hash, which its track's hash takes in; [UnitHash::NONE] for other blocks and for an entry a
     /// reader made by a scan.
     pub unit: UnitHash,
@@ -275,6 +280,7 @@ impl IndexEntry {
             last_tick: 0,
             latest_end: 0,
             repeat: false,
+            relation_break: false,
             unit: UnitHash::NONE,
             range: None,
         };
@@ -286,7 +292,10 @@ impl IndexEntry {
             | BlockKind::Parity => return None,
             BlockKind::Events | BlockKind::Series => {
                 if let Some(c) = block.chunk() {
-                    return Self::of_chunk(offset, bytes.len(), &c.head());
+                    return Self::of_chunk(offset, bytes.len(), &c.head()).map(|e| IndexEntry {
+                        relation_break: c.relation_break(),
+                        ..e
+                    });
                 }
             }
             BlockKind::Summary => {
@@ -329,6 +338,7 @@ impl IndexEntry {
             last_tick: head.last_tick,
             latest_end: head.latest_end,
             repeat: false,
+            relation_break: false,
             unit: UnitHash::NONE,
             range: None,
         })
@@ -363,7 +373,8 @@ impl IndexEntry {
                 self.level,
                 self.tree,
                 (if self.repeat { ENTRY_REPEAT } else { 0 })
-                    | (if self.range.is_some() { ENTRY_RANGE } else { 0 }),
+                    | (if self.range.is_some() { ENTRY_RANGE } else { 0 })
+                    | (if self.relation_break { ENTRY_BREAK } else { 0 }),
             ])
             .chain(self.track_id.to_le_bytes())
             .chain(self.track_number.to_le_bytes())
@@ -393,7 +404,8 @@ impl IndexEntry {
 
     /// Read an entry from its [ENTRY_LEN] bytes and check it, as every reader of an index does: its flags are known
     /// and of the level this build handles ([IndexError::Unhashed], [IndexError::Invalid]), it names a block
-    /// ([IndexError::BadEntries]), and a range is a chunk's, its smallest value at most its largest.
+    /// ([IndexError::BadEntries]), a range is a chunk's, its smallest value at most its largest, and a relation break
+    /// an events chunk's.
     pub(crate) fn read(b: &[u8; ENTRY_LEN]) -> Result<Self, IndexError> {
         let flags = b.get(ENTRY_FLAGS_AT).copied().unwrap_or(0);
         if flags & ENTRY_UNHASHED != 0 {
@@ -437,6 +449,7 @@ impl IndexEntry {
             last_tick: i64::from_le_bytes([s0, s1, s2, s3, s4, s5, s6, s7]),
             latest_end: i64::from_le_bytes([e0, e1, e2, e3, e4, e5, e6, e7]),
             repeat: flags & ENTRY_REPEAT != 0,
+            relation_break: flags & ENTRY_BREAK != 0,
             unit: UnitHash(u),
             range: (flags & ENTRY_RANGE != 0).then(|| {
                 (
@@ -456,7 +469,8 @@ impl IndexEntry {
                 lo <= hi && matches!(self.kind, BlockKind::Events | BlockKind::Series)
             }
         };
-        range && self.is_in_range()
+        let mark = !self.relation_break || self.kind == BlockKind::Events;
+        range && mark && self.is_in_range()
     }
 
     /// Whether the entry names a block a reader may fetch: its length that of a block, its end within a u64.

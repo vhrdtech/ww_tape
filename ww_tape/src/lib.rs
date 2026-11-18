@@ -19,8 +19,9 @@
 //!   5  u8  kind: 1 records, 3 and up other kinds (BlockKind); 2 is reserved (RESERVED_KIND)
 //!   6 u16  flags: bit 0 body coded (FLAG_BODY_CODED, record blocks only), bit 1 state records a writer put or
 //!          copied (FLAG_REPEAT), bit 2 puts that belong with the next block (FLAG_WITH_NEXT), bit 3 on a
-//!          chunk its payload unchecked (FLAG_PAYLOAD_UNCHECKED, reserved: 0, a reader refuses it); others 0
-//!          (a reader ignores bits it doesn't know)
+//!          chunk its payload unchecked (FLAG_PAYLOAD_UNCHECKED, reserved: 0, a reader refuses it), bit 4 on an
+//!          events chunk a break in its track's monotone relations (FLAG_RELATION_BREAK); others 0 (a reader
+//!          ignores bits it doesn't know)
 //!   8 u32  len: the whole block, header and CRC included
 //!  12 u32  records in the block
 //!  16 u64  seq: the block number in its session, from 0, +1 per block; a gap is lost blocks. Index, finish, tail and
@@ -286,6 +287,12 @@ pub const FLAG_WITH_NEXT: u16 = 1 << 2;
 /// [Integrity::None]. Written 0; a reader of this build refuses such a chunk as [BlockError::PayloadUnchecked], a
 /// level it doesn't handle, not damage.
 pub const FLAG_PAYLOAD_UNCHECKED: u16 = 1 << 3;
+/// Header flag on events chunk blocks: the order of its track's monotone relations starts again at this chunk. Its
+/// first values were checked against a value the writer's caller gave
+/// ([TapeWriter::accept_relation_break](crate::TapeWriter::accept_relation_break)), not against the chunks before
+/// it, so a reader takes no order across its start. Its index entry carries the mark too
+/// ([IndexEntry::relation_break](crate::index::IndexEntry::relation_break)).
+pub const FLAG_RELATION_BREAK: u16 = 1 << 4;
 /// Block kind 2, which earlier drafts gave describe blocks: reserved, never written, read as a kind this reader
 /// doesn't know.
 pub const RESERVED_KIND: u8 = 2;
@@ -927,6 +934,19 @@ pub fn mark_repeat(block: &mut [u8], id: BlockId) -> Result<(), BlockError> {
     restamp(block, id, FLAG_REPEAT, Reread::Whole)
 }
 
+/// Mark the whole, good events chunk block `block` as a break in its track's monotone relations
+/// ([FLAG_RELATION_BREAK]), its CRCs rewritten: for a caller's block given to a writer that waits for a break
+/// ([TapeWriter::accept_relation_break](crate::TapeWriter::accept_relation_break)). Another kind of block:
+/// [BlockError::NotChunk].
+pub fn mark_relation_break(block: &mut [u8]) -> Result<(), BlockError> {
+    let b = Block::read(block)?;
+    if b.kind != BlockKind::Events {
+        return Err(BlockError::NotChunk);
+    }
+    let id = BlockId::new(b.session, b.seq);
+    restamp(block, id, FLAG_RELATION_BREAK, Reread::Whole)
+}
+
 /// Mark the whole, good block `block` as belonging with the block after it ([FLAG_WITH_NEXT]), its CRCs rewritten.
 #[cfg(feature = "std")]
 pub(crate) fn mark_with_next(block: &mut [u8]) -> Result<(), BlockError> {
@@ -1144,6 +1164,11 @@ impl<'b> Block<'b> {
     /// Whether the block holds put or copied state records ([FLAG_REPEAT]).
     pub fn is_repeat(&self) -> bool {
         self.flags & FLAG_REPEAT != 0
+    }
+
+    /// Whether the block is an events chunk whose track's monotone relations start again ([FLAG_RELATION_BREAK]).
+    pub fn is_relation_break(&self) -> bool {
+        self.kind == BlockKind::Events && self.flags & FLAG_RELATION_BREAK != 0
     }
 
     /// The track of its first record, None for a block without records this reader reads in place: what tells a

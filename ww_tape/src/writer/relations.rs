@@ -10,6 +10,11 @@
 //! range relation's from the ranges in the index entries too. Where the chunk holding a track's newest values doesn't
 //! read, the track is unread: its next chunk is refused ([DescribeError::RelationUnread]) rather than written
 //! unchecked, but for the range relation, whose newest value the chunk's entry states.
+//!
+//! The caller may go on past an unread track, or past any newest value, by its own call
+//! ([TapeWriter::accept_relation_break](crate::TapeWriter::accept_relation_break)): the track's next chunk is checked
+//! against the value the caller gives and is marked [FLAG_RELATION_BREAK](crate::FLAG_RELATION_BREAK), in its header
+//! and its index entry. A marked chunk restarts the track's values, in the writer, in a resume and in the pieces after.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -27,6 +32,23 @@ pub(crate) struct Newest {
     ranges: BTreeMap<TrackKey, u64>,
     /// Tracks whose newest values are in a chunk that doesn't read
     unread: BTreeSet<TrackKey>,
+    /// Tracks whose relations start again in these values' chunks ([FLAG_RELATION_BREAK](crate::FLAG_RELATION_BREAK)):
+    /// the values of the pieces before don't count
+    restarted: BTreeSet<TrackKey>,
+    /// Breaks the caller accepted ([TapeWriter::accept_relation_break](crate::TapeWriter::accept_relation_break)),
+    /// by track and relation: the value the track's next chunk is checked against
+    breaks: BTreeMap<(TrackKey, u16), u64>,
+}
+
+/// What [Newest] holds of one track, as it was before a chunk placed: a block with its id and other bytes takes the
+/// chunk's place.
+#[derive(Clone, Debug, Default)]
+struct KeyState {
+    values: Vec<(u16, u64)>,
+    range: Option<u64>,
+    unread: bool,
+    restarted: bool,
+    breaks: Vec<(u16, u64)>,
 }
 
 impl Newest {
@@ -43,6 +65,16 @@ impl Newest {
     pub(crate) fn seed_range(&mut self, key: TrackKey, hi: u64) {
         let v = self.ranges.entry(key).or_insert(hi);
         *v = (*v).max(hi);
+    }
+
+    /// Track `key`'s relations start again at a chunk marked [FLAG_RELATION_BREAK](crate::FLAG_RELATION_BREAK):
+    /// the values before it, and the breaks it takes, are gone.
+    pub(crate) fn restart(&mut self, key: TrackKey) {
+        self.values.retain(|(k, _), _| *k != key);
+        self.breaks.retain(|(k, _), _| *k != key);
+        self.ranges.remove(&key);
+        self.unread.remove(&key);
+        self.restarted.insert(key);
     }
 
     /// Take the values of chunk `c` of track `key`, the last of the track in a piece finished before: each relation
@@ -85,22 +117,70 @@ impl Newest {
     }
 
     /// Take the values of `earlier`, those of pieces before: the largest of each value; a track `earlier` leaves
-    /// unread is unread here unless these values know its chunks.
+    /// unread is unread here unless these values know its chunks. A track these values restart takes nothing of
+    /// `earlier`. The breaks of `earlier` go on.
     pub(crate) fn after(&mut self, earlier: &Newest) {
         let unread: Vec<TrackKey> = earlier
             .unread
             .iter()
-            .filter(|k| !self.knows(**k))
+            .filter(|k| !self.knows(**k) && !self.restarted.contains(*k))
             .copied()
             .collect();
         for (k, v) in &earlier.values {
-            let mine = self.values.entry(*k).or_insert(*v);
-            *mine = (*mine).max(*v);
+            if !self.restarted.contains(&k.0) {
+                let mine = self.values.entry(*k).or_insert(*v);
+                *mine = (*mine).max(*v);
+            }
         }
         for (k, v) in &earlier.ranges {
-            self.seed_range(*k, *v);
+            if !self.restarted.contains(k) {
+                self.seed_range(*k, *v);
+            }
+        }
+        for (k, v) in &earlier.breaks {
+            if !self.restarted.contains(&k.0) {
+                self.breaks.entry(*k).or_insert(*v);
+            }
         }
         self.unread.extend(unread);
+    }
+
+    /// What these values hold of track `key`.
+    fn state(&self, key: TrackKey) -> KeyState {
+        let of = |m: &BTreeMap<(TrackKey, u16), u64>| {
+            m.range((key, 0)..=(key, u16::MAX))
+                .map(|((_, r), v)| (*r, *v))
+                .collect()
+        };
+        KeyState {
+            values: of(&self.values),
+            range: self.ranges.get(&key).copied(),
+            unread: self.unread.contains(&key),
+            restarted: self.restarted.contains(&key),
+            breaks: of(&self.breaks),
+        }
+    }
+
+    /// Hold `state` of track `key` again, as [Self::state] gave it.
+    fn set_state(&mut self, key: TrackKey, state: KeyState) {
+        self.values.retain(|(k, _), _| *k != key);
+        self.breaks.retain(|(k, _), _| *k != key);
+        self.values
+            .extend(state.values.into_iter().map(|(r, v)| ((key, r), v)));
+        self.breaks
+            .extend(state.breaks.into_iter().map(|(r, v)| ((key, r), v)));
+        match state.range {
+            Some(v) => self.ranges.insert(key, v),
+            None => self.ranges.remove(&key),
+        };
+        match state.unread {
+            true => self.unread.insert(key),
+            false => self.unread.remove(&key),
+        };
+        match state.restarted {
+            true => self.restarted.insert(key),
+            false => self.restarted.remove(&key),
+        };
     }
 }
 
@@ -110,11 +190,9 @@ pub(crate) struct Relations {
     /// The relations of each track number, from the newest track definition placed
     facts: BTreeMap<u32, TrackFacts>,
     newest: Newest,
-    /// The values the last counted chunk changed, as they were before it: a block with its id and other bytes
-    /// takes its place
-    undo: Vec<((TrackKey, u16), Option<u64>)>,
-    /// The track the last counted chunk took out of the unread ones
-    undo_unread: Option<TrackKey>,
+    /// The track of the last counted chunk and what the values held of it before: a block with its id and other
+    /// bytes takes its place
+    undo: Option<(TrackKey, KeyState)>,
 }
 
 impl Relations {
@@ -151,23 +229,41 @@ impl Relations {
             .map(|col| col.range())
     }
 
+    /// Track `key`'s next chunk is checked against `from` for monotone relation `relation`, not against the values
+    /// before it, and is marked [FLAG_RELATION_BREAK](crate::FLAG_RELATION_BREAK).
+    pub(crate) fn accept_break(&mut self, key: TrackKey, relation: u16, from: u64) {
+        self.newest.breaks.insert((key, relation), from);
+    }
+
     /// Refuse the events chunk `c` of track `key`, whose relations `facts` describe, when a monotone relation's
-    /// first value is below the newest one placed before it; with `replacing`, before the last counted chunk, whose
-    /// place it takes. A column that doesn't read is refused before ([crate::open::relation_columns_read]).
+    /// first value is below the newest one placed before it, or below the value of a break the caller accepted; with
+    /// `replacing`, before the last counted chunk, whose place it takes. A column that doesn't read is refused before
+    /// ([crate::open::relation_columns_read]). Whether the chunk is a break: one the caller accepted waits for the
+    /// track.
     pub(crate) fn check(
         &self,
         key: TrackKey,
         facts: &TrackFacts,
         c: &Chunk<'_>,
         replacing: bool,
-    ) -> Result<(), DescribeError> {
+    ) -> Result<bool, DescribeError> {
+        let before;
+        let newest = match &self.undo {
+            Some((k, state)) if replacing && *k == key => {
+                let mut n = self.newest.clone();
+                n.set_state(key, state.clone());
+                before = n;
+                &before
+            }
+            _ => &self.newest,
+        };
         let head = c.head();
-        let unread =
-            self.newest.unread.contains(&key) || (replacing && self.undo_unread == Some(key));
+        let unread = newest.unread.contains(&key);
         for relation in monotone(facts) {
+            let from = newest.breaks.get(&(key, relation)).copied();
             // the range relation's newest value is in the unread chunk's entry
-            let seeded = facts.range == Some(relation) && self.newest.ranges.contains_key(&key);
-            if unread && !seeded {
+            let seeded = facts.range == Some(relation) && newest.ranges.contains_key(&key);
+            if unread && !seeded && from.is_none() {
                 return Err(DescribeError::RelationUnread {
                     track: head.track_number,
                     relation,
@@ -176,11 +272,7 @@ impl Relations {
             let Ok(Some(col)) = RelationColumn::open(c, relation, |_| false) else {
                 continue;
             };
-            let before = if replacing {
-                self.before_last(key, relation, facts.range)
-            } else {
-                self.newest.get(key, relation, facts.range)
-            };
+            let before = from.or_else(|| newest.get(key, relation, facts.range));
             if before.is_some_and(|b| col.range().0 < b) {
                 return Err(DescribeError::RelationDecrease {
                     track: head.track_number,
@@ -189,58 +281,40 @@ impl Relations {
                 });
             }
         }
-        Ok(())
-    }
-
-    /// The newest value of a relation before the last counted chunk.
-    fn before_last(&self, key: TrackKey, relation: u16, range: Option<u16>) -> Option<u64> {
-        match self.undo.iter().find(|(k, _)| *k == (key, relation)) {
-            Some((_, before)) => {
-                let seeded = (range == Some(relation))
-                    .then(|| self.newest.ranges.get(&key).copied())
-                    .flatten();
-                (*before).max(seeded)
-            }
-            None => self.newest.get(key, relation, range),
-        }
+        Ok(newest
+            .breaks
+            .range((key, 0)..=(key, u16::MAX))
+            .next()
+            .is_some())
     }
 
     /// Take the newest values of the monotone relations of the counted chunk `c` of track `key` placed, by the
-    /// definition placed of its track. With `replaced`, it takes the place of the last counted chunk: that one's
-    /// values are taken back first.
+    /// definition placed of its track; a chunk marked [FLAG_RELATION_BREAK](crate::FLAG_RELATION_BREAK) restarts
+    /// them. With `replaced`, it takes the place of the last counted chunk: that one's values are taken back first.
     pub(crate) fn placed(&mut self, key: TrackKey, c: &Chunk<'_>, replaced: bool) {
-        if replaced {
-            for (k, before) in self.undo.drain(..).rev() {
-                match before {
-                    Some(v) => self.newest.values.insert(k, v),
-                    None => self.newest.values.remove(&k),
-                };
-            }
-            if let Some(k) = self.undo_unread.take() {
-                self.newest.unread.insert(k);
-            }
+        if replaced && let Some((k, state)) = self.undo.take() {
+            self.newest.set_state(k, state);
         }
-        let unread = self.newest.unread.contains(&key);
-        self.undo = self.take_values(key, c, None);
-        self.undo_unread = (unread && !self.newest.unread.contains(&key)).then_some(key);
+        self.undo = Some((key, self.newest.state(key)));
+        if c.relation_break() {
+            self.newest.restart(key);
+        }
+        self.take_values(key, c, None);
     }
 
     /// Take the newest values of the monotone relations of the events chunk `c` of track `key`, deferred: it is
     /// placed before any later block of its track, so a chunk after it is checked against it.
     pub(crate) fn deferred(&mut self, key: TrackKey, c: &Chunk<'_>, facts: TrackFacts) {
+        if c.relation_break() {
+            self.newest.restart(key);
+        }
         self.take_values(key, c, Some(facts));
     }
 
-    /// Take the values of chunk `c` of track `key`, by `facts` or else the definition placed; the values as they were.
-    fn take_values(
-        &mut self,
-        key: TrackKey,
-        c: &Chunk<'_>,
-        facts: Option<TrackFacts>,
-    ) -> Vec<((TrackKey, u16), Option<u64>)> {
-        let mut before = Vec::new();
+    /// Take the values of chunk `c` of track `key`, by `facts` or else the definition placed.
+    fn take_values(&mut self, key: TrackKey, c: &Chunk<'_>, facts: Option<TrackFacts>) {
         let Some(facts) = facts.or_else(|| self.facts.get(&c.head().track_number).copied()) else {
-            return before;
+            return;
         };
         // a chunk that reads holds a column of each stored relation: the newest values are known again
         self.newest.unread.remove(&key);
@@ -249,17 +323,17 @@ impl Relations {
                 continue;
             };
             let hi = col.range().1;
-            let k = (key, relation);
-            let was = self.newest.values.get(&k).copied();
-            before.push((k, was));
-            self.newest.values.insert(k, was.map_or(hi, |b| b.max(hi)));
+            let v = self.newest.values.entry((key, relation)).or_insert(hi);
+            *v = (*v).max(hi);
         }
-        before
     }
 
-    /// Take a damaged chunk of track `key` a resume keeps: the range `hi` its index entry states, if any; the
-    /// track's newest values are unread.
-    pub(crate) fn seed_damaged(&mut self, key: TrackKey, hi: Option<u64>) {
+    /// Take a damaged chunk of track `key` a resume keeps: the range `hi` its index entry states, if any, after a
+    /// restart where the entry marks a break; the track's newest values are unread.
+    pub(crate) fn seed_damaged(&mut self, key: TrackKey, hi: Option<u64>, relation_break: bool) {
+        if relation_break {
+            self.newest.restart(key);
+        }
         if let Some(hi) = hi {
             self.newest.seed_range(key, hi);
         }

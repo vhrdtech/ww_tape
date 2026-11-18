@@ -882,3 +882,237 @@ fn a_chain_resume_reads_only_the_newest_last_chunk_of_a_track() {
     write(&mut c, 4, &[5, 6], &[104, 105]).unwrap();
     c.finish().unwrap();
 }
+
+/// Replace finished piece `path` of `f` with `bytes`.
+fn replace_piece(f: &ww_tape::MemTapes, path: &Path, bytes: &[u8]) {
+    use ww_tape::SinkFactory as _;
+    let mut f = f.clone();
+    f.remove(path).unwrap();
+    let mut sink = f.create(path).unwrap();
+    sink.write_all(bytes).unwrap();
+    sink.finish().unwrap();
+}
+
+/// The events entries of track 3 in piece `path` of `f`, and whether each block is marked a relation break.
+fn breaks_in(f: &ww_tape::MemTapes, path: &Path) -> Vec<(bool, bool)> {
+    let bytes = f.get(path).unwrap().unwrap().to_vec().unwrap();
+    let r = TapeReader::open(&bytes[..]).unwrap();
+    assert!(r.verify(0).unwrap(), "the piece verifies");
+    r.entries(0)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.kind == BlockKind::Events && e.track_number == 3)
+        .map(|e| {
+            let at = e.offset as usize;
+            let b = ww_tape::Block::read(&bytes[at..at + e.len as usize]).unwrap();
+            (e.relation_break, b.is_relation_break())
+        })
+        .collect()
+}
+
+/// A track left unread by a damaged last chunk goes on only by the caller's call: the break is accepted for each
+/// unread relation from the caller's values, the next chunk is checked against them and marked in its header and its
+/// entry, and from it on the order holds again, across a resume too, with nothing taken from before the break.
+#[test]
+fn a_caller_accepts_a_relation_break_and_the_tape_marks_it() {
+    use ww_tape::{ChainOptions, CutPolicy, OwnerId, PieceChain, PieceFiles};
+    let mut defs = Definitions::new();
+    defs.define_all(&[clock(CLOCK), two_monotone(), track(9, CLOCK)])
+        .unwrap();
+    let write = |c: &mut PieceChain<ww_tape::MemTapes>, first: u64, source: &[u64], seq: &[u64]| {
+        let (h, cols) = two_chunk(first, source, seq);
+        let cols: Vec<_> = cols.iter().map(|(s, b)| (*s, &b[..])).collect();
+        c.writer()
+            .unwrap()
+            .write_chunk(&defs, &h, &cols)
+            .map(|_| ())
+    };
+    let f = ww_tape::MemTapes::new();
+    let at = Path::new("chain");
+    let owner = OwnerId([9; 32]);
+    let options = || ChainOptions {
+        files: PieceFiles::Each,
+        cut: CutPolicy::default(),
+        ..ChainOptions::default()
+    };
+    let piece = |n| at.join(ww_tape::piece::piece_name(n));
+    let mut c = PieceChain::create_on(f.clone(), at, owner, 0, &[], options()).unwrap();
+    write(&mut c, 0, &[10, 20], &[100, 101]).unwrap();
+    c.cut_now().unwrap();
+    drop(c);
+    let mut bytes = f.get(&piece(0)).unwrap().unwrap().to_vec().unwrap();
+    damage_last_chunk(&mut bytes);
+    replace_piece(&f, &piece(0), &bytes);
+
+    let (mut c, _) = PieceChain::resume_on(f.clone(), at, owner, 0, options()).unwrap();
+    assert!(unread(&write(&mut c, 2, &[30, 31], &[200, 201])));
+    let w = c.writer().unwrap();
+    assert!(matches!(
+        w.accept_relation_break(&defs, 9, 0, 0),
+        Err(WriteError::Describe(DescribeError::NotMonotone {
+            track: 9,
+            relation: 0
+        }))
+    ));
+    assert!(matches!(
+        w.accept_relation_break(&defs, 4, 0, 0),
+        Err(WriteError::Describe(DescribeError::UnknownTrack {
+            track: 4
+        }))
+    ));
+    w.accept_relation_break(&defs, 3, 1, 50).unwrap();
+    // the range relation's newest value is in the damaged chunk's entry: 20, until a break goes below it
+    let r = write(&mut c, 2, &[0, 1], &[50, 51]);
+    assert!(
+        matches!(
+            r,
+            Err(WriteError::Describe(DescribeError::RelationDecrease {
+                track: 3,
+                relation: 0,
+                ..
+            }))
+        ),
+        "{r:?}"
+    );
+    c.writer()
+        .unwrap()
+        .accept_relation_break(&defs, 3, 0, 0)
+        .unwrap();
+    let r = write(&mut c, 2, &[0, 1], &[49, 51]);
+    assert!(
+        matches!(
+            r,
+            Err(WriteError::Describe(DescribeError::RelationDecrease {
+                track: 3,
+                relation: 1,
+                ..
+            }))
+        ),
+        "below the caller's value: {r:?}"
+    );
+    // a cut before the chunk keeps the breaks waiting
+    c.cut_now().unwrap();
+    write(&mut c, 2, &[0, 1], &[50, 51]).unwrap();
+    write(&mut c, 4, &[2, 3], &[52, 53]).unwrap();
+    let r = write(&mut c, 6, &[3, 4], &[52, 60]);
+    assert!(
+        matches!(
+            r,
+            Err(WriteError::Describe(DescribeError::RelationDecrease {
+                track: 3,
+                relation: 1,
+                ..
+            }))
+        ),
+        "the order holds again: {r:?}"
+    );
+    c.cut_now().unwrap();
+    drop(c);
+    assert_eq!(breaks_in(&f, &piece(1)), vec![]);
+    assert_eq!(
+        breaks_in(&f, &piece(2)),
+        vec![(true, true), (false, false)],
+        "the chunk after the break is marked, in its entry and its header"
+    );
+    // a resume takes the values from the break on: piece 0's 20 and 101 don't count
+    let (mut c, _) = PieceChain::resume_on(f.clone(), at, owner, 0, options()).unwrap();
+    let r = write(&mut c, 6, &[2, 3], &[53, 54]);
+    assert!(
+        matches!(
+            r,
+            Err(WriteError::Describe(DescribeError::RelationDecrease {
+                track: 3,
+                relation: 0,
+                ..
+            }))
+        ),
+        "{r:?}"
+    );
+    write(&mut c, 6, &[3, 4], &[53, 54]).unwrap();
+    c.finish().unwrap();
+}
+
+/// A caller's chunk block carries the break mark exactly when a break waits for its track.
+#[test]
+fn a_callers_chunk_carries_the_break_mark_exactly_when_one_waits() {
+    let mut defs = Definitions::new();
+    defs.define_all(&[clock(CLOCK), two_monotone()]).unwrap();
+    let block = |w: &TapeWriter<MemSink>, first: u64, seq: &[u64], mark: bool| {
+        let source = [first + 1, first + 2];
+        let (h, cols) = two_chunk(first, &source, seq);
+        let cols: Vec<_> = cols.iter().map(|(s, b)| (*s, &b[..])).collect();
+        let specs: Vec<_> = cols.iter().map(|c| c.0).collect();
+        let mut buf = vec![0u8; ww_tape::chunk::chunk_len(&h, &specs, 0)];
+        let n = ww_tape::chunk::write_chunk(&mut buf, w.next_id(), &h, &cols, 0).unwrap();
+        buf.truncate(n);
+        if mark {
+            ww_tape::mark_relation_break(&mut buf).unwrap();
+        }
+        buf
+    };
+    let mut w = TapeWriter::create_on(MemSink::new(Path::new("one")), SyncPolicy::None);
+    let flags =
+        |r: Result<Option<ww_tape::Placed>, WriteError>| matches!(r, Err(WriteError::Flags { .. }));
+    let b = block(&w, 0, &[100, 101], true);
+    assert!(flags(w.write_block(&defs, &b)), "a mark without a break");
+    let b = block(&w, 0, &[100, 101], false);
+    w.write_block(&defs, &b).unwrap();
+    w.accept_relation_break(&defs, 3, 1, 0).unwrap();
+    let b = block(&w, 2, &[10, 11], false);
+    assert!(flags(w.write_block(&defs, &b)), "a break without its mark");
+    let b = block(&w, 2, &[10, 11], true);
+    w.write_block(&defs, &b).unwrap();
+    let b = block(&w, 4, &[12, 13], true);
+    assert!(flags(w.write_block(&defs, &b)), "the break is taken");
+}
+
+/// A break placed in a piece a crash cut off restarts the track's values when the resume replays it: the values of
+/// the pieces before don't come back.
+#[test]
+fn a_resume_replays_a_relation_break() {
+    use ww_tape::{ChainOptions, CutPolicy, OwnerId, PieceChain, PieceFiles};
+    let mut defs = Definitions::new();
+    defs.define_all(&[clock(CLOCK), two_monotone()]).unwrap();
+    let write = |c: &mut PieceChain<ww_tape::MemTapes>, first: u64, source: &[u64], seq: &[u64]| {
+        let (h, cols) = two_chunk(first, source, seq);
+        let cols: Vec<_> = cols.iter().map(|(s, b)| (*s, &b[..])).collect();
+        c.writer()
+            .unwrap()
+            .write_chunk(&defs, &h, &cols)
+            .map(|_| ())
+    };
+    let f = ww_tape::MemTapes::new();
+    let (at, owner) = (Path::new("chain"), OwnerId([9; 32]));
+    for files in [PieceFiles::Each, PieceFiles::One] {
+        let at = at.join(format!("{files:?}"));
+        let options = || ChainOptions {
+            files,
+            cut: CutPolicy::default(),
+            ..ChainOptions::default()
+        };
+        let mut c = PieceChain::create_on(f.clone(), &at, owner, 0, &[], options()).unwrap();
+        write(&mut c, 0, &[10, 20], &[100, 101]).unwrap();
+        c.cut_now().unwrap();
+        let w = c.writer().unwrap();
+        w.accept_relation_break(&defs, 3, 0, 1).unwrap();
+        w.accept_relation_break(&defs, 3, 1, 5).unwrap();
+        write(&mut c, 2, &[1, 2], &[5, 6]).unwrap();
+        c.writer().unwrap().sync().unwrap();
+        drop(c);
+        let (mut c, _) = PieceChain::resume_on(f.clone(), &at, owner, 0, options()).unwrap();
+        let r = write(&mut c, 4, &[2, 3], &[5, 7]);
+        assert!(
+            matches!(
+                r,
+                Err(WriteError::Describe(DescribeError::RelationDecrease {
+                    track: 3,
+                    relation: 1,
+                    ..
+                }))
+            ),
+            "{files:?}: {r:?}"
+        );
+        write(&mut c, 4, &[2, 3], &[7, 8]).unwrap();
+        c.finish().unwrap();
+    }
+}

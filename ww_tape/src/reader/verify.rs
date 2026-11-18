@@ -169,7 +169,12 @@ impl Replay {
         });
         let mut expected: Vec<IndexEntry> = match &chunk {
             Some((c, _)) => IndexEntry::of_chunk(at, block.len(), &c.head())
-                .map(|e| IndexEntry { unit, range, ..e })
+                .map(|e| IndexEntry {
+                    unit,
+                    range,
+                    relation_break: c.relation_break(),
+                    ..e
+                })
                 .into_iter()
                 .collect(),
             None if matches!(b.kind, BlockKind::Events | BlockKind::Series) => Vec::new(),

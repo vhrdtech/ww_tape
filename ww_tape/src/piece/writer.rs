@@ -629,8 +629,9 @@ fn read_finished_at<B: ByteSource<Error = std::io::Error>>(
     ))
 }
 
-/// The tops of the chunks' ranges of the tracks of piece `i` of `reader`, whose finish lists `rows`, and each track's
-/// last chunk in the piece, by its entry, unread.
+/// The tops of the chunks' ranges of the tracks of piece `i` of `reader`, whose finish lists `rows`, from each
+/// track's last break on ([FLAG_RELATION_BREAK](crate::FLAG_RELATION_BREAK)), and each track's last chunk in the
+/// piece, by its entry, unread.
 fn last_chunks_of<B: ByteSource<Error = std::io::Error>>(
     reader: &TapeReader<B>,
     i: usize,
@@ -648,6 +649,10 @@ fn last_chunks_of<B: ByteSource<Error = std::io::Error>>(
             .find(|r| r.track_id == e.track_id && r.track_number == e.track_number)
             .map_or(OwnerId::NONE, |r| r.owner);
         let key = (e.track_id, owner);
+        // a track's entries come by offset: a break forgets the ranges before it
+        if e.relation_break {
+            ranges.restart(key);
+        }
         if let Some((_, hi)) = e.range {
             ranges.seed_range(key, hi);
         }
@@ -691,7 +696,9 @@ fn newest_in(
 ) -> Result<Newest, WriteError> {
     let mut newest = Newest::default();
     for (_, last) in finished {
-        newest.after(&last.ranges);
+        let mut later = last.ranges.clone();
+        later.after(&newest);
+        newest = later;
     }
     let mut known: BTreeSet<TrackKey> = BTreeSet::new();
     let mut buf = Vec::new();
