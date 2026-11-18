@@ -45,6 +45,11 @@ pub const FIXED_INPUTS: &[(&str, &str, &str)] = &[
     ("tape-index", "empty-index-reads-back", "0a"),
     ("tape-resume", "finished-last-piece-damaged", "070030c80101"),
     (
+        "tape-resume",
+        "resume-and-verify-walk-alike",
+        "0200302f7f3bc1183cc654fc31cb447af413878e0bb34c10c82a18362a1836101e1654fc31cb447bf4ed788e0bb34c10c877717131711d95f2c877717032711d57f5ec80808080808080808080808080808018011d57f5ec003000d425",
+    ),
+    (
         "tape-times-hostile",
         "chunk-count-unbounded",
         "80f70000000000000000000000000000000000000000002703a94d75",

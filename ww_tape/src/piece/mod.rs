@@ -68,7 +68,9 @@
 //! **Content hash.** BLAKE3 over the piece's bytes before its finish block, in order, except that the payload of
 //! every chunk block that reads whole (from its payload offset to its CRC: the columns and their 16 zero bytes) is
 //! replaced by the 32-byte BLAKE3 hash of that payload. Every byte is covered; the payload is hashed once, for this
-//! hash and the track hash both.
+//! hash and the track hash both. The blocks are found from the start: where a block reads whole it is taken whole,
+//! else the bytes up to the next place holding the block magic go in as they are. Damaged bytes so hash the same
+//! whichever way a resume or a reader walks them.
 //!
 //! **Track hash.** Each track has a running hash ([TrackHash]) over its content as written, in the order written:
 //! 32 zero bytes before its first, then `h = BLAKE3(h || unit)` for each unit:
@@ -211,6 +213,72 @@ pub(crate) fn hash_block<'b>(
             None
         }
     }
+}
+
+/// Bytes a content hash reads at a time where no block reads whole.
+const HASH_STEP: usize = 1 << 20;
+
+/// Bytes of the block magic but its first, which a stretch read at a time keeps back: the magic may start there.
+const MAGIC_TAIL: usize = crate::MAGIC.len() - 1;
+
+/// Feed the first `end` bytes of a piece, read by `read`, to its content hash. At each place a block that reads whole
+/// goes in whole ([hash_block]); other bytes go in as they are, up to the next place holding the block magic. The hash
+/// depends on the bytes alone, not on how a writer or a resume walked them.
+pub(crate) fn hash_piece<E>(
+    h: &mut blake3::Hasher,
+    end: u64,
+    mut read: impl FnMut(u64, &mut [u8]) -> Result<(), E>,
+) -> Result<(), E> {
+    let mut buf = Vec::new();
+    let mut at = 0u64;
+    while let Some(left) = end.checked_sub(at).filter(|n| *n > 0) {
+        if let Some(n) = whole_block(at, left, &mut buf, &mut read)? {
+            hash_block(h, &buf);
+            at = at.saturating_add(len_u64(n));
+            continue;
+        }
+        let n = usize::try_from(left).map_or(HASH_STEP, |left| left.min(HASH_STEP));
+        buf.resize(n, 0);
+        read(at, &mut buf)?;
+        let next = buf
+            .get(1..)
+            .and_then(|rest| {
+                rest.windows(crate::MAGIC.len())
+                    .position(|w| w == crate::MAGIC)
+            })
+            .map(|k| k.saturating_add(1));
+        let take = match next {
+            Some(k) => k,
+            None if len_u64(n) == left => n,
+            None => n.saturating_sub(MAGIC_TAIL).max(1),
+        };
+        h.update(buf.get(..take).unwrap_or(&buf));
+        at = at.saturating_add(len_u64(take));
+    }
+    Ok(())
+}
+
+/// The length of the block at `at` when one reads whole there within `left` bytes, read into `buf`.
+fn whole_block<E>(
+    at: u64,
+    left: u64,
+    buf: &mut Vec<u8>,
+    read: &mut impl FnMut(u64, &mut [u8]) -> Result<(), E>,
+) -> Result<Option<usize>, E> {
+    if left < len_u64(HEADER_LEN) {
+        return Ok(None);
+    }
+    let mut header = [0u8; HEADER_LEN];
+    read(at, &mut header)?;
+    let Some(n) = crate::block_len(&header)
+        .ok()
+        .filter(|n| *n >= HEADER_LEN && *n <= crate::MAX_BLOCK_LEN && len_u64(*n) <= left)
+    else {
+        return Ok(None);
+    };
+    buf.resize(n, 0);
+    read(at, buf)?;
+    Ok(Block::read(buf).is_ok_and(|b| b.len() == n).then_some(n))
 }
 
 impl PieceId {

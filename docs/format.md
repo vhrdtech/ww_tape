@@ -348,7 +348,7 @@ The ids are derived with BLAKE3 in its key derivation mode. A chain's first piec
 id", content hash ‖ piece id)` of the piece before; an id is never all zeros. A session tag from a seed is the first
 4 bytes of `derive_key("ww_tape run tag", seed)`, made writable (never 0 nor FFFFFFFFh).
 
-The **content hash** in the finish and the tail is BLAKE3 over the piece's bytes before the finish block, in order, except that the payload of every chunk block that reads whole (from its payload offset to its CRC: the columns and their 16 zero bytes) is replaced by the 32-byte BLAKE3 hash of that payload. Every byte is covered, and each payload is hashed once, for the content hash and the track hash both.
+The **content hash** in the finish and the tail is BLAKE3 over the piece's bytes before the finish block, in order, except that the payload of every chunk block that reads whole (from its payload offset to its CRC: the columns and their 16 zero bytes) is replaced by the 32-byte BLAKE3 hash of that payload. Every byte is covered, and each payload is hashed once, for the content hash and the track hash both. The blocks are found from the start of the piece: where a block reads whole it is taken whole, and otherwise the bytes up to the next place holding the block magic go in as they are. Damaged bytes a resume kept so hash the same however the resume or a reader walked them.
 
 A **track** is told apart by its id and its owner (`TrackDef::owner`, 32 opaque bytes outside the identity; zeros mean the piece's owner), so tracks of one identity from several owners share a file, each with its own number, item numbers and hash. The head and finish rows carry the owner, and the index entries name the track number, which the finish rows and the definitions resolve.
 
