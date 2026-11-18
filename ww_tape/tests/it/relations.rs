@@ -393,16 +393,64 @@ fn a_monotone_relation_never_decreases_across_chunks() {
     assert!(decrease(w.write_block(&defs, &below), 2));
 }
 
+/// A whole chunk block of track 4 of 600 items with raw starts: longer than any gap before an aligned payload.
+fn long_block() -> Vec<u8> {
+    let starts: Vec<u8> = (0..600i64).flat_map(|i| i.to_le_bytes()).collect();
+    let head = ww_tape::ChunkHead {
+        kind: BlockKind::Events,
+        track_id: 0x4444,
+        track_number: 4,
+        first_item: 0,
+        count: 600,
+        first_tick: 0,
+        last_tick: 599,
+        latest_end: 599,
+        time_mode: 0,
+        end_mode: ww_tape::EndMode::Absent,
+        grid: None,
+    };
+    let cols = [(
+        ww_tape::ColumnSpec {
+            kind: ww_tape::ColumnKind::Starts,
+            codec: ww_tape::chunk::Codec::RAW,
+            param: 0,
+            len: starts.len(),
+        },
+        &starts[..],
+    )];
+    let mut block = vec![0u8; ww_tape::chunk::chunk_len(&head, &[cols[0].0], 0)];
+    let n = ww_tape::chunk::write_chunk(&mut block, crate::id(0), &head, &cols, 0).unwrap();
+    block.truncate(n);
+    block
+}
+
+/// A deferred chunk is placed before any later block of its track, even when it waits behind a block too long for
+/// the gap before an aligned payload: the values of its monotone relation count before the chunks after it, and
+/// the file holds them in that order.
 #[test]
 fn a_deferred_chunk_counts_before_the_chunks_after_it() {
     let mut defs = Definitions::new();
-    defs.define_all(&[clock(CLOCK), decoded()]).unwrap();
+    defs.define_all(&[clock(CLOCK), decoded(), track(4, CLOCK)])
+        .unwrap();
     let mut w = TapeWriter::create_on(MemSink::new(Path::new("d")), SyncPolicy::None);
     w.set_layout(ww_tape::Layout::ALIGNED).unwrap();
+    let tape = w.sink().tape();
+    w.defer_block(&defs, long_block()).unwrap();
     w.defer_block(&defs, chunk_block(w.next_id(), 0, &[100, 101], &[1, 1]))
         .unwrap();
     assert!(decrease(write_chunk(&mut w, &defs, 2, &[5, 6], &[1, 1]), 2));
     write_chunk(&mut w, &defs, 2, &[101, 102], &[1, 1]).unwrap();
+    w.finish().unwrap();
+    let bytes = tape.to_vec().unwrap();
+    let firsts: Vec<_> = TapeReader::open(&bytes[..])
+        .unwrap()
+        .entries(0)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.kind == BlockKind::Events && e.track_number == 3)
+        .map(|e| (e.first_item, e.range))
+        .collect();
+    assert_eq!(firsts, [(0, Some((100, 101))), (2, Some((101, 102)))]);
 }
 
 #[test]
