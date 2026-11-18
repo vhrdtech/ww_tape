@@ -61,7 +61,7 @@ pub mod resume;
 pub use near::NearPolicy;
 use near::Rule;
 pub(crate) use relations::Newest;
-pub use resume::Resumed;
+pub use resume::{RESUME_LOOK_MAX, RESUME_PROBES_MAX, Resumed};
 
 /// When a [TapeWriter] syncs the data to the disk, besides at [TapeWriter::finish].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -125,6 +125,9 @@ pub enum WriteError {
     /// A caller's block the writer doesn't take: a kind it makes itself or doesn't know (the reserved kind 2), a
     /// block of another format version, or a body of a codec it doesn't know.
     Unknown { version: u8, kind: BlockKind },
+    /// A resume would cut off a good block of the piece at `offset`, behind bytes the reader didn't take: more than a
+    /// torn end. The bytes stay as they are.
+    GoodBlockAfterCut { offset: u64 },
 }
 
 impl From<DescribeError> for WriteError {
@@ -161,6 +164,10 @@ impl core::fmt::Display for WriteError {
             WriteError::Producer { described, given } => write!(
                 f,
                 "the piece names producer {described:?}, the writer was given {given:?}"
+            ),
+            WriteError::GoodBlockAfterCut { offset } => write!(
+                f,
+                "a resume would cut off a good block at {offset}, more than a torn end"
             ),
             WriteError::Unknown { version, kind } => write!(
                 f,

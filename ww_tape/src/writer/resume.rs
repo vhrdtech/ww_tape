@@ -50,6 +50,12 @@ use crate::{
 /// Bytes the walk reads and hashes at once in a stretch that holds no block.
 const JUNK_READ_MAX: usize = 1 << 20;
 
+/// Bytes past where the reader stopped that a resume looks through for a good block before it cuts them off: a torn
+/// block is at most [MAX_BLOCK_LEN] long, and a block flushed before it lies right after it: twice that.
+pub const RESUME_LOOK_MAX: u64 = 128 << 20;
+/// Places past where the reader stopped that a resume reads whole as a block of the piece's sessions, at most.
+pub const RESUME_PROBES_MAX: usize = 4;
+
 /// What [TapeWriter::resume_on] kept of a piece.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
@@ -241,6 +247,59 @@ impl KeptEnd {
     }
 }
 
+/// The offset of a good block of one of `sessions` in the bytes of `src` from `from` to `size`, which a resume would
+/// cut off: more than a torn end. It looks [RESUME_LOOK_MAX] bytes far and reads at most [RESUME_PROBES_MAX] places
+/// whole, so crafted bytes cost a bounded read.
+fn good_block_after<S: TapeSink>(
+    src: &S,
+    from: u64,
+    size: u64,
+    sessions: &std::collections::BTreeSet<u32>,
+) -> Result<Option<u64>, WriteError> {
+    let end = size.min(from.saturating_add(RESUME_LOOK_MAX));
+    let mut probes = 0;
+    let mut window = vec![0u8; JUNK_READ_MAX];
+    let mut at = from;
+    while at < end && probes < RESUME_PROBES_MAX {
+        // at most JUNK_READ_MAX, as min says
+        let n = usize::try_from(end.saturating_sub(at).min(wide(JUNK_READ_MAX)))
+            .unwrap_or(JUNK_READ_MAX);
+        let w = window.get_mut(..n).unwrap_or_default();
+        src.read_at(at, w)
+            .map_err(io_err("reading back the bytes a resume cuts off"))?;
+        // the places a whole header fits in this window; the next window starts at the first that doesn't
+        let fits = n.saturating_sub(HEADER_LEN - 1);
+        for i in 0..fits {
+            if probes >= RESUME_PROBES_MAX {
+                break;
+            }
+            let Some(header) = w.get(i..i.saturating_add(HEADER_LEN)) else {
+                break;
+            };
+            if header.get(..4) != Some(&crate::MAGIC[..]) {
+                continue;
+            }
+            let Some(session) = crate::bytes::le_u32(header, 24) else {
+                continue;
+            };
+            let Ok(len) = block_len(header) else { continue };
+            let place = at.saturating_add(wide(i));
+            if !sessions.contains(&session) || place.saturating_add(wide(len)) > size {
+                continue;
+            }
+            probes = probes.saturating_add(1);
+            let mut block = vec![0u8; len];
+            src.read_at(place, &mut block)
+                .map_err(io_err("reading back a block a resume cuts off"))?;
+            if Block::read(&block).is_ok() {
+                return Ok(Some(place));
+            }
+        }
+        at = at.saturating_add(wide(fits.max(1)));
+    }
+    Ok(None)
+}
+
 /// Whether step `s` of the piece in `src` ends the piece: a finish, a tail or a final index block.
 fn ends_piece<S: TapeSink>(src: &S, s: &Step) -> Result<bool, WriteError> {
     let What::Block { kind, .. } = s.what else {
@@ -325,14 +384,24 @@ impl<S: TapeSink> TapeWriter<S> {
             .map_err(io_err("reading the length to resume"))?;
         let (layout, cut, ended) = read_layout(&sink)?;
         let mut kept = KeptEnd::default();
+        let mut sessions = std::collections::BTreeSet::new();
         let mut at = 0;
         while at < layout.end {
             let step = layout.step(&sink, at)?;
             if ends_piece(&sink, &step)? {
                 break;
             }
+            if let What::Block { .. } = step.what {
+                let mut tag = [0u8; 4];
+                sink.read_at(step.at.saturating_add(24), &mut tag)
+                    .map_err(io_err("reading back a block's session"))?;
+                sessions.insert(u32::from_le_bytes(tag));
+            }
             kept.take(&step);
             at = step.end();
+        }
+        if let Some(offset) = good_block_after(&sink, layout.end, size, &sessions)? {
+            return Err(WriteError::GoodBlockAfterCut { offset });
         }
         let kept_bytes = kept.last;
         let mut w = Self::create_on(sink, options.sync);

@@ -1155,6 +1155,85 @@ fn a_sink_of_one_piece_takes_no_cut_in_place() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+/// A finished piece an earlier ww_tape wrote (`data/other-layout.wwt`, its second piece): this reader takes its blocks
+/// up to the finish, and a resume cuts off only what ends a piece (finish and tail, see the module docs of
+/// `writer::resume`), never a block before them; cut short anywhere in its end, the same.
+#[test]
+fn a_resume_of_another_layout_cuts_off_only_the_piece_end() {
+    let bytes =
+        std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/it/data/other-layout.wwt"))
+            .unwrap();
+    let r = TapeReader::open(&bytes[..]).unwrap();
+    let p1 = r.pieces()[1].start as usize;
+    let piece = &bytes[p1..];
+    // the blocks by their headers: the finish and the tail end it
+    let mut blocks = Vec::new();
+    let mut at = 0;
+    while at + 32 <= piece.len() {
+        let len = u32::from_le_bytes(piece[at + 8..at + 12].try_into().unwrap()) as usize;
+        blocks.push((at, piece[at + 5]));
+        at += len;
+    }
+    let finish_at = blocks.iter().find(|(_, k)| *k == 8).unwrap().0;
+    for cut in [piece.len(), piece.len() - 300, finish_at + 10] {
+        let mut sink = MemSink::new(Path::new("p"));
+        sink.write_all(&piece[..cut]).unwrap();
+        let (_, resumed) = TapeWriter::resume_on(
+            sink,
+            WriterOptions {
+                layout: Layout::UNALIGNED,
+                producer: String::new(),
+                ..options(0)
+            },
+        )
+        .unwrap();
+        assert_eq!(resumed.kept_bytes, finish_at as u64, "cut at {cut}");
+        assert_eq!(
+            resumed.dropped_bytes,
+            (cut - finish_at) as u64,
+            "cut at {cut}"
+        );
+    }
+}
+
+/// A block of a piece damaged in place, good blocks of its session after it, no index naming them: a resume would cut
+/// them off with the damage, more than a torn end, so it refuses and leaves the bytes as they are.
+#[test]
+fn a_resume_never_cuts_off_good_blocks() {
+    let mut w = TapeWriter::create_on(MemSink::new(Path::new("p")), SyncPolicy::None);
+    let tape = w.sink().tape();
+    let defs = base_defs();
+    for n in 0..6 {
+        let block = records(w.next_id(), n);
+        w.write_block(defs, &block).unwrap();
+    }
+    let mut bytes = tape.to_vec().unwrap();
+    drop(w);
+    let starts: Vec<usize> = (0..bytes.len() - 3)
+        .filter(|&i| bytes[i..i + 4] == *b"WWTP")
+        .collect();
+    assert!(starts.len() >= 6, "{starts:?}");
+    let bad = starts[starts.len() - 3];
+    bytes[bad + 40] ^= 1;
+    let mut sink = MemSink::new(Path::new("q"));
+    sink.write_all(&bytes).unwrap();
+    let tape = sink.tape();
+    match TapeWriter::resume_on(sink, WriterOptions::default()) {
+        Err(WriteError::GoodBlockAfterCut { offset }) => {
+            assert_eq!(offset, starts[starts.len() - 2] as u64)
+        }
+        other => panic!("{:?}", other.map(|(_, r)| r)),
+    }
+    assert_eq!(tape.to_vec().unwrap(), bytes, "the bytes stay");
+    // undamaged, with its last block torn: that alone is cut off
+    let mut torn = bytes[..starts[starts.len() - 1] + 20].to_vec();
+    torn[bad + 40] ^= 1;
+    let mut sink = MemSink::new(Path::new("r"));
+    sink.write_all(&torn).unwrap();
+    let (_, resumed) = TapeWriter::resume_on(sink, WriterOptions::default()).unwrap();
+    assert_eq!(resumed.kept_bytes, starts[starts.len() - 1] as u64);
+}
+
 /// `bytes` with the integrity byte of the piece head at their start set to `level`, its CRC made good again.
 fn with_head_level(bytes: &[u8], level: u8) -> Vec<u8> {
     let mut b = bytes.to_vec();

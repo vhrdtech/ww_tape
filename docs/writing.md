@@ -223,7 +223,10 @@ how many bytes it kept and dropped and where the piece was cut. It works in thre
 1. It finds the piece as a reader would: by its tail when it has one, else from the newest checkpoint and a scan after
    it, else by a scan from the start. A scan stops at the first bad block.
 2. It keeps every byte up to the end of the last good block. It cuts off the rest: a torn block, an end of piece, and
-   blocks marked `FLAG_WITH_NEXT` at the end of what it keeps, since the block they belong with didn't survive.
+   blocks marked `FLAG_WITH_NEXT` at the end of what it keeps, since the block they belong with didn't survive. When a
+   good block of the piece's sessions lies behind the bytes the reader didn't take, cutting would lose more than a
+   torn end: the resume refuses (`WriteError::GoodBlockAfterCut`) and leaves the bytes as they are. It looks
+   `RESUME_LOOK_MAX` bytes far and reads at most `RESUME_PROBES_MAX` places whole.
 3. It replays the kept blocks to rebuild the writer as it was: the content hash, the index entries, the track ranges,
    the record of what lies near, the session and the next sequence number.
 
