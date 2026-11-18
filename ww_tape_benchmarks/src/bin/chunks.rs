@@ -18,8 +18,8 @@ use ww_tape::piece::payload_hash;
 use ww_tape::reader::ByteSource;
 use ww_tape::{
     ALIGNMENT, Block, BlockId, BlockKind, ClockDef, ClockOrigin, Codec, ColumnKind, ColumnSpec,
-    Definitions, Describe, EndMode, FullVersion, ItemHash, Magnitude, OwnerId, Ratio64, Segment,
-    SeriesDef, SeriesGrid, SeriesTimeline, SessionTag, SyncPolicy, TapeReader, TapeSink,
+    Definitions, Describe, EndMode, FullVersion, ItemHash, Magnitude, MemSink, OwnerId, Ratio64,
+    Segment, SeriesDef, SeriesGrid, SeriesTimeline, SessionTag, SyncPolicy, TapeReader, TapeSink,
     TapeWriter, TrackDef, TrackHash, TrackKind, Version, clock_key, track_key,
 };
 
@@ -231,6 +231,16 @@ fn main() -> anyhow::Result<()> {
             .map_err(e)?;
         Ok(())
     })?;
+    // into memory, as a setup kept in RAM writes: every byte kept (rounds x chunks of them)
+    let mut mem = TapeWriter::create_on(MemSink::new(Path::new("mem")), SyncPolicy::None);
+    mem.set_alignment(ALIGNMENT)?;
+    let in_memory = best(r, c, |_| {
+        let k = mem.next_id().seq;
+        mem.write_chunk(&defs, &head(k, count)?, &columns)
+            .map_err(e)?;
+        Ok(())
+    })?;
+    drop(mem);
     let mut w = writer()?;
     let theirs = best(r, c, |_| {
         let k = w.next_id().seq;
@@ -254,6 +264,7 @@ fn main() -> anyhow::Result<()> {
         ("`ItemHash::of`: BLAKE3", hash),
         ("`TrackHash::chunk_unit`: the unit hash", unit),
         ("`TapeWriter::write_chunk` (columns)", own),
+        ("`TapeWriter::write_chunk` into a `MemSink`", in_memory),
         ("`chunk::write_chunk` + `TapeWriter::write_block`", theirs),
     ] {
         println!("| {what} | {ns:.0} | {:.2} |", gbs(ns));
