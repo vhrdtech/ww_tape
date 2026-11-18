@@ -331,7 +331,7 @@ impl core::fmt::Display for FileError {
     }
 }
 
-impl std::error::Error for FileError {}
+impl core::error::Error for FileError {}
 
 /// What a reader does at damage.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

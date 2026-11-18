@@ -33,7 +33,7 @@ impl core::fmt::Display for EncodeError {
     }
 }
 
-impl std::error::Error for EncodeError {}
+impl core::error::Error for EncodeError {}
 
 /// A chunk's times encoded: the head fields and the time columns.
 #[derive(Clone, Debug, PartialEq, Eq)]

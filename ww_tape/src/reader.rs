@@ -205,8 +205,7 @@ impl<E: core::fmt::Debug> core::fmt::Display for ReadError<E> {
     }
 }
 
-#[cfg(feature = "std")]
-impl<E: core::fmt::Debug> std::error::Error for ReadError<E> {}
+impl<E: core::fmt::Debug> core::error::Error for ReadError<E> {}
 
 /// Most bytes of blocks of definitions a reader reads looking for the layout of a piece's stretch after its newest
 /// checkpoint: the layout's newest record behind that stretch.

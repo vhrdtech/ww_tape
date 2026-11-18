@@ -204,8 +204,8 @@ impl<S: TapeSink> core::fmt::Display for CutError<S> {
     }
 }
 
-impl<S: TapeSink> std::error::Error for CutError<S> {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+impl<S: TapeSink> core::error::Error for CutError<S> {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         Some(&self.error)
     }
 }
@@ -284,8 +284,8 @@ impl core::fmt::Display for WriteError {
     }
 }
 
-impl std::error::Error for WriteError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+impl core::error::Error for WriteError {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
             WriteError::Io { error, .. } => Some(error),
             WriteError::Read(e) => Some(e),
