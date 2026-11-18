@@ -80,6 +80,16 @@ impl Default for SyncPolicy {
     }
 }
 
+/// The header flags a caller's block of `kind` may carry when written as it is, not as puts: a coded body
+/// ([FLAG_BODY_CODED](crate::FLAG_BODY_CODED)) on a records block, none on a chunk or a summary. The other bits are
+/// reserved or the writer's own.
+fn caller_flags(kind: BlockKind) -> u16 {
+    match kind {
+        BlockKind::Records => crate::FLAG_BODY_CODED,
+        _ => 0,
+    }
+}
+
 /// Default of [SyncPolicy::Interval].
 pub const DEFAULT_SYNC_INTERVAL: Duration = Duration::from_secs(1);
 
@@ -125,6 +135,9 @@ pub enum WriteError {
     /// A caller's block the writer doesn't take: a kind it makes itself or doesn't know (the reserved kind 2), a
     /// block of another format version, or a body of a codec it doesn't know.
     Unknown { version: u8, kind: BlockKind },
+    /// A caller's block of `kind` with header `flags` its kind doesn't take: reserved bits, or a flag only the
+    /// writer sets. A records block may carry [FLAG_BODY_CODED](crate::FLAG_BODY_CODED), other kinds none.
+    Flags { kind: BlockKind, flags: u16 },
     /// A resume would cut off a good block of the piece at `offset`, behind bytes the reader didn't take: more than a
     /// torn end. The bytes stay as they are.
     GoodBlockAfterCut { offset: u64 },
@@ -183,6 +196,11 @@ impl core::fmt::Display for WriteError {
             WriteError::HashWalkSpent { end } => write!(
                 f,
                 "the bytes to resume claim too many blocks that don't read: a block written at {end} would not verify"
+            ),
+            WriteError::Flags { kind, flags } => write!(
+                f,
+                "a caller's block of kind {kind:?} with header flags {flags:#06x}: it takes {:#06x}",
+                caller_flags(*kind)
             ),
             WriteError::Unknown { version, kind } => write!(
                 f,
@@ -900,8 +918,8 @@ impl<S: TapeSink> TapeWriter<S> {
 
     /// Check a block of the caller's against `defs`: a records, events, series or summary block of this version
     /// whose body this writer knows ([Definitions::check_block]): no definitions, every record on a held track that
-    /// isn't a state track. Other kinds (the reserved kind 2 among them), other versions and bodies of an unknown
-    /// codec are refused. `b` is read with its CRCs checked ([crate::Block::read]).
+    /// isn't a state track. Other kinds (the reserved kind 2 among them), other versions, bodies of an unknown
+    /// codec and header flags the kind doesn't take ([caller_flags]) are refused. `b` is read with its CRCs checked ([crate::Block::read]).
     fn check_data(defs: &Definitions, b: &crate::Block<'_>) -> Result<(), WriteError> {
         let ours = matches!(
             b.kind,
@@ -911,6 +929,12 @@ impl<S: TapeSink> TapeWriter<S> {
             return Err(WriteError::Unknown {
                 version: b.version,
                 kind: b.kind,
+            });
+        }
+        if b.flags & !caller_flags(b.kind) != 0 {
+            return Err(WriteError::Flags {
+                kind: b.kind,
+                flags: b.flags,
             });
         }
         let mut buf = Vec::new();

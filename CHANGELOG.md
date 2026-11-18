@@ -10,6 +10,7 @@ Covers `ww_tape` 0.1.0.
 
 ### ⚠️ Breaking
 
+- A caller's block with header flags its kind doesn't take is refused (`WriteError::Flags`); records take only a coded body (TAPE-4).
 - A resume refuses to cut off good blocks behind bytes it can't read (`WriteError::GoodBlockAfterCut`); only a torn end goes (TAPE-8).
 - A resume whose look for good blocks ends before the bytes do refuses (`WriteError::LookSpent`), never cuts (TAPE-8).
 - A resume of a piece whose finish and tail read whole renames it and returns `WriteError::Ended`, writing nothing (TAPE-8).
