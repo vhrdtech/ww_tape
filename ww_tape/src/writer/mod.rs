@@ -1141,7 +1141,11 @@ impl<S: TapeSink> TapeWriter<S> {
             self.put_needed(&needs)?;
             return self.place(block);
         }
-        // placed before any later block of its track: a chunk after it goes on from its values
+        self.place_overdue(puts_len_upper(&needs))?;
+        self.ensure_head()?;
+        self.put_chosen(&needs, false)?;
+        // placed before any later block of its track: a chunk after it goes on from its values, filed under its
+        // track's key once the definition naming the track's owner is placed
         if let Some(c) = b.chunk()
             && let Some(facts) = defs.track(c.head().track_number)
             && let Some(key) = self
@@ -1150,9 +1154,6 @@ impl<S: TapeSink> TapeWriter<S> {
         {
             self.relations.deferred(key, &c, facts);
         }
-        self.place_overdue(puts_len_upper(&needs))?;
-        self.ensure_head()?;
-        self.put_chosen(&needs, false)?;
         let d = Deferred {
             tracks: data_tracks(&b),
             block,
