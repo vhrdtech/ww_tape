@@ -356,9 +356,6 @@ const READ_LEN_MAX: usize = MAX_BLOCK_LEN;
 /// Bytes [TapeReader::newest_index] and the blank checks read at once.
 const WINDOW: usize = 64 * 1024;
 
-/// Bytes [TapeReader::verify] hashes per read.
-const VERIFY_STEP: usize = 1 << 20;
-
 /// A tape read by positional reads, see the [module docs](self).
 pub struct TapeReader<S> {
     src: S,
@@ -1112,55 +1109,11 @@ impl<S: ByteSource> TapeReader<S> {
         let (Some((fin, _)), Some(end)) = (&p.finish, p.finish_offset) else {
             return Err(ReadError::Unfinished);
         };
-        let listed: alloc::collections::BTreeMap<u64, u32> =
-            self.entries(i)?.iter().map(|e| (e.offset, e.len)).collect();
         let mut h = blake3::Hasher::new();
-        let mut buf = Vec::new();
-        let mut at = 0u64;
-        while let Some(left) = end.checked_sub(at).filter(|n| *n > 0) {
-            let by_entry = listed.get(&at).map(|l| u64::from(*l));
-            let by_header = if by_entry.is_none() && left >= wide(HEADER_LEN) {
-                let header = self.read(in_piece(p, at, HEADER_LEN)?, HEADER_LEN)?;
-                block_len(&header).ok().map(wide)
-            } else {
-                None
-            };
-            let block = by_entry
-                .or(by_header)
-                .filter(|n| *n >= wide(HEADER_LEN) && *n <= left && *n <= wide(MAX_BLOCK_LEN));
-            let n = match block {
-                Some(n) => {
-                    // at most MAX_BLOCK_LEN
-                    let n =
-                        usize::try_from(n).map_err(|_| ReadError::Index(IndexError::BadEntries))?;
-                    buf.resize(n, 0);
-                    self.src
-                        .read_at(in_piece(p, at, n)?, &mut buf)
-                        .map_err(ReadError::Source)?;
-                    if Block::read(&buf).is_ok_and(|b| b.len() == n) {
-                        crate::piece::hash_block(&mut h, &buf);
-                    } else {
-                        h.update(&buf);
-                    }
-                    n
-                }
-                None => {
-                    let to = listed
-                        .range(at.saturating_add(1)..)
-                        .next()
-                        .map_or(end, |(k, _)| (*k).min(end));
-                    let n = read_len(to.saturating_sub(at).max(1), VERIFY_STEP);
-                    buf.resize(n, 0);
-                    self.src
-                        .read_at(in_piece(p, at, n)?, &mut buf)
-                        .map_err(ReadError::Source)?;
-                    h.update(&buf);
-                    n
-                }
-            };
-            // n is at most left: at stays within end
-            at = at.saturating_add(wide(n));
-        }
+        crate::piece::hash_piece(&mut h, end, |at, buf| {
+            let off = in_piece(p, at, buf.len())?;
+            self.src.read_at(off, buf).map_err(ReadError::Source)
+        })?;
         Ok(*h.finalize().as_bytes() == fin.hash.0)
     }
 }
