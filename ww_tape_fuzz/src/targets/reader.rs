@@ -9,8 +9,8 @@ use std::cell::Cell;
 use ww_tape::piece::{WALK_MISS_BASE_MAX, WALK_MISS_PER_BYTE_MAX};
 use ww_tape::reader::{ByteSource, OutOfRange};
 use ww_tape::{
-    Block, BodyCodec, Describe, FileBlocks, Layout, Medium, Recovery, TapeReader, code_body,
-    coded_len_max,
+    Block, BodyCodec, Describe, FileBlocks, FileError, Layout, Medium, Recovery, TapeReader,
+    code_body, coded_len_max,
 };
 
 /// Bytes counted as a reader reads them.
@@ -63,7 +63,7 @@ pub(crate) fn walk(data: &[u8], recovery: Recovery, medium: Medium) -> Vec<Vec<u
     let mut blocks = vec![];
     let mut steps = 0usize;
     while let Some(b) = rd.next_block() {
-        if let Ok(b) = b {
+        if let Ok(b) = &b {
             let bytes = b.bytes().to_vec();
             if b.is_intact() {
                 assert!(Block::read(&bytes).is_ok());
@@ -78,8 +78,12 @@ pub(crate) fn walk(data: &[u8], recovery: Recovery, medium: Medium) -> Vec<Vec<u
                     _ = Describe::from_ww_bytes(r.item);
                 }
             }
-            round_trip(&b);
+            round_trip(b);
             blocks.push(bytes);
+        } else if let Err(FileError::Conflict { block, .. }) = b {
+            // a second good block of a seq with other bytes: reported, read, never handed out as a block
+            assert_eq!(recovery, Recovery::Resync);
+            blocks.push(block);
         }
         steps += 1;
         assert!(steps <= data.len() + 1, "every step consumes bytes");
