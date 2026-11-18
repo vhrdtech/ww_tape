@@ -1597,3 +1597,41 @@ fn check_defs<'a, 'd: 'a>(
     let items: Vec<Vec<u8>> = defs.iter().map(|d| open::encode(d).unwrap()).collect();
     table.check_batch(defs.iter().zip(&items).map(|(d, i)| (*d, i.as_slice())))
 }
+
+/// A chunk block marked FLAG_PAYLOAD_UNCHECKED (header bit 3, reserved) is refused by read and salvage alike as a
+/// level this build doesn't handle, not as damage, and so is its head read alone; the flag on another kind of block
+/// is not read.
+#[test]
+fn a_chunk_with_its_payload_unchecked_is_refused_as_a_level() {
+    let starts = [1i64, 2, 3];
+    let enc = crate::times::EncodedTimes::encode(&starts, None, None).unwrap();
+    let cols: std::vec::Vec<_> = enc.columns().collect();
+    let specs: std::vec::Vec<crate::ColumnSpec> = cols.iter().map(|c| c.0).collect();
+    let head = enc.head.chunk_head(9, 1, 0);
+    let mut buf = std::vec![0u8; crate::chunk::chunk_len(&head, &specs, 0)];
+    let n = crate::chunk::write_chunk(&mut buf, id(1), &head, &cols, 0).unwrap();
+    buf.truncate(n);
+    assert_eq!(
+        Block::read(&buf).unwrap().flags & crate::FLAG_PAYLOAD_UNCHECKED,
+        0
+    );
+    crate::restamp(
+        &mut buf,
+        id(1),
+        crate::FLAG_PAYLOAD_UNCHECKED,
+        crate::Reread::Whole,
+    )
+    .unwrap();
+    assert_eq!(
+        Block::read(&buf).err(),
+        Some(crate::BlockError::PayloadUnchecked)
+    );
+    assert_eq!(
+        Block::salvage(&buf).err(),
+        Some(crate::BlockError::PayloadUnchecked)
+    );
+    assert_eq!(
+        crate::ChunkHead::read_head(&buf).err(),
+        Some(crate::BlockError::PayloadUnchecked)
+    );
+}

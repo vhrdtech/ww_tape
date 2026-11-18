@@ -20,6 +20,7 @@ Covers `ww_tape` 0.1.0.
 - Format: column kind 8 holds a relation's values; index entry bytes 72..88 a chunk's range, flag bit 1 (TAPE-7).
 - `ColumnKind::Relation`, `IndexEntry::range`, `TrackFacts` `stored`/`monotone`/`range`; `DescribeError::RelationColumns`, `RelationNotBuilt` (TAPE-7).
 - `Durations::parse` takes the column kind it reads (TAPE-7).
+- Format: integrity levels reserved, written as full: piece head byte 146, header flag bit 3 on chunks, index entry flag bit 2; readers refuse other values with typed errors (TAPE-8).
 - Format: a series chunk head carries its grid and scale; series goldens rewritten, old v1 series files don't read (TAPE-3).
 - `SeriesSegment` records are gone: a series track has no records, takes `TrackRepeat::Stream`; put a `SeriesGrid` in `ChunkHead::grid` (TAPE-3).
 - `SeriesTimeline` is built from chunk heads (`from_chunks`, `push_chunk`); `from_records`, `check_chunk`, `chunk_ticks` are gone (TAPE-3).

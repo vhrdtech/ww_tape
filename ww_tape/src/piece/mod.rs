@@ -29,7 +29,8 @@
 //!  32 [16] piece id                 48 [32] owner id                80 u64 sequence number in the chain
 //!  88 u32  flags: bit 0 has a previous piece                        92 u32 previous session tag (0: none or unknown)
 //!  96 [32] previous piece's content hash                           128 [16] previous piece's id
-//! 144 u16  track row length, 96 (a reader takes longer rows and reads their first 96 bytes)    146 [6] reserved
+//! 144 u16  track row length, 96 (a reader takes longer rows and reads their first 96 bytes)
+//! 146 u8   integrity: 0 full, 1 CRC only, 2 none (reserved: written 0, a reader refuses another)    147 [5] reserved
 //! 152 ...  tracks × 96, one per track carried over from the pieces before:
 //!            0 u64 id    8 u32 number    12 u32 reserved    16 u64 next item (the first item number this piece holds)
 //!           24 i64 from tick (no item of the track here starts before it)
@@ -110,6 +111,10 @@ const HEAD_FIXED_LEN: usize = 120;
 const HEAD_TRACK_LEN: usize = 96;
 /// Where a piece head names its row length.
 const HEAD_ROW_LEN_AT: usize = 144;
+/// Where a piece head's integrity level is: 0 full ([INTEGRITY_FULL]), 1 CRC only, 2 none; reserved, written 0.
+const HEAD_INTEGRITY_AT: usize = 146;
+/// The integrity level of every piece this build writes and the one it reads: CRCs and hashes all computed.
+pub const INTEGRITY_FULL: u8 = 0;
 /// Where a piece head's tracks start.
 const HEAD_TRACKS_AT: usize = HEADER_LEN + HEAD_FIXED_LEN;
 /// Bytes of the fixed part of a finish body.
@@ -622,6 +627,11 @@ impl<'b> PieceHeadBlock<'b> {
             (HEAD_ROW_LEN_AT, HEAD_TRACK_LEN),
             0,
         )?;
+        let level =
+            crate::bytes::le_u8(block.bytes(), HEAD_INTEGRITY_AT).ok_or(IndexError::BadHead)?;
+        if level != INTEGRITY_FULL {
+            return Err(IndexError::UnknownIntegrity { level });
+        }
         let head = read_piece_head(block.bytes()).ok_or(IndexError::BadHead)?;
         Ok(PieceHeadBlock { head, rows, row })
     }

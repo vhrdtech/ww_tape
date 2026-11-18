@@ -279,3 +279,28 @@ fn finish_padding_is_checked_against_the_length() {
         );
     }
 }
+
+/// A piece head of an integrity level other than full (byte 146, reserved) is refused as a level this build doesn't
+/// handle, not read as damage; a block read as such stays good.
+#[test]
+fn a_piece_head_of_another_integrity_level_is_refused() {
+    let head = PieceHead {
+        ident: ident(0),
+        prev: None,
+        prev_session: crate::SessionTag::NONE,
+    };
+    let mut buf = vec![0u8; piece_head_len(0)];
+    let n = write_piece_head(&mut buf, id(0), &head, &[]).unwrap();
+    assert_eq!(buf[146], INTEGRITY_FULL);
+    for level in [1u8, 2, 3, 255] {
+        let mut b = buf[..n].to_vec();
+        b[146] = level;
+        let crc = crate::CRC.checksum(&b[..n - 4]);
+        b[n - 4..].copy_from_slice(&crc.to_le_bytes());
+        let block = Block::read(&b).expect("a good block");
+        assert_eq!(
+            PieceHeadBlock::read(&block).err(),
+            Some(IndexError::UnknownIntegrity { level })
+        );
+    }
+}

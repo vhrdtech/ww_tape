@@ -26,7 +26,7 @@
 //!  60 ...  n × track: id u64, first entry u32, entry count u32, CRC-32C of its entries u32, reserved u32
 //!  ...     entries, each:
 //!            0 u64 offset of the block in the piece    8 u32 its length        12 u8 its block kind
-//!           13 u8  summary level (0 for other kinds)   14 u8 summary tree      15 u8 flags: bit 0 repeat, bit 1 range
+//!           13 u8  summary level (0 for other kinds)   14 u8 summary tree      15 u8 flags: bit 0 repeat, bit 1 range, bit 2 unhashed (reserved, 0)
 //!           16 u64 track id (0: none)                 24 u32 track number      28 u32 0 (a state record's below)
 //!           32 u64 first item number                  40 u64 items (samples, records)
 //!           48 i64 first tick                         56 i64 last tick         64 i64 latest end
@@ -88,6 +88,9 @@ pub const STATE_TRACK_ID: u64 = u64::MAX;
 const ENTRY_REPEAT: u8 = 1;
 /// Entry flag: the entry carries the range of its chunk's range relation.
 const ENTRY_RANGE: u8 = 2;
+/// Entry flag, reserved: the chunk's unit hash was not computed (an integrity level below full). Written 0; a reader
+/// of this build refuses an index with it set ([IndexError::Unhashed]).
+pub const ENTRY_UNHASHED: u8 = 4;
 /// Offset that means none.
 pub const NONE: u64 = u64::MAX;
 
@@ -492,6 +495,14 @@ pub enum IndexError {
     BadHead,
     /// A track's entries don't match their CRC or its list, or an entry names no block (a length outside a block's).
     BadEntries,
+    /// A piece head states an integrity level this build doesn't handle (byte 146, 0 is full integrity): a level, not
+    /// damage.
+    UnknownIntegrity {
+        level: u8,
+    },
+    /// An index entry is marked unhashed ([ENTRY_UNHASHED]), an integrity level this build doesn't handle: a level,
+    /// not damage.
+    Unhashed,
     /// The buffer is shorter than the block.
     Full {
         needed: usize,
@@ -688,9 +699,12 @@ impl<'b> IndexBlock<'b> {
         }
         let ix = Self::read_head(block.bytes())?;
         let mut n = 0usize;
-        for e in ix.entries() {
+        for (i, e) in ix.entries().enumerate() {
             if !e.is_in_range() {
                 return Err(IndexError::BadEntries);
+            }
+            if ix.entry_flags(i) & ENTRY_UNHASHED != 0 {
+                return Err(IndexError::Unhashed);
             }
             n = n.saturating_add(1);
         }
@@ -848,6 +862,14 @@ impl<'b> IndexBlock<'b> {
             .get(at..at.checked_add(self.entry_len)?)?
             .first_chunk::<ENTRY_LEN>()
             .map(IndexEntry::decode)
+    }
+
+    /// Entry `i`'s flag byte; 0 past the last entry.
+    fn entry_flags(&self, i: usize) -> u8 {
+        self.entry_offset(i)
+            .and_then(|at| self.bytes.get(at.checked_add(15)?))
+            .copied()
+            .unwrap_or(0)
     }
 
     /// Every entry; none when only the head was read.

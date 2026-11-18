@@ -453,3 +453,24 @@ fn lists_past_the_entries_are_refused() {
         Err(IndexError::BadEntries)
     ));
 }
+
+/// An index whose entry is marked unhashed (flag bit 2, reserved) is refused as a level this build doesn't handle.
+#[test]
+fn an_unhashed_entry_is_refused_as_a_level() {
+    let entries: Vec<_> = (0..3).map(|i| entry(i % 2, 1000 + i * 300)).collect();
+    let head = IndexHead {
+        kind: IndexKind::Checkpoint,
+        self_offset: 2500,
+        prev: None,
+    };
+    let mut bytes = write(&head, &entries);
+    let ix = IndexBlock::read(&Block::read(&bytes).unwrap()).unwrap();
+    let at = ix.entry_offset(1).unwrap() + 15;
+    assert_eq!(bytes[at] & ENTRY_UNHASHED, 0, "written 0");
+    bytes[at] |= ENTRY_UNHASHED;
+    let n = bytes.len();
+    let crc = crate::CRC.checksum(&bytes[..n - 4]);
+    bytes[n - 4..].copy_from_slice(&crc.to_le_bytes());
+    let block = Block::read(&bytes).expect("a good block");
+    assert_eq!(IndexBlock::read(&block).err(), Some(IndexError::Unhashed));
+}
