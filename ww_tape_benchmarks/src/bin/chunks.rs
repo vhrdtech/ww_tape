@@ -1,9 +1,11 @@
 //! What a writer spends per series chunk: `TapeWriter::write_chunk` of a chunk it encodes from columns, and
 //! `write_block` of the same chunk made by the caller, against the parts they are made of: encoding the block
 //! (`chunk::write_chunk`: the copy and the CRCs), reading it back with its CRCs checked (`Block::read`), and the
-//! content hash every placed block goes into (`ItemHash::of`, BLAKE3). Prints a Markdown table of ns per chunk and
+//! content hash every placed block goes into (`ItemHash::of`, BLAKE3), and the unit hash of the chunk that its index
+//! entry stores and its track's hash takes in (`TrackHash::chunk_unit`). Prints a Markdown table of ns per chunk and
 //! GB/s for each, the best of `--rounds` rounds of `--chunks` chunks, with the load average at the start. Then what a
-//! reader spends on the series timeline of such a track: from the chunk heads alone, and from whole blocks.
+//! reader spends on such a track: its series timeline from the chunk heads alone and from whole blocks, and the hash
+//! of all its chunks from the index (`TapeReader::range_hash`).
 
 use clap::Parser;
 use shrink_wrap::prelude::*;
@@ -12,12 +14,13 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 use ww_tape::chunk::{ChunkHead, chunk_len, write_chunk};
+use ww_tape::piece::payload_hash;
 use ww_tape::reader::ByteSource;
 use ww_tape::{
     ALIGNMENT, Block, BlockId, BlockKind, ClockDef, ClockOrigin, Codec, ColumnKind, ColumnSpec,
-    Definitions, Describe, EndMode, FullVersion, ItemHash, Magnitude, Ratio64, Segment, SeriesDef,
-    SeriesGrid, SeriesTimeline, SessionTag, SyncPolicy, TapeReader, TapeSink, TapeWriter, TrackDef,
-    TrackKind, Version, clock_key, track_key,
+    Definitions, Describe, EndMode, FullVersion, ItemHash, Magnitude, OwnerId, Ratio64, Segment,
+    SeriesDef, SeriesGrid, SeriesTimeline, SessionTag, SyncPolicy, TapeReader, TapeSink,
+    TapeWriter, TrackDef, TrackHash, TrackKind, Version, clock_key, track_key,
 };
 
 #[derive(Parser)]
@@ -209,6 +212,18 @@ fn main() -> anyhow::Result<()> {
         black_box(ItemHash::of(black_box(&block)));
         Ok(())
     })?;
+    let whole = Block::read(&block).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    let chunk = whole
+        .chunk()
+        .ok_or_else(|| anyhow::anyhow!("not a chunk"))?;
+    let payload = payload_hash(chunk.payload());
+    let unit = best(r, c, |_| {
+        black_box(TrackHash::chunk_unit(
+            black_box(&chunk),
+            black_box(&payload),
+        ));
+        Ok(())
+    })?;
     let mut w = writer()?;
     let own = best(r, c, |_| {
         let k = w.next_id().seq;
@@ -237,6 +252,7 @@ fn main() -> anyhow::Result<()> {
         ("`chunk::write_chunk`: copy and CRCs", encode),
         ("`Block::read`: the CRCs checked", read),
         ("`ItemHash::of`: BLAKE3", hash),
+        ("`TrackHash::chunk_unit`: the unit hash", unit),
         ("`TapeWriter::write_chunk` (columns)", own),
         ("`chunk::write_chunk` + `TapeWriter::write_block`", theirs),
     ] {
@@ -298,6 +314,7 @@ fn timeline(
     let c = f64::from(args.chunks);
     let mut heads = (f64::INFINITY, 0u64);
     let mut whole = (f64::INFINITY, 0u64);
+    let mut fold = (f64::INFINITY, 0u64);
     for _ in 0..args.rounds {
         let from = src.read.get();
         let t = Instant::now();
@@ -321,6 +338,18 @@ fn timeline(
         let ns = t.elapsed().as_nanos() as f64 / c;
         anyhow::ensure!(tl.stretches().len() == 1);
         whole = (whole.0.min(ns), src.read.get() - from);
+
+        let from = src.read.get();
+        let t = Instant::now();
+        let got = r
+            .range_hash(track_id, OwnerId::NONE, 0..u64::MAX, TrackHash::START)
+            .map_err(re)?;
+        let ns = t.elapsed().as_nanos() as f64 / c;
+        anyhow::ensure!(
+            got.read == 0 && got.chunks == u64::from(args.chunks),
+            "{got:?}"
+        );
+        fold = (fold.0.min(ns), src.read.get() - from);
     }
     println!(
         "\nTimeline of a track of {} chunks, aligned to {alignment} bytes (0: not aligned), in memory.\n",
@@ -331,6 +360,7 @@ fn timeline(
     for (what, (ns, bytes)) in [
         ("`TapeReader::series_timeline`: heads alone", heads),
         ("`TapeReader::read_block` of every chunk", whole),
+        ("`TapeReader::range_hash`: unit hashes from the index", fold),
     ] {
         println!("| {what} | {} | {ns:.0} |", bytes / u64::from(args.chunks));
     }

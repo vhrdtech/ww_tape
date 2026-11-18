@@ -1042,8 +1042,9 @@ fn ten_thousand_tracks_one_at_a_time() {
             .unwrap();
     }
     let grown = tape.to_vec().unwrap().len() - start;
-    // a block of definitions and a data block per track are about 200 bytes; checkpoints add 72 bytes per record
-    assert!(grown < TRACKS as usize * 400, "{grown} bytes");
+    // a block of definitions and a data block per track are about 200 bytes; checkpoints add an entry for each
+    let per_track = 200 + 2 * ww_tape::index::ENTRY_LEN;
+    assert!(grown < TRACKS as usize * per_track, "{grown} bytes");
     w.finish().unwrap();
     let bytes = tape.to_vec().unwrap();
     let src = Counting {

@@ -213,12 +213,12 @@ pub mod piece;
 pub use piece::{ChainOptions, ChunkPlaced, CutPolicy, PieceChain, PieceFiles};
 pub use piece::{
     ContentHash, Finish, FinishState, OwnerId, PIECE_ALIGN, PieceHead, PieceId, PieceIdent,
-    TAIL_LEN, Tail, TrackHash, TrackRange, TrackStart,
+    TAIL_LEN, Tail, TrackHash, TrackRange, TrackStart, UnitHash,
 };
 #[cfg(feature = "alloc")]
 pub mod reader;
 #[cfg(feature = "alloc")]
-pub use reader::{ByteSource, OpenOptions, PieceInfo, ReadError, TapeReader};
+pub use reader::{ByteSource, OpenOptions, PieceInfo, RangeHash, ReadError, TapeReader};
 
 mod event;
 pub use event::{EventRecord, EventRecordError};

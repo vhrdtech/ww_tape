@@ -42,8 +42,8 @@ use crate::index::{IndexPolicy, Indexer};
 use crate::open::{RecordRef, write_records};
 use crate::piece::{
     ContentHash, Finish, FinishState, OwnerId, PIECE_ALIGN, PieceHead, PieceId, PieceIdent,
-    TAIL_LEN, Tail, TrackStart, finish_len, finish_padding, hash_block, piece_head_len,
-    write_finish, write_piece_head,
+    TAIL_LEN, Tail, TrackHash, TrackStart, UnitHash, finish_len, finish_padding, hash_block,
+    piece_head_len, write_finish, write_piece_head,
 };
 use crate::reader::{ReadError, wide};
 pub use crate::sink::partial_name;
@@ -908,12 +908,16 @@ impl<S: TapeSink> TapeWriter<S> {
     ) -> Result<(), WriteError> {
         let bytes = self.end_after(block.len())?;
         let chunk = hash_block(&mut self.hash, block);
+        // the unit hash goes into the chunk's index entry and its track's hash: computed once, here
+        let unit = chunk.as_ref().map_or(UnitHash::NONE, |(c, payload)| {
+            TrackHash::chunk_unit(c, payload)
+        });
         // blocks the file structure adds are not counted: seq stays the producer's count of its own blocks
         let kind = BlockKind::from_u8(header[5]);
         let flags = u16::from_le_bytes([header[6], header[7]]);
         let repeat = kind == BlockKind::Records && flags & crate::FLAG_REPEAT != 0;
         let counted = !repeat && !crate::index::is_structural(kind);
-        let again = self.index(block, crc, counted);
+        let again = self.index(block, crc, counted, unit);
         // a counted block of data goes into its tracks' hashes once: written again with the same bytes it adds
         // nothing, with other bytes it takes the place of the one before
         let tally = counted && again != Again::Same;
@@ -922,8 +926,8 @@ impl<S: TapeSink> TapeWriter<S> {
                 self.indexer.undo_block();
             }
             self.indexer.begin_block();
-            if let Some((c, payload)) = &chunk {
-                self.indexer.tally_chunk(c, payload);
+            if let Some((c, _)) = &chunk {
+                self.indexer.tally_chunk(&c.head(), &unit);
             }
         }
         let at = self.bytes;
@@ -998,7 +1002,13 @@ impl<S: TapeSink> TapeWriter<S> {
 
     /// List `block`, placed here, in the index as readers take it: a counted block with the id of the last one is
     /// that block again, unlisted with the same bytes, in its place with other bytes.
-    fn index(&mut self, block: &[u8], crc: [u8; crate::CRC_LEN], counted: bool) -> Again {
+    fn index(
+        &mut self,
+        block: &[u8],
+        crc: [u8; crate::CRC_LEN],
+        counted: bool,
+        unit: UnitHash,
+    ) -> Again {
         let id = block_id(block);
         let last = self
             .last_counted
@@ -1010,11 +1020,11 @@ impl<S: TapeSink> TapeWriter<S> {
             }
             Some((.., offset)) => {
                 self.indexer.replaced(offset);
-                self.indexer.placed(self.bytes, block);
+                self.indexer.placed(self.bytes, block, unit);
                 Again::Replaced
             }
             None => {
-                self.indexer.placed(self.bytes, block);
+                self.indexer.placed(self.bytes, block, unit);
                 Again::New
             }
         };

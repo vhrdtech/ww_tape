@@ -129,6 +129,13 @@ in one piece or many, in one file or many, ends with the same hash. Two recordin
 exactly when their hashes match, and a subset copy that keeps a track's chunks and records unchanged ends with the
 original's hash. [The file format](format.md) lists the bytes the hash takes in.
 
+The hash of a part of a track works the same way. Folded from 32 zero bytes over a run of whole chunks, it depends only
+on those chunks. `TapeReader::range_hash` gives it for the chunks that hold any item of an item range. The writer stores
+each chunk's share of the hash in the chunk's index entry, so the fold reads only the index, never a payload. Where the
+index is damaged or missing, the reader reads the chunks and computes the same hash. For example, a program that
+processed items 1,000 to 50,000 of a track can record the range hash of its input, and anyone can later check that a
+file still holds exactly that input. A track's records are not chunks, so a range hash leaves them out.
+
 ### The 4 KiB end and cloning
 
 A finished piece is a multiple of 4 KiB long. The writer pads the finish block with zeros up to the boundary, so the

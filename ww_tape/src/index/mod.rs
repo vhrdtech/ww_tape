@@ -22,7 +22,7 @@
 //!          block), u64::MAX for none
 //!  56 u16  flags: bit 0 final (entries sorted by track id, then offset, state records of one block in block order; a directory
 //!          of tracks follows)
-//!  58 u16  entry length, 72 (a reader takes longer entries and reads their first 72 bytes)
+//!  58 u16  entry length, 120 (a reader takes longer entries and reads their first 120 bytes)
 //!  60 ...  n × track: id u64, first entry u32, entry count u32, CRC-32C of its entries u32, reserved u32
 //!  ...     entries, each:
 //!            0 u64 offset of the block in the piece    8 u32 its length        12 u8 its block kind
@@ -30,6 +30,7 @@
 //!           16 u64 track id (0: none)                 24 u32 track number      28 u32 0 (a state record's below)
 //!           32 u64 first item number                  40 u64 items (samples, records)
 //!           48 i64 first tick                         56 i64 last tick         64 i64 latest end
+//!           72 [16] 0, reserved                       88 [32] a chunk's unit hash, else 0
 //! len-4 u32 CRC over bytes 0..len-4, as in every block
 //! ```
 //!
@@ -53,6 +54,7 @@
 
 use crate::bytes::{file_u16, file_u32, le_u16, le_u32, le_u64};
 use crate::chunk::u32_len;
+use crate::piece::UnitHash;
 use crate::state::{ItemHash, Slot};
 use crate::{
     Block, BlockError, BlockId, BlockKind, BoundError, CRC, CRC_LEN, ChunkHead, HEADER_LEN,
@@ -60,7 +62,10 @@ use crate::{
 };
 
 /// Bytes of one index entry.
-pub const ENTRY_LEN: usize = 72;
+pub const ENTRY_LEN: usize = 120;
+
+/// Where an entry's unit hash ([UnitHash]) starts.
+const ENTRY_UNIT_AT: usize = 88;
 /// Bytes of one track in a final index's directory.
 pub const TRACK_LEN: usize = 24;
 /// Bytes of the fixed part of an index head (32..60).
@@ -127,6 +132,9 @@ pub struct IndexEntry {
     pub latest_end: i64,
     /// The block is marked [FLAG_REPEAT](crate::FLAG_REPEAT).
     pub repeat: bool,
+    /// A chunk's unit hash, which its track's hash takes in; [UnitHash::NONE] for other blocks and for an entry a
+    /// reader made by a scan.
+    pub unit: UnitHash,
 }
 
 /// What an index entry of a state record says, see the [module docs](self).
@@ -240,6 +248,7 @@ impl IndexEntry {
             last_tick: 0,
             latest_end: 0,
             repeat: false,
+            unit: UnitHash::NONE,
         };
         match block.kind {
             BlockKind::Index
@@ -292,6 +301,7 @@ impl IndexEntry {
             last_tick: head.last_tick,
             latest_end: head.latest_end,
             repeat: false,
+            unit: UnitHash::NONE,
         })
     }
 
@@ -336,6 +346,9 @@ impl IndexEntry {
         for (d, s) in out.iter_mut().zip(fields) {
             *d = s;
         }
+        if let Some(unit) = out.get_mut(ENTRY_UNIT_AT..) {
+            unit.copy_from_slice(&self.unit.0);
+        }
         out
     }
 
@@ -348,6 +361,8 @@ impl IndexEntry {
             i0, i1, i2, i3, i4, i5, i6, i7, c0, c1, c2, c3, c4, c5, c6, c7,
             f0, f1, f2, f3, f4, f5, f6, f7, s0, s1, s2, s3, s4, s5, s6, s7,
             e0, e1, e2, e3, e4, e5, e6, e7,
+            _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _,
+            u @ ..
         ] = *b;
         IndexEntry {
             offset: u64::from_le_bytes([o0, o1, o2, o3, o4, o5, o6, o7]),
@@ -364,6 +379,7 @@ impl IndexEntry {
             last_tick: i64::from_le_bytes([s0, s1, s2, s3, s4, s5, s6, s7]),
             latest_end: i64::from_le_bytes([e0, e1, e2, e3, e4, e5, e6, e7]),
             repeat: flags & ENTRY_REPEAT != 0,
+            unit: UnitHash(u),
         }
     }
 

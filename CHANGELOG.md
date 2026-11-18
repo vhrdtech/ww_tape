@@ -13,6 +13,8 @@ Covers `ww_tape` 0.1.0.
 - `ChainOptions` gains `files`; `Finished` gains `start` and `tracks`; `SinkFactory` gains `create_whole` and `open_whole` (TAPE-8).
 - Format: piece head rows (96 B) and finish rows (128 B) carry owner and track hash, each with a row length (TAPE-8).
 - Format: the content hash takes each chunk payload by its BLAKE3 hash; goldens, seeds and figures rewritten (TAPE-8).
+- Format: index entries are 120 B, a chunk's unit hash at 88; track hashes chain over unit hashes (TAPE-8).
+- `IndexEntry` gains `unit`; `TrackHash::chunk` and `record` fold unit hashes (`TrackHash::then`) (TAPE-8).
 - `TrackStart` gains `owner` and `hash`, `TrackRange` gains `owner`, `hash` and `records`; tracks key by id and owner (TAPE-8).
 - Format: `TrackDef` gains `parent`, `context` and `entity_key`; goldens and seeds rewritten, older definitions don't read (TAPE-7).
 - Format: a series chunk head carries its grid and scale; series goldens rewritten, old v1 series files don't read (TAPE-3).
@@ -93,6 +95,7 @@ Covers `ww_tape` 0.1.0.
 - `PieceChain::resume_on` of a one-file chain resumes its unfinished last piece, or starts a new write session's piece behind it (TAPE-8).
 - `TrackDef::owner`: opaque 32 bytes outside the identity telling apart tracks of several owners in one file (TAPE-8).
 - A running hash per track (`TrackHash`), alike alone or interleaved, in one piece or many; `Finished::tracks` reports it (TAPE-8).
+- `TapeReader::range_hash`: the hash of a track's whole chunks over an item range, from the index alone (TAPE-8).
 - `MemTapes::remove` takes a finished piece out (readers keep their bytes, an unfinished piece is `WriteError::Unfinished`); `PieceChain` makes a `MemSink` reserve its cut size (`CUT_SLACK`), a reader's worst wait 0.5 to 0.6 ms down to 0.1 to 0.16 ms (TAPE-6).
 - One CRC-32C everywhere; SSE4.2/ARMv8 hardware kernels cut `write_chunk`'s CRC from 237 to 89 µs/MiB (TAPE-5).
 - `write_chunk` no longer reads its own chunk back; caller blocks are CRC-checked once: 1 MiB chunk 857 to 466 µs (TAPE-4).
