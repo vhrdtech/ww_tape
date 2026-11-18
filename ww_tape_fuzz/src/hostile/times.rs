@@ -14,11 +14,14 @@ const FLAGS_RECORD: usize = 8;
 
 const WIDTH_CAPS: &[u64] = &[WIDTH_MAX as u64, 32, 63];
 
-/// Bytes of a relation column's head in the starts codec: mode, first, last.
+/// Bytes of a relation column's item count, which every relation column starts with.
+const RELATION_COUNT: usize = 4;
+
+/// Bytes of a relation column's head in the starts codec after its count: mode, first, last.
 const RELATION_HEAD: usize = 17;
 
-/// The fields of group `g`'s record in a column of `kind` starting at `at`; a relation column's head and records by
-/// its codec (`any`: the durations record) and its own mode byte.
+/// The fields of group `g`'s record in a column of `kind` starting at `at`; a relation column's count, head and
+/// records by its codec (`any`: the durations record) and its own mode byte.
 fn record_fields(
     kind: ColumnKind,
     linear: bool,
@@ -28,10 +31,24 @@ fn record_fields(
     g: usize,
 ) -> Vec<Field<'static>> {
     match kind {
-        ColumnKind::Relation if any => record_fields(ColumnKind::Ends, linear, false, b, at, g),
+        ColumnKind::Relation if any => {
+            let mut f = vec![Field::new(at, RELATION_COUNT, &[0, 1])];
+            f.extend(record_fields(
+                ColumnKind::Ends,
+                linear,
+                false,
+                b,
+                at + RELATION_COUNT,
+                g,
+            ));
+            f
+        }
         ColumnKind::Relation => {
+            let count = Field::new(at, RELATION_COUNT, &[0, 1]);
+            let at = at + RELATION_COUNT;
             let mode_linear = b.get(at) == Some(&TimeMode::Linear.to_u8());
             let mut f = vec![
+                count,
                 Field::new(at, 1, &[]),
                 Field::new(at + 1, 8, &[]),
                 Field::new(at + 9, 8, &[]),

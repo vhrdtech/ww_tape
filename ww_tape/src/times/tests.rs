@@ -846,6 +846,43 @@ fn a_monotone_relation_refuses_a_decrease() {
     assert_eq!(c.column().0.codec, DURATIONS);
 }
 
+/// A relation column holds its own item count: values that decode for as many items as the chunk holds but were
+/// encoded for fewer, or a count other than the chunk's, are refused, in either codec.
+#[test]
+fn a_relation_column_of_another_count_is_refused() {
+    let starts = [1i64, 2, 3, 4, 5];
+    let enc = EncodedTimes::encode(&starts, None, None).expect("valid times");
+    let track = StoredRelations {
+        stored: 1,
+        monotone: 0,
+    };
+    for values in [
+        &[5u64, 4][..],
+        &[1, 2],
+        &[5, 4, 3, 2, 1, 0],
+        &[1, 2, 3, 4, 5, 6],
+    ] {
+        let rel = EncodedRelation::encode(0, values, false).expect("values encode");
+        let mut cols: Vec<(ColumnSpec, &[u8])> = enc.columns().collect();
+        cols.push(rel.column());
+        let specs: Vec<ColumnSpec> = cols.iter().map(|c| c.0).collect();
+        let head = enc.head.chunk_head(9, 1, 1000);
+        let mut b = std::vec![0u8; chunk_len(&head, &specs, 0)];
+        let len = write_chunk(&mut b, id(1), &head, &cols, 0).expect("a valid chunk");
+        b.truncate(len);
+        let block = Block::read(&b).expect("a good block");
+        let chunk = block.chunk().unwrap();
+        assert_eq!(
+            RelationColumn::read(&chunk, track, 0).err(),
+            Some(TimesError::Corrupt {
+                kind: ColumnKind::Relation,
+                what: "an item count other than the chunk's"
+            }),
+            "{values:?}"
+        );
+    }
+}
+
 #[test]
 fn a_relation_column_in_an_unknown_codec_is_refused_and_the_times_still_read() {
     let starts = [1i64, 2, 3];
