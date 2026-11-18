@@ -10,6 +10,7 @@ Covers `ww_tape` 0.1.0.
 
 ### ⚠️ Breaking
 
+- `EventsDef` gains `flag_counts`, `EventNode` and `ItemRun` gain `counts`, `EventFields` gains `flag_counts`; set 0 or `FlagCounts::UNKNOWN` (TAPE-11).
 - `verify` holds only when the final index and the walk are the same set; over `VERIFY_ENTRIES_MAX` entries: `ReadError::VerifyEntries` (TAPE-9).
 - A resume that meets a finish, tail or final index before the end of what its reader took refuses (`WriteError::GoodBlockAfterCut`) where a block of the piece's session follows it; it cut them off (TAPE-8).
 - A chunk or summary whose head names its track under another id than the definition's is refused (`DescribeError::TrackId`) (TAPE-8).
@@ -120,6 +121,7 @@ Covers `ww_tape` 0.1.0.
 
 ### 🚀 Features
 
+- Event trees count up to 8 declared flag bits per node, exact at every level; `verify` checks parent sums (TAPE-11).
 - Logo: mark, wordmark, lockups, icons and social card in `assets/logo`, exported by `just logo` from one Typst source.
 - `PieceFiles::One`: a chain's pieces back to back in one file or memory tape; a cut appends in place (`cut_in_place`) (TAPE-8).
 - `PieceChain::resume_on` of a one-file chain resumes its unfinished last piece, or starts a new write session's piece behind it (TAPE-8).

@@ -127,7 +127,24 @@ fn naive_event(items: &[(i64, i64, u32)], fields: EventFields) -> EventNode {
             0
         },
         latest_end: items.iter().map(|x| x.1).max().unwrap(),
+        counts: naive_counts(items, fields),
     }
+}
+
+/// The flag counts of `items` a tree with `fields` keeps: each counted bit's set items.
+fn naive_counts(items: &[(i64, i64, u32)], fields: EventFields) -> FlagCounts {
+    if fields.flag_counts == 0 {
+        return FlagCounts::UNKNOWN;
+    }
+    let mut n = [0u64; 8];
+    for (j, c) in n
+        .iter_mut()
+        .enumerate()
+        .take(usize::from(fields.flag_counts))
+    {
+        *c = items.iter().filter(|x| x.2 >> j & 1 == 1).count() as u64;
+    }
+    FlagCounts::new(fields.flag_counts, n).unwrap()
 }
 
 /// Build the tree of `items` (item numbers from `origin`), check every level against the naive model and that each
@@ -148,6 +165,13 @@ fn check_events(items: &Items, origin: u64, fields: EventFields, runs: bool) -> 
                 last_tick: run[n - 1].0,
                 flags: run.iter().fold(0, |f, x| f | x.2),
                 latest_end: run.iter().map(|x| x.1).max().unwrap(),
+                counts: naive_counts(
+                    run,
+                    EventFields {
+                        flag_counts: 8,
+                        ..fields
+                    },
+                ),
             })
             .unwrap();
             i += n;
@@ -206,17 +230,29 @@ fn event_tree_matches_naive_model() {
     let instants = EventFields {
         flags: true,
         latest_end: false,
+        flag_counts: 0,
     };
     let span_fields = EventFields {
         flags: true,
         latest_end: true,
+        flag_counts: 0,
     };
-    let workloads: [Workload; 5] = [
+    let counted = EventFields {
+        flag_counts: 3,
+        ..instants
+    };
+    let spans_counted = EventFields {
+        flag_counts: 8,
+        ..span_fields
+    };
+    let workloads: [Workload; 7] = [
         ("bursty", bursty, EventFields::default()),
         ("periodic-jitter", periodic_jitter, instants),
         ("exact-gaps", exact_gaps, instants),
         ("sparse", sparse, instants),
         ("spans", spans, span_fields),
+        ("periodic-jitter-counted", periodic_jitter, counted),
+        ("spans-counted", spans, spans_counted),
     ];
     for (name, make, fields) in workloads {
         for (n, origin) in [
@@ -242,6 +278,7 @@ fn event_tree_refuses_bad_input() {
     let f = EventFields {
         flags: false,
         latest_end: false,
+        flag_counts: 0,
     };
     let mut t = EventTree::new(1, 1, f, 0);
     t.push(10, 10, 0).unwrap();
@@ -253,6 +290,7 @@ fn event_tree_refuses_bad_input() {
         last_tick: 30,
         flags: 0,
         latest_end: 30,
+        counts: FlagCounts::UNKNOWN,
     };
     assert!(t.push_run(run(0)).is_err());
     assert!(t.push_run(run(2048)).is_err(), "across a level-0 node");
@@ -270,6 +308,7 @@ fn overview_of_a_billion_items_reads_a_level() {
     let fields = EventFields {
         flags: true,
         latest_end: false,
+        flag_counts: 0,
     };
     let mut tree = EventTree::new(9, 1, fields, 0);
     let mut item = 0u64;
@@ -291,6 +330,7 @@ fn overview_of_a_billion_items_reads_a_level() {
             last_tick: t + (count as i64 - 1) * 1000,
             flags: 0,
             latest_end: t + (count as i64 - 1) * 1000,
+            counts: FlagCounts::UNKNOWN,
         })
         .unwrap();
         item += count;
@@ -722,6 +762,7 @@ fn heads_read_back_and_bad_heads_are_refused() {
         EventFields {
             flags: true,
             latest_end: true,
+            flag_counts: 0,
         },
         100,
     );
@@ -1020,8 +1061,8 @@ fn summaries_fill_alignment_gaps() {
     assert_eq!(levels.keys().filter(|k| k.0 == top).count(), 1);
 }
 
-/// Event tree and series blocks of a small fixed workload are the golden file's (`WW_TAPE_GOLDEN=update` rewrites
-/// it): one block per line, in hex. Built twice: the same bytes.
+/// Event tree blocks (with and without flag counts) and series blocks of a small fixed workload are the golden file's
+/// (`WW_TAPE_GOLDEN=update` rewrites it): one block per line, in hex. Built twice: the same bytes.
 #[test]
 fn summary_golden() {
     let build = || {
@@ -1031,6 +1072,7 @@ fn summary_golden() {
             EventFields {
                 flags: true,
                 latest_end: true,
+                flag_counts: 0,
             },
             2000,
         );
@@ -1041,6 +1083,14 @@ fn summary_golden() {
         }
         t.finish().unwrap();
         let mut blocks = t.take_blocks();
+        // the same items on a tree counting flag bits 0 to 2
+        let mut t = EventTree::new(0xabce, 4, counted(3), 2000);
+        t.set_max_block_bytes(256);
+        for i in 0..2200i64 {
+            t.push(i * 7 - 3000, i * 7 - 3000, 1 << (i % 5)).unwrap();
+        }
+        t.finish().unwrap();
+        blocks.extend(t.take_blocks());
         let shape = SampleShape::new(Element::ComplexI16, 2);
         let start = SeriesStart {
             track_id: 0x5e,
@@ -1534,4 +1584,235 @@ fn series_cut_into_pieces_keeps_node_ticks() {
         "no node off the grid"
     );
     assert!(split > 0, "some nodes are split");
+}
+
+/// Fields of an event tree of instants with flags counting `k` bits.
+fn counted(k: u8) -> EventFields {
+    EventFields {
+        flags: true,
+        latest_end: false,
+        flag_counts: k,
+    }
+}
+
+/// `n` instants 10 ticks apart; item `i` has bit 0 set when `i % every == 0` (never for 0), bit 1 never.
+fn rare_flags(n: usize, every: usize) -> Items {
+    (0..n)
+        .map(|i| {
+            let t = i as i64 * 10;
+            let f = u32::from(every != 0 && i.is_multiple_of(every));
+            (t, t, f)
+        })
+        .collect()
+}
+
+/// Flag counts are exact at every level: each node of every level counts, per counted bit, its items with the bit
+/// set, item by item or by runs, from any first item, for 1 to 8 counted bits.
+#[test]
+fn event_tree_counts_flags_exactly_at_every_level() {
+    let mut rng = Rng(0x5eed_f1a6);
+    for k in [1u8, 2, 8] {
+        for (n, origin) in [(1, 0), (2049, 0), (40_000, 2048 * 15 + 100), (600_000, 0)] {
+            let items: Items = rare_flags(n, 1000)
+                .into_iter()
+                .map(|(s, e, f)| (s, e, f | (rng.below(4) as u32) << 1))
+                .collect();
+            let a = check_events(&items, origin, counted(k), false);
+            let b = check_events(&items, origin, counted(k), true);
+            assert_eq!(a, b, "{k} bits: runs and single items give the same bytes");
+        }
+    }
+}
+
+/// A tree that counts no bit stores no count column, and its nodes say the counts are unknown, never 0.
+#[test]
+fn a_tree_without_flag_counts_reads_counts_unknown() {
+    let items = rare_flags(5000, 7);
+    let plain = check_events(&items, 0, counted(0), false);
+    let one = check_events(&items, 0, counted(1), false);
+    let total = |blocks: &[Vec<u8>]| blocks.iter().map(Vec::len).sum::<usize>();
+    assert!(total(&one) > total(&plain), "a counted bit costs bytes");
+    for b in &plain {
+        let s = Summary::read(b).unwrap();
+        for i in 0..s.node_count() {
+            let c = s.event_node(i).unwrap().counts;
+            assert_eq!(c.known(), 0);
+            assert_eq!(c.get(0), None, "unknown, not 0");
+        }
+    }
+}
+
+/// The one block of a level-0 node of 10 items counting 2 bits: 4 items with bit 0, none with bit 1. Its body ends
+/// in the count columns: width 3, count 4, width 0.
+fn small_counted_block() -> Vec<u8> {
+    let mut t = EventTree::new(1, 1, counted(2), 0);
+    for i in 0..10i64 {
+        t.push(i, i, u32::from(i % 3 == 0)).unwrap();
+    }
+    t.finish().unwrap();
+    let blocks = t.take_blocks();
+    assert_eq!(blocks.len(), 1);
+    let b = blocks.into_iter().next().unwrap();
+    let end = b.len() - CRC_LEN;
+    assert_eq!(&b[end - 3..end], &[3, 4, 0], "width 3, count 4, width 0");
+    let node = Summary::read(&b).unwrap().event_node(0).unwrap();
+    assert_eq!((node.counts.get(0), node.counts.get(1)), (Some(4), Some(0)));
+    b
+}
+
+/// A reader refuses count columns that break a rule: a count above the node's items, a width wider than the
+/// largest count needs, spare bits not zero, a count of a bit the flags OR doesn't have, more than 8 counted bits,
+/// counts without flags.
+#[test]
+fn bad_flag_count_columns_are_refused() {
+    let good = small_counted_block();
+    let end = good.len() - CRC_LEN;
+    let refused = |b: &[u8], why: &'static str| {
+        assert_eq!(
+            Summary::read(b).map(|_| ()),
+            Err(SummaryError::Invalid(why)),
+            "{why}"
+        );
+    };
+    let mut b = good.clone();
+    b[end - 3] = 4;
+    b[end - 2] = 11;
+    refused(&b, "flag count above the node's items");
+    let mut b = good.clone();
+    b[end - 3] = 4;
+    refused(&b, "count width not the fewest bits");
+    let mut b = good.clone();
+    b[end - 2] = 4 | 0x80;
+    refused(&b, "count column padding not zero");
+    let mut b = good.clone();
+    // the flags OR of node 0, after the first and last ticks: bit 1 with no item counted
+    let flags_at = HEADER_LEN + SUMMARY_FIXED_LEN + 16;
+    b[flags_at] = 3;
+    refused(&b, "flag count disagrees with the flags OR");
+    let mut b = good.clone();
+    b[48..50].copy_from_slice(&0x0901u16.to_le_bytes());
+    refused(&b, "unknown fields");
+    let mut b = good;
+    b[48..50].copy_from_slice(&0x0200u16.to_le_bytes());
+    refused(&b, "unknown fields");
+}
+
+/// The blocks of a counted tree of 40 000 items (levels 0 to 2) with the level-1 node 0's count of bit 0 smaller when
+/// `tamper`, still a block that reads alone, written with the definitions into a finished piece.
+fn counted_piece(tamper: bool) -> Vec<u8> {
+    use crate::{MemSink, SyncPolicy, TapeWriter};
+    let mut t = EventTree::new(crate::tests::test_track_id(), 1, counted(1), 0);
+    // bit 0 on every 100th item but in the first and last 100 of each level-1 node
+    for i in 0..40_000i64 {
+        let edge = i % 32_768 < 100 || i % 32_768 >= 32_668;
+        t.push(i * 10, i * 10, u32::from(i % 100 == 0 && !edge))
+            .unwrap();
+    }
+    t.finish().unwrap();
+    let mut blocks = t.take_blocks();
+    if tamper {
+        let b = blocks
+            .iter_mut()
+            .find(|b| Summary::read(b).unwrap().head().level == 1)
+            .unwrap();
+        let s = Summary::read(b).unwrap();
+        let n = s.node_count();
+        let width = counts::width_of(s.event_node(0).unwrap().counts.get(0).unwrap());
+        let packed_at = HEADER_LEN + SUMMARY_FIXED_LEN + n * 20 + 1;
+        // the lowest set bit of node 0's count cleared: a smaller count of the same width, still above 0
+        let c = s.event_node(0).unwrap().counts.get(0).unwrap();
+        assert!(c.count_ones() >= 2 && width >= 2);
+        let p = c.trailing_zeros() as usize;
+        b[packed_at + p / 8] &= !(1 << (p % 8));
+        let less = c & (c - 1);
+        let len = b.len();
+        let crc = crate::CRC.checksum(&b[..len - CRC_LEN]);
+        b[len - CRC_LEN..].copy_from_slice(&crc.to_le_bytes());
+        assert_eq!(
+            Summary::read(b)
+                .unwrap()
+                .event_node(0)
+                .unwrap()
+                .counts
+                .get(0),
+            Some(less)
+        );
+    }
+    let defs = counted_defs(true, 1).unwrap();
+    let sink = MemSink::new(std::path::Path::new("counted"));
+    let tape = sink.tape();
+    let mut w = TapeWriter::create_on(sink, SyncPolicy::None);
+    for b in blocks {
+        w.defer_block(&defs, b).unwrap();
+    }
+    w.finish().unwrap();
+    tape.to_vec().unwrap()
+}
+
+/// Verify checks that each parent node counts what its children in the piece sum to: a level-1 node counting fewer
+/// items than its level-0 children fails it, though the block reads alone.
+#[test]
+fn verify_refuses_a_parent_count_that_is_not_its_childrens_sum() {
+    let good = counted_piece(false);
+    let r = crate::TapeReader::open(&good[..]).unwrap();
+    assert!(r.verify(0).unwrap(), "the tree as written holds");
+    let bad = counted_piece(true);
+    let r = crate::TapeReader::open(&bad[..]).unwrap();
+    assert!(
+        !r.verify(0).unwrap(),
+        "a parent's count below its children's sum"
+    );
+}
+
+/// Definitions of track 1, events with `flags` counting `k` bits.
+fn counted_defs(flags: bool, k: u8) -> Result<crate::Definitions, crate::DescribeError> {
+    use crate::{EventsDef, TrackDef, TrackKind};
+    let mut defs = crate::Definitions::new();
+    let mut held = crate::tests::test_definitions(1, &[]);
+    let crate::Describe::Track(base) = crate::tests::test_definitions(1, &[1]).remove(1) else {
+        unreachable!("a track")
+    };
+    held.push(crate::Describe::Track(TrackDef {
+        kind: TrackKind::Events(EventsDef {
+            ends: crate::Ends::Instants,
+            flags,
+            flag_counts: k,
+        }),
+        ..base
+    }));
+    defs.define_all(&held)?;
+    Ok(defs)
+}
+
+/// A track counts at most 8 flag bits, and only when its items carry flags; a summary block of its event tree counts
+/// exactly the bits its definition asks for, else a writer refuses it.
+#[test]
+fn flag_counts_are_declared_by_the_track() {
+    assert!(counted_defs(true, 8).is_ok());
+    assert!(matches!(
+        counted_defs(true, 9),
+        Err(crate::DescribeError::Kind { track: 1, .. })
+    ));
+    assert!(matches!(
+        counted_defs(false, 1),
+        Err(crate::DescribeError::Kind { track: 1, .. })
+    ));
+    let defs = counted_defs(true, 2).unwrap();
+    let block = |k| {
+        let mut t = EventTree::new(crate::tests::test_track_id(), 1, counted(k), 0);
+        t.push(0, 0, 1).unwrap();
+        t.finish().unwrap();
+        t.take_blocks().remove(0)
+    };
+    let mut w = crate::TapeWriter::create_on(
+        crate::MemSink::new(std::path::Path::new("declared")),
+        crate::SyncPolicy::None,
+    );
+    w.defer_block(&defs, block(2)).unwrap();
+    for k in [0, 1, 3] {
+        assert!(
+            w.defer_block(&defs, block(k)).is_err(),
+            "{k} bits counted, the track asks for 2"
+        );
+    }
 }

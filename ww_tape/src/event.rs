@@ -161,14 +161,17 @@ mod tests {
     const SPANS_FLAGS: EventsDef = EventsDef {
         ends: Ends::Spans,
         flags: true,
+        flag_counts: 0,
     };
     const SPANS: EventsDef = EventsDef {
         ends: Ends::Spans,
         flags: false,
+        flag_counts: 0,
     };
     const FLAGS: EventsDef = EventsDef {
         ends: Ends::Instants,
         flags: true,
+        flag_counts: 0,
     };
 
     fn round(def: EventsDef, start: i64, e: EventRecord<'_>) -> Vec<u8> {
@@ -249,6 +252,7 @@ mod tests {
         let unknown = EventsDef {
             ends: Ends::Unknown(9),
             flags: false,
+            flag_counts: 0,
         };
         assert_eq!(
             e.encode(unknown, 0, &mut out),

@@ -6,14 +6,17 @@
 //! tape pieces of one track line up, and a piece's first and last node may hold fewer items (a *partial* node).
 //!
 //! - **Event item tree** ([Tree::Events]): nodes of 2048 items at level 0. A node holds the first item's start, the
-//!   last item's start, the OR of the items' flags and, for spans, the latest end of any item. Counts are implicit.
+//!   last item's start, the OR of the items' flags and, for spans, the latest end of any item. Item counts are
+//!   implicit; a track that asks ([EventsDef::flag_counts](crate::EventsDef::flag_counts)) also stores per node how
+//!   many items have each of its low flag bits set ([FlagCounts]).
 //!   An overview of a track reads only the level whose nodes are about as many as the pixels, never the items.
 //! - **Series summaries** ([Tree::Series]): nodes of `2^base_shift` samples at level 0 ([SeriesSummarySpec]). A node
 //!   holds per channel the statistics the track declares ([SeriesStats]); no ticks, since a series' sample ticks
 //!   follow from the grids its chunks carry and its period.
 //!
 //! Every statistic merges: a parent is its 16 children merged ([EventNode::merge], [ChannelStats::merge]), in item
-//! order, so a reader building coarser bins (a view cache) gets what the writer would have written.
+//! order, so a reader building coarser bins (a view cache) gets what the writer would have written. Flag counts merge
+//! by sum, so they are exact at every level.
 //!
 //! # Scales
 //!
@@ -38,7 +41,8 @@
 //!  45  u8  level, 0 and up
 //!  46  u8  node shift: a node holds 2^shift items (events: 11 + 4 · level; series: base_shift + 4 · level)
 //!  47  u8  element of a series' samples (Element code), 0 for events
-//!  48 u16  fields: the statistics stored (EventFields, SeriesStats bits)
+//!  48 u16  fields: the statistics stored (EventFields, SeriesStats bits); events: bit 0 flags, bit 1 latest end,
+//!          bits 8..12 the flag bits counted, 0 to FLAG_COUNTS_MAX, only with flags
 //!  50 u16  channels of a series, 1 and up; 0 for events
 //!  52 u16  scale length: bytes of the scale after the head, 1 to SCALE_LEN_MAX for a series, 0 for events
 //!  54 u16  first channel or leaf of this block: reserved, 0 (the block's channels start at channel 0); a reader
@@ -55,7 +59,11 @@
 //! ```
 //!
 //! Event body: first ticks (i64), last ticks (i64), then flags ORs (u32) when [EventFields::flags], then latest ends
-//! (i64) when [EventFields::latest_end].
+//! (i64) when [EventFields::latest_end], then one column per counted flag bit, bit 0 first
+//! ([EventFields::flag_counts]): a width byte `w` and the nodes' counts of `w` bits each, packed least significant bit
+//! first ([FlagCounts]). `w` is the fewest bits holding the column's largest count, so a bit no item has costs one
+//! byte per block. A reader refuses a count above its node's items, a count of a bit the node's flags OR doesn't
+//! have, or a bit the OR has with no count.
 //!
 //! Series body: for each statistic the block holds, in the order of [Stat::ALL], for each channel, for each component
 //! of a sample (2 for a complex element's minimum, maximum, sum and sum of squares, else 1), one column. Value widths:
@@ -71,8 +79,12 @@ use shrink_wrap::prelude::*;
 use crate::bytes::{
     self, file_u8, file_u16, file_u32, file_u64, le_i64, le_u8, le_u16, le_u32, le_u64,
 };
-use crate::{BlockKind, BoundError, CRC_LEN, HEADER_LEN, MAX_BLOCK_LEN, SeriesError};
+use crate::{
+    BlockKind, BoundError, CRC_LEN, FLAG_COUNTS_MAX, HEADER_LEN, MAX_BLOCK_LEN, SeriesError,
+};
 
+mod counts;
+pub use counts::FlagCounts;
 #[cfg(feature = "std")]
 mod kernel;
 mod series;
@@ -178,25 +190,59 @@ pub struct EventFields {
     pub flags: bool,
     /// The latest end of any item: the track holds spans.
     pub latest_end: bool,
+    /// Flag bits counted per node, 0 to [FLAG_COUNTS_MAX], only with [Self::flags]
+    /// ([EventsDef::flag_counts](crate::EventsDef::flag_counts)).
+    pub flag_counts: u8,
 }
 
 impl EventFields {
     const FLAGS: u16 = 1;
     const LATEST_END: u16 = 2;
+    /// Where the counted bits sit in the fields word: bits 8..12.
+    const COUNTS_SHIFT: u32 = 8;
 
     fn bits(self) -> u16 {
         (if self.flags { Self::FLAGS } else { 0 })
             | (if self.latest_end { Self::LATEST_END } else { 0 })
+            | u16::from(self.flag_counts)
+                .checked_shl(Self::COUNTS_SHIFT)
+                .unwrap_or(0)
     }
 
     fn from_bits(v: u16) -> Option<Self> {
-        if v & !(Self::FLAGS | Self::LATEST_END) != 0 {
+        let counts = u8::try_from(v.checked_shr(Self::COUNTS_SHIFT)?).ok()?;
+        if v & !(Self::FLAGS | Self::LATEST_END | 0x0f00) != 0 {
             return None;
         }
-        Some(EventFields {
+        let f = EventFields {
             flags: v & Self::FLAGS != 0,
             latest_end: v & Self::LATEST_END != 0,
-        })
+            flag_counts: counts,
+        };
+        f.check().ok()?;
+        Some(f)
+    }
+
+    /// Check the flag counts: at most [FLAG_COUNTS_MAX], only with flags.
+    fn check(self) -> Result<(), SummaryError> {
+        if self.flag_counts > FLAG_COUNTS_MAX {
+            return Err(SummaryError::Invalid("flag counts past FLAG_COUNTS_MAX"));
+        }
+        if self.flag_counts > 0 && !self.flags {
+            return Err(SummaryError::Invalid("flag counts without flags"));
+        }
+        Ok(())
+    }
+
+    /// Most bytes of one node, count columns included (8 per counted bit), for sizing batches.
+    fn node_len_max(self) -> usize {
+        self.node_len()
+            .saturating_add(usize::from(self.flag_counts).saturating_mul(8))
+    }
+
+    /// Room for nodes in a block of `max` bytes: less the width bytes of the count columns.
+    fn block_bytes_for(self, max: usize) -> usize {
+        max.saturating_sub(usize::from(self.flag_counts))
     }
 
     /// Bytes of one node: first and last tick, then the flags OR and the latest end when stored.
@@ -306,6 +352,7 @@ impl SummaryHead {
         }
         match (self.tree, self.layout) {
             (Tree::Events, Layout::Events(f)) => {
+                f.check()?;
                 if level_shift(EVENT_BASE_SHIFT, self.level) != Some(self.node_shift) {
                     return Err(SummaryError::Invalid("event node shift not 11 + 4 · level"));
                 }
@@ -424,8 +471,20 @@ impl<'b> SummaryWriter<'b> {
         id: crate::BlockId,
         head: &SummaryHead,
     ) -> Result<Self, SummaryError> {
+        Self::with_counts(buf, id, head, 0)
+    }
+
+    /// [Self::new] with `counts` more body bytes after the node columns: an event tree's count columns.
+    fn with_counts(
+        buf: &'b mut [u8],
+        id: crate::BlockId,
+        head: &SummaryHead,
+        counts: usize,
+    ) -> Result<Self, SummaryError> {
         head.check()?;
-        let len = summary_len(head)?;
+        let len = summary_len(head)?
+            .checked_add(counts)
+            .ok_or(SummaryError::TooLong { len: usize::MAX })?;
         if len > MAX_BLOCK_LEN {
             return Err(SummaryError::TooLong { len });
         }
@@ -509,6 +568,8 @@ pub struct Summary<'b> {
     head: SummaryHead,
     body: &'b [u8],
     nodes: usize,
+    /// Per counted flag bit: where its packed counts start in the body, and their width
+    counts: [(usize, u8); counts::BITS],
 }
 
 impl<'b> Summary<'b> {
@@ -579,14 +640,104 @@ impl<'b> Summary<'b> {
                 "node count differs from the head's items",
             ));
         }
-        if head
+        let fixed = head
             .node_len()
             .and_then(|len| nodes.checked_mul(len))
-            .is_none_or(|len| len != body.len())
-        {
+            .ok_or(SummaryError::Invalid("body length differs from the head"))?;
+        let mut s = Summary {
+            head,
+            body,
+            nodes,
+            counts: [(0, 0); counts::BITS],
+        };
+        let end = s.read_counts(fixed)?;
+        if end != body.len() {
             return Err(SummaryError::Invalid("body length differs from the head"));
         }
-        Ok(Summary { head, body, nodes })
+        Ok(s)
+    }
+
+    /// Read and check the count columns of an event tree from body byte `at` on; returns where they end.
+    fn read_counts(&mut self, mut at: usize) -> Result<usize, SummaryError> {
+        let Layout::Events(f) = self.head.layout else {
+            return Ok(at);
+        };
+        let bad = |why| SummaryError::Invalid(why);
+        // a count of a node holds at most its 2^shift items
+        let width_max = self.head.node_shift.saturating_add(1);
+        for j in 0..f.flag_counts {
+            let width = *self.body.get(at).ok_or(bad("count column past the body"))?;
+            if width > width_max {
+                return Err(bad("count width past the node's items"));
+            }
+            let from = at.checked_add(1).ok_or(bad("count column past the body"))?;
+            let len =
+                counts::packed_len(self.nodes, width).ok_or(bad("count column past the body"))?;
+            let end = from
+                .checked_add(len)
+                .ok_or(bad("count column past the body"))?;
+            let packed = self
+                .body
+                .get(from..end)
+                .ok_or(bad("count column past the body"))?;
+            if !counts::padding_zero(packed, self.nodes, width) {
+                return Err(bad("count column padding not zero"));
+            }
+            if let Some(slot) = self.counts.get_mut(usize::from(j)) {
+                *slot = (from, width);
+            }
+            let mut max = 0u64;
+            for i in 0..self.nodes {
+                let c =
+                    counts::unpack(packed, width, i).ok_or(bad("count column past the body"))?;
+                max = max.max(c);
+                let items = u64::try_from(i)
+                    .ok()
+                    .and_then(|i| self.head.node_items(i))
+                    .map(|(_, n)| n)
+                    .ok_or(bad("count of a node the head doesn't hold"))?;
+                if c > items {
+                    return Err(bad("flag count above the node's items"));
+                }
+                let flags = self
+                    .event_flags(i)
+                    .ok_or(bad("count of a node the head doesn't hold"))?;
+                let set = flags.checked_shr(u32::from(j)).unwrap_or(0) & 1 == 1;
+                if set != (c > 0) {
+                    return Err(bad("flag count disagrees with the flags OR"));
+                }
+            }
+            if counts::width_of(max) != width {
+                return Err(bad("count width not the fewest bits"));
+            }
+            at = end;
+        }
+        Ok(at)
+    }
+
+    /// The flags OR of node `i` of an event tree with flags; None otherwise.
+    fn event_flags(&self, i: usize) -> Option<u32> {
+        let Layout::Events(f) = self.head.layout else {
+            return None;
+        };
+        if !f.flags || i >= self.nodes {
+            return None;
+        }
+        let flags_at = self.nodes.checked_mul(16)?;
+        Some(u32::from_le_bytes(self.word(flags_at, i)?))
+    }
+
+    /// The flag counts of node `i` of an event tree: [FlagCounts::UNKNOWN] when the block counts no bit.
+    fn event_counts(&self, i: usize) -> Option<FlagCounts> {
+        let Layout::Events(f) = self.head.layout else {
+            return None;
+        };
+        let mut n = [0u64; counts::BITS];
+        for ((out, (from, width)), _) in n.iter_mut().zip(&self.counts).zip(0..f.flag_counts) {
+            let packed = self.body.get(*from..)?;
+            *out = counts::unpack(packed, *width, i)?;
+        }
+        FlagCounts::new(f.flag_counts, n)
     }
 
     pub fn head(&self) -> SummaryHead {
@@ -646,6 +797,7 @@ impl<'b> Summary<'b> {
             last_tick,
             flags,
             latest_end,
+            counts: self.event_counts(i)?,
         })
     }
 
@@ -824,16 +976,19 @@ pub struct EventNode {
     pub flags: u32,
     /// The largest end of any item; the last tick when every item is an instant.
     pub latest_end: i64,
+    /// Per counted flag bit, the items that have it set; [FlagCounts::UNKNOWN] when the track counts none.
+    pub counts: FlagCounts,
 }
 
 impl EventNode {
-    /// A node of one item.
-    pub const fn item(start: i64, end: i64, flags: u32) -> Self {
+    /// A node of one item; every flag bit counted.
+    pub fn item(start: i64, end: i64, flags: u32) -> Self {
         EventNode {
             first_tick: start,
             last_tick: start,
             flags,
             latest_end: if end > start { end } else { start },
+            counts: FlagCounts::of_item(flags),
         }
     }
 
@@ -842,6 +997,7 @@ impl EventNode {
         self.last_tick = next.last_tick;
         self.flags |= next.flags;
         self.latest_end = self.latest_end.max(next.latest_end);
+        self.counts.merge(&next.counts);
     }
 }
 
@@ -881,7 +1037,9 @@ pub fn write_event_summary(
     let Layout::Events(f) = head.layout else {
         return Err(SummaryError::Invalid("not an event tree"));
     };
-    let mut w = SummaryWriter::new(buf, id, head)?;
+    let widths = count_widths(head, f, nodes)?;
+    let counts_len = counts_len(nodes.len(), &widths)?;
+    let mut w = SummaryWriter::with_counts(buf, id, head, counts_len)?;
     if nodes.len() != w.nodes() {
         return Err(SummaryError::Invalid("node count differs from the head"));
     }
@@ -905,8 +1063,72 @@ pub fn write_event_summary(
             out.put(v.latest_end.to_le_bytes())?;
         }
     }
+    for (j, width) in (0u8..).zip(&widths) {
+        out.put([*width])?;
+        let len = counts::packed_len(nodes.len(), *width).ok_or(OWN_BODY)?;
+        let end = out.at.checked_add(len).ok_or(OWN_BODY)?;
+        let packed = out.body.get_mut(out.at..end).ok_or(OWN_BODY)?;
+        counts::pack(
+            packed,
+            nodes.iter().map(|n| n.counts.get(j).unwrap_or(0)),
+            *width,
+        )
+        .ok_or(OWN_BODY)?;
+        out.at = end;
+    }
     out.done()?;
     Ok(w.finish())
+}
+
+/// Bytes of an event tree block of `nodes` (one per node of `head`, in order), count columns included.
+pub fn event_summary_len(head: &SummaryHead, nodes: &[EventNode]) -> Result<usize, SummaryError> {
+    let Layout::Events(f) = head.layout else {
+        return Err(SummaryError::Invalid("not an event tree"));
+    };
+    let widths = count_widths(head, f, nodes)?;
+    summary_len(head)?
+        .checked_add(counts_len(nodes.len(), &widths)?)
+        .ok_or(SummaryError::TooLong { len: usize::MAX })
+}
+
+/// The width of each count column of an event tree block: the fewest bits of its largest count. Refuses a node that
+/// doesn't count a bit the block stores, a count above the node's items, or one that disagrees with its flags OR, as
+/// a reader would.
+fn count_widths(
+    head: &SummaryHead,
+    f: EventFields,
+    nodes: &[EventNode],
+) -> Result<Vec<u8>, SummaryError> {
+    let mut widths = Vec::with_capacity(usize::from(f.flag_counts));
+    for j in 0..f.flag_counts {
+        let mut max = 0u64;
+        for (i, n) in (0u64..).zip(nodes) {
+            let c = n.counts.get(j).ok_or(SummaryError::Invalid(
+                "a node without the flag counts its block stores",
+            ))?;
+            let items = head.node_items(i).map_or(0, |(_, k)| k);
+            if c > items {
+                return Err(SummaryError::Invalid("flag count above the node's items"));
+            }
+            if (n.flags.checked_shr(u32::from(j)).unwrap_or(0) & 1 == 1) != (c > 0) {
+                return Err(SummaryError::Invalid(
+                    "flag count disagrees with the flags OR",
+                ));
+            }
+            max = max.max(c);
+        }
+        widths.push(counts::width_of(max));
+    }
+    Ok(widths)
+}
+
+/// Bytes of the count columns of `nodes` nodes at `widths`.
+fn counts_len(nodes: usize, widths: &[u8]) -> Result<usize, SummaryError> {
+    widths.iter().try_fold(0usize, |sum, w| {
+        counts::column_len(nodes, *w)
+            .and_then(|l| sum.checked_add(l))
+            .ok_or(SummaryError::TooLong { len: usize::MAX })
+    })
 }
 
 /// Encode a series summary block into `buf`: `nodes[i][ch]` is channel `ch` of node `i` of `head`; returns its

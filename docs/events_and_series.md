@@ -268,7 +268,14 @@ coarse view of a track that the writer builds as it goes, in a tree over item nu
 
 - **Event trees.** A level-0 node covers 2048 items; a node one level up covers 16 nodes of the level below (32 768
   items, then 524 288, then 8.4 million). A node holds the first item's start, the last item's start, the OR of the
-  items' flags, and for spans the latest end. Counts follow from the item range.
+  items' flags, and for spans the latest end. Item counts follow from the item range.
+- **Flag counts.** The OR of the flags tells a zoomed-out row that some item of a node has a flag, not how many. A
+  track can declare flag counts (`EventsDef::flag_counts`, up to 8 of the low flag bits): each node of its tree then
+  also holds, for each counted bit, how many of its items have it set. A row can then show "3 errors" instead of
+  "errors". What a bit means is the writer's choice. Counts add up from children to parents, so they are exact at
+  every level, and they are bit-packed: on a track of 10 million instants with one item in 1000 flagged, counting
+  that bit costs 0.40 bytes per level-0 node, 2.2 KB in all. A track that counts no bit pays nothing, and a reader
+  takes its counts as unknown, never as zero.
 - **Series summaries.** A level-0 node covers a power of two of samples that the track chooses, and each level up again
   covers 16 nodes. A node holds, per channel, the statistics the track declares: minimum, maximum, sum, sum of squares,
   a count of clipped or NaN samples, a flags OR, and for complex samples the mean and maximum of `I² + Q²`. It holds no

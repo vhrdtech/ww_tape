@@ -564,14 +564,35 @@ pub struct EventsDef {
     pub ends: Ends,
     /// Items carry a `u32` flags word (severity in its low bits), which summaries OR together.
     pub flags: bool,
+    /// How many of the low flag bits, 0 to [FLAG_COUNTS_MAX], the event tree counts: each summary node carries, per
+    /// bit, how many of its items have it set ([FlagCounts](crate::summary::FlagCounts)). 0: no counts, nothing
+    /// written. Only with [Self::flags]; what a bit means is the writer's.
+    pub flag_counts: u8,
 }
+
+/// Most low flag bits whose set items an event tree counts per node ([EventsDef::flag_counts]).
+pub const FLAG_COUNTS_MAX: u8 = 8;
 
 impl EventsDef {
     /// Instants without flags: what a track of plain records is.
     pub const INSTANTS: EventsDef = EventsDef {
         ends: Ends::Instants,
         flags: false,
+        flag_counts: 0,
     };
+
+    /// Check the flag counts: at most [FLAG_COUNTS_MAX], and only on a track whose items carry flags.
+    pub fn check(&self) -> Result<(), crate::SeriesError> {
+        if self.flag_counts > FLAG_COUNTS_MAX {
+            return Err(crate::SeriesError::Def("flag counts past FLAG_COUNTS_MAX"));
+        }
+        if self.flag_counts > 0 && !self.flags {
+            return Err(crate::SeriesError::Def(
+                "flag counts on a track without flags",
+            ));
+        }
+        Ok(())
+    }
 }
 
 /// Whether events have an end.
@@ -636,8 +657,12 @@ impl<'i> TrackDef<'i> {
     }
 
     /// Check what the kind asks of the track: a series has the plain policy (its chunks are data and carry their
-    /// grids), names its sample type in its definition (not in [Self::item]) and has a valid [SeriesDef].
+    /// grids), names its sample type in its definition (not in [Self::item]) and has a valid [SeriesDef]; an events
+    /// track has valid flag counts ([EventsDef::check]).
     pub fn check_kind(&self) -> Result<(), crate::SeriesError> {
+        if let TrackKind::Events(e) = &self.kind {
+            return e.check();
+        }
         let Some(s) = self.series() else {
             return Ok(());
         };

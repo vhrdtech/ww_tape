@@ -19,6 +19,7 @@ use shrink_wrap::DeserializeShrinkWrap;
 
 use crate::index::{IndexEntry, STATE_TRACK_ID, is_structural};
 use crate::piece::{OwnerId, TrackHash, TrackRange, TrackStart, UnitHash};
+use crate::summary::{FANOUT_SHIFT, FlagCounts, Layout};
 use crate::times::RelationColumn;
 use crate::{Block, BlockKind, Chunk, DESCRIBE_TRACK, Describe, FLAG_REPEAT, Slot, TrackFacts};
 
@@ -30,6 +31,96 @@ type Key = (u64, OwnerId);
 /// Most final index entries [TapeReader::verify](super::TapeReader::verify) holds for one piece: 4 Mi entries,
 /// about 450 MiB; a piece listing more is refused ([ReadError::VerifyEntries](super::ReadError::VerifyEntries)).
 pub const VERIFY_ENTRIES_MAX: usize = 1 << 22;
+
+/// Most event summary nodes with flag counts [TapeReader::verify](super::TapeReader::verify) holds for one piece to
+/// check that each parent counts what its children sum to: 4 Mi nodes, about 400 MiB; a piece holding more is
+/// refused ([ReadError::VerifyCountNodes](super::ReadError::VerifyCountNodes)).
+pub const VERIFY_COUNT_NODES_MAX: usize = 1 << 22;
+
+/// An event summary node with flag counts: its first item, items and counts.
+type CountNode = (u64, u64, FlagCounts);
+
+/// The event summary nodes with flag counts of a piece, by track id, level and node number, to check that each
+/// parent's counts are the sums of its children's ([Self::check]). A node met again (a block written again) keeps
+/// its first reading.
+#[derive(Default)]
+pub(super) struct CountSums {
+    nodes: BTreeMap<(u64, u8, u64), CountNode>,
+    over: bool,
+}
+
+impl CountSums {
+    /// Take the nodes of a good block, if it is an event summary with flag counts.
+    pub(super) fn block(&mut self, block: &[u8]) {
+        let Some(s) = Block::read_trusted(block).ok().and_then(|b| b.summary()) else {
+            return;
+        };
+        let h = s.head();
+        if !matches!(h.layout, Layout::Events(f) if f.flag_counts > 0) {
+            return;
+        }
+        for i in 0..s.node_count() {
+            let (Some(n), Some((first, items))) = (
+                u64::try_from(i)
+                    .ok()
+                    .and_then(|i| h.first_node().checked_add(i)),
+                u64::try_from(i).ok().and_then(|i| h.node_items(i)),
+            ) else {
+                continue;
+            };
+            let Some(node) = s.event_node(i) else {
+                continue;
+            };
+            if self.nodes.len() >= VERIFY_COUNT_NODES_MAX {
+                self.over = true;
+                return;
+            }
+            self.nodes
+                .entry((h.track_id, h.level, n))
+                .or_insert((first, items, node.counts));
+        }
+    }
+
+    /// Whether every parent node whose children are all here (their items add up to the parent's) counts, per bit
+    /// both count, their sum; the cap when more nodes were met than held.
+    pub(super) fn check(&self) -> Result<bool, usize> {
+        if self.over {
+            return Err(VERIFY_COUNT_NODES_MAX);
+        }
+        for (&(track, level, n), (first, items, counts)) in &self.nodes {
+            let Some(below) = level.checked_sub(1) else {
+                continue;
+            };
+            let from = n.checked_shl(u32::from(FANOUT_SHIFT)).unwrap_or(u64::MAX);
+            let to = from.saturating_add(1 << FANOUT_SHIFT);
+            let mut sum = FlagCounts::UNKNOWN;
+            let mut seen = 0u64;
+            let mut inside = true;
+            for (_, (cf, ci, cc)) in self.nodes.range((track, below, from)..(track, below, to)) {
+                inside &= *cf >= *first && cf.saturating_add(*ci) <= first.saturating_add(*items);
+                if seen == 0 {
+                    sum = *cc;
+                } else {
+                    sum.merge(cc);
+                }
+                seen = seen.saturating_add(*ci);
+            }
+            if !inside {
+                return Ok(false);
+            }
+            if seen != *items {
+                // children in another piece, or not written yet
+                continue;
+            }
+            for j in 0..counts.known().min(sum.known()) {
+                if counts.get(j) != sum.get(j) {
+                    return Ok(false);
+                }
+            }
+        }
+        Ok(true)
+    }
+}
 
 /// A piece replayed block by block in file order ([Self::block], [Self::raw]), then checked against its finish rows
 /// ([Self::check]).

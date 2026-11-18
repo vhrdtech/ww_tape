@@ -115,6 +115,7 @@
 //! | [CHECKPOINT_ENTRIES_MAX](index::CHECKPOINT_ENTRIES_MAX) | 14562 | entries a writer puts in a checkpoint index block |
 //! | [NODE_SHIFT_MAX](summary::NODE_SHIFT_MAX) | 62 | a summary node's items, as a power of 2 |
 //! | [LEVEL_MAX](summary::LEVEL_MAX) | 15 | a summary tree's level |
+//! | [FLAG_COUNTS_MAX] | 8 | the flag bits an event tree counts per node |
 //! | [SCALE_LEN_MAX](series::SCALE_LEN_MAX) | 64 | the scale bytes of a series chunk or summary |
 //! | [FACTOR_MAX](summary::FACTOR_MAX) | 2^53 | a factor to the common scale |
 //! | [SeriesSummarySpec::BASE_SHIFT_MAX](summary::SeriesSummarySpec::BASE_SHIFT_MAX) | 24 | a series summary's base node, as a power of 2 |
@@ -125,6 +126,7 @@
 //! | [RESYNC_AHEAD_MAX] | 128 MiB | the bytes a salvage walk ([Recovery::Resync]) reads ahead |
 //! | [STATE_READ_MAX](reader::STATE_READ_MAX) | 1 GiB | the bytes of blocks one state lookup reads |
 //! | [VERIFY_ENTRIES_MAX](reader::VERIFY_ENTRIES_MAX) | 4 Mi | the final index entries one verify holds |
+//! | [VERIFY_COUNT_NODES_MAX](reader::VERIFY_COUNT_NODES_MAX) | 4 Mi | the event nodes with flag counts one verify holds |
 //! | [DEFERRED_BYTES_MAX](writer::DEFERRED_BYTES_MAX) | 1 MiB | the deferred blocks a writer keeps |
 //! | [TRACKS_PER_PIECE_MAX] | 493416 | the tracks with data in one piece a writer takes: its finish fits a block |
 //! | [WALK_MISS_BASE_MAX](piece::WALK_MISS_BASE_MAX) | 1 MiB | the bytes a content-hash walk's missed blocks claim at its start |
@@ -169,10 +171,11 @@ pub use ww_version::{FullVersion, Version};
 mod describe;
 pub use describe::{
     ALIGNMENT, ClockDef, ClockMap, ClockOrigin, ClockRate, ClockResolution, Describe, Dimension,
-    Ends, EventsDef, GAP_CHECKS_MAX, GAP_MAX_MAX, GAP_PROBES_MAX, KeySegment, Layout, MapSegment,
-    NEAR_DEFAULT, NO_CLOCK, Producer, RELATION_NAME_MAX, RELATIONS_MAX, RelationDef, RelationIndex,
-    RelationTarget, RelationValues, SD_GAP_MAX, SD_RESUME_ALIGN, StatePolicy, TrackDef, TrackKind,
-    TrackRepeat, TypeRef, TypedItem, UNIX_CLOCK_KEY, api, clock_key, segments_increasing, track_id,
+    Ends, EventsDef, FLAG_COUNTS_MAX, GAP_CHECKS_MAX, GAP_MAX_MAX, GAP_PROBES_MAX, KeySegment,
+    Layout, MapSegment, NEAR_DEFAULT, NO_CLOCK, Producer, RELATION_NAME_MAX, RELATIONS_MAX,
+    RelationDef, RelationIndex, RelationTarget, RelationValues, SD_GAP_MAX, SD_RESUME_ALIGN,
+    StatePolicy, TrackDef, TrackKind, TrackRepeat, TypeRef, TypedItem, UNIX_CLOCK_KEY, api,
+    clock_key, segments_increasing, track_id,
 };
 #[cfg(feature = "std")]
 pub use describe::{

@@ -1,10 +1,10 @@
 //! Summary blocks: the head (tree, level, node shift, element, fields, channels, scale length, item range, ticks),
-//! the scale bytes and the node values.
+//! the scale bytes, the node values and an event tree's flag count columns.
 
 use super::{Draw, Field, HEADER_FIELDS, HEADER_LEN, LEN_FIELD, hit, hit_some, seal};
 use ww_tape::summary::{
-    EventTree, ItemRun, NODE_SHIFT_MAX, SCALE_LEN_MAX, SUMMARY_FIXED_LEN, SeriesStart, SeriesStats,
-    SeriesSummaries, SeriesSummarySpec,
+    EventTree, FlagCounts, ItemRun, NODE_SHIFT_MAX, SCALE_LEN_MAX, SUMMARY_FIXED_LEN, SeriesStart,
+    SeriesStats, SeriesSummaries, SeriesSummarySpec,
 };
 use ww_tape::{Element, EventFields, Magnitude, Ratio64, SampleShape, SeriesGrid};
 
@@ -38,9 +38,11 @@ const HEAD_FIELDS: [Field; 16] = [
 
 /// The blocks of an event tree of items drawn from the input.
 fn events(d: &mut Draw<'_>) -> Vec<Vec<u8>> {
+    let flags = d.bool();
     let fields = EventFields {
-        flags: d.bool(),
+        flags,
         latest_end: d.bool(),
+        flag_counts: if flags { d.below(9) as u8 } else { 0 },
     };
     let first = u64::from(d.u16()) * 37;
     let mut tree = EventTree::new(1, 1, fields, first);
@@ -52,12 +54,20 @@ fn events(d: &mut Draw<'_>) -> Vec<Vec<u8>> {
         t += i64::from(x >> 2);
         let pushed = if x & 0x80 != 0 {
             let room = 2048 - tree.next_item() % 2048;
+            let count = room.min(r.u64() % 0x1_0000 + 1);
+            let mut n = [0u64; 8];
+            for (j, c) in n.iter_mut().enumerate() {
+                if x >> j & 1 == 1 {
+                    *c = 1 + r.u64() % count;
+                }
+            }
             tree.push_run(ItemRun {
-                count: room.min(r.u64() % 0x1_0000 + 1),
+                count,
                 first_tick: t,
                 last_tick: t + 5,
                 flags: u32::from(x),
                 latest_end: t + 5 + i64::from(x & 3),
+                counts: FlagCounts::new(8, n).expect("8 bits counted"),
             })
         } else {
             tree.push(t, t + i64::from(x & 3), u32::from(x & 3))
@@ -156,6 +166,12 @@ pub fn summary(data: &[u8]) -> Vec<u8> {
             // a node value: 8 bytes in a column
             let at = body_at + d.below(b.len().saturating_sub(body_at + 12).max(1));
             hit(&mut d, &mut b, Field::new(at, 8, &[]));
+        }
+        5 => {
+            // a byte near the body's end: a flag count column's width or packed counts when the tree has them
+            let tail = (b.len() - 4 - body_at).min(24);
+            let at = b.len() - 4 - tail + d.below(tail.max(1));
+            hit(&mut d, &mut b, Field::new(at, 1, &[0, 1, 12, 63, 64]));
         }
         _ => hit_some(&mut d, &mut b, &HEAD_FIELDS),
     }

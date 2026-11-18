@@ -1,6 +1,6 @@
 // ww_tape 0.1.0 traits and types, saved by `ww api save`.
 // Do not edit, bump the crate version and save a new snapshot instead.
-// shrink_wrap sha256: f6c58e31cdc95fbc40f42ca120f2c3f9176e4ce6d5081c9b6fd9c80482b3d97a
+// shrink_wrap sha256: ad4e874a442a85d73017b289723b47876b71c3a3a97587f4730ee7a6d6029c65
 (magic: 2837124336, ww_self_version: (major: 0, minor: 4, patch: 0), root: (docs: [
     "Tape blocks: the unit a producer of records hands over, a live consumer reads and a log file is made of.",
     "",
@@ -119,6 +119,7 @@
     "| [CHECKPOINT_ENTRIES_MAX](index::CHECKPOINT_ENTRIES_MAX) | 14562 | entries a writer puts in a checkpoint index block |",
     "| [NODE_SHIFT_MAX](summary::NODE_SHIFT_MAX) | 62 | a summary node\'s items, as a power of 2 |",
     "| [LEVEL_MAX](summary::LEVEL_MAX) | 15 | a summary tree\'s level |",
+    "| [FLAG_COUNTS_MAX] | 8 | the flag bits an event tree counts per node |",
     "| [SCALE_LEN_MAX](series::SCALE_LEN_MAX) | 64 | the scale bytes of a series chunk or summary |",
     "| [FACTOR_MAX](summary::FACTOR_MAX) | 2^53 | a factor to the common scale |",
     "| [SeriesSummarySpec::BASE_SHIFT_MAX](summary::SeriesSummarySpec::BASE_SHIFT_MAX) | 24 | a series summary\'s base node, as a power of 2 |",
@@ -128,6 +129,8 @@
     "| [GAP_CHECKS_MAX] | 4 | the blocks a reader checks whole past one gap |",
     "| [RESYNC_AHEAD_MAX] | 128 MiB | the bytes a salvage walk ([Recovery::Resync]) reads ahead |",
     "| [STATE_READ_MAX](reader::STATE_READ_MAX) | 1 GiB | the bytes of blocks one state lookup reads |",
+    "| [VERIFY_ENTRIES_MAX](reader::VERIFY_ENTRIES_MAX) | 4 Mi | the final index entries one verify holds |",
+    "| [VERIFY_COUNT_NODES_MAX](reader::VERIFY_COUNT_NODES_MAX) | 4 Mi | the event nodes with flag counts one verify holds |",
     "| [DEFERRED_BYTES_MAX](writer::DEFERRED_BYTES_MAX) | 1 MiB | the deferred blocks a writer keeps |",
     "| [TRACKS_PER_PIECE_MAX] | 493416 | the tracks with data in one piece a writer takes: its finish fits a block |",
     "| [WALK_MISS_BASE_MAX](piece::WALK_MISS_BASE_MAX) | 1 MiB | the bytes a content-hash walk\'s missed blocks claim at its start |",
@@ -691,6 +694,11 @@
         (ident: Some("ends"), default: None, since: None, ty: OutOfLine(type_idx: 33), docs: [], slot: None, series_opaque: false),
         (ident: Some("flags"), default: None, since: None, ty: Bool, docs: [
             "Items carry a `u32` flags word (severity in its low bits), which summaries OR together.",
+        ], slot: None, series_opaque: false),
+        (ident: Some("flag_counts"), default: None, since: None, ty: NumericAny(Base(U8)), docs: [
+            "How many of the low flag bits, 0 to [FLAG_COUNTS_MAX], the event tree counts: each summary node carries, per",
+            "bit, how many of its items have it set ([FlagCounts](crate::summary::FlagCounts)). 0: no counts, nothing",
+            "written. Only with [Self::flags]; what a bit means is the writer\'s.",
         ], slot: None, series_opaque: false),
     ]), sparse: false, path: None, instance_of: None, extra: None)), crate_idx: 0),
     InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [

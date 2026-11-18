@@ -239,6 +239,7 @@ fn entries_of_blocks() {
     let fields = crate::summary::EventFields {
         flags: false,
         latest_end: true,
+        flag_counts: 0,
     };
     let mut tree = crate::summary::EventTree::new(0xabc, 5, fields, 512);
     for i in 0..3000i64 {

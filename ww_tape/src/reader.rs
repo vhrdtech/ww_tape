@@ -41,7 +41,7 @@ use crate::{
 mod state;
 mod verify;
 pub use state::{DefinitionsAt, Lookup, Lost, STATE_CACHE_MAX, STATE_READ_MAX, StateItem};
-pub use verify::VERIFY_ENTRIES_MAX;
+pub use verify::{VERIFY_COUNT_NODES_MAX, VERIFY_ENTRIES_MAX};
 
 /// Bytes that read at an offset.
 pub trait ByteSource {
@@ -160,6 +160,9 @@ pub enum ReadError<E> {
     Overlap { offset: u64, end: u64 },
     /// The piece's final index lists more entries than [TapeReader::verify] holds ([VERIFY_ENTRIES_MAX]).
     VerifyEntries { max: usize },
+    /// The piece's summary blocks hold more event nodes with flag counts than [TapeReader::verify] holds
+    /// ([VERIFY_COUNT_NODES_MAX]).
+    VerifyCountNodes { max: usize },
 }
 
 impl<E: core::fmt::Debug> core::fmt::Display for ReadError<E> {
@@ -186,6 +189,12 @@ impl<E: core::fmt::Debug> core::fmt::Display for ReadError<E> {
             }
             ReadError::VerifyEntries { max } => {
                 write!(f, "the final index lists more than {max} entries to verify")
+            }
+            ReadError::VerifyCountNodes { max } => {
+                write!(
+                    f,
+                    "the summaries hold more than {max} nodes with flag counts to verify"
+                )
             }
         }
     }
@@ -1244,6 +1253,7 @@ impl<S: ByteSource> TapeReader<S> {
         };
         let starts = p.head.as_ref().map_or(&[][..], |(_, t)| &t[..]);
         let mut replay = verify::Replay::new(starts, listed, end);
+        let mut sums = verify::CountSums::default();
         let mut h = blake3::Hasher::new();
         walk_piece(
             end,
@@ -1255,6 +1265,7 @@ impl<S: ByteSource> TapeReader<S> {
                 Walked::Block(block) => {
                     let chunk = crate::piece::hash_block(&mut h, block);
                     replay.block(block, chunk);
+                    sums.block(block);
                 }
                 Walked::Raw(raw) => {
                     h.update(raw);
@@ -1263,8 +1274,11 @@ impl<S: ByteSource> TapeReader<S> {
             },
         )?;
         let steps = replay.steps();
+        let sums_hold = sums
+            .check()
+            .map_err(|max| ReadError::VerifyCountNodes { max })?;
         Ok((
-            *h.finalize().as_bytes() == fin.hash.0 && replay.check(rows),
+            *h.finalize().as_bytes() == fin.hash.0 && replay.check(rows) && sums_hold,
             steps,
         ))
     }

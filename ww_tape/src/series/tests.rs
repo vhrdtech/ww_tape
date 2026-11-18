@@ -172,6 +172,7 @@ fn track_kind_round_trips_and_is_checked() {
             TrackKind::Events(EventsDef {
                 ends: Ends::Spans,
                 flags: true,
+                flag_counts: 0,
             }),
             false,
         ),

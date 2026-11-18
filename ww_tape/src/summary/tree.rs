@@ -2,8 +2,8 @@
 
 use super::levels::{LevelNode, Levels};
 use super::{
-    EVENT_BASE_SHIFT, EventFields, EventNode, Layout, SummaryError, SummaryHead, Tree, summary_len,
-    write_event_summary,
+    EVENT_BASE_SHIFT, EventFields, EventNode, FlagCounts, Layout, SummaryError, SummaryHead, Tree,
+    event_summary_len, write_event_summary,
 };
 
 impl LevelNode for EventNode {
@@ -17,7 +17,7 @@ impl LevelNode for EventNode {
 pub const EVENT_BLOCK_BYTES: usize = 4096;
 
 /// A run of consecutive items whose summary is known (a sealed group of the time codec): count, starts, flags OR,
-/// latest end.
+/// latest end, flag counts.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct ItemRun {
     /// Items in the run, 1 and up.
@@ -30,6 +30,9 @@ pub struct ItemRun {
     pub flags: u32,
     /// The largest end of any item, at least `last_tick`.
     pub latest_end: i64,
+    /// Per flag bit, the run's items that have it set: at least the bits the tree counts
+    /// ([EventFields::flag_counts]); [FlagCounts::UNKNOWN] for a tree that counts none.
+    pub counts: FlagCounts,
 }
 
 /// Builds the item tree of one event track as items are sealed, and encodes its summary blocks.
@@ -65,8 +68,8 @@ impl EventTree {
             levels: Levels::new(
                 first_item,
                 EVENT_BASE_SHIFT,
-                fields.node_len(),
-                EVENT_BLOCK_BYTES,
+                fields.node_len_max(),
+                fields.block_bytes_for(EVENT_BLOCK_BYTES),
             ),
             blocks: Vec::new(),
             last_tick: None,
@@ -75,7 +78,12 @@ impl EventTree {
 
     /// Keep blocks within `bytes` (default [EVENT_BLOCK_BYTES]); call before the first item.
     pub fn set_max_block_bytes(&mut self, bytes: usize) {
-        self.levels = Levels::new(self.origin, EVENT_BASE_SHIFT, self.fields.node_len(), bytes);
+        self.levels = Levels::new(
+            self.origin,
+            EVENT_BASE_SHIFT,
+            self.fields.node_len_max(),
+            self.fields.block_bytes_for(bytes),
+        );
     }
 
     /// The next item's number.
@@ -91,10 +99,12 @@ impl EventTree {
             last_tick: start,
             flags,
             latest_end: end.max(start),
+            counts: FlagCounts::of_item(flags),
         })
     }
 
-    /// Add the next `run.count` items at once; the run must lie inside one level-0 node (2048 items).
+    /// Add the next `run.count` items at once; the run must lie inside one level-0 node (2048 items). Its counts of
+    /// the bits the tree counts must be at most its items, and above 0 exactly for the bits its flags OR has.
     pub fn push_run(&mut self, run: ItemRun) -> Result<(), SummaryError> {
         if run.count == 0 {
             return Err(SummaryError::Invalid("a run of no items"));
@@ -116,11 +126,13 @@ impl EventTree {
         if (self.next_item >> shift) != (last >> shift) {
             return Err(SummaryError::Invalid("a run across a level-0 node"));
         }
+        let counts = self.counts_of(&run)?;
         let node = EventNode {
             first_tick: run.first_tick,
             last_tick: run.last_tick,
             flags: if self.fields.flags { run.flags } else { 0 },
             latest_end: run.latest_end,
+            counts,
         };
         match &mut self.acc {
             Some(acc) => {
@@ -144,6 +156,32 @@ impl EventTree {
             self.encode()?;
         }
         Ok(())
+    }
+
+    /// The counts a node of `run` keeps: the bits the tree counts, checked against the run.
+    fn counts_of(&self, run: &ItemRun) -> Result<FlagCounts, SummaryError> {
+        let k = self.fields.flag_counts;
+        if k == 0 {
+            return Ok(FlagCounts::UNKNOWN);
+        }
+        let counts = run.counts.limited(k);
+        if counts.known() < k {
+            return Err(SummaryError::Invalid(
+                "a run without the flag counts its tree keeps",
+            ));
+        }
+        for j in 0..k {
+            let c = counts.get(j).unwrap_or(0);
+            if c > run.count {
+                return Err(SummaryError::Invalid("a flag count above the run's items"));
+            }
+            if (run.flags.checked_shr(u32::from(j)).unwrap_or(0) & 1 == 1) != (c > 0) {
+                return Err(SummaryError::Invalid(
+                    "a flag count that disagrees with the flags OR",
+                ));
+            }
+        }
+        Ok(counts)
     }
 
     /// Hand the open level-0 node up.
@@ -192,7 +230,7 @@ impl EventTree {
                 last_tick: last.last_tick,
                 latest_end: out.nodes.iter().map(|n| n.latest_end).max().ok_or(empty)?,
             };
-            let mut buf = vec![0u8; summary_len(&head)?];
+            let mut buf = vec![0u8; event_summary_len(&head, &out.nodes)?];
             let len = write_event_summary(
                 &mut buf,
                 crate::BlockId::new(crate::SessionTag::NONE, 0),

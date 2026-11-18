@@ -477,6 +477,7 @@ fn format_page_caps_are_the_constants() {
         ),
         ("NODE_SHIFT_MAX", ww_tape::summary::NODE_SHIFT_MAX.into()),
         ("LEVEL_MAX", ww_tape::summary::LEVEL_MAX.into()),
+        ("FLAG_COUNTS_MAX", ww_tape::FLAG_COUNTS_MAX.into()),
         ("SCALE_LEN_MAX", ww_tape::series::SCALE_LEN_MAX as u64),
         ("FACTOR_MAX", ww_tape::summary::FACTOR_MAX),
         (

@@ -257,6 +257,8 @@ pub struct TrackFacts {
     pub monotone: u16,
     /// The relation whose values' smallest and largest go into each chunk's index entry.
     pub range: Option<u16>,
+    /// [EventsDef::flag_counts](crate::EventsDef::flag_counts) of an events track; 0 for another kind.
+    pub flag_counts: u8,
 }
 
 impl TrackFacts {
@@ -276,6 +278,10 @@ impl TrackFacts {
             stored: relations.stored,
             monotone: relations.monotone,
             range,
+            flag_counts: match &t.kind {
+                crate::TrackKind::Events(e) => e.flag_counts,
+                crate::TrackKind::Series(_) | crate::TrackKind::Unknown(_) => 0,
+            },
         }
     }
 }
@@ -819,10 +825,30 @@ impl Definitions {
             relation_columns_read(&c)
         } else if let Some(s) = b.summary() {
             let head = s.head();
-            self.check_track_id(head.track_number, head.track_id)
-                .map(|_| ())
+            self.check_track_id(head.track_number, head.track_id)?;
+            self.check_flag_counts(&head)
         } else {
             Ok(())
+        }
+    }
+
+    /// Check that an event tree summary counts the flag bits its track's definition asks for
+    /// ([EventsDef::flag_counts](crate::EventsDef::flag_counts)), no more and no fewer.
+    fn check_flag_counts(&self, head: &crate::summary::SummaryHead) -> Result<(), DescribeError> {
+        let track = head.track_number;
+        let crate::summary::Layout::Events(f) = head.layout else {
+            return Ok(());
+        };
+        let t = self
+            .track(track)
+            .ok_or(DescribeError::UnknownTrack { track })?;
+        if f.flag_counts == t.flag_counts {
+            Ok(())
+        } else {
+            Err(DescribeError::Kind {
+                track,
+                error: crate::SeriesError::Def("a summary counting other flag bits than its track"),
+            })
         }
     }
 
