@@ -68,6 +68,8 @@ The kinds (`BlockKind`):
 | 8 | finish |
 | 9 | tail |
 | 10 | piece head |
+| 11 | postings of a relation, reserved: none are written |
+| 12 | dictionary of a relation, reserved: none are written |
 
 A reader reads a block of kind 2 or of a kind not listed as one it doesn't know, and skips it by its length. A session is one writer's unbroken append (a producer start, a
 device boot): its blocks carry the same random 32-bit session tag (`ww_tape::SessionTag`, never 0 nor FFFFFFFFh,
@@ -129,9 +131,11 @@ off size field
 len-4 u32 CRC over bytes 0..len-4, as in every block
 ```
 
-Column kinds (`ColumnKind`): 1 starts, 2 ends, 3 flags, 4 payload lengths, 5 payloads, 6 samples; 7 is reserved. Codec
+Column kinds (`ColumnKind`): 1 starts, 2 ends, 3 flags, 4 payload lengths, 5 payloads, 6 samples, 8 a relation's values; 7 is reserved. Codec
 ids: 0 `RAW`, 1 to 3 the event time codec's (`STARTS`, `DURATIONS`, `FLAGS`), 4 payload lengths, 16 to 47 the sample
 codecs', 48 lz4 payloads, 49 reserved; bit 7 marks an outer-coded column.
+
+A **relation column** (kind 8, `RelationColumn`, `EncodedRelation`) holds one u64 per item of a relation the track declares with stored values; its param is the relation's index in `TrackDef::relations`, and an events chunk has exactly one per such relation (writers check it). Codec 1 (`STARTS`) holds values that never decrease: a 17-byte head (the starts column's time mode, then the first and the last value, each as an order-keeping i64: the u64 with its top bit flipped, little endian), then a starts column of those i64s (one period for values a fixed step apart, else a line per group of 128). Codec 2 (`DURATIONS`) holds any values as the durations column does: per group the smallest value, a width and an offset, then the values above it. A writer takes codec 1 when a chunk's values never decrease, so a reader finds the first item at or above a value by search (`RelationColumn::lower_bound`); a monotone relation is always in codec 1.
 
 A **summary** block holds a batch of consecutive nodes of one level of a track's summary tree, so an overview of a long track reads a few hundred KB instead of its items. Nodes run over item numbers, not time: a level-0 node of an event track holds 2048 items, each level up 16 nodes of the level below, and node `n` holds items `[n << shift, (n + 1) << shift)`, so the first and last node of a tape piece may hold fewer items and the nodes of two pieces line up. An event node holds its first and last item's start, the OR of the items' flags and, for spans, the latest end; counts follow from the item range. A series node holds `2^base_shift` samples and, per channel, the statistics the track declares (`SeriesSummarySpec`): minimum, maximum, sum, sum of squares, a count of clipped or NaN samples, the flags OR, and for complex samples the mean and maximum of `I² + Q²`; no ticks, since a series' ticks follow from its chunks' grids and its period. Every statistic merges in item order (`EventNode::merge`, `ChannelStats::merge`), so a reader building coarser bins gets the bits the writer stored one level up. A chunk may change the scale of a series' numbers mid-node (an autoranging device changes prefix); such a node is kept at the common scale of its samples (`common_scale`: `10⁻⁶` for `10⁻³` and `10⁻⁶`), the coarser numbers multiplied by a whole factor, so minimum and maximum stay exact integers in the sample type's unit. A series block states its scale in its head, the common scale of all its nodes, so it is read alone without the chunks; `SeriesNode::merge` merges nodes of two scales (two blocks, a view cache across a change) at their common scale, and refuses scales with no common one (a ratio that isn't a fraction of integers) rather than mixing them. The head names the track, the level, the node size, the element, channels and scale of a series, the statistics stored, the items covered and their tick range, so an index lists the block without reading its body; the body is one column per field, little endian. The writer (`EventTree`, `SeriesSummaries`) writes a block when a level's batch fills and the partial nodes at `finish`, up to a level with a single node. The blocks are small (a few KiB) and go through `TapeWriter::defer_block`, so in an aligned file they fill the gaps before chunk payloads and cost no space; a lost one is rebuilt from the data. `SeriesSummaries::push` keeps every statistic in one pass over the samples: integers up to 32 bits through vectorised kernels with exact integer sums (AVX-512 or AVX2 chosen at run time on x86-64), 64-bit integers and floats one sample at a time in their order, since float sums depend on it. On an AMD EPYC Genoa virtual machine at a load average of about 5 it summarised complex i16 at 6.4 GB/s and i32 at 7.9 GB/s (`just bench-summaries`, [Numbers](numbers.md#summaries)). The head ([summary module docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/summary/mod.rs)); the header's count is the node count, and bytes 28..32 are 0:
 
@@ -175,7 +179,7 @@ them: one `Describe` per record, the item's whole bytes, with no time delta. A d
 | `Bundle` | an API bundle (a `ww_self` `ApiBundle` in its ShrinkWrap encoding) and its hash, the hash as the producer, `TrackDef::bundle` and `TypeRef::bundle` name it |
 | `Clock` | a `ClockDef`: number, stable key, exact rate and resolution as `Magnitude`s, origin (free-running, boot, Unix epoch, media start, session start, or the next epoch of a counter, fixed by an exact offset map) |
 | `Map` | a `ClockMap` of segments `b = b0 + (a - a0) · slope`, the slope an exact_units `Ratio64`, with an error bound, strictly increasing across segments; the tap maps its own clock to the wall clock read at its start |
-| `Track` | a `TrackDef`: number, stable key, clock, dimensions that are part of its identity, API, bundle, resource path, the keys of [keyed arrays](#track-identity) on it, optional item type, label, its `repeat` (`TrackRepeat`), its kind (events, with or without ends and flags, or a [series](#series-tracks)), and its relations: the events track its items nest under (`parent`), the state tracks it is read with (`context`) and the item field naming an item's entity (`entity_key`) |
+| `Track` | a `TrackDef`: number, stable key, clock, dimensions that are part of its identity, API, bundle, resource path, the keys of [keyed arrays](#track-identity) on it, optional item type, label, its `repeat` (`TrackRepeat`), its kind (events, with or without ends and flags, or a [series](#series-tracks)), its owner, and its relations (`RelationDef`): each a name, a target (a run's 16 opaque bytes and a track id, explicit, never bound by position), where its per-item values are (none, a column, or only an index), whether they never decrease, and the index they feed (none, a range in the index entry, postings, a dictionary); at most 16, names unique, one range per track |
 | `Item` | a `TypedItem`: any wire_weaver value by bundle hash and type path, such as a run record |
 
 Definitions sit in records blocks of their own, with no record of another track, each at most `DEFINITION_BLOCK_LEN`
@@ -271,11 +275,12 @@ off size field
  60 ...  n × track: id u64, first entry u32, entry count u32, CRC-32C of its entries u32, reserved u32
  ...     entries, each:
            0 u64 offset of the block in the piece    8 u32 its length        12 u8 its block kind
-          13 u8  summary level (0 for other kinds)   14 u8 summary tree      15 u8 flags: bit 0 repeat
+          13 u8  summary level (0 for other kinds)   14 u8 summary tree      15 u8 flags: bit 0 repeat, bit 1 range
           16 u64 track id (0: none)                 24 u32 track number      28 u32 0 (a state record's below)
           32 u64 first item number                  40 u64 items (samples, records)
           48 i64 first tick                         56 i64 last tick         64 i64 latest end
-          72 [16] 0, reserved                       88 [32] a chunk's unit hash, else 0
+          72 u64 smallest value of the track's range relation in the chunk (flag bit 1), else 0
+          80 u64 its largest value, else 0          88 [32] a chunk's unit hash, else 0
 len-4 u32 CRC over bytes 0..len-4, as in every block
 ```
 
@@ -458,6 +463,8 @@ Some numbers are reserved so later features need no format change; today's reade
 | sample codec 36 (`Codec::RUNS`) | run-coded discrete lanes (`U8`, `U16`, `U32`, `Bool`) |
 | element 13 (`Element::LEAVES`) | a sample that is a struct of leaves of different element types |
 | column kind 7 (`ColumnKind::PAYLOAD_LEAF`) | one leaf of the items' payload struct, the param naming the leaf |
+| block kinds 11 and 12 (`BlockKind::POSTINGS`, `DICTIONARY`) | a relation's index per events chunk: each distinct value with its items; the distinct values and each item's index into them. Skipped by readers; writers refuse a definition that asks for one |
+| `RelationValues::IndexOnly` | values given with each item only to feed an index, no column; writers refuse it until an index is built |
 | summary head bytes 54..56 | the first channel or leaf of the block, 0 today |
 
 ## Sample codecs
