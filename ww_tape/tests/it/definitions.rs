@@ -1330,3 +1330,78 @@ fn relation_columns_match_the_stored_relations() {
         "a relation past the last"
     );
 }
+
+/// TrackDef as main wrote it before `owner` and `relations` (ww_tape main 344485c): the skew test's older side.
+#[derive_shrink_wrap(borrowed, derive(Debug, PartialEq))]
+struct TrackDefBeforeRelations<'i> {
+    number: UNib32,
+    key: u64,
+    clock: UNib32,
+    dimensions: RefVec<'i, ww_tape::Dimension<'i>>,
+    api: FullVersion<'i>,
+    bundle: RefVec<'i, u8>,
+    path: RefVec<'i, UNib32>,
+    keys: RefVec<'i, ww_tape::KeySegment<'i>>,
+    item: Option<ww_tape::TypeRef<'i>>,
+    label: &'i str,
+    repeat: TrackRepeat,
+    kind: TrackKind<'i>,
+}
+
+/// A TrackDef written before `owner` and `relations` reads with both at their defaults and the same id; one written
+/// with them reads as the older type with every older field as written.
+#[test]
+fn a_track_def_reads_across_the_relations_change() {
+    let Describe::Track(new) = labeled(5, CLOCK, "skew") else {
+        unreachable!("labeled() gives a track")
+    };
+    let old = TrackDefBeforeRelations {
+        number: new.number,
+        key: new.key,
+        clock: new.clock,
+        dimensions: new.dimensions.clone(),
+        api: new.api,
+        bundle: new.bundle,
+        path: new.path,
+        keys: new.keys.clone(),
+        item: new.item.clone(),
+        label: new.label,
+        repeat: new.repeat,
+        kind: new.kind.clone(),
+    };
+    let mut scratch = [0u8; 512];
+    let old_bytes = old.to_ww_bytes(&mut scratch).unwrap().to_vec();
+    let read = TrackDef::from_ww_bytes(&old_bytes).expect("older bytes read as the new type");
+    assert_eq!(read, new);
+    assert_eq!(read.owner, [0; 32]);
+    assert_eq!(read.relations.len(), 0);
+    assert_eq!(read.id(), new.id());
+
+    let relations = [RelationDef {
+        name: "source",
+        target: Some(RelationTarget {
+            run: [3; 16],
+            track: 9,
+        }),
+        values: RelationValues::Stored,
+        monotone: true,
+        index: RelationIndex::Range,
+    }];
+    let with = TrackDef {
+        owner: [7; 32],
+        relations: RefVec::Slice { slice: &relations },
+        ..new.clone()
+    };
+    assert_eq!(
+        with.id(),
+        new.id(),
+        "owner and relations are not the identity"
+    );
+    let mut scratch = [0u8; 512];
+    let new_bytes = with.to_ww_bytes(&mut scratch).unwrap().to_vec();
+    assert_eq!(
+        TrackDefBeforeRelations::from_ww_bytes(&new_bytes)
+            .expect("newer bytes read as the older type"),
+        old
+    );
+}
