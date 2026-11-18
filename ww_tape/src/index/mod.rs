@@ -570,6 +570,23 @@ impl From<BoundError> for IndexError {
     }
 }
 
+/// Whether `entries`, by offset, name blocks one after the other that don't overlap: each block once, but a block
+/// of state records once per record (state entries of one offset and length).
+pub(crate) fn in_file_order<'a>(entries: impl IntoIterator<Item = &'a IndexEntry>) -> bool {
+    let mut prev: Option<&IndexEntry> = None;
+    for e in entries {
+        let fits = prev.is_none_or(|p| match p.offset == e.offset {
+            true => p.track_id == STATE_TRACK_ID && e.track_id == STATE_TRACK_ID && p.len == e.len,
+            false => p.offset.saturating_add(u64::from(p.len)) <= e.offset,
+        });
+        if !fits {
+            return false;
+        }
+        prev = Some(e);
+    }
+    true
+}
+
 /// Tracks a final index over `entries` (sorted by track id) has.
 pub fn track_count(entries: &[IndexEntry]) -> usize {
     entries.chunk_by(|a, b| a.track_id == b.track_id).count()
@@ -940,7 +957,8 @@ impl<'b> IndexBlock<'b> {
     }
 
     /// The entries of `list` from their bytes ([Self::track_range]), checked against the list's CRC and the block's
-    /// entry count, each checked as [Self::read] checks it.
+    /// entry count, each checked as [Self::read] checks it, in file order ([IndexError::BadEntries] for entries
+    /// that name one block twice or blocks that overlap).
     pub fn track_entries<'e>(
         &self,
         list: &TrackList,
@@ -960,8 +978,13 @@ impl<'b> IndexBlock<'b> {
         }
         // entry_len is at least ENTRY_LEN, checked when the head was read
         let entry = |e: &'e [u8]| e.first_chunk::<ENTRY_LEN>();
+        let mut prev = None;
         for e in bytes.chunks_exact(self.entry_len).filter_map(entry) {
-            IndexEntry::read(e)?;
+            let e = IndexEntry::read(e)?;
+            if !in_file_order(prev.iter().chain([&e])) {
+                return Err(IndexError::BadEntries);
+            }
+            prev = Some(e);
         }
         Ok(bytes
             .chunks_exact(self.entry_len)

@@ -194,3 +194,82 @@ fn a_range_hash_reads_the_chunks_of_a_piece_without_an_index() {
         assert!(got.read > 0, "track {t}: piece 1's chunks read");
     }
 }
+
+/// CRC-32C, as the format's blocks carry it.
+fn crc32c(parts: &[&[u8]]) -> u32 {
+    let crc = crc::Crc::<u32>::new(&crc::CRC_32_ISCSI);
+    let mut d = crc.digest();
+    for p in parts {
+        d.update(p);
+    }
+    d.finalize()
+}
+
+/// The final index of piece `i` of `bytes` with every entry of track `t` replaced by `change` of it, the list's CRC,
+/// the head CRC and the block CRC made good again.
+fn rewrite_final_entries(
+    bytes: &mut [u8],
+    i: usize,
+    t: u64,
+    mut change: impl FnMut(usize, &mut [u8]),
+) {
+    use ww_tape::index::{ENTRY_LEN, INDEX_FIXED_LEN, IndexBlock, TRACK_LEN};
+    let r = TapeReader::open(&bytes[..]).unwrap();
+    let p = &r.pieces()[i];
+    let at = (p.start + p.finish.as_ref().unwrap().0.final_index.unwrap()) as usize;
+    let len = ww_tape::block_len(&bytes[at..]).unwrap();
+    let block = &mut bytes[at..at + len];
+    let ix = IndexBlock::read_head(block).unwrap();
+    let k = ix.tracks().position(|l| l.track_id == id_of(t)).unwrap();
+    let list = ix.tracks().nth(k).unwrap();
+    let (from, n) = ix.track_range(&list);
+    let entries_at = IndexBlock::head_len(block).unwrap();
+    for (j, e) in block[from..from + n]
+        .as_chunks_mut::<ENTRY_LEN>()
+        .0
+        .iter_mut()
+        .enumerate()
+    {
+        change(j, e);
+    }
+    let crc = crc32c(&[&block[from..from + n]]);
+    let dir = ww_tape::HEADER_LEN + INDEX_FIXED_LEN + k * TRACK_LEN + 16;
+    block[dir..dir + 4].copy_from_slice(&crc.to_le_bytes());
+    let head = crc32c(&[&block[..28], &block[32..entries_at]]);
+    block[28..32].copy_from_slice(&head.to_le_bytes());
+    let crc = crc32c(&[&block[..len - 4]]);
+    block[len - 4..].copy_from_slice(&crc.to_le_bytes());
+}
+
+/// A final index whose entries of a track all name its first chunk, its CRCs good, is refused, never read and
+/// folded once per entry: the range hash reads the piece's chunks instead, each once.
+#[test]
+fn an_index_naming_a_chunk_many_times_is_refused() {
+    use ww_tape::index::ENTRY_LEN;
+    let (_, bytes) = write(PieceFiles::One, 0xd0b1e);
+    let good = TapeReader::open(&bytes[0][..]).unwrap();
+    let t = 1;
+    let entries = good.track_entries(1, id_of(t)).unwrap();
+    assert!(entries.len() > 2, "{} entries", entries.len());
+    let want = good
+        .range_hash(id_of(t), OwnerId::NONE, 0..u64::MAX, TrackHash::START)
+        .unwrap();
+    let mut crafted = bytes[0].clone();
+    let mut first = [0u8; ENTRY_LEN];
+    rewrite_final_entries(&mut crafted, 1, t, |j, e| match j {
+        0 => first.copy_from_slice(e),
+        _ => e.copy_from_slice(&first),
+    });
+    let r = TapeReader::open(&crafted[..]).unwrap();
+    assert!(matches!(
+        r.track_entries(1, id_of(t)),
+        Err(ww_tape::ReadError::Index(
+            ww_tape::index::IndexError::BadEntries
+        ))
+    ));
+    let got = r
+        .range_hash(id_of(t), OwnerId::NONE, 0..u64::MAX, TrackHash::START)
+        .unwrap();
+    assert_eq!((got.hash, got.chunks), (want.hash, want.chunks));
+    assert!(got.read > 0, "piece 1's chunks read");
+}
