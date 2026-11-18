@@ -108,6 +108,9 @@ pub enum WriteError {
     Exists(PathBuf),
     /// Another writer holds the file or memory tape: one writer per file ([crate::sink]).
     Locked(PathBuf),
+    /// The `.partial` file `create` opened is no longer the one its name points to once locked: another writer
+    /// finished and renamed it, or it was replaced. Nothing is written.
+    Replaced(PathBuf),
     /// [MemTapes::remove](crate::MemTapes::remove) of a piece still being written.
     Unfinished(PathBuf),
     /// A deferred block isn't a good block.
@@ -166,6 +169,11 @@ impl core::fmt::Display for WriteError {
             ),
             WriteError::Exists(p) => write!(f, "{} exists", p.display()),
             WriteError::Locked(p) => write!(f, "another writer holds {}", p.display()),
+            WriteError::Replaced(p) => write!(
+                f,
+                "{} was renamed or replaced while it was opened",
+                p.display()
+            ),
             WriteError::Unfinished(p) => write!(f, "{} is still being written", p.display()),
             WriteError::Block(e) => write!(f, "not a good block: {e:?}"),
             WriteError::Chunk(e) => write!(f, "chunk doesn't encode: {e:?}"),
@@ -368,7 +376,8 @@ pub const DEFERRED_BYTES_MAX: usize = 1 << 20;
 pub const DEFER_WINDOW: u64 = 1 << 20;
 
 impl TapeWriter<FileSink> {
-    /// A new file at `path`, written as `path.partial` until [Self::finish]; fails if `path` is there.
+    /// A new file at `path`, written as `path.partial` until [Self::finish]; fails if `path` is there or a
+    /// `path.partial` holds bytes ([FileSink::create]).
     pub fn create(path: &Path, policy: SyncPolicy) -> Result<Self, WriteError> {
         Ok(Self::create_on(FileSink::create(path)?, policy))
     }
