@@ -1,6 +1,6 @@
 // ww_tape 0.1.0 traits and types, saved by `ww api save`.
 // Do not edit, bump the crate version and save a new snapshot instead.
-// shrink_wrap sha256: febae8e37cc5503a9afa73fdc5fb2448b3a8b71a5255f746a7a3dbb875b57ccc
+// shrink_wrap sha256: 8b848973338ea43d8d92b5c04f0f93ea1726e74a9e7e75b846e5a8637ef7c297
 (magic: 2837124336, ww_self_version: (major: 0, minor: 4, patch: 0), root: (docs: [
     "Tape blocks: the unit a producer of records hands over, a live consumer reads and a log file is made of.",
     "",
@@ -125,6 +125,7 @@
     "| [GAP_MAX_MAX] | 64 MiB | a layout\'s gap |",
     "| [GAP_PROBES_MAX] | 8192 | the resume places a reader probes in one gap |",
     "| [GAP_CHECKS_MAX] | 4 | the blocks a reader checks whole past one gap |",
+    "| [RESYNC_AHEAD_MAX] | 128 MiB | the bytes a salvage walk ([Recovery::Resync]) reads ahead |",
     "| [STATE_READ_MAX](reader::STATE_READ_MAX) | 1 GiB | the bytes of blocks one state lookup reads |",
     "| [DEFERRED_BYTES_MAX](writer::DEFERRED_BYTES_MAX) | 1 MiB | the deferred blocks a writer keeps |",
     "",
