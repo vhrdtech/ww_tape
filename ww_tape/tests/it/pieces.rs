@@ -128,10 +128,24 @@ fn finished_file_is_found_by_its_tail() {
     assert_eq!(ranges.len(), 4);
     let rec = ranges.iter().find(|t| t.track_number == 9).unwrap();
     assert_eq!((rec.chunks, rec.items, rec.records), (0, 0, 20));
-    let want = (0..20i64).fold(ww_tape::TrackHash::START, |h, n| h.record(n, &[n as u8; 30]));
+    let want = (0..20i64).fold(ww_tape::TrackHash::START, |h, n| {
+        h.record(n, &[n as u8; 30])
+    });
     assert_eq!(rec.hash, want);
-    assert!(ranges.iter().filter(|t| t.chunks > 0).all(|t| t.records == 0));
-    assert_eq!(done.tracks.iter().find(|t| t.track_number == 9).unwrap().hash, want);
+    assert!(
+        ranges
+            .iter()
+            .filter(|t| t.chunks > 0)
+            .all(|t| t.records == 0)
+    );
+    assert_eq!(
+        done.tracks
+            .iter()
+            .find(|t| t.track_number == 9)
+            .unwrap()
+            .hash,
+        want
+    );
     assert_eq!(
         (
             ranges[1].track_id,
@@ -283,6 +297,7 @@ fn write_chain(dir: &Path, n: u64) -> Vec<PathBuf> {
         n,
         &[],
         ww_tape::ChainOptions {
+            files: ww_tape::PieceFiles::Each,
             writer: ww_tape::WriterOptions {
                 sync: SyncPolicy::None,
                 index: IndexPolicy {
@@ -326,6 +341,7 @@ fn a_chain_cuts_when_its_piece_is_full_of_state_entries() {
         0,
         &[],
         ww_tape::ChainOptions {
+            files: ww_tape::PieceFiles::Each,
             writer: ww_tape::WriterOptions {
                 sync: SyncPolicy::None,
                 index: IndexPolicy {
@@ -591,6 +607,7 @@ fn index_golden() {
         0,
         &[],
         ww_tape::ChainOptions {
+            files: ww_tape::PieceFiles::Each,
             writer: ww_tape::WriterOptions {
                 sync: SyncPolicy::None,
                 index: IndexPolicy {
@@ -969,6 +986,7 @@ fn chain_in_memory(mem: &ww_tape::MemTapes) -> Vec<PathBuf> {
         0,
         &[],
         ww_tape::ChainOptions {
+            files: ww_tape::PieceFiles::Each,
             writer: ww_tape::WriterOptions {
                 sync: SyncPolicy::None,
                 ..Default::default()

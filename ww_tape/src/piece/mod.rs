@@ -794,7 +794,9 @@ pub use chain::{ChainEnd, ChainLink, ChainReport, PieceSummary, check_chain};
 #[cfg(feature = "std")]
 mod writer;
 #[cfg(feature = "std")]
-pub use writer::{CUT_SLACK, ChainOptions, ChunkPlaced, CutPolicy, PieceChain, piece_name};
+pub use writer::{
+    CUT_SLACK, ChainOptions, ChunkPlaced, CutPolicy, PieceChain, PieceFiles, piece_name,
+};
 
 #[cfg(test)]
 mod tests;

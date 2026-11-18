@@ -1508,7 +1508,7 @@ impl<S: TapeSink> TapeWriter<S> {
                 "a continued piece ends by cut",
             )));
         }
-        self.end(state).map(|e| e.finished)
+        self.end(state, true).map(|e| e.finished)
     }
 
     /// End this piece as [FinishState::Continued] and start the next piece of the chain on the sink `factory` makes
@@ -1541,10 +1541,39 @@ impl<S: TapeSink> TapeWriter<S> {
         };
         let options = self.options();
         let tracks = self.indexer.next_starts(&starts);
-        let done = self.end(FinishState::Continued)?;
+        let done = self.end(FinishState::Continued, true)?;
         let next_piece =
             NextPiece::after(&head, &done.finished, tracks, done.session, done.next_seq)?;
         let next = TapeWriter::start_next(next()?, &options, next_piece)?;
+        Ok((done.finished, next))
+    }
+
+    /// End this piece as [FinishState::Continued] and start the next piece of the chain right behind it in the same
+    /// sink, as [Self::cut_on] does on a new one: the sink's window ([TapeSink::rebase]) moves to the end of this
+    /// piece, a multiple of [PIECE_ALIGN] when this one started on one. The sink stays open: it isn't finished, a
+    /// file keeps its name. A sink holding one piece only refuses ([TapeSink::rebase]).
+    pub fn cut_in_place(self) -> Result<(Finished, Self), WriteError> {
+        let Some((head, starts)) = self.head.clone() else {
+            return Err(WriteError::Index(IndexError::Invalid(
+                "a cut needs a piece head",
+            )));
+        };
+        let options = self.options();
+        let tracks = self.indexer.next_starts(&starts);
+        let mut done = self.end(FinishState::Continued, false)?;
+        let next_piece =
+            NextPiece::after(&head, &done.finished, tracks, done.session, done.next_seq)?;
+        let base = done
+            .finished
+            .start
+            .checked_add(done.finished.len)
+            .ok_or(WriteError::Index(IndexError::Invalid(
+                "a file past u64::MAX bytes",
+            )))?;
+        done.sink
+            .rebase(base)
+            .map_err(io_err("starting the next piece behind the last"))?;
+        let next = TapeWriter::start_next(done.sink, &options, next_piece)?;
         Ok((done.finished, next))
     }
 
@@ -1580,8 +1609,9 @@ impl<S: TapeSink> TapeWriter<S> {
     }
 
     /// End the piece in `state`; a continued piece with a head names the next piece's id, [PieceId::after] its own
-    /// and the content hash in its finish.
-    fn end(mut self, state: FinishState) -> Result<Ended, WriteError> {
+    /// and the content hash in its finish. With `close` the sink is finished ([TapeSink::finish]), else it is
+    /// synced and handed back for the next piece.
+    fn end(mut self, state: FinishState, close: bool) -> Result<Ended<S>, WriteError> {
         self.flush_deferred()?;
         self.ensure_head()?;
         let mut prev = None;
@@ -1647,9 +1677,12 @@ impl<S: TapeSink> TapeWriter<S> {
         tail.write(&mut tb, self.structural_id());
         self.write_own(&tb)?;
         self.sync()?;
-        self.sink
-            .finish()
-            .map_err(io_err("giving the finished piece its name"))?;
+        if close {
+            self.sink
+                .finish()
+                .map_err(io_err("giving the finished piece its name"))?;
+        }
+        let start = self.sink.base().saturating_add(self.start);
         Ok(Ended {
             finished: Finished {
                 path: self.sink.path().to_path_buf(),
@@ -1657,11 +1690,12 @@ impl<S: TapeSink> TapeWriter<S> {
                 len: self.bytes,
                 ident,
                 next,
-                start: self.start,
+                start,
                 tracks,
             },
             next_seq: self.next_seq,
             session: self.session,
+            sink: self.sink,
         })
     }
 
@@ -1821,11 +1855,29 @@ enum Again {
     Replaced,
 }
 
-/// A piece just ended, and the session and seq after its last block.
-struct Ended {
+impl NextPiece {
+    /// The piece a new write session starts after the piece headed `head` that ended as `done` (complete or
+    /// aborted, or continued with no piece after it): its id [PieceId::after] that one's id and content hash, its
+    /// head naming that piece and `prev_session`, the session that wrote it; its own session [SessionTag::of_piece]
+    /// its id, seqs from 0; its track starts `tracks`.
+    pub(crate) fn reopened(
+        head: &PieceHead,
+        done: &Finished,
+        tracks: Vec<TrackStart>,
+        prev_session: SessionTag,
+    ) -> Result<Self, WriteError> {
+        let mut next = Self::after(head, done, tracks, prev_session, 0)?;
+        next.session = SessionTag::of_piece(&next.head.ident.id);
+        Ok(next)
+    }
+}
+
+/// A piece just ended, the session and seq after its last block, and its sink.
+struct Ended<S> {
     finished: Finished,
     next_seq: u64,
     session: SessionTag,
+    sink: S,
 }
 
 /// Session and seq of the block whose bytes start `block`, None when it is shorter than a header.

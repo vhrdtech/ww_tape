@@ -1,4 +1,5 @@
-//! [PieceChain]: a recording written as a chain of pieces, cut at chunk boundaries, on files or any [SinkFactory].
+//! [PieceChain]: a recording written as a chain of pieces, cut at chunk boundaries, on files or any [SinkFactory]:
+//! each piece a file of its own, or all of them back to back in one file ([PieceFiles]).
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -7,6 +8,7 @@ use super::{FinishState, OwnerId, PieceHead, PieceId, PieceIdent, TAIL_LEN, Trac
 use crate::index::IndexError;
 use crate::reader::{ByteSource, TapeReader};
 use crate::sink::{Files, SinkFactory, TapeSink};
+use crate::writer::resume::SinkSource;
 use crate::writer::{
     Finished, NextPiece, Placed, Resumed, TapeWriter, WriteError, WriterOptions, block_id,
 };
@@ -48,11 +50,25 @@ pub struct ChunkPlaced {
     pub len: u32,
 }
 
-/// Writes one recording as pieces `dir/`[piece_name] (`seq`) on the sinks of a [SinkFactory] (files by default),
-/// cutting by a [CutPolicy] before a chunk.
+/// Where a [PieceChain] keeps its pieces.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
+pub enum PieceFiles {
+    /// Each piece a file of its own, `dir/`[piece_name] (`seq`): the path the chain is given is the directory.
+    #[default]
+    Each,
+    /// All pieces back to back in one file (or memory tape): the path the chain is given is the file. A cut starts
+    /// the next piece right behind the last ([TapeWriter::cut_in_place]); a resume goes on in the last piece when
+    /// it is unfinished, else starts a new one behind it.
+    One,
+}
+
+/// Writes one recording as pieces on the sinks of a [SinkFactory] (files by default), each its own file
+/// `dir/`[piece_name] (`seq`) or all in one ([PieceFiles]), cutting by a [CutPolicy] before a chunk.
 pub struct PieceChain<F: SinkFactory = Files> {
     factory: F,
-    dir: PathBuf,
+    /// The directory of the pieces, or the file holding them all
+    at: PathBuf,
+    files: PieceFiles,
     /// None after a failed cut: the chain takes no more blocks
     writer: Option<TapeWriter<F::Sink>>,
     cut: CutPolicy,
@@ -67,11 +83,13 @@ pub struct ChainOptions {
     /// Each piece's writer.
     pub writer: WriterOptions,
     pub cut: CutPolicy,
+    /// A file per piece, or all pieces in one.
+    pub files: PieceFiles,
 }
 
 impl PieceChain<Files> {
-    /// Start chain `chain` of `owner` in `dir` (which must exist) with its first piece file, see
-    /// [Self::create_on].
+    /// Start chain `chain` of `owner` in `dir` (which must exist; with [PieceFiles::One] the file to create) with
+    /// its first piece, see [Self::create_on].
     pub fn create(
         dir: &Path,
         owner: OwnerId,
@@ -97,6 +115,7 @@ impl<F: SinkFactory> PieceChain<F> {
     /// Start chain `chain` of `owner` under `dir` with its first piece, on the sink `factory` makes, id
     /// [PieceId::first_of] `(owner, chain)`; `tracks` say where items of tracks carried over from elsewhere continue
     /// (empty for a new recording). Each chain of a owner takes its own number, so its pieces and session tag are its own.
+    /// With [PieceFiles::One] `dir` is the file that holds every piece, made with [SinkFactory::create_whole].
     pub fn create_on(
         mut factory: F,
         dir: &Path,
@@ -105,14 +124,18 @@ impl<F: SinkFactory> PieceChain<F> {
         tracks: &[TrackStart],
         options: ChainOptions,
     ) -> Result<Self, WriteError> {
-        let sink = factory.create(&dir.join(piece_name(0)))?;
+        let sink = match options.files {
+            PieceFiles::Each => factory.create(&dir.join(piece_name(0)))?,
+            PieceFiles::One => factory.create_whole(dir)?,
+        };
         let mut writer = TapeWriter::create_on(sink, options.writer.sync);
         writer.apply(&options.writer)?;
         reserve_piece(&mut writer, options.cut);
         writer.begin_piece(&first_head(owner, chain), tracks)?;
         Ok(PieceChain {
             factory,
-            dir: dir.to_path_buf(),
+            at: dir.to_path_buf(),
+            files: options.files,
             writer: Some(writer),
             cut: options.cut,
             started: Instant::now(),
@@ -124,8 +147,30 @@ impl<F: SinkFactory> PieceChain<F> {
     /// Reopen chain `chain` of `owner` under `dir` after a crash: the finished pieces are read from their tails
     /// ([Self::finished]), the unfinished last one is resumed ([TapeWriter::resume_on]). After a crash between a cut's finish
     /// and the next piece's start, the next piece is started as the cut would have. `options` are the ones the chain
-    /// was written with. A chain whose last piece ended complete or aborted is refused ([WriteError::Ended]).
+    /// was written with. A chain of a file per piece whose last piece ended complete or aborted is refused
+    /// ([WriteError::Ended]).
+    ///
+    /// With [PieceFiles::One] `dir` is the file. Its last piece, when unfinished (a crash), is resumed with the
+    /// same rules as a piece of its own: only a torn end is cut, and a resume that would drop more is refused. When
+    /// every piece is finished (the file was closed), a new piece starts behind the last: the next one of the cut
+    /// when the last is continued, else a new write session's ([TapeWriter::begin_piece] rules: its own session tag
+    /// derived from its id, seqs from 0), its head naming the last piece. An application that starts every write
+    /// session in a piece of its own gives the calls a resume asks for again, then cuts ([Self::cut_now]).
     pub fn resume_on(
+        factory: F,
+        dir: &Path,
+        owner: OwnerId,
+        chain: u64,
+        options: ChainOptions,
+    ) -> Result<(Self, Resumed), WriteError> {
+        match options.files {
+            PieceFiles::Each => Self::resume_each(factory, dir, owner, chain, options),
+            PieceFiles::One => Self::resume_one(factory, dir, owner, chain, options),
+        }
+    }
+
+    /// [Self::resume_on] of a chain whose pieces are files of their own.
+    fn resume_each(
         mut factory: F,
         dir: &Path,
         owner: OwnerId,
@@ -177,7 +222,71 @@ impl<F: SinkFactory> PieceChain<F> {
         Ok((
             PieceChain {
                 factory,
-                dir: dir.to_path_buf(),
+                at: dir.to_path_buf(),
+                files: options.files,
+                writer: Some(writer),
+                cut: options.cut,
+                started: Instant::now(),
+                seq,
+                finished: finished.into_iter().map(|(f, _)| f).collect(),
+            },
+            resumed,
+        ))
+    }
+
+    /// [Self::resume_on] of a chain whose pieces are all in the file `path`.
+    fn resume_one(
+        mut factory: F,
+        path: &Path,
+        owner: OwnerId,
+        chain: u64,
+        options: ChainOptions,
+    ) -> Result<(Self, Resumed), WriteError> {
+        let Some(mut sink) = factory.open_whole(path)? else {
+            return Err(WriteError::Io {
+                what: "opening the file of the chain",
+                error: std::io::ErrorKind::NotFound.into(),
+            });
+        };
+        let size = sink
+            .size()
+            .map_err(crate::sink::io_err("reading the length to resume"))?;
+        let finished = finished_in(&sink, path)?;
+        let seq = u64::try_from(finished.len()).map_err(|_| too_many())?;
+        // the bytes after the last finished piece: an unfinished piece, or nothing
+        let open_at = match finished.last() {
+            Some((f, _)) => f.start.checked_add(f.len).ok_or_else(too_many)?,
+            None => 0,
+        };
+        sink.rebase(open_at)
+            .map_err(crate::sink::io_err("finding the last piece"))?;
+        let (writer, resumed) = if open_at < size || finished.is_empty() {
+            let (mut w, resumed) = TapeWriter::resume_on(sink, options.writer.clone())?;
+            reserve_piece(&mut w, options.cut);
+            if w.bytes() == 0 {
+                // cut off inside its head: the piece starts again
+                match finished.last() {
+                    None => w.begin_piece(&first_head(owner, chain), &[])?,
+                    Some((done, last)) => w.begin_next(following(done, last)?)?,
+                }
+            }
+            (w, resumed)
+        } else {
+            let Some((done, last)) = finished.last() else {
+                return Err(WriteError::Index(IndexError::Invalid(
+                    "a file of finished pieces holds one",
+                )));
+            };
+            let mut w = TapeWriter::start_next(sink, &options.writer, following(done, last)?)?;
+            reserve_piece(&mut w, options.cut);
+            let resumed = Resumed::started(w.bytes());
+            (w, resumed)
+        };
+        Ok((
+            PieceChain {
+                factory,
+                at: path.to_path_buf(),
+                files: options.files,
                 writer: Some(writer),
                 cut: options.cut,
                 started: Instant::now(),
@@ -294,13 +403,17 @@ impl<F: SinkFactory> PieceChain<F> {
             .ok_or(WriteError::Index(IndexError::Invalid(
                 "piece seq past u64::MAX",
             )))?;
-        let next_path = self.dir.join(piece_name(seq));
         // what may fail before the piece ends fails here, the writer kept
         if let Some(w) = self.writer.as_mut() {
             w.flush_deferred()?;
         }
         let current = self.writer.take().ok_or(WriteError::Failed)?;
-        let (done, mut next) = current.cut_with(&mut self.factory, &next_path)?;
+        let (done, mut next) = match self.files {
+            PieceFiles::Each => {
+                current.cut_with(&mut self.factory, &self.at.join(piece_name(seq)))?
+            }
+            PieceFiles::One => current.cut_in_place()?,
+        };
         reserve_piece(&mut next, self.cut);
         self.writer = Some(next);
         self.finished.push(done);
@@ -353,6 +466,40 @@ fn next_piece(done: &Finished, last: &LastPiece) -> Result<NextPiece, WriteError
     )
 }
 
+/// The piece a writer starts after the finished piece `done`: the next of the cut when it is continued, else the
+/// first of a new write session.
+fn following(done: &Finished, last: &LastPiece) -> Result<NextPiece, WriteError> {
+    if last.state == FinishState::Continued {
+        next_piece(done, last)
+    } else {
+        NextPiece::reopened(&last.head, done, last.next_tracks.clone(), last.session)
+    }
+}
+
+fn too_many() -> WriteError {
+    WriteError::Index(IndexError::Invalid("piece seq past u64::MAX"))
+}
+
+/// The finished pieces at the start of the file in `sink` (named `path`), in order, read from their tails: every
+/// piece but an unfinished last one. A piece without its end before another is refused.
+fn finished_in<S: TapeSink>(
+    sink: &S,
+    path: &Path,
+) -> Result<Vec<(Finished, LastPiece)>, WriteError> {
+    let src = SinkSource(sink);
+    let reader = TapeReader::open(&src).map_err(WriteError::Read)?;
+    let pieces = reader.pieces();
+    let done = pieces.iter().take_while(|p| p.tail.is_some()).count();
+    if done.saturating_add(1) < pieces.len() {
+        return Err(WriteError::Index(IndexError::Invalid(
+            "an unfinished piece before the last one in a file of pieces",
+        )));
+    }
+    (0..done)
+        .map(|i| read_finished_at(&reader, i, path))
+        .collect()
+}
+
 /// What the piece after a finished one starts from.
 struct LastPiece {
     state: FinishState,
@@ -367,12 +514,24 @@ fn read_finished<B: ByteSource<Error = std::io::Error>>(
     src: &B,
     path: &Path,
 ) -> Result<(Finished, LastPiece), WriteError> {
-    let bad = |what| WriteError::Index(IndexError::Invalid(what));
     let reader = TapeReader::open(src).map_err(WriteError::Read)?;
-    let p = match reader.pieces() {
-        [p] if p.start == 0 => p,
-        _ => return Err(bad("a finished piece holds one piece")),
-    };
+    if !matches!(reader.pieces(), [p] if p.start == 0) {
+        return Err(WriteError::Index(IndexError::Invalid(
+            "a finished piece holds one piece",
+        )));
+    }
+    read_finished_at(&reader, 0, path)
+}
+
+/// Finished piece `i` of `reader`, in the bytes named `path`, from its tail, finish and head.
+fn read_finished_at<B: ByteSource<Error = std::io::Error>>(
+    reader: &TapeReader<B>,
+    i: usize,
+    path: &Path,
+) -> Result<(Finished, LastPiece), WriteError> {
+    let bad = |what| WriteError::Index(IndexError::Invalid(what));
+    let src = reader.source();
+    let p = reader.pieces().get(i).ok_or(bad("no such piece"))?;
     let (Some(tail), Some((finish, ranges)), Some((head, starts))) =
         (p.tail, p.finish.as_ref(), p.head.as_ref())
     else {
@@ -390,7 +549,7 @@ fn read_finished<B: ByteSource<Error = std::io::Error>>(
         .map_err(crate::sink::io_err("reading a tail"))?;
     let id = block_id(&header).ok_or(bad("a tail shorter than a header"))?;
     // the tail's seq is the last counted block's, or 0 (a first piece) or the piece before's when it holds none
-    let next_seq = if head.prev.is_none() && !holds_counted(&reader)? {
+    let next_seq = if head.prev.is_none() && !holds_counted(reader, i)? {
         0
     } else {
         id.seq.wrapping_add(1)
@@ -416,13 +575,14 @@ fn read_finished<B: ByteSource<Error = std::io::Error>>(
     ))
 }
 
-/// Whether the only piece of `reader` holds a block its writer counted: one the index lists that isn't marked
+/// Whether piece `i` of `reader` holds a block its writer counted: one the index lists that isn't marked
 /// FLAG_REPEAT.
 fn holds_counted<B: ByteSource<Error = std::io::Error>>(
     reader: &TapeReader<B>,
+    i: usize,
 ) -> Result<bool, WriteError> {
     Ok(reader
-        .entries(0)
+        .entries(i)
         .map_err(WriteError::Read)?
         .iter()
         .any(|e| !e.repeat))

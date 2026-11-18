@@ -111,6 +111,7 @@ type Span = (u64, u64, Part);
 
 fn parts() -> anyhow::Result<(u64, Vec<Span>)> {
     let options = ChainOptions {
+        files: ww_tape::PieceFiles::Each,
         writer: WriterOptions {
             sync: SyncPolicy::None,
             index: IndexPolicy {

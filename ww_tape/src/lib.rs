@@ -210,7 +210,7 @@ pub use index::{
 };
 pub mod piece;
 #[cfg(feature = "std")]
-pub use piece::{ChainOptions, ChunkPlaced, CutPolicy, PieceChain};
+pub use piece::{ChainOptions, ChunkPlaced, CutPolicy, PieceChain, PieceFiles};
 pub use piece::{
     ContentHash, Finish, FinishState, OwnerId, PIECE_ALIGN, PieceHead, PieceId, PieceIdent,
     TAIL_LEN, Tail, TrackHash, TrackRange, TrackStart,

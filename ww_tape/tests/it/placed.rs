@@ -143,6 +143,7 @@ fn piece_chain_write_chunk_says_which_piece_it_landed_in() {
         0,
         &[],
         ChainOptions {
+            files: ww_tape::PieceFiles::Each,
             writer: WriterOptions {
                 sync: SyncPolicy::None,
                 ..Default::default()

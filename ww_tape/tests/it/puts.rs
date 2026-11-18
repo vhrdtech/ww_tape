@@ -82,6 +82,7 @@ fn a_full_cap_never_stops_a_cut() {
         0,
         &[],
         ChainOptions {
+            files: ww_tape::PieceFiles::Each,
             writer: WriterOptions {
                 sync: SyncPolicy::None,
                 index: IndexPolicy {
@@ -254,6 +255,7 @@ fn a_cap_below_a_piece_head_is_refused() {
         0,
         &[],
         ChainOptions {
+            files: ww_tape::PieceFiles::Each,
             writer: WriterOptions {
                 index: small,
                 ..WriterOptions::default()

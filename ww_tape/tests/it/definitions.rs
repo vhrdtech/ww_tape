@@ -943,6 +943,7 @@ fn a_resumed_piece_takes_the_definitions_passed() {
     let dir = crate::pieces::scratch("definitions_resume");
     let o = options(u64::MAX);
     let opts = ww_tape::ChainOptions {
+        files: ww_tape::PieceFiles::Each,
         writer: o,
         cut: ww_tape::CutPolicy::default(),
     };

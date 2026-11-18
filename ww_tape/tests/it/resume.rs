@@ -476,6 +476,7 @@ fn a_damaged_block_of_definitions_is_put_again_after_a_resume() {
 fn a_chain_in_memory_reads_and_matches_files() {
     let dir = scratch("mem_chain");
     let opts = ChainOptions {
+        files: ww_tape::PieceFiles::Each,
         writer: options(0),
         cut: CutPolicy {
             chunks: 5,
@@ -538,6 +539,7 @@ fn apply_chain<F: SinkFactory>(c: &mut PieceChain<F>, defs: &mut Definitions, op
 
 fn chain_options() -> ChainOptions {
     ChainOptions {
+        files: ww_tape::PieceFiles::Each,
         writer: options(0),
         cut: CutPolicy {
             chunks: 6,
@@ -682,4 +684,243 @@ fn a_chain_in_memory_resumes() {
     assert!(Files.finished(&tmp.join("none")).unwrap().is_none());
     assert!(PieceChain::resume(&tmp.join("none"), OwnerId([9; 32]), 0, chain_options()).is_err());
     std::fs::remove_dir_all(&tmp).unwrap();
+}
+
+/// Where a test keeps a chain of pieces in one file: on disk or in memory, through the same test body.
+trait OneFile {
+    type F: SinkFactory + Clone;
+    /// A fresh place holding `bytes` as the chain's file; the factory and the file's path.
+    fn plant(&self, name: &str, bytes: &[u8]) -> (Self::F, PathBuf);
+    /// The bytes of the file at `path`.
+    fn bytes(&self, f: &Self::F, path: &Path) -> Vec<u8>;
+}
+
+struct OnDisk(PathBuf);
+
+impl OneFile for OnDisk {
+    type F = Files;
+    fn plant(&self, name: &str, bytes: &[u8]) -> (Files, PathBuf) {
+        let path = self.0.join(name);
+        std::fs::write(&path, bytes).unwrap();
+        (Files, path)
+    }
+    fn bytes(&self, _: &Files, path: &Path) -> Vec<u8> {
+        std::fs::read(path).unwrap()
+    }
+}
+
+struct InMemory;
+
+impl OneFile for InMemory {
+    type F = MemTapes;
+    fn plant(&self, name: &str, bytes: &[u8]) -> (MemTapes, PathBuf) {
+        let mut mem = MemTapes::new();
+        let path = PathBuf::from(name);
+        let mut sink = mem.create_whole(&path).unwrap();
+        sink.write_all(bytes).unwrap();
+        (mem, path)
+    }
+    fn bytes(&self, f: &MemTapes, path: &Path) -> Vec<u8> {
+        f.get(path).unwrap().unwrap().to_vec().unwrap()
+    }
+}
+
+fn one_file_options() -> ChainOptions {
+    ChainOptions {
+        files: ww_tape::PieceFiles::One,
+        ..chain_options()
+    }
+}
+
+/// A chain written into one file is its pieces written as files of their own, back to back, byte for byte, and
+/// reads to the same items: the files' chain is the model of the one file.
+fn one_file_is_its_pieces<P: OneFile>(place: &P, scratch_dir: &Path) {
+    let ops = ops(14);
+    let want_dir = scratch_dir.join("pieces");
+    std::fs::create_dir(&want_dir).unwrap();
+    let (paths, _) = reference_chain(&want_dir, &ops);
+    let want: Vec<u8> = paths
+        .iter()
+        .flat_map(|p| std::fs::read(p).unwrap())
+        .collect();
+    let (f, path) = place.plant("one.wwt", &[]);
+    // planted empty: a new chain takes the place of the empty file
+    let (mut c, _) =
+        PieceChain::resume_on(f, &path, OwnerId([9; 32]), 0, one_file_options()).unwrap();
+    let mut defs = base_defs().clone();
+    for op in &ops {
+        if matches!(op, Op::Chunk(..)) && c.cut_due() {
+            c.cut_now().unwrap();
+        }
+        apply_chain(&mut c, &mut defs, *op);
+    }
+    let f = c.factory().clone();
+    let done = c.finish().unwrap();
+    assert_eq!(done.len(), paths.len());
+    let got = place.bytes(&f, &path);
+    assert!(got == want, "{} vs {} bytes", got.len(), want.len());
+    let mut at = 0;
+    for d in &done {
+        assert_eq!((d.path.as_path(), d.start), (path.as_path(), at));
+        at += d.len;
+    }
+    // the same items whether read from the one file or from each piece's file
+    let one = TapeReader::open(&got[..]).unwrap();
+    assert!(one.chain().is_whole(), "{:?}", one.chain());
+    assert_eq!(one.pieces().len(), paths.len());
+    let mut buf = vec![];
+    for (i, p) in paths.iter().enumerate() {
+        let bytes = std::fs::read(p).unwrap();
+        let alone = TapeReader::open(&bytes[..]).unwrap();
+        assert!(one.verify(i).unwrap() && alone.verify(0).unwrap());
+        let (a, b) = (one.entries(i).unwrap(), alone.entries(0).unwrap());
+        assert_eq!(a, b);
+        for e in &a {
+            let x = one.read_block(i, e, &mut buf).unwrap().bytes().to_vec();
+            let y = alone.read_block(0, e, &mut buf).unwrap().bytes().to_vec();
+            assert_eq!(x, y);
+        }
+        assert_eq!(one.pieces()[i].finish, alone.pieces()[0].finish);
+    }
+}
+
+#[test]
+fn a_one_file_chain_is_its_pieces_back_to_back() {
+    let dir = scratch("one_file_pieces");
+    std::fs::create_dir(dir.join("disk")).unwrap();
+    one_file_is_its_pieces(&OnDisk(dir.clone()), &dir.join("disk"));
+    let mem_dir = dir.join("mem");
+    std::fs::create_dir(&mem_dir).unwrap();
+    one_file_is_its_pieces(&InMemory, &mem_dir);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// A chain in one file cut off at every block boundary of every piece and at bytes in between (inside the next
+/// block, inside a piece's end, between a cut's finish and the next piece head) resumes, takes the calls it lost
+/// and ends with the bytes of the file written without the crash.
+fn one_file_cut_anywhere<P: OneFile>(place: &P, scratch_dir: &Path, extra: usize) {
+    let ops = ops(14);
+    let want_dir = scratch_dir.join("pieces");
+    std::fs::create_dir_all(&want_dir).unwrap();
+    let (paths, made) = reference_chain(&want_dir, &ops);
+    let pieces: Vec<Vec<u8>> = paths.iter().map(|p| std::fs::read(p).unwrap()).collect();
+    let want: Vec<u8> = pieces.concat();
+    let mut start = 0usize;
+    let mut runs = 0;
+    for (i, piece) in pieces.iter().enumerate() {
+        for cut in cut_points(piece, extra) {
+            // the cut at a piece's very end is the next piece's start, with nothing of it written
+            let (f, path) = place.plant(&format!("run{runs}.wwt"), &want[..start + cut]);
+            runs += 1;
+            let (mut c, resumed) =
+                PieceChain::resume_on(f, &path, OwnerId([9; 32]), 0, one_file_options())
+                    .unwrap_or_else(|e| panic!("piece {i}, cut {cut}: {e}"));
+            let whole = cut == piece.len() && i + 1 < pieces.len();
+            assert_eq!(
+                c.finished().len(),
+                if whole { i + 1 } else { i },
+                "piece {i}, cut {cut}"
+            );
+            replay_chain(&mut c, &ops, &made, resumed.kept_bytes);
+            let f = c.factory().clone();
+            let got = c.finish().unwrap();
+            assert_eq!(got.len(), pieces.len(), "piece {i}, cut {cut}");
+            let bytes = place.bytes(&f, &path);
+            let first = bytes.iter().zip(&want).position(|(a, b)| a != b);
+            assert!(
+                bytes == want,
+                "piece {i}, cut {cut}: differs at {first:?}, {} vs {} bytes",
+                bytes.len(),
+                want.len()
+            );
+        }
+        start += piece.len();
+    }
+}
+
+#[test]
+fn a_one_file_chain_cut_anywhere_resumes_to_the_same_bytes() {
+    let dir = scratch("one_file_resume");
+    one_file_cut_anywhere(&OnDisk(dir.clone()), &dir.join("disk"), 20);
+    one_file_cut_anywhere(&InMemory, &dir.join("mem"), 20);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// A closed file of pieces opened again starts a new piece behind the last, a new write session: its own session
+/// tag, its head naming the last piece; the chain reads whole, and every track's hash goes on as if the two
+/// sessions were one.
+fn one_file_reopened<P: OneFile>(place: &P) {
+    let ops = ops(14);
+    let (first, second) = ops.split_at(ops.len() / 2);
+    let (f, path) = place.plant("reopen.wwt", &[]);
+    let write = |f: P::F, part: &[Op], defs: &mut Definitions| {
+        let (mut c, _) =
+            PieceChain::resume_on(f, &path, OwnerId([9; 32]), 0, one_file_options()).unwrap();
+        for op in part {
+            apply_chain(&mut c, defs, *op);
+        }
+        let f = c.factory().clone();
+        (f, c.finish().unwrap())
+    };
+    let mut defs = base_defs().clone();
+    let (f, a) = write(f, first, &mut defs);
+    let (f, b) = write(f, second, &mut defs);
+    assert!(b.len() > a.len(), "{} then {} pieces", a.len(), b.len());
+    assert_eq!(b[..a.len()], a[..], "the first session's pieces stay");
+    let bytes = place.bytes(&f, &path);
+    let r = TapeReader::open(&bytes[..]).unwrap();
+    let chain = r.chain();
+    assert!(chain.is_whole(), "{chain:?}");
+    assert_eq!(r.pieces().len(), b.len());
+    let (old, new) = (&r.pieces()[a.len() - 1], &r.pieces()[a.len()]);
+    let (old_head, _) = old.head.as_ref().unwrap();
+    let (new_head, _) = new.head.as_ref().unwrap();
+    assert_eq!(
+        new_head.prev,
+        Some((old.finish.as_ref().unwrap().0.hash, old_head.ident.id))
+    );
+    let session = |at: u64| {
+        FileBlocks::new(&bytes[at as usize..])
+            .next_block()
+            .unwrap()
+            .unwrap()
+            .session
+    };
+    assert_ne!(session(old.start), session(new.start));
+    assert_eq!(new_head.prev_session, session(old.start));
+    assert!((0..r.pieces().len()).all(|i| r.verify(i).unwrap()));
+
+    // the same calls in one session: every track's hash is the same
+    let mem = MemTapes::new();
+    let mut c = PieceChain::create_on(
+        mem,
+        Path::new("x"),
+        OwnerId([9; 32]),
+        0,
+        &[],
+        one_file_options(),
+    )
+    .unwrap();
+    let mut defs = base_defs().clone();
+    for op in &ops {
+        apply_chain(&mut c, &mut defs, *op);
+    }
+    let once = c.finish().unwrap();
+    let hashes = |d: &[ww_tape::Finished]| {
+        d.last()
+            .unwrap()
+            .tracks
+            .iter()
+            .map(|t| (t.track_id, t.owner, t.hash))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(hashes(&b), hashes(&once));
+}
+
+#[test]
+fn a_closed_one_file_chain_reopens_in_a_new_piece() {
+    let dir = scratch("one_file_reopen");
+    one_file_reopened(&OnDisk(dir.clone()));
+    one_file_reopened(&InMemory);
+    std::fs::remove_dir_all(&dir).unwrap();
 }
