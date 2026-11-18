@@ -250,13 +250,15 @@ needs none from the file: the application passes its own, as before the crash.
 A resume checks the options against the piece before it cuts or writes anything. Pass the options the piece was written
 with; `TapeWriter::options` gives them. A layout or producer other than the newest the piece kept is refused
 (`WriteError::Layout`, `WriteError::Producer`), because the writer would place blocks the way the file says it doesn't.
-A piece found with its finish (a crash after the finish, before the rename) is opened again: its finish and tail are cut
-off, and the next finish pads the piece to 4 KiB again.
+A piece whose finish and tail read whole (a crash after the finish, before the rename) is complete: the resume renames
+it, writes nothing and returns `WriteError::Ended`. A piece cut inside its end is opened again: its final index and
+finish are cut off, and the next finish pads the piece to 4 KiB again.
 
 `PieceChain::resume` does the same for a chain. It reads the finished pieces back from their tails and resumes the last,
-or starts the next piece when the crash came between a cut's finish and the next piece's start. A chain whose last piece
-already ended complete or aborted is refused with `WriteError::Ended`. A chain in one file (`PieceFiles::One`) is not
-refused there: it starts a new piece behind the finished last one, so each session that opens the file adds a piece. A
+or starts the next piece when the crash came between a cut's finish and the next piece's start, renaming a finished
+piece the crash left as `NAME.partial`. A chain whose last piece already ended complete or aborted is refused with
+`WriteError::Ended`. A chain in one file (`PieceFiles::One`) is not refused there: it starts a new piece behind the
+finished last one, so each session that opens the file adds a piece. A
 last piece whose piece head is damaged is refused in both cases, because the blocks after the head would form a piece
 with no link to the chain. [Damage and
 recovery](recovery.md#resuming-after-a-crash) follows a recorder through a power cut.

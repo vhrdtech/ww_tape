@@ -78,8 +78,9 @@ writer knows again what it put and where. A damaged block the index still lists 
 item unknown, so the next put of such a slot writes. The producer passes the same writer options it wrote the piece
 with (`TapeWriter::options` gives them) and gives again every call from the block `next_seq` reports, with the same
 definitions: a resumed piece then ends with the same bytes, and the same content hash, as one written without the
-crash. A piece found with its finish (a crash after the finish, before the rename) is opened again the same way: its
-finish and tail are cut off, and the next finish pads the piece to 4 KiB again.
+crash. A piece whose finish and tail read whole (a crash after the finish, before the rename) is complete: the resume
+renames it, writes nothing and returns `WriteError::Ended`. A piece cut inside its end is opened again the same way:
+its final index and finish are cut off, and the next finish pads the piece to 4 KiB again.
 
 The resume checks those options against the piece before it cuts or writes anything. The newest layout and producer
 the piece kept must be the ones the options give (`WriteError::Layout`, `WriteError::Producer`, each naming both).

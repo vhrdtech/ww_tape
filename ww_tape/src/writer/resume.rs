@@ -16,8 +16,11 @@
 //! - a checkpoint index block moves the indexer on as placing it did; in an aligned piece a checkpoint due after a
 //!   block waits for the next chunk, as it did.
 //!
-//! The piece is kept up to the end of its last good block, counted or not: the puts after the last counted block
-//! stay. What ends a piece (the final index, the finish, the tail) is dropped: the piece is open again, and so are
+//! A piece whose finish and tail read whole and end the bytes (a crash after the finish, before the name) is complete:
+//! the resume gives it its name ([TapeSink::finish]), writes nothing and returns [WriteError::Ended].
+//!
+//! Else the piece is kept up to the end of its last good block, counted or not: the puts after the last counted block
+//! stay. What ends a piece (the final index, a finish without its tail) is dropped: the piece is open again, and so are
 //! puts at the end that belong with a block after them ([FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT)): that call is given
 //! again whole. When the last block kept is counted, the writer acts after it again (a checkpoint when due), as a
 //! crash may have come before it did; a piece holding only its head gets the layout and the producer put after it.
@@ -73,8 +76,8 @@ pub struct Resumed {
     /// The kept blocks the index lists, in file order, offsets from the piece's start: what the final index will
     /// list of them.
     pub entries: Vec<IndexEntry>,
-    /// The state of a finish block found (a crash after the finish, before the name): the piece was ended, and is
-    /// open again.
+    /// The state of a finish block found without a whole tail after it (a crash in the end of the piece): the piece
+    /// was being ended, and is open again.
     pub ended: Option<FinishState>,
     /// The layout the piece names, which the options were checked against; None when no layout record was kept.
     pub layout: Option<crate::Layout>,
@@ -389,17 +392,23 @@ impl Named {
 }
 
 impl<S: TapeSink> TapeWriter<S> {
-    /// Reopen the unfinished piece in `sink` (cut off by a crash, or ended and not yet named) to go on writing it,
-    /// see the [module docs](self). `options` are the ones it was written with. The piece is truncated to the end of
+    /// Reopen the unfinished piece in `sink` (cut off by a crash, or cut in its end) to go on writing it, see the
+    /// [module docs](self). A piece ended whole and not yet named is given its name: [WriteError::Ended]. `options` are the ones it was written with. The piece is truncated to the end of
     /// its last counted block, and the writer acts after that block as it did; the caller then gives it the blocks
     /// from [Self::next_id] on, with the puts between them. Definitions in a damaged block are lost to the writer
     /// unless a later block holds them. The producer seq of [Self::adopt_block] starts again: the first block
     /// adopted shows no gap.
-    pub fn resume_on(sink: S, options: WriterOptions) -> Result<(Self, Resumed), WriteError> {
+    pub fn resume_on(mut sink: S, options: WriterOptions) -> Result<(Self, Resumed), WriteError> {
         let size = sink
             .size()
             .map_err(io_err("reading the length to resume"))?;
         let (layout, cut, ended) = read_layout(&sink)?;
+        if let Some(state) = ended.whole {
+            sink.finish()
+                .map_err(io_err("giving the finished piece its name"))?;
+            return Err(WriteError::Ended(state));
+        }
+        let ended = ended.state;
         let mut kept = KeptEnd::default();
         let mut sessions = std::collections::BTreeSet::new();
         let mut at = 0;
@@ -644,11 +653,21 @@ impl<S: TapeSink> TapeWriter<S> {
     }
 }
 
+/// How the piece to resume ended, when it did.
+#[derive(Default)]
+struct EndFound {
+    /// The state of a finish found
+    state: Option<FinishState>,
+    /// That state, when the finish and the tail read whole and end the bytes
+    whole: Option<FinishState>,
+}
+
 /// The piece at the start of `sink` as a reader finds it: its blocks by index entry and gap, where it ends, where a
-/// scan was cut, and the state of a finish found.
-fn read_layout<S: TapeSink>(
-    sink: &S,
-) -> Result<(Layout, Option<u64>, Option<FinishState>), WriteError> {
+/// scan was cut, and how it ended.
+fn read_layout<S: TapeSink>(sink: &S) -> Result<(Layout, Option<u64>, EndFound), WriteError> {
+    let size = sink
+        .size()
+        .map_err(io_err("reading the length to resume"))?;
     let reader = TapeReader::open(SinkSource(sink)).map_err(WriteError::Read)?;
     let Some(p) = reader.pieces().first() else {
         return Ok((
@@ -658,7 +677,7 @@ fn read_layout<S: TapeSink>(
                 end: 0,
             },
             None,
-            None,
+            EndFound::default(),
         ));
     };
     if p.start != 0 {
@@ -674,8 +693,14 @@ fn read_layout<S: TapeSink>(
         }
     }
     let gaps = p.gaps.iter().copied().collect();
-    let ended = p.finish.as_ref().map(|(f, _)| f.state);
-    Ok((Layout { entries, gaps, end }, p.cut, ended))
+    let state = p.finish.as_ref().map(|(f, _)| f.state);
+    let whole =
+        state.filter(|_| p.found == crate::reader::Found::Tail && p.tail.is_some() && end == size);
+    Ok((
+        Layout { entries, gaps, end },
+        p.cut,
+        EndFound { state, whole },
+    ))
 }
 
 fn too_long(len: u64) -> WriteError {

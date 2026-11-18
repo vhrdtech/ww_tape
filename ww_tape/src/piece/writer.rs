@@ -158,7 +158,8 @@ impl<F: SinkFactory> PieceChain<F> {
     /// Reopen chain `chain` of `owner` under `dir` after a crash: the finished pieces are read from their tails
     /// ([Self::finished]), the unfinished last one is resumed ([TapeWriter::resume_on]). After a crash between a cut's finish
     /// and the next piece's start, the next piece is started as the cut would have. `options` are the ones the chain
-    /// was written with. A chain of a file per piece whose last piece ended complete or aborted is refused
+    /// was written with. A piece ended whole whose name a crash took ([TapeWriter::resume_on]) is named and read as
+    /// finished. A chain of a file per piece whose last piece ended complete or aborted is refused
     /// ([WriteError::Ended]).
     ///
     /// With [PieceFiles::One] `dir` is the file. Its last piece, when unfinished (a crash), is resumed with the
@@ -190,18 +191,30 @@ impl<F: SinkFactory> PieceChain<F> {
     ) -> Result<(Self, Resumed), WriteError> {
         let mut finished: Vec<(Finished, LastPiece)> = Vec::new();
         let mut seq = 0u64;
-        while let Some(src) = factory.finished(&dir.join(piece_name(seq)))? {
-            finished.push(read_finished(&src, &dir.join(piece_name(seq)))?);
-            seq = seq
-                .checked_add(1)
-                .ok_or(WriteError::Index(IndexError::Invalid(
-                    "piece seq past u64::MAX",
-                )))?;
-        }
-        let path = dir.join(piece_name(seq));
-        let (mut writer, resumed) = match factory.reopen(&path)? {
-            Some(sink) => {
-                let (mut w, resumed) = TapeWriter::resume_on(sink, options.writer.clone())?;
+        let (path, reopened) = loop {
+            let path = dir.join(piece_name(seq));
+            let src = match factory.finished(&path)? {
+                Some(src) => src,
+                None => {
+                    let Some(sink) = factory.reopen(&path)? else {
+                        break (path, None);
+                    };
+                    match TapeWriter::resume_on(sink, options.writer.clone()) {
+                        // ended whole before a crash took its name: named now, read as finished
+                        Err(WriteError::Ended(_)) => factory.finished(&path)?.ok_or(
+                            WriteError::Index(IndexError::Invalid(
+                                "a piece given its name doesn't read as finished",
+                            )),
+                        )?,
+                        r => break (path, Some(r?)),
+                    }
+                }
+            };
+            finished.push(read_finished(&src, &path)?);
+            seq = seq.checked_add(1).ok_or_else(too_many)?;
+        };
+        let (mut writer, resumed) = match reopened {
+            Some((mut w, resumed)) => {
                 headed(&w)?;
                 reserve_piece(&mut w, options.cut);
                 if w.bytes() == 0 {
