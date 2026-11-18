@@ -252,8 +252,8 @@ pub use sink::{FileSink, Files, MemSink, MemTape, MemTapes, SinkFactory, TapeSin
 pub mod writer;
 #[cfg(feature = "std")]
 pub use writer::{
-    DEFER_WINDOW, Finished, HEAD_ENTRIES, NearPolicy, Placed, PutWork, Resumed, SyncPolicy,
-    TapeWriter, WriteError, WriterOptions,
+    CutError, DEFER_WINDOW, Finished, HEAD_ENTRIES, NearPolicy, Placed, PutWork, Resumed,
+    SyncPolicy, TapeWriter, WriteError, WriterOptions,
 };
 
 /// `WWTP`
