@@ -33,10 +33,6 @@ pub enum WriteError {
     Block(crate::BlockError),
     /// A chunk doesn't encode.
     Chunk(crate::ChunkError),
-    /// An alignment that is neither 0 nor [crate::ALIGNMENT].
-    Alignment(u32),
-    /// A session tag a writer may not use ([SessionTag::is_session]).
-    Session(SessionTag),
     /// An index, finish, tail or piece head block doesn't encode, or a piece call came out of order (a piece head
     /// after other blocks, a cut of a file without a piece head).
     Index(IndexError),
@@ -46,10 +42,25 @@ pub enum WriteError {
     Ended(FinishState),
     /// A put or a block's records don't agree with the definitions passed.
     Describe(DescribeError),
-    /// The piece to resume describes another layout than the one `given` in the [WriterOptions](super::WriterOptions), or a layout set
-    /// after the first block.
+    /// The writer refused a caller's value, block or options; nothing is written.
+    Input(InputError),
+    /// A resume refused to cut the bytes of the piece; they stay as they are.
+    Resume(ResumeError),
+}
+
+/// What a caller passed that the writer refuses ([WriteError::Input]); nothing is written.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum InputError {
+    /// An alignment that is neither 0 nor [crate::ALIGNMENT].
+    Alignment(u32),
+    /// A session tag a writer may not use ([SessionTag::is_session]).
+    Session(SessionTag),
+    /// The piece to resume describes another layout than the one `given` in the
+    /// [WriterOptions](super::WriterOptions), or a layout set after the first block.
     Layout { described: Layout, given: Layout },
-    /// The piece to resume names another producer than the one `given` in the [WriterOptions](super::WriterOptions).
+    /// The piece to resume names another producer than the one `given` in the
+    /// [WriterOptions](super::WriterOptions).
     Producer { described: String, given: String },
     /// A caller's block the writer doesn't take: a kind it makes itself or doesn't know (the reserved kind 2), a
     /// block of another format version, or a body of a codec it doesn't know.
@@ -64,15 +75,22 @@ pub enum WriteError {
     /// A caller's block of `kind` with header `flags` its kind doesn't take: reserved bits, or a flag only the
     /// writer sets. A records block may carry [FLAG_BODY_CODED](crate::FLAG_BODY_CODED), other kinds none.
     Flags { kind: BlockKind, flags: u16 },
-    /// A resume would cut off a good block of the piece at `offset`, behind bytes the reader didn't take: more than a
-    /// torn end. The bytes stay as they are.
+}
+
+/// Why a resume cuts nothing ([WriteError::Resume]): the bytes of the piece stay as they are.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ResumeError {
+    /// The resume would cut off a good block of the piece at `offset`, behind bytes the reader didn't take: more
+    /// than a torn end.
     GoodBlockAfterCut { offset: u64 },
-    /// A resume looked for good blocks past where the reader stopped and ran out of its look ([RESUME_LOOK_MAX](super::RESUME_LOOK_MAX)) or
-    /// of the places it reads whole ([RESUME_PROBES_MAX](super::RESUME_PROBES_MAX)) at `offset`, before the end of the bytes: it can't tell the
-    /// bytes from there on hold no good block, so it cuts nothing. The bytes stay as they are.
+    /// The resume looked for good blocks past where the reader stopped and ran out of its look
+    /// ([RESUME_LOOK_MAX](super::RESUME_LOOK_MAX)) or of the places it reads whole
+    /// ([RESUME_PROBES_MAX](super::RESUME_PROBES_MAX)) at `offset`, before the end of the bytes: it can't tell the
+    /// bytes from there on hold no good block, so it cuts nothing.
     LookSpent { offset: u64 },
     /// The content-hash walk of the bytes a resume keeps spent its budget of missed blocks
-    /// ([crate::piece::WALK_MISS_PER_BYTE_MAX]): a block written at `end` would not verify. The bytes stay as they are.
+    /// ([crate::piece::WALK_MISS_PER_BYTE_MAX]): a block written at `end` would not verify.
     HashWalkSpent { end: u64 },
 }
 
@@ -124,6 +142,18 @@ impl<S: TapeSink> core::error::Error for CutError<S> {
     }
 }
 
+impl From<InputError> for WriteError {
+    fn from(e: InputError) -> Self {
+        WriteError::Input(e)
+    }
+}
+
+impl From<ResumeError> for WriteError {
+    fn from(e: ResumeError) -> Self {
+        WriteError::Resume(e)
+    }
+}
+
 impl From<DescribeError> for WriteError {
     fn from(e: DescribeError) -> Self {
         WriteError::Describe(e)
@@ -149,47 +179,44 @@ impl core::fmt::Display for WriteError {
             WriteError::Block(e) => write!(f, "not a good block: {e:?}"),
             WriteError::Chunk(e) => write!(f, "chunk doesn't encode: {e:?}"),
             WriteError::Index(e) => write!(f, "index or piece block: {e:?}"),
-            WriteError::Alignment(a) => {
-                write!(f, "alignment {a} is neither 0 nor {}", crate::ALIGNMENT)
-            }
-            WriteError::Session(r) => write!(f, "session tag {r:?} is not one a writer may use"),
             WriteError::Read(e) => write!(f, "reading back the piece to resume: {e}"),
             WriteError::Ended(s) => write!(f, "the piece or chain ended already ({s:?})"),
             WriteError::Describe(e) => write!(f, "{e}"),
-            WriteError::Layout { described, given } => write!(
+            WriteError::Input(e) => write!(f, "{e}"),
+            WriteError::Resume(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+impl core::fmt::Display for InputError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            InputError::Alignment(a) => {
+                write!(f, "alignment {a} is neither 0 nor {}", crate::ALIGNMENT)
+            }
+            InputError::Session(r) => write!(f, "session tag {r:?} is not one a writer may use"),
+            InputError::Layout { described, given } => write!(
                 f,
                 "the piece describes layout {described:?}, the writer was given {given:?} (or a layout set after the first block)"
             ),
-            WriteError::Producer { described, given } => write!(
+            InputError::Producer { described, given } => write!(
                 f,
                 "the piece names producer {described:?}, the writer was given {given:?}"
             ),
-            WriteError::GoodBlockAfterCut { offset } => write!(
-                f,
-                "a resume would cut off a good block at {offset}, more than a torn end"
-            ),
-            WriteError::LookSpent { offset } => write!(
-                f,
-                "a resume looked for good blocks it would cut off up to {offset}, short of the end of the bytes"
-            ),
-            WriteError::HashWalkSpent { end } => write!(
-                f,
-                "the bytes to resume claim too many blocks that don't read: a block written at {end} would not verify"
-            ),
-            WriteError::TooManyTracks { max } => write!(
+            InputError::TooManyTracks { max } => write!(
                 f,
                 "more than {max} tracks with data in one piece: cut the piece first"
             ),
-            WriteError::TooManyCarried { max } => write!(
+            InputError::TooManyCarried { max } => write!(
                 f,
                 "more than {max} tracks carried into the next piece's head: start a new chain"
             ),
-            WriteError::Flags { kind, flags } => write!(
+            InputError::Flags { kind, flags } => write!(
                 f,
                 "a caller's block of kind {kind:?} with header flags {flags:#06x}: it takes {:#06x}",
                 caller_flags(*kind)
             ),
-            WriteError::Unknown { version, kind } => write!(
+            InputError::Unknown { version, kind } => write!(
                 f,
                 "a caller's block of version {version}, kind {kind:?}: the writer takes records, events, series and summary blocks of version {} it knows the body of",
                 crate::VERSION
@@ -198,12 +225,37 @@ impl core::fmt::Display for WriteError {
     }
 }
 
+impl core::error::Error for InputError {}
+
+impl core::fmt::Display for ResumeError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            ResumeError::GoodBlockAfterCut { offset } => write!(
+                f,
+                "a resume would cut off a good block at {offset}, more than a torn end"
+            ),
+            ResumeError::LookSpent { offset } => write!(
+                f,
+                "a resume looked for good blocks it would cut off up to {offset}, short of the end of the bytes"
+            ),
+            ResumeError::HashWalkSpent { end } => write!(
+                f,
+                "the bytes to resume claim too many blocks that don't read: a block written at {end} would not verify"
+            ),
+        }
+    }
+}
+
+impl core::error::Error for ResumeError {}
+
 impl core::error::Error for WriteError {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
             WriteError::Io { error, .. } => Some(error),
             WriteError::Read(e) => Some(e),
             WriteError::Describe(e) => Some(e),
+            WriteError::Input(e) => Some(e),
+            WriteError::Resume(e) => Some(e),
             _ => None,
         }
     }

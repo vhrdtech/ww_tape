@@ -6,9 +6,9 @@ use std::path::Path;
 use shrink_wrap::prelude::*;
 use ww_tape::times::{EncodedRelation, EncodedTimes, RelationColumn, StoredRelations};
 use ww_tape::{
-    BlockKind, Definitions, Describe, DescribeError, MemSink, RelationDef, RelationIndex,
-    RelationTarget, RelationValues, SyncPolicy, TapeReader, TapeSink, TapeWriter, TrackDef,
-    WriteError,
+    BlockKind, Definitions, Describe, DescribeError, InputError, MemSink, RelationDef,
+    RelationIndex, RelationTarget, RelationValues, SyncPolicy, TapeReader, TapeSink, TapeWriter,
+    TrackDef, WriteError,
 };
 
 use crate::definitions::{CLOCK, clock, track};
@@ -1051,8 +1051,9 @@ fn a_callers_chunk_carries_the_break_mark_exactly_when_one_waits() {
         buf
     };
     let mut w = TapeWriter::create_on(MemSink::new(Path::new("one")), SyncPolicy::None);
-    let flags =
-        |r: Result<Option<ww_tape::Placed>, WriteError>| matches!(r, Err(WriteError::Flags { .. }));
+    let flags = |r: Result<Option<ww_tape::Placed>, WriteError>| {
+        matches!(r, Err(WriteError::Input(InputError::Flags { .. })))
+    };
     let b = block(&w, 0, &[100, 101], true);
     assert!(flags(w.write_block(&defs, &b)), "a mark without a break");
     let b = block(&w, 0, &[100, 101], false);

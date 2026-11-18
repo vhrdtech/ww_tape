@@ -5,7 +5,8 @@ use std::path::Path;
 use crate::definitions::{base, begin, on_tracks, options, track_id, write_records};
 use crate::pieces::{chunk, column};
 use ww_tape::{
-    ALIGNMENT, Describe, Layout, MemSink, SyncPolicy, TapeReader, TapeWriter, WriteError,
+    ALIGNMENT, Describe, InputError, Layout, MemSink, SyncPolicy, TapeReader, TapeWriter,
+    WriteError,
 };
 
 const CRC: crc::Crc<u32> = crc::Crc::<u32>::new(&crc::CRC_32_ISCSI);
@@ -57,7 +58,9 @@ fn a_callers_block_the_writer_does_not_know_is_refused() {
         assert!(
             matches!(
                 e,
-                WriteError::Unknown { .. } | WriteError::Block(_) | WriteError::Index(_)
+                WriteError::Input(InputError::Unknown { .. })
+                    | WriteError::Block(_)
+                    | WriteError::Index(_)
             ),
             "{what}: {e:?}"
         );
@@ -111,7 +114,7 @@ fn a_callers_block_with_flags_its_kind_does_not_take_is_refused() {
                     _ => w.defer_block(b.clone()),
                 };
                 assert!(
-                    matches!(r, Err(WriteError::Flags { flags, .. }) if flags == theirs | 1 << bit)
+                    matches!(r, Err(WriteError::Input(InputError::Flags { flags, .. })) if flags == theirs | 1 << bit)
                         || (what == "chunk" && bit == 3 && matches!(r, Err(WriteError::Block(_)))),
                     "{what}, bit {bit}, call {call}: {r:?}"
                 );
@@ -144,7 +147,7 @@ fn the_layout_and_the_producer_are_the_writers() {
         let flipped = if alignment == 0 { ALIGNMENT } else { 0 };
         assert!(matches!(
             w.set_alignment(flipped),
-            Err(WriteError::Layout { .. })
+            Err(WriteError::Input(InputError::Layout { .. }))
         ));
         let bytes = tape.to_vec().unwrap();
         let first = &crate::definitions::record_blocks(&bytes)[0];
@@ -203,13 +206,13 @@ fn a_resume_checks_the_layout_and_producer_it_is_given() {
     aligned.layout = Layout::ALIGNED;
     assert!(matches!(
         resume(&bytes, aligned.clone()),
-        Err(WriteError::Layout { .. })
+        Err(WriteError::Input(InputError::Layout { .. }))
     ));
     let mut other = o.clone();
     other.producer = "another".to_owned();
     assert!(matches!(
         resume(&bytes, other),
-        Err(WriteError::Producer { .. })
+        Err(WriteError::Input(InputError::Producer { .. }))
     ));
     // the block of the layout and the producer damaged: the checkpoints still list it, the options say the layout
     let first = crate::definitions::record_blocks(&bytes)[0].offset as usize;

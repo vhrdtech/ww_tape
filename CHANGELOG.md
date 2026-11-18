@@ -10,24 +10,25 @@ Covers `ww_tape` 0.1.0.
 
 ### ⚠️ Breaking
 
+- `WriteError` groups refused input in `WriteError::Input(InputError)` and refused resumes in `WriteError::Resume(ResumeError)` (TAPE-12).
 - `WriterOptions` gains `clock`: intervals are read from a `ClockRef`; a struct literal adds `clock: ClockRef::default()` (TAPE-12).
 - `verify` and `track_entries` refuse a monotone relation decreasing across chunks without a break: `ReadError::RelationOrder` (TAPE-7).
 - `IndexEntry` gains `relation_break`; an events chunk block takes header flag `FLAG_RELATION_BREAK` from callers (TAPE-7).
-- A chain carries at most `HEAD_TRACKS_MAX` tracks into a piece head; a track past it is refused (`WriteError::TooManyCarried`) (TAPE-8).
+- A chain carries at most `HEAD_TRACKS_MAX` tracks into a piece head; a track past it is refused (`InputError::TooManyCarried`) (TAPE-8).
 - `Recovery::Resync` reports two blocks of one seq with other bytes as `FileError::Conflict`, both named; the second is no block (TAPE-8).
 - `Recovery::Resync` remembers the last `RESYNC_SEQS_MAX` (65536) data blocks it handed out: a block of one of their ids with other bytes is a `FileError::Conflict` however far apart; it compared only with the block just before (TAPE-8).
 - `EventTimes`, `Starts` and `RelationColumn` are `Clone`, not `Copy`: a salvaged column keeps its group verdicts (STD-120).
 - `verify` holds only when the final index and the walk are the same set, read as two streams in bounded memory (TAPE-9).
-- A resume that meets a finish, tail or final index before the end of what its reader took refuses (`WriteError::GoodBlockAfterCut`) where a block of the piece's session follows it; it cut them off (TAPE-8).
+- A resume that meets a finish, tail or final index before the end of what its reader took refuses (`ResumeError::GoodBlockAfterCut`) where a block of the piece's session follows it; it cut them off (TAPE-8).
 - A chunk or summary whose head names its track under another id than the definition's is refused (`DescribeError::TrackId`) (TAPE-8).
-- A piece takes data of at most `TRACKS_PER_PIECE_MAX` tracks, so its finish fits a block (`WriteError::TooManyTracks`) (TAPE-8).
+- A piece takes data of at most `TRACKS_PER_PIECE_MAX` tracks, so its finish fits a block (`InputError::TooManyTracks`) (TAPE-8).
 - `cut_in_place` returns `CutError`: a refused cut hands the writer back (`CutError::writer`); it was dropped (TAPE-8).
 - `create` refuses a `.partial` with bytes (`WriteError::Exists`), never empties it; a `.partial` renamed before its lock gets `WriteError::Replaced` (TAPE-8).
-- A caller's block with header flags its kind doesn't take is refused (`WriteError::Flags`); records take only a coded body (TAPE-4).
-- A resume refuses to cut off good blocks behind bytes it can't read (`WriteError::GoodBlockAfterCut`); only a torn end goes (TAPE-8).
-- A resume whose look for good blocks ends before the bytes do refuses (`WriteError::LookSpent`), never cuts (TAPE-8).
+- A caller's block with header flags its kind doesn't take is refused (`InputError::Flags`); records take only a coded body (TAPE-4).
+- A resume refuses to cut off good blocks behind bytes it can't read (`ResumeError::GoodBlockAfterCut`); only a torn end goes (TAPE-8).
+- A resume whose look for good blocks ends before the bytes do refuses (`ResumeError::LookSpent`), never cuts (TAPE-8).
 - A resume of a piece whose finish and tail read whole cuts junk after the tail, renames it, returns `WriteError::Ended` (TAPE-8).
-- A resume refuses bytes whose content-hash walk spent its miss budget (`WriteError::HashWalkSpent`): appended blocks wouldn't verify (TAPE-8).
+- A resume refuses bytes whose content-hash walk spent its miss budget (`ResumeError::HashWalkSpent`): appended blocks wouldn't verify (TAPE-8).
 - A relation name is at most `RELATION_NAME_MAX` (64) bytes; a longer one is refused (`DescribeError::RelationName`) (TAPE-7).
 - `cut_in_place` refuses a sink of one piece (`NAME.partial`, `MemSink::new`): `TapeSink::holds_pieces` (TAPE-8).
 - One writer per file: sinks hold an exclusive lock (files) or mark their memory tape; a second gets `WriteError::Locked` (TAPE-8).

@@ -88,7 +88,7 @@ refuses. A piece cut inside its end is opened again the same way:
 its final index and finish are cut off, and the next finish pads the piece to 4 KiB again.
 
 The resume checks those options against the piece before it cuts or writes anything. The newest layout and producer
-the piece kept must be the ones the options give (`WriteError::Layout`, `WriteError::Producer`, each naming both).
+the piece kept must be the ones the options give (`InputError::Layout`, `InputError::Producer`, each naming both).
 Options with another chunk alignment would place blocks the way the file says it doesn't, and a reader trusts the
 layout when it looks for the end of the data. The layout's gap settings need no check, because the writer never leaves
 a gap.

@@ -232,13 +232,13 @@ how many bytes it kept and dropped and where the piece was cut. It works in thre
 2. It keeps every byte up to the end of the last good block. It cuts off the rest: a torn block, an end of piece, and
    blocks marked `FLAG_WITH_NEXT` at the end of what it keeps, since the block they belong with didn't survive. When a
    good block of the piece's sessions lies behind the bytes the reader didn't take, cutting would lose more than a
-   torn end: the resume refuses (`WriteError::GoodBlockAfterCut`) and leaves the bytes as they are. It looks
+   torn end: the resume refuses (`ResumeError::GoodBlockAfterCut`) and leaves the bytes as they are. It looks
    `RESUME_LOOK_MAX` bytes far and reads at most `RESUME_PROBES_MAX` places whole. When either runs out before the
-   end of the bytes, it can't tell the rest holds no good block: it refuses (`WriteError::LookSpent`) and leaves the
+   end of the bytes, it can't tell the rest holds no good block: it refuses (`ResumeError::LookSpent`) and leaves the
    bytes as they are. With no block kept, a good block of any session counts. When the bytes it keeps claim
    so many blocks that don't read that a reader's content-hash walk stops trying blocks before their end
    (`WALK_MISS_PER_BYTE_MAX`), a block written after them would not verify: the resume refuses
-   (`WriteError::HashWalkSpent`) and leaves the bytes as they are.
+   (`ResumeError::HashWalkSpent`) and leaves the bytes as they are.
 3. It replays the kept bytes to rebuild the writer as it was: the content hash, the index entries, the track ranges,
    the record of what lies near, the session and the next sequence number. It walks them as a reader's verify does:
    a good block wherever the walk meets one, and in bytes no block explains, a block the index lists is a damaged
@@ -258,10 +258,10 @@ needs none from the file: the application passes its own, as before the crash.
 
 A resume checks the options against the piece before it cuts or writes anything. Pass the options the piece was written
 with; `TapeWriter::options` gives them. A layout or producer other than the newest the piece kept is refused
-(`WriteError::Layout`, `WriteError::Producer`), because the writer would place blocks the way the file says it doesn't.
+(`InputError::Layout`, `InputError::Producer`), because the writer would place blocks the way the file says it doesn't.
 A piece whose finish and tail read whole (a crash after the finish, before the rename) is complete: the resume renames
 it, writes nothing and returns `WriteError::Ended`. Junk a crash left after the tail (garbage, a torn block) is cut
-off first; a good block there refuses (`WriteError::GoodBlockAfterCut`). A piece cut inside its end is opened again: its final index and
+off first; a good block there refuses (`ResumeError::GoodBlockAfterCut`). A piece cut inside its end is opened again: its final index and
 finish are cut off, and the next finish pads the piece to 4 KiB again.
 
 `PieceChain::resume` does the same for a chain. It reads the finished pieces back from their tails and resumes the last,
@@ -283,7 +283,7 @@ from)` checks the track's next chunk against `from` for that relation and marks 
 break](format.md#tape-blocks) (`FLAG_RELATION_BREAK`), which readers see. The break waits for the track's next chunk
 through cuts; a crash before that chunk drops it, and the resumed writer refuses again. The writer marks a chunk it
 encodes itself; a caller's block carries the flag (`mark_relation_break`) exactly when a break waits, else
-`WriteError::Flags`.
+`InputError::Flags`.
 
 ## Same input, same bytes
 

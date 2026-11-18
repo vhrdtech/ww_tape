@@ -266,8 +266,8 @@ pub use clock::{Clock, ClockRef};
 pub mod writer;
 #[cfg(feature = "std")]
 pub use writer::{
-    CutError, DEFER_WINDOW, Finished, HEAD_ENTRIES, NearPolicy, Placed, PutWork, Resumed,
-    SyncPolicy, TapeWriter, WriteError, WriterOptions,
+    CutError, DEFER_WINDOW, Finished, HEAD_ENTRIES, InputError, NearPolicy, Placed, PutWork,
+    ResumeError, Resumed, SyncPolicy, TapeWriter, WriteError, WriterOptions,
 };
 
 /// `WWTP`

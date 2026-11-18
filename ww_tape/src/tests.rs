@@ -186,12 +186,12 @@ fn tape_writer_refuses_bad_settings() {
     let mut w = TapeWriter::create(&path, SyncPolicy::None).unwrap();
     assert!(matches!(
         w.set_alignment(512),
-        Err(WriteError::Alignment(512))
+        Err(WriteError::Input(InputError::Alignment(512)))
     ));
     w.set_alignment(ALIGNMENT).unwrap();
     assert!(matches!(
         w.set_session(SessionTag::NONE),
-        Err(WriteError::Session(_))
+        Err(WriteError::Input(InputError::Session(_)))
     ));
     assert!(matches!(
         w.write_block(&Definitions::new(), &[0; 8]),
@@ -1729,8 +1729,12 @@ fn a_piece_takes_data_of_at_most_its_track_limit() {
             .unwrap();
         w.defer_block(&defs, records_on(w.next_id(), &[3])).unwrap();
         let len = tape.to_vec().unwrap().len();
-        let refused =
-            |r: Result<(), WriteError>| matches!(r, Err(WriteError::TooManyTracks { max: 3 }));
+        let refused = |r: Result<(), WriteError>| {
+            matches!(
+                r,
+                Err(WriteError::Input(InputError::TooManyTracks { max: 3 }))
+            )
+        };
         let b = records_on(w.next_id(), &[1, 4]);
         assert!(refused(w.write_block(&defs, &b).map(|_| ())));
         assert!(refused(w.adopt_block(&defs, &b).map(|_| ())));
@@ -1785,7 +1789,7 @@ fn a_piece_head_carries_at_most_its_track_limit() {
     let b = records_on(w.next_id(), &[2]);
     assert!(matches!(
         w.write_block(&defs, &b),
-        Err(WriteError::TooManyCarried { max: 3 })
+        Err(WriteError::Input(InputError::TooManyCarried { max: 3 }))
     ));
     assert_eq!(tape.to_vec().unwrap().len(), len, "nothing written");
     w.write_block(&defs, &records_on(w.next_id(), &[1, 6]))

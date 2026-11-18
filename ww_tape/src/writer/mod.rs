@@ -60,7 +60,7 @@ mod fs;
 pub mod near;
 mod relations;
 pub mod resume;
-pub use error::{CutError, WriteError};
+pub use error::{CutError, InputError, ResumeError, WriteError};
 pub use near::NearPolicy;
 use near::Rule;
 pub(crate) use relations::Newest;
@@ -376,14 +376,14 @@ impl<S: TapeSink> TapeWriter<S> {
             new.extend(d.keys.iter().filter(|k| !self.indexer.has_row(k)));
         }
         if self.indexer.rows().saturating_add(new.len()) > self.tracks_max {
-            return Err(WriteError::TooManyTracks {
+            return Err(WriteError::Input(InputError::TooManyTracks {
                 max: self.tracks_max,
-            });
+            }));
         }
         if self.indexer.next_head_rows(&new) > self.head_rows_max {
-            return Err(WriteError::TooManyCarried {
+            return Err(WriteError::Input(InputError::TooManyCarried {
                 max: self.head_rows_max,
-            });
+            }));
         }
         Ok(())
     }
@@ -720,17 +720,17 @@ impl<S: TapeSink> TapeWriter<S> {
     }
 
     /// The layout the file's blocks are placed by, put at each piece head; its alignment is 0 or [crate::ALIGNMENT].
-    /// Set before the first block: another layout after it is refused ([WriteError::Layout]).
+    /// Set before the first block: another layout after it is refused ([InputError::Layout]).
     pub fn set_layout(&mut self, layout: Layout) -> Result<(), WriteError> {
         let alignment = layout.alignment.get();
         if alignment != 0 && alignment != crate::ALIGNMENT {
-            return Err(WriteError::Alignment(alignment));
+            return Err(WriteError::Input(InputError::Alignment(alignment)));
         }
         if self.head_put && layout != self.layout {
-            return Err(WriteError::Layout {
+            return Err(WriteError::Input(InputError::Layout {
                 described: self.layout,
                 given: layout,
-            });
+            }));
         }
         self.layout = layout;
         Ok(())
@@ -764,7 +764,7 @@ impl<S: TapeSink> TapeWriter<S> {
     /// a writer may not use ([SessionTag::is_session]) is refused.
     pub fn set_session(&mut self, session: SessionTag) -> Result<(), WriteError> {
         if !session.is_session() {
-            return Err(WriteError::Session(session));
+            return Err(WriteError::Input(InputError::Session(session)));
         }
         self.session = session;
         self.next_seq = 0;
@@ -825,16 +825,16 @@ impl<S: TapeSink> TapeWriter<S> {
             BlockKind::Records | BlockKind::Events | BlockKind::Series | BlockKind::Summary
         );
         if !ours || !b.body_known() {
-            return Err(WriteError::Unknown {
+            return Err(WriteError::Input(InputError::Unknown {
                 version: b.version,
                 kind: b.kind,
-            });
+            }));
         }
         if b.flags & !caller_flags(b.kind) != 0 {
-            return Err(WriteError::Flags {
+            return Err(WriteError::Input(InputError::Flags {
                 kind: b.kind,
                 flags: b.flags,
-            });
+            }));
         }
         let mut buf = Vec::new();
         let b = b.decode(&mut buf).map_err(WriteError::Block)?;
@@ -1122,8 +1122,8 @@ impl<S: TapeSink> TapeWriter<S> {
     /// The break waits for the track's next chunk, through cuts; a crash before that chunk drops it, and the
     /// resumed writer refuses as before. A chunk the writer encodes ([Self::write_chunk]) is marked by the writer; a
     /// caller's block ([Self::write_block], [Self::adopt_block], [Self::defer_block]) carries the flag itself
-    /// ([crate::mark_relation_break]) exactly when a break waits, else [WriteError::Flags]. A track `defs` doesn't hold is refused
-    /// ([DescribeError::UnknownTrack]), as is a relation that isn't monotone with stored values
+    /// ([crate::mark_relation_break]) exactly when a break waits, else [InputError::Flags]. A track `defs` doesn't
+    /// hold is refused ([DescribeError::UnknownTrack]), as is a relation that isn't monotone with stored values
     /// ([DescribeError::NotMonotone]).
     pub fn accept_relation_break(
         &mut self,
@@ -1152,7 +1152,7 @@ impl<S: TapeSink> TapeWriter<S> {
 
     /// [Self::check_relations] of a caller's chunk block `b`: it is marked
     /// [FLAG_RELATION_BREAK](crate::FLAG_RELATION_BREAK) exactly when a break the caller accepted waits for its
-    /// track, else [WriteError::Flags].
+    /// track, else [InputError::Flags].
     fn check_caller_relations(
         &self,
         defs: &Definitions,
@@ -1163,10 +1163,10 @@ impl<S: TapeSink> TapeWriter<S> {
             return Ok(());
         };
         if self.check_relations(defs, &c, replacing)? != c.relation_break() {
-            return Err(WriteError::Flags {
+            return Err(WriteError::Input(InputError::Flags {
                 kind: b.kind,
                 flags: b.flags,
-            });
+            }));
         }
         Ok(())
     }
@@ -1280,7 +1280,7 @@ impl<S: TapeSink> TapeWriter<S> {
             self.place_overdue(ahead)?;
             loop {
                 let gap = crate::chunk::chunk_padding(self.at()?, head_len, self.alignment())
-                    .ok_or(WriteError::Alignment(self.alignment()))?;
+                    .ok_or(WriteError::Input(InputError::Alignment(self.alignment())))?;
                 if !self
                     .deferred
                     .first()
@@ -1303,7 +1303,7 @@ impl<S: TapeSink> TapeWriter<S> {
         let puts = puts_len(&chosen_records(&needs, &chosen))?;
         let at = self.at()?.saturating_add(wide(puts));
         let padding = crate::chunk::chunk_padding(at, head_len, self.alignment())
-            .ok_or(WriteError::Alignment(self.alignment()))?;
+            .ok_or(WriteError::Input(InputError::Alignment(self.alignment())))?;
         let len = crate::chunk::chunk_len(head, &specs, padding);
         let mut buf = core::mem::take(&mut self.chunk_buf);
         buf.resize(len, 0);
@@ -1468,10 +1468,10 @@ impl<S: TapeSink> TapeWriter<S> {
         let mut buf = Vec::new();
         let b = b.decode(&mut buf).map_err(WriteError::Block)?;
         if b.kind != BlockKind::Records {
-            return Err(WriteError::Unknown {
+            return Err(WriteError::Input(InputError::Unknown {
                 version: b.version,
                 kind: b.kind,
-            });
+            }));
         }
         let rule = self.definitions_rule();
         let mut cands: Vec<Candidate<'_>> = Vec::new();

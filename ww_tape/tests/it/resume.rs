@@ -13,9 +13,10 @@ use ww_tape::times::{EncodedRelation, EncodedTimes};
 use ww_tape::writer::NearPolicy;
 use ww_tape::{
     ALIGNMENT, BlockKind, ChainOptions, ChunkHead, ColumnSpec, CutPolicy, Definitions, Describe,
-    FileBlocks, Files, Layout, MemSink, MemTapes, OwnerId, PieceChain, PieceHead, PieceIdent,
-    Recovery, RelationDef, RelationIndex, RelationValues, SessionTag, SinkFactory, Slot,
-    StatePolicy, SyncPolicy, TapeReader, TapeSink, TapeWriter, TrackDef, WriteError, WriterOptions,
+    FileBlocks, Files, InputError, Layout, MemSink, MemTapes, OwnerId, PieceChain, PieceHead,
+    PieceIdent, Recovery, RelationDef, RelationIndex, RelationValues, ResumeError, SessionTag,
+    SinkFactory, Slot, StatePolicy, SyncPolicy, TapeReader, TapeSink, TapeWriter, TrackDef,
+    WriteError, WriterOptions,
 };
 
 /// One call a test makes: on a writer (each but a put places one counted block) or on the definitions.
@@ -402,10 +403,10 @@ fn a_resume_with_another_alignment_is_refused() {
             panic!("alignment {given} on a piece written with {written} is refused");
         };
         match &e {
-            WriteError::Layout {
+            WriteError::Input(InputError::Layout {
                 described,
                 given: g,
-            } => {
+            }) => {
                 assert_eq!(described.alignment.get(), written);
                 assert_eq!(g.alignment.get(), given);
             }
@@ -1376,7 +1377,7 @@ fn a_resume_never_cuts_off_good_blocks() {
     sink.write_all(&bytes).unwrap();
     let tape = sink.tape();
     match TapeWriter::resume_on(sink, WriterOptions::default()) {
-        Err(WriteError::GoodBlockAfterCut { offset }) => {
+        Err(WriteError::Resume(ResumeError::GoodBlockAfterCut { offset })) => {
             assert_eq!(offset, starts[starts.len() - 2] as u64)
         }
         other => panic!("{:?}", other.map(|(_, r)| r)),
@@ -1424,7 +1425,9 @@ fn a_resume_of_a_whole_finish_cuts_only_the_junk_after_its_tail() {
     let bytes = [&done[..], &good[..]].concat();
     std::fs::write(&partial, &bytes).unwrap();
     match TapeWriter::resume(&path, WriterOptions::default()) {
-        Err(WriteError::GoodBlockAfterCut { offset }) => assert_eq!(offset, done.len() as u64),
+        Err(WriteError::Resume(ResumeError::GoodBlockAfterCut { offset })) => {
+            assert_eq!(offset, done.len() as u64)
+        }
         other => panic!("{:?}", other.map(|(_, r)| r)),
     }
     assert_eq!(std::fs::read(&partial).unwrap(), bytes, "left as it was");
@@ -1522,7 +1525,7 @@ fn a_resume_refuses_where_its_look_is_spent() {
     let good_at = bytes.len() as u64;
     bytes.extend_from_slice(&good);
     match resume(&bytes) {
-        (Err(WriteError::LookSpent { offset }), after) => {
+        (Err(WriteError::Resume(ResumeError::LookSpent { offset })), after) => {
             assert_eq!(offset, good_at);
             assert_eq!(after, bytes, "the bytes stay");
         }
@@ -1537,7 +1540,7 @@ fn a_resume_refuses_where_its_look_is_spent() {
     far.resize(open.len() + ww_tape::writer::RESUME_LOOK_MAX as usize, 0);
     far.extend_from_slice(&good);
     match resume(&far) {
-        (Err(WriteError::LookSpent { offset }), after) => {
+        (Err(WriteError::Resume(ResumeError::LookSpent { offset })), after) => {
             assert_eq!(offset, open.len() as u64 + ww_tape::writer::RESUME_LOOK_MAX);
             assert_eq!(after.len(), far.len(), "the bytes stay");
         }
@@ -1571,7 +1574,7 @@ fn a_resume_refuses_where_the_hash_walk_is_spent() {
         sink.write_all(&bytes).unwrap();
         let tape = sink.tape();
         match (TapeWriter::resume_on(sink, options(0)), spent) {
-            (Err(WriteError::HashWalkSpent { end }), true) => {
+            (Err(WriteError::Resume(ResumeError::HashWalkSpent { end })), true) => {
                 assert_eq!(end, bytes.len() as u64);
                 assert_eq!(tape.to_vec().unwrap(), bytes, "the bytes stay");
             }

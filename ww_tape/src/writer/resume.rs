@@ -21,7 +21,7 @@
 //! A piece whose finish and tail read whole (a crash after the finish, before the name) is complete: the resume cuts
 //! off what follows the tail when no good block is in it (junk a crash left), gives the piece its name
 //! ([TapeSink::finish]), writes nothing else and returns [WriteError::Ended]. A good block after the tail refuses
-//! ([WriteError::GoodBlockAfterCut]).
+//! ([ResumeError::GoodBlockAfterCut]).
 //!
 //! Else the piece is kept up to the end of its last good block, counted or not: the puts after the last counted block
 //! stay. What ends a piece (the final index, a finish without its tail) is dropped: the piece is open again, and so are
@@ -38,7 +38,7 @@
 //!
 //! The writer keeps no definitions: the application passes its own with each call after the resume, as before. The
 //! layout and the producer of the [WriterOptions] are checked against those the piece names, before anything is cut
-//! off or written: another one is refused ([WriteError::Layout], [WriteError::Producer]), as the writer would place
+//! off or written: another one is refused ([InputError::Layout], [InputError::Producer]), as the writer would place
 //! blocks the way the file says it doesn't. A piece whose layout or producer record didn't survive is checked
 //! against nothing: the options say what it is.
 //!
@@ -48,7 +48,7 @@
 use std::collections::BTreeMap;
 use std::io;
 
-use super::{TapeWriter, WriteError, WriterOptions};
+use super::{InputError, ResumeError, TapeWriter, WriteError, WriterOptions};
 use crate::index::{IndexBlock, IndexEntry, IndexKind, STATE_TRACK_ID, is_structural};
 use crate::piece::{FinishState, PieceHeadBlock, Walked, hash_block, walk_piece};
 use crate::reader::{ByteSource, ReadError, TapeReader, wide};
@@ -282,7 +282,7 @@ impl KeptEnd {
 /// The offset of a good block of one of `sessions` in the bytes of `src` from `from` to `size`, which a resume would
 /// cut off: more than a torn end. It looks [RESUME_LOOK_MAX] bytes far and reads at most [RESUME_PROBES_MAX] places
 /// whole, so crafted bytes cost a bounded read; where either runs out before the end of the bytes it can't tell they
-/// hold no good block: [WriteError::LookSpent]. With no session known (no block kept, a head the reader didn't
+/// hold no good block: [ResumeError::LookSpent]. With no session known (no block kept, a head the reader didn't
 /// take), a good block of any session is the piece's.
 fn good_block_after<S: TapeSink>(
     src: &S,
@@ -328,7 +328,7 @@ fn good_block_after<S: TapeSink>(
                 continue;
             }
             if probes >= RESUME_PROBES_MAX {
-                return Err(WriteError::LookSpent { offset: place });
+                return Err(WriteError::Resume(ResumeError::LookSpent { offset: place }));
             }
             probes = probes.saturating_add(1);
             let mut block = vec![0u8; len];
@@ -341,7 +341,7 @@ fn good_block_after<S: TapeSink>(
         at = at.saturating_add(wide(fits.max(1)));
     }
     if end < size {
-        return Err(WriteError::LookSpent { offset: end });
+        return Err(WriteError::Resume(ResumeError::LookSpent { offset: end }));
     }
     Ok(None)
 }
@@ -463,7 +463,9 @@ impl<S: TapeSink> TapeWriter<S> {
             if size > layout.end {
                 let none = std::collections::BTreeSet::new();
                 if let Some(offset) = good_block_after(&sink, layout.end, size, &none)? {
-                    return Err(WriteError::GoodBlockAfterCut { offset });
+                    return Err(WriteError::Resume(ResumeError::GoodBlockAfterCut {
+                        offset,
+                    }));
                 }
                 sink.truncate(layout.end)
                     .map_err(io_err("cutting the bytes after the tail"))?;
@@ -495,10 +497,14 @@ impl<S: TapeSink> TapeWriter<S> {
         if let Some(from) = ended_at
             && let Some(offset) = taken_after_end(&sink, &layout, from, &sessions)?
         {
-            return Err(WriteError::GoodBlockAfterCut { offset });
+            return Err(WriteError::Resume(ResumeError::GoodBlockAfterCut {
+                offset,
+            }));
         }
         if let Some(offset) = good_block_after(&sink, layout.end, size, &sessions)? {
-            return Err(WriteError::GoodBlockAfterCut { offset });
+            return Err(WriteError::Resume(ResumeError::GoodBlockAfterCut {
+                offset,
+            }));
         }
         let kept_bytes = kept.last;
         let mut w = Self::create_on(sink, options.sync);
@@ -531,7 +537,9 @@ impl<S: TapeSink> TapeWriter<S> {
         )
         .map_err(io_err("reading back the piece to hash"))?;
         if !tries {
-            return Err(WriteError::HashWalkSpent { end: kept_bytes });
+            return Err(WriteError::Resume(ResumeError::HashWalkSpent {
+                end: kept_bytes,
+            }));
         }
         let mut buf = Vec::new();
         let mut named = Named::default();
@@ -596,18 +604,18 @@ impl<S: TapeSink> TapeWriter<S> {
         if let Some(described) = named.layout
             && described != options.layout
         {
-            return Err(WriteError::Layout {
+            return Err(WriteError::Input(InputError::Layout {
                 described,
                 given: options.layout,
-            });
+            }));
         }
         if let Some(described) = named.producer
             && described != options.producer
         {
-            return Err(WriteError::Producer {
+            return Err(WriteError::Input(InputError::Producer {
                 described,
                 given: options.producer,
-            });
+            }));
         }
         if size > kept_bytes {
             w.sink
