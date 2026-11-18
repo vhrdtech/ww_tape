@@ -18,8 +18,9 @@
 //!   4  u8  version, 1
 //!   5  u8  kind: 1 records, 3 and up other kinds (BlockKind); 2 is reserved (RESERVED_KIND)
 //!   6 u16  flags: bit 0 body coded (FLAG_BODY_CODED, record blocks only), bit 1 state records a writer put or
-//!          copied (FLAG_REPEAT), bit 2 puts that belong with the next block (FLAG_WITH_NEXT); others 0 (a
-//!          reader ignores bits it doesn't know)
+//!          copied (FLAG_REPEAT), bit 2 puts that belong with the next block (FLAG_WITH_NEXT), bit 3 on a
+//!          chunk its payload unchecked (FLAG_PAYLOAD_UNCHECKED, reserved: 0, a reader refuses it); others 0
+//!          (a reader ignores bits it doesn't know)
 //!   8 u32  len: the whole block, header and CRC included
 //!  12 u32  records in the block
 //!  16 u64  seq: the block number in its session, from 0, +1 per block; a gap is lost blocks. Index, finish, tail and
@@ -273,6 +274,10 @@ pub const FLAG_REPEAT: u16 = 1 << 1;
 /// records), all of one writer call. A writer resumed after a crash drops such blocks at the end of what it keeps,
 /// and the call given again writes them as it did. A reader takes the block as any other.
 pub const FLAG_WITH_NEXT: u16 = 1 << 2;
+/// Header flag, reserved, on chunk blocks: the payload's CRCs were not computed (an integrity level below full).
+/// Written 0; a reader of this build refuses such a chunk as [BlockError::PayloadUnchecked], a level it doesn't
+/// handle, not damage.
+pub const FLAG_PAYLOAD_UNCHECKED: u16 = 1 << 3;
 /// Block kind 2, which earlier drafts gave describe blocks: reserved, never written, read as a kind this reader
 /// doesn't know.
 pub const RESERVED_KIND: u8 = 2;
@@ -837,6 +842,8 @@ pub enum BlockError {
     Coded,
     /// A chunk's head was asked of a block that isn't a chunk block this reader reads ([ChunkHead::head_len]).
     NotChunk,
+    /// A chunk block marked [FLAG_PAYLOAD_UNCHECKED]: an integrity level this build doesn't handle, not damage.
+    PayloadUnchecked,
 }
 
 /// A block read from bytes, CRC checked. Records are read in place, see [Block::records].
@@ -983,6 +990,7 @@ impl<'b> Block<'b> {
     /// A chunk block is checked by its head CRC, its segment CRCs and its block CRC, in one pass over the payload.
     pub fn read(bytes: &'b [u8]) -> Result<Self, BlockError> {
         let (block, chunk) = Self::read_unchecked(bytes)?;
+        block.check_integrity(chunk.is_some())?;
         match chunk {
             Some(c) if c.check_payload() => Ok(block),
             Some(_) => Err(BlockError::BadCrc),
@@ -1003,6 +1011,7 @@ impl<'b> Block<'b> {
     /// (head CRC, ranges): [Self::is_intact] is then false and [Chunk::bad_segments] says what is lost.
     pub fn salvage(bytes: &'b [u8]) -> Result<Self, BlockError> {
         let (mut block, chunk) = Self::read_unchecked(bytes)?;
+        block.check_integrity(chunk.is_some())?;
         match chunk {
             Some(c) => {
                 block.intact = c.check_payload();
@@ -1059,6 +1068,14 @@ impl<'b> Block<'b> {
     }
 
     /// The header, and for a chunk block its head checked; no CRC over the payload yet.
+    /// Refuse a chunk block marked [FLAG_PAYLOAD_UNCHECKED]: this build handles full integrity only.
+    fn check_integrity(&self, chunk: bool) -> Result<(), BlockError> {
+        match chunk && self.flags & FLAG_PAYLOAD_UNCHECKED != 0 {
+            true => Err(BlockError::PayloadUnchecked),
+            false => Ok(()),
+        }
+    }
+
     fn read_unchecked(bytes: &'b [u8]) -> Result<(Self, Option<Chunk<'b>>), BlockError> {
         let len = block_len(bytes)?;
         let short = BlockError::Short { needed: len };

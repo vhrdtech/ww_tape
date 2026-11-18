@@ -34,8 +34,9 @@ off size field
   4  u8  version, 1
   5  u8  kind: 1 records, 3 and up other kinds (BlockKind); 2 is reserved (RESERVED_KIND)
   6 u16  flags: bit 0 body coded (FLAG_BODY_CODED, record blocks only), bit 1 state records a writer put or
-         copied (FLAG_REPEAT), bit 2 puts that belong with the next block (FLAG_WITH_NEXT); others 0 (a
-         reader ignores bits it doesn't know)
+         copied (FLAG_REPEAT), bit 2 puts that belong with the next block (FLAG_WITH_NEXT), bit 3 on a
+         chunk its payload unchecked (FLAG_PAYLOAD_UNCHECKED, reserved: 0, a reader refuses it); others 0
+         (a reader ignores bits it doesn't know)
   8 u32  len: the whole block, header and CRC included
  12 u32  records in the block
  16 u64  seq: the block number in its session, from 0, +1 per block; a gap is lost blocks. Index, finish, tail and
@@ -275,7 +276,7 @@ off size field
  60 ...  n × track: id u64, first entry u32, entry count u32, CRC-32C of its entries u32, reserved u32
  ...     entries, each:
            0 u64 offset of the block in the piece    8 u32 its length        12 u8 its block kind
-          13 u8  summary level (0 for other kinds)   14 u8 summary tree      15 u8 flags: bit 0 repeat, bit 1 range
+          13 u8  summary level (0 for other kinds)   14 u8 summary tree      15 u8 flags: bit 0 repeat, bit 1 range, bit 2 unhashed (reserved, 0)
           16 u64 track id (0: none)                 24 u32 track number      28 u32 0 (a state record's below)
           32 u64 first item number                  40 u64 items (samples, records)
           48 i64 first tick                         56 i64 last tick         64 i64 latest end
@@ -318,7 +319,8 @@ piece head (kind 10)
  32 [16] piece id                 48 [32] owner id                80 u64 sequence number in the chain
  88 u32  flags: bit 0 has a previous piece                        92 u32 previous session tag (0: none or unknown)
  96 [32] previous piece's content hash                           128 [16] previous piece's id
-144 u16  track row length, 96 (a reader takes longer rows and reads their first 96 bytes)    146 [6] reserved
+144 u16  track row length, 96 (a reader takes longer rows and reads their first 96 bytes)
+146 u8   integrity: 0 full, 1 CRC only, 2 none (reserved: written 0, a reader refuses another)    147 [5] reserved
 152 ...  tracks × 96, one per track carried over from the pieces before:
            0 u64 id    8 u32 number    12 u32 reserved    16 u64 next item (the first item number this piece holds)
           24 i64 from tick (no item of the track here starts before it)
@@ -465,6 +467,7 @@ Some numbers are reserved so later features need no format change; today's reade
 | column kind 7 (`ColumnKind::PAYLOAD_LEAF`) | one leaf of the items' payload struct, the param naming the leaf |
 | block kinds 11 and 12 (`BlockKind::POSTINGS`, `DICTIONARY`) | a relation's index per events chunk: each distinct value with its items; the distinct values and each item's index into them. Skipped by readers; writers refuse a definition that asks for one |
 | `RelationValues::IndexOnly` | values given with each item only to feed an index, no column; writers refuse it until an index is built |
+| piece head byte 146 `integrity`, header flag bit 3 `FLAG_PAYLOAD_UNCHECKED`, index entry flag bit 2 `ENTRY_UNHASHED` | integrity levels below full: CRC only or none for a piece, a chunk whose payload CRCs weren't computed, an entry without its unit hash. Written 0 (full); readers refuse another value as a level they don't handle (`IndexError::UnknownIntegrity`, `BlockError::PayloadUnchecked`, `IndexError::Unhashed`), never as damage |
 | summary head bytes 54..56 | the first channel or leaf of the block, 0 today |
 
 ## Sample codecs

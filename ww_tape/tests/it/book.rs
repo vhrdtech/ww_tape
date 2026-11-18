@@ -564,3 +564,18 @@ fn format_page_piece_rows_read_a_chain() {
     assert_eq!(f[finish_row + hash_after..][..32], fold(4).0);
     assert_eq!(done[1].tracks[0].hash, fold(4));
 }
+
+/// The integrity reservations on the page against their constants: written as full integrity, refused otherwise.
+#[test]
+fn format_page_integrity_reservations_are_the_constants() {
+    let page = std::fs::read_to_string("../docs/format.md").unwrap();
+    assert_eq!(ww_tape::FLAG_PAYLOAD_UNCHECKED, 1 << 3);
+    assert!(
+        page.contains("bit 3 on a\n         chunk its payload unchecked (FLAG_PAYLOAD_UNCHECKED")
+    );
+    assert_eq!(ww_tape::index::ENTRY_UNHASHED, 1 << 2);
+    assert!(page.contains("bit 2 unhashed (reserved, 0)"));
+    assert_eq!(ww_tape::piece::INTEGRITY_FULL, 0);
+    assert!(page.contains("146 u8   integrity: 0 full, 1 CRC only, 2 none"));
+    assert!(page.contains("| piece head byte 146 `integrity`, header flag bit 3 `FLAG_PAYLOAD_UNCHECKED`, index entry flag bit 2 `ENTRY_UNHASHED` |"));
+}

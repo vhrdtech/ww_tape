@@ -287,7 +287,8 @@ pub const CHUNK_HEAD_PREFIX: usize = HEADER_LEN + 4;
 impl ChunkHead {
     /// Bytes of the head of the chunk block whose first [CHUNK_HEAD_PREFIX] bytes are `header`: what
     /// [Self::read_head] needs, the bytes up to the payload. A block of another kind or format version, or with a
-    /// coded body, is [BlockError::NotChunk].
+    /// coded body, is [BlockError::NotChunk]; one marked [FLAG_PAYLOAD_UNCHECKED](crate::FLAG_PAYLOAD_UNCHECKED) is
+    /// [BlockError::PayloadUnchecked].
     pub fn head_len(header: &[u8]) -> Result<usize, BlockError> {
         let len = crate::block_len(header)?;
         if header.len() < CHUNK_HEAD_PREFIX {
@@ -302,6 +303,9 @@ impl ChunkHead {
             || flags & FLAG_BODY_CODED != 0
         {
             return Err(BlockError::NotChunk);
+        }
+        if flags & crate::FLAG_PAYLOAD_UNCHECKED != 0 {
+            return Err(BlockError::PayloadUnchecked);
         }
         payload_offset(header, len).map_err(BlockError::Chunk)
     }
