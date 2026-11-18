@@ -851,8 +851,7 @@ pub enum BlockError {
     PayloadUnchecked,
     /// A piece head of an integrity level (its byte 146, `level`) this build doesn't handle, not damage: what a
     /// `FileBlocks` reports (`FileError::Refused`). [PieceHeadBlock::read](piece::PieceHeadBlock::read) says it as
-    /// [IndexError::UnhandledIntegrity](index::IndexError::UnhandledIntegrity) or
-    /// [IndexError::UnknownIntegrity](index::IndexError::UnknownIntegrity).
+    /// [IndexError::UnhandledIntegrity] or [IndexError::UnknownIntegrity].
     UnhandledIntegrity {
         level: u8,
     },

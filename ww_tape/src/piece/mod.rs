@@ -289,6 +289,7 @@ pub const WALK_MISS_BASE_MAX: u64 = 1 << 20;
 /// Feed the first `end` bytes of a piece, read by `read`, to its content hash: each block of [walk_piece] whole
 /// ([hash_block]), the bytes between as they are. The hash depends on the bytes alone, not on how a writer or a resume
 /// walked them. Whether the walk tries a block at `end`, as [walk_piece] gives it.
+#[cfg(feature = "std")]
 pub(crate) fn hash_piece<E>(
     h: &mut blake3::Hasher,
     end: u64,
@@ -840,6 +841,7 @@ impl<'b> PieceHeadBlock<'b> {
 
     /// The integrity byte of a good piece head block whose level this build refuses ([Self::refused]); None for a
     /// block that is no such head.
+    #[cfg(feature = "std")]
     pub(crate) fn refused_level(block: &Block<'_>) -> Option<u8> {
         Self::refused(block)?;
         le_u8(block.bytes(), HEAD_INTEGRITY_AT)
