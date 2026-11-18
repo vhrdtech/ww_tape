@@ -1,10 +1,13 @@
 //! The positional reader over crafted bytes: offsets from the file never panic or loop.
 
 use crate::id;
+use crate::range_hash::{crc32c, id_of, rewrite_final_entries, write};
 use ww_tape::index::IndexEntry;
-use ww_tape::piece::{ContentHash, Finish, FinishState, TAIL_LEN, Tail, finish_len, write_finish};
+use ww_tape::piece::{
+    ChainEnd, ContentHash, Finish, FinishState, TAIL_LEN, Tail, finish_len, write_finish,
+};
 use ww_tape::reader::ReadError;
-use ww_tape::{BlockKind, TapeReader};
+use ww_tape::{BlockKind, PieceFiles, TapeReader};
 
 fn tail(piece_len: u64, finish_offset: u64, finish_len: u32) -> [u8; TAIL_LEN] {
     let t = Tail {
@@ -137,4 +140,188 @@ fn an_entry_longer_than_any_block_is_refused_before_reading() {
         })
     ));
     assert!(buf.capacity() < 1 << 20);
+}
+
+/// The block at `at` with its block CRC made good again.
+fn reseal_block(bytes: &mut [u8], at: usize) {
+    let len = ww_tape::block_len(&bytes[at..]).unwrap();
+    let crc = crc32c(&[&bytes[at..at + len - 4]]);
+    bytes[at + len - 4..at + len].copy_from_slice(&crc.to_le_bytes());
+}
+
+/// A finish this build refuses (rows of another length, or flags it doesn't know), its CRC good, is kept as the
+/// piece's `finish_error`: the tail behind it ends no chain, so the chain is open, not whole.
+#[test]
+fn a_refused_finish_leaves_the_chain_open() {
+    let (_, files) = write(PieceFiles::One, 0x5eed);
+    let good = TapeReader::open(&files[0][..]).unwrap();
+    assert!(good.chain().is_whole());
+    let i = good.pieces().len() - 1;
+    let p = &good.pieces()[i];
+    let fin = (p.start + p.finish_offset.unwrap()) as usize;
+    let rows = p.finish.as_ref().unwrap().1.len();
+    // the finish's row length at +34, rows of 136 bytes from +176, each row's flags at +128
+    let mut short_rows = files[0].clone();
+    short_rows[fin + 34..fin + 36].copy_from_slice(&128u16.to_le_bytes());
+    reseal_block(&mut short_rows, fin);
+    let mut flags = files[0].clone();
+    for k in 0..rows {
+        let row = fin + 176 + k * 136;
+        flags[row + 128..row + 132].copy_from_slice(&u32::MAX.to_le_bytes());
+    }
+    reseal_block(&mut flags, fin);
+    for (name, bytes) in [("rows of 128", short_rows), ("flags", flags)] {
+        let r = TapeReader::open(&bytes[..]).unwrap();
+        assert_eq!(r.pieces().len(), good.pieces().len(), "{name}");
+        let p = &r.pieces()[i];
+        assert!(p.finish.is_none(), "{name}");
+        assert!(p.finish_error.is_some(), "{name}");
+        let c = r.chain();
+        assert_eq!(c.end, ChainEnd::Open, "{name}");
+        assert!(!c.is_whole(), "{name}");
+    }
+}
+
+/// A final index with two entries of a track swapped, its CRCs good, is refused by every path alike: the track's
+/// list and the whole index, never sorted into a good order first.
+#[test]
+fn a_final_index_out_of_order_is_refused_by_every_path() {
+    use ww_tape::index::{ENTRY_LEN, IndexError};
+    let (_, files) = write(PieceFiles::One, 0x5eed);
+    let good = TapeReader::open(&files[0][..]).unwrap();
+    let i = 1;
+    let t = (0..3)
+        .find(|t| good.track_entries(i, id_of(*t)).unwrap().len() >= 2)
+        .unwrap();
+    let mut bytes = files[0].clone();
+    let (mut first, mut second) = ([0u8; ENTRY_LEN], [0u8; ENTRY_LEN]);
+    rewrite_final_entries(&mut bytes, i, t, |j, e| match j {
+        0 => first.copy_from_slice(e),
+        1 => second.copy_from_slice(e),
+        _ => {}
+    });
+    rewrite_final_entries(&mut bytes, i, t, |j, e| match j {
+        0 => e.copy_from_slice(&second),
+        1 => e.copy_from_slice(&first),
+        _ => {}
+    });
+    let r = TapeReader::open(&bytes[..]).unwrap();
+    let bad = |e| matches!(e, Err(ReadError::Index(IndexError::BadEntries)));
+    assert!(bad(r.track_entries(i, id_of(t)).map(|_| ())));
+    assert!(bad(r.entries(i).map(|_| ())));
+}
+
+/// A piece head of an integrity level this build doesn't handle (byte 146), its CRC good, is refused by a
+/// `FileBlocks` walk with either recovery, as a chunk of such a level is: reported and stepped over.
+#[test]
+fn file_blocks_refuse_a_piece_head_of_another_integrity_level() {
+    use ww_tape::{BlockError, FileBlocks, FileError, Recovery};
+    let (_, files) = write(PieceFiles::One, 0x5eed);
+    let at = TapeReader::open(&files[0][..]).unwrap().pieces()[1].start as usize;
+    for level in [1u8, 2, 200] {
+        let mut bytes = files[0].clone();
+        bytes[at + 146] = level;
+        reseal_block(&mut bytes, at);
+        for recovery in [Recovery::Prefix, Recovery::Resync] {
+            let mut fb = FileBlocks::with_recovery(&bytes[..], recovery);
+            let mut errors = vec![];
+            let mut heads = 0;
+            while let Some(b) = fb.next_block() {
+                match b {
+                    Ok(b) => heads += usize::from(b.kind == BlockKind::PieceHead),
+                    Err(e) => errors.push(e),
+                }
+            }
+            let len = ww_tape::block_len(&bytes[at..]).unwrap() as u64;
+            assert!(
+                matches!(
+                    errors.as_slice(),
+                    [FileError::Refused { offset, error: BlockError::UnhandledIntegrity { level: l }, len: n }]
+                        if *offset == at as u64 && *l == level && *n == len
+                ),
+                "level {level}, {recovery:?}: {errors:?}"
+            );
+            let all = TapeReader::open(&files[0][..]).unwrap().pieces().len();
+            assert_eq!(heads, all - 1, "level {level}, {recovery:?}");
+        }
+    }
+}
+
+/// A damaged chunk whose payload holds a good copy of the next data block with other bytes: a Resync walk takes the
+/// copy at the magic it finds in the payload, and reports the real block, of the same session and seq, as replacing
+/// it.
+#[test]
+fn resync_reports_a_block_found_again_with_other_bytes() {
+    use crate::definitions::base_defs;
+    use crate::pieces::{chunk, column, records};
+    use ww_tape::{Block, FileBlocks, FileError, MemSink, Recovery, SyncPolicy, TapeWriter};
+    let mut w = TapeWriter::create_on(
+        MemSink::new(std::path::Path::new("resync")),
+        SyncPolicy::None,
+    );
+    let tape = w.sink().tape();
+    let defs = base_defs();
+    let (h, c) = chunk(1, 0);
+    w.write_chunk(defs, &h, &column(&c)).unwrap();
+    let next = w.next_id();
+    w.write_block(defs, &records(next, 7)).unwrap();
+    let (h, c) = chunk(1, 1);
+    w.write_chunk(defs, &h, &column(&c)).unwrap();
+    let mut bytes = tape.to_vec().unwrap();
+    drop(w);
+    let mut blocks = vec![];
+    let mut at = 0;
+    while let Ok(b) = Block::read(&bytes[at..]) {
+        // the definitions put before the records repeat and take no part in the seq order
+        let data = b.flags & ww_tape::FLAG_REPEAT == 0;
+        blocks.push((at, b.len(), b.kind, data, b.seq));
+        at += b.len();
+    }
+    let c0 = blocks.iter().find(|b| b.2 == BlockKind::Events).unwrap().0;
+    let (r_at, r_len, _, _, r_seq) = *blocks
+        .iter()
+        .find(|b| b.2 == BlockKind::Records && b.3 && b.0 > c0)
+        .unwrap();
+    // a copy of the records block with one byte of its item changed, its CRC good, in the chunk's payload
+    let mut fake = bytes[r_at..r_at + r_len].to_vec();
+    let n = fake.len();
+    fake[n - 10] ^= 0x55;
+    let crc = crc32c(&[&fake[..n - 4]]);
+    fake[n - 4..].copy_from_slice(&crc.to_le_bytes());
+    assert!(Block::read(&fake).is_ok());
+    let po = Block::read(&bytes[c0..])
+        .unwrap()
+        .chunk()
+        .unwrap()
+        .payload_offset();
+    assert!(po + n <= r_at - c0, "the copy fits the chunk's payload");
+    bytes[c0 + po..c0 + po + n].copy_from_slice(&fake);
+    // the chunk's head CRC fails
+    bytes[c0 + 40] ^= 1;
+    let mut fb = FileBlocks::with_recovery(&bytes[..], Recovery::Resync);
+    let mut seen = vec![];
+    while let Some(b) = fb.next_block() {
+        let got = b.map(|b| (b.seq, b.bytes() == &fake[..]));
+        seen.push(got.map(|(seq, is_fake)| (fb.offset(), seq, is_fake)));
+    }
+    let fake_at = (c0 + po) as u64;
+    let i = seen
+        .iter()
+        .position(|s| matches!(s, Ok((o, _, true)) if *o == fake_at))
+        .unwrap_or_else(|| panic!("the copy is taken: {seen:?}"));
+    let replaced: Vec<usize> = (0..seen.len())
+        .filter(|k| matches!(seen[*k], Err(FileError::Replaced { .. })))
+        .collect();
+    let [k] = replaced[..] else {
+        panic!("one block reported replaced: {seen:?}")
+    };
+    assert!(k > i, "{seen:?}");
+    assert!(
+        matches!(
+            &seen[k..],
+            [Err(FileError::Replaced { offset, seq, .. }), Ok((o, s, false)), ..]
+                if *offset == r_at as u64 && *seq == r_seq && *o == r_at as u64 && *s == r_seq
+        ),
+        "{seen:?}"
+    );
 }

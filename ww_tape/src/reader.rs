@@ -252,6 +252,9 @@ pub struct PieceInfo {
     /// lookup in the piece returns it ([ReadError::Index]).
     pub head_error: Option<IndexError>,
     pub finish: Option<(Finish, Vec<TrackRange>)>,
+    /// Why a good finish block of the piece didn't read as its finish: damage the block CRC missed, or rows this build
+    /// doesn't read. The piece then has no end: its tail, if read, ends no chain ([Self::summary]).
+    pub finish_error: Option<IndexError>,
     /// The finish block's offset in the piece.
     pub finish_offset: Option<u64>,
     pub tail: Option<Tail>,
@@ -285,6 +288,7 @@ impl PieceInfo {
             head: None,
             head_error: None,
             finish: None,
+            finish_error: None,
             finish_offset: None,
             tail: None,
             found,
@@ -320,13 +324,15 @@ impl PieceInfo {
     }
 
     /// What [check_chain] needs of the piece: from its head, or from its finish when the head is lost; None for one
-    /// without either.
+    /// without either. Its end is the finish's, or the tail's when no finish block was refused
+    /// ([Self::finish_error]): a refused finish leaves the piece open.
     pub fn summary(&self) -> Option<PieceSummary> {
+        let tail = self.tail.filter(|_| self.finish_error.is_none());
         let end = self
             .finish
             .as_ref()
             .map(|(f, _)| (f.state, f.hash, f.next))
-            .or(self.tail.map(|t| (t.state, t.hash, t.next)));
+            .or(tail.map(|t| (t.state, t.hash, t.next)));
         if let Some((head, _)) = &self.head {
             return Some(PieceSummary {
                 ident: head.ident,
@@ -904,12 +910,14 @@ impl<S: ByteSource> TapeReader<S> {
                     piece.take_head(&block);
                 }
                 BlockKind::PieceHead => piece.take_head(&block),
-                BlockKind::Finish => {
-                    if let Ok(f) = FinishBlock::read(&block) {
+                BlockKind::Finish => match FinishBlock::read(&block) {
+                    Ok(f) => {
                         piece.finish = Some((f.finish(), f.tracks().collect()));
+                        piece.finish_error = None;
                         piece.finish_offset = in_piece;
                     }
-                }
+                    Err(e) => piece.finish_error = Some(e),
+                },
                 BlockKind::Tail => {
                     piece.tail = Tail::read(block.bytes()).ok();
                     piece.end = end;

@@ -772,16 +772,26 @@ pub struct IndexBlock<'b> {
 }
 
 impl<'b> IndexBlock<'b> {
-    /// The index of a good block (CRC checked); every entry names a block ([IndexError::BadEntries] else).
+    /// The index of a good block (CRC checked); every entry names a block, and a final index's entries are in the
+    /// order [write_index] writes them: by track, then offset, each track's blocks in file order
+    /// ([IndexError::BadEntries] else).
     pub fn read(block: &Block<'b>) -> Result<Self, IndexError> {
         if block.kind != BlockKind::Index || !block.body_known() {
             return Err(IndexError::Kind);
         }
         let ix = Self::read_head(block.bytes())?;
         let mut n = 0usize;
+        let mut prev: Option<IndexEntry> = None;
         for i in 0..ix.entries {
             let Some(b) = ix.entry_bytes(i) else { break };
-            IndexEntry::read(b)?;
+            let e = IndexEntry::read(b)?;
+            if ix.kind == IndexKind::Final
+                && let Some(p) = &prev
+                && !(p.precedes(&e) && (p.track_id != e.track_id || in_file_order([p, &e])))
+            {
+                return Err(IndexError::BadEntries);
+            }
+            prev = Some(e);
             n = n.saturating_add(1);
         }
         if n != ix.entries {

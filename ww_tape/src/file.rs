@@ -3,11 +3,12 @@
 use std::io::{self, Read};
 use std::ops::Deref;
 
+use crate::piece::PieceHeadBlock;
 use crate::reader::{OwnedBlock, report_len, wide};
 use crate::walk::{Head, SessionState, Verdict};
 use crate::{
-    Block, BlockError, GAP_CHECKS_MAX, HEADER_LEN, MAGIC, MAX_BLOCK_LEN, Medium, SessionTag,
-    block_len, is_blank,
+    Block, BlockError, BlockKind, GAP_CHECKS_MAX, HEADER_LEN, MAGIC, MAX_BLOCK_LEN, Medium,
+    SessionTag, block_len, is_blank,
 };
 
 /// Bytes a [FileBlocks] asks its reader for at once, at least: the buffer grows by at most this much ahead of the
@@ -167,7 +168,8 @@ pub enum FileError {
         len: u64,
     },
     /// A block at `offset`, `len` bytes by its head-CRC-checked length, of an integrity level this build doesn't
-    /// handle (`error`: [BlockError::PayloadUnchecked]): not damage. Both recoveries step over it and go on.
+    /// handle (`error`: [BlockError::PayloadUnchecked] for a chunk, [BlockError::UnhandledIntegrity] for a piece
+    /// head): not damage. Both recoveries step over it and go on.
     Refused {
         offset: u64,
         error: BlockError,
@@ -266,7 +268,8 @@ pub enum Recovery {
     #[default]
     Prefix,
     /// Salvage: report a bad block and read on at the next block magic one byte after its start ([FileError::Bad]);
-    /// no seq check; a block of a session that may not start there is reported ([FileError::Stale]) and skipped. A
+    /// no seq check, but a block with the session and seq of the block before it and other bytes is reported
+    /// ([FileError::Replaced]) and comes next, as in [Recovery::Prefix]; a block of a session that may not start there is reported ([FileError::Stale]) and skipped. A
     /// chunk block whose head is good (head CRC) but whose payload isn't is handed out instead, with
     /// [Block::is_intact] false and its bad segments marked ([crate::Chunk::bad_segments]), and the walk goes on
     /// after it by its length. Any byte may start a block, also in a file aligned for its chunk payloads: a block is
@@ -563,6 +566,16 @@ impl<R: Read> FileBlocks<R> {
             return Ok(Here::Truncated);
         }
         Ok(match Block::read(&self.buf) {
+            // a piece of a level this build doesn't handle: its head is refused, as a chunk of one is
+            Ok(b)
+                if b.kind == BlockKind::PieceHead
+                    && let Some(level) = PieceHeadBlock::refused_level(&b) =>
+            {
+                Here::Refused {
+                    len,
+                    error: BlockError::UnhandledIntegrity { level },
+                }
+            }
             Ok(b) => Here::Good(Checked::of(&b)),
             // the head CRC holds: the length is the block's
             Err(error @ BlockError::PayloadUnchecked) => Here::Refused { len, error },
@@ -590,11 +603,15 @@ impl<R: Read> FileBlocks<R> {
                     self.gap_walk.take(&b);
                     verdict = Verdict::Take;
                 }
-            } else if matches!(
-                self.walk.verdict(&b, true),
-                Verdict::Stale(_) | Verdict::Backwards { .. }
-            ) {
-                self.prefix_over = true;
+            } else {
+                match self.walk.verdict(&b, true) {
+                    Verdict::Stale(_) | Verdict::Backwards { .. } => self.prefix_over = true,
+                    // the block before it again with other bytes: a copy met in damage, or a rewrite; reported
+                    d @ Verdict::Duplicate { same: false } if verdict == Verdict::Take => {
+                        verdict = d
+                    }
+                    _ => {}
+                }
             }
         }
         let verdict = match verdict {
