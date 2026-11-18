@@ -1154,3 +1154,112 @@ fn a_sink_of_one_piece_takes_no_cut_in_place() {
     assert!(matches!(w.cut_in_place(), Err(WriteError::Index(_))));
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// `bytes` with the integrity byte of the piece head at their start set to `level`, its CRC made good again.
+fn with_head_level(bytes: &[u8], level: u8) -> Vec<u8> {
+    let mut b = bytes.to_vec();
+    assert_eq!(b[5], BlockKind::PieceHead.to_u8());
+    b[146] = level;
+    let len = ww_tape::block_len(&b).unwrap();
+    let crc = crc::Crc::<u32>::new(&crc::CRC_32_ISCSI).checksum(&b[..len - 4]);
+    b[len - 4..len].copy_from_slice(&crc.to_le_bytes());
+    b
+}
+
+/// A piece whose head is of an integrity level this build doesn't handle, its CRC good, is listed with that error
+/// and refused with it by every lookup, the chain check and a resume: never read as damage or as a piece without a
+/// head, never appended to.
+#[test]
+fn a_piece_of_another_integrity_level_is_refused_everywhere() {
+    use ww_tape::index::IndexError;
+    use ww_tape::{Integrity, ReadError};
+    let levels = [
+        (
+            1,
+            IndexError::UnhandledIntegrity {
+                level: Integrity::CrcOnly,
+            },
+        ),
+        (
+            2,
+            IndexError::UnhandledIntegrity {
+                level: Integrity::None,
+            },
+        ),
+        (9, IndexError::UnknownIntegrity { level: 9 }),
+    ];
+    for finished in [false, true] {
+        let mut w = begin(0);
+        let tape = w.sink().tape();
+        for k in 0..6 {
+            let id = w.next_id();
+            w.write_block(base_defs(), &records(id, k)).unwrap();
+        }
+        match finished {
+            true => drop(w.finish().unwrap()),
+            false => {
+                w.flush_deferred().unwrap();
+                drop(w);
+            }
+        }
+        let good = tape.to_vec().unwrap();
+        for (level, error) in levels {
+            let bytes = with_head_level(&good, level);
+            let r = TapeReader::open(&bytes[..]).unwrap();
+            let p = &r.pieces()[0];
+            assert!(p.head.is_none(), "{level}");
+            assert_eq!(p.head_error, Some(error), "{level}");
+            let refused =
+                |e: Result<_, ReadError<_>>| matches!(e, Err(ReadError::Index(e)) if e == error);
+            assert!(refused(r.verify(0).map(|_| ())), "{level}: verify");
+            assert!(refused(r.entries(0).map(|_| ())), "{level}: entries");
+            assert!(refused(
+                r.range_hash(1, OwnerId::NONE, 0..u64::MAX, ww_tape::TrackHash::START)
+                    .map(|_| ())
+            ));
+            let chain = r.chain();
+            assert_eq!(chain.refused, [0], "{level}: {chain:?}");
+            assert!(!chain.is_whole());
+            let mut sink = MemSink::new(Path::new("p"));
+            sink.write_all(&bytes).unwrap();
+            let resumed = TapeWriter::resume_on(sink, options(0)).map(|(_, r)| r);
+            assert!(
+                matches!(resumed, Err(WriteError::Index(e) | WriteError::Read(ReadError::Index(e))) if e == error),
+                "{level} finished {finished}: {resumed:?}"
+            );
+        }
+    }
+}
+
+/// A one-file chain whose finished last piece has a head of another integrity level is refused with that level by
+/// a resume, which would start a new piece behind it.
+#[test]
+fn a_chain_whose_last_piece_is_of_another_level_is_refused() {
+    use ww_tape::index::IndexError;
+    let dir = scratch("other_level");
+    let at = dir.join("one.wwt");
+    let mut c = PieceChain::create(&at, OwnerId([9; 32]), 0, &[], one_file_options()).unwrap();
+    let mut defs = base_defs().clone();
+    for op in ops(14) {
+        apply_chain(&mut c, &mut defs, op);
+    }
+    c.finish().unwrap();
+    let bytes = std::fs::read(&at).unwrap();
+    let last = TapeReader::open(&bytes[..])
+        .unwrap()
+        .pieces()
+        .last()
+        .unwrap()
+        .start as usize;
+    let changed = [&bytes[..last], &with_head_level(&bytes[last..], 1)].concat();
+    std::fs::write(&at, &changed).unwrap();
+    let error = IndexError::UnhandledIntegrity {
+        level: ww_tape::Integrity::CrcOnly,
+    };
+    let resumed = PieceChain::resume(&at, OwnerId([9; 32]), 0, one_file_options()).map(|(_, r)| r);
+    assert!(
+        matches!(resumed, Err(WriteError::Index(e) | WriteError::Read(ww_tape::ReadError::Index(e))) if e == error),
+        "{resumed:?}"
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}

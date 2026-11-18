@@ -550,6 +550,11 @@ fn read_finished_at<B: ByteSource<Error = std::io::Error>>(
     let bad = |what| WriteError::Index(IndexError::Invalid(what));
     let src = reader.source();
     let p = reader.pieces().get(i).ok_or(bad("no such piece"))?;
+    if let Some(e @ (IndexError::UnhandledIntegrity { .. } | IndexError::UnknownIntegrity { .. })) =
+        p.head_error
+    {
+        return Err(WriteError::Index(e));
+    }
     let (Some(tail), Some((finish, ranges)), Some((head, starts))) =
         (p.tail, p.finish.as_ref(), p.head.as_ref())
     else {

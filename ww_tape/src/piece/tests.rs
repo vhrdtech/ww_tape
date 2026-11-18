@@ -185,6 +185,7 @@ fn summary(seq: u64, end: Option<FinishState>) -> PieceSummary {
                 (st == FinishState::Continued).then(|| id(seq + 1)),
             )
         }),
+        head: HeadStatus::Read,
     }
 }
 

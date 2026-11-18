@@ -27,6 +27,7 @@ Covers `ww_tape` 0.1.0.
 - `Durations::parse` takes the column kind it reads (TAPE-7).
 - Format: piece head `Integrity` (byte 146), chunk `FLAG_PAYLOAD_UNCHECKED`, entry `ENTRY_UNHASHED`; written full, others refused (TAPE-8).
 - `RangeHash` gains `skipped`; `ReadError` gains `Overlap`: a track's chunks folded by `range_hash` must not overlap (TAPE-8).
+- `PieceInfo` gains `head_error`, `PieceSummary` gains `head` (`HeadStatus`), `ChainReport` gains `refused` (TAPE-8).
 - Format: a series chunk head carries its grid and scale; series goldens rewritten, old v1 series files don't read (TAPE-3).
 - `SeriesSegment` records are gone: a series track has no records, takes `TrackRepeat::Stream`; put a `SeriesGrid` in `ChunkHead::grid` (TAPE-3).
 - `SeriesTimeline` is built from chunk heads (`from_chunks`, `push_chunk`); `from_records`, `check_chunk`, `chunk_ticks` are gone (TAPE-3).
@@ -216,6 +217,8 @@ Covers `ww_tape` 0.1.0.
 - Index entries are checked alike on every read: unhashed or unknown flags, a decreasing or non-chunk range refused (TAPE-7, TAPE-8).
 - `track_entries` refuses a final index naming a block twice or overlapping blocks; `range_hash` folded such a chunk per entry (TAPE-8).
 - `range_hash` without an index errs on a damaged chunk of the track, counts unexplained bytes (`RangeHash::skipped`), folds copies once (TAPE-8).
+- A piece head of another integrity level is refused with its typed error by every lookup, the chain check and resumes; it read headless (TAPE-8).
+- `TapeReader::chain`'s indices are into `pieces()`; they counted only the pieces with a head (TAPE-8).
 - State lookups keep a piece's entries sorted once (`STATE_CACHE_MAX`) and spend decoded and kept bytes from `STATE_READ_MAX` (STD-135).
 - `Lookup` and `DefinitionsAt` gain `uncovered`: stretches before the place the index doesn't cover (STD-135).
 - A piece of another format version is reported where met (`PieceInfo::version`), not refusing or skipping the tape (STD-135).

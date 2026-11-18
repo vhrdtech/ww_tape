@@ -3,6 +3,7 @@
 use alloc::vec::Vec;
 
 use super::{ContentHash, FinishState, PieceId, PieceIdent};
+use crate::index::IndexError;
 
 /// What a reader knows of one piece: its head and, when it was finished, its end.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -12,6 +13,18 @@ pub struct PieceSummary {
     pub prev: Option<(ContentHash, PieceId)>,
     /// State, content hash and next id from the finish or tail; None for a piece being written or cut off.
     pub end: Option<(FinishState, ContentHash, Option<PieceId>)>,
+    /// How the head read.
+    pub head: HeadStatus,
+}
+
+/// How a piece's head read, for [PieceSummary::head].
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum HeadStatus {
+    /// Read whole: ident and previous piece from it.
+    Read,
+    /// A head of an integrity level this build refuses (the error, [IndexError::UnhandledIntegrity] or
+    /// [IndexError::UnknownIntegrity]): ident and previous piece from it, the piece's contents unread.
+    Refused(IndexError),
 }
 
 /// How two pieces next to each other by sequence number relate.
@@ -53,6 +66,9 @@ pub struct ChainReport {
     pub end: ChainEnd,
     /// Two pieces with one sequence number or of another owner than the first: left out of `order`.
     pub strays: Vec<usize>,
+    /// Pieces whose head is of an integrity level this build refuses ([HeadStatus::Refused]): linked as their heads
+    /// say, their contents unread.
+    pub refused: Vec<usize>,
 }
 
 impl ChainReport {
@@ -60,6 +76,7 @@ impl ChainReport {
     pub fn is_whole(&self) -> bool {
         !self.head_cut
             && self.strays.is_empty()
+            && self.refused.is_empty()
             && self.end == ChainEnd::Complete
             && self.links.iter().all(|l| *l == ChainLink::Linked)
     }
@@ -96,12 +113,19 @@ pub fn check_chain(pieces: &[PieceSummary]) -> ChainReport {
         Some((FinishState::Continued, ..)) => ChainEnd::TailCut,
         Some((FinishState::Aborted, ..)) => ChainEnd::Aborted,
     };
+    let refused = pieces
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| matches!(p.head, HeadStatus::Refused(_)))
+        .map(|(i, _)| i)
+        .collect();
     ChainReport {
         order: order.into_iter().map(|(i, _)| i).collect(),
         head_cut,
         links,
         end,
         strays,
+        refused,
     }
 }
 

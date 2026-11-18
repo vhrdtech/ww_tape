@@ -133,7 +133,11 @@ impl SessionState {
             Medium::File => b.kind == BlockKind::PieceHead || starts_with_definitions(b),
             Medium::Raw => {
                 b.kind == BlockKind::PieceHead
-                    && PieceHeadBlock::read(b).is_ok_and(|h| h.head().prev_session == current)
+                    && PieceHeadBlock::read(b)
+                        .map(|h| h.head().prev_session)
+                        .ok()
+                        .or_else(|| PieceHeadBlock::refused(b).map(|(l, _)| l.prev_session))
+                        == Some(current)
             }
         }
     }
@@ -272,6 +276,59 @@ mod tests {
         assert_eq!(
             w.probes(near, near).take(10_000).collect::<Vec<_>>(),
             [near + 1, near + 2, near + 3, near + 4, near + 5]
+        );
+    }
+
+    /// On a raw medium a piece head naming the session just ended starts a session whatever its integrity level, so
+    /// the reader lists the piece and refuses it as that level instead of taking it for stale data.
+    #[test]
+    fn a_raw_medium_takes_a_head_of_another_level() {
+        use crate::piece::{
+            OwnerId, PieceHead, PieceId, PieceIdent, piece_head_len, write_piece_head,
+        };
+        let a = SessionTag::writable(0x0a0a_0a0a);
+        let b = SessionTag::writable(0x0b0b_0b0b);
+        let mut buf = [0u8; 256];
+        let mut w = crate::BlockWriter::new(
+            &mut buf,
+            BlockKind::Records,
+            crate::BlockId::new(a, 0),
+            &[1],
+        )
+        .unwrap();
+        w.push(9, crate::ClockTime::new(1, 1), &[&[1u8; 4]])
+            .unwrap();
+        let n = w.finish();
+        let mut walk = SessionState::new(Medium::Raw);
+        walk.take(&Block::read(&buf[..n]).unwrap());
+        let head = PieceHead {
+            ident: PieceIdent {
+                id: PieceId([1; 16]),
+                owner: OwnerId([2; 32]),
+                seq: 0,
+            },
+            prev: None,
+            prev_session: a,
+            integrity: crate::Integrity::Full,
+        };
+        let mut h = alloc::vec![0u8; piece_head_len(0)];
+        write_piece_head(&mut h, crate::BlockId::new(b, 0), &head, &[]).unwrap();
+        for level in [0, 1, 7] {
+            h[146] = level;
+            crate::index::seal(&mut h);
+            let block = Block::read(&h).unwrap();
+            assert_eq!(walk.verdict(&block, true), Verdict::Take, "level {level}");
+        }
+        let other = PieceHead {
+            prev_session: b,
+            ..head
+        };
+        write_piece_head(&mut h, crate::BlockId::new(b, 0), &other, &[]).unwrap();
+        h[146] = 1;
+        crate::index::seal(&mut h);
+        assert_eq!(
+            walk.verdict(&Block::read(&h).unwrap(), true),
+            Verdict::Stale(b)
         );
     }
 
