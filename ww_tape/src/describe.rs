@@ -427,10 +427,13 @@ pub struct TrackDef<'i> {
 /// Most relations one track declares.
 pub const RELATIONS_MAX: usize = 16;
 
+/// Longest [name](RelationDef::name) of a relation, in bytes.
+pub const RELATION_NAME_MAX: usize = 64;
+
 /// A relation of a track's items, see [TrackDef::relations].
 #[derive_shrink_wrap(owned(feature = "std"), derive(Debug, PartialEq, Eq, Clone))]
 pub struct RelationDef<'i> {
-    /// The relation's name, not empty; the writer gives it meaning.
+    /// The relation's name, not empty, at most [RELATION_NAME_MAX] bytes; the writer gives it meaning.
     pub name: &'i str,
     /// The track the values point into, by run and identity; None when the values are not references (keys).
     pub target: Option<RelationTarget>,
@@ -656,7 +659,8 @@ impl<'i> TrackDef<'i> {
         track_id(self.key, self.dimensions.iter().filter_map(Result::ok))
     }
 
-    /// Whether the relations are well formed by themselves: at most [RELATIONS_MAX], names not empty and unique,
+    /// Whether the relations are well formed by themselves: at most [RELATIONS_MAX], names not empty, at most
+    /// [RELATION_NAME_MAX] bytes and unique,
     /// values only on an events track, monotone only with values, an index only with values, index-only values only
     /// with an index, a range index only on a monotone relation and on one relation at most.
     pub fn relations_canonical(&self) -> bool {
@@ -671,6 +675,7 @@ impl<'i> TrackDef<'i> {
                 .any(|o| o.is_ok_and(|o| o.name == r.name));
             if n >= RELATIONS_MAX
                 || r.name.is_empty()
+                || r.name.len() > RELATION_NAME_MAX
                 || repeated
                 || (values && self.series().is_some())
                 || (r.monotone && !values)

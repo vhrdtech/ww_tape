@@ -66,6 +66,8 @@ pub enum DescribeError {
     WriterOwned,
     /// A track's relations break a rule ([TrackDef::relations_canonical](crate::TrackDef::relations_canonical)).
     Relations { track: u32 },
+    /// A relation's name of `len` bytes, longer than [RELATION_NAME_MAX](crate::RELATION_NAME_MAX).
+    RelationName { track: u32, len: usize },
     /// A track declares a relation of a kind this crate doesn't write yet: index-only values, a postings or
     /// dictionary index ([TrackDef::relations_built](crate::TrackDef::relations_built)).
     RelationNotBuilt { track: u32 },
@@ -129,6 +131,11 @@ impl core::fmt::Display for DescribeError {
                     "track {track}: relations break a rule (names, values, monotone, index)"
                 )
             }
+            DescribeError::RelationName { track, len } => write!(
+                f,
+                "track {track}: a relation name of {len} bytes, longer than {}",
+                crate::RELATION_NAME_MAX
+            ),
             DescribeError::RelationNotBuilt { track } => write!(
                 f,
                 "track {track}: a relation of a kind not written yet (index-only values, postings, dictionary)"
@@ -328,6 +335,18 @@ pub fn check_definition(d: &Describe<'_>) -> Result<(), DescribeError> {
         Describe::Track(t) => {
             if !t.dimensions_canonical() {
                 return Err(DescribeError::Dimensions { track: t.number.0 });
+            }
+            let long = t
+                .relations
+                .iter()
+                .filter_map(Result::ok)
+                .map(|r| r.name.len())
+                .find(|len| *len > crate::RELATION_NAME_MAX);
+            if let Some(len) = long {
+                return Err(DescribeError::RelationName {
+                    track: t.number.0,
+                    len,
+                });
             }
             if !t.relations_canonical() {
                 return Err(DescribeError::Relations { track: t.number.0 });

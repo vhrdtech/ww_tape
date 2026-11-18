@@ -1255,6 +1255,30 @@ fn a_tracks_relations_are_checked_by_themselves() {
     );
     assert_eq!(check(&with(related(3, &MANY))), shape, "17 relations");
 
+    // a name of RELATION_NAME_MAX bytes at most
+    const LONGEST: &[RelationDef<'static>] = &[rel(
+        "0123456789012345678901234567890123456789012345678901234567890123",
+        RelationValues::None,
+        false,
+        RelationIndex::None,
+    )];
+    const LONGER: &[RelationDef<'static>] = &[rel(
+        "01234567890123456789012345678901234567890123456789012345678901234",
+        RelationValues::None,
+        false,
+        RelationIndex::None,
+    )];
+    assert_eq!(LONGEST[0].name.len(), ww_tape::RELATION_NAME_MAX);
+    assert_eq!(check(&with(related(3, LONGEST))), Ok(()));
+    assert_eq!(
+        check(&with(related(3, LONGER))),
+        Err(DescribeError::RelationName { track: 3, len: 65 })
+    );
+    let Describe::Track(t) = related(3, LONGER) else {
+        unreachable!("related() gives a track")
+    };
+    assert!(!t.relations_canonical());
+
     // reserved kinds: read and checked, but not defined by a writer
     const KEYS: &[RelationDef<'static>] = &[rel(
         "entity.piece",
