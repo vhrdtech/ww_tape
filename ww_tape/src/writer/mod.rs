@@ -60,6 +60,7 @@ mod relations;
 pub mod resume;
 pub use near::NearPolicy;
 use near::Rule;
+pub(crate) use relations::Newest;
 pub use resume::Resumed;
 
 /// When a [TapeWriter] syncs the data to the disk, besides at [TapeWriter::finish].
@@ -933,7 +934,13 @@ impl<S: TapeSink> TapeWriter<S> {
             }
             self.indexer.begin_block();
             if let Some((c, _)) = &chunk {
-                self.indexer.tally_chunk(&c.head(), &unit);
+                let head = c.head();
+                self.indexer.tally_chunk(&head, &unit);
+                if head.kind == BlockKind::Events
+                    && let Some(key) = self.indexer.key_of(head.track_number, Some(head.track_id))
+                {
+                    self.relations.placed(key, c, again == Again::Replaced);
+                }
             }
         }
         let at = self.bytes;
@@ -1100,10 +1107,22 @@ impl<S: TapeSink> TapeWriter<S> {
             return self.put_block(defs, &block);
         }
         let needs = self.defer_needs(defs, &b)?;
+        if let Some(c) = b.chunk() {
+            self.check_relations(defs, &c, false)?;
+        }
         if self.alignment() == 0 {
             self.ensure_head()?;
             self.put_needed(&needs)?;
             return self.place(block);
+        }
+        // placed before any later block of its track: a chunk after it goes on from its values
+        if let Some(c) = b.chunk()
+            && let Some(facts) = defs.track(c.head().track_number)
+            && let Some(key) = self
+                .indexer
+                .key_of(c.head().track_number, Some(c.head().track_id))
+        {
+            self.relations.deferred(key, &c, facts);
         }
         self.place_overdue(puts_len_upper(&needs))?;
         self.ensure_head()?;
@@ -1119,6 +1138,30 @@ impl<S: TapeSink> TapeWriter<S> {
             self.flush_deferred()?;
         }
         Ok(())
+    }
+
+    /// Refuse the events chunk `c` when a monotone relation's first value is below the newest one of its track
+    /// placed before it (with `replacing`, before the last counted block, whose place it takes): the values of a
+    /// monotone relation never decrease along the track, across chunks and pieces.
+    fn check_relations(
+        &self,
+        defs: &Definitions,
+        c: &crate::chunk::Chunk<'_>,
+        replacing: bool,
+    ) -> Result<(), WriteError> {
+        let head = c.head();
+        if head.kind != BlockKind::Events {
+            return Ok(());
+        }
+        let (Some(facts), Some(key)) = (
+            defs.track(head.track_number),
+            self.indexer.key_of(head.track_number, Some(head.track_id)),
+        ) else {
+            return Ok(());
+        };
+        self.relations
+            .check(key, &facts, c, replacing)
+            .map_err(WriteError::Describe)
     }
 
     /// Check `block` for [Self::defer_block] and the piece's room for the definitions it needs: those.
@@ -1255,6 +1298,7 @@ impl<S: TapeSink> TapeWriter<S> {
                         .map_err(crate::BlockError::Chunk)
                         .map_err(WriteError::Block)?;
                     crate::open::relation_columns_read(&chunk)?;
+                    self.check_relations(defs, &chunk, false)?;
                 }
                 self.write_chosen(&needs, &chosen, true)?;
                 if self.at()? != at {
@@ -1309,6 +1353,13 @@ impl<S: TapeSink> TapeWriter<S> {
         let session = block_id(block).filter(|theirs| theirs.session != self.session);
         self.room(0, !self.head_put || session.is_some())?;
         self.flush_deferred()?;
+        if let Some(c) = b.chunk() {
+            // a counted block with the last one's id takes its place
+            let replacing = self
+                .last_counted
+                .is_some_and(|(id, ..)| block_id(block) == Some(id));
+            self.check_relations(defs, &c, replacing)?;
+        }
         if let Some(theirs) = session {
             self.session = theirs.session;
             self.next_seq = theirs.seq;
@@ -1360,6 +1411,9 @@ impl<S: TapeSink> TapeWriter<S> {
         let needs = self.needed(defs, &data_tracks(&b));
         self.room(0, !self.head_put)?;
         self.flush_deferred()?;
+        if let Some(c) = b.chunk() {
+            self.check_relations(defs, &c, false)?;
+        }
         self.ensure_head()?;
         self.put_needed(&needs)?;
         if let Some(last) = self.adopted
@@ -1576,9 +1630,11 @@ impl<S: TapeSink> TapeWriter<S> {
         };
         let options = self.options();
         let tracks = self.indexer.next_starts(&starts);
+        let newest = self.relations.newest().clone();
         let done = self.end(FinishState::Continued, true)?;
-        let next_piece =
+        let mut next_piece =
             NextPiece::after(&head, &done.finished, tracks, done.session, done.next_seq)?;
+        next_piece.newest = newest;
         let next = TapeWriter::start_next(next()?, &options, next_piece)?;
         Ok((done.finished, next))
     }
@@ -1595,9 +1651,11 @@ impl<S: TapeSink> TapeWriter<S> {
         };
         let options = self.options();
         let tracks = self.indexer.next_starts(&starts);
+        let newest = self.relations.newest().clone();
         let mut done = self.end(FinishState::Continued, false)?;
-        let next_piece =
+        let mut next_piece =
             NextPiece::after(&head, &done.finished, tracks, done.session, done.next_seq)?;
+        next_piece.newest = newest;
         let base = done
             .finished
             .start
@@ -1640,7 +1698,13 @@ impl<S: TapeSink> TapeWriter<S> {
     pub(crate) fn begin_next(&mut self, next: NextPiece) -> Result<(), WriteError> {
         self.next_seq = next.next_seq;
         self.session = next.session;
+        self.relations.take_newest(&next.newest);
         self.write_piece_head(&next.head, &next.tracks)
+    }
+
+    /// Go on from `newest`, the newest values of the monotone relations of the pieces before: a resume's.
+    pub(crate) fn take_newest(&mut self, newest: &relations::Newest) {
+        self.relations.take_newest(newest);
     }
 
     /// End the piece in `state`; a continued piece with a head names the next piece's id, [PieceId::after] its own
@@ -1844,6 +1908,8 @@ pub(crate) struct NextPiece {
     tracks: Vec<TrackStart>,
     session: SessionTag,
     next_seq: u64,
+    /// The newest values of the monotone relations so far
+    newest: relations::Newest,
 }
 
 impl NextPiece {
@@ -1878,6 +1944,7 @@ impl NextPiece {
             tracks,
             session,
             next_seq,
+            newest: relations::Newest::default(),
         })
     }
 }

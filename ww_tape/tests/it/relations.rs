@@ -343,3 +343,108 @@ fn a_relation_column_that_does_not_read_is_refused() {
     w.finish().unwrap();
     assert_eq!(ranges(&tape.to_vec().unwrap(), 0), [Some((1, 5))]);
 }
+
+/// The whole chunk block of [chunk_of], numbered `id`.
+fn chunk_block(id: ww_tape::BlockId, first: u64, sources: &[u64], keys: &[u64]) -> Vec<u8> {
+    let (head, cols) = chunk_of(first, sources, keys);
+    let cols: Vec<_> = cols.iter().map(|(s, b)| (*s, &b[..])).collect();
+    let specs: Vec<_> = cols.iter().map(|c| c.0).collect();
+    let mut block = vec![0u8; ww_tape::chunk::chunk_len(&head, &specs, 0)];
+    let n = ww_tape::chunk::write_chunk(&mut block, id, &head, &cols, 0).unwrap();
+    block.truncate(n);
+    block
+}
+
+/// Whether `r` refuses track 3's chunk from item `item` for a decrease of its monotone relation `source`.
+fn decrease<T: std::fmt::Debug>(r: Result<T, WriteError>, item: u64) -> bool {
+    matches!(
+        r,
+        Err(WriteError::Describe(DescribeError::RelationDecrease { track: 3, relation: 0, item: i })) if i == item
+    )
+}
+
+#[test]
+fn a_monotone_relation_never_decreases_across_chunks() {
+    let mut defs = Definitions::new();
+    defs.define_all(&[clock(CLOCK), decoded()]).unwrap();
+    let mut w = TapeWriter::create_on(MemSink::new(Path::new("m")), SyncPolicy::None);
+    write_chunk(&mut w, &defs, 0, &[100, 101], &[1, 1]).unwrap();
+    assert!(decrease(write_chunk(&mut w, &defs, 2, &[5, 6], &[1, 1]), 2));
+    // a whole block, given or adopted, as well
+    let block = chunk_block(w.next_id(), 2, &[5, 6], &[1, 1]);
+    assert!(decrease(w.write_block(&defs, &block), 2));
+    assert!(decrease(w.adopt_block(&defs, &block), 2));
+    // the same value again goes on
+    write_chunk(&mut w, &defs, 2, &[101, 102], &[1, 1]).unwrap();
+    // a block taking the last one's place is checked against the one before that
+    let again = chunk_block(
+        ww_tape::BlockId::new(w.session(), w.next_seq() - 1),
+        2,
+        &[101, 101],
+        &[2, 2],
+    );
+    w.write_block(&defs, &again).unwrap();
+    let below = chunk_block(
+        ww_tape::BlockId::new(w.session(), w.next_seq() - 1),
+        2,
+        &[100, 101],
+        &[2, 2],
+    );
+    assert!(decrease(w.write_block(&defs, &below), 2));
+}
+
+#[test]
+fn a_deferred_chunk_counts_before_the_chunks_after_it() {
+    let mut defs = Definitions::new();
+    defs.define_all(&[clock(CLOCK), decoded()]).unwrap();
+    let mut w = TapeWriter::create_on(MemSink::new(Path::new("d")), SyncPolicy::None);
+    w.set_layout(ww_tape::Layout::ALIGNED).unwrap();
+    w.defer_block(&defs, chunk_block(w.next_id(), 0, &[100, 101], &[1, 1]))
+        .unwrap();
+    assert!(decrease(write_chunk(&mut w, &defs, 2, &[5, 6], &[1, 1]), 2));
+    write_chunk(&mut w, &defs, 2, &[101, 102], &[1, 1]).unwrap();
+}
+
+#[test]
+fn a_monotone_relation_never_decreases_across_cuts_and_resumes() {
+    use ww_tape::{ChainOptions, CutPolicy, MemTapes, OwnerId, PieceChain, PieceFiles};
+    let mut defs = Definitions::new();
+    defs.define_all(&[clock(CLOCK), decoded()]).unwrap();
+    let write = |c: &mut PieceChain<MemTapes>, first: u64, sources: &[u64]| {
+        let (head, cols) = chunk_of(first, sources, &vec![1; sources.len()]);
+        let cols: Vec<_> = cols.iter().map(|(s, b)| (*s, &b[..])).collect();
+        c.write_chunk(&defs, &head, &cols)
+    };
+    for files in [PieceFiles::Each, PieceFiles::One] {
+        let options = || ChainOptions {
+            files,
+            cut: CutPolicy {
+                chunks: 1,
+                ..CutPolicy::default()
+            },
+            ..ChainOptions::default()
+        };
+        let mem = MemTapes::new();
+        let at = Path::new("c");
+        let owner = OwnerId([9; 32]);
+        let mut c = PieceChain::create_on(mem.clone(), at, owner, 0, &[], options()).unwrap();
+        write(&mut c, 0, &[100, 101]).unwrap();
+        // the next chunk goes into a piece of its own
+        assert!(decrease(write(&mut c, 2, &[5, 6]), 2), "{files:?}: cut");
+        write(&mut c, 2, &[101, 102]).unwrap();
+        // a crash in the open piece: its chunk is read back
+        drop(c);
+        let (mut c, _) = PieceChain::resume_on(mem.clone(), at, owner, 0, options()).unwrap();
+        assert!(decrease(write(&mut c, 4, &[5, 6]), 4), "{files:?}: resume");
+        // a crash right after a cut: the pieces finished before hold the newest values
+        c.cut_now().unwrap();
+        drop(c);
+        let (mut c, _) = PieceChain::resume_on(mem.clone(), at, owner, 0, options()).unwrap();
+        assert!(
+            decrease(write(&mut c, 4, &[5, 6]), 4),
+            "{files:?}: resume after a cut"
+        );
+        write(&mut c, 4, &[102, 103]).unwrap();
+        c.finish().unwrap();
+    }
+}

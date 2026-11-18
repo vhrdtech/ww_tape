@@ -85,6 +85,13 @@ pub enum DescribeError {
         relation: u16,
         error: crate::times::TimesError,
     },
+    /// An events chunk whose first value of monotone relation `relation`, at item `item`, is below the newest value
+    /// placed before it on the track ([RelationDef::monotone](crate::RelationDef::monotone)).
+    RelationDecrease {
+        track: u32,
+        relation: u16,
+        item: u64,
+    },
     /// An events chunk of a state track: its items are put one by one.
     StateChunk { track: u32 },
     /// A record of a state track in a caller's block: its items are put ([TapeWriter::put](crate::TapeWriter::put)).
@@ -173,6 +180,14 @@ impl core::fmt::Display for DescribeError {
             } => write!(
                 f,
                 "track {track}: the column of relation {relation} doesn't read: {error}"
+            ),
+            DescribeError::RelationDecrease {
+                track,
+                relation,
+                item,
+            } => write!(
+                f,
+                "track {track}: item {item}'s value of monotone relation {relation} is below the item's before it"
             ),
             DescribeError::StateChunk { track } => write!(
                 f,
