@@ -221,6 +221,7 @@ pub(crate) fn finish_block(
             owner: OwnerId([d.u8(); 32]),
             hash: TrackHash([d.u8(); 32]),
             records: u64::from(d.u16()),
+            incomplete: d.bool(),
         })
         .collect();
     let finish = Finish {
@@ -249,9 +250,9 @@ pub(crate) fn finish_fields<'c>(d: &mut Draw<'_>, tracks: usize, len: &'c [u64])
         Field::new(160, 8, &[]),
         Field::new(168, 4, &[1]),
         Field::new(172, 4, &[4095, 4096, u32::MAX as u64]),
-        Field::new(34, 2, &[0, 127, 129, 0xFFFF]),
+        Field::new(34, 2, &[0, 128, 135, 137, 0xFFFF]),
     ];
-    let at = 176 + d.below(tracks + 1) * 128;
+    let at = 176 + d.below(tracks + 1) * 136;
     f.extend([
         Field::new(at + 12, 4, &[]),
         Field::new(at + 16, 8, len),
@@ -260,6 +261,8 @@ pub(crate) fn finish_fields<'c>(d: &mut Draw<'_>, tracks: usize, len: &'c [u64])
         Field::new(at + 40, 8, &[]),
         Field::new(at + 48, 8, &[]),
         Field::new(at + 120, 8, &[]),
+        Field::new(at + 128, 4, &[1, 2, 3]),
+        Field::new(at + 132, 4, &[]),
     ]);
     f
 }

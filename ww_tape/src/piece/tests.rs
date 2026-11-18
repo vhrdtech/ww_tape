@@ -77,6 +77,7 @@ fn finish_and_tail_round_trip() {
         owner: OwnerId([6; 32]),
         hash: TrackHash([8; 32]),
         records: 3,
+        incomplete: true,
     }];
     let mut buf = vec![0u8; finish_len(1) + 4095];
     for padding in [0, 1, 1000, 4095] {
@@ -99,6 +100,21 @@ fn finish_and_tail_round_trip() {
     let n = write_finish(&mut buf, id(77), &plain, &[], 0).unwrap();
     let block = Block::read(&buf[..n]).unwrap();
     assert_eq!(FinishBlock::read(&block).unwrap().finish(), plain);
+
+    // a track row flag this build doesn't know is refused, its CRC good
+    let n = write_finish(&mut buf, id(77), &finish, &tracks, 0).unwrap();
+    for flag in [2u32, 1 << 31] {
+        let mut b = buf[..n].to_vec();
+        let at = FINISH_TRACKS_AT + ROW_FLAGS_AT;
+        b[at..at + 4].copy_from_slice(&(flag | ROW_INCOMPLETE).to_le_bytes());
+        crate::index::seal(&mut b);
+        assert_eq!(
+            FinishBlock::read(&Block::read(&b).unwrap()).err(),
+            Some(IndexError::Invalid(
+                "a track row flag this build doesn't know"
+            ))
+        );
+    }
 
     let tail = Tail {
         piece_len: 6 << 20,

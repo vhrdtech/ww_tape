@@ -18,7 +18,8 @@ Covers `ww_tape` 0.1.0.
 - `DescribeError::RelationDecrease`: a monotone relation's value below the track's newest, across chunks, cuts and resumes, is refused (TAPE-7).
 - `DescribeError::RelationColumnRead`: a relation column that doesn't read for every item is refused, not written (TAPE-7).
 - `ChainOptions` gains `files`; `Finished` gains `start` and `tracks`; `SinkFactory` gains `create_whole` and `open_whole` (TAPE-8).
-- Format: piece head rows (96 B) and finish rows (128 B) carry owner and track hash, each with a row length (TAPE-8).
+- Format: piece head rows (96 B) and finish rows (136 B) carry owner and track hash, each with a row length (TAPE-8).
+- Format: a finish row's flags mark a track hash incomplete (`TrackRange::incomplete`) after a resume kept unread units (TAPE-8).
 - Format: the content hash takes each chunk payload by its BLAKE3 hash; goldens, seeds and figures rewritten (TAPE-8).
 - Format: index entries are 120 B, a chunk's unit hash at 88; track hashes chain over unit hashes (TAPE-8).
 - `IndexEntry` gains `unit`; `TrackHash::chunk` and `record` fold unit hashes (`TrackHash::then`) (TAPE-8).

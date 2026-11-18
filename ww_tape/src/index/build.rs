@@ -27,6 +27,8 @@ struct Tally {
     records: u64,
     /// The piece holds a counted chunk or record of the track: the finish lists it
     touched: bool,
+    /// The hash leaves out units a resume kept unread ([TrackRange::incomplete])
+    incomplete: bool,
 }
 
 /// The blocks of a piece as they are placed: entries not yet in a checkpoint, every entry for the final index,
@@ -79,6 +81,7 @@ impl Indexer {
                     hash: t.hash,
                     records: 0,
                     touched: false,
+                    incomplete: false,
                 },
             );
         }
@@ -131,6 +134,7 @@ impl Indexer {
             hash: TrackHash::START,
             records: 0,
             touched: false,
+            incomplete: false,
         });
         t.number = number;
         t.hash = unit(&t.hash);
@@ -144,6 +148,35 @@ impl Indexer {
     pub(crate) fn tally_chunk(&mut self, number: u32, id: u64, unit: &UnitHash) {
         if let Some(key) = self.key_of(number, Some(id)) {
             self.tally(key, number, |h| h.then(unit), 0);
+        }
+    }
+
+    /// Records of data a resume keeps unread, in a block whose entry doesn't say which tracks they are on: every
+    /// track the piece defines or its head carries for which `takes` holds is marked incomplete.
+    pub(crate) fn tally_unread_records(&mut self, takes: impl Fn(u32) -> bool) {
+        let tracks: BTreeMap<TrackKey, u32> = self
+            .carried
+            .iter()
+            .chain(&self.numbers)
+            .filter(|(n, _)| takes(**n))
+            .map(|(n, k)| (*k, *n))
+            .collect();
+        for (key, number) in tracks {
+            self.tally(key, number, |h| *h, 0);
+            if let Some(t) = self.tallies.get_mut(&key) {
+                t.incomplete = true;
+            }
+        }
+    }
+
+    /// Units of track `number` of id `id` that a resume keeps unread (a damaged block of its data whose entry holds no
+    /// unit hash): its hash leaves them out, and the finish marks it incomplete.
+    pub(crate) fn tally_unread(&mut self, number: u32, id: u64) {
+        if let Some(key) = self.key_of(number, Some(id)) {
+            self.tally(key, number, |h| *h, 0);
+            if let Some(t) = self.tallies.get_mut(&key) {
+                t.incomplete = true;
+            }
         }
     }
 
@@ -356,12 +389,13 @@ impl Indexer {
                 owner: key.1,
                 hash: t.hash,
                 records: 0,
+                incomplete: false,
             });
             row.hash = t.hash;
             row.records = t.records;
+            row.incomplete = t.incomplete;
         }
-        // a chunk the hashes left out (a damaged one a resume kept whose entry states no unit hash) keeps the hash
-        // the head carried
+        // a track with chunks but no unit tallied keeps the hash the head carried
         for (key, row) in &mut rows {
             if let Some(t) = self.tallies.get(key).filter(|t| !t.touched) {
                 row.hash = t.hash;
@@ -428,6 +462,7 @@ fn add_to_range(tracks: &mut BTreeMap<TrackKey, TrackRange>, key: TrackKey, e: &
             owner: key.1,
             hash: TrackHash::START,
             records: 0,
+            incomplete: false,
         });
 }
 
