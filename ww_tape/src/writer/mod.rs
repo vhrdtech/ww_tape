@@ -96,6 +96,8 @@ pub enum WriteError {
     Failed,
     /// `create` of a file that is already there.
     Exists(PathBuf),
+    /// Another writer holds the file or memory tape: one writer per file ([crate::sink]).
+    Locked(PathBuf),
     /// [MemTapes::remove](crate::MemTapes::remove) of a piece still being written.
     Unfinished(PathBuf),
     /// A deferred block isn't a good block.
@@ -140,6 +142,7 @@ impl core::fmt::Display for WriteError {
                 "an earlier write or sync failed, the file takes no more blocks"
             ),
             WriteError::Exists(p) => write!(f, "{} exists", p.display()),
+            WriteError::Locked(p) => write!(f, "another writer holds {}", p.display()),
             WriteError::Unfinished(p) => write!(f, "{} is still being written", p.display()),
             WriteError::Block(e) => write!(f, "not a good block: {e:?}"),
             WriteError::Chunk(e) => write!(f, "chunk doesn't encode: {e:?}"),
