@@ -429,3 +429,63 @@ fn format_page_caps_are_the_constants() {
         assert_eq!(amount(&row[1]), *value, "{name} is {}", row[1]);
     }
 }
+
+/// The piece head and finish rows on the page, read from a chain of two pieces: owner, track hash, records and the
+/// row lengths at the page's offsets, the hash a fold of the track's records.
+#[test]
+fn format_page_piece_rows_read_a_chain() {
+    use ww_tape::{ChainOptions, MemTapes, OwnerId, PieceChain, TrackHash};
+    let pieces = layout("32 [16] piece id");
+    let at = |name: &str| {
+        pieces
+            .iter()
+            .filter(|(_, _, f)| f.starts_with(name))
+            .map(|(o, _, _)| *o)
+            .collect::<Vec<_>>()
+    };
+    let tapes = MemTapes::new();
+    let dir = Path::new("rows");
+    let mut chain = PieceChain::create_on(
+        tapes.clone(),
+        dir,
+        OwnerId([7; 32]),
+        0,
+        &[],
+        ChainOptions::default(),
+    )
+    .unwrap();
+    let defs = crate::definitions::base_defs();
+    for n in 0..3 {
+        let block = crate::pieces::records(chain.writer().unwrap().next_id(), n);
+        chain.write_block(defs, &block).unwrap();
+    }
+    chain.cut_now().unwrap();
+    let block = crate::pieces::records(chain.writer().unwrap().next_id(), 3);
+    chain.write_block(defs, &block).unwrap();
+    let done = chain.finish().unwrap();
+    let fold = |n: i64| (0..n).fold(TrackHash::START, |h, k| h.record(k, &[k as u8; 30]));
+
+    let second = tapes.get(&done[1].path).unwrap().unwrap().to_vec().unwrap();
+    // the piece head is the first block, one row: the track of records with its hash after piece 0
+    assert_eq!(at("track row length"), [144, 34]);
+    assert_eq!(u16::from_le_bytes([second[144], second[145]]), 96);
+    let head_row = 32 + 120;
+    let owner_at = at("owner (TrackDef::owner; zeros")[0];
+    let hash_before = at("track hash before")[0];
+    assert_eq!(second[head_row + owner_at..][..32], [0; 32]);
+    assert_eq!(second[head_row + hash_before..][..32], fold(3).0);
+
+    let finish_at = (done[1].len as usize) - ww_tape::TAIL_LEN;
+    let tail = ww_tape::Tail::read(&second[finish_at..]).unwrap();
+    let f = &second[tail.finish_offset as usize..];
+    assert_eq!(u16::from_le_bytes([f[34], f[35]]), 128);
+    let finish_row = 176;
+    let records = at("records: the track's")[0];
+    let hash_after = at("track hash after")[0];
+    assert_eq!(
+        u64::from_le_bytes(f[finish_row + records..][..8].try_into().unwrap()),
+        1
+    );
+    assert_eq!(f[finish_row + hash_after..][..32], fold(4).0);
+    assert_eq!(done[1].tracks[0].hash, fold(4));
+}

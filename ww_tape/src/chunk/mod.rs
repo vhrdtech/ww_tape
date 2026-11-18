@@ -1035,6 +1035,8 @@ pub struct Chunk<'b> {
     payload: &'b [u8],
     block_crc: u32,
     seg_len: NonZeroUsize,
+    /// End of the column entries in the head
+    table_end: usize,
 }
 
 impl<'b> Chunk<'b> {
@@ -1054,7 +1056,17 @@ impl<'b> Chunk<'b> {
                 .ok_or(ChunkHeadError::BadHead)?,
             block_crc: le_u32(block, h.layout.payload_end).ok_or(ChunkHeadError::BadHead)?,
             seg_len: h.layout.seg_len,
+            table_end: h.layout.table_end,
         })
+    }
+
+    /// The bytes of the head that say what the chunk holds, not where it lies, for its track hash
+    /// ([TrackHash](crate::piece::TrackHash)): bytes 48..80 (first item, ticks, latest end) and 81 to the end of
+    /// the column entries (columns, time and end mode, a series grid and scale, the entries).
+    pub(crate) fn descriptor(&self) -> (&'b [u8], &'b [u8]) {
+        let times = self.head_bytes.get(48..80).unwrap_or_default();
+        let columns = self.head_bytes.get(81..self.table_end).unwrap_or_default();
+        (times, columns)
     }
 
     /// The fixed part of the head.

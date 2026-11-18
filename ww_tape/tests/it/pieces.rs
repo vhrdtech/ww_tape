@@ -124,7 +124,14 @@ fn finished_file_is_found_by_its_tail() {
     assert_eq!(finish.hash, done.hash);
     assert!(finish.checkpoint.is_some());
     assert!(r.verify(0).unwrap());
-    assert_eq!(ranges.len(), 3);
+    // three tracks of chunks, one of records alone
+    assert_eq!(ranges.len(), 4);
+    let rec = ranges.iter().find(|t| t.track_number == 9).unwrap();
+    assert_eq!((rec.chunks, rec.items, rec.records), (0, 0, 20));
+    let want = (0..20i64).fold(ww_tape::TrackHash::START, |h, n| h.record(n, &[n as u8; 30]));
+    assert_eq!(rec.hash, want);
+    assert!(ranges.iter().filter(|t| t.chunks > 0).all(|t| t.records == 0));
+    assert_eq!(done.tracks.iter().find(|t| t.track_number == 9).unwrap().hash, want);
     assert_eq!(
         (
             ranges[1].track_id,

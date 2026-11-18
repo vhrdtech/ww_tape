@@ -422,6 +422,11 @@ pub struct TrackDef<'i> {
     /// The field of the item type that names an item's entity (a piece id, a face track, a CAN id), as a path of
     /// field names joined by `.`; None when items have no entity. Writers give the key's value with each item.
     pub entity_key: Option<&'i str>,
+    /// Whose track this is, opaque to `ww_tape` (a run, a capture): with the [id](Self::id), it tells apart tracks of
+    /// one identity written into one file by several owners. Not part of the identity: [Self::id] and
+    /// [key](Self::key) don't hash it. All zeros: the owner of the piece ([OwnerId](crate::OwnerId)).
+    #[default = [0; 32]]
+    pub owner: [u8; 32],
 }
 
 /// What a track's records are to a reader that starts later, see [state](crate::state).

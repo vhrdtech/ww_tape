@@ -57,6 +57,7 @@ pub(crate) fn labeled(number: u32, clock: u32, label: &'static str) -> Describe<
         parent: None,
         context: RefVec::Slice { slice: &[] },
         entity_key: None,
+        owner: [0; 32],
     })
 }
 
@@ -1141,6 +1142,7 @@ fn related(
         parent: parent.map(UNib32),
         context: RefVec::Slice { slice: context },
         entity_key: key,
+        owner: [0; 32],
         ..t
     })
 }

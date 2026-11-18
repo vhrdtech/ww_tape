@@ -74,6 +74,7 @@ fn track(number: u32, label: &'static str, state: Option<StatePolicy>) -> Descri
         parent: None,
         context: RefVec::Slice { slice: &[] },
         entity_key: None,
+        owner: [0; 32],
     })
 }
 

@@ -42,6 +42,7 @@ pub(crate) fn track_item(shape: SampleShape, period: Ratio64, scale: Magnitude) 
         parent: None,
         context: RefVec::Slice { slice: &[] },
         entity_key: None,
+        owner: [0; 32],
     });
     definition(&track)
 }

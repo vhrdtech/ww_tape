@@ -41,8 +41,9 @@ use std::time::{Duration, Instant};
 use crate::index::{IndexPolicy, Indexer};
 use crate::open::{RecordRef, write_records};
 use crate::piece::{
-    ContentHash, Finish, FinishState, PIECE_ALIGN, PieceHead, PieceId, PieceIdent, TAIL_LEN, Tail,
-    TrackStart, finish_len, finish_padding, piece_head_len, write_finish, write_piece_head,
+    ContentHash, Finish, FinishState, OwnerId, PIECE_ALIGN, PieceHead, PieceId, PieceIdent,
+    TAIL_LEN, Tail, TrackStart, finish_len, finish_padding, hash_block, piece_head_len,
+    write_finish, write_piece_head,
 };
 use crate::reader::{ReadError, wide};
 pub use crate::sink::partial_name;
@@ -234,7 +235,7 @@ pub struct TapeWriter<S: TapeSink = FileSink> {
     /// A checkpoint waits for the gap before the next aligned chunk
     index_due: bool,
     last_checkpoint: Instant,
-    /// BLAKE3 of every byte of the piece so far
+    /// The piece's content hash so far: BLAKE3 of its bytes, each chunk payload by its hash
     hash: blake3::Hasher,
     /// The piece head written first, and its track starts
     head: Option<(PieceHead, Vec<TrackStart>)>,
@@ -290,6 +291,12 @@ pub struct Finished {
     pub ident: Option<PieceIdent>,
     /// The next piece's id when the piece was [cut](TapeWriter::cut).
     pub next: Option<PieceId>,
+    /// Where the piece starts in its file or memory tape: 0 for a piece of its own, past the pieces before it in
+    /// a file of several.
+    pub start: u64,
+    /// Every track of the chain so far (carried over by the piece head, or with data in the piece), ascending id
+    /// then owner: its [hash](crate::TrackHash) after this piece and where its items go on.
+    pub tracks: Vec<TrackStart>,
 }
 
 /// Where [TapeWriter::write_chunk], [TapeWriter::write_block] or [TapeWriter::adopt_block] placed the block it was
@@ -714,6 +721,7 @@ impl<S: TapeSink> TapeWriter<S> {
         let n = write_piece_head(&mut buf, self.structural_id(), head, tracks)
             .map_err(WriteError::Index)?;
         buf.truncate(n);
+        self.indexer.start(tracks);
         self.write_own(&buf)?;
         self.head = Some((*head, tracks.to_vec()));
         self.near.clear();
@@ -894,16 +902,28 @@ impl<S: TapeSink> TapeWriter<S> {
         crc: [u8; crate::CRC_LEN],
     ) -> Result<(), WriteError> {
         let bytes = self.end_after(block.len())?;
-        self.hash.update(block);
+        let chunk = hash_block(&mut self.hash, block);
         // blocks the file structure adds are not counted: seq stays the producer's count of its own blocks
         let kind = BlockKind::from_u8(header[5]);
         let flags = u16::from_le_bytes([header[6], header[7]]);
         let repeat = kind == BlockKind::Records && flags & crate::FLAG_REPEAT != 0;
         let counted = !repeat && !crate::index::is_structural(kind);
-        self.index(block, crc, counted);
+        let again = self.index(block, crc, counted);
+        // a counted block of data goes into its tracks' hashes once: written again with the same bytes it adds
+        // nothing, with other bytes it takes the place of the one before
+        let tally = counted && again != Again::Same;
+        if tally {
+            if again == Again::Replaced {
+                self.indexer.undo_block();
+            }
+            self.indexer.begin_block();
+            if let Some((c, payload)) = &chunk {
+                self.indexer.tally_chunk(c, payload);
+            }
+        }
         let at = self.bytes;
         self.bytes = bytes;
-        let tracks = self.learn(block, at);
+        let tracks = self.learn(block, at, tally);
         // counts against thresholds: past u64::MAX they stay due
         self.blocks = self.blocks.saturating_add(1);
         let data = match kind {
@@ -925,9 +945,10 @@ impl<S: TapeSink> TapeWriter<S> {
     }
 
     /// Take what the block `block` placed at `at` says: every state record (track 0's, and every record of a block
-    /// marked [FLAG_REPEAT](crate::FLAG_REPEAT)) noted as written there ([near]). Returns the data tracks it holds
+    /// marked [FLAG_REPEAT](crate::FLAG_REPEAT)) noted as written there ([near]), the track each definition of a
+    /// track names, and, with `tally`, each record of data into its track's hash. Returns the data tracks it holds
     /// records or a chunk of.
-    fn learn(&mut self, block: &[u8], at: u64) -> Vec<u32> {
+    fn learn(&mut self, block: &[u8], at: u64, tally: bool) -> Vec<u32> {
         // every block placed was made or checked whole before: its CRCs are not checked again
         let Ok(b) = crate::Block::read_trusted(block) else {
             return Vec::new();
@@ -947,11 +968,21 @@ impl<S: TapeSink> TapeWriter<S> {
         for r in b.records().flatten() {
             if r.track != DESCRIBE_TRACK && !repeat {
                 tracks.push(r.track);
+                if tally {
+                    self.indexer
+                        .tally_record(r.track, r.at.map_or(0, |a| a.ticks), r.item);
+                }
                 continue;
             }
             let Some(slot) = Slot::of(r.track, r.item) else {
                 continue;
             };
+            if matches!(slot, Slot::Track { .. })
+                && let Ok(Describe::Track(t)) =
+                    <Describe<'_> as shrink_wrap::DeserializeShrinkWrap>::from_ww_bytes(r.item)
+            {
+                self.indexer.define(t.number.0, t.id(), OwnerId(t.owner));
+            }
             self.near
                 .wrote(slot, Some(ItemHash::of(r.item)), at, &self.near_policy);
         }
@@ -962,24 +993,30 @@ impl<S: TapeSink> TapeWriter<S> {
 
     /// List `block`, placed here, in the index as readers take it: a counted block with the id of the last one is
     /// that block again, unlisted with the same bytes, in its place with other bytes.
-    fn index(&mut self, block: &[u8], crc: [u8; crate::CRC_LEN], counted: bool) {
+    fn index(&mut self, block: &[u8], crc: [u8; crate::CRC_LEN], counted: bool) -> Again {
         let id = block_id(block);
-        let again = self
+        let last = self
             .last_counted
             .filter(|(last, ..)| counted && id == Some(*last));
-        match again {
+        let again = match last {
             Some((_, len, c, _)) if len == block.len() && c == crc => {
                 self.indexer.placed_unlisted(block.len());
+                Again::Same
             }
             Some((.., offset)) => {
                 self.indexer.replaced(offset);
                 self.indexer.placed(self.bytes, block);
+                Again::Replaced
             }
-            None => self.indexer.placed(self.bytes, block),
-        }
+            None => {
+                self.indexer.placed(self.bytes, block);
+                Again::New
+            }
+        };
         if counted && let Some(id) = id {
             self.last_counted = Some((id, block.len(), crc, self.bytes));
         }
+        again
     }
 
     /// After every counted block, whoever placed it: a checkpoint when due (in an aligned file, in the gap before
@@ -1569,6 +1606,13 @@ impl<S: TapeSink> TapeWriter<S> {
             next,
         };
         let ranges = self.indexer.track_ranges();
+        let tracks = crate::index::next_starts(
+            self.head
+                .as_ref()
+                .map(|(_, s)| s.as_slice())
+                .unwrap_or_default(),
+            &ranges,
+        );
         let finish_offset = self.offset();
         // the piece ends, after its tail, on a multiple of PIECE_ALIGN
         let padding = finish_padding(finish_offset, ranges.len());
@@ -1613,6 +1657,8 @@ impl<S: TapeSink> TapeWriter<S> {
                 len: self.bytes,
                 ident,
                 next,
+                start: self.start,
+                tracks,
             },
             next_seq: self.next_seq,
             session: self.session,
@@ -1764,6 +1810,15 @@ impl NextPiece {
             next_seq,
         })
     }
+}
+
+/// Whether a counted block placed is new, the last one again with the same bytes, or the last one's id with other
+/// bytes, which takes its place.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum Again {
+    New,
+    Same,
+    Replaced,
 }
 
 /// A piece just ended, and the session and seq after its last block.
