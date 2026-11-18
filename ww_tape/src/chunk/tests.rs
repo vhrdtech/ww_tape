@@ -533,14 +533,17 @@ fn write_tape(path: &std::path::Path, layout: Layout) -> Vec<u8> {
         let len = b.finish();
         buf[..len].to_vec()
     };
-    let (sh, sc) = series(0, 900);
+    let (mut sh, sc) = series(0, 900);
+    sh.track_id = crate::tests::test_track_id();
     w.write_chunk(&defs, &sh, &series_columns(&sc)).unwrap();
     w.defer_block(&defs, small(1)).unwrap();
     w.defer_block(&defs, small(2)).unwrap();
-    let (eh, ec) = events(0, 40);
+    let (mut eh, ec) = events(0, 40);
+    eh.track_id = crate::tests::test_track_id();
     w.write_chunk(&defs, &eh, &event_columns(&ec)).unwrap();
     w.defer_block(&defs, small(3)).unwrap();
-    let (sh, sc) = series(900, 300);
+    let (mut sh, sc) = series(900, 300);
+    sh.track_id = crate::tests::test_track_id();
     w.write_chunk(&defs, &sh, &series_columns(&sc)).unwrap();
     w.defer_block(&defs, small(4)).unwrap();
     w.finish().unwrap();

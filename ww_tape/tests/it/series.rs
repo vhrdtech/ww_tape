@@ -141,6 +141,17 @@ fn definitions() -> Vec<Describe<'static>> {
     ]
 }
 
+/// The id of the series track of [definitions]: what its chunks' heads carry.
+fn series_id() -> u64 {
+    definitions()
+        .iter()
+        .find_map(|d| match d {
+            Describe::Track(t) => Some(t.id()),
+            _ => None,
+        })
+        .unwrap()
+}
+
 /// The definitions of [definitions] a [ww_tape::Definitions] holds, made once.
 fn series_defs() -> &'static ww_tape::Definitions {
     static D: std::sync::OnceLock<ww_tape::Definitions> = std::sync::OnceLock::new();
@@ -167,7 +178,7 @@ fn seal(w: &mut TapeWriter, grid: SeriesGrid, first: &mut u64, column: &mut Vec<
         bytes.truncate(n);
         let head = ChunkHead {
             kind: BlockKind::Series,
-            track_id: 7,
+            track_id: series_id(),
             track_number: TRACK,
             first_item: *first,
             count,
@@ -513,7 +524,7 @@ fn writer_refuses_what_a_series_track_does_not_hold() {
     let (first_tick, last_tick) = grid.chunk_ticks(period(), 0, 4).unwrap();
     let head = ChunkHead {
         kind: BlockKind::Series,
-        track_id: 7,
+        track_id: series_id(),
         track_number: TRACK,
         first_item: 0,
         count: 4,
@@ -593,7 +604,7 @@ fn caller_chunks_are_checked_once() {
     let (first_tick, last_tick) = grid.chunk_ticks(period(), 0, 4).unwrap();
     let head = ChunkHead {
         kind: BlockKind::Series,
-        track_id: 7,
+        track_id: series_id(),
         track_number: TRACK,
         first_item: 0,
         count: 4,
@@ -687,7 +698,7 @@ fn writer_refuses_chunks_too_long_without_a_panic() {
     let (first_tick, last_tick) = grid.chunk_ticks(period(), 0, 4).unwrap();
     let head = ChunkHead {
         kind: BlockKind::Series,
-        track_id: 7,
+        track_id: series_id(),
         track_number: TRACK,
         first_item: 0,
         count: 4,

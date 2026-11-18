@@ -29,7 +29,7 @@ impl Rng {
 
 /// Track `t`'s id: [chunk] writes track `t` as number `t + 1` with this id.
 fn id_of(t: u64) -> u64 {
-    0x1000 + t
+    crate::pieces::chunk_id(t)
 }
 
 /// A chain of 60 chunks on tracks 0 to 2 in a random order, with record blocks between, cut every 7 chunks: the

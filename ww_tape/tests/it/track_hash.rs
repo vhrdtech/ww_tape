@@ -230,7 +230,10 @@ fn a_track_hash_is_the_same_however_the_track_is_written() {
     };
     let (done, bytes) = write(alone);
     let want = hashes(&done);
-    let keys = [(0x1000, OwnerId::NONE), (track_9_id(), OwnerId::NONE)];
+    let keys = [
+        (crate::pieces::chunk_id(0), OwnerId::NONE),
+        (track_9_id(), OwnerId::NONE),
+    ];
     assert_eq!(want[&keys[0]], fold(&bytes, 1), "track 1 read back");
     assert_eq!(want[&keys[1]], fold(&bytes, 9), "track 9 read back");
     assert_ne!(want[&keys[0]], TrackHash::START);

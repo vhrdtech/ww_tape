@@ -42,7 +42,8 @@ container and passes it, by reference, with every call that writes data. It does
    `define_all`. The container checks each definition against those it holds: a track must name a clock held, and a
    clock epoch must come with its link to the epoch before. Nothing is written yet.
 2. It passes the container with every write of data (`write_block`, `write_chunk`, `defer_block`) and every put. Data on
-   a track the container doesn't hold is refused.
+   a track the container doesn't hold is refused, and so is a chunk or summary whose head names the track's number
+   under another id than its definition's (`DescribeError::TrackId`).
 3. It drops a track it stops working on with `Definitions::close`. The clocks, maps and bundles no held track names go
    with it. Nothing is written for that either.
 
