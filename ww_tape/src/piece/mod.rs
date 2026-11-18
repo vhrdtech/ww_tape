@@ -29,18 +29,28 @@
 //!  32 [16] piece id                 48 [32] owner id                80 u64 sequence number in the chain
 //!  88 u32  flags: bit 0 has a previous piece                        92 u32 previous session tag (0: none or unknown)
 //!  96 [32] previous piece's content hash                           128 [16] previous piece's id
-//! 144 ...  tracks × 32: id u64, number u32, reserved u32, next item u64 (the first item number this piece holds),
-//!          from tick i64 (no item of the track here starts before it)
+//! 144 u16  track row length, 96 (a reader takes longer rows and reads their first 96 bytes)    146 [6] reserved
+//! 152 ...  tracks × 96, one per track carried over from the pieces before:
+//!            0 u64 id    8 u32 number    12 u32 reserved    16 u64 next item (the first item number this piece holds)
+//!           24 i64 from tick (no item of the track here starts before it)
+//!           32 [32] owner (TrackDef::owner; zeros: the piece's owner)
+//!           64 [32] track hash before this piece ([TrackHash])
 //!
 //! finish (kind 8)
-//!  32 u8   state (1 complete, 2 continued in the next piece, 3 aborted)    33 [7] reserved
-//!  40 [32] content hash: BLAKE3 of the piece's bytes before this block
+//!  32 u8   state (1 complete, 2 continued in the next piece, 3 aborted)    33 u8 reserved
+//!  34 u16  track row length, 128 (a reader takes longer rows and reads their first 128 bytes)    36 [4] reserved
+//!  40 [32] content hash: BLAKE3 of the piece's bytes before this block, each chunk payload by its hash (below)
 //!  72 u64  newest checkpoint index offset    80 u64 last final index offset    88 u64 reserved, u64::MAX
 //!          (u64::MAX for none)
 //!  96 [16] piece id    112 [16] next piece id    128 [32] owner id    160 u64 sequence number
 //! 168 u32  flags: bit 0 the piece has a head    172 u32 padding: zero bytes after the tracks, below [PIECE_ALIGN]
-//! 176 ...  tracks × 56: id u64, number u32, chunks u32, first item u64, items u64, first tick i64, last tick i64,
-//!          latest end i64 (of the chunk blocks in the piece)
+//! 176 ...  tracks × 128, one per track with a counted chunk or record in the piece, ascending id then owner:
+//!            0 u64 id    8 u32 number    12 u32 chunks (0: records only, the range fields below 0)
+//!           16 u64 first item    24 u64 items    32 i64 first tick    40 i64 last tick
+//!           48 i64 latest end (of the chunk blocks in the piece)
+//!           56 [32] owner (TrackDef::owner)
+//!           88 [32] track hash after this piece ([TrackHash])
+//!          120 u64 records: the track's counted records in the piece
 //!     ...  padding zeros, covered by the CRC
 //!
 //! tail (kind 9), TAIL_LEN bytes, the last of the piece
@@ -51,9 +61,34 @@
 //! ```
 //!
 //! Offsets are from the start of the piece. Ids are opaque to `ww_tape`, their meaning the application's: a piece id
-//! is 16 bytes, an owner id 32 (e.g. a hash the producer derives); all zeros is none.
+//! is 16 bytes, an owner id 32 (e.g. a hash the producer derives); all zeros is none. A track is told apart by its id
+//! and its owner ([TrackDef::owner](crate::TrackDef::owner)): two owners' tracks of one identity share a file, each
+//! with its own number, item numbers and hash.
+//!
+//! **Content hash.** BLAKE3 over the piece's bytes before its finish block, in order, except that the payload of
+//! every chunk block that reads whole (from its payload offset to its CRC: the columns and their 16 zero bytes) is
+//! replaced by the 32-byte BLAKE3 hash of that payload. Every byte is covered; the payload is hashed once, for this
+//! hash and the track hash both.
+//!
+//! **Track hash.** Each track has a running hash ([TrackHash]) over its content as written, in the order written:
+//! 32 zero bytes before its first, then `h = BLAKE3(h || unit)` for each unit:
+//!
+//! ```text
+//! chunk:  01, kind u8, count u32, the head's bytes 48..80 (first item, first tick, last tick, latest end) and
+//!         81..end of the column entries (columns, time mode, end mode, a series grid and scale, the column
+//!         entries), then the payload's BLAKE3 hash
+//! record: 02, ticks i64 (0 without a time), item length u64, the item's bytes
+//! ```
+//!
+//! Units are the counted blocks only: chunk blocks and the records of record blocks, never a block marked
+//! [FLAG_REPEAT](crate::FLAG_REPEAT) (puts and copies), a summary, a definition or a block of the file structure.
+//! Nothing of where a block lies is hashed (session, seq, track number, payload offset, padding, segment CRCs), so a
+//! track written alone or among others, in one piece or many, in one file or many, has the same hash. A state
+//! track's records are all puts: its hash stays 32 zero bytes.
 
-use crate::bytes::{array, le_i64, le_u8, le_u32, le_u64, put, put_i64, put_u32, put_u64};
+use crate::bytes::{
+    array, le_i64, le_u8, le_u16, le_u32, le_u64, put, put_i64, put_u16, put_u32, put_u64,
+};
 use crate::chunk::{len_u64, to_boundary, u32_len};
 use crate::index::{IndexError, NONE, seal};
 use crate::{Block, BlockId, BlockKind, CRC_LEN, HEADER_LEN, SessionTag, put_header};
@@ -64,13 +99,19 @@ pub const TAIL_LEN: usize = 164;
 pub const PIECE_ALIGN: u32 = crate::ALIGNMENT;
 const _: () = assert!(PIECE_ALIGN.is_power_of_two(), "padding takes the low bits");
 /// Bytes of the fixed part of a piece head body.
-const HEAD_FIXED_LEN: usize = 112;
-const HEAD_TRACK_LEN: usize = 32;
+const HEAD_FIXED_LEN: usize = 120;
+/// Bytes of a piece head's track row this crate writes; a reader takes longer ones.
+const HEAD_TRACK_LEN: usize = 96;
+/// Where a piece head names its row length.
+const HEAD_ROW_LEN_AT: usize = 144;
 /// Where a piece head's tracks start.
 const HEAD_TRACKS_AT: usize = HEADER_LEN + HEAD_FIXED_LEN;
 /// Bytes of the fixed part of a finish body.
 const FINISH_FIXED_LEN: usize = 144;
-const FINISH_TRACK_LEN: usize = 56;
+/// Bytes of a finish's track row this crate writes; a reader takes longer ones.
+const FINISH_TRACK_LEN: usize = 128;
+/// Where a finish names its row length.
+const FINISH_ROW_LEN_AT: usize = 34;
 /// Where a finish block's tracks start.
 const FINISH_TRACKS_AT: usize = HEADER_LEN + FINISH_FIXED_LEN;
 
@@ -85,9 +126,92 @@ pub struct PieceId(pub [u8; 16]);
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
 pub struct OwnerId(pub [u8; 32]);
 
-/// BLAKE3 of a piece's bytes before its finish block.
+impl OwnerId {
+    /// No owner of its own: all zeros. On a track, the piece's owner.
+    pub const NONE: OwnerId = OwnerId([0; 32]);
+
+    pub fn is_none(&self) -> bool {
+        *self == Self::NONE
+    }
+}
+
+/// BLAKE3 of a piece's bytes before its finish block, each chunk payload by its hash (see the [module docs](self)).
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
 pub struct ContentHash(pub [u8; 32]);
+
+/// A track's running content hash, see the [module docs](self#track-hash).
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+pub struct TrackHash(pub [u8; 32]);
+
+/// A unit of a chunk in [TrackHash].
+const UNIT_CHUNK: u8 = 1;
+/// A unit of a record in [TrackHash].
+const UNIT_RECORD: u8 = 2;
+
+impl TrackHash {
+    /// The hash of a track with nothing written yet: 32 zero bytes.
+    pub const START: TrackHash = TrackHash([0; 32]);
+
+    /// The hash after the chunk `chunk`, whose payload hashes to `payload` ([payload_hash]).
+    pub fn chunk(&self, chunk: &crate::Chunk<'_>, payload: &[u8; 32]) -> TrackHash {
+        let head = chunk.head();
+        let (times, columns) = chunk.descriptor();
+        let mut h = blake3::Hasher::new();
+        h.update(&self.0);
+        h.update(&[UNIT_CHUNK, head.kind.to_u8()]);
+        h.update(&head.count.to_le_bytes());
+        h.update(times);
+        h.update(columns);
+        h.update(payload);
+        TrackHash(*h.finalize().as_bytes())
+    }
+
+    /// The hash after a record at `ticks` (0 without a time) holding `item`.
+    pub fn record(&self, ticks: i64, item: &[u8]) -> TrackHash {
+        let mut h = blake3::Hasher::new();
+        h.update(&self.0);
+        h.update(&[UNIT_RECORD]);
+        h.update(&ticks.to_le_bytes());
+        h.update(&crate::chunk::len_u64(item.len()).to_le_bytes());
+        h.update(item);
+        TrackHash(*h.finalize().as_bytes())
+    }
+}
+
+/// BLAKE3 of a chunk's payload ([crate::Chunk::payload]): what stands for it in the content hash and the track hash.
+pub fn payload_hash(payload: &[u8]) -> [u8; 32] {
+    *blake3::hash(payload).as_bytes()
+}
+
+/// Feed the good block `block` to a piece's content hash: a chunk's payload by its hash, which is returned with the
+/// chunk; any other block, or one that doesn't read as a chunk, as it is.
+pub(crate) fn hash_block<'b>(
+    h: &mut blake3::Hasher,
+    block: &'b [u8],
+) -> Option<(crate::Chunk<'b>, [u8; 32])> {
+    let chunk = crate::Block::read_trusted(block)
+        .ok()
+        .and_then(|b| b.chunk());
+    let Some(c) = chunk else {
+        h.update(block);
+        return None;
+    };
+    let at = c.payload_offset();
+    let end = at.saturating_add(c.payload().len());
+    match (block.get(..at), block.get(end..)) {
+        (Some(before), Some(after)) => {
+            let p = payload_hash(c.payload());
+            h.update(before);
+            h.update(&p);
+            h.update(after);
+            Some((c, p))
+        }
+        _ => {
+            h.update(block);
+            None
+        }
+    }
+}
 
 impl PieceId {
     /// No piece id: all zeros.
@@ -180,20 +304,30 @@ pub struct TrackStart {
     pub next_item: u64,
     /// No item of the track in this piece starts before this tick: the last start in the piece before.
     pub from_tick: i64,
+    /// [TrackDef::owner](crate::TrackDef::owner): with the id, which track this is.
+    pub owner: OwnerId,
+    /// The track's hash before this piece.
+    pub hash: TrackHash,
 }
 
-/// The items and ticks of one track's chunk blocks in a piece, from its finish.
+/// The items and ticks of one track's chunk blocks in a piece, its counted records and its hash, from its finish.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TrackRange {
     pub track_id: u64,
     pub track_number: u32,
-    /// Chunk blocks of the track in the piece.
+    /// Chunk blocks of the track in the piece; 0 for a track of records alone, whose range fields are 0.
     pub chunks: u32,
     pub first_item: u64,
     pub items: u64,
     pub first_tick: i64,
     pub last_tick: i64,
     pub latest_end: i64,
+    /// [TrackDef::owner](crate::TrackDef::owner): with the id, which track this is.
+    pub owner: OwnerId,
+    /// The track's hash after this piece.
+    pub hash: TrackHash,
+    /// The track's counted records in the piece.
+    pub records: u64,
 }
 
 impl TrackRange {
@@ -267,6 +401,7 @@ fn fill_piece_head(b: &mut [u8], head: &PieceHead, tracks: &[TrackStart]) -> Opt
         put(b, 96, hash.0)?;
         put(b, 128, id.0)?;
     }
+    put_u16(b, HEAD_ROW_LEN_AT, u16::try_from(HEAD_TRACK_LEN).ok()?)?;
     let rows = b
         .get_mut(HEAD_TRACKS_AT..)?
         .as_chunks_mut::<HEAD_TRACK_LEN>()
@@ -277,6 +412,8 @@ fn fill_piece_head(b: &mut [u8], head: &PieceHead, tracks: &[TrackStart]) -> Opt
         put_u32(row, 8, t.track_number)?;
         put_u64(row, 16, t.next_item)?;
         put_i64(row, 24, t.from_tick)?;
+        put(row, 32, t.owner.0)?;
+        put(row, 64, t.hash.0)?;
     }
     Some(())
 }
@@ -309,16 +446,20 @@ fn of_kind(block: &Block<'_>, kind: BlockKind) -> Result<(), IndexError> {
     Ok(())
 }
 
-/// Check a good block is of `kind` and holds `fixed` bytes of body plus `row` bytes for each of its count, then
-/// `padding` bytes; returns the rows.
+/// Check a good block is of `kind` and holds `fixed` bytes of body, then rows for each of its count, each as long as
+/// the u16 at `row_len_at` says and at least `row_min`, then `padding` bytes; returns the rows and their length.
 fn body<'b>(
     block: &Block<'b>,
     kind: BlockKind,
     fixed: usize,
-    row: usize,
+    (row_len_at, row_min): (usize, usize),
     padding: usize,
-) -> Result<&'b [u8], IndexError> {
+) -> Result<(&'b [u8], usize), IndexError> {
     of_kind(block, kind)?;
+    let row = le_u16(block.bytes(), row_len_at)
+        .map(usize::from)
+        .filter(|r| *r >= row_min)
+        .ok_or(IndexError::BadHead)?;
     let n = usize::try_from(block.record_count).ok();
     if n.map(|n| block_len_of(fixed, n, row).saturating_add(padding)) != Some(block.len()) {
         return Err(IndexError::BadHead);
@@ -330,6 +471,7 @@ fn body<'b>(
         .and_then(|e| e.checked_sub(padding));
     at.zip(end)
         .and_then(|(at, end)| block.bytes().get(at..end))
+        .map(|rows| (rows, row))
         .ok_or(IndexError::BadHead)
 }
 
@@ -337,22 +479,24 @@ fn body<'b>(
 #[derive(Copy, Clone, Debug)]
 pub struct PieceHeadBlock<'b> {
     head: PieceHead,
-    /// The tracks, [HEAD_TRACK_LEN] bytes each
+    /// The tracks, `row` bytes each
     rows: &'b [u8],
+    /// At least [HEAD_TRACK_LEN]
+    row: usize,
 }
 
 impl<'b> PieceHeadBlock<'b> {
     /// The piece head of a good block.
     pub fn read(block: &Block<'b>) -> Result<Self, IndexError> {
-        let rows = body(
+        let (rows, row) = body(
             block,
             BlockKind::PieceHead,
             HEAD_FIXED_LEN,
-            HEAD_TRACK_LEN,
+            (HEAD_ROW_LEN_AT, HEAD_TRACK_LEN),
             0,
         )?;
         let head = read_piece_head(block.bytes()).ok_or(IndexError::BadHead)?;
-        Ok(PieceHeadBlock { head, rows })
+        Ok(PieceHeadBlock { head, rows, row })
     }
 
     pub fn head(&self) -> PieceHead {
@@ -360,18 +504,16 @@ impl<'b> PieceHeadBlock<'b> {
     }
 
     pub fn tracks(&self) -> impl Iterator<Item = TrackStart> + '_ {
-        self.rows
-            .as_chunks::<HEAD_TRACK_LEN>()
-            .0
-            .iter()
-            .map_while(|row| {
-                Some(TrackStart {
-                    track_id: le_u64(row, 0)?,
-                    track_number: le_u32(row, 8)?,
-                    next_item: le_u64(row, 16)?,
-                    from_tick: le_i64(row, 24)?,
-                })
+        self.rows.chunks_exact(self.row).map_while(|row| {
+            Some(TrackStart {
+                track_id: le_u64(row, 0)?,
+                track_number: le_u32(row, 8)?,
+                next_item: le_u64(row, 16)?,
+                from_tick: le_i64(row, 24)?,
+                owner: OwnerId(array(row, 32)?),
+                hash: TrackHash(array(row, 64)?),
             })
+        })
     }
 }
 
@@ -462,6 +604,7 @@ fn fill_finish(b: &mut [u8], finish: &Finish, tracks: &[TrackRange]) -> Option<(
         put_u32(b, 168, u32::from(FLAG_PIECE))?;
     }
     put(b, 112, finish.next.unwrap_or(PieceId::NONE).0)?;
+    put_u16(b, FINISH_ROW_LEN_AT, u16::try_from(FINISH_TRACK_LEN).ok()?)?;
     let rows = b
         .get_mut(FINISH_TRACKS_AT..)?
         .as_chunks_mut::<FINISH_TRACK_LEN>()
@@ -476,6 +619,9 @@ fn fill_finish(b: &mut [u8], finish: &Finish, tracks: &[TrackRange]) -> Option<(
         put_i64(row, 32, t.first_tick)?;
         put_i64(row, 40, t.last_tick)?;
         put_i64(row, 48, t.latest_end)?;
+        put(row, 56, t.owner.0)?;
+        put(row, 88, t.hash.0)?;
+        put_u64(row, 120, t.records)?;
     }
     Some(())
 }
@@ -484,8 +630,10 @@ fn fill_finish(b: &mut [u8], finish: &Finish, tracks: &[TrackRange]) -> Option<(
 #[derive(Copy, Clone, Debug)]
 pub struct FinishBlock<'b> {
     finish: Finish,
-    /// The tracks, [FINISH_TRACK_LEN] bytes each
+    /// The tracks, `row` bytes each
     rows: &'b [u8],
+    /// At least [FINISH_TRACK_LEN]
+    row: usize,
 }
 
 impl<'b> FinishBlock<'b> {
@@ -496,15 +644,15 @@ impl<'b> FinishBlock<'b> {
             .filter(|p| *p < PIECE_ALIGN)
             .map(u32_len)
             .ok_or(IndexError::BadHead)?;
-        let rows = body(
+        let (rows, row) = body(
             block,
             BlockKind::Finish,
             FINISH_FIXED_LEN,
-            FINISH_TRACK_LEN,
+            (FINISH_ROW_LEN_AT, FINISH_TRACK_LEN),
             padding,
         )?;
         let finish = read_finish(block.bytes()).ok_or(IndexError::BadHead)?;
-        Ok(FinishBlock { finish, rows })
+        Ok(FinishBlock { finish, rows, row })
     }
 
     pub fn finish(&self) -> Finish {
@@ -512,22 +660,21 @@ impl<'b> FinishBlock<'b> {
     }
 
     pub fn tracks(&self) -> impl Iterator<Item = TrackRange> + '_ {
-        self.rows
-            .as_chunks::<FINISH_TRACK_LEN>()
-            .0
-            .iter()
-            .map_while(|row| {
-                Some(TrackRange {
-                    track_id: le_u64(row, 0)?,
-                    track_number: le_u32(row, 8)?,
-                    chunks: le_u32(row, 12)?,
-                    first_item: le_u64(row, 16)?,
-                    items: le_u64(row, 24)?,
-                    first_tick: le_i64(row, 32)?,
-                    last_tick: le_i64(row, 40)?,
-                    latest_end: le_i64(row, 48)?,
-                })
+        self.rows.chunks_exact(self.row).map_while(|row| {
+            Some(TrackRange {
+                track_id: le_u64(row, 0)?,
+                track_number: le_u32(row, 8)?,
+                chunks: le_u32(row, 12)?,
+                first_item: le_u64(row, 16)?,
+                items: le_u64(row, 24)?,
+                first_tick: le_i64(row, 32)?,
+                last_tick: le_i64(row, 40)?,
+                latest_end: le_i64(row, 48)?,
+                owner: OwnerId(array(row, 56)?),
+                hash: TrackHash(array(row, 88)?),
+                records: le_u64(row, 120)?,
             })
+        })
     }
 }
 

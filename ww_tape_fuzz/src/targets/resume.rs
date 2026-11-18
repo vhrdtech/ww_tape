@@ -149,6 +149,7 @@ fn track(number: u32, clock: u32) -> Describe<'static> {
         parent: None,
         context: RefVec::Slice { slice: &[] },
         entity_key: None,
+        owner: [0; 32],
     })
 }
 

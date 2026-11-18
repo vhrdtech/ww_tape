@@ -162,6 +162,7 @@ fn track(kind: TrackKind<'static>, state: bool) -> TrackDef<'static> {
         parent: None,
         context: RefVec::Slice { slice: &[] },
         entity_key: None,
+        owner: [0; 32],
     }
 }
 

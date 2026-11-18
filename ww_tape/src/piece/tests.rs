@@ -22,17 +22,21 @@ fn piece_head_round_trip() {
             track_number: 1,
             next_item: 8192,
             from_tick: -5,
+            owner: OwnerId([4; 32]),
+            hash: TrackHash([5; 32]),
         },
         TrackStart {
             track_id: 12,
             track_number: 2,
             next_item: 0,
             from_tick: i64::MIN,
+            owner: OwnerId::NONE,
+            hash: TrackHash::START,
         },
     ];
     let mut buf = vec![0u8; piece_head_len(2)];
     let n = write_piece_head(&mut buf, id(40), &head, &tracks).unwrap();
-    assert_eq!(n, 32 + 112 + 64 + 4);
+    assert_eq!(n, 32 + 120 + 2 * 96 + 4);
     let block = Block::read(&buf).unwrap();
     assert_eq!((block.kind, block.seq), (BlockKind::PieceHead, 40));
     let h = PieceHeadBlock::read(&block).unwrap();
@@ -68,6 +72,9 @@ fn finish_and_tail_round_trip() {
         first_tick: 100,
         last_tick: 900,
         latest_end: 950,
+        owner: OwnerId([6; 32]),
+        hash: TrackHash([8; 32]),
+        records: 3,
     }];
     let mut buf = vec![0u8; finish_len(1) + 4095];
     for padding in [0, 1, 1000, 4095] {

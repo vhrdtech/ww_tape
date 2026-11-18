@@ -438,7 +438,9 @@ impl<S: TapeSink> TapeWriter<S> {
                         Some(_) => b.seq.wrapping_add(1),
                         None => 0,
                     };
-                    self.head = Some((head, h.tracks().collect()));
+                    let tracks: Vec<_> = h.tracks().collect();
+                    self.indexer.start(&tracks);
+                    self.head = Some((head, tracks));
                 }
                 self.account(block, header, *crc)
             }

@@ -40,5 +40,6 @@ pub fn track(number: u32, label: &'static str, repeat: TrackRepeat) -> Describe<
         parent: None,
         context: RefVec::Slice { slice: &[] },
         entity_key: None,
+        owner: [0; 32],
     })
 }

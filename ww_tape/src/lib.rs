@@ -213,7 +213,7 @@ pub mod piece;
 pub use piece::{ChainOptions, ChunkPlaced, CutPolicy, PieceChain};
 pub use piece::{
     ContentHash, Finish, FinishState, OwnerId, PIECE_ALIGN, PieceHead, PieceId, PieceIdent,
-    TAIL_LEN, Tail, TrackRange, TrackStart,
+    TAIL_LEN, Tail, TrackHash, TrackRange, TrackStart,
 };
 #[cfg(feature = "alloc")]
 pub mod reader;

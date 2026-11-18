@@ -325,6 +325,7 @@ fn sample_describe() -> Vec<Describe<'static>> {
             parent: None,
             context: RefVec::Slice { slice: &[] },
             entity_key: None,
+            owner: [0; 32],
         }),
         Describe::Map(ClockMap {
             from: UNib32(HOST),
@@ -1580,6 +1581,7 @@ fn bare_track_round_trips() {
         parent: None,
         context: RefVec::Slice { slice: &[] },
         entity_key: None,
+        owner: [0; 32],
     });
     let mut buf = [0u8; 256];
     let bytes = d.to_ww_bytes(&mut buf).unwrap();

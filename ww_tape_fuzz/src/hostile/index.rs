@@ -11,7 +11,7 @@ use ww_tape::index::{
 };
 use ww_tape::piece::{
     ContentHash, Finish, FinishState, OwnerId, PieceHead, PieceId, PieceIdent, TAIL_LEN, Tail,
-    TrackRange, TrackStart, finish_len, piece_head_len, write_finish, write_piece_head,
+    TrackHash, TrackRange, TrackStart, finish_len, piece_head_len, write_finish, write_piece_head,
 };
 use ww_tape::{BlockId, BlockKind, MAX_BLOCK_LEN, SessionTag};
 
@@ -192,6 +192,9 @@ pub(crate) fn finish_block(
             first_tick: i64::from(d.u8()),
             last_tick: 300,
             latest_end: 400,
+            owner: OwnerId([d.u8(); 32]),
+            hash: TrackHash([d.u8(); 32]),
+            records: u64::from(d.u16()),
         })
         .collect();
     let finish = Finish {
@@ -220,8 +223,9 @@ pub(crate) fn finish_fields<'c>(d: &mut Draw<'_>, tracks: usize, len: &'c [u64])
         Field::new(160, 8, &[]),
         Field::new(168, 4, &[1]),
         Field::new(172, 4, &[4095, 4096, u32::MAX as u64]),
+        Field::new(34, 2, &[0, 127, 129, 0xFFFF]),
     ];
-    let at = 176 + d.below(tracks + 1) * 56;
+    let at = 176 + d.below(tracks + 1) * 128;
     f.extend([
         Field::new(at + 12, 4, &[]),
         Field::new(at + 16, 8, len),
@@ -229,6 +233,7 @@ pub(crate) fn finish_fields<'c>(d: &mut Draw<'_>, tracks: usize, len: &'c [u64])
         Field::new(at + 32, 8, &[]),
         Field::new(at + 40, 8, &[]),
         Field::new(at + 48, 8, &[]),
+        Field::new(at + 120, 8, &[]),
     ]);
     f
 }
@@ -241,6 +246,8 @@ pub(crate) fn piece_head_block(d: &mut Draw<'_>, id: BlockId) -> Vec<u8> {
             track_number: t as u32 + 1,
             next_item: u64::from(d.u16()),
             from_tick: i64::from(d.u16() as i16),
+            owner: OwnerId([d.u8(); 32]),
+            hash: TrackHash([d.u8(); 32]),
         })
         .collect();
     let head = PieceHead {
@@ -305,10 +312,11 @@ pub fn index(data: &[u8]) -> Vec<u8> {
         1 => {
             let mut b = piece_head_block(&mut d, id);
             let tracks = get(&b, 12, 4) as usize;
-            let at = 144 + d.below(tracks + 1) * 32;
+            let at = 152 + d.below(tracks + 1) * 96;
             let fields = [
                 Field::new(88, 4, &[1, 2]),
                 Field::new(92, 4, &[]),
+                Field::new(144, 2, &[0, 95, 97, 0xFFFF]),
                 Field::new(at, 8, &[]),
                 Field::new(at + 16, 8, &[u64::MAX]),
                 Field::new(at + 24, 8, &[]),

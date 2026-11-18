@@ -113,6 +113,7 @@ fn definitions() -> anyhow::Result<Definitions> {
             parent: None,
             context: RefVec::Slice { slice: &[] },
             entity_key: None,
+            owner: [0; 32],
         }),
     ])
     .map_err(|e| anyhow::anyhow!("{e:?}"))?;

@@ -395,6 +395,7 @@ fn read_finished<B: ByteSource<Error = std::io::Error>>(
     } else {
         id.seq.wrapping_add(1)
     };
+    let next_tracks = crate::index::next_starts(starts, ranges);
     Ok((
         Finished {
             path: path.to_path_buf(),
@@ -402,11 +403,13 @@ fn read_finished<B: ByteSource<Error = std::io::Error>>(
             len: tail.piece_len,
             ident: finish.ident,
             next: finish.next,
+            start: p.start,
+            tracks: next_tracks.clone(),
         },
         LastPiece {
             state: finish.state,
             head: *head,
-            next_tracks: crate::index::next_starts(starts, ranges),
+            next_tracks,
             session: id.session,
             next_seq,
         },

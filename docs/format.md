@@ -312,18 +312,28 @@ piece head (kind 10)
  32 [16] piece id                 48 [32] owner id                80 u64 sequence number in the chain
  88 u32  flags: bit 0 has a previous piece                        92 u32 previous session tag (0: none or unknown)
  96 [32] previous piece's content hash                           128 [16] previous piece's id
-144 ...  tracks × 32: id u64, number u32, reserved u32, next item u64 (the first item number this piece holds),
-         from tick i64 (no item of the track here starts before it)
+144 u16  track row length, 96 (a reader takes longer rows and reads their first 96 bytes)    146 [6] reserved
+152 ...  tracks × 96, one per track carried over from the pieces before:
+           0 u64 id    8 u32 number    12 u32 reserved    16 u64 next item (the first item number this piece holds)
+          24 i64 from tick (no item of the track here starts before it)
+          32 [32] owner (TrackDef::owner; zeros: the piece's owner)
+          64 [32] track hash before this piece ([TrackHash])
 
 finish (kind 8)
- 32 u8   state (1 complete, 2 continued in the next piece, 3 aborted)    33 [7] reserved
- 40 [32] content hash: BLAKE3 of the piece's bytes before this block
+ 32 u8   state (1 complete, 2 continued in the next piece, 3 aborted)    33 u8 reserved
+ 34 u16  track row length, 128 (a reader takes longer rows and reads their first 128 bytes)    36 [4] reserved
+ 40 [32] content hash: BLAKE3 of the piece's bytes before this block, each chunk payload by its hash (below)
  72 u64  newest checkpoint index offset    80 u64 last final index offset    88 u64 reserved, u64::MAX
          (u64::MAX for none)
  96 [16] piece id    112 [16] next piece id    128 [32] owner id    160 u64 sequence number
 168 u32  flags: bit 0 the piece has a head    172 u32 padding: zero bytes after the tracks, below [PIECE_ALIGN]
-176 ...  tracks × 56: id u64, number u32, chunks u32, first item u64, items u64, first tick i64, last tick i64,
-         latest end i64 (of the chunk blocks in the piece)
+176 ...  tracks × 128, one per track with a counted chunk or record in the piece, ascending id then owner:
+           0 u64 id    8 u32 number    12 u32 chunks (0: records only, the range fields below 0)
+          16 u64 first item    24 u64 items    32 i64 first tick    40 i64 last tick
+          48 i64 latest end (of the chunk blocks in the piece)
+          56 [32] owner (TrackDef::owner)
+          88 [32] track hash after this piece ([TrackHash])
+         120 u64 records: the track's counted records in the piece
     ...  padding zeros, covered by the CRC
 
 tail (kind 9), TAIL_LEN bytes, the last of the piece
@@ -337,6 +347,21 @@ The ids are derived with BLAKE3 in its key derivation mode. A chain's first piec
 `derive_key("ww_tape first piece", owner id ‖ chain number as u64 LE)`, and each next one of `derive_key("ww_tape piece
 id", content hash ‖ piece id)` of the piece before; an id is never all zeros. A session tag from a seed is the first
 4 bytes of `derive_key("ww_tape run tag", seed)`, made writable (never 0 nor FFFFFFFFh).
+
+The **content hash** in the finish and the tail is BLAKE3 over the piece's bytes before the finish block, in order, except that the payload of every chunk block that reads whole (from its payload offset to its CRC: the columns and their 16 zero bytes) is replaced by the 32-byte BLAKE3 hash of that payload. Every byte is covered, and each payload is hashed once, for the content hash and the track hash both.
+
+A **track** is told apart by its id and its owner (`TrackDef::owner`, 32 opaque bytes outside the identity; zeros mean the piece's owner), so tracks of one identity from several owners share a file, each with its own number, item numbers and hash. The head and finish rows carry the owner, and the index entries name the track number, which the finish rows and the definitions resolve.
+
+Each track has a running **track hash** over its content as written, in the order written: 32 zero bytes before its first unit, then `h = BLAKE3(h ‖ unit)` per unit:
+
+```text
+chunk:  01, kind u8, count u32, the head's bytes 48..80 (first item, first tick, last tick, latest end) and
+        81..end of the column entries (columns, time mode, end mode, a series grid and scale, the column
+        entries), then the payload's BLAKE3 hash
+record: 02, ticks i64 (0 without a time), item length u64, the item's bytes
+```
+
+Units are the counted blocks only: chunk blocks and the records of record blocks, never a block marked `FLAG_REPEAT` (puts and copies), a summary, a definition or a block of the file structure. Nothing of where a block lies is hashed (session, seq, track number, payload offset, padding, segment CRCs), so a track written alone or among others, in one piece or many, in one file or many, has the same hash. A state track's records are all puts: its hash stays 32 zero bytes. The piece head carries each track's hash before the piece, the finish its hash after it; `Finished::tracks` reports every track's hash when a piece ends.
 
 ## Tape pieces
 
