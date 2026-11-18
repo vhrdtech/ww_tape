@@ -219,9 +219,7 @@ fn track(number: u32, clock: u32) -> Describe<'static> {
         label: "fuzz",
         repeat: ww_tape::TrackRepeat::Stream,
         kind: TrackKind::Events(EventsDef::INSTANTS),
-        parent: None,
-        context: RefVec::Slice { slice: &[] },
-        entity_key: None,
+        relations: RefVec::Slice { slice: &[] },
         owner: [0; 32],
     })
 }

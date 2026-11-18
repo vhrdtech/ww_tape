@@ -64,12 +64,11 @@ pub enum DescribeError {
     TooLong { len: usize },
     /// A producer or layout definition: those are the writer's own ([crate::WriterOptions]).
     WriterOwned,
-    /// A track's parent or context names itself, repeats or is out of order, a series names a parent, or its entity
-    /// key is empty ([TrackDef::relations_canonical](crate::TrackDef::relations_canonical)).
+    /// A track's relations break a rule ([TrackDef::relations_canonical](crate::TrackDef::relations_canonical)).
     Relations { track: u32 },
-    /// A track names as its parent a track that is not an open events track, or as context one that is not an open
-    /// state track.
-    UnknownRelated { track: u32, related: u32 },
+    /// A track declares a relation of a kind this crate doesn't write yet: index-only values, a postings or
+    /// dictionary index ([TrackDef::relations_built](crate::TrackDef::relations_built)).
+    RelationNotBuilt { track: u32 },
     /// A track's kind breaks a rule ([TrackDef::check_kind](crate::TrackDef::check_kind)).
     Kind {
         track: u32,
@@ -111,12 +110,12 @@ impl core::fmt::Display for DescribeError {
             DescribeError::Relations { track } => {
                 write!(
                     f,
-                    "track {track}: parent or context names itself, repeats or is out of order"
+                    "track {track}: relations break a rule (names, values, monotone, index)"
                 )
             }
-            DescribeError::UnknownRelated { track, related } => write!(
+            DescribeError::RelationNotBuilt { track } => write!(
                 f,
-                "track {track}: track {related} is not an open events track as parent, or state track as context"
+                "track {track}: a relation of a kind not written yet (index-only values, postings, dictionary)"
             ),
             DescribeError::UnknownClock { clock } => write!(f, "clock {clock} is not open"),
             DescribeError::Resolution { clock } => {
@@ -295,8 +294,6 @@ fn track_bundles(t: &crate::TrackDef<'_>) -> Vec<Vec<u8>> {
 #[derive(Default)]
 struct Layer {
     clocks: BTreeMap<u32, bool>,
-    /// Tracks by number, and whether each is a state track; None for a series
-    tracks: BTreeMap<u32, Option<bool>>,
     /// Maps by (from, to), and whether each is an epoch link
     maps: BTreeMap<(u32, u32), bool>,
 }
@@ -356,6 +353,12 @@ impl Definitions {
     /// none is held when one is refused.
     pub fn define_all(&mut self, defs: &[Describe<'_>]) -> Result<(), DescribeError> {
         let items = defs.iter().map(encode).collect::<Result<Vec<_>, _>>()?;
+        if let Some(t) = defs.iter().find_map(|d| match d {
+            Describe::Track(t) if !t.relations_built() => Some(t),
+            _ => None,
+        }) {
+            return Err(DescribeError::RelationNotBuilt { track: t.number.0 });
+        }
         self.check_batch(defs.iter().zip(&items).map(|(d, i)| (d, i.as_slice())))?;
         for (d, item) in defs.iter().zip(&items) {
             self.insert(d, item);
@@ -502,41 +505,9 @@ impl Definitions {
                     layer.maps.insert((m.from.0, m.to.0), m.is_epoch_link());
                     touched.insert(m.from.0);
                 }
-                Describe::Track(t) => {
-                    let state = t.series().is_none().then(|| t.repeat.state().is_some());
-                    layer.tracks.insert(t.number.0, state);
-                }
                 _ => {}
             }
             named.push(d);
-        }
-        // a track's parent is an events track and its context state tracks, in the batch or held
-        let state_of = |n: u32| {
-            layer.tracks.get(&n).copied().or_else(|| {
-                self.tracks
-                    .get(&n)
-                    .map(|h| h.facts.period.is_none().then(|| h.facts.state.is_some()))
-            })
-        };
-        for d in &named {
-            let Describe::Track(t) = d else { continue };
-            let track = t.number.0;
-            if let Some(p) = t.parent
-                && state_of(p.0) != Some(Some(false))
-            {
-                return Err(DescribeError::UnknownRelated {
-                    track,
-                    related: p.0,
-                });
-            }
-            for c in t.context.iter().filter_map(Result::ok) {
-                if state_of(c.0) != Some(Some(true)) {
-                    return Err(DescribeError::UnknownRelated {
-                        track,
-                        related: c.0,
-                    });
-                }
-            }
         }
         for d in named {
             let clocks = match d {

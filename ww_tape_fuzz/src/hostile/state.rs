@@ -71,9 +71,7 @@ fn track(number: u32, label: &'static str, state: Option<StatePolicy>) -> Descri
         label,
         repeat: state.map_or(TrackRepeat::Stream, TrackRepeat::State),
         kind: TrackKind::Events(EventsDef::INSTANTS),
-        parent: None,
-        context: RefVec::Slice { slice: &[] },
-        entity_key: None,
+        relations: RefVec::Slice { slice: &[] },
         owner: [0; 32],
     })
 }

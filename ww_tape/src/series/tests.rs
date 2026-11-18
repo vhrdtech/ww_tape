@@ -159,9 +159,7 @@ fn track(kind: TrackKind<'static>, state: bool) -> TrackDef<'static> {
             crate::TrackRepeat::Stream
         },
         kind,
-        parent: None,
-        context: RefVec::Slice { slice: &[] },
-        entity_key: None,
+        relations: RefVec::Slice { slice: &[] },
         owner: [0; 32],
     }
 }
@@ -471,9 +469,32 @@ fn the_leaves_element_is_refused() {
 }
 
 #[test]
-fn a_series_names_no_parent() {
+fn a_series_relation_has_no_values() {
     let mut t = track(TrackKind::Series(def()), false);
     assert!(t.relations_canonical());
-    t.parent = Some(UNib32(1));
-    assert!(!t.relations_canonical());
+    let relation = crate::RelationDef {
+        name: "context",
+        target: Some(crate::RelationTarget {
+            run: [1; 16],
+            track: 9,
+        }),
+        values: crate::RelationValues::None,
+        monotone: false,
+        index: crate::RelationIndex::None,
+    };
+    t.relations = RefVec::Slice {
+        slice: core::slice::from_ref(&relation),
+    };
+    assert!(t.relations_canonical(), "a series read with a state track");
+    let stored = crate::RelationDef {
+        values: crate::RelationValues::Stored,
+        ..relation.clone()
+    };
+    t.relations = RefVec::Slice {
+        slice: core::slice::from_ref(&stored),
+    };
+    assert!(
+        !t.relations_canonical(),
+        "a series has no items to carry values"
+    );
 }

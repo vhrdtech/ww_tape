@@ -412,21 +412,73 @@ pub struct TrackDef<'i> {
     pub repeat: TrackRepeat,
     /// How the track's items are stored: events or a fixed-rate series.
     pub kind: TrackKind<'i>,
-    /// The [number](Self::number) of the events track whose items this track's items nest under: a word under its
-    /// segment, a field under its frame. None for a track at the top. An events track itself, never its own parent.
-    pub parent: Option<UNib32>,
-    /// The [numbers](Self::number) of the state tracks this track is read with, in ascending order, each once: an
-    /// RF series with its tuning and gain, a decoded track with its decoder settings. A reader takes each one's
-    /// value at an item's start.
-    pub context: RefVec<'i, UNib32>,
-    /// The field of the item type that names an item's entity (a piece id, a face track, a CAN id), as a path of
-    /// field names joined by `.`; None when items have no entity. Writers give the key's value with each item.
-    pub entity_key: Option<&'i str>,
     /// Whose track this is, opaque to `ww_tape` (a run, a capture): with the [id](Self::id), it tells apart tracks of
     /// one identity written into one file by several owners. Not part of the identity: [Self::id] and
     /// [key](Self::key) don't hash it. All zeros: the owner of the piece ([OwnerId](crate::OwnerId)).
     #[default = [0; 32]]
     pub owner: [u8; 32],
+    /// What the track's items relate to, each by its [name](RelationDef::name), unique, at most [RELATIONS_MAX]:
+    /// per-item values, a target, an index. `ww_tape` gives the building blocks; what a relation means is the
+    /// writer's (eventfull's `source`, `parent`, `context`, an entity key).
+    #[default = Default::default()]
+    pub relations: RefVec<'i, RelationDef<'i>>,
+}
+
+/// Most relations one track declares.
+pub const RELATIONS_MAX: usize = 16;
+
+/// A relation of a track's items, see [TrackDef::relations].
+#[derive_shrink_wrap(owned(feature = "std"), derive(Debug, PartialEq, Eq, Clone))]
+pub struct RelationDef<'i> {
+    /// The relation's name, not empty; the writer gives it meaning.
+    pub name: &'i str,
+    /// The track the values point into, by run and identity; None when the values are not references (keys).
+    pub target: Option<RelationTarget>,
+    /// Whether the items carry a value, and where it is kept.
+    pub values: RelationValues,
+    /// Whether the values never decrease along the track's item order (source ordinals 10, 10, 11, 15; not 10, 12,
+    /// 11). A writer refuses a value below the item's before it.
+    pub monotone: bool,
+    /// The index the values feed.
+    pub index: RelationIndex,
+}
+
+/// What a [RelationDef] points into: a track of a run, both named explicitly; never bound by position or default.
+#[derive_shrink_wrap(
+    borrowed,
+    owned(feature = "std"),
+    derive(Debug, PartialEq, Eq, Clone, Copy, Hash)
+)]
+pub struct RelationTarget {
+    /// The run, opaque to `ww_tape` (eventfull's 16-byte run id), the same for a target in the run itself.
+    pub run: [u8; 16],
+    /// The target track's [id](TrackDef::id).
+    pub track: u64,
+}
+
+/// Where a relation's per-item values are kept.
+#[derive_shrink_wrap(borrowed, owned(feature = "std"), derive(Debug, PartialEq, Eq, Clone, Copy, Hash), ww_repr = u4)]
+pub enum RelationValues {
+    /// No values: the track is related as a whole (read together with the target).
+    None,
+    /// A column of the track's chunks ([ColumnKind::Relation](crate::ColumnKind::Relation)).
+    Stored,
+    /// Reserved: values given with each item only to feed the index, no column. Refused by writers until built.
+    IndexOnly,
+}
+
+/// The index a relation's values feed.
+#[derive_shrink_wrap(borrowed, owned(feature = "std"), derive(Debug, PartialEq, Eq, Clone, Copy, Hash), ww_repr = u4)]
+pub enum RelationIndex {
+    None,
+    /// The values' smallest and largest per chunk in its index entry, for a monotone relation: a search of the
+    /// chunks by value. One relation per track.
+    Range,
+    /// Reserved: per chunk, each distinct value with its items (block kind 11). Refused by writers until built.
+    Postings,
+    /// Reserved: per chunk, the distinct values and each item's index into them (block kind 12). Refused by writers
+    /// until built.
+    Dictionary,
 }
 
 /// What a track's records are to a reader that starts later, see [state](crate::state).
@@ -604,25 +656,46 @@ impl<'i> TrackDef<'i> {
         track_id(self.key, self.dimensions.iter().filter_map(Result::ok))
     }
 
-    /// Whether the relations to other tracks are well formed by themselves: neither the parent nor a context track
-    /// is the track itself, the context is in ascending order with no repeats, a series has no parent, and the
-    /// entity key is not empty. Whether the tracks named exist is checked with the definitions held.
+    /// Whether the relations are well formed by themselves: at most [RELATIONS_MAX], names not empty and unique,
+    /// values only on an events track, monotone only with values, an index only with values, index-only values only
+    /// with an index, a range index only on a monotone relation and on one relation at most.
     pub fn relations_canonical(&self) -> bool {
-        let own = self.number.0;
-        if self.parent.is_some_and(|p| p.0 == own)
-            || (self.parent.is_some() && self.series().is_some())
-        {
-            return false;
-        }
-        let mut prev: Option<u32> = None;
-        for c in self.context.iter() {
-            let Ok(c) = c else { return false };
-            if c.0 == own || prev.is_some_and(|p| p >= c.0) {
+        let mut ranges = 0usize;
+        for (n, r) in self.relations.iter().enumerate() {
+            let Ok(r) = r else { return false };
+            let values = r.values != RelationValues::None;
+            let repeated = self
+                .relations
+                .iter()
+                .take(n)
+                .any(|o| o.is_ok_and(|o| o.name == r.name));
+            if n >= RELATIONS_MAX
+                || r.name.is_empty()
+                || repeated
+                || (values && self.series().is_some())
+                || (r.monotone && !values)
+                || (r.index != RelationIndex::None && !values)
+                || (r.values == RelationValues::IndexOnly && r.index == RelationIndex::None)
+                || (r.index == RelationIndex::Range && !r.monotone)
+            {
                 return false;
             }
-            prev = Some(c.0);
+            if r.index == RelationIndex::Range {
+                ranges = ranges.saturating_add(1);
+            }
         }
-        self.entity_key.is_none_or(|k| !k.is_empty())
+        ranges <= 1
+    }
+
+    /// Whether every relation is of a kind this crate writes: no index-only values, no postings or dictionary
+    /// index (reserved, not built).
+    pub fn relations_built(&self) -> bool {
+        self.relations.iter().all(|r| {
+            r.is_ok_and(|r| {
+                r.values != RelationValues::IndexOnly
+                    && matches!(r.index, RelationIndex::None | RelationIndex::Range)
+            })
+        })
     }
 
     /// Whether the dimensions are in ascending order of name, names unique.

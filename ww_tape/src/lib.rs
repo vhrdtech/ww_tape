@@ -163,14 +163,14 @@ mod describe;
 pub use describe::{
     ALIGNMENT, ClockDef, ClockMap, ClockOrigin, ClockRate, ClockResolution, Describe, Dimension,
     Ends, EventsDef, GAP_CHECKS_MAX, GAP_MAX_MAX, GAP_PROBES_MAX, KeySegment, Layout, MapSegment,
-    NEAR_DEFAULT, NO_CLOCK, Producer, SD_GAP_MAX, SD_RESUME_ALIGN, StatePolicy, TrackDef,
-    TrackKind, TrackRepeat, TypeRef, TypedItem, UNIX_CLOCK_KEY, api, clock_key,
-    segments_increasing, track_id,
+    NEAR_DEFAULT, NO_CLOCK, Producer, RELATIONS_MAX, RelationDef, RelationIndex, RelationTarget,
+    RelationValues, SD_GAP_MAX, SD_RESUME_ALIGN, StatePolicy, TrackDef, TrackKind, TrackRepeat,
+    TypeRef, TypedItem, UNIX_CLOCK_KEY, api, clock_key, segments_increasing, track_id,
 };
 #[cfg(feature = "std")]
 pub use describe::{
     ClockDefOwned, ClockMapOwned, DescribeOwned, DimensionOwned, KeySegmentOwned, ProducerOwned,
-    TrackDefOwned, TrackKindOwned, TypeRefOwned, TypedItemOwned,
+    RelationDefOwned, TrackDefOwned, TrackKindOwned, TypeRefOwned, TypedItemOwned,
 };
 pub use exact_units::{Magnitude, MagnitudeOf, Ratio64, Rounding};
 pub mod state;
