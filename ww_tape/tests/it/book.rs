@@ -590,3 +590,92 @@ fn format_page_integrity_reservations_are_the_constants() {
     assert!(page.contains("146 u8   integrity (Integrity): 0 Full, 1 CrcOnly, 2 None"));
     assert!(page.contains("| piece head byte 146 `integrity`, header flag bit 3 `FLAG_PAYLOAD_UNCHECKED`, index entry flag bit 2 `ENTRY_UNHASHED` |"));
 }
+
+/// The index entry's range pair, flag bit 1 and unit hash, the head and finish rows' owner and the piece head's
+/// integrity byte on the page, read from a chain of two pieces of a track with a range relation and an owner.
+#[test]
+fn format_page_relations_and_owner_read_a_chain() {
+    use ww_tape::{ChainOptions, Definitions, Describe, MemTapes, OwnerId, PieceChain, TrackDef};
+    let page = std::fs::read_to_string("../docs/format.md").unwrap();
+    for line in [
+        "15 u8 flags: bit 0 repeat, bit 1 range",
+        "72 u64 smallest value of the track's range relation in the chunk (flag bit 1), else 0",
+        "80 u64 its largest value, else 0          88 [32] a chunk's unit hash, else 0",
+        "32 u32  entries offset from the block start",
+        "58 u16  entry length, 120",
+        "146 u8   integrity (Integrity)",
+    ] {
+        assert!(page.contains(line), "docs/format.md: {line:?}");
+    }
+    let owner = [9u8; 32];
+    let Describe::Track(t) = crate::relations::decoded() else {
+        unreachable!("decoded() gives a track")
+    };
+    let def = Describe::Track(TrackDef { owner, ..t });
+    let mut defs = Definitions::new();
+    defs.define_all(&[crate::definitions::clock(crate::definitions::CLOCK), def])
+        .unwrap();
+    let tapes = MemTapes::new();
+    let mut chain = PieceChain::create_on(
+        tapes.clone(),
+        Path::new("relations"),
+        OwnerId([7; 32]),
+        0,
+        &[],
+        ChainOptions::default(),
+    )
+    .unwrap();
+    let chunks: [(u64, Vec<u64>); 2] = [(0, vec![100, 100, 101]), (3, vec![105, 107])];
+    for (i, (first, sources)) in chunks.iter().enumerate() {
+        if i == 1 {
+            chain.cut_now().unwrap();
+        }
+        let (head, cols) =
+            crate::relations::relation_chunk(*first, sources, &vec![1; sources.len()]);
+        let cols: Vec<_> = cols.iter().map(|(s, b)| (*s, b.as_slice())).collect();
+        chain.write_chunk(&defs, &head, &cols).unwrap();
+    }
+    let done = chain.finish().unwrap();
+    assert_eq!(done.len(), 2);
+    let second = tapes.get(&done[1].path).unwrap().unwrap().to_vec().unwrap();
+    // byte 146 of the piece head, the first block: Full
+    assert_eq!(second[146], 0);
+    // the head row carries the track over with its owner (head rows from 152)
+    let head_row = 32 + 120;
+    assert_eq!(second[head_row + 32..][..32], owner);
+    // the finish row names the owner (rows from 176, owner at 56)
+    let finish_at = (done[1].len as usize) - ww_tape::TAIL_LEN;
+    let tail = ww_tape::Tail::read(&second[finish_at..]).unwrap();
+    let f = &second[tail.finish_offset as usize..];
+    assert_eq!(f[176 + 56..][..32], owner);
+    // the final index: the chunk's entry at the page's offsets
+    let r = ww_tape::TapeReader::open(&second[..]).unwrap();
+    let entry = r
+        .entries(0)
+        .unwrap()
+        .into_iter()
+        .find(|e| e.kind == ww_tape::BlockKind::Events)
+        .unwrap();
+    assert_eq!(entry.range, Some((105, 107)));
+    let final_at = r.pieces()[0]
+        .finish
+        .as_ref()
+        .unwrap()
+        .0
+        .final_index
+        .unwrap() as usize;
+    let ix = &second[final_at..];
+    let entries_at = u32::from_le_bytes(ix[32..36].try_into().unwrap()) as usize;
+    let entry_len = usize::from(u16::from_le_bytes([ix[58], ix[59]]));
+    assert_eq!(entry_len, 120);
+    let n = u32::from_le_bytes(ix[12..16].try_into().unwrap()) as usize;
+    let e = (0..n)
+        .map(|i| &ix[entries_at + i * entry_len..][..entry_len])
+        .find(|e| u64::from_le_bytes(e[0..8].try_into().unwrap()) == entry.offset)
+        .unwrap();
+    assert_eq!(e[15] & 2, 2, "flag bit 1: the entry carries a range");
+    assert_eq!(u64::from_le_bytes(e[72..80].try_into().unwrap()), 105);
+    assert_eq!(u64::from_le_bytes(e[80..88].try_into().unwrap()), 107);
+    assert_eq!(e[88..120], entry.unit.0);
+    assert_ne!(entry.unit, ww_tape::UnitHash::NONE);
+}
