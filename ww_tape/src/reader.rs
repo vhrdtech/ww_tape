@@ -19,6 +19,7 @@
 
 use alloc::vec;
 use alloc::vec::Vec;
+use core::ops::Range;
 
 use exact_units::Ratio64;
 
@@ -26,8 +27,9 @@ use crate::bytes::le_u8;
 use crate::chunk::{CHUNK_HEAD_PREFIX, ChunkHead};
 use crate::index::{HEAD_LEN_PREFIX, INDEX_LEN_MAX, IndexBlock, IndexEntry, IndexError, IndexKind};
 use crate::piece::{
-    ChainReport, Finish, FinishBlock, PieceHead, PieceHeadBlock, PieceSummary, TAIL_LEN, Tail,
-    TrackRange, TrackStart, check_chain,
+    ChainReport, Finish, FinishBlock, OwnerId, PieceHead, PieceHeadBlock, PieceSummary, TAIL_LEN,
+    Tail, TrackHash, TrackRange, TrackStart, UnitHash, Walked, check_chain, payload_hash,
+    walk_piece,
 };
 use crate::series::{SeriesError, SeriesTimeline};
 use crate::walk::{Head, SessionState, Verdict, is_free};
@@ -1101,9 +1103,7 @@ impl<S: ByteSource> TapeReader<S> {
     }
 
     /// Whether piece `i`'s bytes before its finish block hash to the finish's content hash: each block that reads
-    /// whole as it is, a chunk's payload by its hash ([piece](crate::piece) docs). The bytes are walked as a resume
-    /// walks them: a block by the length the index lists for it, else by its header; bytes neither explains are
-    /// hashed as they are up to the next block the index lists.
+    /// whole as it is, a chunk's payload by its hash, other bytes as they are ([piece](crate::piece) docs).
     pub fn verify(&self, i: usize) -> R<bool, S> {
         let p = self.piece(i)?;
         let (Some((fin, _)), Some(end)) = (&p.finish, p.finish_offset) else {
@@ -1116,6 +1116,157 @@ impl<S: ByteSource> TapeReader<S> {
         })?;
         Ok(*h.finalize().as_bytes() == fin.hash.0)
     }
+
+    /// The hash of the whole chunks of track `track_id` owned by `owner` that hold an item in `items`, folded from
+    /// `from` ([TrackHash::then]) over the pieces in order. Folded from [TrackHash::START], it doesn't depend on where
+    /// the chunks lie: the same chunks in other pieces or files give the same hash. Each chunk's unit hash comes from
+    /// its index entry, so no payload is read; a chunk whose entry holds none, and every chunk of a piece whose index
+    /// doesn't read, is read and hashed instead. A piece's head and finish rows tell which track number is that
+    /// track; with none for the track there, any number another owner's row doesn't name. Records are not chunks: a
+    /// track's records are left out.
+    pub fn range_hash(
+        &self,
+        track_id: u64,
+        owner: OwnerId,
+        items: Range<u64>,
+        from: TrackHash,
+    ) -> R<RangeHash, S> {
+        let mut out = RangeHash {
+            hash: from,
+            items: 0..0,
+            chunks: 0,
+            read: 0,
+        };
+        let end_of = |head: &ChunkHead| head.first_item.saturating_add(u64::from(head.count));
+        let wanted = |head: &ChunkHead| head.first_item < items.end && end_of(head) > items.start;
+        for i in 0..self.pieces.len() {
+            let numbers = self.numbers_of(i, track_id, owner)?;
+            let ours = |e: &IndexEntry| {
+                matches!(e.kind, BlockKind::Events | BlockKind::Series)
+                    && numbers.takes(e.track_number)
+                    && e.first_item < items.end
+                    && e.end_item() > items.start
+            };
+            match self.track_entries(i, track_id) {
+                Ok(entries) => {
+                    let mut buf = Vec::new();
+                    for e in entries.iter().filter(|e| ours(e)) {
+                        let unit = if e.unit.is_none() {
+                            let b = self.read_block(i, e, &mut buf)?;
+                            let c = b.chunk().ok_or(ReadError::Index(IndexError::BadEntries))?;
+                            out.read = out.read.saturating_add(1);
+                            TrackHash::chunk_unit(&c, &payload_hash(c.payload()))
+                        } else {
+                            e.unit
+                        };
+                        out.fold(&unit, e.first_item, e.end_item());
+                    }
+                }
+                Err(ReadError::Source(e)) => return Err(ReadError::Source(e)),
+                Err(_) => {
+                    let p = self.piece(i)?;
+                    let end = p.finish_offset.unwrap_or(p.end.saturating_sub(p.start));
+                    walk_piece(
+                        end,
+                        |at, buf| {
+                            let off = in_piece(p, at, buf.len())?;
+                            self.src.read_at(off, buf).map_err(ReadError::Source)
+                        },
+                        |step| {
+                            let Walked::Block(bytes) = step else {
+                                return;
+                            };
+                            let Some(c) = Block::read(bytes).ok().and_then(|b| b.chunk()) else {
+                                return;
+                            };
+                            let head = c.head();
+                            if head.track_id == track_id
+                                && numbers.takes(head.track_number)
+                                && wanted(&head)
+                            {
+                                let unit = TrackHash::chunk_unit(&c, &payload_hash(c.payload()));
+                                out.read = out.read.saturating_add(1);
+                                out.fold(&unit, head.first_item, end_of(&head));
+                            }
+                        },
+                    )?;
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// The track numbers piece `i`'s head and finish rows give track `track_id` of `owner`, and those they give it
+    /// for other owners.
+    fn numbers_of(&self, i: usize, track_id: u64, owner: OwnerId) -> R<Numbers, S> {
+        let p = self.piece(i)?;
+        let rows = p
+            .head
+            .iter()
+            .flat_map(|(_, t)| t.iter().map(|t| (t.track_id, t.owner, t.track_number)))
+            .chain(
+                p.finish
+                    .iter()
+                    .flat_map(|(_, t)| t.iter().map(|t| (t.track_id, t.owner, t.track_number))),
+            )
+            .filter(|(id, ..)| *id == track_id);
+        let mut n = Numbers::default();
+        for (_, o, number) in rows {
+            if o == owner {
+                n.own.push(number);
+            } else {
+                n.others.push(number);
+            }
+        }
+        Ok(n)
+    }
+}
+
+/// The track numbers of one track in a piece, from its rows: its own, and those of the same id with other owners.
+#[derive(Default)]
+struct Numbers {
+    own: Vec<u32>,
+    others: Vec<u32>,
+}
+
+impl Numbers {
+    /// Whether a chunk numbered `number` is the track's.
+    fn takes(&self, number: u32) -> bool {
+        if self.own.is_empty() {
+            !self.others.contains(&number)
+        } else {
+            self.own.contains(&number)
+        }
+    }
+}
+
+impl RangeHash {
+    /// Take in a chunk of unit hash `unit` holding items `first..end`.
+    fn fold(&mut self, unit: &UnitHash, first: u64, end: u64) {
+        self.hash = self.hash.then(unit);
+        let (start, stop) = (self.items.start, self.items.end);
+        self.items = if self.chunks == 0 {
+            first..end
+        } else {
+            start.min(first)..stop.max(end)
+        };
+        self.chunks = self.chunks.saturating_add(1);
+    }
+}
+
+/// What [TapeReader::range_hash] folded.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RangeHash {
+    /// The track's hash after the chunks folded, from the hash given.
+    pub hash: TrackHash,
+    /// The items of the chunks folded: whole chunks, so from the first one's first item to the last one's end; empty
+    /// when no chunk holds an item of the range.
+    pub items: Range<u64>,
+    /// Chunks folded.
+    pub chunks: u64,
+    /// Chunks of those whose unit hash was read from the chunk, not the index: an entry made by a scan, or a piece
+    /// whose index doesn't read.
+    pub read: u64,
 }
 
 /// Where `n` bytes at `off` from the start of piece `p` begin in the source, when they lie within the piece.

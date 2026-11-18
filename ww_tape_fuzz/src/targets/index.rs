@@ -1,12 +1,14 @@
 //! ww_tape index, finish, tail and piece head blocks and the positional reader on any bytes: decoding never panics,
-//! a reader opens any bytes and every entry it gives lies in its piece, a good chunk's head reads alone and a series
-//! timeline builds from the heads; index blocks built from the input read back equal, a final one also track by track
+//! a reader opens any bytes and every entry it gives lies in its piece, a good chunk's head reads alone, a series
+//! timeline builds from the heads and a track's range hash folds from the index or the chunks; index blocks built from the input read back equal, a final one also track by track
 //! from its head.
 use ww_tape::index::{
     IndexBlock, IndexEntry, IndexHead, IndexKind, index_len, track_count, write_index,
 };
 use ww_tape::piece::{FinishBlock, PieceHeadBlock};
-use ww_tape::{Block, BlockKind, Layout, Medium, OpenOptions, Ratio64, Tail, TapeReader};
+use ww_tape::{
+    Block, BlockKind, Layout, Medium, OpenOptions, OwnerId, Ratio64, Tail, TapeReader, TrackHash,
+};
 
 /// Look at everything the block decoders give for `data`.
 pub(crate) fn decode(data: &[u8]) {
@@ -80,6 +82,22 @@ pub(crate) fn read(data: &[u8], options: OpenOptions) {
         let _ = r.verify(i);
     }
     let _ = r.chain();
+    // the hash of a track's chunks, from the index or, where it doesn't read, from the chunks; never more chunks
+    // than blocks fit the bytes
+    let ids: Vec<u64> = r
+        .pieces()
+        .iter()
+        .enumerate()
+        .flat_map(|(i, _)| r.entries(i).unwrap_or_default())
+        .map(|e| e.track_id)
+        .take(4)
+        .collect();
+    for id in ids {
+        if let Ok(h) = r.range_hash(id, OwnerId::NONE, 0..u64::MAX, TrackHash::START) {
+            assert!(h.read <= h.chunks);
+            assert!(h.chunks <= data.len() as u64 / 36 + 1);
+        }
+    }
 }
 
 pub fn index(data: &[u8]) {
@@ -118,6 +136,7 @@ pub fn index(data: &[u8]) {
             last_tick: 1,
             latest_end: 2,
             repeat: c[0] & 0x80 != 0,
+            unit: ww_tape::UnitHash::NONE,
         })
         .collect();
     let kind = if flag & 1 == 1 {

@@ -669,6 +669,7 @@ mod tests {
             last_tick: 0,
             latest_end: 0,
             repeat: false,
+            unit: crate::piece::UnitHash::NONE,
         };
         (
             e,

@@ -73,7 +73,9 @@
 //! whichever way a resume or a reader walks them.
 //!
 //! **Track hash.** Each track has a running hash ([TrackHash]) over its content as written, in the order written:
-//! 32 zero bytes before its first, then `h = BLAKE3(h || unit)` for each unit:
+//! 32 zero bytes before its first, then `h = BLAKE3(h || BLAKE3(unit))` for each unit. The inner hash is the unit
+//! hash ([UnitHash]); a chunk's index entry stores it, so the hash of a run of whole chunks folds from the index alone
+//! ([TapeReader::range_hash](crate::TapeReader::range_hash)). A unit is:
 //!
 //! ```text
 //! chunk:  01, kind u8, count u32, the head's bytes 48..80 (first item, first tick, last tick, latest end) and
@@ -147,6 +149,20 @@ pub struct ContentHash(pub [u8; 32]);
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
 pub struct TrackHash(pub [u8; 32]);
 
+/// BLAKE3 of one unit of a track's content, a chunk or a record (see the [module docs](self#track-hash)); all zeros
+/// in an index entry: not known.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+pub struct UnitHash(pub [u8; 32]);
+
+impl UnitHash {
+    /// No unit hash: what an index entry of a block other than a chunk, or one a reader made by a scan, holds.
+    pub const NONE: UnitHash = UnitHash([0; 32]);
+
+    pub fn is_none(&self) -> bool {
+        *self == Self::NONE
+    }
+}
+
 /// A unit of a chunk in [TrackHash].
 const UNIT_CHUNK: u8 = 1;
 /// A unit of a record in [TrackHash].
@@ -156,29 +172,45 @@ impl TrackHash {
     /// The hash of a track with nothing written yet: 32 zero bytes.
     pub const START: TrackHash = TrackHash([0; 32]);
 
+    /// The hash after the unit whose hash is `unit` ([Self::chunk_unit], [Self::record_unit]).
+    pub fn then(&self, unit: &UnitHash) -> TrackHash {
+        let mut h = blake3::Hasher::new();
+        h.update(&self.0);
+        h.update(&unit.0);
+        TrackHash(*h.finalize().as_bytes())
+    }
+
     /// The hash after the chunk `chunk`, whose payload hashes to `payload` ([payload_hash]).
     pub fn chunk(&self, chunk: &crate::Chunk<'_>, payload: &[u8; 32]) -> TrackHash {
+        self.then(&Self::chunk_unit(chunk, payload))
+    }
+
+    /// The hash after a record at `ticks` (0 without a time) holding `item`.
+    pub fn record(&self, ticks: i64, item: &[u8]) -> TrackHash {
+        self.then(&Self::record_unit(ticks, item))
+    }
+
+    /// The unit hash of the chunk `chunk`, whose payload hashes to `payload`: what its index entry stores.
+    pub fn chunk_unit(chunk: &crate::Chunk<'_>, payload: &[u8; 32]) -> UnitHash {
         let head = chunk.head();
         let (times, columns) = chunk.descriptor();
         let mut h = blake3::Hasher::new();
-        h.update(&self.0);
         h.update(&[UNIT_CHUNK, head.kind.to_u8()]);
         h.update(&head.count.to_le_bytes());
         h.update(times);
         h.update(columns);
         h.update(payload);
-        TrackHash(*h.finalize().as_bytes())
+        UnitHash(*h.finalize().as_bytes())
     }
 
-    /// The hash after a record at `ticks` (0 without a time) holding `item`.
-    pub fn record(&self, ticks: i64, item: &[u8]) -> TrackHash {
+    /// The unit hash of a record at `ticks` (0 without a time) holding `item`.
+    pub fn record_unit(ticks: i64, item: &[u8]) -> UnitHash {
         let mut h = blake3::Hasher::new();
-        h.update(&self.0);
         h.update(&[UNIT_RECORD]);
         h.update(&ticks.to_le_bytes());
         h.update(&crate::chunk::len_u64(item.len()).to_le_bytes());
         h.update(item);
-        TrackHash(*h.finalize().as_bytes())
+        UnitHash(*h.finalize().as_bytes())
     }
 }
 
@@ -223,19 +255,44 @@ const HASH_STEP: usize = 1 << 20;
 /// Bytes of the block magic but its first, which a stretch read at a time keeps back: the magic may start there.
 const MAGIC_TAIL: usize = crate::MAGIC.len() - 1;
 
-/// Feed the first `end` bytes of a piece, read by `read`, to its content hash. At each place a block that reads whole
-/// goes in whole ([hash_block]); other bytes go in as they are, up to the next place holding the block magic. The hash
-/// depends on the bytes alone, not on how a writer or a resume walked them.
+/// Feed the first `end` bytes of a piece, read by `read`, to its content hash: each block of [walk_piece] whole
+/// ([hash_block]), the bytes between as they are. The hash depends on the bytes alone, not on how a writer or a resume
+/// walked them.
 pub(crate) fn hash_piece<E>(
     h: &mut blake3::Hasher,
     end: u64,
+    read: impl FnMut(u64, &mut [u8]) -> Result<(), E>,
+) -> Result<(), E> {
+    walk_piece(end, read, |step| match step {
+        Walked::Block(block) => {
+            hash_block(h, block);
+        }
+        Walked::Raw(raw) => {
+            h.update(raw);
+        }
+    })
+}
+
+/// A step of [walk_piece].
+pub(crate) enum Walked<'b> {
+    /// A block that reads whole.
+    Block(&'b [u8]),
+    /// Bytes no block explains.
+    Raw(&'b [u8]),
+}
+
+/// Walk the first `end` bytes of a piece, read by `read`, from its start: at each place a block that reads whole is
+/// a step; other bytes are a step up to the next place holding the block magic.
+pub(crate) fn walk_piece<E>(
+    end: u64,
     mut read: impl FnMut(u64, &mut [u8]) -> Result<(), E>,
+    mut step: impl FnMut(Walked<'_>),
 ) -> Result<(), E> {
     let mut buf = Vec::new();
     let mut at = 0u64;
     while let Some(left) = end.checked_sub(at).filter(|n| *n > 0) {
         if let Some(n) = whole_block(at, left, &mut buf, &mut read)? {
-            hash_block(h, &buf);
+            step(Walked::Block(&buf));
             at = at.saturating_add(len_u64(n));
             continue;
         }
@@ -254,7 +311,7 @@ pub(crate) fn hash_piece<E>(
             None if len_u64(n) == left => n,
             None => n.saturating_sub(MAGIC_TAIL).max(1),
         };
-        h.update(buf.get(..take).unwrap_or(&buf));
+        step(Walked::Raw(buf.get(..take).unwrap_or(&buf)));
         at = at.saturating_add(len_u64(take));
     }
     Ok(())

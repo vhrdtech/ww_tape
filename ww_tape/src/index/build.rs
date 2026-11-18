@@ -10,7 +10,7 @@ use super::{
 };
 use crate::bytes::le_u8;
 use crate::chunk::len_u64;
-use crate::piece::{OwnerId, TrackHash, TrackRange, TrackStart};
+use crate::piece::{OwnerId, TrackHash, TrackRange, TrackStart, UnitHash};
 use crate::{Block, BlockKind, Chunk, HEADER_LEN, MAX_BLOCK_LEN, VERSION};
 
 /// Most entries in one final index block.
@@ -139,11 +139,10 @@ impl Indexer {
         self.tallies.insert(key, t);
     }
 
-    /// The counted chunk `chunk`, its payload hashing to `payload`, goes into its track's hash.
-    pub(crate) fn tally_chunk(&mut self, chunk: &crate::Chunk<'_>, payload: &[u8; 32]) {
-        let head = chunk.head();
+    /// The counted chunk with `head` and unit hash `unit` goes into its track's hash.
+    pub(crate) fn tally_chunk(&mut self, head: &crate::ChunkHead, unit: &UnitHash) {
         if let Some(key) = self.key_of(head.track_number, Some(head.track_id)) {
-            self.tally(key, head.track_number, |h| h.chunk(chunk, payload), 0);
+            self.tally(key, head.track_number, |h| h.then(unit), 0);
         }
     }
 
@@ -155,10 +154,10 @@ impl Indexer {
         }
     }
 
-    /// Note the block `bytes` (exactly one block, written by this writer) placed at `offset` in the piece. Its
-    /// CRC is not checked again: a chunk block's head is read by its head CRC.
-    pub(crate) fn placed(&mut self, offset: u64, bytes: &[u8]) {
-        let entries = of_placed(offset, bytes);
+    /// Note the block `bytes` (exactly one block, written by this writer) placed at `offset` in the piece, a chunk
+    /// with its unit hash `unit`. Its CRC is not checked again: a chunk block's head is read by its head CRC.
+    pub(crate) fn placed(&mut self, offset: u64, bytes: &[u8], unit: UnitHash) {
+        let entries = of_placed(offset, bytes, unit);
         self.placed_entries(&entries, bytes.len());
     }
 
@@ -425,7 +424,7 @@ fn add_to_range(tracks: &mut BTreeMap<TrackKey, TrackRange>, key: TrackKey, e: &
 
 /// The entries of the block `bytes` (exactly one) a writer placed at `offset`: a chunk block's head is checked by its
 /// head CRC alone, without a pass over the payload; other blocks by their CRC.
-fn of_placed(offset: u64, bytes: &[u8]) -> Vec<IndexEntry> {
+fn of_placed(offset: u64, bytes: &[u8], unit: UnitHash) -> Vec<IndexEntry> {
     let chunk = bytes.len() > HEADER_LEN
         && le_u8(bytes, 4) == Some(VERSION)
         && le_u8(bytes, 5).is_some_and(|k| {
@@ -436,6 +435,7 @@ fn of_placed(offset: u64, bytes: &[u8]) -> Vec<IndexEntry> {
             return Vec::new();
         };
         return IndexEntry::of_chunk(offset, bytes.len(), &c.head())
+            .map(|e| IndexEntry { unit, ..e })
             .into_iter()
             .collect();
     }

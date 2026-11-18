@@ -254,7 +254,7 @@ one moved to another trait gets a new name path, and with it a new key, even wit
 
 ## Index, finish and tail
 
-A writer lists what it places. Every few MiB (`ww_tape::IndexPolicy`, 4 MiB by default; by time only when asked, since that makes the bytes depend on the clock) it writes a checkpoint **index** block: one 72-byte entry per block placed since the previous checkpoint (offset, length, kind, track id and number, first item number, item count, first and last tick, latest end; a summary block's level and tree), and a pointer back at that checkpoint. Chunk, summary and record blocks are all listed; a record block of data carries no track id or ticks, only its record count under track id 0. In an aligned file a checkpoint goes into the gap before the next chunk payload. Blocks the file structure adds (index, finish, tail, piece head) and blocks marked `FLAG_REPEAT` carry the seq of the block before them and are not counted, so seq stays the producer's count of its own blocks and a pass-through capture keeps its order. A crash costs at most the chunks not yet written, and a reader rescans only the stretch after the newest checkpoint. The index block ([index module docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/index/mod.rs)); the header's count is the entry count:
+A writer lists what it places. Every few MiB (`ww_tape::IndexPolicy`, 4 MiB by default; by time only when asked, since that makes the bytes depend on the clock) it writes a checkpoint **index** block: one 120-byte entry per block placed since the previous checkpoint (offset, length, kind, track id and number, first item number, item count, first and last tick, latest end; a summary block's level and tree; a chunk's unit hash), and a pointer back at that checkpoint. Chunk, summary and record blocks are all listed; a record block of data carries no track id or ticks, only its record count under track id 0. In an aligned file a checkpoint goes into the gap before the next chunk payload. Blocks the file structure adds (index, finish, tail, piece head) and blocks marked `FLAG_REPEAT` carry the seq of the block before them and are not counted, so seq stays the producer's count of its own blocks and a pass-through capture keeps its order. A crash costs at most the chunks not yet written, and a reader rescans only the stretch after the newest checkpoint. The index block ([index module docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/index/mod.rs)); the header's count is the entry count:
 
 ```text
 off size field
@@ -267,7 +267,7 @@ off size field
          block), u64::MAX for none
  56 u16  flags: bit 0 final (entries sorted by track id, then offset, state records of one block in block order; a directory
          of tracks follows)
- 58 u16  entry length, 72 (a reader takes longer entries and reads their first 72 bytes)
+ 58 u16  entry length, 120 (a reader takes longer entries and reads their first 120 bytes)
  60 ...  n × track: id u64, first entry u32, entry count u32, CRC-32C of its entries u32, reserved u32
  ...     entries, each:
            0 u64 offset of the block in the piece    8 u32 its length        12 u8 its block kind
@@ -275,6 +275,7 @@ off size field
           16 u64 track id (0: none)                 24 u32 track number      28 u32 0 (a state record's below)
           32 u64 first item number                  40 u64 items (samples, records)
           48 i64 first tick                         56 i64 last tick         64 i64 latest end
+          72 [16] 0, reserved                       88 [32] a chunk's unit hash, else 0
 len-4 u32 CRC over bytes 0..len-4, as in every block
 ```
 
@@ -352,7 +353,7 @@ The **content hash** in the finish and the tail is BLAKE3 over the piece's bytes
 
 A **track** is told apart by its id and its owner (`TrackDef::owner`, 32 opaque bytes outside the identity; zeros mean the piece's owner), so tracks of one identity from several owners share a file, each with its own number, item numbers and hash. The head and finish rows carry the owner, and the index entries name the track number, which the finish rows and the definitions resolve.
 
-Each track has a running **track hash** over its content as written, in the order written: 32 zero bytes before its first unit, then `h = BLAKE3(h ‖ unit)` per unit:
+Each track has a running **track hash** over its content as written, in the order written: 32 zero bytes before its first unit, then `h = BLAKE3(h ‖ BLAKE3(unit))` per unit. The inner hash is the **unit hash**; the writer computes it once per chunk and stores it in the chunk's index entry (bytes 88..120), so the hash of a run of whole chunks folds from the index without reading a payload (`TapeReader::range_hash`). The units are:
 
 ```text
 chunk:  01, kind u8, count u32, the head's bytes 48..80 (first item, first tick, last tick, latest end) and
@@ -361,7 +362,7 @@ chunk:  01, kind u8, count u32, the head's bytes 48..80 (first item, first tick,
 record: 02, ticks i64 (0 without a time), item length u64, the item's bytes
 ```
 
-Units are the counted blocks only: chunk blocks and the records of record blocks, never a block marked `FLAG_REPEAT` (puts and copies), a summary, a definition or a block of the file structure. Nothing of where a block lies is hashed (session, seq, track number, payload offset, padding, segment CRCs), so a track written alone or among others, in one piece or many, in one file or many, has the same hash. A state track's records are all puts: its hash stays 32 zero bytes. The piece head carries each track's hash before the piece, the finish its hash after it; `Finished::tracks` reports every track's hash when a piece ends.
+Units are the counted blocks only: chunk blocks and the records of record blocks, never a block marked `FLAG_REPEAT` (puts and copies), a summary, a definition or a block of the file structure. Nothing of where a block lies is hashed (session, seq, track number, payload offset, padding, segment CRCs), so a track written alone or among others, in one piece or many, in one file or many, has the same hash. A state track's records are all puts: its hash stays 32 zero bytes. The piece head carries each track's hash before the piece, the finish its hash after it; `Finished::tracks` reports every track's hash when a piece ends. A record's unit hash is not stored: records are listed per block, not per track, so a reader folds them by reading their blocks.
 
 ## Tape pieces
 
@@ -406,7 +407,7 @@ damage, refused with an error; no file a writer of this crate writes has one.
 | `SLOPE_MAX` | 2^55 | a start group's slope (Q16 ticks per item) |
 | `ITEMS_MAX` | 16 Mi | the items of an events chunk |
 | `INDEX_LEN_MAX` | 1 MiB | an index block a writer makes, and a reader looks for from the end |
-| `CHECKPOINT_ENTRIES_MAX` | 14562 | entries a writer puts in a checkpoint index block |
+| `CHECKPOINT_ENTRIES_MAX` | 8737 | entries a writer puts in a checkpoint index block |
 | `NODE_SHIFT_MAX` | 62 | a summary node's items, as a power of 2 |
 | `LEVEL_MAX` | 15 | a summary tree's level |
 | `SCALE_LEN_MAX` | 64 | the scale bytes of a series chunk or summary |

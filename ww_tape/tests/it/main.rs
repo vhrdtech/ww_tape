@@ -23,6 +23,7 @@ mod order;
 mod pieces;
 mod placed;
 mod puts;
+mod range_hash;
 mod reader;
 mod resume;
 mod series;

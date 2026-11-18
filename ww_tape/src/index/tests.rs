@@ -18,6 +18,7 @@ fn entry(track_id: u64, offset: u64) -> IndexEntry {
         last_tick: offset as i64,
         latest_end: offset as i64 + 3,
         repeat: offset % 2 == 1,
+        unit: crate::piece::UnitHash([offset.to_le_bytes()[0]; 32]),
     }
 }
 
@@ -67,7 +68,7 @@ fn checkpoint_round_trip() {
     assert_eq!((ix.self_offset(), ix.prev()), (2500, Some(400)));
     assert_eq!(ix.entries().collect::<Vec<_>>(), entries);
     assert_eq!(ix.tracks().count(), 0);
-    assert_eq!(bytes.len(), 32 + 28 + 5 * 72 + 4);
+    assert_eq!(bytes.len(), 32 + 28 + 5 * ENTRY_LEN + 4);
     let first = IndexHead { prev: None, ..head };
     let ix_bytes = write(&first, &entries);
     assert_eq!(
