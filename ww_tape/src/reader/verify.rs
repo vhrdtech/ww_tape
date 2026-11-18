@@ -10,14 +10,17 @@
 //! its entry states, else its track's hash is incomplete.
 //!
 //! Each block walked and each entry costs a bounded number of steps; the entries of one block are compared as sorted
-//! lists. What verify holds per piece is the final index's entries, at most [VERIFY_ENTRIES_MAX].
+//! lists. The final index is read as it is walked: its track lists, each in file order, merged into one stream in
+//! file order ([Lists]), so verify holds one entry per track list and the entries of one block, whatever the piece's
+//! size.
 
-use alloc::collections::{BTreeMap, BTreeSet};
+use alloc::collections::{BTreeMap, BTreeSet, BinaryHeap};
 use alloc::vec::Vec;
+use core::cmp::Reverse;
 
 use shrink_wrap::DeserializeShrinkWrap;
 
-use crate::index::{IndexEntry, STATE_TRACK_ID, is_structural};
+use crate::index::{ENTRY_LEN, IndexEntry, STATE_TRACK_ID, in_file_order, is_structural};
 use crate::piece::{OwnerId, TrackHash, TrackRange, TrackStart, UnitHash};
 use crate::times::RelationColumn;
 use crate::{Block, BlockKind, Chunk, DESCRIBE_TRACK, Describe, FLAG_REPEAT, Slot, TrackFacts};
@@ -27,21 +30,172 @@ use super::wide;
 /// A track by its id and owner.
 type Key = (u64, OwnerId);
 
-/// Most final index entries [TapeReader::verify](super::TapeReader::verify) holds for one piece: 4 Mi entries,
-/// about 450 MiB; a piece listing more is refused ([ReadError::VerifyEntries](super::ReadError::VerifyEntries)).
-pub const VERIFY_ENTRIES_MAX: usize = 1 << 22;
+/// Most track lists of a final index [TapeReader::verify](super::TapeReader::verify) takes: one per track a piece
+/// takes data of ([TRACKS_PER_PIECE_MAX](crate::piece::TRACKS_PER_PIECE_MAX)), the state records' and the records of data's.
+/// Verify holds one entry per list, so this bounds what it holds whatever the piece's size.
+pub const VERIFY_LISTS_MAX: usize = crate::piece::TRACKS_PER_PIECE_MAX.saturating_add(2);
+
+/// What [TapeReader::verify](super::TapeReader::verify) found and what it cost.
+#[derive(Copy, Clone, Debug, Default)]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the cost is read by the tests' bounds")
+)]
+pub(crate) struct Verified {
+    /// The piece holds up
+    pub(crate) holds: bool,
+    /// Steps the replay took: blocks walked, entries met and compared
+    pub(crate) steps: u64,
+    /// Most entries held at once: one per track list, and the entries of one block
+    pub(crate) held: usize,
+}
+
+/// The final index's entries, met in file order.
+pub(super) trait Listed {
+    /// The offset of the next entry; None past the last, or once the entries don't read in file order.
+    fn peek(&self) -> Option<u64>;
+    /// The next entry, taken.
+    fn take(&mut self) -> Option<IndexEntry>;
+    /// Whether every entry read in file order, each within the piece.
+    fn good(&self) -> bool;
+}
+
+/// A track list of a final index: where its next entry is and how many are left.
+struct Cursor {
+    /// Where its next entry starts in the source
+    at: u64,
+    /// Its entries not yet read
+    left: u32,
+    /// Bytes from one entry to the next
+    step: u64,
+    /// Its next entry, read
+    next: Option<IndexEntry>,
+}
+
+/// The entries of a final index's track lists merged into file order, read one at a time by `read` (the first
+/// [ENTRY_LEN] bytes at a place in the source): it holds one entry per list. Each entry is checked as every read of
+/// an index checks it, the merged stream must be in file order ([in_file_order]), and `fits` must take each entry
+/// (within the piece); else the stream ends and isn't [good](Listed::good).
+pub(super) struct Lists<F, G, E> {
+    cursors: Vec<Cursor>,
+    /// The next offset of each list, by list
+    heap: BinaryHeap<Reverse<(u64, usize)>>,
+    read: F,
+    fits: G,
+    prev: Option<IndexEntry>,
+    bad: bool,
+    error: Option<E>,
+}
+
+impl<F, G, E> Lists<F, G, E>
+where
+    F: FnMut(u64, &mut [u8; ENTRY_LEN]) -> Result<(), E>,
+    G: Fn(&IndexEntry) -> bool,
+{
+    /// A merge of no lists yet.
+    pub(super) fn new(read: F, fits: G) -> Self {
+        Lists {
+            cursors: Vec::new(),
+            heap: BinaryHeap::new(),
+            read,
+            fits,
+            prev: None,
+            bad: false,
+            error: None,
+        }
+    }
+
+    /// Add the list of `count` entries from `at` in the source, `step` bytes apart.
+    pub(super) fn add(&mut self, at: u64, count: u32, step: u64) {
+        let i = self.cursors.len();
+        self.cursors.push(Cursor {
+            at,
+            left: count,
+            step,
+            next: None,
+        });
+        self.advance(i, None);
+    }
+
+    /// The lists held: one entry each.
+    pub(super) fn held(&self) -> usize {
+        self.cursors.len()
+    }
+
+    /// The error of the source, if a read failed.
+    pub(super) fn take_error(&mut self) -> Option<E> {
+        self.error.take()
+    }
+
+    /// Read list `i`'s next entry, after `prev`, and file it by its offset; an entry before `prev` is out of order.
+    fn advance(&mut self, i: usize, prev: Option<IndexEntry>) {
+        let Some(c) = self.cursors.get_mut(i) else {
+            return;
+        };
+        if c.left == 0 || self.bad {
+            return;
+        }
+        let mut b = [0u8; ENTRY_LEN];
+        if let Err(e) = (self.read)(c.at, &mut b) {
+            self.error = Some(e);
+            self.bad = true;
+            return;
+        }
+        c.left = c.left.saturating_sub(1);
+        c.at = c.at.saturating_add(c.step);
+        match IndexEntry::read(&b) {
+            Ok(e) if prev.is_none_or(|p| p.offset <= e.offset) => {
+                self.heap.push(Reverse((e.offset, i)));
+                c.next = Some(e);
+            }
+            _ => self.bad = true,
+        }
+    }
+}
+
+impl<F, G, E> Listed for Lists<F, G, E>
+where
+    F: FnMut(u64, &mut [u8; ENTRY_LEN]) -> Result<(), E>,
+    G: Fn(&IndexEntry) -> bool,
+{
+    fn peek(&self) -> Option<u64> {
+        match self.bad {
+            true => None,
+            false => self.heap.peek().map(|Reverse((at, _))| *at),
+        }
+    }
+
+    fn take(&mut self) -> Option<IndexEntry> {
+        if self.bad {
+            return None;
+        }
+        let Reverse((_, i)) = self.heap.pop()?;
+        let e = self.cursors.get_mut(i).and_then(|c| c.next.take())?;
+        self.advance(i, Some(e));
+        if !(self.fits)(&e) || !in_file_order(self.prev.iter().chain([&e])) {
+            self.bad = true;
+            return None;
+        }
+        self.prev = Some(e);
+        Some(e)
+    }
+
+    fn good(&self) -> bool {
+        !self.bad
+    }
+}
 
 /// A piece replayed block by block in file order ([Self::block], [Self::raw]), then checked against its finish rows
 /// ([Self::check]).
-pub(super) struct Replay {
+pub(super) struct Replay<L> {
     /// Where the next step starts
     at: u64,
     /// Where the walk ends: the finish block's offset
     end: u64,
     /// The final index's entries in file order
-    listed: Vec<IndexEntry>,
-    /// The first entry of `listed` not yet met
-    next: usize,
+    listed: L,
+    /// Most entries of one block held at once
+    group_max: usize,
     /// The end of the last damaged block the index lists: no block walked starts before it
     damaged_end: u64,
     /// The bytes of the last listed block walked, which a block written again copies
@@ -64,15 +218,15 @@ pub(super) struct Replay {
     incomplete: BTreeSet<Key>,
 }
 
-impl Replay {
+impl<L: Listed> Replay<L> {
     /// A replay of a piece whose head rows are `starts`, whose final index lists `listed` (in file order) and whose
     /// finish starts at `end`.
-    pub(super) fn new(starts: &[TrackStart], listed: Vec<IndexEntry>, end: u64) -> Self {
+    pub(super) fn new(starts: &[TrackStart], listed: L, end: u64) -> Self {
         let mut r = Replay {
             at: 0,
             end,
             listed,
-            next: 0,
+            group_max: 0,
             damaged_end: 0,
             prev: Vec::new(),
             same: true,
@@ -100,23 +254,42 @@ impl Replay {
         self.steps
     }
 
-    /// The entries listed at `at`, taken: none when the next entry starts later.
-    fn take_listed(&mut self, at: u64) -> core::ops::Range<usize> {
+    /// Most entries of one block held at once.
+    pub(super) fn group_max(&self) -> usize {
+        self.group_max
+    }
+
+    /// The final index's entries.
+    pub(super) fn listed(&mut self) -> &mut L {
+        &mut self.listed
+    }
+
+    /// The entries listed at `at`, taken, at most `max` of them held: the rest are taken and dropped, and the index
+    /// and the walk differ. None when the next entry starts later.
+    fn take_listed(&mut self, at: u64, max: usize) -> Vec<IndexEntry> {
         self.skip_before(at);
-        let from = self.next;
-        while self.listed.get(self.next).is_some_and(|e| e.offset == at) {
-            self.next = self.next.saturating_add(1);
+        let mut group = Vec::new();
+        while self.listed.peek() == Some(at) {
             self.steps = self.steps.saturating_add(1);
+            let Some(e) = self.listed.take() else {
+                break;
+            };
+            match group.len() < max {
+                true => group.push(e),
+                false => self.same = false,
+            }
         }
-        from..self.next
+        self.group_max = self.group_max.max(group.len());
+        group
     }
 
     /// Step over the entries before `at` not yet met: each starts inside a block walked, so the index and the walk
     /// differ.
     fn skip_before(&mut self, at: u64) {
-        if self.listed.get(self.next).is_some_and(|e| e.offset < at) {
+        while self.listed.peek().is_some_and(|x| x < at) {
             self.same = false;
-            self.next = self.listed.partition_point(|e| e.offset < at);
+            self.steps = self.steps.saturating_add(1);
+            self.listed.take();
         }
     }
     /// The track of number `number`, its id `id` when the block says it, as the writer keyed it: by the definition
@@ -150,9 +323,9 @@ impl Replay {
             // a block inside one the index lists as damaged: the writer took the damaged one
             self.same = false;
         }
-        let listed = self.take_listed(at);
         let Ok(b) = Block::read_trusted(block) else {
-            self.same &= listed.is_empty();
+            // an entry here is taken and dropped: the index and the walk differ
+            self.take_listed(at, 0);
             return;
         };
         let repeat = b.kind == BlockKind::Records && b.flags & FLAG_REPEAT != 0;
@@ -180,12 +353,12 @@ impl Replay {
             None if matches!(b.kind, BlockKind::Events | BlockKind::Series) => Vec::new(),
             None => IndexEntry::all_of_block(at, &b),
         };
+        let mut listed = self.take_listed(at, expected.len().saturating_add(1));
         if listed.is_empty() {
             let copy = !self.prev.is_empty() && self.prev == block;
             self.same &= expected.is_empty() || copy;
             return;
         }
-        let mut listed = self.listed.get(listed).unwrap_or_default().to_vec();
         self.steps = self
             .steps
             .saturating_add(wide(listed.len().saturating_add(expected.len())));
@@ -240,28 +413,24 @@ impl Replay {
         self.at = to;
         self.steps = self.steps.saturating_add(1);
         self.skip_before(at);
-        while let Some(x) = self
-            .listed
-            .get(self.next)
-            .map(|e| e.offset)
-            .filter(|x| *x < to)
-        {
-            let group = self.take_listed(x);
-            let entries = self.listed.get(group).unwrap_or_default().to_vec();
-            for e in &entries {
-                let block_end = e.offset.saturating_add(u64::from(e.len));
-                if block_end > self.end {
-                    self.same = false;
-                }
-                self.damaged_end = self.damaged_end.max(block_end);
+        // each entry stands by itself: none is held
+        while self.listed.peek().is_some_and(|x| x < to) {
+            self.steps = self.steps.saturating_add(1);
+            let Some(e) = self.listed.take() else {
+                break;
+            };
+            let block_end = e.offset.saturating_add(u64::from(e.len));
+            if block_end > self.end {
+                self.same = false;
             }
-            self.damaged(&entries);
+            self.damaged_end = self.damaged_end.max(block_end);
+            self.damaged(&e);
         }
     }
 
-    /// The entries `entries` of a damaged block kept stand for it.
-    fn damaged(&mut self, entries: &[IndexEntry]) {
-        for e in entries.iter().filter(|e| !e.repeat) {
+    /// Entry `e` of a damaged block kept stands for it.
+    fn damaged(&mut self, e: &IndexEntry) {
+        if !e.repeat {
             match e.kind {
                 BlockKind::Events | BlockKind::Series => {
                     if let Some(key) = self.key_of(e.track_number, Some(e.track_id)) {
@@ -301,8 +470,8 @@ impl Replay {
     /// Whether the piece's final index and its walk are the same set (every entry met, at a block walked or a damaged
     /// block in bytes no block explains, before the finish), and each finish row in `rows` states the hash its track's
     /// listed blocks fold to, incomplete exactly where the head or a damaged block leaves units out.
-    pub(super) fn check(self, rows: &[TrackRange]) -> bool {
-        if !self.same || self.next != self.listed.len() {
+    pub(super) fn check(&self, rows: &[TrackRange]) -> bool {
+        if !self.same || !self.listed.good() || self.listed.peek().is_some() {
             return false;
         }
         let mut rowed = BTreeSet::new();
@@ -354,6 +523,21 @@ mod tests {
     use super::*;
     use crate::{BlockId, BlockWriter, ClockTime, SessionTag};
 
+    /// Entries in file order, from a list.
+    struct InOrder(alloc::collections::VecDeque<IndexEntry>);
+
+    impl Listed for InOrder {
+        fn peek(&self) -> Option<u64> {
+            self.0.front().map(|e| e.offset)
+        }
+        fn take(&mut self) -> Option<IndexEntry> {
+            self.0.pop_front()
+        }
+        fn good(&self) -> bool {
+            true
+        }
+    }
+
     fn records(id: BlockId, n: i64) -> Vec<u8> {
         let mut buf = [0u8; 256];
         let mut b = BlockWriter::new(&mut buf, BlockKind::Records, id, &[1]).unwrap();
@@ -379,7 +563,7 @@ mod tests {
             blocks.push(b);
         }
         let entries = wide(listed.len());
-        let mut r = Replay::new(&[], listed, at + off);
+        let mut r = Replay::new(&[], InOrder(listed.into()), at + off);
         for (k, b) in blocks.iter().enumerate() {
             match k % 2 {
                 0 => r.block(b, None),

@@ -25,7 +25,9 @@ use exact_units::Ratio64;
 
 use crate::bytes::le_u8;
 use crate::chunk::{CHUNK_HEAD_PREFIX, ChunkHead};
-use crate::index::{HEAD_LEN_PREFIX, INDEX_LEN_MAX, IndexBlock, IndexEntry, IndexError, IndexKind};
+use crate::index::{
+    ENTRY_LEN, HEAD_LEN_PREFIX, INDEX_LEN_MAX, IndexBlock, IndexEntry, IndexError, IndexKind,
+};
 use crate::piece::{
     ChainReport, Finish, FinishBlock, HeadLink, HeadStatus, OwnerId, PieceHead, PieceHeadBlock,
     PieceSummary, TAIL_LEN, Tail, TrackHash, TrackRange, TrackStart, UnitHash, Walked, check_chain,
@@ -41,7 +43,7 @@ use crate::{
 mod state;
 mod verify;
 pub use state::{DefinitionsAt, Lookup, Lost, STATE_CACHE_MAX, STATE_READ_MAX, StateItem};
-pub use verify::VERIFY_ENTRIES_MAX;
+pub use verify::VERIFY_LISTS_MAX;
 
 /// Bytes that read at an offset.
 pub trait ByteSource {
@@ -158,8 +160,6 @@ pub enum ReadError<E> {
     Series { offset: u64, error: SeriesError },
     /// The chunk at `offset` starts before `end`, the end of the track's chunk before it: the track's chunks overlap.
     Overlap { offset: u64, end: u64 },
-    /// The piece's final index lists more entries than [TapeReader::verify] holds ([VERIFY_ENTRIES_MAX]).
-    VerifyEntries { max: usize },
 }
 
 impl<E: core::fmt::Debug> core::fmt::Display for ReadError<E> {
@@ -183,9 +183,6 @@ impl<E: core::fmt::Debug> core::fmt::Display for ReadError<E> {
                     f,
                     "chunk at byte {offset} starts before item {end}, the end of the chunk before"
                 )
-            }
-            ReadError::VerifyEntries { max } => {
-                write!(f, "the final index lists more than {max} entries to verify")
             }
         }
     }
@@ -1211,37 +1208,49 @@ impl<S: ByteSource> TapeReader<S> {
     /// finish row states the hash its track's blocks fold to from the head row's, or says it incomplete exactly where
     /// a damaged block kept or the head leaves units out. The strict check of what [Self::range_hash] takes from the
     /// index unread.
+    ///
+    /// The final index is read as the piece is walked, its track lists merged in file order: verify holds one entry
+    /// per track list and the entries of one block, whatever the piece's size. A final index of more than
+    /// [VERIFY_LISTS_MAX] track lists names more tracks than a writer gives a piece: it doesn't hold.
     pub fn verify(&self, i: usize) -> R<bool, S> {
-        self.verify_counted(i).map(|(holds, _)| holds)
+        self.verify_counted(i).map(|v| v.holds)
     }
 
-    /// [Self::verify] and the steps its replay took.
-    pub(crate) fn verify_counted(&self, i: usize) -> R<(bool, u64), S> {
+    /// [Self::verify] with what its replay cost.
+    pub(crate) fn verify_counted(&self, i: usize) -> R<verify::Verified, S> {
         let p = self.piece(i)?;
         let (Some((fin, rows)), Some(end)) = (&p.finish, p.finish_offset) else {
             return Err(ReadError::Unfinished);
         };
-        // the final index's entries, whatever a walk of the piece found
-        let mut listed = Vec::new();
-        let mut over = false;
+        // where each track list of the final index is: its blocks read whole and checked once, its entries read later
+        let mut lists: Vec<(u64, u32, u64)> = Vec::new();
         let read = self.for_final(p, |ix| {
-            if !over {
-                listed.extend(ix.entries().take(
-                    (verify::VERIFY_ENTRIES_MAX.saturating_add(1)).saturating_sub(listed.len()),
-                ));
-                over = listed.len() > verify::VERIFY_ENTRIES_MAX;
+            let block = p.start.saturating_add(ix.self_offset());
+            for list in ix.tracks() {
+                if lists.len() <= verify::VERIFY_LISTS_MAX {
+                    let (from, _) = ix.track_range(&list);
+                    lists.push((
+                        block.saturating_add(wide(from)),
+                        list.count,
+                        wide(ix.entry_len()),
+                    ));
+                }
             }
         });
-        if over {
-            return Err(ReadError::VerifyEntries {
-                max: verify::VERIFY_ENTRIES_MAX,
-            });
-        }
-        let listed = match read.and_then(|()| in_order(p, listed)) {
-            Ok(e) => e,
-            Err(ReadError::Index(_) | ReadError::Block { .. }) => return Ok((false, 0)),
+        let not = verify::Verified::default();
+        match read {
+            Ok(()) if lists.len() <= verify::VERIFY_LISTS_MAX => {}
+            Ok(()) | Err(ReadError::Index(_) | ReadError::Block { .. }) => return Ok(not),
             Err(e) => return Err(e),
+        }
+        let fits = |e: &IndexEntry| {
+            usize::try_from(e.len).is_ok_and(|len| in_piece::<S::Error>(p, e.offset, len).is_ok())
         };
+        let mut listed =
+            verify::Lists::new(|at, b: &mut [u8; ENTRY_LEN]| self.src.read_at(at, b), fits);
+        for (at, count, step) in lists {
+            listed.add(at, count, step);
+        }
         let starts = p.head.as_ref().map_or(&[][..], |(_, t)| &t[..]);
         let mut replay = verify::Replay::new(starts, listed, end);
         let mut h = blake3::Hasher::new();
@@ -1262,11 +1271,14 @@ impl<S: ByteSource> TapeReader<S> {
                 }
             },
         )?;
-        let steps = replay.steps();
-        Ok((
-            *h.finalize().as_bytes() == fin.hash.0 && replay.check(rows),
-            steps,
-        ))
+        if let Some(e) = replay.listed().take_error() {
+            return Err(ReadError::Source(e));
+        }
+        Ok(verify::Verified {
+            holds: *h.finalize().as_bytes() == fin.hash.0 && replay.check(rows),
+            steps: replay.steps(),
+            held: replay.listed().held().saturating_add(replay.group_max()),
+        })
     }
 
     /// The hash of the whole chunks of track `track_id` owned by `owner` that hold an item in `items`, folded from

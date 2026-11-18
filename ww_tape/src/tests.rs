@@ -1835,3 +1835,34 @@ fn a_finish_of_the_most_tracks_fits_a_block() {
     assert!(crate::piece::finish_len(rows) + padding <= MAX_BLOCK_LEN);
     assert!(crate::piece::finish_len(rows + 1) + padding > MAX_BLOCK_LEN);
 }
+
+/// What verify holds doesn't grow with the piece: one entry per track list of its final index and the entries of
+/// one block, for 1000 blocks as for 16000; its steps grow with the blocks.
+#[test]
+fn verify_holds_entries_per_track_list_not_per_block() {
+    let (defs, _) = distinct_tracks(3);
+    let held = |n: u32| {
+        let mut w =
+            TapeWriter::create_on(MemSink::new(std::path::Path::new("v")), SyncPolicy::None);
+        let tape = w.sink().tape();
+        for k in 0..n {
+            let b = records_on(w.next_id(), &[1 + k % 3]);
+            w.write_block(&defs, &b).unwrap();
+        }
+        w.finish().unwrap();
+        let bytes = tape.to_vec().unwrap();
+        let v = crate::TapeReader::open(&bytes[..])
+            .unwrap()
+            .verify_counted(0)
+            .unwrap();
+        assert!(v.holds, "{n} blocks verify");
+        (v.held, v.steps)
+    };
+    let ((small, steps_small), (large, steps_large)) = (held(1000), held(16000));
+    assert_eq!(small, large);
+    assert!(large <= 8, "{large}");
+    assert!(
+        steps_large <= 17 * steps_small,
+        "{steps_small} {steps_large}"
+    );
+}

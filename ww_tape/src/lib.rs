@@ -125,7 +125,7 @@
 //! | [GAP_CHECKS_MAX] | 4 | the blocks a reader checks whole past one gap |
 //! | [RESYNC_AHEAD_MAX] | 128 MiB | the bytes a salvage walk ([Recovery::Resync]) reads ahead |
 //! | [STATE_READ_MAX](reader::STATE_READ_MAX) | 1 GiB | the bytes of blocks one state lookup reads |
-//! | [VERIFY_ENTRIES_MAX](reader::VERIFY_ENTRIES_MAX) | 4 Mi | the final index entries one verify holds |
+//! | [VERIFY_LISTS_MAX](reader::VERIFY_LISTS_MAX) | 493418 | the track lists of a final index one verify takes, one entry held each |
 //! | [DEFERRED_BYTES_MAX](writer::DEFERRED_BYTES_MAX) | 1 MiB | the deferred blocks a writer keeps |
 //! | [TRACKS_PER_PIECE_MAX] | 493416 | the tracks with data in one piece a writer takes: its finish fits a block |
 //! | [HEAD_TRACKS_MAX] | 699006 | the tracks a piece head carries over the chain: the head fits a block |
