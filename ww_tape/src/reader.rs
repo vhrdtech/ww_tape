@@ -1523,6 +1523,11 @@ impl Fold {
 }
 
 /// What [TapeReader::range_hash] folded.
+///
+/// The index path trusts the writer's statement: a chunk folded by its index entry ([Self::stated]) folds by the unit
+/// hash its writer stated there, held by the index CRCs and never compared with the chunk's bytes. [Self::read]
+/// chunks were hashed from their bytes. [TapeReader::verify] is what proves the stated hashes: it replays the piece
+/// and compares each entry with its block.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RangeHash {
     /// The track's hash after the chunks folded, from the hash given.
@@ -1543,6 +1548,14 @@ pub struct RangeHash {
     /// owner, so their chunks are taken by the finish rows, or with no finish by the id alone: what the hash covers
     /// there no head vouched for. 0 when every piece's head read.
     pub headless: u64,
+}
+
+impl RangeHash {
+    /// Chunks folded by the unit hash their index entry states, not read: the writer's statement, which
+    /// [TapeReader::verify] proves.
+    pub fn stated(&self) -> u64 {
+        self.chunks.saturating_sub(self.read)
+    }
 }
 
 /// Whether a track's entry of kind `kind` is one [TapeReader::range_hash] doesn't fold: not a chunk, records or a

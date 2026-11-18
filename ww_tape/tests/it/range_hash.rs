@@ -942,6 +942,11 @@ fn verify_refuses_a_chunk_its_index_lists_past_the_blocks() {
         fold
     );
     assert!(r.chain().is_whole());
+    // the index path folds what the writer stated: every chunk unread, as the writer says
+    let g = r
+        .range_hash(id_of(t), OwnerId::NONE, 0..u64::MAX, TrackHash::START)
+        .unwrap();
+    assert_eq!((g.read, g.stated()), (0, g.chunks));
     assert!(!r.verify(i).unwrap());
 }
 

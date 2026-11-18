@@ -121,6 +121,7 @@ Covers `ww_tape` 0.1.0.
 
 ### 🚀 Features
 
+- `RangeHash::stated`: chunks folded by the unit hash their entry states, which only `verify` proves (TAPE-9).
 - Logo: mark, wordmark, lockups, icons and social card in `assets/logo`, exported by `just logo` from one Typst source.
 - `PieceFiles::One`: a chain's pieces back to back in one file or memory tape; a cut appends in place (`cut_in_place`) (TAPE-8).
 - `PieceChain::resume_on` of a one-file chain resumes its unfinished last piece, or starts a new write session's piece behind it (TAPE-8).

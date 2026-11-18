@@ -138,7 +138,7 @@ index is damaged or missing, the reader reads the chunks and computes the same h
 an error there as by the index, bytes no block explains are counted (`RangeHash::skipped`), and a chunk written again
 folds once. Entries that name one block twice or overlap are refused (`IndexError::BadEntries`), from a final index,
 checkpoints or a scan alike, and the reader reads the chunks instead. The fold from the index is the hash the writer
-stated, checked by the index's CRCs, not a check of the payloads: the strict check (`TapeReader::verify`: the content
+stated, checked by the index's CRCs, not a check of the payloads: `RangeHash::stated` counts the chunks folded that way, `RangeHash::read` those hashed from their bytes. The strict check (`TapeReader::verify`: the content
 hash, each entry against its block, each finish row against its track's fold) and every read of a chunk check those,
 and a chunk marked `FLAG_PAYLOAD_UNCHECKED` is refused there. An index entry of a kind the reader doesn't fold is
 counted in `RangeHash::skipped`, never dropped unsaid, and a chunk the fold reads must be the one its entry names, with
