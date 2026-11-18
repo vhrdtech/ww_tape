@@ -85,7 +85,7 @@ impl Resumed {
 }
 
 /// A [TapeSink] read as a [ByteSource].
-struct SinkSource<'a, S>(&'a S);
+pub(crate) struct SinkSource<'a, S>(pub(crate) &'a S);
 
 impl<S: TapeSink> ByteSource for SinkSource<'_, S> {
     type Error = io::Error;

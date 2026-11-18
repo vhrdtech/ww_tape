@@ -4,6 +4,11 @@
 //! truncates. A [SinkFactory] makes the sink of each piece of a [PieceChain](crate::PieceChain) by its path: [Files]
 //! creates `NAME.partial` and renames it to `NAME` at the finish, [MemTapes] keeps each piece in memory under its
 //! path, where a [TapeReader](crate::TapeReader) reads it while it is written ([MemTape] is a [ByteSource]).
+//!
+//! A chain may also keep all its pieces in one file or memory tape ([SinkFactory::create_whole],
+//! [SinkFactory::open_whole]): the writer of the next piece goes on in the same sink, whose window
+//! ([TapeSink::base], [TapeSink::rebase]) starts where the piece before ended, so offsets, reads and truncates count
+//! from the piece's start as in a file of its own.
 
 use std::collections::BTreeMap;
 use std::fs::{File, OpenOptions};
@@ -47,6 +52,35 @@ pub trait TapeSink {
     fn current_path(&self) -> &Path {
         self.path()
     }
+
+    /// Where the piece being written starts in the bytes: [Self::size], [Self::read_at] and [Self::truncate] count
+    /// from here. 0 unless [Self::rebase] moved it.
+    fn base(&self) -> u64 {
+        0
+    }
+
+    /// Let the piece being written start at `base` in the bytes, at most their whole length: the next piece of a
+    /// file of several, or the last piece of one to resume. A sink that holds one piece only refuses any base but 0
+    /// ([io::ErrorKind::Unsupported]).
+    fn rebase(&mut self, base: u64) -> io::Result<()> {
+        if base == 0 {
+            Ok(())
+        } else {
+            Err(io::ErrorKind::Unsupported.into())
+        }
+    }
+}
+
+/// The whole length of the bytes of a sink whose window starts at `base` and holds `size` bytes, checked against a
+/// new base.
+fn check_base(base: u64, whole: u64) -> io::Result<u64> {
+    if base > whole {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "a piece can't start past the end of the bytes",
+        ));
+    }
+    Ok(base)
 }
 
 /// Makes the sink of each piece of a chain by its path, reopens an unfinished one and reads a finished one.
@@ -63,6 +97,26 @@ pub trait SinkFactory {
 
     /// The finished bytes of `path`; None when `path` isn't finished.
     fn finished(&self, path: &Path) -> Result<Option<Self::Source>, WriteError>;
+
+    /// A new sink for a file of several pieces at `path`, written under its own name from the start (a crash
+    /// leaves its last piece unfinished, which a resume finds); [WriteError::Exists] when `path` is there. A
+    /// factory without files of several pieces refuses ([io::ErrorKind::Unsupported]).
+    fn create_whole(&mut self, path: &Path) -> Result<Self::Sink, WriteError> {
+        Err(unsupported(path))
+    }
+
+    /// The file of several pieces at `path`, appended to in place, finished or not; None when there is none.
+    fn open_whole(&mut self, path: &Path) -> Result<Option<Self::Sink>, WriteError> {
+        Err(unsupported(path))
+    }
+}
+
+/// A factory that holds no files of several pieces.
+fn unsupported(_path: &Path) -> WriteError {
+    WriteError::Io {
+        what: "opening a file of several pieces",
+        error: io::ErrorKind::Unsupported.into(),
+    }
 }
 
 /// A file written as `NAME.partial` and renamed to `NAME` at its finish, or a file appended to in place.
@@ -71,6 +125,8 @@ pub struct FileSink {
     path: PathBuf,
     /// Some while the file is written under its `.partial` name
     partial: Option<PathBuf>,
+    /// Where the piece being written starts in the file
+    base: u64,
 }
 
 impl FileSink {
@@ -94,6 +150,7 @@ impl FileSink {
             file,
             path: path.to_path_buf(),
             partial: Some(partial),
+            base: 0,
         })
     }
 
@@ -115,7 +172,56 @@ impl FileSink {
             file,
             path: path.to_path_buf(),
             partial: None,
+            base: 0,
         })
+    }
+
+    /// A new file at `path` written under its own name, for pieces back to back ([SinkFactory::create_whole]); the
+    /// file and its directory are synced. Fails if `path` is there.
+    pub fn create_whole(path: &Path) -> Result<Self, WriteError> {
+        let file = match OpenOptions::new()
+            .read(true)
+            .append(true)
+            .create_new(true)
+            .open(path)
+        {
+            Ok(f) => f,
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
+                return Err(WriteError::Exists(path.to_path_buf()));
+            }
+            Err(error) => {
+                return Err(WriteError::Io {
+                    what: "creating the file",
+                    error,
+                });
+            }
+        };
+        file.sync_all().map_err(io_err("syncing the new file"))?;
+        sync_dir(path).map_err(io_err("syncing the directory"))?;
+        Ok(FileSink {
+            file,
+            path: path.to_path_buf(),
+            partial: None,
+            base: 0,
+        })
+    }
+
+    /// The file at `path`, appended to in place, finished or not ([SinkFactory::open_whole]); None when it isn't
+    /// there.
+    pub fn open_whole(path: &Path) -> Result<Option<Self>, WriteError> {
+        match OpenOptions::new().read(true).append(true).open(path) {
+            Ok(file) => Ok(Some(FileSink {
+                file,
+                path: path.to_path_buf(),
+                partial: None,
+                base: 0,
+            })),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(WriteError::Io {
+                what: "opening the file",
+                error,
+            }),
+        }
     }
 
     /// The unfinished file `path.partial`, to resume; None when it isn't there.
@@ -127,6 +233,7 @@ impl FileSink {
                 file,
                 path: path.to_path_buf(),
                 partial: Some(partial),
+                base: 0,
             })),
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
             Err(error) => Err(WriteError::Io {
@@ -155,18 +262,28 @@ impl TapeSink for FileSink {
     }
 
     fn size(&self) -> io::Result<u64> {
-        Ok(self.file.metadata()?.len())
+        Ok(self.file.metadata()?.len().saturating_sub(self.base))
     }
 
     fn read_at(&self, offset: u64, buf: &mut [u8]) -> io::Result<()> {
-        read_file_at(&self.file, offset, buf)
+        read_file_at(&self.file, past_base(self.base, offset)?, buf)
     }
 
     fn truncate(&mut self, len: u64) -> io::Result<()> {
+        let len = past_base(self.base, len)?;
         self.file.set_len(len)?;
         // a file opened for writing at its start writes at the new end too (one opened to append always does)
         io::Seek::seek(&mut self.file, io::SeekFrom::Start(len))?;
         self.file.sync_all()
+    }
+
+    fn base(&self) -> u64 {
+        self.base
+    }
+
+    fn rebase(&mut self, base: u64) -> io::Result<()> {
+        self.base = check_base(base, self.file.metadata()?.len())?;
+        Ok(())
     }
 
     fn path(&self) -> &Path {
@@ -176,6 +293,12 @@ impl TapeSink for FileSink {
     fn current_path(&self) -> &Path {
         self.partial.as_deref().unwrap_or(&self.path)
     }
+}
+
+/// `offset` in a piece starting at `base`, from the start of the bytes.
+fn past_base(base: u64, offset: u64) -> io::Result<u64> {
+    base.checked_add(offset)
+        .ok_or_else(|| io::Error::from(io::ErrorKind::UnexpectedEof))
 }
 
 #[cfg(unix)]
@@ -218,6 +341,14 @@ impl SinkFactory for Files {
                 error,
             }),
         }
+    }
+
+    fn create_whole(&mut self, path: &Path) -> Result<FileSink, WriteError> {
+        FileSink::create_whole(path)
+    }
+
+    fn open_whole(&mut self, path: &Path) -> Result<Option<FileSink>, WriteError> {
+        FileSink::open_whole(path)
     }
 }
 
@@ -296,6 +427,8 @@ impl ByteSource for MemTape {
 pub struct MemSink {
     tape: MemTape,
     path: PathBuf,
+    /// Where the piece being written starts in the bytes
+    base: u64,
 }
 
 impl MemSink {
@@ -304,6 +437,7 @@ impl MemSink {
         MemSink {
             tape: MemTape::default(),
             path: path.to_path_buf(),
+            base: 0,
         }
     }
 
@@ -329,11 +463,20 @@ impl TapeSink for MemSink {
     }
 
     fn size(&self) -> io::Result<u64> {
-        ByteSource::size(&self.tape)
+        Ok(ByteSource::size(&self.tape)?.saturating_sub(self.base))
     }
 
     fn read_at(&self, offset: u64, buf: &mut [u8]) -> io::Result<()> {
-        ByteSource::read_at(&self.tape, offset, buf)
+        ByteSource::read_at(&self.tape, past_base(self.base, offset)?, buf)
+    }
+
+    fn base(&self) -> u64 {
+        self.base
+    }
+
+    fn rebase(&mut self, base: u64) -> io::Result<()> {
+        self.base = check_base(base, ByteSource::size(&self.tape)?)?;
+        Ok(())
     }
 
     fn reserve(&mut self, bytes: u64) {
@@ -344,6 +487,7 @@ impl TapeSink for MemSink {
     }
 
     fn truncate(&mut self, len: u64) -> io::Result<()> {
+        let len = past_base(self.base, len)?;
         let mut bytes = self.tape.write()?;
         if let Ok(len) = usize::try_from(len) {
             bytes.truncate(len);
@@ -423,11 +567,28 @@ impl SinkFactory for MemTapes {
             .map(|tape| MemSink {
                 tape: tape.clone(),
                 path: path.to_path_buf(),
+                base: 0,
             }))
     }
 
     fn finished(&self, path: &Path) -> Result<Option<MemTape>, WriteError> {
         Ok(self.lock()?.get(path).filter(|t| t.is_finished()).cloned())
+    }
+
+    fn create_whole(&mut self, path: &Path) -> Result<MemSink, WriteError> {
+        self.create(path)
+    }
+
+    /// The tape under `path`, which is written again: it reads as unfinished until its next finish.
+    fn open_whole(&mut self, path: &Path) -> Result<Option<MemSink>, WriteError> {
+        Ok(self.lock()?.get(path).map(|tape| {
+            tape.0.finished.store(false, Ordering::Release);
+            MemSink {
+                tape: tape.clone(),
+                path: path.to_path_buf(),
+                base: 0,
+            }
+        }))
     }
 }
 

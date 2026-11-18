@@ -17,7 +17,9 @@ pub struct PieceSummary {
 /// How two pieces next to each other by sequence number relate.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ChainLink {
-    /// The later head names the earlier piece by hash and id, and the earlier tail names the later id.
+    /// The later head names the earlier piece by hash and id, and the earlier tail names the later id; or, after a
+    /// piece that ended complete or aborted, the later piece starts a new write session: its id is
+    /// [PieceId::after] the earlier one's id and hash.
     Linked,
     /// Pieces between them are missing.
     Gap { missing: u64 },
@@ -112,7 +114,8 @@ fn link(a: &PieceSummary, b: &PieceSummary) -> ChainLink {
     let Some((_, hash, next)) = a.end else {
         return ChainLink::Unfinished;
     };
-    if next == Some(b.ident.id) && b.prev == Some((hash, a.ident.id)) {
+    let named = next.unwrap_or_else(|| PieceId::after(a.ident.id, &hash));
+    if named == b.ident.id && b.prev == Some((hash, a.ident.id)) {
         ChainLink::Linked
     } else {
         ChainLink::Broken

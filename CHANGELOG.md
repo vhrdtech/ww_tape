@@ -10,6 +10,7 @@ Covers `ww_tape` 0.1.0.
 
 ### ⚠️ Breaking
 
+- `ChainOptions` gains `files`; `Finished` gains `start` and `tracks`; `SinkFactory` gains `create_whole` and `open_whole` (TAPE-8).
 - Format: piece head rows (96 B) and finish rows (128 B) carry owner and track hash, each with a row length (TAPE-8).
 - Format: the content hash takes each chunk payload by its BLAKE3 hash; goldens, seeds and figures rewritten (TAPE-8).
 - `TrackStart` gains `owner` and `hash`, `TrackRange` gains `owner`, `hash` and `records`; tracks key by id and owner (TAPE-8).
@@ -88,6 +89,8 @@ Covers `ww_tape` 0.1.0.
 ### 🚀 Features
 
 - Logo: mark, wordmark, lockups, icons and social card in `assets/logo`, exported by `just logo` from one Typst source.
+- `PieceFiles::One`: a chain's pieces back to back in one file or memory tape; a cut appends in place (`cut_in_place`) (TAPE-8).
+- `PieceChain::resume_on` of a one-file chain resumes its unfinished last piece, or starts a new write session's piece behind it (TAPE-8).
 - `TrackDef::owner`: opaque 32 bytes outside the identity telling apart tracks of several owners in one file (TAPE-8).
 - A running hash per track (`TrackHash`), alike alone or interleaved, in one piece or many; `Finished::tracks` reports it (TAPE-8).
 - `MemTapes::remove` takes a finished piece out (readers keep their bytes, an unfinished piece is `WriteError::Unfinished`); `PieceChain` makes a `MemSink` reserve its cut size (`CUT_SLACK`), a reader's worst wait 0.5 to 0.6 ms down to 0.1 to 0.16 ms (TAPE-6).
