@@ -409,6 +409,8 @@ fn format_page_kinds_are_block_kinds() {
         (8, Some(BlockKind::Finish), "finish"),
         (9, Some(BlockKind::Tail), "tail"),
         (10, Some(BlockKind::PieceHead), "piece head"),
+        (11, Some(BlockKind::POSTINGS), "postings"),
+        (12, Some(BlockKind::DICTIONARY), "dictionary"),
     ];
     assert_eq!(rows.len(), kinds.len());
     for (row, (n, kind, name)) in rows.iter().zip(kinds) {
