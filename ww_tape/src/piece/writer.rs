@@ -28,6 +28,17 @@ pub struct CutPolicy {
 /// What a piece may hold past [CutPolicy::bytes]: the chunk that takes it over the limit, the index, finish and tail.
 pub const CUT_SLACK: u64 = 1 << 20;
 
+/// Refuse a resumed piece of a chain that kept blocks but no piece head: its head is damaged, and a piece without
+/// one has no link to the chain and can't be cut. A piece cut off inside its head keeps nothing and starts again.
+fn headed<S: TapeSink>(writer: &TapeWriter<S>) -> Result<(), WriteError> {
+    if writer.bytes() != 0 && !writer.has_head() {
+        return Err(WriteError::Index(IndexError::Invalid(
+            "the last piece of the chain has no readable piece head",
+        )));
+    }
+    Ok(())
+}
+
 /// Ask a new piece's sink to make room for a piece cut by `cut`, see [TapeSink::reserve]: a memory sink then never
 /// grows by doubling under its write lock while readers read.
 fn reserve_piece<S: TapeSink>(writer: &mut TapeWriter<S>, cut: CutPolicy) {
@@ -191,6 +202,7 @@ impl<F: SinkFactory> PieceChain<F> {
         let (writer, resumed) = match factory.reopen(&path)? {
             Some(sink) => {
                 let (mut w, resumed) = TapeWriter::resume_on(sink, options.writer.clone())?;
+                headed(&w)?;
                 reserve_piece(&mut w, options.cut);
                 if w.bytes() == 0 {
                     // cut off inside its head: the piece starts again (a first piece without carried-over tracks)
@@ -262,6 +274,7 @@ impl<F: SinkFactory> PieceChain<F> {
             .map_err(crate::sink::io_err("finding the last piece"))?;
         let (writer, resumed) = if open_at < size || finished.is_empty() {
             let (mut w, resumed) = TapeWriter::resume_on(sink, options.writer.clone())?;
+            headed(&w)?;
             reserve_piece(&mut w, options.cut);
             if w.bytes() == 0 {
                 // cut off inside its head: the piece starts again
