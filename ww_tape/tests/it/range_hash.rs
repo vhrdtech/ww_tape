@@ -679,3 +679,185 @@ fn two_chunks_stating_the_same_items_overlap() {
         "{got:?}"
     );
 }
+
+/// Recompute the content hash of piece `i` of `bytes` (its blocks back to back from its start to its finish) and write
+/// it into its finish and tail, their CRCs made good: what a hostile writer does after changing the piece.
+fn reseal(bytes: &mut [u8], i: usize) {
+    use ww_tape::Block;
+    let r = TapeReader::open(&bytes[..]).unwrap();
+    let p = r.pieces()[i].clone();
+    let fin = (p.start + p.finish_offset.unwrap()) as usize;
+    let mut fed = Vec::new();
+    let mut at = p.start as usize;
+    while at < fin {
+        let b = Block::read(&bytes[at..]).unwrap();
+        let n = b.len();
+        match b.chunk() {
+            Some(c) => {
+                let (po, pe) = (c.payload_offset(), c.payload_offset() + c.payload().len());
+                fed.extend_from_slice(&bytes[at..at + po]);
+                fed.extend_from_slice(&payload_hash(c.payload()));
+                fed.extend_from_slice(&bytes[at + pe..at + n]);
+            }
+            None => fed.extend_from_slice(&bytes[at..at + n]),
+        }
+        at += n;
+    }
+    let h = payload_hash(&fed);
+    let flen = ww_tape::block_len(&bytes[fin..]).unwrap();
+    bytes[fin + 40..fin + 72].copy_from_slice(&h);
+    let crc = crc32c(&[&bytes[fin..fin + flen - 4]]);
+    bytes[fin + flen - 4..fin + flen].copy_from_slice(&crc.to_le_bytes());
+    let tail = p.end as usize - ww_tape::TAIL_LEN;
+    bytes[tail + 56..tail + 88].copy_from_slice(&h);
+    let crc = crc32c(&[&bytes[tail..tail + 160]]);
+    bytes[tail + 160..tail + 164].copy_from_slice(&crc.to_le_bytes());
+}
+
+/// The last piece of a written file, and a track with a chunk in it.
+fn last_and_track(bytes: &[u8]) -> (usize, u64) {
+    let r = TapeReader::open(bytes).unwrap();
+    let i = r.pieces().len() - 1;
+    let t = (0..3)
+        .find(|t| {
+            r.track_entries(i, id_of(*t))
+                .unwrap()
+                .iter()
+                .any(|e| e.kind == ww_tape::BlockKind::Events)
+        })
+        .unwrap();
+    (i, t)
+}
+
+/// An index entry that doesn't state its block, every CRC and the content hash made good again: `verify` replays
+/// the piece and compares each entry with the block at its offset, so it fails, where the content hash alone holds.
+/// A unit hash that isn't the chunk's, a kind the reader doesn't fold, a range no column has.
+#[test]
+fn verify_compares_each_entry_with_its_block() {
+    use ww_tape::BlockKind;
+    let (_, files) = write(PieceFiles::One, 0x5eed);
+    let (i, t) = last_and_track(&files[0]);
+    // resealed unchanged, the piece verifies: what fails below is the change
+    let mut same = files[0].clone();
+    reseal(&mut same, i);
+    assert_eq!(same, files[0]);
+    assert!(TapeReader::open(&same[..]).unwrap().verify(i).unwrap());
+    let first_chunk = |j: &mut Option<usize>, e: &[u8]| {
+        let first = j.is_none() && e[12] == BlockKind::Events.to_u8();
+        if first {
+            *j = Some(0);
+        }
+        first
+    };
+    let cases: [(&str, fn(&mut [u8])); 3] = [
+        ("unit hash", |e| e[88] ^= 1),
+        ("kind 11", |e| e[12] = 11),
+        ("range", |e| {
+            e[15] |= 2;
+            e[72..80].copy_from_slice(&5u64.to_le_bytes());
+            e[80..88].copy_from_slice(&u64::MAX.to_le_bytes());
+        }),
+    ];
+    for (name, change) in cases {
+        let mut bytes = files[0].clone();
+        let mut seen = None;
+        rewrite_final_entries(&mut bytes, i, t, |_, e| {
+            if first_chunk(&mut seen, e) {
+                change(e);
+            }
+        });
+        reseal(&mut bytes, i);
+        let r = TapeReader::open(&bytes[..]).unwrap();
+        assert!(!r.verify(i).unwrap(), "{name}");
+    }
+    // the chunk of an entry of kind 11 is counted as skipped by the range hash, never dropped unsaid
+    let mut bytes = files[0].clone();
+    let mut seen = None;
+    let mut len = 0;
+    rewrite_final_entries(&mut bytes, i, t, |_, e| {
+        if first_chunk(&mut seen, e) {
+            e[12] = 11;
+            len = u32::from_le_bytes(e[8..12].try_into().unwrap());
+        }
+    });
+    let good = TapeReader::open(&files[0][..]).unwrap();
+    let want = good
+        .range_hash(id_of(t), OwnerId::NONE, 0..u64::MAX, TrackHash::START)
+        .unwrap();
+    let got = TapeReader::open(&bytes[..])
+        .unwrap()
+        .range_hash(id_of(t), OwnerId::NONE, 0..u64::MAX, TrackHash::START)
+        .unwrap();
+    assert_eq!(got.chunks + 1, want.chunks);
+    assert_eq!(got.skipped, want.skipped + u64::from(len));
+}
+
+/// An entry without a unit hash stating a range its chunk's columns don't have is refused when the range hash reads
+/// the chunk.
+#[test]
+fn a_range_its_chunk_does_not_have_is_refused_on_read() {
+    use ww_tape::BlockKind;
+    let (_, files) = write(PieceFiles::One, 0x5eed);
+    let (i, t) = last_and_track(&files[0]);
+    let mut bytes = files[0].clone();
+    let mut done = false;
+    rewrite_final_entries(&mut bytes, i, t, |_, e| {
+        if !done && e[12] == BlockKind::Events.to_u8() {
+            done = true;
+            e[15] |= 2;
+            e[72..80].copy_from_slice(&5u64.to_le_bytes());
+            e[80..88].copy_from_slice(&u64::MAX.to_le_bytes());
+            e[88..120].fill(0);
+        }
+    });
+    let got = TapeReader::open(&bytes[..]).unwrap().range_hash(
+        id_of(t),
+        OwnerId::NONE,
+        0..u64::MAX,
+        TrackHash::START,
+    );
+    assert!(
+        matches!(
+            got,
+            Err(ww_tape::ReadError::Index(
+                ww_tape::index::IndexError::BadEntries
+            ))
+        ),
+        "{got:?}"
+    );
+}
+
+/// A finish row whose track hash isn't its track's fold, its CRC made good: `verify` fails.
+#[test]
+fn verify_compares_each_finish_row_with_its_fold() {
+    let (_, files) = write(PieceFiles::One, 0x5eed);
+    let (i, t) = last_and_track(&files[0]);
+    let mut bytes = files[0].clone();
+    let r = TapeReader::open(&bytes[..]).unwrap();
+    let p = r.pieces()[i].clone();
+    drop(r);
+    let row = p
+        .finish
+        .as_ref()
+        .unwrap()
+        .1
+        .iter()
+        .find(|r| r.track_id == id_of(t))
+        .unwrap();
+    let fin = (p.start + p.finish_offset.unwrap()) as usize;
+    let flen = ww_tape::block_len(&bytes[fin..]).unwrap();
+    let at = bytes[fin..fin + flen]
+        .windows(32)
+        .position(|w| w == row.hash.0)
+        .unwrap();
+    bytes[fin + at] ^= 1;
+    // the finish isn't in the content hash: its CRC is all a writer makes good
+    let crc = crc32c(&[&bytes[fin..fin + flen - 4]]);
+    bytes[fin + flen - 4..fin + flen].copy_from_slice(&crc.to_le_bytes());
+    let r = TapeReader::open(&bytes[..]).unwrap();
+    assert_ne!(
+        r.pieces()[i].finish.as_ref().unwrap().1,
+        p.finish.as_ref().unwrap().1
+    );
+    assert!(!r.verify(i).unwrap());
+}

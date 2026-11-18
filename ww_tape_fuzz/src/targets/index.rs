@@ -1,7 +1,8 @@
 //! ww_tape index, finish, tail and piece head blocks and the positional reader on any bytes: decoding never panics,
 //! a reader opens any bytes and every entry it gives lies in its piece, a good chunk's head reads alone, a series
-//! timeline builds from the heads and a track's range hash folds from the index or the chunks; index blocks built from the input read back equal, a final one also track by track
-//! from its head.
+//! timeline builds from the heads and a track's range hash folds from the index or the chunks, the same from both for a
+//! piece that verifies; index blocks built from the input read back equal, a final one also track by track from its
+//! head.
 use ww_tape::index::{
     IndexBlock, IndexEntry, IndexHead, IndexKind, index_len, track_count, write_index,
 };
@@ -100,9 +101,61 @@ pub(crate) fn read(data: &[u8], options: OpenOptions) {
     }
 }
 
+/// A piece that [TapeReader::verify] passes folds a track to the same hash from its index as from its chunks walked
+/// with the final index made unreadable, where the walk explains every byte and finds the chunks the index lists.
+fn index_folds_as_the_walk(data: &[u8]) {
+    let Ok(r) = TapeReader::open(data) else {
+        return;
+    };
+    let ([p], Ok(true)) = (r.pieces(), r.verify(0)) else {
+        return;
+    };
+    let Some(at) = p
+        .finish
+        .as_ref()
+        .and_then(|(f, _)| f.final_index)
+        .and_then(|a| usize::try_from(p.start.saturating_add(a)).ok())
+    else {
+        return;
+    };
+    let mut walked = data.to_vec();
+    // a byte of the final index's head: its CRC fails, the reader walks the chunks
+    let Some(byte) = walked.get_mut(at.saturating_add(40)) else {
+        return;
+    };
+    *byte ^= 1;
+    let Ok(w) = TapeReader::open(&walked[..]) else {
+        return;
+    };
+    let mut ids: Vec<u64> = r
+        .entries(0)
+        .unwrap_or_default()
+        .iter()
+        .map(|e| e.track_id)
+        .collect();
+    ids.sort_unstable();
+    ids.dedup();
+    for id in ids.into_iter().take(4) {
+        let fold =
+            |r: &TapeReader<&[u8]>| r.range_hash(id, OwnerId::NONE, 0..u64::MAX, TrackHash::START);
+        if let (Ok(a), Ok(b)) = (fold(&r), fold(&w))
+            && b.skipped == 0
+            && a.skipped == 0
+            && a.chunks == b.chunks
+        {
+            assert_eq!(
+                (a.hash, a.items),
+                (b.hash, b.items),
+                "a verified piece folds track {id:#x} from its index as from its chunks"
+            );
+        }
+    }
+}
+
 pub fn index(data: &[u8]) {
     decode(data);
     read(data, OpenOptions::default());
+    index_folds_as_the_walk(data);
     // as a raw medium with the gap rules of an SD card: walked forward, gaps read past
     read(
         data,

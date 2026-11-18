@@ -120,8 +120,14 @@ files](pieces_and_files.md#addressing-one-item) explains why items are addressed
 ## Checking a piece
 
 `TapeReader::verify(i)` hashes piece `i`'s bytes before its finish and compares the result with the content hash the
-finish states. A match proves the piece unchanged since it was written. `TapeReader::chain` checks the links between the
-pieces at hand: each piece head against the piece before it, and each tail's next id against the next piece.
+finish states. A match proves the piece unchanged since it was written. It also replays the piece block by block as its
+writer placed them, so a writer that lied in its index or finish fails too: each entry of the final index must be the
+entry its writer makes of the block at its offset (offset, length, kind, track, items, ticks, a chunk's unit hash of its
+bytes and the range of its range relation from its own column), and each finish row must state the hash its track's
+listed blocks fold to, from the head row's, or say it incomplete exactly where the head or a damaged block a resume
+kept leaves units out. A good block the index doesn't list (written again, replaced, or junk a resume kept) adds to no
+track. `TapeReader::chain` checks the links between the pieces at hand: each piece head against the piece before it,
+and each tail's next id against the next piece.
 
 A piece without a finish has no hash to check. That is how a reader knows the piece wasn't closed.
 
