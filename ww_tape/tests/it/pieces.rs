@@ -620,6 +620,7 @@ fn finished_pieces_then_an_unfinished_one() {
 /// The golden file: a finished two-piece chain, one block per line in hex (`WW_TAPE_GOLDEN=update` rewrites it).
 #[test]
 fn index_golden() {
+    use ww_tape::{Definitions, Describe};
     let dir = scratch("golden");
     let mut chain = PieceChain::create(
         &dir,
@@ -641,21 +642,38 @@ fn index_golden() {
         },
     )
     .unwrap();
+    // track 3 with relations (a range relation among them) and an owner of its own, beside the base tracks
+    let Describe::Track(t) = crate::relations::decoded() else {
+        unreachable!("decoded() gives a track")
+    };
+    let related = Describe::Track(ww_tape::TrackDef {
+        owner: [9; 32],
+        ..t
+    });
+    let mut defs = Definitions::new();
+    let mut all = crate::definitions::base(ww_tape::Layout::UNALIGNED)[2..].to_vec();
+    all.retain(|d| !matches!(d, Describe::Track(t) if t.number.0 == 3));
+    all.push(related);
+    defs.define_all(&all).unwrap();
+    let mut source = 100;
+    let mut related_chunk = |chain: &mut PieceChain<_>, first: u64| {
+        let sources: Vec<u64> = (0..4).map(|i| source + i / 2).collect();
+        source += 2;
+        let (h, cols) = crate::relations::relation_chunk(first, &sources, &[7, 7, 8, 9]);
+        let cols: Vec<_> = cols.iter().map(|(s, b)| (*s, b.as_slice())).collect();
+        chain.write_chunk(&defs, &h, &cols).unwrap();
+    };
     for k in 0..2 {
         let (h, c) = chunk(0, k);
-        chain
-            .write_chunk(crate::definitions::base_defs(), &h, &column(&c))
-            .unwrap();
+        chain.write_chunk(&defs, &h, &column(&c)).unwrap();
         let id = chain.writer().unwrap().next_id();
-        chain
-            .write_block(crate::definitions::base_defs(), &records(id, k as i64))
-            .unwrap();
+        chain.write_block(&defs, &records(id, k as i64)).unwrap();
+        related_chunk(&mut chain, k * 4);
     }
     chain.cut_now().unwrap();
     let (h, c) = chunk(0, 2);
-    chain
-        .write_chunk(crate::definitions::base_defs(), &h, &column(&c))
-        .unwrap();
+    chain.write_chunk(&defs, &h, &column(&c)).unwrap();
+    related_chunk(&mut chain, 8);
     let paths: Vec<PathBuf> = chain
         .finish()
         .unwrap()
