@@ -12,15 +12,15 @@ use super::{IntBatch, Narrow, int_batch};
 
 /// Proof that this CPU has AVX2.
 #[derive(Copy, Clone, Debug)]
-pub(crate) struct Avx2(());
+pub struct Avx2(());
 
 impl Avx2 {
-    pub(crate) fn detect() -> Option<Self> {
+    pub fn detect() -> Option<Self> {
         std::arch::is_x86_feature_detected!("avx2").then_some(Avx2(()))
     }
 
     #[inline]
-    pub(crate) fn int_batch<T: Narrow, const C: usize>(
+    pub fn int_batch<T: Narrow, const C: usize>(
         self,
         frames: &[[T; C]],
         lo: T,
@@ -34,10 +34,10 @@ impl Avx2 {
 
 /// Proof that this CPU has AVX-512 F, BW, DQ and VL.
 #[derive(Copy, Clone, Debug)]
-pub(crate) struct Avx512(());
+pub struct Avx512(());
 
 impl Avx512 {
-    pub(crate) fn detect() -> Option<Self> {
+    pub fn detect() -> Option<Self> {
         (std::arch::is_x86_feature_detected!("avx512f")
             && std::arch::is_x86_feature_detected!("avx512bw")
             && std::arch::is_x86_feature_detected!("avx512dq")
@@ -46,7 +46,7 @@ impl Avx512 {
     }
 
     #[inline]
-    pub(crate) fn int_batch<T: Narrow, const C: usize>(
+    pub fn int_batch<T: Narrow, const C: usize>(
         self,
         frames: &[[T; C]],
         lo: T,

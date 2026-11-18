@@ -277,6 +277,10 @@ const _: () = assert!(
     MAX_BLOCK_LEN >> 31 == 0,
     "a block length is a u32 in the header"
 );
+const _: () = assert!(
+    lz4::LZ4_DECODED_MAX == MAX_BLOCK_LEN,
+    "an lz4 column decodes to at most a whole block"
+);
 /// Header flag: the block holds state records a writer put or copied ([state]), not new items of the producer's: it
 /// carries the seq of the block before it and takes no part in the seq order. A reader holding an item of the same
 /// hash in the same slot takes such a record as nothing new.

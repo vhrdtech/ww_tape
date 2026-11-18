@@ -26,7 +26,7 @@ const BLOCK_WIDE: u128 = 64;
 const _: () = assert!(BLOCK_WIDE == BLOCK as u128, "BLOCK_WIDE is BLOCK");
 
 /// An accumulator lane: adds without overflow within a block (each type's bounds are checked at build time).
-pub(crate) trait Lane: Copy {
+pub trait Lane: Copy {
     const ZERO: Self;
     /// `self + o`; the bounds of [Narrow] keep it from wrapping.
     fn plus(self, o: Self) -> Self;
@@ -64,7 +64,7 @@ impl Lane for u128 {
 }
 
 /// An integer scalar of at most 32 bits, with the lanes its block sums fit in.
-pub(crate) trait Narrow: Copy + Ord {
+pub trait Narrow: Copy + Ord {
     const LOW: Self;
     const HIGH: Self;
     /// A block's sum of values.
@@ -213,22 +213,22 @@ impl Narrow for u32 {
 
 /// The statistics of a batch of one channel's frames: per component (only the first for a real element) and per frame.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub(crate) struct IntBatch<T> {
-    pub(crate) frames: u64,
-    pub(crate) min: [T; 2],
-    pub(crate) max: [T; 2],
-    pub(crate) sum: [i128; 2],
-    pub(crate) sq: [i128; 2],
+pub struct IntBatch<T> {
+    pub frames: u64,
+    pub min: [T; 2],
+    pub max: [T; 2],
+    pub sum: [i128; 2],
+    pub sq: [i128; 2],
     /// Sum of `I² + Q²` (complex frames).
-    pub(crate) pow: i128,
+    pub pow: i128,
     /// Largest `I² + Q²` (complex frames); 0 with no frames.
-    pub(crate) pmax: i128,
+    pub pmax: i128,
     /// Frames with a component at or below `lo` or at or above `hi`.
-    pub(crate) clipped: u64,
+    pub clipped: u64,
 }
 
 impl<T: Narrow> IntBatch<T> {
-    pub(crate) const NEW: Self = IntBatch {
+    pub const NEW: Self = IntBatch {
         frames: 0,
         min: [T::HIGH; 2],
         max: [T::LOW; 2],
@@ -250,7 +250,7 @@ fn join<L: Lane>(high: L, low: L) -> i128 {
 /// Add frames of `C` components (1, or 2 for complex) to `out`; a component counts as clipped at or below `lo` or at
 /// or above `hi`.
 #[inline(always)]
-pub(crate) fn int_batch<T: Narrow, const C: usize>(
+pub fn int_batch<T: Narrow, const C: usize>(
     frames: &[[T; C]],
     lo: T,
     hi: T,
@@ -317,7 +317,7 @@ fn block<T: Narrow, const C: usize>(b: &[[T; C]], lo: T, hi: T, out: &mut IntBat
 
 /// Which code [int_batch] runs as: portable, or compiled for a vector extension this CPU has.
 #[derive(Copy, Clone, Debug)]
-pub(crate) enum Kernel {
+pub enum Kernel {
     Portable,
     #[cfg(target_arch = "x86_64")]
     Avx2(x86::Avx2),
@@ -327,12 +327,12 @@ pub(crate) enum Kernel {
 
 impl Kernel {
     /// The fastest kernel this CPU runs.
-    pub(crate) fn best() -> Self {
+    pub fn best() -> Self {
         Self::all().last().copied().unwrap_or(Kernel::Portable)
     }
 
     /// Every kernel this CPU runs, slowest first.
-    pub(crate) fn all() -> Vec<Self> {
+    pub fn all() -> Vec<Self> {
         #[cfg(target_arch = "x86_64")]
         let vector = x86::Avx2::detect()
             .map(Kernel::Avx2)
@@ -345,7 +345,7 @@ impl Kernel {
 
     /// [int_batch] in this kernel.
     #[inline]
-    pub(crate) fn int_batch<T: Narrow, const C: usize>(
+    pub fn int_batch<T: Narrow, const C: usize>(
         self,
         frames: &[[T; C]],
         lo: T,
@@ -366,7 +366,7 @@ impl Kernel {
 const GATHER: usize = 256;
 
 /// Add the frames of one channel: `C` components at scalar `at` of each frame of `stride` scalars of `xs`.
-pub(crate) fn int_channel<T: Narrow, const C: usize>(
+pub fn int_channel<T: Narrow, const C: usize>(
     kernel: Kernel,
     xs: &[T],
     stride: usize,

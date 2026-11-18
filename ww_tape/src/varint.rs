@@ -31,7 +31,7 @@ const fn zigzag(v: i64) -> u64 {
 
 /// Write `v` at the start of `buf`, returns the bytes written; None, with `buf` partly written, when `buf` is
 /// shorter than [uvar_len] of `v`.
-pub(crate) fn put_uvar(buf: &mut [u8], mut v: u64) -> Option<usize> {
+pub fn put_uvar(buf: &mut [u8], mut v: u64) -> Option<usize> {
     for (i, slot) in buf.iter_mut().enumerate() {
         let [low, ..] = v.to_le_bytes();
         let b = low & 0x7f;
@@ -46,11 +46,11 @@ pub(crate) fn put_uvar(buf: &mut [u8], mut v: u64) -> Option<usize> {
 }
 
 /// [put_uvar] of the zigzag form of `v`.
-pub(crate) fn put_ivar(buf: &mut [u8], v: i64) -> Option<usize> {
+pub fn put_ivar(buf: &mut [u8], v: i64) -> Option<usize> {
     put_uvar(buf, zigzag(v))
 }
 
-pub(crate) struct Reader<'b>(pub &'b [u8]);
+pub struct Reader<'b>(pub &'b [u8]);
 
 impl<'b> Reader<'b> {
     /// A `uvar` that never sizes anything (a delta, an id); None past the end or past 10 bytes.

@@ -1,11 +1,12 @@
-//! The lz4 payload codec ([Codec::LZ4]): a column's bytes as one lz4 block, through the pure-Rust `lz4_flex`.
+//! The lz4 payload codec (`Codec::LZ4` of a chunk column): a column's bytes as one lz4 block, through the pure-Rust
+//! `lz4_flex`.
 //!
 //! ```text
 //! u32   decoded length, at most LZ4_DECODED_MAX
 //! ...   one lz4 block (no frame, no checksum: the chunk's CRCs check it)
 //! ```
 //!
-//! A writer picks it per chunk for a payload column ([ColumnKind::Payloads](crate::ColumnKind::Payloads)) when it
+//! A writer picks it per chunk for a payload column when it
 //! makes the column smaller; the payload lengths column stays as it is, so item `i`'s payload is found in the decoded
 //! bytes.
 //!
@@ -15,18 +16,13 @@
 //! smaller" choice can differ with it. The workspace pins `lz4_flex` to an exact version for that reason; the golden
 //! file checks it. Decoding is the same everywhere.
 
-use crate::{Codec, FromFile};
-
-impl Codec {
-    /// The column's bytes as one lz4 block after their decoded length.
-    pub const LZ4: Codec = Codec(48);
-}
+use crate::FromFile;
 
 /// Bytes of the decoded length in front of the block.
 const LEN_BYTES: usize = 4;
 
-/// Longest decoded column a reader takes: a whole block's worth, [MAX_BLOCK_LEN](crate::MAX_BLOCK_LEN).
-pub const LZ4_DECODED_MAX: usize = crate::MAX_BLOCK_LEN;
+/// Longest decoded column a reader takes: a whole block's worth (64 MiB, the longest block a tape reader takes).
+pub const LZ4_DECODED_MAX: usize = 64 << 20;
 
 /// Most bytes one byte of an lz4 block decodes to: a match token and its length bytes add 255 bytes per byte.
 const EXPANSION_MAX: usize = 255;

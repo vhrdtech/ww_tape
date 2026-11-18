@@ -109,7 +109,7 @@ const TABLE: crc::Crc<u32, crc::Table<16>> =
 /// [Kernel::Table].
 #[cfg(test)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub(crate) enum Kernel {
+pub enum Kernel {
     /// [TABLE], every target.
     Table,
     /// x86-64 SSE4.2 `crc32`.
@@ -144,18 +144,18 @@ fn has_crc32() -> bool {
 /// accumulator's whole life as a [hw_x86_64::Token] or [hw_aarch64::Token] (so [Digest::update] never checks the
 /// CPU again): the same `digest`/`checksum` shape as [crc::Crc], so call sites take it in its place.
 #[derive(Copy, Clone)]
-pub(crate) struct Crc32c;
+pub struct Crc32c;
 
 impl Crc32c {
     /// The CRC-32C of `bytes`.
-    pub(crate) fn checksum(&self, bytes: &[u8]) -> u32 {
+    pub fn checksum(&self, bytes: &[u8]) -> u32 {
         let mut d = self.digest();
         d.update(bytes);
         d.finalize()
     }
 
     /// A fresh accumulator on the fastest kernel this CPU runs.
-    pub(crate) fn digest(&self) -> Digest {
+    pub fn digest(&self) -> Digest {
         #[cfg(target_arch = "x86_64")]
         if let Some(token) = hw_x86_64::Token::detect() {
             return Digest(State::Sse42(token, 0));
@@ -182,7 +182,7 @@ fn digest_with(kernel: Kernel) -> Option<Digest> {
 }
 
 /// [Crc32c::digest]'s accumulator; [Digest::update] may be called more than once.
-pub(crate) struct Digest(State);
+pub struct Digest(State);
 
 enum State {
     Table(crc::Digest<'static, u32, crc::Table<16>>),
@@ -194,7 +194,7 @@ enum State {
 
 impl Digest {
     /// Feed more bytes into the accumulator.
-    pub(crate) fn update(&mut self, bytes: &[u8]) {
+    pub fn update(&mut self, bytes: &[u8]) {
         match &mut self.0 {
             State::Table(d) => d.update(bytes),
             #[cfg(target_arch = "x86_64")]
@@ -205,7 +205,7 @@ impl Digest {
     }
 
     /// The CRC-32C of every byte fed in.
-    pub(crate) fn finalize(self) -> u32 {
+    pub fn finalize(self) -> u32 {
         match self.0 {
             State::Table(d) => d.finalize(),
             #[cfg(target_arch = "x86_64")]

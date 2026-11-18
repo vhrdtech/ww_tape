@@ -144,6 +144,8 @@ impl Codec {
     /// Plain little-endian values (starts and ends as i64, flags as u32, lengths as u32, samples in the track's
     /// element type) or plain bytes (payload).
     pub const RAW: Codec = Codec(0);
+    /// The column's bytes as one lz4 block after their decoded length ([lz4](crate::lz4)).
+    pub const LZ4: Codec = Codec(48);
     /// Reserved: a payloads column holding one shrink_wrap `Series<T>` of the chunk's items (module docs).
     pub const SERIES: Codec = Codec(49);
     /// Most items of a chunk whose payloads column is in [Codec::SERIES].
