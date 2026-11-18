@@ -229,6 +229,7 @@ impl<'b> EventTimes<'b> {
         let s = starts.ok_or(TimesError::Missing(ColumnKind::Starts))?;
         codec(&s, STARTS)?;
         let starts = Starts::parse(
+            ColumnKind::Starts,
             n,
             (head.first_tick, head.last_tick),
             mode,
