@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::definitions::{CLOCK, base_defs, state, track};
+use crate::id;
 use crate::pieces::{chunk, column, records};
 use shrink_wrap::prelude::*;
 use ww_tape::index::IndexPolicy;
@@ -24,6 +25,23 @@ struct Shape {
     cut: u64,
     files: PieceFiles,
     layout: Layout,
+    /// How the blocks of track 9 and the chunks of track 1 reach the writer.
+    way: Way,
+    /// A crash and a resume after half of the rounds.
+    resume: bool,
+}
+
+/// How a [Shape] gives its blocks to the writer.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum Way {
+    /// Each chunk by `write_chunk`, each records block by `write_block`.
+    Write,
+    /// Track 1's chunk and the first records block of a round deferred, the second written.
+    Defer,
+    /// Each records block after another one with its id and other bytes, which it replaces.
+    Replace,
+    /// Each records block adopted.
+    Adopt,
 }
 
 fn options(shape: Shape) -> ChainOptions {
@@ -86,6 +104,15 @@ fn write(shape: Shape) -> (Vec<Finished>, Vec<u8>) {
     )
     .unwrap();
     for k in 0..12u64 {
+        if shape.resume && k == 6 {
+            c.writer().unwrap().flush_deferred().unwrap();
+            let mem = c.factory().clone();
+            // a crash: the open piece is left as it is
+            drop(c);
+            (c, _) =
+                PieceChain::resume_on(mem, Path::new("hash"), OwnerId([5; 32]), 0, options(shape))
+                    .unwrap();
+        }
         if shape.interleaved {
             let (h, b) = chunk(1, k);
             c.write_chunk(&defs, &h, &column(&b)).unwrap();
@@ -95,19 +122,51 @@ fn write(shape: Shape) -> (Vec<Finished>, Vec<u8>) {
                 .unwrap();
         }
         let (h, b) = chunk(0, k);
-        c.write_chunk(&defs, &h, &column(&b)).unwrap();
+        if shape.way == Way::Defer {
+            let block = chunk_block(&h, &b);
+            c.writer().unwrap().defer_block(&defs, block).unwrap();
+        } else {
+            c.write_chunk(&defs, &h, &column(&b)).unwrap();
+        }
         if shape.interleaved {
             let (h, b) = chunk(2, k);
             c.write_chunk(&defs, &h, &column(&b)).unwrap();
         }
         let w = c.writer().unwrap();
-        let id = w.next_id();
-        w.write_block(&defs, &records(id, k as i64)).unwrap();
+        for n in [2 * k as i64, 2 * k as i64 + 1] {
+            match shape.way {
+                Way::Write => {
+                    w.write_block(&defs, &records(w.next_id(), n)).unwrap();
+                }
+                Way::Defer if n % 2 == 0 => w.defer_block(&defs, records(id(0), n)).unwrap(),
+                Way::Defer => {
+                    w.write_block(&defs, &records(w.next_id(), n)).unwrap();
+                }
+                Way::Replace => {
+                    let id = w.next_id();
+                    w.write_block(&defs, &records(id, 1000 + n)).unwrap();
+                    w.write_block(&defs, &records(id, n)).unwrap();
+                }
+                Way::Adopt => {
+                    w.adopt_block(&defs, &records(id(n as u64), n)).unwrap();
+                }
+            }
+        }
     }
     let mem = c.factory().clone();
     let done = c.finish().unwrap();
     let bytes = files_of(&mem, &done);
     (done, bytes)
+}
+
+/// The whole chunk block of `head` and its raw starts `starts`, for a writer to number.
+fn chunk_block(head: &ww_tape::ChunkHead, starts: &[u8]) -> Vec<u8> {
+    let cols = column(starts);
+    let specs: Vec<_> = cols.iter().map(|c| c.0).collect();
+    let mut block = vec![0u8; ww_tape::chunk::chunk_len(head, &specs, 0)];
+    let n = ww_tape::chunk::write_chunk(&mut block, id(0), head, &cols, 0).unwrap();
+    block.truncate(n);
+    block
 }
 
 /// Track 9's id: [crate::pieces::records] writes on it.
@@ -119,12 +178,23 @@ fn track_9_id() -> u64 {
 }
 
 /// The hash of track `number` folded by a reader from the good blocks of `bytes`: each chunk of the track by its
-/// payload's hash, each record not marked as a repeat.
+/// payload's hash, each record not marked as a repeat; a block replaced by the next one is taken back.
 fn fold(bytes: &[u8], number: u32) -> TrackHash {
     let mut h = TrackHash::START;
+    // the hash before the last counted block
+    let mut before = h;
     let mut rd = FileBlocks::new(bytes);
     while let Some(b) = rd.next_block() {
-        let b = b.unwrap();
+        let b = match b {
+            Err(ww_tape::FileError::Replaced { .. }) => {
+                h = before;
+                continue;
+            }
+            b => b.unwrap(),
+        };
+        if !b.is_repeat() && !ww_tape::index::is_structural(b.kind) {
+            before = h;
+        }
         if let Some(c) = b.chunk() {
             if c.head().track_number == number {
                 h = h.chunk(&c, &payload_hash(c.payload()));
@@ -155,6 +225,8 @@ fn a_track_hash_is_the_same_however_the_track_is_written() {
         cut: 0,
         files: PieceFiles::Each,
         layout: Layout::UNALIGNED,
+        way: Way::Write,
+        resume: false,
     };
     let (done, bytes) = write(alone);
     let want = hashes(&done);
@@ -176,7 +248,29 @@ fn a_track_hash_is_the_same_however_the_track_is_written() {
                     cut,
                     files,
                     layout,
+                    ..alone
                 });
+            }
+        }
+    }
+    // deferred, replaced and adopted blocks, and a resume, in one piece and cut, in either layout
+    for way in [Way::Write, Way::Defer, Way::Replace, Way::Adopt] {
+        for (cut, files) in [
+            (0, PieceFiles::Each),
+            (3, PieceFiles::Each),
+            (3, PieceFiles::One),
+        ] {
+            for layout in [Layout::UNALIGNED, Layout::ALIGNED] {
+                for resume in [false, true] {
+                    shapes.push(Shape {
+                        interleaved: true,
+                        cut,
+                        files,
+                        layout,
+                        way,
+                        resume,
+                    });
+                }
             }
         }
     }
@@ -251,6 +345,8 @@ fn write_owned(tracks: &[TrackDef<'static>]) -> Vec<Finished> {
         cut: 5,
         files: PieceFiles::One,
         layout: Layout::UNALIGNED,
+        way: Way::Write,
+        resume: false,
     };
     let mut c = PieceChain::create_on(
         MemTapes::new(),
@@ -315,6 +411,8 @@ fn tracks_of_one_key_with_two_owners_are_two_tracks() {
             cut: 0,
             files: PieceFiles::Each,
             layout: Layout::UNALIGNED,
+            way: Way::Write,
+            resume: false,
         }),
     )
     .unwrap();

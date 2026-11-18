@@ -1128,6 +1128,7 @@ impl<S: TapeSink> TapeWriter<S> {
         self.ensure_head()?;
         self.put_chosen(&needs, false)?;
         let d = Deferred {
+            tracks: data_tracks(&b),
             block,
             at: self.offset(),
         };
@@ -1247,6 +1248,14 @@ impl<S: TapeSink> TapeWriter<S> {
         self.ensure_head()?;
         let payload = specs.iter().fold(0usize, |n, c| n.saturating_add(c.len));
         let head_len = crate::chunk::chunk_head_len(head, columns.len(), payload);
+        // a deferred block of the chunk's track goes before it, as in an unaligned file: so do those before it
+        if self
+            .deferred
+            .iter()
+            .any(|d| d.tracks.contains(&head.track_number))
+        {
+            self.flush_deferred()?;
+        }
         if self.alignment() != 0 {
             // what this call may write: the deferred blocks, a checkpoint, the puts and the chunk
             let checkpoint = if self.index_due {
@@ -1352,12 +1361,16 @@ impl<S: TapeSink> TapeWriter<S> {
         // layout and the producer are put again in it
         let session = block_id(block).filter(|theirs| theirs.session != self.session);
         self.room(0, !self.head_put || session.is_some())?;
+        // a block numbered the next id when called goes after the deferred blocks placed first: renumbered
+        let asked = self.next_id();
         self.flush_deferred()?;
+        let renumbered = block_id(block) == Some(asked) && self.next_id() != asked;
         if let Some(c) = b.chunk() {
             // a counted block with the last one's id takes its place
-            let replacing = self
-                .last_counted
-                .is_some_and(|(id, ..)| block_id(block) == Some(id));
+            let replacing = !renumbered
+                && self
+                    .last_counted
+                    .is_some_and(|(id, ..)| block_id(block) == Some(id));
             self.check_relations(defs, &c, replacing)?;
         }
         if let Some(theirs) = session {
@@ -1365,10 +1378,9 @@ impl<S: TapeSink> TapeWriter<S> {
             self.next_seq = theirs.seq;
             self.head_put = false;
         }
-        let before = self.next_id();
         self.ensure_head()?;
         self.put_needed(&needs)?;
-        let placed = if block_id(block) == Some(before) && self.next_id() != before {
+        let placed = if renumbered {
             let mut own = block.to_vec();
             crate::set_id_trusted(&mut own, self.next_id()).map_err(WriteError::Block)?;
             self.write_own(&own)?
@@ -1874,6 +1886,8 @@ fn chosen_records<'c>(cands: &'c [Candidate<'_>], chosen: &[bool]) -> Vec<Record
 struct Deferred {
     block: Vec<u8>,
     at: u64,
+    /// The data tracks it holds: placed before any later block of them
+    tracks: Vec<u32>,
 }
 
 /// Bytes of the blocks of puts holding `records`, as [TapeWriter::write_puts] writes them.
