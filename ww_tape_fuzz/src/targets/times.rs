@@ -4,7 +4,7 @@
 //! code does.
 use ww_tape::bitpack::{self, GROUP, Kernel};
 use ww_tape::chunk::{chunk_len, write_chunk};
-use ww_tape::times::{EncodedTimes, Ends, EventTimes};
+use ww_tape::times::{EncodedRelation, EncodedTimes, Ends, EventTimes, RelationColumn};
 use ww_tape::{Block, ColumnSpec};
 
 /// Read everything the times give.
@@ -37,10 +37,26 @@ fn read_all(t: &EventTimes<'_>) {
     let _ = t.suspect_items().count();
 }
 
+/// Read everything a relation column gives.
+fn read_relation(r: &RelationColumn<'_>) {
+    for i in 0..r.len() {
+        let _ = r.get(i);
+    }
+    let (lo, hi) = r.range();
+    for q in [0, 1, lo, hi, hi.saturating_add(1), u64::MAX] {
+        assert!(r.lower_bound(q).is_none_or(|i| i <= r.len()));
+    }
+}
+
 pub(crate) fn walk(block: &[u8]) {
     if let Ok(b) = Block::salvage(block)
         && let Some(c) = b.chunk()
     {
+        for relation in 0..3 {
+            if let Ok(Some(r)) = RelationColumn::read(&c, relation) {
+                read_relation(&r);
+            }
+        }
         if let Ok(t) = EventTimes::read(&c) {
             read_all(&t);
         }
@@ -97,7 +113,27 @@ pub fn times(data: &[u8]) {
         return;
     }
     let enc = EncodedTimes::encode(&starts, Some(&ends), Some(&flags)).expect("valid times");
-    let cols: Vec<_> = enc.columns().collect();
+    // relation values from the same bytes: a source ordinal that never decreases, and keys in any order
+    let mut src = u64::from(mode) << 56;
+    let sources: Vec<u64> = items
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| {
+            src = src.saturating_add(u64::from(c[2] % 3));
+            src
+        })
+        .collect();
+    let keys: Vec<u64> = items
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| u64::from_le_bytes([c[0], c[1], c[2], c[3], c[1], c[0], 0, c[3]]))
+        .collect();
+    let source = EncodedRelation::encode(0, &sources, true).expect("values that never decrease");
+    let key = EncodedRelation::encode(2, &keys, false).expect("any values");
+    let mut cols: Vec<_> = enc.columns().collect();
+    cols.extend([source.column(), key.column()]);
     let specs: Vec<ColumnSpec> = cols.iter().map(|c| c.0).collect();
     let mut buf = vec![0u8; chunk_len(&enc.head.chunk_head(1, 1, 0), &specs, 0)];
     let len = write_chunk(
@@ -118,6 +154,19 @@ pub fn times(data: &[u8]) {
         );
     }
     read_all(&times);
+    for (relation, values) in [(0, &sources), (2, &keys)] {
+        let r = RelationColumn::read(&chunk, relation)
+            .expect("written relation reads")
+            .expect("its column");
+        assert_eq!((0..r.len()).map(|i| r.get(i)).collect::<Vec<_>>(), *values);
+        let lo = values.iter().copied().min().expect("items");
+        let hi = values.iter().copied().max().expect("items");
+        assert_eq!(r.range(), (lo, hi));
+        if let Some(at) = r.lower_bound(lo.saturating_add(1)) {
+            assert_eq!(at, values.partition_point(|v| *v <= lo));
+        }
+        read_relation(&r);
+    }
     let p = chunk.payload_offset();
     let at = p + flip % (len - 4 - p);
     let mut flipped = buf.clone();
