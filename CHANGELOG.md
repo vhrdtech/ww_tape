@@ -10,6 +10,7 @@ Covers `ww_tape` 0.1.0.
 
 ### ⚠️ Breaking
 
+- Format: `TrackDef` gains `parent`, `context` and `entity_key`; goldens and seeds rewritten, older definitions don't read (TAPE-7).
 - Format: a series chunk head carries its grid and scale; series goldens rewritten, old v1 series files don't read (TAPE-3).
 - `SeriesSegment` records are gone: a series track has no records, takes `TrackRepeat::Stream`; put a `SeriesGrid` in `ChunkHead::grid` (TAPE-3).
 - `SeriesTimeline` is built from chunk heads (`from_chunks`, `push_chunk`); `from_records`, `check_chunk`, `chunk_ticks` are gone (TAPE-3).

@@ -54,6 +54,9 @@ pub(crate) fn labeled(number: u32, clock: u32, label: &'static str) -> Describe<
         label,
         repeat: TrackRepeat::Stream,
         kind: TrackKind::Events(EventsDef::INSTANTS),
+        parent: None,
+        context: RefVec::Slice { slice: &[] },
+        entity_key: None,
     })
 }
 
@@ -1122,4 +1125,98 @@ fn near_is_measured_to_the_data() {
         .rfind(|at| *at < data)
         .unwrap();
     assert!(newest >= before, "track 2 put again before the data");
+}
+
+/// Events track `number` on [CLOCK] nested under `parent`, read with state tracks `context`, keyed by `key`.
+fn related(
+    number: u32,
+    parent: Option<u32>,
+    context: &'static [UNib32],
+    key: Option<&'static str>,
+) -> Describe<'static> {
+    let Describe::Track(t) = track(number, CLOCK) else {
+        unreachable!("track() gives a track")
+    };
+    Describe::Track(TrackDef {
+        parent: parent.map(UNib32),
+        context: RefVec::Slice { slice: context },
+        entity_key: key,
+        ..t
+    })
+}
+
+/// A track's parent, context and entity key round-trip; the parent is an open events track and the context open
+/// state tracks, in the batch or held; a relation that names the track itself, repeats or is out of order is
+/// refused, and so is a parent of a series or an empty key.
+#[test]
+fn a_tracks_relations_name_open_tracks_of_the_right_kind() {
+    let words = related(3, Some(2), &[UNib32(4), UNib32(5)], Some("speaker.id"));
+    let bytes = ww_tape::open::encode(&words).unwrap();
+    assert_eq!(Describe::from_ww_bytes(&bytes).unwrap(), words);
+
+    let check = |defs: &Definitions, batch: &[Describe<'static>]| {
+        let items: Vec<Vec<u8>> = batch
+            .iter()
+            .map(|d| ww_tape::open::encode(d).unwrap())
+            .collect();
+        defs.check_batch(batch.iter().zip(items.iter().map(Vec::as_slice)))
+    };
+    let empty = Definitions::new();
+    let base = [clock(CLOCK), track(2, CLOCK), state(4), state(5)];
+    let with = |d: Describe<'static>| base.iter().cloned().chain([d]).collect::<Vec<_>>();
+    assert_eq!(check(&empty, &with(words.clone())), Ok(()));
+    // held, then a batch of the child alone
+    let mut held = Definitions::new();
+    for d in &base {
+        held.define(d).unwrap();
+    }
+    assert_eq!(check(&held, core::slice::from_ref(&words)), Ok(()));
+
+    let unknown = |related| Err(DescribeError::UnknownRelated { track: 3, related });
+    assert_eq!(
+        check(&empty, &with(related(3, Some(9), &[], None))),
+        unknown(9)
+    );
+    assert_eq!(
+        check(&empty, &with(related(3, Some(4), &[], None))),
+        unknown(4),
+        "a state track as parent"
+    );
+    assert_eq!(
+        check(&empty, &with(related(3, None, &[UNib32(2)], None))),
+        unknown(2),
+        "an events track as context"
+    );
+    let shape = Err(DescribeError::Relations { track: 3 });
+    assert_eq!(
+        check(&empty, &with(related(3, Some(3), &[], None))),
+        shape,
+        "its own parent"
+    );
+    assert_eq!(
+        check(&empty, &with(related(3, None, &[UNib32(3)], None))),
+        shape,
+        "its own context"
+    );
+    assert_eq!(
+        check(
+            &empty,
+            &with(related(3, None, &[UNib32(5), UNib32(4)], None))
+        ),
+        shape,
+        "out of order"
+    );
+    assert_eq!(
+        check(
+            &empty,
+            &with(related(3, None, &[UNib32(4), UNib32(4)], None))
+        ),
+        shape,
+        "repeated"
+    );
+    assert_eq!(
+        check(&empty, &with(related(3, None, &[], Some("")))),
+        shape,
+        "an empty key"
+    );
 }

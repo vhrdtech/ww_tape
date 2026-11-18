@@ -175,7 +175,7 @@ them: one `Describe` per record, the item's whole bytes, with no time delta. A d
 | `Bundle` | an API bundle (a `ww_self` `ApiBundle` in its ShrinkWrap encoding) and its hash, the hash as the producer, `TrackDef::bundle` and `TypeRef::bundle` name it |
 | `Clock` | a `ClockDef`: number, stable key, exact rate and resolution as `Magnitude`s, origin (free-running, boot, Unix epoch, media start, session start, or the next epoch of a counter, fixed by an exact offset map) |
 | `Map` | a `ClockMap` of segments `b = b0 + (a - a0) · slope`, the slope an exact_units `Ratio64`, with an error bound, strictly increasing across segments; the tap maps its own clock to the wall clock read at its start |
-| `Track` | a `TrackDef`: number, stable key, clock, dimensions that are part of its identity, API, bundle, resource path, the keys of [keyed arrays](#track-identity) on it, optional item type, label, its `repeat` (`TrackRepeat`) and its kind: events, with or without ends and flags, or a [series](#series-tracks) |
+| `Track` | a `TrackDef`: number, stable key, clock, dimensions that are part of its identity, API, bundle, resource path, the keys of [keyed arrays](#track-identity) on it, optional item type, label, its `repeat` (`TrackRepeat`), its kind (events, with or without ends and flags, or a [series](#series-tracks)), and its relations: the events track its items nest under (`parent`), the state tracks it is read with (`context`) and the item field naming an item's entity (`entity_key`) |
 | `Item` | a `TypedItem`: any wire_weaver value by bundle hash and type path, such as a run record |
 
 Definitions sit in records blocks of their own, with no record of another track, each at most `DEFINITION_BLOCK_LEN`

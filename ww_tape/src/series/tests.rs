@@ -159,6 +159,9 @@ fn track(kind: TrackKind<'static>, state: bool) -> TrackDef<'static> {
             crate::TrackRepeat::Stream
         },
         kind,
+        parent: None,
+        context: RefVec::Slice { slice: &[] },
+        entity_key: None,
     }
 }
 
@@ -464,4 +467,12 @@ fn the_leaves_element_is_refused() {
         };
         assert!(r.is_err());
     }
+}
+
+#[test]
+fn a_series_names_no_parent() {
+    let mut t = track(TrackKind::Series(def()), false);
+    assert!(t.relations_canonical());
+    t.parent = Some(UNib32(1));
+    assert!(!t.relations_canonical());
 }
