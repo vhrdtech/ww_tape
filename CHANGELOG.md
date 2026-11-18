@@ -211,6 +211,7 @@ Covers `ww_tape` 0.1.0.
 - `Recovery::Resync` reads up to `RESYNC_AHEAD_MAX` (128 MiB) ahead to find where `Recovery::Prefix` goes on past a stretch (STD-129).
 - `PieceChain` resume refuses a last piece whose head is damaged; it resumed headless and its next cut failed (TAPE-8).
 - The content hash's walk reads a bounded multiple of a piece (`WALK_MISS_PER_BYTE_MAX`); crafted headers made it quadratic (TAPE-8).
+- `FileBlocks` steps over a chunk marked `FLAG_PAYLOAD_UNCHECKED` as `FileError::Refused`; Prefix cut there, Resync took it for damage (TAPE-8).
 - State lookups keep a piece's entries sorted once (`STATE_CACHE_MAX`) and spend decoded and kept bytes from `STATE_READ_MAX` (STD-135).
 - `Lookup` and `DefinitionsAt` gain `uncovered`: stretches before the place the index doesn't cover (STD-135).
 - A piece of another format version is reported where met (`PieceInfo::version`), not refusing or skipping the tape (STD-135).

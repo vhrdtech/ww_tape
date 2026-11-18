@@ -1635,3 +1635,46 @@ fn a_chunk_with_its_payload_unchecked_is_refused_as_a_level() {
         Some(crate::BlockError::PayloadUnchecked)
     );
 }
+
+/// A chunk marked FLAG_PAYLOAD_UNCHECKED between good blocks is refused as a level and stepped over by its length in
+/// both recoveries: the blocks after it read, nothing is cut, salvaged or reported bad.
+#[test]
+fn a_walk_steps_over_a_chunk_with_its_payload_unchecked() {
+    let (before, _) = tape(3);
+    let enc = crate::times::EncodedTimes::encode(&[1i64, 2, 3], None, None).unwrap();
+    let cols: std::vec::Vec<_> = enc.columns().collect();
+    let specs: std::vec::Vec<crate::ColumnSpec> = cols.iter().map(|c| c.0).collect();
+    let head = enc.head.chunk_head(9, 1, 0);
+    let mut chunk = std::vec![0u8; crate::chunk::chunk_len(&head, &specs, 0)];
+    let n = crate::chunk::write_chunk(&mut chunk, id(3), &head, &cols, 0).unwrap();
+    chunk.truncate(n);
+    crate::restamp(
+        &mut chunk,
+        id(3),
+        crate::FLAG_PAYLOAD_UNCHECKED,
+        crate::Reread::Whole,
+    )
+    .unwrap();
+    let mut after = Vec::new();
+    for seq in 4..6 {
+        after.extend(records_block(id(seq), &[(1, at(C1, 50), b"a")]));
+    }
+    let bytes = [&before[..], &chunk, &after].concat();
+    for recovery in [Recovery::Prefix, Recovery::Resync] {
+        let mut rd = FileBlocks::with_recovery(&bytes[..], recovery);
+        let (mut seqs, mut errors) = (vec![], vec![]);
+        while let Some(b) = rd.next_block() {
+            match b {
+                Ok(b) => seqs.push(b.seq),
+                Err(e) => errors.push(format!("{e:?}")),
+            }
+        }
+        assert_eq!(seqs, [0, 1, 2, 4, 5], "{recovery:?}");
+        let refused = FileError::Refused {
+            offset: before.len() as u64,
+            error: BlockError::PayloadUnchecked,
+            len: n as u64,
+        };
+        assert_eq!(errors, [format!("{refused:?}")], "{recovery:?}");
+    }
+}

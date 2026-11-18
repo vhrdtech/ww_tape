@@ -166,6 +166,13 @@ pub enum FileError {
         session: SessionTag,
         len: u64,
     },
+    /// A block at `offset`, `len` bytes by its head-CRC-checked length, of an integrity level this build doesn't
+    /// handle (`error`: [BlockError::PayloadUnchecked]): not damage. Both recoveries step over it and go on.
+    Refused {
+        offset: u64,
+        error: BlockError,
+        len: u64,
+    },
 }
 
 /// Why a [Recovery::Prefix] walk stopped before the end of the file.
@@ -237,6 +244,10 @@ impl core::fmt::Display for FileError {
                 "a stale block of another session ({:08x}) at byte {offset}, {len} bytes skipped",
                 session.get()
             ),
+            FileError::Refused { offset, error, len } => write!(
+                f,
+                "a block of an integrity level this reader doesn't handle at byte {offset} ({error:?}), {len} bytes skipped"
+            ),
         }
     }
 }
@@ -250,7 +261,8 @@ pub enum Recovery {
     /// that may not start there, or a seq that goes backwards, and report where ([FileError::Cut]). What a crash
     /// leaves (a cut last block, blank preallocated space) reads as the file up to there. Where the layout allows
     /// gaps ([crate::Layout::gap_max]), a blank or bad stretch the session's data goes on after is a [FileError::Gap],
-    /// not the end. The default.
+    /// not the end. A block of an integrity level this build doesn't handle is no damage: both recoveries report it
+    /// ([FileError::Refused]) and step over it by its length. The default.
     #[default]
     Prefix,
     /// Salvage: report a bad block and read on at the next block magic one byte after its start ([FileError::Bad]);
@@ -509,6 +521,8 @@ impl<R: Read> FileBlocks<R> {
                 }
                 return self.judge(c);
             }
+            Here::Refused { len, error } if !blank => return self.refused(len, error),
+            Here::Refused { error, .. } => error,
             Here::Truncated if !blank => return Err(self.truncated()),
             Here::Truncated => BlockError::BadMagic,
             Here::Bad(e) => e,
@@ -550,6 +564,8 @@ impl<R: Read> FileBlocks<R> {
         }
         Ok(match Block::read(&self.buf) {
             Ok(b) => Here::Good(Checked::of(&b)),
+            // the head CRC holds: the length is the block's
+            Err(error @ BlockError::PayloadUnchecked) => Here::Refused { len, error },
             // a chunk block with a good head: its length holds, the payload is handed out with its bad segments
             // marked, and the walk goes on after it without looking for a magic in the payload
             Err(e) if self.recovery == Recovery::Resync => match Block::salvage(&self.buf) {
@@ -768,6 +784,17 @@ impl<R: Read> FileBlocks<R> {
         self.current()
     }
 
+    /// The block of `len` bytes here, refused as a level (`error`): stepped over, never cut or salvaged.
+    fn refused(&mut self, len: usize, error: BlockError) -> Result<Next, FileError> {
+        let offset = self.offset;
+        self.consume(self.within_gap(len))?;
+        Err(FileError::Refused {
+            offset,
+            error,
+            len: wide(len),
+        })
+    }
+
     fn cut(&mut self, offset: u64, why: Cut) -> FileError {
         self.done = true;
         FileError::Cut { offset, why }
@@ -819,6 +846,11 @@ impl<R: Read> FileBlocks<R> {
 enum Here {
     /// A good block (or, in [Recovery::Resync], a chunk with a good head).
     Good(Checked),
+    /// A block of an integrity level this build doesn't handle, `len` bytes by its checked head.
+    Refused {
+        len: usize,
+        error: BlockError,
+    },
     /// The file ends inside the header or the block.
     Truncated,
     Bad(BlockError),
