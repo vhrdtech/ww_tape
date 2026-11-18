@@ -5,7 +5,6 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::RefCell;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Once;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 /// Largest single allocation a case may make: 128 MiB, the fuzz recipes' `-malloc_limit_mb`.
@@ -14,8 +13,11 @@ pub const ALLOC_MAX: usize = 128 << 20;
 /// made and only reported.
 const ALLOC_REFUSED: usize = 1 << 30;
 
-/// The largest allocation over [ALLOC_MAX] since it was last taken, 0 for none.
-static OVER: AtomicUsize = AtomicUsize::new(0);
+std::thread_local! {
+    /// The largest allocation over [ALLOC_MAX] this thread made since it was last taken, 0 for none: per thread, so
+    /// cases run in parallel by a test harness don't see each other's allocations.
+    static OVER: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
 
 /// The system allocator, noting every single allocation over [ALLOC_MAX] for [run]; a binary declares it with
 /// `#[global_allocator] static ALLOCATOR: Capped = Capped;`.
@@ -24,7 +26,8 @@ pub struct Capped;
 impl Capped {
     fn note(size: usize) -> bool {
         if size > ALLOC_MAX {
-            OVER.fetch_max(size, Ordering::Relaxed);
+            // a thread being torn down has no slot left: its allocations belong to no case
+            let _ = OVER.try_with(|o| o.set(o.get().max(size)));
         }
         size <= ALLOC_REFUSED
     }
@@ -106,13 +109,13 @@ pub enum Outcome {
 /// Run `target` on `data`; the wall-clock time it took is for reports only.
 pub fn run(target: fn(&[u8]), data: &[u8]) -> (Outcome, Duration) {
     quiet_panics();
-    OVER.store(0, Ordering::Relaxed);
+    OVER.with(|o| o.set(0));
     let start = Instant::now();
     IN_CASE.with(|c| c.set(true));
     let r = catch_unwind(AssertUnwindSafe(|| target(data)));
     IN_CASE.with(|c| c.set(false));
     let took = start.elapsed();
-    let over = OVER.swap(0, Ordering::Relaxed);
+    let over = OVER.with(|o| o.replace(0));
     let outcome = match r {
         Err(_) => {
             let (at, msg) = LAST_PANIC
