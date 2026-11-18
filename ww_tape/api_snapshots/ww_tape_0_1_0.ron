@@ -1,6 +1,6 @@
 // ww_tape 0.1.0 traits and types, saved by `ww api save`.
 // Do not edit, bump the crate version and save a new snapshot instead.
-// shrink_wrap sha256: eedc799af79d80327289654b7f3ac45d3cc924fbf540bc9379384c07a5645f6b
+// shrink_wrap sha256: b9a5ae52c5e5d7c6643806003f604555c4af453dcca3554c33fb74c6dd0c4995
 (magic: 2837124336, ww_self_version: (major: 0, minor: 3, patch: 0), root: (docs: [
     "Tape blocks: the unit a producer of records hands over, a live consumer reads and a log file is made of.",
     "",
@@ -22,8 +22,9 @@
     "  4  u8  version, 1",
     "  5  u8  kind: 1 records, 3 and up other kinds (BlockKind); 2 is reserved (RESERVED_KIND)",
     "  6 u16  flags: bit 0 body coded (FLAG_BODY_CODED, record blocks only), bit 1 state records a writer put or",
-    "         copied (FLAG_REPEAT), bit 2 puts that belong with the next block (FLAG_WITH_NEXT); others 0 (a",
-    "         reader ignores bits it doesn\'t know)",
+    "         copied (FLAG_REPEAT), bit 2 puts that belong with the next block (FLAG_WITH_NEXT), bit 3 on a",
+    "         chunk its payload unchecked (FLAG_PAYLOAD_UNCHECKED, reserved: 0, a reader refuses it); others 0",
+    "         (a reader ignores bits it doesn\'t know)",
     "  8 u32  len: the whole block, header and CRC included",
     " 12 u32  records in the block",
     " 16 u64  seq: the block number in its session, from 0, +1 per block; a gap is lost blocks. Index, finish, tail and",

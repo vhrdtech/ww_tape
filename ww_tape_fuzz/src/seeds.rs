@@ -398,6 +398,7 @@ fn session(layout: Layout, n: u64) -> Vec<u8> {
         },
         prev: None,
         prev_session: SessionTag::NONE,
+        integrity: ww_tape::Integrity::Full,
     };
     let len = write_piece_head(&mut out, BlockId::new(SESSION, 0), &head, &[]).expect("a head");
     out.truncate(len);

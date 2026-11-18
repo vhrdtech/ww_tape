@@ -283,6 +283,7 @@ fn begin_with(o: WriterOptions, layout: Layout) -> Rig {
             },
             prev: None,
             prev_session: SessionTag::NONE,
+            integrity: ww_tape::Integrity::Full,
         },
         &[],
     )

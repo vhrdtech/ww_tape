@@ -114,6 +114,7 @@ fn template(aligned: bool, head: bool) -> Vec<u8> {
             },
             prev: None,
             prev_session: SessionTag::NONE,
+            integrity: ww_tape::Integrity::Full,
         };
         w.begin_piece(&h, &[]).expect("a head writes");
     }

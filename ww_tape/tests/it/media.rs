@@ -28,6 +28,7 @@ fn piece_head(session: SessionTag, prev_session: SessionTag) -> Vec<u8> {
         },
         prev: None,
         prev_session,
+        integrity: ww_tape::Integrity::Full,
     };
     let n = write_piece_head(&mut buf, BlockId::new(session, 0), &head, &[]).unwrap();
     buf.truncate(n);
@@ -739,6 +740,7 @@ fn a_raw_piece_is_one_session() {
             },
             prev: None,
             prev_session: SessionTag::NONE,
+            integrity: ww_tape::Integrity::Full,
         };
         w.begin_piece(&head, &[]).unwrap();
         for b in &blocks {

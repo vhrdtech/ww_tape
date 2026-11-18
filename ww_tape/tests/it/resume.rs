@@ -115,6 +115,7 @@ fn head() -> PieceHead {
         },
         prev: None,
         prev_session: SessionTag::NONE,
+        integrity: ww_tape::Integrity::Full,
     }
 }
 

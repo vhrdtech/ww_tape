@@ -30,7 +30,7 @@
 //!  88 u32  flags: bit 0 has a previous piece                        92 u32 previous session tag (0: none or unknown)
 //!  96 [32] previous piece's content hash                           128 [16] previous piece's id
 //! 144 u16  track row length, 96 (a reader takes longer rows and reads their first 96 bytes)
-//! 146 u8   integrity: 0 full, 1 CRC only, 2 none (reserved: written 0, a reader refuses another)    147 [5] reserved
+//! 146 u8   integrity (Integrity): 0 Full, 1 CrcOnly, 2 None (written Full; a reader refuses another)    147 [5] reserved
 //! 152 ...  tracks × 96, one per track carried over from the pieces before:
 //!            0 u64 id    8 u32 number    12 u32 reserved    16 u64 next item (the first item number this piece holds)
 //!           24 i64 from tick (no item of the track here starts before it)
@@ -111,10 +111,8 @@ const HEAD_FIXED_LEN: usize = 120;
 const HEAD_TRACK_LEN: usize = 96;
 /// Where a piece head names its row length.
 const HEAD_ROW_LEN_AT: usize = 144;
-/// Where a piece head's integrity level is: 0 full ([INTEGRITY_FULL]), 1 CRC only, 2 none; reserved, written 0.
+/// Where a piece head's integrity level is, an [Integrity] byte.
 const HEAD_INTEGRITY_AT: usize = 146;
-/// The integrity level of every piece this build writes and the one it reads: CRCs and hashes all computed.
-pub const INTEGRITY_FULL: u8 = 0;
 /// Where a piece head's tracks start.
 const HEAD_TRACKS_AT: usize = HEADER_LEN + HEAD_FIXED_LEN;
 /// Bytes of the fixed part of a finish body.
@@ -481,6 +479,48 @@ pub struct PieceHead {
     /// piece head naming the session just ended, so stale blocks behind the end of data never pass for a new
     /// session.
     pub prev_session: SessionTag,
+    /// What the piece's writer computed. This build writes and reads [Integrity::Full] only and refuses the others
+    /// as a level it doesn't handle ([IndexError::UnhandledIntegrity]).
+    pub integrity: Integrity,
+}
+
+/// A piece's integrity level, the piece head's byte 146: which CRCs and hashes its writer computed.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum Integrity {
+    /// Every CRC and every hash computed.
+    Full = 0,
+    /// CRCs computed, hashes not: each index entry is marked [ENTRY_UNHASHED](crate::index::ENTRY_UNHASHED).
+    CrcOnly = 1,
+    /// Payload CRCs and hashes not computed; chunk head CRCs and every structure block stay checked. Each chunk is
+    /// marked [FLAG_PAYLOAD_UNCHECKED](crate::FLAG_PAYLOAD_UNCHECKED), each index entry
+    /// [ENTRY_UNHASHED](crate::index::ENTRY_UNHASHED).
+    None = 2,
+}
+
+impl From<Integrity> for u8 {
+    /// The level's byte.
+    fn from(level: Integrity) -> u8 {
+        match level {
+            Integrity::Full => 0,
+            Integrity::CrcOnly => 1,
+            Integrity::None => 2,
+        }
+    }
+}
+
+impl TryFrom<u8> for Integrity {
+    type Error = IndexError;
+
+    /// The level of byte `level`; [IndexError::UnknownIntegrity] for a value no level has.
+    fn try_from(level: u8) -> Result<Self, IndexError> {
+        match level {
+            0 => Ok(Integrity::Full),
+            1 => Ok(Integrity::CrcOnly),
+            2 => Ok(Integrity::None),
+            level => Err(IndexError::UnknownIntegrity { level }),
+        }
+    }
 }
 
 /// Bytes of a block of `fixed` bytes of body and `tracks` rows of `row` bytes; `usize::MAX`, longer than any block,
@@ -514,6 +554,11 @@ pub fn write_piece_head(
     head: &PieceHead,
     tracks: &[TrackStart],
 ) -> Result<usize, IndexError> {
+    if head.integrity != Integrity::Full {
+        return Err(IndexError::UnhandledIntegrity {
+            level: head.integrity,
+        });
+    }
     let len = piece_head_len(tracks.len());
     let (b, count) = block_buf(buf, len, tracks.len())?;
     put_header(b, BlockKind::PieceHead, len, count, id)
@@ -534,6 +579,7 @@ fn fill_piece_head(b: &mut [u8], head: &PieceHead, tracks: &[TrackStart]) -> Opt
         put(b, 128, id.0)?;
     }
     put_u16(b, HEAD_ROW_LEN_AT, u16::try_from(HEAD_TRACK_LEN).ok()?)?;
+    *b.get_mut(HEAD_INTEGRITY_AT)? = u8::from(head.integrity);
     let rows = b
         .get_mut(HEAD_TRACKS_AT..)?
         .as_chunks_mut::<HEAD_TRACK_LEN>()
@@ -629,10 +675,11 @@ impl<'b> PieceHeadBlock<'b> {
         )?;
         let level =
             crate::bytes::le_u8(block.bytes(), HEAD_INTEGRITY_AT).ok_or(IndexError::BadHead)?;
-        if level != INTEGRITY_FULL {
-            return Err(IndexError::UnknownIntegrity { level });
+        let integrity = Integrity::try_from(level)?;
+        if integrity != Integrity::Full {
+            return Err(IndexError::UnhandledIntegrity { level: integrity });
         }
-        let head = read_piece_head(block.bytes()).ok_or(IndexError::BadHead)?;
+        let head = read_piece_head(block.bytes(), integrity).ok_or(IndexError::BadHead)?;
         Ok(PieceHeadBlock { head, rows, row })
     }
 
@@ -654,7 +701,7 @@ impl<'b> PieceHeadBlock<'b> {
     }
 }
 
-fn read_piece_head(b: &[u8]) -> Option<PieceHead> {
+fn read_piece_head(b: &[u8], integrity: Integrity) -> Option<PieceHead> {
     let prev = if le_u32(b, 88)? & FLAG_HAS_PREV != 0 {
         Some((ContentHash(array(b, 96)?), PieceId(array(b, 128)?)))
     } else {
@@ -664,6 +711,7 @@ fn read_piece_head(b: &[u8]) -> Option<PieceHead> {
         ident: get_ident(b, 32, 48, 80)?,
         prev,
         prev_session: SessionTag::from_u32(le_u32(b, 92)?),
+        integrity,
     })
 }
 
