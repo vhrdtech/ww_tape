@@ -49,8 +49,6 @@ pub(crate) struct Indexer {
     tallies: BTreeMap<TrackKey, Tally>,
     /// The tallies before the last counted block of data, to take it back ([Self::undo_block])
     undo: Vec<(TrackKey, Option<Tally>)>,
-    /// The range relation's range of the next chunk placed ([Self::chunk_range])
-    next_range: Option<(u64, u64)>,
 }
 
 impl Indexer {
@@ -157,14 +155,15 @@ impl Indexer {
     }
 
     /// Note the block `bytes` (exactly one block, written by this writer) placed at `offset` in the piece, a chunk
-    /// with its unit hash `unit`. Its CRC is not checked again: a chunk block's head is read by its head CRC.
-    /// The next chunk placed carries `range` in its entry: its range relation's smallest and largest value.
-    pub(crate) fn chunk_range(&mut self, range: Option<(u64, u64)>) {
-        self.next_range = range;
-    }
-
-    pub(crate) fn placed(&mut self, offset: u64, bytes: &[u8], unit: UnitHash) {
-        let range = self.next_range.take();
+    /// with its unit hash `unit` and its range relation's smallest and largest value `range`. Its CRC is not checked
+    /// again: a chunk block's head is read by its head CRC.
+    pub(crate) fn placed(
+        &mut self,
+        offset: u64,
+        bytes: &[u8],
+        unit: UnitHash,
+        range: Option<(u64, u64)>,
+    ) {
         let entries = of_placed(offset, bytes, unit, range);
         self.placed_entries(&entries, bytes.len());
     }

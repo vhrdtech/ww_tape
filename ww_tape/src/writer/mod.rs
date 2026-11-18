@@ -56,6 +56,7 @@ use crate::{
 use std::collections::BTreeSet;
 
 pub mod near;
+mod relations;
 pub mod resume;
 pub use near::NearPolicy;
 use near::Rule;
@@ -252,6 +253,8 @@ pub struct TapeWriter<S: TapeSink = FileSink> {
     holds_data: bool,
     /// Bytes puts hashed and copied
     work: PutWork,
+    /// The relations of the tracks defined in the piece, for each chunk's range
+    relations: relations::Relations,
 }
 
 /// Bytes a writer's puts hashed and copied since it started ([TapeWriter::put_work]): what deciding and writing
@@ -389,6 +392,7 @@ impl<S: TapeSink> TapeWriter<S> {
             adopted: None,
             holds_data: false,
             work: PutWork::default(),
+            relations: relations::Relations::default(),
         }
     }
 
@@ -912,12 +916,14 @@ impl<S: TapeSink> TapeWriter<S> {
         let unit = chunk.as_ref().map_or(UnitHash::NONE, |(c, payload)| {
             TrackHash::chunk_unit(c, payload)
         });
+        // the range from the chunk's own column, by the definition placed before it: a resume derives the same
+        let range = chunk.as_ref().and_then(|(c, _)| self.relations.range(c));
         // blocks the file structure adds are not counted: seq stays the producer's count of its own blocks
         let kind = BlockKind::from_u8(header[5]);
         let flags = u16::from_le_bytes([header[6], header[7]]);
         let repeat = kind == BlockKind::Records && flags & crate::FLAG_REPEAT != 0;
         let counted = !repeat && !crate::index::is_structural(kind);
-        let again = self.index(block, crc, counted, unit);
+        let again = self.index(block, crc, counted, unit, range);
         // a counted block of data goes into its tracks' hashes once: written again with the same bytes it adds
         // nothing, with other bytes it takes the place of the one before
         let tally = counted && again != Again::Same;
@@ -991,6 +997,8 @@ impl<S: TapeSink> TapeWriter<S> {
                     <Describe<'_> as shrink_wrap::DeserializeShrinkWrap>::from_ww_bytes(r.item)
             {
                 self.indexer.define(t.number.0, t.id(), OwnerId(t.owner));
+                self.relations
+                    .define(t.number.0, crate::open::TrackFacts::of(&t));
             }
             self.near
                 .wrote(slot, Some(ItemHash::of(r.item)), at, &self.near_policy);
@@ -1001,13 +1009,15 @@ impl<S: TapeSink> TapeWriter<S> {
     }
 
     /// List `block`, placed here, in the index as readers take it: a counted block with the id of the last one is
-    /// that block again, unlisted with the same bytes, in its place with other bytes.
+    /// that block again, unlisted with the same bytes, in its place with other bytes. A chunk's entry carries
+    /// `unit` and `range`.
     fn index(
         &mut self,
         block: &[u8],
         crc: [u8; crate::CRC_LEN],
         counted: bool,
         unit: UnitHash,
+        range: Option<(u64, u64)>,
     ) -> Again {
         let id = block_id(block);
         let last = self
@@ -1020,11 +1030,11 @@ impl<S: TapeSink> TapeWriter<S> {
             }
             Some((.., offset)) => {
                 self.indexer.replaced(offset);
-                self.indexer.placed(self.bytes, block, unit);
+                self.indexer.placed(self.bytes, block, unit, range);
                 Again::Replaced
             }
             None => {
-                self.indexer.placed(self.bytes, block, unit);
+                self.indexer.placed(self.bytes, block, unit, range);
                 Again::New
             }
         };
@@ -1240,9 +1250,7 @@ impl<S: TapeSink> TapeWriter<S> {
             .map_err(WriteError::Chunk)
             .and_then(|n| {
                 buf.truncate(n);
-                let range = range_of(defs, head, &buf);
                 self.write_chosen(&needs, &chosen, true)?;
-                self.indexer.chunk_range(range);
                 if self.at()? != at {
                     return Err(WriteError::Index(IndexError::Invalid(
                         "the puts before a chunk took other bytes than chosen",
@@ -1931,16 +1939,4 @@ fn data_tracks(b: &crate::Block<'_>) -> Vec<u32> {
     tracks.sort_unstable();
     tracks.dedup();
     tracks
-}
-
-/// The smallest and largest value of the range relation of `head`'s track in the chunk block `block`; None when the
-/// track has none, or its column doesn't read.
-fn range_of(defs: &Definitions, head: &crate::ChunkHead, block: &[u8]) -> Option<(u64, u64)> {
-    let relation = defs.track(head.track_number)?.range?;
-    let chunk = crate::chunk::Chunk::read_head(block).ok()?;
-    Some(
-        crate::times::RelationColumn::read(&chunk, relation)
-            .ok()??
-            .range(),
-    )
 }
