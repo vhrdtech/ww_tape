@@ -861,3 +861,40 @@ fn verify_compares_each_finish_row_with_its_fold() {
     );
     assert!(!r.verify(i).unwrap());
 }
+
+/// A range hash over pieces whose head doesn't read says so (`RangeHash::headless`): the older layout's file, both
+/// heads lost to it, and a file of this layout with one head damaged; 0 over whole heads.
+#[test]
+fn a_range_hash_over_pieces_without_a_head_says_so() {
+    let (_, files) = write(PieceFiles::One, 0x5eed);
+    let (i, t) = last_and_track(&files[0]);
+    let whole = TapeReader::open(&files[0][..])
+        .unwrap()
+        .range_hash(id_of(t), OwnerId::NONE, 0..u64::MAX, TrackHash::START)
+        .unwrap();
+    assert_eq!(whole.headless, 0);
+    let mut bytes = files[0].clone();
+    let start = TapeReader::open(&bytes[..]).unwrap().pieces()[i].start as usize;
+    // a byte of the piece head's rows: its CRC fails
+    bytes[start + 100] ^= 1;
+    let r = TapeReader::open(&bytes[..]).unwrap();
+    assert!(r.pieces()[i].head.is_none());
+    let got = r.range_hash(id_of(t), OwnerId::NONE, 0..u64::MAX, TrackHash::START);
+    assert_eq!(got.map(|g| g.headless).ok(), Some(1));
+    let other =
+        std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/it/data/other-layout.wwt"))
+            .unwrap();
+    let r = TapeReader::open(&other[..]).unwrap();
+    let id = (0..r.pieces().len())
+        .flat_map(|i| r.entries(i).unwrap_or_default())
+        .map(|e| e.track_id)
+        .find(|t| *t != 0 && *t != u64::MAX)
+        .unwrap();
+    let headless = r.pieces().iter().filter(|p| p.head.is_none()).count() as u64;
+    assert!(headless > 0);
+    let g = r
+        .range_hash(id, OwnerId::NONE, 0..u64::MAX, TrackHash::START)
+        .unwrap();
+    assert!(g.chunks > 0);
+    assert_eq!(g.headless, headless);
+}

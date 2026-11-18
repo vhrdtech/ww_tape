@@ -223,6 +223,7 @@ Covers `ww_tape` 0.1.0.
 
 ### 🐛 Fixes
 
+- `RangeHash::headless` counts the pieces folded whose head doesn't read: what the hash covers there no head vouched for (TAPE-8).
 - A final index out of track and offset order is refused by every read, `entries` too, not sorted first (TAPE-10).
 - `Recovery::Resync` reports a block met again with other bytes (`FileError::Replaced`), as `Recovery::Prefix` does (TAPE-8).
 - `FileBlocks` refuses a piece head of another integrity level (`BlockError::UnhandledIntegrity`); it read the piece as its own (TAPE-8).
