@@ -938,7 +938,8 @@ impl<S: TapeSink> TapeWriter<S> {
             self.indexer.begin_block();
             if let Some((c, _)) = &chunk {
                 let head = c.head();
-                self.indexer.tally_chunk(&head, &unit);
+                self.indexer
+                    .tally_chunk(head.track_number, head.track_id, &unit);
                 if head.kind == BlockKind::Events
                     && let Some(key) = self.indexer.key_of(head.track_number, Some(head.track_id))
                 {

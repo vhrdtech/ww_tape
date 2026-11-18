@@ -139,10 +139,11 @@ impl Indexer {
         self.tallies.insert(key, t);
     }
 
-    /// The counted chunk with `head` and unit hash `unit` goes into its track's hash.
-    pub(crate) fn tally_chunk(&mut self, head: &crate::ChunkHead, unit: &UnitHash) {
-        if let Some(key) = self.key_of(head.track_number, Some(head.track_id)) {
-            self.tally(key, head.track_number, |h| h.then(unit), 0);
+    /// The counted chunk of track `number` of id `id` with unit hash `unit` goes into its track's hash: one read,
+    /// or a damaged one by the unit hash its index entry states.
+    pub(crate) fn tally_chunk(&mut self, number: u32, id: u64, unit: &UnitHash) {
+        if let Some(key) = self.key_of(number, Some(id)) {
+            self.tally(key, number, |h| h.then(unit), 0);
         }
     }
 
@@ -359,7 +360,8 @@ impl Indexer {
             row.hash = t.hash;
             row.records = t.records;
         }
-        // a chunk the hashes left out (a damaged one a resume kept) keeps the hash the head carried
+        // a chunk the hashes left out (a damaged one a resume kept whose entry states no unit hash) keeps the hash
+        // the head carried
         for (key, row) in &mut rows {
             if let Some(t) = self.tallies.get(key).filter(|t| !t.touched) {
                 row.hash = t.hash;

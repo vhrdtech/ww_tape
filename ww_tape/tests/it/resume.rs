@@ -524,6 +524,42 @@ fn a_damaged_block_of_definitions_is_put_again_after_a_resume() {
     }
 }
 
+/// The hash of track `id` in the finish of the one piece of `bytes`.
+fn finish_hash(bytes: &[u8], id: u64) -> ww_tape::TrackHash {
+    let r = TapeReader::open(bytes).unwrap();
+    let (_, rows) = r.pieces()[0].finish.as_ref().unwrap();
+    rows.iter().find(|t| t.track_id == id).unwrap().hash
+}
+
+/// A damaged chunk a resume keeps, which an index lists, goes into its track's hash by the unit hash in its entry:
+/// the finish states the hash of the piece written without the damage.
+#[test]
+fn a_damaged_chunk_kept_by_a_resume_counts_in_its_track_hash() {
+    let ops = ops(12);
+    let (want, made) = reference(0, &ops);
+    let r = TapeReader::open(&want[..]).unwrap();
+    let cut = want.len() / 2;
+    let listed = r
+        .entries(0)
+        .unwrap()
+        .into_iter()
+        .rfind(|e| {
+            e.track_number == 1 && e.kind == BlockKind::Events && (e.offset as usize) < cut - 2000
+        })
+        .unwrap();
+    // a byte of its payload: the chunk doesn't read, its entry in a checkpoint stands for it
+    let flipped = (listed.offset + u64::from(listed.len)) as usize - 20;
+    let mut sink = MemSink::new(Path::new("p"));
+    let mut damaged = want[..cut].to_vec();
+    damaged[flipped] ^= 1;
+    sink.write_all(&damaged).unwrap();
+    let (w, resumed) = TapeWriter::resume_on(sink, options(0)).unwrap();
+    assert!(resumed.kept_bytes > listed.offset + u64::from(listed.len));
+    let got = finish_resumed(w, &ops, &made, resumed.kept_bytes);
+    assert_ne!(got, want, "the damaged byte is kept");
+    assert_eq!(finish_hash(&got, 0x1000), finish_hash(&want, 0x1000));
+}
+
 /// A chain written to memory reads through [TapeReader] while it is written and once finished, and its pieces are the
 /// bytes of the same chain written to files.
 #[test]
