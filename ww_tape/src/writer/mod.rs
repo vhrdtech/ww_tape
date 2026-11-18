@@ -128,6 +128,9 @@ pub enum WriteError {
     /// A resume would cut off a good block of the piece at `offset`, behind bytes the reader didn't take: more than a
     /// torn end. The bytes stay as they are.
     GoodBlockAfterCut { offset: u64 },
+    /// The content-hash walk of the bytes a resume keeps spent its budget of missed blocks
+    /// ([crate::piece::WALK_MISS_PER_BYTE_MAX]): a block written at `end` would not verify. The bytes stay as they are.
+    HashWalkSpent { end: u64 },
 }
 
 impl From<DescribeError> for WriteError {
@@ -168,6 +171,10 @@ impl core::fmt::Display for WriteError {
             WriteError::GoodBlockAfterCut { offset } => write!(
                 f,
                 "a resume would cut off a good block at {offset}, more than a torn end"
+            ),
+            WriteError::HashWalkSpent { end } => write!(
+                f,
+                "the bytes to resume claim too many blocks that don't read: a block written at {end} would not verify"
             ),
             WriteError::Unknown { version, kind } => write!(
                 f,
