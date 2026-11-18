@@ -704,6 +704,102 @@ fn index_golden() {
     );
 }
 
+/// The golden incomplete chain: a piece that a resume kept with a damaged records block of track 9, the piece cut after
+/// it and its finish; its track's finish row marks the hash incomplete (flags at row byte 128), the next piece's head
+/// row carries the mark (row byte 12). In hex (`WW_TAPE_GOLDEN=update` rewrites it).
+#[test]
+fn incomplete_golden() {
+    use ww_tape::{ChainOptions, Describe, WriterOptions};
+    let dir = scratch("golden_incomplete");
+    let owner = OwnerId([7; 32]);
+    let options = || ChainOptions {
+        files: ww_tape::PieceFiles::Each,
+        writer: WriterOptions {
+            sync: SyncPolicy::None,
+            index: IndexPolicy {
+                bytes: 300,
+                interval: None,
+                ..IndexPolicy::default()
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let defs = crate::definitions::base_defs();
+    let mut chain = PieceChain::create(&dir, owner, 0, &[], options()).unwrap();
+    for n in 0..8 {
+        let id = chain.writer().unwrap().next_id();
+        chain.write_block(defs, &records(id, n)).unwrap();
+    }
+    drop(chain);
+    let partial = ww_tape::writer::partial_name(&dir.join(ww_tape::piece::piece_name(0)));
+    let mut bytes = std::fs::read(&partial).unwrap();
+    let listed = TapeReader::open(&bytes[..])
+        .unwrap()
+        .entries(0)
+        .unwrap()
+        .into_iter()
+        .find(|e| e.kind == BlockKind::Records && !e.repeat)
+        .unwrap();
+    bytes[(listed.offset + u64::from(listed.len)) as usize - 8] ^= 1;
+    std::fs::write(&partial, &bytes).unwrap();
+    let (mut chain, _) = PieceChain::resume(&dir, owner, 0, options()).unwrap();
+    for n in 8..10 {
+        let id = chain.writer().unwrap().next_id();
+        chain.write_block(defs, &records(id, n)).unwrap();
+    }
+    chain.cut_now().unwrap();
+    let id = chain.writer().unwrap().next_id();
+    chain.write_block(defs, &records(id, 10)).unwrap();
+    let paths: Vec<PathBuf> = chain
+        .finish()
+        .unwrap()
+        .into_iter()
+        .map(|f| f.path)
+        .collect();
+    assert_eq!(paths.len(), 2);
+    let Describe::Track(t9) = crate::definitions::track(9, crate::definitions::CLOCK) else {
+        unreachable!("track() gives a track")
+    };
+    let pieces: Vec<Vec<u8>> = paths.iter().map(|p| std::fs::read(p).unwrap()).collect();
+    // the finish row of piece 0 and the head row of piece 1 at their byte offsets
+    let first = TapeReader::open(&pieces[0][..]).unwrap();
+    let rows = &first.pieces()[0].finish.as_ref().unwrap().1;
+    let row = rows.iter().position(|t| t.track_id == t9.id()).unwrap();
+    assert!(rows[row].incomplete);
+    let tail = ww_tape::Tail::read(&pieces[0][pieces[0].len() - ww_tape::TAIL_LEN..]).unwrap();
+    let f = &pieces[0][tail.finish_offset as usize + 176 + row * 136..][..136];
+    assert_eq!(f[128..132], 1u32.to_le_bytes());
+    let second = TapeReader::open(&pieces[1][..]).unwrap();
+    let starts = &second.pieces()[0].head.as_ref().unwrap().1;
+    let row = starts.iter().position(|t| t.track_id == t9.id()).unwrap();
+    assert!(starts[row].incomplete);
+    let h = &pieces[1][152 + row * 96..][..96];
+    assert_eq!(h[12..16], 1u32.to_le_bytes());
+    // the damaged block doesn't read as a block: 64 bytes per line, a blank line between pieces
+    let mut hex = String::new();
+    for bytes in &pieces {
+        for line in bytes.chunks(64) {
+            for byte in line {
+                hex.push_str(&format!("{byte:02x}"));
+            }
+            hex.push('\n');
+        }
+        hex.push('\n');
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+    let golden = Path::new(env!("CARGO_MANIFEST_DIR")).join("golden/v1-incomplete.hex");
+    if std::env::var("WW_TAPE_GOLDEN").as_deref() == Ok("update") {
+        std::fs::write(&golden, &hex).unwrap();
+    }
+    let want = std::fs::read_to_string(&golden)
+        .expect("golden/v1-incomplete.hex: run with WW_TAPE_GOLDEN=update");
+    assert!(
+        hex == want,
+        "the format changed: bytes differ from golden/v1-incomplete.hex"
+    );
+}
+
 #[test]
 fn every_block_of_a_chain_carries_its_session() {
     let dir = scratch("sessions");
