@@ -8,7 +8,8 @@ use ww_tape::index::{
 };
 use ww_tape::piece::{FinishBlock, PieceHeadBlock};
 use ww_tape::{
-    Block, BlockKind, Layout, Medium, OpenOptions, OwnerId, Ratio64, Tail, TapeReader, TrackHash,
+    Block, BlockKind, IndexError, Layout, Medium, OpenOptions, OwnerId, Ratio64, ReadError, Tail,
+    TapeReader, TrackHash,
 };
 
 /// Look at everything the block decoders give for `data`.
@@ -63,9 +64,21 @@ pub(crate) fn read(data: &[u8], options: OpenOptions) {
                     .map(|c| c.head());
                 let mut hbuf = vec![];
                 let head = r.read_chunk_head(i, e, &mut hbuf);
-                // a whole chunk block that reads has a head that reads alone, the same one
+                // a whole chunk block that reads has a head that reads alone, the same one, when it is the chunk
+                // its entry names; else the index is damaged
                 if let Some(c) = chunk {
-                    assert_eq!(head.ok(), Some(c), "a good chunk's head reads alone");
+                    let named = e.kind == c.kind
+                        && e.track_id == c.track_id
+                        && e.track_number == c.track_number
+                        && e.first_item == c.first_item
+                        && e.count == u64::from(c.count);
+                    match named {
+                        true => assert_eq!(head.ok(), Some(c), "a good chunk's head reads alone"),
+                        false => assert!(
+                            matches!(head, Err(ReadError::Index(IndexError::BadEntries))),
+                            "a chunk other than its entry names is refused"
+                        ),
+                    }
                 }
                 if e.kind == BlockKind::Series && !series.contains(&e.track_id) {
                     series.push(e.track_id);

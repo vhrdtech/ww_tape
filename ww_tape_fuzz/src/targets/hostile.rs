@@ -265,7 +265,7 @@ pub fn state_hostile(data: &[u8]) {
             }
         }
     }
-    resume_state(&f);
+    resume_state(&f, a.forged);
 }
 
 /// The readers of a state piece: a file; a raw medium, which reads past damage as gaps; a state cache too small for
@@ -441,8 +441,9 @@ fn lookups(r: &TapeReader<&[u8]>, i: usize) {
 }
 
 /// A resume of `f`: when it resumes, the definitions again, a put on each state track and a records block, then a
-/// finish that a reader finds whole.
-fn resume_state(f: &[u8]) {
+/// finish that a reader finds whole. Unless the input was `forged` (a block behind a good CRC that isn't the one its
+/// index entry states, which a resume keeps the entry of), the piece verifies.
+fn resume_state(f: &[u8], forged: bool) {
     let mut sink = MemSink::new(Path::new("s"));
     sink.write_all(f).expect("memory takes the bytes");
     let tape = sink.tape();
@@ -461,8 +462,8 @@ fn resume_state(f: &[u8]) {
     let r = TapeReader::open(&out[..]).expect("a finished piece opens");
     let last = r.pieces().len().checked_sub(1).expect("a piece");
     assert!(
-        r.verify(last).expect("a finished piece"),
-        "the content hash verifies"
+        r.verify(last).expect("a finished piece") || forged,
+        "the piece verifies"
     );
     let found = r
         .state_at(
