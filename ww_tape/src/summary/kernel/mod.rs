@@ -3,7 +3,7 @@
 //! [int_batch] takes the frames of one channel (`C` components each) and keeps per component the minimum, maximum,
 //! sum and sum of squares, per frame the clipped count and, for complex frames, the sum and maximum of `I² + Q²`. All
 //! of it is exact integer arithmetic, so the order of the frames doesn't change a result and the compiler may
-//! vectorise freely. The frames go through in blocks of [BLOCK]: a block keeps narrow lanes ([Narrow::Sum],
+//! vectorise freely. The frames go through in blocks of `BLOCK`: a block keeps narrow lanes ([Narrow::Sum],
 //! [Narrow::Sq]) that can't overflow within it, then adds them to the batch's 128-bit totals.
 //!
 //! A square of a 32-bit value takes up to 64 bits, so squares and powers are kept as two parts, the bits from 32 up

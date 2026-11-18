@@ -1,4 +1,4 @@
-//! CRC-32C (`CRC_32_ISCSI`, the polynomial every block uses): a software fallback good on every target ([TABLE],
+//! CRC-32C (`CRC_32_ISCSI`, the polynomial every block uses): a software fallback good on every target (`TABLE`,
 //! the `crc` crate's `Table<16>`, measured about 5.1 GiB/s on an x86-64 EPYC Genoa) and, where the CPU runs the
 //! instruction, a hardware path (SSE4.2 on x86-64, the CRC extension on aarch64) that keeps three independent
 //! accumulators going at once so the instruction's own latency doesn't serialize the stream, recombined with the
@@ -141,7 +141,7 @@ fn has_crc32() -> bool {
 }
 
 /// A CRC-32C accumulator on the fastest kernel this CPU runs, detected once at [Crc32c::digest] and held for the
-/// accumulator's whole life as a [hw_x86_64::Token] or [hw_aarch64::Token] (so [Digest::update] never checks the
+/// accumulator's whole life as a `hw_x86_64::Token` or `hw_aarch64::Token` (so [Digest::update] never checks the
 /// CPU again): the same `digest`/`checksum` shape as [crc::Crc], so call sites take it in its place.
 #[derive(Copy, Clone)]
 pub struct Crc32c;
