@@ -504,6 +504,26 @@ fn chain_of_pieces_links_both_ways() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+/// A piece in the middle of a chain whose head is damaged stays in the chain by the ident its finish carries: linked
+/// one way from the piece before, not a gap.
+#[test]
+fn a_chain_keeps_a_piece_whose_head_is_lost() {
+    let dir = scratch("head_lost");
+    let paths = write_chain(&dir, 0);
+    let files: Vec<Vec<u8>> = paths.iter().map(|p| std::fs::read(p).unwrap()).collect();
+    let mut all = files.concat();
+    all[files[0].len() + 100] ^= 0x10;
+    let r = TapeReader::open(&all[..]).unwrap();
+    assert_eq!(r.pieces().len(), 3);
+    assert!(r.pieces()[1].head.is_none());
+    let c = r.chain();
+    assert_eq!(c.order, [0, 1, 2]);
+    assert_eq!(c.links, [ChainLink::HeadLost, ChainLink::Linked]);
+    assert_eq!(c.end, ChainEnd::Complete);
+    assert!(!c.is_whole());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 /// Finished pieces are multiples of 4 KiB long, so they clone back to back into one file: `std::io::copy` between
 /// files is `copy_file_range` on Linux, which shares extents on btrfs and XFS and copies elsewhere.
 #[test]

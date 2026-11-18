@@ -318,7 +318,8 @@ impl PieceInfo {
         self.refused_link.and(self.head_error)
     }
 
-    /// What [check_chain] needs of the piece; None for one without a head.
+    /// What [check_chain] needs of the piece: from its head, or from its finish when the head is lost; None for one
+    /// without either.
     pub fn summary(&self) -> Option<PieceSummary> {
         let end = self
             .finish
@@ -333,12 +334,21 @@ impl PieceInfo {
                 head: HeadStatus::Read,
             });
         }
-        let (link, error) = self.refused_link.zip(self.head_error)?;
+        if let Some((link, error)) = self.refused_link.zip(self.head_error) {
+            return Some(PieceSummary {
+                ident: link.ident,
+                prev: link.prev,
+                end,
+                head: HeadStatus::Refused(error),
+            });
+        }
+        // a head lost to damage: the finish of a piece that had one carries its ident
+        let ident = self.finish.as_ref().and_then(|(f, _)| f.ident)?;
         Some(PieceSummary {
-            ident: link.ident,
-            prev: link.prev,
+            ident,
+            prev: None,
             end,
-            head: HeadStatus::Refused(error),
+            head: HeadStatus::Lost,
         })
     }
 }
