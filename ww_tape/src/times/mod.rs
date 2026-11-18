@@ -186,7 +186,8 @@ pub struct EventTimes<'b> {
 }
 
 impl<'b> EventTimes<'b> {
-    /// Read the time columns of an intact events chunk, checking every group record.
+    /// Read the time columns of an intact events chunk, checking every group record and that the starts never
+    /// decrease.
     pub fn read(chunk: &Chunk<'b>) -> Result<Self, TimesError> {
         Self::open(chunk, |_| false)
     }

@@ -170,8 +170,17 @@ impl<'b> Linear<'b> {
         Some(h.value(j))
     }
 
-    /// Group `g` when it reads on its own: fitting the column ([Groups::group_fits]), its line in range and its
-    /// first item its first tick.
+    /// Whether group `g`'s items as stored never decrease. The line never does, but a residual below the one before
+    /// it, or an item that wraps i64, makes a group decrease although its record is in range.
+    fn ascending(&self, g: usize, h: &Group<'_>) -> bool {
+        let mut buf = [0i64; GROUP];
+        h.width.decode_line(h.values, h.base, h.slope, &mut buf);
+        buf.get(..group_len(self.groups.n, g))
+            .is_some_and(|items| items.iter().zip(items.iter().skip(1)).all(|(a, b)| a <= b))
+    }
+
+    /// Group `g` when it reads on its own: fitting the column ([Groups::group_fits]), its line in range, its first
+    /// item its first tick and its items never decreasing.
     fn readable(&self, g: usize) -> Option<Group<'b>> {
         let p = self.groups.group_fits(g)?;
         let l = self.line(g);
@@ -179,7 +188,7 @@ impl<'b> Linear<'b> {
             return None;
         }
         let h = Group::new(l, p);
-        (h.value(0) == h.first).then_some(h)
+        (h.value(0) == h.first && self.ascending(g, &h)).then_some(h)
     }
 
     /// Group `g` of a salvaged column when it holds up: readable, in order with its readable neighbours (its first
@@ -234,8 +243,9 @@ impl<'b> Linear<'b> {
         self.salvaged && g < self.groups.count() && self.group_ok(g).is_none()
     }
 
-    /// Check every record of an intact column: placed in the column, lines in range, each group's item 0 its first
-    /// tick and its first tick at or after the previous group's last item, the last item the chunk's last tick.
+    /// Check every record and item of an intact column: placed in the column, lines in range, each group's item 0
+    /// its first tick, its items never decreasing and its first tick at or after the previous group's last item, the
+    /// last item the chunk's last tick. So every item lies between the chunk's first and last tick, in order.
     fn check(&self) -> Result<(), TimesError> {
         let kind = self.groups.kind;
         let corrupt = |what| TimesError::Corrupt { kind, what };
@@ -250,6 +260,9 @@ impl<'b> Linear<'b> {
             let h = Group::new(l, self.groups.checked(g));
             if h.value(0) != h.first {
                 return Err(corrupt("group's first item isn't its first tick"));
+            }
+            if !self.ascending(g, &h) {
+                return Err(corrupt("group's items decrease"));
             }
             if h.first < prev {
                 return Err(corrupt(

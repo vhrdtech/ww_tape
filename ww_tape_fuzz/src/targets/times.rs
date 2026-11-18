@@ -65,6 +65,48 @@ fn read_relation(r: &RelationColumn<'_>) {
     }
 }
 
+/// Starts read whole (not by salvage) never decrease and run from the chunk's first tick to its last.
+fn starts_in_order(t: &EventTimes<'_>) {
+    let s = t.starts();
+    let got: Vec<i64> = item_sample(t.len()).map(|i| s.get(i)).collect();
+    assert!(got.windows(2).all(|w| w[0] <= w[1]), "starts decrease");
+    assert_eq!(got.first(), Some(&s.first_tick()), "the first start");
+    assert_eq!(got.last(), Some(&s.last_tick()), "the last start");
+}
+
+/// A relation column read whole in [STARTS](ww_tape::times::STARTS): its values never decrease, `range` is their
+/// smallest and largest, and `lower_bound` agrees with a search of them.
+fn relation_in_order(r: &RelationColumn<'_>) {
+    let n = r.len();
+    let got: Vec<u64> = item_sample(n).map(|i| r.get(i)).collect();
+    assert!(
+        got.windows(2).all(|w| w[0] <= w[1]),
+        "a monotone relation decreases"
+    );
+    let (Some(&lo), Some(&hi)) = (got.first(), got.last()) else {
+        return;
+    };
+    assert_eq!(r.range(), (lo, hi), "range");
+    let some = got.iter().step_by(got.len() / 8 + 1).copied();
+    for q in some
+        .flat_map(|v| [v.saturating_sub(1), v, v.saturating_add(1)])
+        .chain([0, hi, u64::MAX])
+    {
+        let at = r.lower_bound(q).expect("a column in STARTS is searched");
+        assert!(
+            at == n || r.get(at) >= q,
+            "lower bound of {q}: item {at} below it"
+        );
+        assert!(
+            at == 0 || r.get(at - 1) < q,
+            "lower bound of {q}: item before {at} at or above it"
+        );
+        if n <= ITEMS_EACH {
+            assert_eq!(at, got.partition_point(|v| *v < q), "lower bound of {q}");
+        }
+    }
+}
+
 pub(crate) fn walk(block: &[u8]) {
     if let Ok(b) = Block::salvage(block)
         && let Some(c) = b.chunk()
@@ -100,6 +142,9 @@ pub(crate) fn walk(block: &[u8]) {
                 );
                 if let Ok(Some(r)) = read {
                     read_relation(&r);
+                    if r.codec() == ww_tape::times::STARTS {
+                        relation_in_order(&r);
+                    }
                 }
                 if let Ok(Some(r)) = RelationColumn::salvage(&c, track, relation) {
                     read_relation(&r);
@@ -108,6 +153,7 @@ pub(crate) fn walk(block: &[u8]) {
         }
         if let Ok(t) = EventTimes::read(&c) {
             read_all(&t);
+            starts_in_order(&t);
         }
         if let Ok(t) = EventTimes::salvage(&c) {
             read_all(&t);

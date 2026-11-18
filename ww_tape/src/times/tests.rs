@@ -1059,3 +1059,126 @@ fn a_damaged_relation_column_is_salvaged_as_times_are() {
     }
     assert!(EventTimes::salvage(&chunk).is_ok(), "the times read too");
 }
+
+/// A monotone relation column in [STARTS] with any one byte changed either is refused or reads values that never
+/// decrease, with `range` their smallest and largest and `lower_bound` agreeing with a search of them.
+#[test]
+fn a_mutated_monotone_relation_column_reads_in_order_or_not_at_all() {
+    let mut r = Rng(0xfeed);
+    let mut v = 1_000u64;
+    let values: Vec<u64> = (0..300)
+        .map(|_| {
+            v += r.below(40);
+            v
+        })
+        .collect();
+    let good = relation_block(&[(0, &values, true)]);
+    let start = {
+        let block = Block::read(&good).unwrap();
+        let chunk = block.chunk().unwrap();
+        let c = chunk
+            .columns()
+            .find(|c| c.kind == ColumnKind::Relation)
+            .unwrap();
+        assert_eq!(c.codec, STARTS);
+        chunk.payload_offset() + c.offset..chunk.payload_offset() + c.offset + c.bytes.len()
+    };
+    let mut read_ok = 0;
+    for at in start.clone() {
+        for x in [1u8, 2, 4, 8, 16, 32, 64, 128, 0xff] {
+            let mut b = good.clone();
+            b[at] ^= x;
+            // the payload's CRC no longer holds: read the column as an intact one, as a reader trusting it would
+            let block = Block::salvage(&b).unwrap();
+            let chunk = block.chunk().unwrap();
+            let Ok(Some(c)) = RelationColumn::read(&chunk, ONE_MONOTONE, 0) else {
+                continue;
+            };
+            read_ok += 1;
+            let got: Vec<u64> = (0..c.len()).map(|i| c.get(i)).collect();
+            let what = std::format!("byte {} ^ {x:#x}", at - start.start);
+            assert!(got.windows(2).all(|w| w[0] <= w[1]), "{what}: decreases");
+            let (lo, hi) = (got[0], got[got.len() - 1]);
+            assert_eq!(c.range(), (lo, hi), "{what}: range");
+            for q in got
+                .iter()
+                .flat_map(|v| [v.saturating_sub(1), *v, v.saturating_add(1)])
+                .chain([0, u64::MAX])
+            {
+                assert_eq!(
+                    c.lower_bound(q),
+                    Some(got.partition_point(|v| *v < q)),
+                    "{what}: lower bound of {q}"
+                );
+            }
+        }
+    }
+    assert!(read_ok > 0, "some changes read, as the slope's low bits do");
+    // the reviewer's case: group 0's slope, lowest byte, its top bit
+    let mut b = good.clone();
+    b[start.start + 4 + 17 + 8] ^= 0x80;
+    let block = Block::salvage(&b).unwrap();
+    assert_eq!(
+        RelationColumn::read(&block.chunk().unwrap(), ONE_MONOTONE, 0).err(),
+        Some(TimesError::Corrupt {
+            kind: ColumnKind::Relation,
+            what: "group's items decrease"
+        })
+    );
+}
+
+/// The starts column shares the relation's code: with any one byte changed, starts that read never decrease and
+/// stay between the chunk's first and last tick; in salvage, a group whose items decrease is suspect.
+#[test]
+fn mutated_starts_read_in_order_or_not_at_all() {
+    let mut r = Rng(0x0dd);
+    let mut t = 0i64;
+    let starts: Vec<i64> = (0..300)
+        .map(|_| {
+            t += r.below(40) as i64;
+            t
+        })
+        .collect();
+    let good = block(&starts, None, None);
+    let cols = time_bytes(&good);
+    let (mut read_ok, mut suspect) = (0, 0);
+    for at in cols.clone() {
+        for x in [1u8, 2, 4, 8, 16, 32, 64, 128, 0xff] {
+            let mut b = good.clone();
+            b[at] ^= x;
+            let block = Block::salvage(&b).unwrap();
+            let chunk = block.chunk().unwrap();
+            let what = std::format!("byte {} ^ {x:#x}", at - cols.start);
+            if let Ok(times) = EventTimes::read(&chunk) {
+                read_ok += 1;
+                let s = times.starts();
+                let got: Vec<i64> = s.iter().collect();
+                assert!(got.windows(2).all(|w| w[0] <= w[1]), "{what}: decreases");
+                assert_eq!(
+                    (got[0], got[got.len() - 1]),
+                    (s.first_tick(), s.last_tick()),
+                    "{what}: first and last"
+                );
+            }
+            if let Ok(times) = EventTimes::salvage(&chunk) {
+                let s = times.starts();
+                for g in 0..s.group_count() {
+                    let items = g * GROUP..((g + 1) * GROUP).min(s.len());
+                    let got: Vec<i64> = items.clone().map(|i| s.get(i)).collect();
+                    if !times.is_suspect(items.start) {
+                        assert!(
+                            got.windows(2).all(|w| w[0] <= w[1]),
+                            "{what}: group {g} decreases, not suspect"
+                        );
+                    } else {
+                        suspect += 1;
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        read_ok > 0 && suspect > 0,
+        "{read_ok} read, {suspect} suspect groups"
+    );
+}

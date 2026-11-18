@@ -112,7 +112,7 @@ pub struct RelationColumn<'b> {
 
 impl<'b> RelationColumn<'b> {
     /// The values of relation `relation` in the intact events chunk `chunk` of a track with `track`'s relations,
-    /// every group record checked, the chunk's relation columns checked against `track` first
+    /// every group record checked and a column in [STARTS] never decreasing, the chunk's relation columns checked against `track` first
     /// ([StoredRelations::check]); None when the track keeps no column for it.
     pub fn read(
         chunk: &Chunk<'b>,
