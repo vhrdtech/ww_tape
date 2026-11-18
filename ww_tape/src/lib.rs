@@ -318,6 +318,13 @@ pub enum BlockKind {
 }
 
 impl BlockKind {
+    /// Reserved, kind 11: per events chunk, a relation's postings, each distinct value with the items holding it
+    /// ([RelationIndex::Postings]). Not built: read as [BlockKind::Other], skipped by its length.
+    pub const POSTINGS: BlockKind = BlockKind::Other(11);
+    /// Reserved, kind 12: per events chunk, a relation's dictionary, the distinct values and each item's index into
+    /// them ([RelationIndex::Dictionary]). Not built: read as [BlockKind::Other], skipped by its length.
+    pub const DICTIONARY: BlockKind = BlockKind::Other(12);
+
     pub fn from_u8(v: u8) -> Self {
         match v {
             1 => BlockKind::Records,
