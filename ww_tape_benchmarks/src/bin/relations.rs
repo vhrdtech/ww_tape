@@ -199,7 +199,14 @@ fn main() -> anyhow::Result<()> {
     println!("\n| write_chunk, events chunk of {N} instants | ns per chunk |");
     println!("|---|---:|");
     let shapes = shapes();
-    let source = EncodedRelation::encode(0, &shapes[2].1, true)?;
+    // a monotone relation never decreases across a track's chunks: chunk k's sources follow chunk k - 1's
+    let span = shapes[2].1.iter().max().map_or(1, |m| m + 1);
+    let sources = (0..u64::from(args.chunks))
+        .map(|k| {
+            let values: Vec<u64> = shapes[2].1.iter().map(|v| v + k * span).collect();
+            EncodedRelation::encode(0, &values, true)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     let key = EncodedRelation::encode(1, &shapes[4].1, false)?;
     for (what, with) in [
         ("without relations", false),
@@ -219,16 +226,16 @@ fn main() -> anyhow::Result<()> {
         ])
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
         let id = track(1, if with { RELATIONS } else { &[] }).id();
-        let mut cols: Vec<_> = times.columns().collect();
-        if with {
-            cols.extend([source.column(), key.column()]);
-        }
         let mut best_ns = f64::MAX;
         for _ in 0..args.rounds {
             let mut w = TapeWriter::create_on(MemSink::new(Path::new("bench")), SyncPolicy::None);
             let t = Instant::now();
-            for k in 0..u64::from(args.chunks) {
+            for (k, source) in (0..u64::from(args.chunks)).zip(&sources) {
                 let head = times.head.chunk_head(id, 1, k * N as u64);
+                let mut cols: Vec<_> = times.columns().collect();
+                if with {
+                    cols.extend([source.column(), key.column()]);
+                }
                 w.write_chunk(&defs, &head, &cols)?;
             }
             best_ns = best_ns.min(t.elapsed().as_nanos() as f64 / f64::from(args.chunks));
