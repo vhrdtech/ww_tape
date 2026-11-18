@@ -38,7 +38,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use crate::index::{IndexPolicy, Indexer};
+use crate::index::{IndexPolicy, Indexer, TrackKey};
 use crate::open::{RecordRef, write_records};
 use crate::piece::{
     ContentHash, Finish, FinishState, OwnerId, PIECE_ALIGN, PieceHead, PieceId, PieceIdent,
@@ -138,6 +138,10 @@ pub enum WriteError {
     /// A caller's block the writer doesn't take: a kind it makes itself or doesn't know (the reserved kind 2), a
     /// block of another format version, or a body of a codec it doesn't know.
     Unknown { version: u8, kind: BlockKind },
+    /// A block or chunk that would bring the tracks with data in the piece past `max`
+    /// ([TRACKS_PER_PIECE_MAX](crate::TRACKS_PER_PIECE_MAX)), so its finish would not fit a block. Nothing is
+    /// written; cut the piece first.
+    TooManyTracks { max: usize },
     /// A caller's block of `kind` with header `flags` its kind doesn't take: reserved bits, or a flag only the
     /// writer sets. A records block may carry [FLAG_BODY_CODED](crate::FLAG_BODY_CODED), other kinds none.
     Flags { kind: BlockKind, flags: u16 },
@@ -253,6 +257,10 @@ impl core::fmt::Display for WriteError {
                 f,
                 "the bytes to resume claim too many blocks that don't read: a block written at {end} would not verify"
             ),
+            WriteError::TooManyTracks { max } => write!(
+                f,
+                "more than {max} tracks with data in one piece: cut the piece first"
+            ),
             WriteError::Flags { kind, flags } => write!(
                 f,
                 "a caller's block of kind {kind:?} with header flags {flags:#06x}: it takes {:#06x}",
@@ -355,6 +363,8 @@ pub struct TapeWriter<S: TapeSink = FileSink> {
     work: PutWork,
     /// The relations of the tracks defined in the piece, for each chunk's range
     relations: relations::Relations,
+    /// Most tracks with data in the piece: [crate::piece::TRACKS_PER_PIECE_MAX], smaller in tests
+    pub(crate) tracks_max: usize,
 }
 
 /// Bytes a writer's puts hashed and copied since it started ([TapeWriter::put_work]): what deciding and writing
@@ -494,6 +504,7 @@ impl<S: TapeSink> TapeWriter<S> {
             holds_data: false,
             work: PutWork::default(),
             relations: relations::Relations::default(),
+            tracks_max: crate::piece::TRACKS_PER_PIECE_MAX,
         }
     }
 
@@ -546,6 +557,34 @@ impl<S: TapeSink> TapeWriter<S> {
     /// head checked before a call writes anything, the puts once chosen, so a refused call writes nothing of its own
     /// (deferred blocks it places were taken on before). A deferred block is placed with no puts, so a cut or a
     /// finish never meets the cap.
+    /// The tracks of `tracks` (numbers held in `defs`) without a row in the finish yet, each once.
+    fn new_tracks(&self, defs: &Definitions, tracks: &[u32]) -> BTreeSet<TrackKey> {
+        tracks
+            .iter()
+            .filter_map(|n| defs.track_key(*n))
+            .map(|(id, owner)| (id, OwnerId(owner)))
+            .filter(|k| !self.indexer.has_row(k))
+            .collect()
+    }
+
+    /// Refuse data on `tracks` (numbers held in `defs`) when it would bring the tracks with data in the piece,
+    /// those of the deferred blocks counted, past [Self::tracks_max]: the finish of the piece must fit a block.
+    fn track_room(&self, defs: &Definitions, tracks: &[u32]) -> Result<(), WriteError> {
+        let mut new = self.new_tracks(defs, tracks);
+        if new.is_empty() {
+            return Ok(());
+        }
+        for d in &self.deferred {
+            new.extend(d.keys.iter().filter(|k| !self.indexer.has_row(k)));
+        }
+        if self.indexer.rows().saturating_add(new.len()) > self.tracks_max {
+            return Err(WriteError::TooManyTracks {
+                max: self.tracks_max,
+            });
+        }
+        Ok(())
+    }
+
     fn room(&self, puts: usize, head: bool) -> Result<(), WriteError> {
         let head = if head { HEAD_ENTRIES } else { 0 };
         let n = puts.saturating_add(head);
@@ -1235,8 +1274,10 @@ impl<S: TapeSink> TapeWriter<S> {
         {
             self.relations.deferred(key, &c, facts);
         }
+        let tracks = data_tracks(&b);
         let d = Deferred {
-            tracks: data_tracks(&b),
+            keys: self.new_tracks(defs, &tracks),
+            tracks,
             block,
             at: self.offset(),
         };
@@ -1285,7 +1326,9 @@ impl<S: TapeSink> TapeWriter<S> {
             )));
         }
         Self::check_data(defs, b)?;
-        let needs = self.needed(defs, &data_tracks(b));
+        let tracks = data_tracks(b);
+        self.track_room(defs, &tracks)?;
+        let needs = self.needed(defs, &tracks);
         self.room(0, !self.head_put)?;
         Ok(needs)
     }
@@ -1353,6 +1396,7 @@ impl<S: TapeSink> TapeWriter<S> {
         }
         let needs = self.needed(defs, &[head.track_number]);
         self.room(0, !self.head_put)?;
+        self.track_room(defs, &[head.track_number])?;
         self.ensure_head()?;
         let payload = specs.iter().fold(0usize, |n, c| n.saturating_add(c.len));
         let head_len = crate::chunk::chunk_head_len(head, columns.len(), payload);
@@ -1464,7 +1508,9 @@ impl<S: TapeSink> TapeWriter<S> {
     ) -> Result<Option<Placed>, WriteError> {
         let block = b.bytes();
         Self::check_data(defs, b)?;
-        let needs = self.needed(defs, &data_tracks(b));
+        let tracks = data_tracks(b);
+        self.track_room(defs, &tracks)?;
+        let needs = self.needed(defs, &tracks);
         // a block of another session starts it: a reader takes a new session where track 0 comes first, so the
         // layout and the producer are put again in it
         let session = block_id(block).filter(|theirs| theirs.session != self.session);
@@ -1528,7 +1574,9 @@ impl<S: TapeSink> TapeWriter<S> {
             )));
         }
         Self::check_data(defs, &b)?;
-        let needs = self.needed(defs, &data_tracks(&b));
+        let tracks = data_tracks(&b);
+        self.track_room(defs, &tracks)?;
+        let needs = self.needed(defs, &tracks);
         self.room(0, !self.head_put)?;
         self.flush_deferred()?;
         if let Some(c) = b.chunk() {
@@ -2014,6 +2062,8 @@ struct Deferred {
     at: u64,
     /// The data tracks it holds: placed before any later block of them
     tracks: Vec<u32>,
+    /// Those of them without a row in the finish when it was deferred: counted as with data ([TapeWriter::track_room])
+    keys: BTreeSet<TrackKey>,
 }
 
 /// Bytes of the blocks of puts holding `records`, as [TapeWriter::write_puts] writes them.

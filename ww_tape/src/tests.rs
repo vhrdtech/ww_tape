@@ -1678,3 +1678,97 @@ fn a_walk_steps_over_a_chunk_with_its_payload_unchecked() {
         assert_eq!(errors, [format!("{refused:?}")], "{recovery:?}");
     }
 }
+
+/// Tracks 1 to `n` on [C1], each of its own id: what a test of tracks per piece needs; their ids by number.
+fn distinct_tracks(n: u32) -> (Definitions, std::collections::BTreeMap<u32, u64>) {
+    let mut out = test_definitions(C1, &(1..=n).collect::<Vec<_>>());
+    let mut ids = std::collections::BTreeMap::new();
+    for d in &mut out {
+        if let Describe::Track(t) = d {
+            t.key = 0x7700 + u64::from(t.number.0);
+            ids.insert(t.number.0, t.id());
+        }
+    }
+    let mut defs = Definitions::new();
+    defs.define_all(&out).unwrap();
+    (defs, ids)
+}
+
+/// A records block numbered `id` of one record on each of `tracks`.
+fn records_on(id: BlockId, tracks: &[u32]) -> Vec<u8> {
+    let mut buf = vec![0u8; 4096];
+    let mut w = BlockWriter::new(&mut buf, BlockKind::Records, id, &[C1]).unwrap();
+    for t in tracks {
+        w.push(*t, at(C1, i64::from(*t)), &[b"x"]).unwrap();
+    }
+    let len = w.finish();
+    buf.truncate(len);
+    buf
+}
+
+/// A piece takes data of at most its tracks-per-piece limit ([TRACKS_PER_PIECE_MAX], made small here): a block
+/// that would bring in one more track is refused before a byte is written, by every call, and the piece finishes.
+#[test]
+fn a_piece_takes_data_of_at_most_its_track_limit() {
+    let (defs, ids) = distinct_tracks(6);
+    for layout in [Layout::UNALIGNED, Layout::ALIGNED] {
+        let mut w =
+            TapeWriter::create_on(MemSink::new(std::path::Path::new("t")), SyncPolicy::None);
+        w.set_layout(layout).unwrap();
+        w.tracks_max = 3;
+        let tape = w.sink().tape();
+        w.write_block(&defs, &records_on(w.next_id(), &[1, 2]))
+            .unwrap();
+        w.defer_block(&defs, records_on(w.next_id(), &[3])).unwrap();
+        let len = tape.to_vec().unwrap().len();
+        let refused =
+            |r: Result<(), WriteError>| matches!(r, Err(WriteError::TooManyTracks { max: 3 }));
+        let b = records_on(w.next_id(), &[1, 4]);
+        assert!(refused(w.write_block(&defs, &b).map(|_| ())));
+        assert!(refused(w.adopt_block(&defs, &b).map(|_| ())));
+        assert!(refused(w.defer_block(&defs, b)));
+        let (head, starts) = chunk_on(5, ids[&5]);
+        let cols = [(starts.0, &starts.1[..])];
+        assert!(refused(w.write_chunk(&defs, &head, &cols).map(|_| ())));
+        assert_eq!(tape.to_vec().unwrap().len(), len, "nothing written");
+        // the tracks it has go on
+        w.write_block(&defs, &records_on(w.next_id(), &[1, 2, 3]))
+            .unwrap();
+        let done = w.finish().unwrap();
+        assert_eq!(done.tracks.len(), 3);
+    }
+}
+
+/// A chunk of 2 items with raw starts on track `number` of id `id`.
+fn chunk_on(number: u32, id: u64) -> (ChunkHead, (ColumnSpec, Vec<u8>)) {
+    let starts: Vec<u8> = [10i64, 20].iter().flat_map(|t| t.to_le_bytes()).collect();
+    let head = ChunkHead {
+        kind: BlockKind::Events,
+        track_id: id,
+        track_number: number,
+        first_item: 0,
+        count: 2,
+        first_tick: 10,
+        last_tick: 20,
+        latest_end: 20,
+        time_mode: 0,
+        end_mode: EndMode::Absent,
+        grid: None,
+    };
+    let spec = ColumnSpec {
+        kind: ColumnKind::Starts,
+        codec: Codec::RAW,
+        param: 0,
+        len: starts.len(),
+    };
+    (head, (spec, starts))
+}
+
+/// A finish of [TRACKS_PER_PIECE_MAX] rows, padded as much as a finish is, is a block a reader takes.
+#[test]
+fn a_finish_of_the_most_tracks_fits_a_block() {
+    let rows = TRACKS_PER_PIECE_MAX;
+    let padding = crate::piece::PIECE_ALIGN as usize - 1;
+    assert!(crate::piece::finish_len(rows) + padding <= MAX_BLOCK_LEN);
+    assert!(crate::piece::finish_len(rows + 1) + padding > MAX_BLOCK_LEN);
+}

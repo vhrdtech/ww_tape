@@ -278,6 +278,8 @@ impl TrackFacts {
 struct HeldTrack {
     facts: TrackFacts,
     bundles: Vec<Vec<u8>>,
+    /// [TrackDef::id](crate::TrackDef::id) and [TrackDef::owner](crate::TrackDef::owner)
+    key: (u64, [u8; 32]),
 }
 
 /// Check that every relation column of the events chunk `c` reads, one value for each of its items.
@@ -491,6 +493,11 @@ impl Definitions {
         self.tracks.get(&number).map(|t| t.facts)
     }
 
+    /// The id and owner of held track `number`, as its definition says.
+    pub(crate) fn track_key(&self, number: u32) -> Option<(u64, [u8; 32])> {
+        self.tracks.get(&number).map(|t| t.key)
+    }
+
     /// The held tracks' numbers, ascending.
     pub fn tracks(&self) -> impl Iterator<Item = u32> + '_ {
         self.tracks.keys().copied()
@@ -653,6 +660,7 @@ impl Definitions {
                     HeldTrack {
                         facts: TrackFacts::of(t),
                         bundles,
+                        key: (t.id(), t.owner),
                     },
                 );
             }
