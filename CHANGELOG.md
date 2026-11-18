@@ -14,6 +14,7 @@ Covers `ww_tape` 0.1.0.
 - `IndexEntry` gains `relation_break`; an events chunk block takes header flag `FLAG_RELATION_BREAK` from callers (TAPE-7).
 - A chain carries at most `HEAD_TRACKS_MAX` tracks into a piece head; a track past it is refused (`WriteError::TooManyCarried`) (TAPE-8).
 - `Recovery::Resync` reports two blocks of one seq with other bytes as `FileError::Conflict`, both named; the second is no block (TAPE-8).
+- `Recovery::Resync` remembers the last `RESYNC_SEQS_MAX` (65536) data blocks it handed out: a block of one of their ids with other bytes is a `FileError::Conflict` however far apart; it compared only with the block just before (TAPE-8).
 - `EventTimes`, `Starts` and `RelationColumn` are `Clone`, not `Copy`: a salvaged column keeps its group verdicts (STD-120).
 - `verify` holds only when the final index and the walk are the same set, read as two streams in bounded memory (TAPE-9).
 - A resume that meets a finish, tail or final index before the end of what its reader took refuses (`WriteError::GoodBlockAfterCut`) where a block of the piece's session follows it; it cut them off (TAPE-8).

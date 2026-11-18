@@ -1,5 +1,6 @@
 //! Blocks in a file or any byte stream: appended back to back, read one after the other.
 
+use std::collections::{BTreeMap, VecDeque};
 use std::io::{self, Read};
 use std::ops::Deref;
 
@@ -122,6 +123,55 @@ impl BlockBuf {
     }
 }
 
+/// Data blocks a [Recovery::Resync] walk remembers by session and seq, at most (65536, about 4 MiB): the last ones it
+/// handed out, so a later good block of one of their ids with other bytes is a [FileError::Conflict], however far apart
+/// the two are. A block whose id has left the window is taken without the check.
+pub const RESYNC_SEQS_MAX: usize = 1 << 16;
+
+/// The data blocks a [Recovery::Resync] walk handed out last, at most [RESYNC_SEQS_MAX]: where each starts, its length
+/// and CRC, by its session and seq.
+#[derive(Default)]
+struct Seen {
+    ids: VecDeque<(SessionTag, u64)>,
+    blocks: BTreeMap<(SessionTag, u64), (u64, usize, u32)>,
+}
+
+/// What [Seen] knows of a block's id.
+enum Met {
+    /// No block of its id in the window
+    New,
+    /// A block of its id with the same length and CRC: a copy, handed out again (where a Prefix walk may read it)
+    Same,
+    /// A block of its id with other bytes, at this offset
+    Other(u64),
+}
+
+impl Seen {
+    /// What the window holds of the block of `id`, `len` bytes, CRC `crc`.
+    fn met(&self, id: (SessionTag, u64), len: usize, crc: u32) -> Met {
+        match self.blocks.get(&id) {
+            None => Met::New,
+            Some((_, l, c)) if (*l, *c) == (len, crc) => Met::Same,
+            Some((at, _, _)) => Met::Other(*at),
+        }
+    }
+
+    /// Remember the block of `id` handed out at `at`, the oldest one dropped past [RESYNC_SEQS_MAX]; of copies, the
+    /// first.
+    fn take(&mut self, id: (SessionTag, u64), at: u64, len: usize, crc: u32) {
+        if self.blocks.contains_key(&id) {
+            return;
+        }
+        self.blocks.insert(id, (at, len, crc));
+        self.ids.push_back(id);
+        if self.ids.len() > RESYNC_SEQS_MAX
+            && let Some(old) = self.ids.pop_front()
+        {
+            self.blocks.remove(&old);
+        }
+    }
+}
+
 /// Why a file could not be read further, or what was skipped in it.
 #[derive(Debug)]
 #[non_exhaustive]
@@ -162,9 +212,11 @@ pub enum FileError {
         seq: u64,
     },
     /// [Recovery::Resync]: two good blocks of session `session` and seq `seq` with other bytes, the one handed out at
-    /// `first` and `block`, met at `offset`. In damage a salvage can't tell a copy from a rewrite, so neither is
-    /// taken for the other: `block` comes only here, never as a block of its own, and the caller marks both. The walk
-    /// goes on after `block`. Blocks of puts share seqs by design ([FLAG_REPEAT](crate::FLAG_REPEAT)) and are never a
+    /// `first` and `block`, met at `offset`, however far apart (the last [RESYNC_SEQS_MAX] data blocks handed out are
+    /// remembered). In damage a salvage can't tell a copy from a rewrite, so neither is taken for the other: `block`
+    /// comes only here, never as a block of its own. The block at `first` was handed out already, as the walk streams:
+    /// a caller that keeps what a salvage hands out holds it back or can take it back, and marks both. The walk goes on
+    /// after `block`. Blocks of puts share seqs by design ([FLAG_REPEAT](crate::FLAG_REPEAT)) and are never a
     /// conflict.
     Conflict {
         first: u64,
@@ -293,8 +345,12 @@ pub enum Recovery {
     #[default]
     Prefix,
     /// Salvage: report a bad block and read on at the next block magic one byte after its start ([FileError::Bad]);
-    /// no seq check, but a block with the session and seq of the block before it and other bytes is a conflict
-    /// ([FileError::Conflict]): it comes only in the report, which names both; a block of a session that may not start there is reported ([FileError::Stale]) and skipped. A
+    /// no seq check, but a data block with the session and seq of one handed out before (of the last
+    /// [RESYNC_SEQS_MAX]) and other bytes is a conflict ([FileError::Conflict]): it comes only in the report, which
+    /// names both (a copy with the same bytes is no conflict). The first block of a conflicting pair was
+    /// handed out before the second is met: a caller that keeps what it takes holds back or can take back what it took
+    /// since the last damage. A block of a session that may not start there is reported ([FileError::Stale]) and
+    /// skipped. A
     /// chunk block whose head is good (head CRC) but whose payload isn't is handed out instead, with
     /// [Block::is_intact] false and its bad segments marked ([crate::Chunk::bad_segments]), and the walk goes on
     /// after it by its length. Any byte may start a block, also in a file aligned for its chunk payloads: a block is
@@ -326,6 +382,8 @@ pub struct FileBlocks<R> {
     replacing: bool,
     /// Where the last data block taken starts (a block of the seq order, [crate::walk::is_free] not)
     last_data: Option<u64>,
+    /// [Recovery::Resync]: the data blocks handed out last, by session and seq
+    seen: Seen,
     /// [Recovery::Resync] in a stretch a [Recovery::Prefix] walk reads past as a gap: the medium offset where that walk
     /// goes on. Blocks before it change no session of `walk`, and none is passed over beyond it.
     gap_end: Option<u64>,
@@ -374,6 +432,7 @@ impl<R: Read> FileBlocks<R> {
             done: false,
             replacing: false,
             last_data: None,
+            seen: Seen::default(),
             gap_end: None,
             gap_walk: SessionState::new(Medium::File),
             prefix_over: false,
@@ -642,12 +701,27 @@ impl<R: Read> FileBlocks<R> {
                 }
             }
         }
-        let verdict = match verdict {
+        let mut verdict = match verdict {
             Verdict::Duplicate { same: false } if self.replacing => Verdict::Take,
             v => v,
         };
         self.replacing = false;
         let (session, seq) = (b.session, b.seq);
+        // a data block of an id handed out before, however far back
+        let mut first = None;
+        let resync_data = self.recovery == Recovery::Resync && !is_free(&b);
+        if verdict == Verdict::Take && resync_data {
+            match self.seen.met((session, seq), c.len, b.crc()) {
+                Met::New | Met::Same => {}
+                Met::Other(at) => {
+                    first = Some(at);
+                    verdict = Verdict::Duplicate { same: false };
+                }
+            }
+        }
+        if verdict == Verdict::Take && resync_data {
+            self.seen.take((session, seq), self.offset, c.len, b.crc());
+        }
         if matches!(verdict, Verdict::Take) && self.gap_end.is_none() {
             self.walk.take(&b);
             if !is_free(&b) {
@@ -666,7 +740,10 @@ impl<R: Read> FileBlocks<R> {
                 let block = b.bytes().to_vec();
                 self.consume(self.within_gap(c.len))?;
                 Err(FileError::Conflict {
-                    first: self.last_data.unwrap_or(offset),
+                    first: first
+                        .or_else(|| self.seen.blocks.get(&(session, seq)).map(|b| b.0))
+                        .or(self.last_data)
+                        .unwrap_or(offset),
                     offset,
                     session,
                     seq,
@@ -919,6 +996,28 @@ enum Here {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The Resync window holds the last [RESYNC_SEQS_MAX] data blocks: the oldest id leaves it, the rest still meet a
+    /// block of their id.
+    #[test]
+    fn the_resync_window_forgets_the_oldest_id_past_its_max() {
+        let tag = SessionTag::from_u32(1);
+        let mut seen = Seen::default();
+        for seq in 0..=RESYNC_SEQS_MAX as u64 {
+            seen.take((tag, seq), seq * 100, 10, 7);
+        }
+        assert_eq!(
+            (seen.ids.len(), seen.blocks.len()),
+            (RESYNC_SEQS_MAX, RESYNC_SEQS_MAX)
+        );
+        assert!(matches!(seen.met((tag, 0), 10, 8), Met::New));
+        assert!(matches!(seen.met((tag, 1), 10, 8), Met::Other(100)));
+        assert!(matches!(seen.met((tag, 1), 10, 7), Met::Same));
+        assert!(matches!(
+            seen.met((SessionTag::from_u32(2), 1), 10, 8),
+            Met::New
+        ));
+    }
 
     /// A reader that says it read one byte more than it was asked for.
     struct Overreads;

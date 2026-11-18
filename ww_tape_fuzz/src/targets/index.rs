@@ -93,7 +93,7 @@ pub(crate) fn read(data: &[u8], options: OpenOptions) {
             }
         }
         let _ = r.track_entries(i, 0);
-        let _ = r.verify(i);
+        relations_in_order(&r, i);
     }
     let _ = r.chain();
     // the hash of a track's chunks, from the index or, where it doesn't read, from the chunks; never more chunks
@@ -110,6 +110,51 @@ pub(crate) fn read(data: &[u8], options: OpenOptions) {
         if let Ok(h) = r.range_hash(id, OwnerId::NONE, 0..u64::MAX, TrackHash::START) {
             assert!(h.read <= h.chunks);
             assert!(h.chunks <= data.len() as u64 / 36 + 1);
+        }
+    }
+}
+
+/// A track's chunks whose entries [TapeReader::track_entries] hands out start each range at or above the top of the
+/// range before it of their track number, but at a chunk marked a break; a piece that verifies (its relation columns
+/// in order) lists no entries that go down unmarked.
+fn relations_in_order(r: &TapeReader<&[u8]>, i: usize) {
+    let verified = r.verify(i).is_ok_and(|v| v);
+    let mut ids: Vec<u64> = r
+        .entries(i)
+        .unwrap_or_default()
+        .iter()
+        .map(|e| e.track_id)
+        .collect();
+    ids.sort_unstable();
+    ids.dedup();
+    for id in ids.into_iter().take(8) {
+        match r.track_entries(i, id) {
+            Ok(entries) => {
+                let mut top = std::collections::BTreeMap::new();
+                for e in entries
+                    .iter()
+                    .filter(|e| e.kind == BlockKind::Events && !e.repeat)
+                {
+                    if e.relation_break {
+                        top.remove(&e.track_number);
+                    }
+                    if let Some((lo, hi)) = e.range {
+                        let before = top.insert(e.track_number, hi);
+                        assert!(
+                            before.is_none_or(|t| lo >= t),
+                            "track {id:#x}: a range goes down without a break: {entries:?}"
+                        );
+                    }
+                }
+            }
+            Err(ReadError::RelationOrder { track_id, .. }) => {
+                assert_eq!(track_id, id);
+                assert!(
+                    !verified,
+                    "a verified piece lists track {id:#x} out of relation order"
+                );
+            }
+            Err(_) => {}
         }
     }
 }

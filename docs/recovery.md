@@ -48,6 +48,10 @@ correction, or a file system. A block kind is reserved for parity blocks, but no
   that Prefix reads past as a gap, Resync hands out the good blocks too, also a session that starts there and the
   blocks after it. Past the gap, the walk goes on with the session it had, where Prefix does. So Resync reads every
   block Prefix reads.
+  Resync has no seq check, but it remembers the last 65536 data blocks it handed out (`RESYNC_SEQS_MAX`): a good
+  block of one of their session and seq with other bytes is a conflict (`FileError::Conflict`, naming both), never a
+  block of its own; a copy with the same bytes is none. The first of the two was handed out already, so
+  a caller that keeps what a salvage hands out holds it back or can take it back.
 
 Inside a damaged events chunk, a reader can still **salvage** items. The time codec and the payload lengths are stored
 per group of 128 items, and each group's record must agree with its neighbours: offsets that chain, ticks in order,

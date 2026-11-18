@@ -249,6 +249,114 @@ fn file_blocks_refuse_a_piece_head_of_another_integrity_level() {
     }
 }
 
+/// A damaged chunk whose payload holds a good copy, with other bytes, of the data block two after it: a Resync walk
+/// hands out the copy, then the block between, then reports the real block as a conflict naming the copy, though the
+/// block before it has another seq (R4-3). A copy with the same bytes is no conflict: both are handed out, as a Prefix
+/// walk may read the second.
+#[test]
+fn resync_reports_a_seq_met_again_past_other_blocks_as_a_conflict() {
+    use crate::definitions::base_defs;
+    use crate::pieces::{chunk, column, records};
+    use ww_tape::{Block, FileBlocks, FileError, MemSink, Recovery, SyncPolicy, TapeWriter};
+    let mut w = TapeWriter::create_on(
+        MemSink::new(std::path::Path::new("resync-far")),
+        SyncPolicy::None,
+    );
+    let tape = w.sink().tape();
+    let defs = base_defs();
+    let (h, c) = chunk(1, 0);
+    w.write_chunk(defs, &h, &column(&c)).unwrap();
+    let next = w.next_id();
+    w.write_block(defs, &records(next, 7)).unwrap();
+    let next = w.next_id();
+    w.write_block(defs, &records(next, 8)).unwrap();
+    let (h, c) = chunk(1, 1);
+    w.write_chunk(defs, &h, &column(&c)).unwrap();
+    let clean = tape.to_vec().unwrap();
+    drop(w);
+    let mut blocks = vec![];
+    let mut at = 0;
+    while let Ok(b) = Block::read(&clean[at..]) {
+        let data = b.flags & ww_tape::FLAG_REPEAT == 0;
+        blocks.push((at, b.len(), b.kind, data, b.seq));
+        at += b.len();
+    }
+    let c0 = blocks.iter().find(|b| b.2 == BlockKind::Events).unwrap().0;
+    let data: Vec<_> = blocks
+        .iter()
+        .filter(|b| b.2 == BlockKind::Records && b.3 && b.0 > c0)
+        .collect();
+    let [&(a_at, _, _, _, a_seq), &(r_at, r_len, _, _, r_seq)] = data[..] else {
+        panic!("two record blocks of data after the chunk: {blocks:?}")
+    };
+    assert!(a_seq < r_seq);
+    let po = Block::read(&clean[c0..])
+        .unwrap()
+        .chunk()
+        .unwrap()
+        .payload_offset();
+    let walk = |changed: bool| {
+        let mut bytes = clean.clone();
+        let mut fake = bytes[r_at..r_at + r_len].to_vec();
+        let n = fake.len();
+        if changed {
+            fake[n - 10] ^= 0x55;
+            let crc = crc32c(&[&fake[..n - 4]]);
+            fake[n - 4..].copy_from_slice(&crc.to_le_bytes());
+        }
+        assert!(Block::read(&fake).is_ok());
+        assert!(po + n <= a_at - c0, "the copy fits the chunk's payload");
+        bytes[c0 + po..c0 + po + n].copy_from_slice(&fake);
+        // the chunk's head CRC fails
+        bytes[c0 + 40] ^= 1;
+        let mut fb = FileBlocks::with_recovery(&bytes[..], Recovery::Resync);
+        let mut seen = vec![];
+        while let Some(b) = fb.next_block() {
+            let got = b.map(|b| b.seq);
+            seen.push(got.map(|seq| (fb.offset(), seq)));
+        }
+        seen
+    };
+    let fake_at = (c0 + po) as u64;
+    let seen = walk(true);
+    let taken = |o: usize| {
+        seen.iter()
+            .position(|s| matches!(s, Ok((at, _)) if *at == o as u64))
+    };
+    let (i, j) = (taken(c0 + po).unwrap(), taken(a_at).unwrap());
+    assert!(i < j, "the copy, then the block between: {seen:?}");
+    let conflicts: Vec<_> = seen
+        .iter()
+        .filter(|s| matches!(s, Err(FileError::Conflict { .. })))
+        .collect();
+    let [conflict] = conflicts[..] else {
+        panic!("one conflict reported: {seen:?}")
+    };
+    assert!(
+        matches!(
+            conflict,
+            Err(FileError::Conflict { first, offset, seq, block, .. })
+                if *first == fake_at && *offset == r_at as u64 && *seq == r_seq
+                    && block[..] == clean[r_at..r_at + r_len]
+        ),
+        "{seen:?}"
+    );
+    assert!(taken(r_at).is_none(), "{seen:?}");
+    // a copy with the same bytes: no conflict, the real block is handed out too
+    let seen = walk(false);
+    assert!(
+        !seen
+            .iter()
+            .any(|s| matches!(s, Err(FileError::Conflict { .. }))),
+        "{seen:?}"
+    );
+    let taken = |o: usize| {
+        seen.iter()
+            .any(|s| matches!(s, Ok((at, _)) if *at == o as u64))
+    };
+    assert!(taken(c0 + po) && taken(r_at), "{seen:?}");
+}
+
 /// A damaged chunk whose payload holds a good copy of the next data block with other bytes: a Resync walk hands out
 /// the copy at the magic it finds in the payload, then reports the real block, of the same session and seq, as a
 /// conflict naming both, never as a block of its own: a salvage can't tell which one is real.

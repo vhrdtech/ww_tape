@@ -6,6 +6,7 @@
 //! bounded multiple of the piece, never its square.
 use shrink_wrap::DeserializeShrinkWrap;
 use std::cell::Cell;
+use ww_tape::index::is_structural;
 use ww_tape::piece::{WALK_MISS_BASE_MAX, WALK_MISS_PER_BYTE_MAX};
 use ww_tape::reader::{ByteSource, OutOfRange};
 use ww_tape::{
@@ -62,7 +63,31 @@ pub(crate) fn walk(data: &[u8], recovery: Recovery, medium: Medium) -> Vec<Vec<u
     }
     let mut blocks = vec![];
     let mut steps = 0usize;
+    // Resync: the data blocks handed out by session and seq, where each starts (far fewer than RESYNC_SEQS_MAX here)
+    let mut ids = std::collections::BTreeMap::new();
     while let Some(b) = rd.next_block() {
+        let taken = match &b {
+            Ok(b) if recovery == Recovery::Resync && !is_structural(b.kind) && !b.is_repeat() => {
+                Some(((b.session, b.seq), b.len(), b.crc()))
+            }
+            _ => None,
+        };
+        if let Err(FileError::Conflict {
+            first,
+            session,
+            seq,
+            block,
+            ..
+        }) = &b
+        {
+            // the conflict names a block of its id handed out before, with other bytes
+            let got = Block::read(block).map(|b| (b.len(), b.crc()));
+            let (at, len, crc) = *ids
+                .get(&(*session, *seq))
+                .expect("a conflict is of an id handed out before");
+            assert_eq!(at, *first, "a conflict names the block handed out first");
+            assert_ne!(got.ok(), Some((len, crc)), "a conflict is of other bytes");
+        }
         if let Ok(b) = &b {
             let bytes = b.bytes().to_vec();
             if b.is_intact() {
@@ -84,6 +109,15 @@ pub(crate) fn walk(data: &[u8], recovery: Recovery, medium: Medium) -> Vec<Vec<u
             // a second good block of a seq with other bytes: reported, read, never handed out as a block
             assert_eq!(recovery, Recovery::Resync);
             blocks.push(block);
+        }
+        if let Some((id, len, crc)) = taken {
+            // a block of an id handed out before with other bytes is a conflict, never handed out
+            let first = *ids.entry(id).or_insert((rd.offset(), len, crc));
+            assert_eq!(
+                (first.1, first.2),
+                (len, crc),
+                "a Resync walk hands out {id:?} twice with other bytes"
+            );
         }
         steps += 1;
         assert!(steps <= data.len() + 1, "every step consumes bytes");
