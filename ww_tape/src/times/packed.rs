@@ -68,15 +68,17 @@ pub struct Durations<'b> {
 }
 
 impl<'b> Durations<'b> {
-    /// Read a durations column of `n` items no longer than `max`; `column` and `tail` as for the starts.
+    /// Read a durations column of `n` items no longer than `max`; `column` and `tail` as for the starts. `kind` names
+    /// the column in errors: the ends, or a relation's values in this codec.
     pub(crate) fn parse(
+        kind: ColumnKind,
         n: usize,
         max: u64,
         column: &'b [u8],
         tail: &'b [u8],
         salvage: bool,
     ) -> Result<Self, TimesError> {
-        let groups = Groups::split(ColumnKind::Ends, n, DURATIONS, column, tail)?;
+        let groups = Groups::split(kind, n, DURATIONS, column, tail)?;
         let d = Durations {
             groups,
             max,
@@ -86,7 +88,7 @@ impl<'b> Durations<'b> {
             groups.check()?;
             if (0..groups.count()).any(|g| !d.record_ok(g)) {
                 return Err(TimesError::Corrupt {
-                    kind: ColumnKind::Ends,
+                    kind,
                     what: "duration minimum past the chunk's latest end",
                 });
             }
@@ -96,6 +98,15 @@ impl<'b> Durations<'b> {
 
     fn min(&self, g: usize) -> u64 {
         duration_min(self.groups.record(g))
+    }
+
+    /// Items in the column.
+    pub fn len(&self) -> usize {
+        self.groups.n
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.groups.n == 0
     }
 
     fn record_ok(&self, g: usize) -> bool {

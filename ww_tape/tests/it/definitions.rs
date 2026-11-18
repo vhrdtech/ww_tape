@@ -1270,3 +1270,62 @@ fn a_tracks_relations_are_checked_by_themselves() {
     );
     assert_eq!(defs.define(&decoded), Ok(()));
 }
+
+/// An events chunk's relation columns match its track's stored relations: one each, none other, a monotone
+/// relation's in the starts codec; a relation without values or with values elsewhere takes no column.
+#[test]
+fn relation_columns_match_the_stored_relations() {
+    const RELATIONS: &[RelationDef<'static>] = &[
+        SOURCE,
+        CONTEXT,
+        rel("key", RelationValues::Stored, false, RelationIndex::None),
+    ];
+    let mut defs = Definitions::new();
+    defs.define(&clock(CLOCK)).unwrap();
+    defs.define(&related(3, RELATIONS)).unwrap();
+    let col = |param: u16, codec: u8| ww_tape::ColumnSpec {
+        kind: ww_tape::ColumnKind::Relation,
+        codec: ww_tape::Codec(codec),
+        param,
+        len: 8,
+    };
+    let starts = ww_tape::ColumnSpec {
+        kind: ww_tape::ColumnKind::Starts,
+        codec: ww_tape::Codec(1),
+        param: 0,
+        len: 8,
+    };
+    let check = |cols: &[ww_tape::ColumnSpec]| defs.check_relation_columns(3, cols);
+    let bad = Err(DescribeError::RelationColumns { track: 3 });
+    assert_eq!(check(&[starts, col(0, 1), col(2, 2)]), Ok(()));
+    assert_eq!(
+        check(&[starts, col(0, 1), col(2, 1)]),
+        Ok(()),
+        "any values in codec 1"
+    );
+    assert_eq!(
+        check(&[starts, col(0, 1)]),
+        bad,
+        "a stored relation without its column"
+    );
+    assert_eq!(
+        check(&[starts, col(0, 1), col(2, 2), col(1, 2)]),
+        bad,
+        "a column of a relation without values"
+    );
+    assert_eq!(
+        check(&[starts, col(0, 1), col(2, 2), col(2, 2)]),
+        bad,
+        "a relation's column twice"
+    );
+    assert_eq!(
+        check(&[starts, col(0, 2), col(2, 2)]),
+        bad,
+        "a monotone relation in codec 2"
+    );
+    assert_eq!(
+        check(&[starts, col(0, 1), col(2, 2), col(16, 2)]),
+        bad,
+        "a relation past the last"
+    );
+}
