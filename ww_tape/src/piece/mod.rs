@@ -70,8 +70,10 @@
 //! every chunk block that reads whole (from its payload offset to its CRC: the columns and their 16 zero bytes) is
 //! replaced by the 32-byte BLAKE3 hash of that payload. Every byte is covered; the payload is hashed once, for this
 //! hash and the track hash both. The blocks are found from the start: where a block reads whole it is taken whole,
-//! else the bytes up to the next place holding the block magic go in as they are. Damaged bytes so hash the same
-//! whichever way a resume or a reader walks them.
+//! else the bytes up to the next place holding the block magic go in as they are. A place is tried as a block only
+//! while the blocks tried that didn't read whole claim at most [WALK_MISS_PER_BYTE_MAX] bytes per byte gone plus
+//! [WALK_MISS_BASE_MAX], so crafted bytes cost a walk a bounded multiple of their length. Damaged bytes so hash the
+//! same whichever way a resume or a reader walks them.
 //!
 //! **Track hash.** Each track has a running hash ([TrackHash]) over its content as written, in the order written:
 //! 32 zero bytes before its first, then `h = BLAKE3(h || BLAKE3(unit))` for each unit. The inner hash is the unit
@@ -258,6 +260,14 @@ const HASH_STEP: usize = 1 << 20;
 /// Bytes of the block magic but its first, which a stretch read at a time keeps back: the magic may start there.
 const MAGIC_TAIL: usize = crate::MAGIC.len() - 1;
 
+/// Bytes the blocks a content-hash walk tries and that don't read whole may claim per byte the walk has gone, past
+/// [WALK_MISS_BASE_MAX]. A place is tried only while the misses so far are within this budget, so a stretch of
+/// crafted headers, each claiming a long block, costs a bounded multiple of its length, never its square.
+pub const WALK_MISS_PER_BYTE_MAX: u64 = 4;
+
+/// Bytes the blocks a content-hash walk tries may claim and miss before it has gone any way (1 MiB).
+pub const WALK_MISS_BASE_MAX: u64 = 1 << 20;
+
 /// Feed the first `end` bytes of a piece, read by `read`, to its content hash: each block of [walk_piece] whole
 /// ([hash_block]), the bytes between as they are. The hash depends on the bytes alone, not on how a writer or a resume
 /// walked them.
@@ -286,61 +296,130 @@ pub(crate) enum Walked<'b> {
 
 /// Walk the first `end` bytes of a piece, read by `read`, from its start: at each place a block that reads whole is
 /// a step; other bytes are a step up to the next place holding the block magic.
+///
+/// A place is tried as a block only while the lengths of the blocks tried that didn't read whole are within
+/// [WALK_MISS_PER_BYTE_MAX] per byte gone plus [WALK_MISS_BASE_MAX]; a block claiming more than `end` holds counts as
+/// missed unread. The places tried depend on the bytes before them alone, so a walk of a prefix (a resume) takes the
+/// same steps as a walk of the whole piece. Bytes between blocks are read once, in windows of [HASH_STEP].
 pub(crate) fn walk_piece<E>(
     end: u64,
     mut read: impl FnMut(u64, &mut [u8]) -> Result<(), E>,
     mut step: impl FnMut(Walked<'_>),
 ) -> Result<(), E> {
-    let mut buf = Vec::new();
+    let mut block = Vec::new();
+    let mut win = Window::default();
+    let mut missed = 0u64;
     let mut at = 0u64;
     while let Some(left) = end.checked_sub(at).filter(|n| *n > 0) {
-        if let Some(n) = whole_block(at, left, &mut buf, &mut read)? {
-            step(Walked::Block(&buf));
-            at = at.saturating_add(len_u64(n));
-            continue;
+        let budget = at
+            .saturating_mul(WALK_MISS_PER_BYTE_MAX)
+            .saturating_add(WALK_MISS_BASE_MAX);
+        if missed <= budget {
+            match try_block(at, left, &mut block, &mut read)? {
+                Tried::Block(n) => {
+                    step(Walked::Block(&block));
+                    at = at.saturating_add(len_u64(n));
+                    continue;
+                }
+                Tried::Missed(n) => missed = missed.saturating_add(len_u64(n)),
+                Tried::NoBlock => {}
+            }
         }
-        let n = usize::try_from(left).map_or(HASH_STEP, |left| left.min(HASH_STEP));
-        buf.resize(n, 0);
-        read(at, &mut buf)?;
-        let next = buf
+        let raw = win.raw_at(at, end, &mut read)?;
+        step(Walked::Raw(raw));
+        at = at.saturating_add(len_u64(raw.len()));
+    }
+    Ok(())
+}
+
+/// Bytes of a piece [walk_piece] read to step over what no block explains, from `at`.
+#[derive(Default)]
+struct Window {
+    at: u64,
+    bytes: Vec<u8>,
+}
+
+impl Window {
+    /// The bytes from `at` (within `end`) up to the next place after it holding the block magic, or as far as one
+    /// window goes: never empty. The window is read again only when `at` is past what it can search.
+    fn raw_at<E>(
+        &mut self,
+        at: u64,
+        end: u64,
+        read: &mut impl FnMut(u64, &mut [u8]) -> Result<(), E>,
+    ) -> Result<&[u8], E> {
+        let reaches_end = |w: &Self| w.at.saturating_add(len_u64(w.bytes.len())) == end;
+        let usable = |w: &Self| {
+            at.checked_sub(w.at)
+                .and_then(|o| usize::try_from(o).ok())
+                .filter(|o| match reaches_end(w) {
+                    true => *o < w.bytes.len(),
+                    false => o.saturating_add(MAGIC_TAIL) < w.bytes.len(),
+                })
+        };
+        let from = match usable(self) {
+            Some(o) => o,
+            None => {
+                let left = end.saturating_sub(at);
+                let n = usize::try_from(left).map_or(HASH_STEP, |left| left.min(HASH_STEP));
+                self.bytes.resize(n, 0);
+                read(at, &mut self.bytes)?;
+                self.at = at;
+                0
+            }
+        };
+        let rest = self.bytes.get(from..).unwrap_or_default();
+        let next = rest
             .get(1..)
-            .and_then(|rest| {
-                rest.windows(crate::MAGIC.len())
+            .and_then(|r| {
+                r.windows(crate::MAGIC.len())
                     .position(|w| w == crate::MAGIC)
             })
             .map(|k| k.saturating_add(1));
         let take = match next {
             Some(k) => k,
-            None if len_u64(n) == left => n,
-            None => n.saturating_sub(MAGIC_TAIL).max(1),
+            None if reaches_end(self) => rest.len(),
+            None => rest.len().saturating_sub(MAGIC_TAIL).max(1),
         };
-        step(Walked::Raw(buf.get(..take).unwrap_or(&buf)));
-        at = at.saturating_add(len_u64(take));
+        Ok(rest.get(..take).unwrap_or(rest))
     }
-    Ok(())
 }
 
-/// The length of the block at `at` when one reads whole there within `left` bytes, read into `buf`.
-fn whole_block<E>(
+/// What [try_block] found at a place.
+enum Tried {
+    /// A block that reads whole, this long.
+    Block(usize),
+    /// A header claiming a block this long that doesn't read whole within the bytes walked.
+    Missed(usize),
+    /// No block header.
+    NoBlock,
+}
+
+/// Whether a block reads whole at `at` within `left` bytes, read into `buf`.
+fn try_block<E>(
     at: u64,
     left: u64,
     buf: &mut Vec<u8>,
     read: &mut impl FnMut(u64, &mut [u8]) -> Result<(), E>,
-) -> Result<Option<usize>, E> {
+) -> Result<Tried, E> {
     if left < len_u64(HEADER_LEN) {
-        return Ok(None);
+        return Ok(Tried::NoBlock);
     }
     let mut header = [0u8; HEADER_LEN];
     read(at, &mut header)?;
-    let Some(n) = crate::block_len(&header)
-        .ok()
-        .filter(|n| *n >= HEADER_LEN && *n <= crate::MAX_BLOCK_LEN && len_u64(*n) <= left)
-    else {
-        return Ok(None);
+    // block_len: at least a header and a CRC, at most MAX_BLOCK_LEN
+    let Ok(n) = crate::block_len(&header) else {
+        return Ok(Tried::NoBlock);
     };
+    if len_u64(n) > left {
+        return Ok(Tried::Missed(n));
+    }
     buf.resize(n, 0);
     read(at, buf)?;
-    Ok(Block::read(buf).is_ok_and(|b| b.len() == n).then_some(n))
+    Ok(match Block::read(buf).is_ok_and(|b| b.len() == n) {
+        true => Tried::Block(n),
+        false => Tried::Missed(n),
+    })
 }
 
 impl PieceId {
