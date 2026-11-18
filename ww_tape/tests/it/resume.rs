@@ -1024,3 +1024,71 @@ fn a_chain_whose_last_piece_lost_its_head_is_refused() {
     }
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// Whether `r` is refused for another writer holding the bytes.
+fn locked<T>(r: Result<T, WriteError>) -> bool {
+    matches!(r, Err(WriteError::Locked(_)))
+}
+
+/// One writer per file: a second chain resumed on a one-file chain another one writes is refused, on files and in
+/// memory, as is a second writer of a piece file; once the first is gone the second goes on.
+#[test]
+fn a_second_writer_of_one_file_is_refused() {
+    let dir = scratch("second_writer");
+    let options = || ChainOptions {
+        files: ww_tape::PieceFiles::One,
+        ..chain_options()
+    };
+    let owner = OwnerId([7; 32]);
+    fn write<F: SinkFactory>(c: &mut PieceChain<F>, k: u64) {
+        let (h, b) = chunk(0, k);
+        c.write_chunk(base_defs(), &h, &column(&b)).unwrap();
+    }
+
+    let path = dir.join("run.wwt");
+    let mut a = PieceChain::create(&path, owner, 0, &[], options()).unwrap();
+    write(&mut a, 0);
+    a.finish().unwrap();
+    let (mut a, _) = PieceChain::resume(&path, owner, 0, options()).unwrap();
+    assert!(locked(PieceChain::resume(&path, owner, 0, options())));
+    write(&mut a, 1);
+    drop(a);
+    let (mut b, _) = PieceChain::resume(&path, owner, 0, options()).unwrap();
+    write(&mut b, 2);
+    b.finish().unwrap();
+    let bytes = std::fs::read(&path).unwrap();
+    let r = TapeReader::open(&bytes[..]).unwrap();
+    assert!(r.chain().is_whole(), "{:?}", r.chain());
+
+    let mem = MemTapes::new();
+    let at = Path::new("run");
+    let mut a = PieceChain::create_on(mem.clone(), at, owner, 0, &[], options()).unwrap();
+    assert!(locked(PieceChain::resume_on(
+        mem.clone(),
+        at,
+        owner,
+        0,
+        options()
+    )));
+    write(&mut a, 0);
+    a.finish().unwrap();
+    let (a, _) = PieceChain::resume_on(mem.clone(), at, owner, 0, options()).unwrap();
+    assert!(locked(PieceChain::resume_on(
+        mem.clone(),
+        at,
+        owner,
+        0,
+        options()
+    )));
+    drop(a);
+    PieceChain::resume_on(mem.clone(), at, owner, 0, options()).unwrap();
+
+    // a piece file: its partial file is held from create to close
+    let piece = dir.join("piece.wwt");
+    let w = TapeWriter::create(&piece, SyncPolicy::None).unwrap();
+    assert!(locked(TapeWriter::create(&piece, SyncPolicy::None)));
+    assert!(locked(TapeWriter::resume(&piece, options().writer)));
+    drop(w);
+    TapeWriter::resume(&piece, options().writer).unwrap();
+    std::fs::remove_dir_all(&dir).unwrap();
+}

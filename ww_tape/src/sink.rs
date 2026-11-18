@@ -9,6 +9,10 @@
 //! [SinkFactory::open_whole]): the writer of the next piece goes on in the same sink, whose window
 //! ([TapeSink::base], [TapeSink::rebase]) starts where the piece before ended, so offsets, reads and truncates count
 //! from the piece's start as in a file of its own.
+//!
+//! A sink is the only writer of its bytes while it lives: a file sink holds an exclusive lock on its file
+//! ([File::try_lock], advisory: other writers of the format take it too), a memory sink marks its tape held. A second
+//! sink of the same bytes is refused with [WriteError::Locked], so two writers never fork one file.
 
 use std::collections::BTreeMap;
 use std::fs::{File, OpenOptions};
@@ -137,13 +141,16 @@ impl FileSink {
         if path.exists() {
             return Err(WriteError::Exists(path.to_path_buf()));
         }
+        // emptied once locked: a writer still on it keeps its bytes
         let file = OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
-            .truncate(true)
+            .truncate(false)
             .open(&partial)
             .map_err(io_err("creating the file"))?;
+        lock(&file, &partial)?;
+        file.set_len(0).map_err(io_err("emptying the file"))?;
         file.sync_all().map_err(io_err("syncing the new file"))?;
         sync_dir(path).map_err(io_err("syncing the directory"))?;
         Ok(FileSink {
@@ -164,6 +171,7 @@ impl FileSink {
             .create(true)
             .open(path)
             .map_err(io_err("opening the file"))?;
+        lock(&file, path)?;
         if !existed {
             file.sync_all().map_err(io_err("syncing the new file"))?;
             sync_dir(path).map_err(io_err("syncing the directory"))?;
@@ -196,6 +204,7 @@ impl FileSink {
                 });
             }
         };
+        lock(&file, path)?;
         file.sync_all().map_err(io_err("syncing the new file"))?;
         sync_dir(path).map_err(io_err("syncing the directory"))?;
         Ok(FileSink {
@@ -210,12 +219,15 @@ impl FileSink {
     /// there.
     pub fn open_whole(path: &Path) -> Result<Option<Self>, WriteError> {
         match OpenOptions::new().read(true).append(true).open(path) {
-            Ok(file) => Ok(Some(FileSink {
-                file,
-                path: path.to_path_buf(),
-                partial: None,
-                base: 0,
-            })),
+            Ok(file) => {
+                lock(&file, path)?;
+                Ok(Some(FileSink {
+                    file,
+                    path: path.to_path_buf(),
+                    partial: None,
+                    base: 0,
+                }))
+            }
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
             Err(error) => Err(WriteError::Io {
                 what: "opening the file",
@@ -229,12 +241,15 @@ impl FileSink {
         let partial = partial_name(path);
         // appended to: writes go to the end, after a truncate too
         match OpenOptions::new().read(true).append(true).open(&partial) {
-            Ok(file) => Ok(Some(FileSink {
-                file,
-                path: path.to_path_buf(),
-                partial: Some(partial),
-                base: 0,
-            })),
+            Ok(file) => {
+                lock(&file, &partial)?;
+                Ok(Some(FileSink {
+                    file,
+                    path: path.to_path_buf(),
+                    partial: Some(partial),
+                    base: 0,
+                }))
+            }
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
             Err(error) => Err(WriteError::Io {
                 what: "opening the unfinished file",
@@ -292,6 +307,19 @@ impl TapeSink for FileSink {
 
     fn current_path(&self) -> &Path {
         self.partial.as_deref().unwrap_or(&self.path)
+    }
+}
+
+/// Take the exclusive lock on `file`, named `path`, held until it is closed: [WriteError::Locked] when another
+/// writer holds it.
+fn lock(file: &File, path: &Path) -> Result<(), WriteError> {
+    match file.try_lock() {
+        Ok(()) => Ok(()),
+        Err(std::fs::TryLockError::WouldBlock) => Err(WriteError::Locked(path.to_path_buf())),
+        Err(std::fs::TryLockError::Error(error)) => Err(WriteError::Io {
+            what: "locking the file",
+            error,
+        }),
     }
 }
 
@@ -376,6 +404,8 @@ pub struct MemTape(Arc<MemBytes>);
 struct MemBytes {
     bytes: RwLock<Vec<u8>>,
     finished: AtomicBool,
+    /// A [MemSink] writes the bytes
+    held: AtomicBool,
 }
 
 impl MemTape {
@@ -387,6 +417,20 @@ impl MemTape {
     /// Whether the sink writing these bytes finished.
     pub fn is_finished(&self) -> bool {
         self.0.finished.load(Ordering::Acquire)
+    }
+
+    /// A sink named `path` writing these bytes, the only one while it lives: [WriteError::Locked] while another
+    /// one does.
+    fn hold(&self, path: &Path) -> Result<MemSink, WriteError> {
+        self.0
+            .held
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .map_err(|_held| WriteError::Locked(path.to_path_buf()))?;
+        Ok(MemSink {
+            tape: self.clone(),
+            path: path.to_path_buf(),
+            base: 0,
+        })
     }
 
     fn read(&self) -> io::Result<std::sync::RwLockReadGuard<'_, Vec<u8>>> {
@@ -434,8 +478,10 @@ pub struct MemSink {
 impl MemSink {
     /// An empty sink named `path`, not kept in any [MemTapes].
     pub fn new(path: &Path) -> Self {
+        let tape = MemTape::default();
+        tape.0.held.store(true, Ordering::Release);
         MemSink {
-            tape: MemTape::default(),
+            tape,
             path: path.to_path_buf(),
             base: 0,
         }
@@ -444,6 +490,13 @@ impl MemSink {
     /// The bytes, for readers.
     pub fn tape(&self) -> MemTape {
         self.tape.clone()
+    }
+}
+
+impl Drop for MemSink {
+    /// The bytes are free for the next writer.
+    fn drop(&mut self) {
+        self.tape.0.held.store(false, Ordering::Release);
     }
 }
 
@@ -560,15 +613,11 @@ impl SinkFactory for MemTapes {
     }
 
     fn reopen(&mut self, path: &Path) -> Result<Option<MemSink>, WriteError> {
-        Ok(self
-            .lock()?
+        self.lock()?
             .get(path)
             .filter(|t| !t.is_finished())
-            .map(|tape| MemSink {
-                tape: tape.clone(),
-                path: path.to_path_buf(),
-                base: 0,
-            }))
+            .map(|tape| tape.hold(path))
+            .transpose()
     }
 
     fn finished(&self, path: &Path) -> Result<Option<MemTape>, WriteError> {
@@ -581,14 +630,13 @@ impl SinkFactory for MemTapes {
 
     /// The tape under `path`, which is written again: it reads as unfinished until its next finish.
     fn open_whole(&mut self, path: &Path) -> Result<Option<MemSink>, WriteError> {
-        Ok(self.lock()?.get(path).map(|tape| {
-            tape.0.finished.store(false, Ordering::Release);
-            MemSink {
-                tape: tape.clone(),
-                path: path.to_path_buf(),
-                base: 0,
-            }
-        }))
+        let map = self.lock()?;
+        let Some(tape) = map.get(path) else {
+            return Ok(None);
+        };
+        let sink = tape.hold(path)?;
+        tape.0.finished.store(false, Ordering::Release);
+        Ok(Some(sink))
     }
 }
 
