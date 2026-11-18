@@ -337,11 +337,19 @@ name = "ww_tape"
 version = "0.1.0"
 dependencies = [
  "blake3",
- "crc",
  "exact_units",
  "lz4_flex",
  "shrink_wrap",
+ "ww_tape_codecs",
  "ww_version",
+]
+
+[[package]]
+name = "ww_tape_codecs"
+version = "0.1.0"
+dependencies = [
+ "crc",
+ "lz4_flex",
 ]
 
 [[package]]
