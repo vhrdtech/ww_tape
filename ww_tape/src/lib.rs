@@ -243,9 +243,11 @@ mod walk;
 pub use varint::{ivar_len, uvar_len};
 
 #[cfg(feature = "std")]
-mod file;
+mod stream;
 #[cfg(feature = "std")]
-pub use file::{BlockBuf, Cut, FileBlocks, FileError, RESYNC_AHEAD_MAX, RESYNC_SEQS_MAX, Recovery};
+pub use stream::{
+    BlockBuf, Cut, FileBlocks, FileError, RESYNC_AHEAD_MAX, RESYNC_SEQS_MAX, Recovery,
+};
 #[cfg(feature = "alloc")]
 pub mod open;
 #[cfg(feature = "alloc")]

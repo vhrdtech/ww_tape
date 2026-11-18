@@ -1169,11 +1169,13 @@ mod chain;
 pub use chain::{ChainEnd, ChainLink, ChainReport, HeadStatus, PieceSummary, check_chain};
 
 #[cfg(feature = "std")]
+mod fs;
+#[cfg(feature = "std")]
+pub use fs::piece_name;
+#[cfg(feature = "std")]
 mod writer;
 #[cfg(feature = "std")]
-pub use writer::{
-    CUT_SLACK, ChainOptions, ChunkPlaced, CutPolicy, PieceChain, PieceFiles, piece_name,
-};
+pub use writer::{CUT_SLACK, ChainOptions, ChunkPlaced, CutPolicy, PieceChain, PieceFiles};
 
 #[cfg(test)]
 mod tests;

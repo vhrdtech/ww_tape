@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use super::fs::piece_name;
 use super::{FinishState, OwnerId, PieceHead, PieceId, PieceIdent, TAIL_LEN, TrackStart};
 use crate::index::{IndexEntry, IndexError, TrackKey};
 use crate::reader::{ByteSource, TapeReader};
@@ -46,11 +47,6 @@ fn reserve_piece<S: TapeSink>(writer: &mut TapeWriter<S>, cut: CutPolicy) {
     if cut.bytes > 0 {
         writer.reserve(cut.bytes.saturating_add(CUT_SLACK));
     }
-}
-
-/// Name of piece `seq` in its chain's directory: the sequence number in 8 digits, so names sort in chain order.
-pub fn piece_name(seq: u64) -> String {
-    format!("{seq:08}.wwt")
 }
 
 /// Where [PieceChain::write_chunk] placed the chunk: the seq of the piece it landed in ([PieceChain::seq] by the
@@ -97,30 +93,6 @@ pub struct ChainOptions {
     pub cut: CutPolicy,
     /// A file per piece, or all pieces in one.
     pub files: PieceFiles,
-}
-
-impl PieceChain<Files> {
-    /// Start chain `chain` of `owner` in `dir` (which must exist; with [PieceFiles::One] the file to create) with
-    /// its first piece, see [Self::create_on].
-    pub fn create(
-        dir: &Path,
-        owner: OwnerId,
-        chain: u64,
-        tracks: &[TrackStart],
-        options: ChainOptions,
-    ) -> Result<Self, WriteError> {
-        Self::create_on(Files, dir, owner, chain, tracks, options)
-    }
-
-    /// Reopen chain `chain` of `owner` in `dir` after a crash, see [Self::resume_on].
-    pub fn resume(
-        dir: &Path,
-        owner: OwnerId,
-        chain: u64,
-        options: ChainOptions,
-    ) -> Result<(Self, Resumed), WriteError> {
-        Self::resume_on(Files, dir, owner, chain, options)
-    }
 }
 
 impl<F: SinkFactory> PieceChain<F> {
