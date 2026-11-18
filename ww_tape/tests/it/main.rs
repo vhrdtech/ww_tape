@@ -26,6 +26,7 @@ mod puts;
 mod range_hash;
 mod reader;
 mod relations;
+mod reserved;
 mod resume;
 mod series;
 mod track_hash;
