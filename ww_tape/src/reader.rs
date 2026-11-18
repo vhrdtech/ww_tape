@@ -154,6 +154,8 @@ pub enum ReadError<E> {
     Version { offset: u64, found: u8 },
     /// The series chunk at `offset` doesn't fit its own grid or the chunks next to it.
     Series { offset: u64, error: SeriesError },
+    /// The chunk at `offset` starts before `end`, the end of the track's chunk before it: the track's chunks overlap.
+    Overlap { offset: u64, end: u64 },
 }
 
 impl<E: core::fmt::Debug> core::fmt::Display for ReadError<E> {
@@ -171,6 +173,12 @@ impl<E: core::fmt::Debug> core::fmt::Display for ReadError<E> {
             ),
             ReadError::Series { offset, error } => {
                 write!(f, "series chunk at byte {offset}: {error}")
+            }
+            ReadError::Overlap { offset, end } => {
+                write!(
+                    f,
+                    "chunk at byte {offset} starts before item {end}, the end of the chunk before"
+                )
             }
         }
     }
@@ -1128,6 +1136,11 @@ impl<S: ByteSource> TapeReader<S> {
     /// doesn't read, is read and hashed instead. A piece's head and finish rows tell which track number is that
     /// track; with none for the track there, any number another owner's row doesn't name. Records are not chunks: a
     /// track's records are left out.
+    ///
+    /// Each chunk folded starts at or after the end of the one before ([ReadError::Overlap] else); a copy of the chunk
+    /// before (the same items) takes its place, so a block written again folds once. A piece read without its index
+    /// is walked block by block: a damaged chunk of the track whose head still reads is an error, as on the index
+    /// path, and bytes no block explains are counted in [RangeHash::skipped].
     pub fn range_hash(
         &self,
         track_id: u64,
@@ -1135,12 +1148,7 @@ impl<S: ByteSource> TapeReader<S> {
         items: Range<u64>,
         from: TrackHash,
     ) -> R<RangeHash, S> {
-        let mut out = RangeHash {
-            hash: from,
-            items: 0..0,
-            chunks: 0,
-            read: 0,
-        };
+        let mut fold = Fold::new(from);
         let end_of = |head: &ChunkHead| head.first_item.saturating_add(u64::from(head.count));
         let wanted = |head: &ChunkHead| head.first_item < items.end && end_of(head) > items.start;
         for i in 0..self.pieces.len() {
@@ -1151,35 +1159,60 @@ impl<S: ByteSource> TapeReader<S> {
                     && e.first_item < items.end
                     && e.end_item() > items.start
             };
+            let p = self.piece(i)?;
             match self.track_entries(i, track_id) {
                 Ok(entries) => {
                     let mut buf = Vec::new();
                     for e in entries.iter().filter(|e| ours(e)) {
-                        let unit = if e.unit.is_none() {
+                        let offset = p.start.saturating_add(e.offset);
+                        let (unit, read) = if e.unit.is_none() {
                             let b = self.read_block(i, e, &mut buf)?;
                             let c = b.chunk().ok_or(ReadError::Index(IndexError::BadEntries))?;
-                            out.read = out.read.saturating_add(1);
-                            TrackHash::chunk_unit(&c, &payload_hash(c.payload()))
+                            (TrackHash::chunk_unit(&c, &payload_hash(c.payload())), true)
                         } else {
-                            e.unit
+                            (e.unit, false)
                         };
-                        out.fold(&unit, e.first_item, e.end_item());
+                        fold.push(unit, e.first_item, e.end_item(), offset, read)?;
                     }
                 }
                 Err(ReadError::Source(e)) => return Err(ReadError::Source(e)),
                 Err(_) => {
-                    let p = self.piece(i)?;
                     let end = p.finish_offset.unwrap_or(p.end.saturating_sub(p.start));
+                    let mut at = p.start;
+                    let mut failed = Ok(());
                     walk_piece(
                         end,
-                        |at, buf| {
-                            let off = in_piece(p, at, buf.len())?;
+                        |off, buf| {
+                            let off = in_piece(p, off, buf.len())?;
                             self.src.read_at(off, buf).map_err(ReadError::Source)
                         },
                         |step| {
-                            let Walked::Block(bytes) = step else {
-                                return;
+                            let offset = at;
+                            let (bytes, whole) = match step {
+                                Walked::Block(b) => (b, true),
+                                Walked::Raw(b) => (b, false),
                             };
+                            at = at.saturating_add(wide(bytes.len()));
+                            if failed.is_err() {
+                                return;
+                            }
+                            if !whole {
+                                // a damaged chunk of the track, its head good: lost, as reading it by an index is
+                                match ChunkHead::read_head(bytes) {
+                                    Ok(head)
+                                        if head.track_id == track_id
+                                            && numbers.takes(head.track_number)
+                                            && wanted(&head) =>
+                                    {
+                                        failed = Err(ReadError::Block {
+                                            offset,
+                                            error: BlockError::BadCrc,
+                                        });
+                                    }
+                                    _ => fold.skip(bytes.len()),
+                                }
+                                return;
+                            }
                             let Some(c) = Block::read(bytes).ok().and_then(|b| b.chunk()) else {
                                 return;
                             };
@@ -1189,15 +1222,16 @@ impl<S: ByteSource> TapeReader<S> {
                                 && wanted(&head)
                             {
                                 let unit = TrackHash::chunk_unit(&c, &payload_hash(c.payload()));
-                                out.read = out.read.saturating_add(1);
-                                out.fold(&unit, head.first_item, end_of(&head));
+                                failed =
+                                    fold.push(unit, head.first_item, end_of(&head), offset, true);
                             }
                         },
                     )?;
+                    failed?;
                 }
             }
         }
-        Ok(out)
+        Ok(fold.finish())
     }
 
     /// The track numbers piece `i`'s head and finish rows give track `track_id` of `owner`, and those they give it
@@ -1245,8 +1279,8 @@ impl Numbers {
 }
 
 impl RangeHash {
-    /// Take in a chunk of unit hash `unit` holding items `first..end`.
-    fn fold(&mut self, unit: &UnitHash, first: u64, end: u64) {
+    /// Take in a chunk of unit hash `unit` holding items `first..end`, read from the chunk if `read`.
+    fn fold(&mut self, unit: &UnitHash, first: u64, end: u64, read: bool) {
         self.hash = self.hash.then(unit);
         let (start, stop) = (self.items.start, self.items.end);
         self.items = if self.chunks == 0 {
@@ -1255,6 +1289,74 @@ impl RangeHash {
             start.min(first)..stop.max(end)
         };
         self.chunks = self.chunks.saturating_add(1);
+        self.read = self.read.saturating_add(u64::from(read));
+    }
+}
+
+/// A chunk [TapeReader::range_hash] holds back: a copy of it may follow.
+#[derive(Copy, Clone)]
+struct Held {
+    unit: UnitHash,
+    first: u64,
+    end: u64,
+    read: bool,
+}
+
+/// [TapeReader::range_hash]'s fold, one chunk behind: a copy of the chunk before (the same items) takes its place.
+struct Fold {
+    out: RangeHash,
+    held: Option<Held>,
+}
+
+impl Fold {
+    fn new(from: TrackHash) -> Self {
+        Fold {
+            out: RangeHash {
+                hash: from,
+                items: 0..0,
+                chunks: 0,
+                read: 0,
+                skipped: 0,
+            },
+            held: None,
+        }
+    }
+
+    /// Take in the chunk at `offset` of unit hash `unit` holding items `first..end`, read from the chunk if `read`.
+    fn push<E>(
+        &mut self,
+        unit: UnitHash,
+        first: u64,
+        end: u64,
+        offset: u64,
+        read: bool,
+    ) -> Result<(), ReadError<E>> {
+        let next = Held {
+            unit,
+            first,
+            end,
+            read,
+        };
+        match self.held {
+            Some(h) if h.first == first && h.end == end => {}
+            Some(h) if first < h.end => return Err(ReadError::Overlap { offset, end: h.end }),
+            Some(h) => self.out.fold(&h.unit, h.first, h.end, h.read),
+            None => {}
+        }
+        self.held = Some(next);
+        Ok(())
+    }
+
+    /// Count `n` bytes a walk found no block in.
+    fn skip(&mut self, n: usize) {
+        self.out.skipped = self.out.skipped.saturating_add(wide(n));
+    }
+
+    fn finish(mut self) -> RangeHash {
+        if let Some(h) = self.held.take() {
+            self.out.fold(&h.unit, h.first, h.end, h.read);
+        }
+        self.out
     }
 }
 
@@ -1271,6 +1373,9 @@ pub struct RangeHash {
     /// Chunks of those whose unit hash was read from the chunk, not the index: an entry made by a scan, or a piece
     /// whose index doesn't read.
     pub read: u64,
+    /// Bytes of pieces walked without their index that no block explains: damage that may have held chunks of the
+    /// range whose heads are lost too. 0 when every byte walked is a block.
+    pub skipped: u64,
 }
 
 /// Where `n` bytes at `off` from the start of piece `p` begin in the source, when they lie within the piece.

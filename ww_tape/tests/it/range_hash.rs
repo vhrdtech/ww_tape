@@ -273,3 +273,190 @@ fn an_index_naming_a_chunk_many_times_is_refused() {
     assert_eq!((got.hash, got.chunks), (want.hash, want.chunks));
     assert!(got.read > 0, "piece 1's chunks read");
 }
+
+/// `bytes` with piece `i`'s final index zeroed: the piece reads by its tail, its index doesn't.
+fn index_lost(bytes: &[u8], i: usize) -> Vec<u8> {
+    let r = TapeReader::open(bytes).unwrap();
+    let p = &r.pieces()[i];
+    let (fin, _) = p.finish.as_ref().unwrap();
+    let at = (p.start + fin.final_index.unwrap()) as usize;
+    let end = (p.start + p.finish_offset.unwrap()) as usize;
+    let mut out = bytes.to_vec();
+    out[at..end].fill(0);
+    out
+}
+
+/// Without its index a piece is walked: a damaged chunk of the track whose head reads is an error, as by the index,
+/// never a hash of the chunks around it; another track's hash is whole, the lost index counted as skipped bytes.
+#[test]
+fn a_range_hash_without_an_index_reports_a_damaged_chunk() {
+    let (_, bytes) = write(PieceFiles::One, 0x5eed);
+    let good = TapeReader::open(&bytes[0][..]).unwrap();
+    let (t, c) = (0..3)
+        .find_map(|t| {
+            let e = good.track_entries(1, id_of(t)).unwrap();
+            e.into_iter()
+                .find(|e| e.kind == ww_tape::BlockKind::Events)
+                .map(|c| (t, c))
+        })
+        .unwrap();
+    let mut damaged = index_lost(&bytes[0], 1);
+    let at = (good.pieces()[1].start + c.offset) as usize + c.len as usize - 20;
+    damaged[at] ^= 1;
+    let r = TapeReader::open(&damaged[..]).unwrap();
+    let got = r.range_hash(id_of(t), OwnerId::NONE, 0..u64::MAX, TrackHash::START);
+    assert!(
+        matches!(
+            got,
+            Err(ww_tape::ReadError::Block {
+                error: ww_tape::BlockError::BadCrc,
+                ..
+            })
+        ),
+        "{got:?}"
+    );
+    let u = (t + 1) % 3;
+    let (want, _) = read_fold(&[&bytes[0]], u, &(0..u64::MAX));
+    let got = r
+        .range_hash(id_of(u), OwnerId::NONE, 0..u64::MAX, TrackHash::START)
+        .unwrap();
+    assert_eq!(got.hash, want, "track {u}");
+    assert!(got.skipped > 0, "the lost index is bytes no block explains");
+    let whole = good
+        .range_hash(id_of(u), OwnerId::NONE, 0..u64::MAX, TrackHash::START)
+        .unwrap();
+    assert_eq!(whole.skipped, 0, "a piece read by its index skips nothing");
+}
+
+/// A copy of a track's last chunk in a piece walked without its index (here: in the lost index's bytes) takes the
+/// chunk's place: folded once, the hash unchanged.
+#[test]
+fn a_range_hash_folds_a_copied_chunk_once() {
+    let (_, bytes) = write(PieceFiles::One, 0x5eed);
+    let good = TapeReader::open(&bytes[0][..]).unwrap();
+    let p = &good.pieces()[1];
+    let t = 2;
+    let last = *good
+        .track_entries(1, id_of(t))
+        .unwrap()
+        .iter()
+        .rfind(|e| e.kind == ww_tape::BlockKind::Events)
+        .unwrap();
+    let want = good
+        .range_hash(id_of(t), OwnerId::NONE, 0..u64::MAX, TrackHash::START)
+        .unwrap();
+    let mut copied = index_lost(&bytes[0], 1);
+    let from = (p.start + last.offset) as usize;
+    let to = (p.start + p.finish.as_ref().unwrap().0.final_index.unwrap()) as usize;
+    let room = (p.start + p.finish_offset.unwrap()) as usize - to;
+    assert!(
+        room >= last.len as usize,
+        "{room} bytes of index, a chunk of {}",
+        last.len
+    );
+    copied.copy_within(from..from + last.len as usize, to);
+    let r = TapeReader::open(&copied[..]).unwrap();
+    let got = r
+        .range_hash(id_of(t), OwnerId::NONE, 0..u64::MAX, TrackHash::START)
+        .unwrap();
+    assert_eq!(
+        (got.hash, got.chunks, got.items),
+        (want.hash, want.chunks, want.items)
+    );
+}
+
+/// Piece `i` of the one file `bytes` with its final index zeroed, so a range hash walks it, and where the zeroed
+/// stretch lies in the file.
+fn without_final_index(bytes: &[u8], i: usize) -> (Vec<u8>, std::ops::Range<usize>) {
+    let r = TapeReader::open(bytes).unwrap();
+    let p = &r.pieces()[i];
+    let (fin, _) = p.finish.as_ref().unwrap();
+    let at = (p.start + fin.final_index.unwrap()) as usize;
+    let end = (p.start + p.finish_offset.unwrap()) as usize;
+    let mut out = bytes.to_vec();
+    out[at..end].fill(0);
+    (out, at..end)
+}
+
+/// Track `t`'s chunks in piece `i` of `bytes`: where each starts in the file and its length.
+fn chunks_of(bytes: &[u8], i: usize, t: u64) -> Vec<(usize, usize)> {
+    let r = TapeReader::open(bytes).unwrap();
+    let start = r.pieces()[i].start as usize;
+    r.track_entries(i, id_of(t))
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.kind == ww_tape::BlockKind::Events)
+        .map(|e| (start + e.offset as usize, e.len as usize))
+        .collect()
+}
+
+/// A piece walked without its index: a damaged chunk of the track is an error, as by the index; another track's
+/// fold goes on with the bytes no block explains counted.
+#[test]
+fn a_range_hash_without_an_index_reports_damage() {
+    let (_, bytes) = write(PieceFiles::One, 0x5eed);
+    let all = 0..u64::MAX;
+    let t = (0..3)
+        .find(|t| !chunks_of(&bytes[0], 1, *t).is_empty())
+        .unwrap();
+    let (at, len) = chunks_of(&bytes[0], 1, t)[0];
+    let (mut damaged, _) = without_final_index(&bytes[0], 1);
+    damaged[at + len - 20] ^= 1;
+    let r = TapeReader::open(&damaged[..]).unwrap();
+    let got = r.range_hash(id_of(t), OwnerId::NONE, all.clone(), TrackHash::START);
+    assert!(
+        matches!(got, Err(ww_tape::ReadError::Block { offset, .. }) if offset == at as u64),
+        "{got:?}"
+    );
+    let by_index = TapeReader::open(&bytes[0][..]).unwrap();
+    for u in (0..3).filter(|u| *u != t) {
+        let want = by_index
+            .range_hash(id_of(u), OwnerId::NONE, all.clone(), TrackHash::START)
+            .unwrap();
+        let got = r
+            .range_hash(id_of(u), OwnerId::NONE, all.clone(), TrackHash::START)
+            .unwrap();
+        assert_eq!(
+            (got.hash, got.chunks),
+            (want.hash, want.chunks),
+            "track {u}"
+        );
+        assert!(got.skipped > 0 && want.skipped == 0, "track {u}: {got:?}");
+    }
+}
+
+/// A copy of a track's last chunk in a piece walked without its index folds once, as by the index; a copy of an
+/// earlier chunk, after chunks past it, overlaps them and is an error.
+#[test]
+fn a_range_hash_folds_a_chunk_written_again_once() {
+    let (_, bytes) = write(PieceFiles::One, 0x5eed);
+    let all = 0..u64::MAX;
+    let t = (0..3)
+        .find(|t| chunks_of(&bytes[0], 1, *t).len() >= 2)
+        .unwrap();
+    let chunks = chunks_of(&bytes[0], 1, t);
+    let want = TapeReader::open(&bytes[0][..])
+        .unwrap()
+        .range_hash(id_of(t), OwnerId::NONE, all.clone(), TrackHash::START)
+        .unwrap();
+    let (stripped, zeroed) = without_final_index(&bytes[0], 1);
+    for (k, expect_whole) in [(chunks.len() - 1, true), (0, false)] {
+        let (at, len) = chunks[k];
+        assert!(zeroed.len() > len + 8, "room for a copy");
+        let mut copied = stripped.clone();
+        let to = zeroed.start + 8;
+        copied.copy_within(at..at + len, to);
+        let r = TapeReader::open(&copied[..]).unwrap();
+        let got = r.range_hash(id_of(t), OwnerId::NONE, all.clone(), TrackHash::START);
+        match expect_whole {
+            true => {
+                let got = got.unwrap();
+                assert_eq!((got.hash, got.chunks), (want.hash, want.chunks));
+            }
+            false => assert!(
+                matches!(got, Err(ww_tape::ReadError::Overlap { offset, .. }) if offset == to as u64),
+                "{got:?}"
+            ),
+        }
+    }
+}
