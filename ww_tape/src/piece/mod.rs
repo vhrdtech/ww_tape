@@ -88,6 +88,8 @@
 //! track written alone or among others, in one piece or many, in one file or many, has the same hash. A state
 //! track's records are all puts: its hash stays 32 zero bytes.
 
+use alloc::vec::Vec;
+
 use crate::bytes::{
     array, le_i64, le_u8, le_u16, le_u32, le_u64, put, put_i64, put_u16, put_u32, put_u64,
 };
