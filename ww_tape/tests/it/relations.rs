@@ -510,6 +510,27 @@ fn a_deferred_chunk_counts_before_the_chunks_after_it() {
     assert_eq!(firsts, [(0, Some((100, 101))), (2, Some((101, 102)))]);
 }
 
+/// Two deferred chunks of a track whose definition names an owner: the second's values below the first's are refused,
+/// as for a track of the piece's owner.
+#[test]
+fn a_deferred_chunk_of_an_owned_track_never_decreases() {
+    for owner in [[0u8; 32], [9u8; 32]] {
+        let Describe::Track(t) = decoded() else {
+            unreachable!()
+        };
+        let mut defs = Definitions::new();
+        defs.define_all(&[clock(CLOCK), Describe::Track(TrackDef { owner, ..t })])
+            .unwrap();
+        let mut w = TapeWriter::create_on(MemSink::new(Path::new("o")), SyncPolicy::None);
+        w.set_layout(ww_tape::Layout::ALIGNED).unwrap();
+        w.defer_block(&defs, chunk_block(w.next_id(), 0, &[100, 101], &[1, 1]))
+            .unwrap();
+        let second = w.defer_block(&defs, chunk_block(w.next_id(), 2, &[5, 6], &[1, 1]));
+        assert!(decrease(second, 2), "owner {owner:?}");
+        w.finish().unwrap();
+    }
+}
+
 #[test]
 fn a_monotone_relation_never_decreases_across_cuts_and_resumes() {
     use ww_tape::{ChainOptions, CutPolicy, MemTapes, OwnerId, PieceChain, PieceFiles};

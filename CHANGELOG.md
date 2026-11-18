@@ -219,6 +219,7 @@ Covers `ww_tape` 0.1.0.
 ### 🐛 Fixes
 
 - A chain resume keeps every monotone relation's newest value, read from each track's last chunk, not only the range relation's (TAPE-7).
+- A deferred chunk of a track with an owner counts for its monotone relations; a later decrease passed (TAPE-7).
 - Starts and monotone relation values that decrease inside a group are refused on read, suspect in salvage (STD-120, TAPE-7).
 - A damaged chunk a resume keeps goes into its track hash by its entry's unit hash, not left out (TAPE-8).
 - A deferred block goes before any later block of its track; `write_block` after deferred blocks no longer replaces one (TAPE-8).
