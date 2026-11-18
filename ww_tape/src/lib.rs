@@ -127,6 +127,8 @@
 //! | [DEFERRED_BYTES_MAX](writer::DEFERRED_BYTES_MAX) | 1 MiB | the deferred blocks a writer keeps |
 //! | [WALK_MISS_BASE_MAX](piece::WALK_MISS_BASE_MAX) | 1 MiB | the bytes a content-hash walk's missed blocks claim at its start |
 //! | [WALK_MISS_PER_BYTE_MAX](piece::WALK_MISS_PER_BYTE_MAX) | 4 | the bytes they claim per byte walked, past that |
+//! | [RESUME_LOOK_MAX](writer::RESUME_LOOK_MAX) | 128 MiB | the bytes past a reader's stop a resume looks through for a good block |
+//! | [RESUME_PROBES_MAX](writer::RESUME_PROBES_MAX) | 4 | the places there it reads whole |
 //!
 //! The same input gives the same bytes: blocks hold no wall time, definitions go in the order they are made, what a
 //! writer puts and copies follows from the blocks before ([writer]) and blocks are cut by size, not by time, unless
