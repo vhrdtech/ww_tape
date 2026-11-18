@@ -268,6 +268,12 @@ last piece whose piece head is damaged is refused in both cases, because the blo
 with no link to the chain. [Damage and
 recovery](recovery.md#resuming-after-a-crash) follows a recorder through a power cut.
 
+A chain resume also restores the newest value of each monotone relation. It takes the range relation's top from every
+finished piece's index entries, which it reads anyway. The other relations' values are in chunks: for each track it reads
+one chunk, the track's last in the newest finished piece that holds a chunk of it, at most `MAX_BLOCK_LEN` (64 MiB). A
+resume of a chain of N tracks therefore reads up to N chunks besides each piece's head, finish, tail and index. Where
+that chunk doesn't read, the track's next chunk is refused (`DescribeError::RelationUnread`).
+
 ## Same input, same bytes
 
 A writer given the same input writes the same bytes. Blocks hold no wall time, puts and copies follow from the bytes

@@ -228,7 +228,7 @@ Covers `ww_tape` 0.1.0.
 - `FileBlocks` reads the longest valid prefix by default (`Recovery::Prefix`): it stops at the first block with a bad magic, length or CRC, a cut one or a data block whose seq goes back, reporting `FileError::Cut`; zeros at the end are the end. `Recovery::Resync` (`FileBlocks::with_recovery`) skips damage to the next magic, also past a damaged length. A block is at most `MAX_BLOCK_LEN` (64 MiB) and the reader's buffer grows only with the bytes that come, so a damaged length doesn't allocate what it says. Tests cut a capture at every byte and flip every byte; fuzz target `tape-reader`.
 
 ### 🐛 Fixes
-
+- A chain resume reads each track's last chunk only in the newest piece holding one, not in every piece (TAPE-7).
 - A salvaged starts column decides each group once on read; `get` and `is_suspect` decode no group per item (STD-120).
 - A resume replays the kept bytes along verify's walk: good blocks in junk are taken, damaged ones listed inside it kept (TAPE-8).
 - `verify` takes every damaged block listed inside bytes no block explains, and runs linear in blocks and entries (TAPE-9).

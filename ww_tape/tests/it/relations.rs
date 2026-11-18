@@ -771,3 +771,114 @@ fn every_monotone_relation_keeps_its_newest_value_across_resumes() {
     assert!(unread(&r), "{r:?}");
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// A [MemTapes](ww_tape::MemTapes) that records each read of a finished piece: its path and offset.
+#[derive(Clone)]
+struct Recorded {
+    tapes: ww_tape::MemTapes,
+    reads: std::sync::Arc<std::sync::Mutex<Vec<(std::path::PathBuf, u64)>>>,
+}
+
+struct RecordedTape {
+    tape: ww_tape::MemTape,
+    path: std::path::PathBuf,
+    reads: std::sync::Arc<std::sync::Mutex<Vec<(std::path::PathBuf, u64)>>>,
+}
+
+impl ww_tape::ByteSource for RecordedTape {
+    type Error = std::io::Error;
+
+    fn size(&self) -> Result<u64, std::io::Error> {
+        ww_tape::ByteSource::size(&self.tape)
+    }
+
+    fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), std::io::Error> {
+        self.reads.lock().unwrap().push((self.path.clone(), offset));
+        ww_tape::ByteSource::read_at(&self.tape, offset, buf)
+    }
+}
+
+impl ww_tape::SinkFactory for Recorded {
+    type Sink = MemSink;
+    type Source = RecordedTape;
+
+    fn create(&mut self, path: &Path) -> Result<MemSink, WriteError> {
+        self.tapes.create(path)
+    }
+
+    fn reopen(&mut self, path: &Path) -> Result<Option<MemSink>, WriteError> {
+        self.tapes.reopen(path)
+    }
+
+    fn finished(&self, path: &Path) -> Result<Option<RecordedTape>, WriteError> {
+        Ok(self.tapes.finished(path)?.map(|tape| RecordedTape {
+            tape,
+            path: path.to_path_buf(),
+            reads: self.reads.clone(),
+        }))
+    }
+}
+
+/// A resume of a chain reads a track's last chunk only in the newest piece that holds a chunk of the track: piece 0's
+/// last chunk of track 3 is never read when piece 1 holds one, and its damage doesn't refuse the track.
+#[test]
+fn a_chain_resume_reads_only_the_newest_last_chunk_of_a_track() {
+    use ww_tape::{ChainOptions, CutPolicy, OwnerId, PieceChain, PieceFiles, SinkFactory as _};
+    let mut defs = Definitions::new();
+    defs.define_all(&[clock(CLOCK), two_monotone()]).unwrap();
+    let write = |c: &mut PieceChain<Recorded>, first: u64, source: &[u64], seq: &[u64]| {
+        let (h, cols) = two_chunk(first, source, seq);
+        let cols: Vec<_> = cols.iter().map(|(s, b)| (*s, &b[..])).collect();
+        c.writer()
+            .unwrap()
+            .write_chunk(&defs, &h, &cols)
+            .map(|_| ())
+    };
+    let mut f = Recorded {
+        tapes: ww_tape::MemTapes::new(),
+        reads: Default::default(),
+    };
+    let at = Path::new("chain");
+    let owner = OwnerId([9; 32]);
+    let options = || ChainOptions {
+        files: PieceFiles::Each,
+        cut: CutPolicy::default(),
+        ..ChainOptions::default()
+    };
+    let mut c = PieceChain::create_on(f.clone(), at, owner, 0, &[], options()).unwrap();
+    write(&mut c, 0, &[1, 2], &[100, 101]).unwrap();
+    c.cut_now().unwrap();
+    write(&mut c, 2, &[3, 4], &[102, 103]).unwrap();
+    c.cut_now().unwrap();
+    drop(c);
+    let first = at.join(ww_tape::piece::piece_name(0));
+    let mut bytes = f.tapes.get(&first).unwrap().unwrap().to_vec().unwrap();
+    let chunk = TapeReader::open(&bytes[..])
+        .unwrap()
+        .entries(0)
+        .unwrap()
+        .into_iter()
+        .rfind(|e| e.kind == BlockKind::Events)
+        .unwrap()
+        .offset;
+    damage_last_chunk(&mut bytes);
+    f.tapes.remove(&first).unwrap();
+    let mut sink = f.tapes.create(&first).unwrap();
+    sink.write_all(&bytes).unwrap();
+    sink.finish().unwrap();
+    drop(sink);
+    let (mut c, _) = PieceChain::resume_on(f.clone(), at, owner, 0, options()).unwrap();
+    let reads = f.reads.lock().unwrap().clone();
+    assert!(
+        !reads.contains(&(first.clone(), chunk)),
+        "piece 0's last chunk read: {reads:?}"
+    );
+    assert!(
+        reads
+            .iter()
+            .any(|(p, _)| *p == at.join(ww_tape::piece::piece_name(1))),
+        "{reads:?}"
+    );
+    write(&mut c, 4, &[5, 6], &[104, 105]).unwrap();
+    c.finish().unwrap();
+}
