@@ -137,7 +137,10 @@ each chunk's share of the hash in the chunk's index entry, so the fold reads onl
 index is damaged or missing, the reader reads the chunks and computes the same hash; a damaged chunk of the track is
 an error there as by the index, bytes no block explains are counted (`RangeHash::skipped`), and a chunk written again
 folds once. Entries that name one block twice or overlap are refused (`IndexError::BadEntries`), from a final index,
-checkpoints or a scan alike, and the reader reads the chunks instead. For example, a program that
+checkpoints or a scan alike, and the reader reads the chunks instead. The fold from the index is the hash the writer
+stated, checked by the index's CRCs, not a check of the payloads: the content hash check (`TapeReader::verify`) and
+every read of a chunk check those, and a chunk marked `FLAG_PAYLOAD_UNCHECKED` is refused there. A piece of a level
+that leaves payloads unchecked states no unit hash (`ENTRY_UNHASHED`), so no fold takes one. For example, a program that
 processed items 1,000 to 50,000 of a track can record the range hash of its input, and anyone can later check that a
 file still holds exactly that input. A track's records are not chunks, so a range hash leaves them out.
 

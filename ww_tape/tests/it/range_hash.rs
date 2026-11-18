@@ -534,3 +534,44 @@ fn a_checkpoint_naming_a_chunk_many_times_is_refused() {
         .unwrap();
     assert_eq!((got.hash, got.chunks), (want.hash, want.chunks));
 }
+
+/// The index path folds each chunk by the unit hash its entry states, read from an index whose CRCs hold: a chunk
+/// marked `FLAG_PAYLOAD_UNCHECKED` behind such an entry (a piece of level `Full` never writes one, and a piece of a
+/// lower level marks every entry `ENTRY_UNHASHED`, which no reader takes) folds as the writer stated it. Every read
+/// of the chunk refuses the flag, and so does the content hash check: it is caught where the payload is read.
+#[test]
+fn an_unchecked_chunk_folds_by_its_entry_and_fails_verify() {
+    use ww_tape::{BlockKind, ChunkHead};
+    let (_, bytes) = write(PieceFiles::One, 0x9a7);
+    let good = TapeReader::open(&bytes[0][..]).unwrap();
+    let want = good
+        .range_hash(id_of(1), OwnerId::NONE, 0..u64::MAX, TrackHash::START)
+        .unwrap();
+    let p = &good.pieces()[1];
+    let e = good
+        .track_entries(1, id_of(1))
+        .unwrap()
+        .into_iter()
+        .find(|e| e.kind == BlockKind::Events)
+        .unwrap();
+    let at = (p.start + e.offset) as usize;
+    let len = e.len as usize;
+    let mut crafted = bytes[0].clone();
+    let b = &mut crafted[at..at + len];
+    let head_end = ChunkHead::head_len(b).unwrap();
+    b[6] |= ww_tape::FLAG_PAYLOAD_UNCHECKED as u8;
+    let head = crc32c(&[&b[..28], &b[32..head_end]]);
+    b[28..32].copy_from_slice(&head.to_le_bytes());
+    let crc = crc32c(&[&b[..len - 4]]);
+    b[len - 4..].copy_from_slice(&crc.to_le_bytes());
+    let r = TapeReader::open(&crafted[..]).unwrap();
+    let got = r
+        .range_hash(id_of(1), OwnerId::NONE, 0..u64::MAX, TrackHash::START)
+        .unwrap();
+    assert_eq!((got.hash, got.chunks), (want.hash, want.chunks));
+    let mut buf = vec![];
+    let refused = format!("{:?}", r.read_chunk_head(1, &e, &mut buf).err());
+    assert!(refused.contains("PayloadUnchecked"), "{refused}");
+    assert!(good.verify(1).unwrap());
+    assert!(!r.verify(1).unwrap(), "the content hash takes it as bytes");
+}
