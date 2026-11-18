@@ -2,11 +2,58 @@
 //! a chunk with a good head), and the salvage walk gives every block of the prefix walk, in order. Describe records of a good block decode or fail, never panic.
 //! A good records block coded with each body codec decodes to the same records.
 //! Walked as a raw medium with the gap rules of an SD card too: every step still consumes bytes, and the salvage walk
-//! gives every block of the prefix walk there too.
+//! gives every block of the prefix walk there too. A content-hash walk ([TapeReader::verify]) of each piece reads a
+//! bounded multiple of the piece, never its square.
 use shrink_wrap::DeserializeShrinkWrap;
+use std::cell::Cell;
+use ww_tape::piece::{WALK_MISS_BASE_MAX, WALK_MISS_PER_BYTE_MAX};
+use ww_tape::reader::{ByteSource, OutOfRange};
 use ww_tape::{
-    Block, BodyCodec, Describe, FileBlocks, Layout, Medium, Recovery, code_body, coded_len_max,
+    Block, BodyCodec, Describe, FileBlocks, Layout, Medium, Recovery, TapeReader, code_body,
+    coded_len_max,
 };
+
+/// Bytes counted as a reader reads them.
+struct Counted<'a> {
+    bytes: &'a [u8],
+    read: Cell<u64>,
+}
+
+impl ByteSource for Counted<'_> {
+    type Error = OutOfRange;
+
+    fn size(&self) -> Result<u64, OutOfRange> {
+        self.bytes.size()
+    }
+
+    fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), OutOfRange> {
+        self.read.set(self.read.get() + buf.len() as u64);
+        self.bytes.read_at(offset, buf)
+    }
+}
+
+/// Verify every piece of `data`: each walk reads its piece once, a header per place, the misses' budget and one
+/// miss past it, at most.
+fn verify_reads_linear(data: &[u8]) {
+    let src = Counted {
+        bytes: data,
+        read: Cell::new(0),
+    };
+    let Ok(r) = TapeReader::open(&src) else {
+        return;
+    };
+    for (i, p) in r.pieces().iter().enumerate() {
+        let n = p.end.saturating_sub(p.start);
+        src.read.set(0);
+        let _ = r.verify(i);
+        let bound = (3 + WALK_MISS_PER_BYTE_MAX) * n + WALK_MISS_BASE_MAX;
+        assert!(
+            src.read.get() <= bound,
+            "verify of piece {i} read {} bytes over {n}, at most {bound}",
+            src.read.get()
+        );
+    }
+}
 
 pub(crate) fn walk(data: &[u8], recovery: Recovery, medium: Medium) -> Vec<Vec<u8>> {
     let mut rd = FileBlocks::with_recovery(data, recovery).on(medium);
@@ -63,6 +110,7 @@ fn round_trip(b: &Block<'_>) {
 }
 
 pub fn reader(data: &[u8]) {
+    verify_reads_linear(data);
     for medium in [Medium::File, Medium::Raw] {
         let prefix = walk(data, Recovery::Prefix, medium);
         let salvage = walk(data, Recovery::Resync, medium);
