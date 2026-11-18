@@ -868,3 +868,35 @@ fn a_relation_column_in_an_unknown_codec_is_refused_and_the_times_still_read() {
     );
     assert_eq!(EventTimes::read(&chunk).expect("times read").len(), 3);
 }
+
+#[test]
+fn a_starts_coded_relation_column_that_does_not_read_names_the_relation() {
+    let starts = [0i64, 10, 20, 30, 40];
+    let enc = EncodedTimes::encode(&starts, None, None).expect("valid times");
+    // one period for 2 values, and a line of 3 irregular values: neither spans the chunk's 5 items
+    for values in [&[10u64, 11][..], &[1, 5, 6]] {
+        let rel = EncodedRelation::encode(0, values, true).expect("values encode");
+        assert_eq!(rel.column().0.codec, STARTS);
+        let mut cols: Vec<(ColumnSpec, &[u8])> = enc.columns().collect();
+        cols.push(rel.column());
+        let specs: Vec<ColumnSpec> = cols.iter().map(|c| c.0).collect();
+        let head = enc.head.chunk_head(9, 1, 1000);
+        let mut b = std::vec![0u8; chunk_len(&head, &specs, 0)];
+        let len = write_chunk(&mut b, id(1), &head, &cols, 0).expect("a valid chunk");
+        b.truncate(len);
+        let block = Block::read(&b).expect("a good block");
+        let chunk = block.chunk().unwrap();
+        assert!(
+            matches!(
+                RelationColumn::read(&chunk, 0),
+                Err(TimesError::Corrupt {
+                    kind: ColumnKind::Relation,
+                    ..
+                })
+            ),
+            "{values:?}: {:?}",
+            RelationColumn::read(&chunk, 0)
+        );
+        assert_eq!(EventTimes::read(&chunk).expect("times read").len(), 5);
+    }
+}

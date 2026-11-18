@@ -237,10 +237,8 @@ impl<'b> Linear<'b> {
     /// Check every record of an intact column: placed in the column, lines in range, each group's item 0 its first
     /// tick and its first tick at or after the previous group's last item, the last item the chunk's last tick.
     fn check(&self) -> Result<(), TimesError> {
-        let corrupt = |what| TimesError::Corrupt {
-            kind: ColumnKind::Starts,
-            what,
-        };
+        let kind = self.groups.kind;
+        let corrupt = |what| TimesError::Corrupt { kind, what };
         self.groups.check()?;
         // the previous group's last item
         let mut prev = self.first;
@@ -316,8 +314,9 @@ pub struct Starts<'b> {
 impl<'b> Starts<'b> {
     /// Read a starts column of `n` items whose first and last ticks the chunk head names; `column` is its bytes,
     /// `tail` the payload from its first byte on. With `salvage`, group records are checked one by one as read
-    /// instead of all at once.
+    /// instead of all at once. An error names the column as `kind`: the starts, or a relation in [STARTS](super::STARTS).
     pub(crate) fn parse(
+        kind: ColumnKind,
         n: usize,
         (first, last): (i64, i64),
         mode: TimeMode,
@@ -325,10 +324,7 @@ impl<'b> Starts<'b> {
         tail: &'b [u8],
         salvage: bool,
     ) -> Result<Self, TimesError> {
-        let corrupt = |what| TimesError::Corrupt {
-            kind: ColumnKind::Starts,
-            what,
-        };
+        let corrupt = |what| TimesError::Corrupt { kind, what };
         if n == 0 {
             return Err(corrupt("no items"));
         }
@@ -353,7 +349,7 @@ impl<'b> Starts<'b> {
             }
             TimeMode::Linear => {
                 let lin = Linear {
-                    groups: Groups::split(ColumnKind::Starts, n, LAYOUT, column, tail)?,
+                    groups: Groups::split(kind, n, LAYOUT, column, tail)?,
                     salvaged: salvage,
                     first,
                     last,

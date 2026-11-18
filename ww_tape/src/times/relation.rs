@@ -96,7 +96,15 @@ impl<'b> RelationColumn<'b> {
                 let tail = payload
                     .get(c.offset.saturating_add(HEAD_LEN)..)
                     .ok_or(corrupt("column past the payload"))?;
-                Repr::Monotone(Starts::parse(n, (first, last), mode, body, tail, false)?)
+                Repr::Monotone(Starts::parse(
+                    ColumnKind::Relation,
+                    n,
+                    (first, last),
+                    mode,
+                    body,
+                    tail,
+                    false,
+                )?)
             }
             DURATIONS => {
                 let tail = payload
