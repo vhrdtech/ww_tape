@@ -30,7 +30,8 @@
 //!           16 u64 track id (0: none)                 24 u32 track number      28 u32 0 (a state record's below)
 //!           32 u64 first item number                  40 u64 items (samples, records)
 //!           48 i64 first tick                         56 i64 last tick         64 i64 latest end
-//!           72 [16] 0, reserved                       88 [32] a chunk's unit hash, else 0
+//!           72 u64 range: the smallest value of the track's range relation in the chunk (flag bit 1), else 0
+//!           80 u64 range: the largest value, else 0      88 [32] a chunk's unit hash, else 0
 //! len-4 u32 CRC over bytes 0..len-4, as in every block
 //! ```
 //!
@@ -64,6 +65,8 @@ use crate::{
 /// Bytes of one index entry.
 pub const ENTRY_LEN: usize = 120;
 
+/// Where an entry's range ([IndexEntry::range]) starts.
+const ENTRY_RANGE_AT: usize = 72;
 /// Where an entry's unit hash ([UnitHash]) starts.
 const ENTRY_UNIT_AT: usize = 88;
 /// Bytes of one track in a final index's directory.
@@ -83,6 +86,8 @@ pub const CHECKPOINT_ENTRIES_MAX: usize =
 pub const STATE_TRACK_ID: u64 = u64::MAX;
 /// Bit 0 of an entry's byte 15: the block is marked [FLAG_REPEAT](crate::FLAG_REPEAT).
 const ENTRY_REPEAT: u8 = 1;
+/// Entry flag: the entry carries the range of its chunk's range relation.
+const ENTRY_RANGE: u8 = 2;
 /// Offset that means none.
 pub const NONE: u64 = u64::MAX;
 
@@ -135,6 +140,9 @@ pub struct IndexEntry {
     /// A chunk's unit hash, which its track's hash takes in; [UnitHash::NONE] for other blocks and for an entry a
     /// reader made by a scan.
     pub unit: UnitHash,
+    /// The smallest and the largest value of the chunk's range relation ([RelationIndex::Range](crate::RelationIndex::Range)),
+    /// as its writer saw them; None for other blocks, a track without one, and an entry a reader made by a scan.
+    pub range: Option<(u64, u64)>,
 }
 
 /// What an index entry of a state record says, see the [module docs](self).
@@ -249,6 +257,7 @@ impl IndexEntry {
             latest_end: 0,
             repeat: false,
             unit: UnitHash::NONE,
+            range: None,
         };
         match block.kind {
             BlockKind::Index
@@ -302,6 +311,7 @@ impl IndexEntry {
             latest_end: head.latest_end,
             repeat: false,
             unit: UnitHash::NONE,
+            range: None,
         })
     }
 
@@ -333,7 +343,8 @@ impl IndexEntry {
                 self.kind.to_u8(),
                 self.level,
                 self.tree,
-                if self.repeat { ENTRY_REPEAT } else { 0 },
+                (if self.repeat { ENTRY_REPEAT } else { 0 })
+                    | (if self.range.is_some() { ENTRY_RANGE } else { 0 }),
             ])
             .chain(self.track_id.to_le_bytes())
             .chain(self.track_number.to_le_bytes())
@@ -345,6 +356,15 @@ impl IndexEntry {
             .chain(self.latest_end.to_le_bytes());
         for (d, s) in out.iter_mut().zip(fields) {
             *d = s;
+        }
+        if let Some((lo, hi)) = self.range {
+            for (d, s) in out
+                .iter_mut()
+                .skip(ENTRY_RANGE_AT)
+                .zip(lo.to_le_bytes().into_iter().chain(hi.to_le_bytes()))
+            {
+                *d = s;
+            }
         }
         if let Some(unit) = out.get_mut(ENTRY_UNIT_AT..) {
             unit.copy_from_slice(&self.unit.0);
@@ -361,7 +381,7 @@ impl IndexEntry {
             i0, i1, i2, i3, i4, i5, i6, i7, c0, c1, c2, c3, c4, c5, c6, c7,
             f0, f1, f2, f3, f4, f5, f6, f7, s0, s1, s2, s3, s4, s5, s6, s7,
             e0, e1, e2, e3, e4, e5, e6, e7,
-            _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _,
+            a0, a1, a2, a3, a4, a5, a6, a7, z0, z1, z2, z3, z4, z5, z6, z7,
             u @ ..
         ] = *b;
         IndexEntry {
@@ -380,6 +400,12 @@ impl IndexEntry {
             latest_end: i64::from_le_bytes([e0, e1, e2, e3, e4, e5, e6, e7]),
             repeat: flags & ENTRY_REPEAT != 0,
             unit: UnitHash(u),
+            range: (flags & ENTRY_RANGE != 0).then(|| {
+                (
+                    u64::from_le_bytes([a0, a1, a2, a3, a4, a5, a6, a7]),
+                    u64::from_le_bytes([z0, z1, z2, z3, z4, z5, z6, z7]),
+                )
+            }),
         }
     }
 

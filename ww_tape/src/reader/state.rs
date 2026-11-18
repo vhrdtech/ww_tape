@@ -670,6 +670,7 @@ mod tests {
             latest_end: 0,
             repeat: false,
             unit: crate::piece::UnitHash::NONE,
+            range: None,
         };
         (
             e,

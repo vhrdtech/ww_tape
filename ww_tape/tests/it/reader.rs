@@ -79,6 +79,7 @@ fn entry_past_the_piece_is_an_error() {
             latest_end: 0,
             repeat: false,
             unit: ww_tape::UnitHash::NONE,
+            range: None,
         };
         assert!(
             matches!(
@@ -124,6 +125,7 @@ fn an_entry_longer_than_any_block_is_refused_before_reading() {
         latest_end: 0,
         repeat: false,
         unit: ww_tape::UnitHash::NONE,
+        range: None,
     };
     let mut buf = Vec::new();
     let e = r.read_block(0, &entry, &mut buf);

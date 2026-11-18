@@ -137,6 +137,13 @@ pub fn index(data: &[u8]) {
             latest_end: 2,
             repeat: c[0] & 0x80 != 0,
             unit: ww_tape::UnitHash::NONE,
+            // a chunk's range relation, both values round-tripped
+            range: (c[0] & 0x40 != 0).then(|| {
+                (
+                    u64::from(c[2]),
+                    u64::from_le_bytes(c[1..9].try_into().unwrap()),
+                )
+            }),
         })
         .collect();
     let kind = if flag & 1 == 1 {
