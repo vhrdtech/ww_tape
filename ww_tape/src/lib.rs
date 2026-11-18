@@ -127,6 +127,7 @@
 //! | [VERIFY_ENTRIES_MAX](reader::VERIFY_ENTRIES_MAX) | 4 Mi | the final index entries one verify holds |
 //! | [DEFERRED_BYTES_MAX](writer::DEFERRED_BYTES_MAX) | 1 MiB | the deferred blocks a writer keeps |
 //! | [TRACKS_PER_PIECE_MAX] | 493416 | the tracks with data in one piece a writer takes: its finish fits a block |
+//! | [HEAD_TRACKS_MAX] | 699006 | the tracks a piece head carries over the chain: the head fits a block |
 //! | [WALK_MISS_BASE_MAX](piece::WALK_MISS_BASE_MAX) | 1 MiB | the bytes a content-hash walk's missed blocks claim at its start |
 //! | [WALK_MISS_PER_BYTE_MAX](piece::WALK_MISS_PER_BYTE_MAX) | 4 | the bytes they claim per byte walked, past that |
 //! | [RESUME_LOOK_MAX](writer::RESUME_LOOK_MAX) | 128 MiB | the bytes past a reader's stop a resume looks through for a good block |
@@ -219,8 +220,9 @@ pub mod piece;
 #[cfg(feature = "std")]
 pub use piece::{ChainOptions, ChunkPlaced, CutPolicy, PieceChain, PieceFiles};
 pub use piece::{
-    ContentHash, Finish, FinishState, Integrity, OwnerId, PIECE_ALIGN, PieceHead, PieceId,
-    PieceIdent, TAIL_LEN, TRACKS_PER_PIECE_MAX, Tail, TrackHash, TrackRange, TrackStart, UnitHash,
+    ContentHash, Finish, FinishState, HEAD_TRACKS_MAX, Integrity, OwnerId, PIECE_ALIGN, PieceHead,
+    PieceId, PieceIdent, TAIL_LEN, TRACKS_PER_PIECE_MAX, Tail, TrackHash, TrackRange, TrackStart,
+    UnitHash,
 };
 #[cfg(feature = "alloc")]
 pub mod reader;

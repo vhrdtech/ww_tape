@@ -1747,6 +1747,61 @@ fn a_piece_takes_data_of_at_most_its_track_limit() {
     }
 }
 
+/// The next piece's head carries each track the chain carried or gave data, at most its limit ([HEAD_TRACKS_MAX],
+/// made small here): a block bringing in a track past it is refused before a byte is written, and a head row of a
+/// track with nothing to carry has its flags (byte 12) zero.
+#[test]
+fn a_piece_head_carries_at_most_its_track_limit() {
+    use crate::piece::{PieceHead, PieceHeadBlock, PieceId, PieceIdent, TrackHash, TrackStart};
+    let (defs, ids) = distinct_tracks(6);
+    let owner = crate::OwnerId([3; 32]);
+    let head = PieceHead {
+        ident: PieceIdent {
+            id: PieceId::first(&owner),
+            owner,
+            seq: 0,
+        },
+        prev: None,
+        prev_session: SessionTag::NONE,
+        integrity: crate::piece::Integrity::Full,
+    };
+    let carried = |n: u32| TrackStart {
+        track_id: ids[&n],
+        track_number: n,
+        next_item: 0,
+        from_tick: i64::MIN,
+        owner: crate::OwnerId::NONE,
+        hash: TrackHash::START,
+        incomplete: false,
+    };
+    let mut w = TapeWriter::create_on(MemSink::new(std::path::Path::new("h")), SyncPolicy::None);
+    w.head_rows_max = 3;
+    w.begin_piece(&head, &[carried(5), carried(6)]).unwrap();
+    let tape = w.sink().tape();
+    // a carried track with data and one new track: 3 rows
+    w.write_block(&defs, &records_on(w.next_id(), &[5, 1]))
+        .unwrap();
+    let len = tape.to_vec().unwrap().len();
+    let b = records_on(w.next_id(), &[2]);
+    assert!(matches!(
+        w.write_block(&defs, &b),
+        Err(WriteError::TooManyCarried { max: 3 })
+    ));
+    assert_eq!(tape.to_vec().unwrap().len(), len, "nothing written");
+    w.write_block(&defs, &records_on(w.next_id(), &[1, 6]))
+        .unwrap();
+    w.finish().unwrap();
+    // the head rows as written: none carries the incomplete mark
+    let bytes = tape.to_vec().unwrap();
+    let h = Block::read(&bytes).unwrap();
+    let rows: Vec<TrackStart> = PieceHeadBlock::read(&h).unwrap().tracks().collect();
+    assert_eq!(rows.len(), 2);
+    let at = HEADER_LEN + 120;
+    for k in 0..rows.len() {
+        assert_eq!(bytes[at + k * 96 + 12..at + k * 96 + 16], [0; 4]);
+    }
+}
+
 /// A chunk of 2 items with raw starts on track `number` of id `id`.
 fn chunk_on(number: u32, id: u64) -> (ChunkHead, (ColumnSpec, Vec<u8>)) {
     let starts: Vec<u8> = [10i64, 20].iter().flat_map(|t| t.to_le_bytes()).collect();

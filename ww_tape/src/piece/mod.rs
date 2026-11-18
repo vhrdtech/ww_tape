@@ -135,6 +135,16 @@ const _: () = assert!(
     finish_len(TRACKS_PER_PIECE_MAX) + u32_len(PIECE_ALIGN) - 1 <= crate::MAX_BLOCK_LEN,
     "the finish of the most tracks fits a block"
 );
+/// Most track rows one piece head carries: each track the chain's pieces before it carried or gave data, so a head
+/// of that many fits a block ([crate::MAX_BLOCK_LEN]), padded as a finish is. A writer refuses a block that would
+/// bring the next head past it ([crate::WriteError]).
+pub const HEAD_TRACKS_MAX: usize =
+    (crate::MAX_BLOCK_LEN - HEADER_LEN - HEAD_FIXED_LEN - CRC_LEN - (u32_len(PIECE_ALIGN) - 1))
+        / HEAD_TRACK_LEN;
+const _: () = assert!(
+    piece_head_len(HEAD_TRACKS_MAX) + u32_len(PIECE_ALIGN) - 1 <= crate::MAX_BLOCK_LEN,
+    "the head of the most tracks fits a block"
+);
 /// Where a finish's track row holds its flags.
 const ROW_FLAGS_AT: usize = 128;
 /// A track row's flag: the track hash leaves out units a resume kept unread.

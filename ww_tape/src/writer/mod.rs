@@ -142,6 +142,9 @@ pub enum WriteError {
     /// ([TRACKS_PER_PIECE_MAX](crate::TRACKS_PER_PIECE_MAX)), so its finish would not fit a block. Nothing is
     /// written; cut the piece first.
     TooManyTracks { max: usize },
+    /// The next piece's head would carry more than `max` tracks ([HEAD_TRACKS_MAX](crate::HEAD_TRACKS_MAX)): each
+    /// track the chain's pieces carried or gave data. Nothing is written; a new chain takes the track.
+    TooManyCarried { max: usize },
     /// A caller's block of `kind` with header `flags` its kind doesn't take: reserved bits, or a flag only the
     /// writer sets. A records block may carry [FLAG_BODY_CODED](crate::FLAG_BODY_CODED), other kinds none.
     Flags { kind: BlockKind, flags: u16 },
@@ -261,6 +264,10 @@ impl core::fmt::Display for WriteError {
                 f,
                 "more than {max} tracks with data in one piece: cut the piece first"
             ),
+            WriteError::TooManyCarried { max } => write!(
+                f,
+                "more than {max} tracks carried into the next piece's head: start a new chain"
+            ),
             WriteError::Flags { kind, flags } => write!(
                 f,
                 "a caller's block of kind {kind:?} with header flags {flags:#06x}: it takes {:#06x}",
@@ -365,6 +372,8 @@ pub struct TapeWriter<S: TapeSink = FileSink> {
     relations: relations::Relations,
     /// Most tracks with data in the piece: [crate::piece::TRACKS_PER_PIECE_MAX], smaller in tests
     pub(crate) tracks_max: usize,
+    /// Most tracks the next piece's head carries: [crate::piece::HEAD_TRACKS_MAX], smaller in tests
+    pub(crate) head_rows_max: usize,
 }
 
 /// Bytes a writer's puts hashed and copied since it started ([TapeWriter::put_work]): what deciding and writing
@@ -505,6 +514,7 @@ impl<S: TapeSink> TapeWriter<S> {
             work: PutWork::default(),
             relations: relations::Relations::default(),
             tracks_max: crate::piece::TRACKS_PER_PIECE_MAX,
+            head_rows_max: crate::piece::HEAD_TRACKS_MAX,
         }
     }
 
@@ -580,6 +590,11 @@ impl<S: TapeSink> TapeWriter<S> {
         if self.indexer.rows().saturating_add(new.len()) > self.tracks_max {
             return Err(WriteError::TooManyTracks {
                 max: self.tracks_max,
+            });
+        }
+        if self.indexer.next_head_rows(&new) > self.head_rows_max {
+            return Err(WriteError::TooManyCarried {
+                max: self.head_rows_max,
             });
         }
         Ok(())

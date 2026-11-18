@@ -10,6 +10,7 @@ Covers `ww_tape` 0.1.0.
 
 ### ⚠️ Breaking
 
+- A chain carries at most `HEAD_TRACKS_MAX` tracks into a piece head; a track past it is refused (`WriteError::TooManyCarried`) (TAPE-8).
 - `Recovery::Resync` reports two blocks of one seq with other bytes as `FileError::Conflict`, both named; the second is no block (TAPE-8).
 - `EventTimes`, `Starts` and `RelationColumn` are `Clone`, not `Copy`: a salvaged column keeps its group verdicts (STD-120).
 - `verify` holds only when the final index and the walk are the same set; over `VERIFY_ENTRIES_MAX` entries: `ReadError::VerifyEntries` (TAPE-9).

@@ -53,6 +53,10 @@ pub(crate) struct Indexer {
     undo: Vec<(TrackKey, Option<Tally>)>,
     /// The tracks with a row in the finish: in `tracks`, or tallied by a counted block ([Self::has_row])
     rows: BTreeSet<TrackKey>,
+    /// The tracks the piece head carries over
+    head_keys: BTreeSet<TrackKey>,
+    /// Those of `rows` the head doesn't carry
+    rows_past_head: usize,
 }
 
 impl Indexer {
@@ -76,6 +80,7 @@ impl Indexer {
         for t in starts {
             let key = (t.track_id, t.owner);
             self.carried.insert(t.track_number, key);
+            self.head_keys.insert(key);
             self.tallies.insert(
                 key,
                 Tally {
@@ -145,15 +150,22 @@ impl Indexer {
         t.records = t.records.saturating_add(records);
         t.touched = true;
         self.tallies.insert(key, t);
-        self.rows.insert(key);
+        self.insert_row(key);
     }
 
     /// Keep `rows` as `key`'s chunks and tally say, after either changed.
     fn note_row(&mut self, key: TrackKey) {
         if self.tracks.contains_key(&key) || self.tallies.get(&key).is_some_and(|t| t.touched) {
-            self.rows.insert(key);
-        } else {
-            self.rows.remove(&key);
+            self.insert_row(key);
+        } else if self.rows.remove(&key) && !self.head_keys.contains(&key) {
+            self.rows_past_head = self.rows_past_head.saturating_sub(1);
+        }
+    }
+
+    /// Give track `key` a row in the finish.
+    fn insert_row(&mut self, key: TrackKey) {
+        if self.rows.insert(key) && !self.head_keys.contains(&key) {
+            self.rows_past_head = self.rows_past_head.saturating_add(1);
         }
     }
 
@@ -225,7 +237,7 @@ impl Indexer {
                 && let Some(key) = self.key_of(e.track_number, Some(e.track_id))
             {
                 add_to_range(&mut self.tracks, key, e);
-                self.rows.insert(key);
+                self.insert_row(key);
             }
             if e.track_id == STATE_TRACK_ID {
                 self.states = self.states.saturating_add(1);
@@ -398,6 +410,16 @@ impl Indexer {
     /// The tracks with a row in the finish ([Self::has_row]).
     pub(crate) fn rows(&self) -> usize {
         self.rows.len()
+    }
+
+    /// The rows the next piece's head carries ([Self::next_starts]) when the tracks `new`, none with a row yet, get
+    /// one: each track the head carries or with a row in the finish, once.
+    pub(crate) fn next_head_rows(&self, new: &BTreeSet<TrackKey>) -> usize {
+        let fresh = new.iter().filter(|k| !self.head_keys.contains(k)).count();
+        self.head_keys
+            .len()
+            .saturating_add(self.rows_past_head)
+            .saturating_add(fresh)
     }
 
     pub(crate) fn track_ranges(&self) -> Vec<TrackRange> {
