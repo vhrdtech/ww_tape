@@ -1,4 +1,9 @@
-# ww_tape
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo/ww_tape-dark.svg">
+    <img alt="ww_tape" src="assets/logo/ww_tape-light.svg" width="420">
+  </picture>
+</p>
 
 [![CI](https://github.com/vhrdtech/ww_tape/actions/workflows/ci.yml/badge.svg)](https://github.com/vhrdtech/ww_tape/actions/workflows/ci.yml)
 

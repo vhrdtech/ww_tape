@@ -2,6 +2,21 @@
 level: advanced
 ---
 
+<!-- The logo is inlined (assets/logo, `just logo`) so the book needs no image files; one of the two shows per
+scheme. -->
+<style>
+.md-typeset .ww-tape-hero { margin: 0.5rem 0 1.5rem; text-align: center; }
+.md-typeset .ww-tape-hero svg { width: min(420px, 90%); height: auto; }
+[data-md-color-scheme="default"] .md-typeset .ww-tape-hero--dark,
+[data-md-color-scheme="slate"] .md-typeset .ww-tape-hero--light { display: none; }
+</style>
+<div class="ww-tape-hero ww-tape-hero--light" markdown="0" role="img" aria-label="ww_tape">
+--8<-- "assets/logo/ww_tape-light.svg"
+</div>
+<div class="ww-tape-hero ww-tape-hero--dark" markdown="0" role="img" aria-label="ww_tape">
+--8<-- "assets/logo/ww_tape-dark.svg"
+</div>
+
 # Tapes
 
 A **tape** is how WireWeaver records data over time: what a device streamed, what crossed a link, what a program
