@@ -10,7 +10,7 @@ use crate::reader::{ByteSource, TapeReader};
 use crate::sink::{Files, SinkFactory, TapeSink};
 use crate::writer::resume::SinkSource;
 use crate::writer::{
-    Finished, NextPiece, Placed, Resumed, TapeWriter, WriteError, WriterOptions, block_id,
+    Finished, Newest, NextPiece, Placed, Resumed, TapeWriter, WriteError, WriterOptions, block_id,
 };
 use crate::{ChunkHead, ColumnSpec, Definitions, HEADER_LEN, SessionTag};
 
@@ -199,7 +199,7 @@ impl<F: SinkFactory> PieceChain<F> {
                 )))?;
         }
         let path = dir.join(piece_name(seq));
-        let (writer, resumed) = match factory.reopen(&path)? {
+        let (mut writer, resumed) = match factory.reopen(&path)? {
             Some(sink) => {
                 let (mut w, resumed) = TapeWriter::resume_on(sink, options.writer.clone())?;
                 headed(&w)?;
@@ -231,6 +231,7 @@ impl<F: SinkFactory> PieceChain<F> {
                 (w, resumed)
             }
         };
+        writer.take_newest(&newest_in(&finished));
         Ok((
             PieceChain {
                 factory,
@@ -272,7 +273,7 @@ impl<F: SinkFactory> PieceChain<F> {
         };
         sink.rebase(open_at)
             .map_err(crate::sink::io_err("finding the last piece"))?;
-        let (writer, resumed) = if open_at < size || finished.is_empty() {
+        let (mut writer, resumed) = if open_at < size || finished.is_empty() {
             let (mut w, resumed) = TapeWriter::resume_on(sink, options.writer.clone())?;
             headed(&w)?;
             reserve_piece(&mut w, options.cut);
@@ -295,6 +296,7 @@ impl<F: SinkFactory> PieceChain<F> {
             let resumed = Resumed::started(w.bytes());
             (w, resumed)
         };
+        writer.take_newest(&newest_in(&finished));
         Ok((
             PieceChain {
                 factory,
@@ -521,6 +523,8 @@ struct LastPiece {
     next_tracks: Vec<TrackStart>,
     session: SessionTag,
     next_seq: u64,
+    /// The tops of its chunks' ranges, for the monotone relations' newest values
+    newest: Newest,
 }
 
 /// The finished piece in `src`, named `path`, from its tail, finish and head.
@@ -585,8 +589,40 @@ fn read_finished_at<B: ByteSource<Error = std::io::Error>>(
             next_tracks,
             session: id.session,
             next_seq,
+            newest: newest_of(reader, i, ranges)?,
         },
     ))
+}
+
+/// The tops of the ranges of the chunks of piece `i` of `reader`, whose finish lists `rows`: the newest values of
+/// its tracks' range relations.
+fn newest_of<B: ByteSource<Error = std::io::Error>>(
+    reader: &TapeReader<B>,
+    i: usize,
+    rows: &[crate::piece::TrackRange],
+) -> Result<Newest, WriteError> {
+    let mut newest = Newest::default();
+    for e in reader.entries(i).map_err(WriteError::Read)? {
+        let Some((_, hi)) = e.range.filter(|_| e.kind == crate::BlockKind::Events) else {
+            continue;
+        };
+        // the owner by the finish's row of the track; a track it doesn't list is of the piece's owner
+        let owner = rows
+            .iter()
+            .find(|r| r.track_id == e.track_id && r.track_number == e.track_number)
+            .map_or(OwnerId::NONE, |r| r.owner);
+        newest.seed_range((e.track_id, owner), hi);
+    }
+    Ok(newest)
+}
+
+/// The newest values of the monotone relations of the pieces `finished`.
+fn newest_in(finished: &[(Finished, LastPiece)]) -> Newest {
+    let mut newest = Newest::default();
+    for (_, last) in finished {
+        newest.merge(&last.newest);
+    }
+    newest
 }
 
 /// Whether piece `i` of `reader` holds a block its writer counted: one the index lists that isn't marked

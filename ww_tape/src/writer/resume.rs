@@ -484,6 +484,15 @@ impl<S: TapeSink> TapeWriter<S> {
         let end = self.end_after(bytes.len())?;
         self.hash.update(bytes);
         self.indexer.placed_entries(entries, bytes.len());
+        // its range relation's values go up to its range's top, as its writer saw them
+        for e in entries.iter().filter(|e| e.kind == BlockKind::Events) {
+            if let (Some((_, hi)), Some(key)) = (
+                e.range,
+                self.indexer.key_of(e.track_number, Some(e.track_id)),
+            ) {
+                self.relations.seed_range(key, hi);
+            }
+        }
         self.bytes = end;
         self.blocks = self.blocks.saturating_add(1);
         let data = match kind {

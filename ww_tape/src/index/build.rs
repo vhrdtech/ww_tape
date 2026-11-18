@@ -91,7 +91,7 @@ impl Indexer {
 
     /// The track of number `number`, its id `id` when the block says it: by the definition placed in the piece, else
     /// by the head; a chunk whose number names no track of its id is of the piece's owner.
-    fn key_of(&self, number: u32, id: Option<u64>) -> Option<TrackKey> {
+    pub(crate) fn key_of(&self, number: u32, id: Option<u64>) -> Option<TrackKey> {
         let fits = |k: &&TrackKey| id.is_none_or(|id| k.0 == id);
         self.numbers
             .get(&number)
