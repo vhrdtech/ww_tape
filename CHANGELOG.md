@@ -10,6 +10,7 @@ Covers `ww_tape` 0.1.0.
 
 ### ⚠️ Breaking
 
+- `verify` holds only when the final index and the walk are the same set; over `VERIFY_ENTRIES_MAX` entries: `ReadError::VerifyEntries` (TAPE-9).
 - A resume that meets a finish, tail or final index before the end of what its reader took refuses (`WriteError::GoodBlockAfterCut`) where a block of the piece's session follows it; it cut them off (TAPE-8).
 - A chunk or summary whose head names its track under another id than the definition's is refused (`DescribeError::TrackId`) (TAPE-8).
 - A piece takes data of at most `TRACKS_PER_PIECE_MAX` tracks, so its finish fits a block (`WriteError::TooManyTracks`) (TAPE-8).
@@ -224,6 +225,8 @@ Covers `ww_tape` 0.1.0.
 
 ### 🐛 Fixes
 
+- A resume replays the kept bytes along verify's walk: good blocks in junk are taken, damaged ones listed inside it kept (TAPE-8).
+- `verify` takes every damaged block listed inside bytes no block explains, and runs linear in blocks and entries (TAPE-9).
 - `RangeHash::headless` counts the pieces folded whose head doesn't read: what the hash covers there no head vouched for (TAPE-8).
 - A final index out of track and offset order is refused by every read, `entries` too, not sorted first (TAPE-10).
 - `Recovery::Resync` reports a block met again with other bytes (`FileError::Replaced`), as `Recovery::Prefix` does (TAPE-8).

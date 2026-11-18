@@ -1,9 +1,11 @@
 //! [TapeWriter::resume_on]: reopen an unfinished piece after a crash and go on writing it.
 //!
 //! The piece is found the way [TapeReader] finds it: by its tail, else from its newest checkpoint
-//! with the stretch after it scanned up to the first block that isn't good, else scanned from its start. Its bytes are
-//! then walked from the start to where the reader stopped, block by block by the headers' lengths, a damaged block
-//! the index lists by its entry, and the writer's state is rebuilt as the writer had it:
+//! with the stretch after it scanned up to the first block that isn't good, else scanned from its start. The bytes
+//! kept are then walked from the start as a reader's [verify](crate::TapeReader::verify) walks them (the content-hash
+//! walk: good blocks, and bytes no block explains), and the writer's state is rebuilt as the writer had it. A good
+//! block is taken wherever the walk meets one; in bytes no block explains, a block the index lists is a damaged block
+//! kept by its entry when it ends before the next good block, else those bytes are junk, placed and never listed:
 //!
 //! - every block is accounted as a write accounts it: the BLAKE3 content hash, the index entries and
 //!   the track ranges, the state records it holds ([super::near]), the counts, the session and the next seq;
@@ -46,7 +48,7 @@ use std::io;
 
 use super::{TapeWriter, WriteError, WriterOptions};
 use crate::index::{IndexBlock, IndexEntry, IndexKind, STATE_TRACK_ID, is_structural};
-use crate::piece::{FinishState, PieceHeadBlock};
+use crate::piece::{FinishState, PieceHeadBlock, Walked, hash_block, walk_piece};
 use crate::reader::{ByteSource, ReadError, TapeReader, wide};
 use crate::sink::{TapeSink, io_err};
 use crate::{
@@ -132,7 +134,29 @@ enum What {
     Junk,
 }
 
+/// A step of the walk of the bytes kept: a good block, or bytes no block explains (those next to each other as one).
+struct Walk {
+    at: u64,
+    len: u64,
+    good: bool,
+}
+
+impl Walk {
+    fn end(&self) -> u64 {
+        self.at.saturating_add(self.len)
+    }
+}
+
 impl Step {
+    /// The junk from `at` to `end` (empty when `end` is not past `at`).
+    fn junk(at: u64, end: u64) -> Step {
+        Step {
+            at,
+            len: end.saturating_sub(at),
+            what: What::Junk,
+        }
+    }
+
     fn end(&self) -> u64 {
         // a step lies within the piece: at + len <= its end
         self.at.saturating_add(self.len)
@@ -467,23 +491,95 @@ impl<S: TapeSink> TapeWriter<S> {
         let kept_bytes = kept.last;
         let mut w = Self::create_on(sink, options.sync);
         w.apply(&options)?;
+        // the content hash of the bytes kept and the steps of its walk, as a reader's verify takes them: good
+        // blocks, and bytes no block explains
+        let mut hash = blake3::Hasher::new();
+        let mut walked: Vec<Walk> = Vec::new();
+        let mut pos = 0u64;
+        let tries = walk_piece(
+            kept_bytes,
+            |at, buf| w.sink.read_at(at, buf),
+            |s| {
+                let (len, good) = match s {
+                    Walked::Block(b) => {
+                        hash_block(&mut hash, b);
+                        (wide(b.len()), true)
+                    }
+                    Walked::Raw(r) => {
+                        hash.update(r);
+                        (wide(r.len()), false)
+                    }
+                };
+                match walked.last_mut() {
+                    Some(last) if !good && !last.good => last.len = last.len.saturating_add(len),
+                    _ => walked.push(Walk { at: pos, len, good }),
+                }
+                pos = pos.saturating_add(len);
+            },
+        )
+        .map_err(io_err("reading back the piece to hash"))?;
+        if !tries {
+            return Err(WriteError::HashWalkSpent { end: kept_bytes });
+        }
         let mut buf = Vec::new();
         let mut named = Named::default();
-        let mut at = 0;
         let mut past_head = false;
-        while at < kept_bytes {
-            let step = layout.step(&w.sink, at)?;
-            let entries = layout.entries.get(&at).cloned().unwrap_or_default();
-            w.replay(&step, &entries, &mut buf)?;
-            named.take(&w.sink, &step)?;
-            past_head |= !matches!(
-                step.what,
-                What::Block {
-                    kind: BlockKind::PieceHead,
-                    ..
+        for (i, s) in walked.iter().enumerate() {
+            if s.good {
+                let len = usize::try_from(s.len).map_err(|_overflow| too_long(s.len))?;
+                buf.resize(len, 0);
+                w.sink
+                    .read_at(s.at, &mut buf)
+                    .map_err(io_err("reading back a block"))?;
+                let kind = BlockKind::from_u8(buf.get(5).copied().unwrap_or(0));
+                w.replay_good(s.at, &buf)?;
+                let step = Step {
+                    at: s.at,
+                    len: s.len,
+                    what: What::Block {
+                        kind,
+                        flags: 0,
+                        entry: None,
+                    },
+                };
+                named.take(&w.sink, &step)?;
+                past_head |= kind != BlockKind::PieceHead;
+                continue;
+            }
+            past_head = true;
+            // the damaged blocks the index lists in these bytes stand by their entries, each ending before the next
+            // good block and within the bytes kept; other bytes are junk
+            let next_good = walked
+                .get(i.saturating_add(1)..)
+                .and_then(|rest| rest.iter().find(|n| n.good))
+                .map_or(kept_bytes, |n| n.at);
+            let mut done = s.at;
+            for (&x, entries) in layout.entries.range(s.at..s.end()) {
+                let Some(e) = entries.first().filter(|_| x >= done) else {
+                    continue;
+                };
+                let Some(len) = FromFile::new(e.len)
+                    .at_most(MAX_BLOCK_LEN)
+                    .ok()
+                    .filter(|len| *len >= HEADER_LEN + CRC_LEN)
+                else {
+                    continue;
+                };
+                let end = x.saturating_add(wide(len));
+                if end > next_good.min(kept_bytes) {
+                    continue;
                 }
-            );
-            at = step.end();
+                w.replay_junk(&Step::junk(done, x), &mut buf)?;
+                buf.resize(len, 0);
+                w.sink
+                    .read_at(x, &mut buf)
+                    .map_err(io_err("reading back a damaged block"))?;
+                w.replay_damaged(entries, *e, e.kind, &buf)?;
+                done = end;
+            }
+            if done < s.end() {
+                w.replay_junk(&Step::junk(done, s.end()), &mut buf)?;
+            }
         }
         if let Some(described) = named.layout
             && described != options.layout
@@ -500,15 +596,6 @@ impl<S: TapeSink> TapeWriter<S> {
                 described,
                 given: options.producer,
             });
-        }
-        // the content hash of the bytes kept, as a reader verifies it: the walk above may have split damaged bytes
-        // another way; a block written where that walk no longer tries one would not verify
-        let mut hash = blake3::Hasher::new();
-        let tries =
-            crate::piece::hash_piece(&mut hash, kept_bytes, |at, buf| w.sink.read_at(at, buf))
-                .map_err(io_err("reading back the piece to hash"))?;
-        if !tries {
-            return Err(WriteError::HashWalkSpent { end: kept_bytes });
         }
         if size > kept_bytes {
             w.sink
@@ -533,30 +620,6 @@ impl<S: TapeSink> TapeWriter<S> {
             layout: named.layout,
         };
         Ok((w, resumed))
-    }
-
-    /// Account the bytes of `step`, read into `buf`, as writing them did; `entries` are the index's of the block.
-    fn replay(
-        &mut self,
-        step: &Step,
-        entries: &[IndexEntry],
-        buf: &mut Vec<u8>,
-    ) -> Result<(), WriteError> {
-        let What::Block { kind, entry, .. } = step.what else {
-            return self.replay_junk(step, buf);
-        };
-        // a block step is at most MAX_BLOCK_LEN long
-        let len = usize::try_from(step.len).map_err(|_overflow| too_long(step.len))?;
-        buf.resize(len, 0);
-        self.sink
-            .read_at(step.at, buf)
-            .map_err(io_err("reading back a block"))?;
-        let good = Block::read(buf).is_ok_and(|b| b.len() == len);
-        match (good, entry) {
-            (true, _) => self.replay_good(step.at, buf),
-            (false, Some(e)) => self.replay_damaged(entries, e, kind, buf),
-            (false, None) => self.replay_junk(step, buf),
-        }
     }
 
     fn replay_good(&mut self, at: u64, block: &[u8]) -> Result<(), WriteError> {

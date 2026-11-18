@@ -125,8 +125,11 @@ writer placed them, so a writer that lied in its index or finish fails too: each
 entry its writer makes of the block at its offset (offset, length, kind, track, items, ticks, a chunk's unit hash of its
 bytes and the range of its range relation from its own column), and each finish row must state the hash its track's
 listed blocks fold to, from the head row's, or say it incomplete exactly where the head or a damaged block a resume
-kept leaves units out. A good block the index doesn't list (written again, replaced, or junk a resume kept) adds to no
-track. `TapeReader::chain` checks the links between the pieces at hand: each piece head against the piece before it,
+kept leaves units out. The index and the walk must be the same set. Every block walked that its writer lists is listed,
+except a byte-identical copy of the listed block before it (a block written again), which adds to no track. Every entry
+names a block walked, or a damaged block in bytes no block explains that ends before the next block walked and before
+the finish. Each block and entry costs a bounded number of steps, and a piece listing more than `VERIFY_ENTRIES_MAX`
+entries is refused (`ReadError::VerifyEntries`). `TapeReader::chain` checks the links between the pieces at hand: each piece head against the piece before it,
 and each tail's next id against the next piece.
 
 A piece without a finish has no hash to check. That is how a reader knows the piece wasn't closed.

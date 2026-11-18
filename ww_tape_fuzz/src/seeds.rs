@@ -57,6 +57,16 @@ pub const FIXED_INPUTS: &[(&str, &str, &str)] = &[
     ),
     (
         "tape-resume",
+        "damaged-blocks-in-one-raw-stretch",
+        "51578934aaa50221d2",
+    ),
+    (
+        "tape-resume",
+        "damaged-block-past-a-raw-start",
+        "00666761016667016108",
+    ),
+    (
+        "tape-resume",
         "resume-and-verify-walk-alike",
         "0200302f7f3bc1183cc654fc31cb447af413878e0bb34c10c82a18362a1836101e1654fc31cb447bf4ed788e0bb34c10c877717131711d95f2c877717032711d57f5ec80808080808080808080808080808018011d57f5ec003000d425",
     ),

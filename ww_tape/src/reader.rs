@@ -41,6 +41,7 @@ use crate::{
 mod state;
 mod verify;
 pub use state::{DefinitionsAt, Lookup, Lost, STATE_CACHE_MAX, STATE_READ_MAX, StateItem};
+pub use verify::VERIFY_ENTRIES_MAX;
 
 /// Bytes that read at an offset.
 pub trait ByteSource {
@@ -157,6 +158,8 @@ pub enum ReadError<E> {
     Series { offset: u64, error: SeriesError },
     /// The chunk at `offset` starts before `end`, the end of the track's chunk before it: the track's chunks overlap.
     Overlap { offset: u64, end: u64 },
+    /// The piece's final index lists more entries than [TapeReader::verify] holds ([VERIFY_ENTRIES_MAX]).
+    VerifyEntries { max: usize },
 }
 
 impl<E: core::fmt::Debug> core::fmt::Display for ReadError<E> {
@@ -180,6 +183,9 @@ impl<E: core::fmt::Debug> core::fmt::Display for ReadError<E> {
                     f,
                     "chunk at byte {offset} starts before item {end}, the end of the chunk before"
                 )
+            }
+            ReadError::VerifyEntries { max } => {
+                write!(f, "the final index lists more than {max} entries to verify")
             }
         }
     }
@@ -1197,29 +1203,47 @@ impl<S: ByteSource> TapeReader<S> {
 
     /// Whether finished piece `i` holds up as a whole: its bytes before its finish block hash to the finish's content
     /// hash (each block that reads whole as it is, a chunk's payload by its hash, other bytes as they are,
-    /// [piece](crate::piece) docs); its final index lists exactly the entries its writer made of the blocks walked,
-    /// field for field (offset, length, kind, track, items, ticks, a chunk's unit hash of its bytes and its range
-    /// relation's range from its column), a block that doesn't read whole only where no block walked is; and each
+    /// [piece](crate::piece) docs); its final index and the blocks walked are the same set: each block walked that
+    /// its writer lists has exactly the entries its writer made of it, field for field (offset, length, kind, track,
+    /// items, ticks, a chunk's unit hash of its bytes and its range relation's range from its column), but a
+    /// byte-identical copy of the listed block before it; each entry names a block walked, or a block that doesn't
+    /// read whole in bytes no block explains, ending before the finish and before the next block walked; and each
     /// finish row states the hash its track's blocks fold to from the head row's, or says it incomplete exactly where
     /// a damaged block kept or the head leaves units out. The strict check of what [Self::range_hash] takes from the
     /// index unread.
     pub fn verify(&self, i: usize) -> R<bool, S> {
+        self.verify_counted(i).map(|(holds, _)| holds)
+    }
+
+    /// [Self::verify] and the steps its replay took.
+    pub(crate) fn verify_counted(&self, i: usize) -> R<(bool, u64), S> {
         let p = self.piece(i)?;
         let (Some((fin, rows)), Some(end)) = (&p.finish, p.finish_offset) else {
             return Err(ReadError::Unfinished);
         };
         // the final index's entries, whatever a walk of the piece found
         let mut listed = Vec::new();
-        let listed = match self
-            .for_final(p, |ix| listed.extend(ix.entries()))
-            .and_then(|()| in_order(p, listed))
-        {
+        let mut over = false;
+        let read = self.for_final(p, |ix| {
+            if !over {
+                listed.extend(ix.entries().take(
+                    (verify::VERIFY_ENTRIES_MAX.saturating_add(1)).saturating_sub(listed.len()),
+                ));
+                over = listed.len() > verify::VERIFY_ENTRIES_MAX;
+            }
+        });
+        if over {
+            return Err(ReadError::VerifyEntries {
+                max: verify::VERIFY_ENTRIES_MAX,
+            });
+        }
+        let listed = match read.and_then(|()| in_order(p, listed)) {
             Ok(e) => e,
-            Err(ReadError::Index(_) | ReadError::Block { .. }) => return Ok(false),
+            Err(ReadError::Index(_) | ReadError::Block { .. }) => return Ok((false, 0)),
             Err(e) => return Err(e),
         };
         let starts = p.head.as_ref().map_or(&[][..], |(_, t)| &t[..]);
-        let mut replay = verify::Replay::new(starts, &listed);
+        let mut replay = verify::Replay::new(starts, listed, end);
         let mut h = blake3::Hasher::new();
         walk_piece(
             end,
@@ -1238,7 +1262,11 @@ impl<S: ByteSource> TapeReader<S> {
                 }
             },
         )?;
-        Ok(*h.finalize().as_bytes() == fin.hash.0 && replay.check(rows))
+        let steps = replay.steps();
+        Ok((
+            *h.finalize().as_bytes() == fin.hash.0 && replay.check(rows),
+            steps,
+        ))
     }
 
     /// The hash of the whole chunks of track `track_id` owned by `owner` that hold an item in `items`, folded from
