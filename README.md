@@ -38,6 +38,7 @@ the book work there. The exact byte layouts are in the crate's module docs.
 | Path | What |
 | --- | --- |
 | `ww_tape/` | the format: blocks, definitions and state on track 0, chunks, codecs, summaries, index, pieces, writers and readers; `golden/` the golden files |
+| `ww_tape_codecs/` | column codecs with no notion of a block (bit packing, CRC-32C, varints, lz4, summary kernels), re-exported by `ww_tape` |
 | `ww_tape_fuzz/` | fuzz target bodies, hostile block builders, the seed files (`seeds/`) and their replay as tests |
 | `ww_tape_benchmarks/` | the float sample codec, series summary and tracks benchmarks |
 | `fuzz/` | cargo-fuzz targets (`tape-*`), a workspace of its own on nightly |

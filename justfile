@@ -37,6 +37,7 @@ test-all: check
 # cargo check what tests don't build: the positional reader for the browser, without std (STD-124)
 check:
     cargo check -p ww_tape --no-default-features --features=alloc --target wasm32-unknown-unknown
+    cargo check -p ww_tape_codecs --no-default-features --target wasm32-unknown-unknown
 
 # Format, manifests, spelling, clippy and rustdoc as CI runs them, warnings are errors; then `just api-check`
 lint:

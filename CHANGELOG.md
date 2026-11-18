@@ -126,6 +126,7 @@ Covers `ww_tape` 0.1.0.
 
 ### 🚀 Features
 
+- `ww_tape_codecs`: bit packing, CRC-32C, varints, lz4 and summary kernels as a crate; `ww_tape` re-exports them (TAPE-12).
 - `TapeReader::relation_breaks`: the chunks where a track's monotone relations start again, by piece and entry (TAPE-7).
 - `TapeWriter::accept_relation_break`: the caller goes on past an unread monotone relation from its own value (TAPE-7).
 - Format: header flag bit 4 and entry flag bit 3 mark a relation break (`FLAG_RELATION_BREAK`, `IndexEntry::relation_break`) (TAPE-7).

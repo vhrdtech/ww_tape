@@ -23,7 +23,8 @@ the docs are unclear, the source and its comments are authoritative.
 
 | Path | What |
 | --- | --- |
-| `ww_tape/` | blocks, definitions on track 0, state tracks and their lookups, chunks, the time, sample and payload codecs, `bitpack`, summaries, index, finish and tail, pieces, `TapeWriter`, `FileBlocks`, `TapeReader`; `golden/` the golden files |
+| `ww_tape/` | blocks, definitions on track 0, state tracks and their lookups, chunks, the time, sample and payload codecs, summaries, index, finish and tail, pieces, `TapeWriter`, `FileBlocks`, `TapeReader`; `golden/` the golden files |
+| `ww_tape_codecs/` | column codecs with no notion of a block: `bitpack`, `crc32c`, `from_file`, varints, `lz4`, the summary kernels; `ww_tape` re-exports them |
 | `ww_tape_fuzz/` | the fuzz target bodies (`targets`), hostile block builders (`hostile`), `seeds/` and their replay as tests, `ww_tape_fuzz_seeds` |
 | `ww_tape_benchmarks/` | float sample codecs on simulated, decoded and sensor data; series summaries (`--bin summaries`); tracks added one by one, puts and copies (`--bin tracks`); the writer's cost per series chunk (`--bin chunks`) |
 | `ww_tape_figures/` | the book's figures that show bytes or numbers, drawn from blocks ww_tape writes into `docs/plots/` (`just book-figures`; a test checks them) |
@@ -49,7 +50,7 @@ and update the matching item in the same change when finishing one (conventions 
 just test --changed   # the crates changed against main and their dependents; before a session's work is ready
 just test             # everything: nextest, doctests, just check, a smoke run of every fuzz target
 just lint             # fmt, cargo sort -w -g, typos, clippy, rustdoc -D warnings, just api-check
-just check            # the positional reader for wasm32 without std (STD-124)
+just check            # the positional reader and the codecs for wasm32 without std (STD-124)
 just api-check        # ww_tape's version and wire line against ww_tape/api_snapshots/; skipped without `ww`
 just fuzz-tape-<target>   # one fuzz target until stopped, with its libFuzzer limits
 just tape-golden-update   # rewrite golden/*.hex after a deliberate format change
@@ -61,7 +62,8 @@ just bench-chunks         # ns per 1 MiB series chunk the writer spends, and its
 
 Single test: `cargo nextest run -p ww_tape <test>` (nextest is required). Plain `cargo sort` flattens grouped
 tables: always pass `-w -g`. Project words go into `typos.toml`. CI (`.github/workflows/ci.yml`) fails on any
-warning. `ww_tape` and `ww_tape_fuzz` build at opt-level 3 in tests: the hostile streams decode a million blocks.
+warning. `ww_tape`, `ww_tape_codecs` and `ww_tape_fuzz` build at opt-level 3 in tests: the hostile streams decode a
+million blocks.
 
 ## The format is a contract
 
@@ -80,9 +82,9 @@ warning. `ww_tape` and `ww_tape_fuzz` build at opt-level 3 in tests: the hostile
 
 ## Speed and vector kernels
 
-`bitpack` and the summary kernels have AVX-512, AVX2 and NEON paths picked at run time, each checked against the
-scalar path by tests and fuzz targets. A change to a hot path is measured with the benches before and after, at
-release, and the numbers go into the commit body or the docs page they change.
+`bitpack` and the summary kernels (`ww_tape_codecs`) have AVX-512, AVX2 and NEON paths picked at run time, each
+checked against the scalar path by tests and fuzz targets. A change to a hot path is measured with the benches before
+and after, at release, and the numbers go into the commit body or the docs page they change.
 
 ## Proper fixes, never a lost capability
 
