@@ -22,6 +22,8 @@ pub struct PieceSummary {
 pub enum HeadStatus {
     /// Read whole: ident and previous piece from it.
     Read,
+    /// Lost (damaged): ident from the finish, previous piece unknown (None).
+    Lost,
     /// A head of an integrity level this build refuses (the error, [IndexError::UnhandledIntegrity] or
     /// [IndexError::UnknownIntegrity]): ident and previous piece from it, the piece's contents unread.
     Refused(IndexError),
@@ -40,6 +42,9 @@ pub enum ChainLink {
     Broken,
     /// The earlier piece has no end: it was cut off and the chain went on regardless.
     Unfinished,
+    /// The earlier piece's end names the later one's id, but the later piece's head is lost ([HeadStatus::Lost]):
+    /// linked one way only.
+    HeadLost,
 }
 
 /// How the chain ends.
@@ -106,7 +111,10 @@ pub fn check_chain(pieces: &[PieceSummary]) -> ChainReport {
         .zip(order.iter().skip(1))
         .map(|((_, a), (_, b))| link(a, b))
         .collect();
-    let head_cut = order.first().is_some_and(|(_, f)| f.prev.is_some());
+    // a first piece whose head is lost was the chain's first only at sequence number 0
+    let head_cut = order
+        .first()
+        .is_some_and(|(_, f)| f.prev.is_some() || (f.head == HeadStatus::Lost && f.ident.seq > 0));
     let end = match order.last().and_then(|(_, l)| l.end) {
         None => ChainEnd::Open,
         Some((FinishState::Complete, ..)) => ChainEnd::Complete,
@@ -139,9 +147,9 @@ fn link(a: &PieceSummary, b: &PieceSummary) -> ChainLink {
         return ChainLink::Unfinished;
     };
     let named = next.unwrap_or_else(|| PieceId::after(a.ident.id, &hash));
-    if named == b.ident.id && b.prev == Some((hash, a.ident.id)) {
-        ChainLink::Linked
-    } else {
-        ChainLink::Broken
+    match (named == b.ident.id, b.head) {
+        (true, HeadStatus::Lost) => ChainLink::HeadLost,
+        (true, _) if b.prev == Some((hash, a.ident.id)) => ChainLink::Linked,
+        _ => ChainLink::Broken,
     }
 }

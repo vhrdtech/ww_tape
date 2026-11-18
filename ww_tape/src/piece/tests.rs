@@ -243,6 +243,22 @@ fn chains_are_checked_both_ways() {
     ]);
     assert_eq!(r.order, [0]);
     assert_eq!(r.strays, [1, 2]);
+
+    // a head lost: linked one way by the earlier end; a first piece's head lost is head cut past seq 0
+    let lost = |seq, end| PieceSummary {
+        prev: None,
+        head: HeadStatus::Lost,
+        ..summary(seq, end)
+    };
+    let r = check_chain(&[
+        summary(0, Some(Continued)),
+        lost(1, Some(Continued)),
+        summary(2, Some(Complete)),
+    ]);
+    assert_eq!(r.links, [ChainLink::HeadLost, ChainLink::Linked]);
+    assert!(!r.is_whole() && !r.head_cut);
+    assert!(check_chain(&[lost(1, Some(Complete))]).head_cut);
+    assert!(!check_chain(&[lost(0, Some(Complete))]).head_cut);
 }
 
 #[test]
