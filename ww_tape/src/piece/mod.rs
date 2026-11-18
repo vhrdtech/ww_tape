@@ -129,10 +129,10 @@ const FINISH_TRACK_LEN: usize = 136;
 /// Most tracks with data in one piece: the finish's rows of that many, padded to [PIECE_ALIGN], fit a block
 /// ([crate::MAX_BLOCK_LEN]). A writer refuses a block that would bring in one more ([crate::WriteError]).
 pub const TRACKS_PER_PIECE_MAX: usize =
-    (crate::MAX_BLOCK_LEN - HEADER_LEN - FINISH_FIXED_LEN - CRC_LEN - (PIECE_ALIGN as usize - 1))
+    (crate::MAX_BLOCK_LEN - HEADER_LEN - FINISH_FIXED_LEN - CRC_LEN - (u32_len(PIECE_ALIGN) - 1))
         / FINISH_TRACK_LEN;
 const _: () = assert!(
-    finish_len(TRACKS_PER_PIECE_MAX) + PIECE_ALIGN as usize - 1 <= crate::MAX_BLOCK_LEN,
+    finish_len(TRACKS_PER_PIECE_MAX) + u32_len(PIECE_ALIGN) - 1 <= crate::MAX_BLOCK_LEN,
     "the finish of the most tracks fits a block"
 );
 /// Where a finish's track row holds its flags.
