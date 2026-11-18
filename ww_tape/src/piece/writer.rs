@@ -1,11 +1,12 @@
 //! [PieceChain]: a recording written as a chain of pieces, cut at chunk boundaries, on files or any [SinkFactory]:
 //! each piece a file of its own, or all of them back to back in one file ([PieceFiles]).
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use super::{FinishState, OwnerId, PieceHead, PieceId, PieceIdent, TAIL_LEN, TrackStart};
-use crate::index::IndexError;
+use crate::index::{IndexEntry, IndexError, TrackKey};
 use crate::reader::{ByteSource, TapeReader};
 use crate::sink::{Files, SinkFactory, TapeSink};
 use crate::writer::resume::SinkSource;
@@ -612,33 +613,73 @@ fn read_finished_at<B: ByteSource<Error = std::io::Error>>(
     ))
 }
 
-/// The tops of the ranges of the chunks of piece `i` of `reader`, whose finish lists `rows`: the newest values of
-/// its tracks' range relations.
+/// The newest values of the monotone relations of the tracks of piece `i` of `reader`, whose finish lists `rows`: the
+/// tops of its chunks' ranges, and the relation columns of each track's last chunk, read; a track whose last chunk
+/// doesn't read is unread.
 fn newest_of<B: ByteSource<Error = std::io::Error>>(
     reader: &TapeReader<B>,
     i: usize,
     rows: &[crate::piece::TrackRange],
 ) -> Result<Newest, WriteError> {
     let mut newest = Newest::default();
+    let start = reader.pieces().get(i).map_or(0, |p| p.start);
+    let mut last: BTreeMap<TrackKey, IndexEntry> = BTreeMap::new();
     for e in reader.entries(i).map_err(WriteError::Read)? {
-        let Some((_, hi)) = e.range.filter(|_| e.kind == crate::BlockKind::Events) else {
+        if e.kind != crate::BlockKind::Events || e.repeat {
             continue;
-        };
+        }
         // the owner by the finish's row of the track; a track it doesn't list is of the piece's owner
         let owner = rows
             .iter()
             .find(|r| r.track_id == e.track_id && r.track_number == e.track_number)
             .map_or(OwnerId::NONE, |r| r.owner);
-        newest.seed_range((e.track_id, owner), hi);
+        let key = (e.track_id, owner);
+        if let Some((_, hi)) = e.range {
+            newest.seed_range(key, hi);
+        }
+        if last.get(&key).is_none_or(|l| l.offset < e.offset) {
+            last.insert(key, e);
+        }
+    }
+    let mut buf = Vec::new();
+    for (key, e) in last {
+        match read_chunk(reader.source(), start, &e, &mut buf)? {
+            Some(c) => newest.seed_chunk(key, &c),
+            None => newest.seed_unread(key),
+        }
     }
     Ok(newest)
 }
 
-/// The newest values of the monotone relations of the pieces `finished`.
+/// The chunk block that entry `e` of the piece at `start` in `src` lists, read into `buf`; None when it doesn't read.
+fn read_chunk<'b, B: ByteSource<Error = std::io::Error>>(
+    src: &B,
+    start: u64,
+    e: &IndexEntry,
+    buf: &'b mut Vec<u8>,
+) -> Result<Option<crate::Chunk<'b>>, WriteError> {
+    // an entry read from the file: a block's length at most
+    let Ok(len) = crate::FromFile::new(e.len).at_most(crate::MAX_BLOCK_LEN) else {
+        return Ok(None);
+    };
+    let Some(at) = start.checked_add(e.offset) else {
+        return Ok(None);
+    };
+    buf.resize(len, 0);
+    src.read_at(at, buf).map_err(crate::sink::io_err(
+        "reading a piece's last chunk of a track",
+    ))?;
+    Ok(crate::Block::read(buf).ok().and_then(|b| b.chunk()))
+}
+
+/// The newest values of the monotone relations of the pieces `finished`, in order: a later piece's last chunk of a
+/// track says more than an earlier one's.
 fn newest_in(finished: &[(Finished, LastPiece)]) -> Newest {
     let mut newest = Newest::default();
     for (_, last) in finished {
-        newest.merge(&last.newest);
+        let mut later = last.newest.clone();
+        later.after(&newest);
+        newest = later;
     }
     newest
 }

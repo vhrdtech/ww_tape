@@ -7,7 +7,8 @@ use shrink_wrap::prelude::*;
 use ww_tape::times::{EncodedRelation, EncodedTimes, RelationColumn, StoredRelations};
 use ww_tape::{
     BlockKind, Definitions, Describe, DescribeError, MemSink, RelationDef, RelationIndex,
-    RelationTarget, RelationValues, SyncPolicy, TapeReader, TapeWriter, TrackDef, WriteError,
+    RelationTarget, RelationValues, SyncPolicy, TapeReader, TapeSink, TapeWriter, TrackDef,
+    WriteError,
 };
 
 use crate::definitions::{CLOCK, clock, track};
@@ -551,4 +552,160 @@ fn a_monotone_relation_never_decreases_across_cuts_and_resumes() {
         write(&mut c, 4, &[102, 103]).unwrap();
         c.finish().unwrap();
     }
+}
+
+/// Track 3 with two monotone relations: `source` feeds the range index, `seq` has none.
+const TWO_MONOTONE: &[RelationDef<'static>] = &[
+    rel("source", RelationValues::Stored, true, RelationIndex::Range),
+    rel("seq", RelationValues::Stored, true, RelationIndex::None),
+];
+
+fn two_monotone() -> Describe<'static> {
+    let Describe::Track(t) = track(3, CLOCK) else {
+        unreachable!("track() gives a track")
+    };
+    Describe::Track(TrackDef {
+        relations: RefVec::Slice {
+            slice: TWO_MONOTONE,
+        },
+        ..t
+    })
+}
+
+/// A chunk of track 3 of [two_monotone] from item `first`: its head and columns.
+fn two_chunk(
+    first: u64,
+    source: &[u64],
+    seq: &[u64],
+) -> (ww_tape::ChunkHead, Vec<(ww_tape::ColumnSpec, Vec<u8>)>) {
+    let starts: Vec<i64> = (0..source.len() as i64)
+        .map(|i| first as i64 * 10 + i * 10)
+        .collect();
+    let times = EncodedTimes::encode(&starts, None, None).unwrap();
+    let a = EncodedRelation::encode(0, source, true).unwrap();
+    let b = EncodedRelation::encode(1, seq, true).unwrap();
+    let mut cols: Vec<_> = times.columns().map(|(s, b)| (s, b.to_vec())).collect();
+    cols.extend([a.column(), b.column()].map(|(s, b)| (s, b.to_vec())));
+    (times.head.chunk_head(track_id(), 3, first), cols)
+}
+
+/// Flip a byte in the payload of the last events chunk of the piece in `bytes`: its CRC fails, its head and its index
+/// entry stay.
+fn damage_last_chunk(bytes: &mut [u8]) {
+    let e = TapeReader::open(&bytes[..])
+        .unwrap()
+        .entries(0)
+        .unwrap()
+        .into_iter()
+        .rfind(|e| e.kind == BlockKind::Events)
+        .unwrap();
+    bytes[(e.offset + u64::from(e.len)) as usize - 8] ^= 1;
+}
+
+/// Whether `r` refuses track 3's chunk for monotone relation `seq`, whose newest value is in a chunk that doesn't read.
+fn unread(r: &Result<(), WriteError>) -> bool {
+    matches!(
+        r,
+        Err(WriteError::Describe(DescribeError::RelationUnread {
+            track: 3,
+            relation: 1
+        }))
+    )
+}
+
+/// Every monotone relation keeps its newest value across a resume of a chain, the one without an index too: a resume
+/// reads the last chunk of the track. Where that chunk doesn't read, a chunk of the track is refused rather than
+/// written unchecked, in the pieces finished before and in the piece resumed.
+#[test]
+fn every_monotone_relation_keeps_its_newest_value_across_resumes() {
+    use ww_tape::index::IndexPolicy;
+    use ww_tape::{ChainOptions, CutPolicy, OwnerId, PieceChain, PieceFiles, WriterOptions};
+    let mut defs = Definitions::new();
+    defs.define_all(&[clock(CLOCK), two_monotone(), track(9, CLOCK)])
+        .unwrap();
+    fn write<S: TapeSink>(
+        w: &mut TapeWriter<S>,
+        defs: &Definitions,
+        first: u64,
+        source: &[u64],
+        seq: &[u64],
+    ) -> Result<(), WriteError> {
+        let (h, cols) = two_chunk(first, source, seq);
+        let cols: Vec<_> = cols.iter().map(|(s, b)| (*s, &b[..])).collect();
+        w.write_chunk(defs, &h, &cols).map(|_| ())
+    }
+    let seq_decrease = |r: Result<(), WriteError>, item: u64| {
+        matches!(
+            r,
+            Err(WriteError::Describe(DescribeError::RelationDecrease { track: 3, relation: 1, item: i })) if i == item
+        )
+    };
+    let dir = crate::pieces::scratch("two_monotone");
+    let owner = OwnerId([9; 32]);
+    for files in [PieceFiles::Each, PieceFiles::One] {
+        let at = dir.join(format!("{files:?}"));
+        if files == PieceFiles::Each {
+            std::fs::create_dir(&at).unwrap();
+        }
+        let options = || ChainOptions {
+            files,
+            cut: CutPolicy::default(),
+            ..ChainOptions::default()
+        };
+        let mut c = PieceChain::create(&at, owner, 0, &[], options()).unwrap();
+        write(c.writer().unwrap(), &defs, 0, &[1, 2], &[100, 101]).unwrap();
+        c.cut_now().unwrap();
+        drop(c);
+        let (mut c, _) = PieceChain::resume(&at, owner, 0, options()).unwrap();
+        let w = c.writer().unwrap();
+        assert!(
+            seq_decrease(write(w, &defs, 2, &[3, 4], &[5, 6]), 2),
+            "{files:?}"
+        );
+        write(w, &defs, 2, &[3, 4], &[102, 103]).unwrap();
+        c.cut_now().unwrap();
+        drop(c);
+        // the last chunk of the track, in the piece finished last, doesn't read
+        let first = match files {
+            PieceFiles::Each => at.join(ww_tape::piece::piece_name(1)),
+            PieceFiles::One => at.clone(),
+        };
+        let mut bytes = std::fs::read(&first).unwrap();
+        let start = match files {
+            PieceFiles::Each => 0,
+            PieceFiles::One => TapeReader::open(&bytes[..]).unwrap().pieces()[1].start as usize,
+        };
+        damage_last_chunk(&mut bytes[start..]);
+        std::fs::write(&first, &bytes).unwrap();
+        let (mut c, _) = PieceChain::resume(&at, owner, 0, options()).unwrap();
+        let r = write(c.writer().unwrap(), &defs, 4, &[5, 6], &[200, 201]);
+        assert!(unread(&r), "{files:?}: {r:?}");
+    }
+    // one piece, its last chunk damaged where a checkpoint lists it
+    let options = WriterOptions {
+        index: IndexPolicy {
+            bytes: 256,
+            interval: None,
+            ..IndexPolicy::default()
+        },
+        ..WriterOptions::default()
+    };
+    let mut w = TapeWriter::create_on(MemSink::new(Path::new("one")), SyncPolicy::None);
+    w.set_index_policy(options.index).unwrap();
+    let tape = w.sink().tape();
+    write(&mut w, &defs, 0, &[1, 2], &[100, 101]).unwrap();
+    write(&mut w, &defs, 2, &[3, 4], &[102, 103]).unwrap();
+    for n in 0..8 {
+        let b = crate::pieces::records(w.next_id(), n);
+        w.write_block(&defs, &b).unwrap();
+    }
+    drop(w);
+    let mut bytes = tape.to_vec().unwrap();
+    damage_last_chunk(&mut bytes);
+    let mut sink = MemSink::new(Path::new("two"));
+    sink.write_all(&bytes).unwrap();
+    let (mut w, _) = TapeWriter::resume_on(sink, options).unwrap();
+    let r = write(&mut w, &defs, 4, &[5, 6], &[200, 201]);
+    assert!(unread(&r), "{r:?}");
+    std::fs::remove_dir_all(&dir).unwrap();
 }

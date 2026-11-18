@@ -18,6 +18,7 @@ Covers `ww_tape` 0.1.0.
 - `cut_in_place` refuses a sink of one piece (`NAME.partial`, `MemSink::new`): `TapeSink::holds_pieces` (TAPE-8).
 - One writer per file: sinks hold an exclusive lock (files) or mark their memory tape; a second gets `WriteError::Locked` (TAPE-8).
 - `DescribeError::RelationDecrease`: a monotone relation's value below the track's newest, across chunks, cuts and resumes, is refused (TAPE-7).
+- `DescribeError::RelationUnread`: a chunk is refused when its track's newest monotone value is in a chunk that doesn't read (TAPE-7).
 - `DescribeError::RelationColumnRead`: a relation column that doesn't read for every item is refused, not written (TAPE-7).
 - `ChainOptions` gains `files`; `Finished` gains `start` and `tracks`; `SinkFactory` gains `create_whole` and `open_whole` (TAPE-8).
 - Format: piece head rows (96 B) and finish rows (136 B) carry owner and track hash, each with a row length (TAPE-8).
@@ -216,6 +217,7 @@ Covers `ww_tape` 0.1.0.
 
 ### 🐛 Fixes
 
+- A chain resume keeps every monotone relation's newest value, read from each track's last chunk, not only the range relation's (TAPE-7).
 - Starts and monotone relation values that decrease inside a group are refused on read, suspect in salvage (STD-120, TAPE-7).
 - A damaged chunk a resume keeps goes into its track hash by its entry's unit hash, not left out (TAPE-8).
 - A deferred block goes before any later block of its track; `write_block` after deferred blocks no longer replaces one (TAPE-8).
