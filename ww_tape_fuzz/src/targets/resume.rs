@@ -1,6 +1,7 @@
 //! `TapeWriter::resume_on` on an unfinished piece a writer wrote, cut and mutated by the input: it never panics, and a
 //! piece it resumes takes more blocks and finishes whole: a reader finds it by its tail at the start of the bytes and
-//! its content hash verifies.
+//! its content hash verifies. The bytes it cuts off hold no good block of the piece's session but puts belonging with
+//! a block after them and what ends a piece.
 //!
 //! `PieceChain::resume_on` on a file of several pieces ([PieceFiles::One]) whose last piece is cut and mutated: it
 //! never panics, and a chain it resumes keeps the pieces before byte for byte, takes more blocks and finishes whole: a
@@ -269,7 +270,8 @@ pub fn resume(data: &[u8]) {
         }
     }
     if mode & 4 != 0 {
-        resume_chain(aligned, &bytes, *last);
+        let open = (mode & 2 == 0).then(|| &template[*last..]);
+        resume_chain(aligned, &bytes, *last, open);
         return;
     }
     let mut sink = MemSink::new(Path::new("p"));
@@ -279,6 +281,7 @@ pub fn resume(data: &[u8]) {
         return;
     };
     assert!(resumed.kept_bytes <= bytes.len() as u64);
+    no_good_block_cut(&template[..], &bytes, resumed.kept_bytes);
     assert_eq!(
         resumed.kept_bytes + resumed.dropped_bytes,
         bytes.len() as u64
@@ -356,17 +359,22 @@ fn folds_alike(out: &[u8], final_index: Option<u64>) {
     }
 }
 
-/// Resume the chain of `bytes`, whose pieces before `last` are whole, and finish it.
-fn resume_chain(aligned: bool, bytes: &[u8], last: usize) {
+/// Resume the chain of `bytes`, whose pieces before `last` are whole, and finish it; `open` the last piece before the
+/// input mutated it, when it was unfinished.
+fn resume_chain(aligned: bool, bytes: &[u8], last: usize, open: Option<&[u8]>) {
     let path = Path::new(CHAIN_FILE);
     let mut mem = MemTapes::new();
     mem.create_whole(path)
         .expect("memory takes a file")
         .write_all(bytes)
         .expect("memory takes the bytes");
-    let Ok((mut c, _)) = PieceChain::resume_on(mem, path, OWNER, 0, chain_options(aligned)) else {
+    let Ok((mut c, resumed)) = PieceChain::resume_on(mem, path, OWNER, 0, chain_options(aligned))
+    else {
         return;
     };
+    if let (Some(template), Some(piece)) = (open, bytes.get(last..)) {
+        no_good_block_cut(template, piece, resumed.kept_bytes);
+    }
     let mut defs = Definitions::new();
     defs.define_all(&[clock(1), track(1, 1), track(9, 1)])
         .expect("the definitions hold");
@@ -402,5 +410,42 @@ fn resume_chain(aligned: bool, bytes: &[u8], last: usize) {
     if damaged.is_none() {
         let chain = r.chain();
         assert!(chain.is_whole(), "{chain:?}");
+    }
+}
+
+/// The bytes of `piece` past `kept`, which a resume cut off, hold no good block of the session of the piece head at the
+/// start of `template` (the piece before the input mutated it), but puts belonging with a block after them
+/// ([ww_tape::FLAG_WITH_NEXT]) and what ends a piece (a final index, a finish, a tail).
+fn no_good_block_cut(template: &[u8], piece: &[u8], kept: u64) {
+    let Some(session) = template.get(24..28) else {
+        return;
+    };
+    let from = usize::try_from(kept).expect("a small piece");
+    for at in from..piece.len() {
+        let Some(header) = piece.get(at..at + ww_tape::HEADER_LEN) else {
+            break;
+        };
+        if header[..4] != ww_tape::MAGIC || header[24..28] != *session {
+            continue;
+        }
+        let Some(block) = ww_tape::block_len(header)
+            .ok()
+            .and_then(|len| piece.get(at..at + len))
+            .and_then(|b| ww_tape::Block::read(b).ok())
+        else {
+            continue;
+        };
+        let ends = match block.kind {
+            BlockKind::Finish | BlockKind::Tail => true,
+            BlockKind::Index => ww_tape::index::IndexBlock::read(&block)
+                .is_ok_and(|ix| ix.kind() == ww_tape::index::IndexKind::Final),
+            _ => false,
+        };
+        assert!(
+            ends || block.flags & ww_tape::FLAG_WITH_NEXT != 0,
+            "a resume cut off a good block at {at} of {}, kept {kept}: {:?}",
+            piece.len(),
+            block.kind
+        );
     }
 }
