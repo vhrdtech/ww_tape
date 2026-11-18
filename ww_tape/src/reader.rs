@@ -976,6 +976,10 @@ impl<S: ByteSource> TapeReader<S> {
             at = ix.prev().filter(|p| *p < off);
         }
         out.sort_by_key(|e| e.offset);
+        // final index blocks list each block once: a block named twice would be read and folded twice
+        if !crate::index::in_file_order(&out) {
+            return Err(ReadError::Index(IndexError::BadEntries));
+        }
         within_piece(p, out)
     }
 
