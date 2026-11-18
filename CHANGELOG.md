@@ -223,6 +223,10 @@ Covers `ww_tape` 0.1.0.
 
 ### 🐛 Fixes
 
+- A final index out of track and offset order is refused by every read, `entries` too, not sorted first (TAPE-10).
+- `Recovery::Resync` reports a block met again with other bytes (`FileError::Replaced`), as `Recovery::Prefix` does (TAPE-8).
+- `FileBlocks` refuses a piece head of another integrity level (`BlockError::UnhandledIntegrity`); it read the piece as its own (TAPE-8).
+- A refused finish block is kept as `PieceInfo::finish_error`; the piece's tail then ends no chain, which is open (TAPE-8).
 - `TapeReader::verify` replays the piece: each final-index entry must be the one its writer makes of the block at its offset (unit hash, range and the rest), each finish row the fold of its track's blocks; `range_hash` counts an entry of a kind it doesn't fold in `skipped` and checks a read chunk's range against its columns; oracle in fuzz target `tape-index` (TAPE-9).
 - `range_hash` takes a chunk stating the items of the chunk before for a copy only when its unit hash is the same; other bytes are `ReadError::Overlap` (TAPE-8).
 - A chunk read by its index entry must be the chunk the entry names (kind, track id and number, first item, count): `range_hash` on an unhashed entry and `read_chunk_head` refuse another (`IndexError::BadEntries`) (TAPE-9).

@@ -849,6 +849,13 @@ pub enum BlockError {
     NotChunk,
     /// A chunk block marked [FLAG_PAYLOAD_UNCHECKED]: an integrity level this build doesn't handle, not damage.
     PayloadUnchecked,
+    /// A piece head of an integrity level (its byte 146, `level`) this build doesn't handle, not damage: what a
+    /// `FileBlocks` reports (`FileError::Refused`). [PieceHeadBlock::read](piece::PieceHeadBlock::read) says it as
+    /// [IndexError::UnhandledIntegrity](index::IndexError::UnhandledIntegrity) or
+    /// [IndexError::UnknownIntegrity](index::IndexError::UnknownIntegrity).
+    UnhandledIntegrity {
+        level: u8,
+    },
 }
 
 /// A block read from bytes, CRC checked. Records are read in place, see [Block::records].

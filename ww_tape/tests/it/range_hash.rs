@@ -28,13 +28,13 @@ impl Rng {
 }
 
 /// Track `t`'s id: [chunk] writes track `t` as number `t + 1` with this id.
-fn id_of(t: u64) -> u64 {
+pub(crate) fn id_of(t: u64) -> u64 {
     crate::pieces::chunk_id(t)
 }
 
 /// A chain of 60 chunks on tracks 0 to 2 in a random order, with record blocks between, cut every 7 chunks: the
 /// finished pieces and the bytes of each file, in order.
-fn write(files: PieceFiles, seed: u64) -> (Vec<Finished>, Vec<Vec<u8>>) {
+pub(crate) fn write(files: PieceFiles, seed: u64) -> (Vec<Finished>, Vec<Vec<u8>>) {
     let mut rng = Rng(seed);
     let options = ChainOptions {
         files,
@@ -196,7 +196,7 @@ fn a_range_hash_reads_the_chunks_of_a_piece_without_an_index() {
 }
 
 /// CRC-32C, as the format's blocks carry it.
-fn crc32c(parts: &[&[u8]]) -> u32 {
+pub(crate) fn crc32c(parts: &[&[u8]]) -> u32 {
     let crc = crc::Crc::<u32>::new(&crc::CRC_32_ISCSI);
     let mut d = crc.digest();
     for p in parts {
@@ -207,7 +207,7 @@ fn crc32c(parts: &[&[u8]]) -> u32 {
 
 /// The final index of piece `i` of `bytes` with every entry of track `t` replaced by `change` of it, the list's CRC,
 /// the head CRC and the block CRC made good again.
-fn rewrite_final_entries(
+pub(crate) fn rewrite_final_entries(
     bytes: &mut [u8],
     i: usize,
     t: u64,

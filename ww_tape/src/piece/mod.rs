@@ -838,6 +838,13 @@ impl<'b> PieceHeadBlock<'b> {
         Some((read_link(block.bytes())?, error))
     }
 
+    /// The integrity byte of a good piece head block whose level this build refuses ([Self::refused]); None for a
+    /// block that is no such head.
+    pub(crate) fn refused_level(block: &Block<'_>) -> Option<u8> {
+        Self::refused(block)?;
+        le_u8(block.bytes(), HEAD_INTEGRITY_AT)
+    }
+
     pub fn head(&self) -> PieceHead {
         self.head
     }
