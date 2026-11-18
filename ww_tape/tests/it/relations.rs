@@ -37,7 +37,7 @@ const RELATIONS: &[RelationDef<'static>] = &[
     rel("key", RelationValues::Stored, false, RelationIndex::None),
 ];
 
-fn decoded() -> Describe<'static> {
+pub(crate) fn decoded() -> Describe<'static> {
     let Describe::Track(t) = track(3, CLOCK) else {
         unreachable!("track() gives a track")
     };
@@ -57,6 +57,25 @@ impl Rng {
         self.0 ^= self.0 >> 27;
         self.0.wrapping_mul(0x2545_f491_4f6c_dd1d) % n
     }
+}
+
+/// A chunk of `sources.len()` items of track 3 from item `first` with these relation values: its head and columns.
+pub(crate) fn relation_chunk(
+    first: u64,
+    sources: &[u64],
+    keys: &[u64],
+) -> (ww_tape::ChunkHead, Vec<(ww_tape::ColumnSpec, Vec<u8>)>) {
+    let starts: Vec<i64> = (0..sources.len() as i64)
+        .map(|i| first as i64 * 10 + i * 10)
+        .collect();
+    let times = EncodedTimes::encode(&starts, None, None).unwrap();
+    let source = EncodedRelation::encode(0, sources, true).unwrap();
+    let key = EncodedRelation::encode(2, keys, false).unwrap();
+    let mut cols: Vec<_> = times.columns().map(|(s, b)| (s, b.to_vec())).collect();
+    for (s, b) in [source.column(), key.column()] {
+        cols.push((s, b.to_vec()));
+    }
+    (times.head.chunk_head(track_id(), 3, first), cols)
 }
 
 /// A chunk of `sources.len()` items of track 3 from item `first` with these relation values; its head and columns.
