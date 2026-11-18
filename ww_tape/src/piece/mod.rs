@@ -126,6 +126,15 @@ const HEAD_TRACKS_AT: usize = HEADER_LEN + HEAD_FIXED_LEN;
 const FINISH_FIXED_LEN: usize = 144;
 /// Bytes of a finish's track row this crate writes; a reader takes longer ones.
 const FINISH_TRACK_LEN: usize = 136;
+/// Most tracks with data in one piece: the finish's rows of that many, padded to [PIECE_ALIGN], fit a block
+/// ([crate::MAX_BLOCK_LEN]). A writer refuses a block that would bring in one more ([crate::WriteError]).
+pub const TRACKS_PER_PIECE_MAX: usize =
+    (crate::MAX_BLOCK_LEN - HEADER_LEN - FINISH_FIXED_LEN - CRC_LEN - (PIECE_ALIGN as usize - 1))
+        / FINISH_TRACK_LEN;
+const _: () = assert!(
+    finish_len(TRACKS_PER_PIECE_MAX) + PIECE_ALIGN as usize - 1 <= crate::MAX_BLOCK_LEN,
+    "the finish of the most tracks fits a block"
+);
 /// Where a finish's track row holds its flags.
 const ROW_FLAGS_AT: usize = 128;
 /// A track row's flag: the track hash leaves out units a resume kept unread.

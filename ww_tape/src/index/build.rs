@@ -1,6 +1,6 @@
 //! [Indexer]: what a writer keeps to place checkpoints and write the final index and the finish.
 
-use alloc::collections::BTreeMap;
+use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec;
 use alloc::vec::Vec;
 
@@ -51,6 +51,8 @@ pub(crate) struct Indexer {
     tallies: BTreeMap<TrackKey, Tally>,
     /// The tallies before the last counted block of data, to take it back ([Self::undo_block])
     undo: Vec<(TrackKey, Option<Tally>)>,
+    /// The tracks with a row in the finish: in `tracks`, or tallied by a counted block ([Self::has_row])
+    rows: BTreeSet<TrackKey>,
 }
 
 impl Indexer {
@@ -112,11 +114,13 @@ impl Indexer {
     /// Take back what the last counted block of data added to the hashes: a block with its id and other bytes
     /// replaces it.
     pub(crate) fn undo_block(&mut self) {
-        for (key, before) in self.undo.drain(..).rev() {
+        let undo = core::mem::take(&mut self.undo);
+        for (key, before) in undo.into_iter().rev() {
             match before {
                 Some(t) => self.tallies.insert(key, t),
                 None => self.tallies.remove(&key),
             };
+            self.note_row(key);
         }
     }
 
@@ -141,6 +145,16 @@ impl Indexer {
         t.records = t.records.saturating_add(records);
         t.touched = true;
         self.tallies.insert(key, t);
+        self.rows.insert(key);
+    }
+
+    /// Keep `rows` as `key`'s chunks and tally say, after either changed.
+    fn note_row(&mut self, key: TrackKey) {
+        if self.tracks.contains_key(&key) || self.tallies.get(&key).is_some_and(|t| t.touched) {
+            self.rows.insert(key);
+        } else {
+            self.rows.remove(&key);
+        }
     }
 
     /// The counted chunk of track `number` of id `id` with unit hash `unit` goes into its track's hash: one read,
@@ -211,6 +225,7 @@ impl Indexer {
                 && let Some(key) = self.key_of(e.track_number, Some(e.track_id))
             {
                 add_to_range(&mut self.tracks, key, e);
+                self.rows.insert(key);
             }
             if e.track_id == STATE_TRACK_ID {
                 self.states = self.states.saturating_add(1);
@@ -278,6 +293,7 @@ impl Indexer {
             for e in &same {
                 add_to_range(&mut self.tracks, key, e);
             }
+            self.note_row(key);
         }
     }
 
@@ -374,6 +390,16 @@ impl Indexer {
 
     /// The finish's rows: each track with a counted chunk or record in the piece, ascending id then owner, with
     /// the item and tick range of its chunks, its hash and its counted records.
+    /// Whether track `key` has a row in the finish: a chunk or a counted record of it is placed in the piece.
+    pub(crate) fn has_row(&self, key: &TrackKey) -> bool {
+        self.rows.contains(key)
+    }
+
+    /// The tracks with a row in the finish ([Self::has_row]).
+    pub(crate) fn rows(&self) -> usize {
+        self.rows.len()
+    }
+
     pub(crate) fn track_ranges(&self) -> Vec<TrackRange> {
         let mut rows = self.tracks.clone();
         for (key, t) in self.tallies.iter().filter(|(_, t)| t.touched) {
