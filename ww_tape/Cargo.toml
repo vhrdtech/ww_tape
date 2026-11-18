@@ -20,7 +20,11 @@ std = [
     "shrink_wrap/std",
     "ww_tape_codecs/std",
     "ww_version/std",
+    "dep:rustix",
 ]
+
+[target.'cfg(unix)'.dependencies]
+rustix = { workspace = true, optional = true }
 
 [dependencies]
 blake3.workspace = true

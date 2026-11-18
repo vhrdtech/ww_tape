@@ -11,16 +11,19 @@
 //! ([TapeSink::base], [TapeSink::rebase]) starts where the piece before ended, so offsets, reads and truncates count
 //! from the piece's start as in a file of its own.
 //!
-//! A sink is the only writer of its bytes while it lives: a file sink holds an exclusive lock on its file
-//! ([File::try_lock](std::fs::File::try_lock), advisory: other writers of the format take it too), a memory sink marks its tape held. A second
-//! sink of the same bytes is refused ([FsError::Locked], [MemError::Locked]), so two writers never fork one file.
+//! A sink is the only writer of its bytes while it lives: a file sink holds an exclusive lock on the lock file
+//! `NAME.lock` beside it, which only writers open (advisory: other writers of the format take it too; a child process
+//! forked meanwhile doesn't hold it, see [lock_name]), a memory sink marks its tape held. A second sink of the same
+//! bytes is refused ([FsError::Locked], [MemError::Locked]), so two writers never fork one file.
 
 use crate::reader::ByteSource;
 use crate::writer::WriteError;
 
 mod fs;
+mod lock;
 mod mem;
 pub use fs::{FileSink, FileSource, Files, FsError, partial_name};
+pub use lock::{LOCK_TRIES_MAX, lock_name};
 pub use mem::{MemError, MemSink, MemTape, MemTapes};
 
 /// Where a [TapeWriter](crate::TapeWriter) appends its bytes.

@@ -19,6 +19,7 @@ mod book;
 mod checks;
 mod clock;
 mod definitions;
+mod lock;
 mod media;
 mod order;
 mod pieces;

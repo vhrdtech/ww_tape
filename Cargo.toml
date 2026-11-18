@@ -42,6 +42,8 @@ lewton = { version = "0.10", default-features = false, features = ["ogg"] }
 libm = "0.2"
 # exact: ww_tape lz4 payload columns must compress to the same bytes (ww_tape_codecs/src/lz4.rs)
 lz4_flex = { version = "=0.14.0", default-features = false, features = ["safe-decode", "checked-decode"] }
+# ww_tape on unix: the per-process record lock of a file sink's lock file (fcntl F_SETLK), which a forked child doesn't hold
+rustix = { version = "1.1", default-features = false, features = ["fs", "std"] }
 
 [workspace.lints.rust]
 unused_lifetimes = "warn"

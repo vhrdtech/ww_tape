@@ -244,6 +244,7 @@ Covers `ww_tape` 0.1.0.
 
 ### 🐛 Fixes
 
+- A file sink locks `NAME.lock` with a per-process record lock: a forked child no longer makes a resume fail `Locked` (TAPE-12).
 - A chain resume reads each track's last chunk only in the newest piece holding one, not in every piece (TAPE-7).
 - A salvaged starts column decides each group once on read; `get` and `is_suspect` decode no group per item (STD-120).
 - A resume replays the kept bytes along verify's walk: good blocks in junk are taken, damaged ones listed inside it kept (TAPE-8).

@@ -19,6 +19,12 @@ The writer puts its bytes into a **sink**. Two sinks come with `ww_tape`:
   to `NAME` at the finish. It refuses a `NAME` that is there and a `NAME.partial` a crash left with bytes in it
   (`FsError::Exists`), and never empties a file: reopen such a piece with `TapeWriter::resume`, or remove it. A
   `NAME.partial` renamed or replaced between its open and its lock is refused too (`FsError::Replaced`). `TapeWriter::append(path, sync)` appends to a file in a new session, and creates the file when it isn't there.
+  One writer writes a file at a time: a file sink holds a lock on `NAME.lock` beside the file, and a second sink of
+  the file, in this process or another, is refused (`FsError::Locked`). Only writers open the lock file, so readers
+  that open and close the file never let the lock go. On unix it is a POSIX record lock, which a child process forked
+  meanwhile doesn't hold, so a resume right after a writer is dropped is never refused because of a child. The lock
+  file goes when the writer lets go; one a crash left holds no lock and is taken as it is. A path that isn't a
+  regular file, such as a raw device, is locked itself.
 - `MemSink` keeps the bytes in memory, where a `TapeReader` reads them while they are written. Tests use it to cut a
   piece at any byte and check what a reader makes of it.
 
