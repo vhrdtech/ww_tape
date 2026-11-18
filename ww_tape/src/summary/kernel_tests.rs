@@ -1,7 +1,7 @@
 //! The kernels against the summaries' earlier code, kept here as the model: the same bits for every scalar type,
 //! kernel, channel count, batch split, statistic subset and clip range.
 
-use super::{IntBatch, Kernel, Narrow, int_batch};
+use super::kernel::{IntBatch, Kernel, Narrow, int_batch};
 use crate::Element;
 use crate::summary::series::{Acc, Channel, add_channel};
 use crate::summary::{ChannelStats, Scalar, SeriesStats, Value};

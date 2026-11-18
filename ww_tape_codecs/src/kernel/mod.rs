@@ -399,6 +399,3 @@ pub fn int_channel<T: Narrow, const C: usize>(
         }
     }
 }
-
-#[cfg(test)]
-mod tests;

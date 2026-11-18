@@ -189,7 +189,7 @@ pub use state::{DefinitionKind, ItemHash, Slot};
 pub mod summary;
 pub use summary::{EventFields, EventNode, Summary, SummaryError, SummaryHead};
 
-pub mod bitpack;
+pub use ww_tape_codecs::bitpack;
 pub mod chunk;
 pub mod times;
 pub use chunk::{
@@ -197,11 +197,11 @@ pub use chunk::{
     ColumnKind, ColumnSpec, EndMode,
 };
 
-mod bytes;
-mod crc32c;
-pub mod from_file;
 pub use from_file::{BoundError, FromFile};
-pub mod lz4;
+use ww_tape_codecs::bytes;
+use ww_tape_codecs::crc32c;
+pub use ww_tape_codecs::from_file;
+pub use ww_tape_codecs::lz4;
 #[cfg(feature = "alloc")]
 pub mod payloads;
 pub mod samples;
@@ -237,7 +237,7 @@ pub mod body;
 pub use body::{BodyCodec, CodeError, code_body, coded_len_max};
 mod session;
 pub use session::{BlockId, Medium, SessionTag};
-mod varint;
+use ww_tape_codecs::varint;
 #[cfg(feature = "alloc")]
 mod walk;
 pub use varint::{ivar_len, uvar_len};

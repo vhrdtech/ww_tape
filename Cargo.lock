@@ -995,6 +995,7 @@ dependencies = [
  "lz4_flex",
  "shrink_wrap",
  "wire_weaver_evolution",
+ "ww_tape_codecs",
  "ww_version",
 ]
 
@@ -1009,6 +1010,14 @@ dependencies = [
  "motor_sim",
  "shrink_wrap",
  "ww_tape",
+]
+
+[[package]]
+name = "ww_tape_codecs"
+version = "0.1.0"
+dependencies = [
+ "crc",
+ "lz4_flex",
 ]
 
 [[package]]

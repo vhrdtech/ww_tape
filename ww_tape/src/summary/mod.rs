@@ -74,7 +74,9 @@ use crate::bytes::{
 use crate::{BlockKind, BoundError, CRC_LEN, HEADER_LEN, MAX_BLOCK_LEN, SeriesError};
 
 #[cfg(feature = "std")]
-mod kernel;
+use ww_tape_codecs::kernel;
+#[cfg(all(test, feature = "std"))]
+mod kernel_tests;
 mod series;
 use crate::Element;
 #[cfg(feature = "alloc")]

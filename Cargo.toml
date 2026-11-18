@@ -1,19 +1,26 @@
 [workspace]
 resolver = "3"
-members = ["ww_tape", "ww_tape_benchmarks", "ww_tape_figures", "ww_tape_fuzz"]
+members = [
+    "ww_tape",
+    "ww_tape_benchmarks",
+    "ww_tape_codecs",
+    "ww_tape_figures",
+    "ww_tape_fuzz",
+]
 # cargo-fuzz targets, a workspace of its own (nightly)
 exclude = ["fuzz"]
 
 [workspace.package]
 authors = ["Roman Isaikin <romix.lab@gmail.com>"]
 edition = "2024"
-# 1.89: the AVX-512 intrinsics of ww_tape::bitpack
+# 1.89: the AVX-512 intrinsics of ww_tape_codecs::bitpack
 rust-version = "1.89"
 repository = "https://github.com/vhrdtech/ww_tape"
 license = "MIT"
 
 [workspace.dependencies]
 ww_tape = { version = "0.1.0", path = "./ww_tape", default-features = false }
+ww_tape_codecs = { version = "0.1.0", path = "./ww_tape_codecs", default-features = false }
 ww_tape_fuzz = { version = "0.1.0", path = "./ww_tape_fuzz" }
 
 # git dependencies without rev or tag: Cargo.lock pins the commit, `cargo update -p NAME` moves it
@@ -33,7 +40,7 @@ crc = "3.4"
 # ww_tape_benchmarks: a pure-Rust Vorbis decoder for the speech data set
 lewton = { version = "0.10", default-features = false, features = ["ogg"] }
 libm = "0.2"
-# exact: ww_tape lz4 payload columns must compress to the same bytes (ww_tape/src/lz4.rs)
+# exact: ww_tape lz4 payload columns must compress to the same bytes (ww_tape_codecs/src/lz4.rs)
 lz4_flex = { version = "=0.14.0", default-features = false, features = ["safe-decode", "checked-decode"] }
 
 [workspace.lints.rust]
@@ -53,6 +60,9 @@ split-debuginfo = "unpacked"
 
 # ww_tape_fuzz decodes a million hostile blocks per decoder in a test: optimized, overflow checks still on
 [profile.test.package.ww_tape]
+opt-level = 3
+
+[profile.test.package.ww_tape_codecs]
 opt-level = 3
 
 [profile.test.package.ww_tape_fuzz]
