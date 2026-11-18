@@ -84,7 +84,7 @@ impl Relations {
     /// None for a track without one, or a column that doesn't read (a damaged block a resume keeps).
     pub(crate) fn range(&self, c: &Chunk<'_>) -> Option<(u64, u64)> {
         let relation = self.facts.get(&c.head().track_number)?.range?;
-        RelationColumn::read(c, relation)
+        RelationColumn::open(c, relation, |_| false)
             .ok()
             .flatten()
             .map(|col| col.range())
@@ -102,7 +102,7 @@ impl Relations {
     ) -> Result<(), DescribeError> {
         let head = c.head();
         for relation in monotone(facts) {
-            let Ok(Some(col)) = RelationColumn::read(c, relation) else {
+            let Ok(Some(col)) = RelationColumn::open(c, relation, |_| false) else {
                 continue;
             };
             let before = if replacing {
@@ -167,7 +167,7 @@ impl Relations {
             return before;
         };
         for relation in monotone(&facts) {
-            let Ok(Some(col)) = RelationColumn::read(c, relation) else {
+            let Ok(Some(col)) = RelationColumn::open(c, relation, |_| false) else {
                 continue;
             };
             let hi = col.range().1;

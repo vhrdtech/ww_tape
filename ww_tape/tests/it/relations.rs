@@ -4,7 +4,7 @@
 use std::path::Path;
 
 use shrink_wrap::prelude::*;
-use ww_tape::times::{EncodedRelation, EncodedTimes, RelationColumn};
+use ww_tape::times::{EncodedRelation, EncodedTimes, RelationColumn, StoredRelations};
 use ww_tape::{
     BlockKind, Definitions, Describe, DescribeError, MemSink, RelationDef, RelationIndex,
     RelationTarget, RelationValues, SyncPolicy, TapeReader, TapeWriter, TrackDef, WriteError,
@@ -152,10 +152,14 @@ fn relation_columns_and_ranges_read_as_written() {
         let block_bytes = &bytes[e.offset as usize..e.offset as usize + e.len as usize];
         let block = ww_tape::Block::read(block_bytes).unwrap();
         let chunk = block.chunk().unwrap();
-        let source = RelationColumn::read(&chunk, 0).unwrap().unwrap();
-        let key = RelationColumn::read(&chunk, 2).unwrap().unwrap();
+        let Describe::Track(def) = decoded() else {
+            unreachable!("decoded() gives a track")
+        };
+        let stored = StoredRelations::of(&def);
+        let source = RelationColumn::read(&chunk, stored, 0).unwrap().unwrap();
+        let key = RelationColumn::read(&chunk, stored, 2).unwrap().unwrap();
         assert!(
-            RelationColumn::read(&chunk, 1).unwrap().is_none(),
+            RelationColumn::read(&chunk, stored, 1).unwrap().is_none(),
             "no column for a relation without values"
         );
         assert_eq!(

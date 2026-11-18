@@ -70,7 +70,7 @@ pub(crate) use groups::u32_to_usize;
 pub use packed::{Durations, Flags};
 #[cfg(feature = "std")]
 pub use relation::EncodedRelation;
-pub use relation::RelationColumn;
+pub use relation::{RelationColumn, StoredRelations};
 pub use starts::{Iter, SLOPE_MAX, Starts};
 
 /// Most items of an events chunk (16 Mi): a reader's work on a chunk grows with its items, and implicit times store
@@ -136,6 +136,10 @@ pub enum TimesError {
     },
     /// The head states more items than [ITEMS_MAX].
     Bound(BoundError),
+    /// The chunk's relation columns don't match its track's definition at relation `relation`: a column for a
+    /// relation that keeps none, a second column, a stored relation without one, or a relation that never decreases
+    /// in a codec other than [STARTS] ([StoredRelations::check]).
+    Relation { relation: u16 },
 }
 
 impl core::fmt::Display for TimesError {
@@ -148,6 +152,12 @@ impl core::fmt::Display for TimesError {
             TimesError::UnknownCodec(k, c) => write!(f, "{k:?} column in unknown codec {}", c.0),
             TimesError::Corrupt { kind, what } => write!(f, "{kind:?} column: {what}"),
             TimesError::Bound(e) => write!(f, "items: {e}"),
+            TimesError::Relation { relation } => {
+                write!(
+                    f,
+                    "relation {relation}'s column doesn't match the track's definition"
+                )
+            }
         }
     }
 }

@@ -5,14 +5,77 @@
 //! first and the last value as order-keeping i64s, little endian), then the starts column of those i64s, a line per
 //! group of 128 with residuals above it, or one period for values a fixed step apart. [DURATIONS] for any values:
 //! per group the smallest (u64), a width and an offset, then the values above the smallest.
+//!
+//! A reader checks a chunk's relation columns against its track's definition ([StoredRelations]) before it reads one:
+//! a column per relation that keeps its values in one, none for another, a relation that never decreases in
+//! [STARTS]. A damaged column reads by salvage as the time columns do ([RelationColumn::salvage]).
+
+use core::ops::Range;
 
 use super::packed::Durations;
 use super::starts::Starts;
 use super::{DURATIONS, ITEMS_MAX, STARTS, TimeMode, TimesError};
 use crate::FromFile;
+use crate::bitpack::GROUP;
 #[cfg(feature = "std")]
 use crate::chunk::ColumnSpec;
-use crate::chunk::{Chunk, Codec, ColumnKind};
+use crate::chunk::{Chunk, Codec, Column, ColumnKind};
+use crate::{RELATIONS_MAX, RelationValues, TrackDef};
+
+/// Which relations of a track keep their values in a column of its chunks and which never decrease, bit `i` for
+/// relation `i` of [TrackDef::relations]: what a reader checks an events chunk's relation columns against.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct StoredRelations {
+    /// Relations with [RelationValues::Stored].
+    pub stored: u16,
+    /// Relations whose values never decrease ([RelationDef::monotone](crate::RelationDef::monotone)).
+    pub monotone: u16,
+}
+
+impl StoredRelations {
+    /// The relations of `track`; one that doesn't decode keeps no column.
+    pub fn of(track: &TrackDef<'_>) -> Self {
+        let mut out = StoredRelations::default();
+        // at most RELATIONS_MAX (16): each has a bit
+        for (i, r) in track.relations.iter().enumerate().take(RELATIONS_MAX) {
+            let (Ok(r), Some(bit)) = (r, u32::try_from(i).ok().and_then(|i| 1u16.checked_shl(i)))
+            else {
+                continue;
+            };
+            if r.values == RelationValues::Stored {
+                out.stored |= bit;
+            }
+            if r.monotone {
+                out.monotone |= bit;
+            }
+        }
+        out
+    }
+
+    /// Check the relation columns of `chunk` against these relations: a column for each stored relation and none for
+    /// another, a monotone relation's in [STARTS]; [TimesError::Relation] names the first that isn't.
+    pub fn check(&self, chunk: &Chunk<'_>) -> Result<(), TimesError> {
+        let mut seen = 0u16;
+        for c in chunk.columns().filter(|c| c.kind == ColumnKind::Relation) {
+            let bad = TimesError::Relation { relation: c.param };
+            let bit = 1u16
+                .checked_shl(u32::from(c.param))
+                .filter(|b| self.stored & b != 0 && seen & b == 0)
+                .ok_or(bad)?;
+            if self.monotone & bit != 0 && c.codec != STARTS {
+                return Err(bad);
+            }
+            seen |= bit;
+        }
+        match self.stored & !seen {
+            0 => Ok(()),
+            // a u16's trailing zeros are at most 16
+            missing => Err(TimesError::Relation {
+                relation: u16::try_from(missing.trailing_zeros()).unwrap_or(u16::MAX),
+            }),
+        }
+    }
+}
 
 /// Bytes of the head of a [STARTS] relation column: time mode, first, last.
 const HEAD_LEN: usize = 17;
@@ -43,9 +106,37 @@ pub struct RelationColumn<'b> {
 }
 
 impl<'b> RelationColumn<'b> {
-    /// The values of relation `relation` in the events chunk `chunk`, every group record checked; None when the
-    /// chunk has no column for it.
-    pub fn read(chunk: &Chunk<'b>, relation: u16) -> Result<Option<Self>, TimesError> {
+    /// The values of relation `relation` in the intact events chunk `chunk` of a track with `track`'s relations,
+    /// every group record checked, the chunk's relation columns checked against `track` first
+    /// ([StoredRelations::check]); None when the track keeps no column for it.
+    pub fn read(
+        chunk: &Chunk<'b>,
+        track: StoredRelations,
+        relation: u16,
+    ) -> Result<Option<Self>, TimesError> {
+        track.check(chunk)?;
+        Self::open(chunk, relation, |_| false)
+    }
+
+    /// [Self::read] of a chunk whose payload may be damaged ([Chunk::bad_segments]), as
+    /// [EventTimes::salvage](super::EventTimes::salvage) reads its times: a column with a byte in a bad segment is
+    /// read group by group, and the items of a group that doesn't hold up are suspect ([Self::is_suspect]).
+    pub fn salvage(
+        chunk: &Chunk<'b>,
+        track: StoredRelations,
+        relation: u16,
+    ) -> Result<Option<Self>, TimesError> {
+        track.check(chunk)?;
+        Self::open(chunk, relation, |c| chunk.column_damaged(c))
+    }
+
+    /// The values of relation `relation`, its column read in salvage where `damaged` says; columns unchecked against
+    /// the track (a writer checked its own).
+    pub(crate) fn open(
+        chunk: &Chunk<'b>,
+        relation: u16,
+        damaged: impl Fn(&Column<'b>) -> bool,
+    ) -> Result<Option<Self>, TimesError> {
         let head = chunk.head();
         if head.kind != crate::BlockKind::Events {
             return Err(TimesError::NotEvents);
@@ -57,6 +148,7 @@ impl<'b> RelationColumn<'b> {
             }
         }
         let Some(c) = found else { return Ok(None) };
+        let salvage = damaged(&c);
         let n = FromFile::new(head.count)
             .at_most(ITEMS_MAX)
             .map_err(TimesError::Bound)?;
@@ -103,7 +195,7 @@ impl<'b> RelationColumn<'b> {
                     mode,
                     body,
                     tail,
-                    false,
+                    salvage,
                 )?)
             }
             DURATIONS => {
@@ -116,7 +208,7 @@ impl<'b> RelationColumn<'b> {
                     u64::MAX,
                     c.bytes,
                     tail,
-                    false,
+                    salvage,
                 )?)
             }
             other => return Err(TimesError::UnknownCodec(ColumnKind::Relation, other)),
@@ -154,6 +246,25 @@ impl<'b> RelationColumn<'b> {
             Repr::Monotone(s) => unordered(s.get(i)),
             Repr::Any(d) => d.get(i),
         }
+    }
+
+    /// Whether item `i` is in a group a salvage found damaged; its value is then a stand-in. False past the last
+    /// item.
+    pub fn is_suspect(&self, i: usize) -> bool {
+        let g = i / GROUP;
+        match &self.repr {
+            Repr::Monotone(s) => s.is_suspect_group(g),
+            Repr::Any(d) => d.is_suspect_group(g),
+        }
+    }
+
+    /// The item ranges of the groups a salvage found damaged, ascending.
+    pub fn suspect_items(&self) -> impl Iterator<Item = Range<usize>> + '_ {
+        let n = self.len();
+        (0..n.div_ceil(GROUP))
+            .map(|g| g.saturating_mul(GROUP))
+            .filter(|start| self.is_suspect(*start))
+            .map(move |start| start..start.saturating_add(GROUP).min(n))
     }
 
     /// The smallest and the largest value: the first and the last for a column in [STARTS], else from the values.

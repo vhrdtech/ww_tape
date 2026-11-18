@@ -9,7 +9,7 @@ use shrink_wrap::prelude::*;
 use std::hint::black_box;
 use std::path::Path;
 use std::time::Instant;
-use ww_tape::times::{EncodedRelation, EncodedTimes, RelationColumn};
+use ww_tape::times::{EncodedRelation, EncodedTimes, RelationColumn, StoredRelations};
 use ww_tape::{
     Block, ClockDef, ClockOrigin, Definitions, Describe, EventsDef, FullVersion, Magnitude,
     MemSink, RelationDef, RelationIndex, RelationTarget, RelationValues, Segment, SyncPolicy,
@@ -162,8 +162,15 @@ fn main() -> anyhow::Result<()> {
             .map_err(|e| anyhow::anyhow!("{e:?}"))?;
         let block = Block::read(&buf[..len]).map_err(|e| anyhow::anyhow!("{e:?}"))?;
         let chunk = block.chunk().ok_or_else(|| anyhow::anyhow!("a chunk"))?;
-        let column =
-            RelationColumn::read(&chunk, 0)?.ok_or_else(|| anyhow::anyhow!("its column"))?;
+        let column = RelationColumn::read(
+            &chunk,
+            StoredRelations {
+                stored: 1,
+                monotone: u16::from(monotone),
+            },
+            0,
+        )?
+        .ok_or_else(|| anyhow::anyhow!("its column"))?;
         let get = best(args.rounds, 64, |_| {
             (0..N).map(|i| column.get(i)).fold(0, u64::wrapping_add)
         }) / N as f64;

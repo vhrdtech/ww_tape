@@ -752,11 +752,17 @@ fn relation_round_trip(values: &[u64], monotone: bool) {
     let b = relation_block(&[(3, values, monotone)]);
     let block = Block::read(&b).expect("a good block");
     let chunk = block.chunk().expect("a chunk");
+    let stored = StoredRelations {
+        stored: 1 << 3,
+        monotone: u16::from(monotone) << 3,
+    };
     assert!(
-        RelationColumn::read(&chunk, 2).expect("reads").is_none(),
+        RelationColumn::read(&chunk, stored, 2)
+            .expect("reads")
+            .is_none(),
         "no column of relation 2"
     );
-    let c = RelationColumn::read(&chunk, 3)
+    let c = RelationColumn::read(&chunk, stored, 3)
         .expect("reads")
         .expect("relation 3's column");
     assert_eq!(c.len(), values.len());
@@ -863,11 +869,25 @@ fn a_relation_column_in_an_unknown_codec_is_refused_and_the_times_still_read() {
     let block = Block::read(&b).expect("a good block");
     let chunk = block.chunk().unwrap();
     assert_eq!(
-        RelationColumn::read(&chunk, 0).err(),
+        RelationColumn::read(
+            &chunk,
+            StoredRelations {
+                stored: 1,
+                monotone: 0
+            },
+            0
+        )
+        .err(),
         Some(TimesError::UnknownCodec(ColumnKind::Relation, Codec(77)))
     );
     assert_eq!(EventTimes::read(&chunk).expect("times read").len(), 3);
 }
+
+/// Relation 0 stored and monotone.
+const ONE_MONOTONE: StoredRelations = StoredRelations {
+    stored: 1,
+    monotone: 1,
+};
 
 #[test]
 fn a_starts_coded_relation_column_that_does_not_read_names_the_relation() {
@@ -888,15 +908,117 @@ fn a_starts_coded_relation_column_that_does_not_read_names_the_relation() {
         let chunk = block.chunk().unwrap();
         assert!(
             matches!(
-                RelationColumn::read(&chunk, 0),
+                RelationColumn::read(&chunk, ONE_MONOTONE, 0),
                 Err(TimesError::Corrupt {
                     kind: ColumnKind::Relation,
                     ..
                 })
             ),
             "{values:?}: {:?}",
-            RelationColumn::read(&chunk, 0)
+            RelationColumn::read(&chunk, ONE_MONOTONE, 0)
         );
         assert_eq!(EventTimes::read(&chunk).expect("times read").len(), 5);
     }
+}
+
+/// A chunk's relation columns are read against the track's definition: a column of a relation it keeps none for,
+/// a stored relation without one, a monotone relation's column in DURATIONS, each refused naming the relation.
+#[test]
+fn relation_columns_are_checked_against_the_track_on_read() {
+    let up: Vec<u64> = (0..300).collect();
+    let down: Vec<u64> = (0..300).rev().collect();
+    let b = relation_block(&[(0, &up, true), (2, &down, false)]);
+    let block = Block::read(&b).expect("a good block");
+    let chunk = block.chunk().expect("a chunk");
+    let both = StoredRelations {
+        stored: 0b101,
+        monotone: 0b001,
+    };
+    assert_eq!(
+        RelationColumn::read(&chunk, both, 2)
+            .unwrap()
+            .unwrap()
+            .get(0),
+        299
+    );
+    let cases = [
+        // relation 2 keeps no column
+        (
+            StoredRelations {
+                stored: 0b001,
+                monotone: 0b001,
+            },
+            2,
+        ),
+        // relation 1 keeps one the chunk lacks
+        (
+            StoredRelations {
+                stored: 0b111,
+                monotone: 0b001,
+            },
+            1,
+        ),
+        // relation 2 never decreases, its column is in DURATIONS
+        (
+            StoredRelations {
+                stored: 0b101,
+                monotone: 0b101,
+            },
+            2,
+        ),
+    ];
+    for (track, relation) in cases {
+        for read in [RelationColumn::read, RelationColumn::salvage] {
+            assert_eq!(
+                read(&chunk, track, 0).err(),
+                Some(TimesError::Relation { relation }),
+                "{track:?}"
+            );
+        }
+    }
+}
+
+/// A relation column with a damaged group record reads by salvage, as the times do: that group's items are suspect,
+/// the others read as written; a strict read refuses it.
+#[test]
+fn a_damaged_relation_column_is_salvaged_as_times_are() {
+    let mut r = Rng(0x5a1e);
+    let mut v = 0u64;
+    let values: Vec<u64> = (0..1000)
+        .map(|_| {
+            v += r.below(7);
+            v
+        })
+        .collect();
+    let good = relation_block(&[(1, &values, true)]);
+    let stored = StoredRelations {
+        stored: 0b10,
+        monotone: 0b10,
+    };
+    let at = {
+        let block = Block::read(&good).unwrap();
+        let chunk = block.chunk().unwrap();
+        let c = chunk
+            .columns()
+            .find(|c| c.kind == ColumnKind::Relation)
+            .unwrap();
+        // group 3's width: byte 20 of its 25-byte record, after the column's 17-byte head
+        chunk.payload_offset() + c.offset + 17 + 3 * 25 + 20
+    };
+    let mut b = good.clone();
+    b[at] = 65;
+    let block = Block::salvage(&b).unwrap();
+    assert!(!block.is_intact());
+    let chunk = block.chunk().unwrap();
+    assert!(RelationColumn::read(&chunk, stored, 1).is_err());
+    let c = RelationColumn::salvage(&chunk, stored, 1).unwrap().unwrap();
+    assert_eq!(
+        c.suspect_items().collect::<Vec<_>>(),
+        std::vec![3 * GROUP..4 * GROUP]
+    );
+    for i in (0..values.len()).filter(|i| i / GROUP != 3) {
+        assert_eq!(c.get(i), values[i], "item {i}");
+        assert!(!c.is_suspect(i));
+    }
+    assert!(EventTimes::salvage(&chunk).is_ok(), "the times read too");
 }

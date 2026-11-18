@@ -247,29 +247,21 @@ pub struct TrackFacts {
 impl TrackFacts {
     /// The facts of track definition `t`.
     pub(crate) fn of(t: &crate::TrackDef<'_>) -> Self {
-        let mut facts = TrackFacts {
+        let relations = crate::times::StoredRelations::of(t);
+        let range = t
+            .relations
+            .iter()
+            .take(crate::RELATIONS_MAX)
+            .position(|r| r.is_ok_and(|r| r.index == crate::RelationIndex::Range))
+            .and_then(|i| u16::try_from(i).ok());
+        TrackFacts {
             clock: t.clock.0,
             state: t.repeat.state(),
             period: t.series().map(|s| s.period),
-            stored: 0,
-            monotone: 0,
-            range: None,
-        };
-        // at most RELATIONS_MAX (16), as checked: each has a bit
-        for (i, r) in t.relations.iter().enumerate().take(crate::RELATIONS_MAX) {
-            let Ok(r) = r else { continue };
-            let bit = 1u16 << i;
-            if r.values == crate::RelationValues::Stored {
-                facts.stored |= bit;
-            }
-            if r.monotone {
-                facts.monotone |= bit;
-            }
-            if r.index == crate::RelationIndex::Range {
-                facts.range = u16::try_from(i).ok();
-            }
+            stored: relations.stored,
+            monotone: relations.monotone,
+            range,
         }
-        facts
     }
 }
 
@@ -293,7 +285,7 @@ pub(crate) fn relation_columns_read(c: &crate::Chunk<'_>) -> Result<(), Describe
             error,
         };
         // a column that reads holds one value per item: its length is the head's count
-        crate::times::RelationColumn::read(c, col.param).map_err(error)?;
+        crate::times::RelationColumn::open(c, col.param, |_| false).map_err(error)?;
     }
     Ok(())
 }
