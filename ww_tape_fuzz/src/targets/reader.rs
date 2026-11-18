@@ -1,7 +1,8 @@
 //! The ww_tape file reader on any bytes: it never panics, every block it gives is a good one (or, in the salvage walk,
 //! a chunk with a good head), and the salvage walk gives every block of the prefix walk, in order. Describe records of a good block decode or fail, never panic.
 //! A good records block coded with each body codec decodes to the same records.
-//! Walked as a raw medium with the gap rules of an SD card too: every step still consumes bytes.
+//! Walked as a raw medium with the gap rules of an SD card too: every step still consumes bytes, and the salvage walk
+//! gives every block of the prefix walk there too.
 use shrink_wrap::DeserializeShrinkWrap;
 use ww_tape::{
     Block, BodyCodec, Describe, FileBlocks, Layout, Medium, Recovery, code_body, coded_len_max,
@@ -62,18 +63,18 @@ fn round_trip(b: &Block<'_>) {
 }
 
 pub fn reader(data: &[u8]) {
-    let prefix = walk(data, Recovery::Prefix, Medium::File);
-    let salvage = walk(data, Recovery::Resync, Medium::File);
-    walk(data, Recovery::Prefix, Medium::Raw);
-    walk(data, Recovery::Resync, Medium::Raw);
-    // the salvage walk loses no block the prefix walk reads; it reads more: past damage, every block of a seq where
-    // the prefix walk keeps the later of two (Recovery::Resync has no seq check), and blocks inside a gap the prefix
-    // walk steps over to the next resume place
-    let mut rest = salvage.iter();
-    for b in &prefix {
-        assert!(
-            rest.any(|s| s == b),
-            "the salvage walk misses a block the prefix walk reads"
-        );
+    for medium in [Medium::File, Medium::Raw] {
+        let prefix = walk(data, Recovery::Prefix, medium);
+        let salvage = walk(data, Recovery::Resync, medium);
+        // the salvage walk loses no block the prefix walk reads; it reads more: past damage, every block of a seq
+        // where the prefix walk keeps the later of two (Recovery::Resync has no seq check), and blocks inside a gap
+        // the prefix walk steps over to the next resume place
+        let mut rest = salvage.iter();
+        for b in &prefix {
+            assert!(
+                rest.any(|s| s == b),
+                "the salvage walk misses a block the prefix walk reads"
+            );
+        }
     }
 }
