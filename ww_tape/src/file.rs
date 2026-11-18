@@ -1,6 +1,7 @@
 //! Blocks in a file or any byte stream: appended back to back, read one after the other.
 
 use std::io::{self, Read};
+use std::ops::Deref;
 
 use crate::reader::{OwnedBlock, report_len, wide};
 use crate::walk::{Head, SessionState, Verdict};
@@ -11,6 +12,47 @@ use crate::{
 /// Bytes a [FileBlocks] asks its reader for at once, at least: the buffer grows by at most this much ahead of the
 /// bytes that came, so a damaged length never allocates what it says.
 const READ_STEP: usize = 64 * 1024;
+
+/// Bytes read and not yet passed over, `bytes[pos..]`. Passing over moves `pos`; the bytes before it are dropped when
+/// the buffer next grows, so passing over a few bytes at a time never moves the rest.
+#[derive(Debug, Default)]
+struct Window {
+    bytes: Vec<u8>,
+    pos: usize,
+}
+
+impl Deref for Window {
+    type Target = [u8];
+
+    fn deref(&self) -> &[u8] {
+        self.bytes.get(self.pos..).unwrap_or_default()
+    }
+}
+
+impl Window {
+    /// Pass over the first `n` bytes (at most all of them).
+    fn pass(&mut self, n: usize) {
+        self.pos = self.pos.saturating_add(n).min(self.bytes.len());
+        if self.pos == self.bytes.len() {
+            self.bytes.clear();
+            self.pos = 0;
+        }
+    }
+
+    /// Grow to `want` bytes, the new ones zero, dropping those passed over first; the new bytes.
+    fn grow(&mut self, want: usize) -> &mut [u8] {
+        let have = self.len();
+        self.bytes.drain(..self.pos);
+        self.pos = 0;
+        self.bytes.resize(want.max(have), 0);
+        self.bytes.get_mut(have..).unwrap_or_default()
+    }
+
+    /// Keep the first `len` bytes (at most all of them).
+    fn truncate(&mut self, len: usize) {
+        self.bytes.truncate(self.pos.saturating_add(len));
+    }
+}
 
 /// A checked block's header and length, kept apart from its bytes: the bytes are lent again without a second check.
 #[derive(Copy, Clone, Debug)]
@@ -214,7 +256,7 @@ pub struct FileBlocks<R> {
     rd: R,
     recovery: Recovery,
     /// The bytes read and not yet passed over, from the medium offset `offset` on
-    buf: Vec<u8>,
+    buf: Window,
     /// The block handed out last, at the start of `buf`
     current: Option<Checked>,
     offset: u64,
@@ -251,7 +293,7 @@ impl<R: Read> FileBlocks<R> {
         FileBlocks {
             rd,
             recovery,
-            buf: Vec::new(),
+            buf: Window::default(),
             current: None,
             offset: 0,
             eof: false,
@@ -302,13 +344,7 @@ impl<R: Read> FileBlocks<R> {
             let have = self.buf.len();
             // grown as bytes come, so a damaged length doesn't allocate what it says
             let want = n.min(have.saturating_add(READ_STEP)).max(READ_STEP);
-            self.buf.resize(want, 0);
-            #[expect(
-                clippy::indexing_slicing,
-                reason = "buf was just grown to want bytes, and want > have"
-            )]
-            let dst = &mut self.buf[have..];
-            let got = self.rd.read(dst);
+            let got = self.rd.read(self.buf.grow(want));
             let now = got
                 .as_ref()
                 .ok()
@@ -335,7 +371,7 @@ impl<R: Read> FileBlocks<R> {
         debug_assert!(n <= self.buf.len(), "consumed bytes are in buf");
         let n = n.min(self.buf.len());
         self.offset = self.offset.checked_add(wide(n)).ok_or_else(too_long)?;
-        self.buf.drain(..n);
+        self.buf.pass(n);
         Ok(())
     }
 
