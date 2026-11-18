@@ -6,12 +6,26 @@ use std::ops::Deref;
 use crate::reader::{OwnedBlock, report_len, wide};
 use crate::walk::{Head, SessionState, Verdict};
 use crate::{
-    Block, BlockError, GAP_CHECKS_MAX, HEADER_LEN, MAGIC, Medium, SessionTag, block_len, is_blank,
+    Block, BlockError, GAP_CHECKS_MAX, HEADER_LEN, MAGIC, MAX_BLOCK_LEN, Medium, SessionTag,
+    block_len, is_blank,
 };
 
 /// Bytes a [FileBlocks] asks its reader for at once, at least: the buffer grows by at most this much ahead of the
 /// bytes that came, so a damaged length never allocates what it says.
 const READ_STEP: usize = 64 * 1024;
+
+/// Bytes a [Recovery::Resync] walk reads ahead of where it is, at most (128 MiB): a stretch as long as the longest gap
+/// a layout allows ([GAP_MAX_MAX](crate::GAP_MAX_MAX)) and the block that ends it, read before the walk passes over the
+/// stretch's own bytes. A [Recovery::Prefix] walk holds one block.
+pub const RESYNC_AHEAD_MAX: usize = 128 << 20;
+const _: () = assert!(
+    crate::GAP_MAX_MAX == 64 << 20,
+    "RESYNC_AHEAD_MAX holds the longest gap"
+);
+const _: () = assert!(
+    RESYNC_AHEAD_MAX - MAX_BLOCK_LEN == 64 << 20,
+    "RESYNC_AHEAD_MAX holds the longest gap and a block"
+);
 
 /// Bytes read and not yet passed over, `bytes[pos..]`. Passing over moves `pos`; the bytes before it are dropped when
 /// the buffer next grows, so passing over a few bytes at a time never moves the rest.
@@ -244,7 +258,10 @@ pub enum Recovery {
     /// chunk block whose head is good (head CRC) but whose payload isn't is handed out instead, with
     /// [Block::is_intact] false and its bad segments marked ([crate::Chunk::bad_segments]), and the walk goes on
     /// after it by its length. Any byte may start a block, also in a file aligned for its chunk payloads: a block is
-    /// taken only when its CRCs match.
+    /// taken only when its CRCs match. In a stretch [Recovery::Prefix] reads past as a [FileError::Gap], the good
+    /// blocks are handed out as they are met (a session starting in the stretch, with the blocks after it, too), and
+    /// the walk goes on with the session it had where Prefix does: every block Prefix reads, Resync reads. Looking
+    /// for where Prefix goes on reads up to [RESYNC_AHEAD_MAX] ahead, once per stretch, and not past where Prefix ends.
     Resync,
 }
 
@@ -267,6 +284,20 @@ pub struct FileBlocks<R> {
     done: bool,
     /// The block at the start of `buf` replaces the one taken before with its id (reported already)
     replacing: bool,
+    /// [Recovery::Resync] in a stretch a [Recovery::Prefix] walk reads past as a gap: the medium offset where that walk
+    /// goes on. Blocks before it change no session of `walk`, and none is passed over beyond it.
+    gap_end: Option<u64>,
+    /// [Recovery::Resync] in a gap: the sessions met in it, from `walk` at its start; a block either takes is handed
+    /// out
+    gap_walk: SessionState,
+    /// [Recovery::Resync] past the place a [Recovery::Prefix] walk ends: no more gaps are looked for
+    prefix_over: bool,
+    /// Probe headers read looking past stretches
+    #[cfg(test)]
+    probes: usize,
+    /// Probes checked whole looking past stretches
+    #[cfg(test)]
+    checks: usize,
 }
 
 /// What a step of the walk found.
@@ -300,6 +331,13 @@ impl<R: Read> FileBlocks<R> {
             walk: SessionState::new(Medium::File),
             done: false,
             replacing: false,
+            gap_end: None,
+            gap_walk: SessionState::new(Medium::File),
+            prefix_over: false,
+            #[cfg(test)]
+            probes: 0,
+            #[cfg(test)]
+            checks: 0,
         }
     }
 
@@ -435,7 +473,10 @@ impl<R: Read> FileBlocks<R> {
             return Ok(Next::End);
         }
         if let Some(c) = self.current.take() {
-            self.consume(c.len)?;
+            self.consume(self.within_gap(c.len))?;
+        }
+        if self.gap_end.is_some_and(|end| end <= self.offset) {
+            self.gap_end = None;
         }
         if !self.fill(1)? {
             return Ok(Next::End);
@@ -447,7 +488,10 @@ impl<R: Read> FileBlocks<R> {
         }
         let blank = self.offset > start;
         let error = match self.block_here()? {
-            Here::Good(_) if blank && self.recovery == Recovery::Resync => {
+            Here::Good(c) if blank && self.recovery == Recovery::Resync => {
+                // a salvaged chunk is a bad block to a Prefix walk, never where it goes on
+                let intact = c.on(&self.buf).is_some_and(|b| b.is_intact());
+                self.enter_gap(start, intact.then_some(c))?;
                 return Err(FileError::Bad {
                     offset: start,
                     error: BlockError::BadMagic,
@@ -455,6 +499,10 @@ impl<R: Read> FileBlocks<R> {
                 });
             }
             Here::Good(c) => {
+                // a salvaged chunk is a bad block to a Prefix walk
+                if c.on(&self.buf).is_some_and(|b| !b.is_intact()) {
+                    self.enter_gap(start, None)?;
+                }
                 if blank {
                     // blank bytes, then a block: within the gap rules a gap, else the end of data
                     return self.after_stretch(start, BlockError::BadMagic, Some(c));
@@ -465,6 +513,9 @@ impl<R: Read> FileBlocks<R> {
             Here::Truncated => BlockError::BadMagic,
             Here::Bad(e) => e,
         };
+        if self.recovery == Recovery::Resync {
+            self.enter_gap(start, None)?;
+        }
         match self.recovery {
             Recovery::Prefix => self.after_stretch(start, error, None),
             Recovery::Resync if blank => Err(FileError::Bad {
@@ -515,13 +566,28 @@ impl<R: Read> FileBlocks<R> {
             return Err(self.truncated());
         };
         let check_seq = self.recovery == Recovery::Prefix;
-        let verdict = match self.walk.verdict(&b, check_seq) {
+        let mut verdict = self.walk.verdict(&b, check_seq);
+        if self.recovery == Recovery::Resync {
+            if self.gap_end.is_some() {
+                // salvage in a gap: a session met in it goes on there, `walk` goes on past it
+                if self.gap_walk.verdict(&b, false) == Verdict::Take {
+                    self.gap_walk.take(&b);
+                    verdict = Verdict::Take;
+                }
+            } else if matches!(
+                self.walk.verdict(&b, true),
+                Verdict::Stale(_) | Verdict::Backwards { .. }
+            ) {
+                self.prefix_over = true;
+            }
+        }
+        let verdict = match verdict {
             Verdict::Duplicate { same: false } if self.replacing => Verdict::Take,
             v => v,
         };
         self.replacing = false;
         let (session, seq) = (b.session, b.seq);
-        if matches!(verdict, Verdict::Take) {
+        if matches!(verdict, Verdict::Take) && self.gap_end.is_none() {
             self.walk.take(&b);
         }
         match (verdict, self.recovery) {
@@ -544,7 +610,7 @@ impl<R: Read> FileBlocks<R> {
             }
             (Verdict::Stale(session), Recovery::Resync) => {
                 let offset = self.offset;
-                self.consume(c.len)?;
+                self.consume(self.within_gap(c.len))?;
                 Err(FileError::Stale {
                     offset,
                     session,
@@ -559,14 +625,30 @@ impl<R: Read> FileBlocks<R> {
 
     /// A blank or bad stretch started at `start` (`buf` is past its blank bytes): the session's data going on within
     /// the layout's gap is a [FileError::Gap], else the stretch is the end of data, cut for `error`. `here` is the
-    /// good block right after blank bytes. Probes are read one header at a time, the bytes before each passed over;
-    /// at most [GAP_CHECKS_MAX] whose header [may resume](SessionState::may_resume) the walk are checked whole.
+    /// good block right after blank bytes.
     fn after_stretch(
         &mut self,
         start: u64,
         error: BlockError,
         here: Option<Checked>,
     ) -> Result<Next, FileError> {
+        match self.resume_after(start, here, true)? {
+            Some(at) if self.skip_to(at)? => self.gap(start),
+            _ => Err(self.cut(start, Cut::Bad(error))),
+        }
+    }
+
+    /// Where the session's data goes on past a blank or bad stretch started at `start` (`buf` is past its blank
+    /// bytes), within the layout's gap; None when it doesn't. `here` is the good block right after blank bytes. With
+    /// `pass_over` the bytes before each probe are passed over, else they are read ahead in `buf` (at most
+    /// [RESYNC_AHEAD_MAX]). At most [GAP_CHECKS_MAX] probes whose header [may resume](SessionState::may_resume) the walk
+    /// are checked whole.
+    fn resume_after(
+        &mut self,
+        start: u64,
+        here: Option<Checked>,
+        pass_over: bool,
+    ) -> Result<Option<u64>, FileError> {
         let walk = self.walk;
         let in_gap = self
             .offset
@@ -576,14 +658,28 @@ impl<R: Read> FileBlocks<R> {
             && let Some(b) = here.and_then(|c| c.on(&self.buf))
             && walk.resumes(&b)
         {
-            return self.gap(start);
+            return Ok(Some(self.offset));
         }
         let mut checks = 0;
         for p in walk.probes(start, self.offset) {
-            if !self.skip_to(p)? || !self.fill(HEADER_LEN)? {
+            if pass_over && !self.skip_to(p)? {
                 break;
             }
-            let Some(head) = Head::read(&self.buf) else {
+            #[cfg(test)]
+            {
+                self.probes = self.probes.saturating_add(1);
+            }
+            // probes are past here, within the gap
+            let Some(ahead) = p
+                .checked_sub(self.offset)
+                .and_then(|n| usize::try_from(n).ok())
+            else {
+                break;
+            };
+            if !self.fill(ahead.saturating_add(HEADER_LEN))? {
+                break;
+            }
+            let Some(head) = self.buf.get(ahead..).and_then(Head::read) else {
                 continue;
             };
             if !walk.may_resume(&head) {
@@ -593,17 +689,42 @@ impl<R: Read> FileBlocks<R> {
                 break;
             }
             checks = checks.saturating_add(1);
-            if !self.fill(head.len)? {
+            #[cfg(test)]
+            {
+                self.checks = self.checks.saturating_add(1);
+            }
+            if !self.fill(ahead.saturating_add(head.len))? {
                 break;
             }
-            if let Some(bytes) = self.buf.get(..head.len)
+            if let Some(bytes) = self.buf.get(ahead..).and_then(|b| b.get(..head.len))
                 && let Ok(b) = Block::read(bytes)
                 && walk.resumes(&b)
             {
-                return self.gap(start);
+                return Ok(Some(p));
             }
         }
-        Err(self.cut(start, Cut::Bad(error)))
+        Ok(None)
+    }
+
+    /// [Recovery::Resync] at a stretch started at `start`, outside a gap: note where a [Recovery::Prefix] walk would go
+    /// on past it, so blocks before there change no session of `walk` and none reaches past it. None: that walk ends
+    /// here, and no stretch after it is looked past.
+    fn enter_gap(&mut self, start: u64, here: Option<Checked>) -> Result<(), FileError> {
+        if self.gap_end.is_none() && !self.prefix_over {
+            self.gap_end = self.resume_after(start, here, false)?;
+            self.prefix_over = self.gap_end.is_none();
+            self.gap_walk = self.walk;
+        }
+        Ok(())
+    }
+
+    /// Bytes of `len` from here to pass over, short of the end of the gap the walk is in.
+    fn within_gap(&self, len: usize) -> usize {
+        self.gap_end
+            .and_then(|end| end.checked_sub(self.offset))
+            .filter(|n| *n > 0)
+            .and_then(|n| usize::try_from(n).ok())
+            .map_or(len, |n| n.min(len))
     }
 
     /// Pass over the bytes up to medium offset `to`; false when the stream ends before it.
@@ -729,5 +850,47 @@ mod tests {
         let mut blocks = FileBlocks::new(&bytes[..]).starting_at(u64::MAX - 3);
         let e = blocks.next_block().unwrap().unwrap_err();
         assert!(matches!(e, FileError::Io(e) if e.kind() == io::ErrorKind::FileTooLarge));
+    }
+
+    /// Probe headers read and blocks checked whole by a Resync walk of a records block and `magics` block magics
+    /// after it, on an SD card's layout, read as `medium`.
+    fn work_over_magics(magics: usize, medium: Medium) -> (usize, usize) {
+        let mut buf = [0u8; 256];
+        let id = crate::BlockId::new(SessionTag::writable(0x7465_7374), 1);
+        let mut w = crate::BlockWriter::new(&mut buf, crate::BlockKind::Records, id, &[1]).unwrap();
+        w.push(9, crate::ClockTime::new(1, 1), &[&[1u8; 40]])
+            .unwrap();
+        let len = w.finish();
+        let mut bytes = buf[..len].to_vec();
+        bytes.extend(MAGIC.repeat(magics));
+        let mut rd = FileBlocks::with_recovery(&bytes[..], Recovery::Resync)
+            .on(medium)
+            .with_layout(&crate::Layout::UNALIGNED.on_sd_card());
+        let mut steps = 0;
+        while rd.next_block().is_some() {
+            steps += 1;
+        }
+        assert!(steps > magics / 2, "the walk looks at each magic");
+        (rd.probes, rd.checks)
+    }
+
+    /// A Resync walk looks for where the data goes on only up to where a Prefix walk ends: past a stretch with no
+    /// block of the session after it, the walk pays one gap's probes, however long the stretch.
+    #[test]
+    fn resync_looks_past_a_stretch_once() {
+        for medium in [Medium::File, Medium::Raw] {
+            // 1 MiB and 8 MiB of magics, the longer past the SD card's 4 MiB gap
+            for magics in [1 << 18, 1 << 21] {
+                let (probes, checks) = work_over_magics(magics, medium);
+                assert!(
+                    probes <= crate::GAP_PROBES_MAX as usize + 1,
+                    "{medium:?}, {magics} magics: {probes} probes"
+                );
+                assert!(
+                    checks <= GAP_CHECKS_MAX as usize,
+                    "{medium:?}, {magics} magics: {checks} checks"
+                );
+            }
+        }
     }
 }

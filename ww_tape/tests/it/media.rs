@@ -811,3 +811,280 @@ fn adopting_keeps_lost_blocks_visible() {
     assert_eq!(seqs, [0, 1, 2, 5, 6, 7, 8]);
     assert!(got.iter().all(|(r, _)| *r == got[0].0));
 }
+
+/// Every block of a walk with `recovery` on `medium`, as bytes; each one Resync gives reads whole.
+fn blocks(bytes: &[u8], recovery: Recovery, medium: Medium) -> Vec<Vec<u8>> {
+    let mut rd = FileBlocks::with_recovery(bytes, recovery).on(medium);
+    let (mut out, mut steps) = (vec![], 0);
+    while let Some(b) = rd.next_block() {
+        if let Ok(b) = b {
+            assert!(
+                ww_tape::Block::read(b.bytes()).is_ok(),
+                "{recovery:?} gives a block that doesn't read"
+            );
+            out.push(b.bytes().to_vec());
+        }
+        steps += 1;
+        assert!(steps <= bytes.len() + 1, "every step consumes bytes");
+    }
+    out
+}
+
+/// Whether the Resync walk of `bytes` gives every block the Prefix walk gives, in order, on `medium`.
+fn resync_reads_the_prefix(bytes: &[u8], medium: Medium) -> Result<(), String> {
+    let prefix = blocks(bytes, Recovery::Prefix, medium);
+    let resync = blocks(bytes, Recovery::Resync, medium);
+    let mut rest = resync.iter();
+    for (i, b) in prefix.iter().enumerate() {
+        if !rest.any(|r| r == b) {
+            return Err(format!(
+                "{medium:?}: Resync misses block {i} of {} Prefix reads",
+                prefix.len()
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Whether `b` may start a session after one of `last` on `medium`.
+fn may_start(b: &ww_tape::Block<'_>, last: SessionTag, medium: Medium) -> bool {
+    match medium {
+        Medium::File => {
+            b.kind == BlockKind::PieceHead
+                || (b.kind == BlockKind::Records && b.first_track() == Some(0))
+        }
+        Medium::Raw => {
+            b.kind == BlockKind::PieceHead
+                && ww_tape::piece::PieceHeadBlock::read(b)
+                    .is_ok_and(|h| h.head().prev_session == last)
+        }
+    }
+}
+
+/// Whether the Resync walk of `bytes` on `medium` passes over no block that reads whole: each one before where the
+/// walk ends is handed out, reported stale, or lies inside a block handed out or reported stale before it; and a block
+/// reported stale is of another session than the last one handed out and may not start a session there.
+fn resync_misses_no_block(bytes: &[u8], medium: Medium) -> Result<(), String> {
+    let mut rd = FileBlocks::with_recovery(bytes, Recovery::Resync).on(medium);
+    // (offset, length) of each block handed out or reported stale
+    let mut met = vec![];
+    let mut last = None;
+    while let Some(b) = rd.next_block() {
+        match b {
+            Ok(b) => {
+                last = Some(b.session);
+                let len = b.len() as u64;
+                met.push((rd.offset(), len));
+            }
+            Err(FileError::Stale { offset, len, .. }) => {
+                let at = offset as usize;
+                let b = ww_tape::Block::read(&bytes[at..at + len as usize]).unwrap();
+                let last = last.expect("a block is stale after a block handed out");
+                if b.session == last || may_start(&b, last, medium) {
+                    return Err(format!(
+                        "{medium:?}: Resync calls the block at {at} stale after a block of {:08x}",
+                        last.get()
+                    ));
+                }
+                met.push((offset, len));
+            }
+            Err(_) => {}
+        }
+    }
+    let end = rd.offset();
+    for at in 0..bytes.len() {
+        let Some(len) = ww_tape::block_len(&bytes[at..]).ok() else {
+            continue;
+        };
+        let x = at as u64;
+        if x >= end || at + len > bytes.len() || ww_tape::Block::read(&bytes[at..at + len]).is_err()
+        {
+            continue;
+        }
+        if !met.iter().any(|&(o, l)| o == x || (o < x && x < o + l)) {
+            return Err(format!("{medium:?}: Resync passes over the block at {at}"));
+        }
+    }
+    Ok(())
+}
+
+/// A whole session that may start one inside a stretch the Prefix walk reads past as a gap: the Resync walk hands
+/// out all its blocks and all of the session around it, none stale.
+#[test]
+fn resync_salvages_a_session_inside_a_gap() {
+    let sd = Layout::UNALIGNED.on_sd_card();
+    let card = session(NEW, SessionTag::NONE, sd, 10);
+    let at = block_start(&card, 5);
+    let inside = session(OLD, NEW, sd, 3);
+    let (torn, _, _) = with_stretch(&card, at, &[[0x5A; 77].as_slice(), &inside].concat(), true);
+    for medium in [Medium::File, Medium::Raw] {
+        let (mut old, mut new, mut stale) = (0, 0, 0);
+        let mut rd = FileBlocks::with_recovery(&torn[..], Recovery::Resync).on(medium);
+        while let Some(b) = rd.next_block() {
+            match b {
+                Ok(b) if b.session == OLD => old += 1,
+                Ok(b) if b.session == NEW => new += 1,
+                Err(FileError::Stale { .. }) => stale += 1,
+                _ => {}
+            }
+        }
+        let count = |bytes: &[u8]| blocks(bytes, Recovery::Prefix, medium).len();
+        assert_eq!(
+            (old, new, stale),
+            (count(&inside), count(&card), 0),
+            "{medium:?}"
+        );
+        resync_misses_no_block(&torn, medium).unwrap();
+    }
+}
+
+/// A fuzz input: a file of two sessions with torn blocks and a gap. Session 0bc0d313's definitions lie inside the
+/// stretch the Prefix walk reads past as a gap, off the resume places; the Resync walk took them as a new session
+/// and then skipped the first session's next block, past the gap, as stale.
+#[test]
+fn resync_reads_the_block_after_a_gap_holding_another_session() {
+    let hex = "57575450010a00009c00000000000000000000000000000002000d60000000000202020202020202020202020202020201010101010101010101010101010101010101010101010101010101010101010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000060000000000000008e297a4457575450010100004500000002000000000000000000000002000d6000000000000008006d6564696105060014600000000000100000000200000000000201052aa15eba1357575450010100005100000001000000010000000000000000000000000000000000000000000000000000000000000000000000000060000000000000007d6ad47257575450010106004000000002000000000000000000000013d3c00b00000000000014600000000000000000010000000000000201052a0003000001dec8d0315757545001010600000000030000000000000002000d6000000000010109062803030303030303030303030303030303030303030303030303030303030303030303030303030303624adc215700000000000013d304040000000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000057570000000000000000000057575450010100005100000001000000030000000000000002000d6000000000010109062803030303030303030303030303030303030303030303030303030303030303030303030303030303624adc215700000000000013d3";
+    let bytes: Vec<u8> = (0..hex.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
+        .collect();
+    let prefix = blocks(&bytes, Recovery::Prefix, Medium::File);
+    let resync = blocks(&bytes, Recovery::Resync, Medium::File);
+    assert_eq!(prefix.len(), 3);
+    assert_eq!(resync.len(), 4);
+    assert_eq!(resync[3], prefix[2], "the block past the gap");
+    resync_reads_the_prefix(&bytes, Medium::File).unwrap();
+}
+
+/// A block of another session that may start one, inside a stretch the Prefix walk reads past as a gap: the Resync
+/// walk hands it out, then goes on with the session's next block, where the Prefix walk resumes.
+#[test]
+fn resync_goes_on_with_the_session_past_a_gap() {
+    let sd = Layout::UNALIGNED.on_sd_card();
+    let card = session(NEW, SessionTag::NONE, sd, 10);
+    let at = block_start(&card, 5);
+    let others = [
+        describe_blocks_max(sd, BlockId::new(OLD, 0), 4096).concat(),
+        piece_head(OLD, SessionTag::NONE),
+    ];
+    for inside in others {
+        let (torn, _, _) =
+            with_stretch(&card, at, &[[0x5A; 77].as_slice(), &inside].concat(), true);
+        for medium in [Medium::File, Medium::Raw] {
+            let (got, _) = walk(&torn, medium);
+            assert_eq!(got, seqs(NEW, 1..11), "{medium:?}");
+            resync_reads_the_prefix(&torn, medium).unwrap();
+        }
+    }
+}
+
+/// A good block inside a gap whose bytes hold the block the Prefix walk resumes at: the Resync walk hands out both.
+#[test]
+fn resync_reads_the_block_a_gap_ends_at_inside_another() {
+    let sd = Layout::UNALIGNED.on_sd_card();
+    let card = session(NEW, SessionTag::NONE, sd, 10);
+    let at = block_start(&card, 5);
+    let resumed = records(BlockId::new(NEW, 5));
+    let mut buf = [0u8; 512];
+    let mut w = BlockWriter::new(&mut buf, BlockKind::Records, BlockId::new(NEW, 3), &[1]).unwrap();
+    w.push(9, ClockTime::new(1, 3), &[&resumed]).unwrap();
+    let len = w.finish();
+    let outer = buf[..len].to_vec();
+    let inner = outer
+        .windows(resumed.len())
+        .position(|w| w == resumed.as_slice())
+        .unwrap();
+    let mut torn = card[..at].to_vec();
+    torn.extend_from_slice(&[0x5A; 77]);
+    while !(torn.len() + inner).is_multiple_of(512) {
+        torn.push(0x5A);
+    }
+    torn.extend_from_slice(&outer);
+    for medium in [Medium::File, Medium::Raw] {
+        let (got, _) = walk(&torn, medium);
+        assert_eq!(got, seqs(NEW, 1..6), "{medium:?}");
+        resync_reads_the_prefix(&torn, medium).unwrap();
+    }
+}
+
+/// A small xorshift generator: the same cases on every run.
+struct Rng(u64);
+
+impl Rng {
+    fn next(&mut self) -> u64 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        self.0
+    }
+
+    fn below(&mut self, n: usize) -> usize {
+        (self.next() % n as u64) as usize
+    }
+}
+
+/// Files of one or two sessions with random damage (flipped bytes, torn tails, blank or garbage stretches, some
+/// holding a good block, some padded to a resume place): the Resync walk gives every block the Prefix walk gives,
+/// in order, only blocks that read whole, and passes over none that reads whole.
+#[test]
+fn resync_reads_every_block_prefix_reads_in_damaged_files() {
+    let small = Layout {
+        gap_max: exact_units::Bytes::new(2048),
+        resume_align: exact_units::Bytes::new(64),
+        ..Layout::UNALIGNED
+    };
+    let layouts = [Layout::UNALIGNED, Layout::UNALIGNED.on_sd_card(), small];
+    let mut rng = Rng(0x7e57_5a1e_0000_0001);
+    for case in 0..20_000 {
+        let layout = layouts[rng.below(layouts.len())];
+        let align = layout.resume_align.get() as usize;
+        let mut file = session(NEW, SessionTag::NONE, layout, 3 + rng.below(10) as u64);
+        match rng.below(3) {
+            0 => file.extend(session(OLD, NEW, layout, 1 + rng.below(6) as u64)),
+            1 => {
+                let first = BlockId::new(OLD, 0);
+                file.extend(describe_blocks_max(layout, first, 4096).concat());
+                file.extend(records(BlockId::new(OLD, 10)));
+            }
+            _ => {}
+        }
+        let pool = [
+            describe_blocks_max(layout, BlockId::new(OLD, 0), 4096).concat(),
+            piece_head(OLD, NEW),
+            records(BlockId::new(NEW, rng.below(12) as u64)),
+            records(BlockId::new(OLD, rng.below(12) as u64)),
+            session(OLD, NEW, layout, rng.below(3) as u64),
+        ];
+        for _ in 0..1 + rng.below(4) {
+            match rng.below(4) {
+                0 => {
+                    let at = rng.below(file.len());
+                    file[at] ^= 1 << rng.below(8);
+                }
+                1 => file.truncate(rng.below(file.len()) + 1),
+                _ => {
+                    let at = rng.below(file.len());
+                    let fill = [0x00, 0xFF, 0x5A][rng.below(3)];
+                    let mut stretch = vec![fill; 1 + rng.below(300)];
+                    if rng.below(2) == 0 {
+                        stretch.extend_from_slice(&pool[rng.below(pool.len())]);
+                        stretch.extend(vec![fill; rng.below(100)]);
+                    }
+                    let mut out = file[..at].to_vec();
+                    out.extend_from_slice(&stretch);
+                    if rng.below(2) == 0 {
+                        while !out.len().is_multiple_of(align) {
+                            out.push(fill);
+                        }
+                    }
+                    out.extend_from_slice(&file[at..]);
+                    file = out;
+                }
+            }
+        }
+        for medium in [Medium::File, Medium::Raw] {
+            resync_reads_the_prefix(&file, medium).unwrap_or_else(|e| panic!("case {case}: {e}"));
+            resync_misses_no_block(&file, medium).unwrap_or_else(|e| panic!("case {case}: {e}"));
+        }
+    }
+}

@@ -44,7 +44,10 @@ correction, or a file system. A block kind is reserved for parity blocks, but no
   leaves: good blocks, then a torn one.
 - **Resync** reads on. It reports a bad block and looks for the next block magic one byte after the bad block's start.
   Any byte may start a block, and a block is taken only when its CRCs match. A chunk with a good head and a damaged
-  payload is handed out with its bad CRC segments marked, and the walk goes on after it by its length.
+  payload is handed out with its bad CRC segments marked, and the walk goes on after it by its length. In a stretch
+  that Prefix reads past as a gap, Resync hands out the good blocks too, also a session that starts there and the
+  blocks after it. Past the gap, the walk goes on with the session it had, where Prefix does. So Resync reads every
+  block Prefix reads.
 
 Inside a damaged events chunk, a reader can still **salvage** items. The time codec and the payload lengths are stored
 per group of 128 items, and each group's record must agree with its neighbours: offsets that chain, ticks in order,
@@ -161,7 +164,8 @@ with its length, and the walk goes on. When there is none, the stretch is the en
 
 The format bounds what a reader pays per gap. A valid layout allows at most 64 MiB of gap with at most 8192 resume
 places, and a reader checks at most 4 whole blocks per gap. On a raw medium, blank space longer than the gap is the end,
-and nothing after it is read: an erased 64 GB card costs one gap's worth of header reads.
+and nothing after it is read: an erased 64 GB card costs one gap's worth of header reads. A Resync walk looks once per
+stretch too, and only up to where Prefix ends; it reads up to one gap and a block ahead, 128 MiB at most.
 
 ### Duplicates
 

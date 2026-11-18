@@ -121,6 +121,7 @@
 //! | [GAP_MAX_MAX] | 64 MiB | a layout's gap |
 //! | [GAP_PROBES_MAX] | 8192 | the resume places a reader probes in one gap |
 //! | [GAP_CHECKS_MAX] | 4 | the blocks a reader checks whole past one gap |
+//! | [RESYNC_AHEAD_MAX] | 128 MiB | the bytes a salvage walk ([Recovery::Resync]) reads ahead |
 //! | [STATE_READ_MAX](reader::STATE_READ_MAX) | 1 GiB | the bytes of blocks one state lookup reads |
 //! | [DEFERRED_BYTES_MAX](writer::DEFERRED_BYTES_MAX) | 1 MiB | the deferred blocks a writer keeps |
 //!
@@ -233,7 +234,7 @@ pub use varint::{ivar_len, uvar_len};
 #[cfg(feature = "std")]
 mod file;
 #[cfg(feature = "std")]
-pub use file::{BlockBuf, Cut, FileBlocks, FileError, Recovery};
+pub use file::{BlockBuf, Cut, FileBlocks, FileError, RESYNC_AHEAD_MAX, Recovery};
 #[cfg(feature = "alloc")]
 pub mod open;
 #[cfg(feature = "alloc")]

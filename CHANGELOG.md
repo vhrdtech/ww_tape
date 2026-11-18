@@ -178,6 +178,8 @@ Covers `ww_tape` 0.1.0.
 
 ### 🐛 Fixes
 
+- `Recovery::Resync` reads every block `Recovery::Prefix` reads: a session met inside a gap no longer hides the blocks after it (STD-129).
+- `Recovery::Resync` reads up to `RESYNC_AHEAD_MAX` (128 MiB) ahead to find where `Recovery::Prefix` goes on past a stretch (STD-129).
 - State lookups keep a piece's entries sorted once (`STATE_CACHE_MAX`) and spend decoded and kept bytes from `STATE_READ_MAX` (STD-135).
 - `Lookup` and `DefinitionsAt` gain `uncovered`: stretches before the place the index doesn't cover (STD-135).
 - A piece of another format version is reported where met (`PieceInfo::version`), not refusing or skipping the tape (STD-135).
