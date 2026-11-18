@@ -1273,6 +1273,9 @@ impl<S: ByteSource> TapeReader<S> {
                     && e.end_item() > items.start
             };
             let p = self.piece(i)?;
+            if p.head.is_none() {
+                fold.out.headless = fold.out.headless.saturating_add(1);
+            }
             match self.track_entries(i, track_id) {
                 Ok(entries) => {
                     let mut buf = Vec::new();
@@ -1441,6 +1444,7 @@ impl Fold {
                 chunks: 0,
                 read: 0,
                 skipped: 0,
+                headless: 0,
             },
             held: None,
         }
@@ -1507,9 +1511,12 @@ pub struct RangeHash {
     /// range whose heads are lost too; and bytes of blocks the track's index entries list of a kind this reader
     /// doesn't fold (a reserved kind). 0 when every byte walked is a block and every entry one folded.
     pub skipped: u64,
+    /// Pieces whose head doesn't read (damaged, lost, of another layout): no head row states the track's number and
+    /// owner, so their chunks are taken by the finish rows, or with no finish by the id alone: what the hash covers
+    /// there no head vouched for. 0 when every piece's head read.
+    pub headless: u64,
 }
 
-/// Where `n` bytes at `off` from the start of piece `p` begin in the source, when they lie within the piece.
 /// Whether a track's entry of kind `kind` is one [TapeReader::range_hash] doesn't fold: not a chunk, records or a
 /// summary (a reserved kind, or another kind's byte).
 fn unfolded(kind: BlockKind) -> bool {
@@ -1534,6 +1541,7 @@ fn range_of_columns(c: &crate::Chunk<'_>, range: Option<(u64, u64)>) -> bool {
         })
 }
 
+/// Where `n` bytes at `off` from the start of piece `p` begin in the source, when they lie within the piece.
 fn in_piece<E>(p: &PieceInfo, off: u64, n: usize) -> Result<u64, ReadError<E>> {
     p.start
         .checked_add(off)
