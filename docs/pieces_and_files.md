@@ -5,8 +5,8 @@ level: advanced
 # Pieces and files
 
 A recording that runs for days doesn't fit one file well. This page explains how `ww_tape` cuts a recording into pieces,
-how the pieces stay checked as one chain, how many pieces can live in one file, what a copy of a file keeps, and how one
-item is addressed in all of them. It assumes [Tape concepts](concepts.md) and [Writing a tape](writing.md).
+how the pieces stay checked as one chain, how many pieces can live in one file, how tracks of several owners and each
+track's hash work, what a copy of a file keeps, and how one item is addressed in all of them. It assumes [Tape concepts](concepts.md) and [Writing a tape](writing.md).
 
 ## Why pieces
 
@@ -70,8 +70,64 @@ the tail just before its start, which gives piece 1's length and so its start (2
 file (3). Each piece head names the piece before it by that piece's content hash.</figcaption>
 </figure>
 
-So `cat 00000000.wwt 00000001.wwt > all.wwt` gives a file any reader takes. An application that wants one file per
-recording appends pieces to one file this way.
+So `cat 00000000.wwt 00000001.wwt > all.wwt` gives a file any reader takes.
+
+### Writing a chain into one file
+
+An application chooses per chain whether each piece gets a file of its own or every piece goes into one file. A chain
+of many files suits retention, since old pieces are deleted file by file. One file per recording suits an application
+that keeps a recording as one document, such as a project file.
+
+`ChainOptions::files` makes the choice. `PieceFiles::Each`, the default, writes `00000000.wwt`, `00000001.wwt` and so
+on. `PieceFiles::One` writes every piece into the one file the chain was created with. A cut then ends the piece and
+starts the next one right behind it in the same file (`TapeWriter::cut_in_place`), and the bytes are the same as the
+pieces of a chain of many files placed back to back. One writer writes a file at a time.
+
+```rust
+let options = ChainOptions {
+    files: PieceFiles::One,
+    ..ChainOptions::default()
+};
+let mut chain = PieceChain::create(path, owner, 0, &[], options.clone())?;
+chain.write_chunk(defs, head, columns)?;
+let first = chain.finish()?;
+// opened again: a new piece behind the finished one
+let (mut chain, _) = PieceChain::resume(path, owner, 0, options)?;
+chain.write_chunk(defs, head, columns)?;
+let second = chain.finish()?;
+```
+
+The first session leaves one finished piece in the file. The second session finds it, adds a piece behind it, and
+returns both pieces; the repository runs these lines as a test (`ww_tape/tests/it/book.rs`).
+
+Opening the file again goes through `PieceChain::resume` with the same options. The chain finds the last piece by the
+tails, as a reader does. An unfinished last piece, cut off by a crash, is resumed under the same rules as a piece in a
+file of its own ([Resuming after a crash](writing.md#resuming-after-a-crash)). A last piece that was finished starts a
+new piece behind it. Every session that opens the file and closes it therefore adds at least one piece. The new piece
+has a session tag of its own, and its head names the last piece by its content hash and id, so `check_chain` sees one
+linked chain. For example, an editor that opens a project, records for a minute and closes it adds one piece each time.
+
+## Tracks of several owners
+
+Each track definition names an **owner**: `TrackDef::owner`, 32 bytes that `ww_tape` doesn't interpret. Zeros, the
+default, mean the owner of the piece. The owner is not part of the track's identity, so it changes neither the track key
+nor the id. A track is known by its id together with its owner.
+
+Two definitions with the same key and different owners are therefore two tracks. Each has its own item numbers, its own
+rows in the piece head and the finish, and its own hash. For example, an application that records two devices of the
+same type into one tape defines each device's tracks with the same keys, and with the device's id as the owner.
+
+## A track's hash
+
+Every track has a running hash, the **track hash** (`TrackHash`). It starts as 32 zero bytes and takes in each chunk of
+the track and each of its records as they are written. Puts and copies, which repeat what is already on the tape, are
+left out. The piece head states each track's hash before the piece, and the finish states it after; `Finished::tracks`
+reports it when a piece ends.
+
+The hash depends only on the track's own data, not on where the data lies. A track written alone or among other tracks,
+in one piece or many, in one file or many, ends with the same hash. Two recordings hold the same data for a track
+exactly when their hashes match, and a subset copy that keeps a track's chunks and records unchanged ends with the
+original's hash. [The file format](format.md) lists the bytes the hash takes in.
 
 ### The 4 KiB end and cloning
 

@@ -179,6 +179,11 @@ reached cuts. The chain checks the policy before each chunk, so a cut by policy 
 never leaves a piece without data. The chain also cuts before any write that would need more state entries than the
 piece's index may hold (`IndexPolicy::state_entries_max`), and `PieceChain::cut_now` cuts at once.
 
+A chain writes each piece into a file of its own, or, with `ChainOptions::files` set to `PieceFiles::One`, every
+piece into one file. `TapeWriter::cut_in_place` is the cut of a writer into one file: the next piece starts right
+behind the finished one in the same sink, and the file keeps its name. [Pieces and
+files](pieces_and_files.md#writing-a-chain-into-one-file) explains when to choose which.
+
 Nothing waits for a cut. Durability comes from the sync policy and the checkpoints, which work inside a piece; the cut
 only bounds how large one file grows. A slow input, such as one log line a minute, is written in a record block as it
 comes, synced within the sync interval, and readable by a reader of the unfinished piece at once. Cutting by age is
@@ -242,7 +247,10 @@ off, and the next finish pads the piece to 4 KiB again.
 
 `PieceChain::resume` does the same for a chain. It reads the finished pieces back from their tails and resumes the last,
 or starts the next piece when the crash came between a cut's finish and the next piece's start. A chain whose last piece
-already ended complete or aborted is refused with `WriteError::Ended`. [Damage and
+already ended complete or aborted is refused with `WriteError::Ended`. A chain in one file (`PieceFiles::One`) is not
+refused there: it starts a new piece behind the finished last one, so each session that opens the file adds a piece. A
+last piece whose piece head is damaged is refused in both cases, because the blocks after the head would form a piece
+with no link to the chain. [Damage and
 recovery](recovery.md#resuming-after-a-crash) follows a recorder through a power cut.
 
 ## Same input, same bytes
