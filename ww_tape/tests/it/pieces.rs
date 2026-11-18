@@ -102,6 +102,34 @@ fn listed(kind: BlockKind) -> bool {
     )
 }
 
+/// `create` over a `.partial` a crash left refuses with `Exists` and keeps its bytes for a resume; an empty one is
+/// taken.
+#[test]
+fn create_keeps_an_unfinished_file() {
+    let dir = scratch("create_partial");
+    let path = dir.join("a.wwt");
+    let partial = ww_tape::writer::partial_name(&path);
+    let mut w = TapeWriter::create(&path, SyncPolicy::None).unwrap();
+    w.write_block(crate::definitions::base_defs(), &records(w.next_id(), 1))
+        .unwrap();
+    w.sync().unwrap();
+    // a crash: the writer goes without finishing
+    drop(w);
+    let before = std::fs::read(&partial).unwrap();
+    assert!(!before.is_empty());
+    let r = TapeWriter::create(&path, SyncPolicy::None);
+    assert!(
+        matches!(&r, Err(ww_tape::WriteError::Exists(p)) if *p == partial),
+        "{:?}",
+        r.err()
+    );
+    assert_eq!(std::fs::read(&partial).unwrap(), before);
+    TapeWriter::resume(&path, Default::default()).unwrap();
+    std::fs::write(&partial, b"").unwrap();
+    TapeWriter::create(&path, SyncPolicy::None).unwrap();
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 #[test]
 fn finished_file_is_found_by_its_tail() {
     let dir = scratch("tail");

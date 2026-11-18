@@ -145,22 +145,34 @@ pub struct FileSink {
 
 impl FileSink {
     /// A new file at `path`, written as `path.partial` until [TapeSink::finish]; the file and its directory are
-    /// synced. Fails if `path` is there; a `path.partial` left behind is written over ([Self::reopen] resumes it).
+    /// synced. Fails with [WriteError::Exists] if `path` is there or a `path.partial` a crash left holds bytes
+    /// ([Self::reopen] resumes it): an empty one is taken, none is ever emptied.
     pub fn create(path: &Path) -> Result<Self, WriteError> {
-        let partial = partial_name(path);
         if path.exists() {
             return Err(WriteError::Exists(path.to_path_buf()));
         }
-        // emptied once locked: a writer still on it keeps its bytes
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(&partial)
-            .map_err(io_err("creating the file"))?;
+        let partial = partial_name(path);
+        let file = open_partial(&partial)?;
+        Self::claim(file, path, partial)
+    }
+
+    /// Take `file`, opened as `partial` for `path`, once locked: still the file `partial` names (a writer that held
+    /// it may have finished and renamed it to `path` meanwhile, [WriteError::Replaced]), empty, and `path` not there.
+    fn claim(file: File, path: &Path, partial: PathBuf) -> Result<Self, WriteError> {
         lock(&file, &partial)?;
-        file.set_len(0).map_err(io_err("emptying the file"))?;
+        if !names(&partial, &file).map_err(io_err("checking the file's name"))? {
+            return Err(WriteError::Replaced(partial));
+        }
+        let len = file
+            .metadata()
+            .map_err(io_err("reading the file's length"))?
+            .len();
+        if len != 0 {
+            return Err(WriteError::Exists(partial));
+        }
+        if path.exists() {
+            return Err(WriteError::Exists(path.to_path_buf()));
+        }
         file.sync_all().map_err(io_err("syncing the new file"))?;
         sync_dir(path).map_err(io_err("syncing the directory"))?;
         Ok(FileSink {
@@ -321,6 +333,40 @@ impl TapeSink for FileSink {
 
     fn current_path(&self) -> &Path {
         self.partial.as_deref().unwrap_or(&self.path)
+    }
+}
+
+/// `partial` opened to write, created if it isn't there, its bytes kept.
+fn open_partial(partial: &Path) -> Result<File, WriteError> {
+    OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(partial)
+        .map_err(io_err("creating the file"))
+}
+
+/// Whether `path` names `file`: the same device and inode. False when `path` is gone.
+#[cfg(unix)]
+fn names(path: &Path, file: &File) -> io::Result<bool> {
+    use std::os::unix::fs::MetadataExt;
+    let opened = file.metadata()?;
+    match std::fs::metadata(path) {
+        Ok(named) => Ok(named.dev() == opened.dev() && named.ino() == opened.ino()),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(e),
+    }
+}
+
+/// Whether `path` names `file`: only whether it is there. Stable std has no file identity outside unix (Windows'
+/// file index is unstable); there [FileSink::create] relies on refusing a file with bytes.
+#[cfg(not(unix))]
+fn names(path: &Path, _file: &File) -> io::Result<bool> {
+    match std::fs::metadata(path) {
+        Ok(_) => Ok(true),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(e),
     }
 }
 
@@ -691,5 +737,38 @@ fn sync_dir(path: &Path) -> io::Result<()> {
     {
         let _ = path;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A create that opened `NAME.partial` while another writer held it, and locks it after that writer finished
+    /// and renamed it to `NAME`, refuses: the finished file keeps its bytes.
+    #[test]
+    fn create_refuses_a_partial_renamed_before_its_lock() {
+        let dir = std::env::temp_dir().join(format!("ww_tape_sink_claim_{}", std::process::id()));
+        _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("a.wwt");
+        let partial = partial_name(&path);
+        std::fs::write(&partial, b"finished bytes").unwrap();
+        let file = open_partial(&partial).unwrap();
+        std::fs::rename(&partial, &path).unwrap();
+        let r = FileSink::claim(file, &path, partial.clone());
+        assert!(
+            matches!(&r, Err(WriteError::Replaced(p)) if *p == partial),
+            "{:?}",
+            r.err()
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), b"finished bytes");
+        // another file under the name now: refused as well
+        let file = open_partial(&partial).unwrap();
+        std::fs::remove_file(&partial).unwrap();
+        std::fs::write(&partial, b"").unwrap();
+        let r = FileSink::claim(file, &path, partial.clone());
+        assert!(matches!(&r, Err(WriteError::Replaced(_))), "{:?}", r.err());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

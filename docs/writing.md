@@ -16,8 +16,9 @@ block needs, checkpoints, the final index, the finish and the tail. The producer
 The writer puts its bytes into a **sink**. Two sinks come with `ww_tape`:
 
 - `FileSink`, the default, writes a file. `TapeWriter::create(path, sync)` creates it as `NAME.partial` and renames it
-  to `NAME` at the finish. It refuses a `NAME` that is there (`WriteError::Exists`) and writes over a
-  `NAME.partial` left behind; reopen such a piece with `TapeWriter::resume` to keep it. `TapeWriter::append(path, sync)` appends to a file in a new session, and creates the file when it isn't there.
+  to `NAME` at the finish. It refuses a `NAME` that is there and a `NAME.partial` a crash left with bytes in it
+  (`WriteError::Exists`), and never empties a file: reopen such a piece with `TapeWriter::resume`, or remove it. A
+  `NAME.partial` renamed or replaced between its open and its lock is refused too (`WriteError::Replaced`). `TapeWriter::append(path, sync)` appends to a file in a new session, and creates the file when it isn't there.
 - `MemSink` keeps the bytes in memory, where a `TapeReader` reads them while they are written. Tests use it to cut a
   piece at any byte and check what a reader makes of it.
 
