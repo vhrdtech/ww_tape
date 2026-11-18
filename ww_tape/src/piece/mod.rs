@@ -752,14 +752,38 @@ impl<'b> PieceHeadBlock<'b> {
             (HEAD_ROW_LEN_AT, HEAD_TRACK_LEN),
             0,
         )?;
-        let level =
-            crate::bytes::le_u8(block.bytes(), HEAD_INTEGRITY_AT).ok_or(IndexError::BadHead)?;
-        let integrity = Integrity::try_from(level)?;
+        let integrity = level_of(block)?;
         if integrity != Integrity::Full {
             return Err(IndexError::UnhandledIntegrity { level: integrity });
         }
-        let head = read_piece_head(block.bytes(), integrity).ok_or(IndexError::BadHead)?;
+        let link = read_link(block.bytes()).ok_or(IndexError::BadHead)?;
+        let head = PieceHead {
+            ident: link.ident,
+            prev: link.prev,
+            prev_session: link.prev_session,
+            integrity,
+        };
         Ok(PieceHeadBlock { head, rows, row })
+    }
+
+    /// The links of a good piece head block whose integrity level this build refuses ([Self::read]'s
+    /// [IndexError::UnhandledIntegrity] or [IndexError::UnknownIntegrity]), with that error: what a chain check and a
+    /// raw medium's walk need of a piece they refuse to read. None for a block that is no such head.
+    pub(crate) fn refused(block: &Block<'_>) -> Option<(HeadLink, IndexError)> {
+        body(
+            block,
+            BlockKind::PieceHead,
+            HEAD_FIXED_LEN,
+            (HEAD_ROW_LEN_AT, HEAD_TRACK_LEN),
+            0,
+        )
+        .ok()?;
+        let error = match level_of(block) {
+            Ok(Integrity::Full) => return None,
+            Ok(level) => IndexError::UnhandledIntegrity { level },
+            Err(e) => e,
+        };
+        Some((read_link(block.bytes())?, error))
     }
 
     pub fn head(&self) -> PieceHead {
@@ -780,17 +804,30 @@ impl<'b> PieceHeadBlock<'b> {
     }
 }
 
-fn read_piece_head(b: &[u8], integrity: Integrity) -> Option<PieceHead> {
+/// The integrity level of the piece head block `block`, its body read already.
+fn level_of(block: &Block<'_>) -> Result<Integrity, IndexError> {
+    let level = le_u8(block.bytes(), HEAD_INTEGRITY_AT).ok_or(IndexError::BadHead)?;
+    Integrity::try_from(level)
+}
+
+/// What a piece head says of the piece's place in its chain, whatever its integrity level.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub(crate) struct HeadLink {
+    pub(crate) ident: PieceIdent,
+    pub(crate) prev: Option<(ContentHash, PieceId)>,
+    pub(crate) prev_session: SessionTag,
+}
+
+fn read_link(b: &[u8]) -> Option<HeadLink> {
     let prev = if le_u32(b, 88)? & FLAG_HAS_PREV != 0 {
         Some((ContentHash(array(b, 96)?), PieceId(array(b, 128)?)))
     } else {
         None
     };
-    Some(PieceHead {
+    Some(HeadLink {
         ident: get_ident(b, 32, 48, 80)?,
         prev,
         prev_session: SessionTag::from_u32(le_u32(b, 92)?),
-        integrity,
     })
 }
 
@@ -1053,7 +1090,7 @@ impl Tail {
 #[cfg(feature = "alloc")]
 mod chain;
 #[cfg(feature = "alloc")]
-pub use chain::{ChainEnd, ChainLink, ChainReport, PieceSummary, check_chain};
+pub use chain::{ChainEnd, ChainLink, ChainReport, HeadStatus, PieceSummary, check_chain};
 
 #[cfg(feature = "std")]
 mod writer;

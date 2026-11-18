@@ -27,9 +27,9 @@ use crate::bytes::le_u8;
 use crate::chunk::{CHUNK_HEAD_PREFIX, ChunkHead};
 use crate::index::{HEAD_LEN_PREFIX, INDEX_LEN_MAX, IndexBlock, IndexEntry, IndexError, IndexKind};
 use crate::piece::{
-    ChainReport, Finish, FinishBlock, OwnerId, PieceHead, PieceHeadBlock, PieceSummary, TAIL_LEN,
-    Tail, TrackHash, TrackRange, TrackStart, UnitHash, Walked, check_chain, payload_hash,
-    walk_piece,
+    ChainReport, Finish, FinishBlock, HeadLink, HeadStatus, OwnerId, PieceHead, PieceHeadBlock,
+    PieceSummary, TAIL_LEN, Tail, TrackHash, TrackRange, TrackStart, UnitHash, Walked, check_chain,
+    payload_hash, walk_piece,
 };
 use crate::series::{SeriesError, SeriesTimeline};
 use crate::walk::{Head, SessionState, Verdict, is_free};
@@ -246,6 +246,10 @@ pub struct PieceInfo {
     /// Where its good bytes end.
     pub end: u64,
     pub head: Option<(PieceHead, Vec<TrackStart>)>,
+    /// Why a good piece head block at the piece's start didn't read as its head: damage, or an integrity level this
+    /// build doesn't handle ([IndexError::UnhandledIntegrity], [IndexError::UnknownIntegrity]), for which every
+    /// lookup in the piece returns it ([ReadError::Index]).
+    pub head_error: Option<IndexError>,
     pub finish: Option<(Finish, Vec<TrackRange>)>,
     /// The finish block's offset in the piece.
     pub finish_offset: Option<u64>,
@@ -268,6 +272,8 @@ pub struct PieceInfo {
     entries: Option<Vec<IndexEntry>>,
     /// The walk where a scan was cut: the sessions and seqs a block past the cut must go on with
     cut_walk: Option<SessionState>,
+    /// The links of a head of an integrity level this build refuses
+    refused_link: Option<HeadLink>,
 }
 
 impl PieceInfo {
@@ -276,6 +282,7 @@ impl PieceInfo {
             start,
             end: start,
             head: None,
+            head_error: None,
             finish: None,
             finish_offset: None,
             tail: None,
@@ -286,21 +293,52 @@ impl PieceInfo {
             version: None,
             entries: Some(Vec::new()),
             cut_walk: None,
+            refused_link: None,
         }
+    }
+
+    /// Take the good piece head block `block` as the piece's head, or keep why it doesn't read as one.
+    fn take_head(&mut self, block: &Block<'_>) {
+        match PieceHeadBlock::read(block) {
+            Ok(h) => {
+                self.head = Some((h.head(), h.tracks().collect()));
+                self.head_error = None;
+                self.refused_link = None;
+            }
+            Err(e) => {
+                self.head = None;
+                self.head_error = Some(e);
+                self.refused_link = PieceHeadBlock::refused(block).map(|(link, _)| link);
+            }
+        }
+    }
+
+    /// The error the piece is refused with: its head is of an integrity level this build doesn't handle.
+    fn refused(&self) -> Option<IndexError> {
+        self.refused_link.and(self.head_error)
     }
 
     /// What [check_chain] needs of the piece; None for one without a head.
     pub fn summary(&self) -> Option<PieceSummary> {
-        let (head, _) = self.head.as_ref()?;
         let end = self
             .finish
             .as_ref()
             .map(|(f, _)| (f.state, f.hash, f.next))
             .or(self.tail.map(|t| (t.state, t.hash, t.next)));
+        if let Some((head, _)) = &self.head {
+            return Some(PieceSummary {
+                ident: head.ident,
+                prev: head.prev,
+                end,
+                head: HeadStatus::Read,
+            });
+        }
+        let (link, error) = self.refused_link.zip(self.head_error)?;
         Some(PieceSummary {
-            ident: head.ident,
-            prev: head.prev,
+            ident: link.ident,
+            prev: link.prev,
             end,
+            head: HeadStatus::Refused(error),
         })
     }
 }
@@ -469,20 +507,40 @@ impl<S: ByteSource> TapeReader<S> {
         &self.src
     }
 
-    /// How the pieces with a head link up.
+    /// How the pieces with a head link up ([PieceInfo::summary]); its indices are into [Self::pieces].
     pub fn chain(&self) -> ChainReport {
-        let s: Vec<PieceSummary> = self.pieces.iter().filter_map(PieceInfo::summary).collect();
-        check_chain(&s)
+        let (at, s): (Vec<usize>, Vec<PieceSummary>) = self
+            .pieces
+            .iter()
+            .enumerate()
+            .filter_map(|(i, p)| p.summary().map(|s| (i, s)))
+            .unzip();
+        let mut r = check_chain(&s);
+        for k in r
+            .order
+            .iter_mut()
+            .chain(&mut r.strays)
+            .chain(&mut r.refused)
+        {
+            // check_chain's indices are into the summaries, one per piece in `at`
+            if let Some(i) = at.get(*k) {
+                *k = *i;
+            }
+        }
+        r
     }
 
-    /// Piece `i`, one of this reader's version.
+    /// Piece `i`, one of this reader's version and an integrity level it handles.
     fn piece(&self, i: usize) -> R<&PieceInfo, S> {
         let p = self.pieces.get(i).ok_or(ReadError::NoPiece(i))?;
-        match p.version {
-            Some(found) => Err(ReadError::Version {
+        if let Some(found) = p.version {
+            return Err(ReadError::Version {
                 offset: p.start,
                 found,
-            }),
+            });
+        }
+        match p.refused() {
+            Some(e) => Err(ReadError::Index(e)),
             None => Ok(p),
         }
     }
@@ -564,7 +622,7 @@ impl<S: ByteSource> TapeReader<S> {
         }
         let mut p = PieceInfo::new(start, Found::Tail);
         p.end = hi;
-        p.head = self.head_at(start, hi)?;
+        self.head_at(start, hi, &mut p)?;
         p.finish = Some((finish, fin.tracks().collect()));
         p.finish_offset = Some(tail.finish_offset);
         p.tail = Some(tail);
@@ -572,13 +630,14 @@ impl<S: ByteSource> TapeReader<S> {
         Ok(Some(p))
     }
 
-    fn head_at(&self, offset: u64, hi: u64) -> R<Option<(PieceHead, Vec<TrackStart>)>, S> {
-        let Ok((b, _)) = self.good_block(offset, hi)? else {
-            return Ok(None);
-        };
-        Ok(PieceHeadBlock::read(&b.block())
-            .ok()
-            .map(|h| (h.head(), h.tracks().collect())))
+    /// Take the good block at `offset` within `hi`, if it is one, as `p`'s head.
+    fn head_at(&self, offset: u64, hi: u64, p: &mut PieceInfo) -> R<(), S> {
+        if let Ok((b, _)) = self.good_block(offset, hi)?
+            && b.block().kind == BlockKind::PieceHead
+        {
+            p.take_head(&b.block());
+        }
+        Ok(())
     }
 
     /// The pieces of the unfinished stretch ending at `hi`: from the newest index block in reach, else scanned from
@@ -611,7 +670,7 @@ impl<S: ByteSource> TapeReader<S> {
         ix: &IndexBlock<'_>,
     ) -> R<Vec<PieceInfo>, S> {
         let mut piece = PieceInfo::new(start, Found::Checkpoint { scanned: 0 });
-        piece.head = self.head_at(start, hi)?;
+        self.head_at(start, hi, &mut piece)?;
         let mut lists = vec![ix.entries().collect::<Vec<_>>()];
         let mut prev = ix.prev();
         // offset in the piece and in the source of the oldest good checkpoint
@@ -831,15 +890,9 @@ impl<S: ByteSource> TapeReader<S> {
                     out.push(piece);
                     piece = PieceInfo::new(at, Found::Scan { scanned: 0 });
                     last_counted = None;
-                    piece.head = PieceHeadBlock::read(&block)
-                        .ok()
-                        .map(|h| (h.head(), h.tracks().collect()));
+                    piece.take_head(&block);
                 }
-                BlockKind::PieceHead => {
-                    piece.head = PieceHeadBlock::read(&block)
-                        .ok()
-                        .map(|h| (h.head(), h.tracks().collect()));
-                }
+                BlockKind::PieceHead => piece.take_head(&block),
                 BlockKind::Finish => {
                     if let Ok(f) = FinishBlock::read(&block) {
                         piece.finish = Some((f.finish(), f.tracks().collect()));
@@ -863,6 +916,13 @@ impl<S: ByteSource> TapeReader<S> {
                         list.extend(IndexEntry::all_of_block(off, &block));
                     }
                 }
+            }
+            // a piece of a level this build refuses is read no further, as one of another version
+            if block.kind == BlockKind::PieceHead && piece.refused().is_some() {
+                piece.end = hi;
+                set_scanned(&mut piece, since(hi, from));
+                out.push(piece);
+                return Ok(out);
             }
             at = end;
             piece.end = at;
