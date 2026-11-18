@@ -329,3 +329,38 @@ fn a_piece_head_of_another_integrity_level_is_refused() {
         );
     }
 }
+
+/// A content hash over a stretch of crafted headers, a block magic every 32 bytes and each header's length reaching
+/// to the end, reads a bounded multiple of the stretch, not its square.
+#[test]
+fn a_content_hash_over_crafted_headers_reads_linear_bytes() {
+    let n: usize = 256 * 1024;
+    let mut buf = vec![0u8; n];
+    for k in (0..n).step_by(32) {
+        buf[k..k + 4].copy_from_slice(&crate::MAGIC);
+        buf[k + 4] = 1;
+        buf[k + 5] = 1;
+        let len = u32::try_from(n - k).unwrap();
+        buf[k + 8..k + 12].copy_from_slice(&len.to_le_bytes());
+    }
+    let mut read = 0u64;
+    let mut h = blake3::Hasher::new();
+    hash_piece::<()>(&mut h, len_u64(n), |at, out| {
+        read += len_u64(out.len());
+        let at = usize::try_from(at).unwrap();
+        out.copy_from_slice(&buf[at..at + out.len()]);
+        Ok(())
+    })
+    .unwrap();
+    let n = len_u64(n);
+    // the bytes once, a header per magic, the misses' budget and the one miss past it
+    let bound = n + n + WALK_MISS_PER_BYTE_MAX * n + WALK_MISS_BASE_MAX + n;
+    assert!(read <= bound, "{read} bytes read over {n}, at most {bound}");
+    let mut whole = blake3::Hasher::new();
+    whole.update(&buf);
+    assert_eq!(
+        h.finalize(),
+        whole.finalize(),
+        "no block reads whole: the bytes as they are"
+    );
+}
