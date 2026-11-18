@@ -20,6 +20,7 @@ pub use hostile::{
 pub use index::index;
 pub use payloads::payloads;
 pub use reader::reader;
+pub(crate) use resume::chain_template;
 pub use resume::resume;
 pub use samples::samples;
 pub use series::series;
