@@ -398,7 +398,8 @@ impl IndexEntry {
         }
     }
 
-    /// Read an entry from its [ENTRY_LEN] bytes, unchecked: [Self::read] checks it.
+    /// Read an entry from its [ENTRY_LEN] bytes, unchecked: [IndexBlock::read] and [IndexBlock::track_entries] check
+    /// each entry they hand out.
     pub fn decode(b: &[u8; ENTRY_LEN]) -> Self {
         #[rustfmt::skip]
         let [
