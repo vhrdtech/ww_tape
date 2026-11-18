@@ -137,7 +137,7 @@ pub fn index(data: &[u8]) {
             latest_end: 2,
             repeat: c[0] & 0x80 != 0,
             unit: ww_tape::UnitHash::NONE,
-            // a chunk's range relation, both values round-tripped
+            // a chunk's range relation, both values round-tripped; one that decreases or sits on another kind is refused
             range: (c[0] & 0x40 != 0).then(|| {
                 (
                     u64::from(c[2]),
@@ -164,10 +164,13 @@ pub fn index(data: &[u8]) {
         self_offset: u64::from(flag),
         prev: (flag & 2 == 2).then_some(7),
     };
-    // write_index refuses an entry whose end passes a u64
-    let valid = entries
-        .iter()
-        .all(|e| e.offset.checked_add(u64::from(e.len)).is_some());
+    // write_index refuses an entry whose end passes a u64, and a range that decreases or sits on no chunk's entry
+    let valid = entries.iter().all(|e| {
+        e.offset.checked_add(u64::from(e.len)).is_some()
+            && e.range.is_none_or(|(lo, hi)| {
+                lo <= hi && matches!(e.kind, BlockKind::Events | BlockKind::Series)
+            })
+    });
     let n = match write_index(
         &mut buf,
         ww_tape::BlockId::new(ww_tape::SessionTag::writable(1), 1),

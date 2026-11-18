@@ -474,3 +474,61 @@ fn an_unhashed_entry_is_refused_as_a_level() {
     let block = Block::read(&bytes).expect("a good block");
     assert_eq!(IndexBlock::read(&block).err(), Some(IndexError::Unhashed));
 }
+
+/// An entry with its flag byte or range rewritten in a final index, its list, head and block CRCs made good again:
+/// refused alike by a whole read and by one track's entries read alone.
+fn refused_both_ways(change: impl Fn(&mut [u8]), error: IndexError) {
+    let entries: Vec<_> = (0..4).map(|i| entry(i / 2, 1000 + i * 300)).collect();
+    let head = IndexHead {
+        kind: IndexKind::Final,
+        self_offset: 4000,
+        prev: None,
+    };
+    let mut bytes = write(&head, &entries);
+    let ix = IndexBlock::read(&Block::read(&bytes).unwrap()).unwrap();
+    let list = ix.track(1).unwrap();
+    let (from, n) = ix.track_range(&list);
+    change(&mut bytes[from..from + ENTRY_LEN]);
+    // the list's CRC in the directory, then the head CRC and the block CRC
+    let dir_at = DIR_AT + TRACK_LEN + 16;
+    let crc = crate::CRC.checksum(&bytes[from..from + n]);
+    bytes[dir_at..dir_at + 4].copy_from_slice(&crc.to_le_bytes());
+    restamp_head(&mut bytes);
+    seal(&mut bytes);
+    let block = Block::read(&bytes).expect("a good block");
+    assert_eq!(IndexBlock::read(&block).err(), Some(error));
+    let ix = IndexBlock::read_head(&bytes).unwrap();
+    let list = ix.track(1).unwrap();
+    assert_eq!(
+        ix.track_entries(&list, &bytes[from..from + n]).err(),
+        Some(error)
+    );
+}
+
+/// One check of an entry on every read: unhashed and unknown flag bits, a range that decreases or sits on a block
+/// that isn't a chunk, refused by a whole index and by one track's entries alike.
+#[test]
+fn an_entry_is_checked_the_same_on_every_read() {
+    refused_both_ways(|e| e[15] |= ENTRY_UNHASHED, IndexError::Unhashed);
+    for bit in 3..8 {
+        refused_both_ways(
+            |e| e[15] |= 1 << bit,
+            IndexError::Invalid("an entry flag this build doesn't know"),
+        );
+    }
+    refused_both_ways(
+        |e| {
+            e[15] |= ENTRY_RANGE;
+            e[ENTRY_RANGE_AT..ENTRY_RANGE_AT + 8].copy_from_slice(&5u64.to_le_bytes());
+            e[ENTRY_RANGE_AT + 8..ENTRY_RANGE_AT + 16].copy_from_slice(&4u64.to_le_bytes());
+        },
+        IndexError::BadEntries,
+    );
+    refused_both_ways(
+        |e| {
+            e[15] |= ENTRY_RANGE;
+            e[12] = BlockKind::Summary.to_u8();
+        },
+        IndexError::BadEntries,
+    );
+}

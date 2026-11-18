@@ -92,6 +92,10 @@ const ENTRY_RANGE: u8 = 2;
 /// [Integrity::CrcOnly](crate::Integrity::CrcOnly) or [Integrity::None](crate::Integrity::None). Written 0; a reader
 /// of this build refuses an index with it set ([IndexError::Unhashed]).
 pub const ENTRY_UNHASHED: u8 = 4;
+/// Entry flag bits this build knows; an entry with another set is refused ([IndexError::Invalid]).
+const ENTRY_FLAGS_KNOWN: u8 = ENTRY_REPEAT | ENTRY_RANGE | ENTRY_UNHASHED;
+/// Where an entry's flag byte is.
+const ENTRY_FLAGS_AT: usize = 15;
 /// Offset that means none.
 pub const NONE: u64 = u64::MAX;
 
@@ -376,7 +380,25 @@ impl IndexEntry {
         out
     }
 
-    /// Read an entry from its [ENTRY_LEN] bytes. Its offset and length are as the file says: [IndexBlock] checks them.
+    /// Read an entry from its [ENTRY_LEN] bytes and check it, as every reader of an index does: its flags are known
+    /// and of the level this build handles ([IndexError::Unhashed], [IndexError::Invalid]), it names a block
+    /// ([IndexError::BadEntries]), and a range is a chunk's, its smallest value at most its largest.
+    pub(crate) fn read(b: &[u8; ENTRY_LEN]) -> Result<Self, IndexError> {
+        let flags = b.get(ENTRY_FLAGS_AT).copied().unwrap_or(0);
+        if flags & ENTRY_UNHASHED != 0 {
+            return Err(IndexError::Unhashed);
+        }
+        if flags & !ENTRY_FLAGS_KNOWN != 0 {
+            return Err(IndexError::Invalid("an entry flag this build doesn't know"));
+        }
+        let e = Self::decode(b);
+        match e.is_valid() {
+            true => Ok(e),
+            false => Err(IndexError::BadEntries),
+        }
+    }
+
+    /// Read an entry from its [ENTRY_LEN] bytes, unchecked: [Self::read] checks it.
     pub fn decode(b: &[u8; ENTRY_LEN]) -> Self {
         #[rustfmt::skip]
         let [
@@ -411,6 +433,18 @@ impl IndexEntry {
                 )
             }),
         }
+    }
+
+    /// Whether the entry names a block ([Self::is_in_range]) and its range, if any, is a chunk's and doesn't
+    /// decrease.
+    fn is_valid(&self) -> bool {
+        let range = match self.range {
+            None => true,
+            Some((lo, hi)) => {
+                lo <= hi && matches!(self.kind, BlockKind::Events | BlockKind::Series)
+            }
+        };
+        range && self.is_in_range()
     }
 
     /// Whether the entry names a block a reader may fetch: its length that of a block, its end within a u64.
@@ -610,6 +644,11 @@ pub fn write_index(
     if entries.iter().any(|e| !e.is_in_range()) {
         return Err(IndexError::Invalid("an entry names no block"));
     }
+    if entries.iter().any(|e| !e.is_valid()) {
+        return Err(IndexError::Invalid(
+            "a range that decreases or isn't a chunk's",
+        ));
+    }
     let len = index_len(entries.len(), tracks);
     let too_long = IndexError::Invalid("index longer than a block");
     if len > MAX_BLOCK_LEN {
@@ -704,13 +743,9 @@ impl<'b> IndexBlock<'b> {
         }
         let ix = Self::read_head(block.bytes())?;
         let mut n = 0usize;
-        for (i, e) in ix.entries().enumerate() {
-            if !e.is_in_range() {
-                return Err(IndexError::BadEntries);
-            }
-            if ix.entry_flags(i) & ENTRY_UNHASHED != 0 {
-                return Err(IndexError::Unhashed);
-            }
+        for i in 0..ix.entries {
+            let Some(b) = ix.entry_bytes(i) else { break };
+            IndexEntry::read(b)?;
             n = n.saturating_add(1);
         }
         if n != ix.entries {
@@ -859,6 +894,11 @@ impl<'b> IndexBlock<'b> {
 
     /// Entry `i`, None past the last or when only the head was read.
     pub fn entry(&self, i: usize) -> Option<IndexEntry> {
+        self.entry_bytes(i).map(IndexEntry::decode)
+    }
+
+    /// The first [ENTRY_LEN] bytes of entry `i`, None past the last or when only the head was read.
+    fn entry_bytes(&self, i: usize) -> Option<&'b [u8; ENTRY_LEN]> {
         if i >= self.entries {
             return None;
         }
@@ -866,15 +906,6 @@ impl<'b> IndexBlock<'b> {
         self.bytes
             .get(at..at.checked_add(self.entry_len)?)?
             .first_chunk::<ENTRY_LEN>()
-            .map(IndexEntry::decode)
-    }
-
-    /// Entry `i`'s flag byte; 0 past the last entry.
-    fn entry_flags(&self, i: usize) -> u8 {
-        self.entry_offset(i)
-            .and_then(|at| self.bytes.get(at.checked_add(15)?))
-            .copied()
-            .unwrap_or(0)
     }
 
     /// Every entry; none when only the head was read.
@@ -909,7 +940,7 @@ impl<'b> IndexBlock<'b> {
     }
 
     /// The entries of `list` from their bytes ([Self::track_range]), checked against the list's CRC and the block's
-    /// entry count, each naming a block.
+    /// entry count, each checked as [Self::read] checks it.
     pub fn track_entries<'e>(
         &self,
         list: &TrackList,
@@ -928,15 +959,14 @@ impl<'b> IndexBlock<'b> {
             return Err(IndexError::BadEntries);
         }
         // entry_len is at least ENTRY_LEN, checked when the head was read
-        let decode = |e: &[u8]| e.first_chunk::<ENTRY_LEN>().map(IndexEntry::decode);
-        if bytes
-            .chunks_exact(self.entry_len)
-            .filter_map(decode)
-            .any(|e| !e.is_in_range())
-        {
-            return Err(IndexError::BadEntries);
+        let entry = |e: &'e [u8]| e.first_chunk::<ENTRY_LEN>();
+        for e in bytes.chunks_exact(self.entry_len).filter_map(entry) {
+            IndexEntry::read(e)?;
         }
-        Ok(bytes.chunks_exact(self.entry_len).filter_map(decode))
+        Ok(bytes
+            .chunks_exact(self.entry_len)
+            .filter_map(entry)
+            .map(IndexEntry::decode))
     }
 }
 
