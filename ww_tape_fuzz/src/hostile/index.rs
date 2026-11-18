@@ -128,6 +128,14 @@ fn entries(d: &mut Draw<'_>, n: usize, sorted: bool) -> Vec<IndexEntry> {
     if sorted {
         entries.sort_by_key(|e| (e.track_id, e.offset));
         entries.dedup_by_key(|e| (e.track_id, e.offset));
+        // a final index lists a track's blocks without overlap: each block moves past the one before it
+        for i in 1..entries.len() {
+            let (before, rest) = entries.split_at_mut(i);
+            let (p, e) = (&before[i - 1], &mut rest[0]);
+            if p.track_id == e.track_id {
+                e.offset = e.offset.max(p.offset + u64::from(p.len));
+            }
+        }
     }
     entries
 }
