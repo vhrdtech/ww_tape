@@ -1296,6 +1296,22 @@ fn a_tracks_relations_are_checked_by_themselves() {
     assert_eq!(defs.define(&decoded), Ok(()));
 }
 
+/// A track's relations are not part of its identity: its id is the same with any relations or none.
+#[test]
+fn relations_leave_the_track_id_unchanged() {
+    let id = |d: Describe<'static>| {
+        let Describe::Track(t) = d else {
+            unreachable!("a track")
+        };
+        t.id()
+    };
+    let plain = id(track(3, CLOCK));
+    assert_eq!(id(related(3, &[])), plain);
+    assert_eq!(id(related(3, &[SOURCE])), plain);
+    assert_eq!(id(related(3, &[SOURCE, CONTEXT])), plain);
+    assert_ne!(id(track(4, CLOCK)), plain, "the key is part of it");
+}
+
 /// An events chunk's relation columns match its track's stored relations: one each, none other, a monotone
 /// relation's in the starts codec; a relation without values or with values elsewhere takes no column.
 #[test]
