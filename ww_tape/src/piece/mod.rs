@@ -39,19 +39,20 @@
 //!
 //! finish (kind 8)
 //!  32 u8   state (1 complete, 2 continued in the next piece, 3 aborted)    33 u8 reserved
-//!  34 u16  track row length, 128 (a reader takes longer rows and reads their first 128 bytes)    36 [4] reserved
+//!  34 u16  track row length, 136 (a reader takes longer rows and reads their first 136 bytes)    36 [4] reserved
 //!  40 [32] content hash: BLAKE3 of the piece's bytes before this block, each chunk payload by its hash (below)
 //!  72 u64  newest checkpoint index offset    80 u64 last final index offset    88 u64 reserved, u64::MAX
 //!          (u64::MAX for none)
 //!  96 [16] piece id    112 [16] next piece id    128 [32] owner id    160 u64 sequence number
 //! 168 u32  flags: bit 0 the piece has a head    172 u32 padding: zero bytes after the tracks, below [PIECE_ALIGN]
-//! 176 ...  tracks × 128, one per track with a counted chunk or record in the piece, ascending id then owner:
+//! 176 ...  tracks × 136, one per track with a counted chunk or record in the piece, ascending id then owner:
 //!            0 u64 id    8 u32 number    12 u32 chunks (0: records only, the range fields below 0)
 //!           16 u64 first item    24 u64 items    32 i64 first tick    40 i64 last tick
 //!           48 i64 latest end (of the chunk blocks in the piece)
 //!           56 [32] owner (TrackDef::owner)
 //!           88 [32] track hash after this piece ([TrackHash])
 //!          120 u64 records: the track's counted records in the piece
+//!          128 u32 flags: bit 0 incomplete, the track hash leaves out units a resume kept unread    132 u32 reserved, 0
 //!     ...  padding zeros, covered by the CRC
 //!
 //! tail (kind 9), TAIL_LEN bytes, the last of the piece
@@ -120,7 +121,11 @@ const HEAD_TRACKS_AT: usize = HEADER_LEN + HEAD_FIXED_LEN;
 /// Bytes of the fixed part of a finish body.
 const FINISH_FIXED_LEN: usize = 144;
 /// Bytes of a finish's track row this crate writes; a reader takes longer ones.
-const FINISH_TRACK_LEN: usize = 128;
+const FINISH_TRACK_LEN: usize = 136;
+/// Where a finish's track row holds its flags.
+const ROW_FLAGS_AT: usize = 128;
+/// A track row's flag: the track hash leaves out units a resume kept unread.
+const ROW_INCOMPLETE: u32 = 1;
 /// Where a finish names its row length.
 const FINISH_ROW_LEN_AT: usize = 34;
 /// Where a finish block's tracks start.
@@ -544,6 +549,10 @@ pub struct TrackRange {
     pub hash: TrackHash,
     /// The track's counted records in the piece.
     pub records: u64,
+    /// The track hash leaves out units a resume kept without reading them: the records of a damaged block of the
+    /// track's data, a damaged chunk whose index entry holds no unit hash. The hash is still the writer's, but it
+    /// isn't that of the track's whole content.
+    pub incomplete: bool,
 }
 
 impl TrackRange {
@@ -930,6 +939,11 @@ fn fill_finish(b: &mut [u8], finish: &Finish, tracks: &[TrackRange]) -> Option<(
         put(row, 56, t.owner.0)?;
         put(row, 88, t.hash.0)?;
         put_u64(row, 120, t.records)?;
+        put_u32(
+            row,
+            ROW_FLAGS_AT,
+            if t.incomplete { ROW_INCOMPLETE } else { 0 },
+        )?;
     }
     Some(())
 }
@@ -960,6 +974,15 @@ impl<'b> FinishBlock<'b> {
             padding,
         )?;
         let finish = read_finish(block.bytes()).ok_or(IndexError::BadHead)?;
+        // row is at least FINISH_TRACK_LEN: every row holds its flags
+        if rows
+            .chunks_exact(row)
+            .any(|r| le_u32(r, ROW_FLAGS_AT).is_none_or(|f| f & !ROW_INCOMPLETE != 0))
+        {
+            return Err(IndexError::Invalid(
+                "a track row flag this build doesn't know",
+            ));
+        }
         Ok(FinishBlock { finish, rows, row })
     }
 
@@ -981,6 +1004,7 @@ impl<'b> FinishBlock<'b> {
                 owner: OwnerId(array(row, 56)?),
                 hash: TrackHash(array(row, 88)?),
                 records: le_u64(row, 120)?,
+                incomplete: le_u32(row, ROW_FLAGS_AT)? & ROW_INCOMPLETE != 0,
             })
         })
     }

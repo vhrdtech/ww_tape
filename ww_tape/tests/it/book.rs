@@ -553,7 +553,7 @@ fn format_page_piece_rows_read_a_chain() {
     let finish_at = (done[1].len as usize) - ww_tape::TAIL_LEN;
     let tail = ww_tape::Tail::read(&second[finish_at..]).unwrap();
     let f = &second[tail.finish_offset as usize..];
-    assert_eq!(u16::from_le_bytes([f[34], f[35]]), 128);
+    assert_eq!(u16::from_le_bytes([f[34], f[35]]), 136);
     let finish_row = 176;
     let records = at("records: the track's")[0];
     let hash_after = at("track hash after")[0];
@@ -563,6 +563,9 @@ fn format_page_piece_rows_read_a_chain() {
     );
     assert_eq!(f[finish_row + hash_after..][..32], fold(4).0);
     assert_eq!(done[1].tracks[0].hash, fold(4));
+    // a piece written whole: no row flag
+    let flags = at("flags: bit 0 incomplete")[0];
+    assert_eq!(f[finish_row + flags..][..4], [0; 4]);
 }
 
 /// The integrity reservations on the page against their constants: written as full integrity, refused otherwise.

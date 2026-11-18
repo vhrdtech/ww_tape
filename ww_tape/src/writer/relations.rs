@@ -70,6 +70,14 @@ impl Relations {
         self.facts.insert(number, facts);
     }
 
+    /// Whether track number `number` takes records of data in caller's blocks: none of a series or a state track;
+    /// a number whose definition wasn't placed may.
+    pub(crate) fn takes_records(&self, number: u32) -> bool {
+        self.facts
+            .get(&number)
+            .is_none_or(|f| f.period.is_none() && f.state.is_none())
+    }
+
     /// The newest values, for the next piece of a cut.
     pub(crate) fn newest(&self) -> &Newest {
         &self.newest

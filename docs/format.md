@@ -329,19 +329,20 @@ piece head (kind 10)
 
 finish (kind 8)
  32 u8   state (1 complete, 2 continued in the next piece, 3 aborted)    33 u8 reserved
- 34 u16  track row length, 128 (a reader takes longer rows and reads their first 128 bytes)    36 [4] reserved
+ 34 u16  track row length, 136 (a reader takes longer rows and reads their first 136 bytes)    36 [4] reserved
  40 [32] content hash: BLAKE3 of the piece's bytes before this block, each chunk payload by its hash (below)
  72 u64  newest checkpoint index offset    80 u64 last final index offset    88 u64 reserved, u64::MAX
          (u64::MAX for none)
  96 [16] piece id    112 [16] next piece id    128 [32] owner id    160 u64 sequence number
 168 u32  flags: bit 0 the piece has a head    172 u32 padding: zero bytes after the tracks, below [PIECE_ALIGN]
-176 ...  tracks × 128, one per track with a counted chunk or record in the piece, ascending id then owner:
+176 ...  tracks × 136, one per track with a counted chunk or record in the piece, ascending id then owner:
            0 u64 id    8 u32 number    12 u32 chunks (0: records only, the range fields below 0)
           16 u64 first item    24 u64 items    32 i64 first tick    40 i64 last tick
           48 i64 latest end (of the chunk blocks in the piece)
           56 [32] owner (TrackDef::owner)
           88 [32] track hash after this piece ([TrackHash])
          120 u64 records: the track's counted records in the piece
+         128 u32 flags: bit 0 incomplete, the track hash leaves out units a resume kept unread    132 u32 reserved, 0
     ...  padding zeros, covered by the CRC
 
 tail (kind 9), TAIL_LEN bytes, the last of the piece
@@ -369,7 +370,7 @@ chunk:  01, kind u8, count u32, the head's bytes 48..80 (first item, first tick,
 record: 02, ticks i64 (0 without a time), item length u64, the item's bytes
 ```
 
-Units are the counted blocks only: chunk blocks and the records of record blocks, never a block marked `FLAG_REPEAT` (puts and copies), a summary, a definition or a block of the file structure. Nothing of where a block lies is hashed (session, seq, track number, payload offset, padding, segment CRCs), so a track written alone or among others, in one piece or many, in one file or many, has the same hash. A state track's records are all puts: its hash stays 32 zero bytes. The piece head carries each track's hash before the piece, the finish its hash after it; `Finished::tracks` reports every track's hash when a piece ends. A record's unit hash is not stored: records are listed per block, not per track, so a reader folds them by reading their blocks. A resume that keeps a damaged block the index lists folds a chunk by the unit hash of its entry, so the track hash is that of the piece written without the damage. The records of a damaged record block of data are not in any entry, so the hash after the piece leaves them out, as do the hashes the next pieces carry on; nothing in the finish row marks it.
+Units are the counted blocks only: chunk blocks and the records of record blocks, never a block marked `FLAG_REPEAT` (puts and copies), a summary, a definition or a block of the file structure. Nothing of where a block lies is hashed (session, seq, track number, payload offset, padding, segment CRCs), so a track written alone or among others, in one piece or many, in one file or many, has the same hash. A state track's records are all puts: its hash stays 32 zero bytes. The piece head carries each track's hash before the piece, the finish its hash after it; `Finished::tracks` reports every track's hash when a piece ends. A record's unit hash is not stored: records are listed per block, not per track, so a reader folds them by reading their blocks. A resume that keeps a damaged block the index lists folds a chunk by the unit hash of its entry, so the track hash is that of the piece written without the damage. The records of a damaged record block of data are not in any entry, and its entry names no track: the hash after the piece of each track that may hold records (one the piece defines or its head carries, not a series or a state track) leaves them out, as do the hashes the next pieces carry on, and the finish marks that track's row incomplete (flag bit 0, `TrackRange::incomplete`), as it does for a damaged chunk whose entry holds no unit hash. A reader refuses a row flag it doesn't know.
 
 ## Tape pieces
 

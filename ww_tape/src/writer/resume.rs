@@ -9,7 +9,10 @@
 //!   the track ranges, the state records it holds ([super::near]), the counts, the session and the next seq;
 //! - a damaged block the index lists stands for what its entries say: a state record in it leaves its slot unknown
 //!   to the writer, so the next put writes; a chunk goes into its track's hash by the unit hash of its entry, the
-//!   records of a damaged block of data don't (the entries don't hold them, the track's hash leaves them out);
+//!   records of a damaged block of data don't (its entry names no track): each track that may hold records (the
+//!   piece defines or its head carries it, no series or state track) leaves them out of its hash and its finish row
+//!   is marked incomplete ([TrackRange::incomplete](crate::piece::TrackRange::incomplete)), as is the track of a
+//!   damaged chunk whose entry holds no unit hash;
 //! - a checkpoint index block moves the indexer on as placing it did; in an aligned piece a checkpoint due after a
 //!   block waits for the next chunk, as it did.
 //!
@@ -579,12 +582,25 @@ impl<S: TapeSink> TapeWriter<S> {
         }
         if matches!(kind, BlockKind::Events | BlockKind::Series) {
             self.chunks = self.chunks.saturating_add(1);
-            // into its track's hash by the unit hash the writer stated in its entry, as when it was placed
-            if !e.repeat && e.unit != crate::piece::UnitHash::NONE {
+            // into its track's hash by the unit hash the writer stated in its entry, as when it was placed; without
+            // one the track's hash leaves it out and the finish says so
+            if !e.repeat {
                 self.indexer.begin_block();
-                self.indexer
-                    .tally_chunk(e.track_number, e.track_id, &e.unit);
+                match e.unit == crate::piece::UnitHash::NONE {
+                    true => self.indexer.tally_unread(e.track_number, e.track_id),
+                    false => self
+                        .indexer
+                        .tally_chunk(e.track_number, e.track_id, &e.unit),
+                }
             }
+        }
+        // the records of a damaged block of data: its entry names no track, so each track that may hold records
+        // leaves them out of its hash
+        if kind == BlockKind::Records && !e.repeat && e.track_id != STATE_TRACK_ID {
+            self.indexer.begin_block();
+            let relations = &self.relations;
+            self.indexer
+                .tally_unread_records(|n| relations.takes_records(n));
         }
         // a state record in it: its slot's newest record is here, its item unknown
         for s in entries.iter().filter_map(IndexEntry::state) {
