@@ -1,6 +1,6 @@
 // ww_tape 0.1.0 traits and types, saved by `ww api save`.
 // Do not edit, bump the crate version and save a new snapshot instead.
-// shrink_wrap sha256: f6c58e31cdc95fbc40f42ca120f2c3f9176e4ce6d5081c9b6fd9c80482b3d97a
+// shrink_wrap sha256: ae07e7ead51997072aea7a460bebe6aadc1b88a0fbc28ee5d1c7bc7034135290
 (magic: 2837124336, ww_self_version: (major: 0, minor: 4, patch: 0), root: (docs: [
     "Tape blocks: the unit a producer of records hands over, a live consumer reads and a log file is made of.",
     "",
@@ -23,8 +23,9 @@
     "  5  u8  kind: 1 records, 3 and up other kinds (BlockKind); 2 is reserved (RESERVED_KIND)",
     "  6 u16  flags: bit 0 body coded (FLAG_BODY_CODED, record blocks only), bit 1 state records a writer put or",
     "         copied (FLAG_REPEAT), bit 2 puts that belong with the next block (FLAG_WITH_NEXT), bit 3 on a",
-    "         chunk its payload unchecked (FLAG_PAYLOAD_UNCHECKED, reserved: 0, a reader refuses it); others 0",
-    "         (a reader ignores bits it doesn\'t know)",
+    "         chunk its payload unchecked (FLAG_PAYLOAD_UNCHECKED, reserved: 0, a reader refuses it), bit 4 on an",
+    "         events chunk a break in its track\'s monotone relations (FLAG_RELATION_BREAK); others 0 (a reader",
+    "         ignores bits it doesn\'t know)",
     "  8 u32  len: the whole block, header and CRC included",
     " 12 u32  records in the block",
     " 16 u64  seq: the block number in its session, from 0, +1 per block; a gap is lost blocks. Index, finish, tail and",
@@ -128,8 +129,10 @@
     "| [GAP_CHECKS_MAX] | 4 | the blocks a reader checks whole past one gap |",
     "| [RESYNC_AHEAD_MAX] | 128 MiB | the bytes a salvage walk ([Recovery::Resync]) reads ahead |",
     "| [STATE_READ_MAX](reader::STATE_READ_MAX) | 1 GiB | the bytes of blocks one state lookup reads |",
+    "| [VERIFY_ENTRIES_MAX](reader::VERIFY_ENTRIES_MAX) | 4 Mi | the final index entries one verify holds |",
     "| [DEFERRED_BYTES_MAX](writer::DEFERRED_BYTES_MAX) | 1 MiB | the deferred blocks a writer keeps |",
     "| [TRACKS_PER_PIECE_MAX] | 493416 | the tracks with data in one piece a writer takes: its finish fits a block |",
+    "| [HEAD_TRACKS_MAX] | 699006 | the tracks a piece head carries over the chain: the head fits a block |",
     "| [WALK_MISS_BASE_MAX](piece::WALK_MISS_BASE_MAX) | 1 MiB | the bytes a content-hash walk\'s missed blocks claim at its start |",
     "| [WALK_MISS_PER_BYTE_MAX](piece::WALK_MISS_PER_BYTE_MAX) | 4 | the bytes they claim per byte walked, past that |",
     "| [RESUME_LOOK_MAX](writer::RESUME_LOOK_MAX) | 128 MiB | the bytes past a reader\'s stop a resume looks through for a good block |",
