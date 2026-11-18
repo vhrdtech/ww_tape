@@ -4,7 +4,9 @@
 //! code does.
 use ww_tape::bitpack::{self, GROUP, Kernel};
 use ww_tape::chunk::{chunk_len, write_chunk};
-use ww_tape::times::{EncodedRelation, EncodedTimes, Ends, EventTimes, RelationColumn};
+use ww_tape::times::{
+    EncodedRelation, EncodedTimes, Ends, EventTimes, RelationColumn, StoredRelations,
+};
 use ww_tape::{Block, ColumnSpec};
 
 /// Items read one by one in full; past it, the first and last half of these and a stride between. An implicit chunk
@@ -67,9 +69,41 @@ pub(crate) fn walk(block: &[u8]) {
     if let Ok(b) = Block::salvage(block)
         && let Some(c) = b.chunk()
     {
-        for relation in 0..3 {
-            if let Ok(Some(r)) = RelationColumn::read(&c, relation) {
-                read_relation(&r);
+        // the relations the chunk's own columns name (a STARTS column monotone), relation 0 kept the other way, relation 2
+        // monotone the other way
+        let own = c
+            .columns()
+            .filter(|col| col.kind == ww_tape::ColumnKind::Relation && col.param < 16)
+            .fold(StoredRelations::default(), |mut s, col| {
+                s.stored |= 1 << col.param;
+                if col.codec == ww_tape::times::STARTS {
+                    s.monotone |= 1 << col.param;
+                }
+                s
+            });
+        let others = [
+            StoredRelations {
+                stored: own.stored ^ 1,
+                ..own
+            },
+            StoredRelations {
+                monotone: own.monotone ^ 4,
+                ..own
+            },
+        ];
+        for track in [own].into_iter().chain(others) {
+            for relation in 0..3 {
+                let read = RelationColumn::read(&c, track, relation);
+                assert!(
+                    track != others[0] || read.is_err(),
+                    "relation 0's column read against a track that keeps it the other way"
+                );
+                if let Ok(Some(r)) = read {
+                    read_relation(&r);
+                }
+                if let Ok(Some(r)) = RelationColumn::salvage(&c, track, relation) {
+                    read_relation(&r);
+                }
             }
         }
         if let Ok(t) = EventTimes::read(&c) {
@@ -170,7 +204,11 @@ pub fn times(data: &[u8]) {
     }
     read_all(&times);
     for (relation, values) in [(0, &sources), (2, &keys)] {
-        let r = RelationColumn::read(&chunk, relation)
+        let track = StoredRelations {
+            stored: 0b101,
+            monotone: 0b001,
+        };
+        let r = RelationColumn::read(&chunk, track, relation)
             .expect("written relation reads")
             .expect("its column");
         assert_eq!((0..r.len()).map(|i| r.get(i)).collect::<Vec<_>>(), *values);
