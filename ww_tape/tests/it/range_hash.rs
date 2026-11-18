@@ -749,7 +749,8 @@ fn verify_compares_each_entry_with_its_block() {
         }
         first
     };
-    let cases: [(&str, fn(&mut [u8])); 3] = [
+    type Change = fn(&mut [u8]);
+    let cases: [(&str, Change); 3] = [
         ("unit hash", |e| e[88] ^= 1),
         ("kind 11", |e| e[12] = 11),
         ("range", |e| {
