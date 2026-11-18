@@ -27,6 +27,31 @@ fn an_allocation_over_the_cap_is_the_case_outcome() {
     assert_eq!(run(panics, &[]).0, Outcome::Ok);
 }
 
+/// Barriers of [waits_while_another_thread_allocates]: the case has started, the other thread has allocated.
+static STARTED: std::sync::Barrier = std::sync::Barrier::new(2);
+static ALLOCATED: std::sync::Barrier = std::sync::Barrier::new(2);
+
+fn waits_while_another_thread_allocates(_: &[u8]) {
+    STARTED.wait();
+    ALLOCATED.wait();
+}
+
+/// An allocation over the cap on another thread, made while a case runs, is not that case's outcome: test harnesses
+/// run cases on parallel threads.
+#[test]
+fn an_allocation_on_another_thread_is_not_the_case_outcome() {
+    let other = std::thread::spawn(|| {
+        STARTED.wait();
+        allocates_over_the_cap(&[]);
+        ALLOCATED.wait();
+    });
+    assert_eq!(
+        run(waits_while_another_thread_allocates, &[]).0,
+        Outcome::Ok
+    );
+    other.join().expect("the other thread ends");
+}
+
 #[test]
 fn a_panic_is_the_case_outcome_with_its_place() {
     let Outcome::Panic(at, msg) = run(panics, &[1]).0 else {
