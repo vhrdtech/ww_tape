@@ -136,7 +136,8 @@ on those chunks. `TapeReader::range_hash` gives it for the chunks that hold any 
 each chunk's share of the hash in the chunk's index entry, so the fold reads only the index, never a payload. Where the
 index is damaged or missing, the reader reads the chunks and computes the same hash; a damaged chunk of the track is
 an error there as by the index, bytes no block explains are counted (`RangeHash::skipped`), and a chunk written again
-folds once. For example, a program that
+folds once. Entries that name one block twice or overlap are refused (`IndexError::BadEntries`), from a final index,
+checkpoints or a scan alike, and the reader reads the chunks instead. For example, a program that
 processed items 1,000 to 50,000 of a track can record the range hash of its input, and anyone can later check that a
 file still holds exactly that input. A track's records are not chunks, so a range hash leaves them out.
 

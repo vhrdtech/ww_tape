@@ -31,6 +31,7 @@ Covers `ww_tape` 0.1.0.
 - `Durations::parse` takes the column kind it reads (TAPE-7).
 - Format: piece head `Integrity` (byte 146), chunk `FLAG_PAYLOAD_UNCHECKED`, entry `ENTRY_UNHASHED`; written full, others refused (TAPE-8).
 - `write_index` refuses a final index whose track lists overlapping blocks, as every reader refuses it (TAPE-8).
+- `TapeReader::entries` and `track_entries` refuse overlapping or repeated entries of checkpoints and scans too (TAPE-10).
 - `RangeHash` gains `skipped`; `ReadError` gains `Overlap`: a track's chunks folded by `range_hash` must not overlap (TAPE-8).
 - `PieceInfo` gains `head_error`, `PieceSummary` gains `head` (`HeadStatus`), `ChainReport` gains `refused` (TAPE-8).
 - `ChainLink` gains `HeadLost`, `HeadStatus` has `Lost`: a piece whose head is lost links one way (TAPE-8).
