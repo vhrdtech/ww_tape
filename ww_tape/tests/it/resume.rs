@@ -1234,6 +1234,53 @@ fn a_resume_never_cuts_off_good_blocks() {
     assert_eq!(resumed.kept_bytes, starts[starts.len() - 1] as u64);
 }
 
+/// A block early in the piece whose length damage made claim more than the content-hash walk may miss: blocks written
+/// after the resume would be bytes no block explains to a reader's walk, so the resume refuses and leaves the bytes. A
+/// claim within the walk's budget resumes, and the finished piece verifies.
+#[test]
+fn a_resume_refuses_where_the_hash_walk_is_spent() {
+    let mut w = begin(0);
+    let tape = w.sink().tape();
+    let defs = base_defs();
+    for n in 0..24 {
+        let block = records(w.next_id(), n);
+        w.write_block(defs, &block).unwrap();
+    }
+    let good = tape.to_vec().unwrap();
+    drop(w);
+    let starts: Vec<usize> = (0..good.len() - 3)
+        .filter(|&i| good[i..i + 4] == *b"WWTP")
+        .collect();
+    let bad = starts[2];
+    let budget = ww_tape::piece::WALK_MISS_BASE_MAX as u32;
+    for (claim, spent) in [(budget * 4, true), (budget / 16, false)] {
+        let mut bytes = good.clone();
+        bytes[bad + 8..bad + 12].copy_from_slice(&claim.to_le_bytes());
+        let mut sink = MemSink::new(Path::new("q"));
+        sink.write_all(&bytes).unwrap();
+        let tape = sink.tape();
+        match (TapeWriter::resume_on(sink, options(0)), spent) {
+            (Err(WriteError::HashWalkSpent { end }), true) => {
+                assert_eq!(end, bytes.len() as u64);
+                assert_eq!(tape.to_vec().unwrap(), bytes, "the bytes stay");
+            }
+            (Ok((mut w, resumed)), false) => {
+                assert_eq!(resumed.kept_bytes, bytes.len() as u64);
+                let block = records(w.next_id(), 99);
+                w.write_block(defs, &block).unwrap();
+                w.finish().unwrap();
+                let out = tape.to_vec().unwrap();
+                let r = TapeReader::open(&out[..]).unwrap();
+                assert!(
+                    r.verify(r.pieces().len() - 1).unwrap(),
+                    "the content hash verifies"
+                );
+            }
+            (other, _) => panic!("claim {claim}: {:?}", other.map(|(_, r)| r)),
+        }
+    }
+}
+
 /// `bytes` with the integrity byte of the piece head at their start set to `level`, its CRC made good again.
 fn with_head_level(bytes: &[u8], level: u8) -> Vec<u8> {
     let mut b = bytes.to_vec();

@@ -11,6 +11,7 @@ Covers `ww_tape` 0.1.0.
 ### ⚠️ Breaking
 
 - A resume refuses to cut off good blocks behind bytes it can't read (`WriteError::GoodBlockAfterCut`); only a torn end goes (TAPE-8).
+- A resume refuses bytes whose content-hash walk spent its miss budget (`WriteError::HashWalkSpent`): appended blocks wouldn't verify (TAPE-8).
 - A relation name is at most `RELATION_NAME_MAX` (64) bytes; a longer one is refused (`DescribeError::RelationName`) (TAPE-7).
 - `cut_in_place` refuses a sink of one piece (`NAME.partial`, `MemSink::new`): `TapeSink::holds_pieces` (TAPE-8).
 - One writer per file: sinks hold an exclusive lock (files) or mark their memory tape; a second gets `WriteError::Locked` (TAPE-8).

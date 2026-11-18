@@ -270,12 +270,12 @@ pub const WALK_MISS_BASE_MAX: u64 = 1 << 20;
 
 /// Feed the first `end` bytes of a piece, read by `read`, to its content hash: each block of [walk_piece] whole
 /// ([hash_block]), the bytes between as they are. The hash depends on the bytes alone, not on how a writer or a resume
-/// walked them.
+/// walked them. Whether the walk tries a block at `end`, as [walk_piece] gives it.
 pub(crate) fn hash_piece<E>(
     h: &mut blake3::Hasher,
     end: u64,
     read: impl FnMut(u64, &mut [u8]) -> Result<(), E>,
-) -> Result<(), E> {
+) -> Result<bool, E> {
     walk_piece(end, read, |step| match step {
         Walked::Block(block) => {
             hash_block(h, block);
@@ -301,20 +301,27 @@ pub(crate) enum Walked<'b> {
 /// [WALK_MISS_PER_BYTE_MAX] per byte gone plus [WALK_MISS_BASE_MAX]; a block claiming more than `end` holds counts as
 /// missed unread. The places tried depend on the bytes before them alone, so a walk of a prefix (a resume) takes the
 /// same steps as a walk of the whole piece. Bytes between blocks are read once, in windows of [HASH_STEP].
+///
+/// Gives whether a walk of more bytes tries a block at `end`: a block written there is a step of its own only then.
+/// Past a place whose misses spent the budget, good blocks are bytes no block explains until the walk has gone far
+/// enough to try again.
 pub(crate) fn walk_piece<E>(
     end: u64,
     mut read: impl FnMut(u64, &mut [u8]) -> Result<(), E>,
     mut step: impl FnMut(Walked<'_>),
-) -> Result<(), E> {
+) -> Result<bool, E> {
     let mut block = Vec::new();
     let mut win = Window::default();
     let mut missed = 0u64;
     let mut at = 0u64;
+    let tries = |at: u64, missed: u64| {
+        missed
+            <= at
+                .saturating_mul(WALK_MISS_PER_BYTE_MAX)
+                .saturating_add(WALK_MISS_BASE_MAX)
+    };
     while let Some(left) = end.checked_sub(at).filter(|n| *n > 0) {
-        let budget = at
-            .saturating_mul(WALK_MISS_PER_BYTE_MAX)
-            .saturating_add(WALK_MISS_BASE_MAX);
-        if missed <= budget {
+        if tries(at, missed) {
             match try_block(at, left, &mut block, &mut read)? {
                 Tried::Block(n) => {
                     step(Walked::Block(&block));
@@ -329,7 +336,7 @@ pub(crate) fn walk_piece<E>(
         step(Walked::Raw(raw));
         at = at.saturating_add(len_u64(raw.len()));
     }
-    Ok(())
+    Ok(tries(at, missed))
 }
 
 /// Bytes of a piece [walk_piece] read to step over what no block explains, from `at`.

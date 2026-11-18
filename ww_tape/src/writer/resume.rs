@@ -440,16 +440,20 @@ impl<S: TapeSink> TapeWriter<S> {
                 given: options.producer,
             });
         }
+        // the content hash of the bytes kept, as a reader verifies it: the walk above may have split damaged bytes
+        // another way; a block written where that walk no longer tries one would not verify
+        let mut hash = blake3::Hasher::new();
+        let tries =
+            crate::piece::hash_piece(&mut hash, kept_bytes, |at, buf| w.sink.read_at(at, buf))
+                .map_err(io_err("reading back the piece to hash"))?;
+        if !tries {
+            return Err(WriteError::HashWalkSpent { end: kept_bytes });
+        }
         if size > kept_bytes {
             w.sink
                 .truncate(kept_bytes)
                 .map_err(io_err("truncating the piece to resume"))?;
         }
-        // the content hash of the bytes kept, as a reader verifies it: the walk above may have split damaged bytes
-        // another way
-        let mut hash = blake3::Hasher::new();
-        crate::piece::hash_piece(&mut hash, kept_bytes, |at, buf| w.sink.read_at(at, buf))
-            .map_err(io_err("reading back the piece to hash"))?;
         w.hash = hash;
         let entries = w.indexer.entries().to_vec();
         // the layout and the producer follow the head first: a block past it means they were written
