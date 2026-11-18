@@ -300,6 +300,7 @@ pub(crate) fn piece_head_block(d: &mut Draw<'_>, id: BlockId) -> Vec<u8> {
             from_tick: i64::from(d.u16() as i16),
             owner: OwnerId([d.u8(); 32]),
             hash: TrackHash([d.u8(); 32]),
+            incomplete: d.bool(),
         })
         .collect();
     let head = PieceHead {

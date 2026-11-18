@@ -612,6 +612,79 @@ fn a_damaged_record_block_kept_by_a_resume_marks_its_tracks_incomplete() {
     assert_eq!(finish_hash(&got, 0x1000), finish_hash(&want, 0x1000));
 }
 
+/// A track hash a resume left incomplete stays marked in the pieces after: the next piece's head row carries the mark
+/// and each later finish row of the track says so, with records or without.
+#[test]
+fn an_incomplete_track_hash_stays_marked_in_later_pieces() {
+    let dir = scratch("incomplete_on");
+    let owner = OwnerId([4; 32]);
+    let defs = base_defs();
+    let mut c = PieceChain::create(&dir, owner, 0, &[], chain_options()).unwrap();
+    for n in 0..40 {
+        let b = records(c.writer().unwrap().next_id(), n);
+        c.write_block(defs, &b).unwrap();
+    }
+    drop(c);
+    let first = ww_tape::writer::partial_name(&dir.join(piece_name(0)));
+    let mut bytes = std::fs::read(&first).unwrap();
+    let listed = TapeReader::open(&bytes[..])
+        .unwrap()
+        .entries(0)
+        .unwrap()
+        .into_iter()
+        .find(|e| e.kind == BlockKind::Records && !e.repeat && e.track_id == 0)
+        .unwrap();
+    bytes[(listed.offset + u64::from(listed.len)) as usize - 8] ^= 1;
+    std::fs::write(&first, &bytes).unwrap();
+    let (mut c, _) = PieceChain::resume(&dir, owner, 0, chain_options()).unwrap();
+    for n in 40..42 {
+        let b = records(c.writer().unwrap().next_id(), n);
+        c.write_block(defs, &b).unwrap();
+    }
+    c.cut_now().unwrap();
+    for n in 42..44 {
+        let b = records(c.writer().unwrap().next_id(), n);
+        c.write_block(defs, &b).unwrap();
+    }
+    // a piece without records of the track: its head still carries the mark
+    c.cut_now().unwrap();
+    let done = c.finish().unwrap();
+    assert_eq!(done.len(), 3);
+    let Describe::Track(t9) = track(9, CLOCK) else {
+        unreachable!("track() gives a track")
+    };
+    for (i, f) in done.iter().enumerate() {
+        let b = std::fs::read(&f.path).unwrap();
+        let r = TapeReader::open(&b[..]).unwrap();
+        let p = &r.pieces()[0];
+        let row = p
+            .finish
+            .as_ref()
+            .unwrap()
+            .1
+            .iter()
+            .find(|t| t.track_id == t9.id());
+        let head = p
+            .head
+            .as_ref()
+            .unwrap()
+            .1
+            .iter()
+            .find(|t| t.track_id == t9.id());
+        assert_eq!(
+            row.map(|r| r.incomplete),
+            (i < 2).then_some(true),
+            "piece {i} finish"
+        );
+        assert_eq!(
+            head.map(|h| h.incomplete),
+            (i > 0).then_some(true),
+            "piece {i} head"
+        );
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 /// A chain written to memory reads through [TapeReader] while it is written and once finished, and its pieces are the
 /// bytes of the same chain written to files.
 #[test]
