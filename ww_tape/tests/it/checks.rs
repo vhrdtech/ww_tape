@@ -2,7 +2,8 @@
 
 use std::path::Path;
 
-use crate::definitions::{base, begin, on_tracks, options, write_records};
+use crate::definitions::{base, begin, on_tracks, options, track_id, write_records};
+use crate::pieces::{chunk, column};
 use ww_tape::{
     ALIGNMENT, Describe, Layout, MemSink, SyncPolicy, TapeReader, TapeWriter, WriteError,
 };
@@ -63,6 +64,63 @@ fn a_callers_block_the_writer_does_not_know_is_refused() {
     }
     assert_eq!(tape.to_vec().unwrap().len(), len, "nothing written");
     w.write_block(&good).unwrap();
+}
+
+/// `block` with header flags `flags`, its CRCs made good again: a chunk's head CRC (bytes 0..28 and 32 up to the
+/// payload) too.
+fn flagged(block: &[u8], flags: u16) -> Vec<u8> {
+    let mut b = block.to_vec();
+    b[6..8].copy_from_slice(&flags.to_le_bytes());
+    if matches!(b[5], 3 | 4) {
+        let payload_at = u32::from_le_bytes(b[32..36].try_into().unwrap()) as usize;
+        let mut d = CRC.digest();
+        d.update(&b[..28]);
+        d.update(&b[32..payload_at]);
+        let head = d.finalize();
+        b[28..32].copy_from_slice(&head.to_le_bytes());
+    }
+    let n = b.len();
+    let crc = CRC.checksum(&b[..n - 4]);
+    b[n - 4..].copy_from_slice(&crc.to_le_bytes());
+    b
+}
+
+/// A caller's records or chunk block with a header flag its kind doesn't take (reserved bits, `FLAG_WITH_NEXT`
+/// without `FLAG_REPEAT`, `FLAG_PAYLOAD_UNCHECKED`) is refused without a byte written, by every call taking one.
+#[test]
+fn a_callers_block_with_flags_its_kind_does_not_take_is_refused() {
+    let mut w = begin(options(u64::MAX));
+    write_records(&mut w, 0, 1);
+    let tape = w.sink().tape();
+    let len = tape.to_vec().unwrap().len();
+    let records = on_tracks(w.next_id(), &[(1, 5, b"x")]);
+    let (mut head, starts) = chunk(0, 0);
+    head.track_id = track_id(1);
+    let cols = column(&starts);
+    let mut chunk_block = vec![0u8; ww_tape::chunk::chunk_len(&head, &[cols[0].0], 0)];
+    let n = ww_tape::chunk::write_chunk(&mut chunk_block, w.next_id(), &head, &cols, 0).unwrap();
+    chunk_block.truncate(n);
+    for (what, block) in [("records", &records), ("chunk", &chunk_block)] {
+        let theirs = u16::from_le_bytes([block[6], block[7]]);
+        for bit in [2u16, 3, 4, 9, 15] {
+            let b = flagged(block, theirs | 1 << bit);
+            for call in 0..3 {
+                let r = match call {
+                    0 => w.write_block(&b).map(|_| ()),
+                    1 => w.w.adopt_block(&w.defs, &b).map(|_| ()),
+                    _ => w.defer_block(b.clone()),
+                };
+                assert!(
+                    matches!(r, Err(WriteError::Flags { flags, .. }) if flags == theirs | 1 << bit)
+                        || (what == "chunk" && bit == 3 && matches!(r, Err(WriteError::Block(_)))),
+                    "{what}, bit {bit}, call {call}: {r:?}"
+                );
+            }
+        }
+    }
+    assert_eq!(tape.to_vec().unwrap().len(), len, "nothing written");
+    w.write_block(&records).unwrap();
+    w.write_block(&chunk_block).unwrap();
 }
 
 /// The layout and the producer are the writer's own: put first, after the piece head or before the first block of a

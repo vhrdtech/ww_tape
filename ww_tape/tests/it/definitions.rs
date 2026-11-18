@@ -38,6 +38,14 @@ pub(crate) fn track(number: u32, clock: u32) -> Describe<'static> {
     labeled(number, clock, "defined")
 }
 
+/// The id of [track] `number`: what its chunks' heads carry.
+pub(crate) fn track_id(number: u32) -> u64 {
+    let Describe::Track(t) = track(number, CLOCK) else {
+        unreachable!("track() gives a track")
+    };
+    t.id()
+}
+
 /// Events track `number` on `clock`, labeled `label`.
 pub(crate) fn labeled(number: u32, clock: u32, label: &'static str) -> Describe<'static> {
     Describe::Track(TrackDef {
