@@ -16,7 +16,7 @@ use std::sync::OnceLock;
 use shrink_wrap::prelude::{RefVec, UNib32};
 use ww_tape::chunk::ChunkHead;
 use ww_tape::index::IndexPolicy;
-use ww_tape::piece::{OwnerId, PieceHead, PieceId, PieceIdent};
+use ww_tape::piece::{OwnerId, PieceHead, PieceId, PieceIdent, TrackHash};
 use ww_tape::reader::Found;
 use ww_tape::writer::NearPolicy;
 use ww_tape::{
@@ -312,6 +312,48 @@ pub fn resume(data: &[u8]) {
         r.verify(last).expect("a finished piece"),
         "the content hash verifies"
     );
+    folds_alike(
+        &out,
+        r.pieces()[last]
+            .finish
+            .as_ref()
+            .and_then(|f| f.0.final_index),
+    );
+}
+
+/// Track 0's range hash folded from the index of the finished piece `out` and walked from its chunks with the final
+/// index at `final_index` made unreadable: when the walk explains every byte, both fold the same chunks to the same
+/// hash.
+fn folds_alike(out: &[u8], final_index: Option<u64>) {
+    let Some(at) = final_index.and_then(|a| usize::try_from(a).ok()) else {
+        return;
+    };
+    let id = 0x1000;
+    let hash = |b: &[u8]| {
+        TapeReader::open(b)
+            .ok()?
+            .range_hash(id, OwnerId::NONE, 0..u64::MAX, TrackHash::START)
+            .ok()
+    };
+    let Some(indexed) = hash(out) else {
+        return;
+    };
+    assert!(
+        indexed.chunks >= 2,
+        "the chunks written after the resume: {indexed:?}"
+    );
+    let mut walked = out.to_vec();
+    // a byte of the index head: its CRC fails, the reader walks the chunks
+    walked[at + 40] ^= 1;
+    if let Some(w) = hash(&walked)
+        && w.skipped == 0
+    {
+        assert_eq!(
+            (w.hash, w.items, w.chunks),
+            (indexed.hash, indexed.items, indexed.chunks),
+            "folded from the index and from the chunks"
+        );
+    }
 }
 
 /// Resume the chain of `bytes`, whose pieces before `last` are whole, and finish it.
