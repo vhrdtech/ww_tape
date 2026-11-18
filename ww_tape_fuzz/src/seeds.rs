@@ -51,6 +51,11 @@ pub const FIXED_INPUTS: &[(&str, &str, &str)] = &[
         "80f70000000000000000000000000000000000000000002703a94d75",
     ),
     (
+        "tape-times-hostile",
+        "implicit-chunk-of-millions-read-item-by-item",
+        "00000000000100000001a7ffffffffffffff80aaa66666666666ff80aaa666666666666666a7a713a3a7a700a76900000051000000d400000051000000a78724",
+    ),
+    (
         "tape-reader-hostile",
         "salvage-walk-reads-inside-a-gap",
         "eb9543000000a10000000000008e3d00002600000000000000000000d34f00000000000000000000000000008900d6",

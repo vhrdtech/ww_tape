@@ -7,11 +7,26 @@ use ww_tape::chunk::{chunk_len, write_chunk};
 use ww_tape::times::{EncodedRelation, EncodedTimes, Ends, EventTimes, RelationColumn};
 use ww_tape::{Block, ColumnSpec};
 
+/// Items read one by one in full; past it, the first and last half of these and a stride between. An implicit chunk
+/// may state up to [ww_tape::times::ITEMS_MAX] items in a few bytes, and every item read four ways under the
+/// fuzzer's instrumentation takes seconds.
+const ITEMS_EACH: usize = 1 << 16;
+
+/// The items [read_all] reads one by one: all of `n` up to [ITEMS_EACH], else both ends and a stride.
+fn item_sample(n: usize) -> impl Iterator<Item = usize> {
+    let (head, tail) = match n <= ITEMS_EACH {
+        true => (n, n),
+        false => (ITEMS_EACH / 2, n - ITEMS_EACH / 2),
+    };
+    let stride = (tail - head) / ITEMS_EACH + 1;
+    (0..head).chain((head..tail).step_by(stride)).chain(tail..n)
+}
+
 /// Read everything the times give.
 fn read_all(t: &EventTimes<'_>) {
     let s = t.starts();
     let mut buf = [0i64; GROUP];
-    for i in 0..t.len() {
+    for i in item_sample(t.len()) {
         let _ = (t.start(i), t.end(i), t.flag(i), t.is_suspect(i));
     }
     for g in 0..s.group_count() {
@@ -39,7 +54,7 @@ fn read_all(t: &EventTimes<'_>) {
 
 /// Read everything a relation column gives.
 fn read_relation(r: &RelationColumn<'_>) {
-    for i in 0..r.len() {
+    for i in item_sample(r.len()) {
         let _ = r.get(i);
     }
     let (lo, hi) = r.range();
@@ -176,4 +191,37 @@ pub fn times(data: &[u8]) {
     let end = (at + patch.len()).min(len - 4);
     buf[at..end].copy_from_slice(&patch[..end - at]);
     walk(&buf[..len]);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A chunk of up to [ww_tape::times::ITEMS_MAX] items is read item by item at about 2 × [ITEMS_EACH] items,
+    /// both ends whole; a smaller one whole.
+    #[test]
+    fn item_sample_is_bounded_and_keeps_both_ends() {
+        for n in [
+            0,
+            1,
+            ITEMS_EACH,
+            ITEMS_EACH + 1,
+            6_924_032,
+            ww_tape::times::ITEMS_MAX,
+        ] {
+            let s: Vec<usize> = item_sample(n).collect();
+            assert!(s.len() <= 2 * ITEMS_EACH + 1, "{n} items: {}", s.len());
+            assert!(s.windows(2).all(|w| w[0] < w[1]), "{n} items: ascending");
+            match n <= ITEMS_EACH {
+                true => assert_eq!(s, (0..n).collect::<Vec<_>>()),
+                false => {
+                    assert_eq!(s[..ITEMS_EACH / 2], (0..ITEMS_EACH / 2).collect::<Vec<_>>());
+                    assert_eq!(
+                        s[s.len() - ITEMS_EACH / 2..],
+                        (n - ITEMS_EACH / 2..n).collect::<Vec<_>>()
+                    );
+                }
+            }
+        }
+    }
 }
