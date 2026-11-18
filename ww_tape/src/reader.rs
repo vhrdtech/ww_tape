@@ -1211,9 +1211,9 @@ impl<S: ByteSource> TapeReader<S> {
     /// track's records are left out.
     ///
     /// Each chunk folded starts at or after the end of the one before ([ReadError::Overlap] else); a copy of the chunk
-    /// before (the same items) takes its place, so a block written again folds once. A piece read without its index
-    /// is walked block by block: a damaged chunk of the track whose head still reads is an error, as on the index
-    /// path, and bytes no block explains are counted in [RangeHash::skipped].
+    /// before (the same items and unit hash) takes its place, so a block written again folds once. A piece read
+    /// without its index is walked block by block: a damaged chunk of the track whose head still reads is an error,
+    /// as on the index path, and bytes no block explains are counted in [RangeHash::skipped].
     pub fn range_hash(
         &self,
         track_id: u64,
@@ -1379,7 +1379,8 @@ struct Held {
     read: bool,
 }
 
-/// [TapeReader::range_hash]'s fold, one chunk behind: a copy of the chunk before (the same items) takes its place.
+/// [TapeReader::range_hash]'s fold, one chunk behind: a copy of the chunk before (the same items and unit hash) takes
+/// its place.
 struct Fold {
     out: RangeHash,
     held: Option<Held>,
@@ -1415,7 +1416,8 @@ impl Fold {
             read,
         };
         match self.held {
-            Some(h) if h.first == first && h.end == end => {}
+            // a copy: the same items and the same unit hash; other bytes stating the same items overlap
+            Some(h) if h.first == first && h.end == end && h.unit == unit => {}
             Some(h) if first < h.end => return Err(ReadError::Overlap { offset, end: h.end }),
             Some(h) => self.out.fold(&h.unit, h.first, h.end, h.read),
             None => {}

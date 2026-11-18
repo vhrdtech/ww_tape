@@ -642,3 +642,40 @@ fn an_unhashed_entry_naming_another_tracks_chunk_is_refused() {
         ))
     ));
 }
+
+/// Two entries of other chunks stating the same items, their CRCs and the content hash good, overlap: the second is
+/// never taken for a copy of the first.
+#[test]
+fn two_chunks_stating_the_same_items_overlap() {
+    use ww_tape::BlockKind;
+    let (_, files) = write(PieceFiles::One, 0x5eed);
+    let mut bytes = files[0].clone();
+    let r = TapeReader::open(&bytes[..]).unwrap();
+    let i = r.pieces().len() - 1;
+    let t = (0..3)
+        .find(|t| {
+            let e = r.track_entries(i, id_of(*t)).unwrap();
+            e.iter().filter(|e| e.kind == BlockKind::Events).count() >= 2
+        })
+        .unwrap();
+    drop(r);
+    let mut first = [0u8; 8];
+    let mut seen = 0;
+    rewrite_final_entries(&mut bytes, i, t, |_, e| {
+        if e[12] != BlockKind::Events.to_u8() {
+            return;
+        }
+        match seen {
+            0 => first.copy_from_slice(&e[32..40]),
+            1 => e[32..40].copy_from_slice(&first),
+            _ => {}
+        }
+        seen += 1;
+    });
+    let r = TapeReader::open(&bytes[..]).unwrap();
+    let got = r.range_hash(id_of(t), OwnerId::NONE, 0..u64::MAX, TrackHash::START);
+    assert!(
+        matches!(got, Err(ww_tape::ReadError::Overlap { .. })),
+        "{got:?}"
+    );
+}
