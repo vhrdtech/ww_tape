@@ -1,6 +1,7 @@
 //! Index, finish, piece head and tail blocks: an index's entry offset, directory, self and previous offsets, entry
-//! length and entries; a finish's offsets and track ranges; a piece head's tracks; a tail's piece length and finish
-//! offset.
+//! length and entries (flags, range pair and unit hash among them; entries longer than [ENTRY_LEN], well formed or
+//! not); a finish's offsets and track ranges; a piece head's tracks and integrity level; a tail's piece length and
+//! finish offset.
 
 use super::{
     Draw, Field, HEADER_FIELDS, LEN_FIELD, SESSION, crc32c, get, hit, hit_some, seal, span,
@@ -28,14 +29,19 @@ const INDEX_FIELDS: [Field<'static>; 6] = [
     Field::new(58, 2, &[ENTRY_LEN as u64]),
 ];
 
+/// Entry flag values a draw favours: repeat, range, unhashed ([ww_tape::index::ENTRY_UNHASHED]), the first unknown
+/// bit, every bit.
+const ENTRY_FLAGS: &[u64] = &[1, 2, ww_tape::index::ENTRY_UNHASHED as u64, 8, 0xFF];
+
 /// The fields of an index entry starting at `at`.
-pub(crate) fn entry_fields(at: usize) -> [Field<'static>; 12] {
+pub(crate) fn entry_fields(at: usize) -> [Field<'static>; 16] {
     [
         Field::new(at, 8, &[MAX_BLOCK_LEN as u64]),
         Field::new(at + 8, 4, &[MAX_BLOCK_LEN as u64]),
         Field::new(at + 12, 1, &[3, 4, 6, 7, 9]),
         Field::new(at + 13, 1, &[ww_tape::summary::NODE_SHIFT_MAX as u64]),
         Field::new(at + 14, 1, &[1, 2]),
+        Field::new(at + 15, 1, ENTRY_FLAGS),
         Field::new(at + 16, 8, &[]),
         Field::new(at + 24, 4, &[]),
         Field::new(at + 32, 8, &[]),
@@ -43,6 +49,10 @@ pub(crate) fn entry_fields(at: usize) -> [Field<'static>; 12] {
         Field::new(at + 48, 8, &[]),
         Field::new(at + 56, 8, &[]),
         Field::new(at + 64, 8, &[]),
+        // the range pair, low above high among the draws
+        Field::new(at + 72, 8, &[u64::MAX]),
+        Field::new(at + 80, 8, &[0]),
+        Field::new(at + 88, 8, &[]),
     ]
 }
 
@@ -105,8 +115,13 @@ fn entries(d: &mut Draw<'_>, n: usize, sorted: bool) -> Vec<IndexEntry> {
                 last_tick: i64::from(i16::MAX) + i64::from(d.u8()),
                 latest_end: i64::from(i16::MAX) + 256 + i64::from(d.u8()),
                 repeat: d.bool(),
-                unit: ww_tape::UnitHash::NONE,
-                range: None,
+                unit: ww_tape::UnitHash([d.u8(); 32]),
+                range: matches!(kind, BlockKind::Events | BlockKind::Series)
+                    .then(|| {
+                        let lo = u64::from(d.u8());
+                        (lo, lo + (u64::from(d.u8()) << 8))
+                    })
+                    .filter(|_| d.bool()),
             }
         })
         .collect();
@@ -163,7 +178,8 @@ pub(crate) fn hit_index(d: &mut Draw<'_>, b: &mut [u8]) {
             hit_some(d, b, &fields);
         }
         _ => {
-            let at = entries_at + d.below(entries + 1) * ENTRY_LEN;
+            let entry_len = get(b, 58, 2) as usize;
+            let at = entries_at + d.below(entries + 1) * entry_len;
             hit_some(d, b, &entry_fields(at));
         }
     }
@@ -238,6 +254,29 @@ pub(crate) fn finish_fields<'c>(d: &mut Draw<'_>, tracks: usize, len: &'c [u64])
         Field::new(at + 120, 8, &[]),
     ]);
     f
+}
+
+/// Most bytes [widen_entries] adds to each entry.
+const ENTRY_EXTRA_MAX: usize = 64;
+
+/// The index block `b` with each entry `extra` bytes longer, the extra bytes `fill` and the head's entry length
+/// saying so: a well-formed index of a later writer, once resealed.
+fn widen_entries(b: &[u8], extra: usize, fill: u8) -> Vec<u8> {
+    let entries_at = get(b, 32, 4) as usize;
+    let n = get(b, 12, 4) as usize;
+    let Some(entries) = span(b, entries_at, entries_at + n * ENTRY_LEN) else {
+        return b.to_vec();
+    };
+    let mut out = b[..entries_at].to_vec();
+    for e in entries.chunks(ENTRY_LEN) {
+        out.extend_from_slice(e);
+        out.extend(std::iter::repeat_n(fill, extra));
+    }
+    out.extend_from_slice(&[0; 4]);
+    let len = out.len();
+    out[8..12].copy_from_slice(&(len as u32).to_le_bytes());
+    out[58..60].copy_from_slice(&((ENTRY_LEN + extra) as u16).to_le_bytes());
+    out
 }
 
 /// A piece head block of tracks drawn from the input.
@@ -320,6 +359,8 @@ pub fn index(data: &[u8]) -> Vec<u8> {
                 Field::new(88, 4, &[1, 2]),
                 Field::new(92, 4, &[]),
                 Field::new(144, 2, &[0, 95, 97, 0xFFFF]),
+                // the integrity level: CrcOnly, None, the first unknown
+                Field::new(146, 1, &[1, 2, 3]),
                 Field::new(at, 8, &[]),
                 Field::new(at + 16, 8, &[u64::MAX]),
                 Field::new(at + 24, 8, &[]),
@@ -344,6 +385,10 @@ pub fn index(data: &[u8]) -> Vec<u8> {
             let n = d.below(8);
             let e = entries(&mut d, n, kind == IndexKind::Final);
             let mut b = index_block(&mut d, id, kind, &e);
+            if d.u8().is_multiple_of(4) {
+                b = widen_entries(&b, 1 + d.below(ENTRY_EXTRA_MAX), d.u8());
+                reseal_index(&mut b);
+            }
             hit_index(&mut d, &mut b);
             reseal_index(&mut b);
             b

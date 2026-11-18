@@ -214,7 +214,8 @@ pub(crate) fn hit_some(d: &mut Draw<'_>, b: &mut [u8], fields: &[Field<'_>]) {
 pub(crate) const HEADER_FIELDS: [Field<'static>; 6] = [
     Field::new(4, 1, &[ww_tape::VERSION as u64]),
     Field::new(5, 1, &[]),
-    Field::new(6, 2, &[]),
+    // FLAG_PAYLOAD_UNCHECKED, and every bit
+    Field::new(6, 2, &[ww_tape::FLAG_PAYLOAD_UNCHECKED as u64, 0xFFFF]),
     Field::new(12, 4, &[]),
     Field::new(16, 8, &[]),
     Field::new(24, 4, &[]),
