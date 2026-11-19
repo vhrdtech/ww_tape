@@ -277,8 +277,8 @@ impl SummaryHead {
     /// Read and check the summary block `block`: its head, its body as long as the head says, and its node count. A
     /// reader that decodes no node still checks a block this way.
     ///
-    /// `block` is exactly the block's bytes. The header is checked here ([MAGIC](crate::MAGIC), this
-    /// [VERSION](crate::VERSION), kind [BlockKind::Summary], a length field equal to the bytes handed over: else
+    /// `block` is exactly the block's bytes. The header is checked here ([MAGIC], this
+    /// [VERSION], kind [BlockKind::Summary], a length field equal to the bytes handed over: else
     /// [SummaryError::NotSummary]), the CRC is not: the caller checks it, as [Block::read](crate::Block::read) does.
     pub fn read(block: &[u8]) -> Result<(Self, &[u8], usize), SummaryError> {
         let short = SummaryError::Invalid("shorter than the head");
@@ -459,9 +459,9 @@ pub enum SummaryError {
 /// What the header of bytes handed to [SummaryHead::read] holds instead of a summary block of this format.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum NotSummary {
-    /// Bytes 0..4 are not [MAGIC](crate::MAGIC).
+    /// Bytes 0..4 are not [MAGIC].
     Magic,
-    /// Byte 4: a version other than [VERSION](crate::VERSION).
+    /// Byte 4: a version other than [VERSION].
     Version(u8),
     /// Byte 5: a block of another kind.
     Kind(BlockKind),
