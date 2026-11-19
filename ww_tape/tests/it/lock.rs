@@ -160,3 +160,28 @@ fn a_lock_file_that_is_a_link_is_refused() {
     );
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// A FIFO under the file's name is refused at once, by every way a sink opens a file, never waited on.
+#[cfg(unix)]
+#[test]
+fn a_fifo_is_refused_without_waiting() {
+    let dir = scratch("lock_fifo");
+    let path = dir.join("a.wwt");
+    let made = Command::new("mkfifo")
+        .arg(&path)
+        .env_clear()
+        .status()
+        .expect("mkfifo, a POSIX utility, makes the FIFO");
+    assert!(made.success());
+    let refused = |r: Result<(), ww_tape::FsError>| {
+        assert!(
+            matches!(&r, Err(ww_tape::FsError::NotAFile(p)) if *p == path),
+            "{:?}",
+            r.err()
+        );
+    };
+    refused(FileSink::append(&path).map(drop));
+    refused(FileSink::open_whole(&path).map(drop));
+    refused(FileSink::create_whole(&path).map(drop));
+    std::fs::remove_dir_all(&dir).unwrap();
+}

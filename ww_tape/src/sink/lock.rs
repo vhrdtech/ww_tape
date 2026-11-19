@@ -28,9 +28,10 @@
 //! Elsewhere (Windows) the lock file holds the file system's lock ([File::try_lock]): a child process gets no
 //! handle there unless the parent passes it.
 //!
-//! A name that is there and isn't a regular file (a device such as a raw SD card, whose directory takes no lock file)
-//! is locked itself, by the file system's lock on a handle of its own: a child forked while it is held holds it too,
-//! until it runs `exec`.
+//! A device (such as a raw SD card, whose directory takes no lock file) is locked itself, opened without waiting,
+//! by the file system's lock on a handle of its own: a child forked while it is held holds it too, until it runs
+//! `exec`. Any other name that isn't a regular file (a directory, a FIFO, a socket) is refused before it is opened
+//! ([FsError::NotAFile]): opening a FIFO waits for its other end.
 
 use std::collections::BTreeSet;
 use std::fs::File;
@@ -85,8 +86,10 @@ impl FileLock {
     /// The lock of the file `name` (its final name, also while it is written as `NAME.partial`):
     /// [FsError::Locked] while another writer, of this process or another, holds it.
     pub(crate) fn take(name: &Path) -> Result<Self, FsError> {
-        if std::fs::metadata(name).is_ok_and(|m| !m.is_file() && !m.is_dir()) {
-            return Self::take_itself(name);
+        match std::fs::metadata(name) {
+            Ok(m) if is_device(&m) => return Self::take_itself(name),
+            Ok(m) if !m.is_file() => return Err(FsError::NotAFile(name.to_path_buf())),
+            _ => {}
         }
         let mut lock = FileLock {
             files: Vec::new(),
@@ -146,7 +149,7 @@ impl FileLock {
     fn take_itself(name: &Path) -> Result<Self, FsError> {
         let key = absolute(name).map_err(io_err("finding the file to lock"))?;
         let entry = Entry::claim(Held::Name(key), name)?;
-        let file = File::open(name).map_err(io_err("opening the file to lock"))?;
+        let file = open_device(name).map_err(io_err("opening the file to lock"))?;
         match file.try_lock() {
             Ok(()) => Ok(FileLock {
                 files: vec![LockFile { file, path: None }],
@@ -161,8 +164,13 @@ impl FileLock {
     }
 
     /// Hold `file`, opened as `name` under this lock, by its identity too: [FsError::Locked] when another writer of
-    /// this process holds it under another name (a hard link).
+    /// this process holds it under another name (a hard link). [FsError::NotAFile] unless it is a regular file or a
+    /// device.
     pub(crate) fn bind(&mut self, file: &File, name: &Path) -> Result<(), FsError> {
+        let meta = file.metadata().map_err(io_err("reading the file's type"))?;
+        if !meta.is_file() && !is_device(&meta) {
+            return Err(FsError::NotAFile(name.to_path_buf()));
+        }
         if let Some(id) = identity(file).map_err(io_err("reading the file's identity"))? {
             let entry = Entry::claim(id, name)?;
             self.keys.push(entry.keep());
@@ -290,6 +298,32 @@ fn absolute(path: &Path) -> io::Result<PathBuf> {
 
 fn io_err(what: &'static str) -> impl FnOnce(io::Error) -> FsError {
     move |error| FsError::Io { what, error }
+}
+
+/// Whether `meta` is a device, locked itself: a block or character device on unix, anything but a file or a
+/// directory elsewhere.
+fn is_device(meta: &std::fs::Metadata) -> bool {
+    #[cfg(unix)]
+    return {
+        use std::os::unix::fs::FileTypeExt;
+        let t = meta.file_type();
+        t.is_block_device() || t.is_char_device()
+    };
+    #[cfg(not(unix))]
+    return !meta.is_file() && !meta.is_dir();
+}
+
+/// The device `name`, opened to hold its lock: without waiting (a serial port waits for its carrier otherwise).
+#[cfg(unix)]
+fn open_device(name: &Path) -> io::Result<File> {
+    use rustix::fs::{Mode, OFlags};
+    let flags = OFlags::RDONLY | OFlags::NONBLOCK | OFlags::CLOEXEC;
+    Ok(File::from(rustix::fs::open(name, flags, Mode::empty())?))
+}
+
+#[cfg(not(unix))]
+fn open_device(name: &Path) -> io::Result<File> {
+    File::open(name)
 }
 
 /// The lock file `path`, opened to read and write and created if it isn't there; a link is never followed, and a

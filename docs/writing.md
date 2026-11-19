@@ -27,7 +27,8 @@ The writer puts its bytes into a **sink**. Two sinks come with `ww_tape`:
   whatever name reaches it: the lock file is named after the file's canonical name, links resolved and `.partial`
   dropped, and writers of one process are also kept apart by the file's identity, so a hard link is refused there
   too. Two processes writing one file through two hard-linked names are not refused: their blocks interleave into a
-  file that reads as damaged. A path that isn't a regular file, such as a raw device, is locked itself.
+  file that reads as damaged. A device, such as a raw SD card, is locked itself; a FIFO, a socket or a directory is refused
+  (`FsError::NotAFile`).
 - `MemSink` keeps the bytes in memory, where a `TapeReader` reads them while they are written. Tests use it to cut a
   piece at any byte and check what a reader makes of it.
 
