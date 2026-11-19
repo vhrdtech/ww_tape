@@ -5,7 +5,7 @@
 //!   file appended to in place, or a file that holds every piece of a chain.
 //! - [Files] keeps the pieces of a [PieceChain](ww_tape::PieceChain) in files: each piece a file of a directory,
 //!   named by its seq ([piece_name]), or every piece in one file.
-//! - [FileSource] reads a finished piece file back, as a [ByteSource](ww_tape::ByteSource).
+//! - [FileSource] reads a file back, a finished piece or any tape, as a [ByteSource](ww_tape::ByteSource).
 //! - [writer] opens a [TapeWriter](ww_tape::TapeWriter) on a path: [writer::create], [writer::append],
 //!   [writer::resume], [writer::cut]. [chain] opens a chain in a directory: [chain::create], [chain::resume].
 //!

@@ -226,7 +226,7 @@ fn finished_file_is_found_by_its_tail() {
     assert!(!TapeReader::open(&bad[..]).unwrap().verify(0).unwrap());
 
     // the same through a file
-    let f = std::fs::File::open(&path).unwrap();
+    let f = ww_tape_fs::FileSource::open(&path).unwrap();
     let r = TapeReader::open(f).unwrap();
     assert_eq!(r.track_entries(0, chunk_id(1)).unwrap(), t1);
     std::fs::remove_dir_all(&dir).unwrap();

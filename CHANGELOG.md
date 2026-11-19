@@ -13,6 +13,7 @@ Covers `ww_tape` 0.1.0.
 - `Codec` and every codec id live in `ww_tape_codecs` (re-exported as `ww_tape::Codec`); `Codec::SERIES_ITEMS_MAX` is `chunk::SERIES_ITEMS_MAX` (TAPE-12).
 - File sinks and stores move to the crate `ww_tape_fs`: `FileSink`, `Files`, `FileSource`, `FsError`, `partial_name`, `lock_name`, `piece_name` (TAPE-12).
 - Path constructors are functions of `ww_tape_fs`: `writer::{create, append, resume, cut}`, `chain::{create, resume}` (TAPE-12).
+- `std::fs::File` is no longer a `ByteSource`: read a file through `ww_tape_fs::FileSource::open` (TAPE-12).
 - `TapeWriter::current_path` is `writer.sink().current_path()` (TAPE-12).
 - `FsError::Io` carries the file's `path`; a refused piece start is `FsError::Base`, not an `Io` error (TAPE-12).
 - `TapeWriter` and `PieceChain` have no default sink: write `TapeWriter<FileSink>`, `PieceChain<Files>` where a type is named (TAPE-12).

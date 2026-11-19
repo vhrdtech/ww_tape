@@ -384,7 +384,25 @@ fn read_file_at(file: &File, offset: u64, buf: &mut [u8]) -> io::Result<()> {
     std::os::unix::fs::FileExt::read_exact_at(file, buf, offset)
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+fn read_file_at(file: &File, mut offset: u64, mut buf: &mut [u8]) -> io::Result<()> {
+    while !buf.is_empty() {
+        match std::os::windows::fs::FileExt::seek_read(file, buf, offset)? {
+            0 => return Err(io::ErrorKind::UnexpectedEof.into()),
+            n => {
+                let past_end = || io::Error::from(io::ErrorKind::InvalidData);
+                buf = core::mem::take(&mut buf)
+                    .get_mut(n..)
+                    .ok_or_else(past_end)?;
+                let n = u64::try_from(n).map_err(|_| past_end())?;
+                offset = offset.checked_add(n).ok_or_else(past_end)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(any(unix, windows)))]
 fn read_file_at(mut file: &File, offset: u64, buf: &mut [u8]) -> io::Result<()> {
     use std::io::{Read, Seek};
     let back = file.stream_position()?;
@@ -447,15 +465,10 @@ impl Tapes for Files {
     }
 
     fn finished(&self, key: &u64) -> Result<Option<FileSource>, FsError> {
-        let path = self.path_of(*key);
-        match File::open(&path) {
-            Ok(file) => Ok(Some(FileSource { file, path })),
-            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
-            Err(error) => Err(FsError::Io {
-                what: "opening the file",
-                path,
-                error,
-            }),
+        match FileSource::open(&self.path_of(*key)) {
+            Ok(src) => Ok(Some(src)),
+            Err(FsError::Io { error, .. }) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e),
         }
     }
 
@@ -468,11 +481,23 @@ impl Tapes for Files {
     }
 }
 
-/// A finished piece file, read by positional reads.
+/// A file read by positional reads, a finished piece or any tape: the [ByteSource] of a file for a
+/// [TapeReader](ww_tape::TapeReader).
 #[derive(Debug)]
 pub struct FileSource {
     file: File,
     path: PathBuf,
+}
+
+impl FileSource {
+    /// The file at `path`, opened to read.
+    pub fn open(path: &Path) -> Result<Self, FsError> {
+        let file = File::open(path).map_err(io_err("opening the file", path))?;
+        Ok(FileSource {
+            file,
+            path: path.to_path_buf(),
+        })
+    }
 }
 
 impl ByteSource for FileSource {

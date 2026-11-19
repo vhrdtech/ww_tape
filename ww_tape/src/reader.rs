@@ -102,44 +102,6 @@ impl ByteSource for Vec<u8> {
     }
 }
 
-#[cfg(all(feature = "std", unix))]
-impl ByteSource for std::fs::File {
-    type Error = std::io::Error;
-
-    fn size(&self) -> Result<u64, std::io::Error> {
-        Ok(self.metadata()?.len())
-    }
-
-    fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), std::io::Error> {
-        std::os::unix::fs::FileExt::read_exact_at(self, buf, offset)
-    }
-}
-
-#[cfg(all(feature = "std", windows))]
-impl ByteSource for std::fs::File {
-    type Error = std::io::Error;
-
-    fn size(&self) -> Result<u64, std::io::Error> {
-        Ok(self.metadata()?.len())
-    }
-
-    fn read_at(&self, mut offset: u64, mut buf: &mut [u8]) -> Result<(), std::io::Error> {
-        while !buf.is_empty() {
-            match std::os::windows::fs::FileExt::seek_read(self, buf, offset)? {
-                0 => return Err(std::io::ErrorKind::UnexpectedEof.into()),
-                n => {
-                    let past_end = || std::io::Error::from(std::io::ErrorKind::InvalidData);
-                    buf = core::mem::take(&mut buf)
-                        .get_mut(n..)
-                        .ok_or_else(past_end)?;
-                    offset = offset.checked_add(wide(n)).ok_or_else(past_end)?;
-                }
-            }
-        }
-        Ok(())
-    }
-}
-
 /// Why a tape can't be read.
 #[derive(Debug)]
 #[non_exhaustive]

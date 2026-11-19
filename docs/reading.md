@@ -11,7 +11,7 @@ at a place, and what it does with damage. It assumes [Tape concepts](concepts.md
 ## Byte sources
 
 `TapeReader` reads through a **byte source** (`ByteSource`): anything that has a length and reads bytes at an offset. A
-byte slice, a file and the bytes of a memory sink being written (`MemSink::tape`) are byte sources, and an HTTP resource read by range requests can be
+byte slice, a file (`ww_tape_fs::FileSource`) and the bytes of a memory sink being written (`MemSink::tape`) are byte sources, and an HTTP resource read by range requests can be
 one. The reader needs no file system and no threads, so it also builds for WebAssembly and runs in a browser: it needs the
 crate's `alloc` feature, not `std`. The block walk `FileBlocks` of the last section needs `std`.
 
