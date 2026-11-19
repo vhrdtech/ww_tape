@@ -1,7 +1,8 @@
 //! Files written by path: a new file is `NAME.partial` until its finish, an append goes on in place, and a failed
 //! write ends the file.
 
-use ww_tape::{FileBlocks, FsError, Recovery, SyncPolicy, WriteError};
+use ww_tape::{FileBlocks, Recovery, SyncPolicy, WriteError};
+use ww_tape_fs::FsError;
 
 use crate::pieces::{records, scratch};
 
@@ -11,8 +12,8 @@ use crate::pieces::{records, scratch};
 fn a_new_file_is_partial_until_its_finish() {
     let dir = scratch("files_partial");
     let path = dir.join("cap.wwtape");
-    let partial = ww_tape::writer::partial_name(&path);
-    let mut w = ww_tape::writer::fs::create(&path, SyncPolicy::EveryBlocks(2)).unwrap();
+    let partial = ww_tape_fs::partial_name(&path);
+    let mut w = ww_tape_fs::writer::create(&path, SyncPolicy::EveryBlocks(2)).unwrap();
     assert_eq!(w.sink().current_path(), partial);
     w.write_block(crate::definitions::base_defs(), &records(w.next_id(), 1))
         .unwrap();
@@ -22,14 +23,14 @@ fn a_new_file_is_partial_until_its_finish() {
     assert!(path.exists(), "named when finished");
     assert!(!partial.exists());
     assert!(matches!(
-        ww_tape::writer::fs::create(&path, SyncPolicy::None),
+        ww_tape_fs::writer::create(&path, SyncPolicy::None),
         Err(WriteError::Sink {
             error: FsError::Exists(_),
             ..
         })
     ));
     let first_len = std::fs::metadata(&path).unwrap().len();
-    let mut w = ww_tape::writer::fs::append(&path, SyncPolicy::default()).unwrap();
+    let mut w = ww_tape_fs::writer::append(&path, SyncPolicy::default()).unwrap();
     w.set_producer("second");
     w.tick().unwrap();
     w.finish().unwrap();
@@ -55,7 +56,7 @@ fn a_new_file_is_partial_until_its_finish() {
 #[test]
 fn a_writer_stops_after_a_failure() {
     let mut w =
-        ww_tape::writer::fs::append(std::path::Path::new("/dev/full"), SyncPolicy::None).unwrap();
+        ww_tape_fs::writer::append(std::path::Path::new("/dev/full"), SyncPolicy::None).unwrap();
     let defs = crate::definitions::base_defs();
     // /dev/full takes nothing: the write fails with ENOSPC
     let first = w.write_block(defs, &records(w.next_id(), 1));

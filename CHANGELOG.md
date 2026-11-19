@@ -10,11 +10,14 @@ Covers `ww_tape` 0.1.0.
 
 ### ⚠️ Breaking
 
+- File sinks and stores move to the crate `ww_tape_fs`: `FileSink`, `Files`, `FileSource`, `FsError`, `partial_name`, `lock_name`, `piece_name` (TAPE-12).
+- Path constructors are functions of `ww_tape_fs`: `writer::{create, append, resume, cut}`, `chain::{create, resume}` (TAPE-12).
+- `TapeWriter::current_path` is `writer.sink().current_path()` (TAPE-12).
 - `TapeWriter` and `PieceChain` have no default sink: write `TapeWriter<FileSink>`, `PieceChain<Files>` where a type is named (TAPE-12).
 - `TapeSink` has an `Error` type; `WriteError<E>` carries it in `WriteError::Sink`, and `FsError` or `MemError` the store's refusals (TAPE-12).
 - `SinkFactory` is `Tapes`, keyed by `Tapes::Key` and `key_of(seq)`: `Files::new(dir)`, `Files::file(path)`, `MemTapes<K = u64>` (TAPE-12).
 - `PieceChain::create_on` and `resume_on` take no path; `finished` and `finish` return `ChainPiece { tape, piece }` (TAPE-12).
-- `Finished` and `TapeSink` lose `path`; `FileSink::path`, `TapeWriter<FileSink>::current_path` stay; `MemSink::new()` takes no name (TAPE-12).
+- `Finished` and `TapeSink` lose `path`; `FileSink::path` and `current_path` stay; `MemSink::new()` takes no name (TAPE-12).
 - `PieceFiles` is `PieceTapes`, `ChainOptions::files` is `tapes`; a missing piece to resume is `ResumeError::NoPiece` (TAPE-12).
 - `WriteError` groups refused input in `WriteError::Input(InputError)` and refused resumes in `WriteError::Resume(ResumeError)` (TAPE-12).
 - `WriterOptions` gains `clock`: intervals are read from a `ClockRef`; a struct literal adds `clock: ClockRef::default()` (TAPE-12).
@@ -107,7 +110,7 @@ Covers `ww_tape` 0.1.0.
 - Every error enum is `#[non_exhaustive]`: match with a `_` arm (STD-131).
 - `Codec::GORILLA`, `CHIMP`, `FLOAT_DELTA`, `FLOAT_DELTA2` and `XOR_GROUP` are gone; ids 24, 25, 34, 35 are reserved and refused (STD-131).
 - Describe sets mark their first and last block (`FLAG_SET_FIRST`, `FLAG_SET_LAST`); only a whole set counts as one (STD-129).
-- `PieceChain::create` takes the chain number: each chain of an owner gets its own piece ids and session tag (STD-129).
+- `PieceChain::create_on` takes the chain number: each chain of an owner gets its own piece ids and session tag (STD-129).
 - `PieceId::first` is `first_of(owner, 0)`: its bytes change; `PieceId::first_of` names the first piece of each chain (STD-129).
 - `Block::records` of an lz4-coded body gives `BlockError::Coded`: read the records of `Block::decode` (STD-129).
 - Header bytes 24..28 hold the session tag in every block, 28..32 the head CRC; chunk payload and index entries offsets move to 32..36 (STD-129).
@@ -173,8 +176,8 @@ Covers `ww_tape` 0.1.0.
 - `Slot`, `ItemHash` (BLAKE3-128), `StatePolicy`, `TrackRepeat::State`: what identifies and repeats a state item (STD-135).
 - `TapeWriter::put_work` (`PutWork`): bytes puts hashed and copied; `Definitions::held` shares an item and its hash (STD-135).
 - `SeriesSummaries::push` keeps every statistic in one pass, integers up to 32 bits through AVX-512, AVX2 or portable kernels (STD-133).
-- `TapeWriter::resume` and `PieceChain::resume` reopen a crashed piece; it finishes with an uninterrupted write's bytes (STD-132).
-- `TapeSink`, `Tapes`, `FileSink`, `Files`, `MemSink` and `MemTapes`: writers write to files or memory, read while written (STD-132).
+- `TapeWriter::resume_on` and `PieceChain::resume_on` reopen a crashed piece; it finishes with an uninterrupted write's bytes (STD-132).
+- `TapeSink`, `Tapes`, `MemSink`, `MemTapes`, `ww_tape_fs`'s `FileSink` and `Files`: writers write to files or memory, read while written (STD-132).
 - `PieceChain::cut_due`, `finish_as` and `TapeWriter::chunks`, `cut_with`, `cut_on`, `create_on` (STD-132).
 - A resume refuses options whose alignment contradicts the piece's described layout; `TapeWriter::options`, `Resumed::layout` (STD-132).
 - Describe additions: `FLAG_SET_ADD`, `DescribeSet::write_addition`, `read_blocks`, `write_describe`; copies carry the merged set (STD-132).
@@ -205,7 +208,7 @@ Covers `ww_tape` 0.1.0.
 - `SeriesSummarySpec`, `SeriesStats`, `ClipRange`: a series track's summary declaration as shrink_wrap types (STD-121).
 - Index blocks (kind 7): checkpoints with a back chain every 4 MiB (`IndexPolicy`), a final index sorted by track (STD-122).
 - Finish (kind 8) with BLAKE3 content hash and per-track ranges, fixed-size tail (kind 9) found from the file's end (STD-122).
-- Tape pieces: piece head (kind 10), `TapeWriter::cut`, `PieceChain` cutting by size, chunks or time, `check_chain` (STD-123).
+- Tape pieces: piece head (kind 10), `TapeWriter::cut_with`, `PieceChain` cutting by size, chunks or time, `check_chain` (STD-123).
 - `TapeReader` over a `ByteSource` (slice, `Vec`, `File`): pieces from tails, checkpoints or a bounded scan; builds for wasm32 (STD-124).
 - The writer repeats the newest describe blocks about every 128 MiB and in each piece's head and backup (STD-123).
 - Index, finish, tail, piece head and repeated describe blocks carry the last counted seq and stay out of seq order (STD-122).

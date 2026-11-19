@@ -71,7 +71,7 @@ fn a_full_cap_never_stops_a_finish() {
 #[test]
 fn a_full_cap_never_stops_a_cut() {
     let dir = scratch("cap_cut");
-    let mut chain = ww_tape::piece::fs::create(
+    let mut chain = ww_tape_fs::chain::create(
         &dir,
         OwnerId([0x44; 32]),
         0,
@@ -102,7 +102,7 @@ fn a_full_cap_never_stops_a_cut() {
     }
     let pieces = chain.finish().unwrap();
     assert!(pieces.len() >= 2, "the chain cut");
-    let bytes = std::fs::read(ww_tape::Files::new(&dir).path_of(pieces[0].tape)).unwrap();
+    let bytes = std::fs::read(ww_tape_fs::Files::new(&dir).path_of(pieces[0].tape)).unwrap();
     let data = data_on(&bytes, 2);
     assert!(writes_of(&bytes, Slot::Track { number: 2 })[0] < data);
     std::fs::remove_dir_all(&dir).unwrap();
@@ -244,7 +244,7 @@ fn a_cap_below_a_piece_head_is_refused() {
     })
     .unwrap();
     let dir = scratch("cap_small");
-    let chain = ww_tape::piece::fs::create(
+    let chain = ww_tape_fs::chain::create(
         &dir,
         OwnerId([0x45; 32]),
         0,

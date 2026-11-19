@@ -961,15 +961,17 @@ fn a_resumed_piece_takes_the_definitions_passed() {
     let mut defs = Definitions::new();
     defs.define_all(&[clock(CLOCK), track(5, CLOCK), track(9, CLOCK)])
         .unwrap();
-    let write =
-        |c: &mut ww_tape::PieceChain<ww_tape::Files>, defs: &Definitions, track: u32, from: i64| {
-            for k in from..from + 2 {
-                let w = c.writer().unwrap();
-                let b = on_tracks(w.next_id(), &[(track, k, b"data")]);
-                c.write_block(defs, &b).unwrap();
-            }
-        };
-    let mut c = ww_tape::piece::fs::create(&dir, owner, 0, &[], opts.clone()).unwrap();
+    let write = |c: &mut ww_tape::PieceChain<ww_tape_fs::Files>,
+                 defs: &Definitions,
+                 track: u32,
+                 from: i64| {
+        for k in from..from + 2 {
+            let w = c.writer().unwrap();
+            let b = on_tracks(w.next_id(), &[(track, k, b"data")]);
+            c.write_block(defs, &b).unwrap();
+        }
+    };
+    let mut c = ww_tape_fs::chain::create(&dir, owner, 0, &[], opts.clone()).unwrap();
     write(&mut c, &defs, 5, 0);
     c.cut_now().unwrap();
     write(&mut c, &defs, 9, 10);
@@ -977,11 +979,11 @@ fn a_resumed_piece_takes_the_definitions_passed() {
     write(&mut c, &defs, 9, 20);
     // a crash: the last piece is left unfinished
     drop(c);
-    let (mut c, _) = ww_tape::piece::fs::resume(&dir, owner, 0, opts).unwrap();
+    let (mut c, _) = ww_tape_fs::chain::resume(&dir, owner, 0, opts).unwrap();
     write(&mut c, &defs, 9, 30);
     write(&mut c, &defs, 5, 40);
     let pieces = c.finish().unwrap();
-    let bytes = std::fs::read(ww_tape::Files::new(&dir).path_of(pieces[2].tape)).unwrap();
+    let bytes = std::fs::read(ww_tape_fs::Files::new(&dir).path_of(pieces[2].tape)).unwrap();
     let r = TapeReader::open(&bytes[..]).unwrap();
     for b in record_blocks(&bytes)
         .iter()

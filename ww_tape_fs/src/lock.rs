@@ -43,7 +43,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use super::fs::{FsError, partial_name};
+use crate::sink::{FsError, partial_name};
 
 /// How often a file sink opens its lock file again after a holder removed the one it opened: each time is a
 /// holder that let go meanwhile.

@@ -2,8 +2,12 @@
 
 use std::path::Path;
 
-use super::{Finished, ResumeError, Resumed, SyncPolicy, TapeWriter, WriteError, WriterOptions};
-use crate::sink::{FileSink, Files, FsError, sink_err};
+use ww_tape::sink::sink_err;
+use ww_tape::writer::{
+    Finished, ResumeError, Resumed, SyncPolicy, TapeWriter, WriteError, WriterOptions,
+};
+
+use crate::sink::{FileSink, Files, FsError};
 
 /// A new file at `path`, written as `path.partial` until [TapeWriter::finish]; fails if `path` is there or a
 /// `path.partial` holds bytes ([FileSink::create]).
@@ -41,7 +45,7 @@ pub fn resume(
     }
 }
 
-/// End the piece `writer` writes as [FinishState::Continued](crate::FinishState::Continued) and start the next piece
+/// End the piece `writer` writes as [FinishState::Continued](ww_tape::FinishState::Continued) and start the next piece
 /// of the chain in a new file at `next_path`, see [TapeWriter::cut_with].
 pub fn cut(
     writer: TapeWriter<FileSink>,

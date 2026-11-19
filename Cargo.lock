@@ -1021,7 +1021,6 @@ dependencies = [
  "blake3",
  "exact_units",
  "lz4_flex",
- "rustix",
  "shrink_wrap",
  "wire_weaver_evolution",
  "ww_tape_codecs",
@@ -1039,6 +1038,7 @@ dependencies = [
  "motor_sim",
  "shrink_wrap",
  "ww_tape",
+ "ww_tape_fs",
 ]
 
 [[package]]
@@ -1056,6 +1056,15 @@ dependencies = [
  "anyhow",
  "exact_units",
  "shrink_wrap",
+ "ww_tape",
+]
+
+[[package]]
+name = "ww_tape_fs"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "rustix",
  "ww_tape",
 ]
 
@@ -1078,6 +1087,7 @@ dependencies = [
  "exact_units",
  "shrink_wrap",
  "ww_tape",
+ "ww_tape_fs",
 ]
 
 [[package]]

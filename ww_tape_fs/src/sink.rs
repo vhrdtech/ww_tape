@@ -4,10 +4,11 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-use super::lock::FileLock;
-use super::{BaseRefused, TapeSink, Tapes, check_base};
-use crate::piece::piece_name;
-use crate::reader::ByteSource;
+use ww_tape::reader::ByteSource;
+use ww_tape::sink::{BaseRefused, TapeSink, Tapes, check_base};
+
+use crate::chain::piece_name;
+use crate::lock::FileLock;
 
 /// Why a [FileSink], [Files] or [FileSource] failed or refused.
 #[derive(Debug)]
@@ -21,7 +22,7 @@ pub enum FsError {
     },
     /// A new file that is already there (or a `.partial` a crash left that holds bytes).
     Exists(PathBuf),
-    /// Another writer holds the file: one writer per file ([crate::sink]).
+    /// Another writer holds the file: one writer per file ([ww_tape::sink]).
     Locked(PathBuf),
     /// The `.partial` file `create` opened is no longer the one its name points to once locked: another writer
     /// finished and renamed it, or it was replaced. Nothing is written.
@@ -392,7 +393,7 @@ impl Files {
     }
 
     /// The one file `path` under every key: the file of a chain whose pieces are all in one
-    /// ([PieceTapes::One](crate::PieceTapes::One)).
+    /// ([PieceTapes::One](ww_tape::PieceTapes::One)).
     pub fn file(path: &Path) -> Self {
         Files(Names::File(path.to_path_buf()))
     }

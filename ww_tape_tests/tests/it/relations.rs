@@ -708,11 +708,11 @@ fn every_monotone_relation_keeps_its_newest_value_across_resumes() {
             cut: CutPolicy::default(),
             ..ChainOptions::default()
         };
-        let mut c = ww_tape::piece::fs::create(&at, owner, 0, &[], options()).unwrap();
+        let mut c = ww_tape_fs::chain::create(&at, owner, 0, &[], options()).unwrap();
         write(c.writer().unwrap(), &defs, 0, &[1, 2], &[100, 101]).unwrap();
         c.cut_now().unwrap();
         drop(c);
-        let (mut c, _) = ww_tape::piece::fs::resume(&at, owner, 0, options()).unwrap();
+        let (mut c, _) = ww_tape_fs::chain::resume(&at, owner, 0, options()).unwrap();
         let w = c.writer().unwrap();
         assert!(
             seq_decrease(write(w, &defs, 2, &[3, 4], &[5, 6]), 2),
@@ -723,7 +723,7 @@ fn every_monotone_relation_keeps_its_newest_value_across_resumes() {
         drop(c);
         // the last chunk of the track, in the piece finished last, doesn't read
         let first = match files {
-            PieceTapes::Each => at.join(ww_tape::piece::piece_name(1)),
+            PieceTapes::Each => at.join(ww_tape_fs::piece_name(1)),
             PieceTapes::One => at.clone(),
         };
         let mut bytes = std::fs::read(&first).unwrap();
@@ -733,7 +733,7 @@ fn every_monotone_relation_keeps_its_newest_value_across_resumes() {
         };
         damage_last_chunk(&mut bytes[start..]);
         std::fs::write(&first, &bytes).unwrap();
-        let (mut c, _) = ww_tape::piece::fs::resume(&at, owner, 0, options()).unwrap();
+        let (mut c, _) = ww_tape_fs::chain::resume(&at, owner, 0, options()).unwrap();
         let r = write(c.writer().unwrap(), &defs, 4, &[5, 6], &[200, 201]);
         assert!(unread(&r), "{files:?}: {r:?}");
     }

@@ -5,6 +5,7 @@ members = [
     "ww_tape_benchmarks",
     "ww_tape_codecs",
     "ww_tape_figures",
+    "ww_tape_fs",
     "ww_tape_fuzz",
     "ww_tape_tests",
 ]
@@ -22,6 +23,7 @@ license = "MIT"
 [workspace.dependencies]
 ww_tape = { version = "0.1.0", path = "./ww_tape", default-features = false }
 ww_tape_codecs = { version = "0.1.0", path = "./ww_tape_codecs", default-features = false }
+ww_tape_fs = { version = "0.1.0", path = "./ww_tape_fs" }
 ww_tape_fuzz = { version = "0.1.0", path = "./ww_tape_fuzz" }
 
 # git dependencies without rev or tag: Cargo.lock pins the commit, `cargo update -p NAME` moves it
@@ -43,7 +45,7 @@ lewton = { version = "0.10", default-features = false, features = ["ogg"] }
 libm = "0.2"
 # exact: ww_tape lz4 payload columns must compress to the same bytes (ww_tape_codecs/src/lz4.rs)
 lz4_flex = { version = "=0.14.0", default-features = false, features = ["safe-decode", "checked-decode"] }
-# ww_tape on unix: the per-process record lock of a file sink's lock file (fcntl F_SETLK), which a forked child doesn't hold
+# ww_tape_fs on unix: the per-process record lock of a file sink's lock file (fcntl F_SETLK), which a forked child doesn't hold
 rustix = { version = "1.1", default-features = false, features = ["fs", "std"] }
 
 [workspace.lints.rust]

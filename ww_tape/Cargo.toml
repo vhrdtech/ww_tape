@@ -12,7 +12,7 @@ repository.workspace = true
 default = ["std"]
 # the positional reader (TapeReader over a ByteSource) and the piece chain check, without std (WASM)
 alloc = []
-# owned describe records, file reading and writing
+# owned describe records, memory sinks and stores, the system clock, reading blocks from an io::Read (FileBlocks)
 std = [
     "alloc",
     "blake3/std",
@@ -20,11 +20,7 @@ std = [
     "shrink_wrap/std",
     "ww_tape_codecs/std",
     "ww_version/std",
-    "dep:rustix",
 ]
-
-[target.'cfg(unix)'.dependencies]
-rustix = { workspace = true, optional = true }
 
 [dependencies]
 blake3.workspace = true

@@ -255,7 +255,7 @@ pub use open::{Definitions, DescribeError, RecordRef, STATE_ITEM_MAX, TrackFacts
 #[cfg(feature = "alloc")]
 pub mod sink;
 #[cfg(feature = "std")]
-pub use sink::{FileSink, Files, FsError, MemError, MemSink, MemTape, MemTapes};
+pub use sink::{MemError, MemSink, MemTape, MemTapes};
 #[cfg(feature = "alloc")]
 pub use sink::{TapeSink, Tapes};
 #[cfg(feature = "alloc")]

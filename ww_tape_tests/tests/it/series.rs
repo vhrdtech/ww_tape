@@ -168,7 +168,7 @@ fn series_defs() -> &'static ww_tape::Definitions {
 
 /// Write the open column as chunks of at most [CHUNK_MAX] samples on `grid`.
 fn seal(
-    w: &mut TapeWriter<ww_tape::FileSink>,
+    w: &mut TapeWriter<ww_tape_fs::FileSink>,
     grid: SeriesGrid,
     first: &mut u64,
     column: &mut Vec<i32>,
@@ -211,7 +211,7 @@ fn seal(
 /// a new grid after the gap.
 fn write(path: &std::path::Path) {
     let p = period();
-    let mut w = ww_tape::writer::fs::create(path, SyncPolicy::None).unwrap();
+    let mut w = ww_tape_fs::writer::create(path, SyncPolicy::None).unwrap();
     w.set_alignment(ww_tape::ALIGNMENT).unwrap();
     let mut grid = series_def().first_grid(START);
     w.set_session(crate::id(0).session).unwrap();
@@ -523,7 +523,7 @@ fn series_file_is_deterministic_and_golden() {
 #[test]
 fn writer_refuses_what_a_series_track_does_not_hold() {
     let dir = scratch("refuse");
-    let mut w = ww_tape::writer::fs::create(&dir.join("r.wwt"), SyncPolicy::None).unwrap();
+    let mut w = ww_tape_fs::writer::create(&dir.join("r.wwt"), SyncPolicy::None).unwrap();
     w.set_session(crate::id(0).session).unwrap();
     let defs = series_defs();
     let grid = series_def().first_grid(START);
@@ -603,7 +603,7 @@ fn writer_refuses_what_a_series_track_does_not_hold() {
 #[test]
 fn caller_chunks_are_checked_once() {
     let dir = scratch("caller");
-    let mut w = ww_tape::writer::fs::create(&dir.join("c.wwt"), SyncPolicy::None).unwrap();
+    let mut w = ww_tape_fs::writer::create(&dir.join("c.wwt"), SyncPolicy::None).unwrap();
     w.set_session(crate::id(0).session).unwrap();
     let defs = series_defs();
     let grid = series_def().first_grid(START);
@@ -675,7 +675,7 @@ fn caller_chunks_are_checked_once() {
 #[test]
 fn writer_refuses_chunks_too_long_without_a_panic() {
     let dir = scratch("too_long");
-    let mut w = ww_tape::writer::fs::create(&dir.join("t.wwt"), SyncPolicy::None).unwrap();
+    let mut w = ww_tape_fs::writer::create(&dir.join("t.wwt"), SyncPolicy::None).unwrap();
     w.set_session(crate::id(0).session).unwrap();
     w.set_alignment(ww_tape::ALIGNMENT).unwrap();
     let defs = series_defs();

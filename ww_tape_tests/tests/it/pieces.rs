@@ -68,7 +68,7 @@ pub(crate) fn column(bytes: &[u8]) -> [(ColumnSpec, &[u8]); 1] {
 }
 
 /// `rounds` × (a chunk of each of 3 tracks, a records block), checkpoints every 2 KiB.
-fn write_tape(w: &mut TapeWriter<ww_tape::FileSink>, rounds: u64) {
+fn write_tape(w: &mut TapeWriter<ww_tape_fs::FileSink>, rounds: u64) {
     w.set_index_policy(IndexPolicy {
         bytes: 2048,
         interval: None,
@@ -113,8 +113,8 @@ fn listed(kind: BlockKind) -> bool {
 fn create_keeps_an_unfinished_file() {
     let dir = scratch("create_partial");
     let path = dir.join("a.wwt");
-    let partial = ww_tape::writer::partial_name(&path);
-    let mut w = ww_tape::writer::fs::create(&path, SyncPolicy::None).unwrap();
+    let partial = ww_tape_fs::partial_name(&path);
+    let mut w = ww_tape_fs::writer::create(&path, SyncPolicy::None).unwrap();
     w.write_block(crate::definitions::base_defs(), &records(w.next_id(), 1))
         .unwrap();
     w.sync().unwrap();
@@ -122,19 +122,19 @@ fn create_keeps_an_unfinished_file() {
     drop(w);
     let before = std::fs::read(&partial).unwrap();
     assert!(!before.is_empty());
-    let r = ww_tape::writer::fs::create(&path, SyncPolicy::None);
+    let r = ww_tape_fs::writer::create(&path, SyncPolicy::None);
     assert!(
         matches!(
             &r,
-            Err(ww_tape::WriteError::Sink { error: ww_tape::FsError::Exists(p), .. }) if *p == partial
+            Err(ww_tape::WriteError::Sink { error: ww_tape_fs::FsError::Exists(p), .. }) if *p == partial
         ),
         "{:?}",
         r.err()
     );
     assert_eq!(std::fs::read(&partial).unwrap(), before);
-    ww_tape::writer::fs::resume(&path, Default::default()).unwrap();
+    ww_tape_fs::writer::resume(&path, Default::default()).unwrap();
     std::fs::write(&partial, b"").unwrap();
-    ww_tape::writer::fs::create(&path, SyncPolicy::None).unwrap();
+    ww_tape_fs::writer::create(&path, SyncPolicy::None).unwrap();
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -142,7 +142,7 @@ fn create_keeps_an_unfinished_file() {
 fn finished_file_is_found_by_its_tail() {
     let dir = scratch("tail");
     let path = dir.join("t.wwt");
-    let mut w = ww_tape::writer::fs::create(&path, SyncPolicy::None).unwrap();
+    let mut w = ww_tape_fs::writer::create(&path, SyncPolicy::None).unwrap();
     write_tape(&mut w, 20);
     let done = w.finish().unwrap();
     let bytes = std::fs::read(&path).unwrap();
@@ -238,7 +238,7 @@ fn finished_file_is_found_by_its_tail() {
 fn crash_anywhere_loses_only_the_cut_block() {
     let dir = scratch("crash");
     let path = dir.join("t.wwt");
-    let mut w = ww_tape::writer::fs::create(&path, SyncPolicy::None).unwrap();
+    let mut w = ww_tape_fs::writer::create(&path, SyncPolicy::None).unwrap();
     write_tape(&mut w, 12);
     // the writer dies here: no finish
     drop(w);
@@ -299,7 +299,7 @@ fn crash_anywhere_loses_only_the_cut_block() {
 fn aligned_file_places_checkpoints_in_gaps() {
     let dir = scratch("aligned");
     let path = dir.join("t.wwt");
-    let mut w = ww_tape::writer::fs::create(&path, SyncPolicy::None).unwrap();
+    let mut w = ww_tape_fs::writer::create(&path, SyncPolicy::None).unwrap();
     w.set_alignment(ww_tape::ALIGNMENT).unwrap();
     write_tape(&mut w, 10);
     w.finish().unwrap();
@@ -323,7 +323,7 @@ fn aligned_file_places_checkpoints_in_gaps() {
 
 /// Write chain `n` of a owner, pieces cut every 4 chunks; the piece files in order.
 fn write_chain(dir: &Path, n: u64) -> Vec<PathBuf> {
-    let mut chain = ww_tape::piece::fs::create(
+    let mut chain = ww_tape_fs::chain::create(
         dir,
         OwnerId([0x42; 32]),
         n,
@@ -358,7 +358,7 @@ fn write_chain(dir: &Path, n: u64) -> Vec<PathBuf> {
         .finish()
         .unwrap()
         .into_iter()
-        .map(|f| ww_tape::Files::new(dir).path_of(f.tape))
+        .map(|f| ww_tape_fs::Files::new(dir).path_of(f.tape))
         .collect()
 }
 
@@ -367,7 +367,7 @@ fn write_chain(dir: &Path, n: u64) -> Vec<PathBuf> {
 #[test]
 fn a_chain_cuts_when_its_piece_is_full_of_state_entries() {
     let dir = scratch("state_full");
-    let mut chain = ww_tape::piece::fs::create(
+    let mut chain = ww_tape_fs::chain::create(
         &dir,
         OwnerId([0x43; 32]),
         0,
@@ -396,7 +396,7 @@ fn a_chain_cuts_when_its_piece_is_full_of_state_entries() {
         .finish()
         .unwrap()
         .into_iter()
-        .map(|f| ww_tape::Files::new(&dir).path_of(f.tape))
+        .map(|f| ww_tape_fs::Files::new(&dir).path_of(f.tape))
         .collect();
     assert_eq!(pieces.len(), 2);
     let bytes = std::fs::read(&pieces[1]).unwrap();
@@ -654,7 +654,7 @@ fn finished_pieces_then_an_unfinished_one() {
 fn index_golden() {
     use ww_tape::{Definitions, Describe};
     let dir = scratch("golden");
-    let mut chain = ww_tape::piece::fs::create(
+    let mut chain = ww_tape_fs::chain::create(
         &dir,
         OwnerId([7; 32]),
         0,
@@ -710,7 +710,7 @@ fn index_golden() {
         .finish()
         .unwrap()
         .into_iter()
-        .map(|f| ww_tape::Files::new(&dir).path_of(f.tape))
+        .map(|f| ww_tape_fs::Files::new(&dir).path_of(f.tape))
         .collect();
     let mut hex = String::new();
     for p in &paths {
@@ -758,13 +758,13 @@ fn incomplete_golden() {
         ..Default::default()
     };
     let defs = crate::definitions::base_defs();
-    let mut chain = ww_tape::piece::fs::create(&dir, owner, 0, &[], options()).unwrap();
+    let mut chain = ww_tape_fs::chain::create(&dir, owner, 0, &[], options()).unwrap();
     for n in 0..8 {
         let id = chain.writer().unwrap().next_id();
         chain.write_block(defs, &records(id, n)).unwrap();
     }
     drop(chain);
-    let partial = ww_tape::writer::partial_name(&dir.join(ww_tape::piece::piece_name(0)));
+    let partial = ww_tape_fs::partial_name(&dir.join(ww_tape_fs::piece_name(0)));
     let mut bytes = std::fs::read(&partial).unwrap();
     let listed = TapeReader::open(&bytes[..])
         .unwrap()
@@ -775,7 +775,7 @@ fn incomplete_golden() {
         .unwrap();
     bytes[(listed.offset + u64::from(listed.len)) as usize - 8] ^= 1;
     std::fs::write(&partial, &bytes).unwrap();
-    let (mut chain, _) = ww_tape::piece::fs::resume(&dir, owner, 0, options()).unwrap();
+    let (mut chain, _) = ww_tape_fs::chain::resume(&dir, owner, 0, options()).unwrap();
     for n in 8..10 {
         let id = chain.writer().unwrap().next_id();
         chain.write_block(defs, &records(id, n)).unwrap();
@@ -787,7 +787,7 @@ fn incomplete_golden() {
         .finish()
         .unwrap()
         .into_iter()
-        .map(|f| ww_tape::Files::new(&dir).path_of(f.tape))
+        .map(|f| ww_tape_fs::Files::new(&dir).path_of(f.tape))
         .collect();
     assert_eq!(paths.len(), 2);
     let Describe::Track(t9) = crate::definitions::track(9, crate::definitions::CLOCK) else {
@@ -937,7 +937,7 @@ fn a_damaged_block_of_definitions_reads_from_their_copies() {
     for finished in [false, true] {
         let dir = scratch(&format!("damaged_describe_{finished}"));
         let path = dir.join("p.wwt");
-        let mut w = ww_tape::writer::fs::create(&path, SyncPolicy::None).unwrap();
+        let mut w = ww_tape_fs::writer::create(&path, SyncPolicy::None).unwrap();
         let owner = OwnerId([7; 32]);
         let head = ww_tape::PieceHead {
             ident: ww_tape::PieceIdent {
@@ -997,7 +997,7 @@ fn a_damaged_block_of_definitions_reads_from_their_copies() {
 #[test]
 fn the_near_policy_carries_over_a_cut() {
     let dir = scratch("near_cut");
-    let mut w = ww_tape::writer::fs::create(&dir.join("a.wwt"), SyncPolicy::None).unwrap();
+    let mut w = ww_tape_fs::writer::create(&dir.join("a.wwt"), SyncPolicy::None).unwrap();
     w.set_index_policy(IndexPolicy::NONE)
         .expect("a policy with room for a piece head");
     let policy = ww_tape::writer::NearPolicy {
@@ -1017,7 +1017,7 @@ fn the_near_policy_carries_over_a_cut() {
         integrity: ww_tape::Integrity::Full,
     };
     w.begin_piece(&head, &[]).unwrap();
-    let (_, mut next) = ww_tape::writer::fs::cut(w, &dir.join("b.wwt")).unwrap();
+    let (_, mut next) = ww_tape_fs::writer::cut(w, &dir.join("b.wwt")).unwrap();
     assert_eq!(next.options().near, policy);
     for k in 0..4 {
         let (h, c) = big_chunk(k);
@@ -1038,7 +1038,7 @@ fn the_near_policy_carries_over_a_cut() {
 fn a_replaced_block_leaves_the_index() {
     let dir = scratch("replaced");
     let path = dir.join("r.wwt");
-    let mut w = ww_tape::writer::fs::create(&path, SyncPolicy::None).unwrap();
+    let mut w = ww_tape_fs::writer::create(&path, SyncPolicy::None).unwrap();
     let id = w.next_id();
     w.write_block(crate::definitions::base_defs(), &records(id, 1))
         .unwrap();
@@ -1093,7 +1093,7 @@ fn a_replaced_block_leaves_the_index() {
 #[test]
 fn every_block_of_data_has_its_definitions_behind_it() {
     let dir = scratch("behind");
-    let mut w = ww_tape::writer::fs::create(&dir.join("a.wwt"), SyncPolicy::None).unwrap();
+    let mut w = ww_tape_fs::writer::create(&dir.join("a.wwt"), SyncPolicy::None).unwrap();
     w.set_index_policy(IndexPolicy::NONE)
         .expect("a policy with room for a piece head");
     let owner = OwnerId([9; 32]);
@@ -1117,7 +1117,7 @@ fn every_block_of_data_has_its_definitions_behind_it() {
     for n in 50..100 {
         w.write_block(&defs, &records(w.next_id(), n)).unwrap();
     }
-    let (_, mut next) = ww_tape::writer::fs::cut(w, &dir.join("b.wwt")).unwrap();
+    let (_, mut next) = ww_tape_fs::writer::cut(w, &dir.join("b.wwt")).unwrap();
     for n in 100..110 {
         next.write_block(&defs, &records(next.next_id(), n))
             .unwrap();

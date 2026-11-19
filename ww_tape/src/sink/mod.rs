@@ -1,34 +1,26 @@
-//! [TapeSink]: where a [TapeWriter](crate::TapeWriter) puts its bytes, a file ([FileSink]) or memory ([MemSink]).
+//! [TapeSink]: where a [TapeWriter](crate::TapeWriter) puts its bytes, memory ([MemSink]) or a file (`FileSink` of
+//! the crate `ww_tape_fs`).
 //!
 //! A sink appends, syncs, finishes and, for [TapeWriter::resume_on](crate::TapeWriter::resume_on), reads back and
 //! truncates. A store of [Tapes] makes the sink of each piece of a [PieceChain](crate::PieceChain) by its key:
-//! [Files] keeps each piece in a file of a directory, created as `NAME.partial` and renamed to `NAME` at the finish,
 //! [MemTapes] keeps each piece in memory under its key, where a [TapeReader](crate::TapeReader) reads it while it
-//! is written ([MemTape] is a [ByteSource]).
+//! is written ([MemTape] is a [ByteSource]); `ww_tape_fs::Files` keeps each piece in a file of a directory, created
+//! as `NAME.partial` and renamed to `NAME` at the finish.
 //!
 //! A chain may also keep all its pieces in one file or memory tape ([Tapes::create_whole],
 //! [Tapes::open_whole]): the writer of the next piece goes on in the same sink, whose window
 //! ([TapeSink::base], [TapeSink::rebase]) starts where the piece before ended, so offsets, reads and truncates count
 //! from the piece's start as in a file of its own.
 //!
-//! A sink is the only writer of its bytes while it lives: a file sink holds an exclusive lock on the lock file
-//! `NAME.lock` beside it, which only writers open (advisory: other writers of the format take it too; a child process
-//! forked meanwhile doesn't hold it, see [lock_name]), a memory sink marks its tape held. A second sink of the same
-//! bytes is refused ([FsError::Locked], [MemError::Locked]), so two writers never fork one file.
+//! A sink is the only writer of its bytes while it lives: a memory sink marks its tape held, a file sink holds an
+//! exclusive lock on the lock file `NAME.lock` beside it. A second sink of the same bytes is refused
+//! ([MemError::Locked], `ww_tape_fs::FsError::Locked`), so two writers never fork one tape.
 
 use crate::reader::ByteSource;
 use crate::writer::WriteError;
 
 #[cfg(feature = "std")]
-mod fs;
-#[cfg(feature = "std")]
-mod lock;
-#[cfg(feature = "std")]
 mod mem;
-#[cfg(feature = "std")]
-pub use fs::{FileSink, FileSource, Files, FsError, partial_name};
-#[cfg(feature = "std")]
-pub use lock::{LOCK_TRIES_MAX, lock_name};
 #[cfg(feature = "std")]
 pub use mem::{MemError, MemSink, MemTape, MemTapes};
 

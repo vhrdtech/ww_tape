@@ -4,8 +4,9 @@
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use ww_tape::sink::lock_name;
-use ww_tape::{FileSink, SyncPolicy};
+use ww_tape::SyncPolicy;
+use ww_tape_fs::FileSink;
+use ww_tape_fs::lock_name;
 
 use crate::pieces::scratch;
 
@@ -33,7 +34,7 @@ fn lock_child() {
     let verdict = match opened {
         Ok(Some(_)) => "free",
         Ok(None) => "missing",
-        Err(ww_tape::FsError::Locked(_)) => "locked",
+        Err(ww_tape_fs::FsError::Locked(_)) => "locked",
         Err(e) => panic!("{e}"),
     };
     println!("lock-child: {verdict}");
@@ -73,7 +74,7 @@ fn try_op_in_child(path: &Path, op: &str) -> String {
 fn a_writer_holds_its_file_against_another_process() {
     let dir = scratch("lock_process");
     let path = dir.join("a.wwt");
-    let w = ww_tape::writer::fs::create(&path, SyncPolicy::None).unwrap();
+    let w = ww_tape_fs::writer::create(&path, SyncPolicy::None).unwrap();
     // readers in the writer's process open and close the file: a record lock on it would go with the first close
     for _ in 0..3 {
         drop(std::fs::File::open(w.sink().current_path()).unwrap());
@@ -103,7 +104,7 @@ fn one_file_has_one_lock_whatever_its_name() {
     for name in [&link, &hard] {
         let r = FileSink::append(name);
         assert!(
-            matches!(r, Err(ww_tape::FsError::Locked(_))),
+            matches!(r, Err(ww_tape_fs::FsError::Locked(_))),
             "{}: {:?}",
             name.display(),
             r.err()
@@ -114,10 +115,10 @@ fn one_file_has_one_lock_whatever_its_name() {
 
     let y = dir.join("y.wwt");
     let creating = FileSink::create(&y).unwrap();
-    let partial = ww_tape::sink::partial_name(&y);
+    let partial = ww_tape_fs::partial_name(&y);
     let r = FileSink::append(&partial);
     assert!(
-        matches!(r, Err(ww_tape::FsError::Locked(_))),
+        matches!(r, Err(ww_tape_fs::FsError::Locked(_))),
         "{:?}",
         r.err()
     );
@@ -138,7 +139,7 @@ fn a_lock_file_that_is_a_link_is_refused() {
     std::os::unix::fs::symlink(&other, lock_name(&path)).unwrap();
     let r = FileSink::append(&path);
     assert!(
-        matches!(&r, Err(ww_tape::FsError::NotAFile(p)) if *p == lock_name(&path)),
+        matches!(&r, Err(ww_tape_fs::FsError::NotAFile(p)) if *p == lock_name(&path)),
         "{:?}",
         r.err()
     );
@@ -150,7 +151,7 @@ fn a_lock_file_that_is_a_link_is_refused() {
     std::os::unix::fs::symlink(&target, lock_name(&path)).unwrap();
     let r = FileSink::append(&path);
     assert!(
-        matches!(&r, Err(ww_tape::FsError::NotAFile(_))),
+        matches!(&r, Err(ww_tape_fs::FsError::NotAFile(_))),
         "{:?}",
         r.err()
     );
@@ -173,9 +174,9 @@ fn a_fifo_is_refused_without_waiting() {
         .status()
         .expect("mkfifo, a POSIX utility, makes the FIFO");
     assert!(made.success());
-    let refused = |r: Result<(), ww_tape::FsError>| {
+    let refused = |r: Result<(), ww_tape_fs::FsError>| {
         assert!(
-            matches!(&r, Err(ww_tape::FsError::NotAFile(p)) if *p == path),
+            matches!(&r, Err(ww_tape_fs::FsError::NotAFile(p)) if *p == path),
             "{:?}",
             r.err()
         );
@@ -199,7 +200,7 @@ fn a_name_too_long_for_its_lock_file_is_locked_under_a_hash() {
     assert!(lock.exists());
     let r = FileSink::append(&path);
     assert!(
-        matches!(r, Err(ww_tape::FsError::Locked(_))),
+        matches!(r, Err(ww_tape_fs::FsError::Locked(_))),
         "{:?}",
         r.err()
     );
@@ -218,7 +219,7 @@ fn a_child_held_between_fork_and_exec_holds_no_lock() {
     use std::os::unix::process::CommandExt;
     let dir = scratch("lock_fork");
     let path = dir.join("a.wwt");
-    let w = ww_tape::writer::fs::create(&path, SyncPolicy::None).unwrap();
+    let w = ww_tape_fs::writer::create(&path, SyncPolicy::None).unwrap();
     let (mut release_rx, mut release_tx) = std::io::pipe().unwrap();
     let (mut forked_rx, mut forked_tx) = std::io::pipe().unwrap();
     let mut cmd = Command::new("true");
@@ -239,7 +240,7 @@ fn a_child_held_between_fork_and_exec_holds_no_lock() {
     forked_rx.read_exact(&mut b).unwrap();
     // the child is forked and holds a copy of every descriptor the writer has
     drop(w);
-    let again = ww_tape::FileSink::reopen(&path);
+    let again = ww_tape_fs::FileSink::reopen(&path);
     release_tx.write_all(b"r").unwrap();
     let mut child = spawned.join().unwrap().unwrap();
     assert!(child.wait().unwrap().success());

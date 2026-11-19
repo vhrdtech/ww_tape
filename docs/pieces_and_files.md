@@ -90,11 +90,11 @@ let options = ChainOptions {
     tapes: PieceTapes::One,
     ..ChainOptions::default()
 };
-let mut chain = ww_tape::piece::fs::create(path, owner, 0, &[], options.clone())?;
+let mut chain = ww_tape_fs::chain::create(path, owner, 0, &[], options.clone())?;
 chain.write_chunk(defs, head, columns)?;
 let first = chain.finish()?;
 // opened again: a new piece behind the finished one
-let (mut chain, _) = ww_tape::piece::fs::resume(path, owner, 0, options)?;
+let (mut chain, _) = ww_tape_fs::chain::resume(path, owner, 0, options)?;
 chain.write_chunk(defs, head, columns)?;
 let second = chain.finish()?;
 ```

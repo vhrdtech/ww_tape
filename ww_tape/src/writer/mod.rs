@@ -32,7 +32,8 @@
 //! gap before the next chunk). So what the writer adds is a function of the blocks before it and the calls since, and
 //! [TapeWriter::resume_on] rebuilds the writer of an unfinished piece from its bytes alone ([resume]).
 //!
-//! A writer puts its bytes in a [TapeSink]: a file ([crate::FileSink] with `std`) or memory ([crate::sink::MemSink]).
+//! A writer puts its bytes in a [TapeSink]: memory ([crate::sink::MemSink], with `std`) or a file (`FileSink` of the
+//! crate `ww_tape_fs`).
 
 use alloc::borrow::ToOwned;
 use alloc::boxed::Box;
@@ -50,8 +51,6 @@ use crate::piece::{
     piece_head_len, write_finish, write_piece_head,
 };
 use crate::reader::wide;
-#[cfg(feature = "std")]
-pub use crate::sink::partial_name;
 use crate::sink::{TapeSink, Tapes, sink_err};
 use crate::state::{ItemHash, Slot};
 use crate::{
@@ -61,8 +60,6 @@ use crate::{
 use alloc::collections::BTreeSet;
 
 mod error;
-#[cfg(feature = "std")]
-pub mod fs;
 pub mod near;
 mod relations;
 pub mod resume;

@@ -3,11 +3,11 @@
 //! [TapeReader::read_block].
 
 use ww_tape::index::{IndexEntry, IndexPolicy};
-use ww_tape::piece::piece_name;
 use ww_tape::{
     BlockId, BlockKind, ChainOptions, CutPolicy, MemSink, OwnerId, SessionTag, SyncPolicy,
     TapeReader, TapeWriter, WriterOptions,
 };
+use ww_tape_fs::piece_name;
 
 use crate::pieces::{chunk, column, records, scratch};
 
@@ -138,7 +138,7 @@ fn adopt_block_says_where_it_landed() {
 #[test]
 fn piece_chain_write_chunk_says_which_piece_it_landed_in() {
     let dir = scratch("placed");
-    let mut chain = ww_tape::piece::fs::create(
+    let mut chain = ww_tape_fs::chain::create(
         &dir,
         OwnerId([0x45; 32]),
         0,

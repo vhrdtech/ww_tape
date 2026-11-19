@@ -2,10 +2,10 @@
 
 use std::path::Path;
 
-use super::writer::{ChainOptions, PieceChain, PieceTapes};
-use super::{OwnerId, TrackStart};
+use ww_tape::writer::{Resumed, WriteError};
+use ww_tape::{ChainOptions, OwnerId, PieceChain, PieceTapes, TrackStart};
+
 use crate::sink::{Files, FsError};
-use crate::writer::{Resumed, WriteError};
 
 /// Name of piece `seq` in its chain's directory: the sequence number in 8 digits, so names sort in chain order.
 pub fn piece_name(seq: u64) -> String {
