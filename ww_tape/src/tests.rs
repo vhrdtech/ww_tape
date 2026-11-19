@@ -1833,3 +1833,30 @@ fn verify_holds_entries_per_track_list_not_per_block() {
         "{steps_small} {steps_large}"
     );
 }
+
+/// A memory sink that refuses a piece start says why, in its error and its source.
+#[test]
+fn a_memory_sink_refusing_a_base_says_why() {
+    use crate::sink::BaseRefused;
+    use core::error::Error;
+
+    let mut one = MemSink::new();
+    one.write_all(b"abc").unwrap();
+    let e = one.rebase(1).unwrap_err();
+    assert_eq!(e, MemError::Base(BaseRefused::OnePiece));
+    assert_eq!(
+        e.source().unwrap().to_string(),
+        BaseRefused::OnePiece.to_string()
+    );
+
+    let tapes = MemTapes::<u64>::new();
+    let mut whole = tapes.create_whole(&0).unwrap();
+    whole.write_all(b"abc").unwrap();
+    whole.rebase(3).unwrap();
+    let e = whole.rebase(4).unwrap_err();
+    assert_eq!(e, MemError::Base(BaseRefused::PastEnd));
+    assert_eq!(
+        e.to_string(),
+        "a piece can't start there: the base is past the end of the bytes"
+    );
+}

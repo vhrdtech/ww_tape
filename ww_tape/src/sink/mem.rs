@@ -24,7 +24,7 @@ pub enum MemError<K = u64> {
     /// A read past the end of the bytes.
     OutOfRange,
     /// A piece start refused: past the end of the bytes, or any but 0 on a sink of one piece.
-    Base,
+    Base(BaseRefused),
 }
 
 impl<K: core::fmt::Debug> core::fmt::Display for MemError<K> {
@@ -37,14 +37,19 @@ impl<K: core::fmt::Debug> core::fmt::Display for MemError<K> {
             }
             MemError::Poisoned => f.write_str("a writer of the memory tape panicked"),
             MemError::OutOfRange => f.write_str("a read past the end of the memory tape"),
-            MemError::Base => f.write_str(
-                "a piece can't start there: past the end, or in a memory tape of one piece",
-            ),
+            MemError::Base(refused) => write!(f, "a piece can't start there: {refused}"),
         }
     }
 }
 
-impl<K: core::fmt::Debug> core::error::Error for MemError<K> {}
+impl<K: core::fmt::Debug> core::error::Error for MemError<K> {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
+        match self {
+            MemError::Base(refused) => Some(refused),
+            _ => None,
+        }
+    }
+}
 
 impl<K> From<OutOfRange> for MemError<K> {
     fn from(_: OutOfRange) -> Self {
@@ -53,8 +58,8 @@ impl<K> From<OutOfRange> for MemError<K> {
 }
 
 impl<K> From<BaseRefused> for MemError<K> {
-    fn from(_: BaseRefused) -> Self {
-        MemError::Base
+    fn from(refused: BaseRefused) -> Self {
+        MemError::Base(refused)
     }
 }
 
