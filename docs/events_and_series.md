@@ -199,15 +199,16 @@ each with its error returned beside the timeline, and count as lost:
 
 The writer checks each chunk against its own grid only. The rules between neighbouring chunks are checked when the
 timeline is built. In a file aligned for direct I/O, the head reaches up to the alignment boundary, so a head read
-takes about one aligned block. `just bench-chunks` measures a track of 256 chunks of 1 MiB, read in memory, on an AMD
-EPYC Genoa virtual machine with 14 vCPUs at a load average of about 58, so the times are high:
+takes about one aligned block. `just bench-chunks` measures a track of 256 chunks of 1 MiB, read in memory. The bytes
+are exact. The times come from two runs on an AMD EPYC Genoa virtual machine with 14 vCPUs, at load averages of 54 and
+58, so they are high and vary between runs:
 
 | Alignment | Read | Bytes read per chunk | ns per chunk |
 |---|---|---:|---:|
-| none | heads alone | 335 | 827 |
-| none | every whole block | 1 048 895 | 121 345 |
-| 4096 | heads alone | 4 084 | 3 761 |
-| 4096 | every whole block | 1 052 644 | 318 427 |
+| none | heads alone | 335 | 637 to 827 |
+| none | every whole block | 1 048 895 | 105 331 to 121 345 |
+| 4096 | heads alone | 4 084 | 3 485 to 3 761 |
+| 4096 | every whole block | 1 052 644 | 120 175 to 318 427 |
 
 A whole block costs its read and its CRC checks, while a head read never touches the samples. The head grows only by
 its segment CRCs, 4 bytes per 64 KiB of payload, so its cost hardly grows with the chunk.
