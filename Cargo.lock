@@ -894,7 +894,7 @@ dependencies = [
 [[package]]
 name = "wire_weaver_core"
 version = "0.5.0"
-source = "git+https://github.com/vhrdtech/wire_weaver#a7783d427e6a7df693d057e365d6a66811bd99d3"
+source = "git+https://github.com/vhrdtech/wire_weaver#5dfb28c468be06850eb2f40e066e7c9e2ef6f6f1"
 dependencies = [
  "anyhow",
  "cargo_toml",
@@ -922,7 +922,7 @@ dependencies = [
 [[package]]
 name = "wire_weaver_evolution"
 version = "0.5.0"
-source = "git+https://github.com/vhrdtech/wire_weaver#a7783d427e6a7df693d057e365d6a66811bd99d3"
+source = "git+https://github.com/vhrdtech/wire_weaver#5dfb28c468be06850eb2f40e066e7c9e2ef6f6f1"
 dependencies = [
  "exact_units",
  "ron",
@@ -957,7 +957,7 @@ dependencies = [
 [[package]]
 name = "ww_lz4"
 version = "0.1.0"
-source = "git+https://github.com/vhrdtech/wire_weaver#a7783d427e6a7df693d057e365d6a66811bd99d3"
+source = "git+https://github.com/vhrdtech/wire_weaver#5dfb28c468be06850eb2f40e066e7c9e2ef6f6f1"
 dependencies = [
  "lz4_flex",
 ]
@@ -974,7 +974,7 @@ dependencies = [
 [[package]]
 name = "ww_self"
 version = "0.3.0"
-source = "git+https://github.com/vhrdtech/wire_weaver#a7783d427e6a7df693d057e365d6a66811bd99d3"
+source = "git+https://github.com/vhrdtech/wire_weaver#5dfb28c468be06850eb2f40e066e7c9e2ef6f6f1"
 dependencies = [
  "anyhow",
  "exact_units",
@@ -1000,7 +1000,7 @@ dependencies = [
 [[package]]
 name = "ww_snapshots"
 version = "0.5.0"
-source = "git+https://github.com/vhrdtech/wire_weaver#a7783d427e6a7df693d057e365d6a66811bd99d3"
+source = "git+https://github.com/vhrdtech/wire_weaver#5dfb28c468be06850eb2f40e066e7c9e2ef6f6f1"
 dependencies = [
  "anyhow",
  "elsa",
