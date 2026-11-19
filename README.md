@@ -6,6 +6,7 @@
 </p>
 
 [![CI](https://github.com/vhrdtech/ww_tape/actions/workflows/ci.yml/badge.svg)](https://github.com/vhrdtech/ww_tape/actions/workflows/ci.yml)
+[![Book](https://img.shields.io/badge/book-tape.vhrd.tech-blue)](https://tape.vhrd.tech/)
 
 > Tracks of ShrinkWrap records in self-checking, variable-length blocks, for live feeds, log files and raw media.
 
@@ -41,7 +42,7 @@ The pages in [`docs/`](docs) explain the format. They start with these:
 The pages form the ww_tape book, which `just book` builds with Zensical.
 
 The ww_tape book stands apart from the [WireWeaver book](https://ww.vhrd.tech/) and the
-[logring book](https://vhrdtech.github.io/logring/), and it links to them by URL. The exact byte layouts are in the
+[logring book](https://lr.vhrd.tech/), and it links to them by URL. The exact byte layouts are in the
 crate's module docs.
 
 ## Repository layout

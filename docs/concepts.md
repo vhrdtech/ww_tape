@@ -211,5 +211,5 @@ writes each one once, and never repeats it.
 - [Numbers](numbers.md): sizes and speeds, and which codec to choose.
 - [Damage and recovery](recovery.md): what survives a crash, a torn write or a bad sector.
 - [Format reference](format.md): every part of the format, block by block.
-- [Tapes and logring](https://vhrdtech.github.io/logring/tapes_and_logring/), in the logring book: when a device's own
+- [Tapes and logring](https://lr.vhrd.tech/tapes_and_logring/), in the logring book: when a device's own
   log store is the better choice.

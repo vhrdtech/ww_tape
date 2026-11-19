@@ -1,7 +1,7 @@
 # The ww_tape book: the pages in docs/, built with Zensical (`just book`, `just book-serve`, `just book-check`).
 # It stands on its own: the WireWeaver and logring books are separate sites, linked by their URLs.
 [project]
-site_url = "https://vhrdtech.github.io/ww_tape/"
+site_url = "https://tape.vhrd.tech/"
 site_name = "ww_tape"
 site_description = "Tapes: tracks of typed records over time, for live feeds, log files and raw media"
 site_author = "Roman Isaikin"

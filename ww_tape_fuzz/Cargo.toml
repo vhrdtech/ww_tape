@@ -7,6 +7,7 @@ rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 description = "Fuzz target bodies, hostile block builders and seed replay for ww_tape's decoders"
 
 [dependencies]

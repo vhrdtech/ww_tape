@@ -20,6 +20,7 @@ edition = "2024"
 # 1.89: the AVX-512 intrinsics of ww_tape_codecs::bitpack
 rust-version = "1.89"
 repository = "https://github.com/vhrdtech/ww_tape"
+homepage = "https://tape.vhrd.tech/"
 license = "MIT"
 
 [workspace.dependencies]

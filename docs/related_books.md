@@ -27,7 +27,7 @@ The [link tap](https://ww.vhrd.tech/transport/tap/) page of the WireWeaver book 
 
 ## logring: a log store on the device
 
-[logring](https://vhrdtech.github.io/logring/) is a log store for embedded devices. Firmware writes tracks of
+[logring](https://lr.vhrd.tech/) is a log store for embedded devices. Firmware writes tracks of
 shrink_wrap items into a fixed-size ring on a Secure Digital (SD) card or a flash chip.
 
 When the ring is full, the newest data overwrites the oldest. A power cut costs at most the last second of data.
@@ -38,4 +38,4 @@ A logring and a tape both hold tracks of typed items with times, but they answer
 - A tape keeps a whole recording, mostly on a host, and is built for fast reads of one track or a long overview.
 
 The logring book compares the two on the points that decide the
-choice, in [Tapes and logring](https://vhrdtech.github.io/logring/tapes_and_logring/).
+choice, in [Tapes and logring](https://lr.vhrd.tech/tapes_and_logring/).

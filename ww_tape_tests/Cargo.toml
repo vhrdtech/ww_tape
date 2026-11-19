@@ -8,6 +8,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 
 [dev-dependencies]
 # tests/it: CRCs computed apart from the crate's own CRC-32C

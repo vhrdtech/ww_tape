@@ -96,7 +96,7 @@ below give the pages in the order a reader needs them.
 ### Byte layouts and other books
 
 The logring book compares a tape with a device's log store in [Tapes and
-logring](https://vhrdtech.github.io/logring/tapes_and_logring/).
+logring](https://lr.vhrd.tech/tapes_and_logring/).
 
 The module docs of the `ww_tape` crate hold the exact byte layouts, and each page links them. This book explains those
 layouts and does not repeat them.
