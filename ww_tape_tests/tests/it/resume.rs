@@ -1,6 +1,7 @@
 //! Resume after a crash, memory sinks and PieceChain on any sink, through the public API.
 
 use std::collections::BTreeMap;
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use crate::definitions::{CLOCK, base_defs, clock, state, track, tracks};
@@ -278,6 +279,14 @@ fn cut_points(bytes: &[u8], extra: usize) -> Vec<usize> {
     }
     out.sort_unstable();
     out.dedup();
+    out
+}
+
+/// Every `stride`th of `points`, the first and the last kept: a sweep that only needs a few cuts of each kind.
+fn every(points: Vec<usize>, stride: usize) -> Vec<usize> {
+    let last = points.last().copied();
+    let mut out: Vec<usize> = points.into_iter().step_by(stride).collect();
+    out.extend(last.filter(|l| out.last() != Some(l)));
     out
 }
 
@@ -837,64 +846,6 @@ fn replay_chain<F: Tapes>(c: &mut PieceChain<F>, ops: &[Op], made: &Made, kept: 
     }
 }
 
-/// A chain cut off anywhere in any piece, or between a cut's finish and the next piece, resumes and ends with the
-/// pieces of the chain written without the crash; the pieces finished before are read back.
-#[test]
-fn a_chain_cut_anywhere_resumes_to_the_same_pieces() {
-    let dir = scratch("chain_resume");
-    let want_dir = dir.join("want");
-    std::fs::create_dir(&want_dir).unwrap();
-    let ops = ops(14);
-    let (paths, made) = reference_chain(&want_dir, &ops);
-    assert!(paths.len() >= 4, "{} pieces", paths.len());
-    let want: Vec<Vec<u8>> = paths.iter().map(|p| std::fs::read(p).unwrap()).collect();
-    let mut runs = 0;
-    for (i, piece) in want.iter().enumerate() {
-        // a crash between the cut's finish and the next piece: no file of piece i yet
-        let mut cuts: Vec<Option<usize>> = vec![None];
-        cuts.extend(cut_points(piece, 20).into_iter().map(Some));
-        for cut in cuts {
-            if cut.is_none() && i == 0 {
-                continue;
-            }
-            let d = dir.join(format!("run{runs}"));
-            runs += 1;
-            std::fs::create_dir(&d).unwrap();
-            for (j, w) in want.iter().enumerate().take(i) {
-                std::fs::write(d.join(piece_name(j as u64)), w).unwrap();
-            }
-            if let Some(cut) = cut {
-                let partial = ww_tape_fs::partial_name(&d.join(piece_name(i as u64)));
-                std::fs::write(partial, &piece[..cut]).unwrap();
-            }
-            let (mut c, resumed) =
-                ww_tape_fs::chain::resume(&d, OwnerId([9; 32]), 0, chain_options())
-                    .unwrap_or_else(|e| panic!("piece {i}, cut {cut:?}: {e}"));
-            assert_eq!(c.finished().len(), i);
-            replay_chain(&mut c, &ops, &made, resumed.kept_bytes);
-            let got = c.finish().unwrap();
-            assert_eq!(got.len(), want.len(), "piece {i}, cut {cut:?}");
-            for (j, w) in want.iter().enumerate() {
-                let g = std::fs::read(d.join(piece_name(j as u64))).unwrap();
-                let first = g.iter().zip(w).position(|(a, b)| a != b);
-                assert!(
-                    &g == w,
-                    "piece {i}, cut {cut:?}: piece {j} differs at {first:?}, {} vs {} bytes",
-                    g.len(),
-                    w.len()
-                );
-            }
-            std::fs::remove_dir_all(&d).unwrap();
-        }
-    }
-    // a chain whose last piece is complete takes no more
-    assert!(matches!(
-        ww_tape_fs::chain::resume(&want_dir, OwnerId([9; 32]), 0, chain_options()),
-        Err(ww_tape::WriteError::Ended(ww_tape::FinishState::Complete))
-    ));
-    std::fs::remove_dir_all(&dir).unwrap();
-}
-
 /// A chain in memory left unfinished resumes on the same [MemTapes] and ends as one written in one go.
 #[test]
 fn a_chain_in_memory_resumes() {
@@ -973,6 +924,134 @@ impl OneFile for InMemory {
     }
 }
 
+/// Where a test keeps a chain of a file per piece: on disk or in memory, through the same test body.
+trait EachPiece {
+    type F: Tapes<Key = u64> + Clone;
+    /// A fresh place for run `run` holding the finished pieces `done` and, unless None, the start of the next piece
+    /// as an unfinished one.
+    fn plant(&self, run: usize, done: &[Vec<u8>], open: Option<&[u8]>) -> Self::F;
+    /// The bytes of piece `seq`.
+    fn bytes(&self, f: &Self::F, seq: u64) -> Vec<u8>;
+}
+
+impl EachPiece for OnDisk {
+    type F = Files;
+    fn plant(&self, run: usize, done: &[Vec<u8>], open: Option<&[u8]>) -> Files {
+        let d = self.0.join(format!("run{run}"));
+        std::fs::create_dir(&d).unwrap();
+        for (j, w) in done.iter().enumerate() {
+            std::fs::write(d.join(piece_name(j as u64)), w).unwrap();
+        }
+        if let Some(open) = open {
+            let partial = ww_tape_fs::partial_name(&d.join(piece_name(done.len() as u64)));
+            std::fs::write(partial, open).unwrap();
+        }
+        Files::new(&d)
+    }
+    fn bytes(&self, f: &Files, seq: u64) -> Vec<u8> {
+        std::fs::read(f.path_of(seq)).unwrap()
+    }
+}
+
+impl EachPiece for InMemory {
+    type F = MemTapes;
+    fn plant(&self, _: usize, done: &[Vec<u8>], open: Option<&[u8]>) -> MemTapes {
+        let mem = MemTapes::new();
+        for (j, w) in done.iter().enumerate() {
+            let mut s = mem.create(&(j as u64)).unwrap();
+            s.write_all(w).unwrap();
+            s.finish().unwrap();
+        }
+        if let Some(open) = open {
+            let mut s = mem.create(&(done.len() as u64)).unwrap();
+            s.write_all(open).unwrap();
+        }
+        mem
+    }
+    fn bytes(&self, f: &MemTapes, seq: u64) -> Vec<u8> {
+        f.get(&seq).unwrap().unwrap().to_vec().unwrap()
+    }
+}
+
+/// A chain cut off anywhere in pieces `swept` (at every `stride`th of [cut_points] with `extra` places between block
+/// ends), or between a cut's finish and the next piece, resumes and ends with the pieces of the chain written without
+/// the crash; the pieces finished before are read back.
+fn chain_cut_anywhere<P: EachPiece>(
+    place: &P,
+    want: &[Vec<u8>],
+    ops: &[Op],
+    made: &Made,
+    swept: Range<usize>,
+    extra: usize,
+    stride: usize,
+) {
+    let mut runs = 0;
+    for (i, piece) in want.iter().enumerate().take(swept.end).skip(swept.start) {
+        // a crash between the cut's finish and the next piece: no file of piece i yet
+        let mut cuts: Vec<Option<usize>> = vec![None];
+        cuts.extend(
+            every(cut_points(piece, extra), stride)
+                .into_iter()
+                .map(Some),
+        );
+        for cut in cuts {
+            if cut.is_none() && i == 0 {
+                continue;
+            }
+            let f = place.plant(runs, &want[..i], cut.map(|c| &piece[..c]));
+            runs += 1;
+            let (mut c, resumed) = PieceChain::resume_on(f, OwnerId([9; 32]), 0, chain_options())
+                .unwrap_or_else(|e| panic!("piece {i}, cut {cut:?}: {e}"));
+            assert_eq!(c.finished().len(), i);
+            replay_chain(&mut c, ops, made, resumed.kept_bytes);
+            let f = c.tapes().clone();
+            let got = c.finish().unwrap();
+            assert_eq!(got.len(), want.len(), "piece {i}, cut {cut:?}");
+            for (j, w) in want.iter().enumerate() {
+                let g = place.bytes(&f, j as u64);
+                let first = g.iter().zip(w).position(|(a, b)| a != b);
+                assert!(
+                    &g == w,
+                    "piece {i}, cut {cut:?}: piece {j} differs at {first:?}, {} vs {} bytes",
+                    g.len(),
+                    w.len()
+                );
+            }
+        }
+    }
+}
+
+/// A chain cut off anywhere in any piece resumes to the pieces written without the crash: every piece in memory;
+/// on files, a few cuts of the last piece (inside it, at its end, before its file exists).
+#[test]
+fn a_chain_cut_anywhere_resumes_to_the_same_pieces() {
+    let dir = scratch("chain_resume");
+    let want_dir = dir.join("want");
+    std::fs::create_dir(&want_dir).unwrap();
+    let ops = ops(14);
+    let (paths, made) = reference_chain(&want_dir, &ops);
+    assert!(paths.len() >= 4, "{} pieces", paths.len());
+    let want: Vec<Vec<u8>> = paths.iter().map(|p| std::fs::read(p).unwrap()).collect();
+    chain_cut_anywhere(&InMemory, &want, &ops, &made, 0..want.len(), 20, 1);
+    let disk = dir.join("disk");
+    std::fs::create_dir(&disk).unwrap();
+    chain_cut_anywhere(
+        &OnDisk(disk),
+        &want,
+        &ops,
+        &made,
+        want.len() - 1..want.len(),
+        0,
+        6,
+    );
+    // a chain whose last piece is complete takes no more
+    assert!(matches!(
+        ww_tape_fs::chain::resume(&want_dir, OwnerId([9; 32]), 0, chain_options()),
+        Err(ww_tape::WriteError::Ended(ww_tape::FinishState::Complete))
+    ));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 fn one_file_options() -> ChainOptions {
     ChainOptions {
         tapes: ww_tape::PieceTapes::One,
@@ -1042,10 +1121,16 @@ fn a_one_file_chain_is_its_pieces_back_to_back() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
-/// A chain in one file cut off at every block boundary of every piece and at bytes in between (inside the next
-/// block, inside a piece's end, between a cut's finish and the next piece head) resumes, takes the calls it lost
-/// and ends with the bytes of the file written without the crash.
-fn one_file_cut_anywhere<P: OneFile>(place: &P, scratch_dir: &Path, extra: usize) {
+/// A chain in one file cut off at every `stride`th block boundary of its `last` pieces and at `extra` bytes in
+/// between in each (inside the next block, inside a piece's end, between a cut's finish and the next piece head)
+/// resumes, takes the calls it lost and ends with the bytes of the file written without the crash.
+fn one_file_cut_anywhere<P: OneFile>(
+    place: &P,
+    scratch_dir: &Path,
+    last: usize,
+    extra: usize,
+    stride: usize,
+) {
     let ops = ops(14);
     let want_dir = scratch_dir.join("pieces");
     std::fs::create_dir_all(&want_dir).unwrap();
@@ -1055,7 +1140,11 @@ fn one_file_cut_anywhere<P: OneFile>(place: &P, scratch_dir: &Path, extra: usize
     let mut start = 0usize;
     let mut runs = 0;
     for (i, piece) in pieces.iter().enumerate() {
-        for cut in cut_points(piece, extra) {
+        if i < pieces.len().saturating_sub(last) {
+            start += piece.len();
+            continue;
+        }
+        for cut in every(cut_points(piece, extra), stride) {
             // the cut at a piece's very end is the next piece's start, with nothing of it written
             let (f, path) = place.plant(&format!("run{runs}.wwt"), &want[..start + cut]);
             runs += 1;
@@ -1088,8 +1177,9 @@ fn one_file_cut_anywhere<P: OneFile>(place: &P, scratch_dir: &Path, extra: usize
 #[test]
 fn a_one_file_chain_cut_anywhere_resumes_to_the_same_bytes() {
     let dir = scratch("one_file_resume");
-    one_file_cut_anywhere(&OnDisk(dir.clone()), &dir.join("disk"), 20);
-    one_file_cut_anywhere(&InMemory, &dir.join("mem"), 20);
+    // every piece in memory; a few cuts of the last two pieces on a file (inside, at a piece's end, past it)
+    one_file_cut_anywhere(&InMemory, &dir.join("mem"), usize::MAX, 20, 1);
+    one_file_cut_anywhere(&OnDisk(dir.clone()), &dir.join("disk"), 2, 0, 6);
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
