@@ -93,6 +93,59 @@ fn a_block_checks_and_lists_without_its_nodes() {
     assert!(matches!(Block::read(&x), Err(BlockError::Summary(_))));
 }
 
+/// [SummaryHead::read] checks the header itself: bytes of another magic, version or kind, or a length field other
+/// than the bytes handed over, are refused with what they are, even under a good CRC.
+#[test]
+fn head_read_checks_the_header() {
+    let h = SummaryHead {
+        track_id: 1,
+        track_number: 1,
+        tree: Tree::Events,
+        level: 0,
+        node_shift: 11,
+        layout: Layout::Events(EventFields::default()),
+        first_item: 0,
+        items: 10,
+        first_tick: 0,
+        last_tick: 9,
+        latest_end: 9,
+    };
+    let mut b = vec![0u8; summary_len(&h).unwrap()];
+    SummaryWriter::new(&mut b, id(1), &h).unwrap().finish();
+    assert!(SummaryHead::read(&b).is_ok());
+    let changed = |at: usize, v: u8| {
+        let mut x = b.clone();
+        x[at] = v;
+        let n = x.len();
+        let crc = crate::CRC.checksum(&x[..n - 4]);
+        x[n - 4..].copy_from_slice(&crc.to_le_bytes());
+        SummaryHead::read(&x).map(|(head, _)| head)
+    };
+    assert_eq!(
+        changed(0, b'X'),
+        Err(SummaryError::NotSummary(NotSummary::Magic))
+    );
+    assert_eq!(
+        changed(4, 2),
+        Err(SummaryError::NotSummary(NotSummary::Version(2)))
+    );
+    assert_eq!(
+        changed(5, crate::BlockKind::Events.to_u8()),
+        Err(SummaryError::NotSummary(NotSummary::Kind(
+            crate::BlockKind::Events
+        )))
+    );
+    let mut longer = b.clone();
+    longer.extend_from_slice(&[0; 8]);
+    assert_eq!(
+        SummaryHead::read(&longer).map(|(head, _)| head),
+        Err(SummaryError::NotSummary(NotSummary::Length {
+            stated: b.len() as u32,
+            bytes: b.len() + 8
+        }))
+    );
+}
+
 /// The definitions of series track 1 on clock 1 (1 ns ticks): i16 samples on one channel, one per 1000 ticks.
 fn series_definitions() -> Vec<crate::Describe<'static>> {
     use crate::{

@@ -1567,3 +1567,24 @@ fn series_refuses_the_leaves_element() {
         assert!(r.is_err());
     }
 }
+
+/// [Summary::read] takes only a summary block: the bytes of a good block of another kind are refused by their kind.
+#[test]
+fn summary_read_refuses_another_kind() {
+    let mut t = EventTree::new(1, 1, EventFields::default(), 0);
+    for i in 0..100 {
+        t.push(i, i, 0).unwrap();
+    }
+    t.finish().unwrap();
+    let b = t.take_blocks().remove(0);
+    assert!(Summary::read(&b).is_ok());
+    let mut x = b.clone();
+    x[5] = ww_tape::BlockKind::Events.to_u8();
+    let n = x.len();
+    let crc = ww_tape_codecs::crc32c::Crc32c.checksum(&x[..n - 4]);
+    x[n - 4..].copy_from_slice(&crc.to_le_bytes());
+    assert_eq!(
+        Summary::read(&x).unwrap_err(),
+        SummaryError::NotSummary(NotSummary::Kind(ww_tape::BlockKind::Events))
+    );
+}

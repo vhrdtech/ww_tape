@@ -149,6 +149,7 @@ Covers `ww_tape` 0.1.0.
 ### 🚀 Features
 
 - `SummaryHead::read` checks a summary block and gives its head and body, so a reader that decodes no node still checks it (TAPE-12).
+- `SummaryHead::read` and `Summary::read` refuse bytes of another magic, version, kind or length: `SummaryError::NotSummary` (TAPE-12).
 - `FileSource::metadata`: the metadata of the open file, so a piece replaced on disk is told apart by its handle (TAPE-12).
 - `Placed::unit` and `ChunkPlaced::unit`: the chunk's unit hash as the writer states it in the index entry (TAPE-8).
 - `TapeWriter::append_on` appends a new session to the bytes already in any sink, such as a reopened memory tape (TAPE-12).

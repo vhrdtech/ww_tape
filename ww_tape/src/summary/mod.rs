@@ -75,7 +75,7 @@ use shrink_wrap::prelude::*;
 use crate::bytes::{
     self, file_u8, file_u16, file_u32, file_u64, le_i64, le_u8, le_u16, le_u32, le_u64,
 };
-use crate::{BlockKind, BoundError, CRC_LEN, HEADER_LEN, MAX_BLOCK_LEN};
+use crate::{BlockKind, BoundError, CRC_LEN, HEADER_LEN, MAGIC, MAX_BLOCK_LEN, VERSION};
 
 use crate::Element;
 mod spec;
@@ -274,10 +274,33 @@ impl SummaryHead {
         }
     }
 
-    /// Read and check the summary block `block` (exactly its bytes, CRC checked by the caller): its head, and its
-    /// body, as long as the head says. A reader that decodes no node still checks a block this way.
+    /// Read and check the summary block `block`: its head, and its body, as long as the head says. A reader that
+    /// decodes no node still checks a block this way.
+    ///
+    /// `block` is exactly the block's bytes. The header is checked here ([MAGIC](crate::MAGIC), this
+    /// [VERSION](crate::VERSION), kind [BlockKind::Summary], a length field equal to the bytes handed over: else
+    /// [SummaryError::NotSummary]), the CRC is not: the caller checks it, as [Block::read](crate::Block::read) does.
     pub fn read(block: &[u8]) -> Result<(Self, &[u8]), SummaryError> {
         let short = SummaryError::Invalid("shorter than the head");
+        let header = block.first_chunk::<HEADER_LEN>().ok_or(short)?;
+        if bytes::array::<4>(header, 0) != Some(MAGIC) {
+            return Err(SummaryError::NotSummary(NotSummary::Magic));
+        }
+        let version = le_u8(header, 4).ok_or(short)?;
+        if version != VERSION {
+            return Err(SummaryError::NotSummary(NotSummary::Version(version)));
+        }
+        let kind = BlockKind::from_u8(le_u8(header, 5).ok_or(short)?);
+        if kind != BlockKind::Summary {
+            return Err(SummaryError::NotSummary(NotSummary::Kind(kind)));
+        }
+        let stated = le_u32(header, 8).ok_or(short)?;
+        if usize::try_from(stated).ok() != Some(block.len()) {
+            return Err(SummaryError::NotSummary(NotSummary::Length {
+                stated,
+                bytes: block.len(),
+            }));
+        }
         let (head_scale_body, _crc) = block
             .split_last_chunk::<CRC_LEN>()
             .filter(|(b, _)| b.len() >= SCALE_AT)
@@ -429,6 +452,34 @@ pub enum SummaryError {
     ScaleBytes(shrink_wrap::Error),
     /// A count, length or layout value of the block is over its cap or the block's length.
     Bound(BoundError),
+    /// The bytes are not a summary block of this format: their header says so.
+    NotSummary(NotSummary),
+}
+
+/// What the header of bytes handed to [SummaryHead::read] holds instead of a summary block of this format.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum NotSummary {
+    /// Bytes 0..4 are not [MAGIC](crate::MAGIC).
+    Magic,
+    /// Byte 4: a version other than [VERSION](crate::VERSION).
+    Version(u8),
+    /// Byte 5: a block of another kind.
+    Kind(BlockKind),
+    /// Bytes 8..12 state a block length other than the bytes handed over.
+    Length { stated: u32, bytes: usize },
+}
+
+impl core::fmt::Display for NotSummary {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            NotSummary::Magic => write!(f, "no block magic"),
+            NotSummary::Version(v) => write!(f, "a block of version {v}, not {VERSION}"),
+            NotSummary::Kind(k) => write!(f, "a block of kind {}, not a summary", k.to_u8()),
+            NotSummary::Length { stated, bytes } => {
+                write!(f, "a block of {stated} bytes handed over as {bytes}")
+            }
+        }
+    }
 }
 
 impl core::fmt::Display for SummaryError {
@@ -443,6 +494,7 @@ impl core::fmt::Display for SummaryError {
             SummaryError::Invalid(what) => write!(f, "{what}"),
             SummaryError::ScaleBytes(e) => write!(f, "scale bytes: {e}"),
             SummaryError::Bound(e) => write!(f, "{e}"),
+            SummaryError::NotSummary(e) => write!(f, "not a summary block: {e}"),
         }
     }
 }

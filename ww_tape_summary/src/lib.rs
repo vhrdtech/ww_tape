@@ -55,8 +55,8 @@ extern crate alloc;
 use ww_tape::summary::components;
 pub use ww_tape::summary::{
     ClipRange, EVENT_BASE_SHIFT, EventFields, FANOUT_SHIFT, LEVEL_MAX, Layout, NODE_SHIFT_MAX,
-    SCALE_LEN_MAX, SUMMARY_FIXED_LEN, SeriesStats, SeriesSummarySpec, Stat, SummaryError,
-    SummaryHead, SummaryWriter, Tree, summary_len,
+    NotSummary, SCALE_LEN_MAX, SUMMARY_FIXED_LEN, SeriesStats, SeriesSummarySpec, Stat,
+    SummaryError, SummaryHead, SummaryWriter, Tree, summary_len,
 };
 #[cfg(feature = "std")]
 use ww_tape::summary::{SUMMARY_MIN_LEN, is_complex, level_shift, node_span};
