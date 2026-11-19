@@ -43,7 +43,7 @@ impl core::fmt::Display for FsError {
             FsError::Io { what, path, error } => {
                 write!(f, "{}: {what}: {}", path.display(), error.kind())
             }
-            FsError::Exists(p) => write!(f, "{}: there already", p.display()),
+            FsError::Exists(p) => write!(f, "{}: already exists", p.display()),
             FsError::Locked(p) => write!(f, "{}: locked by another writer", p.display()),
             FsError::Replaced(p) => write!(
                 f,
@@ -604,7 +604,7 @@ mod tests {
         drop(sink);
 
         let e = FileSink::create(&path).err().unwrap();
-        assert_eq!(e.to_string(), format!("{shown}: there already"));
+        assert_eq!(e.to_string(), format!("{shown}: already exists"));
 
         let e = FileSink::append(&dir).err().unwrap();
         assert_eq!(
