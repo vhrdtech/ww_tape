@@ -755,7 +755,7 @@ fn heads_read_back_and_bad_heads_are_refused() {
     }
     let restamp = |x: &mut Vec<u8>| {
         let n = x.len();
-        let crc = crate::CRC.checksum(&x[..n - 4]);
+        let crc = ww_tape_codecs::crc32c::Crc32c.checksum(&x[..n - 4]);
         x[n - 4..].copy_from_slice(&crc.to_le_bytes());
     };
     for (at, v) in [
@@ -828,7 +828,7 @@ fn series_head_caps() {
     assert!(Summary::read(&b).is_ok());
     let restamp = |x: &mut Vec<u8>| {
         let n = x.len();
-        let crc = crate::CRC.checksum(&x[..n - 4]);
+        let crc = ww_tape_codecs::crc32c::Crc32c.checksum(&x[..n - 4]);
         x[n - 4..].copy_from_slice(&crc.to_le_bytes());
     };
     for (at, v, cap) in [
@@ -854,6 +854,54 @@ fn series_head_caps() {
     }
 }
 
+/// The definitions of series track 1 on clock 1 (1 ns ticks): i16 samples on one channel, one per 1000 ticks.
+fn series_definitions() -> Vec<crate::Describe<'static>> {
+    use crate::{
+        ClockDef, ClockOrigin, Describe, FullVersion, SeriesDef, TrackDef, TrackKind, TrackRepeat,
+        Version, clock_key, track_key,
+    };
+    use shrink_wrap::prelude::*;
+    vec![
+        Describe::Clock(ClockDef {
+            number: UNib32(1),
+            key: clock_key(0x5e, &[], 1),
+            rate: Magnitude::pow10(9).into(),
+            resolution: Magnitude::pow10(-9).into(),
+            origin: ClockOrigin::Boot,
+            label: "dev",
+        }),
+        Describe::Track(TrackDef {
+            number: UNib32(1),
+            key: track_key(0x5e, &[crate::Segment::Name("signal")]),
+            clock: UNib32(1),
+            dimensions: RefVec::Slice { slice: &[] },
+            api: FullVersion::new("summary_tests", Version::new(0, 1, 0)),
+            bundle: RefVec::Slice { slice: &[] },
+            path: RefVec::Slice {
+                slice: &[UNib32(1)],
+            },
+            keys: RefVec::Slice { slice: &[] },
+            item: None,
+            label: "signal",
+            repeat: TrackRepeat::Stream,
+            kind: TrackKind::Series(SeriesDef::of::<i16>(None, 1, Ratio64::int(1000).unwrap())),
+            relations: RefVec::Slice { slice: &[] },
+            owner: [0; 32],
+        }),
+    ]
+}
+
+/// The id of the track of [series_definitions]: what its chunks' heads carry.
+fn series_track_id() -> u64 {
+    series_definitions()
+        .iter()
+        .find_map(|d| match d {
+            crate::Describe::Track(t) => Some(t.id()),
+            _ => None,
+        })
+        .unwrap()
+}
+
 /// Series chunks in an aligned file with their summaries deferred: the summaries fill the gaps in front of the chunk
 /// payloads and cost no file space, and a reader finds them all.
 #[test]
@@ -873,16 +921,9 @@ fn summaries_fill_alignment_gaps() {
         let tape = w.sink().tape();
         w.set_alignment(crate::ALIGNMENT).unwrap();
         let mut defs = crate::Definitions::new();
-        let mut held = crate::tests::test_definitions(1, &[]);
-        held.push(crate::tests::test_series_track(
-            1,
-            1,
-            1,
-            Ratio64::int(1000).unwrap(),
-        ));
-        defs.define_all(&held).unwrap();
+        defs.define_all(&series_definitions()).unwrap();
         let start = SeriesStart {
-            track_id: crate::tests::test_track_id(),
+            track_id: series_track_id(),
             track_number: 1,
             shape,
             first_item: 0,
@@ -905,7 +946,7 @@ fn summaries_fill_alignment_gaps() {
             let first = (c * chunk) as u64;
             let head = ChunkHead {
                 kind: BlockKind::Series,
-                track_id: crate::tests::test_track_id(),
+                track_id: series_track_id(),
                 track_number: 1,
                 first_item: first,
                 count: chunk as u32,
@@ -964,7 +1005,7 @@ fn summaries_fill_alignment_gaps() {
     // the final index lists every summary block under its track, with its level
     let r = crate::TapeReader::open(&file[..]).unwrap();
     let listed: Vec<_> = r
-        .track_entries(0, crate::tests::test_track_id())
+        .track_entries(0, series_track_id())
         .unwrap()
         .into_iter()
         .filter(|e| e.kind == BlockKind::Summary)
@@ -1394,7 +1435,7 @@ fn series_block_scale_is_checked() {
     assert_eq!(&b[96..98], &[0xfa, 0x00]);
     let restamp = |x: &mut Vec<u8>| {
         let n = x.len();
-        let crc = crate::CRC.checksum(&x[..n - 4]);
+        let crc = ww_tape_codecs::crc32c::Crc32c.checksum(&x[..n - 4]);
         x[n - 4..].copy_from_slice(&crc.to_le_bytes());
     };
     for (at, v) in [

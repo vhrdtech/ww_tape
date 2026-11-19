@@ -162,7 +162,7 @@ impl SeriesStats {
     }
 
     /// Bytes per channel and node: at most 8 statistics of 16 bytes.
-    pub(super) fn node_len(self, element: Element) -> usize {
+    pub fn node_len(self, element: Element) -> usize {
         Stat::ALL
             .into_iter()
             .filter(|s| self.has(*s))

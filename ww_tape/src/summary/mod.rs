@@ -206,7 +206,7 @@ impl EventFields {
     }
 
     /// Bytes of one node: first and last tick, then the flags OR and the latest end when stored.
-    fn node_len(self) -> usize {
+    pub fn node_len(self) -> usize {
         match (self.flags, self.latest_end) {
             (false, false) => 16,
             (true, false) => 20,
