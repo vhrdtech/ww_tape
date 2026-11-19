@@ -245,3 +245,37 @@ fn a_chunk_placed_states_the_unit_of_its_index_entry() {
         }
     }
 }
+
+/// A chunk with an empty payload (one column of no bytes: the payload is its padding alone) states the unit hash its
+/// index entry carries, the hash of the chunk read back.
+#[test]
+fn an_empty_chunk_placed_states_the_unit_of_its_index_entry() {
+    let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
+    let defs = crate::definitions::base_defs();
+    let (head, _) = chunk(0, 0);
+    let placed = w.write_chunk(defs, &head, &column(&[])).unwrap();
+    assert!(!placed.unit.is_none(), "a chunk states its unit");
+    let tape = w.sink().tape();
+    w.finish().unwrap();
+    let bytes = tape.to_vec().unwrap();
+    let r = TapeReader::open(&bytes[..]).unwrap();
+    let entry = r
+        .entries(0)
+        .unwrap()
+        .into_iter()
+        .find(|e| e.offset == placed.offset)
+        .expect("an index entry for the chunk");
+    assert_eq!(entry.unit, placed.unit);
+    let mut buf = Vec::new();
+    let b = r.read_block(0, &entry, &mut buf).unwrap();
+    let c = b.chunk().expect("a chunk");
+    assert_eq!(
+        c.payload(),
+        &[0u8; ww_tape::chunk::PAYLOAD_PADDING],
+        "no column bytes"
+    );
+    assert_eq!(
+        ww_tape::TrackHash::chunk_unit(&c, &ww_tape::piece::payload_hash(c.payload())),
+        placed.unit
+    );
+}
