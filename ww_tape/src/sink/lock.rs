@@ -19,6 +19,8 @@
 //!   their blocks interleave into a file that reads as damaged. A lock on the file itself would catch that, but
 //!   every kind either passes to a forked child (`flock`, open file description locks) or goes away when a reader
 //!   of the holder's process closes the file (record locks).
+//! - The lock file is opened without following a link, and must be a regular file ([FsError::NotAFile]): a link
+//!   planted there would lock another file, and a dangling one would create its target.
 //! - The holder removes the lock file when it lets go, while it still holds the lock. A writer that opened the file
 //!   before it was removed takes the lock on a file no longer named `NAME.lock`, sees so and opens the new one
 //!   ([LOCK_TRIES_MAX]). A lock file a crash left holds no lock and is taken as it is.
@@ -31,12 +33,12 @@
 //! until it runs `exec`.
 
 use std::collections::BTreeSet;
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use super::fs::{FsError, names, partial_name};
+use super::fs::{FsError, partial_name};
 
 /// How often a file sink opens its lock file again after a holder removed the one it opened: each time is a
 /// holder that let go meanwhile.
@@ -113,17 +115,26 @@ impl FileLock {
     /// The lock file `path` of `name`, opened and locked.
     fn lock_file(path: &Path, name: &Path) -> Result<File, FsError> {
         for _ in 0..LOCK_TRIES_MAX {
-            let file = OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create(true)
-                .truncate(false)
-                .open(path)
-                .map_err(io_err("opening the lock file"))?;
+            let file = match open_lock_file(path) {
+                Ok(f) => f,
+                Err(e) if is_link_refused(&e) => return Err(FsError::NotAFile(path.to_path_buf())),
+                Err(error) => {
+                    return Err(FsError::Io {
+                        what: "opening the lock file",
+                        error,
+                    });
+                }
+            };
+            let meta = file
+                .metadata()
+                .map_err(io_err("reading the lock file's type"))?;
+            if !meta.is_file() {
+                return Err(FsError::NotAFile(path.to_path_buf()));
+            }
             if !try_lock(&file).map_err(io_err("locking the lock file"))? {
                 return Err(FsError::Locked(name.to_path_buf()));
             }
-            if names(path, &file).map_err(io_err("checking the lock file's name"))? {
+            if names_itself(path, &file).map_err(io_err("checking the lock file's name"))? {
                 return Ok(file);
             }
             // its holder removed it as it let go: the lock is on a file nobody else finds
@@ -166,7 +177,7 @@ impl Drop for FileLock {
     fn drop(&mut self) {
         for LockFile { file, path } in self.files.drain(..) {
             if let Some(path) = &path
-                && matches!(names(path, &file), Ok(true))
+                && matches!(names_itself(path, &file), Ok(true))
             {
                 // a lock file left behind holds no lock: the next writer takes it as it is
                 _ = std::fs::remove_file(path);
@@ -279,6 +290,76 @@ fn absolute(path: &Path) -> io::Result<PathBuf> {
 
 fn io_err(what: &'static str) -> impl FnOnce(io::Error) -> FsError {
     move |error| FsError::Io { what, error }
+}
+
+/// The lock file `path`, opened to read and write and created if it isn't there; a link is never followed, and a
+/// FIFO doesn't block the open.
+#[cfg(unix)]
+fn open_lock_file(path: &Path) -> io::Result<File> {
+    use rustix::fs::{Mode, OFlags};
+    let flags =
+        OFlags::RDWR | OFlags::CREATE | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC;
+    let mode = Mode::RUSR | Mode::WUSR | Mode::RGRP | Mode::ROTH;
+    Ok(File::from(rustix::fs::open(path, flags, mode)?))
+}
+
+/// The lock file `path`, opened to read and write and created if it isn't there; a link is opened itself, not
+/// followed.
+#[cfg(windows)]
+fn open_lock_file(path: &Path) -> io::Result<File> {
+    use std::os::windows::fs::OpenOptionsExt;
+    /// `FILE_FLAG_OPEN_REPARSE_POINT`: open a link itself
+    const OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+    std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .custom_flags(OPEN_REPARSE_POINT)
+        .open(path)
+}
+
+#[cfg(not(any(unix, windows)))]
+fn open_lock_file(path: &Path) -> io::Result<File> {
+    std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(path)
+}
+
+/// Whether opening the lock file failed because it is a link (`O_NOFOLLOW` refuses one with `ELOOP`).
+fn is_link_refused(e: &io::Error) -> bool {
+    #[cfg(unix)]
+    return e.raw_os_error() == Some(rustix::io::Errno::LOOP.raw_os_error());
+    #[cfg(not(unix))]
+    return {
+        let _ = e;
+        false
+    };
+}
+
+/// Whether `path` itself, not what a link there points to, names `file`. False when `path` is gone.
+#[cfg(unix)]
+fn names_itself(path: &Path, file: &File) -> io::Result<bool> {
+    use std::os::unix::fs::MetadataExt;
+    let opened = file.metadata()?;
+    match std::fs::symlink_metadata(path) {
+        Ok(named) => Ok(named.dev() == opened.dev() && named.ino() == opened.ino()),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(e),
+    }
+}
+
+/// Whether `path` is still there: std has no file identity outside unix.
+#[cfg(not(unix))]
+fn names_itself(path: &Path, _file: &File) -> io::Result<bool> {
+    match std::fs::symlink_metadata(path) {
+        Ok(_) => Ok(true),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(e),
+    }
 }
 
 /// Take the record lock on all of `file`: false when another process holds it.

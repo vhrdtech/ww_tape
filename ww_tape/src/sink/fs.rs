@@ -25,6 +25,9 @@ pub enum FsError {
     /// The `.partial` file `create` opened is no longer the one its name points to once locked: another writer
     /// finished and renamed it, or it was replaced. Nothing is written.
     Replaced(PathBuf),
+    /// A name a file sink doesn't write or lock through: a directory, a FIFO or a socket, or a lock file that is a
+    /// link or anything but a regular file.
+    NotAFile(PathBuf),
 }
 
 impl core::fmt::Display for FsError {
@@ -38,6 +41,7 @@ impl core::fmt::Display for FsError {
                 "{} was renamed or replaced while it was opened",
                 p.display()
             ),
+            FsError::NotAFile(p) => write!(f, "{} is not a regular file", p.display()),
         }
     }
 }

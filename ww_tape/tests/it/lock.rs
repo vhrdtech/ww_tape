@@ -125,3 +125,38 @@ fn one_file_has_one_lock_whatever_its_name() {
     drop(creating);
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// A lock file that is a link is refused, never followed: a link to another file doesn't lock it, and a dangling one
+/// doesn't create its target.
+#[cfg(unix)]
+#[test]
+fn a_lock_file_that_is_a_link_is_refused() {
+    let dir = scratch("lock_link");
+    let path = dir.join("a.wwt");
+    let other = dir.join("other.wwt");
+    std::fs::write(&other, b"").unwrap();
+    std::os::unix::fs::symlink(&other, lock_name(&path)).unwrap();
+    let r = FileSink::append(&path);
+    assert!(
+        matches!(&r, Err(ww_tape::FsError::NotAFile(p)) if *p == lock_name(&path)),
+        "{:?}",
+        r.err()
+    );
+    // the other file's lock is free
+    drop(FileSink::append(&other).unwrap());
+
+    std::fs::remove_file(lock_name(&path)).unwrap();
+    let target = dir.join("target");
+    std::os::unix::fs::symlink(&target, lock_name(&path)).unwrap();
+    let r = FileSink::append(&path);
+    assert!(
+        matches!(&r, Err(ww_tape::FsError::NotAFile(_))),
+        "{:?}",
+        r.err()
+    );
+    assert!(
+        !target.exists(),
+        "a dangling lock file link creates nothing"
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}
