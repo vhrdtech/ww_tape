@@ -96,6 +96,21 @@ bench-chunks *args:
 bench-mem-reader *args:
     cargo run -q --release -p ww_tape_benchmarks --bin mem_reader -- {{ args }}
 
+# Build the book (docs/, zensical.toml) into site/ with Zensical
+[group('book')]
+book:
+    uv run --with zensical zensical build --clean
+
+# Serve the book at http://localhost:8000 and rebuild it on every change
+[group('book')]
+book-serve:
+    uv run --with zensical zensical serve
+
+# Build the book with warnings as errors: a link to a missing page, anchor or figure fails; links to other sites are not fetched
+[group('book')]
+book-check:
+    uv run --with zensical zensical build --clean --strict
+
 # Rewrite the figures of the book pages drawn from the format (docs/plots/*.svg, ww_tape_figures); a test fails until
 # they match what it draws
 book-figures:
@@ -114,6 +129,7 @@ logo-vector:
     just _logo wordmark-dark.svg wordmark dark
     just _logo icon.svg icon dark
     just _logo icon-small.svg icon-small dark
+    just _logo ../../docs/assets/ww_tape_icon.svg icon-small dark
 
 logo-png:
     just _logo png/ww_tape-light-640.png lockup light 640

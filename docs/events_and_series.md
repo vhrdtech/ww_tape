@@ -288,4 +288,4 @@ docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/summary/mod.rs).
 
 ## See also
 
-- [`Series<T>`](../serdes/series.md): the wire format of the sample batches a device sends.
+- [`Series<T>`](https://ww.vhrd.tech/serdes/series/): the wire format of the sample batches a device sends.

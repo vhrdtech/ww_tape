@@ -22,3 +22,6 @@ target
 
 # Mac stuff
 .DS_Store
+
+# The book Zensical builds (`just book`)
+site/

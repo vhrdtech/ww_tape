@@ -308,4 +308,4 @@ recorded the same feed confirm they hold the same data.
 ## See also
 
 - [Format reference](format.md): every part of the format, block by block.
-- [The link tap](../transport/tap.md): the producer that records a WireWeaver link into tapes.
+- [The link tap](https://ww.vhrd.tech/transport/tap/): the producer that records a WireWeaver link into tapes.

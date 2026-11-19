@@ -243,7 +243,7 @@ each with a tag byte and its length, so `a.b` and `ab` never collide:
 |---|---|
 | a resource, `link`, `rx_frames` | `Name`: its identity name; a resource renamed with `#[moved_from]` keeps its oldest name |
 | an index into a plain array, `link[2]` | `Index(2)` |
-| an element of a [keyed array](../api/arrays.md), `flow[{key}]` | `Key`: the key's shrink_wrap bytes, not the index |
+| an element of a [keyed array](https://ww.vhrd.tech/api/arrays/), `flow[{key}]` | `Key`: the key's shrink_wrap bytes, not the index |
 
 So `link[2].rx_frames` of the tap is `track_key(api_root_id("ww_tap"), &[Name("link"), Index(2), Name("rx_frames")])`
 (`ww_tap::track_key(2, ids::RX_FRAMES)`). Two sessions of a dissector that number flows in another order give each
@@ -501,7 +501,7 @@ A series chunk's sample columns (`ColumnKind::Samples`) are coded by the column'
 - **ALP** (26) follows ALP (Afroozeh, Kuffó and Boncz, SIGMOD 2024) in groups of 128 samples. Floats that began as decimals (a reading times 0.1, a price, a value printed and parsed back) are stored as integers: per group and lane one exponent `e` and factor `f`, each value `d` such that `d × 10^f × 10^-e` gives its bits back exactly, the `d`s minus their minimum bit-packed. Values that don't come back bit for bit (NaN payloads, `-0.0`, infinities, more digits) are kept whole as exceptions inside the group. Other floats take ALP's second scheme, `rd`: up to 16 front bits through a dictionary of up to 8 entries, the rest bit-packed without the low zero bits the group shares. The encoder keeps per group the smallest form, so a group never grows by more than 7 bytes over raw; the layout is in the `ww_tape::samples::alp` docs.
 - **Groups.** The grouped codecs start the column with a table of where each group ends, and every group restarts its prediction. A range decodes from its group's start, and damage costs only the groups it touches: `Samples::group_bytes` names a group's bytes, to check against `Chunk::range_damaged`.
 
-For data a device controls, fixed-point numbers are the default (an exact_units `Fixed` in an integer column with `DELTA`, see [series](../serdes/series.md)): they take the fewest bits and decode fastest. ALP, the one float codec, is for float sources nobody controls. Ids 24, 25, 34 and 35 are reserved; `ww_tape_codecs_benchmarks` keeps Gorilla, Chimp and delta on ordered float bits as bench-only codecs to compare against. The codec id is stored per chunk, so a writer may try several on a chunk and keep the smallest.
+For data a device controls, fixed-point numbers are the default (an exact_units `Fixed` in an integer column with `DELTA`, see [series](https://ww.vhrd.tech/serdes/series/)): they take the fewest bits and decode fastest. ALP, the one float codec, is for float sources nobody controls. Ids 24, 25, 34 and 35 are reserved; `ww_tape_codecs_benchmarks` keeps Gorilla, Chimp and delta on ordered float bits as bench-only codecs to compare against. The codec id is stored per chunk, so a writer may try several on a chunk and keep the smallest.
 
 `just bench-sample-codecs` measures every float codec on four kinds of data, each next to the same quantity stored as fixed-point integers with `DELTA` (first row of each set). Ratio is to the raw floats, in chunks of 4096 samples; times are per value on one core (AMD Ryzen AI 9 HX 370, AVX-512 kernels):
 
