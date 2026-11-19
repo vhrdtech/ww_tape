@@ -159,7 +159,7 @@ The block kinds fall into four groups:
 | Overview | summary | coarse views of long tracks, rebuilt from the data when lost |
 | Structure | piece head, index, finish, tail | where things are, how the file ends, how files chain |
 
-The byte layout of the header and of record blocks is in the [`ww_tape` crate
+The byte layout of the header and of records blocks is in the [`ww_tape` crate
 docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/lib.rs).
 
 ### Definitions on track 0
@@ -278,17 +278,17 @@ block never leaves its piece.
 The definitions are in the [describe module docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/describe.rs)
 and the slots in the [state module docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/state.rs).
 
-### Record blocks
+### Records blocks
 
-A **record block** holds records of any tracks back to back. Each record has a head, a time delta, the item's length
+A **records block** holds records of any tracks back to back. Each record has a head, a time delta, the item's length
 and the item's bytes. The head names the track and which of the block's clocks the record counts. The head, the delta
 and the length are variable-length integers, and records on track 0 carry no time.
 
 The delta is against the previous record on the same clock in the same block, and the first one is absolute, so every
-block reads alone. A writer may compress the whole body of a record block with lz4, and the header flag
+block reads alone. A writer may compress the whole body of a records block with lz4, and the header flag
 `FLAG_BODY_CODED` says so.
 
-Record blocks suit tracks that produce a few items at a time, where waiting to fill a chunk would delay a live reader.
+Records blocks suit tracks that produce a few items at a time, where waiting to fill a chunk would delay a live reader.
 Large tracks go into chunks, which [Events and series](events_and_series.md) describes.
 
 ## Anatomy of a file

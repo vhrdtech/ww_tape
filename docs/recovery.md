@@ -250,7 +250,7 @@ FFFFFFFFh, so a blank header never names a session.
 A reader keeps to one session at a time. A good block of another session is stale, unless a new session may start at
 that block. Where a new session may start depends on the **medium**, a `Medium` value the reader is opened with:
 
-- In a file (`Medium::File`), a new session may start at a record block that starts with a definition (another
+- In a file (`Medium::File`), a new session may start at a records block that starts with a definition (another
   producer appended its blocks) or at any piece head (files concatenated).
 - On a raw medium (`Medium::Raw`), a new session starts only at a piece head that names the session just ended as its
   previous session. Stale data from an earlier recording names some other session and is never taken, even when it
@@ -346,7 +346,7 @@ unfinished instead of complete.
 | events chunk, payload damaged | the items of the groups it hits are marked suspect; the rest read |
 | events chunk, head damaged | the chunk's items; the index still says which track, items and ticks they were |
 | series chunk | one 64 KiB segment per hit with a good head; the whole chunk with a bad head |
-| record block | its records; the index entry says how many, the gap in sequence numbers how many blocks |
+| records block | its records; the index entry says how many, the gap in sequence numbers how many blocks |
 | summary | nothing; a summary is derived from its track's data, and `ww_tape_summary` builds it again |
 | definitions or puts | nothing once a copy or a later put of each of its items reads; until then, what it held |
 | checkpoint index | in an unfinished piece, the piece up to the next good checkpoint is scanned instead |

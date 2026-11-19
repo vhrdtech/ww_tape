@@ -46,7 +46,7 @@ off size field
   0   4  magic "WWTP"
   4  u8  version, 1
   5  u8  kind: 1 records, 3 and up other kinds (BlockKind); 2 is reserved (RESERVED_KIND)
-  6 u16  flags: bit 0 body coded (FLAG_BODY_CODED, record blocks only), bit 1 state records a writer put or
+  6 u16  flags: bit 0 body coded (FLAG_BODY_CODED, records blocks only), bit 1 state records a writer put or
          copied (FLAG_REPEAT), bit 2 puts that belong with the next block (FLAG_WITH_NEXT), bit 3 on a
          chunk its payload unchecked (FLAG_PAYLOAD_UNCHECKED, reserved: 0, a reader refuses it), bit 4 on an
          events chunk a break in its track's monotone relations (FLAG_RELATION_BREAK); others 0 (a reader
@@ -676,13 +676,15 @@ One exception: the payload of every chunk block that reads whole is replaced by 
 payload. The payload runs from the chunk's payload offset to its CRC: the columns and their 16 zero bytes. Every byte
 is so covered, and each payload is hashed once, for the content hash and the track hash both.
 
-The hash walk finds the blocks from the start of the piece. Where a block reads whole, it is taken whole; otherwise
-the bytes up to the next place that holds the block magic go in as they are. Damaged bytes a resume kept so hash the
-same however the resume or a reader walked them.
+The hash walk finds the blocks from the start of the piece. A block that passes its checks goes into the hash as a
+block. Bytes that don't form a valid block go in as they are, up to the next place where the block magic stands. The
+hash therefore depends only on the bytes, so a resume and a reader get the same hash over damaged bytes that a resume
+kept.
 
-The walk tries a place as a block only while the blocks it tried that didn't read whole claim at most
-`WALK_MISS_PER_BYTE_MAX` (4) bytes per byte walked, plus `WALK_MISS_BASE_MAX` (1 MiB). Crafted headers so cost a walk
-a bounded multiple of the piece's length, never its square.
+A header can claim a long block that then fails its check, and the walk has read those bytes for nothing. The walk
+keeps a count of such wasted bytes. It stops trying places as blocks once the count passes 4 bytes per byte walked
+(`WALK_MISS_PER_BYTE_MAX`) plus 1 MiB (`WALK_MISS_BASE_MAX`). Crafted headers therefore cost at most a fixed multiple
+of the piece's length, never its square.
 
 ### Track owners
 

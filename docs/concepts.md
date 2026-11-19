@@ -19,6 +19,10 @@ a track has a small **track number**. Across files it has a stable **track key**
 comes from in the producer's API. Two files that record the same sensor give it the same key, even when they give it
 different numbers.
 
+A track may also carry **dimensions**, name and value pairs such as `channel = 3`, which tell apart tracks of one key.
+The **track id** is a 64-bit hash of the key and the dimensions. A track without dimensions has its key as its id.
+Chunks and index entries name their track by its id.
+
 A **clock** is anything that counts time: the host's nanosecond clock, a device's microsecond timer since boot, an
 audio codec's sample clock. Every time in a tape is a whole number of **ticks** of one clock, and every track names the
 clock its times count. A clock's rate is exact, so a 48 kHz audio clock and a 60000/1001 Hz video clock both keep
@@ -28,28 +32,28 @@ A **record** is one item on one track at one tick. The items of a track stored i
 **item number**, which counts the track's items from 0 over the whole recording, across files. Item 1 000 000 of a
 track is the same item in every copy of the recording. A series numbers its samples the same way.
 
-## Record blocks and chunks
+## Records blocks and chunks
 
 A tape is a sequence of **blocks**, written one after another. Every block has a 32-byte header, a body and a CRC-32C
 checksum at its end. The header gives the block's kind and length, so a reader can skip a block it doesn't understand.
 
 Two kinds of block hold items, and they differ in how many tracks they mix:
 
-| | Record block | Chunk |
+| | Records block | Chunk |
 |---|---|---|
 | Tracks | any number, mixed | exactly one |
 | Items | records back to back, each with its own time and length | a run of consecutive items, stored column by column |
 | Suits | a few items at a time: a log line, a state change | many items: a 1 kHz event stream, a 25 kHz current |
 | Finding one item | walk the block from its start | jump to it by its item number and read it in place |
 
-A **record block** is cheap to write and is complete as soon as it holds one record, so a slow track never waits to
+A **records block** is cheap to write and is complete as soon as it holds one record, so a slow track never waits to
 fill anything. A **chunk** pays off when a track has many items. Its columns pack times, flags and values tightly, and
 a reader reaches item `i` without decoding the items before it.
 
 There are two kinds of chunk. An **events chunk** holds items that have times of their own. A **series chunk** holds
 samples at a fixed rate, which need no time each. [Events and series](events_and_series.md) explains both.
 
-For example, a firmware's log lines arrive a few per second, so they go into record blocks together with other slow
+For example, a firmware's log lines arrive a few per second, so they go into records blocks together with other slow
 tracks. A 25 kHz phase current fills series chunks one after another, and a viewer reads any range of its samples
 without touching the rest.
 
@@ -171,7 +175,7 @@ every definition and state item again at its first use, since nothing in the old
 A chain cuts by its policy (size, chunk count or age) only before a chunk. It also cuts before a write for which the
 piece's index has no room left, and wherever the application asks.
 
-A slow input never waits for a cut. Records reach the file in record blocks as they come, and a reader of the
+A slow input never waits for a cut. Records reach the file in records blocks as they come, and a reader of the
 unfinished piece reads them at once. A **sync policy** bounds what a crash can lose. By default the writer syncs
 waiting blocks once a second has passed since the last sync, at the next block or at a call of `TapeWriter::tick`. A
 cut only bounds how large one file grows. For example, a producer that writes one log line a minute and calls `tick`

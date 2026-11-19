@@ -60,8 +60,9 @@ gives one for a piece that a `TapeReader` found. It puts the pieces in order and
 - the pieces whose head is of an integrity level the reader does not handle (`refused`); every lookup in such a piece
   returns that level's error.
 
-`ChainReport::is_whole` says whether all is well. A piece whose head is damaged keeps its place by the ident its finish
-carries, and its link reads as linked one way only (`HeadLost`).
+`ChainReport::is_whole` says whether all is well. A piece with a damaged head still has its place in the chain,
+because its finish block names the piece as well. Its link to the piece before is then reported as checked from one
+side only (`HeadLost`).
 
 Each piece head also says, per track, which item number the piece starts with and the tick before which none of its
 items start (`TrackStart`). A reader of one piece therefore knows where its items fall in the whole recording.
@@ -127,8 +128,9 @@ adds one piece each time.
 ## Tracks of several owners
 
 Each track definition names an **owner**: `TrackDef::owner`, 32 bytes that `ww_tape` does not interpret. Zeros, the
-default, mean the owner of the piece. The owner is not part of the track's identity, so it changes neither the track
-key nor the track id. A track is known by its id together with its owner.
+default, mean the owner of the piece. The owner is not hashed into the track key or the [track
+id](concepts.md#items-tracks-and-clocks), so two owners can have tracks with the same id. A reader tells such tracks
+apart by id and owner together.
 
 Two definitions with the same key and different owners are therefore two tracks. Each has its own item numbers, its
 own rows in the piece head and the finish, and its own hash. For example, an application that records two devices of
@@ -232,6 +234,6 @@ subset copy; the address does not. An application that stores a reference to an 
 therefore stores the track key and the item number. The reference stays valid when pieces are joined into one file or
 copied.
 
-Records in record blocks carry no item number. A reader addresses them by their track and tick, or within one file by
+Records in records blocks carry no item number. A reader addresses them by their track and tick, or within one file by
 their block and their place in it. A state item is also known by its hash, which [Reading a
 tape](reading.md#state-at-a-place) uses to find it.

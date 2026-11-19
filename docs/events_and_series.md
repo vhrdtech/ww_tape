@@ -1,6 +1,6 @@
 # Events and series
 
-Record blocks store each item with its own time delta and length, which suits a slow trickle of items. A track with
+Records blocks store each item with its own time delta and length, which suits a slow trickle of items. A track with
 millions of items needs another form: one that a reader can search and decode without walking every item before the
 one it wants. `ww_tape` stores such tracks in **chunks**, one track per chunk, coded column by column. This page
 explains the two kinds of chunk, how they store time, and the summaries that let a viewer draw a long track without

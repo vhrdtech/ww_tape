@@ -1,6 +1,6 @@
 // ww_tape 0.1.0 traits and types, saved by `ww api save`.
 // Do not edit, bump the crate version and save a new snapshot instead.
-// shrink_wrap sha256: 4d51163627cc63d61c933b74e80dd533b54292508885e4da36981e555aa0638f
+// shrink_wrap sha256: 8e73f3efe9341fe6b30992c1e6bdd28478d6fbc874df8c274405878b59d66369
 (magic: 2837124336, ww_self_version: (major: 0, minor: 4, patch: 0), root: (docs: [
     "Tape blocks: the unit a producer of records hands over, a live consumer reads and a log file is made of.",
     "",
@@ -21,7 +21,7 @@
     "  0   4  magic \"WWTP\"",
     "  4  u8  version, 1",
     "  5  u8  kind: 1 records, 3 and up other kinds (BlockKind); 2 is reserved (RESERVED_KIND)",
-    "  6 u16  flags: bit 0 body coded (FLAG_BODY_CODED, record blocks only), bit 1 state records a writer put or",
+    "  6 u16  flags: bit 0 body coded (FLAG_BODY_CODED, records blocks only), bit 1 state records a writer put or",
     "         copied (FLAG_REPEAT), bit 2 puts that belong with the next block (FLAG_WITH_NEXT), bit 3 on a",
     "         chunk its payload unchecked (FLAG_PAYLOAD_UNCHECKED, reserved: 0, a reader refuses it), bit 4 on an",
     "         events chunk a break in its track\'s monotone relations (FLAG_RELATION_BREAK); others 0 (a reader",
@@ -37,7 +37,7 @@
     "len-4 u32 crc over bytes 0..len-4",
     "```",
     "",
-    "The body of a record block is a clock table, then records back to back:",
+    "The body of a records block is a clock table, then records back to back:",
     "",
     "```text",
     "uvar n, n × uvar clock number (ascending, 1 and up): the clocks of the block\'s records; slot i is the i-th",
@@ -77,7 +77,7 @@
     "**Track 0** holds the definitions: one [Describe] per record, its item\'s whole bytes: the [Producer], the",
     "[Layout], the API bundles, the [ClockDef]s, [ClockMap]s and [TrackDef]s in use and typed items ([TypedItem]: a run",
     "record, a media reference). Two facts about it are built in: its item type is [Describe], and its records have no",
-    "time (clocks are defined on it). Definitions sit in record blocks of their own (no other track in them).",
+    "time (clocks are defined on it). Definitions sit in records blocks of their own (no other track in them).",
     "",
     "**State.** Track 0 and every track whose policy is [TrackRepeat::State] hold state, not events: a reader at any",
     "place takes the nearest record of each slot behind it ([state]). A writer keeps that record close behind every use",

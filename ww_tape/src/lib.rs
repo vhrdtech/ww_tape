@@ -17,7 +17,7 @@
 //!   0   4  magic "WWTP"
 //!   4  u8  version, 1
 //!   5  u8  kind: 1 records, 3 and up other kinds (BlockKind); 2 is reserved (RESERVED_KIND)
-//!   6 u16  flags: bit 0 body coded (FLAG_BODY_CODED, record blocks only), bit 1 state records a writer put or
+//!   6 u16  flags: bit 0 body coded (FLAG_BODY_CODED, records blocks only), bit 1 state records a writer put or
 //!          copied (FLAG_REPEAT), bit 2 puts that belong with the next block (FLAG_WITH_NEXT), bit 3 on a
 //!          chunk its payload unchecked (FLAG_PAYLOAD_UNCHECKED, reserved: 0, a reader refuses it), bit 4 on an
 //!          events chunk a break in its track's monotone relations (FLAG_RELATION_BREAK); others 0 (a reader
@@ -33,7 +33,7 @@
 //! len-4 u32 crc over bytes 0..len-4
 //! ```
 //!
-//! The body of a record block is a clock table, then records back to back:
+//! The body of a records block is a clock table, then records back to back:
 //!
 //! ```text
 //! uvar n, n × uvar clock number (ascending, 1 and up): the clocks of the block's records; slot i is the i-th
@@ -73,7 +73,7 @@
 //! **Track 0** holds the definitions: one [Describe] per record, its item's whole bytes: the [Producer], the
 //! [Layout], the API bundles, the [ClockDef]s, [ClockMap]s and [TrackDef]s in use and typed items ([TypedItem]: a run
 //! record, a media reference). Two facts about it are built in: its item type is [Describe], and its records have no
-//! time (clocks are defined on it). Definitions sit in record blocks of their own (no other track in them).
+//! time (clocks are defined on it). Definitions sit in records blocks of their own (no other track in them).
 //!
 //! **State.** Track 0 and every track whose policy is [TrackRepeat::State] hold state, not events: a reader at any
 //! place takes the nearest record of each slot behind it ([state]). A writer keeps that record close behind every use
@@ -310,7 +310,7 @@ pub const FLAG_RELATION_BREAK: u16 = 1 << 4;
 /// Block kind 2, which earlier drafts gave describe blocks: reserved, never written, read as a kind this reader
 /// doesn't know.
 pub const RESERVED_KIND: u8 = 2;
-/// Header flag: the body of a record block is coded ([body]); on another kind the body is one this
+/// Header flag: the body of a records block is coded ([body]); on another kind the body is one this
 /// reader doesn't know. Off unless a writer codes the block with [code_body].
 pub const FLAG_BODY_CODED: u16 = 1 << 0;
 /// Bytes of the CRC at the end of a block.

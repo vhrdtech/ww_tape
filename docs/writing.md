@@ -138,7 +138,7 @@ writer.write_block(&defs, &readings)?; // the definitions it needs go first
 ```
 
 Here `clock` is a `ClockDef` and the two tracks are `TrackDef`s, all passed as `Describe` values. `readings` is a
-finished record block from a `BlockWriter` ([Writing data](#writing-data)). The repository runs these lines as a test
+finished records block from a `BlockWriter` ([Writing data](#writing-data)). The repository runs these lines as a test
 (`ww_tape_tests/tests/it/book.rs`).
 
 How many definitions to hold is the application's choice. `Definitions::len` says how many are held, and
@@ -157,19 +157,19 @@ Data goes into the file in four forms:
 
 | Form | Call | Use it for |
 |---|---|---|
-| record block | `TapeWriter::write_block` | tracks that produce a few items at a time |
+| records block | `TapeWriter::write_block` | tracks that produce a few items at a time |
 | chunk | `TapeWriter::write_chunk` | tracks with many items |
 | deferred block | `TapeWriter::defer_block` | small blocks that may wait, such as summary blocks |
 | state item | `TapeWriter::put` | the items of a state track, at each use |
 
-**Record blocks.** Build a record block with `BlockWriter`. Start it with the block's kind, its id
+**Records blocks.** Build a records block with `BlockWriter`. Start it with the block's kind, its id
 (`TapeWriter::next_id`) and the clocks its records use, `push` the records, then `finish` it. Hand the bytes to
 `TapeWriter::write_block`, which returns where the block landed as a `Placed`: its `offset` from the start of the
 piece and its `len`. A block of puts lands as no single block, so for such a block `write_block` returns `None`.
 
 **Chunks.** Hand a chunk head and its columns to `TapeWriter::write_chunk`, which encodes the chunk block and returns
 its `Placed`. For a chunk, `Placed::unit` is the chunk's unit hash as the writer states it in the index entry; for a
-record block it is `UnitHash::NONE`. The writer states the unit hash and does not verify it, so a writer in the same
+records block it is `UnitHash::NONE`. The writer states the unit hash and does not verify it, so a writer in the same
 process can fold range hashes without reading the piece back. `PieceChain::write_chunk` returns a `ChunkPlaced`: the
 same fields plus the `seq` of the piece that the chunk landed in, since the call may cut to a new piece first.
 `PieceChain::write_block` returns nothing.
@@ -318,7 +318,7 @@ finished one in the same sink, and the file keeps its name. A sink that holds on
 explains when to choose which.
 
 Nothing waits for a cut. Durability comes from the sync policy and the checkpoints, which work inside a piece; a cut
-only bounds how large one file grows. For example, a slow input of one log line a minute is written in a record block
+only bounds how large one file grows. For example, a slow input of one log line a minute is written in a records block
 as it comes, synced within the sync interval, and readable at once by a reader of the unfinished piece. Cutting by age
 serves retention by file, and it makes the file's bytes depend on the clock.
 
@@ -372,7 +372,7 @@ resumes it. The call returns the writer and a `Resumed`, which says how many byt
    and never listed.
 
 A damaged block kept by its entry stands for what the entry says. A damaged chunk goes into its track's hash by the
-unit hash of its entry. The records of a damaged record block cannot, so the finish marks the hash of each track that
+unit hash of its entry. The records of a damaged records block cannot, so the finish marks the hash of each track that
 may hold records as incomplete.
 
 Step 2 cuts off only a torn end. Where cutting could lose more, the resume refuses and leaves the bytes as they are:

@@ -62,7 +62,7 @@ and the latest end of any of its items. These calls give entries and read what t
 - `TapeReader::entries(i)` gives every block of piece `i`, in file order.
 - `TapeReader::track_entries(i, track_id)` gives the blocks of one track. In a finished piece it reads only the final
   index's directory and that track's list, each checked by its own CRC. A reader of one track out of thousands so reads
-  a few hundred bytes of index. Track id 0 gives the record blocks of data, and `STATE_TRACK_ID` the state entries.
+  a few hundred bytes of index. Track id 0 gives the records blocks of data, and `STATE_TRACK_ID` the state entries.
 - `TapeReader::read_block(i, entry, buf)` reads the block an entry names and checks it.
 - `TapeReader::read_chunk_head(i, entry, buf)` reads only the head of the chunk an entry names, up to its payload, and
   checks it by the head CRC. It tells what a chunk holds, and a series chunk's grid and scale, without its samples.
@@ -113,7 +113,7 @@ was lost, uncovered or left unread.
 
 How a reader gets at the items depends on the kind of block:
 
-- **A record block.** `Block::records` walks its records in order: track, time and item bytes. A body coded with lz4
+- **A records block.** `Block::records` walks its records in order: track, time and item bytes. A body coded with lz4
   (header flag `FLAG_BODY_CODED`) is decoded first with `Block::decode`, whose result has the same `records`.
 - **An events chunk.** `Block::chunk` gives the chunk's head and columns, and `EventTimes::read` reads its times in
   place. `start(j)`, `end(j)` and `flag(j)` give item `j`'s start tick, end and flags. `starts().lower_bound(t)` gives
@@ -154,9 +154,9 @@ therefore fails too. Verify checks these points:
   `TapeReader::track_entries` gives for the range relation's ranges.
 
 Verify costs a bounded number of steps per block and entry, and bounded memory. It reads the final index as it walks
-the piece and merges the index's track lists, each in file order, into one stream. It so holds one entry per track
-list and the entries of one block, whatever the size of the piece. A final index of more than `VERIFY_LISTS_MAX` track
-lists names more tracks than a writer gives a piece, and doesn't hold.
+the piece and merges the index's track lists, each in file order, into one stream. Verify therefore holds one entry
+per track list plus the entries of one block, whatever the size of the piece. A final index with more than
+`VERIFY_LISTS_MAX` track lists has more tracks than any writer puts in one piece, so verify says the piece fails.
 
 `TapeReader::chain` checks the links between the pieces at hand. It checks each piece head against the piece before
 it, and each tail's next piece id against the next piece. A piece without a finish has no hash to check, and that is
