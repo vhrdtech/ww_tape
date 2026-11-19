@@ -44,8 +44,8 @@ pub use encode::{EncodeError, EncodedPayloads};
 
 use crate::bitpack::{self, GROUP, Width};
 use crate::chunk::{Chunk, Codec, Column, ColumnKind};
+use crate::from_file::u32_to_usize;
 use crate::lz4::{Lz4Error, lz4_decode, lz4_decoded_len};
-use crate::times::u32_to_usize;
 use crate::{BlockKind, FromFile};
 use alloc::vec;
 use alloc::vec::Vec;

@@ -65,6 +65,18 @@ impl<T: FileInt> fmt::Debug for FromFile<T> {
     }
 }
 
+const _: () = assert!(usize::BITS >= u32::BITS, "a u32 fits a usize");
+
+/// A u32 count, length or offset as a usize: lossless, since a usize is at least 32 bits here.
+pub const fn u32_to_usize(v: u32) -> usize {
+    #[expect(
+        clippy::as_conversions,
+        reason = "usize is at least 32 bits, asserted above; From is not const"
+    )]
+    let n = v as usize;
+    n
+}
+
 /// `v` as a `u64`, saturating a `usize` wider than 64 bits.
 fn wide(v: usize) -> u64 {
     u64::try_from(v).unwrap_or(u64::MAX)

@@ -214,7 +214,7 @@ pub(crate) const fn width_span(width: u32) -> u64 {
 /// the group's packed values and their width, then the packed values. None when the packed values pass a u32
 /// offset or a width is over 64.
 #[cfg(feature = "alloc")]
-pub(crate) fn encode_groups<T: Copy, const R: usize>(
+pub fn encode_groups<T: Copy, const R: usize>(
     values: &[T],
     mut record: impl FnMut(&[T], u32) -> Option<([u8; R], alloc::vec::Vec<u64>, u32)>,
 ) -> Option<alloc::vec::Vec<u8>> {
@@ -233,19 +233,6 @@ pub(crate) fn encode_groups<T: Copy, const R: usize>(
     }
     out.extend_from_slice(&packed);
     Some(out)
-}
-
-const _: () = assert!(usize::BITS >= u32::BITS, "a u32 fits a usize");
-
-#[cfg(feature = "alloc")]
-/// A u32 count, length or offset as a usize.
-pub(crate) const fn u32_to_usize(v: u32) -> usize {
-    #[expect(
-        clippy::as_conversions,
-        reason = "usize is at least 32 bits, asserted above; From is not const"
-    )]
-    let n = v as usize;
-    n
 }
 
 /// An item or group index as an i64.

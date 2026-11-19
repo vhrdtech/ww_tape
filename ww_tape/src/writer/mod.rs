@@ -1287,8 +1287,11 @@ impl<S: TapeSink> TapeWriter<S> {
                 .map_err(WriteError::Describe)?;
         }
         // the longest the block can be, its padding at most the alignment: refused before anything is allocated or put
-        let chunk_max =
-            crate::chunk::chunk_len(head, &specs, crate::times::u32_to_usize(self.alignment()));
+        let chunk_max = crate::chunk::chunk_len(
+            head,
+            &specs,
+            crate::from_file::u32_to_usize(self.alignment()),
+        );
         if chunk_max > crate::MAX_BLOCK_LEN {
             return Err(WriteError::Chunk(crate::chunk::ChunkError::TooLong {
                 len: chunk_max,

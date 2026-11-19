@@ -1,4 +1,4 @@
-//! The durations column (ends in [EndMode::Durations](crate::EndMode::Durations)) and the flags column: per group a
+//! The durations column (the ends of a chunk whose items each have a duration) and the flags column: per group a
 //! record, then values packed at the group's width.
 //!
 //! Durations: per group a minimum (u64), a width (u8) and an offset (u32), then `duration - minimum`. Flags: per group

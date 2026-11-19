@@ -11,7 +11,7 @@ repository.workspace = true
 [features]
 default = ["std"]
 # the positional reader (TapeReader over a ByteSource) and the piece chain check, without std (WASM)
-alloc = []
+alloc = ["ww_tape_codecs/alloc"]
 # owned describe records, memory sinks and stores, the system clock, reading blocks from an io::Read (FileBlocks)
 std = [
     "alloc",

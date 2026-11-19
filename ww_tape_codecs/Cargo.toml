@@ -10,8 +10,10 @@ repository.workspace = true
 
 [features]
 default = ["std"]
+# the column encoders that return a Vec (time columns)
+alloc = []
 # run-time CPU feature detection for the vector kernels, and the summary kernels
-std = []
+std = ["alloc"]
 
 [dependencies]
 crc.workspace = true

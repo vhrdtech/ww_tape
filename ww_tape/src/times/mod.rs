@@ -69,8 +69,6 @@ mod values;
 pub use column::{ColumnError, TimeMode};
 #[cfg(feature = "alloc")]
 pub(crate) use groups::encode_groups;
-#[cfg(feature = "alloc")]
-pub(crate) use groups::u32_to_usize;
 pub use packed::{Durations, Flags};
 #[cfg(feature = "alloc")]
 pub use packed::{encode_durations, encode_flags};

@@ -32,6 +32,9 @@
     )
 )]
 
+#[cfg(feature = "alloc")]
+extern crate alloc;
+
 pub mod bitpack;
 pub mod bytes;
 pub mod codec;
