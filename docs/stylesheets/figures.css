@@ -1,7 +1,7 @@
-/* Figures: SVG drawings inlined into a page with --8<-- (the Tapes chapter: ww_tape's docs/figures, drawn by hand,
-   and docs/plots, drawn by its ww_tape_figures crate from blocks it writes). Elements carry classes, never colours,
-   so a figure takes the page's scheme: the tokens below, one set for light and one for dark. The palette is the
-   one of the `bits` fence (vhrd.css), the accent the brand red. */
+/* Figures: SVG drawings inlined into a page with --8<-- (docs/figures, drawn by hand, and docs/plots, drawn by the
+   ww_tape_figures crate from blocks it writes). Elements carry classes, never colours, so a figure takes the page's
+   scheme: the tokens below, one set for light and one for dark. The palette is the WireWeaver book's, the accent the
+   brand red. */
 [data-md-color-scheme="default"] {
   --ww-fig-ink: #1a1a1a;
   --ww-fig-soft: #646a70;
