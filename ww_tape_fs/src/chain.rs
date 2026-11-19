@@ -5,7 +5,7 @@ use std::path::Path;
 use ww_tape::writer::{Resumed, WriteError};
 use ww_tape::{ChainOptions, OwnerId, PieceChain, PieceTapes, TrackStart};
 
-use crate::sink::{Files, FsError};
+use crate::sink::{Files, FsError, none_at};
 
 /// Name of piece `seq` in its chain's directory: the sequence number in 8 digits, so names sort in chain order.
 pub fn piece_name(seq: u64) -> String {
@@ -25,14 +25,22 @@ pub fn create(
 }
 
 /// Reopen chain `chain` of `owner` in `dir` (with [PieceTapes::One] the file) after a crash, see
-/// [PieceChain::resume_on].
+/// [PieceChain::resume_on]. A chain that isn't there, `dir` missing or without a first piece (nor its `.partial`), is
+/// [FsError::NoPiece] naming `dir`, told apart from a failure.
 pub fn resume(
     dir: &Path,
     owner: OwnerId,
     chain: u64,
     options: ChainOptions,
 ) -> Result<(PieceChain<Files>, Resumed), WriteError<FsError>> {
-    PieceChain::resume_on(files_at(dir, &options), owner, chain, options)
+    let files = files_at(dir, &options);
+    if none_at(&files.path_of(0)) {
+        return Err(WriteError::Sink {
+            what: "opening a chain to resume",
+            error: FsError::NoPiece(dir.to_path_buf()),
+        });
+    }
+    PieceChain::resume_on(files, owner, chain, options)
 }
 
 /// The piece files of a chain at `path`: a directory, or with [PieceTapes::One] the file.

@@ -127,3 +127,63 @@ fn a_refused_writer_says_the_file_and_why_in_one_line() {
     );
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// A resume with nothing to resume, the file or its directory missing, says so typed, naming the file: a caller tells
+/// a missing piece from a failure.
+#[test]
+fn a_resume_of_no_file_names_the_file() {
+    let dir = scratch("files_no_piece");
+    for path in [dir.join("x.wwt"), dir.join("gone").join("x.wwt")] {
+        let e = ww_tape_fs::writer::resume(&path, ww_tape::WriterOptions::default())
+            .err()
+            .unwrap();
+        assert!(
+            matches!(&e, WriteError::Sink { error: FsError::NoPiece(p), .. } if *p == path),
+            "{e}"
+        );
+        assert_eq!(
+            chain(&e),
+            [format!(
+                "opening a writer to resume: {}: no piece to resume",
+                path.display()
+            )]
+        );
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// A chain resumed where there is none, its directory missing or empty, or its one file missing, says so typed,
+/// naming the directory or file, apart from a failure.
+#[test]
+fn a_resume_of_no_chain_names_the_directory() {
+    let dir = scratch("files_no_chain");
+    let owner = ww_tape::OwnerId([3; 32]);
+    let each = ww_tape::ChainOptions::default();
+    let one = ww_tape::ChainOptions {
+        tapes: ww_tape::PieceTapes::One,
+        ..Default::default()
+    };
+    let empty = dir.join("empty");
+    std::fs::create_dir(&empty).unwrap();
+    for (at, options) in [
+        (dir.join("gone"), each.clone()),
+        (empty, each),
+        (dir.join("one.wwt"), one),
+    ] {
+        let e = ww_tape_fs::chain::resume(&at, owner, 0, options)
+            .err()
+            .unwrap();
+        assert!(
+            matches!(&e, WriteError::Sink { error: FsError::NoPiece(p), .. } if *p == at),
+            "{e}"
+        );
+        assert_eq!(
+            chain(&e),
+            [format!(
+                "opening a chain to resume: {}: no piece to resume",
+                at.display()
+            )]
+        );
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}

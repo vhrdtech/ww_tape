@@ -35,6 +35,9 @@ pub enum FsError {
     NotAFile(PathBuf),
     /// A piece start [check_base] refused for the file at `path`.
     Base { path: PathBuf, refused: BaseRefused },
+    /// Nothing to resume at `path`: no file there nor its `.partial`, or a chain's directory that is missing or holds
+    /// no first piece.
+    NoPiece(PathBuf),
 }
 
 impl core::fmt::Display for FsError {
@@ -51,6 +54,7 @@ impl core::fmt::Display for FsError {
                 p.display()
             ),
             FsError::NotAFile(p) => write!(f, "{}: not a regular file", p.display()),
+            FsError::NoPiece(p) => write!(f, "{}: no piece to resume", p.display()),
             FsError::Base { path, refused } => {
                 write!(
                     f,
@@ -492,6 +496,13 @@ pub fn partial_name(path: &Path) -> PathBuf {
     let mut name = path.as_os_str().to_owned();
     name.push(".partial");
     PathBuf::from(name)
+}
+
+/// Whether neither `path` nor its `.partial` is there: nothing to resume. A name that can't be looked at counts as
+/// there, so opening it reports why.
+pub(crate) fn none_at(path: &Path) -> bool {
+    let gone = |p: &Path| matches!(std::fs::symlink_metadata(p), Err(e) if e.kind() == io::ErrorKind::NotFound);
+    gone(path) && gone(&partial_name(path))
 }
 
 /// Sync the directory a file is in, so a new or renamed name survives a crash. Windows has no such call (NTFS
