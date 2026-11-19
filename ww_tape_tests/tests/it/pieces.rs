@@ -724,7 +724,7 @@ fn index_golden() {
         }
     }
     std::fs::remove_dir_all(&dir).unwrap();
-    let golden = Path::new(env!("CARGO_MANIFEST_DIR")).join("golden/v1-index.hex");
+    let golden = Path::new(env!("CARGO_MANIFEST_DIR")).join("../ww_tape/golden/v1-index.hex");
     if std::env::var("WW_TAPE_GOLDEN").as_deref() == Ok("update") {
         std::fs::write(&golden, &hex).unwrap();
     }
@@ -820,7 +820,7 @@ fn incomplete_golden() {
         hex.push('\n');
     }
     std::fs::remove_dir_all(&dir).unwrap();
-    let golden = Path::new(env!("CARGO_MANIFEST_DIR")).join("golden/v1-incomplete.hex");
+    let golden = Path::new(env!("CARGO_MANIFEST_DIR")).join("../ww_tape/golden/v1-incomplete.hex");
     if std::env::var("WW_TAPE_GOLDEN").as_deref() == Ok("update") {
         std::fs::write(&golden, &hex).unwrap();
     }

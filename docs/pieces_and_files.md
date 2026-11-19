@@ -100,7 +100,7 @@ let second = chain.finish()?;
 ```
 
 The first session leaves one finished piece in the file. The second session finds it, adds a piece behind it, and
-returns both pieces; the repository runs these lines as a test (`ww_tape/tests/it/book.rs`).
+returns both pieces; the repository runs these lines as a test (`ww_tape_tests/tests/it/book.rs`).
 
 Opening the file again goes through `PieceChain::resume` with the same options. The chain finds the last piece by the
 tails, as a reader does. An unfinished last piece, cut off by a crash, is resumed under the same rules as a piece in a

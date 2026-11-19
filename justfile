@@ -62,7 +62,7 @@ api-check:
 
 # Rewrite ww_tape's golden files (golden/v1*.hex) after a deliberate format change (STD-117, STD-118, STD-120, STD-121, STD-135)
 tape-golden-update:
-    WW_TAPE_GOLDEN=update cargo nextest run -p ww_tape golden
+    WW_TAPE_GOLDEN=update cargo nextest run -p ww_tape -p ww_tape_tests golden
 
 # Float sample codecs of ww_tape on motor_sim, decoded speech and ADC data (STD-130); fetches the public-domain
 # speech file (Roosevelt's Pearl Harbor address, Wikimedia Commons) once and checks it; `just bench-sample-codecs --help`

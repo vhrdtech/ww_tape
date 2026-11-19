@@ -81,7 +81,7 @@ writer.write_block(&defs, &readings)?; // the definitions it needs go first
 
 Here `clock` and the two tracks are `Describe` values (a `ClockDef` and two `TrackDef`s), and `readings` is a finished
 records block from a `BlockWriter` (see below). The repository runs these lines
-as a test (`ww_tape/tests/it/book.rs`).
+as a test (`ww_tape_tests/tests/it/book.rs`).
 
 How many definitions to hold is the application's choice; `Definitions::len` and `Definitions::bytes` say how much is
 held. For example, a recorder of 10 000 sensors holds 10 000 track definitions and passes them with each block. A block

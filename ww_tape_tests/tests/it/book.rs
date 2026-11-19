@@ -221,7 +221,7 @@ fn format_layouts() -> Vec<String> {
 fn format_page_layouts_are_the_module_docs() {
     let mut docs = String::new();
     module_docs(
-        &Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("../ww_tape/src"),
         &mut docs,
     );
     let doc_blocks: Vec<String> = fenced(&docs, "module docs")

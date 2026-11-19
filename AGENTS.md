@@ -25,6 +25,7 @@ the docs are unclear, the source and its comments are authoritative.
 | --- | --- |
 | `ww_tape/` | blocks, definitions on track 0, state tracks and their lookups, chunks, the time, sample and payload codecs, summaries, index, finish and tail, pieces, `TapeWriter`, `FileBlocks`, `TapeReader`; `golden/` the golden files |
 | `ww_tape_codecs/` | column codecs with no notion of a block: `bitpack`, `crc32c`, `from_file`, varints, `lz4`, the summary kernels; `ww_tape` re-exports them |
+| `ww_tape_tests/` | the integration tests (`tests/it`), through the public API; the book pages against the code |
 | `ww_tape_fuzz/` | the fuzz target bodies (`targets`), hostile block builders (`hostile`), `seeds/` and their replay as tests, `ww_tape_fuzz_seeds` |
 | `ww_tape_benchmarks/` | float sample codecs on simulated, decoded and sensor data; series summaries (`--bin summaries`); tracks added one by one, puts and copies (`--bin tracks`); the writer's cost per series chunk (`--bin chunks`) |
 | `ww_tape_figures/` | the book's figures that show bytes or numbers, drawn from blocks ww_tape writes into `docs/plots/` (`just book-figures`; a test checks them) |
@@ -60,10 +61,10 @@ just bench-tracks         # tracks added one by one; puts and copies per 256 MiB
 just bench-chunks         # ns per 1 MiB series chunk the writer spends, and its parts
 ```
 
-Single test: `cargo nextest run -p ww_tape <test>` (nextest is required). Plain `cargo sort` flattens grouped
-tables: always pass `-w -g`. Project words go into `typos.toml`. CI (`.github/workflows/ci.yml`) fails on any
-warning. `ww_tape`, `ww_tape_codecs` and `ww_tape_fuzz` build at opt-level 3 in tests: the hostile streams decode a
-million blocks.
+Single test: `cargo nextest run -p ww_tape <test>`, or `-p ww_tape_tests` for an integration test (nextest is
+required). Plain `cargo sort` flattens grouped tables: always pass `-w -g`. Project words go into `typos.toml`. CI
+(`.github/workflows/ci.yml`) fails on any warning. `ww_tape`, `ww_tape_codecs`, `ww_tape_fuzz` and `ww_tape_tests`
+build at opt-level 3 in tests: the hostile streams decode a million blocks.
 
 ## The format is a contract
 

@@ -496,7 +496,8 @@ fn series_file_is_deterministic_and_golden() {
         }
         hex.push('\n');
     }
-    let golden = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("golden/v1-series.hex");
+    let golden =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../ww_tape/golden/v1-series.hex");
     if std::env::var("WW_TAPE_GOLDEN").as_deref() == Ok("update") {
         std::fs::write(&golden, &hex).unwrap();
     }
