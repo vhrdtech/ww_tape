@@ -1033,9 +1033,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
- "lewton",
- "libm",
- "motor_sim",
  "shrink_wrap",
  "ww_tape",
  "ww_tape_fs",
@@ -1047,6 +1044,18 @@ version = "0.1.0"
 dependencies = [
  "crc",
  "lz4_flex",
+]
+
+[[package]]
+name = "ww_tape_codecs_benchmarks"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "lewton",
+ "libm",
+ "motor_sim",
+ "ww_tape",
 ]
 
 [[package]]

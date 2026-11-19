@@ -72,7 +72,7 @@ bench-sample-codecs *args:
     mkdir -p target/bench-data
     test -f target/bench-data/Roosevelt_Pearl_Harbor.ogg || curl -fsSL -o target/bench-data/Roosevelt_Pearl_Harbor.ogg https://upload.wikimedia.org/wikipedia/commons/f/fd/Roosevelt_Pearl_Harbor.ogg
     echo "90239988a1fc36a44f6531207c918544980bfea0  target/bench-data/Roosevelt_Pearl_Harbor.ogg" | sha1sum -c --quiet
-    cargo run -q --release -p ww_tape_benchmarks -- --speech target/bench-data/Roosevelt_Pearl_Harbor.ogg {{ args }}
+    cargo run -q --release -p ww_tape_codecs_benchmarks -- --speech target/bench-data/Roosevelt_Pearl_Harbor.ogg {{ args }}
 
 # Series summaries of ww_tape (STD-133): MB/s per element type through the RAW codec, the summaries and both;
 # `just bench-summaries --help`

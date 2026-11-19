@@ -4,6 +4,7 @@ members = [
     "ww_tape",
     "ww_tape_benchmarks",
     "ww_tape_codecs",
+    "ww_tape_codecs_benchmarks",
     "ww_tape_figures",
     "ww_tape_fs",
     "ww_tape_fuzz",
@@ -28,7 +29,7 @@ ww_tape_fuzz = { version = "0.1.0", path = "./ww_tape_fuzz" }
 
 # git dependencies without rev or tag: Cargo.lock pins the commit, `cargo update -p NAME` moves it
 exact_units = { version = "0.1.0", git = "https://github.com/romixlab/exact_units", default-features = false }
-# ww_tape_benchmarks: the motor simulation data set
+# ww_tape_codecs_benchmarks: the motor simulation data set
 motor_sim = { git = "https://github.com/vhrdtech/motor_sim", default-features = false }
 shrink_wrap = { version = "0.2.0", git = "https://github.com/romixlab/shrink_wrap", default-features = false }
 # ww_tape's tests/evolution.rs: the API snapshot check `ww api check` runs, as a test
@@ -40,7 +41,7 @@ anyhow = "1"
 blake3 = { version = "1.8", default-features = false, features = ["pure"] }
 clap = "4.5"
 crc = "3.4"
-# ww_tape_benchmarks: a pure-Rust Vorbis decoder for the speech data set
+# ww_tape_codecs_benchmarks: a pure-Rust Vorbis decoder for the speech data set
 lewton = { version = "0.10", default-features = false, features = ["ogg"] }
 libm = "0.2"
 # exact: ww_tape lz4 payload columns must compress to the same bytes (ww_tape_codecs/src/lz4.rs)
