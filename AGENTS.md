@@ -63,7 +63,7 @@ just bench-sample-codecs  # float codecs (fetches a public-domain speech file on
 just bench-summaries      # series summary throughput
 just bench-tracks         # tracks added one by one; puts and copies per 256 MiB piece
 just bench-chunks         # ns per 1 MiB series chunk the writer spends, and its parts
-just book-check           # the book (docs/) with warnings as errors: a broken link or anchor fails
+just book-check           # the book (docs/) with warnings as errors, then spl's prose lints (deny)
 ```
 
 Single test: `cargo nextest run -p ww_tape <test>`, or `-p ww_tape_tests` for an integration test (nextest is

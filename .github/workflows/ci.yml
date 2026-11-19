@@ -127,7 +127,7 @@ jobs:
       - run: just fuzz-smoke
 
   book:
-    name: the book builds without warnings
+    name: the book builds without warnings and passes the prose lints
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -135,4 +135,6 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: just
+      # spl, spirit_level's CLI, at the commit the prose lints were set up with (0.5.4)
+      - run: cargo install --locked --git https://github.com/romixlab/spirit_level --rev a7fe9c6f8bd13f299c3091583846299fb00942b6 spirit_level_cli
       - run: just book-check
