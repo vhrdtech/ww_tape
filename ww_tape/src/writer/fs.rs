@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use super::{Finished, ResumeError, Resumed, SyncPolicy, TapeWriter, WriteError, WriterOptions};
-use crate::sink::{FileSink, Files, FsError, TapeSink, sink_err};
+use crate::sink::{FileSink, Files, FsError, sink_err};
 
 impl TapeWriter<FileSink> {
     /// A new file at `path`, written as `path.partial` until [Self::finish]; fails if `path` is there or a
@@ -17,10 +17,7 @@ impl TapeWriter<FileSink> {
     /// with its definitions, which a reader takes as the next part of the file.
     pub fn append(path: &Path, policy: SyncPolicy) -> Result<Self, WriteError<FsError>> {
         let sink = FileSink::append(path).map_err(sink_err("opening the file"))?;
-        let start = sink.size().map_err(sink_err("reading the file's length"))?;
-        let mut w = Self::create_on(sink, policy);
-        w.start = start;
-        Ok(w)
+        Self::append_on(sink, policy)
     }
 
     /// Reopen the unfinished piece `path` (written as `path.partial` by [Self::create] and cut off by a crash) to go

@@ -333,6 +333,19 @@ impl<S: TapeSink> TapeWriter<S> {
         self.sink.reserve(bytes);
     }
 
+    /// A writer appending to the bytes already in `sink` in a new session, such as a file opened to append or a
+    /// memory tape of [MemTapes::open_whole](crate::MemTapes::open_whole): offsets in the index count from the
+    /// sink's length now, and the session's blocks start with its definitions, which a reader takes as the next part
+    /// of the bytes.
+    pub fn append_on(sink: S, policy: SyncPolicy) -> Result<Self, WriteError<S::Error>> {
+        let start = sink
+            .size()
+            .map_err(sink_err("reading the length of the bytes"))?;
+        let mut w = Self::create_on(sink, policy);
+        w.start = start;
+        Ok(w)
+    }
+
     /// The sink, for its bytes ([crate::sink::MemSink::tape]).
     pub fn sink(&self) -> &S {
         &self.sink
