@@ -2,7 +2,7 @@
 //!
 //! **Lengths** ([ColumnKind::PayloadLengths], codec [LENGTHS], in the event codecs' range 1 to 15): a record per
 //! group of 128 items, then each group's lengths less its minimum, packed at the group's width
-//! ([bitpack]):
+//! ([bitpack](crate::bitpack)):
 //!
 //! ```text
 //! per group: base u32 (where its first item's payload starts in the decoded payload bytes), minimum u32 (its
