@@ -64,6 +64,8 @@ mod tests;
 #[cfg(feature = "std")]
 pub use relation::EncodedRelation;
 pub use relation::{RelationColumn, StoredRelations};
+#[cfg(feature = "alloc")]
+pub(crate) use ww_tape_codecs::times::encode_groups;
 pub use ww_tape_codecs::times::{
     ColumnError, Durations, Flags, Iter, SLOPE_MAX, Starts, TimeMode, Values, ordered, unordered,
 };

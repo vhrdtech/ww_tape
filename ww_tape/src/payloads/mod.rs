@@ -37,28 +37,27 @@
 //! the block still decodes to its stated length, else empty.
 
 mod encode;
+mod lengths;
 #[cfg(test)]
 mod tests;
 
 pub use encode::{EncodeError, EncodedPayloads};
 
-use crate::bitpack::{self, GROUP, Width};
+use crate::BlockKind;
+use crate::bitpack::GROUP;
 use crate::chunk::{Chunk, Codec, Column, ColumnKind};
 use crate::from_file::u32_to_usize;
 use crate::lz4::{Lz4Error, lz4_decode, lz4_decoded_len};
-use crate::{BlockKind, FromFile};
+use crate::times::ColumnError;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::ops::Range;
+use lengths::Lengths;
+#[cfg(test)]
+pub(crate) use lengths::RECORD_LEN;
 
 /// Codec of a payload lengths column.
 pub const LENGTHS: Codec = Codec::LENGTHS;
-
-/// Bytes of a group record of the lengths column.
-pub(crate) const RECORD_LEN: usize = 13;
-
-/// Widest packed length, in bits: lengths are u32.
-const WIDTH_MAX: u8 = 32;
 
 /// Why a chunk's payload columns can't be read.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -72,10 +71,10 @@ pub enum PayloadsError {
     Unexpected(ColumnKind),
     /// A payload column in a codec this reader doesn't know.
     UnknownCodec(ColumnKind, Codec),
-    /// A column breaks the format.
+    /// A column breaks the format: the column reader's error, with the column.
     Corrupt {
         kind: ColumnKind,
-        what: &'static str,
+        error: ColumnError,
     },
     /// The lz4 payloads column doesn't decode.
     Lz4(Lz4Error),
@@ -88,7 +87,7 @@ impl core::fmt::Display for PayloadsError {
             PayloadsError::Missing(k) => write!(f, "no {k:?} column"),
             PayloadsError::Unexpected(k) => write!(f, "{k:?} column twice"),
             PayloadsError::UnknownCodec(k, c) => write!(f, "{k:?} column in unknown codec {}", c.0),
-            PayloadsError::Corrupt { kind, what } => write!(f, "{kind:?} column: {what}"),
+            PayloadsError::Corrupt { kind, error } => write!(f, "{kind:?} column: {error}"),
             PayloadsError::Lz4(_) => write!(f, "lz4 payloads column doesn't decode"),
         }
     }
@@ -98,243 +97,10 @@ impl core::error::Error for PayloadsError {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
             PayloadsError::Lz4(e) => Some(e),
+            PayloadsError::Corrupt { error, .. } => Some(error),
             _ => None,
         }
     }
-}
-
-/// A group record of the lengths column, its values bounded: width at most 32, offset inside the packed lengths,
-/// base and minimum inside the payload bytes.
-#[derive(Copy, Clone, Debug)]
-struct Record {
-    base: usize,
-    min: usize,
-    width: Width,
-    offset: usize,
-}
-
-/// The lengths column: records and packed lengths, read in place.
-#[derive(Copy, Clone, Debug)]
-struct Lengths<'b> {
-    /// Items in the chunk.
-    n: usize,
-    /// One record per group.
-    records: &'b [[u8; RECORD_LEN]],
-    /// The packed lengths and everything after them in the payload, for the unpack kernels' reach.
-    data: &'b [u8],
-    /// Bytes of packed lengths in the column.
-    data_len: usize,
-    /// Bytes of payloads; None when an lz4 column doesn't decode.
-    total: Option<usize>,
-}
-
-impl<'b> Lengths<'b> {
-    /// Split `column` (its bytes; `tail` the payload from the column's start on) into records and packed lengths,
-    /// for `total` bytes of payloads.
-    fn split(
-        n: usize,
-        column: &'b [u8],
-        tail: &'b [u8],
-        total: Option<usize>,
-    ) -> Result<Self, PayloadsError> {
-        let corrupt = PayloadsError::Corrupt {
-            kind: ColumnKind::PayloadLengths,
-            what: "shorter than its group records",
-        };
-        let (all, _) = column.as_chunks::<RECORD_LEN>();
-        let records = all.get(..n.div_ceil(GROUP)).ok_or(corrupt)?;
-        let head = records.as_flattened().len();
-        let data = tail.get(head..).ok_or(corrupt)?;
-        let data_len = column.len().checked_sub(head).ok_or(corrupt)?;
-        Ok(Lengths {
-            n,
-            records,
-            data,
-            data_len,
-            total,
-        })
-    }
-
-    fn count(&self) -> usize {
-        self.records.len()
-    }
-
-    /// Items in group `g`; 0 past the last group.
-    fn group_len(&self, g: usize) -> usize {
-        let first = g.saturating_mul(GROUP);
-        self.n.saturating_sub(first).min(GROUP)
-    }
-
-    /// Group `g`'s record; what is out of bounds when it isn't one.
-    fn checked_record(&self, g: usize) -> Result<Record, &'static str> {
-        let r = self
-            .records
-            .get(g)
-            .ok_or("shorter than its group records")?;
-        let [b0, b1, b2, b3, m0, m1, m2, m3, w, o0, o1, o2, o3] = *r;
-        let width = FromFile::new(w)
-            .bounded(WIDTH_MAX)
-            .ok()
-            .and_then(|w| Width::new(u32::from(w)).ok())
-            .ok_or("width over 32")?;
-        let offset = FromFile::new(u32::from_le_bytes([o0, o1, o2, o3]))
-            .within(self.data_len)
-            .or(Err("packed lengths past the column"))?;
-        let total = self.total.ok_or("payloads that don't decode")?;
-        let past = "group base or minimum past the payload bytes";
-        let base = FromFile::new(u32::from_le_bytes([b0, b1, b2, b3]))
-            .within(total)
-            .or(Err(past))?;
-        let min = FromFile::new(u32::from_le_bytes([m0, m1, m2, m3]))
-            .within(total)
-            .or(Err(past))?;
-        Ok(Record {
-            base,
-            min,
-            width,
-            offset,
-        })
-    }
-
-    fn record(&self, g: usize) -> Option<Record> {
-        self.checked_record(g).ok()
-    }
-
-    /// Where group `g`'s packed lengths end; None for a record out of bounds or an end past the column.
-    fn packed_end(&self, g: usize) -> Option<usize> {
-        let r = self.record(g)?;
-        let end = r
-            .offset
-            .checked_add(bitpack::packed_len(self.group_len(g), r.width.bits()))?;
-        (end <= self.data_len).then_some(end)
-    }
-
-    /// Unpack group `g`'s lengths less its minimum into `out`; None when its record doesn't fit the column.
-    fn unpack(&self, g: usize, out: &mut [u32; GROUP]) -> Option<Record> {
-        self.packed_end(g)?;
-        let r = self.record(g)?;
-        if r.width == Width::ZERO {
-            out.fill(0);
-        } else {
-            // checked_record keeps widths of at most 32, the kernels' widest
-            r.width.unpack_u32(self.data.get(r.offset..)?, out).ok()?;
-        }
-        Some(r)
-    }
-
-    /// Bytes of group `g`'s payloads; None when its record doesn't fit the column or its lengths are not in the
-    /// encoder's form.
-    fn group_bytes(&self, g: usize) -> Option<usize> {
-        let mut v = [0u32; GROUP];
-        let r = self.unpack(g, &mut v)?;
-        let len = self.group_len(g);
-        let vals = v.get(..len)?;
-        if r.width != Width::ZERO {
-            let min = vals.iter().copied().min()?;
-            let max = vals.iter().copied().max()?;
-            let packed = bitpack::packed_len(len, r.width.bits());
-            let spare = packed
-                .checked_mul(8)?
-                .checked_sub(len.checked_mul(u32_to_usize(r.width.bits()))?)?;
-            let last = *self
-                .data
-                .get(r.offset.checked_add(packed)?.checked_sub(1)?)?;
-            // the bits after the last value are 0
-            let tail_zero =
-                spare == 0 || last.checked_shr(8u32.checked_sub(spare_bits(spare)?)?)? == 0;
-            if min != 0 || Width::of(u64::from(max)) != r.width || !tail_zero {
-                return None;
-            }
-        }
-        let packed = sum(vals)?;
-        packed.checked_add(r.min.checked_mul(len)?)
-    }
-
-    /// Whether group `g`'s lengths end where group `g + 1`'s start and its payloads where group `g + 1`'s base says,
-    /// the last group's at the column's end and at the payload bytes' end.
-    fn ends_at_next(&self, g: usize) -> bool {
-        let next = if g.saturating_add(1) < self.count() {
-            self.record(g.saturating_add(1)).map(|r| (r.offset, r.base))
-        } else {
-            self.total.map(|t| (self.data_len, t))
-        };
-        let (Some((offset, base)), Some(end), Some(bytes), Some(r)) = (
-            next,
-            self.packed_end(g),
-            self.group_bytes(g),
-            self.record(g),
-        ) else {
-            return false;
-        };
-        end == offset && r.base.checked_add(bytes) == Some(base)
-    }
-
-    /// Whether group `g` starts where group `g - 1` ends, group 0 at 0.
-    fn starts_at_previous(&self, g: usize) -> bool {
-        match g.checked_sub(1) {
-            None => self.record(0).is_some_and(|r| r.offset == 0 && r.base == 0),
-            Some(p) => self.ends_at_next(p),
-        }
-    }
-
-    /// Whether group `g`'s record fits the column and its neighbours, blaming a broken link on the group whose
-    /// record broke it (as the time codec's groups do).
-    fn group_fits(&self, g: usize) -> bool {
-        if self.packed_end(g).is_none() {
-            return false;
-        }
-        let next = g.saturating_add(1);
-        self.ends_at_next(g)
-            || (self.starts_at_previous(g) && next < self.count() && !self.ends_at_next(next))
-    }
-
-    /// Check every record against the column and the payload bytes.
-    fn check(&self) -> Result<(), PayloadsError> {
-        let corrupt = |what| PayloadsError::Corrupt {
-            kind: ColumnKind::PayloadLengths,
-            what,
-        };
-        if !self.starts_at_previous(0) {
-            return Err(corrupt("group 0 doesn't start at 0"));
-        }
-        for g in 0..self.count() {
-            self.checked_record(g).map_err(corrupt)?;
-            if self.packed_end(g).is_none() {
-                return Err(corrupt("packed lengths past the column"));
-            }
-            if !self.ends_at_next(g) {
-                return Err(corrupt(
-                    "a group doesn't end where the next starts, or the last at the column's end",
-                ));
-            }
-        }
-        Ok(())
-    }
-
-    /// Where item `i`'s payload lies in the payload bytes; None when its group's record doesn't fit the column.
-    fn range(&self, i: usize) -> Option<Range<usize>> {
-        let (g, j) = (i / GROUP, i % GROUP);
-        let mut v = [0u32; GROUP];
-        let r = self.unpack(g, &mut v)?;
-        let before = sum(v.get(..j)?)?;
-        let start = r
-            .base
-            .checked_add(r.min.checked_mul(j)?)?
-            .checked_add(before)?;
-        let len = r.min.checked_add(u32_to_usize(*v.get(j)?))?;
-        Some(start..start.checked_add(len)?)
-    }
-}
-
-/// Spare bits of a group's last byte: 1 to 7.
-fn spare_bits(spare: usize) -> Option<u32> {
-    u32::try_from(spare).ok().filter(|s| *s < 8)
-}
-
-/// The sum of packed lengths; None past usize.
-fn sum(vals: &[u32]) -> Option<usize> {
-    vals.iter()
-        .try_fold(0usize, |a, x| a.checked_add(u32_to_usize(*x)))
 }
 
 /// The payload bytes, in place or decoded.
@@ -378,24 +144,18 @@ impl<'b> Payloads<'b> {
             .get(lengths.offset..)
             .ok_or(PayloadsError::Missing(ColumnKind::PayloadLengths))?;
         let n = u32_to_usize(chunk.head().count);
-        let l = Lengths::split(n, lengths.bytes, tail, None)?;
+        let l = Lengths::split(n, lengths.bytes, tail).map_err(corrupt_lengths)?;
         let (l, bytes) = if payloads.codec == Codec::LZ4 {
             // at most LZ4_DECODED_MAX, and what the block can fill
             let len = lz4_decoded_len(payloads.bytes).map_err(PayloadsError::Lz4)?;
-            let l = Lengths {
-                total: Some(len),
-                ..l
-            };
-            l.check()?;
+            let l = l.with_total(Some(len));
+            l.check().map_err(corrupt_lengths)?;
             let mut out = vec![0u8; len];
             lz4_decode(payloads.bytes, &mut out).map_err(PayloadsError::Lz4)?;
             (l, Bytes::Decoded(out))
         } else {
-            let l = Lengths {
-                total: Some(payloads.bytes.len()),
-                ..l
-            };
-            l.check()?;
+            let l = l.with_total(Some(payloads.bytes.len()));
+            l.check().map_err(corrupt_lengths)?;
             (l, Bytes::InPlace(payloads.bytes))
         };
         Ok(Some(Payloads {
@@ -420,7 +180,7 @@ impl<'b> Payloads<'b> {
             .get(lengths.offset..)
             .ok_or(PayloadsError::Missing(ColumnKind::PayloadLengths))?;
         let n = u32_to_usize(chunk.head().count);
-        let l = Lengths::split(n, lengths.bytes, tail, None)?;
+        let l = Lengths::split(n, lengths.bytes, tail).map_err(corrupt_lengths)?;
         let damaged = chunk.column_damaged(&payloads);
         let (bytes, total, all_suspect, bad) = if payloads.codec == Codec::LZ4 {
             // at most LZ4_DECODED_MAX, and what the block can fill
@@ -444,7 +204,7 @@ impl<'b> Payloads<'b> {
             let total = payloads.bytes.len();
             (Bytes::InPlace(payloads.bytes), Some(total), false, bad)
         };
-        let l = Lengths { total, ..l };
+        let l = l.with_total(total);
         // a record per group fits the column: its length bounds the groups
         let suspect_groups = (0..l.count()).map(|g| !l.group_fits(g)).collect();
         Ok(Some(Payloads {
@@ -458,12 +218,12 @@ impl<'b> Payloads<'b> {
 
     /// Items in the chunk.
     pub fn len(&self) -> usize {
-        self.lengths.n
+        self.lengths.len()
     }
 
     /// Always false: a chunk has an item at least.
     pub fn is_empty(&self) -> bool {
-        self.lengths.n == 0
+        self.lengths.is_empty()
     }
 
     fn group_ok(&self, g: usize) -> bool {
@@ -590,6 +350,14 @@ impl<'a> Iterator for Iter<'a, '_> {
 }
 
 impl ExactSizeIterator for Iter<'_, '_> {}
+
+/// A lengths column reader's error, with its column.
+fn corrupt_lengths(error: ColumnError) -> PayloadsError {
+    PayloadsError::Corrupt {
+        kind: ColumnKind::PayloadLengths,
+        error,
+    }
+}
 
 /// The two payload columns of `chunk`, codecs checked; None when it has neither.
 fn columns<'b>(chunk: &Chunk<'b>) -> Result<Option<(Column<'b>, Column<'b>)>, PayloadsError> {

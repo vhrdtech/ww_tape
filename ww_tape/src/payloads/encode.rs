@@ -1,13 +1,11 @@
 //! Encoding a chunk's payloads into its two columns.
 
-use super::{LENGTHS, RECORD_LEN};
-use crate::bitpack;
-use crate::bytes;
+use super::LENGTHS;
+use super::lengths::encode_lengths;
 use crate::chunk::{Codec, ColumnKind, ColumnSpec};
 use crate::lz4::{LZ4_DECODED_MAX, Lz4Error, lz4_encode, lz4_max_len};
 use alloc::vec;
 use alloc::vec::Vec;
-use ww_tape_codecs::times::encode_groups;
 
 /// Why payloads can't be encoded.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -119,25 +117,4 @@ impl EncodedPayloads {
             ),
         ]
     }
-}
-
-/// The lengths column of `lens`; None when the payloads or the packed lengths don't fit u32 offsets.
-fn encode_lengths(lens: &[u32]) -> Option<Vec<u8>> {
-    let mut base = 0u32;
-    encode_groups(lens, |g, offset| {
-        let min = g.iter().copied().fold(u32::MAX, u32::min);
-        let max = g.iter().copied().fold(0, u32::max);
-        let width = bitpack::width_of(u64::from(max.abs_diff(min)));
-        let mut rec = [0u8; RECORD_LEN];
-        bytes::put_u32(&mut rec, 0, base)?;
-        bytes::put_u32(&mut rec, 4, min)?;
-        bytes::put(&mut rec, 8, [u8::try_from(width).ok()?])?;
-        bytes::put_u32(&mut rec, 9, offset)?;
-        for l in g {
-            base = base.checked_add(*l)?;
-        }
-        // every length is at least the minimum: the difference is exact
-        let vals = g.iter().map(|l| u64::from(l.wrapping_sub(min))).collect();
-        Some((rec, vals, width))
-    })
 }
