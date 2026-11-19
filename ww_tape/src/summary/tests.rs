@@ -898,17 +898,15 @@ fn summaries_fill_alignment_gaps() {
         BlockKind, ChunkHead, Codec, ColumnKind, ColumnSpec, EndMode, FileBlocks, SyncPolicy,
         TapeWriter,
     };
-    let dir = std::env::temp_dir().join(format!("ww_tape_summary_gaps_{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
     let shape = SampleShape::scalar(Element::I16);
     let chunk = 32_768usize;
     let chunks = 12;
     let samples: Vec<i16> = (0..chunk * chunks)
         .map(|i| (i as i16).wrapping_mul(31))
         .collect();
-    let write = |name: &str, with_summaries: bool| {
-        let path = dir.join(name);
-        let mut w = TapeWriter::create(&path, SyncPolicy::None).unwrap();
+    let write = |with_summaries: bool| {
+        let mut w = TapeWriter::create_on(crate::MemSink::new(), SyncPolicy::None);
+        let tape = w.sink().tape();
         w.set_alignment(crate::ALIGNMENT).unwrap();
         let mut defs = crate::Definitions::new();
         let mut held = crate::tests::test_definitions(1, &[]);
@@ -970,11 +968,10 @@ fn summaries_fill_alignment_gaps() {
             }
         }
         w.finish().unwrap();
-        (std::fs::read(path).unwrap(), chunk_ends)
+        (tape.to_vec().unwrap(), chunk_ends)
     };
-    let (plain, plain_ends) = write("plain.wwtape", false);
-    let (file, ends) = write("summaries.wwtape", true);
-    std::fs::remove_dir_all(&dir).unwrap();
+    let (plain, plain_ends) = write(false);
+    let (file, ends) = write(true);
     assert_eq!(ends, plain_ends, "every summary block went into a gap");
     // both pieces end on 4 KiB: the finishes' offsets tell what is before them
     let finish_at = |f: &[u8]| {

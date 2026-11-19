@@ -510,9 +510,9 @@ fn restamp_refuses_a_head_out_of_range() {
 }
 
 /// Definitions, small records blocks deferred into the gaps, and chunks, through [TapeWriter].
-fn write_tape(path: &std::path::Path, layout: Layout) -> Vec<u8> {
-    _ = std::fs::remove_file(path);
-    let mut w = TapeWriter::create(path, SyncPolicy::None).unwrap();
+fn write_tape(layout: Layout) -> Vec<u8> {
+    let mut w = TapeWriter::create_on(crate::MemSink::new(), SyncPolicy::None);
+    let tape = w.sink().tape();
     w.set_session(crate::tests::TEST_SESSION).unwrap();
     w.set_alignment(layout.alignment.get()).unwrap();
     w.set_producer("test");
@@ -547,7 +547,7 @@ fn write_tape(path: &std::path::Path, layout: Layout) -> Vec<u8> {
     w.write_chunk(&defs, &sh, &series_columns(&sc)).unwrap();
     w.defer_block(&defs, small(4)).unwrap();
     w.finish().unwrap();
-    std::fs::read(path).unwrap()
+    tape.to_vec().unwrap()
 }
 
 /// A block a walk gave: offset, seq, kind, the chunk's payload offset in the file, intact.
@@ -600,12 +600,9 @@ fn repeats(bytes: &[u8]) -> Vec<usize> {
 
 #[test]
 fn aligned_file_puts_payloads_on_pages_and_fills_gaps() {
-    let dir = std::env::temp_dir().join(format!("ww_tape_aligned_{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let file = write_tape(&dir.join("a.wwtape"), Layout::ALIGNED);
-    let again = write_tape(&dir.join("b.wwtape"), Layout::ALIGNED);
-    let plain = write_tape(&dir.join("c.wwtape"), Layout::UNALIGNED);
-    std::fs::remove_dir_all(&dir).unwrap();
+    let file = write_tape(Layout::ALIGNED);
+    let again = write_tape(Layout::ALIGNED);
+    let plain = write_tape(Layout::UNALIGNED);
     assert_eq!(file, again, "same input, same bytes");
     let (_, errors) = walk(&file, Recovery::Prefix);
     assert_eq!(errors, 0);
@@ -640,10 +637,8 @@ fn aligned_file_puts_payloads_on_pages_and_fills_gaps() {
 /// A file cut at every byte reads as its blocks before the cut, aligned or not.
 #[test]
 fn chunk_file_cut_anywhere_reads_its_longest_good_prefix() {
-    let dir = std::env::temp_dir().join(format!("ww_tape_cut_{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
     for layout in [Layout::UNALIGNED, Layout::ALIGNED] {
-        let file = write_tape(&dir.join("t.wwtape"), layout);
+        let file = write_tape(layout);
         let (blocks, _) = walk(&file, Recovery::Prefix);
         let ends: Vec<usize> = blocks
             .iter()
@@ -662,17 +657,13 @@ fn chunk_file_cut_anywhere_reads_its_longest_good_prefix() {
             );
         }
     }
-    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 /// In an aligned file, a flipped bit in a series payload costs that chunk's one segment; a flipped bit in a head
 /// costs that block, and the walk goes on at the next one.
 #[test]
 fn resync_salvages_chunks_in_a_file() {
-    let dir = std::env::temp_dir().join(format!("ww_tape_salvage_{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let file = write_tape(&dir.join("t.wwtape"), Layout::ALIGNED);
-    std::fs::remove_dir_all(&dir).unwrap();
+    let file = write_tape(Layout::ALIGNED);
     let (blocks, _) = walk(&file, Recovery::Prefix);
     let series = *blocks.iter().find(|b| b.2 == BlockKind::Series).unwrap();
     let payload = series.3.unwrap() as usize;
@@ -727,10 +718,7 @@ fn resync_salvages_chunks_in_a_file() {
 /// The aligned sample tape is the golden file's (`WW_TAPE_GOLDEN=update` rewrites it): one block per line, in hex.
 #[test]
 fn chunks_golden() {
-    let dir = std::env::temp_dir().join(format!("ww_tape_chunks_golden_{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let file = write_tape(&dir.join("g.wwtape"), Layout::ALIGNED);
-    std::fs::remove_dir_all(&dir).unwrap();
+    let file = write_tape(Layout::ALIGNED);
     let mut hex = String::new();
     let mut rd = FileBlocks::new(&file[..]);
     while let Some(b) = rd.next_block() {

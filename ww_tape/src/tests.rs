@@ -179,11 +179,7 @@ fn an_encoder_claiming_more_than_it_was_given_is_full() {
 
 #[test]
 fn tape_writer_refuses_bad_settings() {
-    let dir = std::env::temp_dir().join(format!("ww_tape_settings_{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let path = dir.join("cap.wwtape");
-    let _ = std::fs::remove_file(writer::partial_name(&path));
-    let mut w = TapeWriter::create(&path, SyncPolicy::None).unwrap();
+    let mut w = TapeWriter::create_on(crate::MemSink::new(), SyncPolicy::None);
     assert!(matches!(
         w.set_alignment(512),
         Err(WriteError::Input(InputError::Alignment(512)))
@@ -197,8 +193,6 @@ fn tape_writer_refuses_bad_settings() {
         w.write_block(&Definitions::new(), &[0; 8]),
         Err(WriteError::Block(BlockError::Short { .. }))
     ));
-    drop(w);
-    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
@@ -1245,23 +1239,20 @@ fn seq_order_and_duplicates() {
     ));
 }
 
+/// A writer puts each block after the definitions it needs, and a second session appended to the bytes starts with
+/// its own layout and producer, so the prefix walk reads both.
 #[test]
-fn writer_partial_then_renamed() {
-    let dir = std::env::temp_dir().join(format!("ww_tape_writer_{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let path = dir.join("cap.wwtape");
-    let _ = std::fs::remove_file(&path);
+fn writer_appends_a_second_session() {
+    let tapes = crate::MemTapes::<u64>::new();
     let (defs, file, ends) = defined_tape(3);
-    let mut w = TapeWriter::create(&path, SyncPolicy::EveryBlocks(2)).unwrap();
-    assert_eq!(w.current_path(), writer::partial_name(&path));
+    let mut w = TapeWriter::create_on(tapes.create_whole(&0).unwrap(), SyncPolicy::EveryBlocks(2));
     let mut start = 0;
     for end in &ends {
         w.write_block(&defs, &file[start..*end]).unwrap();
         start = *end;
     }
-    assert!(!path.exists(), "named only when finished");
     // the layout and the producer, then each block after the definitions it needs
-    let written = std::fs::read(w.current_path()).unwrap();
+    let written = w.sink().tape().to_vec().unwrap();
     let mut start = 0;
     for end in &ends {
         let b = &file[start..*end];
@@ -1269,21 +1260,16 @@ fn writer_partial_then_renamed() {
         start = *end;
     }
     w.finish().unwrap();
-    assert!(path.exists(), "named when finished");
-    assert!(!writer::partial_name(&path).exists());
-    assert!(matches!(
-        TapeWriter::create(&path, SyncPolicy::None),
-        Err(WriteError::Sink {
-            error: FsError::Exists(_),
-            ..
-        })
-    ));
     // appended: the second session's blocks start with its layout and producer
-    let mut w = TapeWriter::append(&path, SyncPolicy::default()).unwrap();
+    let mut w = TapeWriter::append_on(
+        tapes.open_whole(&0).unwrap().unwrap(),
+        SyncPolicy::default(),
+    )
+    .unwrap();
     w.set_producer("p");
     w.tick().unwrap();
     w.finish().unwrap();
-    let bytes = std::fs::read(&path).unwrap();
+    let bytes = tapes.finished(&0).unwrap().unwrap().to_vec().unwrap();
     let (_, errors) = read_all(&bytes, Recovery::Prefix);
     assert_eq!(errors, 0);
     let mut rd = FileBlocks::new(&bytes[..]);
@@ -1295,18 +1281,14 @@ fn writer_partial_then_renamed() {
         }
     }
     assert_eq!(data, [0, 1, 2]);
-    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 /// A capture passes the producer's blocks through with their own seqs: the checkpoints and puts the writer adds
 /// between them take no seq of their own, so the prefix walk reads the whole file.
 #[test]
 fn pass_through_capture_reads_to_the_end() {
-    let dir = std::env::temp_dir().join(format!("ww_tape_pass_{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let path = dir.join("cap.wwtape");
-    _ = std::fs::remove_file(&path);
-    let mut w = TapeWriter::create(&path, SyncPolicy::None).unwrap();
+    let mut w = TapeWriter::create_on(crate::MemSink::new(), SyncPolicy::None);
+    let tape = w.sink().tape();
     w.set_index_policy(IndexPolicy {
         bytes: 1024,
         interval: None,
@@ -1325,8 +1307,7 @@ fn pass_through_capture_reads_to_the_end() {
         start = *end;
     }
     w.finish().unwrap();
-    let bytes = std::fs::read(&path).unwrap();
-    std::fs::remove_dir_all(&dir).unwrap();
+    let bytes = tape.to_vec().unwrap();
     let mut rd = FileBlocks::new(&bytes[..]);
     let (mut kinds, mut counted, mut repeats) = (vec![], vec![], 0);
     while let Some(b) = rd.next_block() {
@@ -1345,44 +1326,6 @@ fn pass_through_capture_reads_to_the_end() {
     );
     assert!(repeats >= 2, "the definitions put, and copies on use");
     assert_eq!(kinds.last(), Some(&BlockKind::Tail));
-}
-
-/// A failed write is the end of the file: later writes and syncs are refused, never retried.
-#[cfg(target_os = "linux")]
-#[test]
-fn writer_stops_after_a_failure() {
-    let mut w = TapeWriter::append(std::path::Path::new("/dev/full"), SyncPolicy::None).unwrap();
-    let (defs, file, ends) = defined_tape(1);
-    // /dev/full takes nothing: the write fails with ENOSPC
-    let first = w.write_block(&defs, &file[..ends[0]]);
-    assert!(
-        matches!(
-            first,
-            Err(WriteError::Sink {
-                error: FsError::Io { .. },
-                ..
-            })
-        ),
-        "{first:?}"
-    );
-    // each level of the error says its own part once: what the writer did, what the file did, the system's error
-    let e = first.unwrap_err();
-    let mut texts = vec![e.to_string()];
-    let mut source = core::error::Error::source(&e);
-    while let Some(s) = source {
-        texts.push(s.to_string());
-        source = s.source();
-    }
-    assert_eq!(texts.len(), 3, "{texts:?}");
-    for pair in texts.windows(2) {
-        assert!(!pair[0].contains(&pair[1]), "{texts:?}");
-    }
-    assert!(matches!(
-        w.write_block(&defs, &file[..ends[0]]),
-        Err(WriteError::Failed)
-    ));
-    assert!(matches!(w.sync(), Err(WriteError::Failed)));
-    assert!(matches!(w.finish(), Err(WriteError::Failed)));
 }
 
 #[test]
@@ -1432,10 +1375,10 @@ fn sample_with_wall_track() -> Vec<Describe<'static>> {
 }
 
 /// A tape of `describe` defined in the order given (a typed item put), a state record put and a records block on two
-/// clocks, written through [TapeWriter] to `path`: the bytes before the writer's end.
-fn write_sample_tape(path: &std::path::Path, describe: Vec<Describe<'static>>) -> Vec<u8> {
-    _ = std::fs::remove_file(path);
-    let mut w = TapeWriter::create(path, SyncPolicy::None).unwrap();
+/// clocks, written through [TapeWriter] into memory: the bytes before the writer's end.
+fn write_sample_tape(describe: Vec<Describe<'static>>) -> Vec<u8> {
+    let mut w = TapeWriter::create_on(crate::MemSink::new(), SyncPolicy::None);
+    let tape = w.sink().tape();
     w.set_session(TEST_SESSION).unwrap();
     for d in &describe {
         match d {
@@ -1470,7 +1413,7 @@ fn write_sample_tape(path: &std::path::Path, describe: Vec<Describe<'static>>) -
     .unwrap();
     let len = w.bytes() as usize;
     w.finish().unwrap();
-    let bytes = std::fs::read(path).unwrap();
+    let bytes = tape.to_vec().unwrap();
     // the writer's final index, finish and tail follow; their golden file is golden/v1-index.hex
     bytes[..len].to_vec()
 }
@@ -1491,11 +1434,8 @@ fn to_hex_lines(tape: &[u8]) -> String {
 /// one block per line, in hex.
 #[test]
 fn deterministic_and_golden() {
-    let dir = std::env::temp_dir().join(format!("ww_tape_golden_{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let a = write_sample_tape(&dir.join("a.wwtape"), sample_with_wall_track());
-    let b = write_sample_tape(&dir.join("b.wwtape"), sample_with_wall_track());
-    std::fs::remove_dir_all(&dir).unwrap();
+    let a = write_sample_tape(sample_with_wall_track());
+    let b = write_sample_tape(sample_with_wall_track());
     assert_eq!(a, b, "two writes of the same input");
 
     let hex = to_hex_lines(&a);

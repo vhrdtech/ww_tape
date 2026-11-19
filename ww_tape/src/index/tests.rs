@@ -326,10 +326,7 @@ fn renumbered_index_block_reads() {
 /// Index, finish, tail and piece head blocks are the writer's own: not taken as deferred blocks.
 #[test]
 fn structural_blocks_are_not_deferred() {
-    let dir = std::env::temp_dir().join(format!("ww_tape_index_defer_{}", std::process::id()));
-    _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    let mut w = crate::TapeWriter::create(&dir.join("t.wwt"), crate::SyncPolicy::None).unwrap();
+    let mut w = crate::TapeWriter::create_on(crate::MemSink::new(), crate::SyncPolicy::None);
     let mut defs = crate::Definitions::new();
     defs.define_all(&crate::tests::test_definitions(1, &[1]))
         .unwrap();
@@ -361,7 +358,6 @@ fn structural_blocks_are_not_deferred() {
     let len = b.finish();
     w.defer_block(&defs, buf[..len].to_vec()).unwrap();
     w.finish().unwrap();
-    _ = std::fs::remove_dir_all(&dir);
 }
 
 /// An entry naming no block (length 0, longer than a block, an end past u64) is refused when a whole block or a
