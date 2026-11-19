@@ -30,7 +30,8 @@ impl<'b> Summary<'b> {
         Self::read(block.bytes()).ok()
     }
 
-    /// Read and check the summary block `block` (exactly its bytes, CRC checked by the caller).
+    /// Read and check the summary block `block`, exactly its bytes: header, head and body length as
+    /// [SummaryHead::read] checks them. The CRC is the caller's to check, as [Block::read](ww_tape::Block::read) does.
     pub fn read(block: &'b [u8]) -> Result<Self, SummaryError> {
         let (head, body, nodes) = SummaryHead::read(block)?;
         Ok(Summary { head, body, nodes })
