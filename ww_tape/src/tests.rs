@@ -1857,3 +1857,55 @@ fn a_memory_sink_refusing_a_base_says_why() {
         "a piece can't start there: the base is past the end of the bytes"
     );
 }
+
+/// The error and its causes as one line, as a log prints a chain: each cause after the one it caused.
+pub(crate) fn chain_text(e: &dyn core::error::Error) -> String {
+    let mut out = e.to_string();
+    let mut cause = e.source();
+    while let Some(c) = cause {
+        out.push_str(": ");
+        out.push_str(&c.to_string());
+        cause = c.source();
+    }
+    out
+}
+
+/// A codec's error inside a samples, times or payloads error is said once: the message names the column as text,
+/// `source()` is the codec's error.
+#[test]
+fn a_codec_error_is_the_source_of_its_column_error_said_once() {
+    let column = crate::times::ColumnError::Corrupt("width over 64");
+    let codec = ww_tape_codecs::samples::SampleError::Corrupt { group: 3 };
+    let cases: [(&dyn core::error::Error, &str, String); 3] = [
+        (
+            &crate::samples::SampleError::Column {
+                shape: crate::samples::SampleShape::new(crate::samples::Element::I16, 2),
+                error: codec,
+            },
+            "a column of 2 × i16 doesn't code",
+            codec.to_string(),
+        ),
+        (
+            &crate::times::TimesError::Corrupt {
+                kind: ColumnKind::Starts,
+                error: column,
+            },
+            "the starts column breaks the format",
+            column.to_string(),
+        ),
+        (
+            &crate::payloads::PayloadsError::Corrupt {
+                kind: ColumnKind::PayloadLengths,
+                error: column,
+            },
+            "the payload lengths column breaks the format",
+            column.to_string(),
+        ),
+    ];
+    for (e, message, cause) in cases {
+        assert_eq!(e.to_string(), message);
+        assert_eq!(e.source().map(ToString::to_string), Some(cause.clone()));
+        let chain = chain_text(e);
+        assert_eq!(chain.matches(cause.as_str()).count(), 1, "{chain}");
+    }
+}

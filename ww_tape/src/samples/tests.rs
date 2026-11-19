@@ -71,8 +71,8 @@ fn shapes_map_to_scalars_and_lanes() {
         }
     );
     assert_eq!(
-        wrong.to_string(),
-        "a column of 3 × complex i16: a column of i16 read as u16"
+        crate::tests::chain_text(&wrong),
+        "a column of 3 × complex i16 doesn't code: a column of i16 read as u16"
     );
     assert_eq!(
         encode(Codec::RAW, iq, &[0u32; 6], &mut [0; 24]),
@@ -86,8 +86,8 @@ fn shapes_map_to_scalars_and_lanes() {
     );
     let alp = Samples::new(Codec::ALP, iq, 2, &[0; 24]).unwrap_err();
     assert_eq!(
-        alp.to_string(),
-        "a column of 3 × complex i16: codec 26 doesn't code i16"
+        crate::tests::chain_text(&alp),
+        "a column of 3 × complex i16 doesn't code: codec 26 doesn't code i16"
     );
 }
 

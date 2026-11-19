@@ -118,10 +118,14 @@ impl core::fmt::Display for TimesError {
         match self {
             TimesError::NotEvents => write!(f, "not an events chunk"),
             TimesError::UnknownMode(m) => write!(f, "unknown time mode {m}"),
-            TimesError::Missing(k) => write!(f, "no {k:?} column"),
-            TimesError::Unexpected(k) => write!(f, "unexpected {k:?} column"),
-            TimesError::UnknownCodec(k, c) => write!(f, "{k:?} column in unknown codec {}", c.0),
-            TimesError::Corrupt { kind, error } => write!(f, "{kind:?} column: {error}"),
+            TimesError::Missing(k) => write!(f, "no {} column", k.named()),
+            TimesError::Unexpected(k) => write!(f, "unexpected {} column", k.named()),
+            TimesError::UnknownCodec(k, c) => {
+                write!(f, "{} column in unknown codec {}", k.named(), c.0)
+            }
+            TimesError::Corrupt { kind, .. } => {
+                write!(f, "the {} column breaks the format", kind.named())
+            }
             TimesError::Bound(e) => write!(f, "items: {e}"),
             TimesError::Relation { relation } => {
                 write!(
@@ -133,7 +137,14 @@ impl core::fmt::Display for TimesError {
     }
 }
 
-impl core::error::Error for TimesError {}
+impl core::error::Error for TimesError {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
+        match self {
+            TimesError::Corrupt { error, .. } => Some(error),
+            _ => None,
+        }
+    }
+}
 
 /// How a chunk's items end.
 #[derive(Copy, Clone, Debug)]

@@ -163,6 +163,25 @@ pub enum ColumnKind {
     Other(u8),
 }
 
+/// A column kind as error texts name it ([ColumnKind::named]).
+#[derive(Copy, Clone, Debug)]
+pub(crate) struct ColumnName(ColumnKind);
+
+impl core::fmt::Display for ColumnName {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self.0 {
+            ColumnKind::Starts => f.write_str("starts"),
+            ColumnKind::Ends => f.write_str("ends"),
+            ColumnKind::Flags => f.write_str("flags"),
+            ColumnKind::PayloadLengths => f.write_str("payload lengths"),
+            ColumnKind::Payloads => f.write_str("payloads"),
+            ColumnKind::Samples => f.write_str("samples"),
+            ColumnKind::Relation => f.write_str("relation"),
+            ColumnKind::Other(k) => write!(f, "kind {k}"),
+        }
+    }
+}
+
 impl ColumnKind {
     /// Reserved, kind 7: one leaf of the items' payload struct, its param the leaf's index. Read as
     /// [ColumnKind::Other] until it is built, so a reader refuses it.
@@ -192,6 +211,11 @@ impl ColumnKind {
             ColumnKind::Relation => 8,
             ColumnKind::Other(v) => v,
         }
+    }
+
+    /// The kind as an error text names it: `starts`, `payload lengths`, `kind 9`.
+    pub(crate) fn named(self) -> ColumnName {
+        ColumnName(self)
     }
 
     /// Whether the kind belongs in a chunk of `block` kind; unknown kinds belong anywhere.

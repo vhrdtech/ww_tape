@@ -259,6 +259,7 @@ Covers `ww_tape` 0.1.0.
 
 ### 🐛 Fixes
 
+- Sample, time and payload column errors name the column as text; the codec error is their `source()` (TAPE-12).
 - `ww_tape` builds without `alloc` again: the block, chunk and codec readers; a salvage there checks a starts column whole (STD-124).
 - A file sink locks `NAME.lock` with a per-process record lock: a forked child no longer makes a resume fail `Locked` (TAPE-12).
 - A file sink's lock holds for one file under any name: a link, `NAME.partial`, and a hard link within a process (TAPE-12).

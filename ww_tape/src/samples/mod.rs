@@ -48,10 +48,10 @@ impl core::fmt::Display for SampleError {
                 )
             }
             SampleError::BadShape => write!(f, "a sample shape without channels or too wide"),
-            SampleError::Column { shape, error } => {
+            SampleError::Column { shape, .. } => {
                 write!(
                     f,
-                    "a column of {} × {}: {error}",
+                    "a column of {} × {} doesn't code",
                     shape.channels.0, shape.element
                 )
             }
@@ -59,7 +59,14 @@ impl core::fmt::Display for SampleError {
     }
 }
 
-impl core::error::Error for SampleError {}
+impl core::error::Error for SampleError {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
+        match self {
+            SampleError::Column { error, .. } => Some(error),
+            _ => None,
+        }
+    }
+}
 
 /// The scalar and the lanes of `shape`, the codecs' terms for it.
 fn lanes_of(shape: SampleShape) -> Result<(Scalar, NonZeroUsize), SampleError> {

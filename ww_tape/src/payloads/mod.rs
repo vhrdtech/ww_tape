@@ -83,10 +83,14 @@ impl core::fmt::Display for PayloadsError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             PayloadsError::NotEvents => write!(f, "not an events chunk"),
-            PayloadsError::Missing(k) => write!(f, "no {k:?} column"),
-            PayloadsError::Unexpected(k) => write!(f, "{k:?} column twice"),
-            PayloadsError::UnknownCodec(k, c) => write!(f, "{k:?} column in unknown codec {}", c.0),
-            PayloadsError::Corrupt { kind, error } => write!(f, "{kind:?} column: {error}"),
+            PayloadsError::Missing(k) => write!(f, "no {} column", k.named()),
+            PayloadsError::Unexpected(k) => write!(f, "{} column twice", k.named()),
+            PayloadsError::UnknownCodec(k, c) => {
+                write!(f, "{} column in unknown codec {}", k.named(), c.0)
+            }
+            PayloadsError::Corrupt { kind, .. } => {
+                write!(f, "the {} column breaks the format", kind.named())
+            }
             PayloadsError::Lz4(_) => write!(f, "lz4 payloads column doesn't decode"),
         }
     }
