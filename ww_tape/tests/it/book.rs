@@ -6,8 +6,8 @@ use std::path::Path;
 use ww_tape::chunk::{ChunkHead, Codec, ColumnKind, ColumnSpec};
 use ww_tape::{
     Block, BlockId, BlockKind, BlockWriter, ChainOptions, ChainPiece, ClockTime, Definitions,
-    EndMode, FsError, Magnitude, MemError, MemSink, OwnerId, PieceChain, PieceTapes, Ratio64,
-    SeriesGrid, SessionTag, SyncPolicy, TapeWriter, WriteError,
+    EndMode, FsError, Magnitude, MemError, MemSink, OwnerId, PieceTapes, Ratio64, SeriesGrid,
+    SessionTag, SyncPolicy, TapeWriter, WriteError,
 };
 
 use crate::definitions::{CLOCK, clock, state, track};
@@ -64,11 +64,11 @@ fn one_file_example(
         tapes: PieceTapes::One,
         ..ChainOptions::default()
     };
-    let mut chain = PieceChain::create(path, owner, 0, &[], options.clone())?;
+    let mut chain = ww_tape::piece::fs::create(path, owner, 0, &[], options.clone())?;
     chain.write_chunk(defs, head, columns)?;
     let first = chain.finish()?;
     // opened again: a new piece behind the finished one
-    let (mut chain, _) = PieceChain::resume(path, owner, 0, options)?;
+    let (mut chain, _) = ww_tape::piece::fs::resume(path, owner, 0, options)?;
     chain.write_chunk(defs, head, columns)?;
     let second = chain.finish()?;
     // end of the pieces page's lines

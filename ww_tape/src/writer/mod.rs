@@ -24,13 +24,13 @@
 //! ([state](crate::state)): before a block of data of a track the writer puts the track's definition and what it
 //! names, the application puts a state track's items ([TapeWriter::put]) at each use, and each is written only when
 //! the same item doesn't lie close behind in the piece, or as a copy ([near]). The layout and the producer are the
-//! writer's own ([WriterOptions]), put at each piece head. [TapeWriter::cut] ends a piece and starts the next one of
+//! writer's own ([WriterOptions]), put at each piece head. [TapeWriter::cut_with] ends a piece and starts the next one of
 //! the chain; [crate::PieceChain] cuts by size, chunk count or time.
 //!
 //! The writer acts around every block of data it places, whoever made it (the caller, or the writer from its
 //! deferred blocks): before it, the definitions it puts; after it, a checkpoint when due (in an aligned file, in the
 //! gap before the next chunk). So what the writer adds is a function of the blocks before it and the calls since, and
-//! [TapeWriter::resume] rebuilds the writer of an unfinished piece from its bytes alone ([resume]).
+//! [TapeWriter::resume_on] rebuilds the writer of an unfinished piece from its bytes alone ([resume]).
 //!
 //! A writer puts its bytes in a [TapeSink]: a file ([crate::FileSink] with `std`) or memory ([crate::sink::MemSink]).
 
@@ -62,7 +62,7 @@ use alloc::collections::BTreeSet;
 
 mod error;
 #[cfg(feature = "std")]
-mod fs;
+pub mod fs;
 pub mod near;
 mod relations;
 pub mod resume;
@@ -112,7 +112,7 @@ fn new_session() -> SessionTag {
 /// Default of [SyncPolicy::Interval].
 pub const DEFAULT_SYNC_INTERVAL: Duration = Duration::from_secs(1);
 
-/// How a [TapeWriter] places what it adds: what [TapeWriter::resume] needs to rebuild one, and what a
+/// How a [TapeWriter] places what it adds: what [TapeWriter::resume_on] needs to rebuild one, and what a
 /// [crate::PieceChain] gives each of its pieces.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WriterOptions {
@@ -233,7 +233,7 @@ pub struct Finished {
     /// Bytes of the piece, its tail included.
     pub len: u64,
     pub ident: Option<PieceIdent>,
-    /// The next piece's id when the piece was [cut](TapeWriter::cut).
+    /// The next piece's id when the piece was [cut](TapeWriter::cut_with).
     pub next: Option<PieceId>,
     /// Where the piece starts in its file or memory tape: 0 for a piece of its own, past the pieces before it in
     /// a file of several.
@@ -266,7 +266,7 @@ pub const DEFER_WINDOW: u64 = 1 << 20;
 
 impl<S: TapeSink> TapeWriter<S> {
     /// A writer appending to `sink` (empty, or a writer's start is its length with [Self::create_on] and
-    /// [TapeWriter::append] alike: offsets in the index are from where the writer starts).
+    /// [TapeWriter::append_on] alike: offsets in the index are from where the writer starts).
     pub fn create_on(sink: S, policy: SyncPolicy) -> Self {
         let clock = ClockRef::default();
         let now = clock.now_ms();
@@ -357,7 +357,7 @@ impl<S: TapeSink> TapeWriter<S> {
     }
 
     /// How the writer remembers and copies state records ([near]); it applies from the next block on and carries
-    /// over to the next piece of a [cut](Self::cut).
+    /// over to the next piece of a [cut](Self::cut_with).
     pub fn set_near_policy(&mut self, policy: NearPolicy) {
         self.near_policy = policy;
     }
@@ -1760,7 +1760,7 @@ impl<S: TapeSink> TapeWriter<S> {
         Ok((done.finished, next))
     }
 
-    /// The options the writer runs with: what [Self::resume] is to be given for this piece.
+    /// The options the writer runs with: what [Self::resume_on] is to be given for this piece.
     pub fn options(&self) -> WriterOptions {
         WriterOptions {
             sync: self.policy,

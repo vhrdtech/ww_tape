@@ -3,7 +3,7 @@
 use ww_tape::piece::{OwnerId, PieceHead, PieceId, PieceIdent, piece_head_len, write_piece_head};
 use ww_tape::{
     BlockId, BlockKind, BlockWriter, ClockTime, Cut, Describe, FileBlocks, FileError, Layout,
-    Medium, OpenOptions, Recovery, SessionTag, SyncPolicy, TapeReader, TapeWriter,
+    Medium, OpenOptions, Recovery, SessionTag, SyncPolicy, TapeReader,
 };
 
 const OLD: SessionTag = SessionTag::writable(0x0bad_0001);
@@ -264,7 +264,7 @@ fn finished(session: SessionTag, layout: Layout, n: u64) -> Vec<u8> {
     _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("old.wwt");
-    let mut w = TapeWriter::create(&path, SyncPolicy::None).unwrap();
+    let mut w = ww_tape::writer::fs::create(&path, SyncPolicy::None).unwrap();
     w.set_layout(layout).unwrap();
     w.set_session(session).unwrap();
     for _ in 0..n {
@@ -660,7 +660,7 @@ fn a_gap_after_the_newest_checkpoint_is_read_past() {
     let dir = std::env::temp_dir().join(format!("ww_tape_media_ckpt_{}", std::process::id()));
     _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    let mut w = TapeWriter::create(&dir.join("c.wwt"), SyncPolicy::None).unwrap();
+    let mut w = ww_tape::writer::fs::create(&dir.join("c.wwt"), SyncPolicy::None).unwrap();
     w.set_index_policy(ww_tape::IndexPolicy {
         bytes: 2048,
         interval: None,
@@ -679,7 +679,7 @@ fn a_gap_after_the_newest_checkpoint_is_read_past() {
         w.write_block(crate::definitions::base_defs(), &records(w.next_id()))
             .unwrap();
     }
-    let bytes = std::fs::read(w.current_path()).unwrap();
+    let bytes = std::fs::read(w.sink().current_path()).unwrap();
     drop(w);
     std::fs::remove_dir_all(&dir).unwrap();
     // a blank sector before a records block after the newest checkpoint
@@ -730,7 +730,7 @@ fn a_raw_piece_is_one_session() {
     }
     for adopt in [false, true] {
         let path = dir.join(format!("{adopt}.wwt"));
-        let mut w = TapeWriter::create(&path, SyncPolicy::None).unwrap();
+        let mut w = ww_tape::writer::fs::create(&path, SyncPolicy::None).unwrap();
         let owner = OwnerId([3; 32]);
         let head = PieceHead {
             ident: PieceIdent {
@@ -750,7 +750,7 @@ fn a_raw_piece_is_one_session() {
                 w.write_block(crate::definitions::base_defs(), b).unwrap();
             }
         }
-        let bytes = std::fs::read(w.current_path()).unwrap();
+        let bytes = std::fs::read(w.sink().current_path()).unwrap();
         drop(w);
         let (as_file, errors) = walk(&bytes, Medium::File);
         assert_eq!((as_file.len(), errors.len()), (10, 0));
@@ -788,7 +788,7 @@ fn adopting_keeps_lost_blocks_visible() {
     let dir = std::env::temp_dir().join(format!("ww_tape_media_lost_{}", std::process::id()));
     _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    let mut w = TapeWriter::create(&dir.join("l.wwt"), SyncPolicy::None).unwrap();
+    let mut w = ww_tape::writer::fs::create(&dir.join("l.wwt"), SyncPolicy::None).unwrap();
     for seq in [0, 1, 2, 5, 6] {
         w.adopt_block(
             crate::definitions::base_defs(),
@@ -804,7 +804,7 @@ fn adopting_keeps_lost_blocks_visible() {
         )
         .unwrap();
     }
-    let bytes = std::fs::read(w.current_path()).unwrap();
+    let bytes = std::fs::read(w.sink().current_path()).unwrap();
     drop(w);
     std::fs::remove_dir_all(&dir).unwrap();
     let (got, errors) = walk(&bytes, Medium::Raw);

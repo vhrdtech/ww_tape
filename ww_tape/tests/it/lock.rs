@@ -5,7 +5,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 use ww_tape::sink::lock_name;
-use ww_tape::{FileSink, SyncPolicy, TapeWriter};
+use ww_tape::{FileSink, SyncPolicy};
 
 use crate::pieces::scratch;
 
@@ -73,10 +73,10 @@ fn try_op_in_child(path: &Path, op: &str) -> String {
 fn a_writer_holds_its_file_against_another_process() {
     let dir = scratch("lock_process");
     let path = dir.join("a.wwt");
-    let w = TapeWriter::create(&path, SyncPolicy::None).unwrap();
+    let w = ww_tape::writer::fs::create(&path, SyncPolicy::None).unwrap();
     // readers in the writer's process open and close the file: a record lock on it would go with the first close
     for _ in 0..3 {
-        drop(std::fs::File::open(w.current_path()).unwrap());
+        drop(std::fs::File::open(w.sink().current_path()).unwrap());
     }
     assert_eq!(try_in_child(&path), "locked");
     drop(w);
@@ -218,7 +218,7 @@ fn a_child_held_between_fork_and_exec_holds_no_lock() {
     use std::os::unix::process::CommandExt;
     let dir = scratch("lock_fork");
     let path = dir.join("a.wwt");
-    let w = TapeWriter::create(&path, SyncPolicy::None).unwrap();
+    let w = ww_tape::writer::fs::create(&path, SyncPolicy::None).unwrap();
     let (mut release_rx, mut release_tx) = std::io::pipe().unwrap();
     let (mut forked_rx, mut forked_tx) = std::io::pipe().unwrap();
     let mut cmd = Command::new("true");

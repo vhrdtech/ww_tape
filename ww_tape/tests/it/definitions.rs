@@ -969,7 +969,7 @@ fn a_resumed_piece_takes_the_definitions_passed() {
                 c.write_block(defs, &b).unwrap();
             }
         };
-    let mut c = ww_tape::PieceChain::create(&dir, owner, 0, &[], opts.clone()).unwrap();
+    let mut c = ww_tape::piece::fs::create(&dir, owner, 0, &[], opts.clone()).unwrap();
     write(&mut c, &defs, 5, 0);
     c.cut_now().unwrap();
     write(&mut c, &defs, 9, 10);
@@ -977,7 +977,7 @@ fn a_resumed_piece_takes_the_definitions_passed() {
     write(&mut c, &defs, 9, 20);
     // a crash: the last piece is left unfinished
     drop(c);
-    let (mut c, _) = ww_tape::PieceChain::resume(&dir, owner, 0, opts).unwrap();
+    let (mut c, _) = ww_tape::piece::fs::resume(&dir, owner, 0, opts).unwrap();
     write(&mut c, &defs, 9, 30);
     write(&mut c, &defs, 5, 40);
     let pieces = c.finish().unwrap();

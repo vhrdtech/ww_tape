@@ -5,8 +5,8 @@
 use ww_tape::index::{IndexEntry, IndexPolicy};
 use ww_tape::piece::piece_name;
 use ww_tape::{
-    BlockId, BlockKind, ChainOptions, CutPolicy, MemSink, OwnerId, PieceChain, SessionTag,
-    SyncPolicy, TapeReader, TapeWriter, WriterOptions,
+    BlockId, BlockKind, ChainOptions, CutPolicy, MemSink, OwnerId, SessionTag, SyncPolicy,
+    TapeReader, TapeWriter, WriterOptions,
 };
 
 use crate::pieces::{chunk, column, records, scratch};
@@ -138,7 +138,7 @@ fn adopt_block_says_where_it_landed() {
 #[test]
 fn piece_chain_write_chunk_says_which_piece_it_landed_in() {
     let dir = scratch("placed");
-    let mut chain = PieceChain::create(
+    let mut chain = ww_tape::piece::fs::create(
         &dir,
         OwnerId([0x45; 32]),
         0,

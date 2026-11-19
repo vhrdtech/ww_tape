@@ -459,7 +459,7 @@ fn resume_reopens_the_partial_file() {
     let (want, made) = reference(0, &ops);
     let cut = want.len() * 2 / 3;
     std::fs::write(ww_tape::writer::partial_name(&path), &want[..cut]).unwrap();
-    let (mut w, resumed) = TapeWriter::resume(&path, options(0)).unwrap();
+    let (mut w, resumed) = ww_tape::writer::fs::resume(&path, options(0)).unwrap();
     assert!(resumed.kept_bytes <= cut as u64);
     assert!(
         resumed
@@ -479,7 +479,7 @@ fn resume_reopens_the_partial_file() {
     assert_eq!(std::fs::read(&path).unwrap(), want);
     // finished: nothing to resume
     assert!(matches!(
-        TapeWriter::resume(&path, options(0)),
+        ww_tape::writer::fs::resume(&path, options(0)),
         Err(ww_tape::WriteError::Sink {
             error: FsError::Exists(_),
             ..
@@ -635,7 +635,7 @@ fn an_incomplete_track_hash_stays_marked_in_later_pieces() {
     let dir = scratch("incomplete_on");
     let owner = OwnerId([4; 32]);
     let defs = base_defs();
-    let mut c = PieceChain::create(&dir, owner, 0, &[], chain_options()).unwrap();
+    let mut c = ww_tape::piece::fs::create(&dir, owner, 0, &[], chain_options()).unwrap();
     for n in 0..40 {
         let b = records(c.writer().unwrap().next_id(), n);
         c.write_block(defs, &b).unwrap();
@@ -652,7 +652,7 @@ fn an_incomplete_track_hash_stays_marked_in_later_pieces() {
         .unwrap();
     bytes[(listed.offset + u64::from(listed.len)) as usize - 8] ^= 1;
     std::fs::write(&first, &bytes).unwrap();
-    let (mut c, _) = PieceChain::resume(&dir, owner, 0, chain_options()).unwrap();
+    let (mut c, _) = ww_tape::piece::fs::resume(&dir, owner, 0, chain_options()).unwrap();
     for n in 40..42 {
         let b = records(c.writer().unwrap().next_id(), n);
         c.write_block(defs, &b).unwrap();
@@ -717,7 +717,7 @@ fn a_chain_in_memory_reads_and_matches_files() {
     let owner = OwnerId([5; 32]);
     let mem = MemTapes::new();
     let mut in_mem = PieceChain::create_on(mem.clone(), owner, 1, &[], opts.clone()).unwrap();
-    let mut on_disk = PieceChain::create(&dir, owner, 1, &[], opts).unwrap();
+    let mut on_disk = ww_tape::piece::fs::create(&dir, owner, 1, &[], opts).unwrap();
     let (mut a, mut b) = (base_defs().clone(), base_defs().clone());
     for op in ops(10) {
         apply_chain(&mut in_mem, &mut a, op);
@@ -786,7 +786,7 @@ fn chain_options() -> ChainOptions {
 
 /// The pieces of a chain of `ops` written to `dir` without a crash, and where each call was made.
 fn reference_chain(dir: &Path, ops: &[Op]) -> (Vec<PathBuf>, Made) {
-    let mut c = PieceChain::create(dir, OwnerId([9; 32]), 0, &[], chain_options()).unwrap();
+    let mut c = ww_tape::piece::fs::create(dir, OwnerId([9; 32]), 0, &[], chain_options()).unwrap();
     let mut defs = base_defs().clone();
     let mut made = Made {
         seqs: vec![],
@@ -866,8 +866,9 @@ fn a_chain_cut_anywhere_resumes_to_the_same_pieces() {
                 let partial = ww_tape::writer::partial_name(&d.join(piece_name(i as u64)));
                 std::fs::write(partial, &piece[..cut]).unwrap();
             }
-            let (mut c, resumed) = PieceChain::resume(&d, OwnerId([9; 32]), 0, chain_options())
-                .unwrap_or_else(|e| panic!("piece {i}, cut {cut:?}: {e}"));
+            let (mut c, resumed) =
+                ww_tape::piece::fs::resume(&d, OwnerId([9; 32]), 0, chain_options())
+                    .unwrap_or_else(|e| panic!("piece {i}, cut {cut:?}: {e}"));
             assert_eq!(c.finished().len(), i);
             replay_chain(&mut c, &ops, &made, resumed.kept_bytes);
             let got = c.finish().unwrap();
@@ -887,7 +888,7 @@ fn a_chain_cut_anywhere_resumes_to_the_same_pieces() {
     }
     // a chain whose last piece is complete takes no more
     assert!(matches!(
-        PieceChain::resume(&want_dir, OwnerId([9; 32]), 0, chain_options()),
+        ww_tape::piece::fs::resume(&want_dir, OwnerId([9; 32]), 0, chain_options()),
         Err(ww_tape::WriteError::Ended(ww_tape::FinishState::Complete))
     ));
     std::fs::remove_dir_all(&dir).unwrap();
@@ -927,7 +928,10 @@ fn a_chain_in_memory_resumes() {
             .unwrap()
             .is_none()
     );
-    assert!(PieceChain::resume(&tmp.join("none"), OwnerId([9; 32]), 0, chain_options()).is_err());
+    assert!(
+        ww_tape::piece::fs::resume(&tmp.join("none"), OwnerId([9; 32]), 0, chain_options())
+            .is_err()
+    );
     std::fs::remove_dir_all(&tmp).unwrap();
 }
 
@@ -1177,7 +1181,8 @@ fn a_chain_whose_last_piece_lost_its_head_is_refused() {
         if files == ww_tape::PieceTapes::Each {
             std::fs::create_dir(&at).unwrap();
         }
-        let mut c = PieceChain::create(&at, OwnerId([9; 32]), 0, &[], options.clone()).unwrap();
+        let mut c =
+            ww_tape::piece::fs::create(&at, OwnerId([9; 32]), 0, &[], options.clone()).unwrap();
         let mut defs = base_defs().clone();
         for op in ops(14) {
             apply_chain(&mut c, &mut defs, op);
@@ -1191,7 +1196,7 @@ fn a_chain_whose_last_piece_lost_its_head_is_refused() {
         // inside the piece head's rows of carried-over tracks
         bytes[start as usize + 160] ^= 0x40;
         std::fs::write(&file, &bytes).unwrap();
-        let resumed = PieceChain::resume(&at, OwnerId([9; 32]), 0, options);
+        let resumed = ww_tape::piece::fs::resume(&at, OwnerId([9; 32]), 0, options);
         assert!(
             matches!(resumed, Err(WriteError::Index(_))),
             "{files:?}: {:?}",
@@ -1239,14 +1244,19 @@ fn a_second_writer_of_one_file_is_refused() {
     }
 
     let path = dir.join("run.wwt");
-    let mut a = PieceChain::create(&path, owner, 0, &[], options()).unwrap();
+    let mut a = ww_tape::piece::fs::create(&path, owner, 0, &[], options()).unwrap();
     write(&mut a, 0);
     a.finish().unwrap();
-    let (mut a, _) = PieceChain::resume(&path, owner, 0, options()).unwrap();
-    assert!(locked(PieceChain::resume(&path, owner, 0, options())));
+    let (mut a, _) = ww_tape::piece::fs::resume(&path, owner, 0, options()).unwrap();
+    assert!(locked(ww_tape::piece::fs::resume(
+        &path,
+        owner,
+        0,
+        options()
+    )));
     write(&mut a, 1);
     drop(a);
-    let (mut b, _) = PieceChain::resume(&path, owner, 0, options()).unwrap();
+    let (mut b, _) = ww_tape::piece::fs::resume(&path, owner, 0, options()).unwrap();
     write(&mut b, 2);
     b.finish().unwrap();
     let bytes = std::fs::read(&path).unwrap();
@@ -1275,11 +1285,17 @@ fn a_second_writer_of_one_file_is_refused() {
 
     // a piece file: its partial file is held from create to close
     let piece = dir.join("piece.wwt");
-    let w = TapeWriter::create(&piece, SyncPolicy::None).unwrap();
-    assert!(locked(TapeWriter::create(&piece, SyncPolicy::None)));
-    assert!(locked(TapeWriter::resume(&piece, options().writer)));
+    let w = ww_tape::writer::fs::create(&piece, SyncPolicy::None).unwrap();
+    assert!(locked(ww_tape::writer::fs::create(
+        &piece,
+        SyncPolicy::None
+    )));
+    assert!(locked(ww_tape::writer::fs::resume(
+        &piece,
+        options().writer
+    )));
     drop(w);
-    TapeWriter::resume(&piece, options().writer).unwrap();
+    ww_tape::writer::fs::resume(&piece, options().writer).unwrap();
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -1290,7 +1306,7 @@ fn a_second_writer_of_one_file_is_refused() {
 fn a_sink_of_one_piece_takes_no_cut_in_place() {
     let dir = scratch("one_piece_cut");
     let path = dir.join("one.wwt");
-    let mut w = TapeWriter::create(&path, SyncPolicy::None).unwrap();
+    let mut w = ww_tape::writer::fs::create(&path, SyncPolicy::None).unwrap();
     w.begin_piece(&head(), &[]).unwrap();
     let (h, c) = chunk(0, 0);
     w.write_chunk(base_defs(), &h, &column(&c)).unwrap();
@@ -1301,7 +1317,7 @@ fn a_sink_of_one_piece_takes_no_cut_in_place() {
     let partial = ww_tape::writer::partial_name(&path);
     assert_eq!(std::fs::metadata(&partial).unwrap().len(), len);
     drop(refused);
-    let (w, resumed) = TapeWriter::resume(&path, WriterOptions::default()).unwrap();
+    let (w, resumed) = ww_tape::writer::fs::resume(&path, WriterOptions::default()).unwrap();
     assert_eq!(resumed.kept_bytes, len);
     w.finish().unwrap();
 
@@ -1414,7 +1430,7 @@ fn a_resume_never_cuts_off_good_blocks() {
 fn a_resume_of_a_whole_finish_cuts_only_the_junk_after_its_tail() {
     let dir = scratch("junk_after_tail");
     let path = dir.join("p.wwt");
-    let mut w = TapeWriter::create(&path, SyncPolicy::None).unwrap();
+    let mut w = ww_tape::writer::fs::create(&path, SyncPolicy::None).unwrap();
     for n in 0..6 {
         let block = records(w.next_id(), n);
         w.write_block(base_defs(), &block).unwrap();
@@ -1430,7 +1446,7 @@ fn a_resume_of_a_whole_finish_cuts_only_the_junk_after_its_tail() {
         ("a torn block", good[..40].to_vec()),
     ] {
         std::fs::write(&partial, [&done[..], &junk[..]].concat()).unwrap();
-        match TapeWriter::resume(&path, WriterOptions::default()) {
+        match ww_tape::writer::fs::resume(&path, WriterOptions::default()) {
             Err(WriteError::Ended(ww_tape::FinishState::Complete)) => {}
             other => panic!("{name}: {:?}", other.map(|(_, r)| r)),
         }
@@ -1440,7 +1456,7 @@ fn a_resume_of_a_whole_finish_cuts_only_the_junk_after_its_tail() {
     }
     let bytes = [&done[..], &good[..]].concat();
     std::fs::write(&partial, &bytes).unwrap();
-    match TapeWriter::resume(&path, WriterOptions::default()) {
+    match ww_tape::writer::fs::resume(&path, WriterOptions::default()) {
         Err(WriteError::Resume(ResumeError::GoodBlockAfterCut { offset })) => {
             assert_eq!(offset, done.len() as u64)
         }
@@ -1455,7 +1471,7 @@ fn a_resume_of_a_whole_finish_cuts_only_the_junk_after_its_tail() {
 fn a_resume_of_a_whole_finish_names_it_and_writes_nothing() {
     let dir = scratch("whole_finish");
     let path = dir.join("p.wwt");
-    let mut w = TapeWriter::create(&path, SyncPolicy::None).unwrap();
+    let mut w = ww_tape::writer::fs::create(&path, SyncPolicy::None).unwrap();
     for n in 0..6 {
         let block = records(w.next_id(), n);
         w.write_block(base_defs(), &block).unwrap();
@@ -1464,7 +1480,7 @@ fn a_resume_of_a_whole_finish_names_it_and_writes_nothing() {
     let done = std::fs::read(&path).unwrap();
     let partial = ww_tape::writer::partial_name(&path);
     std::fs::rename(&path, &partial).unwrap();
-    match TapeWriter::resume(&path, WriterOptions::default()) {
+    match ww_tape::writer::fs::resume(&path, WriterOptions::default()) {
         Err(WriteError::Ended(ww_tape::FinishState::Complete)) => {}
         other => panic!("{:?}", other.map(|(_, r)| r)),
     }
@@ -1486,7 +1502,7 @@ fn a_resume_of_a_whole_finish_names_it_and_writes_nothing() {
     let chain = dir.join("chain");
     std::fs::create_dir(&chain).unwrap();
     let owner = OwnerId([9; 32]);
-    let mut c = PieceChain::create(&chain, owner, 0, &[], chain_options()).unwrap();
+    let mut c = ww_tape::piece::fs::create(&chain, owner, 0, &[], chain_options()).unwrap();
     for n in 0..3 {
         let block = records(c.writer().unwrap().next_id(), n);
         c.write_block(base_defs(), &block).unwrap();
@@ -1497,7 +1513,7 @@ fn a_resume_of_a_whole_finish_names_it_and_writes_nothing() {
     let done = std::fs::read(&first).unwrap();
     std::fs::rename(&first, ww_tape::writer::partial_name(&first)).unwrap();
     std::fs::remove_file(ww_tape::writer::partial_name(&chain.join(piece_name(1)))).unwrap();
-    let (c, _) = PieceChain::resume(&chain, owner, 0, chain_options()).unwrap();
+    let (c, _) = ww_tape::piece::fs::resume(&chain, owner, 0, chain_options()).unwrap();
     assert_eq!((c.finished().len(), c.seq()), (1, 1));
     assert_eq!(
         std::fs::read(&first).unwrap(),
@@ -1694,7 +1710,8 @@ fn a_chain_whose_last_piece_is_of_another_level_is_refused() {
     use ww_tape::index::IndexError;
     let dir = scratch("other_level");
     let at = dir.join("one.wwt");
-    let mut c = PieceChain::create(&at, OwnerId([9; 32]), 0, &[], one_file_options()).unwrap();
+    let mut c =
+        ww_tape::piece::fs::create(&at, OwnerId([9; 32]), 0, &[], one_file_options()).unwrap();
     let mut defs = base_defs().clone();
     for op in ops(14) {
         apply_chain(&mut c, &mut defs, op);
@@ -1712,7 +1729,8 @@ fn a_chain_whose_last_piece_is_of_another_level_is_refused() {
     let error = IndexError::UnhandledIntegrity {
         level: ww_tape::Integrity::CrcOnly,
     };
-    let resumed = PieceChain::resume(&at, OwnerId([9; 32]), 0, one_file_options()).map(|(_, r)| r);
+    let resumed =
+        ww_tape::piece::fs::resume(&at, OwnerId([9; 32]), 0, one_file_options()).map(|(_, r)| r);
     assert!(
         matches!(resumed, Err(WriteError::Index(e) | WriteError::Read(ww_tape::ReadError::Index(e))) if e == error),
         "{resumed:?}"

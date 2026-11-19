@@ -10,8 +10,8 @@ use crate::pieces::{chunk, column, scratch};
 use ww_tape::index::IndexPolicy;
 use ww_tape::{
     ALIGNMENT, BlockId, BlockKind, BlockWriter, ChainOptions, ClockTime, CutPolicy, DEFER_WINDOW,
-    DescribeError, HEAD_ENTRIES, IndexError, Layout, MemSink, OwnerId, PieceChain, SessionTag,
-    Slot, SyncPolicy, TapeReader, TapeWriter, WriteError, WriterOptions,
+    DescribeError, HEAD_ENTRIES, IndexError, Layout, MemSink, OwnerId, SessionTag, Slot,
+    SyncPolicy, TapeReader, TapeWriter, WriteError, WriterOptions,
 };
 
 /// An aligned writer on a memory sink with [base] held, no checkpoints, at most `max` state entries a piece.
@@ -71,7 +71,7 @@ fn a_full_cap_never_stops_a_finish() {
 #[test]
 fn a_full_cap_never_stops_a_cut() {
     let dir = scratch("cap_cut");
-    let mut chain = PieceChain::create(
+    let mut chain = ww_tape::piece::fs::create(
         &dir,
         OwnerId([0x44; 32]),
         0,
@@ -244,7 +244,7 @@ fn a_cap_below_a_piece_head_is_refused() {
     })
     .unwrap();
     let dir = scratch("cap_small");
-    let chain = PieceChain::create(
+    let chain = ww_tape::piece::fs::create(
         &dir,
         OwnerId([0x45; 32]),
         0,

@@ -305,7 +305,7 @@ fn timeline(
     let dir = std::env::temp_dir().join(format!("ww_tape_bench_chunks_{}", std::process::id()));
     std::fs::create_dir_all(&dir)?;
     let path = dir.join("timeline.wwt");
-    let mut w = TapeWriter::create(&path, SyncPolicy::None).map_err(e)?;
+    let mut w = ww_tape::writer::fs::create(&path, SyncPolicy::None).map_err(e)?;
     w.set_alignment(alignment).map_err(e)?;
     for k in 0..u64::from(args.chunks) {
         w.write_chunk(defs, &head(k, count)?, columns).map_err(e)?;

@@ -675,7 +675,7 @@ fn unread<E>(r: &Result<(), WriteError<E>>) -> bool {
 #[test]
 fn every_monotone_relation_keeps_its_newest_value_across_resumes() {
     use ww_tape::index::IndexPolicy;
-    use ww_tape::{ChainOptions, CutPolicy, OwnerId, PieceChain, PieceTapes, WriterOptions};
+    use ww_tape::{ChainOptions, CutPolicy, OwnerId, PieceTapes, WriterOptions};
     let mut defs = Definitions::new();
     defs.define_all(&[clock(CLOCK), two_monotone(), track(9, CLOCK)])
         .unwrap();
@@ -708,11 +708,11 @@ fn every_monotone_relation_keeps_its_newest_value_across_resumes() {
             cut: CutPolicy::default(),
             ..ChainOptions::default()
         };
-        let mut c = PieceChain::create(&at, owner, 0, &[], options()).unwrap();
+        let mut c = ww_tape::piece::fs::create(&at, owner, 0, &[], options()).unwrap();
         write(c.writer().unwrap(), &defs, 0, &[1, 2], &[100, 101]).unwrap();
         c.cut_now().unwrap();
         drop(c);
-        let (mut c, _) = PieceChain::resume(&at, owner, 0, options()).unwrap();
+        let (mut c, _) = ww_tape::piece::fs::resume(&at, owner, 0, options()).unwrap();
         let w = c.writer().unwrap();
         assert!(
             seq_decrease(write(w, &defs, 2, &[3, 4], &[5, 6]), 2),
@@ -733,7 +733,7 @@ fn every_monotone_relation_keeps_its_newest_value_across_resumes() {
         };
         damage_last_chunk(&mut bytes[start..]);
         std::fs::write(&first, &bytes).unwrap();
-        let (mut c, _) = PieceChain::resume(&at, owner, 0, options()).unwrap();
+        let (mut c, _) = ww_tape::piece::fs::resume(&at, owner, 0, options()).unwrap();
         let r = write(c.writer().unwrap(), &defs, 4, &[5, 6], &[200, 201]);
         assert!(unread(&r), "{files:?}: {r:?}");
     }

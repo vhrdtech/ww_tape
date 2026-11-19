@@ -1169,7 +1169,7 @@ mod chain;
 pub use chain::{ChainEnd, ChainLink, ChainReport, HeadStatus, PieceSummary, check_chain};
 
 #[cfg(feature = "std")]
-mod fs;
+pub mod fs;
 #[cfg(feature = "std")]
 pub use fs::piece_name;
 #[cfg(feature = "alloc")]
