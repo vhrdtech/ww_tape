@@ -20,8 +20,10 @@ a raw medium such as an SD card in a data logger.
 - **Damage stays local.** A crash, a torn write or a flipped bit costs the bytes it touched, and a reader says what
   was lost.
 
-`ww_tape` is `no_std` with the `alloc` feature for the positional reader (it builds for `wasm32-unknown-unknown`);
-`std` (the default) adds the writers, file reading and owned definitions. It depends on
+`ww_tape` is `no_std` with the `alloc` feature for the positional reader, the writers and the piece chain on a sink of
+the caller's (it builds for `wasm32-unknown-unknown`); `std` (the default) adds memory sinks, the system clock, reading
+blocks from a stream and owned definitions. Files are written by `ww_tape_fs`, which holds everything that names a
+path. They depend on
 [shrink_wrap](https://github.com/romixlab/shrink_wrap), [exact_units](https://github.com/romixlab/exact_units) and
 `ww_version` from [ww_base](https://github.com/vhrdtech/ww_base), and on nothing of the WireWeaver framework.
 
@@ -39,6 +41,8 @@ the book work there. The exact byte layouts are in the crate's module docs.
 | --- | --- |
 | `ww_tape/` | the format: blocks, definitions and state on track 0, chunks, codecs, summaries, index, pieces, writers and readers; `golden/` the golden files |
 | `ww_tape_codecs/` | column codecs with no notion of a block (bit packing, CRC-32C, varints, lz4, summary kernels), re-exported by `ww_tape` |
+| `ww_tape_fs/` | files: the file sink and store of piece files, their lock, writers and chains opened by path |
+| `ww_tape_tests/` | the integration tests, through the public API of `ww_tape` and `ww_tape_fs` |
 | `ww_tape_fuzz/` | fuzz target bodies, hostile block builders, the seed files (`seeds/`) and their replay as tests |
 | `ww_tape_benchmarks/` | the float sample codec, series summary and tracks benchmarks |
 | `fuzz/` | cargo-fuzz targets (`tape-*`), a workspace of its own on nightly |
@@ -54,7 +58,8 @@ the book work there. The exact byte layouts are in the crate's module docs.
 ww_tape = { git = "https://github.com/vhrdtech/ww_tape", default-features = false, features = ["alloc"] }
 ```
 
-Leave out `default-features = false` for the writers and file reading (`std`).
+Leave out `default-features = false` for memory sinks, the system clock and stream reading (`std`). To write files, add
+`ww_tape_fs = { git = "https://github.com/vhrdtech/ww_tape" }`.
 
 ## License
 

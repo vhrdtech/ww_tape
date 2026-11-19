@@ -25,6 +25,7 @@ the docs are unclear, the source and its comments are authoritative.
 | --- | --- |
 | `ww_tape/` | blocks, definitions on track 0, state tracks and their lookups, chunks, the time, sample and payload codecs, summaries, index, finish and tail, pieces, `TapeWriter`, `FileBlocks`, `TapeReader`; `golden/` the golden files |
 | `ww_tape_codecs/` | column codecs with no notion of a block: `bitpack`, `crc32c`, `from_file`, varints, `lz4`, the summary kernels; `ww_tape` re-exports them |
+| `ww_tape_fs/` | everything that names a path: `FileSink`, `Files`, `FileSource`, the lock on `NAME.lock`, `writer::{create, append, resume, cut}`, `chain::{create, resume}` |
 | `ww_tape_tests/` | the integration tests (`tests/it`), through the public API; the book pages against the code |
 | `ww_tape_fuzz/` | the fuzz target bodies (`targets`), hostile block builders (`hostile`), `seeds/` and their replay as tests, `ww_tape_fuzz_seeds` |
 | `ww_tape_benchmarks/` | float sample codecs on simulated, decoded and sensor data; series summaries (`--bin summaries`); tracks added one by one, puts and copies (`--bin tracks`); the writer's cost per series chunk (`--bin chunks`) |
@@ -107,8 +108,8 @@ and after, at release, and the numbers go into the commit body or the docs page 
   it names or the crate docs, run `ww api save ww_tape` in this repository and commit it. `just lint` runs
   `just api-check` (`ww api check ww_tape`) to catch a snapshot left stale.
 - Dependencies live in the root `[workspace.dependencies]`; crates inherit `authors`, `edition`, `rust-version`,
-  `license`, `repository` and `[lints]` (`ww_tape` keeps its own `[lints]` table: the workspace's plus the
-  panic-class lints).
+  `license`, `repository` and `[lints]` (`ww_tape` and `ww_tape_fs` keep their own `[lints]` table: the
+  workspace's plus the panic-class lints).
 - No C build step: `blake3` is built `pure`, `lz4_flex` is pure Rust and pinned exactly, since payload columns must
   compress to the same bytes.
 

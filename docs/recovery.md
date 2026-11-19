@@ -74,7 +74,8 @@ still ends in `.partial` was never finished.
 
 ### Resuming after a crash
 
-`TapeWriter::resume` reopens `NAME.partial` and continues the same piece. It reads the piece the way `TapeReader` does,
+`ww_tape_fs::writer::resume` reopens `NAME.partial` and continues the same piece (`TapeWriter::resume_on` on any
+other sink). It reads the piece the way `TapeReader` does,
 from the newest checkpoint and then by a scan that stops at the first bad block. It keeps every good block up to the
 end of the piece's data, and cuts off the rest: a torn block, an end sequence, and puts marked `FLAG_WITH_NEXT` that
 end what it keeps (they belong with a block that didn't survive). The resume replays every block it keeps, so the
@@ -97,8 +98,8 @@ The writer holds no definitions of its own, so a resume needs none from the file
 definitions with each call, as before the crash, and the writer puts what each block needs again where it doesn't lie
 near behind.
 
-For example, a recorder loses power while writing piece 3 of a chain. On restart it calls `PieceChain::resume` with the
-directory and the chain options. The chain reads pieces 0 to 2 back from their tails, reopens `00000003.wwt.partial`,
+For example, a recorder loses power while writing piece 3 of a chain. On restart it calls `ww_tape_fs::chain::resume`
+with the directory and the chain options. The chain reads pieces 0 to 2 back from their tails, reopens `00000003.wwt.partial`,
 and the recorder goes on from the first block the file lacks. A crash between finishing one piece and creating the next
 resumes too: the chain creates the next piece.
 
@@ -108,9 +109,10 @@ last piece is finished. The finished pieces keep every byte. A resume cuts off o
 piece whose head is damaged is refused (`WriteError::Index`), since keeping its blocks would leave them outside the
 chain, and dropping them would lose more than a torn end.
 
-A writer writes through a **sink**: a file (`FileSink`) or memory (`MemSink`). A memory sink reads back as a byte source,
-so `TapeReader` reads a piece while it is being written, and tests drive crashes by cutting the bytes anywhere.
-`PieceChain` takes a store of tapes (`Tapes`) that makes the sink for each piece under a key, `Files` or `MemTapes`.
+A writer writes through a **sink**: memory (`MemSink`) or a file (`ww_tape_fs::FileSink`). A memory sink reads back as a
+byte source, so `TapeReader` reads a piece while it is being written, and tests drive crashes by cutting the bytes
+anywhere. `PieceChain` takes a store of tapes (`Tapes`) that makes the sink for each piece under a key, `MemTapes` or
+`ww_tape_fs::Files`.
 
 ### Example: a recorder that lost power
 

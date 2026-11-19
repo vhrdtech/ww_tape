@@ -39,7 +39,7 @@ Every piece carries its ids in its head, its finish and its tail:
 The **owner id** is the application's to choose. A recorder of single captures can use a hash of the capture's settings;
 an application that keeps projects can use the project's id, so every piece of a project names the project. An owner can
 have several chains, each with its own number, such as one chain for events and one for a high-rate stream.
-`PieceChain::create` takes the owner id and the chain number, and each chain gets its own piece ids and its own session
+`PieceChain::create_on` (`ww_tape_fs::chain::create` for files) takes the owner id and the chain number, and each chain gets its own piece ids and its own session
 tag.
 
 The pieces of a chain are checked in both directions:
@@ -102,7 +102,7 @@ let second = chain.finish()?;
 The first session leaves one finished piece in the file. The second session finds it, adds a piece behind it, and
 returns both pieces; the repository runs these lines as a test (`ww_tape_tests/tests/it/book.rs`).
 
-Opening the file again goes through `PieceChain::resume` with the same options. The chain finds the last piece by the
+Opening the file again goes through `ww_tape_fs::chain::resume` with the same options. The chain finds the last piece by the
 tails, as a reader does. An unfinished last piece, cut off by a crash, is resumed under the same rules as a piece in a
 file of its own ([Resuming after a crash](writing.md#resuming-after-a-crash)). A last piece that was finished starts a
 new piece behind it. Every session that opens the file and closes it therefore adds at least one piece. The new piece

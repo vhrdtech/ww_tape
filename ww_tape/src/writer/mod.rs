@@ -1,7 +1,8 @@
-//! [TapeWriter]: blocks appended to a file, durable the way databases make their logs durable.
+//! [TapeWriter]: blocks appended to a sink, a file or memory, durable the way databases make their logs durable.
 //!
-//! - A new file is written as `NAME.partial` and renamed to `NAME` when it is finished; the file and its directory are
-//!   synced after it is created and after the rename, so neither the data nor the name can vanish in a crash.
+//! - A new file (`ww_tape_fs`) is written as `NAME.partial` and renamed to `NAME` when it is finished; the file and
+//!   its directory are synced after it is created and after the rename, so neither the data nor the name can vanish
+//!   in a crash.
 //! - The data is synced by a [SyncPolicy] (none, every N blocks, or at most an interval apart, by default 1 s), like
 //!   SQLite's `synchronous` or Postgres' `synchronous_commit`: what a crash can lose is bounded by the policy.
 //!   [std::fs::File::sync_data] is `fdatasync` on Linux, `fcntl(F_FULLFSYNC)` on macOS (a plain `fsync` there doesn't
