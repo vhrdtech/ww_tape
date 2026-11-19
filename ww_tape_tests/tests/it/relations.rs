@@ -1134,9 +1134,10 @@ fn chain_op(
     }
 }
 
-/// Power loss at every byte of the second piece of a chain, in both layouts: its first piece has an incomplete row
-/// (a damaged record block a resume kept) and a track of two monotone relations. Each cut resumes, writes the rest
-/// and finishes to the bytes of the piece written without the loss.
+/// Power loss anywhere in the second piece of a chain, in both layouts ([sweep_cuts]: every byte of block heads and
+/// CRCs, a stride through bodies and alignment padding): its first piece has an incomplete row (a damaged record
+/// block a resume kept) and a track of two monotone relations. Each cut resumes, writes the rest and finishes to the
+/// bytes of the piece written without the loss.
 #[test]
 fn a_chain_piece_with_an_incomplete_row_and_two_monotone_relations_resumes_anywhere() {
     use ww_tape::index::IndexPolicy;
@@ -1214,7 +1215,7 @@ fn a_chain_piece_with_an_incomplete_row_and_two_monotone_relations_resumes_anywh
             "{layout:?}: piece 0 has an incomplete row"
         );
         for (src, from) in [(&open, 0usize), (&fin, open.len())] {
-            for cut in from..=src.len() {
+            for cut in sweep_cuts(src, from) {
                 let w = MemTapes::new();
                 let mut s = w.create(&piece(0)).unwrap();
                 s.write_all(&first).unwrap();
@@ -1254,6 +1255,56 @@ fn a_chain_piece_with_an_incomplete_row_and_two_monotone_relations_resumes_anywh
         }
     }
 }
+
+/// Where a power-loss sweep of `src` from `from` (a block boundary) cuts. Inside a block's body every cut leaves the
+/// same truncated block, and inside a run of zeros (a gap between blocks, a chunk's alignment padding) the same
+/// zeros: so it cuts at every byte of each block's head (the chunk head whole) and CRC and at the first and last
+/// [CUT_EDGE] bytes of each run of zeros, and only every [CUT_STRIDE]th byte of a body or a run between.
+fn sweep_cuts(src: &[u8], from: usize) -> Vec<usize> {
+    let mut cuts = Vec::new();
+    let mut i = from;
+    while i < src.len() {
+        let len = ww_tape::block_len(&src[i..])
+            .ok()
+            .filter(|l| i + l <= src.len());
+        let Some(len) = len else {
+            // a gap: zero bytes up to the next block or the end, thinned below
+            let run = src[i..].iter().take_while(|b| **b == 0).count();
+            assert!(run > 0, "a block or a gap at {i}");
+            cuts.extend(i..i + run);
+            i += run;
+            continue;
+        };
+        let block = ww_tape::Block::read(&src[i..i + len]).unwrap();
+        let head = block
+            .chunk()
+            .map_or(ww_tape::HEADER_LEN, |c| c.payload_offset());
+        let body = i + head..i + len - ww_tape::CRC_LEN;
+        cuts.extend(i..body.start);
+        cuts.extend(body.clone().step_by(CUT_STRIDE));
+        cuts.extend(body.end..i + len);
+        i += len;
+    }
+    cuts.push(src.len());
+    // the inside of a run of zeros longer than twice CUT_EDGE: every CUT_STRIDEth byte
+    let zero = |q: usize| src.get(q) == Some(&0);
+    cuts.into_iter()
+        .filter(|&p| {
+            if !zero(p) {
+                return true;
+            }
+            let into = (from..p).rev().take_while(|&q| zero(q)).count();
+            let left = (p..src.len()).take_while(|&q| zero(q)).count();
+            into < CUT_EDGE || left <= CUT_EDGE || (into - CUT_EDGE).is_multiple_of(CUT_STRIDE)
+        })
+        .collect()
+}
+
+/// Cuts at each end of a run of zeros in [sweep_cuts].
+const CUT_EDGE: usize = 32;
+/// Every how many bytes [sweep_cuts] cuts inside a block's body or a run of zeros: odd, so the cuts fall at every
+/// offset modulo the powers of two a layout aligns to.
+const CUT_STRIDE: usize = 97;
 
 /// Clear the break mark in the header of the chunk block at `at` in `bytes`, its head CRC and block CRC made good.
 fn clear_break_mark(bytes: &mut [u8], at: usize) {
