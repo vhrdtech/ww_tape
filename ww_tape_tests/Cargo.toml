@@ -1,0 +1,20 @@
+[package]
+name = "ww_tape_tests"
+version = "0.1.0"
+publish = false
+authors.workspace = true
+description = "Integration tests of ww_tape and its file layer, through their public API"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dev-dependencies]
+# tests/it: CRCs computed apart from the crate's own CRC-32C
+crc.workspace = true
+exact_units = { workspace = true, features = ["counting", "electrical", "shrink_wrap", "std", "time"] }
+shrink_wrap = { workspace = true, features = ["std"] }
+ww_tape = { workspace = true, features = ["std"] }
+
+[lints]
+workspace = true

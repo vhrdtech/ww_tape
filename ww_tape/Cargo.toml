@@ -35,8 +35,6 @@ ww_tape_codecs.workspace = true
 ww_version.workspace = true
 
 [dev-dependencies]
-# tests/it: CRCs computed apart from the crate's own CRC-32C
-crc.workspace = true
 exact_units = { workspace = true, features = ["counting", "electrical", "shrink_wrap", "std", "time"] }
 # tests/evolution.rs: the source against api_snapshots/
 wire_weaver_evolution.workspace = true

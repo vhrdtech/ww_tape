@@ -1019,7 +1019,6 @@ name = "ww_tape"
 version = "0.1.0"
 dependencies = [
  "blake3",
- "crc",
  "exact_units",
  "lz4_flex",
  "rustix",
@@ -1065,6 +1064,16 @@ name = "ww_tape_fuzz"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "crc",
+ "exact_units",
+ "shrink_wrap",
+ "ww_tape",
+]
+
+[[package]]
+name = "ww_tape_tests"
+version = "0.1.0"
+dependencies = [
  "crc",
  "exact_units",
  "shrink_wrap",

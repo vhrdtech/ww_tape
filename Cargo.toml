@@ -6,6 +6,7 @@ members = [
     "ww_tape_codecs",
     "ww_tape_figures",
     "ww_tape_fuzz",
+    "ww_tape_tests",
 ]
 # cargo-fuzz targets, a workspace of its own (nightly)
 exclude = ["fuzz"]
@@ -68,6 +69,10 @@ opt-level = 3
 opt-level = 3
 
 [profile.test.package.ww_tape_fuzz]
+opt-level = 3
+
+# the integration tests resume at every cut and read long chains
+[profile.test.package.ww_tape_tests]
 opt-level = 3
 
 [profile.deploy]
