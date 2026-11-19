@@ -1,10 +1,9 @@
 //! The part the three packed columns share: per group a fixed-size record with a width and an offset, then the
 //! packed values.
 
-use super::TimesError;
+use super::ColumnError;
 use crate::FromFile;
 use crate::bitpack::{self, GROUP, Width};
-use crate::chunk::ColumnKind;
 
 /// Groups in a column of `n` items.
 pub(crate) const fn group_count(n: usize) -> usize {
@@ -41,7 +40,6 @@ pub(crate) struct Placed<'b> {
 /// The records and packed values of one column.
 #[derive(Copy, Clone, Debug)]
 pub(crate) struct Groups<'b, const R: usize> {
-    pub(crate) kind: ColumnKind,
     pub(crate) n: usize,
     /// One record per group.
     records: &'b [[u8; R]],
@@ -55,13 +53,12 @@ pub(crate) struct Groups<'b, const R: usize> {
 impl<'b, const R: usize> Groups<'b, R> {
     /// Split `column` (its bytes; `tail` is the payload from the column's start on) into records and packed values.
     pub(crate) fn split(
-        kind: ColumnKind,
         n: usize,
         layout: Layout<R>,
         column: &'b [u8],
         tail: &'b [u8],
-    ) -> Result<Self, TimesError> {
-        let corrupt = |what| TimesError::Corrupt { kind, what };
+    ) -> Result<Self, ColumnError> {
+        let corrupt = ColumnError::Corrupt;
         let (all, _) = column.as_chunks::<R>();
         let records = all
             .get(..group_count(n))
@@ -76,7 +73,6 @@ impl<'b, const R: usize> Groups<'b, R> {
             return Err(corrupt("column past the payload"));
         }
         Ok(Groups {
-            kind,
             n,
             records,
             layout,
@@ -140,7 +136,7 @@ impl<'b, const R: usize> Groups<'b, R> {
 
     /// Check every record: widths at most 64, each offset where the previous group ends, the last group ending at
     /// the column's end.
-    pub(crate) fn check(&self) -> Result<(), TimesError> {
+    pub(crate) fn check(&self) -> Result<(), ColumnError> {
         let mut at = 0usize;
         for g in 0..self.count() {
             let r = self.record(g);
@@ -200,11 +196,8 @@ impl<'b, const R: usize> Groups<'b, R> {
         fits.then_some(p)
     }
 
-    fn corrupt(&self, what: &'static str) -> TimesError {
-        TimesError::Corrupt {
-            kind: self.kind,
-            what,
-        }
+    fn corrupt(&self, what: &'static str) -> ColumnError {
+        ColumnError::Corrupt(what)
     }
 }
 

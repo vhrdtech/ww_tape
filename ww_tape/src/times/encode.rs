@@ -101,7 +101,7 @@ impl EncodedTimes {
             .filter(|f| f.iter().any(|x| *x != 0))
             .map(|f| encode_flags(f).ok_or(EncodeError::TooMany))
             .transpose()?;
-        let (time_mode, starts) = starts::encode(starts).ok_or(EncodeError::TooMany)?;
+        let (time_mode, starts) = starts::encode_starts(starts).ok_or(EncodeError::TooMany)?;
         Ok(EncodedTimes {
             head: TimeHead {
                 count,

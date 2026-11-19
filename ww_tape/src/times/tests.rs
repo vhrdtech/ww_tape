@@ -876,7 +876,7 @@ fn a_relation_column_of_another_count_is_refused() {
             RelationColumn::read(&chunk, track, 0).err(),
             Some(TimesError::Corrupt {
                 kind: ColumnKind::Relation,
-                what: "an item count other than the chunk's"
+                error: ColumnError::Corrupt("an item count other than the chunk's")
             }),
             "{values:?}"
         );
@@ -1122,7 +1122,7 @@ fn a_mutated_monotone_relation_column_reads_in_order_or_not_at_all() {
         RelationColumn::read(&block.chunk().unwrap(), ONE_MONOTONE, 0).err(),
         Some(TimesError::Corrupt {
             kind: ColumnKind::Relation,
-            what: "group's items decrease"
+            error: ColumnError::Corrupt("group's items decrease")
         })
     );
 }

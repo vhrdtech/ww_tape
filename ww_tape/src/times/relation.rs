@@ -1,12 +1,8 @@
 //! A relation's values in an events chunk ([ColumnKind::Relation], its param the relation's index in
 //! [TrackDef::relations](crate::TrackDef::relations)): one u64 per item, read in place.
 //!
-//! Every relation column starts with its item count (u32, little endian), which a reader checks against the chunk's:
-//! the values never depend on the chunk head alone. Two codecs follow. [STARTS] for values that never decrease: the
-//! starts column's time mode, the first and the last value as order-keeping i64s, little endian, then the starts
-//! column of those i64s, a line per group of 128 with residuals above it, or one period for values a fixed step
-//! apart. [DURATIONS] for any values: per group the smallest (u64), a width and an offset, then the values above the
-//! smallest.
+//! The column is a value column ([Values]): its item count, which a reader checks against the chunk's, then the
+//! values in [STARTS] (never decreasing) or [DURATIONS] (any).
 //!
 //! A reader checks a chunk's relation columns against its track's definition ([StoredRelations]) before it reads one:
 //! a column per relation that keeps its values in one, none for another, a relation that never decreases in
@@ -14,11 +10,9 @@
 
 use core::ops::Range;
 
-use super::packed::Durations;
-use super::starts::Starts;
-use super::{DURATIONS, ITEMS_MAX, STARTS, TimeMode, TimesError};
+use super::values::Values;
+use super::{ColumnError, DURATIONS, ITEMS_MAX, STARTS, TimesError};
 use crate::FromFile;
-use crate::bitpack::GROUP;
 #[cfg(feature = "std")]
 use crate::chunk::ColumnSpec;
 use crate::chunk::{Chunk, Codec, Column, ColumnKind};
@@ -79,35 +73,11 @@ impl StoredRelations {
     }
 }
 
-/// Bytes of the item count every relation column starts with.
-const COUNT_LEN: usize = 4;
-
-/// Bytes of the head of a [STARTS] relation column after its count: time mode, first, last.
-const HEAD_LEN: usize = 17;
-
-/// The order-keeping i64 of a u64: its sign bit flipped.
-pub(crate) const fn ordered(v: u64) -> i64 {
-    (v ^ (1 << 63)).cast_signed()
-}
-
-/// The u64 of an [ordered] i64.
-pub(crate) const fn unordered(v: i64) -> u64 {
-    v.cast_unsigned() ^ (1 << 63)
-}
-
-#[derive(Clone, Debug)]
-enum Repr<'b> {
-    /// Values that never decrease, as [ordered] starts.
-    Monotone(Starts<'b>),
-    /// Any values.
-    Any(Durations<'b>),
-}
-
 /// One relation's values in an events chunk, read in place. Reads never panic on any bytes; [Self::get] panics only
 /// for an item past the end.
 #[derive(Clone, Debug)]
 pub struct RelationColumn<'b> {
-    repr: Repr<'b>,
+    values: Values<'b>,
 }
 
 impl<'b> RelationColumn<'b> {
@@ -153,102 +123,36 @@ impl<'b> RelationColumn<'b> {
             }
         }
         let Some(c) = found else { return Ok(None) };
-        let salvage = damaged(&c);
         let n = FromFile::new(head.count)
             .at_most(ITEMS_MAX)
             .map_err(TimesError::Bound)?;
-        let corrupt = |what| TimesError::Corrupt {
-            kind: ColumnKind::Relation,
-            what,
-        };
-        let payload = chunk.payload();
         if c.codec != STARTS && c.codec != DURATIONS {
             return Err(TimesError::UnknownCodec(ColumnKind::Relation, c.codec));
         }
-        let (count, bytes) = c
-            .bytes
-            .split_first_chunk::<COUNT_LEN>()
-            .ok_or(corrupt("no count"))?;
-        if u32::from_le_bytes(*count) != head.count {
-            return Err(corrupt("an item count other than the chunk's"));
-        }
-        let offset = c.offset.saturating_add(COUNT_LEN);
-        let repr = match c.codec {
-            STARTS => {
-                let (h, body) = bytes
-                    .split_first_chunk::<HEAD_LEN>()
-                    .ok_or(corrupt("no head"))?;
-                let [
-                    m,
-                    f0,
-                    f1,
-                    f2,
-                    f3,
-                    f4,
-                    f5,
-                    f6,
-                    f7,
-                    l0,
-                    l1,
-                    l2,
-                    l3,
-                    l4,
-                    l5,
-                    l6,
-                    l7,
-                ] = *h;
-                let mode = TimeMode::from_u8(m).ok_or(corrupt("unknown mode"))?;
-                let first = i64::from_le_bytes([f0, f1, f2, f3, f4, f5, f6, f7]);
-                let last = i64::from_le_bytes([l0, l1, l2, l3, l4, l5, l6, l7]);
-                let tail = payload
-                    .get(offset.saturating_add(HEAD_LEN)..)
-                    .ok_or(corrupt("column past the payload"))?;
-                Repr::Monotone(Starts::parse(
-                    ColumnKind::Relation,
-                    n,
-                    (first, last),
-                    mode,
-                    body,
-                    tail,
-                    salvage,
-                )?)
-            }
-            DURATIONS => {
-                let tail = payload
-                    .get(offset..)
-                    .ok_or(corrupt("column past the payload"))?;
-                Repr::Any(Durations::parse(
-                    ColumnKind::Relation,
-                    n,
-                    u64::MAX,
-                    bytes,
-                    tail,
-                    salvage,
-                )?)
-            }
-            other => return Err(TimesError::UnknownCodec(ColumnKind::Relation, other)),
+        let corrupt = |error| TimesError::Corrupt {
+            kind: ColumnKind::Relation,
+            error,
         };
-        Ok(Some(RelationColumn { repr }))
+        let tail = chunk
+            .payload()
+            .get(c.offset..)
+            .ok_or(corrupt(ColumnError::Corrupt("column past the payload")))?;
+        let values = Values::parse(c.codec, n, c.bytes, tail, damaged(&c)).map_err(corrupt)?;
+        Ok(Some(RelationColumn { values }))
     }
 
     /// Items in the chunk.
     pub fn len(&self) -> usize {
-        match &self.repr {
-            Repr::Monotone(s) => s.len(),
-            Repr::Any(d) => d.len(),
-        }
+        self.values.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.len() == 0
+        self.values.is_empty()
     }
 
     /// The codec the column is in.
     pub fn codec(&self) -> Codec {
-        match self.repr {
-            Repr::Monotone(_) => STARTS,
-            Repr::Any(_) => DURATIONS,
-        }
+        self.values.codec()
     }
 
     /// The value of item `i`.
@@ -257,49 +161,29 @@ impl<'b> RelationColumn<'b> {
     ///
     /// When `i` is past the last item.
     pub fn get(&self, i: usize) -> u64 {
-        match &self.repr {
-            Repr::Monotone(s) => unordered(s.get(i)),
-            Repr::Any(d) => d.get(i),
-        }
+        self.values.get(i)
     }
 
     /// Whether item `i` is in a group a salvage found damaged; its value is then a stand-in. False past the last
     /// item.
     pub fn is_suspect(&self, i: usize) -> bool {
-        let g = i / GROUP;
-        match &self.repr {
-            Repr::Monotone(s) => s.is_suspect_group(g),
-            Repr::Any(d) => d.is_suspect_group(g),
-        }
+        self.values.is_suspect(i)
     }
 
     /// The item ranges of the groups a salvage found damaged, ascending.
     pub fn suspect_items(&self) -> impl Iterator<Item = Range<usize>> + '_ {
-        let n = self.len();
-        (0..n.div_ceil(GROUP))
-            .map(|g| g.saturating_mul(GROUP))
-            .filter(|start| self.is_suspect(*start))
-            .map(move |start| start..start.saturating_add(GROUP).min(n))
+        self.values.suspect_items()
     }
 
     /// The smallest and the largest value: the first and the last for a column in [STARTS], else from the values.
     pub fn range(&self) -> (u64, u64) {
-        match &self.repr {
-            Repr::Monotone(s) => (unordered(s.first_tick()), unordered(s.last_tick())),
-            Repr::Any(d) => (0..d.len()).fold((u64::MAX, 0), |(lo, hi), i| {
-                let v = d.get(i);
-                (lo.min(v), hi.max(v))
-            }),
-        }
+        self.values.range()
     }
 
     /// The first item whose value is at least `v`, by search; [Self::len] when none is. None for a column not in
     /// [STARTS], whose values may decrease.
     pub fn lower_bound(&self, v: u64) -> Option<usize> {
-        match &self.repr {
-            Repr::Monotone(s) => Some(s.lower_bound(ordered(v))),
-            Repr::Any(_) => None,
-        }
+        self.values.lower_bound(v)
     }
 }
 
@@ -328,38 +212,15 @@ impl EncodedRelation {
         if values.len() > ITEMS_MAX {
             return Err(EncodeError::TooMany);
         }
-        // at most ITEMS_MAX, which a u32 holds
-        let count = u32::try_from(values.len()).map_err(|_| EncodeError::TooMany)?;
         let decrease = values
             .iter()
             .zip(values.iter().skip(1))
             .position(|(a, b)| b < a)
             .map(|i| i.saturating_add(1));
-        let (codec, bytes) = match decrease {
-            Some(at) if monotone => return Err(EncodeError::Unsorted { at }),
-            Some(_) => {
-                let body = super::packed::encode_durations(values).ok_or(EncodeError::TooMany)?;
-                let mut bytes = std::vec::Vec::with_capacity(COUNT_LEN.saturating_add(body.len()));
-                bytes.extend_from_slice(&count.to_le_bytes());
-                bytes.extend_from_slice(&body);
-                (DURATIONS, bytes)
-            }
-            None => {
-                let ticks: std::vec::Vec<i64> = values.iter().map(|v| ordered(*v)).collect();
-                let (mode, body) = super::starts::encode(&ticks).ok_or(EncodeError::TooMany)?;
-                let (Some(first), Some(last)) = (ticks.first(), ticks.last()) else {
-                    return Err(EncodeError::Empty);
-                };
-                let mut bytes =
-                    std::vec::Vec::with_capacity((COUNT_LEN + HEAD_LEN).saturating_add(body.len()));
-                bytes.extend_from_slice(&count.to_le_bytes());
-                bytes.push(mode.to_u8());
-                bytes.extend_from_slice(&first.to_le_bytes());
-                bytes.extend_from_slice(&last.to_le_bytes());
-                bytes.extend_from_slice(&body);
-                (STARTS, bytes)
-            }
-        };
+        if let (Some(at), true) = (decrease, monotone) {
+            return Err(EncodeError::Unsorted { at });
+        }
+        let (codec, bytes) = super::values::encode_values(values).ok_or(EncodeError::TooMany)?;
         Ok(EncodedRelation {
             relation,
             codec,

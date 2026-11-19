@@ -1,14 +1,13 @@
 //! The starts column: implicit, or a linear frame of reference per group of 128.
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 use super::groups::encode_groups;
 use super::groups::{
     Groups, Layout, Placed, group_count, group_len, item_i64, partition, width_span,
 };
-use super::{TimeMode, TimesError};
+use super::{ColumnError, TimeMode};
 use crate::FromFile;
 use crate::bitpack::{self, GROUP, Kernel, Width};
-use crate::chunk::ColumnKind;
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;
 use core::ops::Range;
@@ -313,9 +312,8 @@ impl<'b> Linear<'b> {
     /// Check every record and item of an intact column: placed in the column, lines in range, each group's item 0
     /// its first tick, its items never decreasing and its first tick at or after the previous group's last item, the
     /// last item the chunk's last tick. So every item lies between the chunk's first and last tick, in order.
-    fn check(&self) -> Result<(), TimesError> {
-        let kind = self.groups.kind;
-        let corrupt = |what| TimesError::Corrupt { kind, what };
+    fn check(&self) -> Result<(), ColumnError> {
+        let corrupt = ColumnError::Corrupt;
         self.groups.check()?;
         // the previous group's last item
         let mut prev = self.first;
@@ -394,17 +392,16 @@ pub struct Starts<'b> {
 impl<'b> Starts<'b> {
     /// Read a starts column of `n` items whose first and last ticks the chunk head names; `column` is its bytes,
     /// `tail` the payload from its first byte on. With `salvage`, group records are checked one by one as read
-    /// instead of all at once. An error names the column as `kind`: the starts, or a relation in [STARTS](super::STARTS).
-    pub(crate) fn parse(
-        kind: ColumnKind,
+    /// instead of all at once.
+    pub fn parse(
         n: usize,
         (first, last): (i64, i64),
         mode: TimeMode,
         column: &'b [u8],
         tail: &'b [u8],
         salvage: bool,
-    ) -> Result<Self, TimesError> {
-        let corrupt = |what| TimesError::Corrupt { kind, what };
+    ) -> Result<Self, ColumnError> {
+        let corrupt = ColumnError::Corrupt;
         if n == 0 {
             return Err(corrupt("no items"));
         }
@@ -429,7 +426,7 @@ impl<'b> Starts<'b> {
             }
             TimeMode::Linear => {
                 let lin = Linear {
-                    groups: Groups::split(kind, n, LAYOUT, column, tail)?,
+                    groups: Groups::split(n, LAYOUT, column, tail)?,
                     #[cfg(feature = "alloc")]
                     suspect: None,
                     first,
@@ -495,7 +492,7 @@ impl<'b> Starts<'b> {
     }
 
     /// Whether the column was read by salvage.
-    pub(crate) fn salvaged(&self) -> bool {
+    pub fn salvaged(&self) -> bool {
         matches!(&self.repr, Repr::Linear(lin) if lin.salvaged())
     }
 
@@ -726,7 +723,7 @@ impl DoubleEndedIterator for Iter<'_> {
 impl ExactSizeIterator for Iter<'_> {}
 
 /// The smallest and largest residual of ticks `g` (ascending, at least one) at `slope`; None when one leaves i128.
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 fn residuals(g: &[i64], slope: i64) -> Option<(i128, i128)> {
     let first = i128::from(*g.first()?);
     let (mut lo, mut hi) = (i128::MAX, i128::MIN);
@@ -742,7 +739,7 @@ fn residuals(g: &[i64], slope: i64) -> Option<(i128, i128)> {
 
 /// The width residuals from `lo` to `hi` pack at; a spread past u64 (a fitted slope over ticks near both ends of
 /// i64) is wider than any width.
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 fn spread_width((lo, hi): (i128, i128)) -> u32 {
     hi.checked_sub(lo)
         .and_then(|d| u64::try_from(d).ok())
@@ -751,7 +748,7 @@ fn spread_width((lo, hi): (i128, i128)) -> u32 {
 
 /// Pick a group's slope and residual minimum: the fitted slope or 0, whichever needs the narrower width (0 on a
 /// tie, and when the fitted one's minimum doesn't fit an i32).
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 fn fit(g: &[i64]) -> Option<(i64, i32, u32)> {
     // slope 0: the residuals are the ticks less the first, ascending from 0
     let flat = residuals(g, 0)?;
@@ -778,8 +775,8 @@ fn fit(g: &[i64]) -> Option<(i64, i32, u32)> {
 }
 
 /// Encode ascending `ticks`: the time mode and the column's bytes; None for no ticks, or a column past u32 offsets.
-#[cfg(feature = "std")]
-pub(crate) fn encode(ticks: &[i64]) -> Option<(TimeMode, std::vec::Vec<u8>)> {
+#[cfg(feature = "alloc")]
+pub fn encode_starts(ticks: &[i64]) -> Option<(TimeMode, alloc::vec::Vec<u8>)> {
     let (_, rest) = ticks.split_first()?;
     // gaps in i128: two ticks may lie more than i64::MAX apart, and such a period doesn't fit the column
     let mut gaps = ticks

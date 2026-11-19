@@ -4,13 +4,12 @@
 //! Durations: per group a minimum (u64), a width (u8) and an offset (u32), then `duration - minimum`. Flags: per group
 //! the OR of its flags (u32) and an offset (u32), then the flags at the width the OR needs.
 
-use super::TimesError;
-#[cfg(feature = "std")]
+use super::ColumnError;
+#[cfg(feature = "alloc")]
 use super::groups::encode_groups;
 use super::groups::{Groups, Layout, Placed, group_len, width_span};
 use crate::FromFile;
 use crate::bitpack::{self, GROUP, Width};
-use crate::chunk::ColumnKind;
 
 /// Bytes of a durations group record.
 const DURATION_RECORD_LEN: usize = 13;
@@ -68,17 +67,15 @@ pub struct Durations<'b> {
 }
 
 impl<'b> Durations<'b> {
-    /// Read a durations column of `n` items no longer than `max`; `column` and `tail` as for the starts. `kind` names
-    /// the column in errors: the ends, or a relation's values in this codec.
-    pub(crate) fn parse(
-        kind: ColumnKind,
+    /// Read a durations column of `n` items no longer than `max`; `column` and `tail` as for the starts.
+    pub fn parse(
         n: usize,
         max: u64,
         column: &'b [u8],
         tail: &'b [u8],
         salvage: bool,
-    ) -> Result<Self, TimesError> {
-        let groups = Groups::split(kind, n, DURATIONS, column, tail)?;
+    ) -> Result<Self, ColumnError> {
+        let groups = Groups::split(n, DURATIONS, column, tail)?;
         let d = Durations {
             groups,
             max,
@@ -87,10 +84,9 @@ impl<'b> Durations<'b> {
         if !salvage {
             groups.check()?;
             if (0..groups.count()).any(|g| !d.record_ok(g)) {
-                return Err(TimesError::Corrupt {
-                    kind,
-                    what: "duration minimum past the chunk's latest end",
-                });
+                return Err(ColumnError::Corrupt(
+                    "duration minimum past the chunk's latest end",
+                ));
             }
         }
         Ok(d)
@@ -124,7 +120,7 @@ impl<'b> Durations<'b> {
     }
 
     /// Whether the column was read by salvage.
-    pub(crate) fn salvaged(&self) -> bool {
+    pub fn salvaged(&self) -> bool {
         self.salvaged
     }
 
@@ -214,13 +210,13 @@ pub struct Flags<'b> {
 
 impl<'b> Flags<'b> {
     /// Read a flags column of `n` items; `column` and `tail` as for the starts.
-    pub(crate) fn parse(
+    pub fn parse(
         n: usize,
         column: &'b [u8],
         tail: &'b [u8],
         salvage: bool,
-    ) -> Result<Self, TimesError> {
-        let groups = Groups::split(ColumnKind::Flags, n, FLAGS, column, tail)?;
+    ) -> Result<Self, ColumnError> {
+        let groups = Groups::split(n, FLAGS, column, tail)?;
         if !salvage {
             groups.check()?;
         }
@@ -236,7 +232,7 @@ impl<'b> Flags<'b> {
     }
 
     /// Whether the column was read by salvage.
-    pub(crate) fn salvaged(&self) -> bool {
+    pub fn salvaged(&self) -> bool {
         self.salvaged
     }
 
@@ -314,8 +310,8 @@ impl<'b> Flags<'b> {
 }
 
 /// Encode item durations; None when the packed values pass a u32 offset.
-#[cfg(feature = "std")]
-pub(crate) fn encode_durations(durations: &[u64]) -> Option<std::vec::Vec<u8>> {
+#[cfg(feature = "alloc")]
+pub fn encode_durations(durations: &[u64]) -> Option<alloc::vec::Vec<u8>> {
     encode_groups(durations, |c, offset| {
         let min = c.iter().copied().fold(u64::MAX, u64::min);
         let max = c.iter().copied().fold(0, u64::max);
@@ -331,8 +327,8 @@ pub(crate) fn encode_durations(durations: &[u64]) -> Option<std::vec::Vec<u8>> {
 }
 
 /// Encode item flags; None when the packed values pass a u32 offset.
-#[cfg(feature = "std")]
-pub(crate) fn encode_flags(flags: &[u32]) -> Option<std::vec::Vec<u8>> {
+#[cfg(feature = "alloc")]
+pub fn encode_flags(flags: &[u32]) -> Option<alloc::vec::Vec<u8>> {
     encode_groups(flags, |c, offset| {
         let or = c.iter().fold(0, |a, f| a | f);
         let mut rec = [0u8; FLAGS_RECORD_LEN];

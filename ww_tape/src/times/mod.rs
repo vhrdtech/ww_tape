@@ -57,22 +57,32 @@
 //! group); one in a group record, one group or two, unless it moves a first tick, slope or duration minimum by
 //! too little to break an order: such a group reads shifted and isn't marked.
 
+mod column;
 mod groups;
 mod packed;
 mod relation;
 mod starts;
 #[cfg(test)]
 mod tests;
+mod values;
 
+pub use column::{ColumnError, TimeMode};
 #[cfg(feature = "alloc")]
 pub(crate) use groups::encode_groups;
 #[cfg(feature = "alloc")]
 pub(crate) use groups::u32_to_usize;
 pub use packed::{Durations, Flags};
+#[cfg(feature = "alloc")]
+pub use packed::{encode_durations, encode_flags};
 #[cfg(feature = "std")]
 pub use relation::EncodedRelation;
 pub use relation::{RelationColumn, StoredRelations};
+#[cfg(feature = "alloc")]
+pub use starts::encode_starts;
 pub use starts::{Iter, SLOPE_MAX, Starts};
+#[cfg(feature = "alloc")]
+pub use values::encode_values;
+pub use values::{Values, ordered, unordered};
 
 /// Most items of an events chunk (16 Mi): a reader's work on a chunk grows with its items, and implicit times store
 /// none per item, so the count a head states is bounded by this, not by the chunk's bytes.
@@ -90,32 +100,6 @@ pub const DURATIONS: Codec = Codec::DURATIONS;
 /// Codec of a flags column.
 pub const FLAGS: Codec = Codec::FLAGS;
 
-/// How a chunk's starts are stored (the chunk head's time mode).
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum TimeMode {
-    /// First tick plus a period per item.
-    Implicit,
-    /// A linear frame of reference per group of 128 items.
-    Linear,
-}
-
-impl TimeMode {
-    pub fn from_u8(v: u8) -> Option<Self> {
-        match v {
-            0 => Some(TimeMode::Implicit),
-            1 => Some(TimeMode::Linear),
-            _ => None,
-        }
-    }
-
-    pub fn to_u8(self) -> u8 {
-        match self {
-            TimeMode::Implicit => 0,
-            TimeMode::Linear => 1,
-        }
-    }
-}
-
 /// Why a chunk's time columns can't be read.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
@@ -130,10 +114,10 @@ pub enum TimesError {
     Unexpected(ColumnKind),
     /// A time column in a codec this reader doesn't know.
     UnknownCodec(ColumnKind, Codec),
-    /// A column breaks the format.
+    /// A column breaks the format: the column reader's error, with the column.
     Corrupt {
         kind: ColumnKind,
-        what: &'static str,
+        error: ColumnError,
     },
     /// The head states more items than [ITEMS_MAX].
     Bound(BoundError),
@@ -151,7 +135,7 @@ impl core::fmt::Display for TimesError {
             TimesError::Missing(k) => write!(f, "no {k:?} column"),
             TimesError::Unexpected(k) => write!(f, "unexpected {k:?} column"),
             TimesError::UnknownCodec(k, c) => write!(f, "{k:?} column in unknown codec {}", c.0),
-            TimesError::Corrupt { kind, what } => write!(f, "{kind:?} column: {what}"),
+            TimesError::Corrupt { kind, error } => write!(f, "{kind:?} column: {error}"),
             TimesError::Bound(e) => write!(f, "items: {e}"),
             TimesError::Relation { relation } => {
                 write!(
@@ -229,11 +213,13 @@ impl<'b> EventTimes<'b> {
                 Err(TimesError::UnknownCodec(c.kind, c.codec))
             }
         };
+        let corrupt = |kind| move |error| TimesError::Corrupt { kind, error };
         let tail = |c: &Column<'b>| {
-            payload.get(c.offset..).ok_or(TimesError::Corrupt {
-                kind: c.kind,
-                what: "column past the payload",
-            })
+            payload
+                .get(c.offset..)
+                .ok_or(corrupt(c.kind)(ColumnError::Corrupt(
+                    "column past the payload",
+                )))
         };
         let n = FromFile::new(head.count)
             .at_most(ITEMS_MAX)
@@ -241,14 +227,14 @@ impl<'b> EventTimes<'b> {
         let s = starts.ok_or(TimesError::Missing(ColumnKind::Starts))?;
         codec(&s, STARTS)?;
         let starts = Starts::parse(
-            ColumnKind::Starts,
             n,
             (head.first_tick, head.last_tick),
             mode,
             s.bytes,
             tail(&s)?,
             damaged(&s),
-        )?;
+        )
+        .map_err(corrupt(ColumnKind::Starts))?;
         let ends = match (head.end_mode, ends) {
             (EndMode::Absent, None) => Ends::Absent,
             (EndMode::NextStart, None) => Ends::NextStart {
@@ -257,20 +243,15 @@ impl<'b> EventTimes<'b> {
             (EndMode::Durations, Some(e)) => {
                 codec(&e, DURATIONS)?;
                 if head.latest_end < head.first_tick {
-                    return Err(TimesError::Corrupt {
-                        kind: ColumnKind::Ends,
-                        what: "latest end before the first tick",
-                    });
+                    return Err(corrupt(ColumnKind::Ends)(ColumnError::Corrupt(
+                        "latest end before the first tick",
+                    )));
                 }
                 let max = head.latest_end.abs_diff(head.first_tick);
-                Ends::Durations(Durations::parse(
-                    ColumnKind::Ends,
-                    n,
-                    max,
-                    e.bytes,
-                    tail(&e)?,
-                    damaged(&e),
-                )?)
+                Ends::Durations(
+                    Durations::parse(n, max, e.bytes, tail(&e)?, damaged(&e))
+                        .map_err(corrupt(ColumnKind::Ends))?,
+                )
             }
             (EndMode::Durations, None) => return Err(TimesError::Missing(ColumnKind::Ends)),
             (_, Some(_)) => return Err(TimesError::Unexpected(ColumnKind::Ends)),
@@ -278,7 +259,10 @@ impl<'b> EventTimes<'b> {
         let flags = match flags {
             Some(f) => {
                 codec(&f, FLAGS)?;
-                Some(Flags::parse(n, f.bytes, tail(&f)?, damaged(&f))?)
+                Some(
+                    Flags::parse(n, f.bytes, tail(&f)?, damaged(&f))
+                        .map_err(corrupt(ColumnKind::Flags))?,
+                )
             }
             None => None,
         };

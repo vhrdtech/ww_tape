@@ -10,6 +10,7 @@ Covers `ww_tape` 0.1.0.
 
 ### ⚠️ Breaking
 
+- `TimesError::Corrupt { kind, what }` is `{ kind, error: ColumnError }`, the column reader's error whole (TAPE-12).
 - Sample codecs move to `ww_tape_codecs::samples` on scalars and lanes; `ww_tape::samples` keeps the shape-based `Samples`, `encode`, `max_encoded_len` (TAPE-12).
 - `SampleError` is `UnknownElement`, `BadShape` or `Column { shape, error }`, the codecs' error whole; match codec failures inside `Column` (TAPE-12).
 - `Sample::ELEMENT` is `Sample::SCALAR`, a `samples::Scalar`; `Element::of_scalar` and `Element::scalar_type` map between them (TAPE-12).
