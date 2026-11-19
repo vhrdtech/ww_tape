@@ -92,3 +92,194 @@ fn a_block_checks_and_lists_without_its_nodes() {
     x[n - 4..].copy_from_slice(&crc.to_le_bytes());
     assert!(matches!(Block::read(&x), Err(BlockError::Summary(_))));
 }
+
+/// The definitions of series track 1 on clock 1 (1 ns ticks): i16 samples on one channel, one per 1000 ticks.
+fn series_definitions() -> Vec<crate::Describe<'static>> {
+    use crate::{
+        ClockDef, ClockOrigin, Describe, FullVersion, SeriesDef, TrackDef, TrackKind, TrackRepeat,
+        Version, clock_key, track_key,
+    };
+    use shrink_wrap::prelude::*;
+    vec![
+        Describe::Clock(ClockDef {
+            number: UNib32(1),
+            key: clock_key(0x5e, &[], 1),
+            rate: Magnitude::pow10(9).into(),
+            resolution: Magnitude::pow10(-9).into(),
+            origin: ClockOrigin::Boot,
+            label: "dev",
+        }),
+        Describe::Track(TrackDef {
+            number: UNib32(1),
+            key: track_key(0x5e, &[crate::Segment::Name("signal")]),
+            clock: UNib32(1),
+            dimensions: RefVec::Slice { slice: &[] },
+            api: FullVersion::new("head_tests", Version::new(0, 1, 0)),
+            bundle: RefVec::Slice { slice: &[] },
+            path: RefVec::Slice {
+                slice: &[UNib32(1)],
+            },
+            keys: RefVec::Slice { slice: &[] },
+            item: None,
+            label: "signal",
+            repeat: TrackRepeat::Stream,
+            kind: TrackKind::Series(SeriesDef::of::<i16>(
+                None,
+                1,
+                crate::Ratio64::int(1000).unwrap(),
+            )),
+            relations: RefVec::Slice { slice: &[] },
+            owner: [0; 32],
+        }),
+    ]
+}
+
+/// The id of the track of [series_definitions].
+fn series_track_id() -> u64 {
+    series_definitions()
+        .iter()
+        .find_map(|d| match d {
+            crate::Describe::Track(t) => Some(t.id()),
+            _ => None,
+        })
+        .unwrap()
+}
+
+/// A level-0 series summary block over samples `[first, first + count)` written by the core's [SummaryWriter], its
+/// node bytes arbitrary.
+fn series_summary_block(first: u64, count: u64) -> Vec<u8> {
+    let h = SummaryHead {
+        track_id: series_track_id(),
+        track_number: 1,
+        tree: Tree::Series,
+        level: 0,
+        node_shift: 10,
+        layout: Layout::Series {
+            element: Element::I16,
+            channels: 1,
+            stats: SeriesStats::all(Element::I16),
+            scale: Magnitude::ONE,
+        },
+        first_item: first,
+        items: count,
+        first_tick: first as i64 * 1000,
+        last_tick: (first + count - 1) as i64 * 1000,
+        latest_end: (first + count - 1) as i64 * 1000,
+    };
+    let mut b = vec![0u8; summary_len(&h).unwrap()];
+    let mut w = SummaryWriter::new(&mut b, id(0), &h).unwrap();
+    for (i, v) in w.body_mut().iter_mut().enumerate() {
+        *v = (i as u8).wrapping_mul(13).wrapping_add(first as u8);
+    }
+    let n = w.finish();
+    b.truncate(n);
+    b
+}
+
+/// A tape written and read with the core alone: summary blocks from [SummaryWriter] go into the gaps before aligned
+/// chunks, a walk skips them by kind with their head read, the final index lists them under their track, and verify
+/// covers them: a node byte changed under a good CRC, a head field changed under a good CRC and a flipped bit each
+/// fail it.
+#[test]
+fn a_core_only_tape_lists_verifies_and_skips_summary_blocks() {
+    use crate::{
+        BlockKind, ChunkHead, Codec, ColumnKind, ColumnSpec, Definitions, EndMode, FileBlocks,
+        MemSink, SeriesGrid, SyncPolicy, TapeReader, TapeWriter,
+    };
+    let chunk = 32_768usize;
+    let chunks = 12usize;
+    let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
+    let tape = w.sink().tape();
+    w.set_alignment(crate::ALIGNMENT).unwrap();
+    let mut defs = Definitions::new();
+    defs.define_all(&series_definitions()).unwrap();
+    for c in 0..chunks {
+        let first = (c * chunk) as u64;
+        w.defer_block(&defs, series_summary_block(first, chunk as u64))
+            .unwrap();
+        let bytes: Vec<u8> = (0..chunk)
+            .flat_map(|i| (i as i16).wrapping_mul(31).to_le_bytes())
+            .collect();
+        let head = ChunkHead {
+            kind: BlockKind::Series,
+            track_id: series_track_id(),
+            track_number: 1,
+            first_item: first,
+            count: chunk as u32,
+            first_tick: first as i64 * 1000,
+            last_tick: (first as i64 + chunk as i64 - 1) * 1000,
+            latest_end: (first as i64 + chunk as i64 - 1) * 1000,
+            time_mode: 0,
+            end_mode: EndMode::Absent,
+            grid: Some(SeriesGrid::start(0, 0, Magnitude::ONE)),
+        };
+        let col = ColumnSpec {
+            kind: ColumnKind::Samples,
+            codec: Codec::RAW,
+            param: 0,
+            len: bytes.len(),
+        };
+        w.write_chunk(&defs, &head, &[(col, &bytes)]).unwrap();
+    }
+    w.finish().unwrap();
+    let file = tape.to_vec().unwrap();
+
+    let mut rd = FileBlocks::new(&file[..]);
+    let mut walked = 0;
+    while let Some(b) = rd.next_block() {
+        let b = b.unwrap();
+        if b.kind == BlockKind::Summary {
+            let h = b.summary_head().expect("a head");
+            assert_eq!(
+                (h.track_id, h.level, h.items),
+                (series_track_id(), 0, chunk as u64)
+            );
+            walked += 1;
+        }
+    }
+    assert_eq!(walked, chunks);
+
+    let r = TapeReader::open(&file[..]).unwrap();
+    let listed: Vec<_> = r
+        .track_entries(0, series_track_id())
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.kind == BlockKind::Summary)
+        .collect();
+    assert_eq!(listed.len(), chunks);
+    assert!(
+        listed
+            .iter()
+            .all(|e| e.tree == 2 && e.level == 0 && e.count == chunk as u64)
+    );
+    assert_eq!(r.verify(0).ok(), Some(true), "the whole piece verifies");
+
+    let e = listed[3];
+    let (at, len) = (e.offset as usize, e.len as usize);
+    let restamp = |x: &mut [u8]| {
+        let crc = crate::CRC.checksum(&x[at..at + len - 4]);
+        x[at + len - 4..at + len].copy_from_slice(&crc.to_le_bytes());
+    };
+    // a node byte, CRC restamped: the block reads, the content hash doesn't hold
+    let mut bad = file.clone();
+    bad[at + 120] ^= 0x01;
+    restamp(&mut bad);
+    assert!(
+        Block::read(&bad[at..at + len]).is_ok(),
+        "the changed block reads"
+    );
+    let held = TapeReader::open(&bad[..]).and_then(|r| r.verify(0));
+    assert_ne!(held.ok(), Some(true), "a changed node byte doesn't verify");
+    // the head's items, CRC restamped
+    let mut bad = file.clone();
+    bad[at + 64] ^= 0x01;
+    restamp(&mut bad);
+    assert!(Block::read(&bad[at..at + len]).is_err(), "a lying head");
+    let held = TapeReader::open(&bad[..]).and_then(|r| r.verify(0));
+    assert_ne!(held.ok(), Some(true), "a changed head doesn't verify");
+    // a node bit, the old CRC
+    let mut bad = file.clone();
+    bad[at + 130] ^= 0x80;
+    let held = TapeReader::open(&bad[..]).and_then(|r| r.verify(0));
+    assert_ne!(held.ok(), Some(true), "a flipped bit doesn't verify");
+}
