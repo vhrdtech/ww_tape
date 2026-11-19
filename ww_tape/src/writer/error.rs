@@ -8,7 +8,8 @@ use crate::{BlockKind, DescribeError, IndexError, Layout, SessionTag};
 use alloc::boxed::Box;
 use alloc::string::String;
 
-/// Why a [TapeWriter] stopped; `E` is the error of its sink ([TapeSink::Error]).
+/// Why a [TapeWriter] stopped; `E` is the error of its sink ([TapeSink::Error]). Its text says only its own part:
+/// the error it wraps, its [source](core::error::Error::source), says the rest.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum WriteError<E> {
@@ -120,8 +121,8 @@ impl<S: TapeSink> core::fmt::Debug for CutError<S> {
 impl<S: TapeSink> core::fmt::Display for CutError<S> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self.writer {
-            Some(_) => write!(f, "cut refused, the writer handed back: {}", self.error),
-            None => write!(f, "cut failed: {}", self.error),
+            Some(_) => f.write_str("cut refused, the writer handed back"),
+            None => f.write_str("cut failed"),
         }
     }
 }
@@ -153,7 +154,7 @@ impl<E> From<DescribeError> for WriteError<E> {
 impl<E: core::fmt::Display + core::fmt::Debug> core::fmt::Display for WriteError<E> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            WriteError::Sink { what, error } => write!(f, "{what}: {error}"),
+            WriteError::Sink { what, .. } => f.write_str(what),
             WriteError::Failed => write!(
                 f,
                 "an earlier write or sync failed, the file takes no more blocks"
@@ -161,7 +162,7 @@ impl<E: core::fmt::Display + core::fmt::Debug> core::fmt::Display for WriteError
             WriteError::Block(e) => write!(f, "not a good block: {e:?}"),
             WriteError::Chunk(e) => write!(f, "chunk doesn't encode: {e:?}"),
             WriteError::Index(e) => write!(f, "index or piece block: {e:?}"),
-            WriteError::Read(e) => write!(f, "reading back the piece to resume: {e}"),
+            WriteError::Read(_) => f.write_str("reading back the piece to resume"),
             WriteError::Ended(s) => write!(f, "the piece or chain ended already ({s:?})"),
             WriteError::Describe(e) => write!(f, "{e}"),
             WriteError::Input(e) => write!(f, "{e}"),
@@ -236,9 +237,10 @@ impl<E: core::error::Error + 'static> core::error::Error for WriteError<E> {
         match self {
             WriteError::Sink { error, .. } => Some(error),
             WriteError::Read(e) => Some(e),
-            WriteError::Describe(e) => Some(e),
-            WriteError::Input(e) => Some(e),
-            WriteError::Resume(e) => Some(e),
+            // shown by this error's own text, which is theirs
+            WriteError::Describe(e) => e.source(),
+            WriteError::Input(e) => e.source(),
+            WriteError::Resume(e) => e.source(),
             _ => None,
         }
     }

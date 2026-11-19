@@ -1365,6 +1365,18 @@ fn writer_stops_after_a_failure() {
         ),
         "{first:?}"
     );
+    // each level of the error says its own part once: what the writer did, what the file did, the system's error
+    let e = first.unwrap_err();
+    let mut texts = vec![e.to_string()];
+    let mut source = core::error::Error::source(&e);
+    while let Some(s) = source {
+        texts.push(s.to_string());
+        source = s.source();
+    }
+    assert_eq!(texts.len(), 3, "{texts:?}");
+    for pair in texts.windows(2) {
+        assert!(!pair[0].contains(&pair[1]), "{texts:?}");
+    }
     assert!(matches!(
         w.write_block(&defs, &file[..ends[0]]),
         Err(WriteError::Failed)

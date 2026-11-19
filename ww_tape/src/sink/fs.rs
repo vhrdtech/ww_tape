@@ -13,7 +13,8 @@ use crate::reader::ByteSource;
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum FsError {
-    /// Opening, writing, syncing, renaming or reading failed, with what was being done.
+    /// Opening, writing, syncing, renaming or reading failed, with what was being done; its text is `what`, the
+    /// system's error is its [source](core::error::Error::source).
     Io {
         what: &'static str,
         error: io::Error,
@@ -33,7 +34,7 @@ pub enum FsError {
 impl core::fmt::Display for FsError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            FsError::Io { what, error } => write!(f, "{what}: {error}"),
+            FsError::Io { what, .. } => f.write_str(what),
             FsError::Exists(p) => write!(f, "{} exists", p.display()),
             FsError::Locked(p) => write!(f, "another writer holds {}", p.display()),
             FsError::Replaced(p) => write!(
