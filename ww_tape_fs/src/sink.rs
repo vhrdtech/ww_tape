@@ -10,14 +10,17 @@ use ww_tape::sink::{BaseRefused, TapeSink, Tapes, check_base};
 use crate::chain::piece_name;
 use crate::lock::FileLock;
 
-/// Why a [FileSink], [Files] or [FileSource] failed or refused.
+/// Why a [FileSink], [Files] or [FileSource] failed or refused. Its text names the file, what was done and the kind
+/// of failure or refusal once: `x.wwt: locked by another writer`; the system's error of [FsError::Io] is its
+/// [source](core::error::Error::source).
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum FsError {
-    /// Opening, writing, syncing, renaming or reading failed, with what was being done; its text is `what`, the
-    /// system's error is its [source](core::error::Error::source).
+    /// Opening, writing, syncing, renaming or reading `path` failed, with what was being done; its text ends with the
+    /// error's [kind](io::Error::kind), the system's error is its source.
     Io {
         what: &'static str,
+        path: PathBuf,
         error: io::Error,
     },
     /// A new file that is already there (or a `.partial` a crash left that holds bytes).
@@ -30,20 +33,31 @@ pub enum FsError {
     /// A name a file sink doesn't write or lock through: a directory, a FIFO or a socket, or a lock file that is a
     /// link or anything but a regular file.
     NotAFile(PathBuf),
+    /// A piece start [check_base] refused for the file at `path`.
+    Base { path: PathBuf, refused: BaseRefused },
 }
 
 impl core::fmt::Display for FsError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            FsError::Io { what, .. } => f.write_str(what),
-            FsError::Exists(p) => write!(f, "{} exists", p.display()),
-            FsError::Locked(p) => write!(f, "another writer holds {}", p.display()),
+            FsError::Io { what, path, error } => {
+                write!(f, "{}: {what}: {}", path.display(), error.kind())
+            }
+            FsError::Exists(p) => write!(f, "{}: there already", p.display()),
+            FsError::Locked(p) => write!(f, "{}: locked by another writer", p.display()),
             FsError::Replaced(p) => write!(
                 f,
-                "{} was renamed or replaced while it was opened",
+                "{}: renamed or replaced while it was opened",
                 p.display()
             ),
-            FsError::NotAFile(p) => write!(f, "{} is not a regular file", p.display()),
+            FsError::NotAFile(p) => write!(f, "{}: not a regular file", p.display()),
+            FsError::Base { path, refused } => {
+                write!(
+                    f,
+                    "{}: a piece can't start there: {refused}",
+                    path.display()
+                )
+            }
         }
     }
 }
@@ -57,22 +71,11 @@ impl core::error::Error for FsError {
     }
 }
 
-/// An [FsError::Io] of `what`.
-fn io_err(what: &'static str) -> impl FnOnce(io::Error) -> FsError {
-    move |error| FsError::Io { what, error }
-}
-
-/// A new base [check_base] refused, as the io error a file sink reports.
-fn base_err(refused: BaseRefused) -> FsError {
-    let error = match refused {
-        BaseRefused::OnePiece => io::ErrorKind::Unsupported.into(),
-        BaseRefused::PastEnd => io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "a piece can't start past the end of the bytes",
-        ),
-    };
-    FsError::Io {
-        what: "moving the start of the piece",
+/// An [FsError::Io] of `what` on `path`.
+pub(crate) fn io_err(what: &'static str, path: &Path) -> impl FnOnce(io::Error) -> FsError {
+    move |error| FsError::Io {
+        what,
+        path: path.to_path_buf(),
         error,
     }
 }
@@ -117,13 +120,13 @@ impl FileSink {
         path: &Path,
         partial: PathBuf,
     ) -> Result<Self, FsError> {
-        if !names(&partial, &file).map_err(io_err("checking the file's name"))? {
+        if !names(&partial, &file).map_err(io_err("checking the file's name", &partial))? {
             return Err(FsError::Replaced(partial));
         }
         lock.bind(&file, path)?;
         let len = file
             .metadata()
-            .map_err(io_err("reading the file's length"))?
+            .map_err(io_err("reading the file's length", &partial))?
             .len();
         if len != 0 {
             return Err(FsError::Exists(partial));
@@ -131,8 +134,9 @@ impl FileSink {
         if path.exists() {
             return Err(FsError::Exists(path.to_path_buf()));
         }
-        file.sync_all().map_err(io_err("syncing the new file"))?;
-        sync_dir(path).map_err(io_err("syncing the directory"))?;
+        file.sync_all()
+            .map_err(io_err("syncing the new file", &partial))?;
+        sync_dir(path).map_err(io_err("syncing the directory", path))?;
         Ok(FileSink {
             file,
             path: path.to_path_buf(),
@@ -152,11 +156,12 @@ impl FileSink {
             .append(true)
             .create(true)
             .open(path)
-            .map_err(io_err("opening the file"))?;
+            .map_err(io_err("opening the file", path))?;
         lock.bind(&file, path)?;
         if !existed {
-            file.sync_all().map_err(io_err("syncing the new file"))?;
-            sync_dir(path).map_err(io_err("syncing the directory"))?;
+            file.sync_all()
+                .map_err(io_err("syncing the new file", path))?;
+            sync_dir(path).map_err(io_err("syncing the directory", path))?;
         }
         Ok(FileSink {
             file,
@@ -184,13 +189,15 @@ impl FileSink {
             Err(error) => {
                 return Err(FsError::Io {
                     what: "creating the file",
+                    path: path.to_path_buf(),
                     error,
                 });
             }
         };
         lock.bind(&file, path)?;
-        file.sync_all().map_err(io_err("syncing the new file"))?;
-        sync_dir(path).map_err(io_err("syncing the directory"))?;
+        file.sync_all()
+            .map_err(io_err("syncing the new file", path))?;
+        sync_dir(path).map_err(io_err("syncing the directory", path))?;
         Ok(FileSink {
             file,
             path: path.to_path_buf(),
@@ -209,6 +216,7 @@ impl FileSink {
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
             Err(error) => Err(FsError::Io {
                 what: "opening the file",
+                path: path.to_path_buf(),
                 error,
             }),
         }
@@ -224,6 +232,7 @@ impl FileSink {
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
             Err(error) => Err(FsError::Io {
                 what: "opening the unfinished file",
+                path: partial,
                 error,
             }),
         }
@@ -253,17 +262,20 @@ impl TapeSink for FileSink {
     fn write_all(&mut self, bytes: &[u8]) -> Result<(), FsError> {
         self.file
             .write_all(bytes)
-            .map_err(io_err("writing the file"))
+            .map_err(io_err("writing the file", self.current_path()))
     }
 
     fn sync(&mut self) -> Result<(), FsError> {
-        self.file.sync_data().map_err(io_err("syncing the file"))
+        self.file
+            .sync_data()
+            .map_err(io_err("syncing the file", self.current_path()))
     }
 
     fn finish(&mut self) -> Result<(), FsError> {
         if let Some(partial) = self.partial.take() {
-            std::fs::rename(&partial, &self.path).map_err(io_err("renaming the finished file"))?;
-            sync_dir(&self.path).map_err(io_err("syncing the directory"))?;
+            std::fs::rename(&partial, &self.path)
+                .map_err(io_err("renaming the finished file", &partial))?;
+            sync_dir(&self.path).map_err(io_err("syncing the directory", &self.path))?;
         }
         Ok(())
     }
@@ -275,7 +287,7 @@ impl TapeSink for FileSink {
     fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), FsError> {
         file_offset(self.base, offset)
             .and_then(|at| read_file_at(&self.file, at, buf))
-            .map_err(io_err("reading the file"))
+            .map_err(io_err("reading the file", self.current_path()))
     }
 
     fn truncate(&mut self, len: u64) -> Result<(), FsError> {
@@ -286,7 +298,7 @@ impl TapeSink for FileSink {
             io::Seek::seek(file, io::SeekFrom::Start(len))?;
             file.sync_all()
         };
-        truncate(&mut self.file).map_err(io_err("truncating the file"))
+        truncate(&mut self.file).map_err(io_err("truncating the file", self.current_path()))
     }
 
     fn base(&self) -> u64 {
@@ -298,7 +310,12 @@ impl TapeSink for FileSink {
     }
 
     fn rebase(&mut self, base: u64) -> Result<(), FsError> {
-        self.base = check_base(base, self.len()?, self.holds_pieces()).map_err(base_err)?;
+        self.base = check_base(base, self.len()?, self.holds_pieces()).map_err(|refused| {
+            FsError::Base {
+                path: self.current_path().to_path_buf(),
+                refused,
+            }
+        })?;
         Ok(())
     }
 }
@@ -319,7 +336,7 @@ impl FileSink {
         Ok(self
             .file
             .metadata()
-            .map_err(io_err("reading the file's length"))?
+            .map_err(io_err("reading the file's length", self.current_path()))?
             .len())
     }
 }
@@ -332,7 +349,7 @@ fn open_partial(partial: &Path) -> Result<File, FsError> {
         .create(true)
         .truncate(false)
         .open(partial)
-        .map_err(io_err("creating the file"))
+        .map_err(io_err("creating the file", partial))
 }
 
 /// Whether `path` names `file`: the same device and inode. False when `path` is gone.
@@ -426,11 +443,13 @@ impl Tapes for Files {
     }
 
     fn finished(&self, key: &u64) -> Result<Option<FileSource>, FsError> {
-        match File::open(self.path_of(*key)) {
-            Ok(file) => Ok(Some(FileSource(file))),
+        let path = self.path_of(*key);
+        match File::open(&path) {
+            Ok(file) => Ok(Some(FileSource { file, path })),
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
             Err(error) => Err(FsError::Io {
                 what: "opening a finished piece",
+                path,
                 error,
             }),
         }
@@ -447,21 +466,24 @@ impl Tapes for Files {
 
 /// A finished piece file, read by positional reads.
 #[derive(Debug)]
-pub struct FileSource(File);
+pub struct FileSource {
+    file: File,
+    path: PathBuf,
+}
 
 impl ByteSource for FileSource {
     type Error = FsError;
 
     fn size(&self) -> Result<u64, FsError> {
         Ok(self
-            .0
+            .file
             .metadata()
-            .map_err(io_err("reading the file's length"))?
+            .map_err(io_err("reading the file's length", &self.path))?
             .len())
     }
 
     fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), FsError> {
-        read_file_at(&self.0, offset, buf).map_err(io_err("reading the file"))
+        read_file_at(&self.file, offset, buf).map_err(io_err("reading the file", &self.path))
     }
 }
 
@@ -547,6 +569,60 @@ mod tests {
         child.kill().unwrap();
         child.wait().unwrap();
         assert!(matches!(again, Ok(Some(_))), "{:?}", again.err());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Each refusal's text names the file and the kind once; an io error's text names the file, what was done and
+    /// the error's kind, and the system's error is its source, said once.
+    #[test]
+    fn an_error_text_names_the_file_and_the_kind() {
+        use core::error::Error;
+
+        let dir = std::env::temp_dir().join(format!("ww_tape_sink_texts_{}", std::process::id()));
+        _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("x.wwt");
+        let shown = path.display();
+        let partial = partial_name(&path);
+
+        let mut sink = FileSink::create(&path).unwrap();
+        let e = FileSink::create(&path).err().unwrap();
+        assert_eq!(e.to_string(), format!("{shown}: locked by another writer"));
+        assert!(e.source().is_none());
+
+        sink.write_all(b"abc").unwrap();
+        let e = sink.rebase(1).unwrap_err();
+        assert_eq!(
+            e.to_string(),
+            format!(
+                "{}: a piece can't start there: a sink of one piece takes no base but 0",
+                partial.display()
+            )
+        );
+        assert!(e.source().is_none());
+        sink.finish().unwrap();
+        drop(sink);
+
+        let e = FileSink::create(&path).err().unwrap();
+        assert_eq!(e.to_string(), format!("{shown}: there already"));
+
+        let e = FileSink::append(&dir).err().unwrap();
+        assert_eq!(
+            e.to_string(),
+            format!("{}: not a regular file", dir.display())
+        );
+
+        let missing = dir.join("gone").join("y.wwt");
+        let e = FileSink::append(&missing).err().unwrap();
+        assert_eq!(
+            e.to_string(),
+            format!(
+                "{}: finding the file to lock: entity not found",
+                missing.display()
+            )
+        );
+        let os = e.source().unwrap().to_string();
+        assert!(!e.to_string().contains(&os), "{e} repeats {os}");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

@@ -13,6 +13,7 @@ Covers `ww_tape` 0.1.0.
 - File sinks and stores move to the crate `ww_tape_fs`: `FileSink`, `Files`, `FileSource`, `FsError`, `partial_name`, `lock_name`, `piece_name` (TAPE-12).
 - Path constructors are functions of `ww_tape_fs`: `writer::{create, append, resume, cut}`, `chain::{create, resume}` (TAPE-12).
 - `TapeWriter::current_path` is `writer.sink().current_path()` (TAPE-12).
+- `FsError::Io` carries the file's `path`; a refused piece start is `FsError::Base`, not an `Io` error (TAPE-12).
 - `TapeWriter` and `PieceChain` have no default sink: write `TapeWriter<FileSink>`, `PieceChain<Files>` where a type is named (TAPE-12).
 - `TapeSink` has an `Error` type; `WriteError<E>` carries it in `WriteError::Sink`, and `FsError` or `MemError` the store's refusals (TAPE-12).
 - `SinkFactory` is `Tapes`, keyed by `Tapes::Key` and `key_of(seq)`: `Files::new(dir)`, `Files::file(path)`, `MemTapes<K = u64>` (TAPE-12).
@@ -259,6 +260,7 @@ Covers `ww_tape` 0.1.0.
 - `WriteError`, `CutError` and `FsError` texts no longer repeat the error their `source()` returns (TAPE-12).
 - `MemError<K>`, `MemSink<K>` and `MemTape<K>` take the store's key type; `Exists`, `Locked` and `Unfinished` carry the key (TAPE-12).
 - `MemError::Base` says why a piece start was refused (`BaseRefused`), in its text (TAPE-12).
+- `FsError` texts name the file, what was done and the kind once: `x.wwt: locked by another writer` (TAPE-12).
 - A chain resume reads each track's last chunk only in the newest piece holding one, not in every piece (TAPE-7).
 - A salvaged starts column decides each group once on read; `get` and `is_suspect` decode no group per item (STD-120).
 - A resume replays the kept bytes along verify's walk: good blocks in junk are taken, damaged ones listed inside it kept (TAPE-8).

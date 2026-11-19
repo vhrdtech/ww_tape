@@ -43,7 +43,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use crate::sink::{FsError, partial_name};
+use crate::sink::{FsError, io_err, partial_name};
 
 /// How often a file sink opens its lock file again after a holder removed the one it opened: each time is a
 /// holder that let go meanwhile.
@@ -113,10 +113,10 @@ impl FileLock {
         };
         // the names `name` and its `.partial` stand for; one unless a link points elsewhere
         let mut keys = BTreeSet::new();
-        keys.insert(lock_key(name).map_err(io_err("finding the file to lock"))?);
+        keys.insert(lock_key(name).map_err(io_err("finding the file to lock", name))?);
         let partial = partial_name(name);
         if std::fs::symlink_metadata(&partial).is_ok() {
-            keys.insert(lock_key(&partial).map_err(io_err("finding the file to lock"))?);
+            keys.insert(lock_key(&partial).map_err(io_err("finding the file to lock", &partial))?);
         }
         for key in keys {
             let path = lock_name(&key);
@@ -140,20 +140,21 @@ impl FileLock {
                 Err(error) => {
                     return Err(FsError::Io {
                         what: "opening the lock file",
+                        path: path.to_path_buf(),
                         error,
                     });
                 }
             };
             let meta = file
                 .metadata()
-                .map_err(io_err("reading the lock file's type"))?;
+                .map_err(io_err("reading the lock file's type", path))?;
             if !meta.is_file() {
                 return Err(FsError::NotAFile(path.to_path_buf()));
             }
-            if !try_lock(&file).map_err(io_err("locking the lock file"))? {
+            if !try_lock(&file).map_err(io_err("locking the lock file", path))? {
                 return Err(FsError::Locked(name.to_path_buf()));
             }
-            if names_itself(path, &file).map_err(io_err("checking the lock file's name"))? {
+            if names_itself(path, &file).map_err(io_err("checking the lock file's name", path))? {
                 return Ok(file);
             }
             // its holder removed it as it let go: the lock is on a file nobody else finds
@@ -163,9 +164,9 @@ impl FileLock {
 
     /// The lock of `name`, not a regular file, on the file itself.
     fn take_itself(name: &Path) -> Result<Self, FsError> {
-        let key = absolute(name).map_err(io_err("finding the file to lock"))?;
+        let key = absolute(name).map_err(io_err("finding the file to lock", name))?;
         let entry = Entry::claim(Held::Name(key), name)?;
-        let file = open_device(name).map_err(io_err("opening the file to lock"))?;
+        let file = open_device(name).map_err(io_err("opening the file to lock", name))?;
         match file.try_lock() {
             Ok(()) => Ok(FileLock {
                 files: vec![LockFile { file, path: None }],
@@ -174,6 +175,7 @@ impl FileLock {
             Err(std::fs::TryLockError::WouldBlock) => Err(FsError::Locked(name.to_path_buf())),
             Err(std::fs::TryLockError::Error(error)) => Err(FsError::Io {
                 what: "locking the file",
+                path: name.to_path_buf(),
                 error,
             }),
         }
@@ -183,11 +185,13 @@ impl FileLock {
     /// this process holds it under another name (a hard link). [FsError::NotAFile] unless it is a regular file or a
     /// device.
     pub(crate) fn bind(&mut self, file: &File, name: &Path) -> Result<(), FsError> {
-        let meta = file.metadata().map_err(io_err("reading the file's type"))?;
+        let meta = file
+            .metadata()
+            .map_err(io_err("reading the file's type", name))?;
         if !meta.is_file() && !is_device(&meta) {
             return Err(FsError::NotAFile(name.to_path_buf()));
         }
-        if let Some(id) = identity(file).map_err(io_err("reading the file's identity"))? {
+        if let Some(id) = identity(file).map_err(io_err("reading the file's identity", name))? {
             let entry = Entry::claim(id, name)?;
             self.keys.push(entry.keep());
         }
@@ -311,10 +315,6 @@ fn absolute(path: &Path) -> io::Result<PathBuf> {
         .file_name()
         .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
     Ok(std::fs::canonicalize(dir)?.join(name))
-}
-
-fn io_err(what: &'static str) -> impl FnOnce(io::Error) -> FsError {
-    move |error| FsError::Io { what, error }
 }
 
 /// Whether `meta` is a device, locked itself: a block or character device on unix, anything but a file or a
