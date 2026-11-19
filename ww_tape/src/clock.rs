@@ -13,50 +13,64 @@ pub trait Clock: Send + Sync {
     fn now_ms(&self) -> u64;
 }
 
-/// The system's monotonic clock, from when it was made.
+/// The system's monotonic clock, from the first reading of any [SystemClock] in the process: every one reads the
+/// same time.
 #[cfg(feature = "std")]
-#[derive(Copy, Clone, Debug)]
-pub struct SystemClock(std::time::Instant);
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct SystemClock;
 
 #[cfg(feature = "std")]
 impl SystemClock {
-    /// A clock starting now.
+    /// The system clock.
     pub fn new() -> Self {
-        SystemClock(std::time::Instant::now())
-    }
-}
-
-#[cfg(feature = "std")]
-impl Default for SystemClock {
-    fn default() -> Self {
-        Self::new()
+        SystemClock
     }
 }
 
 #[cfg(feature = "std")]
 impl Clock for SystemClock {
     fn now_ms(&self) -> u64 {
-        u64::try_from(self.0.elapsed().as_millis()).unwrap_or(u64::MAX)
+        /// The origin every [SystemClock] counts from: its first reading.
+        static ORIGIN: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+        let origin = ORIGIN.get_or_init(std::time::Instant::now);
+        u64::try_from(origin.elapsed().as_millis()).unwrap_or(u64::MAX)
     }
 }
 
 /// The clock a writer reads, or none: without a clock no interval is ever due, so only the block and byte rules of
-/// the policies apply. Equal when both are none or both are the same clock.
+/// the policies apply. Equal when both are none, both the system clock, or both the same shared clock.
 #[derive(Clone)]
-pub struct ClockRef(Option<Arc<dyn Clock>>);
+pub struct ClockRef(Source);
+
+#[derive(Clone)]
+enum Source {
+    None,
+    #[cfg(feature = "std")]
+    System,
+    Shared(Arc<dyn Clock>),
+}
 
 impl ClockRef {
     /// No clock: interval rules are off.
-    pub const NONE: ClockRef = ClockRef(None);
+    pub const NONE: ClockRef = ClockRef(Source::None);
+
+    /// The system clock ([SystemClock]), the default with `std`.
+    #[cfg(feature = "std")]
+    pub const SYSTEM: ClockRef = ClockRef(Source::System);
 
     /// `clock`, shared by every clone.
     pub fn new(clock: impl Clock + 'static) -> Self {
-        ClockRef(Some(Arc::new(clock)))
+        ClockRef(Source::Shared(Arc::new(clock)))
     }
 
     /// Milliseconds now; None without a clock.
     pub fn now_ms(&self) -> Option<u64> {
-        self.0.as_ref().map(|c| c.now_ms())
+        match &self.0 {
+            Source::None => None,
+            #[cfg(feature = "std")]
+            Source::System => Some(SystemClock.now_ms()),
+            Source::Shared(c) => Some(c.now_ms()),
+        }
     }
 
     /// Whether `interval` has passed since `since` (a reading of this clock); false without a clock or a reading.
@@ -74,7 +88,7 @@ impl ClockRef {
 impl Default for ClockRef {
     fn default() -> Self {
         #[cfg(feature = "std")]
-        return ClockRef::new(SystemClock::new());
+        return ClockRef::SYSTEM;
         #[cfg(not(feature = "std"))]
         return ClockRef::NONE;
     }
@@ -83,8 +97,10 @@ impl Default for ClockRef {
 impl PartialEq for ClockRef {
     fn eq(&self, other: &Self) -> bool {
         match (&self.0, &other.0) {
-            (None, None) => true,
-            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            (Source::None, Source::None) => true,
+            #[cfg(feature = "std")]
+            (Source::System, Source::System) => true,
+            (Source::Shared(a), Source::Shared(b)) => Arc::ptr_eq(a, b),
             _ => false,
         }
     }
@@ -94,9 +110,11 @@ impl Eq for ClockRef {}
 
 impl core::fmt::Debug for ClockRef {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self.0 {
-            Some(_) => f.write_str("ClockRef(clock)"),
-            None => f.write_str("ClockRef::NONE"),
-        }
+        f.write_str(match self.0 {
+            Source::None => "ClockRef::NONE",
+            #[cfg(feature = "std")]
+            Source::System => "ClockRef::SYSTEM",
+            Source::Shared(_) => "ClockRef(clock)",
+        })
     }
 }

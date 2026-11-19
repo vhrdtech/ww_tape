@@ -113,3 +113,14 @@ fn a_checkpoint_is_placed_when_the_clock_says_the_interval_is_up() {
     w.tick().unwrap();
     assert_eq!(indexes(&w), 1, "2 s into a 2 s interval");
 }
+
+/// Default options are equal: each takes the system clock, and two of them read the same time.
+#[test]
+fn default_options_are_equal() {
+    assert_eq!(WriterOptions::default(), WriterOptions::default());
+    assert_eq!(ClockRef::default(), ClockRef::default());
+    let hand = ClockRef::new(HandClock::default());
+    assert_eq!(hand, hand.clone());
+    assert_ne!(hand, ClockRef::new(HandClock::default()));
+    assert_ne!(hand, ClockRef::default());
+}
