@@ -40,6 +40,7 @@ under its key. Any other place, such as a raw SD card or a network store, needs 
 appends, syncs, reports its size, completes the piece at the finish (a file takes its final name), and for a resume
 reads back at an offset and truncates. Each sink and store has its own error type (`FsError`, `MemError`), which a
 `WriteError` carries in `WriteError::Sink`; a store refuses a tape that is there already or held by another writer.
+`MemError<K>` names the refused tape by its key, a value of the store's key type `K`.
 
 A `MemSink` of a chain reserves the room of the chain's cut size (`CutPolicy::bytes` plus `CUT_SLACK`) when its piece starts, so a reader's `read_at` never waits for the piece to be copied into a bigger buffer. `MemTapes::remove(key)` takes a finished piece out of the map: a reader that holds its `MemTape` reads on, the piece still being written is refused (`MemError::Unfinished`), and what remains of the chain reads as a head cut, each piece giving its definitions and newest state from its own head. A chain with removed pieces is not resumed.
 

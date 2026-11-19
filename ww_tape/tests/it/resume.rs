@@ -1214,7 +1214,7 @@ impl Held for FsError {
 
 impl Held for MemError {
     fn is_locked(&self) -> bool {
-        matches!(self, MemError::Locked)
+        matches!(self, MemError::Locked(_))
     }
 }
 

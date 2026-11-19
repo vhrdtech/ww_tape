@@ -1254,10 +1254,7 @@ fn mem_tapes_remove_a_finished_piece_only() {
     )
     .unwrap();
     let open = 0;
-    assert!(matches!(
-        mem.remove(&open),
-        Err(ww_tape::MemError::Unfinished)
-    ));
+    assert_eq!(mem.remove(&open), Err(ww_tape::MemError::Unfinished(open)));
     assert!(mem.get(&open).unwrap().is_some(), "refused: still there");
     assert!(!mem.remove(&1).unwrap());
     let reader = mem.get(&open).unwrap().unwrap();
@@ -1270,4 +1267,21 @@ fn mem_tapes_remove_a_finished_piece_only() {
     assert!(TapeReader::open(&reader.to_vec().unwrap()[..]).is_ok());
     // the name is free again
     assert!(ww_tape::Tapes::create(&mut mem.clone(), &open).is_ok());
+}
+
+/// A refusal of a memory store names the tape by its key, as a value of the key's type.
+#[test]
+fn a_memory_store_refusal_names_its_key() {
+    let mem: ww_tape::MemTapes = ww_tape::MemTapes::new();
+    let _sink = mem.create(&7).unwrap();
+    let exists = mem.create(&7).unwrap_err();
+    assert_eq!(exists, ww_tape::MemError::Exists(7));
+    assert_eq!(exists.to_string(), "the memory tape 7 exists");
+    assert_eq!(mem.reopen(&7).err(), Some(ww_tape::MemError::Locked(7)));
+    let named: ww_tape::MemTapes<(u8, &str)> = ww_tape::MemTapes::new();
+    let _sink = named.create(&(1, "run")).unwrap();
+    assert_eq!(
+        named.remove(&(1, "run")),
+        Err(ww_tape::MemError::Unfinished((1, "run")))
+    );
 }
