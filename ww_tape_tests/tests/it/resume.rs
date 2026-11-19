@@ -1308,6 +1308,10 @@ fn a_sink_of_one_piece_takes_no_cut_in_place() {
     let len = w.bytes();
     let refused = w.cut_in_place().err().unwrap();
     assert!(matches!(refused.error, WriteError::Index(_)), "{refused}");
+    assert_eq!(
+        refused.to_string(),
+        "cut refused, the writer handed back: index or piece block: a sink of one piece takes no cut in place"
+    );
     let partial = ww_tape_fs::partial_name(&path);
     assert_eq!(std::fs::metadata(&partial).unwrap().len(), len);
     drop(refused);

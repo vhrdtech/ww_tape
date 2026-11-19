@@ -174,8 +174,8 @@ impl<E: core::fmt::Debug> core::fmt::Display for ReadError<E> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             ReadError::Source(e) => write!(f, "reading the bytes: {e:?}"),
-            ReadError::Index(e) => write!(f, "index or piece block: {e:?}"),
-            ReadError::Block { offset, error } => write!(f, "block at byte {offset}: {error:?}"),
+            ReadError::Index(e) => write!(f, "index or piece block: {e}"),
+            ReadError::Block { offset, error } => write!(f, "block at byte {offset}: {error}"),
             ReadError::Unfinished => write!(f, "the piece has no finish block"),
             ReadError::NoPiece(i) => write!(f, "no piece {i}"),
             ReadError::Version { offset, found } => write!(

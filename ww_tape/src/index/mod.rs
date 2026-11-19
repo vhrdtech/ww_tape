@@ -592,6 +592,43 @@ impl From<BlockError> for IndexError {
     }
 }
 
+impl core::fmt::Display for IndexError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            IndexError::Block(e) => write!(f, "{e}"),
+            IndexError::Kind => write!(f, "a block of another kind or version"),
+            IndexError::BadHeadCrc => write!(f, "the head CRC doesn't match"),
+            IndexError::BadHead => write!(f, "the head or the body is out of range"),
+            IndexError::BadEntries => write!(f, "a track's entries don't match their CRC or list"),
+            IndexError::UnknownIntegrity { level } => {
+                write!(f, "integrity byte {level} is no integrity level")
+            }
+            IndexError::UnhandledIntegrity { level } => {
+                write!(
+                    f,
+                    "integrity level {}, which this build doesn't handle",
+                    u8::from(*level)
+                )
+            }
+            IndexError::Unhashed => {
+                write!(
+                    f,
+                    "an unhashed entry: an integrity level this build doesn't handle"
+                )
+            }
+            IndexError::Full { needed } => write!(f, "the buffer is short: {needed} bytes needed"),
+            IndexError::Invalid(what) => write!(f, "{what}"),
+            IndexError::Bound(e) => write!(f, "{e}"),
+            IndexError::StateEntries { max, used } => write!(
+                f,
+                "more than {max} state entries in the piece ({used} listed): a new piece takes them"
+            ),
+        }
+    }
+}
+
+impl core::error::Error for IndexError {}
+
 impl From<BoundError> for IndexError {
     fn from(e: BoundError) -> Self {
         IndexError::Bound(e)

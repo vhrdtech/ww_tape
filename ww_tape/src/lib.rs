@@ -882,6 +882,36 @@ pub enum BlockError {
     },
 }
 
+impl core::fmt::Display for BlockError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            BlockError::Short { needed } => write!(f, "short: {needed} bytes needed"),
+            BlockError::BadMagic => write!(f, "no block magic"),
+            BlockError::BadLength(len) => write!(f, "a block length of {len} is out of range"),
+            BlockError::BadCrc => write!(f, "the block CRC doesn't match"),
+            BlockError::Chunk(e) => write!(f, "chunk head: {e}"),
+            BlockError::Summary(e) => write!(f, "summary block: {e}"),
+            BlockError::BadRecords => write!(f, "the records don't parse as the header says"),
+            BlockError::Coded => write!(f, "a coded body: its records are read by decoding it"),
+            BlockError::NotChunk => write!(f, "not a chunk block this reader reads"),
+            BlockError::PayloadUnchecked => {
+                write!(
+                    f,
+                    "a chunk with unchecked payload: an integrity level this build doesn't handle"
+                )
+            }
+            BlockError::UnhandledIntegrity { level } => {
+                write!(
+                    f,
+                    "a piece head of integrity level {level}, which this build doesn't handle"
+                )
+            }
+        }
+    }
+}
+
+impl core::error::Error for BlockError {}
+
 /// A block read from bytes, CRC checked. Records are read in place, see [Block::records].
 #[derive(Copy, Clone, Debug)]
 pub struct Block<'b> {

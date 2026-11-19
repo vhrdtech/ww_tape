@@ -339,6 +339,20 @@ pub enum ChunkError {
     Invalid(&'static str),
 }
 
+impl core::fmt::Display for ChunkError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            ChunkError::Full { needed } => write!(f, "the buffer is short: {needed} bytes needed"),
+            ChunkError::TooLong { len } => {
+                write!(f, "a block of {len} bytes is over {MAX_BLOCK_LEN}")
+            }
+            ChunkError::Invalid(what) => write!(f, "{what}"),
+        }
+    }
+}
+
+impl core::error::Error for ChunkError {}
+
 /// Bytes of the head (block header included) of a chunk with `head`, `columns` columns and `payload_len` bytes of
 /// columns, before any alignment padding; saturating at `usize::MAX`, a length over [MAX_BLOCK_LEN] no writer takes.
 pub fn chunk_head_len(head: &ChunkHead, columns: usize, payload_len: usize) -> usize {
@@ -821,6 +835,18 @@ pub enum ChunkHeadError {
     /// A layout value of the head (segment shift, column count, column offset) is over its bound.
     Bound(BoundError),
 }
+
+impl core::fmt::Display for ChunkHeadError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            ChunkHeadError::BadHeadCrc => write!(f, "the head CRC doesn't match"),
+            ChunkHeadError::BadHead => write!(f, "the head is out of range"),
+            ChunkHeadError::Bound(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+impl core::error::Error for ChunkHeadError {}
 
 /// Where the parts of a chunk block lie, from its head's ranges alone (no CRC).
 #[derive(Copy, Clone, Debug)]

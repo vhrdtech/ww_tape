@@ -327,6 +327,17 @@ pub enum ScaleError {
     Overflow,
 }
 
+impl core::fmt::Display for ScaleError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            ScaleError::NoCommonScale => write!(f, "the two scales have no common scale"),
+            ScaleError::Overflow => write!(f, "statistics overflow at the common scale"),
+        }
+    }
+}
+
+impl core::error::Error for ScaleError {}
+
 /// Largest factor from a scale to the common scale: every factor is then exact as an f64.
 pub const FACTOR_MAX: u64 = 1 << 53;
 

@@ -260,6 +260,7 @@ Covers `ww_tape` 0.1.0.
 - A file name leaving no room for `.lock` is locked under its BLAKE3 hash as `HASH.lock` beside it (TAPE-12).
 - On Windows a file sink keeps `NAME.lock` after the writer ends; it holds no lock and the next writer takes it (TAPE-12).
 - `WriteError`, `CutError` and `FsError` texts no longer repeat the error their `source()` returns (TAPE-12).
+- Block, chunk, summary and index errors print as text: a writer or reader error shows no Debug output (TAPE-12).
 - `MemError<K>`, `MemSink<K>` and `MemTape<K>` take the store's key type; `Exists`, `Locked` and `Unfinished` carry the key (TAPE-12).
 - `MemError::Base` says why a piece start was refused (`BaseRefused`), in its text (TAPE-12).
 - `FsError` texts name the file, what was done and the kind once: `x.wwt: locked by another writer`, `x.wwt: already exists` (TAPE-12).

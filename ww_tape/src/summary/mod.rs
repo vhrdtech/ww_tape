@@ -375,6 +375,29 @@ pub enum SummaryError {
     Bound(BoundError),
 }
 
+impl core::fmt::Display for SummaryError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            SummaryError::Full { needed } => {
+                write!(f, "the buffer is short: {needed} bytes needed")
+            }
+            SummaryError::TooLong { len } => {
+                write!(f, "a block of {len} bytes is over {MAX_BLOCK_LEN}")
+            }
+            SummaryError::Invalid(what) => write!(f, "{what}"),
+            SummaryError::ScaleBytes(e) => write!(f, "scale bytes: {e}"),
+            SummaryError::Scale(e) => write!(f, "{e}"),
+            SummaryError::Series(e) => write!(f, "{e}"),
+            SummaryError::PartialFrame { stride } => {
+                write!(f, "samples are not whole frames of {stride} scalars")
+            }
+            SummaryError::Bound(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+impl core::error::Error for SummaryError {}
+
 impl From<BoundError> for SummaryError {
     fn from(e: BoundError) -> Self {
         SummaryError::Bound(e)

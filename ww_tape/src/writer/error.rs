@@ -161,9 +161,9 @@ impl<E: core::fmt::Display + core::fmt::Debug> core::fmt::Display for WriteError
                 f,
                 "an earlier write or sync failed, the file takes no more blocks"
             ),
-            WriteError::Block(e) => write!(f, "not a good block: {e:?}"),
-            WriteError::Chunk(e) => write!(f, "chunk doesn't encode: {e:?}"),
-            WriteError::Index(e) => write!(f, "index or piece block: {e:?}"),
+            WriteError::Block(e) => write!(f, "not a good block: {e}"),
+            WriteError::Chunk(e) => write!(f, "chunk doesn't encode: {e}"),
+            WriteError::Index(e) => write!(f, "index or piece block: {e}"),
             WriteError::Read(e) => write!(f, "reading back the piece to resume: {e}"),
             WriteError::Ended(s) => write!(f, "the piece or chain ended already ({s:?})"),
             WriteError::Describe(e) => write!(f, "{e}"),
