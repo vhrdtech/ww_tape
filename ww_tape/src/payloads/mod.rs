@@ -37,7 +37,6 @@
 //! the block still decodes to its stated length, else empty.
 
 mod encode;
-mod lengths;
 #[cfg(test)]
 mod tests;
 
@@ -52,9 +51,9 @@ use crate::times::ColumnError;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::ops::Range;
-use lengths::Lengths;
+use ww_tape_codecs::lengths::Lengths;
 #[cfg(test)]
-pub(crate) use lengths::RECORD_LEN;
+use ww_tape_codecs::lengths::RECORD_LEN;
 
 /// Codec of a payload lengths column.
 pub const LENGTHS: Codec = Codec::LENGTHS;

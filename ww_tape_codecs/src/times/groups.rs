@@ -214,7 +214,7 @@ pub(crate) const fn width_span(width: u32) -> u64 {
 /// the group's packed values and their width, then the packed values. None when the packed values pass a u32
 /// offset or a width is over 64.
 #[cfg(feature = "alloc")]
-pub fn encode_groups<T: Copy, const R: usize>(
+pub(crate) fn encode_groups<T: Copy, const R: usize>(
     values: &[T],
     mut record: impl FnMut(&[T], u32) -> Option<([u8; R], alloc::vec::Vec<u64>, u32)>,
 ) -> Option<alloc::vec::Vec<u8>> {

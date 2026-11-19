@@ -13,7 +13,7 @@ mod values;
 
 pub use column::{ColumnError, TimeMode};
 #[cfg(feature = "alloc")]
-pub use groups::encode_groups;
+pub(crate) use groups::encode_groups;
 pub use packed::{Durations, Flags};
 #[cfg(feature = "alloc")]
 pub use packed::{encode_durations, encode_flags};

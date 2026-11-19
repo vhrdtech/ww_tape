@@ -1,11 +1,11 @@
 //! Encoding a chunk's payloads into its two columns.
 
 use super::LENGTHS;
-use super::lengths::encode_lengths;
 use crate::chunk::{Codec, ColumnKind, ColumnSpec};
 use crate::lz4::{LZ4_DECODED_MAX, Lz4Error, lz4_encode, lz4_max_len};
 use alloc::vec;
 use alloc::vec::Vec;
+use ww_tape_codecs::lengths::encode_lengths;
 
 /// Why payloads can't be encoded.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]

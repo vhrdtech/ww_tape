@@ -6,6 +6,7 @@
 //! - [crc32c]: the CRC-32C of every block, in hardware where the CPU has it.
 //! - [from_file]: numbers read from file bytes, [FromFile], reaching a length or a loop only through a bound.
 //! - [varint] and [bytes]: variable-length integers and little-endian fields.
+//! - [lengths]: the payload lengths of events, packed per group.
 //! - [lz4]: a column's bytes as one lz4 block.
 //! - [times]: the starts, durations, flags and relation value columns of events.
 //! - `kernel` (with `std`): single-pass statistics of integer samples for series summaries.
@@ -45,6 +46,7 @@ pub mod from_file;
 pub use from_file::{BoundError, FromFile};
 #[cfg(feature = "std")]
 pub mod kernel;
+pub mod lengths;
 pub mod lz4;
 pub mod samples;
 pub mod times;
