@@ -12,7 +12,8 @@
 //! A file sink is the only writer of its file while it lives: it holds an exclusive lock on the lock file
 //! `NAME.lock` beside it ([lock_name]), which only writers open. The lock is advisory: other writers of the format
 //! take it too. A child process forked meanwhile doesn't hold it. A second sink of the same file, under any name, is
-//! refused with [FsError::Locked], so two writers never fork one file.
+//! refused with [FsError::Locked], so two writers never fork one file. A copy of a file or of a chain's directory
+//! made while it is written is not covered by the original's lock: a writer of the copy takes a lock of its own.
 //!
 //! Everything that names no path stays in `ww_tape`: the sink and store traits, the memory sinks, the writer and the
 //! chain on any sink, the readers.
