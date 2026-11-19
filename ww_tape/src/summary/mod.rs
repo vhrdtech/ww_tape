@@ -1,4 +1,8 @@
-//! Summary blocks: the stored levels of a track's summary tree, read in place.
+//! Summary blocks: the stored levels of a track's summary tree, their head and framing.
+//!
+//! This module writes and checks a summary block's head, so a reader checks a summary block and an index lists it
+//! without decoding a node ([SummaryHead::read], [Block::summary_head](crate::Block::summary_head)). Building the
+//! nodes ([SummaryWriter] aside) and reading them is the crate `ww_tape_summary`, which re-exports this module.
 //!
 //! A track's items (an event track's items, a series' samples) are grouped into **nodes** over item numbers, not over
 //! time: a node at level 0 holds `2^shift` items, a node one level up the nodes of 16 nodes below. Node `n` of a level
@@ -12,18 +16,18 @@
 //!   holds per channel the statistics the track declares ([SeriesStats]); no ticks, since a series' sample ticks
 //!   follow from the grids its chunks carry and its period.
 //!
-//! Every statistic merges: a parent is its 16 children merged ([EventNode::merge], [ChannelStats::merge]), in item
+//! Every statistic merges: a parent is its 16 children merged (`EventNode::merge`, `ChannelStats::merge`), in item
 //! order, so a reader building coarser bins (a view cache) gets what the writer would have written.
 //!
 //! # Scales
 //!
 //! A series chunk may change the scale of the stored numbers (an autoranging device changes prefix), and nodes run
 //! over sample indexes, so a node may hold samples of two scales. Such a node is kept at their common scale
-//! ([common_scale]: the largest scale both are whole multiples of, `10⁻⁶` for `10⁻³` and `10⁻⁶`): every number of the
+//! (`common_scale`: the largest scale both are whole multiples of, `10⁻⁶` for `10⁻³` and `10⁻⁶`): every number of the
 //! coarser samples is multiplied by a whole factor, so minimum and maximum stay exact integers and sums don't mix
-//! scales ([ChannelStats::rescaled], [SeriesNode::merge]). A summary block states its scale: the common scale of
+//! scales (`ChannelStats::rescaled`, `SeriesNode::merge`). A summary block states its scale: the common scale of
 //! all its nodes, which it stores at that scale, so a block is read alone, without the chunks. Merging nodes
-//! of two blocks (a view cache across a change of scale) goes through [SeriesNode::merge], which brings both to their
+//! of two blocks (a view cache across a change of scale) goes through `SeriesNode::merge`, which brings both to their
 //! common scale first; two scales with no common scale (a ratio that isn't a fraction of integers) are refused, never
 //! mixed.
 //!
@@ -59,7 +63,7 @@
 //!
 //! Series body: for each statistic the block holds, in the order of [Stat::ALL], for each channel, for each component
 //! of a sample (2 for a complex element's minimum, maximum, sum and sum of squares, else 1), one column. Value widths:
-//! minimum and maximum 8 bytes (i64, u64 or f64, by the element's kind: [Value]), sum and sum of squares f64, clipped
+//! minimum and maximum 8 bytes (i64, u64 or f64, by the element's kind), sum and sum of squares f64, clipped
 //! count u64, flags u32, mean and maximum power f32.
 //!
 //! Summary blocks are small (a few KiB) and rebuilt from the data when lost. In an aligned file the writer places them
@@ -555,7 +559,7 @@ impl<'b> SummaryWriter<'b> {
         })
     }
 
-    /// The body: the columns back to back, [Summary::body] order.
+    /// The body: the columns back to back, in the order of the module docs.
     pub fn body_mut(&mut self) -> &mut [u8] {
         self.body
     }

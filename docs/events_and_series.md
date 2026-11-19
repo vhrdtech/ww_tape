@@ -282,7 +282,8 @@ For a track of 1 billion events, level 2 holds about 1900 nodes, roughly one per
 reads those nodes and no items. Zoomed in, a viewer reads the nodes of the visible range, then the chunks they point to.
 
 Summary blocks are small, a few KiB, and listed in the index like any block. A lost summary block costs nothing that
-can't be rebuilt from the data. The layout is in the [summary module
+can't be rebuilt from the data. `ww_tape` checks and indexes them by their head alone; the crate `ww_tape_summary`
+builds the trees (`EventTree`, `SeriesSummaries`) and reads the nodes (`Summary::of_block`). The layout is in the [summary module
 docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/summary/mod.rs).
 
 ## See also

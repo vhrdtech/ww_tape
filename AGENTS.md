@@ -23,8 +23,9 @@ the docs are unclear, the source and its comments are authoritative.
 
 | Path | What |
 | --- | --- |
-| `ww_tape/` | blocks, definitions on track 0, state tracks and their lookups, chunks and their time, sample and payload columns, summaries, index, finish and tail, pieces, `TapeWriter`, `FileBlocks`, `TapeReader`; `golden/` the golden files |
+| `ww_tape/` | blocks, definitions on track 0, state tracks and their lookups, chunks and their time, sample and payload columns, summary heads, index, finish and tail, pieces, `TapeWriter`, `FileBlocks`, `TapeReader`; `golden/` the golden files |
 | `ww_tape_codecs/` | column codecs with no notion of a block, over slices, ids and scalars: `bitpack`, `crc32c`, `from_file`, varints, `lz4`, `samples`, `times`, `lengths`, the summary kernels; `ww_tape` re-exports them |
+| `ww_tape_summary/` | summary nodes above the core: `EventTree`, `SeriesSummaries`, `Summary` read in place, `EventNode`, `ChannelStats`, scales; re-exports the head types; `golden/` its golden file |
 | `ww_tape_fs/` | everything that names a path: `FileSink`, `Files`, `FileSource`, the lock on `NAME.lock`, `writer::{create, append, resume, cut}`, `chain::{create, resume}` |
 | `ww_tape_tests/` | the integration tests (`tests/it`), through the public API; the book pages against the code |
 | `ww_tape_fuzz/` | the fuzz target bodies (`targets`), hostile block builders (`hostile`), `seeds/` and their replay as tests, `ww_tape_fuzz_seeds` |
@@ -65,15 +66,15 @@ just bench-chunks         # ns per 1 MiB series chunk the writer spends, and its
 
 Single test: `cargo nextest run -p ww_tape <test>`, or `-p ww_tape_tests` for an integration test (nextest is
 required). Plain `cargo sort` flattens grouped tables: always pass `-w -g`. Project words go into `typos.toml`. CI
-(`.github/workflows/ci.yml`) fails on any warning. `ww_tape`, `ww_tape_codecs`, `ww_tape_fuzz` and `ww_tape_tests`
-build at opt-level 3 in tests: the hostile streams decode a million blocks.
+(`.github/workflows/ci.yml`) fails on any warning. `ww_tape`, `ww_tape_codecs`, `ww_tape_summary`, `ww_tape_fuzz` and
+`ww_tape_tests` build at opt-level 3 in tests: the hostile streams decode a million blocks.
 
 ## The format is a contract
 
-- The bytes of every block kind are pinned by golden files (`ww_tape/golden/v1*.hex`) and a determinism test: the
-  same input gives the same bytes. A change of what any input writes is a format change: say so in a breaking
-  CHANGELOG entry, rewrite the goldens with `just tape-golden-update` in the same commit, and check the version
-  byte and the readers of old files.
+- The bytes of every block kind are pinned by golden files (`ww_tape/golden/v1*.hex`, `ww_tape_summary/golden/`)
+  and a determinism test: the same input gives the same bytes. A change of what any input writes is a format change:
+  say so in a breaking CHANGELOG entry, rewrite the goldens with `just tape-golden-update` in the same commit, and
+  check the version byte and the readers of old files.
 - Readers take damaged or hostile bytes. A number read from a block is a `FromFile<T>` and reaches a length, an
   allocation or a loop only through a named cap (a `pub const` listed in the crate docs' table of caps) or a length
   already known (STD-131). `ww_tape`'s `[lints]` deny panics, unchecked arithmetic, indexing and casts; an exception
@@ -109,7 +110,7 @@ and after, at release, and the numbers go into the commit body or the docs page 
   it names or the crate docs, run `ww api save ww_tape` in this repository and commit it. `just lint` runs
   `just api-check` (`ww api check ww_tape`) to catch a snapshot left stale.
 - Dependencies live in the root `[workspace.dependencies]`; crates inherit `authors`, `edition`, `rust-version`,
-  `license`, `repository` and `[lints]` (`ww_tape` and `ww_tape_fs` keep their own `[lints]` table: the
+  `license`, `repository` and `[lints]` (`ww_tape`, `ww_tape_summary` and `ww_tape_fs` keep their own `[lints]` table: the
   workspace's plus the panic-class lints).
 - No C build step: `blake3` is built `pure`, `lz4_flex` is pure Rust and pinned exactly, since payload columns must
   compress to the same bytes.

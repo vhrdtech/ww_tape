@@ -37,7 +37,7 @@
 //! Summary nodes run over sample indexes, so a node may span a change of scale. It is kept at the common scale of its
 //! samples, every number of the coarser ones multiplied by a whole factor, and each summary block states its scale
 //! ([summary](crate::summary#scales)). The writer gives each grid to
-//! [SeriesSummaries::set_grid](crate::summary::SeriesSummaries::set_grid).
+//! `SeriesSummaries::set_grid` (crate `ww_tape_summary`).
 //!
 //! # Sample codecs and `Series<T>` codecs
 //!
@@ -132,7 +132,7 @@ pub struct MediaStream<'i> {
 #[non_exhaustive]
 pub enum SeriesError {
     /// The definition's shape, period or summaries break a rule: an element this reader doesn't know, no channels or
-    /// more than [SERIES_CHANNELS_MAX], a summary spec [SeriesSummaries](crate::summary::SeriesSummaries) refuses,
+    /// more than [SERIES_CHANNELS_MAX], a summary spec `SeriesSummaries` (crate `ww_tape_summary`) refuses,
     /// a state policy.
     Def(&'static str),
     /// A chunk that isn't a series chunk with a grid.
