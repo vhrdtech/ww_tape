@@ -46,8 +46,8 @@
 //! | | `shrink_wrap` `Series<T>` | ww_tape [sample codecs](crate::samples) |
 //! |---|---|---|
 //! | where | on the wire, device to host, a batch of about 32 items | in a file, a chunk of up to megabytes |
-//! | reads | from the start, item by item, all columns in step | any sample range, a group of 128 (delta) or 1024 (XOR) alone, in place |
-//! | codecs | delta, delta of delta, packed, prefix code, XOR; picked per column and batch | raw device formats, delta and delta of delta bit-packed per group, XOR (Gorilla, Chimp) |
+//! | reads | from the start, item by item, all columns in step | any sample range, a group of 128 alone, in place |
+//! | codecs | delta, delta of delta, packed, prefix code, XOR; picked per column and batch | raw device formats, delta and delta of delta bit-packed per group, ALP for floats |
 //! | costs | MCU-sized: a few hundred instructions per item, a few KB of flash | host-sized: SIMD unpack kernels, about 0.2 ns per value |
 //! | scale | a prefix run and a number type per item (`Quantity`) or in the type (`Fixed`); a prefix change restarts the numeric column | one scale per chunk; a prefix change seals the chunk |
 //!
