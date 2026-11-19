@@ -1,5 +1,5 @@
 # The compiler every build uses; wasm32 for the positional reader without std (`just check`).
 [toolchain]
-channel = "1.99.0"
+channel = "1.100.0"
 components = ["clippy", "rustfmt"]
 targets = ["wasm32-unknown-unknown"]
