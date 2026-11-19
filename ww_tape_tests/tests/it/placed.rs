@@ -181,3 +181,67 @@ fn piece_chain_write_chunk_says_which_piece_it_landed_in() {
     }
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// [Placed::unit](ww_tape::Placed::unit) and [ChunkPlaced::unit](ww_tape::ChunkPlaced::unit) are the unit hash a
+/// reader takes from the index entry of the same chunk: in one tape of several pieces and in a tape per piece,
+/// before and after cuts; a records block states none.
+#[test]
+fn a_chunk_placed_states_the_unit_of_its_index_entry() {
+    for tapes in [ww_tape::PieceTapes::One, ww_tape::PieceTapes::Each] {
+        let mut chain = ww_tape::PieceChain::create_on(
+            ww_tape::MemTapes::new(),
+            OwnerId([0x46; 32]),
+            0,
+            &[],
+            ChainOptions {
+                tapes,
+                writer: WriterOptions {
+                    sync: SyncPolicy::None,
+                    ..Default::default()
+                },
+                cut: CutPolicy {
+                    chunks: 3,
+                    ..Default::default()
+                },
+            },
+        )
+        .unwrap();
+        let defs = crate::definitions::base_defs();
+        let mut placed = Vec::new();
+        for n in 0..10u64 {
+            let (head, cols) = chunk(n % 2, n / 2);
+            placed.push(chain.write_chunk(defs, &head, &column(&cols)).unwrap());
+            if n == 4 {
+                let w = chain.writer().unwrap();
+                let id = w.next_id();
+                let block = w.write_block(defs, &records(id, 3)).unwrap().unwrap();
+                assert!(block.unit.is_none(), "{tapes:?}: a records block");
+            }
+        }
+        assert_eq!(placed.last().unwrap().seq, 3, "{tapes:?}: three cuts");
+        let mem = chain.tapes().clone();
+        chain.finish().unwrap();
+
+        for p in &placed {
+            let (key, piece) = match tapes {
+                ww_tape::PieceTapes::One => (0, p.seq as usize),
+                ww_tape::PieceTapes::Each => (p.seq, 0),
+            };
+            let bytes = mem.get(&key).unwrap().unwrap().to_vec().unwrap();
+            let r = TapeReader::open(&bytes[..]).unwrap();
+            let entry = r
+                .entries(piece)
+                .unwrap()
+                .into_iter()
+                .find(|e| e.offset == p.offset)
+                .expect("an index entry for the chunk");
+            assert_eq!(entry.len, p.len);
+            assert!(!p.unit.is_none(), "{tapes:?}: a chunk states its unit");
+            assert_eq!(
+                entry.unit, p.unit,
+                "{tapes:?}: piece {} at {}",
+                p.seq, p.offset
+            );
+        }
+    }
+}

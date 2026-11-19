@@ -5,7 +5,7 @@ use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
 use core::time::Duration;
 
-use super::{FinishState, OwnerId, PieceHead, PieceId, PieceIdent, TAIL_LEN, TrackStart};
+use super::{FinishState, OwnerId, PieceHead, PieceId, PieceIdent, TAIL_LEN, TrackStart, UnitHash};
 use crate::index::{IndexEntry, IndexError, TrackKey};
 use crate::reader::{ByteSource, TapeReader};
 use crate::sink::{TapeSink, Tapes, sink_err};
@@ -56,6 +56,8 @@ pub struct ChunkPlaced {
     pub seq: u64,
     pub offset: u64,
     pub len: u32,
+    /// The chunk's unit hash as the writer states it ([Placed::unit]).
+    pub unit: UnitHash,
 }
 
 /// How a [PieceChain] keeps its pieces in its [Tapes].
@@ -435,11 +437,13 @@ impl<T: Tapes> PieceChain<T> {
         if self.cut_due() {
             self.cut_now()?;
         }
-        let Placed { offset, len } = self.with_room(|w| w.write_chunk(defs, head, columns))?;
+        let Placed { offset, len, unit } =
+            self.with_room(|w| w.write_chunk(defs, head, columns))?;
         Ok(ChunkPlaced {
             seq: self.seq,
             offset,
             len,
+            unit,
         })
     }
 

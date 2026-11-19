@@ -672,7 +672,7 @@ impl<S: TapeSink> TapeWriter<S> {
                     self.indexer.start(&tracks);
                     self.head = Some((head, tracks));
                 }
-                self.account(block, header, *crc)
+                self.account(block, header, *crc).map(drop)
             }
             BlockKind::Index => {
                 let checkpoint = IndexBlock::read(&b)
@@ -684,7 +684,7 @@ impl<S: TapeSink> TapeWriter<S> {
                         .map_err(WriteError::Index)?;
                     self.index_due = false;
                 }
-                self.account(block, header, *crc)
+                self.account(block, header, *crc).map(drop)
             }
             _ => {
                 let counted = !is_structural(b.kind) && !b.is_repeat();

@@ -128,8 +128,10 @@ Data goes into the file in four forms:
   gives back where it landed (`Placed`: its `offset` from the start of the piece and its `len`), or `None` for a block
   of puts, which lands as no single block of its own. Use record blocks for tracks that produce a few items at a time.
 - **Chunks.** Hand a chunk head and its columns to `TapeWriter::write_chunk`, which encodes the chunk block and gives
-  back where it landed (`Placed`). `PieceChain::write_chunk` gives back a `ChunkPlaced` too: the same, with the seq of
-  the piece it landed in, since a call may cut to a new piece first. `PieceChain::write_block` gives back nothing. Use chunks for tracks with many items.
+  back where it landed (`Placed`), with the chunk's unit hash as the writer states it in the index entry (`unit`; a
+  record block's is `UnitHash::NONE`). The writer states it and does not verify it, so a writer in the same process can
+  fold range hashes without reading the piece back. `PieceChain::write_chunk` gives back a `ChunkPlaced` too: the same,
+  with the seq of the piece it landed in, since a call may cut to a new piece first. `PieceChain::write_block` gives back nothing. Use chunks for tracks with many items.
 - **Deferred blocks.** Hand small blocks that may wait, such as summary blocks, to `TapeWriter::defer_block`. The writer
   puts their definitions at once. In an aligned file it places the block in the gap before a chunk's payload, at most
   `DEFER_WINDOW` (1 MiB) of writes later; in a file that isn't aligned it places the block at once.

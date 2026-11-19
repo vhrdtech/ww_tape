@@ -249,6 +249,11 @@ pub struct Placed {
     pub offset: u64,
     /// The whole block's length.
     pub len: u32,
+    /// The chunk's unit hash ([TrackHash::chunk_unit]) as this writer states it in the chunk's index entry and folds
+    /// it into its track's hash; [UnitHash::NONE] for a block that is no chunk. Stated, not verified: the same value
+    /// a reader takes from the index entry, so a writer in the same process can fold range hashes without reading
+    /// the piece back.
+    pub unit: UnitHash,
 }
 
 /// Most bytes of a block of definitions or of puts the writer makes; a longer record gets a block of its own.
@@ -841,7 +846,7 @@ impl<S: TapeSink> TapeWriter<S> {
             });
         }
         let offset = self.offset();
-        self.account(block, header, *crc)?;
+        let unit = self.account(block, header, *crc)?;
         self.unsynced = self.unsynced.saturating_add(1);
         let due = match self.policy {
             SyncPolicy::None => false,
@@ -851,7 +856,7 @@ impl<S: TapeSink> TapeWriter<S> {
         if due {
             self.sync()?;
         }
-        Ok(Placed { offset, len })
+        Ok(Placed { offset, len, unit })
     }
 
     /// Check a block of the caller's against `defs`: a records, events, series or summary block of this version
@@ -891,13 +896,13 @@ impl<S: TapeSink> TapeWriter<S> {
 
     /// Note the whole block `block` placed at the end, with its `header` and `crc`: the content hash, the index,
     /// the state records it holds ([near]), the counts, the session and seq. What a resume replays for each block it
-    /// keeps.
+    /// keeps. Returns the chunk's unit hash, [UnitHash::NONE] for a block that is no chunk.
     fn account(
         &mut self,
         block: &[u8],
         header: &[u8; crate::HEADER_LEN],
         crc: [u8; crate::CRC_LEN],
-    ) -> Result<(), WriteError<S::Error>> {
+    ) -> Result<UnitHash, WriteError<S::Error>> {
         let bytes = self.end_after(block.len())?;
         let chunk = hash_block(&mut self.hash, block);
         // the unit hash goes into the chunk's index entry and its track's hash: computed once, here
@@ -951,7 +956,7 @@ impl<S: TapeSink> TapeWriter<S> {
             self.session = id.session;
             self.next_seq = id.seq.wrapping_add(1);
         }
-        Ok(())
+        Ok(unit)
     }
 
     /// Take what the block `block` placed at `at` says: every state record (track 0's, and every record of a block

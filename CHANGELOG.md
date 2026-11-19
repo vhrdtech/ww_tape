@@ -145,6 +145,7 @@ Covers `ww_tape` 0.1.0.
 
 ### 🚀 Features
 
+- `Placed::unit` and `ChunkPlaced::unit`: the chunk's unit hash as the writer states it in the index entry (TAPE-8).
 - `TapeWriter::append_on` appends a new session to the bytes already in any sink, such as a reopened memory tape (TAPE-12).
 - The writer, the chain and resume build without std (alloc); without std a writer needs `set_session` or a piece head (TAPE-12).
 - `Clock`, `ClockRef` and `SystemClock`: a writer's sync, checkpoint and cut intervals run on an injected clock (TAPE-12).
