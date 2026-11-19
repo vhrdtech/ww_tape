@@ -20,6 +20,7 @@ Covers `ww_tape` 0.1.0.
 - `Tapes::reopen` returns a closed tape too, written on in place; a closed last piece of a chain is written on (TAPE-14).
 - A chain links pieces only by the `next` id a close names; `check_chain` no longer derives it from the piece before (TAPE-14).
 - A close whose tail is torn leaves the chain `Unclosed`, and the close before it in force (TAPE-14).
+- A read-only file system refuses a file writer with `FsError::ReadOnly(path)`, not `FsError::Io`; match the new variant (TAPE-14).
 - `TimesError::Corrupt { kind, what }` is `{ kind, error: ColumnError }`, the column reader's error whole (TAPE-12).
 - `PayloadsError::Corrupt { kind, what }` is `{ kind, error: ColumnError }`, as for the time columns (TAPE-12).
 - Sample codecs move to `ww_tape_codecs::samples` on scalars and lanes; `ww_tape::samples` keeps the shape-based `Samples`, `encode`, `max_encoded_len` (TAPE-12).

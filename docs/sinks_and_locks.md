@@ -58,6 +58,13 @@ the next holder.
 
 A lock file left behind, by Windows or by a crash, holds no lock. The next writer takes it as it is.
 
+### Read-only file systems
+
+A file on a read-only mount or medium takes no writer. Each step that meets the refusal, creating or opening the file
+or its lock file, fails with `FsError::ReadOnly` and the path.
+
+Read such a file with `ww_tape_fs::FileSource`, which opens it for reading only and takes no lock.
+
 ### One lock per file
 
 One file has one lock, whatever name reaches it. The lock file is named after the file's canonical name, with links

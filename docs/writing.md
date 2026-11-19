@@ -32,6 +32,19 @@ The crates provide two sinks:
   it to cut a piece at any byte and check what a reader makes of it.
 - `FileSink`, in the crate `ww_tape_fs`, writes a file.
 
+### One writer per file
+
+A file has one writer at a time, which holds a lock on the file `NAME.lock` beside it, not on `NAME` itself. A `flock`
+lock on `NAME` would pass to a child process forked before its `exec`.
+
+A Portable Operating System Interface (POSIX) record lock on `NAME` would drop as soon as any reader in the process
+closes the file. The lock file beside it has neither problem.
+
+The lock file holds no byte that a reader needs, and a reader never opens it. A piece moved without its lock file loses
+nothing, and a stale lock file blocks no writer.
+
+[One writer per file](sinks_and_locks.md#one-writer-per-file) describes the lock in full.
+
 A chain of pieces needs one sink per piece. It therefore takes a **store** instead: any type that implements `Tapes`,
 which makes the sink of each piece under a key.
 

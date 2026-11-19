@@ -38,6 +38,9 @@ pub enum FsError {
     /// Nothing to resume at `path`: no file there nor its `.partial`, or a chain's directory that is missing or holds
     /// no first piece.
     NoPiece(PathBuf),
+    /// The file system of `path` takes no writes ([io::ErrorKind::ReadOnlyFilesystem]): a read-only mount or medium.
+    /// Read the file with [crate::FileSource] instead.
+    ReadOnly(PathBuf),
 }
 
 impl core::fmt::Display for FsError {
@@ -55,6 +58,7 @@ impl core::fmt::Display for FsError {
             ),
             FsError::NotAFile(p) => write!(f, "{}: not a regular file", p.display()),
             FsError::NoPiece(p) => write!(f, "{}: no piece to resume", p.display()),
+            FsError::ReadOnly(p) => write!(f, "{}: on a read-only file system", p.display()),
             FsError::Base { path, refused } => {
                 write!(
                     f,
@@ -75,12 +79,15 @@ impl core::error::Error for FsError {
     }
 }
 
-/// An [FsError::Io] of `what` on `path`.
+/// An [FsError::Io] of `what` on `path`, or [FsError::ReadOnly] when its file system takes no writes.
 pub(crate) fn io_err(what: &'static str, path: &Path) -> impl FnOnce(io::Error) -> FsError {
-    move |error| FsError::Io {
-        what,
-        path: path.to_path_buf(),
-        error,
+    move |error| match error.kind() {
+        io::ErrorKind::ReadOnlyFilesystem => FsError::ReadOnly(path.to_path_buf()),
+        _ => FsError::Io {
+            what,
+            path: path.to_path_buf(),
+            error,
+        },
     }
 }
 
@@ -195,11 +202,7 @@ impl FileSink {
                 return Err(FsError::Exists(path.to_path_buf()));
             }
             Err(error) => {
-                return Err(FsError::Io {
-                    what: "creating the file",
-                    path: path.to_path_buf(),
-                    error,
-                });
+                return Err(io_err("creating the file", path)(error));
             }
         };
         lock.bind(&file, path)?;
@@ -223,11 +226,7 @@ impl FileSink {
         match OpenOptions::new().read(true).append(true).open(path) {
             Ok(file) => Self::opened(lock, file, path, None, true).map(Some),
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
-            Err(error) => Err(FsError::Io {
-                what: "opening the file",
-                path: path.to_path_buf(),
-                error,
-            }),
+            Err(error) => Err(io_err("opening the file", path)(error)),
         }
     }
 
@@ -241,21 +240,13 @@ impl FileSink {
             Ok(file) => return Self::opened(lock, file, path, Some(partial), false).map(Some),
             Err(e) if e.kind() == io::ErrorKind::NotFound => {}
             Err(error) => {
-                return Err(FsError::Io {
-                    what: "opening the unclosed file",
-                    path: partial,
-                    error,
-                });
+                return Err(io_err("opening the unclosed file", &partial)(error));
             }
         }
         match OpenOptions::new().read(true).append(true).open(path) {
             Ok(file) => Self::opened(lock, file, path, None, false).map(Some),
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
-            Err(error) => Err(FsError::Io {
-                what: "opening the closed file",
-                path: path.to_path_buf(),
-                error,
-            }),
+            Err(error) => Err(io_err("opening the closed file", path)(error)),
         }
     }
 
@@ -580,6 +571,22 @@ fn sync_dir(path: &Path) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A file system that takes no writes is its own refusal, whichever step met it, and says so in its text.
+    #[test]
+    fn a_read_only_file_system_is_its_own_refusal() {
+        let path = Path::new("/media/card/x.wwt");
+        let e =
+            io_err("creating the file", path)(io::Error::from(io::ErrorKind::ReadOnlyFilesystem));
+        assert!(matches!(&e, FsError::ReadOnly(p) if p == path), "{e:?}");
+        assert_eq!(
+            e.to_string(),
+            "/media/card/x.wwt: on a read-only file system"
+        );
+        let other =
+            io_err("creating the file", path)(io::Error::from(io::ErrorKind::PermissionDenied));
+        assert!(matches!(other, FsError::Io { .. }), "{other:?}");
+    }
 
     /// A create that opened `NAME.partial` while another writer held it, and locks it after that writer closed
     /// and renamed it to `NAME`, refuses: the closed file keeps its bytes.

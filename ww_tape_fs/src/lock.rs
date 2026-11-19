@@ -138,11 +138,7 @@ impl FileLock {
                 Ok(f) => f,
                 Err(e) if is_link_refused(&e) => return Err(FsError::NotAFile(path.to_path_buf())),
                 Err(error) => {
-                    return Err(FsError::Io {
-                        what: "opening the lock file",
-                        path: path.to_path_buf(),
-                        error,
-                    });
+                    return Err(io_err("opening the lock file", path)(error));
                 }
             };
             let meta = file
@@ -173,11 +169,9 @@ impl FileLock {
                 keys: vec![entry.keep()],
             }),
             Err(std::fs::TryLockError::WouldBlock) => Err(FsError::Locked(name.to_path_buf())),
-            Err(std::fs::TryLockError::Error(error)) => Err(FsError::Io {
-                what: "locking the file",
-                path: name.to_path_buf(),
-                error,
-            }),
+            Err(std::fs::TryLockError::Error(error)) => {
+                Err(io_err("locking the file", name)(error))
+            }
         }
     }
 

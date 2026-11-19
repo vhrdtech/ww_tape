@@ -247,3 +247,44 @@ fn a_child_held_between_fork_and_exec_holds_no_lock() {
     assert!(matches!(again, Ok(Some(_))), "{:?}", again.err());
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// The lock file holds nothing anyone needs: a closed piece leaves none behind on unix, a copy of the piece without it
+/// reads and is written on as the original, and a stale lock file, whatever it holds, blocks no writer and changes
+/// nothing a reader sees.
+#[test]
+fn the_lock_file_holds_nothing_anyone_needs() {
+    let dir = scratch("lock_holds_nothing");
+    let path = dir.join("p.wwt");
+    let mut w = ww_tape_fs::writer::create(&path, SyncPolicy::None).unwrap();
+    for n in 0..4 {
+        let block = crate::pieces::records(w.next_id(), n);
+        w.write_block(crate::definitions::base_defs(), &block)
+            .unwrap();
+    }
+    w.close().unwrap();
+    if cfg!(unix) {
+        assert!(!lock_name(&path).exists(), "removed at the close");
+    }
+    let bytes = std::fs::read(&path).unwrap();
+    let read = |p: &Path| {
+        let src = ww_tape_fs::FileSource::open(p).unwrap();
+        let r = ww_tape::TapeReader::open(src).unwrap();
+        (r.pieces().to_vec(), r.verify(0).unwrap())
+    };
+    let want = read(&path);
+    assert!(want.1);
+    // a copy without its lock file
+    let copy = dir.join("copy.wwt");
+    std::fs::copy(&path, &copy).unwrap();
+    assert_eq!(read(&copy), want);
+    let (w, _) = ww_tape_fs::writer::resume(&copy, ww_tape::WriterOptions::default()).unwrap();
+    w.close().unwrap();
+    assert_eq!(std::fs::read(&copy).unwrap()[..bytes.len()], bytes[..]);
+    // a stale lock file with bytes in it: no writer holds it
+    std::fs::write(lock_name(&path), b"stale").unwrap();
+    assert_eq!(read(&path), want, "a reader never opens the lock file");
+    let (w, _) = ww_tape_fs::writer::resume(&path, ww_tape::WriterOptions::default())
+        .expect("a stale lock file blocks no writer");
+    w.close().unwrap();
+    std::fs::remove_dir_all(&dir).unwrap();
+}
