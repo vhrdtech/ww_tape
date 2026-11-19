@@ -5,7 +5,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use super::lock::FileLock;
-use super::{BaseRefused, TapeSink, Tapes, check_base, past_base};
+use super::{BaseRefused, TapeSink, Tapes, check_base};
 use crate::piece::piece_name;
 use crate::reader::ByteSource;
 
@@ -78,7 +78,8 @@ fn base_err(refused: BaseRefused) -> FsError {
 
 /// `offset` in a piece starting at `base`, from the start of the file.
 fn file_offset(base: u64, offset: u64) -> io::Result<u64> {
-    past_base(base, offset).ok_or_else(|| io::Error::from(io::ErrorKind::UnexpectedEof))
+    base.checked_add(offset)
+        .ok_or_else(|| io::Error::from(io::ErrorKind::UnexpectedEof))
 }
 
 /// A file written as `NAME.partial` and renamed to `NAME` at its finish, or a file appended to in place.

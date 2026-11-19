@@ -5,7 +5,7 @@ use std::marker::PhantomData;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
-use super::{BaseRefused, TapeSink, Tapes, check_base, past_base};
+use super::{BaseRefused, TapeSink, Tapes, check_base};
 use crate::reader::{ByteSource, OutOfRange, wide};
 
 /// Why a [MemSink], [MemTape] or [MemTapes] failed or refused; a refusal of [MemTapes] names the tape by its key
@@ -197,7 +197,7 @@ impl<K: core::fmt::Debug + 'static> TapeSink for MemSink<K> {
     }
 
     fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), MemError<K>> {
-        let at = past_base(self.base, offset).ok_or(MemError::OutOfRange)?;
+        let at = self.base.checked_add(offset).ok_or(MemError::OutOfRange)?;
         ByteSource::read_at(&self.tape, at, buf)
     }
 
@@ -222,7 +222,7 @@ impl<K: core::fmt::Debug + 'static> TapeSink for MemSink<K> {
     }
 
     fn truncate(&mut self, len: u64) -> Result<(), MemError<K>> {
-        let len = past_base(self.base, len).ok_or(MemError::OutOfRange)?;
+        let len = self.base.checked_add(len).ok_or(MemError::OutOfRange)?;
         let mut bytes = self.tape.write()?;
         if let Ok(len) = usize::try_from(len) {
             bytes.truncate(len);

@@ -79,19 +79,28 @@ pub trait TapeSink {
 }
 
 /// Why [check_base] refuses a new base.
-#[cfg(feature = "std")]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-enum BaseRefused {
+pub enum BaseRefused {
     /// A sink of one piece takes no base but 0.
     OnePiece,
     /// The base is past the end of the bytes.
     PastEnd,
 }
 
-/// The whole length of the bytes of a sink whose window starts at `base` and holds `size` bytes, checked against a
-/// new base; any base but 0 refused for a sink of one piece (`pieces` false).
-#[cfg(feature = "std")]
-fn check_base(base: u64, whole: u64, pieces: bool) -> Result<u64, BaseRefused> {
+impl core::fmt::Display for BaseRefused {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(match self {
+            BaseRefused::OnePiece => "a sink of one piece takes no base but 0",
+            BaseRefused::PastEnd => "the base is past the end of the bytes",
+        })
+    }
+}
+
+impl core::error::Error for BaseRefused {}
+
+/// A new `base` of a sink whose bytes are `whole` long, checked for [TapeSink::rebase]: past the end refused, and any
+/// base but 0 for a sink of one piece (`pieces` false).
+pub fn check_base(base: u64, whole: u64, pieces: bool) -> Result<u64, BaseRefused> {
     if base != 0 && !pieces {
         return Err(BaseRefused::OnePiece);
     }
@@ -134,12 +143,7 @@ pub trait Tapes {
     fn open_whole(&mut self, key: &Self::Key) -> Result<Option<Self::Sink>, Self::Error>;
 }
 
-/// `offset` in a piece starting at `base`, from the start of the bytes; None past `u64::MAX`.
-#[cfg(feature = "std")]
-fn past_base(base: u64, offset: u64) -> Option<u64> {
-    base.checked_add(offset)
-}
-
-pub(crate) fn sink_err<E>(what: &'static str) -> impl FnOnce(E) -> WriteError<E> {
+/// A sink's error as the [WriteError::Sink] of `what` the writer was doing, for `map_err` where a sink is opened.
+pub fn sink_err<E>(what: &'static str) -> impl FnOnce(E) -> WriteError<E> {
     move |error| WriteError::Sink { what, error }
 }
