@@ -1,7 +1,7 @@
 //! XOR float codecs, bench-only: Gorilla and Chimp control bits, in groups of [XOR_GROUP] samples, after a table of
 //! group ends as ww_tape's grouped codecs have. Not part of the ww_tape format (ids 24 and 25 are reserved there).
 
-use ww_tape::Sample;
+use ww_tape_codecs::samples::Sample;
 
 /// Samples per group.
 pub const XOR_GROUP: usize = 1024;

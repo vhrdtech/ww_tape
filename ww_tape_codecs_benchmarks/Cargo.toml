@@ -15,7 +15,7 @@ clap = { workspace = true, features = ["derive"] }
 lewton.workspace = true
 libm.workspace = true
 motor_sim.workspace = true
-ww_tape = { workspace = true, features = ["std"] }
+ww_tape_codecs = { workspace = true, features = ["std"] }
 
 [lints]
 workspace = true

@@ -2,7 +2,7 @@
 name = "ww_tape_codecs"
 version = "0.1.0"
 authors.workspace = true
-description = "Column codecs of ww_tape: bit packing, CRC-32C, varints, lz4 columns and summary kernels, with no notion of a block"
+description = "Column codecs of ww_tape: bit packing, CRC-32C, varints, lz4, samples, times, payload lengths and summary kernels, with no notion of a block"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

@@ -1055,7 +1055,7 @@ dependencies = [
  "lewton",
  "libm",
  "motor_sim",
- "ww_tape",
+ "ww_tape_codecs",
 ]
 
 [[package]]

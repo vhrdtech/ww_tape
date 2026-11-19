@@ -23,12 +23,13 @@ the docs are unclear, the source and its comments are authoritative.
 
 | Path | What |
 | --- | --- |
-| `ww_tape/` | blocks, definitions on track 0, state tracks and their lookups, chunks, the time, sample and payload codecs, summaries, index, finish and tail, pieces, `TapeWriter`, `FileBlocks`, `TapeReader`; `golden/` the golden files |
-| `ww_tape_codecs/` | column codecs with no notion of a block: `bitpack`, `crc32c`, `from_file`, varints, `lz4`, the summary kernels; `ww_tape` re-exports them |
+| `ww_tape/` | blocks, definitions on track 0, state tracks and their lookups, chunks and their time, sample and payload columns, summaries, index, finish and tail, pieces, `TapeWriter`, `FileBlocks`, `TapeReader`; `golden/` the golden files |
+| `ww_tape_codecs/` | column codecs with no notion of a block, over slices, ids and scalars: `bitpack`, `crc32c`, `from_file`, varints, `lz4`, `samples`, `times`, `lengths`, the summary kernels; `ww_tape` re-exports them |
 | `ww_tape_fs/` | everything that names a path: `FileSink`, `Files`, `FileSource`, the lock on `NAME.lock`, `writer::{create, append, resume, cut}`, `chain::{create, resume}` |
 | `ww_tape_tests/` | the integration tests (`tests/it`), through the public API; the book pages against the code |
 | `ww_tape_fuzz/` | the fuzz target bodies (`targets`), hostile block builders (`hostile`), `seeds/` and their replay as tests, `ww_tape_fuzz_seeds` |
-| `ww_tape_benchmarks/` | float sample codecs on simulated, decoded and sensor data; series summaries (`--bin summaries`); tracks added one by one, puts and copies (`--bin tracks`); the writer's cost per series chunk (`--bin chunks`) |
+| `ww_tape_codecs_benchmarks/` | float sample codecs on simulated, decoded and sensor data |
+| `ww_tape_benchmarks/` | series summaries (`--bin summaries`); tracks added one by one, puts and copies (`--bin tracks`); the writer's cost per series chunk (`--bin chunks`) |
 | `ww_tape_figures/` | the book's figures that show bytes or numbers, drawn from blocks ww_tape writes into `docs/plots/` (`just book-figures`; a test checks them) |
 | `fuzz/` | cargo-fuzz targets (`tape-*`), a workspace of its own on nightly; each target calls `ww_tape_fuzz` |
 | `docs/` | the pages of the format; `figures/` drawings by hand, `plots/` drawn by `ww_tape_figures` |
