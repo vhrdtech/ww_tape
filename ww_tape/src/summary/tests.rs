@@ -408,7 +408,7 @@ fn check_series<T: Scalar>(
     let blocks = series_blocks(data, shape, spec, first_item, flags, pushes);
     let got = series_levels(&blocks);
     let element = shape.element;
-    let comps = usize::from(series::components(element));
+    let comps = usize::from(components(element));
     let channels = shape.channels.0 as usize;
     let stride = channels * comps;
     let frames = data.len() / stride;
@@ -1183,7 +1183,7 @@ fn series_prefix_changes_match_naive_model_in_the_unit() {
         (SampleShape::scalar(Element::I16), 4, 5, 2000, 4000),
     ] {
         let element = shape.element;
-        let comps = usize::from(series::components(element));
+        let comps = usize::from(components(element));
         let channels = shape.channels.0 as usize;
         let stride = channels * comps;
         let data: Vec<i16> = (0..frames * stride).map(|_| rng.next() as i16).collect();
