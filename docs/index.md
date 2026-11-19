@@ -50,7 +50,7 @@ anatomy of a file. The other pages go deeper, in the order a reader needs them:
 - [Events and series](events_and_series.md): event chunks, the time codec, series and summaries.
 - [Numbers](numbers.md): sizes and speeds, and why fixed point comes first.
 - [Damage and recovery](recovery.md): checksums, crashes, raw media and the limits of the format.
-- [Tapes and logring](logring.md): how a tape differs from a device's log store, and when to use which.
+- [Tapes and logring](https://vhrdtech.github.io/logring/tapes_and_logring/), in the logring book: how a tape differs from a device's log store, and when to use which.
 - [Format reference](format.md): every part of the format, block by block.
 
 The exact byte layouts are in the module docs of `ww_tape`, linked from each section; this chapter explains them and

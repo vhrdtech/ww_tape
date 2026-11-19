@@ -263,5 +263,5 @@ long sequential writes; a file that is only appended can be copied while it grow
 - [Events and series](events_and_series.md): how chunks store time and values.
 - [Numbers](numbers.md): sizes and speeds, and which codec to choose.
 - [Damage and recovery](recovery.md): what survives a crash, a torn write or a bad sector.
-- [Tapes and logring](logring.md): when a device's own log store is the better choice.
+- [Tapes and logring](https://vhrdtech.github.io/logring/tapes_and_logring/), in the logring book: when a device's own log store is the better choice.
 - [Format reference](format.md): every part of the format, block by block.
