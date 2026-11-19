@@ -15,9 +15,10 @@ dev-dependency, `wire_weaver_evolution`, for the API snapshot check. WireWeaver 
 Read `docs/concepts.md` first (the words), then `docs/index.md`, `docs/writing.md`, `docs/reading.md`,
 `docs/events_and_series.md`, `docs/recovery.md` and `docs/format.md` (the reference, block by block). The pages and
 their order are listed in `docs/index.md`. The exact byte layouts are in the module docs (`ww_tape/src/lib.rs` and each
-module's `mod.rs`). The docs are published as the Tapes chapter of the WireWeaver book, which assembles them from this
-repository: links to other pages of the book (`../transport/tap.md`, `../serdes/series.md`) only resolve there. Where
-the docs are unclear, the source and its comments are authoritative.
+module's `mod.rs`). The docs are the ww_tape book, a Zensical site of its own (`zensical.toml`, `just book-check`):
+it links the WireWeaver book (`https://ww.vhrd.tech/...`) and the logring book by URL and includes neither, and
+WireWeaver's book links here by URL too, so keep the headings other books link to. Where the docs are unclear, the
+source and its comments are authoritative.
 
 ## Layout
 
@@ -62,6 +63,7 @@ just bench-sample-codecs  # float codecs (fetches a public-domain speech file on
 just bench-summaries      # series summary throughput
 just bench-tracks         # tracks added one by one; puts and copies per 256 MiB piece
 just bench-chunks         # ns per 1 MiB series chunk the writer spends, and its parts
+just book-check           # the book (docs/) with warnings as errors: a broken link or anchor fails
 ```
 
 Single test: `cargo nextest run -p ww_tape <test>`, or `-p ww_tape_tests` for an integration test (nextest is

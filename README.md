@@ -31,9 +31,9 @@ path. They depend on
 
 The pages in [`docs/`](docs) explain the format: [Tapes](docs/index.md) (records, clocks, the anatomy of a file),
 [Events and series](docs/events_and_series.md), [Damage and recovery](docs/recovery.md) and the
-[Format reference](docs/format.md). They are published as the Tapes chapter of the
-[WireWeaver book](https://ww.vhrd.tech/), which assembles them from this repository, so their links to other parts of
-the book work there. The exact byte layouts are in the crate's module docs.
+[Format reference](docs/format.md). They are the ww_tape book, built with Zensical (`just book`), apart from the
+[WireWeaver book](https://ww.vhrd.tech/) and the [logring book](https://vhrdtech.github.io/logring/), which it links by
+URL. The exact byte layouts are in the crate's module docs.
 
 ## Repository layout
 
