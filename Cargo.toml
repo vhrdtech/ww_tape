@@ -27,7 +27,6 @@ license = "MIT"
 ww_tape = { version = "0.1.0", path = "./ww_tape", default-features = false }
 ww_tape_codecs = { version = "0.1.0", path = "./ww_tape_codecs", default-features = false }
 ww_tape_fs = { version = "0.1.0", path = "./ww_tape_fs" }
-ww_tape_fuzz = { version = "0.1.0", path = "./ww_tape_fuzz" }
 ww_tape_summary = { version = "0.1.0", path = "./ww_tape_summary", default-features = false }
 
 # git dependencies without rev or tag: Cargo.lock pins the commit, `cargo update -p NAME` moves it
