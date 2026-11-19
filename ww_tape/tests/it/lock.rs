@@ -208,3 +208,41 @@ fn a_name_too_long_for_its_lock_file_is_locked_under_a_hash() {
     assert!(!lock.exists());
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// A child forked while a writer holds its file, and held before it runs `exec`, holds no lock: the writer's resume
+/// right after the writer is dropped takes the file. An `flock`, which the child shares, refuses it.
+#[cfg(unix)]
+#[test]
+fn a_child_held_between_fork_and_exec_holds_no_lock() {
+    use std::io::{Read, Write};
+    use std::os::unix::process::CommandExt;
+    let dir = scratch("lock_fork");
+    let path = dir.join("a.wwt");
+    let w = TapeWriter::create(&path, SyncPolicy::None).unwrap();
+    let (mut release_rx, mut release_tx) = std::io::pipe().unwrap();
+    let (mut forked_rx, mut forked_tx) = std::io::pipe().unwrap();
+    let mut cmd = Command::new("true");
+    cmd.env_clear().stdin(Stdio::null());
+    // SAFETY: the closure runs in the forked child before exec and makes only two system calls on descriptors it
+    // owns (write, then read), both async-signal-safe; it allocates and locks nothing.
+    unsafe {
+        cmd.pre_exec(move || {
+            forked_tx.write_all(b"f")?;
+            let mut b = [0u8; 1];
+            release_rx.read_exact(&mut b)?;
+            Ok(())
+        });
+    }
+    // spawn waits for the exec, which waits for the release
+    let spawned = std::thread::spawn(move || cmd.spawn());
+    let mut b = [0u8; 1];
+    forked_rx.read_exact(&mut b).unwrap();
+    // the child is forked and holds a copy of every descriptor the writer has
+    drop(w);
+    let again = ww_tape::FileSink::reopen(&path);
+    release_tx.write_all(b"r").unwrap();
+    let mut child = spawned.join().unwrap().unwrap();
+    assert!(child.wait().unwrap().success());
+    assert!(matches!(again, Ok(Some(_))), "{:?}", again.err());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
