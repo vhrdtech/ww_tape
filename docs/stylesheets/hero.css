@@ -1,0 +1,5 @@
+/* The logo at the top of the first page: index.md inlines both variants (assets/logo), and one shows per scheme. */
+.md-typeset .ww-tape-hero { margin: 0.5rem 0 1.5rem; text-align: center; }
+.md-typeset .ww-tape-hero svg { width: min(420px, 90%); height: auto; }
+[data-md-color-scheme="default"] .md-typeset .ww-tape-hero--dark,
+[data-md-color-scheme="slate"] .md-typeset .ww-tape-hero--light { display: none; }

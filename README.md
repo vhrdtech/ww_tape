@@ -7,12 +7,13 @@
 
 [![CI](https://github.com/vhrdtech/ww_tape/actions/workflows/ci.yml/badge.svg)](https://github.com/vhrdtech/ww_tape/actions/workflows/ci.yml)
 
-> Tape blocks: tracks of ShrinkWrap records in self-checking, variable-length blocks, for live feeds, log files and
-> raw media.
+> Tracks of ShrinkWrap records in self-checking, variable-length blocks, for live feeds, log files and raw media.
 
-A **tape** is how [WireWeaver](https://github.com/vhrdtech/wire_weaver) records data over time: what a device
-streamed, what crossed a link, what a program computed from either. One format serves a live feed, a file on a PC and
-a raw medium such as an SD card in a data logger.
+A **tape** is how [WireWeaver](https://github.com/vhrdtech/wire_weaver) records data over time. It holds what a device
+streamed, what crossed a link and what a program computed from either.
+
+One format serves a live feed, a file on a personal computer (PC) and a raw medium. An example of a raw medium is a
+Secure Digital (SD) card in a data logger.
 
 - **Typed data.** Every item is a ShrinkWrap type, and the file carries the API bundle that defines it.
 - **Exact time.** Times are integer ticks of a named clock with an exact rate; a file holds tracks on many clocks.
@@ -20,20 +21,28 @@ a raw medium such as an SD card in a data logger.
 - **Damage stays local.** A crash, a torn write or a flipped bit costs the bytes it touched, and a reader says what
   was lost.
 
-`ww_tape` is `no_std` with the `alloc` feature for the positional reader, the writers and the piece chain on a sink of
-the caller's (it builds for `wasm32-unknown-unknown`); `std` (the default) adds memory sinks, the system clock, reading
-blocks from a stream and owned definitions. Files are written by `ww_tape_fs`, which holds everything that names a
-path. They depend on
+With the `alloc` feature, `ww_tape` is `no_std` and builds for `wasm32-unknown-unknown`. It then has the positional
+reader, the writers and the piece chain on a sink of the caller's. The `std` feature (the default) adds memory sinks, the
+system clock, reading blocks from a stream and owned definitions.
+
+`ww_tape_fs` writes files and holds everything that names a path. Both crates depend on
 [shrink_wrap](https://github.com/romixlab/shrink_wrap), [exact_units](https://github.com/romixlab/exact_units) and
 `ww_version` from [ww_base](https://github.com/vhrdtech/ww_base), and on nothing of the WireWeaver framework.
 
 ## Documentation
 
-The pages in [`docs/`](docs) explain the format: [Tapes](docs/index.md) (records, clocks, the anatomy of a file),
-[Events and series](docs/events_and_series.md), [Damage and recovery](docs/recovery.md) and the
-[Format reference](docs/format.md). They are the ww_tape book, built with Zensical (`just book`), apart from the
-[WireWeaver book](https://ww.vhrd.tech/) and the [logring book](https://vhrdtech.github.io/logring/), which it links by
-URL. The exact byte layouts are in the crate's module docs.
+The pages in [`docs/`](docs) explain the format. They start with these:
+
+- [Tapes](docs/index.md): records, clocks, the anatomy of a file;
+- [Events and series](docs/events_and_series.md);
+- [Damage and recovery](docs/recovery.md);
+- the [Format reference](docs/format.md).
+
+The pages form the ww_tape book, which `just book` builds with Zensical.
+
+The ww_tape book stands apart from the [WireWeaver book](https://ww.vhrd.tech/) and the
+[logring book](https://vhrdtech.github.io/logring/), and it links to them by URL. The exact byte layouts are in the
+crate's module docs.
 
 ## Repository layout
 
@@ -65,4 +74,4 @@ Leave out `default-features = false` for memory sinks, the system clock and stre
 
 ## License
 
-MIT, see [LICENSE](LICENSE).
+The Massachusetts Institute of Technology (MIT) License, see [LICENSE](LICENSE).

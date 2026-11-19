@@ -15,17 +15,29 @@ edit_uri = "edit/main/docs/"
 nav = [
     { "Introduction" = [
             "index.md",
+            "records_and_clocks.md",
+            "blocks.md",
+            "anatomy.md",
             "related_books.md"
         ]
     },
     { "Using tapes" = [
             "concepts.md",
+            "sessions_and_pieces.md",
             "writing.md",
+            "sinks_and_locks.md",
+            "syncing_and_cuts.md",
+            "resuming.md",
             "pieces_and_files.md",
+            "track_hashes.md",
             "reading.md",
             "events_and_series.md",
+            "series.md",
+            "summaries.md",
             "numbers.md",
-            "recovery.md"
+            "recovery.md",
+            "damaged_files.md",
+            "raw_media.md"
         ]
     },
     { "Reference" = [
@@ -36,8 +48,9 @@ nav = [
     }
 ]
 
-# figures.css: the classes of the SVG figures the pages inline from docs/figures and docs/plots, light and dark
-extra_css = ["stylesheets/vhrd.css", "stylesheets/figures.css"]
+# figures.css: the classes of the SVG figures the pages inline from docs/figures and docs/plots, light and dark;
+# hero.css: the logo at the top of index.md
+extra_css = ["stylesheets/vhrd.css", "stylesheets/figures.css", "stylesheets/hero.css"]
 
 [project.theme]
 favicon = "assets/ww_tape_icon.svg"

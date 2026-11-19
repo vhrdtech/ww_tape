@@ -1,45 +1,64 @@
 # Format reference
 
-This page describes format version 1 of a tape, block by block. It covers how a file is written and read back, the
-block kinds and their layouts, definitions and state, the index and the end of a piece, resuming after a crash, reading
-by position, sessions and damage, and the codecs of chunk columns.
+This page describes format version 1 of a tape, block by block. It starts with files, blocks and their layouts, then
+covers definitions, state, the index and the end of a piece.
 
-[Tape concepts](concepts.md) names the parts of a tape, and [Events and series](events_and_series.md) and [Damage and
-recovery](recovery.md) explain the format with examples. The byte layouts on this page are copied from the module docs
-of the crate `ww_tape`, and a test checks that they match. Numbers are little endian.
+Later sections cover resuming after a crash, reading by position, sessions and damage, and the codecs of chunk columns.
+
+[Tape concepts](concepts.md) names the parts of a tape. [Events and series](events_and_series.md) and [Damage and
+recovery](recovery.md) explain the format with examples.
+
+The byte layouts on this page are copied from the module docs of the crate `ww_tape`, and a test checks that they match.
+Numbers are little endian.
 
 ## Files
 
 A tape file is a sequence of [tape blocks](#tape-blocks) appended back to back. A finished file ends with an index, a
-finish block and a tail ([below](#index-finish-and-tail)). A recording cut into several files is a chain of [tape
-pieces](#tape-pieces).
+finish block and a tail ([below](#index-finish-and-tail)).
+
+A recording cut into several files is a chain of [tape pieces](#tape-pieces).
+
+### Writing a file durably
 
 `ww_tape::TapeWriter` makes a file durable the way databases make their logs durable:
 
-- It writes a new file as `NAME.partial` and renames it to `NAME` when the file is finished. It syncs the file and its
-  directory after the create and after the rename, so neither the data nor the name vanishes in a crash.
-- A `SyncPolicy` decides when the data is synced: never, every N blocks, or at most an interval apart (1 s by
-  default). A sync is `fdatasync` on Linux, `F_FULLFSYNC` on macOS and `FlushFileBuffers` on Windows.
+- It writes a new file as `NAME.partial` and renames it to `NAME` when the file is finished.
+- It syncs the file and its directory after the create and after the rename. Neither the data nor the name then vanishes
+  in a crash.
+- A `SyncPolicy` decides when the data is synced: never, every N blocks, or at most an interval apart (1 s by default).
+  A sync is `fdatasync` on Linux, `F_FULLFSYNC` on macOS and `FlushFileBuffers` on Windows.
 - A failed write or sync ends the file, and the writer never retries it. After a failed `fsync`, Linux may drop the
   dirty pages, and a second `fsync` then succeeds without them.
 
-`ww_tape::FileBlocks` reads the longest valid prefix of a file. It stops at the first block with a bad magic, length
-or CRC, at a cut block, or at a block whose seq goes back, and it reports where. Blank bytes at the end (all 0x00 or
-all 0xFF) are the end of the file, not damage. With `Recovery::Resync`, the reader reads on past damage instead.
+### Reading a file back
 
-Track 0 can carry the producer's API bundles as [definitions](#definitions-on-track-0). A reader then explains a
-recording on any computer without the producer; WireWeaver's `ww explain FILE` does this for link captures.
+`ww_tape::FileBlocks` reads the longest valid prefix of a file. It stops at the first of these blocks and reports where:
+
+- a block with a bad magic, length or cyclic redundancy check (CRC);
+- a cut block;
+- a block whose seq goes back.
+
+Blank bytes at the end (all 0x00 or all 0xFF) are the end of the file, not damage. With `Recovery::Resync`, the reader
+reads on past damage instead.
+
+Track 0 can carry the producer's API bundles as [definitions](#definitions-on-track-0).
+
+A reader then explains a recording on any computer without the producer. WireWeaver's `ww explain FILE` does this for
+link captures.
+
 Preallocating file space is not built.
 
 ## Tape blocks
 
 The block is the unit of the format: a producer hands blocks over, a live consumer reads them, and a file is made of
-them. `ww_tape` is a generic block format. Nothing in it knows its producers, and WireWeaver's link tap is only one of
-them.
+them. `ww_tape` is a generic block format.
 
-A block is a 32-byte header, a body and a CRC-32C. A block is as long as its content and never padded; the one
-exception is the finish block of a finished piece ([below](#index-finish-and-tail)). The header ([`ww_tape` crate
-docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/lib.rs)):
+Nothing in it knows its producers, and WireWeaver's link tap is only one of them.
+
+A block is a 32-byte header, a body and a CRC-32C. A block is as long as its content and never padded.
+
+The one exception is the finish block of a finished piece ([below](#index-finish-and-tail)). The header ([`ww_tape`
+crate docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/lib.rs)):
 
 ```text
 off size field
@@ -63,15 +82,18 @@ len-4 u32 crc over bytes 0..len-4
 ```
 
 A **session** is one writer's unbroken append, such as a producer start or a device boot. Its blocks carry the same
-random 32-bit session tag (`ww_tape::SessionTag`), and their seq counts from 0. For a chain's first piece the tag is
-derived from the piece id, so the same input gives the same bytes. [Sessions, media and
-damage](#sessions-media-and-damage) says how a reader uses both.
+random 32-bit session tag (`ww_tape::SessionTag`), and their seq counts from 0.
+
+For a chain's first piece, the writer derives the tag from the piece id: the same input then gives the same bytes.
+[Sessions, media and damage](#sessions-media-and-damage) says how a reader uses both.
+
+The figure below shows a records block that `BlockWriter` wrote. Its head CRC is 0: only chunk and index blocks have
+one.
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/plots/block.svg"
-<figcaption>A records block of two records, byte by byte: the header, the body (the clock table, then each record's
-head, time delta, length and item) and the CRC. Its head CRC is 0: only chunk and index blocks have one. Drawn by
-<code>ww_tape_figures</code> from a block <code>BlockWriter</code> wrote.</figcaption>
+<figcaption>A records block of two records, byte by byte, drawn by <code>ww_tape_figures</code>. The body holds the
+clock table and each record's head, time delta, length and item.</figcaption>
 </figure>
 
 ### Block kinds
@@ -93,8 +115,8 @@ The header's kind byte says what the body holds (`BlockKind`):
 | 11 | postings of a relation, reserved: none are written |
 | 12 | dictionary of a relation, reserved: none are written |
 
-A reader reads a block of kind 2, or of a kind not in this table, as a block whose body it doesn't know, and skips it
-by its length. Such a block is not damage.
+A reader reads a block of kind 2, or of a kind not in this table, as a block whose body it doesn't know. It skips such a
+block by its length, and the block is not damage.
 
 ### Header flags
 
@@ -111,8 +133,10 @@ Header bytes 6..8 hold flags. A reader ignores the bits it doesn't know.
 ### Records blocks
 
 A **records block** (kind 1) holds records: items on tracks at times. Its body starts with a clock table, which lists
-the clocks its records count, then holds the records back to back. In the layouts, `uvar` is LEB128 (7 bits per byte,
-low bits first, at most 10 bytes), and `ivar` is a signed number, zigzag-coded and then written as a `uvar`:
+the clocks its records count, then holds the records back to back.
+
+In the layouts, `uvar` is LEB128 (7 bits per byte, low bits first, at most 10 bytes). `ivar` is a signed number,
+zigzag-coded and then written as a `uvar`:
 
 ```text
 uvar n, n × uvar clock number (ascending, 1 and up): the clocks of the block's records; slot i is the i-th
@@ -124,16 +148,24 @@ per record:
 ```
 
 Record times are signed i64 ticks of the track's clock. Each time is a delta against the previous record on the same
-clock in the block, so a block reads alone, and a block of one clock spends no bit on the slot. Records on track 0
-have no time delta. No wall time is in a block: wall time is a clock of its own, mapped to the others.
+clock in the block.
+
+A block therefore reads alone, and a block of one clock spends no bit on the slot. Records on track 0 have no time
+delta.
+
+No wall time is in a block: wall time is a clock of its own, mapped to the others.
 
 The **item of an events record** is an `EventRecord` when the track has spans or flags. It holds the duration (spans
-only), the flags (only when the track has flags), then the payload; the record's time is the start. A track of plain
-instants carries the payload alone. A state record of an events track carries the same item.
+only), the flags (only when the track has flags), then the payload.
+
+The record's time is the start. A track of plain instants carries the payload alone, and a state record of an events
+track carries the same item.
 
 With header flag `FLAG_BODY_CODED`, the body is coded
-([`body`](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/body.rs)). Coding is off unless a writer calls
-`ww_tape::code_body`, and a writer keeps the plain body when coding doesn't shrink it:
+([`body`](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/body.rs)).
+
+Coding is off unless a writer calls `ww_tape::code_body`, and a writer keeps the plain body when coding doesn't shrink
+it:
 
 ```text
 u8    codec (BodyCodec): 0 stored, 1 lz4 block
@@ -141,29 +173,41 @@ uvar  decoded length: the body as it would be stored, at most MAX_BLOCK_LEN - 36
 ...   coded bytes: stored, the body itself; lz4, one lz4 block (no frame, no checksum)
 ```
 
-The block CRC covers the coded bytes, so damage is found before decoding. A reader decodes with `Block::decode` and
-takes a body of a codec it doesn't know as a body it doesn't know. Chunk blocks are never coded, since their columns
-are read in place.
+The block CRC covers the coded bytes: a reader finds damage before it decodes. A reader decodes with `Block::decode` and
+takes a body of a codec it doesn't know as a body it doesn't know.
+
+Chunk blocks are never coded, since their columns are read in place.
 
 ### Chunk blocks
 
-A **chunk** block holds one chunk of one track, read in place. An events chunk (kind 3) holds up to a few thousand
-items of an event track. A series chunk (kind 4) holds a run of samples of a fixed-rate series. The header's count is
-the chunk's item or sample count.
+A **chunk** block holds one chunk of one track, read in place. An events chunk (kind 3) holds up to a few thousand items
+of an event track.
 
-The chunk's **head** says where the chunk belongs without the definitions or an index: the track's identity hash and
-number, the first item number, the first and last tick, and the latest end of any item. With the latest end, an
-overlap query needs no decode of the ends. A series chunk's head also carries its grid ([Series
+A series chunk (kind 4) holds a run of samples of a fixed-rate series. The header's count is the chunk's item or sample
+count.
+
+#### The chunk head
+
+The chunk's **head** says where the chunk belongs without the definitions or an index. It holds the track's identity
+hash and number, the first item number, the first and last tick, and the latest end of any item.
+
+With the latest end, an overlap query needs no decode of the ends. A series chunk's head also carries its grid ([Series
 tracks](#series-tracks)).
 
-The head then lists one entry per column (its kind, its codec id, a parameter and its offset) and one CRC-32C per
-**segment** of the payload, 64 KiB by default. The columns follow back to back, then 16 zero bytes, so an unaligned
-16-byte load at any column byte stays inside the block.
+The head then lists one entry per column: its kind, its codec id, a parameter and its offset. It also holds one CRC-32C
+per **segment** of the payload, 64 KiB by default.
 
-The head has a CRC of its own, so a reader trusts the head when only the payload is damaged. `Recovery::Resync` then
-skips the block by its length and hands it out with its bad segments marked (`Block::is_intact` false,
-`Chunk::bad_segments`, `Chunk::column_damaged`). A flipped bit in a 4 MiB series chunk so loses one 64 KiB segment. A
-block with a bad head is skipped one byte on, to the next magic. The head ([chunk module
+The columns follow back to back, then 16 zero bytes. These zeros keep an unaligned 16-byte load at any column byte
+inside the block.
+
+The head has a CRC of its own. A reader therefore trusts the head when only the payload is damaged.
+
+`Recovery::Resync` then skips the block by its length. It hands the block out with its bad segments marked
+(`Block::is_intact` false, `Chunk::bad_segments`, `Chunk::column_damaged`).
+
+A flipped bit in a 4 MiB series chunk therefore loses one 64 KiB segment.
+
+For a block with a bad head, the reader moves on one byte and looks for the next magic. The head ([chunk module
 docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/chunk/mod.rs)):
 
 ```text
@@ -222,98 +266,154 @@ The codec ids (`Codec`):
 | 48 | `LZ4` payloads |
 | 49 | `SERIES`, reserved |
 
-A reader refuses a column whose kind or codec it doesn't know, and still reads the chunk's other columns. Bit 7 of the
-codec byte marks an **outer-coded** column: an outer codec byte, the decoded length, then the bytes the inner codec
-(bits 0..6) applies to after decoding. No outer codec exists yet, so every reader refuses such a column.
+A reader refuses a column whose kind or codec it doesn't know, and still reads the chunk's other columns.
+
+Bit 7 of the codec byte marks an **outer-coded** column. Such a column holds an outer codec byte, the decoded length,
+then the bytes the inner codec (bits 0..6) applies to after decoding.
+
+No outer codec exists yet, and every reader refuses such a column.
 
 ### Relation columns
 
 A **relation** links a track's items to something else, such as the items of another track. `TrackDef::relations`
-declares a track's relations ([Definitions on track 0](#definitions-on-track-0)). A **relation column** (kind 8,
-`RelationColumn`, `EncodedRelation`) holds one u64 per item for a relation whose values are stored.
+declares a track's relations ([Definitions on track 0](#definitions-on-track-0)).
+
+A **relation column** (kind 8, `RelationColumn`, `EncodedRelation`) holds one u64 per item for a relation whose values
+are stored.
 
 The column's param is the relation's index in `TrackDef::relations`. An events chunk has exactly one column per stored
-relation. Writers check this, and readers check it against the track's definition (`StoredRelations`,
-`TimesError::Relation`). A damaged column reads by `RelationColumn::salvage`.
+relation.
 
-Every relation column starts with its item count (u32). A reader refuses a column whose count isn't the chunk's, so
-the values never rest on the chunk head alone. One of two codecs follows the count:
+Writers check this, and readers check it against the track's definition (`StoredRelations`, `TimesError::Relation`). A
+damaged column reads by `RelationColumn::salvage`.
 
-- **Codec 1** (`STARTS`) holds values that never decrease. A 17-byte head comes first: the starts column's time mode,
-  then the first and the last value, each as an order-keeping i64 (the u64 with its top bit flipped). A starts column
-  of those i64s follows: one period for values a fixed step apart, else a line per group of 128.
-- **Codec 2** (`DURATIONS`) holds any values, coded as the ends column codes durations: per group the smallest value,
-  a width and an offset, then the values less that minimum.
+#### Relation column codecs
 
-A writer takes codec 1 when a chunk's values never decrease, so a reader finds the first item at or above a value by
-search (`RelationColumn::lower_bound`). A monotone relation is always in codec 1.
+Every relation column starts with its item count (u32). A reader refuses a column whose count isn't the chunk's: the
+values never rest on the chunk head alone.
+
+One of two codecs follows the count:
+
+- **Codec 1** (`STARTS`) holds values that never decrease. It starts with a 17-byte head: the starts column's time mode,
+  then the first and the last value.
+  - Each value in the head is an order-keeping i64: the u64 with its top bit flipped.
+  - A starts column of those i64s follows: one period for values a fixed step apart, else a line per group of 128.
+- **Codec 2** (`DURATIONS`) holds any values, coded as the ends column codes durations. Per group, it stores the
+  smallest value, a width and an offset, then the values less that minimum.
+
+A writer takes codec 1 when a chunk's values never decrease. A reader then finds the first item at or above a value by
+search (`RelationColumn::lower_bound`).
+
+A monotone relation is always in codec 1.
 
 ### Relation breaks
 
-A **monotone** relation's values never decrease along its track, across chunks and pieces: 10, 10, 11, 15 is
-monotone, 10, 12, 11 is not. A **relation break** marks the chunk where a track's monotone relations start again. Only
-the writer's caller can make one.
+A **monotone** relation's values never decrease along its track, across chunks and pieces: 10, 10, 11, 15 is monotone,
+10, 12, 11 is not.
 
-A writer keeps each monotone relation's newest value. When the chunk holding that value doesn't read, as after a
-resume over damage, the writer refuses the track's next chunk (`DescribeError::RelationUnread`). The caller goes on
-with `TapeWriter::accept_relation_break` and gives the value the relation continues from. The writer never accepts a
-break by itself.
+A **relation break** marks the chunk where a track's monotone relations start again. Only the writer's caller can make
+one.
 
-The track's next events chunk is checked against that value and marked in two places: bit 4 of its header flags
-(`FLAG_RELATION_BREAK`, `Block::is_relation_break`, `Chunk::relation_break`) and bit 3 of its index entry's flags
-(`IndexEntry::relation_break`). A reader refuses the entry flag on an entry of another kind.
+A writer keeps each monotone relation's newest value. When the chunk holding that value doesn't read, as after a resume
+over damage, the writer refuses the track's next chunk (`DescribeError::RelationUnread`).
 
-A reader assumes no order of the track's monotone relations across the start of a marked chunk: values before it may
-be larger than its first. From the marked chunk on, the order holds again. A resume or a later piece takes the track's
-newest values from the marked chunk on, never from before it.
+The caller goes on with `TapeWriter::accept_relation_break` and gives the value the relation continues from. The writer
+never accepts a break by itself.
+
+The writer checks the track's next events chunk against that value and marks the chunk in two places:
+
+- bit 4 of its header flags (`FLAG_RELATION_BREAK`, `Block::is_relation_break`, `Chunk::relation_break`);
+- bit 3 of its index entry's flags (`IndexEntry::relation_break`).
+
+A reader refuses the entry flag on an entry of another kind.
+
+#### Reading across a break
+
+Across the start of a marked chunk, a reader assumes no order of the track's monotone relations. Values before the chunk
+may be larger than its first.
+
+From the marked chunk on, the order holds again. A resume or a later piece takes the track's newest values from the
+marked chunk on, never from before it.
 
 Anywhere else, a decrease across chunks is damage or a lie. `TapeReader::verify` refuses it from the relation columns,
 and `TapeReader::track_entries` from the range relation's ranges in the index entries (`ReadError::RelationOrder`).
-`TapeReader::relation_breaks` lists a track's marked chunks over all pieces, so a lookup by a relation's value knows
+
+`TapeReader::relation_breaks` lists a track's marked chunks over all pieces. A lookup by a relation's value then knows
 where the order starts again.
 
 ### Summary blocks
 
-A **summary** block (kind 6) holds a batch of consecutive nodes of one level of a track's summary tree. An overview of
-a long track so reads a few hundred KB instead of its items. `ww_tape` reads and checks a summary block's head and
-lists the block in its index without reading a node. The crate `ww_tape_summary` builds the nodes (`EventTree`,
-`SeriesSummaries`) and reads them (`Summary`).
+A **summary** block (kind 6) holds a batch of consecutive nodes of one level of a track's summary tree. An overview of a
+long track then reads a few hundred KB instead of its items.
 
-Nodes run over item numbers, not time. A level-0 node of an event track holds 2048 items, and a node one level up
-holds 16 nodes of the level below. Node `n` of a level holds items `[n << shift, (n + 1) << shift)`. The first and
-last node of a piece may so hold fewer items, and the nodes of two pieces line up. A node holds:
+`ww_tape` reads and checks a summary block's head and lists the block in its index without reading a node. The crate
+`ww_tape_summary` builds the nodes (`EventTree`, `SeriesSummaries`) and reads them (`Summary`).
+
+#### Summary nodes
+
+Nodes run over item numbers, not time. A level-0 node of an event track holds 2048 items, and a node one level up holds
+16 nodes of the level below.
+
+Node `n` of a level holds items `[n << shift, (n + 1) << shift)`.
+
+The first and last node of a piece may therefore hold fewer items, and the nodes of two pieces line up.
+
+A node holds:
 
 - in an event tree, its first and last item's start, the OR of the items' flags and, for spans, the latest end. Counts
   follow from the item range.
-- in a series, `2^base_shift` samples and, per channel, the statistics the track declares (`SeriesSummarySpec`):
-  minimum, maximum, sum, sum of squares, a count of clipped or NaN samples, the OR of the flags, and for complex
-  samples the mean and maximum of `I² + Q²`. It holds no ticks, since the chunks' grids and the period give them.
+- in a series, `2^base_shift` samples and, per channel, the statistics the track declares (`SeriesSummarySpec`), from
+  this set:
+  - minimum and maximum;
+  - sum and sum of squares;
+  - a count of clipped or NaN samples;
+  - the OR of the flags;
+  - for complex samples, the mean and maximum of `I² + Q²`.
+
+A series node holds no ticks, since the chunks' grids and the period give them.
 
 Every statistic merges in item order (`EventNode::merge`, `ChannelStats::merge`). A reader that builds coarser bins
-so gets the bits the writer stored one level up.
+therefore gets the bits the writer stored one level up.
 
-A chunk may change the scale of a series' numbers mid-node, as when an autoranging device changes prefix. Such a node
-is kept at the common scale of its samples (`common_scale`): for `10⁻³` and `10⁻⁶` that is `10⁻⁶`. The coarser numbers
-are multiplied by a whole factor, so minimum and maximum stay exact integers in the sample type's unit.
+#### Scales of series nodes
 
-A series summary block states one scale in its head, the common scale of all its nodes, so it reads alone without the
-chunks. `SeriesNode::merge` merges nodes of two scales, such as those of two blocks, at their common scale. It refuses
-two scales with no common scale (a ratio that isn't a fraction of integers) rather than mixing them.
+A chunk may change the scale of a series' numbers mid-node, as when an autoranging device changes prefix. Such a node is
+kept at the common scale of its samples (`common_scale`): for `10⁻³` and `10⁻⁶` that is `10⁻⁶`.
+
+The coarser numbers are multiplied by a whole factor. Minimum and maximum therefore stay exact integers in the sample
+type's unit.
+
+A series summary block states one scale in its head, the common scale of all its nodes. The block therefore reads alone,
+without the chunks.
+
+`SeriesNode::merge` merges nodes of two scales, such as those of two blocks, at their common scale. It refuses two
+scales with no common scale (a ratio that isn't a fraction of integers) rather than mixing them.
+
+#### Writing summary blocks
 
 The builders write a block when a level's batch fills, and the partial nodes at `finish`, up to a level with a single
-node. The blocks are small (a few KiB) and go through `TapeWriter::defer_block`, so in an aligned file they fill the
-gaps before chunk payloads and cost no space. A lost summary block is rebuilt from the data.
+node. A lost summary block is rebuilt from the data.
+
+The blocks are small (a few KiB) and go through `TapeWriter::defer_block` as deferred blocks. In an aligned file, they
+therefore fill the gaps before chunk payloads and cost no space.
 
 `SeriesSummaries::push` keeps every statistic in one pass over the samples. Integers up to 32 bits go through vector
-kernels with exact integer sums, AVX-512 or AVX2 chosen at run time on x86-64. 64-bit integers and floats take one
-sample at a time in order, since a float sum depends on the order. On an AMD EPYC Genoa virtual machine at a load
-average of about 5, it summarised complex i16 at 6.4 GB/s and i32 at 7.9 GB/s (`just bench-summaries`,
-[Numbers](numbers.md#summaries)).
+kernels with exact integer sums.
 
-The head names the track, the level, the node size, the statistics stored, the items covered and their tick range, and
-for a series the element, channels and scale. An index so lists the block without reading its body. The header's count
-is the node count, and bytes 28..32 are 0 ([summary module
-docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/summary/mod.rs)):
+On x86-64, the kernels use AVX-512 or AVX2 (Advanced Vector Extensions), chosen at run time. 64-bit integers and floats
+take one sample at a time in order, since a float sum depends on the order.
+
+The bench ran at a load average of about 5, on a virtual machine. Its processor was an EPYC (the server line of Advanced
+Micro Devices) of the Genoa generation.
+
+It summarised complex i16 at 6.4 GB/s and i32 at 7.9 GB/s, as `just bench-summaries` reports
+([Numbers](numbers.md#summaries)).
+
+The head names the track, the level, the node size, the statistics stored, the items covered and their tick range. For a
+series, it also names the element, channels and scale.
+
+An index therefore lists the block without reading its body. The header's count is the node count, and bytes 28..32 are
+0 ([summary module docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/summary/mod.rs)):
 
 ```text
 off size field
@@ -341,43 +441,54 @@ len-4 u32 CRC over bytes 0..len-4, as in every block
 
 The body holds one column per field:
 
-- An event block holds the first ticks (i64) and the last ticks (i64), then the flags ORs (u32) and the latest ends
-  (i64) when its fields include them.
-- A series block holds one column per statistic, channel and component of a sample, in a fixed order of statistics.
-  A complex element has two components for minimum, maximum, sum and sum of squares. Minimum and maximum take 8 bytes,
-  sums are f64, the clipped count u64, flags u32, and the mean and maximum power f32.
+- An event block holds the first ticks (i64) and the last ticks (i64). The flags ORs (u32) and the latest ends (i64)
+  follow when its fields include them.
+- A series block holds one column per statistic, channel and component of a sample, in a fixed order of statistics. A
+  complex element has two components for minimum, maximum, sum and sum of squares.
+- In a series block, minimum and maximum take 8 bytes and sums are f64. The clipped count is u64, flags u32, and the
+  mean and maximum power f32.
 
 ### Event times
 
-The **times** of an events chunk are coded by `ww_tape::times`. Every read runs on the chunk's bytes as they are, with
-no decode into a list first. Starts take one of two time modes:
+`ww_tape::times` codes the **times** of an events chunk. Every read runs on the chunk's bytes as they are, with no
+decode into a list first.
+
+Starts take one of two time modes:
 
 - **Implicit**: item `j` starts at the chunk's first tick plus `j` periods. Evenly spaced items take this mode.
-- **Linear frame of reference**: per group of 128 items, a 25-byte record holds the group's first tick, a slope in Q16
-  ticks per item, the smallest residual, a width and an offset. Each item's residual against the line follows,
-  bit-packed at the group's width.
+- **Linear frame of reference**: a 25-byte record per group of 128 items holds the group's first tick and a slope in Q16
+  ticks per item. The record also holds the smallest residual, a width and an offset; each item's residual against the
+  line follows, bit-packed at the group's width.
 
-Periodic items so cost their jitter, not their period. A 1 ms period with ±300 ns jitter takes about 1.48 bytes per
-item, an exact period almost nothing, and bursty nanosecond traffic about 3.8 bytes, against 8 for raw i64
-([Numbers](numbers.md#event-times)). Fetching an item reads one record and one value. A lower bound searches the
-groups' first ticks, then only the items the slope leaves possible.
+Periodic items therefore cost their jitter, not their period. A 1 ms period with ±300 ns jitter takes about 1.48 bytes
+per item, against 8 bytes for raw i64 ([Numbers](numbers.md#event-times)).
+
+An exact period takes almost nothing, and bursty nanosecond traffic about 3.8 bytes per item.
+
+Fetching an item reads one record and one value. A lower bound searches the groups' first ticks, then only the items the
+slope leaves possible.
+
+#### Ends, flags and decoding
 
 Ends take one of three end modes: absent (instants), the next item's start (spans back to back, nothing stored), or
 packed durations. A group's minimum duration plus 2^width − 1 bounds the group's longest item, which serves overlap
 queries.
 
-Flags are an optional u32 per item, packed per group with the OR of the group's flags. A zoomed-out view reads the
-ORs without a decode.
+Flags are an optional u32 per item, packed per group with the OR of the group's flags. A zoomed-out view reads the ORs
+without a decode.
 
-Groups decode with hand-written kernels (`ww_tape::bitpack`: AVX-512, AVX2 or NEON, picked at run time, else scalar)
-at a fraction of a nanosecond per item. A chunk whose CRC failed still reads through `EventTimes::salvage`. It checks
-the group records one by one and marks only the items of a group that fails as suspect.
+Groups decode with hand-written kernels at a fraction of a nanosecond per item. `ww_tape::bitpack` picks AVX-512, AVX2
+or NEON (the Arm vector extension) at run time, else a scalar path.
+
+A chunk whose CRC failed still reads through `EventTimes::salvage`, which checks the group records one by one. It marks
+only the items of a group that fails as suspect.
 
 ### Aligned files
 
 A file's layout definition (`Layout`) states how its blocks are placed: alignment 0 or 4096, and 0 when a file has no
-layout definition. In an aligned file, such as a series file, every chunk payload starts on a 4 KiB boundary. The
-chunk's head sits in front of the payload. Small blocks waiting for a place (`TapeWriter::defer_block`) fill the gap
+layout definition. In an aligned file, such as a series file, every chunk payload starts on a 4 KiB boundary.
+
+The chunk's head sits in front of the payload. Small blocks waiting for a place (`TapeWriter::defer_block`) fill the gap
 before the head, and zeros inside the head fill what is left.
 
 Recovery looks for a block at every byte, aligned or not, and takes one only when its CRCs match.
@@ -385,8 +496,9 @@ Recovery looks for a block at every byte, aligned or not, and takes one only whe
 ## Definitions on track 0
 
 **Definitions** say what a reader needs before the data: the producer, the clocks, the tracks and the API bundles that
-type the items. Each definition is a record on **track 0**, which is reserved for them. A record holds one `Describe`,
-the item's whole bytes, with no time delta. A definition is one of:
+type the items. Each definition is a record on **track 0**, which is reserved for them.
+
+A record holds one `Describe`, the item's whole bytes, with no time delta. A definition is one of:
 
 | Definition | Says |
 |---|---|
@@ -402,12 +514,14 @@ A clock's origin is free-running, a boot, the Unix epoch, a media start, a sessi
 counter. A counter's epochs are fixed to each other by an exact offset map.
 
 A `ClockMap` is a list of segments `b = b0 + (a - a0) · slope`, the slope an exact_units `Ratio64`, each with an error
-bound. A map is strictly increasing across its segments. For example, WireWeaver's link tap maps its own clock to the
-wall clock it reads at its start.
+bound. A map is strictly increasing across its segments.
+
+For example, WireWeaver's link tap maps its own clock to the wall clock it reads at its start.
 
 Definitions sit in records blocks of their own, with no record of another track. Each such block is at most
-`DEFINITION_BLOCK_LEN` (64 KiB), unless one record is longer. `Describe` is an evolvable enum: a variant a reader
-doesn't know reads as `Describe::Unknown` and is skipped.
+`DEFINITION_BLOCK_LEN` (64 KiB), unless one record is longer.
+
+`Describe` is an evolvable enum: a variant a reader doesn't know reads as `Describe::Unknown` and is skipped.
 
 ### Track definitions
 
@@ -428,74 +542,123 @@ A `TrackDef` holds:
 | `owner` | 32 opaque bytes that tell apart tracks of one identity ([below](#track-owners)) |
 | `relations` | what its items relate to (`RelationDef`) |
 
-A track declares at most 16 relations, with unique names. Each `RelationDef` has a name and a target, which is a
-run's 16 opaque bytes and a track id, explicit and never bound by position. It says where its per-item values are
-(none, a column, or only an index), whether they never decrease, and which index they feed. An index is none, a range
-in the index entry, postings or a dictionary, and a track has at most one range.
+A track declares at most 16 relations, with unique names. Each `RelationDef` has a name and a target: a run's 16 opaque
+bytes and a track id, explicit and never bound by position.
+
+A `RelationDef` also says where its per-item values are (none, a column, or only an index), whether they never decrease,
+and which index they feed.
+
+An index is none, a range in the index entry, postings or a dictionary, and a track has at most one range.
 
 ### Slots
 
-Each definition fills a **slot** (`ww_tape::Slot::of`). The producer and the layout fill one slot each, a track and a
-clock one per number, and a map one per pair of clocks. A bundle, a typed item or a variant the reader doesn't know
-fills a slot of its own, by its hash. The definition in force at a place is the newest record of its slot behind that
-place.
+Each definition fills a **slot**, which `ww_tape::Slot::of` gives. The producer and the layout fill one slot each, a
+track and a clock one per number, and a map one per pair of clocks.
+
+A bundle, a typed item or a variant the reader doesn't know fills a slot of its own, by its hash. The definition in
+force at a place is the newest record of its slot behind that place.
 
 ### How a writer puts definitions
 
 A writer writes definitions only as [puts](#state-tracks). The application holds the definitions it works with in a
-`Definitions` (`define`, `define_all`, `close`) and passes them with each write. The writer refuses data on a track
-not held, and it refuses a caller's block of definitions (`DescribeError::DefinitionBlock`).
+`Definitions` (`define`, `define_all`, `close`) and passes them with each write.
+
+The writer refuses data on a track not held, and it refuses a caller's block of definitions
+(`DescribeError::DefinitionBlock`).
 
 Before a block of data, the writer puts the definitions its tracks need: the clocks, maps and bundles a track names,
-then the track. The producer and the layout are the writer's own (`WriterOptions`). It puts them after every piece
-head, before the first block of a file without one, and where a caller's block starts another session. Definitions go
-in the order they are put, so the same input gives the same bytes.
+then the track. The producer and the layout are the writer's own (`WriterOptions`).
+
+The writer puts them after every piece head, before the first block of a file without one, and where a caller's block
+starts another session.
+
+Definitions go in the order the writer puts them: the same input then gives the same bytes.
 
 ## State tracks
 
-Track 0 and every track whose `repeat` is `TrackRepeat::State` hold **state**, not events: a reader at any place takes
-the newest record of each slot behind it. A state track's records fill one slot, the track's.
+Track 0 and every track whose `repeat` is `TrackRepeat::State` hold **state**, not events. A reader at any place takes
+the newest record of each slot behind it.
 
-A `StatePolicy` says how a writer keeps state records near their use. `near` (32 MiB by default) is how far behind a
-use the item must lie in the same piece. `copies` (1 by default) is how many more records an item gets after its
-first one in a piece. Track 0's policy is in the layout (`Layout::definitions`). A series track has no records and
-takes the plain policy, since its chunks are data and carry their own timing ([Series tracks](#series-tracks)).
+A state track's records fill one slot, the track's.
 
-An item is known by its **hash** (`ItemHash`): BLAKE3 of its bytes, cut to 128 bits. A **put** writes an item unless
-the newest record of its slot is the same item at most `near` bytes behind, measured to where the data lands.
+A `StatePolicy` says how a writer keeps state records near their use. `near` (32 MiB by default) is how far behind a use
+the item must lie in the same piece.
 
-For example, a writer puts a track's definition before every block of the track's data. With the default policy, the
-definition is written at the first block, once more as a copy at a use at least 1 MiB later, and again whenever its
-newest record lies more than 32 MiB behind.
+`copies` (1 by default) is how many more records an item gets after its first one in a piece. Track 0's policy is in the
+layout (`Layout::definitions`).
+
+A series track has no records and takes the plain policy, since its chunks are data and carry their own timing ([Series
+tracks](#series-tracks)).
+
+An item is known by its **hash** (`ItemHash`): BLAKE3 (a cryptographic hash function) of its bytes, cut to 128 bits.
+
+A **put** writes an item unless the newest record of its slot is the same item, at most `near` bytes behind. The
+distance is measured to where the data lands.
+
+For example, a writer puts a track's definition before every block of the track's data.
+
+With the default policy, the writer writes the definition at the first block. It writes it once more as a copy at a use
+at least 1 MiB later.
+
+After that, the writer writes the definition again whenever its newest record lies more than 32 MiB behind.
+
+### Puts and copies
 
 The application puts a state track's item at each use (`TapeWriter::put`, `put_item`). The writer refuses a caller's
-records on a state track in a block of data. The writer puts definitions the same way before every block of data.
+records on a state track in a block of data.
 
-A put of an item that lies near behind still writes it as a **copy** while two conditions hold: fewer than
-`1 + copies` records of it lie in the piece, and the newest lies at least `NearPolicy::copy_spacing` (1 MiB) behind.
-Copies are written only at uses, never ahead of them. The writer remembers at most `NearPolicy::memory_max` slots and
-forgets the one written longest ago first. A forgotten slot costs one more write, never a wrong read.
+The writer puts definitions the same way before every block of data.
 
-Puts and copies go in records blocks marked **`FLAG_REPEAT`** (header bit 1). Such a block carries the seq of the
-block before it and is not counted, so the producer's seq stays its own count. A reader that holds an item of the same
-hash in the same slot takes the record as nothing new.
+A put of an item that lies near behind still writes it as a **copy** while two conditions hold:
 
-A block of puts that belongs with the block after it is also marked **`FLAG_WITH_NEXT`** (header bit 2, only on a
-block marked `FLAG_REPEAT`). It belongs there when it serves the block of data after it, or when the next block holds
-the rest of a put too long for one block. A run of such blocks ends in the block they belong to, all from one writer
-call. `TapeWriter::put_block` puts a producer's block of puts by the writer's own rule, and `relay_block` passes a
-live producer's stream on.
+- fewer than `1 + copies` records of it lie in the piece;
+- the newest lies at least `NearPolicy::copy_spacing` (1 MiB) behind.
+
+The writer writes copies only at uses, never ahead of them.
+
+The writer remembers at most `NearPolicy::memory_max` slots and forgets the one written longest ago first. A forgotten
+slot costs one more write, never a wrong read.
+
+### Marking blocks of puts
+
+Puts and copies go in records blocks marked **`FLAG_REPEAT`** (header bit 1). Such a block carries the seq of the block
+before it and is not counted.
+
+The producer's seq therefore stays its own count. A reader that holds an item of the same hash in the same slot takes
+the record as nothing new.
+
+A block of puts that belongs with the block after it is also marked **`FLAG_WITH_NEXT`** (header bit 2). The flag
+appears only on a block marked `FLAG_REPEAT`.
+
+A block belongs with the next one in two cases:
+
+- it serves the block of data after it;
+- the next block holds the rest of a put too long for one block.
+
+A run of such blocks ends in the block they belong to, all from one writer call.
+
+`TapeWriter::put_block` puts a producer's block of puts by the writer's own rule. `relay_block` passes a live producer's
+stream on.
+
+### Deferred blocks
 
 `TapeWriter::defer_block` puts the definitions of a deferred block when the block is deferred, and places the block
-later with no puts. A deferred block waits at most `DEFER_WINDOW` (1 MiB) of writes, so it lies at most its tracks'
-`near` plus that window after their definitions. A cut and a finish place every deferred block first.
+later with no puts.
+
+A deferred block waits at most `DEFER_WINDOW` (1 MiB) of writes. It therefore lies at most its tracks' `near` plus that
+window after their definitions.
+
+A cut and a finish place every deferred block first.
 
 ## Track identity
 
 A track's **stable key** (`TrackDef::key`) names the same resource in every file and every session of a producer,
-whatever ids or indices that session used. `ww_tape::track_key` hashes the resource's **name path** under its API. The
-hash starts from `api_root_id` of the API's crate name, without a version: a breaking change is a new generation of
-the same API. One `Segment` per step follows, each with a tag byte and its length, so `a.b` and `ab` never collide:
+whatever ids or indices that session used. `ww_tape::track_key` hashes the resource's **name path** under its API.
+
+The hash starts from `api_root_id` of the API's crate name, without a version: a breaking change is a new generation of
+the same API.
+
+One `Segment` per step follows, each with a tag byte and its length. Therefore `a.b` and `ab` never collide:
 
 | Step | Segment |
 |---|---|
@@ -503,42 +666,63 @@ the same API. One `Segment` per step follows, each with a tag byte and its lengt
 | an index into a plain array, `link[2]` | `Index(2)` |
 | an element of a [keyed array](https://ww.vhrd.tech/api/arrays/), `flow[{key}]` | `Key`: the key's shrink_wrap bytes, not the index |
 
-For example, `link[2].rx_frames` of WireWeaver's link tap has the key
-`track_key(api_root_id("ww_tap"), &[Name("link"), Index(2), Name("rx_frames")])`, which `ww_tap::track_key(2,
-ids::RX_FRAMES)` computes. A dissector may number flows in a different order in two sessions. Each flow's tracks still
-get the same key, since the flow's key is hashed, not its index.
+For example, `link[2].rx_frames` of WireWeaver's link tap has the key `track_key(api_root_id("ww_tap"), &[Name("link"),
+Index(2), Name("rx_frames")])`. The function `ww_tap::track_key(2, ids::RX_FRAMES)` computes it.
 
-`TrackDef::path` stays numeric. `TrackDef::keys` holds the key bytes for each index into a keyed array, by its
-position in `path`. In WireWeaver, `ww_tape_bundle::name_path` builds the name path from the API bundle, the numeric
-path and the keys, and `key_in_bundle` builds the key under the bundle's own crate. A reader so rebuilds the name of
-every track and checks its key.
+A dissector may number flows in a different order in two sessions. Each flow's tracks still get the same key, since the
+flow's key is hashed, not its index.
 
-A producer that sees an element of a keyed array before its key reads `key[i]` first. It writes the track's
-definition once it knows the key.
+`TrackDef::path` stays numeric. `TrackDef::keys` holds the key bytes for each index into a keyed array, by its position
+in `path`.
+
+In WireWeaver, `ww_tape_bundle::name_path` builds the name path from the API bundle, the numeric path and the keys.
+`key_in_bundle` builds the key under the bundle's own crate.
+
+A reader therefore rebuilds the name of every track and checks its key.
+
+A producer that sees an element of a keyed array before its key reads `key[i]` first. It writes the track's definition
+once it knows the key.
 
 Two changes give a track a new key:
 
-- The key's shrink_wrap bytes change when the key's type gains a field, even a defaulted one, so every keyed track
-  gets a new key. A canonical hash of the key's value, which leaves out fields at their default, would survive such a
-  change; it is not built.
-- A resource renamed within its trait keeps its key, but one moved to another trait gets a new name path and so a new
+- The key's shrink_wrap bytes change when the key's type gains a field, even a defaulted one. Every keyed track then
+  gets a new key.
+  - A canonical hash of the key's value, which leaves out fields at their default, would survive such a change. Such a
+    hash is not built.
+- A resource renamed within its trait keeps its key. One moved to another trait gets a new name path and therefore a new
   key, even with `#[moved_from]`.
 
 ## Index, finish and tail
 
-A writer lists every block it places in **index** blocks (kind 7), so a reader finds blocks without a scan. Every few
-MiB of blocks (`ww_tape::IndexPolicy`, 4 MiB by default), the writer places a **checkpoint**: an index block with one
-120-byte entry per block placed since the previous checkpoint, and a pointer back at that checkpoint. A policy can
-also place checkpoints by time, but only when asked, since that makes the bytes depend on the clock.
+A writer lists every block it places in **index** blocks (kind 7). A reader then finds blocks without a scan.
 
-An entry holds the block's offset, length and kind, its track id and number, the first item number, the item count,
-the first and last tick and the latest end. A summary block's entry adds its level and tree, and a chunk's entry its
-unit hash ([below](#track-hash)). Chunk, summary and records blocks are all listed. A records block of data carries no
-track id or ticks, since its records may be on many tracks: its entry holds only its record count, under track id 0.
+Every few MiB of blocks (`ww_tape::IndexPolicy`, 4 MiB by default), the writer places a **checkpoint**. A checkpoint is
+an index block with one 120-byte entry per block placed since the previous checkpoint, and a pointer back at that
+checkpoint.
+
+A policy can also place checkpoints by time, but only when asked, since that makes the bytes depend on the clock.
+
+### Index entries
+
+An index entry holds:
+
+- the block's offset, length and kind;
+- its track id and number;
+- the first item number and the item count;
+- the first and last tick and the latest end;
+- for a summary block, its level and tree;
+- for a chunk, its unit hash ([below](#track-hash)).
+
+Chunk, summary and records blocks are all listed. A records block of data carries no track id or ticks, since its
+records may be on many tracks.
+
+The entry of a records block of data holds only its record count, under track id 0.
 
 In an aligned file, a checkpoint goes into the gap before the next chunk payload. A crash costs at most the chunks not
-yet written, and a reader rescans only the stretch after the newest checkpoint. The index block ([index module
-docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/index/mod.rs)); the header's count is the entry count:
+yet written, and a reader rescans only the stretch after the newest checkpoint.
+
+The index block follows ([index module docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/index/mod.rs)).
+The header's count is the entry count:
 
 ```text
 off size field
@@ -564,15 +748,19 @@ off size field
 len-4 u32 CRC over bytes 0..len-4, as in every block
 ```
 
-A final index longer than `INDEX_LEN_MAX` (1 MiB) is several final blocks. Each holds whole tracks in ascending
-track id and points back at the one before.
+A final index longer than `INDEX_LEN_MAX` (1 MiB) is several final blocks. Each holds whole tracks in ascending track id
+and points back at the one before.
 
 ### State entries
 
-A block of state records gets one **state entry** per record instead of one entry per block. Such a block is one
-whose first record is on track 0, or any block marked `FLAG_REPEAT`. State entries sit under track id
-`STATE_TRACK_ID` (`u64::MAX`), so a reader finds the item in force at a place, or an item by its hash, without
-reading the blocks. Beside the block's offset, length and kind, a state entry holds:
+A block of state records gets one **state entry** per record instead of one entry per block. Such a block is one whose
+first record is on track 0, or any block marked `FLAG_REPEAT`.
+
+State entries sit under track id `STATE_TRACK_ID` (`u64::MAX`).
+
+A reader therefore finds the item in force at a place, or an item by its hash, without reading the blocks.
+
+Beside the block's offset, length and kind, a state entry holds:
 
 ```text
  13 u8  the record's slot: 0 a state track's record, else what it defines (DefinitionKind)
@@ -583,8 +771,13 @@ reading the blocks. Beside the block's offset, length and kind, a state entry ho
  48 16 bytes the item's hash (ItemHash)                 64 i64 the record's time in ticks, 0 on track 0
 ```
 
-The slot codes (`DefinitionKind`) are 1 producer, 2 track, 3 bundle, 4 clock, 5 map, 6 item, 7 layout, and 15 for a
-definition the writer doesn't know. Byte 14 is 0, and bytes 16..24 hold `STATE_TRACK_ID`.
+The slot codes (`DefinitionKind`) are:
+
+- 1 producer, 2 track, 3 bundle, 4 clock;
+- 5 map, 6 item, 7 layout;
+- 15 for a definition the writer doesn't know.
+
+Byte 14 is 0, and bytes 16..24 hold `STATE_TRACK_ID`.
 
 A piece lists at most `IndexPolicy::state_entries_max` state entries, 1 Mi by default. A write past that is refused
 (`IndexError::StateEntries`), and `PieceChain` then cuts to a new piece and writes it there.
@@ -593,28 +786,35 @@ A piece lists at most `IndexPolicy::state_entries_max` state entries, 1 Mi by de
 
 `TapeWriter::finish` ends a piece with three blocks:
 
-1. A **final index** lists every block again, sorted by track, with the state entries of one block in block order.
-   Its head holds a directory of tracks and a CRC per track's entries. A reader of one track out of thousands reads
-   the head and that track's list.
-2. The **finish** block (kind 8) states how the piece ended: complete, continued or aborted. It holds the BLAKE3
-   content hash of every byte before it, where the newest checkpoint and the final index are, and per track the
-   chunks, items and ticks the piece holds.
+1. A **final index** lists every block again, sorted by track, with the state entries of one block in block order. Its
+   head holds a directory of tracks and a CRC per track's entries.
+   - A reader of one track out of thousands reads the head and that track's list.
+2. The **finish** block (kind 8) states how the piece ended: complete, continued or aborted. It holds the BLAKE3 content
+   hash of every byte before it and where the newest checkpoint and the final index are.
+   - Per track, the finish also holds the chunks, items and ticks the piece holds.
 3. The **tail** (kind 9) is a fixed-size block of 164 bytes (`TAIL_LEN`) and the last bytes of the file. It gives the
-   piece's length, and so where the piece starts, and where its finish is.
+   piece's length, and therefore where the piece starts, and where its finish is.
 
-Nothing is repeated at the finish. Offsets count from the start of the piece, so the index stays valid when files are
-concatenated. A lost index block costs a scan to the neighbouring checkpoint, and a lost tail or finish only the
-content-hash check.
+Nothing is repeated at the finish. Offsets count from the start of the piece: the index stays valid when files are
+concatenated.
 
-A finished piece is a multiple of `PIECE_ALIGN` (4 KiB) long. The writer pads the finish block's body with zeros
-after its track rows (`piece::finish_padding`) and states the padding at finish offset 172; the CRC covers it. The
-content hash still covers the bytes before the finish, and the tail stays the piece's last bytes. Finished pieces so
-clone back to back into one file (reflinks on btrfs or XFS) with nothing between them. Only the end is aligned: the
-blocks inside stay where they are, and an unfinished piece ends where it ends.
+A lost index block costs a scan to the neighbouring checkpoint, and a lost tail or finish only the content-hash check.
 
-The piece head, the finish and the tail ([piece module
-docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/piece/mod.rs)); each header's count is the track
-count:
+#### Aligned piece ends
+
+A finished piece is a multiple of `PIECE_ALIGN` (4 KiB) long. The writer pads the finish block's body with zeros after
+its track rows (`piece::finish_padding`).
+
+The finish states the padding at finish offset 172, and the CRC covers it. The content hash still covers the bytes
+before the finish, and the tail stays the piece's last bytes.
+
+Finished pieces therefore clone back to back into one file with nothing between them, as reflinks on btrfs or XFS (two
+Linux file systems).
+
+Only the end is aligned: the blocks inside stay where they are, and an unfinished piece ends where it ends.
+
+The piece head, the finish and the tail follow ([piece module
+docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/piece/mod.rs)). Each header's count is the track count:
 
 ```text
 piece head (kind 10)
@@ -658,49 +858,63 @@ tail (kind 9), TAIL_LEN bytes, the last of the piece
 
 ### Piece ids and session tags
 
-The ids are derived with BLAKE3 in its key derivation mode:
+The writer derives the ids with BLAKE3 in its key derivation mode:
 
 - A chain's first piece id is the first 16 bytes of `derive_key("ww_tape first piece", owner id ‖ chain number as u64
   LE)`.
 - Each next piece id is the first 16 bytes of `derive_key("ww_tape piece id", content hash ‖ piece id)` of the piece
   before.
-- A session tag from a seed is the first 4 bytes of `derive_key("ww_tape run tag", seed)`, made writable: never 0
-  nor FFFFFFFFh.
+- A session tag from a seed is the first 4 bytes of `derive_key("ww_tape run tag", seed)`, made writable: never 0 nor
+  FFFFFFFFh.
 
 A piece id is never all zeros.
 
 ### Content hash
 
-The **content hash** in the finish and the tail is BLAKE3 over the piece's bytes before the finish block, in order.
-One exception: the payload of every chunk block that reads whole is replaced by the 32-byte BLAKE3 hash of that
-payload. The payload runs from the chunk's payload offset to its CRC: the columns and their 16 zero bytes. Every byte
-is so covered, and each payload is hashed once, for the content hash and the track hash both.
+The **content hash** in the finish and the tail is BLAKE3 over the piece's bytes before the finish block, in order. One
+exception applies: the payload of every chunk block that reads whole is replaced by the 32-byte BLAKE3 hash of that
+payload.
+
+The payload runs from the chunk's payload offset to its CRC: the columns and their 16 zero bytes. Every byte is
+therefore covered, and each payload is hashed once, for the content hash and the track hash both.
 
 The hash walk finds the blocks from the start of the piece. A block that passes its checks goes into the hash as a
-block. Bytes that don't form a valid block go in as they are, up to the next place where the block magic stands. The
-hash therefore depends only on the bytes, so a resume and a reader get the same hash over damaged bytes that a resume
-kept.
+block.
 
-A header can claim a long block that then fails its check, and the walk has read those bytes for nothing. The walk
-keeps a count of such wasted bytes. It stops trying places as blocks once the count passes 4 bytes per byte walked
-(`WALK_MISS_PER_BYTE_MAX`) plus 1 MiB (`WALK_MISS_BASE_MAX`). Crafted headers therefore cost at most a fixed multiple
-of the piece's length, never its square.
+Bytes that don't form a valid block go in as they are, up to the next place where the block magic stands. The hash
+therefore depends only on the bytes.
+
+A resume and a reader thus get the same hash over damaged bytes that a resume kept.
+
+A header can claim a long block that then fails its check, and the walk has read those bytes for nothing. The walk keeps
+a count of such wasted bytes.
+
+It stops trying places as blocks once the count passes 4 bytes per byte walked (`WALK_MISS_PER_BYTE_MAX`) plus 1 MiB
+(`WALK_MISS_BASE_MAX`).
+
+Crafted headers therefore cost at most a fixed multiple of the piece's length, never its square.
 
 ### Track owners
 
 A **track** is told apart by its id and its **owner** (`TrackDef::owner`, 32 opaque bytes outside the identity). All
-zeros mean the piece's owner. Tracks of one identity from several owners so share a file, each with its own number,
-item numbers and hash. The head and finish rows carry the owner. The index entries name the track number, which the
-finish rows and the definitions resolve.
+zeros mean the piece's owner.
+
+Tracks of one identity from several owners therefore share a file, each with its own number, item numbers and hash. The
+head and finish rows carry the owner.
+
+The index entries name the track number, which the finish rows and the definitions resolve.
 
 ### Track hash
 
 Each track has a running **track hash** over its content as written, in the order written. It is 32 zero bytes before
-the track's first unit, and each unit updates it to `h = BLAKE3(h ‖ BLAKE3(unit))`. The inner hash is the **unit
-hash**.
+the track's first unit.
 
-The writer computes a chunk's unit hash once and stores it in the chunk's index entry (bytes 88..120). The hash of a
-run of whole chunks so folds from the index without reading a payload (`TapeReader::range_hash`). The units are:
+Each unit updates it to `h = BLAKE3(h ‖ BLAKE3(unit))`. The inner hash is the **unit hash**.
+
+The writer computes a chunk's unit hash once and stores it in the chunk's index entry (bytes 88..120). The hash of a run
+of whole chunks therefore folds from the index without reading a payload (`TapeReader::range_hash`).
+
+The units are:
 
 ```text
 chunk:  01, kind u8, count u32, the head's bytes 48..80 (first item, first tick, last tick, latest end) and
@@ -710,92 +924,139 @@ record: 02, ticks i64 (0 without a time), item length u64, the item's bytes
 ```
 
 Only counted blocks are units: chunk blocks and the records of records blocks. Puts and copies (blocks marked
-`FLAG_REPEAT`), summaries, definitions and the blocks of the file structure are not. Nothing of where a block lies is
-hashed: not the session, seq, track number, payload offset, padding or segment CRCs. A track written alone or among
-others, in one piece or many, in one file or many, so has the same hash.
+`FLAG_REPEAT`), summaries, definitions and the blocks of the file structure are not.
 
-A state track's records are all puts, so its hash stays 32 zero bytes. The piece head carries each track's hash
-before the piece, and the finish its hash after it; `Finished::tracks` reports every track's hash when a piece ends.
-A record's unit hash is not stored: records are listed per block, not per track, so a reader folds them by reading
-their blocks.
+The hash leaves out where a block lies: the session, seq, track number, payload offset, padding and segment CRCs. A
+track written alone or among others, in one piece or many, in one file or many, therefore has the same hash.
+
+A state track's hash stays 32 zero bytes, since its records are all puts. The piece head carries each track's hash
+before the piece, and the finish its hash after it.
+
+`Finished::tracks` reports every track's hash when a piece ends.
+
+A record's unit hash is not stored: records are listed per block, not per track. A reader therefore folds them by
+reading their blocks.
 
 ### Incomplete track hashes
 
-A resume may keep a damaged block that the index lists. It folds a damaged chunk by the unit hash in the chunk's
-entry, so the track hash is that of the piece written without the damage.
+A resume may keep a damaged block that the index lists. It folds a damaged chunk by the unit hash in the chunk's entry.
+
+The track hash is then that of the piece written without the damage.
 
 The records of a damaged records block of data are in no entry, and the block's entry names no track. Each track that
-may hold records leaves them out of its hash after the piece, and the next pieces carry that hash on. Such a track is
-one the piece defines or its head carries, other than a series or a state track. The finish marks the track's row
-incomplete (flag bit 0, `TrackRange::incomplete`), as it does for a damaged chunk whose entry holds no unit hash.
+may hold records leaves them out of its hash after the piece.
+
+The next pieces carry that hash on. Such a track is one the piece defines or its head carries, other than a series or a
+state track.
+
+The finish marks the track's row incomplete (flag bit 0, `TrackRange::incomplete`), as it does for a damaged chunk whose
+entry holds no unit hash.
 
 The mark travels with the hash. The next piece's head row carries it (row byte 12, the same flags,
-`TrackStart::incomplete`), and every later finish row of the track keeps it. A piece so still says so when the piece
-that lost the units is gone. A reader refuses a row flag it doesn't know, in a head row as in a finish row.
+`TrackStart::incomplete`), and every later finish row of the track keeps it.
+
+A piece therefore still says so when the piece that lost the units is gone. A reader refuses a row flag it doesn't know,
+in a head row as in a finish row.
 
 ## Tape pieces
 
-A recording can be cut into **pieces**. Each piece is a complete file that reads alone: a piece head block, the
-layout and the producer, the data with the definitions and state it needs close behind it, its checkpoints, the final
-index, the finish and the tail.
+A recording can be cut into **pieces**. Each piece is a complete file that reads alone, and it holds, in order:
 
-`ww_tape::PieceChain` writes the pieces as `dir/00000000.wwt`, `00000001.wwt` and so on, through `ww_tape_fs::Files`.
-It cuts before a chunk by size, chunk count or age (`CutPolicy`). `TapeWriter::cut_with` cuts by hand.
+- a piece head block;
+- the layout and the producer;
+- the data, with the definitions and state it needs close behind it;
+- its checkpoints;
+- the final index, the finish and the tail.
 
-The **piece head** (kind 10) names the owner, the piece's sequence number, its id, and the previous piece's content
-hash and id. Per track, it says where the track's items continue. The previous piece's finish and tail name this
-piece's id, which the cut derives from the previous piece's id and content hash. The chain is so checked both ways
-(`ww_tape::piece::check_chain`).
+`ww_tape::PieceChain` writes the pieces as `dir/00000000.wwt`, `00000001.wwt` and so on, through `ww_tape_fs::Files`. It
+cuts before a chunk by size, chunk count or age (`CutPolicy`).
 
-Pieces written back to back are one valid tape. With `PieceTapes::One`, the chain writes them so into one file. A cut
-then starts the next piece right behind the finish (`TapeWriter::cut_in_place`), and each session that opens the file
-again starts a new piece behind the last finished one.
+`TapeWriter::cut_with` cuts by hand.
 
-A chain whose first pieces were deleted, as in a rolling window, reads as *head cut*, not as damage. A chain whose
-last piece has no tail is open: it is being written, or a crash cut it off.
+The **piece head** (kind 10) names the owner, the piece's sequence number, its id, and the previous piece's content hash
+and id. Per track, it says where the track's items continue.
+
+The previous piece's finish and tail name this piece's id, which the cut derives from the previous piece's id and
+content hash. The chain is therefore checked both ways (`ww_tape::piece::check_chain`).
+
+Pieces written back to back are one valid tape. With `PieceTapes::One`, the chain writes them this way into one file.
+
+With `TapeWriter::cut_in_place`, a cut then starts the next piece right behind the finish. Each session that opens the
+file again starts a new piece behind the last finished one.
+
+A chain whose first pieces were deleted, as in a rolling window, reads as *head cut*, not as damage. A chain whose last
+piece has no tail is open: it is being written, or a crash cut it off.
 
 ## Resuming after a crash
 
 [Damage and recovery](recovery.md#resuming-after-a-crash) explains resuming with examples.
 
 `TapeWriter::resume_on` reopens an unfinished piece and goes on writing it. For a file, `ww_tape_fs::writer::resume`
-opens `NAME.partial`. The resume finds the piece as `TapeReader` does. It then walks the piece's bytes from the start
-to where the reader stopped, block by block, as the content-hash walk does.
+opens `NAME.partial`.
 
-The walk rebuilds the writer as it was: the content hash, the index entries, the track ranges, the state records each
-block holds (the writer's memory of what lies near), the counts, the session and the next seq. A damaged block that
-the index lists stands for what its entries say. A state record in such a block leaves its slot unknown, so the next
-put writes it again.
+The resume finds the piece as `TapeReader` does. It then walks the piece's bytes from the start to where the reader
+stopped, block by block, as the content-hash walk does.
 
-The piece is kept up to the end of its last good block, counted or not. What ends a piece (a final index, a finish
-without its tail) is dropped. Blocks marked `FLAG_WITH_NEXT` at the end of what is kept are dropped too: the call they
-belong to is given again whole and writes them again.
+### What a resume keeps
 
-A resume never cuts off a good block. It refuses when a good block follows bytes it can't read
-(`ResumeError::GoodBlockAfterCut`), and when its look past the reader's stop, at most `RESUME_LOOK_MAX` (128 MiB),
-ends before the bytes do (`ResumeError::LookSpent`). A piece whose finish and tail read whole is complete, since the
-crash came between the finish and the rename. The resume then cuts off junk after the tail, renames the file and
-returns `WriteError::Ended`.
+The walk rebuilds the writer as it was:
 
-What the writer adds depends only on the blocks before it, the calls since and its `WriterOptions`. The same calls
-after a resume so give the bytes and content hash of a piece written without the crash. A put is idempotent: an
-application puts again what it uses and needs no record of which puts made it.
+- the content hash;
+- the index entries;
+- the track ranges;
+- the state records each block holds (the writer's memory of what lies near);
+- the counts;
+- the session and the next seq.
 
-The writer keeps no definitions: after the resume, the application passes its own with each call, as before. The
-layout and the producer of the options are checked against those the piece names, before anything is cut off or
-written (`InputError::Layout`, `InputError::Producer`). `PieceChain::resume_on` also reads the finished pieces back and
-handles a crash between a cut's finish and the next piece.
+A damaged block that the index lists stands for what its entries say. A state record in such a block leaves its slot
+unknown, and the next put writes it again.
+
+The resume keeps the piece up to the end of its last good block, counted or not. It drops what ends a piece: a final
+index, or a finish without its tail.
+
+It also drops blocks marked `FLAG_WITH_NEXT` at the end of what it keeps. The call they belong to is given again whole
+and writes them again.
+
+A resume never cuts off a good block. It refuses in two cases:
+
+- a good block follows bytes it can't read (`ResumeError::GoodBlockAfterCut`);
+- its look past the reader's stop, at most `RESUME_LOOK_MAX` (128 MiB), ends before the bytes do
+  (`ResumeError::LookSpent`).
+
+A piece whose finish and tail read whole is complete, since the crash came between the finish and the rename. The resume
+then cuts off junk after the tail, renames the file and returns `WriteError::Ended`.
+
+### Same bytes as without the crash
+
+What the writer adds depends only on its `WriterOptions`, the blocks before it and the calls since. The same calls after
+a resume therefore give the bytes and content hash of a piece written without the crash.
+
+A put is idempotent: an application puts again what it uses and needs no record of which puts made it.
+
+The writer keeps no definitions: after the resume, the application passes its own with each call, as before. The resume
+checks the options' layout and producer against those the piece names, before it cuts or writes anything
+(`InputError::Layout`, `InputError::Producer`).
+
+`PieceChain::resume_on` also reads the finished pieces back and handles a crash between a cut's finish and the next
+piece.
 
 ## Reading by position
 
-`ww_tape::TapeReader` reads a tape through a `ByteSource`: anything with a size that reads bytes at an offset, such as
-a byte slice, a file (`ww_tape_fs::FileSource`) or an HTTP resource read by range requests. The reader needs no file
-system and no threads, so it builds for `wasm32-unknown-unknown` (feature `alloc` without `std`).
+`ww_tape::TapeReader` reads a tape through a `ByteSource`: anything with a size that reads bytes at an offset. A byte
+slice, a file (`ww_tape_fs::FileSource`) and an HTTP resource read by range requests are byte sources.
+
+The reader needs no file system and no threads. It therefore builds for `wasm32-unknown-unknown` (feature `alloc`
+without `std`).
 
 The reader finds the pieces from the end. A good tail gives a piece's start and finish, and the previous piece's tail
-sits just before that start, so concatenated pieces cost one small read each. A piece without a tail is found from its
-newest checkpoint, looked for backwards from the end, and the stretch after that checkpoint is read block by block. A
-piece without any checkpoint is read from the start. A raw medium is read forward instead (`OpenOptions::medium`,
+sits just before that start.
+
+Concatenated pieces therefore cost one small read each.
+
+A piece without a tail is found from its newest checkpoint, looked for backwards from the end. The reader then reads the
+stretch after that checkpoint block by block.
+
+A piece without any checkpoint is read from the start. A raw medium is read forward instead (`OpenOptions::medium`,
 [below](#sessions-media-and-damage)).
 
 | Method | Gives |
@@ -809,30 +1070,44 @@ piece without any checkpoint is read from the start. A raw medium is read forwar
 | `definitions_at` | every definition in force at a place |
 | `state_entries` | a piece's state entries |
 
+### State lookups
+
 State is looked up through the index's state entries, not by a scan. A lookup takes the newest entry of the slot whose
-block starts before the place. When that block doesn't read, or its record isn't the one the entry names, the lookup
-takes the next older entry.
+block starts before the place.
+
+When that block doesn't read, or its record isn't the one the entry names, the lookup takes the next older entry.
 
 Damage is never an error: a lookup lists what didn't read. It also lists the stretches the index doesn't cover
-(`uncovered`), such as a gap a scan read past or the bytes past a cut, since a newer record may lie there. For
-`state_at` these are the stretches between the record and the place, for `definitions_at` those before the place, and
-for `item_by_hash` those after the record.
+(`uncovered`), since a newer record may lie there.
+
+Such a stretch is a gap a scan read past, or the bytes past a cut. Which stretches a lookup lists depends on the lookup:
+
+- `state_at`: those between the record and the place;
+- `definitions_at`: those before the place;
+- `item_by_hash`: those after the record.
 
 The reader keeps the sorted entries in one cache over all pieces, at most `OpenOptions::state_cache_max` entries
-(`STATE_CACHE_MAX`, 2 Mi, by default); the piece used longest ago goes first. A lookup reads at most
-`OpenOptions::state_read_max` bytes (`STATE_READ_MAX`, 1 GiB, by default) and charges a coded body's decoded length
-before it decodes it. When that budget runs out, the lookup stops and sets `spent`, which is not damage.
+(`STATE_CACHE_MAX`, 2 Mi, by default). The piece used longest ago goes first.
+
+A lookup reads at most `OpenOptions::state_read_max` bytes (`STATE_READ_MAX`, 1 GiB, by default). It charges a coded
+body's decoded length before it decodes it.
+
+When that budget runs out, the lookup stops and sets `spent`, which is not damage.
+
+### Versions and unknown blocks
 
 The header and the CRC at the end stay the same in every version: a later version changes only the body. A block of
-another version that goes on with the data ends the piece the reader is in and starts a piece of that version. The
-reader lists that piece with its version (`PieceInfo::version`) and refuses to read it. A reader skips a block of a
+another version that goes on with the data ends the piece the reader is in and starts a piece of that version.
+
+The reader lists that piece with its version (`PieceInfo::version`) and refuses to read it. A reader skips a block of a
 kind it doesn't know by its length, as it skips definitions of a variant it doesn't know.
 
 ## Caps on what a reader takes
 
 Every count, length, offset or layout value a reader takes from the bytes is bounded before it sizes an allocation, a
-slice or a loop. The bound is a length already in hand (the block's, a table's) or one of these caps. A value past
-its cap is damage, refused with an error; no file a writer of this crate writes has one.
+slice or a loop. The bound is a length already in hand (the block's, a table's) or one of these caps.
+
+A value past its cap is damage, refused with an error; no file a writer of this crate writes has one.
 
 | Cap | Value | Bounds |
 |---|---|---|
@@ -864,8 +1139,8 @@ its cap is damage, refused with an error; no file a writer of this crate writes 
 | `STATE_READ_MAX` | 1 GiB | the bytes of blocks one state lookup reads |
 | `DEFERRED_BYTES_MAX` | 1 MiB | the deferred blocks a writer keeps |
 
-Walks over many blocks and the writer have caps of their own. A walk stops at its cap, and a writer refuses input
-that would pass one:
+Walks over many blocks and the writer have caps of their own. A walk stops at its cap, and a writer refuses input that
+would pass one:
 
 | Walk or writer cap | Value | Bounds |
 |---|---|---|
@@ -885,28 +1160,38 @@ that would pass one:
 
 ### Sessions
 
-A **session** is one writer's unbroken append: a producer start, a device boot, one pass of an importer. Every block
-of a session carries the same session tag in header bytes 24..28, and its seq counts from 0. A writer picks the tag at
-random, except for the first piece of a chain, whose tag is derived from the piece id. A piece head names the session
-that ended before it (`PieceHead::prev_session`).
+A **session** is one writer's unbroken append: a producer start, a device boot, one pass of an importer. Every block of
+a session carries the same session tag in header bytes 24..28, and its seq counts from 0.
+
+A writer picks the tag at random, except for the first piece of a chain, whose tag is derived from the piece id. A piece
+head names the session that ended before it (`PieceHead::prev_session`).
 
 A reader keeps to one session at a time: a block of another session is stale data, unless a session may start there.
-In a file, a new session starts at a records block whose first record is on track 0 (another producer appended) or at
-a piece head. On a raw medium, a session starts only at a piece head that names the current session as the one
-before it.
+Where a session may start depends on the medium:
+
+- In a file, a new session starts at a piece head. It also starts at a records block whose first record is on track 0,
+  where another producer appended.
+- On a raw medium, a session starts only at a piece head that names the current session as the one before it.
+
+#### Adopting a producer's blocks
 
 A piece on a raw medium is therefore one session. A writer that carries a producer's blocks, each with the producer's
-own session, renumbers them into its own session with `TapeWriter::adopt_block`. Lost blocks stay visible: a jump in
-the producer's seq leaves the same jump in the writer's, and a producer restart (another session) leaves none. Blocks
-passed through with `write_block` keep their sessions, so they read whole from a file but as stale data on a raw
-medium.
+own session, renumbers them into its own session with `TapeWriter::adopt_block`.
+
+Lost blocks stay visible: a jump in the producer's seq leaves the same jump in the writer's. A producer restart (another
+session) leaves none.
+
+Blocks passed through with `write_block` keep their sessions. They therefore read whole from a file but as stale data on
+a raw medium.
 
 ### Media
 
-The **medium** decides where a reader starts. A file is read from its start, or its pieces are found from its end. A
-raw medium (`Medium::Raw`: an SD card, raw NAND, a partition) may hold blocks of earlier recordings behind the end of
-the current data. A reader so walks a raw medium forward, from its start or from a hint, and never trusts what it
-finds at the end.
+The **medium** decides where a reader starts. A file is read from its start, or its pieces are found from its end.
+
+A raw medium (`Medium::Raw`) is a Secure Digital (SD) card, raw NOT-AND (NAND) flash or a partition. It may hold blocks
+of earlier recordings behind the end of the current data.
+
+A reader therefore walks a raw medium forward, from its start or from a hint, and never trusts what it finds at the end.
 
 For example, a card recorded twice holds the second recording's blocks, followed by the rest of the first. The first
 recording's session tag ends the walk.
@@ -915,6 +1200,7 @@ recording's session tag ends the walk.
 
 **Blank** space is bytes that are all 0x00 or all 0xFF, as an erased or preallocated medium reads. A blank or damaged
 stretch is a **gap**, not the end, when the current session's next block follows it within the layout's `gap_max`.
+
 The reader looks for that block at the first non-blank byte and at each multiple of `resume_align`. The layout
 definition states both (`Layout`):
 
@@ -924,44 +1210,58 @@ definition states both (`Layout`):
 | SD card or eMMC (`on_sd_card`) | 4 MiB | 512 bytes, a sector |
 | raw NAND (`on_raw_nand`) | two erase blocks | one page |
 
-A reader's cost per gap is bounded. A valid `Layout` has a `gap_max` of at most 64 MiB (`GAP_MAX_MAX`) and at most
-8192 resume places in it (`GAP_PROBES_MAX`, `gap_max / resume_align`); any other layout definition doesn't decode.
-Past a blank or bad stretch, a reader reads one block header per resume place. It checks a block whole only when its
-header says it goes on with the data, at most 4 times per gap (`GAP_CHECKS_MAX`). When none of them goes on, the
-stretch is the end of data.
+A reader's cost per gap is bounded, and the layout sets the bounds:
 
-On a raw medium, blank space longer than `gap_max` is the end too, and a reader reads nothing after it. An erased
-64 GB card so costs one gap's worth of reads.
+- A valid `Layout` has a `gap_max` of at most 64 MiB (`GAP_MAX_MAX`).
+- It has at most 8192 resume places in that gap (`GAP_PROBES_MAX`, `gap_max / resume_align`).
+- Any other layout definition doesn't decode.
+
+Past a blank or bad stretch, a reader reads one block header per resume place. It checks a block whole only when its
+header says it goes on with the data, at most 4 times per gap (`GAP_CHECKS_MAX`).
+
+When none of them goes on, the stretch is the end of data.
+
+On a raw medium, blank space longer than `gap_max` is the end too, and a reader reads nothing after it. An erased 64 GB
+card therefore costs one gap's worth of reads.
+
+#### Writing on raw NAND
 
 A writer on raw NAND programs each page once, in page order. At a sync, it pads the rest of the page with 0xFF and
-starts the next block on the next page. The padding reads as a gap, so the format needs nothing else, and the cost is
-up to one page per sync. Keeping the paired pages of multi-level cell (MLC) NAND with unsynced writes apart from synced
-data is the task of the medium layer.
+starts the next block on the next page.
+
+The padding reads as a gap, and the format needs nothing else; the cost is up to one page per sync.
+
+The medium layer keeps the paired pages of multi-level cell (MLC) NAND with unsynced writes apart from synced data.
 
 ### Duplicates
 
 The same session and seq twice is a **duplicate**, not a cut: a writer that retried a write may leave a block twice.
-With the same bytes, the second block is dropped. With other bytes, the later one is taken and reported
-(`FileError::Replaced`, `PieceInfo::replaced`).
+With the same bytes, the reader drops the second block.
+
+With other bytes, the reader takes the later one and reports it (`FileError::Replaced`, `PieceInfo::replaced`).
 
 A salvage walk (`Recovery::Resync`) can't tell a rewrite from a copy met in damage. It reports the second block as a
-conflict (`FileError::Conflict`, with both offsets and the second block's bytes) and takes neither for the other. This
-holds however far apart the two are, within the last `RESYNC_SEQS_MAX` (65536) data blocks the walk handed out. A copy
-with the same bytes is no conflict.
+conflict (`FileError::Conflict`, with both offsets and the second block's bytes) and takes neither for the other.
 
-The walk handed out the first of the two before it met the second. A caller that keeps what a salvage hands out so
-holds it back or can take it back. Blocks of puts (`FLAG_REPEAT`) share seqs by design and take no part in this.
+This holds however far apart the two are, within the last `RESYNC_SEQS_MAX` (65536) data blocks the walk handed out. A
+copy with the same bytes is no conflict.
+
+The walk handed out the first of the two before it met the second. A caller that keeps what a salvage hands out
+therefore holds it back or can take it back.
+
+Blocks of puts (`FLAG_REPEAT`) share seqs by design and take no part in this.
 
 ### State near its use
 
-**State near its use** keeps a piece readable when a block of definitions is damaged. A reader at any place finds
-what it needs within `near` behind, and an item first written in a piece gets `copies` more records at later uses, at
-least 1 MiB apart. A lookup that meets a damaged block lists it and takes the next older record of the slot ([Reading
-by position](#reading-by-position)).
+**State near its use** keeps a piece readable when a block of definitions is damaged. A reader at any place finds what
+it needs within `near` behind.
+
+An item first written in a piece gets `copies` more records at later uses, at least 1 MiB apart. A lookup that meets a
+damaged block lists it and takes the next older record of the slot ([Reading by position](#reading-by-position)).
 
 ## Reserved numbers
 
-Some numbers are reserved, so later features need no format change. Readers of this version refuse each:
+Some numbers are reserved: later features then need no format change. Readers of this version refuse each:
 
 | Reserved | For |
 |---|---|
@@ -976,16 +1276,18 @@ Some numbers are reserved, so later features need no format change. Readers of t
 
 ## Sample codecs
 
-[Events and series](events_and_series.md#series) explains series, sample codecs and why fixed point comes first.
+[Series](series.md) explains series, sample codecs and why fixed point comes first.
 
-A series chunk's sample columns (`ColumnKind::Samples`) are coded by the column's codec id. What a sample is comes
-from the track: `ww_tape::SampleShape` names an `Element` and the number of channels interleaved in the column. The
-elements are `I8` to `U64`, `F32`, `F64`, `ComplexI16`, `ComplexF32` and `Bool`. An element's code, 0 to 12, is how
+The column's codec id says how a series chunk's sample columns (`ColumnKind::Samples`) are coded. What a sample is comes
+from the track: `ww_tape::SampleShape` names an `Element` and the number of channels interleaved in the column.
+
+The elements are `I8` to `U64`, `F32`, `F64`, `ComplexI16`, `ComplexF32` and `Bool`. An element's code, 0 to 12, is how
 other blocks name it.
 
-`ww_tape::Samples` reads a column in place and decodes any range of samples, and `ww_tape::samples::encode` writes
-one. The codecs themselves live in `ww_tape_codecs::samples`, which works on scalars and lanes with no notion of a
-block. Every codec gives the same bytes for the same values.
+`ww_tape::Samples` reads a column in place and decodes any range of samples, and `ww_tape::samples::encode` writes one.
+The codecs themselves live in `ww_tape_codecs::samples`, which works on scalars and lanes with no notion of a block.
+
+Every codec gives the same bytes for the same values.
 
 | Id | Codec | Elements | Stored as |
 |---:|---|---|---|
@@ -1003,50 +1305,73 @@ block. Every codec gives the same bytes for the same values.
 The codecs fall into three families:
 
 - **Raw device formats** (0 to 22) are what a device sends, stored as it is. The reader converts only the samples it
-  reads, and any sample reads in place. An `_LSB` column holds value `i` at bits `i·w` up of the column read as one
-  little-endian number; an `_MSB` column counts bits from the top of byte 0. A packed value of a signed element is
-  sign-extended.
-- **Delta codecs** (32, 33) code groups of 128 samples on the bit-pack primitive of the event time codec
-  (`ww_tape::bitpack`). Per lane, a group holds the first value (for `DELTA2` also the first difference), the minimum
-  difference and a width. The differences less that minimum follow at that width, so a ramp or a constant costs no
-  bits per sample.
-- **ALP** (26) follows ALP (Afroozeh, Kuffó and Boncz, SIGMOD 2024) in groups of 128 samples. The next paragraphs
-  describe it.
+  reads, and any sample reads in place.
+  - An `_LSB` column holds value `i` at bits `i·w` up of the column read as one little-endian number.
+  - An `_MSB` column counts bits from the top of byte 0.
+  - A packed value of a signed element is sign-extended.
+- **Delta codecs** (32, 33) code groups of 128 samples on `ww_tape::bitpack`, the bit-pack primitive of the event time
+  codec. Per lane, a group holds the first value (for `DELTA2` also the first difference), the minimum difference and a
+  width.
+  - The differences less that minimum follow at that width. A ramp or a constant therefore costs no bits per sample.
+- **ALP** (Adaptive Lossless floating-Point, codec 26) codes groups of 128 samples. It follows the paper by Afroozeh,
+  Kuffó and Boncz at the Special Interest Group on Management of Data (SIGMOD) conference, 2024.
 
-ALP stores floats that began as decimals, such as a reading times 0.1, a price, or a value printed and parsed back, as
-integers. Per group and lane, it picks one exponent `e` and factor `f`, and stores each value as a `d` such that
-`d × 10^f × 10^-e` gives its bits back exactly; the `d`s less their minimum are bit-packed. Values that don't come back
-bit for bit (NaN payloads, `-0.0`, infinities, more digits) are kept whole as exceptions inside the group.
+### The ALP codec
 
-Other floats take ALP's second scheme, `rd`. It codes up to 16 front bits through a dictionary of up to 8 entries and
-bit-packs the rest, without the low zero bits the group shares. The encoder keeps the smallest form per group, so a
-group never grows by more than 7 bytes over raw. The layout is in the `ww_tape::samples::alp` docs.
+ALP stores floats that began as decimals as integers: a reading times 0.1, a price, or a value printed and parsed back.
+
+Per group and lane, it picks one exponent `e` and factor `f`. It stores each value as a `d` such that `d × 10^f × 10^-e`
+gives its bits back exactly.
+
+It bit-packs the `d`s less their minimum. Values that don't come back bit for bit (NaN payloads, `-0.0`, infinities,
+more digits) stay whole as exceptions inside the group.
+
+Other floats take `rd`, ALP's second scheme.
+
+The `rd` scheme codes up to 16 front bits through a dictionary of up to 8 entries. It bit-packs the rest, without the
+low zero bits the group shares.
+
+The encoder keeps the smallest form per group, and a group therefore never grows by more than 7 bytes over raw. The
+layout is in the `ww_tape::samples::alp` docs.
+
+### Groups and the default codec
 
 The grouped codecs start the column with a table of where each group ends, and every group restarts its prediction. A
-range so decodes from its group's start, and damage costs only the groups it touches. `Samples::group_bytes` names a
-group's bytes, to check against `Chunk::range_damaged`.
+range therefore decodes from its group's start, and damage costs only the groups it touches.
+
+`Samples::group_bytes` names a group's bytes, to check against `Chunk::range_damaged`.
 
 For data a device controls, fixed-point numbers are the default: an exact_units `Fixed` in an integer column with
-`DELTA` (see [series](https://ww.vhrd.tech/serdes/series/) in the WireWeaver book). They take the fewest bits and
-decode fastest. ALP, the one float codec, is for float sources nobody controls. The codec id is stored per chunk, so a
-writer may try several codecs on a chunk and keep the smallest.
+`DELTA`.
+
+The WireWeaver book's [series](https://ww.vhrd.tech/serdes/series/) page explains them. They take the fewest bits and
+decode fastest.
+
+ALP, the one float codec, is for float sources nobody controls.
+
+The writer stores the codec id per chunk. It may therefore try several codecs on a chunk and keep the smallest.
 
 ### Float codecs measured
 
 `ww_tape_codecs_benchmarks` keeps Gorilla, Chimp and delta on ordered float bits (`FLOAT_DELTA`, `FLOAT_DELTA2`) as
-bench-only codecs to compare against. `just bench-sample-codecs` measures every float codec on four kinds of data, each
-next to the same quantity stored as fixed-point integers with `DELTA` (the first row of each set):
+bench-only codecs to compare against.
 
-- **motor_sim**: every variable of `motor_sim`'s VESC preset (github.com/vhrdtech/motor_sim at commit 35eab07) for 1 s
-  at 25 kHz, driven from its rotor angle with a fan load, as `f32` and as `f64` (its `f32` variables widened). Fixed
-  point: `i32` at the finest power-of-ten step that keeps 24 bits at each variable's peak.
+`just bench-sample-codecs` measures every float codec on four kinds of data. Each set's first row is the same quantity
+stored as fixed-point integers with `DELTA`:
+
+- **motor_sim**: every variable of the Vedder Electronic Speed Controller (VESC) preset of `motor_sim`
+  (github.com/vhrdtech/motor_sim at commit 35eab07), for 1 s at 25 kHz. The bench drives it from its rotor angle with a
+  fan load, as `f32` and as `f64` (its `f32` variables widened).
+  - Fixed point: `i32` at the finest power-of-ten step that keeps 24 bits at each variable's peak.
 - **speech**: Roosevelt's Pearl Harbor address (Wikimedia Commons, public domain, `Roosevelt_Pearl_Harbor.ogg`, SHA-1
-  `90239988...`), decoded to `f32` by lewton. Fixed point: lewton's 16-bit PCM of the same decode.
-- **ADC**: 12-bit counts of 4 slow noisy channels, 250 000 samples each, turned into floats as firmware does:
-  `counts × 3.3/4096` and `counts × 0.1`. Fixed point: the counts.
+  `90239988...`), decoded to `f32` by lewton. Fixed point: lewton's 16-bit pulse-code modulation (PCM) of the same
+  decode.
+- **ADC** (analog-to-digital converter): 12-bit counts of 4 slow noisy channels, 250 000 samples each. The bench turns
+  them into floats as firmware does: `counts × 3.3/4096` and `counts × 0.1`.
+  - Fixed point: the counts.
 
-Ratio is to the raw floats, in chunks of 4096 samples. Times are per value on one core of an AMD Ryzen AI 9 HX 370,
-with AVX-512 kernels:
+Ratio is to the raw floats, in chunks of 4096 samples. Times are per value on one core of a `Ryzen AI 9 HX 370` from
+Advanced Micro Devices, with AVX-512 kernels:
 
 | Data | Codec | Ratio | Bits/value | Encode ns | Decode ns |
 |---|---|---:|---:|---:|---:|
@@ -1097,16 +1422,19 @@ What the numbers say:
 
 - Fixed point is 1.6 to 9.3 times smaller than the best float codec and decodes fastest. On the motor, its step keeps
   more precision than the `f32`s it replaces.
-- `ALP` is the float codec for floats that began as decimals: 2.5 to 5.7 times smaller than the others there, decoding
-  at bit-pack speed (0.7 to 0.8 ns). On widened `f32`s it matches `GORILLA`. On floats with full mantissas it ranges
-  from 6 % ahead of the delta codecs (speech) to 18 % behind them (motor `f32`).
-- The XOR codecs win on two sets, by 6 % (speech) and 15 % (ADC × 3.3/4096 `f64`), both `CHIMP`. They decode 2 to 10
-  times slower than the bit-packed codecs.
-- A writer that tries `ALP` and `FLOAT_DELTA` on each chunk and keeps the smaller is the best float codec on four of
-  the seven sets, and within 13 % of the best on the others.
+- `ALP` is the float codec for floats that began as decimals. There it is 2.5 to 5.7 times smaller than the others and
+  decodes at bit-pack speed (0.7 to 0.8 ns).
+- On widened `f32`s, `ALP` matches `GORILLA`. On floats with full mantissas, it ranges from 6 % ahead of the delta
+  codecs (speech) to 18 % behind them (motor `f32`).
+- The exclusive-or (XOR) codecs win on two sets, both with `CHIMP`: by 6 % on speech and by 15 % on the `f64` floats of
+  ADC × 3.3/4096. They decode 2 to 10 times slower than the bit-packed codecs.
+- A writer that tries `ALP` and `FLOAT_DELTA` on each chunk and keeps the smaller is the best float codec on four of the
+  seven sets. On the others, it is within 13 % of the best.
 
 The bench runs in about 20 s. `just bench-sample-codecs` fetches the speech file into `target/bench-data` once, checks
-its hash and prints the table; `--chunk` and `--repeats` change the chunk size and the number of timed passes.
+its hash and prints the table.
+
+`--chunk` and `--repeats` change the chunk size and the number of timed passes.
 
 ## Series tracks
 
@@ -1122,54 +1450,79 @@ which holds:
 | summaries | the summaries the writer builds (`SeriesSummarySpec`) |
 | stream | for samples kept in a media file, the stream they are in |
 
-`SeriesDef::of::<Fixed<Ampere, Milli, i32>>(..)` takes the element and the scale from the type
-(`ww_tape::SeriesValue`).
+`SeriesDef::of::<Fixed<Ampere, Milli, i32>>(..)` takes the element and the scale from the type (`ww_tape::SeriesValue`).
 
 ### Grids
 
-A series track has no records. Its samples are in series chunks, and each chunk's head carries the **grid** its
-samples are on (`SeriesGrid`), so a chunk times and scales its samples alone. A grid is a sample index at or before
-the chunk's first sample, that sample's tick, and the scale of the chunk's stored numbers.
+A series track has no records. Its samples are in series chunks, and each chunk's head carries the **grid** its samples
+are on (`SeriesGrid`).
 
-Sample `i` is at `grid_tick + (i - grid_index) · period`, rounded down, and a stored number means `number · scale` of
-the sample type's unit. A grid takes 17 bytes and the scale: 19 bytes for a power of ten (`10⁻⁶` is `f4 00`). For
-example, with the period `62500/3` and grid index 96 at grid tick 5000, sample 100 lies at tick 5000 + 4 · 62500/3,
-rounded down.
+A chunk therefore times and scales its samples alone. A grid is a sample index at or before the chunk's first sample,
+that sample's tick, and the scale of the chunk's stored numbers.
 
-The head's first and last tick are its first and last sample's ticks on that grid (`SeriesGrid::of_chunk` checks
-them). The index lists each chunk's first sample and first tick, so a reader finds the chunk of a sample or a time
-without reading a head. Consecutive chunks of one stretch of recording carry the same grid, so no sample time moves by
-rounding however the samples are cut into chunks.
+Sample `i` is at `grid_tick + (i - grid_index) · period`, rounded down. A stored number means `number · scale` of the
+sample type's unit.
 
-A prefix change of an autoranging device keeps the grid at another scale (`SeriesGrid::rescaled`). A chunk has one
-scale, so a writer seals the open chunk there. A gap or a restart on the same clock starts a new grid
-(`SeriesGrid::start`) more than a period, rounded up, after the last tick of the chunk before (`series::is_gap`).
+A grid takes 17 bytes and the scale: 19 bytes for a power of ten (`10⁻⁶` is `f4 00`).
 
-The chunks are data like events chunks, written once and never repeated, so a series track takes the plain policy
-(`TrackRepeat::Stream`). A writer refuses a record, a put or an events chunk on a series track, and a series chunk
-whose ticks are not on its grid.
+For example, take the period `62500/3` and grid index 96 at grid tick 5000. Sample 100 then lies at tick 5000 + 4 ·
+62500/3, rounded down.
+
+The head's first and last tick are its first and last sample's ticks on that grid (`SeriesGrid::of_chunk` checks them).
+The index lists each chunk's first sample and first tick.
+
+A reader therefore finds the chunk of a sample or a time without reading a head.
+
+Consecutive chunks of one stretch of recording carry the same grid. No sample time therefore moves by rounding, however
+the samples are cut into chunks.
+
+#### Changing scale or starting a grid
+
+With `SeriesGrid::rescaled`, a prefix change of an autoranging device keeps the grid at another scale. A chunk has one
+scale, and a writer therefore seals the open chunk there.
+
+`SeriesGrid::start` starts a new grid at a gap or a restart on the same clock. Such a grid starts more than a period,
+rounded up, after the last tick of the chunk before, as `series::is_gap` checks.
+
+The chunks are data like events chunks, written once and never repeated. A series track therefore takes the plain policy
+(`TrackRepeat::Stream`).
+
+A writer refuses a record, a put or an events chunk on a series track. It also refuses a series chunk whose ticks are
+not on its grid.
 
 ### Gaps and lost samples
 
 A **gap** is a chunk on another grid than the chunk before it. Its first sample lies more than a period, rounded up,
-after that chunk's last tick, and no sample lies between them, so a reader draws no line across. The next sample on
-the same grid lies at most that far on. The first and last ticks of two neighbouring index entries so tell a gap from
-a continuation or from lost chunks without reading a head. A new grid at most that far on (a phase shift) is refused
-(`SeriesError::GridTooClose`).
+after that chunk's last tick, and no sample lies between them.
 
-Sample indexes missing between two chunks of one grid are **lost samples**: a chunk was damaged or is in another
-piece. Their ticks are known and their values are not, and a reader shows them as missing.
+A reader therefore draws no line across. The next sample on the same grid lies at most that far on.
+
+The first and last ticks of two neighbouring index entries therefore tell a gap from a continuation or from lost chunks
+without reading a head.
+
+A new grid at most that far on (a phase shift) is refused (`SeriesError::GridTooClose`).
+
+Sample indexes missing between two chunks of one grid are **lost samples**: a chunk was damaged or is in another piece.
+Their ticks are known and their values are not, and a reader shows them as missing.
+
+#### The series timeline
 
 `ww_tape::SeriesTimeline` collects a track's chunk heads in any order (`from_chunks`, `push_chunk`). It checks each
-chunk against its grid and its neighbours: no sample on two grids or at two scales, and a new grid more than a period
-after the chunk before and before the chunk after. It keeps consecutive chunks of one grid and scale as one
-`SeriesStretch`, gives any sample's tick and scale, and says where the gaps are (`gap_before`).
+chunk against its grid and its neighbours:
+
+- no sample lies on two grids or at two scales;
+- a new grid starts more than a period after the chunk before, and before the chunk after.
+
+The timeline keeps consecutive chunks of one grid and scale as one `SeriesStretch`. It gives any sample's tick and
+scale, and says where the gaps are (`gap_before`).
 
 ### From a wire batch to chunk columns
 
-A received `Series<Fixed<..>>` batch goes into chunk columns as integers: each item's stored number is put into the
-column as it is (`SeriesValue::write_parts`). A `ww_si` quantity's prefix becomes the grid's scale. A change of prefix
-seals the chunk at the same item where the `Series` restarts its numeric column.
+A received `Series<Fixed<..>>` batch goes into chunk columns as integers. `SeriesValue::write_parts` puts each item's
+stored number into the column as it is.
+
+A `ww_si` quantity's prefix becomes the grid's scale. A change of prefix seals the chunk at the same item where the
+`Series` restarts its numeric column.
 
 The wire codecs of `Series<T>` and these sample codecs are separate layers. A batch is decoded once on the host and
 coded again for random access in the file.
@@ -1180,16 +1533,24 @@ An events chunk's payloads take two columns, both or neither (`ww_tape::payloads
 them from the items' bytes, and `Payloads::read` reads them back by item.
 
 - **Lengths** (`ColumnKind::PayloadLengths`, codec 4, `payloads::LENGTHS`): per group of 128 items, a 13-byte record
-  holds where the group's first payload starts, the group's shortest length, a width of 0 to 32 bits, and where its
-  packed lengths start. Each group's lengths less that minimum follow, bit-packed at its width. Payloads of one length
-  cost the records only, and a record's start places a group's payloads without the groups before it.
-- **Payloads** (`ColumnKind::Payloads`): the items' bytes back to back, `RAW` and read in place, or `LZ4` (48) when
-  that is smaller, decoded once when the chunk is opened.
+  holds where the group's first payload starts and the group's shortest length. The record also holds a width of 0 to 32
+  bits and where its packed lengths start.
+  - Each group's lengths less that minimum follow, bit-packed at its width.
+  - Payloads of one length cost the records only, and a record's start places a group's payloads without the groups
+    before it.
+- **Payloads** (`ColumnKind::Payloads`): the items' bytes back to back, `RAW` and read in place, or `LZ4` (48) when that
+  is smaller, decoded once when the chunk is opened.
 
-A group's lengths are stored in one form only: its minimum is its shortest length, its width the bits the largest
-packed value needs, and the bits after its last value are 0. A reader refuses any other form, so damage to a width or
-a minimum can't make a group read as other lengths of the same total.
+A group's lengths are stored in one form only:
 
-`Payloads::salvage` reads a chunk whose payload CRC failed. Each group of lengths is checked against its neighbours.
-Only the items of a group that fails, or raw items with a byte in a bad segment, are suspect
-(`Payloads::is_suspect`). A damaged lz4 column makes every item suspect.
+- its minimum is its shortest length;
+- its width is the bits the largest packed value needs;
+- the bits after its last value are 0.
+
+A reader refuses any other form. Damage to a width or a minimum therefore can't make a group read as other lengths of
+the same total.
+
+`Payloads::salvage` reads a chunk whose payload CRC failed, and checks each group of lengths against its neighbours.
+
+`Payloads::is_suspect` reports as suspect only the items of a group that fails, or raw items with a byte in a bad
+segment. A damaged lz4 column makes every item suspect.
