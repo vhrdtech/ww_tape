@@ -5,12 +5,12 @@ use shrink_wrap::prelude::*;
 use crate::Element;
 
 /// Scalars per sample of `element`: 2 for a complex element, else 1.
-pub(super) fn components(element: Element) -> u8 {
+pub fn components(element: Element) -> u8 {
     if element.parts() == 2 { 2 } else { 1 }
 }
 
 /// Whether `element` is a complex pair.
-pub(super) fn is_complex(element: Element) -> bool {
+pub fn is_complex(element: Element) -> bool {
     element.parts() == 2
 }
 

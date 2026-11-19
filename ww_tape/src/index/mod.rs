@@ -301,8 +301,7 @@ impl IndexEntry {
                 }
             }
             BlockKind::Summary => {
-                if let Some(s) = block.summary() {
-                    let h = s.head();
+                if let Some(h) = block.summary_head() {
                     e.track_id = h.track_id;
                     e.track_number = h.track_number;
                     e.tree = h.tree.to_u8();

@@ -236,20 +236,29 @@ fn entries_of_blocks() {
         (0xfeed, 4096, 3, 10, 30, 45)
     );
 
-    // a summary block: the fields of its head
-    let fields = crate::summary::EventFields {
-        flags: false,
-        latest_end: true,
+    // a summary block: the fields of its head, its nodes left zero
+    use crate::summary::{EventFields, Layout, SummaryHead, SummaryWriter, Tree, summary_len};
+    let h = SummaryHead {
+        track_id: 0xabc,
+        track_number: 5,
+        tree: Tree::Events,
+        level: 0,
+        node_shift: 11,
+        layout: Layout::Events(EventFields {
+            flags: false,
+            latest_end: true,
+        }),
+        first_item: 512,
+        items: 3000,
+        first_tick: -7,
+        last_tick: 29_983,
+        latest_end: 29_995,
     };
-    let mut tree = crate::summary::EventTree::new(0xabc, 5, fields, 512);
-    for i in 0..3000i64 {
-        tree.push(i * 10 - 7, i * 10 + 5, 0).unwrap();
-    }
-    tree.finish().unwrap();
-    let blocks = tree.take_blocks();
-    let sb = &blocks[0];
-    let block = Block::read(sb).unwrap();
-    let h = block.summary().unwrap().head();
+    let mut sb = vec![0u8; summary_len(&h).unwrap()];
+    let n = SummaryWriter::new(&mut sb, id(3), &h).unwrap().finish();
+    assert_eq!(n, sb.len());
+    let block = Block::read(&sb).unwrap();
+    assert_eq!(block.summary_head(), Some(h));
     let e = IndexEntry::of_block(10, &block).unwrap();
     assert_eq!(
         (e.kind, e.len as usize, e.track_id, e.track_number),

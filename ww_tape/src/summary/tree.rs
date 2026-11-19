@@ -1,13 +1,13 @@
 //! The item tree of an event track as a writer builds it.
 
-use super::levels::{LevelNode, Levels};
+use super::levels::{BuildError, LevelNode, Levels};
 use super::{
-    EVENT_BASE_SHIFT, EventFields, EventNode, Layout, SummaryError, SummaryHead, Tree, summary_len,
+    EVENT_BASE_SHIFT, EventFields, EventNode, Layout, SummaryHead, Tree, summary_len,
     write_event_summary,
 };
 
 impl LevelNode for EventNode {
-    fn merge(&mut self, next: &Self, _items: u64, _next_items: u64) -> Result<(), SummaryError> {
+    fn merge(&mut self, next: &Self, _items: u64, _next_items: u64) -> Result<(), BuildError> {
         EventNode::merge(self, next);
         Ok(())
     }
@@ -84,7 +84,7 @@ impl EventTree {
     }
 
     /// Add the next item: its start, end (the start for an instant) and flags. Items come in order of start.
-    pub fn push(&mut self, start: i64, end: i64, flags: u32) -> Result<(), SummaryError> {
+    pub fn push(&mut self, start: i64, end: i64, flags: u32) -> Result<(), BuildError> {
         self.push_run(ItemRun {
             count: 1,
             first_tick: start,
@@ -95,26 +95,26 @@ impl EventTree {
     }
 
     /// Add the next `run.count` items at once; the run must lie inside one level-0 node (2048 items).
-    pub fn push_run(&mut self, run: ItemRun) -> Result<(), SummaryError> {
+    pub fn push_run(&mut self, run: ItemRun) -> Result<(), BuildError> {
         if run.count == 0 {
-            return Err(SummaryError::Invalid("a run of no items"));
+            return Err(BuildError::Invalid("a run of no items"));
         }
         if run.last_tick < run.first_tick || run.latest_end < run.last_tick {
-            return Err(SummaryError::Invalid("run ticks out of order"));
+            return Err(BuildError::Invalid("run ticks out of order"));
         }
         if !self.fields.latest_end && run.latest_end != run.last_tick {
-            return Err(SummaryError::Invalid("a span in a tree of instants"));
+            return Err(BuildError::Invalid("a span in a tree of instants"));
         }
         let shift = EVENT_BASE_SHIFT;
         let end = self
             .next_item
             .checked_add(run.count)
-            .ok_or(SummaryError::Invalid("item numbers past u64"))?;
+            .ok_or(BuildError::Invalid("item numbers past u64"))?;
         let last = end
             .checked_sub(1)
-            .ok_or(SummaryError::Invalid("a run of no items"))?;
+            .ok_or(BuildError::Invalid("a run of no items"))?;
         if (self.next_item >> shift) != (last >> shift) {
-            return Err(SummaryError::Invalid("a run across a level-0 node"));
+            return Err(BuildError::Invalid("a run across a level-0 node"));
         }
         let node = EventNode {
             first_tick: run.first_tick,
@@ -125,7 +125,7 @@ impl EventTree {
         match &mut self.acc {
             Some(acc) => {
                 if run.first_tick < acc.last_tick {
-                    return Err(SummaryError::Invalid("items out of order of start"));
+                    return Err(BuildError::Invalid("items out of order of start"));
                 }
                 acc.merge(&node);
             }
@@ -133,7 +133,7 @@ impl EventTree {
                 if let Some(prev) = self.last_tick
                     && run.first_tick < prev
                 {
-                    return Err(SummaryError::Invalid("items out of order of start"));
+                    return Err(BuildError::Invalid("items out of order of start"));
                 }
                 self.acc = Some(node);
             }
@@ -147,15 +147,15 @@ impl EventTree {
     }
 
     /// Hand the open level-0 node up.
-    fn close_node(&mut self) -> Result<(), SummaryError> {
+    fn close_node(&mut self) -> Result<(), BuildError> {
         let acc = self
             .acc
             .take()
-            .ok_or(SummaryError::Invalid("no open node to close"))?;
+            .ok_or(BuildError::Invalid("no open node to close"))?;
         self.last_tick = Some(acc.last_tick);
         let idx = self
             .last_node()
-            .ok_or(SummaryError::Invalid("no item to close"))?;
+            .ok_or(BuildError::Invalid("no item to close"))?;
         self.levels.push(0, idx, acc, self.next_item)
     }
 
@@ -165,7 +165,7 @@ impl EventTree {
     }
 
     /// Write the open nodes of every level, partial ones included, as blocks. Call it once, after the last item.
-    pub fn finish(&mut self) -> Result<(), SummaryError> {
+    pub fn finish(&mut self) -> Result<(), BuildError> {
         if self.acc.is_some() {
             self.close_node()?;
         }
@@ -173,9 +173,9 @@ impl EventTree {
         self.encode()
     }
 
-    fn encode(&mut self) -> Result<(), SummaryError> {
+    fn encode(&mut self) -> Result<(), BuildError> {
         for out in self.levels.take_output() {
-            let empty = SummaryError::Invalid("a batch holds nodes");
+            let empty = BuildError::Invalid("a batch holds nodes");
             let (Some(first), Some(last)) = (out.nodes.first(), out.nodes.last()) else {
                 return Err(empty);
             };

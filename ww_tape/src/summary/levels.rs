@@ -1,13 +1,64 @@
 //! The levels of a summary tree as a writer fills them: open nodes, batches of finished nodes, blocks to encode.
 
 use super::{
-    FANOUT_SHIFT, LEVEL_MAX, NODE_SHIFT_MAX, SummaryError, batch_nodes, level_shift, node_span,
+    FANOUT_SHIFT, LEVEL_MAX, NODE_SHIFT_MAX, ScaleError, SummaryError, batch_nodes, level_shift,
+    node_span,
 };
+use crate::SeriesError;
+
+/// Why a summary builder refuses its input or can't write a block.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum BuildError {
+    /// The input breaks a rule of the tree: items out of order, a bad declaration, numbers past their type.
+    Invalid(&'static str),
+    /// Statistics at two scales can't be brought to one.
+    Scale(ScaleError),
+    /// A grid the series writer was handed breaks a rule of the series' timeline.
+    Series(SeriesError),
+    /// Samples handed to a series writer are not whole frames of `stride` scalars.
+    PartialFrame { stride: usize },
+    /// A summary block can't be written.
+    Block(SummaryError),
+}
+
+impl core::fmt::Display for BuildError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            BuildError::Invalid(what) => write!(f, "{what}"),
+            BuildError::Scale(e) => write!(f, "{e}"),
+            BuildError::Series(e) => write!(f, "{e}"),
+            BuildError::PartialFrame { stride } => {
+                write!(f, "samples are not whole frames of {stride} scalars")
+            }
+            BuildError::Block(e) => write!(f, "writing a summary block: {e}"),
+        }
+    }
+}
+
+impl core::error::Error for BuildError {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
+        // the wrapped error's text is in this one's: its source comes next
+        match self {
+            BuildError::Scale(e) => e.source(),
+            BuildError::Block(e) => e.source(),
+            BuildError::Invalid(_) | BuildError::Series(_) | BuildError::PartialFrame { .. } => {
+                None
+            }
+        }
+    }
+}
+
+impl From<SummaryError> for BuildError {
+    fn from(e: SummaryError) -> Self {
+        BuildError::Block(e)
+    }
+}
 
 /// A node that merges with the node right after it.
 pub(super) trait LevelNode: Clone {
     /// Merge `next` (`next_items` items) into this node (`items` items).
-    fn merge(&mut self, next: &Self, items: u64, next_items: u64) -> Result<(), SummaryError>;
+    fn merge(&mut self, next: &Self, items: u64, next_items: u64) -> Result<(), BuildError>;
 }
 
 /// A batch of consecutive nodes of one level, ready to encode as a block.
@@ -50,7 +101,7 @@ pub(super) struct Levels<N> {
 }
 
 /// A level or node number past what the tree holds: the writer's own bookkeeping, never reached from good input.
-const NO_NODE: SummaryError = SummaryError::Invalid("a level or node outside the tree");
+const NO_NODE: BuildError = BuildError::Invalid("a level or node outside the tree");
 
 impl<N: LevelNode> Levels<N> {
     /// Levels of a tree whose first item is `origin` and whose level-0 nodes hold `2^base_shift` items of
@@ -66,18 +117,18 @@ impl<N: LevelNode> Levels<N> {
     }
 
     /// Log2 of the items in a node of `level`.
-    pub fn shift(&self, level: u8) -> Result<u8, SummaryError> {
+    pub fn shift(&self, level: u8) -> Result<u8, BuildError> {
         level_shift(self.base_shift, level).ok_or(NO_NODE)
     }
 
     /// First item and items of node `idx` of `level` among items `[origin, end)`.
-    fn span(&self, level: u8, idx: u64, end: u64) -> Result<(u64, u64), SummaryError> {
+    fn span(&self, level: u8, idx: u64, end: u64) -> Result<(u64, u64), BuildError> {
         let count = end.checked_sub(self.origin).ok_or(NO_NODE)?;
         node_span(idx, self.shift(level)?, self.origin, count).ok_or(NO_NODE)
     }
 
     /// Level `level`, added with the levels below it when new.
-    fn level_mut(&mut self, level: u8) -> Result<&mut Level<N>, SummaryError> {
+    fn level_mut(&mut self, level: u8) -> Result<&mut Level<N>, BuildError> {
         if level > LEVEL_MAX {
             return Err(NO_NODE);
         }
@@ -91,7 +142,7 @@ impl<N: LevelNode> Levels<N> {
 
     /// Hand in node `idx` of `level`, finished (or the last, partial, at the end); `end` is one past the last item
     /// seen. Merges it into its parent and finishes the parent with its last child.
-    pub fn push(&mut self, level: u8, idx: u64, node: N, end: u64) -> Result<(), SummaryError> {
+    pub fn push(&mut self, level: u8, idx: u64, node: N, end: u64) -> Result<(), BuildError> {
         let (_, items) = self.span(level, idx, end)?;
         // a parent only while its nodes hold at most 2^NODE_SHIFT_MAX items
         let parent_level = level
@@ -131,7 +182,7 @@ impl<N: LevelNode> Levels<N> {
     }
 
     /// The batch of `level` as a block to encode.
-    fn emit(&mut self, level: u8, end: u64) -> Result<(), SummaryError> {
+    fn emit(&mut self, level: u8, end: u64) -> Result<(), BuildError> {
         let lv = self.level_mut(level)?;
         let nodes = core::mem::take(&mut lv.batch);
         let first = lv.batch_first;
@@ -157,7 +208,7 @@ impl<N: LevelNode> Levels<N> {
 
     /// Finish every level at `end` (the level-0 node holding the last item already handed in): the open nodes go in
     /// as partial nodes, every batch becomes a block, up to the first level with a single node.
-    pub fn finish(&mut self, end: u64) -> Result<(), SummaryError> {
+    pub fn finish(&mut self, end: u64) -> Result<(), BuildError> {
         let mut level = 0u8;
         while usize::from(level) < self.levels.len() {
             if let Some((p, open, _)) = self.level_mut(level)?.open.take() {

@@ -2104,8 +2104,8 @@ fn data_tracks(b: &crate::Block<'_>) -> Vec<u32> {
     if let Some(c) = b.chunk() {
         return vec![c.head().track_number];
     }
-    if let Some(s) = b.summary() {
-        return vec![s.head().track_number];
+    if let Some(head) = b.summary_head() {
+        return vec![head.track_number];
     }
     let mut buf = Vec::new();
     let Ok(d) = b.decode(&mut buf) else {

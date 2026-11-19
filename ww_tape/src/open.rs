@@ -824,8 +824,7 @@ impl Definitions {
                 .collect();
             self.check_relation_columns(head.track_number, &specs)?;
             relation_columns_read(&c)
-        } else if let Some(s) = b.summary() {
-            let head = s.head();
+        } else if let Some(head) = b.summary_head() {
             self.check_track_id(head.track_number, head.track_id)
                 .map(|_| ())
         } else {

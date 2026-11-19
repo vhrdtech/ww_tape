@@ -68,8 +68,10 @@
 use exact_units::Magnitude;
 use shrink_wrap::prelude::*;
 
-use crate::bytes;
-use crate::{BlockKind, BoundError, CRC_LEN, HEADER_LEN, MAX_BLOCK_LEN, SeriesError};
+use crate::bytes::{
+    self, file_u8, file_u16, file_u32, file_u64, le_i64, le_u8, le_u16, le_u32, le_u64,
+};
+use crate::{BlockKind, BoundError, CRC_LEN, HEADER_LEN, MAX_BLOCK_LEN};
 
 #[cfg(feature = "std")]
 use ww_tape_codecs::kernel;
@@ -83,8 +85,7 @@ pub use series::{ChannelStats, FACTOR_MAX, ScaleError, Value, common_scale, scal
 #[cfg(feature = "std")]
 pub use series::{SERIES_BLOCK_BYTES, Scalar, SeriesStart, SeriesSummaries};
 mod spec;
-pub use spec::{ClipRange, SeriesStats, SeriesSummarySpec, Stat};
-use spec::{components, is_complex};
+pub use spec::{ClipRange, SeriesStats, SeriesSummarySpec, Stat, components, is_complex};
 mod nodes;
 #[cfg(feature = "std")]
 use nodes::batch_nodes;
@@ -92,6 +93,8 @@ pub use nodes::{EventNode, StatColumn, Summary, write_event_summary, write_serie
 
 #[cfg(feature = "std")]
 mod levels;
+#[cfg(feature = "std")]
+pub use levels::BuildError;
 
 #[cfg(feature = "std")]
 mod tree;
@@ -103,7 +106,7 @@ pub const SUMMARY_FIXED_LEN: usize = 64;
 /// Where the scale starts: after the block header and the summary head.
 const SCALE_AT: usize = HEADER_LEN + SUMMARY_FIXED_LEN;
 /// Bytes of a summary block without scale and body.
-const SUMMARY_MIN_LEN: usize = SCALE_AT + CRC_LEN;
+pub const SUMMARY_MIN_LEN: usize = SCALE_AT + CRC_LEN;
 /// Node shift of the event tree at level 0: 2048 items.
 pub const EVENT_BASE_SHIFT: u8 = 11;
 /// Log2 of the nodes of one level merged into one node of the level above: 16.
@@ -116,7 +119,7 @@ pub use crate::series::SCALE_LEN_MAX;
 pub const LEVEL_MAX: u8 = NODE_SHIFT_MAX / FANOUT_SHIFT;
 
 /// Node shift of `level` in a tree whose level-0 nodes hold `2^base` items; None past a u8.
-pub(super) fn level_shift(base: u8, level: u8) -> Option<u8> {
+pub fn level_shift(base: u8, level: u8) -> Option<u8> {
     FANOUT_SHIFT.checked_mul(level)?.checked_add(base)
 }
 
@@ -127,7 +130,7 @@ fn shr(v: u64, shift: u8) -> u64 {
 
 /// The items of node `n` (nodes of `2^shift` items, numbered from item 0) among items `[from, from + count)`: its
 /// first item and how many; None when it holds none of them.
-pub(super) fn node_span(n: u64, shift: u8, from: u64, count: u64) -> Option<(u64, u64)> {
+pub fn node_span(n: u64, shift: u8, from: u64, count: u64) -> Option<(u64, u64)> {
     let last = from.checked_add(count.checked_sub(1)?)?;
     let (first_node, last_node) = (shr(from, shift), shr(last, shift));
     if n < first_node || n > last_node {
@@ -291,6 +294,84 @@ impl SummaryHead {
         }
     }
 
+    /// Read and check the summary block `block` (exactly its bytes, CRC checked by the caller): its head, and its
+    /// body, as long as the head says. A reader that decodes no node still checks a block this way.
+    pub fn read(block: &[u8]) -> Result<(Self, &[u8]), SummaryError> {
+        let short = SummaryError::Invalid("shorter than the head");
+        let (head_scale_body, _crc) = block
+            .split_last_chunk::<CRC_LEN>()
+            .filter(|(b, _)| b.len() >= SCALE_AT)
+            .ok_or(short)?;
+        let b = head_scale_body;
+        if le_u32(b, 28).ok_or(short)? != 0 || le_u16(b, 54).ok_or(short)? != 0 {
+            return Err(SummaryError::Invalid("reserved bytes not zero"));
+        }
+        let tree = Tree::from_u8(le_u8(b, 44).ok_or(short)?)
+            .ok_or(SummaryError::Invalid("unknown tree"))?;
+        let element = le_u8(b, 47).ok_or(short)?;
+        let fields = le_u16(b, 48).ok_or(short)?;
+        let scale_len = file_u16(b, 52).ok_or(short)?.at_most(SCALE_LEN_MAX)?;
+        let (scale_bytes, body) = b
+            .get(SCALE_AT..)
+            .and_then(|rest| rest.split_at_checked(scale_len))
+            .ok_or(SummaryError::Invalid("scale past the end"))?;
+        // a channel takes at least 4 bytes of every node
+        let channels_max = u16::try_from(body.len()).unwrap_or(u16::MAX);
+        let channels = file_u16(b, 50).ok_or(short)?.bounded(channels_max)?;
+        let layout = match tree {
+            Tree::Events => {
+                if element != 0 || channels != 0 || scale_len != 0 {
+                    return Err(SummaryError::Invalid(
+                        "element, channels or scale in an event tree",
+                    ));
+                }
+                Layout::Events(
+                    EventFields::from_bits(fields)
+                        .ok_or(SummaryError::Invalid("unknown fields"))?,
+                )
+            }
+            Tree::Series => Layout::Series {
+                element: Element::from_code(element)
+                    .ok_or(SummaryError::Invalid("unknown element"))?,
+                channels,
+                stats: SeriesStats::from_bits(fields)
+                    .ok_or(SummaryError::Invalid("unknown statistics"))?,
+                scale: read_scale(scale_bytes)?,
+            },
+        };
+        let first_item = le_u64(b, 56).ok_or(short)?;
+        let head = SummaryHead {
+            track_id: le_u64(b, 32).ok_or(short)?,
+            track_number: le_u32(b, 40).ok_or(short)?,
+            tree,
+            level: file_u8(b, 45).ok_or(short)?.bounded(LEVEL_MAX)?,
+            node_shift: file_u8(b, 46).ok_or(short)?.bounded(NODE_SHIFT_MAX)?,
+            layout,
+            first_item,
+            // items past u64::MAX - first_item would number past u64
+            items: file_u64(b, 64).ok_or(short)?.bounded(!first_item)?,
+            first_tick: le_i64(b, 72).ok_or(short)?,
+            last_tick: le_i64(b, 80).ok_or(short)?,
+            latest_end: le_i64(b, 88).ok_or(short)?,
+        };
+        head.check()?;
+        // a node takes at least 4 bytes of the body
+        let nodes = file_u32(block, 12).ok_or(short)?.within(body.len())?;
+        if u64::try_from(nodes).ok() != Some(head.node_count()) {
+            return Err(SummaryError::Invalid(
+                "node count differs from the head's items",
+            ));
+        }
+        if head
+            .node_len()
+            .and_then(|len| nodes.checked_mul(len))
+            .is_none_or(|len| len != body.len())
+        {
+            return Err(SummaryError::Invalid("body length differs from the head"));
+        }
+        Ok((head, body))
+    }
+
     /// Check what a head can say on its own.
     fn check(&self) -> Result<(), SummaryError> {
         if self.items == 0 {
@@ -366,12 +447,6 @@ pub enum SummaryError {
     Invalid(&'static str),
     /// A series block's scale doesn't encode or decode.
     ScaleBytes(shrink_wrap::Error),
-    /// Statistics at two scales can't be brought to one.
-    Scale(ScaleError),
-    /// A grid a series writer was handed breaks a rule of the series' timeline.
-    Series(SeriesError),
-    /// Samples handed to a series writer are not whole frames of `stride` scalars.
-    PartialFrame { stride: usize },
     /// A count, length or layout value of the block is over its cap or the block's length.
     Bound(BoundError),
 }
@@ -387,11 +462,6 @@ impl core::fmt::Display for SummaryError {
             }
             SummaryError::Invalid(what) => write!(f, "{what}"),
             SummaryError::ScaleBytes(e) => write!(f, "scale bytes: {e}"),
-            SummaryError::Scale(e) => write!(f, "{e}"),
-            SummaryError::Series(e) => write!(f, "{e}"),
-            SummaryError::PartialFrame { stride } => {
-                write!(f, "samples are not whole frames of {stride} scalars")
-            }
             SummaryError::Bound(e) => write!(f, "{e}"),
         }
     }
@@ -537,5 +607,7 @@ fn read_scale(bytes: &[u8]) -> Result<Magnitude, SummaryError> {
     crate::series::read_scale(bytes).map_err(SummaryError::ScaleBytes)
 }
 
+#[cfg(test)]
+mod head_tests;
 #[cfg(test)]
 mod tests;

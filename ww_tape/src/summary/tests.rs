@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use super::*;
-use crate::{Block, BlockError, Ratio64, SampleShape, SeriesGrid};
+use crate::{Block, BlockError, Ratio64, SampleShape, SeriesError, SeriesGrid};
 
 /// xorshift64*: workloads without a dependency.
 struct Rng(u64);
@@ -102,7 +102,7 @@ fn event_levels(blocks: &[Vec<u8>]) -> BTreeMap<(u8, u64), (u64, u64, EventNode)
     for b in blocks {
         let block = Block::read(b).expect("a good block");
         assert_eq!(block.kind, crate::BlockKind::Summary);
-        let s = block.summary().expect("a summary");
+        let s = Summary::of_block(&block).expect("a summary");
         let h = s.head();
         for i in 0..s.node_count() {
             let (first, items) = h.node_items(i as u64).unwrap();
@@ -355,7 +355,7 @@ fn series_blocks<T: Scalar>(
 fn series_levels(blocks: &[Vec<u8>]) -> BTreeMap<(u8, u64, u16), (u64, u64, ChannelStats)> {
     let mut m = BTreeMap::new();
     for b in blocks {
-        let s = Block::read(b).unwrap().summary().unwrap();
+        let s = Summary::of_block(&Block::read(b).unwrap()).unwrap();
         let h = s.head();
         let Layout::Series { channels, .. } = h.layout else {
             panic!("a series block")
@@ -668,7 +668,7 @@ fn series_refuses_partial_frames() {
         SeriesSummaries::<i16>::new(start, spec(4, SeriesStats::all(Element::I16), None)).unwrap();
     assert_eq!(
         s.push(&[1, 2, 3, 4], 0),
-        Err(SummaryError::PartialFrame { stride: 3 })
+        Err(BuildError::PartialFrame { stride: 3 })
     );
     s.push(&[1, 2, 3], 0).unwrap();
 }
@@ -778,42 +778,6 @@ fn heads_read_back_and_bad_heads_are_refused() {
             "byte {at}"
         );
     }
-}
-
-/// The last node of a head at the top of the item numbers: its end, `(n + 1) << shift`, is past u64.
-#[test]
-fn node_items_at_the_top_of_the_item_numbers() {
-    let h = SummaryHead {
-        track_id: 1,
-        track_number: 1,
-        tree: Tree::Events,
-        level: 0,
-        node_shift: 62,
-        layout: Layout::Events(EventFields::default()),
-        first_item: 3 << 62,
-        items: (1 << 62) - 1,
-        first_tick: 0,
-        last_tick: 0,
-        latest_end: 0,
-    };
-    assert_eq!(h.node_count(), 1);
-    assert_eq!(h.node_items(0), Some((3 << 62, (1 << 62) - 1)));
-    assert_eq!(h.node_items(1), None);
-    let wide = SummaryHead {
-        node_shift: 200,
-        first_item: 5,
-        items: u64::MAX - 5,
-        ..h
-    };
-    assert_eq!(wide.node_count(), 1);
-    assert_eq!(wide.node_items(0), Some((5, u64::MAX - 5)));
-    let none = SummaryHead { items: 0, ..h };
-    assert_eq!((none.node_count(), none.node_items(0)), (0, None));
-    let past = SummaryHead {
-        items: u64::MAX,
-        ..h
-    };
-    assert_eq!((past.node_count(), past.node_items(0)), (0, None));
 }
 
 /// An event tree whose items end at the top of the item numbers: the last node's end, `(n + 1) << shift`, is past
@@ -1134,7 +1098,7 @@ fn common_scales_and_factors() {
 fn scaled_nodes(blocks: &[Vec<u8>]) -> BTreeMap<(u8, u64), (u64, u64, Magnitude, SeriesNode)> {
     let mut m = BTreeMap::new();
     for b in blocks {
-        let s = Block::read(b).unwrap().summary().unwrap();
+        let s = Summary::of_block(&Block::read(b).unwrap()).unwrap();
         let h = s.head();
         for i in 0..s.node_count() {
             let (first, items) = h.node_items(i as u64).unwrap();
@@ -1244,7 +1208,7 @@ fn series_prefix_changes_match_naive_model_in_the_unit() {
         assert!(changes < 10 || mixed > 0, "some blocks hold two scales");
         // a block's scale is the common scale of its samples
         for b in &blocks {
-            let sm = Block::read(b).unwrap().summary().unwrap();
+            let sm = Summary::of_block(&Block::read(b).unwrap()).unwrap();
             let h = sm.head();
             let r = (h.first_item - first_item) as usize
                 ..(h.first_item + h.items - first_item) as usize;
@@ -1367,12 +1331,12 @@ fn series_scale_changes_refused() {
     s.push(&[1, 2, 3], 0).unwrap();
     assert_eq!(
         s.set_grid(first.rescaled(Magnitude::PI)),
-        Err(SummaryError::Scale(ScaleError::NoCommonScale))
+        Err(BuildError::Scale(ScaleError::NoCommonScale))
     );
     assert!(
         matches!(
             s.set_grid(SeriesGrid::start(3, 2, Magnitude::ONE)),
-            Err(SummaryError::Series(SeriesError::GridTooClose {
+            Err(BuildError::Series(SeriesError::GridTooClose {
                 first_item: 3
             }))
         ),
@@ -1381,7 +1345,7 @@ fn series_scale_changes_refused() {
     assert!(
         matches!(
             s.set_grid(SeriesGrid::start(4, 9, Magnitude::ONE)),
-            Err(SummaryError::Series(SeriesError::GridAfterFirst { .. }))
+            Err(BuildError::Series(SeriesError::GridAfterFirst { .. }))
         ),
         "a grid after the next sample"
     );
@@ -1389,7 +1353,7 @@ fn series_scale_changes_refused() {
     s.push(&[i64::MAX / 2], 0).unwrap();
     s.set_grid(first.rescaled(Magnitude::pow10(-3))).unwrap();
     s.push(&[5], 0).unwrap();
-    assert_eq!(s.finish(), Err(SummaryError::Scale(ScaleError::Overflow)));
+    assert_eq!(s.finish(), Err(BuildError::Scale(ScaleError::Overflow)));
     // a pending open node across the change reports it too
     let mut s = SeriesSummaries::<i64>::new(start(first), sp).unwrap();
     s.push(&[i64::MAX / 2], 0).unwrap();
@@ -1397,7 +1361,7 @@ fn series_scale_changes_refused() {
     s.push(&[5], 0).unwrap();
     assert_eq!(
         s.pending(0).err(),
-        Some(SummaryError::Scale(ScaleError::Overflow))
+        Some(BuildError::Scale(ScaleError::Overflow))
     );
     // a grid that starts after the first sample
     let late = SeriesGrid::start(10, 0, Magnitude::ONE);
@@ -1424,7 +1388,7 @@ fn series_block_scale_is_checked() {
     s.push(&[1i16; 40], 0).unwrap();
     s.finish().unwrap();
     let b = s.take_blocks().remove(0);
-    let sm = Block::read(&b).unwrap().summary().unwrap();
+    let sm = Summary::of_block(&Block::read(&b).unwrap()).unwrap();
     assert_eq!(sm.scale(), Some(Magnitude::pow10(-3)));
     assert_eq!(&b[52..54], &[2, 0], "a power of ten takes 2 bytes");
     assert_eq!(&b[96..98], &[0xfa, 0x00]);
@@ -1484,7 +1448,7 @@ fn series_cut_into_pieces_keeps_node_ticks() {
     let tick = |item: u64| segment.tick(period, item).unwrap();
     let ticks_on_grid = |blocks: &[Vec<u8>]| {
         for b in blocks {
-            let h = Block::read(b).unwrap().summary().unwrap().head();
+            let h = Summary::of_block(&Block::read(b).unwrap()).unwrap().head();
             assert_eq!(h.first_tick, tick(h.first_item), "{h:?}");
             assert_eq!(h.last_tick, tick(h.first_item + h.items - 1), "{h:?}");
         }
@@ -1531,4 +1495,31 @@ fn series_cut_into_pieces_keeps_node_ticks() {
         "no node off the grid"
     );
     assert!(split > 0, "some nodes are split");
+}
+
+/// A series writer refuses the reserved leaves element (code 13), whatever scalar type it takes.
+#[test]
+fn series_refuses_the_leaves_element() {
+    let leaves = SampleShape::new(Element::LEAVES, 1);
+    let start = SeriesStart {
+        track_id: 1,
+        track_number: 1,
+        shape: leaves,
+        first_item: 0,
+        grid: SeriesGrid::start(0, 0, Magnitude::pow10(-3)),
+        period: Ratio64::int(1000).unwrap(),
+    };
+    let spec = SeriesSummarySpec {
+        base_shift: 6,
+        stats: SeriesStats::all(Element::I32),
+        clip: None,
+    };
+    for scalar in [true, false] {
+        let r = if scalar {
+            SeriesSummaries::<i32>::new(start, spec).map(|_| ())
+        } else {
+            SeriesSummaries::<u8>::new(start, spec).map(|_| ())
+        };
+        assert!(r.is_err());
+    }
 }

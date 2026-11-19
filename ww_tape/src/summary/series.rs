@@ -817,15 +817,15 @@ mod builder {
         ChannelStats, Scalar, SeriesNode, SeriesSummarySpec, common_scale, components, is_complex,
     };
     use crate::summary::kernel::Kernel;
-    use crate::summary::levels::{LevelNode, Levels, Output};
+    use crate::summary::levels::{BuildError, LevelNode, Levels, Output};
     use crate::summary::{
-        Layout, SCALE_LEN_MAX, SummaryError, SummaryHead, Tree, summary_len, write_series_summary,
+        Layout, SCALE_LEN_MAX, SummaryHead, Tree, summary_len, write_series_summary,
     };
     use crate::{Element, Ratio64, SampleShape, SeriesError, SeriesGrid, SeriesTimeline};
 
     impl LevelNode for SeriesNode {
-        fn merge(&mut self, next: &Self, items: u64, next_items: u64) -> Result<(), SummaryError> {
-            SeriesNode::merge(self, next, items, next_items).map_err(SummaryError::Scale)
+        fn merge(&mut self, next: &Self, items: u64, next_items: u64) -> Result<(), BuildError> {
+            SeriesNode::merge(self, next, items, next_items).map_err(BuildError::Scale)
         }
     }
 
@@ -900,32 +900,32 @@ mod builder {
 
     impl<T: Scalar> SeriesSummaries<T> {
         /// Summaries of the series `start` describes, kept as `spec` declares.
-        pub fn new(start: SeriesStart, spec: SeriesSummarySpec) -> Result<Self, SummaryError> {
+        pub fn new(start: SeriesStart, spec: SeriesSummarySpec) -> Result<Self, BuildError> {
             let element = start.shape.element;
             if element.scalar() != T::TYPE {
-                return Err(SummaryError::Invalid(
+                return Err(BuildError::Invalid(
                     "element is not the samples' scalar type",
                 ));
             }
             let channels = u16::try_from(start.shape.channels.0)
                 .ok()
-                .ok_or(SummaryError::Invalid("more than 65535 channels"))?;
+                .ok_or(BuildError::Invalid("more than 65535 channels"))?;
             if channels == 0 {
-                return Err(SummaryError::Invalid("a series has no channels"));
+                return Err(BuildError::Invalid("a series has no channels"));
             }
             if !(SeriesSummarySpec::BASE_SHIFT_MIN..=SeriesSummarySpec::BASE_SHIFT_MAX)
                 .contains(&spec.base_shift)
             {
-                return Err(SummaryError::Invalid("base shift out of range"));
+                return Err(BuildError::Invalid("base shift out of range"));
             }
             if spec.stats.is_empty() {
-                return Err(SummaryError::Invalid("no statistics"));
+                return Err(BuildError::Invalid("no statistics"));
             }
             if (spec.stats.power_mean || spec.stats.power_max) && !is_complex(element) {
-                return Err(SummaryError::Invalid("power of a real element"));
+                return Err(BuildError::Invalid("power of a real element"));
             }
             if start.grid.grid_index > start.first_item {
-                return Err(SummaryError::Series(SeriesError::GridAfterFirst {
+                return Err(BuildError::Series(SeriesError::GridAfterFirst {
                     first_item: start.first_item,
                     grid_index: start.grid.grid_index,
                 }));
@@ -935,7 +935,7 @@ mod builder {
                 None => (T::LOWEST, T::HIGHEST),
                 Some(c) => (T::from_f64(c.low, false), T::from_f64(c.high, true)),
             };
-            let too_wide = SummaryError::Invalid("a frame or node past usize");
+            let too_wide = BuildError::Invalid("a frame or node past usize");
             let components = usize::from(components(element));
             let stride = usize::from(channels)
                 .checked_mul(components)
@@ -1002,21 +1002,21 @@ mod builder {
         /// same grid at a new scale (a prefix change), as the next chunk's head carries it. Refused when the grid
         /// starts after the next sample, a new grid's first sample isn't more than a period after the last sample's tick ([is_gap](crate::series::is_gap)), or the scale
         /// has no common scale with the ones before.
-        pub fn set_grid(&mut self, g: SeriesGrid) -> Result<(), SummaryError> {
+        pub fn set_grid(&mut self, g: SeriesGrid) -> Result<(), BuildError> {
             let next = self.next_item;
             let first = g
                 .chunk_ticks(self.timeline.period(), next, 1)
-                .map_err(SummaryError::Series)?
+                .map_err(BuildError::Series)?
                 .0;
             if !g.same_grid(&self.grid)
                 && let Some(last) = next.checked_sub(1).and_then(|i| self.timeline.tick(i))
                 && !crate::series::is_gap(self.timeline.period(), last, first)
             {
-                return Err(SummaryError::Series(SeriesError::GridTooClose {
+                return Err(BuildError::Series(SeriesError::GridTooClose {
                     first_item: next,
                 }));
             }
-            let common = common_scale(self.common, g.scale).map_err(SummaryError::Scale)?;
+            let common = common_scale(self.common, g.scale).map_err(BuildError::Scale)?;
             if g.scale != self.scale {
                 self.flush_acc()?;
                 self.scale = g.scale;
@@ -1028,13 +1028,13 @@ mod builder {
 
         /// Add samples: whole frames of `channels × components` scalars, interleaved; `flags` ORs into the nodes they
         /// fall in. Samples that are not whole frames are refused.
-        pub fn push(&mut self, samples: &[T], flags: u32) -> Result<(), SummaryError> {
+        pub fn push(&mut self, samples: &[T], flags: u32) -> Result<(), BuildError> {
             let stride = self.stride;
-            let partial = SummaryError::PartialFrame { stride };
+            let partial = BuildError::PartialFrame { stride };
             if stride == 0 || !samples.len().is_multiple_of(stride) {
                 return Err(partial);
             }
-            let past = SummaryError::Invalid("sample index past u64");
+            let past = BuildError::Invalid("sample index past u64");
             let mut rest = samples;
             while !rest.is_empty() {
                 // the samples left in the open node: 1 to 2^BASE_SHIFT_MAX
@@ -1055,7 +1055,7 @@ mod builder {
                 let count = u32::try_from(frames).map_err(|_| past)?;
                 self.timeline
                     .push(self.next_item, count, self.grid)
-                    .map_err(SummaryError::Series)?;
+                    .map_err(BuildError::Series)?;
                 self.add(now, flags);
                 self.next_item = u64::try_from(frames)
                     .ok()
@@ -1096,13 +1096,11 @@ mod builder {
         }
 
         /// The open level-0 node's samples since the last change of scale, at their scale, and their count.
-        fn acc_node(&self) -> Result<(SeriesNode, u64), SummaryError> {
-            let samples =
-                self.next_item
-                    .checked_sub(self.acc_from)
-                    .ok_or(SummaryError::Invalid(
-                        "open node starts past the next sample",
-                    ))?;
+        fn acc_node(&self) -> Result<(SeriesNode, u64), BuildError> {
+            let samples = self
+                .next_item
+                .checked_sub(self.acc_from)
+                .ok_or(BuildError::Invalid("open node starts past the next sample"))?;
             let channels = self
                 .acc
                 .iter()
@@ -1118,7 +1116,7 @@ mod builder {
         }
 
         /// The open level-0 node so far: the part before the last change of scale merged with the samples since.
-        fn open_node(&self) -> Result<Option<SeriesNode>, SummaryError> {
+        fn open_node(&self) -> Result<Option<SeriesNode>, BuildError> {
             let (node, samples) = self.acc_node()?;
             Ok(match (&self.part, samples) {
                 (None, 0) => None,
@@ -1126,23 +1124,23 @@ mod builder {
                 (Some((p, _)), 0) => Some(p.clone()),
                 (Some((p, n)), _) => {
                     let mut p = p.clone();
-                    p.merge(&node, *n, samples).map_err(SummaryError::Scale)?;
+                    p.merge(&node, *n, samples).map_err(BuildError::Scale)?;
                     Some(p)
                 }
             })
         }
 
         /// Move the samples since the last change of scale into the open node's earlier part.
-        fn flush_acc(&mut self) -> Result<(), SummaryError> {
+        fn flush_acc(&mut self) -> Result<(), BuildError> {
             let (node, samples) = self.acc_node()?;
             if samples > 0 {
                 self.part = Some(match self.part.take() {
                     None => (node, samples),
                     Some((mut p, n)) => {
-                        p.merge(&node, n, samples).map_err(SummaryError::Scale)?;
+                        p.merge(&node, n, samples).map_err(BuildError::Scale)?;
                         let n = n
                             .checked_add(samples)
-                            .ok_or(SummaryError::Invalid("open node past u64 samples"))?;
+                            .ok_or(BuildError::Invalid("open node past u64 samples"))?;
                         (p, n)
                     }
                 });
@@ -1153,15 +1151,15 @@ mod builder {
         }
 
         /// Close the open level-0 node (full, or partial at the end) and hand it up.
-        fn close_node(&mut self) -> Result<(), SummaryError> {
+        fn close_node(&mut self) -> Result<(), BuildError> {
             self.flush_acc()?;
             let (node, _) = self
                 .part
                 .take()
-                .ok_or(SummaryError::Invalid("no open node to close"))?;
+                .ok_or(BuildError::Invalid("no open node to close"))?;
             let idx = self
                 .last_node()
-                .ok_or(SummaryError::Invalid("no sample to close"))?;
+                .ok_or(BuildError::Invalid("no sample to close"))?;
             self.levels.push(0, idx, node, self.next_item)
         }
 
@@ -1177,7 +1175,7 @@ mod builder {
 
         /// Write the open nodes of every level, partial ones included, as blocks. Call it once, after the last
         /// sample.
-        pub fn finish(&mut self) -> Result<(), SummaryError> {
+        pub fn finish(&mut self) -> Result<(), BuildError> {
             if self.node_open() {
                 self.close_node()?;
             }
@@ -1185,13 +1183,13 @@ mod builder {
             self.encode()
         }
 
-        fn tick(&self, item: u64) -> Result<i64, SummaryError> {
+        fn tick(&self, item: u64) -> Result<i64, BuildError> {
             self.timeline
                 .tick(item)
-                .ok_or(SummaryError::Invalid("sample tick past i64"))
+                .ok_or(BuildError::Invalid("sample tick past i64"))
         }
 
-        fn encode(&mut self) -> Result<(), SummaryError> {
+        fn encode(&mut self) -> Result<(), BuildError> {
             for out in self.levels.take_output() {
                 let Output {
                     level,
@@ -1203,17 +1201,17 @@ mod builder {
                 let mut scale = nodes
                     .first()
                     .map(|n| n.scale)
-                    .ok_or(SummaryError::Invalid("a batch holds nodes"))?;
+                    .ok_or(BuildError::Invalid("a batch holds nodes"))?;
                 for n in &nodes {
-                    scale = common_scale(scale, n.scale).map_err(SummaryError::Scale)?;
+                    scale = common_scale(scale, n.scale).map_err(BuildError::Scale)?;
                 }
                 for n in &mut nodes {
-                    n.rescale(scale).map_err(SummaryError::Scale)?;
+                    n.rescale(scale).map_err(BuildError::Scale)?;
                 }
                 let last = items
                     .checked_sub(1)
                     .and_then(|n| first_item.checked_add(n))
-                    .ok_or(SummaryError::Invalid("a batch of no items"))?;
+                    .ok_or(BuildError::Invalid("a batch of no items"))?;
                 let last_tick = self.tick(last)?;
                 let head = SummaryHead {
                     track_id: self.track_id,
@@ -1256,7 +1254,7 @@ mod builder {
 
         /// What a live reader takes from memory for `level`: the number of the first node not in a block yet, and the
         /// nodes from it on, each at its own scale; the last may be partial (the open node).
-        pub fn pending(&self, level: u8) -> Result<(u64, Vec<SeriesNode>), SummaryError> {
+        pub fn pending(&self, level: u8) -> Result<(u64, Vec<SeriesNode>), BuildError> {
             let (mut first, mut nodes) = self.levels.pending(level);
             if level == 0
                 && self.node_open()
@@ -1265,7 +1263,7 @@ mod builder {
                 if nodes.is_empty() {
                     first = self
                         .last_node()
-                        .ok_or(SummaryError::Invalid("an open node of no samples"))?;
+                        .ok_or(BuildError::Invalid("an open node of no samples"))?;
                 }
                 nodes.push(open);
             }

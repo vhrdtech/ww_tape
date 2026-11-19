@@ -1079,7 +1079,7 @@ impl<'b> Block<'b> {
                 }
                 block.check_records()?;
                 if block.is_summary() {
-                    Summary::read(block.bytes).map_err(BlockError::Summary)?;
+                    SummaryHead::read(block.bytes).map_err(BlockError::Summary)?;
                 }
                 Ok(block)
             }
@@ -1241,12 +1241,12 @@ impl<'b> Block<'b> {
         self.body_known() && self.kind == BlockKind::Summary
     }
 
-    /// The summary of a summary block whose body this reader knows.
-    pub fn summary(&self) -> Option<Summary<'b>> {
+    /// The head of a summary block whose body this reader knows: what an index lists, without the nodes.
+    pub fn summary_head(&self) -> Option<SummaryHead> {
         if !self.is_summary() {
             return None;
         }
-        Summary::read(self.bytes).ok()
+        SummaryHead::read(self.bytes).ok().map(|(head, _)| head)
     }
 
     fn has_records(&self) -> bool {

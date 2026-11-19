@@ -2,7 +2,7 @@
 //! good summary block stays in bounds, and every block a builder writes reads back with its nodes covering the items,
 //! also across prefix changes of a series, whose nodes then merge at a common scale.
 use ww_tape::summary::{
-    EventTree, ItemRun, SeriesStart, SeriesStats, SeriesSummaries, SeriesSummarySpec, Stat,
+    EventTree, ItemRun, SeriesStart, SeriesStats, SeriesSummaries, SeriesSummarySpec, Stat, Summary,
 };
 use ww_tape::{
     Block, BlockId, Element, EventFields, Magnitude, Ratio64, SampleShape, SeriesGrid, SessionTag,
@@ -12,7 +12,9 @@ use ww_tape::{
 /// Look at everything a summary block read from `data` gives.
 pub(crate) fn walk(data: &[u8]) {
     let Ok(b) = Block::read(data) else { return };
-    let Some(s) = b.summary() else { return };
+    let Some(s) = Summary::of_block(&b) else {
+        return;
+    };
     let h = s.head();
     assert_eq!(h.node_count(), s.node_count() as u64);
     for i in 0..s.node_count() {
@@ -49,10 +51,7 @@ fn check(blocks: &[Vec<u8>], first: u64, end: u64) {
     let mut covered = 0u64;
     for b in blocks {
         walk(b);
-        let s = Block::read(b)
-            .expect("written good")
-            .summary()
-            .expect("a summary");
+        let s = Summary::of_block(&Block::read(b).expect("written good")).expect("a summary");
         let h = s.head();
         assert!(h.first_item >= first && h.first_item + h.items <= end);
         if h.level == 0 {
@@ -153,10 +152,7 @@ pub fn summary(data: &[u8]) {
     let nodes: Vec<_> = blocks
         .iter()
         .flat_map(|b| {
-            let s = Block::read(b)
-                .expect("written good")
-                .summary()
-                .expect("a summary");
+            let s = Summary::of_block(&Block::read(b).expect("written good")).expect("a summary");
             (0..s.node_count())
                 .map(|i| s.series_node(i).expect("a series node"))
                 .collect::<Vec<_>>()

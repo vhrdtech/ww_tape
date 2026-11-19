@@ -28,6 +28,8 @@ Covers `ww_tape` 0.1.0.
 - `Finished` and `TapeSink` lose `path`; `FileSink::path` and `current_path` stay; `MemSink::new()` takes no name (TAPE-12).
 - `PieceFiles` is `PieceTapes`, `ChainOptions::files` is `tapes`; a missing piece to resume is `ResumeError::NoPiece` (TAPE-12).
 - `WriteError` groups refused input in `WriteError::Input(InputError)` and refused resumes in `WriteError::Resume(ResumeError)` (TAPE-12).
+- `Block::summary` is gone: `Block::summary_head` gives a summary block's head, `Summary::of_block` its nodes (TAPE-12).
+- Summary builders return `BuildError`, which wraps `SummaryError`; `SummaryError` loses `Scale`, `Series` and `PartialFrame` (TAPE-12).
 - `WriterOptions` gains `clock`: intervals are read from a `ClockRef`; a struct literal adds `clock: ClockRef::default()` (TAPE-12).
 - `verify` and `track_entries` refuse a monotone relation decreasing across chunks without a break: `ReadError::RelationOrder` (TAPE-7).
 - `IndexEntry` gains `relation_break`; an events chunk block takes header flag `FLAG_RELATION_BREAK` from callers (TAPE-7).
@@ -145,6 +147,7 @@ Covers `ww_tape` 0.1.0.
 
 ### 🚀 Features
 
+- `SummaryHead::read` checks a summary block and gives its head and body, so a reader that decodes no node still checks it (TAPE-12).
 - `FileSource::metadata`: the metadata of the open file, so a piece replaced on disk is told apart by its handle (TAPE-12).
 - `Placed::unit` and `ChunkPlaced::unit`: the chunk's unit hash as the writer states it in the index entry (TAPE-8).
 - `TapeWriter::append_on` appends a new session to the bytes already in any sink, such as a reopened memory tape (TAPE-12).

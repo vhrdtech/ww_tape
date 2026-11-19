@@ -426,7 +426,7 @@ fn chunk_heads_are_checked_against_the_grid() {
 }
 
 /// The reserved leaves element (code 13) is refused wherever a sample of it would be decoded: the track's definition,
-/// a samples column in any codec, its summaries.
+/// a samples column in any codec; its summaries in the summary tests.
 #[test]
 fn the_leaves_element_is_refused() {
     let leaves = SampleShape::new(Element::LEAVES, 1);
@@ -444,27 +444,6 @@ fn the_leaves_element_is_refused() {
             crate::Samples::new(crate::Codec(codec), leaves, 2, &[0; 64]).is_err(),
             "codec {codec}"
         );
-    }
-    let start = crate::summary::SeriesStart {
-        track_id: 1,
-        track_number: 1,
-        shape: leaves,
-        first_item: 0,
-        grid: def().first_grid(0),
-        period: period(),
-    };
-    let spec = SeriesSummarySpec {
-        base_shift: 6,
-        stats: SeriesStats::all(Element::I32),
-        clip: None,
-    };
-    for scalar in [true, false] {
-        let r = if scalar {
-            crate::summary::SeriesSummaries::<i32>::new(start, spec).map(|_| ())
-        } else {
-            crate::summary::SeriesSummaries::<u8>::new(start, spec).map(|_| ())
-        };
-        assert!(r.is_err());
     }
 }
 
