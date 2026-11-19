@@ -32,9 +32,7 @@ impl<'b> Summary<'b> {
 
     /// Read and check the summary block `block` (exactly its bytes, CRC checked by the caller).
     pub fn read(block: &'b [u8]) -> Result<Self, SummaryError> {
-        let (head, body) = SummaryHead::read(block)?;
-        let nodes = usize::try_from(head.node_count())
-            .map_err(|_| SummaryError::Invalid("node count past usize"))?;
+        let (head, body, nodes) = SummaryHead::read(block)?;
         Ok(Summary { head, body, nodes })
     }
 

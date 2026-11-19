@@ -70,7 +70,8 @@ fn a_block_checks_and_lists_without_its_nodes() {
     assert_eq!(w.finish(), len);
     let block = Block::read(&b).unwrap();
     assert_eq!(block.summary_head(), Some(h));
-    let (head, body) = SummaryHead::read(&b).unwrap();
+    let (head, body, nodes) = SummaryHead::read(&b).unwrap();
+    assert_eq!(nodes, 6);
     assert_eq!(head, h);
     assert!(body.iter().all(|v| *v == 0x5a));
     // per channel and node: 4 statistics of 2 × 8 bytes, the clipped count of 8, flags and 2 powers of 4
@@ -119,7 +120,7 @@ fn head_read_checks_the_header() {
         let n = x.len();
         let crc = crate::CRC.checksum(&x[..n - 4]);
         x[n - 4..].copy_from_slice(&crc.to_le_bytes());
-        SummaryHead::read(&x).map(|(head, _)| head)
+        SummaryHead::read(&x).map(|(head, _, _)| head)
     };
     assert_eq!(
         changed(0, b'X'),
@@ -138,7 +139,7 @@ fn head_read_checks_the_header() {
     let mut longer = b.clone();
     longer.extend_from_slice(&[0; 8]);
     assert_eq!(
-        SummaryHead::read(&longer).map(|(head, _)| head),
+        SummaryHead::read(&longer).map(|(head, _, _)| head),
         Err(SummaryError::NotSummary(NotSummary::Length {
             stated: b.len() as u32,
             bytes: b.len() + 8

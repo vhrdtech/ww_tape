@@ -1245,7 +1245,7 @@ impl<'b> Block<'b> {
         if !self.is_summary() {
             return None;
         }
-        SummaryHead::read(self.bytes).ok().map(|(head, _)| head)
+        SummaryHead::read(self.bytes).ok().map(|(head, _, _)| head)
     }
 
     fn has_records(&self) -> bool {

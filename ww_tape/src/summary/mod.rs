@@ -274,13 +274,13 @@ impl SummaryHead {
         }
     }
 
-    /// Read and check the summary block `block`: its head, and its body, as long as the head says. A reader that
-    /// decodes no node still checks a block this way.
+    /// Read and check the summary block `block`: its head, its body as long as the head says, and its node count. A
+    /// reader that decodes no node still checks a block this way.
     ///
     /// `block` is exactly the block's bytes. The header is checked here ([MAGIC](crate::MAGIC), this
     /// [VERSION](crate::VERSION), kind [BlockKind::Summary], a length field equal to the bytes handed over: else
     /// [SummaryError::NotSummary]), the CRC is not: the caller checks it, as [Block::read](crate::Block::read) does.
-    pub fn read(block: &[u8]) -> Result<(Self, &[u8]), SummaryError> {
+    pub fn read(block: &[u8]) -> Result<(Self, &[u8], usize), SummaryError> {
         let short = SummaryError::Invalid("shorter than the head");
         let header = block.first_chunk::<HEADER_LEN>().ok_or(short)?;
         if bytes::array::<4>(header, 0) != Some(MAGIC) {
@@ -372,7 +372,7 @@ impl SummaryHead {
         {
             return Err(SummaryError::Invalid("body length differs from the head"));
         }
-        Ok((head, body))
+        Ok((head, body, nodes))
     }
 
     /// Check what a head can say on its own.
