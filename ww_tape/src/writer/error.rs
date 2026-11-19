@@ -5,6 +5,8 @@ use crate::piece::FinishState;
 use crate::reader::ReadError;
 use crate::sink::TapeSink;
 use crate::{BlockKind, DescribeError, IndexError, Layout, SessionTag};
+use alloc::boxed::Box;
+use alloc::string::String;
 
 /// Why a [TapeWriter] stopped; `E` is the error of its sink ([TapeSink::Error]).
 #[derive(Debug)]

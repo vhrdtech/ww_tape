@@ -219,7 +219,7 @@ pub use index::{
     IndexBlock, IndexEntry, IndexError, IndexHead, IndexKind, IndexPolicy, StateEntry,
 };
 pub mod piece;
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 pub use piece::{ChainOptions, ChainPiece, ChunkPlaced, CutPolicy, PieceChain, PieceTapes};
 pub use piece::{
     ContentHash, Finish, FinishState, HEAD_TRACKS_MAX, Integrity, OwnerId, PIECE_ALIGN, PieceHead,
@@ -252,19 +252,21 @@ pub use stream::{
 pub mod open;
 #[cfg(feature = "alloc")]
 pub use open::{Definitions, DescribeError, RecordRef, STATE_ITEM_MAX, TrackFacts};
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 pub mod sink;
 #[cfg(feature = "std")]
-pub use sink::{FileSink, Files, FsError, MemError, MemSink, MemTape, MemTapes, TapeSink, Tapes};
+pub use sink::{FileSink, Files, FsError, MemError, MemSink, MemTape, MemTapes};
+#[cfg(feature = "alloc")]
+pub use sink::{TapeSink, Tapes};
 #[cfg(feature = "alloc")]
 mod clock;
 #[cfg(feature = "std")]
 pub use clock::SystemClock;
 #[cfg(feature = "alloc")]
 pub use clock::{Clock, ClockRef};
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 pub mod writer;
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 pub use writer::{
     CutError, DEFER_WINDOW, Finished, HEAD_ENTRIES, InputError, NearPolicy, Placed, PutWork,
     ResumeError, Resumed, SyncPolicy, TapeWriter, WriteError, WriterOptions,
@@ -937,7 +939,7 @@ pub fn set_id(block: &mut [u8], id: BlockId) -> Result<(), BlockError> {
 
 /// [set_id] of a block whose CRCs are known good, read whole once already: only its header and a chunk's head are
 /// read again, no pass over its payload or records.
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 pub(crate) fn set_id_trusted(block: &mut [u8], id: BlockId) -> Result<(), BlockError> {
     restamp(block, id, 0, Reread::Head)
 }
@@ -961,7 +963,7 @@ pub fn mark_relation_break(block: &mut [u8]) -> Result<(), BlockError> {
 }
 
 /// Mark the whole, good block `block` as belonging with the block after it ([FLAG_WITH_NEXT]), its CRCs rewritten.
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 pub(crate) fn mark_with_next(block: &mut [u8]) -> Result<(), BlockError> {
     let b = Block::read(block)?;
     let id = BlockId::new(b.session, b.seq);
@@ -974,7 +976,7 @@ enum Reread {
     /// Whole, every CRC checked ([Block::read]).
     Whole,
     /// Its header and a chunk's head only, its CRCs known good ([Block::read_trusted]); only the writer has such.
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     Head,
 }
 
@@ -982,7 +984,7 @@ enum Reread {
 fn restamp(block: &mut [u8], id: BlockId, set: u16, read: Reread) -> Result<(), BlockError> {
     let b = match read {
         Reread::Whole => Block::read(block)?,
-        #[cfg(feature = "std")]
+        #[cfg(feature = "alloc")]
         Reread::Head => Block::read_trusted(block)?,
     };
     if b.len() != block.len() {

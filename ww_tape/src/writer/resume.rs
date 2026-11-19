@@ -45,7 +45,11 @@
 //! Every length and offset read back goes through [FromFile] and a cap ([crate::MAX_BLOCK_LEN]) or the piece's end;
 //! the walk moves on at least one byte a step, so it ends within the piece's length.
 
-use std::collections::BTreeMap;
+use alloc::borrow::ToOwned;
+use alloc::collections::BTreeMap;
+use alloc::string::String;
+use alloc::vec;
+use alloc::vec::Vec;
 
 use super::{InputError, ResumeError, TapeWriter, WriteError, WriterOptions};
 use crate::index::{IndexBlock, IndexEntry, IndexKind, STATE_TRACK_ID, is_structural};
@@ -287,7 +291,7 @@ fn good_block_after<S: TapeSink>(
     src: &S,
     from: u64,
     size: u64,
-    sessions: &std::collections::BTreeSet<u32>,
+    sessions: &alloc::collections::BTreeSet<u32>,
 ) -> Result<Option<u64>, WriteError<S::Error>> {
     // the places looked at: a header starting before `end` is read whole, up to `size`
     let end = size.min(from.saturating_add(RESUME_LOOK_MAX));
@@ -352,7 +356,7 @@ fn taken_after_end<S: TapeSink>(
     src: &S,
     layout: &Layout,
     from: u64,
-    sessions: &std::collections::BTreeSet<u32>,
+    sessions: &alloc::collections::BTreeSet<u32>,
 ) -> Result<Option<u64>, WriteError<S::Error>> {
     let mut at = from;
     while at < layout.end {
@@ -463,7 +467,7 @@ impl<S: TapeSink> TapeWriter<S> {
             // bytes after the tail: junk a crash left (a torn block, garbage) is cut off; a good block refuses, as
             // cutting it off would lose more than a torn end
             if size > layout.end {
-                let none = std::collections::BTreeSet::new();
+                let none = alloc::collections::BTreeSet::new();
                 if let Some(offset) = good_block_after(&sink, layout.end, size, &none)? {
                     return Err(WriteError::Resume(ResumeError::GoodBlockAfterCut {
                         offset,
@@ -478,7 +482,7 @@ impl<S: TapeSink> TapeWriter<S> {
         }
         let ended = ended.state;
         let mut kept = KeptEnd::default();
-        let mut sessions = std::collections::BTreeSet::new();
+        let mut sessions = alloc::collections::BTreeSet::new();
         let mut at = 0;
         let mut ended_at = None;
         while at < layout.end {

@@ -19,11 +19,17 @@
 use crate::reader::ByteSource;
 use crate::writer::WriteError;
 
+#[cfg(feature = "std")]
 mod fs;
+#[cfg(feature = "std")]
 mod lock;
+#[cfg(feature = "std")]
 mod mem;
+#[cfg(feature = "std")]
 pub use fs::{FileSink, FileSource, Files, FsError, partial_name};
+#[cfg(feature = "std")]
 pub use lock::{LOCK_TRIES_MAX, lock_name};
+#[cfg(feature = "std")]
 pub use mem::{MemError, MemSink, MemTape, MemTapes};
 
 /// Where a [TapeWriter](crate::TapeWriter) appends its bytes.
@@ -73,6 +79,7 @@ pub trait TapeSink {
 }
 
 /// Why [check_base] refuses a new base.
+#[cfg(feature = "std")]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum BaseRefused {
     /// A sink of one piece takes no base but 0.
@@ -83,6 +90,7 @@ enum BaseRefused {
 
 /// The whole length of the bytes of a sink whose window starts at `base` and holds `size` bytes, checked against a
 /// new base; any base but 0 refused for a sink of one piece (`pieces` false).
+#[cfg(feature = "std")]
 fn check_base(base: u64, whole: u64, pieces: bool) -> Result<u64, BaseRefused> {
     if base != 0 && !pieces {
         return Err(BaseRefused::OnePiece);
@@ -127,6 +135,7 @@ pub trait Tapes {
 }
 
 /// `offset` in a piece starting at `base`, from the start of the bytes; None past `u64::MAX`.
+#[cfg(feature = "std")]
 fn past_base(base: u64, offset: u64) -> Option<u64> {
     base.checked_add(offset)
 }

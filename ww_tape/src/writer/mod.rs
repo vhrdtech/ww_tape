@@ -32,9 +32,14 @@
 //! gap before the next chunk). So what the writer adds is a function of the blocks before it and the calls since, and
 //! [TapeWriter::resume] rebuilds the writer of an unfinished piece from its bytes alone ([resume]).
 //!
-//! A writer puts its bytes in a [TapeSink]: a file ([FileSink], the default) or memory ([crate::sink::MemSink]).
+//! A writer puts its bytes in a [TapeSink]: a file ([crate::FileSink] with `std`) or memory ([crate::sink::MemSink]).
 
-use std::time::Duration;
+use alloc::borrow::ToOwned;
+use alloc::boxed::Box;
+use alloc::string::String;
+use alloc::vec;
+use alloc::vec::Vec;
+use core::time::Duration;
 
 use crate::clock::ClockRef;
 use crate::index::{IndexPolicy, Indexer, TrackKey};
@@ -45,16 +50,18 @@ use crate::piece::{
     piece_head_len, write_finish, write_piece_head,
 };
 use crate::reader::wide;
+#[cfg(feature = "std")]
 pub use crate::sink::partial_name;
-use crate::sink::{FileSink, TapeSink, Tapes, sink_err};
+use crate::sink::{TapeSink, Tapes, sink_err};
 use crate::state::{ItemHash, Slot};
 use crate::{
     BlockId, BlockKind, ClockTime, DESCRIBE_TRACK, Definitions, Describe, DescribeError,
     IndexError, Layout, Producer, STATE_ITEM_MAX, SessionTag, TypedItem,
 };
-use std::collections::BTreeSet;
+use alloc::collections::BTreeSet;
 
 mod error;
+#[cfg(feature = "std")]
 mod fs;
 pub mod near;
 mod relations;
@@ -93,6 +100,15 @@ fn caller_flags(kind: BlockKind) -> u16 {
     }
 }
 
+/// The session of a new writer: random with `std` ([SessionTag::random]); without it none, so the writer refuses to
+/// write until [TapeWriter::set_session] or a piece head ([TapeWriter::begin_piece]) gives it one.
+fn new_session() -> SessionTag {
+    #[cfg(feature = "std")]
+    return SessionTag::random();
+    #[cfg(not(feature = "std"))]
+    return SessionTag::NONE;
+}
+
 /// Default of [SyncPolicy::Interval].
 pub const DEFAULT_SYNC_INTERVAL: Duration = Duration::from_secs(1);
 
@@ -127,7 +143,7 @@ impl Default for WriterOptions {
 }
 
 /// Appends blocks to a [TapeSink], a file by default, see the [module docs](self).
-pub struct TapeWriter<S: TapeSink = FileSink> {
+pub struct TapeWriter<S: TapeSink> {
     sink: S,
     policy: SyncPolicy,
     unsynced: u32,
@@ -268,7 +284,7 @@ impl<S: TapeSink> TapeWriter<S> {
             producer: String::new(),
             head_put: false,
             next_seq: 0,
-            session: SessionTag::random(),
+            session: new_session(),
             deferred: Vec::new(),
             deferred_bytes: 0,
             chunk_buf: Vec::new(),
@@ -754,7 +770,8 @@ impl<S: TapeSink> TapeWriter<S> {
         BlockId::new(self.session, self.next_seq)
     }
 
-    /// The session of the blocks the writer makes: random for a new writer, [SessionTag::of_piece] for a chain's first piece,
+    /// The session of the blocks the writer makes: random for a new writer (none without `std`, see
+    /// [Self::set_session]), [SessionTag::of_piece] for a chain's first piece,
     /// else the session of the last counted block written.
     pub fn session(&self) -> SessionTag {
         self.session
@@ -781,6 +798,9 @@ impl<S: TapeSink> TapeWriter<S> {
     /// Where it landed in the piece.
     fn write_own(&mut self, block: &[u8]) -> Result<Placed, WriteError<S::Error>> {
         self.check()?;
+        if !self.session.is_session() {
+            return Err(WriteError::Input(InputError::Session(self.session)));
+        }
         let (Some(header), Some(crc)) = (
             block.first_chunk::<{ crate::HEADER_LEN }>(),
             block.last_chunk::<{ crate::CRC_LEN }>(),
@@ -1485,7 +1505,7 @@ impl<S: TapeSink> TapeWriter<S> {
         let mut cands: Vec<Candidate<'_>> = Vec::new();
         let mut seen = BTreeSet::new();
         // the hash of the newest record of each state track in the block: the same item again adds nothing
-        let mut newest: std::collections::BTreeMap<u32, ItemHash> = Default::default();
+        let mut newest: alloc::collections::BTreeMap<u32, ItemHash> = Default::default();
         for r in b.records() {
             let r = r.map_err(WriteError::Block)?;
             let Some(at) = r.at else {
@@ -1872,7 +1892,7 @@ impl<S: TapeSink> TapeWriter<S> {
 /// The bytes of a candidate's item: a held definition's, shared, the caller's, or made for the put.
 #[derive(Clone, Debug)]
 enum Item<'a> {
-    Held(std::sync::Arc<[u8]>),
+    Held(alloc::sync::Arc<[u8]>),
     Given(&'a [u8]),
     Owned(Vec<u8>),
 }

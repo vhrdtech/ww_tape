@@ -68,7 +68,7 @@ pub(crate) fn column(bytes: &[u8]) -> [(ColumnSpec, &[u8]); 1] {
 }
 
 /// `rounds` × (a chunk of each of 3 tracks, a records block), checkpoints every 2 KiB.
-fn write_tape(w: &mut TapeWriter, rounds: u64) {
+fn write_tape(w: &mut TapeWriter<ww_tape::FileSink>, rounds: u64) {
     w.set_index_policy(IndexPolicy {
         bytes: 2048,
         interval: None,

@@ -37,6 +37,12 @@ reads back at an offset and truncates. Each sink and store has its own error typ
 
 A `MemSink` of a chain reserves the room of the chain's cut size (`CutPolicy::bytes` plus `CUT_SLACK`) when its piece starts, so a reader's `read_at` never waits for the piece to be copied into a bigger buffer. `MemTapes::remove(key)` takes a finished piece out of the map: a reader that holds its `MemTape` reads on, the piece still being written is refused (`MemError::Unfinished`), and what remains of the chain reads as a head cut, each piece giving its definitions and newest state from its own head. A chain with removed pieces is not resumed.
 
+The writer, the chain and resume need only an allocator, not the standard library, so firmware or a browser can write
+tapes on a sink of its own. Two defaults change without the standard library. A new writer has no session, since it has
+no random source: it writes nothing until `TapeWriter::set_session` gives it one (`SessionTag::from_seed` over a
+device id or a boot timer) or a piece head does (`begin_piece`, and every piece of a chain). It has no clock either, so
+no sync, checkpoint or cut falls due by time until `WriterOptions::clock` gives it one.
+
 The writer's settings are its `WriterOptions`: the sync policy, the index policy, the layout (how blocks are placed),
 the producer's name and the near policy. The writer puts the layout and the producer at the start of every piece. They
 are the writer's own, and a caller can't write them.

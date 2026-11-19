@@ -15,7 +15,7 @@
 //! resume's replay included), so a resumed writer decides as the writer did before the crash. A relay that hands
 //! blocks to several consumers ([Near] per consumer, positions in that consumer's stream) decides by the same rule.
 
-use std::collections::{BTreeMap, BTreeSet};
+use alloc::collections::{BTreeMap, BTreeSet};
 
 use crate::state::{ItemHash, Slot};
 

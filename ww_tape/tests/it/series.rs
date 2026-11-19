@@ -167,7 +167,12 @@ fn series_defs() -> &'static ww_tape::Definitions {
 }
 
 /// Write the open column as chunks of at most [CHUNK_MAX] samples on `grid`.
-fn seal(w: &mut TapeWriter, grid: SeriesGrid, first: &mut u64, column: &mut Vec<i32>) {
+fn seal(
+    w: &mut TapeWriter<ww_tape::FileSink>,
+    grid: SeriesGrid,
+    first: &mut u64,
+    column: &mut Vec<i32>,
+) {
     let shape = SampleShape::new(i32::ELEMENT, CHANNELS);
     let lanes = CHANNELS as usize;
     for part in column.chunks(CHUNK_MAX as usize * lanes) {

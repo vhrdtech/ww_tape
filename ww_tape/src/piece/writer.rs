@@ -1,13 +1,14 @@
 //! [PieceChain]: a recording written as a chain of pieces, cut at chunk boundaries, on files or any store of
 //! [Tapes]: each piece a tape of its own, or all of them back to back in one tape ([PieceTapes]).
 
-use std::collections::{BTreeMap, BTreeSet};
-use std::time::Duration;
+use alloc::collections::{BTreeMap, BTreeSet};
+use alloc::vec::Vec;
+use core::time::Duration;
 
 use super::{FinishState, OwnerId, PieceHead, PieceId, PieceIdent, TAIL_LEN, TrackStart};
 use crate::index::{IndexEntry, IndexError, TrackKey};
 use crate::reader::{ByteSource, TapeReader};
-use crate::sink::{Files, TapeSink, Tapes, sink_err};
+use crate::sink::{TapeSink, Tapes, sink_err};
 use crate::writer::resume::SinkSource;
 use crate::writer::{
     Finished, Newest, NextPiece, Placed, ResumeError, Resumed, TapeWriter, WriteError,
@@ -79,7 +80,7 @@ pub struct ChainPiece<K> {
 
 /// Writes one recording as pieces on the tapes of a store of [Tapes] (files by default), each piece a tape of its
 /// own or all in one ([PieceTapes]), cutting by a [CutPolicy] before a chunk.
-pub struct PieceChain<T: Tapes = Files> {
+pub struct PieceChain<T: Tapes> {
     tapes: T,
     pieces: PieceTapes,
     /// None after a failed cut: the chain takes no more blocks

@@ -16,7 +16,8 @@
 //! against the value the caller gives and is marked [FLAG_RELATION_BREAK](crate::FLAG_RELATION_BREAK), in its header
 //! and its index entry. A marked chunk restarts the track's values, in the writer, in a resume and in the pieces after.
 
-use std::collections::{BTreeMap, BTreeSet};
+use alloc::collections::{BTreeMap, BTreeSet};
+use alloc::vec::Vec;
 
 use crate::index::TrackKey;
 use crate::times::RelationColumn;

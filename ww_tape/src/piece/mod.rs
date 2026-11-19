@@ -1172,9 +1172,9 @@ pub use chain::{ChainEnd, ChainLink, ChainReport, HeadStatus, PieceSummary, chec
 mod fs;
 #[cfg(feature = "std")]
 pub use fs::piece_name;
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 mod writer;
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 pub use writer::{
     CUT_SLACK, ChainOptions, ChainPiece, ChunkPlaced, CutPolicy, PieceChain, PieceTapes,
 };

@@ -1074,9 +1074,9 @@ impl Default for IndexPolicy {
 /// Default of [IndexPolicy::bytes]: 4 MiB.
 pub const DEFAULT_CHECKPOINT_BYTES: u64 = 4 << 20;
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 mod build;
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 pub(crate) use build::{Indexer, TrackKey, next_starts};
 
 #[cfg(test)]

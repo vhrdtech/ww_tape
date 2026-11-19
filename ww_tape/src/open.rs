@@ -508,7 +508,7 @@ impl Definitions {
     }
 
     /// The id and owner of held track `number`, as its definition says.
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     pub(crate) fn track_key(&self, number: u32) -> Option<(u64, [u8; 32])> {
         self.tracks.get(&number).map(|t| t.key)
     }

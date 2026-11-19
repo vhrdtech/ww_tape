@@ -10,6 +10,7 @@ Covers `ww_tape` 0.1.0.
 
 ### ⚠️ Breaking
 
+- `TapeWriter` and `PieceChain` have no default sink: write `TapeWriter<FileSink>`, `PieceChain<Files>` where a type is named (TAPE-12).
 - `TapeSink` has an `Error` type; `WriteError<E>` carries it in `WriteError::Sink`, and `FsError` or `MemError` the store's refusals (TAPE-12).
 - `SinkFactory` is `Tapes`, keyed by `Tapes::Key` and `key_of(seq)`: `Files::new(dir)`, `Files::file(path)`, `MemTapes<K = u64>` (TAPE-12).
 - `PieceChain::create_on` and `resume_on` take no path; `finished` and `finish` return `ChainPiece { tape, piece }` (TAPE-12).
@@ -133,6 +134,7 @@ Covers `ww_tape` 0.1.0.
 
 ### 🚀 Features
 
+- The writer, the chain and resume build without std (alloc); without std a writer needs `set_session` or a piece head (TAPE-12).
 - `Clock`, `ClockRef` and `SystemClock`: a writer's sync, checkpoint and cut intervals run on an injected clock (TAPE-12).
 - `ww_tape_codecs`: bit packing, CRC-32C, varints, lz4 and summary kernels as a crate; `ww_tape` re-exports them (TAPE-12).
 - `TapeReader::relation_breaks`: the chunks where a track's monotone relations start again, by piece and entry (TAPE-7).

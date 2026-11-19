@@ -60,7 +60,6 @@ impl ClockRef {
     }
 
     /// Whether `interval` has passed since `since` (a reading of this clock); false without a clock or a reading.
-    #[cfg(feature = "std")]
     pub(crate) fn passed(&self, since: Option<u64>, interval: core::time::Duration) -> bool {
         match (self.now_ms(), since) {
             (Some(now), Some(since)) => {
