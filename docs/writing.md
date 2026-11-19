@@ -1,103 +1,134 @@
----
-level: advanced
----
-
 # Writing a tape
 
-This page follows a producer from an empty file to a finished piece, and through a crash and back. It explains what
-`TapeWriter` does for the producer and what the producer must do itself. It assumes the words of [Tape
-concepts](concepts.md).
+This page follows a producer from an empty file to a finished piece, then through a crash and back. A **producer** is
+the program that makes the data, such as a recorder or a logger. The page explains what `TapeWriter` does for the
+producer and what the producer does itself. It assumes the terms of [Tape concepts](concepts.md).
 
 ## The writer and its sink
 
-`TapeWriter` appends the producer's blocks and adds the blocks a piece needs around them: the definitions and state each
-block needs, checkpoints, the final index, the finish and the tail. The producer makes the data; the writer places it.
+`TapeWriter` appends the producer's blocks to a piece and adds the blocks that the piece needs around them. Before a
+block of data it puts the definitions and the state that the block needs. Between blocks it places checkpoints, and at
+the end it writes the final index, the finish and the tail. The producer makes the data; the writer places it.
 
-The writer puts its bytes into a **sink**, any type that implements `TapeSink`: a sink appends, syncs, reports its
-size, completes the piece at the finish (a file takes its final name), and for a resume reads back at an offset and
-truncates. Two sinks come with the crates:
+The writer puts its bytes into a **sink**, which is any type that implements `TapeSink`. A sink appends bytes, syncs
+them, reports its size and completes the piece at the finish; a file completes by taking its final name. To resume a
+piece, a sink also reads bytes back at an offset and truncates them. The crates provide two sinks:
 
 - `MemSink`, in `ww_tape`, keeps the bytes in memory, where a `TapeReader` reads them while they are written. Tests use
   it to cut a piece at any byte and check what a reader makes of it.
 - `FileSink`, in the crate `ww_tape_fs`, writes a file.
 
-A chain of pieces takes a **store of tapes** instead (`Tapes`), which makes the sink of each piece under a key:
-`MemTapes` keeps every piece in memory under its key, and `ww_tape_fs::Files` makes files in a directory, key `seq` the
-file `00000000.wwt` counted up. Any other place, such as a raw SD card or a network store, needs its own `TapeSink` and
-`Tapes`. Each sink and store has its own error type (`MemError`, `ww_tape_fs::FsError`), which a `WriteError` carries
-in `WriteError::Sink`; a store refuses a tape that is there already or held by another writer. `MemError<K>` names the
-refused tape by its key, a value of the store's key type `K`.
+A chain of pieces needs one sink per piece, so it takes a **store** instead: any type that implements `Tapes`. A store
+makes the sink of each piece under a key. `MemTapes` keeps every piece in memory under its key. `ww_tape_fs::Files`
+keeps the pieces in files: `Files::new(dir)` makes one file per piece in a directory (key 0 is `00000000.wwt`, key 1
+is `00000001.wwt`, and so on), and `Files::file(path)` keeps every piece in one file. Any other medium, such as a raw
+SD card or a network store, needs its own `TapeSink` and `Tapes`.
 
-The writer's settings are its `WriterOptions`: the sync policy, the index policy, the layout (how blocks are placed),
-the producer's name and the near policy. The writer puts the layout and the producer at the start of every piece. They
-are the writer's own, and a caller can't write them.
+Each sink and store has its own error type: `MemError` for memory and `ww_tape_fs::FsError` for files. A `WriteError`
+carries that error in `WriteError::Sink`, together with the step that failed. A store refuses to make a tape that
+exists already or that another writer holds. `MemError<K>` names the refused tape by its key, a value of the store's
+key type `K`.
 
-### Files
+The writer's settings are its `WriterOptions`:
 
-Everything that names a path is in `ww_tape_fs`, so `ww_tape` itself builds without a file system. Its `writer` module
-opens a writer on a path:
+| Field | What it sets |
+|---|---|
+| `sync` | the sync policy: when the writer syncs ([Syncing](#syncing-what-a-crash-can-lose)) |
+| `index` | the index policy: when the writer places checkpoints ([Checkpoints](#checkpoints)) |
+| `layout` | how blocks are placed, such as the alignment of chunk payloads ([Aligned files](#aligned-files)) |
+| `producer` | the producer's name |
+| `near` | the near policy: how the writer remembers puts and spaces copies ([Puts](#puts-near-and-copies)) |
+| `clock` | the clock that decides when an interval is up |
 
-- `ww_tape_fs::writer::create(path, sync)` creates the file as `NAME.partial` and renames it to `NAME` at the finish.
-  It refuses a `NAME` that is there and a `NAME.partial` a crash left with bytes in it (`FsError::Exists`), and never
-  empties a file: reopen such a piece with `ww_tape_fs::writer::resume`, or remove it. A `NAME.partial` renamed or
-  replaced between its open and its lock is refused too (`FsError::Replaced`).
-- `ww_tape_fs::writer::append(path, sync)` appends to a file in a new session, and creates the file when it isn't
-  there.
-- `ww_tape_fs::writer::resume(path, options)` reopens the unfinished piece of `path` (see below), and
-  `ww_tape_fs::writer::cut(writer, next_path)` ends the piece and starts the next one in a new file.
+The writer puts the layout and the producer at the start of every piece. They belong to the writer, and a caller's
+block cannot write them.
 
-Its `chain` module opens a chain of pieces in a directory, or in one file: `ww_tape_fs::chain::create` and
-`ww_tape_fs::chain::resume`. Each of these functions only makes the sink or the store and hands it to the writer's own
-constructor (`TapeWriter::create_on`, `append_on`, `resume_on`, `cut_with`, `PieceChain::create_on`, `resume_on`), which
-a sink of any other kind uses the same way.
+### Writing to files
 
-One writer writes a file at a time: a file sink holds a lock on `NAME.lock` beside the file (a name of 251 bytes or
-more, which leaves no room for the suffix, gets `HASH.lock`, the BLAKE3 hash of the name in hex), and a second sink of
-the file, in this process or another, is refused (`FsError::Locked`). Only writers open the lock file, so readers that
-open and close the file never let the lock go. On unix it is a POSIX record lock, which a child process forked meanwhile
-doesn't hold, so a resume right after a writer is dropped is never refused because of a child. On unix the lock file
-goes when the writer lets go; on Windows it stays, since removing it could race the next holder. A lock file left
-behind, by Windows or by a crash, holds no lock and is taken as it is.
+Everything that names a path lives in `ww_tape_fs`, so `ww_tape` itself builds without a file system. The module
+`ww_tape_fs::writer` opens a writer on a path:
 
-One file has one lock whatever name reaches it: the lock file is named after the file's canonical name, links resolved
-and `.partial` dropped, and writers of one process are also kept apart by the file's identity, so a hard link is
-refused there too. Two processes writing one file through two hard-linked names are not refused: their blocks
-interleave into a file that reads as damaged. A device, such as a raw SD card, is locked itself; a FIFO, a socket or a
-directory is refused (`FsError::NotAFile`).
+- `writer::create(path, sync)` creates the file as `NAME.partial` and renames it to `NAME` at the finish. It refuses a
+  `NAME` that exists and a `NAME.partial` that a crash left with bytes in it (`FsError::Exists`). It never empties a
+  file: reopen such a piece with `writer::resume`, or remove it. When `NAME.partial` is renamed or replaced between
+  its open and its lock, `create` refuses too (`FsError::Replaced`).
+- `writer::append(path, sync)` appends to a file in a new session, and creates the file when it does not exist.
+- `writer::resume(path, options)` reopens the unfinished piece of `path` ([Resuming after a
+  crash](#resuming-after-a-crash)). With neither `NAME` nor `NAME.partial` there, it fails with `FsError::NoPiece`.
+- `writer::cut(writer, next_path)` ends the piece and starts the next one in the new file `next_path`
+  ([Cuts](#cuts-ending-one-piece-and-starting-the-next)).
 
-An error names the step, the file and the kind of failure or refusal in its first line, such as `creating a writer:
-/data/x.wwt: locked by another writer`, so a log line of that text alone says what went wrong. Where the system
-reported an error (a full disk, a missing directory), that error is the source of the first, and is not repeated in it.
+The module `ww_tape_fs::chain` opens a chain of pieces in a directory, or in one file, with `chain::create` and
+`chain::resume`. Each of these functions only makes the sink or the store and hands it to a constructor of `ww_tape`:
+`TapeWriter::create_on`, `append_on`, `resume_on` and `cut_with`, or `PieceChain::create_on` and `resume_on`. A sink
+of any other kind uses the same constructors.
 
-### Memory
+### One writer per file
 
-A `MemSink` of a chain reserves the room of the chain's cut size (`CutPolicy::bytes` plus `CUT_SLACK`) when its piece starts, so a reader's `read_at` never waits for the piece to be copied into a bigger buffer. `MemTapes::remove(key)` takes a finished piece out of the map: a reader that holds its `MemTape` reads on, the piece still being written is refused (`MemError::Unfinished`), and what remains of the chain reads as a head cut, each piece giving its definitions and newest state from its own head. A chain with removed pieces is not resumed.
+Two writers appending to one file would interleave their blocks into a file that reads as damaged. A file sink
+therefore holds a lock on `NAME.lock`, a file beside `NAME`, and a second sink of the same file is refused with
+`FsError::Locked`. The refusal holds for a second writer in the same process and in another process. A name of 251
+bytes or more leaves no room for the `.lock` suffix, so its lock file is `HASH.lock`, where `HASH` is the BLAKE3 hash
+of the name in hex.
+
+Only writers open the lock file. Readers open and close `NAME` as they like, and never release the lock by doing so.
+On unix the lock is a POSIX record lock, which a child process forked meanwhile does not hold, so a resume right after
+a writer is dropped is never refused because of a child. On unix the writer removes the lock file when it lets go. On
+Windows the lock file stays, since removing it could race the next holder. A lock file left behind, by Windows or by a
+crash, holds no lock, and the next writer takes it as it is.
+
+One file has one lock, whatever name reaches it. The lock file is named after the file's canonical name, with links
+resolved and `.partial` dropped. On unix, writers of one process are also kept apart by the file's device and inode,
+so a second writer through a hard link is refused as well. Two processes that write one file through two hard-linked
+names are not refused, and their blocks interleave. A device, such as a raw SD card, is locked itself. A FIFO, a
+socket or a directory is refused (`FsError::NotAFile`).
+
+An error states the step, the file and the kind of failure in its first line, for example `creating a writer:
+/data/x.wwt: locked by another writer`. A log line of that text alone therefore says what went wrong. When the
+operating system reported the error, such as a full disk or a missing directory, the system's error is the source of
+that first error and is not repeated in its text.
+
+### Writing to memory
+
+A `MemSink` of a chain reserves the room of a whole piece when the piece starts: the chain's cut size
+(`CutPolicy::bytes`) plus `CUT_SLACK` (1 MiB). A reader's `read_at` therefore never waits while the bytes are copied
+into a bigger buffer.
+
+`MemTapes::remove(key)` takes a finished piece out of the store, for example to keep a bounded window of a live
+chain. A reader that already holds the piece's `MemTape` reads on unchanged. The piece still being written is not
+removed (`MemError::Unfinished`). What remains of the chain reads as a head cut, and each remaining piece still reads
+alone, since it holds the definitions and state it uses. A chain with removed pieces cannot be resumed, since a
+resume starts from the first piece.
 
 ### Without the standard library
 
-The writer, the chain and resume need only an allocator, not the standard library, so firmware or a browser can write
-tapes on a sink of its own. Two defaults change without the standard library. A new writer has no session, since it has
-no random source: it writes nothing until `TapeWriter::set_session` gives it one (`SessionTag::from_seed` over a
-device id or a boot timer) or a piece head does (`begin_piece`, and every piece of a chain). It has no clock either, so
-no sync, checkpoint or cut falls due by time until `WriterOptions::clock` gives it one.
+The writer, the chain and resume need only an allocator, so firmware or a browser can write tapes on a sink of its
+own. Without the standard library, two defaults change:
+
+- A new writer has no session, because it has no random source. It refuses to write until `TapeWriter::set_session`
+  gives it one, for example `SessionTag::from_seed` over a device id or a boot counter, or until a piece head does
+  (`begin_piece`, and every piece of a chain).
+- A new writer has no clock, so no sync, checkpoint or cut falls due by time until `WriterOptions::clock` gives it
+  one.
 
 ## What the application does with its definitions
 
-The writer keeps no table of definitions. The application keeps the definitions of what it works on in a `Definitions`
-container and passes it, by reference, with every call that writes data. It does three things:
+The writer keeps no table of definitions. The application keeps the definitions of what it works on in a
+`Definitions` container, and passes the container by reference with every call that writes data. The application
+does three things with it:
 
-1. It holds each clock, clock map, bundle and track it uses with `Definitions::define`, or several at once with
-   `define_all`. The container checks each definition against those it holds: a track must name a clock held, and a
-   clock epoch must come with its link to the epoch before. Nothing is written yet.
-2. It passes the container with every write of data (`write_block`, `write_chunk`, `defer_block`) and every put. Data on
-   a track the container doesn't hold is refused, and so is a chunk or summary whose head names the track's number
-   under another id than its definition's (`DescribeError::TrackId`).
-3. It drops a track it stops working on with `Definitions::close`. The clocks, maps and bundles no held track names go
-   with it. Nothing is written for that either.
+1. It holds each clock, clock map, bundle and track it uses, with `Definitions::define`, or with `define_all` for
+   several at once. The container checks each definition against those it holds: a track or a clock map must name
+   clocks that are held, and a clock epoch must come with its link to the epoch before. Nothing is written yet.
+2. It passes the container with every write of data (`write_block`, `write_chunk`, `defer_block`) and with every put.
+   The writer refuses data on a track that the container does not hold. It also refuses a chunk or summary whose head
+   gives the track's number with another id than the track's definition (`DescribeError::TrackId`).
+3. It drops a track it stops working on with `Definitions::close`. The clocks, maps and bundles that no remaining
+   track names go with it. Nothing is written for that either.
 
-The writer does the rest. Before every block of data it puts the definitions the block's tracks need: the clocks, maps
-and bundles a track names, then the track itself. Each put writes only where the same definition doesn't lie near
-behind, so a block usually costs no definitions at all.
+The writer does the rest. Before every block of data it puts the definitions that the block's tracks need: the clocks,
+maps and bundles a track names, then the track itself. A put writes a definition only where the same definition does
+not lie near behind, so most blocks cost no definitions at all.
 
 ```rust
 let mut defs = Definitions::new();
@@ -106,52 +137,69 @@ writer.put(&defs, MODE, ticks, &mode_bytes)?; // a state item, at its use
 writer.write_block(&defs, &readings)?; // the definitions it needs go first
 ```
 
-Here `clock` and the two tracks are `Describe` values (a `ClockDef` and two `TrackDef`s), and `readings` is a finished
-records block from a `BlockWriter` (see below). The repository runs these lines
-as a test (`ww_tape_tests/tests/it/book.rs`).
+Here `clock` is a `ClockDef` and the two tracks are `TrackDef`s, all passed as `Describe` values. `readings` is a
+finished record block from a `BlockWriter` ([Writing data](#writing-data)). The repository runs these lines as a test
+(`ww_tape_tests/tests/it/book.rs`).
 
-How many definitions to hold is the application's choice; `Definitions::len` and `Definitions::bytes` say how much is
-held. For example, a recorder of 10 000 sensors holds 10 000 track definitions and passes them with each block. A block
-of 3 sensors' readings gets those 3 definitions and their clock written before it, once per 32 MiB plus one copy. A track
-added an hour in costs one record at its first block. A typed item that isn't a track's, such as a run record, is put
-with `TapeWriter::put_item`.
+How many definitions to hold is the application's choice. `Definitions::len` says how many are held, and
+`Definitions::bytes` how large they are. For example, a recorder of 10 000 sensors holds 10 000 track definitions and
+passes them all with each block. A block of 3 sensors' readings gets only those 3 definitions and their clock written
+before it, once per 32 MiB plus one copy. A track added an hour into the recording costs one record at its first
+block.
 
-A caller's own block of definitions is refused. Definitions reach the file only as puts, so every definition in a file
-lies near the data that needs it.
+A typed item that belongs to no track, such as a run record, is put with `TapeWriter::put_item`. The writer refuses a
+caller's own block of definitions. Definitions reach the file only as puts, so every definition in a file lies near
+the data that needs it.
 
 ## Writing data
 
 Data goes into the file in four forms:
 
-- **Record blocks.** Build one with `BlockWriter`: start it with the block's kind, its id (`TapeWriter::next_id`) and
-  the clocks its records use, `push` records, then `finish` it and hand the bytes to `TapeWriter::write_block`, which
-  gives back where it landed (`Placed`: its `offset` from the start of the piece and its `len`), or `None` for a block
-  of puts, which lands as no single block of its own. Use record blocks for tracks that produce a few items at a time.
-- **Chunks.** Hand a chunk head and its columns to `TapeWriter::write_chunk`, which encodes the chunk block and gives
-  back where it landed (`Placed`), with the chunk's unit hash as the writer states it in the index entry (`unit`; a
-  record block's is `UnitHash::NONE`). The writer states it and does not verify it, so a writer in the same process can
-  fold range hashes without reading the piece back. `PieceChain::write_chunk` gives back a `ChunkPlaced` too: the same,
-  with the seq of the piece it landed in, since a call may cut to a new piece first. `PieceChain::write_block` gives back nothing. Use chunks for tracks with many items.
-- **Deferred blocks.** Hand small blocks that may wait, such as summary blocks, to `TapeWriter::defer_block`. The writer
-  puts their definitions at once. In an aligned file it places the block in the gap before a chunk's payload, at most
-  `DEFER_WINDOW` (1 MiB) of writes later; in a file that isn't aligned it places the block at once.
-- **State items.** Put a state track's item with `TapeWriter::put` each time the producer uses it. It returns whether
-  it wrote the item.
+| Form | Call | Use it for |
+|---|---|---|
+| record block | `TapeWriter::write_block` | tracks that produce a few items at a time |
+| chunk | `TapeWriter::write_chunk` | tracks with many items |
+| deferred block | `TapeWriter::defer_block` | small blocks that may wait, such as summary blocks |
+| state item | `TapeWriter::put` | the items of a state track, at each use |
 
-A state track takes its items only through puts. A caller's records on a state track in a block of data are refused, and
-so is an events chunk on a state track. A series track has no records: its samples go into series chunks as data, each
-chunk's head carrying its grid and scale, and a record, a put or an events chunk on it is refused.
+**Record blocks.** Build a record block with `BlockWriter`. Start it with the block's kind, its id
+(`TapeWriter::next_id`) and the clocks its records use, `push` the records, then `finish` it. Hand the bytes to
+`TapeWriter::write_block`, which returns where the block landed as a `Placed`: its `offset` from the start of the
+piece and its `len`. A block of puts lands as no single block, so for such a block `write_block` returns `None`.
 
-The writer checks what it is handed in proportion to its cost. A chunk it encodes from columns has its head and column
-table checked, its track against the definitions and a series chunk's ticks against its grid; the payload is the
-caller's columns copied, and is not read back. A caller's whole block (`write_block`, `adopt_block`, `defer_block`) is
-read once with every CRC checked. Past that, each byte placed costs one pass more, the content hash. The writer
-doesn't compare a series chunk's grid with the chunk before it; a reader's `SeriesTimeline` does
-([Events and series](events_and_series.md#grids-where-samples-are-in-time)).
+**Chunks.** Hand a chunk head and its columns to `TapeWriter::write_chunk`, which encodes the chunk block and returns
+its `Placed`. For a chunk, `Placed::unit` is the chunk's unit hash as the writer states it in the index entry; for a
+record block it is `UnitHash::NONE`. The writer states the unit hash and does not verify it, so a writer in the same
+process can fold range hashes without reading the piece back. `PieceChain::write_chunk` returns a `ChunkPlaced`: the
+same fields plus the `seq` of the piece that the chunk landed in, since the call may cut to a new piece first.
+`PieceChain::write_block` returns nothing.
 
-Every CRC is a CRC-32C, computed with the CPU's CRC instructions where it has them (SSE4.2 on x86-64, the CRC extension
-of ARMv8) and by a table elsewhere, with the same result. `just bench-chunks` measures what the writer spends on a
-series chunk of 1 MiB (524 288 `i16` samples). On an AMD EPYC Genoa virtual machine with 14 vCPUs at a load average of about 5, best of 5 rounds of 256 chunks:
+**Deferred blocks.** Hand small blocks that may wait to `TapeWriter::defer_block`. The usual case is a summary block,
+which the crate `ww_tape_summary` builds: `EventTree` for an event track, `SeriesSummaries` for a series track. The
+writer puts the block's definitions at once. In an aligned file it places the block in the gap before a chunk's
+payload, at most `DEFER_WINDOW` (1 MiB) of writes later. In a file that is not aligned it places the block at once.
+
+**State items.** Put a state track's item with `TapeWriter::put` each time the producer uses it. The call returns
+whether it wrote the item.
+
+Each kind of track takes only its own forms. A state track takes its items only through puts: the writer refuses a
+caller's records on a state track in a block of data, and an events chunk on a state track. A series track has no
+records. Its samples go into series chunks, each chunk's head carrying its grid and scale, and the writer refuses a
+record, a put or an events chunk on a series track.
+
+The writer checks what it is handed in proportion to the cost. For a chunk that it encodes from columns, it checks
+the head and the column table, the track against the definitions, and a series chunk's ticks against its grid. The
+payload is the caller's columns copied, and the writer does not read it back. A caller's whole block (`write_block`,
+`adopt_block`, `defer_block`) is read once with every CRC checked. Beyond that, each byte placed costs one more pass:
+the content hash. The writer does not compare a series chunk's grid with the chunk before it; a reader's
+`SeriesTimeline` does ([Events and series](events_and_series.md#grids-where-samples-are-in-time)).
+
+Every CRC is a CRC-32C. The writer computes it with the CPU's CRC instructions where the CPU has them (SSE4.2 on
+x86-64, the CRC extension of ARMv8), and with a table elsewhere, with the same result.
+
+`just bench-chunks` measures what the writer spends on a series chunk of 1 MiB, which holds 524 288 `i16` samples.
+The table shows the best of 5 rounds of 256 chunks. It was measured on an AMD EPYC Genoa virtual machine with 14
+vCPUs, at a load average of about 5.
 
 | What | µs per chunk | GB/s |
 |---|---:|---:|
@@ -161,141 +209,179 @@ series chunk of 1 MiB (524 288 `i16` samples). On an AMD EPYC Genoa virtual mach
 | `TapeWriter::write_chunk` from columns | 254 | 4.12 |
 | `chunk::write_chunk`, then `TapeWriter::write_block` | 281 | 3.73 |
 
-The content hash is most of the cost: a writer that hands over columns spends about 41 µs per MiB besides it.
+The content hash is most of the cost. Besides the hash, a writer that hands over columns spends about 41 µs per MiB.
 
 ### Puts, near and copies
 
-A put writes its item unless the newest record of the item's slot is the same item, by its 128-bit BLAKE3 hash, less
-than the track's `near` behind. The distance is measured to where the data lands, after the puts in front of it. A put
-of an item that lies near still writes a **copy** while the piece holds fewer than `1 + copies` records of it and the
-newest lies at least `NearPolicy::copy_spacing` (1 MiB) behind. Copies are written only at uses, never scheduled ahead.
+Each state item and each definition fills a **slot**: a state track, or the track, clock, map or bundle that a
+definition defines. A put writes its item unless the newest record of the slot is the same item and lies less than
+the track's `near` behind. The writer compares items by their 128-bit BLAKE3 hash, and it measures the distance to
+where the data lands, after the puts in front of it.
 
-Puts and copies go into blocks marked `FLAG_REPEAT`. Such a block carries the sequence number of the block before it and
-isn't counted, so the producer's sequence numbers stay its own count of its blocks. Puts that belong with the block
-after them are also marked `FLAG_WITH_NEXT`, which a resume uses (see below).
+A put of an item that lies near still writes a **copy** while two conditions hold: the piece holds fewer than
+`1 + copies` records of the item, and the newest one lies at least `NearPolicy::copy_spacing` (1 MiB) behind. The
+writer writes copies only at uses and never schedules them ahead.
 
-The writer remembers, per slot, where it last wrote what. That memory is capped (`NearPolicy::memory_max`) and forgets
-the slot written longest ago first. A forgotten slot costs one more write at its next put, never a wrong read.
-[Numbers](numbers.md#definitions-and-puts) gives what puts and copies cost in a piece.
+Puts and copies go into blocks marked `FLAG_REPEAT`. Such a block carries the sequence number of the block before it
+and is not counted, so the producer's sequence numbers stay its own count of its blocks. Puts that belong with the
+block after them are also marked `FLAG_WITH_NEXT`, which a resume uses ([Resuming after a
+crash](#resuming-after-a-crash)).
+
+The writer remembers, per slot, where it last wrote what. That memory is capped by `NearPolicy::memory_max`, and the
+writer forgets the slot written longest ago first. A forgotten slot costs one more write at its next put, never a wrong
+read. [Numbers](numbers.md#definitions-and-puts) gives what puts and copies cost in a piece.
 
 ### Aligned files
 
-A file that holds series is usually **aligned**: a layout with an alignment of 4 KiB (`Layout::ALIGNED`, or
-`TapeWriter::set_alignment(ww_tape::ALIGNMENT)` before the first block) puts every chunk's sample payload on a 4 KiB
-boundary. A reader can then map it from the page cache or read it with direct I/O. Deferred blocks fill the space before
-an aligned payload while they fit, and zeros in the chunk's own head fill the rest. The summaries and checkpoints a
-series produces anyway fill most gaps, so alignment costs little. An event file isn't aligned; its blocks follow each
-other with nothing between them.
+A file that holds series is usually **aligned**: every chunk's sample payload starts on a 4 KiB boundary. Choose this
+with the layout `Layout::ALIGNED`, or call `TapeWriter::set_alignment(ww_tape::ALIGNMENT)` before the first block. A
+reader can then map the payloads from the page cache or read them with direct I/O.
+
+Deferred blocks fill the space before an aligned payload while they fit, and zeros in the chunk's own head fill the
+rest. The summaries and checkpoints that a series produces anyway fill most gaps, so alignment costs little. An event
+file is not aligned; its blocks follow each other with nothing between them.
 
 ## Syncing: what a crash can lose
 
-Data the operating system hasn't written to the disk is lost in a power cut. The **sync policy** (`SyncPolicy`) bounds
-how much that can be:
+Data that the operating system has not yet written to the disk is lost in a power cut. The **sync policy**
+(`SyncPolicy`) bounds how much that can be:
 
 | `SyncPolicy` | Syncs | A crash loses at most |
 |---|---|---|
 | `Interval(t)`, the default with `t` = 1 s | when blocks wait and the last sync is `t` ago | about `t` of data |
 | `EveryBlocks(n)` | after every `n` blocks | `n` blocks |
-| `None` | only at the finish | everything the system hasn't written yet |
+| `None` | only at the finish | everything the system has not written yet |
 
-`Interval` acts when a block arrives. A producer whose input may stop for a while calls `TapeWriter::tick` now and then,
-so the last blocks are synced even when no new block comes; with `IndexPolicy::interval` set, `tick` also
-places a checkpoint when its time is up. In an unaligned file the checkpoint goes in at once; in an aligned file `tick`
-only marks it due, and it goes into the gap before the next chunk. `TapeWriter::sync` syncs at once.
+`Interval` acts only when a block arrives. A producer whose input may stop for a while calls `TapeWriter::tick` now
+and then, so the last blocks are synced even when no new block comes. With `IndexPolicy::interval` set, `tick` also
+places a checkpoint when its interval is up. In an unaligned file the checkpoint goes in at once. In an aligned file
+`tick` only marks the checkpoint due, and it goes into the gap before the next chunk. `TapeWriter::sync` syncs at
+once.
 
-The writer reads time only through its clock, `WriterOptions::clock` (`TapeWriter::set_clock`). With `std` the
-default is the system's monotonic clock (`ClockRef::SYSTEM`, a `SystemClock`), so two default options are equal.
-Without `std` there is no clock by default, `ClockRef::NONE`, and then no interval is ever due: only the block and
-byte rules apply. Firmware passes its own `Clock`, and a test passes a clock it moves by hand. Time decides only
-when a writer syncs, places a checkpoint or cuts, never the bytes.
+The writer reads time only through its clock, `WriterOptions::clock` (or `TapeWriter::set_clock`). With `std` the
+default is the system's monotonic clock, `ClockRef::SYSTEM` (a `SystemClock`), so two default options compare equal.
+Without `std` the default is `ClockRef::NONE`: no interval is ever due, and only the block and byte limits apply.
+Firmware passes its own `Clock`, and a test passes a clock it moves by hand. Time decides only when the writer syncs,
+places a checkpoint or cuts; no reading of the clock is written into a block.
 
-A failed write or sync ends the file. The writer reports it and refuses every later write. It never retries, because
-after a failed `fsync` Linux may drop the pages it couldn't write, and a second `fsync` then succeeds without them.
+A failed write or sync ends the file. The writer reports the failure and refuses every later write. It never retries,
+because after a failed `fsync` Linux may drop the pages it could not write, and a second `fsync` then succeeds without
+them.
 
 ## Checkpoints
 
-A reader of a file that was never finished has no tail to start from. So the writer places a **checkpoint** index block
-after about every 4 MiB of blocks (`IndexPolicy`). Each checkpoint lists the blocks placed since the one before and
-points back at it. A reader after a crash finds the newest checkpoint and scans only the stretch after it, at most about
-4 MiB.
+A reader of a file that was never finished has no tail to start from. The writer therefore places a **checkpoint**, an
+index block, after about every 4 MiB of blocks (`IndexPolicy::bytes`). Each checkpoint lists the blocks placed since
+the one before and points back at it. After a crash, a reader finds the newest checkpoint and scans only the stretch
+after it, at most about 4 MiB.
 
-Checkpoints are placed by bytes, not by time, because a place chosen by the clock would make the file's bytes depend on
-when it was written. A producer that wants checkpoints by time as well sets `IndexPolicy::interval`. In an aligned file
-a checkpoint waits for the gap before the next chunk payload.
+The writer places checkpoints by bytes, not by time, because a place chosen by the clock would make the file's bytes
+depend on when the file was written. A producer that wants checkpoints by time as well sets `IndexPolicy::interval`.
+In an aligned file such a checkpoint waits for the gap before the next chunk payload.
 
 ## Cuts: ending one piece and starting the next
 
-A **cut** ends the current piece and starts the next piece of the chain. Only a piece of a chain can be cut: a writer
-starts one with `TapeWriter::begin_piece`, which writes the piece head first in the file. `TapeWriter::cut_with(tapes, key)`
-places every deferred block, writes the final index, the finish and the tail, finishes the sink (a file takes its final
-name), and returns the finished piece (`Finished`) and a writer on the next piece, in a new sink the store makes under `key`;
-`ww_tape_fs::writer::cut(writer, next_path)` does it with the file `next_path`. The next piece starts with a piece head and the layout and producer. Its definitions and state are put again at
-their first uses, since near is measured inside a piece.
+A **cut** ends the current piece and starts the next piece of the chain. Only a piece of a chain can be cut. A writer
+starts such a piece with `TapeWriter::begin_piece`, which writes the piece head as the first block of the file.
 
-`PieceChain` writes a whole chain and cuts by itself by a `CutPolicy`, which has three limits: `bytes`, `chunks` and
-`interval`, an age counted from the piece's start or its resume. A limit of 0 or `None` is off, and the first limit
-reached cuts. The chain checks the policy before each chunk, so a cut by policy never comes after the last chunk and
-never leaves a piece without data. The chain also cuts before any write that would need more state entries than the
-piece's index may hold (`IndexPolicy::state_entries_max`), and `PieceChain::cut_now` cuts at once.
+`TapeWriter::cut_with(tapes, key)` makes a cut in four steps:
 
-A chain writes each piece into a tape of its own, or, with `ChainOptions::tapes` set to `PieceTapes::One`, every
-piece into one tape. `TapeWriter::cut_in_place` is the cut of a writer into one file: the next piece starts right
-behind the finished one in the same sink, and the file keeps its name. [Pieces and
-files](pieces_and_files.md#writing-a-chain-into-one-file) explains when to choose which.
+1. It places every deferred block.
+2. It writes the final index, the finish and the tail.
+3. It finishes the sink; a file takes its final name.
+4. It starts the next piece in a new sink, which the store `tapes` makes under `key`.
 
-Nothing waits for a cut. Durability comes from the sync policy and the checkpoints, which work inside a piece; the cut
-only bounds how large one file grows. A slow input, such as one log line a minute, is written in a record block as it
-comes, synced within the sync interval, and readable by a reader of the unfinished piece at once. Cutting by age is
-there for retention by file, and it makes the file's bytes depend on the clock.
+The call returns the finished piece (`Finished`) and a writer on the next piece. `TapeWriter::cut_on(next)` does the
+same on a sink `next` that the caller made, and `ww_tape_fs::writer::cut(writer, next_path)` does it with the file
+`next_path`. The next piece starts with a piece head, the layout and the producer. Its definitions and state are put
+again at their first uses, since near is measured inside a piece.
+
+`PieceChain` writes a whole chain and cuts by itself, by a `CutPolicy` with three limits:
+
+- `bytes`: the size of the piece;
+- `chunks`: the number of chunk blocks in the piece;
+- `interval`: the age of the piece, counted from its start or its resume.
+
+A limit of 0 or `None` is off, and the first limit reached cuts. The chain checks the policy before each chunk, so a
+cut by policy never comes after the last chunk and never leaves a piece without data. The chain also cuts before a
+write that would need more state entries than the piece's index may hold (`IndexPolicy::state_entries_max`).
+`PieceChain::cut_now` cuts at once.
+
+Two limits on tracks are not met by a cut. A piece takes data of at most `TRACKS_PER_PIECE_MAX` tracks, and a piece
+head carries at most `HEAD_TRACKS_MAX` tracks from the pieces before it, so that each finish and each head fits one
+block. The writer refuses a write past either limit (`InputError::TooManyTracks`, `InputError::TooManyCarried`).
+
+A chain writes each piece into a tape of its own, or, with `ChainOptions::tapes` set to `PieceTapes::One`, every piece
+into one tape. `TapeWriter::cut_in_place` is the cut of a writer into one file: the next piece starts right behind the
+finished one in the same sink, and the file keeps its name. A sink that holds one piece only, such as a
+`NAME.partial` file, refuses this cut. [Pieces and files](pieces_and_files.md#writing-a-chain-into-one-file)
+explains when to choose which.
+
+Nothing waits for a cut. Durability comes from the sync policy and the checkpoints, which work inside a piece; a cut
+only bounds how large one file grows. For example, a slow input of one log line a minute is written in a record block
+as it comes, synced within the sync interval, and readable at once by a reader of the unfinished piece. Cutting by age
+serves retention by file, and it makes the file's bytes depend on the clock.
 
 ## Finishing
 
-`TapeWriter::finish` ends the piece as complete. It places the deferred blocks, then writes the final index and the
-finish block, padded so the piece ends on a 4 KiB boundary, then the tail. It syncs, renames `NAME.partial` to `NAME`
-and syncs the directory. It returns `Finished`: the piece's name, its content hash, its length and its ids. `finish_as`
-ends the piece in another state, such as aborted. A file still named `NAME.partial` was never finished.
+`TapeWriter::finish` ends the piece as complete, in three steps:
+
+1. It places the deferred blocks.
+2. It writes the final index, then the finish block, padded so that the piece ends on a 4 KiB boundary, then the
+   tail.
+3. It syncs the file, renames `NAME.partial` to `NAME` and syncs the directory.
+
+It returns a `Finished`: the piece's content hash, its length, its ids, where it starts in its file, and the hash and
+next item number of each track. `finish_as` ends the piece in another state, such as aborted. A file still named
+`NAME.partial` was never finished.
 
 ## Relays
 
-A **relay** is a program that takes a live producer's blocks and writes them into a tape of its own. For example, a host
-receives a device's tape blocks over a link and records them to disk, or a capture tool reads a live feed and keeps a
-file of it. The producer's stream has its own puts and copies, made by the producer's near rule in the producer's
-stream. They don't fit the relay's file: the relay's file may start later, be cut elsewhere, or have lost blocks.
+A **relay** is a program that takes a live producer's blocks and writes them into a tape of its own. For example, a
+host receives a device's tape blocks over a link and records them to disk, or a capture tool reads a live feed and
+keeps a file of it. The producer's stream carries its own puts and copies, placed by the producer's near rule in the
+producer's stream. They do not fit the relay's file, which may start later, be cut elsewhere, or have lost blocks.
 
-`TapeWriter::relay_block(&mut defs, block)` passes such a stream on, one block at a time. A block of puts (marked
-`FLAG_REPEAT`) has its definitions taken into the relay's `Definitions`, and its state records are put on the relay's
-tape by the relay's own near rule (`TapeWriter::put_block`). Any other block is written as data under those definitions.
-The relay therefore needs no knowledge of the producer's tracks, and its file has every definition near its use like any
-other.
+`TapeWriter::relay_block(&mut defs, block)` passes such a stream on, one block at a time. A block of puts is marked
+`FLAG_REPEAT`: the relay takes its definitions into its own `Definitions` and puts its state records on its own tape
+by its own near rule (`TapeWriter::put_block`). The relay writes any other block as data under those definitions. It
+therefore needs no knowledge of the producer's tracks, and its file has every definition near its use, like any other
+file.
 
-On a raw medium a piece must be one session, as [Damage and recovery](recovery.md#sessions-and-stale-data) explains. A
-writer for raw media passes a producer's blocks with `TapeWriter::adopt_block`, which renumbers each block into the
-writer's own session and gives back where it landed (`Placed`), `None` for a block of puts. A jump in the producer's
-sequence numbers stays a jump in the writer's, so a reader still sees blocks that were lost on the way.
+On a raw medium a piece must be one session, as [Damage and recovery](recovery.md#sessions-and-stale-data) explains.
+A writer for raw media passes a producer's blocks with `TapeWriter::adopt_block`. The call renumbers each block into
+the writer's own session and returns where it landed (`Placed`), or `None` for a block of puts. A jump in the
+producer's sequence numbers stays a jump in the writer's, so a reader still sees that blocks were lost on the way.
 
 ## Resuming after a crash
 
-`TapeWriter::resume_on(sink, options)` reopens the unfinished piece in a sink and goes on writing the same piece. For a
-file, `ww_tape_fs::writer::resume(path, options)` opens the file `NAME.partial` that `ww_tape_fs::writer::create(NAME)`
-wrote and resumes it. It returns the writer and a `Resumed`, which says
-how many bytes it kept and dropped and where the piece was cut. It works in three steps:
+`TapeWriter::resume_on(sink, options)` reopens the unfinished piece in a sink and goes on writing the same piece. For
+a file, `ww_tape_fs::writer::resume(path, options)` opens the file `NAME.partial` that `writer::create` wrote and
+resumes it. The call returns the writer and a `Resumed`, which says how many bytes it kept (`kept_bytes`) and dropped
+(`dropped_bytes`) and where the reader stopped taking blocks (`cut`). A resume works in three steps:
 
 1. It finds the piece as a reader would: by its tail when it has one, else from the newest checkpoint and a scan after
    it, else by a scan from the start. A scan stops at the first bad block.
-2. It keeps every byte up to the end of the last good block. It cuts off the rest: a torn block, an end of piece, and
-   blocks marked `FLAG_WITH_NEXT` at the end of what it keeps, since the block they belong with didn't survive. When a
-   good block of the piece's sessions lies behind the bytes the reader didn't take, cutting would lose more than a
-   torn end: the resume refuses (`ResumeError::GoodBlockAfterCut`) and leaves the bytes as they are. It looks
-   `RESUME_LOOK_MAX` bytes far and reads at most `RESUME_PROBES_MAX` places whole. When either runs out before the
-   end of the bytes, it can't tell the rest holds no good block: it refuses (`ResumeError::LookSpent`) and leaves the
-   bytes as they are. With no block kept, a good block of any session counts. When the bytes it keeps claim
-   so many blocks that don't read that a reader's content-hash walk stops trying blocks before their end
-   (`WALK_MISS_PER_BYTE_MAX`), a block written after them would not verify: the resume refuses
-   (`ResumeError::HashWalkSpent`) and leaves the bytes as they are.
+2. It keeps every byte up to the end of the last good block and cuts off the rest. The rest is a torn block, an end of
+   piece, and blocks marked `FLAG_WITH_NEXT` at the end of what it keeps, since the block they belong with did not
+   survive.
 3. It replays the kept bytes to rebuild the writer as it was: the content hash, the index entries, the track ranges,
-   the record of what lies near, the session and the next sequence number. It walks them as a reader's verify does:
-   a good block wherever the walk meets one, and in bytes no block explains, a block the index lists is a damaged
-   block kept by its entry when it ends before the next good block; other bytes are junk, kept and never listed.
+   the record of what lies near, the session and the next sequence number. It walks the bytes as a reader's verify
+   does. It takes a good block wherever the walk meets one. In bytes that no block explains, a block that the index
+   lists is kept by its entry as a damaged block when it ends before the next good block; other bytes are junk, kept
+   and never listed.
+
+A damaged block kept by its entry stands for what the entry says. A damaged chunk goes into its track's hash by the
+unit hash of its entry. The records of a damaged record block cannot, so the finish marks the hash of each track that
+may hold records as incomplete.
+
+Step 2 cuts off only a torn end. Where cutting could lose more, the resume refuses and leaves the bytes as they are:
+
+| Refusal | When |
+|---|---|
+| `ResumeError::GoodBlockAfterCut` | a good block of the piece's sessions lies behind the bytes the reader did not take; with no block kept, a good block of any session counts |
+| `ResumeError::LookSpent` | the look for good blocks ran out before the end of the bytes: it reaches at most `RESUME_LOOK_MAX` bytes far and reads at most `RESUME_PROBES_MAX` places whole, so it cannot tell that the rest holds no good block |
+| `ResumeError::HashWalkSpent` | the kept bytes claim so many blocks that do not read that a reader's content-hash walk stops trying blocks before their end (`WALK_MISS_PER_BYTE_MAX`), so a block written after them would not verify |
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/figures/resume.svg"
@@ -303,44 +389,60 @@ how many bytes it kept and dropped and where the piece was cut. It works in thre
 the producer gives that call again, and it writes the same puts and the same block.</figcaption>
 </figure>
 
-The producer then gives again every call from the block `TapeWriter::next_seq` reports, with the same definitions. Since
-what the writer adds depends only on the bytes before it, the calls and the options, the resumed piece ends with the
-same bytes, and the same content hash, as a piece written without the crash. A put is idempotent, so the producer simply
-puts again what it uses and needs no record of which puts reached the disk. The writer holds no definitions, so a resume
-needs none from the file: the application passes its own, as before the crash.
+The producer then gives again every call from the block that `TapeWriter::next_seq` reports, with the same
+definitions. A call that placed several counted blocks, such as a chunk with deferred blocks in its gap, is given again
+whole. What the writer adds depends only on the bytes before it, the calls and the options. The resumed piece
+therefore ends with the same bytes, and the same content hash, as a piece written without the crash.
 
-A resume checks the options against the piece before it cuts or writes anything. Pass the options the piece was written
-with; `TapeWriter::options` gives them. A layout or producer other than the newest the piece kept is refused
-(`InputError::Layout`, `InputError::Producer`), because the writer would place blocks the way the file says it doesn't.
-A piece whose finish and tail read whole (a crash after the finish, before the rename) is complete: the resume renames
-it, writes nothing and returns `WriteError::Ended`. Junk a crash left after the tail (garbage, a torn block) is cut
-off first; a good block there refuses (`ResumeError::GoodBlockAfterCut`). A piece cut inside its end is opened again: its final index and
-finish are cut off, and the next finish pads the piece to 4 KiB again.
+A put is idempotent, so the producer simply puts again what it uses and needs no record of which puts reached the
+disk. The writer holds no definitions, so a resume needs none from the file: the application passes its own, as
+before the crash.
 
-`PieceChain::resume_on` (`ww_tape_fs::chain::resume` for files) does the same for a chain. It reads the finished pieces back from their tails and resumes the last,
-or starts the next piece when the crash came between a cut's finish and the next piece's start, renaming a finished
-piece the crash left as `NAME.partial`. A chain whose last piece already ended complete or aborted is refused with
-`WriteError::Ended`. A chain in one file (`PieceTapes::One`) is not refused there: it starts a new piece behind the
-finished last one, so each session that opens the file adds a piece. A
-last piece whose piece head is damaged is refused in both cases, because the blocks after the head would form a piece
-with no link to the chain. [Damage and
+A resume checks the options against the piece before it cuts or writes anything. Pass the options that the piece was
+written with, which `TapeWriter::options` returns. The resume refuses a layout or a producer other than the newest one
+the piece kept (`InputError::Layout`, `InputError::Producer`), because the writer would place blocks other than the
+way the file says. Two cases at the end of a piece differ:
+
+- A piece whose finish and tail read whole is complete; the crash came after the finish and before the rename. The
+  resume cuts off the junk a crash left after the tail, renames the file, writes nothing and returns
+  `WriteError::Ended`. A good block after the tail refuses the resume (`ResumeError::GoodBlockAfterCut`).
+- A piece cut off inside its end is opened again. Its final index and finish are cut off, and the next finish pads the
+  piece to 4 KiB again.
+
+### Resuming a chain
+
+`PieceChain::resume_on` (`ww_tape_fs::chain::resume` for files) does the same for a chain. It reads the finished
+pieces back from their tails and then deals with the last piece. A finished piece that a crash left as `NAME.partial`
+gets its name. What happens next depends on how the last piece ended:
+
+| Last piece | Chain of a tape per piece | Chain in one tape (`PieceTapes::One`) |
+|---|---|---|
+| unfinished | resumed | resumed |
+| finished as continued: the crash came during a cut | the next piece starts | the next piece starts |
+| finished as complete or aborted | refused: `WriteError::Ended` | a new piece starts behind it |
+| its piece head is damaged | refused | refused |
+
+A chain in one tape therefore gains a piece each time a session opens the file. A last piece with a damaged piece
+head is refused because the blocks after the head would form a piece with no link to the chain. [Damage and
 recovery](recovery.md#resuming-after-a-crash) follows a recorder through a power cut.
 
-A chain resume also restores the newest value of each monotone relation. It takes the range relation's top from every
-finished piece's index entries, which it reads anyway. The other relations' values are in chunks: for each track it reads
-one chunk, the track's last in the newest finished piece that holds a chunk of it, at most `MAX_BLOCK_LEN` (64 MiB). A
-resume of a chain of N tracks therefore reads up to N chunks besides each piece's head, finish, tail and index. Where
-that chunk doesn't read, the track's next chunk is refused (`DescribeError::RelationUnread`). The writer can't vouch
-for an order it can't read, so only the caller goes on: `TapeWriter::accept_relation_break(defs, track, relation,
-from)` checks the track's next chunk against `from` for that relation and marks it as a [relation
-break](format.md#tape-blocks) (`FLAG_RELATION_BREAK`), which readers see. The break waits for the track's next chunk
-through cuts; a crash before that chunk drops it, and the resumed writer refuses again. The writer marks a chunk it
-encodes itself; a caller's block carries the flag (`mark_relation_break`) exactly when a break waits, else
-`InputError::Flags`.
+A chain resume also restores the newest value of each monotone relation, the per-item values that a track declares
+never to decrease. It takes the range relation's newest value from every finished piece's index entries, which it
+reads anyway. The other relations' values are in chunks. For each track the resume reads one chunk: the track's last
+chunk in the newest finished piece that holds one, at most `MAX_BLOCK_LEN` (64 MiB). A resume of a chain of N tracks
+therefore reads up to N chunks besides each piece's head, finish, tail and index.
+
+Where that chunk does not read, the writer refuses the track's next chunk (`DescribeError::RelationUnread`). The
+writer cannot vouch for an order it cannot read, so only the caller can go on. The call
+`TapeWriter::accept_relation_break(defs, track, relation, from)` checks the track's next chunk against `from` for that
+relation and marks it as a [relation break](format.md#tape-blocks) (`FLAG_RELATION_BREAK`), which readers see. The
+break waits for the track's next chunk, also across cuts. A crash before that chunk drops the break, and the resumed
+writer refuses again. The writer marks a chunk that it encodes itself. A caller's block carries the flag
+(`mark_relation_break`) exactly when a break waits, and is refused otherwise (`InputError::Flags`).
 
 ## Same input, same bytes
 
 A writer given the same input writes the same bytes. Blocks hold no wall time, puts and copies follow from the bytes
-before them, and checkpoints and cuts are placed by bytes. A producer that seals blocks on a timer, adds checkpoints by
-time or cuts pieces by age gives up this property for what it places that way. [Tapes](index.md#same-input-same-bytes)
-says what the property is good for.
+before them, and checkpoints and cuts are placed by bytes. A producer that seals blocks on a timer, adds checkpoints
+by time or cuts pieces by age gives up this property for what it places that way.
+[Tapes](index.md#same-input-same-bytes) says what the property is good for.
