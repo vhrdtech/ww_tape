@@ -115,11 +115,13 @@ impl<'b> Durations<'b> {
     }
 
     /// Whether group `g` is one a salvage found damaged; false past the last group.
+    #[inline]
     pub fn is_suspect_group(&self, g: usize) -> bool {
         self.salvaged && g < self.groups.count() && self.group_ok(g).is_none()
     }
 
     /// Whether the column was read by salvage.
+    #[inline]
     pub fn salvaged(&self) -> bool {
         self.salvaged
     }
@@ -227,11 +229,13 @@ impl<'b> Flags<'b> {
     }
 
     /// Whether group `g` is one a salvage found damaged; false past the last group.
+    #[inline]
     pub fn is_suspect_group(&self, g: usize) -> bool {
         self.salvaged && g < self.groups.count() && self.groups.group_fits(g).is_none()
     }
 
     /// Whether the column was read by salvage.
+    #[inline]
     pub fn salvaged(&self) -> bool {
         self.salvaged
     }

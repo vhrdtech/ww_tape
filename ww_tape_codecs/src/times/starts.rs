@@ -256,6 +256,7 @@ impl<'b> Linear<'b> {
     }
 
     /// Whether the column was read by salvage.
+    #[inline]
     fn salvaged(&self) -> bool {
         #[cfg(feature = "alloc")]
         return self.suspect.is_some();
@@ -294,6 +295,7 @@ impl<'b> Linear<'b> {
         }
     }
 
+    #[inline]
     fn is_suspect_group(&self, g: usize) -> bool {
         #[cfg(feature = "alloc")]
         return g < self.groups.count()
@@ -492,17 +494,20 @@ impl<'b> Starts<'b> {
     }
 
     /// Whether the column was read by salvage.
+    #[inline]
     pub fn salvaged(&self) -> bool {
         matches!(&self.repr, Repr::Linear(lin) if lin.salvaged())
     }
 
     /// Whether item `i` is in a group a salvage found damaged; its start is then a stand-in. False past the last
     /// item.
+    #[inline]
     pub fn is_suspect(&self, i: usize) -> bool {
         self.is_suspect_group(i / GROUP)
     }
 
     /// Whether group `g` is one a salvage found damaged; false past the last group.
+    #[inline]
     pub fn is_suspect_group(&self, g: usize) -> bool {
         match &self.repr {
             Repr::Implicit { .. } => false,
