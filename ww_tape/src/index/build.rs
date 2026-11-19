@@ -57,6 +57,9 @@ pub(crate) struct Indexer {
     head_keys: BTreeSet<TrackKey>,
     /// Those of `rows` the head doesn't carry
     rows_past_head: usize,
+    /// The close record the writer went on after: the final index lists only the entries past it, chained back to
+    /// that close's final index
+    closed: Option<(u64, Option<u64>)>,
 }
 
 impl Indexer {
@@ -360,10 +363,32 @@ impl Indexer {
         self.last_checkpoint
     }
 
-    /// Every entry, sorted for the final index, cut into the parts one final block each holds: whole tracks while
-    /// they fit, a track longer than a block over several.
+    /// The piece was closed by the close record at `offset`, its last final index block at `final_index`: what is
+    /// placed from here on is listed by checkpoints chained back to that final index, and by a final index of its
+    /// own whose first block points at it. The tracks' ranges and hashes go on over the whole piece.
+    pub(crate) fn closed(&mut self, offset: u64, final_index: Option<u64>) {
+        self.closed = Some((offset, final_index));
+        self.pending.clear();
+        self.since = 0;
+        self.last_checkpoint = final_index;
+    }
+
+    /// The final index block the next close's final index points back at: the last one of the close the writer went
+    /// on after.
+    pub(crate) fn final_before(&self) -> Option<u64> {
+        self.closed.and_then(|(_, f)| f)
+    }
+
+    /// Every entry since the last close (all of them before the first), sorted for the final index, cut into the
+    /// parts one final block each holds: whole tracks while they fit, a track longer than a block over several.
     pub(crate) fn final_parts(&self) -> Vec<Vec<IndexEntry>> {
-        let mut all = self.all.clone();
+        let after = self.closed.map(|(at, _)| at);
+        let mut all: Vec<IndexEntry> = self
+            .all
+            .iter()
+            .filter(|e| after.is_none_or(|at| e.offset > at))
+            .copied()
+            .collect();
         all.sort_by_key(IndexEntry::order);
         let mut parts: Vec<Vec<IndexEntry>> = Vec::new();
         for track in all.chunk_by(|a, b| a.track_id == b.track_id) {

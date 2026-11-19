@@ -290,11 +290,11 @@ impl<K: Ord + Clone> MemTapes<K> {
         Ok(sink)
     }
 
-    /// The unclosed tape under `key`, to resume ([Tapes::reopen]).
+    /// The tape under `key` to write on ([Tapes::reopen]): unclosed, to resume, or closed, to write on after its
+    /// close; it keeps its mark of closed.
     pub fn reopen(&self, key: &K) -> Result<Option<MemSink<K>>, MemError<K>> {
         self.lock()?
             .get(key)
-            .filter(|t| !t.is_closed())
             .map(|t| t.hold().ok_or_else(|| MemError::Locked(key.clone())))
             .transpose()
     }

@@ -89,15 +89,19 @@ The resume refuses a layout or a producer other than the newest one the piece ke
 
 With another layout or producer, the writer would place blocks other than the way the file says.
 
-Two cases at the end of a piece differ:
+Three cases at the end of a piece differ:
 
-- A piece whose close and tail read whole is complete; the crash came after the close and before the rename. The
-  resume cuts off the junk a crash left after the tail, renames the file, writes nothing and returns
-  `WriteError::Ended`.
+- A piece whose last close and tail read whole is closed. The resume cuts off the junk a crash left after the tail and
+  writes on after it, an append head first.
+- A piece that a cut closed names the next piece in its close. The resume gives it its name and returns
+  `ResumeError::Continued`.
 - A piece cut off inside its end is opened again. Its final index and close are cut off, and the next close pads the
   piece to 4 KiB again.
 
-A good block after the tail of a complete piece refuses the resume (`ResumeError::GoodBlockAfterCut`).
+[Closing more than once](format.md#closing-more-than-once) shows the bytes of a piece written on after its close.
+
+A good block after the tail of a closed piece refuses the resume (`ResumeError::GoodBlockAfterCut`), unless an append
+head leads to it. A damaged append head is such a case: the resume never cuts off the blocks after it.
 
 ## Resuming a chain
 
@@ -111,11 +115,11 @@ ended:
 |---|---|---|
 | unclosed | resumed | resumed |
 | closed as continued: the crash came during a cut | the next piece starts | the next piece starts |
-| closed as complete or aborted | refused: `WriteError::Ended` | a new piece starts behind it |
+| closed as complete or aborted | written on after its close | written on after its close |
 | its piece head is damaged | refused | refused |
 
-A chain in one tape therefore gains a piece each time a session opens the file. The resume refuses a last piece with a
-damaged piece head.
+A chain therefore gains a piece only at a cut: a session that opens it again goes on in its last piece. The resume
+refuses a last piece with a damaged piece head.
 
 The blocks after that head would form a piece with no link to the chain. [Damage and
 recovery](recovery.md#resuming-after-a-crash) follows a recorder through a power cut.

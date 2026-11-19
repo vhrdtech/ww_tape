@@ -441,12 +441,17 @@ fn lookups(r: &TapeReader<&[u8]>, i: usize) {
 
 /// A resume of `f`: when it resumes, the definitions again, a put on each state track and a records block, then a
 /// close that a reader finds whole. Unless the input was `forged` (a block behind a good CRC that isn't the one its
-/// index entry states, which a resume keeps the entry of), the piece verifies.
+/// index entry states, which a resume keeps the entry of), the piece verifies; written on after a close, it verifies
+/// exactly when the input verified up to that close, damage before it staying damage.
 fn resume_state(f: &[u8], forged: bool) {
+    let before = TapeReader::open(f)
+        .ok()
+        .and_then(|r| r.verify(0).ok())
+        .unwrap_or(false);
     let mut sink = MemSink::new();
     sink.write_all(f).expect("memory takes the bytes");
     let tape = sink.tape();
-    let Ok((mut w, _)) = TapeWriter::resume_on(sink, hostile::state_options()) else {
+    let Ok((mut w, resumed)) = TapeWriter::resume_on(sink, hostile::state_options()) else {
         return;
     };
     let defs = hostile::state_definitions();
@@ -460,10 +465,14 @@ fn resume_state(f: &[u8], forged: bool) {
     let out = tape.to_vec().expect("the bytes");
     let r = TapeReader::open(&out[..]).expect("a closed piece opens");
     let last = r.pieces().len().checked_sub(1).expect("a piece");
-    assert!(
-        r.verify(last).expect("a closed piece") || forged,
-        "the piece verifies"
-    );
+    let holds = r.verify(last).expect("a closed piece");
+    match resumed.after_close {
+        None => assert!(holds || forged, "the piece verifies"),
+        Some(_) => assert!(
+            holds == before || forged,
+            "written on after a close, the piece verifies as it did up to it"
+        ),
+    }
     let found = r
         .state_at(
             last,

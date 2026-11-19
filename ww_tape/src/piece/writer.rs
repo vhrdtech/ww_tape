@@ -140,19 +140,17 @@ impl<T: Tapes> PieceChain<T> {
         })
     }
 
-    /// Reopen chain `chain` of `owner` in `tapes` after a crash: the closed pieces are read from their tails
-    /// ([Self::closed]), the unclosed last one is resumed ([TapeWriter::resume_on]). After a crash between a cut's close
-    /// and the next piece's start, the next piece is started as the cut would have. `options` are the ones the chain
-    /// was written with. A piece ended whole whose name a crash took ([TapeWriter::resume_on]) is named and read as
-    /// closed. A chain of a file per piece whose last piece ended complete or aborted is refused
-    /// ([WriteError::Ended]).
+    /// Reopen chain `chain` of `owner` in `tapes` to write on, after a crash or after its close: the pieces closed by
+    /// a cut are read from their tails ([Self::closed]), the last piece is resumed ([TapeWriter::resume_on]): an
+    /// unclosed one goes on after its last good block, a closed one is written on after its last close record. After
+    /// a crash between a cut's close and the next piece's start, the next piece is started as the cut would have.
+    /// `options` are the ones the chain was written with. A piece cut whole whose name a crash took
+    /// ([ResumeError::Continued]) is named and read as closed.
     ///
-    /// With [PieceTapes::One] the chain is in one tape. Its last piece, when unclosed (a crash), is resumed with the
-    /// same rules as a piece of its own: only a torn end is cut, and a resume that would drop more is refused. When
-    /// every piece is closed (the file was closed), a new piece starts behind the last: the next one of the cut
-    /// when the last is continued, else a new write session's ([TapeWriter::begin_piece] rules: its own session tag
-    /// derived from its id, seqs from 0), its head naming the last piece. An application that starts every write
-    /// session in a piece of its own gives the calls a resume asks for again, then cuts ([Self::cut_now]).
+    /// With [PieceTapes::One] the chain is in one tape, and its last piece is resumed with the same rules as a piece
+    /// of its own: only a torn end is cut, and a resume that would drop more is refused. An application that starts
+    /// every write session in a piece of its own gives the calls a resume asks for again, then cuts
+    /// ([Self::cut_now]).
     pub fn resume_on(
         tapes: T,
         owner: OwnerId,
@@ -176,11 +174,16 @@ impl<T: Tapes> PieceChain<T> {
         let mut seq = 0u64;
         let (key, reopened) = loop {
             let key = tapes.key_of(seq);
-            let src = match tapes
+            let named = tapes
                 .closed(&key)
-                .map_err(sink_err("opening a closed piece"))?
-            {
-                Some(src) => src,
+                .map_err(sink_err("opening a closed piece"))?;
+            // a piece the chain goes on from: cut, closed by its last close record
+            let cut = match &named {
+                Some(src) => cut_piece(src)?,
+                None => None,
+            };
+            let (piece, last) = match cut {
+                Some(done) => done,
                 None => {
                     let Some(sink) = tapes
                         .reopen(&key)
@@ -189,18 +192,20 @@ impl<T: Tapes> PieceChain<T> {
                         break (key, None);
                     };
                     match TapeWriter::resume_on(sink, options.writer.clone()) {
-                        // ended whole before a crash took its name: named now, read as closed
-                        Err(WriteError::Ended(_)) => tapes
-                            .closed(&key)
-                            .map_err(sink_err("opening a closed piece"))?
-                            .ok_or(WriteError::Index(IndexError::Invalid(
-                                "a piece given its name doesn't read as closed",
-                            )))?,
+                        // cut whole before a crash took its name: named now, read as closed
+                        Err(WriteError::Resume(ResumeError::Continued { .. })) => {
+                            let src = tapes
+                                .closed(&key)
+                                .map_err(sink_err("opening a closed piece"))?
+                                .ok_or(WriteError::Index(IndexError::Invalid(
+                                    "a piece given its name doesn't read as closed",
+                                )))?;
+                            read_closed(&src)?
+                        }
                         r => break (key, Some(r?)),
                     }
                 }
             };
-            let (piece, last) = read_closed(&src)?;
             closed.push((ChainPiece { tape: key, piece }, last));
             seq = seq.checked_add(1).ok_or_else(too_many)?;
         };
@@ -230,9 +235,6 @@ impl<T: Tapes> PieceChain<T> {
                 let Some((done, last)) = closed.last() else {
                     return Err(WriteError::Resume(ResumeError::NoPiece));
                 };
-                if !last.continued {
-                    return Err(WriteError::Ended(last.reason));
-                }
                 let next = next_piece(&done.piece, last)?;
                 let sink = tapes
                     .create(&key)
@@ -275,12 +277,16 @@ impl<T: Tapes> PieceChain<T> {
         let size = sink
             .size()
             .map_err(crate::sink::sink_err("reading the length to resume"))?;
-        let closed = closed_in(&sink, &key)?;
+        let mut closed = closed_in(&sink, &key)?;
+        // a last piece the chain doesn't go on from is written on, after its last close record
+        if closed.last().is_some_and(|(_, last)| !last.continued) {
+            closed.pop();
+        }
         let newest = newest_in(&closed, |done, e, buf| {
             read_listed(&SinkSource(&sink), done.piece.start, e, buf)
         })?;
         let seq = u64::try_from(closed.len()).map_err(|_| too_many())?;
-        // the bytes after the last closed piece: an unclosed piece, or nothing
+        // the bytes after the last piece cut: the last piece, or nothing
         let open_at = match closed.last() {
             Some((f, _)) => f
                 .piece
@@ -299,7 +305,7 @@ impl<T: Tapes> PieceChain<T> {
                 // cut off inside its head: the piece starts again
                 match closed.last() {
                     None => w.begin_piece(&first_head(owner, chain), &[])?,
-                    Some((done, last)) => w.begin_next(following(&done.piece, last)?)?,
+                    Some((done, last)) => w.begin_next(next_piece(&done.piece, last)?)?,
                 }
             }
             (w, resumed)
@@ -309,7 +315,7 @@ impl<T: Tapes> PieceChain<T> {
                     "a file of closed pieces holds one",
                 )));
             };
-            let next = following(&done.piece, last)?;
+            let next = next_piece(&done.piece, last)?;
             let mut w = TapeWriter::start_next(sink, &options.writer, next)?;
             reserve_piece(&mut w, options.cut);
             let resumed = Resumed::started(w.bytes());
@@ -525,16 +531,6 @@ fn next_piece<E>(done: &Closed, last: &LastPiece) -> Result<NextPiece, WriteErro
     )
 }
 
-/// The piece a writer starts after the closed piece `done`: the next of the cut when it is continued, else the
-/// first of a new write session.
-fn following<E>(done: &Closed, last: &LastPiece) -> Result<NextPiece, WriteError<E>> {
-    if last.continued {
-        next_piece(done, last)
-    } else {
-        NextPiece::reopened(&last.head, done, last.next_tracks.clone(), last.session)
-    }
-}
-
 fn too_many<E>() -> WriteError<E> {
     WriteError::Index(IndexError::Invalid("piece seq past u64::MAX"))
 }
@@ -548,7 +544,7 @@ fn closed_in<S: TapeSink, K: Clone>(
     let src = SinkSource(sink);
     let reader = TapeReader::open(&src).map_err(WriteError::Read)?;
     let pieces = reader.pieces();
-    let done = pieces.iter().take_while(|p| p.tail.is_some()).count();
+    let done = pieces.iter().take_while(|p| p.is_closed()).count();
     if done.saturating_add(1) < pieces.len() {
         return Err(WriteError::Index(IndexError::Invalid(
             "an unclosed piece before the last one in a file of pieces",
@@ -576,8 +572,6 @@ type LastChunks = BTreeMap<TrackKey, IndexEntry>;
 
 /// What the piece after a closed one starts from.
 struct LastPiece {
-    /// Why it was closed
-    reason: CloseReason,
     /// It goes on in a next piece, which its close record names
     continued: bool,
     head: PieceHead,
@@ -599,6 +593,19 @@ fn read_closed<B: ByteSource>(src: &B) -> Result<(Closed, LastPiece), WriteError
         )));
     }
     read_closed_at(&reader, 0)
+}
+
+/// The piece in `src` when the chain goes on from it: one piece, closed by a cut (its last close record names the
+/// next piece), no bytes after its tail; None for any other.
+fn cut_piece<B: ByteSource>(src: &B) -> Result<Option<(Closed, LastPiece)>, WriteError<B::Error>> {
+    let reader = TapeReader::open(src).map_err(WriteError::Read)?;
+    let cut = matches!(reader.pieces(), [p] if p.start == 0
+        && p.is_closed()
+        && p.close.as_ref().is_some_and(|(c, _)| c.next.is_some()));
+    match cut {
+        true => read_closed_at(&reader, 0).map(Some),
+        false => Ok(None),
+    }
 }
 
 /// Closed piece `i` of `reader`, from its tail, close and head.
@@ -648,7 +655,6 @@ fn read_closed_at<B: ByteSource>(
             tracks: next_tracks.clone(),
         },
         LastPiece {
-            reason: close.reason,
             continued: close.next.is_some(),
             head: *head,
             next_tracks,

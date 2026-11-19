@@ -14,6 +14,9 @@ block of data, it puts the definitions and the state that the block needs.
 Between blocks, the writer places **checkpoints**: index blocks that let a reader find the blocks of an unclosed
 piece. At the end, it writes the final index, the close and the tail.
 
+A close ends a write session, not the piece. A writer that resumes a closed piece writes on after its close, and the
+next close names the one before it ([Closing more than once](format.md#closing-more-than-once)).
+
 The producer makes the data; the writer places it.
 
 ### Sinks and stores

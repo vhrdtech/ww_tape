@@ -47,8 +47,8 @@ as one for events and one for a high-rate stream.
 An application may add groupings of its own on top. For example, a recorder application can keep a **project**, which
 the user creates, opens and closes.
 
-A project holds many runs of many producers. The recorder can write each stretch from open to close as a new session
-in a new piece.
+A project holds many runs of many producers. The recorder can write each stretch from open to close as a new session,
+written on in the last piece after its close.
 
 The recorder gives every piece the project's id as its owner id. The project and its runs are the application's
 words; `ww_tape` sees only sessions, pieces, chains and an opaque owner id.

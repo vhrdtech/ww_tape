@@ -133,14 +133,16 @@ let options = ChainOptions {
 let mut chain = ww_tape_fs::chain::create(path, owner, 0, &[], options.clone())?;
 chain.write_chunk(defs, head, columns)?;
 let first = chain.close()?;
-// opened again: a new piece behind the closed one
+// opened again: written on after the close
 let (mut chain, _) = ww_tape_fs::chain::resume(path, owner, 0, options)?;
 chain.write_chunk(defs, head, columns)?;
 let second = chain.close()?;
 ```
 
-The first session leaves one closed piece in the file. The second session finds it, adds a piece behind it, and
-returns both pieces.
+The first session leaves one closed piece in the file. The second session finds it, writes on after its close and
+closes it again.
+
+The file still holds one piece, closed twice: `first` and `second` each report that piece as closed at the time.
 
 The repository runs these lines as a test (`ww_tape_tests/tests/it/book.rs`).
 
@@ -150,13 +152,12 @@ tails, as a reader does.
 The chain resumes an unclosed last piece, cut off by a crash, under the rules for a piece in a file of its own.
 [Resuming after a crash](resuming.md#resuming-after-a-crash) gives those rules.
 
-After a last piece that was closed, a new piece starts. Every session that opens the file and closes it therefore adds
-at least one piece.
+A last piece that was closed is written on after its close, behind an append head, in a session of its own. Nothing
+before the append head changes, and the new close names the one before it ([Closing more than
+once](format.md#closing-more-than-once)).
 
-The new piece has a session tag of its own. Its head names the last piece by its content hash and id, so `check_chain`
-sees one linked chain.
-
-For example, an editor that opens a project, records for a minute and closes it adds one piece each time.
+For example, an editor that opens a project, records for a minute and closes it adds a close to the last piece each
+time. The file gains a piece only where the chain cuts.
 
 ## The 4 KiB end and cloning
 

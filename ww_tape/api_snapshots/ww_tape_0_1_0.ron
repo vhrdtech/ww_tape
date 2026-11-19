@@ -1,6 +1,6 @@
 // ww_tape 0.1.0 traits and types, saved by `ww api save`.
 // Do not edit, bump the crate version and save a new snapshot instead.
-// shrink_wrap sha256: 8e73f3efe9341fe6b30992c1e6bdd28478d6fbc874df8c274405878b59d66369
+// shrink_wrap sha256: bdd1a8626793093b41d1272d179c7858200ddf8e31d66dda200915ed6874a618
 (magic: 2837124336, ww_self_version: (major: 0, minor: 4, patch: 0), root: (docs: [
     "Tape blocks: the unit a producer of records hands over, a live consumer reads and a log file is made of.",
     "",

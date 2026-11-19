@@ -38,6 +38,8 @@ fn close_only(final_index: u64) -> Vec<u8> {
         hash: ContentHash([0; 32]),
         checkpoint: None,
         final_index: Some(final_index),
+        prev: None,
+        summary: None,
         ident: None,
         next: None,
     };
@@ -168,7 +170,7 @@ fn a_refused_close_leaves_the_chain_open() {
     reseal_block(&mut short_rows, fin);
     let mut flags = files[0].clone();
     for k in 0..rows {
-        let row = fin + 176 + k * 136;
+        let row = fin + 192 + k * 136;
         flags[row + 128..row + 132].copy_from_slice(&u32::MAX.to_le_bytes());
     }
     reseal_block(&mut flags, fin);

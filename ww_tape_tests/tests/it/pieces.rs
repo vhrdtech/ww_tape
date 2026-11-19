@@ -634,17 +634,12 @@ fn closed_pieces_then_an_unclosed_one() {
         );
         assert_eq!(p[2].start, done.len() as u64, "cut at {cut}");
         assert!(p[2].tail.is_none(), "cut at {cut}");
-        // cut inside its tail, the piece has its close: it ended, and only the tail is lost
+        // cut inside its tail, the piece has its close record, read; without its tail the close is not whole, and
+        // the chain ends unclosed, as a resume takes it
         let ended = cut > close_at + 200;
         assert_eq!(p[2].close.is_some(), ended, "cut at {cut}");
-        let end = if ended {
-            ChainEnd::Closed {
-                reason: CloseReason::Closed,
-            }
-        } else {
-            ChainEnd::Unclosed
-        };
-        assert_eq!(r.chain().end, end, "cut at {cut}");
+        assert!(!p[2].is_closed(), "cut at {cut}");
+        assert_eq!(r.chain().end, ChainEnd::Unclosed, "cut at {cut}");
         assert!((0..2).all(|i| r.verify(i).unwrap()));
         let events = r
             .entries(2)
@@ -812,7 +807,7 @@ fn incomplete_golden() {
     let row = rows.iter().position(|t| t.track_id == t9.id()).unwrap();
     assert!(rows[row].incomplete);
     let tail = ww_tape::Tail::read(&pieces[0][pieces[0].len() - ww_tape::TAIL_LEN..]).unwrap();
-    let f = &pieces[0][tail.close_offset as usize + 176 + row * 136..][..136];
+    let f = &pieces[0][tail.close_offset as usize + 192 + row * 136..][..136];
     assert_eq!(f[128..132], 1u32.to_le_bytes());
     let second = TapeReader::open(&pieces[1][..]).unwrap();
     let starts = &second.pieces()[0].head.as_ref().unwrap().1;

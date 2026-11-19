@@ -68,7 +68,7 @@ fn one_file_example(
     let mut chain = ww_tape_fs::chain::create(path, owner, 0, &[], options.clone())?;
     chain.write_chunk(defs, head, columns)?;
     let first = chain.close()?;
-    // opened again: a new piece behind the closed one
+    // opened again: written on after the close
     let (mut chain, _) = ww_tape_fs::chain::resume(path, owner, 0, options)?;
     chain.write_chunk(defs, head, columns)?;
     let second = chain.close()?;
@@ -89,13 +89,18 @@ fn book_one_file_example() {
         &crate::pieces::column(&starts),
     )
     .unwrap();
-    assert_eq!((first.len(), second.len()), (1, 2));
-    assert_eq!(second[0], first[0]);
+    assert_eq!((first.len(), second.len()), (1, 1));
+    assert!(second[0].piece.len > first[0].piece.len);
     let bytes = std::fs::read(&path).unwrap();
     let r = ww_tape::TapeReader::open(&bytes[..]).unwrap();
-    assert_eq!(r.pieces().len(), 2);
+    assert_eq!(r.pieces().len(), 1);
     let chain = r.chain();
     assert!(chain.is_whole(), "{chain:?}");
+    // the first close stays in the bytes, named by the second
+    let closes = r.closes(0).unwrap();
+    assert_eq!(closes.len(), 2);
+    assert_eq!(closes[0].1.hash, first[0].piece.hash);
+    assert_eq!(closes[1].1.hash, second[0].piece.hash);
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -559,7 +564,7 @@ fn format_page_piece_rows_read_a_chain() {
     let tail = ww_tape::Tail::read(&second[close_at..]).unwrap();
     let f = &second[tail.close_offset as usize..];
     assert_eq!(u16::from_le_bytes([f[34], f[35]]), 136);
-    let close_row = 176;
+    let close_row = 192;
     let records = at("records: the track's")[0];
     let hash_after = at("track hash after")[0];
     assert_eq!(
@@ -666,7 +671,7 @@ fn format_page_relations_and_owner_read_a_chain() {
     let close_at = (done[1].piece.len as usize) - ww_tape::TAIL_LEN;
     let tail = ww_tape::Tail::read(&second[close_at..]).unwrap();
     let f = &second[tail.close_offset as usize..];
-    assert_eq!(f[176 + 56..][..32], owner);
+    assert_eq!(f[192 + 56..][..32], owner);
     // the final index: the chunk's entry at the page's offsets
     let r = ww_tape::TapeReader::open(&second[..]).unwrap();
     let entry = r

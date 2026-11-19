@@ -230,6 +230,8 @@ pub(crate) fn close_block(
         hash,
         checkpoint: offsets[0],
         final_index: offsets[1],
+        prev: None,
+        summary: None,
         ident: d.bool().then(|| ident(d)),
         next: None,
     };
@@ -251,9 +253,11 @@ pub(crate) fn close_fields<'c>(d: &mut Draw<'_>, tracks: usize, len: &'c [u64]) 
         Field::new(160, 8, &[]),
         Field::new(168, 4, &[1]),
         Field::new(172, 4, &[4095, 4096, u32::MAX as u64]),
+        Field::new(176, 8, caps),
+        Field::new(184, 4, &[]),
         Field::new(34, 2, &[0, 128, 135, 137, 0xFFFF]),
     ];
-    let at = 176 + d.below(tracks + 1) * 136;
+    let at = 192 + d.below(tracks + 1) * 136;
     f.extend([
         Field::new(at + 12, 4, &[]),
         Field::new(at + 16, 8, len),

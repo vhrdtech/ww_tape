@@ -26,9 +26,9 @@ pub fn append(
     TapeWriter::append_on(sink, policy)
 }
 
-/// Reopen the unclosed piece `path` (written as `path.partial` by [create] and cut off by a crash) to go on
-/// writing it, see [TapeWriter::resume_on]. With neither `path` nor `path.partial` there, its directory missing too,
-/// the error is [FsError::NoPiece] naming `path`.
+/// Reopen the piece `path` to write on, see [TapeWriter::resume_on]: `path.partial` (written by [create] and cut off
+/// by a crash) to go on writing it, else the closed `path`, written on in place after its last close record. With
+/// neither there, its directory missing too, the error is [FsError::NoPiece] naming `path`.
 pub fn resume(
     path: &Path,
     options: WriterOptions,
@@ -41,7 +41,6 @@ pub fn resume(
     }
     match FileSink::reopen(path).map_err(sink_err(what))? {
         Some(sink) => TapeWriter::resume_on(sink, options),
-        None if path.exists() => Err(refused(FsError::Exists(path.to_path_buf()))),
         None => Err(refused(FsError::NoPiece(path.to_path_buf()))),
     }
 }

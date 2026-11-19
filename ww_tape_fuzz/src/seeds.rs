@@ -46,6 +46,21 @@ pub const FIXED_INPUTS: &[(&str, &str, &str)] = &[
     ),
     ("tape-resume", "closed-last-piece-damaged", "070030c80101"),
     (
+        "tape-reclose",
+        "empty-append-has-its-own-final-index",
+        "0801000c",
+    ),
+    (
+        "tape-reclose",
+        "damaged-append-head-keeps-the-close",
+        "00000003000000000000000000000000000000000030",
+    ),
+    (
+        "tape-reclose",
+        "append-head-damaged-to-a-close-keeps-the-close",
+        "0000ff13000000000000000000030405",
+    ),
+    (
         "tape-resume",
         "early-length-claim-spends-hash-walk",
         "2a2a5d7e2a3d",
@@ -342,6 +357,8 @@ fn close_only(final_index: u64, piece_len: Option<u64>) -> Vec<u8> {
         hash: ContentHash([0; 32]),
         checkpoint: None,
         final_index: Some(final_index),
+        prev: None,
+        summary: None,
         ident: None,
         next: None,
     };
@@ -543,6 +560,57 @@ fn resume_seeds() -> Vec<Seed> {
     out
 }
 
+/// Inputs of `tape-reclose`: each mode with appends of a few blocks whole; a few modes with the last append cut
+/// halfway, with a flipped byte in its last close record, and with one in its first stretch; then a stream. The pieces closed more than
+/// once, whole and torn in their last append, are inputs of `tape-reader` too.
+fn reclose_seeds() -> Vec<Seed> {
+    let mut out = vec![];
+    for mode in 0..16u8 {
+        let count = usize::from((mode >> 2) & 3) + 1;
+        let appends: Vec<u8> = (0..count).map(|k| 3 + k as u8).collect();
+        let input = |rest: &[u8]| [&[mode][..], &appends, rest].concat();
+        out.push(seed(
+            "tape-reclose",
+            format!("mode{mode}-whole"),
+            input(&[]),
+        ));
+        // cut and flipped: one append or four, aligned or not, flips after the closes or anywhere
+        if ![0, 1, 2, 13].contains(&mode) {
+            continue;
+        }
+        out.push(seed(
+            "tape-reclose",
+            format!("mode{mode}-half"),
+            input(&[0x00, 0x04]),
+        ));
+        out.push(seed(
+            "tape-reclose",
+            format!("mode{mode}-last-close-flipped"),
+            input(&[0xff, 0xff, 0x00, 0x05, 0x10]),
+        ));
+        out.push(seed(
+            "tape-reclose",
+            format!("mode{mode}-first-stretch-flipped"),
+            input(&[0xff, 0xff, 0xc8, 0x00, 0x01]),
+        ));
+    }
+    out.extend(stream("tape-reclose", 0x5eed_0000_7ec1_0001));
+    let (whole, made) = crate::targets::reclosed(false, &[2, 0, 5]);
+    let kept = made[made.len() - 2].end;
+    out.push(seed("tape-reader", "closed-four-times", whole.clone()));
+    out.push(seed(
+        "tape-reader",
+        "closed-four-times-last-append-torn",
+        whole[..kept + (whole.len() - kept) / 2].to_vec(),
+    ));
+    out.push(seed(
+        "tape-reader",
+        "closed-four-times-append-head-torn",
+        whole[..kept + 20].to_vec(),
+    ));
+    out
+}
+
 /// Inputs of the file readers (`tape-reader`, `tape-index`): a file of several pieces whole, its last piece torn
 /// halfway, and its last piece with a flipped byte in its head and one in its middle.
 fn chain_seeds() -> Vec<Seed> {
@@ -590,6 +658,7 @@ pub fn all() -> Vec<Seed> {
     ));
     out.extend(media_fixes());
     out.extend(resume_seeds());
+    out.extend(reclose_seeds());
     out.extend(chain_seeds());
     out.extend(golden_blocks("tape-chunk", "v1-chunks", GOLDEN_CHUNKS));
     out.extend(golden_blocks("tape-index", "v1-index", GOLDEN_INDEX));

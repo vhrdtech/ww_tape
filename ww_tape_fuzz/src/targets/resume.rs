@@ -30,7 +30,7 @@ use ww_tape::{
 /// Rounds of blocks in a template piece.
 const ROUNDS: u64 = 6;
 
-fn options(aligned: bool) -> WriterOptions {
+pub(crate) fn options(aligned: bool) -> WriterOptions {
     WriterOptions {
         sync: SyncPolicy::None,
         clock: ww_tape::ClockRef::NONE,
@@ -52,7 +52,7 @@ fn options(aligned: bool) -> WriterOptions {
     }
 }
 
-fn records(id: BlockId, n: u64) -> Vec<u8> {
+pub(crate) fn records(id: BlockId, n: u64) -> Vec<u8> {
     let mut buf = [0u8; 128];
     let mut b = BlockWriter::new(&mut buf, BlockKind::Records, id, &[1]).expect("a block fits");
     b.push(9, ClockTime::new(1, n as i64), &[&[n as u8; 20]])
@@ -204,7 +204,7 @@ pub(crate) fn chain_template(aligned: bool, closed: bool) -> (Vec<u8>, usize) {
 }
 
 /// Events track `number` on clock `clock`.
-fn track(number: u32, clock: u32) -> Describe<'static> {
+pub(crate) fn track(number: u32, clock: u32) -> Describe<'static> {
     Describe::Track(TrackDef {
         number: UNib32(number),
         key: track_key(0xf2, &[Segment::Index(number)]),
@@ -225,7 +225,7 @@ fn track(number: u32, clock: u32) -> Describe<'static> {
     })
 }
 
-fn clock(number: u32) -> Describe<'static> {
+pub(crate) fn clock(number: u32) -> Describe<'static> {
     Describe::Clock(ClockDef {
         number: UNib32(number),
         key: clock_key(0xf2, &[], number.into()),

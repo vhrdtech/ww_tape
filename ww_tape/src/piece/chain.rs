@@ -11,8 +11,11 @@ pub struct PieceSummary {
     pub ident: PieceIdent,
     /// The previous piece's content hash and id, from the head; None for the first piece.
     pub prev: Option<(ContentHash, PieceId)>,
-    /// Reason, content hash and next id from the close record or tail; None for a piece being written or cut off.
+    /// Reason, content hash and next id from the last close record or tail; None for a piece never closed.
     pub end: Option<(CloseReason, ContentHash, Option<PieceId>)>,
+    /// The piece has bytes after its last close record and tail, or its last close has no whole tail: written on
+    /// after that close, the writer still writing or stopped by a crash.
+    pub unclosed: bool,
     /// How the head read.
     pub head: HeadStatus,
 }
@@ -32,15 +35,16 @@ pub enum HeadStatus {
 /// How two pieces next to each other by sequence number relate.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ChainLink {
-    /// The later head names the earlier piece by hash and id, and the earlier tail names the later id; or, after a
-    /// piece that ended complete or aborted, the later piece starts a new write session: its id is
-    /// [PieceId::after] the earlier one's id and hash.
+    /// The later head names the earlier piece by hash and id, and the earlier piece's last close, a cut, names the
+    /// later id.
     Linked,
     /// Pieces between them are missing.
     Gap { missing: u64 },
-    /// Adjacent sequence numbers, but the hashes or ids don't match: not the same chain, or a piece was rewritten.
+    /// Adjacent sequence numbers, but the hashes or ids don't match, or the earlier piece's last close is no cut: not
+    /// the same chain, or a piece was rewritten.
     Broken,
-    /// The earlier piece has no end: it was cut off and the chain went on regardless.
+    /// The earlier piece doesn't end at a close record: it was cut off, or written on after its close, and the chain
+    /// went on regardless.
     Unclosed,
     /// The earlier piece's end names the later one's id, but the later piece's head is lost ([HeadStatus::Lost]):
     /// linked one way only.
@@ -114,7 +118,11 @@ pub fn check_chain(pieces: &[PieceSummary]) -> ChainReport {
     let head_cut = order
         .first()
         .is_some_and(|(_, f)| f.prev.is_some() || (f.head == HeadStatus::Lost && f.ident.seq > 0));
-    let end = match order.last().and_then(|(_, l)| l.end) {
+    let end = match order
+        .last()
+        .map(|(_, l)| l)
+        .and_then(|l| l.end.filter(|_| !l.unclosed))
+    {
         None => ChainEnd::Unclosed,
         Some((_, _, Some(_))) => ChainEnd::TailCut,
         Some((reason, _, None)) => ChainEnd::Closed { reason },
@@ -141,11 +149,11 @@ fn link(a: &PieceSummary, b: &PieceSummary) -> ChainLink {
     if missing > 0 {
         return ChainLink::Gap { missing };
     }
-    let Some((_, hash, next)) = a.end else {
+    let Some((_, hash, next)) = a.end.filter(|_| !a.unclosed) else {
         return ChainLink::Unclosed;
     };
-    let named = next.unwrap_or_else(|| PieceId::after(a.ident.id, &hash));
-    match (named == b.ident.id, b.head) {
+    // only a close by a cut names a piece after it
+    match (next == Some(b.ident.id), b.head) {
         (true, HeadStatus::Lost) => ChainLink::HeadLost,
         (true, _) if b.prev == Some((hash, a.ident.id)) => ChainLink::Linked,
         _ => ChainLink::Broken,

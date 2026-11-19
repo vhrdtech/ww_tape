@@ -6,6 +6,7 @@ mod hostile;
 mod index;
 mod payloads;
 mod reader;
+mod reclose;
 mod resume;
 mod samples;
 mod series;
@@ -20,6 +21,8 @@ pub use hostile::{
 pub use index::index;
 pub use payloads::payloads;
 pub use reader::reader;
+pub(crate) use reclose::build as reclosed;
+pub use reclose::reclose;
 pub(crate) use resume::chain_template;
 pub use resume::resume;
 pub use samples::samples;
@@ -31,7 +34,7 @@ pub use times::times;
 pub type Target = fn(&[u8]);
 
 /// Every ww_tape fuzz target by its name in `fuzz/Cargo.toml`.
-pub const ALL: [(&str, Target); 19] = [
+pub const ALL: [(&str, Target); 20] = [
     ("tape-chunk", chunk),
     ("tape-index", index),
     ("tape-payloads", payloads),
@@ -51,6 +54,7 @@ pub const ALL: [(&str, Target); 19] = [
     ("tape-times-hostile", times_hostile),
     ("tape-state-hostile", state_hostile),
     ("tape-resume", resume),
+    ("tape-reclose", reclose),
 ];
 
 /// The target named `name`.

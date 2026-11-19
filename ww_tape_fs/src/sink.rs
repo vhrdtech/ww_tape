@@ -98,6 +98,8 @@ pub struct FileSink {
     partial: Option<PathBuf>,
     /// Where the piece being written starts in the file
     base: u64,
+    /// The file holds pieces back to back ([TapeSink::holds_pieces])
+    pieces: bool,
     /// One writer per file; dropped after the file is closed
     _lock: FileLock,
 }
@@ -146,6 +148,7 @@ impl FileSink {
             path: path.to_path_buf(),
             partial: Some(partial),
             base: 0,
+            pieces: false,
             _lock: lock,
         })
     }
@@ -172,6 +175,7 @@ impl FileSink {
             path: path.to_path_buf(),
             partial: None,
             base: 0,
+            pieces: true,
             _lock: lock,
         })
     }
@@ -207,6 +211,7 @@ impl FileSink {
             path: path.to_path_buf(),
             partial: None,
             base: 0,
+            pieces: true,
             _lock: lock,
         })
     }
@@ -216,7 +221,7 @@ impl FileSink {
     pub fn open_whole(path: &Path) -> Result<Option<Self>, FsError> {
         let lock = FileLock::take(path)?;
         match OpenOptions::new().read(true).append(true).open(path) {
-            Ok(file) => Self::opened(lock, file, path, None).map(Some),
+            Ok(file) => Self::opened(lock, file, path, None, true).map(Some),
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
             Err(error) => Err(FsError::Io {
                 what: "opening the file",
@@ -226,28 +231,42 @@ impl FileSink {
         }
     }
 
-    /// The unclosed file `path.partial`, to resume; None when it isn't there.
+    /// The file of one piece at `path` to write on: `path.partial` a writer left, to resume, else `path`, closed and
+    /// named, to write on in place after its last close record; None when neither is there.
     pub fn reopen(path: &Path) -> Result<Option<Self>, FsError> {
         let lock = FileLock::take(path)?;
         let partial = partial_name(path);
         // appended to: writes go to the end, after a truncate too
         match OpenOptions::new().read(true).append(true).open(&partial) {
-            Ok(file) => Self::opened(lock, file, path, Some(partial)).map(Some),
+            Ok(file) => return Self::opened(lock, file, path, Some(partial), false).map(Some),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(FsError::Io {
+                    what: "opening the unclosed file",
+                    path: partial,
+                    error,
+                });
+            }
+        }
+        match OpenOptions::new().read(true).append(true).open(path) {
+            Ok(file) => Self::opened(lock, file, path, None, false).map(Some),
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
             Err(error) => Err(FsError::Io {
-                what: "opening the unclosed file",
-                path: partial,
+                what: "opening the closed file",
+                path: path.to_path_buf(),
                 error,
             }),
         }
     }
 
-    /// The sink of `file`, opened under `lock` as `partial` (or `path` itself when None), held by its identity too.
+    /// The sink of `file`, opened under `lock` as `partial` (or `path` itself when None), held by its identity too;
+    /// with `pieces` it holds pieces back to back.
     fn opened(
         mut lock: FileLock,
         file: File,
         path: &Path,
         partial: Option<PathBuf>,
+        pieces: bool,
     ) -> Result<Self, FsError> {
         lock.bind(&file, path)?;
         Ok(FileSink {
@@ -255,6 +274,7 @@ impl FileSink {
             path: path.to_path_buf(),
             partial,
             base: 0,
+            pieces,
             _lock: lock,
         })
     }
@@ -310,7 +330,7 @@ impl TapeSink for FileSink {
     }
 
     fn holds_pieces(&self) -> bool {
-        self.partial.is_none()
+        self.pieces
     }
 
     fn rebase(&mut self, base: u64) -> Result<(), FsError> {

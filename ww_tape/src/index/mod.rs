@@ -116,7 +116,11 @@ const BLOCK_LEN_MIN: usize = HEADER_LEN + CRC_LEN;
 pub fn is_structural(kind: BlockKind) -> bool {
     matches!(
         kind,
-        BlockKind::Index | BlockKind::Close | BlockKind::Tail | BlockKind::PieceHead
+        BlockKind::Index
+            | BlockKind::Close
+            | BlockKind::Tail
+            | BlockKind::PieceHead
+            | BlockKind::AppendHead
     )
 }
 
@@ -291,6 +295,7 @@ impl IndexEntry {
             | BlockKind::Close
             | BlockKind::Tail
             | BlockKind::PieceHead
+            | BlockKind::AppendHead
             | BlockKind::Parity => return None,
             BlockKind::Events | BlockKind::Series => {
                 if let Some(c) = block.chunk() {

@@ -1,7 +1,7 @@
 //! [WriteError]: why a [TapeWriter] stopped, and [CutError].
 
 use super::{TapeWriter, caller_flags};
-use crate::piece::CloseReason;
+use crate::piece::PieceId;
 use crate::reader::ReadError;
 use crate::sink::TapeSink;
 use crate::{BlockKind, DescribeError, IndexError, Layout, SessionTag};
@@ -28,8 +28,6 @@ pub enum WriteError<E> {
     Index(IndexError),
     /// Reading back the piece to resume failed.
     Read(ReadError<E>),
-    /// The piece or chain to resume ended already in this state.
-    Ended(CloseReason),
     /// A put or a block's records don't agree with the definitions passed.
     Describe(DescribeError),
     /// The writer refused a caller's value, block or options; nothing is written.
@@ -84,6 +82,9 @@ pub enum ResumeError {
     /// The content-hash walk of the bytes a resume keeps spent its budget of missed blocks
     /// ([crate::piece::WALK_MISS_PER_BYTE_MAX]): a block written at `end` would not verify.
     HashWalkSpent { end: u64 },
+    /// The piece to resume is closed by a cut and goes on in the piece `next`: only the last piece of a chain is
+    /// written on, so the links between pieces never move.
+    Continued { next: PieceId },
 }
 
 /// Why [TapeWriter::cut_in_place] failed: the error, and the writer when the cut was refused before anything was
@@ -165,7 +166,6 @@ impl<E: core::fmt::Display + core::fmt::Debug> core::fmt::Display for WriteError
             WriteError::Chunk(e) => write!(f, "chunk doesn't encode: {e}"),
             WriteError::Index(e) => write!(f, "index or piece block: {e}"),
             WriteError::Read(e) => write!(f, "reading back the piece to resume: {e}"),
-            WriteError::Ended(s) => write!(f, "the piece or chain ended already ({s:?})"),
             WriteError::Describe(e) => write!(f, "{e}"),
             WriteError::Input(e) => write!(f, "{e}"),
             WriteError::Resume(e) => write!(f, "{e}"),
@@ -227,6 +227,11 @@ impl core::fmt::Display for ResumeError {
             ResumeError::HashWalkSpent { end } => write!(
                 f,
                 "the bytes to resume claim too many blocks that don't read: a block written at {end} would not verify"
+            ),
+            ResumeError::Continued { next } => write!(
+                f,
+                "the piece goes on in the next piece ({:02x?}): only the last piece of a chain is written on",
+                next.0
             ),
         }
     }

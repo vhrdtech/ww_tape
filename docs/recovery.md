@@ -114,12 +114,16 @@ definitions with each call, as before the crash.
 
 The writer puts what each block needs again wherever the same item doesn't lie close behind.
 
-Two cases need no new data:
+Three cases at the end of a piece differ:
 
-- A piece whose close and tail read whole is complete: the crash came after the close, before the rename. The resume
-  cuts off junk after the tail, renames the piece, writes nothing and returns `WriteError::Ended`.
+- A piece whose last close and tail read whole is closed: the crash, if any, came after the close. The resume cuts
+  off junk after the tail and writes on after it, behind an append head.
+- A piece that a cut closed names the next piece in its close and is not written on. The resume gives it its name and
+  returns `ResumeError::Continued`.
 - A piece cut inside its end is opened again. The resume cuts off its final index and close record, and the next
   close pads the piece to 4 KiB again.
+
+[Closing more than once](format.md#closing-more-than-once) shows the bytes of a piece written on after its close.
 
 ### When a resume refuses
 
@@ -179,18 +183,15 @@ Two crashes at a piece boundary resume too:
 - A crash between closing one piece and creating the next: the chain creates the next piece, as the cut would have.
 - A crash inside the head of the next piece: the piece starts again.
 
-Two chains are not resumed:
-
-- A chain of a file per piece whose last piece ended complete or aborted is refused with `WriteError::Ended`.
-- A chain kept in memory from which `MemTapes::remove` took pieces is not resumed.
+A chain kept in memory from which `MemTapes::remove` took pieces is not resumed.
 
 #### A chain in one file
 
 A chain written into one file (`PieceTapes::One`) resumes the same way. The chain finds the pieces by their tails from
 the end of the file.
 
-It then resumes the unclosed last piece behind the closed ones, or starts a new piece when the last piece is
-closed. The closed pieces keep every byte.
+It then resumes the last piece behind the closed ones, unclosed or closed: a closed last piece is written on after its
+close. The pieces before it keep every byte, and so does the last piece up to its close.
 
 The resume refuses, with `WriteError::Index`, a last piece whose head is damaged. Keeping its blocks would leave them
 outside the chain, and dropping them would lose more than a torn end.

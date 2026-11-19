@@ -102,8 +102,8 @@ pub fn check_base(base: u64, whole: u64, pieces: bool) -> Result<u64, BaseRefuse
     Ok(base)
 }
 
-/// A store of tapes by key: makes the tape of each piece of a [PieceChain](crate::PieceChain), reopens an
-/// unclosed one and reads a closed one. A store keeps one writer per tape: a second sink of a tape a sink holds is
+/// A store of tapes by key: makes the tape of each piece of a [PieceChain](crate::PieceChain), reopens one to
+/// write on and reads a closed one. A store keeps one writer per tape: a second sink of a tape a sink holds is
 /// refused.
 pub trait Tapes {
     /// What names a tape in the store.
@@ -121,7 +121,8 @@ pub trait Tapes {
     /// A new sink for `key`; refused when the tape is there, closed or not.
     fn create(&mut self, key: &Self::Key) -> Result<Self::Sink, Self::Error>;
 
-    /// The unclosed sink of `key`, to resume; None when there is none.
+    /// The sink of `key` to write on: its unclosed tape, to resume, or its closed one, to write on after its last
+    /// close record ([TapeWriter::resume_on](crate::TapeWriter::resume_on)); None when there is none.
     fn reopen(&mut self, key: &Self::Key) -> Result<Option<Self::Sink>, Self::Error>;
 
     /// The closed bytes of `key`; None when the tape isn't closed.

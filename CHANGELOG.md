@@ -14,6 +14,12 @@ Covers `ww_tape` 0.1.0.
 - `FinishState` splits: `CloseReason` (`Closed`, `Aborted`) says why; a piece continues iff its close names `next` (TAPE-14).
 - `TapeWriter::finish`/`finish_as` are `close`/`close_as(CloseReason)`, returning `Closed`; `PieceChain` likewise; `TapeSink::finish` is `close` (TAPE-14).
 - `ChainEnd` is `Closed { reason }`, `TailCut` or `Unclosed`; `ReadError::Unfinished` is `Unclosed`; `PieceInfo::finish*` fields are `close*` (TAPE-14).
+- The close record grows to 160 fixed bytes: previous close offset at 88, summary offset and length at 176; rows start at 192 (TAPE-14).
+- A resume of a closed piece writes on after its close; `WriteError::Ended` is gone (TAPE-14).
+- A resume of a piece a cut closed names it and returns `ResumeError::Continued { next }` (TAPE-14).
+- `Tapes::reopen` returns a closed tape too, written on in place; a closed last piece of a chain is written on (TAPE-14).
+- A chain links pieces only by the `next` id a close names; `check_chain` no longer derives it from the piece before (TAPE-14).
+- A close whose tail is torn leaves the chain `Unclosed`, and the close before it in force (TAPE-14).
 - `TimesError::Corrupt { kind, what }` is `{ kind, error: ColumnError }`, the column reader's error whole (TAPE-12).
 - `PayloadsError::Corrupt { kind, what }` is `{ kind, error: ColumnError }`, as for the time columns (TAPE-12).
 - Sample codecs move to `ww_tape_codecs::samples` on scalars and lanes; `ww_tape::samples` keeps the shape-based `Samples`, `encode`, `max_encoded_len` (TAPE-12).
@@ -152,6 +158,9 @@ Covers `ww_tape` 0.1.0.
 
 ### 🚀 Features
 
+- A piece closes more than once: an append head after the tail, a chained close hash, `TapeReader::closes` (TAPE-14).
+- Readers take the last close with a whole tail; bytes after it are an unclosed tail, never damage (TAPE-14).
+- Fuzz target `tape-reclose`: a piece closed several times, its last append torn and mutated, read and resumed (TAPE-14).
 - `SummaryHead::read` checks a summary block and gives its head and body, so a reader that decodes no node still checks it (TAPE-12).
 - `SummaryHead::read` and `Summary::read` refuse bytes of another magic, version, kind or length: `SummaryError::NotSummary` (TAPE-12).
 - `SummaryHead::read` also returns the block's node count (TAPE-12).

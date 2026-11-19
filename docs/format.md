@@ -813,6 +813,67 @@ Linux file systems).
 
 Only the end is aligned: the blocks inside stay where they are, and an unclosed piece ends where it ends.
 
+#### Closing more than once
+
+A close record ends a write session, not the piece. A writer can open a closed piece again and write on after its tail.
+
+For example, an editor that opens a project file, records for a minute and saves it adds to the same piece each time.
+
+The writer then places an **append head** (kind 13, 84 bytes, `APPEND_HEAD_LEN`) right after the tail. The append head
+names the close record and the tail it goes on from, and the content hash that close states.
+
+New blocks and checkpoints follow, then a final index, a new close and a new tail. Nothing before the append head
+changes:
+
+```text
+piece head, blocks, checkpoints, final index, close 1, tail 1      closed once, a multiple of 4 KiB
+append head naming close 1 and tail 1
+blocks, checkpoints, final index, close 2 (previous: close 1), tail 2      closed twice
+```
+
+The new close's content hash chains over the old one:
+
+- It is BLAKE3 of the old close's hash, then of the bytes from the old close record to the new one.
+- Each chunk payload goes in by its hash, as in the first close.
+- The writer never reads the bytes before the old close again.
+- The old close's hash still checks the piece up to it.
+
+Each close names the one before it (close offset 88), and `TapeReader::closes` lists them oldest first.
+`TapeReader::verify` checks each stretch between two closes against the hash the earlier close states.
+
+##### The index after an append
+
+The final index of a later close lists only the blocks since the close before it. Its first block points back at that
+close's final index, so a reader of the tail still reaches every block of the piece.
+
+A close after an append always follows a final index block of its own, an empty one when no block came since.
+Checkpoints written after an append chain back into the old final index.
+
+A reader that walks the index chain back from a checkpoint therefore meets final index blocks on the way. It takes the
+close right after the newest of them.
+
+##### The close in force
+
+The last close with a whole tail is the close **in force**: a reader takes the piece as closed by it. Bytes after its
+tail are an **unclosed tail**, like the end of an unclosed piece.
+
+An unclosed tail is a writer still writing, or one that a crash stopped. A reader reads its good blocks as it reads an
+unclosed piece, never as damage of what the close covers.
+
+A torn append head, or bytes that read as no block, leave the piece closed. `PieceInfo::cut` then names where they
+start.
+
+Only the last piece of a chain is written on. A close that names a next piece is never followed by an append head, so
+the links between pieces never move.
+
+##### Room for a summary
+
+The close record keeps room for a **summary block**, named by its offset (close offset 176) and length (184). A writer
+may place one block of its own right before the final index of a close and name it there.
+
+The content hash covers the summary block like any other block. A reader of the tail finds it with one more read; this
+version writes none and reads the fields as none.
+
 The piece head, the close and the tail follow ([piece module
 docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/piece/mod.rs)). Each header's count is the track count:
 
@@ -835,12 +896,15 @@ close (kind 8)
  32 u8   reason (1 closed, 2 aborted; a piece that goes on in the next one, next id below, is closed)
  33 u8   reserved
  34 u16  track row length, 136 (a reader takes longer rows and reads their first 136 bytes)    36 [4] reserved
- 40 [32] content hash: BLAKE3 of the piece's bytes before this block, each chunk payload by its hash (below)
- 72 u64  newest checkpoint index offset    80 u64 last final index offset    88 u64 reserved, u64::MAX
-         (u64::MAX for none)
+ 40 [32] content hash: BLAKE3 of the piece's bytes before this block, each chunk payload by its hash (below); of
+         a later close, BLAKE3 of the previous close's hash, then of the bytes from it to this block, the same way
+ 72 u64  newest checkpoint index offset    80 u64 last final index offset
+ 88 u64  previous close record's offset (u64::MAX: the piece's first close)
+         (offsets u64::MAX for none)
  96 [16] piece id    112 [16] next piece id    128 [32] owner id    160 u64 sequence number
 168 u32  flags: bit 0 the piece has a head    172 u32 padding: zero bytes after the tracks, below [PIECE_ALIGN]
-176 ...  tracks × 136, one per track with a counted chunk or record in the piece, ascending id then owner:
+176 u64  summary block offset, u64::MAX for none    184 u32 its length    188 u32 reserved, 0
+192 ...  tracks × 136, one per track with a counted chunk or record in the piece, ascending id then owner:
            0 u64 id    8 u32 number    12 u32 chunks (0: records only, the range fields below 0)
           16 u64 first item    24 u64 items    32 i64 first tick    40 i64 last tick
           48 i64 latest end (of the chunk blocks in the piece)
@@ -855,6 +919,10 @@ tail (kind 9), TAIL_LEN bytes, the last of the piece
  40 u64  close offset    48 u32 close length    52 u8 reason    53 u8 flags (as the close's)    54 u16 reserved
  56 [32] content hash    88 [16] piece id    104 [16] next piece id    120 [32] owner id    152 u64 sequence
 160 u32  CRC
+
+append head (kind 13), APPEND_HEAD_LEN bytes, right after the tail of the close it goes on from
+ 32 u64  that close record's offset    40 u64 that tail's offset    48 [32] that close record's content hash
+ 80 u32  CRC
 ```
 
 ### Piece ids and session tags
@@ -982,8 +1050,8 @@ content hash. The chain is therefore checked both ways (`ww_tape::piece::check_c
 
 Pieces written back to back are one valid tape. With `PieceTapes::One`, the chain writes them this way into one file.
 
-With `TapeWriter::cut_in_place`, a cut then starts the next piece right behind the close. Each session that opens the
-file again starts a new piece behind the last closed one.
+With `TapeWriter::cut_in_place`, a cut then starts the next piece right behind the close. A session that opens the
+file again writes on after the last piece's close ([Closing more than once](#closing-more-than-once)).
 
 A chain whose first pieces were deleted, as in a rolling window, reads as *head cut*, not as damage. A chain whose last
 piece has no tail is open: it is being written, or a crash cut it off.
@@ -1024,8 +1092,19 @@ A resume never cuts off a good block. It refuses in two cases:
 - its look past the reader's stop, at most `RESUME_LOOK_MAX` (128 MiB), ends before the bytes do
   (`ResumeError::LookSpent`).
 
-A piece whose close and tail read whole is complete, since the crash came between the close and the rename. The resume
-then cuts off junk after the tail, renames the file and returns `WriteError::Ended`.
+### A closed piece
+
+A piece whose last close and tail read whole is closed, and a crash, if any, came after the close. The resume cuts off
+junk after the tail and writes on after it, an append head first.
+
+A good block after the tail refuses the resume (`ResumeError::GoodBlockAfterCut`), unless an append head that names the
+close leads to it.
+
+Blocks after an append head that names a whole close and tail are the piece going on. The resume keeps that close and
+goes on after the blocks.
+
+A close that names a next piece, a cut, ends its piece for good. The resume gives the file its name and returns
+`ResumeError::Continued` with the next piece's id.
 
 ### Same bytes as without the crash
 

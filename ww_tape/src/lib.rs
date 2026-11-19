@@ -347,6 +347,8 @@ pub enum BlockKind {
     Tail,
     /// The first block of a piece of a chain ([piece]).
     PieceHead,
+    /// The first block written on after a piece's close record and tail, naming them ([piece]).
+    AppendHead,
     /// A kind this reader doesn't know: its body isn't read.
     Other(u8),
 }
@@ -370,6 +372,7 @@ impl BlockKind {
             8 => BlockKind::Close,
             9 => BlockKind::Tail,
             10 => BlockKind::PieceHead,
+            13 => BlockKind::AppendHead,
             other => BlockKind::Other(other),
         }
     }
@@ -385,6 +388,7 @@ impl BlockKind {
             BlockKind::Close => 8,
             BlockKind::Tail => 9,
             BlockKind::PieceHead => 10,
+            BlockKind::AppendHead => 13,
             BlockKind::Other(v) => v,
         }
     }

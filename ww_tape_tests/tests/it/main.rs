@@ -28,6 +28,7 @@ mod placed;
 mod puts;
 mod range_hash;
 mod reader;
+mod reclose;
 mod relations;
 mod reserved;
 mod resume;

@@ -78,6 +78,8 @@ fn close_and_tail_round_trip() {
         hash: ContentHash([9; 32]),
         checkpoint: Some(4 << 20),
         final_index: Some(5 << 20),
+        prev: Some(3 << 20),
+        summary: Some((4 << 20, 4096)),
         ident: Some(ident(1)),
         next: Some(PieceId([0x55; 16])),
     };
@@ -247,6 +249,7 @@ fn summary(seq: u64, end: Option<Ends>) -> PieceSummary {
                 (st == Ends::Continued).then(|| id(seq + 1)),
             )
         }),
+        unclosed: false,
         head: HeadStatus::Read,
     }
 }
@@ -360,6 +363,8 @@ fn close_padding_is_checked_against_the_length() {
         hash: ContentHash([3; 32]),
         checkpoint: None,
         final_index: None,
+        prev: None,
+        summary: None,
         ident: None,
         next: None,
     };

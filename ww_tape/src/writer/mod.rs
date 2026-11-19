@@ -196,6 +196,16 @@ pub struct TapeWriter<S: TapeSink> {
     pub(crate) tracks_max: usize,
     /// Most tracks the next piece's head carries: [crate::piece::HEAD_TRACKS_MAX], smaller in tests
     pub(crate) head_rows_max: usize,
+    /// The close record the writer writes on after, when the piece was closed before
+    closed_at: Option<ClosedAt>,
+}
+
+/// A close record of the piece a writer writes on after: where it and its tail are, and its hash.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ClosedAt {
+    pub(crate) offset: u64,
+    pub(crate) tail: u64,
+    pub(crate) hash: ContentHash,
 }
 
 /// Bytes a writer's puts hashed and copied since it started ([TapeWriter::put_work]): what deciding and writing
@@ -306,6 +316,7 @@ impl<S: TapeSink> TapeWriter<S> {
             relations: relations::Relations::default(),
             tracks_max: crate::piece::TRACKS_PER_PIECE_MAX,
             head_rows_max: crate::piece::HEAD_TRACKS_MAX,
+            closed_at: None,
         }
     }
 
@@ -1812,8 +1823,13 @@ impl<S: TapeSink> TapeWriter<S> {
     fn end(mut self, how: End) -> Result<Ended<S>, WriteError<S::Error>> {
         self.flush_deferred()?;
         self.ensure_head()?;
-        let mut prev = None;
-        for part in self.indexer.final_parts() {
+        let mut prev = self.indexer.final_before();
+        let mut parts = self.indexer.final_parts();
+        // a close after an append follows a final index block of its own, an empty one when no block came since
+        if parts.is_empty() && self.closed_at.is_some() {
+            parts.push(Vec::new());
+        }
+        for part in parts {
             let at = self.offset();
             let b = Indexer::final_block(&part, at, prev, self.structural_id())
                 .map_err(WriteError::Index)?;
@@ -1834,6 +1850,8 @@ impl<S: TapeSink> TapeWriter<S> {
             hash,
             checkpoint: self.indexer.last_checkpoint(),
             final_index: prev,
+            prev: self.closed_at.map(|c| c.offset),
+            summary: None,
             ident,
             next,
         };
@@ -1898,6 +1916,37 @@ impl<S: TapeSink> TapeWriter<S> {
             session: self.session,
             sink: self.sink,
         })
+    }
+
+    /// The piece was closed by the close record `close` at `at`, its tail at `tail`: what follows chains its content
+    /// hash over that close's ([crate::piece]), and its final index goes on from that close's. A resume calls it before
+    /// it replays the close record, each close it keeps in turn.
+    pub(crate) fn closed_by(&mut self, at: u64, tail: u64, close: &Close) {
+        self.closed_at = Some(ClosedAt {
+            offset: at,
+            tail,
+            hash: close.hash,
+        });
+        self.hash = crate::piece::chained(&close.hash);
+        self.indexer.closed(at, close.final_index);
+    }
+
+    /// Write on after the piece's last close record and tail, which end the bytes: the append head naming them
+    /// ([crate::piece::AppendHead]). A resume of a closed piece calls it once it replayed the piece.
+    pub(crate) fn write_on(&mut self) -> Result<(), WriteError<S::Error>> {
+        let Some(c) = self.closed_at else {
+            return Err(WriteError::Index(IndexError::Invalid(
+                "writing on after a close needs one",
+            )));
+        };
+        let head = crate::piece::AppendHead {
+            close_offset: c.offset,
+            tail_offset: c.tail,
+            hash: c.hash,
+        };
+        let mut buf = [0u8; crate::piece::APPEND_HEAD_LEN];
+        head.write(&mut buf, self.structural_id());
+        self.write_own(&buf).map(drop)
     }
 
     /// The index entries a checkpoint would list now, for tests and tools.
@@ -2062,23 +2111,6 @@ enum Again {
     New,
     Same,
     Replaced,
-}
-
-impl NextPiece {
-    /// The piece a new write session starts after the piece headed `head` that ended as `done` (complete or
-    /// aborted, or continued with no piece after it): its id [PieceId::after] that one's id and content hash, its
-    /// head naming that piece and `prev_session`, the session that wrote it; its own session [SessionTag::of_piece]
-    /// its id, seqs from 0; its track starts `tracks`.
-    pub(crate) fn reopened<E>(
-        head: &PieceHead,
-        done: &Closed,
-        tracks: Vec<TrackStart>,
-        prev_session: SessionTag,
-    ) -> Result<Self, WriteError<E>> {
-        let mut next = Self::after(head, done, tracks, prev_session, 0)?;
-        next.session = SessionTag::of_piece(&next.head.ident.id);
-        Ok(next)
-    }
 }
 
 /// How [TapeWriter::end] ends a piece.

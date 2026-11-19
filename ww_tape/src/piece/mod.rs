@@ -2,20 +2,49 @@
 //!
 //! A **piece** is a complete tape file: a [piece head](PieceHead) block, blocks of definitions, chunk, summary and
 //! record blocks with checkpoint [index](crate::index) blocks between them, then at the close a final index, a
-//! [close](Close) block and a fixed-size [tail](Tail) block. Any piece reads alone: a writer puts the definitions
-//! each block of data needs close behind it in the same piece ([state](crate::state)); pieces written back to back are one valid tape. A file a writer started without a piece head is one piece
-//! too, with no ids.
+//! [close record](Close) and a fixed-size [tail](Tail) block. Any piece reads alone: a writer puts the definitions
+//! each block of data needs close behind it in the same piece ([state](crate::state)); pieces written back to back are
+//! one valid tape. A file a writer started without a piece head is one piece too, with no ids.
 //!
 //! A writer cuts a recording into pieces at chunk boundaries ([PieceChain]). The head names the previous piece by its
 //! content hash and its id; the previous piece's tail names this piece's id, derived at the cut from the previous
-//! piece's id and the content hash in its close ([PieceId::after]), so the chain is checked both ways ([check_chain]).
-//! Each piece carries the owner id, its sequence number in the chain and, per track, where its items continue (head)
-//! and the items and ticks it holds (close). A chain whose first piece is gone reads as head cut, not as damage.
+//! piece's id and the content hash in its close record ([PieceId::after]), so the chain is checked both ways
+//! ([check_chain]). Each piece carries the owner id, its sequence number in the chain and, per track, where its items
+//! continue (head) and the items and ticks it holds (close record). A chain whose first piece is gone reads as head
+//! cut, not as damage.
 //!
 //! The close record is the last thing a writer places before the tail. Its content hash is BLAKE3 over the piece's
 //! bytes before it; a piece without one is live or was cut off, and reads up to its last good block. The tail sits
-//! at the very end of the file, [TAIL_LEN] bytes, so a reader finds it with one read and from it the close, the
-//! indexes and the start of the piece; the tail of the piece before is just before that start.
+//! at the very end of the file, [TAIL_LEN] bytes, so a reader finds it with one read and from it the close record,
+//! the indexes and the start of the piece; the tail of the piece before is just before that start.
+//!
+//! **Closing more than once.** A close record ends a write session, not the piece: a writer may write on after it
+//! ([TapeWriter::resume_on](crate::TapeWriter::resume_on)). It places an [append head](AppendHead) right after the
+//! tail, naming the close record, the tail and the close hash it goes on from, then any blocks, then a final index
+//! listing the blocks since that close and chained back to its final index, a new close record and a new tail whose
+//! piece length spans the whole piece. That final index is at least one block, an empty one when no block came since:
+//! each close after the first follows a final index block of its own, so a reader walking the index chain back from
+//! a checkpoint takes the close after the newest final block it meets. Nothing before the append head changes:
+//!
+//! ```text
+//! piece head, blocks, checkpoints, final index, close 1, tail 1      closed once, a multiple of 4 KiB
+//! append head naming close 1 and tail 1
+//! blocks, checkpoints, final index, close 2 (previous: close 1), tail 2      closed twice
+//! ```
+//!
+//! Only the last piece of a chain is written on, so a close that names a next piece is never followed by an append
+//! head, and links never move.
+//!
+//! - The last good close record is the one in force; each earlier one stays in the bytes, its hash still that of the
+//!   piece up to it. A later close record's hash is BLAKE3 of the previous one's hash, then of the bytes from the
+//!   previous close record to this one, each chunk payload by its hash: the writer chains over the hash the previous
+//!   close states, never rereading what is before it. Each close names the one before ([Close::prev]).
+//! - Bytes after the last tail are an unclosed tail: a writer writing now, or one a crash stopped. A reader takes the
+//!   piece as closed by its last close, and reads the good blocks after it as it reads an unclosed piece: never as
+//!   damage of what the close covers. The next writer keeps those blocks and cuts back only a torn end.
+//! - Room for a summary: a writer may place one block of its own right before the final index of a close, which the
+//!   close record names by offset and length ([Close::summary]) and its hash covers. A reader of the tail then finds
+//!   it with one more read. This build writes none.
 //!
 //! A closed piece is a multiple of [PIECE_ALIGN] (4 KiB) long: the writer pads the close record's body with zeros
 //! ([close_padding]), so the tail, still the piece's last bytes, ends on the boundary. Pieces then clone back to back
@@ -43,12 +72,15 @@
 //!  32 u8   reason (1 closed, 2 aborted; a piece that goes on in the next one, next id below, is closed)
 //!  33 u8   reserved
 //!  34 u16  track row length, 136 (a reader takes longer rows and reads their first 136 bytes)    36 [4] reserved
-//!  40 [32] content hash: BLAKE3 of the piece's bytes before this block, each chunk payload by its hash (below)
-//!  72 u64  newest checkpoint index offset    80 u64 last final index offset    88 u64 reserved, u64::MAX
-//!          (u64::MAX for none)
+//!  40 [32] content hash: BLAKE3 of the piece's bytes before this block, each chunk payload by its hash (below); of
+//!          a later close, BLAKE3 of the previous close's hash, then of the bytes from it to this block, the same way
+//!  72 u64  newest checkpoint index offset    80 u64 last final index offset
+//!  88 u64  previous close record's offset (u64::MAX: the piece's first close)
+//!          (offsets u64::MAX for none)
 //!  96 [16] piece id    112 [16] next piece id    128 [32] owner id    160 u64 sequence number
 //! 168 u32  flags: bit 0 the piece has a head    172 u32 padding: zero bytes after the tracks, below [PIECE_ALIGN]
-//! 176 ...  tracks × 136, one per track with a counted chunk or record in the piece, ascending id then owner:
+//! 176 u64  summary block offset, u64::MAX for none    184 u32 its length    188 u32 reserved, 0
+//! 192 ...  tracks × 136, one per track with a counted chunk or record in the piece, ascending id then owner:
 //!            0 u64 id    8 u32 number    12 u32 chunks (0: records only, the range fields below 0)
 //!           16 u64 first item    24 u64 items    32 i64 first tick    40 i64 last tick
 //!           48 i64 latest end (of the chunk blocks in the piece)
@@ -63,6 +95,10 @@
 //!  40 u64  close offset    48 u32 close length    52 u8 reason    53 u8 flags (as the close's)    54 u16 reserved
 //!  56 [32] content hash    88 [16] piece id    104 [16] next piece id    120 [32] owner id    152 u64 sequence
 //! 160 u32  CRC
+//!
+//! append head (kind 13), APPEND_HEAD_LEN bytes, right after the tail of the close it goes on from
+//!  32 u64  that close record's offset    40 u64 that tail's offset    48 [32] that close record's content hash
+//!  80 u32  CRC
 //! ```
 //!
 //! Offsets are from the start of the piece. Ids are opaque to `ww_tape`, their meaning the application's: a piece id
@@ -125,7 +161,7 @@ const HEAD_ROW_FLAGS_AT: usize = 12;
 /// Where a piece head's tracks start.
 const HEAD_TRACKS_AT: usize = HEADER_LEN + HEAD_FIXED_LEN;
 /// Bytes of the fixed part of a close body.
-const CLOSE_FIXED_LEN: usize = 144;
+const CLOSE_FIXED_LEN: usize = 160;
 /// Bytes of a close's track row this crate writes; a reader takes longer ones.
 const CLOSE_TRACK_LEN: usize = 136;
 /// Most tracks with data in one piece: the close's rows of that many, padded to [PIECE_ALIGN], fit a block
@@ -931,8 +967,13 @@ pub struct Close {
     pub hash: ContentHash,
     /// The newest checkpoint index block.
     pub checkpoint: Option<u64>,
-    /// The last final index block (each points at the one before).
+    /// The last final index block (each points at the one before, across closes).
     pub final_index: Option<u64>,
+    /// The previous close record's offset in the piece; None for the piece's first.
+    pub prev: Option<u64>,
+    /// Where the summary block a writer placed before the final index is, and its length: room for a block of the
+    /// writer's own a reader of the tail finds with one more read; None for none (this build writes none).
+    pub summary: Option<(u64, u32)>,
     /// The piece's ident; None for a file written without a piece head.
     pub ident: Option<PieceIdent>,
     /// The next piece's id, chosen at the cut: some when the piece goes on in the next one, the link of its chain.
@@ -992,7 +1033,10 @@ fn fill_close(b: &mut [u8], close: &Close, tracks: &[TrackRange]) -> Option<()> 
     put(b, 40, close.hash.0)?;
     put_u64(b, 72, opt(close.checkpoint))?;
     put_u64(b, 80, opt(close.final_index))?;
-    put_u64(b, 88, opt(None))?;
+    put_u64(b, 88, opt(close.prev))?;
+    let (summary_at, summary_len) = close.summary.unwrap_or((NONE, 0));
+    put_u64(b, 176, summary_at)?;
+    put_u32(b, 184, summary_len)?;
     if let Some(ident) = &close.ident {
         put_ident(b, 96, 128, 160, ident)?;
         put_u32(b, 168, u32::from(FLAG_PIECE))?;
@@ -1090,6 +1134,8 @@ fn read_close(b: &[u8]) -> Option<Close> {
         hash: ContentHash(array(b, 40)?),
         checkpoint: get_opt(b, 72)?,
         final_index: get_opt(b, 80)?,
+        prev: get_opt(b, 88)?,
+        summary: get_opt(b, 176)?.zip(Some(le_u32(b, 184)?)),
         ident,
         next,
     })
@@ -1182,6 +1228,77 @@ impl Tail {
             next,
         })
     }
+}
+
+/// Bytes of an append head block.
+pub const APPEND_HEAD_LEN: usize = 84;
+
+/// What an append head says: the close record and tail a writer wrote on after, and that close's hash, which the
+/// next close's hash chains over (see the [module docs](self)).
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct AppendHead {
+    /// The close record's offset in the piece.
+    pub close_offset: u64,
+    /// Its tail's offset in the piece.
+    pub tail_offset: u64,
+    /// Its content hash.
+    pub hash: ContentHash,
+}
+
+impl AppendHead {
+    /// Write the append head block into `buf` (at least [APPEND_HEAD_LEN] bytes); returns [APPEND_HEAD_LEN].
+    ///
+    /// # Panics
+    ///
+    /// When `buf` is shorter than [APPEND_HEAD_LEN].
+    pub fn write(&self, buf: &mut [u8], id: BlockId) -> usize {
+        let written = buf.get_mut(..APPEND_HEAD_LEN).and_then(|b| {
+            put_header(b, BlockKind::AppendHead, APPEND_HEAD_LEN, 0, id)?;
+            b.get_mut(HEADER_LEN..)?.fill(0);
+            put_u64(b, 32, self.close_offset)?;
+            put_u64(b, 40, self.tail_offset)?;
+            put(b, 48, self.hash.0)?;
+            seal(b);
+            Some(())
+        });
+        assert!(
+            written.is_some(),
+            "an append head is {APPEND_HEAD_LEN} bytes"
+        );
+        APPEND_HEAD_LEN
+    }
+
+    /// The append head of a good block.
+    pub fn read(block: &Block<'_>) -> Result<Self, IndexError> {
+        of_kind(block, BlockKind::AppendHead)?;
+        let b = block.bytes();
+        if b.len() != APPEND_HEAD_LEN || block.record_count != 0 {
+            return Err(IndexError::BadHead);
+        }
+        let head = (|| {
+            Some(AppendHead {
+                close_offset: le_u64(b, 32)?,
+                tail_offset: le_u64(b, 40)?,
+                hash: ContentHash(array(b, 48)?),
+            })
+        })();
+        head.ok_or(IndexError::BadHead)
+    }
+
+    /// Whether this head goes on from the close record at `close_offset` stating `hash`, whose tail is at
+    /// `tail_offset`.
+    pub fn follows(&self, close_offset: u64, tail_offset: u64, hash: &ContentHash) -> bool {
+        self.close_offset == close_offset && self.tail_offset == tail_offset && self.hash == *hash
+    }
+}
+
+/// The content hash a close record after the one stating `prev` chains over: BLAKE3 fed `prev`, then the bytes from
+/// that close record on ([hash_block] for each block).
+#[cfg(feature = "alloc")]
+pub(crate) fn chained(prev: &ContentHash) -> blake3::Hasher {
+    let mut h = blake3::Hasher::new();
+    h.update(&prev.0);
+    h
 }
 
 #[cfg(feature = "alloc")]

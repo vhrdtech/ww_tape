@@ -25,6 +25,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "tape-reclose"
+path = "src/tape_reclose.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "tape-resume"
 path = "src/tape_resume.rs"
 test = false

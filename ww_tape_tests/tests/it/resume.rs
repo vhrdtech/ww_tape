@@ -132,7 +132,7 @@ fn apply<S: TapeSink>(w: &mut TapeWriter<S>, defs: &mut Definitions, op: Op) {
 
 /// The options of the tests: checkpoints every 1 KiB, copies 2 KiB apart, a memory of three slots, so a piece holds
 /// every kind of block a writer adds and the writer forgets slots on the way.
-fn options(alignment: u32) -> WriterOptions {
+pub(crate) fn options(alignment: u32) -> WriterOptions {
     WriterOptions {
         sync: SyncPolicy::None,
         clock: ww_tape::ClockRef::NONE,
@@ -155,7 +155,7 @@ fn options(alignment: u32) -> WriterOptions {
     }
 }
 
-fn head() -> PieceHead {
+pub(crate) fn head() -> PieceHead {
     let owner = OwnerId([3; 32]);
     PieceHead {
         ident: PieceIdent {
@@ -170,7 +170,7 @@ fn head() -> PieceHead {
 }
 
 /// A first piece of `ops` on a memory sink with `options`, begun but given no call yet.
-fn begin(alignment: u32) -> TapeWriter<MemSink> {
+pub(crate) fn begin(alignment: u32) -> TapeWriter<MemSink> {
     let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     let o = options(alignment);
     w.set_layout(o.layout).unwrap();
@@ -487,14 +487,14 @@ fn resume_reopens_the_partial_file() {
     }
     w.close().unwrap();
     assert_eq!(std::fs::read(&path).unwrap(), want);
-    // closed: nothing to resume
-    assert!(matches!(
-        ww_tape_fs::writer::resume(&path, options(0)),
-        Err(ww_tape::WriteError::Sink {
-            error: FsError::Exists(_),
-            ..
-        })
-    ));
+    // closed: written on in place after its close, the closed bytes a prefix
+    let (w, resumed) = ww_tape_fs::writer::resume(&path, options(0)).unwrap();
+    assert_eq!(resumed.kept_bytes, want.len() as u64);
+    assert!(resumed.after_close.is_some());
+    assert!(!ww_tape_fs::partial_name(&path).exists());
+    w.close().unwrap();
+    let got = std::fs::read(&path).unwrap();
+    assert_eq!(got[..want.len()], want[..]);
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -1039,11 +1039,17 @@ fn a_chain_cut_anywhere_resumes_to_the_same_pieces() {
         0,
         6,
     );
-    // a chain whose last piece is complete takes no more
-    assert!(matches!(
-        ww_tape_fs::chain::resume(&want_dir, OwnerId([9; 32]), 0, chain_options()),
-        Err(ww_tape::WriteError::Ended(ww_tape::CloseReason::Closed))
-    ));
+    // a chain whose last piece is closed is written on after its close: nothing before it changes
+    let (c, resumed) =
+        ww_tape_fs::chain::resume(&want_dir, OwnerId([9; 32]), 0, chain_options()).unwrap();
+    assert!(resumed.after_close.is_some());
+    assert_eq!(c.closed().len(), want.len() - 1);
+    c.close().unwrap();
+    for (p, w) in paths.iter().zip(&want) {
+        let got = std::fs::read(p).unwrap();
+        assert!(got.len() >= w.len() && got[..w.len()] == w[..]);
+    }
+    assert!(std::fs::read(paths.last().unwrap()).unwrap().len() > want.last().unwrap().len());
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -1178,9 +1184,9 @@ fn a_one_file_chain_cut_anywhere_resumes_to_the_same_bytes() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
-/// A closed file of pieces opened again starts a new piece behind the last, a new write session: its own session
-/// tag, its head naming the last piece; the chain reads whole, and every track's hash goes on as if the two
-/// sessions were one.
+/// A closed file of pieces opened again is written on after its last piece's close: every byte before stays, the
+/// last piece closes again naming its first close, the chain reads whole and verifies, and every track's hash goes
+/// on as if the two sessions were one.
 fn one_file_reopened<P: OneFile>(place: &P) {
     let ops = ops(14);
     let (first, second) = ops.split_at(ops.len() / 2);
@@ -1195,30 +1201,22 @@ fn one_file_reopened<P: OneFile>(place: &P) {
     };
     let mut defs = base_defs().clone();
     let (f, a) = write(f, first, &mut defs);
+    let before = place.bytes(&f, path);
     let (f, b) = write(f, second, &mut defs);
-    assert!(b.len() > a.len(), "{} then {} pieces", a.len(), b.len());
-    assert_eq!(b[..a.len()], a[..], "the first session's pieces stay");
+    assert!(b.len() >= a.len(), "{} then {} pieces", a.len(), b.len());
+    let kept = a.len() - 1;
+    assert_eq!(b[..kept], a[..kept], "the pieces cut before stay");
     let bytes = place.bytes(&f, path);
+    assert_eq!(bytes[..before.len()], before[..], "every byte before stays");
     let r = TapeReader::open(&bytes[..]).unwrap();
     let chain = r.chain();
     assert!(chain.is_whole(), "{chain:?}");
     assert_eq!(r.pieces().len(), b.len());
-    let (old, new) = (&r.pieces()[a.len() - 1], &r.pieces()[a.len()]);
-    let (old_head, _) = old.head.as_ref().unwrap();
-    let (new_head, _) = new.head.as_ref().unwrap();
-    assert_eq!(
-        new_head.prev,
-        Some((old.close.as_ref().unwrap().0.hash, old_head.ident.id))
-    );
-    let session = |at: u64| {
-        FileBlocks::new(&bytes[at as usize..])
-            .next_block()
-            .unwrap()
-            .unwrap()
-            .session
-    };
-    assert_ne!(session(old.start), session(new.start));
-    assert_eq!(new_head.prev_session, session(old.start));
+    // the piece closed first is written on: its first close is named by the one after
+    let closes = r.closes(kept).unwrap();
+    assert!(closes.len() >= 2, "{closes:?}");
+    assert_eq!(closes[0].1.hash, a[kept].piece.hash);
+    assert_eq!(closes[1].1.prev, Some(closes[0].0));
     assert!((0..r.pieces().len()).all(|i| r.verify(i).unwrap()));
 
     // the same calls in one session: every track's hash is the same
@@ -1242,7 +1240,7 @@ fn one_file_reopened<P: OneFile>(place: &P) {
 }
 
 #[test]
-fn a_closed_one_file_chain_reopens_in_a_new_piece() {
+fn a_closed_one_file_chain_is_written_on_after_its_close() {
     let dir = scratch("one_file_reopen");
     one_file_reopened(&OnDisk(dir.clone()));
     one_file_reopened(&InMemory);
@@ -1508,7 +1506,7 @@ fn a_resume_never_cuts_off_good_blocks() {
 }
 
 /// A closed piece followed by junk a crash left (garbage, a torn block): the resume cuts off only what follows the
-/// tail, names the piece and writes nothing; the bytes up to the tail stay. A good block after the tail refuses.
+/// tail and writes on after it; the bytes up to the tail stay. A good block after the tail refuses.
 #[test]
 fn a_resume_of_a_whole_close_cuts_only_the_junk_after_its_tail() {
     let dir = scratch("junk_after_tail");
@@ -1529,11 +1527,14 @@ fn a_resume_of_a_whole_close_cuts_only_the_junk_after_its_tail() {
         ("a torn block", good[..40].to_vec()),
     ] {
         std::fs::write(&partial, [&done[..], &junk[..]].concat()).unwrap();
-        match ww_tape_fs::writer::resume(&path, WriterOptions::default()) {
-            Err(WriteError::Ended(ww_tape::CloseReason::Closed)) => {}
-            other => panic!("{name}: {:?}", other.map(|(_, r)| r)),
-        }
-        assert_eq!(std::fs::read(&path).unwrap(), done, "{name}");
+        let (w, resumed) = ww_tape_fs::writer::resume(&path, WriterOptions::default())
+            .unwrap_or_else(|e| panic!("{name}: {e:?}"));
+        assert_eq!(resumed.kept_bytes, done.len() as u64, "{name}");
+        assert!(resumed.after_close.is_some(), "{name}");
+        w.close().unwrap();
+        let got = std::fs::read(&path).unwrap();
+        assert_eq!(got[..done.len()], done[..], "{name}");
+        assert_eq!(got[done.len() + 5], BlockKind::AppendHead.to_u8(), "{name}");
         assert!(!partial.exists(), "{name}");
         std::fs::remove_file(&path).unwrap();
     }
@@ -1548,10 +1549,10 @@ fn a_resume_of_a_whole_close_cuts_only_the_junk_after_its_tail() {
     assert_eq!(std::fs::read(&partial).unwrap(), bytes, "left as it was");
 }
 
-/// A piece whose close and tail read whole, left as `NAME.partial` by a crash before its rename: a resume names it
-/// and writes nothing ([WriteError::Ended]); in memory the bytes stay as they are.
+/// A piece whose close and tail read whole, left as `NAME.partial` by a crash before its rename: a resume writes on
+/// after its close, every byte before the append head as it was, in a file and in memory.
 #[test]
-fn a_resume_of_a_whole_close_names_it_and_writes_nothing() {
+fn a_resume_of_a_whole_close_writes_on_after_it() {
     let dir = scratch("whole_close");
     let path = dir.join("p.wwt");
     let mut w = ww_tape_fs::writer::create(&path, SyncPolicy::None).unwrap();
@@ -1563,24 +1564,23 @@ fn a_resume_of_a_whole_close_names_it_and_writes_nothing() {
     let done = std::fs::read(&path).unwrap();
     let partial = ww_tape_fs::partial_name(&path);
     std::fs::rename(&path, &partial).unwrap();
-    match ww_tape_fs::writer::resume(&path, WriterOptions::default()) {
-        Err(WriteError::Ended(ww_tape::CloseReason::Closed)) => {}
-        other => panic!("{:?}", other.map(|(_, r)| r)),
-    }
+    let (w, resumed) = ww_tape_fs::writer::resume(&path, WriterOptions::default()).unwrap();
+    assert!(resumed.after_close.is_some());
+    w.close().unwrap();
+    let got = std::fs::read(&path).unwrap();
     assert_eq!(
-        std::fs::read(&path).unwrap(),
-        done,
-        "named, bytes as they were"
+        got[..done.len()],
+        done[..],
+        "named, bytes before as they were"
     );
+    assert!(got.len() > done.len());
     assert!(!partial.exists());
     let mut sink = MemSink::new();
     sink.write_all(&done).unwrap();
     let tape = sink.tape();
-    match TapeWriter::resume_on(sink, WriterOptions::default()) {
-        Err(WriteError::Ended(ww_tape::CloseReason::Closed)) => {}
-        other => panic!("{:?}", other.map(|(_, r)| r)),
-    }
-    assert_eq!(tape.to_vec().unwrap(), done);
+    let (w, _) = TapeWriter::resume_on(sink, WriterOptions::default()).unwrap();
+    w.close().unwrap();
+    assert_eq!(tape.to_vec().unwrap(), got);
     // a chain of files, a crash after a cut's close and before its rename: the piece is named, the next one starts
     let chain = dir.join("chain");
     std::fs::create_dir(&chain).unwrap();
