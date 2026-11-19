@@ -42,4 +42,5 @@ pub use from_file::{BoundError, FromFile};
 #[cfg(feature = "std")]
 pub mod kernel;
 pub mod lz4;
+pub mod samples;
 pub mod varint;

@@ -174,6 +174,16 @@ impl Element {
     }
 }
 
+impl core::fmt::Display for Element {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match (self, self.scalar_type()) {
+            (Element::ComplexI16 | Element::ComplexF32, Some(s)) => write!(f, "complex {s}"),
+            (_, Some(s)) => write!(f, "{s}"),
+            (_, None) => write!(f, "element {}", self.code()),
+        }
+    }
+}
+
 /// What one sample of a series column is: `channels` elements, interleaved.
 ///
 /// A column holds one channel or several interleaved; the [Codec](crate::Codec) of the column says how the values

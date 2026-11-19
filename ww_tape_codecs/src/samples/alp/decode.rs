@@ -4,7 +4,7 @@ use super::{ALP_GROUP, DECIMAL, DICT_BITS_MAX, DICT_MAX, F32, F64, Float, LEFT_M
 use crate::FromFile;
 use crate::bitpack::{Width, packed_len};
 use crate::samples::raw::sign_extend;
-use crate::samples::{Element, GroupJob, GroupReader, Sample, SampleError, Scalar, decode_grouped};
+use crate::samples::{GroupJob, GroupReader, Sample, SampleError, Scalar, decode_grouped};
 
 /// Exception positions: ascending, below `n`.
 fn positions(p: &[u8], n: usize) -> Option<()> {
@@ -173,7 +173,7 @@ pub(in crate::samples) fn decode<T: Sample>(
         }),
         scalar => Err(SampleError::Unsupported {
             codec: crate::Codec::ALP,
-            element: Element::of_scalar(scalar),
+            scalar,
         }),
     }
 }

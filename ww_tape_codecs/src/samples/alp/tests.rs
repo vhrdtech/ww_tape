@@ -1,10 +1,10 @@
 use super::*;
 use crate::Codec;
-use crate::samples::tests::{Rng, encode_vec, roundtrip, sensor};
-use crate::samples::{Element, SampleShape, Samples, max_encoded_len};
+use crate::samples::Scalar;
+use crate::samples::tests::{Rng, Shape, encode_vec, max_len, read_column, roundtrip, sensor, sh};
 
-const F64S: SampleShape = SampleShape::scalar(Element::F64);
-const F32S: SampleShape = SampleShape::scalar(Element::F32);
+const F64S: Shape = sh(Scalar::F64, 1);
+const F32S: Shape = sh(Scalar::F32, 1);
 
 /// Edge patterns: signed zeros, infinities, NaN payloads, subnormals, extremes, and decimals around them.
 fn edges64() -> Vec<f64> {
@@ -44,13 +44,13 @@ fn round_trips_every_pattern() {
         let s32: Vec<f32> = s.iter().map(|v| *v as f32).collect();
         roundtrip(Codec::ALP, F32S, &s32);
         let iq: Vec<f32> = (0..2 * n).map(|i| (i / 7) as f32 * 0.5).collect();
-        roundtrip(Codec::ALP, SampleShape::scalar(Element::ComplexF32), &iq);
+        roundtrip(Codec::ALP, sh(Scalar::F32, 2), &iq);
         let three: Vec<f64> = (0..3 * n).map(|i| [1.5, f64::NAN, -0.0][i % 3]).collect();
-        roundtrip(Codec::ALP, SampleShape::new(Element::F64, 3), &three);
+        roundtrip(Codec::ALP, sh(Scalar::F64, 3), &three);
         roundtrip(Codec::ALP, F64S, &vec![0.25f64; n]);
         // more lanes than the encoder keeps plans for
         let wide: Vec<f64> = (0..11 * n).map(|i| (i % 97) as f64 / 8.0).collect();
-        roundtrip(Codec::ALP, SampleShape::new(Element::F64, 11), &wide);
+        roundtrip(Codec::ALP, sh(Scalar::F64, 11), &wide);
     }
     let e = edges64();
     roundtrip(Codec::ALP, F64S, &e);
@@ -105,7 +105,7 @@ fn real_doubles_take_rd_and_never_grow() {
     let bytes = roundtrip(Codec::ALP, F64S, &any);
     let groups = any.len().div_ceil(ALP_GROUP);
     assert!(bytes.len() <= any.len() * 8 + groups * (4 + 7));
-    assert!(bytes.len() <= max_encoded_len(Codec::ALP, F64S, any.len()).unwrap());
+    assert!(bytes.len() <= max_len(Codec::ALP, F64S, any.len()).unwrap());
 }
 
 #[test]
@@ -113,7 +113,7 @@ fn deterministic_and_alone_per_group() {
     let s = sensor(1000, 9);
     let a = encode_vec(Codec::ALP, F64S, &s);
     assert_eq!(a, encode_vec(Codec::ALP, F64S, &s));
-    let col = Samples::new(Codec::ALP, F64S, s.len(), &a).unwrap();
+    let col = read_column(Codec::ALP, F64S, s.len(), &a).unwrap();
     assert_eq!(col.group_count(), 8);
     let (samples, range) = col.group_bytes(3).unwrap();
     assert_eq!(samples, 384..512);
@@ -121,7 +121,7 @@ fn deterministic_and_alone_per_group() {
     for b in &mut damaged[range] {
         *b = 0xee;
     }
-    let col = Samples::new(Codec::ALP, F64S, s.len(), &damaged).unwrap();
+    let col = read_column(Codec::ALP, F64S, s.len(), &damaged).unwrap();
     let mut out = vec![0f64; 384];
     col.decode(0, &mut out).unwrap();
     assert_eq!(out, s[..384]);
@@ -169,7 +169,7 @@ fn column(body: &[u8]) -> Vec<u8> {
 
 fn decodes(body: &[u8]) -> bool {
     let c = column(body);
-    let Ok(s) = Samples::new(Codec::ALP, F32S, 4, &c) else {
+    let Ok(s) = read_column(Codec::ALP, F32S, 4, &c) else {
         return false;
     };
     let mut out = [0f32; 4];
@@ -183,7 +183,7 @@ fn rejects_malformed_groups() {
     assert!(decodes(&good));
     let c = column(&good);
     let mut out = [0f32; 4];
-    Samples::new(Codec::ALP, F32S, 4, &c)
+    read_column(Codec::ALP, F32S, 4, &c)
         .unwrap()
         .decode(0, &mut out)
         .unwrap();
@@ -253,8 +253,8 @@ fn constants_match_the_tables() {
 fn columns_stay_under_4_gib() {
     // 2^29 f64 values are 4 GiB of data, past what a table end addresses
     assert_eq!(
-        max_encoded_len(Codec::ALP, F64S, 1 << 29),
-        Err(crate::SampleError::BadShape)
+        max_len(Codec::ALP, F64S, 1 << 29),
+        Err(crate::samples::SampleError::BadShape)
     );
-    assert!(max_encoded_len(Codec::ALP, F64S, 1 << 20).is_ok());
+    assert!(max_len(Codec::ALP, F64S, 1 << 20).is_ok());
 }
