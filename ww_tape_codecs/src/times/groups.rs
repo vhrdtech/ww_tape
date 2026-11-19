@@ -243,7 +243,7 @@ pub(crate) fn encode_groups<T: Copy, const R: usize>(
 pub(crate) fn item_i64(i: usize) -> i64 {
     #[expect(
         clippy::expect_used,
-        reason = "indexes are under a chunk's u32 item count, which fits an i64"
+        reason = "indexes are under a column's u32 item count, which fits an i64"
     )]
     let i = i64::try_from(i).expect("an index under a u32 count");
     i

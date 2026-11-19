@@ -85,7 +85,7 @@ impl<'b> Durations<'b> {
             groups.check()?;
             if (0..groups.count()).any(|g| !d.record_ok(g)) {
                 return Err(ColumnError::Corrupt(
-                    "duration minimum past the chunk's latest end",
+                    "duration minimum past the longest duration given",
                 ));
             }
         }

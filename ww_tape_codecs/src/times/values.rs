@@ -63,7 +63,7 @@ impl<'b> Values<'b> {
             .split_first_chunk::<COUNT_LEN>()
             .ok_or(corrupt("no count"))?;
         if usize::try_from(u32::from_le_bytes(*count)).ok() != Some(n) {
-            return Err(corrupt("an item count other than the chunk's"));
+            return Err(corrupt("an item count other than the one asked for"));
         }
         let repr = match codec {
             Codec::STARTS => {

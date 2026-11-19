@@ -876,7 +876,7 @@ fn a_relation_column_of_another_count_is_refused() {
             RelationColumn::read(&chunk, track, 0).err(),
             Some(TimesError::Corrupt {
                 kind: ColumnKind::Relation,
-                error: ColumnError::Corrupt("an item count other than the chunk's")
+                error: ColumnError::Corrupt("an item count other than the one asked for")
             }),
             "{values:?}"
         );

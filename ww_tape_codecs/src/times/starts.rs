@@ -341,7 +341,7 @@ impl<'b> Linear<'b> {
                 .ok_or(corrupt("group without items"))?;
         }
         if prev != self.last {
-            return Err(corrupt("last item isn't the chunk's last tick"));
+            return Err(corrupt("last item isn't the last tick given"));
         }
         Ok(())
     }
