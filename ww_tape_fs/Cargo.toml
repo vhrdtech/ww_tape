@@ -1,6 +1,7 @@
 [package]
 name = "ww_tape_fs"
 version = "0.1.0"
+publish = false
 authors.workspace = true
 description = "Files of ww_tape: a file sink and store of piece files, their lock, and writers and chains opened by path"
 edition.workspace = true
