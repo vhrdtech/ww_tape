@@ -1,6 +1,6 @@
 // ww_tape 0.1.0 traits and types, saved by `ww api save`.
 // Do not edit, bump the crate version and save a new snapshot instead.
-// shrink_wrap sha256: 5d0340e99b35a5b79fa5db352d9eb9994240fefe4c0cba30e8e0dcba0a871a13
+// shrink_wrap sha256: ba22f87550fbc470a2a304a10b1d712d3374bce51baf318649ea55d5b27ae1cc
 (magic: 2837124336, ww_self_version: (major: 0, minor: 4, patch: 0), root: (docs: [
     "Tape blocks: the unit a producer of records hands over, a live consumer reads and a log file is made of.",
     "",
@@ -111,7 +111,7 @@
     "| [MAX_COLUMNS](chunk::MAX_COLUMNS) | 255 | a chunk\'s columns |",
     "| [SEGMENT_SHIFT_MAX](chunk::SEGMENT_SHIFT_MAX) | 24 | a chunk\'s segment shift (16 MiB segments) |",
     "| [MAX_SEGMENTS](chunk::MAX_SEGMENTS) | 16384 | a chunk\'s segments |",
-    "| [Codec::SERIES_ITEMS_MAX](chunk::Codec::SERIES_ITEMS_MAX) | 65535 | the items of a chunk with a series payloads column |",
+    "| [SERIES_ITEMS_MAX](chunk::SERIES_ITEMS_MAX) | 65535 | the items of a chunk with a series payloads column |",
     "| [WIDTH_MAX](bitpack::WIDTH_MAX) | 64 | a bit width ([bitpack::Width]) |",
     "| [KERNEL_WIDTH_MAX](bitpack::KERNEL_WIDTH_MAX) | 32 | a bit width the 32-bit kernels unpack |",
     "| [SLOPE_MAX](times::SLOPE_MAX) | 2^55 | a start group\'s slope (Q16 ticks per item) |",

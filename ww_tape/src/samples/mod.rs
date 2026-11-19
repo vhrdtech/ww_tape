@@ -60,31 +60,6 @@ pub use element::{Element, SampleShape};
 use crate::{Codec, FromFile, bytes};
 use core::ops::Range;
 
-impl Codec {
-    /// The element type big endian.
-    pub const BIG_ENDIAN: Codec = Codec(16);
-    /// 10 bits per value, the first value in the low bits.
-    pub const PACKED10_LSB: Codec = Codec(17);
-    /// 10 bits per value, the first value in the high bits.
-    pub const PACKED10_MSB: Codec = Codec(18);
-    /// 12 bits per value, the first value in the low bits (2 values in 3 bytes).
-    pub const PACKED12_LSB: Codec = Codec(19);
-    /// 12 bits per value, the first value in the high bits.
-    pub const PACKED12_MSB: Codec = Codec(20);
-    /// 24 bits per value, little endian.
-    pub const PACKED24_LSB: Codec = Codec(21);
-    /// 24 bits per value, big endian.
-    pub const PACKED24_MSB: Codec = Codec(22);
-    /// Floats, ALP: decimals as integers bit-packed per group, other floats' front bits through a dictionary.
-    pub const ALP: Codec = Codec(26);
-    /// Integers, differences bit-packed per group.
-    pub const DELTA: Codec = Codec(32);
-    /// Integers, differences of differences bit-packed per group.
-    pub const DELTA2: Codec = Codec(33);
-    /// Reserved: run-coded discrete lanes (`U8`, `U16`, `U32`, `Bool`); a reader refuses it until it is built.
-    pub const RUNS: Codec = Codec(36);
-}
-
 /// Samples per group of the delta codecs: a [bitpack](crate::bitpack) group.
 pub const DELTA_GROUP: usize = crate::bitpack::GROUP;
 

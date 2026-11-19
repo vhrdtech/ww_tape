@@ -130,7 +130,7 @@ pub fn samples(data: &[u8]) -> Vec<u8> {
         }
         1 => element = Element::from_code(d.u8() % 16).unwrap_or(element),
         2 => {
-            let caps = &[u64::from(Codec::SERIES_ITEMS_MAX), 128, 256];
+            let caps = &[u64::from(ww_tape::chunk::SERIES_ITEMS_MAX), 128, 256];
             count = d.value(32, caps, &[count]);
         }
         _ => {}

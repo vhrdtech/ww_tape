@@ -84,11 +84,11 @@ use crate::{BlockKind, BoundError, FromFile};
 use core::ops::Range;
 
 /// Codec of a starts column.
-pub const STARTS: Codec = Codec(1);
+pub const STARTS: Codec = Codec::STARTS;
 /// Codec of an ends column of durations.
-pub const DURATIONS: Codec = Codec(2);
+pub const DURATIONS: Codec = Codec::DURATIONS;
 /// Codec of a flags column.
-pub const FLAGS: Codec = Codec(3);
+pub const FLAGS: Codec = Codec::FLAGS;
 
 /// How a chunk's starts are stored (the chunk head's time mode).
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]

@@ -107,7 +107,7 @@
 //! | [MAX_COLUMNS](chunk::MAX_COLUMNS) | 255 | a chunk's columns |
 //! | [SEGMENT_SHIFT_MAX](chunk::SEGMENT_SHIFT_MAX) | 24 | a chunk's segment shift (16 MiB segments) |
 //! | [MAX_SEGMENTS](chunk::MAX_SEGMENTS) | 16384 | a chunk's segments |
-//! | [Codec::SERIES_ITEMS_MAX](chunk::Codec::SERIES_ITEMS_MAX) | 65535 | the items of a chunk with a series payloads column |
+//! | [SERIES_ITEMS_MAX](chunk::SERIES_ITEMS_MAX) | 65535 | the items of a chunk with a series payloads column |
 //! | [WIDTH_MAX](bitpack::WIDTH_MAX) | 64 | a bit width ([bitpack::Width]) |
 //! | [KERNEL_WIDTH_MAX](bitpack::KERNEL_WIDTH_MAX) | 32 | a bit width the 32-bit kernels unpack |
 //! | [SLOPE_MAX](times::SLOPE_MAX) | 2^55 | a start group's slope (Q16 ticks per item) |

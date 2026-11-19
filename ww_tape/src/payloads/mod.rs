@@ -52,7 +52,7 @@ use alloc::vec::Vec;
 use core::ops::Range;
 
 /// Codec of a payload lengths column.
-pub const LENGTHS: Codec = Codec(4);
+pub const LENGTHS: Codec = Codec::LENGTHS;
 
 /// Bytes of a group record of the lengths column.
 pub(crate) const RECORD_LEN: usize = 13;

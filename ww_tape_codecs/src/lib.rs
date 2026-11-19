@@ -1,6 +1,7 @@
 //! The column codecs of ww_tape: values to column bytes and back, with no notion of a block, a chunk, a track or a
 //! piece.
 //!
+//! - [Codec]: the ids of how columns are coded, each defined once.
 //! - [bitpack]: bit widths, frame-of-reference groups and their vector kernels.
 //! - [crc32c]: the CRC-32C of every block, in hardware where the CPU has it.
 //! - [from_file]: numbers read from file bytes, [FromFile], reaching a length or a loop only through a bound.
@@ -33,6 +34,8 @@
 
 pub mod bitpack;
 pub mod bytes;
+pub mod codec;
+pub use codec::Codec;
 pub mod crc32c;
 pub mod from_file;
 pub use from_file::{BoundError, FromFile};

@@ -136,33 +136,10 @@ pub(crate) const fn u32_len(n: u32) -> usize {
     v
 }
 
-/// How a column is coded. Ids other than [Codec::RAW] are assigned by the codecs.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Codec(pub u8);
+pub use ww_tape_codecs::Codec;
 
-impl Codec {
-    /// Plain little-endian values (starts and ends as i64, flags as u32, lengths as u32, samples in the track's
-    /// element type) or plain bytes (payload).
-    pub const RAW: Codec = Codec(0);
-    /// The column's bytes as one lz4 block after their decoded length ([lz4](crate::lz4)).
-    pub const LZ4: Codec = Codec(48);
-    /// Reserved: a payloads column holding one shrink_wrap `Series<T>` of the chunk's items (module docs).
-    pub const SERIES: Codec = Codec(49);
-    /// Most items of a chunk whose payloads column is in [Codec::SERIES].
-    pub const SERIES_ITEMS_MAX: u32 = 65_535;
-    /// Bit 7 of the codec byte: the column is outer-coded (module docs).
-    pub const OUTER: u8 = 0x80;
-
-    /// Whether the column is outer-coded: bit 7 set.
-    pub const fn is_outer(self) -> bool {
-        self.0 & Self::OUTER != 0
-    }
-
-    /// The codec of the column's bytes, or of the decoded bytes of an outer-coded column: bits 0..6.
-    pub const fn inner(self) -> Codec {
-        Codec(self.0 & !Self::OUTER)
-    }
-}
+/// Most items of a chunk whose payloads column is in [Codec::SERIES].
+pub const SERIES_ITEMS_MAX: u32 = 65_535;
 
 /// What a column holds.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]

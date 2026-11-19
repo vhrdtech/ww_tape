@@ -466,7 +466,7 @@ fn format_page_caps_are_the_constants() {
             ww_tape::chunk::SEGMENT_SHIFT_MAX.into(),
         ),
         ("MAX_SEGMENTS", ww_tape::chunk::MAX_SEGMENTS as u64),
-        ("Codec::SERIES_ITEMS_MAX", Codec::SERIES_ITEMS_MAX.into()),
+        ("SERIES_ITEMS_MAX", ww_tape::chunk::SERIES_ITEMS_MAX.into()),
         ("WIDTH_MAX", ww_tape::bitpack::WIDTH_MAX.into()),
         (
             "KERNEL_WIDTH_MAX",
