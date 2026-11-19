@@ -14,20 +14,23 @@
 //!   the process holds.
 //! - One file has one lock whatever name reaches it. The lock file is named after the file's canonical name, with
 //!   links resolved and a `.partial` suffix dropped, so `NAME`, a link to it and `NAME.partial` share `NAME.lock`. A
-//!   hard link is another name of the same file that no name tells apart: the table also keys each file a sink
-//!   opened by its device and inode, so two writers of one process are refused through hard links too. Two
+//!   hard link is another name of the same file that no name tells apart: on unix the table also keys each file a
+//!   sink opened by its device and inode, so two writers of one process are refused through hard links too (std
+//!   has no file identity elsewhere). Two
 //!   processes writing one file through two hard-linked names are not refused: both append to the same bytes, and
 //!   their blocks interleave into a file that reads as damaged. A lock on the file itself would catch that, but
 //!   every kind either passes to a forked child (`flock`, open file description locks) or goes away when a reader
 //!   of the holder's process closes the file (record locks).
 //! - The lock file is opened without following a link, and must be a regular file ([FsError::NotAFile]): a link
 //!   planted there would lock another file, and a dangling one would create its target.
-//! - The holder removes the lock file when it lets go, while it still holds the lock. A writer that opened the file
+//! - On unix the holder removes the lock file when it lets go, while it still holds the lock. A writer that opened the file
 //!   before it was removed takes the lock on a file no longer named `NAME.lock`, sees so and opens the new one
 //!   ([LOCK_TRIES_MAX]). A lock file a crash left holds no lock and is taken as it is.
 //!
 //! Elsewhere (Windows) the lock file holds the file system's lock ([File::try_lock]): a child process gets no
-//! handle there unless the parent passes it.
+//! handle there unless the parent passes it. The lock file is never removed there: removing it after it is closed
+//! could remove the file of the next holder, and a later writer would lock a new file beside it. It stays beside
+//! `NAME` once the writer is gone, holds no lock, and the next writer takes it as it is.
 //!
 //! A device (such as a raw SD card, whose directory takes no lock file) is locked itself, opened without waiting,
 //! by the file system's lock on a handle of its own: a child forked while it is held holds it too, until it runs
@@ -56,6 +59,7 @@ enum Held {
     /// A lock file, by its absolute path
     Name(PathBuf),
     /// A file a sink opened, by its device and inode
+    #[cfg(unix)]
     File { dev: u64, ino: u64 },
 }
 
@@ -196,7 +200,8 @@ impl Drop for FileLock {
     /// entries.
     fn drop(&mut self) {
         for LockFile { file, path } in self.files.drain(..) {
-            if let Some(path) = &path
+            if cfg!(unix)
+                && let Some(path) = &path
                 && matches!(names_itself(path, &file), Ok(true))
             {
                 // a lock file left behind holds no lock: the next writer takes it as it is

@@ -251,6 +251,7 @@ Covers `ww_tape` 0.1.0.
 - A file sink never follows a link at `NAME.lock`: a link or other non-regular lock file is refused (`FsError::NotAFile`) (TAPE-12).
 - A file sink refuses a FIFO, socket or directory at once (`FsError::NotAFile`); a FIFO hung the open (TAPE-12).
 - A file name leaving no room for `.lock` is locked under its BLAKE3 hash as `HASH.lock` beside it (TAPE-12).
+- On Windows a file sink keeps `NAME.lock` after the writer ends; it holds no lock and the next writer takes it (TAPE-12).
 - A chain resume reads each track's last chunk only in the newest piece holding one, not in every piece (TAPE-7).
 - A salvaged starts column decides each group once on read; `get` and `is_suspect` decode no group per item (STD-120).
 - A resume replays the kept bytes along verify's walk: good blocks in junk are taken, damaged ones listed inside it kept (TAPE-8).
