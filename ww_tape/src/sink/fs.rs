@@ -104,10 +104,16 @@ impl FileSink {
 
     /// Take `file`, opened as `partial` for `path` under `lock`: still the file `partial` names (a writer that held
     /// it may have finished and renamed it to `path` meanwhile, [FsError::Replaced]), empty, and `path` not there.
-    fn claim(lock: FileLock, file: File, path: &Path, partial: PathBuf) -> Result<Self, FsError> {
+    fn claim(
+        mut lock: FileLock,
+        file: File,
+        path: &Path,
+        partial: PathBuf,
+    ) -> Result<Self, FsError> {
         if !names(&partial, &file).map_err(io_err("checking the file's name"))? {
             return Err(FsError::Replaced(partial));
         }
+        lock.bind(&file, path)?;
         let len = file
             .metadata()
             .map_err(io_err("reading the file's length"))?
@@ -132,7 +138,7 @@ impl FileSink {
     /// The file at `path`, appended to in place; created (and its directory synced) if it isn't there. Its length
     /// is where the writer starts.
     pub fn append(path: &Path) -> Result<Self, FsError> {
-        let lock = FileLock::take(path)?;
+        let mut lock = FileLock::take(path)?;
         let existed = path.exists();
         let file = OpenOptions::new()
             .read(true)
@@ -140,6 +146,7 @@ impl FileSink {
             .create(true)
             .open(path)
             .map_err(io_err("opening the file"))?;
+        lock.bind(&file, path)?;
         if !existed {
             file.sync_all().map_err(io_err("syncing the new file"))?;
             sync_dir(path).map_err(io_err("syncing the directory"))?;
@@ -156,7 +163,7 @@ impl FileSink {
     /// A new file at `path` written under its own name, for pieces back to back ([Tapes::create_whole]); the
     /// file and its directory are synced. Fails if `path` is there.
     pub fn create_whole(path: &Path) -> Result<Self, FsError> {
-        let lock = FileLock::take(path)?;
+        let mut lock = FileLock::take(path)?;
         let file = match OpenOptions::new()
             .read(true)
             .append(true)
@@ -174,6 +181,7 @@ impl FileSink {
                 });
             }
         };
+        lock.bind(&file, path)?;
         file.sync_all().map_err(io_err("syncing the new file"))?;
         sync_dir(path).map_err(io_err("syncing the directory"))?;
         Ok(FileSink {
@@ -190,13 +198,7 @@ impl FileSink {
     pub fn open_whole(path: &Path) -> Result<Option<Self>, FsError> {
         let lock = FileLock::take(path)?;
         match OpenOptions::new().read(true).append(true).open(path) {
-            Ok(file) => Ok(Some(FileSink {
-                file,
-                path: path.to_path_buf(),
-                partial: None,
-                base: 0,
-                _lock: lock,
-            })),
+            Ok(file) => Self::opened(lock, file, path, None).map(Some),
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
             Err(error) => Err(FsError::Io {
                 what: "opening the file",
@@ -211,19 +213,30 @@ impl FileSink {
         let partial = partial_name(path);
         // appended to: writes go to the end, after a truncate too
         match OpenOptions::new().read(true).append(true).open(&partial) {
-            Ok(file) => Ok(Some(FileSink {
-                file,
-                path: path.to_path_buf(),
-                partial: Some(partial),
-                base: 0,
-                _lock: lock,
-            })),
+            Ok(file) => Self::opened(lock, file, path, Some(partial)).map(Some),
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
             Err(error) => Err(FsError::Io {
                 what: "opening the unfinished file",
                 error,
             }),
         }
+    }
+
+    /// The sink of `file`, opened under `lock` as `partial` (or `path` itself when None), held by its identity too.
+    fn opened(
+        mut lock: FileLock,
+        file: File,
+        path: &Path,
+        partial: Option<PathBuf>,
+    ) -> Result<Self, FsError> {
+        lock.bind(&file, path)?;
+        Ok(FileSink {
+            file,
+            path: path.to_path_buf(),
+            partial,
+            base: 0,
+            _lock: lock,
+        })
     }
 }
 

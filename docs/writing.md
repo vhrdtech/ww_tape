@@ -23,8 +23,11 @@ The writer puts its bytes into a **sink**. Two sinks come with `ww_tape`:
   the file, in this process or another, is refused (`FsError::Locked`). Only writers open the lock file, so readers
   that open and close the file never let the lock go. On unix it is a POSIX record lock, which a child process forked
   meanwhile doesn't hold, so a resume right after a writer is dropped is never refused because of a child. The lock
-  file goes when the writer lets go; one a crash left holds no lock and is taken as it is. A path that isn't a
-  regular file, such as a raw device, is locked itself.
+  file goes when the writer lets go; one a crash left holds no lock and is taken as it is. One file has one lock
+  whatever name reaches it: the lock file is named after the file's canonical name, links resolved and `.partial`
+  dropped, and writers of one process are also kept apart by the file's identity, so a hard link is refused there
+  too. Two processes writing one file through two hard-linked names are not refused: their blocks interleave into a
+  file that reads as damaged. A path that isn't a regular file, such as a raw device, is locked itself.
 - `MemSink` keeps the bytes in memory, where a `TapeReader` reads them while they are written. Tests use it to cut a
   piece at any byte and check what a reader makes of it.
 
