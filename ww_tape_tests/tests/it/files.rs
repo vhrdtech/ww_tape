@@ -187,3 +187,51 @@ fn a_resume_of_no_chain_names_the_directory() {
     }
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// An append takes any bytes before it, checked for nothing: bytes that aren't blocks, a cut tape, a finished one. Its
+/// session is a piece of its own after them, found by its tail; the reader shows the bytes before as an unfinished
+/// piece, its good blocks up to the cut, or as the finished piece they are.
+#[test]
+fn an_append_follows_any_bytes_as_a_piece_of_its_own() {
+    use ww_tape::TapeReader;
+    let dir = scratch("files_append_any");
+    let finished = dir.join("done.wwt");
+    let mut w = ww_tape_fs::writer::create(&finished, SyncPolicy::None).unwrap();
+    w.write_block(crate::definitions::base_defs(), &records(w.next_id(), 3))
+        .unwrap();
+    w.finish().unwrap();
+    let done = std::fs::read(&finished).unwrap();
+    let cut = done[..done.len() / 2].to_vec();
+    for (name, prefix) in [
+        ("garbage", vec![0x5au8; 1000]),
+        ("cut", cut),
+        ("finished", done.clone()),
+    ] {
+        let path = dir.join(format!("{name}.wwt"));
+        std::fs::write(&path, &prefix).unwrap();
+        let mut w = ww_tape_fs::writer::append(&path, SyncPolicy::None).unwrap();
+        w.write_block(crate::definitions::base_defs(), &records(w.next_id(), 2))
+            .unwrap();
+        w.finish().unwrap();
+        let r = TapeReader::open(ww_tape_fs::FileSource::open(&path).unwrap()).unwrap();
+        let [before, appended] = r.pieces() else {
+            panic!("{name}: {:?}", r.pieces());
+        };
+        let len = prefix.len() as u64;
+        assert_eq!(appended.start, len, "{name}");
+        assert!(appended.tail.is_some() && appended.head.is_none(), "{name}");
+        assert_eq!(before.start, 0, "{name}");
+        match name {
+            "garbage" => assert_eq!((before.end, before.cut), (0, Some(0))),
+            "cut" => {
+                assert!(before.tail.is_none() && before.finish.is_none());
+                assert!(
+                    matches!(before.cut, Some(c) if c > 0 && c < len),
+                    "{before:?}"
+                );
+            }
+            _ => assert!(before.tail.is_some() && before.end == len, "{before:?}"),
+        }
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}

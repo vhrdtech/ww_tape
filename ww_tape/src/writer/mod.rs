@@ -335,6 +335,14 @@ impl<S: TapeSink> TapeWriter<S> {
     /// memory tape of [MemTapes::open_whole](crate::MemTapes::open_whole): offsets in the index count from the
     /// sink's length now, and the session's blocks start with its definitions, which a reader takes as the next part
     /// of the bytes.
+    ///
+    /// Any bytes may be there before, and none are checked: bytes that aren't blocks, a tape cut off by a crash, a
+    /// finished tape. The session is a piece of its own after them, without a piece head, found by its tail once
+    /// finished. A [TapeReader](crate::TapeReader) shows the bytes before as an unfinished piece (its good blocks up
+    /// to [PieceInfo::cut](crate::PieceInfo::cut)), or as the finished pieces they are.
+    ///
+    /// The writer takes no lock: one writer per sink is the business of whoever owns the sink (`ww_tape_fs`'s file
+    /// sink holds a lock on its file).
     pub fn append_on(sink: S, policy: SyncPolicy) -> Result<Self, WriteError<S::Error>> {
         let start = sink
             .size()
