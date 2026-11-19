@@ -10,7 +10,7 @@
 
 use core::ops::Range;
 
-use super::values::Values;
+use super::Values;
 use super::{ColumnError, DURATIONS, ITEMS_MAX, STARTS, TimesError};
 use crate::FromFile;
 #[cfg(feature = "std")]
@@ -220,7 +220,7 @@ impl EncodedRelation {
         if let (Some(at), true) = (decrease, monotone) {
             return Err(EncodeError::Unsorted { at });
         }
-        let (codec, bytes) = super::values::encode_values(values).ok_or(EncodeError::TooMany)?;
+        let (codec, bytes) = super::encode_values(values).ok_or(EncodeError::TooMany)?;
         Ok(EncodedRelation {
             relation,
             codec,

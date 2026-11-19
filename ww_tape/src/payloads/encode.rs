@@ -5,9 +5,9 @@ use crate::bitpack;
 use crate::bytes;
 use crate::chunk::{Codec, ColumnKind, ColumnSpec};
 use crate::lz4::{LZ4_DECODED_MAX, Lz4Error, lz4_encode, lz4_max_len};
-use crate::times::encode_groups;
 use alloc::vec;
 use alloc::vec::Vec;
+use ww_tape_codecs::times::encode_groups;
 
 /// Why payloads can't be encoded.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]

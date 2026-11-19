@@ -57,30 +57,18 @@
 //! group); one in a group record, one group or two, unless it moves a first tick, slope or duration minimum by
 //! too little to break an order: such a group reads shifted and isn't marked.
 
-mod column;
-mod groups;
-mod packed;
 mod relation;
-mod starts;
 #[cfg(test)]
 mod tests;
-mod values;
 
-pub use column::{ColumnError, TimeMode};
-#[cfg(feature = "alloc")]
-pub(crate) use groups::encode_groups;
-pub use packed::{Durations, Flags};
-#[cfg(feature = "alloc")]
-pub use packed::{encode_durations, encode_flags};
 #[cfg(feature = "std")]
 pub use relation::EncodedRelation;
 pub use relation::{RelationColumn, StoredRelations};
+pub use ww_tape_codecs::times::{
+    ColumnError, Durations, Flags, Iter, SLOPE_MAX, Starts, TimeMode, Values, ordered, unordered,
+};
 #[cfg(feature = "alloc")]
-pub use starts::encode_starts;
-pub use starts::{Iter, SLOPE_MAX, Starts};
-#[cfg(feature = "alloc")]
-pub use values::encode_values;
-pub use values::{Values, ordered, unordered};
+pub use ww_tape_codecs::times::{encode_durations, encode_flags, encode_starts, encode_values};
 
 /// Most items of an events chunk (16 Mi): a reader's work on a chunk grows with its items, and implicit times store
 /// none per item, so the count a head states is bounded by this, not by the chunk's bytes.

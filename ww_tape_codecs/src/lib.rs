@@ -7,6 +7,7 @@
 //! - [from_file]: numbers read from file bytes, [FromFile], reaching a length or a loop only through a bound.
 //! - [varint] and [bytes]: variable-length integers and little-endian fields.
 //! - [lz4]: a column's bytes as one lz4 block.
+//! - [times]: the starts, durations, flags and relation value columns of events.
 //! - `kernel` (with `std`): single-pass statistics of integer samples for series summaries.
 //!
 //! `ww_tape` re-exports these modules under its own paths; the format and its caps are documented there.
@@ -46,4 +47,5 @@ pub use from_file::{BoundError, FromFile};
 pub mod kernel;
 pub mod lz4;
 pub mod samples;
+pub mod times;
 pub mod varint;
