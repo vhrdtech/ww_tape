@@ -4,7 +4,7 @@ use super::{ALP_GROUP, DECIMAL, DICT_BITS_MAX, DICT_MAX, F32, F64, Float, LEFT_M
 use crate::FromFile;
 use crate::bitpack::{Width, packed_len};
 use crate::samples::raw::sign_extend;
-use crate::samples::{Element, GroupJob, GroupReader, Sample, SampleError, decode_grouped};
+use crate::samples::{Element, GroupJob, GroupReader, Sample, SampleError, Scalar, decode_grouped};
 
 /// Exception positions: ascending, below `n`.
 fn positions(p: &[u8], n: usize) -> Option<()> {
@@ -164,16 +164,16 @@ pub(in crate::samples) fn decode<T: Sample>(
     first: usize,
     out: &mut [T],
 ) -> Result<(), SampleError> {
-    match T::ELEMENT {
-        Element::F32 => decode_grouped(bytes, count, lanes, first, out, ALP_GROUP, |job| {
+    match T::SCALAR {
+        Scalar::F32 => decode_grouped(bytes, count, lanes, first, out, ALP_GROUP, |job| {
             decode_group::<F32, T>(lanes, job)
         }),
-        Element::F64 => decode_grouped(bytes, count, lanes, first, out, ALP_GROUP, |job| {
+        Scalar::F64 => decode_grouped(bytes, count, lanes, first, out, ALP_GROUP, |job| {
             decode_group::<F64, T>(lanes, job)
         }),
-        element => Err(SampleError::Unsupported {
+        scalar => Err(SampleError::Unsupported {
             codec: crate::Codec::ALP,
-            element,
+            element: Element::of_scalar(scalar),
         }),
     }
 }

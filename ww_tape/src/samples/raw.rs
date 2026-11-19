@@ -146,8 +146,8 @@ pub(super) fn encode_packed<T: Sample>(
     out: &mut [u8],
 ) -> Result<usize, SampleError> {
     let bits = packing.bits();
-    let scalar_bits = T::ELEMENT.scalar_bits();
-    let signed = T::ELEMENT.is_signed();
+    let scalar_bits = T::SCALAR.bits();
+    let signed = T::SCALAR.is_signed();
     let m = mask(bits);
     for (i, v) in values.iter().enumerate() {
         let raw = v.to_bits();

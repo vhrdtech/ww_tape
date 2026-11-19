@@ -50,7 +50,7 @@ const FLOAT_CODECS: [(Coder, &str); 5] = [
 
 /// `values` as unsigned integers of the floats' width: their ordered bits.
 fn ordered<T: Sample, U: Sample>(values: &[T], out: &mut Vec<U>) {
-    let w = T::ELEMENT.scalar_bits();
+    let w = T::SCALAR.bits();
     out.clear();
     out.extend(
         values

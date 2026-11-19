@@ -267,7 +267,7 @@ fn get_chimp(rd: &mut BitReader<'_>, lane: &mut Lane, w: u32) -> Option<u64> {
 
 /// Code `values` (samples of `lanes` scalars) into `out`, sized by [max_len]; returns the bytes written.
 pub fn encode<T: Sample>(flavor: Flavor, values: &[T], lanes: usize, out: &mut [u8]) -> usize {
-    let w = T::ELEMENT.scalar_bits();
+    let w = T::SCALAR.bits();
     let count = values.len() / lanes;
     let groups = count.div_ceil(XOR_GROUP);
     let (table, data) = out.split_at_mut(groups * ENTRY);
@@ -322,7 +322,7 @@ pub fn decode<T: Sample>(
     first: usize,
     out: &mut [T],
 ) -> Option<()> {
-    let w = T::ELEMENT.scalar_bits();
+    let w = T::SCALAR.bits();
     let n = out.len() / lanes;
     let mut s = first;
     while s < first + n {

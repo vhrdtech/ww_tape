@@ -51,11 +51,13 @@ pub mod alp;
 mod delta;
 mod element;
 mod raw;
+mod scalar;
 #[cfg(test)]
 mod tests;
 
 pub use alp::ALP_GROUP;
 pub use element::{Element, SampleShape};
+pub use scalar::Scalar;
 
 use crate::{Codec, FromFile, bytes};
 use core::ops::Range;
@@ -65,8 +67,8 @@ pub const DELTA_GROUP: usize = crate::bitpack::GROUP;
 
 /// A scalar type a column decodes into or encodes from.
 pub trait Sample: Copy + Default + PartialEq + core::fmt::Debug + sealed::Sealed {
-    /// The scalar [Element] of this type.
-    const ELEMENT: Element;
+    /// The scalar of this type.
+    const SCALAR: Scalar;
     /// The value's bits, zero-extended.
     fn to_bits(self) -> u64;
     /// The value of the low bits of `bits`.
@@ -94,7 +96,7 @@ macro_rules! sample_unsigned {
     ($($t:ty => $e:ident);* $(;)?) => {$(
         impl sealed::Sealed for $t {}
         impl Sample for $t {
-            const ELEMENT: Element = Element::$e;
+            const SCALAR: Scalar = Scalar::$e;
             #[inline(always)]
             fn to_bits(self) -> u64 {
                 u64::from(self)
@@ -111,7 +113,7 @@ macro_rules! sample_signed {
     ($($t:ty => $e:ident, $u:ty);* $(;)?) => {$(
         impl sealed::Sealed for $t {}
         impl Sample for $t {
-            const ELEMENT: Element = Element::$e;
+            const SCALAR: Scalar = Scalar::$e;
             #[inline(always)]
             fn to_bits(self) -> u64 {
                 u64::from(self.cast_unsigned())
@@ -129,7 +131,7 @@ sample_signed! { i8 => I8, u8; i16 => I16, u16; i32 => I32, u32; }
 
 impl sealed::Sealed for i64 {}
 impl Sample for i64 {
-    const ELEMENT: Element = Element::I64;
+    const SCALAR: Scalar = Scalar::I64;
     #[inline(always)]
     fn to_bits(self) -> u64 {
         self.cast_unsigned()
@@ -142,7 +144,7 @@ impl Sample for i64 {
 
 impl sealed::Sealed for u64 {}
 impl Sample for u64 {
-    const ELEMENT: Element = Element::U64;
+    const SCALAR: Scalar = Scalar::U64;
     #[inline(always)]
     fn to_bits(self) -> u64 {
         self
@@ -155,7 +157,7 @@ impl Sample for u64 {
 
 impl sealed::Sealed for f32 {}
 impl Sample for f32 {
-    const ELEMENT: Element = Element::F32;
+    const SCALAR: Scalar = Scalar::F32;
     #[inline(always)]
     fn to_bits(self) -> u64 {
         u64::from(f32::to_bits(self))
@@ -168,7 +170,7 @@ impl Sample for f32 {
 
 impl sealed::Sealed for f64 {}
 impl Sample for f64 {
-    const ELEMENT: Element = Element::F64;
+    const SCALAR: Scalar = Scalar::F64;
     #[inline(always)]
     fn to_bits(self) -> u64 {
         f64::to_bits(self)
@@ -181,7 +183,7 @@ impl Sample for f64 {
 
 impl sealed::Sealed for bool {}
 impl Sample for bool {
-    const ELEMENT: Element = Element::Bool;
+    const SCALAR: Scalar = Scalar::Bool;
     #[inline(always)]
     fn to_bits(self) -> u64 {
         u64::from(self)
@@ -335,12 +337,12 @@ pub fn encode<T: Sample>(
 }
 
 fn check_type<T: Sample>(element: Element) -> Result<(), SampleError> {
-    if T::ELEMENT == element.scalar() {
+    if element.scalar_type() == Some(T::SCALAR) {
         Ok(())
     } else {
         Err(SampleError::WrongType {
             column: element.scalar(),
-            asked: T::ELEMENT,
+            asked: Element::of_scalar(T::SCALAR),
         })
     }
 }

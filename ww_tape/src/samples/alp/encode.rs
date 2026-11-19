@@ -8,7 +8,7 @@ use super::{
 };
 use crate::bitpack::{self, packed_len};
 use crate::samples::raw::mask;
-use crate::samples::{ENTRY, Element, GroupWriter, Sample, SampleError};
+use crate::samples::{ENTRY, Element, GroupWriter, Sample, SampleError, Scalar};
 
 /// Most groups the first sampling level looks at per column and lane (the paper's `m`, section 4).
 const SAMPLE_GROUPS: usize = 8;
@@ -601,13 +601,13 @@ pub(in crate::samples) fn encode<T: Sample>(
     out: &mut [u8],
 ) -> Result<usize, SampleError> {
     let needed = out.len();
-    let written = match T::ELEMENT {
-        Element::F32 => encode_with::<F32, T>(values, lanes, out),
-        Element::F64 => encode_with::<F64, T>(values, lanes, out),
-        element => {
+    let written = match T::SCALAR {
+        Scalar::F32 => encode_with::<F32, T>(values, lanes, out),
+        Scalar::F64 => encode_with::<F64, T>(values, lanes, out),
+        scalar => {
             return Err(SampleError::Unsupported {
                 codec: crate::Codec::ALP,
-                element,
+                element: Element::of_scalar(scalar),
             });
         }
     };

@@ -2,6 +2,8 @@
 
 use shrink_wrap::prelude::*;
 
+use super::Scalar;
+
 /// The logical type of one value of a sample.
 ///
 /// Its number (the enum's discriminant, [Element::code]) is the element code every block uses: summary heads name
@@ -108,6 +110,43 @@ impl Element {
         }
     }
 
+    /// The element of scalar `s`, with its code.
+    pub const fn of_scalar(s: Scalar) -> Element {
+        match s {
+            Scalar::I8 => Element::I8,
+            Scalar::I16 => Element::I16,
+            Scalar::I32 => Element::I32,
+            Scalar::I64 => Element::I64,
+            Scalar::U8 => Element::U8,
+            Scalar::U16 => Element::U16,
+            Scalar::U32 => Element::U32,
+            Scalar::U64 => Element::U64,
+            Scalar::F32 => Element::F32,
+            Scalar::F64 => Element::F64,
+            Scalar::Bool => Element::Bool,
+        }
+    }
+
+    /// The scalar a value of the element is stored as (the part of a complex element), None for an element this
+    /// reader doesn't know.
+    pub const fn scalar_type(self) -> Option<Scalar> {
+        let s = match self.scalar() {
+            Element::I8 => Scalar::I8,
+            Element::I16 => Scalar::I16,
+            Element::I32 => Scalar::I32,
+            Element::I64 => Scalar::I64,
+            Element::U8 => Scalar::U8,
+            Element::U16 => Scalar::U16,
+            Element::U32 => Scalar::U32,
+            Element::U64 => Scalar::U64,
+            Element::F32 => Scalar::F32,
+            Element::F64 => Scalar::F64,
+            Element::Bool => Scalar::Bool,
+            _ => return None,
+        };
+        Some(s)
+    }
+
     /// Scalars per element: 2 for a complex element, else 1.
     pub const fn parts(self) -> u32 {
         match self {
@@ -118,27 +157,20 @@ impl Element {
 
     /// Bits of one scalar of the element, 0 for an element this reader doesn't know.
     pub const fn scalar_bits(self) -> u32 {
-        match self.scalar() {
-            Element::Bool => 1,
-            Element::I8 | Element::U8 => 8,
-            Element::I16 | Element::U16 => 16,
-            Element::I32 | Element::U32 | Element::F32 => 32,
-            Element::I64 | Element::U64 | Element::F64 => 64,
-            _ => 0,
+        match self.scalar_type() {
+            Some(s) => s.bits(),
+            None => 0,
         }
     }
 
     /// Whether the scalar is a signed integer.
     pub const fn is_signed(self) -> bool {
-        matches!(
-            self.scalar(),
-            Element::I8 | Element::I16 | Element::I32 | Element::I64
-        )
+        matches!(self.scalar_type(), Some(s) if s.is_signed())
     }
 
     /// Whether the scalar is a float.
     pub const fn is_float(self) -> bool {
-        matches!(self.scalar(), Element::F32 | Element::F64)
+        matches!(self.scalar_type(), Some(s) if s.is_float())
     }
 }
 
@@ -198,6 +230,24 @@ mod tests {
         // past a byte: no known element's code, where truncation gave 256 the code of I8
         assert_eq!(Element::Unknown(256).code(), u8::MAX);
         assert_eq!(Element::from_code(Element::Unknown(269).code()), None);
+    }
+
+    /// Every scalar is an element of its code and back; every known element has a scalar of its scalar's code; an
+    /// element this reader doesn't know has none.
+    #[test]
+    fn scalars_and_elements_map_both_ways() {
+        for s in Scalar::ALL {
+            let e = Element::of_scalar(s);
+            assert_eq!(e.code(), s.code());
+            assert_eq!(e.scalar_type(), Some(s));
+        }
+        for e in Element::ALL {
+            let s = e.scalar_type().unwrap();
+            assert_eq!(s.code(), e.scalar().code(), "{e:?}");
+            assert_eq!(Element::of_scalar(s), e.scalar());
+        }
+        assert_eq!(Element::LEAVES.scalar_type(), None);
+        assert_eq!(Element::Unknown(200).scalar_type(), None);
     }
 
     #[test]

@@ -415,7 +415,7 @@ macro_rules! plain_value {
     ($($t:ty),* $(,)?) => {$(
         impl SeriesValue for $t {
             type Scalar = $t;
-            const ELEMENT: Element = <$t as Sample>::ELEMENT;
+            const ELEMENT: Element = Element::of_scalar(<$t as Sample>::SCALAR);
             const SCALE: Magnitude = Magnitude::ONE;
             #[inline(always)]
             fn write_parts(self, out: &mut [$t]) -> usize {
@@ -440,7 +440,7 @@ impl<U: Copy, P: FixedScale, T: Storage + Sample, B: Bounds<T> + Copy> SeriesVal
     for Fixed<U, P, T, B>
 {
     type Scalar = T;
-    const ELEMENT: Element = T::ELEMENT;
+    const ELEMENT: Element = Element::of_scalar(T::SCALAR);
     const SCALE: Magnitude = P::SCALE;
 
     #[inline(always)]

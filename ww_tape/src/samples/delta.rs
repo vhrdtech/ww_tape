@@ -72,7 +72,7 @@ fn encode_lane<'v, T: Sample + 'v>(
     w: &mut GroupWriter<'_>,
     lane: impl Iterator<Item = &'v T>,
 ) -> Option<()> {
-    let bits = T::ELEMENT.scalar_bits();
+    let bits = T::SCALAR.bits();
     let bytes = size_of::<T>();
     let m = mask(bits);
     let mut vals = [0u64; DELTA_GROUP];
@@ -149,7 +149,7 @@ fn decode_group<T: Sample>(flavor: Flavor, lanes: usize, job: GroupJob<'_, '_, T
         skip,
         dst,
     } = job;
-    let bits = T::ELEMENT.scalar_bits();
+    let bits = T::SCALAR.bits();
     let bytes = size_of::<T>();
     let take = dst.len().checked_div(lanes)?;
     // a value takes the residuals before it: the samples asked for are within the group

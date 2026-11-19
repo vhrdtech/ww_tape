@@ -46,7 +46,7 @@ pub(crate) fn read<T: Sample>(
 
 /// Values of `T` from the input, masked to fit `codec`, coded and decoded back.
 fn round<T: Sample>(codec: Codec, shape: SampleShape, data: &[u8], from: usize) {
-    let w = (T::ELEMENT.scalar_bits() / 8).max(1) as usize;
+    let w = (T::SCALAR.bits() / 8).max(1) as usize;
     let lanes = shape.lanes().unwrap() as usize;
     let bits = match codec.0 {
         17 | 18 => 10,
@@ -62,7 +62,7 @@ fn round<T: Sample>(codec: Codec, shape: SampleShape, data: &[u8], from: usize) 
             let v = u64::from_le_bytes(b);
             let v = if bits < 64 {
                 let x = v & ((1 << bits) - 1);
-                if T::ELEMENT.is_signed() {
+                if T::SCALAR.is_signed() {
                     (((x << (64 - bits)) as i64) >> (64 - bits)) as u64
                 } else {
                     x

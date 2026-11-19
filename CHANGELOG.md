@@ -10,6 +10,7 @@ Covers `ww_tape` 0.1.0.
 
 ### ⚠️ Breaking
 
+- `Sample::ELEMENT` is `Sample::SCALAR`, a `samples::Scalar`; `Element::of_scalar` and `Element::scalar_type` map between them (TAPE-12).
 - `Codec` and every codec id live in `ww_tape_codecs` (re-exported as `ww_tape::Codec`); `Codec::SERIES_ITEMS_MAX` is `chunk::SERIES_ITEMS_MAX` (TAPE-12).
 - File sinks and stores move to the crate `ww_tape_fs`: `FileSink`, `Files`, `FileSource`, `FsError`, `partial_name`, `lock_name`, `piece_name` (TAPE-12).
 - Path constructors are functions of `ww_tape_fs`: `writer::{create, append, resume, cut}`, `chain::{create, resume}` (TAPE-12).
