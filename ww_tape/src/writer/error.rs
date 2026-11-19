@@ -8,8 +8,9 @@ use crate::{BlockKind, DescribeError, IndexError, Layout, SessionTag};
 use alloc::boxed::Box;
 use alloc::string::String;
 
-/// Why a [TapeWriter] stopped; `E` is the error of its sink ([TapeSink::Error]). Its text says only its own part:
-/// the error it wraps, its [source](core::error::Error::source), says the rest.
+/// Why a [TapeWriter] stopped; `E` is the error of its sink ([TapeSink::Error]). Its text says what the writer was
+/// doing and the error it wraps (`creating a writer: x.wwt: locked by another writer`); the wrapped error's own
+/// [source](core::error::Error::source), the system's error, is its source, so each text is said once.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum WriteError<E> {
@@ -121,15 +122,16 @@ impl<S: TapeSink> core::fmt::Debug for CutError<S> {
 impl<S: TapeSink> core::fmt::Display for CutError<S> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self.writer {
-            Some(_) => f.write_str("cut refused, the writer handed back"),
-            None => f.write_str("cut failed"),
+            Some(_) => write!(f, "cut refused, the writer handed back: {}", self.error),
+            None => write!(f, "cut failed: {}", self.error),
         }
     }
 }
 
 impl<S: TapeSink> core::error::Error for CutError<S> {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
-        Some(&self.error)
+        // the error's text is in this one's
+        core::error::Error::source(&self.error)
     }
 }
 
@@ -154,7 +156,7 @@ impl<E> From<DescribeError> for WriteError<E> {
 impl<E: core::fmt::Display + core::fmt::Debug> core::fmt::Display for WriteError<E> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            WriteError::Sink { what, .. } => f.write_str(what),
+            WriteError::Sink { what, error } => write!(f, "{what}: {error}"),
             WriteError::Failed => write!(
                 f,
                 "an earlier write or sync failed, the file takes no more blocks"
@@ -162,7 +164,7 @@ impl<E: core::fmt::Display + core::fmt::Debug> core::fmt::Display for WriteError
             WriteError::Block(e) => write!(f, "not a good block: {e:?}"),
             WriteError::Chunk(e) => write!(f, "chunk doesn't encode: {e:?}"),
             WriteError::Index(e) => write!(f, "index or piece block: {e:?}"),
-            WriteError::Read(_) => f.write_str("reading back the piece to resume"),
+            WriteError::Read(e) => write!(f, "reading back the piece to resume: {e}"),
             WriteError::Ended(s) => write!(f, "the piece or chain ended already ({s:?})"),
             WriteError::Describe(e) => write!(f, "{e}"),
             WriteError::Input(e) => write!(f, "{e}"),
@@ -235,9 +237,9 @@ impl core::error::Error for ResumeError {}
 impl<E: core::error::Error + 'static> core::error::Error for WriteError<E> {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
-            WriteError::Sink { error, .. } => Some(error),
-            WriteError::Read(e) => Some(e),
-            // shown by this error's own text, which is theirs
+            // the wrapped error's text is in this one's: its source comes next
+            WriteError::Sink { error, .. } => error.source(),
+            WriteError::Read(e) => e.source(),
             WriteError::Describe(e) => e.source(),
             WriteError::Input(e) => e.source(),
             WriteError::Resume(e) => e.source(),

@@ -448,7 +448,7 @@ impl Tapes for Files {
             Ok(file) => Ok(Some(FileSource { file, path })),
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
             Err(error) => Err(FsError::Io {
-                what: "opening a finished piece",
+                what: "opening the file",
                 path,
                 error,
             }),

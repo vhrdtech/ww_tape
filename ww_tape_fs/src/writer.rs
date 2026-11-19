@@ -15,7 +15,7 @@ pub fn create(
     path: &Path,
     policy: SyncPolicy,
 ) -> Result<TapeWriter<FileSink>, WriteError<FsError>> {
-    let sink = FileSink::create(path).map_err(sink_err("creating the file"))?;
+    let sink = FileSink::create(path).map_err(sink_err("creating a writer"))?;
     Ok(TapeWriter::create_on(sink, policy))
 }
 
@@ -24,7 +24,7 @@ pub fn append(
     path: &Path,
     policy: SyncPolicy,
 ) -> Result<TapeWriter<FileSink>, WriteError<FsError>> {
-    let sink = FileSink::append(path).map_err(sink_err("opening the file"))?;
+    let sink = FileSink::append(path).map_err(sink_err("opening a writer to append"))?;
     TapeWriter::append_on(sink, policy)
 }
 
@@ -34,7 +34,7 @@ pub fn resume(
     path: &Path,
     options: WriterOptions,
 ) -> Result<(TapeWriter<FileSink>, Resumed), WriteError<FsError>> {
-    let what = "opening the unfinished file";
+    let what = "opening a writer to resume";
     match FileSink::reopen(path).map_err(sink_err(what))? {
         Some(sink) => TapeWriter::resume_on(sink, options),
         None if path.exists() => Err(WriteError::Sink {

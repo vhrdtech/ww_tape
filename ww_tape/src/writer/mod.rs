@@ -1639,7 +1639,7 @@ impl<S: TapeSink> TapeWriter<S> {
             // never retried, see the module docs
             self.failed = true;
             return Err(WriteError::Sink {
-                what: "syncing the file",
+                what: "syncing the blocks written",
                 error,
             });
         }

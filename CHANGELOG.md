@@ -261,6 +261,7 @@ Covers `ww_tape` 0.1.0.
 - `MemError<K>`, `MemSink<K>` and `MemTape<K>` take the store's key type; `Exists`, `Locked` and `Unfinished` carry the key (TAPE-12).
 - `MemError::Base` says why a piece start was refused (`BaseRefused`), in its text (TAPE-12).
 - `FsError` texts name the file, what was done and the kind once: `x.wwt: locked by another writer` (TAPE-12).
+- `WriteError` and `CutError` texts include the error they wrap: `creating a writer: x.wwt: locked by another writer` (TAPE-12).
 - A chain resume reads each track's last chunk only in the newest piece holding one, not in every piece (TAPE-7).
 - A salvaged starts column decides each group once on read; `get` and `is_suspect` decode no group per item (STD-120).
 - A resume replays the kept bytes along verify's walk: good blocks in junk are taken, damaged ones listed inside it kept (TAPE-8).

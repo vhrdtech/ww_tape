@@ -70,22 +70,60 @@ fn a_writer_stops_after_a_failure() {
         ),
         "{first:?}"
     );
-    // each level of the error says its own part once: what the writer did, what the file did, the system's error
-    let e = first.unwrap_err();
-    let mut texts = vec![e.to_string()];
-    let mut source = std::error::Error::source(&e);
-    while let Some(s) = source {
-        texts.push(s.to_string());
-        source = s.source();
-    }
-    assert_eq!(texts.len(), 3, "{texts:?}");
-    for pair in texts.windows(2) {
-        assert!(!pair[0].contains(&pair[1]), "{texts:?}");
-    }
+    // the top line says what the writer and the file did and the kind; the system's error comes next, once
+    let texts = chain(&first.unwrap_err());
+    assert_eq!(texts.len(), 2, "{texts:?}");
+    assert_eq!(
+        texts[0],
+        "writing a block: /dev/full: writing the file: no storage space"
+    );
+    assert!(!texts[0].contains(&texts[1]), "{texts:?}");
     assert!(matches!(
         w.write_block(defs, &records(w.next_id(), 2)),
         Err(WriteError::Failed)
     ));
     assert!(matches!(w.sync(), Err(WriteError::Failed)));
     assert!(matches!(w.finish(), Err(WriteError::Failed)));
+}
+
+/// The texts of an error and its sources, top first.
+fn chain(e: &dyn std::error::Error) -> Vec<String> {
+    let mut texts = vec![e.to_string()];
+    let mut source = e.source();
+    while let Some(s) = source {
+        texts.push(s.to_string());
+        source = s.source();
+    }
+    texts
+}
+
+/// A file a second writer opens: its top line names what was done, the file and the refusal, once, with nothing
+/// below it; a log line of the top line alone says it all.
+#[test]
+fn a_refused_writer_says_the_file_and_why_in_one_line() {
+    let dir = scratch("files_texts");
+    let path = dir.join("x.wwt");
+    let first = ww_tape_fs::writer::create(&path, SyncPolicy::None).unwrap();
+    let second = ww_tape_fs::writer::create(&path, SyncPolicy::None)
+        .err()
+        .unwrap();
+    assert_eq!(
+        chain(&second),
+        [format!(
+            "creating a writer: {}: locked by another writer",
+            path.display()
+        )]
+    );
+    first.finish().unwrap();
+    let again = ww_tape_fs::writer::append(&dir, SyncPolicy::None)
+        .err()
+        .unwrap();
+    assert_eq!(
+        chain(&again),
+        [format!(
+            "opening a writer to append: {}: not a regular file",
+            dir.display()
+        )]
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
 }
