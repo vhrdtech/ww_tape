@@ -42,14 +42,7 @@ impl<K: core::fmt::Debug> core::fmt::Display for MemError<K> {
     }
 }
 
-impl<K: core::fmt::Debug> core::error::Error for MemError<K> {
-    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
-        match self {
-            MemError::Base(refused) => Some(refused),
-            _ => None,
-        }
-    }
-}
+impl<K: core::fmt::Debug> core::error::Error for MemError<K> {}
 
 impl<K> From<OutOfRange> for MemError<K> {
     fn from(_: OutOfRange) -> Self {

@@ -1834,7 +1834,7 @@ fn verify_holds_entries_per_track_list_not_per_block() {
     );
 }
 
-/// A memory sink that refuses a piece start says why, in its error and its source.
+/// A memory sink that refuses a piece start says why in its error and its text, once.
 #[test]
 fn a_memory_sink_refusing_a_base_says_why() {
     use crate::sink::BaseRefused;
@@ -1844,10 +1844,7 @@ fn a_memory_sink_refusing_a_base_says_why() {
     one.write_all(b"abc").unwrap();
     let e = one.rebase(1).unwrap_err();
     assert_eq!(e, MemError::Base(BaseRefused::OnePiece));
-    assert_eq!(
-        e.source().unwrap().to_string(),
-        BaseRefused::OnePiece.to_string()
-    );
+    assert!(e.source().is_none(), "the text says why: {e}");
 
     let tapes = MemTapes::<u64>::new();
     let mut whole = tapes.create_whole(&0).unwrap();
