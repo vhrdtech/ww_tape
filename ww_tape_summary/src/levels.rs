@@ -17,7 +17,10 @@ pub enum BuildError {
     /// A grid the series writer was handed breaks a rule of the series' timeline.
     Series(SeriesError),
     /// Samples handed to a series writer are not whole frames of `stride` scalars.
-    PartialFrame { stride: usize },
+    PartialFrame {
+        /// Scalars per frame: the channels times the scalars of one sample (2 for a complex element).
+        stride: usize,
+    },
     /// A summary block can't be written.
     Block(SummaryError),
 }
