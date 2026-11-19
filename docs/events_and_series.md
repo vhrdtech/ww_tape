@@ -61,8 +61,8 @@ docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape_codecs/src/bitpack/m
 
 ### What it costs
 
-The bench `eventfull_benchmarks` of the eventfull project compares the linear codec with two alternatives. It codes 10
-million events per workload in chunks of 4096 items, on a virtual machine with 14 vCPUs of an AMD EPYC Genoa host. The
+A bench of an application that records with tapes compares the linear codec with two alternatives. That bench is not
+part of this repository. It codes 10 million events per workload in chunks of 4096 items, on a virtual machine with 14 vCPUs of an AMD EPYC Genoa host. The
 table gives bytes per event, group records and chunk overhead included. Raw 64-bit ticks take 8.01 bytes per event.
 
 | Workload | Linear groups | Delta-of-delta varints | Elias-Fano |

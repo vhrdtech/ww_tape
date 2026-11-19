@@ -68,9 +68,9 @@ data with jitter so costs the bits of its jitter, not of its period. The table g
 for 10 million events per workload (6.4 million for the journal), in chunks of 4096 items. Raw 64-bit ticks take 8.01
 bytes per event.
 
-The figures come from the bench `eventfull_benchmarks` of the eventfull project, on a virtual machine with 14 vCPUs of
-an AMD EPYC Genoa host. The bench `starts` of `ww_tape_benchmarks` in this repository measures only the reads of a
-salvaged starts column.
+The figures come from a bench of an application that records with tapes, on a virtual machine with 14 vCPUs of an AMD
+EPYC Genoa host. That bench is not part of this repository. Here, the bench `starts` of `ww_tape_benchmarks` measures
+only reads of a salvaged starts column.
 
 | Workload | Bytes per event | Coding, ns per event | Fetch item `j`, ns | First at or after a tick, ns |
 |---|---:|---:|---:|---:|
