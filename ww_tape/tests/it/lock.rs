@@ -185,3 +185,26 @@ fn a_fifo_is_refused_without_waiting() {
     refused(FileSink::create_whole(&path).map(drop));
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// A file whose name leaves no room for `.lock` (up to the 255-byte limit of a name) is locked under a hashed
+/// name in its directory, in this process and in another.
+#[test]
+fn a_name_too_long_for_its_lock_file_is_locked_under_a_hash() {
+    let dir = scratch("lock_long");
+    let path = dir.join(format!("{}.wwt", "a".repeat(251)));
+    let lock = lock_name(&path);
+    assert!(lock.file_name().unwrap().len() <= 255, "{}", lock.display());
+    assert_eq!(lock.parent(), Some(dir.as_path()));
+    let held = FileSink::append(&path).unwrap();
+    assert!(lock.exists());
+    let r = FileSink::append(&path);
+    assert!(
+        matches!(r, Err(ww_tape::FsError::Locked(_))),
+        "{:?}",
+        r.err()
+    );
+    assert_eq!(try_op_in_child(&path, "append"), "locked");
+    drop(held);
+    assert!(!lock.exists());
+    std::fs::remove_dir_all(&dir).unwrap();
+}

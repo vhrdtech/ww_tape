@@ -1,6 +1,7 @@
 //! [FileLock]: one writer per file, by a lock file beside it that only writers open.
 //!
-//! The lock of the file `NAME` is held on `NAME.lock`, never on `NAME` or `NAME.partial` themselves:
+//! The lock of the file `NAME` is held on `NAME.lock` ([lock_name]: a hashed name where `NAME` leaves no room),
+//! never on `NAME` or `NAME.partial` themselves:
 //!
 //! - On unix it is a POSIX record lock (`fcntl(F_SETLK)`), which belongs to the process. A child forked while a
 //!   writer holds it inherits the open lock file but not the lock, so the writer's resume right after it lets go is
@@ -75,11 +76,22 @@ struct LockFile {
     path: Option<PathBuf>,
 }
 
-/// `NAME.lock` next to `NAME`.
+/// The longest name of a file in a directory, in bytes (Linux, macOS; Windows counts 255 UTF-16 units, never more
+/// than the bytes).
+const NAME_BYTES_MAX: usize = 255;
+
+/// The lock file of the file `path`: `NAME.lock` next to `NAME`, or, where that name would pass the 255-byte limit
+/// of a name, `HASH.lock` next to it, `HASH` the BLAKE3 hash of `NAME` in hex.
 pub fn lock_name(path: &Path) -> PathBuf {
-    let mut name = path.as_os_str().to_owned();
-    name.push(".lock");
-    PathBuf::from(name)
+    let name = path.file_name().unwrap_or(path.as_os_str());
+    if name.len().saturating_add(".lock".len()) <= NAME_BYTES_MAX {
+        let mut name = path.as_os_str().to_owned();
+        name.push(".lock");
+        return PathBuf::from(name);
+    }
+    let mut hex = blake3::hash(name.as_encoded_bytes()).to_hex().to_string();
+    hex.push_str(".lock");
+    path.with_file_name(hex)
 }
 
 impl FileLock {
