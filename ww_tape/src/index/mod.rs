@@ -1087,7 +1087,7 @@ pub struct IndexPolicy {
     pub state_entries_max: usize,
 }
 
-/// State entries a piece lists by default ([IndexPolicy::state_entries_max]): 72 MiB of final index.
+/// State entries a piece lists by default ([IndexPolicy::state_entries_max]), each [ENTRY_LEN] bytes of final index.
 pub const STATE_ENTRIES_MAX: usize = 1 << 20;
 
 impl IndexPolicy {
