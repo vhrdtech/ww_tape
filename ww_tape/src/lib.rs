@@ -117,7 +117,6 @@
 //! | [NODE_SHIFT_MAX](summary::NODE_SHIFT_MAX) | 62 | a summary node's items, as a power of 2 |
 //! | [LEVEL_MAX](summary::LEVEL_MAX) | 15 | a summary tree's level |
 //! | [SCALE_LEN_MAX](series::SCALE_LEN_MAX) | 64 | the scale bytes of a series chunk or summary |
-//! | [FACTOR_MAX](summary::FACTOR_MAX) | 2^53 | a factor to the common scale |
 //! | [SeriesSummarySpec::BASE_SHIFT_MAX](summary::SeriesSummarySpec::BASE_SHIFT_MAX) | 24 | a series summary's base node, as a power of 2 |
 //! | [SERIES_CHANNELS_MAX](series::SERIES_CHANNELS_MAX) | 65535 | a series track's channels |
 //! | [GAP_MAX_MAX] | 64 MiB | a layout's gap |
@@ -187,7 +186,7 @@ pub mod state;
 pub use state::{DefinitionKind, ItemHash, Slot};
 
 pub mod summary;
-pub use summary::{EventFields, EventNode, Summary, SummaryError, SummaryHead};
+pub use summary::{EventFields, SummaryError, SummaryHead};
 
 pub use ww_tape_codecs::bitpack;
 pub mod chunk;

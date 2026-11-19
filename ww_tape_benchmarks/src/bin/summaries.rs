@@ -6,8 +6,8 @@ use clap::Parser;
 use std::hint::black_box;
 use std::time::Instant;
 use ww_tape::samples::{encode, max_encoded_len};
-use ww_tape::summary::{Scalar, SeriesStart, SeriesStats, SeriesSummaries, SeriesSummarySpec};
 use ww_tape::{Codec, Element, Magnitude, Ratio64, Sample, SampleShape, SeriesGrid};
+use ww_tape_summary::{Scalar, SeriesStart, SeriesStats, SeriesSummaries, SeriesSummarySpec};
 
 #[derive(Parser)]
 #[command(about = "Series summaries of ww_tape: MB/s per element type with and without summaries")]

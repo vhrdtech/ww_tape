@@ -1,10 +1,10 @@
 //! The kernels against the summaries' earlier code, kept here as the model: the same bits for every scalar type,
 //! kernel, channel count, batch split, statistic subset and clip range.
 
-use super::kernel::{IntBatch, Kernel, Narrow, int_batch};
-use crate::Element;
-use crate::summary::series::{Acc, Channel, add_channel};
-use crate::summary::{ChannelStats, Scalar, SeriesStats, Value};
+use crate::series::{Acc, Channel, add_channel};
+use crate::{ChannelStats, Scalar, SeriesStats, Value};
+use ww_tape::Element;
+use ww_tape_codecs::kernel::{IntBatch, Kernel, Narrow, int_batch};
 
 /// xorshift64*.
 struct Rng(u64);
@@ -495,8 +495,8 @@ fn batches_are_exact_at_the_ends_of_every_type() {
 /// The summary blocks are the same bytes whichever kernel computed them.
 #[test]
 fn blocks_are_the_same_with_every_kernel() {
-    use crate::summary::{SeriesStart, SeriesSummaries, SeriesSummarySpec};
-    use crate::{Magnitude, Ratio64, SampleShape, SeriesGrid};
+    use crate::{SeriesStart, SeriesSummaries, SeriesSummarySpec};
+    use ww_tape::{Magnitude, Ratio64, SampleShape, SeriesGrid};
     let mut rng = Rng(5);
     let data: Vec<i16> = (0..2 * 3 * 20_000).map(|_| rng.next() as i16).collect();
     let shape = SampleShape::new(Element::ComplexI16, 3);

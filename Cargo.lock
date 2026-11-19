@@ -1036,6 +1036,7 @@ dependencies = [
  "shrink_wrap",
  "ww_tape",
  "ww_tape_fs",
+ "ww_tape_summary",
 ]
 
 [[package]]
@@ -1086,6 +1087,17 @@ dependencies = [
  "exact_units",
  "shrink_wrap",
  "ww_tape",
+ "ww_tape_summary",
+]
+
+[[package]]
+name = "ww_tape_summary"
+version = "0.1.0"
+dependencies = [
+ "exact_units",
+ "shrink_wrap",
+ "ww_tape",
+ "ww_tape_codecs",
 ]
 
 [[package]]
@@ -1097,6 +1109,7 @@ dependencies = [
  "shrink_wrap",
  "ww_tape",
  "ww_tape_fs",
+ "ww_tape_summary",
 ]
 
 [[package]]

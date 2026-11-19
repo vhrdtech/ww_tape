@@ -7,7 +7,7 @@ use exact_units::Magnitude;
 
 #[cfg(feature = "std")]
 use super::{SeriesStats, SeriesSummarySpec, components, is_complex};
-use crate::Element;
+use ww_tape::Element;
 
 /// How a minimum or maximum of `element` is stored.
 fn kind(element: Element) -> ValueKind {
@@ -379,7 +379,7 @@ mod scalar {
         ChannelStats, Element, SeriesStats, Value, components, f64_f32, fmax, i128_f64, is_complex,
         u64_f64,
     };
-    use crate::summary::kernel::{IntBatch, Kernel, Narrow, int_channel};
+    use ww_tape_codecs::kernel::{IntBatch, Kernel, Narrow, int_channel};
 
     /// A sample scalar the series writer takes: the Rust type of the scalar of an [Element].
     pub trait Scalar: Copy + PartialOrd + 'static + private::Sealed {
@@ -816,12 +816,10 @@ mod builder {
     use super::{
         ChannelStats, Scalar, SeriesNode, SeriesSummarySpec, common_scale, components, is_complex,
     };
-    use crate::summary::kernel::Kernel;
-    use crate::summary::levels::{BuildError, LevelNode, Levels, Output};
-    use crate::summary::{
-        Layout, SCALE_LEN_MAX, SummaryHead, Tree, summary_len, write_series_summary,
-    };
-    use crate::{Element, Ratio64, SampleShape, SeriesError, SeriesGrid, SeriesTimeline};
+    use crate::levels::{BuildError, LevelNode, Levels, Output};
+    use crate::{Layout, SCALE_LEN_MAX, SummaryHead, Tree, summary_len, write_series_summary};
+    use ww_tape::{Element, Ratio64, SampleShape, SeriesError, SeriesGrid, SeriesTimeline};
+    use ww_tape_codecs::kernel::Kernel;
 
     impl LevelNode for SeriesNode {
         fn merge(&mut self, next: &Self, items: u64, next_items: u64) -> Result<(), BuildError> {
@@ -835,7 +833,7 @@ mod builder {
     /// A grid ([Self::set_grid]) may change the scale of the numbers from the next sample on; a node holding
     /// samples of two scales is kept at their [common_scale](super::common_scale), so every node's minimum and maximum
     /// are exact in the sample type's unit. Finished blocks wait in [Self::take_blocks] for
-    /// [TapeWriter::defer_block](crate::TapeWriter::defer_block); [Self::finish] writes the partial nodes at the end.
+    /// [TapeWriter::defer_block](ww_tape::TapeWriter::defer_block); [Self::finish] writes the partial nodes at the end.
     /// After an error the summaries are no longer whole: drop them.
     ///
     /// Every statistic is kept in one pass over a batch. Integers up to 32 bits sum exactly, so their results don't
@@ -881,9 +879,9 @@ mod builder {
     /// Where a series starts: its track, its samples and the grid of its first sample.
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     pub struct SeriesStart {
-        /// [TrackDef::id](crate::TrackDef::id).
+        /// [TrackDef::id](ww_tape::TrackDef::id).
         pub track_id: u64,
-        /// [TrackDef::number](crate::TrackDef::number).
+        /// [TrackDef::number](ww_tape::TrackDef::number).
         pub track_number: u32,
         /// The samples' element and channels, at most 65535.
         pub shape: SampleShape,
@@ -1000,7 +998,7 @@ mod builder {
 
         /// Put the samples from the next one ([Self::next_item]) on grid `g`: a new grid (a gap, a restart) or the
         /// same grid at a new scale (a prefix change), as the next chunk's head carries it. Refused when the grid
-        /// starts after the next sample, a new grid's first sample isn't more than a period after the last sample's tick ([is_gap](crate::series::is_gap)), or the scale
+        /// starts after the next sample, a new grid's first sample isn't more than a period after the last sample's tick ([is_gap](ww_tape::series::is_gap)), or the scale
         /// has no common scale with the ones before.
         pub fn set_grid(&mut self, g: SeriesGrid) -> Result<(), BuildError> {
             let next = self.next_item;
@@ -1010,7 +1008,7 @@ mod builder {
                 .0;
             if !g.same_grid(&self.grid)
                 && let Some(last) = next.checked_sub(1).and_then(|i| self.timeline.tick(i))
-                && !crate::series::is_gap(self.timeline.period(), last, first)
+                && !ww_tape::series::is_gap(self.timeline.period(), last, first)
             {
                 return Err(BuildError::Series(SeriesError::GridTooClose {
                     first_item: next,
@@ -1236,7 +1234,7 @@ mod builder {
                 let mut buf = vec![0u8; summary_len(&head)?];
                 let len = write_series_summary(
                     &mut buf,
-                    crate::BlockId::new(crate::SessionTag::NONE, 0),
+                    ww_tape::BlockId::new(ww_tape::SessionTag::NONE, 0),
                     &head,
                     &refs,
                 )?;
@@ -1247,7 +1245,7 @@ mod builder {
         }
 
         /// Finished summary blocks, oldest first, for
-        /// [TapeWriter::defer_block](crate::TapeWriter::defer_block).
+        /// [TapeWriter::defer_block](ww_tape::TapeWriter::defer_block).
         pub fn take_blocks(&mut self) -> Vec<Vec<u8>> {
             core::mem::take(&mut self.blocks)
         }

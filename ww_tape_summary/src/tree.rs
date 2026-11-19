@@ -35,7 +35,7 @@ pub struct ItemRun {
 /// Builds the item tree of one event track as items are sealed, and encodes its summary blocks.
 ///
 /// Items go in in item order ([Self::push] one by one, [Self::push_run] a run inside one level-0 node). Finished
-/// blocks wait in [Self::take_blocks] for [TapeWriter::defer_block](crate::TapeWriter::defer_block); [Self::finish]
+/// blocks wait in [Self::take_blocks] for [TapeWriter::defer_block](ww_tape::TapeWriter::defer_block); [Self::finish]
 /// writes the partial nodes at the end.
 pub struct EventTree {
     track_id: u64,
@@ -195,7 +195,7 @@ impl EventTree {
             let mut buf = vec![0u8; summary_len(&head)?];
             let len = write_event_summary(
                 &mut buf,
-                crate::BlockId::new(crate::SessionTag::NONE, 0),
+                ww_tape::BlockId::new(ww_tape::SessionTag::NONE, 0),
                 &head,
                 &out.nodes,
             )?;
@@ -205,7 +205,7 @@ impl EventTree {
         Ok(())
     }
 
-    /// Finished summary blocks, oldest first, for [TapeWriter::defer_block](crate::TapeWriter::defer_block).
+    /// Finished summary blocks, oldest first, for [TapeWriter::defer_block](ww_tape::TapeWriter::defer_block).
     pub fn take_blocks(&mut self) -> Vec<Vec<u8>> {
         core::mem::take(&mut self.blocks)
     }

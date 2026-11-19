@@ -30,6 +30,7 @@ Covers `ww_tape` 0.1.0.
 - `WriteError` groups refused input in `WriteError::Input(InputError)` and refused resumes in `WriteError::Resume(ResumeError)` (TAPE-12).
 - `Block::summary` is gone: `Block::summary_head` gives a summary block's head, `Summary::of_block` its nodes (TAPE-12).
 - Summary builders return `BuildError`, which wraps `SummaryError`; `SummaryError` loses `Scale`, `Series` and `PartialFrame` (TAPE-12).
+- Summary nodes and builders move to the crate `ww_tape_summary`, which re-exports the head types: import summaries from it (TAPE-12).
 - `WriterOptions` gains `clock`: intervals are read from a `ClockRef`; a struct literal adds `clock: ClockRef::default()` (TAPE-12).
 - `verify` and `track_entries` refuse a monotone relation decreasing across chunks without a break: `ReadError::RelationOrder` (TAPE-7).
 - `IndexEntry` gains `relation_break`; an events chunk block takes header flag `FLAG_RELATION_BREAK` from callers (TAPE-7).

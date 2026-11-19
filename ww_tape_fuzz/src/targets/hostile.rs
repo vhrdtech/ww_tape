@@ -213,7 +213,7 @@ pub fn series_hostile(data: &[u8]) {
 pub fn summary_hostile(data: &[u8]) {
     let b = hostile::summary(data);
     summary::walk(&b);
-    let _ = Block::salvage(&b).map(|b| ww_tape::Summary::of_block(&b).map(|s| s.scale()));
+    let _ = Block::salvage(&b).map(|b| ww_tape_summary::Summary::of_block(&b).map(|s| s.scale()));
 }
 
 /// `tape-index-hostile`: an index, finish, piece head or tail block of hostile offsets, directory or entries, read

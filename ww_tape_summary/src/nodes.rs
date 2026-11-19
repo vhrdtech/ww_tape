@@ -9,8 +9,8 @@ use super::SeriesNode;
 use super::{
     ChannelStats, Layout, Stat, SummaryError, SummaryHead, SummaryWriter, Value, components,
 };
-use crate::bytes::{self, le_u32, le_u64};
-use crate::{Block, BlockKind, Element};
+use ww_tape::{Block, BlockKind, Element};
+use ww_tape_codecs::bytes::{self, le_u32, le_u64};
 
 /// The summary of a summary block, read in place.
 #[derive(Copy, Clone, Debug)]
@@ -315,7 +315,7 @@ impl Columns<'_> {
 /// Encode an event tree block of `nodes` (one per node of `head`, in order) into `buf`; returns its length.
 pub fn write_event_summary(
     buf: &mut [u8],
-    id: crate::BlockId,
+    id: ww_tape::BlockId,
     head: &SummaryHead,
     nodes: &[EventNode],
 ) -> Result<usize, SummaryError> {
@@ -354,7 +354,7 @@ pub fn write_event_summary(
 /// length.
 pub fn write_series_summary(
     buf: &mut [u8],
-    id: crate::BlockId,
+    id: ww_tape::BlockId,
     head: &SummaryHead,
     nodes: &[&[ChannelStats]],
 ) -> Result<usize, SummaryError> {

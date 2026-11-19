@@ -1,6 +1,6 @@
 // ww_tape 0.1.0 traits and types, saved by `ww api save`.
 // Do not edit, bump the crate version and save a new snapshot instead.
-// shrink_wrap sha256: ba22f87550fbc470a2a304a10b1d712d3374bce51baf318649ea55d5b27ae1cc
+// shrink_wrap sha256: 6b81a9b660a8e7a06b874793e47801b6799f069b035ebe633bb461e6ce221ebe
 (magic: 2837124336, ww_self_version: (major: 0, minor: 4, patch: 0), root: (docs: [
     "Tape blocks: the unit a producer of records hands over, a live consumer reads and a log file is made of.",
     "",
@@ -121,7 +121,6 @@
     "| [NODE_SHIFT_MAX](summary::NODE_SHIFT_MAX) | 62 | a summary node\'s items, as a power of 2 |",
     "| [LEVEL_MAX](summary::LEVEL_MAX) | 15 | a summary tree\'s level |",
     "| [SCALE_LEN_MAX](series::SCALE_LEN_MAX) | 64 | the scale bytes of a series chunk or summary |",
-    "| [FACTOR_MAX](summary::FACTOR_MAX) | 2^53 | a factor to the common scale |",
     "| [SeriesSummarySpec::BASE_SHIFT_MAX](summary::SeriesSummarySpec::BASE_SHIFT_MAX) | 24 | a series summary\'s base node, as a power of 2 |",
     "| [SERIES_CHANNELS_MAX](series::SERIES_CHANNELS_MAX) | 65535 | a series track\'s channels |",
     "| [GAP_MAX_MAX] | 64 MiB | a layout\'s gap |",

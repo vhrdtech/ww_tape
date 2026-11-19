@@ -361,6 +361,7 @@ dependencies = [
  "exact_units",
  "shrink_wrap",
  "ww_tape",
+ "ww_tape_summary",
 ]
 
 [[package]]
@@ -369,6 +370,15 @@ version = "0.0.0"
 dependencies = [
  "libfuzzer-sys",
  "ww_tape_fuzz",
+]
+
+[[package]]
+name = "ww_tape_summary"
+version = "0.1.0"
+dependencies = [
+ "exact_units",
+ "ww_tape",
+ "ww_tape_codecs",
 ]
 
 [[package]]

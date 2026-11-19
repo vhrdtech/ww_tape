@@ -2,11 +2,11 @@
 //! the scale bytes and the node values.
 
 use super::{Draw, Field, HEADER_FIELDS, HEADER_LEN, LEN_FIELD, hit, hit_some, seal};
-use ww_tape::summary::{
+use ww_tape::{Element, EventFields, Magnitude, Ratio64, SampleShape, SeriesGrid};
+use ww_tape_summary::{
     EventTree, ItemRun, NODE_SHIFT_MAX, SCALE_LEN_MAX, SUMMARY_FIXED_LEN, SeriesStart, SeriesStats,
     SeriesSummaries, SeriesSummarySpec,
 };
-use ww_tape::{Element, EventFields, Magnitude, Ratio64, SampleShape, SeriesGrid};
 
 /// The fields of a summary head after the block header.
 const HEAD_FIELDS: [Field; 16] = [

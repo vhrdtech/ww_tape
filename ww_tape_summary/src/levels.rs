@@ -4,7 +4,7 @@ use super::{
     FANOUT_SHIFT, LEVEL_MAX, NODE_SHIFT_MAX, ScaleError, SummaryError, batch_nodes, level_shift,
     node_span,
 };
-use crate::SeriesError;
+use ww_tape::SeriesError;
 
 /// Why a summary builder refuses its input or can't write a block.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]

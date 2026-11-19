@@ -1,7 +1,10 @@
 use std::collections::BTreeMap;
 
 use super::*;
-use crate::{Block, BlockError, Ratio64, SampleShape, SeriesError, SeriesGrid};
+use ww_tape::{
+    Block, BlockError, BoundError, Element, Magnitude, Ratio64, SampleShape, SeriesError,
+    SeriesGrid,
+};
 
 /// xorshift64*: workloads without a dependency.
 struct Rng(u64);
@@ -101,7 +104,7 @@ fn event_levels(blocks: &[Vec<u8>]) -> BTreeMap<(u8, u64), (u64, u64, EventNode)
     let mut m = BTreeMap::new();
     for b in blocks {
         let block = Block::read(b).expect("a good block");
-        assert_eq!(block.kind, crate::BlockKind::Summary);
+        assert_eq!(block.kind, ww_tape::BlockKind::Summary);
         let s = Summary::of_block(&block).expect("a summary");
         let h = s.head();
         for i in 0..s.node_count() {
@@ -855,12 +858,12 @@ fn series_head_caps() {
 }
 
 /// The definitions of series track 1 on clock 1 (1 ns ticks): i16 samples on one channel, one per 1000 ticks.
-fn series_definitions() -> Vec<crate::Describe<'static>> {
-    use crate::{
+fn series_definitions() -> Vec<ww_tape::Describe<'static>> {
+    use shrink_wrap::prelude::*;
+    use ww_tape::{
         ClockDef, ClockOrigin, Describe, FullVersion, SeriesDef, TrackDef, TrackKind, TrackRepeat,
         Version, clock_key, track_key,
     };
-    use shrink_wrap::prelude::*;
     vec![
         Describe::Clock(ClockDef {
             number: UNib32(1),
@@ -872,7 +875,7 @@ fn series_definitions() -> Vec<crate::Describe<'static>> {
         }),
         Describe::Track(TrackDef {
             number: UNib32(1),
-            key: track_key(0x5e, &[crate::Segment::Name("signal")]),
+            key: track_key(0x5e, &[ww_tape::Segment::Name("signal")]),
             clock: UNib32(1),
             dimensions: RefVec::Slice { slice: &[] },
             api: FullVersion::new("summary_tests", Version::new(0, 1, 0)),
@@ -896,7 +899,7 @@ fn series_track_id() -> u64 {
     series_definitions()
         .iter()
         .find_map(|d| match d {
-            crate::Describe::Track(t) => Some(t.id()),
+            ww_tape::Describe::Track(t) => Some(t.id()),
             _ => None,
         })
         .unwrap()
@@ -906,7 +909,7 @@ fn series_track_id() -> u64 {
 /// payloads and cost no file space, and a reader finds them all.
 #[test]
 fn summaries_fill_alignment_gaps() {
-    use crate::{
+    use ww_tape::{
         BlockKind, ChunkHead, Codec, ColumnKind, ColumnSpec, EndMode, FileBlocks, SyncPolicy,
         TapeWriter,
     };
@@ -917,10 +920,10 @@ fn summaries_fill_alignment_gaps() {
         .map(|i| (i as i16).wrapping_mul(31))
         .collect();
     let write = |with_summaries: bool| {
-        let mut w = TapeWriter::create_on(crate::MemSink::new(), SyncPolicy::None);
+        let mut w = TapeWriter::create_on(ww_tape::MemSink::new(), SyncPolicy::None);
         let tape = w.sink().tape();
-        w.set_alignment(crate::ALIGNMENT).unwrap();
-        let mut defs = crate::Definitions::new();
+        w.set_alignment(ww_tape::ALIGNMENT).unwrap();
+        let mut defs = ww_tape::Definitions::new();
         defs.define_all(&series_definitions()).unwrap();
         let start = SeriesStart {
             track_id: series_track_id(),
@@ -955,7 +958,7 @@ fn summaries_fill_alignment_gaps() {
                 latest_end: (first as i64 + chunk as i64 - 1) * 1000,
                 time_mode: 0,
                 end_mode: EndMode::Absent,
-                grid: Some(crate::SeriesGrid::start(0, 0, Magnitude::ONE)),
+                grid: Some(ww_tape::SeriesGrid::start(0, 0, Magnitude::ONE)),
             };
             let col = ColumnSpec {
                 kind: ColumnKind::Samples,
@@ -980,7 +983,7 @@ fn summaries_fill_alignment_gaps() {
     assert_eq!(ends, plain_ends, "every summary block went into a gap");
     // both pieces end on 4 KiB: the finishes' offsets tell what is before them
     let finish_at = |f: &[u8]| {
-        crate::Tail::read(&f[f.len() - crate::TAIL_LEN..])
+        ww_tape::Tail::read(&f[f.len() - ww_tape::TAIL_LEN..])
             .unwrap()
             .finish_offset
     };
@@ -993,7 +996,7 @@ fn summaries_fill_alignment_gaps() {
     let mut seq = None;
     while let Some(b) = rd.next_block() {
         let b = b.unwrap();
-        if crate::index::is_structural(b.kind) || b.is_repeat() {
+        if ww_tape::index::is_structural(b.kind) || b.is_repeat() {
             continue;
         }
         assert!(seq.is_none_or(|s| b.seq == s + 1), "seqs ascend");
@@ -1003,7 +1006,7 @@ fn summaries_fill_alignment_gaps() {
         }
     }
     // the final index lists every summary block under its track, with its level
-    let r = crate::TapeReader::open(&file[..]).unwrap();
+    let r = ww_tape::TapeReader::open(&file[..]).unwrap();
     let listed: Vec<_> = r
         .track_entries(0, series_track_id())
         .unwrap()

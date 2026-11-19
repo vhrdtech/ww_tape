@@ -1,12 +1,12 @@
 //! ww_tape summary blocks on any bytes, and trees built from the input: reading never panics, every accessor of a
 //! good summary block stays in bounds, and every block a builder writes reads back with its nodes covering the items,
 //! also across prefix changes of a series, whose nodes then merge at a common scale.
-use ww_tape::summary::{
-    EventTree, ItemRun, SeriesStart, SeriesStats, SeriesSummaries, SeriesSummarySpec, Stat, Summary,
-};
 use ww_tape::{
     Block, BlockId, Element, EventFields, Magnitude, Ratio64, SampleShape, SeriesGrid, SessionTag,
     set_id,
+};
+use ww_tape_summary::{
+    EventTree, ItemRun, SeriesStart, SeriesStats, SeriesSummaries, SeriesSummarySpec, Stat, Summary,
 };
 
 /// Look at everything a summary block read from `data` gives.

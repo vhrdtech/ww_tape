@@ -73,33 +73,9 @@ use crate::bytes::{
 };
 use crate::{BlockKind, BoundError, CRC_LEN, HEADER_LEN, MAX_BLOCK_LEN};
 
-#[cfg(feature = "std")]
-use ww_tape_codecs::kernel;
-#[cfg(all(test, feature = "std"))]
-mod kernel_tests;
-mod series;
 use crate::Element;
-#[cfg(feature = "alloc")]
-pub use series::SeriesNode;
-pub use series::{ChannelStats, FACTOR_MAX, ScaleError, Value, common_scale, scale_factor};
-#[cfg(feature = "std")]
-pub use series::{SERIES_BLOCK_BYTES, Scalar, SeriesStart, SeriesSummaries};
 mod spec;
 pub use spec::{ClipRange, SeriesStats, SeriesSummarySpec, Stat, components, is_complex};
-mod nodes;
-#[cfg(feature = "std")]
-use nodes::batch_nodes;
-pub use nodes::{EventNode, StatColumn, Summary, write_event_summary, write_series_summary};
-
-#[cfg(feature = "std")]
-mod levels;
-#[cfg(feature = "std")]
-pub use levels::BuildError;
-
-#[cfg(feature = "std")]
-mod tree;
-#[cfg(feature = "std")]
-pub use tree::{EVENT_BLOCK_BYTES, EventTree, ItemRun};
 
 /// Bytes of the summary head after the block header (32..96).
 pub const SUMMARY_FIXED_LEN: usize = 64;
@@ -609,5 +585,3 @@ fn read_scale(bytes: &[u8]) -> Result<Magnitude, SummaryError> {
 
 #[cfg(test)]
 mod head_tests;
-#[cfg(test)]
-mod tests;

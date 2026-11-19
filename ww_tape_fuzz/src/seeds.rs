@@ -140,7 +140,7 @@ const GOLDEN_INDEX: &str = include_str!("../../ww_tape/golden/v1-index.hex");
 const GOLDEN_PAYLOADS: &str = include_str!("../../ww_tape/golden/v1-payloads.hex");
 const GOLDEN_SAMPLES: &str = include_str!("../../ww_tape/golden/v1-samples.hex");
 const GOLDEN_SERIES: &str = include_str!("../../ww_tape/golden/v1-series.hex");
-const GOLDEN_SUMMARY: &str = include_str!("../../ww_tape/golden/v1-summary.hex");
+const GOLDEN_SUMMARY: &str = include_str!("../../ww_tape_summary/golden/v1-summary.hex");
 const GOLDEN_TIMES: &str = include_str!("../../ww_tape/golden/v1-times.hex");
 
 /// Each block of a golden file as a seed of `target`.
