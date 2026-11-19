@@ -3,6 +3,9 @@
 jobs := ""
 export CARGO_BUILD_JOBS := if jobs != "" { jobs } else { env_var_or_default('CARGO_BUILD_JOBS', num_cpus()) }
 export NEXTEST_TEST_THREADS := if jobs != "" { jobs } else { env_var_or_default('NEXTEST_TEST_THREADS', 'num-cpus') }
+# Cargo's own warnings (an unused workspace dependency, a manifest key) are errors, as in CI, whose
+# setup-rust-toolchain sets CARGO_BUILD_WARNINGS=deny: a tree red in CI cannot pass lint, test or the gate
+export CARGO_BUILD_WARNINGS := env_var_or_default('CARGO_BUILD_WARNINGS', 'deny')
 
 # The WireWeaver command line that checks the API snapshot: `ww` from PATH, or the binary `WW` names
 ww := env_var_or_default('WW', 'ww')
