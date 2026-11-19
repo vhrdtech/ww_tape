@@ -1,4 +1,4 @@
-//! A ww_tape index, finish, piece head or tail block of hostile offsets, directory or entries
+//! A ww_tape index, close, piece head or tail block of hostile offsets, directory or entries
 //! (ww_tape_fuzz::hostile::index), read alone and as a file.
 #![no_main]
 

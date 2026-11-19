@@ -1,15 +1,15 @@
-//! `TapeWriter::resume_on` on an unfinished piece a writer wrote, cut and mutated by the input: it never panics, and a
-//! piece it resumes takes more blocks and finishes whole: a reader finds it by its tail at the start of the bytes and
+//! `TapeWriter::resume_on` on an unclosed piece a writer wrote, cut and mutated by the input: it never panics, and a
+//! piece it resumes takes more blocks and closes whole: a reader finds it by its tail at the start of the bytes and
 //! its content hash verifies. The bytes it cuts off hold no good block of the piece's session but puts belonging with
 //! a block after them and what ends a piece.
 //!
 //! `PieceChain::resume_on` on a file of several pieces ([PieceTapes::One]) whose last piece is cut and mutated: it
-//! never panics, and a chain it resumes keeps the pieces before byte for byte, takes more blocks and finishes whole: a
+//! never panics, and a chain it resumes keeps the pieces before byte for byte, takes more blocks and closes whole: a
 //! reader finds every piece, each verifies, and they link up from the first to a complete end. A last piece the input
-//! left finished but damaged is kept as it is: the chain starts a new piece behind it.
+//! left closed but damaged is kept as it is: the chain starts a new piece behind it.
 //!
 //! Input: a mode byte (bit 0 aligned; bit 2 a file of several pieces; bit 1 no piece head for a single piece, the last
-//! piece finished for a file of several), a cut (u16 little endian, modulo the last piece's length + 1), then flips of
+//! piece closed for a file of several), a cut (u16 little endian, modulo the last piece's length + 1), then flips of
 //! three bytes each (an offset, u16 little endian, modulo the cut last piece's length, and the bits to flip).
 use std::sync::OnceLock;
 
@@ -95,7 +95,7 @@ fn write_chunk<S: TapeSink>(w: &mut TapeWriter<S>, defs: &Definitions, t: u64, k
         .expect("a chunk writes");
 }
 
-/// An unfinished piece: rounds of chunks, records and deferred records, a clock and a track defined after half of
+/// An unclosed piece: rounds of chunks, records and deferred records, a clock and a track defined after half of
 /// them; the writer puts the definitions each block needs before it.
 fn template(aligned: bool, head: bool) -> Vec<u8> {
     let o = options(aligned);
@@ -174,9 +174,9 @@ fn chain_records(c: &mut PieceChain<MemTapes>, defs: &Definitions, n: u64) {
         .expect("a records block writes");
 }
 
-/// A file of several pieces: three finished, the last one finished too when `finished`, else stopped after its
+/// A file of several pieces: three closed, the last one closed too when `closed`, else stopped after its
 /// deferred blocks; the bytes and where the last piece starts.
-pub(crate) fn chain_template(aligned: bool, finished: bool) -> (Vec<u8>, usize) {
+pub(crate) fn chain_template(aligned: bool, closed: bool) -> (Vec<u8>, usize) {
     let mut c = PieceChain::create_on(MemTapes::new(), OWNER, 0, &[], chain_options(aligned))
         .expect("a chain starts");
     let mut defs = Definitions::new();
@@ -191,8 +191,8 @@ pub(crate) fn chain_template(aligned: bool, finished: bool) -> (Vec<u8>, usize) 
     w.flush_deferred().expect("deferred blocks write");
     let last = w.sink().base();
     let mem = c.tapes().clone();
-    if finished {
-        c.finish().expect("a chain finishes");
+    if closed {
+        c.close().expect("a chain closes");
     }
     let bytes = mem
         .get(&CHAIN_TAPE)
@@ -299,10 +299,10 @@ pub fn resume(data: &[u8]) {
             .expect("a resumed piece takes blocks");
         write_chunk(&mut w, &defs, 0, ROUNDS + k);
     }
-    let finished = w.finish().expect("a resumed piece finishes");
+    let closed = w.close().expect("a resumed piece closes");
     let out = tape.to_vec().expect("the bytes");
-    assert_eq!(finished.len, out.len() as u64);
-    let r = TapeReader::open(&out[..]).expect("a finished piece opens");
+    assert_eq!(closed.len, out.len() as u64);
+    let r = TapeReader::open(&out[..]).expect("a closed piece opens");
     let last = r.pieces().len().checked_sub(1).expect("a piece");
     let p = &r.pieces()[last];
     assert_eq!(
@@ -311,19 +311,19 @@ pub fn resume(data: &[u8]) {
         "found whole by its tail"
     );
     assert!(
-        r.verify(last).expect("a finished piece"),
+        r.verify(last).expect("a closed piece"),
         "the content hash verifies"
     );
     folds_alike(
         &out,
         r.pieces()[last]
-            .finish
+            .close
             .as_ref()
             .and_then(|f| f.0.final_index),
     );
 }
 
-/// Track 0's range hash folded from the index of the finished piece `out` and walked from its chunks with the final
+/// Track 0's range hash folded from the index of the closed piece `out` and walked from its chunks with the final
 /// index at `final_index` made unreadable: when the walk explains every byte, both fold the same chunks to the same
 /// hash.
 fn folds_alike(out: &[u8], final_index: Option<u64>) {
@@ -358,8 +358,8 @@ fn folds_alike(out: &[u8], final_index: Option<u64>) {
     }
 }
 
-/// Resume the chain of `bytes`, whose pieces before `last` are whole, and finish it; `open` the last piece before the
-/// input mutated it, when it was unfinished.
+/// Resume the chain of `bytes`, whose pieces before `last` are whole, and close it; `open` the last piece before the
+/// input mutated it, when it was unclosed.
 fn resume_chain(aligned: bool, bytes: &[u8], last: usize, open: Option<&[u8]>) {
     let mem = MemTapes::new();
     mem.create_whole(&CHAIN_TAPE)
@@ -380,7 +380,7 @@ fn resume_chain(aligned: bool, bytes: &[u8], last: usize, open: Option<&[u8]>) {
         chain_chunk(&mut c, &defs, 0, 100 + k);
     }
     let mem = c.tapes().clone();
-    let done = c.finish().expect("a resumed chain finishes");
+    let done = c.close().expect("a resumed chain closes");
     let out = mem
         .get(&CHAIN_TAPE)
         .expect("memory")
@@ -390,18 +390,18 @@ fn resume_chain(aligned: bool, bytes: &[u8], last: usize, open: Option<&[u8]>) {
     assert_eq!(out[..last], bytes[..last], "the pieces before stay");
     let end = done.last().map(|f| f.piece.start + f.piece.len);
     assert_eq!(end, Some(out.len() as u64), "the last piece ends the file");
-    let r = TapeReader::open(&out[..]).expect("a finished chain opens");
+    let r = TapeReader::open(&out[..]).expect("a closed chain opens");
     let n = r.pieces().len();
     assert!(n >= 4, "{n} pieces");
-    // a last piece the input left finished stays as the input made it, damage included: resume starts behind it
+    // a last piece the input left closed stays as the input made it, damage included: resume starts behind it
     let kept = (bytes.len() > last && out.get(last..bytes.len()) == Some(&bytes[last..]))
         .then(|| r.pieces().iter().position(|p| p.start == last as u64))
         .flatten();
-    let damaged = kept.filter(|i| !r.verify(*i).expect("a finished piece"));
+    let damaged = kept.filter(|i| !r.verify(*i).expect("a closed piece"));
     for (i, p) in r.pieces().iter().enumerate() {
         assert_eq!(p.found, Found::Tail, "piece {i} found whole by its tail");
         if Some(i) != damaged {
-            assert!(r.verify(i).expect("a finished piece"), "piece {i} verifies");
+            assert!(r.verify(i).expect("a closed piece"), "piece {i} verifies");
         }
     }
     if damaged.is_none() {
@@ -412,7 +412,7 @@ fn resume_chain(aligned: bool, bytes: &[u8], last: usize, open: Option<&[u8]>) {
 
 /// The bytes of `piece` past `kept`, which a resume cut off, hold no good block of the session of the piece head at the
 /// start of `template` (the piece before the input mutated it), but puts belonging with a block after them
-/// ([ww_tape::FLAG_WITH_NEXT]) and what ends a piece (a final index, a finish, a tail).
+/// ([ww_tape::FLAG_WITH_NEXT]) and what ends a piece (a final index, a close, a tail).
 fn no_good_block_cut(template: &[u8], piece: &[u8], kept: u64) {
     let Some(session) = template.get(24..28) else {
         return;
@@ -433,7 +433,7 @@ fn no_good_block_cut(template: &[u8], piece: &[u8], kept: u64) {
             continue;
         };
         let ends = match block.kind {
-            BlockKind::Finish | BlockKind::Tail => true,
+            BlockKind::Close | BlockKind::Tail => true,
             BlockKind::Index => ww_tape::index::IndexBlock::read(&block)
                 .is_ok_and(|ix| ix.kind() == ww_tape::index::IndexKind::Final),
             _ => false,

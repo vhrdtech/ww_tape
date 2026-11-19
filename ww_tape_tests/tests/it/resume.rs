@@ -239,7 +239,7 @@ fn reference(alignment: u32, ops: &[Op]) -> (Vec<u8>, Made) {
         made.pieces.push(0);
     }
     let tape = w.sink().tape();
-    w.finish().unwrap();
+    w.close().unwrap();
     let bytes = tape.to_vec().unwrap();
     let ranged: Vec<_> = TapeReader::open(&bytes[..])
         .unwrap()
@@ -290,8 +290,8 @@ fn every(points: Vec<usize>, stride: usize) -> Vec<usize> {
     out
 }
 
-/// Give a writer resumed after a crash, keeping `kept` bytes, the calls it lost, then finish it; its bytes.
-fn finish_resumed(mut w: TapeWriter<MemSink>, ops: &[Op], made: &Made, kept: u64) -> Vec<u8> {
+/// Give a writer resumed after a crash, keeping `kept` bytes, the calls it lost, then close it; its bytes.
+fn close_resumed(mut w: TapeWriter<MemSink>, ops: &[Op], made: &Made, kept: u64) -> Vec<u8> {
     let next = w.next_seq();
     let mut defs = base_defs().clone();
     for (i, op) in ops.iter().enumerate() {
@@ -300,7 +300,7 @@ fn finish_resumed(mut w: TapeWriter<MemSink>, ops: &[Op], made: &Made, kept: u64
         }
     }
     let tape = w.sink().tape();
-    w.finish().unwrap();
+    w.close().unwrap();
     tape.to_vec().unwrap()
 }
 
@@ -375,7 +375,7 @@ fn cut_anywhere(alignment: u32) {
             // cut inside the head: the piece starts again
             w.begin_piece(&head(), &[]).unwrap();
         }
-        let got = finish_resumed(w, &ops, &made, resumed.kept_bytes);
+        let got = close_resumed(w, &ops, &made, resumed.kept_bytes);
         assert!(
             got == want,
             "alignment {alignment}, cut at {cut} of {}, kept {}\nwant\n{}\ngot\n{}",
@@ -385,7 +385,7 @@ fn cut_anywhere(alignment: u32) {
             blocks_around(&got, cut as u64)
         );
     }
-    assert!(ended > 0, "cuts after the finish");
+    assert!(ended > 0, "cuts after the close");
 }
 
 #[test]
@@ -485,9 +485,9 @@ fn resume_reopens_the_partial_file() {
             apply(&mut w, &mut defs, *op);
         }
     }
-    w.finish().unwrap();
+    w.close().unwrap();
     assert_eq!(std::fs::read(&path).unwrap(), want);
-    // finished: nothing to resume
+    // closed: nothing to resume
     assert!(matches!(
         ww_tape_fs::writer::resume(&path, options(0)),
         Err(ww_tape::WriteError::Sink {
@@ -522,7 +522,7 @@ fn a_damaged_block_of_definitions_is_put_again_after_a_resume() {
     sink.write_all(&damaged).unwrap();
     let (w, resumed) = TapeWriter::resume_on(sink, options(0)).unwrap();
     let kept = resumed.kept_bytes;
-    let got = finish_resumed(w, &ops, &made, kept);
+    let got = close_resumed(w, &ops, &made, kept);
     let r = TapeReader::open(&got[..]).unwrap();
     assert!(r.verify(0).unwrap());
     let data: Vec<u64> = r
@@ -544,15 +544,15 @@ fn a_damaged_block_of_definitions_is_put_again_after_a_resume() {
     }
 }
 
-/// The hash of track `id` in the finish of the one piece of `bytes`.
-fn finish_hash(bytes: &[u8], id: u64) -> ww_tape::TrackHash {
+/// The hash of track `id` in the close of the one piece of `bytes`.
+fn close_hash(bytes: &[u8], id: u64) -> ww_tape::TrackHash {
     let r = TapeReader::open(bytes).unwrap();
-    let (_, rows) = r.pieces()[0].finish.as_ref().unwrap();
+    let (_, rows) = r.pieces()[0].close.as_ref().unwrap();
     rows.iter().find(|t| t.track_id == id).unwrap().hash
 }
 
 /// A damaged chunk a resume keeps, which an index lists, goes into its track's hash by the unit hash in its entry:
-/// the finish states the hash of the piece written without the damage.
+/// the close states the hash of the piece written without the damage.
 #[test]
 fn a_damaged_chunk_kept_by_a_resume_counts_in_its_track_hash() {
     let ops = ops(12);
@@ -575,30 +575,30 @@ fn a_damaged_chunk_kept_by_a_resume_counts_in_its_track_hash() {
     sink.write_all(&damaged).unwrap();
     let (w, resumed) = TapeWriter::resume_on(sink, options(0)).unwrap();
     assert!(resumed.kept_bytes > listed.offset + u64::from(listed.len));
-    let got = finish_resumed(w, &ops, &made, resumed.kept_bytes);
+    let got = close_resumed(w, &ops, &made, resumed.kept_bytes);
     assert_ne!(got, want, "the damaged byte is kept");
     assert_eq!(
-        finish_hash(&got, chunk_id(0)),
-        finish_hash(&want, chunk_id(0))
+        close_hash(&got, chunk_id(0)),
+        close_hash(&want, chunk_id(0))
     );
     assert!(
-        finish_rows(&got).iter().all(|t| !t.incomplete),
+        close_rows(&got).iter().all(|t| !t.incomplete),
         "a chunk's unit hash stands for it"
     );
 }
 
-fn finish_rows(bytes: &[u8]) -> Vec<ww_tape::piece::TrackRange> {
+fn close_rows(bytes: &[u8]) -> Vec<ww_tape::piece::TrackRange> {
     let r = TapeReader::open(bytes).unwrap();
-    r.pieces()[0].finish.as_ref().unwrap().1.clone()
+    r.pieces()[0].close.as_ref().unwrap().1.clone()
 }
 
 /// A damaged block of records a resume keeps names no track in its index entry: each track that may hold records
-/// leaves them out of its hash, and its finish row says the hash is incomplete; a piece written whole has none.
+/// leaves them out of its hash, and its close row says the hash is incomplete; a piece written whole has none.
 #[test]
 fn a_damaged_record_block_kept_by_a_resume_marks_its_tracks_incomplete() {
     let ops = ops(12);
     let (want, made) = reference(0, &ops);
-    assert!(finish_rows(&want).iter().all(|t| !t.incomplete));
+    assert!(close_rows(&want).iter().all(|t| !t.incomplete));
     let r = TapeReader::open(&want[..]).unwrap();
     let cut = want.len() / 2;
     let listed = r
@@ -619,12 +619,12 @@ fn a_damaged_record_block_kept_by_a_resume_marks_its_tracks_incomplete() {
     sink.write_all(&damaged).unwrap();
     let (w, resumed) = TapeWriter::resume_on(sink, options(0)).unwrap();
     assert!(resumed.kept_bytes > listed.offset + u64::from(listed.len));
-    let got = finish_resumed(w, &ops, &made, resumed.kept_bytes);
-    let rows = finish_rows(&got);
+    let got = close_resumed(w, &ops, &made, resumed.kept_bytes);
+    let rows = close_rows(&got);
     let marked: Vec<_> = rows.iter().filter(|t| t.incomplete).collect();
     assert!(!marked.is_empty(), "{rows:?}");
     // the track whose records the damage took is among them, its hash short of those records
-    let whole = finish_rows(&want);
+    let whole = close_rows(&want);
     assert!(
         marked.iter().any(|t| whole
             .iter()
@@ -633,13 +633,13 @@ fn a_damaged_record_block_kept_by_a_resume_marks_its_tracks_incomplete() {
     );
     // the chunks' tracks that hold no records keep their hash
     assert_eq!(
-        finish_hash(&got, chunk_id(0)),
-        finish_hash(&want, chunk_id(0))
+        close_hash(&got, chunk_id(0)),
+        close_hash(&want, chunk_id(0))
     );
 }
 
 /// A track hash a resume left incomplete stays marked in the pieces after: the next piece's head row carries the mark
-/// and each later finish row of the track says so, with records or without.
+/// and each later close row of the track says so, with records or without.
 #[test]
 fn an_incomplete_track_hash_stays_marked_in_later_pieces() {
     let dir = scratch("incomplete_on");
@@ -674,7 +674,7 @@ fn an_incomplete_track_hash_stays_marked_in_later_pieces() {
     }
     // a piece without records of the track: its head still carries the mark
     c.cut_now().unwrap();
-    let done = c.finish().unwrap();
+    let done = c.close().unwrap();
     assert_eq!(done.len(), 3);
     let Describe::Track(t9) = track(9, CLOCK) else {
         unreachable!("track() gives a track")
@@ -684,7 +684,7 @@ fn an_incomplete_track_hash_stays_marked_in_later_pieces() {
         let r = TapeReader::open(&b[..]).unwrap();
         let p = &r.pieces()[0];
         let row = p
-            .finish
+            .close
             .as_ref()
             .unwrap()
             .1
@@ -700,7 +700,7 @@ fn an_incomplete_track_hash_stays_marked_in_later_pieces() {
         assert_eq!(
             row.map(|r| r.incomplete),
             (i < 2).then_some(true),
-            "piece {i} finish"
+            "piece {i} close"
         );
         assert_eq!(
             head.map(|h| h.incomplete),
@@ -711,7 +711,7 @@ fn an_incomplete_track_hash_stays_marked_in_later_pieces() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
-/// A chain written to memory reads through [TapeReader] while it is written and once finished, and its pieces are the
+/// A chain written to memory reads through [TapeReader] while it is written and once closed, and its pieces are the
 /// bytes of the same chain written to files.
 #[test]
 fn a_chain_in_memory_reads_and_matches_files() {
@@ -743,14 +743,14 @@ fn a_chain_in_memory_reads_and_matches_files() {
             .iter()
             .any(|e| e.kind == BlockKind::Events)
     );
-    let a = in_mem.finish().unwrap();
-    let b = on_disk.finish().unwrap();
+    let a = in_mem.close().unwrap();
+    let b = on_disk.close().unwrap();
     assert!(a.len() >= 3, "{} pieces", a.len());
     assert_eq!(a.len(), b.len());
     let mut all = vec![];
     for (fa, fb) in a.iter().zip(&b) {
         let tape = mem.get(&fa.tape).unwrap().unwrap();
-        assert!(tape.is_finished());
+        assert!(tape.is_closed());
         let bytes = tape.to_vec().unwrap();
         assert_eq!(
             bytes,
@@ -817,7 +817,7 @@ fn reference_chain(dir: &Path, ops: &[Op]) -> (Vec<PathBuf>, Made) {
         made.pieces.push(c.seq());
     }
     let paths: Vec<PathBuf> = c
-        .finish()
+        .close()
         .unwrap()
         .into_iter()
         .map(|f| Files::new(dir).path_of(f.tape))
@@ -846,7 +846,7 @@ fn replay_chain<F: Tapes>(c: &mut PieceChain<F>, ops: &[Op], made: &Made, kept: 
     }
 }
 
-/// A chain in memory left unfinished resumes on the same [MemTapes] and ends as one written in one go.
+/// A chain in memory left unclosed resumes on the same [MemTapes] and ends as one written in one go.
 #[test]
 fn a_chain_in_memory_resumes() {
     let tmp = scratch("mem_resume");
@@ -863,9 +863,9 @@ fn a_chain_in_memory_resumes() {
     let (mut c, resumed) =
         PieceChain::resume_on(mem.clone(), OwnerId([9; 32]), 0, chain_options()).unwrap();
     assert!(!resumed.entries.is_empty());
-    assert!(!c.finished().is_empty());
+    assert!(!c.closed().is_empty());
     replay_chain(&mut c, &ops, &made, resumed.kept_bytes);
-    let got = c.finish().unwrap();
+    let got = c.close().unwrap();
     assert_eq!(got.len(), paths.len());
     for (f, p) in got.iter().zip(&paths) {
         assert_eq!(
@@ -874,12 +874,7 @@ fn a_chain_in_memory_resumes() {
         );
     }
     // no piece of a chain in a place: nothing to resume
-    assert!(
-        Files::new(&tmp.join("none"))
-            .finished(&0)
-            .unwrap()
-            .is_none()
-    );
+    assert!(Files::new(&tmp.join("none")).closed(&0).unwrap().is_none());
     assert!(
         ww_tape_fs::chain::resume(&tmp.join("none"), OwnerId([9; 32]), 0, chain_options()).is_err()
     );
@@ -927,8 +922,8 @@ impl OneFile for InMemory {
 /// Where a test keeps a chain of a file per piece: on disk or in memory, through the same test body.
 trait EachPiece {
     type F: Tapes<Key = u64> + Clone;
-    /// A fresh place for run `run` holding the finished pieces `done` and, unless None, the start of the next piece
-    /// as an unfinished one.
+    /// A fresh place for run `run` holding the closed pieces `done` and, unless None, the start of the next piece
+    /// as an unclosed one.
     fn plant(&self, run: usize, done: &[Vec<u8>], open: Option<&[u8]>) -> Self::F;
     /// The bytes of piece `seq`.
     fn bytes(&self, f: &Self::F, seq: u64) -> Vec<u8>;
@@ -960,7 +955,7 @@ impl EachPiece for InMemory {
         for (j, w) in done.iter().enumerate() {
             let mut s = mem.create(&(j as u64)).unwrap();
             s.write_all(w).unwrap();
-            s.finish().unwrap();
+            s.close().unwrap();
         }
         if let Some(open) = open {
             let mut s = mem.create(&(done.len() as u64)).unwrap();
@@ -974,8 +969,8 @@ impl EachPiece for InMemory {
 }
 
 /// A chain cut off anywhere in pieces `swept` (at every `stride`th of [cut_points] with `extra` places between block
-/// ends), or between a cut's finish and the next piece, resumes and ends with the pieces of the chain written without
-/// the crash; the pieces finished before are read back.
+/// ends), or between a cut's close and the next piece, resumes and ends with the pieces of the chain written without
+/// the crash; the pieces closed before are read back.
 fn chain_cut_anywhere<P: EachPiece>(
     place: &P,
     want: &[Vec<u8>],
@@ -987,7 +982,7 @@ fn chain_cut_anywhere<P: EachPiece>(
 ) {
     let mut runs = 0;
     for (i, piece) in want.iter().enumerate().take(swept.end).skip(swept.start) {
-        // a crash between the cut's finish and the next piece: no file of piece i yet
+        // a crash between the cut's close and the next piece: no file of piece i yet
         let mut cuts: Vec<Option<usize>> = vec![None];
         cuts.extend(
             every(cut_points(piece, extra), stride)
@@ -1002,10 +997,10 @@ fn chain_cut_anywhere<P: EachPiece>(
             runs += 1;
             let (mut c, resumed) = PieceChain::resume_on(f, OwnerId([9; 32]), 0, chain_options())
                 .unwrap_or_else(|e| panic!("piece {i}, cut {cut:?}: {e}"));
-            assert_eq!(c.finished().len(), i);
+            assert_eq!(c.closed().len(), i);
             replay_chain(&mut c, ops, made, resumed.kept_bytes);
             let f = c.tapes().clone();
-            let got = c.finish().unwrap();
+            let got = c.close().unwrap();
             assert_eq!(got.len(), want.len(), "piece {i}, cut {cut:?}");
             for (j, w) in want.iter().enumerate() {
                 let g = place.bytes(&f, j as u64);
@@ -1047,7 +1042,7 @@ fn a_chain_cut_anywhere_resumes_to_the_same_pieces() {
     // a chain whose last piece is complete takes no more
     assert!(matches!(
         ww_tape_fs::chain::resume(&want_dir, OwnerId([9; 32]), 0, chain_options()),
-        Err(ww_tape::WriteError::Ended(ww_tape::FinishState::Complete))
+        Err(ww_tape::WriteError::Ended(ww_tape::CloseReason::Closed))
     ));
     std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -1081,7 +1076,7 @@ fn one_file_is_its_pieces<P: OneFile>(place: &P, scratch_dir: &Path) {
         apply_chain(&mut c, &mut defs, *op);
     }
     let f = c.tapes().clone();
-    let done = c.finish().unwrap();
+    let done = c.close().unwrap();
     assert_eq!(done.len(), paths.len());
     let got = place.bytes(&f, path);
     assert!(got == want, "{} vs {} bytes", got.len(), want.len());
@@ -1106,7 +1101,7 @@ fn one_file_is_its_pieces<P: OneFile>(place: &P, scratch_dir: &Path) {
             let y = alone.read_block(0, e, &mut buf).unwrap().bytes().to_vec();
             assert_eq!(x, y);
         }
-        assert_eq!(one.pieces()[i].finish, alone.pieces()[0].finish);
+        assert_eq!(one.pieces()[i].close, alone.pieces()[0].close);
     }
 }
 
@@ -1122,7 +1117,7 @@ fn a_one_file_chain_is_its_pieces_back_to_back() {
 }
 
 /// A chain in one file cut off at every `stride`th block boundary of its `last` pieces and at `extra` bytes in
-/// between in each (inside the next block, inside a piece's end, between a cut's finish and the next piece head)
+/// between in each (inside the next block, inside a piece's end, between a cut's close and the next piece head)
 /// resumes, takes the calls it lost and ends with the bytes of the file written without the crash.
 fn one_file_cut_anywhere<P: OneFile>(
     place: &P,
@@ -1153,13 +1148,13 @@ fn one_file_cut_anywhere<P: OneFile>(
                     .unwrap_or_else(|e| panic!("piece {i}, cut {cut}: {e}"));
             let whole = cut == piece.len() && i + 1 < pieces.len();
             assert_eq!(
-                c.finished().len(),
+                c.closed().len(),
                 if whole { i + 1 } else { i },
                 "piece {i}, cut {cut}"
             );
             replay_chain(&mut c, &ops, &made, resumed.kept_bytes);
             let f = c.tapes().clone();
-            let got = c.finish().unwrap();
+            let got = c.close().unwrap();
             assert_eq!(got.len(), pieces.len(), "piece {i}, cut {cut}");
             let bytes = place.bytes(&f, path);
             let first = bytes.iter().zip(&want).position(|(a, b)| a != b);
@@ -1196,7 +1191,7 @@ fn one_file_reopened<P: OneFile>(place: &P) {
             apply_chain(&mut c, defs, *op);
         }
         let f = c.tapes().clone();
-        (f, c.finish().unwrap())
+        (f, c.close().unwrap())
     };
     let mut defs = base_defs().clone();
     let (f, a) = write(f, first, &mut defs);
@@ -1213,7 +1208,7 @@ fn one_file_reopened<P: OneFile>(place: &P) {
     let (new_head, _) = new.head.as_ref().unwrap();
     assert_eq!(
         new_head.prev,
-        Some((old.finish.as_ref().unwrap().0.hash, old_head.ident.id))
+        Some((old.close.as_ref().unwrap().0.hash, old_head.ident.id))
     );
     let session = |at: u64| {
         FileBlocks::new(&bytes[at as usize..])
@@ -1233,7 +1228,7 @@ fn one_file_reopened<P: OneFile>(place: &P) {
     for op in &ops {
         apply_chain(&mut c, &mut defs, *op);
     }
-    let once = c.finish().unwrap();
+    let once = c.close().unwrap();
     let hashes = |d: &[ww_tape::ChainPiece<u64>]| {
         d.last()
             .unwrap()
@@ -1254,7 +1249,7 @@ fn a_closed_one_file_chain_reopens_in_a_new_piece() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
-/// A chain whose unfinished last piece lost its piece head resumes to an error, in a file per piece and in one file:
+/// A chain whose unclosed last piece lost its piece head resumes to an error, in a file per piece and in one file:
 /// the blocks after the head would make a piece without a link to the chain, which can't be cut.
 #[test]
 fn a_chain_whose_last_piece_lost_its_head_is_refused() {
@@ -1336,7 +1331,7 @@ fn a_second_writer_of_one_file_is_refused() {
     let path = dir.join("run.wwt");
     let mut a = ww_tape_fs::chain::create(&path, owner, 0, &[], options()).unwrap();
     write(&mut a, 0);
-    a.finish().unwrap();
+    a.close().unwrap();
     let (mut a, _) = ww_tape_fs::chain::resume(&path, owner, 0, options()).unwrap();
     assert!(locked(ww_tape_fs::chain::resume(
         &path,
@@ -1348,7 +1343,7 @@ fn a_second_writer_of_one_file_is_refused() {
     drop(a);
     let (mut b, _) = ww_tape_fs::chain::resume(&path, owner, 0, options()).unwrap();
     write(&mut b, 2);
-    b.finish().unwrap();
+    b.close().unwrap();
     let bytes = std::fs::read(&path).unwrap();
     let r = TapeReader::open(&bytes[..]).unwrap();
     assert!(r.chain().is_whole(), "{:?}", r.chain());
@@ -1362,7 +1357,7 @@ fn a_second_writer_of_one_file_is_refused() {
         options()
     )));
     write(&mut a, 0);
-    a.finish().unwrap();
+    a.close().unwrap();
     let (a, _) = PieceChain::resume_on(mem.clone(), owner, 0, options()).unwrap();
     assert!(locked(PieceChain::resume_on(
         mem.clone(),
@@ -1384,7 +1379,7 @@ fn a_second_writer_of_one_file_is_refused() {
 }
 
 /// A cut in place takes a sink of pieces back to back: a writer of one piece (`NAME.partial`, a plain memory sink)
-/// is refused before anything is written and handed back, so its piece goes on and finishes, or resumes after a
+/// is refused before anything is written and handed back, so its piece goes on and closes, or resumes after a
 /// crash.
 #[test]
 fn a_sink_of_one_piece_takes_no_cut_in_place() {
@@ -1407,7 +1402,7 @@ fn a_sink_of_one_piece_takes_no_cut_in_place() {
     drop(refused);
     let (w, resumed) = ww_tape_fs::writer::resume(&path, WriterOptions::default()).unwrap();
     assert_eq!(resumed.kept_bytes, len);
-    w.finish().unwrap();
+    w.close().unwrap();
 
     let mut w = begin(0);
     let (h, c) = chunk(0, 0);
@@ -1418,7 +1413,7 @@ fn a_sink_of_one_piece_takes_no_cut_in_place() {
     let (h, c) = chunk(0, 1);
     w.write_chunk(base_defs(), &h, &column(&c)).unwrap();
     let bytes = w.sink().tape();
-    w.finish().unwrap();
+    w.close().unwrap();
     let bytes = bytes.to_vec().unwrap();
     let r = TapeReader::open(&bytes[..]).unwrap();
     assert_eq!(r.pieces().len(), 1);
@@ -1433,8 +1428,8 @@ fn a_sink_of_one_piece_takes_no_cut_in_place() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
-/// A finished piece an earlier ww_tape wrote (`data/other-layout.wwt`, its second piece): this reader takes its blocks
-/// up to the finish, and a resume cuts off only what ends a piece (finish and tail, see the module docs of
+/// A closed piece an earlier ww_tape wrote (`data/other-layout.wwt`, its second piece): this reader takes its blocks
+/// up to the close, and a resume cuts off only what ends a piece (close and tail, see the module docs of
 /// `writer::resume`), never a block before them; cut short anywhere in its end, the same.
 #[test]
 fn a_resume_of_another_layout_cuts_off_only_the_piece_end() {
@@ -1444,7 +1439,7 @@ fn a_resume_of_another_layout_cuts_off_only_the_piece_end() {
     let r = TapeReader::open(&bytes[..]).unwrap();
     let p1 = r.pieces()[1].start as usize;
     let piece = &bytes[p1..];
-    // the blocks by their headers: the finish and the tail end it
+    // the blocks by their headers: the close and the tail end it
     let mut blocks = Vec::new();
     let mut at = 0;
     while at + 32 <= piece.len() {
@@ -1452,8 +1447,8 @@ fn a_resume_of_another_layout_cuts_off_only_the_piece_end() {
         blocks.push((at, piece[at + 5]));
         at += len;
     }
-    let finish_at = blocks.iter().find(|(_, k)| *k == 8).unwrap().0;
-    for cut in [piece.len(), piece.len() - 300, finish_at + 10] {
+    let close_at = blocks.iter().find(|(_, k)| *k == 8).unwrap().0;
+    for cut in [piece.len(), piece.len() - 300, close_at + 10] {
         let mut sink = MemSink::new();
         sink.write_all(&piece[..cut]).unwrap();
         let (_, resumed) = TapeWriter::resume_on(
@@ -1465,10 +1460,10 @@ fn a_resume_of_another_layout_cuts_off_only_the_piece_end() {
             },
         )
         .unwrap();
-        assert_eq!(resumed.kept_bytes, finish_at as u64, "cut at {cut}");
+        assert_eq!(resumed.kept_bytes, close_at as u64, "cut at {cut}");
         assert_eq!(
             resumed.dropped_bytes,
-            (cut - finish_at) as u64,
+            (cut - close_at) as u64,
             "cut at {cut}"
         );
     }
@@ -1512,10 +1507,10 @@ fn a_resume_never_cuts_off_good_blocks() {
     assert_eq!(resumed.kept_bytes, starts[starts.len() - 1] as u64);
 }
 
-/// A finished piece followed by junk a crash left (garbage, a torn block): the resume cuts off only what follows the
+/// A closed piece followed by junk a crash left (garbage, a torn block): the resume cuts off only what follows the
 /// tail, names the piece and writes nothing; the bytes up to the tail stay. A good block after the tail refuses.
 #[test]
-fn a_resume_of_a_whole_finish_cuts_only_the_junk_after_its_tail() {
+fn a_resume_of_a_whole_close_cuts_only_the_junk_after_its_tail() {
     let dir = scratch("junk_after_tail");
     let path = dir.join("p.wwt");
     let mut w = ww_tape_fs::writer::create(&path, SyncPolicy::None).unwrap();
@@ -1524,7 +1519,7 @@ fn a_resume_of_a_whole_finish_cuts_only_the_junk_after_its_tail() {
         w.write_block(base_defs(), &block).unwrap();
     }
     let next = w.next_id();
-    w.finish().unwrap();
+    w.close().unwrap();
     let done = std::fs::read(&path).unwrap();
     std::fs::remove_file(&path).unwrap();
     let good = records(next, 9);
@@ -1535,7 +1530,7 @@ fn a_resume_of_a_whole_finish_cuts_only_the_junk_after_its_tail() {
     ] {
         std::fs::write(&partial, [&done[..], &junk[..]].concat()).unwrap();
         match ww_tape_fs::writer::resume(&path, WriterOptions::default()) {
-            Err(WriteError::Ended(ww_tape::FinishState::Complete)) => {}
+            Err(WriteError::Ended(ww_tape::CloseReason::Closed)) => {}
             other => panic!("{name}: {:?}", other.map(|(_, r)| r)),
         }
         assert_eq!(std::fs::read(&path).unwrap(), done, "{name}");
@@ -1553,23 +1548,23 @@ fn a_resume_of_a_whole_finish_cuts_only_the_junk_after_its_tail() {
     assert_eq!(std::fs::read(&partial).unwrap(), bytes, "left as it was");
 }
 
-/// A piece whose finish and tail read whole, left as `NAME.partial` by a crash before its rename: a resume names it
+/// A piece whose close and tail read whole, left as `NAME.partial` by a crash before its rename: a resume names it
 /// and writes nothing ([WriteError::Ended]); in memory the bytes stay as they are.
 #[test]
-fn a_resume_of_a_whole_finish_names_it_and_writes_nothing() {
-    let dir = scratch("whole_finish");
+fn a_resume_of_a_whole_close_names_it_and_writes_nothing() {
+    let dir = scratch("whole_close");
     let path = dir.join("p.wwt");
     let mut w = ww_tape_fs::writer::create(&path, SyncPolicy::None).unwrap();
     for n in 0..6 {
         let block = records(w.next_id(), n);
         w.write_block(base_defs(), &block).unwrap();
     }
-    w.finish().unwrap();
+    w.close().unwrap();
     let done = std::fs::read(&path).unwrap();
     let partial = ww_tape_fs::partial_name(&path);
     std::fs::rename(&path, &partial).unwrap();
     match ww_tape_fs::writer::resume(&path, WriterOptions::default()) {
-        Err(WriteError::Ended(ww_tape::FinishState::Complete)) => {}
+        Err(WriteError::Ended(ww_tape::CloseReason::Closed)) => {}
         other => panic!("{:?}", other.map(|(_, r)| r)),
     }
     assert_eq!(
@@ -1582,11 +1577,11 @@ fn a_resume_of_a_whole_finish_names_it_and_writes_nothing() {
     sink.write_all(&done).unwrap();
     let tape = sink.tape();
     match TapeWriter::resume_on(sink, WriterOptions::default()) {
-        Err(WriteError::Ended(ww_tape::FinishState::Complete)) => {}
+        Err(WriteError::Ended(ww_tape::CloseReason::Closed)) => {}
         other => panic!("{:?}", other.map(|(_, r)| r)),
     }
     assert_eq!(tape.to_vec().unwrap(), done);
-    // a chain of files, a crash after a cut's finish and before its rename: the piece is named, the next one starts
+    // a chain of files, a crash after a cut's close and before its rename: the piece is named, the next one starts
     let chain = dir.join("chain");
     std::fs::create_dir(&chain).unwrap();
     let owner = OwnerId([9; 32]);
@@ -1602,7 +1597,7 @@ fn a_resume_of_a_whole_finish_names_it_and_writes_nothing() {
     std::fs::rename(&first, ww_tape_fs::partial_name(&first)).unwrap();
     std::fs::remove_file(ww_tape_fs::partial_name(&chain.join(piece_name(1)))).unwrap();
     let (c, _) = ww_tape_fs::chain::resume(&chain, owner, 0, chain_options()).unwrap();
-    assert_eq!((c.finished().len(), c.seq()), (1, 1));
+    assert_eq!((c.closed().len(), c.seq()), (1, 1));
     assert_eq!(
         std::fs::read(&first).unwrap(),
         done,
@@ -1670,7 +1665,7 @@ fn a_resume_refuses_where_its_look_is_spent() {
 
 /// A block early in the piece whose length damage made claim more than the content-hash walk may miss: blocks written
 /// after the resume would be bytes no block explains to a reader's walk, so the resume refuses and leaves the bytes. A
-/// claim within the walk's budget resumes, and the finished piece verifies.
+/// claim within the walk's budget resumes, and the closed piece verifies.
 #[test]
 fn a_resume_refuses_where_the_hash_walk_is_spent() {
     let mut w = begin(0);
@@ -1702,7 +1697,7 @@ fn a_resume_refuses_where_the_hash_walk_is_spent() {
                 assert_eq!(resumed.kept_bytes, bytes.len() as u64);
                 let block = records(w.next_id(), 99);
                 w.write_block(defs, &block).unwrap();
-                w.finish().unwrap();
+                w.close().unwrap();
                 let out = tape.to_vec().unwrap();
                 let r = TapeReader::open(&out[..]).unwrap();
                 assert!(
@@ -1748,15 +1743,15 @@ fn a_piece_of_another_integrity_level_is_refused_everywhere() {
         ),
         (9, IndexError::UnknownIntegrity { level: 9 }),
     ];
-    for finished in [false, true] {
+    for closed in [false, true] {
         let mut w = begin(0);
         let tape = w.sink().tape();
         for k in 0..6 {
             let id = w.next_id();
             w.write_block(base_defs(), &records(id, k)).unwrap();
         }
-        match finished {
-            true => drop(w.finish().unwrap()),
+        match closed {
+            true => drop(w.close().unwrap()),
             false => {
                 w.flush_deferred().unwrap();
                 drop(w);
@@ -1785,13 +1780,13 @@ fn a_piece_of_another_integrity_level_is_refused_everywhere() {
             let resumed = TapeWriter::resume_on(sink, options(0)).map(|(_, r)| r);
             assert!(
                 matches!(resumed, Err(WriteError::Index(e) | WriteError::Read(ReadError::Index(e))) if e == error),
-                "{level} finished {finished}: {resumed:?}"
+                "{level} closed {closed}: {resumed:?}"
             );
         }
     }
 }
 
-/// A one-file chain whose finished last piece has a head of another integrity level is refused with that level by
+/// A one-file chain whose closed last piece has a head of another integrity level is refused with that level by
 /// a resume, which would start a new piece behind it.
 #[test]
 fn a_chain_whose_last_piece_is_of_another_level_is_refused() {
@@ -1804,7 +1799,7 @@ fn a_chain_whose_last_piece_is_of_another_level_is_refused() {
     for op in ops(14) {
         apply_chain(&mut c, &mut defs, op);
     }
-    c.finish().unwrap();
+    c.close().unwrap();
     let bytes = std::fs::read(&at).unwrap();
     let last = TapeReader::open(&bytes[..])
         .unwrap()

@@ -1,4 +1,4 @@
-//! [TapeWriter::resume_on]: reopen an unfinished piece after a crash and go on writing it.
+//! [TapeWriter::resume_on]: reopen an unclosed piece after a crash and go on writing it.
 //!
 //! The piece is found the way [TapeReader] finds it: by its tail, else from its newest checkpoint
 //! with the stretch after it scanned up to the first block that isn't good, else scanned from its start. The bytes
@@ -12,19 +12,19 @@
 //! - a damaged block the index lists stands for what its entries say: a state record in it leaves its slot unknown
 //!   to the writer, so the next put writes; a chunk goes into its track's hash by the unit hash of its entry, the
 //!   records of a damaged block of data don't (its entry names no track): each track that may hold records (the
-//!   piece defines or its head carries it, no series or state track) leaves them out of its hash and its finish row
+//!   piece defines or its head carries it, no series or state track) leaves them out of its hash and its close row
 //!   is marked incomplete ([TrackRange::incomplete](crate::piece::TrackRange::incomplete)), as is the track of a
 //!   damaged chunk whose entry holds no unit hash;
 //! - a checkpoint index block moves the indexer on as placing it did; in an aligned piece a checkpoint due after a
 //!   block waits for the next chunk, as it did.
 //!
-//! A piece whose finish and tail read whole (a crash after the finish, before the name) is complete: the resume cuts
+//! A piece whose close and tail read whole (a crash after the close, before the name) is complete: the resume cuts
 //! off what follows the tail when no good block is in it (junk a crash left), gives the piece its name
-//! ([TapeSink::finish]), writes nothing else and returns [WriteError::Ended]. A good block after the tail refuses
+//! ([TapeSink::close]), writes nothing else and returns [WriteError::Ended]. A good block after the tail refuses
 //! ([ResumeError::GoodBlockAfterCut]).
 //!
 //! Else the piece is kept up to the end of its last good block, counted or not: the puts after the last counted block
-//! stay. What ends a piece (the final index, a finish without its tail) is dropped: the piece is open again, and so are
+//! stay. What ends a piece (the final index, a close without its tail) is dropped: the piece is open again, and so are
 //! puts at the end that belong with a block after them ([FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT)): that call is given
 //! again whole. When the last block kept is counted, the writer acts after it again (a checkpoint when due), as a
 //! crash may have come before it did; a piece holding only its head gets the layout and the producer put after it.
@@ -53,7 +53,7 @@ use alloc::vec::Vec;
 
 use super::{InputError, ResumeError, TapeWriter, WriteError, WriterOptions};
 use crate::index::{IndexBlock, IndexEntry, IndexKind, STATE_TRACK_ID, is_structural};
-use crate::piece::{FinishState, PieceHeadBlock, Walked, hash_block, walk_piece};
+use crate::piece::{CloseReason, PieceHeadBlock, Walked, hash_block, walk_piece};
 use crate::reader::{ByteSource, ReadError, TapeReader, wide};
 use crate::sink::{TapeSink, sink_err};
 use crate::{
@@ -75,7 +75,7 @@ pub const RESUME_PROBES_MAX: usize = 4;
 pub struct Resumed {
     /// Bytes of the piece kept: up to the end of its last good block, without the end of a piece.
     pub kept_bytes: u64,
-    /// Bytes dropped after them: the end of a piece (final index, finish, tail), and whatever the reader didn't take
+    /// Bytes dropped after them: the end of a piece (final index, close, tail), and whatever the reader didn't take
     /// (a cut block, damage, stale data).
     pub dropped_bytes: u64,
     /// Where the reader stopped taking blocks before the end of the bytes ([crate::PieceInfo::cut]).
@@ -83,9 +83,9 @@ pub struct Resumed {
     /// The kept blocks the index lists, in file order, offsets from the piece's start: what the final index will
     /// list of them.
     pub entries: Vec<IndexEntry>,
-    /// The state of a finish block found without a whole tail after it (a crash in the end of the piece): the piece
+    /// The state of a close record found without a whole tail after it (a crash in the end of the piece): the piece
     /// was being ended, and is open again.
-    pub ended: Option<FinishState>,
+    pub ended: Option<CloseReason>,
     /// The layout the piece names, which the options were checked against; None when no layout record was kept.
     pub layout: Option<crate::Layout>,
 }
@@ -377,13 +377,13 @@ fn taken_after_end<S: TapeSink>(
     Ok(None)
 }
 
-/// Whether step `s` of the piece in `src` ends the piece: a finish, a tail or a final index block.
+/// Whether step `s` of the piece in `src` ends the piece: a close, a tail or a final index block.
 fn ends_piece<S: TapeSink>(src: &S, s: &Step) -> Result<bool, WriteError<S::Error>> {
     let What::Block { kind, .. } = s.what else {
         return Ok(false);
     };
     match kind {
-        BlockKind::Finish | BlockKind::Tail => Ok(true),
+        BlockKind::Close | BlockKind::Tail => Ok(true),
         BlockKind::Index => {
             // a step is at most MAX_BLOCK_LEN long
             let len = usize::try_from(s.len).map_err(|_overflow| too_long(s.len))?;
@@ -449,7 +449,7 @@ impl Named {
 }
 
 impl<S: TapeSink> TapeWriter<S> {
-    /// Reopen the unfinished piece in `sink` (cut off by a crash, or cut in its end) to go on writing it, see the
+    /// Reopen the unclosed piece in `sink` (cut off by a crash, or cut in its end) to go on writing it, see the
     /// [module docs](self). A piece ended whole and not yet named is given its name: [WriteError::Ended]. `options` are the ones it was written with. The piece is truncated to the end of
     /// its last counted block, and the writer acts after that block as it did; the caller then gives it the blocks
     /// from [Self::next_id] on, with the puts between them. Definitions in a damaged block are lost to the writer
@@ -476,8 +476,8 @@ impl<S: TapeSink> TapeWriter<S> {
                 sink.truncate(layout.end)
                     .map_err(sink_err("cutting the bytes after the tail"))?;
             }
-            sink.finish()
-                .map_err(sink_err("giving the finished piece its name"))?;
+            sink.close()
+                .map_err(sink_err("giving the closed piece its name"))?;
             return Err(WriteError::Ended(state));
         }
         let ended = ended.state;
@@ -731,7 +731,7 @@ impl<S: TapeSink> TapeWriter<S> {
         if matches!(kind, BlockKind::Events | BlockKind::Series) {
             self.chunks = self.chunks.saturating_add(1);
             // into its track's hash by the unit hash the writer stated in its entry, as when it was placed; without
-            // one the track's hash leaves it out and the finish says so
+            // one the track's hash leaves it out and the close says so
             if !e.repeat {
                 self.indexer.begin_block();
                 match e.unit == crate::piece::UnitHash::NONE {
@@ -781,10 +781,10 @@ impl<S: TapeSink> TapeWriter<S> {
 /// How the piece to resume ended, when it did.
 #[derive(Default)]
 struct EndFound {
-    /// The state of a finish found
-    state: Option<FinishState>,
-    /// That state, when the finish and the tail read whole (bytes after the tail are the caller's to judge)
-    whole: Option<FinishState>,
+    /// The state of a close found
+    state: Option<CloseReason>,
+    /// That state, when the close and the tail read whole (bytes after the tail are the caller's to judge)
+    whole: Option<CloseReason>,
 }
 
 /// The piece at the start of `sink` as a reader finds it: its blocks by index entry and gap, where it ends, where a
@@ -817,7 +817,7 @@ fn read_layout<S: TapeSink>(
         }
     }
     let gaps = p.gaps.iter().copied().collect();
-    let state = p.finish.as_ref().map(|(f, _)| f.state);
+    let state = p.close.as_ref().map(|(f, _)| f.reason);
     let whole = state.filter(|_| p.found == crate::reader::Found::Tail && p.tail.is_some());
     Ok((
         Layout { entries, gaps, end },

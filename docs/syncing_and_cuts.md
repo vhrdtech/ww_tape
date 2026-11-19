@@ -1,11 +1,11 @@
 # Syncing, cuts and relays
 
-A long-running writer bounds two things: what a crash can lose, and how far a reader of an unfinished piece must scan.
+A long-running writer bounds two things: what a crash can lose, and how far a reader of an unclosed piece must scan.
 Syncs bound the first.
 
 **Checkpoints**, index blocks that the writer places between the data, bound the second. Both work inside a piece.
 
-This page also covers the **cut**, which ends one piece of a chain and starts the next, and the finish of a piece. It
+This page also covers the **cut**, which ends one piece of a chain and starts the next, and the close of a piece. It
 ends with programs that pass on another producer's blocks, and it assumes [Writing a tape](writing.md).
 
 ## Syncing: what a crash can lose
@@ -17,7 +17,7 @@ Data that the operating system has not yet written to the disk is lost when the 
 |---|---|---|
 | `Interval(t)`, the default with `t` = 1 s | when blocks wait and the last sync is `t` ago | about `t` of data |
 | `EveryBlocks(n)` | after every `n` blocks | `n` blocks |
-| `None` | only at the finish | everything the system has not written yet |
+| `None` | only at the close | everything the system has not written yet |
 
 `Interval` acts only when a block arrives. A producer whose input may stop for a while therefore calls
 `TapeWriter::tick` now and then.
@@ -49,7 +49,7 @@ succeeds without them.
 
 ## Checkpoints
 
-A reader of a file that was never finished has no tail to start from. The writer therefore places a checkpoint, an index
+A reader of a file that was never closed has no tail to start from. The writer therefore places a checkpoint, an index
 block, after about every 4 MiB of blocks (`IndexPolicy::bytes`).
 
 Each checkpoint lists the blocks placed since the one before and points back at it. After a crash, a reader finds the
@@ -70,11 +70,11 @@ A writer starts such a piece with `TapeWriter::begin_piece`, which writes the pi
 `TapeWriter::cut_with(tapes, key)` makes a cut in four steps:
 
 1. It places every deferred block.
-2. It writes the final index, the finish and the tail.
-3. It finishes the sink; a file takes its final name.
+2. It writes the final index, the close and the tail.
+3. It closes the sink; a file takes its final name.
 4. It starts the next piece in a new sink, which the store `tapes` makes under `key`.
 
-The call returns the finished piece (`Finished`) and a writer on the next piece. `TapeWriter::cut_on(next)` does the
+The call returns the closed piece (`Closed`) and a writer on the next piece. `TapeWriter::cut_on(next)` does the
 same on a sink `next` that the caller made.
 
 `ww_tape_fs::writer::cut(writer, next_path)` does the same with the file `next_path`.
@@ -100,7 +100,7 @@ The chain also cuts before a write that would need more state entries than the p
 
 ### Limits that a cut does not lift
 
-Two limits on tracks hold whatever the cuts, so that each finish and each head fits one block:
+Two limits on tracks hold whatever the cuts, so that each close and each head fits one block:
 
 - A piece takes data of at most `TRACKS_PER_PIECE_MAX` tracks.
 - A piece head carries at most `HEAD_TRACKS_MAX` tracks from the pieces before it.
@@ -112,7 +112,7 @@ The writer refuses a write past either limit (`InputError::TooManyTracks`, `Inpu
 A chain writes each piece into a tape of its own. With `ChainOptions::tapes` set to `PieceTapes::One`, it writes every
 piece into one tape.
 
-`TapeWriter::cut_in_place` is the cut of a writer into one file. The next piece starts right behind the finished one in
+`TapeWriter::cut_in_place` is the cut of a writer into one file. The next piece starts right behind the closed one in
 the same sink, and the file keeps its name.
 
 A sink that holds one piece only, such as a `NAME.partial` file, refuses this cut. [Pieces and
@@ -124,25 +124,25 @@ Durability comes from the sync policy and the checkpoints, which work inside a p
 file grows.
 
 For example, a slow input of one log line a minute goes into a records block as it comes. The writer syncs it within the
-sync interval, and a reader of the unfinished piece reads it at once.
+sync interval, and a reader of the unclosed piece reads it at once.
 
 Cutting by age serves retention by file, and it makes the file's bytes depend on the clock.
 
-## Finishing
+## Closing
 
-`TapeWriter::finish` ends the piece as complete, in three steps:
+`TapeWriter::close` ends the piece as complete, in three steps:
 
 1. It places the deferred blocks.
-2. It writes the final index, then the finish block, padded so that the piece ends on a 4 KiB boundary, then the tail.
+2. It writes the final index, then the close record, padded so that the piece ends on a 4 KiB boundary, then the tail.
 3. It syncs the file, renames `NAME.partial` to `NAME` and syncs the directory.
 
-It returns a `Finished`, which holds:
+It returns a `Closed`, which holds:
 
 - the piece's content hash and its length;
 - its ids, and where it starts in its file;
 - the hash and next item number of each track.
 
-`finish_as` ends the piece in another state, such as aborted. A file still named `NAME.partial` was never finished.
+`close_as` ends the piece in another state, such as aborted. A file still named `NAME.partial` was never closed.
 
 ## Relays
 

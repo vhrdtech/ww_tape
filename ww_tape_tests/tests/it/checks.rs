@@ -227,7 +227,7 @@ fn a_piece_of_another_version_is_reported_where_it_is_met() {
     let mut w = begin(options(u64::MAX));
     let tape = w.sink().tape();
     write_records(&mut w, 0, 2);
-    w.w.finish().unwrap();
+    w.w.close().unwrap();
     let ours = tape.to_vec().unwrap();
     // every block of another version, the tail too
     let theirs = of_version(&ours, ww_tape::VERSION + 1);
@@ -243,7 +243,7 @@ fn a_piece_of_another_version_is_reported_where_it_is_met() {
     assert_eq!(r.pieces().len(), 1);
     assert_eq!(r.pieces()[0].version, Some(ww_tape::VERSION + 1));
     other(&r, 0);
-    // after a finished piece of this version
+    // after a closed piece of this version
     let both = [ours.clone(), theirs].concat();
     let r = TapeReader::open(&both[..]).unwrap();
     assert_eq!(r.pieces().len(), 2);

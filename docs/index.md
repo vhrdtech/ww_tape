@@ -73,7 +73,7 @@ below give the pages in the order a reader needs them.
 
 - [Writing a tape](writing.md): the writer, its sinks and stores, definitions and puts, and the forms of data.
 - [Sinks, files and locks](sinks_and_locks.md): writing to files and memory, the lock on a file, and firmware.
-- [Syncing, cuts and relays](syncing_and_cuts.md): syncing, checkpoints, cuts, the finish, and relays.
+- [Syncing, cuts and relays](syncing_and_cuts.md): syncing, checkpoints, cuts, the close, and relays.
 - [Resuming a writer](resuming.md): reopening a piece or a chain after a crash.
 - [Pieces and files](pieces_and_files.md): chains, many pieces in one file, copies, and addressing one item.
 - [Track owners and hashes](track_hashes.md): tracks of several owners, the track hash and the hash of a range.
@@ -236,7 +236,7 @@ With `PieceTapes::One` in the chain options, every piece goes into one file inst
 ### How pieces link
 
 The pieces of one recording form a chain, which a reader checks in both directions. Each piece head names the
-previous piece by the content hash in its finish block.
+previous piece by the content hash in its close record.
 
 The tail cannot name the next piece's hash, since the writer hasn't written that piece yet. It names the next piece's
 id instead.
@@ -256,15 +256,15 @@ reader finds the last piece's tail at the end, then the piece's start from that 
 The previous piece's tail lies just before that start. The reader walks back through concatenated pieces with one
 small read each.
 
-An unfinished piece may follow them: one still being written, or one a crash cut off. The reader finds it from its
-checkpoints or by a scan, and still finds the finished pieces by their tails.
+An unclosed piece may follow them: one still being written, or one a crash cut off. The reader finds it from its
+checkpoints or by a scan, and still finds the closed pieces by their tails.
 
 ### Pieces end on 4 KiB
 
-A finished piece is a multiple of 4 KiB long. The writer pads the finish block with zeros, so that the tail ends on
+A closed piece is a multiple of 4 KiB long. The writer pads the close record with zeros, so that the tail ends on
 the boundary and stays the last bytes of the piece.
 
-The padding is part of the finish block and its CRC-32C checksum. The content hash covers the bytes before the finish,
+The padding is part of the close record and its CRC-32C checksum. The content hash covers the bytes before the close,
 as before.
 
 The alignment lets file systems clone pieces back to back. On btrfs and XFS (two Linux file systems), `cp --reflink`
@@ -273,8 +273,8 @@ and `copy_file_range` build one file of many pieces.
 They copy no byte, and leave nothing between the pieces. On Linux, `std::io::copy` uses `copy_file_range` between
 files.
 
-The writer aligns only the end: blocks inside a piece stay where the writer put them. A piece without a finish ends
-where it ends, until a resume finishes it on a boundary.
+The writer aligns only the end: blocks inside a piece stay where the writer put them. A piece without a close ends
+where it ends, until a resume closes it on a boundary.
 
 A chain whose first pieces someone deleted reads as "head cut", not as damage.
 

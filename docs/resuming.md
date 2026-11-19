@@ -1,6 +1,6 @@
 # Resuming a writer
 
-A crash leaves a piece without its finish and tail, often with a torn block at its end. This page shows how a writer
+A crash leaves a piece without its close and tail, often with a torn block at its end. This page shows how a writer
 reopens such a piece and how a whole chain resumes.
 
 The producer's part is small: it gives its calls again, and the piece ends with the same bytes as a write without the
@@ -8,7 +8,7 @@ crash. The page assumes [Writing a tape](writing.md) and [Syncing, cuts and rela
 
 ## Resuming after a crash
 
-`TapeWriter::resume_on(sink, options)` reopens the unfinished piece in a sink and goes on writing the same piece. For a
+`TapeWriter::resume_on(sink, options)` reopens the unclosed piece in a sink and goes on writing the same piece. For a
 file, `ww_tape_fs::writer::resume(path, options)` opens the file `NAME.partial` that `writer::create` wrote and resumes
 it.
 
@@ -47,7 +47,7 @@ no block explains, it tells two cases apart:
 A damaged block kept by its entry stands for what the entry says. A damaged chunk goes into its track's hash by the unit
 hash of its entry.
 
-The records of a damaged records block cannot go into the hash. The finish therefore marks the hash of each track that
+The records of a damaged records block cannot go into the hash. The close therefore marks the hash of each track that
 may hold records as incomplete.
 
 ### When a resume refuses
@@ -91,27 +91,27 @@ With another layout or producer, the writer would place blocks other than the wa
 
 Two cases at the end of a piece differ:
 
-- A piece whose finish and tail read whole is complete; the crash came after the finish and before the rename. The
+- A piece whose close and tail read whole is complete; the crash came after the close and before the rename. The
   resume cuts off the junk a crash left after the tail, renames the file, writes nothing and returns
   `WriteError::Ended`.
-- A piece cut off inside its end is opened again. Its final index and finish are cut off, and the next finish pads the
+- A piece cut off inside its end is opened again. Its final index and close are cut off, and the next close pads the
   piece to 4 KiB again.
 
 A good block after the tail of a complete piece refuses the resume (`ResumeError::GoodBlockAfterCut`).
 
 ## Resuming a chain
 
-`PieceChain::resume_on` (`ww_tape_fs::chain::resume` for files) does the same for a chain. It reads the finished pieces
+`PieceChain::resume_on` (`ww_tape_fs::chain::resume` for files) does the same for a chain. It reads the closed pieces
 back from their tails and then deals with the last piece.
 
-A finished piece that a crash left as `NAME.partial` gets its name. What happens next depends on how the last piece
+A closed piece that a crash left as `NAME.partial` gets its name. What happens next depends on how the last piece
 ended:
 
 | Last piece | Chain of a tape per piece | Chain in one tape (`PieceTapes::One`) |
 |---|---|---|
-| unfinished | resumed | resumed |
-| finished as continued: the crash came during a cut | the next piece starts | the next piece starts |
-| finished as complete or aborted | refused: `WriteError::Ended` | a new piece starts behind it |
+| unclosed | resumed | resumed |
+| closed as continued: the crash came during a cut | the next piece starts | the next piece starts |
+| closed as complete or aborted | refused: `WriteError::Ended` | a new piece starts behind it |
 | its piece head is damaged | refused | refused |
 
 A chain in one tape therefore gains a piece each time a session opens the file. The resume refuses a last piece with a
@@ -123,13 +123,13 @@ recovery](recovery.md#resuming-after-a-crash) follows a recorder through a power
 ### Monotone relations after a resume
 
 A chain resume also restores the newest value of each **monotone relation**: a per-item value that a track declares
-never to decrease. It takes the range relation's newest value from every finished piece's index entries, which it reads
+never to decrease. It takes the range relation's newest value from every closed piece's index entries, which it reads
 anyway.
 
 The other relations' values are in chunks. For each track, the resume reads one chunk of at most `MAX_BLOCK_LEN` (64
-MiB): the track's last chunk in the newest finished piece that holds one.
+MiB): the track's last chunk in the newest closed piece that holds one.
 
-A resume of a chain of N tracks therefore reads up to N chunks besides each piece's head, finish, tail and index.
+A resume of a chain of N tracks therefore reads up to N chunks besides each piece's head, close, tail and index.
 
 The writer cannot vouch for an order it cannot read. Where that chunk does not read, it refuses the track's next chunk
 (`DescribeError::RelationUnread`).

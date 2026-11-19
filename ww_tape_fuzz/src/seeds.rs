@@ -8,8 +8,8 @@ use std::path::Path;
 use ww_tape::index::{IndexEntry, IndexHead, IndexKind, index_len, write_index};
 use ww_tape::lz4::LZ4_DECODED_MAX;
 use ww_tape::piece::{
-    ContentHash, Finish, FinishState, OwnerId, PieceHead, PieceId, PieceIdent, TAIL_LEN, Tail,
-    finish_len, piece_head_len, write_finish, write_piece_head,
+    Close, CloseReason, ContentHash, OwnerId, PieceHead, PieceId, PieceIdent, TAIL_LEN, Tail,
+    close_len, piece_head_len, write_close, write_piece_head,
 };
 use ww_tape::times::EncodedTimes;
 use ww_tape::{
@@ -44,7 +44,7 @@ pub const FIXED_INPUTS: &[(&str, &str, &str)] = &[
         "final-index-overlapping-blocks",
         "ff050100000000000007050500000000000000000a02020202002e00000000000000000000020200000000070505000007050500000000000000000a020202020000000000000000000000020000000000b7000000022f02020202",
     ),
-    ("tape-resume", "finished-last-piece-damaged", "070030c80101"),
+    ("tape-resume", "closed-last-piece-damaged", "070030c80101"),
     (
         "tape-resume",
         "early-length-claim-spends-hash-walk",
@@ -52,7 +52,7 @@ pub const FIXED_INPUTS: &[(&str, &str, &str)] = &[
     ),
     (
         "tape-resume",
-        "finish-first-cuts-taken-blocks",
+        "close-first-cuts-taken-blocks",
         "894f545760575da9cf3a552e050002895d7851",
     ),
     (
@@ -320,12 +320,12 @@ fn lz4_fixes() -> Vec<Seed> {
 const SESSION: SessionTag = SessionTag::writable(0x600d_0002);
 const OLD: SessionTag = SessionTag::writable(0x0bad_0001);
 
-fn tail(piece_len: u64, finish_offset: u64, finish_len: u32) -> Vec<u8> {
+fn tail(piece_len: u64, close_offset: u64, close_len: u32) -> Vec<u8> {
     let t = Tail {
         piece_len,
-        finish_offset,
-        finish_len,
-        state: FinishState::Complete,
+        close_offset,
+        close_len,
+        reason: CloseReason::Closed,
         hash: ContentHash([0; 32]),
         ident: None,
         next: None,
@@ -335,25 +335,25 @@ fn tail(piece_len: u64, finish_offset: u64, finish_len: u32) -> Vec<u8> {
     b
 }
 
-/// A finish naming `final_index`, then its tail.
-fn finish_only(final_index: u64, piece_len: Option<u64>) -> Vec<u8> {
-    let finish = Finish {
-        state: FinishState::Complete,
+/// A close naming `final_index`, then its tail.
+fn close_only(final_index: u64, piece_len: Option<u64>) -> Vec<u8> {
+    let close = Close {
+        reason: CloseReason::Closed,
         hash: ContentHash([0; 32]),
         checkpoint: None,
         final_index: Some(final_index),
         ident: None,
         next: None,
     };
-    let mut b = vec![0u8; finish_len(0)];
-    let n = write_finish(&mut b, BlockId::new(SESSION, 0), &finish, &[], 0).expect("a finish");
+    let mut b = vec![0u8; close_len(0)];
+    let n = write_close(&mut b, BlockId::new(SESSION, 0), &close, &[], 0).expect("a close");
     b.truncate(n);
     let len = piece_len.unwrap_or((n + TAIL_LEN) as u64);
     b.extend(tail(len, 0, n as u32));
     b
 }
 
-/// fix baf02dd6d, 208b9b90f, 5c6fa63a7: tails and finishes whose offsets point past the piece or wrap.
+/// fix baf02dd6d, 208b9b90f, 5c6fa63a7: tails and closes whose offsets point past the piece or wrap.
 fn index_fixes() -> Vec<Seed> {
     let mut out = vec![seed(
         "tape-index",
@@ -369,13 +369,13 @@ fn index_fixes() -> Vec<Seed> {
         out.push(seed(
             "tape-index",
             format!("fix-208b9b90f-final-index-at-{what}"),
-            finish_only(at, None),
+            close_only(at, None),
         ));
     }
     out.push(seed(
         "tape-index",
         "fix-5c6fa63a7-piece-of-5-gib",
-        finish_only(0, Some(5 << 30)),
+        close_only(0, Some(5 << 30)),
     ));
     out
 }

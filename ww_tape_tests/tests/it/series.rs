@@ -252,7 +252,7 @@ fn write(path: &std::path::Path) {
         }
     }
     seal(&mut w, grid, &mut next, &mut column);
-    w.finish().unwrap();
+    w.close().unwrap();
 }
 
 /// What a reader with ww_tape alone gets: the definition, the timeline of its chunk heads, every chunk's head and
@@ -649,7 +649,7 @@ fn caller_chunks_are_checked_once() {
     assert!(crc(w.adopt_block(defs, &bad)));
     assert!(crc(w.defer_block(defs, bad.clone()).map(|()| None)));
     let placed = w.adopt_block(defs, &good).unwrap().unwrap();
-    w.finish().unwrap();
+    w.close().unwrap();
     let bytes = std::fs::read(dir.join("c.wwt")).unwrap();
     let r = TapeReader::open(&bytes[..]).unwrap();
     let mut buf = vec![];

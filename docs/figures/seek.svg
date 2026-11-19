@@ -1,5 +1,5 @@
-<svg class="ww-svg" viewBox="0 0 680 284" width="680" height="284" role="img" aria-label="A finished piece is opened from its tail: tail, finish, the final index's directory, one track's list, then the block. An unfinished piece is found from its newest checkpoint, whose back pointers list the blocks before it; the blocks after it are scanned" xmlns="http://www.w3.org/2000/svg">
-  <text x="20" y="22" text-anchor="start" class="strong">finished piece</text>
+<svg class="ww-svg" viewBox="0 0 680 284" width="680" height="284" role="img" aria-label="A closed piece is opened from its tail: tail, close, the final index's directory, one track's list, then the block. An unclosed piece is found from its newest checkpoint, whose back pointers list the blocks before it; the blocks after it are scanned" xmlns="http://www.w3.org/2000/svg">
+  <text x="20" y="22" text-anchor="start" class="strong">closed piece</text>
   <rect x="20.5" y="84" width="39" height="30" rx="2" class="tint-ink"/>
   <text x="40" y="103.5" text-anchor="middle" class="small">head</text>
   <rect x="60.5" y="84" width="139" height="30" rx="2" class="tint-blue"/>
@@ -15,7 +15,7 @@
   <rect x="478.5" y="84" width="61" height="30" rx="2" class="tint-amber"/>
   <text x="509" y="103.5" text-anchor="middle" class="small">tracks</text>
   <rect x="540.5" y="84" width="59" height="30" rx="2" class="tint-green"/>
-  <text x="570" y="103.5" text-anchor="middle" class="small">finish</text>
+  <text x="570" y="103.5" text-anchor="middle" class="small">close</text>
   <rect x="600.5" y="84" width="39" height="30" rx="2" class="tint-ink"/>
   <text x="620" y="103.5" text-anchor="middle" class="small">tail</text>
   <path d="M451 146 v4 H539 v-4" class="thin"/>
@@ -36,7 +36,7 @@
   <path d="M290.0 80.0 L293.4 72.9 L297.7 78.4 Z" class="accent-line head"/>
   <text x="400" y="24" text-anchor="middle" class="accent small">4</text>
   <text x="660" y="98" text-anchor="start" class="soft small">end</text>
-  <text x="20" y="192" text-anchor="start" class="strong">unfinished piece</text>
+  <text x="20" y="192" text-anchor="start" class="strong">unclosed piece</text>
   <rect x="20.5" y="222" width="39" height="30" rx="2" class="tint-ink"/>
   <text x="40" y="241.5" text-anchor="middle" class="small">head</text>
   <rect x="60.5" y="222" width="139" height="30" rx="2" class="tint-blue"/>

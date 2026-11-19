@@ -5,14 +5,14 @@ use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
 use core::time::Duration;
 
-use super::{FinishState, OwnerId, PieceHead, PieceId, PieceIdent, TAIL_LEN, TrackStart, UnitHash};
+use super::{CloseReason, OwnerId, PieceHead, PieceId, PieceIdent, TAIL_LEN, TrackStart, UnitHash};
 use crate::index::{IndexEntry, IndexError, TrackKey};
 use crate::reader::{ByteSource, TapeReader};
 use crate::sink::{TapeSink, Tapes, sink_err};
 use crate::writer::resume::SinkSource;
 use crate::writer::{
-    Finished, Newest, NextPiece, Placed, ResumeError, Resumed, TapeWriter, WriteError,
-    WriterOptions, block_id,
+    Closed, Newest, NextPiece, Placed, ResumeError, Resumed, TapeWriter, WriteError, WriterOptions,
+    block_id,
 };
 use crate::{ChunkHead, ColumnSpec, Definitions, HEADER_LEN, SessionTag};
 
@@ -27,7 +27,7 @@ pub struct CutPolicy {
     pub interval: Option<Duration>,
 }
 
-/// What a piece may hold past [CutPolicy::bytes]: the chunk that takes it over the limit, the index, finish and tail.
+/// What a piece may hold past [CutPolicy::bytes]: the chunk that takes it over the limit, the index, close and tail.
 pub const CUT_SLACK: u64 = 1 << 20;
 
 /// Refuse a resumed piece of a chain that kept blocks but no piece head: its head is damaged, and a piece without
@@ -67,17 +67,17 @@ pub enum PieceTapes {
     #[default]
     Each,
     /// All pieces back to back in one tape, under [Tapes::key_of] (0): one file. A cut starts the next piece right
-    /// behind the last ([TapeWriter::cut_in_place]); a resume goes on in the last piece when it is unfinished, else
+    /// behind the last ([TapeWriter::cut_in_place]); a resume goes on in the last piece when it is unclosed, else
     /// starts a new one behind it.
     One,
 }
 
-/// A finished piece of a [PieceChain]: the key of the tape it is in, and how it ended.
+/// A closed piece of a [PieceChain]: the key of the tape it is in, and how it ended.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ChainPiece<K> {
-    /// The tape: the piece's own, or the one holding every piece ([Finished::start] says where it starts there).
+    /// The tape: the piece's own, or the one holding every piece ([Closed::start] says where it starts there).
     pub tape: K,
-    pub piece: Finished,
+    pub piece: Closed,
 }
 
 /// Writes one recording as pieces on the tapes of a store of [Tapes] (files by default), each piece a tape of its
@@ -91,7 +91,7 @@ pub struct PieceChain<T: Tapes> {
     /// When the current piece was started or resumed, by its writer's clock
     started: Option<u64>,
     seq: u64,
-    finished: Vec<ChainPiece<T::Key>>,
+    closed: Vec<ChainPiece<T::Key>>,
 }
 
 /// Options of a new [PieceChain].
@@ -136,20 +136,20 @@ impl<T: Tapes> PieceChain<T> {
             cut: options.cut,
             started: options.writer.clock.now_ms(),
             seq: 0,
-            finished: Vec::new(),
+            closed: Vec::new(),
         })
     }
 
-    /// Reopen chain `chain` of `owner` in `tapes` after a crash: the finished pieces are read from their tails
-    /// ([Self::finished]), the unfinished last one is resumed ([TapeWriter::resume_on]). After a crash between a cut's finish
+    /// Reopen chain `chain` of `owner` in `tapes` after a crash: the closed pieces are read from their tails
+    /// ([Self::closed]), the unclosed last one is resumed ([TapeWriter::resume_on]). After a crash between a cut's close
     /// and the next piece's start, the next piece is started as the cut would have. `options` are the ones the chain
     /// was written with. A piece ended whole whose name a crash took ([TapeWriter::resume_on]) is named and read as
-    /// finished. A chain of a file per piece whose last piece ended complete or aborted is refused
+    /// closed. A chain of a file per piece whose last piece ended complete or aborted is refused
     /// ([WriteError::Ended]).
     ///
-    /// With [PieceTapes::One] the chain is in one tape. Its last piece, when unfinished (a crash), is resumed with the
+    /// With [PieceTapes::One] the chain is in one tape. Its last piece, when unclosed (a crash), is resumed with the
     /// same rules as a piece of its own: only a torn end is cut, and a resume that would drop more is refused. When
-    /// every piece is finished (the file was closed), a new piece starts behind the last: the next one of the cut
+    /// every piece is closed (the file was closed), a new piece starts behind the last: the next one of the cut
     /// when the last is continued, else a new write session's ([TapeWriter::begin_piece] rules: its own session tag
     /// derived from its id, seqs from 0), its head naming the last piece. An application that starts every write
     /// session in a piece of its own gives the calls a resume asks for again, then cuts ([Self::cut_now]).
@@ -172,13 +172,13 @@ impl<T: Tapes> PieceChain<T> {
         chain: u64,
         options: ChainOptions,
     ) -> Result<(Self, Resumed), WriteError<T::Error>> {
-        let mut finished: Vec<Done<T::Key>> = Vec::new();
+        let mut closed: Vec<Done<T::Key>> = Vec::new();
         let mut seq = 0u64;
         let (key, reopened) = loop {
             let key = tapes.key_of(seq);
             let src = match tapes
-                .finished(&key)
-                .map_err(sink_err("opening a finished piece"))?
+                .closed(&key)
+                .map_err(sink_err("opening a closed piece"))?
             {
                 Some(src) => src,
                 None => {
@@ -189,27 +189,27 @@ impl<T: Tapes> PieceChain<T> {
                         break (key, None);
                     };
                     match TapeWriter::resume_on(sink, options.writer.clone()) {
-                        // ended whole before a crash took its name: named now, read as finished
+                        // ended whole before a crash took its name: named now, read as closed
                         Err(WriteError::Ended(_)) => tapes
-                            .finished(&key)
-                            .map_err(sink_err("opening a finished piece"))?
+                            .closed(&key)
+                            .map_err(sink_err("opening a closed piece"))?
                             .ok_or(WriteError::Index(IndexError::Invalid(
-                                "a piece given its name doesn't read as finished",
+                                "a piece given its name doesn't read as closed",
                             )))?,
                         r => break (key, Some(r?)),
                     }
                 }
             };
-            let (piece, last) = read_finished(&src)?;
-            finished.push((ChainPiece { tape: key, piece }, last));
+            let (piece, last) = read_closed(&src)?;
+            closed.push((ChainPiece { tape: key, piece }, last));
             seq = seq.checked_add(1).ok_or_else(too_many)?;
         };
-        let newest = newest_in(&finished, |done, e, buf| {
+        let newest = newest_in(&closed, |done, e, buf| {
             let src = tapes
-                .finished(&done.tape)
-                .map_err(sink_err("opening a finished piece"))?
+                .closed(&done.tape)
+                .map_err(sink_err("opening a closed piece"))?
                 .ok_or(WriteError::Index(IndexError::Invalid(
-                    "a finished piece of the chain is gone",
+                    "a closed piece of the chain is gone",
                 )))?;
             read_listed(&src, done.piece.start, e, buf)
         })?;
@@ -219,7 +219,7 @@ impl<T: Tapes> PieceChain<T> {
                 reserve_piece(&mut w, options.cut);
                 if w.bytes() == 0 {
                     // cut off inside its head: the piece starts again (a first piece without carried-over tracks)
-                    match finished.last() {
+                    match closed.last() {
                         None => w.begin_piece(&first_head(owner, chain), &[])?,
                         Some((done, last)) => w.begin_next(next_piece(&done.piece, last)?)?,
                     }
@@ -227,11 +227,11 @@ impl<T: Tapes> PieceChain<T> {
                 (w, resumed)
             }
             None => {
-                let Some((done, last)) = finished.last() else {
+                let Some((done, last)) = closed.last() else {
                     return Err(WriteError::Resume(ResumeError::NoPiece));
                 };
-                if last.state != FinishState::Continued {
-                    return Err(WriteError::Ended(last.state));
+                if !last.continued {
+                    return Err(WriteError::Ended(last.reason));
                 }
                 let next = next_piece(&done.piece, last)?;
                 let sink = tapes
@@ -252,7 +252,7 @@ impl<T: Tapes> PieceChain<T> {
                 cut: options.cut,
                 started: options.writer.clock.now_ms(),
                 seq,
-                finished: finished.into_iter().map(|(f, _)| f).collect(),
+                closed: closed.into_iter().map(|(f, _)| f).collect(),
             },
             resumed,
         ))
@@ -275,13 +275,13 @@ impl<T: Tapes> PieceChain<T> {
         let size = sink
             .size()
             .map_err(crate::sink::sink_err("reading the length to resume"))?;
-        let finished = finished_in(&sink, &key)?;
-        let newest = newest_in(&finished, |done, e, buf| {
+        let closed = closed_in(&sink, &key)?;
+        let newest = newest_in(&closed, |done, e, buf| {
             read_listed(&SinkSource(&sink), done.piece.start, e, buf)
         })?;
-        let seq = u64::try_from(finished.len()).map_err(|_| too_many())?;
-        // the bytes after the last finished piece: an unfinished piece, or nothing
-        let open_at = match finished.last() {
+        let seq = u64::try_from(closed.len()).map_err(|_| too_many())?;
+        // the bytes after the last closed piece: an unclosed piece, or nothing
+        let open_at = match closed.last() {
             Some((f, _)) => f
                 .piece
                 .start
@@ -291,22 +291,22 @@ impl<T: Tapes> PieceChain<T> {
         };
         sink.rebase(open_at)
             .map_err(crate::sink::sink_err("finding the last piece"))?;
-        let (mut writer, resumed) = if open_at < size || finished.is_empty() {
+        let (mut writer, resumed) = if open_at < size || closed.is_empty() {
             let (mut w, resumed) = TapeWriter::resume_on(sink, options.writer.clone())?;
             headed(&w)?;
             reserve_piece(&mut w, options.cut);
             if w.bytes() == 0 {
                 // cut off inside its head: the piece starts again
-                match finished.last() {
+                match closed.last() {
                     None => w.begin_piece(&first_head(owner, chain), &[])?,
                     Some((done, last)) => w.begin_next(following(&done.piece, last)?)?,
                 }
             }
             (w, resumed)
         } else {
-            let Some((done, last)) = finished.last() else {
+            let Some((done, last)) = closed.last() else {
                 return Err(WriteError::Index(IndexError::Invalid(
-                    "a file of finished pieces holds one",
+                    "a file of closed pieces holds one",
                 )));
             };
             let next = following(&done.piece, last)?;
@@ -324,7 +324,7 @@ impl<T: Tapes> PieceChain<T> {
                 cut: options.cut,
                 started: options.writer.clock.now_ms(),
                 seq,
-                finished: finished.into_iter().map(|(f, _)| f).collect(),
+                closed: closed.into_iter().map(|(f, _)| f).collect(),
             },
             resumed,
         ))
@@ -335,9 +335,9 @@ impl<T: Tapes> PieceChain<T> {
         self.writer.as_mut().ok_or(WriteError::Failed)
     }
 
-    /// The pieces finished so far, those before a resume included.
-    pub fn finished(&self) -> &[ChainPiece<T::Key>] {
-        &self.finished
+    /// The pieces closed so far, those before a resume included.
+    pub fn closed(&self) -> &[ChainPiece<T::Key>] {
+        &self.closed
     }
 
     /// Sequence number of the piece being written.
@@ -470,21 +470,21 @@ impl<T: Tapes> PieceChain<T> {
         };
         reserve_piece(&mut next, self.cut);
         self.writer = Some(next);
-        self.finished.push(ChainPiece { tape, piece });
+        self.closed.push(ChainPiece { tape, piece });
         self.seq = seq;
         self.started = self.writer.as_ref().and_then(|w| w.clock().now_ms());
         Ok(())
     }
 
-    /// Finish the last piece as complete; every piece of the chain.
-    pub fn finish(self) -> Result<Vec<ChainPiece<T::Key>>, WriteError<T::Error>> {
-        self.finish_as(FinishState::Complete)
+    /// Close the last piece ([CloseReason::Closed]); every piece of the chain.
+    pub fn close(self) -> Result<Vec<ChainPiece<T::Key>>, WriteError<T::Error>> {
+        self.close_as(CloseReason::Closed)
     }
 
-    /// Finish the last piece in `state` (complete or aborted); every piece of the chain.
-    pub fn finish_as(
+    /// Close the last piece for `reason`; every piece of the chain.
+    pub fn close_as(
         mut self,
-        state: FinishState,
+        reason: CloseReason,
     ) -> Result<Vec<ChainPiece<T::Key>>, WriteError<T::Error>> {
         if let Some(w) = self.writer.as_mut() {
             w.flush_deferred()?;
@@ -494,9 +494,9 @@ impl<T: Tapes> PieceChain<T> {
             .writer
             .take()
             .ok_or(WriteError::Failed)?
-            .finish_as(state)?;
-        self.finished.push(ChainPiece { tape, piece });
-        Ok(self.finished)
+            .close_as(reason)?;
+        self.closed.push(ChainPiece { tape, piece });
+        Ok(self.closed)
     }
 }
 
@@ -514,8 +514,8 @@ fn first_head(owner: OwnerId, chain: u64) -> PieceHead {
     }
 }
 
-/// The piece after the finished piece `done`, continued, as its cut would have started it.
-fn next_piece<E>(done: &Finished, last: &LastPiece) -> Result<NextPiece, WriteError<E>> {
+/// The piece after the closed piece `done`, continued, as its cut would have started it.
+fn next_piece<E>(done: &Closed, last: &LastPiece) -> Result<NextPiece, WriteError<E>> {
     NextPiece::after(
         &last.head,
         done,
@@ -525,10 +525,10 @@ fn next_piece<E>(done: &Finished, last: &LastPiece) -> Result<NextPiece, WriteEr
     )
 }
 
-/// The piece a writer starts after the finished piece `done`: the next of the cut when it is continued, else the
+/// The piece a writer starts after the closed piece `done`: the next of the cut when it is continued, else the
 /// first of a new write session.
-fn following<E>(done: &Finished, last: &LastPiece) -> Result<NextPiece, WriteError<E>> {
-    if last.state == FinishState::Continued {
+fn following<E>(done: &Closed, last: &LastPiece) -> Result<NextPiece, WriteError<E>> {
+    if last.continued {
         next_piece(done, last)
     } else {
         NextPiece::reopened(&last.head, done, last.next_tracks.clone(), last.session)
@@ -539,9 +539,9 @@ fn too_many<E>() -> WriteError<E> {
     WriteError::Index(IndexError::Invalid("piece seq past u64::MAX"))
 }
 
-/// The finished pieces at the start of the tape `key` in `sink`, in order, read from their tails: every piece but
-/// an unfinished last one. A piece without its end before another is refused.
-fn finished_in<S: TapeSink, K: Clone>(
+/// The closed pieces at the start of the tape `key` in `sink`, in order, read from their tails: every piece but
+/// an unclosed last one. A piece without its end before another is refused.
+fn closed_in<S: TapeSink, K: Clone>(
     sink: &S,
     key: &K,
 ) -> Result<Vec<Done<K>>, WriteError<S::Error>> {
@@ -551,12 +551,12 @@ fn finished_in<S: TapeSink, K: Clone>(
     let done = pieces.iter().take_while(|p| p.tail.is_some()).count();
     if done.saturating_add(1) < pieces.len() {
         return Err(WriteError::Index(IndexError::Invalid(
-            "an unfinished piece before the last one in a file of pieces",
+            "an unclosed piece before the last one in a file of pieces",
         )));
     }
     (0..done)
         .map(|i| {
-            let (piece, last) = read_finished_at(&reader, i)?;
+            let (piece, last) = read_closed_at(&reader, i)?;
             Ok((
                 ChainPiece {
                     tape: key.clone(),
@@ -568,15 +568,18 @@ fn finished_in<S: TapeSink, K: Clone>(
         .collect()
 }
 
-/// A finished piece of a chain, and what the piece after it starts from.
+/// A closed piece of a chain, and what the piece after it starts from.
 type Done<K> = (ChainPiece<K>, LastPiece);
 
 /// Each track's last chunk in a piece, by its entry.
 type LastChunks = BTreeMap<TrackKey, IndexEntry>;
 
-/// What the piece after a finished one starts from.
+/// What the piece after a closed one starts from.
 struct LastPiece {
-    state: FinishState,
+    /// Why it was closed
+    reason: CloseReason,
+    /// It goes on in a next piece, which its close record names
+    continued: bool,
     head: PieceHead,
     next_tracks: Vec<TrackStart>,
     session: SessionTag,
@@ -587,22 +590,22 @@ struct LastPiece {
     last_chunks: BTreeMap<TrackKey, IndexEntry>,
 }
 
-/// The finished piece in `src`, from its tail, finish and head.
-fn read_finished<B: ByteSource>(src: &B) -> Result<(Finished, LastPiece), WriteError<B::Error>> {
+/// The closed piece in `src`, from its tail, close and head.
+fn read_closed<B: ByteSource>(src: &B) -> Result<(Closed, LastPiece), WriteError<B::Error>> {
     let reader = TapeReader::open(src).map_err(WriteError::Read)?;
     if !matches!(reader.pieces(), [p] if p.start == 0) {
         return Err(WriteError::Index(IndexError::Invalid(
-            "a finished piece holds one piece",
+            "a closed piece holds one piece",
         )));
     }
-    read_finished_at(&reader, 0)
+    read_closed_at(&reader, 0)
 }
 
-/// Finished piece `i` of `reader`, from its tail, finish and head.
-fn read_finished_at<B: ByteSource>(
+/// Closed piece `i` of `reader`, from its tail, close and head.
+fn read_closed_at<B: ByteSource>(
     reader: &TapeReader<B>,
     i: usize,
-) -> Result<(Finished, LastPiece), WriteError<B::Error>> {
+) -> Result<(Closed, LastPiece), WriteError<B::Error>> {
     let bad = |what| WriteError::Index(IndexError::Invalid(what));
     let src = reader.source();
     let p = reader.pieces().get(i).ok_or(bad("no such piece"))?;
@@ -611,11 +614,11 @@ fn read_finished_at<B: ByteSource>(
     {
         return Err(WriteError::Index(e));
     }
-    let (Some(tail), Some((finish, ranges)), Some((head, starts))) =
-        (p.tail, p.finish.as_ref(), p.head.as_ref())
+    let (Some(tail), Some((close, ranges)), Some((head, starts))) =
+        (p.tail, p.close.as_ref(), p.head.as_ref())
     else {
         return Err(bad(
-            "a finished piece of a chain has a head, a finish and a tail",
+            "a closed piece of a chain has a head, a close and a tail",
         ));
     };
     // the tail carries the session and seq of the last counted block of the piece
@@ -636,16 +639,17 @@ fn read_finished_at<B: ByteSource>(
     let next_tracks = crate::index::next_starts(starts, ranges);
     let (newest, last_chunks) = last_chunks_of(reader, i, ranges)?;
     Ok((
-        Finished {
-            hash: finish.hash,
+        Closed {
+            hash: close.hash,
             len: tail.piece_len,
-            ident: finish.ident,
-            next: finish.next,
+            ident: close.ident,
+            next: close.next,
             start: p.start,
             tracks: next_tracks.clone(),
         },
         LastPiece {
-            state: finish.state,
+            reason: close.reason,
+            continued: close.next.is_some(),
             head: *head,
             next_tracks,
             session: id.session,
@@ -656,7 +660,7 @@ fn read_finished_at<B: ByteSource>(
     ))
 }
 
-/// The tops of the chunks' ranges of the tracks of piece `i` of `reader`, whose finish lists `rows`, from each
+/// The tops of the chunks' ranges of the tracks of piece `i` of `reader`, whose close lists `rows`, from each
 /// track's last break on ([FLAG_RELATION_BREAK](crate::FLAG_RELATION_BREAK)), and each track's last chunk in the
 /// piece, by its entry, unread.
 fn last_chunks_of<B: ByteSource>(
@@ -670,7 +674,7 @@ fn last_chunks_of<B: ByteSource>(
         if e.kind != crate::BlockKind::Events || e.repeat {
             continue;
         }
-        // the owner by the finish's row of the track; a track it doesn't list is of the piece's owner
+        // the owner by the close's row of the track; a track it doesn't list is of the piece's owner
         let owner = rows
             .iter()
             .find(|r| r.track_id == e.track_id && r.track_number == e.track_number)
@@ -712,24 +716,24 @@ fn read_listed<B: ByteSource>(
     Ok(true)
 }
 
-/// The newest values of the monotone relations of the pieces `finished`, in order: the tops of every piece's
+/// The newest values of the monotone relations of the pieces `closed`, in order: the tops of every piece's
 /// ranges, and the relation columns of each track's last chunk in the newest piece that holds a chunk of the track,
-/// read by `read` (which fills the buffer with the block an entry of a finished piece lists, false when it can't).
+/// read by `read` (which fills the buffer with the block an entry of a closed piece lists, false when it can't).
 /// A track whose newest last chunk doesn't read is unread. One chunk per track is read, at most
 /// [MAX_BLOCK_LEN](crate::MAX_BLOCK_LEN) bytes.
 fn newest_in<K, E>(
-    finished: &[Done<K>],
+    closed: &[Done<K>],
     mut read: impl FnMut(&ChainPiece<K>, &IndexEntry, &mut Vec<u8>) -> Result<bool, WriteError<E>>,
 ) -> Result<Newest, WriteError<E>> {
     let mut newest = Newest::default();
-    for (_, last) in finished {
+    for (_, last) in closed {
         let mut later = last.ranges.clone();
         later.after(&newest);
         newest = later;
     }
     let mut known: BTreeSet<TrackKey> = BTreeSet::new();
     let mut buf = Vec::new();
-    for (done, last) in finished.iter().rev() {
+    for (done, last) in closed.iter().rev() {
         for (key, e) in &last.last_chunks {
             if !known.insert(*key) {
                 continue;

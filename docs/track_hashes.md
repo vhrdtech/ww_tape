@@ -13,7 +13,7 @@ id](concepts.md#items-tracks-and-clocks) of a track. Two owners can therefore ha
 tells such tracks apart by id and owner together.
 
 Two definitions with the same key and different owners are therefore two tracks. Each has its own item numbers, its own
-rows in the piece head and the finish, and its own hash.
+rows in the piece head and the close, and its own hash.
 
 For example, an application records two devices of the same type into one tape. It defines each device's tracks with the
 same keys, and with the device's id as the owner.
@@ -24,9 +24,9 @@ same keys, and with the device's id as the owner.
 the track and each of its records as they are written.
 
 The writer leaves out puts and copies, which repeat what is already on the tape. The piece head states each track's hash
-before the piece, and the finish states it after the piece.
+before the piece, and the close record states it after the piece.
 
-`Finished::tracks` reports the hash when a piece ends.
+`Closed::tracks` reports the hash when a piece ends.
 
 The hash depends only on the track's own data, not on where the data lies. A track written alone or among other tracks,
 in one piece or many, in one file or many, ends with the same hash.
@@ -59,7 +59,7 @@ It is not a check of the payloads.
 `RangeHash::stated` counts the chunks folded that way, and `RangeHash::read` those hashed from their bytes.
 
 The strict check, `TapeReader::verify`, checks the stated hashes: the content hash, each entry against its block, and
-each finish row against its track's fold. Every read of a chunk checks them too.
+each close row against its track's fold. Every read of a chunk checks them too.
 
 ### Without an index
 

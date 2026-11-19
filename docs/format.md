@@ -13,8 +13,8 @@ Numbers are little endian.
 
 ## Files
 
-A tape file is a sequence of [tape blocks](#tape-blocks) appended back to back. A finished file ends with an index, a
-finish block and a tail ([below](#index-finish-and-tail)).
+A tape file is a sequence of [tape blocks](#tape-blocks) appended back to back. A closed file ends with an index, a
+close record and a tail ([below](#index-close-and-tail)).
 
 A recording cut into several files is a chain of [tape pieces](#tape-pieces).
 
@@ -22,7 +22,7 @@ A recording cut into several files is a chain of [tape pieces](#tape-pieces).
 
 `ww_tape::TapeWriter` makes a file durable the way databases make their logs durable:
 
-- It writes a new file as `NAME.partial` and renames it to `NAME` when the file is finished.
+- It writes a new file as `NAME.partial` and renames it to `NAME` when the file is closed.
 - It syncs the file and its directory after the create and after the rename. Neither the data nor the name then vanishes
   in a crash.
 - A `SyncPolicy` decides when the data is synced: never, every N blocks, or at most an interval apart (1 s by default).
@@ -57,7 +57,7 @@ Nothing in it knows its producers, and WireWeaver's link tap is only one of them
 
 A block is a 32-byte header, a body and a CRC-32C. A block is as long as its content and never padded.
 
-The one exception is the finish block of a finished piece ([below](#index-finish-and-tail)). The header ([`ww_tape`
+The one exception is the close record of a closed piece ([below](#index-close-and-tail)). The header ([`ww_tape`
 crate docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/lib.rs)):
 
 ```text
@@ -72,7 +72,7 @@ off size field
          ignores bits it doesn't know)
   8 u32  len: the whole block, header and CRC included
  12 u32  records in the block
- 16 u64  seq: the block number in its session, from 0, +1 per block; a gap is lost blocks. Index, finish, tail and
+ 16 u64  seq: the block number in its session, from 0, +1 per block; a gap is lost blocks. Index, close, tail and
          piece head blocks, and blocks marked FLAG_REPEAT, carry the seq of the block before them and are
          not counted (index::is_structural)
  24 u32  session tag (SessionTag): the same in every block of one writer's unbroken append, never 0 nor FFFFFFFFh
@@ -109,7 +109,7 @@ The header's kind byte says what the body holds (`BlockKind`):
 | 5 | parity, reserved: none are written |
 | 6 | summary |
 | 7 | index |
-| 8 | finish |
+| 8 | close |
 | 9 | tail |
 | 10 | piece head |
 | 11 | postings of a relation, reserved: none are written |
@@ -391,7 +391,7 @@ scales with no common scale (a ratio that isn't a fraction of integers) rather t
 
 #### Writing summary blocks
 
-The builders write a block when a level's batch fills, and the partial nodes at `finish`, up to a level with a single
+The builders write a block when a level's batch fills, and the partial nodes at `close`, up to a level with a single
 node. A lost summary block is rebuilt from the data.
 
 The blocks are small (a few KiB) and go through `TapeWriter::defer_block` as deferred blocks. In an aligned file, they
@@ -648,7 +648,7 @@ later with no puts.
 A deferred block waits at most `DEFER_WINDOW` (1 MiB) of writes. It therefore lies at most its tracks' `near` plus that
 window after their definitions.
 
-A cut and a finish place every deferred block first.
+A cut and a close place every deferred block first.
 
 ## Track identity
 
@@ -692,7 +692,7 @@ Two changes give a track a new key:
 - A resource renamed within its trait keeps its key. One moved to another trait gets a new name path and therefore a new
   key, even with `#[moved_from]`.
 
-## Index, finish and tail
+## Index, close and tail
 
 A writer lists every block it places in **index** blocks (kind 7). A reader then finds blocks without a scan.
 
@@ -782,38 +782,38 @@ Byte 14 is 0, and bytes 16..24 hold `STATE_TRACK_ID`.
 A piece lists at most `IndexPolicy::state_entries_max` state entries, 1 Mi by default. A write past that is refused
 (`IndexError::StateEntries`), and `PieceChain` then cuts to a new piece and writes it there.
 
-### Finish and tail
+### Close and tail
 
-`TapeWriter::finish` ends a piece with three blocks:
+`TapeWriter::close` ends a piece with three blocks:
 
 1. A **final index** lists every block again, sorted by track, with the state entries of one block in block order. Its
    head holds a directory of tracks and a CRC per track's entries.
    - A reader of one track out of thousands reads the head and that track's list.
-2. The **finish** block (kind 8) states how the piece ended: complete, continued or aborted. It holds the BLAKE3 content
+2. The **close** block (kind 8) states how the piece ended: complete, continued or aborted. It holds the BLAKE3 content
    hash of every byte before it and where the newest checkpoint and the final index are.
-   - Per track, the finish also holds the chunks, items and ticks the piece holds.
+   - Per track, the close also holds the chunks, items and ticks the piece holds.
 3. The **tail** (kind 9) is a fixed-size block of 164 bytes (`TAIL_LEN`) and the last bytes of the file. It gives the
-   piece's length, and therefore where the piece starts, and where its finish is.
+   piece's length, and therefore where the piece starts, and where its close is.
 
-Nothing is repeated at the finish. Offsets count from the start of the piece: the index stays valid when files are
+Nothing is repeated at the close. Offsets count from the start of the piece: the index stays valid when files are
 concatenated.
 
-A lost index block costs a scan to the neighbouring checkpoint, and a lost tail or finish only the content-hash check.
+A lost index block costs a scan to the neighbouring checkpoint, and a lost tail or close only the content-hash check.
 
 #### Aligned piece ends
 
-A finished piece is a multiple of `PIECE_ALIGN` (4 KiB) long. The writer pads the finish block's body with zeros after
-its track rows (`piece::finish_padding`).
+A closed piece is a multiple of `PIECE_ALIGN` (4 KiB) long. The writer pads the close record's body with zeros after
+its track rows (`piece::close_padding`).
 
-The finish states the padding at finish offset 172, and the CRC covers it. The content hash still covers the bytes
-before the finish, and the tail stays the piece's last bytes.
+The close states the padding at close offset 172, and the CRC covers it. The content hash still covers the bytes
+before the close, and the tail stays the piece's last bytes.
 
-Finished pieces therefore clone back to back into one file with nothing between them, as reflinks on btrfs or XFS (two
+Closed pieces therefore clone back to back into one file with nothing between them, as reflinks on btrfs or XFS (two
 Linux file systems).
 
-Only the end is aligned: the blocks inside stay where they are, and an unfinished piece ends where it ends.
+Only the end is aligned: the blocks inside stay where they are, and an unclosed piece ends where it ends.
 
-The piece head, the finish and the tail follow ([piece module
+The piece head, the close and the tail follow ([piece module
 docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/piece/mod.rs)). Each header's count is the track count:
 
 ```text
@@ -825,14 +825,15 @@ piece head (kind 10)
 146 u8   integrity (Integrity): 0 Full, 1 CrcOnly, 2 None (written Full; a reader refuses another)    147 [5] reserved
 152 ...  tracks × 96, one per track carried over from the pieces before:
            0 u64 id    8 u32 number
-          12 u32 flags, as a finish row's: bit 0 incomplete (from the pieces before)
+          12 u32 flags, as a close row's: bit 0 incomplete (from the pieces before)
           16 u64 next item (the first item number this piece holds)
           24 i64 from tick (no item of the track here starts before it)
           32 [32] owner (TrackDef::owner; zeros: the piece's owner)
           64 [32] track hash before this piece ([TrackHash])
 
-finish (kind 8)
- 32 u8   state (1 complete, 2 continued in the next piece, 3 aborted)    33 u8 reserved
+close (kind 8)
+ 32 u8   reason (1 closed, 2 aborted; a piece that goes on in the next one, next id below, is closed)
+ 33 u8   reserved
  34 u16  track row length, 136 (a reader takes longer rows and reads their first 136 bytes)    36 [4] reserved
  40 [32] content hash: BLAKE3 of the piece's bytes before this block, each chunk payload by its hash (below)
  72 u64  newest checkpoint index offset    80 u64 last final index offset    88 u64 reserved, u64::MAX
@@ -851,7 +852,7 @@ finish (kind 8)
 
 tail (kind 9), TAIL_LEN bytes, the last of the piece
  32 u64  piece length, from the piece's start to the end of this block
- 40 u64  finish offset    48 u32 finish length    52 u8 state    53 u8 flags (as the finish's)    54 u16 reserved
+ 40 u64  close offset    48 u32 close length    52 u8 reason    53 u8 flags (as the close's)    54 u16 reserved
  56 [32] content hash    88 [16] piece id    104 [16] next piece id    120 [32] owner id    152 u64 sequence
 160 u32  CRC
 ```
@@ -871,7 +872,7 @@ A piece id is never all zeros.
 
 ### Content hash
 
-The **content hash** in the finish and the tail is BLAKE3 over the piece's bytes before the finish block, in order. One
+The **content hash** in the close and the tail is BLAKE3 over the piece's bytes before the close record, in order. One
 exception applies: the payload of every chunk block that reads whole is replaced by the 32-byte BLAKE3 hash of that
 payload.
 
@@ -900,9 +901,9 @@ A **track** is told apart by its id and its **owner** (`TrackDef::owner`, 32 opa
 zeros mean the piece's owner.
 
 Tracks of one identity from several owners therefore share a file, each with its own number, item numbers and hash. The
-head and finish rows carry the owner.
+head and close rows carry the owner.
 
-The index entries name the track number, which the finish rows and the definitions resolve.
+The index entries name the track number, which the close rows and the definitions resolve.
 
 ### Track hash
 
@@ -930,9 +931,9 @@ The hash leaves out where a block lies: the session, seq, track number, payload 
 track written alone or among others, in one piece or many, in one file or many, therefore has the same hash.
 
 A state track's hash stays 32 zero bytes, since its records are all puts. The piece head carries each track's hash
-before the piece, and the finish its hash after it.
+before the piece, and the close its hash after it.
 
-`Finished::tracks` reports every track's hash when a piece ends.
+`Closed::tracks` reports every track's hash when a piece ends.
 
 A record's unit hash is not stored: records are listed per block, not per track. A reader therefore folds them by
 reading their blocks.
@@ -949,14 +950,14 @@ may hold records leaves them out of its hash after the piece.
 The next pieces carry that hash on. Such a track is one the piece defines or its head carries, other than a series or a
 state track.
 
-The finish marks the track's row incomplete (flag bit 0, `TrackRange::incomplete`), as it does for a damaged chunk whose
+The close marks the track's row incomplete (flag bit 0, `TrackRange::incomplete`), as it does for a damaged chunk whose
 entry holds no unit hash.
 
 The mark travels with the hash. The next piece's head row carries it (row byte 12, the same flags,
-`TrackStart::incomplete`), and every later finish row of the track keeps it.
+`TrackStart::incomplete`), and every later close row of the track keeps it.
 
 A piece therefore still says so when the piece that lost the units is gone. A reader refuses a row flag it doesn't know,
-in a head row as in a finish row.
+in a head row as in a close row.
 
 ## Tape pieces
 
@@ -966,7 +967,7 @@ A recording can be cut into **pieces**. Each piece is a complete file that reads
 - the layout and the producer;
 - the data, with the definitions and state it needs close behind it;
 - its checkpoints;
-- the final index, the finish and the tail.
+- the final index, the close and the tail.
 
 `ww_tape::PieceChain` writes the pieces as `dir/00000000.wwt`, `00000001.wwt` and so on, through `ww_tape_fs::Files`. It
 cuts before a chunk by size, chunk count or age (`CutPolicy`).
@@ -976,13 +977,13 @@ cuts before a chunk by size, chunk count or age (`CutPolicy`).
 The **piece head** (kind 10) names the owner, the piece's sequence number, its id, and the previous piece's content hash
 and id. Per track, it says where the track's items continue.
 
-The previous piece's finish and tail name this piece's id, which the cut derives from the previous piece's id and
+The previous piece's close and tail name this piece's id, which the cut derives from the previous piece's id and
 content hash. The chain is therefore checked both ways (`ww_tape::piece::check_chain`).
 
 Pieces written back to back are one valid tape. With `PieceTapes::One`, the chain writes them this way into one file.
 
-With `TapeWriter::cut_in_place`, a cut then starts the next piece right behind the finish. Each session that opens the
-file again starts a new piece behind the last finished one.
+With `TapeWriter::cut_in_place`, a cut then starts the next piece right behind the close. Each session that opens the
+file again starts a new piece behind the last closed one.
 
 A chain whose first pieces were deleted, as in a rolling window, reads as *head cut*, not as damage. A chain whose last
 piece has no tail is open: it is being written, or a crash cut it off.
@@ -991,7 +992,7 @@ piece has no tail is open: it is being written, or a crash cut it off.
 
 [Damage and recovery](recovery.md#resuming-after-a-crash) explains resuming with examples.
 
-`TapeWriter::resume_on` reopens an unfinished piece and goes on writing it. For a file, `ww_tape_fs::writer::resume`
+`TapeWriter::resume_on` reopens an unclosed piece and goes on writing it. For a file, `ww_tape_fs::writer::resume`
 opens `NAME.partial`.
 
 The resume finds the piece as `TapeReader` does. It then walks the piece's bytes from the start to where the reader
@@ -1012,7 +1013,7 @@ A damaged block that the index lists stands for what its entries say. A state re
 unknown, and the next put writes it again.
 
 The resume keeps the piece up to the end of its last good block, counted or not. It drops what ends a piece: a final
-index, or a finish without its tail.
+index, or a close without its tail.
 
 It also drops blocks marked `FLAG_WITH_NEXT` at the end of what it keeps. The call they belong to is given again whole
 and writes them again.
@@ -1023,7 +1024,7 @@ A resume never cuts off a good block. It refuses in two cases:
 - its look past the reader's stop, at most `RESUME_LOOK_MAX` (128 MiB), ends before the bytes do
   (`ResumeError::LookSpent`).
 
-A piece whose finish and tail read whole is complete, since the crash came between the finish and the rename. The resume
+A piece whose close and tail read whole is complete, since the crash came between the close and the rename. The resume
 then cuts off junk after the tail, renames the file and returns `WriteError::Ended`.
 
 ### Same bytes as without the crash
@@ -1037,7 +1038,7 @@ The writer keeps no definitions: after the resume, the application passes its ow
 checks the options' layout and producer against those the piece names, before it cuts or writes anything
 (`InputError::Layout`, `InputError::Producer`).
 
-`PieceChain::resume_on` also reads the finished pieces back and handles a crash between a cut's finish and the next
+`PieceChain::resume_on` also reads the closed pieces back and handles a crash between a cut's close and the next
 piece.
 
 ## Reading by position
@@ -1048,7 +1049,7 @@ slice, a file (`ww_tape_fs::FileSource`) and an HTTP resource read by range requ
 The reader needs no file system and no threads. It therefore builds for `wasm32-unknown-unknown` (feature `alloc`
 without `std`).
 
-The reader finds the pieces from the end. A good tail gives a piece's start and finish, and the previous piece's tail
+The reader finds the pieces from the end. A good tail gives a piece's start and close, and the previous piece's tail
 sits just before that start.
 
 Concatenated pieces therefore cost one small read each.
@@ -1147,7 +1148,7 @@ would pass one:
 | `RESYNC_AHEAD_MAX` | 128 MiB | the bytes a salvage walk (`Recovery::Resync`) reads ahead |
 | `RESYNC_SEQS_MAX` | 65536 | the data blocks a salvage walk remembers by session and seq, for conflicts |
 | `VERIFY_LISTS_MAX` | 493418 | the track lists of a final index one verify takes |
-| `TRACKS_PER_PIECE_MAX` | 493416 | the tracks with data in one piece, so its finish fits a block |
+| `TRACKS_PER_PIECE_MAX` | 493416 | the tracks with data in one piece, so its close fits a block |
 | `HEAD_TRACKS_MAX` | 699006 | the tracks a piece head carries over the chain, so the head fits a block |
 | `WALK_MISS_BASE_MAX` | 1 MiB | the bytes a content-hash walk's missed blocks claim at its start |
 | `WALK_MISS_PER_BYTE_MAX` | 4 | the bytes they claim per byte walked, past that |

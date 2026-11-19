@@ -1,4 +1,4 @@
-//! Files written by path: a new file is `NAME.partial` until its finish, an append goes on in place, and a failed
+//! Files written by path: a new file is `NAME.partial` until its close, an append goes on in place, and a failed
 //! write ends the file.
 
 use ww_tape::{FileBlocks, Recovery, SyncPolicy, WriteError};
@@ -6,10 +6,10 @@ use ww_tape_fs::FsError;
 
 use crate::pieces::{records, scratch};
 
-/// A new file is written as `NAME.partial` and takes its name at the finish; a second create of the name is refused,
+/// A new file is written as `NAME.partial` and takes its name at the close; a second create of the name is refused,
 /// and an append adds a session the prefix walk reads after the first.
 #[test]
-fn a_new_file_is_partial_until_its_finish() {
+fn a_new_file_is_partial_until_its_close() {
     let dir = scratch("files_partial");
     let path = dir.join("cap.wwtape");
     let partial = ww_tape_fs::partial_name(&path);
@@ -17,10 +17,10 @@ fn a_new_file_is_partial_until_its_finish() {
     assert_eq!(w.sink().current_path(), partial);
     w.write_block(crate::definitions::base_defs(), &records(w.next_id(), 1))
         .unwrap();
-    assert!(!path.exists(), "named only when finished");
+    assert!(!path.exists(), "named only when closed");
     assert!(partial.exists());
-    w.finish().unwrap();
-    assert!(path.exists(), "named when finished");
+    w.close().unwrap();
+    assert!(path.exists(), "named when closed");
     assert!(!partial.exists());
     assert!(matches!(
         ww_tape_fs::writer::create(&path, SyncPolicy::None),
@@ -33,7 +33,7 @@ fn a_new_file_is_partial_until_its_finish() {
     let mut w = ww_tape_fs::writer::append(&path, SyncPolicy::default()).unwrap();
     w.set_producer("second");
     w.tick().unwrap();
-    w.finish().unwrap();
+    w.close().unwrap();
     let bytes = std::fs::read(&path).unwrap();
     assert!(bytes.len() as u64 > first_len, "appended in place");
     let mut rd = FileBlocks::with_recovery(&bytes[..], Recovery::Prefix);
@@ -83,7 +83,7 @@ fn a_writer_stops_after_a_failure() {
         Err(WriteError::Failed)
     ));
     assert!(matches!(w.sync(), Err(WriteError::Failed)));
-    assert!(matches!(w.finish(), Err(WriteError::Failed)));
+    assert!(matches!(w.close(), Err(WriteError::Failed)));
 }
 
 /// The texts of an error and its sources, top first.
@@ -114,7 +114,7 @@ fn a_refused_writer_says_the_file_and_why_in_one_line() {
             path.display()
         )]
     );
-    first.finish().unwrap();
+    first.close().unwrap();
     let again = ww_tape_fs::writer::append(&dir, SyncPolicy::None)
         .err()
         .unwrap();
@@ -188,31 +188,31 @@ fn a_resume_of_no_chain_names_the_directory() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
-/// An append takes any bytes before it, checked for nothing: bytes that aren't blocks, a cut tape, a finished one. Its
-/// session is a piece of its own after them, found by its tail; the reader shows the bytes before as an unfinished
-/// piece, its good blocks up to the cut, or as the finished piece they are.
+/// An append takes any bytes before it, checked for nothing: bytes that aren't blocks, a cut tape, a closed one. Its
+/// session is a piece of its own after them, found by its tail; the reader shows the bytes before as an unclosed
+/// piece, its good blocks up to the cut, or as the closed piece they are.
 #[test]
 fn an_append_follows_any_bytes_as_a_piece_of_its_own() {
     use ww_tape::TapeReader;
     let dir = scratch("files_append_any");
-    let finished = dir.join("done.wwt");
-    let mut w = ww_tape_fs::writer::create(&finished, SyncPolicy::None).unwrap();
+    let closed = dir.join("done.wwt");
+    let mut w = ww_tape_fs::writer::create(&closed, SyncPolicy::None).unwrap();
     w.write_block(crate::definitions::base_defs(), &records(w.next_id(), 3))
         .unwrap();
-    w.finish().unwrap();
-    let done = std::fs::read(&finished).unwrap();
+    w.close().unwrap();
+    let done = std::fs::read(&closed).unwrap();
     let cut = done[..done.len() / 2].to_vec();
     for (name, prefix) in [
         ("garbage", vec![0x5au8; 1000]),
         ("cut", cut),
-        ("finished", done.clone()),
+        ("closed", done.clone()),
     ] {
         let path = dir.join(format!("{name}.wwt"));
         std::fs::write(&path, &prefix).unwrap();
         let mut w = ww_tape_fs::writer::append(&path, SyncPolicy::None).unwrap();
         w.write_block(crate::definitions::base_defs(), &records(w.next_id(), 2))
             .unwrap();
-        w.finish().unwrap();
+        w.close().unwrap();
         let r = TapeReader::open(ww_tape_fs::FileSource::open(&path).unwrap()).unwrap();
         let [before, appended] = r.pieces() else {
             panic!("{name}: {:?}", r.pieces());
@@ -224,7 +224,7 @@ fn an_append_follows_any_bytes_as_a_piece_of_its_own() {
         match name {
             "garbage" => assert_eq!((before.end, before.cut), (0, Some(0))),
             "cut" => {
-                assert!(before.tail.is_none() && before.finish.is_none());
+                assert!(before.tail.is_none() && before.close.is_none());
                 assert!(
                     matches!(before.cut, Some(c) if c > 0 && c < len),
                     "{before:?}"

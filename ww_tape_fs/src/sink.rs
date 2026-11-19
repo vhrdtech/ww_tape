@@ -28,7 +28,7 @@ pub enum FsError {
     /// Another writer holds the file: one writer per file ([ww_tape::sink]).
     Locked(PathBuf),
     /// The `.partial` file `create` opened is no longer the one its name points to once locked: another writer
-    /// finished and renamed it, or it was replaced. Nothing is written.
+    /// closed and renamed it, or it was replaced. Nothing is written.
     Replaced(PathBuf),
     /// A name a file sink doesn't write or lock through: a directory, a FIFO or a socket, or a lock file that is a
     /// link or anything but a regular file.
@@ -90,7 +90,7 @@ fn file_offset(base: u64, offset: u64) -> io::Result<u64> {
         .ok_or_else(|| io::Error::from(io::ErrorKind::UnexpectedEof))
 }
 
-/// A file written as `NAME.partial` and renamed to `NAME` at its finish, or a file appended to in place.
+/// A file written as `NAME.partial` and renamed to `NAME` at its close, or a file appended to in place.
 pub struct FileSink {
     file: File,
     path: PathBuf,
@@ -103,7 +103,7 @@ pub struct FileSink {
 }
 
 impl FileSink {
-    /// A new file at `path`, written as `path.partial` until [TapeSink::finish]; the file and its directory are
+    /// A new file at `path`, written as `path.partial` until [TapeSink::close]; the file and its directory are
     /// synced. Fails with [FsError::Exists] if `path` is there or a `path.partial` a crash left holds bytes
     /// ([Self::reopen] resumes it): an empty one is taken, none is ever emptied.
     pub fn create(path: &Path) -> Result<Self, FsError> {
@@ -117,7 +117,7 @@ impl FileSink {
     }
 
     /// Take `file`, opened as `partial` for `path` under `lock`: still the file `partial` names (a writer that held
-    /// it may have finished and renamed it to `path` meanwhile, [FsError::Replaced]), empty, and `path` not there.
+    /// it may have closed and renamed it to `path` meanwhile, [FsError::Replaced]), empty, and `path` not there.
     fn claim(
         mut lock: FileLock,
         file: File,
@@ -211,7 +211,7 @@ impl FileSink {
         })
     }
 
-    /// The file at `path`, appended to in place, finished or not ([Tapes::open_whole]); None when it isn't
+    /// The file at `path`, appended to in place, closed or not ([Tapes::open_whole]); None when it isn't
     /// there.
     pub fn open_whole(path: &Path) -> Result<Option<Self>, FsError> {
         let lock = FileLock::take(path)?;
@@ -226,7 +226,7 @@ impl FileSink {
         }
     }
 
-    /// The unfinished file `path.partial`, to resume; None when it isn't there.
+    /// The unclosed file `path.partial`, to resume; None when it isn't there.
     pub fn reopen(path: &Path) -> Result<Option<Self>, FsError> {
         let lock = FileLock::take(path)?;
         let partial = partial_name(path);
@@ -235,7 +235,7 @@ impl FileSink {
             Ok(file) => Self::opened(lock, file, path, Some(partial)).map(Some),
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
             Err(error) => Err(FsError::Io {
-                what: "opening the unfinished file",
+                what: "opening the unclosed file",
                 path: partial,
                 error,
             }),
@@ -275,10 +275,10 @@ impl TapeSink for FileSink {
             .map_err(io_err("syncing the file", self.current_path()))
     }
 
-    fn finish(&mut self) -> Result<(), FsError> {
+    fn close(&mut self) -> Result<(), FsError> {
         if let Some(partial) = self.partial.take() {
             std::fs::rename(&partial, &self.path)
-                .map_err(io_err("renaming the finished file", &partial))?;
+                .map_err(io_err("renaming the closed file", &partial))?;
             sync_dir(&self.path).map_err(io_err("syncing the directory", &self.path))?;
         }
         Ok(())
@@ -325,7 +325,7 @@ impl TapeSink for FileSink {
 }
 
 impl FileSink {
-    /// The name of the file once finished.
+    /// The name of the file once closed.
     pub fn path(&self) -> &Path {
         &self.path
     }
@@ -464,7 +464,7 @@ impl Tapes for Files {
         FileSink::reopen(&self.path_of(*key))
     }
 
-    fn finished(&self, key: &u64) -> Result<Option<FileSource>, FsError> {
+    fn closed(&self, key: &u64) -> Result<Option<FileSource>, FsError> {
         match FileSource::open(&self.path_of(*key)) {
             Ok(src) => Ok(Some(src)),
             Err(FsError::Io { error, .. }) if error.kind() == io::ErrorKind::NotFound => Ok(None),
@@ -481,7 +481,7 @@ impl Tapes for Files {
     }
 }
 
-/// A file read by positional reads, a finished piece or any tape: the [ByteSource] of a file for a
+/// A file read by positional reads, a closed piece or any tape: the [ByteSource] of a file for a
 /// [TapeReader](ww_tape::TapeReader).
 #[derive(Debug)]
 pub struct FileSource {
@@ -561,8 +561,8 @@ fn sync_dir(path: &Path) -> io::Result<()> {
 mod tests {
     use super::*;
 
-    /// A create that opened `NAME.partial` while another writer held it, and locks it after that writer finished
-    /// and renamed it to `NAME`, refuses: the finished file keeps its bytes.
+    /// A create that opened `NAME.partial` while another writer held it, and locks it after that writer closed
+    /// and renamed it to `NAME`, refuses: the closed file keeps its bytes.
     #[test]
     fn create_refuses_a_partial_renamed_before_its_lock() {
         let dir = std::env::temp_dir().join(format!("ww_tape_sink_claim_{}", std::process::id()));
@@ -570,7 +570,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("a.wwt");
         let partial = partial_name(&path);
-        std::fs::write(&partial, b"finished bytes").unwrap();
+        std::fs::write(&partial, b"closed bytes").unwrap();
         let file = open_partial(&partial).unwrap();
         std::fs::rename(&partial, &path).unwrap();
         let r = FileSink::claim(FileLock::take(&path).unwrap(), file, &path, partial.clone());
@@ -579,7 +579,7 @@ mod tests {
             "{:?}",
             r.err()
         );
-        assert_eq!(std::fs::read(&path).unwrap(), b"finished bytes");
+        assert_eq!(std::fs::read(&path).unwrap(), b"closed bytes");
         // another file under the name now: refused as well
         let file = open_partial(&partial).unwrap();
         std::fs::remove_file(&partial).unwrap();
@@ -645,7 +645,7 @@ mod tests {
             )
         );
         assert!(e.source().is_none());
-        sink.finish().unwrap();
+        sink.close().unwrap();
         drop(sink);
 
         let e = FileSink::create(&path).err().unwrap();

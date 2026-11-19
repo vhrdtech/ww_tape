@@ -41,17 +41,17 @@ fn book_definitions_example() {
     let mut writer = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     example(&mut writer).unwrap();
     let tape = writer.sink().tape();
-    writer.finish().unwrap();
+    writer.close().unwrap();
     let bytes = tape.to_vec().unwrap();
     let r = ww_tape::TapeReader::open(&bytes[..]).unwrap();
     let defs = r.definitions_at(0, u64::MAX).unwrap();
     assert!(defs.is_whole(), "every definition reads: {defs:?}");
 }
 
-/// The finished pieces of a chain of files.
+/// The closed pieces of a chain of files.
 type Pieces = Vec<ChainPiece<u64>>;
 
-/// The lines of "Writing a chain into one file", between the setup and the checks: the finished pieces of the first
+/// The lines of "Writing a chain into one file", between the setup and the checks: the closed pieces of the first
 /// session and those of the second.
 fn one_file_example(
     path: &Path,
@@ -67,11 +67,11 @@ fn one_file_example(
     };
     let mut chain = ww_tape_fs::chain::create(path, owner, 0, &[], options.clone())?;
     chain.write_chunk(defs, head, columns)?;
-    let first = chain.finish()?;
-    // opened again: a new piece behind the finished one
+    let first = chain.close()?;
+    // opened again: a new piece behind the closed one
     let (mut chain, _) = ww_tape_fs::chain::resume(path, owner, 0, options)?;
     chain.write_chunk(defs, head, columns)?;
-    let second = chain.finish()?;
+    let second = chain.close()?;
     // end of the pieces page's lines
     Ok((first, second))
 }
@@ -410,7 +410,7 @@ fn format_page_kinds_are_block_kinds() {
         (5, Some(BlockKind::Parity), "parity"),
         (6, Some(BlockKind::Summary), "summary"),
         (7, Some(BlockKind::Index), "index"),
-        (8, Some(BlockKind::Finish), "finish"),
+        (8, Some(BlockKind::Close), "close"),
         (9, Some(BlockKind::Tail), "tail"),
         (10, Some(BlockKind::PieceHead), "piece head"),
         (11, Some(BlockKind::POSTINGS), "postings"),
@@ -509,7 +509,7 @@ fn format_page_caps_are_the_constants() {
     }
 }
 
-/// The piece head and finish rows on the page, read from a chain of two pieces: owner, track hash, records and the
+/// The piece head and close rows on the page, read from a chain of two pieces: owner, track hash, records and the
 /// row lengths at the page's offsets, the hash a fold of the track's records.
 #[test]
 fn format_page_piece_rows_read_a_chain() {
@@ -539,7 +539,7 @@ fn format_page_piece_rows_read_a_chain() {
     chain.cut_now().unwrap();
     let block = crate::pieces::records(chain.writer().unwrap().next_id(), 3);
     chain.write_block(defs, &block).unwrap();
-    let done = chain.finish().unwrap();
+    let done = chain.close().unwrap();
     let fold = |n: i64| (0..n).fold(TrackHash::START, |h, k| h.record(k, &[k as u8; 30]));
 
     let second = tapes.get(&done[1].tape).unwrap().unwrap().to_vec().unwrap();
@@ -552,25 +552,25 @@ fn format_page_piece_rows_read_a_chain() {
     assert_eq!(second[head_row + owner_at..][..32], [0; 32]);
     assert_eq!(second[head_row + hash_before..][..32], fold(3).0);
     // its flags: none for a chain written whole
-    assert_eq!(at("flags, as a finish row's"), [12]);
+    assert_eq!(at("flags, as a close row's"), [12]);
     assert_eq!(second[head_row + 12..][..4], [0; 4]);
 
-    let finish_at = (done[1].piece.len as usize) - ww_tape::TAIL_LEN;
-    let tail = ww_tape::Tail::read(&second[finish_at..]).unwrap();
-    let f = &second[tail.finish_offset as usize..];
+    let close_at = (done[1].piece.len as usize) - ww_tape::TAIL_LEN;
+    let tail = ww_tape::Tail::read(&second[close_at..]).unwrap();
+    let f = &second[tail.close_offset as usize..];
     assert_eq!(u16::from_le_bytes([f[34], f[35]]), 136);
-    let finish_row = 176;
+    let close_row = 176;
     let records = at("records: the track's")[0];
     let hash_after = at("track hash after")[0];
     assert_eq!(
-        u64::from_le_bytes(f[finish_row + records..][..8].try_into().unwrap()),
+        u64::from_le_bytes(f[close_row + records..][..8].try_into().unwrap()),
         1
     );
-    assert_eq!(f[finish_row + hash_after..][..32], fold(4).0);
+    assert_eq!(f[close_row + hash_after..][..32], fold(4).0);
     assert_eq!(done[1].piece.tracks[0].hash, fold(4));
     // a piece written whole: no row flag
     let flags = at("flags: bit 0 incomplete")[0];
-    assert_eq!(f[finish_row + flags..][..4], [0; 4]);
+    assert_eq!(f[close_row + flags..][..4], [0; 4]);
 }
 
 /// The integrity reservations on the page against their constants: written as full integrity, refused otherwise.
@@ -599,7 +599,7 @@ fn format_page_integrity_reservations_are_the_constants() {
     assert!(page.contains("| piece head byte 146 `integrity`, header flag bit 3 `FLAG_PAYLOAD_UNCHECKED`, index entry flag bit 2 `ENTRY_UNHASHED` |"));
 }
 
-/// The index entry's range pair, flag bit 1 and unit hash, the head and finish rows' owner and the piece head's
+/// The index entry's range pair, flag bit 1 and unit hash, the head and close rows' owner and the piece head's
 /// integrity byte on the page, read from a chain of two pieces of a track with a range relation and an owner.
 #[test]
 fn format_page_relations_and_owner_read_a_chain() {
@@ -642,7 +642,7 @@ fn format_page_relations_and_owner_read_a_chain() {
         let cols: Vec<_> = cols.iter().map(|(s, b)| (*s, b.as_slice())).collect();
         chain.write_chunk(&defs, &head, &cols).unwrap();
     }
-    let done = chain.finish().unwrap();
+    let done = chain.close().unwrap();
     assert_eq!(done.len(), 2);
     let second = tapes.get(&done[1].tape).unwrap().unwrap().to_vec().unwrap();
     // byte 146 of the piece head, the first block: Full; 1 there, its CRC made good, is CrcOnly, which is refused
@@ -662,10 +662,10 @@ fn format_page_relations_and_owner_read_a_chain() {
     // the head row carries the track over with its owner (head rows from 152)
     let head_row = 32 + 120;
     assert_eq!(second[head_row + 32..][..32], owner);
-    // the finish row names the owner (rows from 176, owner at 56)
-    let finish_at = (done[1].piece.len as usize) - ww_tape::TAIL_LEN;
-    let tail = ww_tape::Tail::read(&second[finish_at..]).unwrap();
-    let f = &second[tail.finish_offset as usize..];
+    // the close row names the owner (rows from 176, owner at 56)
+    let close_at = (done[1].piece.len as usize) - ww_tape::TAIL_LEN;
+    let tail = ww_tape::Tail::read(&second[close_at..]).unwrap();
+    let f = &second[tail.close_offset as usize..];
     assert_eq!(f[176 + 56..][..32], owner);
     // the final index: the chunk's entry at the page's offsets
     let r = ww_tape::TapeReader::open(&second[..]).unwrap();
@@ -676,13 +676,7 @@ fn format_page_relations_and_owner_read_a_chain() {
         .find(|e| e.kind == ww_tape::BlockKind::Events)
         .unwrap();
     assert_eq!(entry.range, Some((105, 107)));
-    let final_at = r.pieces()[0]
-        .finish
-        .as_ref()
-        .unwrap()
-        .0
-        .final_index
-        .unwrap() as usize;
+    let final_at = r.pieces()[0].close.as_ref().unwrap().0.final_index.unwrap() as usize;
     let ix = &second[final_at..];
     let entries_at = u32::from_le_bytes(ix[32..36].try_into().unwrap()) as usize;
     let entry_len = usize::from(u16::from_le_bytes([ix[58], ix[59]]));

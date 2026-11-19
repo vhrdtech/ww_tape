@@ -4,17 +4,17 @@ use crate::id;
 use crate::range_hash::{crc32c, id_of, rewrite_final_entries, write};
 use ww_tape::index::IndexEntry;
 use ww_tape::piece::{
-    ChainEnd, ContentHash, Finish, FinishState, TAIL_LEN, Tail, finish_len, write_finish,
+    ChainEnd, Close, CloseReason, ContentHash, TAIL_LEN, Tail, close_len, write_close,
 };
 use ww_tape::reader::ReadError;
 use ww_tape::{BlockKind, PieceTapes, TapeReader};
 
-fn tail(piece_len: u64, finish_offset: u64, finish_len: u32) -> [u8; TAIL_LEN] {
+fn tail(piece_len: u64, close_offset: u64, close_len: u32) -> [u8; TAIL_LEN] {
     let t = Tail {
         piece_len,
-        finish_offset,
-        finish_len,
-        state: FinishState::Complete,
+        close_offset,
+        close_len,
+        reason: CloseReason::Closed,
         hash: ContentHash([0; 32]),
         ident: None,
         next: None,
@@ -31,18 +31,18 @@ fn tail_with_wrapping_offsets_is_no_tail() {
     assert!(r.pieces().iter().all(|p| p.end <= TAIL_LEN as u64));
 }
 
-/// A finished piece of a finish block naming `final_index` and its tail, nothing else.
-fn finish_only(final_index: u64) -> Vec<u8> {
-    let finish = Finish {
-        state: FinishState::Complete,
+/// A closed piece of a close record naming `final_index` and its tail, nothing else.
+fn close_only(final_index: u64) -> Vec<u8> {
+    let close = Close {
+        reason: CloseReason::Closed,
         hash: ContentHash([0; 32]),
         checkpoint: None,
         final_index: Some(final_index),
         ident: None,
         next: None,
     };
-    let mut bytes = vec![0u8; finish_len(0)];
-    let n = write_finish(&mut bytes, id(0), &finish, &[], 0).unwrap();
+    let mut bytes = vec![0u8; close_len(0)];
+    let n = write_close(&mut bytes, id(0), &close, &[], 0).unwrap();
     bytes.truncate(n);
     bytes.extend(tail((n + TAIL_LEN) as u64, 0, n as u32));
     bytes
@@ -51,10 +51,10 @@ fn finish_only(final_index: u64) -> Vec<u8> {
 #[test]
 fn final_index_past_the_piece_is_an_error() {
     for at in [u64::MAX - 10, u64::MAX - 40, 1 << 40, 8] {
-        let bytes = finish_only(at);
+        let bytes = close_only(at);
         let r = TapeReader::open(&bytes[..]).unwrap();
         assert_eq!(r.pieces().len(), 1, "final index at {at}");
-        assert!(r.pieces()[0].finish.is_some());
+        assert!(r.pieces()[0].close.is_some());
         assert!(r.entries(0).is_err(), "final index at {at}");
         assert!(r.track_entries(0, 1).is_err(), "final index at {at}");
     }
@@ -62,7 +62,7 @@ fn final_index_past_the_piece_is_an_error() {
 
 #[test]
 fn entry_past_the_piece_is_an_error() {
-    let bytes = finish_only(0);
+    let bytes = close_only(0);
     let r = TapeReader::open(&bytes[..]).unwrap();
     let mut buf = Vec::new();
     for (offset, len) in [(u64::MAX - 10, 64), (u64::MAX, 1), (0, u32::MAX), (8, 400)] {
@@ -97,7 +97,7 @@ fn entry_past_the_piece_is_an_error() {
 
 #[test]
 fn a_piece_number_past_the_pieces_is_an_error() {
-    let bytes = finish_only(0);
+    let bytes = close_only(0);
     let r = TapeReader::open(&bytes[..]).unwrap();
     let n = r.pieces().len();
     assert!(matches!(r.entries(n), Err(ReadError::NoPiece(i)) if i == n));
@@ -111,7 +111,7 @@ fn a_piece_number_past_the_pieces_is_an_error() {
 
 #[test]
 fn an_entry_longer_than_any_block_is_refused_before_reading() {
-    let bytes = finish_only(0);
+    let bytes = close_only(0);
     let r = TapeReader::open(&bytes[..]).unwrap();
     let entry = IndexEntry {
         offset: 0,
@@ -151,18 +151,18 @@ fn reseal_block(bytes: &mut [u8], at: usize) {
     bytes[at + len - 4..at + len].copy_from_slice(&crc.to_le_bytes());
 }
 
-/// A finish this build refuses (rows of another length, or flags it doesn't know), its CRC good, is kept as the
-/// piece's `finish_error`: the tail behind it ends no chain, so the chain is open, not whole.
+/// A close this build refuses (rows of another length, or flags it doesn't know), its CRC good, is kept as the
+/// piece's `close_error`: the tail behind it ends no chain, so the chain is open, not whole.
 #[test]
-fn a_refused_finish_leaves_the_chain_open() {
+fn a_refused_close_leaves_the_chain_open() {
     let (_, files) = write(PieceTapes::One, 0x5eed);
     let good = TapeReader::open(&files[0][..]).unwrap();
     assert!(good.chain().is_whole());
     let i = good.pieces().len() - 1;
     let p = &good.pieces()[i];
-    let fin = (p.start + p.finish_offset.unwrap()) as usize;
-    let rows = p.finish.as_ref().unwrap().1.len();
-    // the finish's row length at +34, rows of 136 bytes from +176, each row's flags at +128
+    let fin = (p.start + p.close_offset.unwrap()) as usize;
+    let rows = p.close.as_ref().unwrap().1.len();
+    // the close's row length at +34, rows of 136 bytes from +176, each row's flags at +128
     let mut short_rows = files[0].clone();
     short_rows[fin + 34..fin + 36].copy_from_slice(&128u16.to_le_bytes());
     reseal_block(&mut short_rows, fin);
@@ -176,10 +176,10 @@ fn a_refused_finish_leaves_the_chain_open() {
         let r = TapeReader::open(&bytes[..]).unwrap();
         assert_eq!(r.pieces().len(), good.pieces().len(), "{name}");
         let p = &r.pieces()[i];
-        assert!(p.finish.is_none(), "{name}");
-        assert!(p.finish_error.is_some(), "{name}");
+        assert!(p.close.is_none(), "{name}");
+        assert!(p.close_error.is_some(), "{name}");
         let c = r.chain();
-        assert_eq!(c.end, ChainEnd::Open, "{name}");
+        assert_eq!(c.end, ChainEnd::Unclosed, "{name}");
         assert!(!c.is_whole(), "{name}");
     }
 }

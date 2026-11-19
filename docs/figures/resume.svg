@@ -1,4 +1,4 @@
-<svg class="ww-svg" viewBox="0 0 680 236" width="680" height="236" role="img" aria-label="An unfinished piece after a crash: a resume keeps every byte up to its last good block of data and cuts off the puts marked FLAG_WITH_NEXT after it and the torn block; the producer gives the call again and the same bytes are written" xmlns="http://www.w3.org/2000/svg">
+<svg class="ww-svg" viewBox="0 0 680 236" width="680" height="236" role="img" aria-label="An unclosed piece after a crash: a resume keeps every byte up to its last good block of data and cuts off the puts marked FLAG_WITH_NEXT after it and the torn block; the producer gives the call again and the same bytes are written" xmlns="http://www.w3.org/2000/svg">
   <text x="20" y="22" text-anchor="start" class="strong">after the crash</text>
   <rect x="20.5" y="64" width="29" height="30" rx="2" class="tint-ink"/>
   <text x="35" y="83.5" text-anchor="middle" class="small">head</text>

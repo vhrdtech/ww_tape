@@ -216,7 +216,7 @@ pub fn summary_hostile(data: &[u8]) {
     let _ = Block::salvage(&b).map(|b| ww_tape_summary::Summary::of_block(&b).map(|s| s.scale()));
 }
 
-/// `tape-index-hostile`: an index, finish, piece head or tail block of hostile offsets, directory or entries, read
+/// `tape-index-hostile`: an index, close, piece head or tail block of hostile offsets, directory or entries, read
 /// alone, from its head and as a file.
 pub fn index_hostile(data: &[u8]) {
     let b = hostile::index(data);
@@ -249,7 +249,7 @@ pub fn reader_hostile(data: &[u8]) {
 /// `tape-state-hostile`: a piece of puts, copies and definitions whose blocks of state records and index state
 /// entries lie behind good CRCs, or which is cut. Every lookup of the reader hands out only a record that is the one
 /// its entry names (its hash, its slot) and lies before the place asked; a resume of it takes new definitions, puts
-/// and blocks, and finishes whole. The piece is read as a file, as a raw medium, with a small cache and small
+/// and blocks, and closes whole. The piece is read as a file, as a raw medium, with a small cache and small
 /// read budgets.
 pub fn state_hostile(data: &[u8]) {
     let a = hostile::state_attacked(data);
@@ -440,7 +440,7 @@ fn lookups(r: &TapeReader<&[u8]>, i: usize) {
 }
 
 /// A resume of `f`: when it resumes, the definitions again, a put on each state track and a records block, then a
-/// finish that a reader finds whole. Unless the input was `forged` (a block behind a good CRC that isn't the one its
+/// close that a reader finds whole. Unless the input was `forged` (a block behind a good CRC that isn't the one its
 /// index entry states, which a resume keeps the entry of), the piece verifies.
 fn resume_state(f: &[u8], forged: bool) {
     let mut sink = MemSink::new();
@@ -456,12 +456,12 @@ fn resume_state(f: &[u8], forged: bool) {
     }
     w.write_block(&defs, &hostile::state_records(w.next_id(), 1000))
         .expect("a resumed piece takes blocks");
-    w.finish().expect("a resumed piece finishes");
+    w.close().expect("a resumed piece closes");
     let out = tape.to_vec().expect("the bytes");
-    let r = TapeReader::open(&out[..]).expect("a finished piece opens");
+    let r = TapeReader::open(&out[..]).expect("a closed piece opens");
     let last = r.pieces().len().checked_sub(1).expect("a piece");
     assert!(
-        r.verify(last).expect("a finished piece") || forged,
+        r.verify(last).expect("a closed piece") || forged,
         "the piece verifies"
     );
     let found = r

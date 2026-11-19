@@ -26,25 +26,25 @@ Only the block walk `FileBlocks` of the last section needs `std`.
 
 ## Opening from the tails
 
-`TapeReader::open(source)` finds the pieces from the end of the bytes, because a finished piece describes itself
+`TapeReader::open(source)` finds the pieces from the end of the bytes, because a closed piece describes itself
 there. It works in these steps:
 
 1. It reads the last 164 bytes (`TAIL_LEN`). A good **tail** gives the last piece's length, and so its start, and the
-   offset of its finish block.
+   offset of its close record.
 2. The previous piece's tail, if there is one, lies just before that start. The reader steps back piece by piece with
-   three small reads each: the tail, the finish and the piece head.
+   three small reads each: the tail, the close and the piece head.
 3. A piece without a tail is one still being written or one cut off by a crash. The reader finds it from its newest
    **checkpoint**, an index block the writer places every 4 MiB by default.
 4. The reader looks backwards from the end for that checkpoint, at most `OpenOptions::scan_back_max` (256 MiB by
    default). It follows the chain of checkpoints back to list the blocks before the newest one.
 5. It then scans the blocks after the newest checkpoint one by one.
 6. A piece without any checkpoint is, with the default policy, shorter than 4 MiB. The reader scans it from its start,
-   or from the end of the finished piece before it.
+   or from the end of the closed piece before it.
 
 ### What the reader knows about each piece
 
 `TapeReader::pieces` then lists each piece as a `PieceInfo`. It says where the piece starts and ends, and holds its
-head, finish and tail when it has them.
+head, close and tail when it has them.
 
 The `PieceInfo` also says how the reader found the piece: `Found::Tail`, `Found::Checkpoint` or `Found::Scan`, with
 the bytes scanned.
@@ -69,8 +69,8 @@ forward from the medium's start, or from the offset `OpenOptions::start` its med
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/figures/seek.svg"
-<figcaption>Above, a finished piece: the reader reads the tail (1), the finish (2), the final index's directory (3) and
-one track's list, then (4) only the needed blocks. Below, an unfinished piece: the newest checkpoint and its back
+<figcaption>Above, a closed piece: the reader reads the tail (1), the close (2), the final index's directory (3) and
+one track's list, then (4) only the needed blocks. Below, an unclosed piece: the newest checkpoint and its back
 pointers list every earlier block, and the reader scans the blocks after it.</figcaption>
 </figure>
 
@@ -99,7 +99,7 @@ These calls give entries and read what they name:
 - `TapeReader::relation_breaks(track_id, owner)` lists the chunks of a track, over all pieces, where its monotone
   relations start again ([relation breaks](format.md#tape-blocks)).
 
-`track_entries` in a finished piece reads only the final index's directory and that track's list. Each is checked by
+`track_entries` in a closed piece reads only the final index's directory and that track's list. Each is checked by
 its own CRC.
 
 A reader of one track out of thousands therefore reads a few hundred bytes of index. Track id 0 gives the records
@@ -216,12 +216,12 @@ chunk through the index, and from the chunk to the item by its position.
 
 ## Checking a piece
 
-`TapeReader::verify(i)` checks that finished piece `i` is the piece its writer wrote. It hashes the piece's bytes
-before its finish and compares the result with the content hash the finish states.
+`TapeReader::verify(i)` checks that closed piece `i` is the piece its writer wrote. It hashes the piece's bytes
+before its close and compares the result with the content hash the close record states.
 
 A match proves the piece unchanged since it was written.
 
-Verify also replays the piece block by block as its writer placed them. A writer that lied in its index or finish
+Verify also replays the piece block by block as its writer placed them. A writer that lied in its index or close
 therefore fails too.
 
 ### What verify checks
@@ -232,8 +232,8 @@ therefore fails too.
   column.
 - The index and the walk are the same set. Every block walked that its writer lists is listed.
 - The one exception is a byte-identical copy of the listed block before it, which adds to no track.
-- Every entry names a block walked, or a damaged block that ends before the next block walked and before the finish.
-- Each finish row states the hash its track's listed blocks fold to, starting from the head row's hash.
+- Every entry names a block walked, or a damaged block that ends before the next block walked and before the close.
+- Each close row states the hash its track's listed blocks fold to, starting from the head row's hash.
 - A row may say the hash is incomplete, but only exactly where the head, or a damaged block a resume kept, leaves
   units out.
 - Each monotone relation of a track starts each chunk at or above the chunk before it. A chunk marked as a [relation
@@ -256,7 +256,7 @@ piece, and verify says the piece fails.
 `TapeReader::chain` checks the links between the pieces at hand. It checks each piece head against the piece before
 it, and each tail's next piece id against the next piece.
 
-A piece without a finish has no hash to check. That is how a reader knows the piece wasn't closed.
+A piece without a close has no hash to check. That is how a reader knows the piece wasn't closed.
 
 ## Damage and salvage
 

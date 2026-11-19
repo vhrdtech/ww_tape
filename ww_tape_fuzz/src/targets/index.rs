@@ -1,4 +1,4 @@
-//! ww_tape index, finish, tail and piece head blocks and the positional reader on any bytes: decoding never panics,
+//! ww_tape index, close, tail and piece head blocks and the positional reader on any bytes: decoding never panics,
 //! a reader opens any bytes and every entry it gives lies in its piece, a good chunk's head reads alone, a series
 //! timeline builds from the heads and a track's range hash folds from the index or the chunks, the same from both for a
 //! piece that verifies; index blocks built from the input read back equal, a final one also track by track from its
@@ -6,7 +6,7 @@
 use ww_tape::index::{
     IndexBlock, IndexEntry, IndexHead, IndexKind, index_len, track_count, write_index,
 };
-use ww_tape::piece::{FinishBlock, PieceHeadBlock};
+use ww_tape::piece::{CloseBlock, PieceHeadBlock};
 use ww_tape::{
     Block, BlockKind, IndexError, Layout, Medium, OpenOptions, OwnerId, Ratio64, ReadError, Tail,
     TapeReader, TrackHash,
@@ -31,8 +31,8 @@ pub(crate) fn decode(data: &[u8]) {
             assert_eq!(ix.entries().count(), ix.entry_count());
             let _ = ix.track(0);
         }
-        if let Ok(f) = FinishBlock::read(&b) {
-            let _ = f.finish();
+        if let Ok(f) = CloseBlock::read(&b) {
+            let _ = f.close();
             f.tracks().for_each(drop);
         }
         if let Ok(h) = PieceHeadBlock::read(&b) {
@@ -169,7 +169,7 @@ fn index_folds_as_the_walk(data: &[u8]) {
         return;
     };
     let Some(at) = p
-        .finish
+        .close
         .as_ref()
         .and_then(|(f, _)| f.final_index)
         .and_then(|a| usize::try_from(p.start.saturating_add(a)).ok())

@@ -546,7 +546,7 @@ fn write_tape(layout: Layout) -> Vec<u8> {
     sh.track_id = crate::tests::test_track_id();
     w.write_chunk(&defs, &sh, &series_columns(&sc)).unwrap();
     w.defer_block(&defs, small(4)).unwrap();
-    w.finish().unwrap();
+    w.close().unwrap();
     tape.to_vec().unwrap()
 }
 
@@ -607,7 +607,7 @@ fn aligned_file_puts_payloads_on_pages_and_fills_gaps() {
     let (_, errors) = walk(&file, Recovery::Prefix);
     assert_eq!(errors, 0);
     let blocks = counted(&file);
-    // the final index, finish and tail at the end carry the last counted seq
+    // the final index, close and tail at the end carry the last counted seq
     let seqs: Vec<u64> = blocks.iter().map(|b| b.1).collect();
     assert_eq!(
         seqs,
@@ -617,10 +617,10 @@ fn aligned_file_puts_payloads_on_pages_and_fills_gaps() {
     let kinds: Vec<BlockKind> = blocks.iter().map(|b| b.2).collect();
     use BlockKind::*;
     // the deferred blocks 1 and 2 fill the gap before the events chunk, 3 that before the second series chunk; 4 has
-    // no chunk after it and goes at the end, then the writer's final index, finish and tail. Between them, the puts
+    // no chunk after it and goes at the end, then the writer's final index, close and tail. Between them, the puts
     // of the layout, the producer and the definitions each block needs.
     let want = [
-        Series, Records, Records, Events, Records, Series, Records, Index, Finish, Tail,
+        Series, Records, Records, Events, Records, Series, Records, Index, Close, Tail,
     ];
     assert_eq!(kinds, want);
     assert_eq!(repeats(&file)[0], 0, "the layout and the producer first");

@@ -25,7 +25,7 @@ content hash, at four levels:
 | block CRC-32C | each whole block | that block |
 | head CRC-32C | the head of a chunk or index block | the head alone; the block's place stays known |
 | segment CRC-32C | each 64 KiB segment of a chunk's payload | one segment of one chunk |
-| content hash, BLAKE3 | every byte of a finished piece before its finish block | nothing; it proves the piece is unchanged |
+| content hash, BLAKE3 | every byte of a closed piece before its close record | nothing; it proves the piece is unchanged |
 
 A chunk's **head** gives the chunk's length, its track, its item numbers and ticks. It also holds one CRC per
 **segment**, a fixed stretch of the payload.
@@ -58,7 +58,7 @@ The block kind `BlockKind::Parity` is reserved for parity blocks, but no writer 
    crash.
 2. The writer syncs the data by a `SyncPolicy`: never, every N blocks, or at most an interval apart (1 s by default).
    The policy bounds what a crash can lose.
-3. At the finish the writer writes the final index, the finish block and the tail. It pads the finish block so the
+3. At the close the writer writes the final index, the close record and the tail. It pads the close record so the
    piece ends on 4 KiB.
 4. The sink then renames the file to `NAME` and syncs the directory again.
 
@@ -67,7 +67,7 @@ A failed write or sync ends the file. The writer reports it and refuses every la
 The writer never retries. After a failed `fsync`, Linux may drop the unwritten pages, and a second `fsync` then
 succeeds without them.
 
-A file that still ends in `.partial` was never finished.
+A file that still ends in `.partial` was never closed.
 
 A file has one writer at a time. A file sink holds an exclusive lock on the lock file `NAME.lock` beside it.
 
@@ -78,7 +78,7 @@ The crash leaves the lock file behind, but the file holds no lock. The next writ
 
 ### Resuming after a crash
 
-A **resume** reopens an unfinished piece and continues it as if the crash never happened. These calls resume:
+A **resume** reopens an unclosed piece and continues it as if the crash never happened. These calls resume:
 
 - `ww_tape_fs::writer::resume` takes the path `NAME` and the writer options, and reopens `NAME.partial`.
 - `TapeWriter::resume_on` does the same on any other sink, such as a `MemSink`.
@@ -91,7 +91,7 @@ it up to the first bad block.
 The resume keeps every good block up to the end of the piece's data. It cuts off the rest:
 
 - a torn block, the last one the crash interrupted;
-- the end of a piece (final index, finish block) when the crash came inside it;
+- the end of a piece (final index, close record) when the crash came inside it;
 - trailing puts marked `FLAG_WITH_NEXT`, which belong with a block that didn't survive.
 
 The resume then replays every block it keeps, so the writer knows again what it put and where.
@@ -116,10 +116,10 @@ The writer puts what each block needs again wherever the same item doesn't lie c
 
 Two cases need no new data:
 
-- A piece whose finish and tail read whole is complete: the crash came after the finish, before the rename. The resume
+- A piece whose close and tail read whole is complete: the crash came after the close, before the rename. The resume
   cuts off junk after the tail, renames the piece, writes nothing and returns `WriteError::Ended`.
-- A piece cut inside its end is opened again. The resume cuts off its final index and finish block, and the next
-  finish pads the piece to 4 KiB again.
+- A piece cut inside its end is opened again. The resume cuts off its final index and close record, and the next
+  close pads the piece to 4 KiB again.
 
 ### When a resume refuses
 
@@ -128,7 +128,7 @@ and leaves the bytes as they are:
 
 | Error | Why |
 |---|---|
-| `ResumeError::NoPiece` | there is no unfinished piece; `ww_tape_fs` reports `FsError::NoPiece` with the path |
+| `ResumeError::NoPiece` | there is no unclosed piece; `ww_tape_fs` reports `FsError::NoPiece` with the path |
 | `ResumeError::GoodBlockAfterCut { offset }` | a good block of the piece lies past where the reader stopped |
 | `ResumeError::LookSpent { offset }` | the look for good blocks ran out before the end of the bytes |
 | `ResumeError::HashWalkSpent { end }` | the content-hash walk of the bytes kept spent its budget; new blocks would not verify |
@@ -160,13 +160,13 @@ the end of the data. Options with another chunk alignment would place blocks the
 
 The layout's gap settings need no check, because the writer never leaves a gap.
 
-A damaged block that the resume keeps leaves the piece checkable. The finish block marks the hash of each track whose
+A damaged block that the resume keeps leaves the piece checkable. The close record marks the hash of each track whose
 data that block may hold as incomplete (`TrackRange::incomplete`), and the piece still verifies.
 
 ### Resuming a chain of pieces
 
 `ww_tape_fs::chain::resume` resumes a chain of pieces in a directory, and `PieceChain::resume_on` does so on any store
-of tapes. The chain reads its finished pieces back from their tails and resumes the unfinished last one.
+of tapes. The chain reads its closed pieces back from their tails and resumes the unclosed last one.
 
 For example, a recorder loses power while it writes piece 3 of a chain. On restart it calls `ww_tape_fs::chain::resume`
 with the directory, the owner, the chain number and the chain options.
@@ -176,7 +176,7 @@ first block the file lacks.
 
 Two crashes at a piece boundary resume too:
 
-- A crash between finishing one piece and creating the next: the chain creates the next piece, as the cut would have.
+- A crash between closing one piece and creating the next: the chain creates the next piece, as the cut would have.
 - A crash inside the head of the next piece: the piece starts again.
 
 Two chains are not resumed:
@@ -189,8 +189,8 @@ Two chains are not resumed:
 A chain written into one file (`PieceTapes::One`) resumes the same way. The chain finds the pieces by their tails from
 the end of the file.
 
-It then resumes the unfinished last piece behind the finished ones, or starts a new piece when the last piece is
-finished. The finished pieces keep every byte.
+It then resumes the unclosed last piece behind the closed ones, or starts a new piece when the last piece is
+closed. The closed pieces keep every byte.
 
 The resume refuses, with `WriteError::Index`, a last piece whose head is damaged. Keeping its blocks would leave them
 outside the chain, and dropping them would lose more than a torn end.
@@ -224,12 +224,12 @@ checkpoint without reading them.
 The reader then scans the blocks after the newest checkpoint, one by one. It stops at the torn block, which fails its
 CRC.
 
-The reader reports the piece as unfinished, cut at that offset (`PieceInfo::cut`).
+The reader reports the piece as unclosed, cut at that offset (`PieceInfo::cut`).
 
 The recording loses the torn block and whatever the writer had not yet synced: at most about one second of data.
 Everything else reads, including the definitions and the summary blocks written so far.
 
-The reader can't check the content hash, because the writer never wrote the finish block. That is how a reader knows
+The reader can't check the content hash, because the writer never wrote the close record. That is how a reader knows
 the file was not closed.
 
 #### After the restart
@@ -237,7 +237,7 @@ the file was not closed.
 When the recorder starts again, it calls `ww_tape_fs::writer::resume` with `capture.wwt` and its writer options. The
 resume cuts off the torn block and returns the writer.
 
-The recorder gives its calls again from the first block the file lacks. The finished `capture.wwt` then reads as if
+The recorder gives its calls again from the first block the file lacks. The closed `capture.wwt` then reads as if
 the power had never failed.
 
 ## See also

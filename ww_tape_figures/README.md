@@ -6,7 +6,7 @@ writes and reads back, and therefore a figure cannot drift from the format.
 The figures show:
 
 - a block's header and body;
-- a finished piece on the 4 KiB grid;
+- a closed piece on the 4 KiB grid;
 - puts and copies of a state track;
 - the grids of a series track.
 

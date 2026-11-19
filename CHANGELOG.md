@@ -10,6 +10,10 @@ Covers `ww_tape` 0.1.0.
 
 ### ⚠️ Breaking
 
+- The finish block is the close record (kind 8, layout changed in place): `Close`, `CloseBlock`, `write_close`, `close_len`, `close_padding`, `BlockKind::Close` (TAPE-14).
+- `FinishState` splits: `CloseReason` (`Closed`, `Aborted`) says why; a piece continues iff its close names `next` (TAPE-14).
+- `TapeWriter::finish`/`finish_as` are `close`/`close_as(CloseReason)`, returning `Closed`; `PieceChain` likewise; `TapeSink::finish` is `close` (TAPE-14).
+- `ChainEnd` is `Closed { reason }`, `TailCut` or `Unclosed`; `ReadError::Unfinished` is `Unclosed`; `PieceInfo::finish*` fields are `close*` (TAPE-14).
 - `TimesError::Corrupt { kind, what }` is `{ kind, error: ColumnError }`, the column reader's error whole (TAPE-12).
 - `PayloadsError::Corrupt { kind, what }` is `{ kind, error: ColumnError }`, as for the time columns (TAPE-12).
 - Sample codecs move to `ww_tape_codecs::samples` on scalars and lanes; `ww_tape::samples` keeps the shape-based `Samples`, `encode`, `max_encoded_len` (TAPE-12).

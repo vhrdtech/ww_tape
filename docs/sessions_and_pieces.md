@@ -25,8 +25,8 @@ leftovers of an older recording on the same Secure Digital (SD) card.
 A **piece** is a complete file in the tape sense. It starts with a piece head, and holds the data with its definitions
 and state near it.
 
-At its end come three blocks: a **final index**, a **finish** block and a **tail**. A [later
-section](#index-finish-and-tail) explains them.
+At its end come three blocks: a **final index**, a **close** block and a **tail**. A [later
+section](#index-close-and-tail) explains them.
 
 A piece reads alone, because the writer measures [near](concepts.md#state-near-and-copies) inside the piece.
 
@@ -39,7 +39,7 @@ A reader can therefore check that no piece is missing or swapped.
 
 ### Owners
 
-An **owner id** is a 32-byte id in every piece head, finish and tail. It names what the pieces belong to.
+An **owner id** is a 32-byte id in every piece head, close and tail. It names what the pieces belong to.
 
 `ww_tape` doesn't interpret the owner id; the application gives it a meaning. One owner may have several chains, such
 as one for events and one for a high-rate stream.
@@ -63,7 +63,7 @@ words; `ww_tape` sees only sessions, pieces, chains and an opaque owner id.
 ## Cuts
 
 A **cut** ends the current piece and starts the next piece of the chain. The writer writes the piece's final index,
-finish and tail, then a new piece head.
+close and tail, then a new piece head.
 
 In the new piece, the writer puts the layout and the producer first. It puts every definition and state item again at
 its first use, since nothing in the old piece counts as near.
@@ -72,7 +72,7 @@ A chain cuts by its policy (size, chunk count or age) only before a chunk. It al
 piece's index has no room left, and wherever the application asks.
 
 A slow input never waits for a cut. Records reach the file in records blocks as they come, and a reader of the
-unfinished piece reads them at once.
+unclosed piece reads them at once.
 
 A **sync policy** bounds what a crash can lose. By default, the writer syncs waiting blocks once a second has passed
 since the last sync.
@@ -83,7 +83,7 @@ grows.
 For example, a producer that writes one log line a minute and calls `tick` regularly has each line on disk about a
 second later. That holds whether the writer cuts the piece after an hour or after a week.
 
-## Index, finish and tail
+## Index, close and tail
 
 While the writer writes a piece, it places a **checkpoint**, an index block, about every 4 MiB. Each checkpoint lists
 the blocks placed since the one before, and points back at it.
@@ -92,17 +92,17 @@ A reader of a file that the writer never closed finds the newest checkpoint near
 block before that checkpoint without reading them.
 
 At the end of a piece, the writer places the final index, which lists every block sorted by track. Then it places
-the finish block.
+the close record.
 
-The finish holds a hash of every byte before it, made with BLAKE3 (a cryptographic hash function). It also holds
+The close holds a hash of every byte before it, made with BLAKE3 (a cryptographic hash function). It also holds
 per-track totals, and where the final index is.
 
-Last comes the tail, 164 bytes that give the piece's length and where its finish is. A finished piece is a multiple
-of 4 KiB long, and the writer pads the finish block with zeros to make it so.
+Last comes the tail, 164 bytes that give the piece's length and where its close is. A closed piece is a multiple
+of 4 KiB long, and the writer pads the close record with zeros to make it so.
 
 ## One file, start to end
 
-The diagram shows one finished piece, with its start at the top.
+The diagram shows one closed piece, with its start at the top.
 
 ```text
  piece start ─► ┌─────────────────────────────┐
@@ -128,26 +128,26 @@ The diagram shows one finished piece, with its start at the top.
                 │ ...                         │
                 ├─────────────────────────────┤
                 │ final index    ◄──────┐     │ every block again, by track
-                │ finish         ◄──┐   │     │ BLAKE3 hash of all bytes before it,
+                │ close         ◄──┐   │     │ BLAKE3 hash of all bytes before it,
                 │                   │   │     │ zero padding to the 4 KiB end
-                │ tail (164 B) ─────┴───┘     │ piece length, where the finish is
+                │ tail (164 B) ─────┴───┘     │ piece length, where the close is
    end of file ─► └─────────────────────────────┘ a multiple of 4 KiB from the start
 ```
 
-A reader of this file starts at the bottom. It reads the tail, then the finish, then the final index's part for the
+A reader of this file starts at the bottom. It reads the tail, then the close, then the final index's part for the
 tracks it wants.
 
 Then the reader reads only the blocks it needs. [Reading a tape](reading.md) follows that path.
 
 The figure below draws a small piece of 12 KiB to scale, and shows how its end falls on the 4 KiB grid. The final
-index, the finish and the tail take the bytes after the data.
+index, the close and the tail take the bytes after the data.
 
-The finish's zero padding fills the rest, up to the boundary.
+The close's zero padding fills the rest, up to the boundary.
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/plots/piece.svg"
-<figcaption>A finished piece of a chain, each block to scale on rows of 1 KiB: four records blocks and four events
-chunks with the puts they need, two checkpoints, the final index, the finish with its padding, and the 164-byte tail
+<figcaption>A closed piece of a chain, each block to scale on rows of 1 KiB: four records blocks and four events
+chunks with the puts they need, two checkpoints, the final index, the close with its padding, and the 164-byte tail
 ending on 12 KiB. Drawn by <code>ww_tape_figures</code> from a piece <code>PieceChain</code> wrote.</figcaption>
 </figure>
 

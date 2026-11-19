@@ -1,4 +1,4 @@
-//! ww_tape index, finish, tail and piece head blocks and the positional reader on any bytes: decoding never panics,
+//! ww_tape index, close, tail and piece head blocks and the positional reader on any bytes: decoding never panics,
 //! a reader opens any bytes and every entry it gives lies in its piece; index blocks built from the input read back
 //! equal, a final one also track by track from its head.
 #![no_main]

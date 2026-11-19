@@ -24,7 +24,7 @@ source and its comments are authoritative.
 
 | Path | What |
 | --- | --- |
-| `ww_tape/` | blocks, definitions on track 0, state tracks and their lookups, chunks and their time, sample and payload columns, summary heads, index, finish and tail, pieces, `TapeWriter`, `FileBlocks`, `TapeReader`; `golden/` the golden files |
+| `ww_tape/` | blocks, definitions on track 0, state tracks and their lookups, chunks and their time, sample and payload columns, summary heads, index, close and tail, pieces, `TapeWriter`, `FileBlocks`, `TapeReader`; `golden/` the golden files |
 | `ww_tape_codecs/` | column codecs with no notion of a block, over slices, ids and scalars: `bitpack`, `crc32c`, `from_file`, varints, `lz4`, `samples`, `times`, `lengths`, the summary kernels; `ww_tape` re-exports them |
 | `ww_tape_summary/` | summary nodes above the core: `EventTree`, `SeriesSummaries`, `Summary` read in place, `EventNode`, `ChannelStats`, scales; re-exports the head types; `golden/` its golden file |
 | `ww_tape_fs/` | everything that names a path: `FileSink`, `Files`, `FileSource`, the lock on `NAME.lock`, `writer::{create, append, resume, cut}`, `chain::{create, resume}` |

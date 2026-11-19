@@ -1,11 +1,11 @@
 //! [TapeSink]: where a [TapeWriter](crate::TapeWriter) puts its bytes, memory ([MemSink]) or a file (`FileSink` of
 //! the crate `ww_tape_fs`).
 //!
-//! A sink appends, syncs, finishes and, for [TapeWriter::resume_on](crate::TapeWriter::resume_on), reads back and
+//! A sink appends, syncs, closes and, for [TapeWriter::resume_on](crate::TapeWriter::resume_on), reads back and
 //! truncates. A store of [Tapes] makes the sink of each piece of a [PieceChain](crate::PieceChain) by its key:
 //! [MemTapes] keeps each piece in memory under its key, where a [TapeReader](crate::TapeReader) reads it while it
 //! is written ([MemTape] is a [ByteSource]); `ww_tape_fs::Files` keeps each piece in a file of a directory, created
-//! as `NAME.partial` and renamed to `NAME` at the finish.
+//! as `NAME.partial` and renamed to `NAME` at the close.
 //!
 //! A chain may also keep all its pieces in one file or memory tape ([Tapes::create_whole],
 //! [Tapes::open_whole]): the writer of the next piece goes on in the same sink, whose window
@@ -37,7 +37,7 @@ pub trait TapeSink {
 
     /// The bytes are whole: a file takes its final name and its directory is synced; memory does nothing. Called
     /// once, after the last sync.
-    fn finish(&mut self) -> Result<(), Self::Error>;
+    fn close(&mut self) -> Result<(), Self::Error>;
 
     /// Bytes in the sink.
     fn size(&self) -> Result<u64, Self::Error>;
@@ -103,7 +103,7 @@ pub fn check_base(base: u64, whole: u64, pieces: bool) -> Result<u64, BaseRefuse
 }
 
 /// A store of tapes by key: makes the tape of each piece of a [PieceChain](crate::PieceChain), reopens an
-/// unfinished one and reads a finished one. A store keeps one writer per tape: a second sink of a tape a sink holds is
+/// unclosed one and reads a closed one. A store keeps one writer per tape: a second sink of a tape a sink holds is
 /// refused.
 pub trait Tapes {
     /// What names a tape in the store.
@@ -111,27 +111,27 @@ pub trait Tapes {
     /// Why an operation failed or was refused: the tape is there already, another writer holds it.
     type Error: core::error::Error + 'static;
     type Sink: TapeSink<Error = Self::Error>;
-    /// A finished tape, read back.
+    /// A closed tape, read back.
     type Source: ByteSource<Error = Self::Error>;
 
     /// The key of the tape of piece `seq` of a chain of a tape per piece ([PieceTapes::Each](crate::PieceTapes)),
     /// or, for `seq` 0, of the tape that holds every piece ([PieceTapes::One](crate::PieceTapes)).
     fn key_of(&self, seq: u64) -> Self::Key;
 
-    /// A new sink for `key`; refused when the tape is there, finished or not.
+    /// A new sink for `key`; refused when the tape is there, closed or not.
     fn create(&mut self, key: &Self::Key) -> Result<Self::Sink, Self::Error>;
 
-    /// The unfinished sink of `key`, to resume; None when there is none.
+    /// The unclosed sink of `key`, to resume; None when there is none.
     fn reopen(&mut self, key: &Self::Key) -> Result<Option<Self::Sink>, Self::Error>;
 
-    /// The finished bytes of `key`; None when the tape isn't finished.
-    fn finished(&self, key: &Self::Key) -> Result<Option<Self::Source>, Self::Error>;
+    /// The closed bytes of `key`; None when the tape isn't closed.
+    fn closed(&self, key: &Self::Key) -> Result<Option<Self::Source>, Self::Error>;
 
     /// A new sink for a tape of several pieces under `key`, under its final name from the start (a crash leaves its
-    /// last piece unfinished, which a resume finds); refused when the tape is there.
+    /// last piece unclosed, which a resume finds); refused when the tape is there.
     fn create_whole(&mut self, key: &Self::Key) -> Result<Self::Sink, Self::Error>;
 
-    /// The tape of several pieces under `key`, appended to in place, finished or not; None when there is none.
+    /// The tape of several pieces under `key`, appended to in place, closed or not; None when there is none.
     fn open_whole(&mut self, key: &Self::Key) -> Result<Option<Self::Sink>, Self::Error>;
 }
 

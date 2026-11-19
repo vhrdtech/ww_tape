@@ -12,7 +12,7 @@ use crate::pieces::scratch;
 
 /// The file [lock_child] tries to lock, when the test binary runs as one.
 const CHILD_ENV: &str = "WW_TAPE_LOCK_CHILD";
-/// How [lock_child] opens it: `reopen` (the unfinished file) or `append`.
+/// How [lock_child] opens it: `reopen` (the unclosed file) or `append`.
 const CHILD_OP_ENV: &str = "WW_TAPE_LOCK_OP";
 
 /// Not a test of its own: the body of the process [try_in_child] starts. It opens the file named in [CHILD_ENV] as
@@ -40,7 +40,7 @@ fn lock_child() {
     println!("lock-child: {verdict}");
 }
 
-/// Whether another process finds the lock of the unfinished file `path` free, held or the file missing.
+/// Whether another process finds the lock of the unclosed file `path` free, held or the file missing.
 fn try_in_child(path: &Path) -> String {
     try_op_in_child(path, "reopen")
 }

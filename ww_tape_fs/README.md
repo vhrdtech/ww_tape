@@ -2,9 +2,9 @@
 
 The files of [ww_tape](../ww_tape):
 
-- `FileSink`, a sink that writes a tape into a file, as `NAME.partial` until its finish, or appended in place;
+- `FileSink`, a sink that writes a tape into a file, as `NAME.partial` until its close, or appended in place;
 - `Files`, a store that keeps each piece of a chain in a file of a directory, or every piece in one file;
-- `FileSource`, which reads a finished piece back.
+- `FileSource`, which reads a closed piece back.
 
 A file sink holds an exclusive lock on
 `NAME.lock` beside its file, so a second writer of the same file is refused.

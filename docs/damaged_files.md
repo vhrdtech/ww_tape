@@ -123,7 +123,7 @@ overwritten or zeroed, or its sectors went bad.
 
 These bytes hold the piece head, the first definitions and perhaps the first data blocks.
 
-A finished file opens from its tail as usual. The final index lists every block, and every block outside the lost
+A closed file opens from its tail as usual. The final index lists every block, and every block outside the lost
 range reads.
 
 Each definition comes from its newest record that reads. That record is one of these:
@@ -136,21 +136,21 @@ The records and chunks inside the lost range are lost, and the content hash no l
 The head named the previous piece in a chain, so the link back to that piece can't be checked. The link forward still
 can.
 
-An unfinished file with at least one checkpoint opens from its newest checkpoint, and the same holds.
+An unclosed file with at least one checkpoint opens from its newest checkpoint, and the same holds.
 
-An unfinished file may be shorter than one checkpoint interval (about 4 MiB). The reader scans such a file from its
+An unclosed file may be shorter than one checkpoint interval (about 4 MiB). The reader scans such a file from its
 start, and the scan stops at the damage.
 
 `TapeReader` then lists nothing after the damage. A Resync walk reads every good block after it.
 
 ### The last 4 KiB are lost
 
-These bytes hold the tail and the finish, and often part of the final index. The reader finds no tail and reads the
-file as unfinished.
+These bytes hold the tail and the close, and often part of the final index. The reader finds no tail and reads the
+file as unclosed.
 
 The reader finds the newest checkpoint and scans up to the damage. Every data block before the damage reads.
 
-The content hash and the link forward to the next piece are lost. The file reports as unfinished instead of complete.
+The content hash and the link forward to the next piece are lost. The file reports as unclosed instead of complete.
 
 ### One block in the middle is lost
 
@@ -164,13 +164,13 @@ The cost depends on the kind of the lost block:
 | records block | its records; the index entry says how many, the gap in sequence numbers how many blocks |
 | summary | nothing; a summary is derived from its track's data, and `ww_tape_summary` builds it again |
 | definitions or puts | nothing once a copy or a later put of each of its items reads; until then, what it held |
-| checkpoint index | in an unfinished piece, the piece up to the next good checkpoint is scanned instead |
-| final index | in a finished piece, the lists of blocks: `TapeReader::entries` fails, while `track_entries` still reads a track whose list and the index head are good |
+| checkpoint index | in an unclosed piece, the piece up to the next good checkpoint is scanned instead |
+| final index | in a closed piece, the lists of blocks: `TapeReader::entries` fails, while `track_entries` still reads a track whose list and the index head are good |
 
-In a finished file a reader reads blocks by the final index. A lost block in the middle, other than the final index,
+In a closed file a reader reads blocks by the final index. A lost block in the middle, other than the final index,
 therefore costs that block alone.
 
-In an unfinished file the same holds before the newest checkpoint. After it, the reader's scan stops at the lost block,
+In an unclosed file the same holds before the newest checkpoint. After it, the reader's scan stops at the lost block,
 and a Resync walk reads what follows.
 
 ## Limits
@@ -185,25 +185,25 @@ These limits follow from the design. They fall into three groups.
 - **lz4 payload columns.** One bad byte makes every item of the chunk suspect.
 - **Small shifts.** A flipped bit in a salvaged group's record may shift a first tick, slope or duration minimum too
   little to break an order. The reader then doesn't mark the group, and the group reads shifted.
-- **The content hash needs a finished piece.** An unfinished or cut-off piece has no hash to check.
+- **The content hash needs a closed piece.** An unclosed or cut-off piece has no hash to check.
 - **32-bit session tags.** Stale data matches the current session by chance with probability 2⁻³² per stale session.
 
 ### Limits of reading and resuming
 
-- **Unfinished small files.** The reader scans a file without a checkpoint yet, under about 4 MiB, from its start. The
+- **Unclosed small files.** The reader scans a file without a checkpoint yet, under about 4 MiB, from its start. The
   scan stops at the first bad block, and only a Resync walk reads past it.
 - **Definitions near the start.** A definition's copy is written at a use at least 1 MiB after its first write. An
-  unfinished file shorter than that holds each definition once, so one bad sector can take it.
+  unclosed file shorter than that holds each definition once, so one bad sector can take it.
 - **Chunks without definitions.** Chunks then still place themselves by track id, item number and tick. Without clock
   rates and item types, though, a reader can't turn ticks into seconds or bytes into values.
 - **Lost state in a scanned stretch.** The state lookups (`TapeReader::state_at`, `definitions_at`) go by index
   entries. A damaged block where a scan stopped has no known kind and no entries.
 - **The cut in a state lookup.** The piece reports such a block as its cut. The lookups take the newest record before
   it and name the stretch past the cut as one the index doesn't cover (`Lookup::uncovered`).
-- **A damaged final index.** `TapeReader::entries` fails on a finished piece whose final index doesn't read;
+- **A damaged final index.** `TapeReader::entries` fails on a closed piece whose final index doesn't read;
   `track_entries` still gives each track whose own list reads. The reader doesn't use the piece's checkpoints instead.
 - **A damaged stretch stops a resume.** A resume cuts only a torn end. Damage with good blocks behind it leaves the
-  piece unfinished; a Resync walk reads it.
+  piece unclosed; a Resync walk reads it.
 
 ### Limits of media, codecs and clocks
 

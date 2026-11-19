@@ -9,9 +9,9 @@ Everything that names a path lives in `ww_tape_fs`. `ww_tape` itself therefore b
 
 The module `ww_tape_fs::writer` opens a writer on a path:
 
-- `writer::create(path, sync)` creates the file as `NAME.partial` and renames it to `NAME` at the finish.
+- `writer::create(path, sync)` creates the file as `NAME.partial` and renames it to `NAME` at the close.
 - `writer::append(path, sync)` appends to a file in a new session. It creates the file when it does not exist.
-- `writer::resume(path, options)` reopens the unfinished piece of `path` ([Resuming after a
+- `writer::resume(path, options)` reopens the unclosed piece of `path` ([Resuming after a
   crash](resuming.md#resuming-after-a-crash)). With neither `NAME` nor `NAME.partial` there, it fails with
   `FsError::NoPiece`.
 - `writer::cut(writer, next_path)` ends the piece and starts the next one in the new file `next_path`
@@ -87,10 +87,10 @@ A `MemSink` of a chain reserves the room of a whole piece when the piece starts:
 (`CutPolicy::bytes`) plus `CUT_SLACK` (1 MiB). A reader's `read_at` therefore never waits while the bytes are copied
 into a bigger buffer.
 
-`MemTapes::remove(key)` takes a finished piece out of the store, for example to keep a bounded window of a live chain. A
+`MemTapes::remove(key)` takes a closed piece out of the store, for example to keep a bounded window of a live chain. A
 reader that already holds the piece's `MemTape` reads on unchanged.
 
-The piece still being written is not removed (`MemError::Unfinished`). What remains of the chain reads as a head cut.
+The piece still being written is not removed (`MemError::Unclosed`). What remains of the chain reads as a head cut.
 
 Each remaining piece still reads alone, since it holds the definitions and state it uses. A chain with removed pieces
 cannot be resumed, since a resume starts from the first piece.

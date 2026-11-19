@@ -1,10 +1,10 @@
-//! `piece.svg`: a finished piece of a chain, every block to scale on rows of 1 KiB, the 4 KiB boundaries marked. The
+//! `piece.svg`: a closed piece of a chain, every block to scale on rows of 1 KiB, the 4 KiB boundaries marked. The
 //! piece is written by [PieceChain] into memory and walked back block by block.
 
 use anyhow::{Context, ensure};
 use ww_tape::chunk::ChunkHead;
 use ww_tape::index::IndexPolicy;
-use ww_tape::piece::{FinishBlock, finish_len};
+use ww_tape::piece::{CloseBlock, close_len};
 use ww_tape::{
     BlockKind, BlockWriter, ChainOptions, ClockTime, Codec, ColumnKind, ColumnSpec, CutPolicy,
     Definitions, EndMode, FLAG_REPEAT, FileBlocks, MemTapes, OwnerId, PieceChain, SyncPolicy,
@@ -34,7 +34,7 @@ enum Part {
     Chunk,
     Checkpoint,
     FinalIndex,
-    Finish,
+    Close,
     Padding,
     Tail,
 }
@@ -48,7 +48,7 @@ impl Part {
             Part::Chunk => "events chunk",
             Part::Checkpoint => "checkpoint",
             Part::FinalIndex => "final index",
-            Part::Finish => "finish",
+            Part::Close => "close",
             Part::Padding => "zero padding",
             Part::Tail => "tail",
         }
@@ -60,7 +60,7 @@ impl Part {
             Part::Puts => "tint-purple",
             Part::Records | Part::Chunk => "tint-blue",
             Part::Checkpoint | Part::FinalIndex => "tint-amber",
-            Part::Finish => "tint-green",
+            Part::Close => "tint-green",
             Part::Padding => "faint hatch",
         }
     }
@@ -103,8 +103,8 @@ fn frames(k: u64) -> (ChunkHead, Vec<u8>) {
     (head, starts)
 }
 
-/// The piece's blocks: offset, length, what each is; the padding as a part of its own after the finish's tracks.
-/// A block, or the finish's padding: offset, length, what it is.
+/// The piece's blocks: offset, length, what each is; the padding as a part of its own after the close's tracks.
+/// A block, or the close's padding: offset, length, what it is.
 type Span = (u64, u64, Part);
 
 fn parts() -> anyhow::Result<(u64, Vec<Span>)> {
@@ -147,20 +147,20 @@ fn parts() -> anyhow::Result<(u64, Vec<Span>)> {
         chain.write_chunk(&defs, &head, &[(spec, &starts)])?;
     }
     let tapes = chain.tapes().clone();
-    chain.finish()?;
-    let bytes = tapes.get(&0)?.context("the finished piece")?.to_vec()?;
+    chain.close()?;
+    let bytes = tapes.get(&0)?.context("the closed piece")?.to_vec()?;
     let len = u64::try_from(bytes.len())?;
-    ensure!(len % PIECE_ALIGN == 0, "a finished piece ends on 4 KiB");
+    ensure!(len % PIECE_ALIGN == 0, "a closed piece ends on 4 KiB");
 
     let mut walk = FileBlocks::new(&bytes[..]);
     let mut blocks = Vec::new();
     while let Some(b) = walk.next_block() {
         let b = b.or_debug()?;
         let (n, kind, flags) = (u64::try_from(b.len())?, b.kind, b.flags);
-        // a finish's padding: its length past a finish of its tracks
-        let pad = if kind == BlockKind::Finish {
-            let tracks = FinishBlock::read(&b).or_debug()?.tracks().count();
-            n - u64::try_from(finish_len(tracks))?
+        // a close's padding: its length past a close of its tracks
+        let pad = if kind == BlockKind::Close {
+            let tracks = CloseBlock::read(&b).or_debug()?.tracks().count();
+            n - u64::try_from(close_len(tracks))?
         } else {
             0
         };
@@ -179,11 +179,11 @@ fn parts() -> anyhow::Result<(u64, Vec<Span>)> {
             BlockKind::Events => Part::Chunk,
             BlockKind::Index if i < last_data => Part::Checkpoint,
             BlockKind::Index => Part::FinalIndex,
-            BlockKind::Finish => {
-                // the padding lies after the finish's tracks, before its CRC
-                out.push((at, n - pad - CRC_LEN, Part::Finish));
+            BlockKind::Close => {
+                // the padding lies after the close's tracks, before its CRC
+                out.push((at, n - pad - CRC_LEN, Part::Close));
                 out.push((at + n - pad - CRC_LEN, pad, Part::Padding));
-                out.push((at + n - CRC_LEN, CRC_LEN, Part::Finish));
+                out.push((at + n - CRC_LEN, CRC_LEN, Part::Close));
                 continue;
             }
             BlockKind::Tail => Part::Tail,
@@ -209,7 +209,7 @@ pub fn piece() -> anyhow::Result<String> {
         width,
         legend_y + 62.0,
         &format!(
-            "A finished piece of {} KiB on rows of 1 KiB: piece head, puts, records, events chunks, a checkpoint, the final index, the finish padded with zeros, and the tail ending on the 4 KiB boundary",
+            "A closed piece of {} KiB on rows of 1 KiB: piece head, puts, records, events chunks, a checkpoint, the final index, the close padded with zeros, and the tail ending on the 4 KiB boundary",
             len / 1024
         ),
     );
@@ -263,7 +263,7 @@ pub fn piece() -> anyhow::Result<String> {
         (Part::Puts, "puts (track 0)"),
         (Part::Records, "records, chunk"),
         (Part::Checkpoint, "index"),
-        (Part::Finish, "finish"),
+        (Part::Close, "close"),
         (Part::Padding, "zero padding"),
     ];
     for (i, (part, name)) in legend.into_iter().enumerate() {

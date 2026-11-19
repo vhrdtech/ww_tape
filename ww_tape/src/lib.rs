@@ -24,7 +24,7 @@
 //!          ignores bits it doesn't know)
 //!   8 u32  len: the whole block, header and CRC included
 //!  12 u32  records in the block
-//!  16 u64  seq: the block number in its session, from 0, +1 per block; a gap is lost blocks. Index, finish, tail and
+//!  16 u64  seq: the block number in its session, from 0, +1 per block; a gap is lost blocks. Index, close, tail and
 //!          piece head blocks, and blocks marked FLAG_REPEAT, carry the seq of the block before them and are
 //!          not counted (index::is_structural)
 //!  24 u32  session tag (SessionTag): the same in every block of one writer's unbroken append, never 0 nor FFFFFFFFh
@@ -66,7 +66,7 @@
 //! skipped.
 //!
 //! Numbers are little endian; `uvar` is LEB128 (7 bits per byte, low bits first, at most 10 bytes), `ivar` zigzag
-//! then `uvar`, as in the logring format. Blocks are as long as their records, never padded, except a piece's finish
+//! then `uvar`, as in the logring format. Blocks are as long as their records, never padded, except a piece's close
 //! block, which ends the piece on 4 KiB ([piece]): a file is blocks appended back to back, a live feed sends one block
 //! per message.
 //!
@@ -127,7 +127,7 @@
 //! | [STATE_READ_MAX](reader::STATE_READ_MAX) | 1 GiB | the bytes of blocks one state lookup reads |
 //! | [VERIFY_LISTS_MAX](reader::VERIFY_LISTS_MAX) | 493418 | the track lists of a final index one verify takes, one entry held each |
 //! | [DEFERRED_BYTES_MAX](writer::DEFERRED_BYTES_MAX) | 1 MiB | the deferred blocks a writer keeps |
-//! | [TRACKS_PER_PIECE_MAX] | 493416 | the tracks with data in one piece a writer takes: its finish fits a block |
+//! | [TRACKS_PER_PIECE_MAX] | 493416 | the tracks with data in one piece a writer takes: its close fits a block |
 //! | [HEAD_TRACKS_MAX] | 699006 | the tracks a piece head carries over the chain: the head fits a block |
 //! | [WALK_MISS_BASE_MAX](piece::WALK_MISS_BASE_MAX) | 1 MiB | the bytes a content-hash walk's missed blocks claim at its start |
 //! | [WALK_MISS_PER_BYTE_MAX](piece::WALK_MISS_PER_BYTE_MAX) | 4 | the bytes they claim per byte walked, past that |
@@ -221,7 +221,7 @@ pub mod piece;
 #[cfg(feature = "alloc")]
 pub use piece::{ChainOptions, ChainPiece, ChunkPlaced, CutPolicy, PieceChain, PieceTapes};
 pub use piece::{
-    ContentHash, Finish, FinishState, HEAD_TRACKS_MAX, Integrity, OwnerId, PIECE_ALIGN, PieceHead,
+    Close, CloseReason, ContentHash, HEAD_TRACKS_MAX, Integrity, OwnerId, PIECE_ALIGN, PieceHead,
     PieceId, PieceIdent, TAIL_LEN, TRACKS_PER_PIECE_MAX, Tail, TrackHash, TrackRange, TrackStart,
     UnitHash,
 };
@@ -267,7 +267,7 @@ pub use clock::{Clock, ClockRef};
 pub mod writer;
 #[cfg(feature = "alloc")]
 pub use writer::{
-    CutError, DEFER_WINDOW, Finished, HEAD_ENTRIES, InputError, NearPolicy, Placed, PutWork,
+    Closed, CutError, DEFER_WINDOW, HEAD_ENTRIES, InputError, NearPolicy, Placed, PutWork,
     ResumeError, Resumed, SyncPolicy, TapeWriter, WriteError, WriterOptions,
 };
 
@@ -342,7 +342,7 @@ pub enum BlockKind {
     /// A checkpoint or final index of the piece's blocks ([index]).
     Index,
     /// How a piece ended, with its content hash ([piece]).
-    Finish,
+    Close,
     /// The fixed-size last block of a piece ([piece]).
     Tail,
     /// The first block of a piece of a chain ([piece]).
@@ -367,7 +367,7 @@ impl BlockKind {
             5 => BlockKind::Parity,
             6 => BlockKind::Summary,
             7 => BlockKind::Index,
-            8 => BlockKind::Finish,
+            8 => BlockKind::Close,
             9 => BlockKind::Tail,
             10 => BlockKind::PieceHead,
             other => BlockKind::Other(other),
@@ -382,7 +382,7 @@ impl BlockKind {
             BlockKind::Parity => 5,
             BlockKind::Summary => 6,
             BlockKind::Index => 7,
-            BlockKind::Finish => 8,
+            BlockKind::Close => 8,
             BlockKind::Tail => 9,
             BlockKind::PieceHead => 10,
             BlockKind::Other(v) => v,

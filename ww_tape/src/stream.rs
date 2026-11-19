@@ -251,7 +251,7 @@ pub enum Cut {
     /// The file ends inside a block (a writer stopped mid-way), `len` bytes of it are there.
     Truncated { len: u64 },
     /// A data block's seq is not after the one before it in its session: not this file's next block. (Describe, index,
-    /// finish, tail and piece head blocks take no part in the order.)
+    /// close, tail and piece head blocks take no part in the order.)
     SeqBackwards { seq: u64, after: u64 },
     /// A good block of session `session` where no session may start ([Medium]): stale data behind the end of data.
     Stale { session: SessionTag },

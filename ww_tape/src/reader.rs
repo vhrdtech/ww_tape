@@ -4,7 +4,7 @@
 //! by range requests in a browser. The reader needs no file system and no threads, so it builds for
 //! `wasm32-unknown-unknown`.
 //!
-//! [TapeReader::open] finds the pieces from the end: a good [tail](crate::Tail) gives the piece's start, finish and
+//! [TapeReader::open] finds the pieces from the end: a good [tail](crate::Tail) gives the piece's start, close and
 //! final index, and the previous piece's tail sits just before that start, so concatenated pieces cost one small read
 //! each. A piece without a tail (being written, or cut off by a crash) is found from its newest checkpoint
 //! [index](crate::index) block, looked for backwards from the end, and the stretch after that checkpoint is scanned;
@@ -14,7 +14,7 @@
 //! ([PieceInfo::gaps]). A raw medium ([Medium::Raw]) is walked forward from its start or a hint instead
 //! ([OpenOptions::medium]).
 //!
-//! Index entries of a finished piece are read when asked for: all of them ([TapeReader::entries]) or one track's
+//! Index entries of a closed piece are read when asked for: all of them ([TapeReader::entries]) or one track's
 //! ([TapeReader::track_entries]: the final index's head and that track's entries, each checked by its own CRC).
 
 use alloc::vec;
@@ -29,7 +29,7 @@ use crate::index::{
     ENTRY_LEN, HEAD_LEN_PREFIX, INDEX_LEN_MAX, IndexBlock, IndexEntry, IndexError, IndexKind,
 };
 use crate::piece::{
-    ChainReport, Finish, FinishBlock, HeadLink, HeadStatus, OwnerId, PieceHead, PieceHeadBlock,
+    ChainReport, Close, CloseBlock, HeadLink, HeadStatus, OwnerId, PieceHead, PieceHeadBlock,
     PieceSummary, TAIL_LEN, Tail, TrackHash, TrackRange, TrackStart, UnitHash, Walked, check_chain,
     payload_hash, walk_piece,
 };
@@ -108,12 +108,12 @@ impl ByteSource for Vec<u8> {
 pub enum ReadError<E> {
     /// The byte source failed.
     Source(E),
-    /// An index, finish, tail or piece head block is bad where a good one must be.
+    /// An index, close, tail or piece head block is bad where a good one must be.
     Index(IndexError),
     /// The block at `offset` isn't good.
     Block { offset: u64, error: BlockError },
-    /// The piece has no finish block, so no content hash.
-    Unfinished,
+    /// The piece has no close record, so no content hash.
+    Unclosed,
     /// No piece has this number: the reader has fewer.
     NoPiece(usize),
     /// The piece at `offset` is of another format version, `found` ([PieceInfo::version]).
@@ -138,7 +138,7 @@ impl<E: core::fmt::Debug> core::fmt::Display for ReadError<E> {
             ReadError::Source(e) => write!(f, "reading the bytes: {e:?}"),
             ReadError::Index(e) => write!(f, "index or piece block: {e}"),
             ReadError::Block { offset, error } => write!(f, "block at byte {offset}: {error}"),
-            ReadError::Unfinished => write!(f, "the piece has no finish block"),
+            ReadError::Unclosed => write!(f, "the piece has no close record"),
             ReadError::NoPiece(i) => write!(f, "no piece {i}"),
             ReadError::Version { offset, found } => write!(
                 f,
@@ -176,7 +176,7 @@ pub const LAYOUT_READ_MAX: u64 = 256 << 20;
 /// How [TapeReader::open] looks for pieces.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct OpenOptions {
-    /// Most bytes looked through backwards from the end of an unfinished piece for its newest checkpoint before
+    /// Most bytes looked through backwards from the end of an unclosed piece for its newest checkpoint before
     /// scanning what is left from its start instead.
     pub scan_back_max: u64,
     /// What the bytes are kept on. A file is read from its end (tails, checkpoints); a [Medium::Raw] is walked
@@ -232,12 +232,12 @@ pub struct PieceInfo {
     /// build doesn't handle ([IndexError::UnhandledIntegrity], [IndexError::UnknownIntegrity]), for which every
     /// lookup in the piece returns it ([ReadError::Index]).
     pub head_error: Option<IndexError>,
-    pub finish: Option<(Finish, Vec<TrackRange>)>,
-    /// Why a good finish block of the piece didn't read as its finish: damage the block CRC missed, or rows this build
+    pub close: Option<(Close, Vec<TrackRange>)>,
+    /// Why a good close record of the piece didn't read as its close: damage the block CRC missed, or rows this build
     /// doesn't read. The piece then has no end: its tail, if read, ends no chain ([Self::summary]).
-    pub finish_error: Option<IndexError>,
-    /// The finish block's offset in the piece.
-    pub finish_offset: Option<u64>,
+    pub close_error: Option<IndexError>,
+    /// The close record's offset in the piece.
+    pub close_offset: Option<u64>,
     pub tail: Option<Tail>,
     pub found: Found,
     /// Where the bytes stopped being good blocks, when a scan stopped before the end of the piece's stretch: a cut
@@ -268,9 +268,9 @@ impl PieceInfo {
             end: start,
             head: None,
             head_error: None,
-            finish: None,
-            finish_error: None,
-            finish_offset: None,
+            close: None,
+            close_error: None,
+            close_offset: None,
             tail: None,
             found,
             cut: None,
@@ -304,16 +304,16 @@ impl PieceInfo {
         self.refused_link.and(self.head_error)
     }
 
-    /// What [check_chain] needs of the piece: from its head, or from its finish when the head is lost; None for one
-    /// without either. Its end is the finish's, or the tail's when no finish block was refused
-    /// ([Self::finish_error]): a refused finish leaves the piece open.
+    /// What [check_chain] needs of the piece: from its head, or from its close when the head is lost; None for one
+    /// without either. Its end is the close's, or the tail's when no close record was refused
+    /// ([Self::close_error]): a refused close leaves the piece open.
     pub fn summary(&self) -> Option<PieceSummary> {
-        let tail = self.tail.filter(|_| self.finish_error.is_none());
+        let tail = self.tail.filter(|_| self.close_error.is_none());
         let end = self
-            .finish
+            .close
             .as_ref()
-            .map(|(f, _)| (f.state, f.hash, f.next))
-            .or(tail.map(|t| (t.state, t.hash, t.next)));
+            .map(|(f, _)| (f.reason, f.hash, f.next))
+            .or(tail.map(|t| (t.reason, t.hash, t.next)));
         if let Some((head, _)) = &self.head {
             return Some(PieceSummary {
                 ident: head.ident,
@@ -330,8 +330,8 @@ impl PieceInfo {
                 head: HeadStatus::Refused(error),
             });
         }
-        // a head lost to damage: the finish of a piece that had one carries its ident
-        let ident = self.finish.as_ref().and_then(|(f, _)| f.ident)?;
+        // a head lost to damage: the close of a piece that had one carries its ident
+        let ident = self.close.as_ref().and_then(|(f, _)| f.ident)?;
         Some(PieceSummary {
             ident,
             prev: None,
@@ -463,8 +463,8 @@ impl<S: ByteSource> TapeReader<S> {
                 continue;
             }
             let mut found = r.recover(hi, options)?;
-            // the recovery reached back into finished pieces (an unfinished piece without a checkpoint of its own
-            // found the one before by its final index): those are found by their tails, the rest is unfinished
+            // the recovery reached back into closed pieces (an unclosed piece without a checkpoint of its own
+            // found the one before by its final index): those are found by their tails, the rest is unclosed
             if let Some(k) = found.iter().rposition(|p| p.tail.is_some())
                 && let Some(closed) = found.get(k)
                 && found
@@ -592,7 +592,7 @@ impl<S: ByteSource> TapeReader<S> {
         })
     }
 
-    /// The finished piece whose tail ends at `hi`, when its tail and finish are good.
+    /// The closed piece whose tail ends at `hi`, when its tail and close are good.
     fn by_tail(&self, hi: u64) -> R<Option<PieceInfo>, S> {
         let Some(tail_at) = hi.checked_sub(wide(TAIL_LEN)) else {
             return Ok(None);
@@ -604,25 +604,29 @@ impl<S: ByteSource> TapeReader<S> {
         let Some(start) = hi.checked_sub(tail.piece_len) else {
             return Ok(None);
         };
-        let Some(finish_at) = start.checked_add(tail.finish_offset) else {
+        let Some(close_at) = start.checked_add(tail.close_offset) else {
             return Ok(None);
         };
-        let fb = match self.good_block(finish_at, hi)? {
-            Ok((b, _)) if wide(b.len()) == u64::from(tail.finish_len) => b,
+        let fb = match self.good_block(close_at, hi)? {
+            Ok((b, _)) if wide(b.len()) == u64::from(tail.close_len) => b,
             _ => return Ok(None),
         };
-        let Ok(fin) = FinishBlock::read(&fb.block()) else {
+        let Ok(fin) = CloseBlock::read(&fb.block()) else {
             return Ok(None);
         };
-        let finish = fin.finish();
-        if finish.hash != tail.hash || finish.state != tail.state || finish.ident != tail.ident {
+        let close = fin.close();
+        if close.hash != tail.hash
+            || close.reason != tail.reason
+            || close.next != tail.next
+            || close.ident != tail.ident
+        {
             return Ok(None);
         }
         let mut p = PieceInfo::new(start, Found::Tail);
         p.end = hi;
         self.head_at(start, hi, &mut p)?;
-        p.finish = Some((finish, fin.tracks().collect()));
-        p.finish_offset = Some(tail.finish_offset);
+        p.close = Some((close, fin.tracks().collect()));
+        p.close_offset = Some(tail.close_offset);
         p.tail = Some(tail);
         p.entries = None;
         Ok(Some(p))
@@ -638,7 +642,7 @@ impl<S: ByteSource> TapeReader<S> {
         Ok(())
     }
 
-    /// The pieces of the unfinished stretch ending at `hi`: from the newest index block in reach, else scanned from
+    /// The pieces of the unclosed stretch ending at `hi`: from the newest index block in reach, else scanned from
     /// the start.
     fn recover(&self, hi: u64, options: OpenOptions) -> R<Vec<PieceInfo>, S> {
         let lo = hi.saturating_sub(options.scan_back_max);
@@ -891,13 +895,13 @@ impl<S: ByteSource> TapeReader<S> {
                     piece.take_head(&block);
                 }
                 BlockKind::PieceHead => piece.take_head(&block),
-                BlockKind::Finish => match FinishBlock::read(&block) {
+                BlockKind::Close => match CloseBlock::read(&block) {
                     Ok(f) => {
-                        piece.finish = Some((f.finish(), f.tracks().collect()));
-                        piece.finish_error = None;
-                        piece.finish_offset = in_piece;
+                        piece.close = Some((f.close(), f.tracks().collect()));
+                        piece.close_error = None;
+                        piece.close_offset = in_piece;
                     }
-                    Err(e) => piece.finish_error = Some(e),
+                    Err(e) => piece.close_error = Some(e),
                 },
                 BlockKind::Tail => {
                     piece.tail = Tail::read(block.bytes()).ok();
@@ -1012,7 +1016,7 @@ impl<S: ByteSource> TapeReader<S> {
     }
 
     /// The blocks of track `track_id` in piece `i` (0: record blocks of data, [STATE_TRACK_ID](crate::index::STATE_TRACK_ID):
-    /// state records, one entry each), in file order. A finished piece
+    /// state records, one entry each), in file order. A closed piece
     /// reads only the final index's head and that track's entries.
     ///
     /// The range relation of a track never decreases ([RelationIndex::Range](crate::RelationIndex::Range) is only on a
@@ -1051,7 +1055,7 @@ impl<S: ByteSource> TapeReader<S> {
             return in_order(p, track.collect());
         }
         let mut out = Vec::new();
-        let mut at = p.finish.as_ref().and_then(|(f, _)| f.final_index);
+        let mut at = p.close.as_ref().and_then(|(f, _)| f.final_index);
         while let Some(off) = at {
             let abs = in_piece(p, off, HEAD_LEN_PREFIX)?;
             let header = self.read(abs, HEAD_LEN_PREFIX)?;
@@ -1077,9 +1081,9 @@ impl<S: ByteSource> TapeReader<S> {
         in_order(p, out)
     }
 
-    /// Call `f` with each final index block of finished piece `p`, newest first.
+    /// Call `f` with each final index block of closed piece `p`, newest first.
     fn for_final(&self, p: &PieceInfo, mut f: impl FnMut(&IndexBlock<'_>)) -> R<(), S> {
-        let mut at = p.finish.as_ref().and_then(|(fin, _)| fin.final_index);
+        let mut at = p.close.as_ref().and_then(|(fin, _)| fin.final_index);
         while let Some(off) = at {
             let abs = in_piece(p, off, HEADER_LEN)?;
             let b = match self.good_block(abs, p.end)? {
@@ -1206,14 +1210,14 @@ impl<S: ByteSource> TapeReader<S> {
         Ok((offset, len))
     }
 
-    /// Whether finished piece `i` holds up as a whole: its bytes before its finish block hash to the finish's content
+    /// Whether closed piece `i` holds up as a whole: its bytes before its close record hash to the close's content
     /// hash (each block that reads whole as it is, a chunk's payload by its hash, other bytes as they are,
     /// [piece](crate::piece) docs); its final index and the blocks walked are the same set: each block walked that
     /// its writer lists has exactly the entries its writer made of it, field for field (offset, length, kind, track,
     /// items, ticks, a chunk's unit hash of its bytes and its range relation's range from its column), but a
     /// byte-identical copy of the listed block before it; each entry names a block walked, or a block that doesn't
-    /// read whole in bytes no block explains, ending before the finish and before the next block walked; and each
-    /// finish row states the hash its track's blocks fold to from the head row's, or says it incomplete exactly where
+    /// read whole in bytes no block explains, ending before the close and before the next block walked; and each
+    /// close row states the hash its track's blocks fold to from the head row's, or says it incomplete exactly where
     /// a damaged block kept or the head leaves units out. The strict check of what [Self::range_hash] takes from the
     /// index unread. Each monotone relation of a track starts each chunk at or above the chunk before it in the piece,
     /// but at a chunk marked [FLAG_RELATION_BREAK](crate::FLAG_RELATION_BREAK): else [ReadError::RelationOrder].
@@ -1228,8 +1232,8 @@ impl<S: ByteSource> TapeReader<S> {
     /// [Self::verify] with what its replay cost.
     pub(crate) fn verify_counted(&self, i: usize) -> R<verify::Verified, S> {
         let p = self.piece(i)?;
-        let (Some((fin, rows)), Some(end)) = (&p.finish, p.finish_offset) else {
-            return Err(ReadError::Unfinished);
+        let (Some((fin, rows)), Some(end)) = (&p.close, p.close_offset) else {
+            return Err(ReadError::Unclosed);
         };
         // where each track list of the final index is: its blocks read whole and checked once, its entries read later
         let mut lists: Vec<(u64, u32, u64)> = Vec::new();
@@ -1302,7 +1306,7 @@ impl<S: ByteSource> TapeReader<S> {
     /// the chunks lie: the same chunks in other pieces or files give the same hash. Each chunk's unit hash comes from
     /// its index entry, so no payload is read; a chunk whose entry holds none, and every chunk of a piece whose index
     /// doesn't read, is read and hashed instead; a chunk read by its entry must be the one the entry names
-    /// ([IndexError::BadEntries] else). A piece's head and finish rows tell which track number is that
+    /// ([IndexError::BadEntries] else). A piece's head and close rows tell which track number is that
     /// track; with none for the track there, any number another owner's row doesn't name. Records are not chunks: a
     /// track's records are left out.
     ///
@@ -1359,7 +1363,7 @@ impl<S: ByteSource> TapeReader<S> {
                 }
                 Err(ReadError::Source(e)) => return Err(ReadError::Source(e)),
                 Err(_) => {
-                    let end = p.finish_offset.unwrap_or(p.end.saturating_sub(p.start));
+                    let end = p.close_offset.unwrap_or(p.end.saturating_sub(p.start));
                     let mut at = p.start;
                     let mut failed = Ok(());
                     walk_piece(
@@ -1416,7 +1420,7 @@ impl<S: ByteSource> TapeReader<S> {
         Ok(fold.finish())
     }
 
-    /// The track numbers piece `i`'s head and finish rows give track `track_id` of `owner`, and those they give it
+    /// The track numbers piece `i`'s head and close rows give track `track_id` of `owner`, and those they give it
     /// for other owners.
     fn numbers_of(&self, i: usize, track_id: u64, owner: OwnerId) -> R<Numbers, S> {
         let p = self.piece(i)?;
@@ -1425,7 +1429,7 @@ impl<S: ByteSource> TapeReader<S> {
             .iter()
             .flat_map(|(_, t)| t.iter().map(|t| (t.track_id, t.owner, t.track_number)))
             .chain(
-                p.finish
+                p.close
                     .iter()
                     .flat_map(|(_, t)| t.iter().map(|t| (t.track_id, t.owner, t.track_number))),
             )
@@ -1573,7 +1577,7 @@ pub struct RangeHash {
     /// doesn't fold (a reserved kind). 0 when every byte walked is a block and every entry one folded.
     pub skipped: u64,
     /// Pieces whose head doesn't read (damaged, lost, of another layout): no head row states the track's number and
-    /// owner, so their chunks are taken by the finish rows, or with no finish by the id alone: what the hash covers
+    /// owner, so their chunks are taken by the close rows, or with no close by the id alone: what the hash covers
     /// there no head vouched for. 0 when every piece's head read.
     pub headless: u64,
 }

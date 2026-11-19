@@ -10,7 +10,7 @@ use ww_tape::index::IndexPolicy;
 use ww_tape::piece::payload_hash;
 use ww_tape::writer::NearPolicy;
 use ww_tape::{
-    BlockKind, ChainOptions, ChainPiece, CutPolicy, Definitions, Describe, FileBlocks, Finished,
+    BlockKind, ChainOptions, ChainPiece, Closed, CutPolicy, Definitions, Describe, FileBlocks,
     Layout, MemTapes, OwnerId, PieceChain, PieceTapes, SyncPolicy, TapeReader, TrackDef, TrackHash,
     WriterOptions,
 };
@@ -79,12 +79,12 @@ fn files_of(mem: &MemTapes, done: &[ChainPiece<u64>]) -> Vec<u8> {
 }
 
 /// The pieces of the chain `done`, without their tapes.
-fn pieces(done: Vec<ChainPiece<u64>>) -> Vec<Finished> {
+fn pieces(done: Vec<ChainPiece<u64>>) -> Vec<Closed> {
     done.into_iter().map(|f| f.piece).collect()
 }
 
 /// Each track's hash after the chain `done`, by id and owner.
-fn hashes(done: &[Finished]) -> BTreeMap<(u64, OwnerId), TrackHash> {
+fn hashes(done: &[Closed]) -> BTreeMap<(u64, OwnerId), TrackHash> {
     done.last()
         .unwrap()
         .tracks
@@ -93,9 +93,9 @@ fn hashes(done: &[Finished]) -> BTreeMap<(u64, OwnerId), TrackHash> {
         .collect()
 }
 
-/// 12 rounds of a chunk of track 1 and a records block on track 9, written as `shape` says; the finished pieces and
+/// 12 rounds of a chunk of track 1 and a records block on track 9, written as `shape` says; the closed pieces and
 /// the bytes of their files.
-fn write(shape: Shape) -> (Vec<Finished>, Vec<u8>) {
+fn write(shape: Shape) -> (Vec<Closed>, Vec<u8>) {
     let mut defs = base_defs().clone();
     defs.define(&state(11)).unwrap();
     let mut c =
@@ -149,7 +149,7 @@ fn write(shape: Shape) -> (Vec<Finished>, Vec<u8>) {
         }
     }
     let mem = c.tapes().clone();
-    let done = c.finish().unwrap();
+    let done = c.close().unwrap();
     let bytes = files_of(&mem, &done);
     (pieces(done), bytes)
 }
@@ -300,12 +300,12 @@ fn a_track_hash_is_the_same_however_the_track_is_written() {
             puts.is_none_or(|h| *h == TrackHash::START),
             "{shape:?}: {puts:?}"
         );
-        // every piece's finish rows say the same as the writer
+        // every piece's close rows say the same as the writer
         let r = TapeReader::open(&bytes[..]).unwrap();
         assert_eq!(r.pieces().len(), done.len(), "{shape:?}");
         let mut rows_seen = 0;
         for (p, f) in r.pieces().iter().zip(&done) {
-            let (_, rows) = p.finish.as_ref().unwrap();
+            let (_, rows) = p.close.as_ref().unwrap();
             for t in &f.tracks {
                 if let Some(row) = rows
                     .iter()
@@ -332,8 +332,8 @@ fn owned(number: u32, owner: [u8; 32]) -> TrackDef<'static> {
     }
 }
 
-/// 8 chunks on each track of `tracks`, alternating; the finished chain.
-fn write_owned(tracks: &[TrackDef<'static>]) -> Vec<Finished> {
+/// 8 chunks on each track of `tracks`, alternating; the closed chain.
+fn write_owned(tracks: &[TrackDef<'static>]) -> Vec<Closed> {
     let mut defs: Definitions = base_defs().clone();
     for t in tracks {
         defs.define(&Describe::Track(t.clone())).unwrap();
@@ -356,7 +356,7 @@ fn write_owned(tracks: &[TrackDef<'static>]) -> Vec<Finished> {
             c.write_chunk(&defs, &h, &column(&b)).unwrap();
         }
     }
-    pieces(c.finish().unwrap())
+    pieces(c.close().unwrap())
 }
 
 /// Two tracks of one identity with other owners are two tracks: each has its own items and hash, the same as
@@ -412,6 +412,6 @@ fn tracks_of_one_key_with_two_owners_are_two_tracks() {
         h.track_number = 21;
         c.write_chunk(&defs, &h, &column(&bytes)).unwrap();
     }
-    let alone_b = hashes(&pieces(c.finish().unwrap()));
+    let alone_b = hashes(&pieces(c.close().unwrap()));
     assert_eq!(alone_b[&(id, OwnerId(b))], rows[1].hash);
 }

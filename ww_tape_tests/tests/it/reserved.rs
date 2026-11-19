@@ -22,8 +22,8 @@ fn reseal(block: &mut [u8]) {
     block[n - 4..].copy_from_slice(&crc.to_le_bytes());
 }
 
-/// An unfinished piece of chunks of tracks 0 and 1 and record blocks, with a checkpoint every 1 KiB; its bytes.
-fn unfinished() -> Vec<u8> {
+/// An unclosed piece of chunks of tracks 0 and 1 and record blocks, with a checkpoint every 1 KiB; its bytes.
+fn unclosed() -> Vec<u8> {
     let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     let tape = w.sink().tape();
     w.set_index_policy(IndexPolicy {
@@ -86,7 +86,7 @@ fn hash_of<S: ww_tape::reader::ByteSource>(r: &TapeReader<S>, t: u64) -> ww_tape
 /// they read, the index lists them, the blocks after them read, and they change no track's range hash.
 #[test]
 fn reserved_block_kinds_read_as_blocks_and_change_no_hash() {
-    let base = unfinished();
+    let base = unclosed();
     let id = next_id(&base);
     let mut bytes = base.clone();
     bytes.extend(raw_block(11, id, 40));
@@ -131,7 +131,7 @@ fn reserved_block_kinds_read_as_blocks_and_change_no_hash() {
 /// and a checkpoint index block, CRCs good: the blocks read as without them.
 #[test]
 fn reserved_header_flags_on_other_blocks_are_not_read() {
-    let base = unfinished();
+    let base = unclosed();
     let mut bytes = base.clone();
     let mut rd = FileBlocks::new(&base[..]);
     let (mut records_at, mut index_at) = (None, None);
@@ -190,7 +190,7 @@ fn reserved_header_flags_on_other_blocks_are_not_read() {
 /// takes each entry's first 120 bytes, and the piece reads as with 120-byte entries.
 #[test]
 fn index_entries_longer_than_a_reader_knows_read_end_to_end() {
-    let base = unfinished();
+    let base = unclosed();
     // the newest checkpoint, and the piece cut right after it
     let mut rd = FileBlocks::new(&base[..]);
     let mut last = None;
@@ -275,7 +275,7 @@ fn a_raw_medium_reads_appended_pieces() {
         let (h, b) = chunk(k % 2, k / 2);
         c.write_chunk(defs, &h, &column(&b)).unwrap();
     }
-    let done = c.finish().unwrap();
+    let done = c.close().unwrap();
     assert!(done.len() >= 3, "{} pieces", done.len());
     let bytes = mem.get(&done[0].tape).unwrap().unwrap().to_vec().unwrap();
     let file = TapeReader::open(&bytes[..]).unwrap();

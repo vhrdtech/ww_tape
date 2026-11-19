@@ -72,9 +72,9 @@ fn piece_head_round_trip() {
 }
 
 #[test]
-fn finish_and_tail_round_trip() {
-    let finish = Finish {
-        state: FinishState::Continued,
+fn close_and_tail_round_trip() {
+    let close = Close {
+        reason: CloseReason::Closed,
         hash: ContentHash([9; 32]),
         checkpoint: Some(4 << 20),
         final_index: Some(5 << 20),
@@ -95,37 +95,55 @@ fn finish_and_tail_round_trip() {
         records: 3,
         incomplete: true,
     }];
-    let mut buf = vec![0u8; finish_len(1) + 4095];
+    let mut buf = vec![0u8; close_len(1) + 4095];
     for padding in [0, 1, 1000, 4095] {
-        let n = write_finish(&mut buf, id(77), &finish, &tracks, padding).unwrap();
-        assert_eq!(n, finish_len(1) + padding);
+        let n = write_close(&mut buf, id(77), &close, &tracks, padding).unwrap();
+        assert_eq!(n, close_len(1) + padding);
         let block = Block::read(&buf[..n]).unwrap();
-        let f = FinishBlock::read(&block).unwrap();
-        assert_eq!(f.finish(), finish);
+        let f = CloseBlock::read(&block).unwrap();
+        assert_eq!(f.close(), close);
         assert_eq!(f.tracks().collect::<Vec<_>>(), tracks);
     }
     assert_eq!(tracks[0].end_item(), 16192);
-    assert!(write_finish(&mut buf, id(77), &finish, &tracks, 4096).is_err());
+    assert!(write_close(&mut buf, id(77), &close, &tracks, 4096).is_err());
 
-    let plain = Finish {
+    let plain = Close {
         ident: None,
         next: None,
-        state: FinishState::Complete,
-        ..finish
+        reason: CloseReason::Closed,
+        ..close
     };
-    let n = write_finish(&mut buf, id(77), &plain, &[], 0).unwrap();
+    let n = write_close(&mut buf, id(77), &plain, &[], 0).unwrap();
     let block = Block::read(&buf[..n]).unwrap();
-    assert_eq!(FinishBlock::read(&block).unwrap().finish(), plain);
+    assert_eq!(CloseBlock::read(&block).unwrap().close(), plain);
+
+    // an aborted piece goes on in no next one: such a close record, its CRC good, is refused
+    let aborted = Close {
+        reason: CloseReason::Aborted,
+        ..close
+    };
+    let n = write_close(&mut buf, id(77), &aborted, &tracks, 0).unwrap();
+    assert_eq!(
+        CloseBlock::read(&Block::read(&buf[..n]).unwrap()).err(),
+        Some(IndexError::BadHead)
+    );
+    let aborted = Close {
+        next: None,
+        ..aborted
+    };
+    let n = write_close(&mut buf, id(77), &aborted, &tracks, 0).unwrap();
+    let block = Block::read(&buf[..n]).unwrap();
+    assert_eq!(CloseBlock::read(&block).unwrap().close(), aborted);
 
     // a track row flag this build doesn't know is refused, its CRC good
-    let n = write_finish(&mut buf, id(77), &finish, &tracks, 0).unwrap();
+    let n = write_close(&mut buf, id(77), &close, &tracks, 0).unwrap();
     for flag in [2u32, 1 << 31] {
         let mut b = buf[..n].to_vec();
-        let at = FINISH_TRACKS_AT + ROW_FLAGS_AT;
+        let at = CLOSE_TRACKS_AT + ROW_FLAGS_AT;
         b[at..at + 4].copy_from_slice(&(flag | ROW_INCOMPLETE).to_le_bytes());
         crate::index::seal(&mut b);
         assert_eq!(
-            FinishBlock::read(&Block::read(&b).unwrap()).err(),
+            CloseBlock::read(&Block::read(&b).unwrap()).err(),
             Some(IndexError::Invalid(
                 "a track row flag this build doesn't know"
             ))
@@ -134,12 +152,12 @@ fn finish_and_tail_round_trip() {
 
     let tail = Tail {
         piece_len: 6 << 20,
-        finish_offset: (6 << 20) - 400,
-        finish_len: 200,
-        state: FinishState::Continued,
-        hash: finish.hash,
-        ident: finish.ident,
-        next: finish.next,
+        close_offset: (6 << 20) - 400,
+        close_len: 200,
+        reason: CloseReason::Closed,
+        hash: close.hash,
+        ident: close.ident,
+        next: close.next,
     };
     let mut tb = [0u8; TAIL_LEN];
     assert_eq!(tail.write(&mut tb, id(78)), TAIL_LEN);
@@ -149,9 +167,9 @@ fn finish_and_tail_round_trip() {
         bad[at] ^= 1;
         assert!(Tail::read(&bad).is_err(), "byte {at}");
     }
-    // a finish that doesn't fit before the tail
+    // a close that doesn't fit before the tail
     let wrong = Tail {
-        finish_offset: 6 << 20,
+        close_offset: 6 << 20,
         ..tail
     };
     wrong.write(&mut tb, id(78));
@@ -159,8 +177,8 @@ fn finish_and_tail_round_trip() {
     // offsets whose sum overflows u64
     let wraps = Tail {
         piece_len: TAIL_LEN as u64,
-        finish_offset: u64::MAX - 343,
-        finish_len: 180,
+        close_offset: u64::MAX - 343,
+        close_len: 180,
         ..tail
     };
     wraps.write(&mut tb, id(78));
@@ -200,7 +218,15 @@ fn chains_of_one_result_start_apart() {
     assert_eq!(PieceId::first_of(&owner, 1).0[..4], [241, 163, 28, 235]);
 }
 
-fn summary(seq: u64, end: Option<FinishState>) -> PieceSummary {
+/// How a test piece ends: closed, closed by a cut naming the next piece, or aborted.
+#[derive(Copy, Clone, PartialEq)]
+enum Ends {
+    Complete,
+    Continued,
+    Aborted,
+}
+
+fn summary(seq: u64, end: Option<Ends>) -> PieceSummary {
     let id = |s: u64| PieceId([s as u8 + 1; 16]);
     let hash = |s: u64| ContentHash([s as u8 + 100; 32]);
     PieceSummary {
@@ -211,10 +237,14 @@ fn summary(seq: u64, end: Option<FinishState>) -> PieceSummary {
         },
         prev: (seq > 0).then(|| (hash(seq - 1), id(seq - 1))),
         end: end.map(|st| {
+            let reason = match st {
+                Ends::Aborted => CloseReason::Aborted,
+                Ends::Complete | Ends::Continued => CloseReason::Closed,
+            };
             (
-                st,
+                reason,
                 hash(seq),
-                (st == FinishState::Continued).then(|| id(seq + 1)),
+                (st == Ends::Continued).then(|| id(seq + 1)),
             )
         }),
         head: HeadStatus::Read,
@@ -223,7 +253,7 @@ fn summary(seq: u64, end: Option<FinishState>) -> PieceSummary {
 
 #[test]
 fn chains_are_checked_both_ways() {
-    use FinishState::*;
+    use Ends::*;
     let whole = [
         summary(2, Some(Complete)),
         summary(0, Some(Continued)),
@@ -243,27 +273,45 @@ fn chains_are_checked_both_ways() {
     );
     assert!(r.head_cut);
     assert_eq!(r.links, [ChainLink::Linked]);
-    assert_eq!(r.end, ChainEnd::Complete);
+    assert_eq!(
+        r.end,
+        ChainEnd::Closed {
+            reason: CloseReason::Closed
+        }
+    );
 
     // a gap, an open end
     let r = check_chain(&[summary(0, Some(Continued)), summary(2, None)]);
     assert_eq!(r.links, [ChainLink::Gap { missing: 1 }]);
-    assert_eq!(r.end, ChainEnd::Open);
+    assert_eq!(r.end, ChainEnd::Unclosed);
 
     // the last piece at hand says more follow
     let r = check_chain(&[summary(0, Some(Continued))]);
     assert_eq!(r.end, ChainEnd::TailCut);
 
+    // the reason of the last close is said, not obeyed
+    let r = check_chain(&[summary(0, Some(Aborted))]);
+    assert_eq!(
+        r.end,
+        ChainEnd::Closed {
+            reason: CloseReason::Aborted
+        }
+    );
+
     // a piece rewritten: its hash no longer matches the next head
     let mut changed = summary(0, Some(Continued));
-    changed.end = Some((Continued, ContentHash([0; 32]), changed.end.unwrap().2));
+    changed.end = Some((
+        CloseReason::Closed,
+        ContentHash([0; 32]),
+        changed.end.unwrap().2,
+    ));
     let r = check_chain(&[changed, summary(1, Some(Complete))]);
     assert_eq!(r.links, [ChainLink::Broken]);
     assert!(!r.is_whole());
 
-    // a crash left the first piece unfinished
+    // a crash left the first piece unclosed
     let r = check_chain(&[summary(0, None), summary(1, Some(Complete))]);
-    assert_eq!(r.links, [ChainLink::Unfinished]);
+    assert_eq!(r.links, [ChainLink::Unclosed]);
 
     // the same seq twice, another owner
     let mut other = summary(1, Some(Complete));
@@ -294,29 +342,29 @@ fn chains_are_checked_both_ways() {
 }
 
 #[test]
-fn finish_padding_ends_the_piece_on_4_kib() {
+fn close_padding_ends_the_piece_on_4_kib() {
     for tracks in [0, 1, 3, 70] {
         for offset in [0, 1, 100, 4095, 4096, 12345, (1 << 40) + 7, u64::MAX - 5] {
-            let pad = finish_padding(offset, tracks);
+            let pad = close_padding(offset, tracks);
             assert!(pad < 4096);
-            let end = offset.wrapping_add((finish_len(tracks) + pad + TAIL_LEN) as u64);
+            let end = offset.wrapping_add((close_len(tracks) + pad + TAIL_LEN) as u64);
             assert_eq!(end % 4096, 0, "{tracks} tracks at {offset}");
         }
     }
 }
 
 #[test]
-fn finish_padding_is_checked_against_the_length() {
-    let finish = Finish {
-        state: FinishState::Complete,
+fn close_padding_is_checked_against_the_length() {
+    let close = Close {
+        reason: CloseReason::Closed,
         hash: ContentHash([3; 32]),
         checkpoint: None,
         final_index: None,
         ident: None,
         next: None,
     };
-    let mut buf = vec![0u8; finish_len(0) + 64];
-    let n = write_finish(&mut buf, id(5), &finish, &[], 64).unwrap();
+    let mut buf = vec![0u8; close_len(0) + 64];
+    let n = write_close(&mut buf, id(5), &close, &[], 64).unwrap();
     // a padding field that disagrees with the block's length, CRC made good again
     for padding in [0u32, 63, 65, 4095, 4096, u32::MAX] {
         let mut b = buf[..n].to_vec();
@@ -324,7 +372,7 @@ fn finish_padding_is_checked_against_the_length() {
         crate::index::seal(&mut b);
         let block = Block::read(&b).unwrap();
         assert_eq!(
-            FinishBlock::read(&block).err(),
+            CloseBlock::read(&block).err(),
             Some(IndexError::BadHead),
             "padding {padding}"
         );

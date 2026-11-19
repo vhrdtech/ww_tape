@@ -975,20 +975,20 @@ fn summaries_fill_alignment_gaps() {
                 w.defer_block(&defs, b).unwrap();
             }
         }
-        w.finish().unwrap();
+        w.close().unwrap();
         (tape.to_vec().unwrap(), chunk_ends)
     };
     let (plain, plain_ends) = write(false);
     let (file, ends) = write(true);
     assert_eq!(ends, plain_ends, "every summary block went into a gap");
-    // both pieces end on 4 KiB: the finishes' offsets tell what is before them
-    let finish_at = |f: &[u8]| {
+    // both pieces end on 4 KiB: the close records' offsets tell what is before them
+    let close_at = |f: &[u8]| {
         ww_tape::Tail::read(&f[f.len() - ww_tape::TAIL_LEN..])
             .unwrap()
-            .finish_offset
+            .close_offset
     };
     assert!(
-        finish_at(&file) > finish_at(&plain),
+        close_at(&file) > close_at(&plain),
         "the last summaries follow the last chunk"
     );
     let mut rd = FileBlocks::new(&file[..]);

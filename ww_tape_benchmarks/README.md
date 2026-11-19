@@ -17,7 +17,7 @@ The `tracks` binary adds tracks one by one, as a recorder that learns of a new s
 
 1. holds the track in its `Definitions` (`Definitions::define`);
 2. writes one records block on it, and the writer puts the definition before that block;
-3. finishes the piece and reads its definitions back.
+3. closes the piece and reads its definitions back.
 
 It prints the time to add the first 1 000, 5 000 and all tracks.
 

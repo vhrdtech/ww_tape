@@ -1,6 +1,6 @@
 //! Tracks added one by one: the application defines each new track in its `Definitions`, writes one records block
-//! on it (the writer puts the definition before it), and finishes the piece; a reader then opens it and takes its definitions.
-//! Prints a Markdown table of the time to add the first 1 000, 5 000 and all tracks, the finish, and the read, with
+//! on it (the writer puts the definition before it), and closes the piece; a reader then opens it and takes its definitions.
+//! Prints a Markdown table of the time to add the first 1 000, 5 000 and all tracks, the close, and the read, with
 //! the load average at the start.
 //!
 //! Then the bytes a writer puts and copies (blocks marked FLAG_REPEAT) in one piece of `--piece-mib` with all the
@@ -22,7 +22,7 @@ use ww_tape::{
 };
 
 #[derive(Parser)]
-#[command(about = "ww_tape tracks added one by one: define, a records block, finish and read")]
+#[command(about = "ww_tape tracks added one by one: define, a records block, close and read")]
 struct Args {
     /// Tracks to add.
     #[arg(long, default_value_t = 10_000)]
@@ -60,7 +60,7 @@ impl TapeSink for Counting {
         Ok(())
     }
 
-    fn finish(&mut self) -> io::Result<()> {
+    fn close(&mut self) -> io::Result<()> {
         Ok(())
     }
 
@@ -229,8 +229,8 @@ fn main() -> anyhow::Result<()> {
         }
     }
     let t = Instant::now();
-    w.finish().map_err(e)?;
-    let finish = t.elapsed().as_secs_f64();
+    w.close().map_err(e)?;
+    let close = t.elapsed().as_secs_f64();
     let bytes = tape.to_vec().map_err(|e| anyhow::anyhow!("{e:?}"))?;
     let t = Instant::now();
     let r = TapeReader::open(&bytes[..]).map_err(|e| anyhow::anyhow!("{e:?}"))?;
@@ -256,7 +256,7 @@ fn main() -> anyhow::Result<()> {
         println!("| {n} | {s:.3} |");
     }
     println!();
-    println!("Finish: {finish:.3} s. Open and read the definitions: {read:.3} s.");
+    println!("Close: {close:.3} s. Open and read the definitions: {read:.3} s.");
     let piece = args.piece_mib << 20;
     let block = args.block_kib << 10;
     println!();

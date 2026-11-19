@@ -51,11 +51,11 @@ raw medium from its end, where a stale tail could pass for the newest piece.
 
 ### Pieces on a raw medium
 
-A finished piece is a multiple of 4 KiB long on a raw medium too. A piece that starts on a 4 KiB boundary therefore
+A closed piece is a multiple of 4 KiB long on a raw medium too. A piece that starts on a 4 KiB boundary therefore
 ends on one.
 
 The layout's `gap_max` and `resume_align` still say where a writer goes on after an erased or bad stretch. A piece
-appended after a finished one starts on a resume place whenever `resume_align` divides 4 KiB, as a 512-byte sector
+appended after a closed one starts on a resume place whenever `resume_align` divides 4 KiB, as a 512-byte sector
 does.
 
 ## Blank space and gaps

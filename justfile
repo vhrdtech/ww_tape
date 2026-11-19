@@ -193,7 +193,7 @@ fuzz-smoke:
 fuzz-tape-reader:
     cargo +{{ nightly }} fuzz run --target {{ fuzz_host_triple }} tape-reader -- -max_len=65536 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10
 
-# Fuzz ww_tape's writer resuming a cut and mutated unfinished piece: it finishes whole (STD-132)
+# Fuzz ww_tape's writer resuming a cut and mutated unclosed piece: it closes whole (STD-132)
 [working-directory('fuzz')]
 fuzz-tape-resume:
     cargo +{{ nightly }} fuzz run --target {{ fuzz_host_triple }} tape-resume -- -max_len=512 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10
@@ -208,7 +208,7 @@ fuzz-tape-chunk:
 fuzz-tape-summary:
     cargo +{{ nightly }} fuzz run --target {{ fuzz_host_triple }} tape-summary -- -max_len=16384 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10
 
-# Fuzz ww_tape index, finish, tail and piece head blocks and the positional reader on any bytes (STD-122, STD-124)
+# Fuzz ww_tape index, close, tail and piece head blocks and the positional reader on any bytes (STD-122, STD-124)
 [working-directory('fuzz')]
 fuzz-tape-index:
     cargo +{{ nightly }} fuzz run --target {{ fuzz_host_triple }} tape-index -- -max_len=65536 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10
@@ -268,7 +268,7 @@ fuzz-tape-series-hostile:
 fuzz-tape-summary-hostile:
     cargo +{{ nightly }} fuzz run --target {{ fuzz_host_triple }} tape-summary-hostile -- -max_len=256 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10
 
-# Fuzz ww_tape index, finish, piece head and tail blocks of hostile offsets, directories and entries (STD-131)
+# Fuzz ww_tape index, close, piece head and tail blocks of hostile offsets, directories and entries (STD-131)
 [working-directory('fuzz')]
 fuzz-tape-index-hostile:
     cargo +{{ nightly }} fuzz run --target {{ fuzz_host_triple }} tape-index-hostile -- -max_len=256 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10

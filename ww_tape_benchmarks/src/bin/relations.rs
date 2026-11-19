@@ -238,7 +238,7 @@ fn main() -> anyhow::Result<()> {
                 w.write_chunk(&defs, &head, &cols)?;
             }
             best_ns = best_ns.min(t.elapsed().as_nanos() as f64 / f64::from(args.chunks));
-            w.finish()?;
+            w.close()?;
         }
         println!("| {what} | {best_ns:.0} |");
     }

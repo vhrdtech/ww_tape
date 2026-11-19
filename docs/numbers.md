@@ -180,7 +180,7 @@ many tracks the file already has.
 `just bench-tracks` added 10 000 tracks one by one, each followed by a records block. It took 0.048 s on the
 `Ryzen AI 9 HX 370` at a load of 2.1.
 
-Finishing that piece took 0.014 s, and opening it and reading its definitions back took 0.015 s.
+Closing that piece took 0.014 s, and opening it and reading its definitions back took 0.015 s.
 
 Puts and copies cost space in proportion to the tracks in use, not to the tracks defined. The same bench wrote a
 256 MiB piece with 10 000 tracks defined and 4 KiB records blocks on the tracks in use, in turn.

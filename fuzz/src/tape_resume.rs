@@ -1,5 +1,5 @@
-//! ww_tape's writer resuming an unfinished piece cut and mutated by the input: it never panics, and a piece it resumes
-//! takes more blocks and finishes whole, found by its tail and its content hash verified.
+//! ww_tape's writer resuming an unclosed piece cut and mutated by the input: it never panics, and a piece it resumes
+//! takes more blocks and closes whole, found by its tail and its content hash verified.
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;

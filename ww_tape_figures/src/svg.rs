@@ -29,7 +29,7 @@ impl Svg {
         Svg { out }
     }
 
-    /// The finished document.
+    /// The closed document.
     pub fn finish(mut self) -> String {
         self.out.push_str("</svg>\n");
         self.out

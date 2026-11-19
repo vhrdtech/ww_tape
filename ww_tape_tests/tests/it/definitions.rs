@@ -165,8 +165,8 @@ impl<S: TapeSink> Rig<S> {
         self.w.put_item(&self.defs, item)
     }
 
-    pub(crate) fn finish(self) -> Result<ww_tape::writer::Finished, WriteError<S::Error>> {
-        self.w.finish()
+    pub(crate) fn close_piece(self) -> Result<ww_tape::writer::Closed, WriteError<S::Error>> {
+        self.w.close()
     }
 }
 
@@ -356,7 +356,7 @@ fn a_definition_is_put_where_it_is_used() {
     let tape = w.sink().tape();
     write_records(&mut w, 0, 100);
     write_on(&mut w, 2, 100, 50);
-    w.finish().unwrap();
+    w.close_piece().unwrap();
     let bytes = tape.to_vec().unwrap();
     let r = TapeReader::open(&bytes[..]).unwrap();
     let one = writes_of(&bytes, Slot::Track { number: 1 });
@@ -405,7 +405,7 @@ fn the_reader_takes_the_definition_in_force() {
     write_records(&mut w, 0, 3);
     w.define(&labeled(1, CLOCK, "v2")).unwrap();
     write_records(&mut w, 3, 3);
-    w.finish().unwrap();
+    w.close_piece().unwrap();
     let bytes = tape.to_vec().unwrap();
     let r = TapeReader::open(&bytes[..]).unwrap();
     let data: Vec<u64> = record_blocks(&bytes)
@@ -445,13 +445,13 @@ fn the_reader_takes_the_definition_in_force() {
 }
 
 /// A lookup says where the index doesn't cover the stretch from the record it returns to the place: past a cut, a
-/// place past the end; a finished piece at its end has none (reading side review 2, point 4).
+/// place past the end; a closed piece at its end has none (reading side review 2, point 4).
 #[test]
 fn a_lookup_names_the_stretches_the_index_does_not_cover() {
     let mut w = begin(options(u64::MAX));
     let tape = w.sink().tape();
     write_records(&mut w, 0, 3);
-    w.finish().unwrap();
+    w.close_piece().unwrap();
     let bytes = tape.to_vec().unwrap();
     let slot = Slot::Track { number: 1 };
     let r = TapeReader::open(&bytes[..]).unwrap();
@@ -462,7 +462,7 @@ fn a_lookup_names_the_stretches_the_index_does_not_cover() {
     let past = r.state_at(0, slot, len + 100).unwrap();
     assert!(matches!(past.uncovered.as_slice(), [r] if *r == (len..len + 100)));
     assert!(!r.definitions_at(0, len + 100).unwrap().is_whole());
-    // an unfinished piece cut inside its last block: a newer record may lie past the cut
+    // an unclosed piece cut inside its last block: a newer record may lie past the cut
     let data = record_blocks(&bytes)
         .iter()
         .filter(|b| b.first_track == Some(1))
@@ -487,7 +487,7 @@ fn a_spent_read_budget_is_its_own_answer() {
     let mut w = begin(options(u64::MAX));
     let tape = w.sink().tape();
     write_records(&mut w, 0, 3);
-    w.finish().unwrap();
+    w.close_piece().unwrap();
     let bytes = tape.to_vec().unwrap();
     let slot = Slot::Track { number: 1 };
     let open = |max: u64| {
@@ -541,7 +541,7 @@ fn a_reader_keeps_the_state_entries_once_read() {
     for t in 1..=9 {
         write_on(&mut w, t, 0, 2);
     }
-    w.finish().unwrap();
+    w.close_piece().unwrap();
     let bytes = tape.to_vec().unwrap();
     let r = TapeReader::open(Counted {
         bytes: &bytes,
@@ -589,7 +589,7 @@ fn a_put_writes_only_what_is_not_close_behind() {
         w.put(5, 0, &long),
         Err(WriteError::Describe(DescribeError::TooLong { .. }))
     ));
-    w.finish().unwrap();
+    w.close_piece().unwrap();
     let bytes = tape.to_vec().unwrap();
     assert_eq!(writes_of(&bytes, Slot::State { track: 5 }).len(), 4);
     // the reader takes the item in force
@@ -674,7 +674,7 @@ fn a_relay_holds_the_definitions_of_the_blocks_of_puts() {
     // a records block on a track the relay doesn't hold is refused
     let unknown = on_tracks(producer.next().next(), &[(7, 5, b"data")]);
     assert!(w.w.relay_block(&mut defs, &unknown).is_err());
-    w.w.finish().unwrap();
+    w.w.close().unwrap();
     let bytes = tape.to_vec().unwrap();
     let r = TapeReader::open(&bytes[..]).unwrap();
     let at = r.definitions_at(0, u64::MAX).unwrap();
@@ -772,7 +772,7 @@ fn a_producers_block_of_puts_is_put_on_the_tape() {
     )
     .unwrap();
     w.write_block(&out[0]).unwrap();
-    w.finish().unwrap();
+    w.close_piece().unwrap();
     let bytes = tape.to_vec().unwrap();
     let relayed = record_blocks(&bytes).iter().any(|b| {
         Block::read(&b.bytes)
@@ -816,7 +816,7 @@ fn a_use_writes_the_copies() {
         write_records(&mut w, k, 1);
         w.put(6, k, b"six again").unwrap();
     }
-    w.finish().unwrap();
+    w.close_piece().unwrap();
     let bytes = tape.to_vec().unwrap();
     let five = writes_of(&bytes, Slot::State { track: 5 });
     assert_eq!(five.len(), 3, "the first write and two copies: {five:?}");
@@ -855,7 +855,7 @@ fn a_track_dropped_from_the_definitions_is_refused() {
     );
     define_all(&mut w, &[clock(2), track(7, 2)]);
     assert!(w.defs.track(7).is_some());
-    w.finish().unwrap();
+    w.close_piece().unwrap();
 }
 
 /// The definitions say how much they hold, for the application to bound; the producer and the layout are the
@@ -918,13 +918,13 @@ fn definitions_that_do_not_hold_together_are_refused() {
     assert_eq!(tape.to_vec().unwrap().len(), len, "nothing written");
     assert_eq!(w.next_seq(), next);
     write_records(&mut w, 10, 3);
-    w.finish().unwrap();
+    w.close_piece().unwrap();
     let bytes = tape.to_vec().unwrap();
     let r = TapeReader::open(&bytes[..]).unwrap();
     assert!(r.verify(0).unwrap());
     assert_eq!(tracks(&r.definitions_at(0, u64::MAX).unwrap()), [1]);
 
-    // an aligned writer: a deferred block on a track not held is refused, a good one is placed at the finish
+    // an aligned writer: a deferred block on a track not held is refused, a good one is placed at the close
     let mut w = Rig::new(TapeWriter::create_on(MemSink::new(), SyncPolicy::None));
     w.set_alignment(ww_tape::ALIGNMENT).unwrap();
     define_all(&mut w, &base(Layout::ALIGNED));
@@ -937,7 +937,7 @@ fn definitions_that_do_not_hold_together_are_refused() {
     ));
     w.defer_block(on_tracks(w.next_id(), &[(2, 0, b"deferred")]))
         .unwrap();
-    w.finish().unwrap();
+    w.close_piece().unwrap();
     let bytes = tape.to_vec().unwrap();
     assert!(
         record_blocks(&bytes)
@@ -977,12 +977,12 @@ fn a_resumed_piece_takes_the_definitions_passed() {
     write(&mut c, &defs, 9, 10);
     c.cut_now().unwrap();
     write(&mut c, &defs, 9, 20);
-    // a crash: the last piece is left unfinished
+    // a crash: the last piece is left unclosed
     drop(c);
     let (mut c, _) = ww_tape_fs::chain::resume(&dir, owner, 0, opts).unwrap();
     write(&mut c, &defs, 9, 30);
     write(&mut c, &defs, 5, 40);
-    let pieces = c.finish().unwrap();
+    let pieces = c.close().unwrap();
     let bytes = std::fs::read(ww_tape_fs::Files::new(&dir).path_of(pieces[2].tape)).unwrap();
     let r = TapeReader::open(&bytes[..]).unwrap();
     for b in record_blocks(&bytes)
@@ -1058,7 +1058,7 @@ fn ten_thousand_tracks_one_at_a_time() {
     // a block of definitions and a data block per track are about 200 bytes; checkpoints add an entry for each
     let per_track = 200 + 2 * ww_tape::index::ENTRY_LEN;
     assert!(grown < TRACKS as usize * per_track, "{grown} bytes");
-    w.finish().unwrap();
+    w.close_piece().unwrap();
     let bytes = tape.to_vec().unwrap();
     let src = Counting {
         bytes: &bytes,

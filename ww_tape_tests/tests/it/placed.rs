@@ -66,7 +66,7 @@ fn write_chunk_and_write_block_say_where_they_landed() {
     );
 
     let tape = w.sink().tape();
-    w.finish().unwrap();
+    w.close().unwrap();
     let bytes = tape.to_vec().unwrap();
     let r = TapeReader::open(&bytes[..]).unwrap();
 
@@ -120,7 +120,7 @@ fn adopt_block_says_where_it_landed() {
         .expect("a records block lands as itself");
 
     let tape = w.sink().tape();
-    w.finish().unwrap();
+    w.close().unwrap();
     let bytes = tape.to_vec().unwrap();
     let r = TapeReader::open(&bytes[..]).unwrap();
     let mut buf = Vec::new();
@@ -163,8 +163,8 @@ fn piece_chain_write_chunk_says_which_piece_it_landed_in() {
     let second = chain.write_chunk(defs, &head1, &column(&cols1)).unwrap();
     assert_eq!((first.seq, second.seq), (0, 1), "a cut before the second");
 
-    let finished = chain.finish().unwrap();
-    assert_eq!(finished.len(), 2);
+    let closed = chain.close().unwrap();
+    assert_eq!(closed.len(), 2);
 
     for (placed, head) in [(first, head0), (second, head1)] {
         let bytes = std::fs::read(dir.join(piece_name(placed.seq))).unwrap();
@@ -220,7 +220,7 @@ fn a_chunk_placed_states_the_unit_of_its_index_entry() {
         }
         assert_eq!(placed.last().unwrap().seq, 3, "{tapes:?}: three cuts");
         let mem = chain.tapes().clone();
-        chain.finish().unwrap();
+        chain.close().unwrap();
 
         for p in &placed {
             let (key, piece) = match tapes {
@@ -256,7 +256,7 @@ fn an_empty_chunk_placed_states_the_unit_of_its_index_entry() {
     let placed = w.write_chunk(defs, &head, &column(&[])).unwrap();
     assert!(!placed.unit.is_none(), "a chunk states its unit");
     let tape = w.sink().tape();
-    w.finish().unwrap();
+    w.close().unwrap();
     let bytes = tape.to_vec().unwrap();
     let r = TapeReader::open(&bytes[..]).unwrap();
     let entry = r

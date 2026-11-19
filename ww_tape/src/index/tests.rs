@@ -332,7 +332,7 @@ fn renumbered_index_block_reads() {
     }
 }
 
-/// Index, finish, tail and piece head blocks are the writer's own: not taken as deferred blocks.
+/// Index, close, tail and piece head blocks are the writer's own: not taken as deferred blocks.
 #[test]
 fn structural_blocks_are_not_deferred() {
     let mut w = crate::TapeWriter::create_on(crate::MemSink::new(), crate::SyncPolicy::None);
@@ -352,9 +352,9 @@ fn structural_blocks_are_not_deferred() {
     let mut tail = [0u8; crate::piece::TAIL_LEN];
     crate::piece::Tail {
         piece_len: 1000,
-        finish_offset: 0,
-        finish_len: 200,
-        state: crate::FinishState::Complete,
+        close_offset: 0,
+        close_len: 200,
+        reason: crate::CloseReason::Closed,
         hash: crate::piece::ContentHash([0; 32]),
         ident: None,
         next: None,
@@ -366,7 +366,7 @@ fn structural_blocks_are_not_deferred() {
     b.push(1, ClockTime::new(1, 5), &[b"x"]).unwrap();
     let len = b.finish();
     w.defer_block(&defs, buf[..len].to_vec()).unwrap();
-    w.finish().unwrap();
+    w.close().unwrap();
 }
 
 /// An entry naming no block (length 0, longer than a block, an end past u64) is refused when a whole block or a

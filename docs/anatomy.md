@@ -1,13 +1,13 @@
 # Anatomy of a file
 
-This page follows one finished file from its start to its end. It then explains how a reader reads by position, and
+This page follows one closed file from its start to its end. It then explains how a reader reads by position, and
 why the same input gives the same bytes.
 
 ## From piece head to tail
 
 A complete file is a **piece**. It starts with a piece head, then the layout and the producer.
 
-The data follows, with the definitions it needs close to it and index blocks between it. Three blocks close the
+The data follows, with the definitions it needs close to it and index blocks between it. Three blocks end the
 piece.
 
 [Sessions, pieces and chains](sessions_and_pieces.md#one-file-start-to-end) shows one piece in a diagram.
@@ -18,27 +18,27 @@ While the writer writes a file, nothing marks its end yet. The writer places a *
 4 MiB.
 
 Each checkpoint lists every block placed since the previous checkpoint, and points back at it. A reader of an
-unfinished file finds the newest checkpoint from the end, and follows the checkpoints back.
+unclosed file finds the newest checkpoint from the end, and follows the checkpoints back.
 
 The reader then scans only the stretch after the newest checkpoint.
 
-### The end of a finished piece
+### The end of a closed piece
 
-At the end, the writer places a **final index**, a **finish** block and a **tail**. The final index lists every block of
+At the end, the writer places a **final index**, a **close record** and a **tail**. The final index lists every block of
 the piece, sorted by track, with a directory of tracks in its head.
 
-A reader of one track out of thousands reads that directory and that track's list. The finish block holds the piece's
+A reader of one track out of thousands reads that directory and that track's list. The close record holds the piece's
 content hash and per-track totals.
 
-The finish block also holds the offsets of the final index and of the newest checkpoint. The content hash is a hash
-over every byte before the finish, made with BLAKE3 (a cryptographic hash function).
+The close record also holds the offsets of the final index and of the newest checkpoint. The content hash is a hash
+over every byte before the close, made with BLAKE3 (a cryptographic hash function).
 
 The content hash takes in each chunk's payload by the payload's own hash. The per-track totals are each track's items,
 ticks and running hash.
 
-The tail is the last 164 bytes of the piece. It gives the piece's length and where its finish block is.
+The tail is the last 164 bytes of the piece. It gives the piece's length and where its close record is.
 
-A reader of a finished file starts at the end, with the tail. All offsets count from the start of the piece, and an
+A reader of a closed file starts at the end, with the tail. All offsets count from the start of the piece, and an
 index therefore stays valid wherever the piece sits.
 
 The layouts are in the module docs of [index](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/index/mod.rs)
@@ -57,8 +57,8 @@ with no ids.
 - a file, which `ww_tape_fs::FileSource` opens as one;
 - an HTTP resource fetched by range requests.
 
-The reader needs no file system and no threads, and it therefore runs in a browser. It opens a finished piece with a
-few small reads: the tail, the finish and the final index's directory.
+The reader needs no file system and no threads, and it therefore runs in a browser. It opens a closed piece with a
+few small reads: the tail, the close and the final index's directory.
 
 After that, it reads only the blocks a query needs.
 

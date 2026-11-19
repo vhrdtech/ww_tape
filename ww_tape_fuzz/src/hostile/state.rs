@@ -109,7 +109,7 @@ pub(crate) fn records(id: ww_tape::BlockId, k: i64) -> Vec<u8> {
 }
 
 /// The template: rounds of puts of a few items on the state tracks, a records block each, the stream track's
-/// label changed now and then; finished.
+/// label changed now and then; closed.
 fn template() -> Vec<u8> {
     let o = options();
     let mut w = TapeWriter::create_on(MemSink::new(), o.sync);
@@ -133,7 +133,7 @@ fn template() -> Vec<u8> {
             .expect("a records block");
     }
     let tape = w.sink().tape();
-    w.finish().expect("the template finishes");
+    w.close().expect("the template closes");
     tape.to_vec().expect("the bytes")
 }
 

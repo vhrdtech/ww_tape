@@ -6,7 +6,7 @@
 //!
 //! A monotone relation's values never decrease along the track, across chunks and pieces too: a chunk whose first
 //! value is below the newest one placed is refused. The newest values go on into the next piece of a cut; a resume
-//! takes them from the chunks it keeps and from the last chunk of each track in the pieces finished before, and the
+//! takes them from the chunks it keeps and from the last chunk of each track in the pieces closed before, and the
 //! range relation's from the ranges in the index entries too. Where the chunk holding a track's newest values doesn't
 //! read, the track is unread: its next chunk is refused ([DescribeError::RelationUnread]) rather than written
 //! unchecked, but for the range relation, whose newest value the chunk's entry states.
@@ -78,7 +78,7 @@ impl Newest {
         self.restarted.insert(key);
     }
 
-    /// Take the values of chunk `c` of track `key`, the last of the track in a piece finished before: each relation
+    /// Take the values of chunk `c` of track `key`, the last of the track in a piece closed before: each relation
     /// column in [STARTS](crate::times::STARTS), the codec of every monotone relation. A column that doesn't read
     /// leaves the track unread.
     pub(crate) fn seed_chunk(&mut self, key: TrackKey, c: &Chunk<'_>) {

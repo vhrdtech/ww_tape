@@ -3,7 +3,7 @@
 //! An index block ([BlockKind::Index]) is a checkpoint: it lists every block placed since the previous index block
 //! of the piece, chunk, summary and record blocks alike, and points back at that previous one, so the
 //! chain from the newest checkpoint reaches every block. A writer places one every few MiB ([IndexPolicy]); after a
-//! crash a reader finds the newest one from the end of the file and scans only the stretch after it. At the finish
+//! crash a reader finds the newest one from the end of the file and scans only the stretch after it. At the close
 //! a **final** index lists every block of the piece again, sorted by track, with a directory of tracks in its head:
 //! a reader of one track out of thousands reads the head and that track's entries, each list checked by its own CRC.
 //!
@@ -109,14 +109,14 @@ const DIR_AT: usize = HEADER_LEN + INDEX_FIXED_LEN;
 /// Shortest block an entry may name: a header and a CRC.
 const BLOCK_LEN_MIN: usize = HEADER_LEN + CRC_LEN;
 
-/// Whether blocks of `kind` belong to the file structure (index, finish, tail, piece head): they carry the seq of the
+/// Whether blocks of `kind` belong to the file structure (index, close, tail, piece head): they carry the seq of the
 /// last counted block before them and take no part in the seq order, so seq stays the producer's count of its own
 /// blocks. A reader checks neither order nor gaps on them. Blocks marked [FLAG_REPEAT](crate::FLAG_REPEAT) are stamped
 /// the same way.
 pub fn is_structural(kind: BlockKind) -> bool {
     matches!(
         kind,
-        BlockKind::Index | BlockKind::Finish | BlockKind::Tail | BlockKind::PieceHead
+        BlockKind::Index | BlockKind::Close | BlockKind::Tail | BlockKind::PieceHead
     )
 }
 
@@ -261,7 +261,7 @@ impl IndexEntry {
     }
 
     /// The entry of the good block `bytes` at `offset` in its piece; None for blocks an index doesn't list (index,
-    /// finish, tail, piece head and parity blocks). A block of state records is listed per record:
+    /// close, tail, piece head and parity blocks). A block of state records is listed per record:
     /// [Self::all_of_block].
     pub fn of_block(offset: u64, block: &Block<'_>) -> Option<Self> {
         let bytes = block.bytes();
@@ -288,7 +288,7 @@ impl IndexEntry {
         };
         match block.kind {
             BlockKind::Index
-            | BlockKind::Finish
+            | BlockKind::Close
             | BlockKind::Tail
             | BlockKind::PieceHead
             | BlockKind::Parity => return None,
@@ -544,7 +544,7 @@ impl TrackList {
     }
 }
 
-/// Why an index, finish, tail or piece head block can't be read or written.
+/// Why an index, close, tail or piece head block can't be read or written.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum IndexError {
@@ -1091,7 +1091,7 @@ pub struct IndexPolicy {
 pub const STATE_ENTRIES_MAX: usize = 1 << 20;
 
 impl IndexPolicy {
-    /// No checkpoints; the final index is still written at the finish.
+    /// No checkpoints; the final index is still written at the close.
     pub const NONE: IndexPolicy = IndexPolicy {
         bytes: 0,
         interval: None,

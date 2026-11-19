@@ -11,8 +11,8 @@ concepts](concepts.md), and [Where to go next](#where-to-go-next) lists the page
 `TapeWriter` appends the producer's blocks to a piece and adds the blocks that the piece needs around them. Before a
 block of data, it puts the definitions and the state that the block needs.
 
-Between blocks, the writer places **checkpoints**: index blocks that let a reader find the blocks of an unfinished
-piece. At the end, it writes the final index, the finish and the tail.
+Between blocks, the writer places **checkpoints**: index blocks that let a reader find the blocks of an unclosed
+piece. At the end, it writes the final index, the close and the tail.
 
 The producer makes the data; the writer places it.
 
@@ -20,7 +20,7 @@ The producer makes the data; the writer places it.
 
 The writer puts its bytes into a **sink**: any type that implements `TapeSink`. A sink appends bytes and syncs them.
 
-A sink also reports its size and completes the piece at the finish, and a file sink completes a piece by taking its
+A sink also reports its size and completes the piece at the close, and a file sink completes a piece by taking its
 final name. To resume a piece, a sink also reads bytes back at an offset and truncates them.
 
 The crates provide two sinks:
@@ -97,7 +97,7 @@ writer.write_block(&defs, &readings)?; // the definitions it needs go first
 ```
 
 Here `clock` is a `ClockDef` and the two tracks are `TrackDef`s, all passed as `Describe` values. `readings` is a
-finished records block from a `BlockWriter` ([Writing data](#writing-data)).
+closed records block from a `BlockWriter` ([Writing data](#writing-data)).
 
 The repository runs these lines as a test (`ww_tape_tests/tests/it/book.rs`).
 

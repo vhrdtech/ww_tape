@@ -90,7 +90,7 @@ Other kinds of block hold no items:
 - A **summary** block holds a coarse view of a long track, such as the minimum and maximum of every 1024 samples. A
   viewer draws an hour of data from summaries, without reading the samples.
 - An **index** block lists where other blocks are. Index entries name their track by its track id.
-- A **piece head**, a **finish** and a **tail** mark where a piece begins and ends. [Sessions, pieces and
+- A **piece head**, a **close** and a **tail** mark where a piece begins and ends. [Sessions, pieces and
   chains](sessions_and_pieces.md) explains them.
 
 The crate `ww_tape_summary` builds and reads summaries.

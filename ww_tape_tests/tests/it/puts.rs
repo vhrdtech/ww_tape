@@ -1,4 +1,4 @@
-//! Where a writer's puts go and what they cost: the state-entry cap at a cut and a finish, deferred blocks placed
+//! Where a writer's puts go and what they cost: the state-entry cap at a cut and a close, deferred blocks placed
 //! with no puts, relayed puts with what they need, the work a block of data costs when nothing is written (writing
 //! side review 3).
 
@@ -42,10 +42,10 @@ fn data_on(bytes: &[u8], track: u32) -> u64 {
 }
 
 /// A deferred block's definitions are put when it is deferred and none when it is placed: puts that fill the
-/// piece's state entries place it on their way, and the piece still finishes, the block after its definition
+/// piece's state entries place it on their way, and the piece still closes, the block after its definition
 /// (writing side review 3, point 1).
 #[test]
-fn a_full_cap_never_stops_a_finish() {
+fn a_full_cap_never_stops_a_close() {
     let mut w = aligned(16);
     w.define(&state(12)).unwrap();
     let tape = w.sink().tape();
@@ -60,14 +60,14 @@ fn a_full_cap_never_stops_a_finish() {
     };
     assert!(is_cap(&e), "{e:?}");
     assert_eq!(w.state_entries(), 16);
-    w.finish().unwrap();
+    w.close_piece().unwrap();
     let bytes = tape.to_vec().unwrap();
     let data = data_on(&bytes, 2);
     assert!(writes_of(&bytes, Slot::Track { number: 2 })[0] < data);
 }
 
 /// The same in a chain: a deferred block waits while puts fill the piece; the chain cuts, the block is placed in the
-/// piece it was deferred in with its definition before it, and the chain finishes (writing side review 3, point 1).
+/// piece it was deferred in with its definition before it, and the chain closes (writing side review 3, point 1).
 #[test]
 fn a_full_cap_never_stops_a_cut() {
     let dir = scratch("cap_cut");
@@ -100,7 +100,7 @@ fn a_full_cap_never_stops_a_cut() {
     for k in 0..12u8 {
         chain.put(&defs, 12, i64::from(k), &[k]).unwrap();
     }
-    let pieces = chain.finish().unwrap();
+    let pieces = chain.close().unwrap();
     assert!(pieces.len() >= 2, "the chain cut");
     let bytes = std::fs::read(ww_tape_fs::Files::new(&dir).path_of(pieces[0].tape)).unwrap();
     let data = data_on(&bytes, 2);
@@ -137,7 +137,7 @@ fn a_deferred_block_waits_at_most_the_window() {
         w.w.write_chunk(&defs, &h, &column(&c)).unwrap();
         k += 1;
     }
-    w.finish().unwrap();
+    w.close_piece().unwrap();
     let bytes = tape.to_vec().unwrap();
     let data = data_on(&bytes, 2);
     assert!(data > deferred_at, "it waited");
@@ -162,7 +162,7 @@ fn a_relayed_put_takes_its_definitions_into_each_piece() {
     let tape = w.sink().tape();
     w.write_block(&puts_of(producer.next(), &[], &[(7, 2, b"B")]))
         .unwrap();
-    w.finish().unwrap();
+    w.close_piece().unwrap();
     let bytes = tape.to_vec().unwrap();
     let state_at = writes_of(&bytes, Slot::State { track: 7 });
     let def_at = writes_of(&bytes, Slot::Track { number: 7 });

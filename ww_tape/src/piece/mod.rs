@@ -1,26 +1,26 @@
 //! Tape pieces: one recording cut into complete files, and how a piece ends.
 //!
 //! A **piece** is a complete tape file: a [piece head](PieceHead) block, blocks of definitions, chunk, summary and
-//! record blocks with checkpoint [index](crate::index) blocks between them, then at the finish a final index, a
-//! [finish](Finish) block and a fixed-size [tail](Tail) block. Any piece reads alone: a writer puts the definitions
+//! record blocks with checkpoint [index](crate::index) blocks between them, then at the close a final index, a
+//! [close](Close) block and a fixed-size [tail](Tail) block. Any piece reads alone: a writer puts the definitions
 //! each block of data needs close behind it in the same piece ([state](crate::state)); pieces written back to back are one valid tape. A file a writer started without a piece head is one piece
 //! too, with no ids.
 //!
 //! A writer cuts a recording into pieces at chunk boundaries ([PieceChain]). The head names the previous piece by its
 //! content hash and its id; the previous piece's tail names this piece's id, derived at the cut from the previous
-//! piece's id and the content hash in its finish ([PieceId::after]), so the chain is checked both ways ([check_chain]).
+//! piece's id and the content hash in its close ([PieceId::after]), so the chain is checked both ways ([check_chain]).
 //! Each piece carries the owner id, its sequence number in the chain and, per track, where its items continue (head)
-//! and the items and ticks it holds (finish). A chain whose first piece is gone reads as head cut, not as damage.
+//! and the items and ticks it holds (close). A chain whose first piece is gone reads as head cut, not as damage.
 //!
-//! The finish block is the last thing a writer places before the tail. Its content hash is BLAKE3 over the piece's
+//! The close record is the last thing a writer places before the tail. Its content hash is BLAKE3 over the piece's
 //! bytes before it; a piece without one is live or was cut off, and reads up to its last good block. The tail sits
-//! at the very end of the file, [TAIL_LEN] bytes, so a reader finds it with one read and from it the finish, the
+//! at the very end of the file, [TAIL_LEN] bytes, so a reader finds it with one read and from it the close, the
 //! indexes and the start of the piece; the tail of the piece before is just before that start.
 //!
-//! A finished piece is a multiple of [PIECE_ALIGN] (4 KiB) long: the writer pads the finish block's body with zeros
-//! ([finish_padding]), so the tail, still the piece's last bytes, ends on the boundary. Pieces then clone back to back
+//! A closed piece is a multiple of [PIECE_ALIGN] (4 KiB) long: the writer pads the close record's body with zeros
+//! ([close_padding]), so the tail, still the piece's last bytes, ends on the boundary. Pieces then clone back to back
 //! (reflinks on btrfs or XFS) with nothing between them. Only the end is aligned; the blocks inside stay where they
-//! are, and a piece without a finish ends where it ends.
+//! are, and a piece without a close ends where it ends.
 //!
 //! Layouts after the 32-byte block header (the header's count: tracks), little endian:
 //!
@@ -33,14 +33,15 @@
 //! 146 u8   integrity (Integrity): 0 Full, 1 CrcOnly, 2 None (written Full; a reader refuses another)    147 [5] reserved
 //! 152 ...  tracks × 96, one per track carried over from the pieces before:
 //!            0 u64 id    8 u32 number
-//!           12 u32 flags, as a finish row's: bit 0 incomplete (from the pieces before)
+//!           12 u32 flags, as a close row's: bit 0 incomplete (from the pieces before)
 //!           16 u64 next item (the first item number this piece holds)
 //!           24 i64 from tick (no item of the track here starts before it)
 //!           32 [32] owner (TrackDef::owner; zeros: the piece's owner)
 //!           64 [32] track hash before this piece ([TrackHash])
 //!
-//! finish (kind 8)
-//!  32 u8   state (1 complete, 2 continued in the next piece, 3 aborted)    33 u8 reserved
+//! close (kind 8)
+//!  32 u8   reason (1 closed, 2 aborted; a piece that goes on in the next one, next id below, is closed)
+//!  33 u8   reserved
 //!  34 u16  track row length, 136 (a reader takes longer rows and reads their first 136 bytes)    36 [4] reserved
 //!  40 [32] content hash: BLAKE3 of the piece's bytes before this block, each chunk payload by its hash (below)
 //!  72 u64  newest checkpoint index offset    80 u64 last final index offset    88 u64 reserved, u64::MAX
@@ -59,7 +60,7 @@
 //!
 //! tail (kind 9), TAIL_LEN bytes, the last of the piece
 //!  32 u64  piece length, from the piece's start to the end of this block
-//!  40 u64  finish offset    48 u32 finish length    52 u8 state    53 u8 flags (as the finish's)    54 u16 reserved
+//!  40 u64  close offset    48 u32 close length    52 u8 reason    53 u8 flags (as the close's)    54 u16 reserved
 //!  56 [32] content hash    88 [16] piece id    104 [16] next piece id    120 [32] owner id    152 u64 sequence
 //! 160 u32  CRC
 //! ```
@@ -69,7 +70,7 @@
 //! and its owner ([TrackDef::owner](crate::TrackDef::owner)): two owners' tracks of one identity share a file, each
 //! with its own number, item numbers and hash.
 //!
-//! **Content hash.** BLAKE3 over the piece's bytes before its finish block, in order, except that the payload of
+//! **Content hash.** BLAKE3 over the piece's bytes before its close record, in order, except that the payload of
 //! every chunk block that reads whole (from its payload offset to its CRC: the columns and their 16 zero bytes) is
 //! replaced by the 32-byte BLAKE3 hash of that payload. Every byte is covered; the payload is hashed once, for this
 //! hash and the track hash both. The blocks are found from the start: where a block reads whole it is taken whole,
@@ -108,7 +109,7 @@ use crate::{Block, BlockId, BlockKind, CRC_LEN, HEADER_LEN, SessionTag, put_head
 
 /// Bytes of a tail block.
 pub const TAIL_LEN: usize = 164;
-/// A finished piece's length is a multiple of this: 4 KiB, [crate::ALIGNMENT].
+/// A closed piece's length is a multiple of this: 4 KiB, [crate::ALIGNMENT].
 pub const PIECE_ALIGN: u32 = crate::ALIGNMENT;
 const _: () = assert!(PIECE_ALIGN.is_power_of_two(), "padding takes the low bits");
 /// Bytes of the fixed part of a piece head body.
@@ -119,25 +120,25 @@ const HEAD_TRACK_LEN: usize = 96;
 const HEAD_ROW_LEN_AT: usize = 144;
 /// Where a piece head's integrity level is, an [Integrity] byte.
 const HEAD_INTEGRITY_AT: usize = 146;
-/// Where a piece head's track row holds its flags, those of a finish's row ([ROW_INCOMPLETE]).
+/// Where a piece head's track row holds its flags, those of a close's row ([ROW_INCOMPLETE]).
 const HEAD_ROW_FLAGS_AT: usize = 12;
 /// Where a piece head's tracks start.
 const HEAD_TRACKS_AT: usize = HEADER_LEN + HEAD_FIXED_LEN;
-/// Bytes of the fixed part of a finish body.
-const FINISH_FIXED_LEN: usize = 144;
-/// Bytes of a finish's track row this crate writes; a reader takes longer ones.
-const FINISH_TRACK_LEN: usize = 136;
-/// Most tracks with data in one piece: the finish's rows of that many, padded to [PIECE_ALIGN], fit a block
+/// Bytes of the fixed part of a close body.
+const CLOSE_FIXED_LEN: usize = 144;
+/// Bytes of a close's track row this crate writes; a reader takes longer ones.
+const CLOSE_TRACK_LEN: usize = 136;
+/// Most tracks with data in one piece: the close's rows of that many, padded to [PIECE_ALIGN], fit a block
 /// ([crate::MAX_BLOCK_LEN]). A writer refuses a block that would bring in one more ([crate::WriteError]).
 pub const TRACKS_PER_PIECE_MAX: usize =
-    (crate::MAX_BLOCK_LEN - HEADER_LEN - FINISH_FIXED_LEN - CRC_LEN - (u32_len(PIECE_ALIGN) - 1))
-        / FINISH_TRACK_LEN;
+    (crate::MAX_BLOCK_LEN - HEADER_LEN - CLOSE_FIXED_LEN - CRC_LEN - (u32_len(PIECE_ALIGN) - 1))
+        / CLOSE_TRACK_LEN;
 const _: () = assert!(
-    finish_len(TRACKS_PER_PIECE_MAX) + u32_len(PIECE_ALIGN) - 1 <= crate::MAX_BLOCK_LEN,
-    "the finish of the most tracks fits a block"
+    close_len(TRACKS_PER_PIECE_MAX) + u32_len(PIECE_ALIGN) - 1 <= crate::MAX_BLOCK_LEN,
+    "the close of the most tracks fits a block"
 );
 /// Most track rows one piece head carries: each track the chain's pieces before it carried or gave data, so a head
-/// of that many fits a block ([crate::MAX_BLOCK_LEN]), padded as a finish is. A writer refuses a block that would
+/// of that many fits a block ([crate::MAX_BLOCK_LEN]), padded as a close is. A writer refuses a block that would
 /// bring the next head past it ([crate::WriteError]).
 pub const HEAD_TRACKS_MAX: usize =
     (crate::MAX_BLOCK_LEN - HEADER_LEN - HEAD_FIXED_LEN - CRC_LEN - (u32_len(PIECE_ALIGN) - 1))
@@ -146,14 +147,14 @@ const _: () = assert!(
     piece_head_len(HEAD_TRACKS_MAX) + u32_len(PIECE_ALIGN) - 1 <= crate::MAX_BLOCK_LEN,
     "the head of the most tracks fits a block"
 );
-/// Where a finish's track row holds its flags.
+/// Where a close's track row holds its flags.
 const ROW_FLAGS_AT: usize = 128;
 /// A track row's flag: the track hash leaves out units a resume kept unread.
 const ROW_INCOMPLETE: u32 = 1;
-/// Where a finish names its row length.
-const FINISH_ROW_LEN_AT: usize = 34;
-/// Where a finish block's tracks start.
-const FINISH_TRACKS_AT: usize = HEADER_LEN + FINISH_FIXED_LEN;
+/// Where a close names its row length.
+const CLOSE_ROW_LEN_AT: usize = 34;
+/// Where a close record's tracks start.
+const CLOSE_TRACKS_AT: usize = HEADER_LEN + CLOSE_FIXED_LEN;
 
 const FLAG_HAS_PREV: u32 = 1;
 const FLAG_PIECE: u8 = 1;
@@ -175,7 +176,7 @@ impl OwnerId {
     }
 }
 
-/// BLAKE3 of a piece's bytes before its finish block, each chunk payload by its hash (see the [module docs](self)).
+/// BLAKE3 of a piece's bytes before its close record, each chunk payload by its hash (see the [module docs](self)).
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
 pub struct ContentHash(pub [u8; 32]);
 
@@ -512,37 +513,45 @@ impl PieceId {
     }
 }
 
-/// How a piece ended.
+/// Why a writer closed a piece, as it says: a reader reports it and acts on nothing of it.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum FinishState {
-    /// The recording ended here.
-    Complete,
-    /// The recording goes on in the next piece, the one the tail names.
-    Continued,
-    /// The writer stopped on purpose without completing it (the producer failed); everything written is good.
+pub enum CloseReason {
+    /// The writer was done with the piece for now.
+    Closed,
+    /// The writer stopped on purpose without completing what it wrote (the producer failed); everything written is
+    /// good.
     Aborted,
 }
 
-impl FinishState {
+impl CloseReason {
     pub fn from_u8(v: u8) -> Option<Self> {
         match v {
-            1 => Some(FinishState::Complete),
-            2 => Some(FinishState::Continued),
-            3 => Some(FinishState::Aborted),
+            1 => Some(CloseReason::Closed),
+            2 => Some(CloseReason::Aborted),
             _ => None,
         }
     }
 
     pub fn to_u8(self) -> u8 {
         match self {
-            FinishState::Complete => 1,
-            FinishState::Continued => 2,
-            FinishState::Aborted => 3,
+            CloseReason::Closed => 1,
+            CloseReason::Aborted => 2,
         }
     }
 }
 
-/// Where a piece sits in its chain, as its head, finish and tail say.
+/// The reason and the next piece's id of a close record or tail; None for a pair no writer makes: a piece goes on in
+/// a next one only when closed by a cut, never aborted.
+fn ending(reason: u8, next: PieceId) -> Option<(CloseReason, Option<PieceId>)> {
+    let reason = CloseReason::from_u8(reason)?;
+    let next = (!next.is_none()).then_some(next);
+    match (reason, next) {
+        (CloseReason::Aborted, Some(_)) => None,
+        ending => Some(ending),
+    }
+}
+
+/// Where a piece sits in its chain, as its head, close and tail say.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Default)]
 pub struct PieceIdent {
     pub id: PieceId,
@@ -568,7 +577,7 @@ pub struct TrackStart {
     pub incomplete: bool,
 }
 
-/// The items and ticks of one track's chunk blocks in a piece, its counted records and its hash, from its finish.
+/// The items and ticks of one track's chunk blocks in a piece, its counted records and its hash, from its close.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TrackRange {
     pub track_id: u64,
@@ -915,10 +924,10 @@ fn read_link(b: &[u8]) -> Option<HeadLink> {
     })
 }
 
-/// The fixed part of a finish block.
+/// The fixed part of a close record.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Finish {
-    pub state: FinishState,
+pub struct Close {
+    pub reason: CloseReason,
     pub hash: ContentHash,
     /// The newest checkpoint index block.
     pub checkpoint: Option<u64>,
@@ -926,21 +935,21 @@ pub struct Finish {
     pub final_index: Option<u64>,
     /// The piece's ident; None for a file written without a piece head.
     pub ident: Option<PieceIdent>,
-    /// The next piece's id, chosen at the cut: some when [FinishState::Continued].
+    /// The next piece's id, chosen at the cut: some when the piece goes on in the next one, the link of its chain.
     pub next: Option<PieceId>,
 }
 
-/// Bytes of a finish block with `tracks`, without padding.
-pub const fn finish_len(tracks: usize) -> usize {
-    block_len_of(FINISH_FIXED_LEN, tracks, FINISH_TRACK_LEN)
+/// Bytes of a close record with `tracks`, without padding.
+pub const fn close_len(tracks: usize) -> usize {
+    block_len_of(CLOSE_FIXED_LEN, tracks, CLOSE_TRACK_LEN)
 }
 
-/// Zero bytes a finish block of `tracks` placed at `finish_offset` in its piece is padded with, so the piece ends,
+/// Zero bytes a close record of `tracks` placed at `close_offset` in its piece is padded with, so the piece ends,
 /// after its tail, on a multiple of [PIECE_ALIGN]; below [PIECE_ALIGN].
-pub const fn finish_padding(finish_offset: u64, tracks: usize) -> usize {
+pub const fn close_padding(close_offset: u64, tracks: usize) -> usize {
     // only the low bits count: the end modulo 2^64 has them
-    let end = finish_offset
-        .wrapping_add(len_u64(finish_len(tracks)))
+    let end = close_offset
+        .wrapping_add(len_u64(close_len(tracks)))
         .wrapping_add(len_u64(TAIL_LEN));
     to_boundary(end, PIECE_ALIGN.wrapping_sub(1))
 }
@@ -953,46 +962,46 @@ fn get_opt(b: &[u8], at: usize) -> Option<Option<u64>> {
     le_u64(b, at).map(|v| Some(v).filter(|v| *v != NONE))
 }
 
-/// Write a finish block with `padding` zero bytes after its tracks into `buf` (at least [finish_len] plus `padding`
+/// Write a close record with `padding` zero bytes after its tracks into `buf` (at least [close_len] plus `padding`
 /// long); returns its length. A padding of [PIECE_ALIGN] or more is refused.
-pub fn write_finish(
+pub fn write_close(
     buf: &mut [u8],
     id: BlockId,
-    finish: &Finish,
+    close: &Close,
     tracks: &[TrackRange],
     padding: usize,
 ) -> Result<usize, IndexError> {
     let pad = u32::try_from(padding)
         .ok()
         .filter(|p| *p < PIECE_ALIGN)
-        .ok_or(IndexError::Invalid("finish padding of 4 KiB or more"))?;
-    let len = finish_len(tracks.len()).saturating_add(padding);
+        .ok_or(IndexError::Invalid("close padding of 4 KiB or more"))?;
+    let len = close_len(tracks.len()).saturating_add(padding);
     let (b, count) = block_buf(buf, len, tracks.len())?;
-    put_header(b, BlockKind::Finish, len, count, id)
+    put_header(b, BlockKind::Close, len, count, id)
         .ok_or(IndexError::Invalid("longer than a block"))?;
-    fill_finish(b, finish, tracks).ok_or(IndexError::Invalid("finish layout"))?;
-    put_u32(b, 172, pad).ok_or(IndexError::Invalid("finish layout"))?;
+    fill_close(b, close, tracks).ok_or(IndexError::Invalid("close layout"))?;
+    put_u32(b, 172, pad).ok_or(IndexError::Invalid("close layout"))?;
     seal(b);
     Ok(len)
 }
 
-/// The body of the finish block `b`, sized for `tracks`.
-fn fill_finish(b: &mut [u8], finish: &Finish, tracks: &[TrackRange]) -> Option<()> {
+/// The body of the close record `b`, sized for `tracks`.
+fn fill_close(b: &mut [u8], close: &Close, tracks: &[TrackRange]) -> Option<()> {
     b.get_mut(HEADER_LEN..)?.fill(0);
-    put(b, 32, [finish.state.to_u8()])?;
-    put(b, 40, finish.hash.0)?;
-    put_u64(b, 72, opt(finish.checkpoint))?;
-    put_u64(b, 80, opt(finish.final_index))?;
+    put(b, 32, [close.reason.to_u8()])?;
+    put(b, 40, close.hash.0)?;
+    put_u64(b, 72, opt(close.checkpoint))?;
+    put_u64(b, 80, opt(close.final_index))?;
     put_u64(b, 88, opt(None))?;
-    if let Some(ident) = &finish.ident {
+    if let Some(ident) = &close.ident {
         put_ident(b, 96, 128, 160, ident)?;
         put_u32(b, 168, u32::from(FLAG_PIECE))?;
     }
-    put(b, 112, finish.next.unwrap_or(PieceId::NONE).0)?;
-    put_u16(b, FINISH_ROW_LEN_AT, u16::try_from(FINISH_TRACK_LEN).ok()?)?;
+    put(b, 112, close.next.unwrap_or(PieceId::NONE).0)?;
+    put_u16(b, CLOSE_ROW_LEN_AT, u16::try_from(CLOSE_TRACK_LEN).ok()?)?;
     let rows = b
-        .get_mut(FINISH_TRACKS_AT..)?
-        .as_chunks_mut::<FINISH_TRACK_LEN>()
+        .get_mut(CLOSE_TRACKS_AT..)?
+        .as_chunks_mut::<CLOSE_TRACK_LEN>()
         .0
         .iter_mut();
     for (row, t) in rows.zip(tracks) {
@@ -1012,38 +1021,38 @@ fn fill_finish(b: &mut [u8], finish: &Finish, tracks: &[TrackRange]) -> Option<(
     Some(())
 }
 
-/// A finish block read in place.
+/// A close record read in place.
 #[derive(Copy, Clone, Debug)]
-pub struct FinishBlock<'b> {
-    finish: Finish,
+pub struct CloseBlock<'b> {
+    close: Close,
     /// The tracks, `row` bytes each
     rows: &'b [u8],
-    /// At least [FINISH_TRACK_LEN]
+    /// At least [CLOSE_TRACK_LEN]
     row: usize,
 }
 
-impl<'b> FinishBlock<'b> {
-    /// The finish of a good block.
+impl<'b> CloseBlock<'b> {
+    /// The close of a good block.
     pub fn read(block: &Block<'b>) -> Result<Self, IndexError> {
-        of_kind(block, BlockKind::Finish)?;
+        of_kind(block, BlockKind::Close)?;
         let padding = le_u32(block.bytes(), 172)
             .filter(|p| *p < PIECE_ALIGN)
             .map(u32_len)
             .ok_or(IndexError::BadHead)?;
         let (rows, row) = body(
             block,
-            BlockKind::Finish,
-            FINISH_FIXED_LEN,
-            (FINISH_ROW_LEN_AT, FINISH_TRACK_LEN),
+            BlockKind::Close,
+            CLOSE_FIXED_LEN,
+            (CLOSE_ROW_LEN_AT, CLOSE_TRACK_LEN),
             padding,
         )?;
-        let finish = read_finish(block.bytes()).ok_or(IndexError::BadHead)?;
+        let close = read_close(block.bytes()).ok_or(IndexError::BadHead)?;
         known_row_flags(rows, row, ROW_FLAGS_AT)?;
-        Ok(FinishBlock { finish, rows, row })
+        Ok(CloseBlock { close, rows, row })
     }
 
-    pub fn finish(&self) -> Finish {
-        self.finish
+    pub fn close(&self) -> Close {
+        self.close
     }
 
     pub fn tracks(&self) -> impl Iterator<Item = TrackRange> + '_ {
@@ -1066,22 +1075,23 @@ impl<'b> FinishBlock<'b> {
     }
 }
 
-/// The fixed part of the finish block `b`; None when its state is none this reader knows.
-fn read_finish(b: &[u8]) -> Option<Finish> {
+/// The fixed part of the close record `b`; None when its reason is none this reader knows, or an aborted piece names
+/// a next one.
+fn read_close(b: &[u8]) -> Option<Close> {
     let piece = le_u32(b, 168)? & u32::from(FLAG_PIECE) != 0;
-    let next = PieceId(array(b, 112)?);
+    let (reason, next) = ending(le_u8(b, 32)?, PieceId(array(b, 112)?))?;
     let ident = if piece {
         Some(get_ident(b, 96, 128, 160)?)
     } else {
         None
     };
-    Some(Finish {
-        state: FinishState::from_u8(le_u8(b, 32)?)?,
+    Some(Close {
+        reason,
         hash: ContentHash(array(b, 40)?),
         checkpoint: get_opt(b, 72)?,
         final_index: get_opt(b, 80)?,
         ident,
-        next: (!next.is_none()).then_some(next),
+        next,
     })
 }
 
@@ -1090,9 +1100,9 @@ fn read_finish(b: &[u8]) -> Option<Finish> {
 pub struct Tail {
     /// Bytes from the piece's start to the end of the tail.
     pub piece_len: u64,
-    pub finish_offset: u64,
-    pub finish_len: u32,
-    pub state: FinishState,
+    pub close_offset: u64,
+    pub close_len: u32,
+    pub reason: CloseReason,
     pub hash: ContentHash,
     pub ident: Option<PieceIdent>,
     pub next: Option<PieceId>,
@@ -1119,9 +1129,9 @@ impl Tail {
     fn fill(&self, b: &mut [u8]) -> Option<()> {
         b.get_mut(HEADER_LEN..)?.fill(0);
         put_u64(b, 32, self.piece_len)?;
-        put_u64(b, 40, self.finish_offset)?;
-        put_u32(b, 48, self.finish_len)?;
-        put(b, 52, [self.state.to_u8()])?;
+        put_u64(b, 40, self.close_offset)?;
+        put_u32(b, 48, self.close_len)?;
+        put(b, 52, [self.reason.to_u8()])?;
         put(b, 56, self.hash.0)?;
         if let Some(ident) = &self.ident {
             put(b, 53, [FLAG_PIECE])?;
@@ -1143,20 +1153,20 @@ impl Tail {
         Self::read_body(b).ok_or(IndexError::BadHead)
     }
 
-    /// The tail in the good tail block `b`; None when its state is unknown or its offsets don't fit the piece.
+    /// The tail in the good tail block `b`; None when its reason is unknown, an aborted piece names a next one, or
+    /// its offsets don't fit the piece.
     fn read_body(b: &[u8]) -> Option<Self> {
-        let state = FinishState::from_u8(le_u8(b, 52)?)?;
+        let (reason, next) = ending(le_u8(b, 52)?, PieceId(array(b, 104)?))?;
         let piece_len = le_u64(b, 32)?;
-        let finish_offset = le_u64(b, 40)?;
-        let finish_len = le_u32(b, 48)?;
-        let fits = finish_offset
-            .checked_add(u64::from(finish_len))?
+        let close_offset = le_u64(b, 40)?;
+        let close_len = le_u32(b, 48)?;
+        let fits = close_offset
+            .checked_add(u64::from(close_len))?
             .checked_add(u64::try_from(TAIL_LEN).ok()?)?
             <= piece_len;
         if !fits {
             return None;
         }
-        let next = PieceId(array(b, 104)?);
         let ident = if le_u8(b, 53)? & FLAG_PIECE != 0 {
             Some(get_ident(b, 88, 120, 152)?)
         } else {
@@ -1164,12 +1174,12 @@ impl Tail {
         };
         Some(Tail {
             piece_len,
-            finish_offset,
-            finish_len,
-            state,
+            close_offset,
+            close_len,
+            reason,
             hash: ContentHash(array(b, 56)?),
             ident,
-            next: (!next.is_none()).then_some(next),
+            next,
         })
     }
 }

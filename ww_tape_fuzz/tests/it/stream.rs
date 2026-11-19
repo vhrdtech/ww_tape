@@ -14,7 +14,7 @@ const CASES: usize = 1_000_000;
 /// walked four ways), most of it in blake3 and lz4_flex, which the test profile leaves unoptimized.
 const PIECES: usize = 25_000;
 /// Inputs of the state target: a piece of about 70 blocks each. One costs about 12 ms in the test profile (the
-/// lookups at four places, a resume, its finish and a content hash check).
+/// lookups at four places, a resume, its close and a content hash check).
 const STATE_PIECES: usize = 300;
 /// Bytes of each input: enough for every draw of a builder.
 const INPUT_LEN: usize = 96;

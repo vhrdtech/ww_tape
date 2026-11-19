@@ -1259,7 +1259,7 @@ fn writer_appends_a_second_session() {
         assert!(written.windows(b.len()).any(|w| w == b));
         start = *end;
     }
-    w.finish().unwrap();
+    w.close().unwrap();
     // appended: the second session's blocks start with its layout and producer
     let mut w = TapeWriter::append_on(
         tapes.open_whole(&0).unwrap().unwrap(),
@@ -1268,8 +1268,8 @@ fn writer_appends_a_second_session() {
     .unwrap();
     w.set_producer("p");
     w.tick().unwrap();
-    w.finish().unwrap();
-    let bytes = tapes.finished(&0).unwrap().unwrap().to_vec().unwrap();
+    w.close().unwrap();
+    let bytes = tapes.closed(&0).unwrap().unwrap().to_vec().unwrap();
     let (_, errors) = read_all(&bytes, Recovery::Prefix);
     assert_eq!(errors, 0);
     let mut rd = FileBlocks::new(&bytes[..]);
@@ -1306,7 +1306,7 @@ fn pass_through_capture_reads_to_the_end() {
         w.write_block(&defs, &file[start..*end]).unwrap();
         start = *end;
     }
-    w.finish().unwrap();
+    w.close().unwrap();
     let bytes = tape.to_vec().unwrap();
     let mut rd = FileBlocks::new(&bytes[..]);
     let (mut kinds, mut counted, mut repeats) = (vec![], vec![], 0);
@@ -1412,9 +1412,9 @@ fn write_sample_tape(describe: Vec<Describe<'static>>) -> Vec<u8> {
     )
     .unwrap();
     let len = w.bytes() as usize;
-    w.finish().unwrap();
+    w.close().unwrap();
     let bytes = tape.to_vec().unwrap();
-    // the writer's final index, finish and tail follow; their golden file is golden/v1-index.hex
+    // the writer's final index, close and tail follow; their golden file is golden/v1-index.hex
     bytes[..len].to_vec()
 }
 
@@ -1680,7 +1680,7 @@ fn records_on(id: BlockId, tracks: &[u32]) -> Vec<u8> {
 }
 
 /// A piece takes data of at most its tracks-per-piece limit ([TRACKS_PER_PIECE_MAX], made small here): a block
-/// that would bring in one more track is refused before a byte is written, by every call, and the piece finishes.
+/// that would bring in one more track is refused before a byte is written, by every call, and the piece closes.
 #[test]
 fn a_piece_takes_data_of_at_most_its_track_limit() {
     let (defs, ids) = distinct_tracks(6);
@@ -1710,7 +1710,7 @@ fn a_piece_takes_data_of_at_most_its_track_limit() {
         // the tracks it has go on
         w.write_block(&defs, &records_on(w.next_id(), &[1, 2, 3]))
             .unwrap();
-        let done = w.finish().unwrap();
+        let done = w.close().unwrap();
         assert_eq!(done.tracks.len(), 3);
     }
 }
@@ -1758,7 +1758,7 @@ fn a_piece_head_carries_at_most_its_track_limit() {
     assert_eq!(tape.to_vec().unwrap().len(), len, "nothing written");
     w.write_block(&defs, &records_on(w.next_id(), &[1, 6]))
         .unwrap();
-    w.finish().unwrap();
+    w.close().unwrap();
     // the head rows as written: none carries the incomplete mark
     let bytes = tape.to_vec().unwrap();
     let h = Block::read(&bytes).unwrap();
@@ -1795,13 +1795,13 @@ fn chunk_on(number: u32, id: u64) -> (ChunkHead, (ColumnSpec, Vec<u8>)) {
     (head, (spec, starts))
 }
 
-/// A finish of [TRACKS_PER_PIECE_MAX] rows, padded as much as a finish is, is a block a reader takes.
+/// A close of [TRACKS_PER_PIECE_MAX] rows, padded as much as a close is, is a block a reader takes.
 #[test]
-fn a_finish_of_the_most_tracks_fits_a_block() {
+fn a_close_of_the_most_tracks_fits_a_block() {
     let rows = TRACKS_PER_PIECE_MAX;
     let padding = crate::piece::PIECE_ALIGN as usize - 1;
-    assert!(crate::piece::finish_len(rows) + padding <= MAX_BLOCK_LEN);
-    assert!(crate::piece::finish_len(rows + 1) + padding > MAX_BLOCK_LEN);
+    assert!(crate::piece::close_len(rows) + padding <= MAX_BLOCK_LEN);
+    assert!(crate::piece::close_len(rows + 1) + padding > MAX_BLOCK_LEN);
 }
 
 /// What verify holds doesn't grow with the piece: one entry per track list of its final index and the entries of
@@ -1816,7 +1816,7 @@ fn verify_holds_entries_per_track_list_not_per_block() {
             let b = records_on(w.next_id(), &[1 + k % 3]);
             w.write_block(&defs, &b).unwrap();
         }
-        w.finish().unwrap();
+        w.close().unwrap();
         let bytes = tape.to_vec().unwrap();
         let v = crate::TapeReader::open(&bytes[..])
             .unwrap()

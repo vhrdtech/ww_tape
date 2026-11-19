@@ -18,7 +18,7 @@ pub enum MemError<K = u64> {
     /// Another sink writes the tape: one writer per tape ([crate::sink]).
     Locked(K),
     /// [MemTapes::remove] of a tape still being written.
-    Unfinished(K),
+    Unclosed(K),
     /// A writer panicked while it held the bytes: they may be half written.
     Poisoned,
     /// A read past the end of the bytes.
@@ -32,7 +32,7 @@ impl<K: core::fmt::Debug> core::fmt::Display for MemError<K> {
         match self {
             MemError::Exists(key) => write!(f, "the memory tape {key:?} exists"),
             MemError::Locked(key) => write!(f, "another writer holds the memory tape {key:?}"),
-            MemError::Unfinished(key) => {
+            MemError::Unclosed(key) => {
                 write!(f, "the memory tape {key:?} is still being written")
             }
             MemError::Poisoned => f.write_str("a writer of the memory tape panicked"),
@@ -81,7 +81,7 @@ impl<K> core::fmt::Debug for MemTape<K> {
 #[derive(Debug, Default)]
 struct MemBytes {
     bytes: RwLock<Vec<u8>>,
-    finished: AtomicBool,
+    closed: AtomicBool,
     /// A [MemSink] writes the bytes
     held: AtomicBool,
 }
@@ -92,9 +92,9 @@ impl<K> MemTape<K> {
         Ok(self.read()?.clone())
     }
 
-    /// Whether the sink writing these bytes finished.
-    pub fn is_finished(&self) -> bool {
-        self.0.finished.load(Ordering::Acquire)
+    /// Whether the sink writing these bytes closed.
+    pub fn is_closed(&self) -> bool {
+        self.0.closed.load(Ordering::Acquire)
     }
 
     /// A sink writing these bytes, the only one while it lives: None while another one does.
@@ -185,8 +185,8 @@ impl<K: core::fmt::Debug + 'static> TapeSink for MemSink<K> {
         Ok(())
     }
 
-    fn finish(&mut self) -> Result<(), MemError<K>> {
-        self.tape.0.finished.store(true, Ordering::Release);
+    fn close(&mut self) -> Result<(), MemError<K>> {
+        self.tape.0.closed.store(true, Ordering::Release);
         Ok(())
     }
 
@@ -252,16 +252,16 @@ impl<K: Ord + Clone> MemTapes<K> {
         Self::default()
     }
 
-    /// The bytes under `key`, finished or not.
+    /// The bytes under `key`, closed or not.
     pub fn get(&self, key: &K) -> Result<Option<MemTape<K>>, MemError<K>> {
         Ok(self.lock()?.get(key).cloned())
     }
 
-    /// Take the finished piece under `key` out of the map: true when it was there, false when it was not.
+    /// Take the closed piece under `key` out of the map: true when it was there, false when it was not.
     ///
     /// A [MemTape] a reader already holds keeps its bytes (they are freed with the last holder), and reads on as
-    /// before: nothing a reader holds ever changes or fails. After the call [Self::get] and [Self::finished] find
-    /// nothing under `key`. A piece still being written is not removed: [MemError::Unfinished], so a writer never
+    /// before: nothing a reader holds ever changes or fails. After the call [Self::get] and [Self::closed] find
+    /// nothing under `key`. A piece still being written is not removed: [MemError::Unclosed], so a writer never
     /// writes into bytes nobody can find. Removing the oldest pieces of a chain leaves a head cut
     /// ([ChainReport::head_cut](crate::piece::ChainReport::head_cut)); a [PieceChain](crate::PieceChain) resumes only
     /// from its first piece, so a chain with removed pieces is not resumed.
@@ -269,7 +269,7 @@ impl<K: Ord + Clone> MemTapes<K> {
         let mut map = self.lock()?;
         match map.get(key) {
             None => Ok(false),
-            Some(t) if !t.is_finished() => Err(MemError::Unfinished(key.clone())),
+            Some(t) if !t.is_closed() => Err(MemError::Unclosed(key.clone())),
             Some(_) => Ok(map.remove(key).is_some()),
         }
     }
@@ -290,18 +290,18 @@ impl<K: Ord + Clone> MemTapes<K> {
         Ok(sink)
     }
 
-    /// The unfinished tape under `key`, to resume ([Tapes::reopen]).
+    /// The unclosed tape under `key`, to resume ([Tapes::reopen]).
     pub fn reopen(&self, key: &K) -> Result<Option<MemSink<K>>, MemError<K>> {
         self.lock()?
             .get(key)
-            .filter(|t| !t.is_finished())
+            .filter(|t| !t.is_closed())
             .map(|t| t.hold().ok_or_else(|| MemError::Locked(key.clone())))
             .transpose()
     }
 
-    /// The finished tape under `key` ([Tapes::finished]).
-    pub fn finished(&self, key: &K) -> Result<Option<MemTape<K>>, MemError<K>> {
-        Ok(self.lock()?.get(key).filter(|t| t.is_finished()).cloned())
+    /// The closed tape under `key` ([Tapes::closed]).
+    pub fn closed(&self, key: &K) -> Result<Option<MemTape<K>>, MemError<K>> {
+        Ok(self.lock()?.get(key).filter(|t| t.is_closed()).cloned())
     }
 
     /// A new tape of several pieces under `key` ([Tapes::create_whole]).
@@ -311,7 +311,7 @@ impl<K: Ord + Clone> MemTapes<K> {
         Ok(sink)
     }
 
-    /// The tape of several pieces under `key`, which is written again: it reads as unfinished until its next finish
+    /// The tape of several pieces under `key`, which is written again: it reads as unclosed until its next close
     /// ([Tapes::open_whole]).
     pub fn open_whole(&self, key: &K) -> Result<Option<MemSink<K>>, MemError<K>> {
         let map = self.lock()?;
@@ -320,7 +320,7 @@ impl<K: Ord + Clone> MemTapes<K> {
         };
         let mut sink = tape.hold().ok_or_else(|| MemError::Locked(key.clone()))?;
         sink.whole = true;
-        tape.0.finished.store(false, Ordering::Release);
+        tape.0.closed.store(false, Ordering::Release);
         Ok(Some(sink))
     }
 
@@ -347,8 +347,8 @@ impl Tapes for MemTapes<u64> {
         MemTapes::reopen(self, key)
     }
 
-    fn finished(&self, key: &u64) -> Result<Option<MemTape>, MemError> {
-        MemTapes::finished(self, key)
+    fn closed(&self, key: &u64) -> Result<Option<MemTape>, MemError> {
+        MemTapes::closed(self, key)
     }
 
     fn create_whole(&mut self, key: &u64) -> Result<MemSink, MemError> {

@@ -53,7 +53,7 @@ impl TapeSink for Discard {
         Ok(())
     }
 
-    fn finish(&mut self) -> io::Result<()> {
+    fn close(&mut self) -> io::Result<()> {
         Ok(())
     }
 
@@ -310,7 +310,7 @@ fn timeline(
     for k in 0..u64::from(args.chunks) {
         w.write_chunk(defs, &head(k, count)?, columns).map_err(e)?;
     }
-    w.finish().map_err(e)?;
+    w.close().map_err(e)?;
     let src = Counted {
         bytes: std::fs::read(&path)?,
         read: 0.into(),

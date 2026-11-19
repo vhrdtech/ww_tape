@@ -2,7 +2,7 @@
 //! and reads back, so a figure cannot drift from the format:
 //!
 //! - `block.svg`: a records block byte by byte, its header fields, its body and its CRC.
-//! - `piece.svg`: a finished piece on the 4 KiB grid, every block to scale, the finish padded to the boundary.
+//! - `piece.svg`: a closed piece on the 4 KiB grid, every block to scale, the close padded to the boundary.
 //! - `puts.svg`: a state track put before every block of data, and the few puts that write: the first record, its
 //!   copy and the record again once the first lies more than `near` behind.
 //! - `grids.svg`: series chunks on their grids: chunks of one grid, lost samples, and a gap to a new grid.

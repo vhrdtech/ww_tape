@@ -3,11 +3,11 @@
 use std::path::Path;
 
 use ww_tape::sink::sink_err;
-use ww_tape::writer::{Finished, Resumed, SyncPolicy, TapeWriter, WriteError, WriterOptions};
+use ww_tape::writer::{Closed, Resumed, SyncPolicy, TapeWriter, WriteError, WriterOptions};
 
 use crate::sink::{FileSink, Files, FsError, none_at};
 
-/// A new file at `path`, written as `path.partial` until [TapeWriter::finish]; fails if `path` is there or a
+/// A new file at `path`, written as `path.partial` until [TapeWriter::close]; fails if `path` is there or a
 /// `path.partial` holds bytes ([FileSink::create]).
 pub fn create(
     path: &Path,
@@ -26,7 +26,7 @@ pub fn append(
     TapeWriter::append_on(sink, policy)
 }
 
-/// Reopen the unfinished piece `path` (written as `path.partial` by [create] and cut off by a crash) to go on
+/// Reopen the unclosed piece `path` (written as `path.partial` by [create] and cut off by a crash) to go on
 /// writing it, see [TapeWriter::resume_on]. With neither `path` nor `path.partial` there, its directory missing too,
 /// the error is [FsError::NoPiece] naming `path`.
 pub fn resume(
@@ -46,11 +46,11 @@ pub fn resume(
     }
 }
 
-/// End the piece `writer` writes as [FinishState::Continued](ww_tape::FinishState::Continued) and start the next piece
+/// End the piece `writer` writes by a cut, its close record naming the next piece, and start the next piece
 /// of the chain in a new file at `next_path`, see [TapeWriter::cut_with].
 pub fn cut(
     writer: TapeWriter<FileSink>,
     next_path: &Path,
-) -> Result<(Finished, TapeWriter<FileSink>), WriteError<FsError>> {
+) -> Result<(Closed, TapeWriter<FileSink>), WriteError<FsError>> {
     writer.cut_with(&mut Files::file(next_path), &0)
 }

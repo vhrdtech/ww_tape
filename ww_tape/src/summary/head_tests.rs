@@ -275,7 +275,7 @@ fn a_core_only_tape_lists_verifies_and_skips_summary_blocks() {
         };
         w.write_chunk(&defs, &head, &[(col, &bytes)]).unwrap();
     }
-    w.finish().unwrap();
+    w.close().unwrap();
     let file = tape.to_vec().unwrap();
 
     let mut rd = FileBlocks::new(&file[..]);

@@ -1,11 +1,11 @@
 //! Whole pieces for the positional reader and the file walk: a piece head, a block of definitions with a layout,
-//! records blocks, an events chunk, a checkpoint and a final index, a finish and a tail, whose offsets, lengths, layout
+//! records blocks, an events chunk, a checkpoint and a final index, a close and a tail, whose offsets, lengths, layout
 //! and stretches between blocks take hostile values.
 
 use super::chunk::{build, reseal};
 use super::index::{
-    TAIL_FIELDS, finish_block, finish_fields, hit_index, index_block, piece_head_block,
-    reseal_index, tail_block,
+    TAIL_FIELDS, close_block, close_fields, hit_index, index_block, piece_head_block, reseal_index,
+    tail_block,
 };
 use super::{
     Draw, Field, SESSION, definition, describe_block, get, hit, hit_some, put, records_block, seal,
@@ -123,15 +123,15 @@ pub fn file(data: &[u8]) -> Vec<u8> {
     put(&mut b, 48, 8, u64::MAX);
     reseal_index(&mut b);
     place(&mut f, &mut placed, &b, BlockKind::Index);
-    let finish_at = f.len();
+    let close_at = f.len();
     // the content hash is filled in at the end, over the bytes as they are then
     let hash = ContentHash([0; 32]);
     let offsets = [Some(checkpoint_at), Some(final_at)];
-    let b = finish_block(&mut d, id, offsets, hash);
-    let finish_len = b.len();
-    place(&mut f, &mut placed, &b, BlockKind::Finish);
+    let b = close_block(&mut d, id, offsets, hash);
+    let close_len = b.len();
+    place(&mut f, &mut placed, &b, BlockKind::Close);
     let piece_len = (f.len() + TAIL_LEN) as u64;
-    let b = tail_block(id, piece_len, finish_at as u64, finish_len as u32, hash);
+    let b = tail_block(id, piece_len, close_at as u64, close_len as u32, hash);
     place(&mut f, &mut placed, &b, BlockKind::Tail);
 
     // hostile values over one block, or a stretch between blocks
@@ -162,15 +162,15 @@ pub fn file(data: &[u8]) -> Vec<u8> {
         }
         _ => {}
     }
-    // the content hash of the bytes before the finish, so verify compares what the reader read; a draw leaves it 0
+    // the content hash of the bytes before the close, so verify compares what the reader read; a draw leaves it 0
     if d.u8() % 4 != 3
-        && let Some(fin) = f.get(finish_at..finish_at + finish_len)
-        && get(fin, 5, 1) == u64::from(BlockKind::Finish.to_u8())
+        && let Some(fin) = f.get(close_at..close_at + close_len)
+        && get(fin, 5, 1) == u64::from(BlockKind::Close.to_u8())
     {
-        let hash = blake3::hash(&f[..finish_at]);
-        f[finish_at + 40..finish_at + 72].copy_from_slice(hash.as_bytes());
-        seal(&mut f[finish_at..finish_at + finish_len]);
-        let tail_at = finish_at + finish_len;
+        let hash = blake3::hash(&f[..close_at]);
+        f[close_at + 40..close_at + 72].copy_from_slice(hash.as_bytes());
+        seal(&mut f[close_at..close_at + close_len]);
+        let tail_at = close_at + close_len;
         if let Some(tail) = f.get_mut(tail_at..tail_at + TAIL_LEN) {
             tail[56..88].copy_from_slice(hash.as_bytes());
             seal(tail);
@@ -186,10 +186,10 @@ fn hit_block(d: &mut Draw<'_>, block: &mut [u8], kind: BlockKind, piece_len: u64
             hit_index(d, block);
             reseal_index(block);
         }
-        BlockKind::Finish => {
+        BlockKind::Close => {
             let tracks = get(block, 12, 4) as usize;
             let len = [piece_len];
-            let fields = finish_fields(d, tracks, &len);
+            let fields = close_fields(d, tracks, &len);
             hit_some(d, block, &fields);
             seal(block);
         }

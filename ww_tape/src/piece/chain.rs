@@ -2,17 +2,17 @@
 
 use alloc::vec::Vec;
 
-use super::{ContentHash, FinishState, PieceId, PieceIdent};
+use super::{CloseReason, ContentHash, PieceId, PieceIdent};
 use crate::index::IndexError;
 
-/// What a reader knows of one piece: its head and, when it was finished, its end.
+/// What a reader knows of one piece: its head and, when it was closed, its end.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct PieceSummary {
     pub ident: PieceIdent,
     /// The previous piece's content hash and id, from the head; None for the first piece.
     pub prev: Option<(ContentHash, PieceId)>,
-    /// State, content hash and next id from the finish or tail; None for a piece being written or cut off.
-    pub end: Option<(FinishState, ContentHash, Option<PieceId>)>,
+    /// Reason, content hash and next id from the close record or tail; None for a piece being written or cut off.
+    pub end: Option<(CloseReason, ContentHash, Option<PieceId>)>,
     /// How the head read.
     pub head: HeadStatus,
 }
@@ -22,7 +22,7 @@ pub struct PieceSummary {
 pub enum HeadStatus {
     /// Read whole: ident and previous piece from it.
     Read,
-    /// Lost (damaged): ident from the finish, previous piece unknown (None).
+    /// Lost (damaged): ident from the close, previous piece unknown (None).
     Lost,
     /// A head of an integrity level this build refuses (the error, [IndexError::UnhandledIntegrity] or
     /// [IndexError::UnknownIntegrity]): ident and previous piece from it, the piece's contents unread.
@@ -41,7 +41,7 @@ pub enum ChainLink {
     /// Adjacent sequence numbers, but the hashes or ids don't match: not the same chain, or a piece was rewritten.
     Broken,
     /// The earlier piece has no end: it was cut off and the chain went on regardless.
-    Unfinished,
+    Unclosed,
     /// The earlier piece's end names the later one's id, but the later piece's head is lost ([HeadStatus::Lost]):
     /// linked one way only.
     HeadLost,
@@ -50,13 +50,12 @@ pub enum ChainLink {
 /// How the chain ends.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ChainEnd {
-    /// The last piece says the recording is complete.
-    Complete,
+    /// The last piece ends at a close record, for the reason it says.
+    Closed { reason: CloseReason },
     /// The last piece says the recording goes on in a piece that isn't here.
     TailCut,
-    Aborted,
-    /// The last piece has no end: being written, or cut off by a crash.
-    Open,
+    /// The last piece has bytes after its last close record, or none: being written, or cut off by a crash.
+    Unclosed,
 }
 
 /// [check_chain]'s answer.
@@ -77,12 +76,12 @@ pub struct ChainReport {
 }
 
 impl ChainReport {
-    /// Every piece there, linked, from the first to a complete end.
+    /// Every piece there, linked, from the first to a close record of the last.
     pub fn is_whole(&self) -> bool {
         !self.head_cut
             && self.strays.is_empty()
             && self.refused.is_empty()
-            && self.end == ChainEnd::Complete
+            && matches!(self.end, ChainEnd::Closed { .. })
             && self.links.iter().all(|l| *l == ChainLink::Linked)
     }
 }
@@ -116,10 +115,9 @@ pub fn check_chain(pieces: &[PieceSummary]) -> ChainReport {
         .first()
         .is_some_and(|(_, f)| f.prev.is_some() || (f.head == HeadStatus::Lost && f.ident.seq > 0));
     let end = match order.last().and_then(|(_, l)| l.end) {
-        None => ChainEnd::Open,
-        Some((FinishState::Complete, ..)) => ChainEnd::Complete,
-        Some((FinishState::Continued, ..)) => ChainEnd::TailCut,
-        Some((FinishState::Aborted, ..)) => ChainEnd::Aborted,
+        None => ChainEnd::Unclosed,
+        Some((_, _, Some(_))) => ChainEnd::TailCut,
+        Some((reason, _, None)) => ChainEnd::Closed { reason },
     };
     let refused = pieces
         .iter()
@@ -144,7 +142,7 @@ fn link(a: &PieceSummary, b: &PieceSummary) -> ChainLink {
         return ChainLink::Gap { missing };
     }
     let Some((_, hash, next)) = a.end else {
-        return ChainLink::Unfinished;
+        return ChainLink::Unclosed;
     };
     let named = next.unwrap_or_else(|| PieceId::after(a.ident.id, &hash));
     match (named == b.ident.id, b.head) {

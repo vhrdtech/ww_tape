@@ -1,10 +1,10 @@
 //! What [TapeReader::verify](super::TapeReader::verify) checks past the content hash: the piece replayed block by
 //! block as its writer placed them, in one pass over the blocks walked and the final index's entries in file order.
-//! The index and the walk must be the same set: each entry names the start of a block walked before the finish, and
+//! The index and the walk must be the same set: each entry names the start of a block walked before the close, and
 //! each block walked that its writer would list has its entries there, field for field (a chunk's with the unit hash
 //! of its bytes and its range relation's range from its own column). The one block walked that may go unlisted is a
 //! byte-identical copy of the listed block before it (a block written again). The blocks of data fold into their
-//! tracks' hashes as the writer folded them, from the head rows' hashes, and each finish row that says its hash
+//! tracks' hashes as the writer folded them, from the head rows' hashes, and each close row that says its hash
 //! complete must be that fold. A block that doesn't read whole and that the index lists (a damaged block a resume
 //! kept) lies in bytes no block explains and stands by its entries, as the resume took it: a chunk by the unit hash
 //! its entry states, else its track's hash is incomplete.
@@ -185,12 +185,12 @@ where
     }
 }
 
-/// A piece replayed block by block in file order ([Self::block], [Self::raw]), then checked against its finish rows
+/// A piece replayed block by block in file order ([Self::block], [Self::raw]), then checked against its close rows
 /// ([Self::check]).
 pub(super) struct Replay<L> {
     /// Where the next step starts
     at: u64,
-    /// Where the walk ends: the finish block's offset
+    /// Where the walk ends: the close record's offset
     end: u64,
     /// The final index's entries in file order
     listed: L,
@@ -225,7 +225,7 @@ pub(super) struct Replay<L> {
 
 impl<L: Listed> Replay<L> {
     /// A replay of a piece whose head rows are `starts`, whose final index lists `listed` (in file order) and whose
-    /// finish starts at `end`.
+    /// close starts at `end`.
     pub(super) fn new(starts: &[TrackStart], listed: L, end: u64) -> Self {
         let mut r = Replay {
             at: 0,
@@ -461,7 +461,7 @@ impl<L: Listed> Replay<L> {
     }
 
     /// `n` bytes no block explains at the place walked. Each block the index lists in them is a damaged block its
-    /// writer's resume kept: its entries stand for it as they did for the resume. It must end before the finish.
+    /// writer's resume kept: its entries stand for it as they did for the resume. It must end before the close.
     pub(super) fn raw(&mut self, n: usize) {
         let at = self.at;
         let to = at.saturating_add(wide(n));
@@ -547,7 +547,7 @@ impl<L: Listed> Replay<L> {
     }
 
     /// Whether the piece's final index and its walk are the same set (every entry met, at a block walked or a damaged
-    /// block in bytes no block explains, before the finish), and each finish row in `rows` states the hash its track's
+    /// block in bytes no block explains, before the close), and each close row in `rows` states the hash its track's
     /// listed blocks fold to, incomplete exactly where the head or a damaged block leaves units out.
     pub(super) fn check(&self, rows: &[TrackRange]) -> bool {
         if !self.same || !self.listed.good() || self.listed.peek().is_some() {

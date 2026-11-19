@@ -15,7 +15,7 @@ piece.
 
 Cutting a recording into pieces gives three things:
 
-- **Bounded loss.** A crash damages only the piece being written. The finished pieces before it are closed and hashed.
+- **Bounded loss.** A crash damages only the piece being written. The closed pieces before it are closed and hashed.
 - **Bounded open time.** A reader opens a piece with a few small reads at its end, however long the recording is.
 - **Simple retention.** Deleting the oldest piece frees space without rewriting anything. A chain whose first pieces
   were deleted reads as a "head cut", not as damage.
@@ -36,7 +36,7 @@ A reader of piece 7 alone therefore decodes everything piece 7 holds.
 
 ## Ids and the chain
 
-Every piece carries its ids in its head, its finish and its tail:
+Every piece carries its ids in its head, its close and its tail:
 
 | Id | Size | What it names | Who makes it |
 |---|---|---|---|
@@ -57,7 +57,7 @@ therefore gets its own piece ids and its own session tag.
 `ww_tape` checks the pieces of a chain in both directions:
 
 - **Backward.** Each piece head names the piece before it by its id and by its content hash. The content hash is the
-  hash in that piece's finish block, made with BLAKE3 (a cryptographic hash function).
+  hash in that piece's close record, made with BLAKE3 (a cryptographic hash function).
 - **Forward.** A tail cannot name the next piece's hash, because that piece is not written yet, so it names the next
   piece's id. The writer derives that id at the cut from the piece's own id and content hash (`PieceId::after`), and the
   next piece head repeats it.
@@ -78,7 +78,7 @@ It puts the pieces in order and returns a `ChainReport`, which holds:
 
 `ChainReport::is_whole` says whether all is well.
 
-A piece with a damaged head still has its place in the chain, because its finish block names the piece as well. Its link
+A piece with a damaged head still has its place in the chain, because its close record names the piece as well. Its link
 to the piece before is then reported as checked from one side only (`HeadLost`).
 
 Each piece head also says, per track, which [item number](concepts.md#items-tracks-and-clocks) the piece starts with. It
@@ -94,15 +94,15 @@ Pieces written back to back are one valid tape. A reader walks such a file from 
 2. It finds the piece's start from the tail.
 3. It finds the previous piece's tail just before that start, and goes on.
 
-Each piece costs a few small reads: the tail, the finish and the piece head. The walk therefore goes back through any
+Each piece costs a few small reads: the tail, the close and the piece head. The walk therefore goes back through any
 number of pieces.
 
-An unfinished last piece, still being written or cut off by a crash, is found from its checkpoints or by a scan. The
-finished pieces before it are still found by their tails.
+An unclosed last piece, still being written or cut off by a crash, is found from its checkpoints or by a scan. The
+closed pieces before it are still found by their tails.
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/figures/chain.svg"
-<figcaption>Three pieces in one file. The reader finds the unfinished last piece from its newest checkpoint (1), then
+<figcaption>Three pieces in one file. The reader finds the unclosed last piece from its newest checkpoint (1), then
 the tail just before its start (2). That tail gives piece 1's length and so its start, and the walk goes on back to
 the start of the file (3).</figcaption>
 </figure>
@@ -132,14 +132,14 @@ let options = ChainOptions {
 };
 let mut chain = ww_tape_fs::chain::create(path, owner, 0, &[], options.clone())?;
 chain.write_chunk(defs, head, columns)?;
-let first = chain.finish()?;
-// opened again: a new piece behind the finished one
+let first = chain.close()?;
+// opened again: a new piece behind the closed one
 let (mut chain, _) = ww_tape_fs::chain::resume(path, owner, 0, options)?;
 chain.write_chunk(defs, head, columns)?;
-let second = chain.finish()?;
+let second = chain.close()?;
 ```
 
-The first session leaves one finished piece in the file. The second session finds it, adds a piece behind it, and
+The first session leaves one closed piece in the file. The second session finds it, adds a piece behind it, and
 returns both pieces.
 
 The repository runs these lines as a test (`ww_tape_tests/tests/it/book.rs`).
@@ -147,10 +147,10 @@ The repository runs these lines as a test (`ww_tape_tests/tests/it/book.rs`).
 To open the file again, call `ww_tape_fs::chain::resume` with the same options. The chain finds the last piece by the
 tails, as a reader does.
 
-The chain resumes an unfinished last piece, cut off by a crash, under the rules for a piece in a file of its own.
+The chain resumes an unclosed last piece, cut off by a crash, under the rules for a piece in a file of its own.
 [Resuming after a crash](resuming.md#resuming-after-a-crash) gives those rules.
 
-After a last piece that was finished, a new piece starts. Every session that opens the file and closes it therefore adds
+After a last piece that was closed, a new piece starts. Every session that opens the file and closes it therefore adds
 at least one piece.
 
 The new piece has a session tag of its own. Its head names the last piece by its content hash and id, so `check_chain`
@@ -160,11 +160,11 @@ For example, an editor that opens a project, records for a minute and closes it 
 
 ## The 4 KiB end and cloning
 
-A finished piece is a multiple of 4 KiB long. The writer pads the finish block with zeros up to the boundary, so the
+A closed piece is a multiple of 4 KiB long. The writer pads the close record with zeros up to the boundary, so the
 tail, still the last bytes of the piece, ends on it.
 
-The padding is part of the finish block and its cyclic redundancy check (CRC). The content hash covers the bytes before
-the finish, as it does without padding.
+The padding is part of the close record and its cyclic redundancy check (CRC). The content hash covers the bytes before
+the close, as it does without padding.
 
 The boundary makes copies free on file systems that share data between files. On btrfs and XFS (a Linux file system), a
 range of one file can be **cloned** into another.
@@ -172,14 +172,14 @@ range of one file can be **cloned** into another.
 The new file then points at the same disk blocks, and nothing is copied. `cp --reflink`, the `FICLONERANGE` call and
 `copy_file_range` clone; `std::io::copy` uses `copy_file_range` between files on Linux.
 
-The kernel clones only ranges that start on a block boundary in both files, 4 KiB on common setups. Every finished piece
+The kernel clones only ranges that start on a block boundary in both files, 4 KiB on common setups. Every closed piece
 ends on a boundary, so the next piece starts on one.
 
 Pieces therefore clone back to back into one file with nothing between them.
 
 Only the end of a piece is aligned. Blocks inside a piece stay where the writer put them.
 
-An unfinished piece ends where it ends, until a resume finishes it on a boundary.
+An unclosed piece ends where it ends, until a resume closes it on a boundary.
 
 A series file is aligned inside too, with every chunk's payload on 4 KiB ([Writing a tape](writing.md#aligned-files)).
 
@@ -192,7 +192,7 @@ A copy of a whole file and a copy of some of its tracks differ in what stays the
 A **whole copy** has the same bytes as the original. Every block, sequence number, index entry and content hash is
 unchanged.
 
-`TapeReader::verify` therefore checks the copy against the hash its finish states. Comparing the hashes of two copies
+`TapeReader::verify` therefore checks the copy against the hash its close record states. Comparing the hashes of two copies
 proves them equal.
 
 On btrfs and XFS, a whole copy can be a clone that shares the original's disk blocks.
@@ -204,7 +204,7 @@ A **subset copy** keeps only some tracks. It is therefore a new file with its ow
 | chunk and summary bodies: columns, item numbers, ticks | same | same |
 | block headers: session tag, sequence number, CRC | same | new: the copy's own session and count |
 | definitions and state records | same | the kept tracks' only, put by the copy's own writer near their use |
-| index, finish, tail, content hash | same | new: they list and hash the copy's bytes |
+| index, close, tail, content hash | same | new: they list and hash the copy's bytes |
 | piece ids | same | new |
 
 The items of a subset copy keep their item numbers and ticks. An item is therefore addressed the same way in the

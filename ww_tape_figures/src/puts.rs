@@ -80,7 +80,7 @@ fn run() -> anyhow::Result<(u64, Vec<Placed>, usize)> {
         w.write_block(&defs, buf.get(..n).context("the block")?)?;
     }
     let tape = w.sink().tape();
-    w.finish()?;
+    w.close()?;
     let bytes = tape.to_vec()?;
 
     let mut walk = FileBlocks::new(&bytes[..]);

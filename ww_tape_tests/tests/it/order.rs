@@ -42,7 +42,7 @@ fn a_deferred_block_keeps_the_definitions_it_was_made_under() {
     w.defer_block(on_tracks(w.next_id(), &[(5, 1, b"deferred")]))
         .unwrap();
     w.define(&track(5, 2)).unwrap();
-    w.finish().unwrap();
+    w.close_piece().unwrap();
     let bytes = tape.to_vec().unwrap();
     let data = record_blocks(&bytes)
         .into_iter()
@@ -79,7 +79,7 @@ fn a_deferred_block_of_puts_is_put() {
     w.defer_block(out[0].clone()).unwrap();
     assert_eq!(w.next_seq(), seq, "not counted");
     w.defer_block(out[0].clone()).unwrap();
-    w.finish().unwrap();
+    w.close_piece().unwrap();
     let bytes = tape.to_vec().unwrap();
     // the record goes in one block with the track's definition before it
     let state: Vec<_> = record_blocks(&bytes)

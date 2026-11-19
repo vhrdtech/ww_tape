@@ -254,8 +254,8 @@ fn a_torn_unit_then_the_next_block_on_a_boundary_is_a_gap() {
     assert!(matches!(errors[..], [FileError::Cut { offset: o, .. }] if o == at as u64));
 }
 
-/// A finished file of session `session` (definitions with `layout`, `n` records blocks, final index, finish, tail).
-fn finished(session: SessionTag, layout: Layout, n: u64) -> Vec<u8> {
+/// A closed file of session `session` (definitions with `layout`, `n` records blocks, final index, close, tail).
+fn closed(session: SessionTag, layout: Layout, n: u64) -> Vec<u8> {
     let dir = std::env::temp_dir().join(format!(
         "ww_tape_media_{}_{}",
         session.get(),
@@ -271,7 +271,7 @@ fn finished(session: SessionTag, layout: Layout, n: u64) -> Vec<u8> {
         w.write_block(crate::definitions::base_defs(), &records(w.next_id()))
             .unwrap();
     }
-    w.finish().unwrap();
+    w.close().unwrap();
     let bytes = std::fs::read(&path).unwrap();
     std::fs::remove_dir_all(&dir).unwrap();
     bytes
@@ -289,7 +289,7 @@ fn raw() -> OpenOptions {
 #[test]
 fn a_raw_medium_opens_forward_and_never_takes_a_stale_tail() {
     let sd = Layout::UNALIGNED.on_sd_card();
-    let old = finished(OLD, sd, 200);
+    let old = closed(OLD, sd, 200);
     let new = session(NEW, SessionTag::NONE, sd, 20);
     // the new session overwrote the start of the old file in place
     let mut card = new.clone();
@@ -333,7 +333,7 @@ fn a_raw_medium_opens_forward_and_never_takes_a_stale_tail() {
 #[test]
 fn stale_data_of_another_version_ends_a_raw_medium() {
     let sd = Layout::UNALIGNED.on_sd_card();
-    let old = finished(OLD, sd, 200);
+    let old = closed(OLD, sd, 200);
     let new = session(NEW, SessionTag::NONE, sd, 20);
     // the new session ends where a block of the old one starts
     let at = block_start(&old, 30);

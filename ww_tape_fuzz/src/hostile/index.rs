@@ -1,7 +1,7 @@
-//! Index, finish, piece head and tail blocks: an index's entry offset, directory, self and previous offsets, entry
+//! Index, close, piece head and tail blocks: an index's entry offset, directory, self and previous offsets, entry
 //! length and entries (flags, range pair and unit hash among them; entries longer than [ENTRY_LEN], well formed or
-//! not); a finish's offsets and track ranges; a piece head's tracks and integrity level; a tail's piece length and
-//! finish offset.
+//! not); a close's offsets and track ranges; a piece head's tracks and integrity level; a tail's piece length and
+//! close offset.
 
 use super::{
     Draw, Field, HEADER_FIELDS, LEN_FIELD, SESSION, crc32c, get, hit, hit_some, seal, span,
@@ -11,8 +11,8 @@ use ww_tape::index::{
     index_len, track_count, write_index,
 };
 use ww_tape::piece::{
-    ContentHash, Finish, FinishState, OwnerId, PieceHead, PieceId, PieceIdent, TAIL_LEN, Tail,
-    TrackHash, TrackRange, TrackStart, finish_len, piece_head_len, write_finish, write_piece_head,
+    Close, CloseReason, ContentHash, OwnerId, PieceHead, PieceId, PieceIdent, TAIL_LEN, Tail,
+    TrackHash, TrackRange, TrackStart, close_len, piece_head_len, write_close, write_piece_head,
 };
 use ww_tape::{BlockId, BlockKind, MAX_BLOCK_LEN, SessionTag};
 
@@ -202,8 +202,8 @@ fn ident(d: &mut Draw<'_>) -> PieceIdent {
     }
 }
 
-/// A finish block of tracks drawn from the input, naming `offsets` (checkpoint, final index).
-pub(crate) fn finish_block(
+/// A close record of tracks drawn from the input, naming `offsets` (checkpoint, final index).
+pub(crate) fn close_block(
     d: &mut Draw<'_>,
     id: BlockId,
     offsets: [Option<u64>; 2],
@@ -225,8 +225,8 @@ pub(crate) fn finish_block(
             incomplete: d.bool(),
         })
         .collect();
-    let finish = Finish {
-        state: FinishState::Complete,
+    let close = Close {
+        reason: CloseReason::Closed,
         hash,
         checkpoint: offsets[0],
         final_index: offsets[1],
@@ -234,14 +234,14 @@ pub(crate) fn finish_block(
         next: None,
     };
     let padding = [0, 1, 512][d.below(3)];
-    let mut buf = vec![0u8; finish_len(tracks.len()) + padding];
-    let n = write_finish(&mut buf, id, &finish, &tracks, padding).expect("a valid finish");
+    let mut buf = vec![0u8; close_len(tracks.len()) + padding];
+    let n = write_close(&mut buf, id, &close, &tracks, padding).expect("a valid close");
     buf.truncate(n);
     buf
 }
 
-/// The fields of a finish block with `tracks`.
-pub(crate) fn finish_fields<'c>(d: &mut Draw<'_>, tracks: usize, len: &'c [u64]) -> Vec<Field<'c>> {
+/// The fields of a close record with `tracks`.
+pub(crate) fn close_fields<'c>(d: &mut Draw<'_>, tracks: usize, len: &'c [u64]) -> Vec<Field<'c>> {
     let caps: &'static [u64] = &[u64::MAX, MAX_BLOCK_LEN as u64];
     let mut f = vec![
         Field::new(32, 1, &[1, 2, 3, 4]),
@@ -318,19 +318,19 @@ pub(crate) fn piece_head_block(d: &mut Draw<'_>, id: BlockId) -> Vec<u8> {
     buf
 }
 
-/// A tail naming a finish of `finish_len` bytes at `finish_offset` in a piece of `piece_len` bytes.
+/// A tail naming a close of `close_len` bytes at `close_offset` in a piece of `piece_len` bytes.
 pub(crate) fn tail_block(
     id: BlockId,
     piece_len: u64,
-    finish_offset: u64,
-    finish_len: u32,
+    close_offset: u64,
+    close_len: u32,
     hash: ContentHash,
 ) -> Vec<u8> {
     let tail = Tail {
         piece_len,
-        finish_offset,
-        finish_len,
-        state: FinishState::Complete,
+        close_offset,
+        close_len,
+        reason: CloseReason::Closed,
         hash,
         ident: None,
         next: None,
@@ -349,17 +349,17 @@ pub(crate) const TAIL_FIELDS: [Field<'static>; 5] = [
     Field::new(53, 1, &[1]),
 ];
 
-/// An index, finish, piece head or tail block drawn from the input, whose head, directory, entries, offsets or
+/// An index, close, piece head or tail block drawn from the input, whose head, directory, entries, offsets or
 /// tracks take hostile values.
 pub fn index(data: &[u8]) -> Vec<u8> {
     let mut d = Draw::new(data);
     let id = BlockId::new(SESSION, u64::from(d.u8()));
     match d.u8() % 6 {
         0 => {
-            let mut b = finish_block(&mut d, id, [Some(0), Some(64)], ContentHash([7; 32]));
+            let mut b = close_block(&mut d, id, [Some(0), Some(64)], ContentHash([7; 32]));
             let tracks = get(&b, 12, 4) as usize;
             let len = [b.len() as u64];
-            let fields = finish_fields(&mut d, tracks, &len);
+            let fields = close_fields(&mut d, tracks, &len);
             hit_some(&mut d, &mut b, &fields);
             seal(&mut b);
             b

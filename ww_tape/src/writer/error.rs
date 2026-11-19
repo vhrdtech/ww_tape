@@ -1,7 +1,7 @@
 //! [WriteError]: why a [TapeWriter] stopped, and [CutError].
 
 use super::{TapeWriter, caller_flags};
-use crate::piece::FinishState;
+use crate::piece::CloseReason;
 use crate::reader::ReadError;
 use crate::sink::TapeSink;
 use crate::{BlockKind, DescribeError, IndexError, Layout, SessionTag};
@@ -23,13 +23,13 @@ pub enum WriteError<E> {
     Block(crate::BlockError),
     /// A chunk doesn't encode.
     Chunk(crate::ChunkError),
-    /// An index, finish, tail or piece head block doesn't encode, or a piece call came out of order (a piece head
+    /// An index, close, tail or piece head block doesn't encode, or a piece call came out of order (a piece head
     /// after other blocks, a cut of a file without a piece head).
     Index(IndexError),
     /// Reading back the piece to resume failed.
     Read(ReadError<E>),
     /// The piece or chain to resume ended already in this state.
-    Ended(FinishState),
+    Ended(CloseReason),
     /// A put or a block's records don't agree with the definitions passed.
     Describe(DescribeError),
     /// The writer refused a caller's value, block or options; nothing is written.
@@ -56,7 +56,7 @@ pub enum InputError {
     /// block of another format version, or a body of a codec it doesn't know.
     Unknown { version: u8, kind: BlockKind },
     /// A block or chunk that would bring the tracks with data in the piece past `max`
-    /// ([TRACKS_PER_PIECE_MAX](crate::TRACKS_PER_PIECE_MAX)), so its finish would not fit a block. Nothing is
+    /// ([TRACKS_PER_PIECE_MAX](crate::TRACKS_PER_PIECE_MAX)), so its close would not fit a block. Nothing is
     /// written; cut the piece first.
     TooManyTracks { max: usize },
     /// The next piece's head would carry more than `max` tracks ([HEAD_TRACKS_MAX](crate::HEAD_TRACKS_MAX)): each
@@ -71,7 +71,7 @@ pub enum InputError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ResumeError {
-    /// There is no piece to resume: no unfinished piece, or no first piece of the chain.
+    /// There is no piece to resume: no unclosed piece, or no first piece of the chain.
     NoPiece,
     /// The resume would cut off a good block of the piece at `offset`, behind bytes the reader didn't take: more
     /// than a torn end.

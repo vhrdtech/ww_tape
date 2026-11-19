@@ -35,7 +35,7 @@ into four groups:
 | Description | records on track 0 | what the tape is: the producer, clocks, maps, tracks, API bundles |
 | Data | records, events chunk, series chunk | the items |
 | Overview | summary | coarse views of long tracks, rebuilt from the data when lost |
-| Structure | piece head, index, finish, tail | where things are, how the file ends, how files chain |
+| Structure | piece head, index, close, tail | where things are, how the file ends, how files chain |
 
 ## Definitions on track 0
 
@@ -122,4 +122,4 @@ chunk's payload, for at most `DEFER_WINDOW` (1 MiB) of writes.
 The block therefore lies at most its tracks' `near` plus that window after their definitions. In a file that isn't
 aligned, the writer places the block at once.
 
-A cut or a finish places every deferred block first. A deferred block therefore never leaves its piece.
+A cut or a close places every deferred block first. A deferred block therefore never leaves its piece.
