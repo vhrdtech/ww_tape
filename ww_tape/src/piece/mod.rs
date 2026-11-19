@@ -96,6 +96,7 @@
 //! track written alone or among others, in one piece or many, in one file or many, has the same hash. A state
 //! track's records are all puts: its hash stays 32 zero bytes.
 
+#[cfg(feature = "alloc")]
 use alloc::vec::Vec;
 
 use crate::bytes::{
@@ -252,6 +253,7 @@ pub fn payload_hash(payload: &[u8]) -> [u8; 32] {
     *blake3::hash(payload).as_bytes()
 }
 
+#[cfg(feature = "alloc")]
 /// Feed the good block `block` to a piece's content hash: a chunk's payload by its hash, which is returned with the
 /// chunk; any other block, or one that doesn't read as a chunk, as it is.
 pub(crate) fn hash_block<'b>(
@@ -282,9 +284,11 @@ pub(crate) fn hash_block<'b>(
     }
 }
 
+#[cfg(feature = "alloc")]
 /// Bytes a content hash reads at a time where no block reads whole.
 const HASH_STEP: usize = 1 << 20;
 
+#[cfg(feature = "alloc")]
 /// Bytes of the block magic but its first, which a stretch read at a time keeps back: the magic may start there.
 const MAGIC_TAIL: usize = crate::MAGIC.len() - 1;
 
@@ -316,6 +320,7 @@ pub(crate) fn hash_piece<E>(
     })
 }
 
+#[cfg(feature = "alloc")]
 /// A step of [walk_piece].
 pub(crate) enum Walked<'b> {
     /// A block that reads whole.
@@ -335,6 +340,7 @@ pub(crate) enum Walked<'b> {
 /// Gives whether a walk of more bytes tries a block at `end`: a block written there is a step of its own only then.
 /// Past a place whose misses spent the budget, good blocks are bytes no block explains until the walk has gone far
 /// enough to try again.
+#[cfg(feature = "alloc")]
 pub(crate) fn walk_piece<E>(
     end: u64,
     mut read: impl FnMut(u64, &mut [u8]) -> Result<(), E>,
@@ -370,12 +376,14 @@ pub(crate) fn walk_piece<E>(
 }
 
 /// Bytes of a piece [walk_piece] read to step over what no block explains, from `at`.
+#[cfg(feature = "alloc")]
 #[derive(Default)]
 struct Window {
     at: u64,
     bytes: Vec<u8>,
 }
 
+#[cfg(feature = "alloc")]
 impl Window {
     /// The bytes from `at` (within `end`) up to the next place after it holding the block magic, or as far as one
     /// window goes: never empty. The window is read again only when `at` is past what it can search.
@@ -423,6 +431,7 @@ impl Window {
 }
 
 /// What [try_block] found at a place.
+#[cfg(feature = "alloc")]
 enum Tried {
     /// A block that reads whole, this long.
     Block(usize),
@@ -433,6 +442,7 @@ enum Tried {
 }
 
 /// Whether a block reads whole at `at` within `left` bytes, read into `buf`.
+#[cfg(feature = "alloc")]
 fn try_block<E>(
     at: u64,
     left: u64,
@@ -830,6 +840,7 @@ impl<'b> PieceHeadBlock<'b> {
         Ok(PieceHeadBlock { head, rows, row })
     }
 
+    #[cfg(feature = "alloc")]
     /// The links of a good piece head block whose integrity level this build refuses ([Self::read]'s
     /// [IndexError::UnhandledIntegrity] or [IndexError::UnknownIntegrity]), with that error: what a chain check and a
     /// raw medium's walk need of a piece they refuse to read. None for a block that is no such head.

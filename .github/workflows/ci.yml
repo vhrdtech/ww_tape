@@ -94,6 +94,7 @@ jobs:
         with:
           target: wasm32-unknown-unknown
       - run: cargo check -p ww_tape --no-default-features --features=alloc --target wasm32-unknown-unknown
+      - run: RUSTFLAGS="-D warnings" cargo check -p ww_tape --no-default-features --target wasm32-unknown-unknown
       - run: cargo check -p ww_tape_codecs --no-default-features --target wasm32-unknown-unknown
 
   arm:

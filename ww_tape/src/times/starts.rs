@@ -9,6 +9,7 @@ use super::{TimeMode, TimesError};
 use crate::FromFile;
 use crate::bitpack::{self, GROUP, Kernel, Width};
 use crate::chunk::ColumnKind;
+#[cfg(feature = "alloc")]
 use alloc::vec::Vec;
 use core::ops::Range;
 
@@ -145,7 +146,8 @@ fn ceil_div(a: i128, b: i128) -> Option<i128> {
 struct Linear<'b> {
     groups: Groups<'b, RECORD_LEN>,
     /// Read from a damaged column: a bit per group, set for a group that doesn't hold up ([Self::group_ok]), decided
-    /// once when the column is read.
+    /// once when the column is read. Without alloc a salvage checks the column whole, as an intact read does.
+    #[cfg(feature = "alloc")]
     suspect: Option<Vec<u64>>,
     /// The chunk's first and last ticks, first at most last.
     first: i64,
@@ -181,6 +183,7 @@ impl<'b> Linear<'b> {
             .is_some_and(|items| items.iter().zip(items.iter().skip(1)).all(|(a, b)| a <= b))
     }
 
+    #[cfg(feature = "alloc")]
     /// Group `g` when it reads on its own: fitting the column ([Groups::group_fits]), its line in range, its first
     /// item its first tick and its items never decreasing.
     fn readable(&self, g: usize) -> Option<Group<'b>> {
@@ -193,6 +196,7 @@ impl<'b> Linear<'b> {
         (h.value(0) == h.first && self.ascending(g, &h)).then_some(h)
     }
 
+    #[cfg(feature = "alloc")]
     /// Whether group `g` of a salvaged column holds up, given whether its neighbours and it read on their own
     /// (`readable`: first tick and last item): in order with its readable neighbours (its first tick at or after the
     /// previous group's last item, its last item at or before the next group's first tick), and the last group ending
@@ -215,13 +219,22 @@ impl<'b> Linear<'b> {
         after_previous && before_next
     }
 
+    #[cfg(feature = "alloc")]
     /// The first tick and the last item of group `g` when it reads on its own ([Self::readable]).
     fn ends(&self, g: usize) -> Option<(i64, i64)> {
         let h = self.readable(g)?;
         Some((h.first, self.last_value(g, &h)?))
     }
 
+    /// The column read by salvage: its suspect groups decided once.
+    #[cfg(feature = "alloc")]
+    fn with_verdicts(mut self) -> Self {
+        self.suspect = Some(self.verdicts());
+        self
+    }
+
     /// A bit per group, set for each group of a salvaged column that doesn't hold up: each group decoded once.
+    #[cfg(feature = "alloc")]
     fn verdicts(&self) -> Vec<u64> {
         let count = self.groups.count();
         let mut bits = alloc::vec![0u64; count.div_ceil(64)];
@@ -245,7 +258,10 @@ impl<'b> Linear<'b> {
 
     /// Whether the column was read by salvage.
     fn salvaged(&self) -> bool {
-        self.suspect.is_some()
+        #[cfg(feature = "alloc")]
+        return self.suspect.is_some();
+        #[cfg(not(feature = "alloc"))]
+        false
     }
 
     /// Group `g`'s line; in a salvaged column, a suspect group's is flat at its first tick, kept inside the chunk.
@@ -280,12 +296,18 @@ impl<'b> Linear<'b> {
     }
 
     fn is_suspect_group(&self, g: usize) -> bool {
-        g < self.groups.count()
+        #[cfg(feature = "alloc")]
+        return g < self.groups.count()
             && self
                 .suspect
                 .as_ref()
                 .and_then(|bits| bits.get(g / 64))
-                .is_some_and(|w| w & (1 << (g % 64)) != 0)
+                .is_some_and(|w| w & (1 << (g % 64)) != 0);
+        #[cfg(not(feature = "alloc"))]
+        {
+            _ = g;
+            false
+        }
     }
 
     /// Check every record and item of an intact column: placed in the column, lines in range, each group's item 0
@@ -406,17 +428,21 @@ impl<'b> Starts<'b> {
                 Repr::Implicit { period }
             }
             TimeMode::Linear => {
-                let mut lin = Linear {
+                let lin = Linear {
                     groups: Groups::split(kind, n, LAYOUT, column, tail)?,
+                    #[cfg(feature = "alloc")]
                     suspect: None,
                     first,
                     last,
                 };
-                match salvage {
-                    true => lin.suspect = Some(lin.verdicts()),
-                    false => lin.check()?,
-                }
-                Repr::Linear(lin)
+                Repr::Linear(match salvage {
+                    #[cfg(feature = "alloc")]
+                    true => lin.with_verdicts(),
+                    _ => {
+                        lin.check()?;
+                        lin
+                    }
+                })
             }
         };
         Ok(Starts {

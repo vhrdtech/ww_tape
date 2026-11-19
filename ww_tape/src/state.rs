@@ -180,6 +180,7 @@ impl Slot {
         }
     }
 
+    #[cfg(feature = "alloc")]
     /// How an index entry lists the slot: its level code, number and second number.
     pub(crate) fn code(&self) -> (u8, u32, u32) {
         match *self {

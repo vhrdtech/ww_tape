@@ -202,6 +202,7 @@ impl IndexEntry {
         out
     }
 
+    #[cfg(feature = "alloc")]
     /// This entry of a block, listing the state record `s` in it.
     fn with_state(&self, s: &StateEntry) -> Self {
         let (level, number, second) = s.slot.code();
@@ -225,6 +226,7 @@ impl IndexEntry {
         }
     }
 
+    #[cfg(feature = "alloc")]
     /// Whether `head` is the chunk this entry names: its kind, track id and number, first item and count. A chunk
     /// read by its entry is compared with it, so an entry pointed at another block reads as damaged, never as that
     /// block.

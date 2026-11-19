@@ -251,6 +251,7 @@ Covers `ww_tape` 0.1.0.
 
 ### 🐛 Fixes
 
+- `ww_tape` builds without `alloc` again: the block, chunk and codec readers; a salvage there checks a starts column whole (STD-124).
 - A file sink locks `NAME.lock` with a per-process record lock: a forked child no longer makes a resume fail `Locked` (TAPE-12).
 - A file sink's lock holds for one file under any name: a link, `NAME.partial`, and a hard link within a process (TAPE-12).
 - A file sink never follows a link at `NAME.lock`: a link or other non-regular lock file is refused (`FsError::NotAFile`) (TAPE-12).

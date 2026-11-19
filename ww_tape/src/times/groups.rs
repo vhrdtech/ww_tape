@@ -244,6 +244,7 @@ pub(crate) fn encode_groups<T: Copy, const R: usize>(
 
 const _: () = assert!(usize::BITS >= u32::BITS, "a u32 fits a usize");
 
+#[cfg(feature = "alloc")]
 /// A u32 count, length or offset as a usize.
 pub(crate) const fn u32_to_usize(v: u32) -> usize {
     #[expect(
