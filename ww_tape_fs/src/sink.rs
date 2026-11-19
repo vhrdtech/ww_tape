@@ -498,6 +498,15 @@ impl FileSource {
             path: path.to_path_buf(),
         })
     }
+
+    /// The metadata of the open file (`fstat`), not of whatever its path names now: a file replaced on disk by a
+    /// rename after the open keeps the metadata it had. On unix its device and inode
+    /// ([MetadataExt](std::os::unix::fs::MetadataExt)) tell it apart from the file the path names now.
+    pub fn metadata(&self) -> Result<std::fs::Metadata, FsError> {
+        self.file
+            .metadata()
+            .map_err(io_err("reading the file's metadata", &self.path))
+    }
 }
 
 impl ByteSource for FileSource {

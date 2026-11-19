@@ -235,3 +235,32 @@ fn an_append_follows_any_bytes_as_a_piece_of_its_own() {
     }
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// A file replaced on disk by a rename under an open [FileSource](ww_tape_fs::FileSource): the open one keeps its
+/// file's metadata (its length; on unix its device and inode), a new open of the path has the new file's.
+#[test]
+fn a_file_source_keeps_the_metadata_of_the_file_it_opened() {
+    use ww_tape::ByteSource;
+    let dir = scratch("files_identity");
+    let path = dir.join("p.wwt");
+    std::fs::write(&path, b"old").unwrap();
+    let held = ww_tape_fs::FileSource::open(&path).unwrap();
+    let before = held.metadata().unwrap();
+    let new = dir.join("p.wwt.new");
+    std::fs::write(&new, b"newer").unwrap();
+    std::fs::rename(&new, &path).unwrap();
+    let reopened = ww_tape_fs::FileSource::open(&path).unwrap();
+    let (kept, now) = (held.metadata().unwrap(), reopened.metadata().unwrap());
+    assert_eq!((kept.len(), now.len()), (3, 5));
+    assert_eq!(held.size().unwrap(), 3);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        assert_eq!((kept.dev(), kept.ino()), (before.dev(), before.ino()));
+        assert_ne!((kept.dev(), kept.ino()), (now.dev(), now.ino()));
+    }
+    #[cfg(not(unix))]
+    assert_eq!(kept.len(), before.len());
+    drop((held, reopened));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
