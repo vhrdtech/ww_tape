@@ -17,6 +17,8 @@ fuzz_host_triple := `rustc -vV | sed -n 's/^host: //p'`
 # List all available targets
 # The pinned nightly of the fuzz and miri recipes; rust-toolchain.toml pins the stable one
 nightly := "nightly-2026-11-19"
+# The Zensical release the book is built with, so a new release cannot break the build unseen
+zensical := "zensical==0.1.2"
 
 default:
     @just --list
@@ -99,17 +101,17 @@ bench-mem-reader *args:
 # Build the book (docs/, zensical.toml) into site/ with Zensical
 [group('book')]
 book:
-    uv run --with zensical zensical build --clean
+    uv run --with {{ zensical }} zensical build --clean
 
 # Serve the book at http://localhost:8000 and rebuild it on every change
 [group('book')]
 book-serve:
-    uv run --with zensical zensical serve
+    uv run --with {{ zensical }} zensical serve
 
 # Build the book with warnings as errors: a link to a missing page, anchor or figure fails; links to other sites are not fetched
 [group('book')]
 book-check:
-    uv run --with zensical zensical build --clean --strict
+    uv run --with {{ zensical }} zensical build --clean --strict
 
 # Rewrite the figures of the book pages drawn from the format (docs/plots/*.svg, ww_tape_figures); a test fails until
 # they match what it draws
