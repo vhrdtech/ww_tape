@@ -121,23 +121,42 @@ fn stale_blocks_behind_the_end_are_not_data() {
         "{errors:?}"
     );
     // the old life starts right where the new one ends: its piece head names no session that ended there
-    let card = [new.clone(), old.clone()].concat();
+    let card = [new.clone(), old].concat();
     let (got, errors) = walk(&card, Medium::Raw);
     assert_eq!(got, seqs(NEW, 1..21));
     assert!(
         matches!(errors[..], [FileError::Cut { offset, why: Cut::Stale { session } }] if offset == new.len() as u64 && session == OLD),
         "{errors:?}"
     );
-    // a file takes any piece head as the start of a session: concatenated pieces
-    let (got, errors) = walk(&card, Medium::File);
+}
+
+/// A file takes any piece head as the start of a session: concatenated pieces read whole.
+#[test]
+fn a_file_takes_any_piece_head_as_a_session_start() {
+    let sd = Layout::UNALIGNED.on_sd_card();
+    let old = session(OLD, SessionTag::NONE, sd, 200);
+    let new = session(NEW, SessionTag::NONE, sd, 20);
+    let (got, errors) = walk(&[new, old].concat(), Medium::File);
     assert_eq!(got, [seqs(NEW, 1..21), seqs(OLD, 1..201)].concat());
     assert!(errors.is_empty(), "{errors:?}");
-    // on a medium too, a piece head naming the session just ended starts the next session
+}
+
+/// On a raw medium, a piece head naming the session just ended starts the next session.
+#[test]
+fn a_piece_head_naming_the_ended_session_starts_the_next() {
+    let sd = Layout::UNALIGNED.on_sd_card();
+    let new = session(NEW, SessionTag::NONE, sd, 20);
     let next = session(OLD, NEW, sd, 3);
-    let (got, errors) = walk(&[new.clone(), next].concat(), Medium::Raw);
+    let (got, errors) = walk(&[new, next].concat(), Medium::Raw);
     assert_eq!(got, [seqs(NEW, 1..21), seqs(OLD, 1..4)].concat());
     assert!(errors.is_empty(), "{errors:?}");
-    // a records block of another session is stale on a file too; the salvage walk reports and skips it
+}
+
+/// A records block of another session is stale on a file too; the salvage walk reports and skips it.
+#[test]
+fn a_records_block_of_another_session_is_stale_on_a_file() {
+    let sd = Layout::UNALIGNED.on_sd_card();
+    let new = session(NEW, SessionTag::NONE, sd, 20);
     let file = [
         new.clone(),
         records(BlockId::new(OLD, 99)),
