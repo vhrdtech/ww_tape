@@ -1474,6 +1474,39 @@ impl<S: ByteSource> TapeReader<S> {
         Ok((hi > from).then_some(from..hi))
     }
 
+    /// The body of the summary block the close in force of piece `i` names ([Close::summary]), read into `buf`; None
+    /// when it names none. Two reads past the tail: the close record is in hand, the block is read whole. A block
+    /// that doesn't lie before the close record, isn't a summary block, fails its CRC or holds more than
+    /// [CLOSE_SUMMARY_MAX](crate::piece::CLOSE_SUMMARY_MAX) bytes is refused.
+    pub fn close_summary<'b>(&self, i: usize, buf: &'b mut Vec<u8>) -> R<Option<&'b [u8]>, S> {
+        let p = self.piece(i)?;
+        let (Some((close, _)), Some(close_at)) = (&p.close, p.close_offset) else {
+            return Ok(None);
+        };
+        let Some((at, len)) = close.summary else {
+            return Ok(None);
+        };
+        let bad = || ReadError::Index(IndexError::Invalid("a summary block the close names"));
+        // a length read from the file: a summary block's at most, and the block before the close record
+        let len = crate::FromFile::new(len)
+            .at_most(
+                crate::piece::CLOSE_SUMMARY_MAX
+                    .saturating_add(HEADER_LEN)
+                    .saturating_add(crate::CRC_LEN),
+            )
+            .ok()
+            .ok_or_else(bad)?;
+        if at.checked_add(wide(len)).is_none_or(|end| end > close_at) {
+            return Err(bad());
+        }
+        let offset = in_piece(p, at, len)?;
+        buf.resize(len, 0);
+        self.src.read_at(offset, buf).map_err(ReadError::Source)?;
+        let b = Block::read(buf).map_err(|error| ReadError::Block { offset, error })?;
+        let body = crate::piece::close_summary_body(&b).ok_or_else(bad)?;
+        Ok(Some(body))
+    }
+
     /// The entries of piece `i` that its close in force covers: every block its index or scan knows before that
     /// close record, in file order. The blocks of an unclosed tail after it are left out; a piece without a close in
     /// force has none.

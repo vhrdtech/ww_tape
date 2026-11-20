@@ -24,6 +24,7 @@ Covers `ww_tape` 0.1.0.
 - A read-only file system refuses a file writer with `FsError::ReadOnly(path)`, not `FsError::Io`; match the new variant (TAPE-14).
 - A resume cuts only a torn end; damage in the bytes to cut refuses with `ResumeError::Damaged { offset }` (TAPE-14).
 - A resume of a closed piece reads only its last close; an append puts its definitions again after the append head (TAPE-14).
+- `BlockKind::CloseSummary` (kind 14) is new: an exhaustive match on `BlockKind` needs its arm (TAPE-14).
 - `TimesError::Corrupt { kind, what }` is `{ kind, error: ColumnError }`, the column reader's error whole (TAPE-12).
 - `PayloadsError::Corrupt { kind, what }` is `{ kind, error: ColumnError }`, as for the time columns (TAPE-12).
 - Sample codecs move to `ww_tape_codecs::samples` on scalars and lanes; `ww_tape::samples` keeps the shape-based `Samples`, `encode`, `max_encoded_len` (TAPE-12).
@@ -161,6 +162,7 @@ Covers `ww_tape` 0.1.0.
 - `TrackDef` names its `clock`, carries `dimensions` (part of its identity, `track_id`) and an optional item type `item` (STD-117).
 
 ### 🚀 Features
+- `TapeWriter::close_with_summary` places a close summary (kind 14) the close names; `TapeReader::close_summary` reads it (TAPE-14).
 
 - `TapeReader::unclosed` names the bytes no close covers; `TapeReader::closed_entries` lists only blocks the close in force covers (TAPE-14).
 - A piece closes more than once: an append head after the tail, a chained close hash, `TapeReader::closes` (TAPE-14).

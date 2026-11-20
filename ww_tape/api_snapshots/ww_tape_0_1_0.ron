@@ -1,6 +1,6 @@
 // ww_tape 0.1.0 traits and types, saved by `ww api save`.
 // Do not edit, bump the crate version and save a new snapshot instead.
-// shrink_wrap sha256: bdd1a8626793093b41d1272d179c7858200ddf8e31d66dda200915ed6874a618
+// shrink_wrap sha256: 05965113d9fb32ebf081f7ed59500b93df10cd714bff071566273001a582e50e
 (magic: 2837124336, ww_self_version: (major: 0, minor: 4, patch: 0), root: (docs: [
     "Tape blocks: the unit a producer of records hands over, a live consumer reads and a log file is made of.",
     "",
@@ -116,6 +116,7 @@
     "| [KERNEL_WIDTH_MAX](bitpack::KERNEL_WIDTH_MAX) | 32 | a bit width the 32-bit kernels unpack |",
     "| [SLOPE_MAX](times::SLOPE_MAX) | 2^55 | a start group\'s slope (Q16 ticks per item) |",
     "| [ITEMS_MAX](times::ITEMS_MAX) | 16 Mi | the items of an events chunk |",
+    "| [CLOSE_SUMMARY_MAX](piece::CLOSE_SUMMARY_MAX) | 1 MiB | the body of the summary block a close names |",
     "| [INDEX_LEN_MAX](index::INDEX_LEN_MAX) | 1 MiB | an index block a writer makes, and a reader looks for from the end |",
     "| [CHECKPOINT_ENTRIES_MAX](index::CHECKPOINT_ENTRIES_MAX) | 8737 | entries a writer puts in a checkpoint index block |",
     "| [NODE_SHIFT_MAX](summary::NODE_SHIFT_MAX) | 62 | a summary node\'s items, as a power of 2 |",

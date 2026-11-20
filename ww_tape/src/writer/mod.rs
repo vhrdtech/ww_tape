@@ -1684,7 +1684,20 @@ impl<S: TapeSink> TapeWriter<S> {
     /// Close the piece for `reason`: the definitions made, the deferred blocks, the final index, the close record and
     /// the tail; then sync, rename and sync the directory as [Self::close].
     pub fn close_as(self, reason: CloseReason) -> Result<Closed, WriteError<S::Error>> {
-        self.end(End::Close(reason)).map(|e| e.closed)
+        self.end(End::Close(reason), None).map(|e| e.closed)
+    }
+
+    /// [Self::close_as] with a summary of the caller's own: `body`, at most
+    /// [CLOSE_SUMMARY_MAX](crate::piece::CLOSE_SUMMARY_MAX) bytes, goes into a summary block right before the final
+    /// index, which the close names ([Close::summary]) and its content hash covers. A reader of the tail reads it back
+    /// with [TapeReader::close_summary](crate::TapeReader::close_summary). A longer body is refused
+    /// ([InputError::SummaryTooLong]) before anything is written.
+    pub fn close_with_summary(
+        self,
+        reason: CloseReason,
+        body: &[u8],
+    ) -> Result<Closed, WriteError<S::Error>> {
+        self.end(End::Close(reason), Some(body)).map(|e| e.closed)
     }
 
     /// End this piece as a cut (a [Close] naming the next piece) and start the next piece of the chain on the tape `tapes` makes
@@ -1722,7 +1735,7 @@ impl<S: TapeSink> TapeWriter<S> {
         let options = self.options();
         let tracks = self.indexer.next_starts(&starts);
         let newest = self.relations.newest().clone();
-        let done = self.end(End::Cut)?;
+        let done = self.end(End::Cut, None)?;
         let mut next_piece =
             NextPiece::after(&head, &done.closed, tracks, done.session, done.next_seq)?;
         next_piece.newest = newest;
@@ -1761,7 +1774,7 @@ impl<S: TapeSink> TapeWriter<S> {
         let options = self.options();
         let tracks = self.indexer.next_starts(starts);
         let newest = self.relations.newest().clone();
-        let mut done = self.end(End::CutInPlace)?;
+        let mut done = self.end(End::CutInPlace, None)?;
         let mut next_piece =
             NextPiece::after(head, &done.closed, tracks, done.session, done.next_seq)?;
         next_piece.newest = newest;
@@ -1824,9 +1837,32 @@ impl<S: TapeSink> TapeWriter<S> {
     /// The sink is synced twice, whatever the [SyncPolicy]: after the final index, before the close record, and after
     /// the tail. A disk may write pages out of order; the first sync keeps a close record and tail that reached it from
     /// naming blocks that didn't.
-    fn end(mut self, how: End) -> Result<Ended<S>, WriteError<S::Error>> {
+    fn end(mut self, how: End, summary: Option<&[u8]>) -> Result<Ended<S>, WriteError<S::Error>> {
+        let summary = summary
+            .map(|body| {
+                crate::piece::write_close_summary(body, BlockId::new(self.session, 0)).ok_or(
+                    WriteError::Input(InputError::SummaryTooLong {
+                        len: body.len(),
+                        max: crate::piece::CLOSE_SUMMARY_MAX,
+                    }),
+                )
+            })
+            .transpose()?;
         self.flush_deferred()?;
         self.ensure_head()?;
+        // the caller's summary, right before the final index, with the id of the blocks the file structure adds
+        let summary = match summary {
+            Some(mut block) => {
+                crate::set_id(&mut block, self.structural_id()).map_err(WriteError::Block)?;
+                let at = self.offset();
+                let len = u32::try_from(block.len()).map_err(|_overflow| {
+                    WriteError::Index(IndexError::Invalid("a summary block past u32::MAX bytes"))
+                })?;
+                self.write_own(&block)?;
+                Some((at, len))
+            }
+            None => None,
+        };
         let mut prev = self.indexer.final_before();
         let mut parts = self.indexer.final_parts();
         // a close after an append follows a final index block of its own, an empty one when no block came since
@@ -1858,7 +1894,7 @@ impl<S: TapeSink> TapeWriter<S> {
             checkpoint: self.indexer.last_checkpoint(),
             final_index: prev,
             prev: self.closed_at.map(|c| c.offset),
-            summary: None,
+            summary,
             ident,
             next,
         };

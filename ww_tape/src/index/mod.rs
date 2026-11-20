@@ -121,6 +121,7 @@ pub fn is_structural(kind: BlockKind) -> bool {
             | BlockKind::Tail
             | BlockKind::PieceHead
             | BlockKind::AppendHead
+            | BlockKind::CloseSummary
     )
 }
 
@@ -296,6 +297,7 @@ impl IndexEntry {
             | BlockKind::Tail
             | BlockKind::PieceHead
             | BlockKind::AppendHead
+            | BlockKind::CloseSummary
             | BlockKind::Parity => return None,
             BlockKind::Events | BlockKind::Series => {
                 if let Some(c) = block.chunk() {

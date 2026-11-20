@@ -500,13 +500,14 @@ fn taken_after_end<S: TapeSink>(
     Ok(None)
 }
 
-/// Whether step `s` of the piece in `src` ends the piece: a close, a tail or a final index block.
+/// Whether step `s` of the piece in `src` ends the piece: a close's summary block, a final index block, a close or a
+/// tail.
 fn ends_piece<S: TapeSink>(src: &S, s: &Step) -> Result<bool, WriteError<S::Error>> {
     let What::Block { kind, .. } = s.what else {
         return Ok(false);
     };
     match kind {
-        BlockKind::Close | BlockKind::Tail => Ok(true),
+        BlockKind::Close | BlockKind::Tail | BlockKind::CloseSummary => Ok(true),
         BlockKind::Index => {
             // a step is at most MAX_BLOCK_LEN long
             let len = usize::try_from(s.len).map_err(|_overflow| too_long(s.len))?;

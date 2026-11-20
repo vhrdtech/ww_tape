@@ -63,6 +63,8 @@ pub enum InputError {
     /// A caller's block of `kind` with header `flags` its kind doesn't take: reserved bits, or a flag only the
     /// writer sets. A records block may carry [FLAG_BODY_CODED](crate::FLAG_BODY_CODED), other kinds none.
     Flags { kind: BlockKind, flags: u16 },
+    /// A close's summary body of `len` bytes, more than [CLOSE_SUMMARY_MAX](crate::piece::CLOSE_SUMMARY_MAX) (`max`).
+    SummaryTooLong { len: usize, max: usize },
 }
 
 /// Why a resume cuts nothing ([WriteError::Resume]): the bytes of the piece stay as they are.
@@ -199,6 +201,10 @@ impl core::fmt::Display for InputError {
             InputError::TooManyCarried { max } => write!(
                 f,
                 "more than {max} tracks carried into the next piece's head: start a new chain"
+            ),
+            InputError::SummaryTooLong { len, max } => write!(
+                f,
+                "a close's summary of {len} bytes: it holds at most {max}"
             ),
             InputError::Flags { kind, flags } => write!(
                 f,

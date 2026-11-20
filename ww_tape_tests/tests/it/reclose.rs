@@ -827,3 +827,133 @@ fn a_close_syncs_before_its_close_record_and_after_its_tail() {
     assert_eq!(ops.borrow()[0], Op::Write(BlockKind::AppendHead));
     ends(&ops.borrow());
 }
+
+/// A close's summary of the caller's own: placed right before the final index, named by the close, read back from the
+/// tail, covered by the close's hash; on a first close and on the close after an append, and an older close's stays
+/// where it was.
+#[test]
+fn a_close_names_a_summary_of_the_callers_own() {
+    let mut w = begin(0);
+    write(&mut w, 0..3);
+    let tape = w.sink().tape();
+    w.close_with_summary(ww_tape::piece::CloseReason::Closed, b"first: 3 records")
+        .unwrap();
+    let first = tape.to_vec().unwrap();
+    let mut buf = vec![];
+    let r = TapeReader::open(&first[..]).unwrap();
+    assert_eq!(
+        r.close_summary(0, &mut buf).unwrap(),
+        Some(&b"first: 3 records"[..])
+    );
+    let (close_at, first_close) = closes(&first).pop().unwrap();
+    let (at, len) = first_close.summary.unwrap();
+    assert_eq!(
+        at + len as u64,
+        first_close.final_index.unwrap(),
+        "right before the final index"
+    );
+    assert!(at + (len as u64) < close_at);
+    assert!(r.verify(0).unwrap().holds);
+    // the next close after an append names its own
+    let (mut w, _) = reopen(&first, 0);
+    write(&mut w, 3..5);
+    let tape = w.sink().tape();
+    let body = vec![0xa5; ww_tape::piece::CLOSE_SUMMARY_MAX];
+    w.close_with_summary(ww_tape::piece::CloseReason::Closed, &body)
+        .unwrap();
+    let second = tape.to_vec().unwrap();
+    assert_eq!(second[..first.len()], first[..]);
+    let r = TapeReader::open(&second[..]).unwrap();
+    assert_eq!(r.close_summary(0, &mut buf).unwrap(), Some(&body[..]));
+    assert!(r.verify(0).unwrap().holds);
+    let all = r.closes(0).unwrap();
+    assert_eq!(
+        all[0].1.summary, first_close.summary,
+        "the older close's summary stays"
+    );
+    // a flip in the summary: refused by the reader, the hash fails
+    let mut flipped = second.clone();
+    let (at, _) = all[1].1.summary.unwrap();
+    flipped[at as usize + 40] ^= 1;
+    let r = TapeReader::open(&flipped[..]).unwrap();
+    assert!(r.close_summary(0, &mut buf).is_err());
+    assert!(!r.verify(0).unwrap().holds);
+    // no summary: none
+    let mut w = begin(0);
+    write(&mut w, 0..1);
+    let plain = close(w);
+    let r = TapeReader::open(&plain[..]).unwrap();
+    assert_eq!(r.close_summary(0, &mut buf).unwrap(), None);
+}
+
+/// A summary past the cap is refused before anything is written; a summary with a torn tail after it goes with the
+/// end it belongs to, and the close given again places it again.
+#[test]
+fn a_summary_past_its_cap_refuses_and_a_torn_close_drops_it() {
+    let mut w = begin(0);
+    write(&mut w, 0..3);
+    let tape = w.sink().tape();
+    let before = tape.to_vec().unwrap();
+    let body = vec![1; ww_tape::piece::CLOSE_SUMMARY_MAX + 1];
+    match w.close_with_summary(ww_tape::piece::CloseReason::Closed, &body) {
+        Err(WriteError::Input(ww_tape::InputError::SummaryTooLong { len, max })) => {
+            assert_eq!((len, max), (body.len(), ww_tape::piece::CLOSE_SUMMARY_MAX))
+        }
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(tape.to_vec().unwrap(), before, "nothing written");
+    let mut w = begin(0);
+    write(&mut w, 0..3);
+    let tape = w.sink().tape();
+    let open = tape.to_vec().unwrap();
+    w.close_with_summary(ww_tape::piece::CloseReason::Closed, b"s")
+        .unwrap();
+    let closed = tape.to_vec().unwrap();
+    let torn = &closed[..closed.len() - 10];
+    let (w, resumed) = reopen(torn, 0);
+    assert_eq!(
+        resumed.kept_bytes,
+        open.len() as u64,
+        "summary, final index and close dropped"
+    );
+    let tape = w.sink().tape();
+    w.close_with_summary(ww_tape::piece::CloseReason::Closed, b"s")
+        .unwrap();
+    assert_eq!(tape.to_vec().unwrap(), closed, "the same close again");
+}
+
+/// The golden append: a piece closed with a summary, written on after its close (append head) and closed again with a
+/// summary; its blocks pin the bytes of kinds 13 and 14 (`WW_TAPE_GOLDEN=update` rewrites it).
+#[test]
+fn golden_append() {
+    let mut w = begin(0);
+    write(&mut w, 0..2);
+    let tape = w.sink().tape();
+    w.close_with_summary(ww_tape::piece::CloseReason::Closed, b"one")
+        .unwrap();
+    let (mut w, _) = reopen(&tape.to_vec().unwrap(), 0);
+    write(&mut w, 2..3);
+    let tape = w.sink().tape();
+    w.close_with_summary(ww_tape::piece::CloseReason::Closed, b"two")
+        .unwrap();
+    let bytes = tape.to_vec().unwrap();
+    let mut hex = String::new();
+    let mut rd = FileBlocks::new(&bytes[..]);
+    while let Some(b) = rd.next_block() {
+        for byte in b.unwrap().bytes() {
+            hex.push_str(&format!("{byte:02x}"));
+        }
+        hex.push('\n');
+    }
+    let golden =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../ww_tape/golden/v1-append.hex");
+    if std::env::var("WW_TAPE_GOLDEN").as_deref() == Ok("update") {
+        std::fs::write(&golden, &hex).unwrap();
+    }
+    let want = std::fs::read_to_string(&golden)
+        .expect("golden/v1-append.hex: run with WW_TAPE_GOLDEN=update");
+    assert!(
+        hex == want,
+        "the format changed: bytes differ from golden/v1-append.hex"
+    );
+}

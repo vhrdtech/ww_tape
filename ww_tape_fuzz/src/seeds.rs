@@ -613,6 +613,11 @@ fn reclose_seeds() -> Vec<Seed> {
         "closed-four-times-append-head-torn",
         whole[..kept + 20].to_vec(),
     ));
+    out.push(seed(
+        "tape-reader",
+        "closed-with-a-close-summary",
+        crate::targets::summarized(),
+    ));
     out
 }
 

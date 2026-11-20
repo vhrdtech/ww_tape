@@ -120,6 +120,20 @@ fn torn_record(bytes: &[u8], cut: usize) -> usize {
     whole
 }
 
+/// A piece closed twice, the second close naming a close summary: a seed of the readers.
+pub(crate) fn summarized() -> Vec<u8> {
+    let (bytes, _) = build(false, &[2]);
+    let (mut w, _) = reopen(&bytes, false).expect("a closed piece reopens");
+    append(&mut w, &defs(), 10, 1);
+    let tape = w.sink().tape();
+    w.close_with_summary(
+        ww_tape::piece::CloseReason::Closed,
+        b"a summary of the caller's own",
+    )
+    .expect("a piece closes");
+    tape.to_vec().expect("the bytes")
+}
+
 /// The closes of piece 0 of `r`: each names the one before it and lies after it.
 fn closes_chain<S: ww_tape::reader::ByteSource>(r: &TapeReader<S>) -> Vec<(u64, Close)> {
     let Ok(all) = r.closes(0) else {

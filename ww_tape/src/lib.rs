@@ -112,6 +112,7 @@
 //! | [KERNEL_WIDTH_MAX](bitpack::KERNEL_WIDTH_MAX) | 32 | a bit width the 32-bit kernels unpack |
 //! | [SLOPE_MAX](times::SLOPE_MAX) | 2^55 | a start group's slope (Q16 ticks per item) |
 //! | [ITEMS_MAX](times::ITEMS_MAX) | 16 Mi | the items of an events chunk |
+//! | [CLOSE_SUMMARY_MAX](piece::CLOSE_SUMMARY_MAX) | 1 MiB | the body of the summary block a close names |
 //! | [INDEX_LEN_MAX](index::INDEX_LEN_MAX) | 1 MiB | an index block a writer makes, and a reader looks for from the end |
 //! | [CHECKPOINT_ENTRIES_MAX](index::CHECKPOINT_ENTRIES_MAX) | 8737 | entries a writer puts in a checkpoint index block |
 //! | [NODE_SHIFT_MAX](summary::NODE_SHIFT_MAX) | 62 | a summary node's items, as a power of 2 |
@@ -351,6 +352,9 @@ pub enum BlockKind {
     PieceHead,
     /// The first block written on after a piece's close record and tail, naming them ([piece]).
     AppendHead,
+    /// A block of the caller's own a close names, placed right before its final index: its body is the caller's,
+    /// opaque to the format ([piece::write_close_summary]).
+    CloseSummary,
     /// A kind this reader doesn't know: its body isn't read.
     Other(u8),
 }
@@ -375,6 +379,7 @@ impl BlockKind {
             9 => BlockKind::Tail,
             10 => BlockKind::PieceHead,
             13 => BlockKind::AppendHead,
+            14 => BlockKind::CloseSummary,
             other => BlockKind::Other(other),
         }
     }
@@ -391,6 +396,7 @@ impl BlockKind {
             BlockKind::Tail => 9,
             BlockKind::PieceHead => 10,
             BlockKind::AppendHead => 13,
+            BlockKind::CloseSummary => 14,
             BlockKind::Other(v) => v,
         }
     }

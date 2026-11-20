@@ -34,7 +34,7 @@ impl ByteSource for Counted<'_> {
 }
 
 /// Verify every piece of `data`: each walk reads its piece once, a header per place, the misses' budget and one
-/// miss past it, at most.
+/// miss past it, at most. Its close summary reads one block of at most its cap.
 fn verify_reads_linear(data: &[u8]) {
     let src = Counted {
         bytes: data,
@@ -51,6 +51,17 @@ fn verify_reads_linear(data: &[u8]) {
         assert!(
             src.read.get() <= bound,
             "verify of piece {i} read {} bytes over {n}, at most {bound}",
+            src.read.get()
+        );
+        // the close summary: one block, before the close record, at most its cap
+        src.read.set(0);
+        let mut buf = Vec::new();
+        if let Ok(Some(body)) = r.close_summary(i, &mut buf) {
+            assert!(body.len() <= ww_tape::piece::CLOSE_SUMMARY_MAX);
+        }
+        assert!(
+            src.read.get() <= (ww_tape::piece::CLOSE_SUMMARY_MAX + 36) as u64,
+            "a close summary of piece {i} read {} bytes",
             src.read.get()
         );
     }

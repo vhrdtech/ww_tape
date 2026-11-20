@@ -23,6 +23,7 @@ pub use payloads::payloads;
 pub use reader::reader;
 pub(crate) use reclose::build as reclosed;
 pub use reclose::reclose;
+pub(crate) use reclose::summarized;
 pub(crate) use resume::chain_template;
 pub use resume::resume;
 pub use samples::samples;

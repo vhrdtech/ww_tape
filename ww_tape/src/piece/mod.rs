@@ -42,9 +42,10 @@
 //! - Bytes after the last tail are an unclosed tail: a writer writing now, or one a crash stopped. A reader takes the
 //!   piece as closed by its last close, and reads the good blocks after it as it reads an unclosed piece: never as
 //!   damage of what the close covers. The next writer keeps those blocks and cuts back only a torn end.
-//! - Room for a summary: a writer may place one block of its own right before the final index of a close, which the
-//!   close record names by offset and length ([Close::summary]) and its hash covers. A reader of the tail then finds
-//!   it with one more read. This build writes none.
+//! - A summary of the caller's own: a close may place one block ([write_close_summary], kind 14) right before its final
+//!   index, its body the caller's and at most [CLOSE_SUMMARY_MAX] bytes. The close record names it by offset and
+//!   length ([Close::summary]) and its hash covers it, so a reader of the tail finds it with one more read
+//!   ([TapeReader::close_summary](crate::TapeReader::close_summary)) and a verify checks it.
 //!
 //! A closed piece is a multiple of [PIECE_ALIGN] (4 KiB) long: the writer pads the close record's body with zeros
 //! ([close_padding]), so the tail, still the piece's last bytes, ends on the boundary. Pieces then clone back to back
@@ -79,7 +80,7 @@
 //!          (offsets u64::MAX for none)
 //!  96 [16] piece id    112 [16] next piece id    128 [32] owner id    160 u64 sequence number
 //! 168 u32  flags: bit 0 the piece has a head    172 u32 padding: zero bytes after the tracks, below [PIECE_ALIGN]
-//! 176 u64  summary block offset, u64::MAX for none    184 u32 its length    188 u32 reserved, 0
+//! 176 u64  close summary offset, u64::MAX for none    184 u32 its length    188 u32 reserved, 0
 //! 192 ...  tracks × 136, one per track with a counted chunk or record in the piece, ascending id then owner:
 //!            0 u64 id    8 u32 number    12 u32 chunks (0: records only, the range fields below 0)
 //!           16 u64 first item    24 u64 items    32 i64 first tick    40 i64 last tick
@@ -95,6 +96,9 @@
 //!  40 u64  close offset    48 u32 close length    52 u8 reason    53 u8 flags (as the close's)    54 u16 reserved
 //!  56 [32] content hash    88 [16] piece id    104 [16] next piece id    120 [32] owner id    152 u64 sequence
 //! 160 u32  CRC
+//!
+//! close summary (kind 14), right before the final index of the close naming it
+//!  32 [n]  the caller's body, at most CLOSE_SUMMARY_MAX bytes    32 + n u32 CRC
 //!
 //! append head (kind 13), APPEND_HEAD_LEN bytes, right after the tail of the close it goes on from
 //!  32 u64  that close record's offset    40 u64 that tail's offset    48 [32] that close record's content hash
@@ -646,6 +650,38 @@ impl TrackRange {
     }
 }
 
+/// The most body bytes the summary block a close names holds ([write_close_summary]).
+pub const CLOSE_SUMMARY_MAX: usize = 1 << 20;
+
+/// The summary block a close names ([BlockKind::CloseSummary]) holding `body`, with id `id`: a header, the caller's
+/// body as it gave it, and the CRC; the format reads nothing in the body. None when `body` is longer than
+/// [CLOSE_SUMMARY_MAX].
+#[cfg(feature = "alloc")]
+pub fn write_close_summary(body: &[u8], id: BlockId) -> Option<alloc::vec::Vec<u8>> {
+    if body.len() > CLOSE_SUMMARY_MAX {
+        return None;
+    }
+    let len = HEADER_LEN.checked_add(body.len())?.checked_add(CRC_LEN)?;
+    let mut b = alloc::vec![0u8; len];
+    put_header(&mut b, BlockKind::CloseSummary, len, 0, id)?;
+    b.get_mut(HEADER_LEN..len.checked_sub(CRC_LEN)?)?
+        .copy_from_slice(body);
+    seal(&mut b);
+    Some(b)
+}
+
+/// The body of the summary block `b` a close names ([write_close_summary]): None for a block of another kind, or a
+/// body past [CLOSE_SUMMARY_MAX].
+pub fn close_summary_body<'b>(b: &Block<'b>) -> Option<&'b [u8]> {
+    if b.kind != BlockKind::CloseSummary {
+        return None;
+    }
+    let body = b
+        .bytes
+        .get(HEADER_LEN..b.bytes.len().checked_sub(CRC_LEN)?)?;
+    (body.len() <= CLOSE_SUMMARY_MAX).then_some(body)
+}
+
 /// The fixed part of a piece head.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct PieceHead {
@@ -973,8 +1009,8 @@ pub struct Close {
     pub final_index: Option<u64>,
     /// The previous close record's offset in the piece; None for the piece's first.
     pub prev: Option<u64>,
-    /// Where the summary block a writer placed before the final index is, and its length: room for a block of the
-    /// writer's own a reader of the tail finds with one more read; None for none (this build writes none).
+    /// Where the summary block of the caller's own ([write_close_summary]) placed right before the final index is, and
+    /// its length; None for none.
     pub summary: Option<(u64, u32)>,
     /// The piece's ident; None for a file written without a piece head.
     pub ident: Option<PieceIdent>,

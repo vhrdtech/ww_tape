@@ -114,6 +114,8 @@ The header's kind byte says what the body holds (`BlockKind`):
 | 10 | piece head |
 | 11 | postings of a relation, reserved: none are written |
 | 12 | dictionary of a relation, reserved: none are written |
+| 13 | append head |
+| 14 | close summary |
 
 A reader reads a block of kind 2, or of a kind not in this table, as a block whose body it doesn't know. It skips such a
 block by its length, and the block is not damage.
@@ -872,13 +874,23 @@ start.
 Only the last piece of a chain is written on. A close that names a next piece is never followed by an append head, so
 the links between pieces never move.
 
-##### Room for a summary
+##### The close summary
 
-The close record keeps room for a **summary block**, named by its offset (close offset 176) and length (184). A writer
-may place one block of its own right before the final index of a close and name it there.
+A close may carry a **close summary**: one block (kind 14) whose body the caller gives and the format never reads. A
+journal, for example, keeps there the counts and names of what one input added.
 
-The content hash covers the summary block like any other block. A reader of the tail finds it with one more read; this
-version writes none and reads the fields as none.
+`TapeWriter::close_with_summary` places the block right before the final index, and the close record names it by its
+offset (close offset 176) and length (184).
+
+The body holds at most `CLOSE_SUMMARY_MAX` bytes (1 MiB); a longer one is refused before anything is written.
+
+The content hash covers the close summary like any other block, so a verify checks it.
+
+`TapeReader::close_summary` reads it from the tail without a scan: the tail names the close record, which names the
+block. The reader refuses a block that lies past the close record, is of another kind, or fails its CRC.
+
+A resume takes the close summary as part of the end of a piece. A crash that tears the close or tail after it drops
+the summary with the final index and the close.
 
 The piece head, the close and the tail follow ([piece module
 docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/piece/mod.rs)). Each header's count is the track count:
@@ -909,7 +921,7 @@ close (kind 8)
          (offsets u64::MAX for none)
  96 [16] piece id    112 [16] next piece id    128 [32] owner id    160 u64 sequence number
 168 u32  flags: bit 0 the piece has a head    172 u32 padding: zero bytes after the tracks, below [PIECE_ALIGN]
-176 u64  summary block offset, u64::MAX for none    184 u32 its length    188 u32 reserved, 0
+176 u64  close summary offset, u64::MAX for none    184 u32 its length    188 u32 reserved, 0
 192 ...  tracks × 136, one per track with a counted chunk or record in the piece, ascending id then owner:
            0 u64 id    8 u32 number    12 u32 chunks (0: records only, the range fields below 0)
           16 u64 first item    24 u64 items    32 i64 first tick    40 i64 last tick
@@ -925,6 +937,9 @@ tail (kind 9), TAIL_LEN bytes, the last of the piece
  40 u64  close offset    48 u32 close length    52 u8 reason    53 u8 flags (as the close's)    54 u16 reserved
  56 [32] content hash    88 [16] piece id    104 [16] next piece id    120 [32] owner id    152 u64 sequence
 160 u32  CRC
+
+close summary (kind 14), right before the final index of the close naming it
+ 32 [n]  the caller's body, at most CLOSE_SUMMARY_MAX bytes    32 + n u32 CRC
 
 append head (kind 13), APPEND_HEAD_LEN bytes, right after the tail of the close it goes on from
  32 u64  that close record's offset    40 u64 that tail's offset    48 [32] that close record's content hash
