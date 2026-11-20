@@ -54,7 +54,7 @@ and update the matching item in the same change when finishing one (conventions 
 ```sh
 just test --changed   # the crates changed against main and their dependents; before a session's work is ready
 just test             # everything: nextest, doctests, just check, a smoke run of every fuzz target
-just lint             # fmt, cargo sort -w -g, typos, clippy, rustdoc -D warnings, just api-check
+just lint             # fmt, cargo sort -w -g, typos, clippy, rustdoc -D warnings, just api-check, spl check
 just check            # the reader, writer, chain and codecs for wasm32 without std (STD-124)
 just api-check        # ww_tape's version and wire line against ww_tape/api_snapshots/; skipped without `ww`
 just fuzz-tape-<target>   # one fuzz target until stopped, with its libFuzzer limits

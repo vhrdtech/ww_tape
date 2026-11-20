@@ -7,10 +7,7 @@ extends = ["small-workspace", "ai"]
 # reason = "why"
 # expires = "2027-06-30"
 
-# The book's pages, the READMEs and the crate docs read by people. The feature tracker, the changelog and the agents'
-# guide are records, not pages a reader reads through: spl's own [docs] defaults leave them out.
 [docs]
-skip = ["CHANGELOG.md", "FEATURES.md", "AGENTS.md", "CLAUDE.md", "**/CHANGELOG.md", "**/tests/**"]
 # The format reference is looked up block by block, not read front to back, so the reading-time budget of a guide
 # does not apply. It stays one page because other books link to its anchors (#tape-blocks, #track-identity and more),
 # and its layouts are checked against the module docs as one page (ww_tape_tests/tests/it/book.rs).
@@ -65,17 +62,14 @@ reason = "a page defines a term before it uses it, or links where it is defined"
 [lints.paragraph-sentences]
 level = "deny"
 reason = "short paragraphs are read once and understood"
-skip = ["CHANGELOG.md", "FEATURES.md", "AGENTS.md", "CLAUDE.md", "**/CHANGELOG.md", "**/tests/**"]
 
 [lints.sentence-words]
 level = "deny"
 reason = "short sentences are read once and understood"
-skip = ["CHANGELOG.md", "FEATURES.md", "AGENTS.md", "CLAUDE.md", "**/CHANGELOG.md", "**/tests/**"]
 
 [lints.emoji]
 level = "deny"
 reason = "the pages carry words, not pictures of feelings; the tracker's status marks are the lint's allowed set"
-skip = ["CHANGELOG.md", "FEATURES.md", "AGENTS.md", "CLAUDE.md", "**/CHANGELOG.md", "**/tests/**"]
 
 [lints.page-links]
 level = "deny"

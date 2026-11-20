@@ -50,7 +50,8 @@ check:
     RUSTFLAGS="-D warnings" cargo check -p ww_tape_summary --no-default-features --target wasm32-unknown-unknown
     cargo check -p ww_tape_codecs --no-default-features --target wasm32-unknown-unknown
 
-# Format, manifests, spelling, clippy and rustdoc as CI runs them, warnings are errors; then `just api-check`
+# Format, manifests, spelling, clippy and rustdoc as CI runs them, warnings are errors; then `just api-check` and
+# every lint of spirit_level.toml (`spl check`)
 lint:
     cargo fmt --all --check
     cd fuzz && cargo +{{ nightly }} fmt --check
@@ -60,6 +61,7 @@ lint:
     cargo clippy --workspace --all-targets --all-features -- -D warnings
     RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features
     just api-check
+    spl check --progress never
 
 # ww_tape's version and wire line against its newest snapshot (`ww api check`); skipped with a note without `ww`
 api-check:

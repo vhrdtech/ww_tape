@@ -1,6 +1,6 @@
 name: CI
 
-# The checks of `just lint`, `just test`, `just check` and `just book-check`, one job each.
+# The checks of `just lint` (spl check among them), `just test`, `just check` and `just book-check`, one job each.
 
 on:
   merge_group:
@@ -71,6 +71,22 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v2
       - run: cargo doc --workspace --no-deps --all-features
 
+  spl:
+    name: spl check, every lint of spirit_level.toml
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
+        with:
+          components: clippy, rustfmt
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-binstall
+      # spl, spirit_level's CLI, at 0.5.9
+      - run: cargo install --locked --git https://github.com/romixlab/spirit_level --rev 6e39518e47c82f4525c140f1ccab8d96a0b5162f spirit_level_cli
+      - run: spl tools needed --spec --missing | xargs -r cargo binstall -y
+      - run: spl check --progress never
+
   test:
     name: test
     runs-on: ubuntu-latest
@@ -135,6 +151,6 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: just
-      # spl, spirit_level's CLI, at the commit the prose lints were set up with (0.5.4)
-      - run: cargo install --locked --git https://github.com/romixlab/spirit_level --rev a7fe9c6f8bd13f299c3091583846299fb00942b6 spirit_level_cli
+      # spl, spirit_level's CLI, at 0.5.9
+      - run: cargo install --locked --git https://github.com/romixlab/spirit_level --rev 6e39518e47c82f4525c140f1ccab8d96a0b5162f spirit_level_cli
       - run: just book-check
