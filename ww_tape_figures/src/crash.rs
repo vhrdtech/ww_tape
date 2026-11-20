@@ -12,7 +12,7 @@ use crate::OrDebug;
 use crate::svg::Svg;
 
 /// The drive's run as the figures draw it: 1/1000 of the data, a checkpoint every 3 KiB.
-pub fn drive() -> anyhow::Result<Drive> {
+pub(crate) fn drive() -> anyhow::Result<Drive> {
     let scaled = Drive::scaled(1000).context("1000 divides the drive's rates")?;
     Ok(Drive {
         checkpoint_bytes: 3 << 10,
@@ -22,7 +22,7 @@ pub fn drive() -> anyhow::Result<Drive> {
 
 /// What a block of the drawing is.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
-enum Part {
+pub(crate) enum Part {
     Head,
     Puts,
     Log,
@@ -50,16 +50,16 @@ impl Part {
 }
 
 /// A block: offset, length, what it is, its flags, and for a checkpoint the offset of the one before.
-struct Span {
-    at: u64,
-    len: u64,
-    part: Part,
-    flags: u16,
-    prev: Option<u64>,
+pub(crate) struct Span {
+    pub(crate) at: u64,
+    pub(crate) len: u64,
+    pub(crate) part: Part,
+    pub(crate) flags: u16,
+    pub(crate) prev: Option<u64>,
 }
 
 /// The good blocks of `bytes` in file order.
-fn spans(bytes: &[u8]) -> anyhow::Result<Vec<Span>> {
+pub(crate) fn spans(bytes: &[u8]) -> anyhow::Result<Vec<Span>> {
     let mut walk = FileBlocks::with_recovery(bytes, Recovery::Prefix);
     let mut out = Vec::new();
     while let Some(Ok(b)) = walk.next_block() {
@@ -177,13 +177,13 @@ fn crash() -> anyhow::Result<Crash> {
 }
 
 /// Drawing scale: a view of the piece fills a row of [ROW_W] units after [LEFT].
-const LEFT: f64 = 24.0;
-const ROW_W: f64 = 640.0;
-const ROW_H: f64 = 30.0;
+pub(crate) const LEFT: f64 = 24.0;
+pub(crate) const ROW_W: f64 = 640.0;
+pub(crate) const ROW_H: f64 = 30.0;
 
 /// The bytes `from..to` of the piece, drawn across a row.
 #[derive(Copy, Clone)]
-struct View {
+pub(crate) struct View {
     from: u64,
     to: u64,
     left: f64,
@@ -191,7 +191,7 @@ struct View {
 }
 
 impl View {
-    fn new(from: u64, to: u64) -> Self {
+    pub(crate) fn new(from: u64, to: u64) -> Self {
         Self {
             from,
             to,
@@ -200,7 +200,7 @@ impl View {
         }
     }
 
-    fn x(&self, at: u64) -> f64 {
+    pub(crate) fn x(&self, at: u64) -> f64 {
         let at = at.clamp(self.from, self.to);
         self.left + (at - self.from) as f64 / (self.to - self.from) as f64 * self.width
     }
@@ -226,7 +226,14 @@ impl Part {
 
 /// Draw the blocks up to byte `end` that `v` shows, on a row at `y`, named where the name fits; the torn block, when
 /// given, only up to `cut`, its whole length dashed.
-fn row(s: &mut Svg, blocks: &[Span], end: u64, v: View, y: f64, torn: Option<(usize, u64)>) {
+pub(crate) fn row(
+    s: &mut Svg,
+    blocks: &[Span],
+    end: u64,
+    v: View,
+    y: f64,
+    torn: Option<(usize, u64)>,
+) {
     for (i, b) in blocks.iter().enumerate() {
         if b.at >= end.min(v.to) || b.at + b.len <= v.from {
             continue;
@@ -256,7 +263,7 @@ fn row(s: &mut Svg, blocks: &[Span], end: u64, v: View, y: f64, torn: Option<(us
     }
 }
 
-fn legend(s: &mut Svg, y: f64, items: &[(&str, &str)]) {
+pub(crate) fn legend(s: &mut Svg, y: f64, items: &[(&str, &str)]) {
     let mut x = LEFT;
     for (class, name) in items {
         s.rect((x, y), (16.0, 12.0), 2.0, class);
@@ -265,7 +272,7 @@ fn legend(s: &mut Svg, y: f64, items: &[(&str, &str)]) {
     }
 }
 
-fn kib(n: u64) -> String {
+pub(crate) fn kib(n: u64) -> String {
     format!("{:.1} KiB", n as f64 / 1024.0)
 }
 
