@@ -13,6 +13,7 @@ pub const ALLOC_MAX: usize = 128 << 20;
 /// made and only reported.
 const ALLOC_REFUSED: usize = 1 << 30;
 
+// spirit-level: allow(thread-local-state) an allocator gets no state passed; per thread, cases keep apart
 std::thread_local! {
     /// The largest allocation over [ALLOC_MAX] this thread made since it was last taken, 0 for none: per thread, so
     /// cases run in parallel by a test harness don't see each other's allocations.
@@ -66,6 +67,7 @@ unsafe impl GlobalAlloc for Capped {
     }
 }
 
+// spirit-level: allow(thread-local-state) a panic hook gets no state passed; per thread, cases keep apart
 thread_local! {
     /// Whether [run] is running a case on this thread: its panics are kept, not printed.
     static IN_CASE: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
