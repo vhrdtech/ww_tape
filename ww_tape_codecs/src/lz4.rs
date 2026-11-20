@@ -47,12 +47,12 @@ pub enum Lz4Error {
 impl core::fmt::Display for Lz4Error {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Lz4Error::Short => write!(f, "column shorter than its length field"),
-            Lz4Error::TooLong { len } => {
+            Self::Short => write!(f, "column shorter than its length field"),
+            Self::TooLong { len } => {
                 write!(f, "decoded length {len} over what the column holds")
             }
-            Lz4Error::Full { needed } => write!(f, "output buffer shorter than {needed} bytes"),
-            Lz4Error::Corrupt => write!(f, "malformed block, or another decoded length"),
+            Self::Full { needed } => write!(f, "output buffer shorter than {needed} bytes"),
+            Self::Corrupt => write!(f, "malformed block, or another decoded length"),
         }
     }
 }

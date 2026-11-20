@@ -43,7 +43,7 @@ pub struct SeriesTimeline {
 impl SeriesTimeline {
     /// No chunks yet, for a series of `period` ticks per sample.
     pub fn new(period: Ratio64) -> Self {
-        SeriesTimeline {
+        Self {
             period,
             stretches: Vec::new(),
         }
@@ -146,7 +146,7 @@ impl SeriesTimeline {
     ) -> (Self, Vec<SeriesError>) {
         let mut heads: Vec<&ChunkHead> = heads.into_iter().collect();
         heads.sort_by_key(|h| h.first_item);
-        let mut t = SeriesTimeline::new(period);
+        let mut t = Self::new(period);
         let mut errors = Vec::new();
         for h in heads {
             if let Err(e) = t.push_chunk(h) {

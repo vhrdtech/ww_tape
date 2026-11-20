@@ -31,7 +31,7 @@ pub struct StoredRelations {
 impl StoredRelations {
     /// The relations of `track`; one that doesn't decode keeps no column.
     pub fn of(track: &TrackDef<'_>) -> Self {
-        let mut out = StoredRelations::default();
+        let mut out = Self::default();
         // at most RELATIONS_MAX (16): each has a bit
         for (i, r) in track.relations.iter().enumerate().take(RELATIONS_MAX) {
             let (Ok(r), Some(bit)) = (r, u32::try_from(i).ok().and_then(|i| 1u16.checked_shl(i)))
@@ -221,7 +221,7 @@ impl EncodedRelation {
             return Err(EncodeError::Unsorted { at });
         }
         let (codec, bytes) = super::encode_values(values).ok_or(EncodeError::TooMany)?;
-        Ok(EncodedRelation {
+        Ok(Self {
             relation,
             codec,
             bytes,

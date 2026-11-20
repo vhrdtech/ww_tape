@@ -23,7 +23,7 @@ pub struct SystemClock;
 impl SystemClock {
     /// The system clock.
     pub fn new() -> Self {
-        SystemClock
+        Self
     }
 }
 
@@ -52,15 +52,15 @@ enum Source {
 
 impl ClockRef {
     /// No clock: interval rules are off.
-    pub const NONE: ClockRef = ClockRef(Source::None);
+    pub const NONE: Self = Self(Source::None);
 
     /// The system clock ([SystemClock]), the default with `std`.
     #[cfg(feature = "std")]
-    pub const SYSTEM: ClockRef = ClockRef(Source::System);
+    pub const SYSTEM: Self = Self(Source::System);
 
     /// `clock`, shared by every clone.
     pub fn new(clock: impl Clock + 'static) -> Self {
-        ClockRef(Source::Shared(Arc::new(clock)))
+        Self(Source::Shared(Arc::new(clock)))
     }
 
     /// Milliseconds now; None without a clock.
@@ -88,7 +88,7 @@ impl ClockRef {
 impl Default for ClockRef {
     fn default() -> Self {
         #[cfg(feature = "std")]
-        return ClockRef::SYSTEM;
+        return Self::SYSTEM;
         #[cfg(not(feature = "std"))]
         return ClockRef::NONE;
     }

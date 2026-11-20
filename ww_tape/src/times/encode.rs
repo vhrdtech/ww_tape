@@ -24,11 +24,11 @@ pub enum EncodeError {
 impl core::fmt::Display for EncodeError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            EncodeError::Empty => write!(f, "no items"),
-            EncodeError::TooMany => write!(f, "more items than a chunk holds"),
-            EncodeError::Unsorted { at } => write!(f, "item {at} starts before the one before it"),
-            EncodeError::EndBeforeStart { at } => write!(f, "item {at} ends before it starts"),
-            EncodeError::Length => write!(f, "ends or flags for another number of items"),
+            Self::Empty => write!(f, "no items"),
+            Self::TooMany => write!(f, "more items than a chunk holds"),
+            Self::Unsorted { at } => write!(f, "item {at} starts before the one before it"),
+            Self::EndBeforeStart { at } => write!(f, "item {at} ends before it starts"),
+            Self::Length => write!(f, "ends or flags for another number of items"),
         }
     }
 }
@@ -102,7 +102,7 @@ impl EncodedTimes {
             .map(|f| encode_flags(f).ok_or(EncodeError::TooMany))
             .transpose()?;
         let (time_mode, starts) = encode_starts(starts).ok_or(EncodeError::TooMany)?;
-        Ok(EncodedTimes {
+        Ok(Self {
             head: TimeHead {
                 count,
                 first_tick: first,

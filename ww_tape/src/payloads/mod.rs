@@ -82,16 +82,16 @@ pub enum PayloadsError {
 impl core::fmt::Display for PayloadsError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            PayloadsError::NotEvents => write!(f, "not an events chunk"),
-            PayloadsError::Missing(k) => write!(f, "no {} column", k.named()),
-            PayloadsError::Unexpected(k) => write!(f, "{} column twice", k.named()),
-            PayloadsError::UnknownCodec(k, c) => {
+            Self::NotEvents => write!(f, "not an events chunk"),
+            Self::Missing(k) => write!(f, "no {} column", k.named()),
+            Self::Unexpected(k) => write!(f, "{} column twice", k.named()),
+            Self::UnknownCodec(k, c) => {
                 write!(f, "{} column in unknown codec {}", k.named(), c.0)
             }
-            PayloadsError::Corrupt { kind, .. } => {
+            Self::Corrupt { kind, .. } => {
                 write!(f, "the {} column breaks the format", kind.named())
             }
-            PayloadsError::Lz4(_) => write!(f, "lz4 payloads column doesn't decode"),
+            Self::Lz4(_) => write!(f, "lz4 payloads column doesn't decode"),
         }
     }
 }
@@ -99,8 +99,8 @@ impl core::fmt::Display for PayloadsError {
 impl core::error::Error for PayloadsError {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
-            PayloadsError::Lz4(e) => Some(e),
-            PayloadsError::Corrupt { error, .. } => Some(error),
+            Self::Lz4(e) => Some(e),
+            Self::Corrupt { error, .. } => Some(error),
             _ => None,
         }
     }

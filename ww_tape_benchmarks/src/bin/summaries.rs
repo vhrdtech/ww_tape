@@ -55,13 +55,13 @@ gen_int!(i8, i16, i32, i64, u8, u16, u32, u64);
 
 impl Gen for f32 {
     fn from_noise(v: i32) -> Self {
-        v as f32 / 1024.0
+        v as Self / 1024.0
     }
 }
 
 impl Gen for f64 {
     fn from_noise(v: i32) -> Self {
-        f64::from(v) / 1024.0
+        Self::from(v) / 1024.0
     }
 }
 

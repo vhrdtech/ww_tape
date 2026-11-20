@@ -11,20 +11,20 @@ pub struct SessionTag(u32);
 
 impl SessionTag {
     /// No session.
-    pub const NONE: SessionTag = SessionTag(0);
+    pub const NONE: Self = Self(0);
 
     /// The tag as written in a header, any value (a reader's view: 0 and `u32::MAX` name no session a writer made).
     pub const fn from_u32(v: u32) -> Self {
-        SessionTag(v)
+        Self(v)
     }
 
     /// `v` as a tag a writer may use: 0 becomes 1 and `u32::MAX` becomes `u32::MAX - 1`, as logring does for its
     /// tag.
     pub const fn writable(v: u32) -> Self {
         match v {
-            0 => SessionTag(1),
-            u32::MAX => SessionTag(u32::MAX - 1),
-            v => SessionTag(v),
+            0 => Self(1),
+            u32::MAX => Self(u32::MAX - 1),
+            v => Self(v),
         }
     }
 
@@ -78,13 +78,13 @@ pub struct BlockId {
 
 impl BlockId {
     pub const fn new(session: SessionTag, seq: u64) -> Self {
-        BlockId { session, seq }
+        Self { session, seq }
     }
 
     /// The id of the block after this one in the same session.
     #[must_use]
     pub const fn next(self) -> Self {
-        BlockId {
+        Self {
             session: self.session,
             seq: self.seq.wrapping_add(1),
         }

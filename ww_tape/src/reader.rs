@@ -136,26 +136,26 @@ pub enum ReadError<E> {
 impl<E: core::fmt::Debug> core::fmt::Display for ReadError<E> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            ReadError::Source(e) => write!(f, "reading the bytes: {e:?}"),
-            ReadError::Index(e) => write!(f, "index or piece block: {e}"),
-            ReadError::Block { offset, error } => write!(f, "block at byte {offset}: {error}"),
-            ReadError::Unclosed => write!(f, "the piece has no close record"),
-            ReadError::NoPiece(i) => write!(f, "no piece {i}"),
-            ReadError::Version { offset, found } => write!(
+            Self::Source(e) => write!(f, "reading the bytes: {e:?}"),
+            Self::Index(e) => write!(f, "index or piece block: {e}"),
+            Self::Block { offset, error } => write!(f, "block at byte {offset}: {error}"),
+            Self::Unclosed => write!(f, "the piece has no close record"),
+            Self::NoPiece(i) => write!(f, "no piece {i}"),
+            Self::Version { offset, found } => write!(
                 f,
                 "a piece of format version {found} (at byte {offset}); this reader reads version {}",
                 crate::VERSION
             ),
-            ReadError::Series { offset, error } => {
+            Self::Series { offset, error } => {
                 write!(f, "series chunk at byte {offset}: {error}")
             }
-            ReadError::Overlap { offset, end } => {
+            Self::Overlap { offset, end } => {
                 write!(
                     f,
                     "chunk at byte {offset} starts before item {end}, the end of the chunk before"
                 )
             }
-            ReadError::RelationOrder {
+            Self::RelationOrder {
                 offset,
                 track_id,
                 relation,
@@ -199,7 +199,7 @@ pub const DEFAULT_SCAN_BACK_MAX: u64 = 256 << 20;
 
 impl Default for OpenOptions {
     fn default() -> Self {
-        OpenOptions {
+        Self {
             scan_back_max: DEFAULT_SCAN_BACK_MAX,
             medium: Medium::File,
             start: 0,
@@ -295,7 +295,7 @@ struct InForce {
 
 impl PieceInfo {
     fn new(start: u64, found: Found) -> Self {
-        PieceInfo {
+        Self {
             start,
             end: start,
             head: None,
@@ -472,7 +472,7 @@ impl OwnedBlock {
             return Err(BlockError::BadLength(report_len(bytes.len())));
         }
         let head = b.detach();
-        Ok(OwnedBlock { bytes, head })
+        Ok(Self { bytes, head })
     }
 
     #[expect(
@@ -538,7 +538,7 @@ impl<S: ByteSource> TapeReader<S> {
     /// When [OpenOptions::layout] is not [valid](Layout::is_valid).
     pub fn open_with(src: S, options: OpenOptions) -> R<Self, S> {
         let len = src.size().map_err(ReadError::Source)?;
-        let mut r = TapeReader {
+        let mut r = Self {
             src,
             len,
             pieces: Vec::new(),
@@ -1860,7 +1860,7 @@ struct Fold {
 
 impl Fold {
     fn new(from: TrackHash) -> Self {
-        Fold {
+        Self {
             out: RangeHash {
                 hash: from,
                 items: 0..0,

@@ -8,7 +8,7 @@ use super::{
 
 impl LevelNode for EventNode {
     fn merge(&mut self, next: &Self, _items: u64, _next_items: u64) -> Result<(), BuildError> {
-        EventNode::merge(self, next);
+        Self::merge(self, next);
         Ok(())
     }
 }
@@ -55,7 +55,7 @@ impl EventTree {
     /// The tree of track `track_id` (number `track_number`) from item `first_item` on; `fields` says whether the
     /// track has flags and spans.
     pub fn new(track_id: u64, track_number: u32, fields: EventFields, first_item: u64) -> Self {
-        EventTree {
+        Self {
             track_id,
             track_number,
             fields,

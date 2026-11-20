@@ -28,13 +28,13 @@ pub enum BuildError {
 impl core::fmt::Display for BuildError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            BuildError::Invalid(what) => write!(f, "{what}"),
-            BuildError::Scale(e) => write!(f, "{e}"),
-            BuildError::Series(e) => write!(f, "{e}"),
-            BuildError::PartialFrame { stride } => {
+            Self::Invalid(what) => write!(f, "{what}"),
+            Self::Scale(e) => write!(f, "{e}"),
+            Self::Series(e) => write!(f, "{e}"),
+            Self::PartialFrame { stride } => {
                 write!(f, "samples are not whole frames of {stride} scalars")
             }
-            BuildError::Block(e) => write!(f, "writing a summary block: {e}"),
+            Self::Block(e) => write!(f, "writing a summary block: {e}"),
         }
     }
 }
@@ -43,18 +43,16 @@ impl core::error::Error for BuildError {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         // the wrapped error's text is in this one's: its source comes next
         match self {
-            BuildError::Scale(e) => e.source(),
-            BuildError::Block(e) => e.source(),
-            BuildError::Invalid(_) | BuildError::Series(_) | BuildError::PartialFrame { .. } => {
-                None
-            }
+            Self::Scale(e) => e.source(),
+            Self::Block(e) => e.source(),
+            Self::Invalid(_) | Self::Series(_) | Self::PartialFrame { .. } => None,
         }
     }
 }
 
 impl From<SummaryError> for BuildError {
     fn from(e: SummaryError) -> Self {
-        BuildError::Block(e)
+        Self::Block(e)
     }
 }
 
@@ -84,7 +82,7 @@ struct Level<N> {
 
 impl<N> Level<N> {
     const fn new() -> Self {
-        Level {
+        Self {
             open: None,
             batch: Vec::new(),
             batch_first: 0,
@@ -110,7 +108,7 @@ impl<N: LevelNode> Levels<N> {
     /// Levels of a tree whose first item is `origin` and whose level-0 nodes hold `2^base_shift` items of
     /// `node_len` bytes in a block of at most `max_block_bytes`.
     pub fn new(origin: u64, base_shift: u8, node_len: usize, max_block_bytes: usize) -> Self {
-        Levels {
+        Self {
             origin,
             base_shift,
             batch: batch_nodes(node_len, max_block_bytes),

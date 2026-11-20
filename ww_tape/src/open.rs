@@ -126,46 +126,46 @@ pub enum DescribeError {
 impl core::fmt::Display for DescribeError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            DescribeError::Encode(e) => write!(f, "definition doesn't encode: {e:?}"),
-            DescribeError::Decode(e) => write!(f, "track-0 item doesn't read: {e:?}"),
-            DescribeError::Unknown => write!(f, "a definition of a kind this writer doesn't know"),
-            DescribeError::Dimensions { track } => {
+            Self::Encode(e) => write!(f, "definition doesn't encode: {e:?}"),
+            Self::Decode(e) => write!(f, "track-0 item doesn't read: {e:?}"),
+            Self::Unknown => write!(f, "a definition of a kind this writer doesn't know"),
+            Self::Dimensions { track } => {
                 write!(
                     f,
                     "track {track}: dimensions not in ascending order of name"
                 )
             }
-            DescribeError::Relations { track } => {
+            Self::Relations { track } => {
                 write!(
                     f,
                     "track {track}: relations break a rule (names, values, monotone, index)"
                 )
             }
-            DescribeError::RelationName { track, len } => write!(
+            Self::RelationName { track, len } => write!(
                 f,
                 "track {track}: a relation name of {len} bytes, longer than {}",
                 crate::RELATION_NAME_MAX
             ),
-            DescribeError::RelationNotBuilt { track } => write!(
+            Self::RelationNotBuilt { track } => write!(
                 f,
                 "track {track}: a relation of a kind not written yet (index-only values, postings, dictionary)"
             ),
-            DescribeError::UnknownClock { clock } => write!(f, "clock {clock} is not open"),
-            DescribeError::Resolution { clock } => {
+            Self::UnknownClock { clock } => write!(f, "clock {clock} is not open"),
+            Self::Resolution { clock } => {
                 write!(f, "clock {clock}: resolution under one tick")
             }
-            DescribeError::UnknownTrack { track } => write!(f, "track {track} is not open"),
-            DescribeError::MapNotIncreasing { from, to } => {
+            Self::UnknownTrack { track } => write!(f, "track {track} is not open"),
+            Self::MapNotIncreasing { from, to } => {
                 write!(
                     f,
                     "map from clock {from} to {to} is not strictly increasing"
                 )
             }
-            DescribeError::EpochUnmapped { clock } => write!(
+            Self::EpochUnmapped { clock } => write!(
                 f,
                 "epoch clock {clock}: no epoch link (an exact offset map from it to the previous epoch's clock)"
             ),
-            DescribeError::WrongClock {
+            Self::WrongClock {
                 track,
                 clock,
                 track_clock,
@@ -173,24 +173,24 @@ impl core::fmt::Display for DescribeError {
                 f,
                 "track {track}: record on clock {clock}, the track counts clock {track_clock}"
             ),
-            DescribeError::TooLong { len } => write!(
+            Self::TooLong { len } => write!(
                 f,
                 "item of {len} bytes is longer than a block, or than a state item may be ({STATE_ITEM_MAX})"
             ),
-            DescribeError::WriterOwned => write!(
+            Self::WriterOwned => write!(
                 f,
                 "the producer and the layout are the writer's own (WriterOptions), not definitions to hold"
             ),
-            DescribeError::Kind { track, error } => write!(f, "track {track}: {error}"),
-            DescribeError::WrongKind { track } => write!(
+            Self::Kind { track, error } => write!(f, "track {track}: {error}"),
+            Self::WrongKind { track } => write!(
                 f,
                 "track {track}: a record or events chunk on a series track, or a series chunk on an events track"
             ),
-            DescribeError::RelationColumns { track } => write!(
+            Self::RelationColumns { track } => write!(
                 f,
                 "track {track}: an events chunk's relation columns don't match its stored relations"
             ),
-            DescribeError::RelationColumnRead {
+            Self::RelationColumnRead {
                 track,
                 relation,
                 error,
@@ -198,7 +198,7 @@ impl core::fmt::Display for DescribeError {
                 f,
                 "track {track}: the column of relation {relation} doesn't read: {error}"
             ),
-            DescribeError::RelationDecrease {
+            Self::RelationDecrease {
                 track,
                 relation,
                 item,
@@ -206,43 +206,43 @@ impl core::fmt::Display for DescribeError {
                 f,
                 "track {track}: item {item}'s value of monotone relation {relation} is below the item's before it"
             ),
-            DescribeError::NotMonotone { track, relation } => write!(
+            Self::NotMonotone { track, relation } => write!(
                 f,
                 "track {track}: relation {relation} is not a monotone relation with stored values"
             ),
-            DescribeError::RelationUnread { track, relation } => write!(
+            Self::RelationUnread { track, relation } => write!(
                 f,
                 "track {track}: the newest value of monotone relation {relation} is in a chunk that doesn't read"
             ),
-            DescribeError::TrackId { track, id, defined } => write!(
+            Self::TrackId { track, id, defined } => write!(
                 f,
                 "a chunk or summary of track {track} under id {id:#x}: its definition's id is {defined:#x}"
             ),
-            DescribeError::StateChunk { track } => write!(
+            Self::StateChunk { track } => write!(
                 f,
                 "track {track} is a state track: its items are put, not written in events chunks"
             ),
-            DescribeError::StateRecord { track } => write!(
+            Self::StateRecord { track } => write!(
                 f,
                 "track {track} is a state track: its items are put, not written in a caller's block"
             ),
-            DescribeError::NotHeld { slot } => write!(
+            Self::NotHeld { slot } => write!(
                 f,
                 "a relayed definition in {slot:?} isn't the one held: hold the block's definitions first"
             ),
-            DescribeError::NotState { track } => {
+            Self::NotState { track } => {
                 write!(
                     f,
                     "track {track} is not a state track: nothing of it is put"
                 )
             }
-            DescribeError::DefinitionBlock => write!(
+            Self::DefinitionBlock => write!(
                 f,
                 "a caller's block holds definitions: keep them in Definitions, the writer puts them"
             ),
-            DescribeError::Start(e) => write!(f, "block doesn't start: {e:?}"),
-            DescribeError::Push(e) => write!(f, "record doesn't fit its block: {e:?}"),
-            DescribeError::Block(e) => write!(f, "block doesn't read: {e:?}"),
+            Self::Start(e) => write!(f, "block doesn't start: {e:?}"),
+            Self::Push(e) => write!(f, "record doesn't fit its block: {e:?}"),
+            Self::Block(e) => write!(f, "block doesn't read: {e:?}"),
         }
     }
 }
@@ -276,7 +276,7 @@ impl TrackFacts {
             .take(crate::RELATIONS_MAX)
             .position(|r| r.is_ok_and(|r| r.index == crate::RelationIndex::Range))
             .and_then(|i| u16::try_from(i).ok());
-        TrackFacts {
+        Self {
             clock: t.clock.0,
             state: t.repeat.state(),
             period: t.series().map(|s| s.period),

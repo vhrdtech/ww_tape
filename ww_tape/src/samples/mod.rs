@@ -40,15 +40,15 @@ pub enum SampleError {
 impl core::fmt::Display for SampleError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            SampleError::UnknownElement(e) => {
+            Self::UnknownElement(e) => {
                 write!(
                     f,
                     "element code {} is no element this build codes",
                     e.code()
                 )
             }
-            SampleError::BadShape => write!(f, "a sample shape without channels or too wide"),
-            SampleError::Column { shape, .. } => {
+            Self::BadShape => write!(f, "a sample shape without channels or too wide"),
+            Self::Column { shape, .. } => {
                 write!(
                     f,
                     "a column of {} × {} doesn't code",
@@ -62,7 +62,7 @@ impl core::fmt::Display for SampleError {
 impl core::error::Error for SampleError {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
-            SampleError::Column { error, .. } => Some(error),
+            Self::Column { error, .. } => Some(error),
             _ => None,
         }
     }

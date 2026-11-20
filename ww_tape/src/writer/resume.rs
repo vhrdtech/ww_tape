@@ -121,7 +121,7 @@ pub struct Resumed {
 impl Resumed {
     /// A piece started anew, `bytes` long (its head and the puts after it).
     pub(crate) fn started(bytes: u64) -> Self {
-        Resumed {
+        Self {
             kept_bytes: bytes,
             dropped_bytes: 0,
             cut: None,
@@ -183,8 +183,8 @@ impl Walk {
 
 impl Step {
     /// The junk from `at` to `end` (empty when `end` is not past `at`).
-    fn junk(at: u64, end: u64) -> Step {
-        Step {
+    fn junk(at: u64, end: u64) -> Self {
+        Self {
             at,
             len: end.saturating_sub(at),
             what: What::Junk,

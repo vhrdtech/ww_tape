@@ -157,37 +157,37 @@ pub enum SeriesError {
 impl core::fmt::Display for SeriesError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            SeriesError::Def(why) => write!(f, "series definition: {why}"),
-            SeriesError::NotSeriesChunk { first_item } => {
+            Self::Def(why) => write!(f, "series definition: {why}"),
+            Self::NotSeriesChunk { first_item } => {
                 write!(
                     f,
                     "chunk at sample {first_item}: not a series chunk with a grid"
                 )
             }
-            SeriesError::NoSamples { first_item } => {
+            Self::NoSamples { first_item } => {
                 write!(f, "chunk at sample {first_item}: no samples, or past u64")
             }
-            SeriesError::GridAfterFirst {
+            Self::GridAfterFirst {
                 first_item,
                 grid_index,
             } => write!(
                 f,
                 "chunk at sample {first_item}: grid starts later, at sample {grid_index}"
             ),
-            SeriesError::TickOverflow { index } => write!(f, "sample {index}: tick past i64"),
-            SeriesError::ChunkTicks { first_item } => write!(
+            Self::TickOverflow { index } => write!(f, "sample {index}: tick past i64"),
+            Self::ChunkTicks { first_item } => write!(
                 f,
                 "chunk at sample {first_item}: first or last tick not its samples' on its grid"
             ),
-            SeriesError::Overlap { first_item } => write!(
+            Self::Overlap { first_item } => write!(
                 f,
                 "chunk at sample {first_item}: holds samples of another chunk on another grid or scale"
             ),
-            SeriesError::GridTooClose { first_item } => write!(
+            Self::GridTooClose { first_item } => write!(
                 f,
                 "chunk at sample {first_item}: a new grid not a period apart from the chunk before or after"
             ),
-            SeriesError::ScaleTooLong { first_item } => write!(
+            Self::ScaleTooLong { first_item } => write!(
                 f,
                 "chunk at sample {first_item}: a scale that doesn't encode in {SCALE_LEN_MAX} bytes"
             ),
@@ -209,7 +209,7 @@ pub struct SeriesGrid {
 impl SeriesGrid {
     /// A grid of its own from sample `index` at `tick`: the start of a series, or after a gap or a restart.
     pub const fn start(index: u64, tick: i64, scale: Magnitude) -> Self {
-        SeriesGrid {
+        Self {
             grid_index: index,
             grid_tick: tick,
             scale,
@@ -218,7 +218,7 @@ impl SeriesGrid {
 
     /// The same grid at another scale: after a prefix change.
     pub const fn rescaled(&self, scale: Magnitude) -> Self {
-        SeriesGrid {
+        Self {
             grid_index: self.grid_index,
             grid_tick: self.grid_tick,
             scale,
@@ -233,7 +233,7 @@ impl SeriesGrid {
     }
 
     /// Whether `other` is the same grid, whatever its scale.
-    pub fn same_grid(&self, other: &SeriesGrid) -> bool {
+    pub fn same_grid(&self, other: &Self) -> bool {
         self.grid_index == other.grid_index && self.grid_tick == other.grid_tick
     }
 
@@ -265,7 +265,7 @@ impl SeriesGrid {
 
     /// The grid of a series chunk's head, checked: its first and last tick are its samples' on the grid, its scale encodes
     /// in [SCALE_LEN_MAX] bytes.
-    pub fn of_chunk(head: &ChunkHead, period: Ratio64) -> Result<SeriesGrid, SeriesError> {
+    pub fn of_chunk(head: &ChunkHead, period: Ratio64) -> Result<Self, SeriesError> {
         let grid = match (head.kind, head.grid) {
             (BlockKind::Series, Some(g)) => g,
             _ => {

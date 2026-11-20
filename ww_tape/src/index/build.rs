@@ -67,7 +67,7 @@ pub(crate) struct Indexer {
 
 impl Indexer {
     pub(crate) fn new(policy: IndexPolicy) -> Self {
-        Indexer {
+        Self {
             policy,
             ..Default::default()
         }

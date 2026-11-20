@@ -22,9 +22,9 @@ pub struct BodyCodec(pub u8);
 
 impl BodyCodec {
     /// The body itself after its length: records read in place.
-    pub const STORED: BodyCodec = BodyCodec(0);
+    pub const STORED: Self = Self(0);
     /// One lz4 block (`lz4_flex`'s block format), decoded with [Block::decode].
-    pub const LZ4: BodyCodec = BodyCodec(1);
+    pub const LZ4: Self = Self(1);
 
     /// Whether this reader decodes it.
     pub const fn is_known(self) -> bool {

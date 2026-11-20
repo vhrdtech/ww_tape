@@ -162,8 +162,8 @@ narrow_small!(u16, i32, u64, u64, 1 << 16);
 // 32 bits: a sum of 64 values under 2^38 in an i64; a square under 2^64 split in two parts, each under 2^33 for a
 // power, so 64 of them under 2^39 in a u64.
 impl Narrow for i32 {
-    const LOW: Self = i32::MIN;
-    const HIGH: Self = i32::MAX;
+    const LOW: Self = Self::MIN;
+    const HIGH: Self = Self::MAX;
     type Sum = i64;
     type Sq = u64;
     /// At most `2 · 2^62 = 2^63`.
@@ -187,8 +187,8 @@ impl Narrow for i32 {
 }
 
 impl Narrow for u32 {
-    const LOW: Self = u32::MIN;
-    const HIGH: Self = u32::MAX;
+    const LOW: Self = Self::MIN;
+    const HIGH: Self = Self::MAX;
     type Sum = i64;
     type Sq = u64;
     /// Under `2 · 2^64 = 2^65`.
@@ -228,7 +228,7 @@ pub struct IntBatch<T> {
 }
 
 impl<T: Narrow> IntBatch<T> {
-    pub const NEW: Self = IntBatch {
+    pub const NEW: Self = Self {
         frames: 0,
         min: [T::HIGH; 2],
         max: [T::LOW; 2],
@@ -328,7 +328,7 @@ pub enum Kernel {
 impl Kernel {
     /// The fastest kernel this CPU runs.
     pub fn best() -> Self {
-        Self::all().last().copied().unwrap_or(Kernel::Portable)
+        Self::all().last().copied().unwrap_or(Self::Portable)
     }
 
     /// Every kernel this CPU runs, slowest first.
@@ -340,7 +340,7 @@ impl Kernel {
             .chain(x86::Avx512::detect().map(Kernel::Avx512));
         #[cfg(not(target_arch = "x86_64"))]
         let vector = core::iter::empty();
-        core::iter::once(Kernel::Portable).chain(vector).collect()
+        core::iter::once(Self::Portable).chain(vector).collect()
     }
 
     /// [int_batch] in this kernel.
@@ -353,11 +353,11 @@ impl Kernel {
         out: &mut IntBatch<T>,
     ) {
         match self {
-            Kernel::Portable => int_batch(frames, lo, hi, out),
+            Self::Portable => int_batch(frames, lo, hi, out),
             #[cfg(target_arch = "x86_64")]
-            Kernel::Avx2(k) => k.int_batch(frames, lo, hi, out),
+            Self::Avx2(k) => k.int_batch(frames, lo, hi, out),
             #[cfg(target_arch = "x86_64")]
-            Kernel::Avx512(k) => k.int_batch(frames, lo, hi, out),
+            Self::Avx512(k) => k.int_batch(frames, lo, hi, out),
         }
     }
 }

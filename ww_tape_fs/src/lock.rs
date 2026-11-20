@@ -121,7 +121,7 @@ impl FileLock {
             Ok(m) if !m.is_file() => return Err(FsError::NotAFile(name.to_path_buf())),
             _ => {}
         }
-        let mut lock = FileLock {
+        let mut lock = Self {
             files: Vec::new(),
             keys: Vec::new(),
         };
@@ -179,7 +179,7 @@ impl FileLock {
         let entry = Entry::claim(Held::Name(key), name)?;
         let file = open_device(name).map_err(io_err("opening the file to lock", name))?;
         match file.try_lock() {
-            Ok(()) => Ok(FileLock {
+            Ok(()) => Ok(Self {
                 files: vec![LockFile { file, path: None }],
                 keys: vec![entry.keep()],
             }),
@@ -243,7 +243,7 @@ impl Entry {
         if !held().insert(key.clone()) {
             return Err(FsError::Locked(name.to_path_buf()));
         }
-        Ok(Entry { key, kept: false })
+        Ok(Self { key, kept: false })
     }
 
     /// The entry, now owned by a [FileLock].

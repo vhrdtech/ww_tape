@@ -37,43 +37,43 @@ impl Element {
     /// Reserved, code 13: a sample that is a struct of leaves of different element types, the leaf list a later field
     /// of [SeriesDef](crate::SeriesDef). A reader that doesn't know it refuses the track ([SeriesDef::check](
     /// crate::SeriesDef::check)) and every column and summary of it, never misreads it.
-    pub const LEAVES: Element = Element::Unknown(13);
+    pub const LEAVES: Self = Self::Unknown(13);
 
     /// Every element, by code.
-    pub const ALL: [Element; 13] = [
-        Element::I8,
-        Element::I16,
-        Element::I32,
-        Element::I64,
-        Element::U8,
-        Element::U16,
-        Element::U32,
-        Element::U64,
-        Element::F32,
-        Element::F64,
-        Element::ComplexI16,
-        Element::ComplexF32,
-        Element::Bool,
+    pub const ALL: [Self; 13] = [
+        Self::I8,
+        Self::I16,
+        Self::I32,
+        Self::I64,
+        Self::U8,
+        Self::U16,
+        Self::U32,
+        Self::U64,
+        Self::F32,
+        Self::F64,
+        Self::ComplexI16,
+        Self::ComplexF32,
+        Self::Bool,
     ];
 
     /// The element code: 0 `I8` to 12 `Bool`, in declaration order; a newer writer's element keeps its code. An
     /// unknown element past 255, which no byte names, gives 255, a code no element has.
     pub const fn code(self) -> u8 {
         match self {
-            Element::I8 => 0,
-            Element::I16 => 1,
-            Element::I32 => 2,
-            Element::I64 => 3,
-            Element::U8 => 4,
-            Element::U16 => 5,
-            Element::U32 => 6,
-            Element::U64 => 7,
-            Element::F32 => 8,
-            Element::F64 => 9,
-            Element::ComplexI16 => 10,
-            Element::ComplexF32 => 11,
-            Element::Bool => 12,
-            Element::Unknown(code) => match code.to_le_bytes() {
+            Self::I8 => 0,
+            Self::I16 => 1,
+            Self::I32 => 2,
+            Self::I64 => 3,
+            Self::U8 => 4,
+            Self::U16 => 5,
+            Self::U32 => 6,
+            Self::U64 => 7,
+            Self::F32 => 8,
+            Self::F64 => 9,
+            Self::ComplexI16 => 10,
+            Self::ComplexF32 => 11,
+            Self::Bool => 12,
+            Self::Unknown(code) => match code.to_le_bytes() {
                 [low, 0, 0, 0] => low,
                 _ => u8::MAX,
             },
@@ -81,49 +81,49 @@ impl Element {
     }
 
     /// The element of a code this reader knows, None for any other.
-    pub const fn from_code(code: u8) -> Option<Element> {
+    pub const fn from_code(code: u8) -> Option<Self> {
         let e = match code {
-            0 => Element::I8,
-            1 => Element::I16,
-            2 => Element::I32,
-            3 => Element::I64,
-            4 => Element::U8,
-            5 => Element::U16,
-            6 => Element::U32,
-            7 => Element::U64,
-            8 => Element::F32,
-            9 => Element::F64,
-            10 => Element::ComplexI16,
-            11 => Element::ComplexF32,
-            12 => Element::Bool,
+            0 => Self::I8,
+            1 => Self::I16,
+            2 => Self::I32,
+            3 => Self::I64,
+            4 => Self::U8,
+            5 => Self::U16,
+            6 => Self::U32,
+            7 => Self::U64,
+            8 => Self::F32,
+            9 => Self::F64,
+            10 => Self::ComplexI16,
+            11 => Self::ComplexF32,
+            12 => Self::Bool,
             _ => return None,
         };
         Some(e)
     }
 
     /// The type a value is stored as: the part of a complex element, else the element itself.
-    pub const fn scalar(self) -> Element {
+    pub const fn scalar(self) -> Self {
         match self {
-            Element::ComplexI16 => Element::I16,
-            Element::ComplexF32 => Element::F32,
+            Self::ComplexI16 => Self::I16,
+            Self::ComplexF32 => Self::F32,
             other => other,
         }
     }
 
     /// The element of scalar `s`, with its code.
-    pub const fn of_scalar(s: Scalar) -> Element {
+    pub const fn of_scalar(s: Scalar) -> Self {
         match s {
-            Scalar::I8 => Element::I8,
-            Scalar::I16 => Element::I16,
-            Scalar::I32 => Element::I32,
-            Scalar::I64 => Element::I64,
-            Scalar::U8 => Element::U8,
-            Scalar::U16 => Element::U16,
-            Scalar::U32 => Element::U32,
-            Scalar::U64 => Element::U64,
-            Scalar::F32 => Element::F32,
-            Scalar::F64 => Element::F64,
-            Scalar::Bool => Element::Bool,
+            Scalar::I8 => Self::I8,
+            Scalar::I16 => Self::I16,
+            Scalar::I32 => Self::I32,
+            Scalar::I64 => Self::I64,
+            Scalar::U8 => Self::U8,
+            Scalar::U16 => Self::U16,
+            Scalar::U32 => Self::U32,
+            Scalar::U64 => Self::U64,
+            Scalar::F32 => Self::F32,
+            Scalar::F64 => Self::F64,
+            Scalar::Bool => Self::Bool,
         }
     }
 
@@ -131,17 +131,17 @@ impl Element {
     /// reader doesn't know.
     pub const fn scalar_type(self) -> Option<Scalar> {
         let s = match self.scalar() {
-            Element::I8 => Scalar::I8,
-            Element::I16 => Scalar::I16,
-            Element::I32 => Scalar::I32,
-            Element::I64 => Scalar::I64,
-            Element::U8 => Scalar::U8,
-            Element::U16 => Scalar::U16,
-            Element::U32 => Scalar::U32,
-            Element::U64 => Scalar::U64,
-            Element::F32 => Scalar::F32,
-            Element::F64 => Scalar::F64,
-            Element::Bool => Scalar::Bool,
+            Self::I8 => Scalar::I8,
+            Self::I16 => Scalar::I16,
+            Self::I32 => Scalar::I32,
+            Self::I64 => Scalar::I64,
+            Self::U8 => Scalar::U8,
+            Self::U16 => Scalar::U16,
+            Self::U32 => Scalar::U32,
+            Self::U64 => Scalar::U64,
+            Self::F32 => Scalar::F32,
+            Self::F64 => Scalar::F64,
+            Self::Bool => Scalar::Bool,
             _ => return None,
         };
         Some(s)
@@ -150,7 +150,7 @@ impl Element {
     /// Scalars per element: 2 for a complex element, else 1.
     pub const fn parts(self) -> u32 {
         match self {
-            Element::ComplexI16 | Element::ComplexF32 => 2,
+            Self::ComplexI16 | Self::ComplexF32 => 2,
             _ => 1,
         }
     }
@@ -177,7 +177,7 @@ impl Element {
 impl core::fmt::Display for Element {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match (self, self.scalar_type()) {
-            (Element::ComplexI16 | Element::ComplexF32, Some(s)) => write!(f, "complex {s}"),
+            (Self::ComplexI16 | Self::ComplexF32, Some(s)) => write!(f, "complex {s}"),
             (_, Some(s)) => write!(f, "{s}"),
             (_, None) => write!(f, "element {}", self.code()),
         }
@@ -202,7 +202,7 @@ pub struct SampleShape {
 impl SampleShape {
     /// One channel of `element`.
     pub const fn scalar(element: Element) -> Self {
-        SampleShape {
+        Self {
             element,
             channels: UNib32(1),
         }
@@ -210,7 +210,7 @@ impl SampleShape {
 
     /// `channels` channels of `element`.
     pub const fn new(element: Element, channels: u32) -> Self {
-        SampleShape {
+        Self {
             element,
             channels: UNib32(channels),
         }

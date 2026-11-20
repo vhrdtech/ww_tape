@@ -54,7 +54,7 @@ struct Cached {
 
 impl StateCache {
     pub(super) fn new(max: usize) -> Self {
-        StateCache {
+        Self {
             max,
             held: Default::default(),
         }
@@ -215,7 +215,7 @@ impl StateIndex {
         let key = |i: &usize| entries.get(*i).map(|(e, s)| (s.slot, e.offset));
         by_slot.sort_by_key(key);
         by_hash.sort_by_key(|i| entries.get(*i).map(|(e, s)| (s.hash, e.offset)));
-        StateIndex {
+        Self {
             entries,
             by_slot,
             by_hash,

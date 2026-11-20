@@ -362,42 +362,42 @@ pub enum BlockKind {
 impl BlockKind {
     /// Reserved, kind 11: per events chunk, a relation's postings, each distinct value with the items holding it
     /// ([RelationIndex::Postings]). Not built: read as [BlockKind::Other], skipped by its length.
-    pub const POSTINGS: BlockKind = BlockKind::Other(11);
+    pub const POSTINGS: Self = Self::Other(11);
     /// Reserved, kind 12: per events chunk, a relation's dictionary, the distinct values and each item's index into
     /// them ([RelationIndex::Dictionary]). Not built: read as [BlockKind::Other], skipped by its length.
-    pub const DICTIONARY: BlockKind = BlockKind::Other(12);
+    pub const DICTIONARY: Self = Self::Other(12);
 
     pub fn from_u8(v: u8) -> Self {
         match v {
-            1 => BlockKind::Records,
-            3 => BlockKind::Events,
-            4 => BlockKind::Series,
-            5 => BlockKind::Parity,
-            6 => BlockKind::Summary,
-            7 => BlockKind::Index,
-            8 => BlockKind::Close,
-            9 => BlockKind::Tail,
-            10 => BlockKind::PieceHead,
-            13 => BlockKind::AppendHead,
-            14 => BlockKind::CloseSummary,
-            other => BlockKind::Other(other),
+            1 => Self::Records,
+            3 => Self::Events,
+            4 => Self::Series,
+            5 => Self::Parity,
+            6 => Self::Summary,
+            7 => Self::Index,
+            8 => Self::Close,
+            9 => Self::Tail,
+            10 => Self::PieceHead,
+            13 => Self::AppendHead,
+            14 => Self::CloseSummary,
+            other => Self::Other(other),
         }
     }
 
     pub fn to_u8(self) -> u8 {
         match self {
-            BlockKind::Records => 1,
-            BlockKind::Events => 3,
-            BlockKind::Series => 4,
-            BlockKind::Parity => 5,
-            BlockKind::Summary => 6,
-            BlockKind::Index => 7,
-            BlockKind::Close => 8,
-            BlockKind::Tail => 9,
-            BlockKind::PieceHead => 10,
-            BlockKind::AppendHead => 13,
-            BlockKind::CloseSummary => 14,
-            BlockKind::Other(v) => v,
+            Self::Records => 1,
+            Self::Events => 3,
+            Self::Series => 4,
+            Self::Parity => 5,
+            Self::Summary => 6,
+            Self::Index => 7,
+            Self::Close => 8,
+            Self::Tail => 9,
+            Self::PieceHead => 10,
+            Self::AppendHead => 13,
+            Self::CloseSummary => 14,
+            Self::Other(v) => v,
         }
     }
 }
@@ -485,7 +485,7 @@ pub struct ClockTime {
 
 impl ClockTime {
     pub const fn new(clock: u32, ticks: i64) -> Self {
-        ClockTime { clock, ticks }
+        Self { clock, ticks }
     }
 }
 
@@ -510,7 +510,7 @@ struct Slots {
 }
 
 impl Slots {
-    const NONE: Slots = Slots {
+    const NONE: Self = Self {
         clocks: [0; MAX_BLOCK_CLOCKS],
         last: [0; MAX_BLOCK_CLOCKS],
         n: 0,
@@ -566,7 +566,7 @@ pub enum PushError {
 
 impl From<Full> for PushError {
     fn from(_: Full) -> Self {
-        PushError::Full
+        Self::Full
     }
 }
 
@@ -896,22 +896,22 @@ pub enum BlockError {
 impl core::fmt::Display for BlockError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            BlockError::Short { needed } => write!(f, "short: {needed} bytes needed"),
-            BlockError::BadMagic => write!(f, "no block magic"),
-            BlockError::BadLength(len) => write!(f, "a block length of {len} is out of range"),
-            BlockError::BadCrc => write!(f, "the block CRC doesn't match"),
-            BlockError::Chunk(e) => write!(f, "chunk head: {e}"),
-            BlockError::Summary(e) => write!(f, "summary block: {e}"),
-            BlockError::BadRecords => write!(f, "the records don't parse as the header says"),
-            BlockError::Coded => write!(f, "a coded body: its records are read by decoding it"),
-            BlockError::NotChunk => write!(f, "not a chunk block this reader reads"),
-            BlockError::PayloadUnchecked => {
+            Self::Short { needed } => write!(f, "short: {needed} bytes needed"),
+            Self::BadMagic => write!(f, "no block magic"),
+            Self::BadLength(len) => write!(f, "a block length of {len} is out of range"),
+            Self::BadCrc => write!(f, "the block CRC doesn't match"),
+            Self::Chunk(e) => write!(f, "chunk head: {e}"),
+            Self::Summary(e) => write!(f, "summary block: {e}"),
+            Self::BadRecords => write!(f, "the records don't parse as the header says"),
+            Self::Coded => write!(f, "a coded body: its records are read by decoding it"),
+            Self::NotChunk => write!(f, "not a chunk block this reader reads"),
+            Self::PayloadUnchecked => {
                 write!(
                     f,
                     "a chunk with unchecked payload: an integrity level this build doesn't handle"
                 )
             }
-            BlockError::UnhandledIntegrity { level } => {
+            Self::UnhandledIntegrity { level } => {
                 write!(
                     f,
                     "a piece head of integrity level {level}, which this build doesn't handle"

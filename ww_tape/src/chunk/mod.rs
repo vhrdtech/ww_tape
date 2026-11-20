@@ -185,31 +185,31 @@ impl core::fmt::Display for ColumnName {
 impl ColumnKind {
     /// Reserved, kind 7: one leaf of the items' payload struct, its param the leaf's index. Read as
     /// [ColumnKind::Other] until it is built, so a reader refuses it.
-    pub const PAYLOAD_LEAF: ColumnKind = ColumnKind::Other(7);
+    pub const PAYLOAD_LEAF: Self = Self::Other(7);
 
     pub fn from_u8(v: u8) -> Self {
         match v {
-            1 => ColumnKind::Starts,
-            2 => ColumnKind::Ends,
-            3 => ColumnKind::Flags,
-            4 => ColumnKind::PayloadLengths,
-            5 => ColumnKind::Payloads,
-            6 => ColumnKind::Samples,
-            8 => ColumnKind::Relation,
-            other => ColumnKind::Other(other),
+            1 => Self::Starts,
+            2 => Self::Ends,
+            3 => Self::Flags,
+            4 => Self::PayloadLengths,
+            5 => Self::Payloads,
+            6 => Self::Samples,
+            8 => Self::Relation,
+            other => Self::Other(other),
         }
     }
 
     pub fn to_u8(self) -> u8 {
         match self {
-            ColumnKind::Starts => 1,
-            ColumnKind::Ends => 2,
-            ColumnKind::Flags => 3,
-            ColumnKind::PayloadLengths => 4,
-            ColumnKind::Payloads => 5,
-            ColumnKind::Samples => 6,
-            ColumnKind::Relation => 8,
-            ColumnKind::Other(v) => v,
+            Self::Starts => 1,
+            Self::Ends => 2,
+            Self::Flags => 3,
+            Self::PayloadLengths => 4,
+            Self::Payloads => 5,
+            Self::Samples => 6,
+            Self::Relation => 8,
+            Self::Other(v) => v,
         }
     }
 
@@ -221,8 +221,8 @@ impl ColumnKind {
     /// Whether the kind belongs in a chunk of `block` kind; unknown kinds belong anywhere.
     fn fits(self, block: BlockKind) -> bool {
         match self {
-            ColumnKind::Samples => block == BlockKind::Series,
-            ColumnKind::Other(_) => true,
+            Self::Samples => block == BlockKind::Series,
+            Self::Other(_) => true,
             _ => block == BlockKind::Events,
         }
     }
@@ -242,18 +242,18 @@ pub enum EndMode {
 impl EndMode {
     pub fn from_u8(v: u8) -> Option<Self> {
         match v {
-            0 => Some(EndMode::Absent),
-            1 => Some(EndMode::NextStart),
-            2 => Some(EndMode::Durations),
+            0 => Some(Self::Absent),
+            1 => Some(Self::NextStart),
+            2 => Some(Self::Durations),
             _ => None,
         }
     }
 
     pub fn to_u8(self) -> u8 {
         match self {
-            EndMode::Absent => 0,
-            EndMode::NextStart => 1,
-            EndMode::Durations => 2,
+            Self::Absent => 0,
+            Self::NextStart => 1,
+            Self::Durations => 2,
         }
     }
 }
@@ -366,11 +366,11 @@ pub enum ChunkError {
 impl core::fmt::Display for ChunkError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            ChunkError::Full { needed } => write!(f, "the buffer is short: {needed} bytes needed"),
-            ChunkError::TooLong { len } => {
+            Self::Full { needed } => write!(f, "the buffer is short: {needed} bytes needed"),
+            Self::TooLong { len } => {
                 write!(f, "a block of {len} bytes is over {MAX_BLOCK_LEN}")
             }
-            ChunkError::Invalid(what) => write!(f, "{what}"),
+            Self::Invalid(what) => write!(f, "{what}"),
         }
     }
 }
@@ -403,7 +403,7 @@ impl GridBytes {
     fn of(head: &ChunkHead) -> Result<Self, ChunkError> {
         let mut buf = [0u8; SERIES_GRID_LEN + SCALE_LEN_MAX];
         let Some(g) = head.grid else {
-            return Ok(GridBytes { buf, len: 0 });
+            return Ok(Self { buf, len: 0 });
         };
         let mut scale = [0u8; SCALE_LEN_MAX];
         let scale_len = scale_bytes(&g.scale, &mut scale)
@@ -422,7 +422,7 @@ impl GridBytes {
         for (d, b) in buf.iter_mut().zip(fields) {
             *d = b;
         }
-        Ok(GridBytes {
+        Ok(Self {
             buf,
             len: SERIES_GRID_LEN.saturating_add(scale_len),
         })
@@ -483,7 +483,7 @@ impl Parts {
             .iter()
             .try_fold(0usize, |n, c| n.checked_add(c.len))?;
         let payload = columns_len.checked_add(PAYLOAD_PADDING)?;
-        Some(Parts {
+        Some(Self {
             grid,
             entries: columns.len().checked_mul(COLUMN_ENTRY_LEN)?,
             seg_crcs: payload
@@ -863,9 +863,9 @@ pub enum ChunkHeadError {
 impl core::fmt::Display for ChunkHeadError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            ChunkHeadError::BadHeadCrc => write!(f, "the head CRC doesn't match"),
-            ChunkHeadError::BadHead => write!(f, "the head is out of range"),
-            ChunkHeadError::Bound(e) => write!(f, "{e}"),
+            Self::BadHeadCrc => write!(f, "the head CRC doesn't match"),
+            Self::BadHead => write!(f, "the head is out of range"),
+            Self::Bound(e) => write!(f, "{e}"),
         }
     }
 }
@@ -959,7 +959,7 @@ impl Layout {
             .and_then(|n| n.checked_add(table_end))
             .filter(|end| *end <= payload_at)
             .ok_or(ChunkHeadError::BadHead)?;
-        Ok(Layout {
+        Ok(Self {
             seg_len,
             columns,
             table_start,

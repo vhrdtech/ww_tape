@@ -104,7 +104,7 @@ pub struct CutError<S: TapeSink> {
 
 impl<S: TapeSink> From<WriteError<S::Error>> for CutError<S> {
     fn from(error: WriteError<S::Error>) -> Self {
-        CutError {
+        Self {
             error,
             writer: None,
         }
@@ -144,37 +144,37 @@ impl<S: TapeSink> core::error::Error for CutError<S> {
 
 impl<E> From<InputError> for WriteError<E> {
     fn from(e: InputError) -> Self {
-        WriteError::Input(e)
+        Self::Input(e)
     }
 }
 
 impl<E> From<ResumeError> for WriteError<E> {
     fn from(e: ResumeError) -> Self {
-        WriteError::Resume(e)
+        Self::Resume(e)
     }
 }
 
 impl<E> From<DescribeError> for WriteError<E> {
     fn from(e: DescribeError) -> Self {
-        WriteError::Describe(e)
+        Self::Describe(e)
     }
 }
 
 impl<E: core::fmt::Display + core::fmt::Debug> core::fmt::Display for WriteError<E> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            WriteError::Sink { what, error } => write!(f, "{what}: {error}"),
-            WriteError::Failed => write!(
+            Self::Sink { what, error } => write!(f, "{what}: {error}"),
+            Self::Failed => write!(
                 f,
                 "an earlier write or sync failed, the file takes no more blocks"
             ),
-            WriteError::Block(e) => write!(f, "not a good block: {e}"),
-            WriteError::Chunk(e) => write!(f, "chunk doesn't encode: {e}"),
-            WriteError::Index(e) => write!(f, "index or piece block: {e}"),
-            WriteError::Read(e) => write!(f, "reading back the piece to resume: {e}"),
-            WriteError::Describe(e) => write!(f, "{e}"),
-            WriteError::Input(e) => write!(f, "{e}"),
-            WriteError::Resume(e) => write!(f, "{e}"),
+            Self::Block(e) => write!(f, "not a good block: {e}"),
+            Self::Chunk(e) => write!(f, "chunk doesn't encode: {e}"),
+            Self::Index(e) => write!(f, "index or piece block: {e}"),
+            Self::Read(e) => write!(f, "reading back the piece to resume: {e}"),
+            Self::Describe(e) => write!(f, "{e}"),
+            Self::Input(e) => write!(f, "{e}"),
+            Self::Resume(e) => write!(f, "{e}"),
         }
     }
 }
@@ -182,36 +182,36 @@ impl<E: core::fmt::Display + core::fmt::Debug> core::fmt::Display for WriteError
 impl core::fmt::Display for InputError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            InputError::Alignment(a) => {
+            Self::Alignment(a) => {
                 write!(f, "alignment {a} is neither 0 nor {}", crate::ALIGNMENT)
             }
-            InputError::Session(r) => write!(f, "session tag {r:?} is not one a writer may use"),
-            InputError::Layout { described, given } => write!(
+            Self::Session(r) => write!(f, "session tag {r:?} is not one a writer may use"),
+            Self::Layout { described, given } => write!(
                 f,
                 "the piece describes layout {described:?}, the writer was given {given:?} (or a layout set after the first block)"
             ),
-            InputError::Producer { described, given } => write!(
+            Self::Producer { described, given } => write!(
                 f,
                 "the piece names producer {described:?}, the writer was given {given:?}"
             ),
-            InputError::TooManyTracks { max } => write!(
+            Self::TooManyTracks { max } => write!(
                 f,
                 "more than {max} tracks with data in one piece: cut the piece first"
             ),
-            InputError::TooManyCarried { max } => write!(
+            Self::TooManyCarried { max } => write!(
                 f,
                 "more than {max} tracks carried into the next piece's head: start a new chain"
             ),
-            InputError::SummaryTooLong { len, max } => write!(
+            Self::SummaryTooLong { len, max } => write!(
                 f,
                 "a close's summary of {len} bytes: it holds at most {max}"
             ),
-            InputError::Flags { kind, flags } => write!(
+            Self::Flags { kind, flags } => write!(
                 f,
                 "a caller's block of kind {kind:?} with header flags {flags:#06x}: it takes {:#06x}",
                 caller_flags(*kind)
             ),
-            InputError::Unknown { version, kind } => write!(
+            Self::Unknown { version, kind } => write!(
                 f,
                 "a caller's block of version {version}, kind {kind:?}: the writer takes records, events, series and summary blocks of version {} it knows the body of",
                 crate::VERSION
@@ -225,25 +225,25 @@ impl core::error::Error for InputError {}
 impl core::fmt::Display for ResumeError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            ResumeError::NoPiece => write!(f, "there is no piece to resume"),
-            ResumeError::GoodBlockAfterCut { offset } => write!(
+            Self::NoPiece => write!(f, "there is no piece to resume"),
+            Self::GoodBlockAfterCut { offset } => write!(
                 f,
                 "a resume would cut off a good block at {offset}, more than a torn end"
             ),
-            ResumeError::LookSpent { offset } => write!(
+            Self::LookSpent { offset } => write!(
                 f,
                 "a resume looked for good blocks it would cut off up to {offset}, short of the end of the bytes"
             ),
-            ResumeError::HashWalkSpent { end } => write!(
+            Self::HashWalkSpent { end } => write!(
                 f,
                 "the bytes to resume claim too many blocks that don't read: a block written at {end} would not verify"
             ),
-            ResumeError::Continued { next } => write!(
+            Self::Continued { next } => write!(
                 f,
                 "the piece goes on in the next piece ({:02x?}): only the last piece of a chain is written on",
                 next.0
             ),
-            ResumeError::Damaged { offset } => write!(
+            Self::Damaged { offset } => write!(
                 f,
                 "the end to cut holds a damaged record at {offset}, not a torn end: nothing is cut"
             ),
@@ -257,11 +257,11 @@ impl<E: core::error::Error + 'static> core::error::Error for WriteError<E> {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
             // the wrapped error's text is in this one's: its source comes next
-            WriteError::Sink { error, .. } => error.source(),
-            WriteError::Read(e) => e.source(),
-            WriteError::Describe(e) => e.source(),
-            WriteError::Input(e) => e.source(),
-            WriteError::Resume(e) => e.source(),
+            Self::Sink { error, .. } => error.source(),
+            Self::Read(e) => e.source(),
+            Self::Describe(e) => e.source(),
+            Self::Input(e) => e.source(),
+            Self::Resume(e) => e.source(),
             _ => None,
         }
     }

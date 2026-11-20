@@ -8,41 +8,41 @@ pub struct Codec(pub u8);
 impl Codec {
     /// Plain little-endian values (starts and ends as i64, flags as u32, lengths as u32, samples in their element
     /// type) or plain bytes (payload).
-    pub const RAW: Codec = Codec(0);
+    pub const RAW: Self = Self(0);
     /// Event starts: an implicit period, or a linear frame of reference per group.
-    pub const STARTS: Codec = Codec(1);
+    pub const STARTS: Self = Self(1);
     /// Event durations: per group a minimum and the rest bit-packed.
-    pub const DURATIONS: Codec = Codec(2);
+    pub const DURATIONS: Self = Self(2);
     /// Event flags: per group their OR and the flags bit-packed.
-    pub const FLAGS: Codec = Codec(3);
+    pub const FLAGS: Self = Self(3);
     /// Payload lengths, bit-packed per group.
-    pub const LENGTHS: Codec = Codec(4);
+    pub const LENGTHS: Self = Self(4);
     /// Samples: the element type big endian.
-    pub const BIG_ENDIAN: Codec = Codec(16);
+    pub const BIG_ENDIAN: Self = Self(16);
     /// Samples: 10 bits per value, the first value in the low bits.
-    pub const PACKED10_LSB: Codec = Codec(17);
+    pub const PACKED10_LSB: Self = Self(17);
     /// Samples: 10 bits per value, the first value in the high bits.
-    pub const PACKED10_MSB: Codec = Codec(18);
+    pub const PACKED10_MSB: Self = Self(18);
     /// Samples: 12 bits per value, the first value in the low bits (2 values in 3 bytes).
-    pub const PACKED12_LSB: Codec = Codec(19);
+    pub const PACKED12_LSB: Self = Self(19);
     /// Samples: 12 bits per value, the first value in the high bits.
-    pub const PACKED12_MSB: Codec = Codec(20);
+    pub const PACKED12_MSB: Self = Self(20);
     /// Samples: 24 bits per value, little endian.
-    pub const PACKED24_LSB: Codec = Codec(21);
+    pub const PACKED24_LSB: Self = Self(21);
     /// Samples: 24 bits per value, big endian.
-    pub const PACKED24_MSB: Codec = Codec(22);
+    pub const PACKED24_MSB: Self = Self(22);
     /// Floats, ALP: decimals as integers bit-packed per group, other floats' front bits through a dictionary.
-    pub const ALP: Codec = Codec(26);
+    pub const ALP: Self = Self(26);
     /// Integers, differences bit-packed per group.
-    pub const DELTA: Codec = Codec(32);
+    pub const DELTA: Self = Self(32);
     /// Integers, differences of differences bit-packed per group.
-    pub const DELTA2: Codec = Codec(33);
+    pub const DELTA2: Self = Self(33);
     /// Reserved: run-coded discrete lanes (`U8`, `U16`, `U32`, `Bool`); a reader refuses it until it is built.
-    pub const RUNS: Codec = Codec(36);
+    pub const RUNS: Self = Self(36);
     /// The bytes as one lz4 block after their decoded length ([lz4](crate::lz4)).
-    pub const LZ4: Codec = Codec(48);
+    pub const LZ4: Self = Self(48);
     /// Reserved: a payloads column holding one shrink_wrap `Series<T>` of the items.
-    pub const SERIES: Codec = Codec(49);
+    pub const SERIES: Self = Self(49);
     /// Bit 7 of the codec byte: the column is outer-coded.
     pub const OUTER: u8 = 0x80;
 
@@ -52,8 +52,8 @@ impl Codec {
     }
 
     /// The codec of the column's bytes, or of the decoded bytes of an outer-coded column: bits 0..6.
-    pub const fn inner(self) -> Codec {
-        Codec(self.0 & !Self::OUTER)
+    pub const fn inner(self) -> Self {
+        Self(self.0 & !Self::OUTER)
     }
 }
 

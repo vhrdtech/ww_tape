@@ -46,20 +46,20 @@ pub enum FsError {
 impl core::fmt::Display for FsError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            FsError::Io { what, path, error } => {
+            Self::Io { what, path, error } => {
                 write!(f, "{}: {what}: {}", path.display(), error.kind())
             }
-            FsError::Exists(p) => write!(f, "{}: already exists", p.display()),
-            FsError::Locked(p) => write!(f, "{}: locked by another writer", p.display()),
-            FsError::Replaced(p) => write!(
+            Self::Exists(p) => write!(f, "{}: already exists", p.display()),
+            Self::Locked(p) => write!(f, "{}: locked by another writer", p.display()),
+            Self::Replaced(p) => write!(
                 f,
                 "{}: renamed or replaced while it was opened",
                 p.display()
             ),
-            FsError::NotAFile(p) => write!(f, "{}: not a regular file", p.display()),
-            FsError::NoPiece(p) => write!(f, "{}: no piece to resume", p.display()),
-            FsError::ReadOnly(p) => write!(f, "{}: on a read-only file system", p.display()),
-            FsError::Base { path, refused } => {
+            Self::NotAFile(p) => write!(f, "{}: not a regular file", p.display()),
+            Self::NoPiece(p) => write!(f, "{}: no piece to resume", p.display()),
+            Self::ReadOnly(p) => write!(f, "{}: on a read-only file system", p.display()),
+            Self::Base { path, refused } => {
                 write!(
                     f,
                     "{}: a piece can't start there: {refused}",
@@ -73,7 +73,7 @@ impl core::fmt::Display for FsError {
 impl core::error::Error for FsError {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
-            FsError::Io { error, .. } => Some(error),
+            Self::Io { error, .. } => Some(error),
             _ => None,
         }
     }
@@ -150,7 +150,7 @@ impl FileSink {
         file.sync_all()
             .map_err(io_err("syncing the new file", &partial))?;
         sync_dir(path).map_err(io_err("syncing the directory", path))?;
-        Ok(FileSink {
+        Ok(Self {
             file,
             path: path.to_path_buf(),
             partial: Some(partial),
@@ -177,7 +177,7 @@ impl FileSink {
                 .map_err(io_err("syncing the new file", path))?;
             sync_dir(path).map_err(io_err("syncing the directory", path))?;
         }
-        Ok(FileSink {
+        Ok(Self {
             file,
             path: path.to_path_buf(),
             partial: None,
@@ -209,7 +209,7 @@ impl FileSink {
         file.sync_all()
             .map_err(io_err("syncing the new file", path))?;
         sync_dir(path).map_err(io_err("syncing the directory", path))?;
-        Ok(FileSink {
+        Ok(Self {
             file,
             path: path.to_path_buf(),
             partial: None,
@@ -260,7 +260,7 @@ impl FileSink {
         pieces: bool,
     ) -> Result<Self, FsError> {
         lock.bind(&file, path)?;
-        Ok(FileSink {
+        Ok(Self {
             file,
             path: path.to_path_buf(),
             partial,
@@ -439,13 +439,13 @@ enum Names {
 impl Files {
     /// The pieces in `dir` (which must exist), key `seq` the file `dir/`[piece_name] (`seq`).
     pub fn new(dir: &Path) -> Self {
-        Files(Names::Dir(dir.to_path_buf()))
+        Self(Names::Dir(dir.to_path_buf()))
     }
 
     /// The one file `path` under every key: the file of a chain whose pieces are all in one
     /// ([PieceTapes::One](ww_tape::PieceTapes::One)).
     pub fn file(path: &Path) -> Self {
-        Files(Names::File(path.to_path_buf()))
+        Self(Names::File(path.to_path_buf()))
     }
 
     /// The file of `key`.
@@ -504,7 +504,7 @@ impl FileSource {
     /// The file at `path`, opened to read.
     pub fn open(path: &Path) -> Result<Self, FsError> {
         let file = File::open(path).map_err(io_err("opening the file", path))?;
-        Ok(FileSource {
+        Ok(Self {
             file,
             path: path.to_path_buf(),
         })

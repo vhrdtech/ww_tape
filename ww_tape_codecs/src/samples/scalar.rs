@@ -22,51 +22,51 @@ pub enum Scalar {
 
 impl Scalar {
     /// Every scalar, by code.
-    pub const ALL: [Scalar; 11] = [
-        Scalar::I8,
-        Scalar::I16,
-        Scalar::I32,
-        Scalar::I64,
-        Scalar::U8,
-        Scalar::U16,
-        Scalar::U32,
-        Scalar::U64,
-        Scalar::F32,
-        Scalar::F64,
-        Scalar::Bool,
+    pub const ALL: [Self; 11] = [
+        Self::I8,
+        Self::I16,
+        Self::I32,
+        Self::I64,
+        Self::U8,
+        Self::U16,
+        Self::U32,
+        Self::U64,
+        Self::F32,
+        Self::F64,
+        Self::Bool,
     ];
 
     /// The scalar's code: 0 `I8` to 9 `F64`, 12 `Bool`. Codes 10 and 11 are complex elements, which are no scalar.
     pub const fn code(self) -> u8 {
         match self {
-            Scalar::I8 => 0,
-            Scalar::I16 => 1,
-            Scalar::I32 => 2,
-            Scalar::I64 => 3,
-            Scalar::U8 => 4,
-            Scalar::U16 => 5,
-            Scalar::U32 => 6,
-            Scalar::U64 => 7,
-            Scalar::F32 => 8,
-            Scalar::F64 => 9,
-            Scalar::Bool => 12,
+            Self::I8 => 0,
+            Self::I16 => 1,
+            Self::I32 => 2,
+            Self::I64 => 3,
+            Self::U8 => 4,
+            Self::U16 => 5,
+            Self::U32 => 6,
+            Self::U64 => 7,
+            Self::F32 => 8,
+            Self::F64 => 9,
+            Self::Bool => 12,
         }
     }
 
     /// The scalar of `code`, None for a code that names no scalar.
-    pub const fn from_code(code: u8) -> Option<Scalar> {
+    pub const fn from_code(code: u8) -> Option<Self> {
         let s = match code {
-            0 => Scalar::I8,
-            1 => Scalar::I16,
-            2 => Scalar::I32,
-            3 => Scalar::I64,
-            4 => Scalar::U8,
-            5 => Scalar::U16,
-            6 => Scalar::U32,
-            7 => Scalar::U64,
-            8 => Scalar::F32,
-            9 => Scalar::F64,
-            12 => Scalar::Bool,
+            0 => Self::I8,
+            1 => Self::I16,
+            2 => Self::I32,
+            3 => Self::I64,
+            4 => Self::U8,
+            5 => Self::U16,
+            6 => Self::U32,
+            7 => Self::U64,
+            8 => Self::F32,
+            9 => Self::F64,
+            12 => Self::Bool,
             _ => return None,
         };
         Some(s)
@@ -75,39 +75,39 @@ impl Scalar {
     /// Bits of one value.
     pub const fn bits(self) -> u32 {
         match self {
-            Scalar::Bool => 1,
-            Scalar::I8 | Scalar::U8 => 8,
-            Scalar::I16 | Scalar::U16 => 16,
-            Scalar::I32 | Scalar::U32 | Scalar::F32 => 32,
-            Scalar::I64 | Scalar::U64 | Scalar::F64 => 64,
+            Self::Bool => 1,
+            Self::I8 | Self::U8 => 8,
+            Self::I16 | Self::U16 => 16,
+            Self::I32 | Self::U32 | Self::F32 => 32,
+            Self::I64 | Self::U64 | Self::F64 => 64,
         }
     }
 
     /// Whether it is a signed integer.
     pub const fn is_signed(self) -> bool {
-        matches!(self, Scalar::I8 | Scalar::I16 | Scalar::I32 | Scalar::I64)
+        matches!(self, Self::I8 | Self::I16 | Self::I32 | Self::I64)
     }
 
     /// Whether it is a float.
     pub const fn is_float(self) -> bool {
-        matches!(self, Scalar::F32 | Scalar::F64)
+        matches!(self, Self::F32 | Self::F64)
     }
 }
 
 impl core::fmt::Display for Scalar {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let name = match self {
-            Scalar::I8 => "i8",
-            Scalar::I16 => "i16",
-            Scalar::I32 => "i32",
-            Scalar::I64 => "i64",
-            Scalar::U8 => "u8",
-            Scalar::U16 => "u16",
-            Scalar::U32 => "u32",
-            Scalar::U64 => "u64",
-            Scalar::F32 => "f32",
-            Scalar::F64 => "f64",
-            Scalar::Bool => "bool",
+            Self::I8 => "i8",
+            Self::I16 => "i16",
+            Self::I32 => "i32",
+            Self::I64 => "i64",
+            Self::U8 => "u8",
+            Self::U16 => "u16",
+            Self::U32 => "u32",
+            Self::U64 => "u64",
+            Self::F32 => "f32",
+            Self::F64 => "f64",
+            Self::Bool => "bool",
         };
         f.write_str(name)
     }

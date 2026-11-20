@@ -1301,13 +1301,13 @@ trait Held {
 
 impl Held for FsError {
     fn is_locked(&self) -> bool {
-        matches!(self, FsError::Locked(_))
+        matches!(self, Self::Locked(_))
     }
 }
 
 impl Held for MemError {
     fn is_locked(&self) -> bool {
-        matches!(self, MemError::Locked(_))
+        matches!(self, Self::Locked(_))
     }
 }
 

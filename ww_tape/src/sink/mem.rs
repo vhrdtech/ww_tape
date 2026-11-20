@@ -30,14 +30,14 @@ pub enum MemError<K = u64> {
 impl<K: core::fmt::Debug> core::fmt::Display for MemError<K> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            MemError::Exists(key) => write!(f, "the memory tape {key:?} exists"),
-            MemError::Locked(key) => write!(f, "another writer holds the memory tape {key:?}"),
-            MemError::Unclosed(key) => {
+            Self::Exists(key) => write!(f, "the memory tape {key:?} exists"),
+            Self::Locked(key) => write!(f, "another writer holds the memory tape {key:?}"),
+            Self::Unclosed(key) => {
                 write!(f, "the memory tape {key:?} is still being written")
             }
-            MemError::Poisoned => f.write_str("a writer of the memory tape panicked"),
-            MemError::OutOfRange => f.write_str("a read past the end of the memory tape"),
-            MemError::Base(refused) => write!(f, "a piece can't start there: {refused}"),
+            Self::Poisoned => f.write_str("a writer of the memory tape panicked"),
+            Self::OutOfRange => f.write_str("a read past the end of the memory tape"),
+            Self::Base(refused) => write!(f, "a piece can't start there: {refused}"),
         }
     }
 }
@@ -46,13 +46,13 @@ impl<K: core::fmt::Debug> core::error::Error for MemError<K> {}
 
 impl<K> From<OutOfRange> for MemError<K> {
     fn from(_: OutOfRange) -> Self {
-        MemError::OutOfRange
+        Self::OutOfRange
     }
 }
 
 impl<K> From<BaseRefused> for MemError<K> {
     fn from(refused: BaseRefused) -> Self {
-        MemError::Base(refused)
+        Self::Base(refused)
     }
 }
 
@@ -62,13 +62,13 @@ pub struct MemTape<K = u64>(Arc<MemBytes>, PhantomData<fn() -> K>);
 
 impl<K> Clone for MemTape<K> {
     fn clone(&self) -> Self {
-        MemTape(Arc::clone(&self.0), PhantomData)
+        Self(Arc::clone(&self.0), PhantomData)
     }
 }
 
 impl<K> Default for MemTape<K> {
     fn default() -> Self {
-        MemTape(Arc::default(), PhantomData)
+        Self(Arc::default(), PhantomData)
     }
 }
 
@@ -153,7 +153,7 @@ impl<K> MemSink<K> {
     fn empty() -> Self {
         let tape = MemTape::default();
         tape.0.held.store(true, Ordering::Release);
-        MemSink {
+        Self {
             tape,
             base: 0,
             whole: false,
@@ -243,7 +243,7 @@ pub struct MemTapes<K = u64>(Arc<Mutex<BTreeMap<K, MemTape<K>>>>);
 
 impl<K> Default for MemTapes<K> {
     fn default() -> Self {
-        MemTapes(Arc::default())
+        Self(Arc::default())
     }
 }
 
@@ -340,22 +340,22 @@ impl Tapes for MemTapes<u64> {
     }
 
     fn create(&mut self, key: &u64) -> Result<MemSink, MemError> {
-        MemTapes::create(self, key)
+        Self::create(self, key)
     }
 
     fn reopen(&mut self, key: &u64) -> Result<Option<MemSink>, MemError> {
-        MemTapes::reopen(self, key)
+        Self::reopen(self, key)
     }
 
     fn closed(&self, key: &u64) -> Result<Option<MemTape>, MemError> {
-        MemTapes::closed(self, key)
+        Self::closed(self, key)
     }
 
     fn create_whole(&mut self, key: &u64) -> Result<MemSink, MemError> {
-        MemTapes::create_whole(self, key)
+        Self::create_whole(self, key)
     }
 
     fn open_whole(&mut self, key: &u64) -> Result<Option<MemSink>, MemError> {
-        MemTapes::open_whole(self, key)
+        Self::open_whole(self, key)
     }
 }

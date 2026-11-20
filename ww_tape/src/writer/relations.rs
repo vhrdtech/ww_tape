@@ -120,7 +120,7 @@ impl Newest {
     /// Take the values of `earlier`, those of pieces before: the largest of each value; a track `earlier` leaves
     /// unread is unread here unless these values know its chunks. A track these values restart takes nothing of
     /// `earlier`. The breaks of `earlier` go on.
-    pub(crate) fn after(&mut self, earlier: &Newest) {
+    pub(crate) fn after(&mut self, earlier: &Self) {
         let unread: Vec<TrackKey> = earlier
             .unread
             .iter()

@@ -73,21 +73,21 @@ pub const SD_RESUME_ALIGN: u32 = 512;
 
 impl Layout {
     /// Not aligned, a file: no gaps.
-    pub const UNALIGNED: Layout = Layout {
+    pub const UNALIGNED: Self = Self {
         alignment: Bytes::new(0),
         gap_max: Bytes::new(0),
         resume_align: Bytes::new(1),
         definitions: StatePolicy::DEFAULT,
     };
     /// Chunk payloads on 4 KiB boundaries, a file: no gaps.
-    pub const ALIGNED: Layout = Layout {
+    pub const ALIGNED: Self = Self {
         alignment: Bytes::new(ALIGNMENT),
         ..Self::UNALIGNED
     };
 
     /// This layout on an SD card or eMMC: gaps up to [SD_GAP_MAX], resumed on sectors.
-    pub const fn on_sd_card(self) -> Layout {
-        Layout {
+    pub const fn on_sd_card(self) -> Self {
+        Self {
             gap_max: Bytes::new(SD_GAP_MAX),
             resume_align: Bytes::new(SD_RESUME_ALIGN),
             ..self
@@ -102,8 +102,8 @@ impl Layout {
     /// as a blank stretch followed by the run's next block, a gap, not the end; the cost is up to one page per sync.
     /// On MLC NAND a power cut can also corrupt an earlier, synced page paired with the one being programmed: keeping
     /// paired pages of unsynced writes apart from synced data is the medium layer's, not the format's.
-    pub const fn on_raw_nand(self, erase_block: u32, page: u32) -> Layout {
-        Layout {
+    pub const fn on_raw_nand(self, erase_block: u32, page: u32) -> Self {
+        Self {
             gap_max: Bytes::new(erase_block.saturating_mul(2)),
             resume_align: Bytes::new(page),
             ..self
@@ -111,8 +111,8 @@ impl Layout {
     }
 
     /// This layout with the definitions repeated as `policy` says.
-    pub const fn with_definitions(self, policy: StatePolicy) -> Layout {
-        Layout {
+    pub const fn with_definitions(self, policy: StatePolicy) -> Self {
+        Self {
             definitions: policy,
             ..self
         }
@@ -239,7 +239,7 @@ impl MapSegment {
         if a1.is_some_and(|a1| a1 <= a0) {
             return None;
         }
-        Some(MapSegment {
+        Some(Self {
             a0,
             a1,
             b0,
@@ -250,7 +250,7 @@ impl MapSegment {
 
     /// An offset: `b = b0 + (a - a0)`, slope 1, exact.
     pub const fn offset(a0: i64, b0: i64) -> Self {
-        MapSegment {
+        Self {
             a0,
             a1: None,
             b0,
@@ -512,7 +512,7 @@ pub struct StatePolicy {
 
 impl StatePolicy {
     /// A copy at most [NEAR_DEFAULT] behind, one more copy at the first write.
-    pub const DEFAULT: StatePolicy = StatePolicy {
+    pub const DEFAULT: Self = Self {
         near: Bytes::new(NEAR_DEFAULT),
         copies: Count::new(1),
     };
@@ -523,13 +523,13 @@ pub const NEAR_DEFAULT: u32 = 32 << 20;
 
 impl TrackRepeat {
     /// A state track repeated as [StatePolicy::DEFAULT].
-    pub const STATE: TrackRepeat = TrackRepeat::State(StatePolicy::DEFAULT);
+    pub const STATE: Self = Self::State(StatePolicy::DEFAULT);
 
     /// The state policy, None for a stream.
     pub const fn state(self) -> Option<StatePolicy> {
         match self {
-            TrackRepeat::State(p) => Some(p),
-            TrackRepeat::Stream | TrackRepeat::Unknown(_) => None,
+            Self::State(p) => Some(p),
+            Self::Stream | Self::Unknown(_) => None,
         }
     }
 }
@@ -568,7 +568,7 @@ pub struct EventsDef {
 
 impl EventsDef {
     /// Instants without flags: what a track of plain records is.
-    pub const INSTANTS: EventsDef = EventsDef {
+    pub const INSTANTS: Self = Self {
         ends: Ends::Instants,
         flags: false,
     };
@@ -587,9 +587,9 @@ impl Ends {
     /// Whether an events chunk of this track may store ends as `mode` says.
     pub fn allows(self, mode: crate::EndMode) -> bool {
         match self {
-            Ends::Instants => mode == crate::EndMode::Absent,
-            Ends::Spans => true,
-            Ends::Unknown(_) => false,
+            Self::Instants => mode == crate::EndMode::Absent,
+            Self::Spans => true,
+            Self::Unknown(_) => false,
         }
     }
 }

@@ -38,7 +38,7 @@ pub struct NearPolicy {
 
 impl Default for NearPolicy {
     fn default() -> Self {
-        NearPolicy {
+        Self {
             copy_spacing: COPY_SPACING,
             memory_max: MEMORY_MAX,
         }
@@ -78,7 +78,7 @@ pub struct Near {
 impl Near {
     /// Forget everything: a new piece has nothing behind it.
     pub fn clear(&mut self) {
-        *self = Near::default();
+        *self = Self::default();
     }
 
     /// Whether a put of the item `hash` in `slot` writes it, with the next block at `pos` in the piece: not when the

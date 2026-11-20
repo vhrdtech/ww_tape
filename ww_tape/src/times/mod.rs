@@ -116,18 +116,18 @@ pub enum TimesError {
 impl core::fmt::Display for TimesError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            TimesError::NotEvents => write!(f, "not an events chunk"),
-            TimesError::UnknownMode(m) => write!(f, "unknown time mode {m}"),
-            TimesError::Missing(k) => write!(f, "no {} column", k.named()),
-            TimesError::Unexpected(k) => write!(f, "unexpected {} column", k.named()),
-            TimesError::UnknownCodec(k, c) => {
+            Self::NotEvents => write!(f, "not an events chunk"),
+            Self::UnknownMode(m) => write!(f, "unknown time mode {m}"),
+            Self::Missing(k) => write!(f, "no {} column", k.named()),
+            Self::Unexpected(k) => write!(f, "unexpected {} column", k.named()),
+            Self::UnknownCodec(k, c) => {
                 write!(f, "{} column in unknown codec {}", k.named(), c.0)
             }
-            TimesError::Corrupt { kind, .. } => {
+            Self::Corrupt { kind, .. } => {
                 write!(f, "the {} column breaks the format", kind.named())
             }
-            TimesError::Bound(e) => write!(f, "items: {e}"),
-            TimesError::Relation { relation } => {
+            Self::Bound(e) => write!(f, "items: {e}"),
+            Self::Relation { relation } => {
                 write!(
                     f,
                     "relation {relation}'s column doesn't match the track's definition"
@@ -140,7 +140,7 @@ impl core::fmt::Display for TimesError {
 impl core::error::Error for TimesError {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
-            TimesError::Corrupt { error, .. } => Some(error),
+            Self::Corrupt { error, .. } => Some(error),
             _ => None,
         }
     }

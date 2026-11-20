@@ -129,7 +129,7 @@ impl<T: Tapes> PieceChain<T> {
         writer.apply(&options.writer)?;
         reserve_piece(&mut writer, options.cut);
         writer.begin_piece(&first_head(owner, chain), tracks)?;
-        Ok(PieceChain {
+        Ok(Self {
             tapes,
             pieces: options.tapes,
             writer: Some(writer),
@@ -247,7 +247,7 @@ impl<T: Tapes> PieceChain<T> {
         };
         writer.take_newest(&newest);
         Ok((
-            PieceChain {
+            Self {
                 tapes,
                 pieces: options.tapes,
                 writer: Some(writer),
@@ -323,7 +323,7 @@ impl<T: Tapes> PieceChain<T> {
         };
         writer.take_newest(&newest);
         Ok((
-            PieceChain {
+            Self {
                 tapes,
                 pieces: options.tapes,
                 writer: Some(writer),

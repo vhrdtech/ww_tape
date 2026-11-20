@@ -26,7 +26,7 @@ impl Svg {
             escape(label)
         );
         out.push('\n');
-        Svg { out }
+        Self { out }
     }
 
     /// The closed document.

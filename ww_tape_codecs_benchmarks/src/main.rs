@@ -89,10 +89,10 @@ impl Coder {
         let w = shape.scalar.bits();
         let lanes = shape.lanes;
         let n = match self {
-            Coder::Tape(c) => max_encoded_len(c, shape.scalar, lanes, count)
+            Self::Tape(c) => max_encoded_len(c, shape.scalar, lanes, count)
                 .map_err(|e| anyhow::anyhow!("{e:?}"))?,
-            Coder::Xor(_) => xor::max_len(count, count * lanes.get(), w).context("too long")?,
-            Coder::FloatDelta(c) => max_encoded_len(c, int_scalar(shape.scalar)?, lanes, count)
+            Self::Xor(_) => xor::max_len(count, count * lanes.get(), w).context("too long")?,
+            Self::FloatDelta(c) => max_encoded_len(c, int_scalar(shape.scalar)?, lanes, count)
                 .map_err(|e| anyhow::anyhow!("{e:?}"))?,
         };
         Ok(n)
@@ -108,9 +108,9 @@ impl Coder {
         let e = |e| anyhow::anyhow!("{e:?}");
         let lanes = shape.lanes;
         match self {
-            Coder::Tape(c) => encode(c, lanes, values, out).map_err(e),
-            Coder::Xor(f) => Ok(xor::encode(f, values, lanes.get(), out)),
-            Coder::FloatDelta(c) => {
+            Self::Tape(c) => encode(c, lanes, values, out).map_err(e),
+            Self::Xor(f) => Ok(xor::encode(f, values, lanes.get(), out)),
+            Self::FloatDelta(c) => {
                 if int_scalar(shape.scalar)? == Scalar::U32 {
                     ordered(values, &mut s.u32s);
                     encode(c, lanes, &s.u32s, out).map_err(e)
@@ -133,13 +133,13 @@ impl Coder {
         let lanes = shape.lanes;
         let count = out.len() / lanes;
         match self {
-            Coder::Tape(c) => Samples::new(c, shape.scalar, lanes, count, bytes)
+            Self::Tape(c) => Samples::new(c, shape.scalar, lanes, count, bytes)
                 .and_then(|col| col.decode(0, out))
                 .map_err(e),
-            Coder::Xor(f) => {
+            Self::Xor(f) => {
                 xor::decode(f, bytes, count, lanes.get(), 0, out).context("corrupt column")
             }
-            Coder::FloatDelta(c) => {
+            Self::FloatDelta(c) => {
                 let int = int_scalar(shape.scalar)?;
                 let w = shape.scalar.bits();
                 let col = Samples::new(c, int, lanes, count, bytes).map_err(e)?;

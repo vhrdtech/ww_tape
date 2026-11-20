@@ -209,7 +209,7 @@ pub struct OwnerId(pub [u8; 32]);
 
 impl OwnerId {
     /// No owner of its own: all zeros. On a track, the piece's owner.
-    pub const NONE: OwnerId = OwnerId([0; 32]);
+    pub const NONE: Self = Self([0; 32]);
 
     pub fn is_none(&self) -> bool {
         *self == Self::NONE
@@ -231,7 +231,7 @@ pub struct UnitHash(pub [u8; 32]);
 
 impl UnitHash {
     /// No unit hash: what an index entry of a block other than a chunk, or one a reader made by a scan, holds.
-    pub const NONE: UnitHash = UnitHash([0; 32]);
+    pub const NONE: Self = Self([0; 32]);
 
     pub fn is_none(&self) -> bool {
         *self == Self::NONE
@@ -245,23 +245,23 @@ const UNIT_RECORD: u8 = 2;
 
 impl TrackHash {
     /// The hash of a track with nothing written yet: 32 zero bytes.
-    pub const START: TrackHash = TrackHash([0; 32]);
+    pub const START: Self = Self([0; 32]);
 
     /// The hash after the unit whose hash is `unit` ([Self::chunk_unit], [Self::record_unit]).
-    pub fn then(&self, unit: &UnitHash) -> TrackHash {
+    pub fn then(&self, unit: &UnitHash) -> Self {
         let mut h = blake3::Hasher::new();
         h.update(&self.0);
         h.update(&unit.0);
-        TrackHash(*h.finalize().as_bytes())
+        Self(*h.finalize().as_bytes())
     }
 
     /// The hash after the chunk `chunk`, whose payload hashes to `payload` ([payload_hash]).
-    pub fn chunk(&self, chunk: &crate::Chunk<'_>, payload: &[u8; 32]) -> TrackHash {
+    pub fn chunk(&self, chunk: &crate::Chunk<'_>, payload: &[u8; 32]) -> Self {
         self.then(&Self::chunk_unit(chunk, payload))
     }
 
     /// The hash after a record at `ticks` (0 without a time) holding `item`.
-    pub fn record(&self, ticks: i64, item: &[u8]) -> TrackHash {
+    pub fn record(&self, ticks: i64, item: &[u8]) -> Self {
         self.then(&Self::record_unit(ticks, item))
     }
 
@@ -514,7 +514,7 @@ fn try_block<E>(
 
 impl PieceId {
     /// No piece id: all zeros.
-    pub const NONE: PieceId = PieceId([0; 16]);
+    pub const NONE: Self = Self([0; 16]);
 
     pub fn is_none(&self) -> bool {
         *self == Self::NONE
@@ -522,24 +522,24 @@ impl PieceId {
 
     /// The id of the piece after one with `id` and `hash`: the first 16 bytes of BLAKE3 in key derivation mode
     /// ("ww_tape piece id") over the hash, then the id. The same chain gives the same ids.
-    pub fn after(id: PieceId, hash: &ContentHash) -> PieceId {
+    pub fn after(id: Self, hash: &ContentHash) -> Self {
         Self::derive("ww_tape piece id", &[&hash.0, &id.0])
     }
 
     /// The id of the first piece of chain 0 of `owner`: [Self::first_of] `(owner, 0)`.
-    pub fn first(owner: &OwnerId) -> PieceId {
+    pub fn first(owner: &OwnerId) -> Self {
         Self::first_of(owner, 0)
     }
 
     /// The id of the first piece of chain `chain` of `owner` (several chains of one owner, such as one per
     /// source): as [Self::after] over the owner id and the chain number, u64 little endian ("ww_tape first
     /// piece").
-    pub fn first_of(owner: &OwnerId, chain: u64) -> PieceId {
+    pub fn first_of(owner: &OwnerId, chain: u64) -> Self {
         Self::derive("ww_tape first piece", &[&owner.0, &chain.to_le_bytes()])
     }
 
     /// The first 16 bytes of BLAKE3 in key derivation mode over `parts`; never all zeros.
-    fn derive(context: &str, parts: &[&[u8]]) -> PieceId {
+    fn derive(context: &str, parts: &[&[u8]]) -> Self {
         let mut h = blake3::Hasher::new_derive_key(context);
         for p in parts {
             h.update(p);
@@ -551,7 +551,7 @@ impl PieceId {
         if out == [0; 16] {
             out[0] = 1;
         }
-        PieceId(out)
+        Self(out)
     }
 }
 
@@ -568,16 +568,16 @@ pub enum CloseReason {
 impl CloseReason {
     pub fn from_u8(v: u8) -> Option<Self> {
         match v {
-            1 => Some(CloseReason::Closed),
-            2 => Some(CloseReason::Aborted),
+            1 => Some(Self::Closed),
+            2 => Some(Self::Aborted),
             _ => None,
         }
     }
 
     pub fn to_u8(self) -> u8 {
         match self {
-            CloseReason::Closed => 1,
-            CloseReason::Aborted => 2,
+            Self::Closed => 1,
+            Self::Aborted => 2,
         }
     }
 }
@@ -715,7 +715,7 @@ pub enum Integrity {
 
 impl From<Integrity> for u8 {
     /// The level's byte.
-    fn from(level: Integrity) -> u8 {
+    fn from(level: Integrity) -> Self {
         match level {
             Integrity::Full => 0,
             Integrity::CrcOnly => 1,
@@ -730,9 +730,9 @@ impl TryFrom<u8> for Integrity {
     /// The level of byte `level`; [IndexError::UnknownIntegrity] for a value no level has.
     fn try_from(level: u8) -> Result<Self, IndexError> {
         match level {
-            0 => Ok(Integrity::Full),
-            1 => Ok(Integrity::CrcOnly),
-            2 => Ok(Integrity::None),
+            0 => Ok(Self::Full),
+            1 => Ok(Self::CrcOnly),
+            2 => Ok(Self::None),
             level => Err(IndexError::UnknownIntegrity { level }),
         }
     }
@@ -1269,7 +1269,7 @@ impl Tail {
         } else {
             None
         };
-        Some(Tail {
+        Some(Self {
             piece_len,
             close_offset,
             close_len,
@@ -1327,7 +1327,7 @@ impl AppendHead {
             return Err(IndexError::BadHead);
         }
         let head = (|| {
-            Some(AppendHead {
+            Some(Self {
                 close_offset: le_u64(b, 32)?,
                 tail_offset: le_u64(b, 40)?,
                 hash: ContentHash(array(b, 48)?),

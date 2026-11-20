@@ -143,16 +143,16 @@ pub enum Tree {
 impl Tree {
     fn from_u8(v: u8) -> Option<Self> {
         match v {
-            1 => Some(Tree::Events),
-            2 => Some(Tree::Series),
+            1 => Some(Self::Events),
+            2 => Some(Self::Series),
             _ => None,
         }
     }
 
     pub(crate) fn to_u8(self) -> u8 {
         match self {
-            Tree::Events => 1,
-            Tree::Series => 2,
+            Self::Events => 1,
+            Self::Series => 2,
         }
     }
 }
@@ -179,7 +179,7 @@ impl EventFields {
         if v & !(Self::FLAGS | Self::LATEST_END) != 0 {
             return None;
         }
-        Some(EventFields {
+        Some(Self {
             flags: v & Self::FLAGS != 0,
             latest_end: v & Self::LATEST_END != 0,
         })
@@ -343,7 +343,7 @@ impl SummaryHead {
             },
         };
         let first_item = le_u64(b, 56).ok_or(short)?;
-        let head = SummaryHead {
+        let head = Self {
             track_id: le_u64(b, 32).ok_or(short)?,
             track_number: le_u32(b, 40).ok_or(short)?,
             tree,
@@ -472,10 +472,10 @@ pub enum NotSummary {
 impl core::fmt::Display for NotSummary {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            NotSummary::Magic => write!(f, "no block magic"),
-            NotSummary::Version(v) => write!(f, "a block of version {v}, not {VERSION}"),
-            NotSummary::Kind(k) => write!(f, "a block of kind {}, not a summary", k.to_u8()),
-            NotSummary::Length { stated, bytes } => {
+            Self::Magic => write!(f, "no block magic"),
+            Self::Version(v) => write!(f, "a block of version {v}, not {VERSION}"),
+            Self::Kind(k) => write!(f, "a block of kind {}, not a summary", k.to_u8()),
+            Self::Length { stated, bytes } => {
                 write!(f, "a block of {stated} bytes handed over as {bytes}")
             }
         }
@@ -485,16 +485,16 @@ impl core::fmt::Display for NotSummary {
 impl core::fmt::Display for SummaryError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            SummaryError::Full { needed } => {
+            Self::Full { needed } => {
                 write!(f, "the buffer is short: {needed} bytes needed")
             }
-            SummaryError::TooLong { len } => {
+            Self::TooLong { len } => {
                 write!(f, "a block of {len} bytes is over {MAX_BLOCK_LEN}")
             }
-            SummaryError::Invalid(what) => write!(f, "{what}"),
-            SummaryError::ScaleBytes(e) => write!(f, "scale bytes: {e}"),
-            SummaryError::Bound(e) => write!(f, "{e}"),
-            SummaryError::NotSummary(e) => write!(f, "not a summary block: {e}"),
+            Self::Invalid(what) => write!(f, "{what}"),
+            Self::ScaleBytes(e) => write!(f, "scale bytes: {e}"),
+            Self::Bound(e) => write!(f, "{e}"),
+            Self::NotSummary(e) => write!(f, "not a summary block: {e}"),
         }
     }
 }
@@ -503,7 +503,7 @@ impl core::error::Error for SummaryError {}
 
 impl From<BoundError> for SummaryError {
     fn from(e: BoundError) -> Self {
-        SummaryError::Bound(e)
+        Self::Bound(e)
     }
 }
 

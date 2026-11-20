@@ -24,12 +24,12 @@ pub enum EncodeError {
 impl core::fmt::Display for EncodeError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            EncodeError::Empty => write!(f, "no items"),
-            EncodeError::TooMany => write!(f, "more items than a chunk holds"),
-            EncodeError::TooLong { len } => {
+            Self::Empty => write!(f, "no items"),
+            Self::TooMany => write!(f, "more items than a chunk holds"),
+            Self::TooLong { len } => {
                 write!(f, "{len} bytes of payloads, over {LZ4_DECODED_MAX}")
             }
-            EncodeError::Lz4(_) => write!(f, "lz4 encoder refused the payloads"),
+            Self::Lz4(_) => write!(f, "lz4 encoder refused the payloads"),
         }
     }
 }
@@ -37,7 +37,7 @@ impl core::fmt::Display for EncodeError {
 impl core::error::Error for EncodeError {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
-            EncodeError::Lz4(e) => Some(e),
+            Self::Lz4(e) => Some(e),
             _ => None,
         }
     }
@@ -86,7 +86,7 @@ impl EncodedPayloads {
         } else {
             (raw, Codec::RAW)
         };
-        Ok(EncodedPayloads {
+        Ok(Self {
             lengths,
             payloads,
             codec,

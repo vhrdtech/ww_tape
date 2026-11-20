@@ -146,7 +146,7 @@ struct Lane {
 
 impl Lane {
     fn new(flavor: Flavor, first: u64) -> Self {
-        Lane {
+        Self {
             prev: first,
             lead: if flavor == Flavor::Chimp { u32::MAX } else { 0 },
             len: 0,

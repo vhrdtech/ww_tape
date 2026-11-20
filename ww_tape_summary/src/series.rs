@@ -80,34 +80,34 @@ pub enum Value {
 impl Value {
     pub(super) fn from_bits(element: Element, bits: u64) -> Self {
         match kind(element) {
-            ValueKind::Signed => Value::I64(bits.cast_signed()),
-            ValueKind::Unsigned => Value::U64(bits),
-            ValueKind::Float => Value::F64(f64::from_bits(bits)),
+            ValueKind::Signed => Self::I64(bits.cast_signed()),
+            ValueKind::Unsigned => Self::U64(bits),
+            ValueKind::Float => Self::F64(f64::from_bits(bits)),
         }
     }
 
     pub(super) fn to_bits(self) -> u64 {
         match self {
-            Value::I64(v) => v.cast_unsigned(),
-            Value::U64(v) => v,
-            Value::F64(v) => v.to_bits(),
+            Self::I64(v) => v.cast_unsigned(),
+            Self::U64(v) => v,
+            Self::F64(v) => v.to_bits(),
         }
     }
 
     /// The value as f64, rounded to nearest.
     pub fn as_f64(self) -> f64 {
         match self {
-            Value::I64(v) => i64_f64(v),
-            Value::U64(v) => u64_f64(v),
-            Value::F64(v) => v,
+            Self::I64(v) => i64_f64(v),
+            Self::U64(v) => u64_f64(v),
+            Self::F64(v) => v,
         }
     }
 
-    fn pick(self, other: Value, smaller: bool) -> Value {
+    fn pick(self, other: Self, smaller: bool) -> Self {
         let take_other = match (self, other) {
-            (Value::I64(a), Value::I64(b)) => (b < a) == smaller && b != a,
-            (Value::U64(a), Value::U64(b)) => (b < a) == smaller && b != a,
-            (Value::F64(a), Value::F64(b)) => a.is_nan() || (if smaller { b < a } else { b > a }),
+            (Self::I64(a), Self::I64(b)) => (b < a) == smaller && b != a,
+            (Self::U64(a), Self::U64(b)) => (b < a) == smaller && b != a,
+            (Self::F64(a), Self::F64(b)) => a.is_nan() || (if smaller { b < a } else { b > a }),
             _ => false,
         };
         if take_other { other } else { self }
@@ -128,8 +128,8 @@ pub enum ScaleError {
 impl core::fmt::Display for ScaleError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            ScaleError::NoCommonScale => write!(f, "the two scales have no common scale"),
-            ScaleError::Overflow => write!(f, "statistics overflow at the common scale"),
+            Self::NoCommonScale => write!(f, "the two scales have no common scale"),
+            Self::Overflow => write!(f, "statistics overflow at the common scale"),
         }
     }
 }
@@ -179,25 +179,25 @@ pub fn scale_factor(scale: Magnitude, common: Magnitude) -> Result<u64, ScaleErr
 
 impl Value {
     /// The value times `k`, exact for integers.
-    fn times(self, k: u64) -> Result<Value, ScaleError> {
+    fn times(self, k: u64) -> Result<Self, ScaleError> {
         Ok(match self {
-            Value::I64(v) => Value::I64(
+            Self::I64(v) => Self::I64(
                 i128::from(v)
                     .checked_mul(i128::from(k))
                     .and_then(|x| i64::try_from(x).ok())
                     .ok_or(ScaleError::Overflow)?,
             ),
-            Value::U64(v) => Value::U64(v.checked_mul(k).ok_or(ScaleError::Overflow)?),
-            Value::F64(v) => Value::F64(v * u64_f64(k)),
+            Self::U64(v) => Self::U64(v.checked_mul(k).ok_or(ScaleError::Overflow)?),
+            Self::F64(v) => Self::F64(v * u64_f64(k)),
         })
     }
 
     /// Whether `self` (a minimum) and `max` are of no samples: the minimum above the maximum, as
     /// [ChannelStats::empty] has them. NaN for floats rescales to NaN, so floats never count as empty here.
-    fn no_samples(self, max: Value) -> bool {
+    fn no_samples(self, max: Self) -> bool {
         match (self, max) {
-            (Value::I64(a), Value::I64(b)) => a > b,
-            (Value::U64(a), Value::U64(b)) => a > b,
+            (Self::I64(a), Self::I64(b)) => a > b,
+            (Self::U64(a), Self::U64(b)) => a > b,
             _ => false,
         }
     }
@@ -230,7 +230,7 @@ impl ChannelStats {
             ValueKind::Unsigned => (Value::U64(u64::MAX), Value::U64(0)),
             ValueKind::Float => (Value::F64(f64::NAN), Value::F64(f64::NAN)),
         };
-        ChannelStats {
+        Self {
             min: [min; 2],
             max: [max; 2],
             sum: [0.0; 2],
@@ -244,7 +244,7 @@ impl ChannelStats {
 
     /// Merge `next` (`next_samples` samples, right after this one's `samples`) into this one. Merging in item order,
     /// one node at a time, gives the same bits as the writer's parent node.
-    pub fn merge(&mut self, next: &ChannelStats, samples: u64, next_samples: u64) {
+    pub fn merge(&mut self, next: &Self, samples: u64, next_samples: u64) {
         for (a, b) in self.min.iter_mut().zip(next.min) {
             *a = a.pick(b, true);
         }
@@ -306,7 +306,7 @@ impl ChannelStats {
     pub fn merge_scaled(
         &mut self,
         scale: Magnitude,
-        next: &ChannelStats,
+        next: &Self,
         next_scale: Magnitude,
         samples: u64,
         next_samples: u64,
@@ -352,7 +352,7 @@ impl SeriesNode {
     /// at their [common_scale] first. On an error this one is left as it was.
     pub fn merge(
         &mut self,
-        next: &SeriesNode,
+        next: &Self,
         samples: u64,
         next_samples: u64,
     ) -> Result<(), ScaleError> {
@@ -583,7 +583,7 @@ mod scalar {
     }
 
     impl<T: Scalar> Part<T> {
-        const NEW: Self = Part {
+        const NEW: Self = Self {
             min: None,
             max: None,
             isum: 0,
@@ -749,7 +749,7 @@ mod scalar {
     }
 
     impl<T: Scalar> Acc<T> {
-        pub(crate) const NEW: Self = Acc {
+        pub(crate) const NEW: Self = Self {
             parts: [Part::NEW; 2],
             ipow: 0,
             fpow: 0.0,
@@ -823,7 +823,7 @@ mod builder {
 
     impl LevelNode for SeriesNode {
         fn merge(&mut self, next: &Self, items: u64, next_items: u64) -> Result<(), BuildError> {
-            SeriesNode::merge(self, next, items, next_items).map_err(BuildError::Scale)
+            Self::merge(self, next, items, next_items).map_err(BuildError::Scale)
         }
     }
 
@@ -943,7 +943,7 @@ mod builder {
                 .node_len(element)
                 .checked_mul(usize::from(channels))
                 .ok_or(too_wide)?;
-            Ok(SeriesSummaries {
+            Ok(Self {
                 track_id: start.track_id,
                 track_number: start.track_number,
                 element,

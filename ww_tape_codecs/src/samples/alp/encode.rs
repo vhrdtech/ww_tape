@@ -155,7 +155,7 @@ impl Dict {
     /// The dictionary of `lefts`, which it sorts.
     fn of(lefts: &mut [u16]) -> Option<Self> {
         lefts.sort_unstable();
-        let mut d = Dict::default();
+        let mut d = Self::default();
         for run in lefts.chunk_by(|a, b| a == b) {
             d.offer(*run.first()?, u32::try_from(run.len()).ok()?);
         }
@@ -363,7 +363,7 @@ struct Decimal {
 
 impl Decimal {
     fn new<F: Float>(vals: &[u64; ALP_GROUP], n: usize, c: Combo) -> Option<Self> {
-        let mut x = Decimal {
+        let mut x = Self {
             c,
             base: 0,
             width: 0,

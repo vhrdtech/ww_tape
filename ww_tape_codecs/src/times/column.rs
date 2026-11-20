@@ -14,16 +14,16 @@ pub enum TimeMode {
 impl TimeMode {
     pub fn from_u8(v: u8) -> Option<Self> {
         match v {
-            0 => Some(TimeMode::Implicit),
-            1 => Some(TimeMode::Linear),
+            0 => Some(Self::Implicit),
+            1 => Some(Self::Linear),
             _ => None,
         }
     }
 
     pub fn to_u8(self) -> u8 {
         match self {
-            TimeMode::Implicit => 0,
-            TimeMode::Linear => 1,
+            Self::Implicit => 0,
+            Self::Linear => 1,
         }
     }
 }
@@ -41,8 +41,8 @@ pub enum ColumnError {
 impl core::fmt::Display for ColumnError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            ColumnError::Corrupt(what) => f.write_str(what),
-            ColumnError::UnknownCodec(c) => write!(f, "unknown codec {}", c.0),
+            Self::Corrupt(what) => f.write_str(what),
+            Self::UnknownCodec(c) => write!(f, "unknown codec {}", c.0),
         }
     }
 }

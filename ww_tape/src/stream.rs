@@ -80,7 +80,7 @@ struct Checked {
 
 impl Checked {
     fn of(b: &Block<'_>) -> Self {
-        Checked {
+        Self {
             head: b.detach(),
             len: b.len(),
         }
@@ -260,8 +260,8 @@ pub enum Cut {
 impl core::fmt::Display for FileError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            FileError::Io(e) => write!(f, "{e}"),
-            FileError::Cut { offset, why } => {
+            Self::Io(e) => write!(f, "{e}"),
+            Self::Cut { offset, why } => {
                 write!(f, "read up to byte {offset}, the rest is left out: ")?;
                 match why {
                     Cut::Bad(e) => write!(f, "not a good block ({e:?})"),
@@ -276,7 +276,7 @@ impl core::fmt::Display for FileError {
                     }
                 }
             }
-            FileError::Bad {
+            Self::Bad {
                 offset,
                 error,
                 skipped,
@@ -284,16 +284,16 @@ impl core::fmt::Display for FileError {
                 f,
                 "bad block at byte {offset} ({error:?}), skipped {skipped} bytes"
             ),
-            FileError::Truncated { offset, len } => {
+            Self::Truncated { offset, len } => {
                 write!(f, "file ends inside a block: {len} bytes at byte {offset}")
             }
-            FileError::Gap { offset, len } => {
+            Self::Gap { offset, len } => {
                 write!(
                     f,
                     "a gap of {len} bytes at byte {offset}, the data goes on after it"
                 )
             }
-            FileError::Replaced {
+            Self::Replaced {
                 offset,
                 session,
                 seq,
@@ -302,7 +302,7 @@ impl core::fmt::Display for FileError {
                 "block {seq} of session {:08x} again at byte {offset} with other bytes: the later copy is taken",
                 session.get()
             ),
-            FileError::Conflict {
+            Self::Conflict {
                 first,
                 offset,
                 session,
@@ -314,7 +314,7 @@ impl core::fmt::Display for FileError {
                 session.get(),
                 block.len()
             ),
-            FileError::Stale {
+            Self::Stale {
                 offset,
                 session,
                 len,
@@ -323,7 +323,7 @@ impl core::fmt::Display for FileError {
                 "a stale block of another session ({:08x}) at byte {offset}, {len} bytes skipped",
                 session.get()
             ),
-            FileError::Refused { offset, error, len } => write!(
+            Self::Refused { offset, error, len } => write!(
                 f,
                 "a block of an integrity level this reader doesn't handle at byte {offset} ({error:?}), {len} bytes skipped"
             ),
@@ -421,7 +421,7 @@ impl<R: Read> FileBlocks<R> {
     }
 
     pub fn with_recovery(rd: R, recovery: Recovery) -> Self {
-        FileBlocks {
+        Self {
             rd,
             recovery,
             buf: Window::default(),

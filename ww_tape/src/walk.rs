@@ -40,13 +40,13 @@ pub(crate) struct Head {
 
 impl Head {
     /// The header at the start of `bytes`; None when it has no magic or its length is out of range.
-    pub(crate) fn read(bytes: &[u8]) -> Option<Head> {
+    pub(crate) fn read(bytes: &[u8]) -> Option<Self> {
         let len = block_len(bytes).ok()?;
         let h: &[u8; HEADER_LEN] = bytes.get(..HEADER_LEN)?.try_into().ok()?;
         let [_, _, _, _, _, kind, f0, f1, ..] = *h;
         let seq = u64::from_le_bytes(h[16..24].try_into().ok()?);
         let session = u32::from_le_bytes(h[24..28].try_into().ok()?);
-        Some(Head {
+        Some(Self {
             len,
             kind: BlockKind::from_u8(kind),
             session: SessionTag::from_u32(session),
@@ -70,7 +70,7 @@ pub(crate) struct SessionState {
 
 impl SessionState {
     pub(crate) fn new(medium: Medium) -> Self {
-        SessionState {
+        Self {
             medium,
             session: None,
             last_seq: None,

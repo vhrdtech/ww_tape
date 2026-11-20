@@ -42,26 +42,26 @@ enum Part {
 impl Part {
     fn name(self) -> &'static str {
         match self {
-            Part::Head => "piece head",
-            Part::Puts => "puts",
-            Part::Records => "records",
-            Part::Chunk => "events chunk",
-            Part::Checkpoint => "checkpoint",
-            Part::FinalIndex => "final index",
-            Part::Close => "close",
-            Part::Padding => "zero padding",
-            Part::Tail => "tail",
+            Self::Head => "piece head",
+            Self::Puts => "puts",
+            Self::Records => "records",
+            Self::Chunk => "events chunk",
+            Self::Checkpoint => "checkpoint",
+            Self::FinalIndex => "final index",
+            Self::Close => "close",
+            Self::Padding => "zero padding",
+            Self::Tail => "tail",
         }
     }
 
     fn class(self) -> &'static str {
         match self {
-            Part::Head | Part::Tail => "tint-ink",
-            Part::Puts => "tint-purple",
-            Part::Records | Part::Chunk => "tint-blue",
-            Part::Checkpoint | Part::FinalIndex => "tint-amber",
-            Part::Close => "tint-green",
-            Part::Padding => "faint hatch",
+            Self::Head | Self::Tail => "tint-ink",
+            Self::Puts => "tint-purple",
+            Self::Records | Self::Chunk => "tint-blue",
+            Self::Checkpoint | Self::FinalIndex => "tint-amber",
+            Self::Close => "tint-green",
+            Self::Padding => "faint hatch",
         }
     }
 }

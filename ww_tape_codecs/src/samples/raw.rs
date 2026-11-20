@@ -23,10 +23,10 @@ impl Packing {
     /// Bits per value.
     pub(super) const fn bits(self) -> u32 {
         match self {
-            Packing::Lsb(bits) => bits,
-            Packing::Msb10 => 10,
-            Packing::Msb12 => 12,
-            Packing::Msb24 => 24,
+            Self::Lsb(bits) => bits,
+            Self::Msb10 => 10,
+            Self::Msb12 => 12,
+            Self::Msb24 => 24,
         }
     }
 }

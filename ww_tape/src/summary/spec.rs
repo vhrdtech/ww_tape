@@ -54,29 +54,29 @@ pub enum Stat {
 
 impl Stat {
     /// Every statistic, in the order a summary block stores them.
-    pub const ALL: [Stat; 8] = [
-        Stat::Min,
-        Stat::Max,
-        Stat::Sum,
-        Stat::SumSq,
-        Stat::Clipped,
-        Stat::Flags,
-        Stat::PowerMean,
-        Stat::PowerMax,
+    pub const ALL: [Self; 8] = [
+        Self::Min,
+        Self::Max,
+        Self::Sum,
+        Self::SumSq,
+        Self::Clipped,
+        Self::Flags,
+        Self::PowerMean,
+        Self::PowerMax,
     ];
 
     /// Bytes of one value.
     pub fn width(self) -> usize {
         match self {
-            Stat::Min | Stat::Max | Stat::Sum | Stat::SumSq | Stat::Clipped => 8,
-            Stat::Flags | Stat::PowerMean | Stat::PowerMax => 4,
+            Self::Min | Self::Max | Self::Sum | Self::SumSq | Self::Clipped => 8,
+            Self::Flags | Self::PowerMean | Self::PowerMax => 4,
         }
     }
 
     /// Values per channel and node: the element's components for minimum, maximum and sums, else 1.
     pub fn components(self, element: Element) -> u8 {
         match self {
-            Stat::Min | Stat::Max | Stat::Sum | Stat::SumSq => components(element),
+            Self::Min | Self::Max | Self::Sum | Self::SumSq => components(element),
             _ => 1,
         }
     }
@@ -84,21 +84,21 @@ impl Stat {
     /// The statistic's bit in the fields word: `1 <<` its place in [Self::ALL].
     fn bit(self) -> u16 {
         match self {
-            Stat::Min => 1,
-            Stat::Max => 1 << 1,
-            Stat::Sum => 1 << 2,
-            Stat::SumSq => 1 << 3,
-            Stat::Clipped => 1 << 4,
-            Stat::Flags => 1 << 5,
-            Stat::PowerMean => 1 << 6,
-            Stat::PowerMax => 1 << 7,
+            Self::Min => 1,
+            Self::Max => 1 << 1,
+            Self::Sum => 1 << 2,
+            Self::SumSq => 1 << 3,
+            Self::Clipped => 1 << 4,
+            Self::Flags => 1 << 5,
+            Self::PowerMean => 1 << 6,
+            Self::PowerMax => 1 << 7,
         }
     }
 
     /// Bytes per channel and node: [Self::width] times [Self::components].
     fn node_len(self, element: Element) -> usize {
         match self {
-            Stat::Min | Stat::Max | Stat::Sum | Stat::SumSq if is_complex(element) => 16,
+            Self::Min | Self::Max | Self::Sum | Self::SumSq if is_complex(element) => 16,
             _ => self.width(),
         }
     }
@@ -107,7 +107,7 @@ impl Stat {
 impl SeriesStats {
     /// Every statistic for an element: power only for complex ones.
     pub fn all(element: Element) -> Self {
-        SeriesStats {
+        Self {
             min: true,
             max: true,
             sum: true,
@@ -149,7 +149,7 @@ impl SeriesStats {
             return None;
         }
         let on = |s: Stat| v & s.bit() != 0;
-        Some(SeriesStats {
+        Some(Self {
             min: on(Stat::Min),
             max: on(Stat::Max),
             sum: on(Stat::Sum),

@@ -82,8 +82,8 @@ pub enum BaseRefused {
 impl core::fmt::Display for BaseRefused {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str(match self {
-            BaseRefused::OnePiece => "a sink of one piece takes no base but 0",
-            BaseRefused::PastEnd => "the base is past the end of the bytes",
+            Self::OnePiece => "a sink of one piece takes no base but 0",
+            Self::PastEnd => "the base is past the end of the bytes",
         })
     }
 }

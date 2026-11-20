@@ -16,7 +16,7 @@ pub struct Avx2(());
 
 impl Avx2 {
     pub fn detect() -> Option<Self> {
-        std::arch::is_x86_feature_detected!("avx2").then_some(Avx2(()))
+        std::arch::is_x86_feature_detected!("avx2").then_some(Self(()))
     }
 
     #[inline]
@@ -42,7 +42,7 @@ impl Avx512 {
             && std::arch::is_x86_feature_detected!("avx512bw")
             && std::arch::is_x86_feature_detected!("avx512dq")
             && std::arch::is_x86_feature_detected!("avx512vl"))
-        .then_some(Avx512(()))
+        .then_some(Self(()))
     }
 
     #[inline]

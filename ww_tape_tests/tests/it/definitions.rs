@@ -116,7 +116,7 @@ impl<S: TapeSink> std::ops::DerefMut for Rig<S> {
 
 impl<S: TapeSink> Rig<S> {
     pub(crate) fn new(w: TapeWriter<S>) -> Self {
-        Rig {
+        Self {
             w,
             defs: Definitions::new(),
         }

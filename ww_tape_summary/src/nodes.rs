@@ -269,7 +269,7 @@ pub struct EventNode {
 impl EventNode {
     /// A node of one item.
     pub const fn item(start: i64, end: i64, flags: u32) -> Self {
-        EventNode {
+        Self {
             first_tick: start,
             last_tick: start,
             flags,
@@ -278,7 +278,7 @@ impl EventNode {
     }
 
     /// Merge `next`, the node right after this one, into this one.
-    pub fn merge(&mut self, next: &EventNode) {
+    pub fn merge(&mut self, next: &Self) {
         self.last_tick = next.last_tick;
         self.flags |= next.flags;
         self.latest_end = self.latest_end.max(next.latest_end);

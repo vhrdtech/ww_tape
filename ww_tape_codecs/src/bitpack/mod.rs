@@ -64,9 +64,9 @@ pub enum BitpackError {
 impl core::fmt::Display for BitpackError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            BitpackError::Width(e) => write!(f, "bit width: {e}"),
-            BitpackError::Full => write!(f, "output buffer shorter than the packed values"),
-            BitpackError::Kernel(k) => write!(f, "{k:?} doesn't run on this CPU"),
+            Self::Width(e) => write!(f, "bit width: {e}"),
+            Self::Full => write!(f, "output buffer shorter than the packed values"),
+            Self::Kernel(k) => write!(f, "{k:?} doesn't run on this CPU"),
         }
     }
 }
@@ -74,8 +74,8 @@ impl core::fmt::Display for BitpackError {
 impl core::error::Error for BitpackError {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
-            BitpackError::Width(e) => Some(e),
-            BitpackError::Full | BitpackError::Kernel(_) => None,
+            Self::Width(e) => Some(e),
+            Self::Full | Self::Kernel(_) => None,
         }
     }
 }
@@ -86,14 +86,14 @@ pub struct Width(u8);
 
 impl Width {
     /// No bits: every value is 0.
-    pub const ZERO: Width = Width(0);
+    pub const ZERO: Self = Self(0);
     /// [WIDTH_MAX] bits.
-    pub const MAX: Width = Width(WIDTH_MAX_BYTE);
+    pub const MAX: Self = Self(WIDTH_MAX_BYTE);
 
     /// `bits` as a width, when it is at most [WIDTH_MAX].
     pub fn new(bits: u32) -> Result<Self, BoundError> {
         match u8::try_from(bits) {
-            Ok(b) if b <= WIDTH_MAX_BYTE => Ok(Width(b)),
+            Ok(b) if b <= WIDTH_MAX_BYTE => Ok(Self(b)),
             _ => Err(BoundError {
                 value: u64::from(bits),
                 bound: u64::from(WIDTH_MAX),
@@ -106,13 +106,13 @@ impl Width {
         let b = bits.at_most(usize::from(WIDTH_MAX_BYTE))?;
         // b is at most 64: its low byte is all of it
         let [low, ..] = b.to_le_bytes();
-        Ok(Width(low))
+        Ok(Self(low))
     }
 
     /// The bits needed to hold `x`: [width_of].
     pub const fn of(x: u64) -> Self {
         let [low, ..] = width_of(x).to_le_bytes();
-        Width(low)
+        Self(low)
     }
 
     /// The width in bits.
@@ -362,19 +362,19 @@ pub enum Kernel {
 impl Kernel {
     /// The fastest kernel this CPU runs.
     pub fn best() -> Self {
-        [Kernel::Avx512, Kernel::Avx2, Kernel::Neon]
+        [Self::Avx512, Self::Avx2, Self::Neon]
             .into_iter()
             .find(|k| k.is_available())
-            .unwrap_or(Kernel::Scalar)
+            .unwrap_or(Self::Scalar)
     }
 
     /// Whether this CPU runs the kernel.
     pub fn is_available(self) -> bool {
         match self {
-            Kernel::Scalar => true,
-            Kernel::Avx2 => has_avx2(),
-            Kernel::Avx512 => has_avx512(),
-            Kernel::Neon => cfg!(all(target_arch = "aarch64", target_feature = "neon")),
+            Self::Scalar => true,
+            Self::Avx2 => has_avx2(),
+            Self::Avx512 => has_avx512(),
+            Self::Neon => cfg!(all(target_arch = "aarch64", target_feature = "neon")),
         }
     }
 }

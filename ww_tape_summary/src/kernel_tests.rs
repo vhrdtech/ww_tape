@@ -48,7 +48,7 @@ fn fmax(a: f64, b: f64) -> f64 {
 }
 
 impl<T: Scalar> Model<T> {
-    const NEW: Self = Model {
+    const NEW: Self = Self {
         parts: [Part {
             min: None,
             max: None,

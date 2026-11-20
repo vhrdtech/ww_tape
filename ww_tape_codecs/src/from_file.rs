@@ -85,7 +85,7 @@ fn wide(v: usize) -> u64 {
 impl<T: FileInt> FromFile<T> {
     /// Wrap a value a byte reader read.
     pub const fn new(value: T) -> Self {
-        FromFile(value)
+        Self(value)
     }
 
     fn value(self) -> u64 {

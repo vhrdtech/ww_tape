@@ -83,7 +83,7 @@ pub enum SyncPolicy {
 
 impl Default for SyncPolicy {
     fn default() -> Self {
-        SyncPolicy::Interval(DEFAULT_SYNC_INTERVAL)
+        Self::Interval(DEFAULT_SYNC_INTERVAL)
     }
 }
 
@@ -129,7 +129,7 @@ pub struct WriterOptions {
 
 impl Default for WriterOptions {
     fn default() -> Self {
-        WriterOptions {
+        Self {
             sync: SyncPolicy::default(),
             index: IndexPolicy::default(),
             layout: Layout::UNALIGNED,
@@ -286,7 +286,7 @@ impl<S: TapeSink> TapeWriter<S> {
     pub fn create_on(sink: S, policy: SyncPolicy) -> Self {
         let clock = ClockRef::default();
         let now = clock.now_ms();
-        TapeWriter {
+        Self {
             clock,
             sink,
             policy,
@@ -1751,7 +1751,7 @@ impl<S: TapeSink> TapeWriter<S> {
         let mut next_piece =
             NextPiece::after(&head, &done.closed, tracks, done.session, done.next_seq)?;
         next_piece.newest = newest;
-        let next = TapeWriter::start_next(next()?, &options, next_piece)?;
+        let next = Self::start_next(next()?, &options, next_piece)?;
         Ok((done.closed, next))
     }
 
@@ -1800,7 +1800,7 @@ impl<S: TapeSink> TapeWriter<S> {
         done.sink
             .rebase(base)
             .map_err(sink_err("starting the next piece behind the last"))?;
-        let next = TapeWriter::start_next(done.sink, &options, next_piece)?;
+        let next = Self::start_next(done.sink, &options, next_piece)?;
         Ok((done.closed, next))
     }
 
@@ -1823,7 +1823,7 @@ impl<S: TapeSink> TapeWriter<S> {
         options: &WriterOptions,
         next: NextPiece,
     ) -> Result<Self, WriteError<S::Error>> {
-        let mut w = TapeWriter::create_on(sink, options.sync);
+        let mut w = Self::create_on(sink, options.sync);
         w.apply(options)?;
         w.begin_next(next)?;
         Ok(w)
@@ -2195,7 +2195,7 @@ impl NextPiece {
             .ok_or(WriteError::Index(IndexError::Invalid(
                 "piece seq past u64::MAX",
             )))?;
-        Ok(NextPiece {
+        Ok(Self {
             head: PieceHead {
                 ident: PieceIdent {
                     id: PieceId::after(head.ident.id, &done.hash),

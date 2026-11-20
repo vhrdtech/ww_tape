@@ -135,9 +135,9 @@ impl Outcome {
     /// Where the case failed: the panic's `file:line`, `alloc` for an allocation over the cap; None when it passed.
     pub fn place(&self) -> Option<&str> {
         match self {
-            Outcome::Ok => None,
-            Outcome::Panic(at, _) => Some(at),
-            Outcome::Alloc(_) => Some("alloc"),
+            Self::Ok => None,
+            Self::Panic(at, _) => Some(at),
+            Self::Alloc(_) => Some("alloc"),
         }
     }
 }

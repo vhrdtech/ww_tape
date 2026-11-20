@@ -94,7 +94,7 @@ where
 {
     /// A merge of no lists yet.
     pub(super) fn new(read: F, fits: G) -> Self {
-        Lists {
+        Self {
             cursors: Vec::new(),
             heap: BinaryHeap::new(),
             read,
@@ -227,7 +227,7 @@ impl<L: Listed> Replay<L> {
     /// A replay of a piece whose head rows are `starts`, whose final index lists `listed` (in file order) and whose
     /// close starts at `end`.
     pub(super) fn new(starts: &[TrackStart], listed: L, end: u64) -> Self {
-        let mut r = Replay {
+        let mut r = Self {
             at: 0,
             end,
             listed,
@@ -581,7 +581,6 @@ fn same_entries(a: &mut [IndexEntry], b: &mut [IndexEntry]) -> bool {
 }
 
 /// What orders the entries of one block.
-#[allow(clippy::type_complexity, reason = "the fields of an entry in order")]
 fn entry_key(e: &IndexEntry) -> (u64, u32, u32, u64, u64, i64, i64, i64, [u8; 32], u8) {
     (
         e.track_id,

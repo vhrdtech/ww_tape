@@ -159,11 +159,11 @@ impl Sample for f32 {
     const SCALAR: Scalar = Scalar::F32;
     #[inline(always)]
     fn to_bits(self) -> u64 {
-        u64::from(f32::to_bits(self))
+        u64::from(Self::to_bits(self))
     }
     #[inline(always)]
     fn from_bits(bits: u64) -> Self {
-        f32::from_bits(low_bits!(bits, u32))
+        Self::from_bits(low_bits!(bits, u32))
     }
 }
 
@@ -172,11 +172,11 @@ impl Sample for f64 {
     const SCALAR: Scalar = Scalar::F64;
     #[inline(always)]
     fn to_bits(self) -> u64 {
-        f64::to_bits(self)
+        Self::to_bits(self)
     }
     #[inline(always)]
     fn from_bits(bits: u64) -> Self {
-        f64::from_bits(bits)
+        Self::from_bits(bits)
     }
 }
 
@@ -220,25 +220,25 @@ pub enum SampleError {
 impl core::fmt::Display for SampleError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            SampleError::Unsupported { codec, scalar } => {
+            Self::Unsupported { codec, scalar } => {
                 write!(f, "codec {} doesn't code {scalar}", codec.0)
             }
-            SampleError::BadShape => write!(f, "more values than fit in memory"),
-            SampleError::WrongType { column, asked } => {
+            Self::BadShape => write!(f, "more values than fit in memory"),
+            Self::WrongType { column, asked } => {
                 write!(f, "a column of {column} read as {asked}")
             }
-            SampleError::BadLength { len } => {
+            Self::BadLength { len } => {
                 write!(f, "{len} bytes don't fit the codec and the count")
             }
-            SampleError::Corrupt { group } => write!(f, "group {group} is malformed"),
-            SampleError::OutOfRange => {
+            Self::Corrupt { group } => write!(f, "group {group} is malformed"),
+            Self::OutOfRange => {
                 write!(f, "samples past the column's count, or not whole samples")
             }
-            SampleError::ValueTooWide { index } => {
+            Self::ValueTooWide { index } => {
                 write!(f, "value {index} doesn't fit the packed width")
             }
-            SampleError::Full { needed } => write!(f, "the buffer is short: {needed} bytes needed"),
-            SampleError::Bound(e) => write!(f, "group table: {e}"),
+            Self::Full { needed } => write!(f, "the buffer is short: {needed} bytes needed"),
+            Self::Bound(e) => write!(f, "group table: {e}"),
         }
     }
 }

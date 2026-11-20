@@ -62,7 +62,7 @@ impl Line {
             m3,
             ..,
         ] = *r;
-        Line {
+        Self {
             first: i64::from_le_bytes([f0, f1, f2, f3, f4, f5, f6, f7]),
             slope: i64::from_le_bytes([s0, s1, s2, s3, s4, s5, s6, s7]),
             rmin: i32::from_le_bytes([m0, m1, m2, m3]),

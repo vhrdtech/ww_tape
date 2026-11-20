@@ -216,7 +216,7 @@ impl IndexEntry {
             *d = b;
         }
         let [a, b] = halves.map(i64::from_le_bytes);
-        IndexEntry {
+        Self {
             level,
             tree: 0,
             track_id: STATE_TRACK_ID,
@@ -272,7 +272,7 @@ impl IndexEntry {
         let bytes = block.bytes();
         // a Block is at most MAX_BLOCK_LEN long: its length fits a u32
         let len = u32::try_from(bytes.len()).ok()?;
-        let mut e = IndexEntry {
+        let mut e = Self {
             offset,
             len,
             kind: block.kind,
@@ -301,7 +301,7 @@ impl IndexEntry {
             | BlockKind::Parity => return None,
             BlockKind::Events | BlockKind::Series => {
                 if let Some(c) = block.chunk() {
-                    return Self::of_chunk(offset, bytes.len(), &c.head()).map(|e| IndexEntry {
+                    return Self::of_chunk(offset, bytes.len(), &c.head()).map(|e| Self {
                         relation_break: c.relation_break(),
                         ..e
                     });
@@ -331,7 +331,7 @@ impl IndexEntry {
         if len > MAX_BLOCK_LEN {
             return None;
         }
-        Some(IndexEntry {
+        Some(Self {
             offset,
             len: u32::try_from(len).ok()?,
             kind: head.kind,
@@ -442,7 +442,7 @@ impl IndexEntry {
             a0, a1, a2, a3, a4, a5, a6, a7, z0, z1, z2, z3, z4, z5, z6, z7,
             u @ ..
         ] = *b;
-        IndexEntry {
+        Self {
             offset: u64::from_le_bytes([o0, o1, o2, o3, o4, o5, o6, o7]),
             len: u32::from_le_bytes([l0, l1, l2, l3]),
             kind: BlockKind::from_u8(kind),
@@ -526,7 +526,7 @@ impl TrackList {
             i0, i1, i2, i3, i4, i5, i6, i7,
             f0, f1, f2, f3, n0, n1, n2, n3, c0, c1, c2, c3, _, _, _, _,
         ] = *b;
-        TrackList {
+        Self {
             track_id: u64::from_le_bytes([i0, i1, i2, i3, i4, i5, i6, i7]),
             first: u32::from_le_bytes([f0, f1, f2, f3]),
             count: u32::from_le_bytes([n0, n1, n2, n3]),
@@ -594,38 +594,38 @@ pub enum IndexError {
 
 impl From<BlockError> for IndexError {
     fn from(e: BlockError) -> Self {
-        IndexError::Block(e)
+        Self::Block(e)
     }
 }
 
 impl core::fmt::Display for IndexError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            IndexError::Block(e) => write!(f, "{e}"),
-            IndexError::Kind => write!(f, "a block of another kind or version"),
-            IndexError::BadHeadCrc => write!(f, "the head CRC doesn't match"),
-            IndexError::BadHead => write!(f, "the head or the body is out of range"),
-            IndexError::BadEntries => write!(f, "a track's entries don't match their CRC or list"),
-            IndexError::UnknownIntegrity { level } => {
+            Self::Block(e) => write!(f, "{e}"),
+            Self::Kind => write!(f, "a block of another kind or version"),
+            Self::BadHeadCrc => write!(f, "the head CRC doesn't match"),
+            Self::BadHead => write!(f, "the head or the body is out of range"),
+            Self::BadEntries => write!(f, "a track's entries don't match their CRC or list"),
+            Self::UnknownIntegrity { level } => {
                 write!(f, "integrity byte {level} is no integrity level")
             }
-            IndexError::UnhandledIntegrity { level } => {
+            Self::UnhandledIntegrity { level } => {
                 write!(
                     f,
                     "integrity level {}, which this build doesn't handle",
                     u8::from(*level)
                 )
             }
-            IndexError::Unhashed => {
+            Self::Unhashed => {
                 write!(
                     f,
                     "an unhashed entry: an integrity level this build doesn't handle"
                 )
             }
-            IndexError::Full { needed } => write!(f, "the buffer is short: {needed} bytes needed"),
-            IndexError::Invalid(what) => write!(f, "{what}"),
-            IndexError::Bound(e) => write!(f, "{e}"),
-            IndexError::StateEntries { max, used } => write!(
+            Self::Full { needed } => write!(f, "the buffer is short: {needed} bytes needed"),
+            Self::Invalid(what) => write!(f, "{what}"),
+            Self::Bound(e) => write!(f, "{e}"),
+            Self::StateEntries { max, used } => write!(
                 f,
                 "more than {max} state entries in the piece ({used} listed): a new piece takes them"
             ),
@@ -637,7 +637,7 @@ impl core::error::Error for IndexError {}
 
 impl From<BoundError> for IndexError {
     fn from(e: BoundError) -> Self {
-        IndexError::Bound(e)
+        Self::Bound(e)
     }
 }
 
@@ -1099,7 +1099,7 @@ pub const STATE_ENTRIES_MAX: usize = 1 << 20;
 
 impl IndexPolicy {
     /// No checkpoints; the final index is still written at the close.
-    pub const NONE: IndexPolicy = IndexPolicy {
+    pub const NONE: Self = Self {
         bytes: 0,
         interval: None,
         state_entries_max: STATE_ENTRIES_MAX,
@@ -1108,7 +1108,7 @@ impl IndexPolicy {
 
 impl Default for IndexPolicy {
     fn default() -> Self {
-        IndexPolicy {
+        Self {
             bytes: DEFAULT_CHECKPOINT_BYTES,
             interval: None,
             state_entries_max: STATE_ENTRIES_MAX,
