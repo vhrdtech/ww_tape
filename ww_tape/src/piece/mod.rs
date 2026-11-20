@@ -169,7 +169,9 @@ const CLOSE_FIXED_LEN: usize = 160;
 /// Bytes of a close's track row this crate writes; a reader takes longer ones.
 const CLOSE_TRACK_LEN: usize = 136;
 /// Most tracks with data in one piece: the close's rows of that many, padded to [PIECE_ALIGN], fit a block
-/// ([crate::MAX_BLOCK_LEN]). A writer refuses a block that would bring in one more ([crate::WriteError]).
+/// ([crate::MAX_BLOCK_LEN]).
+///
+/// A writer refuses a block that would bring in one more ([crate::WriteError]).
 pub const TRACKS_PER_PIECE_MAX: usize =
     (crate::MAX_BLOCK_LEN - HEADER_LEN - CLOSE_FIXED_LEN - CRC_LEN - (u32_len(PIECE_ALIGN) - 1))
         / CLOSE_TRACK_LEN;
@@ -177,9 +179,10 @@ const _: () = assert!(
     close_len(TRACKS_PER_PIECE_MAX) + u32_len(PIECE_ALIGN) - 1 <= crate::MAX_BLOCK_LEN,
     "the close of the most tracks fits a block"
 );
-/// Most track rows one piece head carries: each track the chain's pieces before it carried or gave data, so a head
-/// of that many fits a block ([crate::MAX_BLOCK_LEN]), padded as a close is. A writer refuses a block that would
-/// bring the next head past it ([crate::WriteError]).
+/// Most track rows one piece head carries: each track the chain's pieces before it carried or gave data, so a head of
+/// that many fits a block ([crate::MAX_BLOCK_LEN]), padded as a close is.
+///
+/// A writer refuses a block that would bring the next head past it ([crate::WriteError]).
 pub const HEAD_TRACKS_MAX: usize =
     (crate::MAX_BLOCK_LEN - HEADER_LEN - HEAD_FIXED_LEN - CRC_LEN - (u32_len(PIECE_ALIGN) - 1))
         / HEAD_TRACK_LEN;
@@ -334,8 +337,10 @@ const HASH_STEP: usize = 1 << 20;
 const MAGIC_TAIL: usize = crate::MAGIC.len() - 1;
 
 /// Bytes the blocks a content-hash walk tries and that don't read whole may claim per byte the walk has gone, past
-/// [WALK_MISS_BASE_MAX]. A place is tried only while the misses so far are within this budget, so a stretch of
-/// crafted headers, each claiming a long block, costs a bounded multiple of its length, never its square.
+/// [WALK_MISS_BASE_MAX].
+///
+/// A place is tried only while the misses so far are within this budget, so a stretch of crafted headers, each claiming
+/// a long block, costs a bounded multiple of its length, never its square.
 pub const WALK_MISS_PER_BYTE_MAX: u64 = 4;
 
 /// Bytes the blocks a content-hash walk tries may claim and miss before it has gone any way (1 MiB).

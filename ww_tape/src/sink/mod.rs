@@ -103,8 +103,9 @@ pub fn check_base(base: u64, whole: u64, pieces: bool) -> Result<u64, BaseRefuse
 }
 
 /// A store of tapes by key: makes the tape of each piece of a [PieceChain](crate::PieceChain), reopens one to
-/// write on and reads a closed one. A store keeps one writer per tape: a second sink of a tape a sink holds is
-/// refused.
+/// write on and reads a closed one.
+///
+/// A store keeps one writer per tape: a second sink of a tape a sink holds is refused.
 pub trait Tapes {
     /// What names a tape in the store.
     type Key: Ord + Clone + core::fmt::Debug;

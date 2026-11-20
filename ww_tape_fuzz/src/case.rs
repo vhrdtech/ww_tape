@@ -1,5 +1,7 @@
 //! One case of a fuzz target, as a test or a tool runs it: its panic and any allocation over [ALLOC_MAX] are the
-//! outcome of the case, not of the process. A binary that runs cases declares [Capped] its global allocator.
+//! outcome of the case, not of the process.
+//!
+//! A binary that runs cases declares [Capped] its global allocator.
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::RefCell;

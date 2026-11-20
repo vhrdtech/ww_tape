@@ -37,8 +37,10 @@ impl Clock for SystemClock {
     }
 }
 
-/// The clock a writer reads, or none: without a clock no interval is ever due, so only the block and byte rules of
-/// the policies apply. Equal when both are none, both the system clock, or both the same shared clock.
+/// The clock a writer reads, or none: without a clock no interval is ever due, so only the block and byte rules of the
+/// policies apply.
+///
+/// Equal when both are none, both the system clock, or both the same shared clock.
 #[derive(Clone)]
 pub struct ClockRef(Source);
 

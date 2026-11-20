@@ -16,9 +16,12 @@ use crate::{
 /// bytes that came, so a damaged length never allocates what it says.
 const READ_STEP: usize = 64 * 1024;
 
-/// Bytes a [Recovery::Resync] walk reads ahead of where it is, at most (128 MiB): a stretch as long as the longest gap
-/// a layout allows ([GAP_MAX_MAX](crate::GAP_MAX_MAX)) and the block that ends it, read before the walk passes over the
-/// stretch's own bytes. A [Recovery::Prefix] walk holds one block.
+/// Bytes a [Recovery::Resync] walk reads ahead of where it is, at most (128 MiB).
+///
+/// That is a stretch as long as the longest gap a layout allows ([GAP_MAX_MAX](crate::GAP_MAX_MAX)) and the block that
+/// ends it, read before the walk passes over the stretch's own bytes.
+///
+/// A [Recovery::Prefix] walk holds one block.
 pub const RESYNC_AHEAD_MAX: usize = 128 << 20;
 const _: () = assert!(
     crate::GAP_MAX_MAX == 64 << 20,
@@ -123,9 +126,12 @@ impl BlockBuf {
     }
 }
 
-/// Data blocks a [Recovery::Resync] walk remembers by session and seq, at most (65536, about 4 MiB): the last ones it
-/// handed out, so a later good block of one of their ids with other bytes is a [FileError::Conflict], however far apart
-/// the two are. A block whose id has left the window is taken without the check.
+/// Data blocks a [Recovery::Resync] walk remembers by session and seq, at most (65536, about 4 MiB).
+///
+/// It remembers the last ones it handed out, so a later good block of one of their ids with other bytes is a
+/// [FileError::Conflict], however far apart the two are.
+///
+/// A block whose id has left the window is taken without the check.
 pub const RESYNC_SEQS_MAX: usize = 1 << 16;
 
 /// The data blocks a [Recovery::Resync] walk handed out last, at most [RESYNC_SEQS_MAX]: where each starts, its length
@@ -362,9 +368,11 @@ pub enum Recovery {
 }
 
 /// Reads blocks one after the other from a byte stream into one reused buffer, see [Recovery] for what happens at
-/// damage and [Medium] for where a new session may start. Blank bytes ([is_blank]: 0x00 or 0xFF) where the next block
-/// would start, up to the end, are the end (preallocated space, an erased or trimmed medium); on a raw medium so are
-/// blank bytes longer than the layout's [gap](crate::Layout::gap_max), and nothing after them is read.
+/// damage and [Medium] for where a new session may start.
+///
+/// Blank bytes ([is_blank]: 0x00 or 0xFF) where the next block would start, up to the end, are the end (preallocated
+/// space, an erased or trimmed medium); on a raw medium so are blank bytes longer than the layout's
+/// [gap](crate::Layout::gap_max), and nothing after them is read.
 pub struct FileBlocks<R> {
     rd: R,
     recovery: Recovery,

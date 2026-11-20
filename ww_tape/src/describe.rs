@@ -717,8 +717,10 @@ impl<'i> TrackDef<'i> {
     }
 }
 
-/// The API [Describe] and the types it names are in: this crate. A producer that wants its definitions read without
-/// this crate at hand adds the bundle of this API (`ww_tape` in `wire_weaver_snapshots`) as a [Describe::Bundle].
+/// The API [Describe] and the types it names are in: this crate.
+///
+/// A producer that wants its definitions read without this crate at hand adds the bundle of this API (`ww_tape` in
+/// `wire_weaver_snapshots`) as a [Describe::Bundle].
 pub fn api() -> FullVersion<'static> {
     // Cargo gives digits only, so a parse never falls back to 0
     let n = |s: &str| s.parse().unwrap_or(0);

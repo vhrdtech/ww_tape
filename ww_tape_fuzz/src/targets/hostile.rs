@@ -174,8 +174,10 @@ pub fn samples_hostile(data: &[u8]) {
     }
 }
 
-/// `tape-series-hostile`: a series track and its chunks of hostile grids, ticks and scales, their heads read alone
-/// (the same as read from the whole block) and built into a timeline that is then asked about every stretch.
+/// `tape-series-hostile`: a series track and its chunks of hostile grids, ticks and scales.
+///
+/// Their heads are read alone (the same as read from the whole block) and built into a timeline that is then asked
+/// about every stretch.
 pub fn series_hostile(data: &[u8]) {
     let f = hostile::series(data);
     let bs = blocks(&f);
@@ -224,9 +226,10 @@ pub fn index_hostile(data: &[u8]) {
     index::read(&b, OpenOptions::default());
 }
 
-/// `tape-reader-hostile`: a piece of hostile offsets, lengths, layout or stretches between blocks, opened by the
-/// positional reader as a file and as a raw medium, every piece's entries, blocks, state entries and definitions
-/// read, and walked block by block.
+/// `tape-reader-hostile`: a piece of hostile offsets, lengths, layout or stretches between blocks.
+///
+/// The positional reader opens it as a file and as a raw medium, reads every piece's entries, blocks, state entries
+/// and definitions, and walks it block by block.
 pub fn reader_hostile(data: &[u8]) {
     let f = hostile::file(data);
     let raw = OpenOptions {
@@ -246,11 +249,12 @@ pub fn reader_hostile(data: &[u8]) {
     reader(&f);
 }
 
-/// `tape-state-hostile`: a piece of puts, copies and definitions whose blocks of state records and index state
-/// entries lie behind good CRCs, or which is cut. Every lookup of the reader hands out only a record that is the one
-/// its entry names (its hash, its slot) and lies before the place asked; a resume of it takes new definitions, puts
-/// and blocks, and closes whole. The piece is read as a file, as a raw medium, with a small cache and small
-/// read budgets.
+/// `tape-state-hostile`: a piece of puts, copies and definitions whose blocks of state records and index state entries
+/// lie behind good CRCs, or which is cut.
+///
+/// Every lookup of the reader hands out only a record that is the one its entry names (its hash, its slot) and lies
+/// before the place asked; a resume of it takes new definitions, puts and blocks, and closes whole. The piece is read
+/// as a file, as a raw medium, with a small cache and small read budgets.
 pub fn state_hostile(data: &[u8]) {
     let a = hostile::state_attacked(data);
     let f = a.bytes;

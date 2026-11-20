@@ -101,9 +101,11 @@ pub const fn coded_len_max(len: usize) -> usize {
         .saturating_add(lz4_flex::block::get_maximum_output_size(len))
 }
 
-/// Write the records block `block` with its body coded by `codec` into `out` (at least
-/// [coded_len_max] bytes); returns the bytes written. When lz4 does not shrink the block, the block is written as
-/// it is, not coded. The session, seq, other flags and record count stay.
+/// Write the records block `block` with its body coded by `codec` into `out` (at least [coded_len_max] bytes); returns
+/// the bytes written.
+///
+/// When lz4 does not shrink the block, the block is written as it is, not coded. The session, seq, other flags and
+/// record count stay.
 pub fn code_body(block: &[u8], codec: BodyCodec, out: &mut [u8]) -> Result<usize, CodeError> {
     let b = Block::read(block).map_err(CodeError::Block)?;
     let bad_length = CodeError::Block(BlockError::BadLength(

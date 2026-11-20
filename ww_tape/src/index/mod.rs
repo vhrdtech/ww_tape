@@ -89,8 +89,9 @@ const ENTRY_REPEAT: u8 = 1;
 /// Entry flag: the entry carries the range of its chunk's range relation.
 const ENTRY_RANGE: u8 = 2;
 /// Entry flag: the chunk's unit hash was not computed, set on each entry of a piece of
-/// [Integrity::CrcOnly](crate::Integrity::CrcOnly) or [Integrity::None](crate::Integrity::None). Written 0; a reader
-/// of this build refuses an index with it set ([IndexError::Unhashed]).
+/// [Integrity::CrcOnly](crate::Integrity::CrcOnly) or [Integrity::None](crate::Integrity::None).
+///
+/// Written 0; a reader of this build refuses an index with it set ([IndexError::Unhashed]).
 pub const ENTRY_UNHASHED: u8 = 4;
 /// Entry flag: the chunk is marked [FLAG_RELATION_BREAK](crate::FLAG_RELATION_BREAK).
 const ENTRY_BREAK: u8 = 8;
@@ -109,10 +110,13 @@ const DIR_AT: usize = HEADER_LEN + INDEX_FIXED_LEN;
 /// Shortest block an entry may name: a header and a CRC.
 const BLOCK_LEN_MIN: usize = HEADER_LEN + CRC_LEN;
 
-/// Whether blocks of `kind` belong to the file structure (index, close, tail, piece head): they carry the seq of the
-/// last counted block before them and take no part in the seq order, so seq stays the producer's count of its own
-/// blocks. A reader checks neither order nor gaps on them. Blocks marked [FLAG_REPEAT](crate::FLAG_REPEAT) are stamped
-/// the same way.
+/// Whether blocks of `kind` belong to the file structure (index, close, tail, piece head).
+///
+/// They carry the seq of the last counted block before them and take no part in the seq order, so seq stays the
+/// producer's count of its own blocks.
+///
+/// A reader checks neither order nor gaps on them. Blocks marked [FLAG_REPEAT](crate::FLAG_REPEAT) are stamped the same
+/// way.
 pub fn is_structural(kind: BlockKind) -> bool {
     matches!(
         kind,

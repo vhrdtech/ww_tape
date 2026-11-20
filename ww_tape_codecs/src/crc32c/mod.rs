@@ -1,8 +1,10 @@
-//! CRC-32C (`CRC_32_ISCSI`, the polynomial every block uses): a software fallback good on every target (`TABLE`,
-//! the `crc` crate's `Table<16>`, measured about 5.1 GiB/s on an x86-64 EPYC Genoa) and, where the CPU runs the
-//! instruction, a hardware path (SSE4.2 on x86-64, the CRC extension on aarch64) that keeps three independent
-//! accumulators going at once so the instruction's own latency doesn't serialize the stream, recombined with the
-//! GF(2) shift [crc32c_combine] already uses for segment CRCs: no second table for the fast path.
+//! CRC-32C (`CRC_32_ISCSI`), the polynomial every block uses.
+//!
+//! A software fallback is good on every target: `TABLE`, the `crc` crate's `Table<16>`, measured about 5.1 GiB/s on an
+//! x86-64 EPYC Genoa. Where the CPU runs the instruction, a hardware path (SSE4.2 on x86-64, the CRC extension on
+//! aarch64) keeps three independent accumulators going at once so the instruction's own latency doesn't serialize the
+//! stream. They are recombined with the GF(2) shift [crc32c_combine] already uses for segment CRCs: no second table for
+//! the fast path.
 //!
 //! Picked over a crate: `crc32c` (SSE4.2 and ARMv8, software fallback) needs `std` throughout (its `io` wrappers,
 //! `is_x86_feature_detected!`), so it can't build for wasm32 or a `no_std` MCU target as this crate must; `crc-fast`
@@ -105,8 +107,9 @@ const TABLE: crc::Crc<u32, crc::Table<16>> =
     crc::Crc::<u32, crc::Table<16>>::new(&crc::CRC_32_ISCSI);
 
 /// Which kernel a [Digest] ended up on: a tag the agreement test picks by hand ([digest_with]), never something
-/// [Crc32c::digest] consults ahead of detecting. A target with neither hardware kernel only ever makes
-/// [Kernel::Table].
+/// [Crc32c::digest] consults ahead of detecting.
+///
+/// A target with neither hardware kernel only ever makes [Kernel::Table].
 #[cfg(test)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Kernel {
@@ -140,9 +143,11 @@ fn has_crc32() -> bool {
     cfg!(target_feature = "crc")
 }
 
-/// A CRC-32C accumulator on the fastest kernel this CPU runs, detected once at [Crc32c::digest] and held for the
-/// accumulator's whole life as a `hw_x86_64::Token` or `hw_aarch64::Token` (so [Digest::update] never checks the
-/// CPU again): the same `digest`/`checksum` shape as [crc::Crc], so call sites take it in its place.
+/// A CRC-32C accumulator on the fastest kernel this CPU runs.
+///
+/// The kernel is detected once at [Crc32c::digest] and held for the accumulator's whole life as a `hw_x86_64::Token`
+/// or `hw_aarch64::Token`, so [Digest::update] never checks the CPU again. It has the same `digest`/`checksum` shape
+/// as [crc::Crc], so call sites take it in its place.
 #[derive(Copy, Clone)]
 pub struct Crc32c;
 

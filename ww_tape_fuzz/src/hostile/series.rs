@@ -64,9 +64,10 @@ fn period(d: &mut Draw<'_>) -> Ratio64 {
         .expect("parts above 0")
 }
 
-/// A block of definitions of a series track and series chunks of it, whose first samples, counts, grid indexes,
-/// grid ticks, scales, head ticks and period take hostile values; each chunk's head CRC holds, so a reader takes
-/// the head.
+/// A block of definitions of a series track and series chunks of it, with hostile values.
+///
+/// First samples, counts, grid indexes, grid ticks, scales, head ticks and period take hostile values. Each chunk's
+/// head CRC holds, so a reader takes the head.
 pub fn series(data: &[u8]) -> Vec<u8> {
     let mut d = Draw::new(data);
     let period = period(&mut d);

@@ -291,9 +291,10 @@ impl SeriesGrid {
 }
 
 /// Whether a chunk whose first sample is at `first_tick` lies on a new grid after a gap following a chunk whose last
-/// sample is at `last_tick`: more than one `period` after it, rounded up. A chunk on the same grid at the next sample
-/// lies at most that far after, so the ticks of two neighbouring chunks (their index entries) tell a gap from a
-/// continuation alone.
+/// sample is at `last_tick`: more than one `period` after it, rounded up.
+///
+/// A chunk on the same grid at the next sample lies at most that far after, so the ticks of two neighbouring chunks
+/// (their index entries) tell a gap from a continuation alone.
 pub fn is_gap(period: Ratio64, last_tick: i64, first_tick: i64) -> bool {
     // the next sample on a grid is at most the period rounded up after the last
     let whole = period.apply_rounded(1, Rounding::Ceil).unwrap_or(i64::MAX);
@@ -401,7 +402,9 @@ impl<'i> SeriesDef<'i> {
 }
 
 /// A type whose values a series stores as numbers of an [Element] at a fixed scale: a plain number, an exact_units
-/// `Fixed` or `Complex`. It gives a [SeriesDef] its element and scale and puts a value's numbers into a column.
+/// `Fixed` or `Complex`.
+///
+/// It gives a [SeriesDef] its element and scale and puts a value's numbers into a column.
 pub trait SeriesValue: Copy {
     /// The scalar a column holds.
     type Scalar: Sample;

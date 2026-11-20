@@ -1,6 +1,9 @@
-//! The seed files of the targets, in `seeds/<target>/`: valid blocks from ww_tape's golden files, the inputs behind
-//! ww_tape's review fixes (named by the fix's commit), inputs of the hostile streams and the inputs of the known
-//! failures. The same code gives the same files; `ww_tape_fuzz_seeds write` writes them.
+//! The seed files of the targets, in `seeds/<target>/`.
+//!
+//! They are valid blocks from ww_tape's golden files, the inputs behind ww_tape's review fixes (named by the fix's
+//! commit), inputs of the hostile streams and the inputs of the known failures.
+//!
+//! The same code gives the same files; `ww_tape_fuzz_seeds write` writes them.
 
 use crate::hostile::CODECS;
 use shrink_wrap::prelude::*;

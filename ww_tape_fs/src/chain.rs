@@ -25,8 +25,10 @@ pub fn create(
 }
 
 /// Reopen chain `chain` of `owner` in `dir` (with [PieceTapes::One] the file) after a crash, see
-/// [PieceChain::resume_on]. A chain that isn't there, `dir` missing or without a first piece (nor its `.partial`), is
-/// [FsError::NoPiece] naming `dir`, told apart from a failure.
+/// [PieceChain::resume_on].
+///
+/// A chain that isn't there, `dir` missing or without a first piece (nor its `.partial`), is [FsError::NoPiece] naming
+/// `dir`, told apart from a failure.
 pub fn resume(
     dir: &Path,
     owner: OwnerId,

@@ -391,8 +391,10 @@ impl core::error::Error for ChunkError {
     }
 }
 
-/// Bytes of the head (block header included) of a chunk with `head`, `columns` columns and `payload_len` bytes of
-/// columns, before any alignment padding; saturating at `usize::MAX`, a length over [MAX_BLOCK_LEN] no writer takes.
+/// Bytes of the head (block header included) of a chunk, before any alignment padding.
+///
+/// The chunk has `head`, `columns` columns and `payload_len` bytes of columns. The count saturates at `usize::MAX`, a
+/// length over [MAX_BLOCK_LEN] no writer takes.
 pub fn chunk_head_len(head: &ChunkHead, columns: usize, payload_len: usize) -> usize {
     let grid = GridBytes::of(head).map_or(usize::MAX, |g| g.len);
     let entries = columns.saturating_mul(COLUMN_ENTRY_LEN);
@@ -446,9 +448,10 @@ impl GridBytes {
     }
 }
 
-/// Zero bytes to put between the head and the payload so the payload of a block written at `offset` in a file
-/// lands on a multiple of `alignment` (0: no alignment, no padding); None when `alignment` is neither 0 nor a power
-/// of two.
+/// Zero bytes to put between the head and the payload of a block written at `offset` in a file.
+///
+/// They make the payload land on a multiple of `alignment` (0: no alignment, no padding). None when `alignment` is
+/// neither 0 nor a power of two.
 pub const fn chunk_padding(offset: u64, head_len: usize, alignment: u32) -> Option<usize> {
     if alignment == 0 {
         return Some(0);

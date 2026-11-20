@@ -211,9 +211,11 @@ pub(crate) struct ClosedAt {
     pub(crate) hash: ContentHash,
 }
 
-/// Bytes a writer's puts hashed and copied since it started ([TapeWriter::put_work]): what deciding and writing
-/// them costs. A definition's hash is kept with it ([Definitions]), so a block of data whose definitions all lie
-/// close behind costs none of either.
+/// Bytes a writer's puts hashed and copied since it started ([TapeWriter::put_work]): what deciding and writing them
+/// costs.
+///
+/// A definition's hash is kept with it ([Definitions]), so a block of data whose definitions all lie close behind costs
+/// none of either.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub struct PutWork {
     /// Bytes of items hashed: a caller's items put, a relayed block's records.
@@ -275,9 +277,11 @@ pub const DEFINITION_BLOCK_LEN: usize = 64 << 10;
 /// Most bytes of deferred blocks a [TapeWriter] keeps before writing them out anyway.
 pub const DEFERRED_BYTES_MAX: usize = 1 << 20;
 
-/// Bytes a deferred block may wait for a gap, from where it was deferred: it is placed before a call would carry
-/// the piece past that. Its definitions are put when it is deferred and none when it is placed, so a deferred block
-/// lies at most its tracks' `near` plus this after them ([TapeWriter::defer_block]).
+/// Bytes a deferred block may wait for a gap, from where it was deferred: it is placed before a call would carry the
+/// piece past that.
+///
+/// Its definitions are put when it is deferred and none when it is placed, so a deferred block lies at most its tracks'
+/// `near` plus this after them ([TapeWriter::defer_block]).
 pub const DEFER_WINDOW: u64 = 1 << 20;
 
 impl<S: TapeSink> TapeWriter<S> {

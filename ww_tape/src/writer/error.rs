@@ -8,9 +8,11 @@ use crate::{BlockKind, DescribeError, IndexError, Layout, SessionTag};
 use alloc::boxed::Box;
 use alloc::string::String;
 
-/// Why a [TapeWriter] stopped; `E` is the error of its sink ([TapeSink::Error]). Its text says what the writer was
-/// doing and the error it wraps (`creating a writer: x.wwt: locked by another writer`); the wrapped error's own
-/// [source](core::error::Error::source), the system's error, is its source, so each text is said once.
+/// Why a [TapeWriter] stopped; `E` is the error of its sink ([TapeSink::Error]).
+///
+/// Its text says what the writer was doing and the error it wraps (`creating a writer: x.wwt: locked by another
+/// writer`); the wrapped error's own [source](core::error::Error::source), the system's error, is its source, so each
+/// text is said once.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum WriteError<E> {

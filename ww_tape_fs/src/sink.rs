@@ -10,9 +10,10 @@ use ww_tape::sink::{BaseRefused, TapeSink, Tapes, check_base};
 use crate::chain::piece_name;
 use crate::lock::FileLock;
 
-/// Why a [FileSink], [Files] or [FileSource] failed or refused. Its text names the file, what was done and the kind
-/// of failure or refusal once: `x.wwt: locked by another writer`; the system's error of [FsError::Io] is its
-/// [source](core::error::Error::source).
+/// Why a [FileSink], [Files] or [FileSource] failed or refused.
+///
+/// Its text names the file, what was done and the kind of failure or refusal once: `x.wwt: locked by another writer`;
+/// the system's error of [FsError::Io] is its [source](core::error::Error::source).
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum FsError {

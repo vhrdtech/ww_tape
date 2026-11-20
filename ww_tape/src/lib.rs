@@ -292,22 +292,29 @@ const _: () = assert!(
     "an lz4 column decodes to at most a whole block"
 );
 /// Header flag: the block holds state records a writer put or copied ([state]), not new items of the producer's: it
-/// carries the seq of the block before it and takes no part in the seq order. A reader holding an item of the same
-/// hash in the same slot takes such a record as nothing new.
+/// carries the seq of the block before it and takes no part in the seq order.
+///
+/// A reader holding an item of the same hash in the same slot takes such a record as nothing new.
 pub const FLAG_REPEAT: u16 = 1 << 1;
-/// Header flag, on a block marked [FLAG_REPEAT] only: the block belongs with the block after it, and a run of such
-/// blocks ends in the block they belong to (the block of data their puts serve, or the last block of a put's
-/// records), all of one writer call. A writer resumed after a crash drops such blocks at the end of what it keeps,
-/// and the call given again writes them as it did. A reader takes the block as any other.
+/// Header flag, on a block marked [FLAG_REPEAT] only: the block belongs with the block after it.
+///
+/// A run of such blocks ends in the block they belong to (the block of data their puts serve, or the last block of a
+/// put's records), all of one writer call.
+///
+/// A writer resumed after a crash drops such blocks at the end of what it keeps, and the call given again writes them
+/// as it did. A reader takes the block as any other.
 pub const FLAG_WITH_NEXT: u16 = 1 << 2;
 /// Header flag on chunk blocks: the payload's CRCs were not computed, set on each chunk of a piece of
-/// [Integrity::None]. Written 0; a reader of this build refuses such a chunk as [BlockError::PayloadUnchecked], a
-/// level it doesn't handle, not damage.
+/// [Integrity::None].
+///
+/// Written 0; a reader of this build refuses such a chunk as [BlockError::PayloadUnchecked], a level it doesn't handle,
+/// not damage.
 pub const FLAG_PAYLOAD_UNCHECKED: u16 = 1 << 3;
-/// Header flag on events chunk blocks: the order of its track's monotone relations starts again at this chunk. Its
-/// first values were checked against a value the writer's caller gave
-/// ([TapeWriter::accept_relation_break](crate::TapeWriter::accept_relation_break)), not against the chunks before
-/// it, so a reader takes no order across its start. Its index entry carries the mark too
+/// Header flag on events chunk blocks: the order of its track's monotone relations starts again at this chunk.
+///
+/// Its first values were checked against a value the writer's caller gave
+/// ([TapeWriter::accept_relation_break](crate::TapeWriter::accept_relation_break)), not against the chunks before it,
+/// so a reader takes no order across its start. Its index entry carries the mark too
 /// ([IndexEntry::relation_break](crate::index::IndexEntry::relation_break)).
 pub const FLAG_RELATION_BREAK: u16 = 1 << 4;
 /// Block kind 2, which earlier drafts gave describe blocks: reserved, never written, read as a kind this reader
@@ -402,9 +409,11 @@ impl BlockKind {
     }
 }
 
-/// Whether `b` is a blank byte: 0x00 (zeros, preallocated space, a trimmed SD card or eMMC) or 0xFF (erased NAND,
-/// an SD card erased to ones). A block starts with `W` (0x57), never with a blank byte, and a stretch of blank bytes
-/// (any mix of the two) where a block would start is no block.
+/// Whether `b` is a blank byte: 0x00 (zeros, preallocated space, a trimmed SD card or eMMC) or 0xFF (erased NAND, an SD
+/// card erased to ones).
+///
+/// A block starts with `W` (0x57), never with a blank byte, and a stretch of blank bytes (any mix of the two) where a
+/// block would start is no block.
 pub const fn is_blank(b: u8) -> bool {
     b == 0x00 || b == 0xFF
 }
@@ -971,9 +980,10 @@ pub fn block_len(bytes: &[u8]) -> Result<usize, BlockError> {
         .ok_or(BlockError::BadLength(raw))
 }
 
-/// Give the whole, good block `block` the session and seq of `id` and rewrite its CRCs (a chunk or index block's head
-/// CRC too), so a writer that places blocks later than it made them (a summary block filling the gap before an
-/// aligned chunk) keeps seqs ascending in the file and every block in its session.
+/// Give the whole, good block `block` the session and seq of `id` and rewrite its CRCs.
+///
+/// A chunk or index block's head CRC is rewritten too. A writer that places blocks later than it made them (a summary
+/// block filling the gap before an aligned chunk) so keeps seqs ascending in the file and every block in its session.
 pub fn set_id(block: &mut [u8], id: BlockId) -> Result<(), BlockError> {
     restamp(block, id, 0, Reread::Whole)
 }
@@ -990,10 +1000,12 @@ pub fn mark_repeat(block: &mut [u8], id: BlockId) -> Result<(), BlockError> {
     restamp(block, id, FLAG_REPEAT, Reread::Whole)
 }
 
-/// Mark the whole, good events chunk block `block` as a break in its track's monotone relations
-/// ([FLAG_RELATION_BREAK]), its CRCs rewritten: for a caller's block given to a writer that waits for a break
-/// ([TapeWriter::accept_relation_break](crate::TapeWriter::accept_relation_break)). Another kind of block:
-/// [BlockError::NotChunk].
+/// Mark the whole, good events chunk block `block` as a break in its track's monotone relations.
+///
+/// The mark is [FLAG_RELATION_BREAK], and the CRCs are rewritten. It serves a caller's block given to a writer that
+/// waits for a break ([TapeWriter::accept_relation_break](crate::TapeWriter::accept_relation_break)).
+///
+/// Another kind of block: [BlockError::NotChunk].
 pub fn mark_relation_break(block: &mut [u8]) -> Result<(), BlockError> {
     let b = Block::read(block)?;
     if b.kind != BlockKind::Events {

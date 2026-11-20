@@ -210,9 +210,10 @@ fn with_next(f: &[u8], at: usize, len: usize) -> bool {
     ww_tape::Block::read(&f[at..at + len]).is_ok_and(|b| b.flags & ww_tape::FLAG_WITH_NEXT != 0)
 }
 
-/// The template with one to four attacks drawn from `data` on its index blocks' state entries and its blocks of
-/// state records (hostile values behind a good CRC, or damage), or a cut right after puts that belong with the block
-/// the cut leaves out; then, by the input, cut.
+/// The template with one to four attacks drawn from `data`, then, by the input, cut.
+///
+/// An attack hits its index blocks' state entries or its blocks of state records (hostile values behind a good CRC, or
+/// damage), or cuts right after puts that belong with the block the cut leaves out.
 pub fn state(data: &[u8]) -> Vec<u8> {
     attacked(data).bytes
 }

@@ -30,8 +30,9 @@ use super::wide;
 /// A track by its id and owner.
 type Key = (u64, OwnerId);
 
-/// Most track lists of a final index [TapeReader::verify](super::TapeReader::verify) takes: one per track a piece
-/// takes data of ([TRACKS_PER_PIECE_MAX](crate::piece::TRACKS_PER_PIECE_MAX)), the state records' and the records of data's.
+/// Most track lists of a final index [TapeReader::verify](super::TapeReader::verify) takes: one per track a piece takes
+/// data of ([TRACKS_PER_PIECE_MAX](crate::piece::TRACKS_PER_PIECE_MAX)), the state records' and the records of data's.
+///
 /// Verify holds one entry per list, so this bounds what it holds whatever the piece's size.
 pub const VERIFY_LISTS_MAX: usize = crate::piece::TRACKS_PER_PIECE_MAX.saturating_add(2);
 

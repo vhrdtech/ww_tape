@@ -182,7 +182,9 @@ impl<'b> Values<'b> {
 }
 
 /// Encode `values`, one per item, in [Codec::STARTS] when they never decrease, else in [Codec::DURATIONS]: the codec
-/// and the column's bytes. None for no values, more than a u32 counts, or a column past u32 offsets.
+/// and the column's bytes.
+///
+/// None for no values, more than a u32 counts, or a column past u32 offsets.
 #[cfg(feature = "alloc")]
 pub fn encode_values(values: &[u64]) -> Option<(Codec, alloc::vec::Vec<u8>)> {
     use alloc::vec::Vec;

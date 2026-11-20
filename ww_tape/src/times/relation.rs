@@ -18,8 +18,9 @@ use crate::chunk::ColumnSpec;
 use crate::chunk::{Chunk, Codec, Column, ColumnKind};
 use crate::{RELATIONS_MAX, RelationValues, TrackDef};
 
-/// Which relations of a track keep their values in a column of its chunks and which never decrease, bit `i` for
-/// relation `i` of [TrackDef::relations]: what a reader checks an events chunk's relation columns against.
+/// Which relations of a track keep their values in a column of its chunks, and which never decrease.
+///
+/// Bit `i` is relation `i` of [TrackDef::relations]. A reader checks an events chunk's relation columns against it.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub struct StoredRelations {
     /// Relations with [RelationValues::Stored].

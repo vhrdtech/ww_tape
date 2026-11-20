@@ -140,7 +140,9 @@ impl core::error::Error for ScaleError {}
 pub const FACTOR_MAX: u64 = 1 << 53;
 
 /// The largest scale `a` and `b` are both whole multiples of: `10⁻⁶` for `10⁻³` and `10⁻⁶`, `1/1000` for `1/1000` and
-/// `1024`. The scale statistics of samples at both scales are kept in, so minimum and maximum stay exact integers.
+/// `1024`.
+///
+/// The scale statistics of samples at both scales are kept in, so minimum and maximum stay exact integers.
 pub fn common_scale(a: Magnitude, b: Magnitude) -> Result<Magnitude, ScaleError> {
     if a == b {
         return Ok(a);

@@ -1,7 +1,8 @@
 //! Sessions: one writer's unbroken append, named by a [SessionTag] in every block header.
 
-/// Names a session: one writer's unbroken append (a producer start, a device boot, an importer's pass over one
-/// source). Every block of the session carries it at header bytes 24..28, and seq counts from 0 in every session.
+/// Names a session: one writer's unbroken append (a producer start, a device boot, an importer's pass over one source).
+///
+/// Every block of the session carries it at header bytes 24..28, and seq counts from 0 in every session.
 ///
 /// A tag a writer makes is never 0 nor `u32::MAX`, so a blank header (all 0x00 or all 0xFF) never names a session.
 /// [SessionTag::NONE] (0) stands for no session: a block made before it is placed (a summary tree's, renumbered by

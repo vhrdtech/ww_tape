@@ -236,8 +236,10 @@ impl Default for MemSink {
 }
 
 /// Pieces in memory by key, shared by every clone: a store of [Tapes] (keyed by a piece's seq with `K = u64`), and
-/// where its readers find each piece ([Self::get]). Another key lets an application keep the pieces of many chains
-/// in one map, behind a [Tapes] of its own that names each chain's keys.
+/// where its readers find each piece ([Self::get]).
+///
+/// Another key lets an application keep the pieces of many chains in one map, behind a [Tapes] of its own that names
+/// each chain's keys.
 #[derive(Clone, Debug)]
 pub struct MemTapes<K = u64>(Arc<Mutex<BTreeMap<K, MemTape<K>>>>);
 
