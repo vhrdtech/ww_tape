@@ -22,8 +22,11 @@ pub(crate) const FAULT_MS: i64 = FAULT_MINUTE as i64 * 60_000;
 const RUN_MS: i64 = RUN_MINUTE as i64 * 60_000;
 /// How long the current rises past the limit before the drive trips, ms.
 const OVERCURRENT_MS: i64 = 20;
-/// The current limit the drive trips at, mA.
-pub const LIMIT_MA: i32 = 40_000;
+/// The current limit the drive trips at, mA: within the 16-bit range of `phase_a`, so the samples show the overcurrent
+/// unclipped.
+pub const LIMIT_MA: i32 = 31_000;
+/// How far past the limit the current rises before the drive trips, mA.
+const OVERSHOOT_MA: f64 = 1_500.0;
 
 /// The drive's mode, the state track `mode`.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -50,7 +53,7 @@ impl Mode {
     pub fn item(self) -> &'static [u8] {
         match self {
             Self::Idle => b"idle",
-            Self::Run => b"run, 40 A limit",
+            Self::Run => b"run, 31 A limit",
             Self::Fault => b"fault: overcurrent",
         }
     }
@@ -74,14 +77,14 @@ pub(crate) fn hash(seed: u64, n: u64) -> u64 {
 }
 
 /// The peak phase current at `ms` since boot, mA: none while idle; in run a cycle of five minutes from 5 A up to
-/// 30 A and down again; past the limit for the last 20 ms before the fault, none after it.
+/// 30 A and down again; rising past the limit in the last 20 ms before the fault, none after it.
 fn peak_ma(ms: i64) -> f64 {
     if !(RUN_MS..FAULT_MS).contains(&ms) {
         return 0.0;
     }
     if ms >= FAULT_MS - OVERCURRENT_MS {
         let rise = f64::from(i32::try_from(ms - (FAULT_MS - OVERCURRENT_MS)).unwrap_or(0));
-        return 30_000.0 + (f64::from(LIMIT_MA) - 30_000.0 + 2_000.0) * rise / 20.0;
+        return 30_000.0 + (f64::from(LIMIT_MA) - 30_000.0 + OVERSHOOT_MA) * rise / 20.0;
     }
     let cycle = f64::from(i32::try_from((ms - RUN_MS) % 300_000).unwrap_or(0)) / 300_000.0;
     5_000.0 + 25_000.0 * 0.5 * (1.0 - libm::cos(2.0 * PI * cycle))
@@ -119,7 +122,7 @@ fn rms_ma(ms: i64) -> u32 {
     #[expect(
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss,
-        reason = "a peak of at most 42 A: in u32, and never negative"
+        reason = "a peak of at most 32.5 A: in u32, and never negative"
     )]
     let v = libm::round(peak_ma(ms) / core::f64::consts::SQRT_2) as u32;
     v

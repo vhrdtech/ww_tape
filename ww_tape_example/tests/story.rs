@@ -153,3 +153,22 @@ fn a_shorter_run_is_the_start_of_the_hour() -> Result<(), Error> {
     assert_eq!(a[..end], b[..end]);
     Ok(())
 }
+
+#[test]
+fn the_overcurrent_passes_the_limit_within_16_bits() {
+    // the 20 ms before the fault at full rate, a sample every 40 µs
+    let fault_us = i64::from(FAULT_MINUTE) * US_PER_MINUTE;
+    let peak = (0..500i64)
+        .map(|k| {
+            let us = fault_us - 20_000 + 40 * k;
+            let n = (us / 40).cast_unsigned();
+            ww_tape_example::phase_ma(us, n, 25_000).unsigned_abs()
+        })
+        .max()
+        .expect("samples");
+    assert!(
+        i32::from(peak) > ww_tape_example::LIMIT_MA,
+        "the current passes the limit: {peak} mA"
+    );
+    assert!(peak < i16::MAX.unsigned_abs(), "no sample clips: {peak} mA");
+}
