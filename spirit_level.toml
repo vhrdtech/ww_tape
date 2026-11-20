@@ -82,3 +82,27 @@ reason = "the navigation names pages that exist"
 [lints.no-sys-crates]
 allow = ["cc"]
 reason = "cc is a build-dependency of blake3, built pure: its build script compiles no C (AGENTS.md, Dependencies)"
+
+[lints.commit-subject-length]
+after = "17ad6a7185a627efb58e066af34e83de9f078d97"
+reason = "history up to main's tip of 21 Nov 2026 is pushed and cannot be rewritten"
+
+[lints.commit-body-lines]
+after = "17ad6a7185a627efb58e066af34e83de9f078d97"
+reason = "history up to main's tip of 21 Nov 2026 is pushed and cannot be rewritten"
+
+[lints.commit-prose]
+after = "17ad6a7185a627efb58e066af34e83de9f078d97"
+reason = "history up to main's tip of 21 Nov 2026 is pushed and cannot be rewritten"
+
+[lints.fixes-tag]
+after = "17ad6a7185a627efb58e066af34e83de9f078d97"
+reason = "history up to main's tip of 21 Nov 2026 is pushed and cannot be rewritten"
+
+[lints.fix-without-test]
+after = "17ad6a7185a627efb58e066af34e83de9f078d97"
+reason = "history up to main's tip of 21 Nov 2026 is pushed and cannot be rewritten"
+
+[lints.commit-tested-line]
+after = "17ad6a7185a627efb58e066af34e83de9f078d97"
+reason = "history up to main's tip of 21 Nov 2026 is pushed and cannot be rewritten"
