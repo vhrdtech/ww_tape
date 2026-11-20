@@ -1,8 +1,8 @@
 # ww_tape changelog
 
-ww_tape was developed inside the wire_weaver repo from October 2026, first as `ww_logbook`, and moved to its own repo
-([vhrdtech/ww_tape](https://github.com/vhrdtech/ww_tape)) in November 2026 with its history, its fuzz targets and seeds,
-its benchmarks, its golden files and its book pages.
+From October 2026, `ww_logbook` and then ww_tape grew inside the wire_weaver repo. In November 2026 it moved to its
+own repo ([vhrdtech/ww_tape](https://github.com/vhrdtech/ww_tape)) with its history, fuzz targets and seeds,
+benchmarks, golden files and book pages.
 
 ## Unreleased
 
@@ -29,6 +29,22 @@ Covers `ww_tape` 0.1.0.
 - `Close` gains `prev` and `summary`, `PieceSummary` `unclosed`, `Resumed` `after_close`: struct literals name them (TAPE-14).
 - `TRACKS_PER_PIECE_MAX` is 493415 and `VERIFY_LISTS_MAX` 493417, one less each: the close record grew (TAPE-14).
 - `ww_tape_fs::writer::resume` of a closed file writes on after its close; it returned `FsError::Exists` (TAPE-14).
+
+### 🚀 Features
+
+- `TapeWriter::close_with_summary` places a close summary (kind 14) the close names; `TapeReader::close_summary` reads it (TAPE-14).
+- `TapeReader::unclosed` names the bytes no close covers; `TapeReader::closed_entries` lists only blocks the close in force covers (TAPE-14).
+- A piece closes more than once: an append head after the tail, a chained close hash, `TapeReader::closes` (TAPE-14).
+- Readers take the last close with a whole tail; bytes after it are an unclosed tail, never damage (TAPE-14).
+- Fuzz target `tape-reclose`: a piece closed several times, its last append torn and mutated, read and resumed (TAPE-14).
+
+### 🐛 Fixes
+
+- A close syncs after its final index, before the close record, so a whole close never names unsynced blocks (TAPE-14).
+- A tail counts only right after the close record it names; a tail naming an older close no longer hides later bytes (TAPE-14).
+
+### Breaking
+
 - `TimesError::Corrupt { kind, what }` is `{ kind, error: ColumnError }`, the column reader's error whole (TAPE-12).
 - `PayloadsError::Corrupt { kind, what }` is `{ kind, error: ColumnError }`, as for the time columns (TAPE-12).
 - Sample codecs move to `ww_tape_codecs::samples` on scalars and lanes; `ww_tape::samples` keeps the shape-based `Samples`, `encode`, `max_encoded_len` (TAPE-12).
@@ -55,10 +71,10 @@ Covers `ww_tape` 0.1.0.
 - `IndexEntry` gains `relation_break`; an events chunk block takes header flag `FLAG_RELATION_BREAK` from callers (TAPE-7).
 - A chain carries at most `HEAD_TRACKS_MAX` tracks into a piece head; a track past it is refused (`InputError::TooManyCarried`) (TAPE-8).
 - `Recovery::Resync` reports two blocks of one seq with other bytes as `FileError::Conflict`, both named; the second is no block (TAPE-8).
-- `Recovery::Resync` remembers the last `RESYNC_SEQS_MAX` (65536) data blocks it handed out: a block of one of their ids with other bytes is a `FileError::Conflict` however far apart; it compared only with the block just before (TAPE-8).
+- `Recovery::Resync` remembers the last `RESYNC_SEQS_MAX` (65536) data blocks it handed out; it compared only with the block just before. A block of one of their ids with other bytes is a `FileError::Conflict`, however far apart (TAPE-8).
 - `EventTimes`, `Starts` and `RelationColumn` are `Clone`, not `Copy`: a salvaged column keeps its group verdicts (STD-120).
 - `verify` holds only when the final index and the walk are the same set, read as two streams in bounded memory (TAPE-9).
-- A resume that meets a finish, tail or final index before the end of what its reader took refuses (`ResumeError::GoodBlockAfterCut`) where a block of the piece's session follows it; it cut them off (TAPE-8).
+- A resume meets a finish, tail or final index before the end of what its reader took. Where a block of the piece's session follows it, the resume now refuses (`ResumeError::GoodBlockAfterCut`); it cut them off (TAPE-8).
 - A chunk or summary whose head names its track under another id than the definition's is refused (`DescribeError::TrackId`) (TAPE-8).
 - A piece takes data of at most `TRACKS_PER_PIECE_MAX` tracks, so its finish fits a block (`InputError::TooManyTracks`) (TAPE-8).
 - `cut_in_place` returns `CutError`: a refused cut hands the writer back (`CutError::writer`); it was dropped (TAPE-8).
@@ -143,7 +159,7 @@ Covers `ww_tape` 0.1.0.
 - `PieceChain::create_on` takes the chain number: each chain of an owner gets its own piece ids and session tag (STD-129).
 - `PieceId::first` is `first_of(owner, 0)`: its bytes change; `PieceId::first_of` names the first piece of each chain (STD-129).
 - `Block::records` of an lz4-coded body gives `BlockError::Coded`: read the records of `Block::decode` (STD-129).
-- Header bytes 24..28 hold the session tag in every block, 28..32 the head CRC; chunk payload and index entries offsets move to 32..36 (STD-129).
+- Header bytes 24..28 hold the session tag in every block, 28..32 the head CRC. Chunk payload and index entries offsets move to 32..36 (STD-129).
 - `PieceHead` gains `prev_session`: the session before the piece head on the medium, piece head bytes 92..96 (STD-129).
 - Within a session a describe block is in seq order unless marked a copy; `FileError` gains `Replaced` (STD-129).
 - `OpenOptions` gains `medium`, `start` and `layout`; `PieceInfo` gains `gaps` and `replaced` (STD-129).
@@ -160,18 +176,13 @@ Covers `ww_tape` 0.1.0.
 - Header bytes 24..32 hold a chunk block's payload offset and head CRC; `BlockError::Chunk` for a bad chunk head (STD-118).
 - `BlockError` gains `Summary` for a bad summary block head or body (STD-121).
 - `WriteError` gains `Block` and `Chunk`; `Describe` gains `Layout`, which takes variant 6 (STD-118).
-- Format version 2 (STD-117): record times are signed i64 ticks of the track's clock (`Record::at: Option<ClockTime>`), deltas coded per clock after a clock table in the body; header bytes 24..32 are reserved, `Block::t_base` is gone.
+- Format version 2 (STD-117): record times are signed i64 ticks of the track's clock (`Record::at` reads them). Deltas are coded per clock after a clock table in the body; header bytes 24..32 are reserved, `Block::t_base` is gone.
 - `BlockWriter::new` takes the block's clocks instead of a time base; `push` / `push_with` take a `ClockTime`, describe records go through `push_describe` / `push_describe_with`.
 - `BlockKind::Data` is `BlockKind::Records`; `Producer` has only its name: `wall_ns_at_zero` is a wall clock and a `ClockMap` (STD-117).
 - `TrackDef` names its `clock`, carries `dimensions` (part of its identity, `track_id`) and an optional item type `item` (STD-117).
 
-### 🚀 Features
+### Features
 
-- `TapeWriter::close_with_summary` places a close summary (kind 14) the close names; `TapeReader::close_summary` reads it (TAPE-14).
-- `TapeReader::unclosed` names the bytes no close covers; `TapeReader::closed_entries` lists only blocks the close in force covers (TAPE-14).
-- A piece closes more than once: an append head after the tail, a chained close hash, `TapeReader::closes` (TAPE-14).
-- Readers take the last close with a whole tail; bytes after it are an unclosed tail, never damage (TAPE-14).
-- Fuzz target `tape-reclose`: a piece closed several times, its last append torn and mutated, read and resumed (TAPE-14).
 - `SummaryHead::read` checks a summary block and gives its head and body, so a reader that decodes no node still checks it (TAPE-12).
 - `SummaryHead::read` and `Summary::read` refuse bytes of another magic, version, kind or length: `SummaryError::NotSummary` (TAPE-12).
 - `SummaryHead::read` also returns the block's node count (TAPE-12).
@@ -196,7 +207,8 @@ Covers `ww_tape` 0.1.0.
 - A range relation's smallest and largest value per chunk in its index entry (`IndexEntry::range`) (TAPE-7).
 - Block kinds 11 and 12 reserved for relation postings and dictionaries (`BlockKind::POSTINGS`, `DICTIONARY`) (TAPE-7).
 - Bench `relations`: column bytes, encode, read, lower bound, `write_chunk` with relation columns (TAPE-7).
-- `MemTapes::remove` takes a finished piece out (readers keep their bytes, an unfinished piece is `WriteError::Unfinished`); `PieceChain` makes a `MemSink` reserve its cut size (`CUT_SLACK`), a reader's worst wait 0.5 to 0.6 ms down to 0.1 to 0.16 ms (TAPE-6).
+- `MemTapes::remove` takes a finished piece out; readers keep their bytes, and an unfinished piece is `WriteError::Unfinished` (TAPE-6).
+- `PieceChain` makes a `MemSink` reserve its cut size (`CUT_SLACK`). A reader's worst wait drops from 0.5-0.6 ms to 0.1-0.16 ms (TAPE-6).
 - One CRC-32C everywhere; SSE4.2/ARMv8 hardware kernels cut `write_chunk`'s CRC from 237 to 89 µs/MiB (TAPE-5).
 - `write_chunk` no longer reads its own chunk back; caller blocks are CRC-checked once: 1 MiB chunk 857 to 466 µs (TAPE-4).
 - `just bench-chunks`: ns per 1 MiB series chunk the writer spends, its parts, and a timeline's cost (TAPE-4).
@@ -283,17 +295,32 @@ Covers `ww_tape` 0.1.0.
 - `ClockOrigin::Epoch`: a counter's next epoch, linked by an exact offset map to the previous epoch's clock (STD-117).
 - A `ClockMap` must increase strictly across its segments, checked on decode and by `DescribeSet` (STD-117).
 - Golden file `golden/v2.hex` and a test that two writes of the same input are byte-identical (STD-117).
-- First version (STD-42): tape blocks, the generic unit of records for live feeds and log files: a 32-byte header (magic `WWTP`, version, kind, length, record count, block seq, time base), records (`uvar` track, `ivar` time delta, `uvar` length, item bytes) and a CRC-32C, variable length and never padded. `BlockWriter` (`push`, `push_with` to encode an item in place, `finish`), `Block::read` / `Block::records` reading in place, `block_len`; describe records on track 0 (`Describe`: `Producer`, `TrackDef` with stable key, API, bundle hash, resource path, label and `sticky`, `Bundle`), `api_root_id` and `track_key` as in logring; with `std`, `FileBlocks` reads blocks appended back to back from a file or stream, skipping a bad block to the next magic and reporting a cut last one (`FileBlocks::next_good` skips them, handing each to a callback), `BlockBuf` an owned checked block. Extensible: the 32-byte header and the CRC trailer are the same in every version, so a block of a later version (`Block::version`) or of a kind a reader doesn't know (`BlockKind::Other`) is checked and given out without records (`Block::body_known` false) instead of being taken for damage; `Describe` is evolvable, a variant a reader doesn't know reads as `Describe::Unknown`.
-- `TapeWriter` (`create`, `append`, `write_block`, `tick`, `sync`, `finish`): blocks into a file with database-style durability: a new file as `NAME.partial` renamed at `finish`, file and directory synced after create and rename, data synced by a `SyncPolicy` (`None`, `EveryBlocks(n)`, `Interval(t)`, default 1 s; `File::sync_data`: `fdatasync` / `F_FULLFSYNC` / `FlushFileBuffers`), a failed write or sync fatal for the file (`WriteError::Failed` afterwards, never retried).
-- `FileBlocks` reads the longest valid prefix by default (`Recovery::Prefix`): it stops at the first block with a bad magic, length or CRC, a cut one or a data block whose seq goes back, reporting `FileError::Cut`; zeros at the end are the end. `Recovery::Resync` (`FileBlocks::with_recovery`) skips damage to the next magic, also past a damaged length. A block is at most `MAX_BLOCK_LEN` (64 MiB) and the reader's buffer grows only with the bytes that come, so a damaged length doesn't allocate what it says. Tests cut a capture at every byte and flip every byte; fuzz target `tape-reader`.
+- First version (STD-42): tape blocks, the generic unit of records for live feeds and log files.
+- A block is a 32-byte header (magic `WWTP`, version, kind, length, record count, block seq, time base), records and a CRC-32C. It has variable length and is never padded.
+- A record is a `uvar` track, an `ivar` time delta, a `uvar` length and the item bytes (STD-42).
+- `BlockWriter` (`push`, `push_with` to encode an item in place, `finish`), `Block::read` / `Block::records` reading in place, `block_len` (STD-42).
+- Describe records on track 0 (`Describe`: `Producer`, `Bundle`, `TrackDef`); `api_root_id` and `track_key` as in logring (STD-42).
+- A `TrackDef` has a stable key, API, bundle hash, resource path, label and `sticky` (STD-42).
+- With `std`, `FileBlocks` reads blocks appended back to back from a file or stream. It skips a bad block to the next magic and reports a cut last one (STD-42).
+- `FileBlocks::next_good` skips bad blocks, handing each to a callback; `BlockBuf` is an owned checked block (STD-42).
+- The 32-byte header and the CRC trailer are the same in every version. So a block of a later version (`Block::version`) is checked and given out without records (STD-42).
+- A block of a kind a reader doesn't know (`BlockKind::Other`) is given out the same way (`Block::body_known` false), not taken for damage (STD-42).
+- `Describe` is evolvable: a variant a reader doesn't know reads as `Describe::Unknown` (STD-42).
+- `TapeWriter` (`create`, `append`, `write_block`, `tick`, `sync`, `finish`) writes blocks into a file with database-style durability (STD-42).
+- A new file is `NAME.partial`, renamed at `finish`. File and directory are synced after create and rename (STD-42).
+- A `SyncPolicy` syncs data: `None`, `EveryBlocks(n)`, `Interval(t)`, default 1 s. `File::sync_data` is `fdatasync`, `F_FULLFSYNC` or `FlushFileBuffers` (STD-42).
+- A failed write or sync is fatal for the file: `WriteError::Failed` afterwards, never retried (STD-42).
+- `FileBlocks` reads the longest valid prefix by default (`Recovery::Prefix`), reporting `FileError::Cut`; zeros at the end are the end (STD-42).
+- The prefix stops at a block with a bad magic, length or CRC, a cut block, or a data block whose seq goes back (STD-42).
+- `Recovery::Resync` (`FileBlocks::with_recovery`) skips damage to the next magic, also past a damaged length (STD-42).
+- A block is at most `MAX_BLOCK_LEN` (64 MiB). The reader's buffer grows only with the bytes that come, so a damaged length doesn't allocate what it says.
+- Tests cut a capture at every byte and flip every byte; fuzz target `tape-reader` (STD-42).
 - The book builds as a site of its own (`just book`, `just book-check`), apart from the WireWeaver book (TAPE-13).
 - The book is published at https://tape.vhrd.tech/ from main by the `Book` workflow, after CI passes (TAPE-13).
 - `TapeReader::read_chunk_head` and `series_timeline`: a track's grids from chunk heads, 335 bytes per 1 MiB chunk (TAPE-3).
 
-### 🐛 Fixes
+### Fixes
 
-- A close syncs after its final index, before the close record, so a whole close never names unsynced blocks (TAPE-14).
-- A tail counts only right after the close record it names; a tail naming an older close no longer hides later bytes (TAPE-14).
 - Sample, time and payload column errors name the column as text; the codec error is their `source()` (TAPE-12).
 - `ww_tape` builds without `alloc` again: the block, chunk and codec readers; a salvage there checks a starts column whole (STD-124).
 - A file sink locks `NAME.lock` with a per-process record lock: a forked child no longer makes a resume fail `Locked` (TAPE-12).
@@ -318,9 +345,10 @@ Covers `ww_tape` 0.1.0.
 - `Recovery::Resync` reports a block met again with other bytes (`FileError::Replaced`), as `Recovery::Prefix` does (TAPE-8).
 - `FileBlocks` refuses a piece head of another integrity level (`BlockError::UnhandledIntegrity`); it read the piece as its own (TAPE-8).
 - A refused finish block is kept as `PieceInfo::finish_error`; the piece's tail then ends no chain, which is open (TAPE-8).
-- `TapeReader::verify` replays the piece: each final-index entry must be the one its writer makes of the block at its offset (unit hash, range and the rest), each finish row the fold of its track's blocks; `range_hash` counts an entry of a kind it doesn't fold in `skipped` and checks a read chunk's range against its columns; oracle in fuzz target `tape-index` (TAPE-9).
+- `TapeReader::verify` replays the piece: each final-index entry must be the one its writer makes of the block at its offset. Each finish row must be the fold of its track's blocks (TAPE-9).
+- `range_hash` counts an entry of a kind it doesn't fold in `skipped`. It checks a read chunk's range against its columns; oracle in fuzz target `tape-index` (TAPE-9).
 - `range_hash` takes a chunk stating the items of the chunk before for a copy only when its unit hash is the same; other bytes are `ReadError::Overlap` (TAPE-8).
-- A chunk read by its index entry must be the chunk the entry names (kind, track id and number, first item, count): `range_hash` on an unhashed entry and `read_chunk_head` refuse another (`IndexError::BadEntries`) (TAPE-9).
+- A chunk read by its index entry must be the chunk the entry names: kind, track id and number, first item, count. `range_hash` on an unhashed entry and `read_chunk_head` refuse another (`IndexError::BadEntries`) (TAPE-9).
 - A chain resume keeps every monotone relation's newest value, read from each track's last chunk, not only the range relation's (TAPE-7).
 - A deferred chunk of a track with an owner counts for its monotone relations; a later decrease passed (TAPE-7).
 - Starts and monotone relation values that decrease inside a group are refused on read, suspect in salvage (STD-120, TAPE-7).
