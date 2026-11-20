@@ -231,7 +231,6 @@ Covers `ww_tape` 0.1.0.
 - `TapeWriter::put_work` (`PutWork`): bytes puts hashed and copied; `Definitions::held` shares an item and its hash (FMT-9).
 - `SeriesSummaries::push` keeps every statistic in one pass, integers up to 32 bits through AVX-512, AVX2 or portable kernels (SUM-3).
 - `TapeWriter::resume_on` and `PieceChain::resume_on` reopen a crashed piece; it finishes with an uninterrupted write's bytes (WRITE-2).
-- `TapeSink`, `Tapes`, `MemSink`, `MemTapes`, `ww_tape_fs`'s `FileSink` and `Files`: writers write to files or memory, read while written (WRITE-2).
 - `PieceChain::cut_due`, `finish_as` and `TapeWriter::chunks`, `cut_with`, `cut_on`, `create_on` (WRITE-2).
 - A resume refuses options whose alignment contradicts the piece's described layout; `TapeWriter::options`, `Resumed::layout` (WRITE-2).
 - Describe additions: `FLAG_SET_ADD`, `DescribeSet::write_addition`, `read_blocks`, `write_describe`; copies carry the merged set (WRITE-2).
@@ -318,6 +317,7 @@ Covers `ww_tape` 0.1.0.
 - The book builds as a site of its own (`just book`, `just book-check`), apart from the WireWeaver book (BOOK-1).
 - The book is published at https://tape.vhrd.tech/ from main by the `Book` workflow, after CI passes (BOOK-1).
 - `TapeReader::read_chunk_head` and `series_timeline`: a track's grids from chunk heads, 335 bytes per 1 MiB chunk (FMT-10).
+- `TapeSink`, `Tapes`, `MemSink`, `MemTapes`, `ww_tape_fs`'s `FileSink` and `Files`: writers write to files or memory, read while written (WRITE-2, FS-1).
 
 ### Fixes
 

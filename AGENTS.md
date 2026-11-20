@@ -53,7 +53,7 @@ and update the matching item in the same change when finishing one (conventions 
 - IDs carry their area's prefix (`FMT`, `WRITE`, `READ`, `FS`, `CODEC`, `SUM`, `BOOK`, `REPO`) and are stable:
   never renumber or reuse one. A new item takes the next free number of its area.
 - Use IDs in commits, CHANGELOG entries and `// TODO(FMT-1): ...`.
-- When talking to the user, name an ID with a 2-4 word kebab-case slug from its title: `FMT-4 index-finish-tail`.
+- When talking to the user, name an ID with a 2-4 word kebab-case slug from its title: `FMT-4 index-close-tail`.
 
 ## Commands
 
