@@ -35,6 +35,14 @@ fn the_full_hour_is_the_same_every_run_and_tells_the_story() -> Result<(), Error
         story.crash.piece, 2,
         "the host loses power while it writes the third piece"
     );
+    let figures = Drive::scaled(1000)
+        .ok_or(Error::Settings("1000 divides the rates"))?
+        .story()?;
+    assert_eq!(
+        (figures.pieces.len(), figures.crash.piece),
+        (story.pieces.len(), story.crash.piece),
+        "the figures' scale tells the story of the full hour: as many pieces, the crash in the same one"
+    );
     let minute = i64::from(CRASH_MINUTE) * US_PER_MINUTE;
     assert!(
         (minute..minute + 1_000_000).contains(&story.torn_from_us),
@@ -94,13 +102,26 @@ fn a_scaled_run_resumes_from_a_crash_at_any_byte() -> Result<(), Error> {
 }
 
 #[test]
-fn a_scaled_run_tells_the_same_story() -> Result<(), Error> {
-    let story = Drive::scaled(1000)
-        .ok_or(Error::Settings("1000 divides the rates"))?
-        .story()?;
+fn every_scale_tells_the_same_story() -> Result<(), Error> {
     let minute = i64::from(CRASH_MINUTE) * US_PER_MINUTE;
-    assert!((minute..minute + US_PER_MINUTE).contains(&story.torn_from_us));
-    assert!(story.same_bytes);
+    let mut shapes = Vec::new();
+    for k in [10, 20, 25, 40, 50, 100, 125, 200, 250, 500, 1000] {
+        let story = Drive::scaled(k)
+            .ok_or(Error::Settings("k divides 1000"))?
+            .story()?;
+        assert!(
+            (minute..minute + US_PER_MINUTE).contains(&story.torn_from_us),
+            "at 1/{k} the crash tears the frames of minute 37"
+        );
+        assert!(story.same_bytes, "at 1/{k} the resume gives the same bytes");
+        shapes.push((k, story.pieces.len(), story.crash.piece));
+    }
+    assert!(
+        shapes
+            .iter()
+            .all(|&(_, pieces, crash)| (pieces, crash) == (4, 2)),
+        "four pieces and the crash in the third at every scale: {shapes:?}"
+    );
     Ok(())
 }
 

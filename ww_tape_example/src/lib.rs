@@ -58,9 +58,10 @@ pub const CHAIN: u64 = 0;
 /// The producer the pieces name.
 pub const PRODUCER: &str = "drive bench host";
 
-/// How much of the drive's recording to make, and the writer's byte policies for it.
+/// How much of the drive's recording to make, and the writer's policies for it.
 ///
-/// [Drive::full] is the story's hour; [Drive::scaled] divides the data rates and the byte policies alike.
+/// [Drive::full] is the story's hour; [Drive::scaled] divides the data rates and the byte policies alike and keeps
+/// the pieces: each holds the same minutes of the run at every scale.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Drive {
     /// Length of the run, minutes from the board's boot.
@@ -73,10 +74,12 @@ pub struct Drive {
     pub log_per_hour: u32,
     /// Temperature readings per hour.
     pub temp_per_hour: u32,
-    /// Milliseconds of the run each block covers: a records block, a chunk of `can0` and one of `phase_a`.
+    /// Milliseconds of the run each block covers: a records block, a chunk of `can0` and one of `phase_a`. It divides
+    /// a minute.
     pub block_ms: u32,
-    /// The chain cuts to a new piece once a piece holds this many bytes ([ww_tape::CutPolicy::bytes]).
-    pub cut_bytes: u64,
+    /// Minutes of the run in a piece: the chain cuts to a new piece once a piece holds the chunks of this many minutes
+    /// ([ww_tape::CutPolicy::chunks]), so the pieces fall at the same minutes at every scale.
+    pub piece_minutes: u32,
     /// The writer places a checkpoint every this many bytes ([ww_tape::IndexPolicy::bytes]).
     pub checkpoint_bytes: u64,
     /// The definitions and the mode lie at most this far behind each use ([ww_tape::StatePolicy::near]).
@@ -89,7 +92,7 @@ pub struct Drive {
 }
 
 impl Drive {
-    /// The story's hour at full rate, with the writer's default byte policies and pieces of 32 MiB.
+    /// The story's hour at full rate, with the writer's default byte policies and a piece every 15 minutes.
     pub const fn full() -> Self {
         Self {
             minutes: 60,
@@ -98,7 +101,7 @@ impl Drive {
             log_per_hour: 3 * 3_600,
             temp_per_hour: 3_600,
             block_ms: 1_000,
-            cut_bytes: 32 << 20,
+            piece_minutes: 15,
             checkpoint_bytes: ww_tape::index::DEFAULT_CHECKPOINT_BYTES,
             near_bytes: 32 << 20,
             copy_spacing: ww_tape::writer::near::COPY_SPACING,
@@ -106,8 +109,9 @@ impl Drive {
         }
     }
 
-    /// The story's hour with `1/k` of the data: the rates and every byte policy divided by `k`, a block covering `k`
-    /// seconds (at most a minute). The run keeps its pieces and checkpoints; None when `k` doesn't divide 1000.
+    /// The story's hour with `1/k` of the data: the rates and every byte policy divided by `k`, a block covering the
+    /// largest number of seconds up to `k` that divides a minute. The run keeps its pieces, so the crash falls in the
+    /// same piece; None when `k` doesn't divide 1000.
     pub fn scaled(k: u32) -> Option<Self> {
         let full = Self::full();
         if k == 0 || 1000 % k != 0 {
@@ -119,8 +123,7 @@ impl Drive {
             can_hz: full.can_hz / k,
             log_per_hour: full.log_per_hour / k,
             temp_per_hour: full.temp_per_hour / k,
-            block_ms: (full.block_ms * k).min(60_000),
-            cut_bytes: full.cut_bytes / k64,
+            block_ms: full.block_ms * block_seconds(k),
             checkpoint_bytes: full.checkpoint_bytes / k64,
             near_bytes: full.near_bytes / k,
             copy_spacing: full.copy_spacing / k64,
@@ -128,10 +131,25 @@ impl Drive {
         })
     }
 
+    /// Chunks the chain cuts after: a chunk of `can0` and one of `phase_a` for each block of a piece.
+    pub(crate) fn piece_chunks(&self) -> u64 {
+        let blocks =
+            (u64::from(self.piece_minutes) * 60_000).div_ceil(u64::from(self.block_ms.max(1)));
+        2 * blocks
+    }
+
     /// The same run cut short at `minutes`.
     pub const fn minutes(self, minutes: u32) -> Self {
         Self { minutes, ..self }
     }
+}
+
+/// The largest number of seconds up to `k` that divides a minute: what a block of the run at scale `k` covers.
+fn block_seconds(k: u32) -> u32 {
+    [60, 30, 20, 15, 12, 10, 6, 5, 4, 3, 2, 1]
+        .into_iter()
+        .find(|&s| s <= k)
+        .unwrap_or(1)
 }
 
 /// Why the recording could not be made.

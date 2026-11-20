@@ -80,8 +80,8 @@ impl Acts {
         if drive.can_hz == 0 || 1_000_000 % drive.can_hz != 0 {
             return Err(Error::Settings("can_hz divides 1 000 000"));
         }
-        if drive.block_ms == 0 {
-            return Err(Error::Settings("block_ms is not 0"));
+        if drive.block_ms == 0 || 60_000 % drive.block_ms != 0 {
+            return Err(Error::Settings("block_ms divides a minute"));
         }
         let run_ms = u64::from(drive.minutes) * 60_000;
         let blocks = run_ms.div_ceil(u64::from(drive.block_ms));
@@ -289,8 +289,8 @@ fn options(drive: &Drive) -> ChainOptions {
             clock: ClockRef::NONE,
         },
         cut: CutPolicy {
-            bytes: drive.cut_bytes,
-            chunks: 0,
+            bytes: 0,
+            chunks: drive.piece_chunks(),
             interval: None,
         },
         tapes: PieceTapes::Each,

@@ -14,7 +14,7 @@ The host records the run into a chain of pieces in memory. The drive starts at m
 
 In the story, the host loses power at minute 37 while it writes the third piece. It then resumes.
 
-`Drive::full()` is the story's hour. `Drive::scaled(k)` divides the data rates and the byte policies by `k`, for figures that must fit a page. The same settings give the same bytes, and a crash at any byte resumes to the bytes of the run without it.
+`Drive::full()` is the story's hour. `Drive::scaled(k)` divides the data rates and the byte policies by `k`, for figures that must fit a page. A piece holds 15 minutes of the run at every scale, so every scale has four pieces and the crash in the third. The same settings give the same bytes, and a crash at any byte resumes to the bytes of the run without it.
 
 ```sh
 cargo run --release -p ww_tape_example        # the story's numbers at full scale
