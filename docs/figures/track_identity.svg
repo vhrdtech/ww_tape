@@ -1,0 +1,33 @@
+<svg class="ww-svg" viewBox="0 0 680 262" width="680" height="262" role="img" aria-label="A track's API path hashes to its track key; the key and the track's dimensions hash to its track id, which is the key itself when there are no dimensions; inside one file a small track number stands for the track" xmlns="http://www.w3.org/2000/svg">
+  <text x="20" y="22" text-anchor="start" class="strong">across files and runs</text>
+  <rect x="20.5" y="40" width="170" height="52" rx="3" class="tint-ink"/>
+  <text x="105" y="61" text-anchor="middle" class="small">API path</text>
+  <text x="105" y="80" text-anchor="middle" class="mono small">drive_api / can0</text>
+  <path d="M192 66 H246" class="line"/>
+  <path d="M254 66 L245 61.5 L245 70.5 Z" class="line head"/>
+  <text x="222" y="58" text-anchor="middle" class="soft small">hash</text>
+  <rect x="255.5" y="40" width="190" height="52" rx="3" class="tint-blue"/>
+  <text x="350" y="61" text-anchor="middle" class="small">track key</text>
+  <text x="350" y="80" text-anchor="middle" class="mono small">0x01584c57693fd3f2</text>
+  <path d="M447 58 C470 58 470 52 484 52" class="line"/>
+  <path d="M492 52 L483 47.5 L483 56.5 Z" class="line head"/>
+  <rect x="493.5" y="28" width="166" height="48" rx="3" class="tint-green"/>
+  <text x="576" y="47" text-anchor="middle" class="small">track id, no dimensions</text>
+  <text x="576" y="65" text-anchor="middle" class="mono small">0x01584c57693fd3f2</text>
+  <path d="M447 74 C470 74 470 118 484 118" class="line"/>
+  <path d="M492 118 L483 113.5 L483 122.5 Z" class="line head"/>
+  <rect x="255.5" y="112" width="190" height="40" rx="3" class="tint-purple"/>
+  <text x="350" y="131" text-anchor="middle" class="small">dimension</text>
+  <text x="350" y="146" text-anchor="middle" class="mono small">bench = 2</text>
+  <path d="M447 132 C466 132 470 124 484 124" class="line"/>
+  <rect x="493.5" y="94" width="166" height="48" rx="3" class="tint-green"/>
+  <text x="576" y="113" text-anchor="middle" class="small">track id, bench = 2</text>
+  <text x="576" y="131" text-anchor="middle" class="mono small">0x4d717cfb2248cb86</text>
+  <line x1="20" y1="174" x2="660" y2="174" class="faint"/>
+  <text x="20" y="198" text-anchor="start" class="strong">inside one file</text>
+  <rect x="255.5" y="212" width="190" height="36" rx="3" class="tint-amber"/>
+  <text x="350" y="235" text-anchor="middle" class="small">track number <tspan class="mono">3</tspan></text>
+  <text x="20" y="218" text-anchor="start" class="soft small">its definition ties the number</text>
+  <text x="20" y="234" text-anchor="start" class="soft small">to the key and the dimensions</text>
+  <text x="456" y="235" text-anchor="start" class="soft small">in every record and chunk head</text>
+</svg>
