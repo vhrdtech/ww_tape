@@ -1,3 +1,7 @@
+---
+level: basic
+---
+
 <!-- The logo is inlined (assets/logo, `just logo`) so the book needs no image files; one of the two shows per
 scheme, by the rules of stylesheets/hero.css. -->
 <div class="ww-tape-hero ww-tape-hero--light" markdown="0" role="img" aria-label="ww_tape">

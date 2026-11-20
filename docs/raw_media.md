@@ -1,3 +1,7 @@
+---
+level: advanced
+---
+
 # Sessions and raw media
 
 A **medium** is what holds the bytes of a tape: a file, or a raw card or flash chip written without a file system. In

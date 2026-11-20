@@ -1,3 +1,7 @@
+---
+level: nomicon
+---
+
 # Format reference
 
 This page describes format version 1 of a tape, block by block. It starts with files, blocks and their layouts, then

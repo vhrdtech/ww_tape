@@ -1,3 +1,7 @@
+---
+level: basic
+---
+
 # Series
 
 A **series** is a track of samples at an exact period. Examples are an analog-to-digital converter (ADC) channel, an

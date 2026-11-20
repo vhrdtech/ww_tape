@@ -44,6 +44,8 @@ nav = [
     { "Reference" = [
             "format.md",
             "glossary.md",
+            "levels.md",
+            "writers.md",
             { "Features and roadmap" = "https://github.com/vhrdtech/ww_tape/blob/main/FEATURES.md" },
             { "Changelog" = "https://github.com/vhrdtech/ww_tape/blob/main/CHANGELOG.md" }
         ]
@@ -57,6 +59,8 @@ extra_css = ["stylesheets/vhrd.css", "stylesheets/figures.css", "stylesheets/her
 extra_javascript = ["javascripts/spl-refs.js"]
 
 [project.theme]
+# overrides/main.html: the reading level badge above a page's title, from its `level:` front matter (docs/levels.md)
+custom_dir = "overrides"
 favicon = "assets/ww_tape_icon.svg"
 logo = "assets/ww_tape_icon.svg"
 language = "en"

@@ -1,3 +1,7 @@
+---
+level: basic
+---
+
 # Blocks and definitions
 
 This page explains the parts every tape is built from, and how a tape says what its data means. It assumes the words

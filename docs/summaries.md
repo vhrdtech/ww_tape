@@ -1,3 +1,7 @@
+---
+level: basic
+---
+
 # Summaries
 
 A viewer that draws a track of a billion items over 2000 pixels must not read a billion items. **Summary blocks** hold a

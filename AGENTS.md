@@ -24,7 +24,8 @@ unclear, the source and its comments are authoritative.
 The docs are the ww_tape book, a Zensical site of its own: `zensical.toml` configures it and `just book-check` builds
 it. It links the WireWeaver book (`https://ww.vhrd.tech/...`) and the logring book by URL and includes neither.
 
-WireWeaver's book links here by URL too, so keep the headings other books link to.
+WireWeaver's book links here by URL too, so keep the headings other books link to. `docs/writers.md` says how a
+chapter reads and how it marks terms, links code and includes tested code.
 
 ## Layout
 
@@ -34,7 +35,7 @@ WireWeaver's book links here by URL too, so keep the headings other books link t
 | `ww_tape_codecs/` | column codecs with no notion of a block, over slices, ids and scalars: `bitpack`, `crc32c`, `from_file`, varints, `lz4`, `samples`, `times`, `lengths`, the summary kernels; `ww_tape` re-exports them |
 | `ww_tape_summary/` | summary nodes above the core: `EventTree`, `SeriesSummaries`, `Summary` read in place, `EventNode`, `ChannelStats`, scales; re-exports the head types; `golden/` its golden file |
 | `ww_tape_fs/` | everything that names a path: `FileSink`, `Files`, `FileSource`, the lock on `NAME.lock`, `writer::{create, append, resume, cut}`, `chain::{create, resume}` |
-| `ww_tape_tests/` | the integration tests (`tests/it`), through the public API; the book pages against the code |
+| `ww_tape_tests/` | the integration tests (`tests/it`), through the public API; the book pages against the code, their `rust` blocks as doctests (`src/book.rs`) |
 | `ww_tape_fuzz/` | the fuzz target bodies (`targets`), hostile block builders (`hostile`), `seeds/` and their replay as tests, `ww_tape_fuzz_seeds` |
 | `ww_tape_codecs_benchmarks/` | float sample codecs on simulated, decoded and sensor data |
 | `ww_tape_benchmarks/` | series summaries (`--bin summaries`); tracks added one by one, puts and copies (`--bin tracks`); the writer's cost per series chunk (`--bin chunks`) |

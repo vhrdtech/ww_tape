@@ -1,3 +1,7 @@
+---
+level: basic
+---
+
 # WireWeaver and logring
 
 Two other books cover the projects that tapes are used with. Each book stands on its own, and therefore this page says

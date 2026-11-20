@@ -1,3 +1,7 @@
+---
+level: basic
+---
+
 # Writing a tape
 
 A **producer** is the program that makes the data, such as a recorder or a logger. This page follows a producer from an

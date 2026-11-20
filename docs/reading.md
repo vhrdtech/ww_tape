@@ -1,3 +1,7 @@
+---
+level: basic
+---
+
 # Reading a tape
 
 A reader of a tape usually wants a small part of it. That part may be one track out of thousands, one hour out of a

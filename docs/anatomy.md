@@ -1,3 +1,7 @@
+---
+level: basic
+---
+
 # Anatomy of a file
 
 This page follows one closed file from its start to its end. It then explains how a reader reads by position, and
