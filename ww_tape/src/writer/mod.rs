@@ -1820,6 +1820,10 @@ impl<S: TapeSink> TapeWriter<S> {
     /// End the piece as `how` says; a cut piece with a head names the next piece's id, [PieceId::after] its own
     /// and the content hash in its close. Unless cut in place the sink is closed ([TapeSink::close]), else it is
     /// synced and handed back for the next piece.
+    ///
+    /// The sink is synced twice, whatever the [SyncPolicy]: after the final index, before the close record, and after
+    /// the tail. A disk may write pages out of order; the first sync keeps a close record and tail that reached it from
+    /// naming blocks that didn't.
     fn end(mut self, how: End) -> Result<Ended<S>, WriteError<S::Error>> {
         self.flush_deferred()?;
         self.ensure_head()?;
@@ -1836,6 +1840,9 @@ impl<S: TapeSink> TapeWriter<S> {
             self.write_own(&b)?;
             prev = Some(at);
         }
+        // the blocks and the final index reach the disk before a close record names them: a close and tail found
+        // whole after a crash then never stand for bytes a disk never got
+        self.sync()?;
         let hash = ContentHash(*self.hash.clone().finalize().as_bytes());
         let ident = self.head.as_ref().map(|(h, _)| h.ident);
         let (reason, continued) = match how {

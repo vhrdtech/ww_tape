@@ -285,6 +285,7 @@ Covers `ww_tape` 0.1.0.
 - `TapeReader::read_chunk_head` and `series_timeline`: a track's grids from chunk heads, 335 bytes per 1 MiB chunk (TAPE-3).
 
 ### 🐛 Fixes
+- A close syncs after its final index, before the close record, so a whole close never names unsynced blocks (TAPE-14).
 
 - A tail counts only right after the close record it names; a tail naming an older close no longer hides later bytes (TAPE-14).
 - Sample, time and payload column errors name the column as text; the codec error is their `source()` (TAPE-12).

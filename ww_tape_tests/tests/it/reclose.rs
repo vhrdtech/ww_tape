@@ -725,3 +725,105 @@ fn an_unread_index_chain_leaves_tracks_unread_and_appends() {
     assert_eq!(out[..bytes.len()], bytes[..]);
     assert!(TapeReader::open(&out[..]).unwrap().pieces()[0].is_closed());
 }
+
+/// What a sink saw: a block written (by kind) or a sync.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Op {
+    Write(BlockKind),
+    Sync,
+}
+
+/// A sink that records each write by the kind of the block it starts with, and each sync, in `ops`.
+struct Recording {
+    inner: MemSink,
+    ops: std::rc::Rc<std::cell::RefCell<Vec<Op>>>,
+}
+
+impl TapeSink for Recording {
+    type Error = <MemSink as TapeSink>::Error;
+    fn write_all(&mut self, bytes: &[u8]) -> Result<(), Self::Error> {
+        if bytes.len() > 5 && bytes[..4] == *b"WWTP" {
+            self.ops
+                .borrow_mut()
+                .push(Op::Write(BlockKind::from_u8(bytes[5])));
+        }
+        self.inner.write_all(bytes)
+    }
+    fn sync(&mut self) -> Result<(), Self::Error> {
+        self.ops.borrow_mut().push(Op::Sync);
+        self.inner.sync()
+    }
+    fn close(&mut self) -> Result<(), Self::Error> {
+        self.inner.close()
+    }
+    fn size(&self) -> Result<u64, Self::Error> {
+        self.inner.size()
+    }
+    fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), Self::Error> {
+        self.inner.read_at(offset, buf)
+    }
+    fn truncate(&mut self, len: u64) -> Result<(), Self::Error> {
+        self.inner.truncate(len)
+    }
+    fn rebase(&mut self, base: u64) -> Result<(), Self::Error> {
+        self.inner.rebase(base)
+    }
+}
+
+/// A close syncs after its final index, before the close record, and again after the tail, even with no sync
+/// policy: a disk that writes pages out of order never holds a whole close and tail naming blocks it lost. The same
+/// for the close after an append.
+#[test]
+fn a_close_syncs_before_its_close_record_and_after_its_tail() {
+    let none = ww_tape::WriterOptions {
+        sync: ww_tape::SyncPolicy::None,
+        ..options(0)
+    };
+    let ends = |ops: &[Op]| {
+        let close = ops
+            .iter()
+            .rposition(|o| *o == Op::Write(BlockKind::Close))
+            .unwrap();
+        assert!(!ops[..close - 2].contains(&Op::Sync), "{ops:?}");
+        assert_eq!(
+            ops[close - 2..],
+            [
+                Op::Write(BlockKind::Index),
+                Op::Sync,
+                Op::Write(BlockKind::Close),
+                Op::Write(BlockKind::Tail),
+                Op::Sync
+            ],
+            "{ops:?}"
+        );
+    };
+    // the first close
+    let ops = std::rc::Rc::new(std::cell::RefCell::new(vec![]));
+    let sink = Recording {
+        inner: MemSink::new(),
+        ops: ops.clone(),
+    };
+    let tape = sink.inner.tape();
+    let mut w = TapeWriter::create_on(sink, none.sync);
+    w.set_layout(none.layout).unwrap();
+    w.set_producer(&none.producer);
+    w.set_index_policy(none.index).unwrap();
+    w.begin_piece(&head(), &[]).unwrap();
+    write(&mut w, 0..3);
+    w.close().unwrap();
+    ends(&ops.borrow());
+    // the close after an append
+    let bytes = tape.to_vec().unwrap();
+    let ops = std::rc::Rc::new(std::cell::RefCell::new(vec![]));
+    let mut inner = MemSink::new();
+    inner.write_all(&bytes).unwrap();
+    let sink = Recording {
+        inner,
+        ops: ops.clone(),
+    };
+    let (mut w, _) = TapeWriter::resume_on(sink, none).unwrap();
+    write(&mut w, 3..5);
+    w.close().unwrap();
+    assert_eq!(ops.borrow()[0], Op::Write(BlockKind::AppendHead));
+    ends(&ops.borrow());
+}

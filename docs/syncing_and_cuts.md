@@ -17,7 +17,7 @@ Data that the operating system has not yet written to the disk is lost when the 
 |---|---|---|
 | `Interval(t)`, the default with `t` = 1 s | when blocks wait and the last sync is `t` ago | about `t` of data |
 | `EveryBlocks(n)` | after every `n` blocks | `n` blocks |
-| `None` | only at the close | everything the system has not written yet |
+| `None` | only at the close (twice, see [Closing](#closing)) | everything the system has not written yet |
 
 `Interval` acts only when a block arrives. A producer whose input may stop for a while therefore calls
 `TapeWriter::tick` now and then.
@@ -130,11 +130,18 @@ Cutting by age serves retention by file, and it makes the file's bytes depend on
 
 ## Closing
 
-`TapeWriter::close` ends the piece as complete, in three steps:
+`TapeWriter::close` ends the piece as complete, in five steps:
 
 1. It places the deferred blocks.
-2. It writes the final index, then the close record, padded so that the piece ends on a 4 KiB boundary, then the tail.
-3. It syncs the file, renames `NAME.partial` to `NAME` and syncs the directory.
+2. It writes the final index and syncs the file.
+3. It writes the close record, padded so that the piece ends on a 4 KiB boundary, then the tail.
+4. It syncs the file again.
+5. It renames `NAME.partial` to `NAME` and syncs the directory.
+
+The two syncs hold whatever the sync policy, and a cut makes them too.
+
+A disk may write pages out of order, so a crash could leave a whole close and tail behind blocks that never reached the
+disk. The sync in step 2 rules that out: a close record found whole names only bytes that were on the disk before it.
 
 It returns a `Closed`, which holds:
 
