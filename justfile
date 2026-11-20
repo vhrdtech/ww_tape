@@ -98,6 +98,10 @@ bench-summaries *args:
 bench-tracks *args:
     cargo run -q --release -p ww_tape_benchmarks --bin tracks -- {{ args }}
 
+# ww_tape: the definitions a piece carries for the tracks of its head, per piece (WRITE-9)
+bench-carried:
+    cargo run -q --release -p ww_tape_benchmarks --bin carried
+
 # ww_tape series chunks: ns per 1 MiB chunk the writer spends, and its parts (WRITE-4); `just bench-chunks --help`
 bench-chunks *args:
     cargo run -q --release -p ww_tape_benchmarks --bin chunks -- {{ args }}

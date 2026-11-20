@@ -101,7 +101,22 @@ The definitions are state records, so each one also takes an index entry. A cut 
 entries than `IndexPolicy::state_entries_max` allows is refused before the piece ends. The writer comes back in
 `CutError::writer` and writes on in the same piece.
 
-Each definition costs its record and its index entries, in the checkpoint that lists it and in the final index.
+The cost per piece comes from `just bench-carried`. Records blocks of 4000 bytes go on one track, the others stay quiet,
+each track is labeled `channel NNNNNNN`, and the piece is cut by bytes. A piece holds less data, and its final index
+grows past the cut's bound, which counts no final index:
+
+| tracks | cut at | records blocks | without carried | data less | piece (bytes) | without carried | piece more |
+|---|---|---|---|---|---|---|---|
+| 100 | 1 MiB | 255 | 257 | 0.8 % | 1093632 | 1081344 | 1.1 % |
+| 100 | 8 MiB | 2037 | 2042 | 0.2 % | 8769536 | 8761344 | 0.1 % |
+| 1000 | 1 MiB | 215 | 236 | 8.9 % | 1200128 | 1081344 | 11.0 % |
+| 1000 | 8 MiB | 1971 | 2021 | 2.5 % | 8749056 | 8634368 | 1.3 % |
+
+Each definition costs its record and its index entries, in the checkpoint that lists it and in the final index. At the
+track caps, about 327 bytes per track, a piece of one records block grows:
+
+- by 152350720 bytes for `TRACKS_PER_PIECE_MAX` (466430) tracks;
+- by 229052416 bytes for `HEAD_TRACKS_MAX` (699006) tracks.
 
 A resume that keeps only the piece head (a crash right after the cut) leaves the definitions out. The next call given
 `defs` puts them first, so the piece gets the bytes of a cut that never stopped.
