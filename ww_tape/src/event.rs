@@ -140,6 +140,10 @@ impl<'p> EventRecord<'p> {
             }
             Ends::Unknown(_) => return Err(EventRecordError::UnknownEnds),
         };
+        #[expect(
+            clippy::map_err_ignore,
+            reason = "a TryFromIntError says only that the number is out of range, which this error says"
+        )]
         let flags = if def.flags {
             let v = rd.uvar().ok_or(EventRecordError::BadItem)?;
             u32::try_from(v).map_err(|_| EventRecordError::BadItem)?

@@ -1050,6 +1050,10 @@ mod builder {
                     .split_at_checked(frames.checked_mul(stride).ok_or(partial)?)
                     .ok_or(partial)?;
                 // at most a node of 2^BASE_SHIFT_MAX samples
+                #[expect(
+                    clippy::map_err_ignore,
+                    reason = "a TryFromIntError says only that the number is out of range, which this error says"
+                )]
                 let count = u32::try_from(frames).map_err(|_| past)?;
                 self.timeline
                     .push(self.next_item, count, self.grid)

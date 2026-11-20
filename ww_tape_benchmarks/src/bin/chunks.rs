@@ -294,6 +294,10 @@ impl ByteSource for Counted {
     }
 
     fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), ()> {
+        #[expect(
+            clippy::map_err_ignore,
+            reason = "a TryFromIntError says only that the number is out of range, which this error says"
+        )]
         let at = usize::try_from(offset).map_err(|_| ())?;
         buf.copy_from_slice(self.bytes.get(at..at + buf.len()).ok_or(())?);
         self.read.set(self.read.get() + buf.len() as u64);

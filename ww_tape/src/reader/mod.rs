@@ -69,6 +69,10 @@ impl ByteSource for [u8] {
     }
 
     fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), OutOfRange> {
+        #[expect(
+            clippy::map_err_ignore,
+            reason = "a TryFromIntError says only that the number is out of range, which this error says"
+        )]
         let from = usize::try_from(offset).map_err(|_| OutOfRange)?;
         let src = from
             .checked_add(buf.len())

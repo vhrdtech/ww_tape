@@ -285,6 +285,10 @@ impl<T: Tapes> PieceChain<T> {
         let newest = newest_in(&closed, |done, e, buf| {
             read_listed(&SinkSource(&sink), done.piece.start, e, buf)
         })?;
+        #[expect(
+            clippy::map_err_ignore,
+            reason = "a TryFromIntError says only that the number is out of range, which this error says"
+        )]
         let seq = u64::try_from(closed.len()).map_err(|_| too_many())?;
         // the bytes after the last piece cut: the last piece, or nothing
         let open_at = match closed.last() {

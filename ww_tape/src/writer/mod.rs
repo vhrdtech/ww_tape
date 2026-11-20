@@ -849,6 +849,10 @@ impl<S: TapeSink> TapeWriter<S> {
             }));
         };
         // a Block is at most MAX_BLOCK_LEN long: its length fits a u32
+        #[expect(
+            clippy::map_err_ignore,
+            reason = "a TryFromIntError says only that the number is out of range, which this error says"
+        )]
         let len = u32::try_from(block.len()).map_err(|_| {
             WriteError::Index(IndexError::Invalid("a block longer than u32::MAX bytes"))
         })?;

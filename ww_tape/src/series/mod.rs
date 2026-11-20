@@ -342,6 +342,10 @@ impl DefParts for SeriesDefOwned {
     }
 }
 
+#[expect(
+    clippy::map_err_ignore,
+    reason = "shrink_wrap's decode takes its own error type, which holds no cause"
+)]
 fn def_valid(d: &impl DefParts) -> Result<(), shrink_wrap::Error> {
     let (shape, summaries) = d.parts();
     check_def(shape, summaries).map_err(|_| shrink_wrap::Error::SubtypeOutOfRange)

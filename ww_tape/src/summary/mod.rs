@@ -577,6 +577,10 @@ impl<'b> SummaryWriter<'b> {
         };
         let mut scale = [0u8; SCALE_LEN_MAX];
         let scale = scale_bytes(head, &mut scale)?;
+        #[expect(
+            clippy::map_err_ignore,
+            reason = "a TryFromIntError says only that the number is out of range, which this error says"
+        )]
         let scale_len = u16::try_from(scale.len()).map_err(|_| OWN_LAYOUT)?;
         let tree = [head.tree.to_u8(), head.level, head.node_shift, element];
         let written = [
