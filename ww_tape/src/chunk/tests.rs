@@ -757,3 +757,12 @@ fn write_chunk_needs_no_zeroed_buffer() {
         assert!(Block::read(&dirty).unwrap().is_intact());
     }
 }
+
+/// A scale that doesn't encode keeps the encoder's error as its source.
+#[cfg(feature = "std")]
+#[test]
+fn a_scale_error_keeps_its_cause() {
+    use core::error::Error as _;
+    let e = ChunkError::Scale(shrink_wrap::Error::NestingTooDeep);
+    assert!(e.source().is_some(), "the encoder's error is the source");
+}

@@ -396,4 +396,5 @@ Covers `ww_tape` 0.1.0.
 - Gap probing is bounded: `Layout::is_valid`, `GAP_MAX_MAX`, `GAP_PROBES_MAX`, `GAP_CHECKS_MAX`; probes read header by header (FMT-7).
 - A duplicate of the last block after a gap resumes the data instead of cutting it (FMT-7).
 - The format text says what describe copies (repeats, backup, next piece) hold: sticky state as of the run they copy (FMT-4).
+- **Breaking:** a scale that doesn't encode is `ChunkError::Scale`, not `Invalid`, its cause kept (FMT-3).
 

@@ -361,6 +361,11 @@ pub enum ChunkError {
     /// The head or the columns break a rule of the format (no columns, count 0, last tick before the first, a column
     /// of another chunk kind, the kind not a chunk kind).
     Invalid(&'static str),
+    /// The chunk's scale doesn't encode.
+    ///
+    /// The variant keeps the encoder's error; [source](core::error::Error::source) gives it only with `std`, where
+    /// shrink_wrap's error implements the trait.
+    Scale(shrink_wrap::Error),
 }
 
 impl core::fmt::Display for ChunkError {
@@ -371,11 +376,20 @@ impl core::fmt::Display for ChunkError {
                 write!(f, "a block of {len} bytes is over {MAX_BLOCK_LEN}")
             }
             Self::Invalid(what) => write!(f, "{what}"),
+            Self::Scale(_) => write!(f, "a scale that doesn't encode"),
         }
     }
 }
 
-impl core::error::Error for ChunkError {}
+impl core::error::Error for ChunkError {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
+        match self {
+            #[cfg(feature = "std")]
+            Self::Scale(e) => Some(e),
+            _ => None,
+        }
+    }
+}
 
 /// Bytes of the head (block header included) of a chunk with `head`, `columns` columns and `payload_len` bytes of
 /// columns, before any alignment padding; saturating at `usize::MAX`, a length over [MAX_BLOCK_LEN] no writer takes.
@@ -406,8 +420,7 @@ impl GridBytes {
             return Ok(Self { buf, len: 0 });
         };
         let mut scale = [0u8; SCALE_LEN_MAX];
-        let scale_len = scale_bytes(&g.scale, &mut scale)
-            .map_err(|_| ChunkError::Invalid("a scale that doesn't encode"))?;
+        let scale_len = scale_bytes(&g.scale, &mut scale).map_err(ChunkError::Scale)?;
         let s = u8::try_from(scale_len)
             .ok()
             .filter(|s| *s != 0)
