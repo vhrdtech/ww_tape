@@ -9,7 +9,7 @@ use crate::reclose::{close, closes, reopen, write};
 use crate::resume::{begin, options};
 use ww_tape::piece::PIECE_ALIGN;
 use ww_tape::reader::ByteSource;
-use ww_tape::{ALIGNMENT, BlockKind, MemSink, TapeReader, TapeWriter};
+use ww_tape::{ALIGNMENT, BlockKind, BlockWriter, MemSink, TapeReader, TapeWriter};
 use ww_tape_fs::{FileSource, lock_name};
 
 /// The ticks of the record blocks of data the entries of piece 0 list, each block once, read back by the reader.
@@ -277,20 +277,49 @@ fn a_close_with_nothing_appended_writes_nothing() {
 }
 
 /// A block deferred after a resume of a closed aligned piece waits for a gap, and is still waiting at the close: the
-/// close with nothing else written appends it, then a new close, and never drops it.
+/// close appends it, then a new close, and never drops it. A records block with no record needs no definition, so
+/// nothing at all is written before that close.
 #[test]
 fn a_deferred_block_waiting_at_the_close_is_appended() {
     let mut w = begin(ALIGNMENT);
     write(&mut w, 0..6);
     let old = close(w);
-    let (mut w, _) = reopen(&old, ALIGNMENT);
-    let block = crate::pieces::records(w.next_id(), 6);
-    w.defer_block(crate::definitions::base_defs(), block)
-        .unwrap();
-    let got = close(w);
-    assert_eq!(got[..old.len()], old[..]);
-    assert_eq!(crate::reclose::ticks(&got), (0..7).collect::<Vec<_>>());
-    assert_eq!(closes(&got).len(), 2);
+    for empty in [false, true] {
+        let (mut w, _) = reopen(&old, ALIGNMENT);
+        let block = if empty {
+            let mut buf = [0u8; 256];
+            let b = BlockWriter::new(&mut buf, BlockKind::Records, w.next_id(), &[1]).unwrap();
+            let len = b.finish();
+            buf[..len].to_vec()
+        } else {
+            crate::pieces::records(w.next_id(), 6)
+        };
+        let tape = w.sink().tape();
+        w.defer_block(crate::definitions::base_defs(), block)
+            .unwrap();
+        let written = tape.to_vec().unwrap().len();
+        assert_eq!(
+            written == old.len(),
+            empty,
+            "empty {empty}: bytes before the close"
+        );
+        let got = close(w);
+        assert_eq!(got[..old.len()], old[..], "empty {empty}");
+        if empty {
+            assert_eq!(
+                got.len() - old.len(),
+                PIECE_ALIGN as usize,
+                "one 4 KiB step"
+            );
+        } else {
+            assert_eq!(crate::reclose::ticks(&got), (0..7).collect::<Vec<_>>());
+        }
+        assert_eq!(
+            closes(&got).len(),
+            2,
+            "empty {empty}: the deferred block is appended"
+        );
+    }
 }
 
 /// `PieceInfo::closed_end` takes only a tail that ends the close in force: given an older tail, it names no end.
