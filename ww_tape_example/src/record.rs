@@ -263,6 +263,8 @@ struct Made {
     first_tick: i64,
     /// Items in its chunk.
     items: u64,
+    /// For a put of the mode: whether it wrote a record; its ticks are in `first_tick`.
+    put: Option<bool>,
 }
 
 /// The chain's options for `drive`.
@@ -333,10 +335,12 @@ impl Recorder {
             track: 0,
             first_tick: 0,
             items: 0,
+            put: None,
         };
         match act {
             Act::Put { ticks, mode } => {
-                self.chain.put(&self.defs, MODE, *ticks, mode.item())?;
+                made.put = Some(self.chain.put(&self.defs, MODE, *ticks, mode.item())?);
+                made.first_tick = *ticks;
             }
             Act::Records(records) => {
                 let block = records_block(self.chain.writer()?.next_id(), records)?;
@@ -446,6 +450,21 @@ impl Recording {
             .find(|m| m.first_tick >= at)
             .map(|m| m.at + m.len / 2)
             .ok_or(Error::Settings("the run ends before minute 37"))
+    }
+
+    /// The puts of the mode made in piece `piece`, and the ticks of those that wrote a record: the first record of a
+    /// mode, its copy, or the mode again once its record lies more than `near` behind.
+    pub fn mode_puts(&self, piece: u64) -> (usize, Vec<i64>) {
+        let puts = self
+            .made
+            .iter()
+            .filter(|m| m.piece == piece && m.put.is_some());
+        let wrote = puts
+            .clone()
+            .filter(|m| m.put == Some(true))
+            .map(|m| m.first_tick)
+            .collect();
+        (puts.count(), wrote)
     }
 
     /// The piece and the offset in it of byte `byte` of the recording.

@@ -33,7 +33,7 @@ pub const TEMP: u32 = 5;
 pub const BOOT_UNIX_NS: i64 = 1_795_683_600_000_000_000;
 /// The board's crystal runs 20 ppm fast: one µs of the board lasts 999.98 ns of the host's clock.
 const BOARD_NS_PER_US: (u64, u64) = (49_999, 50);
-/// The map's error bound, ns: the USB frame time the host stamps within.
+/// The map's error bound, ns: a USB high-speed microframe, within which the host stamps what it receives.
 const MAP_ERROR_NS: u64 = 125_000;
 
 /// The key of a track at `name` in the drive's API.

@@ -26,6 +26,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok_or(Error::Settings("the run has a piece"))?;
     println!();
     print_blocks(first)?;
+    let (puts, wrote) = recording.mode_puts(0);
+    let at: Vec<String> = wrote
+        .iter()
+        .map(|us| format!("{} s", us / 1_000_000))
+        .collect();
+    println!();
+    println!(
+        "Piece 0: {puts} puts of the mode; {} of them wrote, at {}.",
+        wrote.len(),
+        at.join(", ")
+    );
     Ok(())
 }
 
@@ -68,9 +79,24 @@ fn print_blocks(piece: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
     println!();
     println!("| Blocks | Count | Bytes |");
     println!("|---|---:|---:|");
-    for (name, n, bytes) in parts {
+    for (name, n, bytes) in &parts {
         println!("| {name} | {n} | {bytes} |");
     }
+    let structure: u64 = parts
+        .iter()
+        .filter(|p| {
+            matches!(
+                p.0,
+                "piece head" | "checkpoints" | "final index" | "close" | "tail"
+            )
+        })
+        .map(|p| p.2)
+        .sum();
+    println!();
+    println!(
+        "The piece head, checkpoints, final index, close and tail: {structure} bytes, {:.2} % of the piece.",
+        structure as f64 * 100.0 / piece.len() as f64
+    );
     Ok(())
 }
 
