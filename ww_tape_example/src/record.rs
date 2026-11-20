@@ -10,9 +10,9 @@ use ww_tape::samples::{encode, max_encoded_len};
 use ww_tape::times::EncodedTimes;
 use ww_tape::writer::NearPolicy;
 use ww_tape::{
-    BlockKind, BlockWriter, ChainOptions, ChainPiece, ClockRef, ClockTime, Codec, ColumnKind,
-    ColumnSpec, CutPolicy, Definitions, EndMode, Layout, MemTapes, PieceChain, PieceTapes, Resumed,
-    SampleShape, SeriesGrid, StatePolicy, SyncPolicy, TapeSink, WriterOptions,
+    BlockId, BlockKind, BlockWriter, ChainOptions, ChainPiece, ClockRef, ClockTime, Codec,
+    ColumnKind, ColumnSpec, CutPolicy, Definitions, EndMode, Layout, MemTapes, PieceChain,
+    PieceTapes, Resumed, SampleShape, SeriesGrid, StatePolicy, SyncPolicy, TapeSink, WriterOptions,
 };
 use ww_tape_summary::{SeriesStart, SeriesSummaries};
 
@@ -339,20 +339,8 @@ impl Recorder {
                 self.chain.put(&self.defs, MODE, *ticks, mode.item())?;
             }
             Act::Records(records) => {
-                let len = records
-                    .iter()
-                    .map(|(_, _, item)| item.len() + RECORD_OVERHEAD_MAX)
-                    .sum::<usize>()
-                    + 256;
-                let mut buf = vec![0u8; len];
-                let id = self.chain.writer()?.next_id();
-                let mut b = BlockWriter::new(&mut buf, BlockKind::Records, id, &[BOARD_CLOCK])?;
-                for (track, ticks, item) in records {
-                    b.push(*track, ClockTime::new(BOARD_CLOCK, *ticks), &[item])?;
-                }
-                let n = b.finish();
-                buf.truncate(n);
-                self.chain.write_block(&self.defs, &buf)?;
+                let block = records_block(self.chain.writer()?.next_id(), records)?;
+                self.chain.write_block(&self.defs, &block)?;
             }
             Act::Chunk { head, columns } => {
                 let columns: Vec<(ColumnSpec, &[u8])> =
@@ -374,6 +362,25 @@ impl Recorder {
         made.seq = w.next_seq().wrapping_sub(1);
         Ok(made)
     }
+}
+
+/// A records block numbered `id` of `records`, (track, ticks of the board's clock, item) in time order.
+pub fn records_block(id: BlockId, records: &[(u32, i64, Vec<u8>)]) -> Result<Vec<u8>, Error> {
+    let len = records
+        .iter()
+        .map(|(_, _, item)| item.len() + RECORD_OVERHEAD_MAX)
+        .sum::<usize>()
+        + 256;
+    let mut buf = vec![0u8; len];
+    // --8<-- [start:records]
+    let mut block = BlockWriter::new(&mut buf, BlockKind::Records, id, &[BOARD_CLOCK])?;
+    for (track, ticks, item) in records {
+        block.push(*track, ClockTime::new(BOARD_CLOCK, *ticks), &[item])?;
+    }
+    let len = block.finish(); // the block's header, records and CRC: its bytes in buf
+    // --8<-- [end:records]
+    buf.truncate(len);
+    Ok(buf)
 }
 
 /// Whether act `i` is to be given again to a chain resumed in piece `piece` with next seq `next`, `kept` bytes of
@@ -564,6 +571,17 @@ impl Drive {
             chain: PieceChain::create_on(tapes.clone(), OWNER, CHAIN, &[], options(self))?,
             defs: drive_definitions(self)?,
         })
+    }
+
+    /// The acts of the run in order: for each block of [Drive::block_ms] the puts of the mode, a records block, a
+    /// chunk of frames, a chunk of samples and the summary blocks those samples finish; the last summaries at the end.
+    pub fn acts(&self) -> Result<impl Iterator<Item = Result<Act, Error>> + use<>, Error> {
+        Acts::new(*self)
+    }
+
+    /// The definitions the run records with: the two clocks, the map between them and the five tracks.
+    pub fn definitions(&self) -> Result<Definitions, Error> {
+        drive_definitions(self)
     }
 
     /// Record the run whole and close the chain.

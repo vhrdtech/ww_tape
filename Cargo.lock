@@ -1035,6 +1035,7 @@ dependencies = [
  "libm",
  "shrink_wrap",
  "ww_tape",
+ "ww_tape_fs",
  "ww_tape_summary",
 ]
 

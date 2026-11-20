@@ -1,0 +1,6 @@
+1630208 bytes in one piece
+track 1  log      records             180 items
+track 2  mode     state          in force: "idle"
+track 3  can0     events chunks     60000 items
+track 4  phase_a  series chunks   1500000 items
+track 5  temp     records              60 items
