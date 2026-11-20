@@ -436,11 +436,7 @@ kernels with exact integer sums.
 On x86-64, the kernels use AVX-512 or AVX2 (Advanced Vector Extensions), chosen at run time. 64-bit integers and floats
 take one sample at a time in order, since a float sum depends on the order.
 
-The bench ran at a load average of about 5, on a virtual machine. Its processor was an EPYC (the server line of Advanced
-Micro Devices) of the Genoa generation.
-
-It summarised complex i16 at 6.4 GB/s and i32 at 7.9 GB/s, as `just bench-summaries` reports
-([Numbers](numbers.md#summaries)).
+[Sizes and speeds](sizes.md#summaries) gives their speed per element type and kernel.
 
 The head names the track, the level, the node size, the statistics stored, the items covered and their tick range. For a
 series, it also names the element, channels and scale.
@@ -503,10 +499,10 @@ Starts take one of two time modes:
   ticks per item. The head also holds the smallest residual, a width and an offset; each item's residual against the
   line follows, bit-packed at the group's width.
 
-Periodic items therefore cost their jitter, not their period. A 1 ms period with ±300 ns jitter takes about 1.48 bytes
-per item, against 8 bytes for raw i64 ([Numbers](numbers.md#event-times)).
+Periodic items therefore cost their jitter, not their period. A 1 ms period with ±300 ns jitter takes about 1.447 bytes
+per item, against 8 bytes for raw i64 ([Sizes and speeds](sizes.md#event-times)).
 
-An exact period takes almost nothing, and bursty nanosecond traffic about 3.8 bytes per item.
+An exact period takes almost nothing, and bursty nanosecond traffic about 3.798 bytes per item.
 
 Fetching an item reads one group head and one value. A lower bound searches the groups' first ticks, then only the items the
 slope leaves possible.
@@ -1829,71 +1825,8 @@ stored as fixed-point integers with `DELTA`:
   them into floats as firmware does: `counts × 3.3/4096` and `counts × 0.1`.
   - Fixed point: the counts.
 
-Ratio is to the raw floats, in chunks of 4096 samples. Times are per value on one core of a `Ryzen AI 9 HX 370` from
-Advanced Micro Devices, with AVX-512 kernels:
-
-| Data | Codec | Ratio | Bits/value | Encode ns | Decode ns |
-|---|---|---:|---:|---:|---:|
-| motor_sim `f32` | `DELTA` of `i32` | 3.10 | 10.3 | 2.1 | 0.66 |
-| | `GORILLA` | 1.49 | 21.5 | 5.4 | 2.42 |
-| | `CHIMP` | 1.74 | 18.4 | 7.0 | 3.78 |
-| | `FLOAT_DELTA` | 1.93 | 16.6 | 2.3 | 0.86 |
-| | `FLOAT_DELTA2` | 1.99 | 16.1 | 2.5 | 1.02 |
-| | `ALP` | 1.64 | 19.5 | 14.1 | 1.17 |
-| motor_sim `f64` | `DELTA` of `i32` | 6.20 | 10.3 | 2.1 | 0.65 |
-| | `GORILLA` | 2.51 | 25.5 | 5.9 | 2.60 |
-| | `CHIMP` | 2.50 | 25.6 | 11.3 | 2.87 |
-| | `FLOAT_DELTA` | 1.50 | 42.6 | 2.4 | 1.29 |
-| | `FLOAT_DELTA2` | 1.56 | 41.1 | 2.5 | 1.28 |
-| | `ALP` | 2.51 | 25.5 | 17.6 | 1.24 |
-| speech `f32`, 2 channels | `DELTA` of `i16` PCM | 3.43 | 9.3 | 2.3 | 0.71 |
-| | `GORILLA` | 1.02 | 31.3 | 5.7 | 2.30 |
-| | `CHIMP` | 1.23 | 26.0 | 8.2 | 5.59 |
-| | `FLOAT_DELTA` | 1.10 | 29.1 | 2.5 | 0.96 |
-| | `FLOAT_DELTA2` | 1.10 | 29.0 | 2.7 | 1.13 |
-| | `ALP` | 1.16 | 27.6 | 15.7 | 1.27 |
-| ADC × 3.3/4096 `f32` | `DELTA` of the counts | 7.31 | 4.4 | 2.2 | 0.65 |
-| | `GORILLA` | 1.51 | 21.3 | 5.6 | 2.71 |
-| | `CHIMP` | 1.76 | 18.2 | 10.5 | 6.87 |
-| | `FLOAT_DELTA` | 1.84 | 17.4 | 2.4 | 0.81 |
-| | `FLOAT_DELTA2` | 1.73 | 18.5 | 2.6 | 1.08 |
-| | `ALP` | 1.59 | 20.2 | 15.1 | 1.17 |
-| ADC × 3.3/4096 `f64` | `DELTA` of the counts | 14.63 | 4.4 | 2.2 | 0.65 |
-| | `GORILLA` | 1.36 | 47.1 | 7.9 | 3.19 |
-| | `CHIMP` | 1.57 | 40.8 | 13.1 | 7.28 |
-| | `FLOAT_DELTA` | 1.37 | 46.7 | 2.5 | 1.32 |
-| | `FLOAT_DELTA2` | 1.34 | 47.8 | 2.7 | 1.28 |
-| | `ALP` | 1.32 | 48.6 | 21.9 | 1.59 |
-| ADC × 0.1 `f32` | `DELTA` of the counts | 7.31 | 4.4 | 2.2 | 0.65 |
-| | `GORILLA` | 1.53 | 21.0 | 5.5 | 2.67 |
-| | `CHIMP` | 1.81 | 17.7 | 10.5 | 6.85 |
-| | `FLOAT_DELTA` | 1.84 | 17.4 | 2.5 | 0.83 |
-| | `FLOAT_DELTA2` | 1.73 | 18.6 | 2.6 | 0.96 |
-| | `ALP` | 4.67 | 6.9 | 8.5 | 0.81 |
-| ADC × 0.1 `f64` | `DELTA` of the counts | 14.63 | 4.4 | 2.2 | 0.65 |
-| | `GORILLA` | 1.38 | 46.5 | 7.8 | 3.15 |
-| | `CHIMP` | 1.59 | 40.3 | 13.1 | 7.27 |
-| | `FLOAT_DELTA` | 1.37 | 46.7 | 2.5 | 1.36 |
-| | `FLOAT_DELTA2` | 1.34 | 47.8 | 2.7 | 1.32 |
-| | `ALP` | 9.02 | 7.1 | 8.9 | 0.72 |
-
-What the numbers say:
-
-- Fixed point is 1.6 to 9.3 times smaller than the best float codec and decodes fastest. On the motor, its step keeps
-  more precision than the `f32`s it replaces.
-- `ALP` is the float codec for floats that began as decimals. There it is 2.5 to 5.7 times smaller than the others and
-  decodes at bit-pack speed (0.7 to 0.8 ns).
-- On widened `f32`s, `ALP` matches `GORILLA`. On floats with full mantissas, it ranges from 6 % ahead of the delta
-  codecs (speech) to 18 % behind them (motor `f32`).
-- The exclusive-or (XOR) codecs win on two sets, both with `CHIMP`: by 6 % on speech and by 15 % on the `f64` floats of
-  ADC × 3.3/4096. They decode 2 to 10 times slower than the bit-packed codecs.
-- A writer that tries `ALP` and `FLOAT_DELTA` on each chunk and keeps the smaller is the best float codec on four of the
-  seven sets. On the others, it is within 13 % of the best.
-
-The bench runs in about 20 s. `just bench-sample-codecs` fetches the speech file into `target/bench-data` once, checks
-its hash and prints the table.
-
-`--chunk` and `--repeats` change the chunk size and the number of timed passes.
+Every value comes back bit for bit. [Sizes and speeds](sizes.md#samples-fixed-point-first) gives the ratio and the
+times of every codec on every set. The bench's `--chunk` and `--repeats` change the chunk size and the timed passes.
 
 ## Series tracks
 

@@ -2,6 +2,21 @@
 
 Benchmarks of `ww_tape`, one binary each. The float sample codecs are measured in `ww_tape_codecs_benchmarks`.
 
+Every binary prints Markdown tables, each with the load average before and after it, and writes them as JSON with
+`--json FILE`. `--help` lists a binary's settings. `just bench-book` runs the benches of the book's "Sizes and speeds"
+into `docs/bench/`:
+
+| Binary | Recipe | What |
+|---|---|---|
+| `drive` | `just bench-drive` | the book's running example at full scale: bytes by block kind, bytes per item, time to record |
+| `event_times` | `just bench-event-times` | event start ticks against raw ticks, varints and Elias-Fano |
+| `summaries` | `just bench-summaries` | series summaries, and the kernels against one statistic at a time |
+| `chunks` | `just bench-chunks` | the writer's cost per series chunk, and a track's timeline |
+| `tracks` | `just bench-tracks` | tracks added one by one, puts and copies |
+| `starts` | `just bench-starts` | a starts column read intact and salvaged |
+| `relations` | `just bench-relations` | track relation columns |
+| `mem_reader` | `just bench-mem-reader` | a reader's wait on a memory piece being written |
+
 The `summaries` binary measures series summaries in MB/s of sample bytes per element type. It measures three paths:
 the `RAW` codec alone, `SeriesSummaries::push` with every statistic, and both.
 

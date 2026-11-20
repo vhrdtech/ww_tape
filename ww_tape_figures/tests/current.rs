@@ -24,7 +24,7 @@ fn figures_in_docs_are_current() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs/plots");
     let mut stale = Vec::new();
     for (name, svg) in ww_tape_figures::figures().unwrap() {
-        let path = dir.join(name);
+        let path = dir.join(&name);
         if std::fs::read_to_string(&path).ok().as_deref() != Some(svg.as_str()) {
             stale.push(name);
         }

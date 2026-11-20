@@ -1,0 +1,127 @@
+<svg class="ww-svg" viewBox="0 0 702.8 482" width="702.8" height="482" role="img" aria-label="Sample codecs per data set: ratio to the raw floats and decode time per value, fixed point with DELTA against ALP and the best other float codec" xmlns="http://www.w3.org/2000/svg">
+<text x="132.8" y="16.0" text-anchor="start" class="strong">Ratio to the raw floats (larger is smaller)</text>
+<line x1="132.8" y1="34.0" x2="132.8" y2="418.0" class="thin"/>
+<text x="132.8" y="432.0" text-anchor="middle" class="small soft">0</text>
+<line x1="178.8" y1="34.0" x2="178.8" y2="418.0" class="thin"/>
+<text x="178.8" y="432.0" text-anchor="middle" class="small soft">4</text>
+<line x1="224.8" y1="34.0" x2="224.8" y2="418.0" class="thin"/>
+<text x="224.8" y="432.0" text-anchor="middle" class="small soft">8</text>
+<line x1="270.8" y1="34.0" x2="270.8" y2="418.0" class="thin"/>
+<text x="270.8" y="432.0" text-anchor="middle" class="small soft">12</text>
+<line x1="316.8" y1="34.0" x2="316.8" y2="418.0" class="thin"/>
+<text x="316.8" y="432.0" text-anchor="middle" class="small soft">16</text>
+<line x1="362.8" y1="34.0" x2="362.8" y2="418.0" class="thin"/>
+<text x="362.8" y="432.0" text-anchor="middle" class="small soft">20</text>
+<rect x="132.8" y="40.0" width="35.7" height="12.0" rx="2" class="blue"><title>motor_sim f32, fixed point, DELTA: 3.10</title></rect>
+<text x="172.5" y="50.0" text-anchor="start" class="small">3.10</text>
+<rect x="132.8" y="54.0" width="18.9" height="12.0" rx="2" class="accent"><title>motor_sim f32, ALP: 1.64</title></rect>
+<text x="155.7" y="64.0" text-anchor="start" class="small">1.64</text>
+<rect x="132.8" y="68.0" width="22.9" height="12.0" rx="2" class="amber"><title>motor_sim f32, best other float codec: 1.99</title></rect>
+<text x="159.7" y="78.0" text-anchor="start" class="small">1.99</text>
+<rect x="132.8" y="94.0" width="71.3" height="12.0" rx="2" class="blue"><title>motor_sim f64, fixed point, DELTA: 6.20</title></rect>
+<text x="208.1" y="104.0" text-anchor="start" class="small">6.20</text>
+<rect x="132.8" y="108.0" width="28.9" height="12.0" rx="2" class="accent"><title>motor_sim f64, ALP: 2.51</title></rect>
+<text x="165.7" y="118.0" text-anchor="start" class="small">2.51</text>
+<rect x="132.8" y="122.0" width="28.8" height="12.0" rx="2" class="amber"><title>motor_sim f64, best other float codec: 2.51</title></rect>
+<text x="165.6" y="132.0" text-anchor="start" class="small">2.51</text>
+<rect x="132.8" y="148.0" width="39.5" height="12.0" rx="2" class="blue"><title>speech f32, 2 ch, fixed point, DELTA: 3.43</title></rect>
+<text x="176.3" y="158.0" text-anchor="start" class="small">3.43</text>
+<rect x="132.8" y="162.0" width="13.3" height="12.0" rx="2" class="accent"><title>speech f32, 2 ch, ALP: 1.16</title></rect>
+<text x="150.1" y="172.0" text-anchor="start" class="small">1.16</text>
+<rect x="132.8" y="176.0" width="14.2" height="12.0" rx="2" class="amber"><title>speech f32, 2 ch, best other float codec: 1.23</title></rect>
+<text x="151.0" y="186.0" text-anchor="start" class="small">1.23</text>
+<rect x="132.8" y="202.0" width="84.1" height="12.0" rx="2" class="blue"><title>ADC x 3.3/4096 f32, fixed point, DELTA: 7.31</title></rect>
+<text x="220.9" y="212.0" text-anchor="start" class="small">7.31</text>
+<rect x="132.8" y="216.0" width="18.2" height="12.0" rx="2" class="accent"><title>ADC x 3.3/4096 f32, ALP: 1.59</title></rect>
+<text x="155.0" y="226.0" text-anchor="start" class="small">1.59</text>
+<rect x="132.8" y="230.0" width="21.2" height="12.0" rx="2" class="amber"><title>ADC x 3.3/4096 f32, best other float codec: 1.84</title></rect>
+<text x="158.0" y="240.0" text-anchor="start" class="small">1.84</text>
+<rect x="132.8" y="256.0" width="168.2" height="12.0" rx="2" class="blue"><title>ADC x 3.3/4096 f64, fixed point, DELTA: 14.63</title></rect>
+<text x="305.0" y="266.0" text-anchor="start" class="small">14.63</text>
+<rect x="132.8" y="270.0" width="15.1" height="12.0" rx="2" class="accent"><title>ADC x 3.3/4096 f64, ALP: 1.32</title></rect>
+<text x="151.9" y="280.0" text-anchor="start" class="small">1.32</text>
+<rect x="132.8" y="284.0" width="18.0" height="12.0" rx="2" class="amber"><title>ADC x 3.3/4096 f64, best other float codec: 1.57</title></rect>
+<text x="154.8" y="294.0" text-anchor="start" class="small">1.57</text>
+<rect x="132.8" y="310.0" width="84.1" height="12.0" rx="2" class="blue"><title>ADC x 0.1 f32, fixed point, DELTA: 7.31</title></rect>
+<text x="220.9" y="320.0" text-anchor="start" class="small">7.31</text>
+<rect x="132.8" y="324.0" width="53.7" height="12.0" rx="2" class="accent"><title>ADC x 0.1 f32, ALP: 4.67</title></rect>
+<text x="190.5" y="334.0" text-anchor="start" class="small">4.67</text>
+<rect x="132.8" y="338.0" width="21.1" height="12.0" rx="2" class="amber"><title>ADC x 0.1 f32, best other float codec: 1.84</title></rect>
+<text x="157.9" y="348.0" text-anchor="start" class="small">1.84</text>
+<rect x="132.8" y="364.0" width="168.2" height="12.0" rx="2" class="blue"><title>ADC x 0.1 f64, fixed point, DELTA: 14.63</title></rect>
+<text x="305.0" y="374.0" text-anchor="start" class="small">14.63</text>
+<rect x="132.8" y="378.0" width="103.7" height="12.0" rx="2" class="accent"><title>ADC x 0.1 f64, ALP: 9.02</title></rect>
+<text x="240.5" y="388.0" text-anchor="start" class="small">9.02</text>
+<rect x="132.8" y="392.0" width="18.3" height="12.0" rx="2" class="amber"><title>ADC x 0.1 f64, best other float codec: 1.59</title></rect>
+<text x="155.1" y="402.0" text-anchor="start" class="small">1.59</text>
+<line x1="132.8" y1="34.0" x2="132.8" y2="418.0" class="line"/>
+<text x="422.8" y="16.0" text-anchor="start" class="strong">Decode, ns per value</text>
+<line x1="422.8" y1="34.0" x2="422.8" y2="418.0" class="thin"/>
+<text x="422.8" y="432.0" text-anchor="middle" class="small soft">0</text>
+<line x1="468.8" y1="34.0" x2="468.8" y2="418.0" class="thin"/>
+<text x="468.8" y="432.0" text-anchor="middle" class="small soft">2</text>
+<line x1="514.8" y1="34.0" x2="514.8" y2="418.0" class="thin"/>
+<text x="514.8" y="432.0" text-anchor="middle" class="small soft">4</text>
+<line x1="560.8" y1="34.0" x2="560.8" y2="418.0" class="thin"/>
+<text x="560.8" y="432.0" text-anchor="middle" class="small soft">6</text>
+<line x1="606.8" y1="34.0" x2="606.8" y2="418.0" class="thin"/>
+<text x="606.8" y="432.0" text-anchor="middle" class="small soft">8</text>
+<line x1="652.8" y1="34.0" x2="652.8" y2="418.0" class="thin"/>
+<text x="652.8" y="432.0" text-anchor="middle" class="small soft">10</text>
+<rect x="422.8" y="40.0" width="24.8" height="12.0" rx="2" class="blue"><title>motor_sim f32, fixed point, DELTA: 1.08</title></rect>
+<text x="451.6" y="50.0" text-anchor="start" class="small">1.08</text>
+<rect x="422.8" y="54.0" width="39.5" height="12.0" rx="2" class="accent"><title>motor_sim f32, ALP: 1.72</title></rect>
+<text x="466.3" y="64.0" text-anchor="start" class="small">1.72</text>
+<rect x="422.8" y="68.0" width="37.5" height="12.0" rx="2" class="amber"><title>motor_sim f32, best other float codec: 1.63</title></rect>
+<text x="464.3" y="78.0" text-anchor="start" class="small">1.63</text>
+<rect x="422.8" y="94.0" width="23.0" height="12.0" rx="2" class="blue"><title>motor_sim f64, fixed point, DELTA: 1.00</title></rect>
+<text x="449.8" y="104.0" text-anchor="start" class="small">1.00</text>
+<rect x="422.8" y="108.0" width="48.5" height="12.0" rx="2" class="accent"><title>motor_sim f64, ALP: 2.11</title></rect>
+<text x="475.3" y="118.0" text-anchor="start" class="small">2.11</text>
+<rect x="422.8" y="122.0" width="94.6" height="12.0" rx="2" class="amber"><title>motor_sim f64, best other float codec: 4.11</title></rect>
+<text x="521.4" y="132.0" text-anchor="start" class="small">4.11</text>
+<rect x="422.8" y="148.0" width="29.4" height="12.0" rx="2" class="blue"><title>speech f32, 2 ch, fixed point, DELTA: 1.28</title></rect>
+<text x="456.2" y="158.0" text-anchor="start" class="small">1.28</text>
+<rect x="422.8" y="162.0" width="40.5" height="12.0" rx="2" class="accent"><title>speech f32, 2 ch, ALP: 1.76</title></rect>
+<text x="467.3" y="172.0" text-anchor="start" class="small">1.76</text>
+<rect x="422.8" y="176.0" width="156.3" height="12.0" rx="2" class="amber"><title>speech f32, 2 ch, best other float codec: 6.80</title></rect>
+<text x="583.1" y="186.0" text-anchor="start" class="small">6.80</text>
+<rect x="422.8" y="202.0" width="35.9" height="12.0" rx="2" class="blue"><title>ADC x 3.3/4096 f32, fixed point, DELTA: 1.56</title></rect>
+<text x="462.7" y="212.0" text-anchor="start" class="small">1.56</text>
+<rect x="422.8" y="216.0" width="37.2" height="12.0" rx="2" class="accent"><title>ADC x 3.3/4096 f32, ALP: 1.62</title></rect>
+<text x="464.0" y="226.0" text-anchor="start" class="small">1.62</text>
+<rect x="422.8" y="230.0" width="51.0" height="12.0" rx="2" class="amber"><title>ADC x 3.3/4096 f32, best other float codec: 2.22</title></rect>
+<text x="477.8" y="240.0" text-anchor="start" class="small">2.22</text>
+<rect x="422.8" y="256.0" width="19.5" height="12.0" rx="2" class="blue"><title>ADC x 3.3/4096 f64, fixed point, DELTA: 0.85</title></rect>
+<text x="446.3" y="266.0" text-anchor="start" class="small">0.85</text>
+<rect x="422.8" y="270.0" width="56.3" height="12.0" rx="2" class="accent"><title>ADC x 3.3/4096 f64, ALP: 2.45</title></rect>
+<text x="483.1" y="280.0" text-anchor="start" class="small">2.45</text>
+<rect x="422.8" y="284.0" width="214.6" height="12.0" rx="2" class="amber"><title>ADC x 3.3/4096 f64, best other float codec: 9.33</title></rect>
+<text x="641.4" y="294.0" text-anchor="start" class="small">9.33</text>
+<rect x="422.8" y="310.0" width="20.1" height="12.0" rx="2" class="blue"><title>ADC x 0.1 f32, fixed point, DELTA: 0.87</title></rect>
+<text x="446.9" y="320.0" text-anchor="start" class="small">0.87</text>
+<rect x="422.8" y="324.0" width="26.7" height="12.0" rx="2" class="accent"><title>ADC x 0.1 f32, ALP: 1.16</title></rect>
+<text x="453.5" y="334.0" text-anchor="start" class="small">1.16</text>
+<rect x="422.8" y="338.0" width="28.4" height="12.0" rx="2" class="amber"><title>ADC x 0.1 f32, best other float codec: 1.23</title></rect>
+<text x="455.2" y="348.0" text-anchor="start" class="small">1.23</text>
+<rect x="422.8" y="364.0" width="19.3" height="12.0" rx="2" class="blue"><title>ADC x 0.1 f64, fixed point, DELTA: 0.84</title></rect>
+<text x="446.1" y="374.0" text-anchor="start" class="small">0.84</text>
+<rect x="422.8" y="378.0" width="26.6" height="12.0" rx="2" class="accent"><title>ADC x 0.1 f64, ALP: 1.16</title></rect>
+<text x="453.4" y="388.0" text-anchor="start" class="small">1.16</text>
+<rect x="422.8" y="392.0" width="220.9" height="12.0" rx="2" class="amber"><title>ADC x 0.1 f64, best other float codec: 9.61</title></rect>
+<text x="647.7" y="402.0" text-anchor="start" class="small">9.61</text>
+<line x1="422.8" y1="34.0" x2="422.8" y2="418.0" class="line"/>
+<text x="122.8" y="64.0" text-anchor="end">motor_sim f32</text>
+<text x="122.8" y="118.0" text-anchor="end">motor_sim f64</text>
+<text x="122.8" y="172.0" text-anchor="end">speech f32, 2 ch</text>
+<text x="122.8" y="226.0" text-anchor="end">ADC x 3.3/4096 f32</text>
+<text x="122.8" y="280.0" text-anchor="end">ADC x 3.3/4096 f64</text>
+<text x="122.8" y="334.0" text-anchor="end">ADC x 0.1 f32</text>
+<text x="122.8" y="388.0" text-anchor="end">ADC x 0.1 f64</text>
+<rect x="132.8" y="445.0" width="12.0" height="10.0" rx="2" class="blue"/>
+<text x="149.8" y="454.0" text-anchor="start" class="small">fixed point, DELTA</text>
+<rect x="288.8" y="445.0" width="12.0" height="10.0" rx="2" class="accent"/>
+<text x="305.8" y="454.0" text-anchor="start" class="small">ALP</text>
+<rect x="339.8" y="445.0" width="12.0" height="10.0" rx="2" class="amber"/>
+<text x="356.8" y="454.0" text-anchor="start" class="small">best other float codec</text>
+</svg>

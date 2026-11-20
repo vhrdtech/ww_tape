@@ -1,0 +1,6 @@
+| Recording | Seconds | MB/s of the recording | Times faster than the run |
+|---|---:|---:|---:|
+| with summaries of `phase_a` | 3.00 | 38 | 1199 |
+| without summaries | 2.86 | 39 | 1260 |
+
+`just bench-drive` on an AMD EPYC-Genoa Processor (14 logical CPUs), load average 10.02 before and 8.23 after.

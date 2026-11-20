@@ -68,11 +68,8 @@ just check            # the reader, writer, chain and codecs for wasm32 without 
 just api-check        # ww_tape's version and wire line against ww_tape/api_snapshots/; skipped without `ww`
 just fuzz-tape-<target>   # one fuzz target until stopped, with its libFuzzer limits
 just tape-golden-update   # rewrite golden/*.hex after a deliberate format change
-just bench-sample-codecs  # float codecs (fetches a public-domain speech file once)
-just bench-summaries      # series summary throughput
-just bench-tracks         # tracks added one by one; puts and copies per 256 MiB piece
-just bench-chunks         # ns per 1 MiB series chunk the writer spends, and its parts
-just bench-carried        # the definitions a piece carries for its head's tracks, per piece
+just bench-<name>         # one bench at release, `--json FILE` for its report (ww_tape_benchmarks/README.md lists them)
+just bench-book           # every bench of the book's "Sizes and speeds" into docs/bench/; `just book-figures` draws them
 just book-check           # the book (docs/) with warnings as errors, then spl's prose lints (deny)
 just book-refs            # spl book refs: checks docs/glossary.toml, indexes the code links; every book build runs it
 ```

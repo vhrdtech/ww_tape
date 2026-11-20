@@ -1,0 +1,39 @@
+<svg class="ww-svg" viewBox="0 0 584.4 286" width="584.4" height="286" role="img" aria-label="What a 1 MiB series chunk costs the writer and its parts, µs per chunk" xmlns="http://www.w3.org/2000/svg">
+<text x="304.4" y="16.0" text-anchor="start" class="strong">µs per 1 MiB series chunk</text>
+<line x1="304.4" y1="34.0" x2="304.4" y2="222.0" class="thin"/>
+<text x="304.4" y="236.0" text-anchor="middle" class="small soft">0</text>
+<line x1="350.4" y1="34.0" x2="350.4" y2="222.0" class="thin"/>
+<text x="350.4" y="236.0" text-anchor="middle" class="small soft">200</text>
+<line x1="396.4" y1="34.0" x2="396.4" y2="222.0" class="thin"/>
+<text x="396.4" y="236.0" text-anchor="middle" class="small soft">400</text>
+<line x1="442.4" y1="34.0" x2="442.4" y2="222.0" class="thin"/>
+<text x="442.4" y="236.0" text-anchor="middle" class="small soft">600</text>
+<line x1="488.4" y1="34.0" x2="488.4" y2="222.0" class="thin"/>
+<text x="488.4" y="236.0" text-anchor="middle" class="small soft">800</text>
+<line x1="534.4" y1="34.0" x2="534.4" y2="222.0" class="thin"/>
+<text x="534.4" y="236.0" text-anchor="middle" class="small soft">1000</text>
+<rect x="304.4" y="40.0" width="13.7" height="12.0" rx="2" class="blue"><title>chunk::write_chunk: copy and CRCs, µs per 1 MiB chunk: 60</title></rect>
+<text x="322.1" y="50.0" text-anchor="start" class="small">60</text>
+<rect x="304.4" y="66.0" width="8.2" height="12.0" rx="2" class="blue"><title>Block::read: the CRCs checked, µs per 1 MiB chunk: 36</title></rect>
+<text x="316.6" y="76.0" text-anchor="start" class="small">36</text>
+<rect x="304.4" y="92.0" width="55.1" height="12.0" rx="2" class="blue"><title>ItemHash::of: BLAKE3, µs per 1 MiB chunk: 239</title></rect>
+<text x="363.5" y="102.0" text-anchor="start" class="small">239</text>
+<rect x="304.4" y="118.0" width="1.0" height="12.0" rx="2" class="blue"><title>TrackHash::chunk_unit: the unit hash, µs per 1 MiB chunk: 0</title></rect>
+<text x="309.4" y="128.0" text-anchor="start" class="small">0</text>
+<rect x="304.4" y="144.0" width="76.7" height="12.0" rx="2" class="blue"><title>TapeWriter::write_chunk (columns), µs per 1 MiB chunk: 334</title></rect>
+<text x="385.1" y="154.0" text-anchor="start" class="small">334</text>
+<rect x="304.4" y="170.0" width="170.1" height="12.0" rx="2" class="blue"><title>TapeWriter::write_chunk into a MemSink, µs per 1 MiB chunk: 739</title></rect>
+<text x="478.5" y="180.0" text-anchor="start" class="small">739</text>
+<rect x="304.4" y="196.0" width="79.5" height="12.0" rx="2" class="blue"><title>chunk::write_chunk + TapeWriter::write_block, µs per 1 MiB chunk: 346</title></rect>
+<text x="387.9" y="206.0" text-anchor="start" class="small">346</text>
+<line x1="304.4" y1="34.0" x2="304.4" y2="222.0" class="line"/>
+<text x="294.4" y="50.0" text-anchor="end">chunk::write_chunk: copy and CRCs</text>
+<text x="294.4" y="76.0" text-anchor="end">Block::read: the CRCs checked</text>
+<text x="294.4" y="102.0" text-anchor="end">ItemHash::of: BLAKE3</text>
+<text x="294.4" y="128.0" text-anchor="end">TrackHash::chunk_unit: the unit hash</text>
+<text x="294.4" y="154.0" text-anchor="end">TapeWriter::write_chunk (columns)</text>
+<text x="294.4" y="180.0" text-anchor="end">TapeWriter::write_chunk into a MemSink</text>
+<text x="294.4" y="206.0" text-anchor="end">chunk::write_chunk + TapeWriter::write_block</text>
+<rect x="304.4" y="249.0" width="12.0" height="10.0" rx="2" class="blue"/>
+<text x="321.4" y="258.0" text-anchor="start" class="small">µs per 1 MiB chunk</text>
+</svg>

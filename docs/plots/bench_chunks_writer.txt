@@ -1,0 +1,11 @@
+| What | ns per chunk | GB/s |
+|---|---:|---:|
+| `chunk::write_chunk`: copy and CRCs | 59 552 | 17.61 |
+| `Block::read`: the CRCs checked | 35 760 | 29.33 |
+| `ItemHash::of`: BLAKE3 | 239 422 | 4.38 |
+| `TrackHash::chunk_unit`: the unit hash | 158 | 6637.49 |
+| `TapeWriter::write_chunk` (columns) | 333 693 | 3.14 |
+| `TapeWriter::write_chunk` into a `MemSink` | 739 360 | 1.42 |
+| `chunk::write_chunk` + `TapeWriter::write_block` | 345 695 | 3.03 |
+
+`just bench-chunks` on an AMD EPYC-Genoa Processor (14 logical CPUs), load average 10.11 before and 10.11 after.

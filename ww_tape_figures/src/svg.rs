@@ -65,6 +65,19 @@ impl Svg {
         );
     }
 
+    /// A rectangle with a tooltip: `title` shows on hover.
+    pub fn rect_titled(&mut self, at: (f64, f64), size: (f64, f64), class: &str, title: &str) {
+        _ = writeln!(
+            self.out,
+            r#"<rect x="{:.1}" y="{:.1}" width="{:.1}" height="{:.1}" rx="2" class="{class}"><title>{}</title></rect>"#,
+            at.0,
+            at.1,
+            size.0,
+            size.1,
+            escape(title)
+        );
+    }
+
     pub fn circle(&mut self, c: (f64, f64), r: f64, class: &str) {
         _ = writeln!(
             self.out,

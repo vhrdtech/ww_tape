@@ -1118,8 +1118,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "exact_units",
+ "libm",
  "shrink_wrap",
  "ww_tape",
+ "ww_tape_bench",
  "ww_tape_example",
  "ww_tape_summary",
 ]

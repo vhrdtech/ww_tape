@@ -125,9 +125,25 @@ bench-starts *args:
 bench-relations *args:
     cargo run -q --release -p ww_tape_benchmarks --bin relations -- {{ args }}
 
+# The book's running example at full scale: the drive's hour by block kind, bytes per item and time to record
+# (BOOK-3); `just bench-drive --help`
+bench-drive *args:
+    cargo run -q --release -p ww_tape_benchmarks --bin drive -- {{ args }}
+
 # Worst wait of a reader of a memory piece while it is written, with and without reserving it (WRITE-5); `just bench-mem-reader --help`
 bench-mem-reader *args:
     cargo run -q --release -p ww_tape_benchmarks --bin mem_reader -- {{ args }}
+
+# Every bench the book's "Sizes and speeds" draws from, at release, into docs/bench/*.json; then the charts and tables
+# drawn from them (`just book-figures`). `just jobs=N bench-book` caps the build's jobs; each bench runs on one core
+bench-book:
+    mkdir -p docs/bench
+    just bench-sample-codecs --json docs/bench/sample_codecs.json
+    just bench-event-times --json docs/bench/event_times.json
+    just bench-summaries --json docs/bench/summaries.json
+    just bench-chunks --json docs/bench/chunks.json
+    just bench-tracks --json docs/bench/tracks.json
+    just bench-drive --json docs/bench/drive.json
 
 # Build the book (docs/, zensical.toml) into site/ with Zensical
 [group('book')]

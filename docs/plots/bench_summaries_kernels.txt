@@ -1,0 +1,7 @@
+| Element | One at a time MB/s | Portable kernel MB/s | AVX2 kernel MB/s | AVX-512 kernel MB/s |
+|---|---:|---:|---:|---:|
+| I16 | 1275 | 3408 | 6548 | 10 671 |
+| ComplexI16 | 763 | 2213 | 5214 | 8099 |
+| I32 | 2615 | 3618 | 10 350 | 11 686 |
+
+`just bench-summaries` on an AMD EPYC-Genoa Processor (14 logical CPUs), load average 10.58 before and 10.21 after.

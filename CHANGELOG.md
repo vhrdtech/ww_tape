@@ -200,6 +200,8 @@ Covers `ww_tape` 0.1.0.
 - Book: tables keep code whole; snippets are dedented, with a collapsible of the example items they use (BOOK-2).
 - `FileSink::warning` returns an `FsWarning` naming a network or user-space file system (NFS, SMB, FUSE) (FS-1).
 - A fork handler keeps a file sink's lock out of a child process forked meanwhile (FS-1).
+- Book: "Sizes and speeds" draws every chart and table from bench reports; `just bench-book` reruns them (BOOK-2).
+- `just bench-drive` measures the drive's hour at full scale: bytes by block kind, bytes per item, time to record (BOOK-3).
 - Every bench takes `--json FILE`, `--color`, `--version` and completion; tables carry the machine and load average (REPO-85).
 - `just bench-event-times` compares event time codecs on six workloads, journal included; it was outside the repository (CODEC-2).
 - `just bench-summaries` adds the kernels against one statistic at a time, per kernel the CPU runs (SUM-3).

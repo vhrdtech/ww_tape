@@ -1,0 +1,596 @@
+{
+  "bench": "event_times",
+  "version": "0.1.0 (1199719-dirty, commit 20 Nov 2026 22:42 UTC)",
+  "settings": [
+    [
+      "events",
+      "10000000"
+    ],
+    [
+      "frames",
+      "1000000"
+    ],
+    [
+      "chunk",
+      "4096"
+    ],
+    [
+      "lookups",
+      "1048576"
+    ],
+    [
+      "rounds",
+      "3"
+    ]
+  ],
+  "machine": {
+    "cpu": "AMD EPYC-Genoa Processor",
+    "cpus": 14,
+    "arch": "x86_64",
+    "extensions": [
+      "sse4.2",
+      "avx2",
+      "avx512bw+vl"
+    ]
+  },
+  "tables": [
+    {
+      "id": "codecs",
+      "title": "Event start ticks in chunks of 4096 items, the time columns alone; lookups of uniform items and ticks, best of 3.",
+      "columns": [
+        "Workload",
+        "Codec",
+        "Bytes per event",
+        "Coding ns per event",
+        "Item j ns",
+        "First at or after a tick ns"
+      ],
+      "rows": [
+        [
+          "exact 1 ms period with a few gaps",
+          "ww_tape linear groups",
+          {
+            "value": 0.0143672,
+            "digits": 3
+          },
+          {
+            "value": 1.0691219,
+            "digits": 1
+          },
+          {
+            "value": 4.4082231521606445,
+            "digits": 1
+          },
+          {
+            "value": 19.49022388458252,
+            "digits": 1
+          }
+        ],
+        [
+          "exact 1 ms period with a few gaps",
+          "raw 64-bit ticks",
+          {
+            "value": 8.0,
+            "digits": 3
+          },
+          {
+            "value": 0.6411548,
+            "digits": 1
+          },
+          {
+            "value": 10.920450210571289,
+            "digits": 1
+          },
+          {
+            "value": 699.1875734329224,
+            "digits": 1
+          }
+        ],
+        [
+          "exact 1 ms period with a few gaps",
+          "delta-of-delta varints",
+          {
+            "value": 1.1489881,
+            "digits": 3
+          },
+          {
+            "value": 1.5713181,
+            "digits": 1
+          },
+          {
+            "value": 383.2860221862793,
+            "digits": 1
+          },
+          {
+            "value": 614.6730213165283,
+            "digits": 1
+          }
+        ],
+        [
+          "exact 1 ms period with a few gaps",
+          "Elias-Fano",
+          {
+            "value": 2.7885866,
+            "digits": 3
+          },
+          {
+            "value": 9.9688126,
+            "digits": 1
+          },
+          {
+            "value": 287.058629989624,
+            "digits": 1
+          },
+          {
+            "value": 335.2590494155884,
+            "digits": 1
+          }
+        ],
+        [
+          "1 ms period, ±300 ns jitter",
+          "ww_tape linear groups",
+          {
+            "value": 1.4468533,
+            "digits": 3
+          },
+          {
+            "value": 4.964873,
+            "digits": 1
+          },
+          {
+            "value": 109.70791053771973,
+            "digits": 1
+          },
+          {
+            "value": 387.9474506378174,
+            "digits": 1
+          }
+        ],
+        [
+          "1 ms period, ±300 ns jitter",
+          "raw 64-bit ticks",
+          {
+            "value": 8.0,
+            "digits": 3
+          },
+          {
+            "value": 0.712496,
+            "digits": 1
+          },
+          {
+            "value": 13.236027717590332,
+            "digits": 1
+          },
+          {
+            "value": 761.897819519043,
+            "digits": 1
+          }
+        ],
+        [
+          "1 ms period, ±300 ns jitter",
+          "delta-of-delta varints",
+          {
+            "value": 2.0354399,
+            "digits": 3
+          },
+          {
+            "value": 3.7015409,
+            "digits": 1
+          },
+          {
+            "value": 461.9612350463867,
+            "digits": 1
+          },
+          {
+            "value": 686.1413564682007,
+            "digits": 1
+          }
+        ],
+        [
+          "1 ms period, ±300 ns jitter",
+          "Elias-Fano",
+          {
+            "value": 2.7885756,
+            "digits": 3
+          },
+          {
+            "value": 11.8915096,
+            "digits": 1
+          },
+          {
+            "value": 269.07664680480957,
+            "digits": 1
+          },
+          {
+            "value": 296.06530952453613,
+            "digits": 1
+          }
+        ],
+        [
+          "bursty traffic",
+          "ww_tape linear groups",
+          {
+            "value": 3.7982293,
+            "digits": 3
+          },
+          {
+            "value": 5.5505567,
+            "digits": 1
+          },
+          {
+            "value": 104.3924036026001,
+            "digits": 1
+          },
+          {
+            "value": 463.7960968017578,
+            "digits": 1
+          }
+        ],
+        [
+          "bursty traffic",
+          "raw 64-bit ticks",
+          {
+            "value": 8.0,
+            "digits": 3
+          },
+          {
+            "value": 0.6986567,
+            "digits": 1
+          },
+          {
+            "value": 14.7374906539917,
+            "digits": 1
+          },
+          {
+            "value": 553.1233587265015,
+            "digits": 1
+          }
+        ],
+        [
+          "bursty traffic",
+          "delta-of-delta varints",
+          {
+            "value": 2.5814617,
+            "digits": 3
+          },
+          {
+            "value": 5.7368848,
+            "digits": 1
+          },
+          {
+            "value": 513.8526744842529,
+            "digits": 1
+          },
+          {
+            "value": 801.6745700836182,
+            "digits": 1
+          }
+        ],
+        [
+          "bursty traffic",
+          "Elias-Fano",
+          {
+            "value": 3.1583692,
+            "digits": 3
+          },
+          {
+            "value": 11.4752897,
+            "digits": 1
+          },
+          {
+            "value": 367.6930160522461,
+            "digits": 1
+          },
+          {
+            "value": 533.2386989593506,
+            "digits": 1
+          }
+        ],
+        [
+          "a system journal, 1 µs clock",
+          "ww_tape linear groups",
+          {
+            "value": 3.0170610629359786,
+            "digits": 3
+          },
+          {
+            "value": 5.9582581571884745,
+            "digits": 1
+          },
+          {
+            "value": 103.10972881317139,
+            "digits": 1
+          },
+          {
+            "value": 390.6880712509155,
+            "digits": 1
+          }
+        ],
+        [
+          "a system journal, 1 µs clock",
+          "raw 64-bit ticks",
+          {
+            "value": 8.0,
+            "digits": 3
+          },
+          {
+            "value": 0.7200123313925298,
+            "digits": 1
+          },
+          {
+            "value": 12.020732879638672,
+            "digits": 1
+          },
+          {
+            "value": 609.3687200546265,
+            "digits": 1
+          }
+        ],
+        [
+          "a system journal, 1 µs clock",
+          "delta-of-delta varints",
+          {
+            "value": 2.9798345347015194,
+            "digits": 3
+          },
+          {
+            "value": 5.0232912241458,
+            "digits": 1
+          },
+          {
+            "value": 517.3573427200317,
+            "digits": 1
+          },
+          {
+            "value": 698.9533271789551,
+            "digits": 1
+          }
+        ],
+        [
+          "a system journal, 1 µs clock",
+          "Elias-Fano",
+          {
+            "value": 2.568724970397539,
+            "digits": 3
+          },
+          {
+            "value": 15.843654118281705,
+            "digits": 1
+          },
+          {
+            "value": 199.66112995147705,
+            "digits": 1
+          },
+          {
+            "value": 270.88592052459717,
+            "digits": 1
+          }
+        ],
+        [
+          "video frames on their 60 000 Hz clock",
+          "ww_tape linear groups",
+          {
+            "value": 0.00196,
+            "digits": 3
+          },
+          {
+            "value": 1.223321,
+            "digits": 1
+          },
+          {
+            "value": 4.250922203063965,
+            "digits": 1
+          },
+          {
+            "value": 13.92152214050293,
+            "digits": 1
+          }
+        ],
+        [
+          "video frames on their 60 000 Hz clock",
+          "raw 64-bit ticks",
+          {
+            "value": 8.0,
+            "digits": 3
+          },
+          {
+            "value": 0.696491,
+            "digits": 1
+          },
+          {
+            "value": 11.265055656433105,
+            "digits": 1
+          },
+          {
+            "value": 295.99603176116943,
+            "digits": 1
+          }
+        ],
+        [
+          "video frames on their 60 000 Hz clock",
+          "delta-of-delta varints",
+          {
+            "value": 1.148692,
+            "digits": 3
+          },
+          {
+            "value": 2.313439,
+            "digits": 1
+          },
+          {
+            "value": 168.1400547027588,
+            "digits": 1
+          },
+          {
+            "value": 208.0637502670288,
+            "digits": 1
+          }
+        ],
+        [
+          "video frames on their 60 000 Hz clock",
+          "Elias-Fano",
+          {
+            "value": 1.54543,
+            "digits": 3
+          },
+          {
+            "value": 7.465274,
+            "digits": 1
+          },
+          {
+            "value": 79.84218502044678,
+            "digits": 1
+          },
+          {
+            "value": 105.12039375305176,
+            "digits": 1
+          }
+        ],
+        [
+          "video frames on a 1 ns clock",
+          "ww_tape linear groups",
+          {
+            "value": 0.320325,
+            "digits": 3
+          },
+          {
+            "value": 4.539086,
+            "digits": 1
+          },
+          {
+            "value": 14.596162796020508,
+            "digits": 1
+          },
+          {
+            "value": 90.29882526397705,
+            "digits": 1
+          }
+        ],
+        [
+          "video frames on a 1 ns clock",
+          "raw 64-bit ticks",
+          {
+            "value": 8.0,
+            "digits": 3
+          },
+          {
+            "value": 0.793943,
+            "digits": 1
+          },
+          {
+            "value": 11.729894638061523,
+            "digits": 1
+          },
+          {
+            "value": 175.5607557296753,
+            "digits": 1
+          }
+        ],
+        [
+          "video frames on a 1 ns clock",
+          "delta-of-delta varints",
+          {
+            "value": 1.149182,
+            "digits": 3
+          },
+          {
+            "value": 1.204452,
+            "digits": 1
+          },
+          {
+            "value": 82.65329074859619,
+            "digits": 1
+          },
+          {
+            "value": 119.726149559021,
+            "digits": 1
+          }
+        ],
+        [
+          "video frames on a 1 ns clock",
+          "Elias-Fano",
+          {
+            "value": 3.299824,
+            "digits": 3
+          },
+          {
+            "value": 7.06489,
+            "digits": 1
+          },
+          {
+            "value": 45.47263717651367,
+            "digits": 1
+          },
+          {
+            "value": 71.66676139831543,
+            "digits": 1
+          }
+        ]
+      ],
+      "load_before": {
+        "one": 9.62,
+        "five": 9.89,
+        "fifteen": 8.41
+      },
+      "load_after": {
+        "one": 11.68,
+        "five": 10.46,
+        "fifteen": 8.69
+      },
+      "seconds": 47.714681111
+    },
+    {
+      "id": "ends",
+      "title": "Spans: starts and ends in chunks of 4096 items, the time columns alone.",
+      "columns": [
+        "Workload",
+        "Raw starts and ends bytes per event",
+        "Starts bytes per event",
+        "Starts and ends bytes per event"
+      ],
+      "rows": [
+        [
+          "spans back to back",
+          {
+            "value": 16.0,
+            "digits": 3
+          },
+          {
+            "value": 2.9382901,
+            "digits": 3
+          },
+          {
+            "value": 2.9382901,
+            "digits": 3
+          }
+        ],
+        [
+          "spans with gaps",
+          {
+            "value": 16.0,
+            "digits": 3
+          },
+          {
+            "value": 3.3333445,
+            "digits": 3
+          },
+          {
+            "value": 5.934907,
+            "digits": 3
+          }
+        ]
+      ],
+      "load_before": {
+        "one": 11.68,
+        "five": 10.46,
+        "fifteen": 8.69
+      },
+      "load_after": {
+        "one": 11.68,
+        "five": 10.46,
+        "fifteen": 8.69
+      },
+      "seconds": 0.560659827
+    }
+  ]
+}

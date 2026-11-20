@@ -1,0 +1,165 @@
+{
+  "bench": "tracks",
+  "version": "0.1.0 (1199719-dirty, commit 20 Nov 2026 22:42 UTC)",
+  "settings": [
+    [
+      "tracks",
+      "10000"
+    ],
+    [
+      "piece MiB",
+      "256"
+    ],
+    [
+      "block KiB",
+      "4"
+    ]
+  ],
+  "machine": {
+    "cpu": "AMD EPYC-Genoa Processor",
+    "cpus": 14,
+    "arch": "x86_64",
+    "extensions": [
+      "sse4.2",
+      "avx2",
+      "avx512bw+vl"
+    ]
+  },
+  "tables": [
+    {
+      "id": "add",
+      "title": "10000 tracks added one by one, a records block each, into a piece in memory.",
+      "columns": [
+        "What",
+        "s"
+      ],
+      "rows": [
+        [
+          "add 1000 tracks",
+          {
+            "value": 0.006229424,
+            "digits": 3
+          }
+        ],
+        [
+          "add 5000 tracks",
+          {
+            "value": 0.036840095,
+            "digits": 3
+          }
+        ],
+        [
+          "add 10000 tracks",
+          {
+            "value": 0.074284851,
+            "digits": 3
+          }
+        ],
+        [
+          "close the piece",
+          {
+            "value": 0.017687586,
+            "digits": 3
+          }
+        ],
+        [
+          "open it and read the definitions",
+          {
+            "value": 0.021289916,
+            "digits": 3
+          }
+        ]
+      ],
+      "load_before": {
+        "one": 10.02,
+        "five": 10.17,
+        "fifteen": 8.64
+      },
+      "load_after": {
+        "one": 10.02,
+        "five": 10.17,
+        "fifteen": 8.64
+      },
+      "seconds": 0.114651895
+    },
+    {
+      "id": "puts",
+      "title": "Put and copied bytes in a piece of 256 MiB, 10000 tracks defined, records blocks of 4 KiB on the tracks in use in turn.",
+      "columns": [
+        "Tracks in use",
+        "Put and copied bytes",
+        "Of the piece, %"
+      ],
+      "rows": [
+        [
+          "10000",
+          {
+            "value": 6828405.0,
+            "digits": 0
+          },
+          {
+            "value": 2.5437480365398684,
+            "digits": 3
+          }
+        ],
+        [
+          "100",
+          {
+            "value": 100809.0,
+            "digits": 0
+          },
+          {
+            "value": 0.03755370916330285,
+            "digits": 3
+          }
+        ]
+      ],
+      "load_before": {
+        "one": 10.02,
+        "five": 10.17,
+        "fifteen": 8.64
+      },
+      "load_after": {
+        "one": 10.02,
+        "five": 10.17,
+        "fifteen": 8.64
+      },
+      "seconds": 1.7394293589999998
+    },
+    {
+      "id": "idle",
+      "title": "Work per records block when nothing needs writing: 10000 blocks on a track whose definition is 60 KiB.",
+      "columns": [
+        "What",
+        "Bytes per block"
+      ],
+      "rows": [
+        [
+          "hashed",
+          {
+            "value": 0.0,
+            "digits": 1
+          }
+        ],
+        [
+          "copied",
+          {
+            "value": 6.1533,
+            "digits": 1
+          }
+        ]
+      ],
+      "load_before": {
+        "one": 10.02,
+        "five": 10.17,
+        "fifteen": 8.64
+      },
+      "load_after": {
+        "one": 10.02,
+        "five": 10.17,
+        "fifteen": 8.64
+      },
+      "seconds": 0.013061029
+    }
+  ]
+}
