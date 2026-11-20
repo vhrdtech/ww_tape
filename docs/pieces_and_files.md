@@ -150,7 +150,7 @@ To open the file again, call `ww_tape_fs::chain::resume` with the same options. 
 tails, as a reader does.
 
 The chain resumes an unclosed last piece, cut off by a crash, under the rules for a piece in a file of its own.
-[Resuming after a crash](resuming.md#resuming-after-a-crash) gives those rules.
+[When the power fails](crashes.md#resuming-the-file) gives those rules.
 
 A last piece that was closed is written on after its close, behind an append head, in the session that wrote it. Nothing
 before the append head changes, and the new close names the one before it ([Closing more than

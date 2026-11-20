@@ -20,6 +20,7 @@ mod book;
 mod checks;
 mod clock;
 mod crafted;
+mod crashes;
 mod definitions;
 mod files;
 mod lock;
@@ -41,7 +42,7 @@ mod track_hash;
 use ww_tape::{BlockId, SessionTag};
 
 /// The session of blocks made by the tests.
-const TEST_SESSION: SessionTag = SessionTag::writable(0x7465_7374);
+pub(crate) const TEST_SESSION: SessionTag = SessionTag::writable(0x7465_7374);
 
 /// Block `seq` of [TEST_SESSION].
 fn id(seq: u64) -> BlockId {

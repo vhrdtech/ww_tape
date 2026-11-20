@@ -6,6 +6,8 @@
 //! - `puts.svg`: a state track put before every block of data, and the few puts that write: the first record, its
 //!   copy and the record again once the first lies more than `near` behind.
 //! - `grids.svg`: series chunks on their grids: chunks of one grid, lost samples, and a gap to a new grid.
+//! - `crash.svg`: an unfinished piece after a crash, its checkpoints pointing back, the scan to the torn block.
+//! - `resume.svg`: the piece written whole, cut by the crash, and resumed to the same bytes.
 //!
 //! [figures] draws them; `ww_tape_figures DIR` writes them into `DIR` (`just book-figures`: `docs/plots`).
 #![allow(
@@ -17,6 +19,7 @@
 )]
 
 mod block;
+mod crash;
 mod defs;
 mod grids;
 mod piece;
@@ -30,6 +33,8 @@ pub fn figures() -> anyhow::Result<Vec<(&'static str, String)>> {
         ("piece.svg", piece::piece()?),
         ("puts.svg", puts::puts()?),
         ("grids.svg", grids::grids()?),
+        ("crash.svg", crash::crash_svg()?),
+        ("resume.svg", crash::resume_svg()?),
     ])
 }
 

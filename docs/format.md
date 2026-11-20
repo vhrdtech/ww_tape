@@ -839,7 +839,7 @@ The new close's content hash chains over the old one:
 - It is BLAKE3 of the old close's hash, then of the bytes from the old close record to the new one.
 - Each chunk payload goes in by its hash, as in the first close.
 - The writer never reads the blocks of data before the old close again, but the last chunk of each track.
-- Of a piece with chunks, it reads the index too ([resuming a closed piece](resuming.md#resuming-a-closed-piece)).
+- Of a piece with chunks, it reads the index too ([resuming a closed piece](#resuming-a-closed-piece)).
 - The old close's hash still checks the piece up to it.
 
 Each close names the one before it (close offset 88), and `TapeReader::closes` lists them oldest first.
@@ -1092,7 +1092,7 @@ piece has no tail is open: it is being written, or a crash cut it off.
 
 ## Resuming after a crash
 
-[Damage and recovery](recovery.md#resuming-after-a-crash) explains resuming with examples.
+[When the power fails](crashes.md) explains resuming with the drive's recording as its example.
 
 `TapeWriter::resume_on` reopens an unclosed piece and goes on writing it. For a file, `ww_tape_fs::writer::resume`
 opens `NAME.partial`.
@@ -1111,30 +1111,98 @@ The walk rebuilds the writer as it was:
 - the counts;
 - the session and the next seq.
 
+In bytes that no block explains, the walk tells two cases apart. A block that the index lists is kept by its entry,
+as a damaged block, when it ends before the next good block. Other bytes are junk: the resume keeps them and never
+lists them.
+
 A damaged block that the index lists stands for what its entries say. A state record in such a block leaves its slot
 unknown, and the next put writes it again.
 
-The resume keeps the piece up to the end of its last good block, counted or not. It drops what ends a piece: a final
-index, or a close without its tail.
+A damaged chunk goes into its track's hash by the unit hash of its entry. The records of a damaged records block
+cannot go into a hash. The close therefore marks the hash of each track that may hold records as incomplete
+(`TrackRange::incomplete`), and the piece still verifies.
+
+The resume keeps the piece up to the end of its last good block, counted or not. It cuts off the rest only when that
+is a torn end. A torn end may hold a final index, or a close without its tail.
 
 It also drops blocks marked `FLAG_WITH_NEXT` at the end of what it keeps. The call they belong to is given again whole
 and writes them again.
 
-A resume never cuts off a good block. It refuses in two cases:
+`Resumed` says what the resume kept: `kept_bytes`, `dropped_bytes`, and `cut`, where the reader stopped taking blocks.
 
-- a good block follows bytes it can't read (`ResumeError::GoodBlockAfterCut`);
-- its look past the reader's stop, at most `RESUME_LOOK_MAX` (128 MiB), ends before the bytes do
-  (`ResumeError::LookSpent`).
+### What counts as a torn end
+
+A torn end is what a crash leaves of the last write: whole blocks, then a record that the bytes stop inside of. That
+record has fewer bytes than a block header, or a header that names more bytes than are left.
+
+Blank bytes (zeros) up to the end count as a torn end too. A file holds them where it grew but its data was never
+written. Anything else in the bytes to cut is damage, and the resume refuses with `ResumeError::Damaged`.
+
+A disk writes a 512-byte sector whole or not at all, so a write that a crash cut off leaves zeros from a sector
+boundary. The resume reads the bytes to cut with that in mind:
+
+| Bytes to cut | Resume |
+|---|---|
+| a record whose header names more bytes than are left | cut, unless its bytes show it was whole |
+| a whole-length record that fails its CRC, its zeros crossing a sector boundary | cut |
+| a whole-length record that fails its CRC, its zeros starting in its last sector, after it, or none | refused |
+| bytes that start no record | refused |
+| a whole tail that does not end the close record before it | refused |
+| a whole close record, then a tail's length or more of bytes that are not all zero | refused |
+| a tail blank from its first byte, or zeros from a sector boundary to the end | cut |
+
+A record shows it was whole when a block start lies inside its bytes. It also does when its bytes read as a good block
+once its length field names them. A tail lies inside one sector, so a crash leaves it whole, short or blank.
+
+The zeros of a record are the zero bytes from inside it to the end of the file. They count from where those bytes
+start, also where they were zero before, as in a close record's padding.
+
+Rot that zeroes the end of a complete close across a sector boundary looks the same, so a resume cuts that close. The
+bytes cannot tell it from a crash, and a stricter rule would refuse real crashes. Reading and verify never change a
+file.
+
+Take a 12,288-byte piece closed three times, whose last final index starts at offset 9268 of the file. Zeros from 9368
+to the end cross the sector boundary at 9728, so a resume cuts the 3,020 bytes from 9268 on.
+
+For example, one flipped bit makes the last tail fail its CRC, so the reader takes the close before it. The resume
+refuses and keeps every byte, also when the tail's last byte is zero.
+
+The bytes alone cannot tell the last row from a crash during the close. The resume then drops that close.
+
+### When a resume refuses
+
+A resume never cuts off a good block or damage. Where cutting could lose more than a torn end, it refuses and leaves
+the bytes as they are:
+
+| Refusal | When |
+|---|---|
+| `ResumeError::NoPiece` | there is no piece to resume; `ww_tape_fs` reports `FsError::NoPiece` with the path |
+| `ResumeError::Damaged { offset }` | the bytes to cut hold damage rather than a torn end: a whole record that fails its check, bytes that start no record, or a tail that does not end its close |
+| `ResumeError::GoodBlockAfterCut { offset }` | a good block of the piece's sessions lies behind the bytes the reader did not take; with no block kept, a good block of any session counts |
+| `ResumeError::LookSpent { offset }` | the look for good blocks ran out before the end of the bytes |
+| `ResumeError::HashWalkSpent { end }` | the kept bytes claim so many blocks that do not read that a reader's content-hash walk stops trying blocks before their end (`WALK_MISS_PER_BYTE_MAX`), so a block written after them would not verify |
+| `ResumeError::Continued { next }` | the piece's close names a next piece: a cut ended it for good |
+| `InputError::Layout`, `InputError::Producer` | the options name another layout or producer than the piece |
+
+The look past the reader's stop reads at most `RESUME_LOOK_MAX` (128 MiB), twice the longest block. It checks at most
+`RESUME_PROBES_MAX` (4) places whole, so crafted bytes cost a bounded read.
+
+The resume checks the options before it cuts or writes anything. The newest layout and producer the piece names must
+be the ones the options give, and each error names both. The chunk alignment matters because a reader trusts the
+layout when it looks for the end of the data. The layout's gap settings need no check, because the writer never leaves
+a gap.
+
+A piece whose layout or producer record didn't survive is checked against nothing: the options say what it is.
 
 ### A closed piece
 
 A piece whose last close and tail read whole is closed, and a crash, if any, came after the close. The resume cuts off
-junk after the tail and writes on after it.
+a torn append after the tail and writes on after it, an append head first.
 
 The append head goes out before the first block written, so a close with nothing appended writes no byte.
 
 A good block after the tail refuses the resume (`ResumeError::GoodBlockAfterCut`), unless an append head that names the
-close leads to it.
+close leads to it. A damaged append head is such a case: the resume never cuts off the blocks after it.
 
 Blocks after an append head that names a whole close and tail are the piece going on. The resume keeps that close and
 goes on after the blocks.
@@ -1142,19 +1210,90 @@ goes on after the blocks.
 A close that names a next piece, a cut, ends its piece for good. The resume gives the file its name and returns
 `ResumeError::Continued` with the next piece's id.
 
+A piece cut off inside its close record or tail is opened again. Its final index and close are cut off, and the next
+close pads the piece to 4 KiB again.
+
+#### Resuming a closed piece
+
+A resume of a closed piece reads no block of data before its close in force but the last chunk of each track. Without
+chunks, an append to a large piece therefore costs about as much as an append to a small one.
+
+The writer's state at the close comes from what the close names:
+
+- the close record: each track's range, hash and counted records, and the session and seq of its block id;
+- the piece head, and the layout and producer put right after it, which the options are checked against;
+- for a piece holding chunks, the index chain and each track's last chunk, for the newest relation values.
+
+A piece holding chunks costs more. The resume reads every final index of the piece, newest first, about 211 bytes per
+chunk:
+
+| Piece | Closes | Bytes read |
+|---|---|---|
+| 1,000 chunks, 1.06 MB | 1 | 226,961 |
+| 1,000 chunks, 1.07 MB | 10 | 218,513 |
+| 10,000 chunks, 10.5 MB | 1 | 2,114,165 |
+
+Each final index lists only the blocks since the close before it, so more closes read no more. Nothing caps the read
+but the piece itself: each final index points back to an earlier one, down to the first. Bytes after the tail, such
+as a torn append, make a resume read the index chain too.
+
+An index chain that does not read leaves the tracks with chunks unread. The next chunk of such a track then needs a
+break the caller accepts (`TapeWriter::accept_relation_break`), so damage before the close never stops an append.
+
+The record of what lies near starts empty. The writer thus puts again, after the append head, the definitions the
+blocks after it need.
+
+Only the close record, its tail and the bytes after them are walked and replayed. A crash during an append resumes
+from the same close, so the piece ends with the same bytes as an append without the crash.
+
 ### Same bytes as without the crash
 
 What the writer adds depends only on its `WriterOptions`, the blocks before it and the calls since. The same calls after
 a resume therefore give the bytes and content hash of a piece written without the crash.
 
+The producer gives again every call from the block that `TapeWriter::next_seq` reports, with the same definitions. A
+call that placed several counted blocks, such as a chunk with deferred blocks in its gap, is given again whole.
+
 A put is idempotent: an application puts again what it uses and needs no record of which puts made it.
 
-The writer keeps no definitions: after the resume, the application passes its own with each call, as before. The resume
-checks the options' layout and producer against those the piece names, before it cuts or writes anything
-(`InputError::Layout`, `InputError::Producer`).
+The writer keeps no definitions: after the resume, the application passes its own with each call, as before.
 
-`PieceChain::resume_on` also reads the closed pieces back and handles a crash between a cut's close and the next
-piece.
+### Resuming a chain
+
+`PieceChain::resume_on` (`ww_tape_fs::chain::resume` for files) reads the closed pieces back from their tails. It then
+deals with the last piece. A closed piece that a crash left under its `.partial` name gets its name.
+
+| Last piece | Chain of a tape per piece | Chain in one tape (`PieceTapes::One`) |
+|---|---|---|
+| unclosed | resumed | resumed |
+| closed naming a next piece: the crash came during a cut | the next piece starts | the next piece starts |
+| closed or aborted, naming no next piece | written on after its close | written on after its close |
+| its piece head is damaged | refused | refused |
+
+A chain therefore gains a piece only at a cut: a session that opens it again goes on in its last piece. A crash inside
+the head of the next piece starts that piece again.
+
+The resume refuses a last piece whose head is damaged, with `WriteError::Index`. Keeping its blocks would leave them
+outside the chain, and dropping them would lose more than a torn end. A chain kept in memory from which
+`MemTapes::remove` took pieces is not resumed.
+
+### Monotone relations after a resume
+
+A chain resume also restores the newest value of each monotone relation, a per-item value that a track declares never
+to decrease. It takes the range relation's newest value from every closed piece's index entries, which it reads anyway.
+
+The other relations' values are in chunks. For each track, the resume reads one chunk of at most `MAX_BLOCK_LEN` (64
+MiB): the track's last chunk in the newest closed piece that holds one. A resume of a chain of N tracks therefore
+reads up to N chunks besides each piece's head, close, tail and index.
+
+The writer cannot vouch for an order it cannot read. Where that chunk does not read, it refuses the track's next chunk
+(`DescribeError::RelationUnread`). The call `TapeWriter::accept_relation_break(defs, track, relation, from)` lets it go
+on. It checks the track's next chunk against `from` for that relation. It then marks the chunk as a [relation
+break](#relation-breaks) (`FLAG_RELATION_BREAK`), which readers see.
+
+The break waits for the track's next chunk, also across cuts. A crash before that chunk drops the break, and the
+resumed writer refuses again. The writer marks a chunk that it encodes itself. A caller's block carries the flag
+(`mark_relation_break`) exactly when a break waits, and is refused otherwise (`InputError::Flags`).
 
 ## Reading by position
 

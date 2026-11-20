@@ -55,9 +55,9 @@ short = "The index block at the end of a finished piece, listing every block by 
 chapter = "../anatomy/"
 
 [[term]]
-name = "finish"
-forms = ["finish block"]
-short = "The block after the final index that ends a piece: its state, its content hash, and where each track ended."
+name = "close"
+forms = ["closes", "close record", "closed", "unclosed"]
+short = "The record after the final index that ends a piece: why it ended, its content hash, and where each track ended."
 chapter = "../anatomy/"
 
 [[term]]
@@ -142,6 +142,11 @@ chapter = "../"
 name = "torn block"
 forms = ["torn"]
 short = "A block that a crash interrupted: its bytes end early or do not match its CRC."
+chapter = "../crashes/"
+
+[[term]]
+name = "torn end"
+short = "What a crash leaves past the last good block: a block that stops short, or zeros from a sector boundary to the end."
 chapter = "../crashes/"
 
 [[term]]

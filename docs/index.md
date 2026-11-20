@@ -74,7 +74,7 @@ below give the pages in the order a reader needs them.
 - [Writing a tape](writing.md): the writer, its sinks and stores, definitions and puts, and the forms of data.
 - [Sinks, files and locks](sinks_and_locks.md): writing to files and memory, the lock on a file, and firmware.
 - [Syncing, cuts and relays](syncing_and_cuts.md): syncing, checkpoints, cuts, the close, and relays.
-- [Resuming a writer](resuming.md): reopening a piece or a chain after a crash.
+- [When the power fails](crashes.md): what a crash costs, and reopening a piece or a chain after it.
 - [Pieces and files](pieces_and_files.md): chains, many pieces in one file, copies, and addressing one item.
 - [Track owners and hashes](track_hashes.md): tracks of several owners, the track hash and the hash of a range.
 
@@ -89,7 +89,7 @@ below give the pages in the order a reader needs them.
 
 ### Damage and the reference
 
-- [Damage and recovery](recovery.md): checksums, and resuming after a crash.
+- [Damage and recovery](recovery.md): checksums, and what a crash costs.
 - [Reading a damaged file](damaged_files.md): reading past damage, what a damaged file still gives, and the limits.
 - [Sessions and raw media](raw_media.md): stale data on a reused card, gaps and duplicate blocks.
 - [Format reference](format.md): every part of the format, block by block.

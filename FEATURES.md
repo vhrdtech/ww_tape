@@ -102,7 +102,7 @@ Writing pieces and chains, resuming them, sinks in memory, in the crate `ww_tape
   - A writer reopens an unclosed piece and keeps every block up to the last one written. The resumed piece ends with the bytes of a write that never stopped.
   - A chain resume also reads the closed pieces back. It handles a crash between a cut's close and the next piece.
   - Writers write through a sink and chains through a store of tapes, so the same code writes files and memory.
-  - Read more: [Resuming a writer](docs/resuming.md). Tests cut pieces and chains at every block and at random bytes; fuzz target `tape-resume`.
+  - Read more: [When the power fails](docs/crashes.md). Tests cut pieces and chains at every block and at random bytes; fuzz target `tape-resume`.
 - ✅ **WRITE-3 Writes say where they landed**
   - Each write of a chunk or a block returns the offset and length where the block landed. A chain also returns the piece it landed in.
   - Tests read each returned offset back (`placed.rs`).

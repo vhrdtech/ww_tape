@@ -1,0 +1,36 @@
+<svg class="ww-svg" viewBox="0 0 680 250" width="680" height="250" role="img" aria-label="The names of a file over its life: writer::create makes capture.wwt.partial and holds the lock on capture.wwt.lock; close writes the end of the piece and renames the file to capture.wwt; a power failure leaves capture.wwt.partial with a torn end and no lock held, and writer::resume reopens it and goes on writing" xmlns="http://www.w3.org/2000/svg">
+  <!-- writing -->
+  <rect x="150.5" y="40" width="210" height="58" rx="4" class="tint-blue"/>
+  <text x="255" y="62" text-anchor="middle" class="mono strong">capture.wwt.partial</text>
+  <text x="255" y="82" text-anchor="middle" class="small">being written, lock held</text>
+  <!-- closed -->
+  <rect x="490.5" y="40" width="170" height="58" rx="4" class="tint-green"/>
+  <text x="575" y="62" text-anchor="middle" class="mono strong">capture.wwt</text>
+  <text x="575" y="82" text-anchor="middle" class="small">closed, ends on 4 KiB</text>
+  <!-- crashed -->
+  <rect x="150.5" y="168" width="210" height="58" rx="4" class="tint-accent"/>
+  <text x="255" y="190" text-anchor="middle" class="mono strong">capture.wwt.partial</text>
+  <text x="255" y="210" text-anchor="middle" class="small">unclosed, torn end, no lock</text>
+  <!-- create -->
+  <path d="M20 69 H142" class="line"/>
+  <path d="M148 69 l-8 -4 v8 Z" class="line head"/>
+  <text x="20" y="58" text-anchor="start" class="mono small">writer::create</text>
+  <!-- close -->
+  <path d="M362 69 H482" class="line"/>
+  <path d="M488 69 l-8 -4 v8 Z" class="line head"/>
+  <text x="425" y="58" text-anchor="middle" class="mono small">close</text>
+  <text x="425" y="88" text-anchor="middle" class="soft small">end of piece, sync,</text>
+  <text x="425" y="102" text-anchor="middle" class="soft small">rename, sync</text>
+  <!-- power fails -->
+  <path d="M215 100 V160" class="accent-line"/>
+  <path d="M215 166 l-4 -8 h8 Z" class="accent-line head"/>
+  <text x="207" y="136" text-anchor="end" class="accent small">power fails</text>
+  <!-- resume -->
+  <path d="M295 166 V106" class="line"/>
+  <path d="M295 100 l-4 8 h8 Z" class="line head"/>
+  <text x="303" y="136" text-anchor="start" class="mono small">writer::resume</text>
+  <text x="303" y="152" text-anchor="start" class="soft small">cuts off the torn end, takes the lock</text>
+  <!-- lock -->
+  <text x="20" y="98" text-anchor="start" class="soft small">capture.wwt.lock</text>
+  <text x="20" y="112" text-anchor="start" class="soft small">stays beside it</text>
+</svg>

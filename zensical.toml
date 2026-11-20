@@ -27,7 +27,7 @@ nav = [
             "writing.md",
             "sinks_and_locks.md",
             "syncing_and_cuts.md",
-            "resuming.md",
+            "crashes.md",
             "pieces_and_files.md",
             "track_hashes.md",
             "reading.md",

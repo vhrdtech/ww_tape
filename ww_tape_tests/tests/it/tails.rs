@@ -223,7 +223,7 @@ fn a_damaged_close_is_cut_only_where_its_zeros_cross_a_sector_boundary() {
         );
         assert_eq!(after[..], f[..index_at], "alignment {alignment}");
         if alignment == 0 {
-            // the example of docs/resuming.md
+            // the example of docs/format.md, "What counts as a torn end"
             assert_eq!((n, index_at), (12288, 9268));
             let mut d = f.clone();
             d[9368..].fill(0);

@@ -11,8 +11,8 @@ The module `ww_tape_fs::writer` opens a writer on a path:
 
 - `writer::create(path, sync)` creates the file as `NAME.partial` and renames it to `NAME` at the close.
 - `writer::append(path, sync)` appends to a file in a new session. It creates the file when it does not exist.
-- `writer::resume(path, options)` reopens the unclosed piece of `path` ([Resuming after a
-  crash](resuming.md#resuming-after-a-crash)). With neither `NAME` nor `NAME.partial` there, it fails with
+- `writer::resume(path, options)` reopens the unclosed piece of `path` ([When the power
+  fails](crashes.md#resuming-the-file)). With neither `NAME` nor `NAME.partial` there, it fails with
   `FsError::NoPiece`.
 - `writer::cut(writer, next_path)` ends the piece and starts the next one in the new file `next_path`
   ([Cuts](syncing_and_cuts.md#cuts-ending-one-piece-and-starting-the-next)).

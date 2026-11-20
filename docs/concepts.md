@@ -204,7 +204,7 @@ writes each one once, and never repeats it.
   one file from start to end.
 - [Writing a tape](writing.md): the writer, sinks, definitions and puts.
 - [Syncing, cuts and relays](syncing_and_cuts.md): syncing, checkpoints, cuts and relays.
-- [Resuming a writer](resuming.md): resuming after a crash.
+- [When the power fails](crashes.md): resuming after a crash.
 - [Pieces and files](pieces_and_files.md): chains, many pieces in one file, copies, and addressing one item.
 - [Reading a tape](reading.md): opening a file, finding blocks, state in force at a place, damage.
 - [Events and series](events_and_series.md): how chunks store time and values.

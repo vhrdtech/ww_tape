@@ -143,7 +143,7 @@ Puts and copies go into blocks marked `FLAG_REPEAT`. Such a block carries the se
 is not counted.
 
 The producer's sequence numbers therefore stay its own count of its blocks. Puts that belong with the block after them
-are also marked `FLAG_WITH_NEXT`, which a resume uses ([Resuming after a crash](resuming.md#resuming-after-a-crash)).
+are also marked `FLAG_WITH_NEXT`, which a resume uses ([When the power fails](crashes.md#resuming-the-file)).
 
 The writer remembers, per slot, where it last wrote what. `NearPolicy::memory_max` caps that memory, and the writer
 forgets the slot written longest ago first.
@@ -287,4 +287,4 @@ Three pages take the writer further:
 - [Sinks, files and locks](sinks_and_locks.md): where the bytes go, and how one writer holds a file.
 - [Syncing, cuts and relays](syncing_and_cuts.md): what a crash can lose, how a piece ends, and how a relay passes
   blocks on.
-- [Resuming a writer](resuming.md): how a writer reopens a piece after a crash.
+- [When the power fails](crashes.md): how a writer reopens a piece after a crash.

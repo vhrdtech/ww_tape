@@ -226,6 +226,6 @@ These limits follow from the design. They fall into three groups.
 
 ## See also
 
-- [Damage and recovery](recovery.md): checksums, and resuming after a crash.
+- [Damage and recovery](recovery.md): checksums, and what a crash costs.
 - [Sessions and raw media](raw_media.md): sessions, stale data, gaps and duplicates.
 - [Format reference](format.md#sessions-media-and-damage): sessions, media, gaps and state records as a reference.
