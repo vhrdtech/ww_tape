@@ -11,8 +11,8 @@ use ww_tape::times::EncodedTimes;
 use ww_tape::writer::NearPolicy;
 use ww_tape::{
     BlockId, BlockKind, BlockWriter, ChainOptions, ChainPiece, ClockRef, ClockTime, Codec,
-    ColumnKind, ColumnSpec, CutPolicy, Definitions, EndMode, Layout, MemTapes, PieceChain,
-    PieceTapes, Resumed, SampleShape, SeriesGrid, StatePolicy, SyncPolicy, TapeSink, WriterOptions,
+    ColumnKind, ColumnSpec, CutPolicy, Definitions, EndMode, MemTapes, PieceChain, PieceTapes,
+    Resumed, SampleShape, SeriesGrid, StatePolicy, SyncPolicy, TapeSink, WriterOptions,
 };
 use ww_tape_summary::{SeriesStart, SeriesSummaries};
 
@@ -21,7 +21,7 @@ use crate::signals::{
     CRASH_MINUTE, FAULT_MINUTE, Mode, US_PER_HOUR, US_PER_MS, emergency_frame, frame, log_line,
     phase_ma, temp_centi,
 };
-use crate::{CHAIN, Drive, Error, OWNER, PRODUCER};
+use crate::{Drive, Error, OWNER, PRODUCER};
 
 /// The codec of `phase_a`'s samples: differences, bit-packed in groups.
 const PHASE_CODEC: Codec = Codec::DELTA;
@@ -281,7 +281,7 @@ fn options(drive: &Drive) -> ChainOptions {
                 interval: None,
                 ..IndexPolicy::default()
             },
-            layout: Layout::UNALIGNED.with_definitions(definitions),
+            layout: drive.layout.with_definitions(definitions),
             producer: PRODUCER.to_owned(),
             near: NearPolicy {
                 copy_spacing: drive.copy_spacing,
@@ -452,6 +452,13 @@ impl Recording {
             .ok_or(Error::Settings("the run ends before minute 37"))
     }
 
+    /// The byte in the middle of the first chunk of `track` at or after `ticks`, counted in the whole recording.
+    pub(crate) fn chunk_at(&self, track: u32, ticks: i64) -> Option<u64> {
+        self.chunks(track)
+            .find(|m| m.first_tick >= ticks)
+            .map(|m| m.at + m.len / 2)
+    }
+
     /// The puts of the mode made in piece `piece`, and the ticks of those that wrote a record: the first record of a
     /// mode, its copy, or the mode again once its record lies more than `near` behind.
     pub fn mode_puts(&self, piece: u64) -> (usize, Vec<i64>) {
@@ -528,8 +535,12 @@ impl Crashed {
 
     /// Resume the chain and give it every act the crash lost, then close it.
     pub fn resume(self) -> Result<Resume, Error> {
-        let (chain, resumed) =
-            PieceChain::resume_on(self.tapes.clone(), OWNER, CHAIN, options(&self.drive))?;
+        let (chain, resumed) = PieceChain::resume_on(
+            self.tapes.clone(),
+            OWNER,
+            self.drive.chain,
+            options(&self.drive),
+        )?;
         let mut r = Recorder {
             chain,
             defs: drive_definitions(&self.drive)?,
@@ -587,7 +598,7 @@ fn close(drive: Drive, r: Recorder, tapes: &MemTapes, made: Vec<Made>) -> Result
 impl Drive {
     fn start(&self, tapes: &MemTapes) -> Result<Recorder, Error> {
         Ok(Recorder {
-            chain: PieceChain::create_on(tapes.clone(), OWNER, CHAIN, &[], options(self))?,
+            chain: PieceChain::create_on(tapes.clone(), OWNER, self.chain, &[], options(self))?,
             defs: drive_definitions(self)?,
         })
     }

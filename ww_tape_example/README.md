@@ -21,4 +21,8 @@ cargo run --release -p ww_tape_example        # the story's numbers at full scal
 cargo run --release -p ww_tape_example -- 1000  # the same at 1/1000
 ```
 
+The archived last piece then takes damage three ways: a flipped bit, its first 4 KiB lost, its last 4 KiB lost. The run is also written onto a raw SD card that still holds an earlier run behind it.
+
 `tests/story.rs` checks three things. The full hour is the same every run, and its crash lands where the story says. A scaled run resumes from a crash at any byte.
+
+`tests/damage.rs` checks what each damage costs and that a reader of the raw card never takes the earlier run for data.

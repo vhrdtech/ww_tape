@@ -9,8 +9,9 @@
 )]
 
 use ww_tape::index::{IndexBlock, IndexKind};
+use ww_tape::reader::Found;
 use ww_tape::{BlockKind, FLAG_REPEAT, FileBlocks, Recovery};
-use ww_tape_example::{Drive, Error, Story};
+use ww_tape_example::{Damaged, Drive, EARLIER_CHAIN, Error, Recording, Salvaged, Story};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let k = match std::env::args().nth(1) {
@@ -37,7 +38,123 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         wrote.len(),
         at.join(", ")
     );
+    println!();
+    print_damage(&drive, &recording)?;
+    println!();
+    print_card(&drive)?;
     Ok(())
+}
+
+/// The run on a raw SD card that held an earlier run, the power failing at the story's crash.
+fn print_card(drive: &Drive) -> Result<(), Error> {
+    let today = drive.on_sd_card();
+    let earlier = today.chain(EARLIER_CHAIN).record()?;
+    let card = today
+        .crash(today.record()?.story_crash_byte()?)?
+        .on_card(&earlier)?;
+    let read = card.read(&earlier)?;
+    let len = card.bytes.len() as u64;
+    println!(
+        "On a raw card of {} that held an earlier run: the run wrote {} before the power failed.",
+        mib(len),
+        mib(card.crash.byte)
+    );
+    println!(
+        "As a raw medium: {} pieces, the data ends at byte {}; {} of the earlier run stay behind as stale data.",
+        read.raw_pieces,
+        read.raw_end,
+        mib(len - read.raw_end)
+    );
+    if let Some((at, why)) = &read.raw_stop {
+        println!("The walk stops at byte {at}: {why}.");
+    }
+    println!(
+        "As a file: {} pieces, {} of them the earlier run's.",
+        read.file_pieces, read.file_earlier
+    );
+    Ok(())
+}
+
+/// The story's three damages to the last piece and what the readers get from each.
+fn print_damage(drive: &Drive, recording: &Recording) -> Result<(), Error> {
+    let [flip, first, last] = recording.story_damage()?;
+    let s = &first_salvaged(drive, &flip)?;
+    let us = s.first_tick;
+    println!(
+        "Damage to piece {} ({} bytes), which holds the fault:",
+        flip.piece,
+        flip.whole.len()
+    );
+    println!();
+    println!(
+        "A flipped bit at byte {} of the piece: a chunk of phase_a from {:02}:{:02}, {} bytes; {} of its {} segments fail; {} of its {} samples lost.",
+        flip.damage.start,
+        us / 60_000_000,
+        us / 1_000_000 % 60,
+        s.block.len,
+        s.bad_segments,
+        s.segments,
+        s.items_lost.unwrap_or(s.items),
+        s.items,
+    );
+    println!();
+    println!(
+        "| Damage | Found by | Content hash holds | Index lists | Read | Unreadable | Unlisted | Prefix: blocks, stops at | Resync: blocks, salvaged, reports |"
+    );
+    println!("|---|---|---|---:|---:|---:|---:|---|---|");
+    let mut lines = Vec::new();
+    for (name, d) in [
+        ("a flipped bit", &flip),
+        ("the first 4 KiB lost", &first),
+        ("the last 4 KiB lost", &last),
+    ] {
+        let r = d.read(drive)?;
+        let found = match r.found {
+            Found::Tail => "tail".to_owned(),
+            Found::Checkpoint { scanned } => format!("checkpoint, {scanned} bytes scanned"),
+            Found::Scan { scanned } => format!("scan, {scanned} bytes"),
+        };
+        let holds = r.holds.map_or("no close".to_owned(), |h| h.to_string());
+        let stop = r
+            .prefix
+            .reports
+            .iter()
+            .find(|e| e.1 == "cut")
+            .map_or("the end".to_owned(), |e| format!("byte {}", e.0));
+        println!(
+            "| {name} | {found} | {holds} | {} of {} | {} | {} | {} | {}, {stop} | {}, {}, {} |",
+            r.read.len() + r.unreadable.len(),
+            r.data_blocks(),
+            r.read.len(),
+            r.unreadable.len(),
+            r.unlisted.len(),
+            r.prefix.blocks.len(),
+            r.resync.blocks.len(),
+            r.resync.salvaged.len(),
+            r.resync.reports.len(),
+        );
+        lines.push(format!(
+            "{name}: unreadable blocks {:?}; definitions at the end {} of {}.",
+            r.unreadable.iter().map(|b| b.kind).collect::<Vec<_>>(),
+            r.definitions,
+            r.definitions_written
+        ));
+    }
+    println!();
+    for l in lines {
+        println!("{l}");
+    }
+    Ok(())
+}
+
+/// The chunk a Resync walk salvages from `d`.
+fn first_salvaged(drive: &Drive, d: &Damaged) -> Result<Salvaged, Error> {
+    let r = d.read(drive)?;
+    r.resync
+        .salvaged
+        .first()
+        .copied()
+        .ok_or(Error::Settings("the flipped bit damages a chunk's payload"))
 }
 
 /// What a block of a piece is, as the book's anatomy of a piece names it.

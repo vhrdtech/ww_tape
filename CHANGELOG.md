@@ -183,6 +183,7 @@ Covers `ww_tape` 0.1.0.
 - Book: Part II, how a tape is built: tracks, clocks, blocks, definitions and state, anatomy of a piece (BOOK-2).
 - Book: Part II's figures: records against a chunk, clock map, checkpoints drawn from the drive; four drawn by hand (BOOK-2).
 - `cargo run -p ww_tape_example` also prints the first piece's blocks by kind, its structure share and its mode puts (BOOK-3).
+- `ww_tape_example` damages the last piece three ways and writes the run onto a raw card over an earlier run (BOOK-3).
 - `TapeWriter::close_with_summary` places a close summary (kind 14) the close names; `TapeReader::close_summary` reads it (WRITE-7).
 - `TapeReader::unclosed` names the bytes no close covers; `TapeReader::closed_entries` lists only blocks the close in force covers (WRITE-7).
 - A piece closes more than once: an append head after the tail, a chained close hash, `TapeReader::closes` (WRITE-7).

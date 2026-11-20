@@ -36,11 +36,15 @@
               a recording of a few hundred MiB are far from any limit, and it reads no bytes of others"
 )]
 
+mod card;
+mod damage;
 mod defs;
 pub mod first_tape;
 mod record;
 mod signals;
 
+pub use card::{Card, CardRead, EARLIER_CHAIN};
+pub use damage::{Damage, Damaged, FLIP_MINUTE, LOST_UNIT, Placed, Salvaged, Walk, walk};
 pub use defs::{
     BOARD_CLOCK, BOOT_UNIX_NS, CAN0, HOST_CLOCK, LOG, MODE, PHASE_A, TEMP, definitions, key,
     phase_def, phase_summaries,
@@ -90,6 +94,12 @@ pub struct Drive {
     pub copy_spacing: u64,
     /// `phase_a` carries summaries.
     pub summaries: bool,
+    /// The number of the chain of [OWNER] the run records into: another number gives other piece ids and session
+    /// tags, as another day's run on the same bench does.
+    pub chain: u64,
+    /// How the writer places blocks: [ww_tape::Layout::UNALIGNED] for a file, [ww_tape::Layout::on_sd_card] for a
+    /// raw card.
+    pub layout: ww_tape::Layout,
 }
 
 impl Drive {
@@ -107,6 +117,8 @@ impl Drive {
             near_bytes: 32 << 20,
             copy_spacing: ww_tape::writer::near::COPY_SPACING,
             summaries: true,
+            chain: CHAIN,
+            layout: ww_tape::Layout::UNALIGNED,
         }
     }
 
@@ -142,6 +154,19 @@ impl Drive {
     /// The same run cut short at `minutes`.
     pub const fn minutes(self, minutes: u32) -> Self {
         Self { minutes, ..self }
+    }
+
+    /// The same run written onto a raw SD card ([ww_tape::Layout::on_sd_card]) instead of into files.
+    pub const fn on_sd_card(self) -> Self {
+        Self {
+            layout: self.layout.on_sd_card(),
+            ..self
+        }
+    }
+
+    /// The same run recorded into chain `chain` of [OWNER].
+    pub const fn chain(self, chain: u64) -> Self {
+        Self { chain, ..self }
     }
 }
 
@@ -180,7 +205,29 @@ pub enum Error {
     /// The memory the pieces are in.
     Mem(MemError),
     /// Reading a piece back.
-    Read(ww_tape::reader::ReadError<MemError>),
+    Read(Reading),
+}
+
+/// Why a piece could not be read back.
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum Reading {
+    /// A piece in memory.
+    Mem(ww_tape::reader::ReadError<MemError>),
+    /// A piece's bytes, such as a damaged copy.
+    Bytes(ww_tape::reader::ReadError<ww_tape::reader::OutOfRange>),
+}
+
+impl From<ww_tape::reader::ReadError<MemError>> for Error {
+    fn from(e: ww_tape::reader::ReadError<MemError>) -> Self {
+        Self::Read(Reading::Mem(e))
+    }
+}
+
+impl From<ww_tape::reader::ReadError<ww_tape::reader::OutOfRange>> for Error {
+    fn from(e: ww_tape::reader::ReadError<ww_tape::reader::OutOfRange>) -> Self {
+        Self::Read(Reading::Bytes(e))
+    }
 }
 
 impl core::fmt::Display for Error {
@@ -225,5 +272,4 @@ from! {
     Summaries(ww_tape_summary::BuildError),
     Write(ww_tape::WriteError<MemError>),
     Mem(MemError),
-    Read(ww_tape::reader::ReadError<MemError>),
 }
