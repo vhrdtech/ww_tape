@@ -45,6 +45,9 @@ and that share:
 | close | 1 | 4868 |
 | tail | 1 | 164 |
 
+How much disk a whole run takes, and what writing it costs, is the subject of [Sizes and
+speeds](sizes.md#the-drives-hour).
+
 Every offset in a piece counts from the piece's first byte. An index therefore stays valid wherever the piece sits:
 alone in a file, or one of several pieces back to back.
 
