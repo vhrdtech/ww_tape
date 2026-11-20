@@ -16,6 +16,7 @@ Covers `ww_tape` 0.1.0.
 - `ChainEnd` is `Closed { reason }`, `TailCut` or `Unclosed`; `ReadError::Unfinished` is `Unclosed`; `PieceInfo::finish*` fields are `close*` (TAPE-14).
 - The close record has 160 fixed bytes: previous close at 88, summary at 176, rows from 192 (TAPE-14).
 - A resume of a closed piece writes on after its close; `WriteError::Ended` is gone (TAPE-14).
+- A resumed closed piece closed with nothing appended writes no byte: no append head, no new close (TAPE-14).
 - A resume of a piece a cut closed names it and returns `ResumeError::Continued { next }` (TAPE-14).
 - `Tapes::reopen` returns a closed tape too; a chain writes on in its closed last piece (TAPE-14).
 - A chain links pieces only by the `next` id a close names, never derived from the piece before (TAPE-14).

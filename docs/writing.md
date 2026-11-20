@@ -17,6 +17,8 @@ piece. At the end, it writes the final index, the close and the tail.
 A close ends a write session, not the piece. A writer that resumes a closed piece writes on after its close, and the
 next close names the one before it ([Closing more than once](format.md#closing-more-than-once)).
 
+A piece closed again with nothing appended stays as it was, to the byte.
+
 `TapeWriter::close_with_summary` closes with a summary block of the application's own. The block holds any bytes up to
 `CLOSE_SUMMARY_MAX` (1 MiB), and a reader fetches it from the tail without a scan ([The close
 summary](format.md#the-close-summary)).

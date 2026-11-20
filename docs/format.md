@@ -846,11 +846,11 @@ Each close names the one before it (close offset 88), and `TapeReader::closes` l
 
 ##### What an append costs
 
-Every close pads its piece to a multiple of `PIECE_ALIGN`, in the unaligned layout too. Each append therefore adds at
-least 4 KiB.
+Every close pads its piece to a multiple of `PIECE_ALIGN`, in the unaligned layout too. An append of one small block
+therefore adds 4,096 bytes, most of them the close record's padding.
 
-An empty append measures 4,096 bytes. These are the append head (84), a final index (64), the close record (3,784,
-mostly padding) and the tail (164).
+A writer that resumes a closed piece and closes it again with nothing appended writes nothing. The file keeps its bytes
+and its modification time, and the close in force stays the last.
 
 The padding lets closed pieces clone back to back, as [Aligned piece ends](#aligned-piece-ends) explains. Ten
 thousand short appends thus add at least 40 MiB to a piece.
@@ -1128,7 +1128,9 @@ A resume never cuts off a good block. It refuses in two cases:
 ### A closed piece
 
 A piece whose last close and tail read whole is closed, and a crash, if any, came after the close. The resume cuts off
-junk after the tail and writes on after it, an append head first.
+junk after the tail and writes on after it.
+
+The append head goes out before the first block written, so a close with nothing appended writes no byte.
 
 A good block after the tail refuses the resume (`ResumeError::GoodBlockAfterCut`), unless an append head that names the
 close leads to it.

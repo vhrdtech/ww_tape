@@ -19,7 +19,8 @@
 //!   block waits for the next chunk, as it did.
 //!
 //! A piece whose last close and tail read whole is closed, not ended: the resume cuts off a torn append after the
-//! tail, then writes on after the tail, an append head ([AppendHead]) first, every byte before it as it was. A good
+//! tail, then writes on after the tail, an append head ([AppendHead]) first, every byte before it as it was. The
+//! append head goes out with the first block written: closed again with nothing appended, the piece gets no byte. A good
 //! block after the tail refuses ([ResumeError::GoodBlockAfterCut]). A close naming a next piece (a cut) ends its piece
 //! for good: the resume gives it its name ([TapeSink::close]) and returns [ResumeError::Continued]. Blocks after an
 //! append head that names a whole close and tail, naming no next piece, are the piece going on: the resume keeps that

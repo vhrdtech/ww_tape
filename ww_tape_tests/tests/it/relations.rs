@@ -1226,15 +1226,12 @@ fn a_chain_piece_with_an_incomplete_row_and_two_monotone_relations_resumes_anywh
                 drop(s);
                 let r = PieceChain::resume_on(w.clone(), owner, 0, options());
                 if cut == fin.len() {
-                    // the whole closed piece: written on after its close, nothing before it changes
+                    // the whole closed piece: resumed after its close, closed again with nothing appended, unchanged
                     let (c, resumed) = r.unwrap_or_else(|e| panic!("{layout:?}: {e:?}"));
                     assert!(resumed.after_close.is_some(), "{layout:?}");
                     c.close().unwrap();
                     let got = w.get(&piece(1)).unwrap().unwrap().to_vec().unwrap();
-                    assert!(
-                        got.len() > fin.len() && got[..fin.len()] == fin[..],
-                        "{layout:?}: the closed piece is a prefix of the piece written on"
-                    );
+                    assert!(got == fin, "{layout:?}: nothing appended, no byte written");
                     continue;
                 }
                 let (mut c, _) = r.unwrap_or_else(|e| panic!("{layout:?}, cut at {cut}: {e:?}"));

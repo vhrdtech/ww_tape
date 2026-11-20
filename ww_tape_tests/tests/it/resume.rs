@@ -1039,7 +1039,7 @@ fn a_chain_cut_anywhere_resumes_to_the_same_pieces() {
         0,
         6,
     );
-    // a chain whose last piece is closed is written on after its close: nothing before it changes
+    // a chain whose last piece is closed resumes after its close; closed again with nothing appended, no byte changes
     let (c, resumed) =
         ww_tape_fs::chain::resume(&want_dir, OwnerId([9; 32]), 0, chain_options()).unwrap();
     assert!(resumed.after_close.is_some());
@@ -1049,7 +1049,10 @@ fn a_chain_cut_anywhere_resumes_to_the_same_pieces() {
         let got = std::fs::read(p).unwrap();
         assert!(got.len() >= w.len() && got[..w.len()] == w[..]);
     }
-    assert!(std::fs::read(paths.last().unwrap()).unwrap().len() > want.last().unwrap().len());
+    assert_eq!(
+        &std::fs::read(paths.last().unwrap()).unwrap(),
+        want.last().unwrap()
+    );
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -1598,8 +1601,7 @@ fn a_resume_of_a_whole_close_cuts_only_the_junk_after_its_tail() {
         assert!(resumed.after_close.is_some(), "{name}");
         w.close().unwrap();
         let got = std::fs::read(&path).unwrap();
-        assert_eq!(got[..done.len()], done[..], "{name}");
-        assert_eq!(got[done.len() + 5], BlockKind::AppendHead.to_u8(), "{name}");
+        assert_eq!(got, done, "{name}: the junk is cut, nothing appended");
         assert!(!partial.exists(), "{name}");
         std::fs::remove_file(&path).unwrap();
     }
@@ -1710,8 +1712,10 @@ fn a_resume_of_a_whole_close_writes_on_after_it() {
     let done = std::fs::read(&path).unwrap();
     let partial = ww_tape_fs::partial_name(&path);
     std::fs::rename(&path, &partial).unwrap();
-    let (w, resumed) = ww_tape_fs::writer::resume(&path, WriterOptions::default()).unwrap();
+    let (mut w, resumed) = ww_tape_fs::writer::resume(&path, WriterOptions::default()).unwrap();
     assert!(resumed.after_close.is_some());
+    let block = records(w.next_id(), 6);
+    w.write_block(base_defs(), &block).unwrap();
     w.close().unwrap();
     let got = std::fs::read(&path).unwrap();
     assert_eq!(
@@ -1719,12 +1723,14 @@ fn a_resume_of_a_whole_close_writes_on_after_it() {
         done[..],
         "named, bytes before as they were"
     );
-    assert!(got.len() > done.len());
+    assert_eq!(got[done.len() + 5], BlockKind::AppendHead.to_u8());
     assert!(!partial.exists());
     let mut sink = MemSink::new();
     sink.write_all(&done).unwrap();
     let tape = sink.tape();
-    let (w, _) = TapeWriter::resume_on(sink, WriterOptions::default()).unwrap();
+    let (mut w, _) = TapeWriter::resume_on(sink, WriterOptions::default()).unwrap();
+    let block = records(w.next_id(), 6);
+    w.write_block(base_defs(), &block).unwrap();
     w.close().unwrap();
     assert_eq!(tape.to_vec().unwrap(), got);
     // a chain of files, a crash after a cut's close and before its rename: the piece is named, the next one starts

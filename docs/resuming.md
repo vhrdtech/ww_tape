@@ -117,6 +117,7 @@ Three cases at the end of a piece differ:
 
 - A piece whose last close and tail read whole is closed. The resume cuts off a torn append after the tail and writes
   on after it, an append head first.
+  - Closed again with nothing appended, the piece gets no byte.
 - A piece that a cut closed names the next piece in its close. The resume gives it its name and returns
   `ResumeError::Continued`.
 - A piece cut off inside its close record or tail is opened again. Its final index and close are cut off, and the

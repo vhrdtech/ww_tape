@@ -8,8 +8,8 @@ use ww_tape::index::{IndexEntry, IndexKind};
 use ww_tape::piece::{APPEND_HEAD_LEN, Close, PIECE_ALIGN, TAIL_LEN};
 use ww_tape::reader::Found;
 use ww_tape::{
-    ALIGNMENT, Block, BlockKind, ContentHash, FileBlocks, Medium, MemSink, OpenOptions, Recovery,
-    ResumeError, Resumed, TapeReader, TapeSink, TapeWriter, WriteError,
+    ALIGNMENT, Block, BlockKind, CloseReason, ContentHash, FileBlocks, Medium, MemSink,
+    OpenOptions, Recovery, ResumeError, Resumed, TapeReader, TapeSink, TapeWriter, WriteError,
 };
 
 /// The ticks of the record blocks of data in `bytes`, in file order, each once.
@@ -62,7 +62,7 @@ fn close_hash(bytes: &[u8]) -> ContentHash {
 /// An append cut at any byte, from its append head to the new tail: the reader takes the old close, the bytes after
 /// it an unclosed tail and no damage, and the prefix up to the old close still verifies over its stated hash; whole,
 /// the new close. A resume of the cut bytes, given the blocks it lost, ends with the bytes of the append written
-/// without the crash; one of the whole append writes on after its close again.
+/// without the crash; one of the whole append, given nothing, writes nothing.
 fn append_cut_anywhere(alignment: u32) {
     let mut w = begin(alignment);
     write(&mut w, 0..6);
@@ -131,16 +131,12 @@ fn append_cut_anywhere(alignment: u32) {
         let have = ticks(&w.sink().tape().to_vec().unwrap());
         write(&mut w, (6..12).filter(|n| !have.contains(n)));
         let got = close(w);
-        if whole {
-            assert_eq!(got[..new.len()], new[..], "written on after the new close");
-            assert_eq!(closes(&got).len(), 3);
-        } else {
-            assert!(
-                got == new,
-                "alignment {alignment}, cut at {cut} of {}",
-                new.len()
-            );
-        }
+        // whole, nothing is left to write: the close writes no byte
+        assert!(
+            got == new,
+            "alignment {alignment}, cut at {cut} of {}",
+            new.len()
+        );
     }
 }
 
@@ -224,9 +220,25 @@ struct Model {
     closed: Vec<Vec<u8>>,
 }
 
+impl Model {
+    /// A close left `bytes`: a new close, or none when nothing was appended since the last one and no byte changed.
+    fn closed(&mut self, bytes: &[u8], seed: u64) {
+        match self.closed.last() {
+            Some(last) if last[..] == bytes[..] => {
+                assert_eq!(
+                    ticks(last),
+                    self.ticks,
+                    "seed {seed}: a close that wrote nothing lost no tick"
+                );
+            }
+            _ => self.closed.push(bytes.to_vec()),
+        }
+    }
+}
+
 /// Any sequence of appends, closes, reopens and crashes (bytes after the last close cut anywhere) ends with the piece
-/// the model has: the ticks it holds in order, a close per close not torn, each closed prefix as it was, and the
-/// piece verifies.
+/// the model has: the ticks it holds in order, a close per close not torn that followed an append, each closed prefix
+/// as it was, and the piece verifies.
 #[test]
 fn close_reopen_append_and_crash_match_a_model() {
     // crashes after a close, and closes, over all runs: the sequences reach what the test is about
@@ -248,7 +260,7 @@ fn close_reopen_append_and_crash_match_a_model() {
                 }
                 (Some(open), 2) => {
                     bytes = close(open);
-                    model.closed.push(bytes.clone());
+                    model.closed(&bytes, seed);
                 }
                 (Some(open), _) => {
                     // a crash: the bytes after the last close torn anywhere, then a resume
@@ -289,7 +301,7 @@ fn close_reopen_append_and_crash_match_a_model() {
         }
         if let Some(open) = w {
             bytes = close(open);
-            model.closed.push(bytes.clone());
+            model.closed(&bytes, seed);
         }
         assert_eq!(ticks(&bytes), model.ticks, "seed {seed}");
         let all = closes(&bytes);
@@ -386,41 +398,43 @@ fn scans_and_checkpoints_pass_inner_closes() {
     }
 }
 
-/// An append of no block still closes after a final index block of its own: a reader walking back from a checkpoint
-/// after it takes that close, not the one before it, whose final index the chain passes too.
+/// A close after an append of no block but a close summary still follows a final index block of its own: a reader
+/// walking back from a checkpoint after it takes that close, not the one before it, whose final index the chain
+/// passes too. Each append that writes costs one 4 KiB step at least.
 #[test]
-fn an_empty_append_closes_after_a_final_index_of_its_own() {
+fn a_summary_only_append_closes_after_a_final_index_of_its_own() {
     let mut w = begin(0);
     write(&mut w, 0..6);
     let mut bytes = close(w);
     for ticks in [6..6, 6..12] {
         let before = bytes.len();
         let (mut w, _) = reopen(&bytes, 0);
-        let empty = ticks.is_empty();
+        let summary_only = ticks.is_empty();
         write(&mut w, ticks);
-        bytes = close(w);
-        if empty {
-            assert_eq!(
-                bytes.len() - before,
-                PIECE_ALIGN as usize,
-                "an empty append costs one 4 KiB step"
-            );
-            let all = closes(&bytes);
-            let (at, c) = all.last().unwrap();
-            let parts = (
-                *at - c.final_index.unwrap(),
-                bytes.len() as u64 - TAIL_LEN as u64 - at,
-            );
-            assert_eq!(
-                parts,
-                (64, 3784),
-                "final index, close record: the book's numbers"
-            );
+        let tape = w.sink().tape();
+        if summary_only {
+            w.close_with_summary(CloseReason::Closed, b"a summary")
+                .unwrap();
+        } else {
+            w.close().unwrap();
+        }
+        bytes = tape.to_vec().unwrap();
+        assert_eq!(
+            (bytes.len() - before) % PIECE_ALIGN as usize,
+            0,
+            "an append costs whole 4 KiB steps"
+        );
+        if summary_only {
+            let (at, c) = closes(&bytes).pop().unwrap();
+            let (summary_at, summary_len) = c.summary.unwrap();
+            assert_eq!(summary_at, (before + APPEND_HEAD_LEN) as u64);
             assert_eq!(
                 c.final_index.unwrap(),
-                (before + APPEND_HEAD_LEN) as u64,
-                "the final index follows the append head"
+                summary_at + u64::from(summary_len),
+                "an empty final index follows the summary"
             );
+            assert!(c.final_index.unwrap() < at);
+            assert!(bytes.len() as u64 - TAIL_LEN as u64 > at);
         }
     }
     let all = closes(&bytes);
@@ -441,7 +455,7 @@ fn an_empty_append_closes_after_a_final_index_of_its_own() {
     }
     assert_eq!(
         all[1].1.checkpoint, all[0].1.checkpoint,
-        "an empty append places no checkpoint: its close names the newest one before"
+        "an append of no block places no checkpoint: its close names the newest one before"
     );
     let torn = &bytes[..bytes.len() - 10];
     let r = TapeReader::open(torn).unwrap();
@@ -462,7 +476,8 @@ fn a_damaged_append_head_keeps_the_close_before_it() {
     let mut w = begin(0);
     write(&mut w, 0..6);
     let old = close(w);
-    let (w, _) = reopen(&old, 0);
+    let (mut w, _) = reopen(&old, 0);
+    write(&mut w, 6..7);
     let whole = close(w);
     // the magic broken, or the kind turned into a close record's
     for (at, bits) in [

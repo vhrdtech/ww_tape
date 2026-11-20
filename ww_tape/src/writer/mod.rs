@@ -198,6 +198,9 @@ pub struct TapeWriter<S: TapeSink> {
     pub(crate) head_rows_max: usize,
     /// The close record the writer writes on after, when the piece was closed before
     closed_at: Option<ClosedAt>,
+    /// The append head of a resumed closed piece, accounted for but not yet written: it goes out before the first
+    /// block, so a writer that closes again with nothing appended leaves the bytes as they were
+    append_head: Option<[u8; crate::piece::APPEND_HEAD_LEN]>,
 }
 
 /// A close record of the piece a writer writes on after: where it and its tail are, and its hash.
@@ -317,6 +320,7 @@ impl<S: TapeSink> TapeWriter<S> {
             tracks_max: crate::piece::TRACKS_PER_PIECE_MAX,
             head_rows_max: crate::piece::HEAD_TRACKS_MAX,
             closed_at: None,
+            append_head: None,
         }
     }
 
@@ -849,6 +853,15 @@ impl<S: TapeSink> TapeWriter<S> {
             WriteError::Index(IndexError::Invalid("a block longer than u32::MAX bytes"))
         })?;
         self.end_after(block.len())?;
+        if let Some(head) = self.append_head.take()
+            && let Err(error) = self.sink.write_all(&head)
+        {
+            self.failed = true;
+            return Err(WriteError::Sink {
+                what: "writing the append head",
+                error,
+            });
+        }
         if let Err(error) = self.sink.write_all(block) {
             self.failed = true;
             return Err(WriteError::Sink {
@@ -1848,6 +1861,13 @@ impl<S: TapeSink> TapeWriter<S> {
                 )
             })
             .transpose()?;
+        if matches!(how, End::Close(_))
+            && summary.is_none()
+            && self.deferred.is_empty()
+            && let Some(c) = self.closed_at.filter(|_| self.append_head.is_some())
+        {
+            return self.unchanged(c.hash);
+        }
         self.flush_deferred()?;
         self.ensure_head()?;
         // the caller's summary, right before the final index, with the id of the blocks the file structure adds
@@ -1899,13 +1919,7 @@ impl<S: TapeSink> TapeWriter<S> {
             next,
         };
         let ranges = self.indexer.track_ranges();
-        let tracks = crate::index::next_starts(
-            self.head
-                .as_ref()
-                .map(|(_, s)| s.as_slice())
-                .unwrap_or_default(),
-            &ranges,
-        );
+        let tracks = self.next_tracks(&ranges);
         let close_offset = self.offset();
         // the piece ends, after its tail, on a multiple of PIECE_ALIGN
         let padding = close_padding(close_offset, ranges.len());
@@ -1961,6 +1975,49 @@ impl<S: TapeSink> TapeWriter<S> {
         })
     }
 
+    /// Where each track goes on in the next piece, from the ranges `ranges` of this one.
+    fn next_tracks(&self, ranges: &[crate::piece::TrackRange]) -> Vec<crate::piece::TrackStart> {
+        crate::index::next_starts(
+            self.head
+                .as_ref()
+                .map(|(_, s)| s.as_slice())
+                .unwrap_or_default(),
+            ranges,
+        )
+    }
+
+    /// The end of a resumed closed piece to which nothing was appended: no byte is written, the close in force with
+    /// content hash `hash` stays the last, and the append head is dropped unwritten. A closed piece a crash left
+    /// unnamed still gets its name ([TapeSink::close]).
+    fn unchanged(mut self, hash: ContentHash) -> Result<Ended<S>, WriteError<S::Error>> {
+        self.append_head = None;
+        self.sink
+            .close()
+            .map_err(sink_err("giving the closed piece its name"))?;
+        let len = self
+            .bytes
+            .checked_sub(wide(crate::piece::APPEND_HEAD_LEN))
+            .ok_or(WriteError::Index(IndexError::Invalid(
+                "an append head past the piece's bytes",
+            )))?;
+        let ranges = self.indexer.track_ranges();
+        let tracks = self.next_tracks(&ranges);
+        let start = self.sink.base().saturating_add(self.start);
+        Ok(Ended {
+            closed: Closed {
+                hash,
+                len,
+                ident: self.head.as_ref().map(|(h, _)| h.ident),
+                next: None,
+                start,
+                tracks,
+            },
+            next_seq: self.next_seq,
+            session: self.session,
+            sink: self.sink,
+        })
+    }
+
     /// The piece was closed by the close record `close` at `at`, its tail at `tail`: what follows chains its content
     /// hash over that close's ([crate::piece]), and its final index goes on from that close's. A resume calls it before
     /// it replays the close record, each close it keeps in turn.
@@ -1975,7 +2032,8 @@ impl<S: TapeSink> TapeWriter<S> {
     }
 
     /// Write on after the piece's last close record and tail, which end the bytes: the append head naming them
-    /// ([crate::piece::AppendHead]). A resume of a closed piece calls it once it replayed the piece.
+    /// ([crate::piece::AppendHead]), accounted for here and written before the first block that follows. A resume of
+    /// a closed piece calls it once it replayed the piece.
     pub(crate) fn write_on(&mut self) -> Result<(), WriteError<S::Error>> {
         let Some(c) = self.closed_at else {
             return Err(WriteError::Index(IndexError::Invalid(
@@ -1989,7 +2047,17 @@ impl<S: TapeSink> TapeWriter<S> {
         };
         let mut buf = [0u8; crate::piece::APPEND_HEAD_LEN];
         head.write(&mut buf, self.structural_id());
-        self.write_own(&buf).map(drop)
+        let (Some(header), Some(crc)) = (
+            buf.first_chunk::<{ crate::HEADER_LEN }>(),
+            buf.last_chunk::<{ crate::CRC_LEN }>(),
+        ) else {
+            return Err(WriteError::Block(crate::BlockError::Short {
+                needed: crate::HEADER_LEN,
+            }));
+        };
+        self.account(&buf, header, *crc)?;
+        self.append_head = Some(buf);
+        Ok(())
     }
 
     /// The index entries a checkpoint would list now, for tests and tools.

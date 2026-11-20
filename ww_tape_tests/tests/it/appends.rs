@@ -7,6 +7,7 @@ use std::path::Path;
 use crate::pieces::{chunk, chunk_id, column, scratch};
 use crate::reclose::{close, closes, reopen, write};
 use crate::resume::{begin, options};
+use ww_tape::piece::PIECE_ALIGN;
 use ww_tape::reader::ByteSource;
 use ww_tape::{ALIGNMENT, BlockKind, MemSink, TapeReader, TapeWriter};
 use ww_tape_fs::{FileSource, lock_name};
@@ -220,4 +221,57 @@ fn events_chunks_across_an_append_read_as_written_in_one_go() {
         .map(|e| e.first_item)
         .collect();
     assert!(firsts.starts_with(&[0, 50, 100]), "{firsts:?}");
+}
+
+/// A closed piece opened to write and closed again with nothing appended writes nothing: not an append head, not a
+/// byte. On a file its bytes and its modification time stay as they were; in memory the bytes do. An append of one
+/// small block costs one 4 KiB step.
+#[test]
+fn a_close_with_nothing_appended_writes_nothing() {
+    for alignment in [0, ALIGNMENT] {
+        let mut w = begin(alignment);
+        write(&mut w, 0..6);
+        let old = close(w);
+        let (w, resumed) = reopen(&old, alignment);
+        assert!(resumed.after_close.is_some());
+        assert_eq!(close(w), old, "alignment {alignment}: in memory");
+        let (mut w, _) = reopen(&old, alignment);
+        write(&mut w, 6..7);
+        assert_eq!(
+            close(w).len() - old.len(),
+            PIECE_ALIGN as usize,
+            "alignment {alignment}: the smallest append costs one 4 KiB step"
+        );
+        let dir = scratch(&format!("nothing_appended_{alignment}"));
+        let path = dir.join("p.wwt");
+        std::fs::write(&path, &old).unwrap();
+        let then =
+            std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000_000);
+        std::fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(then)
+            .unwrap();
+        let (w, _) = ww_tape_fs::writer::resume(&path, options(alignment)).unwrap();
+        let closed = w.close().unwrap();
+        assert_eq!(
+            closed.hash,
+            closes(&old).last().unwrap().1.hash,
+            "the close in force stays"
+        );
+        assert_eq!(closed.len, old.len() as u64);
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            old,
+            "alignment {alignment}: file bytes"
+        );
+        let modified = std::fs::metadata(&path).unwrap().modified().unwrap();
+        assert_eq!(
+            modified, then,
+            "alignment {alignment}: file modification time"
+        );
+        assert!(!lock_name(&path).exists());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }

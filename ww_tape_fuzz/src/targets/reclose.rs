@@ -9,7 +9,7 @@
 //! listed oldest first, each naming the one before.
 //!
 //! Input: a mode byte (bit 0 aligned, bit 1 flips anywhere, bits 2 to 3 the appends after the first close: 1 to 4),
-//! a byte per append (bits 0 to 2 its record blocks), a cut (u16 little endian, modulo the last append's length + 1),
+//! a byte per append (bits 0 to 2 its record blocks; none closes with a close summary alone), a cut (u16 little endian, modulo the last append's length + 1),
 //! then flips of three bytes each (an offset, u16 little endian, modulo the bytes they may touch, and the bits).
 use ww_tape::piece::{Close, OwnerId, PieceHead, PieceId, PieceIdent};
 use ww_tape::{Definitions, MemSink, SessionTag, TapeReader, TapeSink, TapeWriter};
@@ -42,8 +42,17 @@ fn append<S: TapeSink>(w: &mut TapeWriter<S>, defs: &Definitions, from: u64, n: 
 
 /// Close `w`; the bytes and the close made.
 fn close(w: TapeWriter<MemSink>) -> (Vec<u8>, Made) {
+    closed_with(w, None)
+}
+
+/// Close `w`, with the close summary `summary` when given; the bytes and the close made.
+fn closed_with(w: TapeWriter<MemSink>, summary: Option<&[u8]>) -> (Vec<u8>, Made) {
     let tape = w.sink().tape();
-    w.close().expect("a piece closes");
+    match summary {
+        Some(body) => w.close_with_summary(ww_tape::piece::CloseReason::Closed, body),
+        None => w.close(),
+    }
+    .expect("a piece closes");
     let bytes = tape.to_vec().expect("the bytes");
     let r = TapeReader::open(&bytes[..]).expect("a closed piece opens");
     let p = &r.pieces()[0];
@@ -97,7 +106,8 @@ pub(crate) fn build(aligned: bool, appends: &[u8]) -> (Vec<u8>, Vec<Made>) {
         let n = u64::from(a & 7);
         append(&mut w, &defs, tick, n);
         tick += n;
-        let (b, m) = close(w);
+        // a close with nothing appended writes nothing: an append of no block closes with a summary alone
+        let (b, m) = closed_with(w, (n == 0).then_some(&b"nothing else"[..]));
         bytes = b;
         made.push(m);
     }
