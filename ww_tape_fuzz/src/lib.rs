@@ -9,10 +9,12 @@
     clippy::cast_sign_loss,
     clippy::expect_used,
     clippy::indexing_slicing,
+    clippy::let_underscore_must_use,
     clippy::panic,
     clippy::unreachable,
     clippy::unwrap_used,
-    reason = "fuzz bodies and hostile builders: a panic is the finding a fuzz target reports, and builders compute offsets freely"
+    reason = "fuzz bodies and hostile builders: a panic is the finding a fuzz target reports, a decoder runs for its panics and \
+              not its result, and builders compute offsets freely"
 )]
 
 pub mod case;

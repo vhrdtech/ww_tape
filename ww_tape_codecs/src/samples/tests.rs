@@ -420,7 +420,8 @@ fn random_columns_never_panic() {
     fn try_all<T: Sample>(codec: Codec, shape: Shape, count: usize, bytes: &[u8]) {
         if let Ok(s) = read_column(codec, shape, count, bytes) {
             let mut out = vec![T::default(); count * s.lanes()];
-            let _ = s.decode(0, &mut out);
+            // any bytes decode or fail, never panic: the result is not the point
+            s.decode(0, &mut out).ok();
         }
     }
     for round in 0..2000 {
