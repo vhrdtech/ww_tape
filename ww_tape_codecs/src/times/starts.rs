@@ -374,7 +374,7 @@ impl<'b> Linear<'b> {
 
 #[derive(Clone, Debug)]
 enum Repr<'b> {
-    Implicit { period: i64 },
+    Implicit { period_ticks: i64 },
     Linear(Linear<'b>),
 }
 
@@ -424,7 +424,9 @@ impl<'b> Starts<'b> {
                 if period < 0 || end != Some(i128::from(last)) {
                     return Err(corrupt("period doesn't reach the last tick"));
                 }
-                Repr::Implicit { period }
+                Repr::Implicit {
+                    period_ticks: period,
+                }
             }
             TimeMode::Linear => {
                 let lin = Linear {
@@ -483,7 +485,9 @@ impl<'b> Starts<'b> {
     /// The period of an implicit chunk.
     pub fn period(&self) -> Option<i64> {
         match &self.repr {
-            &Repr::Implicit { period } => Some(period),
+            &Repr::Implicit {
+                period_ticks: period,
+            } => Some(period),
             Repr::Linear(_) => None,
         }
     }
@@ -525,7 +529,9 @@ impl<'b> Starts<'b> {
         assert!(i < self.len(), "item {i} of {}", self.n);
         match &self.repr {
             // the tick lies between the first and the last: the wrapping product gives it exactly
-            &Repr::Implicit { period } => self.first.wrapping_add(item_i64(i).wrapping_mul(period)),
+            &Repr::Implicit {
+                period_ticks: period,
+            } => self.first.wrapping_add(item_i64(i).wrapping_mul(period)),
             Repr::Linear(lin) => lin.item(&lin.group(i / GROUP), i % GROUP),
         }
     }
@@ -542,7 +548,9 @@ impl<'b> Starts<'b> {
             self.group_count()
         );
         match &self.repr {
-            &Repr::Implicit { period } => self.implicit_group_first(g, period),
+            &Repr::Implicit {
+                period_ticks: period,
+            } => self.implicit_group_first(g, period),
             Repr::Linear(lin) => lin.group(g).first,
         }
     }
@@ -575,7 +583,9 @@ impl<'b> Starts<'b> {
             self.group_count()
         );
         match &self.repr {
-            &Repr::Implicit { period } => {
+            &Repr::Implicit {
+                period_ticks: period,
+            } => {
                 let mut t = self.implicit_group_first(g, period);
                 for o in out.iter_mut() {
                     *o = t;
@@ -607,7 +617,9 @@ impl<'b> Starts<'b> {
             return self.len();
         }
         match &self.repr {
-            &Repr::Implicit { period } => {
+            &Repr::Implicit {
+                period_ticks: period,
+            } => {
                 // first < t <= last: the distance is exact, the period above 0
                 let d = t.abs_diff(self.first);
                 let p = period.unsigned_abs();
