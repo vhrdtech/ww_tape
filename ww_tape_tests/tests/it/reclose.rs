@@ -5,7 +5,7 @@
 use crate::pieces::records;
 use crate::resume::{begin, head, options};
 use ww_tape::index::{IndexEntry, IndexKind};
-use ww_tape::piece::Close;
+use ww_tape::piece::{APPEND_HEAD_LEN, Close, PIECE_ALIGN, TAIL_LEN};
 use ww_tape::reader::Found;
 use ww_tape::{
     ALIGNMENT, Block, BlockKind, ContentHash, FileBlocks, Medium, MemSink, OpenOptions, Recovery,
@@ -394,9 +394,34 @@ fn an_empty_append_closes_after_a_final_index_of_its_own() {
     write(&mut w, 0..6);
     let mut bytes = close(w);
     for ticks in [6..6, 6..12] {
+        let before = bytes.len();
         let (mut w, _) = reopen(&bytes, 0);
+        let empty = ticks.is_empty();
         write(&mut w, ticks);
         bytes = close(w);
+        if empty {
+            assert_eq!(
+                bytes.len() - before,
+                PIECE_ALIGN as usize,
+                "an empty append costs one 4 KiB step"
+            );
+            let all = closes(&bytes);
+            let (at, c) = all.last().unwrap();
+            let parts = (
+                *at - c.final_index.unwrap(),
+                bytes.len() as u64 - TAIL_LEN as u64 - at,
+            );
+            assert_eq!(
+                parts,
+                (64, 3784),
+                "final index, close record: the book's numbers"
+            );
+            assert_eq!(
+                c.final_index.unwrap(),
+                (before + APPEND_HEAD_LEN) as u64,
+                "the final index follows the append head"
+            );
+        }
     }
     let all = closes(&bytes);
     assert_eq!(all.len(), 3);

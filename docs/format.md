@@ -844,6 +844,17 @@ The new close's content hash chains over the old one:
 Each close names the one before it (close offset 88), and `TapeReader::closes` lists them oldest first.
 `TapeReader::verify` checks each stretch between two closes against the hash the earlier close states.
 
+##### What an append costs
+
+Every close pads its piece to a multiple of `PIECE_ALIGN`, in the unaligned layout too. Each append therefore adds at
+least 4 KiB.
+
+An empty append measures 4,096 bytes. These are the append head (84), a final index (64), the close record (3,784,
+mostly padding) and the tail (164).
+
+The padding lets closed pieces clone back to back, as [Aligned piece ends](#aligned-piece-ends) explains. Ten
+thousand short appends thus add at least 40 MiB to a piece.
+
 ##### The index after an append
 
 The final index of a later close lists only the blocks since the close before it. Its first block points back at that
