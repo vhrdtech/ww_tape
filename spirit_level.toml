@@ -79,6 +79,10 @@ reason = "a link between pages leads somewhere"
 level = "deny"
 reason = "the navigation names pages that exist"
 
+[lints.glossary-terms]
+ignore = ["CAN"]
+reason = "the glossary's CAN, the vehicle bus, matches the everyday word \"can\" on every page"
+
 [lints.no-sys-crates]
 allow = ["cc"]
 reason = "cc is a build-dependency of blake3, built pure: its build script compiles no C (AGENTS.md, Dependencies)"
