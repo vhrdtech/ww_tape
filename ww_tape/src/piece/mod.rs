@@ -563,7 +563,7 @@ impl PieceId {
 /// Why a writer closed a piece, as it says: a reader reports it and acts on nothing of it.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum CloseReason {
-    /// The writer was done with the piece for now.
+    /// The writer was done with the piece; a later session may write on after this close.
     Closed,
     /// The writer stopped on purpose without completing what it wrote (the producer failed); everything written is
     /// good.
