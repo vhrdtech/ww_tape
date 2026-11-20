@@ -506,7 +506,7 @@ fn a_checkpoint_naming_a_chunk_many_times_is_refused() {
     let mut first: Option<[u8; ENTRY_LEN]> = None;
     let mut changed = 0;
     for e in block[entries_at..len - 4].as_chunks_mut::<ENTRY_LEN>().0 {
-        // kind at 12: an events chunk
+        // an entry states its block's kind at byte 12; only events chunks are changed
         if e[12] != BlockKind::Events.to_u8() {
             continue;
         }

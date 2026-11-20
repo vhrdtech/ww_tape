@@ -1283,7 +1283,6 @@ impl<S: TapeSink> TapeWriter<S> {
     /// The oldest deferred block, no longer waiting.
     fn take_deferred(&mut self) -> Deferred {
         let d = self.deferred.remove(0);
-        // the sum of the deferred blocks' lengths
         self.deferred_bytes = self.deferred_bytes.saturating_sub(d.block.len());
         d
     }

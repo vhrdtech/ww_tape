@@ -266,7 +266,7 @@ fn first_level<F: Float, T: Sample>(lane: &Lane<'_, T>, count: usize) -> Option<
         .clamp(1, SAMPLE_GROUPS);
     let mut found = [(Combo::default(), 0u32); SAMPLE_GROUPS];
     let mut decimal_bytes = 0usize;
-    // bytes of `rd` per left width
+    // indexed by the number of front bits the dictionary takes
     let mut rd_bytes = [0usize; LEFT_WIDTHS];
     let left_max = LEFT_MAX.min(F::BITS);
     for j in 0..picks {

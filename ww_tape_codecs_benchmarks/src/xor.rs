@@ -162,7 +162,7 @@ fn put_gorilla(wr: &mut BitWriter<'_>, lane: &mut Lane, v: u64, w: u32) {
         wr.put(0, 1);
         return;
     }
-    // leading zeros of the w-bit value
+    // counted within the low w bits, at most 31
     let lead = (x.leading_zeros() - (64 - w)).min(31);
     let trail = x.trailing_zeros();
     if lane.len != 0 && lead >= lane.lead && trail >= w - lane.lead - lane.len {
