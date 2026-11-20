@@ -347,7 +347,7 @@ pub(crate) fn hash_piece<E>(
     end: u64,
     read: impl FnMut(u64, &mut [u8]) -> Result<(), E>,
 ) -> Result<bool, E> {
-    walk_piece(end, read, |step| match step {
+    walk_piece(0, end, read, |step| match step {
         Walked::Block(block) => {
             hash_block(h, block);
         }
@@ -366,8 +366,9 @@ pub(crate) enum Walked<'b> {
     Raw(&'b [u8]),
 }
 
-/// Walk the first `end` bytes of a piece, read by `read`, from its start: at each place a block that reads whole is
-/// a step; other bytes are a step up to the next place holding the block magic.
+/// Walk the bytes of a piece from `start` to `end`, read by `read`: at each place a block that reads whole is a step;
+/// other bytes are a step up to the next place holding the block magic. A walk from a place other than the start
+/// (a resume from a close record) starts with no misses.
 ///
 /// A place is tried as a block only while the lengths of the blocks tried that didn't read whole are within
 /// [WALK_MISS_PER_BYTE_MAX] per byte gone plus [WALK_MISS_BASE_MAX]; a block claiming more than `end` holds counts as
@@ -379,6 +380,7 @@ pub(crate) enum Walked<'b> {
 /// enough to try again.
 #[cfg(feature = "alloc")]
 pub(crate) fn walk_piece<E>(
+    start: u64,
     end: u64,
     mut read: impl FnMut(u64, &mut [u8]) -> Result<(), E>,
     mut step: impl FnMut(Walked<'_>),
@@ -386,7 +388,7 @@ pub(crate) fn walk_piece<E>(
     let mut block = Vec::new();
     let mut win = Window::default();
     let mut missed = 0u64;
-    let mut at = 0u64;
+    let mut at = start;
     let tries = |at: u64, missed: u64| {
         missed
             <= at
@@ -1320,7 +1322,7 @@ mod chain;
 pub use chain::{ChainEnd, ChainLink, ChainReport, HeadStatus, PieceSummary, check_chain};
 
 #[cfg(feature = "alloc")]
-mod writer;
+pub(crate) mod writer;
 #[cfg(feature = "alloc")]
 pub use writer::{
     CUT_SLACK, ChainOptions, ChainPiece, ChunkPlaced, CutPolicy, PieceChain, PieceTapes,

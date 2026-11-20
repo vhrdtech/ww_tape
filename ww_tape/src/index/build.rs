@@ -97,6 +97,30 @@ impl Indexer {
         }
     }
 
+    /// Go on from the close record whose rows are `rows`, after [Self::start] from the piece head: each track's range,
+    /// hash and counted records as the close lists them, its number standing for it as its definition placed before
+    /// did. A resume of a closed piece takes them instead of replaying the blocks before the close.
+    pub(crate) fn seed_close(&mut self, rows: &[TrackRange]) {
+        for r in rows {
+            let key = (r.track_id, r.owner);
+            self.numbers.insert(r.track_number, key);
+            if r.chunks > 0 {
+                self.tracks.insert(key, *r);
+            }
+            self.tallies.insert(
+                key,
+                Tally {
+                    number: r.track_number,
+                    hash: r.hash,
+                    records: r.records,
+                    touched: true,
+                    incomplete: r.incomplete,
+                },
+            );
+            self.insert_row(key);
+        }
+    }
+
     /// Track number `number` stands for track `id` of `owner` from here on: a track definition was placed.
     pub(crate) fn define(&mut self, number: u32, id: u64, owner: OwnerId) {
         self.numbers.insert(number, (id, owner));

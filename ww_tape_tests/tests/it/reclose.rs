@@ -559,3 +559,169 @@ fn refused_after(old: &[u8], torn: &[u8]) {
     }
     assert_eq!(tape.to_vec().unwrap(), torn, "left as it was");
 }
+
+/// A sink that counts the bytes read back from it.
+struct Counting {
+    inner: MemSink,
+    read: std::cell::Cell<u64>,
+}
+
+impl TapeSink for Counting {
+    type Error = <MemSink as TapeSink>::Error;
+    fn write_all(&mut self, bytes: &[u8]) -> Result<(), Self::Error> {
+        self.inner.write_all(bytes)
+    }
+    fn sync(&mut self) -> Result<(), Self::Error> {
+        self.inner.sync()
+    }
+    fn close(&mut self) -> Result<(), Self::Error> {
+        self.inner.close()
+    }
+    fn size(&self) -> Result<u64, Self::Error> {
+        self.inner.size()
+    }
+    fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), Self::Error> {
+        self.read.set(self.read.get() + buf.len() as u64);
+        self.inner.read_at(offset, buf)
+    }
+    fn truncate(&mut self, len: u64) -> Result<(), Self::Error> {
+        self.inner.truncate(len)
+    }
+    fn rebase(&mut self, base: u64) -> Result<(), Self::Error> {
+        self.inner.rebase(base)
+    }
+}
+
+/// The bytes a resume of the closed piece `bytes` reads back.
+fn resume_reads(bytes: &[u8]) -> u64 {
+    let mut inner = MemSink::new();
+    inner.write_all(bytes).unwrap();
+    let sink = Counting {
+        inner,
+        read: std::cell::Cell::new(0),
+    };
+    let (w, _) = TapeWriter::resume_on(sink, options(0)).unwrap();
+    w.sink().read.get()
+}
+
+/// A resume of a closed piece reads its tail, its close record, the piece head and the puts after it, the index
+/// chain, and each track's last chunk: never the blocks of data. Without chunks the index is not read; with them it
+/// is, and one chunk per track.
+#[test]
+fn a_resume_of_a_closed_piece_reads_no_block_of_data() {
+    use crate::pieces::{chunk, column};
+    let defs = crate::definitions::base_defs();
+    for n in [100, 1000, 4000] {
+        let mut w = begin(0);
+        write(&mut w, 0..n);
+        let bytes = close(w);
+        let read = resume_reads(&bytes);
+        // the tail, the close record twice (to find it, then hashed on), the head and the puts after it
+        assert!(
+            read < 16384,
+            "{n} record blocks: {read} read of {}",
+            bytes.len()
+        );
+    }
+    for n in [10, 100, 400] {
+        let mut w = begin(0);
+        for k in 0..n {
+            for t in 0..2 {
+                let (h, c) = chunk(t, k);
+                w.write_chunk(defs, &h, &column(&c)).unwrap();
+            }
+        }
+        let bytes = close(w);
+        let read = resume_reads(&bytes);
+        let index = closes(&bytes)[0].0 - closes(&bytes)[0].1.final_index.unwrap();
+        assert!(
+            read < index + 16384,
+            "{n} chunks: {read} read of {}",
+            bytes.len()
+        );
+    }
+}
+
+/// Damage before the close in force (an older tail, close record, append head or final index, a block of data)
+/// never stops an append: a resume reads none of them. It writes on after the last close, every byte before as it
+/// was, and the piece closes again; a verify then reports the damage.
+#[test]
+fn damage_before_the_close_in_force_never_stops_an_append() {
+    let mut w = begin(0);
+    write(&mut w, 0..3);
+    let mut bytes = close(w);
+    for round in 1..3 {
+        let (mut w, _) = reopen(&bytes, 0);
+        write(&mut w, round * 3..round * 3 + 3);
+        bytes = close(w);
+    }
+    let all = closes(&bytes);
+    let mut rd = FileBlocks::with_recovery(&bytes[..], Recovery::Prefix);
+    let mut kinds = vec![];
+    while let Some(Ok(b)) = rd.next_block() {
+        let kind = b.kind;
+        kinds.push((rd.offset() as usize, kind));
+    }
+    let first = |kind: BlockKind| kinds.iter().find(|(_, k)| *k == kind).unwrap().0;
+    let last_close = all.last().unwrap().0 as usize;
+    for (name, at) in [
+        ("an older tail", first(BlockKind::Tail) + 40),
+        ("an older close record", first(BlockKind::Close) + 40),
+        ("an append head", first(BlockKind::AppendHead) + 40),
+        ("an older final index", first(BlockKind::Index) + 40),
+        (
+            "the last final index",
+            all.last().unwrap().1.final_index.unwrap() as usize + 40,
+        ),
+        ("a block of data", first(BlockKind::Records) + 40),
+    ] {
+        assert!(at < last_close, "{name}");
+        let mut rotten = bytes.clone();
+        rotten[at] ^= 0x10;
+        let (mut w, resumed) = reopen(&rotten, 0);
+        assert_eq!(resumed.kept_bytes, bytes.len() as u64, "{name}");
+        write(&mut w, 100..102);
+        let out = close(w);
+        assert_eq!(
+            out[..rotten.len()],
+            rotten[..],
+            "{name}: the bytes before stay"
+        );
+        let r = TapeReader::open(&out[..]).unwrap();
+        assert!(r.pieces()[0].is_closed(), "{name}");
+        assert_eq!(
+            r.pieces()[0].close.as_ref().unwrap().0.prev,
+            Some(last_close as u64),
+            "{name}"
+        );
+        assert!(
+            !r.verify(0).is_ok_and(|v| v.holds),
+            "{name}: the damage is reported"
+        );
+    }
+}
+
+/// A piece of chunks whose index chain doesn't read: a resume still writes on after its close, taking each track's
+/// newest values as unread, and the piece closes again.
+#[test]
+fn an_unread_index_chain_leaves_tracks_unread_and_appends() {
+    use crate::pieces::{chunk, column};
+    let defs = crate::definitions::base_defs();
+    let mut w = begin(0);
+    for k in 0..4 {
+        for t in 0..2 {
+            let (h, c) = chunk(t, k);
+            w.write_chunk(defs, &h, &column(&c)).unwrap();
+        }
+    }
+    let mut bytes = close(w);
+    let final_index = closes(&bytes)[0].1.final_index.unwrap() as usize;
+    bytes[final_index + 40] ^= 0x10;
+    assert!(TapeReader::open(&bytes[..]).unwrap().entries(0).is_err());
+    let (mut w, resumed) = reopen(&bytes, 0);
+    assert_eq!(resumed.kept_bytes, bytes.len() as u64);
+    write(&mut w, 100..102);
+    let out = close(w);
+    assert_eq!(out[..bytes.len()], bytes[..]);
+    assert!(TapeReader::open(&out[..]).unwrap().pieces()[0].is_closed());
+}

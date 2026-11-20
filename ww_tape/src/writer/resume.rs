@@ -28,12 +28,20 @@
 //! Else the piece is kept up to the end of its last good block, counted or not: the puts after the last counted block
 //! stay. What ends a piece (the final index, a close without its tail) is dropped: the piece is open again, and so are
 //! puts at the end that belong with a block after them ([FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT)): that call is given
-//! again whole.
+//! again whole. When the last block kept is counted, the writer acts after it again (a checkpoint when due), as a
+//! crash may have come before it did; a piece holding only its head gets the layout and the producer put after it.
 //!
 //! Only a torn end is ever cut: whole blocks, then a record the bytes stop inside of, or blank (zero) bytes to the
 //! end. A whole record in the bytes to cut that fails its check, bytes that start no record, or a whole tail that
-//! didn't end its close is damage: the resume refuses ([ResumeError::Damaged]) and every byte stays. When the last block kept is counted, the writer acts after it again (a checkpoint when due), as a
-//! crash may have come before it did; a piece holding only its head gets the layout and the producer put after it.
+//! didn't end its close is damage: the resume refuses ([ResumeError::Damaged]) and every byte stays.
+//!
+//! A piece with a close in force (its close record and tail whole, naming no next piece) is never read before that
+//! close. The writer's state there comes from the close record (each track's range, hash and counted records, the
+//! session and the seq of its id), the piece head, the puts after the head (the layout and the producer to check), and,
+//! for a piece holding chunks or bytes after the tail, the index chain and each track's last chunk (the newest
+//! relation values; a chain that doesn't read leaves those tracks unread). The record of what lies near starts empty,
+//! so the writer puts again after the append head what the blocks after it need. Only the close record, its tail and
+//! the bytes after them are walked and replayed. Damage before the close never stops a writer going on.
 //!
 //! Since what the writer adds depends only on the blocks before it, the calls since and the [WriterOptions] (give the
 //! ones it was written with), the same calls after the resume as after the last block kept give the bytes, and the
@@ -60,8 +68,8 @@ use alloc::vec::Vec;
 use super::{InputError, ResumeError, TapeWriter, WriteError, WriterOptions};
 use crate::index::{IndexBlock, IndexEntry, IndexKind, STATE_TRACK_ID, is_structural};
 use crate::piece::{
-    AppendHead, Close, CloseBlock, CloseReason, PieceHeadBlock, TAIL_LEN, Tail, Walked, hash_block,
-    walk_piece,
+    AppendHead, Close, CloseBlock, CloseReason, PieceHeadBlock, TAIL_LEN, Tail, TrackRange,
+    TrackStart, Walked, hash_block, walk_piece,
 };
 use crate::reader::{ByteSource, ReadError, TapeReader, wide};
 use crate::sink::{TapeSink, sink_err};
@@ -77,6 +85,9 @@ const JUNK_READ_MAX: usize = 1 << 20;
 pub const RESUME_LOOK_MAX: u64 = 128 << 20;
 /// Places past where the reader stopped that a resume reads whole as a block of the piece's sessions, at most.
 pub const RESUME_PROBES_MAX: usize = 4;
+/// Blocks after the piece head that a resume of a closed piece reads for the layout and the producer, at most: the
+/// writer puts them right after the head.
+const HEAD_PUTS_MAX: usize = 4;
 
 /// What [TapeWriter::resume_on] kept of a piece.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -90,7 +101,7 @@ pub struct Resumed {
     /// Where the reader stopped taking blocks before the end of the bytes ([crate::PieceInfo::cut]).
     pub cut: Option<u64>,
     /// The kept blocks the index lists, in file order, offsets from the piece's start: what the final index will
-    /// list of them.
+    /// list of them. Of a closed piece, those after its last close.
     pub entries: Vec<IndexEntry>,
     /// The state of a close record found without a whole tail after it (a crash in the end of the piece): the piece
     /// was being ended, and is open again.
@@ -574,7 +585,7 @@ impl<S: TapeSink> TapeWriter<S> {
         let size = sink
             .size()
             .map_err(sink_err("reading the length to resume"))?;
-        let (layout, cut) = read_layout(&sink)?;
+        let (layout, cut, base) = read_layout(&sink)?;
         let mut kept = KeptEnd::default();
         let mut sessions = alloc::collections::BTreeSet::new();
         // close records kept, by offset: the content hash chains over each from there on
@@ -583,12 +594,24 @@ impl<S: TapeSink> TapeWriter<S> {
         let mut ending: Vec<Step> = Vec::new();
         let mut at = 0;
         let mut ended_at = None;
+        // a closed piece is walked from after its close in force, which is whole: the blocks before it stay unread
+        let mut whole_base = None;
+        if let Some(b) = &base {
+            at = b.tail_at.saturating_add(wide(TAIL_LEN));
+            kept.last = at;
+            sessions.insert(b.id.session.get());
+            whole_base = Some(((b.close_at, b.close), b.tail_at));
+        }
         while at < layout.end {
             let step = layout.step(&sink, at)?;
             at = step.end();
             // an end whose close and tail read whole goes on with an append head naming them; anything else after it
             // is what a crash left there, ended below as the bytes are
-            if let Some((c, tail)) = whole_close(&sink, &ending)? {
+            let whole = match whole_base.take() {
+                Some(w) => Some(w),
+                None => whole_close(&sink, &ending)?,
+            };
+            if let Some((c, tail)) = whole {
                 if !appends_to(&sink, &step, c.0, tail, &c.1)? {
                     let none = alloc::collections::BTreeSet::new();
                     let end = tail.saturating_add(wide(TAIL_LEN));
@@ -620,6 +643,10 @@ impl<S: TapeSink> TapeWriter<S> {
         // an end the bytes stop at, or only junk follows: kept when its close and tail are whole, the writer then
         // writes on after them; else dropped, the piece open again
         let mut write_on = false;
+        if let Some(((offset, close), tail)) = whole_base {
+            closes.insert(offset, (tail, close));
+            write_on = true;
+        }
         if ended_at.is_none() && !ending.is_empty() {
             match whole_close(&sink, &ending)? {
                 Some(((offset, close), tail)) => {
@@ -675,10 +702,15 @@ impl<S: TapeSink> TapeWriter<S> {
         w.apply(&options)?;
         // the content hash of the bytes kept and the steps of its walk, as a reader's verify takes them: good
         // blocks, and bytes no block explains
+        if let Some(b) = &base {
+            w.take_base(b);
+        }
+        let start = base.as_ref().map_or(0, |b| b.close_at);
         let mut hash = blake3::Hasher::new();
         let mut walked: Vec<Walk> = Vec::new();
-        let mut pos = 0u64;
+        let mut pos = start;
         let tries = walk_piece(
+            start,
             kept_bytes,
             |at, buf| w.sink.read_at(at, buf),
             |s| {
@@ -709,8 +741,11 @@ impl<S: TapeSink> TapeWriter<S> {
             }));
         }
         let mut buf = Vec::new();
-        let mut named = Named::default();
-        let mut past_head = false;
+        let mut named = match base {
+            Some(_) => named_after_head(&w.sink, kept_bytes)?,
+            None => Named::default(),
+        };
+        let mut past_head = base.is_some();
         for (i, s) in walked.iter().enumerate() {
             if s.good {
                 let len = usize::try_from(s.len).map_err(|_overflow| too_long(s.len))?;
@@ -814,6 +849,28 @@ impl<S: TapeSink> TapeWriter<S> {
             after_close,
         };
         Ok((w, resumed))
+    }
+
+    /// Take the state of a closed piece at its close in force, before the close record: the piece head's tracks,
+    /// the close's rows, the session and seq of the close record's id, the chunk count and the newest relation values.
+    /// The record of what lies near starts empty: what the writer puts after the close it puts again.
+    fn take_base(&mut self, b: &Base) {
+        let (head, tracks) = &b.head;
+        self.session = b.id.session;
+        // the close's seq is that of the last counted block, 0 before the first of a first piece
+        self.next_seq = match b.id.seq == 0 && head.prev.is_none() && !b.counted {
+            true => 0,
+            false => b.id.seq.wrapping_add(1),
+        };
+        self.indexer.start(tracks);
+        self.indexer.seed_close(&b.rows);
+        self.head = Some((*head, tracks.clone()));
+        self.bytes = b.close_at;
+        self.chunks = b
+            .rows
+            .iter()
+            .fold(0u64, |n, r| n.saturating_add(u64::from(r.chunks)));
+        self.relations.take_newest(&b.newest);
     }
 
     fn replay_good(&mut self, at: u64, block: &[u8]) -> Result<(), WriteError<S::Error>> {
@@ -946,9 +1003,31 @@ impl<S: TapeSink> TapeWriter<S> {
     }
 }
 
-/// The piece at the start of `sink` as a reader finds it: its blocks by index entry and gap, where it ends, and where
-/// a scan was cut.
-fn read_layout<S: TapeSink>(sink: &S) -> Result<(Layout, Option<u64>), WriteError<S::Error>> {
+/// The state of a closed piece at its close in force, read from that close record, its tail, the piece head, the
+/// index chain and each track's last chunk: a resume goes on from there and replays only the bytes from the close
+/// record on, never the blocks before it.
+pub(crate) struct Base {
+    /// Where the close record starts, and its tail.
+    close_at: u64,
+    tail_at: u64,
+    close: Close,
+    rows: Vec<TrackRange>,
+    head: (crate::piece::PieceHead, Vec<TrackStart>),
+    /// The close record's id: the session, and the seq of the last counted block before it.
+    id: crate::BlockId,
+    /// Whether the index lists a counted block before the close (taken as so when the index doesn't read).
+    counted: bool,
+    newest: super::relations::Newest,
+}
+
+/// What [read_layout] finds: the piece's blocks, where a scan was cut, and its state at its close in force.
+type Read = (Layout, Option<u64>, Option<Base>);
+
+/// The piece at the start of `sink` as a reader finds it: its blocks by index entry and gap, where it ends, where a
+/// scan was cut, and its state at its close in force when that close and its tail are whole and name no next piece.
+/// An index chain that doesn't read leaves a closed piece's entries unknown rather than refusing: damage before the
+/// close in force never stops a writer going on after it.
+fn read_layout<S: TapeSink>(sink: &S) -> Result<Read, WriteError<S::Error>> {
     let reader = TapeReader::open(SinkSource(sink)).map_err(WriteError::Read)?;
     let Some(p) = reader.pieces().first() else {
         return Ok((
@@ -958,6 +1037,7 @@ fn read_layout<S: TapeSink>(sink: &S) -> Result<(Layout, Option<u64>), WriteErro
                 end: 0,
             },
             None,
+            None,
         ));
     };
     if p.start != 0 {
@@ -966,14 +1046,104 @@ fn read_layout<S: TapeSink>(sink: &S) -> Result<(Layout, Option<u64>), WriteErro
         )));
     }
     let end = p.end;
+    let closed = match (p.closed_end(), &p.close, p.close_offset, &p.head) {
+        (Some(closed_end), Some((close, rows)), Some(close_at), Some(head))
+            if close.next.is_none() =>
+        {
+            Some((closed_end, *close, rows.clone(), close_at, head.clone()))
+        }
+        _ => None,
+    };
+    // a closed piece needs its index only for bytes after its tail, the newest values of tracks with chunks, or the
+    // seq of a first piece whose close says 0
+    let needs_index = match &closed {
+        Some((closed_end, close, rows, _, (head, _))) => {
+            end > *closed_end
+                || rows.iter().any(|r| r.chunks > 0)
+                || (rows.is_empty() && head.prev.is_none())
+                || close.final_index.is_none()
+        }
+        None => true,
+    };
+    let listed = match needs_index.then(|| reader.entries(0)) {
+        None => None,
+        Some(Ok(listed)) => Some(listed),
+        Some(Err(ReadError::Source(e))) => return Err(WriteError::Read(ReadError::Source(e))),
+        Some(Err(_)) if closed.is_some() => None,
+        Some(Err(e)) => return Err(WriteError::Read(e)),
+    };
     let mut entries: BTreeMap<u64, Vec<IndexEntry>> = BTreeMap::new();
-    for e in reader.entries(0).map_err(WriteError::Read)? {
+    for e in listed.iter().flatten() {
         if let Ok(at) = FromFile::new(e.offset).bounded(end) {
-            entries.entry(at).or_default().push(e);
+            entries.entry(at).or_default().push(*e);
         }
     }
     let gaps = p.gaps.iter().copied().collect();
-    Ok((Layout { entries, gaps, end }, p.cut))
+    let base = match closed {
+        Some((closed_end, close, rows, close_at, head)) => {
+            let mut header = [0u8; HEADER_LEN];
+            sink.read_at(close_at, &mut header)
+                .map_err(sink_err("reading back the close record's header"))?;
+            let id =
+                super::block_id(&header).ok_or(WriteError::Block(crate::BlockError::Short {
+                    needed: HEADER_LEN,
+                }))?;
+            let newest = crate::piece::writer::newest_of_piece(
+                &SinkSource(sink),
+                0,
+                listed.as_deref(),
+                &rows,
+            )?;
+            Some(Base {
+                close_at,
+                tail_at: closed_end.saturating_sub(wide(TAIL_LEN)),
+                close,
+                counted: listed
+                    .as_ref()
+                    .map_or(!rows.is_empty(), |l| l.iter().any(|e| !e.repeat)),
+                rows,
+                head,
+                id,
+                newest,
+            })
+        }
+        None => None,
+    };
+    Ok((Layout { entries, gaps, end }, p.cut, base))
+}
+
+/// The layout and producer the puts right after the piece head in `src` name: where a writer puts them, so a resume
+/// from a close checks the options against them without reading the piece. At most [HEAD_PUTS_MAX] blocks are read.
+fn named_after_head<S: TapeSink>(src: &S, end: u64) -> Result<Named, WriteError<S::Error>> {
+    let mut named = Named::default();
+    let mut at = 0u64;
+    for k in 0..=HEAD_PUTS_MAX {
+        if end.saturating_sub(at) < wide(HEADER_LEN) {
+            break;
+        }
+        let mut header = [0u8; HEADER_LEN];
+        src.read_at(at, &mut header)
+            .map_err(sink_err("reading back a block header"))?;
+        let Ok(len) = block_len(&header) else { break };
+        let step = Step {
+            at,
+            len: wide(len),
+            what: What::Block {
+                kind: BlockKind::from_u8(header[5]),
+                flags: 0,
+                entry: None,
+            },
+        };
+        if step.end() > end {
+            break;
+        }
+        // the first block is the piece head, the puts follow it
+        if k > 0 {
+            named.take(src, &step)?;
+        }
+        at = step.end();
+    }
+    Ok(named)
 }
 
 /// The block of step `s` in `src`, read whole: None for a step of bytes no block explains.

@@ -23,6 +23,7 @@ Covers `ww_tape` 0.1.0.
 - `TapeReader::verify` returns `Verification`: whether it holds, the close it checked up to, and the bytes left unchecked; read `.holds` (TAPE-14).
 - A read-only file system refuses a file writer with `FsError::ReadOnly(path)`, not `FsError::Io`; match the new variant (TAPE-14).
 - A resume cuts only a torn end; damage in the bytes to cut refuses with `ResumeError::Damaged { offset }` (TAPE-14).
+- A resume of a closed piece reads only its last close; an append puts its definitions again after the append head (TAPE-14).
 - `TimesError::Corrupt { kind, what }` is `{ kind, error: ColumnError }`, the column reader's error whole (TAPE-12).
 - `PayloadsError::Corrupt { kind, what }` is `{ kind, error: ColumnError }`, as for the time columns (TAPE-12).
 - Sample codecs move to `ww_tape_codecs::samples` on scalars and lanes; `ww_tape::samples` keeps the shape-based `Samples`, `encode`, `max_encoded_len` (TAPE-12).

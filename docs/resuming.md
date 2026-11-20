@@ -127,6 +127,26 @@ Three cases at the end of a piece differ:
 A good block after the tail of a closed piece refuses the resume (`ResumeError::GoodBlockAfterCut`), unless an append
 head leads to it. A damaged append head is such a case: the resume never cuts off the blocks after it.
 
+## Resuming a closed piece
+
+A resume of a closed piece never reads the blocks before its close in force. An append to a large piece therefore
+costs about as much as an append to a small one.
+
+The writer's state at the close comes from what the close names:
+
+- the close record: each track's range, hash and counted records, and the session and seq of its block id;
+- the piece head, and the layout and producer put right after it, which the options are checked against;
+- for a piece holding chunks, the index chain and each track's last chunk, for the newest relation values.
+
+An index chain that does not read leaves those tracks unread. The next chunk of such a track then needs a break
+the caller accepts (`TapeWriter::accept_relation_break`), so damage before the close never stops an append.
+
+The record of what lies near starts empty. The writer thus puts again, after the append head, the definitions the
+blocks after it need.
+
+Only the close record, its tail and the bytes after them are walked and replayed. A crash during an append resumes
+from the same close, so the piece ends with the same bytes as an append without the crash.
+
 ## Resuming a chain
 
 `PieceChain::resume_on` (`ww_tape_fs::chain::resume` for files) does the same for a chain. It reads the closed pieces

@@ -373,10 +373,10 @@ fn a_resume_refuses_a_crafted_last_tail() {
 }
 
 /// The first close and its tail crafted to name a next piece, as a cut's do, their CRCs made good, an append after
-/// them: a writer never goes on in a piece a cut closed, so a resume refuses to take the append as going on, and
-/// every byte stays.
+/// them: a resume reads only the close in force and its tail, never the closes before it, so it writes on after the
+/// last close, every byte before as it was. The crafted close stays for a verify to report.
 #[test]
-fn a_resume_takes_no_append_after_a_close_naming_a_next_piece() {
+fn a_resume_reads_no_close_before_the_one_in_force() {
     let p = closed_n(2);
     let mut bytes = p[1].clone();
     let closes = starts(&bytes, BlockKind::Close);
@@ -395,11 +395,16 @@ fn a_resume_takes_no_append_after_a_close_naming_a_next_piece() {
     let mut sink = MemSink::new();
     sink.write_all(&bytes).unwrap();
     let tape = sink.tape();
-    match TapeWriter::resume_on(sink, options(0)) {
-        Err(ww_tape::WriteError::Resume(ww_tape::ResumeError::GoodBlockAfterCut { offset })) => {
-            assert_eq!(offset, (tails[0] + TAIL_LEN) as u64)
-        }
-        other => panic!("{:?}", other.map(|(_, r)| r)),
-    }
-    assert_eq!(tape.to_vec().unwrap(), bytes, "the bytes stay");
+    let (w, resumed) = TapeWriter::resume_on(sink, options(0)).unwrap();
+    assert_eq!(resumed.kept_bytes, bytes.len() as u64);
+    assert_eq!(resumed.after_close.unwrap().hash, hashes(&p)[1]);
+    w.close().unwrap();
+    let out = tape.to_vec().unwrap();
+    assert_eq!(out[..bytes.len()], bytes[..], "the bytes before stay");
+    let r = TapeReader::open(&out[..]).unwrap();
+    assert!(r.pieces()[0].is_closed());
+    assert!(
+        !r.verify(0).unwrap().holds,
+        "the crafted close fails the hash chain"
+    );
 }

@@ -1569,6 +1569,7 @@ impl<S: ByteSource> TapeReader<S> {
         let mut h = blake3::Hasher::new();
         // a walk that spent its budget before the close stops short: what it hashed is not the piece
         let walked = walk_piece(
+            0,
             end,
             |at, buf| {
                 let off = in_piece(p, at, buf.len())?;
@@ -1695,6 +1696,7 @@ impl<S: ByteSource> TapeReader<S> {
                     let mut at = p.start;
                     let mut failed = Ok(());
                     walk_piece(
+                        0,
                         end,
                         |off, buf| {
                             let off = in_piece(p, off, buf.len())?;

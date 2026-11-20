@@ -674,9 +674,18 @@ fn last_chunks_of<B: ByteSource>(
     i: usize,
     rows: &[crate::piece::TrackRange],
 ) -> Result<(Newest, LastChunks), WriteError<B::Error>> {
+    let entries = reader.entries(i).map_err(WriteError::Read)?;
+    Ok(last_chunks_in(&entries, rows))
+}
+
+/// [last_chunks_of] the index entries `entries` of a piece.
+fn last_chunks_in(
+    entries: &[IndexEntry],
+    rows: &[crate::piece::TrackRange],
+) -> (Newest, LastChunks) {
     let mut ranges = Newest::default();
     let mut last: BTreeMap<TrackKey, IndexEntry> = BTreeMap::new();
-    for e in reader.entries(i).map_err(WriteError::Read)? {
+    for &e in entries {
         if e.kind != crate::BlockKind::Events || e.repeat {
             continue;
         }
@@ -697,7 +706,40 @@ fn last_chunks_of<B: ByteSource>(
             last.insert(key, e);
         }
     }
-    Ok((ranges, last))
+    (ranges, last)
+}
+
+/// The newest values of the monotone relations of a piece at `start` in `src` up to its close in force, which lists
+/// `rows`, from its index entries `entries`: the tops of its chunks' ranges and the relation columns of each track's
+/// last chunk, one chunk per track. Without entries (the index chain doesn't read, damage in an older final index),
+/// each track the rows give chunks is unread: its next chunk is refused unless the caller accepts a break.
+pub(crate) fn newest_of_piece<B: ByteSource>(
+    src: &B,
+    start: u64,
+    entries: Option<&[IndexEntry]>,
+    rows: &[crate::piece::TrackRange],
+) -> Result<Newest, WriteError<B::Error>> {
+    let Some(entries) = entries else {
+        let mut newest = Newest::default();
+        for r in rows.iter().filter(|r| r.chunks > 0) {
+            newest.seed_unread((r.track_id, r.owner));
+        }
+        return Ok(newest);
+    };
+    let (mut newest, last) = last_chunks_in(entries, rows);
+    let mut buf = Vec::new();
+    for (key, e) in &last {
+        let chunk = if read_listed(src, start, e, &mut buf)? {
+            crate::Block::read(&buf).ok().and_then(|b| b.chunk())
+        } else {
+            None
+        };
+        match chunk {
+            Some(c) => newest.seed_chunk(*key, &c),
+            None => newest.seed_unread(*key),
+        }
+    }
+    Ok(newest)
 }
 
 /// Reads the chunk block that entry `e` of the piece at `start` in `src` lists into `buf`; false when its length
