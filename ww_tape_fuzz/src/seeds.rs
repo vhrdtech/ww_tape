@@ -61,6 +61,11 @@ pub const FIXED_INPUTS: &[(&str, &str, &str)] = &[
         "0000ff13000000000000000000030405",
     ),
     (
+        "tape-reclose",
+        "append-head-length-rotted-past-the-end-refuses",
+        "311153f13812a04bfbdebbcd005294adbc7be1ea0f0f6d4d257fbb7ab45500047f78bb7ab40d31a4064b6b09f3d400",
+    ),
+    (
         "tape-resume",
         "early-length-claim-spends-hash-walk",
         "2a2a5d7e2a3d",

@@ -22,11 +22,34 @@ A resume works in three steps:
 
 1. It finds the piece by its tail, else from the newest checkpoint and a scan after it, else by a scan from the start.
    It looks as a reader would, and a scan stops at the first bad block.
-2. It keeps every byte up to the end of the last good block. It cuts off the rest: a torn block, an end of piece, and
-   blocks marked `FLAG_WITH_NEXT` at the end of what it keeps.
+2. It keeps every byte up to the end of the last good block. It cuts off the rest only when that is a torn end.
 3. It replays the kept bytes and rebuilds the writer as it was.
 
-Step 2 cuts off the blocks marked `FLAG_WITH_NEXT` because the block they belong with did not survive.
+A torn end may hold an end of piece whose tail is missing. It may also hold blocks marked `FLAG_WITH_NEXT` at its
+start, which step 2 cuts off because the block they belong with did not survive.
+
+### What counts as a torn end
+
+A torn end is what a crash leaves of the last write: whole blocks, then a record that the bytes stop inside of. That
+record has fewer bytes than a block header, or a header that names more bytes than are left.
+
+Blank bytes (zeros) up to the end count as a torn end too. A file holds them where it grew but its data was never
+written.
+
+Anything else in the bytes to cut is damage. The resume then refuses with `ResumeError::Damaged`, naming where the
+damage starts.
+
+Damage is a whole record that fails its cyclic redundancy check (CRC), or bytes that start no record. A whole tail
+that does not end the close record before it is damage too.
+
+A record that names more bytes than are left is damage too when its bytes show it was whole. A block start may lie
+inside them, or they may read as a good block once its length field names them.
+
+For example, one flipped bit in the last tail makes the tail fail its CRC, so the reader takes the close before it.
+The resume keeps every byte: the close record that readers took before the flip stays.
+
+The check reads only the bytes. Damage in many places at once can make a whole record look torn, and the resume then
+cuts it.
 
 ### What the replay rebuilds
 
@@ -56,6 +79,7 @@ Step 2 cuts off only a torn end. Where cutting could lose more, the resume refus
 
 | Refusal | When |
 |---|---|
+| `ResumeError::Damaged` | the bytes to cut hold damage rather than a torn end: a whole record that fails its check, bytes that start no record, or a tail that does not end its close |
 | `ResumeError::GoodBlockAfterCut` | a good block of the piece's sessions lies behind the bytes the reader did not take; with no block kept, a good block of any session counts |
 | `ResumeError::LookSpent` | the look for good blocks ran out before the end of the bytes: it reaches at most `RESUME_LOOK_MAX` bytes far and reads at most `RESUME_PROBES_MAX` places whole, so it cannot tell that the rest holds no good block |
 | `ResumeError::HashWalkSpent` | the kept bytes claim so many blocks that do not read that a reader's content-hash walk stops trying blocks before their end (`WALK_MISS_PER_BYTE_MAX`), so a block written after them would not verify |
@@ -91,12 +115,12 @@ With another layout or producer, the writer would place blocks other than the wa
 
 Three cases at the end of a piece differ:
 
-- A piece whose last close and tail read whole is closed. The resume cuts off the junk a crash left after the tail and
-  writes on after it, an append head first.
+- A piece whose last close and tail read whole is closed. The resume cuts off a torn append after the tail and writes
+  on after it, an append head first.
 - A piece that a cut closed names the next piece in its close. The resume gives it its name and returns
   `ResumeError::Continued`.
-- A piece cut off inside its end is opened again. Its final index and close are cut off, and the next close pads the
-  piece to 4 KiB again.
+- A piece cut off inside its close record or tail is opened again. Its final index and close are cut off, and the
+  next close pads the piece to 4 KiB again.
 
 [Closing more than once](format.md#closing-more-than-once) shows the bytes of a piece written on after its close.
 

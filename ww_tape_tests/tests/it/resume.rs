@@ -1429,10 +1429,11 @@ fn a_sink_of_one_piece_takes_no_cut_in_place() {
 }
 
 /// A closed piece an earlier ww_tape wrote (`data/other-layout.wwt`, its second piece): this reader takes its blocks
-/// up to the close, and a resume cuts off only what ends a piece (close and tail, see the module docs of
-/// `writer::resume`), never a block before them; cut short anywhere in its end, the same.
+/// up to the close. Its tail is whole but ends no close this reader takes: a resume refuses and keeps every byte. Cut
+/// short anywhere in its close or tail, the end is torn: a resume cuts off the close and what follows, never a block
+/// before them.
 #[test]
-fn a_resume_of_another_layout_cuts_off_only_the_piece_end() {
+fn a_resume_of_another_layout_cuts_off_only_a_torn_end() {
     let bytes =
         std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/it/data/other-layout.wwt"))
             .unwrap();
@@ -1448,10 +1449,12 @@ fn a_resume_of_another_layout_cuts_off_only_the_piece_end() {
         at += len;
     }
     let close_at = blocks.iter().find(|(_, k)| *k == 8).unwrap().0;
-    for cut in [piece.len(), piece.len() - 300, close_at + 10] {
+    let tail_at = blocks.iter().find(|(_, k)| *k == 9).unwrap().0;
+    let resume = |cut: usize| {
         let mut sink = MemSink::new();
         sink.write_all(&piece[..cut]).unwrap();
-        let (_, resumed) = TapeWriter::resume_on(
+        let tape = sink.tape();
+        let r = TapeWriter::resume_on(
             sink,
             WriterOptions {
                 layout: Layout::UNALIGNED,
@@ -1459,7 +1462,18 @@ fn a_resume_of_another_layout_cuts_off_only_the_piece_end() {
                 ..options(0)
             },
         )
-        .unwrap();
+        .map(|(_, r)| r);
+        (r, tape.to_vec().unwrap())
+    };
+    match resume(piece.len()) {
+        (Err(WriteError::Resume(ResumeError::Damaged { offset })), after) => {
+            assert_eq!(offset, tail_at as u64);
+            assert_eq!(after, piece, "the bytes stay");
+        }
+        (other, _) => panic!("{other:?}"),
+    }
+    for cut in [piece.len() - 1, piece.len() - 300, close_at + 10] {
+        let resumed = resume(cut).0.unwrap();
         assert_eq!(resumed.kept_bytes, close_at as u64, "cut at {cut}");
         assert_eq!(
             resumed.dropped_bytes,
@@ -1507,8 +1521,53 @@ fn a_resume_never_cuts_off_good_blocks() {
     assert_eq!(resumed.kept_bytes, starts[starts.len() - 1] as u64);
 }
 
-/// A closed piece followed by junk a crash left (garbage, a torn block): the resume cuts off only what follows the
-/// tail and writes on after it; the bytes up to the tail stay. A good block after the tail refuses.
+/// The last block of an unclosed piece, whole, its length field rotted to name more bytes than are left: it reads as
+/// a record the bytes stop inside of, but its bytes read as a good block of their own length, so a resume takes it as
+/// damage and keeps every byte. A block start inside those bytes says the same.
+#[test]
+fn a_resume_refuses_a_whole_last_block_whose_length_rotted() {
+    let mut w = begin(0);
+    let tape = w.sink().tape();
+    let mut last = 0;
+    for n in 0..4 {
+        last = tape.to_vec().unwrap().len();
+        let block = records(w.next_id(), n);
+        w.write_block(base_defs(), &block).unwrap();
+    }
+    let open = tape.to_vec().unwrap();
+    drop(w);
+    assert_eq!(&open[last..last + 4], b"WWTP");
+    let resume = |bytes: &[u8]| {
+        let mut sink = MemSink::new();
+        sink.write_all(bytes).unwrap();
+        let tape = sink.tape();
+        let r = TapeWriter::resume_on(sink, options(0)).map(|(_, r)| r);
+        (r, tape.to_vec().unwrap())
+    };
+    let mut rotted = open.clone();
+    rotted[last + 9] ^= 0x01;
+    match resume(&rotted) {
+        (Err(WriteError::Resume(ResumeError::Damaged { offset })), after) => {
+            assert_eq!(offset, last as u64);
+            assert_eq!(after, rotted, "the bytes stay");
+        }
+        (other, _) => panic!("{other:?}"),
+    }
+    // the same with its CRC rotted too, and a block start after it
+    let n = rotted.len();
+    rotted[n - 1] ^= 0x01;
+    rotted.extend_from_slice(b"WWTP");
+    match resume(&rotted) {
+        (Err(WriteError::Resume(ResumeError::Damaged { offset })), after) => {
+            assert_eq!(offset, last as u64);
+            assert_eq!(after, rotted, "the bytes stay");
+        }
+        (other, _) => panic!("{other:?}"),
+    }
+}
+
+/// A closed piece followed by what a crash leaves (a torn block, blank bytes): the resume cuts off only what follows
+/// the tail and writes on after it; the bytes up to the tail stay. Garbage or a good block after the tail refuses.
 #[test]
 fn a_resume_of_a_whole_close_cuts_only_the_junk_after_its_tail() {
     let dir = scratch("junk_after_tail");
@@ -1525,8 +1584,12 @@ fn a_resume_of_a_whole_close_cuts_only_the_junk_after_its_tail() {
     let good = records(next, 9);
     let partial = ww_tape_fs::partial_name(&path);
     for (name, junk) in [
-        ("garbage", vec![0xab; 100]),
+        ("blank bytes", vec![0; 100]),
         ("a torn block", good[..40].to_vec()),
+        (
+            "a torn block run into blank bytes",
+            [&good[..40], &[0; 4096][..]].concat(),
+        ),
     ] {
         std::fs::write(&partial, [&done[..], &junk[..]].concat()).unwrap();
         let (w, resumed) = ww_tape_fs::writer::resume(&path, WriterOptions::default())
@@ -1540,6 +1603,19 @@ fn a_resume_of_a_whole_close_cuts_only_the_junk_after_its_tail() {
         assert!(!partial.exists(), "{name}");
         std::fs::remove_file(&path).unwrap();
     }
+    let bytes = [&done[..], &[0xab; 100][..]].concat();
+    std::fs::write(&partial, &bytes).unwrap();
+    match ww_tape_fs::writer::resume(&path, WriterOptions::default()) {
+        Err(WriteError::Resume(ResumeError::Damaged { offset })) => {
+            assert_eq!(offset, done.len() as u64)
+        }
+        other => panic!("{:?}", other.map(|(_, r)| r)),
+    }
+    assert_eq!(
+        std::fs::read(&partial).unwrap(),
+        bytes,
+        "garbage: the bytes stay"
+    );
     let bytes = [&done[..], &good[..]].concat();
     std::fs::write(&partial, &bytes).unwrap();
     match ww_tape_fs::writer::resume(&path, WriterOptions::default()) {
@@ -1549,6 +1625,74 @@ fn a_resume_of_a_whole_close_cuts_only_the_junk_after_its_tail() {
         other => panic!("{:?}", other.map(|(_, r)| r)),
     }
     assert_eq!(std::fs::read(&partial).unwrap(), bytes, "left as it was");
+}
+
+/// A piece a cut closed, naming the piece after it: a resume never writes on in it ([ResumeError::Continued] names
+/// the next piece). A torn block or blank bytes after its tail are cut off first; garbage there is damage, and an
+/// append head a good block: both refuse, every byte kept.
+#[test]
+fn a_resume_of_a_piece_a_cut_closed_names_the_next() {
+    let dir = scratch("cut_closed");
+    let owner = OwnerId([7; 32]);
+    let mut c = ww_tape_fs::chain::create(&dir, owner, 0, &[], chain_options()).unwrap();
+    for n in 0..3 {
+        let block = records(c.writer().unwrap().next_id(), n);
+        c.write_block(base_defs(), &block).unwrap();
+    }
+    let good = records(c.writer().unwrap().next_id(), 9);
+    c.cut_now().unwrap();
+    drop(c);
+    let done = std::fs::read(dir.join(piece_name(0))).unwrap();
+    let r = TapeReader::open(&done[..]).unwrap();
+    let next = r.pieces()[0].close.as_ref().unwrap().0.next.unwrap();
+    let resume = |bytes: &[u8]| {
+        let mut sink = MemSink::new();
+        sink.write_all(bytes).unwrap();
+        let tape = sink.tape();
+        let r = TapeWriter::resume_on(sink, chain_options().writer).map(|(_, r)| r);
+        (r, tape.to_vec().unwrap())
+    };
+    for (name, after) in [
+        ("nothing", vec![]),
+        ("a torn block", good[..40].to_vec()),
+        ("blank bytes", vec![0; 100]),
+    ] {
+        match resume(&[&done[..], &after[..]].concat()) {
+            (Err(WriteError::Resume(ResumeError::Continued { next: n })), bytes) => {
+                assert_eq!(n, next, "{name}");
+                assert_eq!(bytes, done, "{name}");
+            }
+            (other, _) => panic!("{name}: {other:?}"),
+        }
+    }
+    // an append head after it, naming its close: no writer goes on in a piece a cut closed, and the head, a good
+    // block, is not cut off
+    let (close_at, close) = r.closes(0).unwrap().pop().unwrap();
+    let tail_at = done.len() as u64 - ww_tape::piece::TAIL_LEN as u64;
+    let mut head = vec![0u8; ww_tape::piece::APPEND_HEAD_LEN];
+    let tail = ww_tape::Block::read(&done[tail_at as usize..]).unwrap();
+    ww_tape::piece::AppendHead {
+        close_offset: close_at,
+        tail_offset: tail_at,
+        hash: close.hash,
+    }
+    .write(&mut head, ww_tape::BlockId::new(tail.session, tail.seq));
+    let appended = [&done[..], &head[..]].concat();
+    match resume(&appended) {
+        (Err(WriteError::Resume(ResumeError::GoodBlockAfterCut { offset })), bytes) => {
+            assert_eq!(offset, done.len() as u64);
+            assert_eq!(bytes, appended, "the bytes stay");
+        }
+        (other, _) => panic!("{other:?}"),
+    }
+    let garbage = [&done[..], &[0xab; 100][..]].concat();
+    match resume(&garbage) {
+        (Err(WriteError::Resume(ResumeError::Damaged { offset })), bytes) => {
+            assert_eq!(offset, done.len() as u64);
+            assert_eq!(bytes, garbage, "the bytes stay");
+        }
+        (other, _) => panic!("{other:?}"),
+    }
 }
 
 /// A piece whose close and tail read whole, left as `NAME.partial` by a crash before its rename: a resume writes on
@@ -1648,8 +1792,16 @@ fn a_resume_refuses_where_its_look_is_spent() {
         }
         (other, _) => panic!("{other:?}"),
     }
-    // the same places alone: a torn end
-    let (r, after) = resume(&bytes[..good_at as usize]);
+    // the same places alone: damage, not a torn end
+    match resume(&bytes[..good_at as usize]) {
+        (Err(WriteError::Resume(ResumeError::Damaged { offset })), after) => {
+            assert_eq!(offset, open.len() as u64);
+            assert_eq!(after, bytes[..good_at as usize], "the bytes stay");
+        }
+        (other, _) => panic!("{other:?}"),
+    }
+    // a torn block after them: cut off
+    let (r, after) = resume(&[&open[..], &good[..good.len() - 1]].concat());
     assert_eq!(r.unwrap().kept_bytes, open.len() as u64);
     assert_eq!(after, open);
     // a good block past the bytes a resume looks through

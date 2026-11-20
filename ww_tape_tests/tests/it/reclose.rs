@@ -8,8 +8,8 @@ use ww_tape::index::IndexEntry;
 use ww_tape::piece::{APPEND_HEAD_LEN, Close};
 use ww_tape::reader::Found;
 use ww_tape::{
-    ALIGNMENT, BlockKind, ContentHash, FileBlocks, Medium, MemSink, OpenOptions, Recovery, Resumed,
-    TapeReader, TapeSink, TapeWriter,
+    ALIGNMENT, BlockKind, ContentHash, FileBlocks, Medium, MemSink, OpenOptions, Recovery,
+    ResumeError, Resumed, TapeReader, TapeSink, TapeWriter, WriteError,
 };
 
 /// The ticks of the record blocks of data in `bytes`, in file order, each once.
@@ -441,7 +441,8 @@ fn an_empty_append_closes_after_a_final_index_of_its_own() {
 }
 
 /// An append head damaged with a good block after it: the close before it stays in force for a reader, and a resume
-/// refuses to cut the good block, every byte left as it was; junk alone after the tail is cut off.
+/// refuses to cut the good block, every byte left as it was. Junk alone after the tail is damage too; blank bytes or
+/// fewer than a header are a torn append, cut off.
 #[test]
 fn a_damaged_append_head_keeps_the_close_before_it() {
     let mut w = begin(0);
@@ -459,9 +460,83 @@ fn a_damaged_append_head_keeps_the_close_before_it() {
         refused_after(&old, &torn);
     }
     let junk = [&old[..], &[0x5a; 40][..]].concat();
-    let (w, resumed) = reopen(&junk, 0);
-    assert_eq!(resumed.kept_bytes, old.len() as u64);
-    assert_eq!(close(w)[..old.len()], old[..]);
+    let mut sink = MemSink::new();
+    sink.write_all(&junk).unwrap();
+    let tape = sink.tape();
+    match TapeWriter::resume_on(sink, options(0)) {
+        Err(ww_tape::WriteError::Resume(ww_tape::ResumeError::Damaged { offset })) => {
+            assert_eq!(offset, old.len() as u64)
+        }
+        other => panic!("{:?}", other.map(|(_, r)| r)),
+    }
+    assert_eq!(tape.to_vec().unwrap(), junk, "left as it was");
+    for torn in [vec![0; 40], vec![0x5a; 31]] {
+        let (w, resumed) = reopen(&[&old[..], &torn[..]].concat(), 0);
+        assert_eq!(resumed.kept_bytes, old.len() as u64);
+        assert_eq!(close(w)[..old.len()], old[..]);
+    }
+}
+
+/// A flipped bit in the last close record or its tail: the close before it is in force for a reader. A resume takes
+/// the flip as damage, never as a torn append: it refuses and every byte stays, the close record a reader took before
+/// the flip among them.
+#[test]
+fn a_flip_in_the_last_close_or_tail_refuses_a_resume() {
+    let mut w = begin(0);
+    write(&mut w, 0..6);
+    let old = close(w);
+    let (mut w, _) = reopen(&old, 0);
+    write(&mut w, 6..9);
+    let whole = close(w);
+    let close_at = closes(&whole).last().unwrap().0 as usize;
+    let tail_at = whole.len() - ww_tape::piece::TAIL_LEN;
+    for (name, at, want) in [
+        (
+            "close record",
+            close_at + 40,
+            ResumeError::GoodBlockAfterCut {
+                offset: tail_at as u64,
+            },
+        ),
+        (
+            "tail hash",
+            tail_at + 70,
+            ResumeError::Damaged {
+                offset: tail_at as u64,
+            },
+        ),
+        (
+            "tail CRC",
+            whole.len() - 1,
+            ResumeError::Damaged {
+                offset: tail_at as u64,
+            },
+        ),
+        (
+            "tail length",
+            tail_at + 8,
+            ResumeError::Damaged {
+                offset: tail_at as u64,
+            },
+        ),
+    ] {
+        let mut flipped = whole.clone();
+        flipped[at] ^= 0x10;
+        let r = TapeReader::open(&flipped[..]).unwrap();
+        assert_eq!(
+            r.pieces()[0].close.as_ref().unwrap().0.hash,
+            close_hash(&old),
+            "{name}"
+        );
+        let mut sink = MemSink::new();
+        sink.write_all(&flipped).unwrap();
+        let tape = sink.tape();
+        match TapeWriter::resume_on(sink, options(0)) {
+            Err(WriteError::Resume(e)) => assert_eq!(e, want, "{name}"),
+            other => panic!("{name}: {:?}", other.map(|(_, r)| r)),
+        }
+        assert_eq!(tape.to_vec().unwrap(), flipped, "{name}: every byte stays");
+    }
 }
 
 /// `torn`, the piece `old` and a damaged append after it: read with the close of `old` in force, refused by a resume

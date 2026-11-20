@@ -1,8 +1,9 @@
 //! A piece closed more than once, its last append torn and mutated by the input, read and resumed. The reader never
 //! panics and takes the newest close whose close record and tail are whole and untouched, never a torn or damaged
 //! one; the closes it lists each name the one before. A resume keeps every byte up to the close before the last
-//! append, takes more blocks and closes whole: the piece then holds each close kept, in order, and verifies when no
-//! flip fell before its last kept close.
+//! append and cuts only a torn end: with one byte changed, a byte it drops lies in the record the cut stops inside
+//! of. It takes more blocks and closes whole: the piece then holds each close kept, in order, and verifies when no
+//! flip fell before its last kept close. Damage in a whole record refuses.
 //!
 //! With flips anywhere in the piece (mode bit 1), only the reader's and the resume's own checks hold: no panic, closes
 //! listed oldest first, each naming the one before.
@@ -103,6 +104,22 @@ pub(crate) fn build(aligned: bool, appends: &[u8]) -> (Vec<u8>, Vec<Made>) {
     (bytes, made)
 }
 
+/// Where the record that `bytes` cut at `cut` stops inside of starts: the end of the last whole block before `len`.
+fn torn_record(bytes: &[u8], cut: usize) -> usize {
+    let mut rd = ww_tape::FileBlocks::with_recovery(bytes, ww_tape::Recovery::Prefix);
+    let mut whole = 0;
+    while let Some(Ok(b)) = rd.next_block() {
+        let len = b.len();
+        // the reader's offset is where the block it gave starts
+        let end = usize::try_from(rd.offset()).expect("an offset within the bytes") + len;
+        if end > cut {
+            break;
+        }
+        whole = end;
+    }
+    whole
+}
+
 /// The closes of piece 0 of `r`: each names the one before it and lies after it.
 fn closes_chain<S: ww_tape::reader::ByteSource>(r: &TapeReader<S>) -> Vec<(u64, Close)> {
     let Ok(all) = r.closes(0) else {
@@ -193,6 +210,18 @@ pub fn reclose(data: &[u8]) {
         resumed.kept_bytes >= kept as u64,
         "the closed bytes are kept"
     );
+    // only a torn end is cut: with one byte changed, a changed byte dropped lies in the record the cut stops inside of,
+    // never in a whole one. More changed bytes can make damage read as a torn end in every way the bytes show.
+    let torn_from = torn_record(&bytes, torn.len());
+    let changed = torn.iter().zip(&bytes).filter(|(a, b)| a != b).count();
+    if changed == 1
+        && let Some(at) = (resumed.kept_bytes as usize..torn.len()).find(|&i| torn[i] != bytes[i])
+    {
+        assert!(
+            at >= torn_from,
+            "a whole record cut off: a flip at {at}, the torn record at {torn_from}"
+        );
+    }
     append(&mut w, &defs(), 100, 2);
     let (out, _) = close(w);
     assert_eq!(

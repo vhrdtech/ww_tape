@@ -85,6 +85,10 @@ pub enum ResumeError {
     /// The piece to resume is closed by a cut and goes on in the piece `next`: only the last piece of a chain is
     /// written on, so the links between pieces never move.
     Continued { next: PieceId },
+    /// The bytes a resume would cut hold a whole record at `offset` that fails its check, or a tail that doesn't end
+    /// the close before it: damage, not a torn end. Only an end the bytes stop inside of, or blank (zero) bytes, is
+    /// cut.
+    Damaged { offset: u64 },
 }
 
 /// Why [TapeWriter::cut_in_place] failed: the error, and the writer when the cut was refused before anything was
@@ -232,6 +236,10 @@ impl core::fmt::Display for ResumeError {
                 f,
                 "the piece goes on in the next piece ({:02x?}): only the last piece of a chain is written on",
                 next.0
+            ),
+            ResumeError::Damaged { offset } => write!(
+                f,
+                "the end to cut holds a damaged record at {offset}, not a torn end: nothing is cut"
             ),
         }
     }

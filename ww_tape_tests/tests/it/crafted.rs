@@ -342,3 +342,64 @@ fn verify_checks_each_append_head_against_the_close_before_it() {
         "the append head doesn't follow the first close's tail"
     );
 }
+
+/// The last tail crafted to state the hash of an older close, or another piece length, its CRC made good: it ends no
+/// close, so a resume takes it as damage, not a torn append: it refuses, naming the tail, and every byte stays.
+#[test]
+fn a_resume_refuses_a_crafted_last_tail() {
+    let p = closed_n(2);
+    let bytes = &p[1];
+    let tails = starts(bytes, BlockKind::Tail);
+    let older = tail_at(bytes, tails[0]).hash;
+    let crafts: [&dyn Fn(&mut Tail); 3] = [&|t| t.hash = older, &|t| t.piece_len += 1, &|t| {
+        t.close_len -= 1
+    }];
+    for (k, craft) in crafts.iter().enumerate() {
+        let mut tail = tail_at(bytes, tails[1]);
+        craft(&mut tail);
+        let mut crafted = bytes.clone();
+        crafted[tails[1]..].copy_from_slice(&sealed(&tail, bytes, tails[1]));
+        let mut sink = MemSink::new();
+        sink.write_all(&crafted).unwrap();
+        let tape = sink.tape();
+        match TapeWriter::resume_on(sink, options(0)) {
+            Err(ww_tape::WriteError::Resume(ww_tape::ResumeError::Damaged { offset })) => {
+                assert_eq!(offset, tails[1] as u64, "craft {k}")
+            }
+            other => panic!("craft {k}: {:?}", other.map(|(_, r)| r)),
+        }
+        assert_eq!(tape.to_vec().unwrap(), crafted, "craft {k}: the bytes stay");
+    }
+}
+
+/// The first close and its tail crafted to name a next piece, as a cut's do, their CRCs made good, an append after
+/// them: a writer never goes on in a piece a cut closed, so a resume refuses to take the append as going on, and
+/// every byte stays.
+#[test]
+fn a_resume_takes_no_append_after_a_close_naming_a_next_piece() {
+    let p = closed_n(2);
+    let mut bytes = p[1].clone();
+    let closes = starts(&bytes, BlockKind::Close);
+    let tails = starts(&bytes, BlockKind::Tail);
+    let ends: Vec<_> = blocks(&bytes).iter().map(|b| (b.0, b.1)).collect();
+    let close_end = ends.iter().find(|b| b.0 == closes[0]).unwrap().1;
+    bytes[closes[0] + 112..closes[0] + 128].fill(0x5c);
+    reseal(&mut bytes[closes[0]..close_end]);
+    bytes[tails[0] + 104..tails[0] + 120].fill(0x5c);
+    reseal(&mut bytes[tails[0]..tails[0] + TAIL_LEN]);
+    let r = TapeReader::open(&bytes[..]).unwrap();
+    assert!(
+        r.closes(0).unwrap()[0].1.next.is_some(),
+        "the first close names a next piece"
+    );
+    let mut sink = MemSink::new();
+    sink.write_all(&bytes).unwrap();
+    let tape = sink.tape();
+    match TapeWriter::resume_on(sink, options(0)) {
+        Err(ww_tape::WriteError::Resume(ww_tape::ResumeError::GoodBlockAfterCut { offset })) => {
+            assert_eq!(offset, (tails[0] + TAIL_LEN) as u64)
+        }
+        other => panic!("{:?}", other.map(|(_, r)| r)),
+    }
+    assert_eq!(tape.to_vec().unwrap(), bytes, "the bytes stay");
+}

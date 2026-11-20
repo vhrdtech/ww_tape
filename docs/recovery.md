@@ -117,23 +117,25 @@ The writer puts what each block needs again wherever the same item doesn't lie c
 Three cases at the end of a piece differ:
 
 - A piece whose last close and tail read whole is closed: the crash, if any, came after the close. The resume cuts
-  off junk after the tail and writes on after it, behind an append head.
+  off a torn append after the tail and writes on after it, behind an append head.
 - A piece that a cut closed names the next piece in its close and is not written on. The resume gives it its name and
   returns `ResumeError::Continued`.
-- A piece cut inside its end is opened again. The resume cuts off its final index and close record, and the next
-  close pads the piece to 4 KiB again.
+- A piece cut inside its close record or tail is opened again. The resume cuts off its final index and close record,
+  and the next close pads the piece to 4 KiB again.
 
 [Closing more than once](format.md#closing-more-than-once) shows the bytes of a piece written on after its close.
 
 ### When a resume refuses
 
-A resume cuts off a torn end and nothing more. Where cutting would lose good data, or where it can't tell, it refuses
-and leaves the bytes as they are:
+A resume cuts off only a [torn end](resuming.md#what-counts-as-a-torn-end), nothing more.
+
+Where cutting would lose good data or cut damage, it refuses and leaves the bytes as they are:
 
 | Error | Why |
 |---|---|
 | `ResumeError::NoPiece` | there is no unclosed piece; `ww_tape_fs` reports `FsError::NoPiece` with the path |
 | `ResumeError::GoodBlockAfterCut { offset }` | a good block of the piece lies past where the reader stopped |
+| `ResumeError::Damaged { offset }` | the bytes to cut hold damage at `offset`, not a torn end: a whole record that fails its check, say a flipped last tail |
 | `ResumeError::LookSpent { offset }` | the look for good blocks ran out before the end of the bytes |
 | `ResumeError::HashWalkSpent { end }` | the content-hash walk of the bytes kept spent its budget; new blocks would not verify |
 | `InputError::Layout`, `InputError::Producer` | the options name another layout or producer than the piece |

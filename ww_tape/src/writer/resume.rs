@@ -18,17 +18,21 @@
 //! - a checkpoint index block moves the indexer on as placing it did; in an aligned piece a checkpoint due after a
 //!   block waits for the next chunk, as it did.
 //!
-//! A piece whose last close and tail read whole is closed, not ended: the resume cuts off what follows the tail when
-//! no good block is in it (junk a crash left), then writes on after the tail, an append head
-//! ([AppendHead]) first, every byte before it as it was. A good block after the tail
-//! refuses ([ResumeError::GoodBlockAfterCut]). A close naming a next piece (a cut) ends its piece for good: the
-//! resume gives it its name ([TapeSink::close]) and returns [ResumeError::Continued]. Blocks after an append head
-//! that names a whole close and tail are the piece going on: the resume keeps that close and goes on after them.
+//! A piece whose last close and tail read whole is closed, not ended: the resume cuts off a torn append after the
+//! tail, then writes on after the tail, an append head ([AppendHead]) first, every byte before it as it was. A good
+//! block after the tail refuses ([ResumeError::GoodBlockAfterCut]). A close naming a next piece (a cut) ends its piece
+//! for good: the resume gives it its name ([TapeSink::close]) and returns [ResumeError::Continued]. Blocks after an
+//! append head that names a whole close and tail, naming no next piece, are the piece going on: the resume keeps that
+//! close and goes on after them.
 //!
 //! Else the piece is kept up to the end of its last good block, counted or not: the puts after the last counted block
 //! stay. What ends a piece (the final index, a close without its tail) is dropped: the piece is open again, and so are
 //! puts at the end that belong with a block after them ([FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT)): that call is given
-//! again whole. When the last block kept is counted, the writer acts after it again (a checkpoint when due), as a
+//! again whole.
+//!
+//! Only a torn end is ever cut: whole blocks, then a record the bytes stop inside of, or blank (zero) bytes to the
+//! end. A whole record in the bytes to cut that fails its check, bytes that start no record, or a whole tail that
+//! didn't end its close is damage: the resume refuses ([ResumeError::Damaged]) and every byte stays. When the last block kept is counted, the writer acts after it again (a checkpoint when due), as a
 //! crash may have come before it did; a piece holding only its head gets the layout and the producer put after it.
 //!
 //! Since what the writer adds depends only on the blocks before it, the calls since and the [WriterOptions] (give the
@@ -359,6 +363,104 @@ fn good_block_after<S: TapeSink>(
     Ok(None)
 }
 
+/// Where the bytes of `src` from `from` to `size`, which a resume would cut, hold damage rather than a torn end; None
+/// when they are a torn end. A torn end is what a crash leaves of an append: whole blocks, then a record the bytes
+/// stop inside of (fewer bytes than a header, a header naming more bytes than are left), or blank bytes (zeros) up to
+/// the end, which a file holds where it grew but its data wasn't written. Damage is a whole record that fails its
+/// check, bytes that don't start a record, or a whole tail: one that didn't end its close is not what a writer left.
+/// Each step moves on at least one byte, and reads at most [MAX_BLOCK_LEN] or [JUNK_READ_MAX] bytes at once.
+fn torn_end<S: TapeSink>(
+    src: &S,
+    from: u64,
+    size: u64,
+) -> Result<Option<u64>, WriteError<S::Error>> {
+    let blank = blank_from(src, from, size)?;
+    let mut at = from;
+    while at < blank && size.saturating_sub(at) >= wide(HEADER_LEN) {
+        let mut header = [0u8; HEADER_LEN];
+        src.read_at(at, &mut header)
+            .map_err(sink_err("reading back a header a resume cuts off"))?;
+        let Ok(len) = block_len(&header) else {
+            // a header that runs into the blank end was being written
+            return Ok((at.saturating_add(wide(HEADER_LEN)) <= blank).then_some(at));
+        };
+        let end = at.saturating_add(wide(len));
+        if end > size {
+            return Ok(rotted_length(src, at, size, &header, len)?.then_some(at));
+        }
+        let mut block = vec![0u8; len];
+        src.read_at(at, &mut block)
+            .map_err(sink_err("reading back a block a resume cuts off"))?;
+        match Block::read(&block) {
+            Ok(b) if b.kind == BlockKind::Tail => return Ok(Some(at)),
+            Ok(_) => at = end,
+            // a record that runs into the blank end was being written
+            Err(_) => return Ok((end <= blank).then_some(at)),
+        }
+    }
+    Ok(None)
+}
+
+/// Whether the record at `at` in `src`, whose `header` names `len` bytes, more than are left before `size`, is a whole
+/// record whose length rotted rather than a torn one: its kind has a fixed length other than `len`, a block start lies
+/// in its bytes, or its bytes up to `size` read as a good block once its header names their length. A torn record is
+/// a prefix of one block and holds none of these.
+fn rotted_length<S: TapeSink>(
+    src: &S,
+    at: u64,
+    size: u64,
+    header: &[u8; HEADER_LEN],
+    len: usize,
+) -> Result<bool, WriteError<S::Error>> {
+    let fixed = match BlockKind::from_u8(header[5]) {
+        BlockKind::Tail => Some(TAIL_LEN),
+        BlockKind::AppendHead => Some(crate::piece::APPEND_HEAD_LEN),
+        _ => None,
+    };
+    if fixed.is_some_and(|f| f != len) {
+        return Ok(true);
+    }
+    // fewer bytes are left than `len`, at most MAX_BLOCK_LEN
+    let left = usize::try_from(size.saturating_sub(at)).map_err(|_overflow| too_long(size))?;
+    let mut bytes = vec![0u8; left];
+    src.read_at(at, &mut bytes)
+        .map_err(sink_err("reading back a torn record"))?;
+    if bytes
+        .get(1..)
+        .is_some_and(|rest| rest.windows(crate::MAGIC.len()).any(|w| w == crate::MAGIC))
+    {
+        return Ok(true);
+    }
+    let Ok(stated) = u32::try_from(left) else {
+        return Ok(false);
+    };
+    match bytes.get_mut(8..12) {
+        Some(field) => field.copy_from_slice(&stated.to_le_bytes()),
+        None => return Ok(false),
+    }
+    Ok(Block::read(&bytes).is_ok())
+}
+
+/// Where the blank (zero) bytes that run to `size` start in `src`, not before `from`.
+fn blank_from<S: TapeSink>(src: &S, from: u64, size: u64) -> Result<u64, WriteError<S::Error>> {
+    let mut window = vec![0u8; JUNK_READ_MAX];
+    let mut end = size;
+    while end > from {
+        // at most JUNK_READ_MAX, as min says
+        let n = usize::try_from(end.saturating_sub(from).min(wide(JUNK_READ_MAX)))
+            .unwrap_or(JUNK_READ_MAX);
+        let start = end.saturating_sub(wide(n));
+        let w = window.get_mut(..n).unwrap_or_default();
+        src.read_at(start, w)
+            .map_err(sink_err("reading back the end a resume cuts off"))?;
+        if let Some(last) = w.iter().rposition(|b| *b != 0) {
+            return Ok(start.saturating_add(wide(last)).saturating_add(1));
+        }
+        end = start;
+    }
+    Ok(from)
+}
+
 /// The offset of a block the reader took from `from` up to its end, after a block that ends the piece, which a resume
 /// would cut off: a block of one of `sessions` (any with none known) that neither ends a piece itself nor is a put
 /// belonging with a block after it ([crate::FLAG_WITH_NEXT]).
@@ -531,6 +633,9 @@ impl<S: TapeSink> TapeWriter<S> {
                                     offset,
                                 }));
                             }
+                            if let Some(offset) = torn_end(&sink, end, size)? {
+                                return Err(WriteError::Resume(ResumeError::Damaged { offset }));
+                            }
                             sink.truncate(end)
                                 .map_err(sink_err("cutting the bytes after the tail"))?;
                         }
@@ -563,6 +668,9 @@ impl<S: TapeSink> TapeWriter<S> {
             }));
         }
         let kept_bytes = kept.last;
+        if let Some(offset) = torn_end(&sink, kept_bytes, size)? {
+            return Err(WriteError::Resume(ResumeError::Damaged { offset }));
+        }
         let mut w = Self::create_on(sink, options.sync);
         w.apply(&options)?;
         // the content hash of the bytes kept and the steps of its walk, as a reader's verify takes them: good
@@ -918,14 +1026,9 @@ fn whole_close<S: TapeSink>(
     let Ok(close) = CloseBlock::read(&c).map(|c| c.close()) else {
         return Ok(None);
     };
-    let whole = tail.close_offset == close_step.at
+    let whole = tail.ends(&close, close_step.at)
         && u64::from(tail.close_len) == close_step.len
-        && tail_step.at == close_step.end()
-        && tail.piece_len == tail_step.end()
-        && tail.reason == close.reason
-        && tail.hash == close.hash
-        && tail.ident == close.ident
-        && tail.next == close.next;
+        && tail_step.at == close_step.end();
     Ok(whole.then_some(((close_step.at, close), tail_step.at)))
 }
 
@@ -938,7 +1041,7 @@ fn appends_to<S: TapeSink>(
     tail_at: u64,
     close: &Close,
 ) -> Result<bool, WriteError<S::Error>> {
-    if s.at != tail_at.saturating_add(wide(TAIL_LEN)) {
+    if close.next.is_some() || s.at != tail_at.saturating_add(wide(TAIL_LEN)) {
         return Ok(false);
     }
     let Some(buf) = block_of(src, s)? else {
