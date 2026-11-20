@@ -8,6 +8,8 @@
     reason = "the binary prints the story's numbers, computed freely from sizes far below 2^52"
 )]
 
+use ww_tape::index::{IndexBlock, IndexKind};
+use ww_tape::{BlockKind, FLAG_REPEAT, FileBlocks, Recovery};
 use ww_tape_example::{Drive, Error, Story};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -17,6 +19,58 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let drive = Drive::scaled(k).ok_or(Error::Settings("the scale divides 1000"))?;
     print(&drive.story()?);
+    let recording = drive.record()?;
+    let first = recording
+        .pieces
+        .first()
+        .ok_or(Error::Settings("the run has a piece"))?;
+    println!();
+    print_blocks(first)?;
+    Ok(())
+}
+
+/// What a block of a piece is, as the book's anatomy of a piece names it.
+fn part(b: &ww_tape::Block<'_>) -> Result<&'static str, Box<dyn std::error::Error>> {
+    Ok(match b.kind {
+        BlockKind::PieceHead => "piece head",
+        BlockKind::Records if b.flags & FLAG_REPEAT != 0 => "records blocks of puts and copies",
+        BlockKind::Records => "records blocks",
+        BlockKind::Events => "events chunks",
+        BlockKind::Series => "series chunks",
+        BlockKind::Summary => "summary blocks",
+        BlockKind::Index => match IndexBlock::read(b).map_err(|e| format!("{e:?}"))?.kind() {
+            IndexKind::Checkpoint => "checkpoints",
+            IndexKind::Final => "final index",
+        },
+        BlockKind::Close => "close",
+        BlockKind::Tail => "tail",
+        _ => "other blocks",
+    })
+}
+
+/// The blocks of `piece` by what they are: their count and bytes, in order of first appearance.
+fn print_blocks(piece: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+    let mut parts: Vec<(&'static str, u64, u64)> = Vec::new();
+    let mut walk = FileBlocks::with_recovery(piece, Recovery::Prefix);
+    while let Some(b) = walk.next_block() {
+        let b = b.map_err(|e| format!("{e:?}"))?;
+        let name = part(&b)?;
+        let len = b.len() as u64;
+        match parts.iter_mut().find(|p| p.0 == name) {
+            Some(p) => {
+                p.1 += 1;
+                p.2 += len;
+            }
+            None => parts.push((name, 1, len)),
+        }
+    }
+    println!("Piece 0, {} bytes, by its blocks:", piece.len());
+    println!();
+    println!("| Blocks | Count | Bytes |");
+    println!("|---|---:|---:|");
+    for (name, n, bytes) in parts {
+        println!("| {name} | {n} | {bytes} |");
+    }
     Ok(())
 }
 
