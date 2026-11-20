@@ -17,6 +17,10 @@ piece. At the end, it writes the final index, the close and the tail.
 A close ends a write session, not the piece. A writer that resumes a closed piece writes on after its close, and the
 next close names the one before it ([Closing more than once](format.md#closing-more-than-once)).
 
+`TapeWriter::close_with_summary` closes with a summary block of the application's own. The block holds any bytes up to
+`CLOSE_SUMMARY_MAX` (1 MiB), and a reader fetches it from the tail without a scan ([The close
+summary](format.md#the-close-summary)).
+
 The producer makes the data; the writer places it.
 
 ### Sinks and stores
@@ -113,7 +117,7 @@ writer.write_block(&defs, &readings)?; // the definitions it needs go first
 ```
 
 Here `clock` is a `ClockDef` and the two tracks are `TrackDef`s, all passed as `Describe` values. `readings` is a
-closed records block from a `BlockWriter` ([Writing data](#writing-data)).
+records block that a `BlockWriter` finished ([Writing data](#writing-data)).
 
 The repository runs these lines as a test (`ww_tape_tests/tests/it/book.rs`).
 

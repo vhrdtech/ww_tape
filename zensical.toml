@@ -31,6 +31,7 @@ nav = [
             "pieces_and_files.md",
             "track_hashes.md",
             "reading.md",
+            "growing_pieces.md",
             "events_and_series.md",
             "series.md",
             "summaries.md",

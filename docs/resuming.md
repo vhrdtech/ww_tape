@@ -158,8 +158,8 @@ ended:
 | Last piece | Chain of a tape per piece | Chain in one tape (`PieceTapes::One`) |
 |---|---|---|
 | unclosed | resumed | resumed |
-| closed as continued: the crash came during a cut | the next piece starts | the next piece starts |
-| closed as complete or aborted | written on after its close | written on after its close |
+| closed naming a next piece: the crash came during a cut | the next piece starts | the next piece starts |
+| closed or aborted, naming no next piece | written on after its close | written on after its close |
 | its piece head is damaged | refused | refused |
 
 A chain therefore gains a piece only at a cut: a session that opens it again goes on in its last piece. The resume

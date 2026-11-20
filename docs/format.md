@@ -791,8 +791,9 @@ A piece lists at most `IndexPolicy::state_entries_max` state entries, 1 Mi by de
 1. A **final index** lists every block again, sorted by track, with the state entries of one block in block order. Its
    head holds a directory of tracks and a CRC per track's entries.
    - A reader of one track out of thousands reads the head and that track's list.
-2. The **close** block (kind 8) states how the piece ended: complete, continued or aborted. It holds the BLAKE3 content
-   hash of every byte before it and where the newest checkpoint and the final index are.
+2. The **close** block (kind 8) states why the writer stopped: closed or aborted. It holds the BLAKE3 content hash of
+   every byte before it and where the newest checkpoint and the final index are.
+   - A close that a cut wrote names the next piece.
    - Per track, the close also holds the chunks, items and ticks the piece holds.
 3. The **tail** (kind 9) is a fixed-size block of 164 bytes (`TAIL_LEN`) and the last bytes of the file. It gives the
    piece's length, and therefore where the piece starts, and where its close is.

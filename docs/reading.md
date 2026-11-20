@@ -57,6 +57,8 @@ read past:
 - `PieceInfo::version` is set for a piece of another format version. Every read of such a piece fails with
   `ReadError::Version`.
 
+A piece closed more than once, or still growing, is read as [Reading a growing piece](growing_pieces.md) explains.
+
 ### Opening a raw medium
 
 A raw medium, such as a Secure Digital (SD) card, isn't read from its end. An older recording's tail there may pass for

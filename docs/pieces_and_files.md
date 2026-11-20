@@ -152,7 +152,7 @@ tails, as a reader does.
 The chain resumes an unclosed last piece, cut off by a crash, under the rules for a piece in a file of its own.
 [Resuming after a crash](resuming.md#resuming-after-a-crash) gives those rules.
 
-A last piece that was closed is written on after its close, behind an append head, in a session of its own. Nothing
+A last piece that was closed is written on after its close, behind an append head, in the session that wrote it. Nothing
 before the append head changes, and the new close names the one before it ([Closing more than
 once](format.md#closing-more-than-once)).
 

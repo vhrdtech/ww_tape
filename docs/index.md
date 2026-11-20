@@ -81,6 +81,7 @@ below give the pages in the order a reader needs them.
 ### Reading and the data
 
 - [Reading a tape](reading.md): opening a file, the index, state at a place, damage and salvage.
+- [Reading a growing piece](growing_pieces.md): several closes, the unclosed tail, and noticing new bytes.
 - [Events and series](events_and_series.md): chunks, event times, ends, flags and payloads.
 - [Series](series.md): samples, fixed point, grids and series files.
 - [Summaries](summaries.md): the trees that let a viewer draw a long track without reading it.
