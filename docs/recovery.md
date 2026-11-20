@@ -76,7 +76,7 @@ it.
 
 The crash leaves the lock file behind, but the file holds no lock. The next writer takes it.
 
-### After a crash
+### After a crash { #resuming-after-a-crash }
 
 [When the power fails](crashes.md) follows a recording through a power failure. It shows what the crash costs and how
 a reader finds the end of the file. It also shows how a resume lets the writer go on to the same bytes.
