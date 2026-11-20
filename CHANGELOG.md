@@ -166,8 +166,8 @@ Covers `ww_tape` 0.1.0.
 - `TrackDef` names its `clock`, carries `dimensions` (part of its identity, `track_id`) and an optional item type `item` (STD-117).
 
 ### 🚀 Features
-- `TapeWriter::close_with_summary` places a close summary (kind 14) the close names; `TapeReader::close_summary` reads it (TAPE-14).
 
+- `TapeWriter::close_with_summary` places a close summary (kind 14) the close names; `TapeReader::close_summary` reads it (TAPE-14).
 - `TapeReader::unclosed` names the bytes no close covers; `TapeReader::closed_entries` lists only blocks the close in force covers (TAPE-14).
 - A piece closes more than once: an append head after the tail, a chained close hash, `TapeReader::closes` (TAPE-14).
 - Readers take the last close with a whole tail; bytes after it are an unclosed tail, never damage (TAPE-14).
@@ -291,8 +291,8 @@ Covers `ww_tape` 0.1.0.
 - `TapeReader::read_chunk_head` and `series_timeline`: a track's grids from chunk heads, 335 bytes per 1 MiB chunk (TAPE-3).
 
 ### 🐛 Fixes
-- A close syncs after its final index, before the close record, so a whole close never names unsynced blocks (TAPE-14).
 
+- A close syncs after its final index, before the close record, so a whole close never names unsynced blocks (TAPE-14).
 - A tail counts only right after the close record it names; a tail naming an older close no longer hides later bytes (TAPE-14).
 - Sample, time and payload column errors name the column as text; the codec error is their `source()` (TAPE-12).
 - `ww_tape` builds without `alloc` again: the block, chunk and codec readers; a salvage there checks a starts column whole (STD-124).
