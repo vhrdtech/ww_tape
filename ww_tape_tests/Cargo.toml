@@ -18,6 +18,7 @@ crc.workspace = true
 exact_units = { workspace = true, features = ["counting", "electrical", "shrink_wrap", "std", "time"] }
 shrink_wrap = { workspace = true, features = ["std"] }
 ww_tape = { workspace = true, features = ["std"] }
+ww_tape_example.workspace = true
 ww_tape_fs.workspace = true
 ww_tape_summary = { workspace = true, features = ["std"] }
 

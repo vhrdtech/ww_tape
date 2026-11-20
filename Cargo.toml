@@ -16,6 +16,7 @@ license = "MIT"
 [workspace.dependencies]
 ww_tape = { version = "0.1.0", path = "./ww_tape", default-features = false }
 ww_tape_codecs = { version = "0.1.0", path = "./ww_tape_codecs", default-features = false }
+ww_tape_example = { path = "./ww_tape_example" }
 ww_tape_fs = { version = "0.1.0", path = "./ww_tape_fs" }
 ww_tape_summary = { version = "0.1.0", path = "./ww_tape_summary", default-features = false }
 

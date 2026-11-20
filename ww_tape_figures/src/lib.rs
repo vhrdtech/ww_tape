@@ -6,8 +6,10 @@
 //! - `puts.svg`: a state track put before every block of data, and the few puts that write: the first record, its
 //!   copy and the record again once the first lies more than `near` behind.
 //! - `grids.svg`: series chunks on their grids: chunks of one grid, lost samples, and a gap to a new grid.
-//! - `crash.svg`: an unfinished piece after a crash, its checkpoints pointing back, the scan to the torn block.
+//! - `crash.svg`: an unclosed piece after a crash, its checkpoints pointing back, the scan to the torn block.
 //! - `resume.svg`: the piece written whole, cut by the crash, and resumed to the same bytes.
+//!
+//! The crash figures draw the book's running example, the drive's recording ([ww_tape_example]), at a small scale.
 //!
 //! [figures] draws them; `ww_tape_figures DIR` writes them into `DIR` (`just book-figures`: `docs/plots`).
 #![allow(

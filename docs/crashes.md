@@ -60,8 +60,8 @@ previous checkpoint and points back at it.
 --8<-- "docs/plots/crash.svg"
 <figcaption>A piece that a crash cut off. The reader finds the newest checkpoint near the end, follows the
 checkpoints back to list every block before it, and scans the few blocks after it one by one until the torn block
-fails its CRC. Drawn by <code>ww_tape_figures</code> from a piece that <code>TapeWriter</code> wrote and a crash
-cut. Its checkpoints come every 4 KiB instead of every 4 MiB.</figcaption>
+fails its CRC. Drawn by <code>ww_tape_figures</code> from the drive's recording at 1/1000 of its data, cut at minute
+37. Its checkpoints come every 3 KiB instead of every 4 MiB.</figcaption>
 </figure>
 
 The reader looks backwards from the end of the bytes for the newest checkpoint, which lies at most about 4 MiB back.
@@ -98,8 +98,8 @@ stream can instead ask the device for the blocks from that point on.
 --8<-- "docs/plots/resume.svg"
 <figcaption>The end of the piece three times: as the writer would have written it, as the crash left it, and resumed.
 The resume cut off the torn block and the puts that went with it. The calls given again wrote the same blocks, so
-the resumed piece is the same, byte for byte. Drawn by <code>ww_tape_figures</code>, which checks that the bytes are
-equal.</figcaption>
+the resumed piece is the same, byte for byte. Drawn by <code>ww_tape_figures</code> from the same scaled recording, and
+it checks that the bytes are equal.</figcaption>
 </figure>
 
 The resumed file ends with the same bytes as a file written without the crash, and so with the same [[content hash]].

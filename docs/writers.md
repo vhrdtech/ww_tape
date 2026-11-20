@@ -44,6 +44,18 @@ the host loses power while it writes piece 3, and at minute 52 the board faults 
 A number in the story comes from running code, never from a hand calculation. The bytes a crash loses and the bytes
 per frame are such numbers.
 
+The crate `ww_tape_example` records the drive's hour, and `cargo run -p ww_tape_example` prints the story's numbers.
+Figures draw from a scaled run, which has a fraction of the data and of every byte policy. A doctest calls the same
+code:
+
+```rust
+// The drive's hour at 1/1000 of its data, as the figures draw it.
+let drive = ww_tape_example::Drive::scaled(1000).expect("1000 divides the rates");
+let story = drive.story().expect("the run records");
+// The crash at minute 37 resumes to the bytes of the run without it.
+assert!(story.same_bytes);
+```
+
 ## Reading levels
 
 Each page carries a reading level in its front matter, and a badge above its title shows it. [Reading
