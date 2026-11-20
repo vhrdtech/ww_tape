@@ -8,8 +8,10 @@
 //! - `grids.svg`: series chunks on their grids: chunks of one grid, lost samples, and a gap to a new grid.
 //! - `crash.svg`: an unclosed piece after a crash, its checkpoints pointing back, the scan to the torn block.
 //! - `resume.svg`: the piece written whole, cut by the crash, and resumed to the same bytes.
+//! - `tape_map.svg`: the drive's five tracks over its hour, and the records blocks and chunks that hold them.
+//! - `first_tape.svg`: the file of the drive's first minute, its start and its end to scale.
 //!
-//! The crash figures draw the book's running example, the drive's recording ([ww_tape_example]), at a small scale.
+//! The crash figures, the map and the first tape draw the book's running example, the drive's recording ([ww_tape_example]), at a small scale.
 //!
 //! [figures] draws them; `ww_tape_figures DIR` writes them into `DIR` (`just book-figures`: `docs/plots`).
 #![allow(
@@ -23,10 +25,12 @@
 mod block;
 mod crash;
 mod defs;
+mod first_tape;
 mod grids;
 mod piece;
 mod puts;
 mod svg;
+mod tape_map;
 
 /// Every figure: its file name and its SVG text.
 pub fn figures() -> anyhow::Result<Vec<(&'static str, String)>> {
@@ -37,6 +41,8 @@ pub fn figures() -> anyhow::Result<Vec<(&'static str, String)>> {
         ("grids.svg", grids::grids()?),
         ("crash.svg", crash::crash_svg()?),
         ("resume.svg", crash::resume_svg()?),
+        ("tape_map.svg", tape_map::tape_map()?),
+        ("first_tape.svg", first_tape::first_tape()?),
     ])
 }
 

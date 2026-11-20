@@ -8,7 +8,10 @@ The figures show:
 - a block's header and body;
 - a closed piece on the 4 KiB grid;
 - puts and copies of a state track;
-- the grids of a series track.
+- the grids of a series track;
+- the drive's crash and its resume;
+- the drive's five tracks over its hour and the blocks that hold them;
+- the file of the drive's first minute, start and end to scale.
 
 The figures are SVG files in `docs/plots/`, kept in git so the WireWeaver book takes them with the pages. Their
 classes (`ww-svg`, `line`, `thin`, `faint`, `accent`, ...) take the book's colours in light and dark.
