@@ -234,6 +234,14 @@ fn a_track_hash_is_the_same_however_the_track_is_written() {
     assert_ne!(want[&keys[0]], TrackHash::START);
     assert_ne!(want[&keys[1]], TrackHash::START);
 
+    for shape in shapes(alone) {
+        same_hash_in(shape, &want, &keys);
+    }
+}
+
+/// The shapes a track is written in besides `alone`: interleaved, cut every 1 to 5 chunks, a file per piece or one,
+/// either layout; and deferred, replaced and adopted blocks and a resume, in one piece and cut.
+fn shapes(alone: Shape) -> Vec<Shape> {
     let mut shapes = vec![Shape {
         interleaved: true,
         ..alone
@@ -272,52 +280,60 @@ fn a_track_hash_is_the_same_however_the_track_is_written() {
             }
         }
     }
-    for shape in shapes {
-        let (done, bytes) = write(shape);
-        if shape.cut != 0 {
-            assert!(done.len() > 1, "{shape:?}: {} pieces", done.len());
-        }
-        let got = hashes(&done);
-        for k in &keys {
-            assert_eq!(got[k], want[k], "{shape:?}: track {k:x?}");
-        }
-        assert_eq!(
-            got[&keys[0]],
-            fold(&bytes, 1),
-            "{shape:?}: track 1 read back"
-        );
-        assert_eq!(
-            got[&keys[1]],
-            fold(&bytes, 9),
-            "{shape:?}: track 9 read back"
-        );
-        // puts are repeats: the state track holding only puts has the hash of no data
-        let Describe::Track(t11) = state(11) else {
-            unreachable!("state() gives a track")
-        };
-        let puts = got.get(&(t11.id(), OwnerId::NONE));
-        assert!(
-            puts.is_none_or(|h| *h == TrackHash::START),
-            "{shape:?}: {puts:?}"
-        );
-        // every piece's close rows say the same as the writer
-        let r = TapeReader::open(&bytes[..]).unwrap();
-        assert_eq!(r.pieces().len(), done.len(), "{shape:?}");
-        let mut rows_seen = 0;
-        for (p, f) in r.pieces().iter().zip(&done) {
-            let (_, rows) = p.close.as_ref().unwrap();
-            for t in &f.tracks {
-                if let Some(row) = rows
-                    .iter()
-                    .find(|row| (row.track_id, row.owner) == (t.track_id, t.owner))
-                {
-                    assert_eq!(row.hash, t.hash, "{shape:?}: {t:?}");
-                    rows_seen += 1;
-                }
+    shapes
+}
+
+/// Tracks 1 and 9 written in `shape` have the hashes `want` of `keys`, by the writer, a reader's fold and every
+/// piece's close rows.
+fn same_hash_in(
+    shape: Shape,
+    want: &BTreeMap<(u64, OwnerId), TrackHash>,
+    keys: &[(u64, OwnerId); 2],
+) {
+    let (done, bytes) = write(shape);
+    if shape.cut != 0 {
+        assert!(done.len() > 1, "{shape:?}: {} pieces", done.len());
+    }
+    let got = hashes(&done);
+    for k in keys {
+        assert_eq!(got[k], want[k], "{shape:?}: track {k:x?}");
+    }
+    assert_eq!(
+        got[&keys[0]],
+        fold(&bytes, 1),
+        "{shape:?}: track 1 read back"
+    );
+    assert_eq!(
+        got[&keys[1]],
+        fold(&bytes, 9),
+        "{shape:?}: track 9 read back"
+    );
+    // puts are repeats: the state track holding only puts has the hash of no data
+    let Describe::Track(t11) = state(11) else {
+        unreachable!("state() gives a track")
+    };
+    let puts = got.get(&(t11.id(), OwnerId::NONE));
+    assert!(
+        puts.is_none_or(|h| *h == TrackHash::START),
+        "{shape:?}: {puts:?}"
+    );
+    // every piece's close rows say the same as the writer
+    let r = TapeReader::open(&bytes[..]).unwrap();
+    assert_eq!(r.pieces().len(), done.len(), "{shape:?}");
+    let mut rows_seen = 0;
+    for (p, f) in r.pieces().iter().zip(&done) {
+        let (_, rows) = p.close.as_ref().unwrap();
+        for t in &f.tracks {
+            if let Some(row) = rows
+                .iter()
+                .find(|row| (row.track_id, row.owner) == (t.track_id, t.owner))
+            {
+                assert_eq!(row.hash, t.hash, "{shape:?}: {t:?}");
+                rows_seen += 1;
             }
         }
-        assert!(rows_seen >= done.len(), "{shape:?}: {rows_seen} rows");
     }
+    assert!(rows_seen >= done.len(), "{shape:?}: {rows_seen} rows");
 }
 
 /// Track `number` with the key of track 20, owned by `owner`.
