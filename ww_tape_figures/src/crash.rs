@@ -37,7 +37,7 @@ pub(crate) enum Part {
 }
 
 impl Part {
-    fn class(self) -> &'static str {
+    pub(crate) fn class(self) -> &'static str {
         match self {
             Self::Puts => "tint-purple",
             Self::Log | Self::Frames | Self::Samples => "tint-blue",

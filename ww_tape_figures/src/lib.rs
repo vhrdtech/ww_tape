@@ -13,8 +13,10 @@
 //! - `resume.svg`: the piece written whole, cut by the crash, and resumed to the same bytes.
 //! - `tape_map.svg`: the drive's five tracks over its hour, and the records blocks and chunks that hold them.
 //! - `first_tape.svg`: the file of the drive's first minute, its start and its end to scale.
+//! - `prefix_resync.svg`: the drive's last piece with two damaged blocks, walked in Prefix and in Resync.
+//! - `loss_cases.svg`: the drive's last piece with three kinds of damage, and what still reads of each.
 //!
-//! The figures of records against chunks, the clock map, the checkpoints, the crash, the map and the first tape draw the book's running example, the drive's recording ([ww_tape_example]), at a small scale.
+//! The figures of records against chunks, the clock map, the checkpoints, the crash, the map, the first tape and the damage draw the book's running example, the drive's recording ([ww_tape_example]), at a small scale.
 //!
 //! [figures] draws them; `ww_tape_figures DIR` writes them into `DIR` (`just book-figures`: `docs/plots`).
 #![allow(
@@ -29,6 +31,7 @@ mod block;
 mod checkpoints;
 mod clock_map;
 mod crash;
+mod damage;
 mod defs;
 mod first_tape;
 mod grids;
@@ -55,6 +58,8 @@ pub fn figures() -> anyhow::Result<Vec<(&'static str, String)>> {
         ("resume.svg", crash::resume_svg()?),
         ("tape_map.svg", tape_map::tape_map()?),
         ("first_tape.svg", first_tape::first_tape()?),
+        ("prefix_resync.svg", damage::prefix_resync()?),
+        ("loss_cases.svg", damage::loss_cases()?),
     ])
 }
 

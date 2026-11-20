@@ -1,0 +1,26 @@
+<svg class="ww-svg" viewBox="0 0 680 230" width="680" height="230" role="img" aria-label="A reader on a raw medium past a bad stretch: it reads a block header at each resume place, every resume_align bytes, up to gap_max past the stretch's start; the session's next block at one of them makes the stretch a gap, and nothing there makes it the end of the data" xmlns="http://www.w3.org/2000/svg">
+  <text x="20" y="22" text-anchor="start" class="strong">past a bad stretch on a raw medium</text>
+  <text x="660" y="22" text-anchor="end" class="soft small">not to scale</text>
+  <rect x="20.5" y="60" width="44" height="34" rx="1" class="tint-blue"/>
+  <rect x="65.5" y="60" width="56" height="34" rx="1" class="tint-blue"/>
+  <rect x="122.5" y="60" width="38" height="34" rx="1" class="tint-blue"/>
+  <text x="90.5" y="50" text-anchor="middle" class="small">the session's blocks</text>
+  <rect x="161.5" y="60" width="200" height="34" rx="1" class="faint"/>
+  <text x="261.5" y="81" text-anchor="middle" class="small accent">blank or bad bytes</text>
+  <rect x="362.5" y="60" width="70" height="34" rx="1" class="tint-blue"/>
+  <rect x="433.5" y="60" width="60" height="34" rx="1" class="tint-blue"/>
+  <text x="433" y="50" text-anchor="middle" class="small">its next block, on a resume place</text>
+  <rect x="494.5" y="60" width="166" height="34" rx="1" class="faint"/>
+  <path d="M161.5 100 V112 M201.5 104 V112 M241.5 104 V112 M281.5 104 V112 M321.5 104 V112 M361.5 104 V112 M401.5 104 V112 M441.5 104 V112 M481.5 104 V112 M521.5 104 V112 M561.5 104 V112 M601.5 104 V112" class="thin"/>
+  <path d="M161.5 112 H601.5" class="thin"/>
+  <path d="M161.5 100 V96 M601.5 112 V96" class="thin dash"/>
+  <circle cx="201.5" cy="120" r="3" class="hollow thin"/>
+  <circle cx="241.5" cy="120" r="3" class="hollow thin"/>
+  <circle cx="281.5" cy="120" r="3" class="hollow thin"/>
+  <circle cx="321.5" cy="120" r="3" class="hollow thin"/>
+  <circle cx="361.5" cy="120" r="4" class="tint-blue thin"/>
+  <text x="381.5" y="140" text-anchor="middle" class="small">a header of the session: the stretch is a gap</text>
+  <text x="161.5" y="166" text-anchor="start" class="small">a header read at each resume place, every resume_align bytes</text>
+  <path d="M161.5 178 v4 H601.5 v-4" class="thin"/>
+  <text x="381.5" y="198" text-anchor="middle" class="small">gap_max from where the stretch starts: no block of the session within it, the data ends there</text>
+</svg>
