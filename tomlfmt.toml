@@ -1,0 +1,2 @@
+# cargo sort: arrays stay on one line, as taplo.toml keeps them
+max_array_line_len = 1000

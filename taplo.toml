@@ -1,0 +1,11 @@
+# taplo, run by spirit_level's taplo-fmt lint
+
+# zensical.toml is TOML 1.1 (newlines in inline tables), which taplo does not parse
+exclude = ["target/**", "fuzz/target/**", "zensical.toml"]
+
+[formatting]
+# as wide as the Rust code, indented as cargo sort writes
+column_width = 120
+indent_string = "    "
+# a long array stays on one line, as cargo sort and spirit_level.toml write it
+array_auto_expand = false

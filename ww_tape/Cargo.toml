@@ -14,14 +14,7 @@ default = ["std"]
 # the positional reader (TapeReader over a ByteSource) and the piece chain check, without std (WASM)
 alloc = ["ww_tape_codecs/alloc"]
 # owned describe records, memory sinks and stores, the system clock, reading blocks from an io::Read (FileBlocks)
-std = [
-    "alloc",
-    "blake3/std",
-    "exact_units/std",
-    "shrink_wrap/std",
-    "ww_tape_codecs/std",
-    "ww_version/std",
-]
+std = ["alloc", "blake3/std", "exact_units/std", "shrink_wrap/std", "ww_tape_codecs/std", "ww_version/std"]
 
 [dependencies]
 blake3.workspace = true
