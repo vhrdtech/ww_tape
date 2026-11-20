@@ -21,7 +21,7 @@ Covers `ww_tape` 0.1.0.
 - A chain links pieces only by the `next` id a close names; `check_chain` no longer derives it from the piece before (TAPE-14).
 - A close whose tail is torn leaves the chain `Unclosed`, and the close before it in force (TAPE-14).
 - `TapeReader::verify` returns `Verification`: whether it holds, the close it checked up to, and the bytes left unchecked; read `.holds` (TAPE-14).
-- A read-only file system refuses a file writer with `FsError::ReadOnly(path)`, not `FsError::Io`; match the new variant (TAPE-14).
+- A read-only file system refuses a file writer with `FsError::ReadOnly` naming the piece, not `FsError::Io`; match the new variant (TAPE-14).
 - A resume cuts only a torn end; damage in the bytes to cut refuses with `ResumeError::Damaged { offset }` (TAPE-14).
 - A resume of a closed piece reads only its last close; an append puts its definitions again after the append head (TAPE-14).
 - `BlockKind::CloseSummary` (kind 14) is new: an exhaustive match on `BlockKind` needs its arm (TAPE-14).

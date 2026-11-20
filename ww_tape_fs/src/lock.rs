@@ -98,6 +98,20 @@ pub fn lock_name(path: &Path) -> PathBuf {
     path.with_file_name(hex)
 }
 
+/// An [FsError::Io] of `what` on the lock file `path` of the piece `name`, or [FsError::ReadOnly] naming the piece
+/// when the file system takes no writes: the caller asked for the piece and never named its lock file.
+fn lock_err(
+    what: &'static str,
+    path: &Path,
+    name: &Path,
+) -> impl FnOnce(std::io::Error) -> FsError {
+    let (path, name) = (path.to_path_buf(), name.to_path_buf());
+    move |error| match error.kind() {
+        std::io::ErrorKind::ReadOnlyFilesystem => FsError::ReadOnly(name),
+        _ => FsError::Io { what, path, error },
+    }
+}
+
 impl FileLock {
     /// The lock of the file `name` (its final name, also while it is written as `NAME.partial`):
     /// [FsError::Locked] while another writer, of this process or another, holds it.
@@ -133,24 +147,25 @@ impl FileLock {
 
     /// The lock file `path` of `name`, opened and locked.
     fn lock_file(path: &Path, name: &Path) -> Result<File, FsError> {
+        let io_err = |what| lock_err(what, path, name);
         for _ in 0..LOCK_TRIES_MAX {
             let file = match open_lock_file(path) {
                 Ok(f) => f,
                 Err(e) if is_link_refused(&e) => return Err(FsError::NotAFile(path.to_path_buf())),
                 Err(error) => {
-                    return Err(io_err("opening the lock file", path)(error));
+                    return Err(io_err("opening the lock file")(error));
                 }
             };
             let meta = file
                 .metadata()
-                .map_err(io_err("reading the lock file's type", path))?;
+                .map_err(io_err("reading the lock file's type"))?;
             if !meta.is_file() {
                 return Err(FsError::NotAFile(path.to_path_buf()));
             }
-            if !try_lock(&file).map_err(io_err("locking the lock file", path))? {
+            if !try_lock(&file).map_err(io_err("locking the lock file"))? {
                 return Err(FsError::Locked(name.to_path_buf()));
             }
-            if names_itself(path, &file).map_err(io_err("checking the lock file's name", path))? {
+            if names_itself(path, &file).map_err(io_err("checking the lock file's name"))? {
                 return Ok(file);
             }
             // its holder removed it as it let go: the lock is on a file nobody else finds
@@ -426,5 +441,31 @@ fn try_lock(file: &File) -> io::Result<bool> {
         Ok(()) => Ok(true),
         Err(std::fs::TryLockError::WouldBlock) => Ok(false),
         Err(std::fs::TryLockError::Error(e)) => Err(e),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A read-only file system met at the lock file names the piece the caller asked for, any other error the lock
+    /// file.
+    #[test]
+    fn a_read_only_lock_file_names_the_piece() {
+        let (lock, piece) = (
+            Path::new("/media/card/x.wwt.lock"),
+            Path::new("/media/card/x.wwt"),
+        );
+        let e = lock_err("opening the lock file", lock, piece)(std::io::Error::from(
+            std::io::ErrorKind::ReadOnlyFilesystem,
+        ));
+        assert!(matches!(&e, FsError::ReadOnly(p) if p == piece), "{e:?}");
+        let e = lock_err("opening the lock file", lock, piece)(std::io::Error::from(
+            std::io::ErrorKind::PermissionDenied,
+        ));
+        assert!(
+            matches!(&e, FsError::Io { path, .. } if path == lock),
+            "{e:?}"
+        );
     }
 }
