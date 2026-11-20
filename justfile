@@ -110,6 +110,13 @@ bench-chunks *args:
 bench-memory *args:
     cargo run -q --release -p ww_tape_benchmarks --bin memory -- {{ args }}
 
+# ww_tape event times against raw ticks, varints and Elias-Fano: bytes, coding, item j and first at or after a tick
+# (CODEC-2); the system journal workload reads this machine's last 20 days of journal times, when journalctl has them
+bench-event-times *args:
+    mkdir -p target/bench-data
+    -journalctl -q --no-pager -o short-unix --since -20d > target/bench-data/journal.txt
+    cargo run -q --release -p ww_tape_benchmarks --bin event_times -- --journal target/bench-data/journal.txt {{ args }}
+
 # ww_tape events chunk starts column: open intact and salvaged, get and is_suspect per item (READ-2); `just bench-starts --help`
 bench-starts *args:
     cargo run -q --release -p ww_tape_benchmarks --bin starts -- {{ args }}

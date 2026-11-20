@@ -13,6 +13,7 @@ publish = false
 [dependencies]
 anyhow.workspace = true
 clap = { workspace = true, features = ["derive"] }
+libm.workspace = true
 shrink_wrap.workspace = true
 vc_build.workspace = true
 vc_ui.workspace = true
