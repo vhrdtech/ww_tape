@@ -864,7 +864,7 @@ dependencies = [
 [[package]]
 name = "wire_weaver_core"
 version = "0.5.0"
-source = "git+https://github.com/vhrdtech/wire_weaver#eaaacd09af2201a6974e96d38f4328edcf0e6ea3"
+source = "git+https://github.com/vhrdtech/wire_weaver#d58cb646fafb5974974ea6042b42255727cd4ad9"
 dependencies = [
  "anyhow",
  "cargo_toml",
@@ -890,7 +890,7 @@ dependencies = [
 [[package]]
 name = "wire_weaver_evolution"
 version = "0.5.0"
-source = "git+https://github.com/vhrdtech/wire_weaver#eaaacd09af2201a6974e96d38f4328edcf0e6ea3"
+source = "git+https://github.com/vhrdtech/wire_weaver#d58cb646fafb5974974ea6042b42255727cd4ad9"
 dependencies = [
  "exact_units",
  "ron",
@@ -906,7 +906,7 @@ dependencies = [
 [[package]]
 name = "ww_error"
 version = "0.1.0"
-source = "git+https://github.com/vhrdtech/ww_base#b35d6919bb6d54256ecac1db4fef62f984e4cfa8"
+source = "git+https://github.com/vhrdtech/ww_base#10f79f28b05b759dcadf5f30efe3dd808c7edf71"
 dependencies = [
  "shrink_wrap",
  "ww_si",
@@ -915,7 +915,7 @@ dependencies = [
 [[package]]
 name = "ww_global"
 version = "0.2.0"
-source = "git+https://github.com/vhrdtech/ww_base#b35d6919bb6d54256ecac1db4fef62f984e4cfa8"
+source = "git+https://github.com/vhrdtech/ww_base#10f79f28b05b759dcadf5f30efe3dd808c7edf71"
 dependencies = [
  "convert_case",
  "serde_json",
@@ -925,7 +925,7 @@ dependencies = [
 [[package]]
 name = "ww_lz4"
 version = "0.1.0"
-source = "git+https://github.com/vhrdtech/wire_weaver#eaaacd09af2201a6974e96d38f4328edcf0e6ea3"
+source = "git+https://github.com/vhrdtech/wire_weaver#d58cb646fafb5974974ea6042b42255727cd4ad9"
 dependencies = [
  "lz4_flex",
 ]
@@ -933,7 +933,7 @@ dependencies = [
 [[package]]
 name = "ww_numeric"
 version = "0.3.0"
-source = "git+https://github.com/vhrdtech/ww_base#b35d6919bb6d54256ecac1db4fef62f984e4cfa8"
+source = "git+https://github.com/vhrdtech/ww_base#10f79f28b05b759dcadf5f30efe3dd808c7edf71"
 dependencies = [
  "serde",
  "shrink_wrap",
@@ -942,7 +942,7 @@ dependencies = [
 [[package]]
 name = "ww_self"
 version = "0.3.0"
-source = "git+https://github.com/vhrdtech/wire_weaver#eaaacd09af2201a6974e96d38f4328edcf0e6ea3"
+source = "git+https://github.com/vhrdtech/wire_weaver#d58cb646fafb5974974ea6042b42255727cd4ad9"
 dependencies = [
  "anyhow",
  "exact_units",
@@ -958,7 +958,7 @@ dependencies = [
 [[package]]
 name = "ww_si"
 version = "0.5.0"
-source = "git+https://github.com/vhrdtech/ww_base#b35d6919bb6d54256ecac1db4fef62f984e4cfa8"
+source = "git+https://github.com/vhrdtech/ww_base#10f79f28b05b759dcadf5f30efe3dd808c7edf71"
 dependencies = [
  "exact_units",
  "shrink_wrap",
@@ -968,7 +968,7 @@ dependencies = [
 [[package]]
 name = "ww_snapshots"
 version = "0.5.0"
-source = "git+https://github.com/vhrdtech/wire_weaver#eaaacd09af2201a6974e96d38f4328edcf0e6ea3"
+source = "git+https://github.com/vhrdtech/wire_weaver#d58cb646fafb5974974ea6042b42255727cd4ad9"
 dependencies = [
  "anyhow",
  "elsa",
@@ -1084,7 +1084,7 @@ dependencies = [
 [[package]]
 name = "ww_version"
 version = "0.2.0"
-source = "git+https://github.com/vhrdtech/ww_base#b35d6919bb6d54256ecac1db4fef62f984e4cfa8"
+source = "git+https://github.com/vhrdtech/ww_base#10f79f28b05b759dcadf5f30efe3dd808c7edf71"
 dependencies = [
  "hex",
  "semver",
