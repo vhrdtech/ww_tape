@@ -83,7 +83,7 @@ jobs:
         with:
           tool: cargo-binstall
       # spl, spirit_level's CLI, at 0.5.9
-      - run: cargo install --locked --git https://github.com/romixlab/spirit_level --rev 6e39518e47c82f4525c140f1ccab8d96a0b5162f spirit_level_cli
+      - run: cargo install --locked --git https://github.com/romixlab/spirit_level --rev 99d6d1632be6c6474645092061bee0d5ec8fe19d spirit_level_cli
       - run: spl tools needed --spec --missing | xargs -r cargo binstall -y
       - run: spl check --progress never
 
@@ -152,5 +152,5 @@ jobs:
         with:
           tool: just
       # spl, spirit_level's CLI, at 0.5.9
-      - run: cargo install --locked --git https://github.com/romixlab/spirit_level --rev 6e39518e47c82f4525c140f1ccab8d96a0b5162f spirit_level_cli
+      - run: cargo install --locked --git https://github.com/romixlab/spirit_level --rev 99d6d1632be6c6474645092061bee0d5ec8fe19d spirit_level_cli
       - run: just book-check
