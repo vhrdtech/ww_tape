@@ -246,3 +246,142 @@ fn files_written_before_removed_rows_read() {
         }
     }
 }
+
+/// Pieces 1 and 2 left out of the chain `p`, its last piece given as `last_bytes`.
+fn without_1_2(p: &[Vec<u8>], last_bytes: &[u8]) -> Vec<u8> {
+    let mut rest = p[0].clone();
+    for q in &p[3..p.len() - 1] {
+        rest.extend_from_slice(q);
+    }
+    rest.extend_from_slice(last_bytes);
+    rest
+}
+
+/// A record torn at any byte of its append reads as an unclosed tail: no damage, no rows (the close kept in force
+/// names none), one close, and the hole a gap.
+#[test]
+fn a_torn_record_is_an_unclosed_tail() {
+    let p = pieces();
+    let last = p.len() - 1;
+    let recorded = record(&p[last], &[removed_of(&p[1]), removed_of(&p[2])]);
+    for cut in p[last].len() + 1..recorded.len() {
+        let torn = &recorded[..cut];
+        let r = TapeReader::open(torn).unwrap_or_else(|e| panic!("cut {cut}: {e:?}"));
+        let info = &r.pieces()[0];
+        assert!(
+            info.close_error.is_none(),
+            "cut {cut}: {:?}",
+            info.close_error
+        );
+        assert!(
+            info.removed.is_empty(),
+            "cut {cut}: rows read from a torn record"
+        );
+        assert!(
+            r.unclosed(0).unwrap().is_some(),
+            "cut {cut}: no unclosed tail"
+        );
+        assert_eq!(r.closes(0).unwrap().len(), 1, "cut {cut}");
+        let c = TapeReader::open(&without_1_2(&p, torn)[..])
+            .unwrap()
+            .chain();
+        assert_eq!(
+            c.links[0],
+            ChainLink::Gap { missing: 2 },
+            "cut {cut}: {:?}",
+            c.links
+        );
+    }
+}
+
+/// A cut after a removal: the cut close names the rows again and the next piece none. With the old last piece
+/// removed too, rows it alone held are lost unless the new record names them again from `ChainReport::removed`.
+#[test]
+fn a_cut_after_a_removal_keeps_the_rows_where_named() {
+    let p = pieces();
+    let gone = [removed_of(&p[1]), removed_of(&p[2])];
+    let recorded = record(&p[p.len() - 1], &gone);
+    let w = reopen(&recorded);
+    let tape = w.sink().tape();
+    let (_, next) = w.cut_on(MemSink::new()).unwrap();
+    let cut_last = tape.to_vec().unwrap();
+    let next_bytes = close(next);
+    let r = TapeReader::open(&cut_last[..]).unwrap();
+    assert_eq!(
+        r.pieces()[0].removed,
+        gone,
+        "the cut close names the rows again"
+    );
+    let r = TapeReader::open(&next_bytes[..]).unwrap();
+    assert!(
+        r.pieces()[0].removed.is_empty(),
+        "the next piece names none"
+    );
+
+    let mut all = without_1_2(&p, &cut_last);
+    all.extend_from_slice(&next_bytes);
+    let c = TapeReader::open(&all[..]).unwrap().chain();
+    assert_eq!(
+        c.links[0],
+        ChainLink::Removed { pieces: 2 },
+        "{:?}",
+        c.links
+    );
+    assert!(c.is_whole(), "{c:?}");
+    let named = c.removed.clone();
+
+    // the old last piece removed too and named alone: pieces 1 and 2 are a gap again
+    let old_last = removed_of(&cut_last);
+    let before = without_1_2(&p, &[]);
+    let mut lone = before.clone();
+    lone.extend_from_slice(&record(&next_bytes, &[old_last]));
+    let c = TapeReader::open(&lone[..]).unwrap().chain();
+    assert!(matches!(c.links[0], ChainLink::Gap { .. }), "{:?}", c.links);
+    assert!(!c.is_whole());
+
+    // named with the rows ChainReport::removed gave: whole
+    let mut rows = named;
+    rows.push(old_last);
+    let mut full = before;
+    full.extend_from_slice(&record(&next_bytes, &rows));
+    let c = TapeReader::open(&full[..]).unwrap().chain();
+    assert!(c.is_whole(), "{:?}", c.links);
+}
+
+/// The writer takes `REMOVED_PIECES_MAX` removed pieces and refuses one more.
+#[test]
+fn the_writer_names_at_most_removed_pieces_max() {
+    let max = ww_tape::REMOVED_PIECES_MAX;
+    let owner = OwnerId([5; 32]);
+    let head = PieceHead {
+        ident: PieceIdent {
+            id: PieceId([9; 16]),
+            owner,
+            seq: max as u64 + 10,
+        },
+        prev: Some((ContentHash([1; 32]), PieceId([8; 16]))),
+        prev_session: SessionTag::NONE,
+        integrity: ww_tape::Integrity::Full,
+    };
+    let row = |seq: u64| RemovedPiece {
+        seq,
+        id: PieceId([1; 16]),
+        hash: ContentHash([2; 32]),
+    };
+    let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
+    w.begin_piece(&head, &[]).unwrap();
+    let all: Vec<RemovedPiece> = (0..max as u64).map(row).collect();
+    w.record_removed(&all).unwrap();
+    let refused = w.record_removed(&[row(max as u64)]).unwrap_err();
+    assert!(
+        matches!(
+            refused,
+            WriteError::Input(InputError::Removed(RemovedRefusal::TooMany { max: m })) if m == max
+        ),
+        "{refused:?}"
+    );
+    assert_eq!(w.removed().len(), max, "a refused call takes nothing");
+    let bytes = close(w);
+    let r = TapeReader::open(&bytes[..]).unwrap();
+    assert_eq!(r.pieces()[0].removed.len(), max);
+}
