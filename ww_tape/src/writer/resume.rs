@@ -84,8 +84,9 @@ use crate::{
 /// Bytes the walk reads and hashes at once in a stretch that holds no block.
 const JUNK_READ_MAX: usize = 1 << 20;
 
-/// Bytes past where the reader stopped that a resume looks through for a good block before it cuts them off: a torn
-/// block is at most [MAX_BLOCK_LEN] long, and a block flushed before it lies right after it: twice that.
+/// Bytes past where the reader stopped that a resume looks through for a good block before it cuts them off.
+///
+/// A torn block is at most [MAX_BLOCK_LEN] long, and a block flushed before it lies right after it: twice that.
 pub const RESUME_LOOK_MAX: u64 = 128 << 20;
 /// Places past where the reader stopped that a resume reads whole as a block of the piece's sessions, at most.
 pub const RESUME_PROBES_MAX: usize = 4;
