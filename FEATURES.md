@@ -135,6 +135,11 @@ Writing pieces and chains, resuming them, sinks in memory, in the crate `ww_tape
   - Rows live in the piece that holds them: removing that piece later means naming them again (`ChainReport::removed`).
   - Read more: [Pieces removed on purpose](docs/pieces_and_files.md#pieces-removed-on-purpose). Golden `v1-removed.hex`.
 
+- ✅ **WRITE-9 A new piece carries its quiet tracks' definitions**
+  - A cut puts the definition of every track the new head carries, with its clocks, maps and bundles, right after the head. Dropping older pieces keeps a quiet track's kind, clock and label.
+  - A cut without room for their state entries is refused before the piece ends; the writer comes back. A resume that kept only the head puts them with the next call.
+  - Read more: [The definitions a new piece carries](docs/syncing_and_cuts.md#the-definitions-a-new-piece-carries). Tests `quiet.rs`.
+
 ## Reader (`READ`)
 
 Reading by position, checks and hashes, hostile bytes, in the crate `ww_tape`.

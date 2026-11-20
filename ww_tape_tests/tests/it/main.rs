@@ -29,6 +29,7 @@ mod order;
 mod pieces;
 mod placed;
 mod puts;
+mod quiet;
 mod range_hash;
 mod reader;
 mod reclose;

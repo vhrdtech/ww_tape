@@ -667,13 +667,13 @@ fn an_incomplete_track_hash_stays_marked_in_later_pieces() {
         let b = records(c.writer().unwrap().next_id(), n);
         c.write_block(defs, &b).unwrap();
     }
-    c.cut_now().unwrap();
+    c.cut_now(defs).unwrap();
     for n in 42..44 {
         let b = records(c.writer().unwrap().next_id(), n);
         c.write_block(defs, &b).unwrap();
     }
     // a piece without records of the track: its head still carries the mark
-    c.cut_now().unwrap();
+    c.cut_now(defs).unwrap();
     let done = c.close().unwrap();
     assert_eq!(done.len(), 3);
     let Describe::Track(t9) = track(9, CLOCK) else {
@@ -807,7 +807,7 @@ fn reference_chain(dir: &Path, ops: &[Op]) -> (Vec<PathBuf>, Made) {
     for op in ops {
         // a chunk may cut first: the bytes before it are in the piece it lands in
         if matches!(op, Op::Chunk(..) | Op::Ranged(_)) && c.cut_due() {
-            c.cut_now().unwrap();
+            c.cut_now(&defs).unwrap();
         }
         made.before.push(c.writer().unwrap().bytes());
         apply_chain(&mut c, &mut defs, *op);
@@ -1080,7 +1080,7 @@ fn one_file_is_its_pieces<P: OneFile>(place: &P, scratch_dir: &Path) {
     let mut defs = base_defs().clone();
     for op in &ops {
         if matches!(op, Op::Chunk(..) | Op::Ranged(_)) && c.cut_due() {
-            c.cut_now().unwrap();
+            c.cut_now(&defs).unwrap();
         }
         apply_chain(&mut c, &mut defs, *op);
     }
@@ -1394,7 +1394,7 @@ fn a_sink_of_one_piece_takes_no_cut_in_place() {
     w.write_chunk(base_defs(), &h, &column(&c)).unwrap();
     w.flush_deferred().unwrap();
     let len = w.bytes();
-    let refused = w.cut_in_place().err().unwrap();
+    let refused = w.cut_in_place(base_defs()).err().unwrap();
     assert!(matches!(refused.error, WriteError::Index(_)), "{refused}");
     assert_eq!(
         refused.to_string(),
@@ -1410,7 +1410,7 @@ fn a_sink_of_one_piece_takes_no_cut_in_place() {
     let mut w = begin(0);
     let (h, c) = chunk(0, 0);
     w.write_chunk(base_defs(), &h, &column(&c)).unwrap();
-    let refused = w.cut_in_place().err().unwrap();
+    let refused = w.cut_in_place(base_defs()).err().unwrap();
     assert!(matches!(refused.error, WriteError::Index(_)), "{refused}");
     let mut w = *refused.writer.unwrap();
     let (h, c) = chunk(0, 1);
@@ -1645,7 +1645,7 @@ fn a_resume_of_a_piece_a_cut_closed_names_the_next() {
         c.write_block(base_defs(), &block).unwrap();
     }
     let good = records(c.writer().unwrap().next_id(), 9);
-    c.cut_now().unwrap();
+    c.cut_now(base_defs()).unwrap();
     drop(c);
     let done = std::fs::read(dir.join(piece_name(0))).unwrap();
     let r = TapeReader::open(&done[..]).unwrap();
@@ -1745,7 +1745,7 @@ fn a_resume_of_a_whole_close_writes_on_after_it() {
         let block = records(c.writer().unwrap().next_id(), n);
         c.write_block(base_defs(), &block).unwrap();
     }
-    c.cut_now().unwrap();
+    c.cut_now(base_defs()).unwrap();
     drop(c);
     let first = chain.join(piece_name(0));
     let done = std::fs::read(&first).unwrap();

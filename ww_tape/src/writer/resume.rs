@@ -30,7 +30,8 @@
 //! stay. What ends a piece (the final index, a close without its tail) is dropped: the piece is open again, and so are
 //! puts at the end that belong with a block after them ([FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT)): that call is given
 //! again whole. When the last block kept is counted, the writer acts after it again (a checkpoint when due), as a
-//! crash may have come before it did; a piece holding only its head gets the layout and the producer put after it.
+//! crash may have come before it did; a piece holding only its head gets the layout and the producer put after it,
+//! and the next call given definitions puts those of the tracks the head carries first.
 //!
 //! Only a torn end is ever cut: whole blocks, then a record the bytes stop inside of, or blank (zero) bytes to the
 //! end. A whole record in the bytes to cut that fails its check, bytes that start no record, or a whole tail that
@@ -917,6 +918,9 @@ impl<S: TapeSink> TapeWriter<S> {
         let after_close = closes.last_key_value().map(|(_, (_, c))| *c);
         // the layout and the producer follow the head first: a block past it means they were written
         w.head_put = past_head;
+        // the definitions of the tracks the head carries follow the layout and the producer: lost with them, the next
+        // call given definitions puts them
+        w.carried_due = !past_head && w.head.as_ref().is_some_and(|(_, rows)| !rows.is_empty());
         if write_on {
             w.write_on()?;
         } else if kept.counted {

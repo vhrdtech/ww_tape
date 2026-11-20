@@ -326,7 +326,7 @@ impl Recorder {
     fn apply(&mut self, act: &Act) -> Result<Made, Error> {
         if matches!(act, Act::Chunk { .. }) && self.chain.cut_due() {
             // the cut comes first, so that the chunk is made in the piece it lands in
-            self.chain.cut_now()?;
+            self.chain.cut_now(&self.defs)?;
         }
         let piece = self.chain.seq();
         let before = self.chain.writer()?.bytes();

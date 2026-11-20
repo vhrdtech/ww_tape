@@ -157,7 +157,7 @@ fn a_relayed_put_takes_its_definitions_into_each_piece() {
     w.write_block(&puts_of(producer, &[], &[(7, 1, b"A")]))
         .unwrap();
     let Rig { w: first, defs } = w;
-    let (_, next) = first.cut_on(MemSink::new()).unwrap();
+    let (_, next) = first.cut_on(&defs, MemSink::new()).unwrap();
     let mut w = Rig { w: next, defs };
     let tape = w.sink().tape();
     w.write_block(&puts_of(producer.next(), &[], &[(7, 2, b"B")]))

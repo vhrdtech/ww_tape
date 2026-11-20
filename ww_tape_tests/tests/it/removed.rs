@@ -303,7 +303,9 @@ fn a_cut_after_a_removal_keeps_the_rows_where_named() {
     let recorded = record(&p[p.len() - 1], &gone);
     let w = reopen(&recorded);
     let tape = w.sink().tape();
-    let (_, next) = w.cut_on(MemSink::new()).unwrap();
+    let (_, next) = w
+        .cut_on(crate::definitions::base_defs(), MemSink::new())
+        .unwrap();
     let cut_last = tape.to_vec().unwrap();
     let next_bytes = close(next);
     let r = TapeReader::open(&cut_last[..]).unwrap();

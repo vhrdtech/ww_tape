@@ -3,8 +3,9 @@
 //! A **piece** is a complete tape file: a [piece head](PieceHead) block, blocks of definitions, chunk, summary and
 //! record blocks with checkpoint [index](crate::index) blocks between them, then at the close a final index, a
 //! [close record](Close) and a fixed-size [tail](Tail) block. Any piece reads alone: a writer puts the definitions
-//! each block of data needs close behind it in the same piece ([state](crate::state)); pieces written back to back are
-//! one valid tape. A file a writer started without a piece head is one piece too, with no ids.
+//! each block of data needs close behind it in the same piece ([state](crate::state)), and right after the head those
+//! of every track the head carries, quiet ones too ([TapeWriter::cut_on](crate::TapeWriter::cut_on)); pieces written
+//! back to back are one valid tape. A file a writer started without a piece head is one piece too, with no ids.
 //!
 //! A writer cuts a recording into pieces at chunk boundaries ([PieceChain]). The head names the previous piece by its
 //! content hash and its id; the previous piece's tail names this piece's id, derived at the cut from the previous

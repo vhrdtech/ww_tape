@@ -598,7 +598,7 @@ fn a_monotone_relation_never_decreases_across_cuts_and_resumes() {
         let (mut c, _) = PieceChain::resume_on(mem.clone(), owner, 0, options()).unwrap();
         assert!(decrease(write(&mut c, 4, &[5, 6]), 4), "{files:?}: resume");
         // a crash right after a cut: the pieces closed before hold the newest values
-        c.cut_now().unwrap();
+        c.cut_now(&defs).unwrap();
         drop(c);
         let (mut c, _) = PieceChain::resume_on(mem.clone(), owner, 0, options()).unwrap();
         assert!(
@@ -710,7 +710,7 @@ fn every_monotone_relation_keeps_its_newest_value_across_resumes() {
         };
         let mut c = ww_tape_fs::chain::create(&at, owner, 0, &[], options()).unwrap();
         write(c.writer().unwrap(), &defs, 0, &[1, 2], &[100, 101]).unwrap();
-        c.cut_now().unwrap();
+        c.cut_now(&defs).unwrap();
         drop(c);
         let (mut c, _) = ww_tape_fs::chain::resume(&at, owner, 0, options()).unwrap();
         let w = c.writer().unwrap();
@@ -719,7 +719,7 @@ fn every_monotone_relation_keeps_its_newest_value_across_resumes() {
             "{files:?}"
         );
         write(w, &defs, 2, &[3, 4], &[102, 103]).unwrap();
-        c.cut_now().unwrap();
+        c.cut_now(&defs).unwrap();
         drop(c);
         // the last chunk of the track, in the piece closed last, doesn't read
         let first = match files {
@@ -854,9 +854,9 @@ fn a_chain_resume_reads_only_the_newest_last_chunk_of_a_track() {
     };
     let mut c = PieceChain::create_on(f.clone(), owner, 0, &[], options()).unwrap();
     write(&mut c, 0, &[1, 2], &[100, 101]).unwrap();
-    c.cut_now().unwrap();
+    c.cut_now(&defs).unwrap();
     write(&mut c, 2, &[3, 4], &[102, 103]).unwrap();
-    c.cut_now().unwrap();
+    c.cut_now(&defs).unwrap();
     drop(c);
     let first = 0;
     let mut bytes = f.tapes.get(&first).unwrap().unwrap().to_vec().unwrap();
@@ -937,7 +937,7 @@ fn a_caller_accepts_a_relation_break_and_the_tape_marks_it() {
     let piece = |n: u64| n;
     let mut c = PieceChain::create_on(f.clone(), owner, 0, &[], options()).unwrap();
     write(&mut c, 0, &[10, 20], &[100, 101]).unwrap();
-    c.cut_now().unwrap();
+    c.cut_now(&defs).unwrap();
     drop(c);
     let mut bytes = f.get(&piece(0)).unwrap().unwrap().to_vec().unwrap();
     damage_last_chunk(&mut bytes);
@@ -990,7 +990,7 @@ fn a_caller_accepts_a_relation_break_and_the_tape_marks_it() {
         "below the caller's value: {r:?}"
     );
     // a cut before the chunk keeps the breaks waiting
-    c.cut_now().unwrap();
+    c.cut_now(&defs).unwrap();
     write(&mut c, 2, &[0, 1], &[50, 51]).unwrap();
     write(&mut c, 4, &[2, 3], &[52, 53]).unwrap();
     let r = write(&mut c, 6, &[3, 4], &[52, 60]);
@@ -1005,7 +1005,7 @@ fn a_caller_accepts_a_relation_break_and_the_tape_marks_it() {
         ),
         "the order holds again: {r:?}"
     );
-    c.cut_now().unwrap();
+    c.cut_now(&defs).unwrap();
     drop(c);
     assert_eq!(breaks_in(&f, &piece(1)), vec![]);
     assert_eq!(
@@ -1091,7 +1091,7 @@ fn a_resume_replays_a_relation_break() {
         };
         let mut c = PieceChain::create_on(f.clone(), owner, 0, &[], options()).unwrap();
         write(&mut c, 0, &[10, 20], &[100, 101]).unwrap();
-        c.cut_now().unwrap();
+        c.cut_now(&defs).unwrap();
         let w = c.writer().unwrap();
         w.accept_relation_break(&defs, 3, 0, 1).unwrap();
         w.accept_relation_break(&defs, 3, 1, 5).unwrap();
@@ -1196,7 +1196,7 @@ fn a_chain_piece_with_an_incomplete_row_and_two_monotone_relations_resumes_anywh
         for k in n..32 {
             chain_op(&mut c, &defs, k).unwrap();
         }
-        c.cut_now().unwrap();
+        c.cut_now(&defs).unwrap();
         let seq0 = c.writer().unwrap().next_seq();
         for k in 32..44 {
             chain_op(&mut c, &defs, k).unwrap();

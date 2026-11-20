@@ -26,8 +26,8 @@ It also cuts before any write that the piece's index has no room left for.
 The application chooses the size, for example 256 MiB. On files (`ww_tape_fs::Files`), the pieces are named
 `00000000.wwt`, `00000001.wwt` and so on, so that the names sort in chain order.
 
-A piece reads alone because the writer measures near inside the piece. In a new piece, the writer puts each track's
-definition and clock before the track's first block.
+A piece reads alone because the writer measures near inside the piece. In a new piece, the writer puts the definition
+and clock of every track the head carries right after the head. A new track gets them before its first block.
 
 It does so even when the piece before held them a few bytes earlier. The next put of a state item writes the item again
 for the same reason.

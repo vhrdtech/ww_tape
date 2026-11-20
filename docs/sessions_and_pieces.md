@@ -30,8 +30,9 @@ section](#index-close-and-tail) explains them.
 
 A piece reads alone, because the writer measures [near](concepts.md#state-near-and-copies) inside the piece.
 
-Every definition that a piece's data needs lies in that piece. The writer splits a long recording into several pieces,
-so that each piece stays a bounded size.
+Every definition that a piece's data needs lies in that piece. So does the definition of every track that gave data
+in the pieces before, quiet or not. The writer splits a long recording into several pieces, so that each piece stays a
+bounded size.
 
 A **chain** is the pieces of one recording, in order. Each piece head names the piece before it by its content hash.
 
@@ -65,8 +66,9 @@ words; `ww_tape` sees only sessions, pieces, chains and an opaque owner id.
 A **cut** ends the current piece and starts the next piece of the chain. The writer writes the piece's final index,
 close and tail, then a new piece head.
 
-In the new piece, the writer puts the layout and the producer first. It puts every definition and state item again at
-its first use, since nothing in the old piece counts as near.
+In the new piece, the writer puts the layout and the producer first. The definition of every track the new head carries
+follows ([The definitions a new piece carries](syncing_and_cuts.md#the-definitions-a-new-piece-carries)). It puts
+other definitions and every state item again at its first use, since nothing in the old piece counts as near.
 
 A chain cuts by its policy (size, chunk count or age) only before a chunk. It also cuts before a write for which the
 piece's index has no room left, and wherever the application asks.

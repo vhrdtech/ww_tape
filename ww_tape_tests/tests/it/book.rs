@@ -603,7 +603,7 @@ fn format_page_piece_rows_read_a_chain() {
         let block = crate::pieces::records(chain.writer().unwrap().next_id(), n);
         chain.write_block(defs, &block).unwrap();
     }
-    chain.cut_now().unwrap();
+    chain.cut_now(defs).unwrap();
     let block = crate::pieces::records(chain.writer().unwrap().next_id(), 3);
     chain.write_block(defs, &block).unwrap();
     let done = chain.close().unwrap();
@@ -702,7 +702,7 @@ fn format_page_relations_and_owner_read_a_chain() {
     let chunks: [(u64, Vec<u64>); 2] = [(0, vec![100, 100, 101]), (3, vec![105, 107])];
     for (i, (first, sources)) in chunks.iter().enumerate() {
         if i == 1 {
-            chain.cut_now().unwrap();
+            chain.cut_now(&defs).unwrap();
         }
         let (head, cols) =
             crate::relations::relation_chunk(*first, sources, &vec![1; sources.len()]);

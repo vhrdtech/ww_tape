@@ -742,7 +742,7 @@ fn index_golden() {
         chain.write_block(&defs, &records(id, k as i64)).unwrap();
         related_chunk(&mut chain, k * 4);
     }
-    chain.cut_now().unwrap();
+    chain.cut_now(&defs).unwrap();
     let (h, c) = chunk(0, 2);
     chain.write_chunk(&defs, &h, &column(&c)).unwrap();
     related_chunk(&mut chain, 8);
@@ -820,7 +820,7 @@ fn incomplete_golden() {
         let id = chain.writer().unwrap().next_id();
         chain.write_block(defs, &records(id, n)).unwrap();
     }
-    chain.cut_now().unwrap();
+    chain.cut_now(defs).unwrap();
     let id = chain.writer().unwrap().next_id();
     chain.write_block(defs, &records(id, 10)).unwrap();
     let paths: Vec<PathBuf> = chain
@@ -1057,7 +1057,8 @@ fn the_near_policy_carries_over_a_cut() {
         integrity: ww_tape::Integrity::Full,
     };
     w.begin_piece(&head, &[]).unwrap();
-    let (_, mut next) = ww_tape_fs::writer::cut(w, &dir.join("b.wwt")).unwrap();
+    let (_, mut next) =
+        ww_tape_fs::writer::cut(w, &ww_tape::Definitions::new(), &dir.join("b.wwt")).unwrap();
     assert_eq!(next.options().near, policy);
     for k in 0..4 {
         let (h, c) = big_chunk(k);
@@ -1157,7 +1158,7 @@ fn every_block_of_data_has_its_definitions_behind_it() {
     for n in 50..100 {
         w.write_block(&defs, &records(w.next_id(), n)).unwrap();
     }
-    let (_, mut next) = ww_tape_fs::writer::cut(w, &dir.join("b.wwt")).unwrap();
+    let (_, mut next) = ww_tape_fs::writer::cut(w, &defs, &dir.join("b.wwt")).unwrap();
     for n in 100..110 {
         next.write_block(&defs, &records(next.next_id(), n))
             .unwrap();

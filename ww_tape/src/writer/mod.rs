@@ -206,6 +206,16 @@ pub struct TapeWriter<S: TapeSink> {
     removed: Vec<crate::piece::RemovedPiece>,
     /// [Self::record_removed] added a piece since the close in force: a close writes even with nothing else appended
     removed_added: bool,
+    /// The definitions of the tracks the piece head carries are not in the piece yet: the next call given
+    /// definitions puts them first ([Self::ensure_carried])
+    carried_due: bool,
+}
+
+/// What a cut starts the next piece with: this piece's head, the next head's rows and the definitions of their tracks.
+struct NextRows {
+    head: PieceHead,
+    tracks: Vec<TrackStart>,
+    carried: Vec<Candidate<'static>>,
 }
 
 /// A close record of the piece a writer writes on after: where it and its tail are, and its hash.
@@ -332,6 +342,7 @@ impl<S: TapeSink> TapeWriter<S> {
             append_head: None,
             removed: Vec::new(),
             removed_added: false,
+            carried_due: false,
         }
     }
 
@@ -491,7 +502,7 @@ impl<S: TapeSink> TapeWriter<S> {
         });
         self.room(0, !self.head_put)?;
         self.flush_deferred()?;
-        self.ensure_head()?;
+        self.ensure_carried(defs)?;
         self.put_last(&cands)
     }
 
@@ -529,7 +540,7 @@ impl<S: TapeSink> TapeWriter<S> {
         });
         self.room(0, !self.head_put)?;
         self.flush_deferred()?;
-        self.ensure_head()?;
+        self.ensure_carried(defs)?;
         self.put_last(&cands)
     }
 
@@ -643,6 +654,44 @@ impl<S: TapeSink> TapeWriter<S> {
         self.put_chosen(cands, true).map(|_| ())
     }
 
+    /// The definitions the tracks of head rows `rows` need ([Definitions::needs]), each once, in the order of the rows:
+    /// of each row whose track `defs` holds under the row's number with the row's id and owner; another is passed over.
+    fn carried(&self, defs: &Definitions, rows: &[TrackStart]) -> Vec<Candidate<'static>> {
+        let numbers: Vec<u32> = rows
+            .iter()
+            .filter(|r| defs.track_key(r.track_number) == Some((r.track_id, r.owner.0)))
+            .map(|r| r.track_number)
+            .collect();
+        self.needed(defs, &numbers)
+    }
+
+    /// The layout and the producer ([Self::ensure_head]), then, when due, the definitions of the tracks the piece head
+    /// carries ([Self::carried]), belonging with the call's block: what a call given `defs` writes before its own.
+    /// Refused with nothing written when the piece has no room for their state entries.
+    fn ensure_carried(&mut self, defs: &Definitions) -> Result<(), WriteError<S::Error>> {
+        if !self.carried_due {
+            return self.ensure_head();
+        }
+        let rows = self
+            .head
+            .as_ref()
+            .map(|(_, rows)| rows.clone())
+            .unwrap_or_default();
+        let cands = self.carried(defs, &rows);
+        self.put_carried(&cands)
+    }
+
+    /// Put `cands`, the definitions of the tracks the piece head carries, after the layout and the producer, every
+    /// one of them, belonging with the next block.
+    fn put_carried(&mut self, cands: &[Candidate<'_>]) -> Result<(), WriteError<S::Error>> {
+        self.room(cands.len(), !self.head_put)?;
+        self.ensure_head()?;
+        let all = vec![true; cands.len()];
+        self.write_chosen(cands, &all, true)?;
+        self.carried_due = false;
+        Ok(())
+    }
+
     /// Write the layout and the producer, whatever lies close behind: after a piece head, before the first block of a
     /// file without one, and where a caller's block starts another session.
     fn ensure_head(&mut self) -> Result<(), WriteError<S::Error>> {
@@ -743,8 +792,9 @@ impl<S: TapeSink> TapeWriter<S> {
         self.write_own(&buf)?;
         self.head = Some((*head, tracks.to_vec()));
         self.near.clear();
-        // the layout and the producer follow every piece head
+        // the layout and the producer follow every piece head, the definitions of the tracks it carries them
         self.head_put = false;
+        self.carried_due = !tracks.is_empty();
         self.ensure_head()
     }
 
@@ -1143,12 +1193,12 @@ impl<S: TapeSink> TapeWriter<S> {
         let needs = self.defer_needs(defs, &b)?;
         self.check_caller_relations(defs, &b, false)?;
         if self.alignment() == 0 {
-            self.ensure_head()?;
+            self.ensure_carried(defs)?;
             self.put_needed(&needs)?;
             return self.place(block);
         }
         self.place_overdue(puts_len_upper(&needs))?;
-        self.ensure_head()?;
+        self.ensure_carried(defs)?;
         self.put_chosen(&needs, false)?;
         // placed before any later block of its track: a chunk after it goes on from its values, filed under its
         // track's key once the definition naming the track's owner is placed
@@ -1343,7 +1393,7 @@ impl<S: TapeSink> TapeWriter<S> {
         let needs = self.needed(defs, &[head.track_number]);
         self.room(0, !self.head_put)?;
         self.track_room(defs, &[head.track_number])?;
-        self.ensure_head()?;
+        self.ensure_carried(defs)?;
         let payload = specs.iter().fold(0usize, |n, c| n.saturating_add(c.len));
         let head_len = crate::chunk::chunk_head_len(head, columns.len(), payload);
         // a deferred block of the chunk's track goes before it, as in an unaligned file: so do those before it
@@ -1478,7 +1528,7 @@ impl<S: TapeSink> TapeWriter<S> {
             self.next_seq = theirs.seq;
             self.head_put = false;
         }
-        self.ensure_head()?;
+        self.ensure_carried(defs)?;
         self.put_needed(&needs)?;
         let placed = if renumbered {
             let mut own = block.to_vec();
@@ -1526,7 +1576,7 @@ impl<S: TapeSink> TapeWriter<S> {
         self.room(0, !self.head_put)?;
         self.flush_deferred()?;
         self.check_caller_relations(defs, &b, false)?;
-        self.ensure_head()?;
+        self.ensure_carried(defs)?;
         self.put_needed(&needs)?;
         if let Some(last) = self.adopted
             && last.session == theirs.session
@@ -1644,7 +1694,7 @@ impl<S: TapeSink> TapeWriter<S> {
         }
         self.room(0, !self.head_put)?;
         self.flush_deferred()?;
-        self.ensure_head()?;
+        self.ensure_carried(defs)?;
         self.put_last(&cands).map(|_| ())
     }
 
@@ -1777,10 +1827,11 @@ impl<S: TapeSink> TapeWriter<S> {
     /// under `next`, see [Self::cut_on].
     pub fn cut_with<T: Tapes<Sink = S, Error = S::Error>>(
         self,
+        defs: &Definitions,
         tapes: &mut T,
         next: &T::Key,
-    ) -> Result<(Closed, Self), WriteError<S::Error>> {
-        self.cut_into(|| {
+    ) -> Result<(Closed, Self), CutError<S>> {
+        self.cut_into(defs, || {
             tapes
                 .create(next)
                 .map_err(sink_err("creating the next piece"))
@@ -1789,31 +1840,73 @@ impl<S: TapeSink> TapeWriter<S> {
 
     /// End this piece as a cut (a [Close] naming the next piece) and start the next piece of the chain on `next`: its id
     /// [PieceId::after] this one's id and final content hash (the close's), its head naming this piece, the track
-    /// starts moved on by this piece's chunks, then the layout and the producer put; a definition is put again
-    /// before the next data that needs it. Seqs go on from this piece; the options carry over.
-    pub fn cut_on(self, next: S) -> Result<(Closed, Self), WriteError<S::Error>> {
-        self.cut_into(|| Ok(next))
+    /// starts moved on by this piece's chunks, then the layout and the producer put, then the definitions of every
+    /// track the head carries that `defs` holds ([Definitions::needs]): a piece holds the definitions of its quiet
+    /// tracks too, so it reads alone when the pieces before it are gone. A definition is put again before the next
+    /// data that needs it, unless it lies close behind. Seqs go on from this piece; the options carry over.
+    ///
+    /// A cut whose next piece would list more state entries for those definitions than the index policy allows
+    /// ([IndexError::StateEntries]) is refused before this piece ends: the writer comes back in [CutError::writer].
+    pub fn cut_on(self, defs: &Definitions, next: S) -> Result<(Closed, Self), CutError<S>> {
+        self.cut_into(defs, || Ok(next))
     }
 
     /// [Self::cut_on] with the next sink made once this piece is closed.
     fn cut_into(
         self,
+        defs: &Definitions,
         next: impl FnOnce() -> Result<S, WriteError<S::Error>>,
-    ) -> Result<(Closed, Self), WriteError<S::Error>> {
-        let Some((head, starts)) = self.head.clone() else {
-            return Err(WriteError::Index(IndexError::Invalid(
-                "a cut needs a piece head",
-            )));
-        };
-        let options = self.options();
-        let tracks = self.indexer.next_starts(&starts);
-        let newest = self.relations.newest().clone();
-        let done = self.end(End::Cut, None)?;
-        let mut next_piece =
-            NextPiece::after(&head, &done.closed, tracks, done.session, done.next_seq)?;
+    ) -> Result<(Closed, Self), CutError<S>> {
+        let (w, rows) = self.next_rows(defs)?;
+        let options = w.options();
+        let newest = w.relations.newest().clone();
+        let done = w.end(End::Cut, None)?;
+        let mut next_piece = NextPiece::after(
+            &rows.head,
+            &done.closed,
+            rows.tracks,
+            done.session,
+            done.next_seq,
+        )?;
         next_piece.newest = newest;
-        let next = Self::start_next(next()?, &options, next_piece)?;
+        let mut next = Self::start_next(next()?, &options, next_piece)?;
+        next.put_carried(&rows.carried)?;
         Ok((done.closed, next))
+    }
+
+    /// What a cut starts the next piece with ([NextRows]), or the writer back in a [CutError] when the cut is
+    /// refused: this piece has no head, or the carried definitions with the layout and the producer would list more
+    /// state entries than the index policy allows.
+    fn next_rows(self, defs: &Definitions) -> Result<(Self, NextRows), CutError<S>> {
+        let Some((head, starts)) = self.head.as_ref() else {
+            return Err(self.refuse(WriteError::Index(IndexError::Invalid(
+                "a cut needs a piece head",
+            ))));
+        };
+        let head = *head;
+        let tracks = self.indexer.next_starts(starts);
+        let carried = self.carried(defs, &tracks);
+        let max = self.indexer.policy().state_entries_max;
+        let used = carried.len().saturating_add(HEAD_ENTRIES);
+        if used > max {
+            return Err(self.refuse(WriteError::Index(IndexError::StateEntries { max, used })));
+        }
+        Ok((
+            self,
+            NextRows {
+                head,
+                tracks,
+                carried,
+            },
+        ))
+    }
+
+    /// A cut refused for `error` before anything was written: the writer comes back with it.
+    fn refuse(self, error: WriteError<S::Error>) -> CutError<S> {
+        CutError {
+            error,
+            writer: Some(Box::new(self)),
+        }
     }
 
     /// End this piece as a cut (a [Close] naming the next piece) and start the next piece of the chain right behind it in the same
@@ -1822,34 +1915,25 @@ impl<S: TapeSink> TapeWriter<S> {
     /// file keeps its name. A sink of one piece (`NAME.partial`, [TapeSink::holds_pieces] false) is refused before
     /// anything is written: a file of several pieces is written under its own name ([Tapes::create_whole]).
     ///
-    /// A refusal before the cut hands the writer back in [CutError::writer], to go on with.
-    pub fn cut_in_place(self) -> Result<(Closed, Self), CutError<S>> {
-        let refuse = |w: Self, what| CutError {
-            error: WriteError::Index(IndexError::Invalid(what)),
-            writer: Some(Box::new(w)),
-        };
-        let Some((head, starts)) = self.head.clone() else {
-            return Err(refuse(self, "a cut needs a piece head"));
-        };
+    /// A refusal before the cut, this one or one of [Self::cut_on]'s, hands the writer back in [CutError::writer], to
+    /// go on with.
+    pub fn cut_in_place(self, defs: &Definitions) -> Result<(Closed, Self), CutError<S>> {
         if !self.sink.holds_pieces() {
-            return Err(refuse(self, "a sink of one piece takes no cut in place"));
+            return Err(self.refuse(WriteError::Index(IndexError::Invalid(
+                "a sink of one piece takes no cut in place",
+            ))));
         }
-        self.cut_in_place_with(&head, &starts)
-            .map_err(CutError::from)
-    }
-
-    /// [Self::cut_in_place] once checked: the piece ends.
-    fn cut_in_place_with(
-        self,
-        head: &PieceHead,
-        starts: &[TrackStart],
-    ) -> Result<(Closed, Self), WriteError<S::Error>> {
-        let options = self.options();
-        let tracks = self.indexer.next_starts(starts);
-        let newest = self.relations.newest().clone();
-        let mut done = self.end(End::CutInPlace, None)?;
-        let mut next_piece =
-            NextPiece::after(head, &done.closed, tracks, done.session, done.next_seq)?;
+        let (w, rows) = self.next_rows(defs)?;
+        let options = w.options();
+        let newest = w.relations.newest().clone();
+        let mut done = w.end(End::CutInPlace, None)?;
+        let mut next_piece = NextPiece::after(
+            &rows.head,
+            &done.closed,
+            rows.tracks,
+            done.session,
+            done.next_seq,
+        )?;
         next_piece.newest = newest;
         let base = done
             .closed
@@ -1861,7 +1945,8 @@ impl<S: TapeSink> TapeWriter<S> {
         done.sink
             .rebase(base)
             .map_err(sink_err("starting the next piece behind the last"))?;
-        let next = Self::start_next(done.sink, &options, next_piece)?;
+        let mut next = Self::start_next(done.sink, &options, next_piece)?;
+        next.put_carried(&rows.carried)?;
         Ok((done.closed, next))
     }
 

@@ -372,11 +372,12 @@ impl<T: Tapes> PieceChain<T> {
     /// on a new piece. A call refused so has written nothing: it checks its room first.
     fn with_room<R>(
         &mut self,
+        defs: &Definitions,
         mut call: impl FnMut(&mut TapeWriter<T::Sink>) -> Result<R, WriteError<T::Error>>,
     ) -> Result<R, WriteError<T::Error>> {
         match call(self.writer()?) {
             Err(WriteError::Index(IndexError::StateEntries { .. })) => {
-                self.cut_now()?;
+                self.cut_now(defs)?;
                 call(self.writer()?)
             }
             r => r,
@@ -389,7 +390,8 @@ impl<T: Tapes> PieceChain<T> {
         defs: &Definitions,
         block: &[u8],
     ) -> Result<(), WriteError<T::Error>> {
-        self.with_room(|w| w.write_block(defs, block)).map(|_| ())
+        self.with_room(defs, |w| w.write_block(defs, block))
+            .map(|_| ())
     }
 
     /// Put a state track's item ([TapeWriter::put]).
@@ -400,7 +402,7 @@ impl<T: Tapes> PieceChain<T> {
         ticks: i64,
         item: &[u8],
     ) -> Result<bool, WriteError<T::Error>> {
-        self.with_room(|w| w.put(defs, track, ticks, item))
+        self.with_room(defs, |w| w.put(defs, track, ticks, item))
     }
 
     /// Put a typed item ([TapeWriter::put_item]).
@@ -409,7 +411,7 @@ impl<T: Tapes> PieceChain<T> {
         defs: &Definitions,
         item: &crate::TypedItem<'_>,
     ) -> Result<bool, WriteError<T::Error>> {
-        self.with_room(|w| w.put_item(defs, item))
+        self.with_room(defs, |w| w.put_item(defs, item))
     }
 
     /// A small block placed in the next gap ([TapeWriter::defer_block]).
@@ -420,7 +422,7 @@ impl<T: Tapes> PieceChain<T> {
         block: Vec<u8>,
     ) -> Result<(), WriteError<T::Error>> {
         // a small block: a copy for the retry costs little
-        self.with_room(|w| w.defer_block(defs, block.clone()))
+        self.with_room(defs, |w| w.defer_block(defs, block.clone()))
     }
 
     /// Whether the policy says the current piece is full: checked before a chunk, by its bytes, its chunk blocks
@@ -445,10 +447,10 @@ impl<T: Tapes> PieceChain<T> {
         columns: &[(ColumnSpec, &[u8])],
     ) -> Result<ChunkPlaced, WriteError<T::Error>> {
         if self.cut_due() {
-            self.cut_now()?;
+            self.cut_now(defs)?;
         }
         let Placed { offset, len, unit } =
-            self.with_room(|w| w.write_chunk(defs, head, columns))?;
+            self.with_room(defs, |w| w.write_chunk(defs, head, columns))?;
         Ok(ChunkPlaced {
             seq: self.seq,
             offset,
@@ -457,8 +459,9 @@ impl<T: Tapes> PieceChain<T> {
         })
     }
 
-    /// Cut to a new piece now.
-    pub fn cut_now(&mut self) -> Result<(), WriteError<T::Error>> {
+    /// Cut to a new piece now, its head followed by the definitions `defs` holds of the tracks it carries
+    /// ([TapeWriter::cut_on]). A cut refused before the piece ends keeps the piece being written.
+    pub fn cut_now(&mut self, defs: &Definitions) -> Result<(), WriteError<T::Error>> {
         let seq = self
             .seq
             .checked_add(1)
@@ -471,12 +474,19 @@ impl<T: Tapes> PieceChain<T> {
         }
         let current = self.writer.take().ok_or(WriteError::Failed)?;
         let tape = self.tape_of(self.seq);
-        let (piece, mut next) = match self.pieces {
+        let cut = match self.pieces {
             PieceTapes::Each => {
                 let key = self.tapes.key_of(seq);
-                current.cut_with(&mut self.tapes, &key)?
+                current.cut_with(defs, &mut self.tapes, &key)
             }
-            PieceTapes::One => current.cut_in_place()?,
+            PieceTapes::One => current.cut_in_place(defs),
+        };
+        let (piece, mut next) = match cut {
+            Ok(cut) => cut,
+            Err(e) => {
+                self.writer = e.writer.map(|w| *w);
+                return Err(e.error);
+            }
         };
         reserve_piece(&mut next, self.cut);
         self.writer = Some(next);

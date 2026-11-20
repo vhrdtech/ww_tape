@@ -2,8 +2,11 @@
 
 use std::path::Path;
 
+use ww_tape::Definitions;
 use ww_tape::sink::sink_err;
-use ww_tape::writer::{Closed, Resumed, SyncPolicy, TapeWriter, WriteError, WriterOptions};
+use ww_tape::writer::{
+    Closed, CutError, Resumed, SyncPolicy, TapeWriter, WriteError, WriterOptions,
+};
 
 use crate::sink::{FileSink, Files, FsError, none_at};
 
@@ -47,11 +50,15 @@ pub fn resume(
     }
 }
 
-/// End the piece `writer` writes by a cut, its close record naming the next piece, and start the next piece
-/// of the chain in a new file at `next_path`, see [TapeWriter::cut_with].
+/// End the piece `writer` writes by a cut and start the next piece of the chain in a new file at `next_path`.
+///
+/// See [TapeWriter::cut_with]: the close record names the next piece, whose head is followed by the definitions
+/// `defs` holds of the tracks it carries. A cut refused before the piece ends hands the writer back in
+/// [CutError::writer].
 pub fn cut(
     writer: TapeWriter<FileSink>,
+    defs: &Definitions,
     next_path: &Path,
-) -> Result<(Closed, TapeWriter<FileSink>), WriteError<FsError>> {
-    writer.cut_with(&mut Files::file(next_path), &0)
+) -> Result<(Closed, TapeWriter<FileSink>), CutError<FileSink>> {
+    writer.cut_with(defs, &mut Files::file(next_path), &0)
 }

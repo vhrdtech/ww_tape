@@ -67,20 +67,44 @@ A cut ends the current piece and starts the next piece of the chain. Only a piec
 
 A writer starts such a piece with `TapeWriter::begin_piece`, which writes the piece head as the first block of the file.
 
-`TapeWriter::cut_with(tapes, key)` makes a cut in four steps:
+`TapeWriter::cut_with(defs, tapes, key)` makes a cut in five steps:
 
 1. It places every deferred block.
 2. It writes the final index, the close and the tail.
 3. It closes the sink; a file takes its final name.
 4. It starts the next piece in a new sink, which the store `tapes` makes under `key`.
+5. It puts the definitions of every track the new head carries, from the application's `defs`.
 
-The call returns the closed piece (`Closed`) and a writer on the next piece. `TapeWriter::cut_on(next)` does the
+The call returns the closed piece (`Closed`) and a writer on the next piece. `TapeWriter::cut_on(defs, next)` does the
 same on a sink `next` that the caller made.
 
-`ww_tape_fs::writer::cut(writer, next_path)` does the same with the file `next_path`.
+`ww_tape_fs::writer::cut(writer, defs, next_path)` does the same with the file `next_path`.
 
-The next piece starts with a piece head, the layout and the producer. The writer puts its definitions and state again at
-their first uses, because it measures near inside a piece.
+The next piece starts with a piece head, the layout and the producer. The writer puts other definitions and state again
+at their first uses, because it measures near inside a piece.
+
+### The definitions a new piece carries
+
+A piece head carries a row for every track that gave data in the chain so far. The writer puts the definition of each of
+these tracks right after the head, the layout and the producer. The clocks, maps and bundles it needs come with it. A
+quiet track, one with no data in the new piece, so keeps its kind, its clock and its label there.
+
+A reader of a chain whose older pieces were dropped or removed finds every track's definition in the oldest piece left:
+
+- a track that gave data before that piece: right after its head;
+- a track that gives data first in a later piece: beside its first data, as before.
+
+A track that never gave data has no row and no definition in any piece. A row whose track `defs` doesn't hold, or holds
+under another id or owner, is passed over.
+
+The definitions are state records, so each one also takes an index entry. A cut whose next piece would list more state
+entries than `IndexPolicy::state_entries_max` allows is refused before the piece ends. The writer comes back in
+`CutError::writer` and writes on in the same piece.
+
+Each definition costs its record and its index entries, in the checkpoint that lists it and in the final index.
+
+A resume that keeps only the piece head (a crash right after the cut) leaves the definitions out. The next call given
+`defs` puts them first, so the piece gets the bytes of a cut that never stopped.
 
 ### Cutting by policy
 

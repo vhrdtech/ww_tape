@@ -973,9 +973,9 @@ fn a_resumed_piece_takes_the_definitions_passed() {
     };
     let mut c = ww_tape_fs::chain::create(&dir, owner, 0, &[], opts.clone()).unwrap();
     write(&mut c, &defs, 5, 0);
-    c.cut_now().unwrap();
+    c.cut_now(&defs).unwrap();
     write(&mut c, &defs, 9, 10);
-    c.cut_now().unwrap();
+    c.cut_now(&defs).unwrap();
     write(&mut c, &defs, 9, 20);
     // a crash: the last piece is left unclosed
     drop(c);
