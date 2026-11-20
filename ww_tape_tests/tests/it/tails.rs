@@ -183,3 +183,62 @@ fn rot_never_cuts_a_complete_close() {
         "(alignment, closes, zeros, trial, bytes) that cut a complete close"
     );
 }
+
+/// Where the close record in force of `bytes` starts, and its final index.
+fn last_close(bytes: &[u8]) -> (usize, usize) {
+    let (at, c) = crate::reclose::closes(bytes).pop().unwrap();
+    (at as usize, c.final_index.unwrap() as usize)
+}
+
+/// A close record that fails its check and runs into zeros to the end: refused when the zeros start inside its last
+/// sector, cut back to the close's final index when they start in an earlier sector of it and so cross a sector
+/// boundary, as a write cut off by a crash leaves them.
+#[test]
+fn a_damaged_close_is_cut_only_where_its_zeros_cross_a_sector_boundary() {
+    for alignment in [0, ALIGNMENT] {
+        let f = closed_from(3, 6, alignment, 0).pop().unwrap();
+        let n = f.len();
+        let (close_at, index_at) = last_close(&f);
+        let close_end = n - TAIL_LEN;
+        assert!(
+            close_end % 512 > 2 && close_end - close_at > 1024,
+            "alignment {alignment}"
+        );
+        let mut d = f.clone();
+        d[close_end - 2..].fill(0);
+        let (r, after) = resume_of(&d, alignment);
+        assert!(
+            matches!(r, Err(ww_tape::ResumeError::Damaged { .. })),
+            "alignment {alignment}, zeros inside the last sector: {r:?}"
+        );
+        assert!(after == d, "alignment {alignment}: bytes changed");
+        let from = (close_at + 4).max(close_end - close_end % 512 - 100);
+        let mut d = f.clone();
+        d[from..].fill(0);
+        let (r, after) = resume_of(&d, alignment);
+        assert_eq!(
+            r.unwrap_or_else(|e| panic!("alignment {alignment}, zeros from {from}: {e:?}")),
+            index_at as u64,
+            "alignment {alignment}: cut back to the close's final index"
+        );
+        assert_eq!(after[..], f[..index_at], "alignment {alignment}");
+    }
+}
+
+/// A good tail in the bytes a resume would cut that follows no close record is damage: the bytes before the piece's
+/// last final index, then its tail, refuse at the tail and keep every byte.
+#[test]
+fn a_tail_after_no_close_refuses() {
+    for alignment in [0, ALIGNMENT] {
+        let f = closed_from(3, 6, alignment, 0).pop().unwrap();
+        let (_, index_at) = last_close(&f);
+        let tail_at = f.len() - TAIL_LEN;
+        let d = [&f[..index_at], &f[tail_at..]].concat();
+        let (r, after) = resume_of(&d, alignment);
+        assert!(
+            matches!(r, Err(ww_tape::ResumeError::Damaged { offset }) if offset == index_at as u64),
+            "alignment {alignment}: {r:?}"
+        );
+        assert!(after == d, "alignment {alignment}: bytes changed");
+    }
+}
