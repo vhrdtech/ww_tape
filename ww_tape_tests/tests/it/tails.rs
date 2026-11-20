@@ -222,6 +222,13 @@ fn a_damaged_close_is_cut_only_where_its_zeros_cross_a_sector_boundary() {
             "alignment {alignment}: cut back to the close's final index"
         );
         assert_eq!(after[..], f[..index_at], "alignment {alignment}");
+        if alignment == 0 {
+            // the example of docs/resuming.md
+            assert_eq!((n, index_at), (12288, 9268));
+            let mut d = f.clone();
+            d[9368..].fill(0);
+            assert_eq!(resume_of(&d, 0).0.unwrap(), 9268);
+        }
     }
 }
 

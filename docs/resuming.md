@@ -47,8 +47,8 @@ boundary. The resume reads the bytes to cut with that in mind:
 | Bytes to cut | Resume |
 |---|---|
 | a record whose header names more bytes than are left | cut, unless its bytes show it was whole |
-| a whole-length record that fails its cyclic redundancy check (CRC), then zeros from a sector boundary | cut |
-| a whole-length record that fails its CRC, with zeros from inside a sector or none | refused |
+| a whole-length record that fails its cyclic redundancy check (CRC), its zeros crossing a sector boundary | cut |
+| a whole-length record that fails its CRC, its zeros starting in its last sector, after it, or none | refused |
 | bytes that start no record | refused |
 | a whole tail that does not end the close record before it | refused |
 | a whole close record, then a tail's length or more of bytes that are not all zero | refused |
@@ -59,10 +59,17 @@ once its length field names them.
 
 A tail lies inside one sector, so a crash leaves it whole, short or blank.
 
-A resume is a command to write, and it cuts what a crash leaves: an end blank from a sector boundary on. Reading and
-verify never change a file.
+The zeros of a record are the zero bytes from inside it to the end of the file. They count from where those bytes
+start, also where they were zero before, as in a close record's padding.
 
-Rot that zeroes the end of a complete close from a sector boundary on looks the same, so a resume cuts that close.
+A resume is a command to write, and it cuts what a crash leaves: zeros to the end that cross a sector boundary.
+Reading and verify never change a file.
+
+Rot that zeroes the end of a complete close across a sector boundary looks the same, so a resume cuts that close. The
+bytes cannot tell it from a crash, and a stricter rule would refuse real crashes.
+
+Take a 12,288-byte piece closed three times, whose last final index starts at offset 9268 of the file.
+Zeros from 9368 to the end cross the sector boundary at 9728, so a resume cuts the 3,020 bytes from 9268 on.
 
 For example, one flipped bit makes the last tail fail its cyclic redundancy check (CRC), so the reader takes the
 close before it.

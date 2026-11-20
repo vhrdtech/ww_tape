@@ -35,8 +35,9 @@
 //! Only a torn end is ever cut: whole blocks, then a record the bytes stop inside of, or blank (zero) bytes to the
 //! end. A whole record in the bytes to cut that fails its check, bytes that start no record, or a whole tail that
 //! didn't end its close is damage: the resume refuses ([ResumeError::Damaged]) and every byte stays. A whole-length
-//! record that fails its check is torn only where zeros from a 512-byte sector boundary follow, and a whole close
-//! record followed by a tail's length of bytes, not all zero, is damage whatever they hold.
+//! record that fails its check is torn only where the zeros that run from inside it to the end cross a 512-byte
+//! sector boundary, wherever they start; a whole close record followed by a tail's length of bytes, not all zero, is
+//! damage whatever they hold. Rot that zeroes the end of a complete close across a boundary is cut as a crash is.
 //!
 //! A piece with a close in force (its close record and tail whole, naming no next piece) is never read before that
 //! close. The writer's state there comes from the close record (each track's range, hash and counted records, the
@@ -386,8 +387,9 @@ const SECTOR_LEN: u64 = 512;
 /// the end, which a file holds where it grew but its data wasn't written. Damage is a whole record that fails its
 /// check, bytes that don't start a record, or a whole tail: one that didn't end its close is not what a writer left.
 ///
-/// A whole-length record that fails its check is torn only where it runs into zeros that start on a [SECTOR_LEN]
-/// boundary of the file, as an unwritten stretch does: zeros starting inside a sector are damage. A whole close
+/// A whole-length record that fails its check is torn only where the zeros that run from inside it to the end cross a
+/// [SECTOR_LEN] boundary of the file before its end, as an unwritten stretch does, wherever in a sector they start:
+/// zeros that start in its last sector are damage. A whole close
 /// record followed by a tail's length of bytes or more, not all zero, is damage whatever they hold: a tail lies in one
 /// sector, so a crash leaves it whole, short or blank. Each step moves on at least one byte, and reads at most
 /// [MAX_BLOCK_LEN] or [JUNK_READ_MAX] bytes at once.
