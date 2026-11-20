@@ -8,6 +8,13 @@
 //! - `grids.svg`: series chunks on their grids: chunks of one grid, lost samples, and a gap to a new grid.
 //!
 //! [figures] draws them; `ww_tape_figures DIR` writes them into `DIR` (`just book-figures`: `docs/plots`).
+#![allow(
+    clippy::arithmetic_side_effects,
+    clippy::as_conversions,
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    reason = "the figures draw blocks ww_tape wrote itself: coordinates are computed freely and a broken figure fails its test"
+)]
 
 mod block;
 mod defs;

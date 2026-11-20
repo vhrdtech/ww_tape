@@ -1,5 +1,22 @@
 //! The hostile block builders and the fuzz targets of ww_tape_fuzz: seed files replayed, hostile streams decoded, each
 //! case under a cap on single allocations.
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreachable,
+    clippy::panic,
+    clippy::indexing_slicing,
+    clippy::arithmetic_side_effects,
+    clippy::as_conversions,
+    clippy::cast_lossless,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    clippy::print_stderr,
+    clippy::print_stdout,
+    reason = "tests fail by panicking, compute expected values freely and print what they saw"
+)]
 
 mod builders;
 mod known;

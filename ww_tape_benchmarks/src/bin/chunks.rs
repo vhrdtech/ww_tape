@@ -6,6 +6,16 @@
 //! GB/s for each, the best of `--rounds` rounds of `--chunks` chunks, with the load average at the start. Then what a
 //! reader spends on such a track: its series timeline from the chunk heads alone and from whole blocks, and the hash
 //! of all its chunks from the index (`TapeReader::range_hash`).
+#![allow(
+    clippy::arithmetic_side_effects,
+    clippy::as_conversions,
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::print_stdout,
+    reason = "a bench reads no file of others: it computes sizes and rates freely, fails by panicking and prints its table"
+)]
 
 use clap::Parser;
 use shrink_wrap::prelude::*;

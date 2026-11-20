@@ -5,6 +5,12 @@
 //! ww_tape_fuzz_seeds run TARGET PATH...    each file (a directory: its files) through TARGET: failures by place
 //! ww_tape_fuzz_seeds minimize TARGET HEX   the shortest, plainest input that fails at the same place, in hex
 //! ```
+#![allow(
+    clippy::arithmetic_side_effects,
+    clippy::print_stderr,
+    clippy::print_stdout,
+    reason = "a command line tool over the fixed seeds: it counts freely and prints its report"
+)]
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;

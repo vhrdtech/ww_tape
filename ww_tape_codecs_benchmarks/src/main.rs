@@ -2,6 +2,17 @@
 //! delta on ordered float bits) on simulated, decoded and sensor data, against the same quantities stored as
 //! fixed-point integers with `DELTA`. Prints a Markdown table: ratio to the raw floats, and encode and decode time per
 //! value on one core.
+#![allow(
+    clippy::arithmetic_side_effects,
+    clippy::as_conversions,
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::print_stderr,
+    clippy::print_stdout,
+    reason = "a bench reads no file of others: it computes sizes and rates freely, fails by panicking and prints its table"
+)]
 
 mod data;
 mod float_delta;

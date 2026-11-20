@@ -2,6 +2,16 @@
 //! checks every group; `EventTimes::salvage` decides once which groups hold up), and reading every item one at a time
 //! (`Starts::get`, `Starts::is_suspect`) from a salvaged column with one damaged byte. Prints a Markdown table, the
 //! best of `--rounds` rounds, with the load average at the start.
+#![allow(
+    clippy::arithmetic_side_effects,
+    clippy::as_conversions,
+    clippy::cast_possible_wrap,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    clippy::indexing_slicing,
+    clippy::print_stdout,
+    reason = "a bench reads no file of others: it computes sizes and rates freely, fails by panicking and prints its table"
+)]
 
 use clap::Parser;
 use std::hint::black_box;

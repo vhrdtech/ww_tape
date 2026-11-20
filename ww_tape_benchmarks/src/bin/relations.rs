@@ -3,6 +3,16 @@
 //! (`RelationColumn::get`) and a lower bound in it, and a writer's `write_chunk` of an events chunk with and without
 //! two relation columns (the column check and the range the index entry takes included). Prints Markdown tables, the
 //! best of `--rounds` rounds, with the load average at the start.
+#![allow(
+    clippy::arithmetic_side_effects,
+    clippy::as_conversions,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_precision_loss,
+    clippy::indexing_slicing,
+    clippy::print_stdout,
+    reason = "a bench reads no file of others: it computes sizes and rates freely, fails by panicking and prints its table"
+)]
 
 use clap::Parser;
 use shrink_wrap::prelude::*;

@@ -1,6 +1,15 @@
 //! Series summaries of `ww_tape` against the samples they summarise: MB/s of sample bytes on one core, per element
 //! type, through the RAW sample codec alone (no summaries), `SeriesSummaries::push` alone with every statistic, and
 //! both. Prints a Markdown table with the CPU's vector extensions and the load average at the start.
+#![allow(
+    clippy::arithmetic_side_effects,
+    clippy::as_conversions,
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    clippy::print_stdout,
+    reason = "a bench reads no file of others: it computes sizes and rates freely, fails by panicking and prints its table"
+)]
 
 use clap::Parser;
 use std::hint::black_box;

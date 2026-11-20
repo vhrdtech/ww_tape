@@ -41,11 +41,32 @@ lz4_flex = { version = "=0.14.0", default-features = false, features = ["safe-de
 # ww_tape_fs on unix: the per-process record lock of a file sink's lock file (fcntl F_SETLK), which a forked child doesn't hold
 rustix = { version = "1.1", default-features = false, features = ["fs", "std"] }
 
+# exact_units' panic-class lints for every crate: no panic, overflow or unchecked index reachable from file bytes
+# (STD-131). Every exception is an #[expect(.., reason = "..")] naming its invariant. Tests, benches, the figures and
+# the fuzz bodies allow the lints that fire in them at their crate root, with the reason.
 [workspace.lints.rust]
 unused_lifetimes = "warn"
 
 [workspace.lints.clippy]
-dbg_macro = "warn"
+unwrap_used = "deny"
+expect_used = "deny"
+unreachable = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+indexing_slicing = "deny"
+arithmetic_side_effects = "deny"
+as_conversions = "deny"
+cast_lossless = "deny"
+cast_possible_truncation = "deny"
+cast_possible_wrap = "deny"
+cast_precision_loss = "deny"
+cast_sign_loss = "deny"
+undocumented_unsafe_blocks = "deny"
+allow_attributes_without_reason = "deny"
+dbg_macro = "deny"
+print_stdout = "deny"
+print_stderr = "deny"
 
 [profile.dev]
 split-debuginfo = "unpacked"

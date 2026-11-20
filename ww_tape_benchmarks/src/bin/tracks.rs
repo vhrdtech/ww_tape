@@ -9,6 +9,14 @@
 //!
 //! Last, the bytes a writer hashes and copies per block of data when nothing needs writing: a track whose
 //! definition is 60 KiB long, written to again and again within its near.
+#![allow(
+    clippy::arithmetic_side_effects,
+    clippy::as_conversions,
+    clippy::cast_precision_loss,
+    clippy::indexing_slicing,
+    clippy::print_stdout,
+    reason = "a bench reads no file of others: it computes sizes and rates freely, fails by panicking and prints its table"
+)]
 
 use clap::Parser;
 use shrink_wrap::prelude::*;

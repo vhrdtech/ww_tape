@@ -79,7 +79,7 @@ required). Plain `cargo sort` flattens grouped tables: always pass `-w -g`. Proj
   check the version byte and the readers of old files.
 - Readers take damaged or hostile bytes. A number read from a block is a `FromFile<T>` and reaches a length, an
   allocation or a loop only through a named cap (a `pub const` listed in the crate docs' table of caps) or a length
-  already known (STD-131). `ww_tape`'s `[lints]` deny panics, unchecked arithmetic, indexing and casts; an exception
+  already known (STD-131). the workspace `[lints]` deny panics, unchecked arithmetic, indexing and casts; an exception
   is an `#[expect(.., reason = "..")]` naming its invariant.
 - Every decoder has a fuzz target and a hostile target. A fixed input goes into `ww_tape_fuzz/src/seeds.rs`
   (`FIXED_INPUTS`, or a `fix-<commit>-<what>` seed builder) and `cargo run -p ww_tape_fuzz --bin ww_tape_fuzz_seeds
@@ -112,8 +112,8 @@ and after, at release, and the numbers go into the commit body or the docs page 
   it names or the crate docs, run `ww api save ww_tape` in this repository and commit it. `just lint` runs
   `just api-check` (`ww api check ww_tape`) to catch a snapshot left stale.
 - Dependencies live in the root `[workspace.dependencies]`; crates inherit `authors`, `edition`, `rust-version`,
-  `license`, `repository` and `[lints]` (`ww_tape`, `ww_tape_summary` and `ww_tape_fs` keep their own `[lints]` table: the
-  workspace's plus the panic-class lints).
+  `license`, `repository` and `[lints]`. The workspace `[lints]` hold the panic-class lints; tests, benches, the
+  figures and the fuzz bodies allow those that fire at their crate root, with a reason.
 - No C build step: `blake3` is built `pure`, `lz4_flex` is pure Rust and pinned exactly, since payload columns must
   compress to the same bytes.
 

@@ -3,6 +3,14 @@
 //! Prints a Markdown table of the worst and the 99.9th percentile wait, with and without `TapeSink::reserve` of the
 //! piece's size up front (what `PieceChain` does for a `MemTapes` piece), the worst of `--rounds` rounds each, with
 //! the load average at the start.
+#![allow(
+    clippy::arithmetic_side_effects,
+    clippy::as_conversions,
+    clippy::indexing_slicing,
+    clippy::print_stdout,
+    clippy::unwrap_used,
+    reason = "a bench reads no file of others: it computes sizes and rates freely, fails by panicking and prints its table"
+)]
 
 use clap::Parser;
 use std::sync::atomic::{AtomicBool, Ordering};
