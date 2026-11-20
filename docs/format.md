@@ -857,6 +857,12 @@ close right after the newest of them.
 The last close with a whole tail is the close **in force**: a reader takes the piece as closed by it. Bytes after its
 tail are an **unclosed tail**, like the end of an unclosed piece.
 
+A tail is whole only right after the close record it names, as the last bytes of the piece it states. Any other good
+tail ends no close, and a reader never takes it as the end of the piece.
+
+`TapeReader::unclosed` names the bytes after the close in force, and `TapeReader::verify` says how far it checked
+(`Verification::unchecked`). `TapeReader::closed_entries` lists only the blocks the close in force covers.
+
 An unclosed tail is a writer still writing, or one that a crash stopped. A reader reads its good blocks as it reads an
 unclosed piece, never as damage of what the close covers.
 

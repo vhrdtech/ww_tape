@@ -897,7 +897,7 @@ fn replace_piece(f: &ww_tape::MemTapes, key: &u64, bytes: &[u8]) {
 fn breaks_in(f: &ww_tape::MemTapes, key: &u64) -> Vec<(bool, bool)> {
     let bytes = f.get(key).unwrap().unwrap().to_vec().unwrap();
     let r = TapeReader::open(&bytes[..]).unwrap();
-    assert!(r.verify(0).unwrap(), "the piece verifies");
+    assert!(r.verify(0).map(|v| v.holds).unwrap(), "the piece verifies");
     r.entries(0)
         .unwrap()
         .into_iter()
@@ -1351,7 +1351,7 @@ fn a_reader_refuses_a_decrease_across_chunks_that_isnt_marked_a_break() {
         w.close().unwrap();
         let mut bytes = tape.to_vec().unwrap();
         let r = TapeReader::open(&bytes[..]).unwrap();
-        assert!(r.verify(0).unwrap(), "marked: holds");
+        assert!(r.verify(0).map(|v| v.holds).unwrap(), "marked: holds");
         assert_eq!(r.track_entries(0, track_id()).unwrap().len(), 2);
         let marked = r.relation_breaks(track_id(), OwnerId::NONE).unwrap();
         assert_eq!(
@@ -1375,7 +1375,7 @@ fn a_reader_refuses_a_decrease_across_chunks_that_isnt_marked_a_break() {
             ),
             _ => assert!(breaks.is_ok_and(|b| b.is_empty())),
         }
-        match r.verify(0) {
+        match r.verify(0).map(|v| v.holds) {
             Err(ReadError::RelationOrder {
                 offset,
                 track_id: id,

@@ -108,7 +108,10 @@ fn a_piece_number_past_the_pieces_is_an_error() {
         r.definitions_at(usize::MAX, 0),
         Err(ReadError::NoPiece(_))
     ));
-    assert!(matches!(r.verify(n), Err(ReadError::NoPiece(_))));
+    assert!(matches!(
+        r.verify(n).map(|v| v.holds),
+        Err(ReadError::NoPiece(_))
+    ));
 }
 
 #[test]

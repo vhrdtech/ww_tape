@@ -18,6 +18,7 @@
 mod book;
 mod checks;
 mod clock;
+mod crafted;
 mod definitions;
 mod files;
 mod lock;

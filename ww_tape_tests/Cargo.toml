@@ -11,6 +11,8 @@ repository.workspace = true
 homepage.workspace = true
 
 [dev-dependencies]
+# tests/it: content hashes computed apart from the crate's own, for forged pieces
+blake3.workspace = true
 # tests/it: CRCs computed apart from the crate's own CRC-32C
 crc.workspace = true
 exact_units = { workspace = true, features = ["counting", "electrical", "shrink_wrap", "std", "time"] }

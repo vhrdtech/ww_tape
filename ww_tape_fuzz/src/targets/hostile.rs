@@ -446,7 +446,7 @@ fn lookups(r: &TapeReader<&[u8]>, i: usize) {
 fn resume_state(f: &[u8], forged: bool) {
     let before = TapeReader::open(f)
         .ok()
-        .and_then(|r| r.verify(0).ok())
+        .and_then(|r| r.verify(0).map(|v| v.holds).ok())
         .unwrap_or(false);
     let mut sink = MemSink::new();
     sink.write_all(f).expect("memory takes the bytes");
@@ -465,7 +465,7 @@ fn resume_state(f: &[u8], forged: bool) {
     let out = tape.to_vec().expect("the bytes");
     let r = TapeReader::open(&out[..]).expect("a closed piece opens");
     let last = r.pieces().len().checked_sub(1).expect("a piece");
-    let holds = r.verify(last).expect("a closed piece");
+    let holds = r.verify(last).map(|v| v.holds).expect("a closed piece");
     match resumed.after_close {
         None => assert!(holds || forged, "the piece verifies"),
         Some(_) => assert!(

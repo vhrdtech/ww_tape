@@ -105,7 +105,13 @@ fn append_cut_anywhere(alignment: u32) {
     assert_eq!(both.len(), 2);
     assert_eq!(both[0].1.hash, close_hash(&old), "the old close stays");
     assert_eq!(both[1].1.prev, Some(both[0].0), "the new close names it");
-    assert!(TapeReader::open(&new[..]).unwrap().verify(0).unwrap());
+    assert!(
+        TapeReader::open(&new[..])
+            .unwrap()
+            .verify(0)
+            .map(|v| v.holds)
+            .unwrap()
+    );
     assert_eq!(ticks(&new), (0..12).collect::<Vec<_>>());
     let cuts = cuts_after(&new, old.len());
     assert!(cuts.len() > 30, "{} cuts", cuts.len());
@@ -141,7 +147,7 @@ fn append_cut_anywhere(alignment: u32) {
             );
         }
         assert!(
-            r.verify(0).unwrap(),
+            r.verify(0).map(|v| v.holds).unwrap(),
             "cut at {cut}: the closed prefix verifies"
         );
         assert!(ticks(torn).starts_with(&ticks(&old)), "cut at {cut}");
@@ -198,7 +204,7 @@ fn a_piece_closed_four_times_reads_every_close() {
         );
     }
     let r = TapeReader::open(&last[..]).unwrap();
-    assert!(r.verify(0).unwrap());
+    assert!(r.verify(0).map(|v| v.holds).unwrap());
     let listed = record_offsets(&r.entries(0).unwrap());
     assert!(listed.len() >= 12, "{} record blocks listed", listed.len());
     assert!(
@@ -319,7 +325,7 @@ fn close_reopen_append_and_crash_match_a_model() {
         }
         let r = TapeReader::open(&bytes[..]).unwrap();
         assert!(r.pieces()[0].is_closed(), "seed {seed}");
-        assert!(r.verify(0).unwrap(), "seed {seed}");
+        assert!(r.verify(0).map(|v| v.holds).unwrap(), "seed {seed}");
         closes_made += all.len();
     }
     assert!(torn_appends >= 50, "{torn_appends} crashes after a close");
@@ -401,7 +407,7 @@ fn scans_and_checkpoints_pass_inner_closes() {
         let p = &r.pieces()[0];
         assert_eq!(p.close.as_ref().unwrap().0.hash, closes(&bytes)[1].1.hash);
         assert!(!p.is_closed());
-        assert!(r.verify(0).unwrap());
+        assert!(r.verify(0).map(|v| v.holds).unwrap());
     }
 }
 

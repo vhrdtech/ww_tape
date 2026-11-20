@@ -157,7 +157,7 @@ pub fn reclose(data: &[u8]) {
     let r = TapeReader::open(&torn[..]);
     match &r {
         Ok(r) => {
-            let _ = r.verify(0);
+            let _ = r.verify(0).map(|v| v.holds);
             let listed = closes_chain(r);
             if !anywhere {
                 assert_eq!(r.pieces().len(), 1, "one piece");
@@ -209,7 +209,7 @@ pub fn reclose(data: &[u8]) {
     }
     if first_flip == usize::MAX {
         assert!(
-            r.verify(0).expect("a closed piece"),
+            r.verify(0).map(|v| v.holds).expect("a closed piece"),
             "the content hash verifies"
         );
     }

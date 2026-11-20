@@ -921,7 +921,7 @@ fn definitions_that_do_not_hold_together_are_refused() {
     w.close_piece().unwrap();
     let bytes = tape.to_vec().unwrap();
     let r = TapeReader::open(&bytes[..]).unwrap();
-    assert!(r.verify(0).unwrap());
+    assert!(r.verify(0).map(|v| v.holds).unwrap());
     assert_eq!(tracks(&r.definitions_at(0, u64::MAX).unwrap()), [1]);
 
     // an aligned writer: a deferred block on a track not held is refused, a good one is placed at the close

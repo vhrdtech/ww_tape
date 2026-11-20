@@ -118,7 +118,7 @@ pub(crate) fn read(data: &[u8], options: OpenOptions) {
 /// range before it of their track number, but at a chunk marked a break; a piece that verifies (its relation columns
 /// in order) lists no entries that go down unmarked.
 fn relations_in_order(r: &TapeReader<&[u8]>, i: usize) {
-    let verified = r.verify(i).is_ok_and(|v| v);
+    let verified = r.verify(i).map(|v| v.holds).is_ok_and(|v| v);
     let mut ids: Vec<u64> = r
         .entries(i)
         .unwrap_or_default()
@@ -165,7 +165,7 @@ fn index_folds_as_the_walk(data: &[u8]) {
     let Ok(r) = TapeReader::open(data) else {
         return;
     };
-    let ([p], Ok(true)) = (r.pieces(), r.verify(0)) else {
+    let ([p], Ok(true)) = (r.pieces(), r.verify(0).map(|v| v.holds)) else {
         return;
     };
     let Some(at) = p

@@ -221,6 +221,24 @@ pub enum Found {
     Scan { scanned: u64 },
 }
 
+/// What [TapeReader::verify] checked of a piece, and what it left unchecked.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Verification {
+    /// Whether every check held: each stretch against the hash its close states, the index against the blocks, the
+    /// track rows, the append heads.
+    pub holds: bool,
+    /// The close record in force, where the check ends: its offset in the piece and the hash it states.
+    pub close: (u64, ContentHash),
+    /// The stretches checked, one per close record up to the one in force.
+    pub stretches: usize,
+    /// Where the bytes checked end in the byte source: the end of the tail of the close in force (its close record's
+    /// start, when no tail ends it).
+    pub checked_end: u64,
+    /// The bytes after them that no close covers, their place in the source ([TapeReader::unclosed]); None when the
+    /// close in force ends the piece's stretch.
+    pub unchecked: Option<core::ops::Range<u64>>,
+}
+
 /// A piece of the tape.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PieceInfo {
@@ -263,6 +281,8 @@ pub struct PieceInfo {
     /// The last close a scan read with its tail, while a later close it met has none yet: in force unless that one's
     /// tail follows
     in_force: Option<InForce>,
+    /// Where the close record a scan met last ends, in the piece: its tail starts there
+    close_end: Option<u64>,
 }
 
 /// A close record of a piece with its rows, offset and tail.
@@ -293,12 +313,14 @@ impl PieceInfo {
             cut_walk: None,
             refused_link: None,
             in_force: None,
+            close_end: None,
         }
     }
 
     /// Take the good close record `block` at `offset` in the piece, met by a scan: the piece's close from here on.
     /// The close before it, read with its tail, stays in force until this one's tail is read.
     fn meet_close(&mut self, block: &Block<'_>, offset: Option<u64>) {
+        self.close_end = offset.and_then(|at| at.checked_add(wide(block.len())));
         if let (Some(close), Some(tail), None) =
             (self.close.take(), self.tail.take(), &self.close_error)
         {
@@ -316,6 +338,18 @@ impl PieceInfo {
             }
             Err(e) => self.close_error = Some(e),
         }
+    }
+
+    /// Whether `tail`, a tail block at `tail_at` in the piece, ends the piece's close: it follows the close record
+    /// right away and names it ([Tail::ends]).
+    fn ends_close(&self, tail: &Tail, tail_at: Option<u64>) -> bool {
+        let (Some((close, _)), Some(at)) = (&self.close, self.close_offset) else {
+            return false;
+        };
+        self.close_error.is_none()
+            && self.close_end.is_some()
+            && self.close_end == tail_at
+            && tail.ends(close, at)
     }
 
     /// End a scan of the piece: a close met without its tail after it (a crash in the end of an append) leaves the
@@ -358,9 +392,10 @@ impl PieceInfo {
 
     /// Where the piece's last good close ends in the byte source: the end of its tail; None without one.
     pub fn closed_end(&self) -> Option<u64> {
+        let (close, _) = self.close.as_ref().filter(|_| self.close_error.is_none())?;
         let tail = self
             .tail
-            .filter(|_| self.close.is_some() && self.close_error.is_none())?;
+            .filter(|t| self.close_offset.is_some_and(|at| t.ends(close, at)))?;
         self.start.checked_add(tail.piece_len)
     }
 
@@ -679,18 +714,21 @@ impl<S: ByteSource> TapeReader<S> {
         let Some(close_at) = start.checked_add(tail.close_offset) else {
             return Ok(None);
         };
+        // the close record the tail names ends where the tail starts: nothing lies between them
         let fb = match self.good_block(close_at, hi)? {
-            Ok((b, _)) if wide(b.len()) == u64::from(tail.close_len) => b,
+            Ok((b, end)) if wide(b.len()) == u64::from(tail.close_len) && end == tail_at => b,
             _ => return Ok(None),
         };
         let Ok(fin) = CloseBlock::read(&fb.block()) else {
             return Ok(None);
         };
         let close = fin.close();
-        if close.hash != tail.hash
-            || close.reason != tail.reason
-            || close.next != tail.next
-            || close.ident != tail.ident
+        if !tail.ends(&close, tail.close_offset) {
+            return Ok(None);
+        }
+        // a piece starts with its head, or with blocks of data when its head is lost: never written on after a close
+        if let Ok((b, _)) = self.good_block(start, hi)?
+            && b.block().kind == BlockKind::AppendHead
         {
             return Ok(None);
         }
@@ -855,11 +893,8 @@ impl<S: ByteSource> TapeReader<S> {
             return Ok(None);
         };
         let close_off = since(final_end, start);
-        let whole = tail.close_offset == close_off
-            && tail.hash == close.hash
-            && tail.reason == close.reason
-            && tail.next == close.next
-            && tail.ident == close.ident;
+        let whole = tail.ends(&close, close_off)
+            && u64::from(tail.close_len) == since(close_end, final_end);
         Ok(whole.then(|| ((close, c.tracks().collect()), close_off, tail)))
     }
 
@@ -981,6 +1016,7 @@ impl<S: ByteSource> TapeReader<S> {
                 }
                 if piece.end > piece.start {
                     set_scanned(&mut piece, since(at, from));
+                    piece.settle_close();
                     out.push(piece);
                 }
                 let mut other = PieceInfo::new(at, Found::Scan { scanned: 0 });
@@ -1025,6 +1061,7 @@ impl<S: ByteSource> TapeReader<S> {
             match block.kind {
                 BlockKind::PieceHead if at != piece.start => {
                     set_scanned(&mut piece, since(at, from));
+                    piece.settle_close();
                     out.push(piece);
                     piece = PieceInfo::new(at, Found::Scan { scanned: 0 });
                     last_counted = None;
@@ -1033,7 +1070,10 @@ impl<S: ByteSource> TapeReader<S> {
                 BlockKind::PieceHead => piece.take_head(&block),
                 BlockKind::Close => piece.meet_close(&block, in_piece),
                 BlockKind::Tail => {
-                    piece.tail = Tail::read(block.bytes()).ok();
+                    // the tail of the close just met, ending at it; another tail is not this close's
+                    piece.tail = Tail::read(block.bytes())
+                        .ok()
+                        .filter(|t| piece.ends_close(t, in_piece));
                     if self.appended_after(&piece, at, end, hi)?
                         || self.torn_after(&piece, end, hi)?
                     {
@@ -1044,6 +1084,7 @@ impl<S: ByteSource> TapeReader<S> {
                     }
                     piece.end = end;
                     set_scanned(&mut piece, since(end, from));
+                    piece.settle_close();
                     out.push(piece);
                     piece = PieceInfo::new(end, Found::Scan { scanned: 0 });
                     last_counted = None;
@@ -1062,6 +1103,7 @@ impl<S: ByteSource> TapeReader<S> {
             if block.kind == BlockKind::PieceHead && piece.refused().is_some() {
                 piece.end = hi;
                 set_scanned(&mut piece, since(hi, from));
+                piece.settle_close();
                 out.push(piece);
                 return Ok(out);
             }
@@ -1392,8 +1434,57 @@ impl<S: ByteSource> TapeReader<S> {
     /// The final index is read as the piece is walked, its track lists merged in file order: verify holds one entry
     /// per track list and the entries of one block, whatever the piece's size. A final index of more than
     /// [VERIFY_LISTS_MAX] track lists names more tracks than a writer gives a piece: it doesn't hold.
-    pub fn verify(&self, i: usize) -> R<bool, S> {
-        self.verify_counted(i).map(|v| v.holds)
+    ///
+    /// The check ends at the close in force. The result says where: what it checked, and the bytes after it that no
+    /// close covers ([Verification::unchecked]).
+    pub fn verify(&self, i: usize) -> R<Verification, S> {
+        let held = self.verify_counted(i)?;
+        let p = self.piece(i)?;
+        let (Some((close, _)), Some(at)) = (&p.close, p.close_offset) else {
+            return Err(ReadError::Unclosed);
+        };
+        let checked_end = p.closed_end().unwrap_or_else(|| p.start.saturating_add(at));
+        let hi = self.stretch_end(i);
+        Ok(Verification {
+            holds: held.holds,
+            close: (at, close.hash),
+            stretches: self.closes(i)?.len(),
+            checked_end,
+            unchecked: (hi > checked_end).then_some(checked_end..hi),
+        })
+    }
+
+    /// Where the stretch of the byte source that piece `i` may hold ends: the next piece's start, or the source's
+    /// length.
+    fn stretch_end(&self, i: usize) -> u64 {
+        self.pieces
+            .get(i.saturating_add(1))
+            .map_or(self.len, |n| n.start)
+    }
+
+    /// The bytes of piece `i`'s stretch of the byte source that its close in force doesn't cover, their place in the
+    /// source: an unclosed tail (a writer writing on after the close, or one a crash stopped), bytes after a tail that
+    /// read as no block, or the whole stretch of a piece without a close. None when the close in force ends the
+    /// stretch. A reader that opened the source sees what it held then: a source that grew since has a
+    /// [ByteSource::size] past [Self::len], and a new open reads the growth.
+    pub fn unclosed(&self, i: usize) -> R<Option<core::ops::Range<u64>>, S> {
+        let p = self.piece(i)?;
+        let from = p.closed_end().unwrap_or(p.start);
+        let hi = self.stretch_end(i);
+        Ok((hi > from).then_some(from..hi))
+    }
+
+    /// The entries of piece `i` that its close in force covers: every block its index or scan knows before that
+    /// close record, in file order. The blocks of an unclosed tail after it are left out; a piece without a close in
+    /// force has none.
+    pub fn closed_entries(&self, i: usize) -> R<Vec<IndexEntry>, S> {
+        let p = self.piece(i)?;
+        let Some(at) = p.close_offset.filter(|_| p.closed_end().is_some()) else {
+            return Ok(Vec::new());
+        };
+        let mut out = self.entries(i)?;
+        out.retain(|e| e.offset < at);
+        Ok(out)
     }
 
     /// The close records of piece `i`, oldest first, each with its offset in the piece: the last good one
@@ -1442,6 +1533,8 @@ impl<S: ByteSource> TapeReader<S> {
             .collect();
         let mut stretches_hold = true;
         let mut pos = 0u64;
+        // the close record before the stretch walked and the hash it states: an append head names them
+        let mut last_close: Option<(u64, ContentHash)> = None;
         // where each track list of the final index is: its blocks read whole and checked once, its entries read later
         let mut lists: Vec<(u64, u32, u64)> = Vec::new();
         let read = self.for_final(p, |ix| {
@@ -1474,7 +1567,8 @@ impl<S: ByteSource> TapeReader<S> {
         let starts = p.head.as_ref().map_or(&[][..], |(_, t)| &t[..]);
         let mut replay = verify::Replay::new(starts, listed, end);
         let mut h = blake3::Hasher::new();
-        walk_piece(
+        // a walk that spent its budget before the close stops short: what it hashed is not the piece
+        let walked = walk_piece(
             end,
             |at, buf| {
                 let off = in_piece(p, at, buf.len())?;
@@ -1488,9 +1582,21 @@ impl<S: ByteSource> TapeReader<S> {
                 {
                     stretches_hold &= at == pos && *h.finalize().as_bytes() == stated.0;
                     h = crate::piece::chained(&stated);
+                    last_close = Some((at, stated));
                 }
                 match step {
                     Walked::Block(block) => {
+                        // an append head goes on from the close before it, right after that close's tail
+                        // the kind byte first: only an append head is read again
+                        let head = block.get(5) == Some(&BlockKind::AppendHead.to_u8());
+                        if let Some(b) = head.then(|| Block::read(block).ok()).flatten() {
+                            let tail_at = pos.checked_sub(wide(TAIL_LEN));
+                            stretches_hold &= AppendHead::read(&b).is_ok_and(|a| {
+                                last_close.is_some_and(|(at, hash)| {
+                                    tail_at.is_some_and(|t| a.follows(at, t, &hash))
+                                })
+                            });
+                        }
                         pos = pos.saturating_add(wide(block.len()));
                         let chunk = crate::piece::hash_block(&mut h, block);
                         replay.block(block, chunk);
@@ -1515,7 +1621,7 @@ impl<S: ByteSource> TapeReader<S> {
         }
         Ok(verify::Verified {
             holds: stretches_hold
-                && earlier.is_empty()
+                && walked
                 && *h.finalize().as_bytes() == fin.hash.0
                 && replay.check(rows),
             steps: replay.steps(),
@@ -1883,9 +1989,7 @@ fn closed_unlinked(piece: &PieceInfo, end: u64) -> Option<(&Close, u64)> {
         return None;
     };
     let whole = piece.close_error.is_none()
-        && tail.close_offset == close_at
-        && tail.hash == close.hash
-        && tail.next.is_none()
+        && tail.ends(close, close_at)
         && close.next.is_none()
         && tail.piece_len == since(end, piece.start);
     whole.then_some((close, close_at))

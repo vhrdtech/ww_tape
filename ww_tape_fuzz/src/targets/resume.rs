@@ -311,7 +311,7 @@ pub fn resume(data: &[u8]) {
         "found whole by its tail"
     );
     assert!(
-        r.verify(last).expect("a closed piece"),
+        r.verify(last).map(|v| v.holds).expect("a closed piece"),
         "the content hash verifies"
     );
     folds_alike(
@@ -397,11 +397,14 @@ fn resume_chain(aligned: bool, bytes: &[u8], last: usize, open: Option<&[u8]>) {
     let kept = (bytes.len() > last && out.get(last..bytes.len()) == Some(&bytes[last..]))
         .then(|| r.pieces().iter().position(|p| p.start == last as u64))
         .flatten();
-    let damaged = kept.filter(|i| !r.verify(*i).expect("a closed piece"));
+    let damaged = kept.filter(|i| !r.verify(*i).map(|v| v.holds).expect("a closed piece"));
     for (i, p) in r.pieces().iter().enumerate() {
         assert_eq!(p.found, Found::Tail, "piece {i} found whole by its tail");
         if Some(i) != damaged {
-            assert!(r.verify(i).expect("a closed piece"), "piece {i} verifies");
+            assert!(
+                r.verify(i).map(|v| v.holds).expect("a closed piece"),
+                "piece {i} verifies"
+            );
         }
     }
     if damaged.is_none() {

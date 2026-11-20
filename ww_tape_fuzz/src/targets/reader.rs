@@ -46,7 +46,7 @@ fn verify_reads_linear(data: &[u8]) {
     for (i, p) in r.pieces().iter().enumerate() {
         let n = p.end.saturating_sub(p.start);
         src.read.set(0);
-        let _ = r.verify(i);
+        let _ = r.verify(i).map(|v| v.holds);
         let bound = (3 + WALK_MISS_PER_BYTE_MAX) * n + WALK_MISS_BASE_MAX;
         assert!(
             src.read.get() <= bound,

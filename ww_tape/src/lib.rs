@@ -228,7 +228,9 @@ pub use piece::{
 #[cfg(feature = "alloc")]
 pub mod reader;
 #[cfg(feature = "alloc")]
-pub use reader::{ByteSource, OpenOptions, PieceInfo, RangeHash, ReadError, TapeReader};
+pub use reader::{
+    ByteSource, OpenOptions, PieceInfo, RangeHash, ReadError, TapeReader, Verification,
+};
 
 mod event;
 pub use event::{EventRecord, EventRecordError};

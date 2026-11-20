@@ -248,7 +248,7 @@ fn a_piece_of_another_version_is_reported_where_it_is_met() {
     let r = TapeReader::open(&both[..]).unwrap();
     assert_eq!(r.pieces().len(), 2);
     assert_eq!(r.pieces()[0].version, None);
-    assert!(r.verify(0).unwrap());
+    assert!(r.verify(0).map(|v| v.holds).unwrap());
     assert_eq!(r.pieces()[1].start, ours.len() as u64);
     other(&r, 1);
 }

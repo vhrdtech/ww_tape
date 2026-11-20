@@ -269,7 +269,7 @@ fn the_lock_file_holds_nothing_anyone_needs() {
     let read = |p: &Path| {
         let src = ww_tape_fs::FileSource::open(p).unwrap();
         let r = ww_tape::TapeReader::open(src).unwrap();
-        (r.pieces().to_vec(), r.verify(0).unwrap())
+        (r.pieces().to_vec(), r.verify(0).map(|v| v.holds).unwrap())
     };
     let want = read(&path);
     assert!(want.1);

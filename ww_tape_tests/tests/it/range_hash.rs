@@ -574,8 +574,11 @@ fn an_unchecked_chunk_folds_by_its_entry_and_fails_verify() {
     let mut buf = vec![];
     let refused = format!("{:?}", r.read_chunk_head(1, &e, &mut buf).err());
     assert!(refused.contains("PayloadUnchecked"), "{refused}");
-    assert!(good.verify(1).unwrap());
-    assert!(!r.verify(1).unwrap(), "the content hash takes it as bytes");
+    assert!(good.verify(1).map(|v| v.holds).unwrap());
+    assert!(
+        !r.verify(1).map(|v| v.holds).unwrap(),
+        "the content hash takes it as bytes"
+    );
 }
 
 /// An entry without a unit hash pointed at another track's chunk, its CRCs good, is refused when the chunk is read:
@@ -743,7 +746,13 @@ fn verify_compares_each_entry_with_its_block() {
     let mut same = files[0].clone();
     reseal(&mut same, i);
     assert_eq!(same, files[0]);
-    assert!(TapeReader::open(&same[..]).unwrap().verify(i).unwrap());
+    assert!(
+        TapeReader::open(&same[..])
+            .unwrap()
+            .verify(i)
+            .map(|v| v.holds)
+            .unwrap()
+    );
     let first_chunk = |j: &mut Option<usize>, e: &[u8]| {
         let first = j.is_none() && e[12] == BlockKind::Events.to_u8();
         if first {
@@ -772,7 +781,7 @@ fn verify_compares_each_entry_with_its_block() {
         });
         reseal(&mut bytes, i);
         let r = TapeReader::open(&bytes[..]).unwrap();
-        assert!(!r.verify(i).unwrap(), "{name}");
+        assert!(!r.verify(i).map(|v| v.holds).unwrap(), "{name}");
     }
     // the chunk of an entry of kind 11 is counted as skipped by the range hash, never dropped unsaid
     let mut bytes = files[0].clone();
@@ -863,7 +872,7 @@ fn verify_compares_each_close_row_with_its_fold() {
         r.pieces()[i].close.as_ref().unwrap().1,
         p.close.as_ref().unwrap().1
     );
-    assert!(!r.verify(i).unwrap());
+    assert!(!r.verify(i).map(|v| v.holds).unwrap());
 }
 
 /// A track's last chunk taken out of the fold: its entry moved past the blocks walked (onto the close) with another
@@ -949,7 +958,7 @@ fn verify_refuses_a_chunk_its_index_lists_past_the_blocks() {
         .range_hash(id_of(t), OwnerId::NONE, 0..u64::MAX, TrackHash::START)
         .unwrap();
     assert_eq!((g.read, g.stated()), (0, g.chunks));
-    assert!(!r.verify(i).unwrap());
+    assert!(!r.verify(i).map(|v| v.holds).unwrap());
 }
 
 /// A range hash over pieces whose head doesn't read says so (`RangeHash::headless`): the older layout's file, both

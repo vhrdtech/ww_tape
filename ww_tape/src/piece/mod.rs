@@ -1155,6 +1155,19 @@ pub struct Tail {
 }
 
 impl Tail {
+    /// Whether this tail ends the piece after `close`, the close record at `close_at` in the piece: it names that
+    /// record, states what the record states, and lies right after it as the piece's last bytes.
+    pub fn ends(&self, close: &Close, close_at: u64) -> bool {
+        let tail_at = close_at.checked_add(u64::from(self.close_len));
+        self.close_offset == close_at
+            && u64::try_from(TAIL_LEN)
+                .is_ok_and(|n| tail_at.and_then(|at| at.checked_add(n)) == Some(self.piece_len))
+            && self.hash == close.hash
+            && self.reason == close.reason
+            && self.next == close.next
+            && self.ident == close.ident
+    }
+
     /// Write the tail block into `buf` (at least [TAIL_LEN] bytes); returns [TAIL_LEN].
     ///
     /// # Panics

@@ -296,7 +296,7 @@ fn a_raw_medium_reads_appended_pieces() {
     assert_eq!(starts(&raw), starts(&file));
     assert_eq!(raw.pieces().len(), done.len());
     for i in 0..raw.pieces().len() {
-        assert!(raw.verify(i).unwrap(), "piece {i}");
+        assert!(raw.verify(i).map(|v| v.holds).unwrap(), "piece {i}");
     }
     assert!(raw.chain().is_whole(), "{:?}", raw.chain());
     // the raw walk lists the blocks it reads, without their unit hashes: it reads the chunks, to the same hash

@@ -159,7 +159,7 @@ fn closed_file_is_found_by_its_tail() {
     assert_eq!(close.reason, CloseReason::Closed);
     assert_eq!(close.hash, done.hash);
     assert!(close.checkpoint.is_some());
-    assert!(r.verify(0).unwrap());
+    assert!(r.verify(0).map(|v| v.holds).unwrap());
     // three tracks of chunks, one of records alone
     assert_eq!(ranges.len(), 4);
     let rec = ranges.iter().find(|t| t.track_number == 9).unwrap();
@@ -223,7 +223,13 @@ fn closed_file_is_found_by_its_tail() {
     // a flipped byte before the close fails the content hash
     let mut bad = bytes.clone();
     bad[100] ^= 1;
-    assert!(!TapeReader::open(&bad[..]).unwrap().verify(0).unwrap());
+    assert!(
+        !TapeReader::open(&bad[..])
+            .unwrap()
+            .verify(0)
+            .map(|v| v.holds)
+            .unwrap()
+    );
 
     // the same through a file
     let f = ww_tape_fs::FileSource::open(&path).unwrap();
@@ -277,7 +283,7 @@ fn crash_anywhere_loses_only_the_cut_block() {
     }
     let r = TapeReader::open(&bytes[..]).unwrap();
     assert!(matches!(r.pieces()[0].found, Found::Checkpoint { .. }));
-    assert!(r.verify(0).is_err(), "no close, no hash");
+    assert!(r.verify(0).map(|v| v.holds).is_err(), "no close, no hash");
     // a short scan back finds no checkpoint: the whole file is scanned instead
     let r = TapeReader::open_with(
         &bytes[..],
@@ -316,7 +322,7 @@ fn aligned_file_places_checkpoints_in_gaps() {
     }
     assert!(checkpoints >= 3);
     let r = TapeReader::open(&bytes[..]).unwrap();
-    assert!(r.verify(0).unwrap());
+    assert!(r.verify(0).map(|v| v.holds).unwrap());
     assert_eq!(r.track_entries(0, chunk_id(2)).unwrap().len(), 10);
     std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -431,7 +437,7 @@ fn chains_of_one_result_are_apart() {
         SessionTag::of_piece(&h0.ident.id),
         SessionTag::of_piece(&h1.ident.id)
     );
-    assert!(r.verify(0).unwrap());
+    assert!(r.verify(0).map(|v| v.holds).unwrap());
     let both = [a.clone(), b.clone()].concat();
     let mut rd = FileBlocks::new(&both[..]);
     let mut n = 0;
@@ -465,7 +471,7 @@ fn chain_of_pieces_links_both_ways() {
     for (i, f) in files.iter().enumerate() {
         let r = TapeReader::open(&f[..]).unwrap();
         assert_eq!(r.pieces().len(), 1, "piece {i} reads alone");
-        assert!(r.verify(0).unwrap());
+        assert!(r.verify(0).map(|v| v.holds).unwrap());
         let p = &r.pieces()[0];
         let (head, starts) = p.head.as_ref().unwrap();
         assert_eq!(head.ident.seq, i as u64);
@@ -499,7 +505,7 @@ fn chain_of_pieces_links_both_ways() {
     assert_eq!(r.pieces().len(), 3);
     assert!(r.pieces().iter().all(|p| p.found == Found::Tail));
     assert!(r.chain().is_whole());
-    assert!((0..3).all(|i| r.verify(i).unwrap()));
+    assert!((0..3).all(|i| r.verify(i).map(|v| v.holds).unwrap()));
     let t0: usize = (0..3)
         .map(|i| r.track_entries(i, chunk_id(0)).unwrap().len())
         .sum();
@@ -591,7 +597,7 @@ fn closed_pieces_clone_back_to_back() {
     );
     assert!(r.pieces().iter().all(|p| p.found == Found::Tail));
     assert!(r.chain().is_whole());
-    assert!((0..3).all(|i| r.verify(i).unwrap()));
+    assert!((0..3).all(|i| r.verify(i).map(|v| v.holds).unwrap()));
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -640,7 +646,7 @@ fn closed_pieces_then_an_unclosed_one() {
         assert_eq!(p[2].close.is_some(), ended, "cut at {cut}");
         assert!(!p[2].is_closed(), "cut at {cut}");
         assert_eq!(r.chain().end, ChainEnd::Unclosed, "cut at {cut}");
-        assert!((0..2).all(|i| r.verify(i).unwrap()));
+        assert!((0..2).all(|i| r.verify(i).map(|v| v.holds).unwrap()));
         let events = r
             .entries(2)
             .unwrap()

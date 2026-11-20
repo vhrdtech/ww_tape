@@ -20,6 +20,7 @@ Covers `ww_tape` 0.1.0.
 - `Tapes::reopen` returns a closed tape too, written on in place; a closed last piece of a chain is written on (TAPE-14).
 - A chain links pieces only by the `next` id a close names; `check_chain` no longer derives it from the piece before (TAPE-14).
 - A close whose tail is torn leaves the chain `Unclosed`, and the close before it in force (TAPE-14).
+- `TapeReader::verify` returns `Verification`: whether it holds, the close it checked up to, and the bytes left unchecked; read `.holds` (TAPE-14).
 - A read-only file system refuses a file writer with `FsError::ReadOnly(path)`, not `FsError::Io`; match the new variant (TAPE-14).
 - `TimesError::Corrupt { kind, what }` is `{ kind, error: ColumnError }`, the column reader's error whole (TAPE-12).
 - `PayloadsError::Corrupt { kind, what }` is `{ kind, error: ColumnError }`, as for the time columns (TAPE-12).
@@ -159,6 +160,7 @@ Covers `ww_tape` 0.1.0.
 
 ### 🚀 Features
 
+- `TapeReader::unclosed` names the bytes no close covers; `TapeReader::closed_entries` lists only blocks the close in force covers (TAPE-14).
 - A piece closes more than once: an append head after the tail, a chained close hash, `TapeReader::closes` (TAPE-14).
 - Readers take the last close with a whole tail; bytes after it are an unclosed tail, never damage (TAPE-14).
 - Fuzz target `tape-reclose`: a piece closed several times, its last append torn and mutated, read and resumed (TAPE-14).
@@ -282,6 +284,7 @@ Covers `ww_tape` 0.1.0.
 
 ### 🐛 Fixes
 
+- A tail counts only right after the close record it names; a tail naming an older close no longer hides later bytes (TAPE-14).
 - Sample, time and payload column errors name the column as text; the codec error is their `source()` (TAPE-12).
 - `ww_tape` builds without `alloc` again: the block, chunk and codec readers; a salvage there checks a starts column whole (STD-124).
 - A file sink locks `NAME.lock` with a per-process record lock: a forked child no longer makes a resume fail `Locked` (TAPE-12).

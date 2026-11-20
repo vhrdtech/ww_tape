@@ -524,7 +524,7 @@ fn a_damaged_block_of_definitions_is_put_again_after_a_resume() {
     let kept = resumed.kept_bytes;
     let got = close_resumed(w, &ops, &made, kept);
     let r = TapeReader::open(&got[..]).unwrap();
-    assert!(r.verify(0).unwrap());
+    assert!(r.verify(0).map(|v| v.holds).unwrap());
     let data: Vec<u64> = r
         .entries(0)
         .unwrap()
@@ -759,7 +759,7 @@ fn a_chain_in_memory_reads_and_matches_files() {
         assert_eq!(fa.tape, fb.tape);
         assert_eq!(fa.piece.hash, fb.piece.hash);
         let r = TapeReader::open(tape).unwrap();
-        assert!(r.verify(0).unwrap());
+        assert!(r.verify(0).map(|v| v.holds).unwrap());
         all.extend(bytes);
     }
     let r = TapeReader::open(&all[..]).unwrap();
@@ -1099,7 +1099,9 @@ fn one_file_is_its_pieces<P: OneFile>(place: &P, scratch_dir: &Path) {
     for (i, p) in paths.iter().enumerate() {
         let bytes = std::fs::read(p).unwrap();
         let alone = TapeReader::open(&bytes[..]).unwrap();
-        assert!(one.verify(i).unwrap() && alone.verify(0).unwrap());
+        assert!(
+            one.verify(i).map(|v| v.holds).unwrap() && alone.verify(0).map(|v| v.holds).unwrap()
+        );
         let (a, b) = (one.entries(i).unwrap(), alone.entries(0).unwrap());
         assert_eq!(a, b);
         for e in &a {
@@ -1217,7 +1219,7 @@ fn one_file_reopened<P: OneFile>(place: &P) {
     assert!(closes.len() >= 2, "{closes:?}");
     assert_eq!(closes[0].1.hash, a[kept].piece.hash);
     assert_eq!(closes[1].1.prev, Some(closes[0].0));
-    assert!((0..r.pieces().len()).all(|i| r.verify(i).unwrap()));
+    assert!((0..r.pieces().len()).all(|i| r.verify(i).map(|v| v.holds).unwrap()));
 
     // the same calls in one session: every track's hash is the same
     let mem = MemTapes::new();
@@ -1701,7 +1703,7 @@ fn a_resume_refuses_where_the_hash_walk_is_spent() {
                 let out = tape.to_vec().unwrap();
                 let r = TapeReader::open(&out[..]).unwrap();
                 assert!(
-                    r.verify(r.pieces().len() - 1).unwrap(),
+                    r.verify(r.pieces().len() - 1).unwrap().holds,
                     "the content hash verifies"
                 );
             }
@@ -1766,7 +1768,10 @@ fn a_piece_of_another_integrity_level_is_refused_everywhere() {
             assert_eq!(p.head_error, Some(error), "{level}");
             let refused =
                 |e: Result<_, ReadError<_>>| matches!(e, Err(ReadError::Index(e)) if e == error);
-            assert!(refused(r.verify(0).map(|_| ())), "{level}: verify");
+            assert!(
+                refused(r.verify(0).map(|v| v.holds).map(|_| ())),
+                "{level}: verify"
+            );
             assert!(refused(r.entries(0).map(|_| ())), "{level}: entries");
             assert!(refused(
                 r.range_hash(1, OwnerId::NONE, 0..u64::MAX, ww_tape::TrackHash::START)

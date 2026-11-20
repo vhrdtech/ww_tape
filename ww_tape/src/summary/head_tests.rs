@@ -306,7 +306,11 @@ fn a_core_only_tape_lists_verifies_and_skips_summary_blocks() {
             .iter()
             .all(|e| e.tree == 2 && e.level == 0 && e.count == chunk as u64)
     );
-    assert_eq!(r.verify(0).ok(), Some(true), "the whole piece verifies");
+    assert_eq!(
+        r.verify(0).map(|v| v.holds).ok(),
+        Some(true),
+        "the whole piece verifies"
+    );
 
     let e = listed[3];
     let (at, len) = (e.offset as usize, e.len as usize);
@@ -322,18 +326,18 @@ fn a_core_only_tape_lists_verifies_and_skips_summary_blocks() {
         Block::read(&bad[at..at + len]).is_ok(),
         "the changed block reads"
     );
-    let held = TapeReader::open(&bad[..]).and_then(|r| r.verify(0));
+    let held = TapeReader::open(&bad[..]).and_then(|r| r.verify(0).map(|v| v.holds));
     assert_ne!(held.ok(), Some(true), "a changed node byte doesn't verify");
     // the head's items, CRC restamped
     let mut bad = file.clone();
     bad[at + 64] ^= 0x01;
     restamp(&mut bad);
     assert!(Block::read(&bad[at..at + len]).is_err(), "a lying head");
-    let held = TapeReader::open(&bad[..]).and_then(|r| r.verify(0));
+    let held = TapeReader::open(&bad[..]).and_then(|r| r.verify(0).map(|v| v.holds));
     assert_ne!(held.ok(), Some(true), "a changed head doesn't verify");
     // a node bit, the old CRC
     let mut bad = file.clone();
     bad[at + 130] ^= 0x80;
-    let held = TapeReader::open(&bad[..]).and_then(|r| r.verify(0));
+    let held = TapeReader::open(&bad[..]).and_then(|r| r.verify(0).map(|v| v.holds));
     assert_ne!(held.ok(), Some(true), "a flipped bit doesn't verify");
 }
