@@ -972,24 +972,29 @@ fn golden_append() {
     let tape = w.sink().tape();
     w.close_with_summary(ww_tape::piece::CloseReason::Closed, b"two")
         .unwrap();
-    let bytes = tape.to_vec().unwrap();
+    golden(&tape.to_vec().unwrap(), "v1-append.hex");
+}
+
+/// The blocks of `bytes`, one line of hex each, against `ww_tape/golden/NAME` (`WW_TAPE_GOLDEN=update` rewrites it).
+pub(crate) fn golden(bytes: &[u8], name: &str) {
     let mut hex = String::new();
-    let mut rd = FileBlocks::new(&bytes[..]);
+    let mut rd = FileBlocks::new(bytes);
     while let Some(b) = rd.next_block() {
         for byte in b.unwrap().bytes() {
             hex.push_str(&format!("{byte:02x}"));
         }
         hex.push('\n');
     }
-    let golden =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../ww_tape/golden/v1-append.hex");
+    let golden = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../ww_tape/golden")
+        .join(name);
     if std::env::var("WW_TAPE_GOLDEN").as_deref() == Ok("update") {
         std::fs::write(&golden, &hex).unwrap();
     }
     let want = std::fs::read_to_string(&golden)
-        .expect("golden/v1-append.hex: run with WW_TAPE_GOLDEN=update");
+        .unwrap_or_else(|_| panic!("golden/{name}: run with WW_TAPE_GOLDEN=update"));
     assert!(
         hex == want,
-        "the format changed: bytes differ from golden/v1-append.hex"
+        "the format changed: bytes differ from golden/{name}"
     );
 }
