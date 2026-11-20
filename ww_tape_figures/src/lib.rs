@@ -13,10 +13,13 @@
 //! - `resume.svg`: the piece written whole, cut by the crash, and resumed to the same bytes.
 //! - `tape_map.svg`: the drive's five tracks over its hour, and the records blocks and chunks that hold them.
 //! - `first_tape.svg`: the file of the drive's first minute, its start and its end to scale.
+//! - `index_select.svg`: the index entries of two tracks of the drive's last piece, and those a query keeps.
+//! - `summary_tree.svg`: the drive's phase current as summary nodes of two levels and a viewer's columns.
+//! - `autorange.svg`: an autoranging meter's chunks on one grid at two scales, and its summary nodes.
 //! - `prefix_resync.svg`: the drive's last piece with two damaged blocks, walked in Prefix and in Resync.
 //! - `loss_cases.svg`: the drive's last piece with three kinds of damage, and what still reads of each.
 //!
-//! The figures of records against chunks, the clock map, the checkpoints, the crash, the map, the first tape and the damage draw the book's running example, the drive's recording ([ww_tape_example]), at a small scale.
+//! The figures of records against chunks, the clock map, the checkpoints, the crash, the map, the first tape, the index query, the summary tree and the damage draw the book's running example, the drive's recording ([ww_tape_example]), at a small scale.
 //!
 //! [figures] draws them; `ww_tape_figures DIR` writes them into `DIR` (`just book-figures`: `docs/plots`).
 #![allow(
@@ -27,6 +30,7 @@
     reason = "the figures draw blocks ww_tape wrote itself: coordinates are computed freely and a broken figure fails its test"
 )]
 
+mod autorange;
 mod block;
 mod checkpoints;
 mod clock_map;
@@ -35,9 +39,11 @@ mod damage;
 mod defs;
 mod first_tape;
 mod grids;
+mod index_select;
 mod piece;
 mod puts;
 mod records_vs_chunk;
+mod summary_tree;
 mod svg;
 mod tape_map;
 
@@ -58,6 +64,9 @@ pub fn figures() -> anyhow::Result<Vec<(&'static str, String)>> {
         ("resume.svg", crash::resume_svg()?),
         ("tape_map.svg", tape_map::tape_map()?),
         ("first_tape.svg", first_tape::first_tape()?),
+        ("index_select.svg", index_select::index_select()?),
+        ("summary_tree.svg", summary_tree::summary_tree()?),
+        ("autorange.svg", autorange::autorange()?),
         ("prefix_resync.svg", damage::prefix_resync()?),
         ("loss_cases.svg", damage::loss_cases()?),
     ])

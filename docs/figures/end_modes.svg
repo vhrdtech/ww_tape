@@ -1,0 +1,39 @@
+<svg class="ww-svg" viewBox="0 0 680 262" width="680" height="262" role="img" aria-label="The three end modes of an events chunk: instants store no end; spans that follow each other end at the next start and store no end either; spans with gaps store a duration each. The latest end in the chunk head bounds every span." xmlns="http://www.w3.org/2000/svg">
+  <text x="660" y="22" text-anchor="end" class="soft small">ticks →</text>
+
+  <text x="20" y="22" text-anchor="start" class="strong">Absent: instants, no ends stored</text>
+  <path d="M20 58 H660" class="faint"/>
+  <path d="M70 40 V58 M150 40 V58 M196 40 V58 M300 40 V58 M352 40 V58 M470 40 V58 M560 40 V58 M610 40 V58" class="line"/>
+  <circle cx="70" cy="40" r="3" class="blue"/>
+  <circle cx="150" cy="40" r="3" class="blue"/>
+  <circle cx="196" cy="40" r="3" class="blue"/>
+  <circle cx="300" cy="40" r="3" class="blue"/>
+  <circle cx="352" cy="40" r="3" class="blue"/>
+  <circle cx="470" cy="40" r="3" class="blue"/>
+  <circle cx="560" cy="40" r="3" class="blue"/>
+  <circle cx="610" cy="40" r="3" class="blue"/>
+  <text x="20" y="76" text-anchor="start" class="soft small">each item is one tick, such as a received frame</text>
+
+  <text x="20" y="104" text-anchor="start" class="strong">Next start: spans back to back, no ends stored</text>
+  <rect x="70.5" y="116" width="80" height="20" rx="2" class="tint-blue"/>
+  <rect x="150.5" y="116" width="150" height="20" rx="2" class="tint-teal"/>
+  <rect x="300.5" y="116" width="170" height="20" rx="2" class="tint-blue"/>
+  <rect x="470.5" y="116" width="140" height="20" rx="2" class="tint-teal"/>
+  <text x="110" y="130.5" text-anchor="middle" class="small">idle</text>
+  <text x="225" y="130.5" text-anchor="middle" class="small">run</text>
+  <text x="385" y="130.5" text-anchor="middle" class="small">stop</text>
+  <text x="540" y="130.5" text-anchor="middle" class="small">run</text>
+  <path d="M610 110 V142" class="accent-line"/>
+  <text x="614" y="154" text-anchor="start" class="accent small">latest end</text>
+  <text x="20" y="154" text-anchor="start" class="soft small">each item ends where the next starts; the last at the head's latest end</text>
+
+  <text x="20" y="184" text-anchor="start" class="strong">Durations: spans with gaps, a length each</text>
+  <rect x="70.5" y="196" width="60" height="20" rx="2" class="tint-blue"/>
+  <rect x="180.5" y="196" width="110" height="20" rx="2" class="tint-blue"/>
+  <rect x="320.5" y="196" width="40" height="20" rx="2" class="tint-blue"/>
+  <rect x="420.5" y="196" width="210" height="20" rx="2" class="tint-blue"/>
+  <rect x="470.5" y="222" width="60" height="12" rx="2" class="tint-amber"/>
+  <path d="M630 190 V240" class="accent-line"/>
+  <text x="626" y="184" text-anchor="end" class="accent small">latest end: no span reaches past it</text>
+  <text x="20" y="252" text-anchor="start" class="soft small">the ends column stores each span's duration; spans may overlap</text>
+</svg>

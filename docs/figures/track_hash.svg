@@ -1,0 +1,67 @@
+<svg class="ww-svg" viewBox="0 0 680 272" width="680" height="272" role="img" aria-label="The chunks of one track in two pieces, each with its unit hash in its index entry. The unit hashes fold in item order into the track hash, which starts at 32 zero bytes; each piece head states the hash before the piece and each close the hash after it. A range hash folds the unit hashes of the chunks of a range alone, from 32 zero bytes." xmlns="http://www.w3.org/2000/svg">
+  <text x="20" y="22" text-anchor="start" class="strong">one track's chunks in two pieces</text>
+  <text x="660" y="22" text-anchor="end" class="soft small">item numbers →</text>
+
+  <rect x="20.5" y="40" width="20" height="30" rx="2" class="tint-ink"/>
+  <text x="30" y="84" text-anchor="middle" class="soft small">head</text>
+  <rect x="46.5" y="40" width="70" height="30" rx="2" class="tint-blue"/>
+  <rect x="122.5" y="40" width="70" height="30" rx="2" class="tint-blue"/>
+  <rect x="198.5" y="40" width="70" height="30" rx="2" class="tint-blue"/>
+  <rect x="274.5" y="40" width="26" height="30" rx="2" class="tint-amber"/>
+  <text x="287" y="84" text-anchor="middle" class="soft small">close</text>
+  <rect x="340.5" y="40" width="20" height="30" rx="2" class="tint-ink"/>
+  <text x="350" y="84" text-anchor="middle" class="soft small">head</text>
+  <rect x="366.5" y="40" width="70" height="30" rx="2" class="tint-blue"/>
+  <rect x="442.5" y="40" width="70" height="30" rx="2" class="tint-blue"/>
+  <rect x="518.5" y="40" width="70" height="30" rx="2" class="tint-blue"/>
+  <rect x="594.5" y="40" width="26" height="30" rx="2" class="tint-amber"/>
+  <text x="607" y="84" text-anchor="middle" class="soft small">close</text>
+  <text x="81" y="59.5" text-anchor="middle" class="mono small">u1</text>
+  <text x="157" y="59.5" text-anchor="middle" class="mono small">u2</text>
+  <text x="233" y="59.5" text-anchor="middle" class="mono small">u3</text>
+  <text x="401" y="59.5" text-anchor="middle" class="mono small">u4</text>
+  <text x="477" y="59.5" text-anchor="middle" class="mono small">u5</text>
+  <text x="553" y="59.5" text-anchor="middle" class="mono small">u6</text>
+  <text x="180" y="34" text-anchor="middle" class="soft small">piece 0</text>
+  <text x="480" y="34" text-anchor="middle" class="soft small">piece 1</text>
+
+  <text x="62" y="166" text-anchor="start" class="soft small">the track hash, folded in item order from 0</text>
+  <rect x="20.5" y="130" width="40" height="24" rx="2" class="faint"/>
+  <text x="40" y="146.5" text-anchor="middle" class="mono small">0</text>
+  <path d="M81 72 V124" class="thin"/>
+  <path d="M77 124 L85 124 L81 131 Z" class="thin head"/>
+  <path d="M157 72 V124" class="thin"/>
+  <path d="M153 124 L161 124 L157 131 Z" class="thin head"/>
+  <path d="M233 72 V124" class="thin"/>
+  <path d="M229 124 L237 124 L233 131 Z" class="thin head"/>
+  <path d="M401 72 V124" class="thin"/>
+  <path d="M397 124 L405 124 L401 131 Z" class="thin head"/>
+  <path d="M477 72 V124" class="thin"/>
+  <path d="M473 124 L481 124 L477 131 Z" class="thin head"/>
+  <path d="M553 72 V124" class="thin"/>
+  <path d="M549 124 L557 124 L553 131 Z" class="thin head"/>
+  <path d="M62 142 H636" class="line"/>
+  <path d="M636 138 L644 142 L636 146 Z" class="line head"/>
+  <circle cx="81" cy="142" r="4" class="blue"/>
+  <circle cx="157" cy="142" r="4" class="blue"/>
+  <circle cx="233" cy="142" r="4" class="blue"/>
+  <circle cx="401" cy="142" r="4" class="blue"/>
+  <circle cx="477" cy="142" r="4" class="blue"/>
+  <circle cx="553" cy="142" r="4" class="blue"/>
+  <path d="M30 158 V178" class="thin dash"/>
+  <text x="30" y="192" text-anchor="start" class="small">head 0 states 0</text>
+  <path d="M287 142 V178" class="thin dash"/>
+  <text x="287" y="192" text-anchor="middle" class="small">close 0 and head 1 state H3</text>
+  <path d="M607 142 V178" class="thin dash"/>
+  <text x="640" y="192" text-anchor="end" class="small">close 1 states H6</text>
+
+  <text x="20" y="226" text-anchor="start" class="strong">a range hash of the items in u3 to u5</text>
+  <rect x="20.5" y="238" width="40" height="24" rx="2" class="faint"/>
+  <text x="40" y="254.5" text-anchor="middle" class="mono small">0</text>
+  <path d="M62 250 H496" class="accent-line"/>
+  <path d="M496 246 L504 250 L496 254 Z" class="accent-line head"/>
+  <circle cx="233" cy="250" r="4" class="blue"/>
+  <circle cx="401" cy="250" r="4" class="blue"/>
+  <circle cx="477" cy="250" r="4" class="blue"/>
+  <text x="516" y="254.5" text-anchor="start" class="accent small">from the index entries alone</text>
+</svg>

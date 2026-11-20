@@ -1048,6 +1048,7 @@ dependencies = [
  "shrink_wrap",
  "ww_tape",
  "ww_tape_example",
+ "ww_tape_summary",
 ]
 
 [[package]]
