@@ -664,16 +664,25 @@ fn chains_link_over_removed_pieces() {
     assert_eq!(r.links, [ChainLink::Broken]);
 
     // two closes naming one piece differently: left out, a gap
-    let mut other = with(summary(2, Some(Continued)), &[1]);
+    let mut other = with(summary(5, Some(Complete)), &[1]);
     other.removed[0].hash = ContentHash([1; 32]);
     let r = check_chain(&[
         with(summary(0, Some(Continued)), &[]),
-        summary(3, Some(Complete)),
-        with(summary(4, Some(Complete)), &[1, 2]),
+        summary(3, Some(Continued)),
+        with(summary(4, Some(Continued)), &[1, 2]),
         other,
     ]);
-    assert_eq!(r.links[0], ChainLink::Gap { missing: 1 });
+    assert_eq!(r.links[0], ChainLink::Gap { missing: 2 });
     assert_eq!(r.removed, [removed_row(2)]);
+
+    // a row naming a piece still at hand: no part in a link, not listed
+    let r = check_chain(&[
+        summary(0, Some(Continued)),
+        summary(1, Some(Continued)),
+        with(summary(2, Some(Complete)), &[1]),
+    ]);
+    assert_eq!(r.links, [ChainLink::Linked, ChainLink::Linked]);
+    assert!(r.removed.is_empty(), "{:?}", r.removed);
 
     // the earlier piece unclosed: unclosed, as without the removal
     let r = check_chain(&[summary(0, None), with(summary(2, Some(Complete)), &[1])]);

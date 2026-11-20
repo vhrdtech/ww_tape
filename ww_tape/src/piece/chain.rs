@@ -1,6 +1,6 @@
 //! [check_chain]: how the pieces at hand of one recording link up.
 
-use alloc::collections::BTreeMap;
+use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
 
 use super::{CloseReason, ContentHash, PieceId, PieceIdent, RemovedPiece};
@@ -89,10 +89,12 @@ pub struct ChainReport {
     /// Pieces whose head is of an integrity level this build refuses ([HeadStatus::Refused]): linked as their heads
     /// say, their contents unread.
     pub refused: Vec<usize>,
-    /// The pieces the closes at hand name as removed, ascending by sequence number; one named by two closes with
-    /// another id or hash is left out, and links over it read as a gap. A writer naming more removed pieces in a later
-    /// piece gives these again ([TapeWriter::record_removed](crate::TapeWriter::record_removed)), so they outlive the
-    /// piece naming them.
+    /// The pieces the closes at hand name as removed, ascending by sequence number.
+    ///
+    /// A piece named by two closes with another id or hash is left out, and links over it read as a gap. A piece still
+    /// at hand is left out too: a row naming it plays no part in a link. A writer naming more removed pieces in a
+    /// later piece gives these again ([TapeWriter::record_removed](crate::TapeWriter::record_removed)), so they
+    /// outlive the piece naming them.
     pub removed: Vec<RemovedPiece>,
 }
 
@@ -162,6 +164,11 @@ pub fn check_chain(pieces: &[PieceSummary]) -> ChainReport {
         .filter(|(_, p)| matches!(p.head, HeadStatus::Refused(_)))
         .map(|(i, _)| i)
         .collect();
+    let at_hand: BTreeSet<u64> = order.iter().map(|(_, p)| p.ident.seq).collect();
+    let removed = removed
+        .agreed()
+        .filter(|r| !at_hand.contains(&r.seq))
+        .collect();
     ChainReport {
         order: order.into_iter().map(|(i, _)| i).collect(),
         head_cut,
@@ -170,7 +177,7 @@ pub fn check_chain(pieces: &[PieceSummary]) -> ChainReport {
         end,
         strays,
         refused,
-        removed: removed.agreed().collect(),
+        removed,
     }
 }
 
