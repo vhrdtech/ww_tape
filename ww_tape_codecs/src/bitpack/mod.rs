@@ -10,7 +10,7 @@
 //!
 //! A width read from a file becomes a [Width] once ([Width::from_file], [Width::new]), which checks it against
 //! [WIDTH_MAX]; reads and unpacks then take it without a check per value. The free functions taking a `u32` width
-//! panic on a width over the maximum instead; codecs move to [Width] (STD-131).
+//! panic on a width over the maximum instead; codecs move to [Width] (READ-2).
 //!
 //! Reads never go past the slice they are given. A slice that ends less than the kernel's reach after a group (the
 //! last group of a column without [PADDING] bytes after it) is copied to the stack first, so in-place reads should

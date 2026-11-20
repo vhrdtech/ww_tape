@@ -42,7 +42,7 @@ lz4_flex = { version = "=0.14.0", default-features = false, features = ["safe-de
 rustix = { version = "1.1", default-features = false, features = ["fs", "std"] }
 
 # exact_units' panic-class lints for every crate: no panic, overflow or unchecked index reachable from file bytes
-# (STD-131). Every exception is an #[expect(.., reason = "..")] naming its invariant. Tests, benches, the figures and
+# (READ-2). Every exception is an #[expect(.., reason = "..")] naming its invariant. Tests, benches, the figures and
 # the fuzz bodies allow the lints that fire in them at their crate root, with the reason.
 [workspace.lints.rust]
 unused_lifetimes = "warn"

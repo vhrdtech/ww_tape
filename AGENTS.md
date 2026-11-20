@@ -50,11 +50,10 @@ What builds on ww_tape stays in WireWeaver: `ww_tape_bundle` (track name paths f
 `FEATURES.md` is the feature tracker and roadmap, the only place status is kept. Check it before starting a feature
 and update the matching item in the same change when finishing one (conventions at its top).
 
-- IDs are stable: never renumber or reuse one. The items came from WireWeaver with their `STD` IDs (`STD-42`,
-  `STD-117` to `STD-133`).
-- New items take the next free number of the area `TAPE`. Use IDs in commits, CHANGELOG entries and
-  `// TODO(TAPE-1): ...`.
-- When talking to the user, name an ID with a 2-4 word kebab-case slug from its title: `STD-122 index-finish-tail`.
+- IDs carry their area's prefix (`FMT`, `WRITE`, `READ`, `FS`, `CODEC`, `SUM`, `BOOK`, `REPO`) and are stable:
+  never renumber or reuse one. A new item takes the next free number of its area.
+- Use IDs in commits, CHANGELOG entries and `// TODO(FMT-1): ...`.
+- When talking to the user, name an ID with a 2-4 word kebab-case slug from its title: `FMT-4 index-finish-tail`.
 
 ## Commands
 
@@ -62,7 +61,7 @@ and update the matching item in the same change when finishing one (conventions 
 just test --changed   # the crates changed against main and their dependents; before a session's work is ready
 just test             # everything: nextest, doctests, just check, a smoke run of every fuzz target
 just lint             # fmt, cargo sort -w -g, typos, clippy, rustdoc -D warnings, just api-check, spl check
-just check            # the reader, writer, chain and codecs for wasm32 without std (STD-124)
+just check            # the reader, writer, chain and codecs for wasm32 without std (READ-1)
 just api-check        # ww_tape's version and wire line against ww_tape/api_snapshots/; skipped without `ww`
 just fuzz-tape-<target>   # one fuzz target until stopped, with its libFuzzer limits
 just tape-golden-update   # rewrite golden/*.hex after a deliberate format change
@@ -88,7 +87,7 @@ just book-check           # the book (docs/) with warnings as errors, then spl's
 - A change of what any input writes is a format change. Say so in a breaking CHANGELOG entry and rewrite the goldens
   with `just tape-golden-update` in the same commit.
 - After a format change, check the version byte and the readers of old files.
-- Readers take damaged or hostile bytes. A number read from a block is a `FromFile<T>` (STD-131).
+- Readers take damaged or hostile bytes. A number read from a block is a `FromFile<T>` (READ-2).
 - Such a number reaches a length, an allocation or a loop only through a named cap or a length already known. The
   caps are `pub const`s listed in the crate docs' table of caps.
 - The workspace `[lints]` deny panics, unchecked arithmetic, indexing and casts. An exception is an

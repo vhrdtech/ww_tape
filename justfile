@@ -42,7 +42,7 @@ test-all: check
     just fuzz-smoke
 
 # cargo check what tests don't build: the positional reader, the writer and the chain for the browser, without std
-# (STD-124); the block, chunk, summary node and codec readers without alloc, warnings as errors
+# (READ-1); the block, chunk, summary node and codec readers without alloc, warnings as errors
 check:
     cargo check -p ww_tape --no-default-features --features=alloc --target wasm32-unknown-unknown
     RUSTFLAGS="-D warnings" cargo check -p ww_tape --no-default-features --target wasm32-unknown-unknown
@@ -73,11 +73,11 @@ api-check:
     fi
     {{ ww }} api check ww_tape
 
-# Rewrite the golden files of ww_tape and ww_tape_summary (golden/v1*.hex) after a deliberate format change (STD-117, STD-118, STD-120, STD-121, STD-135)
+# Rewrite the golden files of ww_tape and ww_tape_summary (golden/v1*.hex) after a deliberate format change (FMT-2, FMT-3, CODEC-2, SUM-1, FMT-9)
 tape-golden-update:
     WW_TAPE_GOLDEN=update cargo nextest run -p ww_tape -p ww_tape_summary -p ww_tape_tests golden
 
-# Float sample codecs of ww_tape on motor_sim, decoded speech and ADC data (STD-130); fetches the public-domain
+# Float sample codecs of ww_tape on motor_sim, decoded speech and ADC data (CODEC-4); fetches the public-domain
 # speech file (Roosevelt's Pearl Harbor address, Wikimedia Commons) once and checks it; `just bench-sample-codecs --help`
 bench-sample-codecs *args:
     mkdir -p target/bench-data
@@ -85,20 +85,20 @@ bench-sample-codecs *args:
     echo "90239988a1fc36a44f6531207c918544980bfea0  target/bench-data/Roosevelt_Pearl_Harbor.ogg" | sha1sum -c --quiet
     cargo run -q --release -p ww_tape_codecs_benchmarks -- --speech target/bench-data/Roosevelt_Pearl_Harbor.ogg {{ args }}
 
-# Series summaries of ww_tape (STD-133): MB/s per element type through the RAW codec, the summaries and both;
+# Series summaries of ww_tape (SUM-3): MB/s per element type through the RAW codec, the summaries and both;
 # `just bench-summaries --help`
 bench-summaries *args:
     cargo run -q --release -p ww_tape_benchmarks --bin summaries -- {{ args }}
 
-# ww_tape tracks added one by one, then the bytes put and copied per 256 MiB piece (STD-135); `just bench-tracks --help`
+# ww_tape tracks added one by one, then the bytes put and copied per 256 MiB piece (FMT-9); `just bench-tracks --help`
 bench-tracks *args:
     cargo run -q --release -p ww_tape_benchmarks --bin tracks -- {{ args }}
 
-# ww_tape series chunks: ns per 1 MiB chunk the writer spends, and its parts (TAPE-4); `just bench-chunks --help`
+# ww_tape series chunks: ns per 1 MiB chunk the writer spends, and its parts (WRITE-4); `just bench-chunks --help`
 bench-chunks *args:
     cargo run -q --release -p ww_tape_benchmarks --bin chunks -- {{ args }}
 
-# Worst wait of a reader of a memory piece while it is written, with and without reserving it (TAPE-6); `just bench-mem-reader --help`
+# Worst wait of a reader of a memory piece while it is written, with and without reserving it (WRITE-5); `just bench-mem-reader --help`
 bench-mem-reader *args:
     cargo run -q --release -p ww_tape_benchmarks --bin mem_reader -- {{ args }}
 
@@ -195,92 +195,92 @@ fuzz-smoke:
 fuzz-tape-reader:
     cargo +{{ nightly }} fuzz run --target {{ fuzz_host_triple }} tape-reader -- -max_len=65536 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10
 
-# Fuzz ww_tape's writer resuming a cut and mutated unclosed piece: it closes whole (STD-132)
+# Fuzz ww_tape's writer resuming a cut and mutated unclosed piece: it closes whole (WRITE-2)
 [working-directory('fuzz')]
 fuzz-tape-resume:
     cargo +{{ nightly }} fuzz run --target {{ fuzz_host_triple }} tape-resume -- -max_len=512 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10
 
-# Fuzz a piece closed more than once, its last append torn and mutated: the newest whole close is in force (TAPE-14)
+# Fuzz a piece closed more than once, its last append torn and mutated: the newest whole close is in force (WRITE-7)
 [working-directory('fuzz')]
 fuzz-tape-reclose:
     cargo +{{ nightly }} fuzz run --target {{ fuzz_host_triple }} tape-reclose -- -max_len=512 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10
 
-# Fuzz ww_tape chunk blocks: reading and salvage on any bytes, a flipped bit costs one segment (STD-118)
+# Fuzz ww_tape chunk blocks: reading and salvage on any bytes, a flipped bit costs one segment (FMT-3)
 [working-directory('fuzz')]
 fuzz-tape-chunk:
     cargo +{{ nightly }} fuzz run --target {{ fuzz_host_triple }} tape-chunk -- -max_len=262144 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10
 
-# Fuzz ww_tape summary blocks: reading any bytes, trees built from the input read back (STD-121)
+# Fuzz ww_tape summary blocks: reading any bytes, trees built from the input read back (SUM-1)
 [working-directory('fuzz')]
 fuzz-tape-summary:
     cargo +{{ nightly }} fuzz run --target {{ fuzz_host_triple }} tape-summary -- -max_len=16384 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10
 
-# Fuzz ww_tape index, close, tail and piece head blocks and the positional reader on any bytes (STD-122, STD-124)
+# Fuzz ww_tape index, close, tail and piece head blocks and the positional reader on any bytes (FMT-4, READ-1)
 [working-directory('fuzz')]
 fuzz-tape-index:
     cargo +{{ nightly }} fuzz run --target {{ fuzz_host_triple }} tape-index -- -max_len=65536 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10
 
-# Fuzz ww_tape's event time codec: reads and salvage on any bytes, round trips, kernels against scalar (STD-120)
+# Fuzz ww_tape's event time codec: reads and salvage on any bytes, round trips, kernels against scalar (CODEC-2)
 [working-directory('fuzz')]
 fuzz-tape-times:
     cargo +{{ nightly }} fuzz run --target {{ fuzz_host_triple }} tape-times -- -max_len=65536 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10
 
-# Fuzz ww_tape sample codecs and lz4 payloads: reading any bytes, round trips of values from the input (STD-119)
+# Fuzz ww_tape sample codecs and lz4 payloads: reading any bytes, round trips of values from the input (CODEC-1)
 [working-directory('fuzz')]
 fuzz-tape-samples:
     cargo +{{ nightly }} fuzz run --target {{ fuzz_host_triple }} tape-samples -- -max_len=65536 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10
 
-# Fuzz ww_tape series tracks: track kinds from any bytes, chunk heads on grids, damaged and in any order (STD-127)
+# Fuzz ww_tape series tracks: track kinds from any bytes, chunk heads on grids, damaged and in any order (FMT-6)
 [working-directory('fuzz')]
 fuzz-tape-series:
     cargo +{{ nightly }} fuzz run --target {{ fuzz_host_triple }} tape-series -- -max_len=4096 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10
 
-# Fuzz ww_tape's payload codec: reads and salvage on any bytes, round trips, damaged columns (STD-126)
+# Fuzz ww_tape's payload codec: reads and salvage on any bytes, round trips, damaged columns (CODEC-3)
 [working-directory('fuzz')]
 fuzz-tape-payloads:
     cargo +{{ nightly }} fuzz run --target {{ fuzz_host_triple }} tape-payloads -- -max_len=65536 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10
 
-# Fuzz ww_tape records blocks, of data or of definitions, of hostile clock tables, record heads, lengths and coded bodies (STD-131)
+# Fuzz ww_tape records blocks, of data or of definitions, of hostile clock tables, record heads, lengths and coded bodies (READ-2)
 [working-directory('fuzz')]
 fuzz-tape-records-hostile:
     cargo +{{ nightly }} fuzz run --target {{ fuzz_host_triple }} tape-records-hostile -- -max_len=256 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10
 
-# Fuzz ww_tape chunk blocks of a hostile head: payload offset, segment shift, column table, counts, ticks (STD-131)
+# Fuzz ww_tape chunk blocks of a hostile head: payload offset, segment shift, column table, counts, ticks (READ-2)
 [working-directory('fuzz')]
 fuzz-tape-chunk-hostile:
     cargo +{{ nightly }} fuzz run --target {{ fuzz_host_triple }} tape-chunk-hostile -- -max_len=256 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10
 
-# Fuzz ww_tape events chunks of hostile time group records, read and salvaged (STD-131)
+# Fuzz ww_tape events chunks of hostile time group records, read and salvaged (READ-2)
 [working-directory('fuzz')]
 fuzz-tape-times-hostile:
     cargo +{{ nightly }} fuzz run --target {{ fuzz_host_triple }} tape-times-hostile -- -max_len=256 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10
 
-# Fuzz ww_tape events chunks of hostile payload lengths, lz4 lengths and codecs, read and salvaged (STD-131)
+# Fuzz ww_tape events chunks of hostile payload lengths, lz4 lengths and codecs, read and salvaged (READ-2)
 [working-directory('fuzz')]
 fuzz-tape-payloads-hostile:
     cargo +{{ nightly }} fuzz run --target {{ fuzz_host_triple }} tape-payloads-hostile -- -max_len=256 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10
 
-# Fuzz ww_tape series chunks of hostile sample columns, counts and shapes (STD-131)
+# Fuzz ww_tape series chunks of hostile sample columns, counts and shapes (READ-2)
 [working-directory('fuzz')]
 fuzz-tape-samples-hostile:
     cargo +{{ nightly }} fuzz run --target {{ fuzz_host_triple }} tape-samples-hostile -- -max_len=256 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10
 
-# Fuzz ww_tape series tracks of hostile periods and chunk heads of hostile grids (STD-131)
+# Fuzz ww_tape series tracks of hostile periods and chunk heads of hostile grids (READ-2)
 [working-directory('fuzz')]
 fuzz-tape-series-hostile:
     cargo +{{ nightly }} fuzz run --target {{ fuzz_host_triple }} tape-series-hostile -- -max_len=256 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10
 
-# Fuzz ww_tape summary blocks of a hostile head, scale or node values (STD-131)
+# Fuzz ww_tape summary blocks of a hostile head, scale or node values (READ-2)
 [working-directory('fuzz')]
 fuzz-tape-summary-hostile:
     cargo +{{ nightly }} fuzz run --target {{ fuzz_host_triple }} tape-summary-hostile -- -max_len=256 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10
 
-# Fuzz ww_tape index, close, piece head and tail blocks of hostile offsets, directories and entries (STD-131)
+# Fuzz ww_tape index, close, piece head and tail blocks of hostile offsets, directories and entries (READ-2)
 [working-directory('fuzz')]
 fuzz-tape-index-hostile:
     cargo +{{ nightly }} fuzz run --target {{ fuzz_host_triple }} tape-index-hostile -- -max_len=256 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10
 
-# Fuzz ww_tape pieces of hostile offsets, lengths, layouts and gaps, through the positional reader and the walks (STD-131)
+# Fuzz ww_tape pieces of hostile offsets, lengths, layouts and gaps, through the positional reader and the walks (READ-2)
 [working-directory('fuzz')]
 fuzz-tape-reader-hostile:
     cargo +{{ nightly }} fuzz run --target {{ fuzz_host_triple }} tape-reader-hostile -- -max_len=256 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10
@@ -298,7 +298,7 @@ deploy:
     git pull --ff-only
     just install
 
-# Fuzz ww_tape state records and their index entries lying behind good CRCs: lookups and resume (STD-135)
+# Fuzz ww_tape state records and their index entries lying behind good CRCs: lookups and resume (FMT-9)
 [working-directory('fuzz')]
 fuzz-tape-state-hostile:
     cargo +{{ nightly }} fuzz run --target {{ fuzz_host_triple }} tape-state-hostile -- -max_len=256 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10
