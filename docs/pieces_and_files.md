@@ -70,11 +70,12 @@ gives one for a piece that a `TapeReader` found.
 It puts the pieces in order and returns a `ChainReport`, which holds:
 
 - each link between neighbours;
-- whether the chain's start was deleted (`head_cut`);
+- whether the chain's start was deleted (`head_cut`), or removed on purpose (`head_removed`, the count of pieces);
 - how the chain ends;
 - the pieces that do not belong (`strays`): a second piece with one sequence number, or a piece of another owner;
 - the pieces whose head is of an integrity level the reader does not handle (`refused`); every lookup in such a piece
-  returns that level's error.
+  returns that level's error;
+- the pieces the closes at hand name as removed on purpose (`removed`).
 
 `ChainReport::is_whole` says whether all is well.
 
@@ -85,6 +86,42 @@ Each piece head also says, per track, which [item number](concepts.md#items-trac
 also gives the tick before which none of the piece's items start (`TrackStart`).
 
 A reader of one piece therefore knows where its items fall in the whole recording.
+
+### Pieces removed on purpose
+
+An application may delete pieces from the middle of a chain on purpose, for example to drop a stretch a user cut out.
+Without a note, the hole reads as a gap: pieces missing, as after a lost file.
+
+The note is a list of the removed pieces in a close record. Each row gives the piece's sequence number, its id and the
+content hash of its close in force (`RemovedPiece`).
+
+The writer appends the note to the chain's last piece, after its close, as any [append](format.md#closing-more-than-once)
+does:
+
+1. Resume the closed last piece (`TapeWriter::resume_on`, or `ww_tape_fs::writer::append` for a file).
+2. Name the removed pieces with `TapeWriter::record_removed`.
+3. Close it. The new close names the pieces, and every later close of the piece names them again.
+
+`check_chain` then links over the hole: `ChainLink::Removed { pieces }`. It checks both ends of the hole by the rows:
+
+- the piece before the hole names the first removed piece's id;
+- the piece after the hole names the last removed piece's content hash and id.
+
+A row that disagrees with either end reads as `Broken`. A hole that the rows do not cover whole reads as a gap.
+
+A chain whose first pieces were removed and named reads as removed (`head_removed`), not as head cut. The rows must
+then name every piece from sequence number 0 on.
+
+`ChainReport::is_whole` takes removed pieces as part of a whole chain.
+
+The rows live in the piece that holds them. To remove that piece later too, name its rows again on the new last piece.
+`ChainReport::removed` lists every row the closes at hand name.
+
+The writer refuses:
+
+- a row for a piece that is not before its own;
+- a second row for one piece with another id or hash;
+- more than `REMOVED_PIECES_MAX` (65536) rows in one close.
 
 ## Many pieces in one file
 

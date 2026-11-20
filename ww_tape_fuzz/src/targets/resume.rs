@@ -203,6 +203,46 @@ pub(crate) fn chain_template(aligned: bool, closed: bool) -> (Vec<u8>, usize) {
     (bytes, usize::try_from(last).expect("a small file"))
 }
 
+/// The closed chain of [chain_template] with its second piece removed and named so by a record appended to its last
+/// piece: a seed of the readers and of `check_chain` linking over removed pieces.
+pub(crate) fn removed_chain() -> Vec<u8> {
+    let (whole, _) = chain_template(false, true);
+    let r = TapeReader::open(&whole[..]).expect("a closed chain opens");
+    let spans: Vec<(usize, usize)> = r
+        .pieces()
+        .iter()
+        .map(|p| {
+            let at = |v: u64| usize::try_from(v).expect("a small file");
+            (at(p.start), at(p.end))
+        })
+        .collect();
+    assert!(spans.len() >= 3, "a chain of three pieces or more");
+    let gone = r.pieces()[1].summary().expect("a piece with a head");
+    let (_, hash, _) = gone.end.expect("a closed piece");
+    let (from, to) = spans[spans.len() - 1];
+    let mut sink = MemSink::new();
+    sink.write_all(&whole[from..to])
+        .expect("memory takes the bytes");
+    let (mut w, _) =
+        TapeWriter::resume_on(sink, options(false)).expect("the closed last piece resumes");
+    w.record_removed(&[ww_tape::piece::RemovedPiece {
+        seq: gone.ident.seq,
+        id: gone.ident.id,
+        hash,
+    }])
+    .expect("an earlier piece is named");
+    let tape = w.sink().tape();
+    w.close().expect("the record closes");
+    let mut out = whole[spans[0].0..spans[0].1].to_vec();
+    for (a, b) in &spans[2..spans.len() - 1] {
+        out.extend_from_slice(&whole[*a..*b]);
+    }
+    out.extend(tape.to_vec().expect("the bytes"));
+    let chain = TapeReader::open(&out[..]).expect("the chain opens").chain();
+    assert!(chain.is_whole(), "{chain:?}");
+    out
+}
+
 /// Events track `number` on clock `clock`.
 pub(crate) fn track(number: u32, clock: u32) -> Describe<'static> {
     Describe::Track(TrackDef {

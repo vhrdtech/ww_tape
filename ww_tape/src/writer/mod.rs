@@ -64,7 +64,7 @@ mod error;
 pub mod near;
 mod relations;
 pub mod resume;
-pub use error::{CutError, InputError, ResumeError, WriteError};
+pub use error::{CutError, InputError, RemovedRefusal, ResumeError, WriteError};
 pub use near::NearPolicy;
 use near::Rule;
 pub(crate) use relations::Newest;
@@ -201,6 +201,11 @@ pub struct TapeWriter<S: TapeSink> {
     /// The append head of a resumed closed piece, accounted for but not yet written: it goes out before the first
     /// block, so a writer that closes again with nothing appended leaves the bytes as they were
     append_head: Option<[u8; crate::piece::APPEND_HEAD_LEN]>,
+    /// The pieces of the chain the next close names as removed, ascending by seq: those of the close in force, and
+    /// those [Self::record_removed] added
+    removed: Vec<crate::piece::RemovedPiece>,
+    /// [Self::record_removed] added a piece since the close in force: a close writes even with nothing else appended
+    removed_added: bool,
 }
 
 /// A close record of the piece a writer writes on after: where it and its tail are, and its hash.
@@ -325,6 +330,8 @@ impl<S: TapeSink> TapeWriter<S> {
             head_rows_max: crate::piece::HEAD_TRACKS_MAX,
             closed_at: None,
             append_head: None,
+            removed: Vec::new(),
+            removed_added: false,
         }
     }
 
@@ -1707,6 +1714,52 @@ impl<S: TapeSink> TapeWriter<S> {
         self.end(End::Close(reason), None).map(|e| e.closed)
     }
 
+    /// Name `pieces` of the chain as removed on purpose in the close of this piece and in every later close of it, with
+    /// those named before ([crate::piece::RemovedPiece]). A reader's [check_chain](crate::piece::check_chain) then
+    /// links over them. Nothing is written until the close; a closed piece resumed and closed again with only this
+    /// writes an append, a final index, a close and a tail. A piece already named with the same id and hash is taken
+    /// once.
+    ///
+    /// Refused ([InputError::Removed]), with nothing taken: a piece without a head, a piece not before this one, a
+    /// piece named before with another id or hash, or more than
+    /// [REMOVED_PIECES_MAX](crate::piece::REMOVED_PIECES_MAX) in all.
+    pub fn record_removed(
+        &mut self,
+        pieces: &[crate::piece::RemovedPiece],
+    ) -> Result<(), WriteError<S::Error>> {
+        let refuse = |why| Err(WriteError::Input(InputError::Removed(why)));
+        let Some((head, _)) = &self.head else {
+            return refuse(RemovedRefusal::NoChain);
+        };
+        let own = head.ident.seq;
+        let mut all = self.removed.clone();
+        for p in pieces {
+            if p.seq >= own {
+                return refuse(RemovedRefusal::NotBefore { seq: p.seq });
+            }
+            match all.binary_search_by_key(&p.seq, |r| r.seq) {
+                Ok(i) if all.get(i) == Some(p) => {}
+                Ok(_) => return refuse(RemovedRefusal::Conflict { seq: p.seq }),
+                Err(i) => all.insert(i, *p),
+            }
+        }
+        let max = crate::piece::REMOVED_PIECES_MAX;
+        if all.len() > max {
+            return refuse(RemovedRefusal::TooMany { max });
+        }
+        if all.len() > self.removed.len() {
+            self.removed = all;
+            self.removed_added = true;
+        }
+        Ok(())
+    }
+
+    /// The pieces of the chain the next close names as removed, ascending by sequence number: those the close in force
+    /// names, and those [Self::record_removed] added.
+    pub fn removed(&self) -> &[crate::piece::RemovedPiece] {
+        &self.removed
+    }
+
     /// [Self::close_as] with a summary of the caller's own: `body`, at most
     /// [CLOSE_SUMMARY_MAX](crate::piece::CLOSE_SUMMARY_MAX) bytes, goes into a summary block right before the final
     /// index, which the close names ([Close::summary]) and its content hash covers. A reader of the tail reads it back
@@ -1870,6 +1923,7 @@ impl<S: TapeSink> TapeWriter<S> {
             .transpose()?;
         if matches!(how, End::Close(_))
             && summary.is_none()
+            && !self.removed_added
             && self.deferred.is_empty()
             && let Some(c) = self.closed_at.filter(|_| self.append_head.is_some())
         {
@@ -1929,10 +1983,17 @@ impl<S: TapeSink> TapeWriter<S> {
         let tracks = self.next_tracks(&ranges);
         let close_offset = self.offset();
         // the piece ends, after its tail, on a multiple of PIECE_ALIGN
-        let padding = close_padding(close_offset, ranges.len());
-        let mut buf = vec![0u8; close_len(ranges.len()).saturating_add(padding)];
-        let n = write_close(&mut buf, self.structural_id(), &close, &ranges, padding)
-            .map_err(WriteError::Index)?;
+        let removed = self.removed.len();
+        let padding = close_padding(close_offset, ranges.len(), removed);
+        let mut buf = vec![0u8; close_len(ranges.len(), removed).saturating_add(padding)];
+        let n = write_close(
+            &mut buf,
+            self.structural_id(),
+            &close,
+            (&ranges, &self.removed),
+            padding,
+        )
+        .map_err(WriteError::Index)?;
         buf.truncate(n);
         self.write_own(&buf)?;
         let too_long = WriteError::Index(IndexError::Invalid("a piece past u64::MAX bytes"));
@@ -2026,9 +2087,17 @@ impl<S: TapeSink> TapeWriter<S> {
     }
 
     /// The piece was closed by the close record `close` at `at`, its tail at `tail`: what follows chains its content
-    /// hash over that close's ([crate::piece]), and its final index goes on from that close's. A resume calls it before
-    /// it replays the close record, each close it keeps in turn.
-    pub(crate) fn closed_by(&mut self, at: u64, tail: u64, close: &Close) {
+    /// hash over that close's ([crate::piece]), its final index goes on from that close's, and the pieces `removed` it
+    /// names go on in the next close. A resume calls it before it replays the close record, each close it keeps in turn.
+    pub(crate) fn closed_by(
+        &mut self,
+        at: u64,
+        tail: u64,
+        close: &Close,
+        removed: Vec<crate::piece::RemovedPiece>,
+    ) {
+        self.removed = removed;
+        self.removed_added = false;
         self.closed_at = Some(ClosedAt {
             offset: at,
             tail,

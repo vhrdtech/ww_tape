@@ -932,15 +932,17 @@ piece head (kind 10)
 close (kind 8)
  32 u8   reason (1 closed, 2 aborted; a piece that goes on in the next one, next id below, is closed)
  33 u8   reserved
- 34 u16  track row length, 136 (a reader takes longer rows and reads their first 136 bytes)    36 [4] reserved
+ 34 u16  track row length, 136 (a reader takes longer rows and reads their first 136 bytes)
+ 36 u16  removed-piece row length, 56 (a reader takes longer rows and reads their first 56 bytes)    38 [2] reserved
  40 [32] content hash: BLAKE3 of the piece's bytes before this block, each chunk payload by its hash (below); of
          a later close, BLAKE3 of the previous close's hash, then of the bytes from it to this block, the same way
  72 u64  newest checkpoint index offset    80 u64 last final index offset
  88 u64  previous close record's offset (u64::MAX: the piece's first close)
          (offsets u64::MAX for none)
  96 [16] piece id    112 [16] next piece id    128 [32] owner id    160 u64 sequence number
-168 u32  flags: bit 0 the piece has a head    172 u32 padding: zero bytes after the tracks, below [PIECE_ALIGN]
-176 u64  close summary offset, u64::MAX for none    184 u32 its length    188 u32 reserved, 0
+168 u32  flags: bit 0 the piece has a head    172 u32 padding: zero bytes after the rows, below [PIECE_ALIGN]
+176 u64  close summary offset, u64::MAX for none    184 u32 its length
+188 u32  removed pieces, at most REMOVED_PIECES_MAX: their rows follow the tracks
 192 ...  tracks × 136, one per track with a counted chunk or record in the piece, ascending id then owner:
            0 u64 id    8 u32 number    12 u32 chunks (0: records only, the range fields below 0)
           16 u64 first item    24 u64 items    32 i64 first tick    40 i64 last tick
@@ -949,6 +951,8 @@ close (kind 8)
           88 [32] track hash after this piece ([TrackHash])
          120 u64 records: the track's counted records in the piece
          128 u32 flags: bit 0 incomplete, the track hash leaves out units a resume kept unread    132 u32 reserved, 0
+    ...  removed pieces × 56, ascending distinct sequence numbers (RemovedPiece):
+           0 u64 sequence number    8 [16] piece id    24 [32] content hash of its close in force
     ...  padding zeros, covered by the CRC
 
 tail (kind 9), TAIL_LEN bytes, the last of the piece
@@ -1095,6 +1099,10 @@ file again writes on after the last piece's close ([Closing more than once](#clo
 
 A chain whose first pieces were deleted, as in a rolling window, reads as *head cut*, not as damage. A chain whose last
 piece has no tail is open: it is being written, or a crash cut it off.
+
+A close record may name pieces of its chain that were removed on purpose. Each takes 56 bytes after the track rows:
+its sequence number, id and content hash. `check_chain` links over such pieces. A chain whose first pieces are named so
+reads as removed, not head cut ([Pieces removed on purpose](pieces_and_files.md#pieces-removed-on-purpose)).
 
 ## Resuming after a crash
 
@@ -1407,10 +1415,11 @@ would pass one:
 |---|---|---|
 | `RESYNC_AHEAD_MAX` | 128 MiB | the bytes a salvage walk (`Recovery::Resync`) reads ahead |
 | `RESYNC_SEQS_MAX` | 65536 | the data blocks a salvage walk remembers by session and seq, for conflicts |
-| `VERIFY_LISTS_MAX` | 493417 | the track lists of a final index one verify takes |
-| `TRACKS_PER_PIECE_MAX` | 493415 | the tracks with data in one piece, so its close fits a block |
+| `VERIFY_LISTS_MAX` | 466432 | the track lists of a final index one verify takes |
+| `TRACKS_PER_PIECE_MAX` | 466430 | the tracks with data in one piece, so its close fits a block |
 | `HEAD_TRACKS_MAX` | 699006 | the tracks a piece head carries over the chain, so the head fits a block |
 | `CLOSE_SUMMARY_MAX` | 1 MiB | the body of the summary block a close names |
+| `REMOVED_PIECES_MAX` | 65536 | the removed pieces one close names |
 | `WALK_MISS_BASE_MAX` | 1 MiB | the bytes a content-hash walk's missed blocks claim at its start |
 | `WALK_MISS_PER_BYTE_MAX` | 4 | the bytes they claim per byte walked, past that |
 | `RESUME_LOOK_MAX` | 128 MiB | the bytes past a reader's stop a resume looks through for a good block |

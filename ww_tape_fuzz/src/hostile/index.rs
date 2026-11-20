@@ -11,8 +11,9 @@ use ww_tape::index::{
     index_len, track_count, write_index,
 };
 use ww_tape::piece::{
-    Close, CloseReason, ContentHash, OwnerId, PieceHead, PieceId, PieceIdent, TAIL_LEN, Tail,
-    TrackHash, TrackRange, TrackStart, close_len, piece_head_len, write_close, write_piece_head,
+    Close, CloseReason, ContentHash, OwnerId, PieceHead, PieceId, PieceIdent, REMOVED_PIECES_MAX,
+    RemovedPiece, TAIL_LEN, Tail, TrackHash, TrackRange, TrackStart, close_len, piece_head_len,
+    write_close, write_piece_head,
 };
 use ww_tape::{BlockId, BlockKind, MAX_BLOCK_LEN, SessionTag};
 
@@ -235,15 +236,30 @@ pub(crate) fn close_block(
         ident: d.bool().then(|| ident(d)),
         next: None,
     };
+    let mut seq = 0u64;
+    let removed: Vec<RemovedPiece> = (0..d.below(4))
+        .map(|_| {
+            seq += 1 + u64::from(d.u8() % 3);
+            RemovedPiece {
+                seq,
+                id: PieceId([d.u8() | 1; 16]),
+                hash: ContentHash([d.u8(); 32]),
+            }
+        })
+        .collect();
     let padding = [0, 1, 512][d.below(3)];
-    let mut buf = vec![0u8; close_len(tracks.len()) + padding];
-    let n = write_close(&mut buf, id, &close, &tracks, padding).expect("a valid close");
+    let mut buf = vec![0u8; close_len(tracks.len(), removed.len()) + padding];
+    let n = write_close(&mut buf, id, &close, (&tracks, &removed), padding).expect("a valid close");
     buf.truncate(n);
     buf
 }
 
-/// The fields of a close record with `tracks`.
-pub(crate) fn close_fields<'c>(d: &mut Draw<'_>, tracks: usize, len: &'c [u64]) -> Vec<Field<'c>> {
+/// The fields of a close record with `tracks` and `removed` removed pieces.
+pub(crate) fn close_fields<'c>(
+    d: &mut Draw<'_>,
+    (tracks, removed): (usize, usize),
+    len: &'c [u64],
+) -> Vec<Field<'c>> {
     let caps: &'static [u64] = &[u64::MAX, MAX_BLOCK_LEN as u64];
     let mut f = vec![
         Field::new(32, 1, &[1, 2, 3, 4]),
@@ -256,7 +272,20 @@ pub(crate) fn close_fields<'c>(d: &mut Draw<'_>, tracks: usize, len: &'c [u64]) 
         Field::new(176, 8, caps),
         Field::new(184, 4, &[]),
         Field::new(34, 2, &[0, 128, 135, 137, 0xFFFF]),
+        Field::new(36, 2, &[0, 55, 57, 0xFFFF]),
+        Field::new(
+            188,
+            4,
+            &[
+                REMOVED_PIECES_MAX as u64,
+                REMOVED_PIECES_MAX as u64 + 1,
+                u32::MAX as u64,
+            ],
+        ),
     ];
+    // a removed piece's seq: out of order, or one named twice
+    let row = 192 + tracks * 136 + d.below(removed + 1) * 56;
+    f.push(Field::new(row, 8, &[0, 1, u64::MAX]));
     let at = 192 + d.below(tracks + 1) * 136;
     f.extend([
         Field::new(at + 12, 4, &[]),
@@ -362,8 +391,9 @@ pub fn index(data: &[u8]) -> Vec<u8> {
         0 => {
             let mut b = close_block(&mut d, id, [Some(0), Some(64)], ContentHash([7; 32]));
             let tracks = get(&b, 12, 4) as usize;
+            let removed = get(&b, 188, 4) as usize;
             let len = [b.len() as u64];
-            let fields = close_fields(&mut d, tracks, &len);
+            let fields = close_fields(&mut d, (tracks, removed), &len);
             hit_some(&mut d, &mut b, &fields);
             seal(&mut b);
             b

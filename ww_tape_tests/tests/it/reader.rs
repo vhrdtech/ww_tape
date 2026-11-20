@@ -43,8 +43,8 @@ fn close_only(final_index: u64) -> Vec<u8> {
         ident: None,
         next: None,
     };
-    let mut bytes = vec![0u8; close_len(0)];
-    let n = write_close(&mut bytes, id(0), &close, &[], 0).unwrap();
+    let mut bytes = vec![0u8; close_len(0, 0)];
+    let n = write_close(&mut bytes, id(0), &close, (&[], &[]), 0).unwrap();
     bytes.truncate(n);
     bytes.extend(tail((n + TAIL_LEN) as u64, 0, n as u32));
     bytes

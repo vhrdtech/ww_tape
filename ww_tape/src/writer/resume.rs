@@ -834,7 +834,13 @@ impl<S: TapeSink> TapeWriter<S> {
                     .map_err(sink_err("reading back a block"))?;
                 let kind = BlockKind::from_u8(buf.get(5).copied().unwrap_or(0));
                 if let Some((tail, c)) = closes.get(&s.at) {
-                    w.closed_by(s.at, *tail, c);
+                    // a close kept read whole: its removed pieces go on in the next close
+                    let b = Block::read(&buf).map_err(WriteError::Block)?;
+                    let removed = CloseBlock::read(&b)
+                        .map_err(WriteError::Index)?
+                        .removed()
+                        .collect();
+                    w.closed_by(s.at, *tail, c, removed);
                 }
                 w.replay_good(s.at, &buf)?;
                 let step = Step {

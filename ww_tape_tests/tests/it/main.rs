@@ -33,6 +33,7 @@ mod range_hash;
 mod reader;
 mod reclose;
 mod relations;
+mod removed;
 mod reserved;
 mod resume;
 mod series;

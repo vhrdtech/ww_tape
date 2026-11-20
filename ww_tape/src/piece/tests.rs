@@ -97,17 +97,17 @@ fn close_and_tail_round_trip() {
         records: 3,
         incomplete: true,
     }];
-    let mut buf = vec![0u8; close_len(1) + 4095];
+    let mut buf = vec![0u8; close_len(1, 0) + 4095];
     for padding in [0, 1, 1000, 4095] {
-        let n = write_close(&mut buf, id(77), &close, &tracks, padding).unwrap();
-        assert_eq!(n, close_len(1) + padding);
+        let n = write_close(&mut buf, id(77), &close, (&tracks, &[]), padding).unwrap();
+        assert_eq!(n, close_len(1, 0) + padding);
         let block = Block::read(&buf[..n]).unwrap();
         let f = CloseBlock::read(&block).unwrap();
         assert_eq!(f.close(), close);
         assert_eq!(f.tracks().collect::<Vec<_>>(), tracks);
     }
     assert_eq!(tracks[0].end_item(), 16192);
-    assert!(write_close(&mut buf, id(77), &close, &tracks, 4096).is_err());
+    assert!(write_close(&mut buf, id(77), &close, (&tracks, &[]), 4096).is_err());
 
     let plain = Close {
         ident: None,
@@ -115,7 +115,7 @@ fn close_and_tail_round_trip() {
         reason: CloseReason::Closed,
         ..close
     };
-    let n = write_close(&mut buf, id(77), &plain, &[], 0).unwrap();
+    let n = write_close(&mut buf, id(77), &plain, (&[], &[]), 0).unwrap();
     let block = Block::read(&buf[..n]).unwrap();
     assert_eq!(CloseBlock::read(&block).unwrap().close(), plain);
 
@@ -124,7 +124,7 @@ fn close_and_tail_round_trip() {
         reason: CloseReason::Aborted,
         ..close
     };
-    let n = write_close(&mut buf, id(77), &aborted, &tracks, 0).unwrap();
+    let n = write_close(&mut buf, id(77), &aborted, (&tracks, &[]), 0).unwrap();
     assert_eq!(
         CloseBlock::read(&Block::read(&buf[..n]).unwrap()).err(),
         Some(IndexError::BadHead)
@@ -133,12 +133,12 @@ fn close_and_tail_round_trip() {
         next: None,
         ..aborted
     };
-    let n = write_close(&mut buf, id(77), &aborted, &tracks, 0).unwrap();
+    let n = write_close(&mut buf, id(77), &aborted, (&tracks, &[]), 0).unwrap();
     let block = Block::read(&buf[..n]).unwrap();
     assert_eq!(CloseBlock::read(&block).unwrap().close(), aborted);
 
     // a track row flag this build doesn't know is refused, its CRC good
-    let n = write_close(&mut buf, id(77), &close, &tracks, 0).unwrap();
+    let n = write_close(&mut buf, id(77), &close, (&tracks, &[]), 0).unwrap();
     for flag in [2u32, 1 << 31] {
         let mut b = buf[..n].to_vec();
         let at = CLOSE_TRACKS_AT + ROW_FLAGS_AT;
@@ -251,6 +251,7 @@ fn summary(seq: u64, end: Option<Ends>) -> PieceSummary {
         }),
         unclosed: false,
         head: HeadStatus::Read,
+        removed: Vec::new(),
     }
 }
 
@@ -271,7 +272,7 @@ fn chains_are_checked_both_ways() {
         &whole[..1]
             .iter()
             .chain(&whole[2..])
-            .copied()
+            .cloned()
             .collect::<Vec<_>>(),
     );
     assert!(r.head_cut);
@@ -346,11 +347,11 @@ fn chains_are_checked_both_ways() {
 
 #[test]
 fn close_padding_ends_the_piece_on_4_kib() {
-    for tracks in [0, 1, 3, 70] {
+    for (tracks, removed) in [(0, 0), (1, 0), (3, 2), (70, 9)] {
         for offset in [0, 1, 100, 4095, 4096, 12345, (1 << 40) + 7, u64::MAX - 5] {
-            let pad = close_padding(offset, tracks);
+            let pad = close_padding(offset, tracks, removed);
             assert!(pad < 4096);
-            let end = offset.wrapping_add((close_len(tracks) + pad + TAIL_LEN) as u64);
+            let end = offset.wrapping_add((close_len(tracks, removed) + pad + TAIL_LEN) as u64);
             assert_eq!(end % 4096, 0, "{tracks} tracks at {offset}");
         }
     }
@@ -368,8 +369,8 @@ fn close_padding_is_checked_against_the_length() {
         ident: None,
         next: None,
     };
-    let mut buf = vec![0u8; close_len(0) + 64];
-    let n = write_close(&mut buf, id(5), &close, &[], 64).unwrap();
+    let mut buf = vec![0u8; close_len(0, 0) + 64];
+    let n = write_close(&mut buf, id(5), &close, (&[], &[]), 64).unwrap();
     // a padding field that disagrees with the block's length, CRC made good again
     for padding in [0u32, 63, 65, 4095, 4096, u32::MAX] {
         let mut b = buf[..n].to_vec();
@@ -465,4 +466,239 @@ fn a_content_hash_over_crafted_headers_reads_linear_bytes() {
         whole.finalize(),
         "no block reads whole: the bytes as they are"
     );
+}
+
+/// The removed piece of sequence number `seq` of the chain [summary] makes.
+fn removed_row(seq: u64) -> RemovedPiece {
+    let s = summary(seq, None);
+    RemovedPiece {
+        seq,
+        id: s.ident.id,
+        hash: ContentHash([seq as u8 + 100; 32]),
+    }
+}
+
+fn plain_close() -> Close {
+    Close {
+        reason: CloseReason::Closed,
+        hash: ContentHash([3; 32]),
+        checkpoint: None,
+        final_index: None,
+        prev: None,
+        summary: None,
+        ident: Some(ident(9)),
+        next: None,
+    }
+}
+
+#[test]
+fn removed_pieces_round_trip_in_the_close() {
+    let removed = [removed_row(1), removed_row(2), removed_row(5)];
+    let tracks = [TrackRange {
+        track_id: 1,
+        track_number: 1,
+        chunks: 0,
+        first_item: 0,
+        items: 0,
+        first_tick: 0,
+        last_tick: 0,
+        latest_end: 0,
+        owner: OwnerId::NONE,
+        hash: TrackHash([1; 32]),
+        records: 1,
+        incomplete: false,
+    }];
+    let mut buf = vec![0u8; close_len(1, 3) + 4095];
+    for padding in [0, 7, 4095] {
+        let n = write_close(
+            &mut buf,
+            id(5),
+            &plain_close(),
+            (&tracks, &removed),
+            padding,
+        )
+        .unwrap();
+        assert_eq!(n, close_len(1, 3) + padding);
+        let block = Block::read(&buf[..n]).unwrap();
+        let c = CloseBlock::read(&block).unwrap();
+        assert_eq!(c.tracks().collect::<Vec<_>>(), tracks);
+        assert_eq!(c.removed().collect::<Vec<_>>(), removed);
+        assert_eq!(c.close(), plain_close());
+    }
+    // the writer refuses rows out of order or named twice, and more than the cap
+    for rows in [
+        vec![removed_row(2), removed_row(1)],
+        vec![removed_row(2), removed_row(2)],
+    ] {
+        assert!(write_close(&mut buf, id(5), &plain_close(), (&tracks, &rows), 0).is_err());
+    }
+    let many = vec![removed_row(1); REMOVED_PIECES_MAX + 1];
+    let mut big = vec![0u8; close_len(1, many.len())];
+    assert!(write_close(&mut big, id(5), &plain_close(), (&tracks, &many), 0).is_err());
+}
+
+#[test]
+fn a_close_with_bad_removed_rows_is_refused() {
+    let removed = [removed_row(1), removed_row(2)];
+    let mut buf = vec![0u8; close_len(0, 2)];
+    let n = write_close(&mut buf, id(5), &plain_close(), (&[], &removed), 0).unwrap();
+    let read = |b: &[u8]| CloseBlock::read(&Block::read(b).unwrap()).map(|c| c.removed().count());
+    let edit = |at: usize, v: &[u8]| {
+        let mut b = buf[..n].to_vec();
+        b[at..at + v.len()].copy_from_slice(v);
+        crate::index::seal(&mut b);
+        b
+    };
+    let rows_at = CLOSE_TRACKS_AT;
+    // out of order, named twice
+    for seq in [3u64, 2] {
+        assert_eq!(
+            read(&edit(rows_at, &seq.to_le_bytes())),
+            Err(IndexError::Invalid(
+                "removed pieces not in ascending order of distinct seqs"
+            ))
+        );
+    }
+    // a row length below the one this build writes, a count the length doesn't hold, a count past the cap
+    assert_eq!(
+        read(&edit(REMOVED_ROW_LEN_AT, &55u16.to_le_bytes())),
+        Err(IndexError::BadHead)
+    );
+    assert_eq!(
+        read(&edit(REMOVED_COUNT_AT, &3u32.to_le_bytes())),
+        Err(IndexError::BadHead)
+    );
+    assert_eq!(
+        read(&edit(REMOVED_COUNT_AT, &1u32.to_le_bytes())),
+        Err(IndexError::BadHead)
+    );
+    let past = u32::try_from(REMOVED_PIECES_MAX + 1).unwrap();
+    assert_eq!(
+        read(&edit(REMOVED_COUNT_AT, &past.to_le_bytes())),
+        Err(IndexError::Invalid(
+            "more removed pieces than REMOVED_PIECES_MAX"
+        ))
+    );
+    assert_eq!(read(&buf[..n]), Ok(2));
+}
+
+/// A later writer's longer removed rows: a reader takes their first 56 bytes.
+#[test]
+fn longer_removed_rows_read_their_first_bytes() {
+    let removed = [removed_row(1), removed_row(4)];
+    let mut buf = vec![0u8; close_len(0, 2)];
+    let n = write_close(&mut buf, id(5), &plain_close(), (&[], &removed), 0).unwrap();
+    let rows_at = CLOSE_TRACKS_AT;
+    let mut b = buf[..rows_at].to_vec();
+    for row in buf[rows_at..n - crate::CRC_LEN].chunks(REMOVED_ROW_LEN) {
+        b.extend_from_slice(row);
+        b.extend_from_slice(&[0xee; 8]);
+    }
+    b.extend_from_slice(&[0; 4]);
+    let len = u32::try_from(b.len()).unwrap();
+    b[8..12].copy_from_slice(&len.to_le_bytes());
+    b[REMOVED_ROW_LEN_AT..REMOVED_ROW_LEN_AT + 2].copy_from_slice(&64u16.to_le_bytes());
+    crate::index::seal(&mut b);
+    let block = Block::read(&b).unwrap();
+    let c = CloseBlock::read(&block).unwrap();
+    assert_eq!(c.removed().collect::<Vec<_>>(), removed);
+}
+
+#[test]
+fn chains_link_over_removed_pieces() {
+    use Ends::*;
+    let with = |mut s: PieceSummary, rows: &[u64]| {
+        s.removed = rows.iter().map(|q| removed_row(*q)).collect();
+        s
+    };
+    // pieces 1 and 2 removed, named by the last piece's close
+    let r = check_chain(&[
+        summary(0, Some(Continued)),
+        with(summary(3, Some(Complete)), &[1, 2]),
+    ]);
+    assert_eq!(r.links, [ChainLink::Removed { pieces: 2 }]);
+    assert!(r.is_whole());
+    assert_eq!(r.removed, [removed_row(1), removed_row(2)]);
+
+    // named by an earlier piece's close: the same
+    let r = check_chain(&[
+        summary(0, Some(Continued)),
+        with(summary(2, Some(Continued)), &[1]),
+        summary(3, Some(Complete)),
+    ]);
+    assert_eq!(
+        r.links,
+        [ChainLink::Removed { pieces: 1 }, ChainLink::Linked]
+    );
+    assert!(r.is_whole());
+
+    // one of them not named: a gap
+    let r = check_chain(&[
+        summary(0, Some(Continued)),
+        with(summary(3, Some(Complete)), &[2]),
+    ]);
+    assert_eq!(r.links, [ChainLink::Gap { missing: 2 }]);
+    assert!(!r.is_whole());
+
+    // a removed piece whose hash isn't what the next head names: broken
+    let mut forged = with(summary(3, Some(Complete)), &[1, 2]);
+    forged.removed[1].hash = ContentHash([0; 32]);
+    let r = check_chain(&[summary(0, Some(Continued)), forged]);
+    assert_eq!(r.links, [ChainLink::Broken]);
+    // ... or whose id isn't what the piece before names
+    let mut forged = with(summary(3, Some(Complete)), &[1, 2]);
+    forged.removed[0].id = PieceId([0x77; 16]);
+    let r = check_chain(&[summary(0, Some(Continued)), forged]);
+    assert_eq!(r.links, [ChainLink::Broken]);
+
+    // two closes naming one piece differently: left out, a gap
+    let mut other = with(summary(2, Some(Continued)), &[1]);
+    other.removed[0].hash = ContentHash([1; 32]);
+    let r = check_chain(&[
+        with(summary(0, Some(Continued)), &[]),
+        summary(3, Some(Complete)),
+        with(summary(4, Some(Complete)), &[1, 2]),
+        other,
+    ]);
+    assert_eq!(r.links[0], ChainLink::Gap { missing: 1 });
+    assert_eq!(r.removed, [removed_row(2)]);
+
+    // the earlier piece unclosed: unclosed, as without the removal
+    let r = check_chain(&[summary(0, None), with(summary(2, Some(Complete)), &[1])]);
+    assert_eq!(r.links, [ChainLink::Unclosed]);
+
+    // the later piece's head lost: linked one way
+    let lost = PieceSummary {
+        prev: None,
+        head: HeadStatus::Lost,
+        ..with(summary(2, Some(Complete)), &[1])
+    };
+    let r = check_chain(&[summary(0, Some(Continued)), lost]);
+    assert_eq!(r.links, [ChainLink::HeadLost]);
+}
+
+#[test]
+fn a_head_cut_the_closes_name_reads_as_removed() {
+    use Ends::*;
+    let with = |mut s: PieceSummary, rows: &[u64]| {
+        s.removed = rows.iter().map(|q| removed_row(*q)).collect();
+        s
+    };
+    let r = check_chain(&[with(summary(3, Some(Complete)), &[0, 1, 2])]);
+    assert!(!r.head_cut);
+    assert_eq!(r.head_removed, 3);
+    assert!(r.is_whole());
+
+    // only some of the pieces before named: head cut
+    let r = check_chain(&[with(summary(3, Some(Complete)), &[1, 2])]);
+    assert!(r.head_cut);
+    assert_eq!(r.head_removed, 0);
+    assert!(!r.is_whole());
+
+    // the last named piece's hash isn't what the head names: head cut
+    let mut forged = with(summary(3, Some(Complete)), &[0, 1, 2]);
+    forged.removed[2].hash = ContentHash([0; 32]);
+    let r = check_chain(&[forged]);
+    assert!(r.head_cut);
+    assert_eq!(r.head_removed, 0);
 }

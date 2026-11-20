@@ -370,8 +370,8 @@ fn close_only(final_index: u64, piece_len: Option<u64>) -> Vec<u8> {
         ident: None,
         next: None,
     };
-    let mut b = vec![0u8; close_len(0)];
-    let n = write_close(&mut b, BlockId::new(SESSION, 0), &close, &[], 0).expect("a close");
+    let mut b = vec![0u8; close_len(0, 0)];
+    let n = write_close(&mut b, BlockId::new(SESSION, 0), &close, (&[], &[]), 0).expect("a close");
     b.truncate(n);
     let len = piece_len.unwrap_or((n + TAIL_LEN) as u64);
     b.extend(tail(len, 0, n as u32));
@@ -625,7 +625,8 @@ fn reclose_seeds() -> Vec<Seed> {
 }
 
 /// Inputs of the file readers (`tape-reader`, `tape-index`): a file of several pieces whole, its last piece torn
-/// halfway, and its last piece with a flipped byte in its head and one in its middle.
+/// halfway, its last piece with a flipped byte in its head and one in its middle, and the file without its second
+/// piece, its last piece naming that one removed.
 fn chain_seeds() -> Vec<Seed> {
     let (whole, last) = crate::targets::chain_template(false, true);
     let half = last + (whole.len() - last) / 2;
@@ -638,6 +639,11 @@ fn chain_seeds() -> Vec<Seed> {
         out.push(seed(target, "one-file-chain", whole.clone()));
         out.push(seed(target, "one-file-chain-last-torn", torn.clone()));
         out.push(seed(target, "one-file-chain-last-damaged", damaged.clone()));
+        out.push(seed(
+            target,
+            "one-file-chain-a-piece-removed",
+            crate::targets::removed_chain(),
+        ));
     }
     out
 }

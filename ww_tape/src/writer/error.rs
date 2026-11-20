@@ -67,6 +67,24 @@ pub enum InputError {
     Flags { kind: BlockKind, flags: u16 },
     /// A close's summary body of `len` bytes, more than [CLOSE_SUMMARY_MAX](crate::piece::CLOSE_SUMMARY_MAX) (`max`).
     SummaryTooLong { len: usize, max: usize },
+    /// Removed pieces ([TapeWriter::record_removed](super::TapeWriter::record_removed)) the piece's close can't name:
+    /// see [RemovedRefusal].
+    Removed(RemovedRefusal),
+}
+
+/// Why [TapeWriter::record_removed](super::TapeWriter::record_removed) refuses removed pieces ([InputError::Removed]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum RemovedRefusal {
+    /// The piece has no head, so no chain: a file written without one.
+    NoChain,
+    /// The piece of sequence number `seq` is not before the piece written: only earlier pieces are removed.
+    NotBefore { seq: u64 },
+    /// The piece of sequence number `seq` is named already with another id or hash.
+    Conflict { seq: u64 },
+    /// The close would name more than `max` removed pieces
+    /// ([REMOVED_PIECES_MAX](crate::piece::REMOVED_PIECES_MAX)).
+    TooMany { max: usize },
 }
 
 /// Why a resume cuts nothing ([WriteError::Resume]): the bytes of the piece stay as they are.
@@ -208,6 +226,19 @@ impl core::fmt::Display for InputError {
                 f,
                 "a close's summary of {len} bytes: it holds at most {max}"
             ),
+            Self::Removed(RemovedRefusal::NoChain) => {
+                write!(f, "removed pieces named by a piece without a head")
+            }
+            Self::Removed(RemovedRefusal::NotBefore { seq }) => {
+                write!(f, "removed piece {seq} is not before the piece written")
+            }
+            Self::Removed(RemovedRefusal::Conflict { seq }) => write!(
+                f,
+                "removed piece {seq} is named already with another id or hash"
+            ),
+            Self::Removed(RemovedRefusal::TooMany { max }) => {
+                write!(f, "more than {max} removed pieces in one close")
+            }
             Self::Flags { kind, flags } => write!(
                 f,
                 "a caller's block of kind {kind:?} with header flags {flags:#06x}: it takes {:#06x}",

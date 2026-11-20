@@ -157,10 +157,10 @@ fn parts() -> anyhow::Result<(u64, Vec<Span>)> {
     while let Some(b) = walk.next_block() {
         let b = b.or_debug()?;
         let (n, kind, flags) = (u64::try_from(b.len())?, b.kind, b.flags);
-        // a close's padding: its length past a close of its tracks
+        // a close's padding: its length past a close of its tracks and removed pieces
         let pad = if kind == BlockKind::Close {
-            let tracks = CloseBlock::read(&b).or_debug()?.tracks().count();
-            n - u64::try_from(close_len(tracks))?
+            let c = CloseBlock::read(&b).or_debug()?;
+            n - u64::try_from(close_len(c.tracks().count(), c.removed().count()))?
         } else {
             0
         };

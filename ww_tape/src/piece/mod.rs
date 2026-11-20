@@ -46,6 +46,12 @@
 //!   index, its body the caller's and at most [CLOSE_SUMMARY_MAX] bytes. The close record names it by offset and
 //!   length ([Close::summary]) and its hash covers it, so a reader of the tail finds it with one more read
 //!   ([TapeReader::close_summary](crate::TapeReader::close_summary)) and a verify checks it.
+//! - Pieces removed on purpose: a close may name pieces of its chain that were removed on purpose, at most
+//!   [REMOVED_PIECES_MAX] ([RemovedPiece]: sequence number, id and the content hash of its close in force). The writer
+//!   names them again in every later close of the piece
+//!   ([TapeWriter::record_removed](crate::TapeWriter::record_removed)). [check_chain] links over removed pieces when
+//!   the piece before names the first by id and the piece after names the last by hash and id
+//!   ([ChainLink::Removed]); a chain whose first pieces were removed so reads as removed, not head cut.
 //!
 //! A closed piece is a multiple of [PIECE_ALIGN] (4 KiB) long: the writer pads the close record's body with zeros
 //! ([close_padding]), so the tail, still the piece's last bytes, ends on the boundary. Pieces then clone back to back
@@ -72,15 +78,17 @@
 //! close (kind 8)
 //!  32 u8   reason (1 closed, 2 aborted; a piece that goes on in the next one, next id below, is closed)
 //!  33 u8   reserved
-//!  34 u16  track row length, 136 (a reader takes longer rows and reads their first 136 bytes)    36 [4] reserved
+//!  34 u16  track row length, 136 (a reader takes longer rows and reads their first 136 bytes)
+//!  36 u16  removed-piece row length, 56 (a reader takes longer rows and reads their first 56 bytes)    38 [2] reserved
 //!  40 [32] content hash: BLAKE3 of the piece's bytes before this block, each chunk payload by its hash (below); of
 //!          a later close, BLAKE3 of the previous close's hash, then of the bytes from it to this block, the same way
 //!  72 u64  newest checkpoint index offset    80 u64 last final index offset
 //!  88 u64  previous close record's offset (u64::MAX: the piece's first close)
 //!          (offsets u64::MAX for none)
 //!  96 [16] piece id    112 [16] next piece id    128 [32] owner id    160 u64 sequence number
-//! 168 u32  flags: bit 0 the piece has a head    172 u32 padding: zero bytes after the tracks, below [PIECE_ALIGN]
-//! 176 u64  close summary offset, u64::MAX for none    184 u32 its length    188 u32 reserved, 0
+//! 168 u32  flags: bit 0 the piece has a head    172 u32 padding: zero bytes after the rows, below [PIECE_ALIGN]
+//! 176 u64  close summary offset, u64::MAX for none    184 u32 its length
+//! 188 u32  removed pieces, at most REMOVED_PIECES_MAX: their rows follow the tracks
 //! 192 ...  tracks × 136, one per track with a counted chunk or record in the piece, ascending id then owner:
 //!            0 u64 id    8 u32 number    12 u32 chunks (0: records only, the range fields below 0)
 //!           16 u64 first item    24 u64 items    32 i64 first tick    40 i64 last tick
@@ -89,6 +97,8 @@
 //!           88 [32] track hash after this piece ([TrackHash])
 //!          120 u64 records: the track's counted records in the piece
 //!          128 u32 flags: bit 0 incomplete, the track hash leaves out units a resume kept unread    132 u32 reserved, 0
+//!     ...  removed pieces × 56, ascending distinct sequence numbers (RemovedPiece):
+//!            0 u64 sequence number    8 [16] piece id    24 [32] content hash of its close in force
 //!     ...  padding zeros, covered by the CRC
 //!
 //! tail (kind 9), TAIL_LEN bytes, the last of the piece
@@ -168,16 +178,31 @@ const HEAD_TRACKS_AT: usize = HEADER_LEN + HEAD_FIXED_LEN;
 const CLOSE_FIXED_LEN: usize = 160;
 /// Bytes of a close's track row this crate writes; a reader takes longer ones.
 const CLOSE_TRACK_LEN: usize = 136;
-/// Most tracks with data in one piece: the close's rows of that many, padded to [PIECE_ALIGN], fit a block
-/// ([crate::MAX_BLOCK_LEN]).
+/// Bytes of a close's removed-piece row this crate writes; a reader takes longer ones.
+const REMOVED_ROW_LEN: usize = 56;
+/// Where a close names its removed-piece row length.
+const REMOVED_ROW_LEN_AT: usize = 36;
+/// Where a close names how many removed-piece rows it holds.
+const REMOVED_COUNT_AT: usize = 188;
+/// Most pieces one close names as removed ([RemovedPiece]): 65536, 3.5 MiB of rows.
+///
+/// A writer refuses more ([crate::RemovedRefusal::TooMany]), a reader refuses a close stating more.
+pub const REMOVED_PIECES_MAX: usize = 1 << 16;
+/// Most tracks with data in one piece: the close's rows of that many and [REMOVED_PIECES_MAX] removed-piece rows,
+/// padded to [PIECE_ALIGN], fit a block ([crate::MAX_BLOCK_LEN]).
 ///
 /// A writer refuses a block that would bring in one more ([crate::WriteError]).
-pub const TRACKS_PER_PIECE_MAX: usize =
-    (crate::MAX_BLOCK_LEN - HEADER_LEN - CLOSE_FIXED_LEN - CRC_LEN - (u32_len(PIECE_ALIGN) - 1))
-        / CLOSE_TRACK_LEN;
+pub const TRACKS_PER_PIECE_MAX: usize = (crate::MAX_BLOCK_LEN
+    - HEADER_LEN
+    - CLOSE_FIXED_LEN
+    - CRC_LEN
+    - (u32_len(PIECE_ALIGN) - 1)
+    - REMOVED_PIECES_MAX * REMOVED_ROW_LEN)
+    / CLOSE_TRACK_LEN;
 const _: () = assert!(
-    close_len(TRACKS_PER_PIECE_MAX) + u32_len(PIECE_ALIGN) - 1 <= crate::MAX_BLOCK_LEN,
-    "the close of the most tracks fits a block"
+    close_len(TRACKS_PER_PIECE_MAX, REMOVED_PIECES_MAX) + u32_len(PIECE_ALIGN) - 1
+        <= crate::MAX_BLOCK_LEN,
+    "the close of the most tracks and removed pieces fits a block"
 );
 /// Most track rows one piece head carries: each track the chain's pieces before it carried or gave data, so a head of
 /// that many fits a block ([crate::MAX_BLOCK_LEN]), padded as a close is.
@@ -1024,17 +1049,32 @@ pub struct Close {
     pub next: Option<PieceId>,
 }
 
-/// Bytes of a close record with `tracks`, without padding.
-pub const fn close_len(tracks: usize) -> usize {
-    block_len_of(CLOSE_FIXED_LEN, tracks, CLOSE_TRACK_LEN)
+/// A piece of the chain removed on purpose, as a close record names it ([Close], [check_chain]).
+///
+/// It gives the piece's sequence number, its id and the content hash of its close in force. A reader links over the
+/// removed pieces by the id the piece before them names and the hash and id the piece after them names.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct RemovedPiece {
+    pub seq: u64,
+    pub id: PieceId,
+    /// The content hash of the piece's close in force: what the next piece's head names.
+    pub hash: ContentHash,
 }
 
-/// Zero bytes a close record of `tracks` placed at `close_offset` in its piece is padded with, so the piece ends,
-/// after its tail, on a multiple of [PIECE_ALIGN]; below [PIECE_ALIGN].
-pub const fn close_padding(close_offset: u64, tracks: usize) -> usize {
+/// Bytes of a close record with `tracks` and `removed` removed-piece rows, without padding.
+pub const fn close_len(tracks: usize, removed: usize) -> usize {
+    block_len_of(CLOSE_FIXED_LEN, tracks, CLOSE_TRACK_LEN)
+        .saturating_add(removed.saturating_mul(REMOVED_ROW_LEN))
+}
+
+/// Zero bytes a close record is padded with, below [PIECE_ALIGN].
+///
+/// The close has `tracks` track rows and `removed` removed-piece rows and sits at `close_offset` in its piece; the
+/// padding ends the piece, after its tail, on a multiple of [PIECE_ALIGN].
+pub const fn close_padding(close_offset: u64, tracks: usize, removed: usize) -> usize {
     // only the low bits count: the end modulo 2^64 has them
     let end = close_offset
-        .wrapping_add(len_u64(close_len(tracks)))
+        .wrapping_add(len_u64(close_len(tracks, removed)))
         .wrapping_add(len_u64(TAIL_LEN));
     to_boundary(end, PIECE_ALIGN.wrapping_sub(1))
 }
@@ -1047,27 +1087,59 @@ fn get_opt(b: &[u8], at: usize) -> Option<Option<u64>> {
     le_u64(b, at).map(|v| Some(v).filter(|v| *v != NONE))
 }
 
-/// Write a close record with `padding` zero bytes after its tracks into `buf` (at least [close_len] plus `padding`
-/// long); returns its length. A padding of [PIECE_ALIGN] or more is refused.
+/// Write a close record into `buf`; returns its length.
+///
+/// The record names the pieces `removed` and has `padding` zero bytes after its rows; `buf` is at least [close_len]
+/// plus `padding` long. A padding of [PIECE_ALIGN] or more is refused, and so are removed pieces past
+/// [REMOVED_PIECES_MAX] or not in ascending order of distinct sequence numbers.
 pub fn write_close(
     buf: &mut [u8],
     id: BlockId,
     close: &Close,
-    tracks: &[TrackRange],
+    (tracks, removed): (&[TrackRange], &[RemovedPiece]),
     padding: usize,
 ) -> Result<usize, IndexError> {
     let pad = u32::try_from(padding)
         .ok()
         .filter(|p| *p < PIECE_ALIGN)
         .ok_or(IndexError::Invalid("close padding of 4 KiB or more"))?;
-    let len = close_len(tracks.len()).saturating_add(padding);
+    if removed.len() > REMOVED_PIECES_MAX {
+        return Err(IndexError::Invalid(
+            "more removed pieces than REMOVED_PIECES_MAX",
+        ));
+    }
+    if !removed.is_sorted_by(|a, b| a.seq < b.seq) {
+        return Err(IndexError::Invalid(
+            "removed pieces not in ascending order of distinct seqs",
+        ));
+    }
+    let len = close_len(tracks.len(), removed.len()).saturating_add(padding);
     let (b, count) = block_buf(buf, len, tracks.len())?;
     put_header(b, BlockKind::Close, len, count, id)
         .ok_or(IndexError::Invalid("longer than a block"))?;
     fill_close(b, close, tracks).ok_or(IndexError::Invalid("close layout"))?;
+    fill_removed(b, tracks.len(), removed).ok_or(IndexError::Invalid("close layout"))?;
     put_u32(b, 172, pad).ok_or(IndexError::Invalid("close layout"))?;
     seal(b);
     Ok(len)
+}
+
+/// The removed-piece rows of the close record `b` of `tracks` track rows, and their count and row length.
+fn fill_removed(b: &mut [u8], tracks: usize, removed: &[RemovedPiece]) -> Option<()> {
+    put_u16(b, REMOVED_ROW_LEN_AT, u16::try_from(REMOVED_ROW_LEN).ok()?)?;
+    put_u32(b, REMOVED_COUNT_AT, u32::try_from(removed.len()).ok()?)?;
+    let at = CLOSE_TRACKS_AT.checked_add(tracks.checked_mul(CLOSE_TRACK_LEN)?)?;
+    let rows = b
+        .get_mut(at..)?
+        .as_chunks_mut::<REMOVED_ROW_LEN>()
+        .0
+        .iter_mut();
+    for (row, r) in rows.zip(removed) {
+        put_u64(row, 0, r.seq)?;
+        put(row, 8, r.id.0)?;
+        put(row, 24, r.hash.0)?;
+    }
+    Some(())
 }
 
 /// The body of the close record `b`, sized for `tracks`.
@@ -1117,30 +1189,84 @@ pub struct CloseBlock<'b> {
     rows: &'b [u8],
     /// At least [CLOSE_TRACK_LEN]
     row: usize,
+    /// The removed pieces, `removed_row` bytes each, ascending distinct seqs
+    removed: &'b [u8],
+    /// At least [REMOVED_ROW_LEN]
+    removed_row: usize,
 }
 
 impl<'b> CloseBlock<'b> {
     /// The close of a good block.
     pub fn read(block: &Block<'b>) -> Result<Self, IndexError> {
         of_kind(block, BlockKind::Close)?;
-        let padding = le_u32(block.bytes(), 172)
+        let b = block.bytes();
+        let padding = le_u32(b, 172)
             .filter(|p| *p < PIECE_ALIGN)
             .map(u32_len)
             .ok_or(IndexError::BadHead)?;
-        let (rows, row) = body(
+        let removed_row = le_u16(b, REMOVED_ROW_LEN_AT)
+            .map(usize::from)
+            .filter(|r| *r >= REMOVED_ROW_LEN)
+            .ok_or(IndexError::BadHead)?;
+        let removed_n = le_u32(b, REMOVED_COUNT_AT)
+            .map(u32_len)
+            .filter(|n| *n <= REMOVED_PIECES_MAX)
+            .ok_or(IndexError::Invalid(
+                "more removed pieces than REMOVED_PIECES_MAX",
+            ))?;
+        let removed_len = removed_n
+            .checked_mul(removed_row)
+            .ok_or(IndexError::BadHead)?;
+        let (all, row) = body(
             block,
             BlockKind::Close,
             CLOSE_FIXED_LEN,
             (CLOSE_ROW_LEN_AT, CLOSE_TRACK_LEN),
-            padding,
+            padding
+                .checked_add(removed_len)
+                .ok_or(IndexError::BadHead)?,
         )?;
-        let close = read_close(block.bytes()).ok_or(IndexError::BadHead)?;
-        known_row_flags(rows, row, ROW_FLAGS_AT)?;
-        Ok(CloseBlock { close, rows, row })
+        let rows_end = all.len();
+        let removed = b
+            .get(CLOSE_TRACKS_AT.saturating_add(rows_end)..)
+            .and_then(|r| r.get(..removed_len))
+            .ok_or(IndexError::BadHead)?;
+        let close = read_close(b).ok_or(IndexError::BadHead)?;
+        known_row_flags(all, row, ROW_FLAGS_AT)?;
+        let c = CloseBlock {
+            close,
+            rows: all,
+            row,
+            removed,
+            removed_row,
+        };
+        let mut seqs = c.removed().map(|r| r.seq);
+        let ascending = seqs
+            .next()
+            .is_none_or(|first| seqs.try_fold(first, |a, b| (a < b).then_some(b)).is_some());
+        if !ascending {
+            return Err(IndexError::Invalid(
+                "removed pieces not in ascending order of distinct seqs",
+            ));
+        }
+        Ok(c)
     }
 
     pub fn close(&self) -> Close {
         self.close
+    }
+
+    /// The pieces of the chain the close names as removed, ascending by sequence number.
+    pub fn removed(&self) -> impl Iterator<Item = RemovedPiece> + '_ {
+        self.removed
+            .chunks_exact(self.removed_row)
+            .map_while(|row| {
+                Some(RemovedPiece {
+                    seq: le_u64(row, 0)?,
+                    id: PieceId(array(row, 8)?),
+                    hash: ContentHash(array(row, 24)?),
+                })
+            })
     }
 
     pub fn tracks(&self) -> impl Iterator<Item = TrackRange> + '_ {

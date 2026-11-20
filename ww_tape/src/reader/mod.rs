@@ -31,8 +31,8 @@ use crate::index::{
 };
 use crate::piece::{
     APPEND_HEAD_LEN, AppendHead, ChainReport, Close, CloseBlock, ContentHash, HeadLink, HeadStatus,
-    OwnerId, PieceHead, PieceHeadBlock, PieceSummary, TAIL_LEN, Tail, TrackHash, TrackRange,
-    TrackStart, UnitHash, Walked, check_chain, payload_hash, walk_piece,
+    OwnerId, PieceHead, PieceHeadBlock, PieceSummary, RemovedPiece, TAIL_LEN, Tail, TrackHash,
+    TrackRange, TrackStart, UnitHash, Walked, check_chain, payload_hash, walk_piece,
 };
 use crate::series::{SeriesError, SeriesTimeline};
 use crate::walk::{Head, SessionState, Verdict, is_free};
@@ -256,6 +256,9 @@ pub struct PieceInfo {
     /// lookup in the piece returns it ([ReadError::Index]).
     pub head_error: Option<IndexError>,
     pub close: Option<(Close, Vec<TrackRange>)>,
+    /// The pieces of the chain the close names as removed on purpose, ascending by sequence number; empty without a
+    /// close.
+    pub removed: Vec<RemovedPiece>,
     /// Why a good close record of the piece didn't read as its close: damage the block CRC missed, or rows this build
     /// doesn't read. The piece then has no end: its tail, if read, ends no chain ([Self::summary]).
     pub close_error: Option<IndexError>,
@@ -293,6 +296,7 @@ pub struct PieceInfo {
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct InForce {
     close: (Close, Vec<TrackRange>),
+    removed: Vec<RemovedPiece>,
     offset: Option<u64>,
     tail: Tail,
 }
@@ -305,6 +309,7 @@ impl PieceInfo {
             head: None,
             head_error: None,
             close: None,
+            removed: Vec::new(),
             close_error: None,
             close_offset: None,
             tail: None,
@@ -330,6 +335,7 @@ impl PieceInfo {
         {
             self.in_force = Some(InForce {
                 close,
+                removed: core::mem::take(&mut self.removed),
                 offset: self.close_offset,
                 tail,
             });
@@ -337,6 +343,7 @@ impl PieceInfo {
         match CloseBlock::read(block) {
             Ok(f) => {
                 self.close = Some((f.close(), f.tracks().collect()));
+                self.removed = f.removed().collect();
                 self.close_error = None;
                 self.close_offset = offset;
             }
@@ -364,6 +371,7 @@ impl PieceInfo {
         };
         if self.tail.is_none() || self.close_error.is_some() {
             self.close = Some(f.close);
+            self.removed = f.removed;
             self.close_offset = f.offset;
             self.tail = Some(f.tail);
             self.close_error = None;
@@ -426,6 +434,7 @@ impl PieceInfo {
                 end,
                 unclosed,
                 head: HeadStatus::Read,
+                removed: self.removed.clone(),
             });
         }
         if let Some((link, error)) = self.refused_link.zip(self.head_error) {
@@ -435,6 +444,7 @@ impl PieceInfo {
                 end,
                 unclosed,
                 head: HeadStatus::Refused(error),
+                removed: self.removed.clone(),
             });
         }
         // a head lost to damage: the close of a piece that had one carries its ident
@@ -445,6 +455,7 @@ impl PieceInfo {
             end,
             unclosed,
             head: HeadStatus::Lost,
+            removed: self.removed.clone(),
         })
     }
 }
@@ -524,7 +535,7 @@ pub struct TapeReader<S> {
 type R<T, S> = Result<T, ReadError<<S as ByteSource>::Error>>;
 
 /// A close record and its rows, its offset in the piece and its tail, read whole.
-type WholeClose = ((Close, Vec<TrackRange>), u64, Tail);
+type WholeClose = (((Close, Vec<TrackRange>), Vec<RemovedPiece>), u64, Tail);
 
 /// A series timeline and the chunks left out of it, each with its error.
 type Timeline<S> = (SeriesTimeline, Vec<ReadError<<S as ByteSource>::Error>>);
@@ -740,6 +751,7 @@ impl<S: ByteSource> TapeReader<S> {
         p.end = hi;
         self.head_at(start, hi, &mut p)?;
         p.close = Some((close, fin.tracks().collect()));
+        p.removed = fin.removed().collect();
         p.close_offset = Some(tail.close_offset);
         p.tail = Some(tail);
         p.entries = None;
@@ -837,8 +849,9 @@ impl<S: ByteSource> TapeReader<S> {
                 break;
             }
         }
-        if let Some((_, (close, offset, tail))) = final_met {
+        if let Some((_, ((close, removed), offset, tail))) = final_met {
             piece.close = Some(close);
+            piece.removed = removed;
             piece.close_error = None;
             piece.close_offset = Some(offset);
             piece.tail = Some(tail);
@@ -899,7 +912,13 @@ impl<S: ByteSource> TapeReader<S> {
         let close_off = since(final_end, start);
         let whole = tail.ends(&close, close_off)
             && u64::from(tail.close_len) == since(close_end, final_end);
-        Ok(whole.then(|| ((close, c.tracks().collect()), close_off, tail)))
+        Ok(whole.then(|| {
+            (
+                ((close, c.tracks().collect()), c.removed().collect()),
+                close_off,
+                tail,
+            )
+        }))
     }
 
     /// The newest [Layout] the blocks of definitions among `entries` (of the piece at `start`, within `hi`) state.

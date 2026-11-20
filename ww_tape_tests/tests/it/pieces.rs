@@ -1187,7 +1187,7 @@ fn every_block_of_data_has_its_definitions_behind_it() {
 }
 
 /// A chain of pieces in memory; the keys of its tapes.
-fn chain_in_memory(mem: &ww_tape::MemTapes) -> Vec<u64> {
+pub(crate) fn chain_in_memory(mem: &ww_tape::MemTapes) -> Vec<u64> {
     let mut chain = PieceChain::create_on(
         mem.clone(),
         OwnerId([0x44; 32]),

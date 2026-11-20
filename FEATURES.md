@@ -128,6 +128,13 @@ Writing pieces and chains, resuming them, sinks in memory, in the crate `ww_tape
   - A resume cuts back only a torn end and refuses damage. A close with nothing appended writes no byte.
   - Read more: [Reading a growing piece](docs/growing_pieces.md), [The close in force](docs/format.md#the-close-in-force). Fuzz target `tape-reclose`.
 
+- ✅ **WRITE-8 Pieces removed on purpose**
+  - A close names pieces of its chain removed on purpose: sequence number, id and close hash, at most `REMOVED_PIECES_MAX` (65536).
+  - `TapeWriter::record_removed` appends them to the chain's last piece after its close; every later close of the piece names them again.
+  - `check_chain` links over the hole (`ChainLink::Removed`) when both ends match the rows. A head cut the rows cover reads as `head_removed`.
+  - Rows live in the piece that holds them: removing that piece later means naming them again (`ChainReport::removed`).
+  - Read more: [Pieces removed on purpose](docs/pieces_and_files.md#pieces-removed-on-purpose). Golden `v1-removed.hex`.
+
 ## Reader (`READ`)
 
 Reading by position, checks and hashes, hostile bytes, in the crate `ww_tape`.

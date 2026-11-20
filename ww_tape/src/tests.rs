@@ -1795,13 +1795,15 @@ fn chunk_on(number: u32, id: u64) -> (ChunkHead, (ColumnSpec, Vec<u8>)) {
     (head, (spec, starts))
 }
 
-/// A close of [TRACKS_PER_PIECE_MAX] rows, padded as much as a close is, is a block a reader takes.
+/// A close of [TRACKS_PER_PIECE_MAX] rows and [REMOVED_PIECES_MAX](crate::piece::REMOVED_PIECES_MAX) removed
+/// pieces, padded as much as a close is, is a block a reader takes.
 #[test]
 fn a_close_of_the_most_tracks_fits_a_block() {
     let rows = TRACKS_PER_PIECE_MAX;
+    let removed = crate::piece::REMOVED_PIECES_MAX;
     let padding = crate::piece::PIECE_ALIGN as usize - 1;
-    assert!(crate::piece::close_len(rows) + padding <= MAX_BLOCK_LEN);
-    assert!(crate::piece::close_len(rows + 1) + padding > MAX_BLOCK_LEN);
+    assert!(crate::piece::close_len(rows, removed) + padding <= MAX_BLOCK_LEN);
+    assert!(crate::piece::close_len(rows + 1, removed) + padding > MAX_BLOCK_LEN);
 }
 
 /// What verify holds doesn't grow with the piece: one entry per track list of its final index and the entries of

@@ -520,6 +520,7 @@ fn walk_caps() -> Vec<(&'static str, u64)> {
             "CLOSE_SUMMARY_MAX",
             ww_tape::piece::CLOSE_SUMMARY_MAX as u64,
         ),
+        ("REMOVED_PIECES_MAX", ww_tape::REMOVED_PIECES_MAX as u64),
         ("WALK_MISS_BASE_MAX", ww_tape::piece::WALK_MISS_BASE_MAX),
         (
             "WALK_MISS_PER_BYTE_MAX",

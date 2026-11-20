@@ -1,12 +1,13 @@
 //! [check_chain]: how the pieces at hand of one recording link up.
 
+use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 
-use super::{CloseReason, ContentHash, PieceId, PieceIdent};
+use super::{CloseReason, ContentHash, PieceId, PieceIdent, RemovedPiece};
 use crate::index::IndexError;
 
 /// What a reader knows of one piece: its head and, when it was closed, its end.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PieceSummary {
     pub ident: PieceIdent,
     /// The previous piece's content hash and id, from the head; None for the first piece.
@@ -18,6 +19,9 @@ pub struct PieceSummary {
     pub unclosed: bool,
     /// How the head read.
     pub head: HeadStatus,
+    /// The pieces of the chain its close in force names as removed on purpose ([RemovedPiece]), ascending by sequence
+    /// number.
+    pub removed: Vec<RemovedPiece>,
 }
 
 /// How a piece's head read, for [PieceSummary::head].
@@ -49,6 +53,10 @@ pub enum ChainLink {
     /// The earlier piece's end names the later one's id, but the later piece's head is lost ([HeadStatus::Lost]):
     /// linked one way only.
     HeadLost,
+    /// The `pieces` between them were removed on purpose: a close at hand names each of them ([RemovedPiece]), the
+    /// earlier piece's last close, a cut, names the first one's id, and the later head names the last one's hash and
+    /// id.
+    Removed { pieces: u64 },
 }
 
 /// How the chain ends.
@@ -67,8 +75,12 @@ pub enum ChainEnd {
 pub struct ChainReport {
     /// Indices into the pieces given, by sequence number.
     pub order: Vec<usize>,
-    /// The first piece at hand has a previous piece: the chain's start was deleted (retention), not damaged.
+    /// The first piece at hand has a previous piece: the chain's start was deleted (retention), not damaged. False when
+    /// the pieces before it were removed on purpose ([Self::head_removed]).
     pub head_cut: bool,
+    /// Pieces before the first at hand removed on purpose: a close at hand names each of them from sequence number 0
+    /// on ([RemovedPiece]), and the first head at hand names the last one's hash and id. 0 for none.
+    pub head_removed: u64,
     /// `links[i]` is between `order[i]` and `order[i + 1]`.
     pub links: Vec<ChainLink>,
     pub end: ChainEnd,
@@ -77,16 +89,24 @@ pub struct ChainReport {
     /// Pieces whose head is of an integrity level this build refuses ([HeadStatus::Refused]): linked as their heads
     /// say, their contents unread.
     pub refused: Vec<usize>,
+    /// The pieces the closes at hand name as removed, ascending by sequence number; one named by two closes with
+    /// another id or hash is left out, and links over it read as a gap. A writer naming more removed pieces in a later
+    /// piece gives these again ([TapeWriter::record_removed](crate::TapeWriter::record_removed)), so they outlive the
+    /// piece naming them.
+    pub removed: Vec<RemovedPiece>,
 }
 
 impl ChainReport {
-    /// Every piece there, linked, from the first to a close record of the last.
+    /// Every piece there or removed on purpose, linked, from the first to a close record of the last.
     pub fn is_whole(&self) -> bool {
         !self.head_cut
             && self.strays.is_empty()
             && self.refused.is_empty()
             && matches!(self.end, ChainEnd::Closed { .. })
-            && self.links.iter().all(|l| *l == ChainLink::Linked)
+            && self
+                .links
+                .iter()
+                .all(|l| matches!(l, ChainLink::Linked | ChainLink::Removed { .. }))
     }
 }
 
@@ -109,15 +129,24 @@ pub fn check_chain(pieces: &[PieceSummary]) -> ChainReport {
             order.push((i, p));
         }
     }
+    let removed = Removed::of(order.iter().map(|(_, p)| *p));
     let links = order
         .iter()
         .zip(order.iter().skip(1))
-        .map(|((_, a), (_, b))| link(a, b))
+        .map(|((_, a), (_, b))| link(a, b, &removed))
         .collect();
-    // a first piece whose head is lost was the chain's first only at sequence number 0
-    let head_cut = order
+    let head_removed = order
         .first()
-        .is_some_and(|(_, f)| f.prev.is_some() || (f.head == HeadStatus::Lost && f.ident.seq > 0));
+        .and_then(|(_, f)| {
+            let last = removed.covering(0, f.ident.seq)?;
+            (f.prev == Some((last.hash, last.id))).then_some(f.ident.seq)
+        })
+        .unwrap_or(0);
+    // a first piece whose head is lost was the chain's first only at sequence number 0
+    let head_cut = head_removed == 0
+        && order.first().is_some_and(|(_, f)| {
+            f.prev.is_some() || (f.head == HeadStatus::Lost && f.ident.seq > 0)
+        });
     let end = match order
         .last()
         .map(|(_, l)| l)
@@ -136,26 +165,83 @@ pub fn check_chain(pieces: &[PieceSummary]) -> ChainReport {
     ChainReport {
         order: order.into_iter().map(|(i, _)| i).collect(),
         head_cut,
+        head_removed,
         links,
         end,
         strays,
         refused,
+        removed: removed.agreed().collect(),
     }
 }
 
-fn link(a: &PieceSummary, b: &PieceSummary) -> ChainLink {
+/// The removed pieces the closes at hand name, by sequence number; None for one two closes name differently.
+struct Removed(BTreeMap<u64, Option<RemovedPiece>>);
+
+impl Removed {
+    fn of<'p>(pieces: impl Iterator<Item = &'p PieceSummary>) -> Self {
+        let mut m: BTreeMap<u64, Option<RemovedPiece>> = BTreeMap::new();
+        for r in pieces.flat_map(|p| &p.removed) {
+            m.entry(r.seq)
+                .and_modify(|e| {
+                    if *e != Some(*r) {
+                        *e = None;
+                    }
+                })
+                .or_insert(Some(*r));
+        }
+        Self(m)
+    }
+
+    /// The first and the last of the pieces of sequence numbers `from..to` when every one of them is named, agreed.
+    fn span(&self, from: u64, to: u64) -> Option<(RemovedPiece, RemovedPiece)> {
+        let mut expect = from;
+        let mut ends: Option<(RemovedPiece, RemovedPiece)> = None;
+        // keys are distinct and ascending: each must be the next seq
+        for (seq, r) in self.0.range(from..to) {
+            let r = (*seq == expect).then_some(*r).flatten()?;
+            ends = Some((ends.map_or(r, |(first, _)| first), r));
+            expect = expect.checked_add(1)?;
+        }
+        ends.filter(|_| expect == to)
+    }
+
+    /// The last of the pieces of sequence numbers `from..to` when every one of them is named, agreed.
+    fn covering(&self, from: u64, to: u64) -> Option<RemovedPiece> {
+        self.span(from, to).map(|(_, last)| last)
+    }
+
+    fn agreed(&self) -> impl Iterator<Item = RemovedPiece> + '_ {
+        self.0.values().filter_map(|r| *r)
+    }
+}
+
+fn link(a: &PieceSummary, b: &PieceSummary, removed: &Removed) -> ChainLink {
     // `order` holds distinct seqs, ascending: b's is past a's
     let missing = b.ident.seq.abs_diff(a.ident.seq).saturating_sub(1);
-    if missing > 0 {
-        return ChainLink::Gap { missing };
-    }
+    // the pieces removed between them, their first and last; pieces missing otherwise are a gap
+    let span = match missing {
+        0 => None,
+        _ => match removed.span(a.ident.seq.saturating_add(1), b.ident.seq) {
+            Some(span) => Some(span),
+            None => return ChainLink::Gap { missing },
+        },
+    };
     let Some((_, hash, next)) = a.end.filter(|_| !a.unclosed) else {
         return ChainLink::Unclosed;
     };
+    // what a's cut names, and what b's head names: each other, or the ends of the pieces removed between them
+    let (named, before, linked) = match span {
+        None => (b.ident.id, (hash, a.ident.id), ChainLink::Linked),
+        Some((first, last)) => (
+            first.id,
+            (last.hash, last.id),
+            ChainLink::Removed { pieces: missing },
+        ),
+    };
     // only a close by a cut names a piece after it
-    match (next == Some(b.ident.id), b.head) {
+    match (next == Some(named), b.head) {
         (true, HeadStatus::Lost) => ChainLink::HeadLost,
-        (true, _) if b.prev == Some((hash, a.ident.id)) => ChainLink::Linked,
+        (true, _) if b.prev == Some(before) => linked,
         _ => ChainLink::Broken,
     }
 }

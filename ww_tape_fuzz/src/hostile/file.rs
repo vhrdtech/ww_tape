@@ -188,8 +188,9 @@ fn hit_block(d: &mut Draw<'_>, block: &mut [u8], kind: BlockKind, piece_len: u64
         }
         BlockKind::Close => {
             let tracks = get(block, 12, 4) as usize;
+            let removed = get(block, 188, 4) as usize;
             let len = [piece_len];
-            let fields = close_fields(d, tracks, &len);
+            let fields = close_fields(d, (tracks, removed), &len);
             hit_some(d, block, &fields);
             seal(block);
         }
