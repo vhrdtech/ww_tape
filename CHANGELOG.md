@@ -165,11 +165,11 @@ Covers `ww_tape` 0.1.0.
 - Format version 2: record times are signed i64 ticks of the track's clock, read with `Record::at` (FMT-2).
 - Time deltas coded per clock after a clock table; header 24..32 reserved; `Block::t_base` gone (FMT-2).
 - `BlockWriter::new` takes the block's clocks; `push` and `push_with` take a `ClockTime`; describe records use `push_describe` and `push_describe_with` (FMT-2).
-- The close record states removed-piece rows: row length at 36, count at 188, rows after the tracks; goldens rewritten (WRITE-8).
 - `TRACKS_PER_PIECE_MAX` is 466430 and `VERIFY_LISTS_MAX` 466432: a close holds room for `REMOVED_PIECES_MAX` removed rows (WRITE-8).
 - `write_close` takes `(tracks, removed)`; `close_len` and `close_padding` take a removed count (WRITE-8).
 - `PieceSummary` is `Clone`, not `Copy`, and gains `removed`; `ChainReport` gains `head_removed` and `removed`; `PieceInfo` gains `removed` (WRITE-8).
 - `ChainLink::Removed` and `InputError::Removed` are new: an exhaustive match needs their arms (WRITE-8).
+- The close record states removed-piece rows: row length (56) at offset 36, count at 188, rows after the tracks (WRITE-8).
 
 ### Features
 

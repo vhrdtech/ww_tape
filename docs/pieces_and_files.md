@@ -109,6 +109,9 @@ does:
 
 A row that disagrees with either end reads as `Broken`. A hole that the rows do not cover whole reads as a gap.
 
+Only the ends are checked: no piece at hand names the rows between them, or the first row's hash. A hole of two
+pieces or more therefore links whatever those rows say.
+
 A chain whose first pieces were removed and named reads as removed (`head_removed`), not as head cut. The rows must
 then name every piece from sequence number 0 on.
 
@@ -116,6 +119,9 @@ then name every piece from sequence number 0 on.
 
 The rows live in the piece that holds them. To remove that piece later too, name its rows again on the new last piece.
 `ChainReport::removed` lists every row the closes at hand name.
+
+Rows go on the last piece and name only pieces before it. The last pieces of a chain therefore cannot be named as
+removed.
 
 The writer refuses:
 
