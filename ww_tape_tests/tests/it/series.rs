@@ -760,3 +760,154 @@ fn writer_refuses_chunks_too_long_without_a_panic() {
     w.write_chunk(defs, &head, &[(spec, &samples)]).unwrap();
     _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Give `w` samples `from..to` as chunks of at most [CHUNK_MAX] on the first grid, each chunk's summary blocks
+/// deferred in front of it; the summaries start at `from`. The number of summary blocks given.
+fn summarized(w: &mut TapeWriter<ww_tape_fs::FileSink>, from: u64, to: u64) -> usize {
+    use ww_tape_summary::{SeriesStart, SeriesStats, SeriesSummaries, SeriesSummarySpec};
+    let grid = series_def().first_grid(START);
+    let shape = SampleShape::new(i32::ELEMENT, CHANNELS);
+    let start = SeriesStart {
+        track_id: series_id(),
+        track_number: TRACK,
+        shape,
+        first_item: from,
+        grid,
+        period: period(),
+    };
+    let spec = SeriesSummarySpec {
+        base_shift: 4,
+        stats: SeriesStats::all(i32::ELEMENT),
+        clip: None,
+    };
+    let mut s = SeriesSummaries::<i32>::new(start, spec).unwrap();
+    let mut given = 0;
+    let mut next = from;
+    while next < to {
+        let end = (next + CHUNK_MAX).min(to);
+        let mut column: Vec<i32> = (next..end)
+            .flat_map(|i| (0..CHANNELS).map(move |c| value(i, c)))
+            .collect();
+        s.push(&column, 0).unwrap();
+        for b in s.take_blocks() {
+            w.defer_block(series_defs(), b).unwrap();
+            given += 1;
+        }
+        seal(w, grid, &mut next, &mut column);
+    }
+    s.finish().unwrap();
+    for b in s.take_blocks() {
+        w.defer_block(series_defs(), b).unwrap();
+        given += 1;
+    }
+    given
+}
+
+/// A writer of a new file at `path` with the recording's definitions.
+fn created(path: &std::path::Path) -> TapeWriter<ww_tape_fs::FileSink> {
+    let mut w = ww_tape_fs::writer::create(path, SyncPolicy::None).unwrap();
+    w.set_alignment(ww_tape::ALIGNMENT).unwrap();
+    w.set_session(crate::id(0).session).unwrap();
+    for d in definitions() {
+        match d {
+            Describe::Producer(p) => w.set_producer(p.name),
+            Describe::Layout(l) => w.set_layout(l).unwrap(),
+            _ => {}
+        }
+    }
+    w
+}
+
+/// Close rows (number, chunks, first item, items) and summary blocks (first item, level).
+type Listed = (Vec<(u32, u32, u64, u64)>, Vec<(u64, u8)>);
+
+/// What the reader lists of `bytes`: the close rows, and the first item and level of each summary block of the
+/// series track, read in place.
+fn summaries_listed(bytes: &[u8]) -> Listed {
+    let r = TapeReader::open(bytes).unwrap();
+    assert!(r.verify(0).unwrap().holds);
+    let rows = r.pieces()[0]
+        .close
+        .as_ref()
+        .unwrap()
+        .1
+        .iter()
+        .map(|t| (t.track_number, t.chunks, t.first_item, t.items))
+        .collect();
+    let mut buf = vec![];
+    let mut listed: Vec<_> = r
+        .track_entries(0, series_id())
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.kind == BlockKind::Summary)
+        .map(|e| {
+            let b = r.read_block(0, &e, &mut buf).unwrap();
+            let head = ww_tape_summary::Summary::of_block(&b).unwrap().head();
+            assert_eq!((head.level, head.track_id), (e.level, series_id()));
+            (head.first_item, head.level)
+        })
+        .collect();
+    listed.sort_unstable();
+    (rows, listed)
+}
+
+/// Series chunks and their summary blocks on a file, closed, resumed through `ww_tape_fs` and closed again, read as
+/// the same chunks and summaries written by one writer: the samples, the timeline, the close rows and every summary
+/// block listed under its track.
+#[test]
+fn series_and_summaries_across_an_append_read_as_one_writer_wrote_them() {
+    let dir = scratch("append");
+    let one = dir.join("one.wwt");
+    let mut w = created(&one);
+    let given_one = summarized(&mut w, 0, 320) + summarized(&mut w, 320, 640);
+    w.close().unwrap();
+    let path = dir.join("twice.wwt");
+    let mut w = created(&path);
+    let mut given = summarized(&mut w, 0, 320);
+    w.close().unwrap();
+    let first = std::fs::read(&path).unwrap();
+    let options = ww_tape::WriterOptions {
+        layout: Layout::ALIGNED,
+        producer: "series".to_owned(),
+        ..crate::resume::options(ww_tape::ALIGNMENT)
+    };
+    let (mut w, resumed) = ww_tape_fs::writer::resume(&path, options).unwrap();
+    assert!(resumed.after_close.is_some());
+    given += summarized(&mut w, 320, 640);
+    w.close().unwrap();
+    assert_eq!(given, given_one);
+    let (one, twice) = (std::fs::read(&one).unwrap(), std::fs::read(&path).unwrap());
+    assert_eq!(
+        twice[..first.len()],
+        first[..],
+        "no byte before the old tail moves"
+    );
+    assert_eq!(
+        TapeReader::open(&twice[..])
+            .unwrap()
+            .closes(0)
+            .unwrap()
+            .len(),
+        2
+    );
+    let (a, b) = (read(&one), read(&twice));
+    assert_eq!(a.chunks, b.chunks, "heads and samples");
+    assert_eq!(
+        b.chunks
+            .iter()
+            .map(|(h, _)| u64::from(h.count))
+            .sum::<u64>(),
+        640
+    );
+    assert_eq!(a.timeline.stretches(), b.timeline.stretches());
+    let (rows_one, listed_one) = summaries_listed(&one);
+    let (rows, listed) = summaries_listed(&twice);
+    assert_eq!(rows, rows_one, "close rows");
+    assert_eq!(listed, listed_one, "summary blocks listed");
+    assert_eq!(listed.len(), given);
+    assert!(
+        listed.iter().any(|(first, _)| *first >= 320),
+        "summaries of the append"
+    );
+    _ = std::fs::remove_dir_all(&dir);
+}

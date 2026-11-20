@@ -5,7 +5,7 @@
 use crate::pieces::records;
 use crate::resume::{begin, head, options};
 use ww_tape::index::IndexEntry;
-use ww_tape::piece::{APPEND_HEAD_LEN, Close};
+use ww_tape::piece::Close;
 use ww_tape::reader::Found;
 use ww_tape::{
     ALIGNMENT, BlockKind, ContentHash, FileBlocks, Medium, MemSink, OpenOptions, Recovery,
@@ -13,7 +13,7 @@ use ww_tape::{
 };
 
 /// The ticks of the record blocks of data in `bytes`, in file order, each once.
-fn ticks(bytes: &[u8]) -> Vec<i64> {
+pub(crate) fn ticks(bytes: &[u8]) -> Vec<i64> {
     let mut rd = FileBlocks::with_recovery(bytes, Recovery::Prefix);
     let mut out = vec![];
     while let Some(Ok(b)) = rd.next_block() {
@@ -25,7 +25,7 @@ fn ticks(bytes: &[u8]) -> Vec<i64> {
 }
 
 /// Give `w` a records block with each tick of `ticks`.
-fn write<S: TapeSink>(w: &mut TapeWriter<S>, ticks: impl IntoIterator<Item = i64>) {
+pub(crate) fn write<S: TapeSink>(w: &mut TapeWriter<S>, ticks: impl IntoIterator<Item = i64>) {
     for n in ticks {
         let block = records(w.next_id(), n);
         w.write_block(crate::definitions::base_defs(), &block)
@@ -34,21 +34,21 @@ fn write<S: TapeSink>(w: &mut TapeWriter<S>, ticks: impl IntoIterator<Item = i64
 }
 
 /// Close `w`; the bytes of its tape.
-fn close(w: TapeWriter<MemSink>) -> Vec<u8> {
+pub(crate) fn close(w: TapeWriter<MemSink>) -> Vec<u8> {
     let tape = w.sink().tape();
     w.close().unwrap();
     tape.to_vec().unwrap()
 }
 
 /// Resume the piece `bytes` written with `options(alignment)`.
-fn reopen(bytes: &[u8], alignment: u32) -> (TapeWriter<MemSink>, Resumed) {
+pub(crate) fn reopen(bytes: &[u8], alignment: u32) -> (TapeWriter<MemSink>, Resumed) {
     let mut sink = MemSink::new();
     sink.write_all(bytes).unwrap();
     TapeWriter::resume_on(sink, options(alignment)).unwrap()
 }
 
 /// The close records of the one piece of `bytes`, oldest first.
-fn closes(bytes: &[u8]) -> Vec<(u64, Close)> {
+pub(crate) fn closes(bytes: &[u8]) -> Vec<(u64, Close)> {
     let r = TapeReader::open(bytes).unwrap();
     assert_eq!(r.pieces().len(), 1, "one piece");
     r.closes(0).unwrap()
@@ -57,29 +57,6 @@ fn closes(bytes: &[u8]) -> Vec<(u64, Close)> {
 /// The content hash the last close of `bytes` states.
 fn close_hash(bytes: &[u8]) -> ContentHash {
     closes(bytes).last().unwrap().1.hash
-}
-
-/// The ends of the blocks of `bytes` past `from`, and bytes in between: where an append is cut.
-fn cuts_after(bytes: &[u8], from: usize) -> Vec<usize> {
-    let mut rd = FileBlocks::with_recovery(bytes, Recovery::Prefix);
-    let mut out = vec![from, from + 1, from + APPEND_HEAD_LEN - 1, bytes.len()];
-    while let Some(Ok(_)) = rd.next_block() {
-        let end = rd.offset() as usize;
-        if end > from {
-            out.extend([end - 1, end, end + 1]);
-        }
-    }
-    let mut x = 0x2545_f491_4f6c_dd1du64;
-    for _ in 0..60 {
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        out.push(from + (x % (bytes.len() - from) as u64) as usize);
-    }
-    out.retain(|c| (from..=bytes.len()).contains(c));
-    out.sort_unstable();
-    out.dedup();
-    out
 }
 
 /// An append cut at any byte, from its append head to the new tail: the reader takes the old close, the bytes after
@@ -113,9 +90,7 @@ fn append_cut_anywhere(alignment: u32) {
             .unwrap()
     );
     assert_eq!(ticks(&new), (0..12).collect::<Vec<_>>());
-    let cuts = cuts_after(&new, old.len());
-    assert!(cuts.len() > 30, "{} cuts", cuts.len());
-    for cut in cuts {
+    for cut in old.len()..=new.len() {
         let torn = &new[..cut];
         let r = TapeReader::open(torn).unwrap();
         assert_eq!(r.pieces().len(), 1, "cut at {cut}: one piece");
