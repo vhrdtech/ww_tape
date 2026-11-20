@@ -1028,6 +1028,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ww_tape_example"
+version = "0.1.0"
+dependencies = [
+ "exact_units",
+ "libm",
+ "shrink_wrap",
+ "ww_tape",
+ "ww_tape_summary",
+]
+
+[[package]]
 name = "ww_tape_figures"
 version = "0.1.0"
 dependencies = [

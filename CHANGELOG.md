@@ -323,6 +323,7 @@ Covers `ww_tape` 0.1.0.
 - `TapeWriter::record_removed` names pieces removed on purpose in the last piece's close, appended after it (WRITE-8).
 - `check_chain` links over named removed pieces (`ChainLink::Removed`), checked by their ids and close hashes (WRITE-8).
 - A head cut that removed-piece rows cover from seq 0 reads as `ChainReport::head_removed`, not head cut (WRITE-8).
+- `ww_tape_example`: the drive motor controller's hour, recorded at any scale, crashed at any byte and resumed (BOOK-3).
 
 ### Fixes
 

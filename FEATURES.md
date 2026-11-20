@@ -228,8 +228,15 @@ The pages in `docs/`.
   - Done: `[[term]]` marks a glossary term and ``[`Item`]`` links code, both with a card on hover; a stale name fails `just book-check`.
   - Done: six parts in dependency order, a reading level on every page, and doctests of a page's `rust` blocks.
   - Done: the chapter "When the power fails", its figures drawn from a real crash and its code from a test.
-  - Open: the chapters still stubs, one running example as code, tested code in every guide chapter.
+  - Done: the running example as code (BOOK-3).
+  - Open: the chapters still stubs, tested code in every guide chapter.
   - Read more: [For writers](docs/writers.md), [Glossary](docs/glossary.md).
+
+- ✅ **BOOK-3 The running example as code**
+  - `ww_tape_example` records the drive motor controller's hour: log lines, mode, CAN frames, phase current with summaries and temperature, in a chain of pieces.
+  - `Drive::scaled` shrinks the data and the byte policies for figures; a crash at any byte resumes to the bytes of the run without it.
+  - `cargo run -p ww_tape_example` prints the story's numbers; `tests/story.rs` checks them and that the full hour is the same every run.
+  - Read more: [ww_tape_example](ww_tape_example/README.md).
 
 ## Repository (`REPO`)
 
