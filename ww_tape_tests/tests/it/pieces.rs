@@ -160,6 +160,30 @@ fn closed_file_is_found_by_its_tail() {
     assert_eq!(close.hash, done.hash);
     assert!(close.checkpoint.is_some());
     assert!(r.verify(0).map(|v| v.holds).unwrap());
+    close_rows_count_every_track(ranges, &done);
+
+    let t1 = index_lists_every_block(&r, &bytes);
+
+    // a flipped byte before the close fails the content hash
+    let mut bad = bytes.clone();
+    bad[100] ^= 1;
+    assert!(
+        !TapeReader::open(&bad[..])
+            .unwrap()
+            .verify(0)
+            .map(|v| v.holds)
+            .unwrap()
+    );
+
+    // the same through a file
+    let f = ww_tape_fs::FileSource::open(&path).unwrap();
+    let r = TapeReader::open(f).unwrap();
+    assert_eq!(r.track_entries(0, chunk_id(1)).unwrap(), t1);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// The close rows of [write_tape]'s piece: three tracks of chunks, one of records alone, each with its hash.
+fn close_rows_count_every_track(ranges: &[ww_tape::piece::TrackRange], done: &ww_tape::Closed) {
     // three tracks of chunks, one of records alone
     assert_eq!(ranges.len(), 4);
     let rec = ranges.iter().find(|t| t.track_number == 9).unwrap();
@@ -187,9 +211,12 @@ fn closed_file_is_found_by_its_tail() {
         (t1.track_id, t1.chunks, t1.first_item, t1.items),
         (chunk_id(1), 20, 0, 1000)
     );
+}
 
+/// The index of [write_tape]'s piece lists every block a walk finds; the entries of track 1, read back.
+fn index_lists_every_block(r: &TapeReader<&[u8]>, bytes: &[u8]) -> Vec<ww_tape::index::IndexEntry> {
     // the index lists every block a walk finds, but the index, close and tail blocks
-    let want: Vec<_> = walk(&bytes).into_iter().filter(|b| listed(b.2)).collect();
+    let want: Vec<_> = walk(bytes).into_iter().filter(|b| listed(b.2)).collect();
     let mut got: Vec<_> = r
         .entries(0)
         .unwrap()
@@ -219,23 +246,7 @@ fn closed_file_is_found_by_its_tail() {
         "an entry each: the layout, the producer, the clock and the four tracks with data, all close behind it"
     );
     assert!(defs.iter().all(|e| e.repeat && e.state().is_some()));
-
-    // a flipped byte before the close fails the content hash
-    let mut bad = bytes.clone();
-    bad[100] ^= 1;
-    assert!(
-        !TapeReader::open(&bad[..])
-            .unwrap()
-            .verify(0)
-            .map(|v| v.holds)
-            .unwrap()
-    );
-
-    // the same through a file
-    let f = ww_tape_fs::FileSource::open(&path).unwrap();
-    let r = TapeReader::open(f).unwrap();
-    assert_eq!(r.track_entries(0, chunk_id(1)).unwrap(), t1);
-    std::fs::remove_dir_all(&dir).unwrap();
+    t1
 }
 
 /// A writer that stopped anywhere: every block up to the cut is found, from the newest checkpoint and a scan of
@@ -469,36 +480,50 @@ fn chain_of_pieces_links_both_ways() {
     let files: Vec<Vec<u8>> = paths.iter().map(|p| std::fs::read(p).unwrap()).collect();
     let mut summaries = vec![];
     for (i, f) in files.iter().enumerate() {
-        let r = TapeReader::open(&f[..]).unwrap();
-        assert_eq!(r.pieces().len(), 1, "piece {i} reads alone");
-        assert!(r.verify(0).map(|v| v.holds).unwrap());
-        let p = &r.pieces()[0];
-        let (head, starts) = p.head.as_ref().unwrap();
-        assert_eq!(head.ident.seq, i as u64);
-        // every piece carries the definitions
-        assert!(
-            !r.track_entries(0, ww_tape::index::STATE_TRACK_ID)
-                .unwrap()
-                .is_empty()
-        );
-        // items continue: the head's starts are where the previous piece's ranges ended
-        let (_, ranges) = p.close.as_ref().unwrap();
-        for s in starts {
-            let rg = ranges.iter().find(|r| r.track_id == s.track_id).unwrap();
-            assert_eq!(rg.first_item, s.next_item);
-            assert!(rg.first_tick >= s.from_tick);
-        }
-        // the next id comes from this id and the content hash in the close, exactly
-        let (close, _) = p.close.as_ref().unwrap();
-        if i + 1 < files.len() {
-            let next = PieceId::after(head.ident.id, &close.hash);
-            assert_eq!(close.next, Some(next));
-            assert_eq!(p.tail.as_ref().unwrap().next, Some(next));
-        }
-        summaries.push(p.summary().unwrap());
+        summaries.push(piece_reads_alone_and_links(i, f, i + 1 < files.len()));
     }
     assert!(check_chain(&summaries).is_whole());
 
+    concatenated_pieces_read_as_one(&files);
+
+    lost_pieces_and_tails_leave_the_rest(&files);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// Piece `i` of [write_chain] reads alone, carries the definitions, continues the items of the piece before and names
+/// the next piece's id when `has_next`; its summary for the chain check.
+fn piece_reads_alone_and_links(i: usize, f: &[u8], has_next: bool) -> ww_tape::piece::PieceSummary {
+    let r = TapeReader::open(f).unwrap();
+    assert_eq!(r.pieces().len(), 1, "piece {i} reads alone");
+    assert!(r.verify(0).map(|v| v.holds).unwrap());
+    let p = &r.pieces()[0];
+    let (head, starts) = p.head.as_ref().unwrap();
+    assert_eq!(head.ident.seq, i as u64);
+    // every piece carries the definitions
+    assert!(
+        !r.track_entries(0, ww_tape::index::STATE_TRACK_ID)
+            .unwrap()
+            .is_empty()
+    );
+    // items continue: the head's starts are where the previous piece's ranges ended
+    let (_, ranges) = p.close.as_ref().unwrap();
+    for s in starts {
+        let rg = ranges.iter().find(|r| r.track_id == s.track_id).unwrap();
+        assert_eq!(rg.first_item, s.next_item);
+        assert!(rg.first_tick >= s.from_tick);
+    }
+    // the next id comes from this id and the content hash in the close, exactly
+    let (close, _) = p.close.as_ref().unwrap();
+    if has_next {
+        let next = PieceId::after(head.ident.id, &close.hash);
+        assert_eq!(close.next, Some(next));
+        assert_eq!(p.tail.as_ref().unwrap().next, Some(next));
+    }
+    p.summary().unwrap()
+}
+
+/// Concatenated, the pieces of a chain are one tape: found by their tails, one small read each.
+fn concatenated_pieces_read_as_one(files: &[Vec<u8>]) {
     // concatenated, the pieces are one tape: found by their tails, one small read each
     let all = files.concat();
     let r = TapeReader::open(&all[..]).unwrap();
@@ -518,7 +543,10 @@ fn chain_of_pieces_links_both_ways() {
         n += 1;
     }
     assert!(n > 20);
+}
 
+/// A chain without its first piece is head cut, not damaged; a last piece without its tail still gives its blocks.
+fn lost_pieces_and_tails_leave_the_rest(files: &[Vec<u8>]) {
     // the first piece deleted (retention): head cut, not damage
     let rest = files[1..].concat();
     let r = TapeReader::open(&rest[..]).unwrap();
@@ -544,7 +572,6 @@ fn chain_of_pieces_links_both_ways() {
             .iter()
             .any(|e| e.kind == BlockKind::Events)
     );
-    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 /// A piece in the middle of a chain whose head is damaged stays in the chain by the ident its close carries: linked
