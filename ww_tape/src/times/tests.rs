@@ -56,12 +56,26 @@ fn check(t: &EventTimes<'_>, starts: &[i64], ends: &[i64], flags: &[u32], r: &mu
     assert!(s.iter().rev().eq(starts.iter().rev().copied()), "backward");
     let (a, b) = (n / 3, n - n / 5);
     assert!(s.range(a..b).eq(starts[a..b].iter().copied()), "range");
+    check_both_ends(s, starts);
+    check_groups(t, starts, ends, flags);
+    check_searches(s, starts, r);
+    assert_eq!(t.suspect_items().count(), 0);
+}
+
+/// Iterating from both ends at once meets in the middle with the plain values.
+fn check_both_ends(s: &Starts<'_>, starts: &[i64]) {
+    let n = starts.len();
     let mut both = s.iter();
     let mut k = 0;
     while let (Some(x), Some(y)) = (both.next(), both.next_back()) {
         assert_eq!((x, y), (starts[k], starts[n - 1 - k]), "both ends {k}");
         k += 1;
     }
+}
+
+/// Every group of `t` decodes to the plain values, with its first start, flags OR and duration bound.
+fn check_groups(t: &EventTimes<'_>, starts: &[i64], ends: &[i64], flags: &[u32]) {
+    let s = t.starts();
     let mut buf = [0i64; GROUP];
     let mut fbuf = [0u32; GROUP];
     for g in 0..s.group_count() {
@@ -88,6 +102,12 @@ fn check(t: &EventTimes<'_>, starts: &[i64], ends: &[i64], flags: &[u32], r: &mu
             assert!(d.group_bound(g) >= longest, "duration bound of group {g}");
         }
     }
+}
+
+/// Lower bound and last-at-or-before agree with the plain values at every start, its neighbours, random and extreme
+/// ticks.
+fn check_searches(s: &Starts<'_>, starts: &[i64], r: &mut Rng) {
+    let n = starts.len();
     let probe = |q: i64| {
         let want = starts.partition_point(|x| *x < q);
         assert_eq!(s.lower_bound(q), want, "lower bound {q}");
@@ -108,7 +128,6 @@ fn check(t: &EventTimes<'_>, starts: &[i64], ends: &[i64], flags: &[u32], r: &mu
     for q in [i64::MIN, i64::MAX] {
         probe(q);
     }
-    assert_eq!(t.suspect_items().count(), 0);
 }
 
 fn round_trip(starts: &[i64], ends: Option<&[i64]>, flags: Option<&[u32]>) -> (TimeMode, EndMode) {
