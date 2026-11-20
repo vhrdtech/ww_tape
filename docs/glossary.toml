@@ -1,6 +1,23 @@
-# The book's glossary: one entry per term. `[[term]]` in a page links the term here and shows `short` on hover
-# (docs_ext/ww_book_ext/glossary.py); `forms` are the other words the term takes in prose. `chapter` is the page that
-# explains the term. glossary.md shows the entries in order of name.
+# The book's glossary, one entry per term, read by spl_book_ext (spirit_level's book page "References in prose").
+# `[[term]]` in a page links the term to its entry on glossary.md and shows `short` on hover; `forms` are the other
+# words the term takes in prose; `long` is an abbreviation's long form; `chapter` is the page that explains the term.
+
+[[term]]
+name = "API bundle"
+forms = ["API bundles", "bundle", "bundles"]
+short = "The WireWeaver description of a producer's API, which a definition names by its hash so that a reader can decode items."
+chapter = "../definitions/"
+
+[[term]]
+name = "append head"
+forms = ["append heads"]
+short = "The block a writer places right after a closed piece's tail when it writes on, naming the close it goes on from."
+chapter = "../anatomy/"
+
+[[term]]
+name = "BLAKE3"
+short = "The cryptographic hash function behind the content hash and the track hash."
+chapter = "../copies/"
 
 [[term]]
 name = "block"
@@ -9,86 +26,283 @@ short = "The unit a tape is written in: a 32-byte header, a body and a CRC-32C, 
 chapter = "../blocks/"
 
 [[term]]
+name = "block header"
+forms = ["block headers"]
+short = "The first 32 bytes of a block: its kind, flags, length, a count, its sequence number and its session tag."
+chapter = "../blocks/"
+
+[[term]]
+name = "byte source"
+forms = ["byte sources"]
+short = "Anything with a length that reads bytes at an offset, such as a byte slice, a file or an HTTP resource; a reader reads through one."
+chapter = "../reading/"
+
+[[term]]
+name = "CAN"
+long = "Controller Area Network"
+short = "The vehicle bus whose frames the drive's track `can0` records, about a thousand per second."
+chapter = "../events/"
+
+[[term]]
 name = "chain"
 forms = ["chains"]
-short = "The pieces of one recording in order, each naming the piece before it, so that a reader checks that none is missing."
-chapter = "../pieces_and_files/"
+short = "The pieces of one recording in order, each head naming the piece before it, so that a reader checks that none is missing."
+chapter = "../pieces/"
 
 [[term]]
 name = "checkpoint"
 forms = ["checkpoints"]
-short = "An index block the writer places every 4 MiB, listing the blocks since the previous checkpoint and pointing back at it."
+short = "An index block the writer places about every 4 MiB, listing the blocks since the previous checkpoint and pointing back at it."
 chapter = "../anatomy/"
 
 [[term]]
 name = "chunk"
 forms = ["chunks"]
-short = "A block of many items of one track, stored column by column, so that a reader reaches any item without decoding the others."
-chapter = "../events_and_series/"
+short = "A block of many consecutive items of one track, stored column by column, so that a reader reaches any item without decoding the others."
+chapter = "../blocks/"
+
+[[term]]
+name = "chunk head"
+forms = ["chunk heads"]
+short = "The start of a chunk's body: its length, track, item numbers and ticks, and a CRC per segment of its payload."
+chapter = "../events/"
 
 [[term]]
 name = "clock"
 forms = ["clocks"]
 short = "Anything that counts time at an exact rate; every time on a tape is a whole number of ticks of one clock."
-chapter = "../records_and_clocks/"
+chapter = "../clocks/"
+
+[[term]]
+name = "clock map"
+forms = ["clock maps"]
+short = "A definition that relates two clocks by segments of exact slope with an error bound, such as a device's timer and the host's clock."
+chapter = "../clocks/"
+
+[[term]]
+name = "close"
+forms = ["closes", "close record", "close records", "closed", "unclosed"]
+short = "The record after the final index that ends a piece: why it ended, its content hash, and where each track ended."
+chapter = "../anatomy/"
+
+[[term]]
+name = "close in force"
+short = "The last close of a piece whose tail is whole; a reader takes the piece as closed by it."
+chapter = "../reading/"
+
+[[term]]
+name = "codec"
+forms = ["codecs"]
+short = "The rule that the bytes of one chunk column follow, such as bit-packed residuals for times or lz4 for payloads."
+chapter = "../columns/"
+
+[[term]]
+name = "column"
+forms = ["columns"]
+short = "One field of every item of a chunk stored together, such as all start ticks or all payloads."
+chapter = "../columns/"
 
 [[term]]
 name = "content hash"
-short = "A BLAKE3 hash of every byte of a piece before its finish block; the finish holds it, and a reader checks the piece with it."
-chapter = "../pieces_and_files/"
+forms = ["content hashes"]
+short = "A BLAKE3 hash over a piece's bytes before its close record; the close and the tail hold it, and a reader checks the piece with it."
+chapter = "../anatomy/"
+
+[[term]]
+name = "CRC"
+forms = ["CRCs"]
+long = "cyclic redundancy check"
+short = "A short checksum computed over bytes, which changes when any of them change, so a reader detects damage."
+chapter = "../damage/"
 
 [[term]]
 name = "CRC-32C"
-forms = ["CRC"]
-short = "A 32-bit cyclic redundancy check that every block ends with; a block whose bytes do not match it is damaged or torn."
-chapter = "../recovery/"
+short = "The 32-bit CRC that every block ends with; a block whose bytes do not match it is damaged or torn."
+chapter = "../blocks/"
+
+[[term]]
+name = "cut"
+forms = ["cuts"]
+short = "The end of one piece of a chain and the start of the next, whose close names the next piece."
+chapter = "../pieces/"
+
+[[term]]
+name = "deferred block"
+forms = ["deferred blocks"]
+short = "A small block, such as summaries, that the writer holds back for a gap before a chunk's payload in an aligned file."
+chapter = "../writing/"
 
 [[term]]
 name = "definition"
 forms = ["definitions"]
 short = "A record on track 0 that says what something is: a clock, a track, an API bundle, the producer or the layout."
-chapter = "../concepts/"
+chapter = "../definitions/"
+
+[[term]]
+name = "dimension"
+forms = ["dimensions"]
+short = "A name and value pair, such as `channel = 3`, that tells apart tracks of one track key."
+chapter = "../tracks/"
+
+[[term]]
+name = "duplicate"
+forms = ["duplicates"]
+short = "A block that a tape holds twice, with the same session and sequence number, such as after a writer retried a write."
+chapter = "../raw_media/"
+
+[[term]]
+name = "epoch"
+forms = ["epochs", "clock epoch", "clock epochs"]
+short = "A new clock of the same counter, joined to the previous one by an exact map, so that a long capture keeps 64-bit ticks."
+chapter = "../clocks/"
+
+[[term]]
+name = "event"
+forms = ["events"]
+short = "An item with a time of its own: an instant at one tick, or a span with an end."
+chapter = "../events/"
+
+[[term]]
+name = "events chunk"
+forms = ["events chunks"]
+short = "A chunk of up to a few thousand items that have times of their own, such as the drive's CAN frames."
+chapter = "../events/"
 
 [[term]]
 name = "final index"
-short = "The index block at the end of a finished piece, listing every block by track, so that a reader finds a track's data in one read."
+forms = ["final indexes"]
+short = "The index block at the end of a closed piece, listing every block by track, so that a reader finds a track's data in one read."
 chapter = "../anatomy/"
 
 [[term]]
-name = "close"
-forms = ["closes", "close record", "closed", "unclosed"]
-short = "The record after the final index that ends a piece: why it ended, its content hash, and where each track ended."
-chapter = "../anatomy/"
+name = "fixed point"
+forms = ["fixed-point"]
+short = "Numbers stored as integers with one scale for the whole track, such as current in steps of 1 mA."
+chapter = "../series/"
+
+[[term]]
+name = "gap"
+forms = ["gaps"]
+short = "A blank or bad stretch of a raw medium after which the same session goes on; a reader reports its length and reads on."
+chapter = "../raw_media/"
+
+[[term]]
+name = "grid"
+forms = ["grids"]
+short = "The tick of one sample and the scale of the stored numbers that a series chunk carries, which place its samples in time."
+chapter = "../series/"
+
+[[term]]
+name = "index entry"
+forms = ["index entries"]
+short = "One line of an index block: where a block lies, its kind, its track, and the items and ticks it holds."
+chapter = "../reading/"
 
 [[term]]
 name = "item"
 forms = ["items"]
 short = "One value on a track, such as a received frame or a temperature reading, stored as its shrink_wrap bytes."
-chapter = "../concepts/"
+chapter = "../tracks/"
+
+[[term]]
+name = "item number"
+forms = ["item numbers"]
+short = "The count of a track's items from 0 over the whole recording, across pieces, the same in every copy of it."
+chapter = "../tracks/"
+
+[[term]]
+name = "layout"
+forms = ["layouts"]
+short = "A definition that says how the writer places blocks: the alignment of chunks and how far a reader looks past blank space."
+chapter = "../definitions/"
+
+[[term]]
+name = "live feed"
+forms = ["live feeds"]
+short = "A tape passed on block by block while it is written, such as over USB to a viewer."
+chapter = "../live_feeds/"
+
+[[term]]
+name = "lock"
+forms = ["locks", "lock file"]
+short = "An exclusive lock on the file `NAME.lock` beside a tape file, so that one writer at a time writes it."
+chapter = "../files/"
+
+[[term]]
+name = "lost samples"
+short = "Samples between two chunks of one grid that no chunk holds: their ticks are known, their values are not."
+chapter = "../series/"
+
+[[term]]
+name = "monotone relation"
+forms = ["monotone relations"]
+short = "A value per item that a track declares never to decrease, across chunks and pieces, so that a reader finds an item by search."
+chapter = "../columns/"
+
+[[term]]
+name = "near"
+short = "How far behind a use a state item must lie in the same piece, 32 MiB by default; a put closer than that writes nothing."
+chapter = "../definitions/"
+
+[[term]]
+name = "owner id"
+forms = ["owner ids"]
+short = "A 32-byte id that the application chooses and every piece head, close and tail of its chain carries."
+chapter = "../pieces/"
+
+[[term]]
+name = "payload"
+forms = ["payloads"]
+short = "An item's WireWeaver value in shrink_wrap bytes; a chunk keeps the payloads of its items in one column."
+chapter = "../events/"
 
 [[term]]
 name = "piece"
 forms = ["pieces"]
-short = "A file of a recording that reads alone: a head, blocks, checkpoints, and at its end a final index, a finish and a tail."
-chapter = "../sessions_and_pieces/"
+short = "A file of a recording that reads alone: a head, blocks, checkpoints, and at its end a final index, a close and a tail."
+chapter = "../anatomy/"
+
+[[term]]
+name = "piece head"
+forms = ["piece heads"]
+short = "The first block of a piece: its ids, the owner id, the previous piece's hash, and each track carried into it."
+chapter = "../anatomy/"
 
 [[term]]
 name = "producer"
 forms = ["producers"]
 short = "The program that makes a tape, such as a recorder on a test bench, a device logger or an analysis tool."
-chapter = "../concepts/"
+chapter = "../"
 
 [[term]]
 name = "put"
 forms = ["puts"]
-short = "A call that gives the writer a state item at its use; the writer writes the item only when no copy of it lies close behind."
-chapter = "../concepts/"
+short = "A call that gives the writer a state item at its use; the writer writes the item only when no record of it lies near behind."
+chapter = "../definitions/"
+
+[[term]]
+name = "range hash"
+forms = ["range hashes"]
+short = "A hash over a range of a track's items, which proves that two copies hold the same data in that range."
+chapter = "../copies/"
+
+[[term]]
+name = "raw medium"
+forms = ["raw media"]
+short = "A card or flash chip that holds a tape without a file system, such as a Secure Digital (SD) card."
+chapter = "../raw_media/"
 
 [[term]]
 name = "reader"
 forms = ["readers"]
-short = "A program that reads a tape; in the crate, TapeReader."
+short = "A program that reads a tape; in the crate, `TapeReader`."
 chapter = "../reading/"
+
+[[term]]
+name = "record"
+forms = ["records"]
+short = "One item on one track at one tick."
+chapter = "../blocks/"
 
 [[term]]
 name = "records block"
@@ -97,39 +311,150 @@ short = "A block of records of any tracks, each with its own time and length: th
 chapter = "../blocks/"
 
 [[term]]
+name = "recovery mode"
+forms = ["recovery modes"]
+short = "How a walk over blocks meets damage: Prefix stops at the first bad block, Resync reports it and reads on."
+chapter = "../damage/"
+
+[[term]]
+name = "relay"
+forms = ["relays"]
+short = "A program that takes a live producer's blocks and writes them into a tape of its own, such as a host recording a device."
+chapter = "../live_feeds/"
+
+[[term]]
 name = "resume"
 forms = ["resumes", "resumed"]
-short = "Reopening an unfinished piece after a crash: the torn end is cut off, and the writer goes on as if the crash never happened."
+short = "Reopening an unclosed piece after a crash: the writer cuts off the torn end and goes on as if the crash never happened."
 chapter = "../crashes/"
+
+[[term]]
+name = "salvage"
+forms = ["salvaged"]
+short = "Reading every item of a damaged chunk that still reads, and marking the rest as suspect."
+chapter = "../damage/"
+
+[[term]]
+name = "sample"
+forms = ["samples"]
+short = "One value of a series, at the tick its index on the grid gives."
+chapter = "../series/"
+
+[[term]]
+name = "scale"
+forms = ["scales"]
+short = "The value one step of a stored integer stands for, such as 10⁻³ A, which a series grid states once."
+chapter = "../series/"
+
+[[term]]
+name = "SD"
+long = "Secure Digital"
+short = "A memory card standard; the drive's board keeps its recent logs on an SD card."
+chapter = "../raw_media/"
+
+[[term]]
+name = "segment"
+forms = ["segments"]
+short = "A fixed stretch of a chunk's payload, 64 KiB by default, with a CRC of its own, so that damage costs one segment."
+chapter = "../damage/"
+
+[[term]]
+name = "sequence number"
+forms = ["sequence numbers", "seq"]
+short = "The count of a session's blocks from 0, in every block header, which orders the blocks and finds missing ones."
+chapter = "../blocks/"
+
+[[term]]
+name = "series"
+short = "A track of samples at an exact period, such as the drive's phase current at 25 kHz."
+chapter = "../series/"
+
+[[term]]
+name = "series chunk"
+forms = ["series chunks"]
+short = "A chunk of samples on one grid, which need no time each."
+chapter = "../series/"
 
 [[term]]
 name = "session"
 forms = ["sessions"]
-short = "The blocks one writer writes in one go, marked with the same random tag, so that a reader tells them from stale bytes."
+short = "One writer's unbroken append, such as a producer start or a device boot, whose blocks all carry one session tag."
+chapter = "../raw_media/"
+
+[[term]]
+name = "session tag"
+forms = ["session tags"]
+short = "The 32-bit tag that every block of a session carries in its header, so that a reader tells it from stale data."
 chapter = "../raw_media/"
 
 [[term]]
 name = "sink"
 forms = ["sinks"]
-short = "Where a writer puts its bytes: a file, memory, or a raw medium."
+short = "Where a writer puts its bytes: a file, memory, or a raw medium; any type that implements `TapeSink`."
 chapter = "../writing/"
 
 [[term]]
+name = "slot"
+forms = ["slots"]
+short = "The place a definition or state item fills, such as a track's number; a newer record in the slot replaces the older one."
+chapter = "../definitions/"
+
+[[term]]
+name = "stale data"
+short = "Blocks of an earlier recording left on a reused raw medium, which a reader tells apart by their session tag."
+chapter = "../raw_media/"
+
+[[term]]
+name = "state"
+forms = ["state item", "state items"]
+short = "An item that stays in force until the next one of its slot replaces it, such as the drive's mode."
+chapter = "../definitions/"
+
+[[term]]
+name = "state copy"
+forms = ["state copies"]
+short = "An extra record of a state item at a later use, at least 1 MiB after the first, as a guard against damage around one place."
+chapter = "../definitions/"
+
+[[term]]
 name = "state track"
-forms = ["state tracks", "state"]
-short = "A track whose item stays in force until the next one replaces it, such as a controller's mode."
-chapter = "../concepts/"
+forms = ["state tracks"]
+short = "A track whose items are state, such as the drive's `mode`; the writer keeps its items near their uses."
+chapter = "../definitions/"
+
+[[term]]
+name = "store"
+forms = ["stores"]
+short = "A set of sinks for the pieces of a chain, such as a directory of files; any type that implements `Tapes`."
+chapter = "../writing/"
+
+[[term]]
+name = "summary"
+forms = ["summaries", "summary block", "summary blocks"]
+short = "A block that holds a coarse view of a track, such as the minimum and maximum of runs of samples, so that a viewer draws an hour without reading it."
+chapter = "../summaries/"
+
+[[term]]
+name = "summary node"
+forms = ["summary nodes"]
+short = "One node of a summary tree, covering a range of items; a parent merges its 16 children."
+chapter = "../summaries/"
+
+[[term]]
+name = "suspect"
+short = "An item that salvage could not vouch for: one of a group whose record does not agree with its neighbours."
+chapter = "../damage/"
 
 [[term]]
 name = "sync policy"
-forms = ["sync"]
+forms = ["sync policies"]
 short = "When the writer asks the operating system to put its bytes on the disk; it bounds what a crash can lose, 1 s by default."
-chapter = "../syncing_and_cuts/"
+chapter = "../files/"
 
 [[term]]
 name = "tail"
 forms = ["tails"]
-short = "The last block of a finished piece, of a fixed size, so that a reader finds it at the end and from it the whole piece."
+short = "The last block of a closed piece, 164 bytes, so that a reader finds it at the end and from it the whole piece."
 chapter = "../anatomy/"
 
 [[term]]
@@ -139,13 +464,26 @@ short = "A recording of typed values over time, as a live feed, a file, or bytes
 chapter = "../"
 
 [[term]]
+name = "tick"
+forms = ["ticks"]
+short = "One count of a clock; every time on a tape is a whole number of ticks."
+chapter = "../clocks/"
+
+[[term]]
+name = "time group"
+forms = ["time groups"]
+short = "128 event times of a chunk stored as distances from a line through them, bit-packed at the group's width."
+chapter = "../columns/"
+
+[[term]]
 name = "torn block"
-forms = ["torn"]
+forms = ["torn blocks"]
 short = "A block that a crash interrupted: its bytes end early or do not match its CRC."
 chapter = "../crashes/"
 
 [[term]]
 name = "torn end"
+forms = ["torn ends"]
 short = "What a crash leaves past the last good block: a block that stops short, or zeros from a sector boundary to the end."
 chapter = "../crashes/"
 
@@ -153,4 +491,46 @@ chapter = "../crashes/"
 name = "track"
 forms = ["tracks"]
 short = "A sequence of items of one type over time, such as the frames of one CAN bus or the readings of one sensor."
-chapter = "../concepts/"
+chapter = "../tracks/"
+
+[[term]]
+name = "track hash"
+forms = ["track hashes"]
+short = "A track's running hash over its chunks and records, which the piece head states before a piece and the close after it."
+chapter = "../copies/"
+
+[[term]]
+name = "track id"
+forms = ["track ids"]
+short = "A 64-bit hash of a track's key and dimensions, by which chunks and index entries name the track."
+chapter = "../tracks/"
+
+[[term]]
+name = "track key"
+forms = ["track keys"]
+short = "A 64-bit hash of where a track comes from in the producer's API, the same in every file of the recording."
+chapter = "../tracks/"
+
+[[term]]
+name = "track number"
+forms = ["track numbers"]
+short = "The small number a track has inside one file, also the slot of its definition."
+chapter = "../tracks/"
+
+[[term]]
+name = "track owner"
+forms = ["track owners"]
+short = "The 32 bytes a track's definition carries to say whose data it is; ww_tape does not interpret them."
+chapter = "../copies/"
+
+[[term]]
+name = "unit hash"
+forms = ["unit hashes"]
+short = "A chunk's share of its track's hash, which its index entry stores so that a range hash reads no chunk."
+chapter = "../copies/"
+
+[[term]]
+name = "writer"
+forms = ["writers"]
+short = "The part of the crate that turns an application's calls into blocks; in the crate, `TapeWriter`."
+chapter = "../writing/"

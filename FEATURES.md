@@ -219,8 +219,10 @@ The pages in `docs/`.
   - Read more: [Tapes](docs/index.md).
 - 🚧 **BOOK-2 A book that teaches**
   - Done: `[[term]]` marks a glossary term and ``[`Item`]`` links code, both with a card on hover; a stale name fails `just book-check`.
-  - Open: six parts in dependency order, reading levels, one running example, tested code in every guide chapter.
-  - Read more: [Glossary](docs/glossary.md).
+  - Done: six parts in dependency order, a reading level on every page, and doctests of a page's `rust` blocks.
+  - Done: the chapter "When the power fails", its figures drawn from a real crash and its code from a test.
+  - Open: the chapters still stubs, one running example as code, tested code in every guide chapter.
+  - Read more: [For writers](docs/writers.md), [Glossary](docs/glossary.md).
 
 ## Repository (`REPO`)
 

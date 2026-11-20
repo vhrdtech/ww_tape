@@ -12,40 +12,52 @@ repo_url = "https://github.com/vhrdtech/ww_tape"
 repo_name = "vhrdtech/ww_tape"
 edit_uri = "edit/main/docs/"
 
+# Six parts in the order a reader needs them; each part lists its basic chapters first, then the advanced and nomicon
+# ones (docs/levels.md). A chapter not yet written is a stub that links the pages holding its material.
 nav = [
-    { "Introduction" = [
+    { "Start" = [
             "index.md",
-            "records_and_clocks.md",
-            "blocks.md",
-            "anatomy.md",
-            "related_books.md"
+            "first_tape.md"
         ]
     },
-    { "Using tapes" = [
-            "concepts.md",
-            "sessions_and_pieces.md",
+    { "How a tape is built" = [
+            "tracks.md",
+            "blocks.md",
+            "definitions.md",
+            "anatomy.md",
+            "clocks.md"
+        ]
+    },
+    { "Writing" = [
             "writing.md",
-            "sinks_and_locks.md",
-            "syncing_and_cuts.md",
+            "files.md",
+            "pieces.md",
             "crashes.md",
-            "pieces_and_files.md",
-            "track_hashes.md",
+            "columns.md",
+            "live_feeds.md"
+        ]
+    },
+    { "Reading" = [
             "reading.md",
-            "growing_pieces.md",
-            "events_and_series.md",
+            "events.md",
             "series.md",
             "summaries.md",
-            "numbers.md",
-            "recovery.md",
-            "damaged_files.md",
+            "copies.md"
+        ]
+    },
+    { "Damage and media" = [
+            "damage.md",
             "raw_media.md"
         ]
     },
-    { "Reference" = [
-            "format.md",
+    { "Numbers and reference" = [
             "glossary.md",
+            "related_books.md",
+            "lessons.md",
             "levels.md",
             "writers.md",
+            "sizes.md",
+            "format.md",
             { "Features and roadmap" = "https://github.com/vhrdtech/ww_tape/blob/main/FEATURES.md" },
             { "Changelog" = "https://github.com/vhrdtech/ww_tape/blob/main/CHANGELOG.md" }
         ]
