@@ -230,6 +230,7 @@ The pages in `docs/`.
   - Done: the chapter "When the power fails", its figures drawn from a real crash and its code from a test.
   - Done: the running example as code (BOOK-3).
   - Done: Part I, "Tapes" and "A first tape": the drive's hour as a tape, and a program that writes and reads its first minute.
+  - Done: Part II, how a tape is built: five chapters with the drive's case, tested code and seven new figures.
   - Open: the chapters still stubs, tested code in every guide chapter.
   - Read more: [For writers](docs/writers.md), [Glossary](docs/glossary.md).
 

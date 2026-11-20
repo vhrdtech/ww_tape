@@ -2,128 +2,137 @@
 level: basic
 ---
 
-# Blocks and definitions
+# Blocks
 
-This page explains the parts every tape is built from, and how a tape says what its data means. It assumes the words
-of [Tape concepts](concepts.md).
+The drive's host receives a steady stream of bytes over USB and writes them out as a [[tape]]. A reader of that tape may
+start anywhere. It may meet bytes that a crash or a bad sector changed, or a kind of data that a newer program wrote. It
+must check each piece of data before it trusts it, and skip what it does not understand.
 
-## Blocks
+This chapter shows the unit that makes this possible, the [[block]], and the two kinds of block that hold items. After
+it you can read a block header and tell a records block from a chunk. You can also say why a reader skips what it does
+not know.
 
-A tape is a sequence of **blocks**. Every block has a 32-byte header, a body, and a cyclic redundancy check (CRC-32C)
-over everything before it.
+## The block header
 
-The header starts with the magic `WWTP`. Its other fields are these:
+A tape is a sequence of blocks, written one after another with no space between them. A live feed sends one block per
+message, and a file is blocks back to back. Every block has three parts: a 32-byte [[block header]], a body, and a
+cyclic redundancy check (CRC) over everything before it, the [[CRC-32C]].
 
-- the block's version, kind and flags;
-- the block's total length;
-- a count of records, items or entries, depending on the kind;
-- a **sequence number**, which counts a writer's blocks from 0;
-- a **session tag**, which names one writer's unbroken append, such as a producer's start or a device's boot.
+<figure class="ww-figure" markdown="0">
+--8<-- "docs/plots/block.svg"
+<figcaption>A records block of two records, byte by byte. The header gives the block's kind and length, the body
+holds a clock table and each record's head, time delta, length and item, and the CRC-32C ends it. Drawn by
+<code>ww_tape_figures</code> from the bytes <code>BlockWriter</code> writes.</figcaption>
+</figure>
 
-A file is blocks appended back to back, with no padding between them. A live feed sends one block per message.
+The header starts with the magic `WWTP` and the format's version. Then come the block's kind, flags, total length, and a
+count of the records or items it holds. Two more fields tell a reader where the block belongs:
 
-The header and the trailing CRC-32C are the same in every version of the format. A reader can therefore check any block
-and skip it by its length, even a block of a kind or version it doesn't know.
+- The [[sequence number]] counts a writer's blocks from 0. A gap in the numbers tells the reader how many blocks it
+  lacks.
+- The [[session tag]] is the same in every block of one writer's unbroken append. It lets a reader tell current blocks
+  from blocks that an earlier recording left on a reused medium.
 
-A later version changes only the bodies. An old reader therefore skips a block it doesn't understand, instead of
-taking it for damage.
+The header and the CRC-32C are the same in every version of the format. A reader therefore checks any block and skips it
+by its length, even a block of a kind or a version it does not know. A later version changes only the bodies, so an old
+reader skips a new block instead of taking it for damage. A changed byte anywhere in the block fails the CRC, and the
+reader knows the block is damaged.
 
-A gap in the sequence numbers says how many blocks are missing. A reader uses the session tag to tell current data
-from stale data that an earlier recording left on a medium.
+## Kinds of block
 
-[Sessions and raw media](raw_media.md#sessions-and-stale-data) explains how a reader does that. The block kinds fall
-into four groups:
+Each kind of block has one job. They fall into four groups:
 
 | Group | Kinds | Holds |
 |---|---|---|
-| Description | records on track 0 | what the tape is: the producer, clocks, maps, tracks, API bundles |
-| Data | records, events chunk, series chunk | the items |
+| Description | records on track 0 | what the tape is: the producer, the clocks and maps, the tracks, the API bundles |
+| Data | records block, events chunk, series chunk | the items |
 | Overview | summary | coarse views of long tracks, rebuilt from the data when lost |
 | Structure | piece head, index, close, tail | where things are, how the file ends, how files chain |
 
-## Definitions on track 0
-
-A reader needs some facts before the data means anything, and **definitions** state them. Definitions describe these
-things:
-
-- the producer;
-- the **layout**: how the writer places blocks;
-- the API bundles;
-- every clock, clock map and track;
-- typed items, such as a run record.
-
-Each definition is a record on track 0, a track reserved for definitions. A block that holds definitions holds nothing
-else.
-
-Each definition fills a **slot** that follows from the definition itself. A newer definition in the same slot replaces
-the older one.
-
-- A track's slot is its number.
-- A clock's slot is its number.
-- A map's slot is the two clocks it links.
-- A bundle's slot is its hash.
-
-### The definitions an application holds
-
-The application keeps the definitions it works with in a `Definitions` container. `Definitions::define` holds a
-definition in its slot, and checks it against the definitions already held:
-
-- A track or a map must name clocks that the container holds.
-- An epoch clock must come with its link in the same `define_all` call.
-
-Defining writes nothing to the tape. `Definitions::close` drops a track, and the clocks, maps and bundles that no held
-track names go with it.
-
-The container reports how many definitions it holds (`len`) and their size in bytes (`bytes`). The application
-decides how many to keep.
-
-The writer puts each definition before the first data that needs it. Adding a track mid-piece therefore costs one
-record, however many tracks the piece already has.
-
-### The producer and the layout
-
-The producer and the layout belong to the writer, which takes them from `WriterOptions::producer` and
-`WriterOptions::layout`. The writer puts them in three places:
-
-- after every piece head;
-- before the first block of a file;
-- when a block starts another session.
-
-The writer refuses a block of definitions that the caller wrote. A relay passes a live producer's blocks on with
-`TapeWriter::relay_block`.
-
-`relay_block` holds the definitions those blocks carry. It puts their records by the writer's own rule.
-
-The [describe module docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/describe.rs) hold the
-definitions, and the [state module docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/state.rs) the
-slots. [Puts, near and copies](writing.md#puts-near-and-copies) explains how the writer puts them.
+This chapter covers the data blocks. [Definitions and state](definitions.md) covers the description, and [Anatomy of a
+piece](anatomy.md) the structure. [Summaries](summaries.md) covers the overview.
 
 ## Records blocks
 
-A **records block** holds records of any tracks back to back. Each record has a head, a time delta, the item's length
-and the item's bytes.
+A [[records block]] holds records of any tracks, mixed, each with its own time and length. Its body starts with a table
+of the clocks its records count. Each [[record]] follows as a head, a time delta, the item's length and the item's
+bytes. The head names the track and the record's clock, and the three numbers before the item take one byte each when
+they are small.
 
-The head names the track, and which of the block's clocks the record counts. The head, the delta and the length are
-variable-length integers, and records on track 0 carry no time.
+The time delta counts from the previous record on the same clock in the same block. The first one counts from 0. Every
+block therefore reads alone, without the block before it. A writer may compress the whole body with lz4, and a flag in
+the header says so.
 
-The delta is against the previous record on the same clock in the same block, and the first one is absolute. Every
-block therefore reads alone.
+The drive writes its log lines and temperatures into one records block a second. This test writes such a block with
+[`BlockWriter`], reads it back with [`Block::read`], and changes one byte:
 
-A writer may compress the whole body of a records block with lz4, and the header flag `FLAG_BODY_CODED` says so. The
-[`ww_tape` crate docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/lib.rs) give the byte layout of the
-header and of records blocks.
+```rust
+use ww_tape::{Block, BlockId, BlockKind, BlockWriter, ClockTime, SessionTag};
+use ww_tape_example::{BOARD_CLOCK, LOG, TEMP};
 
-Records blocks suit tracks that produce a few items at a time, where waiting to fill a chunk would delay a live
-reader. Large tracks go into chunks, which [Events and series](events_and_series.md) describes.
+let mut buf = [0u8; 256];
+let id = BlockId::new(SessionTag::writable(1), 0);
+let mut w = BlockWriter::new(&mut buf, BlockKind::Records, id, &[BOARD_CLOCK]).expect("room");
+// A log line at 1 s and the temperature, 32.15 °C, 250 µs later.
+w.push(LOG, ClockTime::new(BOARD_CLOCK, 1_000_000), &[b"motor: run"]).expect("room");
+w.push(TEMP, ClockTime::new(BOARD_CLOCK, 1_000_250), &[&3_215i16.to_le_bytes()]).expect("room");
+let len = w.finish();
+assert_eq!(len, 59);
 
-## Deferred blocks
+let block = Block::read(&buf[..len]).expect("a good block");
+assert_eq!((block.kind, block.record_count), (BlockKind::Records, 2));
+let tracks: Vec<u32> = block.records().map(|r| r.expect("reads").track).collect();
+assert_eq!(tracks, [LOG, TEMP]);
 
-`TapeWriter::defer_block` lets a block of summaries or other small data wait for a gap. The writer puts the definitions the block needs at once, when the application defers the block.
+// One changed bit fails the CRC-32C.
+buf[40] ^= 1;
+assert!(Block::read(&buf[..len]).is_err());
+```
 
-The writer places the block later, with no puts of its own. In an aligned file, the block waits for the gap before a
-chunk's payload, for at most `DEFER_WINDOW` (1 MiB) of writes.
+A records block suits a track that produces a few items at a time. It is complete as soon as it holds one record, so a
+slow track never waits to fill anything. A live reader thus sees each log line at once.
 
-The block therefore lies at most its tracks' `near` plus that window after their definitions. In a file that isn't
-aligned, the writer places the block at once.
+## Chunks
 
-A cut or a close places every deferred block first. A deferred block therefore never leaves its piece.
+A [[chunk]] holds a run of consecutive items of one track, stored column by column. All start ticks lie together, all
+payload lengths, all payloads. Each column packs its values with a codec chosen for it, and a reader reaches item `i` of
+a column without decoding the items before it.
+
+<figure class="ww-figure" markdown="0">
+--8<-- "docs/plots/records_vs_chunk.svg"
+<figcaption>The drive's first 96 CAN frames stored twice. As a records block, each frame carries its own head, time
+and length. As an events chunk, the frames' times pack into one column and their payloads into another. Drawn by
+<code>ww_tape_figures</code> from the two blocks <code>ww_tape</code> writes, to one scale.</figcaption>
+</figure>
+
+The difference grows with the number of items. Ninety-six frames take 1574 bytes as records but 331 bytes as a chunk. A
+chunk's head costs more than a records block's header, and its columns save the rest. A chunk of `can0` holds a second
+of frames, 1000 of them, at 2.33 bytes a frame over the whole recording.
+
+A chunk's head also carries what a reader needs to place it alone. It names the track by its [[track id]], gives the
+[[item number]] of its first item and the ticks of its first and last item. It checks its payload in [[segments]] of 64
+KiB, each with its own CRC, so damage costs one segment, not the chunk.
+
+There are two kinds of chunk, one per way a track stores its items:
+
+- An [[events chunk]] holds items with times of their own, such as the drive's Controller Area Network (CAN) frames.
+- A [[series chunk]] holds samples at a fixed period, such as the drive's `phase_a`. Its head carries the [[grid]] that
+  times and scales them, and the chunk stores no time per sample.
+
+| | Records block | Chunk |
+|---|---|---|
+| Tracks | any number, mixed | exactly one |
+| Items | records back to back, each with its own time and length | consecutive items, column by column |
+| Suits | a few items at a time: a log line, a state change | many items: 1000 frames a second, 25 000 samples a second |
+| Finding one item | walk the block from its start | jump to it by its item number |
+| The drive's tracks | `log`, `temp`, the puts of `mode` | `can0` in events chunks, `phase_a` in series chunks |
+
+[Chunks from columns](columns.md) shows how the columns are coded, and [Events](events.md) and [Series](series.md) how a
+reader reads them.
+
+## Definitions on track 0
+
+A reader needs to know what each track is before its items mean anything. Track 0 holds that knowledge: each record on
+it is a [[definition]] of a clock, a clock map, a track or the producer. Records of track 0 carry no time, and a block
+that holds them holds nothing else. [Definitions and state](definitions.md) explains how a writer places them and how a
+reader finds them.

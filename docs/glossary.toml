@@ -234,6 +234,12 @@ short = "Samples between two chunks of one grid that no chunk holds: their ticks
 chapter = "../series/"
 
 [[term]]
+name = "map segment"
+forms = ["map segments"]
+short = "One piece of a clock map: over a range of one clock, the other is an exact slope from a start, within an error bound."
+chapter = "../clocks/"
+
+[[term]]
 name = "monotone relation"
 forms = ["monotone relations"]
 short = "A value per item that a track declares never to decrease, across chunks and pieces, so that a reader finds an item by search."
