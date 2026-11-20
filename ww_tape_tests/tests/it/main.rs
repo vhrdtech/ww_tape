@@ -35,6 +35,7 @@ mod relations;
 mod reserved;
 mod resume;
 mod series;
+mod tails;
 mod track_hash;
 
 use ww_tape::{BlockId, SessionTag};

@@ -1585,13 +1585,16 @@ fn a_resume_of_a_whole_close_cuts_only_the_junk_after_its_tail() {
     let done = std::fs::read(&path).unwrap();
     std::fs::remove_file(&path).unwrap();
     let good = records(next, 9);
+    // the piece ends on 4 KiB: a crash that cut this block's write off leaves zeros from a sector boundary on
+    let long = crate::puts::long_records(next, 2, 2000);
+    assert_eq!(done.len() % 512, 0);
     let partial = ww_tape_fs::partial_name(&path);
     for (name, junk) in [
         ("blank bytes", vec![0; 100]),
         ("a torn block", good[..40].to_vec()),
         (
-            "a torn block run into blank bytes",
-            [&good[..40], &[0; 4096][..]].concat(),
+            "a torn block run into blank bytes from a sector boundary",
+            [&long[..512], &[0; 4096][..]].concat(),
         ),
     ] {
         std::fs::write(&partial, [&done[..], &junk[..]].concat()).unwrap();

@@ -34,7 +34,9 @@
 //!
 //! Only a torn end is ever cut: whole blocks, then a record the bytes stop inside of, or blank (zero) bytes to the
 //! end. A whole record in the bytes to cut that fails its check, bytes that start no record, or a whole tail that
-//! didn't end its close is damage: the resume refuses ([ResumeError::Damaged]) and every byte stays.
+//! didn't end its close is damage: the resume refuses ([ResumeError::Damaged]) and every byte stays. A whole-length
+//! record that fails its check is torn only where zeros from a 512-byte sector boundary follow, and a whole close
+//! record followed by a tail's length of bytes, not all zero, is damage whatever they hold.
 //!
 //! A piece with a close in force (its close record and tail whole, naming no next piece) is never read before that
 //! close. The writer's state there comes from the close record (each track's range, hash and counted records, the
@@ -375,18 +377,34 @@ fn good_block_after<S: TapeSink>(
     Ok(None)
 }
 
+/// The unit a disk writes whole or not at all: a write a crash cut off leaves zeros from a boundary of it.
+const SECTOR_LEN: u64 = 512;
+
 /// Where the bytes of `src` from `from` to `size`, which a resume would cut, hold damage rather than a torn end; None
 /// when they are a torn end. A torn end is what a crash leaves of an append: whole blocks, then a record the bytes
 /// stop inside of (fewer bytes than a header, a header naming more bytes than are left), or blank bytes (zeros) up to
 /// the end, which a file holds where it grew but its data wasn't written. Damage is a whole record that fails its
 /// check, bytes that don't start a record, or a whole tail: one that didn't end its close is not what a writer left.
-/// Each step moves on at least one byte, and reads at most [MAX_BLOCK_LEN] or [JUNK_READ_MAX] bytes at once.
+///
+/// A whole-length record that fails its check is torn only where it runs into zeros that start on a [SECTOR_LEN]
+/// boundary of the file, as an unwritten stretch does: zeros starting inside a sector are damage. A whole close
+/// record followed by a tail's length of bytes or more, not all zero, is damage whatever they hold: a tail lies in one
+/// sector, so a crash leaves it whole, short or blank. Each step moves on at least one byte, and reads at most
+/// [MAX_BLOCK_LEN] or [JUNK_READ_MAX] bytes at once.
 fn torn_end<S: TapeSink>(
     src: &S,
     from: u64,
     size: u64,
 ) -> Result<Option<u64>, WriteError<S::Error>> {
     let blank = blank_from(src, from, size)?;
+    // where the zeros start that a cut-off write leaves: the first sector boundary of the file at or after `blank`
+    let base = src.base();
+    let unwritten = base
+        .saturating_add(blank)
+        .div_ceil(SECTOR_LEN)
+        .saturating_mul(SECTOR_LEN)
+        .saturating_sub(base)
+        .min(size);
     let mut at = from;
     while at < blank && size.saturating_sub(at) >= wide(HEADER_LEN) {
         let mut header = [0u8; HEADER_LEN];
@@ -405,9 +423,17 @@ fn torn_end<S: TapeSink>(
             .map_err(sink_err("reading back a block a resume cuts off"))?;
         match Block::read(&block) {
             Ok(b) if b.kind == BlockKind::Tail => return Ok(Some(at)),
+            // what follows a whole close record: its tail, which a crash leaves whole, short or blank
+            Ok(b)
+                if b.kind == BlockKind::Close
+                    && size.saturating_sub(end) >= wide(TAIL_LEN)
+                    && blank > end =>
+            {
+                return Ok(Some(end));
+            }
             Ok(_) => at = end,
-            // a record that runs into the blank end was being written
-            Err(_) => return Ok((end <= blank).then_some(at)),
+            // a record that runs into the zeros a cut-off write leaves was being written
+            Err(_) => return Ok((end <= unwritten).then_some(at)),
         }
     }
     Ok(None)

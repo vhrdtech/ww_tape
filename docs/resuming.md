@@ -39,17 +39,30 @@ written.
 Anything else in the bytes to cut is damage. The resume then refuses with `ResumeError::Damaged`, naming where the
 damage starts.
 
-Damage is a whole record that fails its cyclic redundancy check (CRC), or bytes that start no record. A whole tail
-that does not end the close record before it is damage too.
+#### Telling damage from a torn end
 
-A record that names more bytes than are left is damage too when its bytes show it was whole. A block start may lie
-inside them, or they may read as a good block once its length field names them.
+A disk writes a 512-byte sector whole or not at all, so a write that a crash cut off leaves zeros from a sector
+boundary. The resume reads the bytes to cut with that in mind:
+
+| Bytes to cut | Resume |
+|---|---|
+| a record whose header names more bytes than are left | cut, unless its bytes show it was whole |
+| a whole-length record that fails its cyclic redundancy check (CRC), then zeros from a sector boundary | cut |
+| a whole-length record that fails its CRC, with zeros from inside a sector or none | refused |
+| bytes that start no record | refused |
+| a whole tail that does not end the close record before it | refused |
+| a whole close record, then a tail's length or more of bytes that are not all zero | refused |
+| a tail blank from its first byte, or zeros from a sector boundary to the end | cut |
+
+A record shows it was whole when a block start lies inside its bytes. It also does when its bytes read as a good block
+once its length field names them.
+
+A tail lies inside one sector, so a crash leaves it whole, short or blank.
 
 For example, one flipped bit in the last tail makes the tail fail its CRC, so the reader takes the close before it.
-The resume keeps every byte: the close record that readers took before the flip stays.
+The resume refuses and keeps every byte, also when the tail's last byte is zero.
 
-The check reads only the bytes. Damage in many places at once can make a whole record look torn, and the resume then
-cuts it.
+The bytes alone cannot tell the last row from a crash during the close. The resume then drops that close.
 
 ### What the replay rebuilds
 

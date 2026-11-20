@@ -110,7 +110,7 @@ fn a_full_cap_never_stops_a_cut() {
 
 /// A record block numbered `id` of one record of `len` bytes on `track`: longer than any gap before an aligned
 /// chunk.
-fn long_records(id: BlockId, track: u32, len: usize) -> Vec<u8> {
+pub(crate) fn long_records(id: BlockId, track: u32, len: usize) -> Vec<u8> {
     let mut buf = vec![0u8; len + 256];
     let mut b = BlockWriter::new(&mut buf, BlockKind::Records, id, &[CLOCK]).unwrap();
     b.push(track, ClockTime::new(CLOCK, 1), &[&vec![7u8; len]])
