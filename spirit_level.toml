@@ -78,3 +78,7 @@ reason = "a link between pages leads somewhere"
 [lints.nav-entries]
 level = "deny"
 reason = "the navigation names pages that exist"
+
+[lints.no-sys-crates]
+allow = ["cc"]
+reason = "cc is a build-dependency of blake3, built pure: its build script compiles no C (AGENTS.md, Dependencies)"

@@ -129,8 +129,9 @@ or the docs page they change.
   `license`, `repository` and `[lints]`.
 - The workspace `[lints]` hold the panic-class lints. Tests, benches, the figures and the fuzz bodies allow those
   that fire at their crate root, with a reason.
-- No C build step: `blake3` is built `pure`, `lz4_flex` is pure Rust and pinned exactly, since payload columns must
-  compress to the same bytes.
+- No C build step: `lz4_flex` is pure Rust and pinned exactly, since payload columns must compress to the same bytes.
+- `cc` stays, allowed in `no-sys-crates`: it is a build-dependency of `blake3`. `blake3` is built `pure`, so its build
+  script only probes for a C compiler and compiles no C.
 
 ## Changelogs, commits and versions
 
