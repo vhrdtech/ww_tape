@@ -92,40 +92,7 @@ fn append_cut_anywhere(alignment: u32) {
     assert_eq!(ticks(&new), (0..12).collect::<Vec<_>>());
     for cut in old.len()..=new.len() {
         let torn = &new[..cut];
-        let r = TapeReader::open(torn).unwrap();
-        assert_eq!(r.pieces().len(), 1, "cut at {cut}: one piece");
-        let p = &r.pieces()[0];
-        let whole = cut == new.len();
-        let (in_force, _) = p.close.as_ref().expect("a close is in force");
-        assert_eq!(in_force.hash, close_hash(if whole { &new } else { &old }));
-        assert!(
-            p.head_error.is_none() && p.close_error.is_none(),
-            "cut at {cut}"
-        );
-        assert!(
-            p.gaps.is_empty() && p.replaced.is_empty(),
-            "cut at {cut}: no damage"
-        );
-        assert_eq!(
-            p.closed_end(),
-            Some(if whole { new.len() } else { old.len() } as u64)
-        );
-        assert_eq!(
-            p.is_closed(),
-            whole || p.end == old.len() as u64,
-            "cut at {cut}"
-        );
-        if !whole && cut > old.len() {
-            assert!(
-                p.end > old.len() as u64 || p.cut == Some(old.len() as u64),
-                "cut at {cut}: the bytes after the old tail are an unclosed tail"
-            );
-        }
-        assert!(
-            r.verify(0).map(|v| v.holds).unwrap(),
-            "cut at {cut}: the closed prefix verifies"
-        );
-        assert!(ticks(torn).starts_with(&ticks(&old)), "cut at {cut}");
+        torn_append_reads_the_old_close(torn, &old, &new);
         let (mut w, resumed) = reopen(torn, alignment);
         assert!(resumed.kept_bytes >= old.len() as u64, "cut at {cut}");
         let have = ticks(&w.sink().tape().to_vec().unwrap());
@@ -138,6 +105,46 @@ fn append_cut_anywhere(alignment: u32) {
             new.len()
         );
     }
+}
+
+/// `new` cut to `torn`: the reader takes the close in force of `old` (of `new` when whole), the bytes after it an
+/// unclosed tail and no damage, and the closed prefix verifies.
+fn torn_append_reads_the_old_close(torn: &[u8], old: &[u8], new: &[u8]) {
+    let cut = torn.len();
+    let r = TapeReader::open(torn).unwrap();
+    assert_eq!(r.pieces().len(), 1, "cut at {cut}: one piece");
+    let p = &r.pieces()[0];
+    let whole = cut == new.len();
+    let (in_force, _) = p.close.as_ref().expect("a close is in force");
+    assert_eq!(in_force.hash, close_hash(if whole { new } else { old }));
+    assert!(
+        p.head_error.is_none() && p.close_error.is_none(),
+        "cut at {cut}"
+    );
+    assert!(
+        p.gaps.is_empty() && p.replaced.is_empty(),
+        "cut at {cut}: no damage"
+    );
+    assert_eq!(
+        p.closed_end(),
+        Some(if whole { new.len() } else { old.len() } as u64)
+    );
+    assert_eq!(
+        p.is_closed(),
+        whole || p.end == old.len() as u64,
+        "cut at {cut}"
+    );
+    if !whole && cut > old.len() {
+        assert!(
+            p.end > old.len() as u64 || p.cut == Some(old.len() as u64),
+            "cut at {cut}: the bytes after the old tail are an unclosed tail"
+        );
+    }
+    assert!(
+        r.verify(0).map(|v| v.holds).unwrap(),
+        "cut at {cut}: the closed prefix verifies"
+    );
+    assert!(ticks(torn).starts_with(&ticks(old)), "cut at {cut}");
 }
 
 #[test]

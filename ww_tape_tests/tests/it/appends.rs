@@ -52,80 +52,97 @@ fn every_byte_cut(alignment: u32, name: &str) {
     let (mut w, _) = reopen(&old, alignment);
     write(&mut w, 6..12);
     let new = close(w);
-    let hash = |bytes: &[u8]| closes(bytes).last().unwrap().1.hash;
     let dir = scratch(name);
     let path = dir.join("p.wwt");
     let mut torn_listed = 0;
     for cut in old.len()..=new.len() {
         std::fs::write(&path, &new[..cut]).unwrap();
         let whole = cut == new.len();
-        let r = open(&path);
-        assert_eq!(r.pieces().len(), 1, "cut at {cut}");
-        let p = &r.pieces()[0];
-        let (in_force, _) = p.close.as_ref().expect("a close is in force");
-        assert_eq!(
-            in_force.hash,
-            hash(if whole { &new } else { &old }),
-            "cut at {cut}"
-        );
-        assert!(
-            p.gaps.is_empty() && p.replaced.is_empty(),
-            "cut at {cut}: damage"
-        );
-        assert!(
-            p.head_error.is_none() && p.close_error.is_none(),
-            "cut at {cut}"
-        );
-        assert_eq!(
-            p.closed_end(),
-            Some(if whole { new.len() } else { old.len() } as u64),
-            "cut at {cut}"
-        );
-        assert!(r.verify(0).unwrap().holds, "cut at {cut}");
-        let listed = listed_ticks(&r);
-        assert!(
-            listed.starts_with(&[0, 1, 2, 3, 4, 5]),
-            "cut at {cut}: {listed:?}"
-        );
-        assert!(
-            (0..12).collect::<Vec<_>>().starts_with(&listed),
-            "cut at {cut}: {listed:?}"
-        );
-        if !whole && listed.len() > 6 {
+        let listed = torn_file_reads_the_old_close(&path, cut, &old, &new);
+        if !whole && listed > 6 {
             torn_listed += 1;
         }
-        drop(r);
-        let (mut w, resumed) = ww_tape_fs::writer::resume(&path, options(alignment))
-            .unwrap_or_else(|e| panic!("cut at {cut}: {e:?}"));
-        assert!(resumed.kept_bytes >= old.len() as u64, "cut at {cut}");
-        let kept = std::fs::read(&path).unwrap();
-        assert_eq!(
-            kept[..old.len()],
-            old[..],
-            "cut at {cut}: the old bytes moved"
-        );
-        let have = crate::reclose::ticks(&kept);
-        write(&mut w, (6..14).filter(|n| !have.contains(n)));
-        w.close().unwrap();
-        assert!(!lock_name(&path).exists(), "cut at {cut}: lock file left");
-        let got = std::fs::read(&path).unwrap();
-        assert_eq!(got[..old.len()], old[..], "cut at {cut}");
-        let r = open(&path);
-        assert_eq!(
-            listed_ticks(&r),
-            (0..14).collect::<Vec<_>>(),
-            "cut at {cut}"
-        );
-        assert!(r.verify(0).unwrap().holds, "cut at {cut}");
-        assert!(r.pieces()[0].is_closed(), "cut at {cut}");
-        assert_eq!(
-            r.closes(0).unwrap().len(),
-            if whole { 3 } else { 2 },
-            "cut at {cut}"
-        );
+        torn_file_is_written_on(&path, cut, whole, &old, alignment);
     }
     assert!(torn_listed > 0, "a torn append lists its whole blocks");
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// The content hash the last close of `bytes` states.
+fn last_close_hash(bytes: &[u8]) -> ww_tape::ContentHash {
+    closes(bytes).last().unwrap().1.hash
+}
+
+/// The file at `path`, `new` cut at `cut`, reads the close in force of `old` (of `new` when whole), no damage, the old
+/// items and a prefix of the new ones. Returns how many items it lists.
+fn torn_file_reads_the_old_close(path: &Path, cut: usize, old: &[u8], new: &[u8]) -> usize {
+    let whole = cut == new.len();
+    let r = open(path);
+    assert_eq!(r.pieces().len(), 1, "cut at {cut}");
+    let p = &r.pieces()[0];
+    let (in_force, _) = p.close.as_ref().expect("a close is in force");
+    assert_eq!(
+        in_force.hash,
+        last_close_hash(if whole { new } else { old }),
+        "cut at {cut}"
+    );
+    assert!(
+        p.gaps.is_empty() && p.replaced.is_empty(),
+        "cut at {cut}: damage"
+    );
+    assert!(
+        p.head_error.is_none() && p.close_error.is_none(),
+        "cut at {cut}"
+    );
+    assert_eq!(
+        p.closed_end(),
+        Some(if whole { new.len() } else { old.len() } as u64),
+        "cut at {cut}"
+    );
+    assert!(r.verify(0).unwrap().holds, "cut at {cut}");
+    let listed = listed_ticks(&r);
+    assert!(
+        listed.starts_with(&[0, 1, 2, 3, 4, 5]),
+        "cut at {cut}: {listed:?}"
+    );
+    assert!(
+        (0..12).collect::<Vec<_>>().starts_with(&listed),
+        "cut at {cut}: {listed:?}"
+    );
+    listed.len()
+}
+
+/// A resume of the file at `path` keeps every byte of `old`, writes the lost items on and closes: the file reads all
+/// of them, verifies and holds no lock file.
+fn torn_file_is_written_on(path: &Path, cut: usize, whole: bool, old: &[u8], alignment: u32) {
+    let (mut w, resumed) = ww_tape_fs::writer::resume(path, options(alignment))
+        .unwrap_or_else(|e| panic!("cut at {cut}: {e:?}"));
+    assert!(resumed.kept_bytes >= old.len() as u64, "cut at {cut}");
+    let kept = std::fs::read(path).unwrap();
+    assert_eq!(
+        kept[..old.len()],
+        old[..],
+        "cut at {cut}: the old bytes moved"
+    );
+    let have = crate::reclose::ticks(&kept);
+    write(&mut w, (6..14).filter(|n| !have.contains(n)));
+    w.close().unwrap();
+    assert!(!lock_name(path).exists(), "cut at {cut}: lock file left");
+    let got = std::fs::read(path).unwrap();
+    assert_eq!(got[..old.len()], old[..], "cut at {cut}");
+    let r = open(path);
+    assert_eq!(
+        listed_ticks(&r),
+        (0..14).collect::<Vec<_>>(),
+        "cut at {cut}"
+    );
+    assert!(r.verify(0).unwrap().holds, "cut at {cut}");
+    assert!(r.pieces()[0].is_closed(), "cut at {cut}");
+    assert_eq!(
+        r.closes(0).unwrap().len(),
+        if whole { 3 } else { 2 },
+        "cut at {cut}"
+    );
 }
 
 #[test]

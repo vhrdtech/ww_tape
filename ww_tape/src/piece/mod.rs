@@ -658,9 +658,10 @@ impl TrackRange {
 /// The most body bytes the summary block a close names holds ([write_close_summary]).
 pub const CLOSE_SUMMARY_MAX: usize = 1 << 20;
 
-/// The summary block a close names ([BlockKind::CloseSummary]) holding `body`, with id `id`: a header, the caller's
-/// body as it gave it, and the CRC; the format reads nothing in the body. None when `body` is longer than
-/// [CLOSE_SUMMARY_MAX].
+/// The summary block a close names ([BlockKind::CloseSummary]) holding `body`, with id `id`.
+///
+/// It is a header, the caller's body as it gave it, and the CRC; the format reads nothing in the body. None when
+/// `body` is longer than [CLOSE_SUMMARY_MAX].
 #[cfg(feature = "alloc")]
 pub fn write_close_summary(body: &[u8], id: BlockId) -> Option<alloc::vec::Vec<u8>> {
     if body.len() > CLOSE_SUMMARY_MAX {

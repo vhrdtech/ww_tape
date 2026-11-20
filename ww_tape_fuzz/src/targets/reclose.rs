@@ -170,13 +170,44 @@ pub fn reclose(data: &[u8]) {
         .collect();
     let rest = rest.get(count..).unwrap_or_default();
     let (bytes, made) = build(aligned, &appends);
+    let (torn, kept) = tear(&bytes, &made, rest, anywhere);
+    // the first byte the flips changed, past the end when none did
+    let first_flip = torn
+        .iter()
+        .zip(&bytes)
+        .position(|(a, b)| a != b)
+        .unwrap_or(usize::MAX);
+    check_open(&torn, &bytes, &made, anywhere);
+    let Ok((w, resumed)) = reopen(&torn, aligned) else {
+        assert!(
+            anywhere || first_flip != usize::MAX,
+            "a torn append resumes"
+        );
+        return;
+    };
+    if anywhere {
+        drop(resumed);
+        let _ = w.close();
+        return;
+    }
+    assert!(
+        resumed.kept_bytes >= kept as u64,
+        "the closed bytes are kept"
+    );
+    check_cut_is_torn_end(&torn, &bytes, resumed.kept_bytes);
+    check_written_on(w, &bytes, &made, kept, first_flip);
+}
+
+/// `bytes` with its last append cut and flipped as `rest` says: the flips fall anywhere when `anywhere`, else in that
+/// append only. Returns the torn bytes and where the last append starts.
+fn tear(bytes: &[u8], made: &[Made], rest: &[u8], anywhere: bool) -> (Vec<u8>, usize) {
     let (cut, flips) = match rest {
         [a, b, flips @ ..] => (usize::from(u16::from_le_bytes([*a, *b])), flips),
         _ => (usize::MAX, rest),
     };
     // the bytes up to the close before the last append stay; the last append is cut and mutated
     let kept = made[made.len() - 2..][0].end;
-    let mut torn = bytes.clone();
+    let mut torn = bytes.to_vec();
     torn.truncate(kept + cut % (bytes.len() - kept + 1));
     let (lo, hi) = if anywhere {
         (0, torn.len())
@@ -189,17 +220,16 @@ pub fn reclose(data: &[u8]) {
             torn[at] ^= bits;
         }
     }
-    // the first byte the flips changed, past the end when none did
-    let first_flip = torn
-        .iter()
-        .zip(&bytes)
-        .position(|(a, b)| a != b)
-        .unwrap_or(usize::MAX);
-    let r = TapeReader::open(&torn[..]);
-    match &r {
+    (torn, kept)
+}
+
+/// The torn piece opens with the newest whole close in force and lists every close before the last append; with
+/// flips anywhere, it opens or refuses without a panic.
+fn check_open(torn: &[u8], bytes: &[u8], made: &[Made], anywhere: bool) {
+    match TapeReader::open(torn) {
         Ok(r) => {
             let _ = r.verify(0).map(|v| v.holds);
-            let listed = closes_chain(r);
+            let listed = closes_chain(&r);
             if !anywhere {
                 assert_eq!(r.pieces().len(), 1, "one piece");
                 // the last close is in force when its close record and tail are all there, untouched
@@ -218,34 +248,32 @@ pub fn reclose(data: &[u8]) {
         }
         Err(e) => assert!(anywhere, "a piece torn after its closes opens: {e:?}"),
     }
-    let Ok((mut w, resumed)) = reopen(&torn, aligned) else {
-        assert!(
-            anywhere || first_flip != usize::MAX,
-            "a torn append resumes"
-        );
-        return;
-    };
-    if anywhere {
-        drop(resumed);
-        let _ = w.close();
-        return;
-    }
-    assert!(
-        resumed.kept_bytes >= kept as u64,
-        "the closed bytes are kept"
-    );
-    // only a torn end is cut: with one byte changed, a changed byte dropped lies in the record the cut stops inside of,
-    // never in a whole one. More changed bytes can make damage read as a torn end in every way the bytes show.
-    let torn_from = torn_record(&bytes, torn.len());
-    let changed = torn.iter().zip(&bytes).filter(|(a, b)| a != b).count();
+}
+
+/// Only a torn end is cut: with one byte changed, a changed byte dropped lies in the record the cut stops inside of,
+/// never in a whole one. More changed bytes can make damage read as a torn end in every way the bytes show.
+fn check_cut_is_torn_end(torn: &[u8], bytes: &[u8], kept_bytes: u64) {
+    let torn_from = torn_record(bytes, torn.len());
+    let changed = torn.iter().zip(bytes).filter(|(a, b)| a != b).count();
     if changed == 1
-        && let Some(at) = (resumed.kept_bytes as usize..torn.len()).find(|&i| torn[i] != bytes[i])
+        && let Some(at) = (kept_bytes as usize..torn.len()).find(|&i| torn[i] != bytes[i])
     {
         assert!(
             at >= torn_from,
             "a whole record cut off: a flip at {at}, the torn record at {torn_from}"
         );
     }
+}
+
+/// The resumed writer takes more records and closes whole: no byte before the last append moves, each close is kept
+/// in place, and the piece verifies when no flip fell before.
+fn check_written_on(
+    mut w: TapeWriter<MemSink>,
+    bytes: &[u8],
+    made: &[Made],
+    kept: usize,
+    first_flip: usize,
+) {
     append(&mut w, &defs(), 100, 2);
     let (out, _) = close(w);
     assert_eq!(

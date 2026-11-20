@@ -382,6 +382,42 @@ fn good_block_after<S: TapeSink>(
 /// The unit a disk writes whole or not at all: a write a crash cut off leaves zeros from a boundary of it.
 const SECTOR_LEN: u64 = 512;
 
+/// Refuse a resume when a good block of any session lies between the end of the tail at `tail` and `size`.
+fn no_good_block_after<S: TapeSink>(
+    src: &S,
+    tail: u64,
+    size: u64,
+) -> Result<(), WriteError<S::Error>> {
+    let none = alloc::collections::BTreeSet::new();
+    let end = tail.saturating_add(wide(TAIL_LEN));
+    match good_block_after(src, end, size, &none)? {
+        Some(offset) => Err(WriteError::Resume(ResumeError::GoodBlockAfterCut {
+            offset,
+        })),
+        None => Ok(()),
+    }
+}
+
+/// Cut off the junk a crash left after the tail at `tail` of a piece the chain goes on from.
+///
+/// A good block or damage there refuses the resume instead.
+fn cut_after_tail<S: TapeSink>(
+    sink: &mut S,
+    tail: u64,
+    size: u64,
+) -> Result<(), WriteError<S::Error>> {
+    let end = tail.saturating_add(wide(TAIL_LEN));
+    if size <= end {
+        return Ok(());
+    }
+    no_good_block_after(sink, tail, size)?;
+    if let Some(offset) = torn_end(sink, end, size)? {
+        return Err(WriteError::Resume(ResumeError::Damaged { offset }));
+    }
+    sink.truncate(end)
+        .map_err(sink_err("cutting the bytes after the tail"))
+}
+
 /// Where the bytes of `src` from `from` to `size`, which a resume would cut, hold damage rather than a torn end; None
 /// when they are a torn end. A torn end is what a crash leaves of an append: whole blocks, then a record the bytes
 /// stop inside of (fewer bytes than a header, a header naming more bytes than are left), or blank bytes (zeros) up to
@@ -602,6 +638,68 @@ impl Named {
     }
 }
 
+/// What a resume's walk of the piece keeps: the blocks up to the cut, their sessions, the close records it writes on
+/// after, and an end of a write session the walk met.
+#[derive(Default)]
+struct ResumeWalk {
+    kept: KeptEnd,
+    sessions: alloc::collections::BTreeSet<u32>,
+    /// Close records kept, by offset: the content hash chains over each from there on.
+    closes: BTreeMap<u64, (u64, Close)>,
+    /// The steps that end a write session (final index, close record, tail) since the last other step.
+    ending: Vec<Step>,
+    /// Where an end that isn't whole, with a block after it, starts.
+    ended_at: Option<u64>,
+}
+
+impl ResumeWalk {
+    /// Walk the steps from `at` to the end of `layout`, from the close in force `whole_base` of a closed piece.
+    ///
+    /// Returns `whole_base` when no step took it up.
+    fn walk<S: TapeSink>(
+        &mut self,
+        sink: &S,
+        layout: &Layout,
+        mut at: u64,
+        size: u64,
+        mut whole_base: Option<WholeClose>,
+    ) -> Result<Option<WholeClose>, WriteError<S::Error>> {
+        while at < layout.end {
+            let step = layout.step(sink, at)?;
+            at = step.end();
+            // an end whose close and tail read whole goes on with an append head naming them; anything else after it
+            // is what a crash left there, ended below as the bytes are
+            let whole = match whole_base.take() {
+                Some(w) => Some(w),
+                None => whole_close(sink, &self.ending)?,
+            };
+            if let Some((c, tail)) = whole {
+                if !appends_to(sink, &step, c.0, tail, &c.1)? {
+                    no_good_block_after(sink, tail, size)?;
+                    break;
+                }
+                self.ending.drain(..).for_each(|e| self.kept.take(&e));
+                self.closes.insert(c.0, (tail, c.1));
+            } else if ends_piece(sink, &step)? {
+                self.ending.push(step);
+                continue;
+            } else if let Some(first) = self.ending.first() {
+                // an end that isn't whole with a block after it: a block after the end of the piece
+                self.ended_at = Some(first.end());
+                break;
+            }
+            if let What::Block { .. } = step.what {
+                let mut tag = [0u8; 4];
+                sink.read_at(step.at.saturating_add(24), &mut tag)
+                    .map_err(sink_err("reading back a block's session"))?;
+                self.sessions.insert(u32::from_le_bytes(tag));
+            }
+            self.kept.take(&step);
+        }
+        Ok(whole_base)
+    }
+}
+
 impl<S: TapeSink> TapeWriter<S> {
     /// Reopen the unclosed piece in `sink` (cut off by a crash, or cut in its end) to go on writing it, see the
     /// [module docs](self); a closed piece is written on after its last close. `options` are the ones it was written
@@ -617,97 +715,47 @@ impl<S: TapeSink> TapeWriter<S> {
             .size()
             .map_err(sink_err("reading the length to resume"))?;
         let (layout, cut, base) = read_layout(&sink)?;
-        let mut kept = KeptEnd::default();
-        let mut sessions = alloc::collections::BTreeSet::new();
-        // close records kept, by offset: the content hash chains over each from there on
-        let mut closes: BTreeMap<u64, (u64, Close)> = BTreeMap::new();
-        // the steps that end a write session (final index, close record, tail) since the last other step
-        let mut ending: Vec<Step> = Vec::new();
+        let mut walk = ResumeWalk::default();
         let mut at = 0;
-        let mut ended_at = None;
         // a closed piece is walked from after its close in force, which is whole: the blocks before it stay unread
         let mut whole_base = None;
         if let Some(b) = &base {
             at = b.tail_at.saturating_add(wide(TAIL_LEN));
-            kept.last = at;
-            sessions.insert(b.id.session.get());
+            walk.kept.last = at;
+            walk.sessions.insert(b.id.session.get());
             whole_base = Some(((b.close_at, b.close), b.tail_at));
         }
-        while at < layout.end {
-            let step = layout.step(&sink, at)?;
-            at = step.end();
-            // an end whose close and tail read whole goes on with an append head naming them; anything else after it
-            // is what a crash left there, ended below as the bytes are
-            let whole = match whole_base.take() {
-                Some(w) => Some(w),
-                None => whole_close(&sink, &ending)?,
-            };
-            if let Some((c, tail)) = whole {
-                if !appends_to(&sink, &step, c.0, tail, &c.1)? {
-                    let none = alloc::collections::BTreeSet::new();
-                    let end = tail.saturating_add(wide(TAIL_LEN));
-                    if let Some(offset) = good_block_after(&sink, end, size, &none)? {
-                        return Err(WriteError::Resume(ResumeError::GoodBlockAfterCut {
-                            offset,
-                        }));
-                    }
-                    break;
-                }
-                ending.drain(..).for_each(|e| kept.take(&e));
-                closes.insert(c.0, (tail, c.1));
-            } else if ends_piece(&sink, &step)? {
-                ending.push(step);
-                continue;
-            } else if let Some(first) = ending.first() {
-                // an end that isn't whole with a block after it: a block after the end of the piece
-                ended_at = Some(first.end());
-                break;
-            }
-            if let What::Block { .. } = step.what {
-                let mut tag = [0u8; 4];
-                sink.read_at(step.at.saturating_add(24), &mut tag)
-                    .map_err(sink_err("reading back a block's session"))?;
-                sessions.insert(u32::from_le_bytes(tag));
-            }
-            kept.take(&step);
-        }
+        let whole_base = walk.walk(&sink, &layout, at, size, whole_base)?;
         // an end the bytes stop at, or only junk follows: kept when its close and tail are whole, the writer then
         // writes on after them; else dropped, the piece open again
         let mut write_on = false;
         if let Some(((offset, close), tail)) = whole_base {
-            closes.insert(offset, (tail, close));
+            walk.closes.insert(offset, (tail, close));
             write_on = true;
         }
-        if ended_at.is_none() && !ending.is_empty() {
-            match whole_close(&sink, &ending)? {
+        if walk.ended_at.is_none() && !walk.ending.is_empty() {
+            match whole_close(&sink, &walk.ending)? {
                 Some(((offset, close), tail)) => {
                     if let Some(next) = close.next {
-                        // bytes after the tail: junk a crash left is cut off, a good block refuses
-                        let end = tail.saturating_add(wide(TAIL_LEN));
-                        if size > end {
-                            let none = alloc::collections::BTreeSet::new();
-                            if let Some(offset) = good_block_after(&sink, end, size, &none)? {
-                                return Err(WriteError::Resume(ResumeError::GoodBlockAfterCut {
-                                    offset,
-                                }));
-                            }
-                            if let Some(offset) = torn_end(&sink, end, size)? {
-                                return Err(WriteError::Resume(ResumeError::Damaged { offset }));
-                            }
-                            sink.truncate(end)
-                                .map_err(sink_err("cutting the bytes after the tail"))?;
-                        }
+                        cut_after_tail(&mut sink, tail, size)?;
                         sink.close()
                             .map_err(sink_err("giving the closed piece its name"))?;
                         return Err(WriteError::Resume(ResumeError::Continued { next }));
                     }
-                    ending.drain(..).for_each(|e| kept.take(&e));
-                    closes.insert(offset, (tail, close));
+                    walk.ending.drain(..).for_each(|e| walk.kept.take(&e));
+                    walk.closes.insert(offset, (tail, close));
                     write_on = true;
                 }
-                None => ended_at = ending.first().map(Step::end),
+                None => walk.ended_at = walk.ending.first().map(Step::end),
             }
         }
+        let ResumeWalk {
+            kept,
+            sessions,
+            closes,
+            ending,
+            ended_at,
+        } = walk;
         // the reason of a close record dropped with the end it belongs to: the piece was being closed
         let ended = match write_on {
             true => None,
