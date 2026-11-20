@@ -247,8 +247,10 @@ pub(crate) fn close_block(
             }
         })
         .collect();
-    let padding = [0, 1, 512][d.below(3)];
+    // 2 tracks, 3 removed rows and the most padding make a close of 1020 bytes: a builder's block stays within 1 KiB
+    let padding = [0, 1, 384][d.below(3)];
     let mut buf = vec![0u8; close_len(tracks.len(), removed.len()) + padding];
+    debug_assert!(buf.len() <= 1024, "a close of {} bytes", buf.len());
     let n = write_close(&mut buf, id, &close, (&tracks, &removed), padding).expect("a valid close");
     buf.truncate(n);
     buf
