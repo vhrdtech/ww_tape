@@ -7,6 +7,10 @@
 
 [![CI](https://github.com/vhrdtech/ww_tape/actions/workflows/ci.yml/badge.svg)](https://github.com/vhrdtech/ww_tape/actions/workflows/ci.yml)
 [![Book](https://img.shields.io/badge/book-tape.vhrd.tech-blue)](https://tape.vhrd.tech/)
+[![crates.io](https://img.shields.io/crates/v/ww_tape)](https://crates.io/crates/ww_tape)
+[![crates.io](https://img.shields.io/crates/v/ww_tape_codecs)](https://crates.io/crates/ww_tape_codecs)
+[![docs.rs](https://img.shields.io/docsrs/ww_tape)](https://docs.rs/ww_tape)
+[![docs.rs](https://img.shields.io/docsrs/ww_tape_codecs)](https://docs.rs/ww_tape_codecs)
 
 > Tracks of ShrinkWrap records in self-checking, variable-length blocks, for live feeds, log files and raw media.
 

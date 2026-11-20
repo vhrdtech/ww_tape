@@ -1,5 +1,8 @@
 # ww_tape
 
+[![crates.io](https://img.shields.io/crates/v/ww_tape)](https://crates.io/crates/ww_tape)
+[![docs.rs](https://img.shields.io/docsrs/ww_tape)](https://docs.rs/ww_tape)
+
 Tape blocks: tracks of ShrinkWrap records in self-checking, variable-length blocks, for live feeds, log files and raw
 media. The crate docs give the byte layout of every block; the [docs](../docs/index.md) explain the format.
 

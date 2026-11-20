@@ -1,5 +1,8 @@
 # ww_tape_codecs
 
+[![crates.io](https://img.shields.io/crates/v/ww_tape_codecs)](https://crates.io/crates/ww_tape_codecs)
+[![docs.rs](https://img.shields.io/docsrs/ww_tape_codecs)](https://docs.rs/ww_tape_codecs)
+
 The column codecs of [ww_tape](../ww_tape):
 
 - bit packing with vector kernels: AVX-512 and Advanced Vector Extensions 2 (AVX2) on x86, NEON (the Arm vector
