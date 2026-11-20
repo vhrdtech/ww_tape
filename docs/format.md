@@ -1247,9 +1247,10 @@ would pass one:
 |---|---|---|
 | `RESYNC_AHEAD_MAX` | 128 MiB | the bytes a salvage walk (`Recovery::Resync`) reads ahead |
 | `RESYNC_SEQS_MAX` | 65536 | the data blocks a salvage walk remembers by session and seq, for conflicts |
-| `VERIFY_LISTS_MAX` | 493418 | the track lists of a final index one verify takes |
-| `TRACKS_PER_PIECE_MAX` | 493416 | the tracks with data in one piece, so its close fits a block |
+| `VERIFY_LISTS_MAX` | 493417 | the track lists of a final index one verify takes |
+| `TRACKS_PER_PIECE_MAX` | 493415 | the tracks with data in one piece, so its close fits a block |
 | `HEAD_TRACKS_MAX` | 699006 | the tracks a piece head carries over the chain, so the head fits a block |
+| `CLOSE_SUMMARY_MAX` | 1 MiB | the body of the summary block a close names |
 | `WALK_MISS_BASE_MAX` | 1 MiB | the bytes a content-hash walk's missed blocks claim at its start |
 | `WALK_MISS_PER_BYTE_MAX` | 4 | the bytes they claim per byte walked, past that |
 | `RESUME_LOOK_MAX` | 128 MiB | the bytes past a reader's stop a resume looks through for a good block |

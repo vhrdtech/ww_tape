@@ -126,9 +126,9 @@
 //! | [RESYNC_AHEAD_MAX] | 128 MiB | the bytes a salvage walk ([Recovery::Resync]) reads ahead |
 //! | [RESYNC_SEQS_MAX] | 65536 | the data blocks a salvage walk remembers by session and seq, for conflicts |
 //! | [STATE_READ_MAX](reader::STATE_READ_MAX) | 1 GiB | the bytes of blocks one state lookup reads |
-//! | [VERIFY_LISTS_MAX](reader::VERIFY_LISTS_MAX) | 493418 | the track lists of a final index one verify takes, one entry held each |
+//! | [VERIFY_LISTS_MAX](reader::VERIFY_LISTS_MAX) | 493417 | the track lists of a final index one verify takes, one entry held each |
 //! | [DEFERRED_BYTES_MAX](writer::DEFERRED_BYTES_MAX) | 1 MiB | the deferred blocks a writer keeps |
-//! | [TRACKS_PER_PIECE_MAX] | 493416 | the tracks with data in one piece a writer takes: its close fits a block |
+//! | [TRACKS_PER_PIECE_MAX] | 493415 | the tracks with data in one piece a writer takes: its close fits a block |
 //! | [HEAD_TRACKS_MAX] | 699006 | the tracks a piece head carries over the chain: the head fits a block |
 //! | [WALK_MISS_BASE_MAX](piece::WALK_MISS_BASE_MAX) | 1 MiB | the bytes a content-hash walk's missed blocks claim at its start |
 //! | [WALK_MISS_PER_BYTE_MAX](piece::WALK_MISS_PER_BYTE_MAX) | 4 | the bytes they claim per byte walked, past that |

@@ -457,10 +457,9 @@ fn amount(text: &str) -> u64 {
     value - minus
 }
 
-/// The table of caps on the page holds every cap, at the constant's value.
-#[test]
-fn format_page_caps_are_the_constants() {
-    let caps: &[(&str, u64)] = &[
+/// The caps of the format page's first table, in its order: name and value.
+fn page_caps() -> Vec<(&'static str, u64)> {
+    vec![
         ("MAX_BLOCK_LEN", ww_tape::MAX_BLOCK_LEN as u64),
         ("DECODED_BODY_MAX", ww_tape::body::DECODED_BODY_MAX as u64),
         ("LZ4_DECODED_MAX", ww_tape::lz4::LZ4_DECODED_MAX as u64),
@@ -506,14 +505,75 @@ fn format_page_caps_are_the_constants() {
             "DEFERRED_BYTES_MAX",
             ww_tape::writer::DEFERRED_BYTES_MAX as u64,
         ),
-    ];
-    let rows = table("../docs/format.md", "| Cap | Value | Bounds |");
-    let names: Vec<&str> = rows.iter().map(|r| r[0].as_str()).collect();
-    let expected: Vec<&str> = caps.iter().map(|(n, _)| *n).collect();
-    assert_eq!(names, expected, "the page lists every cap, in order");
-    for (row, (name, value)) in rows.iter().zip(caps) {
-        assert_eq!(amount(&row[1]), *value, "{name} is {}", row[1]);
+    ]
+}
+
+/// The caps of walks and the writer, in the order of the format page's second table.
+fn walk_caps() -> Vec<(&'static str, u64)> {
+    vec![
+        ("RESYNC_AHEAD_MAX", ww_tape::RESYNC_AHEAD_MAX as u64),
+        ("RESYNC_SEQS_MAX", ww_tape::RESYNC_SEQS_MAX as u64),
+        ("VERIFY_LISTS_MAX", ww_tape::reader::VERIFY_LISTS_MAX as u64),
+        ("TRACKS_PER_PIECE_MAX", ww_tape::TRACKS_PER_PIECE_MAX as u64),
+        ("HEAD_TRACKS_MAX", ww_tape::HEAD_TRACKS_MAX as u64),
+        (
+            "CLOSE_SUMMARY_MAX",
+            ww_tape::piece::CLOSE_SUMMARY_MAX as u64,
+        ),
+        ("WALK_MISS_BASE_MAX", ww_tape::piece::WALK_MISS_BASE_MAX),
+        (
+            "WALK_MISS_PER_BYTE_MAX",
+            ww_tape::piece::WALK_MISS_PER_BYTE_MAX,
+        ),
+        ("RESUME_LOOK_MAX", ww_tape::writer::RESUME_LOOK_MAX),
+        (
+            "RESUME_PROBES_MAX",
+            ww_tape::writer::RESUME_PROBES_MAX as u64,
+        ),
+    ]
+}
+
+/// Each table of caps on the page holds every cap of its kind, in order, at the constant's value.
+#[test]
+fn format_page_caps_are_the_constants() {
+    for (header, caps) in [
+        ("| Cap | Value | Bounds |", page_caps()),
+        ("| Walk or writer cap | Value | Bounds |", walk_caps()),
+    ] {
+        let rows = table("../docs/format.md", header);
+        let names: Vec<&str> = rows.iter().map(|r| r[0].as_str()).collect();
+        let expected: Vec<&str> = caps.iter().map(|(n, _)| *n).collect();
+        assert_eq!(
+            names, expected,
+            "{header}: the page lists every cap, in order"
+        );
+        for (row, (name, value)) in rows.iter().zip(&caps) {
+            assert_eq!(amount(&row[1]), *value, "{name} is {}", row[1]);
+        }
     }
+}
+
+/// The crate docs' table of caps holds every cap of both tables of the page but those of `ww_tape_summary`, at the
+/// constant's value.
+#[test]
+fn crate_docs_caps_are_the_constants() {
+    let text = read("../ww_tape/src/lib.rs");
+    let listed: std::collections::BTreeMap<String, u64> = text
+        .lines()
+        .filter_map(|l| l.strip_prefix("//! | ["))
+        .map(|l| {
+            let (name, rest) = l.split_once(']').unwrap();
+            let value = rest.split('|').nth(1).unwrap().trim();
+            (name.to_owned(), amount(value))
+        })
+        .collect();
+    let expected: std::collections::BTreeMap<String, u64> = page_caps()
+        .into_iter()
+        .chain(walk_caps())
+        .filter(|(n, _)| *n != "FACTOR_MAX")
+        .map(|(n, v)| (n.to_owned(), v))
+        .collect();
+    assert_eq!(listed, expected);
 }
 
 /// The piece head and close rows on the page, read from a chain of two pieces: owner, track hash, records and the
