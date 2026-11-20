@@ -238,7 +238,7 @@ The pages in `docs/`.
   - `ww_tape_example` records the drive motor controller's hour: log lines, mode, CAN frames, phase current with summaries and temperature, in a chain of pieces.
   - `Drive::scaled` shrinks the data and the byte policies for figures; a crash at any byte resumes to the bytes of the run without it.
   - `cargo run -p ww_tape_example` prints the story's numbers; `tests/story.rs` checks them and that the full hour is the same every run.
-  - Damage to the last piece (a flipped bit, lost sectors at either end) and the run on a raw card over an earlier run; `tests/damage.rs` pins what each costs.
+  - Damage to the last piece and the run on a raw card over an earlier run; `tests/damage.rs` pins what each costs.
   - Read more: [ww_tape_example](ww_tape_example/README.md).
 
 ## Repository (`REPO`)

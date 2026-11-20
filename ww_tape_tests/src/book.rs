@@ -24,4 +24,5 @@ pages! {
     Blocks = "blocks.md";
     Definitions = "definitions.md";
     Anatomy = "anatomy.md";
+    Damage = "damage.md";
 }
