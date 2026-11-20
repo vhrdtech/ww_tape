@@ -580,6 +580,18 @@ fn a_close_with_bad_removed_rows_is_refused() {
         ))
     );
     assert_eq!(read(&buf[..n]), Ok(2));
+
+    // a close without removed pieces and with no row length, as closes written before rows existed: read, no rows
+    let mut none = vec![0u8; close_len(0, 0)];
+    let k = write_close(&mut none, id(5), &plain_close(), (&[], &[]), 0).unwrap();
+    none[REMOVED_ROW_LEN_AT..REMOVED_ROW_LEN_AT + 2].copy_from_slice(&0u16.to_le_bytes());
+    crate::index::seal(&mut none[..k]);
+    assert_eq!(read(&none[..k]), Ok(0));
+    // ... but a row length of 0 with rows is refused
+    assert_eq!(
+        read(&edit(REMOVED_ROW_LEN_AT, &0u16.to_le_bytes())),
+        Err(IndexError::BadHead)
+    );
 }
 
 /// A later writer's longer removed rows: a reader takes their first 56 bytes.

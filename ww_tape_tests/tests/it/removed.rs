@@ -209,3 +209,40 @@ fn golden_removed() {
     assert_eq!(r.pieces()[0].removed, gone);
     crate::reclose::golden(&bytes, "v1-removed.hex");
 }
+
+/// Files written before closes could name removed pieces (`data/before-removed/`, the fuzz seeds of that writer):
+/// every close reads, with no rows, each piece verifies, and the chain of several pieces is whole.
+#[test]
+fn files_written_before_removed_rows_read() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/it/data/before-removed");
+    for (name, closes) in [
+        ("one-file-chain.wwt", None),
+        ("closed-four-times.wwt", Some(4)),
+        ("closed-with-a-close-summary.wwt", Some(3)),
+        ("golden-v1-index-piece.wwt", None),
+    ] {
+        let bytes = std::fs::read(dir.join(name)).unwrap();
+        let r = TapeReader::open(&bytes[..]).unwrap();
+        for (i, p) in r.pieces().iter().enumerate() {
+            assert!(
+                p.close_error.is_none(),
+                "{name} piece {i}: {:?}",
+                p.close_error
+            );
+            assert!(p.close.is_some() && p.is_closed(), "{name} piece {i}");
+            assert!(p.removed.is_empty(), "{name} piece {i}");
+            assert!(r.verify(i).unwrap().holds, "{name} piece {i}");
+        }
+        if let Some(n) = closes {
+            assert_eq!(r.closes(0).unwrap().len(), n, "{name}");
+        }
+        let c = r.chain();
+        assert!(
+            !matches!(c.end, ww_tape::piece::ChainEnd::Unclosed),
+            "{name}: {c:?}"
+        );
+        if name == "one-file-chain.wwt" {
+            assert!(c.is_whole(), "{name}: {c:?}");
+        }
+    }
+}

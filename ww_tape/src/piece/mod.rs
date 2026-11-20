@@ -79,7 +79,8 @@
 //!  32 u8   reason (1 closed, 2 aborted; a piece that goes on in the next one, next id below, is closed)
 //!  33 u8   reserved
 //!  34 u16  track row length, 136 (a reader takes longer rows and reads their first 136 bytes)
-//!  36 u16  removed-piece row length, 56 (a reader takes longer rows and reads their first 56 bytes)    38 [2] reserved
+//!  36 u16  removed-piece row length, 56 (a reader takes longer rows and reads their first 56 bytes; 0 with no rows)
+//!  38 [2]  reserved
 //!  40 [32] content hash: BLAKE3 of the piece's bytes before this block, each chunk payload by its hash (below); of
 //!          a later close, BLAKE3 of the previous close's hash, then of the bytes from it to this block, the same way
 //!  72 u64  newest checkpoint index offset    80 u64 last final index offset
@@ -1204,16 +1205,24 @@ impl<'b> CloseBlock<'b> {
             .filter(|p| *p < PIECE_ALIGN)
             .map(u32_len)
             .ok_or(IndexError::BadHead)?;
-        let removed_row = le_u16(b, REMOVED_ROW_LEN_AT)
-            .map(usize::from)
-            .filter(|r| *r >= REMOVED_ROW_LEN)
-            .ok_or(IndexError::BadHead)?;
         let removed_n = le_u32(b, REMOVED_COUNT_AT)
             .map(u32_len)
             .filter(|n| *n <= REMOVED_PIECES_MAX)
             .ok_or(IndexError::Invalid(
                 "more removed pieces than REMOVED_PIECES_MAX",
             ))?;
+        // a close without removed pieces may state no row length: closes written before rows existed hold 0 there
+        let removed_row = le_u16(b, REMOVED_ROW_LEN_AT)
+            .map(usize::from)
+            .map(|r| {
+                if removed_n == 0 {
+                    r.max(REMOVED_ROW_LEN)
+                } else {
+                    r
+                }
+            })
+            .filter(|r| *r >= REMOVED_ROW_LEN)
+            .ok_or(IndexError::BadHead)?;
         let removed_len = removed_n
             .checked_mul(removed_row)
             .ok_or(IndexError::BadHead)?;

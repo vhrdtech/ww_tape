@@ -933,7 +933,8 @@ close (kind 8)
  32 u8   reason (1 closed, 2 aborted; a piece that goes on in the next one, next id below, is closed)
  33 u8   reserved
  34 u16  track row length, 136 (a reader takes longer rows and reads their first 136 bytes)
- 36 u16  removed-piece row length, 56 (a reader takes longer rows and reads their first 56 bytes)    38 [2] reserved
+ 36 u16  removed-piece row length, 56 (a reader takes longer rows and reads their first 56 bytes; 0 with no rows)
+ 38 [2]  reserved
  40 [32] content hash: BLAKE3 of the piece's bytes before this block, each chunk payload by its hash (below); of
          a later close, BLAKE3 of the previous close's hash, then of the bytes from it to this block, the same way
  72 u64  newest checkpoint index offset    80 u64 last final index offset
