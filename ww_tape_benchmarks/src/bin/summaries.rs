@@ -1,12 +1,15 @@
 //! Series summaries of `ww_tape` against the samples they summarise: MB/s of sample bytes on one core, per element
 //! type, through the RAW sample codec alone (no summaries), `SeriesSummaries::push` alone with every statistic, and
-//! both. Prints a Markdown table with the CPU's vector extensions and the load average at the start.
+//! both. Then the single-pass kernel alone against a summariser that keeps one statistic at a time, one pass each:
+//! MB/s per element type for each kernel this CPU runs (portable, AVX2, AVX-512). Prints Markdown tables with the
+//! load average around each.
 #![allow(
     clippy::arithmetic_side_effects,
     clippy::as_conversions,
     clippy::cast_possible_truncation,
     clippy::cast_precision_loss,
     clippy::cast_sign_loss,
+    clippy::indexing_slicing,
     clippy::print_stdout,
     reason = "a bench reads no file of others: it computes sizes and rates freely, fails by panicking and prints its table"
 )]
@@ -14,13 +17,26 @@
 use clap::Parser;
 use std::hint::black_box;
 use std::time::Instant;
+use vc_ui::Paint;
 use ww_tape::samples::{encode, max_encoded_len};
 use ww_tape::{Codec, Element, ElementDesc, Magnitude, Ratio64, Sample, SampleShape, SeriesGrid};
+use ww_tape_bench::{Cell, Common, Machine, Report, Table};
+use ww_tape_codecs::kernel::{IntBatch, Kernel, Narrow};
 use ww_tape_summary::{Scalar, SeriesStart, SeriesStats, SeriesSummaries, SeriesSummarySpec};
 
 #[derive(Parser)]
-#[command(about = "Series summaries of ww_tape: MB/s per element type with and without summaries")]
+#[command(
+    name = "summaries",
+    about = "Series summaries of ww_tape: MB/s per element type with and without summaries",
+    version = vc_build::version!(),
+    after_long_help = "Examples:
+  just bench-summaries
+  just bench-summaries --frames 1024 --mib 64
+  summaries --json docs/bench/summaries.json"
+)]
 struct Args {
+    #[command(flatten)]
+    common: Common,
     /// Frames handed over per push, as a driver's buffer.
     #[arg(long, default_value_t = 16 * 1024)]
     frames: usize,
@@ -33,6 +49,12 @@ struct Args {
     /// log2 of a level-0 node's samples.
     #[arg(long, default_value_t = 10)]
     base_shift: u8,
+}
+
+impl AsRef<Common> for Args {
+    fn as_ref(&self) -> &Common {
+        &self.common
+    }
 }
 
 /// A sample type the bench generates: ADC-like noise, small steps around zero.
@@ -133,70 +155,195 @@ fn rate<T: Gen>(args: &Args, shape: SampleShape, batch: &[T], work: Work) -> any
     Ok((pushes * size_of_val(batch)) as f64 / best / 1e6)
 }
 
-fn case<T: Gen>(args: &Args, element: Element, channels: u32) -> anyhow::Result<()> {
+fn case<T: Gen>(
+    args: &Args,
+    table: &mut Table,
+    element: Element,
+    channels: u32,
+) -> anyhow::Result<()> {
     let shape = SampleShape::new(ElementDesc::of(element), channels);
     let batch: Vec<T> = noise(args.frames * element.parts() as usize * channels as usize);
     let raw = rate(args, shape, &batch, Work::Raw)?;
     let sum = rate(args, shape, &batch, Work::Summaries)?;
     let both = rate(args, shape, &batch, Work::Both)?;
-    println!("| {element:?} | {channels} | {raw:.0} | {sum:.0} | {both:.0} |");
+    table.row(vec![
+        Cell::text(format!("{element:?}")),
+        Cell::count(u64::from(channels)),
+        Cell::num(raw, 0),
+        Cell::num(sum, 0),
+        Cell::num(both, 0),
+    ]);
     Ok(())
 }
 
-/// The vector extensions the summary kernels may use.
-fn cpu() -> String {
-    #[cfg(target_arch = "x86_64")]
-    {
-        let mut v = vec!["x86-64"];
-        if std::arch::is_x86_feature_detected!("avx2") {
-            v.push("avx2");
-        }
-        if std::arch::is_x86_feature_detected!("avx512bw")
-            && std::arch::is_x86_feature_detected!("avx512vl")
-        {
-            v.push("avx512bw+vl");
-        }
-        v.join(", ")
+/// Every statistic of `frames` (`C` components each) one at a time, one pass each, as a summariser without the
+/// single-pass kernel does: minimum, maximum, sum and sum of squares per component, the clipped count, and for complex
+/// frames the sum and maximum of `I² + Q²`. Returns a value of all of them, so none is optimised away.
+fn one_at_a_time<T: Narrow + Into<i64>, const C: usize>(frames: &[[T; C]], lo: T, hi: T) -> i128 {
+    let mut acc = 0i128;
+    for c in 0..C {
+        let x = |f: &[T; C]| f[c].into();
+        acc += i128::from(frames.iter().map(x).min().unwrap_or(0));
+        acc += i128::from(frames.iter().map(x).max().unwrap_or(0));
+        acc += frames.iter().map(|f| i128::from(x(f))).sum::<i128>();
+        acc += frames.iter().map(|f| i128::from(x(f) * x(f))).sum::<i128>();
     }
-    #[cfg(not(target_arch = "x86_64"))]
-    {
-        std::env::consts::ARCH.to_owned()
+    acc += frames
+        .iter()
+        .filter(|f| f.iter().any(|&v| v <= lo || v >= hi))
+        .count() as i128;
+    if C == 2 {
+        let pow = |f: &[T; C]| i128::from(f[0].into()).pow(2) + i128::from(f[1].into()).pow(2);
+        acc += frames.iter().map(pow).sum::<i128>();
+        acc += frames.iter().map(pow).max().unwrap_or(0);
+    }
+    acc
+}
+
+/// MB/s of sample bytes of `f` over nodes of `2^base_shift` frames of `batch`, `mib` MiB per pass, the fastest of
+/// `repeats` passes.
+fn node_rate<T, const C: usize>(
+    args: &Args,
+    batch: &[[T; C]],
+    mut f: impl FnMut(&[[T; C]]),
+) -> f64 {
+    let node = 1usize << args.base_shift;
+    let bytes = args.mib << 20;
+    let passes = bytes.div_ceil(size_of_val(batch));
+    let mut best = f64::MAX;
+    for _ in 0..args.repeats {
+        let t = Instant::now();
+        for _ in 0..passes {
+            for n in batch.chunks(node) {
+                f(black_box(n));
+            }
+        }
+        best = best.min(t.elapsed().as_secs_f64());
+    }
+    (passes * size_of_val(batch)) as f64 / best / 1e6
+}
+
+/// The kernels and the one-at-a-time summariser on frames of `C` components of `T`.
+fn kernels<T: Gen + Narrow + Into<i64>, const C: usize>(
+    args: &Args,
+    table: &mut Table,
+    name: &str,
+) {
+    let flat: Vec<T> = noise(args.frames * C);
+    let (batch, _) = flat.as_chunks::<C>();
+    let (lo, hi) = (T::LOW, T::HIGH);
+    let mut row = vec![
+        Cell::text(name),
+        Cell::num(
+            node_rate(args, batch, |n| {
+                black_box(one_at_a_time(n, lo, hi));
+            }),
+            0,
+        ),
+    ];
+    for kernel in [KernelName::Portable, KernelName::Avx2, KernelName::Avx512] {
+        row.push(match kernel.get() {
+            Some(k) => Cell::num(
+                node_rate(args, batch, |n| {
+                    let mut out = IntBatch::<T>::NEW;
+                    k.int_batch(n, lo, hi, &mut out);
+                    black_box(out);
+                }),
+                0,
+            ),
+            None => Cell::text("not on this CPU"),
+        });
+    }
+    table.row(row);
+}
+
+/// A kernel by the name the table gives it.
+#[derive(Copy, Clone)]
+enum KernelName {
+    Portable,
+    Avx2,
+    Avx512,
+}
+
+impl KernelName {
+    /// The kernel, None when this CPU doesn't run it.
+    fn get(self) -> Option<Kernel> {
+        Kernel::all().into_iter().find(|k| match (self, k) {
+            (Self::Portable, Kernel::Portable) => true,
+            #[cfg(target_arch = "x86_64")]
+            (Self::Avx2, Kernel::Avx2(_)) | (Self::Avx512, Kernel::Avx512(_)) => true,
+            _ => false,
+        })
     }
 }
 
 fn main() -> anyhow::Result<()> {
-    let args = Args::parse();
+    let args: Args = ww_tape_bench::args();
     anyhow::ensure!(
         args.frames > 0 && args.repeats > 0,
         "frames and repeats must be positive"
     );
-    let load = std::fs::read_to_string("/proc/loadavg")
-        .map(|l| l.split_whitespace().take(3).collect::<Vec<_>>().join(" "))
-        .unwrap_or_else(|_| "unknown".to_owned());
-    println!(
-        "Series summaries, every statistic, nodes of 2^{} samples, {} frames a push, {} MiB a pass, best of {}. CPU: {}. Load at start: {load}.",
-        args.base_shift,
-        args.frames,
-        args.mib,
-        args.repeats,
-        cpu()
+    let paint = Paint::stdout();
+    let mut report = Report::new(
+        "summaries",
+        vc_build::version!(),
+        Machine::this(),
+        vec![
+            ("frames a push", args.frames.to_string()),
+            ("MiB a pass", args.mib.to_string()),
+            ("best of", args.repeats.to_string()),
+            ("node", format!("2^{} samples", args.base_shift)),
+        ],
     );
-    println!();
-    println!("| element | channels | RAW MB/s | summaries MB/s | RAW + summaries MB/s |");
-    println!("|---|---|---|---|---|");
-    case::<i8>(&args, Element::I8, 1)?;
-    case::<u8>(&args, Element::U8, 1)?;
-    case::<i16>(&args, Element::I16, 1)?;
-    case::<i16>(&args, Element::I16, 4)?;
-    case::<u16>(&args, Element::U16, 1)?;
-    case::<i32>(&args, Element::I32, 1)?;
-    case::<u32>(&args, Element::U32, 1)?;
-    case::<i64>(&args, Element::I64, 1)?;
-    case::<u64>(&args, Element::U64, 1)?;
-    case::<f32>(&args, Element::F32, 1)?;
-    case::<f64>(&args, Element::F64, 1)?;
-    case::<i16>(&args, Element::ComplexI16, 1)?;
-    case::<i16>(&args, Element::ComplexI16, 4)?;
-    case::<f32>(&args, Element::ComplexF32, 1)?;
-    Ok(())
+    println!("{}", report.header(paint));
+    let mut t = report.table(
+        "summaries",
+        &format!(
+            "Series summaries, every statistic, nodes of 2^{} samples, {} frames a push, {} MiB a pass, best of {}.",
+            args.base_shift, args.frames, args.mib, args.repeats
+        ),
+        &[
+            "Element",
+            "Channels",
+            "RAW MB/s",
+            "Summaries MB/s",
+            "RAW and summaries MB/s",
+        ],
+    );
+    case::<i8>(&args, &mut t, Element::I8, 1)?;
+    case::<u8>(&args, &mut t, Element::U8, 1)?;
+    case::<i16>(&args, &mut t, Element::I16, 1)?;
+    case::<i16>(&args, &mut t, Element::I16, 4)?;
+    case::<u16>(&args, &mut t, Element::U16, 1)?;
+    case::<i32>(&args, &mut t, Element::I32, 1)?;
+    case::<u32>(&args, &mut t, Element::U32, 1)?;
+    case::<i64>(&args, &mut t, Element::I64, 1)?;
+    case::<u64>(&args, &mut t, Element::U64, 1)?;
+    case::<f32>(&args, &mut t, Element::F32, 1)?;
+    case::<f64>(&args, &mut t, Element::F64, 1)?;
+    case::<i16>(&args, &mut t, Element::ComplexI16, 1)?;
+    case::<i16>(&args, &mut t, Element::ComplexI16, 4)?;
+    case::<f32>(&args, &mut t, Element::ComplexF32, 1)?;
+    println!("{}", report.push(t, paint));
+
+    let mut k = report.table(
+        "kernels",
+        &format!(
+            "Every statistic of a node of 2^{} frames: one at a time, one pass each, against the single-pass kernel, \
+             {} MiB a pass, best of {}.",
+            args.base_shift, args.mib, args.repeats
+        ),
+        &[
+            "Element",
+            "One at a time MB/s",
+            "Portable kernel MB/s",
+            "AVX2 kernel MB/s",
+            "AVX-512 kernel MB/s",
+        ],
+    );
+    kernels::<i16, 1>(&args, &mut k, "I16");
+    kernels::<i16, 2>(&args, &mut k, "ComplexI16");
+    kernels::<i32, 1>(&args, &mut k, "I32");
+    println!("{}", report.push(k, paint));
+    report.finish(args.common.json.as_deref())
 }

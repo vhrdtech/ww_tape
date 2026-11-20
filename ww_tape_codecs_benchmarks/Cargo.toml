@@ -10,13 +10,24 @@ repository.workspace = true
 homepage.workspace = true
 publish = false
 
+# the float sample codecs bench: `just bench-sample-codecs`
+[[bin]]
+name = "sample_codecs"
+path = "src/main.rs"
+
 [dependencies]
 anyhow.workspace = true
 clap = { workspace = true, features = ["derive"] }
 lewton.workspace = true
 libm.workspace = true
 motor_sim.workspace = true
+vc_build.workspace = true
+vc_ui.workspace = true
+ww_tape_bench.workspace = true
 ww_tape_codecs = { workspace = true, features = ["std"] }
+
+[build-dependencies]
+vc_build.workspace = true
 
 [lints]
 workspace = true

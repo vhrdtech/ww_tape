@@ -110,6 +110,14 @@ bench-chunks *args:
 bench-memory *args:
     cargo run -q --release -p ww_tape_benchmarks --bin memory -- {{ args }}
 
+# ww_tape events chunk starts column: open intact and salvaged, get and is_suspect per item (READ-2); `just bench-starts --help`
+bench-starts *args:
+    cargo run -q --release -p ww_tape_benchmarks --bin starts -- {{ args }}
+
+# ww_tape track relations: column bytes, encode, read, lower bound and write_chunk; `just bench-relations --help`
+bench-relations *args:
+    cargo run -q --release -p ww_tape_benchmarks --bin relations -- {{ args }}
+
 # Worst wait of a reader of a memory piece while it is written, with and without reserving it (WRITE-5); `just bench-mem-reader --help`
 bench-mem-reader *args:
     cargo run -q --release -p ww_tape_benchmarks --bin mem_reader -- {{ args }}

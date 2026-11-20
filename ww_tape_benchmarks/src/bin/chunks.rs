@@ -3,7 +3,7 @@
 //! (`chunk::write_chunk`: the copy and the CRCs), reading it back with its CRCs checked (`Block::read`), and the
 //! content hash every placed block goes into (`ItemHash::of`, BLAKE3), and the unit hash of the chunk that its index
 //! entry stores and its track's hash takes in (`TrackHash::chunk_unit`). Prints a Markdown table of ns per chunk and
-//! GB/s for each, the best of `--rounds` rounds of `--chunks` chunks, with the load average at the start. Then what a
+//! GB/s for each, the best of `--rounds` rounds of `--chunks` chunks, with the load average around it. Then what a
 //! reader spends on such a track: its series timeline from the chunk heads alone and from whole blocks, and the hash
 //! of all its chunks from the index (`TapeReader::range_hash`).
 #![allow(
@@ -22,6 +22,7 @@ use shrink_wrap::prelude::*;
 use std::hint::black_box;
 use std::io;
 use std::time::Instant;
+use vc_ui::Paint;
 use ww_tape::chunk::{ChunkHead, chunk_len, write_chunk};
 use ww_tape::piece::payload_hash;
 use ww_tape::reader::ByteSource;
@@ -31,10 +32,21 @@ use ww_tape::{
     SeriesDef, SeriesGrid, SeriesTimeline, SessionTag, SyncPolicy, TapeReader, TapeSink,
     TapeWriter, TrackDef, TrackHash, TrackKind, clock_key, track_key,
 };
+use ww_tape_bench::{Cell, Common, Machine, Report};
 
 #[derive(Parser)]
-#[command(about = "ww_tape series chunks: ns per chunk the writer spends, and its parts")]
+#[command(
+    name = "chunks",
+    about = "ww_tape series chunks: ns per chunk the writer spends, and its parts",
+    version = vc_build::version!(),
+    after_long_help = "Examples:
+  just bench-chunks
+  just bench-chunks --chunk-kib 4096 --rounds 3
+  chunks --json docs/bench/chunks.json"
+)]
 struct Args {
+    #[command(flatten)]
+    common: Common,
     /// Bytes of samples per chunk, KiB.
     #[arg(long, default_value_t = 1024)]
     chunk_kib: usize,
@@ -44,6 +56,12 @@ struct Args {
     /// Rounds; the best is kept.
     #[arg(long, default_value_t = 5)]
     rounds: u32,
+}
+
+impl AsRef<Common> for Args {
+    fn as_ref(&self) -> &Common {
+        &self.common
+    }
 }
 
 /// A sink that keeps no bytes: the writer's own work is measured, not a file's.
@@ -170,10 +188,30 @@ fn best(
 }
 
 fn main() -> anyhow::Result<()> {
-    let args = Args::parse();
-    let load = std::fs::read_to_string("/proc/loadavg")
-        .map(|l| l.split_whitespace().take(3).collect::<Vec<_>>().join(" "))
-        .unwrap_or_else(|_| "unknown".to_owned());
+    let args: Args = ww_tape_bench::args();
+    let paint = Paint::stdout();
+    let mut report = Report::new(
+        "chunks",
+        vc_build::version!(),
+        Machine::this(),
+        vec![
+            ("chunk KiB", args.chunk_kib.to_string()),
+            ("chunks", args.chunks.to_string()),
+            ("rounds", args.rounds.to_string()),
+        ],
+    );
+    println!("{}", report.header(paint));
+    let mut table = report.table(
+        "writer",
+        &format!(
+            "Series chunks of {} KiB ({} i16 samples), best of {} rounds of {}.",
+            args.chunk_kib,
+            args.chunk_kib * 512,
+            args.rounds,
+            args.chunks
+        ),
+        &["What", "ns per chunk", "GB/s"],
+    );
     let bytes = args.chunk_kib * 1024;
     let count = u32::try_from(bytes / 2)?;
     let samples: Vec<u8> = (0..bytes).map(|i| (i * 31 % 251) as u8).collect();
@@ -252,12 +290,6 @@ fn main() -> anyhow::Result<()> {
         Ok(())
     })?;
 
-    println!(
-        "Series chunks of {} KiB ({count} i16 samples), best of {r} rounds of {c}; load average {load}.\n",
-        args.chunk_kib
-    );
-    println!("| What | ns per chunk | GB/s |");
-    println!("|---|---:|---:|");
     let gbs = |ns: f64| block.len() as f64 / ns;
     for (what, ns) in [
         ("`chunk::write_chunk`: copy and CRCs", encode),
@@ -268,10 +300,18 @@ fn main() -> anyhow::Result<()> {
         ("`TapeWriter::write_chunk` into a `MemSink`", in_memory),
         ("`chunk::write_chunk` + `TapeWriter::write_block`", theirs),
     ] {
-        println!("| {what} | {ns:.0} | {:.2} |", gbs(ns));
+        table.row(vec![
+            Cell::text(what),
+            Cell::num(ns, 0),
+            Cell::num(gbs(ns), 2),
+        ]);
     }
-    timeline(&defs, &columns, count, &args, 0)?;
-    timeline(&defs, &columns, count, &args, ALIGNMENT)
+    println!("{}", report.push(table, paint));
+    for alignment in [0, ALIGNMENT] {
+        let table = timeline(&report, &defs, &columns, count, &args, alignment)?;
+        println!("{}", report.push(table, paint));
+    }
+    report.finish(args.common.json.as_deref())
 }
 
 /// Bytes that count what is read of them.
@@ -303,12 +343,21 @@ impl ByteSource for Counted {
 /// (`TapeReader::series_timeline`) and from whole blocks, in a file of payloads aligned to `alignment`, in memory:
 /// bytes read and ns per chunk.
 fn timeline(
+    report: &Report,
     defs: &Definitions,
     columns: &[(ColumnSpec, &[u8])],
     count: u32,
     args: &Args,
     alignment: u32,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<ww_tape_bench::Table> {
+    let mut table = report.table(
+        &format!("timeline-{alignment}"),
+        &format!(
+            "Timeline of a track of {} chunks, aligned to {alignment} bytes (0: not aligned), in memory.",
+            args.chunks
+        ),
+        &["Read", "Bytes read per chunk", "ns per chunk"],
+    );
     let e = |e: ww_tape::WriteError<_>| anyhow::anyhow!("{e:?}");
     let dir = std::env::temp_dir().join(format!("ww_tape_bench_chunks_{}", std::process::id()));
     std::fs::create_dir_all(&dir)?;
@@ -367,18 +416,16 @@ fn timeline(
         );
         fold = (fold.0.min(ns), src.read.get() - from);
     }
-    println!(
-        "\nTimeline of a track of {} chunks, aligned to {alignment} bytes (0: not aligned), in memory.\n",
-        args.chunks
-    );
-    println!("| Read | Bytes read per chunk | ns per chunk |");
-    println!("|---|---:|---:|");
     for (what, (ns, bytes)) in [
         ("`TapeReader::series_timeline`: heads alone", heads),
         ("`TapeReader::read_block` of every chunk", whole),
         ("`TapeReader::range_hash`: unit hashes from the index", fold),
     ] {
-        println!("| {what} | {} | {ns:.0} |", bytes / u64::from(args.chunks));
+        table.row(vec![
+            Cell::text(what),
+            Cell::count(bytes / u64::from(args.chunks)),
+            Cell::num(ns, 0),
+        ]);
     }
-    Ok(())
+    Ok(table)
 }

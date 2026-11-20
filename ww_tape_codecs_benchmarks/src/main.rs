@@ -1,7 +1,7 @@
 //! `ww_tape_codecs_benchmarks`: the float sample codec of `ww_tape_codecs` (ALP) and the bench-only float codecs (Gorilla, Chimp,
 //! delta on ordered float bits) on simulated, decoded and sensor data, against the same quantities stored as
 //! fixed-point integers with `DELTA`. Prints a Markdown table: ratio to the raw floats, and encode and decode time per
-//! value on one core.
+//! value on one core, with the load average around it.
 #![allow(
     clippy::arithmetic_side_effects,
     clippy::as_conversions,
@@ -25,6 +25,8 @@ use std::hint::black_box;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::time::Instant;
+use vc_ui::Paint;
+use ww_tape_bench::{Cell, Common, Machine, Report, Table};
 use ww_tape_codecs::Codec;
 use ww_tape_codecs::samples::{Lane, Sample, Samples, Scalar, encode, max_encoded_len};
 
@@ -36,8 +38,18 @@ struct Shape {
 }
 
 #[derive(Parser)]
-#[command(about = "Float sample codecs of ww_tape_codecs on motor_sim, speech and ADC data")]
+#[command(
+    name = "sample_codecs",
+    about = "Float sample codecs of ww_tape_codecs on motor_sim, speech and ADC data",
+    version = vc_build::version!(),
+    after_long_help = "Examples:
+  just bench-sample-codecs
+  just bench-sample-codecs --chunk 1024
+  sample_codecs --speech speech.ogg --json docs/bench/sample_codecs.json"
+)]
 struct Args {
+    #[command(flatten)]
+    common: Common,
     /// The speech recording (Ogg Vorbis); `just bench-sample-codecs` fetches it. Without it the set is skipped.
     #[arg(long)]
     speech: Option<PathBuf>,
@@ -47,6 +59,12 @@ struct Args {
     /// Timed passes over each set; the fastest counts.
     #[arg(long, default_value_t = 5)]
     repeats: usize,
+}
+
+impl AsRef<Common> for Args {
+    fn as_ref(&self) -> &Common {
+        &self.common
+    }
 }
 
 /// A codec the bench runs: one of ww_tape's, or a bench-only float codec.
@@ -259,20 +277,22 @@ fn run_cols(codec: Coder, channels: u32, cols: &Columns, a: &Args) -> anyhow::Re
     }
 }
 
-fn row(set: &str, codec: &str, raw_bytes: usize, values: usize, r: &Run) {
-    println!(
-        "| {set} | {codec} | {:.2} | {:.2} | {:.1} | {:.2} |",
-        raw_bytes as f64 / r.bytes as f64,
-        r.bytes as f64 * 8.0 / values as f64,
-        r.encode_ns,
-        r.decode_ns
-    );
+fn row(t: &mut Table, set: &str, codec: &str, raw_bytes: usize, values: usize, r: &Run) {
+    t.row(vec![
+        Cell::text(set),
+        Cell::text(codec),
+        Cell::num(raw_bytes as f64 / r.bytes as f64, 2),
+        Cell::num(r.bytes as f64 * 8.0 / values as f64, 2),
+        Cell::num(r.encode_ns, 1),
+        Cell::num(r.decode_ns, 2),
+    ]);
 }
 
-fn bench(set: &DataSet, a: &Args) -> anyhow::Result<()> {
+fn bench(t: &mut Table, set: &DataSet, a: &Args) -> anyhow::Result<()> {
     let (values, raw_bytes) = raw(&set.floats);
     let fixed = run_cols(Coder::Tape(Codec::DELTA), set.channels, &set.fixed, a)?;
     row(
+        t,
         &set.name,
         &format!("DELTA of {}", set.fixed_note),
         raw_bytes,
@@ -281,31 +301,52 @@ fn bench(set: &DataSet, a: &Args) -> anyhow::Result<()> {
     );
     for (codec, name) in FLOAT_CODECS {
         let r = run_cols(codec, set.channels, &set.floats, a)?;
-        row(&set.name, name, raw_bytes, values, &r);
+        row(t, &set.name, name, raw_bytes, values, &r);
     }
     Ok(())
 }
 
 fn main() -> anyhow::Result<()> {
-    let a = Args::parse();
-    println!(
-        "sample codecs, {} samples per chunk, best of {} passes, {} kernel {:?}",
-        a.chunk,
-        a.repeats,
-        std::env::consts::ARCH,
-        ww_tape_codecs::bitpack::Kernel::best()
+    let a: Args = ww_tape_bench::args();
+    let paint = Paint::stdout();
+    let mut report = Report::new(
+        "sample_codecs",
+        vc_build::version!(),
+        Machine::this(),
+        vec![
+            ("samples per chunk", a.chunk.to_string()),
+            ("best of", a.repeats.to_string()),
+            (
+                "bitpack kernel",
+                format!("{:?}", ww_tape_codecs::bitpack::Kernel::best()),
+            ),
+        ],
     );
-    println!();
-    println!("| Data | Codec | Ratio | Bits/value | Encode ns/value | Decode ns/value |");
-    println!("|---|---|---:|---:|---:|---:|");
+    println!("{}", report.header(paint));
     let mut sets: Vec<DataSet> = data::motor().into();
     match &a.speech {
         Some(p) => sets.push(data::speech(p)?),
         None => eprintln!("speech: skipped, no --speech file"),
     }
     sets.extend(data::adc());
+    let mut t = report.table(
+        "codecs",
+        &format!(
+            "Sample codecs on chunks of {} samples, the best of {} passes; ratio to the raw floats.",
+            a.chunk, a.repeats
+        ),
+        &[
+            "Data",
+            "Codec",
+            "Ratio",
+            "Bits per value",
+            "Encode ns per value",
+            "Decode ns per value",
+        ],
+    );
     for s in &sets {
-        bench(s, &a)?;
+        bench(&mut t, s, &a)?;
     }
-    Ok(())
+    println!("{}", report.push(t, paint));
+    report.finish(a.common.json.as_deref())
 }

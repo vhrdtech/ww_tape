@@ -2,7 +2,7 @@
 //! of a decoder's source ordinal and of keys, encoding it (`EncodedRelation::encode`), reading every value
 //! (`RelationColumn::get`) and a lower bound in it, and a writer's `write_chunk` of an events chunk with and without
 //! two relation columns (the column check and the range the index entry takes included). Prints Markdown tables, the
-//! best of `--rounds` rounds, with the load average at the start.
+//! best of `--rounds` rounds, with the load average before and after each table.
 #![allow(
     clippy::arithmetic_side_effects,
     clippy::as_conversions,
@@ -18,16 +18,27 @@ use clap::Parser;
 use shrink_wrap::prelude::*;
 use std::hint::black_box;
 use std::time::Instant;
+use vc_ui::Paint;
 use ww_tape::times::{EncodedRelation, EncodedTimes, RelationColumn, StoredRelations};
 use ww_tape::{
     Block, ClockDef, ClockOrigin, Definitions, Describe, EventsDef, FullVersion, Magnitude,
     MemSink, RelationDef, RelationIndex, RelationTarget, RelationValues, Segment, SyncPolicy,
     TapeWriter, TrackDef, TrackKind, Version, clock_key, track_key,
 };
+use ww_tape_bench::{Cell, Common, Machine, Report, Rng};
 
 #[derive(Parser)]
-#[command(about = "ww_tape track relations: column bytes, encode, read, lower bound, write_chunk")]
+#[command(
+    name = "relations",
+    about = "ww_tape track relations: column bytes, encode, read, lower bound, write_chunk",
+    version = vc_build::version!(),
+    after_long_help = "Examples:
+  just bench-relations
+  relations --chunks 500"
+)]
 struct Args {
+    #[command(flatten)]
+    common: Common,
     /// Rounds, the best one counts.
     #[arg(long, default_value_t = 5)]
     rounds: u32,
@@ -36,20 +47,14 @@ struct Args {
     chunks: u32,
 }
 
-const N: usize = 4096;
-const CLOCK: u32 = 1;
-
-/// xorshift64*.
-struct Rng(u64);
-
-impl Rng {
-    fn below(&mut self, n: u64) -> u64 {
-        self.0 ^= self.0 >> 12;
-        self.0 ^= self.0 << 25;
-        self.0 ^= self.0 >> 27;
-        self.0.wrapping_mul(0x2545_f491_4f6c_dd1d) % n
+impl AsRef<Common> for Args {
+    fn as_ref(&self) -> &Common {
+        &self.common
     }
 }
+
+const N: usize = 4096;
+const CLOCK: u32 = 1;
 
 /// The values of each shape, `N` of them, and whether they never decrease.
 fn shapes() -> Vec<(&'static str, Vec<u64>, bool)> {
@@ -137,22 +142,31 @@ fn track(number: u32, relations: &'static [RelationDef<'static>]) -> TrackDef<'s
     }
 }
 
-fn load() -> String {
-    std::fs::read_to_string("/proc/loadavg")
-        .unwrap_or_default()
-        .split_whitespace()
-        .take(3)
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
 fn main() -> anyhow::Result<()> {
-    let args = Args::parse();
-    println!("load average at start: {}\n", load());
-    println!(
-        "| Column, {N} items | codec | bytes per item | encode ns per item | get ns per item | lower bound ns |"
+    let args: Args = ww_tape_bench::args();
+    let paint = Paint::stdout();
+    let mut report = Report::new(
+        "relations",
+        vc_build::version!(),
+        Machine::this(),
+        vec![
+            ("rounds", args.rounds.to_string()),
+            ("chunks", args.chunks.to_string()),
+        ],
     );
-    println!("|---|---:|---:|---:|---:|---:|");
+    println!("{}", report.header(paint));
+    let mut columns = report.table(
+        "columns",
+        &format!("Relation columns of {N} items."),
+        &[
+            "Column",
+            "Codec",
+            "Bytes per item",
+            "Encode ns per item",
+            "Get ns per item",
+            "Lower bound ns",
+        ],
+    );
     let starts: Vec<i64> = (0..N as i64).map(|i| i * 1000).collect();
     let times = EncodedTimes::encode(&starts, None, None)?;
     for (what, values, monotone) in shapes() {
@@ -190,25 +204,30 @@ fn main() -> anyhow::Result<()> {
             .map(|_| values[r.below(N as u64) as usize])
             .collect();
         let lower = match column.lower_bound(0) {
-            Some(_) => format!(
-                "{:.0}",
-                best(
-                    args.rounds,
-                    probes.len(),
-                    |i| column.lower_bound(probes[i]).unwrap_or(0) as u64
-                )
+            Some(_) => Cell::num(
+                best(args.rounds, probes.len(), |i| {
+                    column.lower_bound(probes[i]).unwrap_or(0) as u64
+                }),
+                0,
             ),
-            None => "n/a".to_owned(),
+            None => Cell::text("not monotone"),
         };
-        println!(
-            "| {what} | {} | {:.3} | {encode:.2} | {get:.2} | {lower} |",
-            spec.codec.0,
-            bytes.len() as f64 / N as f64
-        );
+        columns.row(vec![
+            Cell::text(what),
+            Cell::text(spec.codec.0.to_string()),
+            Cell::num(bytes.len() as f64 / N as f64, 3),
+            Cell::num(encode, 2),
+            Cell::num(get, 2),
+            lower,
+        ]);
     }
+    println!("{}", report.push(columns, paint));
 
-    println!("\n| write_chunk, events chunk of {N} instants | ns per chunk |");
-    println!("|---|---:|");
+    let mut writes = report.table(
+        "write",
+        &format!("`write_chunk` of an events chunk of {N} instants."),
+        &["Chunk", "ns per chunk"],
+    );
     let shapes = shapes();
     // a monotone relation never decreases across a track's chunks: chunk k's sources follow chunk k - 1's
     let span = shapes[2].1.iter().max().map_or(1, |m| m + 1);
@@ -252,7 +271,8 @@ fn main() -> anyhow::Result<()> {
             best_ns = best_ns.min(t.elapsed().as_nanos() as f64 / f64::from(args.chunks));
             w.close()?;
         }
-        println!("| {what} | {best_ns:.0} |");
+        writes.row(vec![Cell::text(what), Cell::num(best_ns, 0)]);
     }
-    Ok(())
+    println!("{}", report.push(writes, paint));
+    report.finish(args.common.json.as_deref())
 }

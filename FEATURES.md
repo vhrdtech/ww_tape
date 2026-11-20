@@ -292,6 +292,9 @@ Crates, checks, fuzzing and benches.
 - ✅ **REPO-84 spirit_level checks in `just lint`**
   - `just lint` and CI run `spl check` with every lint of `spirit_level.toml`. The prose lints read the book, the READMEs, AGENTS.md, the CHANGELOG and this file.
   - Every crate inherits the workspace lints, the panic-class set included.
+- 🚧 **REPO-85 Benches that rerun the book's numbers**
+  - Done: every bench binary takes `--json FILE`, `--color`, `--version` and shell completion through `ww_tape_bench`. Each table records the machine and the load average before and after it.
+  - Open: the event time and summary kernel benches, the book's charts and tables drawn from `docs/bench/`, and one recipe that reruns them all.
 
 ## Dropped and superseded
 
