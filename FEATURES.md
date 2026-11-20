@@ -231,6 +231,7 @@ The pages in `docs/`.
   - Done: the running example as code (BOOK-3).
   - Done: Part I, "Tapes" and "A first tape": the drive's hour as a tape, and a program that writes and reads its first minute.
   - Done: Part II, how a tape is built: five chapters with the drive's case, tested code and seven new figures.
+  - Done: Part IV, reading: five chapters that find the drive's fault in code, with six new figures.
   - Done: Part V, damage and raw media, with the drive's archive and card, four new figures and the lessons appendix.
   - Open: the chapters still stubs, tested code in every guide chapter.
   - Read more: [For writers](docs/writers.md), [Glossary](docs/glossary.md).

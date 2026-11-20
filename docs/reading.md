@@ -4,74 +4,40 @@ level: basic
 
 # Reading a tape
 
-A reader of a tape usually wants a small part of it. That part may be one track out of thousands, one hour out of a
-week, or an overview of a signal.
+At minute 52 the drive faults on overcurrent, and an engineer opens the bench host's recording to see why. The
+recording is a [[chain]] of four [[pieces]], 115 290 112 bytes in all, and the engineer wants the second around the
+fault. This chapter shows how a [[reader]] gets there with a few small reads. After it you can open a file or a
+chain, and find the [[blocks]] of one [[track]] in a time range. You can also look up the [[state]] in force at a
+place.
 
-The reader, `TapeReader`, gets there with few reads.
-
-This page explains how the reader finds blocks, definitions and state at a place, and what it does with damage. It
-assumes [Tape concepts](concepts.md).
+Every number in this chapter comes from [`src/fault.rs`], a program that runs each step on the drive's recording. It
+counts the bytes each step reads, and `cargo run -p ww_tape_example` prints them.
 
 ## Byte sources
 
-`TapeReader` reads through a **byte source** (`ByteSource`): anything that has a length and reads bytes at an offset.
-The crate provides byte sources for these:
+A [[reader]], [`TapeReader`], reads a [[tape]] through a [[byte source]]: anything with a length that reads bytes at an
+offset. The trait is [`ByteSource`], and the crate provides it for these:
 
-- a byte slice or a `Vec<u8>`;
-- a file, through `ww_tape_fs::FileSource::open`;
-- a tape still being written into memory, through `MemSink::tape`.
+- a byte slice or a `Vec<u8>`, such as a whole file read into memory;
+- a file on disk, through [`FileSource::open`], which reads only what the reader asks for;
+- a tape still being written into memory, through [`MemSink::tape`].
 
-An HTTP resource read by range requests can be a byte source too.
+An HTTP resource read by range requests can be a byte source too. The reader itself needs no file system and no
+threads, so it builds for WebAssembly and runs in a browser.
 
-The reader needs no file system and no threads. It therefore builds for WebAssembly and runs in a browser, with the
-crate's `alloc` feature instead of `std`.
-
-Only the block walk `FileBlocks` of the last section needs `std`.
+The engineer's viewer holds the drive's four pieces back to back, as one file of the chain holds them. The program
+wraps that file in a byte source that counts each read, so every step below can say what it cost.
 
 ## Opening from the tails
 
-`TapeReader::open(source)` finds the pieces from the end of the bytes, because a closed piece describes itself
-there. It works in these steps:
+A [[closed]] [[piece]] describes itself at its end. Its last 164 bytes are the [[tail]], which gives the piece's length
+and the offset of its [[close record|close]]. [`TapeReader::open`] therefore starts at the end of the bytes and works
+backwards:
 
-1. It reads the last 164 bytes (`TAIL_LEN`). A good **tail** gives the last piece's length, and so its start, and the
-   offset of its close record.
-2. The previous piece's tail, if there is one, lies just before that start. The reader steps back piece by piece with
-   three small reads each: the tail, the close and the piece head.
-3. A piece without a tail is one still being written or one cut off by a crash. The reader finds it from its newest
-   **checkpoint**, an index block the writer places every 4 MiB by default.
-4. The reader looks backwards from the end for that checkpoint, at most `OpenOptions::scan_back_max` (256 MiB by
-   default). It follows the chain of checkpoints back to list the blocks before the newest one.
-5. It then scans the blocks after the newest checkpoint one by one.
-6. A piece without any checkpoint is, with the default policy, shorter than 4 MiB. The reader scans it from its start,
-   or from the end of the closed piece before it.
-
-### What the reader knows about each piece
-
-`TapeReader::pieces` then lists each piece as a `PieceInfo`. It says where the piece starts and ends, and holds its
-head, close and tail when it has them.
-
-The `PieceInfo` also says how the reader found the piece: `Found::Tail`, `Found::Checkpoint` or `Found::Scan`, with
-the bytes scanned.
-
-A scan stops at the first block that isn't good, and `PieceInfo::cut` names that offset. A scan also reports what it
-read past:
-
-- `PieceInfo::gaps` lists the blank or bad stretches the data goes on after.
-- `PieceInfo::replaced` lists blocks that were written twice with other bytes.
-- `PieceInfo::version` is set for a piece of another format version. Every read of such a piece fails with
-  `ReadError::Version`.
-
-A piece closed more than once, or still growing, is read as [Reading a growing piece](growing_pieces.md) explains.
-
-### Opening a raw medium
-
-A raw medium, such as a Secure Digital (SD) card, isn't read from its end. An older recording's tail there may pass for
-the newest piece.
-
-Open such a medium with `TapeReader::open_with` and set `OpenOptions::medium` to `Medium::Raw`. The reader then walks
-forward from the medium's start, or from the offset `OpenOptions::start` its medium layer gives.
-
-[Where the data ends on a raw card](raw_media.md#sessions-and-stale-data) explains why.
+1. It reads the tail of the last piece, and from it the piece's start.
+2. It reads that piece's close, which lists every track the piece holds with its items and ticks, and its
+   [[piece head]].
+3. The tail of the piece before lies just before that start, so the reader steps back piece by piece.
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/figures/seek.svg"
@@ -80,207 +46,114 @@ one track's list, then (4) only the needed blocks. Below, an unclosed piece: the
 pointers list every earlier block, and the reader scans the blocks after it.</figcaption>
 </figure>
 
+For the drive's chain, opening reads 13 804 bytes in 28 reads, and [`TapeReader::pieces`] lists four pieces. Each
+[`PieceInfo`] holds the piece's start and end, its head and its close with a row per track. The row of `phase_a` says
+which ticks the track's [[chunks]] cover in that piece. The program picks the piece whose row reaches 52:00, without
+another read:
+
+```rs
+--8<-- "ww_tape_example/src/fault.rs:open"
+```
+
+The fault lies in piece 3, the last one. A piece that a crash left without a tail is found from its newest
+[[checkpoint]] instead, as [When the power fails](crashes.md#how-a-reader-finds-the-end) shows. A piece still being
+written, or closed more than once, reads as [Reading a growing piece](growing_pieces.md) explains. A [[raw medium]] such
+as a card is read forwards from its start, since an older recording's tail there may pass for the newest one. Open it
+with [`TapeReader::open_with`] and [`Medium::Raw`]; [Raw media](raw_media.md) explains why.
+
 ## Finding blocks through the index
 
-A reader finds blocks through the piece's index and never walks the whole file. Each block has an **index entry**
-(`IndexEntry`) with these fields:
+The [[final index]] of a closed piece lists every [[block]] with an [[index entry]], and the entries of one track lie
+together. An entry says where the block is and what it holds, so a reader picks blocks before it reads any:
 
-- its offset, length, kind and track;
-- its first item number and item count;
-- its first and last tick;
-- the latest end of any of its items.
+| Field of [`IndexEntry`] | What it says |
+|---|---|
+| `offset`, `len` | where the block lies in the piece |
+| `kind`, `track_id` | a records block, a chunk or a summary block, and of which track |
+| `first_item`, `count` | the [[item numbers]] the block holds |
+| `first_tick`, `last_tick`, `latest_end` | the ticks of its first and last item, and the latest end of any item |
 
-### Calls that give entries
+[`TapeReader::track_entries`] gives the entries of one track in file order. In a closed piece it reads the final
+index's directory and that track's list, each checked by its own CRC (cyclic redundancy check). It never walks the
+file. The engineer asks for `phase_a` in the second either side of the fault:
 
-These calls give entries and read what they name:
+```rs
+--8<-- "ww_tape_example/src/fault.rs:find"
+```
 
-- `TapeReader::entries(i)` gives every block of piece `i`, in file order.
-- `TapeReader::track_entries(i, track_id)` gives the blocks of one track.
-- `TapeReader::read_block(i, entry, buf)` reads the block an entry names and checks it.
-- `TapeReader::read_chunk_head(i, entry, buf)` reads only the head of the chunk an entry names, up to its payload. It
-  checks the head by its own cyclic redundancy check (CRC).
-- `TapeReader::series_timeline(i, track_id, period)` reads the head of every chunk of a series track and builds its
-  `SeriesTimeline`.
-- `TapeReader::state_entries(i)` gives piece `i`'s state entries, each with its index entry.
-- `TapeReader::relation_breaks(track_id, owner)` lists the chunks of a track, over all pieces, where its monotone
-  relations start again ([relation breaks](format.md#tape-blocks)).
+`phase_a`'s list in the last piece holds 1 638 entries, its chunks and its summary blocks. The query keeps two of
+them, the chunks from 51:59.000 to 51:59.999 and from 52:00.000 to 52:00.999. It reads 196 752 bytes in 3 reads,
+almost all of them the track's list. A track with a chunk every second has a long list, and a reader that queries it
+often keeps the list in memory.
 
-`track_entries` in a closed piece reads only the final index's directory and that track's list. Each is checked by
-its own CRC.
+<figure class="ww-figure" markdown="0">
+--8<-- "docs/plots/index_select.svg"
+<figcaption>The index entries of <code>phase_a</code> and <code>can0</code> in the drive's last piece, each over
+the ticks it covers, and the entries a query for the stretch around the fault reads. Drawn by
+<code>ww_tape_figures</code> from the drive's recording at 1/1000 of its data, where a chunk covers a minute instead of
+a second.</figcaption>
+</figure>
 
-A reader of one track out of thousands therefore reads a few hundred bytes of index. Track id 0 gives the records
-blocks of data, and `STATE_TRACK_ID` gives the state entries.
-
-`read_chunk_head` tells what a chunk holds, and a series chunk's grid and scale, without its samples.
-
-`series_timeline` returns the errors of the heads it left out beside the timeline
-([Series](series.md#grids-where-samples-are-in-time)).
-
-### Choosing blocks by their entries
-
-An entry tells a reader whether it needs a block before it reads the block. For example, a query for the items between
-two ticks takes the entries whose tick range overlaps them.
-
-A query for item 1 000 000 takes the entry whose item range holds it.
+An entry also carries what a query by item number needs. A reader that wants item 3 120 000 of `can0` takes the
+entry whose `first_item` and `count` hold it. Item `j` of a chunk is item `first_item + j` of its track. An item number
+counts a track's items over the whole recording, across pieces. It therefore names the same item in the recording
+however its pieces are stored, in one file or in many.
 
 ## State at a place
 
-Before a reader can decode items, it needs the definitions in force where the items are. They say what each track is,
-which clock it counts and what type its items have.
+The two chunks tell the current, but not what the controller was doing. That is the `mode`, a [[state track]]: each
+of its items stays in force until the next one replaces it. A tape has no "current state" of a whole file, because
+what is in force depends on the place. The reader asks for the state in force where each chunk starts.
 
-A track that holds state needs its item in force too. The format has no "current state" of a whole file, because what
-is in force depends on the place.
+[`TapeReader::state_at`] finds the newest record of a [[slot]] whose block starts before a place. Every state record
+has an index entry of its own, which holds its slot and the hash of its item. The lookup therefore goes through the
+index to the one block it needs:
 
-The reader looks the state up through the index, without reading the blocks in between.
+```rs
+--8<-- "ww_tape_example/src/fault.rs:mode"
+```
 
-### The lookups
+At the chunk before the fault, the mode is `run, 31 A limit`, and its record from 45:36 lies 12 269 264 bytes
+behind. That record is the [[state copy]] which the [[writer]] adds after the run's first record in the last
+[[piece]]. At the chunk from 52:00, the mode is `fault: overcurrent`, from 52:00, and lies 2 027 bytes behind. Both
+lookups together read 3 034 bytes in 5 reads. Each record lies within [[near]], 32 MiB, so a reader of the last piece
+alone finds both.
 
-Every state record has its own index entry, which holds its slot and the hash of its item. Three lookups use these
-entries:
+[`TapeReader::definitions_at`] answers the same question for every [[definition]] at once: the clocks, the clock map
+and each track's definition in force at a place. The program uses it to learn `phase_a`'s period before it reads the
+samples. [`TapeReader::item_by_hash`] finds a state item by the hash of its bytes, for an application that refers to
+an item that way.
 
-- `TapeReader::state_at(i, slot, offset)` gives the record of one slot in force at `offset` in piece `i`. That is the
-  newest record of the slot whose block starts before the place.
-- `TapeReader::definitions_at(i, offset)` gives every definition in force at a place, by slot (`DefinitionsAt`). Pass
-  `u64::MAX` for the end of the piece.
-- `TapeReader::item_by_hash(i, hash)` gives the newest record, of any slot, whose item has that hash. An application
-  that refers to a state item by its hash finds it this way.
+### When a lookup meets damage
 
-The writer keeps every state item near its use. The record a lookup finds therefore usually lies within `near` (32 MiB
-by default) behind the place.
+Damage is a reason to look further back, never an error. When the newest record of a slot does not read, the lookup
+lists it as lost and takes the next older record. It also names the stretches the index does not cover, because a
+newer record may lie there. Such a stretch is a [[gap]] a scan read past, or the bytes after a [[torn end]].
 
-For example, a viewer opens a week-long piece at 15:00 on Wednesday. It finds the offset of that hour in the index and
-passes it to `definitions_at`.
+<figure class="ww-figure" markdown="0">
+--8<-- "docs/figures/state_lookup.svg"
+<figcaption>A state lookup walks back from its place through the slot's index entries. It passes a record whose block
+is damaged, notes a stretch the index does not cover, and takes the next record that reads. The answer names
+both.</figcaption>
+</figure>
 
-A few small reads give the viewer the definitions it needs, however much lies before.
+A [`Lookup`] carries the record, the lost blocks, the uncovered stretches and whether its read budget ran out.
+[`Lookup::is_whole`] says that none of these happened, so no newer record can hide. Both of the engineer's lookups are
+whole. A viewer that shows a state from a lookup that is not whole marks it as uncertain.
 
-### Lookups in a damaged piece
+## Reading the items of a block
 
-Damage is a reason to look further, never an error. When the newest record of a slot doesn't read, the lookup lists it
-as lost and takes the next older record.
+Once the reader has an entry, [`TapeReader::read_block`] reads the block and checks its [[CRC-32C]].
+[`TapeReader::read_chunk_head`] reads only a chunk's head, up to its payload, which gives a [[series chunk]]'s
+[[grid]] without its samples. What comes next depends on the kind of block:
 
-The lookup also names the stretches the index doesn't cover (`uncovered`), since a newer record may lie there. Such a
-stretch is a gap a scan read past, or the bytes past a cut.
+| Block | Read with | Chapter |
+|---|---|---|
+| a [[records block]] | [`Block::records`]: each record's track, time and item | [Blocks](blocks.md) |
+| an [[events chunk]] | its time columns and payloads, in place | [Events](events.md) |
+| a [[series chunk]] | its samples, from any sample on | [Series](series.md) |
+| a [[summary block|summary]] | its nodes, a coarse view of a track | [Summaries](summaries.md) |
 
-Each lookup names the uncovered stretches where its answer could change:
-
-- `state_at`: those between the record and the place;
-- `definitions_at`: those before the place;
-- `item_by_hash`: those after the record.
-
-A lookup reads at most `OpenOptions::state_read_max` bytes (1 GiB by default). When that budget runs out, the lookup
-stops and sets `spent`.
-
-The answer is then incomplete, but nothing in the file is damaged. `is_whole` says that nothing was lost, uncovered or
-left unread.
-
-## Reading items
-
-How a reader gets at the items depends on the kind of block.
-
-### A records block
-
-`Block::records` walks its records in order: track, time and item bytes.
-
-A body coded with lz4 (header flag `FLAG_BODY_CODED`) is decoded first with `Block::decode`, whose result has the same
-`records`.
-
-### An events chunk
-
-`Block::chunk` gives the chunk's head and columns, and `EventTimes::read` reads its times in place. These calls read
-the times:
-
-- `start(j)`, `end(j)` and `flag(j)` give item `j`'s start tick, end and flags.
-- `starts().lower_bound(t)` gives the first item at or after tick `t`.
-- `starts().last_at_or_before(t)` gives the last item at or before tick `t`.
-
-`Payloads::read` gives each item's bytes with `get(j)`, without decoding the items before it. A raw payload column is
-read in place, and an lz4 one is decoded once, whole.
-
-`RelationColumn::read` gives the values of a relation the track stores per item.
-
-### A series chunk
-
-`Samples::of` takes the samples column. `Samples::decode` decodes any range of samples from the group that holds its
-first sample.
-
-The chunk's grid gives each sample's tick and its scale. A `SeriesTimeline` collects the grids of a track's chunks,
-checks each chunk against its neighbours and says where the gaps are.
-
-### A summary block
-
-A summary block holds coarse statistics of a long track, for an overview without reading the items.
-`Block::summary_head` reads its head, and the crate `ww_tape_summary` reads its nodes (`Summary::of_block`).
-
-[Summaries](summaries.md) describes summaries.
-
-### From an item number to the item
-
-Item `j` of a chunk is item `first item number + j` of its track. A reader therefore goes from an item number to the
-chunk through the index, and from the chunk to the item by its position.
-
-[Pieces and files](pieces_and_files.md#addressing-one-item) explains why items are addressed this way.
-
-## Checking a piece
-
-`TapeReader::verify(i)` checks that closed piece `i` is the piece its writer wrote. It hashes the piece's bytes
-before its close and compares the result with the content hash the close record states.
-
-A match proves the piece unchanged since it was written.
-
-Verify also replays the piece block by block as its writer placed them. A writer that lied in its index or close
-therefore fails too.
-
-### What verify checks
-
-- Each entry of the final index is the entry the writer makes of the block at its offset. The entry holds the offset,
-  length, kind, track, items and ticks.
-- For a chunk, the entry also holds the unit hash of its bytes, and the range of its range relation from its own
-  column.
-- The index and the walk are the same set. Every block walked that its writer lists is listed.
-- The one exception is a byte-identical copy of the listed block before it, which adds to no track.
-- Every entry names a block walked, or a damaged block that ends before the next block walked and before the close.
-- Each close row states the hash its track's listed blocks fold to, starting from the head row's hash.
-- A row may say the hash is incomplete, but only exactly where the head, or a damaged block a resume kept, leaves
-  units out.
-- Each monotone relation of a track starts each chunk at or above the chunk before it. A chunk marked as a [relation
-  break](format.md#tape-blocks) may start lower.
-- Any other decrease gives `ReadError::RelationOrder`, as `TapeReader::track_entries` gives for the range relation's
-  ranges.
-
-### What verify costs
-
-Verify costs a bounded number of steps per block and entry, and bounded memory. It reads the final index as it walks
-the piece, and merges the index's track lists, each in file order, into one stream.
-
-Verify therefore holds one entry per track list plus the entries of one block, whatever the size of the piece.
-
-A final index may have more than `VERIFY_LISTS_MAX` track lists. It then has more tracks than any writer puts in one
-piece, and verify says the piece fails.
-
-### Checking the links of a chain
-
-`TapeReader::chain` checks the links between the pieces at hand. It checks each piece head against the piece before
-it, and each tail's next piece id against the next piece.
-
-A piece without a close has no hash to check. That is how a reader knows the piece wasn't closed.
-
-## Damage and salvage
-
-Every block carries a CRC-32C, and a reader checks it before it uses the block. Most damage therefore costs one block,
-and the index still says what that block held: which track, which items and which ticks.
-
-Inside a chunk, the reader can save more:
-
-- A chunk's head has a CRC of its own, and its payload has a CRC per 64 KiB. When the head is good and the payload is
-  damaged, `Block::salvage` hands out the chunk with its bad segments marked.
-- The marks are `Block::is_intact` false, `Chunk::bad_segments` and `Chunk::range_damaged`.
-- `EventTimes::salvage` and `Payloads::salvage` check an events chunk's columns group by group, each group of 128 items
-  against its neighbours. Only the items of a group that fails are marked suspect (`is_suspect`).
-- In a raw payload column, the items with a byte in a bad segment are marked suspect too. A damaged lz4 payload column
-  makes every item suspect.
-- The other items read as usual.
-- `FileBlocks` with `Recovery::Resync` walks a damaged file block by block and finds the next good block after a bad
-  stretch. The default, `Recovery::Prefix`, stops at the first bad block.
-
-[When bytes go bad](damage.md) gives the full picture: what each kind of damage costs and what the format
-can't protect against.
+A block that fails its CRC is damaged, and a reader skips it. Its index entry still says what it held: which track,
+which items and which ticks. [Damage](damage.md) shows how much of a damaged chunk still reads. The next chapter reads
+the frames on `can0` that the drive sent when it faulted.

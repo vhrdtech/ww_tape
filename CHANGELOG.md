@@ -189,6 +189,7 @@ Covers `ww_tape` 0.1.0.
 - Book: "Where the data ends on a raw card": sessions, stale data, gaps, duplicates, on the drive's card (BOOK-2).
 - Book: the appendix "Lessons from tape and flash" names the sources of the raw media rules (BOOK-2).
 - `ww_tape_example::fault`: the program of Part IV finds the fault at minute 52 and counts the bytes each step reads (BOOK-3).
+- Book: Part IV, reading: open, find, state, events, checks and range hashes, series, summaries, on the drive's fault (BOOK-2).
 - Book: Part IV's figures: index entries a query reads, summary tree and autoranging scales drawn from the format; three by hand (BOOK-2).
 - `TapeWriter::close_with_summary` places a close summary (kind 14) the close names; `TapeReader::close_summary` reads it (WRITE-7).
 - `TapeReader::unclosed` names the bytes no close covers; `TapeReader::closed_entries` lists only blocks the close in force covers (WRITE-7).
