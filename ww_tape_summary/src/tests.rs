@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, ops::Range};
 
 use super::*;
 use ww_tape::{
@@ -392,6 +392,148 @@ fn same_bits(a: &ChannelStats, b: &ChannelStats) -> bool {
         && a.power_max.to_bits() == b.power_max.to_bits()
 }
 
+/// The samples a series check models, with the flags of every frame as the builder saw them.
+struct SeriesModel<'a, T> {
+    data: &'a [T],
+    stride: usize,
+    comps: usize,
+    stats: SeriesStats,
+    clip: (T, T),
+    sum_rel: f64,
+    frame_flags: Vec<u32>,
+}
+
+impl<T: Scalar> SeriesModel<'_, T> {
+    fn val(&self, f: usize, ch: usize, c: usize) -> T {
+        self.data[f * self.stride + ch * self.comps + c]
+    }
+
+    /// Check the statistics of channel `ch` over frames `fr` against the samples.
+    fn check(&self, s: &ChannelStats, ch: usize, fr: &Range<usize>, tag: &str) {
+        for c in 0..self.comps {
+            self.check_component(s, ch, c, fr, tag);
+        }
+        if self.stats.clipped {
+            let want = fr
+                .clone()
+                .filter(|&f| {
+                    (0..self.comps).any(|c| {
+                        let x = self.val(f, ch, c);
+                        !(self.clip.0 < x && x < self.clip.1)
+                    })
+                })
+                .count() as u64;
+            assert_eq!(s.clipped, want, "clipped {tag}");
+        }
+        if self.stats.flags {
+            assert_eq!(
+                s.flags,
+                self.frame_flags[fr.clone()].iter().fold(0, |a, b| a | b)
+            );
+        }
+        if self.stats.power_mean || self.stats.power_max {
+            self.check_power(s, ch, fr, tag);
+        }
+    }
+
+    fn check_component(&self, s: &ChannelStats, ch: usize, c: usize, fr: &Range<usize>, tag: &str) {
+        let xs: Vec<T> = fr
+            .clone()
+            .map(|f| self.val(f, ch, c))
+            .filter(|x| x.partial_cmp(x).is_some())
+            .collect();
+        if self.stats.min {
+            let min = xs.iter().copied().reduce(|a, b| if b < a { b } else { a });
+            check_extreme(s.min[c], min, &format!("min {tag}"));
+        }
+        if self.stats.max {
+            let max = xs.iter().copied().reduce(|a, b| if b > a { b } else { a });
+            check_extreme(s.max[c], max, &format!("max {tag}"));
+        }
+        let sum: f64 = fr.clone().map(|f| self.val(f, ch, c).to_f64()).sum();
+        let sq: f64 = fr
+            .clone()
+            .map(|f| self.val(f, ch, c).to_f64().powi(2))
+            .sum();
+        if self.stats.sum {
+            assert!(
+                close(s.sum[c], sum, self.sum_rel),
+                "sum {tag}: {} {sum}",
+                s.sum[c]
+            );
+        }
+        if self.stats.sum_sq {
+            assert!(close(s.sum_sq[c], sq, self.sum_rel), "sum_sq {tag}");
+        }
+    }
+
+    fn check_power(&self, s: &ChannelStats, ch: usize, fr: &Range<usize>, tag: &str) {
+        let p: Vec<f64> = fr
+            .clone()
+            .map(|f| self.val(f, ch, 0).to_f64().powi(2) + self.val(f, ch, 1).to_f64().powi(2))
+            .collect();
+        let mean = p.iter().sum::<f64>() / p.len() as f64;
+        let pmax = p.iter().copied().fold(f64::NAN, f64::max);
+        if self.stats.power_mean {
+            assert!(
+                close(f64::from(s.power_mean), mean, 1e-6),
+                "power mean {tag}"
+            );
+        }
+        if self.stats.power_max {
+            assert_eq!(s.power_max, pmax as f32, "power max {tag}");
+        }
+    }
+}
+
+/// A minimum or maximum read back equals the model's bit for bit; NaN where every sample is NaN.
+fn check_extreme<T: Scalar>(got: Value, want: Option<T>, tag: &str) {
+    match want {
+        Some(m) => assert_eq!(got.to_bits(), m.value().to_bits(), "{tag}"),
+        None => assert!(got.as_f64().is_nan(), "{tag}"),
+    }
+}
+
+/// The flags of every frame: a frame's flags are those of the push it came in.
+fn push_flags(frames: usize, pushes: usize, flags: &dyn Fn(usize) -> u32) -> Vec<u32> {
+    let mut frame_flags = vec![0u32; frames];
+    let mut at = 0usize;
+    let mut k = 0usize;
+    while at < frames {
+        let n = ((frames / pushes.max(1)) + k % 7).max(1).min(frames - at);
+        frame_flags[at..at + n].fill(flags(k));
+        at += n;
+        k += 1;
+    }
+    frame_flags
+}
+
+/// Nodes read back by [series_levels].
+type Levels = BTreeMap<(u8, u64, u16), (u64, u64, ChannelStats)>;
+
+/// Check that channel `ch` of node `n` at `level` equals its children merged in order.
+fn check_children_merged(
+    got: &Levels,
+    level: u8,
+    n: u64,
+    ch: usize,
+    element: Element,
+    s: &ChannelStats,
+) {
+    let mut m = ChannelStats::empty(element);
+    let mut items = 0;
+    for c in n << FANOUT_SHIFT..(n + 1) << FANOUT_SHIFT {
+        if let Some(k) = got.get(&(level - 1, c, ch as u16)) {
+            m.merge(&k.2, items, k.1);
+            items += k.1;
+        }
+    }
+    assert!(
+        same_bits(&m, s),
+        "L{level} n{n}: children merged {m:?} vs {s:?}"
+    );
+}
+
 /// Check every level of a series against statistics computed straight from the samples, and every parent against
 /// its children merged in order.
 #[expect(
@@ -417,18 +559,15 @@ fn check_series<T: Scalar>(
     let frames = data.len() / stride;
     let end = first_item + frames as u64;
     let top = got.keys().map(|k| k.0).max().unwrap();
-    // flags as the builder saw them: a frame's flags are those of the push it came in
-    let mut frame_flags = vec![0u32; frames];
-    {
-        let mut at = 0usize;
-        let mut k = 0usize;
-        while at < frames {
-            let n = ((frames / pushes.max(1)) + k % 7).max(1).min(frames - at);
-            frame_flags[at..at + n].fill(flags(k));
-            at += n;
-            k += 1;
-        }
-    }
+    let model = SeriesModel {
+        data,
+        stride,
+        comps,
+        stats: spec.stats,
+        clip,
+        sum_rel: if exact_sums { 0.0 } else { 1e-9 },
+        frame_flags: push_flags(frames, pushes, flags),
+    };
     for level in 0..=top {
         let shift = spec.base_shift + FANOUT_SHIFT * level;
         let (first, last) = (first_item >> shift, (end - 1) >> shift);
@@ -444,96 +583,9 @@ fn check_series<T: Scalar>(
             for ch in 0..channels {
                 let (fi, count, s) = got[&(level, n, ch as u16)];
                 assert_eq!((fi, count), (from, to - from));
-                let val = |f: usize, c: usize| data[f * stride + ch * comps + c];
-                for c in 0..comps {
-                    let xs: Vec<T> = fr
-                        .clone()
-                        .map(|f| val(f, c))
-                        .filter(|x| x.partial_cmp(x).is_some())
-                        .collect();
-                    let min = xs.iter().copied().reduce(|a, b| if b < a { b } else { a });
-                    let max = xs.iter().copied().reduce(|a, b| if b > a { b } else { a });
-                    if spec.stats.min {
-                        match min {
-                            Some(m) => assert_eq!(
-                                s.min[c].to_bits(),
-                                m.value().to_bits(),
-                                "min L{level} n{n}"
-                            ),
-                            None => assert!(s.min[c].as_f64().is_nan()),
-                        }
-                    }
-                    if spec.stats.max {
-                        match max {
-                            Some(m) => assert_eq!(
-                                s.max[c].to_bits(),
-                                m.value().to_bits(),
-                                "max L{level} n{n}"
-                            ),
-                            None => assert!(s.max[c].as_f64().is_nan()),
-                        }
-                    }
-                    let sum: f64 = fr.clone().map(|f| val(f, c).to_f64()).sum();
-                    let sq: f64 = fr.clone().map(|f| val(f, c).to_f64().powi(2)).sum();
-                    if spec.stats.sum {
-                        assert!(
-                            close(s.sum[c], sum, if exact_sums { 0.0 } else { 1e-9 }),
-                            "sum L{level} n{n}: {} {sum}",
-                            s.sum[c]
-                        );
-                    }
-                    if spec.stats.sum_sq {
-                        assert!(
-                            close(s.sum_sq[c], sq, if exact_sums { 0.0 } else { 1e-9 }),
-                            "sum_sq L{level} n{n}"
-                        );
-                    }
-                }
-                if spec.stats.clipped {
-                    let want = fr
-                        .clone()
-                        .filter(|&f| {
-                            (0..comps).any(|c| !(clip.0 < val(f, c) && val(f, c) < clip.1))
-                        })
-                        .count() as u64;
-                    assert_eq!(s.clipped, want, "clipped L{level} n{n}");
-                }
-                if spec.stats.flags {
-                    assert_eq!(
-                        s.flags,
-                        frame_flags[fr.clone()].iter().fold(0, |a, b| a | b)
-                    );
-                }
-                if spec.stats.power_mean || spec.stats.power_max {
-                    let p: Vec<f64> = fr
-                        .clone()
-                        .map(|f| val(f, 0).to_f64().powi(2) + val(f, 1).to_f64().powi(2))
-                        .collect();
-                    let mean = p.iter().sum::<f64>() / p.len() as f64;
-                    let pmax = p.iter().copied().fold(f64::NAN, f64::max);
-                    if spec.stats.power_mean {
-                        assert!(
-                            close(f64::from(s.power_mean), mean, 1e-6),
-                            "power mean L{level} n{n}"
-                        );
-                    }
-                    if spec.stats.power_max {
-                        assert_eq!(s.power_max, pmax as f32, "power max L{level} n{n}");
-                    }
-                }
+                model.check(&s, ch, &fr, &format!("L{level} n{n}"));
                 if level > 0 {
-                    let mut m = ChannelStats::empty(element);
-                    let mut items = 0;
-                    for c in n << FANOUT_SHIFT..(n + 1) << FANOUT_SHIFT {
-                        if let Some(k) = got.get(&(level - 1, c, ch as u16)) {
-                            m.merge(&k.2, items, k.1);
-                            items += k.1;
-                        }
-                    }
-                    assert!(
-                        same_bits(&m, &s),
-                        "L{level} n{n}: children merged {m:?} vs {s:?}"
-                    );
+                    check_children_merged(&got, level, n, ch, element, &s);
                 }
             }
         }
@@ -1166,6 +1218,184 @@ fn int(v: Value) -> i128 {
     }
 }
 
+/// A series of `i16` whose scale changes at chosen samples, with the scale and flags of every frame.
+struct PrefixSeries {
+    data: Vec<i16>,
+    stride: usize,
+    comps: usize,
+    first_item: u64,
+    /// The model's unit: a scale every sample's number is a whole multiple of.
+    unit: Magnitude,
+    scale_of: Vec<Magnitude>,
+    flags_of: Vec<u32>,
+}
+
+impl PrefixSeries {
+    /// One step of `s` in the model's unit.
+    fn k(&self, s: Magnitude) -> i128 {
+        i128::from(scale_factor(s, self.unit).unwrap())
+    }
+
+    /// The frames of `items` items from `first`.
+    fn frames(&self, first: u64, items: u64) -> Range<usize> {
+        (first - self.first_item) as usize..(first + items - self.first_item) as usize
+    }
+
+    /// A sample in the model's unit.
+    fn val(&self, f: usize, ch: usize, c: usize) -> i128 {
+        i128::from(self.data[f * self.stride + ch * self.comps + c]) * self.k(self.scale_of[f])
+    }
+
+    /// Push the samples in pieces of uneven sizes, set a random scale of `scales` at each change in `at` and
+    /// finish. Returns the blocks written.
+    fn push_all(
+        &mut self,
+        s: &mut SeriesSummaries<i16>,
+        mut grid: SeriesGrid,
+        at: &[u64],
+        scales: &[Magnitude],
+        rng: &mut Rng,
+    ) -> Vec<Vec<u8>> {
+        let end = self.first_item + self.scale_of.len() as u64;
+        let mut blocks = vec![];
+        let mut from = self.first_item;
+        let mut k_push = 0usize;
+        for &to in at.iter().chain([&end]) {
+            while from < to {
+                let n = (1 + rng.below(70)).min(to - from);
+                let r = self.frames(from, n);
+                let f = 1u32 << (k_push % 9);
+                self.flags_of[r.clone()].fill(f);
+                self.scale_of[r.clone()].fill(grid.scale);
+                s.push(&self.data[r.start * self.stride..r.end * self.stride], f)
+                    .unwrap();
+                blocks.extend(s.take_blocks());
+                from += n;
+                k_push += 1;
+            }
+            if to < end {
+                grid = grid.rescaled(scales[rng.below(scales.len() as u64) as usize]);
+                s.set_grid(grid).unwrap();
+            }
+        }
+        s.finish().unwrap();
+        blocks.extend(s.take_blocks());
+        blocks
+    }
+
+    /// Check that a block's scale is the common scale of its samples.
+    fn check_block_scales(&self, blocks: &[Vec<u8>]) {
+        for b in blocks {
+            let sm = Summary::of_block(&Block::read(b).unwrap()).unwrap();
+            let h = sm.head();
+            let want = self.scale_of[self.frames(h.first_item, h.items)]
+                .iter()
+                .copied()
+                .reduce(|a, b| common_scale(a, b).unwrap())
+                .unwrap();
+            assert_eq!(
+                sm.scale(),
+                Some(want),
+                "block L{} at {}",
+                h.level,
+                h.first_item
+            );
+        }
+    }
+
+    /// Check channel `ch` of a node over frames `r`, read with its block's scale `bscale`, against the samples.
+    fn check_channel(
+        &self,
+        st: &ChannelStats,
+        ch: usize,
+        r: &Range<usize>,
+        bscale: Magnitude,
+        tag: &str,
+    ) {
+        let kb = self.k(bscale);
+        let kbf = kb as f64;
+        for c in 0..self.comps {
+            let xs: Vec<i128> = r.clone().map(|f| self.val(f, ch, c)).collect();
+            let tag = format!("{tag} ch{ch} c{c}");
+            assert_eq!(int(st.min[c]) * kb, *xs.iter().min().unwrap(), "min {tag}");
+            assert_eq!(int(st.max[c]) * kb, *xs.iter().max().unwrap(), "max {tag}");
+            let sum: i128 = xs.iter().sum();
+            assert_eq!(st.sum[c] * kbf, sum as f64, "sum {tag}");
+            let sq: f64 = xs.iter().map(|x| (*x as f64).powi(2)).sum();
+            assert!(close(st.sum_sq[c] * kbf * kbf, sq, 1e-12), "sum_sq {tag}");
+        }
+        let clipped = r
+            .clone()
+            .filter(|&f| {
+                (0..self.comps).any(|c| {
+                    let x = self.data[f * self.stride + ch * self.comps + c];
+                    x == i16::MIN || x == i16::MAX
+                })
+            })
+            .count() as u64;
+        assert_eq!(st.clipped, clipped, "clipped {tag}");
+        assert_eq!(
+            st.flags,
+            self.flags_of[r.clone()].iter().fold(0, |a, b| a | b)
+        );
+        if self.comps == 2 {
+            let p: Vec<f64> = r
+                .clone()
+                .map(|f| (self.val(f, ch, 0) as f64).powi(2) + (self.val(f, ch, 1) as f64).powi(2))
+                .collect();
+            let mean = p.iter().sum::<f64>() / p.len() as f64;
+            let pmax = p.iter().copied().fold(f64::NAN, f64::max);
+            let kk = kbf * kbf;
+            assert!(
+                close(f64::from(st.power_mean) * kk, mean, 1e-6),
+                "power mean {tag}"
+            );
+            assert!(
+                close(f64::from(st.power_max) * kk, pmax, 1e-6),
+                "power max {tag}"
+            );
+        }
+    }
+}
+
+/// Nodes read back by [scaled_nodes].
+type ScaledNodes = BTreeMap<(u8, u64), (u64, u64, Magnitude, SeriesNode)>;
+
+/// Check that node `n` at `level` equals its children merged across their scales.
+fn check_children_rescaled(got: &ScaledNodes, level: u8, n: u64, node: &SeriesNode, comps: usize) {
+    let mut m: Option<(SeriesNode, u64)> = None;
+    for c in n << FANOUT_SHIFT..(n + 1) << FANOUT_SHIFT {
+        let Some((_, ci, _, cn)) = got.get(&(level - 1, c)) else {
+            continue;
+        };
+        m = Some(match m {
+            None => (cn.clone(), *ci),
+            Some((mut a, ai)) => {
+                a.merge(cn, ai, *ci).unwrap();
+                (a, ai + ci)
+            }
+        });
+    }
+    let (mut m, _) = m.unwrap();
+    let mut p = node.clone();
+    let c = common_scale(m.scale, p.scale).unwrap();
+    m.rescale(c).unwrap();
+    p.rescale(c).unwrap();
+    for (a, b) in m.channels.iter().zip(&p.channels) {
+        assert_eq!((a.min, a.max), (b.min, b.max), "L{level} n{n}");
+        assert_eq!((a.sum, a.clipped, a.flags), (b.sum, b.clipped, b.flags));
+        for c in 0..comps {
+            assert!(close(a.sum_sq[c], b.sum_sq[c], 1e-12));
+        }
+        assert!(close(
+            f64::from(a.power_mean),
+            f64::from(b.power_mean),
+            1e-6
+        ));
+        assert!(close(f64::from(a.power_max), f64::from(b.power_max), 1e-6));
+    }
+}
+
 /// A series whose scale changes at random samples (prefix changes, a binary prefix too): at every level each node's
 /// statistics, read with its block's scale, equal a naive model of the samples in the sample type's unit; minimum
 /// and maximum exactly. Every parent equals its children merged across their scales.
@@ -1178,12 +1408,10 @@ fn series_prefix_changes_match_naive_model_in_the_unit() {
         Magnitude::pow10(-9),
         Magnitude::pow2(-10),
     ];
-    // the model's unit: a scale every sample's number is a whole multiple of
-    let g = scales
+    let unit = scales
         .into_iter()
         .reduce(|a, b| common_scale(a, b).unwrap())
         .unwrap();
-    let k = |s: Magnitude| i128::from(scale_factor(s, g).unwrap());
     for (shape, base_shift, first_item, changes, frames) in [
         (SampleShape::scalar(Element::I16), 4, 0u64, 40, 9000usize),
         (SampleShape::new(Element::ComplexI16, 2), 5, 1000, 12, 6000),
@@ -1192,10 +1420,16 @@ fn series_prefix_changes_match_naive_model_in_the_unit() {
     ] {
         let element = shape.element;
         let comps = usize::from(components(element));
-        let channels = shape.channels.0 as usize;
-        let stride = channels * comps;
-        let data: Vec<i16> = (0..frames * stride).map(|_| rng.next() as i16).collect();
-        let end = first_item + frames as u64;
+        let stride = shape.channels.0 as usize * comps;
+        let mut series = PrefixSeries {
+            data: (0..frames * stride).map(|_| rng.next() as i16).collect(),
+            stride,
+            comps,
+            first_item,
+            unit,
+            scale_of: vec![scales[0]; frames],
+            flags_of: vec![0u32; frames],
+        };
         // change points, ascending and distinct, past the first sample
         let mut at: Vec<u64> = (0..changes)
             .map(|_| first_item + 1 + rng.below(frames as u64 - 1))
@@ -1215,141 +1449,21 @@ fn series_prefix_changes_match_naive_model_in_the_unit() {
             SeriesSummaries::<i16>::new(start, spec(base_shift, SeriesStats::all(element), None))
                 .unwrap();
         s.set_max_block_bytes(600);
-        let mut scale_of = vec![scales[0]; frames];
-        let mut flags_of = vec![0u32; frames];
-        let mut blocks = vec![];
-        let mut seg = first;
-        let mut from = first_item;
-        let mut k_push = 0usize;
-        for &to in at.iter().chain([&end]) {
-            // pushes of uneven sizes up to the next change
-            while from < to {
-                let n = (1 + rng.below(70)).min(to - from);
-                let (a, b) = (
-                    (from - first_item) as usize,
-                    (from - first_item + n) as usize,
-                );
-                let f = 1u32 << (k_push % 9);
-                flags_of[a..b].fill(f);
-                scale_of[a..b].fill(seg.scale);
-                s.push(&data[a * stride..b * stride], f).unwrap();
-                blocks.extend(s.take_blocks());
-                from += n;
-                k_push += 1;
-            }
-            if to < end {
-                seg = seg.rescaled(scales[rng.below(4) as usize]);
-                s.set_grid(seg).unwrap();
-            }
-        }
-        for (i, scale) in scale_of.iter().enumerate() {
+        let blocks = series.push_all(&mut s, first, &at, &scales, &mut rng);
+        for (i, scale) in series.scale_of.iter().enumerate() {
             assert_eq!(s.timeline().scale(first_item + i as u64), Some(*scale));
         }
-        s.finish().unwrap();
-        blocks.extend(s.take_blocks());
         let got = scaled_nodes(&blocks);
         let mixed = got.values().filter(|v| !scales.contains(&v.2)).count();
         assert!(changes < 10 || mixed > 0, "some blocks hold two scales");
-        // a block's scale is the common scale of its samples
-        for b in &blocks {
-            let sm = Summary::of_block(&Block::read(b).unwrap()).unwrap();
-            let h = sm.head();
-            let r = (h.first_item - first_item) as usize
-                ..(h.first_item + h.items - first_item) as usize;
-            let want = scale_of[r]
-                .iter()
-                .copied()
-                .reduce(|a, b| common_scale(a, b).unwrap())
-                .unwrap();
-            assert_eq!(
-                sm.scale(),
-                Some(want),
-                "block L{} at {}",
-                h.level,
-                h.first_item
-            );
-        }
+        series.check_block_scales(&blocks);
         for (&(level, n), (fi, items, bscale, node)) in &got {
-            let r = (fi - first_item) as usize..(fi + items - first_item) as usize;
-            let kb = k(*bscale);
-            let kbf = kb as f64;
+            let r = series.frames(*fi, *items);
             for (ch, st) in node.channels.iter().enumerate() {
-                // the samples of the node in the model's unit
-                let val = |f: usize, c: usize| {
-                    i128::from(data[f * stride + ch * comps + c]) * k(scale_of[f])
-                };
-                for c in 0..comps {
-                    let xs: Vec<i128> = r.clone().map(|f| val(f, c)).collect();
-                    let tag = format!("L{level} n{n} ch{ch} c{c}");
-                    assert_eq!(int(st.min[c]) * kb, *xs.iter().min().unwrap(), "min {tag}");
-                    assert_eq!(int(st.max[c]) * kb, *xs.iter().max().unwrap(), "max {tag}");
-                    let sum: i128 = xs.iter().sum();
-                    assert_eq!(st.sum[c] * kbf, sum as f64, "sum {tag}");
-                    let sq: f64 = xs.iter().map(|x| (*x as f64).powi(2)).sum();
-                    assert!(close(st.sum_sq[c] * kbf * kbf, sq, 1e-12), "sum_sq {tag}");
-                }
-                let clipped = r
-                    .clone()
-                    .filter(|&f| {
-                        (0..comps).any(|c| {
-                            let x = data[f * stride + ch * comps + c];
-                            x == i16::MIN || x == i16::MAX
-                        })
-                    })
-                    .count() as u64;
-                assert_eq!(st.clipped, clipped, "clipped L{level} n{n}");
-                assert_eq!(st.flags, flags_of[r.clone()].iter().fold(0, |a, b| a | b));
-                if comps == 2 {
-                    let p: Vec<f64> = r
-                        .clone()
-                        .map(|f| (val(f, 0) as f64).powi(2) + (val(f, 1) as f64).powi(2))
-                        .collect();
-                    let mean = p.iter().sum::<f64>() / p.len() as f64;
-                    let pmax = p.iter().copied().fold(f64::NAN, f64::max);
-                    let kk = kbf * kbf;
-                    assert!(
-                        close(f64::from(st.power_mean) * kk, mean, 1e-6),
-                        "power mean L{level} n{n}"
-                    );
-                    assert!(
-                        close(f64::from(st.power_max) * kk, pmax, 1e-6),
-                        "power max L{level} n{n}"
-                    );
-                }
+                series.check_channel(st, ch, &r, *bscale, &format!("L{level} n{n}"));
             }
             if level > 0 {
-                // the children merged across their scales
-                let mut m: Option<(SeriesNode, u64)> = None;
-                for c in n << FANOUT_SHIFT..(n + 1) << FANOUT_SHIFT {
-                    let Some((_, ci, _, cn)) = got.get(&(level - 1, c)) else {
-                        continue;
-                    };
-                    m = Some(match m {
-                        None => (cn.clone(), *ci),
-                        Some((mut a, ai)) => {
-                            a.merge(cn, ai, *ci).unwrap();
-                            (a, ai + ci)
-                        }
-                    });
-                }
-                let (mut m, _) = m.unwrap();
-                let mut p = node.clone();
-                let c = common_scale(m.scale, p.scale).unwrap();
-                m.rescale(c).unwrap();
-                p.rescale(c).unwrap();
-                for (a, b) in m.channels.iter().zip(&p.channels) {
-                    assert_eq!((a.min, a.max), (b.min, b.max), "L{level} n{n}");
-                    assert_eq!((a.sum, a.clipped, a.flags), (b.sum, b.clipped, b.flags));
-                    for c in 0..comps {
-                        assert!(close(a.sum_sq[c], b.sum_sq[c], 1e-12));
-                    }
-                    assert!(close(
-                        f64::from(a.power_mean),
-                        f64::from(b.power_mean),
-                        1e-6
-                    ));
-                    assert!(close(f64::from(a.power_max), f64::from(b.power_max), 1e-6));
-                }
+                check_children_rescaled(&got, level, n, node, comps);
             }
         }
         // the open tail a live reader takes from memory is at its own scale
