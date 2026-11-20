@@ -4,7 +4,7 @@ From October 2026, `ww_logbook` and then ww_tape grew inside the wire_weaver rep
 own repo ([vhrdtech/ww_tape](https://github.com/vhrdtech/ww_tape)) with its history, fuzz targets and seeds,
 benchmarks, golden files and book pages.
 
-## Unreleased
+## [Unreleased]
 
 Covers `ww_tape` 0.1.0.
 

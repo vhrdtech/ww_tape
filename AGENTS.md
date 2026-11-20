@@ -134,13 +134,13 @@ or the docs page they change.
 
 ## Changelogs, commits and versions
 
-- Every user-visible change gets a line under `## Unreleased` in `CHANGELOG.md`, in the same change, with the item
+- Every user-visible change gets a line under `## [Unreleased]` in `CHANGELOG.md`, in the same change, with the item
   id. A breaking entry says what users must change.
 - One section per kind (`### Breaking`, `### Features`, `### Fixes`), no blank lines inside a list.
 - Commits use Conventional Commits with a scope (`feat(index): ...`) and a short imperative subject. The body has at
   most 5 lines on what and why, then a `Tested:` line.
 - A fix names its culprit: `Fixes: <12+ hex> ("subject")`. A move is never edited in the same commit.
-- Work commits never bump versions; the release commit does. Each landing turns `## Unreleased` into a version
+- Work commits never bump versions; the release commit does. Each landing turns `## [Unreleased]` into a version
   section.
 - Pre-1.0 a breaking change bumps the minor, anything else the patch.
 - Public text (README, docs, CHANGELOG, commits, comments) is neutral: no private paths or internal tracker names.
