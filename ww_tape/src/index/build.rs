@@ -42,6 +42,9 @@ pub(crate) struct Indexer {
     states: usize,
     /// Bytes placed since the last checkpoint
     since: u64,
+    /// The index block the next checkpoint points back at: the newest checkpoint, or the last close's final index
+    chained: Option<u64>,
+    /// The newest checkpoint of the piece, before a close it went on after too
     last_checkpoint: Option<u64>,
     tracks: BTreeMap<TrackKey, TrackRange>,
     /// The track each number stands for, from the definitions placed in the piece
@@ -370,7 +373,7 @@ impl Indexer {
         let head = IndexHead {
             kind: IndexKind::Checkpoint,
             self_offset: offset,
-            prev: self.last_checkpoint,
+            prev: self.chained,
         };
         let n = self.pending.len().min(CHECKPOINT_ENTRIES_MAX);
         let listed = self.pending.get(..n).unwrap_or_default();
@@ -378,6 +381,7 @@ impl Indexer {
         write_index(&mut buf, id, &head, listed)?;
         self.pending.drain(..n);
         self.since = 0;
+        self.chained = Some(offset);
         self.last_checkpoint = Some(offset);
         Ok(buf)
     }
@@ -387,14 +391,21 @@ impl Indexer {
         self.last_checkpoint
     }
 
-    /// The piece was closed by the close record at `offset`, its last final index block at `final_index`: what is
-    /// placed from here on is listed by checkpoints chained back to that final index, and by a final index of its
-    /// own whose first block points at it. The tracks' ranges and hashes go on over the whole piece.
-    pub(crate) fn closed(&mut self, offset: u64, final_index: Option<u64>) {
+    /// The piece was closed by the close record at `offset`, its last final index block at `final_index` and its
+    /// newest checkpoint at `checkpoint`: what is placed from here on is listed by checkpoints chained back to that
+    /// final index, and by a final index of its own whose first block points at it. The tracks' ranges and hashes go
+    /// on over the whole piece.
+    pub(crate) fn closed(
+        &mut self,
+        offset: u64,
+        final_index: Option<u64>,
+        checkpoint: Option<u64>,
+    ) {
         self.closed = Some((offset, final_index));
         self.pending.clear();
         self.since = 0;
-        self.last_checkpoint = final_index;
+        self.chained = final_index;
+        self.last_checkpoint = checkpoint;
     }
 
     /// The final index block the next close's final index points back at: the last one of the close the writer went

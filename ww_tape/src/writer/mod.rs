@@ -1971,7 +1971,7 @@ impl<S: TapeSink> TapeWriter<S> {
             hash: close.hash,
         });
         self.hash = crate::piece::chained(&close.hash);
-        self.indexer.closed(at, close.final_index);
+        self.indexer.closed(at, close.final_index, close.checkpoint);
     }
 
     /// Write on after the piece's last close record and tail, which end the bytes: the append head naming them

@@ -4,11 +4,11 @@
 
 use crate::pieces::records;
 use crate::resume::{begin, head, options};
-use ww_tape::index::IndexEntry;
+use ww_tape::index::{IndexEntry, IndexKind};
 use ww_tape::piece::Close;
 use ww_tape::reader::Found;
 use ww_tape::{
-    ALIGNMENT, BlockKind, ContentHash, FileBlocks, Medium, MemSink, OpenOptions, Recovery,
+    ALIGNMENT, Block, BlockKind, ContentHash, FileBlocks, Medium, MemSink, OpenOptions, Recovery,
     ResumeError, Resumed, TapeReader, TapeSink, TapeWriter, WriteError,
 };
 
@@ -403,6 +403,20 @@ fn an_empty_append_closes_after_a_final_index_of_its_own() {
     assert_ne!(
         all[1].1.final_index, all[0].1.final_index,
         "a final index of its own"
+    );
+    for (at, c) in &all {
+        let Some(named) = c.checkpoint else { continue };
+        let b = Block::read(&bytes[named as usize..]).unwrap();
+        let kind = ww_tape::index::IndexBlock::read(&b).unwrap().kind();
+        assert_eq!(
+            kind,
+            IndexKind::Checkpoint,
+            "the close at {at} names a checkpoint"
+        );
+    }
+    assert_eq!(
+        all[1].1.checkpoint, all[0].1.checkpoint,
+        "an empty append places no checkpoint: its close names the newest one before"
     );
     let torn = &bytes[..bytes.len() - 10];
     let r = TapeReader::open(torn).unwrap();
