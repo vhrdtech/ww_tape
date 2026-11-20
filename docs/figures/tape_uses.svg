@@ -1,0 +1,30 @@
+<svg class="ww-svg" viewBox="0 0 680 226" width="680" height="226" role="img" aria-label="The drive's data becomes tape blocks of one format, which go three ways: a live feed to a viewer, a file on a PC, and a raw SD card without a file system" xmlns="http://www.w3.org/2000/svg">
+  <rect x="20.5" y="88" width="96" height="50" rx="4" class="tint-ink"/>
+  <text x="68.5" y="110" text-anchor="middle">drive</text>
+  <text x="68.5" y="127" text-anchor="middle" class="small soft">motor controller</text>
+  <path d="M117 113 H140" class="line"/>
+  <path d="M146 113 L139 109.5 L139 116.5 Z" class="line head"/>
+  <rect x="150.5" y="100" width="14" height="26" rx="2" class="tint-purple"/>
+  <rect x="165.5" y="100" width="22" height="26" rx="2" class="tint-blue"/>
+  <rect x="188.5" y="100" width="40" height="26" rx="2" class="tint-blue"/>
+  <rect x="229.5" y="100" width="12" height="26" rx="2" class="tint-purple"/>
+  <rect x="242.5" y="100" width="56" height="26" rx="2" class="tint-blue"/>
+  <rect x="299.5" y="100" width="20" height="26" rx="2" class="tint-teal"/>
+  <text x="235" y="91" text-anchor="middle" class="small">tape blocks</text>
+  <text x="235" y="143" text-anchor="middle" class="small soft">one format</text>
+  <path d="M324 113 C360 113 368 42 404 42" class="line"/>
+  <path d="M410 42 L403 38.5 L403 45.5 Z" class="line head"/>
+  <path d="M324 113 H404" class="line"/>
+  <path d="M410 113 L403 109.5 L403 116.5 Z" class="line head"/>
+  <path d="M324 113 C360 113 368 184 404 184" class="line"/>
+  <path d="M410 184 L403 180.5 L403 187.5 Z" class="line head"/>
+  <rect x="416.5" y="18" width="244" height="48" rx="4" class="tint-blue"/>
+  <text x="428" y="37" text-anchor="start">a live feed</text>
+  <text x="428" y="55" text-anchor="start" class="small soft">a viewer takes each block as it is made</text>
+  <rect x="416.5" y="89" width="244" height="48" rx="4" class="tint-green"/>
+  <text x="428" y="108" text-anchor="start">a file on a PC</text>
+  <text x="428" y="126" text-anchor="start" class="small soft">pieces of a recording, closed and checked</text>
+  <rect x="416.5" y="160" width="244" height="48" rx="4" class="tint-amber"/>
+  <text x="428" y="179" text-anchor="start">a raw medium</text>
+  <text x="428" y="197" text-anchor="start" class="small soft">an SD card without a file system</text>
+</svg>

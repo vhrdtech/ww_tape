@@ -178,6 +178,7 @@ Covers `ww_tape` 0.1.0.
 - Book: each page shows its reading level, basic, advanced or nomicon; "For writers" states the style (BOOK-2).
 - Book: a page's `rust` blocks run as doctests; longer code is included from tests (BOOK-2).
 - Book: glossary terms and code links show cards on hover; a stale term or item fails `just book-check` (BOOK-2).
+- Book: Part I, "Tapes" and "A first tape", with three new figures, two drawn from the drive (BOOK-2).
 - `ww_tape_example --bin first_tape` writes the drive's first minute to a file, then lists its tracks (BOOK-3).
 - `TapeWriter::close_with_summary` places a close summary (kind 14) the close names; `TapeReader::close_summary` reads it (WRITE-7).
 - `TapeReader::unclosed` names the bytes no close covers; `TapeReader::closed_entries` lists only blocks the close in force covers (WRITE-7).

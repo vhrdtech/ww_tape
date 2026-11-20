@@ -165,15 +165,14 @@ fn pages_show_the_example_the_test_runs() {
         "    // as on the pages\n",
         "    // end of the pages' lines\n",
     );
-    for page in ["../docs/index.md", "../docs/writing.md"] {
-        let blocks = fenced(&read(page), page);
-        assert!(
-            blocks
-                .iter()
-                .any(|(lang, body)| lang == "rust" && *body == lines),
-            "{page} shows the lines `book_definitions_example` runs:\n{lines}"
-        );
-    }
+    let page = "../docs/writing.md";
+    let blocks = fenced(&read(page), page);
+    assert!(
+        blocks
+            .iter()
+            .any(|(lang, body)| lang == "rust" && *body == lines),
+        "{page} shows the lines `book_definitions_example` runs:\n{lines}"
+    );
 }
 
 #[test]

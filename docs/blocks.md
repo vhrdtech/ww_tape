@@ -96,7 +96,7 @@ The writer refuses a block of definitions that the caller wrote. A relay passes 
 
 The [describe module docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/describe.rs) hold the
 definitions, and the [state module docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/state.rs) the
-slots. [State tracks and near use](index.md#state-tracks-and-near-use) explains how the writer puts them.
+slots. [Puts, near and copies](writing.md#puts-near-and-copies) explains how the writer puts them.
 
 ## Records blocks
 

@@ -51,7 +51,8 @@ and [piece](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/piece/mod.
 A file that a writer started without a piece head, a plain stream of blocks, is still a valid tape. It is one piece
 with no ids.
 
-[Pieces and chains](index.md#pieces-and-chains) explains how pieces form a chain, and how a chain fits into one file.
+[Pieces and files](pieces_and_files.md#ids-and-the-chain) explains how pieces form a chain, and how a chain fits into one
+file.
 
 ## Reading by position
 
