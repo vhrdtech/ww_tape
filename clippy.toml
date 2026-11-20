@@ -1,0 +1,2 @@
+allow-unwrap-in-tests = true        # a test that unwraps fails at the unwrap, which is what a test should do
+cognitive-complexity-threshold = 20 # spirit_level's tier value: 17 reads fine, 21 and 25 too long

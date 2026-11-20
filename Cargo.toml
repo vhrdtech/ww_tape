@@ -67,6 +67,22 @@ allow_attributes_without_reason = "deny"
 dbg_macro = "deny"
 print_stdout = "deny"
 print_stderr = "deny"
+allow_attributes = "warn"                # #[expect] fails once the lint stops firing, so an exception cannot outlive its cause
+as_ptr_cast_mut = "warn"                 # `as_ptr() as *mut` writes through a shared borrow: undefined behaviour
+cognitive_complexity = "warn"            # agents grow functions branch by branch; a tangled one is split
+debug_assert_with_mut_call = "warn"      # a debug_assert! that calls a &mut method makes debug and release builds behave differently
+exit = "warn"                            # process::exit skips every destructor; main returns instead
+fallible_impl_from = "warn"              # a From that can panic is a TryFrom
+get_unwrap = "warn"                      # `.get(i).unwrap()` is indexing with a worse message: index, or handle the None
+ignore_without_reason = "warn"           # an ignored test says why, or nobody knows when it may run again
+let_underscore_must_use = "warn"         # `let _ =` on a must_use value drops an error unseen
+map_err_ignore = "warn"                  # `map_err(|_| ...)` throws the cause away; wrap it as the source
+mem_forget = "warn"                      # forget leaks the value and skips Drop; ManuallyDrop says it on purpose
+self_named_module_files = "warn"         # one module layout, mod.rs, across the workspace
+str_to_string = "warn"                   # to_owned says what happens: a copy of a borrowed str
+too_long_first_doc_paragraph = "warn"    # agents write long doc summaries; the first paragraph is one short sentence
+unnecessary_safety_doc = "warn"          # a # Safety section on a safe function sends readers looking for a contract that is not there
+use_self = "warn"                        # Self follows a rename
 
 [profile.dev]
 split-debuginfo = "unpacked"
