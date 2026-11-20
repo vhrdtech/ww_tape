@@ -698,6 +698,8 @@ Two changes give a track a new key:
 - A resource renamed within its trait keeps its key. One moved to another trait gets a new name path and therefore a new
   key, even with `#[moved_from]`.
 
+<a id="index-finish-and-tail"></a>
+
 ## Index, close and tail
 
 A writer lists every block it places in **index** blocks (kind 7). A reader then finds blocks without a scan.
