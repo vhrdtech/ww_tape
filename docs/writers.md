@@ -28,15 +28,8 @@ A chapter ends on its last fact, or on one sentence that leads to the next chapt
 ## The running example
 
 One recording runs through the whole book: a motor controller board, the drive, on an endurance bench. The host
-records it over USB into a chain of pieces.
-
-| Track | What | Kind in a tape |
-|---|---|---|
-| `log` | the firmware's log lines, a few per second | records blocks |
-| `mode` | the controller's mode: idle, run or fault | state track |
-| `can0` | frames on the vehicle bus, about 1 kHz | events chunks |
-| `phase_a` | phase current at 25 kHz, 16-bit fixed point in mA | series chunks |
-| `temp` | board temperature, once a second | records blocks |
+records it over USB into a chain of pieces. [What a tape holds](index.md#what-a-tape-holds) lists its five tracks,
+and a chapter links that table instead of repeating it.
 
 The board counts time in microseconds since boot and the host in nanoseconds. A clock map joins the two. At minute 37
 the host loses power while it writes piece 3, and at minute 52 the board faults on overcurrent.

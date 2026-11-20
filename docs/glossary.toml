@@ -28,7 +28,7 @@ chapter = "../blocks/"
 [[term]]
 name = "block header"
 forms = ["block headers"]
-short = "The first 32 bytes of a block: its kind, flags, length, a count, its sequence number and its session tag."
+short = "The first 32 bytes of a block: its kind, flags, length, a count, its sequence number and its session tag; a block has a header, never a head."
 chapter = "../blocks/"
 
 [[term]]
@@ -64,7 +64,7 @@ chapter = "../blocks/"
 [[term]]
 name = "chunk head"
 forms = ["chunk heads"]
-short = "The start of a chunk's body: its length, track, item numbers and ticks, and a CRC per segment of its payload."
+short = "The start of a chunk's body: its length, track, item numbers and ticks, and a CRC per segment of its payload; the book says head only in piece head and chunk head."
 chapter = "../events/"
 
 [[term]]
@@ -123,7 +123,7 @@ chapter = "../blocks/"
 [[term]]
 name = "cut"
 forms = ["cuts"]
-short = "The end of one piece of a chain and the start of the next, whose close names the next piece."
+short = "The end of one piece of a chain and the start of the next, whose close names the next piece; the book calls nothing else a cut, and a lost supply is a power failure."
 chapter = "../pieces/"
 
 [[term]]
@@ -265,7 +265,7 @@ chapter = "../anatomy/"
 [[term]]
 name = "piece head"
 forms = ["piece heads"]
-short = "The first block of a piece: its ids, the owner id, the previous piece's hash, and each track carried into it."
+short = "The first block of a piece: its ids, the owner id, the previous piece's hash, and each track carried into it; the book says head only in piece head and chunk head."
 chapter = "../anatomy/"
 
 [[term]]
@@ -413,7 +413,7 @@ chapter = "../definitions/"
 [[term]]
 name = "state copy"
 forms = ["state copies"]
-short = "An extra record of a state item at a later use, at least 1 MiB after the first, as a guard against damage around one place."
+short = "An extra record of a state item at a later use, at least 1 MiB after the first, as a guard against damage around one place; a copy in this book is always a state copy."
 chapter = "../definitions/"
 
 [[term]]
@@ -425,7 +425,7 @@ chapter = "../definitions/"
 [[term]]
 name = "store"
 forms = ["stores"]
-short = "A set of sinks for the pieces of a chain, such as a directory of files; any type that implements `Tapes`."
+short = "A set of sinks for the pieces of a chain, such as a directory of files; any type that implements `Tapes`; the book never uses store as a verb."
 chapter = "../writing/"
 
 [[term]]
