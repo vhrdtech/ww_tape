@@ -838,7 +838,8 @@ The new close's content hash chains over the old one:
 
 - It is BLAKE3 of the old close's hash, then of the bytes from the old close record to the new one.
 - Each chunk payload goes in by its hash, as in the first close.
-- The writer never reads the blocks before the old close again ([resuming a closed piece](resuming.md#resuming-a-closed-piece)).
+- The writer never reads the blocks of data before the old close again, but the last chunk of each track.
+- Of a piece with chunks, it reads the index too ([resuming a closed piece](resuming.md#resuming-a-closed-piece)).
 - The old close's hash still checks the piece up to it.
 
 Each close names the one before it (close offset 88), and `TapeReader::closes` lists them oldest first.

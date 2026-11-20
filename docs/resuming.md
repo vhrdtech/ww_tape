@@ -59,7 +59,13 @@ once its length field names them.
 
 A tail lies inside one sector, so a crash leaves it whole, short or blank.
 
-For example, one flipped bit in the last tail makes the tail fail its CRC, so the reader takes the close before it.
+A resume is a command to write, and it cuts what a crash leaves: an end blank from a sector boundary on. Reading and
+verify never change a file.
+
+Rot that zeroes the end of a complete close from a sector boundary on looks the same, so a resume cuts that close.
+
+For example, one flipped bit makes the last tail fail its cyclic redundancy check (CRC), so the reader takes the
+close before it.
 The resume refuses and keeps every byte, also when the tail's last byte is zero.
 
 The bytes alone cannot tell the last row from a crash during the close. The resume then drops that close.
@@ -143,8 +149,8 @@ head leads to it. A damaged append head is such a case: the resume never cuts of
 
 ## Resuming a closed piece
 
-A resume of a closed piece never reads the blocks before its close in force. An append to a large piece therefore
-costs about as much as an append to a small one.
+A resume of a closed piece reads no block of data before its close in force but the last chunk of each track. Without
+chunks, an append to a large piece therefore costs about as much as an append to a small one.
 
 The writer's state at the close comes from what the close names:
 
@@ -152,8 +158,21 @@ The writer's state at the close comes from what the close names:
 - the piece head, and the layout and producer put right after it, which the options are checked against;
 - for a piece holding chunks, the index chain and each track's last chunk, for the newest relation values.
 
-An index chain that does not read leaves those tracks unread. The next chunk of such a track then needs a break
-the caller accepts (`TapeWriter::accept_relation_break`), so damage before the close never stops an append.
+A piece holding chunks costs more. The resume reads every final index of the piece, newest first, about 211 bytes per
+chunk:
+
+| Piece | Closes | Bytes read |
+|---|---|---|
+| 1,000 chunks, 1.06 MB | 1 | 226,961 |
+| 1,000 chunks, 1.07 MB | 10 | 218,513 |
+| 10,000 chunks, 10.5 MB | 1 | 2,114,165 |
+
+Each final index lists only the blocks since the close before it, so more closes read no more. Nothing caps the read
+but the piece itself: each final index points back to an earlier one, down to the first. Bytes after the tail, such
+as a torn append, make a resume read the index chain too.
+
+An index chain that does not read leaves the tracks with chunks unread. The next chunk of such a track then needs a
+break the caller accepts (`TapeWriter::accept_relation_break`), so damage before the close never stops an append.
 
 The record of what lies near starts empty. The writer thus puts again, after the append head, the definitions the
 blocks after it need.
