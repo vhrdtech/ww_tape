@@ -2,196 +2,146 @@
 level: advanced
 ---
 
-# Sessions and raw media
+# Where the data ends on a raw card
 
-A **medium** is what holds the bytes of a tape: a file, or a raw card or flash chip written without a file system. In
-a file, the end of the data is the end of the file, but on a raw medium it is not.
-
-This page explains how a reader finds the end of the data on a raw medium. It closes with what tape drives and flash
-memory taught the format.
-
-The page assumes [Damage and recovery](recovery.md) and [Reading a damaged file](damaged_files.md).
+Besides the host's files, a recorder box on the bench writes the drive's run onto a Secure Digital (SD) card without a
+file system. The card still holds an earlier run of the same board, a full hour. At minute 37 the power fails,
+and the box stops in the middle of a block. This chapter answers how a [[reader]] of the card finds where today's run
+ends, with good blocks of the earlier run right behind it. After it you can write a tape onto a [[raw medium]]
+and read it back past [[stale data]], [[gaps]] and [[duplicates]].
 
 ## Sessions and stale data
 
-A Secure Digital (SD) card or raw NOT-AND (NAND) flash may hold an older, longer recording behind the current one. That
-recording's blocks are as valid as the new ones.
+In a file, the data ends where the file ends. A [[raw medium]] has no such end. A reused card holds an older recording
+behind the current one, and its [[blocks]] are as valid as the new ones. A reader tells them apart by their
+[[session]].
 
-### Session tags
+A [[session]] is one writer's unbroken append, such as a producer's start or a device's boot. Every block of a session
+carries the same 32-bit [[session tag]] in its header, and its sequence numbers count up from zero. A tag is never zero
+nor FFFFFFFFh, so an erased header never names a session. A writer gets its tag in one of three ways:
 
-A **session** is one writer's unbroken append, such as a producer start or a device boot. Every block of a session
-carries the same 32-bit **session tag** in its header, and its sequence numbers count from 0.
+- [`SessionTag::random`] picks it at random, as a device without stored state does;
+- [`SessionTag::from_seed`] derives it from a seed;
+- [`SessionTag::of_piece`] derives it from the [[piece]]'s id, so the same input gives the same bytes.
 
-A writer gets the tag in one of three ways:
-
-- it picks the tag at random;
-- it derives the tag from a seed;
-- it derives the tag from the piece id, when the same input must give the same bytes.
-
-A tag is never 0 nor FFFFFFFFh, so an erased header never names a session.
+The drive's recorder takes the third way. The earlier run on the card is another chain of the board, so its pieces have
+other ids and other session tags.
 
 ### Where a new session may start
 
-A reader keeps to one session at a time. A good block of another session is **stale data**, unless a new session may
-start at that block.
+A reader keeps to one session at a time. A good block of another session is [[stale data]], unless a new session may
+start at that block. Where one may start depends on the medium, a [`Medium`] value the reader is opened with:
 
-Where a new session may start depends on the medium, a `Medium` value the reader is opened with:
+| Medium | A new session may start at |
+|---|---|
+| a file ([`Medium::File`]) | a records block that starts with a definition, where another producer appended; any [[piece head]], where files were joined |
+| a raw medium ([`Medium::Raw`]) | only a piece head that names the session just ended as its previous one |
 
-- In a file (`Medium::File`), a new session may start at a records block that starts with a definition. There another
-  producer appended its blocks.
-- In a file, a new session may also start at any piece head. There files were concatenated.
-- On a raw medium (`Medium::Raw`), a new session starts only at a piece head that names the session just ended as its
-  previous session.
-- Stale data from an earlier recording names some other session. A reader on a raw medium never takes it, even when it
-  starts with a piece head of its own.
+On the card, today's run ends at the [[torn block]], and the earlier run's blocks follow. They carry another session
+tag, and none of them is a piece head naming today's session. A reader of the raw card therefore takes them as stale
+data and ends today's run at the torn block. A reader judges a block by its session before its format version. Stale
+data that an older firmware wrote in another format thus ends the data too.
 
-A reader judges a block by its session before its format version. Stale data written by an older firmware in another
-format is therefore the end of the data, like any other stale data.
+<figure class="ww-figure" markdown="0">
+--8<-- "docs/figures/sessions.svg"
+<figcaption>A card recorded twice. Above, after the power failed: session B's blocks end at the torn one, and A's older
+blocks behind them carry another session tag. Below, after the next boot, a reader goes on into session C, whose piece
+head names B, and stops at A's leftovers again.</figcaption>
+</figure>
 
-Such stale data is never read as a piece of that older format.
+### Reading forward, never from the end
 
-A reader therefore reads a raw medium forward, from its start or from a hint the medium layer gives. It never reads a
-raw medium from its end, where a stale tail could pass for the newest piece.
+A reader of a file finds the newest [[piece]] from the end, by its [[tail]]. On a raw medium the end holds stale data or
+nothing, and a stale tail there would pass for the newest piece. A reader of a raw medium therefore walks forward, from
+the start or from a hint the medium layer gives ([`OpenOptions::start`]).
 
-### Pieces on a raw medium
+The drive's card shows the difference. It is 109.95 MiB long, and today's run wrote 68.96 MiB of it before the power
+failed. Read as a raw medium, the card gives today's 3 pieces, the last one ending at the torn block. The earlier run's
+other 40.99 MiB stay behind as stale data. Read as a file, the card gives 4 pieces, and the fourth is the earlier run's
+last piece, found by its tail.
 
-A closed piece is a multiple of 4 KiB long on a raw medium too. A piece that starts on a 4 KiB boundary therefore
-ends on one.
+`cargo run -p ww_tape_example` prints these numbers, and this doctest reads the same card
+at 1/1000 of its data:
 
-The layout's `gap_max` and `resume_align` still say where a writer goes on after an erased or bad stretch. A piece
-appended after a closed one starts on a resume place whenever `resume_align` divides 4 KiB, as a 512-byte sector
-does.
+```rust
+use ww_tape::{Medium, OpenOptions, TapeReader};
+use ww_tape_example::{Drive, EARLIER_CHAIN};
+
+let today = Drive::scaled(1000).expect("1000 divides the rates").on_sd_card();
+let earlier = today.chain(EARLIER_CHAIN).record().expect("the earlier run records");
+let run = today.record().expect("the run records");
+let crashed = today.crash(run.story_crash_byte().expect("minute 37")).expect("the crash");
+let card = crashed.on_card(&earlier).expect("the earlier run fills the card");
+
+let raw = OpenOptions { medium: Medium::Raw, ..OpenOptions::default() };
+let on_card = TapeReader::open_with(&card.bytes[..], raw).expect("the card opens");
+// Today's two closed pieces and the torn one; the earlier run is stale data.
+assert_eq!(on_card.pieces().len(), 3);
+
+let as_file = TapeReader::open(&card.bytes[..]).expect("the card opens as a file");
+// Read as a file, the earlier run's last piece passes for the newest.
+assert_eq!(as_file.pieces().len(), 4);
+```
+
+## Writing a tape onto a card
+
+A tape on a raw medium is written by the same [[writer]] as a file, with two differences. The [[layout]] says how far a
+reader looks past a bad stretch, and every [[piece]] is one [[session]]. The drive's recorder for the card sets the
+layout with [`Layout::on_sd_card`], and [`Drive::on_sd_card`] in `ww_tape_example` does the same.
+
+A piece on a raw medium is one session, since a new session may start only at a piece head. The writer's next piece of a
+chain starts with a piece head that names the session of the piece before it. A reader thus goes on from one piece into
+the next. A writer that relays another producer's blocks onto a card passes them with [`TapeWriter::adopt_block`], which
+renumbers each block into the writer's own session. A jump in the producer's sequence numbers stays a jump, so a reader
+still sees that blocks were lost on the way.
+
+On a raw medium too, a closed piece ends on a multiple of 4 KiB. A piece that starts on a 4 KiB boundary thus ends on
+one. The next piece then starts where a reader looks for it after a bad stretch.
 
 ## Blank space and gaps
 
-**Blank** bytes are all 0x00 or all 0xFF: what an erased or preallocated medium reads, depending on its kind. No block
-starts with either value.
+Blank bytes are all 0x00 or all 0xFF: what an erased or preallocated medium reads, depending on its kind. No block
+starts with either value, so blank space that runs to the end of the medium is the end of the data. A blank or damaged
+stretch in the middle is not always the end. A writer on raw NOT-AND (NAND) flash whose page program failed moves on to
+the next erase block. A writer that pads a NAND page at a sync leaves 0xFF behind.
 
-A blank stretch that runs to the end of the file or medium is therefore the end of the data.
+The [[layout]] says how far a writer may skip and where it goes on, at a multiple of its resume alignment:
 
-A blank or damaged stretch in the middle is not always the end. Two kinds of writer leave such stretches:
-
-- A NAND writer whose page program failed moves on to the next erase block.
-- A writer that pads a NAND page at a sync leaves 0xFF behind.
-
-The **layout**, a record among the definitions, says how far a writer may skip and where it resumes:
-
-| Medium | Longest gap (`gap_max`) | Resumes at a multiple of (`resume_align`) |
+| Medium | Longest gap (`gap_max`) | Goes on at a multiple of (`resume_align`) |
 |---|---|---|
-| file (`Layout::UNALIGNED`) | 0: the first bad stretch is the end | 1 byte |
-| SD card or eMMC (`Layout::on_sd_card`) | 4 MiB | 512 bytes, a sector |
-| raw NAND (`Layout::on_raw_nand`) | two erase blocks | one page |
+| a file ([`Layout::UNALIGNED`]) | 0: the first bad stretch is the end | 1 byte |
+| an SD card or eMMC ([`Layout::on_sd_card`]) | 4 MiB | 512 bytes, a sector |
+| raw NAND ([`Layout::on_raw_nand`]) | two erase blocks | one page |
 
-Past a blank or bad stretch, a reader reads one block header at the first non-blank byte. It also reads one at each
-resume place within the layout's `gap_max`.
+Past a blank or bad stretch, a reader reads one block header at the first non-blank byte and one at each resume place
+within `gap_max`. A good block of the current session there goes on with the data. It makes the stretch a [[gap]], which
+the reader reports with its length ([`FileError::Gap`]) before it reads on. When no such block follows, the stretch is
+the end of the data.
 
-A good block of the current session may go on with the data there. That block makes the stretch a **gap**, which the
-reader reports with its length, and the walk goes on.
+<figure class="ww-figure" markdown="0">
+--8<-- "docs/figures/gap_probe.svg"
+<figcaption>A reader on a raw medium past a bad stretch. It reads a block header at each resume place, up to the
+layout's longest gap. The session's next block at one of them makes the stretch a gap; with none, the data ends at the
+stretch.</figcaption>
+</figure>
 
-When there is no such block, the stretch is the end of the data.
+On the drive's card the torn block is such a stretch. Within 4 MiB after it, the reader finds only the earlier run's
+blocks, which are stale. Today's data therefore ends at the torn block, and the reader reads nothing further.
 
-### What a gap costs a reader
-
-The format bounds what a reader pays per gap:
-
-- A valid layout allows at most 64 MiB of gap with at most 8192 resume places.
-- A reader checks at most 4 whole blocks per gap.
-- On a raw medium, blank space longer than the gap is the end, and the reader reads nothing after it. An erased 64 GB
-  card costs one gap's worth of header reads.
-- A Resync walk looks once per stretch too, and only up to where Prefix ends.
-- A Resync walk reads up to one gap and a block ahead, 128 MiB at most (`RESYNC_AHEAD_MAX`).
+The format bounds what a gap costs a reader. It reads a header per resume place and checks at most [`GAP_CHECKS_MAX`]
+blocks whole. It reads no further than blank space longer than `gap_max`. An erased 64 GB card thus costs one gap's
+worth of reads. The
+[format reference](format.md#blank-space-and-gaps) lists the bounds.
 
 ## Duplicates
 
 A writer that retried a write may leave the same block twice. The same session and sequence number twice is a
-**duplicate**, not a cut.
+[[duplicate]], not a new block. A reader in [`Recovery::Prefix`] drops a second copy with the same bytes. A copy with
+other bytes it takes in place of the first, and reports the replacement ([`FileError::Replaced`]).
 
-The two walks treat duplicates as follows:
+[`Recovery::Resync`] reports a pair with other bytes as a conflict instead, as
+[When bytes go bad](damage.md#reading-past-damage) explains. In damaged bytes it cannot tell a copy from a rewrite, so
+it takes neither for the other.
 
-- With the same bytes, Prefix drops the second copy.
-- With other bytes, Prefix takes the later copy and reports the replacement (`FileError::Replaced`).
-- Resync reports a pair with other bytes as a conflict instead. In damaged bytes it can't tell a copy from a rewrite.
-
-## Example: a logger card recorded twice
-
-A data logger records to an SD card as a raw medium. Its first recording, session A, filled 100 MiB.
-
-The card is reused. Session B writes 30 MiB from the start, then the power fails during a write.
-
-A reader walks forward from the start of the card. It takes B's blocks up to the torn one, then probes for B's next
-block within 4 MiB.
-
-The reader finds only A's old blocks. They carry A's session tag and don't start with a piece head naming B.
-
-A's blocks are therefore stale, and the data ends at the torn block. The reader mistakes none of A's 70 remaining MiB
-for B's.
-
-When the logger boots again, it finds the same end of data and writes its next session after it. That session, C,
-starts with a piece head that names B as the previous session.
-
-The next reader takes C. A's leftovers beyond C stay stale.
-
-<figure class="ww-figure" markdown="0">
---8<-- "docs/figures/sessions.svg"
-<figcaption>Above, the example's card after the power failure: B's blocks end at the torn one, and A's older blocks
-behind them carry another session tag. Below, after the next boot, a reader goes on into session C, whose piece head
-names B, and stops at A's leftovers again.</figcaption>
-</figure>
-
-## What tape and flash media taught the format
-
-Tape drives and flash memory solved these problems long before. The format takes their answers where they fit, and
-each point below names its source.
-
-### Sessions and the end of the data
-
-- **A tag per write session.** Linear Tape-Open (LTO) marks every data set with a write pass number. The number grows
-  whenever data is overwritten, so a reader tells current data from residue (ECMA-319, §13.5.16).
-- **The same in flash.** Unsorted Block Images (UBI) stamps an image sequence number on every eraseblock for the same
-  reason (Linux `ubi-media.h`).
-- **A random tag, not a counter.** The session tag does this job. It is random, because a wiped card or a device
-  without stored state has no counter to continue.
-- **Nothing after the end is data.** LTO declares data recorded after the end-of-data set inaccessible and invalid
-  (ECMA-319, §13.4.3).
-- **No end-of-data block.** The format has none, since a crash leaves none. Blank space and the session tag mark the
-  end instead.
-
-### Erased bytes and gaps
-
-- **Erased is not always zero.** NAND flash erases to 0xFF (Micron TN-29-19). An SD card reads 0 or 1 after an erase,
-  by vendor (SD Physical Layer Simplified Specification 9.10, §4.3.5.1).
-- **eMMC says which.** An eMMC device reports its erased value (JESD84-A441). Blank is therefore 0x00 or 0xFF.
-- **A blank unit isn't the end.** A NAND writer that hits a failed program moves on and leaves erased pages behind.
-- **Looking past them.** The UBI file system (UBIFS) looks past such units when it scans for the end
-  of written data (Linux `fs/ubifs/scan.c`, `recovery.c`).
-- **Gap sizes follow the media.** The layout's gap and resume alignment say how far to look. SD allocation units reach
-  64 MB (SD 9.10, §4.13.1).
-- **NAND units.** The Open NAND Flash Interface (ONFI) defines NAND erase blocks and pages (ONFI 6.0, §3.1).
-- **Program a page once.** Programming the same part of a page twice without an erase gives undefined contents
-  (ONFI 6.0, §6.7.1.25).
-- **One program per page.** Micron's multi-level cell (MLC) example allows one program per page (Micron TN-29-19). A
-  writer on raw NAND pads the rest of the page at each sync, and readers take the padding as a gap.
-
-### Rewrites, indexes, compression and correction
-
-- **Rewrites: the later copy wins.** LTO rewrites an interrupted data set in its entirety, and the later write counts
-  (ECMA-319, §15.4). The same block twice in a tape is a duplicate, and the reader takes the later copy.
-- **Self and back pointers.** A Linear Tape File System (LTFS) index carries a self pointer and a
-  pointer to the index before it. The LTFS Format Specification 2.5.1 gives both in §5.4.2 and §5.4.3.
-- **A wrong self pointer means data.** The same specification takes an index whose self pointer doesn't match as data.
-- **The same two offsets.** A tape's index blocks carry the same two offsets. A reader checks the self offset against
-  where it found the block.
-- **Never grow incompressible data.** Streaming Lossless Data Compression (SLDC) switches to a scheme that copies
-  bytes (ECMA-321, §7.2).
-- **What that saves.** With SLDC, incompressible data grows by about 0.05 % instead of 12.5 %.
-- **The same in a tape.** A writer that codes a block's body keeps the plain body when coding doesn't shrink it.
-- **Correction belongs to the medium.** ONFI leaves error correction to the host controller, per page (ONFI 6.0,
-  §6.7.1.26). A tape only detects what that correction missed.
-
-## See also
-
-- [Damage and recovery](recovery.md): checksums, and resuming after a crash.
-- [Reading a damaged file](damaged_files.md): the walk past damage, salvage, and the limits of the format.
-- [Format reference](format.md#sessions-media-and-damage): sessions, media, gaps and state records as a reference.
-- [Syncing, cuts and relays](syncing_and_cuts.md#adopting-blocks-on-raw-media): writing a piece as one session on a raw
-  medium.
+[Lessons from tape and flash](lessons.md) names the tape drives and flash file systems that solved these problems first,
+and what the format takes from each.

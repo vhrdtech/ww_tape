@@ -133,7 +133,7 @@ else past the good blocks is damage: the resume refuses and leaves the bytes as 
 The second case is the one to know. Suppose a sector of the disk went bad in the drive's file a few blocks before the
 end, and then the power failed. The [[reader]]'s scan stops at the bad sector, but good blocks follow it, so cutting there
 would lose them. The resume names the first good block and refuses. The file still reads past the damage with
-[`Recovery::Resync`], as [Reading a damaged file](damaged_files.md) explains.
+[`Recovery::Resync`], as [When bytes go bad](damage.md#reading-past-damage) explains.
 
 A crash after the [[close]] needs no new data. If it came before the rename, the resume gives the file its name. A closed
 [[piece]] then goes on after its close, and a close with nothing written after it adds no byte. A crash in the middle of

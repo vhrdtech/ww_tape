@@ -9,8 +9,8 @@ covers definitions, state, the index and the end of a piece.
 
 Later sections cover resuming after a crash, reading by position, sessions and damage, and the codecs of chunk columns.
 
-[Tape concepts](concepts.md) names the parts of a tape. [Events and series](events_and_series.md) and [Damage and
-recovery](recovery.md) explain the format with examples.
+[Tape concepts](concepts.md) names the parts of a tape. [Events and series](events_and_series.md) and [When bytes go
+bad](damage.md) explain the format with examples.
 
 The byte layouts on this page are copied from the module docs of the crate `ww_tape`, and a test checks that they match.
 Numbers are little endian.
@@ -1428,7 +1428,7 @@ would pass one:
 
 ## Sessions, media and damage
 
-[Damage and recovery](recovery.md) explains these rules with examples.
+[When bytes go bad](damage.md) and [Where the data ends on a raw card](raw_media.md) explain these rules with examples.
 
 ### Sessions
 

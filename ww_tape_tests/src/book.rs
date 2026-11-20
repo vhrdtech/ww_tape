@@ -25,4 +25,5 @@ pages! {
     Definitions = "definitions.md";
     Anatomy = "anatomy.md";
     Damage = "damage.md";
+    RawMedia = "raw_media.md";
 }

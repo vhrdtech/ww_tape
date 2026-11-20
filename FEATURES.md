@@ -66,7 +66,7 @@ The bytes of blocks, records, chunks, definitions and the index, in the crate `w
   - Blank bytes are 0x00 or 0xFF. A blank or damaged stretch that the session's next block follows is a gap, not the end.
   - The same block twice is a duplicate: the same bytes are dropped, and with other bytes the later one wins and is reported.
   - Records and definition bodies may be stored or lz4. Codec and element numbers kept for later are refused today.
-  - Read more: [Sessions and raw media](docs/raw_media.md).
+  - Read more: [Where the data ends on a raw card](docs/raw_media.md).
 - ✅ **FMT-8 Closed pieces end on 4 KiB** · `v0.5`
   - A closed piece is a multiple of 4 KiB long. Pieces clone back to back into one file on btrfs and XFS with nothing between them.
   - The writer pads the close block, which states the padding. Blocks inside a piece stay unaligned.
@@ -148,7 +148,7 @@ Reading by position, checks and hashes, hostile bytes, in the crate `ww_tape`.
   - A number read from a block reaches a length or a loop only through a named cap. The caps are listed in one table in the crate docs.
   - Clippy's panic-class lints are denied, and each exception names its invariant.
   - Every decoder has a fuzz target that builds valid blocks with hostile fields. Their seeds replay in `just test`.
-  - Read more: [Limits](docs/damaged_files.md#limits).
+  - Read more: [What the checks cannot do](docs/damage.md#what-the-checks-cannot-do).
 - ✅ **READ-3 A range hash from the index**
   - A range hash folds each chunk by the hash its index entry states, without reading the chunk. It is the writer's statement until a check proves it.
   - The content check replays the piece and compares each index entry with its block and each close row with its track.
@@ -196,7 +196,7 @@ Column codecs with no notion of a block, in the crate `ww_tape_codecs`.
   - Every block kind checks its CRC-32C with one table, or with the CPU's CRC instruction where there is one.
   - On x86-64 the instruction reaches 31 to 37 GiB/s on large buffers. The ARMv8 path runs in CI.
   - Tests check every kernel against the table, at lengths past 2^29.
-  - Read more: [Checksums at every level](docs/recovery.md#checksums-at-every-level).
+  - Read more: [Checks at three levels](docs/damage.md#checks-at-three-levels).
 
 ## Summaries (`SUM`)
 
@@ -231,6 +231,7 @@ The pages in `docs/`.
   - Done: the running example as code (BOOK-3).
   - Done: Part I, "Tapes" and "A first tape": the drive's hour as a tape, and a program that writes and reads its first minute.
   - Done: Part II, how a tape is built: five chapters with the drive's case, tested code and seven new figures.
+  - Done: Part V, damage and raw media, with the drive's archive and card, four new figures and the lessons appendix.
   - Open: the chapters still stubs, tested code in every guide chapter.
   - Read more: [For writers](docs/writers.md), [Glossary](docs/glossary.md).
 

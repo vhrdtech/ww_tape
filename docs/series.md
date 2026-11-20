@@ -218,7 +218,7 @@ Event files are not aligned. [Writing a tape](writing.md#aligned-files) shows ho
 Every chunk carries a CRC-32C per 64 KiB of payload, a **CRC segment**. A flipped bit in a 4 MiB chunk therefore costs
 one 64 KiB segment, not the chunk.
 
-[Damage and recovery](recovery.md) continues from there.
+[When bytes go bad](damage.md) continues from there.
 
 ## See also
 

@@ -71,7 +71,7 @@ the newest piece.
 Open such a medium with `TapeReader::open_with` and set `OpenOptions::medium` to `Medium::Raw`. The reader then walks
 forward from the medium's start, or from the offset `OpenOptions::start` its medium layer gives.
 
-[Sessions and raw media](raw_media.md#sessions-and-stale-data) explains why.
+[Where the data ends on a raw card](raw_media.md#sessions-and-stale-data) explains why.
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/figures/seek.svg"
@@ -282,5 +282,5 @@ Inside a chunk, the reader can save more:
 - `FileBlocks` with `Recovery::Resync` walks a damaged file block by block and finds the next good block after a bad
   stretch. The default, `Recovery::Prefix`, stops at the first bad block.
 
-[Reading a damaged file](damaged_files.md) gives the full picture: what each kind of damage costs and what the format
+[When bytes go bad](damage.md) gives the full picture: what each kind of damage costs and what the format
 can't protect against.

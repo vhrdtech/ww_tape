@@ -172,7 +172,8 @@ tracks, and its file has every definition near its use, like any other file.
 
 ### Adopting blocks on raw media
 
-On a raw medium a piece must be one session, as [Sessions and raw media](raw_media.md#sessions-and-stale-data) explains.
+On a raw medium a piece must be one session, as [Where the data ends on a raw
+card](raw_media.md#sessions-and-stale-data) explains.
 A writer for raw media passes a producer's blocks with `TapeWriter::adopt_block`.
 
 The call renumbers each block into the writer's own session. It returns where the block landed (`Placed`), or `None` for

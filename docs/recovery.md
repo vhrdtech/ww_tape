@@ -9,45 +9,15 @@ it could not read instead of guessing.
 This page explains how the format finds damage and how a writer limits what a crash costs. It assumes the
 [overview](index.md) and refers to chunks from [Events and series](events_and_series.md).
 
-Two more pages continue the topic:
+Two chapters continue the topic:
 
-- [Reading a damaged file](damaged_files.md): how a reader reads past damage, what a damaged file still gives, and the
-  limits of the format.
-- [Sessions and raw media](raw_media.md): stale data on a reused card, gaps and duplicate blocks.
+- [When bytes go bad](damage.md): how a reader reads past damage, what a damaged piece still gives, and the limits of
+  the format.
+- [Where the data ends on a raw card](raw_media.md): stale data on a reused card, gaps and duplicate blocks.
 
 ## Checksums at every level
 
-Damage has to be found before it can be contained. A tape checks its bytes with a cyclic redundancy check (CRC) and a
-content hash, at four levels:
-
-| Check | Covers | Damage costs |
-|---|---|---|
-| block CRC-32C | each whole block | that block |
-| head CRC-32C | the head of a chunk or index block | the head alone; the block's place stays known |
-| segment CRC-32C | each 64 KiB segment of a chunk's payload | one segment of one chunk |
-| content hash, BLAKE3 | every byte of a closed piece before its close record | nothing; it proves the piece is unchanged |
-
-A chunk's **head** gives the chunk's length, its track, its item numbers and ticks. It also holds one CRC per
-**segment**, a fixed stretch of the payload.
-
-The head CRC matters most. When the payload is damaged but the head is good, a reader still trusts the length and
-therefore finds the next block.
-
-The reader also knows exactly which items were hit. For example, a flipped bit in a 4 MiB series chunk costs one 64 KiB
-segment of samples.
-
-Writers use 64 KiB segments. The head states the segment size, and a reader takes any size from 4 KiB to 16 MiB.
-
-Every CRC is CRC-32C. Writers and readers compute it with the CPU's CRC instructions where they exist: SSE4.2 on x86-64
-and the CRC extension on aarch64.
-
-Elsewhere, such as in a browser or on a microcontroller, a table computes it. The result is the same, so the choice
-never shows in the file.
-
-The checks detect damage; they do not correct it. Correction is the medium's job: the error correction of a disk or a
-flash controller, or a file system.
-
-The block kind `BlockKind::Parity` is reserved for parity blocks, but no writer writes them.
+[When bytes go bad](damage.md#checks-at-three-levels) explains the checks of a tape and what damage under each costs.
 
 ## Writing so a crash costs little
 
@@ -83,8 +53,8 @@ a reader finds the end of the file. It also shows how a resume lets the writer g
 
 ## See also
 
-- [Reading a damaged file](damaged_files.md): the walk past damage, salvage, and the limits of the format.
-- [Sessions and raw media](raw_media.md): sessions, stale data, gaps and duplicates.
+- [When bytes go bad](damage.md): the walk past damage, salvage, and the limits of the format.
+- [Where the data ends on a raw card](raw_media.md): sessions, stale data, gaps and duplicates.
 - [Format reference](format.md#sessions-media-and-damage): sessions, media, gaps and state records as a reference.
 - [Writing a tape](writing.md): the writer, its sinks and stores of tapes.
 - [When the power fails](crashes.md): a crash, the file it leaves, and the resume.

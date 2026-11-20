@@ -88,9 +88,9 @@ This walk counts what a flipped bit costs, as a test or a salvage tool would:
 use ww_tape::{FileBlocks, Recovery};
 
 let drive = ww_tape_example::Drive::scaled(1000).expect("1000 divides the rates");
-let recording = drive.record()?;
-let (piece, byte) = recording.story_flip()?;
-let damaged = recording.flip(piece, byte)?;
+let recording = drive.record().expect("the run records");
+let (piece, byte) = recording.story_flip().expect("the run reaches minute 50");
+let damaged = recording.flip(piece, byte).expect("the byte lies in the piece");
 
 let mut walk = FileBlocks::with_recovery(&damaged.bytes[..], Recovery::Resync);
 let (mut good, mut bad_segments, mut reports) = (0, 0, 0);
@@ -104,7 +104,6 @@ while let Some(block) = walk.next_block() {
 // Every block reads but one chunk, which has one bad segment.
 assert_eq!((bad_segments, reports), (1, 0));
 assert!(good > 50);
-# Ok::<(), ww_tape_example::Error>(())
 ```
 
 Resync has no sequence number check, since damage can hide any block, and guards against a repeated number instead. It

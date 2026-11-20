@@ -186,6 +186,8 @@ Covers `ww_tape` 0.1.0.
 - `ww_tape_example` damages the last piece three ways and writes the run onto a raw card over an earlier run (BOOK-3).
 - Book: Part V's figures: Prefix against Resync and three loss cases drawn from the drive; checksums and gap probes by hand (BOOK-2).
 - Book: "When bytes go bad": the checks, a flipped bit in the drive's archive costing one segment, Prefix and Resync (BOOK-2).
+- Book: "Where the data ends on a raw card": sessions, stale data, gaps, duplicates, on the drive's card (BOOK-2).
+- Book: the appendix "Lessons from tape and flash" names the sources of the raw media rules (BOOK-2).
 - `TapeWriter::close_with_summary` places a close summary (kind 14) the close names; `TapeReader::close_summary` reads it (WRITE-7).
 - `TapeReader::unclosed` names the bytes no close covers; `TapeReader::closed_entries` lists only blocks the close in force covers (WRITE-7).
 - A piece closes more than once: an append head after the tail, a chained close hash, `TapeReader::closes` (WRITE-7).

@@ -40,7 +40,7 @@ The pages in [`docs/`](docs) explain the format. They start with these:
 
 - [Tapes](docs/index.md): records, clocks, the anatomy of a file;
 - [Events and series](docs/events_and_series.md);
-- [Damage and recovery](docs/recovery.md);
+- [When bytes go bad](docs/damage.md);
 - the [Format reference](docs/format.md).
 
 The pages form the ww_tape book, which `just book` builds with Zensical.
