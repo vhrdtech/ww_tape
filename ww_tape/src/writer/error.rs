@@ -62,6 +62,10 @@ pub enum InputError {
     /// The next piece's head would carry more than `max` tracks ([HEAD_TRACKS_MAX](crate::HEAD_TRACKS_MAX)): each
     /// track the chain's pieces carried or gave data. Nothing is written; a new chain takes the track.
     TooManyCarried { max: usize },
+    /// The definitions the next piece's head carries, with the layout and the producer, would take `needed` state
+    /// entries, more than the index policy's `max` ([IndexPolicy::state_entries_max](crate::index::IndexPolicy)). A
+    /// write that would bring them there is refused, nothing written; a cut, before the piece ends.
+    CarriedEntries { needed: usize, max: usize },
     /// A caller's block of `kind` with header `flags` its kind doesn't take: reserved bits, or a flag only the
     /// writer sets. A records block may carry [FLAG_BODY_CODED](crate::FLAG_BODY_CODED), other kinds none.
     Flags { kind: BlockKind, flags: u16 },
@@ -113,8 +117,8 @@ pub enum ResumeError {
     Damaged { offset: u64 },
 }
 
-/// Why [TapeWriter::cut_in_place] failed: the error, and the writer when the cut was refused before anything was
-/// written.
+/// Why a cut ([TapeWriter::cut_on], [TapeWriter::cut_with], [TapeWriter::cut_in_place]) failed: the error, and the
+/// writer when the cut was refused before anything was written.
 pub struct CutError<S: TapeSink> {
     /// Why.
     pub error: WriteError<S::Error>,
@@ -221,6 +225,10 @@ impl core::fmt::Display for InputError {
             Self::TooManyCarried { max } => write!(
                 f,
                 "more than {max} tracks carried into the next piece's head: start a new chain"
+            ),
+            Self::CarriedEntries { needed, max } => write!(
+                f,
+                "the next piece's head would carry definitions taking {needed} state entries, more than {max}: start a new chain"
             ),
             Self::SummaryTooLong { len, max } => write!(
                 f,

@@ -271,8 +271,9 @@ pub use clock::{Clock, ClockRef};
 pub mod writer;
 #[cfg(feature = "alloc")]
 pub use writer::{
-    Closed, CutError, DEFER_WINDOW, HEAD_ENTRIES, InputError, NearPolicy, Placed, PutWork,
-    RemovedRefusal, ResumeError, Resumed, SyncPolicy, TapeWriter, WriteError, WriterOptions,
+    CARRIED_BLOCK_LEN, Closed, CutError, DEFER_WINDOW, HEAD_ENTRIES, InputError, NearPolicy,
+    Placed, PutWork, RemovedRefusal, ResumeError, Resumed, SyncPolicy, TapeWriter, WriteError,
+    WriterOptions,
 };
 
 /// `WWTP`

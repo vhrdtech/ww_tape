@@ -137,8 +137,9 @@ Writing pieces and chains, resuming them, sinks in memory, in the crate `ww_tape
 
 - ✅ **WRITE-9 A new piece carries its quiet tracks' definitions**
   - A cut puts the definition of every track the new head carries, with its clocks, maps and bundles, right after the head. Dropping older pieces keeps a quiet track's kind, clock and label.
-  - A cut without room for their state entries is refused before the piece ends; the writer comes back. A resume that kept only the head puts them with the next call.
-  - Cost at 1000 tracks and 8 MiB pieces: 2.5 % less data and 1.3 % more bytes per piece (`just bench-carried`).
+  - Blocks of at most 4 KiB, each with the clocks and maps of its own tracks: a damaged block costs only its tracks. Bundles come once, first.
+  - A write that would leave the next cut without room for their state entries is refused (`InputError::CarriedEntries`). A resume that kept only the head puts them with the next call.
+  - Cost at 1000 tracks and 8 MiB pieces: 2.5 % less data and 2.8 % more bytes per piece (`just bench-carried`).
   - Read more: [The definitions a new piece carries](docs/syncing_and_cuts.md#the-definitions-a-new-piece-carries). Tests `quiet.rs`.
 
 ## Reader (`READ`)

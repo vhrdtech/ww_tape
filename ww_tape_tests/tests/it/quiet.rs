@@ -2,7 +2,7 @@
 
 use ww_tape::index::IndexPolicy;
 use ww_tape::{
-    Definitions, IndexError, MemSink, MemTapes, OwnerId, PieceChain, SessionTag, Slot, SyncPolicy,
+    Definitions, InputError, MemSink, MemTapes, OwnerId, PieceChain, SessionTag, Slot, SyncPolicy,
     TapeReader, TapeSink, TapeWriter, WriteError,
 };
 
@@ -162,7 +162,7 @@ fn a_cut_without_room_for_the_carried_definitions_keeps_the_writer() {
     assert!(
         matches!(
             refused.error,
-            WriteError::Index(IndexError::StateEntries { max: 5, used: 6 })
+            WriteError::Input(InputError::CarriedEntries { needed: 6, max: 5 })
         ),
         "{:?}",
         refused.error
@@ -205,7 +205,7 @@ fn a_chain_cut_without_room_keeps_its_piece() {
         .unwrap();
     assert!(matches!(
         chain.cut_now(defs),
-        Err(WriteError::Index(IndexError::StateEntries { .. }))
+        Err(WriteError::Input(InputError::CarriedEntries { .. }))
     ));
     assert_eq!(chain.seq(), 0);
     chain
@@ -263,4 +263,142 @@ fn a_resume_after_a_cut_puts_the_carried_definitions_again() {
     again.write_chunk(defs, &h, &column(&c)).unwrap();
     again.close().unwrap();
     assert_eq!(tape.to_vec().unwrap(), whole);
+}
+
+/// A write that would bring the definitions the next head carries past the index policy's state entries is refused
+/// with [InputError::CarriedEntries], nothing written; a cut then always has room for them, and the chain writes on.
+/// Each carried block repeats its tracks' clock, so the next head can need more entries than the piece holds.
+#[test]
+fn a_track_past_the_carried_entries_is_refused_at_its_write() {
+    let mut defs = Definitions::new();
+    let mut all = vec![crate::definitions::clock(CLOCK)];
+    all.extend((1..=200).map(|n| crate::definitions::track(n, CLOCK)));
+    defs.define_all(&all).unwrap();
+    let mut chain = PieceChain::create_on(
+        MemTapes::new(),
+        OwnerId([0x55; 32]),
+        0,
+        &[],
+        ww_tape::ChainOptions {
+            writer: ww_tape::WriterOptions {
+                sync: SyncPolicy::None,
+                index: IndexPolicy {
+                    state_entries_max: 105,
+                    ..IndexPolicy::default()
+                },
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let mut written = 0;
+    let refused = loop {
+        let (h, c) = chunk(written, 0);
+        match chain.write_chunk(&defs, &h, &column(&c)) {
+            Ok(_) => written += 1,
+            Err(e) => break e,
+        }
+        assert!(written < 200, "never refused");
+    };
+    assert!(
+        matches!(
+            refused,
+            WriteError::Input(InputError::CarriedEntries { max: 105, .. })
+        ),
+        "{refused:?}"
+    );
+    assert!(written > 50, "{written} tracks");
+    chain.cut_now(&defs).unwrap();
+    for t in 0..written {
+        let (h, c) = chunk(t, 1);
+        chain.write_chunk(&defs, &h, &column(&c)).unwrap();
+    }
+    let pieces = chain.close().unwrap();
+    assert_eq!(pieces.len(), 2);
+}
+
+/// Carried blocks are at most [CARRIED_BLOCK_LEN](ww_tape::CARRIED_BLOCK_LEN) and each holds the clock its tracks
+/// count on: one damaged block costs only its own tracks, never another block's clock.
+#[test]
+fn a_damaged_carried_block_costs_only_its_own_tracks() {
+    let mut defs = Definitions::new();
+    let mut all = vec![crate::definitions::clock(CLOCK)];
+    all.extend((1..=200).map(|n| crate::definitions::track(n, CLOCK)));
+    defs.define_all(&all).unwrap();
+    let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
+    w.set_session(SessionTag::writable(0x7175_6967)).unwrap();
+    let owner = OwnerId([0x56; 32]);
+    let head = ww_tape::PieceHead {
+        ident: ww_tape::PieceIdent {
+            id: ww_tape::piece::PieceId::first(&owner),
+            owner,
+            seq: 0,
+        },
+        prev: None,
+        prev_session: SessionTag::NONE,
+        integrity: ww_tape::Integrity::Full,
+    };
+    w.begin_piece(&head, &[]).unwrap();
+    for t in 0..200 {
+        let (h, c) = chunk(t, 0);
+        w.write_chunk(&defs, &h, &column(&c)).unwrap();
+    }
+    let (_, mut next) = w.cut_on(&defs, MemSink::new()).unwrap();
+    let tape = next.sink().tape();
+    let (h, c) = chunk(0, 1);
+    next.write_chunk(&defs, &h, &column(&c)).unwrap();
+    next.close().unwrap();
+    let bytes = tape.to_vec().unwrap();
+
+    let carried: Vec<_> = crate::definitions::record_blocks(&bytes)
+        .into_iter()
+        .filter(|b| b.repeat && b.first_track == Some(0))
+        .collect();
+    // the layout and the producer, then the carried blocks: each but the first holds the clock
+    let clock = Slot::Clock { number: CLOCK };
+    let with_clock: Vec<_> = crate::definitions::puts(&bytes)
+        .into_iter()
+        .filter(|(_, slots)| slots.contains(&clock))
+        .collect();
+    assert!(with_clock.len() >= 4, "{} carried blocks", with_clock.len());
+    for (_, slots) in &with_clock {
+        assert_eq!(slots[0], clock);
+    }
+    for b in &carried {
+        assert!(
+            b.bytes.len() <= ww_tape::CARRIED_BLOCK_LEN,
+            "{}",
+            b.bytes.len()
+        );
+    }
+
+    // damage the second carried block holding the clock
+    let blocks: Vec<&Vec<u8>> = carried
+        .iter()
+        .map(|b| &b.bytes)
+        .filter(|b| {
+            crate::definitions::puts(b)
+                .first()
+                .is_some_and(|(_, s)| s.contains(&clock))
+        })
+        .collect();
+    let second = blocks[1];
+    let at = bytes
+        .windows(second.len())
+        .position(|w| w == &second[..])
+        .unwrap();
+    let mut damaged = bytes.clone();
+    damaged[at + second.len() / 2] ^= 0xff;
+    let r = TapeReader::open(&damaged[..]).unwrap();
+    let defs_at = r.definitions_at(0, u64::MAX).unwrap();
+    assert!(!defs_at.lost.is_empty());
+    assert!(defs_at.items.contains_key(&clock));
+    let tracks = defs_at
+        .items
+        .keys()
+        .filter(|s| matches!(s, Slot::Track { .. }))
+        .count();
+    let lost = crate::definitions::puts(second)[0].1.len() - 1;
+    assert_eq!(tracks, 200 - lost, "{lost} tracks in the damaged block");
 }
