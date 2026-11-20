@@ -43,6 +43,7 @@ nav = [
     },
     { "Reference" = [
             "format.md",
+            "glossary.md",
             { "Features and roadmap" = "https://github.com/vhrdtech/ww_tape/blob/main/FEATURES.md" },
             { "Changelog" = "https://github.com/vhrdtech/ww_tape/blob/main/CHANGELOG.md" }
         ]
@@ -50,8 +51,10 @@ nav = [
 ]
 
 # figures.css: the classes of the SVG figures the pages inline from docs/figures and docs/plots, light and dark;
-# hero.css: the logo at the top of index.md
-extra_css = ["stylesheets/vhrd.css", "stylesheets/figures.css", "stylesheets/hero.css"]
+# hero.css: the logo at the top of index.md; spl-refs.css and spl-refs.js: the cards of glossary terms and code links,
+# written by `spl book refs` (`just book-refs`)
+extra_css = ["stylesheets/vhrd.css", "stylesheets/figures.css", "stylesheets/hero.css", "stylesheets/spl-refs.css"]
+extra_javascript = ["javascripts/spl-refs.js"]
 
 [project.theme]
 favicon = "assets/ww_tape_icon.svg"
@@ -144,3 +147,8 @@ pymdownx.tasklist = {
   custom_checkbox = true
 }
 pymdownx.tilde = {}
+# `[[term]]`: a glossary term from docs/glossary.toml, its entry on hover; glossary.md lists every entry
+"spl_book_ext.glossary" = {}
+# [`Name`], [`file.rs`], [`file.rs:section`]: an item or file of these crates, its code on hover, its lines on GitHub
+# on click; a name that matches nothing fails the build
+"spl_book_ext.code_refs" = { crates = ["ww_tape", "ww_tape_codecs", "ww_tape_summary", "ww_tape_fs"] }

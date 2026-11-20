@@ -217,6 +217,10 @@ The pages in `docs/`.
   - The pages build as a Zensical site of their own. A broken link or anchor fails `just book-check`, which runs in CI.
   - The book links the WireWeaver and logring books and includes neither. It is published from main to https://tape.vhrd.tech/ once CI passes.
   - Read more: [Tapes](docs/index.md).
+- 🚧 **BOOK-2 A book that teaches**
+  - Done: `[[term]]` marks a glossary term and ``[`Item`]`` links code, both with a card on hover; a stale name fails `just book-check`.
+  - Open: six parts in dependency order, reading levels, one running example, tested code in every guide chapter.
+  - Read more: [Glossary](docs/glossary.md).
 
 ## Repository (`REPO`)
 
