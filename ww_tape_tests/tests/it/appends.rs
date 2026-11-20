@@ -275,3 +275,40 @@ fn a_close_with_nothing_appended_writes_nothing() {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
+
+/// A block deferred after a resume of a closed aligned piece waits for a gap, and is still waiting at the close: the
+/// close with nothing else written appends it, then a new close, and never drops it.
+#[test]
+fn a_deferred_block_waiting_at_the_close_is_appended() {
+    let mut w = begin(ALIGNMENT);
+    write(&mut w, 0..6);
+    let old = close(w);
+    let (mut w, _) = reopen(&old, ALIGNMENT);
+    let block = crate::pieces::records(w.next_id(), 6);
+    w.defer_block(crate::definitions::base_defs(), block)
+        .unwrap();
+    let got = close(w);
+    assert_eq!(got[..old.len()], old[..]);
+    assert_eq!(crate::reclose::ticks(&got), (0..7).collect::<Vec<_>>());
+    assert_eq!(closes(&got).len(), 2);
+}
+
+/// `PieceInfo::closed_end` takes only a tail that ends the close in force: given an older tail, it names no end.
+#[test]
+fn closed_end_takes_only_a_tail_that_ends_its_close() {
+    let mut w = begin(0);
+    write(&mut w, 0..6);
+    let old = close(w);
+    let (mut w, _) = reopen(&old, 0);
+    write(&mut w, 6..9);
+    let new = close(w);
+    let older = TapeReader::open(&old[..]).unwrap().pieces()[0]
+        .tail
+        .unwrap();
+    let r = TapeReader::open(&new[..]).unwrap();
+    let mut p = r.pieces()[0].clone();
+    assert_eq!(p.closed_end(), Some(new.len() as u64));
+    p.tail = Some(older);
+    assert_eq!(p.closed_end(), None, "an older tail ends no close in force");
+    assert!(!p.is_closed());
+}
