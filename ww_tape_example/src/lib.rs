@@ -39,6 +39,7 @@
 mod card;
 mod damage;
 mod defs;
+pub mod fault;
 pub mod first_tape;
 mod record;
 mod signals;

@@ -88,6 +88,7 @@ impl Acts {
         let summaries = if drive.summaries {
             let def = crate::defs::phase_def(drive.phase_hz, true)
                 .ok_or(Error::Settings("phase_hz is not 0"))?;
+            // --8<-- [start:summaries]
             let start = SeriesStart {
                 track_id: key("phase_a"),
                 track_number: PHASE_A,
@@ -97,6 +98,7 @@ impl Acts {
                 period: def.period,
             };
             Some(SeriesSummaries::new(start, crate::defs::phase_summaries())?)
+            // --8<-- [end:summaries]
         } else {
             None
         };
@@ -221,11 +223,14 @@ impl Acts {
                 head: Box::new(head),
                 columns: vec![(spec, bytes)],
             });
+            // --8<-- [start:push]
             if let Some(s) = &mut self.summaries {
-                s.push(&values, 0)?;
+                s.push(&values, 0)?; // a second of samples, flags 0
+                // the blocks of the levels that filled, for the writer's defer_block
                 self.queue
                     .extend(s.take_blocks().into_iter().map(Act::Summary));
             }
+            // --8<-- [end:push]
         }
         Ok(())
     }

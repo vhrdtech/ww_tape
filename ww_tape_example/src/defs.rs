@@ -103,6 +103,7 @@ static PATHS: [[UNib32; 1]; 6] = [
 
 /// The summaries of `phase_a`: minimum, maximum, sum and sum of squares per node of 1024 samples.
 pub fn phase_summaries() -> SeriesSummarySpec {
+    // --8<-- [start:spec]
     SeriesSummarySpec {
         base_shift: 10,
         stats: SeriesStats {
@@ -117,6 +118,7 @@ pub fn phase_summaries() -> SeriesSummarySpec {
         },
         clip: None,
     }
+    // --8<-- [end:spec]
 }
 
 /// The `phase_a` series definition at `hz` samples a second.

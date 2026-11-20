@@ -11,6 +11,7 @@
 use ww_tape::index::{IndexBlock, IndexKind};
 use ww_tape::reader::Found;
 use ww_tape::{BlockKind, FLAG_REPEAT, FileBlocks, Recovery};
+use ww_tape_example::fault::Fault;
 use ww_tape_example::{Damaged, Drive, EARLIER_CHAIN, Error, Recording, Salvaged, Story};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -38,6 +39,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         wrote.len(),
         at.join(", ")
     );
+    println!();
+    print!("{}", Fault::find(&recording.pieces)?);
     println!();
     print_damage(&drive, &recording)?;
     println!();
