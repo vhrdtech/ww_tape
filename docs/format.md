@@ -97,7 +97,7 @@ one.
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/plots/block.svg"
 <figcaption>A records block of two records, byte by byte, drawn by <code>ww_tape_figures</code>. The body holds the
-clock table and each record's head, time delta, length and item.</figcaption>
+clock table and each record's track, time delta, length and item.</figcaption>
 </figure>
 
 ### Block kinds

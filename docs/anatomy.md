@@ -5,16 +5,17 @@ level: basic
 # Anatomy of a piece
 
 The drive's hour lies in four files, one per quarter of an hour. Each is a [[piece]]: a file that reads alone, with its
-own definitions, its own index and a fixed end. This chapter follows the first piece from its first byte to its last,
-and shows how a reader finds its way in it. After it you can point at the head, the checkpoints, the final index, the
-close and the tail of a piece. You can also say why the same input gives the same bytes.
+own [[definitions]], its own index and a fixed end. This chapter follows the first piece from its first byte to its
+last, and shows how a [[reader]] finds its way in it. After it you can point at the [[piece head]], the [[checkpoints]],
+the [[final index]], the [[close]] and the [[tail]] of a piece. You can also say why the same input gives the same
+bytes.
 
-## From head to tail
+## From piece head to tail
 
-A piece starts with a [[piece head]], which gives the piece's ids, the [[owner id]] and the hash of the piece before it.
-The writer then puts the producer, the layout and the definitions the first data needs. The data follows, with the
-[[puts]] each block needs just before it, and every 4 MiB an index block called a [[checkpoint]]. Three blocks end the
-piece: a [[final index]], a [[close]] record and a [[tail]].
+A [[piece]] starts with a [[piece head]], which gives the piece's ids, the [[owner id]] and the hash of the piece before
+it. The [[writer]] then puts the [[producer]], the [[layout]] and the [[definitions]] the first data needs. The data
+follows, with the [[puts]] each block needs just before it, and every 4 MiB an index block called a [[checkpoint]].
+Three [[blocks]] end the piece: a [[final index]], a [[close]] record and a [[tail]].
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/plots/piece.svg"
@@ -23,8 +24,9 @@ need, two checkpoints, the final index, the close with its padding, and the 164-
 <code>ww_tape_figures</code> from a small piece that <code>PieceChain</code> wrote.</figcaption>
 </figure>
 
-The drive's first piece holds the first 15 minutes of the run in 28 MiB. The series chunks of `phase_a` take most of it,
-and the blocks a reader uses to find its way take less than 3 %. `cargo run -p ww_tape_example` prints this table:
+The drive's first piece holds the first 15 minutes of the run in 28 MiB. The [[series chunks]] of `phase_a` take most of
+it, and the blocks a [[reader]] uses to find its way take 2.66 % of it. `cargo run -p ww_tape_example` prints this table
+and that share:
 
 | Blocks | Count | Bytes |
 |---|---:|---:|
@@ -44,8 +46,9 @@ alone in a file, or one of several pieces back to back.
 
 ## Checkpoints while the piece grows
 
-While the writer writes a piece, nothing marks its end yet. The writer therefore places a checkpoint about every 4 MiB.
-Each checkpoint lists every block placed since the previous checkpoint, and points back at that checkpoint.
+While the [[writer]] writes a [[piece]], nothing marks its end yet. The writer therefore places a [[checkpoint]] about
+every 4 MiB. Each checkpoint lists every [[block]] placed since the previous checkpoint, and points back at that
+checkpoint.
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/plots/checkpoints.svg"
@@ -55,35 +58,39 @@ to all. At the end, the close names the final index and the newest checkpoint, a
 instead of every 4 MiB.</figcaption>
 </figure>
 
-A reader of an unclosed piece finds the newest checkpoint from the end of the bytes, and follows the checkpoints back.
-It then knows every block before the newest checkpoint without reading them, and scans only the stretch after it. [When
-the power fails](crashes.md) shows the scan on a piece that a crash cut off.
+A [[reader]] of an unclosed piece finds the newest checkpoint from the end of the bytes, and follows the checkpoints
+back. It then knows every block before the newest checkpoint without reading them, and scans only the stretch after it.
+[When the power fails](crashes.md) shows the scan on a piece that a crash interrupted.
 
 ## The end of a closed piece
 
-The final index lists every block of the piece, sorted by track, with a directory of tracks in its head. A reader of one
-track out of thousands reads that directory and that track's list, and nothing else. The drive's final index takes 405
-KiB for 28 MiB of data.
+The [[final index]] lists every [[block]] of the [[piece]], sorted by track, with a directory of [[tracks]] at its
+start. A [[reader]] of one track out of thousands reads that directory and that track's list, and nothing else. The
+drive's final index takes 414520 bytes for 28 MiB of data.
 
-The close record states how the piece ended. It holds the piece's [[content hash]], a hash over every byte before the
-close, made with BLAKE3 (a cryptographic hash function). It also holds each track's totals: its items, its ticks and its
-running hash. Finally it gives the offsets of the final index and of the newest checkpoint.
+The [[close record]] states how the piece ended. Besides the reason, it holds three things:
 
-The tail is the piece's last 164 bytes. It gives the piece's length and the place of the close. A reader that starts at
-the end of the bytes thus finds everything from there. The close pads the piece so that the tail ends on a multiple of 4
-KiB. File systems that clone files by block can then join pieces back to back into one file without copying a byte.
+- the piece's [[content hash]], a hash over every byte before the close, made with BLAKE3 (a cryptographic hash
+  function);
+- each track's totals: its [[items]], its [[ticks]] and its running hash;
+- the offsets of the final index and of the newest [[checkpoint]].
 
-A file that a writer started without a piece head, a plain stream of blocks, is still a valid tape. It reads as one
-piece with no ids.
+The [[tail]] is the piece's last 164 bytes. It gives the piece's length and the place of the close. A reader that starts
+at the end of the bytes thus finds everything from there. The close pads the piece so that the tail ends on a multiple
+of 4 KiB. File systems that clone files by block can then join pieces back to back into one file without copying a byte.
+
+A file that a [[writer]] started without a [[piece head]], a plain stream of blocks, is still a valid [[tape]]. It reads
+as one piece with no ids.
 
 ## Reading by position
 
-A [`TapeReader`] reads a piece through any [[byte source]], a source of bytes that reads at an offset. Three examples
-are a slice in memory, a file opened as a [`FileSource`], and a resource fetched over HTTP by range requests. The reader
-needs no file system and no threads, so it also runs in a browser.
+A [`TapeReader`] reads a [[piece]] through any [[byte source]], a source of bytes that reads at an offset. Three
+examples are a slice in memory, a file opened as a [`FileSource`], and a resource fetched over HTTP by range requests.
+The [[reader]] needs no file system and no threads, so it also runs in a browser.
 
-The reader opens a closed piece with a few small reads: the tail, the close and the final index's directory. After that,
-it reads only the blocks a query needs. This test records the drive at 1/1000 of its data and opens its first piece:
+The reader opens a [[closed]] piece with a few small reads: the [[tail]], the close and the [[final index]]'s directory.
+After that, it reads only the [[blocks]] a query needs. This test records the drive at 1/1000 of its data and opens its
+first piece:
 
 ```rust
 use ww_tape::{PIECE_ALIGN, TapeReader};
@@ -106,18 +113,18 @@ assert_eq!(drive.record().expect("the run records").pieces, recording.pieces);
 
 ## Same input, same bytes
 
-A writer given the same input writes the same bytes, for these reasons:
+A [[writer]] given the same input writes the same bytes, for these reasons:
 
-- Blocks hold no wall time.
-- Definitions go in the order the application makes them.
-- Puts and copies follow from the bytes before them.
-- The writer cuts blocks by size rather than by time.
-- Every codec is integer-only, or uses arithmetic that every platform rounds the same way.
+- [[Blocks]] hold no wall time.
+- [[Definitions]] go in the order the application makes them.
+- [[Puts]] and copies follow from the bytes before them.
+- The writer ends blocks by size rather than by time.
+- Every [[codec]] is integer-only, or uses arithmetic that every platform rounds the same way.
 
-A producer gives up this property for the blocks it seals on a timer, and for the pieces it cuts by age. The lz4 codec
-is one more exception. An lz4-coded payload column is byte-identical only for one version of the lz4 library, and only
-on targets of one pointer width and byte order. The exception does not affect decoding.
+A [[producer]] gives up this property for the blocks it seals on a timer, and for the [[pieces]] it [[cuts]] by age. The
+lz4 codec is one more exception. An lz4-coded [[payload]] [[column]] is byte-identical only for one version of the lz4
+library, and only on targets of one pointer width and byte order. The exception does not affect decoding.
 
 Deterministic output makes files comparable by hash. A test can pin a file's exact bytes, and two machines that recorded
-the same feed can confirm that they hold the same data. The drive's recording relies on it: a resume after the crash at
-minute 37 gives the bytes of the run without the crash.
+the same feed can confirm that they hold the same data. The drive's recording relies on it: a [[resume]] after the crash
+at minute 37 gives the bytes of the run without the crash.

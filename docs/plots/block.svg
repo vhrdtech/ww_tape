@@ -127,7 +127,7 @@
 <text x="126.0" y="251.0" text-anchor="middle" class="teal">clocks</text>
 <text x="126.0" y="266.0" text-anchor="middle" class="soft small">1: clock 1</text>
 <path d="M162.0 232.0 v4 H192.0 v-4" class="blue"/>
-<text x="177.0" y="251.0" text-anchor="middle" class="blue">head</text>
+<text x="177.0" y="251.0" text-anchor="middle" class="blue">track</text>
 <text x="177.0" y="266.0" text-anchor="middle" class="soft small">trk 2</text>
 <path d="M196.0 232.0 v4 H294.0 v-4" class="amber"/>
 <text x="245.0" y="251.0" text-anchor="middle" class="amber">Δ ticks</text>
@@ -139,7 +139,7 @@
 <text x="364.0" y="251.0" text-anchor="middle" class="ink">item</text>
 <text x="364.0" y="266.0" text-anchor="middle" class="soft small">"ok"</text>
 <path d="M400.0 232.0 v4 H430.0 v-4" class="blue"/>
-<text x="415.0" y="251.0" text-anchor="middle" class="blue">head</text>
+<text x="415.0" y="251.0" text-anchor="middle" class="blue">track</text>
 <text x="415.0" y="266.0" text-anchor="middle" class="soft small">trk 3</text>
 <path d="M434.0 232.0 v4 H498.0 v-4" class="amber"/>
 <text x="466.0" y="251.0" text-anchor="middle" class="amber">Δ ticks</text>
