@@ -6,9 +6,9 @@ level: advanced
 
 Every device counts time with its own counter, and no two counters agree exactly. A [[tape]] must keep each device's
 own time exact and still place it on one shared time line. The drive, for example, stamps every [[item]] with its own
-microsecond timer, which starts at 0 when the board boots. The engineer who reads the recording wants wall time: the
-fault came at 09:52, not at 3 120 000 000 µs after boot. The board's crystal also runs 20 parts per million (ppm)
-fast, so its microseconds are not quite the host's.
+microsecond timer, which starts at 0 when the board boots. A reader of the recording wants wall time: the fault came
+at 09:52, not 3 120 000 000 µs after boot. The board's crystal also runs 20 ppm fast, so its microseconds are not
+quite the host's.
 
 A tape defines each of its [[clocks]] with an exact rate and maps each device clock onto the host's. [[Epochs|epoch]]
 keep a long capture in 64-bit ticks.
@@ -77,7 +77,7 @@ over a range of the first clock `a`. A segment says `b = b0 + (a - a0) · slope`
 the second clock `b`. The slope is a reduced fraction, so a fitted drift such as 1000000007/999999931 stays exact.
 
 The drive's map takes the board's microseconds to the host's nanoseconds. Its one segment starts at the board's boot,
-tick 0, which the host stamped at 09:00:00 Coordinated Universal Time (UTC). Its slope is 49999/50 ns per µs, because
+tick 0, which the host stamped at 09:00:00 UTC. Its slope is 49999/50 ns per µs, because
 each microsecond of the fast crystal lasts 999.98 ns. Its error bound is 125 µs, the length of a USB high-speed
 microframe, within which the host stamps what it receives.
 

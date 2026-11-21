@@ -8,9 +8,8 @@ A [[reader]] that opens a recording in the middle needs facts that were first wr
 what each [[track]] is, and which values were in force at that point. A [[tape]] therefore keeps such facts close to
 every place that needs them, so that a reader anywhere finds them within 32 MiB.
 
-At minute 52, for example, the drive faults, and an engineer opens the [[piece]] that holds the fault. That piece is
-the last of four, and the engineer has only it. To read it, the viewer needs the [[definitions]] of the drive's tracks
-and the mode the controller was in, a [[state item]].
+The drive's fault at minute 52, for example, lies in the last of its four [[pieces|piece]]. A viewer that has only
+that piece needs the [[definitions]] of the drive's tracks and the mode the controller was in, a [[state item]].
 
 ## What a definition says
 
@@ -132,7 +131,7 @@ close behind.
 A put is idempotent, so the producer needs no record of what it put before. The drive's recorder puts the mode before
 each one-second [[block]], 901 times while it writes the first piece. Only four of those puts write, as `cargo run -p
 ww_tape_example` prints. They are idle at the start, its copy at 40 seconds, run at minute 1 and its copy at 96 seconds.
-The piece ends at 28 MiB, before the run record lies 32 MiB behind, so no other put writes.
+The piece ends just short of 28 MiB, before the run record lies 32 MiB behind, so no other put writes.
 
 The writer puts [[definitions]] the same way before every block of data, by the [[layout]]'s own policy. The drawing
 shows the rule shrunk, so that a whole cycle fits on one line.

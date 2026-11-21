@@ -53,8 +53,8 @@ Each kind of [[block]] has one job. They fall into four groups:
 | Overview | summary | coarse views of long tracks, rebuilt from the data when lost |
 | Structure | piece head, index, close, tail | where things are, how the file ends, how files chain |
 
-This chapter covers the data blocks. [Definitions and state](definitions.md) covers the description, and [Anatomy of a
-piece](anatomy.md) the structure. [Summaries](summaries.md) covers the overview.
+[Definitions and state](definitions.md) covers the description, [Anatomy of a piece](anatomy.md) the structure and
+[Summaries](summaries.md) the overview.
 
 ## Records blocks
 
@@ -109,7 +109,7 @@ together, all payload lengths, all [[payloads]]. Each column packs its values wi
 
 The difference grows with the number of items. Ninety-six frames take 1574 bytes as [[records]] but 331 bytes as a
 chunk. A [[chunk head]] costs more than a [[records block]]'s header, and its columns save the rest. A chunk of `can0`
-holds a second of frames, 1000 of them, at 2.33 bytes a frame over the whole recording.
+holds a second of frames, 1000 of them, at about 2.3 bytes a frame over the whole recording.
 
 A chunk head also carries what a reader needs to place it alone. It names the track by its [[track id]], gives the
 [[item number]] of its first item and the ticks of its first and last item. It checks its payload in [[segments]] of 64

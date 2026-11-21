@@ -31,9 +31,9 @@ which [Clocks and time](clocks.md) explains. For the drive, every track counts t
 
 ## Number, key and id
 
-A [[track]] has three names, because three [[readers]] need different things. A [[block]] needs a short name it repeats
-in every [[record]]. A reader of two files needs a name that stays the same from file to file. And one sensor may be
-recorded twice side by side, which needs two names for one source.
+A [[track]] has three names, because three uses need different things. A [[block]] needs a short name it repeats in
+every [[record]]. A [[reader]] of two files needs a name that stays the same from file to file. One sensor recorded
+twice side by side needs two names for one source.
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/figures/track_identity.svg"
@@ -46,8 +46,8 @@ The [[track key]] is a 64-bit hash of where the track comes from in the [[produc
 from the resource `can0` of the drive's API, so its key is the hash of that path. Two files of the drive give `can0` the
 same key, whichever program wrote them. [`track_key`] computes it.
 
-A [[dimension]] is a name and value pair, such as `bench = 2`, that tells apart tracks of one key. A test hall with two
-benches records the same `can0` resource twice, once per bench. The [[track id]] is a hash of the key and the
+A [[dimension]] is a name and value pair, such as `bench = 2`, that tells apart tracks of one key. Two benches that
+record the same `can0` resource tell their tracks apart by `bench = 1` and `bench = 2`. The [[track id]] is a hash of the key and the
 dimensions, and a track without dimensions has its key as its id. [`describe::track_id`] computes it. A [[chunk]]
 carries the id, so it names its track even to a reader without the definitions.
 
@@ -125,5 +125,5 @@ needs a fixed rate.
 | Items | any WireWeaver value | numbers, one or more channels a sample |
 | The drive's tracks | `log`, `mode`, `can0`, `temp` | `phase_a` |
 
-[Events](events.md) and [Series](series.md) explain how each kind keeps its items, and [Blocks](blocks.md) shows the
-blocks that hold them.
+[Blocks](blocks.md) shows the blocks that hold each kind, and [Events](events.md) and [Series](series.md) how a reader
+reads them.

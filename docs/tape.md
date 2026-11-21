@@ -4,11 +4,13 @@ level: basic
 
 # What a tape holds
 
-A [[tape]] is a recording of typed values over time. Each value is an [[item]], such as one log line or one current
-[[sample]]. The items of one kind form a [[track]], and every item has a time on a [[clock]] that the tape defines.
+A [[tape]] is a recording of typed values over time, such as the log lines and currents of a device under test. The
+values come in many kinds and at rates far apart, and a tape keeps each kind in a form that suits it. Each value is an
+[[item]], such as one log line or one current [[sample]]. The items of one kind form a [[track]], and every item has a
+time on a [[clock]] that the tape defines.
 
 The book uses one recording as its example throughout. A motor controller board, the drive, runs for an hour on an
-endurance bench, and a host computer beside it records the board. The recording has five tracks:
+endurance bench, and a host records it over USB. The recording has five tracks:
 
 | Track | What it holds | Rate | Kept in |
 |---|---|---|---|
@@ -18,7 +20,7 @@ endurance bench, and a host computer beside it records the board. The recording 
 | `phase_a` | the phase current, in milliamperes as 16-bit fixed point | 25 000 a second | series chunks |
 | `temp` | the board's temperature | once a second | records blocks |
 
-The tracks differ by a factor of ten thousand in rate, and a tape keeps each in the form that suits it. Slow tracks
+The rates run from once a second to 25 000 times a second. Slow tracks
 share [[records blocks]], in which every [[record]] carries its own track, time and length. A fast track gets
 [[chunks]] of its own, in which the times and values lie in [[columns]]. A [[block]] of either kind checks itself, so
 a [[reader]] can trust it, or skip it, without reading anything else.
@@ -33,7 +35,7 @@ its pieces. At full rate a block covers a second, not a minute.</figcaption>
 
 The `mode` track differs from the other four. Its items are not a stream of [[events]] but a [[state]]: the mode in
 force until the next one. A reader that opens the recording at minute 40 needs the mode in force there, and the
-format makes sure it finds that mode nearby. The section [below](#state-tracks-and-near-use) says how.
+format makes sure it finds that mode nearby.
 
 ## One format, three uses
 
@@ -48,8 +50,8 @@ a PC, or onto a card without a file system.</figcaption>
 
 - A [[live feed]] hands each block to a consumer as soon as it exists. A viewer on the bench draws the drive's
   current while the run goes on.
-- A file on a PC holds the recording for later. The bench host keeps the drive's hour this way,
-  and the next chapter writes such a file.
+- A file on a PC holds the recording for later. The bench host keeps the drive's hour this way, and the program of
+  [A first tape](first_tape.md) writes such a file.
 - A [[raw medium]], such as an [[SD]] card, holds the blocks without a file system. A [[reader]]
   finds the data again after a power failure. The recorder that writes there has a host-class processor and RAM. A
   recorder that is itself a small device takes [logring](related_books.md#logring-a-log-store-on-the-device) instead.
@@ -95,8 +97,8 @@ A long recording does not go into one ever-growing file. At each [[cut]], the [[
 starts the next. A piece is a complete file that reads alone, with an index, a [[close record]] and a [[tail]] at the
 end. The bench host cuts the drive's hour every 15 minutes, which gives four pieces of about 27 MB to 30 MB.
 
-The pieces of one recording form a [[chain]]. Each piece names the piece before it by its [[content hash]], and the
-next one by its id. A [[reader]] can therefore tell when a piece is missing. Deleting the oldest piece frees space,
+The pieces of one recording form a [[chain]]. Each piece's head names the piece before it by its [[content hash]]
+and its id. Its [[tail]] names the next piece by its id. A [[reader]] can therefore tell when a piece is missing. Deleting the oldest piece frees space,
 and a reader tells a chain that lost its first pieces this way apart from a damaged one.
 
 A closed piece ends on a multiple of 4 KiB. A file system that shares extents, such as btrfs, can therefore clone
@@ -120,6 +122,5 @@ of 256 MiB in [[records blocks]] of 4 KiB takes its heap to a peak of about 44 M
 ww_tape spends that memory on many [[tracks]], an index, summaries, column codecs and chains of pieces.
 
 Firmware on a small device keeps its log in [logring](https://lr.vhrd.tech/) instead. That store writes a ring on an SD
-card or a flash chip with no heap and little RAM. A power cut costs it at most the last second.
-[Tapes and logring](https://lr.vhrd.tech/tapes_and_logring/) compares the two.
-[WireWeaver and logring](related_books.md) introduces logring.
+card or a flash chip with no heap and little RAM. A power cut costs it at most the last second. [Tapes and
+logring](https://lr.vhrd.tech/tapes_and_logring/) compares the two.

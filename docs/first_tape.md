@@ -4,9 +4,9 @@ level: basic
 
 # A first tape
 
-The shortest useful program with a tape writes a few items into a file, [[closes|close]] the file, and reads the items
-back. It shows each call a recorder makes, and the bytes the file holds afterwards. Here the bench host writes the
-drive's first minute this way, before it captures the whole hour.
+A recorder writes a tape through a few calls of a [[writer]], and a [[reader]] opens what it wrote. The shortest
+useful program writes items into a file, [[closes|close]] the file and reads the items back. It shows each call a
+recorder makes and what the file holds afterwards. The program here writes the drive's first minute.
 
 ## Running the program
 
@@ -24,9 +24,8 @@ names the file. Then it opens the file and prints one line for each [[track]]:
 --8<-- "ww_tape_example/tests/first_tape.out"
 ```
 
-The counts follow from the drive's rates, which [the first chapter](tape.md) lists. A second
-holds three log lines, one temperature, 1 000 frames and 25 000 [[samples]]. The mode is idle, because the bench
-switches the drive to run only after its first minute. A test checks that the program prints these lines, so they
+The counts follow from the drive's rates, which [What a tape holds](tape.md) lists. A second holds three log lines,
+one temperature, 1 000 frames and 25 000 [[samples]]. The mode is idle, because the drive starts to run only after its first minute. A test checks that the program prints these lines, so they
 change with the code that makes them.
 
 ## The definitions come first
@@ -48,7 +47,7 @@ shows how to define a track of your own.
 
 [`writer::create`] makes a new file at a path and returns a [`TapeWriter`] on it. The program then hands the
 [[writer]] the minute, one act at a time. [`Drive::acts`] makes the acts from the drive's signals, in the order the
-bench sees them, and four calls of the writer take them. A fifth call [[closes|close]] the file:
+host receives them, and four calls of the writer take them. A fifth call [[closes|close]] the file:
 
 ```rs
 --8<-- "ww_tape_example/src/first_tape.rs:write"
@@ -112,5 +111,5 @@ of the piece, so it sees all of them. The mode lies on a [[state track]], so the
 [`TapeReader::state_at`] for the mode in force there.
 
 The program never needed the [[writer]]'s options or the drive's code to read the file. Everything it printed came
-from the file: the names, the kinds and the counts. [Tracks and items](tracks.md) starts the second part of the book,
-which explains what each of those [[blocks]] is.
+from the file: the names, the kinds and the counts. [Tracks and items](tracks.md) explains what a track is and how a
+tape names it.

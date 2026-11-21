@@ -5,12 +5,14 @@
     clippy::indexing_slicing,
     clippy::expect_used,
     clippy::as_conversions,
+    clippy::cast_precision_loss,
     reason = "tests compute expected values freely"
 )]
 
 use ww_tape::TapeReader;
 use ww_tape_example::{
-    CRASH_MINUTE, CRASH_PAST_END, Drive, Error, FAULT_MINUTE, about, emergency_frame, frame,
+    CRASH_MINUTE, CRASH_PAST_END, Drive, Error, FAULT_MINUTE, Recording, Story, about,
+    emergency_frame, frame, parts,
 };
 
 const US_PER_MINUTE: i64 = 60_000_000;
@@ -37,10 +39,10 @@ fn the_full_hour_is_the_same_every_run_and_tells_the_story() -> Result<(), Error
         about(*least.expect("pieces")),
         about(*most.expect("pieces"))
     );
-    let tape = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../docs/tape.md"))
-        .expect("docs/tape.md");
-    let tape = tape.split_whitespace().collect::<Vec<_>>().join(" ");
-    assert!(tape.contains(&phrase), "docs/tape.md says {phrase:?}");
+    assert!(
+        page("tape.md").contains(&phrase),
+        "docs/tape.md says {phrase:?}"
+    );
 
     // the mode is put before each one-second block: the first piece's 900, and the first block of the next, whose put
     // comes before the cut; four puts write: idle, its copy, run at minute 1, its copy
@@ -49,6 +51,7 @@ fn the_full_hour_is_the_same_every_run_and_tells_the_story() -> Result<(), Error
     assert_eq!(wrote, [0, 40_000_000, 60_000_000, 96_000_000]);
 
     let story = whole.story()?;
+    rounded_on_the_pages(&whole, &story, puts, &wrote)?;
     assert_eq!(
         story.crash.piece, 2,
         "the host loses power while it writes the third piece"
@@ -84,6 +87,87 @@ fn the_full_hour_is_the_same_every_run_and_tells_the_story() -> Result<(), Error
     assert_eq!(story.fault_minute, FAULT_MINUTE);
     assert!(at >= i64::from(FAULT_MINUTE) * US_PER_MINUTE);
     assert_eq!(payload[..4], ww_tape_example::EMERGENCY_ID.to_le_bytes());
+    Ok(())
+}
+
+fn page(name: &str) -> String {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../docs/").to_owned() + name;
+    let text = std::fs::read_to_string(&path).expect("a book page");
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// The pages of "How a tape is built" quote the story's numbers, rounded where their precision doesn't matter
+/// (docs/writers.md, "Numbers").
+fn rounded_on_the_pages(
+    whole: &Recording,
+    story: &Story,
+    puts: usize,
+    wrote: &[i64],
+) -> Result<(), Error> {
+    let first = &whole.pieces[0];
+    let parts = parts(first)?;
+    let structure: u64 = parts
+        .iter()
+        .filter(|p| p.is_structure())
+        .map(|p| p.bytes)
+        .sum();
+    let index = parts
+        .iter()
+        .find(|p| p.name == "final index")
+        .expect("a closed piece has a final index");
+    let len = first.len() as u64;
+    let s = |us: i64| us / 1_000_000;
+    for (name, phrase) in [
+        (
+            "tracks.md",
+            format!(
+                "takes about {:.1} bytes a sample",
+                story.sample_bytes as f64 / story.samples as f64
+            ),
+        ),
+        (
+            "blocks.md",
+            format!(
+                "at about {:.1} bytes a frame",
+                story.frame_bytes as f64 / story.frames as f64
+            ),
+        ),
+        (
+            "definitions.md",
+            format!("{puts} times while it writes the first piece"),
+        ),
+        (
+            "definitions.md",
+            format!(
+                "idle at the start, its copy at {} seconds, run at minute {} and its copy at {} seconds",
+                s(wrote[1]),
+                s(wrote[2]) / 60,
+                s(wrote[3])
+            ),
+        ),
+        (
+            "definitions.md",
+            format!("ends just short of {} MiB", len.div_ceil(1 << 20)),
+        ),
+        ("anatomy.md", format!("of the run in about {}", about(len))),
+        (
+            "anatomy.md",
+            format!(
+                "take about {:.1} % of it",
+                structure as f64 * 100.0 / len as f64
+            ),
+        ),
+        (
+            "anatomy.md",
+            format!(
+                "takes about {} of its piece's {}",
+                about(index.bytes),
+                about(len)
+            ),
+        ),
+    ] {
+        assert!(page(name).contains(&phrase), "docs/{name} says {phrase:?}");
+    }
     Ok(())
 }
 

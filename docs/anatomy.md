@@ -8,11 +8,11 @@ A [[piece]] is a file of a recording that reads alone, with its own [[definition
 [[reader]] that opens one must find its way in it: where the data starts, where the index lies, and whether the file
 was closed.
 
-The parts of a piece answer that. A [[piece head]] starts it, and [[checkpoints]] index it as it grows.
+The parts of a piece answer those questions. A [[piece head]] starts it, and [[checkpoints]] index it as it grows.
 A [[final index]], a [[close]] and a [[tail]] end it. The same input gives the same bytes in each of them.
 
-The drive's hour, for example, lies in four pieces, one per quarter of an hour. Its first piece is the case followed
-here, from its first byte to its last.
+The drive's hour, for example, lies in four pieces, one per quarter of an hour, and the numbers below come from the
+first.
 
 ## From piece head to tail
 
@@ -28,8 +28,8 @@ need, two checkpoints, the final index, the close with its padding, and the 164-
 <code>ww_tape_figures</code> from a small piece that <code>PieceChain</code> wrote.</figcaption>
 </figure>
 
-The drive's first piece holds the first 15 minutes of the run in 28 MiB. The [[series chunks]] of `phase_a` take most of
-it, and the blocks a [[reader]] uses to find its way take 2.66 % of it. `cargo run -p ww_tape_example` prints this table
+The drive's first piece holds the first 15 minutes of the run in about 29 MB. The [[series chunks]] of `phase_a` take
+most of it, and the blocks a [[reader]] uses to find its way take about 2.7 % of it. `cargo run -p ww_tape_example` prints this table
 and that share:
 
 | Blocks | Count | Bytes |
@@ -70,12 +70,11 @@ back. It then knows every block before the newest checkpoint without reading the
 
 The [[final index]] lists every [[block]] of the [[piece]], sorted by track, with a directory of [[tracks]] at its
 start. A [[reader]] of one track out of thousands reads that directory and that track's list, and nothing else. The
-drive's final index takes 414520 bytes for 28 MiB of data.
+drive's first final index takes about 415 KB of its piece's 29 MB.
 
 The [[close record]] states how the piece ended. Besides the reason, it holds three things:
 
-- the piece's [[content hash]], a hash over every byte before the close, made with BLAKE3 (a cryptographic hash
-  function);
+- the piece's [[content hash]], a cryptographic BLAKE3 hash over every byte before the close;
 - each track's totals: its [[items]], its [[ticks]] and its running hash;
 - the offsets of the final index and of the newest [[checkpoint]].
 
