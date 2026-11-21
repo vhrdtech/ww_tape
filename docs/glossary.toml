@@ -275,6 +275,12 @@ short = "The first block of a piece: its ids, the owner id, the previous piece's
 chapter = "../anatomy/"
 
 [[term]]
+name = "piece number"
+forms = ["piece numbers"]
+short = "A piece's place in its chain, counted from 0, which its head and close state; the file name plays no part."
+chapter = "../pieces/"
+
+[[term]]
 name = "producer"
 forms = ["producers"]
 short = "The program that makes a tape, such as a recorder on a test bench, a device logger or an analysis tool."
