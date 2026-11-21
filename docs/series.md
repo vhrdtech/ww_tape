@@ -31,9 +31,9 @@ The period is a fraction, so no sample time drifts by rounding. Audio at 48 kHz 
 
 ## Fixed point first
 
-For data a device controls, store fixed-point integers. The drive's current is an `i16` in steps of 1 mA: an `i16`
-on the wire and an `i16` in the column. The scale, 10⁻³ A per step, lives once in the track, not in every sample.
-The numbers stay integers from the device to the file, and nothing passes through a float.
+For data a device controls, store fixed-point integers. The drive's current is an `i16` in steps of 1 mA: an `i16` on
+the wire and an `i16` in the column. The scale, 10⁻³ A per step, lives in the track and in each chunk's head, never in a
+sample. The numbers stay integers from the device to the file, and nothing passes through a float.
 
 Integers also compress best. The writer stores the differences between neighbouring samples, bit-packed per group of
 128 samples, and a smooth signal needs few bits per difference. Fixed point is 1.6 to 9.3 times smaller than the best
@@ -64,12 +64,12 @@ number with the grid, then decodes from that sample on:
 ```
 
 The chunk holds 25 000 samples in a block of 28 284 bytes, at period 40/1 µs and scale 10⁻³. The first sample read is
-item 77 999 500 of `phase_a`. The largest of the 500 is -31 873 mA at 51:59.995, past the 31 A limit, 5 ms before
+item 77 999 500 of `phase_a`. The largest in magnitude is -31 873 mA at 51:59.995, past the 31 A limit, 5 ms before
 the drive tripped. The step reads 29 055 bytes in 7 reads: the definitions in force, to learn the period, and the
 block.
 
-[`ww_tape::Samples::decode`] starts at the group of 128 samples that holds the first sample asked for. A reader of any range
-therefore decodes at most 127 samples it does not need.
+[`ww_tape::Samples::decode`] starts at the group of 128 samples that holds the first sample asked for. A reader of any
+range therefore decodes at most 127 samples it does not need.
 
 ### Gaps and lost samples
 

@@ -177,7 +177,7 @@ Column codecs with no notion of a block, in the crate `ww_tape_codecs`.
   - A sample column holds one element type, such as `I16`, `F32` or `ComplexI16`, in one or more channels. Any range of samples decodes in place.
   - Raw device formats are stored as sent: big-endian and packed 10, 12 and 24 bits, converted on read.
   - Integers code as deltas, bit-packed in groups of 128. Damage costs only its groups, and a payload column can be one lz4 block.
-  - Read more: [Raw device formats](docs/series.md#raw-device-formats). Golden file `v1-samples.hex`; fuzz target `tape-samples`.
+  - Read more: [Sample codecs](docs/format.md#sample-codecs). Golden file `v1-samples.hex`; fuzz target `tape-samples`.
 - ✅ **CODEC-2 Event times** · `v0.5`
   - Starts are implicit, from a period, or a linear fit per group of 128 with bit-packed residuals. Ends are absent, the next start, or packed durations.
   - Times are searched and read in place. A damaged column marks only the bad groups' items suspect.

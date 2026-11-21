@@ -32,7 +32,7 @@ records it over USB into a chain of pieces. [What a tape holds](index.md#what-a-
 and a chapter links that table instead of repeating it.
 
 The board counts time in microseconds since boot and the host in nanoseconds. A clock map joins the two. At minute 37
-the host loses power while it writes piece 3, and at minute 52 the board faults on overcurrent.
+the host loses power while it writes piece 2, and at minute 52 the board faults on overcurrent.
 
 A number in the story comes from running code, never from a hand calculation. The bytes a crash loses and the bytes
 per frame are such numbers.

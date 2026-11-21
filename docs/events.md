@@ -86,5 +86,5 @@ marker the engineer placed, finds it in two steps:
 1. Among `can0`'s [[index entries]], it takes the one whose `first_item` and `count` hold 3 120 000.
 2. In that chunk, it reads item `3 120 000 - first_item` with the calls above.
 
-The address stays valid when the pieces are joined into one file or kept apart. The next chapter proves that
-another file holds the same frames as the bench host's recording.
+The address stays valid when the pieces are joined into one file or kept apart. The next chapter reads the current
+that led to the fault: the samples of `phase_a` in the last 20 ms before 52:00.

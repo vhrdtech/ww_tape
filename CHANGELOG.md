@@ -341,7 +341,8 @@ Covers `ww_tape` 0.1.0.
 
 ### Fixes
 
-- `ww_tape_example`: the drive trips at 31 A, so its overcurrent samples fit 16-bit mA unclipped (BOOK-3).
+- `ww_tape_example`: the drive trips at 31 A and commands that limit, so its overcurrent fits 16-bit mA (BOOK-3).
+- Book: a differing track hash no longer claims different data; the same items in other chunks hash differently (BOOK-2).
 - A close syncs after its final index, before the close record, so a whole close never names unsynced blocks (WRITE-7).
 - A tail counts only right after its close; one naming an older close no longer hides later bytes (WRITE-7).
 - Sample, time and payload column errors name the column as text; the codec error is their `source()` (REPO-1).

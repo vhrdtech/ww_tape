@@ -31,7 +31,9 @@ before the piece, and the close record states it after the piece.
 The hash depends only on the track's own data, not on where the data lies. A track written alone or among other tracks,
 in one piece or many, in one file or many, ends with the same hash.
 
-Two recordings hold the same data for a track exactly when their hashes match. A [subset
+The hash takes in each chunk whole, with its head and how its columns are coded. Two recordings with the same hash
+for a track hold the same chunks, and so the same data. The same items cut into other chunks, or coded with another
+codec, hash differently, so a different hash alone does not prove different data. A [subset
 copy](pieces_and_files.md#copies-of-a-file) that keeps a track's chunks and records unchanged ends with the original's
 hash.
 

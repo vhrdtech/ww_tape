@@ -143,10 +143,10 @@ reference](format.md#resuming-after-a-crash) tells a [[torn end]] from damage by
 ## Resuming a chain
 
 The drive's run is long, so the recorder writes it as a [[chain]] of [[pieces]] in a directory, `00000000.wwt`,
-`00000001.wwt` and so on. The power failed while it wrote piece 3. On restart the recorder calls
+`00000001.wwt` and so on. The power failed while it wrote piece 2. On restart the recorder calls
 [`chain::resume`] with the directory, the [[owner id]], the chain number and its options.
 
-The chain reads pieces 0 to 2 back from their [[tails]] and reopens `00000003.wwt.partial` as a single file resumes.
+The chain reads pieces 0 and 1 back from their [[tails]] and reopens `00000002.wwt.partial` as a single file resumes.
 The recorder then goes on from the first [[block]] the chain lacks, exactly as before. Two crashes at a piece boundary
 resume as well. One comes between closing a piece and creating the next, the other inside the head of the next.
 

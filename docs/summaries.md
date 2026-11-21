@@ -13,9 +13,9 @@ data.
 ## A tree over item numbers
 
 A [[summary node]] covers a run of a track's [[items]] and holds what a viewer needs to draw them. A node at level 0
-covers a power of two of items, 1 024 samples for the drive's current. Each level up, a node covers 16 nodes of the level below:
-at level 1, 16 384 samples. The nodes run over [[item numbers]], not time. A sparse track therefore has no empty
-nodes, and the nodes of two pieces of one track line up.
+covers a power of two of items, 1 024 samples for the drive's current. Each level up, a node covers 16 nodes of the
+level below: at level 1, 16 384 samples. The nodes run over [[item numbers]], not time. A sparse track therefore has no
+empty nodes, and the nodes of two pieces of one track line up.
 
 A track has one of two kinds of tree:
 
@@ -62,19 +62,18 @@ The overview reads 172 summary blocks with 5 494 nodes: 193 352 bytes in 172 rea
 blocks costs more than reading them. `phase_a`'s index entries in the four pieces take 788 282 bytes in 20 reads,
 since the track has a chunk a second. A viewer that opens the recording once keeps the entries in memory.
 
-All 600 columns get nodes. The column with the highest peak is column 519, from 51:54.000, at 31 873 mA. The other
-columns peak at the top of the drive's normal load cycle. The plot thus shows one spike, just before the current
-stops at 52:00.
+All 600 columns get nodes. The column with the highest peak is column 519, from 51:54.000, at 31 873 mA. It holds the
+seconds just before the current stops at 52:00.
 
 ## Zooming in
 
-Next the viewer zooms into that column. It reads the level-0 nodes of the column alone, from the summary blocks whose items
-overlap it, with the same loop. The node with the highest peak covers the 1 024 samples from item 77 999 104, at
+Next the viewer zooms into that column. It reads the level-0 nodes of the column alone, from the summary blocks whose
+items overlap it, with the same loop. The node with the highest peak covers the 1 024 samples from item 77 999 104, at
 51:59.964. The zoom reads 6 756 bytes in 6 reads.
 
 That node lies in the chunk from 51:59.000, which [Series](series.md#grids-where-samples-are-in-time) reads, sample by
-sample. The engineer thus went from the hour to the 500 samples before the trip through summaries and one chunk. [Events](events.md) gave the frames after it, and [Reading a tape](reading.md#state-at-a-place) the mode on
-either side.
+sample. The engineer thus went from the hour to the 500 samples before the trip through summaries and one chunk.
+[Events](events.md) gave the frames after it, and [Reading a tape](reading.md#state-at-a-place) the mode on either side.
 
 ## How nodes merge
 
@@ -108,5 +107,5 @@ drive's recording holds 730 summary blocks of 821 980 bytes, beside 25 373 597 b
 costs nothing that a reader cannot rebuild from the chunks.
 
 The crate `ww_tape` itself reads only a summary block's head, with [`Block::summary_head`], which is enough to list
-the block in the index. [`Summary::of_block`] in `ww_tape_summary` reads the nodes. This part of the book ends here,
-with the fault found in code. [Damage](damage.md) shows what still reads when an archived piece has a flipped bit.
+the block in the index. [`Summary::of_block`] in `ww_tape_summary` reads the nodes. The last chapter of this part
+proves that another file holds the same frames as the bench host's recording.

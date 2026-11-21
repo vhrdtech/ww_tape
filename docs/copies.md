@@ -28,8 +28,9 @@ that belong to another chain. [`ChainReport::is_whole`] says that every piece is
 --8<-- "ww_tape_example/src/fault.rs:check"
 ```
 
-The drive's chain has three links between its four pieces, and all three are linked. The report also tells a chain
-whose first pieces were deleted to free space from one with a piece lost in the middle. [Tape pieces](format.md#tape-pieces) in the format reference lists every case.
+The drive's chain has three links between its four pieces, and all three are linked. The report also tells a chain whose
+first pieces were deleted to free space from one with a piece lost in the middle. [Tape pieces](format.md#tape-pieces)
+in the format reference lists every case.
 
 ## Verifying a piece
 
@@ -37,13 +38,18 @@ A link proves that a piece head names the hash its neighbour states. It does not
 have that hash. [`TapeReader::verify`] does: it hashes the piece's bytes before its close and compares the result with
 the content hash that the close states.
 
-Verify also replays the piece block by block, as its [[writer]] placed them. Each [[index entry]] must be the entry
-that the writer makes of the block at its offset. Each track's row in the close must match the track's blocks. A writer that
+Verify also replays the piece block by block, as its [[writer]] placed them. Each [[index entry]] must be the entry that
+the writer makes of the block at its offset. Each track's row in the close must match the track's blocks. A writer that
 wrote a wrong index therefore fails too, not only a changed byte.
 
-Verify reads every byte. For the drive's chain it reads 119 038 948 bytes in 41 441 reads. That is a little more
-than the recording's 115 290 112 bytes, since verify reads each [[final index]] beside the blocks. All four pieces hold. An archive
-runs it once after a transfer and on a schedule, never on each open.
+Verify reads every byte. For the drive's chain it reads 119 038 948 bytes in 41 441 reads. That is 3 748 836 bytes
+more than the recording's 115 290 112 bytes. Verify reads each block's 32-byte header before the block, 13 812 headers
+in all.
+
+Verify reads each [[final index]] whole, 1 658 680 bytes in all. It then reads the index entries again, one by one
+as it replays the blocks: 1 658 040 bytes. It does not read the closes and tails, 9 868 bytes in all.
+
+All four pieces hold. An archive runs verify once after a transfer and on a schedule, never on each open.
 
 ## Track hashes
 
@@ -64,8 +70,12 @@ entries alone.</figcaption>
 </figure>
 
 The track hash depends only on the track's chunks and records, in order. A track written alone or among other
-tracks, in one piece or in many, ends with the same hash. Two recordings hold the same data for a track exactly when
-their track hashes match.
+tracks, in one piece or in many, ends with the same hash. A recording relayed or stored again block for block keeps
+that hash.
+
+The hash takes in each chunk whole: its items, its head and how its columns are coded. Two tracks with the same hash
+therefore hold the same chunks, and so the same data. A different hash proves less. The same items cut into other
+chunks, or coded with another codec, hash differently. Only a read of the items then tells whether the data differ.
 
 A track's definition also names its [[track owner]], 32 bytes that ww_tape does not interpret. Two devices of the
 same type recorded into one tape have tracks with the same keys, and the owner tells them apart. Each such track has
@@ -83,7 +93,7 @@ team's file give the same hash for the same range:
 ```
 
 For the frames of minutes 51 to 53, items 3 060 000 to 3 179 999 of `can0`, the range hash folds 120 chunks. Each
-unit hash comes from its index entry, so the fold reads no payload: the whole step reads 540 960 bytes in 15 reads.
+unit hash comes from its index entry, so the fold reads no payload: the chain's reader reads 540 960 bytes in 15 reads.
 The hashes in the chain and in the last piece alone are equal. A program that analysed those frames can store the
 range hash beside its result. Anyone can later check that a file still holds that input.
 
@@ -92,4 +102,5 @@ way, all 120 here. Only verify proves the stated hashes against the chunks' byte
 own. Where the index is damaged or missing, the reader reads the chunks and computes the same hash. It counts the
 bytes that no block explains in `skipped`, so a fold over damage never passes for a whole one.
 
-The next chapter reads the current that led to the fault: the samples of `phase_a` in the last 20 ms before 52:00.
+This part of the book ends here, with the fault found in code and its frames checked in two files.
+[Damage](damage.md) shows what still reads when an archived piece has a flipped bit.
