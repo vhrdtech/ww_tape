@@ -84,7 +84,7 @@ jobs:
           tool: cargo-binstall
       # spl, spirit_level's CLI, at 0.7.6 (the book extension `spl` in the justfile is the same release)
       # spl 0.7.6 has a warning of its own (unused workspace dependency anstyle); allow it for this install only
-      - run: cargo install --locked --git https://github.com/romixlab/spirit_level --rev 9b64ec90e83c7e7421bc76d47c1cab470c572d61 spirit_level_cli
+      - run: cargo install --locked --git https://github.com/romixlab/spirit_level --rev 739f59e2b82a8b926aa73c96baea1bfebee7db81 spirit_level_cli
         env:
           CARGO_BUILD_WARNINGS: allow
       - run: spl tools needed --spec --missing | xargs -r cargo binstall -y
@@ -156,7 +156,7 @@ jobs:
           tool: just
       # spl, spirit_level's CLI, at 0.7.6 (the book extension `spl` in the justfile is the same release)
       # spl 0.7.6 has a warning of its own (unused workspace dependency anstyle); allow it for this install only
-      - run: cargo install --locked --git https://github.com/romixlab/spirit_level --rev 9b64ec90e83c7e7421bc76d47c1cab470c572d61 spirit_level_cli
+      - run: cargo install --locked --git https://github.com/romixlab/spirit_level --rev 739f59e2b82a8b926aa73c96baea1bfebee7db81 spirit_level_cli
         env:
           CARGO_BUILD_WARNINGS: allow
       - run: just book-check

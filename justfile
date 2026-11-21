@@ -24,7 +24,7 @@ nightly := "nightly-2026-11-19"
 zensical := "zensical==0.1.2"
 # The release of spirit_level's book extension (spl_book_ext): the same as the `spl` in use, since `spl book refs`
 # writes the code index the extension reads
-spl := "0.7.6"
+spl := "0.7.8"
 book_ext := "spl-book-ext @ git+https://github.com/romixlab/spirit_level@v" + spl + "#subdirectory=python/spl_book_ext"
 # The prose lints book-check runs: at deny in spirit_level.toml
 prose_lints := "--only prose-run-words --only page-reading-time --only heading-words --only code-wall --only code-block-language --only passive-voice --only reading-ease --only orphan-pages --only page-title --only abbreviation-first-use --only term-before-definition --only paragraph-sentences --only sentence-words --only emoji --only page-links --only nav-entries"
