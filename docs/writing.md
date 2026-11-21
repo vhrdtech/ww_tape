@@ -79,7 +79,8 @@ and for such a block the call returns `None`.
 The application hands a [[chunk head]] and its encoded [[columns]] to [`TapeWriter::write_chunk`]. The writer builds the
 chunk block around them and returns its [`ww_tape::Placed`]. For a chunk, [`Placed::unit`] is the chunk's [[unit hash]].
 The writer states that hash and does not verify it, so a writer in the same process folds [[range hashes]] without
-reading the piece back. [Chunks from columns](columns.md) shows how the recorder encodes its frames and samples.
+reading the piece back. [Event times and their codecs](columns.md) shows how the recorder encodes its frames, and
+[Samples and their codecs](sample_codecs.md) its samples.
 
 A [`PieceChain`] writes a chunk with [`PieceChain::write_chunk`], which returns a [`ChunkPlaced`]. It holds the same
 fields and the sequence number of the piece that the chunk landed in. The call may [[cut]] to a new piece first, so the
@@ -113,7 +114,7 @@ and pass them all with each block. A block of 3 sensors' readings gets only thos
 before it. The writer writes each of them once per 32 MiB, plus one [[state copy]].
 
 A track added an hour into the recording costs one record at its first block. An item that belongs to no track, such as
-a run record, goes in with [`TapeWriter::put_item`]. The writer refuses a block of definitions that the caller wrote, so
+a description of the run, goes in with [`TapeWriter::put_item`]. The writer refuses a block of definitions that the caller wrote, so
 every definition in a file lies near the data that needs it.
 
 ## What the writer adds
@@ -146,7 +147,7 @@ its grid. It copies the caller's columns as they are and does not read them back
 
 A caller's whole block, handed to [`TapeWriter::write_block`], [`TapeWriter::adopt_block`] or
 [`TapeWriter::defer_block`], is read once. The writer checks every [[CRC]] in it, a [[CRC-32C]]. Beyond that, each byte
-placed costs one more pass: the [[content hash]]. [Chunks from columns](columns.md#what-a-chunk-costs-the-writer)
+placed costs one more pass: the [[content hash]]. [Samples and their codecs](sample_codecs.md#what-a-chunk-costs-the-writer)
 measures what these passes cost per chunk.
 
 The writer does not compare a series chunk's grid with the chunk before it. A reader's [`SeriesTimeline`] does
@@ -177,19 +178,33 @@ where it places the block depends on the file's layout.
 
 ### Aligned files
 
-An **aligned** file starts every chunk's sample payload on a 4 KiB boundary. A reader can then map the payloads from the
-page cache or read them with direct input and output. Choose it with the layout [`Layout::ALIGNED`], or call
-[`TapeWriter::set_alignment`] before the first block. In a file that is not aligned, blocks follow each other with
-nothing between them, and a deferred block lands at once.
+Disks, the page cache and direct input and output all work in blocks of 4 KiB, or in sectors that divide that size.
+A 4 KiB boundary is an offset in the file that 4096 divides. An **aligned** file starts every chunk's payload, the
+column bytes after its head, on such a boundary. Its samples then begin at the start of a page of the
+page cache and of a sector on the disk.
+
+A reader gains three things from that:
+
+- **Memory maps.** A reader maps the file and uses a chunk's samples in place, as a slice that starts on a page. A
+  vector kernel or a copy engine takes it without moving a byte.
+- **Direct input and output.** Reads that bypass the page cache, such as `O_DIRECT` on Linux, need offsets and lengths
+  in whole blocks. A payload on a boundary reads that way with no bytes before it.
+- **Raw media.** On a card or a disk without a file system, a payload on a boundary covers whole sectors. Reading one
+  chunk's samples then reads no sector of the block before it.
+
+Choose it with the layout [`Layout::ALIGNED`], or call [`TapeWriter::set_alignment`] before the first block. In a file
+that is not aligned, blocks follow each other with nothing between them, and a deferred block lands at once.
 
 In an aligned file, the space before a payload holds zeros in the chunk's own head. The writer fills that gap with
 deferred blocks while they fit. A deferred block waits at most 1 MiB of writes for a gap that fits it.
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/plots/deferred.svg"
-<figcaption>Two stretches of aligned files. In the drive's file, the next second's put of the mode places the waiting
-summary at once, so the gap before the payload holds zeros. In a file of <code>phase_a</code> alone, the summary fills
-the gap. Drawn by <code>ww_tape_figures</code> from the drive's first minute at full rate.</figcaption>
+<figcaption>One second of samples in three files, each row from the end of one series chunk to the end of the next.
+Not aligned, the payload starts wherever the head ends. Aligned, zeros in the chunk's head move the payload to the
+next 4 KiB boundary. In a file of <code>phase_a</code> alone, the waiting summary fills part of that gap. In the
+drive's file, the next second's put of the mode places the summary first, so the gap holds zeros only. Drawn by
+<code>ww_tape_figures</code> from the drive's first minute at full rate.</figcaption>
 </figure>
 
 Alignment costs the drive more than a series alone. The hour takes 129 MB aligned against 115 MB, 12 % more. In the
@@ -198,7 +213,9 @@ block, before the next series chunk. Every put and every block handed over place
 even a put that writes nothing.
 
 A file of `phase_a` alone takes 112 MB aligned against 104 MB, 7.3 % more. There 2724 of the 2933 summary blocks fill
-gaps. Alignment therefore suits a file that holds mostly series. The drive's recorder keeps its mixed file unaligned.
+gaps. Alignment therefore suits a file that holds mostly series and is read by memory maps or direct input and
+output. Alignment is optional: where space matters more than such reads, leave the file unaligned. The drive's
+recorder keeps its mixed file unaligned.
 
 ## Closing
 

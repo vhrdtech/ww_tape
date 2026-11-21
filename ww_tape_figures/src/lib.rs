@@ -18,7 +18,7 @@
 //! - `autorange.svg`: an autoranging meter's chunks on one grid at two scales, and its summary nodes.
 //! - `prefix_resync.svg`: the drive's last piece with two damaged blocks, walked in Prefix and in Resync.
 //! - `loss_cases.svg`: the drive's last piece with three kinds of damage, and what still reads of each.
-//! - `deferred.svg`: stretches of two aligned files, the summary blocks and the zeros before each chunk payload.
+//! - `deferred.svg`: one stretch unaligned and two aligned, the summary blocks and the zeros before each chunk payload.
 //! - `linear_group.svg`: a group of the drive's frame starts, its line and residuals.
 //! - `delta_group.svg`: a group of the drive's phase current, its differences and their width.
 //! - `sync_loss.svg`: three seconds of the drive's file, the syncs of four policies, what a crash loses.

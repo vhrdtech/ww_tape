@@ -98,8 +98,9 @@ starts the next. A piece is a complete file that reads alone, with an index, a [
 end. The bench host cuts the drive's hour every 15 minutes, which gives four pieces of about 27 MB to 30 MB.
 
 The pieces of one recording form a [[chain]]. Each piece's head names the piece before it by its [[content hash]]
-and its id. Its [[tail]] names the next piece by its id. A [[reader]] can therefore tell when a piece is missing. Deleting the oldest piece frees space,
-and a reader tells a chain that lost its first pieces this way apart from a damaged one.
+and its id, and its [[tail]] names the next piece by its id. A [[reader]] therefore puts pieces in order whatever
+their file names, and tells when a piece is missing. Deleting the oldest piece frees space, and a reader tells a chain
+that lost its first pieces this way apart from a damaged one.
 
 A closed piece ends on a multiple of 4 KiB. A file system that shares extents, such as btrfs, can therefore clone
 pieces back to back into one file without writing any byte again. The result is a valid [[tape]] too. [Pieces and

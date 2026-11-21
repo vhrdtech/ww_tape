@@ -37,9 +37,9 @@ that cover a tick therefore skips every chunk whose latest end lies before the t
 ## Times read in place
 
 An events chunk keeps the start ticks of its items in one column, in [[time groups]] of 128 items. Each
-group stores a line through its starts, and each start as a small distance from that line. [Chunks from
-columns](columns.md) explains this codec, and a reader needs none of its detail. [`EventTimes::read`] checks the
-columns once. It then gives any item's time from its group's record and one load.
+group stores a line through its starts, and each start as a small distance from that line. [Event times and their
+codecs](columns.md) explains this codec, and a reader needs none of its detail. [`EventTimes::read`] checks the
+columns once. It then gives any item's time from its group's head and one load.
 
 | Call | Gives |
 |---|---|

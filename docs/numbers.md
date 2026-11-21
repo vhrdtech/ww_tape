@@ -6,80 +6,15 @@ and time.
 Every figure names the bench that produced it and the machine it ran on. A loaded machine gives lower figures than it
 can reach, and therefore each table also gives the load.
 
-The page assumes [Tracks and items](tracks.md) and [Chunks from columns](columns.md).
+The page assumes [Tracks and items](tracks.md), [Event times and their codecs](columns.md) and [Samples and their
+codecs](sample_codecs.md).
 
-## Fixed point first
+<span id="fixed-point-first"></span><span id="alp-the-one-float-codec"></span><span id="fixed-point-against-floats"></span>
 
-Store a value the device measures as a fixed-point integer, not as a float. An exact_units `Fixed<Ampere, Milli, i32>`
-is an `i32` on the wire and an `i32` in the series column.
+## Samples
 
-The track's definition states the scale, 10⁻³ A per step, once, not in every sample. The numbers stay integers from
-the sensor to the file, and nothing passes through a float on the way.
-
-The writer codes integer columns with `DELTA`. Per group of 128 samples, it bit-packs the differences between
-neighbours minus their smallest difference. A constant or a ramp costs no bits per sample.
-
-`DELTA2` codes differences of differences the same way, which suits a signal with a steady slope. Every group restarts
-its prediction, and therefore any range of samples decodes from its group's start.
-
-## ALP, the one float codec
-
-Some floats come from sources nobody controls, such as a sensor that reports only `f32` or a value computed by another
-program. For them the format has one float codec, **ALP**.
-
-ALP follows the paper by Afroozeh, Kuffó and Boncz at the 2024 SIGMOD conference.
-
-ALP finds floats that began as decimals and stores the integers they came from.
-
-An example is an ADC count times 0.1, stored as the count. ALP bit-packs these integers
-per group of 128.
-
-Floats with full mantissas take ALP's second scheme, which codes their front bits through a small dictionary. ALP keeps
-whole the values that don't come back bit for bit, such as NaN payloads, infinities and `-0.0`.
-
-A group never grows by more than 7 bytes over its raw size.
-
-### Fixed point against floats
-
-`just bench-sample-codecs` stores the same data in three ways:
-
-- as fixed-point integers with `DELTA`;
-- as floats with ALP;
-- as floats with the exclusive-or (XOR) codecs after Gorilla and Chimp, and with `DELTA` on the float bits.
-
-The bench keeps the codecs of the last item for comparison; they are not part of the format. The bench checks that
-every value comes back bit for bit.
-
-The bench runs in chunks of 4096 samples. This run used one core of an AMD processor, the
-`Ryzen AI 9 HX 370`.
-
-The ratio is the raw float column's size over the coded size, and therefore larger is better. The decode time is in
-nanoseconds per value.
-
-| Data | Fixed point, `DELTA` | `ALP` | Best other float codec |
-|---|---|---|---|
-| motor simulation, `f32` | 3.10, 0.66 ns | 1.64, 1.17 ns | 1.99, 1.02 ns |
-| motor simulation, `f64` | 6.20, 0.65 ns | 2.51, 1.24 ns | 2.51, 2.60 ns |
-| speech, `f32` (fixed: 16-bit PCM) | 3.43, 0.71 ns | 1.16, 1.27 ns | 1.23, 5.59 ns |
-| 12-bit ADC × 3.3/4096, `f32` | 7.31, 0.65 ns | 1.59, 1.17 ns | 1.84, 0.81 ns |
-| 12-bit ADC × 3.3/4096, `f64` | 14.63, 0.65 ns | 1.32, 1.59 ns | 1.57, 7.28 ns |
-| 12-bit ADC × 0.1, `f32` | 7.31, 0.65 ns | 4.67, 0.81 ns | 1.84, 0.83 ns |
-| 12-bit ADC × 0.1, `f64` | 14.63, 0.65 ns | 9.02, 0.72 ns | 1.59, 7.27 ns |
-
-Three facts follow from the table:
-
-- Fixed point is 1.6 to 9.3 times smaller than the best float codec on every set, and it decodes fastest.
-- ALP wins among the float codecs where the floats began as short decimals: on ADC × 0.1 as `f64`, 9.02 against 1.59.
-- Elsewhere ALP is level with the best other float codec or behind it by up to 18 %.
-- ALP decodes at 0.72 to 1.59 ns per value, where the XOR codecs take up to 7.3 ns.
-
-ALP recovers integers from floats only when the scale is a short decimal: 0.1 is one, but 3.3/4096 isn't. A
-fixed-point source hands the writer those integers directly.
-
-Store the ADC counts and put the scale in the type: then no float codec is needed.
-
-The [format reference](format.md#sample-codecs) describes the data sets and gives the full table with every codec. To
-rerun the comparison, run `just bench-sample-codecs`, which takes about 20 s.
+[Samples and their codecs](sample_codecs.md) explains fixed point and ALP and gives the measured comparison of
+fixed-point integers against float codecs ([Fixed point against floats](sample_codecs.md#fixed-point-against-floats)).
 
 ## Event times
 
@@ -104,8 +39,8 @@ salvaged starts column.
 | a real system journal, 1 µs ticks | 2.97 | 5.2 | 26.4 | 163.8 |
 | bursty traffic, 1 ns ticks | 3.84 | 5.5 | 23.3 | 216.6 |
 
-The same bench compares the linear codec with two alternatives. The table gives bytes per event, with group records
-and chunk overhead. It stores the residual minimum in 8 bytes, a 29-byte group record against the format's 25 bytes. The linear
+The same bench compares the linear codec with two alternatives. The table gives bytes per event, with group heads
+and chunk overhead. It stores the residual minimum in 8 bytes, a 29-byte group head against the format's 25 bytes. The linear
 column is therefore an upper bound.
 
 | Workload | Linear groups | Delta-of-delta varints | Elias-Fano |
@@ -179,7 +114,7 @@ therefore can't be rerun with the bench.
 ## Writing chunks
 
 The writer's own cost per chunk is a copy, the CRCs and the content hash. `just bench-chunks` measures it on series
-chunks of 1 MiB, and [Chunks from columns](columns.md#what-a-chunk-costs-the-writer) gives its table.
+chunks of 1 MiB, and [Samples and their codecs](sample_codecs.md#what-a-chunk-costs-the-writer) gives its table.
 
 On the AMD `EPYC Genoa` virtual machine of the summaries bench, `TapeWriter::write_chunk` took 254 µs per chunk. The
 content hash, `blake3`, took 213 µs of that, and the copy with its CRCs 53 µs.

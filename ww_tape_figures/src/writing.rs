@@ -1,8 +1,8 @@
 //! The figures of the book's Part III, writing, drawn from the drive's recording ([ww_tape_example]):
 //!
-//! - `deferred.svg`: a stretch of an aligned file, the drive's tracks together and `phase_a` alone: where the summary
-//!   blocks land and the zeros in each chunk's head that put its payload on 4 KiB.
-//! - `linear_group.svg`: the first 128 frame starts of `can0`, the line its group record fits, and the residuals
+//! - `deferred.svg`: the same stretch of `phase_a` alone unaligned and aligned, and of the drive's aligned file: whole
+//!   blocks, where the summary blocks land and the zeros in each chunk's head that put its payload on 4 KiB.
+//! - `linear_group.svg`: the first 128 frame starts of `can0`, the line its group head fits, and the residuals
 //!   bit-packed at the group's width.
 //! - `delta_group.svg`: 128 samples of `phase_a`, their differences, and the differences less their minimum at the
 //!   group's width.
@@ -64,6 +64,8 @@ fn zeros(aligned: &Placed, unaligned_head: u64) -> u64 {
 
 /// Draw `blocks` within `v` on a row at `y`: a chunk's head zeros hatched, its payload in its colour; 4 KiB lines.
 fn aligned_row(s: &mut Svg, blocks: &[Placed], heads: &[u64], v: View, y: f64, from: u64, to: u64) {
+    // where the last label above the row ends, so that the next one goes higher instead of over it
+    let mut above_end = f64::MIN;
     for (b, h) in blocks.iter().zip(heads) {
         if b.at + b.len <= from || b.at >= to {
             continue;
@@ -93,10 +95,18 @@ fn aligned_row(s: &mut Svg, blocks: &[Placed], heads: &[u64], v: View, y: f64, f
             _ => "",
         };
         let w = x1 - label_from;
-        if w >= 6.4 * name.len() as f64 + 6.0 {
+        let text_w = 6.4 * name.len() as f64;
+        if w >= text_w + 6.0 {
             s.text(label_from + w / 2.0, y + 19.5, "middle", "small", name);
         } else if !name.is_empty() && b.part != Part::Puts {
-            s.text((x0 + x1) / 2.0, y - 4.0, "middle", "soft small", name);
+            let mid = (x0 + x1) / 2.0;
+            let lift = if mid - text_w / 2.0 < above_end {
+                12.0
+            } else {
+                0.0
+            };
+            s.text(mid, y - 4.0 - lift, "middle", "soft small", name);
+            above_end = mid + text_w / 2.0 + 4.0;
         }
     }
     let mut grid = from.next_multiple_of(4096);
@@ -119,22 +129,28 @@ fn unaligned_heads(blocks: &[Placed], unaligned: &[Placed]) -> Vec<u64> {
         .collect()
 }
 
-/// The stretch from the block after series chunk `k` to 4 KiB past the next series chunk's payload start.
+/// The whole blocks from the end of series chunk `k` to the end of the next series chunk, and where that chunk's
+/// payload starts.
 fn window(blocks: &[Placed], k: usize) -> anyhow::Result<(u64, u64, u64)> {
     let mut series = blocks.iter().filter(|b| b.part == Part::Samples);
     let this = series.nth(k).context("series chunk k")?;
     let next = series.next().context("series chunk k + 1")?;
     let payload = next.at + next.head.context("a chunk's head")?;
-    Ok((this.at + this.len, payload + 4096, payload))
+    Ok((this.at + this.len, next.at + next.len, payload))
 }
 
 /// The number, from 4 on, of the first series chunk whose next block is of a part `next` takes.
 fn nth_series_where(blocks: &[Placed], next: impl Fn(Part) -> bool) -> Option<usize> {
+    nth_series_from(blocks, 4, next)
+}
+
+/// The number, from `from` on, of the first series chunk whose next block is of a part `next` takes.
+fn nth_series_from(blocks: &[Placed], from: usize, next: impl Fn(Part) -> bool) -> Option<usize> {
     let mut n = 0;
     for w in blocks.windows(2) {
         let (a, b) = (w.first()?, w.get(1)?);
         if a.part == Part::Samples {
-            if n >= 4 && next(b.part) {
+            if n >= from && next(b.part) {
                 return Some(n);
             }
             n += 1;
@@ -189,18 +205,41 @@ pub fn deferred() -> anyhow::Result<String> {
         }
     }
     // a second where a summary of phase_a comes due: in the drive's file it follows the series chunk, in phase_a
-    // alone it precedes the next one, in the gap
+    // alone it precedes the next one, in the gap; the unaligned row shows the same chunks of phase_a alone
     let km = nth_series_where(&mixed, |next| next == Part::Summary)
         .context("a summary after a series chunk in the drive's file")?;
-    let (m0, m1, mpay) = window(&mixed, km)?;
-    let ka = nth_series_where(&alone, |next| next == Part::Summary)
-        .context("a summary after a series chunk in phase_a alone")?;
-    let (a0, a1, apay) = window(&alone, ka)?;
-
-    let width = (m1 - m0).max(a1 - a0);
-    let vm = View::new(m0, m0 + width);
-    let va = View::new(a0, a0 + width);
-    let (top, y1, y2) = (20.0, 70.0, 176.0);
+    let plain_heads = unaligned_heads(&alone_plain, &alone_plain);
+    let ka = (0..)
+        .map_while(|from| nth_series_from(&alone, from, |next| next == Part::Summary))
+        .find(|&k| window(&alone_plain, k).is_ok_and(|(_, _, payload)| payload % 4096 >= 1024))
+        .context(
+            "a summary after a series chunk in phase_a alone, the unaligned payload well off 4 KiB",
+        )?;
+    let rows = [
+        (
+            "not aligned, phase_a alone: blocks back to back",
+            &alone_plain,
+            &plain_heads,
+            window(&alone_plain, ka)?,
+        ),
+        (
+            "aligned, phase_a alone: the summary fills the gap before the payload",
+            &alone,
+            &alone_heads,
+            window(&alone, ka)?,
+        ),
+        (
+            "aligned, the drive's file: the mode's put each second places the summary first",
+            &mixed,
+            &mixed_heads,
+            window(&mixed, km)?,
+        ),
+    ];
+    let width = rows
+        .iter()
+        .map(|(_, _, _, (from, to, _))| to - from)
+        .max()
+        .context("rows")?;
     let zeros_in = |blocks: &[Placed], heads: &[u64], from: u64, to: u64| {
         blocks
             .iter()
@@ -209,15 +248,25 @@ pub fn deferred() -> anyhow::Result<String> {
             .map(|(b, h)| zeros(b, *h))
             .sum::<u64>()
     };
-    let (mz, az) = (
-        zeros_in(&mixed, &mixed_heads, m0, mpay),
-        zeros_in(&alone, &alone_heads, a0, apay),
-    );
+    let notes =
+        rows.each_ref().map(
+            |(_, blocks, heads, (from, _, payload))| match payload % 4096 {
+                0 => format!(
+                    "payload on a 4 KiB boundary; {} bytes of zeros before it",
+                    zeros_in(blocks, heads, *from, *payload)
+                ),
+                _ => "payload between two 4 KiB boundaries".to_owned(),
+            },
+        );
+    let [plain, alone_note, mixed_note] = &notes;
+    let (top, first, step) = (20.0, 80.0, 104.0);
+    let bottom = first + step * 2.0 + ROW_H;
     let mut s = Svg::new(
         LEFT * 2.0 + ROW_W,
-        y2 + ROW_H + 92.0,
+        bottom + 92.0,
         &format!(
-            "Two stretches of aligned files: in the drive's file the next second's put of the mode places the waiting summary before the next gap, and the gap before the series payload holds {mz} zero bytes; in a file of phase_a alone the summary fills the gap and {az} zero bytes remain"
+            "Three files, each row from the end of one series chunk to the end of the next. Not aligned, the blocks follow each other and the {}. Aligned, in a file of phase_a alone, the summary fills the gap and the {}. Aligned, in the drive's file, the put of the mode places the summary first and the {}",
+            plain, alone_note, mixed_note
         ),
     );
     s.text(
@@ -225,55 +274,36 @@ pub fn deferred() -> anyhow::Result<String> {
         top,
         "start",
         "strong",
-        "aligned files: every chunk's payload starts on a 4 KiB line",
+        "aligned files: every chunk's payload starts on a multiple of 4 KiB",
     );
-    s.text(
-        LEFT,
-        y1 - 18.0,
-        "start",
-        "small",
-        "the drive's file: the mode's put each second places the summary first",
-    );
-    aligned_row(&mut s, &mixed, &mixed_heads, vm, y1, m0, m0 + width);
-    s.text(
-        vm.x(mpay),
-        y1 + ROW_H + 18.0,
-        "middle",
-        "accent small",
-        &format!("payload on 4 KiB; {mz} bytes of zeros before it"),
-    );
-    s.text(
-        LEFT,
-        y2 - 18.0,
-        "start",
-        "small",
-        "phase_a alone: the summary waits for the gap and fills it",
-    );
-    aligned_row(&mut s, &alone, &alone_heads, va, y2, a0, a0 + width);
-    s.text(
-        va.x(apay),
-        y2 + ROW_H + 18.0,
-        "middle",
-        "accent small",
-        &format!("payload on 4 KiB; {az} bytes of zeros before it"),
-    );
+    for (i, ((label, blocks, heads, (from, to, payload)), note)) in
+        rows.iter().zip(&notes).enumerate()
+    {
+        let y = first + step * i as f64;
+        let v = View::new(*from, from + width);
+        s.text(LEFT, y - 32.0, "start", "small", label);
+        aligned_row(&mut s, blocks, heads, v, y, *from, *to);
+        let x = v.x(*payload);
+        s.line((x, y - 6.0), (x, y + ROW_H + 6.0), "accent-line");
+        s.text(x, y + ROW_H + 18.0, "start", "accent small", note);
+    }
     legend(
         &mut s,
-        y2 + ROW_H + 40.0,
+        bottom + 40.0,
         &[
             ("tint-blue", "data"),
             ("tint-teal", "summary"),
             ("faint hatch", "zeros in a chunk's head"),
-            ("thin dash", "4 KiB lines"),
+            ("thin dash", "4 KiB boundaries"),
         ],
     );
     s.text(
         LEFT,
-        y2 + ROW_H + 74.0,
-        "soft small",
+        bottom + 74.0,
         "start",
+        "soft small",
         &format!(
-            "each row: {} of the drive's first minute at full rate",
+            "each row: whole blocks, up to {} of the drive's first minute at full rate",
             kib(width)
         ),
     );

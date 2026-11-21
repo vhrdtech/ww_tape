@@ -159,7 +159,7 @@ chapter = "../clocks/"
 [[term]]
 name = "event"
 forms = ["events"]
-short = "An item with a time of its own: an instant at one tick, or a span with an end."
+short = "An item of an events track, with a time of its own: an instant at one tick, or a span with an end."
 chapter = "../events/"
 
 [[term]]
@@ -201,7 +201,7 @@ chapter = "../reading/"
 [[term]]
 name = "item"
 forms = ["items"]
-short = "One value on a track, such as a received frame or a temperature reading, whose bytes the track's definition explains."
+short = "One value on a track, whose bytes the track's definition explains: an event on an events track, a sample on a series."
 chapter = "../tracks/"
 
 [[term]]
@@ -275,6 +275,12 @@ short = "The first block of a piece: its ids, the owner id, the previous piece's
 chapter = "../anatomy/"
 
 [[term]]
+name = "piece number"
+forms = ["piece numbers"]
+short = "A piece's place in its chain, counted from 0, which its head and close state; the file name plays no part."
+chapter = "../pieces/"
+
+[[term]]
 name = "producer"
 forms = ["producers"]
 short = "The program that makes a tape, such as a recorder on a test bench, a device logger or an analysis tool."
@@ -307,7 +313,7 @@ chapter = "../reading/"
 [[term]]
 name = "record"
 forms = ["records"]
-short = "One item on one track at one tick."
+short = "One event, state item or definition in a records block, with its track number, tick and length; a series has no records."
 chapter = "../blocks/"
 
 [[term]]
@@ -343,7 +349,7 @@ chapter = "../damage/"
 [[term]]
 name = "sample"
 forms = ["samples"]
-short = "One value of a series, at the tick its index on the grid gives."
+short = "One item of a series, at the tick its index on the grid gives."
 chapter = "../series/"
 
 [[term]]

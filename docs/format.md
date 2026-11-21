@@ -499,8 +499,8 @@ decode into a list first.
 Starts take one of two time modes:
 
 - **Implicit**: item `j` starts at the chunk's first tick plus `j` periods. Evenly spaced items take this mode.
-- **Linear frame of reference**: a 25-byte record per group of 128 items holds the group's first tick and a slope in Q16
-  ticks per item. The record also holds the smallest residual, a width and an offset; each item's residual against the
+- **Linear frame of reference**: a 25-byte head per group of 128 items holds the group's first tick and a slope in Q16
+  ticks per item. The head also holds the smallest residual, a width and an offset; each item's residual against the
   line follows, bit-packed at the group's width.
 
 Periodic items therefore cost their jitter, not their period. A 1 ms period with ±300 ns jitter takes about 1.48 bytes
@@ -508,7 +508,7 @@ per item, against 8 bytes for raw i64 ([Numbers](numbers.md#event-times)).
 
 An exact period takes almost nothing, and bursty nanosecond traffic about 3.8 bytes per item.
 
-Fetching an item reads one record and one value. A lower bound searches the groups' first ticks, then only the items the
+Fetching an item reads one group head and one value. A lower bound searches the groups' first ticks, then only the items the
 slope leaves possible.
 
 #### Ends, flags and decoding
@@ -523,7 +523,7 @@ without a decode.
 Groups decode with hand-written kernels at a fraction of a nanosecond per item. `ww_tape::bitpack` picks AVX-512, AVX2
 or NEON (the Arm vector extension) at run time, else a scalar path.
 
-A chunk whose CRC failed still reads through `EventTimes::salvage`, which checks the group records one by one. It marks
+A chunk whose CRC failed still reads through `EventTimes::salvage`, which checks the group heads one by one. It marks
 only the items of a group that fails as suspect.
 
 ### Aligned files
@@ -551,7 +551,7 @@ A record holds one `Describe`, the item's whole bytes, with no time delta. A def
 | `Clock` | a `ClockDef`: number, stable key, exact rate and resolution as `Magnitude`s, and origin |
 | `Map` | a `ClockMap` between two clocks |
 | `Track` | a `TrackDef`: what a track is ([below](#track-definitions)) |
-| `Item` | a `TypedItem`: any wire_weaver value by bundle hash and type path, such as a run record |
+| `Item` | a `TypedItem`: any wire_weaver value by bundle hash and type path, such as a description of a run |
 | `Schema` | a schema a foreign format names, by its BLAKE3 hash ([Items of a track](#items-of-a-track)) |
 
 A clock's origin is free-running, a boot, the Unix epoch, a media start, a session start, or the next epoch of a
@@ -1302,8 +1302,8 @@ and writes them again.
 
 ### What counts as a torn end
 
-A torn end is what a crash leaves of the last write: whole blocks, then a record that the bytes stop inside of. That
-record has fewer bytes than a block header, or a header that names more bytes than are left.
+A torn end is what a crash leaves of the last write: whole blocks, then a block that the bytes stop inside of. That
+block has fewer bytes than a block header, or a header that names more bytes than are left.
 
 Blank bytes (zeros) up to the end count as a torn end too. A file holds them where it grew but its data was never
 written. Anything else in the bytes to cut is damage, and the resume refuses with `ResumeError::Damaged`.

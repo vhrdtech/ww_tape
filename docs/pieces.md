@@ -4,10 +4,10 @@ level: basic
 
 # Pieces and chains
 
-A recording that runs for days does not fit one file well. A crash would damage all of it, a reader would scan more to
-open it, and old data could not go without rewriting the rest. How does a [[writer]] cut a long recording into
-[[pieces]], where do the pieces live, and how do old ones go? The examples cut the drive's hour every 15 minutes into
-four pieces.
+A recording that runs for days does not fit one file well. A crash costs only the bytes it touched, in a file of any
+size. A file of hundreds of gigabytes, though, is slow to copy, and its old data cannot go without rewriting the rest.
+How does a [[writer]] cut a long recording into [[pieces]], how do the pieces find each other, and how do old ones go?
+The examples cut the drive's hour every 15 minutes into four pieces.
 
 ## Why pieces
 
@@ -15,13 +15,37 @@ A [[piece]] is a complete [[tape]]: it has its own [[definitions]], index, [[con
 without any other piece. A [[chain]] is the pieces of one recording in order, each [[piece head]] naming the piece
 before it. Cutting a recording into a chain gives three things:
 
-- **Bounded loss.** A crash damages only the piece being written. The pieces before it are closed and hashed.
-- **Bounded open time.** A [[reader]] opens a piece with a few small reads at its end, however long the recording is.
+- **Files of a handy size.** A piece of 256 MiB copies, uploads or moves to an archive on its own. A tool that needs
+  one stretch of the recording takes only the pieces that hold it.
 - **Simple retention.** Deleting the oldest piece frees space without rewriting anything.
+- **Closed history.** The pieces before the one being written are closed and hashed. A later crash or a bug in the
+  writer cannot touch them.
+
+A crash inside a piece costs only the bytes it touched there, as [When the power fails](crashes.md) shows. A chain is
+therefore not what bounds the loss. A [[reader]] also opens a piece of any size with a few small reads at its end.
 
 A piece reads alone because the writer measures [[near]] inside the piece. A new piece carries the definition of every
 track the chain has used, even when the piece before held it a few bytes earlier. It also carries each [[state track]]'s
 newest [[state item]]. A reader of piece 7 alone therefore decodes everything piece 7 holds.
+
+## Pieces know each other
+
+Each piece says by itself where it belongs. Its [[piece head]] holds its id, the [[owner id]] and its [[piece number]],
+which counts from 0 in each chain. The head also names the piece before it by that piece's [[content hash]] and
+id. The [[close]] names the next piece's id. The ids follow from the owner id and the chain number, so a reader tells
+two chains apart.
+
+A program therefore never trusts a file's name. Files renamed by hand, copied into one directory from several disks or
+listed in any order still form their chain. A scan opens each file from its end, a few small reads, and learns which
+piece it is and which [[items]] it holds. [`check_chain`] then orders the pieces and checks every link both ways:
+
+```rs
+--8<-- "ww_tape_tests/tests/it/chains.rs:renamed"
+```
+
+The scan needs no index of the directory and no database beside the files. The close of each piece lists every track it
+holds with its first and last [[item number]] and [[tick]]. A viewer thus knows which file to open for a given second
+before it reads any data.
 
 ## A chain in a directory
 
@@ -144,8 +168,8 @@ reader that already holds the piece reads on unchanged. The piece still being wr
 ### Pieces removed on purpose
 
 An application may delete pieces from the middle of a chain on purpose, such as a stretch a user cut out. Without a
-note, the hole reads as pieces lost. The note is a list of the removed pieces in a close: each row gives the piece's
-sequence number, its id and its content hash ([`RemovedPiece`]).
+note, the hole reads as pieces lost. The note is a list of the removed pieces in a close: each row gives one removed piece's
+[[piece number]], id and content hash ([`RemovedPiece`]).
 
 The writer appends the note to the chain's last piece, after its close:
 

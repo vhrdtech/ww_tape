@@ -267,6 +267,7 @@ The pages in `docs/`.
   - Done: Part III, writing: five chapters with every writing call the drive makes in tested code, and eight new figures.
   - Done: Part IV, reading: five chapters that find the drive's fault in code, with six new figures.
   - Done: Part V, damage and raw media, with the drive's archive and card, four new figures and the lessons appendix.
+  - Done: the owner's read: one term each for record, item and sample; event times and samples on pages of their own.
   - Open: the chapter "Sizes and speeds", still a stub; tested code in every guide chapter.
   - Read more: [For writers](docs/writers.md), [Glossary](docs/glossary.md).
 

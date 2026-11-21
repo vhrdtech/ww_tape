@@ -4,20 +4,20 @@ The material of this page is now in the chapters on chunks, events and series. E
 
 ## Chunks
 
-[Blocks](blocks.md#chunks) explains chunks and the two kinds of chunk, and [Chunks from columns](columns.md) how their
-columns are made.
+[Blocks](blocks.md#chunks) explains chunks and the two kinds of chunk, and [Event times and their codecs](columns.md)
+how their columns are made.
 
 ### The chunk head
 
-[Chunks from columns](columns.md#a-chunk-is-a-head-and-its-columns) lists what a chunk head holds.
+[Event times and their codecs](columns.md#a-chunk-is-a-head-and-its-columns) lists what a chunk head holds.
 
 ### Columns and codecs
 
-[Chunks from columns](columns.md#a-chunk-is-a-head-and-its-columns) explains columns and codecs.
+[Event times and their codecs](columns.md#a-chunk-is-a-head-and-its-columns) explains columns and codecs.
 
 ## Event times
 
-[Chunks from columns](columns.md#event-times) explains the time modes and the time groups.
+[Event times and their codecs](columns.md#event-times) explains the time modes and the time groups.
 
 ### Reading times in place
 
@@ -29,10 +29,10 @@ columns are made.
 
 ### Ends and flags
 
-[Chunks from columns](columns.md#ends-and-flags) explains how ends and flags are stored, and [Events](events.md#flags)
+[Event times and their codecs](columns.md#ends-and-flags) explains how ends and flags are stored, and [Events](events.md#flags)
 how a reader uses the flags.
 
 ### Payloads
 
-[Chunks from columns](columns.md#payloads) explains the payload columns, and [Events](events.md#payloads-read-in-place)
+[Event times and their codecs](columns.md#payloads) explains the payload columns, and [Events](events.md#payloads-read-in-place)
 how a reader reads them.

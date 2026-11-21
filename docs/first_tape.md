@@ -95,7 +95,7 @@ The application makes a [[records block]] itself with a [`BlockWriter`]. It push
     ```
 
 A [[chunk]] takes more work, since its times and values go into encoded [[columns]]. [`Drive::acts`] does that work
-here, and [Chunks from columns](columns.md) explains it.
+here. [Event times and their codecs](columns.md) and [Samples and their codecs](sample_codecs.md) explain it.
 
 ## What the file holds
 

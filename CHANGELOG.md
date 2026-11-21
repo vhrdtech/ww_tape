@@ -231,6 +231,8 @@ Covers `ww_tape` 0.1.0.
 - `ww_tape_example::writing`: Part III's numbers: calls and blocks, alignment, codecs, sync loss, the cut, retention, a relay (BOOK-3).
 - Book: Part III's figures from the drive: alignment gaps, a linear and a delta group, sync loss, a cut (BOOK-2).
 - Book: Part III, writing: the writer, columns, files and syncing, pieces and chains, live feeds (BOOK-2).
+- Book: event times and samples get a page each; samples compare fixed point with ALP (BOOK-2).
+- Book: why a chain, renamed pieces still chaining, what aligned files are for, a nominal series rate (BOOK-2).
 - `TapeWriter::close_with_summary` places a close summary (kind 14) the close names; `TapeReader::close_summary` reads it (WRITE-7).
 - `TapeReader::unclosed` names the bytes no close covers; `TapeReader::closed_entries` lists only blocks the close in force covers (WRITE-7).
 - A piece closes more than once: an append head after the tail, a chained close hash, `TapeReader::closes` (WRITE-7).

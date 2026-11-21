@@ -29,13 +29,15 @@ A track may instead hold plain bytes, numbers of an element the definition descr
 A [[track]] is a sequence of items of one type over time. The drive has five tracks, one per stream, and [What a tape
 holds](tape.md) lists them with their rates.
 
-A [[record]] is one item on one track at one time. The time is a whole number of [[ticks]] of the track's [[clock]],
-which [Clocks and time](clocks.md) explains. For the drive, every track counts the board's microsecond timer since boot.
+Every item has a time, a whole number of [[ticks]] of the track's [[clock]], which [Clocks and time](clocks.md)
+explains. For the drive, every track counts the board's microsecond timer since boot. How an item keeps its time
+depends on the track's kind, which [Events or series](#events-or-series) explains. An [[event]] stores its own tick.
+A [[sample]] of a series takes its tick from its index.
 
 ## Number, key and id
 
-A [[track]] has three names, because three uses need different things. A [[block]] needs a short name it repeats in
-every [[record]]. A [[reader]] of two files needs a name that stays the same from file to file. One sensor recorded
+A [[track]] has three names, because three uses need different things. A [[block]] needs a short name it repeats for
+every event it holds. A [[reader]] of two files needs a name that stays the same from file to file. One sensor recorded
 twice side by side needs two names for one source.
 
 <figure class="ww-figure" markdown="0">
@@ -54,8 +56,8 @@ record the same `can0` resource tell their tracks apart by `bench = 1` and `benc
 dimensions, and a track without dimensions has its key as its id. [`describe::track_id`] computes it. A [[chunk]]
 carries the id, so it names its track even to a reader without the definitions.
 
-The [[track number]] is the small number a track has inside one file: `can0` is track 3 in the drive's files. Records
-carry it, because it costs one byte where the id costs eight. The track's [[definition]] ties the number to the key and
+The [[track number]] is the small number a track has inside one file: `can0` is track 3 in the drive's files. Every
+[[record]], the form of one event in a [[records block]], carries it, because it costs one byte where the id costs eight. The track's [[definition]] ties the number to the key and
 the dimensions, so a reader turns any number into an id.
 
 ```rust
@@ -107,9 +109,34 @@ An [[event]] is an item with a time of its own. The drive's frames are events: t
 about 1000 a second but never exactly on a beat. Each event keeps its own start [[tick]]. An event may also have an end,
 which makes it a span, such as a run of the controller from start to stop.
 
-A [[series]] is a track of [[samples]] at an exact period, such as the phase current at 25 kHz. A sample needs no time
-of its own, because its index gives it: sample `i` lies `i` periods after the first. The drive's `phase_a` keeps 16-bit
-integers in steps of 1 mA, and each [[chunk]] of samples states that step once.
+A [[series]] is a track of [[samples]] at an exact period of its clock. The drive's phase current is a sample every
+40 µs of the board's timer. A sample needs no time of its own, because its index gives it: sample `i` lies `i` periods after the
+first. The drive's `phase_a` keeps 16-bit integers in steps of 1 mA, and each [[chunk]] of samples states that step
+once.
+
+The period is exact in the device's ticks, and 25 kHz is its nominal rate. The board's crystal runs 20 ppm fast, so its
+40 µs are slightly shorter on the host's clock. The tape keeps the samples on the board's clock, where they are exact.
+A [[clock map]] then places them on the host's time line, and [Clock maps](clocks.md#clock-maps) explains it. Over the
+hour, the board's count runs 72 ms ahead of the host's:
+
+```rust
+use shrink_wrap::prelude::*;
+use ww_tape::{Describe, Rounding, Slot};
+use ww_tape_example::{BOARD_CLOCK, BOOT_UNIX_NS, HOST_CLOCK, definitions};
+
+let defs = definitions(25_000, true, 32 << 20).expect("the drive's definitions");
+let bytes = defs.get(&Slot::Map { from: BOARD_CLOCK, to: HOST_CLOCK }).expect("the drive's map");
+let Describe::Map(map) = Describe::from_ww_bytes(bytes).expect("a definition") else {
+    panic!("the slot of a map holds a map");
+};
+let segment = map.segments.iter().next().expect("one segment").expect("it reads");
+// One hour on the board's timer, 90 000 000 samples at 40 µs.
+let hour_us = 3_600 * 1_000_000;
+assert_eq!(hour_us / 40, 90_000_000);
+let host_ns = segment.map(hour_us, Rounding::Floor).expect("mapped") - BOOT_UNIX_NS;
+// On the host's clock the hour of samples lasts 72 ms less.
+assert_eq!(hour_us * 1_000 - host_ns, 72_000_000);
+```
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/figures/events_series.svg"
@@ -125,7 +152,7 @@ needs a fixed rate.
 | | Events | Series |
 |---|---|---|
 | Time | each item has its own start, and maybe an end | the sample's index on a fixed period |
-| Items | any kind: a WireWeaver value, plain bytes, numbers, bytes of a named format | numbers of one element, one or more channels a sample |
+| Items | events of any kind: a WireWeaver value, plain bytes, numbers, bytes of a named format | samples: numbers of one element, one or more channels each |
 | The drive's tracks | `log`, `mode`, `can0`, `temp` | `phase_a` |
 
 [Blocks](blocks.md) shows the blocks that hold each kind, and [Events](events.md) and [Series](series.md) how a reader
@@ -140,7 +167,7 @@ kind of item needs no new block or codec.
 | `Items` | One item is | Example |
 |---|---|---|
 | `WireWeaver` | a value of a stream of a WireWeaver API, in its shrink_wrap encoding | the drive's `mode` |
-| `ShrinkWrap` | a value of a shrink_wrap type from a bundle, outside any API stream | a record of a test bench |
+| `ShrinkWrap` | a value of a shrink_wrap type from a bundle, outside any API stream | a test bench's result per run |
 | `RawBytes` | plain bytes with no type | frames as a sniffer received them |
 | `Numbers` | one number of an element the definition describes, with an optional unit | the drive's `phase_a` |
 | `Foreign` | bytes of a format with a name, a media type and a version | a pcap capture, `application/vnd.tcpdump.pcap` |
