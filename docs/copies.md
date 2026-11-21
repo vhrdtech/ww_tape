@@ -103,4 +103,4 @@ own. Where the index is damaged or missing, the reader reads the chunks and comp
 bytes that no block explains in `skipped`, so a fold over damage never passes for a whole one.
 
 This part of the book ends here, with the fault found in code and its frames checked in two files.
-[Damage](damage.md) shows what still reads when an archived piece has a flipped bit.
+[When bytes go bad](damage.md) shows what still reads when an archived piece has a flipped bit.

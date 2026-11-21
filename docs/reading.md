@@ -59,7 +59,7 @@ The fault lies in piece 3, the last one. A piece that a crash left without a tai
 [[checkpoint]] instead, as [When the power fails](crashes.md#how-a-reader-finds-the-end) shows. A piece still being
 written, or closed more than once, reads as [Reading a growing piece](growing_pieces.md) explains. A [[raw medium]] such
 as a card is read forwards from its start, since an older recording's tail there may pass for the newest one. Open it
-with [`TapeReader::open_with`] and [`Medium::Raw`]; [Raw media](raw_media.md) explains why.
+with [`TapeReader::open_with`] and [`Medium::Raw`]; [Where the data ends on a raw card](raw_media.md) explains why.
 
 ## Finding blocks through the index
 
@@ -155,5 +155,5 @@ Once the reader has an entry, [`TapeReader::read_block`] reads the block and che
 | a [[summary block|summary]] | its nodes, a coarse view of a track | [Summaries](summaries.md) |
 
 A block that fails its CRC is damaged, and a reader skips it. Its index entry still says what it held: which track,
-which items and which ticks. [Damage](damage.md) shows how much of a damaged chunk still reads. The next chapter reads
-the frames on `can0` that the drive sent when it faulted.
+which items and which ticks. [When bytes go bad](damage.md) shows how much of a damaged chunk still reads. The next
+chapter reads the frames on `can0` that the drive sent when it faulted.
