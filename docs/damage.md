@@ -35,8 +35,10 @@ block and knows which segments failed.
 | [[content hash]], [[BLAKE3]] | every byte of a closed piece before its close record | nothing; it proves the piece unchanged |
 
 The checks detect damage and never repair it. Correction is the medium's job: the error correction of a disk, of a flash
-controller or of a file system. A tape catches only what that correction missed. Every CRC is CRC-32C. The processor's
-CRC instructions compute it where they exist and a table elsewhere, with the same result.
+controller or of a file system. A tape catches only what that correction missed.
+
+Every CRC is CRC-32C. The processor's CRC instructions compute it where they exist. Elsewhere, such as in a browser or
+on a microcontroller, a table computes it, with the same result.
 
 ## What the flipped bit costs
 

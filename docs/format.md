@@ -201,7 +201,8 @@ With the latest end, an overlap query needs no decode of the ends. A series chun
 tracks](#series-tracks)).
 
 The head then lists one entry per column: its kind, its codec id, a parameter and its offset. It also holds one CRC-32C
-per **segment** of the payload, 64 KiB by default.
+per **segment** of the payload. Writers make segments 64 KiB long. The head states the segment size, and a reader takes
+any size from 4 KiB to 16 MiB (`SEGMENT_SHIFT_MIN`, `SEGMENT_SHIFT_MAX`).
 
 The columns follow back to back, then 16 zero bytes. These zeros keep an unaligned 16-byte load at any column byte
 inside the block.
@@ -1522,6 +1523,32 @@ The walk handed out the first of the two before it met the second. A caller that
 therefore holds it back or can take it back.
 
 Blocks of puts (`FLAG_REPEAT`) share seqs by design and take no part in this.
+
+### Walking damaged bytes
+
+`FileBlocks` walks the blocks of a byte stream in one of two recovery modes. `Recovery::Prefix`, the default, reads the
+longest valid prefix and stops at the first damage. `Recovery::Resync` reports the damage and reads on.
+
+Resync reads every block Prefix reads. In a stretch that Prefix reads past as a gap, Resync hands out the good blocks it
+meets. These include a session that starts in the gap and the blocks after it. Past the gap, Resync goes on with the
+session it had, as Prefix does.
+
+Each report is a `FileError` variant:
+
+| Report | Mode | Meaning |
+|---|---|---|
+| `Cut` | Prefix | the bytes from this offset on are left out, for the reason given; the walk ends |
+| `Gap` | both | a blank or bad stretch that the session's data goes on after; the walk goes on |
+| `Replaced` | Prefix | a later copy of the block before it, with other bytes, replaces it |
+| `Bad` | Resync | the bytes at this offset are not a good block; the walk skipped to the next magic |
+| `Truncated` | Resync | the bytes end inside a block |
+| `Conflict` | Resync | two good blocks with one session and seq but other bytes |
+| `Stale` | Resync | a good block of another session where no session may start; skipped by its length |
+| `Refused` | both | a block of an integrity level this reader does not handle; not damage, stepped over by its length |
+
+A closed piece whose final index does not read stays a closed piece. `TapeReader::entries` fails on it, while
+`TapeReader::track_entries` still gives each track whose own list reads. The reader does not read such a piece from its
+checkpoints instead.
 
 ### State near its use
 
