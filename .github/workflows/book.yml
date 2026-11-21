@@ -36,9 +36,9 @@ jobs:
       - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2
         with:
           tool: just
-      # spl, spirit_level's CLI, at 0.7.6: `just book-strict` runs `spl book refs` first
+      # spl, spirit_level's CLI, at 0.7.9: `just book-strict` runs `spl book refs` first
       # spl 0.7.6 has a warning of its own (unused workspace dependency anstyle); allow it for this install only
-      - run: cargo install --locked --git https://github.com/romixlab/spirit_level --rev 739f59e2b82a8b926aa73c96baea1bfebee7db81 spirit_level_cli
+      - run: cargo install --locked --git https://github.com/romixlab/spirit_level --rev af0208e6dbad4206aaf1064f51df138be47d60b9 spirit_level_cli
         env:
           CARGO_BUILD_WARNINGS: allow
       - run: just book-strict
