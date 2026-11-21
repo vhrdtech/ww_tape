@@ -1,0 +1,40 @@
+<svg class="ww-svg" viewBox="0 0 633.6 306" width="633.6" height="306" role="img" aria-label="Where the bytes of the drive's hour go, MiB by part of the recording, log scale" xmlns="http://www.w3.org/2000/svg">
+<text x="251.6" y="16.0" text-anchor="start" class="strong">MiB of the drive's hour (log scale)</text>
+<line x1="251.6" y1="34.0" x2="251.6" y2="222.0" class="thin"/>
+<text x="251.6" y="236.0" text-anchor="middle" class="small soft">0.001</text>
+<line x1="297.6" y1="34.0" x2="297.6" y2="222.0" class="thin"/>
+<text x="297.6" y="236.0" text-anchor="middle" class="small soft">0.01</text>
+<line x1="343.6" y1="34.0" x2="343.6" y2="222.0" class="thin"/>
+<text x="343.6" y="236.0" text-anchor="middle" class="small soft">0.1</text>
+<line x1="389.6" y1="34.0" x2="389.6" y2="222.0" class="thin"/>
+<text x="389.6" y="236.0" text-anchor="middle" class="small soft">1</text>
+<line x1="435.6" y1="34.0" x2="435.6" y2="222.0" class="thin"/>
+<text x="435.6" y="236.0" text-anchor="middle" class="small soft">10</text>
+<line x1="481.6" y1="34.0" x2="481.6" y2="222.0" class="thin"/>
+<text x="481.6" y="236.0" text-anchor="middle" class="small soft">100</text>
+<rect x="251.6" y="40.0" width="229.0" height="12.0" rx="2" class="blue"><title>series chunks of phase_a, MiB of the hour: 95.002</title></rect>
+<text x="484.6" y="50.0" text-anchor="start" class="small">95.002</text>
+<rect x="251.6" y="66.0" width="179.6" height="12.0" rx="2" class="blue"><title>events chunks of can0, MiB of the hour: 8.012</title></rect>
+<text x="435.2" y="76.0" text-anchor="start" class="small">8.012</text>
+<rect x="251.6" y="92.0" width="160.9" height="12.0" rx="2" class="blue"><title>summaries of phase_a, MiB of the hour: 3.146</title></rect>
+<text x="416.5" y="102.0" text-anchor="start" class="small">3.146</text>
+<rect x="251.6" y="118.0" width="132.9" height="12.0" rx="2" class="blue"><title>records blocks of log, temp and mode, MiB of the hour: 0.773</title></rect>
+<text x="388.5" y="128.0" text-anchor="start" class="small">0.773</text>
+<rect x="251.6" y="144.0" width="33.5" height="12.0" rx="2" class="blue"><title>puts and copies, MiB of the hour: 0.005</title></rect>
+<text x="289.1" y="154.0" text-anchor="start" class="small">0.005</text>
+<rect x="251.6" y="170.0" width="159.9" height="12.0" rx="2" class="blue"><title>checkpoints and final indexes, MiB of the hour: 3.000</title></rect>
+<text x="415.5" y="180.0" text-anchor="start" class="small">3.000</text>
+<rect x="251.6" y="196.0" width="51.9" height="12.0" rx="2" class="blue"><title>piece heads, closes and tails, MiB of the hour: 0.013</title></rect>
+<text x="307.5" y="206.0" text-anchor="start" class="small">0.013</text>
+<line x1="251.6" y1="34.0" x2="251.6" y2="222.0" class="line"/>
+<text x="241.6" y="50.0" text-anchor="end">series chunks of phase_a</text>
+<text x="241.6" y="76.0" text-anchor="end">events chunks of can0</text>
+<text x="241.6" y="102.0" text-anchor="end">summaries of phase_a</text>
+<text x="241.6" y="128.0" text-anchor="end">records blocks of log, temp and mode</text>
+<text x="241.6" y="154.0" text-anchor="end">puts and copies</text>
+<text x="241.6" y="180.0" text-anchor="end">checkpoints and final indexes</text>
+<text x="241.6" y="206.0" text-anchor="end">piece heads, closes and tails</text>
+<rect x="251.6" y="249.0" width="12.0" height="10.0" rx="2" class="blue"/>
+<text x="268.6" y="258.0" text-anchor="start" class="small">MiB of the hour</text>
+<text x="251.6" y="280.0" text-anchor="start" class="small soft">just bench-drive on build-1: sizes don't change with the load.</text>
+</svg>

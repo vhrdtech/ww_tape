@@ -119,7 +119,8 @@ draws [[summaries]] adds `ww_tape_summary`.
 | `ww_tape_summary` | the trees of summaries a viewer draws a long track from |
 
 ww_tape runs on a host. Its [[writer]] needs an allocator and keeps the index of the open [[piece]] in memory. A piece
-of 256 MiB in [[records blocks]] of 4 KiB takes its heap to a peak of about 44 MB, as `just bench-memory` measures.
+of 256 MiB in [[records blocks]] of 4 KiB takes its heap to tens of megabytes ([Sizes and
+speeds](sizes.md#what-the-writer-holds-in-memory)).
 ww_tape spends that memory on many [[tracks]], an index, summaries, column codecs and chains of pieces.
 
 Firmware on a small device keeps its log in [logring](https://lr.vhrd.tech/) instead. That store writes a ring on an SD

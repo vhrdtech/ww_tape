@@ -104,27 +104,9 @@ integers with `DELTA` and as floats with ALP. For comparison, it also tries the 
 `DELTA` on the float bits. The bench keeps those other float codecs for comparison only; they are not part of the
 format. Every value comes back bit for bit.
 
-The bench runs in chunks of 4096 samples. This run used one core of an AMD processor, the `Ryzen AI 9 HX 370`. The
-ratio is the raw float column's size over the coded size, so larger is better, and the time is the decode time per
-value.
-
-| Data | Fixed point, `DELTA` | `ALP` | Best other float codec |
-|---|---|---|---|
-| motor simulation, `f32` | 3.10, 0.66 ns | 1.64, 1.17 ns | 1.99, 1.02 ns |
-| motor simulation, `f64` | 6.20, 0.65 ns | 2.51, 1.24 ns | 2.51, 2.60 ns |
-| speech, `f32` (fixed: 16-bit PCM) | 3.43, 0.71 ns | 1.16, 1.27 ns | 1.23, 5.59 ns |
-| 12-bit ADC × 3.3/4096, `f32` | 7.31, 0.65 ns | 1.59, 1.17 ns | 1.84, 0.81 ns |
-| 12-bit ADC × 3.3/4096, `f64` | 14.63, 0.65 ns | 1.32, 1.59 ns | 1.57, 7.28 ns |
-| 12-bit ADC × 0.1, `f32` | 7.31, 0.65 ns | 4.67, 0.81 ns | 1.84, 0.83 ns |
-| 12-bit ADC × 0.1, `f64` | 14.63, 0.65 ns | 9.02, 0.72 ns | 1.59, 7.27 ns |
-
-Fixed point is 1.6 to 9.3 times smaller than the best float codec on every set, and it decodes fastest. ALP wins among
-the float codecs where the floats began as short decimals: on ADC × 0.1 as `f64`, 9.02 against 1.59. Elsewhere ALP is
-level with the best other float codec or behind it by up to 18 %. It decodes at 0.72 to 1.59 ns per value, where the
-XOR codecs take up to 7.3 ns.
-
-[Float codecs measured](format.md#float-codecs-measured) describes the data sets and gives the full table with every
-codec. The bench takes about 20 s.
+The bench runs in chunks of 4096 samples. [Sizes and speeds](sizes.md#samples-fixed-point-first) draws its ratio
+and decode time per data set. Fixed point is smaller than the best float codec on every set, and it decodes fastest.
+[Float codecs measured](format.md#float-codecs-measured) describes the data sets.
 
 ## Which sample codec
 
@@ -141,17 +123,8 @@ The choice follows from who controls the numbers:
 ## What a chunk costs the writer
 
 The writer adds little to the encoding. `just bench-chunks` measures what it spends on a series chunk of 1 MiB, which
-holds 524 288 `i16` samples. The table shows the best of 5 rounds of 256 chunks.
+holds 524 288 `i16` samples. [Sizes and speeds](sizes.md#what-the-writer-spends) draws each part.
 
-The bench ran on a virtual machine with 14 virtual CPUs on an AMD EPYC processor of the Genoa generation. The load
-average was about 5.
-
-| What | µs per chunk | GB/s |
-|---|---:|---:|
-| `chunk::write_chunk`: copy and CRCs | 53 | 19.82 |
-| `Block::read`: the CRCs checked | 33 | 31.32 |
-| `ItemHash::of`: BLAKE3 | 213 | 4.92 |
-| `TapeWriter::write_chunk` from columns | 254 | 4.12 |
-| `chunk::write_chunk`, then `TapeWriter::write_block` | 281 | 3.73 |
+--8<-- "docs/plots/bench_chunks_writer.txt"
 
 The [[content hash]] is most of the cost.

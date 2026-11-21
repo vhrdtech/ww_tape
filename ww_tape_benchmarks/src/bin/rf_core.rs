@@ -3,7 +3,7 @@
 //! the codec, `TapeWriter::write_chunk` into a sink that keeps no bytes (CRCs, the content hash, the index), and the
 //! summaries; the rate they sustain together in MS/s and MB/s of 4-byte samples. Then the reader on `--read-seconds`
 //! of the capture in memory: every chunk the index lists read with its CRCs checked and decoded, the best of
-//! `--rounds`. The load average at the start is in the heading.
+//! `--rounds`. Each table carries the load average before and after it.
 #![allow(
     clippy::arithmetic_side_effects,
     clippy::as_conversions,
@@ -16,13 +16,21 @@ use clap::Parser;
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 use ww_tape::{Codec, SyncPolicy, TapeWriter};
+use ww_tape_bench::{Bench, Cell, Common};
 use ww_tape_example::rf::{self, Rf, Tally};
 
 #[derive(Parser)]
 #[command(
-    about = "The RF capture: what ww_tape's writer and reader sustain on IQ samples, on one core"
+    name = "rf_core",
+    about = "The RF capture: what ww_tape's writer and reader sustain on IQ samples, on one core",
+    version = vc_build::version!(),
+    after_long_help = "Examples:
+  just bench-rf-core
+  rf_core --seconds 10 --json rf_core.json"
 )]
 struct Args {
+    #[command(flatten)]
+    common: Common,
     /// Complex samples a second, millions.
     #[arg(long, default_value_t = 20)]
     msps: u32,
@@ -100,24 +108,42 @@ fn write(rf: &Rf) -> anyhow::Result<(Parts, u64)> {
 }
 
 fn main() -> anyhow::Result<()> {
-    let args = Args::parse();
-    let load = std::fs::read_to_string("/proc/loadavg")
-        .map(|l| l.split_whitespace().take(3).collect::<Vec<_>>().join(" "))
-        .unwrap_or_else(|_| "unknown".to_owned());
+    let args: Args = ww_tape_bench::args();
     let base = Rf::at(args.msps * 1_000_000).seconds(args.seconds);
     let samples = base.count() as f64;
-    println!(
-        "IQ at {} MS/s, {} s ({} chunks of {} samples), one core; load average {load}.\n",
-        args.msps,
-        args.seconds,
-        base.chunks(),
-        base.chunk_samples
+    let mut bench = Bench::start(
+        "rf_core",
+        vc_build::build_info!(),
+        &args.common,
+        vec![
+            ("MS/s", args.msps.to_string()),
+            ("seconds", args.seconds.to_string()),
+            ("chunk samples", base.chunk_samples.to_string()),
+            ("read seconds", args.read_seconds.to_string()),
+            ("rounds", args.rounds.to_string()),
+        ],
+    )?;
+    println!("{}", bench.header());
+    let mut table = bench.table(
+        "writer",
+        &format!(
+            "The writer on {} s of IQ at {} MS/s in {} chunks, one core: ms of work per second of capture.",
+            args.seconds,
+            args.msps,
+            base.chunks()
+        ),
+        &[
+            "Codec",
+            "Bytes per sample",
+            "Codec ms/s",
+            "`write_chunk` ms/s",
+            "Summaries ms/s",
+            "Writer MS/s",
+            "Writer MB/s",
+        ],
     );
-    println!(
-        "| Codec | Bytes per sample | Codec, ms/s | `write_chunk`, ms/s | Summaries, ms/s | Writer, MS/s | Writer, MB/s |"
-    );
-    println!("|---|---:|---:|---:|---:|---:|---:|");
     let codecs = [
+        ("`RAW`", Codec::RAW),
         ("`PACKED12_LSB`", Codec::PACKED12_LSB),
         ("`DELTA`", Codec::DELTA),
     ];
@@ -126,22 +152,25 @@ fn main() -> anyhow::Result<()> {
     for (name, codec) in codecs {
         let (parts, len) = write(&base.codec(codec))?;
         let msps = samples / parts.total().as_secs_f64() / 1e6;
-        println!(
-            "| {name} | {:.3} | {:.1} | {:.1} | {:.1} | {msps:.0} | {:.0} |",
-            len as f64 / samples,
-            per_s(parts.codec),
-            per_s(parts.write),
-            per_s(parts.summaries),
-            msps * 4.0
-        );
+        table.row(vec![
+            Cell::text(name),
+            Cell::num(len as f64 / samples, 3),
+            Cell::num(per_s(parts.codec), 1),
+            Cell::num(per_s(parts.write), 1),
+            Cell::num(per_s(parts.summaries), 1),
+            Cell::num(msps, 0),
+            Cell::num(msps * 4.0, 0),
+        ]);
     }
-
-    println!(
-        "\nThe reader on {} s in memory, every chunk read and decoded, best of {}.\n",
-        args.read_seconds, args.rounds
+    println!("{}", bench.push(table));
+    let mut table = bench.table(
+        "reader",
+        &format!(
+            "The reader on {} s in memory, every chunk read with its CRCs checked and decoded, best of {}.",
+            args.read_seconds, args.rounds
+        ),
+        &["Codec", "Reader MS/s", "Reader MB/s"],
     );
-    println!("| Codec | Reader, MS/s | Reader, MB/s |");
-    println!("|---|---:|---:|");
     for (name, codec) in codecs {
         let rf = base.codec(codec).seconds(args.read_seconds);
         let piece = rf.record().map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -154,7 +183,12 @@ fn main() -> anyhow::Result<()> {
             black_box(read);
         }
         let msps = rf.count() as f64 / best / 1e6;
-        println!("| {name} | {msps:.0} | {:.0} |", msps * 4.0);
+        table.row(vec![
+            Cell::text(name),
+            Cell::num(msps, 0),
+            Cell::num(msps * 4.0, 0),
+        ]);
     }
-    Ok(())
+    println!("{}", bench.push(table));
+    bench.finish()
 }

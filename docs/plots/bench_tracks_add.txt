@@ -1,0 +1,9 @@
+| What | s |
+|---|---:|
+| add 1000 tracks | 0.007 |
+| add 5000 tracks | 0.040 |
+| add 10000 tracks | 0.085 |
+| close the piece | 0.015 |
+| open it and read the definitions | 0.023 |
+
+`just bench-tracks` on build-1, load average 6.03 before, 6.03 after.

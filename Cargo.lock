@@ -169,6 +169,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "clap_complete"
+version = "4.6.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a35200383f20018d41c14d1ab19c1727c697f544492143f7d93aa39f0187848"
+dependencies = [
+ "clap",
+ "clap_lex",
+ "is_executable",
+ "shlex",
+]
+
+[[package]]
 name = "clap_derive"
 version = "4.6.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -332,6 +344,15 @@ checksum = "cc4e190f5d26ca7051642629da2c52fc03bde85a03197c99408dcd291734c855"
 dependencies = [
  "equivalent",
  "hashbrown",
+]
+
+[[package]]
+name = "is_executable"
+version = "1.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "82cb6a9f675da968c63b6208c641b9dca58fc0133ae53375736b1767b0cab8bd"
+dependencies = [
+ "windows-sys",
 ]
 
 [[package]]
@@ -832,10 +853,41 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c6f5d3c3b1bf09027a88a6bc961fc00497d651009560b5463668dc81b0fa87a8"
 
 [[package]]
+name = "unicode-width"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ca718471876992059f251e33aafc334346ada08042b7661dd1fe313a9bced557"
+
+[[package]]
 name = "utf8parse"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
+
+[[package]]
+name = "vc_build"
+version = "0.0.4"
+source = "git+https://github.com/vhrdtech/vhrd_cli#afdef34e4aa979b5528f481b889c8a669a352df6"
+
+[[package]]
+name = "vc_complete"
+version = "0.0.4"
+source = "git+https://github.com/vhrdtech/vhrd_cli#afdef34e4aa979b5528f481b889c8a669a352df6"
+dependencies = [
+ "clap",
+ "clap_complete",
+]
+
+[[package]]
+name = "vc_ui"
+version = "0.0.4"
+source = "git+https://github.com/vhrdtech/vhrd_cli#afdef34e4aa979b5528f481b889c8a669a352df6"
+dependencies = [
+ "anstyle",
+ "clap",
+ "libc",
+ "unicode-width",
+]
 
 [[package]]
 name = "windows-link"
@@ -996,13 +1048,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "ww_tape_bench"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "vc_build",
+ "vc_complete",
+ "vc_ui",
+ "ww_tape_bench_report",
+]
+
+[[package]]
+name = "ww_tape_bench_report"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "ww_tape_benchmarks"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "libm",
  "shrink_wrap",
+ "vc_build",
  "ww_tape",
+ "ww_tape_bench",
+ "ww_tape_codecs",
  "ww_tape_example",
  "ww_tape_fs",
  "ww_tape_summary",
@@ -1025,6 +1102,8 @@ dependencies = [
  "lewton",
  "libm",
  "motor_sim",
+ "vc_build",
+ "ww_tape_bench",
  "ww_tape_codecs",
 ]
 
@@ -1046,8 +1125,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "exact_units",
+ "libm",
  "shrink_wrap",
  "ww_tape",
+ "ww_tape_bench_report",
  "ww_tape_example",
  "ww_tape_summary",
 ]

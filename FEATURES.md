@@ -148,7 +148,7 @@ Writing pieces and chains, resuming them, sinks in memory, in the crate `ww_tape
   - Past the room it carries each once: the call's tracks first, then clocks and maps, then the newest tracks. The tracks with the oldest data are left out: the head marks them, the close counts them and a reader names them (`DefinitionsAt::not_carried`).
   - A cut made for a call keeps room for its records. An admitted call so fits the piece a cut made for it: data on a track left out writes on, and that piece holds data.
   - A state track gets a head row from its first put. A cut carries its newest item beside its definition, so a state put once outlives older pieces. About 275 to 330 bytes per carried state (`just bench-carried`).
-  - Cost at 1000 tracks and 8 MiB pieces: 2.5 % less data and 2.8 % more bytes per piece (`just bench-carried`).
+  - What carrying costs a piece, measured by `just bench-carried`: [What they cost](docs/carried_definitions.md#what-they-cost).
   - Read more: [The definitions a new piece carries](docs/carried_definitions.md). Tests `quiet.rs`.
 
 - ✅ **WRITE-10 A piece's layout and producer survive damage to its first blocks**
@@ -215,8 +215,8 @@ Column codecs with no notion of a block, in the crate `ww_tape_codecs`.
 - ✅ **CODEC-4 ALP for floats** · `v0.5`
   - ALP codes floats that began as decimals as bit-packed integers, after Afroozeh, Kuffó and Boncz (SIGMOD 2024). Other floats are coded by their front bits.
   - It is lossless, and a group never takes more than 7 bytes over raw. The same input gives the same bytes on every platform.
-  - Fixed point stays 1.6 to 9.3 times smaller than any float codec measured.
-  - Read more: [ALP, the one float codec](docs/numbers.md#alp-the-one-float-codec). Fuzz target `tape-samples`.
+  - Fixed point stays smaller than any float codec measured.
+  - Read more: [Samples: fixed point first](docs/sizes.md#samples-fixed-point-first). Fuzz target `tape-samples`.
 - ✅ **CODEC-5 One fast CRC-32C**
   - Every block kind checks its CRC-32C with one table, or with the CPU's CRC instruction where there is one.
   - On x86-64 the instruction reaches 31 to 37 GiB/s on large buffers. The ARMv8 path runs in CI.
@@ -224,7 +224,7 @@ Column codecs with no notion of a block, in the crate `ww_tape_codecs`.
   - Read more: [Checks at three levels](docs/damage.md#checks-at-three-levels).
 - 💡 **CODEC-6 Fast sample encoders**
   - `DELTA` and the packed codecs encode through a scalar 64-bit path, about 3.6 ns per value for `ComplexI16`, while `DELTA` decodes at 0.65 ns.
-  - On one core the encoder is the writer's limit. Packed at 12 bits, the writer takes 157 MS/s of IQ and the codec 58 % of its time (`ww_tape_benchmarks --bin rf_core`).
+  - On one core the encoder is the writer's limit. Packed at 12 bits, the writer takes 157 MS/s of IQ and the codec 58 % of its time (`just bench-rf-core`; [How fast a radio capture records](docs/sizes.md#how-fast-a-radio-capture-records)).
   - Vector kernels for 16-bit values, as the decoders and summaries have, would lift it. The bytes must stay the same.
 
 ## Summaries (`SUM`)
@@ -243,7 +243,7 @@ Summary blocks, nodes and kernels, in the crates `ww_tape_summary` and `ww_tape_
 - ✅ **SUM-3 Summary kernels in one pass** · `v0.5`
   - A batch of samples is summarised in one pass, fast enough to keep up with ingest. Any order of addition gives the same result.
   - Kernels for AVX2 and AVX-512 are picked at run time and checked against the scalar model.
-  - Read more: [Numbers](docs/numbers.md#summaries); `just bench-summaries` measures them.
+  - Read more: [Summaries](docs/sizes.md#summaries); `just bench-summaries` measures them.
 - 💡 **SUM-4 Minimum and maximum at the element's width**
   - A series node stores its minimum and maximum as 8 bytes per component, whatever the element: a `ComplexI16` node takes 32 bytes for them.
   - The RF capture's nodes take 40 bytes each, 1.1 % of its piece; at the element's width they would take 16.
@@ -268,7 +268,8 @@ The pages in `docs/`.
   - Done: Part IV, reading: five chapters that find the drive's fault in code, with six new figures.
   - Done: Part V, damage and raw media, with the drive's archive and card, four new figures and the lessons appendix.
   - Done: the owner's read: one term each for record, item and sample; event times and samples on pages of their own.
-  - Open: the chapter "Sizes and speeds", still a stub; tested code in every guide chapter.
+  - Done: the chapter "Sizes and speeds", every number from a bench report in `docs/bench/`.
+  - Open: the chapters still stubs, tested code in every guide chapter.
   - Read more: [For writers](docs/writers.md), [Glossary](docs/glossary.md).
 
 - ✅ **BOOK-3 The running example as code**
@@ -292,6 +293,10 @@ Crates, checks, fuzzing and benches.
 - ✅ **REPO-84 spirit_level checks in `just lint`**
   - `just lint` and CI run `spl check` with every lint of `spirit_level.toml`. The prose lints read the book, the READMEs, AGENTS.md, the CHANGELOG and this file.
   - Every crate inherits the workspace lints, the panic-class set included.
+- ✅ **REPO-85 Benches that rerun the book's numbers**
+  - Every bench binary takes `--json FILE`, `--color`, `--version` and shell completion through `ww_tape_bench`. Each table records the machine and the load average before and after it.
+  - `just bench-book` reruns every number of "Sizes and speeds" into `docs/bench/`; `ww_tape_figures` draws the page's charts and tables from those reports, and a test keeps them current.
+  - Read more: [Sizes and speeds](docs/sizes.md).
 
 ## Dropped and superseded
 

@@ -24,6 +24,10 @@
 //! - `sync_loss.svg`: three seconds of the drive's file, the syncs of four policies, what a crash loses.
 //! - `cut.svg`: the end of the drive's piece 0 and the start of piece 1.
 //!
+//! - `sample_codecs.svg`, `event_times.svg`, `chunk_cost.svg`, `drive_sizes.svg` and the `bench_*.txt` tables: the
+//!   numbers of "Sizes and speeds" and "The definitions a new piece carries", from the bench reports in `docs/bench/`
+//!   (`just bench-book`).
+//!
 //! The figures of records against chunks, the clock map, the checkpoints, the crash, the map, the first tape, the index query, the summary tree and the damage draw the book's running example, the drive's recording ([ww_tape_example]), at a small scale.
 //!
 //! [figures] draws them; `ww_tape_figures DIR` writes them into `DIR` (`just book-figures`: `docs/plots`).
@@ -32,10 +36,12 @@
     clippy::as_conversions,
     clippy::cast_possible_truncation,
     clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
     reason = "the figures draw blocks ww_tape wrote itself: coordinates are computed freely and a broken figure fails its test"
 )]
 
 mod autorange;
+mod bench;
 mod block;
 mod checkpoints;
 mod clock_map;
@@ -53,9 +59,19 @@ mod svg;
 mod tape_map;
 mod writing;
 
-/// Every figure: its file name and its SVG text.
-pub fn figures() -> anyhow::Result<Vec<(&'static str, String)>> {
-    Ok(vec![
+pub use bench::Says;
+
+/// Where the bench reports the charts draw from are kept: `docs/bench` of this repository.
+pub const BENCH_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../docs/bench");
+
+/// What the prose of "Sizes and speeds" may write, from the bench reports in [BENCH_DIR].
+pub fn bench_says() -> anyhow::Result<Says> {
+    bench::says(&bench::read(std::path::Path::new(BENCH_DIR))?)
+}
+
+/// Every figure: its file name and its text.
+pub fn figures() -> anyhow::Result<Vec<(String, String)>> {
+    let drawn: Vec<(&str, String)> = vec![
         ("block.svg", block::block()?),
         ("piece.svg", piece::piece()?),
         ("puts.svg", puts::puts()?),
@@ -80,7 +96,11 @@ pub fn figures() -> anyhow::Result<Vec<(&'static str, String)>> {
         ("delta_group.svg", writing::delta_group()?),
         ("sync_loss.svg", writing::sync_loss()?),
         ("cut.svg", writing::cut()?),
-    ])
+    ];
+    let mut out: Vec<(String, String)> =
+        drawn.into_iter().map(|(n, s)| (n.to_owned(), s)).collect();
+    out.extend(bench::figures(std::path::Path::new(BENCH_DIR))?);
+    Ok(out)
 }
 
 /// `ww_tape`'s errors that are not [std::error::Error], as [anyhow::Error] by their [Debug](core::fmt::Debug) text.

@@ -1,0 +1,7 @@
+| Codec | Reader MS/s | Reader MB/s |
+|---|---:|---:|
+| `RAW` | 1358 | 5431 |
+| `PACKED12_LSB` | 976 | 3906 |
+| `DELTA` | 368 | 1472 |
+
+`just bench-rf-core` on build-1, load average 6.00 before, 6.15 after.

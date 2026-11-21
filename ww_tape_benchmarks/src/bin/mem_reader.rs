@@ -2,7 +2,7 @@
 //! 64 KiB blocks to a `MemSink`, a reader reads 4 KiB at the start of it every few µs and times each `read_at`.
 //! Prints a Markdown table of the worst and the 99.9th percentile wait, with and without `TapeSink::reserve` of the
 //! piece's size up front (what `PieceChain` does for a `MemTapes` piece), the worst of `--rounds` rounds each, with
-//! the load average at the start.
+//! the load average before and after each table.
 #![allow(
     clippy::arithmetic_side_effects,
     clippy::as_conversions,
@@ -17,12 +17,20 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use ww_tape::reader::ByteSource;
 use ww_tape::{MemSink, TapeSink};
+use ww_tape_bench::{Bench, Cell, Common};
 
 #[derive(Parser)]
 #[command(
-    about = "worst wait of a reader of a memory piece while it is written, with and without reserving"
+    name = "mem_reader",
+    about = "worst wait of a reader of a memory piece while it is written, with and without reserving",
+    version = vc_build::version!(),
+    after_long_help = "Examples:
+  just bench-mem-reader
+  just bench-mem-reader --piece-mib 64 --rounds 3"
 )]
 struct Args {
+    #[command(flatten)]
+    common: Common,
     /// Size of the piece, MiB.
     #[arg(long, default_value_t = 256)]
     piece_mib: usize,
@@ -73,26 +81,45 @@ fn round(piece_mib: usize, reserve: bool) -> (Duration, Duration, usize) {
     (waits.last().copied().unwrap_or_default(), p999, waits.len())
 }
 
-fn main() {
-    let a = Args::parse();
-    let load = std::fs::read_to_string("/proc/loadavg").unwrap_or_default();
-    println!(
-        "load average at the start: {}\n",
-        load.split_whitespace()
-            .take(3)
-            .collect::<Vec<_>>()
-            .join(" ")
+fn main() -> anyhow::Result<()> {
+    let a: Args = ww_tape_bench::args();
+    let mut bench = Bench::start(
+        "mem_reader",
+        vc_build::build_info!(),
+        &a.common,
+        vec![
+            ("piece MiB", a.piece_mib.to_string()),
+            ("rounds", a.rounds.to_string()),
+        ],
+    )?;
+    println!("{}", bench.header());
+    let mut table = bench.table(
+        "waits",
+        &format!(
+            "A reader of a memory piece of {} MiB while it is written, the worst of {} rounds.",
+            a.piece_mib, a.rounds
+        ),
+        &[
+            "Piece",
+            "Worst wait, µs",
+            "p99.9 wait, µs",
+            "Reads (fewest)",
+        ],
     );
-    println!(
-        "| Piece {} MiB | worst wait | p99.9 wait | reads (fewest) |\n|---|---|---|---|",
-        a.piece_mib
-    );
+    let us = |d: Duration| Cell::num(d.as_secs_f64() * 1e6, 1);
     for (name, reserve) in [("grows by doubling", false), ("reserved", true)] {
         let mut worst = (Duration::ZERO, Duration::ZERO, usize::MAX);
         for _ in 0..a.rounds {
             let r = round(a.piece_mib, reserve);
             worst = (worst.0.max(r.0), worst.1.max(r.1), worst.2.min(r.2));
         }
-        println!("| {name} | {:?} | {:?} | {} |", worst.0, worst.1, worst.2);
+        table.row(vec![
+            Cell::text(name),
+            us(worst.0),
+            us(worst.1),
+            Cell::count(worst.2 as u64),
+        ]);
     }
+    println!("{}", bench.push(table));
+    bench.finish()
 }

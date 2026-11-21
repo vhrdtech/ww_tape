@@ -7,6 +7,11 @@ export NEXTEST_TEST_THREADS := if jobs != "" { jobs } else { env_var_or_default(
 # setup-rust-toolchain sets CARGO_BUILD_WARNINGS=deny: a tree red in CI cannot pass lint, test or the gate
 export CARGO_BUILD_WARNINGS := env_var_or_default('CARGO_BUILD_WARNINGS', 'deny')
 
+# `bench-book`'s RF chain: the directory it records into and the GiB it grows to. The directory needs that much free
+# disk and is removed after the read; the default sits under target/, on disk
+rf_dir := "target/bench-rf"
+rf_gib := "100"
+
 # The WireWeaver command line that checks the API snapshot: `ww` from PATH, or the binary `WW` names
 ww := env_var_or_default('WW', 'ww')
 
@@ -98,9 +103,9 @@ bench-summaries *args:
 bench-tracks *args:
     cargo run -q --release -p ww_tape_benchmarks --bin tracks -- {{ args }}
 
-# ww_tape: the definitions a piece carries for the tracks of its head, per piece (WRITE-9)
-bench-carried:
-    cargo run -q --release -p ww_tape_benchmarks --bin carried
+# ww_tape: the definitions a piece carries for the tracks of its head, per piece (WRITE-9); `just bench-carried --help`
+bench-carried *args:
+    cargo run -q --release -p ww_tape_benchmarks --bin carried -- {{ args }}
 
 # ww_tape series chunks: ns per 1 MiB chunk the writer spends, and its parts (WRITE-4); `just bench-chunks --help`
 bench-chunks *args:
@@ -110,9 +115,58 @@ bench-chunks *args:
 bench-memory *args:
     cargo run -q --release -p ww_tape_benchmarks --bin memory -- {{ args }}
 
+# ww_tape event times against raw ticks, varints and Elias-Fano: bytes, coding, item j and first at or after a tick
+# (CODEC-2); the system journal workload reads this machine's last 20 days of journal times, when journalctl has them
+bench-event-times *args:
+    mkdir -p target/bench-data
+    -journalctl -q --no-pager -o short-unix --since -20d | cut -d" " -f1 > target/bench-data/journal.txt
+    cargo run -q --release -p ww_tape_benchmarks --bin event_times -- --journal target/bench-data/journal.txt {{ args }}
+
+# ww_tape events chunk starts column: open intact and salvaged, get and is_suspect per item (READ-2); `just bench-starts --help`
+bench-starts *args:
+    cargo run -q --release -p ww_tape_benchmarks --bin starts -- {{ args }}
+
+# ww_tape track relations: column bytes, encode, read, lower bound and write_chunk; `just bench-relations --help`
+bench-relations *args:
+    cargo run -q --release -p ww_tape_benchmarks --bin relations -- {{ args }}
+
+# The book's running example at full scale: the drive's hour by block kind, bytes per item and time to record
+# (BOOK-3); `just bench-drive --help`
+bench-drive *args:
+    cargo run -q --release -p ww_tape_benchmarks --bin drive -- {{ args }}
+
+# ww_tape: the RF capture's writer and reader on one core, per codec (BOOK-2); `just bench-rf-core --help`
+bench-rf-core *args:
+    cargo run -q --release -p ww_tape_benchmarks --bin rf_core -- {{ args }}
+
+# ww_tape: the RF capture into a chain of piece files in `--dir` at full speed, then read back; `just bench-rf-chain --help`
+bench-rf-chain *args:
+    cargo run -q --release -p ww_tape_benchmarks --bin rf_chain -- {{ args }}
+
 # Worst wait of a reader of a memory piece while it is written, with and without reserving it (WRITE-5); `just bench-mem-reader --help`
 bench-mem-reader *args:
     cargo run -q --release -p ww_tape_benchmarks --bin mem_reader -- {{ args }}
+
+# Every bench the book draws from ("Sizes and speeds", "The definitions a new piece carries"), at release, into
+# docs/bench/*.json; then the charts and tables drawn from them (`just book-figures`). `just jobs=N bench-book` caps
+# the build's jobs. Each bench runs on one core, except rf_chain: 8 workers and a writer thread.
+# rf_chain needs `rf_gib` GiB free on the disk of `rf_dir` (100 GiB by default), and removes its chain after the read:
+# `just rf_dir=/data/rf bench-book` puts it elsewhere.
+# A report names the commit it ran, so the tree must be clean, and every bench is built before the first report is written
+bench-book:
+    test -z "$(git status --porcelain)" || (echo "bench-book: commit or drop the changes first, a report names its commit" && exit 1)
+    cargo build -q --release -p ww_tape_benchmarks -p ww_tape_codecs_benchmarks
+    mkdir -p docs/bench
+    just bench-sample-codecs --json docs/bench/sample_codecs.json
+    just bench-event-times --json docs/bench/event_times.json
+    just bench-summaries --json docs/bench/summaries.json
+    just bench-chunks --json docs/bench/chunks.json
+    just bench-tracks --json docs/bench/tracks.json
+    just bench-drive --json docs/bench/drive.json
+    just bench-carried --json docs/bench/carried.json
+    just bench-memory --json docs/bench/memory.json
+    just bench-rf-core --json docs/bench/rf_core.json
+    just bench-rf-chain --dir {{ rf_dir }} --gib {{ rf_gib }} --remove --json docs/bench/rf_chain.json
 
 # Build the book (docs/, zensical.toml) into site/ with Zensical
 [group('book')]

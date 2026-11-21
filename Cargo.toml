@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["ww_tape", "ww_tape_benchmarks", "ww_tape_codecs", "ww_tape_codecs_benchmarks", "ww_tape_example", "ww_tape_figures", "ww_tape_fs", "ww_tape_fuzz", "ww_tape_summary", "ww_tape_tests"]
+members = ["ww_tape", "ww_tape_bench", "ww_tape_bench_report", "ww_tape_benchmarks", "ww_tape_codecs", "ww_tape_codecs_benchmarks", "ww_tape_example", "ww_tape_figures", "ww_tape_fs", "ww_tape_fuzz", "ww_tape_summary", "ww_tape_tests"]
 # cargo-fuzz targets, a workspace of its own (nightly)
 exclude = ["fuzz"]
 
@@ -16,6 +16,8 @@ license = "MIT"
 
 [workspace.dependencies]
 ww_tape = { version = "0.1.0", path = "./ww_tape", default-features = false }
+ww_tape_bench = { path = "./ww_tape_bench" }
+ww_tape_bench_report = { path = "./ww_tape_bench_report" }
 ww_tape_codecs = { version = "0.1.0", path = "./ww_tape_codecs", default-features = false }
 ww_tape_example = { path = "./ww_tape_example" }
 ww_tape_fs = { version = "0.1.0", path = "./ww_tape_fs" }
@@ -26,6 +28,10 @@ exact_units = { version = "0.1.0", git = "https://github.com/romixlab/exact_unit
 # ww_tape_codecs_benchmarks: the motor simulation data set
 motor_sim = { git = "https://github.com/vhrdtech/motor_sim", default-features = false }
 shrink_wrap = { version = "0.2.0", git = "https://github.com/romixlab/shrink_wrap", default-features = false }
+# the bench binaries' --version, --color and shell completion
+vc_build = { git = "https://github.com/vhrdtech/vhrd_cli", default-features = false }
+vc_complete = { git = "https://github.com/vhrdtech/vhrd_cli", default-features = false }
+vc_ui = { git = "https://github.com/vhrdtech/vhrd_cli", default-features = false }
 # ww_tape's tests/evolution.rs: the API snapshot check `ww api check` runs, as a test
 wire_weaver_evolution = { version = "0.5.0", git = "https://github.com/vhrdtech/wire_weaver", default-features = false, features = ["source"] }
 ww_version = { version = "0.2.0", git = "https://github.com/vhrdtech/ww_base", default-features = false }
@@ -44,6 +50,9 @@ libm = { version = "0.2", default-features = false, features = ["arch"] }
 lz4_flex = { version = "=0.14.0", default-features = false, features = ["safe-decode", "checked-decode"] }
 # ww_tape_fs on unix: a file sink's flock and the file system type of its file (fstatfs)
 rustix = { version = "1.1", default-features = false, features = ["fs", "std"] }
+# the bench reports, and the book's figures that read them
+serde = { version = "1", default-features = false, features = ["std"] }
+serde_json = { version = "1", default-features = false, features = ["std"] }
 
 # exact_units' panic-class lints for every crate: no panic, overflow or unchecked index reachable from file bytes
 # (READ-2). Every exception is an #[expect(.., reason = "..")] naming its invariant. Tests, benches, the figures and

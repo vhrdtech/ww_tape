@@ -1,0 +1,232 @@
+{
+  "format": 1,
+  "bench": "memory",
+  "version": "0.1.0 (838fcb1, commit 21 Nov 2026 13:56 UTC)",
+  "commit": "838fcb1",
+  "dirty": false,
+  "build": {
+    "profile": "release",
+    "opt_level": "3",
+    "jobs": 4
+  },
+  "settings": [
+    [
+      "piece MiB",
+      "256"
+    ],
+    [
+      "block KiB",
+      "4"
+    ],
+    [
+      "chunk KiB",
+      "1024"
+    ],
+    [
+      "tracks",
+      "10000"
+    ]
+  ],
+  "machine": {
+    "host": "build-1",
+    "virtual_machine": true,
+    "cpu": "AMD EPYC-Genoa Processor",
+    "cpus": 14,
+    "arch": "x86_64",
+    "extensions": [
+      "sse4.2",
+      "avx2",
+      "avx512bw+vl"
+    ]
+  },
+  "tables": [
+    {
+      "id": "heap",
+      "title": "The heap of a writer over one piece of 256 MiB on a sink that keeps no bytes.",
+      "columns": [
+        "Blocks",
+        "Tracks",
+        "Blocks in the piece",
+        "New writer (bytes)",
+        "Peak before the close (bytes)",
+        "Peak with the close (bytes)",
+        "Before the close, per block (bytes)"
+      ],
+      "rows": [
+        [
+          "records, 4 KiB",
+          {
+            "value": 1.0,
+            "digits": 0
+          },
+          {
+            "value": 64002.0,
+            "digits": 0
+          },
+          {
+            "value": 0.0,
+            "digits": 0
+          },
+          {
+            "value": 13652824.0,
+            "digits": 0
+          },
+          {
+            "value": 44221584.0,
+            "digits": 0
+          },
+          {
+            "value": 213.3187087903503,
+            "digits": 1
+          }
+        ],
+        [
+          "records, 4 KiB",
+          {
+            "value": 10.0,
+            "digits": 0
+          },
+          {
+            "value": 63997.0,
+            "digits": 0
+          },
+          {
+            "value": 0.0,
+            "digits": 0
+          },
+          {
+            "value": 13654088.0,
+            "digits": 0
+          },
+          {
+            "value": 44220808.0,
+            "digits": 0
+          },
+          {
+            "value": 213.35512602153227,
+            "digits": 1
+          }
+        ],
+        [
+          "records, 4 KiB",
+          {
+            "value": 100.0,
+            "digits": 0
+          },
+          {
+            "value": 63952.0,
+            "digits": 0
+          },
+          {
+            "value": 0.0,
+            "digits": 0
+          },
+          {
+            "value": 13709248.0,
+            "digits": 0
+          },
+          {
+            "value": 44257608.0,
+            "digits": 0
+          },
+          {
+            "value": 214.3677758318739,
+            "digits": 1
+          }
+        ],
+        [
+          "records, 4 KiB",
+          {
+            "value": 1000.0,
+            "digits": 0
+          },
+          {
+            "value": 63485.0,
+            "digits": 0
+          },
+          {
+            "value": 0.0,
+            "digits": 0
+          },
+          {
+            "value": 27575528.0,
+            "digits": 0
+          },
+          {
+            "value": 62390632.0,
+            "digits": 0
+          },
+          {
+            "value": 434.36288887138693,
+            "digits": 1
+          }
+        ],
+        [
+          "records, 4 KiB",
+          {
+            "value": 10000.0,
+            "digits": 0
+          },
+          {
+            "value": 60609.0,
+            "digits": 0
+          },
+          {
+            "value": 0.0,
+            "digits": 0
+          },
+          {
+            "value": 32442143.0,
+            "digits": 0
+          },
+          {
+            "value": 66086344.0,
+            "digits": 0
+          },
+          {
+            "value": 535.2693989341517,
+            "digits": 1
+          }
+        ],
+        [
+          "series chunks, 1024 KiB",
+          {
+            "value": 1.0,
+            "digits": 0
+          },
+          {
+            "value": 256.0,
+            "digits": 0
+          },
+          {
+            "value": 0.0,
+            "digits": 0
+          },
+          {
+            "value": 3166431.0,
+            "digits": 0
+          },
+          {
+            "value": 3166431.0,
+            "digits": 0
+          },
+          {
+            "value": 12368.87109375,
+            "digits": 1
+          }
+        ]
+      ],
+      "load_before": {
+        "one": 6.49,
+        "five": 7.15,
+        "fifteen": 6.98
+      },
+      "load_after": {
+        "one": 6.49,
+        "five": 7.15,
+        "fifteen": 6.98
+      },
+      "seconds": 4.275807014
+    }
+  ]
+}

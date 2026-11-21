@@ -1,0 +1,8 @@
+| Tracks | Cut at | Records blocks | Records blocks without carried | Data less (%) | Piece (bytes) | Piece without carried (bytes) | Piece more (%) |
+|---:|---|---:|---:|---:|---:|---:|---:|
+| 100 | 1 MiB | 255 | 257 | 0.8 | 1 093 632 | 1 081 344 | 1.1 |
+| 100 | 8 MiB | 2037 | 2042 | 0.2 | 8 773 632 | 8 761 344 | 0.1 |
+| 1000 | 1 MiB | 214 | 236 | 9.3 | 1 204 224 | 1 081 344 | 11.4 |
+| 1000 | 8 MiB | 1969 | 2021 | 2.6 | 8 753 152 | 8 634 368 | 1.4 |
+
+`just bench-carried` on build-1, load average 6.24 before, 6.24 after.

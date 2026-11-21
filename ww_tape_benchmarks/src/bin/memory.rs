@@ -23,6 +23,7 @@ use ww_tape::{
     Segment, SeriesDef, SeriesGrid, SyncPolicy, TapeSink, TapeWriter, TrackDef, TrackKind, Version,
     clock_key, track_key,
 };
+use ww_tape_bench::{Bench, Cell, Common};
 
 /// The system allocator, counting the bytes live and their peak.
 struct Counting;
@@ -60,8 +61,17 @@ fn baseline() -> usize {
 }
 
 #[derive(Parser)]
-#[command(about = "ww_tape: the heap a writer holds while it writes one piece")]
+#[command(
+    name = "memory",
+    about = "ww_tape: the heap a writer holds while it writes one piece",
+    version = vc_build::version!(),
+    after_long_help = "Examples:
+  just bench-memory
+  memory --tracks 100000 --json memory.json"
+)]
 struct Args {
+    #[command(flatten)]
+    common: Common,
     /// Size of the piece, MiB.
     #[arg(long, default_value_t = 256)]
     piece_mib: u64,
@@ -263,33 +273,55 @@ fn series(piece: u64, chunk: usize) -> anyhow::Result<Row> {
 }
 
 fn main() -> anyhow::Result<()> {
-    let args = Args::parse();
+    let args: Args = ww_tape_bench::args();
     let piece = args.piece_mib << 20;
-    println!(
-        "The heap of a writer over one piece of {} MiB on a sink that keeps no bytes.\n",
-        args.piece_mib
+    let mut bench = Bench::start(
+        "memory",
+        vc_build::build_info!(),
+        &args.common,
+        vec![
+            ("piece MiB", args.piece_mib.to_string()),
+            ("block KiB", args.block_kib.to_string()),
+            ("chunk KiB", args.chunk_kib.to_string()),
+            ("tracks", args.tracks.to_string()),
+        ],
+    )?;
+    println!("{}", bench.header());
+    let mut table = bench.table(
+        "heap",
+        &format!(
+            "The heap of a writer over one piece of {} MiB on a sink that keeps no bytes.",
+            args.piece_mib
+        ),
+        &[
+            "Blocks",
+            "Tracks",
+            "Blocks in the piece",
+            "New writer (bytes)",
+            "Peak before the close (bytes)",
+            "Peak with the close (bytes)",
+            "Before the close, per block (bytes)",
+        ],
     );
-    println!(
-        "| Blocks | Tracks | Blocks in the piece | New writer (bytes) | Peak before the close (bytes) | Peak with the close (bytes) | Before the close, per block (bytes) |"
-    );
-    println!("|---|---:|---:|---:|---:|---:|---:|");
-    let print = |what: &str, tracks: u32, r: &Row| {
-        println!(
-            "| {what} | {tracks} | {} | {} | {} | {} | {:.1} |",
-            r.blocks,
-            r.new,
-            r.open,
-            r.peak,
-            r.open as f64 / r.blocks as f64
-        );
+    let row = |what: String, tracks: u32, r: &Row| {
+        vec![
+            Cell::text(what),
+            Cell::count(tracks.into()),
+            Cell::count(r.blocks),
+            Cell::count(r.new as u64),
+            Cell::count(r.open as u64),
+            Cell::count(r.peak as u64),
+            Cell::num(r.open as f64 / r.blocks as f64, 1),
+        ]
     };
     let mut tracks = 1;
     while tracks <= args.tracks {
         let r = records(tracks, piece, args.block_kib * 1024)?;
-        print(&format!("records, {} KiB", args.block_kib), tracks, &r);
+        table.row(row(format!("records, {} KiB", args.block_kib), tracks, &r));
         tracks *= 10;
     }
     let r = series(piece, args.chunk_kib * 1024)?;
-    print(&format!("series chunks, {} KiB", args.chunk_kib), 1, &r);
-    Ok(())
+    table.row(row(format!("series chunks, {} KiB", args.chunk_kib), 1, &r));
+    println!("{}", bench.push(table));
+    bench.finish()
 }

@@ -1,0 +1,6 @@
+| What | Bytes per block |
+|---|---:|
+| hashed | 0.0 |
+| copied | 6.2 |
+
+`just bench-tracks` on build-1, load average 6.03 before, 6.03 after.

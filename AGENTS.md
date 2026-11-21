@@ -37,8 +37,10 @@ chapter reads and how it marks terms, links code and includes tested code.
 | `ww_tape_fs/` | everything that names a path: `FileSink`, `Files`, `FileSource`, the lock on the open file and its fork handler, `writer::{create, append, resume, cut}`, `chain::{create, resume}` |
 | `ww_tape_tests/` | the integration tests (`tests/it`), through the public API; the book pages against the code, their `rust` blocks as doctests (`src/book.rs`) |
 | `ww_tape_fuzz/` | the fuzz target bodies (`targets`), hostile block builders (`hostile`), `seeds/` and their replay as tests, `ww_tape_fuzz_seeds` |
+| `ww_tape_bench/` | what every bench binary shares: `--json`, `--color`, `--version`, completion, the timing loop, the run's report |
+| `ww_tape_bench_report/` | a bench report as its JSON holds it: commit, build, host and machine, tables with their load; serde only |
 | `ww_tape_codecs_benchmarks/` | float sample codecs on simulated, decoded and sensor data |
-| `ww_tape_benchmarks/` | series summaries (`--bin summaries`); tracks added one by one, puts and copies (`--bin tracks`); the writer's cost per series chunk (`--bin chunks`); carried definitions (`--bin carried`); the writer's heap over a piece (`--bin memory`); the RF capture on one core and into a chain of files (`--bin rf_core`, `--bin rf_chain`) |
+| `ww_tape_benchmarks/` | one binary per bench: `summaries`, `tracks`, `chunks`, `drive`, `event_times`, `starts`, `relations`, `mem_reader`, `carried`, `memory`, `rf_core`, `rf_chain` (README lists what each measures) |
 | `ww_tape_example/` | the book's running example: the drive motor controller's hour at any scale, a crash at any byte, the resume; the RF capture (`rf`); `cargo run -p ww_tape_example` prints the story's numbers |
 | `ww_tape_figures/` | the book's figures that show bytes or numbers, drawn from blocks ww_tape writes into `docs/plots/` (`just book-figures`; a test checks them) |
 | `fuzz/` | cargo-fuzz targets (`tape-*`), a workspace of its own on nightly; each target calls `ww_tape_fuzz` |
@@ -67,11 +69,8 @@ just check            # the reader, writer, chain and codecs for wasm32 without 
 just api-check        # ww_tape's version and wire line against ww_tape/api_snapshots/; skipped without `ww`
 just fuzz-tape-<target>   # one fuzz target until stopped, with its libFuzzer limits
 just tape-golden-update   # rewrite golden/*.hex after a deliberate format change
-just bench-sample-codecs  # float codecs (fetches a public-domain speech file once)
-just bench-summaries      # series summary throughput
-just bench-tracks         # tracks added one by one; puts and copies per 256 MiB piece
-just bench-chunks         # ns per 1 MiB series chunk the writer spends, and its parts
-just bench-carried        # the definitions a piece carries for its head's tracks, per piece
+just bench-<name>         # one bench at release, `--json FILE` for its report (ww_tape_benchmarks/README.md lists them)
+just bench-book           # every bench the book draws from into docs/bench/; `just book-figures` draws them
 just book-check           # the book (docs/) with warnings as errors, then spl's prose lints (deny)
 just book-refs            # spl book refs: checks docs/glossary.toml, indexes the code links; every book build runs it
 ```

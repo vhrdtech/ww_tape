@@ -1,0 +1,6 @@
+| Workload | Raw starts and ends bytes per event | Starts bytes per event | Starts and ends bytes per event |
+|---|---:|---:|---:|
+| spans back to back | 16.000 | 2.938 | 2.938 |
+| spans with gaps | 16.000 | 3.333 | 5.935 |
+
+`just bench-event-times` on build-1, load average 5.64 before, 5.64 after.

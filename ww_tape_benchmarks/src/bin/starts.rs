@@ -1,7 +1,7 @@
 //! What reading an events chunk's starts column costs per item, intact and salvaged: opening it (`EventTimes::read`
 //! checks every group; `EventTimes::salvage` decides once which groups hold up), and reading every item one at a time
 //! (`Starts::get`, `Starts::is_suspect`) from a salvaged column with one damaged byte. Prints a Markdown table, the
-//! best of `--rounds` rounds, with the load average at the start.
+//! best of `--rounds` rounds, with the load average before and after each table.
 #![allow(
     clippy::arithmetic_side_effects,
     clippy::as_conversions,
@@ -14,33 +14,29 @@
 )]
 
 use clap::Parser;
-use std::hint::black_box;
-use std::time::Instant;
 use ww_tape::chunk::{ChunkHead, chunk_len, write_chunk};
 use ww_tape::times::{EncodedTimes, EventTimes};
 use ww_tape::{Block, BlockId, Codec, ColumnKind, ColumnSpec, SessionTag};
+use ww_tape_bench::{Bench, Cell, Common, Rng, ns_per};
 
 #[derive(Parser)]
-#[command(about = "ww_tape starts column: intact and salvaged open, get and is_suspect per item")]
+#[command(
+    name = "starts",
+    about = "ww_tape starts column: intact and salvaged open, get and is_suspect per item",
+    version = vc_build::version!(),
+    after_long_help = "Examples:
+  just bench-starts
+  starts --items 65536 --rounds 3"
+)]
 struct Args {
+    #[command(flatten)]
+    common: Common,
     /// Rounds, the best one counts.
     #[arg(long, default_value_t = 5)]
     rounds: u32,
     /// Items in the chunk.
     #[arg(long, default_value_t = 1 << 20)]
     items: usize,
-}
-
-/// xorshift64*.
-struct Rng(u64);
-
-impl Rng {
-    fn below(&mut self, n: u64) -> u64 {
-        self.0 ^= self.0 >> 12;
-        self.0 ^= self.0 << 25;
-        self.0 ^= self.0 >> 27;
-        self.0.wrapping_mul(0x2545_f491_4f6c_dd1d) % n
-    }
 }
 
 /// An events chunk of `starts` and a small payload column, as a block.
@@ -66,27 +62,24 @@ fn block(starts: &[i64]) -> anyhow::Result<Vec<u8>> {
     Ok(buf)
 }
 
-/// Best of `rounds`, ns per item of `f` over `n` items.
-fn best(rounds: u32, n: usize, mut f: impl FnMut() -> u64) -> f64 {
-    let mut best = f64::MAX;
-    for _ in 0..rounds {
-        let t = Instant::now();
-        black_box(f());
-        best = best.min(t.elapsed().as_nanos() as f64 / n as f64);
-    }
-    best
-}
-
-fn load() -> String {
-    std::fs::read_to_string("/proc/loadavg")
-        .ok()
-        .and_then(|l| l.split_whitespace().next().map(str::to_owned))
-        .unwrap_or_else(|| "?".to_owned())
+/// Best of `rounds`, ns per item of `f`, which reads all `n` items.
+fn per_item(rounds: u32, n: usize, mut f: impl FnMut() -> u64) -> f64 {
+    ns_per(rounds, 1, |_| f()) / n as f64
 }
 
 fn main() -> anyhow::Result<()> {
-    let args = Args::parse();
+    let args: Args = ww_tape_bench::args();
     let n = args.items;
+    let mut bench = Bench::start(
+        "starts",
+        vc_build::build_info!(),
+        &args.common,
+        vec![
+            ("items", n.to_string()),
+            ("rounds", args.rounds.to_string()),
+        ],
+    )?;
+    println!("{}", bench.header());
     let mut r = Rng(0xc0de);
     let mut t = 0i64;
     let starts: Vec<i64> = (0..n)
@@ -107,37 +100,40 @@ fn main() -> anyhow::Result<()> {
     );
     let salvaged = EventTimes::salvage(&bad)?;
     let s = salvaged.starts();
-    println!("load {}, {n} items, one damaged byte\n", load());
-    println!("| starts column | ns per item |");
-    println!("|---|---:|");
+    let mut table = bench.table(
+        "starts",
+        &format!("A starts column of {n} items, intact and with one damaged byte."),
+        &["Starts column", "ns per item"],
+    );
     let rows = [
         (
             "`EventTimes::read`, intact",
-            best(args.rounds, n, || {
+            per_item(args.rounds, n, || {
                 EventTimes::read(&good).map_or(0, |t| t.len() as u64)
             }),
         ),
         (
             "`EventTimes::salvage`, damaged",
-            best(args.rounds, n, || {
+            per_item(args.rounds, n, || {
                 EventTimes::salvage(&bad).map_or(0, |t| t.len() as u64)
             }),
         ),
         (
             "`Starts::get` each item, salvaged",
-            best(args.rounds, n, || {
+            per_item(args.rounds, n, || {
                 (0..n).fold(0u64, |a, i| a.wrapping_add(s.get(i) as u64))
             }),
         ),
         (
             "`Starts::is_suspect` each item, salvaged",
-            best(args.rounds, n, || {
+            per_item(args.rounds, n, || {
                 (0..n).filter(|i| s.is_suspect(*i)).count() as u64
             }),
         ),
     ];
     for (what, ns) in rows {
-        println!("| {what} | {ns:.2} |");
+        table.row(vec![Cell::text(what), Cell::num(ns, 2)]);
     }
-    Ok(())
+    println!("{}", bench.push(table));
+    bench.finish()
 }

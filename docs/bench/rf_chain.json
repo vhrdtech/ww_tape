@@ -1,0 +1,203 @@
+{
+  "format": 1,
+  "bench": "rf_chain",
+  "version": "0.1.0 (838fcb1, commit 21 Nov 2026 13:56 UTC)",
+  "commit": "838fcb1",
+  "dirty": false,
+  "build": {
+    "profile": "release",
+    "opt_level": "3",
+    "jobs": 4
+  },
+  "settings": [
+    [
+      "MS/s",
+      "20"
+    ],
+    [
+      "GiB",
+      "50"
+    ],
+    [
+      "workers",
+      "8"
+    ]
+  ],
+  "machine": {
+    "host": "build-1",
+    "virtual_machine": true,
+    "cpu": "AMD EPYC-Genoa Processor",
+    "cpus": 14,
+    "arch": "x86_64",
+    "extensions": [
+      "sse4.2",
+      "avx2",
+      "avx512bw+vl"
+    ]
+  },
+  "tables": [
+    {
+      "id": "chain",
+      "title": "IQ at 20 MS/s into a chain of piece files, 8 workers and one writer thread, until it holds 50 GiB.",
+      "columns": [
+        "What",
+        "Value",
+        "Unit"
+      ],
+      "rows": [
+        [
+          "Capture recorded",
+          {
+            "value": 878.74,
+            "digits": 1
+          },
+          "s"
+        ],
+        [
+          "Wall time",
+          {
+            "value": 924.095332481,
+            "digits": 1
+          },
+          "s"
+        ],
+        [
+          "Sustained",
+          {
+            "value": 19.018384123654634,
+            "digits": 1
+          },
+          "MS/s"
+        ],
+        [
+          "Samples in",
+          {
+            "value": 76.07353649461854,
+            "digits": 0
+          },
+          "MB/s"
+        ],
+        [
+          "Written",
+          {
+            "value": 50.0037841796875,
+            "digits": 2
+          },
+          "GiB"
+        ],
+        [
+          "Write rate",
+          {
+            "value": 58.10131546476989,
+            "digits": 0
+          },
+          "MB/s"
+        ],
+        [
+          "Writer thread busy",
+          {
+            "value": 99.81217590090624,
+            "digits": 0
+          },
+          "%"
+        ],
+        [
+          "Pieces",
+          {
+            "value": 15.0,
+            "digits": 0
+          },
+          ""
+        ],
+        [
+          "Smallest piece",
+          {
+            "value": 2.367025152,
+            "digits": 2
+          },
+          "GB"
+        ],
+        [
+          "Largest piece",
+          {
+            "value": 3.666010112,
+            "digits": 2
+          },
+          "GB"
+        ],
+        [
+          "Bytes per sample",
+          {
+            "value": 3.055007990531898,
+            "digits": 3
+          },
+          ""
+        ]
+      ],
+      "load_before": {
+        "one": 6.3,
+        "five": 6.92,
+        "fifteen": 6.91
+      },
+      "load_after": {
+        "one": 6.01,
+        "five": 8.92,
+        "fifteen": 8.61
+      },
+      "seconds": 924.188509696
+    },
+    {
+      "id": "read",
+      "title": "Every piece of the chain opened, then one second of IQ read and decoded.",
+      "columns": [
+        "Read",
+        "ms",
+        "Bytes read",
+        "Reads"
+      ],
+      "rows": [
+        [
+          "Open 15 pieces",
+          {
+            "value": 525.575942,
+            "digits": 1
+          },
+          {
+            "value": 47020.0,
+            "digits": 0
+          },
+          {
+            "value": 105.0,
+            "digits": 0
+          }
+        ],
+        [
+          "Second 439: 20000000 samples decoded",
+          {
+            "value": 112.237483,
+            "digits": 1
+          },
+          {
+            "value": 65424804.0,
+            "digits": 0
+          },
+          {
+            "value": 103.0,
+            "digits": 0
+          }
+        ]
+      ],
+      "load_before": {
+        "one": 6.01,
+        "five": 8.92,
+        "fifteen": 8.61
+      },
+      "load_after": {
+        "one": 6.01,
+        "five": 8.92,
+        "fifteen": 8.61
+      },
+      "seconds": 0.637850665
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 //! Tracks added one by one: the application defines each new track in its `Definitions`, writes one records block
 //! on it (the writer puts the definition before it), and closes the piece; a reader then opens it and takes its definitions.
 //! Prints a Markdown table of the time to add the first 1 000, 5 000 and all tracks, the close, and the read, with
-//! the load average at the start.
+//! the load average before and after each table.
 //!
 //! Then the bytes a writer puts and copies (blocks marked FLAG_REPEAT) in one piece of `--piece-mib` with all the
 //! tracks defined, records blocks of `--block-kib` on the tracks in use in turn: all of them, and 1 % of them, with
@@ -28,10 +28,21 @@ use ww_tape::{
     EventsDef, FLAG_REPEAT, FullVersion, Magnitude, MemSink, Segment, SessionTag, Slot, SyncPolicy,
     TapeReader, TapeSink, TapeWriter, TrackDef, TrackKind, Version, clock_key, track_key,
 };
+use ww_tape_bench::{Bench, Cell, Common};
 
 #[derive(Parser)]
-#[command(about = "ww_tape tracks added one by one: define, a records block, close and read")]
+#[command(
+    name = "tracks",
+    about = "ww_tape tracks added one by one: define, a records block, close and read",
+    version = vc_build::version!(),
+    after_long_help = "Examples:
+  just bench-tracks
+  just bench-tracks --tracks 100000
+  tracks --json docs/bench/tracks.json"
+)]
 struct Args {
+    #[command(flatten)]
+    common: Common,
     /// Tracks to add.
     #[arg(long, default_value_t = 10_000)]
     tracks: u32,
@@ -206,11 +217,27 @@ fn records(id: BlockId, track: u32) -> anyhow::Result<Vec<u8>> {
 }
 
 fn main() -> anyhow::Result<()> {
-    let args = Args::parse();
+    let args: Args = ww_tape_bench::args();
     let e = |e: ww_tape::WriteError<_>| anyhow::anyhow!("{e:?}");
-    let load = std::fs::read_to_string("/proc/loadavg")
-        .map(|l| l.split_whitespace().take(3).collect::<Vec<_>>().join(" "))
-        .unwrap_or_else(|_| "unknown".to_owned());
+    let mut bench = Bench::start(
+        "tracks",
+        vc_build::build_info!(),
+        &args.common,
+        vec![
+            ("tracks", args.tracks.to_string()),
+            ("piece MiB", args.piece_mib.to_string()),
+            ("block KiB", args.block_kib.to_string()),
+        ],
+    )?;
+    println!("{}", bench.header());
+    let mut add = bench.table(
+        "add",
+        &format!(
+            "{} tracks added one by one, a records block each, into a piece in memory.",
+            args.tracks
+        ),
+        &["What", "s"],
+    );
     let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     let tape = w.sink().tape();
     let owner = OwnerId([7; 32]);
@@ -254,46 +281,58 @@ fn main() -> anyhow::Result<()> {
         .filter(|s| matches!(s, Slot::Track { .. }))
         .count();
     anyhow::ensure!(tracks == args.tracks as usize, "{tracks} tracks read back");
-    println!(
-        "{} tracks added one by one, a records block each; a piece of {} bytes. Load at start: {load}.",
+    add.table.title = format!(
+        "{} tracks added one by one, a records block each, into a piece in memory of {} bytes.",
         args.tracks,
         bytes.len()
     );
-    println!();
-    println!("| tracks | add (s) |");
-    println!("|---|---|");
-    for (n, s) in at {
-        println!("| {n} | {s:.3} |");
+    for (n, secs) in at {
+        add.row(vec![
+            Cell::text(format!("add {n} tracks")),
+            Cell::num(secs, 3),
+        ]);
     }
-    println!();
-    println!("Close: {close:.3} s. Open and read the definitions: {read:.3} s.");
+    add.row(vec![Cell::text("close the piece"), Cell::num(close, 3)]);
+    add.row(vec![
+        Cell::text("open it and read the definitions"),
+        Cell::num(read, 3),
+    ]);
+    println!("{}", bench.push(add));
     let piece = args.piece_mib << 20;
     let block = args.block_kib << 10;
-    println!();
-    println!(
-        "Put and copied bytes in a piece of {} MiB, {} tracks defined, records blocks of {} KiB on the tracks in use in turn:",
-        args.piece_mib, args.tracks, args.block_kib
+    let mut puts = bench.table(
+        "puts",
+        &format!(
+            "Put and copied bytes in a piece of {} MiB, {} tracks defined, records blocks of {} KiB on the tracks in use in turn; the default policies: a near of {} MiB, a copy {} MiB after the newest record.",
+            args.piece_mib,
+            args.tracks,
+            args.block_kib,
+            ww_tape::NEAR_DEFAULT >> 20,
+            ww_tape::NearPolicy::default().copy_spacing >> 20
+        ),
+        &["Tracks in use", "Put and copied bytes", "Of the piece, %"],
     );
-    println!();
-    println!("| tracks in use | put and copied (bytes) | of the piece |");
-    println!("|---|---|---|");
     for in_use in [args.tracks, (args.tracks / 100).max(1)] {
         let (repeat, all) = repeat_bytes(args.tracks, in_use, piece, block)?;
-        println!(
-            "| {in_use} | {repeat} | {:.3} % |",
-            repeat as f64 * 100.0 / all as f64
-        );
+        puts.row(vec![
+            Cell::text(in_use.to_string()),
+            Cell::count(repeat),
+            Cell::num(repeat as f64 * 100.0 / all as f64, 3),
+        ]);
     }
+    println!("{}", bench.push(puts));
     let (blocks, label) = (10_000, 60 << 10);
-    let (hashed, copied) = idle_work(blocks, label)?;
-    println!();
-    println!(
-        "Work per records block when nothing needs writing ({blocks} blocks on a track whose definition is {} KiB):",
-        label >> 10
+    let mut idle = bench.table(
+        "idle",
+        &format!(
+            "Work per records block when nothing needs writing: {blocks} blocks on a track whose definition is {} KiB.",
+            label >> 10
+        ),
+        &["What", "Bytes per block"],
     );
-    println!();
-    println!("| hashed (bytes) | copied (bytes) |");
-    println!("|---|---|");
-    println!("| {hashed:.1} | {copied:.1} |");
-    Ok(())
+    let (hashed, copied) = idle_work(blocks, label)?;
+    idle.row(vec![Cell::text("hashed"), Cell::num(hashed, 1)]);
+    idle.row(vec![Cell::text("copied"), Cell::num(copied, 1)]);
+    println!("{}", bench.push(idle));
+    bench.finish()
 }

@@ -1,0 +1,415 @@
+{
+  "format": 1,
+  "bench": "summaries",
+  "version": "0.1.0 (838fcb1, commit 21 Nov 2026 13:56 UTC)",
+  "commit": "838fcb1",
+  "dirty": false,
+  "build": {
+    "profile": "release",
+    "opt_level": "3",
+    "jobs": 4
+  },
+  "settings": [
+    [
+      "frames a push",
+      "16384"
+    ],
+    [
+      "MiB a pass",
+      "256"
+    ],
+    [
+      "best of",
+      "5"
+    ],
+    [
+      "node",
+      "2^10 samples"
+    ]
+  ],
+  "machine": {
+    "host": "build-1",
+    "virtual_machine": true,
+    "cpu": "AMD EPYC-Genoa Processor",
+    "cpus": 14,
+    "arch": "x86_64",
+    "extensions": [
+      "sse4.2",
+      "avx2",
+      "avx512bw+vl"
+    ]
+  },
+  "tables": [
+    {
+      "id": "summaries",
+      "title": "Series summaries, every statistic, nodes of 2^10 samples, 16384 frames a push, 256 MiB a pass, best of 5.",
+      "columns": [
+        "Element",
+        "Channels",
+        "RAW MB/s",
+        "Summaries MB/s",
+        "RAW and summaries MB/s"
+      ],
+      "rows": [
+        [
+          "I8",
+          {
+            "value": 1.0,
+            "digits": 0
+          },
+          {
+            "value": 89067.14357525494,
+            "digits": 0
+          },
+          {
+            "value": 2568.985038500018,
+            "digits": 0
+          },
+          {
+            "value": 2510.1946449321745,
+            "digits": 0
+          }
+        ],
+        [
+          "U8",
+          {
+            "value": 1.0,
+            "digits": 0
+          },
+          {
+            "value": 102169.38771548748,
+            "digits": 0
+          },
+          {
+            "value": 2605.2411246116835,
+            "digits": 0
+          },
+          {
+            "value": 2440.2074378698117,
+            "digits": 0
+          }
+        ],
+        [
+          "I16",
+          {
+            "value": 1.0,
+            "digits": 0
+          },
+          {
+            "value": 63765.404710747825,
+            "digits": 0
+          },
+          {
+            "value": 4802.099850483722,
+            "digits": 0
+          },
+          {
+            "value": 4555.173839569166,
+            "digits": 0
+          }
+        ],
+        [
+          "I16",
+          {
+            "value": 4.0,
+            "digits": 0
+          },
+          {
+            "value": 73266.81127035349,
+            "digits": 0
+          },
+          {
+            "value": 3619.642391239023,
+            "digits": 0
+          },
+          {
+            "value": 3515.9182343158955,
+            "digits": 0
+          }
+        ],
+        [
+          "U16",
+          {
+            "value": 1.0,
+            "digits": 0
+          },
+          {
+            "value": 71746.40834243853,
+            "digits": 0
+          },
+          {
+            "value": 4793.617830188696,
+            "digits": 0
+          },
+          {
+            "value": 4218.597386289204,
+            "digits": 0
+          }
+        ],
+        [
+          "I32",
+          {
+            "value": 1.0,
+            "digits": 0
+          },
+          {
+            "value": 67922.19836431347,
+            "digits": 0
+          },
+          {
+            "value": 7086.254700788232,
+            "digits": 0
+          },
+          {
+            "value": 6326.342964248228,
+            "digits": 0
+          }
+        ],
+        [
+          "U32",
+          {
+            "value": 1.0,
+            "digits": 0
+          },
+          {
+            "value": 68821.13380917221,
+            "digits": 0
+          },
+          {
+            "value": 7077.857566594857,
+            "digits": 0
+          },
+          {
+            "value": 6196.960819903838,
+            "digits": 0
+          }
+        ],
+        [
+          "I64",
+          {
+            "value": 1.0,
+            "digits": 0
+          },
+          {
+            "value": 70672.7494071013,
+            "digits": 0
+          },
+          {
+            "value": 4883.576309800376,
+            "digits": 0
+          },
+          {
+            "value": 4406.7927286163795,
+            "digits": 0
+          }
+        ],
+        [
+          "U64",
+          {
+            "value": 1.0,
+            "digits": 0
+          },
+          {
+            "value": 68226.0658279324,
+            "digits": 0
+          },
+          {
+            "value": 4841.635858522567,
+            "digits": 0
+          },
+          {
+            "value": 4412.581587045925,
+            "digits": 0
+          }
+        ],
+        [
+          "F32",
+          {
+            "value": 1.0,
+            "digits": 0
+          },
+          {
+            "value": 61081.78667477949,
+            "digits": 0
+          },
+          {
+            "value": 2020.2039316148944,
+            "digits": 0
+          },
+          {
+            "value": 2203.264180796399,
+            "digits": 0
+          }
+        ],
+        [
+          "F64",
+          {
+            "value": 1.0,
+            "digits": 0
+          },
+          {
+            "value": 67310.42506786573,
+            "digits": 0
+          },
+          {
+            "value": 4757.289183959391,
+            "digits": 0
+          },
+          {
+            "value": 4203.365470791244,
+            "digits": 0
+          }
+        ],
+        [
+          "ComplexI16",
+          {
+            "value": 1.0,
+            "digits": 0
+          },
+          {
+            "value": 66352.06889025497,
+            "digits": 0
+          },
+          {
+            "value": 5262.649781176988,
+            "digits": 0
+          },
+          {
+            "value": 4875.935033223546,
+            "digits": 0
+          }
+        ],
+        [
+          "ComplexI16",
+          {
+            "value": 4.0,
+            "digits": 0
+          },
+          {
+            "value": 65897.79433569853,
+            "digits": 0
+          },
+          {
+            "value": 4086.8540302636634,
+            "digits": 0
+          },
+          {
+            "value": 4071.209208429117,
+            "digits": 0
+          }
+        ],
+        [
+          "ComplexF32",
+          {
+            "value": 1.0,
+            "digits": 0
+          },
+          {
+            "value": 71289.87243879016,
+            "digits": 0
+          },
+          {
+            "value": 2518.9973942893726,
+            "digits": 0
+          },
+          {
+            "value": 2456.0497085646953,
+            "digits": 0
+          }
+        ]
+      ],
+      "load_before": {
+        "one": 5.75,
+        "five": 7.7,
+        "fifteen": 7.01
+      },
+      "load_after": {
+        "one": 5.33,
+        "five": 7.54,
+        "fifteen": 6.97
+      },
+      "seconds": 10.853741825
+    },
+    {
+      "id": "kernels",
+      "title": "Every statistic of a node of 2^10 frames: one at a time, one pass each, against the single-pass kernel, 256 MiB a pass, best of 5.",
+      "columns": [
+        "Element",
+        "One at a time MB/s",
+        "Portable kernel MB/s",
+        "AVX2 kernel MB/s",
+        "AVX-512 kernel MB/s"
+      ],
+      "rows": [
+        [
+          "I16",
+          {
+            "value": 1506.1298204102798,
+            "digits": 0
+          },
+          {
+            "value": 4077.431126300051,
+            "digits": 0
+          },
+          {
+            "value": 8390.201876162662,
+            "digits": 0
+          },
+          {
+            "value": 11830.09555154171,
+            "digits": 0
+          }
+        ],
+        [
+          "ComplexI16",
+          {
+            "value": 904.9951168409469,
+            "digits": 0
+          },
+          {
+            "value": 2683.8919912153137,
+            "digits": 0
+          },
+          {
+            "value": 6414.142970665839,
+            "digits": 0
+          },
+          {
+            "value": 10447.797763579196,
+            "digits": 0
+          }
+        ],
+        [
+          "I32",
+          {
+            "value": 3283.2543281281255,
+            "digits": 0
+          },
+          {
+            "value": 4430.922825285692,
+            "digits": 0
+          },
+          {
+            "value": 12203.778916555772,
+            "digits": 0
+          },
+          {
+            "value": 13321.277085665737,
+            "digits": 0
+          }
+        ]
+      ],
+      "load_before": {
+        "one": 5.33,
+        "five": 7.54,
+        "fifteen": 6.97
+      },
+      "load_after": {
+        "one": 5.3,
+        "five": 7.5,
+        "fifteen": 6.96
+      },
+      "seconds": 4.888333473
+    }
+  ]
+}

@@ -200,6 +200,18 @@ Covers `ww_tape` 0.1.0.
 - Book: tables keep code whole; snippets are dedented, with a collapsible of the example items they use (BOOK-2).
 - `FileSink::warning` returns an `FsWarning` naming a network or user-space file system (NFS, SMB, FUSE) (FS-1).
 - A fork handler keeps a file sink's lock out of a child process forked meanwhile (FS-1).
+- Book: "Sizes and speeds" draws every chart and table from bench reports; `just bench-book` reruns them (BOOK-2).
+- `just bench-drive` measures the drive's hour at full scale: bytes by block kind, bytes per item, time to record (BOOK-3).
+- Every bench takes `--json FILE`, `--color`, `--version` and completion; tables carry the machine and load average (REPO-85).
+- Bench reports name the host, build profile, jobs and commit; `just bench-book` refuses a dirty tree (REPO-85).
+- Book: a test fails when "Sizes and speeds" writes a number no bench report holds (BOOK-2).
+- Book: "Sizes and speeds" measures the RF capture on one core and the writer's heap per piece (BOOK-2).
+- Book: "Sizes and speeds" records the RF capture into a chain on disk; `just bench-book` runs it (BOOK-2).
+- `just bench-carried` takes the shared bench options; the carried definitions page draws its tables from its report (REPO-85).
+- `just bench-memory`, `just bench-rf-core` and `just bench-rf-chain` take the shared bench options and write reports (REPO-85).
+- `just bench-event-times` compares event time codecs on six workloads, journal included; it was outside the repository (CODEC-2).
+- `just bench-summaries` adds the kernels against one statistic at a time, per kernel the CPU runs (SUM-3).
+- `just bench-starts` and `just bench-relations` run the starts column and relation benches (REPO-85).
 - Book: the chapter "When the power fails" replaces "Resuming a writer", its figures drawn from a real crash (BOOK-2).
 - Book: six parts in reading order, a stub per chapter not yet written, and a glossary of 90 terms (BOOK-2).
 - Book: each page shows its reading level, basic, advanced or nomicon; "For writers" states the style (BOOK-2).

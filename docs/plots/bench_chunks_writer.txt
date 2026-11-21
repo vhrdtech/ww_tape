@@ -1,0 +1,11 @@
+| What | ns per chunk | GB/s |
+|---|---:|---:|
+| `chunk::write_chunk`: copy and CRCs | 57 629 | 18.20 |
+| `Block::read`: the CRCs checked | 36 665 | 28.60 |
+| `ItemHash::of`: BLAKE3 | 235 403 | 4.46 |
+| `TrackHash::chunk_unit`: the unit hash | 159 | 6598.18 |
+| `TapeWriter::write_chunk` (columns) | 306 780 | 3.42 |
+| `TapeWriter::write_chunk` into a `MemSink` | 957 762 | 1.10 |
+| `chunk::write_chunk` + `TapeWriter::write_block` | 327 055 | 3.21 |
+
+`just bench-chunks` on build-1, load average 5.68 before, 5.68 after.

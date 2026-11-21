@@ -104,6 +104,6 @@ Their payloads cost 0.73 bytes per frame, and lz4 was smaller than raw in all 36
 
 ## Measured costs
 
-[Numbers](numbers.md#event-times) measures the time codec on four workloads, from an exact period to bursty traffic,
-and compares it with delta-of-delta varints and Elias-Fano. The samples of a series, their codecs and what a chunk costs
-the writer are on the next page, [Samples and their codecs](sample_codecs.md).
+[Sizes and speeds](sizes.md#what-event-times-cost) measures the time codec on four workloads, from an exact period to
+bursty traffic, and compares it with delta-of-delta varints and Elias-Fano. The samples of a series, their codecs and
+what a chunk costs the writer are on the next page, [Samples and their codecs](sample_codecs.md).

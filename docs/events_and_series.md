@@ -25,7 +25,7 @@ how their columns are made.
 
 ### What it costs
 
-[Numbers](numbers.md#event-times) gives the bytes and times per event, and compares the codec with two others.
+[Sizes and speeds](sizes.md#what-event-times-cost) gives the bytes and times per event, and compares the codec with two others.
 
 ### Ends and flags
 

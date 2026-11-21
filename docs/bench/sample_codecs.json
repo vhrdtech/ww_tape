@@ -1,0 +1,905 @@
+{
+  "format": 1,
+  "bench": "sample_codecs",
+  "version": "0.1.0 (838fcb1, commit 21 Nov 2026 13:56 UTC)",
+  "commit": "838fcb1",
+  "dirty": false,
+  "build": {
+    "profile": "release",
+    "opt_level": "3",
+    "jobs": 4
+  },
+  "settings": [
+    [
+      "samples per chunk",
+      "4096"
+    ],
+    [
+      "best of",
+      "5"
+    ],
+    [
+      "bitpack kernel",
+      "Avx512"
+    ]
+  ],
+  "machine": {
+    "host": "build-1",
+    "virtual_machine": true,
+    "cpu": "AMD EPYC-Genoa Processor",
+    "cpus": 14,
+    "arch": "x86_64",
+    "extensions": [
+      "sse4.2",
+      "avx2",
+      "avx512bw+vl"
+    ]
+  },
+  "tables": [
+    {
+      "id": "codecs",
+      "title": "Sample codecs on chunks of 4096 samples, the best of 5 passes; ratio to the raw floats.",
+      "columns": [
+        "Data",
+        "Codec",
+        "Ratio",
+        "Bits per value",
+        "Encode ns per value",
+        "Decode ns per value"
+      ],
+      "rows": [
+        [
+          "motor_sim f32",
+          "DELTA of i32, power-of-ten step keeping 24 bits at the peak",
+          {
+            "value": 3.1002327389006132,
+            "digits": 2
+          },
+          {
+            "value": 10.321805714285714,
+            "digits": 2
+          },
+          {
+            "value": 2.673467619047619,
+            "digits": 1
+          },
+          {
+            "value": 0.9510266666666667,
+            "digits": 2
+          }
+        ],
+        [
+          "motor_sim f32",
+          "GORILLA",
+          {
+            "value": 1.4913665853635152,
+            "digits": 2
+          },
+          {
+            "value": 21.456830476190476,
+            "digits": 2
+          },
+          {
+            "value": 7.251742857142857,
+            "digits": 1
+          },
+          {
+            "value": 3.2590885714285713,
+            "digits": 2
+          }
+        ],
+        [
+          "motor_sim f32",
+          "CHIMP",
+          {
+            "value": 1.7427393123399637,
+            "digits": 2
+          },
+          {
+            "value": 18.361897142857142,
+            "digits": 2
+          },
+          {
+            "value": 8.917239047619047,
+            "digits": 1
+          },
+          {
+            "value": 4.744829523809524,
+            "digits": 2
+          }
+        ],
+        [
+          "motor_sim f32",
+          "FLOAT_DELTA",
+          {
+            "value": 1.9250839817887055,
+            "digits": 2
+          },
+          {
+            "value": 16.62265142857143,
+            "digits": 2
+          },
+          {
+            "value": 2.777317142857143,
+            "digits": 1
+          },
+          {
+            "value": 1.2999095238095237,
+            "digits": 2
+          }
+        ],
+        [
+          "motor_sim f32",
+          "FLOAT_DELTA2",
+          {
+            "value": 1.9922123470680564,
+            "digits": 2
+          },
+          {
+            "value": 16.06254476190476,
+            "digits": 2
+          },
+          {
+            "value": 3.292813333333333,
+            "digits": 1
+          },
+          {
+            "value": 1.3425390476190475,
+            "digits": 2
+          }
+        ],
+        [
+          "motor_sim f32",
+          "ALP",
+          {
+            "value": 1.6446544032880557,
+            "digits": 2
+          },
+          {
+            "value": 19.45697523809524,
+            "digits": 2
+          },
+          {
+            "value": 20.525100952380953,
+            "digits": 1
+          },
+          {
+            "value": 1.541104761904762,
+            "digits": 2
+          }
+        ],
+        [
+          "motor_sim f64",
+          "DELTA of i32, power-of-ten step keeping 24 bits at the peak",
+          {
+            "value": 6.2004654778012265,
+            "digits": 2
+          },
+          {
+            "value": 10.321805714285714,
+            "digits": 2
+          },
+          {
+            "value": 2.4777314285714285,
+            "digits": 1
+          },
+          {
+            "value": 0.9545704761904762,
+            "digits": 2
+          }
+        ],
+        [
+          "motor_sim f64",
+          "GORILLA",
+          {
+            "value": 2.507405802137026,
+            "digits": 2
+          },
+          {
+            "value": 25.52438857142857,
+            "digits": 2
+          },
+          {
+            "value": 8.308820952380952,
+            "digits": 1
+          },
+          {
+            "value": 3.7737266666666667,
+            "digits": 2
+          }
+        ],
+        [
+          "motor_sim f64",
+          "CHIMP",
+          {
+            "value": 2.4996719180607547,
+            "digits": 2
+          },
+          {
+            "value": 25.60336,
+            "digits": 2
+          },
+          {
+            "value": 15.77344380952381,
+            "digits": 1
+          },
+          {
+            "value": 4.5590657142857145,
+            "digits": 2
+          }
+        ],
+        [
+          "motor_sim f64",
+          "FLOAT_DELTA",
+          {
+            "value": 1.501887550818332,
+            "digits": 2
+          },
+          {
+            "value": 42.61304380952381,
+            "digits": 2
+          },
+          {
+            "value": 3.51416,
+            "digits": 1
+          },
+          {
+            "value": 2.7192209523809523,
+            "digits": 2
+          }
+        ],
+        [
+          "motor_sim f64",
+          "FLOAT_DELTA2",
+          {
+            "value": 1.558119816817047,
+            "digits": 2
+          },
+          {
+            "value": 41.07514666666667,
+            "digits": 2
+          },
+          {
+            "value": 4.464977142857143,
+            "digits": 1
+          },
+          {
+            "value": 2.0274561904761903,
+            "digits": 2
+          }
+        ],
+        [
+          "motor_sim f64",
+          "ALP",
+          {
+            "value": 2.5090894753254944,
+            "digits": 2
+          },
+          {
+            "value": 25.507260952380953,
+            "digits": 2
+          },
+          {
+            "value": 27.040421904761903,
+            "digits": 1
+          },
+          {
+            "value": 1.77726,
+            "digits": 2
+          }
+        ],
+        [
+          "speech f32, 2 ch",
+          "DELTA of i16 PCM of the same decode",
+          {
+            "value": 3.4339899319871496,
+            "digits": 2
+          },
+          {
+            "value": 9.31860623757931,
+            "digits": 2
+          },
+          {
+            "value": 2.8038791273236043,
+            "digits": 1
+          },
+          {
+            "value": 0.9810076769002134,
+            "digits": 2
+          }
+        ],
+        [
+          "speech f32, 2 ch",
+          "GORILLA",
+          {
+            "value": 1.024142229243354,
+            "digits": 2
+          },
+          {
+            "value": 31.245660110746442,
+            "digits": 2
+          },
+          {
+            "value": 7.382183509499762,
+            "digits": 1
+          },
+          {
+            "value": 3.003504353114787,
+            "digits": 2
+          }
+        ],
+        [
+          "speech f32, 2 ch",
+          "CHIMP",
+          {
+            "value": 1.2322152911565456,
+            "digits": 2
+          },
+          {
+            "value": 25.96948782380805,
+            "digits": 2
+          },
+          {
+            "value": 9.378331224788827,
+            "digits": 1
+          },
+          {
+            "value": 5.73943397326354,
+            "digits": 2
+          }
+        ],
+        [
+          "speech f32, 2 ch",
+          "FLOAT_DELTA",
+          {
+            "value": 1.0987333193485171,
+            "digits": 2
+          },
+          {
+            "value": 29.124446702839663,
+            "digits": 2
+          },
+          {
+            "value": 2.8931691206412298,
+            "digits": 1
+          },
+          {
+            "value": 1.2859992717255493,
+            "digits": 2
+          }
+        ],
+        [
+          "speech f32, 2 ch",
+          "FLOAT_DELTA2",
+          {
+            "value": 1.1043560557879055,
+            "digits": 2
+          },
+          {
+            "value": 28.97616201974781,
+            "digits": 2
+          },
+          {
+            "value": 3.205921732684122,
+            "digits": 1
+          },
+          {
+            "value": 1.2406826985657258,
+            "digits": 2
+          }
+        ],
+        [
+          "speech f32, 2 ch",
+          "ALP",
+          {
+            "value": 1.1580788509012854,
+            "digits": 2
+          },
+          {
+            "value": 27.63196994323462,
+            "digits": 2
+          },
+          {
+            "value": 19.37816407840653,
+            "digits": 1
+          },
+          {
+            "value": 1.3535155121587898,
+            "digits": 2
+          }
+        ],
+        [
+          "ADC × 3.3/4096 f32",
+          "DELTA of i16 ADC counts",
+          {
+            "value": 7.314004856499225,
+            "digits": 2
+          },
+          {
+            "value": 4.375168,
+            "digits": 2
+          },
+          {
+            "value": 2.344853,
+            "digits": 1
+          },
+          {
+            "value": 0.743063,
+            "digits": 2
+          }
+        ],
+        [
+          "ADC × 3.3/4096 f32",
+          "GORILLA",
+          {
+            "value": 1.505779180494739,
+            "digits": 2
+          },
+          {
+            "value": 21.251456,
+            "digits": 2
+          },
+          {
+            "value": 6.499079,
+            "digits": 1
+          },
+          {
+            "value": 3.190809,
+            "digits": 2
+          }
+        ],
+        [
+          "ADC × 3.3/4096 f32",
+          "CHIMP",
+          {
+            "value": 1.75844658828391,
+            "digits": 2
+          },
+          {
+            "value": 18.19788,
+            "digits": 2
+          },
+          {
+            "value": 11.278107,
+            "digits": 1
+          },
+          {
+            "value": 7.109872,
+            "digits": 2
+          }
+        ],
+        [
+          "ADC × 3.3/4096 f32",
+          "FLOAT_DELTA",
+          {
+            "value": 1.8395540920880777,
+            "digits": 2
+          },
+          {
+            "value": 17.39552,
+            "digits": 2
+          },
+          {
+            "value": 2.73437,
+            "digits": 1
+          },
+          {
+            "value": 1.10356,
+            "digits": 2
+          }
+        ],
+        [
+          "ADC × 3.3/4096 f32",
+          "FLOAT_DELTA2",
+          {
+            "value": 1.7284904487939026,
+            "digits": 2
+          },
+          {
+            "value": 18.513264,
+            "digits": 2
+          },
+          {
+            "value": 3.086177,
+            "digits": 1
+          },
+          {
+            "value": 1.147151,
+            "digits": 2
+          }
+        ],
+        [
+          "ADC × 3.3/4096 f32",
+          "ALP",
+          {
+            "value": 1.5856171836505426,
+            "digits": 2
+          },
+          {
+            "value": 20.181416,
+            "digits": 2
+          },
+          {
+            "value": 19.411146,
+            "digits": 1
+          },
+          {
+            "value": 1.355524,
+            "digits": 2
+          }
+        ],
+        [
+          "ADC × 3.3/4096 f64",
+          "DELTA of i16 ADC counts",
+          {
+            "value": 14.62800971299845,
+            "digits": 2
+          },
+          {
+            "value": 4.375168,
+            "digits": 2
+          },
+          {
+            "value": 2.487566,
+            "digits": 1
+          },
+          {
+            "value": 0.782164,
+            "digits": 2
+          }
+        ],
+        [
+          "ADC × 3.3/4096 f64",
+          "GORILLA",
+          {
+            "value": 1.358856508659398,
+            "digits": 2
+          },
+          {
+            "value": 47.098424,
+            "digits": 2
+          },
+          {
+            "value": 9.955683,
+            "digits": 1
+          },
+          {
+            "value": 4.35426,
+            "digits": 2
+          }
+        ],
+        [
+          "ADC × 3.3/4096 f64",
+          "CHIMP",
+          {
+            "value": 1.5692631564080666,
+            "digits": 2
+          },
+          {
+            "value": 40.783472,
+            "digits": 2
+          },
+          {
+            "value": 15.28274,
+            "digits": 1
+          },
+          {
+            "value": 8.504636,
+            "digits": 2
+          }
+        ],
+        [
+          "ADC × 3.3/4096 f64",
+          "FLOAT_DELTA",
+          {
+            "value": 1.3702102587642073,
+            "digits": 2
+          },
+          {
+            "value": 46.70816,
+            "digits": 2
+          },
+          {
+            "value": 3.533205,
+            "digits": 1
+          },
+          {
+            "value": 1.992127,
+            "digits": 2
+          }
+        ],
+        [
+          "ADC × 3.3/4096 f64",
+          "FLOAT_DELTA2",
+          {
+            "value": 1.3386569489096556,
+            "digits": 2
+          },
+          {
+            "value": 47.809112,
+            "digits": 2
+          },
+          {
+            "value": 3.86628,
+            "digits": 1
+          },
+          {
+            "value": 2.046908,
+            "digits": 2
+          }
+        ],
+        [
+          "ADC × 3.3/4096 f64",
+          "ALP",
+          {
+            "value": 1.3159093772689157,
+            "digits": 2
+          },
+          {
+            "value": 48.635568,
+            "digits": 2
+          },
+          {
+            "value": 30.249125,
+            "digits": 1
+          },
+          {
+            "value": 2.245601,
+            "digits": 2
+          }
+        ],
+        [
+          "ADC × 0.1 f32",
+          "DELTA of i16 ADC counts",
+          {
+            "value": 7.314004856499225,
+            "digits": 2
+          },
+          {
+            "value": 4.375168,
+            "digits": 2
+          },
+          {
+            "value": 2.647468,
+            "digits": 1
+          },
+          {
+            "value": 0.841136,
+            "digits": 2
+          }
+        ],
+        [
+          "ADC × 0.1 f32",
+          "GORILLA",
+          {
+            "value": 1.5269739956328543,
+            "digits": 2
+          },
+          {
+            "value": 20.95648,
+            "digits": 2
+          },
+          {
+            "value": 7.404056,
+            "digits": 1
+          },
+          {
+            "value": 3.562545,
+            "digits": 2
+          }
+        ],
+        [
+          "ADC × 0.1 f32",
+          "CHIMP",
+          {
+            "value": 1.8075280833378897,
+            "digits": 2
+          },
+          {
+            "value": 17.703736,
+            "digits": 2
+          },
+          {
+            "value": 12.202414,
+            "digits": 1
+          },
+          {
+            "value": 7.64148,
+            "digits": 2
+          }
+        ],
+        [
+          "ADC × 0.1 f32",
+          "FLOAT_DELTA",
+          {
+            "value": 1.835744890204098,
+            "digits": 2
+          },
+          {
+            "value": 17.431616,
+            "digits": 2
+          },
+          {
+            "value": 2.818953,
+            "digits": 1
+          },
+          {
+            "value": 1.179202,
+            "digits": 2
+          }
+        ],
+        [
+          "ADC × 0.1 f32",
+          "FLOAT_DELTA2",
+          {
+            "value": 1.7253173937010386,
+            "digits": 2
+          },
+          {
+            "value": 18.547312,
+            "digits": 2
+          },
+          {
+            "value": 3.176829,
+            "digits": 1
+          },
+          {
+            "value": 1.202352,
+            "digits": 2
+          }
+        ],
+        [
+          "ADC × 0.1 f32",
+          "ALP",
+          {
+            "value": 4.672460517708625,
+            "digits": 2
+          },
+          {
+            "value": 6.84864,
+            "digits": 2
+          },
+          {
+            "value": 11.153296,
+            "digits": 1
+          },
+          {
+            "value": 1.07625,
+            "digits": 2
+          }
+        ],
+        [
+          "ADC × 0.1 f64",
+          "DELTA of i16 ADC counts",
+          {
+            "value": 14.62800971299845,
+            "digits": 2
+          },
+          {
+            "value": 4.375168,
+            "digits": 2
+          },
+          {
+            "value": 2.492006,
+            "digits": 1
+          },
+          {
+            "value": 0.766023,
+            "digits": 2
+          }
+        ],
+        [
+          "ADC × 0.1 f64",
+          "GORILLA",
+          {
+            "value": 1.3754706473704181,
+            "digits": 2
+          },
+          {
+            "value": 46.529528,
+            "digits": 2
+          },
+          {
+            "value": 9.80114,
+            "digits": 1
+          },
+          {
+            "value": 4.333249,
+            "digits": 2
+          }
+        ],
+        [
+          "ADC × 0.1 f64",
+          "CHIMP",
+          {
+            "value": 1.5876543993903407,
+            "digits": 2
+          },
+          {
+            "value": 40.31104,
+            "digits": 2
+          },
+          {
+            "value": 14.650269,
+            "digits": 1
+          },
+          {
+            "value": 7.761403,
+            "digits": 2
+          }
+        ],
+        [
+          "ADC × 0.1 f64",
+          "FLOAT_DELTA",
+          {
+            "value": 1.3691521798956432,
+            "digits": 2
+          },
+          {
+            "value": 46.744256,
+            "digits": 2
+          },
+          {
+            "value": 3.131568,
+            "digits": 1
+          },
+          {
+            "value": 1.809373,
+            "digits": 2
+          }
+        ],
+        [
+          "ADC × 0.1 f64",
+          "FLOAT_DELTA2",
+          {
+            "value": 1.3377398483939429,
+            "digits": 2
+          },
+          {
+            "value": 47.841888,
+            "digits": 2
+          },
+          {
+            "value": 3.549475,
+            "digits": 1
+          },
+          {
+            "value": 1.799313,
+            "digits": 2
+          }
+        ],
+        [
+          "ADC × 0.1 f64",
+          "ALP",
+          {
+            "value": 9.015669233127175,
+            "digits": 2
+          },
+          {
+            "value": 7.098752,
+            "digits": 2
+          },
+          {
+            "value": 11.739705,
+            "digits": 1
+          },
+          {
+            "value": 0.979068,
+            "digits": 2
+          }
+        ]
+      ],
+      "load_before": {
+        "one": 6.77,
+        "five": 8.83,
+        "fifteen": 7.24
+      },
+      "load_after": {
+        "one": 5.76,
+        "five": 8.47,
+        "fifteen": 7.15
+      },
+      "seconds": 17.696911307
+    }
+  ]
+}
