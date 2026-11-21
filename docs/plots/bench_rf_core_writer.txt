@@ -1,7 +1,7 @@
 | Codec | Bytes per sample | Codec ms/s | `write_chunk` ms/s | Summaries ms/s | Writer MS/s | Writer MB/s |
 |---|---:|---:|---:|---:|---:|---:|
-| `RAW` | 4.055 | 12.1 | 54.8 | 47.1 | 174 | 697 |
-| `PACKED12_LSB` | 3.055 | 133.4 | 35.5 | 37.8 | 96 | 385 |
-| `DELTA` | 2.899 | 230.3 | 38.7 | 40.6 | 64 | 258 |
+| `RAW` | 4.055 | 3.2 | 26.5 | 19.6 | 402 | 1610 |
+| `PACKED12_LSB` | 3.055 | 64.9 | 21.4 | 19.0 | 189 | 758 |
+| `DELTA` | 2.899 | 109.8 | 19.4 | 19.3 | 134 | 537 |
 
-`just bench-rf-core` on build-1, load average 31.39 before, 28.52 after.
+`just bench-rf-core` on build-1, load average 6.69 before, 5.89 after.

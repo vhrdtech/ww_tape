@@ -7,4 +7,4 @@
 | records, 4 KiB | 10 000 | 60 653 | 0 | 32 441 642 | 66 101 704 | 534.9 |
 | series chunks, 1024 KiB | 1 | 256 | 0 | 3 165 889 | 3 165 889 | 12366.8 |
 
-`just bench-memory` on build-1, load average 30.83 before, 31.08 after.
+`just bench-memory` on build-1, load average 6.93 before, 6.69 after.

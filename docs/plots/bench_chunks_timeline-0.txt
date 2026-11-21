@@ -1,7 +1,7 @@
 | Read | Bytes read per chunk | ns per chunk |
 |---|---:|---:|
-| `TapeReader::series_timeline`: heads alone | 335 | 686 |
-| `TapeReader::read_block` of every chunk | 1 048 895 | 115 412 |
-| `TapeReader::range_hash`: unit hashes from the index | 120 | 223 |
+| `TapeReader::series_timeline`: heads alone | 335 | 548 |
+| `TapeReader::read_block` of every chunk | 1 048 895 | 85 693 |
+| `TapeReader::range_hash`: unit hashes from the index | 120 | 172 |
 
-`just bench-chunks` on build-1, load average 27.43 before, 27.43 after.
+`just bench-chunks` on build-1, load average 7.15 before, 7.15 after.
