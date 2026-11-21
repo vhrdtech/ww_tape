@@ -22,10 +22,7 @@ fn wait<'a, T>(c: &Condvar, g: MutexGuard<'a, T>) -> MutexGuard<'a, T> {
 /// What became of a unit sent.
 pub(crate) enum Pushed<U> {
     /// In the queue.
-    Queued {
-        /// Whether the sender waited for room.
-        waited: bool,
-    },
+    Queued,
     /// No room, and the sender would not wait: the unit back.
     Full(U),
     /// The queue takes no more units: the unit back.
@@ -51,6 +48,8 @@ struct State<U> {
     /// The next ticket a waiting sender takes, and the ticket served next: equal when nobody waits.
     next_ticket: u64,
     serving: u64,
+    /// Senders that waited for room, counted when they start to wait.
+    waits: u64,
 }
 
 /// A queue of units bounded by bytes, for many senders and one taker.
@@ -73,6 +72,7 @@ impl<U> Queue<U> {
                 closed: false,
                 next_ticket: 0,
                 serving: 0,
+                waits: 0,
             }),
             budget,
             room: Condvar::new(),
@@ -96,13 +96,14 @@ impl<U> Queue<U> {
         let nobody_waits = s.next_ticket == s.serving;
         if nobody_waits && self.fits(&s, bytes) {
             self.append(s, unit, bytes);
-            return Pushed::Queued { waited: false };
+            return Pushed::Queued;
         }
         if !wait_for_room {
             return Pushed::Full(unit);
         }
         let ticket = s.next_ticket;
         s.next_ticket = s.next_ticket.wrapping_add(1);
+        s.waits = s.waits.saturating_add(1);
         while !s.closed && !(s.serving == ticket && self.fits(&s, bytes)) {
             s = wait(&self.room, s);
         }
@@ -113,7 +114,7 @@ impl<U> Queue<U> {
         self.append(s, unit, bytes);
         // the next waiter may fit too
         self.room.notify_all();
-        Pushed::Queued { waited: true }
+        Pushed::Queued
     }
 
     fn append(&self, mut s: MutexGuard<'_, State<U>>, unit: U, bytes: u64) {
@@ -180,9 +181,10 @@ impl<U> Queue<U> {
         self.room.notify_all();
     }
 
-    /// Bytes of the units sent and not yet placed.
-    pub(crate) fn queued(&self) -> u64 {
-        lock(&self.state).queued
+    /// Bytes of the units sent and not yet placed, senders that waited for room so far, and those waiting now.
+    pub(crate) fn levels(&self) -> (u64, u64, u64) {
+        let s = lock(&self.state);
+        (s.queued, s.waits, s.next_ticket.wrapping_sub(s.serving))
     }
 }
 
@@ -205,20 +207,20 @@ mod tests {
     #[test]
     fn a_unit_larger_than_the_budget_goes_alone() {
         let q = Queue::new(10);
-        assert!(matches!(q.push(1, 100, false), Pushed::Queued { .. }));
+        assert!(matches!(q.push(1, 100, false), Pushed::Queued));
         assert!(matches!(q.push(2, 1, false), Pushed::Full(2)));
         let Popped::Unit(1, 100) = q.pop(soon()) else {
             panic!("unit 1")
         };
         q.release(100);
-        assert!(matches!(q.push(2, 1, false), Pushed::Queued { .. }));
+        assert!(matches!(q.push(2, 1, false), Pushed::Queued));
     }
 
     /// A sender that finds others waiting waits behind them, even when its unit would fit.
     #[test]
     fn waiters_are_served_in_arrival_order() {
         let q = Arc::new(Queue::new(10));
-        assert!(matches!(q.push(0, 10, false), Pushed::Queued { .. }));
+        assert!(matches!(q.push(0, 10, false), Pushed::Queued));
         let big = {
             let q = q.clone();
             std::thread::spawn(move || q.push(1, 8, true))
@@ -232,10 +234,7 @@ mod tests {
             panic!("unit 0")
         };
         q.release(10);
-        assert!(matches!(
-            big.join().unwrap(),
-            Pushed::Queued { waited: true }
-        ));
+        assert!(matches!(big.join().unwrap(), Pushed::Queued));
         let Popped::Unit(1, 8) = q.pop(soon()) else {
             panic!("unit 1")
         };
@@ -244,7 +243,7 @@ mod tests {
     #[test]
     fn a_closed_queue_hands_waiters_their_units_back() {
         let q = Arc::new(Queue::new(1));
-        assert!(matches!(q.push(0, 1, false), Pushed::Queued { .. }));
+        assert!(matches!(q.push(0, 1, false), Pushed::Queued));
         let waiter = {
             let q = q.clone();
             std::thread::spawn(move || q.push(1, 1, true))

@@ -106,8 +106,10 @@ pub struct MuxStats {
     pub queued_bytes: u64,
     /// The queue's budget ([MuxOptions::queue_bytes]).
     pub queue_bytes: u64,
-    /// Sends that waited for room.
+    /// Sends that waited for room, counted when they start to wait.
     pub waits: u64,
+    /// Sends waiting for room now.
+    pub waiting: u64,
     /// Units dropped for want of room ([Pressure::Drop]).
     pub drops: u64,
     /// Of them, by track, for the handles of one track.

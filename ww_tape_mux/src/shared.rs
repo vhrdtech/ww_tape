@@ -156,7 +156,6 @@ impl<E> Slot<E> {
 /// Counters for [MuxStats].
 #[derive(Default)]
 pub(crate) struct Counters {
-    pub waits: AtomicU64,
     pub drops: AtomicU64,
     pub drops_by_track: Mutex<BTreeMap<TrackNum, u64>>,
     pub placed_units: AtomicU64,
@@ -217,10 +216,12 @@ impl<T: Tapes> Shared<T> {
     pub(crate) fn stats(&self) -> MuxStats {
         let c = &self.counters;
         let get = |a: &AtomicU64| a.load(Ordering::Relaxed);
+        let (queued_bytes, waits, waiting) = self.queue.levels();
         MuxStats {
-            queued_bytes: self.queue.queued(),
+            queued_bytes,
             queue_bytes: self.queue_bytes,
-            waits: get(&c.waits),
+            waits,
+            waiting,
             drops: get(&c.drops),
             drops_by_track: lock(&c.drops_by_track)
                 .iter()

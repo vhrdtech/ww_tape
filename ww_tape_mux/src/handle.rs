@@ -8,7 +8,7 @@ use ww_tape::{Block, BlockKind, ColumnSpec, Tapes, TrackFacts, TrackNum};
 use crate::error::{CallError, MuxError};
 use crate::queue::Pushed;
 use crate::reply::reply;
-use crate::shared::{BlockHow, Counters, RelayMode, Shared, Slot, Work};
+use crate::shared::{BlockHow, RelayMode, Shared, Slot, Work};
 
 /// What a handle does when the queue has no room for a unit.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
@@ -68,12 +68,7 @@ impl<T: Tapes> Sender<T> {
             .queue
             .push(work, bytes, self.pressure == Pressure::Wait)
         {
-            Pushed::Queued { waited } => {
-                if waited {
-                    Counters::add(&self.shared.counters.waits, 1);
-                }
-                Ok(Sent::Queued)
-            }
+            Pushed::Queued => Ok(Sent::Queued),
             Pushed::Full(work) if self.pressure == Pressure::Drop => {
                 self.shared.counters.drop_on(self.track);
                 self.recycle(work);
