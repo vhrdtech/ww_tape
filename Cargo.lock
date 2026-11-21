@@ -1083,6 +1083,7 @@ dependencies = [
  "ww_tape_codecs",
  "ww_tape_example",
  "ww_tape_fs",
+ "ww_tape_mux",
  "ww_tape_summary",
 ]
 

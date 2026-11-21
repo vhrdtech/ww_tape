@@ -183,7 +183,9 @@ Writing pieces and chains, resuming them, sinks in memory, in the crate `ww_tape
   - A quiet handle's open chunk is sealed by the writing thread when its latency is up, behind the handle's earlier units.
   - Items are checked at the call: start order, spans, flags, relation counts and monotone values, payload length.
   - Missing: a resumed chain's track starts are passed by the caller (`first_item`); the mux doesn't give them yet.
+  - Missing: a batch push. One events producer reaches 21.6 M events/s, one thread writing directly 52.8 (bench `handles`).
   - Tests `mux_handles.rs`, `split_tests.rs`, `placed.rs`.
+  - Bench `handles` (`just bench-handles`): direct writer against the mux by 1, 4 and 16 tracks.
 
 ## Reader (`READ`)
 

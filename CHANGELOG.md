@@ -22,6 +22,7 @@ benchmarks, golden files and book pages.
 - `EventsHandle` and `SeriesHandle` encode one track's chunks and summary leaves on the producer's thread (WRITE-13).
 - The mux builds summary trees per track and piece and seals a quiet handle's chunk by its latency (WRITE-13).
 - `ChunkSender` hashes the chunk payload on the producer's thread (WRITE-13).
+- `just bench-handles` measures events and series handles on the mux against one thread writing directly, by tracks (WRITE-13).
 
 ## [0.3.0] - 2026-11-21
 

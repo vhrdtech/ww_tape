@@ -20,6 +20,7 @@ into `docs/bench/`:
 | `rf_core` | `just bench-rf-core` | the RF capture's writer and reader on one core, per codec |
 | `rf_chain` | `just bench-rf-chain` | the RF capture into a chain of piece files at full speed, then read back |
 | `carried` | `just bench-carried` | the definitions a piece carries for the tracks of its head, and the most a cut carries |
+| `handles` | `just bench-handles` | events and series handles on a `TapeMux` against one thread writing a chain directly, by tracks |
 
 The `summaries` binary measures series summaries in MB/s of sample bytes per element type. It measures three paths:
 the `RAW` codec alone, `SeriesSummaries::push` with every statistic, and both.

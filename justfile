@@ -143,6 +143,10 @@ bench-rf-core *args:
 bench-rf-chain *args:
     cargo run -q --release -p ww_tape_benchmarks --bin rf_chain -- {{ args }}
 
+# Events and series handles on a TapeMux against one thread writing a chain directly, by 1, 4 and 16 tracks (WRITE-13); `just bench-handles --help`
+bench-handles *args:
+    cargo run -q --release -p ww_tape_benchmarks --bin handles -- {{ args }}
+
 # Worst wait of a reader of a memory piece while it is written, with and without reserving it (WRITE-5); `just bench-mem-reader --help`
 bench-mem-reader *args:
     cargo run -q --release -p ww_tape_benchmarks --bin mem_reader -- {{ args }}
