@@ -7,6 +7,11 @@ export NEXTEST_TEST_THREADS := if jobs != "" { jobs } else { env_var_or_default(
 # setup-rust-toolchain sets CARGO_BUILD_WARNINGS=deny: a tree red in CI cannot pass lint, test or the gate
 export CARGO_BUILD_WARNINGS := env_var_or_default('CARGO_BUILD_WARNINGS', 'deny')
 
+# `bench-book`'s RF chain: the directory it records into and the GiB it grows to. The directory needs that much free
+# disk and is removed after the read; the default sits under target/, on disk
+rf_dir := "target/bench-rf"
+rf_gib := "100"
+
 # The WireWeaver command line that checks the API snapshot: `ww` from PATH, or the binary `WW` names
 ww := env_var_or_default('WW', 'ww')
 
@@ -143,7 +148,10 @@ bench-mem-reader *args:
     cargo run -q --release -p ww_tape_benchmarks --bin mem_reader -- {{ args }}
 
 # Every bench the book draws from ("Sizes and speeds", "The definitions a new piece carries"), at release, into
-# docs/bench/*.json; then the charts and tables drawn from them (`just book-figures`). `just jobs=N bench-book` caps the build's jobs; each bench runs on one core.
+# docs/bench/*.json; then the charts and tables drawn from them (`just book-figures`). `just jobs=N bench-book` caps
+# the build's jobs. Each bench runs on one core, except rf_chain: 8 workers and a writer thread.
+# rf_chain needs `rf_gib` GiB free on the disk of `rf_dir` (100 GiB by default), and removes its chain after the read:
+# `just rf_dir=/data/rf bench-book` puts it elsewhere.
 # A report names the commit it ran, so the tree must be clean, and every bench is built before the first report is written
 bench-book:
     test -z "$(git status --porcelain)" || (echo "bench-book: commit or drop the changes first, a report names its commit" && exit 1)
@@ -158,6 +166,7 @@ bench-book:
     just bench-carried --json docs/bench/carried.json
     just bench-memory --json docs/bench/memory.json
     just bench-rf-core --json docs/bench/rf_core.json
+    just bench-rf-chain --dir {{ rf_dir }} --gib {{ rf_gib }} --remove --json docs/bench/rf_chain.json
 
 # Build the book (docs/, zensical.toml) into site/ with Zensical
 [group('book')]

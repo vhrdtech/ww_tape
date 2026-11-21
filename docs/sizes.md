@@ -5,8 +5,7 @@ level: advanced
 # Sizes and speeds
 
 The drive's endurance run lasts an hour, and the bench host keeps every run. Before the next campaign the team asks two
-questions: how much disk a run takes, and whether the host keeps up. This chapter answers both from measured numbers,
-and it shows how to measure them again on another machine.
+questions: how much disk a run takes, and whether the host keeps up. This chapter answers both from measured numbers.
 
 In short, the drive's hour takes 110 MiB, and the phase current makes up most of it. The host records the hour far
 faster than the drive runs it.
@@ -38,8 +37,7 @@ them. Drawn by <code>ww_tape_figures</code> from <code>docs/bench/drive.json</co
 --8<-- "docs/plots/bench_drive_sizes.txt"
 
 The [[series chunks]] of `phase_a` take 86 % of the recording, and the [[events chunks]] of `can0` 7.3 %. The
-[[summaries]] of `phase_a` add 2.9 %, and the [[checkpoints]] and [[final indexes]] 2.7 %. The slow tracks, the
-[[puts]] and the ends of the pieces stay below one percent together.
+[[summaries]] of `phase_a` add 2.9 %, and the [[checkpoints]] and [[final indexes]] 2.7 %.
 
 ### Bytes per item
 
@@ -124,11 +122,9 @@ with three other codecs:
 - raw 64-bit ticks, found by binary search;
 - variable-length integers (varints) of the delta of deltas, the change from one gap to the next, with a skip entry
   every 128 events;
-- Elias-Fano, which stores the low bits of each tick as they are and the high bits in unary. It finds an item by
-  counting set bits.
+- Elias-Fano, which stores the low bits of each tick as they are and the high bits in unary.
 
-One workload reads this machine's own system journal: 4.3 million entries of the last 20 days. Every timed lookup of
-every codec is checked against the raw ticks.
+One workload reads this machine's own system journal: 4.3 million entries of the last 20 days.
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/plots/event_times.svg"
@@ -196,8 +192,7 @@ legend. The content hash takes most of <code>TapeWriter::write_chunk</code>. Dra
 
 [`TapeWriter::write_chunk`] takes about 320 µs per chunk, and the hash takes 230 µs of that. Besides the hash, the
 writer spends 86 µs per MiB. The copy with its CRCs takes 57 µs, and a reader checks the CRCs of the whole block in
-36 µs. A
-writer into a growing memory sink spends more, since the sink copies its bytes each time it grows.
+36 µs. A writer into a growing memory sink spends more, since the sink copies its bytes each time it grows.
 
 ### Reading a track's timeline
 
@@ -236,7 +231,7 @@ default policies: a near of 32 MiB, and a copy 1 MiB after the newest record.
 --8<-- "docs/plots/bench_tracks_puts.txt"
 
 A put that finds its item near costs almost nothing. The bench writes a definition 60 KiB long again and again, each
-time within its near. It counts what the writer hashes and copies per records block. The writer hashes nothing again:
+time within its near. The writer hashes nothing again:
 it compares the hash it computed once, when the application defined the item.
 
 --8<-- "docs/plots/bench_tracks_idle.txt"
@@ -257,18 +252,31 @@ The same bench then reads 10 s of the capture back from memory. It checks every 
 
 --8<-- "docs/plots/bench_rf_core_reader.txt"
 
+### Recording the capture to disk
+
+`just bench-rf-chain` records the same capture into a chain of piece files, a piece per minute. Eight worker threads
+code the chunks with `PACKED12_LSB`, and one thread writes them. The bench then opens every piece and reads one second
+back.
+
+--8<-- "docs/plots/bench_rf_chain_chain.txt"
+
+--8<-- "docs/plots/bench_rf_chain_read.txt"
+
 ## Running the measurements again
 
 One recipe reruns every number on this page:
 
 ```sh
-just jobs=4 bench-book   # every bench at release, into docs/bench/*.json, a few minutes
+just jobs=4 bench-book   # every bench at release, into docs/bench/*.json
 just book-figures        # the charts and tables of this page, from those files
 ```
 
-`jobs=4` caps the build's parallel jobs, and each bench then runs on one core. `bench-book` refuses a tree with
-changes, since a report names the commit it ran. Run it on a quiet machine, and compare the load average under each
-table with your own run. A bench also runs alone, such as `just bench-drive`, and `--help` lists its settings.
+Each bench runs on one core, except the RF chain with its worker threads. `bench-book` refuses a tree with changes,
+since a report names its commit. The RF chain needs as many GiB of free disk as `rf_gib` names, in `rf_dir` under
+`target/` by default.
+
+Run the recipe on a quiet machine, and compare the load average under each table with your own run. `--help` lists
+each bench's settings.
 
 After a rerun, `cargo nextest run -p ww_tape_figures` names each number of this page that changed. The page
-[Numbers](numbers.md) keeps the anchors of an older index of numbers and points each one to its section here.
+[Numbers](numbers.md) points the anchors of an older index of numbers here.

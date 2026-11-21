@@ -264,6 +264,7 @@ pub fn says(r: &Reports) -> anyhow::Result<Says> {
         &r.drive,
         &r.memory,
         &r.rf_core,
+        &r.rf_chain,
     ] {
         named(report, &mut named_);
     }

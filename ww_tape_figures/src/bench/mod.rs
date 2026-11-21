@@ -30,6 +30,7 @@ pub struct Reports {
     carried: Report,
     memory: Report,
     rf_core: Report,
+    rf_chain: Report,
 }
 
 /// The reports in `dir`, each a release build of a clean commit.
@@ -50,6 +51,7 @@ pub fn read(dir: &Path) -> anyhow::Result<Reports> {
         carried: r("carried")?,
         memory: r("memory")?,
         rf_core: r("rf_core")?,
+        rf_chain: r("rf_chain")?,
     })
 }
 
@@ -382,6 +384,7 @@ fn machine(r: &Reports) -> anyhow::Result<String> {
         &r.carried,
         &r.memory,
         &r.rf_core,
+        &r.rf_chain,
     ];
     let first = &r.drive;
     for x in all {
@@ -454,6 +457,8 @@ pub fn figures(dir: &Path) -> anyhow::Result<Vec<(String, String)>> {
         (&r.memory, "heap"),
         (&r.rf_core, "writer"),
         (&r.rf_core, "reader"),
+        (&r.rf_chain, "chain"),
+        (&r.rf_chain, "read"),
     ] {
         let name = format!("bench_{}_{id}.txt", report.bench);
         out.push((name, markdown(report, id)?));
