@@ -80,6 +80,68 @@ pub fn about(bytes: u64) -> String {
     format!("{bytes} bytes")
 }
 
+/// Blocks of one part of a piece, as the book's anatomy of a piece names the parts.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Part {
+    pub name: &'static str,
+    pub count: u64,
+    pub bytes: u64,
+}
+
+impl Part {
+    /// The parts a reader finds its way with: the piece head, checkpoints, final index, close and tail.
+    #[must_use]
+    pub fn is_structure(&self) -> bool {
+        matches!(
+            self.name,
+            "piece head" | "checkpoints" | "final index" | "close" | "tail"
+        )
+    }
+}
+
+/// The blocks of `piece` by part, in order of first appearance.
+///
+/// # Errors
+///
+/// A block that does not read, or an index block that does not decode.
+pub fn parts(piece: &[u8]) -> Result<Vec<Part>, Error> {
+    use ww_tape::index::{IndexBlock, IndexKind};
+    use ww_tape::{BlockKind, FLAG_REPEAT, FileBlocks, Recovery};
+    let mut parts: Vec<Part> = Vec::new();
+    let mut walk = FileBlocks::with_recovery(piece, Recovery::Prefix);
+    while let Some(b) = walk.next_block() {
+        let b = b?;
+        let name = match b.kind {
+            BlockKind::PieceHead => "piece head",
+            BlockKind::Records if b.flags & FLAG_REPEAT != 0 => "records blocks of puts and copies",
+            BlockKind::Records => "records blocks",
+            BlockKind::Events => "events chunks",
+            BlockKind::Series => "series chunks",
+            BlockKind::Summary => "summary blocks",
+            BlockKind::Index => match IndexBlock::read(&b)?.kind() {
+                IndexKind::Checkpoint => "checkpoints",
+                IndexKind::Final => "final index",
+            },
+            BlockKind::Close => "close",
+            BlockKind::Tail => "tail",
+            _ => "other blocks",
+        };
+        let len = b.len() as u64;
+        match parts.iter_mut().find(|p| p.name == name) {
+            Some(p) => {
+                p.count += 1;
+                p.bytes += len;
+            }
+            None => parts.push(Part {
+                name,
+                count: 1,
+                bytes: len,
+            }),
+        }
+    }
+    Ok(parts)
+}
+
 /// The owner of the drive's chain: the board's identity.
 pub const OWNER: OwnerId = OwnerId([0xd7; 32]);
 /// The number of the drive's chain of its owner.
@@ -240,6 +302,10 @@ pub enum Reading {
     Mem(ww_tape::reader::ReadError<MemError>),
     /// A piece's bytes, such as a damaged copy.
     Bytes(ww_tape::reader::ReadError<ww_tape::reader::OutOfRange>),
+    /// A walk over a piece's blocks.
+    Walk(ww_tape::FileError),
+    /// An index block of a piece.
+    Index(ww_tape::index::IndexError),
 }
 
 impl From<ww_tape::reader::ReadError<MemError>> for Error {
@@ -251,6 +317,18 @@ impl From<ww_tape::reader::ReadError<MemError>> for Error {
 impl From<ww_tape::reader::ReadError<ww_tape::reader::OutOfRange>> for Error {
     fn from(e: ww_tape::reader::ReadError<ww_tape::reader::OutOfRange>) -> Self {
         Self::Read(Reading::Bytes(e))
+    }
+}
+
+impl From<ww_tape::FileError> for Error {
+    fn from(e: ww_tape::FileError) -> Self {
+        Self::Read(Reading::Walk(e))
+    }
+}
+
+impl From<ww_tape::index::IndexError> for Error {
+    fn from(e: ww_tape::index::IndexError) -> Self {
+        Self::Read(Reading::Index(e))
     }
 }
 

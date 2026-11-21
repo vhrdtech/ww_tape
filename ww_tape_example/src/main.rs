@@ -8,11 +8,9 @@
     reason = "the binary prints the story's numbers, computed freely from sizes far below 2^52"
 )]
 
-use ww_tape::index::{IndexBlock, IndexKind};
 use ww_tape::reader::Found;
-use ww_tape::{BlockKind, FLAG_REPEAT, FileBlocks, Recovery};
 use ww_tape_example::fault::Fault;
-use ww_tape_example::{Damaged, Drive, EARLIER_CHAIN, Error, Recording, Salvaged, Story};
+use ww_tape_example::{Damaged, Drive, EARLIER_CHAIN, Error, Recording, Salvaged, Story, parts};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let k = match std::env::args().nth(1) {
@@ -160,57 +158,20 @@ fn first_salvaged(drive: &Drive, d: &Damaged) -> Result<Salvaged, Error> {
         .ok_or(Error::Settings("the flipped bit damages a chunk's payload"))
 }
 
-/// What a block of a piece is, as the book's anatomy of a piece names it.
-fn part(b: &ww_tape::Block<'_>) -> Result<&'static str, Box<dyn std::error::Error>> {
-    Ok(match b.kind {
-        BlockKind::PieceHead => "piece head",
-        BlockKind::Records if b.flags & FLAG_REPEAT != 0 => "records blocks of puts and copies",
-        BlockKind::Records => "records blocks",
-        BlockKind::Events => "events chunks",
-        BlockKind::Series => "series chunks",
-        BlockKind::Summary => "summary blocks",
-        BlockKind::Index => match IndexBlock::read(b).map_err(|e| format!("{e:?}"))?.kind() {
-            IndexKind::Checkpoint => "checkpoints",
-            IndexKind::Final => "final index",
-        },
-        BlockKind::Close => "close",
-        BlockKind::Tail => "tail",
-        _ => "other blocks",
-    })
-}
-
-/// The blocks of `piece` by what they are: their count and bytes, in order of first appearance.
-fn print_blocks(piece: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
-    let mut parts: Vec<(&'static str, u64, u64)> = Vec::new();
-    let mut walk = FileBlocks::with_recovery(piece, Recovery::Prefix);
-    while let Some(b) = walk.next_block() {
-        let b = b.map_err(|e| format!("{e:?}"))?;
-        let name = part(&b)?;
-        let len = b.len() as u64;
-        match parts.iter_mut().find(|p| p.0 == name) {
-            Some(p) => {
-                p.1 += 1;
-                p.2 += len;
-            }
-            None => parts.push((name, 1, len)),
-        }
-    }
+/// The blocks of `piece` by part, and the share the parts a reader finds its way with take.
+fn print_blocks(piece: &[u8]) -> Result<(), Error> {
+    let parts = parts(piece)?;
     println!("Piece 0, {} bytes, by its blocks:", piece.len());
     println!();
     println!("| Blocks | Count | Bytes |");
     println!("|---|---:|---:|");
-    for (name, n, bytes) in &parts {
-        println!("| {name} | {n} | {bytes} |");
+    for p in &parts {
+        println!("| {} | {} | {} |", p.name, p.count, p.bytes);
     }
     let structure: u64 = parts
         .iter()
-        .filter(|p| {
-            matches!(
-                p.0,
-                "piece head" | "checkpoints" | "final index" | "close" | "tail"
-            )
-        })
-        .map(|p| p.2)
+        .filter(|p| p.is_structure())
+        .map(|p| p.bytes)
         .sum();
     println!();
     println!(
