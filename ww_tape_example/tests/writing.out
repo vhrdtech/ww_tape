@@ -53,4 +53,10 @@ Piece 0 deleted: 3 pieces from piece 1, 2 links linked; head cut true, whole fal
 
 The board's own tape: 115732480 bytes, 13733 data blocks, 588 blocks of puts (75971 bytes).
 Relayed: 4 pieces, 115314688 bytes (109.97 MiB), 120 blocks of puts (10681 bytes); data blocks the board's byte for byte: true.
+
+Rounded for the text:
+- the writer's own blocks: 3.2 MB of 115 MB, 2.7 %; its puts 5.6 kB
+- aligned: 129 MB against 115 MB, 12 % more; phase_a alone 112 MB against 104 MB, 7.3 % more
+- a sync after every block: about 8520 syncs; piece 0's final index 415 kB
+- the board's tape: 116 MB, about 13700 data blocks, 76 kB of puts; relayed: 115 MB, 11 kB of puts
 The host's own recording: 115290112 bytes.

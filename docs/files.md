@@ -85,10 +85,10 @@ Without syncs, it is everything since the last close. Drawn by <code>ww_tape_fig
 minutes at full rate.</figcaption>
 </figure>
 
-A sync after every block loses only the [[torn block]], the 1263 bytes a resume cuts off. It pays with 8518 waits for
-the disk. The default loses the last second, three whole blocks, for a quarter of the syncs. Without syncs, the crash
-may lose all of piece 2: seven minutes of the run. A recorder of a slow, precious stream syncs after every block; one of
-a fast stream keeps the default.
+A sync after every block loses only the [[torn block]], the 1263 bytes a resume cuts off. It pays with about 8520 waits
+for the disk. The default loses the last second, three whole blocks, for a quarter of the syncs. Without syncs, the
+crash may lose all of piece 2: seven minutes of the run. A recorder of a slow, precious stream syncs after every block;
+one of a fast stream keeps the default.
 
 ### A quiet input
 

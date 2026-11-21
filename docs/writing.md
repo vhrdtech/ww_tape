@@ -135,9 +135,9 @@ The writer's own blocks hold what a [[reader]] needs to find and understand the 
 | close | the writer | 4 | 9508 |
 | tail | the writer | 4 | 656 |
 
-The writer's own blocks take 3161540 of the hour's 115290112 bytes, 2.74 %. Most of that is index: the checkpoints while
-the pieces grow, and each piece's final index. The 35 blocks of puts hold every definition and mode change of four
-pieces in 5584 bytes.
+The writer's own blocks take 3.2 MB of the hour's 115 MB, 2.7 %. Most of that is index: the checkpoints while the pieces
+grow, and each piece's final index. The 35 blocks of puts hold every definition and mode change of four pieces in 5.6
+kB.
 
 ### What the writer checks
 
@@ -195,13 +195,12 @@ next one and places the waiting summary at once, so the gap before the payload h
 minute at full rate.</figcaption>
 </figure>
 
-Alignment costs the drive more than a series alone. The hour takes 128991232 bytes aligned against 115290112, 11.88 %
-more. In the aligned drive file, 0 of the 2933 summary blocks lie in a gap. Each second's records block arrives before
-the next series chunk, and the writer places the waiting summaries ahead of it.
+Alignment costs the drive more than a series alone. The hour takes 129 MB aligned against 115 MB, 12 % more. In the
+aligned drive file, 0 of the 2933 summary blocks lie in a gap. Each second's records block arrives before the next
+series chunk, and the writer places the waiting summaries ahead of it.
 
-A file of `phase_a` alone takes 112144384 bytes aligned against 104468480, 7.35 % more. There 2724 of the 2933 summary
-blocks fill gaps. Alignment therefore suits a file that holds mostly series. The drive's recorder keeps its mixed file
-unaligned.
+A file of `phase_a` alone takes 112 MB aligned against 104 MB, 7.3 % more. There 2724 of the 2933 summary blocks fill
+gaps. Alignment therefore suits a file that holds mostly series. The drive's recorder keeps its mixed file unaligned.
 
 ## Closing
 

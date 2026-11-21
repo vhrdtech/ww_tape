@@ -989,6 +989,40 @@ fn percent(part: u64, whole: u64) -> String {
     format!("{:.2} %", part as f64 * 100.0 / whole.max(1) as f64)
 }
 
+/// `bytes` rounded for prose: three significant digits at most, in B, kB, MB or GB.
+fn round_bytes(bytes: u64) -> String {
+    let units = [("GB", 1e9), ("MB", 1e6), ("kB", 1e3)];
+    let b = bytes as f64;
+    units.iter().find(|(_, n)| b >= *n).map_or_else(
+        || format!("{bytes} B"),
+        |(u, n)| format!("{} {u}", round_sig(b / n)),
+    )
+}
+
+/// A count rounded for prose: exact below 1000, else to three significant digits.
+fn round_count(n: u64) -> String {
+    if n < 1000 {
+        return n.to_string();
+    }
+    let digits = n.ilog10();
+    let step = 10u64.pow(digits.saturating_sub(2));
+    format!("about {}", (n + step / 2) / step * step)
+}
+
+/// A share rounded for prose: one decimal below 10 %, whole percent above.
+fn round_percent(part: u64, whole: u64) -> String {
+    format!("{} %", round_sig(part as f64 * 100.0 / whole.max(1) as f64))
+}
+
+/// One decimal below 10, a whole number above.
+fn round_sig(v: f64) -> String {
+    if v < 10.0 {
+        format!("{v:.1}")
+    } else {
+        format!("{v:.0}")
+    }
+}
+
 fn policy(p: SyncPolicy) -> String {
     match p {
         SyncPolicy::Interval(t) => format!("Interval({} s)", t.as_secs()),
@@ -1162,6 +1196,54 @@ impl fmt::Display for Writing {
             y.relay_puts,
             y.relay_put_bytes,
             y.same_data
+        )?;
+
+        // the same numbers as the chapters' prose gives them, rounded; the exact ones above stay for the tables
+        let puts: u64 = self
+            .blocks
+            .iter()
+            .filter(|b| b.by_writer && b.part.contains("puts"))
+            .map(|b| b.bytes)
+            .sum();
+        let every = self
+            .syncs
+            .iter()
+            .find(|s| s.policy == SyncPolicy::EveryBlocks(1))
+            .map_or(0, |s| s.syncs);
+        writeln!(f)?;
+        writeln!(f, "Rounded for the text:")?;
+        writeln!(
+            f,
+            "- the writer's own blocks: {} of {}, {}; its puts {}",
+            round_bytes(writer),
+            round_bytes(total),
+            round_percent(writer, total),
+            round_bytes(puts)
+        )?;
+        writeln!(
+            f,
+            "- aligned: {} against {}, {} more; phase_a alone {} against {}, {} more",
+            round_bytes(a.aligned),
+            round_bytes(a.unaligned),
+            round_percent(a.aligned - a.unaligned, a.unaligned),
+            round_bytes(a.series_aligned),
+            round_bytes(a.series_unaligned),
+            round_percent(a.series_aligned - a.series_unaligned, a.series_unaligned)
+        )?;
+        writeln!(
+            f,
+            "- a sync after every block: {} syncs; piece 0's final index {}",
+            round_count(every),
+            round_bytes(t.final_index)
+        )?;
+        writeln!(
+            f,
+            "- the board's tape: {}, {} data blocks, {} of puts; relayed: {}, {} of puts",
+            round_bytes(y.board_bytes),
+            round_count(y.data_blocks),
+            round_bytes(y.board_put_bytes),
+            round_bytes(y.relay_bytes),
+            round_bytes(y.relay_put_bytes)
         )?;
         writeln!(f, "The host's own recording: {} bytes.", y.recorded_bytes)
     }

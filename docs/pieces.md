@@ -89,8 +89,8 @@ with its head and two blocks of puts that carry the definitions, before its firs
 <code>ww_tape_figures</code> from the drive's chain at 1/1000 of its data; each row has its own scale.</figcaption>
 </figure>
 
-At full rate, piece 0 of the drive ends with a final index of 414520 bytes. The close takes 1297 bytes, 557 of them
-padding, and the tail 164 bytes. Piece 1 starts with a head of 540 bytes, then 2 blocks of puts of 521 bytes in all.
+At full rate, piece 0 of the drive ends with a final index of 415 kB. The close takes 1297 bytes, 557 of them padding,
+and the tail 164 bytes. Piece 1 starts with a head of 540 bytes, then 2 blocks of puts of 521 bytes in all.
 
 The head lists every track that gave data so far, and the puts after it carry their definitions. At piece 1's first
 data, 4 tracks and 3 clocks and maps are defined. The mode, a [[state track]], comes back with its first put. [The
