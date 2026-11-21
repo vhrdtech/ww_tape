@@ -86,6 +86,7 @@ unnecessary_safety_doc = "warn"          # a # Safety section on a safe function
 use_self = "warn"                        # Self follows a rename
 
 [profile.dev]
+debug = false
 split-debuginfo = "unpacked"
 
 [profile.dev.package."*"]
