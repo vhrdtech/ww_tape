@@ -15,7 +15,7 @@ use crate::definitions::{CLOCK, clock, state, track};
 
 const MODE: u32 = 5;
 
-/// The lines of "What the application does with its definitions", between the setup and the checks.
+/// The lines `docs/writing.md` includes (`definitions`), between the setup and the checks.
 fn example(writer: &mut TapeWriter<MemSink>) -> Result<(), WriteError<MemError>> {
     let (clock, temperature_track, mode_track) = (clock(CLOCK), track(1, CLOCK), state(MODE));
     let ticks = 1_000;
@@ -27,12 +27,12 @@ fn example(writer: &mut TapeWriter<MemSink>) -> Result<(), WriteError<MemError>>
     let n = b.finish();
     let readings = buf[..n].to_vec();
 
-    // as on the pages
+    // --8<-- [start:definitions]
     let mut defs = Definitions::new();
     defs.define_all(&[clock, temperature_track, mode_track])?;
     writer.put(&defs, MODE, ticks, &mode_bytes)?; // a state item, at its use
     writer.write_block(&defs, &readings)?; // the definitions it needs go first
-    // end of the pages' lines
+    // --8<-- [end:definitions]
     Ok(())
 }
 
@@ -51,8 +51,8 @@ fn book_definitions_example() {
 /// The closed pieces of a chain of files.
 type Pieces = Vec<ChainPiece<u64>>;
 
-/// The lines of "Writing a chain into one file", between the setup and the checks: the closed pieces of the first
-/// session and those of the second.
+/// The lines `docs/pieces.md` includes (`one_file`), between the setup and the checks: the closed pieces of the
+/// first session and those of the second.
 fn one_file_example(
     path: &Path,
     owner: OwnerId,
@@ -60,7 +60,7 @@ fn one_file_example(
     head: &ChunkHead,
     columns: &[(ColumnSpec, &[u8])],
 ) -> Result<(Pieces, Pieces), WriteError<FsError>> {
-    // as on the pieces page
+    // --8<-- [start:one_file]
     let options = ChainOptions {
         tapes: PieceTapes::One,
         ..ChainOptions::default()
@@ -72,7 +72,7 @@ fn one_file_example(
     let (mut chain, _) = ww_tape_fs::chain::resume(path, owner, 0, options)?;
     chain.write_chunk(defs, head, columns)?;
     let second = chain.close()?;
-    // end of the pieces page's lines
+    // --8<-- [end:one_file]
     Ok((first, second))
 }
 
@@ -102,18 +102,6 @@ fn book_one_file_example() {
     assert_eq!(closes[0].1.hash, first[0].piece.hash);
     assert_eq!(closes[1].1.hash, second[0].piece.hash);
     std::fs::remove_dir_all(&dir).unwrap();
-}
-
-/// The lines of `tests/it/book.rs` between `start` and `end`, unindented once.
-fn lines_between(start: &str, end: &str) -> String {
-    let source = read("tests/it/book.rs");
-    let from = source.find(start).unwrap();
-    let to = source.find(end).unwrap();
-    source[from..to]
-        .lines()
-        .skip(1)
-        .map(|l| format!("{}\n", l.strip_prefix("    ").unwrap_or(l)))
-        .collect()
 }
 
 fn read(path: &str) -> String {
@@ -157,38 +145,6 @@ fn fenced(text: &str, what: &str) -> Vec<(String, String)> {
     }
     assert!(open.is_none(), "{what}: a fence is never closed");
     blocks
-}
-
-#[test]
-fn pages_show_the_example_the_test_runs() {
-    let lines = lines_between(
-        "    // as on the pages\n",
-        "    // end of the pages' lines\n",
-    );
-    let page = "../docs/writing.md";
-    let blocks = fenced(&read(page), page);
-    assert!(
-        blocks
-            .iter()
-            .any(|(lang, body)| lang == "rust" && *body == lines),
-        "{page} shows the lines `book_definitions_example` runs:\n{lines}"
-    );
-}
-
-#[test]
-fn pieces_page_shows_the_example_the_test_runs() {
-    let lines = lines_between(
-        "    // as on the pieces page\n",
-        "    // end of the pieces page's lines\n",
-    );
-    let page = "../docs/pieces_and_files.md";
-    let blocks = fenced(&read(page), page);
-    assert!(
-        blocks
-            .iter()
-            .any(|(lang, body)| lang == "rust" && *body == lines),
-        "{page} shows the lines `book_one_file_example` runs:\n{lines}"
-    );
 }
 
 /// The module docs of every source file under `dir`, `//!` stripped, one after another.

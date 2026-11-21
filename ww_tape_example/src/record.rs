@@ -169,7 +169,8 @@ impl Acts {
         if !frames.is_empty() {
             let (starts, payloads): (Vec<i64>, Vec<Vec<u8>>) =
                 frames.clone().map(|k| frame(k, period_us)).unzip();
-            let times = EncodedTimes::encode(&starts, None, None)?;
+            // --8<-- [start:frames]
+            let times = EncodedTimes::encode(&starts, None, None)?; // instants, no flags
             let payloads = EncodedPayloads::encode(payloads.iter().map(Vec::as_slice))?;
             let head = times.head.chunk_head(key("can0"), CAN0, frames.start);
             let columns = times
@@ -177,6 +178,7 @@ impl Acts {
                 .chain(payloads.columns())
                 .map(|(spec, bytes)| (spec, bytes.to_vec()))
                 .collect();
+            // --8<-- [end:frames]
             self.queue.push_back(Act::Chunk {
                 head: Box::new(head),
                 columns,
@@ -193,6 +195,7 @@ impl Acts {
                 .clone()
                 .map(|n| phase_ma(item_us(n, hz), n, d.phase_hz))
                 .collect();
+            // --8<-- [start:samples]
             let shape = SampleShape::scalar(def.shape.element);
             let mut bytes = vec![0u8; max_encoded_len(PHASE_CODEC, shape, values.len())?];
             let len = encode(PHASE_CODEC, shape, &values, &mut bytes)?;
@@ -220,6 +223,7 @@ impl Acts {
                 param: 0,
                 len: bytes.len(),
             };
+            // --8<-- [end:samples]
             self.queue.push_back(Act::Chunk {
                 head: Box::new(head),
                 columns: vec![(spec, bytes)],
@@ -275,6 +279,7 @@ pub(crate) struct Made {
 
 /// The chain's options for `drive`.
 pub(crate) fn options(drive: &Drive) -> ChainOptions {
+    // --8<-- [start:options]
     let definitions = StatePolicy {
         near: exact_units::Bytes::new(drive.near_bytes),
         copies: exact_units::Count::new(1),
@@ -303,6 +308,7 @@ pub(crate) fn options(drive: &Drive) -> ChainOptions {
         },
         tapes: PieceTapes::Each,
     }
+    // --8<-- [end:options]
 }
 
 /// A chain and what it was written with.
@@ -325,10 +331,12 @@ impl<T: Tapes<Error = MemError>> Recorder<T> {
 
     /// Hand `act` to the chain.
     pub(crate) fn apply(&mut self, act: &Act) -> Result<Made, Error> {
+        // --8<-- [start:cut]
         if matches!(act, Act::Chunk { .. }) && self.chain.cut_due() {
             // the cut comes first, so that the chunk is made in the piece it lands in
             self.chain.cut_now(&self.defs)?;
         }
+        // --8<-- [end:cut]
         let piece = self.chain.seq();
         let before = self.chain.writer()?.bytes();
         let mut made = Made {

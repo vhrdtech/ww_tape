@@ -17,11 +17,13 @@
 
 mod appends;
 mod book;
+mod chains;
 mod checks;
 mod clock;
 mod crafted;
 mod crashes;
 mod definitions;
+mod durable;
 mod files;
 mod lock;
 mod media;
