@@ -173,7 +173,7 @@ Writing pieces and chains, resuming them, sinks in memory, in the crate `ww_tape
   - The writing thread places units in arrival order and does the puts, cuts, sync and checkpoints by time, and the close.
   - A writer's refusal reaches the handle's next call; a failed write reaches every handle. A close refuses later calls with `Closed` and doesn't wait for handles. A mux dropped unclosed leaves its piece unclosed; `TapeMux::resume` and `ww_tape_fs::mux::resume` go on.
   - `PieceChain::relay_block` and `adopt_block` pass a producer's blocks on into a chain.
-  - Open: typed events and series handles with summaries, latency seals, async sends, followers of a live chain.
+  - Open: typed events and series handles with summaries, latency seals, async sends.
   - Tests `mux.rs`, `item_gap.rs`.
 
 ## Reader (`READ`)
@@ -206,6 +206,13 @@ Reading by position, checks and hashes, hostile bytes, in the crate `ww_tape`.
   - An item's number on its track is an `ItemNum`, exactly a `u64` on the wire. It names items in the chunk, index, summary and piece heads, the series timeline, the range hash and the summary builders' API. A count of items stays a `u64`; `ItemNum::checked_add`, `offset_to` and `items` relate the two. A grid's own sample index (`SeriesGrid::grid_index`) and the builders' counters stay `u64`.
   - Left bare on purpose: block seqs (`BlockId::seq`, `ChunkPlaced::seq`), counts, format and codec versions, codec ids, relation indexes, offsets and lengths. Each is a plain counter, an index or a measurement, and a number read from a file stays a `FromFile<T>` (READ-2).
   - Read more: the crate docs of `ww_tape` (`TrackNum`, `ClockNum`, `RecordTrack`, `TrackKey`, `TrackId`, `ClockKey`, `RelationSet`).
+- ✅ **READ-6 Readers following a live chain**
+  - `ww_tape_fs::follow::ChainFollower` reads a chain directory or file while another process writes it, piece after piece. It hands out only blocks that check.
+  - A torn end is read again once a resume cut it back and wrote on. A block a resume took back is never handed out. inotify wakes it on Linux; a poll interval bounds each wait.
+  - It starts at the first piece, the newest or the end. `TrackFollower` decodes one track's events or series samples and reports item-number gaps as lost items.
+  - `TimeMerge` merges chains by time. An item comes out once every source showed nothing older: the bound is the slowest source's newest time. A source quiet past a set wait is left out, and its older items come out marked late.
+  - `TapeMux::watch` publishes the piece, bytes written and synced, and each track's newest chunk for readers in the writer's process.
+  - Tests `follow.rs` (a writer process killed and resumed), `progress.rs`. Read more: [Reading a growing piece](docs/growing_pieces.md#following-a-chain-while-it-is-written).
 
 ## Files and locks (`FS`)
 

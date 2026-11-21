@@ -12,6 +12,11 @@ benchmarks, golden files and book pages.
 - `ww_tape_fs::mux::create` and `resume` open a mux on a directory of piece files (WRITE-12).
 - `PieceChain::relay_block` and `adopt_block` pass a producer's blocks into a chain; whole chunk blocks cut by policy too (WRITE-12).
 - `PieceChain::cut_policy` gives the chain's cut policy (WRITE-12).
+- `ww_tape_fs::follow::ChainFollower` follows a chain another process writes, handing out only blocks that check (READ-6).
+- `TrackFollower` decodes one track's items as they land; `TimeMerge` merges chains by time (READ-6).
+- `TapeMux::watch` publishes the writing thread's progress for readers in its process (READ-6).
+- `FileBlocks::point` and `FileBlocks::resume` continue a prefix walk on bytes read later (READ-6).
+- `TapeWriter::synced_bytes` gives the piece's bytes up to the last sync (READ-6).
 
 ## [0.3.0] - 2026-11-21
 

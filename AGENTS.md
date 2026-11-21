@@ -34,8 +34,8 @@ chapter reads and how it marks terms, links code and includes tested code.
 | `ww_tape/` | blocks, definitions on track 0, state tracks and their lookups, chunks and their time, sample and payload columns, summary heads, index, close and tail, pieces, `TapeWriter`, `FileBlocks`, `TapeReader`; `golden/` the golden files |
 | `ww_tape_codecs/` | column codecs with no notion of a block, over slices, ids and scalars: `bitpack`, `crc32c`, `from_file`, varints, `lz4`, `samples`, `times`, `lengths`, the summary kernels; `ww_tape` re-exports them |
 | `ww_tape_summary/` | summary nodes above the core: `EventTree`, `SeriesSummaries`, `Summary` read in place, `EventNode`, `ChannelStats`, scales; re-exports the head types; `golden/` its golden file |
-| `ww_tape_mux/` | `TapeMux`: a chain written from its own thread; handles (`ChunkSender`, `RecordsHandle`, `RelayHandle`, `StateHandle`) send through a byte-bounded queue |
-| `ww_tape_fs/` | everything that names a path: `FileSink`, `Files`, `FileSource`, the lock on the open file and its fork handler, `writer::{create, append, resume, cut}`, `chain::{create, resume}`, `mux::{create, resume}` |
+| `ww_tape_mux/` | `TapeMux`: a chain written from its own thread; handles (`ChunkSender`, `RecordsHandle`, `RelayHandle`, `StateHandle`) send through a byte-bounded queue; `ProgressWatch` for readers in its process |
+| `ww_tape_fs/` | everything that names a path: `FileSink`, `Files`, `FileSource`, the lock on the open file and its fork handler, `writer::{create, append, resume, cut}`, `chain::{create, resume}`, `mux::{create, resume}`, `follow` (`ChainFollower`, `TrackFollower`, `TimeMerge`) |
 | `ww_tape_tests/` | the integration tests (`tests/it`), through the public API; the book pages against the code, their `rust` blocks as doctests (`src/book.rs`) |
 | `ww_tape_fuzz/` | the fuzz target bodies (`targets`), hostile block builders (`hostile`), `seeds/` and their replay as tests, `ww_tape_fuzz_seeds` |
 | `ww_tape_bench/` | what every bench binary shares: `--json`, `--color`, `--version`, completion, the timing loop, the run's report |
