@@ -1,8 +1,8 @@
 {
   "format": 1,
   "bench": "carried",
-  "version": "0.1.0 (0dbe350, commit 21 Nov 2026 07:46 UTC)",
-  "commit": "0dbe350",
+  "version": "0.1.0 (838fcb1, commit 21 Nov 2026 13:56 UTC)",
+  "commit": "838fcb1",
   "dirty": false,
   "build": {
     "profile": "release",
@@ -92,7 +92,7 @@
             "digits": 1
           },
           {
-            "value": 8769536.0,
+            "value": 8773632.0,
             "digits": 0
           },
           {
@@ -100,7 +100,7 @@
             "digits": 0
           },
           {
-            "value": 0.09350163627863488,
+            "value": 0.1402524544179523,
             "digits": 1
           }
         ],
@@ -123,7 +123,7 @@
             "digits": 1
           },
           {
-            "value": 1200128.0,
+            "value": 1204224.0,
             "digits": 0
           },
           {
@@ -131,7 +131,7 @@
             "digits": 0
           },
           {
-            "value": 10.984848484848484,
+            "value": 11.363636363636363,
             "digits": 1
           }
         ],
@@ -142,7 +142,7 @@
           },
           "8 MiB",
           {
-            "value": 1970.0,
+            "value": 1969.0,
             "digits": 0
           },
           {
@@ -150,11 +150,11 @@
             "digits": 0
           },
           {
-            "value": 2.523503216229589,
+            "value": 2.5729836714497774,
             "digits": 1
           },
           {
-            "value": 8871936.0,
+            "value": 8753152.0,
             "digits": 0
           },
           {
@@ -162,22 +162,22 @@
             "digits": 0
           },
           {
-            "value": 2.7514231499051234,
+            "value": 1.3757115749525617,
             "digits": 1
           }
         ]
       ],
       "load_before": {
-        "one": 6.08,
-        "five": 13.09,
-        "fifteen": 18.7
+        "one": 6.24,
+        "five": 7.53,
+        "fifteen": 6.99
       },
       "load_after": {
-        "one": 6.08,
-        "five": 13.09,
-        "fifteen": 18.7
+        "one": 6.24,
+        "five": 7.53,
+        "fifteen": 6.99
       },
-      "seconds": 0.118560694
+      "seconds": 0.111785731
     },
     {
       "id": "caps",
@@ -196,11 +196,11 @@
             "digits": 0
           },
           {
-            "value": 155783168.0,
+            "value": 156745728.0,
             "digits": 0
           },
           {
-            "value": 333.0,
+            "value": 336.0,
             "digits": 0
           }
         ],
@@ -211,26 +211,26 @@
             "digits": 0
           },
           {
-            "value": 234717184.0,
+            "value": 236183552.0,
             "digits": 0
           },
           {
-            "value": 335.0,
+            "value": 337.0,
             "digits": 0
           }
         ]
       ],
       "load_before": {
-        "one": 6.08,
-        "five": 13.09,
-        "fifteen": 18.7
+        "one": 6.24,
+        "five": 7.53,
+        "fifteen": 6.99
       },
       "load_after": {
-        "one": 6.07,
-        "five": 12.74,
-        "fifteen": 18.5
+        "one": 5.67,
+        "five": 7.36,
+        "fifteen": 6.94
       },
-      "seconds": 13.886710877
+      "seconds": 9.658152802
     },
     {
       "id": "room",
@@ -284,16 +284,16 @@
         ]
       ],
       "load_before": {
-        "one": 6.07,
-        "five": 12.74,
-        "fifteen": 18.5
+        "one": 5.67,
+        "five": 7.36,
+        "fifteen": 6.94
       },
       "load_after": {
-        "one": 7.01,
-        "five": 9.0,
-        "fifteen": 15.19
+        "one": 6.27,
+        "five": 7.12,
+        "fifteen": 6.97
       },
-      "seconds": 312.467269308
+      "seconds": 284.011141105
     },
     {
       "id": "state",
@@ -338,7 +338,7 @@
             "digits": 0
           },
           {
-            "value": 69632.0,
+            "value": 73728.0,
             "digits": 0
           },
           {
@@ -346,7 +346,7 @@
             "digits": 0
           },
           {
-            "value": 327.68,
+            "value": 368.64,
             "digits": 1
           }
         ],
@@ -360,7 +360,7 @@
             "digits": 0
           },
           {
-            "value": 589824.0,
+            "value": 593920.0,
             "digits": 0
           },
           {
@@ -368,7 +368,7 @@
             "digits": 0
           },
           {
-            "value": 274.432,
+            "value": 278.528,
             "digits": 1
           }
         ],
@@ -382,7 +382,7 @@
             "digits": 0
           },
           {
-            "value": 647168.0,
+            "value": 651264.0,
             "digits": 0
           },
           {
@@ -390,22 +390,22 @@
             "digits": 0
           },
           {
-            "value": 331.776,
+            "value": 335.872,
             "digits": 1
           }
         ]
       ],
       "load_before": {
-        "one": 7.01,
-        "five": 9.0,
-        "fifteen": 15.19
+        "one": 6.27,
+        "five": 7.12,
+        "fifteen": 6.97
       },
       "load_after": {
-        "one": 7.01,
-        "five": 9.0,
-        "fifteen": 15.19
+        "one": 6.27,
+        "five": 7.12,
+        "fifteen": 6.97
       },
-      "seconds": 0.056660764
+      "seconds": 0.064442542
     }
   ]
 }

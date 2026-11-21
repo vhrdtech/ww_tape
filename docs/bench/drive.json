@@ -1,8 +1,8 @@
 {
   "format": 1,
   "bench": "drive",
-  "version": "0.1.0 (0dbe350, commit 21 Nov 2026 07:46 UTC)",
-  "commit": "0dbe350",
+  "version": "0.1.0 (838fcb1, commit 21 Nov 2026 13:56 UTC)",
+  "commit": "838fcb1",
   "dirty": false,
   "build": {
     "profile": "release",
@@ -41,49 +41,49 @@
         [
           "with summaries of `phase_a`",
           {
-            "value": 2.952966324,
+            "value": 2.8431302880000002,
             "digits": 2
           },
           {
-            "value": 39.0421357206104,
+            "value": 40.55185528662624,
             "digits": 0
           },
           {
-            "value": 1219.113123892164,
+            "value": 1266.2099993076363,
             "digits": 0
           }
         ],
         [
           "without summaries",
           {
-            "value": 2.672213523,
+            "value": 3.086437223,
             "digits": 2
           },
           {
-            "value": 41.677148566694086,
+            "value": 36.08375351686199,
             "digits": 0
           },
           {
-            "value": 1347.1977328961373,
+            "value": 1166.3933979194367,
             "digits": 0
           }
         ]
       ],
       "load_before": {
-        "one": 7.22,
-        "five": 13.77,
-        "fifteen": 19.04
+        "one": 6.03,
+        "five": 7.58,
+        "fifteen": 6.99
       },
       "load_after": {
-        "one": 6.08,
-        "five": 13.09,
-        "fifteen": 18.7
+        "one": 6.24,
+        "five": 7.53,
+        "fifteen": 6.99
       },
-      "seconds": 17.700889173
+      "seconds": 18.830760175
     },
     {
       "id": "sizes",
-      "title": "The drive's hour at full scale: 4 pieces, 115290112 bytes.",
+      "title": "The drive's hour at full scale: 4 pieces, 115294208 bytes.",
       "columns": [
         "Part",
         "Bytes",
@@ -98,7 +98,7 @@
             "digits": 0
           },
           {
-            "value": 86.40574744172336,
+            "value": 86.40267774769744,
             "digits": 2
           },
           {
@@ -113,7 +113,7 @@
             "digits": 0
           },
           {
-            "value": 7.286768877455857,
+            "value": 7.28651000404114,
             "digits": 2
           },
           {
@@ -128,7 +128,7 @@
             "digits": 0
           },
           {
-            "value": 2.861731975765623,
+            "value": 2.861630308436656,
             "digits": 2
           },
           {
@@ -143,7 +143,7 @@
             "digits": 0
           },
           {
-            "value": 0.7035043907321384,
+            "value": 0.7034793976814516,
             "digits": 2
           },
           {
@@ -154,45 +154,45 @@
         [
           "puts and copies",
           {
-            "value": 5435.0,
+            "value": 5615.0,
             "digits": 0
           },
           {
-            "value": 0.004714194396827371,
+            "value": 0.004870149244617735,
             "digits": 2
           },
           {
-            "value": 1.5097222222222222,
+            "value": 1.5597222222222222,
             "digits": 0
           }
         ],
         [
           "checkpoints and final indexes",
           {
-            "value": 3144016.0,
+            "value": 3145936.0,
             "digits": 0
           },
           {
-            "value": 2.7270473984794115,
+            "value": 2.7286158208398463,
             "digits": 2
           },
           {
-            "value": 873.3377777777778,
+            "value": 873.8711111111111,
             "digits": 0
           }
         ],
         [
           "piece heads, closes and tails",
           {
-            "value": 12089.0,
+            "value": 14085.0,
             "digits": 0
           },
           {
-            "value": 0.010485721446779409,
+            "value": 0.012216572058849651,
             "digits": 2
           },
           {
-            "value": 3.3580555555555556,
+            "value": 3.9125,
             "digits": 0
           }
         ],
@@ -229,7 +229,7 @@
         [
           "the recording",
           {
-            "value": 115290112.0,
+            "value": 115294208.0,
             "digits": 0
           },
           {
@@ -237,22 +237,22 @@
             "digits": 2
           },
           {
-            "value": 32025.03111111111,
+            "value": 32026.16888888889,
             "digits": 0
           }
         ]
       ],
       "load_before": {
-        "one": 6.08,
-        "five": 13.09,
-        "fifteen": 18.7
+        "one": 6.24,
+        "five": 7.53,
+        "fifteen": 6.99
       },
       "load_after": {
-        "one": 6.08,
-        "five": 13.09,
-        "fifteen": 18.7
+        "one": 6.24,
+        "five": 7.53,
+        "fifteen": 6.99
       },
-      "seconds": 0.018943612
+      "seconds": 0.025483692
     },
     {
       "id": "items",
@@ -314,16 +314,16 @@
         ]
       ],
       "load_before": {
-        "one": 6.08,
-        "five": 13.09,
-        "fifteen": 18.7
+        "one": 6.24,
+        "five": 7.53,
+        "fifteen": 6.99
       },
       "load_after": {
-        "one": 6.08,
-        "five": 13.09,
-        "fifteen": 18.7
+        "one": 6.24,
+        "five": 7.53,
+        "fifteen": 6.99
       },
-      "seconds": 0.159252896
+      "seconds": 0.159200123
     }
   ]
 }

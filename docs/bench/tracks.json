@@ -1,8 +1,8 @@
 {
   "format": 1,
   "bench": "tracks",
-  "version": "0.1.0 (0dbe350, commit 21 Nov 2026 07:46 UTC)",
-  "commit": "0dbe350",
+  "version": "0.1.0 (838fcb1, commit 21 Nov 2026 13:56 UTC)",
+  "commit": "838fcb1",
   "dirty": false,
   "build": {
     "profile": "release",
@@ -38,7 +38,7 @@
   "tables": [
     {
       "id": "add",
-      "title": "10000 tracks added one by one, a records block each, into a piece in memory of 7426048 bytes.",
+      "title": "10000 tracks added one by one, a records block each, into a piece in memory of 7458816 bytes.",
       "columns": [
         "What",
         "s"
@@ -47,50 +47,50 @@
         [
           "add 1000 tracks",
           {
-            "value": 0.006339318,
+            "value": 0.007430163,
             "digits": 3
           }
         ],
         [
           "add 5000 tracks",
           {
-            "value": 0.03643936,
+            "value": 0.039568955,
             "digits": 3
           }
         ],
         [
           "add 10000 tracks",
           {
-            "value": 0.076951688,
+            "value": 0.084982944,
             "digits": 3
           }
         ],
         [
           "close the piece",
           {
-            "value": 0.015590755,
+            "value": 0.015249452,
             "digits": 3
           }
         ],
         [
           "open it and read the definitions",
           {
-            "value": 0.020295385,
+            "value": 0.022968428,
             "digits": 3
           }
         ]
       ],
       "load_before": {
-        "one": 7.22,
-        "five": 13.77,
-        "fifteen": 19.04
+        "one": 6.03,
+        "five": 7.58,
+        "fifteen": 6.99
       },
       "load_after": {
-        "one": 7.22,
-        "five": 13.77,
-        "fifteen": 19.04
+        "one": 6.03,
+        "five": 7.58,
+        "fifteen": 6.99
       },
-      "seconds": 0.114285151
+      "seconds": 0.124505207
     },
     {
       "id": "puts",
@@ -104,37 +104,37 @@
         [
           "10000",
           {
-            "value": 6828405.0,
+            "value": 7005520.0,
             "digits": 0
           },
           {
-            "value": 2.5437480365398684,
+            "value": 2.6097404750798154,
             "digits": 3
           }
         ],
         [
           "100",
           {
-            "value": 100809.0,
+            "value": 103725.0,
             "digits": 0
           },
           {
-            "value": 0.03755370916330285,
+            "value": 0.038640464652956494,
             "digits": 3
           }
         ]
       ],
       "load_before": {
-        "one": 7.22,
-        "five": 13.77,
-        "fifteen": 19.04
+        "one": 6.03,
+        "five": 7.58,
+        "fifteen": 6.99
       },
       "load_after": {
-        "one": 7.22,
-        "five": 13.77,
-        "fifteen": 19.04
+        "one": 6.03,
+        "five": 7.58,
+        "fifteen": 6.99
       },
-      "seconds": 1.632507368
+      "seconds": 1.748990102
     },
     {
       "id": "idle",
@@ -154,22 +154,22 @@
         [
           "copied",
           {
-            "value": 6.1533,
+            "value": 6.1558,
             "digits": 1
           }
         ]
       ],
       "load_before": {
-        "one": 7.22,
-        "five": 13.77,
-        "fifteen": 19.04
+        "one": 6.03,
+        "five": 7.58,
+        "fifteen": 6.99
       },
       "load_after": {
-        "one": 7.22,
-        "five": 13.77,
-        "fifteen": 19.04
+        "one": 6.03,
+        "five": 7.58,
+        "fifteen": 6.99
       },
-      "seconds": 0.014578308
+      "seconds": 0.020010067
     }
   ]
 }
