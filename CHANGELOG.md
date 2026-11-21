@@ -6,6 +6,8 @@ benchmarks, golden files and book pages.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-21
+
 Covers `ww_tape` 0.1.0.
 
 ### Breaking
@@ -490,4 +492,3 @@ Covers `ww_tape` 0.1.0.
 - A piece number past the last, an over-long `Read` or an offset past u64 errs, not panics (READ-2).
 - On a raw medium, blank space longer than the gap ends the walk; the rest is not read (FMT-7).
 - The format text says what describe copies (repeats, backup, next piece) hold: sticky state as of their run (FMT-4).
-
