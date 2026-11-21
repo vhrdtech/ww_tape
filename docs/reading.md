@@ -46,7 +46,7 @@ one track's list, then (4) only the needed blocks. Below, an unclosed piece: the
 pointers list every earlier block, and the reader scans the blocks after it.</figcaption>
 </figure>
 
-For the drive's chain, opening reads 13 804 bytes in 28 reads, and [`TapeReader::pieces`] lists four pieces. Each
+For the drive's chain, opening reads 14 100 bytes in 28 reads, and [`TapeReader::pieces`] lists four pieces. Each
 [`PieceInfo`] holds the piece's start and end, its head and its close with a row per track. The row of `phase_a` says
 which ticks the track's [[chunks]] cover in that piece. The program picks the piece whose row reaches 52:00, without
 another read:
@@ -113,7 +113,7 @@ index to the one block it needs:
 --8<-- "ww_tape_example/src/fault.rs:mode"
 ```
 
-At the chunk before the fault, the mode is `run, 31 A limit`, and its record from 45:36 lies 12 269 264 bytes
+At the chunk before the fault, the mode is `run, 31 A limit`, and its record from 45:36 lies 12 269 082 bytes
 behind. That record is the [[state copy]] which the [[writer]] adds after the run's first record in the last
 [[piece]]. At the chunk from 52:00, the mode is `fault: overcurrent`, from 52:00, and lies 2 027 bytes behind. Both
 lookups together read 3 034 bytes in 5 reads. Each record lies within [[near]], 32 MiB, so a reader of the last piece

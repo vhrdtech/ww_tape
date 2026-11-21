@@ -63,15 +63,15 @@ fn check_flip(drive: &Drive, flip: &Damaged) -> Result<(), Error> {
     assert_eq!((s.items, s.items_lost), (25_000, Some(25_000)));
     assert_eq!(s.first_tick, i64::from(FLIP_MINUTE) * 60_000_000);
     // the numbers the chapter "When bytes go bad" gives
-    assert_eq!(flip.damage.start, 9_730_875, "the flipped byte");
+    assert_eq!(flip.damage.start, 9_730_801, "the flipped byte");
     assert_eq!(s.block.len, 28_171, "the flipped chunk's bytes");
-    assert_eq!((r.read.len(), r.data_blocks()), (3448, 3449));
+    assert_eq!((r.read.len(), r.data_blocks()), (3446, 3447));
     assert_eq!(
         (r.prefix.blocks.len(), stop.0),
-        (1158, 9_716_790),
+        (1156, 9_716_716),
         "Prefix's blocks and where it stops"
     );
-    assert_eq!(r.resync.blocks.len(), 3459, "the blocks Resync hands out");
+    assert_eq!(r.resync.blocks.len(), 3457, "the blocks Resync hands out");
     Ok(())
 }
 
@@ -93,7 +93,7 @@ fn check_first(drive: &Drive, first: &Damaged) -> Result<(), Error> {
             .all(|b| r.resync.blocks.contains(b)),
         "Resync reads every block after the lost bytes"
     );
-    assert_eq!((r.read.len(), r.unreadable.len()), (3444, 5));
+    assert_eq!((r.read.len(), r.unreadable.len()), (3443, 4));
     Ok(())
 }
 
@@ -118,7 +118,7 @@ fn a_raw_card_never_reads_the_earlier_run() -> Result<(), Error> {
     let card = crashed.on_card(&earlier)?;
     assert_eq!(card.bytes.len() as u64, earlier.len());
     // the numbers the chapter "Where the data ends on a raw card" gives: 109.95 MiB, 68.96 MiB, 40.99 MiB
-    assert_eq!((card.bytes.len(), crash.byte), (115_290_112, 72_312_629));
+    assert_eq!((card.bytes.len(), crash.byte), (115_290_112, 72_312_518));
     let read = card.read(&earlier)?;
     assert_eq!(read.raw_pieces, 3, "two closed pieces and the torn one");
     let torn_start = crash.byte - crash.offset;
@@ -127,7 +127,7 @@ fn a_raw_card_never_reads_the_earlier_run() -> Result<(), Error> {
         "the data ends at the torn block"
     );
     assert_eq!(read.raw_stop.map(|s| s.0), Some(read.raw_end));
-    assert_eq!(read.raw_end, 72_311_366, "where today's data ends");
+    assert_eq!(read.raw_end, 72_311_255, "where today's data ends");
     assert_eq!(
         (read.file_pieces, read.file_earlier),
         (4, 1),
