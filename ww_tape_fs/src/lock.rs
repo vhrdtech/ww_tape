@@ -51,6 +51,7 @@ pub const LOCK_TRIES_MAX: usize = 8;
 
 /// The files this process holds the lock of: a record lock doesn't keep apart two writers of one process. Owned by
 /// [FileLock]: taken in [FileLock::take] and [FileLock::bind], given back in its drop.
+// spirit-level: allow(static-interior-mutability) record locks are per process, so is this set
 static HELD: Mutex<BTreeSet<Held>> = Mutex::new(BTreeSet::new());
 
 /// An entry of [HELD].
