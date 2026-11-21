@@ -43,13 +43,15 @@ A writer that resumes after a crash cuts back only the torn end and writes on in
 the new blocks from the same place, so it never hands out a block that a resume took back. At the tail of a piece
 whose [[close]] names the next piece, it moves on to that piece's file.
 
-[`TrackFollower`] gives the items of one [[track]], decoded as their [[chunks]] land, and reports a jump in item
-numbers as lost items. Several chains, one per capture process, merge by time in a [`TimeMerge`]. An item comes out
-once every chain has shown that it holds nothing older, so the merge waits for the slowest chain. A chain that stays
-quiet longer than a set wait is left out, and its older items come out marked late.
+Three pieces build on the follower:
 
-In the writer's own process, `TapeMux::watch` wakes a reader each time the writing thread places more, with no
-polling.
+- [`TrackFollower`] gives the items of one [[track]], decoded as their [[chunks]] land, and reports a jump in item
+  numbers as lost items.
+- [`TimeMerge`] merges several chains, one per capture process, by time. An item comes out once every chain has shown
+  that it holds nothing older, so the merge waits for the slowest chain. A chain that stays quiet longer than a set
+  wait is left out, and its older items come out marked late.
+- `TapeMux::watch` wakes a reader in the writer's own process each time the writing thread places more, with no
+  polling.
 
 ## Checking each close
 
