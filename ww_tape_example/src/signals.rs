@@ -182,7 +182,9 @@ pub fn frame(k: u64, period_us: u64) -> (i64, Vec<u8>) {
         0x101 => {
             let rpm: u16 = if Mode::at(us) == Mode::Run { 1500 } else { 0 };
             payload.extend(rpm.to_le_bytes());
-            payload.extend(400u16.to_le_bytes());
+            // the trip limit: 310 in 0.1 A
+            let limit = u16::try_from(LIMIT_MA / 100).unwrap_or(u16::MAX);
+            payload.extend(limit.to_le_bytes());
             payload.extend([0; 4]);
         }
         // status: the mode and the phase current's RMS in mA

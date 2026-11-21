@@ -172,3 +172,16 @@ fn the_overcurrent_passes_the_limit_within_16_bits() {
     );
     assert!(peak < i16::MAX.unsigned_abs(), "no sample clips: {peak} mA");
 }
+
+#[test]
+fn the_command_frame_sends_the_trip_limit() {
+    // frames at 1 ms; the first in each turn of four is the command 0x101
+    let (_, payload) = ww_tape_example::frame(0, 1_000);
+    assert_eq!(payload[..4], 0x101u32.to_le_bytes(), "frame 0 is a command");
+    let limit = u16::from_le_bytes([payload[6], payload[7]]);
+    assert_eq!(
+        i32::from(limit) * 100,
+        ww_tape_example::LIMIT_MA,
+        "the torque limit in 0.1 A is the limit the drive trips at"
+    );
+}
