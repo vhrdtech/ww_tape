@@ -6,10 +6,6 @@ benchmarks, golden files and book pages.
 
 ## [Unreleased]
 
-## [0.2.0] - 2026-11-21
-
-Covers `ww_tape` 0.1.0.
-
 ### Breaking
 
 - Track and clock numbers are `TrackNum` and `ClockNum`, 1 and up, everywhere; build them with `TrackNum::new(n)` (READ-5).
@@ -24,6 +20,17 @@ Covers `ww_tape` 0.1.0.
 - `Definitions::define` and `define_all` refuse a track or clock: `DescribeError::Numbered` (WRITE-11).
 - After a resume, start the definitions with `Definitions::with_numbers(resumed.numbers)` to keep each track's number (WRITE-11).
 - `ww_tape_example` drops its number constants: `definitions()` returns the numbers as `DriveNumbers` (WRITE-11).
+
+### Features
+
+- `DefinitionsAt::track_number` finds a track's number by its id among the definitions in force (WRITE-11).
+
+## [0.2.0] - 2026-11-21
+
+Covers `ww_tape` 0.1.0.
+
+### Breaking
+
 - The finish block is the close record (kind 8, new layout): `Close`, `CloseBlock`, `write_close`, `close_len`, `close_padding` (WRITE-7).
 - `FinishState` splits: `CloseReason` (`Closed`, `Aborted`) says why; a piece continues iff its close names `next` (WRITE-7).
 - `TapeWriter::finish`/`finish_as` are `close`/`close_as(CloseReason)`, returning `Closed`; `PieceChain` likewise; `TapeSink::finish` is `close` (WRITE-7).
@@ -211,7 +218,6 @@ Covers `ww_tape` 0.1.0.
 ### Features
 
 - Book: the footer shows the crate version, commit and build time, and how long ago that was (BOOK-2).
-- `DefinitionsAt::track_number` finds a track's number by its id among the definitions in force (WRITE-11).
 - Book: tables keep code whole; snippets are dedented, with a collapsible of the example items they use (BOOK-2).
 - `FileSink::warning` returns an `FsWarning` naming a network or user-space file system (NFS, SMB, FUSE) (FS-1).
 - A fork handler keeps a file sink's lock out of a child process forked meanwhile (FS-1).
