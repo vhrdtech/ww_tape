@@ -1356,6 +1356,24 @@ fn seq_order_and_duplicates() {
     ));
 }
 
+/// The synced bytes stay where the last sync left them: 0 before it, every byte written at it.
+#[test]
+fn synced_bytes_follow_each_sync() {
+    let tapes = crate::MemTapes::<u64>::new();
+    let (defs, file, ends) = defined_tape(2);
+    let mut w = TapeWriter::create_on(tapes.create_whole(&0).unwrap(), SyncPolicy::None);
+    w.write_block(&defs, &file[..ends[0]]).unwrap();
+    assert_eq!(w.synced_bytes(), 0);
+    w.sync().unwrap();
+    let at_sync = w.bytes();
+    assert_eq!(w.synced_bytes(), at_sync);
+    w.write_block(&defs, &file[ends[0]..ends[1]]).unwrap();
+    assert!(w.bytes() > at_sync);
+    assert_eq!(w.synced_bytes(), at_sync);
+    w.sync().unwrap();
+    assert_eq!(w.synced_bytes(), w.bytes());
+}
+
 /// A writer puts each block after the definitions it needs, and a second session appended to the bytes starts with
 /// its own layout and producer, so the prefix walk reads both.
 #[test]

@@ -155,6 +155,8 @@ pub struct TapeWriter<S: TapeSink> {
     clock: ClockRef,
     /// When the writer last synced, by [Self::clock]
     last_sync: Option<u64>,
+    /// [Self::bytes] at the last sync
+    synced: u64,
     failed: bool,
     blocks: u64,
     bytes: u64,
@@ -340,6 +342,7 @@ impl<S: TapeSink> TapeWriter<S> {
             sink,
             policy,
             unsynced: 0,
+            synced: 0,
             last_sync: now,
             failed: false,
             blocks: 0,
@@ -1057,6 +1060,12 @@ impl<S: TapeSink> TapeWriter<S> {
 
     pub fn bytes(&self) -> u64 {
         self.bytes
+    }
+
+    /// The piece's bytes up to the writer's last sync ([Self::bytes] then): durable once the sink's sync is. 0 before
+    /// the first sync.
+    pub fn synced_bytes(&self) -> u64 {
+        self.synced
     }
 
     /// Whether the piece has a piece head: written by [Self::begin_piece], or read back by a resume.
@@ -1994,6 +2003,7 @@ impl<S: TapeSink> TapeWriter<S> {
             });
         }
         self.unsynced = 0;
+        self.synced = self.bytes;
         self.last_sync = self.clock.now_ms();
         Ok(())
     }
