@@ -66,6 +66,12 @@ The program reads the chunk that holds the first frame at or after the fault, th
 --8<-- "ww_tape_example/src/fault.rs:frames"
 ```
 
+??? example "The example's `fault::frames` in full"
+
+    ```rs
+    --8<-- "ww_tape_example/src/fault.rs:frames_item"
+    ```
+
 The chunk holds 1 000 frames in a block of about 1.7 KB. The first frame at or after 52:00 is item 3 120 000 of
 `can0`, the emergency frame with identifier `0x081`. Its data begins `10 23`: the error code `0x2310`, overcurrent,
 stored little-endian. The next four frames, items 3 120 001 to 3 120 004, are the drive's status, temperature,

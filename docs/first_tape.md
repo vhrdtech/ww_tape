@@ -53,6 +53,12 @@ host receives them, and four calls of the writer take them. A fifth call [[close
 --8<-- "ww_tape_example/src/first_tape.rs:write"
 ```
 
+??? example "The example's `first_tape::write` in full"
+
+    ```rs
+    --8<-- "ww_tape_example/src/first_tape.rs:write_item"
+    ```
+
 Each call does one job:
 
 | Call | What it writes |
@@ -69,6 +75,12 @@ The application makes a [[records block]] itself with a [`BlockWriter`]. It push
 ```rs
 --8<-- "ww_tape_example/src/record.rs:records"
 ```
+
+??? example "The example's `records_block` in full"
+
+    ```rs
+    --8<-- "ww_tape_example/src/record.rs:records_item"
+    ```
 
 A [[chunk]] takes more work, since its times and values go into encoded [[columns]]. [`Drive::acts`] does that work
 here, and [Chunks from columns](columns.md) explains it.
@@ -103,6 +115,12 @@ A [[reader]] starts at the end of the [[piece]]. It finds the [[tail]] there, an
 ```rs
 --8<-- "ww_tape_example/src/first_tape.rs:read"
 ```
+
+??? example "The example's `first_tape::tracks` in full"
+
+    ```rs
+    --8<-- "ww_tape_example/src/first_tape.rs:read_item"
+    ```
 
 The close record holds a range for each [[track]]: its [[items]], its [[chunks]] and its times in the piece. The
 [[definitions]] come from [`TapeReader::definitions_at`], which looks up every definition in force at a place in the

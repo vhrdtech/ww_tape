@@ -46,6 +46,12 @@ The drive's host relays the board's tape into a chain cut every 15 minutes:
 --8<-- "ww_tape_example/src/writing.rs:relay"
 ```
 
+??? example "The example's `writing::relay` in full"
+
+    ```rs
+    --8<-- "ww_tape_example/src/writing.rs:relay_item"
+    ```
+
 The board writes its hour as one tape of 116 MB, with about 13700 data blocks. It keeps near at 1 MiB, since a viewer
 may join its feed at any time, and so writes 726 blocks of puts, 86 kB. The relayed chain has 4 pieces, 115 MB, with 116
 blocks of puts, 11 kB. Its data blocks are the board's, byte for byte.

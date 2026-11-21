@@ -67,6 +67,12 @@ shows where a signal is on the air:
 --8<-- "ww_tape_example/src/rf.rs:def"
 ```
 
+??? example "The example's `Rf::def` in full"
+
+    ```rs
+    --8<-- "ww_tape_example/src/rf.rs:def_item"
+    ```
+
 The track stores the samples in the converter's packed form, `PACKED12_LSB`: 12 bits per value, as the front end
 sends them. A sample then takes 3 bytes instead of 4, and a minute of the capture is a piece of 3.7 GB. [Sizes and
 speeds](sizes.md) gives the measured sizes and how fast the writer and the reader go.
@@ -89,6 +95,12 @@ number with the grid, then decodes from that sample on:
 ```rs
 --8<-- "ww_tape_example/src/fault.rs:current"
 ```
+
+??? example "The example's `fault::current` in full"
+
+    ```rs
+    --8<-- "ww_tape_example/src/fault.rs:current_item"
+    ```
 
 The chunk holds 25 000 samples in a block of about 28 KB, at period 40/1 µs and scale 10⁻³. The first sample read is
 item 77 999 500 of `phase_a`. The largest in magnitude is -31 873 mA at 51:59.995, past the 31 A limit, 5 ms before

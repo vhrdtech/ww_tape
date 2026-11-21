@@ -137,6 +137,7 @@ impl Rf {
         Ratio64::new(1_000_000_000, u64::from(self.rate_hz))
     }
 
+    // --8<-- [start:def_item]
     /// The track `iq`'s definition.
     pub fn def(&self) -> Option<SeriesDef<'static>> {
         // --8<-- [start:def]
@@ -150,6 +151,7 @@ impl Rf {
         // --8<-- [end:def]
         Some(def)
     }
+    // --8<-- [end:def_item]
 
     /// The front end's definitions: its clock and the track `iq`.
     pub fn definitions<E>(&self) -> Result<Definitions, RfError<E>> {

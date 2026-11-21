@@ -112,6 +112,7 @@ impl Acts {
         })
     }
 
+    // --8<-- [start:fill_item]
     /// Queue the acts of the next block, or the last summaries after the last block.
     fn fill(&mut self) -> Result<(), Error> {
         if self.block >= self.blocks {
@@ -238,6 +239,7 @@ impl Acts {
         }
         Ok(())
     }
+    // --8<-- [end:fill_item]
 }
 
 impl Iterator for Acts {
@@ -276,6 +278,7 @@ pub(crate) struct Made {
     pub(crate) put: Option<bool>,
 }
 
+// --8<-- [start:options_item]
 /// The chain's options for `drive`.
 pub(crate) fn options(drive: &Drive) -> ChainOptions {
     // --8<-- [start:options]
@@ -309,6 +312,7 @@ pub(crate) fn options(drive: &Drive) -> ChainOptions {
     }
     // --8<-- [end:options]
 }
+// --8<-- [end:options_item]
 
 /// A chain and what it was written with.
 pub(crate) struct Recorder<T: Tapes<Error = MemError> = MemTapes> {
@@ -328,6 +332,7 @@ impl<T: Tapes<Error = MemError>> Recorder<T> {
         Ok(self.closed_bytes() + open)
     }
 
+    // --8<-- [start:cut_item]
     /// Hand `act` to the chain.
     pub(crate) fn apply(&mut self, act: &Act) -> Result<Made, Error> {
         // --8<-- [start:cut]
@@ -379,8 +384,10 @@ impl<T: Tapes<Error = MemError>> Recorder<T> {
         made.seq = w.next_seq().wrapping_sub(1);
         Ok(made)
     }
+    // --8<-- [end:cut_item]
 }
 
+// --8<-- [start:records_item]
 /// A records block numbered `id` of `records`, (track, ticks of the board's clock, item) in time order.
 pub fn records_block(id: BlockId, records: &[(u32, i64, Vec<u8>)]) -> Result<Vec<u8>, Error> {
     let len = records
@@ -399,6 +406,7 @@ pub fn records_block(id: BlockId, records: &[(u32, i64, Vec<u8>)]) -> Result<Vec
     buf.truncate(len);
     Ok(buf)
 }
+// --8<-- [end:records_item]
 
 /// Whether act `i` is to be given again to a chain resumed in piece `piece` with next seq `next`, `kept` bytes of
 /// that piece kept: a block it doesn't hold, a put made after the last block it kept.

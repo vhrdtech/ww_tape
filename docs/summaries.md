@@ -32,6 +32,12 @@ the maximum, the sum and the sum of squares. From them a viewer draws the envelo
 --8<-- "ww_tape_example/src/defs.rs:spec"
 ```
 
+??? example "The example's `phase_summaries` in full"
+
+    ```rs
+    --8<-- "ww_tape_example/src/defs.rs:spec_item"
+    ```
+
 A node holds no ticks, since the chunks' [[grids]] give every sample's tick. A [[summary block|summary]] holds the
 nodes of one level over a stretch of the track. The index lists it like any block, with its level.
 
@@ -52,12 +58,24 @@ nodes, and no column falls between two:
 --8<-- "ww_tape_example/src/fault.rs:level"
 ```
 
+??? example "The example's `fault::overview` in full"
+
+    ```rs
+    --8<-- "ww_tape_example/src/fault.rs:level_item"
+    ```
+
 For the hour of `phase_a` that is level 1, nodes of 16 384 samples. The viewer reads the summary blocks of that level
 in each piece, and merges each node into the column its first sample falls in:
 
 ```rs
 --8<-- "ww_tape_example/src/fault.rs:nodes"
 ```
+
+??? example "The example's `fault::nodes` in full"
+
+    ```rs
+    --8<-- "ww_tape_example/src/fault.rs:nodes_item"
+    ```
 
 The overview reads 172 summary blocks with 5 494 nodes: about 193 KB in 172 reads, and no sample. Finding those
 blocks costs more than reading them. `phase_a`'s index entries in the four pieces take about 788 KB in 19 reads,
@@ -96,6 +114,12 @@ period:
 --8<-- "ww_tape_example/src/record.rs:summaries"
 ```
 
+??? example "The example's `Acts::fill` in full"
+
+    ```rs
+    --8<-- "ww_tape_example/src/record.rs:fill_item"
+    ```
+
 Each second, the recorder pushes the second's samples. A level that fills a block gives that block, and the recorder
 hands it to the [[writer]] with [`TapeWriter::defer_block`]. The writer places a [[deferred block]] where it fits, in
 an aligned file into the gap before a chunk's payload:
@@ -103,6 +127,12 @@ an aligned file into the gap before a chunk's payload:
 ```rs
 --8<-- "ww_tape_example/src/record.rs:push"
 ```
+
+??? example "The example's `Acts::fill` in full"
+
+    ```rs
+    --8<-- "ww_tape_example/src/record.rs:fill_item"
+    ```
 
 At the end of the run, [`SeriesSummaries::finish`] gives the blocks of the partial nodes. The first piece of the
 drive's recording holds 730 summary blocks of about 822 KB, beside about 25 MB of samples. A lost summary block

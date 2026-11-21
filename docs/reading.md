@@ -57,6 +57,12 @@ another read:
 --8<-- "ww_tape_example/src/fault.rs:open"
 ```
 
+??? example "The example's `fault::open` in full"
+
+    ```rs
+    --8<-- "ww_tape_example/src/fault.rs:open_item"
+    ```
+
 The fault lies in piece 3, the last one. A piece that a crash left without a tail is found from its newest
 [[checkpoint]] instead, as [When the power fails](crashes.md#how-a-reader-finds-the-end) shows. A piece still being
 written, or closed more than once, reads as [Reading a growing piece](growing_pieces.md) explains. A [[raw medium]] such
@@ -82,6 +88,12 @@ file. The example asks for `phase_a` in the second either side of the fault:
 ```rs
 --8<-- "ww_tape_example/src/fault.rs:find"
 ```
+
+??? example "The example's `fault::find` in full"
+
+    ```rs
+    --8<-- "ww_tape_example/src/fault.rs:find_item"
+    ```
 
 `phase_a`'s list in the last piece holds 1 638 entries, its chunks and its summary blocks. The query keeps two of
 them, the chunks from 51:59.000 to 51:59.999 and from 52:00.000 to 52:00.999. It reads about 197 KB in 3 reads,
@@ -115,6 +127,12 @@ index to the one block it needs:
 ```rs
 --8<-- "ww_tape_example/src/fault.rs:mode"
 ```
+
+??? example "The example's `fault::mode` in full"
+
+    ```rs
+    --8<-- "ww_tape_example/src/fault.rs:mode_item"
+    ```
 
 At the chunk before the fault, the mode is `run, 31 A limit`, and its record from 45:34 lies about 12 MB behind. That
 record is the [[state copy]] which the [[writer]] adds after the record the cut carried into the last [[piece]]. At the chunk

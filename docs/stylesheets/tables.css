@@ -1,0 +1,22 @@
+/* Tables: names, ids and code never break inside a cell; the prose columns take the wrapping. A table wider than the
+   page scrolls sideways (Zensical wraps it in .md-typeset__scrollwrap), so no column is squeezed below its longest
+   word. */
+.md-typeset table:not([class]) code,
+.md-typeset table:not([class]) kbd {
+  overflow-wrap: normal;
+  white-space: nowrap;
+  word-break: normal;
+}
+.md-typeset table:not([class]) a:has(> code) {
+  white-space: nowrap;
+}
+/* Headers are labels */
+.md-typeset table:not([class]) th {
+  white-space: nowrap;
+}
+/* A cell of prose breaks at spaces only, never inside a word */
+.md-typeset table:not([class]) td {
+  hyphens: none;
+  overflow-wrap: normal;
+  word-break: normal;
+}

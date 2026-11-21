@@ -16,6 +16,7 @@ use ww_tape_fs::FsError;
 
 use crate::{Act, Drive, MODE, records_block};
 
+// --8<-- [start:write_item]
 /// Write `drive`'s run into a new file at `path`, then close it: the piece's end written and the file synced.
 pub fn write(path: &Path, drive: &Drive) -> Result<Closed, FirstTapeError> {
     // --8<-- [start:write]
@@ -48,6 +49,7 @@ pub fn write(path: &Path, drive: &Drive) -> Result<Closed, FirstTapeError> {
     // --8<-- [end:write]
     Ok(closed)
 }
+// --8<-- [end:write_item]
 
 /// What a track of a tape is, as [tracks] lists it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -90,6 +92,7 @@ impl core::fmt::Display for Track {
     }
 }
 
+// --8<-- [start:read_item]
 /// Open the tape in `bytes` and list the tracks of its first piece: each track's definition and the items its close
 /// record counts.
 pub fn tracks(bytes: &[u8]) -> Result<Vec<Track>, FirstTapeError> {
@@ -134,6 +137,7 @@ pub fn tracks(bytes: &[u8]) -> Result<Vec<Track>, FirstTapeError> {
     // --8<-- [end:read]
     Ok(tracks)
 }
+// --8<-- [end:read_item]
 
 /// Why the first tape could not be written or read.
 #[derive(Debug)]

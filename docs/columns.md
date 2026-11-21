@@ -32,6 +32,12 @@ the chunk head, since they know the first and last tick:
 --8<-- "ww_tape_example/src/record.rs:frames"
 ```
 
+??? example "The example's `Acts::fill` in full"
+
+    ```rs
+    --8<-- "ww_tape_example/src/record.rs:fill_item"
+    ```
+
 The two `None`s say that the frames have no ends and no flags. A track of spans passes the ends, and one with a severity
 per item passes the flags. The recorder hands the head and the columns to [`TapeWriter::write_chunk`] unchanged.
 
@@ -96,6 +102,12 @@ A [[series chunk]] of the drive holds a second of `phase_a`: 25 000 [[samples]] 
 ```rs
 --8<-- "ww_tape_example/src/record.rs:samples"
 ```
+
+??? example "The example's `Acts::fill` in full"
+
+    ```rs
+    --8<-- "ww_tape_example/src/record.rs:fill_item"
+    ```
 
 The head's first and last tick come from the grid, by [`SeriesGrid::chunk_ticks`], and every sample's tick follows from
 them. The chunk stores no time per sample. The column's codec is the recorder's choice, here [`Codec::DELTA`].

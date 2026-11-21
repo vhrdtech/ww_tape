@@ -191,6 +191,7 @@ Covers `ww_tape` 0.1.0.
 
 ### Features
 
+- Book: tables keep code and names whole in a cell; each snippet of the example has a collapsible with the item's full source (BOOK-2).
 - Book: the chapter "When the power fails" replaces "Resuming a writer", its figures drawn from a real crash (BOOK-2).
 - Book: six parts in reading order, a stub per chapter not yet written, and a glossary of 90 terms (BOOK-2).
 - Book: each page shows its reading level, basic, advanced or nomicon; "For writers" states the style (BOOK-2).

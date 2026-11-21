@@ -131,6 +131,7 @@ pub struct Opened {
     pub piece: usize,
 }
 
+// --8<-- [start:open_item]
 /// Open the tape in `src` and find the piece whose `phase_a` reaches the fault, from what opening read alone.
 pub fn open<S: ByteSource>(src: S) -> Result<(TapeReader<S>, Opened), FaultError<S::Error>> {
     // --8<-- [start:open]
@@ -152,6 +153,7 @@ pub fn open<S: ByteSource>(src: S) -> Result<(TapeReader<S>, Opened), FaultError
     let pieces = reader.pieces().len();
     Ok((reader, Opened { pieces, piece }))
 }
+// --8<-- [end:open_item]
 
 /// What [find] found: the blocks of `phase_a` in the piece and those within a second of the fault.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -162,6 +164,7 @@ pub struct Found {
     pub chunks: Vec<IndexEntry>,
 }
 
+// --8<-- [start:find_item]
 /// Find the chunks of `phase_a` in piece `piece` that hold a second either side of the fault.
 pub fn find<S: ByteSource>(
     reader: &TapeReader<S>,
@@ -182,6 +185,7 @@ pub fn find<S: ByteSource>(
         chunks,
     })
 }
+// --8<-- [end:find_item]
 
 /// The mode in force at a place, as [mode] found it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -196,6 +200,7 @@ pub struct InForce {
     pub whole: bool,
 }
 
+// --8<-- [start:mode_item]
 /// The mode in force where each of `chunks` starts.
 pub fn mode<S: ByteSource>(
     reader: &TapeReader<S>,
@@ -218,6 +223,7 @@ pub fn mode<S: ByteSource>(
     }
     Ok(out)
 }
+// --8<-- [end:mode_item]
 
 /// A CAN frame as [frames] read it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -242,6 +248,7 @@ pub struct Frames {
     pub frames: Vec<Frame>,
 }
 
+// --8<-- [start:frames_item]
 /// Read the frames of `can0` in piece `piece` from the first at or after the fault, for [AFTER_US].
 pub fn frames<S: ByteSource>(
     reader: &TapeReader<S>,
@@ -288,6 +295,7 @@ pub fn frames<S: ByteSource>(
         frames,
     })
 }
+// --8<-- [end:frames_item]
 
 /// What [current] read: the samples of `phase_a` for [BEFORE_US] up to the fault.
 #[derive(Clone, Debug, PartialEq)]
@@ -328,6 +336,7 @@ fn series_def<S: ByteSource>(
     Ok((series.period, series.summaries))
 }
 
+// --8<-- [start:current_item]
 /// Read the samples of `phase_a` in `chunks` for [BEFORE_US] up to the fault.
 pub fn current<S: ByteSource>(
     reader: &TapeReader<S>,
@@ -394,6 +403,7 @@ pub fn current<S: ByteSource>(
         block_len: entry.len,
     })
 }
+// --8<-- [end:current_item]
 
 /// One pixel column of the viewer's plot: the statistics of its samples.
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -446,6 +456,7 @@ fn column_of(i: u64, total: u64) -> usize {
     usize::try_from(c).map_or(COLUMNS - 1, |c| c.min(COLUMNS - 1))
 }
 
+// --8<-- [start:nodes_item]
 /// The nodes of the summary blocks of `phase_a` at `level` in every piece that cover any sample of `items`, each with
 /// its first sample and the samples it covers.
 fn nodes<S: ByteSource>(
@@ -483,7 +494,9 @@ fn nodes<S: ByteSource>(
     }
     Ok((blocks, count))
 }
+// --8<-- [end:nodes_item]
 
+// --8<-- [start:level_item]
 /// Draw the hour of `phase_a` in [COLUMNS] columns from its summaries, then zoom into the column of the highest peak.
 pub fn overview(
     reader: &TapeReader<&Counted<'_>>,
@@ -573,6 +586,7 @@ pub fn overview(
         sample_bytes,
     })
 }
+// --8<-- [end:level_item]
 
 /// What [check] found.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -673,6 +687,7 @@ fn frame_items<S: ByteSource>(
     Ok(first.first_item..last.end_item())
 }
 
+// --8<-- [start:check_item]
 /// Check the chain's links and every piece's hash.
 pub fn check<S: ByteSource>(reader: &TapeReader<S>) -> Result<Checked, FaultError<S::Error>> {
     // --8<-- [start:check]
@@ -692,7 +707,9 @@ pub fn check<S: ByteSource>(reader: &TapeReader<S>) -> Result<Checked, FaultErro
         verified,
     })
 }
+// --8<-- [end:check_item]
 
+// --8<-- [start:range_item]
 /// Compare the range hash of minutes 51 to 53 of `can0` in the chain and in `copy`, a tape of its last piece alone.
 pub fn same_frames<S: ByteSource<Error = OutOfRange>>(
     reader: &TapeReader<S>,
@@ -714,6 +731,7 @@ pub fn same_frames<S: ByteSource<Error = OutOfRange>>(
         same,
     })
 }
+// --8<-- [end:range_item]
 
 /// Everything Part IV finds, and the bytes each step read.
 #[derive(Clone, Debug, PartialEq)]
