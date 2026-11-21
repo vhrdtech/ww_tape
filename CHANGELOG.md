@@ -18,6 +18,7 @@ benchmarks, golden files and book pages.
 - `FileBlocks::point` and `FileBlocks::resume` continue a prefix walk on bytes read later (READ-6).
 - `TapeWriter::synced_bytes` gives the piece's bytes up to the last sync (READ-6).
 - `write_chunk_hashed` takes a chunk with its payload hash, computed by the producer (`columns_payload_hash`); the same bytes (WRITE-13).
+- `SeriesLeaves` and `SeriesTree` split a series' summaries between producer and writing thread; `EventRuns` does it for events (WRITE-13).
 
 ## [0.3.0] - 2026-11-21
 

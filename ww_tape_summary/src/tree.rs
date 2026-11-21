@@ -239,3 +239,92 @@ impl EventTree {
         (first, nodes)
     }
 }
+
+/// The runs of an event track's items, one per level-0 node at most, as the producer of the items computes them:
+/// for [EventTree::push_run] on the writing thread.
+///
+/// Items go in in order of start ([Self::push]). A run ends where its level-0 node ends and at [Self::seal], at the
+/// end of a chunk; [Self::take_runs] gives the runs so far with their first items.
+pub struct EventRuns {
+    fields: EventFields,
+    next_item: u64,
+    /// The open run and its first item
+    open: Option<(u64, ItemRun)>,
+    /// Start of the last item, for the order of starts across runs
+    last_start: Option<i64>,
+    runs: Vec<(ItemNum, ItemRun)>,
+}
+
+impl EventRuns {
+    /// Runs of items from `first_item` on of a track whose items have `fields`.
+    pub fn new(fields: EventFields, first_item: ItemNum) -> Self {
+        Self {
+            fields,
+            next_item: first_item.get(),
+            open: None,
+            last_start: None,
+            runs: Vec::new(),
+        }
+    }
+
+    /// The next item's number.
+    pub fn next_item(&self) -> ItemNum {
+        ItemNum::new(self.next_item)
+    }
+
+    /// Add the next item: its start, end (the start for an instant) and flags, as [EventTree::push] takes them.
+    pub fn push(&mut self, start: i64, end: i64, flags: u32) -> Result<(), BuildError> {
+        if self.last_start.is_some_and(|last| start < last) {
+            return Err(BuildError::Invalid("items out of order of start"));
+        }
+        if end < start {
+            return Err(BuildError::Invalid("run ticks out of order"));
+        }
+        if !self.fields.latest_end && end != start {
+            return Err(BuildError::Invalid("a span in a tree of instants"));
+        }
+        let end_item = self
+            .next_item
+            .checked_add(1)
+            .ok_or(BuildError::Invalid("item numbers past u64"))?;
+        let flags = if self.fields.flags { flags } else { 0 };
+        match &mut self.open {
+            Some((_, run)) => {
+                run.count = run.count.saturating_add(1);
+                run.last_tick = start;
+                run.flags |= flags;
+                run.latest_end = run.latest_end.max(end);
+            }
+            None => {
+                self.open = Some((
+                    self.next_item,
+                    ItemRun {
+                        count: 1,
+                        first_tick: start,
+                        last_tick: start,
+                        flags,
+                        latest_end: end,
+                    },
+                ));
+            }
+        }
+        self.last_start = Some(start);
+        self.next_item = end_item;
+        if end_item.is_multiple_of(1 << EVENT_BASE_SHIFT) {
+            self.seal();
+        }
+        Ok(())
+    }
+
+    /// End the open run: at the end of a chunk.
+    pub fn seal(&mut self) {
+        if let Some((first, run)) = self.open.take() {
+            self.runs.push((ItemNum::new(first), run));
+        }
+    }
+
+    /// The runs so far, in order, each with its first item.
+    pub fn take_runs(&mut self) -> Vec<(ItemNum, ItemRun)> {
+        core::mem::take(&mut self.runs)
+    }
+}

@@ -71,7 +71,9 @@ mod series;
 pub use series::SeriesNode;
 pub use series::{ChannelStats, FACTOR_MAX, ScaleError, Value, common_scale, scale_factor};
 #[cfg(feature = "std")]
-pub use series::{SERIES_BLOCK_BYTES, Scalar, SeriesStart, SeriesSummaries};
+pub use series::{
+    SERIES_BLOCK_BYTES, Scalar, SeriesLeaf, SeriesLeaves, SeriesStart, SeriesSummaries, SeriesTree,
+};
 
 #[cfg(feature = "std")]
 mod levels;
@@ -81,10 +83,12 @@ pub use levels::BuildError;
 #[cfg(feature = "std")]
 mod tree;
 #[cfg(feature = "std")]
-pub use tree::{EVENT_BLOCK_BYTES, EventTree, ItemRun};
+pub use tree::{EVENT_BLOCK_BYTES, EventRuns, EventTree, ItemRun};
 
 #[cfg(all(test, feature = "std"))]
 mod kernel_tests;
+#[cfg(all(test, feature = "std"))]
+mod split_tests;
 #[cfg(test)]
 mod tests;
 

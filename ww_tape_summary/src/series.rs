@@ -818,7 +818,9 @@ pub use scalar::Scalar;
 pub(crate) use scalar::{Acc, Channel, add_channel};
 
 #[cfg(feature = "std")]
-pub use builder::{SERIES_BLOCK_BYTES, SeriesStart, SeriesSummaries};
+pub use builder::{
+    SERIES_BLOCK_BYTES, SeriesLeaf, SeriesLeaves, SeriesStart, SeriesSummaries, SeriesTree,
+};
 
 #[cfg(feature = "std")]
 mod builder {
@@ -862,45 +864,12 @@ mod builder {
     /// An element with a [zero](ElementDesc::zero) `p/q` is summarised as `q · sample - p` in its
     /// [summary element](ElementDesc::summary_element), at the grid's scale over `q`: 8-bit IQ offset to 127.5 keeps
     /// exact minimum, maximum and sums in an i16. Its samples go in by [Self::push_from].
+    ///
+    /// It is the two halves a writer may also run on two threads: [SeriesLeaves], the pass over the samples on the
+    /// producer's thread, and [SeriesTree], the levels above and the blocks on the writing thread.
     pub struct SeriesSummaries<T: Scalar> {
-        track_id: TrackId,
-        track_number: TrackNum,
-        /// The element the statistics are kept in
-        element: ElementDesc,
-        /// The stored element's zero `(p, q)`: the statistics hold `q · v - p`
-        shift: Option<(i128, i128)>,
-        /// The scalar of the stored samples [Self::push_from] takes
-        stored: ww_tape::samples::Scalar,
-        channels: u16,
-        /// Scalars per sample of one channel: 1, or 2 for a complex element
-        components: usize,
-        /// Scalars per frame: channels times components
-        stride: usize,
-        /// Bytes of a node in a block
-        node_len: usize,
-        /// `2^base_shift - 1`: an item's place in its level-0 node
-        node_mask: u64,
-        spec: SeriesSummarySpec,
-        origin: u64,
-        timeline: SeriesTimeline,
-        /// Grid of the next samples
-        grid: SeriesGrid,
-        /// Scale of the samples from [Self::acc_from] on
-        scale: Magnitude,
-        /// Common scale of every sample so far
-        common: Magnitude,
-        lo: T,
-        hi: T,
-        /// The open level-0 node's samples since [Self::acc_from]
-        acc: Vec<Acc<T>>,
-        acc_from: u64,
-        /// The open level-0 node's samples before [Self::acc_from], at an earlier scale, and their count
-        part: Option<(SeriesNode, u64)>,
-        next_item: u64,
-        levels: Levels<SeriesNode>,
-        blocks: Vec<Vec<u8>>,
-        /// The code the integer statistics run through
-        kernel: Kernel,
+        leaves: SeriesLeaves<T>,
+        tree: SeriesTree,
     }
 
     /// Where a series starts: its track, its samples and the grid of its first sample.
@@ -957,10 +926,35 @@ mod builder {
             ))
     }
 
-    impl<T: Scalar> SeriesSummaries<T> {
-        /// Summaries of the series `start` describes, kept as `spec` declares.
-        pub fn new(start: SeriesStart, spec: SeriesSummarySpec) -> Result<Self, BuildError> {
-            let stored = start.shape.element;
+    /// What a series and its summaries declare, checked once.
+    #[derive(Copy, Clone)]
+    struct Declared {
+        /// The element the statistics are kept in
+        element: ElementDesc,
+        /// The stored element's zero `(p, q)`: the statistics hold `q · v - p`
+        shift: Option<(i128, i128)>,
+        /// The stored element
+        stored: ElementDesc,
+        channels: u16,
+        /// Scalars per sample of one channel: 1, or 2 for a complex element
+        components: usize,
+        /// Scalars per frame: channels times components
+        stride: usize,
+        /// Bytes of a node in a block
+        node_len: usize,
+        /// `2^base_shift - 1`: an item's place in its level-0 node
+        node_mask: u64,
+        spec: SeriesSummarySpec,
+    }
+
+    impl Declared {
+        /// The declaration of `shape` and `spec`, for samples of scalar `scalar` when given.
+        fn of(
+            shape: SampleShape,
+            spec: SeriesSummarySpec,
+            scalar: Option<ww_tape::samples::Scalar>,
+        ) -> Result<Self, BuildError> {
+            let stored = shape.element;
             if !stored.is_valid() {
                 return Err(BuildError::Invalid("an element no writer takes"));
             }
@@ -968,13 +962,12 @@ mod builder {
                 return Err(BuildError::Invalid("an element of more than 2 parts"));
             }
             let element = stored.summary_element();
-            if element.scalar() != T::SCALAR {
+            if scalar.is_some_and(|s| s != element.scalar()) {
                 return Err(BuildError::Invalid(
                     "element is not the samples' scalar type",
                 ));
             }
-            let shift = stored.zero_shift();
-            let channels = u16::try_from(start.shape.channels)
+            let channels = u16::try_from(shape.channels)
                 .ok()
                 .ok_or(BuildError::Invalid("more than 65535 channels"))?;
             if channels == 0 {
@@ -991,30 +984,6 @@ mod builder {
             if (spec.stats.power_mean || spec.stats.power_max) && !is_complex(element) {
                 return Err(BuildError::Invalid("power of a real element"));
             }
-            if start.grid.grid_index > start.first_item.get() {
-                return Err(BuildError::Series(SeriesError::GridAfterFirst {
-                    first_item: start.first_item,
-                    grid_index: start.grid.grid_index,
-                }));
-            }
-            let timeline = SeriesTimeline::new(start.period);
-            let shifted = |v: f64| match shift {
-                Some((p, q)) => i128_f64(q) * v - i128_f64(p),
-                None => v,
-            };
-            let (lo, hi) = match (spec.clip, stored.range()) {
-                (Some(c), _) => (
-                    T::from_f64(shifted(c.low), false),
-                    T::from_f64(shifted(c.high), true),
-                ),
-                // an integer narrower than its scalar clips at its own ends
-                (None, Some((low, high))) => (
-                    T::from_i128(shift_by(shift, low)),
-                    T::from_i128(shift_by(shift, high)),
-                ),
-                (None, None) => (T::LOWEST, T::HIGHEST),
-            };
-            let scale = stat_scale(shift, start.grid.scale)?;
             let too_wide = BuildError::Invalid("a frame or node past usize");
             let components = usize::from(components(element));
             let stride = usize::from(channels)
@@ -1026,11 +995,9 @@ mod builder {
                 .checked_mul(usize::from(channels))
                 .ok_or(too_wide)?;
             Ok(Self {
-                track_id: start.track_id,
-                track_number: start.track_number,
                 element,
-                shift,
-                stored: stored.scalar(),
+                shift: stored.zero_shift(),
+                stored,
                 channels,
                 components,
                 stride,
@@ -1038,36 +1005,90 @@ mod builder {
                 // base_shift is at most BASE_SHIFT_MAX, checked above
                 node_mask: !(u64::MAX << spec.base_shift),
                 spec,
-                origin: start.first_item.get(),
-                timeline,
-                grid: start.grid,
-                scale,
-                common: scale,
-                lo,
-                hi,
-                acc: vec![Acc::NEW; usize::from(channels)],
-                acc_from: start.first_item.get(),
-                part: None,
-                next_item: start.first_item.get(),
-                levels: Levels::new(
-                    start.first_item.get(),
-                    spec.base_shift,
-                    node_len,
-                    crate::block_room(SERIES_BLOCK_BYTES).saturating_sub(SCALE_LEN_MAX),
-                ),
-                blocks: Vec::new(),
-                kernel: Kernel::best(),
             })
         }
 
-        /// Keep blocks within `bytes` (default [SERIES_BLOCK_BYTES]); call before the first sample.
-        pub fn set_max_block_bytes(&mut self, bytes: Bytes<u32>) {
-            self.levels = Levels::new(
-                self.origin,
-                self.spec.base_shift,
-                self.node_len,
-                crate::block_room(bytes).saturating_sub(SCALE_LEN_MAX),
-            );
+        /// The level-0 node of sample `item`.
+        fn node_of(&self, item: u64) -> u64 {
+            item >> self.spec.base_shift
+        }
+    }
+
+    /// A level-0 node of a series, whole or a part of it, as [SeriesLeaves] computes it from the samples.
+    #[derive(Clone, Debug, PartialEq)]
+    pub struct SeriesLeaf {
+        /// Its first sample.
+        pub first_item: ItemNum,
+        /// Its samples: 1 up to the node's.
+        pub samples: u64,
+        /// Its statistics, at the scale of its samples.
+        pub node: SeriesNode,
+    }
+
+    /// The pass over a series' samples: the statistics of each level-0 node, on the thread that has the samples.
+    ///
+    /// Samples go in as [SeriesSummaries::push] takes them. A node that fills is a whole [SeriesLeaf]; [Self::seal]
+    /// ends the samples so far as a part, at the end of a chunk. The leaves go, in order, to a [SeriesTree], which
+    /// merges the parts of a node and builds the levels above.
+    pub struct SeriesLeaves<T: Scalar> {
+        d: Declared,
+        lo: T,
+        hi: T,
+        /// Scale of the samples from [Self::acc_from] on
+        scale: Magnitude,
+        /// Common scale of every sample so far
+        common: Magnitude,
+        /// The open part's samples since [Self::acc_from]
+        acc: Vec<Acc<T>>,
+        acc_from: u64,
+        /// The open part's samples before [Self::acc_from], at an earlier scale, and their count
+        part: Option<(SeriesNode, u64)>,
+        next_item: u64,
+        leaves: Vec<SeriesLeaf>,
+        /// The code the integer statistics run through
+        kernel: Kernel,
+    }
+
+    impl<T: Scalar> SeriesLeaves<T> {
+        /// The pass over samples of `shape` from `first_item` on, at a grid's `scale`, kept as `spec` declares.
+        pub fn new(
+            shape: SampleShape,
+            scale: Magnitude,
+            first_item: ItemNum,
+            spec: SeriesSummarySpec,
+        ) -> Result<Self, BuildError> {
+            let d = Declared::of(shape, spec, Some(T::SCALAR))?;
+            let shift = d.shift;
+            let shifted = |v: f64| match shift {
+                Some((p, q)) => i128_f64(q) * v - i128_f64(p),
+                None => v,
+            };
+            let (lo, hi) = match (spec.clip, d.stored.range()) {
+                (Some(c), _) => (
+                    T::from_f64(shifted(c.low), false),
+                    T::from_f64(shifted(c.high), true),
+                ),
+                // an integer narrower than its scalar clips at its own ends
+                (None, Some((low, high))) => (
+                    T::from_i128(shift_by(shift, low)),
+                    T::from_i128(shift_by(shift, high)),
+                ),
+                (None, None) => (T::LOWEST, T::HIGHEST),
+            };
+            let scale = stat_scale(shift, scale)?;
+            Ok(Self {
+                d,
+                lo,
+                hi,
+                scale,
+                common: scale,
+                acc: vec![Acc::NEW; usize::from(d.channels)],
+                acc_from: first_item.get(),
+                part: None,
+                next_item: first_item.get(),
+                leaves: Vec::new(),
+                kernel: Kernel::best(),
+            })
         }
 
         /// The next sample's index.
@@ -1075,47 +1096,27 @@ mod builder {
             ItemNum::new(self.next_item)
         }
 
-        /// The grids of the samples so far.
-        pub fn timeline(&self) -> &SeriesTimeline {
-            &self.timeline
+        /// The scale of the statistics: the grid's scale, over `q` for an element with a zero `p/q`.
+        pub fn scale(&self) -> Magnitude {
+            self.scale
         }
 
-        /// Put the samples from the next one ([Self::next_item]) on grid `g`: a new grid (a gap, a restart) or the
-        /// same grid at a new scale (a prefix change), as the next chunk's head carries it. Refused when the grid
-        /// starts after the next sample, a new grid's first sample isn't more than a period after the last sample's tick ([is_gap](ww_tape::series::is_gap)), or the scale
-        /// has no common scale with the ones before.
-        pub fn set_grid(&mut self, g: SeriesGrid) -> Result<(), BuildError> {
-            let next = ItemNum::new(self.next_item);
-            let first = g
-                .chunk_ticks(self.timeline.period(), next, 1)
-                .map_err(BuildError::Series)?
-                .0;
-            if !g.same_grid(&self.grid)
-                && let Some(last) = self
-                    .next_item
-                    .checked_sub(1)
-                    .and_then(|i| self.timeline.tick(ItemNum::new(i)))
-                && !ww_tape::series::is_gap(self.timeline.period(), last, first)
-            {
-                return Err(BuildError::Series(SeriesError::GridTooClose {
-                    first_item: next,
-                }));
-            }
-            let scale = stat_scale(self.shift, g.scale)?;
+        /// Take the samples from the next one on at a grid's `scale`. Refused when it has no common scale with the
+        /// scales before.
+        pub fn set_scale(&mut self, scale: Magnitude) -> Result<(), BuildError> {
+            let scale = stat_scale(self.d.shift, scale)?;
             let common = common_scale(self.common, scale).map_err(BuildError::Scale)?;
             if scale != self.scale {
                 self.flush_acc()?;
                 self.scale = scale;
                 self.common = common;
             }
-            self.grid = g;
             Ok(())
         }
 
-        /// Add samples: whole frames of `channels × components` scalars, interleaved; `flags` ORs into the nodes they
-        /// fall in. Samples that are not whole frames are refused.
+        /// Add samples, as [SeriesSummaries::push] takes them.
         pub fn push(&mut self, samples: &[T], flags: u32) -> Result<(), BuildError> {
-            let stride = self.stride;
+            let stride = self.d.stride;
             let partial = BuildError::PartialFrame { stride };
             if stride == 0 || !samples.len().is_multiple_of(stride) {
                 return Err(partial);
@@ -1124,7 +1125,7 @@ mod builder {
             let mut rest = samples;
             while !rest.is_empty() {
                 // the samples left in the open node: 1 to 2^BASE_SHIFT_MAX
-                let to_boundary = (!self.next_item & self.node_mask)
+                let to_boundary = (!self.next_item & self.d.node_mask)
                     .checked_add(1)
                     .ok_or(past)?;
                 // a boundary past usize is farther than any slice
@@ -1137,38 +1138,27 @@ mod builder {
                 let (now, later) = rest
                     .split_at_checked(frames.checked_mul(stride).ok_or(partial)?)
                     .ok_or(partial)?;
-                // at most a node of 2^BASE_SHIFT_MAX samples
-                #[expect(
-                    clippy::map_err_ignore,
-                    reason = "a TryFromIntError says only that the number is out of range, which this error says"
-                )]
-                let count = u32::try_from(frames).map_err(|_| past)?;
-                self.timeline
-                    .push(ItemNum::new(self.next_item), count, self.grid)
-                    .map_err(BuildError::Series)?;
                 self.add(now, flags);
                 self.next_item = u64::try_from(frames)
                     .ok()
                     .and_then(|n| self.next_item.checked_add(n))
                     .ok_or(past)?;
                 rest = later;
-                if self.next_item & self.node_mask == 0 {
-                    self.close_node()?;
-                    self.encode()?;
+                if self.next_item & self.d.node_mask == 0 {
+                    self.seal()?;
                 }
             }
             Ok(())
         }
 
-        /// Add stored samples of the element's own scalar `S` (whole frames, as [Self::push] takes them), each
-        /// `v` as `q · v - p` for the element's [zero](ElementDesc::zero) `p/q`: how the samples of an element
-        /// with a zero, or of a scalar narrower than its summary element, go in. Floats go in by [Self::push].
+        /// Add stored samples of the element's own scalar, as [SeriesSummaries::push_from] takes them.
         pub fn push_from<S: Sample>(
             &mut self,
             samples: &[S],
             flags: u32,
         ) -> Result<(), BuildError> {
-            if S::SCALAR != self.stored {
+            let stored = self.d.stored.scalar();
+            if S::SCALAR != stored {
                 return Err(BuildError::Invalid(
                     "samples of another scalar than the element's",
                 ));
@@ -1178,26 +1168,27 @@ mod builder {
             }
             let bits = S::SCALAR.bits();
             let signed = S::SCALAR.is_signed();
+            let shift = self.d.shift;
             let values: Vec<T> = samples
                 .iter()
-                .map(|s| T::from_i128(shift_by(self.shift, as_i128(s.to_bits(), bits, signed))))
+                .map(|s| T::from_i128(shift_by(shift, as_i128(s.to_bits(), bits, signed))))
                 .collect();
             self.push(&values, flags)
         }
 
         fn add(&mut self, xs: &[T], flags: u32) {
-            let comps = self.components;
-            let stride = self.stride;
+            let comps = self.d.components;
+            let stride = self.d.stride;
             // channel `ch` starts at scalar ch · comps of every frame: the channels' starts step by comps
             let starts = (0..stride).step_by(comps);
             for (acc, at) in self.acc.iter_mut().zip(starts) {
                 let ch = Channel {
                     stride,
                     at,
-                    complex: is_complex(self.element),
+                    complex: is_complex(self.d.element),
                     lo: self.lo,
                     hi: self.hi,
-                    stats: self.spec.stats,
+                    stats: self.d.spec.stats,
                 };
                 T::add_channel(acc, xs, ch, self.kernel);
                 acc.flags |= flags;
@@ -1210,7 +1201,7 @@ mod builder {
             self.kernel = kernel;
         }
 
-        /// The open level-0 node's samples since the last change of scale, at their scale, and their count.
+        /// The open part's samples since the last change of scale, at their scale, and their count.
         fn acc_node(&self) -> Result<(SeriesNode, u64), BuildError> {
             let samples = self
                 .next_item
@@ -1219,7 +1210,7 @@ mod builder {
             let channels = self
                 .acc
                 .iter()
-                .map(|a| a.stats(self.element, samples))
+                .map(|a| a.stats(self.d.element, samples))
                 .collect();
             Ok((
                 SeriesNode {
@@ -1230,8 +1221,9 @@ mod builder {
             ))
         }
 
-        /// The open level-0 node so far: the part before the last change of scale merged with the samples since.
-        fn open_node(&self) -> Result<Option<SeriesNode>, BuildError> {
+        /// The open part so far: the part before the last change of scale merged with the samples since; None
+        /// when it holds no sample.
+        pub fn open_node(&self) -> Result<Option<SeriesNode>, BuildError> {
             let (node, samples) = self.acc_node()?;
             Ok(match (&self.part, samples) {
                 (None, 0) => None,
@@ -1245,7 +1237,7 @@ mod builder {
             })
         }
 
-        /// Move the samples since the last change of scale into the open node's earlier part.
+        /// Move the samples since the last change of scale into the open part's earlier part.
         fn flush_acc(&mut self) -> Result<(), BuildError> {
             let (node, samples) = self.acc_node()?;
             if samples > 0 {
@@ -1265,36 +1257,196 @@ mod builder {
             Ok(())
         }
 
-        /// Close the open level-0 node (full, or partial at the end) and hand it up.
-        fn close_node(&mut self) -> Result<(), BuildError> {
+        /// End the open part as a leaf, whole when its node filled: at the end of a chunk, and at the end.
+        pub fn seal(&mut self) -> Result<(), BuildError> {
             self.flush_acc()?;
-            let (node, _) = self
-                .part
-                .take()
-                .ok_or(BuildError::Invalid("no open node to close"))?;
-            let idx = self
-                .last_node()
-                .ok_or(BuildError::Invalid("no sample to close"))?;
-            self.levels.push(0, idx, node, self.next_item)
+            if let Some((node, samples)) = self.part.take() {
+                let first_item = self
+                    .next_item
+                    .checked_sub(samples)
+                    .ok_or(BuildError::Invalid("open node starts past the next sample"))?;
+                self.leaves.push(SeriesLeaf {
+                    first_item: ItemNum::new(first_item),
+                    samples,
+                    node,
+                });
+            }
+            Ok(())
         }
 
-        /// Whether the open level-0 node holds samples.
-        fn node_open(&self) -> bool {
-            self.next_item > self.origin && self.next_item & self.node_mask != 0
+        /// The leaves so far, in order, for [SeriesTree::push_leaf].
+        pub fn take_leaves(&mut self) -> Vec<SeriesLeaf> {
+            core::mem::take(&mut self.leaves)
+        }
+    }
+
+    /// The levels of a series' summary tree above its leaves, and its blocks: on the writing thread.
+    ///
+    /// [Self::samples] adds the samples a chunk holds, on the grid set last ([Self::set_grid]); [Self::push_leaf]
+    /// takes the [SeriesLeaf]s of those samples in order and merges the parts of a node. Finished blocks wait in
+    /// [Self::take_blocks]; [Self::finish] writes the partial nodes at the end.
+    pub struct SeriesTree {
+        track_id: TrackId,
+        track_number: TrackNum,
+        d: Declared,
+        origin: u64,
+        timeline: SeriesTimeline,
+        /// Grid of the next samples
+        grid: SeriesGrid,
+        /// One past the last sample added
+        next_item: u64,
+        /// One past the last sample of the leaves taken
+        leaves_end: u64,
+        /// The node whose parts came so far: its number, merged parts, samples
+        open: Option<(u64, SeriesNode, u64)>,
+        levels: Levels<SeriesNode>,
+        blocks: Vec<Vec<u8>>,
+    }
+
+    impl SeriesTree {
+        /// The tree of the series `start` describes, kept as `spec` declares.
+        pub fn new(start: SeriesStart, spec: SeriesSummarySpec) -> Result<Self, BuildError> {
+            let d = Declared::of(start.shape, spec, None)?;
+            if start.grid.grid_index > start.first_item.get() {
+                return Err(BuildError::Series(SeriesError::GridAfterFirst {
+                    first_item: start.first_item,
+                    grid_index: start.grid.grid_index,
+                }));
+            }
+            let first = start.first_item.get();
+            Ok(Self {
+                track_id: start.track_id,
+                track_number: start.track_number,
+                d,
+                origin: first,
+                timeline: SeriesTimeline::new(start.period),
+                grid: start.grid,
+                next_item: first,
+                leaves_end: first,
+                open: None,
+                levels: Levels::new(
+                    first,
+                    spec.base_shift,
+                    d.node_len,
+                    crate::block_room(SERIES_BLOCK_BYTES).saturating_sub(SCALE_LEN_MAX),
+                ),
+                blocks: Vec::new(),
+            })
         }
 
-        /// The level-0 node of the last sample; None before the first.
-        fn last_node(&self) -> Option<u64> {
-            Some(self.next_item.checked_sub(1)? >> self.spec.base_shift)
+        /// Keep blocks within `bytes` (default [SERIES_BLOCK_BYTES]); call before the first sample.
+        pub fn set_max_block_bytes(&mut self, bytes: Bytes<u32>) {
+            self.levels = Levels::new(
+                self.origin,
+                self.d.spec.base_shift,
+                self.d.node_len,
+                crate::block_room(bytes).saturating_sub(SCALE_LEN_MAX),
+            );
+        }
+
+        /// The next sample's index.
+        pub fn next_item(&self) -> ItemNum {
+            ItemNum::new(self.next_item)
+        }
+
+        /// The grids of the samples so far.
+        pub fn timeline(&self) -> &SeriesTimeline {
+            &self.timeline
+        }
+
+        /// Put the samples from the next one on grid `g`, as [SeriesSummaries::set_grid] says; the scale is the
+        /// leaves' to check.
+        pub fn set_grid(&mut self, g: SeriesGrid) -> Result<(), BuildError> {
+            self.check_grid(g)?;
+            self.grid = g;
+            Ok(())
+        }
+
+        fn check_grid(&self, g: SeriesGrid) -> Result<(), BuildError> {
+            let next = ItemNum::new(self.next_item);
+            let first = g
+                .chunk_ticks(self.timeline.period(), next, 1)
+                .map_err(BuildError::Series)?
+                .0;
+            if !g.same_grid(&self.grid)
+                && let Some(last) = self
+                    .next_item
+                    .checked_sub(1)
+                    .and_then(|i| self.timeline.tick(ItemNum::new(i)))
+                && !ww_tape::series::is_gap(self.timeline.period(), last, first)
+            {
+                return Err(BuildError::Series(SeriesError::GridTooClose {
+                    first_item: next,
+                }));
+            }
+            Ok(())
+        }
+
+        /// Add the next `count` samples, on the grid set last.
+        pub fn samples(&mut self, count: u64) -> Result<(), BuildError> {
+            let mut rest = count;
+            while rest > 0 {
+                let n = u32::try_from(rest).unwrap_or(u32::MAX);
+                self.timeline
+                    .push(ItemNum::new(self.next_item), n, self.grid)
+                    .map_err(BuildError::Series)?;
+                self.next_item = self
+                    .next_item
+                    .checked_add(u64::from(n))
+                    .ok_or(BuildError::Invalid("sample index past u64"))?;
+                rest = rest.saturating_sub(u64::from(n));
+            }
+            Ok(())
+        }
+
+        /// Take the next leaf: it starts where the last one ended and lies in the samples added.
+        pub fn push_leaf(&mut self, leaf: SeriesLeaf) -> Result<(), BuildError> {
+            let SeriesLeaf {
+                first_item,
+                samples,
+                node,
+            } = leaf;
+            let first = first_item.get();
+            if first != self.leaves_end || samples == 0 {
+                return Err(BuildError::Invalid("a leaf out of order"));
+            }
+            let end = first
+                .checked_add(samples)
+                .filter(|e| *e <= self.next_item)
+                .ok_or(BuildError::Invalid("a leaf past the samples added"))?;
+            let idx = self.d.node_of(first);
+            let last = end.checked_sub(1).ok_or(BuildError::Invalid("no sample"))?;
+            if self.d.node_of(last) != idx {
+                return Err(BuildError::Invalid("a leaf across a level-0 node"));
+            }
+            let open = match self.open.take() {
+                Some((open_idx, mut merged, n)) if open_idx == idx => {
+                    merged.merge(&node, n, samples).map_err(BuildError::Scale)?;
+                    let n = n
+                        .checked_add(samples)
+                        .ok_or(BuildError::Invalid("open node past u64 samples"))?;
+                    (idx, merged, n)
+                }
+                // a leaf that starts its node: the leaves before ended the node before at its boundary
+                _ => (idx, node, samples),
+            };
+            self.leaves_end = end;
+            if end & self.d.node_mask == 0 {
+                self.levels.push(0, idx, open.1, end)?;
+                self.encode()?;
+            } else {
+                self.open = Some(open);
+            }
+            Ok(())
         }
 
         /// Write the open nodes of every level, partial ones included, as blocks. Call it once, after the last
-        /// sample.
+        /// leaf.
         pub fn finish(&mut self) -> Result<(), BuildError> {
-            if self.node_open() {
-                self.close_node()?;
+            if let Some((idx, node, _)) = self.open.take() {
+                self.levels.push(0, idx, node, self.leaves_end)?;
             }
-            self.levels.finish(self.next_item)?;
+            self.levels.finish(self.leaves_end)?;
             self.encode()
         }
 
@@ -1335,9 +1487,9 @@ mod builder {
                     level,
                     node_shift: self.levels.shift(level)?,
                     layout: Layout::Series {
-                        element: self.element,
-                        channels: self.channels,
-                        stats: self.spec.stats,
+                        element: self.d.element,
+                        channels: self.d.channels,
+                        stats: self.d.spec.stats,
                         scale,
                     },
                     first_item: ItemNum::new(first_item),
@@ -1361,11 +1513,6 @@ mod builder {
             Ok(())
         }
 
-        /// The scale of the statistics: the grid's scale, over `q` for an element with a zero `p/q`.
-        pub fn scale(&self) -> Magnitude {
-            self.scale
-        }
-
         /// Finished summary blocks, oldest first, for
         /// [TapeWriter::defer_block](ww_tape::TapeWriter::defer_block).
         pub fn take_blocks(&mut self) -> Vec<Vec<u8>> {
@@ -1373,17 +1520,137 @@ mod builder {
         }
 
         /// What a live reader takes from memory for `level`: the number of the first node not in a block yet, and the
-        /// nodes from it on, each at its own scale; the last may be partial (the open node).
-        pub fn pending(&self, level: u8) -> Result<(u64, Vec<SeriesNode>), BuildError> {
+        /// nodes from it on, each at its own scale; at level 0 the last may be the parts of a node taken so far.
+        pub fn pending(&self, level: u8) -> (u64, Vec<SeriesNode>) {
             let (mut first, mut nodes) = self.levels.pending(level);
             if level == 0
-                && self.node_open()
-                && let Some(open) = self.open_node()?
+                && let Some((idx, node, _)) = &self.open
             {
                 if nodes.is_empty() {
-                    first = self
-                        .last_node()
+                    first = *idx;
+                }
+                nodes.push(node.clone());
+            }
+            (first, nodes)
+        }
+    }
+
+    impl<T: Scalar> SeriesSummaries<T> {
+        /// Summaries of the series `start` describes, kept as `spec` declares.
+        pub fn new(start: SeriesStart, spec: SeriesSummarySpec) -> Result<Self, BuildError> {
+            let leaves = SeriesLeaves::new(start.shape, start.grid.scale, start.first_item, spec)?;
+            let tree = SeriesTree::new(start, spec)?;
+            Ok(Self { leaves, tree })
+        }
+
+        /// Keep blocks within `bytes` (default [SERIES_BLOCK_BYTES]); call before the first sample.
+        pub fn set_max_block_bytes(&mut self, bytes: Bytes<u32>) {
+            self.tree.set_max_block_bytes(bytes);
+        }
+
+        /// The next sample's index.
+        pub fn next_item(&self) -> ItemNum {
+            self.leaves.next_item()
+        }
+
+        /// The grids of the samples so far.
+        pub fn timeline(&self) -> &SeriesTimeline {
+            self.tree.timeline()
+        }
+
+        /// Put the samples from the next one ([Self::next_item]) on grid `g`: a new grid (a gap, a restart) or the
+        /// same grid at a new scale (a prefix change), as the next chunk's head carries it. Refused when the grid
+        /// starts after the next sample, a new grid's first sample isn't more than a period after the last sample's
+        /// tick ([is_gap](ww_tape::series::is_gap)), or the scale has no common scale with the ones before.
+        pub fn set_grid(&mut self, g: SeriesGrid) -> Result<(), BuildError> {
+            self.tree.check_grid(g)?;
+            self.leaves.set_scale(g.scale)?;
+            self.tree.grid = g;
+            Ok(())
+        }
+
+        /// Add samples: whole frames of `channels × components` scalars, interleaved; `flags` ORs into the nodes they
+        /// fall in. Samples that are not whole frames are refused.
+        pub fn push(&mut self, samples: &[T], flags: u32) -> Result<(), BuildError> {
+            let frames = self.frames(samples.len())?;
+            self.tree.samples(frames)?;
+            self.leaves.push(samples, flags)?;
+            self.take_leaves()
+        }
+
+        /// Add stored samples of the element's own scalar `S` (whole frames, as [Self::push] takes them), each
+        /// `v` as `q · v - p` for the element's [zero](ElementDesc::zero) `p/q`: how the samples of an element
+        /// with a zero, or of a scalar narrower than its summary element, go in. Floats go in by [Self::push].
+        pub fn push_from<S: Sample>(
+            &mut self,
+            samples: &[S],
+            flags: u32,
+        ) -> Result<(), BuildError> {
+            let frames = self.frames(samples.len())?;
+            self.tree.samples(frames)?;
+            self.leaves.push_from(samples, flags)?;
+            self.take_leaves()
+        }
+
+        /// The frames in `scalars` scalars; refused when they are not whole frames.
+        fn frames(&self, scalars: usize) -> Result<u64, BuildError> {
+            let stride = self.leaves.d.stride;
+            let partial = BuildError::PartialFrame { stride };
+            if stride == 0 || !scalars.is_multiple_of(stride) {
+                return Err(partial);
+            }
+            scalars
+                .checked_div(stride)
+                .and_then(|n| u64::try_from(n).ok())
+                .ok_or(partial)
+        }
+
+        fn take_leaves(&mut self) -> Result<(), BuildError> {
+            for leaf in self.leaves.take_leaves() {
+                self.tree.push_leaf(leaf)?;
+            }
+            Ok(())
+        }
+
+        /// Run the integer kernels as `kernel` from now on.
+        #[cfg(test)]
+        pub(crate) fn set_kernel(&mut self, kernel: Kernel) {
+            self.leaves.set_kernel(kernel);
+        }
+
+        /// Write the open nodes of every level, partial ones included, as blocks. Call it once, after the last
+        /// sample.
+        pub fn finish(&mut self) -> Result<(), BuildError> {
+            self.leaves.seal()?;
+            self.take_leaves()?;
+            self.tree.finish()
+        }
+
+        /// The scale of the statistics: the grid's scale, over `q` for an element with a zero `p/q`.
+        pub fn scale(&self) -> Magnitude {
+            self.leaves.scale()
+        }
+
+        /// Finished summary blocks, oldest first, for
+        /// [TapeWriter::defer_block](ww_tape::TapeWriter::defer_block).
+        pub fn take_blocks(&mut self) -> Vec<Vec<u8>> {
+            self.tree.take_blocks()
+        }
+
+        /// What a live reader takes from memory for `level`: the number of the first node not in a block yet, and the
+        /// nodes from it on, each at its own scale; the last may be partial (the open node).
+        pub fn pending(&self, level: u8) -> Result<(u64, Vec<SeriesNode>), BuildError> {
+            let (mut first, mut nodes) = self.tree.pending(level);
+            if level == 0
+                && let Some(open) = self.leaves.open_node()?
+            {
+                if nodes.is_empty() {
+                    let last = self
+                        .leaves
+                        .next_item
+                        .checked_sub(1)
                         .ok_or(BuildError::Invalid("an open node of no samples"))?;
+                    first = self.leaves.d.node_of(last);
                 }
                 nodes.push(open);
             }

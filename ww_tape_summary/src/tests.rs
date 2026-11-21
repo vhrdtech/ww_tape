@@ -15,23 +15,23 @@ fn ed(e: Element) -> ElementDesc {
 }
 
 /// xorshift64*: workloads without a dependency.
-struct Rng(u64);
+pub(crate) struct Rng(pub(crate) u64);
 
 impl Rng {
-    fn next(&mut self) -> u64 {
+    pub(crate) fn next(&mut self) -> u64 {
         self.0 ^= self.0 >> 12;
         self.0 ^= self.0 << 25;
         self.0 ^= self.0 >> 27;
         self.0.wrapping_mul(0x2545_f491_4f6c_dd1d)
     }
 
-    fn below(&mut self, n: u64) -> u64 {
+    pub(crate) fn below(&mut self, n: u64) -> u64 {
         self.next() % n
     }
 }
 
 /// An event workload: starts, ends, flags.
-type Items = Vec<(i64, i64, u32)>;
+pub(crate) type Items = Vec<(i64, i64, u32)>;
 
 /// A named event workload and the fields its tree keeps.
 type Workload = (&'static str, fn(usize, &mut Rng) -> Items, EventFields);
@@ -92,7 +92,7 @@ fn sparse(n: usize, rng: &mut Rng) -> Items {
 }
 
 /// Spans of mixed lengths: some long ones reach over many later items.
-fn spans(n: usize, rng: &mut Rng) -> Items {
+pub(crate) fn spans(n: usize, rng: &mut Rng) -> Items {
     let mut t = 0i64;
     (0..n)
         .map(|_| {
