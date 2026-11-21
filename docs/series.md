@@ -16,7 +16,7 @@ The last 20 ms before the fault at 52:00 are 500 samples. They show how fast the
 
 A [[series]] is a [[track]] of samples at an exact period. An ADC channel, an audio stream
 and the drive's phase current are series. A sample needs no time of its own, since the period gives it. A series
-therefore stores only values, in [[series chunks]], and the drive's `phase_a` costs little more than one byte per
+therefore stores only values, in [[series chunks]], and the drive's `phase_a` costs about 1.1 bytes per
 sample ([Sizes and speeds](sizes.md#bytes-per-item)).
 
 The track's items and its definition, a [`SeriesDef`], say what a sample is:
