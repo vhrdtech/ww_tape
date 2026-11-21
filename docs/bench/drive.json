@@ -1,8 +1,8 @@
 {
   "format": 1,
   "bench": "drive",
-  "version": "0.1.0 (28b0d70, commit 21 Nov 2026 06:45 UTC)",
-  "commit": "28b0d70",
+  "version": "0.1.0 (0dbe350, commit 21 Nov 2026 07:46 UTC)",
+  "commit": "0dbe350",
   "dirty": false,
   "build": {
     "profile": "release",
@@ -41,45 +41,45 @@
         [
           "with summaries of `phase_a`",
           {
-            "value": 5.952155595,
+            "value": 2.952966324,
             "digits": 2
           },
           {
-            "value": 19.369472144990187,
+            "value": 39.0421357206104,
             "digits": 0
           },
           {
-            "value": 604.8228986191347,
+            "value": 1219.113123892164,
             "digits": 0
           }
         ],
         [
           "without summaries",
           {
-            "value": 5.02577621,
+            "value": 2.672213523,
             "digits": 2
           },
           {
-            "value": 22.158993824358927,
+            "value": 41.677148566694086,
             "digits": 0
           },
           {
-            "value": 716.3072627143499,
+            "value": 1347.1977328961373,
             "digits": 0
           }
         ]
       ],
       "load_before": {
-        "one": 26.64,
-        "five": 29.86,
-        "fifteen": 38.49
+        "one": 7.22,
+        "five": 13.77,
+        "fifteen": 19.04
       },
       "load_after": {
-        "one": 22.47,
-        "five": 28.42,
-        "fifteen": 37.64
+        "one": 6.08,
+        "five": 13.09,
+        "fifteen": 18.7
       },
-      "seconds": 38.275367163
+      "seconds": 17.700889173
     },
     {
       "id": "sizes",
@@ -154,15 +154,15 @@
         [
           "puts and copies",
           {
-            "value": 5584.0,
+            "value": 5435.0,
             "digits": 0
           },
           {
-            "value": 0.004843433580843429,
+            "value": 0.004714194396827371,
             "digits": 2
           },
           {
-            "value": 1.551111111111111,
+            "value": 1.5097222222222222,
             "digits": 0
           }
         ],
@@ -184,15 +184,15 @@
         [
           "piece heads, closes and tails",
           {
-            "value": 11940.0,
+            "value": 12089.0,
             "digits": 0
           },
           {
-            "value": 0.01035648226276335,
+            "value": 0.010485721446779409,
             "digits": 2
           },
           {
-            "value": 3.316666666666667,
+            "value": 3.3580555555555556,
             "digits": 0
           }
         ],
@@ -243,16 +243,16 @@
         ]
       ],
       "load_before": {
-        "one": 22.47,
-        "five": 28.42,
-        "fifteen": 37.64
+        "one": 6.08,
+        "five": 13.09,
+        "fifteen": 18.7
       },
       "load_after": {
-        "one": 22.47,
-        "five": 28.42,
-        "fifteen": 37.64
+        "one": 6.08,
+        "five": 13.09,
+        "fifteen": 18.7
       },
-      "seconds": 0.026043754
+      "seconds": 0.018943612
     },
     {
       "id": "items",
@@ -314,16 +314,16 @@
         ]
       ],
       "load_before": {
-        "one": 22.47,
-        "five": 28.42,
-        "fifteen": 37.64
+        "one": 6.08,
+        "five": 13.09,
+        "fifteen": 18.7
       },
       "load_after": {
-        "one": 22.47,
-        "five": 28.42,
-        "fifteen": 37.64
+        "one": 6.08,
+        "five": 13.09,
+        "fifteen": 18.7
       },
-      "seconds": 0.243277999
+      "seconds": 0.159252896
     }
   ]
 }

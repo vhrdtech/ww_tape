@@ -1,8 +1,8 @@
 {
   "format": 1,
   "bench": "carried",
-  "version": "0.1.0 (28b0d70, commit 21 Nov 2026 06:45 UTC)",
-  "commit": "28b0d70",
+  "version": "0.1.0 (0dbe350, commit 21 Nov 2026 07:46 UTC)",
+  "commit": "0dbe350",
   "dirty": false,
   "build": {
     "profile": "release",
@@ -168,16 +168,16 @@
         ]
       ],
       "load_before": {
-        "one": 22.03,
-        "five": 28.23,
-        "fifteen": 37.53
+        "one": 6.08,
+        "five": 13.09,
+        "fifteen": 18.7
       },
       "load_after": {
-        "one": 22.03,
-        "five": 28.23,
-        "fifteen": 37.53
+        "one": 6.08,
+        "five": 13.09,
+        "fifteen": 18.7
       },
-      "seconds": 0.421240439
+      "seconds": 0.118560694
     },
     {
       "id": "caps",
@@ -221,16 +221,16 @@
         ]
       ],
       "load_before": {
-        "one": 22.03,
-        "five": 28.23,
-        "fifteen": 37.53
+        "one": 6.08,
+        "five": 13.09,
+        "fifteen": 18.7
       },
       "load_after": {
-        "one": 25.83,
-        "five": 28.36,
-        "fifteen": 37.09
+        "one": 6.07,
+        "five": 12.74,
+        "fifteen": 18.5
       },
-      "seconds": 50.124683592
+      "seconds": 13.886710877
     },
     {
       "id": "room",
@@ -284,16 +284,128 @@
         ]
       ],
       "load_before": {
-        "one": 25.83,
-        "five": 28.36,
-        "fifteen": 37.09
+        "one": 6.07,
+        "five": 12.74,
+        "fifteen": 18.5
       },
       "load_after": {
-        "one": 30.55,
-        "five": 27.2,
-        "fifteen": 32.2
+        "one": 7.01,
+        "five": 9.0,
+        "fifteen": 15.19
       },
-      "seconds": 534.48105553
+      "seconds": 312.467269308
+    },
+    {
+      "id": "state",
+      "title": "The piece after a cut, one records block, when the piece before put each state track once (its newest item carried) or gave each stream track data (its definition alone carried).",
+      "columns": [
+        "Tracks",
+        "Item (bytes)",
+        "State tracks (bytes)",
+        "Stream tracks (bytes)",
+        "Per state (bytes)"
+      ],
+      "rows": [
+        [
+          {
+            "value": 100.0,
+            "digits": 0
+          },
+          {
+            "value": 8.0,
+            "digits": 0
+          },
+          {
+            "value": 65536.0,
+            "digits": 0
+          },
+          {
+            "value": 36864.0,
+            "digits": 0
+          },
+          {
+            "value": 286.72,
+            "digits": 1
+          }
+        ],
+        [
+          {
+            "value": 100.0,
+            "digits": 0
+          },
+          {
+            "value": 64.0,
+            "digits": 0
+          },
+          {
+            "value": 69632.0,
+            "digits": 0
+          },
+          {
+            "value": 36864.0,
+            "digits": 0
+          },
+          {
+            "value": 327.68,
+            "digits": 1
+          }
+        ],
+        [
+          {
+            "value": 1000.0,
+            "digits": 0
+          },
+          {
+            "value": 8.0,
+            "digits": 0
+          },
+          {
+            "value": 589824.0,
+            "digits": 0
+          },
+          {
+            "value": 315392.0,
+            "digits": 0
+          },
+          {
+            "value": 274.432,
+            "digits": 1
+          }
+        ],
+        [
+          {
+            "value": 1000.0,
+            "digits": 0
+          },
+          {
+            "value": 64.0,
+            "digits": 0
+          },
+          {
+            "value": 647168.0,
+            "digits": 0
+          },
+          {
+            "value": 315392.0,
+            "digits": 0
+          },
+          {
+            "value": 331.776,
+            "digits": 1
+          }
+        ]
+      ],
+      "load_before": {
+        "one": 7.01,
+        "five": 9.0,
+        "fifteen": 15.19
+      },
+      "load_after": {
+        "one": 7.01,
+        "five": 9.0,
+        "fifteen": 15.19
+      },
+      "seconds": 0.056660764
     }
   ]
 }

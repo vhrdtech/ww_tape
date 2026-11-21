@@ -1,8 +1,8 @@
 {
   "format": 1,
   "bench": "memory",
-  "version": "0.1.0 (28b0d70, commit 21 Nov 2026 06:45 UTC)",
-  "commit": "28b0d70",
+  "version": "0.1.0 (0dbe350, commit 21 Nov 2026 07:46 UTC)",
+  "commit": "0dbe350",
   "dirty": false,
   "build": {
     "profile": "release",
@@ -217,16 +217,16 @@
         ]
       ],
       "load_before": {
-        "one": 30.83,
-        "five": 27.31,
-        "fifteen": 32.21
+        "one": 6.93,
+        "five": 8.95,
+        "fifteen": 15.14
       },
       "load_after": {
-        "one": 31.08,
-        "five": 27.42,
-        "fifteen": 32.22
+        "one": 6.69,
+        "five": 8.87,
+        "fifteen": 15.08
       },
-      "seconds": 6.9282864570000005
+      "seconds": 3.898981412
     }
   ]
 }

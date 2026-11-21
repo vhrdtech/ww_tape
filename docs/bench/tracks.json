@@ -1,8 +1,8 @@
 {
   "format": 1,
   "bench": "tracks",
-  "version": "0.1.0 (28b0d70, commit 21 Nov 2026 06:45 UTC)",
-  "commit": "28b0d70",
+  "version": "0.1.0 (0dbe350, commit 21 Nov 2026 07:46 UTC)",
+  "commit": "0dbe350",
   "dirty": false,
   "build": {
     "profile": "release",
@@ -47,50 +47,50 @@
         [
           "add 1000 tracks",
           {
-            "value": 0.0073752,
+            "value": 0.006339318,
             "digits": 3
           }
         ],
         [
           "add 5000 tracks",
           {
-            "value": 0.044508748,
+            "value": 0.03643936,
             "digits": 3
           }
         ],
         [
           "add 10000 tracks",
           {
-            "value": 0.087590411,
+            "value": 0.076951688,
             "digits": 3
           }
         ],
         [
           "close the piece",
           {
-            "value": 0.020321354,
+            "value": 0.015590755,
             "digits": 3
           }
         ],
         [
           "open it and read the definitions",
           {
-            "value": 0.030990621,
+            "value": 0.020295385,
             "digits": 3
           }
         ]
       ],
       "load_before": {
-        "one": 26.64,
-        "five": 29.86,
-        "fifteen": 38.49
+        "one": 7.22,
+        "five": 13.77,
+        "fifteen": 19.04
       },
       "load_after": {
-        "one": 26.64,
-        "five": 29.86,
-        "fifteen": 38.49
+        "one": 7.22,
+        "five": 13.77,
+        "fifteen": 19.04
       },
-      "seconds": 0.143422295
+      "seconds": 0.114285151
     },
     {
       "id": "puts",
@@ -125,16 +125,16 @@
         ]
       ],
       "load_before": {
-        "one": 26.64,
-        "five": 29.86,
-        "fifteen": 38.49
+        "one": 7.22,
+        "five": 13.77,
+        "fifteen": 19.04
       },
       "load_after": {
-        "one": 26.64,
-        "five": 29.86,
-        "fifteen": 38.49
+        "one": 7.22,
+        "five": 13.77,
+        "fifteen": 19.04
       },
-      "seconds": 1.965791115
+      "seconds": 1.632507368
     },
     {
       "id": "idle",
@@ -160,16 +160,16 @@
         ]
       ],
       "load_before": {
-        "one": 26.64,
-        "five": 29.86,
-        "fifteen": 38.49
+        "one": 7.22,
+        "five": 13.77,
+        "fifteen": 19.04
       },
       "load_after": {
-        "one": 26.64,
-        "five": 29.86,
-        "fifteen": 38.49
+        "one": 7.22,
+        "five": 13.77,
+        "fifteen": 19.04
       },
-      "seconds": 0.015397289
+      "seconds": 0.014578308
     }
   ]
 }
