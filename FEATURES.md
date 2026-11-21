@@ -189,13 +189,13 @@ Reading by position, checks and hashes, hostile bytes, in the crate `ww_tape`.
   - Entries of a piece are sorted by offset. Entries that name one block twice or overlap are refused, wherever they came from.
   - A final index out of order is refused when read, so every call that gives entries agrees.
   - Read more: [Finding blocks through the index](docs/reading.md#finding-blocks-through-the-index).
-- 🚧 **READ-5 Typed numbers in the API**
+- ✅ **READ-5 Typed numbers in the API**
   - Track and clock numbers are `TrackNum` and `ClockNum`, 1 and up, each exactly a `UNib32` on the wire; a definition naming 0 doesn't decode. A record names its track as a `RecordTrack`, track 0 being the definitions.
   - Track keys, track ids and clock keys are `TrackKey`, `TrackId` and `ClockKey`, any value valid, each exactly a `u64` on the wire. A key without dimensions is its id (`TrackKey::id`). The index lists record blocks of data under `RECORDS_TRACK_ID` and state records under `STATE_TRACK_ID`.
   - Which relations of a track keep a column or never decrease is a `RelationSet`, a set of relation indexes below `RELATIONS_MAX` (`StoredRelations`, `TrackFacts`). A relation index itself stays a `u16`: only an index into `TrackDef::relations`.
   - Byte sizes in the options and limits (`NearPolicy`, `IndexPolicy`, `CutPolicy`, `OpenOptions`, the summary builders' block caps, their default constants) are exact_units `Bytes<T>`; counts of entries, chunks and slots there are `Count<_, u64>`. Offsets and lengths read from a file stay `FromFile<T>` (READ-2); plain measurements in reports stay bare.
   - An item's number on its track is an `ItemNum`, exactly a `u64` on the wire. It names items in the chunk, index, summary and piece heads, the series timeline, the range hash and the summary builders' API. A count of items stays a `u64`; `ItemNum::checked_add`, `offset_to` and `items` relate the two. A grid's own sample index (`SeriesGrid::grid_index`) and the builders' counters stay `u64`.
-  - Missing: types for the other numbers of the API (seqs).
+  - Left bare on purpose: block seqs (`BlockId::seq`, `ChunkPlaced::seq`), counts, format and codec versions, codec ids, relation indexes, offsets and lengths. Each is a plain counter, an index or a measurement, and a number read from a file stays a `FromFile<T>` (READ-2).
   - Read more: the crate docs of `ww_tape` (`TrackNum`, `ClockNum`, `RecordTrack`, `TrackKey`, `TrackId`, `ClockKey`, `RelationSet`).
 
 ## Files and locks (`FS`)
