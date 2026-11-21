@@ -1,5 +1,7 @@
 //! The positional reader over crafted bytes: offsets from the file never panic or loop.
 
+use ww_tape::ItemNum;
+
 use crate::id;
 use crate::range_hash::{crc32c, id_of, rewrite_final_entries, write};
 use ww_tape::TrackId;
@@ -81,7 +83,7 @@ fn entry_past_the_piece_is_an_error() {
             track_id: TrackId::new(1),
             number: 1,
             second: 0,
-            first_item: 0,
+            first_item: ItemNum::new(0),
             count: 0,
             first_tick: 0,
             last_tick: 0,
@@ -134,7 +136,7 @@ fn an_entry_longer_than_any_block_is_refused_before_reading() {
         track_id: TrackId::new(1),
         number: 1,
         second: 0,
-        first_item: 0,
+        first_item: ItemNum::new(0),
         count: 0,
         first_tick: 0,
         last_tick: 0,

@@ -1,6 +1,7 @@
 //! ww_tape summary blocks on any bytes, and trees built from the input: reading never panics, every accessor of a
 //! good summary block stays in bounds, and every block a builder writes reads back with its nodes covering the items,
 //! also across prefix changes of a series, whose nodes then merge at a common scale.
+use ww_tape::ItemNum;
 use ww_tape::TrackId;
 use ww_tape::TrackNum;
 use ww_tape::{
@@ -23,7 +24,7 @@ pub(crate) fn walk(data: &[u8]) {
         let (first, items) = h
             .node_items(i as u64)
             .expect("every node of a read block has items");
-        assert!(items >= 1 && first >= h.first_item);
+        assert!(items >= 1 && first >= h.first_item.get());
         let _ = s.event_node(i);
         let _ = s.series_node(i);
         for ch in 0..4 {
@@ -55,7 +56,7 @@ fn check(blocks: &[Vec<u8>], first: u64, end: u64) {
         walk(b);
         let s = Summary::of_block(&Block::read(b).expect("written good")).expect("a summary");
         let h = s.head();
-        assert!(h.first_item >= first && h.first_item + h.items <= end);
+        assert!(h.first_item.get() >= first && h.first_item.get() + h.items <= end);
         if h.level == 0 {
             covered += h.items;
         }
@@ -78,7 +79,12 @@ pub fn summary(data: &[u8]) {
     let body = &data[4..];
 
     // an event tree: each input byte is a gap, a span length, flags, or a run
-    let mut tree = EventTree::new(TrackId::new(1), TrackNum::new(1), fields, first);
+    let mut tree = EventTree::new(
+        TrackId::new(1),
+        TrackNum::new(1),
+        fields,
+        ItemNum::new(first),
+    );
     tree.set_max_block_bytes(exact_units::Bytes::new(
         96 + 64 * u32::from(data[3] % 8 + 1),
     ));
@@ -91,7 +97,7 @@ pub fn summary(data: &[u8]) {
             t
         };
         let r = if x & 0x80 != 0 {
-            let room = 2048 - tree.next_item() % 2048;
+            let room = 2048 - tree.next_item().get() % 2048;
             tree.push_run(ItemRun {
                 count: room.min(u64::from(x & 0x3f) + 1),
                 first_tick: t,
@@ -109,7 +115,7 @@ pub fn summary(data: &[u8]) {
     }
     let end = tree.next_item();
     tree.finish().expect("finishes");
-    check(&tree.take_blocks(), first, end);
+    check(&tree.take_blocks(), first, end.get());
 
     // a series of complex i16 from the input bytes
     let shape = SampleShape::new(
@@ -128,7 +134,7 @@ pub fn summary(data: &[u8]) {
         track_id: TrackId::new(2),
         track_number: TrackNum::new(2),
         shape,
-        first_item: first,
+        first_item: ItemNum::new(first),
         grid: SeriesGrid::start(first, -5, Magnitude::pow10(-3)),
         period: Ratio64::new(3, 2).expect("a ratio"),
     };
@@ -145,7 +151,7 @@ pub fn summary(data: &[u8]) {
         .enumerate()
     {
         // a prefix change (milli, micro, nano) where a part's first number says so
-        if part.first().is_some_and(|x| x % 5 == 0) && s.next_item() > first {
+        if part.first().is_some_and(|x| x % 5 == 0) && s.next_item() > ItemNum::new(first) {
             let e = -3 - 3 * (part[0] / 5).rem_euclid(3) as i8;
             grid = grid.rescaled(Magnitude::pow10(e));
             s.set_grid(grid).expect("an i16 rescaled to nano fits");

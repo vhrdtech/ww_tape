@@ -1,6 +1,8 @@
 //! The recorder: the acts of the run block by block, written into a chain of pieces in memory, a crash at a byte
 //! and the resume.
 
+use ww_tape::ItemNum;
+
 use std::collections::VecDeque;
 use ww_tape::{ClockNum, TrackNum};
 
@@ -99,7 +101,7 @@ impl Acts {
                 track_id: key("phase_a").id(),
                 track_number: numbers.phase_a,
                 shape: crate::defs::phase_shape(&def),
-                first_item: 0,
+                first_item: ItemNum::new(0),
                 grid: def.first_grid(0),
                 period: def.period,
             };
@@ -186,9 +188,11 @@ impl Acts {
             // --8<-- [start:frames]
             let times = EncodedTimes::encode(&starts, None, None)?; // instants, no flags
             let payloads = EncodedPayloads::encode(payloads.iter().map(Vec::as_slice))?;
-            let head = times
-                .head
-                .chunk_head(key("can0").id(), self.numbers.can0, frames.start);
+            let head = times.head.chunk_head(
+                key("can0").id(),
+                self.numbers.can0,
+                ItemNum::new(frames.start),
+            );
             let columns = times
                 .columns()
                 .chain(payloads.columns())
@@ -219,12 +223,13 @@ impl Acts {
             let grid: SeriesGrid = def.first_grid(0);
             let count = u32::try_from(values.len())
                 .map_err(|_e| Error::Settings("a block of phase_a holds at most 2^32 samples"))?;
-            let (first_tick, last_tick) = grid.chunk_ticks(def.period, samples.start, count)?;
+            let (first_tick, last_tick) =
+                grid.chunk_ticks(def.period, ItemNum::new(samples.start), count)?;
             let head = ChunkHead {
                 kind: BlockKind::Series,
                 track_id: key("phase_a").id(),
                 track_number: self.numbers.phase_a,
-                first_item: samples.start,
+                first_item: ItemNum::new(samples.start),
                 count,
                 first_tick,
                 last_tick,

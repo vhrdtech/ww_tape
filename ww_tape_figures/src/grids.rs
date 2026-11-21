@@ -2,6 +2,8 @@
 //! 1 ns clock: chunks of one grid, a lost chunk whose ticks are still known, a prefix change that keeps the grid,
 //! and a gap to a new grid. Each chunk is written as a block by `chunk::write_chunk` and its head read back.
 
+use ww_tape::ItemNum;
+
 use anyhow::{Context, ensure};
 use ww_tape::TrackId;
 use ww_tape::TrackNum;
@@ -28,12 +30,14 @@ fn period() -> anyhow::Result<Ratio64> {
 
 /// The head of a series chunk of `COUNT` samples from `first` on `grid`, as read back from the block written.
 fn head(grid: SeriesGrid, first: u64) -> anyhow::Result<ChunkHead> {
-    let (first_tick, last_tick) = grid.chunk_ticks(period()?, first, COUNT).or_debug()?;
+    let (first_tick, last_tick) = grid
+        .chunk_ticks(period()?, ItemNum::new(first), COUNT)
+        .or_debug()?;
     let head = ChunkHead {
         kind: BlockKind::Series,
         track_id: TrackId::new(7),
         track_number: TrackNum::new(1),
-        first_item: first,
+        first_item: ItemNum::new(first),
         count: COUNT,
         first_tick,
         last_tick,
@@ -94,8 +98,14 @@ pub fn grids() -> anyhow::Result<String> {
     );
     ensure!(!timeline.gap_before(1) && timeline.gap_before(2));
     for i in 12..18 {
-        ensure!(timeline.stretch_of(i).is_none(), "sample {i} is lost");
-        ensure!(timeline.tick(i).is_some(), "its tick is known");
+        ensure!(
+            timeline.stretch_of(ItemNum::new(i)).is_none(),
+            "sample {i} is lost"
+        );
+        ensure!(
+            timeline.tick(ItemNum::new(i)).is_some(),
+            "its tick is known"
+        );
     }
 
     let (left, plot_w) = (24.0, 640.0);
@@ -118,7 +128,7 @@ pub fn grids() -> anyhow::Result<String> {
         let (x0, x1) = (x(h.first_tick) - 6.0, x(h.last_tick) + 6.0);
         let class = if is_lost { "thin dash" } else { "tint-blue" };
         s.rect((x0, lane - 14.0), (x1 - x0, 28.0), 3.0, class);
-        for i in h.first_item..h.first_item + u64::from(h.count) {
+        for i in h.first_item.items(u64::from(h.count)) {
             let t = timeline.tick(i).context("every sample has a tick")?;
             s.circle((x(t), lane), 3.2, if is_lost { "hollow" } else { "blue" });
         }

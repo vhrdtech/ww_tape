@@ -1,6 +1,8 @@
 //! An 8-bit IQ radio's samples as a series track (docs/tracks.md, "What a track's items are"): the definition
 //! describes the element, and the samples are stored as the radio sends them, with no new element or codec.
 
+use ww_tape::ItemNum;
+
 use shrink_wrap::prelude::*;
 use ww_tape::chunk::ChunkHead;
 use ww_tape::samples::Samples;
@@ -94,12 +96,14 @@ fn an_8_bit_iq_track_is_stored_as_the_radio_sends_it() {
 
     let bytes = radio_bytes(COUNT);
     let grid: SeriesGrid = series.first_grid(0);
-    let (first_tick, last_tick) = grid.chunk_ticks(series.period, 0, COUNT).unwrap();
+    let (first_tick, last_tick) = grid
+        .chunk_ticks(series.period, ItemNum::new(0), COUNT)
+        .unwrap();
     let head = ChunkHead {
         kind: BlockKind::Series,
         track_id: track.id(),
         track_number: TrackNum::new(1),
-        first_item: 0,
+        first_item: ItemNum::new(0),
         count: COUNT,
         first_tick,
         last_tick,

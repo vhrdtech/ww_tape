@@ -1,5 +1,7 @@
 //! A new piece carries the definitions of the tracks its head carries, quiet ones too (WRITE-9).
 
+use ww_tape::ItemNum;
+
 use ww_tape::TrackId;
 use ww_tape::index::IndexPolicy;
 use ww_tape::{ClockNum, TrackNum};
@@ -628,7 +630,7 @@ fn maps_added_to_tracks_on_their_own_clocks_keep_the_chain_writing() {
         rows.push(ww_tape::piece::TrackStart {
             track_id: t.id(),
             track_number: TrackNum::new(number),
-            next_item: 1,
+            next_item: ItemNum::new(1),
             from_tick: 0,
             owner: OwnerId(t.owner),
             hash: ww_tape::TrackHash::START,
@@ -765,7 +767,7 @@ fn a_marked_row_whose_definition_the_piece_holds_is_not_named() {
     let row = |number: u32| ww_tape::piece::TrackStart {
         track_id: crate::definitions::track_id(number),
         track_number: TrackNum::new(number),
-        next_item: 0,
+        next_item: ItemNum::new(0),
         from_tick: i64::MIN,
         owner: OwnerId::NONE,
         hash: ww_tape::TrackHash::START,
@@ -951,7 +953,7 @@ fn a_marked_row_whose_number_another_track_took_is_named() {
     let row = ww_tape::piece::TrackStart {
         track_id: crate::definitions::track_id(1),
         track_number: TrackNum::new(1),
-        next_item: 0,
+        next_item: ItemNum::new(0),
         from_tick: i64::MIN,
         owner: OwnerId::NONE,
         hash: ww_tape::TrackHash::START,

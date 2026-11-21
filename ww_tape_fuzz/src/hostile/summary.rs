@@ -1,6 +1,8 @@
 //! Summary blocks: the head (tree, level, node shift, element, fields, channels, scale length, item range, ticks),
 //! the scale bytes and the node values.
 
+use ww_tape::ItemNum;
+
 use super::{Draw, Field, HEADER_FIELDS, HEADER_LEN, LEN_FIELD, hit, hit_some, seal};
 use ww_tape::TrackId;
 use ww_tape::TrackNum;
@@ -45,7 +47,12 @@ fn events(d: &mut Draw<'_>) -> Vec<Vec<u8>> {
         latest_end: d.bool(),
     };
     let first = u64::from(d.u16()) * 37;
-    let mut tree = EventTree::new(TrackId::new(1), TrackNum::new(1), fields, first);
+    let mut tree = EventTree::new(
+        TrackId::new(1),
+        TrackNum::new(1),
+        fields,
+        ItemNum::new(first),
+    );
     // at most 96 + 64 * 8
     let bytes = u32::try_from(96 + 64 * d.range(1, 8)).unwrap_or(u32::MAX);
     tree.set_max_block_bytes(exact_units::Bytes::new(bytes));
@@ -55,7 +62,7 @@ fn events(d: &mut Draw<'_>) -> Vec<Vec<u8>> {
         let x = r.u8();
         t += i64::from(x >> 2);
         let pushed = if x & 0x80 != 0 {
-            let room = 2048 - tree.next_item() % 2048;
+            let room = 2048 - tree.next_item().get() % 2048;
             tree.push_run(ItemRun {
                 count: room.min(r.u64() % 0x1_0000 + 1),
                 first_tick: t,
@@ -91,7 +98,7 @@ fn series(d: &mut Draw<'_>) -> Vec<Vec<u8>> {
         track_id: TrackId::new(2),
         track_number: TrackNum::new(2),
         shape,
-        first_item: first,
+        first_item: ItemNum::new(first),
         grid: SeriesGrid::start(first, -5, Magnitude::pow10(-3)),
         period: Ratio64::new(3, 2).expect("a ratio"),
     };
@@ -110,7 +117,7 @@ fn series(d: &mut Draw<'_>) -> Vec<Vec<u8>> {
         let part: Vec<i16> = (0..lanes * (1 + r.below(40)))
             .map(|_| r.u64() as i16)
             .collect();
-        if r.u8().is_multiple_of(5) && s.next_item() > first {
+        if r.u8().is_multiple_of(5) && s.next_item() > ItemNum::new(first) {
             grid = grid.rescaled(Magnitude::pow10(-3 - 3 * r.below(3) as i8));
             if s.set_grid(grid).is_err() {
                 break;
@@ -137,7 +144,12 @@ pub fn summary(data: &[u8]) -> Vec<u8> {
     };
     if blocks.is_empty() {
         // one item of an event tree
-        let mut tree = EventTree::new(TrackId::new(1), TrackNum::new(1), EventFields::default(), 0);
+        let mut tree = EventTree::new(
+            TrackId::new(1),
+            TrackNum::new(1),
+            EventFields::default(),
+            ItemNum::new(0),
+        );
         tree.push(0, 0, 0).expect("an item");
         tree.finish().expect("a tree of one item finishes");
         blocks = tree.take_blocks();

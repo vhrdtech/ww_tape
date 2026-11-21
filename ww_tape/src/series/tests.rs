@@ -1,3 +1,4 @@
+use crate::ItemNum;
 use crate::{ClockNum, TrackNum};
 use crate::{TrackId, TrackKey};
 use exact_units::prefix::{Micro, Milli, One};
@@ -303,12 +304,14 @@ fn track_kind_round_trips_and_is_checked() {
 
 /// A series chunk head of `count` samples from `first` on `grid`, its ticks the grid's.
 fn head_on(grid: SeriesGrid, first: u64, count: u32) -> ChunkHead {
-    let (first_tick, last_tick) = grid.chunk_ticks(period(), first, count).unwrap();
+    let (first_tick, last_tick) = grid
+        .chunk_ticks(period(), ItemNum::new(first), count)
+        .unwrap();
     ChunkHead {
         kind: BlockKind::Series,
         track_id: TrackId::new(1),
         track_number: TrackNum::new(2),
-        first_item: first,
+        first_item: ItemNum::new(first),
         count,
         first_tick,
         last_tick,
@@ -329,15 +332,15 @@ fn rescaled_grid_keeps_sample_ticks() {
     t.push_chunk(&head_on(a, 0, 301)).unwrap();
     t.push_chunk(&head_on(b, 301, 100)).unwrap();
     // 301 · 62500/3 = 6270833.3..: the same tick on both chunks
-    assert_eq!(a.tick(p, 301), Some(1_000 + 6_270_833));
-    assert_eq!(t.tick(301), a.tick(p, 301));
-    assert_eq!(t.tick(302), Some(1_000 + 6_291_666));
-    assert_eq!(t.scale(300), Some(micro()));
-    assert_eq!(t.scale(301), Some(milli()));
-    assert_eq!(t.scale(401), None);
+    assert_eq!(a.tick(p, ItemNum::new(301)), Some(1_000 + 6_270_833));
+    assert_eq!(t.tick(ItemNum::new(301)), a.tick(p, ItemNum::new(301)));
+    assert_eq!(t.tick(ItemNum::new(302)), Some(1_000 + 6_291_666));
+    assert_eq!(t.scale(ItemNum::new(300)), Some(micro()));
+    assert_eq!(t.scale(ItemNum::new(301)), Some(milli()));
+    assert_eq!(t.scale(ItemNum::new(401)), None);
     assert_eq!(
-        a.chunk_ticks(p, 0, 301),
-        Ok((1_000, a.tick(p, 300).unwrap()))
+        a.chunk_ticks(p, ItemNum::new(0), 301),
+        Ok((1_000, a.tick(p, ItemNum::new(300)).unwrap()))
     );
     assert!(!t.gap_before(1));
     // a repeat is taken once, and chunks of one grid and scale join one stretch
@@ -348,13 +351,13 @@ fn rescaled_grid_keeps_sample_ticks() {
         t.stretches(),
         &[
             SeriesStretch {
-                first_item: 0,
-                end_item: 301,
+                first_item: ItemNum::new(0),
+                end_item: ItemNum::new(301),
                 grid: a
             },
             SeriesStretch {
-                first_item: 301,
-                end_item: 500,
+                first_item: ItemNum::new(301),
+                end_item: ItemNum::new(500),
                 grid: b
             },
         ]
@@ -366,17 +369,21 @@ fn chunks_are_checked_against_their_neighbours() {
     let p = period();
     let a = SeriesGrid::start(10, 0, micro());
     let mut t = SeriesTimeline::new(p);
-    assert_eq!(t.tick(0), None);
+    assert_eq!(t.tick(ItemNum::new(0)), None);
     t.push_chunk(&head_on(a, 10, 10)).unwrap();
-    assert_eq!(t.tick(9), None);
+    assert_eq!(t.tick(ItemNum::new(9)), None);
     // the same samples on another grid or at another scale
     assert_eq!(
         t.push_chunk(&head_on(SeriesGrid::start(10, 5, micro()), 10, 10)),
-        Err(SeriesError::Overlap { first_item: 10 })
+        Err(SeriesError::Overlap {
+            first_item: ItemNum::new(10)
+        })
     );
     assert_eq!(
         t.push_chunk(&head_on(a.rescaled(milli()), 15, 10)),
-        Err(SeriesError::Overlap { first_item: 15 })
+        Err(SeriesError::Overlap {
+            first_item: ItemNum::new(15)
+        })
     );
     // sample 19 is at 9 · 62500/3 = 187500: a new grid starts more than a period (20833.3, rounded up 20834) after
     // it, so a phase shift of less than a period on the next sample is refused, never taken as a gap
@@ -387,7 +394,9 @@ fn chunks_are_checked_against_their_neighbours() {
                 20,
                 5
             )),
-            Err(SeriesError::GridTooClose { first_item: 20 }),
+            Err(SeriesError::GridTooClose {
+                first_item: ItemNum::new(20)
+            }),
             "shift {shift}"
         );
     }
@@ -395,12 +404,16 @@ fn chunks_are_checked_against_their_neighbours() {
     assert!(is_gap(p, 187_500, 187_500 + 20_835));
     assert_eq!(
         t.push_chunk(&head_on(SeriesGrid::start(20, 187_500, micro()), 20, 5)),
-        Err(SeriesError::GridTooClose { first_item: 20 })
+        Err(SeriesError::GridTooClose {
+            first_item: ItemNum::new(20)
+        })
     );
     // a chunk before the first must end before its first tick, 0
     assert_eq!(
         t.push_chunk(&head_on(SeriesGrid::start(0, -100, micro()), 0, 10)),
-        Err(SeriesError::GridTooClose { first_item: 0 })
+        Err(SeriesError::GridTooClose {
+            first_item: ItemNum::new(0)
+        })
     );
     t.push_chunk(&head_on(SeriesGrid::start(0, -1_000_000, micro()), 0, 10))
         .unwrap();
@@ -409,36 +422,38 @@ fn chunks_are_checked_against_their_neighbours() {
     assert!(t.gap_before(1) && t.gap_before(2));
     // a lost chunk between two of one grid: its samples' ticks are known, their scale not
     t.push_chunk(&head_on(gap, 40, 5)).unwrap();
-    assert_eq!(t.tick(30), gap.tick(p, 30));
-    assert_eq!(t.scale(30), None);
+    assert_eq!(t.tick(ItemNum::new(30)), gap.tick(p, ItemNum::new(30)));
+    assert_eq!(t.scale(ItemNum::new(30)), None);
     assert!(!t.gap_before(3));
     // a lost sample right after a stretch, before one on the same grid: its tick is known
-    assert_eq!(t.tick(25), gap.tick(p, 25));
+    assert_eq!(t.tick(ItemNum::new(25)), gap.tick(p, ItemNum::new(25)));
     let grid_after = SeriesGrid::start(31, 0, micro());
     let mut head = head_on(gap, 30, 2);
     head.grid = Some(grid_after);
     assert_eq!(
         t.push_chunk(&head),
         Err(SeriesError::GridAfterFirst {
-            first_item: 30,
+            first_item: ItemNum::new(30),
             grid_index: 31
         })
     );
     let overflow = SeriesGrid::start(0, 0, micro());
     assert_eq!(
-        overflow.chunk_ticks(p, u64::MAX - 1, 1),
+        overflow.chunk_ticks(p, ItemNum::new(u64::MAX - 1), 1),
         Err(SeriesError::TickOverflow {
-            index: u64::MAX - 1
+            index: ItemNum::new(u64::MAX - 1)
         })
     );
     assert_eq!(
-        overflow.chunk_ticks(p, 20, 0),
-        Err(SeriesError::NoSamples { first_item: 20 })
+        overflow.chunk_ticks(p, ItemNum::new(20), 0),
+        Err(SeriesError::NoSamples {
+            first_item: ItemNum::new(20)
+        })
     );
     assert_eq!(
-        overflow.chunk_ticks(p, u64::MAX, 2),
+        overflow.chunk_ticks(p, ItemNum::new(u64::MAX), 2),
         Err(SeriesError::NoSamples {
-            first_item: u64::MAX
+            first_item: ItemNum::new(u64::MAX)
         })
     );
 }
@@ -465,8 +480,12 @@ fn timeline_from_chunks_in_any_order() {
     assert_eq!(
         errors,
         [
-            SeriesError::Overlap { first_item: 400 },
-            SeriesError::ChunkTicks { first_item: 600 }
+            SeriesError::Overlap {
+                first_item: ItemNum::new(400)
+            },
+            SeriesError::ChunkTicks {
+                first_item: ItemNum::new(600)
+            }
         ]
     );
 }
@@ -478,19 +497,37 @@ fn a_phase_shift_under_a_period_is_not_a_gap() {
     let p = period();
     let g = SeriesGrid::start(0, 0, micro());
     // H earlier than G by 7 ticks: H is refused, G again joins the first G
-    let h = SeriesGrid::start(10, g.tick(p, 10).unwrap() - 7, micro());
+    let h = SeriesGrid::start(10, g.tick(p, ItemNum::new(10)).unwrap() - 7, micro());
     let heads = [head_on(g, 0, 10), head_on(h, 10, 10), head_on(g, 20, 10)];
     let (t, errors) = SeriesTimeline::from_chunks(p, &heads);
-    assert_eq!(errors, [SeriesError::GridTooClose { first_item: 10 }]);
+    assert_eq!(
+        errors,
+        [SeriesError::GridTooClose {
+            first_item: ItemNum::new(10)
+        }]
+    );
     assert_eq!(t.stretches().len(), 2);
-    assert_eq!(t.tick(15), g.tick(p, 15), "a lost sample on G");
+    assert_eq!(
+        t.tick(ItemNum::new(15)),
+        g.tick(p, ItemNum::new(15)),
+        "a lost sample on G"
+    );
     // H later by 7 ticks is a gap of 7 ticks; G again is then less than a period after H, refused
-    let h = SeriesGrid::start(10, g.tick(p, 10).unwrap() + 7, micro());
+    let h = SeriesGrid::start(10, g.tick(p, ItemNum::new(10)).unwrap() + 7, micro());
     let heads = [head_on(g, 0, 10), head_on(h, 10, 10), head_on(g, 20, 10)];
     let (t, errors) = SeriesTimeline::from_chunks(p, &heads);
-    assert_eq!(errors, [SeriesError::GridTooClose { first_item: 20 }]);
+    assert_eq!(
+        errors,
+        [SeriesError::GridTooClose {
+            first_item: ItemNum::new(20)
+        }]
+    );
     assert!(t.gap_before(1));
-    assert_eq!(t.tick(25), None, "past the last chunk, no grid");
+    assert_eq!(
+        t.tick(ItemNum::new(25)),
+        None,
+        "past the last chunk, no grid"
+    );
 }
 
 /// 100 000 heads given in descending order build the timeline in one pass after a sort, the same as in order.
@@ -516,12 +553,16 @@ fn chunk_heads_are_checked_against_the_grid() {
     head.last_tick += 1;
     assert_eq!(
         SeriesGrid::of_chunk(&head, p),
-        Err(SeriesError::ChunkTicks { first_item: 0 })
+        Err(SeriesError::ChunkTicks {
+            first_item: ItemNum::new(0)
+        })
     );
     head.kind = BlockKind::Events;
     assert_eq!(
         SeriesGrid::of_chunk(&head, p),
-        Err(SeriesError::NotSeriesChunk { first_item: 0 })
+        Err(SeriesError::NotSeriesChunk {
+            first_item: ItemNum::new(0)
+        })
     );
 }
 

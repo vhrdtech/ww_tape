@@ -17,6 +17,8 @@
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
+use ww_tape::ItemNum;
+
 use core::f64::consts::PI;
 use ww_tape::TrackNum;
 
@@ -220,12 +222,12 @@ impl Rf {
         bytes.truncate(len);
         let count = u32::try_from(count).map_err(|_e| RfError::Settings("a chunk too long"))?;
         let grid: SeriesGrid = def.first_grid(0);
-        let (first_tick, last_tick) = grid.chunk_ticks(def.period, first, count)?;
+        let (first_tick, last_tick) = grid.chunk_ticks(def.period, ItemNum::new(first), count)?;
         let head = ChunkHead {
             kind: BlockKind::Series,
             track_id: iq_key().id(),
             track_number: iq,
-            first_item: first,
+            first_item: ItemNum::new(first),
             count,
             first_tick,
             last_tick,
@@ -255,7 +257,7 @@ impl Rf {
             track_id: iq_key().id(),
             track_number: iq,
             shape: iq_shape(),
-            first_item: 0,
+            first_item: ItemNum::new(0),
             grid: def.first_grid(0),
             period: def.period,
         };

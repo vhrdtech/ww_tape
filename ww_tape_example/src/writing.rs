@@ -323,7 +323,7 @@ fn calls_and_columns(recording: &Recording, acts: &[Act]) -> Result<(Calls, Colu
             Act::Chunk { head, columns } => {
                 calls.sample_chunks += 1;
                 c.samples += u64::from(head.count);
-                let values = phase_values(&drive, head.first_item, u64::from(head.count));
+                let values = phase_values(&drive, head.first_item.get(), u64::from(head.count));
                 for ((_, codec), sum) in codecs.iter().zip(&mut codec_bytes) {
                     // the recorder's own codec: its column as it was handed over, not encoded again
                     *sum += match columns.iter().find(|(spec, _)| spec.codec == *codec) {

@@ -105,7 +105,7 @@ fn frames(on: Numbers, k: u64) -> (ChunkHead, Vec<u8>) {
         kind: BlockKind::Events,
         track_id: ww_tape::track_key(0xf1, &[ww_tape::Segment::Index(FRAMES)]).id(),
         track_number: on.frames,
-        first_item: first,
+        first_item: ww_tape::ItemNum::new(first),
         count: 96,
         first_tick: tick(0),
         last_tick: tick(95),

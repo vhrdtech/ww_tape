@@ -1,5 +1,6 @@
 use super::*;
 use crate::ClockNum;
+use crate::ItemNum;
 use crate::tests::id;
 use crate::{
     Block, BlockError, BlockId, BlockWriter, ClockTime, FileBlocks, FileError, Layout, Recovery,
@@ -31,7 +32,7 @@ fn events(first_item: u64, n: u32) -> (ChunkHead, Vec<Vec<u8>>) {
         kind: BlockKind::Events,
         track_id: TrackId::new(0x1122_3344_5566_7788),
         track_number: TrackNum::new(4),
-        first_item,
+        first_item: ItemNum::new(first_item),
         count: n,
         first_tick: starts[0],
         last_tick: *starts.last().unwrap(),
@@ -64,7 +65,7 @@ fn series(first: u64, n: u32) -> (ChunkHead, Vec<Vec<u8>>) {
         kind: BlockKind::Series,
         track_id: TrackId::new(0xabcd),
         track_number: TrackNum::new(7),
-        first_item: first,
+        first_item: ItemNum::new(first),
         count: n,
         first_tick: first as i64 * 20,
         last_tick: (first + u64::from(n) - 1) as i64 * 20,
@@ -232,7 +233,7 @@ fn chunk_heads_are_checked_on_write() {
     ));
     assert!(bad(
         ChunkHead {
-            first_item: u64::MAX,
+            first_item: ItemNum::new(u64::MAX),
             ..head
         },
         &columns

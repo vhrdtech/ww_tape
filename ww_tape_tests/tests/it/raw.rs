@@ -118,7 +118,9 @@ fn write(def: &TrackDef<'static>) -> (Vec<u8>, usize) {
     let starts: Vec<i64> = (10..10 + items.len() as i64).collect();
     let times = EncodedTimes::encode(&starts, None, None).unwrap();
     let payloads = EncodedPayloads::encode(items.iter().map(Vec::as_slice)).unwrap();
-    let head = times.head.chunk_head(def.id(), def.number, 0);
+    let head = times
+        .head
+        .chunk_head(def.id(), def.number, ww_tape::ItemNum::new(0));
     let columns: Vec<_> = times.columns().chain(payloads.columns()).collect();
     w.write_chunk(&defs, &head, &columns).unwrap();
     w.close().unwrap();

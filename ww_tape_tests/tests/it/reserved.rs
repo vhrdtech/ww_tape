@@ -76,7 +76,7 @@ fn hash_of<S: ww_tape::reader::ByteSource>(r: &TapeReader<S>, t: u64) -> ww_tape
     r.range_hash(
         crate::pieces::chunk_id(t),
         OwnerId::NONE,
-        0..u64::MAX,
+        ww_tape::ItemNum::new(0)..ww_tape::ItemNum::new(u64::MAX),
         TrackHash::START,
     )
     .unwrap()

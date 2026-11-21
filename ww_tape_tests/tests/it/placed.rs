@@ -24,7 +24,7 @@ fn at(offset: u64, len: u32) -> IndexEntry {
         track_id: RECORDS_TRACK_ID,
         number: 0,
         second: 0,
-        first_item: 0,
+        first_item: ww_tape::ItemNum::new(0),
         count: 0,
         first_tick: 0,
         last_tick: 0,

@@ -1,6 +1,8 @@
 //! A series track written and read back with ww_tape alone: its definition, its chunks' grids (a start, an
 //! autorange prefix change, a gap) and its samples, from `Series<Fixed<..>>` batches to chunk columns without a float.
 
+use ww_tape::ItemNum;
+
 use std::path::PathBuf;
 use ww_tape::TrackId;
 use ww_tape::{ClockNum, RecordTrack, TrackNum};
@@ -175,7 +177,9 @@ fn seal(
     let lanes = CHANNELS as usize;
     for part in column.chunks(CHUNK_MAX as usize * lanes) {
         let count = (part.len() / lanes) as u32;
-        let (first_tick, last_tick) = grid.chunk_ticks(period(), *first, count).unwrap();
+        let (first_tick, last_tick) = grid
+            .chunk_ticks(period(), ItemNum::new(*first), count)
+            .unwrap();
         let mut bytes = vec![0u8; max_encoded_len(Codec::DELTA, shape, count as usize).unwrap()];
         let n = encode(Codec::DELTA, shape, part, &mut bytes).unwrap();
         bytes.truncate(n);
@@ -183,7 +187,7 @@ fn seal(
             kind: BlockKind::Series,
             track_id: series_id(),
             track_number: TrackNum::new(TRACK),
-            first_item: *first,
+            first_item: ItemNum::new(*first),
             count,
             first_tick,
             last_tick,
@@ -232,7 +236,7 @@ fn write(path: &std::path::Path) {
             };
             let at = next + column.len() as u64 / u64::from(CHANNELS);
             let new = if gap && b == from {
-                let last = grid.tick(p, at - 1).unwrap();
+                let last = grid.tick(p, ItemNum::new(at - 1)).unwrap();
                 Some(SeriesGrid::start(at, last + GAP, scale))
             } else if scale != grid.scale {
                 Some(grid.rescaled(scale))
@@ -340,21 +344,28 @@ fn series_reads_back_to_samples_ticks_and_scales() {
     let s = t.stretches();
     assert_eq!(s.len(), 3);
     let first = SeriesGrid::start(0, START, micro);
-    assert_eq!((s[0].first_item, s[0].end_item, s[0].grid), (0, 320, first));
     assert_eq!(
-        (s[1].first_item, s[1].end_item, s[1].grid),
+        (s[0].first_item.get(), s[0].end_item.get(), s[0].grid),
+        (0, 320, first)
+    );
+    assert_eq!(
+        (s[1].first_item.get(), s[1].end_item.get(), s[1].grid),
         (320, 480, first.rescaled(milli))
     );
-    let after_gap = first.tick(p, 479).unwrap() + GAP;
+    let after_gap = first.tick(p, ItemNum::new(479)).unwrap() + GAP;
     assert_eq!(s[2].grid, SeriesGrid::start(480, after_gap, micro));
     assert!(!t.gap_before(1) && t.gap_before(2));
 
     let mut index = 0u64;
     for (head, numbers) in &got.chunks {
-        assert_eq!(head.first_item, index, "chunks follow each other");
+        assert_eq!(
+            head.first_item,
+            ItemNum::new(index),
+            "chunks follow each other"
+        );
         // each chunk times and scales its samples alone
         let grid = SeriesGrid::of_chunk(head, p).unwrap();
-        assert_eq!(Some(grid.scale), t.scale(index));
+        assert_eq!(Some(grid.scale), t.scale(ItemNum::new(index)));
         for (k, sample) in numbers.chunks(CHANNELS as usize).enumerate() {
             let i = index + k as u64;
             for (c, n) in sample.iter().enumerate() {
@@ -376,8 +387,8 @@ fn series_reads_back_to_samples_ticks_and_scales() {
                     micro,
                 ),
             };
-            assert_eq!(t.tick(i), Some(grid), "tick of sample {i}");
-            assert_eq!(t.scale(i), Some(scale), "scale of sample {i}");
+            assert_eq!(t.tick(ItemNum::new(i)), Some(grid), "tick of sample {i}");
+            assert_eq!(t.scale(ItemNum::new(i)), Some(scale), "scale of sample {i}");
         }
         index += u64::from(head.count);
     }
@@ -463,7 +474,7 @@ fn series_timeline_reads_chunk_heads_alone() {
     assert_eq!(errors.len(), 1, "{errors:?}");
     let lost = &want.chunks[1].0;
     assert_eq!(timeline.stretch_of(lost.first_item), None);
-    for i in lost.first_item..lost.first_item + u64::from(lost.count) {
+    for i in lost.first_item.items(u64::from(lost.count)) {
         assert_eq!(
             timeline.tick(i),
             want.timeline.tick(i),
@@ -526,12 +537,12 @@ fn writer_refuses_what_a_series_track_does_not_hold() {
     w.set_session(crate::id(0).session).unwrap();
     let defs = series_defs();
     let grid = series_def().first_grid(START);
-    let (first_tick, last_tick) = grid.chunk_ticks(period(), 0, 4).unwrap();
+    let (first_tick, last_tick) = grid.chunk_ticks(period(), ItemNum::new(0), 4).unwrap();
     let head = ChunkHead {
         kind: BlockKind::Series,
         track_id: series_id(),
         track_number: TrackNum::new(TRACK),
-        first_item: 0,
+        first_item: ItemNum::new(0),
         count: 4,
         first_tick,
         last_tick,
@@ -557,9 +568,9 @@ fn writer_refuses_what_a_series_track_does_not_hold() {
         Err(ww_tape::WriteError::Describe(
             ww_tape::DescribeError::Kind {
                 track: TRACK_NUM,
-                error: ww_tape::SeriesError::ChunkTicks { first_item: 0 }
+                error: ww_tape::SeriesError::ChunkTicks { first_item }
             }
-        ))
+        )) if first_item == ItemNum::ZERO
     ));
     // an events chunk on the series track
     let events = ChunkHead {
@@ -613,12 +624,12 @@ fn caller_chunks_are_checked_once() {
     w.set_session(crate::id(0).session).unwrap();
     let defs = series_defs();
     let grid = series_def().first_grid(START);
-    let (first_tick, last_tick) = grid.chunk_ticks(period(), 0, 4).unwrap();
+    let (first_tick, last_tick) = grid.chunk_ticks(period(), ItemNum::new(0), 4).unwrap();
     let head = ChunkHead {
         kind: BlockKind::Series,
         track_id: series_id(),
         track_number: TrackNum::new(TRACK),
-        first_item: 0,
+        first_item: ItemNum::new(0),
         count: 4,
         first_tick,
         last_tick,
@@ -707,12 +718,12 @@ fn writer_refuses_chunks_too_long_without_a_panic() {
         "the scale is longer than a chunk head holds"
     );
     let grid = SeriesGrid::start(0, START, scale);
-    let (first_tick, last_tick) = grid.chunk_ticks(period(), 0, 4).unwrap();
+    let (first_tick, last_tick) = grid.chunk_ticks(period(), ItemNum::new(0), 4).unwrap();
     let head = ChunkHead {
         kind: BlockKind::Series,
         track_id: series_id(),
         track_number: TrackNum::new(TRACK),
-        first_item: 0,
+        first_item: ItemNum::new(0),
         count: 4,
         first_tick,
         last_tick,
@@ -733,9 +744,9 @@ fn writer_refuses_chunks_too_long_without_a_panic() {
         Err(ww_tape::WriteError::Describe(
             ww_tape::DescribeError::Kind {
                 track: TRACK_NUM,
-                error: ww_tape::SeriesError::ScaleTooLong { first_item: 0 }
+                error: ww_tape::SeriesError::ScaleTooLong { first_item }
             }
-        ))
+        )) if first_item == ItemNum::ZERO
     ));
     // a column spec longer than a block, its bytes short: refused, not allocated
     let head = ChunkHead {
@@ -744,7 +755,7 @@ fn writer_refuses_chunks_too_long_without_a_panic() {
     };
     let (first_tick, last_tick) = series_def()
         .first_grid(START)
-        .chunk_ticks(period(), 0, 4)
+        .chunk_ticks(period(), ItemNum::new(0), 4)
         .unwrap();
     let head = ChunkHead {
         first_tick,
@@ -777,7 +788,7 @@ fn summarized(w: &mut TapeWriter<ww_tape_fs::FileSink>, from: u64, to: u64) -> u
         track_id: series_id(),
         track_number: TrackNum::new(TRACK),
         shape,
-        first_item: from,
+        first_item: ItemNum::new(from),
         grid,
         period: period(),
     };
@@ -838,7 +849,7 @@ fn summaries_listed(bytes: &[u8]) -> Listed {
         .unwrap()
         .1
         .iter()
-        .map(|t| (t.track_number.get(), t.chunks, t.first_item, t.items))
+        .map(|t| (t.track_number.get(), t.chunks, t.first_item.get(), t.items))
         .collect();
     let mut buf = vec![];
     let mut listed: Vec<_> = r
@@ -850,7 +861,7 @@ fn summaries_listed(bytes: &[u8]) -> Listed {
             let b = r.read_block(0, &e, &mut buf).unwrap();
             let head = ww_tape_summary::Summary::of_block(&b).unwrap().head();
             assert_eq!((head.level, head.track_id), (e.level, series_id()));
-            (head.first_item, head.level)
+            (head.first_item.get(), head.level)
         })
         .collect();
     listed.sort_unstable();

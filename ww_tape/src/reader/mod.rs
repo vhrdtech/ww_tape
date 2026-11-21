@@ -17,7 +17,7 @@
 //! Index entries of a closed piece are read when asked for: all of them ([TapeReader::entries]) or one track's
 //! ([TapeReader::track_entries]: the final index's head and that track's entries, each checked by its own CRC).
 
-use crate::TrackId;
+use crate::{ItemNum, TrackId};
 use alloc::collections::BTreeMap;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -1714,7 +1714,7 @@ impl<S: ByteSource> TapeReader<S> {
         &self,
         track_id: TrackId,
         owner: OwnerId,
-        items: Range<u64>,
+        items: Range<ItemNum>,
         from: TrackHash,
     ) -> R<RangeHash, S> {
         let mut fold = Fold::new(from);
@@ -1863,7 +1863,7 @@ impl Numbers {
 
 impl RangeHash {
     /// Take in a chunk of unit hash `unit` holding items `first..end`, read from the chunk if `read`.
-    fn fold(&mut self, unit: &UnitHash, first: u64, end: u64, read: bool) {
+    fn fold(&mut self, unit: &UnitHash, first: ItemNum, end: ItemNum, read: bool) {
         self.hash = self.hash.then(unit);
         let (start, stop) = (self.items.start, self.items.end);
         self.items = if self.chunks == 0 {
@@ -1880,8 +1880,8 @@ impl RangeHash {
 #[derive(Copy, Clone)]
 struct Held {
     unit: UnitHash,
-    first: u64,
-    end: u64,
+    first: ItemNum,
+    end: ItemNum,
     read: bool,
 }
 
@@ -1897,7 +1897,7 @@ impl Fold {
         Self {
             out: RangeHash {
                 hash: from,
-                items: 0..0,
+                items: ItemNum::ZERO..ItemNum::ZERO,
                 chunks: 0,
                 read: 0,
                 skipped: 0,
@@ -1911,8 +1911,8 @@ impl Fold {
     fn push<E>(
         &mut self,
         unit: UnitHash,
-        first: u64,
-        end: u64,
+        first: ItemNum,
+        end: ItemNum,
         offset: u64,
         read: bool,
     ) -> Result<(), ReadError<E>> {
@@ -1925,7 +1925,12 @@ impl Fold {
         match self.held {
             // a copy: the same items and the same unit hash; other bytes stating the same items overlap
             Some(h) if h.first == first && h.end == end && h.unit == unit => {}
-            Some(h) if first < h.end => return Err(ReadError::Overlap { offset, end: h.end }),
+            Some(h) if first < h.end => {
+                return Err(ReadError::Overlap {
+                    offset,
+                    end: h.end.get(),
+                });
+            }
             Some(h) => self.out.fold(&h.unit, h.first, h.end, h.read),
             None => {}
         }
@@ -1963,7 +1968,7 @@ pub struct RangeHash {
     pub hash: TrackHash,
     /// The items of the chunks folded: whole chunks, so from the first one's first item to the last one's end; empty
     /// when no chunk holds an item of the range.
-    pub items: Range<u64>,
+    pub items: Range<ItemNum>,
     /// Chunks folded.
     pub chunks: u64,
     /// Chunks of those whose unit hash was read from the chunk, not the index: an entry made by a scan, or a piece

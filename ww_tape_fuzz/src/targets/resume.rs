@@ -12,6 +12,7 @@
 //! piece closed for a file of several), a cut (u16 little endian, modulo the last piece's length + 1), then flips of
 //! three bytes each (an offset, u16 little endian, modulo the cut last piece's length, and the bits to flip).
 use std::sync::OnceLock;
+use ww_tape::ItemNum;
 use ww_tape::{ClockNum, TrackNum};
 
 use shrink_wrap::prelude::{RefVec, UNib32};
@@ -74,7 +75,7 @@ fn chunk(t: u64, number: TrackNum, k: u64) -> (ChunkHead, Vec<u8>) {
         kind: BlockKind::Events,
         track_id: track_key(0xf2, &[Segment::Index(t as u32 + 1)]).id(),
         track_number: number,
-        first_item: first,
+        first_item: ItemNum::new(first),
         count: 16,
         first_tick: first as i64 * 4 + t as i64,
         last_tick: (first + 15) as i64 * 4 + t as i64,
@@ -426,7 +427,12 @@ fn folds_alike(out: &[u8], final_index: Option<u64>) {
     let hash = |b: &[u8]| {
         TapeReader::open(b)
             .ok()?
-            .range_hash(id, OwnerId::NONE, 0..u64::MAX, TrackHash::START)
+            .range_hash(
+                id,
+                OwnerId::NONE,
+                ItemNum::new(0)..ItemNum::new(u64::MAX),
+                TrackHash::START,
+            )
             .ok()
     };
     let Some(indexed) = hash(out) else {

@@ -1,5 +1,7 @@
 //! The running hash of each track ([TrackHash]) and the owner of a track ([TrackDef::owner]), through the public API.
 
+use ww_tape::ItemNum;
+
 use std::collections::BTreeMap;
 use ww_tape::TrackId;
 use ww_tape::{RecordTrack, TrackNum};
@@ -401,8 +403,8 @@ fn tracks_of_one_key_with_two_owners_are_two_tracks() {
     assert_eq!(rows[1].owner, OwnerId(b));
     assert_eq!(rows[0].track_number, TrackNum::new(20));
     assert_eq!(rows[1].track_number, TrackNum::new(21));
-    assert_eq!(rows[0].next_item, 8 * 50);
-    assert_eq!(rows[1].next_item, 8 * 50);
+    assert_eq!(rows[0].next_item, ItemNum::new(8 * 50));
+    assert_eq!(rows[1].next_item, ItemNum::new(8 * 50));
     assert_ne!(rows[0].hash, rows[1].hash);
 
     // alone, as its chunks in both: the first track's chunks are chunk(0, k), the second's chunk(1, k)

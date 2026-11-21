@@ -37,7 +37,9 @@ pub fn payloads(data: &[u8]) -> Vec<u8> {
     let enc = EncodedPayloads::encode(items.iter().map(Vec::as_slice)).expect("valid payloads");
     let cols: Vec<(ColumnSpec, &[u8])> = times.columns().chain(enc.columns()).collect();
     let mut b = build(
-        &times.head.chunk_head(TrackId::new(1), TrackNum::new(1), 0),
+        &times
+            .head
+            .chunk_head(TrackId::new(1), TrackNum::new(1), ww_tape::ItemNum::new(0)),
         &cols,
     );
     // the chunk's columns are in the order written

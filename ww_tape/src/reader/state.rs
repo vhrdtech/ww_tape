@@ -741,7 +741,7 @@ mod tests {
             track_id: STATE_TRACK_ID,
             number: 0,
             second: 0,
-            first_item: 0,
+            first_item: crate::ItemNum::new(0),
             count: 0,
             first_tick: 0,
             last_tick: 0,

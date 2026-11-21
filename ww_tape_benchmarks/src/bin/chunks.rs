@@ -17,6 +17,8 @@
     reason = "a bench reads no file of others: it computes sizes and rates freely, fails by panicking and prints its table"
 )]
 
+use ww_tape::ItemNum;
+
 use clap::Parser;
 use shrink_wrap::prelude::*;
 use std::hint::black_box;
@@ -144,14 +146,14 @@ fn head(track: TrackNum, k: u64, count: u32) -> anyhow::Result<ChunkHead> {
     let grid = SeriesGrid::start(0, 0, Magnitude::ONE);
     let first = k * u64::from(count);
     let (first_tick, last_tick) = grid
-        .chunk_ticks(period(), first, count)
+        .chunk_ticks(period(), ItemNum::new(first), count)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
     Ok(ChunkHead {
         kind: BlockKind::Series,
         // the track's id: its key, it has no dimensions
         track_id: track_key(0xc4, &[Segment::Name("samples")]).id(),
         track_number: track,
-        first_item: first,
+        first_item: ItemNum::new(first),
         count,
         first_tick,
         last_tick,
@@ -383,7 +385,12 @@ fn timeline(
         let from = src.read.get();
         let t = Instant::now();
         let got = r
-            .range_hash(track_id, OwnerId::NONE, 0..u64::MAX, TrackHash::START)
+            .range_hash(
+                track_id,
+                OwnerId::NONE,
+                ItemNum::new(0)..ItemNum::new(u64::MAX),
+                TrackHash::START,
+            )
             .map_err(re)?;
         let ns = t.elapsed().as_nanos() as f64 / c;
         anyhow::ensure!(

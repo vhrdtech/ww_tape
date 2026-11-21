@@ -3,6 +3,8 @@
 //! not); a close's offsets and track ranges; a piece head's tracks and integrity level; a tail's piece length and
 //! close offset.
 
+use ww_tape::ItemNum;
+
 use super::{
     Draw, Field, HEADER_FIELDS, LEN_FIELD, SESSION, crc32c, get, hit, hit_some, seal, span,
 };
@@ -112,7 +114,7 @@ fn entries(d: &mut Draw<'_>, n: usize, sorted: bool) -> Vec<IndexEntry> {
                 track_id: TrackId::new(u64::from(d.u8() % 4)),
                 number: u32::from(d.u8() % 4),
                 second: u32::from(d.u8() % 4),
-                first_item: u64::from(d.u16()),
+                first_item: ItemNum::new(u64::from(d.u16())),
                 count: 1 + u64::from(d.u8()),
                 first_tick: i64::from(d.u16() as i16),
                 last_tick: i64::from(i16::MAX) + i64::from(d.u8()),
@@ -217,7 +219,7 @@ pub(crate) fn close_block(
             track_id: TrackId::new(t as u64 + 1),
             track_number: TrackNum::new(t as u32 + 1),
             chunks: u32::from(d.u8()),
-            first_item: u64::from(d.u16()),
+            first_item: ItemNum::new(u64::from(d.u16())),
             items: u64::from(d.u16()),
             first_tick: i64::from(d.u8()),
             last_tick: 300,
@@ -334,7 +336,7 @@ pub(crate) fn piece_head_block(d: &mut Draw<'_>, id: BlockId) -> Vec<u8> {
         .map(|t| TrackStart {
             track_id: TrackId::new(t as u64 + 1),
             track_number: TrackNum::new(t as u32 + 1),
-            next_item: u64::from(d.u16()),
+            next_item: ItemNum::new(u64::from(d.u16())),
             from_tick: i64::from(d.u16() as i16),
             owner: OwnerId([d.u8(); 32]),
             hash: TrackHash([d.u8(); 32]),

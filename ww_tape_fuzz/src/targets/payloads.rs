@@ -2,6 +2,7 @@
 //! from the input read back exactly and survive, without panic, a flipped bit and input bytes written over their
 //! columns (a good head over a damaged payload, as salvage meets it), every item not marked suspect reading as
 //! written.
+use ww_tape::ItemNum;
 use ww_tape::TrackId;
 use ww_tape::TrackNum;
 use ww_tape::chunk::{chunk_len, write_chunk};
@@ -76,7 +77,9 @@ pub fn payloads(data: &[u8]) {
     let mut buf = vec![
         0u8;
         chunk_len(
-            &times.head.chunk_head(TrackId::new(1), TrackNum::new(1), 0),
+            &times
+                .head
+                .chunk_head(TrackId::new(1), TrackNum::new(1), ItemNum::new(0)),
             &specs,
             0
         )
@@ -84,7 +87,9 @@ pub fn payloads(data: &[u8]) {
     let len = write_chunk(
         &mut buf,
         ww_tape::BlockId::new(ww_tape::SessionTag::writable(1), 1),
-        &times.head.chunk_head(TrackId::new(1), TrackNum::new(1), 0),
+        &times
+            .head
+            .chunk_head(TrackId::new(1), TrackNum::new(1), ItemNum::new(0)),
         &cols,
         0,
     )

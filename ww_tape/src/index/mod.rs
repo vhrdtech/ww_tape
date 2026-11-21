@@ -53,7 +53,6 @@
 //! A final index longer than [INDEX_LEN_MAX] is several final blocks, chained like checkpoints, each holding whole
 //! tracks in ascending track id order.
 
-use crate::TrackId;
 use crate::TrackNum;
 use crate::bytes::{file_u16, file_u32, le_u16, le_u32, le_u64};
 use crate::chunk::u32_len;
@@ -63,6 +62,7 @@ use crate::{
     Block, BlockError, BlockId, BlockKind, BoundError, CRC, CRC_LEN, ChunkHead, HEADER_LEN,
     MAX_BLOCK_LEN, VERSION, put_header,
 };
+use crate::{ItemNum, TrackId};
 
 /// Bytes of one index entry.
 pub const ENTRY_LEN: usize = 120;
@@ -155,7 +155,7 @@ pub struct IndexEntry {
     /// A state record's second number ([IndexEntry::state]), else 0.
     pub second: u32,
     /// First item number (sample index) the block holds or covers.
-    pub first_item: u64,
+    pub first_item: ItemNum,
     /// Items (samples) the block holds or covers; records of a record block.
     pub count: u64,
     pub first_tick: i64,
@@ -233,7 +233,7 @@ impl IndexEntry {
             track_id: STATE_TRACK_ID,
             number,
             second,
-            first_item: 0,
+            first_item: ItemNum::new(0),
             count: 0,
             first_tick: a,
             last_tick: b,
@@ -292,7 +292,7 @@ impl IndexEntry {
             track_id: RECORDS_TRACK_ID,
             number: 0,
             second: 0,
-            first_item: 0,
+            first_item: ItemNum::new(0),
             count: u64::from(block.record_count),
             first_tick: 0,
             last_tick: 0,
@@ -390,7 +390,7 @@ impl IndexEntry {
     }
 
     /// Item numbers past the last one the block holds.
-    pub fn end_item(&self) -> u64 {
+    pub fn end_item(&self) -> ItemNum {
         self.first_item.saturating_add(self.count)
     }
 
@@ -412,7 +412,7 @@ impl IndexEntry {
             .chain(self.track_id.get().to_le_bytes())
             .chain(self.number.to_le_bytes())
             .chain(self.second.to_le_bytes())
-            .chain(self.first_item.to_le_bytes())
+            .chain(self.first_item.get().to_le_bytes())
             .chain(self.count.to_le_bytes())
             .chain(self.first_tick.to_le_bytes())
             .chain(self.last_tick.to_le_bytes())
@@ -476,7 +476,7 @@ impl IndexEntry {
             track_id: TrackId::new(u64::from_le_bytes([t0, t1, t2, t3, t4, t5, t6, t7])),
             number: u32::from_le_bytes([n0, n1, n2, n3]),
             second: u32::from_le_bytes([r0, r1, r2, r3]),
-            first_item: u64::from_le_bytes([i0, i1, i2, i3, i4, i5, i6, i7]),
+            first_item: ItemNum::new(u64::from_le_bytes([i0, i1, i2, i3, i4, i5, i6, i7])),
             count: u64::from_le_bytes([c0, c1, c2, c3, c4, c5, c6, c7]),
             first_tick: i64::from_le_bytes([f0, f1, f2, f3, f4, f5, f6, f7]),
             last_tick: i64::from_le_bytes([s0, s1, s2, s3, s4, s5, s6, s7]),

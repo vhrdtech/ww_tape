@@ -77,7 +77,7 @@
 //! Summary blocks are small (a few KiB) and rebuilt from the data when lost. In an aligned file the writer places them
 //! in the gap before the next aligned chunk payload ([TapeWriter::defer_block](crate::TapeWriter::defer_block)).
 
-use crate::TrackId;
+use crate::{ItemNum, TrackId};
 use exact_units::Magnitude;
 use shrink_wrap::prelude::*;
 
@@ -219,7 +219,7 @@ pub struct SummaryHead {
     /// What the block stores per node.
     pub layout: Layout,
     /// The first item the block covers.
-    pub first_item: u64,
+    pub first_item: ItemNum,
     /// Items the block covers, 1 and up.
     pub items: u64,
     /// The first covered item's start.
@@ -252,7 +252,7 @@ pub enum Layout {
 impl SummaryHead {
     /// Number of the first node: the node holding [Self::first_item].
     pub fn first_node(&self) -> u64 {
-        shr(self.first_item, self.node_shift)
+        shr(self.first_item.get(), self.node_shift)
     }
 
     /// Nodes in the block, 1 and up; 0 for a head the format refuses (no items, or items past u64).
@@ -260,7 +260,7 @@ impl SummaryHead {
         self.items
             .checked_sub(1)
             .and_then(|k| self.first_item.checked_add(k))
-            .and_then(|last| shr(last, self.node_shift).checked_sub(self.first_node()))
+            .and_then(|last| shr(last.get(), self.node_shift).checked_sub(self.first_node()))
             .and_then(|k| k.checked_add(1))
             .unwrap_or(0)
     }
@@ -269,7 +269,7 @@ impl SummaryHead {
     /// partial node at either end; None when `i` is not below [Self::node_count].
     pub fn node_items(&self, i: u64) -> Option<(u64, u64)> {
         let n = self.first_node().checked_add(i)?;
-        node_span(n, self.node_shift, self.first_item, self.items)
+        node_span(n, self.node_shift, self.first_item.get(), self.items)
     }
 
     /// Bytes of one node in the body; None past a usize.
@@ -365,7 +365,7 @@ impl SummaryHead {
             level: file_u8(b, 45).ok_or(short)?.bounded(LEVEL_MAX)?,
             node_shift: file_u8(b, 46).ok_or(short)?.bounded(NODE_SHIFT_MAX)?,
             layout,
-            first_item,
+            first_item: ItemNum::new(first_item),
             // items past u64::MAX - first_item would number past u64
             items: file_u64(b, 64).ok_or(short)?.bounded(!first_item)?,
             first_tick: le_i64(b, 72).ok_or(short)?,
@@ -614,7 +614,7 @@ impl<'b> SummaryWriter<'b> {
             bytes::put_u16(buf, 48, fields),
             bytes::put_u16(buf, 50, channels),
             bytes::put_u16(buf, 52, scale_len),
-            bytes::put_u64(buf, 56, head.first_item),
+            bytes::put_u64(buf, 56, head.first_item.get()),
             bytes::put_u64(buf, 64, head.items),
             bytes::put_i64(buf, 72, head.first_tick),
             bytes::put_i64(buf, 80, head.last_tick),

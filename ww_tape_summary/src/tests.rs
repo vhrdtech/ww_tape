@@ -1,5 +1,6 @@
 use std::{collections::BTreeMap, ops::Range};
 use ww_tape::ClockNum;
+use ww_tape::ItemNum;
 use ww_tape::{TrackId, TrackNum};
 
 use super::*;
@@ -143,7 +144,12 @@ fn naive_event(items: &[(i64, i64, u32)], fields: EventFields) -> EventNode {
 /// Build the tree of `items` (item numbers from `origin`), check every level against the naive model and that each
 /// parent is its children merged; returns the blocks.
 fn check_events(items: &Items, origin: u64, fields: EventFields, runs: bool) -> Vec<Vec<u8>> {
-    let mut tree = EventTree::new(TrackId::new(0x1234), TrackNum::new(3), fields, origin);
+    let mut tree = EventTree::new(
+        TrackId::new(0x1234),
+        TrackNum::new(3),
+        fields,
+        ItemNum::new(origin),
+    );
     if runs {
         // the same items as runs that stop at level-0 node edges and every 128 items
         let mut i = 0usize;
@@ -253,7 +259,7 @@ fn event_tree_refuses_bad_input() {
         flags: false,
         latest_end: false,
     };
-    let mut t = EventTree::new(TrackId::new(1), TrackNum::new(1), f, 0);
+    let mut t = EventTree::new(TrackId::new(1), TrackNum::new(1), f, ItemNum::new(0));
     t.push(10, 10, 0).unwrap();
     assert!(t.push(9, 9, 0).is_err(), "out of order");
     assert!(t.push(11, 12, 0).is_err(), "a span in a tree of instants");
@@ -281,7 +287,7 @@ fn overview_of_a_billion_items_reads_a_level() {
         flags: true,
         latest_end: false,
     };
-    let mut tree = EventTree::new(TrackId::new(9), TrackNum::new(1), fields, 0);
+    let mut tree = EventTree::new(TrackId::new(9), TrackNum::new(1), fields, ItemNum::new(0));
     let mut item = 0u64;
     let mut bytes = BTreeMap::<u8, (usize, u64)>::new();
     let mut tally = |blocks: Vec<Vec<u8>>| {
@@ -337,7 +343,7 @@ fn series_blocks<T: Scalar>(
         track_id: TrackId::new(77),
         track_number: TrackNum::new(2),
         shape,
-        first_item,
+        first_item: ItemNum::new(first_item),
         grid: SeriesGrid::start(first_item, 1000, Magnitude::ONE),
         period: Ratio64::new(62_500, 3).unwrap(),
     };
@@ -722,7 +728,7 @@ fn series_refuses_partial_frames() {
         track_id: TrackId::new(1),
         track_number: TrackNum::new(1),
         shape,
-        first_item: 0,
+        first_item: ItemNum::new(0),
         grid: SeriesGrid::start(0, 0, Magnitude::ONE),
         period: Ratio64::ONE,
     };
@@ -742,7 +748,7 @@ fn series_refuses_bad_specs() {
         track_id: TrackId::new(1),
         track_number: TrackNum::new(1),
         shape,
-        first_item: 0,
+        first_item: ItemNum::new(0),
         grid: SeriesGrid::start(0, 0, Magnitude::ONE),
         period: Ratio64::ONE,
     };
@@ -792,7 +798,7 @@ fn heads_read_back_and_bad_heads_are_refused() {
             flags: true,
             latest_end: true,
         },
-        100,
+        ItemNum::new(100),
     );
     for i in 0..5000i64 {
         t.push(i * 10, i * 10 + 25, (i % 3) as u32).unwrap();
@@ -812,7 +818,7 @@ fn heads_read_back_and_bad_heads_are_refused() {
         (5, TrackNum::new(6), Tree::Events, 0, 11)
     );
     assert_eq!(
-        (h.first_item, h.items, h.first_node(), h.node_count()),
+        (h.first_item.get(), h.items, h.first_node(), h.node_count()),
         (100, 5000, 0, 3)
     );
     assert_eq!(
@@ -864,7 +870,7 @@ fn event_tree_at_the_top_of_the_item_numbers() {
         TrackId::new(1),
         TrackNum::new(1),
         EventFields::default(),
-        first,
+        ItemNum::new(first),
     );
     for i in 0..50 {
         t.push(i, i, 0).unwrap();
@@ -874,7 +880,7 @@ fn event_tree_at_the_top_of_the_item_numbers() {
     assert!(!blocks.is_empty());
     for b in &blocks {
         let h = Summary::read(b).unwrap().head();
-        assert_eq!((h.first_item, h.items), (first, 50));
+        assert_eq!((h.first_item.get(), h.items), (first, 50));
     }
 }
 
@@ -896,7 +902,7 @@ fn series_head_caps() {
         track_id: TrackId::new(7),
         track_number: TrackNum::new(1),
         shape: SampleShape::scalar(ed(Element::I16)),
-        first_item: 0,
+        first_item: ItemNum::new(0),
         grid: SeriesGrid::start(0, 0, Magnitude::pow10(-3)),
         period: Ratio64::int(1000).unwrap(),
     };
@@ -996,7 +1002,7 @@ fn summaries_fill_alignment_gaps() {
             track_id: series_track_id(),
             track_number: track,
             shape,
-            first_item: 0,
+            first_item: ItemNum::new(0),
             grid: SeriesGrid::start(0, 0, Magnitude::pow10(-3)),
             period: Ratio64::int(1000).unwrap(),
         };
@@ -1018,7 +1024,7 @@ fn summaries_fill_alignment_gaps() {
                 kind: BlockKind::Series,
                 track_id: series_track_id(),
                 track_number: track,
-                first_item: first,
+                first_item: ItemNum::new(first),
                 count: chunk as u32,
                 first_tick: first as i64 * 1000,
                 last_tick: (first as i64 + chunk as i64 - 1) * 1000,
@@ -1104,7 +1110,7 @@ fn summary_golden() {
                 flags: true,
                 latest_end: true,
             },
-            2000,
+            ItemNum::new(2000),
         );
         t.set_max_block_bytes(exact_units::Bytes::new(256));
         for i in 0..2200i64 {
@@ -1118,7 +1124,7 @@ fn summary_golden() {
             track_id: TrackId::new(0x5e),
             track_number: TrackNum::new(3),
             shape,
-            first_item: 30,
+            first_item: ItemNum::new(30),
             grid: SeriesGrid::start(30, -100, Magnitude::pow10(-3)),
             period: Ratio64::new(62_500, 3).unwrap(),
         };
@@ -1303,7 +1309,7 @@ impl PrefixSeries {
         for b in blocks {
             let sm = Summary::of_block(&Block::read(b).unwrap()).unwrap();
             let h = sm.head();
-            let want = self.scale_of[self.frames(h.first_item, h.items)]
+            let want = self.scale_of[self.frames(h.first_item.get(), h.items)]
                 .iter()
                 .copied()
                 .reduce(|a, b| common_scale(a, b).unwrap())
@@ -1468,7 +1474,7 @@ fn series_prefix_changes_match_naive_model_in_the_unit() {
             track_id: TrackId::new(9),
             track_number: TrackNum::new(1),
             shape,
-            first_item,
+            first_item: ItemNum::new(first_item),
             grid: first,
             period: Ratio64::new(62_500, 3).unwrap(),
         };
@@ -1478,7 +1484,10 @@ fn series_prefix_changes_match_naive_model_in_the_unit() {
         s.set_max_block_bytes(exact_units::Bytes::new(600));
         let blocks = series.push_all(&mut s, first, &at, &scales, &mut rng);
         for (i, scale) in series.scale_of.iter().enumerate() {
-            assert_eq!(s.timeline().scale(first_item + i as u64), Some(*scale));
+            assert_eq!(
+                s.timeline().scale(ItemNum::new(first_item + i as u64)),
+                Some(*scale)
+            );
         }
         let got = scaled_nodes(&blocks);
         let mixed = got.values().filter(|v| !scales.contains(&v.2)).count();
@@ -1506,7 +1515,7 @@ fn series_scale_changes_refused() {
         track_id: TrackId::new(1),
         track_number: TrackNum::new(1),
         shape: SampleShape::scalar(ed(Element::I64)),
-        first_item: 0,
+        first_item: ItemNum::new(0),
         grid: first,
         period: Ratio64::ONE,
     };
@@ -1521,9 +1530,7 @@ fn series_scale_changes_refused() {
     assert!(
         matches!(
             s.set_grid(SeriesGrid::start(3, 2, Magnitude::ONE)),
-            Err(BuildError::Series(SeriesError::GridTooClose {
-                first_item: 3
-            }))
+            Err(BuildError::Series(SeriesError::GridTooClose { first_item })) if first_item == ItemNum::new(3)
         ),
         "a new grid not after the last sample"
     );
@@ -1563,7 +1570,7 @@ fn series_block_scale_is_checked() {
             track_id: TrackId::new(1),
             track_number: TrackNum::new(1),
             shape,
-            first_item: 0,
+            first_item: ItemNum::new(0),
             grid: first,
             period: Ratio64::ONE,
         },
@@ -1621,7 +1628,7 @@ fn series_cut_into_pieces_keeps_node_ticks() {
             track_id: TrackId::new(77),
             track_number: TrackNum::new(2),
             shape,
-            first_item: from as u64,
+            first_item: ItemNum::new(from as u64),
             grid: segment,
             period,
         };
@@ -1632,12 +1639,12 @@ fn series_cut_into_pieces_keeps_node_ticks() {
         s.finish().unwrap();
         s.take_blocks()
     };
-    let tick = |item: u64| segment.tick(period, item).unwrap();
+    let tick = |item: u64| segment.tick(period, ItemNum::new(item)).unwrap();
     let ticks_on_grid = |blocks: &[Vec<u8>]| {
         for b in blocks {
             let h = Summary::of_block(&Block::read(b).unwrap()).unwrap().head();
-            assert_eq!(h.first_tick, tick(h.first_item), "{h:?}");
-            assert_eq!(h.last_tick, tick(h.first_item + h.items - 1), "{h:?}");
+            assert_eq!(h.first_tick, tick(h.first_item.get()), "{h:?}");
+            assert_eq!(h.last_tick, tick(h.first_item.get() + h.items - 1), "{h:?}");
         }
     };
     let whole = summarise(0, data.len());
@@ -1690,7 +1697,7 @@ fn start_of(element: ElementDesc, channels: u32) -> SeriesStart {
         track_id: TrackId::new(1),
         track_number: TrackNum::new(1),
         shape: SampleShape::new(element, channels),
-        first_item: 0,
+        first_item: ItemNum::new(0),
         grid: SeriesGrid::start(0, 0, Magnitude::pow10(-3)),
         period: Ratio64::int(1000).unwrap(),
     }
@@ -1825,7 +1832,12 @@ fn series_refuses_elements_without_summaries() {
 /// [Summary::read] takes only a summary block: the bytes of a good block of another kind are refused by their kind.
 #[test]
 fn summary_read_refuses_another_kind() {
-    let mut t = EventTree::new(TrackId::new(1), TrackNum::new(1), EventFields::default(), 0);
+    let mut t = EventTree::new(
+        TrackId::new(1),
+        TrackNum::new(1),
+        EventFields::default(),
+        ItemNum::new(0),
+    );
     for i in 0..100 {
         t.push(i, i, 0).unwrap();
     }

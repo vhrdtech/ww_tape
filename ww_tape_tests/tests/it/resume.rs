@@ -1,5 +1,7 @@
 //! Resume after a crash, memory sinks and PieceChain on any sink, through the public API.
 
+use ww_tape::ItemNum;
+
 use std::collections::BTreeMap;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
@@ -103,9 +105,11 @@ fn ranged_chunk(k: u64) -> (ChunkHead, Vec<(ColumnSpec, Vec<u8>)>) {
     let (s, b) = source.column();
     cols.push((s, b.to_vec()));
     (
-        times
-            .head
-            .chunk_head(crate::definitions::track_id(13), TrackNum::new(13), k * 20),
+        times.head.chunk_head(
+            crate::definitions::track_id(13),
+            TrackNum::new(13),
+            ItemNum::new(k * 20),
+        ),
         cols,
     )
 }
@@ -2007,7 +2011,7 @@ fn a_piece_of_another_integrity_level_is_refused_everywhere() {
                 r.range_hash(
                     TrackId::new(1),
                     OwnerId::NONE,
-                    0..u64::MAX,
+                    ItemNum::new(0)..ItemNum::new(u64::MAX),
                     ww_tape::TrackHash::START
                 )
                 .map(|_| ())

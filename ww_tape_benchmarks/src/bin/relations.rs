@@ -14,6 +14,8 @@
     reason = "a bench reads no file of others: it computes sizes and rates freely, fails by panicking and prints its table"
 )]
 
+use ww_tape::ItemNum;
+
 use clap::Parser;
 use shrink_wrap::prelude::*;
 use std::time::Instant;
@@ -161,7 +163,9 @@ fn main() -> anyhow::Result<()> {
         let mut cols: Vec<_> = times.columns().collect();
         cols.push(enc.column());
         let specs: Vec<_> = cols.iter().map(|c| c.0).collect();
-        let head = times.head.chunk_head(TrackId::new(1), TrackNum::new(1), 0);
+        let head = times
+            .head
+            .chunk_head(TrackId::new(1), TrackNum::new(1), ItemNum::new(0));
         let mut buf = vec![0u8; ww_tape::chunk::chunk_len(&head, &specs, 0)];
         let id = ww_tape::BlockId::new(ww_tape::SessionTag::writable(1), 1);
         let len = ww_tape::chunk::write_chunk(&mut buf, id, &head, &cols, 0)
@@ -242,7 +246,9 @@ fn main() -> anyhow::Result<()> {
             let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
             let t = Instant::now();
             for (k, source) in (0..u64::from(args.chunks)).zip(&sources) {
-                let head = times.head.chunk_head(id, number, k * N as u64);
+                let head = times
+                    .head
+                    .chunk_head(id, number, ItemNum::new(k * N as u64));
                 let mut cols: Vec<_> = times.columns().collect();
                 if with {
                     cols.extend([source.column(), key.column()]);

@@ -1,5 +1,7 @@
 //! Index, close, tail, piece chains and the positional reader, through the public API.
 
+use ww_tape::ItemNum;
+
 use std::path::{Path, PathBuf};
 use ww_tape::TrackId;
 use ww_tape::index::RECORDS_TRACK_ID;
@@ -51,7 +53,7 @@ pub(crate) fn chunk(t: u64, k: u64) -> (ChunkHead, Vec<u8>) {
         kind: BlockKind::Events,
         track_id: chunk_id(t),
         track_number: TrackNum::new(t as u32 + 1),
-        first_item: first,
+        first_item: ItemNum::new(first),
         count: 50,
         first_tick: first as i64 * 10 + t as i64,
         last_tick: (first + 49) as i64 * 10 + t as i64,
@@ -233,7 +235,7 @@ fn close_rows_count_every_track(ranges: &[ww_tape::piece::TrackRange], done: &ww
         .find(|t| t.track_number == TrackNum::new(2))
         .unwrap();
     assert_eq!(
-        (t1.track_id, t1.chunks, t1.first_item, t1.items),
+        (t1.track_id, t1.chunks, t1.first_item.get(), t1.items),
         (chunk_id(1), 20, 0, 1000)
     );
 }
@@ -258,7 +260,7 @@ fn index_lists_every_block(r: &TapeReader<&[u8]>, bytes: &[u8]) -> Vec<ww_tape::
     assert!(t1.windows(2).all(|w| w[0].end_item() == w[1].first_item));
     let mut buf = vec![];
     let b = r.read_block(0, &t1[3], &mut buf).unwrap();
-    assert_eq!(b.chunk().unwrap().head().first_item, 150);
+    assert_eq!(b.chunk().unwrap().head().first_item, ItemNum::new(150));
     let rec = r.track_entries(0, RECORDS_TRACK_ID).unwrap();
     assert_eq!(
         rec.iter().filter(|e| e.kind == BlockKind::Records).count(),
@@ -1007,7 +1009,7 @@ fn big_chunk(k: u64) -> (ChunkHead, Vec<u8>) {
         kind: BlockKind::Events,
         track_id: chunk_id(0),
         track_number: TrackNum::new(1),
-        first_item: first,
+        first_item: ItemNum::new(first),
         count: n as u32,
         first_tick: first as i64,
         last_tick: (first + n - 1) as i64,

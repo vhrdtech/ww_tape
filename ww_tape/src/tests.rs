@@ -1,4 +1,5 @@
 use super::*;
+use crate::ItemNum;
 use shrink_wrap::prelude::*;
 
 /// The session of blocks made by the tests.
@@ -1698,7 +1699,9 @@ fn a_chunk_with_its_payload_unchecked_is_refused_as_a_level() {
     let enc = crate::times::EncodedTimes::encode(&starts, None, None).unwrap();
     let cols: std::vec::Vec<_> = enc.columns().collect();
     let specs: std::vec::Vec<crate::ColumnSpec> = cols.iter().map(|c| c.0).collect();
-    let head = enc.head.chunk_head(TrackId::new(9), TrackNum::new(1), 0);
+    let head = enc
+        .head
+        .chunk_head(TrackId::new(9), TrackNum::new(1), ItemNum::new(0));
     let mut buf = std::vec![0u8; crate::chunk::chunk_len(&head, &specs, 0)];
     let n = crate::chunk::write_chunk(&mut buf, id(1), &head, &cols, 0).unwrap();
     buf.truncate(n);
@@ -1735,7 +1738,9 @@ fn a_walk_steps_over_a_chunk_with_its_payload_unchecked() {
     let enc = crate::times::EncodedTimes::encode(&[1i64, 2, 3], None, None).unwrap();
     let cols: std::vec::Vec<_> = enc.columns().collect();
     let specs: std::vec::Vec<crate::ColumnSpec> = cols.iter().map(|c| c.0).collect();
-    let head = enc.head.chunk_head(TrackId::new(9), TrackNum::new(1), 0);
+    let head = enc
+        .head
+        .chunk_head(TrackId::new(9), TrackNum::new(1), ItemNum::new(0));
     let mut chunk = std::vec![0u8; crate::chunk::chunk_len(&head, &specs, 0)];
     let n = crate::chunk::write_chunk(&mut chunk, id(3), &head, &cols, 0).unwrap();
     chunk.truncate(n);
@@ -1855,7 +1860,7 @@ fn a_piece_head_carries_at_most_its_track_limit() {
     let carried = |n: u32| TrackStart {
         track_id: ids[&n],
         track_number: TrackNum::new(n),
-        next_item: 0,
+        next_item: ItemNum::new(0),
         from_tick: i64::MIN,
         owner: crate::OwnerId::NONE,
         hash: TrackHash::START,
@@ -1897,7 +1902,7 @@ fn chunk_on(number: u32, id: TrackId) -> (ChunkHead, (ColumnSpec, Vec<u8>)) {
         kind: BlockKind::Events,
         track_id: id,
         track_number: TrackNum::new(number),
-        first_item: 0,
+        first_item: ItemNum::new(0),
         count: 2,
         first_tick: 10,
         last_tick: 20,

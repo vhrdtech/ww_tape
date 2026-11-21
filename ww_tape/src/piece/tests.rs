@@ -1,4 +1,5 @@
 use super::*;
+use crate::ItemNum;
 use crate::tests::id;
 
 fn ident(seq: u64) -> PieceIdent {
@@ -21,7 +22,7 @@ fn piece_head_round_trip() {
         TrackStart {
             track_id: TrackId::new(11),
             track_number: TrackNum::new(1),
-            next_item: 8192,
+            next_item: ItemNum::new(8192),
             from_tick: -5,
             owner: OwnerId([4; 32]),
             hash: TrackHash([5; 32]),
@@ -31,7 +32,7 @@ fn piece_head_round_trip() {
         TrackStart {
             track_id: TrackId::new(12),
             track_number: TrackNum::new(2),
-            next_item: 0,
+            next_item: ItemNum::new(0),
             from_tick: i64::MIN,
             owner: OwnerId::NONE,
             hash: TrackHash::START,
@@ -92,7 +93,7 @@ fn close_and_tail_round_trip() {
         track_id: TrackId::new(11),
         track_number: TrackNum::new(1),
         chunks: 2,
-        first_item: 8192,
+        first_item: ItemNum::new(8192),
         items: 8000,
         first_tick: 100,
         last_tick: 900,
@@ -111,7 +112,7 @@ fn close_and_tail_round_trip() {
         assert_eq!(f.close(), close);
         assert_eq!(f.tracks().collect::<Vec<_>>(), tracks);
     }
-    assert_eq!(tracks[0].end_item(), 16192);
+    assert_eq!(tracks[0].end_item(), ItemNum::new(16192));
     assert!(write_close(&mut buf, id(77), &close, (&tracks, &[]), 4096).is_err());
 
     let plain = Close {
@@ -503,7 +504,7 @@ fn removed_pieces_round_trip_in_the_close() {
         track_id: TrackId::new(1),
         track_number: TrackNum::new(1),
         chunks: 0,
-        first_item: 0,
+        first_item: ItemNum::new(0),
         items: 0,
         first_tick: 0,
         last_tick: 0,

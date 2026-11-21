@@ -88,7 +88,7 @@ pub fn chunk(data: &[u8]) {
         },
         track_id: TrackId::new(7),
         track_number: TrackNum::new(1),
-        first_item: 0,
+        first_item: ww_tape::ItemNum::new(0),
         count: 1,
         first_tick: 0,
         last_tick: 0,

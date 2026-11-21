@@ -1,5 +1,6 @@
 use super::*;
 use crate::ClockNum;
+use crate::ItemNum;
 use crate::tests::id;
 use crate::{BlockWriter, ClockTime, EndMode};
 
@@ -14,7 +15,7 @@ fn entry(track_id: u64, offset: u64) -> IndexEntry {
         track_id: TrackId::new(track_id),
         number: track_id as u32 + 1,
         second: 0,
-        first_item: offset * 10,
+        first_item: ItemNum::new(offset * 10),
         count: 10,
         first_tick: -(offset as i64),
         last_tick: offset as i64,
@@ -212,7 +213,7 @@ fn entries_of_blocks() {
         kind: BlockKind::Events,
         track_id: TrackId::new(0xfeed),
         track_number: TrackNum::new(2),
-        first_item: 4096,
+        first_item: ItemNum::new(4096),
         count: 3,
         first_tick: 10,
         last_tick: 30,
@@ -238,7 +239,7 @@ fn entries_of_blocks() {
     assert_eq!(
         (
             e.track_id.get(),
-            e.first_item,
+            e.first_item.get(),
             e.count,
             e.first_tick,
             e.last_tick,
@@ -259,7 +260,7 @@ fn entries_of_blocks() {
             flags: false,
             latest_end: true,
         }),
-        first_item: 512,
+        first_item: ItemNum::new(512),
         items: 3000,
         first_tick: -7,
         last_tick: 29_983,
@@ -277,7 +278,7 @@ fn entries_of_blocks() {
     );
     assert_eq!((e.tree, e.level), (1, h.level));
     assert_eq!((e.first_item, e.count), (h.first_item, h.items));
-    assert_eq!(e.first_item, 512);
+    assert_eq!(e.first_item, ItemNum::new(512));
     assert_eq!(e.first_tick, -7);
     assert_eq!(
         (e.first_tick, e.last_tick, e.latest_end),

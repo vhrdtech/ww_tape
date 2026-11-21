@@ -3,6 +3,7 @@
 //! order the input picks, give a timeline whose kept stretches hold its rules, and every tick, scale and grid query
 //! on it answers without panic.
 use shrink_wrap::prelude::*;
+use ww_tape::ItemNum;
 use ww_tape::TrackId;
 use ww_tape::TrackNum;
 use ww_tape::chunk::ChunkHead;
@@ -13,12 +14,14 @@ use ww_tape::{
 
 /// A series chunk head of `count` samples from `first` on `grid`, its ticks the grid's (or 0 where they overflow).
 pub(crate) fn head_on(period: Ratio64, grid: SeriesGrid, first: u64, count: u32) -> ChunkHead {
-    let (first_tick, last_tick) = grid.chunk_ticks(period, first, count).unwrap_or((0, 0));
+    let (first_tick, last_tick) = grid
+        .chunk_ticks(period, ItemNum::new(first), count)
+        .unwrap_or((0, 0));
     ChunkHead {
         kind: BlockKind::Series,
         track_id: TrackId::new(1),
         track_number: TrackNum::new(1),
-        first_item: first,
+        first_item: ItemNum::new(first),
         count,
         first_tick,
         last_tick,
@@ -32,9 +35,14 @@ pub(crate) fn head_on(period: Ratio64, grid: SeriesGrid, first: u64, count: u32)
 /// Ask the timeline everything about samples around `at`.
 pub(crate) fn query(t: &SeriesTimeline, at: u64, count: u32) {
     for i in [0, at, at.wrapping_sub(1), at.saturating_add(1), u64::MAX] {
-        let _ = (t.tick(i), t.scale(i), t.grid_of(i), t.stretch_of(i));
-        if let Some(g) = t.grid_of(i)
-            && let Ok((first, last)) = g.chunk_ticks(t.period(), i, count)
+        let _ = (
+            t.tick(ItemNum::new(i)),
+            t.scale(ItemNum::new(i)),
+            t.grid_of(ItemNum::new(i)),
+            t.stretch_of(ItemNum::new(i)),
+        );
+        if let Some(g) = t.grid_of(ItemNum::new(i))
+            && let Ok((first, last)) = g.chunk_ticks(t.period(), ItemNum::new(i), count)
         {
             assert!(first <= last, "ticks of a chunk ascend");
             let head = head_on(t.period(), *g, i, count);
@@ -55,7 +63,7 @@ pub(crate) fn check(t: &SeriesTimeline) {
         if !w[0].grid.same_grid(&w[1].grid) {
             let last = w[0]
                 .grid
-                .tick(t.period(), w[0].end_item - 1)
+                .tick(t.period(), w[0].end_item.saturating_sub(1))
                 .expect("a kept tick");
             let first = w[1]
                 .grid
@@ -73,13 +81,13 @@ pub(crate) fn check(t: &SeriesTimeline) {
     }
     for x in s {
         assert!(x.first_item < x.end_item, "a stretch holds samples");
-        assert!(x.grid.grid_index <= x.first_item, "grid at or before");
+        assert!(x.grid.grid_index <= x.first_item.get(), "grid at or before");
         let tick = x
             .grid
             .tick(t.period(), x.first_item)
             .expect("a kept stretch's first tick");
         assert_eq!(t.tick(x.first_item), Some(tick));
-        assert_eq!(t.scale(x.end_item - 1), Some(x.grid.scale));
+        assert_eq!(t.scale(x.end_item.saturating_sub(1)), Some(x.grid.scale));
     }
 }
 
@@ -125,7 +133,9 @@ pub fn series(data: &[u8]) {
             _ if k == 0 => SeriesGrid::start(first, 0, scale),
             1 => grid.rescaled(scale),
             2 => {
-                let last = grid.tick(period, first.saturating_sub(1)).unwrap_or(0);
+                let last = grid
+                    .tick(period, ItemNum::new(first.saturating_sub(1)))
+                    .unwrap_or(0);
                 let gap = i64::from(c.get(1).copied().unwrap_or(0))
                     << (c.get(2).copied().unwrap_or(0) % 40);
                 // a period rounded up after the last tick (gap 0: not a gap, refused), or more
@@ -152,7 +162,7 @@ pub fn series(data: &[u8]) {
         let Some(x) = input.get(k) else { break };
         match x % 8 {
             0 => h.first_tick = h.first_tick.wrapping_add(1),
-            1 => h.first_item = h.first_item.wrapping_add(u64::from(*x)),
+            1 => h.first_item = ItemNum::new(h.first_item.get().wrapping_add(u64::from(*x))),
             2 => {
                 h.grid = h.grid.map(|g| SeriesGrid {
                     grid_tick: g.grid_tick ^ i64::from(*x),

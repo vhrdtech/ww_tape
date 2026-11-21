@@ -177,7 +177,7 @@ pub fn samples(data: &[u8]) -> Vec<u8> {
         kind: BlockKind::Series,
         track_id: TrackId::new(1),
         track_number: TrackNum::new(1),
-        first_item: 0,
+        first_item: ww_tape::ItemNum::new(0),
         count: count.max(1) as u32,
         first_tick: 0,
         last_tick: 0,

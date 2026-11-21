@@ -1,6 +1,7 @@
 //! The hash of a range of a track's chunks from the index ([TapeReader::range_hash]) against a fold that reads them.
 
 use std::path::Path;
+use ww_tape::ItemNum;
 use ww_tape::TrackId;
 use ww_tape::index::{RECORDS_TRACK_ID, STATE_TRACK_ID};
 
@@ -86,7 +87,7 @@ pub(crate) fn write(files: PieceTapes, seed: u64) -> (Vec<Closed>, Vec<Vec<u8>>)
 
 /// The hash of track `t`'s chunks holding an item of `items` in `files`, read block by block, and the items they
 /// hold.
-fn read_fold(files: &[&[u8]], t: u64, items: &std::ops::Range<u64>) -> (TrackHash, u64) {
+fn read_fold(files: &[&[u8]], t: u64, items: &std::ops::Range<ItemNum>) -> (TrackHash, u64) {
     let mut h = TrackHash::START;
     let mut n = 0;
     for bytes in files {
@@ -95,7 +96,7 @@ fn read_fold(files: &[&[u8]], t: u64, items: &std::ops::Range<u64>) -> (TrackHas
             let b = b.unwrap();
             let Some(c) = b.chunk() else { continue };
             let head = c.head();
-            let end = head.first_item + u64::from(head.count);
+            let end = head.first_item.saturating_add(u64::from(head.count));
             if head.track_id == id_of(t) && head.first_item < items.end && end > items.start {
                 h = h.chunk(&c, &payload_hash(c.payload()));
                 n += u64::from(head.count);
@@ -106,7 +107,7 @@ fn read_fold(files: &[&[u8]], t: u64, items: &std::ops::Range<u64>) -> (TrackHas
 }
 
 /// The range hash of track `t` over `files`, each read by a reader of its own, folded on from one to the next.
-fn index_fold(files: &[&[u8]], t: u64, items: &std::ops::Range<u64>) -> (TrackHash, u64, u64) {
+fn index_fold(files: &[&[u8]], t: u64, items: &std::ops::Range<ItemNum>) -> (TrackHash, u64, u64) {
     let mut h = TrackHash::START;
     let (mut n, mut read) = (0, 0);
     for bytes in files {
@@ -115,7 +116,7 @@ fn index_fold(files: &[&[u8]], t: u64, items: &std::ops::Range<u64>) -> (TrackHa
             .range_hash(id_of(t), OwnerId::NONE, items.clone(), h)
             .unwrap();
         h = got.hash;
-        n += got.items.end - got.items.start;
+        n += got.items.start.offset_to(got.items.end).unwrap();
         read += got.read;
     }
     (h, n, read)
@@ -142,7 +143,7 @@ fn a_range_hash_from_the_index_is_the_read_fold() {
             for _ in 0..40 {
                 let t = rng.below(3);
                 let a = rng.below(1200);
-                let items = a..a + 1 + rng.below(600);
+                let items = ItemNum::new(a)..ItemNum::new(a + 1 + rng.below(600));
                 let (want, n) = read_fold(set, t, &items);
                 let (got, m, read) = index_fold(set, t, &items);
                 assert_eq!(got, want, "{files:?} track {t} {items:?}");
@@ -152,7 +153,7 @@ fn a_range_hash_from_the_index_is_the_read_fold() {
         }
         // the whole of a track of chunks alone is its hash as the writer reports it
         for t in 0..3 {
-            let (got, ..) = index_fold(&all, t, &(0..u64::MAX));
+            let (got, ..) = index_fold(&all, t, &(ItemNum::new(0)..ItemNum::new(u64::MAX)));
             let want = done
                 .last()
                 .unwrap()
@@ -178,7 +179,7 @@ fn a_range_hash_reads_the_chunks_of_a_piece_without_an_index() {
     let end = (p.start + p.close_offset.unwrap()) as usize;
     damaged[at..end].fill(0);
     for t in 0..3 {
-        let items = 0..u64::MAX;
+        let items = ItemNum::ZERO..ItemNum::MAX;
         let (want, _) = read_fold(&[&bytes[0]], t, &items);
         let r = TapeReader::open(&damaged[..]).unwrap();
         let got = r
@@ -256,7 +257,12 @@ fn an_index_naming_a_chunk_many_times_is_refused() {
     let entries = good.track_entries(1, id_of(t)).unwrap();
     assert!(entries.len() > 2, "{} entries", entries.len());
     let want = good
-        .range_hash(id_of(t), OwnerId::NONE, 0..u64::MAX, TrackHash::START)
+        .range_hash(
+            id_of(t),
+            OwnerId::NONE,
+            ItemNum::new(0)..ItemNum::new(u64::MAX),
+            TrackHash::START,
+        )
         .unwrap();
     let mut crafted = bytes[0].clone();
     let mut first = [0u8; ENTRY_LEN];
@@ -272,7 +278,12 @@ fn an_index_naming_a_chunk_many_times_is_refused() {
         ))
     ));
     let got = r
-        .range_hash(id_of(t), OwnerId::NONE, 0..u64::MAX, TrackHash::START)
+        .range_hash(
+            id_of(t),
+            OwnerId::NONE,
+            ItemNum::new(0)..ItemNum::new(u64::MAX),
+            TrackHash::START,
+        )
         .unwrap();
     assert_eq!((got.hash, got.chunks), (want.hash, want.chunks));
     assert!(got.read > 0, "piece 1's chunks read");
@@ -308,7 +319,12 @@ fn a_range_hash_without_an_index_reports_a_damaged_chunk() {
     let at = (good.pieces()[1].start + c.offset) as usize + c.len as usize - 20;
     damaged[at] ^= 1;
     let r = TapeReader::open(&damaged[..]).unwrap();
-    let got = r.range_hash(id_of(t), OwnerId::NONE, 0..u64::MAX, TrackHash::START);
+    let got = r.range_hash(
+        id_of(t),
+        OwnerId::NONE,
+        ItemNum::new(0)..ItemNum::new(u64::MAX),
+        TrackHash::START,
+    );
     assert!(
         matches!(
             got,
@@ -320,14 +336,24 @@ fn a_range_hash_without_an_index_reports_a_damaged_chunk() {
         "{got:?}"
     );
     let u = (t + 1) % 3;
-    let (want, _) = read_fold(&[&bytes[0]], u, &(0..u64::MAX));
+    let (want, _) = read_fold(&[&bytes[0]], u, &(ItemNum::new(0)..ItemNum::new(u64::MAX)));
     let got = r
-        .range_hash(id_of(u), OwnerId::NONE, 0..u64::MAX, TrackHash::START)
+        .range_hash(
+            id_of(u),
+            OwnerId::NONE,
+            ItemNum::new(0)..ItemNum::new(u64::MAX),
+            TrackHash::START,
+        )
         .unwrap();
     assert_eq!(got.hash, want, "track {u}");
     assert!(got.skipped > 0, "the lost index is bytes no block explains");
     let whole = good
-        .range_hash(id_of(u), OwnerId::NONE, 0..u64::MAX, TrackHash::START)
+        .range_hash(
+            id_of(u),
+            OwnerId::NONE,
+            ItemNum::new(0)..ItemNum::new(u64::MAX),
+            TrackHash::START,
+        )
         .unwrap();
     assert_eq!(whole.skipped, 0, "a piece read by its index skips nothing");
 }
@@ -347,7 +373,12 @@ fn a_range_hash_folds_a_copied_chunk_once() {
         .rfind(|e| e.kind == ww_tape::BlockKind::Events)
         .unwrap();
     let want = good
-        .range_hash(id_of(t), OwnerId::NONE, 0..u64::MAX, TrackHash::START)
+        .range_hash(
+            id_of(t),
+            OwnerId::NONE,
+            ItemNum::new(0)..ItemNum::new(u64::MAX),
+            TrackHash::START,
+        )
         .unwrap();
     let mut copied = index_lost(&bytes[0], 1);
     let from = (p.start + last.offset) as usize;
@@ -361,7 +392,12 @@ fn a_range_hash_folds_a_copied_chunk_once() {
     copied.copy_within(from..from + last.len as usize, to);
     let r = TapeReader::open(&copied[..]).unwrap();
     let got = r
-        .range_hash(id_of(t), OwnerId::NONE, 0..u64::MAX, TrackHash::START)
+        .range_hash(
+            id_of(t),
+            OwnerId::NONE,
+            ItemNum::new(0)..ItemNum::new(u64::MAX),
+            TrackHash::START,
+        )
         .unwrap();
     assert_eq!(
         (got.hash, got.chunks, got.items),
@@ -399,7 +435,7 @@ fn chunks_of(bytes: &[u8], i: usize, t: u64) -> Vec<(usize, usize)> {
 #[test]
 fn a_range_hash_without_an_index_reports_damage() {
     let (_, bytes) = write(PieceTapes::One, 0x5eed);
-    let all = 0..u64::MAX;
+    let all = ItemNum::ZERO..ItemNum::MAX;
     let t = (0..3)
         .find(|t| !chunks_of(&bytes[0], 1, *t).is_empty())
         .unwrap();
@@ -434,7 +470,7 @@ fn a_range_hash_without_an_index_reports_damage() {
 #[test]
 fn a_range_hash_folds_a_chunk_written_again_once() {
     let (_, bytes) = write(PieceTapes::One, 0x5eed);
-    let all = 0..u64::MAX;
+    let all = ItemNum::ZERO..ItemNum::MAX;
     let t = (0..3)
         .find(|t| chunks_of(&bytes[0], 1, *t).len() >= 2)
         .unwrap();
@@ -488,7 +524,12 @@ fn a_checkpoint_naming_a_chunk_many_times_is_refused() {
     drop(w);
     let good = TapeReader::open(&bytes[..]).unwrap();
     let want = good
-        .range_hash(id_of(1), OwnerId::NONE, 0..u64::MAX, TrackHash::START)
+        .range_hash(
+            id_of(1),
+            OwnerId::NONE,
+            ItemNum::new(0)..ItemNum::new(u64::MAX),
+            TrackHash::START,
+        )
         .unwrap();
     // the newest checkpoint, its chunk entries all made the first one's
     let at = (0..bytes.len() - 4)
@@ -534,7 +575,12 @@ fn a_checkpoint_naming_a_chunk_many_times_is_refused() {
     ));
     assert!(r.track_entries(0, id_of(1)).is_err());
     let got = r
-        .range_hash(id_of(1), OwnerId::NONE, 0..u64::MAX, TrackHash::START)
+        .range_hash(
+            id_of(1),
+            OwnerId::NONE,
+            ItemNum::new(0)..ItemNum::new(u64::MAX),
+            TrackHash::START,
+        )
         .unwrap();
     assert_eq!((got.hash, got.chunks), (want.hash, want.chunks));
 }
@@ -549,7 +595,12 @@ fn an_unchecked_chunk_folds_by_its_entry_and_fails_verify() {
     let (_, bytes) = write(PieceTapes::One, 0x9a7);
     let good = TapeReader::open(&bytes[0][..]).unwrap();
     let want = good
-        .range_hash(id_of(1), OwnerId::NONE, 0..u64::MAX, TrackHash::START)
+        .range_hash(
+            id_of(1),
+            OwnerId::NONE,
+            ItemNum::new(0)..ItemNum::new(u64::MAX),
+            TrackHash::START,
+        )
         .unwrap();
     let p = &good.pieces()[1];
     let e = good
@@ -570,7 +621,12 @@ fn an_unchecked_chunk_folds_by_its_entry_and_fails_verify() {
     b[len - 4..].copy_from_slice(&crc.to_le_bytes());
     let r = TapeReader::open(&crafted[..]).unwrap();
     let got = r
-        .range_hash(id_of(1), OwnerId::NONE, 0..u64::MAX, TrackHash::START)
+        .range_hash(
+            id_of(1),
+            OwnerId::NONE,
+            ItemNum::new(0)..ItemNum::new(u64::MAX),
+            TrackHash::START,
+        )
         .unwrap();
     assert_eq!((got.hash, got.chunks), (want.hash, want.chunks));
     let mut buf = vec![];
@@ -625,7 +681,12 @@ fn an_unhashed_entry_naming_another_tracks_chunk_is_refused() {
         }
     });
     let r = TapeReader::open(&bytes[..]).unwrap();
-    let got = r.range_hash(id_of(t), OwnerId::NONE, 0..u64::MAX, TrackHash::START);
+    let got = r.range_hash(
+        id_of(t),
+        OwnerId::NONE,
+        ItemNum::new(0)..ItemNum::new(u64::MAX),
+        TrackHash::START,
+    );
     assert!(
         matches!(
             got,
@@ -680,7 +741,12 @@ fn two_chunks_stating_the_same_items_overlap() {
         seen += 1;
     });
     let r = TapeReader::open(&bytes[..]).unwrap();
-    let got = r.range_hash(id_of(t), OwnerId::NONE, 0..u64::MAX, TrackHash::START);
+    let got = r.range_hash(
+        id_of(t),
+        OwnerId::NONE,
+        ItemNum::new(0)..ItemNum::new(u64::MAX),
+        TrackHash::START,
+    );
     assert!(
         matches!(got, Err(ww_tape::ReadError::Overlap { .. })),
         "{got:?}"
@@ -797,11 +863,21 @@ fn verify_compares_each_entry_with_its_block() {
     });
     let good = TapeReader::open(&files[0][..]).unwrap();
     let want = good
-        .range_hash(id_of(t), OwnerId::NONE, 0..u64::MAX, TrackHash::START)
+        .range_hash(
+            id_of(t),
+            OwnerId::NONE,
+            ItemNum::new(0)..ItemNum::new(u64::MAX),
+            TrackHash::START,
+        )
         .unwrap();
     let got = TapeReader::open(&bytes[..])
         .unwrap()
-        .range_hash(id_of(t), OwnerId::NONE, 0..u64::MAX, TrackHash::START)
+        .range_hash(
+            id_of(t),
+            OwnerId::NONE,
+            ItemNum::new(0)..ItemNum::new(u64::MAX),
+            TrackHash::START,
+        )
         .unwrap();
     assert_eq!(got.chunks + 1, want.chunks);
     assert_eq!(got.skipped, want.skipped + u64::from(len));
@@ -828,7 +904,7 @@ fn a_range_its_chunk_does_not_have_is_refused_on_read() {
     let got = TapeReader::open(&bytes[..]).unwrap().range_hash(
         id_of(t),
         OwnerId::NONE,
-        0..u64::MAX,
+        ItemNum::new(0)..ItemNum::new(u64::MAX),
         TrackHash::START,
     );
     assert!(
@@ -957,7 +1033,12 @@ fn verify_refuses_a_chunk_its_index_lists_past_the_blocks() {
     assert!(r.chain().is_whole());
     // the index path folds what the writer stated: every chunk unread, as the writer says
     let g = r
-        .range_hash(id_of(t), OwnerId::NONE, 0..u64::MAX, TrackHash::START)
+        .range_hash(
+            id_of(t),
+            OwnerId::NONE,
+            ItemNum::new(0)..ItemNum::new(u64::MAX),
+            TrackHash::START,
+        )
         .unwrap();
     assert_eq!((g.read, g.stated()), (0, g.chunks));
     assert!(!r.verify(i).map(|v| v.holds).unwrap());
@@ -971,7 +1052,12 @@ fn a_range_hash_over_pieces_without_a_head_says_so() {
     let (i, t) = last_and_track(&files[0]);
     let whole = TapeReader::open(&files[0][..])
         .unwrap()
-        .range_hash(id_of(t), OwnerId::NONE, 0..u64::MAX, TrackHash::START)
+        .range_hash(
+            id_of(t),
+            OwnerId::NONE,
+            ItemNum::new(0)..ItemNum::new(u64::MAX),
+            TrackHash::START,
+        )
         .unwrap();
     assert_eq!(whole.headless, 0);
     let mut bytes = files[0].clone();
@@ -980,7 +1066,12 @@ fn a_range_hash_over_pieces_without_a_head_says_so() {
     bytes[start + 100] ^= 1;
     let r = TapeReader::open(&bytes[..]).unwrap();
     assert!(r.pieces()[i].head.is_none());
-    let got = r.range_hash(id_of(t), OwnerId::NONE, 0..u64::MAX, TrackHash::START);
+    let got = r.range_hash(
+        id_of(t),
+        OwnerId::NONE,
+        ItemNum::new(0)..ItemNum::new(u64::MAX),
+        TrackHash::START,
+    );
     assert_eq!(got.map(|g| g.headless).ok(), Some(1));
     let other =
         std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/it/data/other-layout.wwt"))
@@ -994,7 +1085,12 @@ fn a_range_hash_over_pieces_without_a_head_says_so() {
     let headless = r.pieces().iter().filter(|p| p.head.is_none()).count() as u64;
     assert!(headless > 0);
     let g = r
-        .range_hash(id, OwnerId::NONE, 0..u64::MAX, TrackHash::START)
+        .range_hash(
+            id,
+            OwnerId::NONE,
+            ItemNum::new(0)..ItemNum::new(u64::MAX),
+            TrackHash::START,
+        )
         .unwrap();
     assert!(g.chunks > 0);
     assert_eq!(g.headless, headless);

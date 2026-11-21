@@ -89,7 +89,7 @@ use exact_units::{
 use shrink_wrap::prelude::*;
 
 use crate::summary::SeriesSummarySpec;
-use crate::{BlockKind, ChunkHead, ElementDesc, Sample, SampleShape};
+use crate::{BlockKind, ChunkHead, ElementDesc, ItemNum, Sample, SampleShape};
 
 /// Most channels of a series: a chunk column and a summary name a channel by a `u16`.
 #[expect(
@@ -133,22 +133,25 @@ pub enum SeriesError {
     /// doesn't code, a state policy.
     Def(&'static str),
     /// A chunk that isn't a series chunk with a grid.
-    NotSeriesChunk { first_item: u64 },
+    NotSeriesChunk { first_item: ItemNum },
     /// A run of no samples, or one numbered past u64.
-    NoSamples { first_item: u64 },
+    NoSamples { first_item: ItemNum },
     /// The grid starts after the chunk's first sample.
-    GridAfterFirst { first_item: u64, grid_index: u64 },
+    GridAfterFirst {
+        first_item: ItemNum,
+        grid_index: u64,
+    },
     /// A sample's tick doesn't fit in i64.
-    TickOverflow { index: u64 },
+    TickOverflow { index: ItemNum },
     /// A chunk head's first or last tick isn't its samples' on its grid.
-    ChunkTicks { first_item: u64 },
+    ChunkTicks { first_item: ItemNum },
     /// A chunk holds samples another chunk holds, on another grid or at another scale.
-    Overlap { first_item: u64 },
+    Overlap { first_item: ItemNum },
     /// A new grid whose first sample isn't more than a period after the last tick of the chunk before, or whose
     /// last isn't more than a period before the first tick of the chunk after ([is_gap]).
-    GridTooClose { first_item: u64 },
+    GridTooClose { first_item: ItemNum },
     /// The grid's scale doesn't encode in [SCALE_LEN_MAX] bytes.
-    ScaleTooLong { first_item: u64 },
+    ScaleTooLong { first_item: ItemNum },
 }
 
 impl core::fmt::Display for SeriesError {
@@ -223,8 +226,8 @@ impl SeriesGrid {
     }
 
     /// Tick of sample `index` on the grid, rounded down; None before the grid or past i64.
-    pub fn tick(&self, period: Ratio64, index: u64) -> Option<i64> {
-        let steps = i64::try_from(index.checked_sub(self.grid_index)?).ok()?;
+    pub fn tick(&self, period: Ratio64, index: ItemNum) -> Option<i64> {
+        let steps = i64::try_from(index.get().checked_sub(self.grid_index)?).ok()?;
         self.grid_tick
             .checked_add(period.apply_rounded(steps, Rounding::Floor)?)
     }
@@ -238,14 +241,14 @@ impl SeriesGrid {
     pub fn chunk_ticks(
         &self,
         period: Ratio64,
-        first_item: u64,
+        first_item: ItemNum,
         count: u32,
     ) -> Result<(i64, i64), SeriesError> {
         let last_item = u64::from(count)
             .checked_sub(1)
             .and_then(|n| first_item.checked_add(n))
             .ok_or(SeriesError::NoSamples { first_item })?;
-        if self.grid_index > first_item {
+        if self.grid_index > first_item.get() {
             return Err(SeriesError::GridAfterFirst {
                 first_item,
                 grid_index: self.grid_index,

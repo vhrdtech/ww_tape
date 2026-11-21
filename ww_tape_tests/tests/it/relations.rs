@@ -1,6 +1,8 @@
 //! Track relations in a written tape: relation columns in events chunks and the range relation's range in each
 //! chunk's index entry, against the values written.
 
+use ww_tape::ItemNum;
+
 use shrink_wrap::prelude::*;
 use ww_tape::TrackId;
 use ww_tape::TrackNum;
@@ -81,7 +83,9 @@ pub(crate) fn relation_chunk(
         cols.push((s, b.to_vec()));
     }
     (
-        times.head.chunk_head(track_id(), TrackNum::new(3), first),
+        times
+            .head
+            .chunk_head(track_id(), TrackNum::new(3), ItemNum::new(first)),
         cols,
     )
 }
@@ -102,7 +106,9 @@ fn write_chunk(
     let key = EncodedRelation::encode(2, keys, false).unwrap();
     let mut cols: Vec<_> = times.columns().collect();
     cols.extend([source.column(), key.column()]);
-    let head = times.head.chunk_head(track_id(), TrackNum::new(3), first);
+    let head = times
+        .head
+        .chunk_head(track_id(), TrackNum::new(3), ItemNum::new(first));
     w.write_chunk(defs, &head, &cols).map(|_| ())
 }
 
@@ -199,7 +205,9 @@ fn a_chunk_without_its_relation_columns_is_refused() {
     let defs = crate::definitions::held(&[clock(CLOCK), decoded()]);
     let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     let times = EncodedTimes::encode(&[1, 2, 3], None, None).unwrap();
-    let head = times.head.chunk_head(track_id(), TrackNum::new(3), 0);
+    let head = times
+        .head
+        .chunk_head(track_id(), TrackNum::new(3), ItemNum::new(0));
     let cols: Vec<_> = times.columns().collect();
     assert!(matches!(
         w.write_chunk(&defs, &head, &cols),
@@ -226,7 +234,9 @@ fn chunk_of(
     let mut cols: Vec<_> = times.columns().map(|(s, b)| (s, b.to_vec())).collect();
     cols.extend([source.column(), key.column()].map(|(s, b)| (s, b.to_vec())));
     (
-        times.head.chunk_head(track_id(), TrackNum::new(3), first),
+        times
+            .head
+            .chunk_head(track_id(), TrackNum::new(3), ItemNum::new(first)),
         cols,
     )
 }
@@ -310,7 +320,9 @@ fn a_relation_column_that_does_not_read_is_refused() {
     let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     let tape = w.sink().tape();
     let times = EncodedTimes::encode(&[0, 10, 20, 30, 40], None, None).unwrap();
-    let head = times.head.chunk_head(track_id(), TrackNum::new(3), 0);
+    let head = times
+        .head
+        .chunk_head(track_id(), TrackNum::new(3), ItemNum::new(0));
     let keys = EncodedRelation::encode(2, &[1, 2, 3, 4, 5], false).unwrap();
     // 2 sources for 5 items: one period that doesn't reach the last value
     let short = EncodedRelation::encode(0, &[10, 11], true).unwrap();
@@ -373,7 +385,9 @@ fn crafted_starts(first: u64, last: u64, rmin: i32, residuals: [u8; 3]) -> Vec<u
 fn a_callers_monotone_column_out_of_order_is_refused() {
     let defs = crate::definitions::held(&[clock(CLOCK), decoded()]);
     let times = EncodedTimes::encode(&[0, 10, 20], None, None).unwrap();
-    let head = times.head.chunk_head(track_id(), TrackNum::new(3), 0);
+    let head = times
+        .head
+        .chunk_head(track_id(), TrackNum::new(3), ItemNum::new(0));
     let keys = EncodedRelation::encode(2, &[1, 1, 1], false).unwrap();
     // first 10 and last 20 in the head; the items 10, 3, 20 decrease, 10, 99, 20 leave [first, last]
     for (rmin, residuals) in [(-7, [7u8, 0, 17]), (0, [0u8, 89, 10])] {
@@ -417,7 +431,7 @@ fn chunk_block(id: ww_tape::BlockId, first: u64, sources: &[u64], keys: &[u64]) 
 fn decrease<T: std::fmt::Debug, E>(r: Result<T, WriteError<E>>, item: u64) -> bool {
     matches!(
         r,
-        Err(WriteError::Describe(DescribeError::RelationDecrease { track: TRACK_3, relation: 0, item: i })) if i == item
+        Err(WriteError::Describe(DescribeError::RelationDecrease { track: TRACK_3, relation: 0, item: i })) if i == ItemNum::new(item)
     )
 }
 
@@ -457,7 +471,7 @@ fn long_block() -> Vec<u8> {
         kind: BlockKind::Events,
         track_id: crate::definitions::track_id(4),
         track_number: TrackNum::new(4),
-        first_item: 0,
+        first_item: ItemNum::new(0),
         count: 600,
         first_tick: 0,
         last_tick: 599,
@@ -503,7 +517,7 @@ fn a_deferred_chunk_counts_before_the_chunks_after_it() {
         .unwrap()
         .into_iter()
         .filter(|e| e.kind == BlockKind::Events && e.track() == Some(TrackNum::new(3)))
-        .map(|e| (e.first_item, e.range))
+        .map(|e| (e.first_item.get(), e.range))
         .collect();
     assert_eq!(firsts, [(0, Some((100, 101))), (2, Some((101, 102)))]);
 }
@@ -643,7 +657,9 @@ fn two_chunk(
     let mut cols: Vec<_> = times.columns().map(|(s, b)| (s, b.to_vec())).collect();
     cols.extend([a.column(), b.column()].map(|(s, b)| (s, b.to_vec())));
     (
-        times.head.chunk_head(track_id(), TrackNum::new(3), first),
+        times
+            .head
+            .chunk_head(track_id(), TrackNum::new(3), ItemNum::new(first)),
         cols,
     )
 }
@@ -694,7 +710,7 @@ fn every_monotone_relation_keeps_its_newest_value_across_resumes() {
     let seq_decrease = |r: Result<(), WriteError<_>>, item: u64| {
         matches!(
             r,
-            Err(WriteError::Describe(DescribeError::RelationDecrease { track: TRACK_3, relation: 1, item: i })) if i == item
+            Err(WriteError::Describe(DescribeError::RelationDecrease { track: TRACK_3, relation: 1, item: i })) if i == ItemNum::new(item)
         )
     };
     let dir = crate::pieces::scratch("two_monotone");
@@ -1352,7 +1368,7 @@ fn a_reader_refuses_a_decrease_across_chunks_that_isnt_marked_a_break() {
         assert_eq!(
             marked
                 .iter()
-                .map(|(i, e)| (*i, e.offset, e.first_item))
+                .map(|(i, e)| (*i, e.offset, e.first_item.get()))
                 .collect::<Vec<_>>(),
             vec![(0, at, 2)],
             "the break is reported"

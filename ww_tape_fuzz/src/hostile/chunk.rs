@@ -181,7 +181,7 @@ pub fn chunk(data: &[u8]) -> Vec<u8> {
         },
         track_id: TrackId::new(7),
         track_number: TrackNum::new(1),
-        first_item,
+        first_item: ww_tape::ItemNum::new(first_item),
         count,
         first_tick,
         last_tick,

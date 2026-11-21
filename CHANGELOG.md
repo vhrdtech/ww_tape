@@ -19,6 +19,7 @@ Covers `ww_tape` 0.1.0.
 - Track keys, track ids and clock keys are `TrackKey`, `TrackId` and `ClockKey`; wrap literals with `::new`, unwrap with `.get()` (READ-5).
 - `StoredRelations` and `TrackFacts` hold `stored` and `monotone` as a `RelationSet`; build one with `RelationSet::from_bits` (READ-5).
 - Byte sizes in `NearPolicy`, `IndexPolicy`, `CutPolicy`, `OpenOptions` and summary block caps are `Bytes<T>`, counts `Count<_, u64>` (READ-5).
+- Item numbers (`first_item`, `next_item`, `end_item`, timeline and range-hash items) are `ItemNum`; counts stay `u64` (READ-5).
 - Define tracks and clocks with `Definitions::define_track(TrackSpec)` and `define_clock(ClockSpec)`, which return their numbers (WRITE-11).
 - `Definitions::define` and `define_all` refuse a track or clock: `DescribeError::Numbered` (WRITE-11).
 - After a resume, start the definitions with `Definitions::with_numbers(resumed.numbers)` to keep each track's number (WRITE-11).

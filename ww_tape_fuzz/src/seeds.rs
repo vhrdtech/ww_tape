@@ -312,7 +312,9 @@ fn encoding_seeds() -> Vec<Seed> {
 fn chunk_block(enc: &EncodedTimes) -> Vec<u8> {
     let cols: Vec<_> = enc.columns().collect();
     let specs: Vec<_> = cols.iter().map(|c| c.0).collect();
-    let head = enc.head.chunk_head(TrackId::new(1), TrackNum::new(1), 0);
+    let head = enc
+        .head
+        .chunk_head(TrackId::new(1), TrackNum::new(1), ww_tape::ItemNum::new(0));
     let mut buf = vec![0u8; ww_tape::chunk::chunk_len(&head, &specs, 0)];
     let n = ww_tape::chunk::write_chunk(
         &mut buf,

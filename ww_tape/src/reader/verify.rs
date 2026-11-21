@@ -590,7 +590,7 @@ fn entry_key(e: &IndexEntry) -> (TrackId, u32, u32, u64, u64, i64, i64, i64, [u8
         e.track_id,
         e.number,
         e.second,
-        e.first_item,
+        e.first_item.get(),
         e.count,
         e.first_tick,
         e.last_tick,

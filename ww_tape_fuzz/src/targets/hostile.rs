@@ -209,7 +209,7 @@ pub fn series_hostile(data: &[u8]) {
     let (t, _) = SeriesTimeline::from_chunks(period, &heads);
     series::check(&t);
     let count = data.len() as u32 % 300;
-    let firsts: Vec<u64> = t.stretches().iter().map(|s| s.first_item).collect();
+    let firsts: Vec<u64> = t.stretches().iter().map(|s| s.first_item.get()).collect();
     for at in firsts {
         series::query(&t, at, count);
     }

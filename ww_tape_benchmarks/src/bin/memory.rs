@@ -11,6 +11,8 @@
     reason = "a bench reads no file of others: it computes sizes freely, fails by panicking and prints its table"
 )]
 
+use ww_tape::ItemNum;
+
 use clap::Parser;
 use shrink_wrap::prelude::*;
 use std::alloc::{GlobalAlloc, Layout, System};
@@ -246,12 +248,14 @@ fn series(piece: u64, chunk: usize) -> anyhow::Result<Row> {
     let mut k = 0u64;
     while w.sink().bytes < piece {
         let first = k * u64::from(count);
-        let (first_tick, last_tick) = grid.chunk_ticks(period, first, count).map_err(any)?;
+        let (first_tick, last_tick) = grid
+            .chunk_ticks(period, ItemNum::new(first), count)
+            .map_err(any)?;
         let head = ChunkHead {
             kind: BlockKind::Series,
             track_id,
             track_number: number,
-            first_item: first,
+            first_item: ItemNum::new(first),
             count,
             first_tick,
             last_tick,

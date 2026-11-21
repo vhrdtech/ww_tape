@@ -3,6 +3,7 @@
 //! timeline builds from the heads and a track's range hash folds from the index or the chunks, the same from both for a
 //! piece that verifies; index blocks built from the input read back equal, a final one also track by track from its
 //! head.
+use ww_tape::ItemNum;
 use ww_tape::TrackId;
 use ww_tape::index::{
     IndexBlock, IndexEntry, IndexHead, IndexKind, index_len, track_count, write_index,
@@ -108,7 +109,12 @@ pub(crate) fn read(data: &[u8], options: OpenOptions) {
         .take(4)
         .collect();
     for id in ids {
-        if let Ok(h) = r.range_hash(id, OwnerId::NONE, 0..u64::MAX, TrackHash::START) {
+        if let Ok(h) = r.range_hash(
+            id,
+            OwnerId::NONE,
+            ItemNum::new(0)..ItemNum::new(u64::MAX),
+            TrackHash::START,
+        ) {
             assert!(h.read <= h.chunks);
             assert!(h.chunks <= data.len() as u64 / 36 + 1);
         }
@@ -195,8 +201,14 @@ fn index_folds_as_the_walk(data: &[u8]) {
     ids.sort_unstable();
     ids.dedup();
     for id in ids.into_iter().take(4) {
-        let fold =
-            |r: &TapeReader<&[u8]>| r.range_hash(id, OwnerId::NONE, 0..u64::MAX, TrackHash::START);
+        let fold = |r: &TapeReader<&[u8]>| {
+            r.range_hash(
+                id,
+                OwnerId::NONE,
+                ItemNum::new(0)..ItemNum::new(u64::MAX),
+                TrackHash::START,
+            )
+        };
         if let (Ok(a), Ok(b)) = (fold(&r), fold(&w))
             && b.skipped == 0
             && a.skipped == 0
@@ -242,7 +254,7 @@ pub fn index(data: &[u8]) {
             track_id: TrackId::new(u64::from(c[0] % 5)),
             number: c[0].into(),
             second: 0,
-            first_item: 0,
+            first_item: ItemNum::new(0),
             count: 1,
             first_tick: -1,
             last_tick: 1,

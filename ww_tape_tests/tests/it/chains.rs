@@ -100,7 +100,7 @@ fn renamed_pieces_still_form_their_chain() -> Result<(), Box<dyn Error>> {
         let piece = &reader.pieces()[0];
         let summary = piece.summary().ok_or("a closed piece")?;
         let (_, ranges) = piece.close.as_ref().ok_or("a close")?;
-        let items = ranges[0].first_item..ranges[0].end_item();
+        let items = ranges[0].first_item.get()..ranges[0].end_item().get();
         found.push((
             path.file_name().ok_or("a name")?.to_owned(),
             summary.ident.seq,

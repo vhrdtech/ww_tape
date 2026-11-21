@@ -1,5 +1,7 @@
 //! The head of a summary block in the core: written, checked and listed without its nodes.
 
+use crate::ItemNum;
+
 use super::*;
 use crate::ClockNum;
 use crate::tests::id;
@@ -15,7 +17,7 @@ fn node_items_at_the_top_of_the_item_numbers() {
         level: 0,
         node_shift: 62,
         layout: Layout::Events(EventFields::default()),
-        first_item: 3 << 62,
+        first_item: ItemNum::new(3 << 62),
         items: (1 << 62) - 1,
         first_tick: 0,
         last_tick: 0,
@@ -26,7 +28,7 @@ fn node_items_at_the_top_of_the_item_numbers() {
     assert_eq!(h.node_items(1), None);
     let wide = SummaryHead {
         node_shift: 200,
-        first_item: 5,
+        first_item: ItemNum::new(5),
         items: u64::MAX - 5,
         ..h
     };
@@ -57,7 +59,7 @@ fn a_block_checks_and_lists_without_its_nodes() {
             stats: SeriesStats::all(crate::ElementDesc::of(crate::Element::ComplexI16)),
             scale: Magnitude::pow10(-3),
         },
-        first_item: 1000,
+        first_item: ItemNum::new(1000),
         items: 5000,
         first_tick: 100,
         last_tick: 900,
@@ -106,7 +108,7 @@ fn head_read_checks_the_header() {
         level: 0,
         node_shift: 11,
         layout: Layout::Events(EventFields::default()),
-        first_item: 0,
+        first_item: ItemNum::new(0),
         items: 10,
         first_tick: 0,
         last_tick: 9,
@@ -205,7 +207,7 @@ fn series_summary_block(first: u64, count: u64) -> Vec<u8> {
             stats: SeriesStats::all(ElementDesc::of(Element::I16)),
             scale: Magnitude::ONE,
         },
-        first_item: first,
+        first_item: ItemNum::new(first),
         items: count,
         first_tick: first as i64 * 1000,
         last_tick: (first + count - 1) as i64 * 1000,
@@ -249,7 +251,7 @@ fn a_core_only_tape_lists_verifies_and_skips_summary_blocks() {
             kind: BlockKind::Series,
             track_id: series_track_id(),
             track_number: TrackNum::new(1),
-            first_item: first,
+            first_item: ItemNum::new(first),
             count: chunk as u32,
             first_tick: first as i64 * 1000,
             last_tick: (first as i64 + chunk as i64 - 1) * 1000,

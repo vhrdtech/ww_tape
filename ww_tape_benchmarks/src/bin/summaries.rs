@@ -124,7 +124,7 @@ fn rate<T: Gen>(args: &Args, shape: SampleShape, batch: &[T], work: Work) -> any
         track_id: TrackId::new(1),
         track_number: TrackNum::new(1),
         shape,
-        first_item: 0,
+        first_item: ww_tape::ItemNum::new(0),
         grid: SeriesGrid::start(0, 0, Magnitude::ONE),
         period: Ratio64::ONE,
     };

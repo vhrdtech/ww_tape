@@ -1,6 +1,8 @@
 //! The book pages against the code: the code they show runs as written there, and `docs/format.md`'s layouts and
 //! tables are those of the module docs and of the blocks this crate writes.
 
+use ww_tape::ItemNum;
+
 use std::path::Path;
 use ww_tape::TrackId;
 use ww_tape::{ClockNum, TrackNum};
@@ -311,12 +313,12 @@ fn format_page_chunk_head_offsets_read_a_chunk() {
     let head_layout = layout("24 u32  session tag");
     let period = Ratio64::new(62_500, 3).unwrap();
     let grid = SeriesGrid::start(96, 5_000, Magnitude::pow10(-3));
-    let (first_tick, last_tick) = grid.chunk_ticks(period, 100, 4).unwrap();
+    let (first_tick, last_tick) = grid.chunk_ticks(period, ItemNum::new(100), 4).unwrap();
     let head = ChunkHead {
         kind: BlockKind::Series,
         track_id: TrackId::new(0x1122_3344_5566_7788),
         track_number: TrackNum::new(9),
-        first_item: 100,
+        first_item: ItemNum::new(100),
         count: 4,
         first_tick,
         last_tick,

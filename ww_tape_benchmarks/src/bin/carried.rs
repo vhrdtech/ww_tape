@@ -148,7 +148,7 @@ fn tracks_on(
         rows.push(TrackStart {
             track_id: t.id(),
             track_number: every.define_track(t.clone()).map_err(d)?,
-            next_item: 1,
+            next_item: ww_tape::ItemNum::new(1),
             from_tick: 0,
             owner: OwnerId(t.owner),
             hash: TrackHash::START,

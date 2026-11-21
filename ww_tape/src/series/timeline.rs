@@ -7,21 +7,22 @@ use exact_units::{Magnitude, Ratio64};
 
 use super::{SeriesError, SeriesGrid, is_gap};
 use crate::ChunkHead;
+use crate::ItemNum;
 
 /// Samples `first_item..end_item` of a series on one grid at one scale: one chunk, or consecutive chunks merged.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct SeriesStretch {
     /// The first sample.
-    pub first_item: u64,
+    pub first_item: ItemNum,
     /// One past the last sample.
-    pub end_item: u64,
+    pub end_item: ItemNum,
     /// The samples' grid and scale.
     pub grid: SeriesGrid,
 }
 
 impl SeriesStretch {
     /// Index of the last sample: `end_item` is above `first_item` in a stretch of a timeline.
-    fn last_item(&self) -> u64 {
+    fn last_item(&self) -> ItemNum {
         self.end_item.saturating_sub(1)
     }
 }
@@ -69,7 +70,7 @@ impl SeriesTimeline {
     /// a writer that holds no chunk head yet (a summary builder) adds.
     pub fn push(
         &mut self,
-        first_item: u64,
+        first_item: ItemNum,
         count: u32,
         grid: SeriesGrid,
     ) -> Result<(), SeriesError> {
@@ -157,7 +158,7 @@ impl SeriesTimeline {
     }
 
     /// The stretch holding sample `index`; None when no chunk seen holds it.
-    pub fn stretch_of(&self, index: u64) -> Option<&SeriesStretch> {
+    pub fn stretch_of(&self, index: ItemNum) -> Option<&SeriesStretch> {
         let at = self.stretches.partition_point(|s| s.end_item <= index);
         self.stretches.get(at).filter(|s| s.first_item <= index)
     }
@@ -165,7 +166,7 @@ impl SeriesTimeline {
     /// The grid sample `index` is on: its stretch's, or for a sample no chunk seen holds, the grid of the stretch
     /// before when the stretch after is on the same grid (a lost chunk). None before the first stretch, in a gap,
     /// or past the last.
-    pub fn grid_of(&self, index: u64) -> Option<&SeriesGrid> {
+    pub fn grid_of(&self, index: ItemNum) -> Option<&SeriesGrid> {
         let at = self.stretches.partition_point(|s| s.end_item <= index);
         let after = self.stretches.get(at)?;
         if after.first_item <= index {
@@ -177,12 +178,12 @@ impl SeriesTimeline {
 
     /// Tick of sample `index`, rounded down: on its stretch's grid, or on the grid around it when it is a lost
     /// sample ([Self::grid_of]); None where no grid holds it or past i64.
-    pub fn tick(&self, index: u64) -> Option<i64> {
+    pub fn tick(&self, index: ItemNum) -> Option<i64> {
         self.grid_of(index)?.tick(self.period, index)
     }
 
     /// The scale of sample `index`'s stored numbers; None when no chunk seen holds it.
-    pub fn scale(&self, index: u64) -> Option<Magnitude> {
+    pub fn scale(&self, index: ItemNum) -> Option<Magnitude> {
         self.stretch_of(index).map(|s| s.grid.scale)
     }
 
@@ -198,7 +199,7 @@ impl SeriesTimeline {
     }
 
     /// Tick of sample `index` of stretch `s`.
-    fn tick_on(&self, s: &SeriesStretch, index: u64) -> Result<i64, SeriesError> {
+    fn tick_on(&self, s: &SeriesStretch, index: ItemNum) -> Result<i64, SeriesError> {
         s.grid
             .tick(self.period, index)
             .ok_or(SeriesError::TickOverflow { index })

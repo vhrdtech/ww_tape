@@ -13,7 +13,7 @@
 //! [Definitions::len] and [Definitions::bytes] say how much is held, for the application to bound as it likes. Every
 //! item fits a block alone ([STATE_ITEM_MAX]), so it can always be put.
 
-use crate::{ClockKey, RelationSet, TrackId};
+use crate::{ClockKey, ItemNum, RelationSet, TrackId};
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::sync::Arc;
 use alloc::vec;
@@ -105,7 +105,7 @@ pub enum DescribeError {
     RelationDecrease {
         track: TrackNum,
         relation: u16,
-        item: u64,
+        item: ItemNum,
     },
     /// An events chunk of a track whose newest value of monotone relation `relation` lies in a chunk that doesn't read
     /// (damaged, kept by a resume or the last of the track in a piece before): the chunk can't be checked, so it is

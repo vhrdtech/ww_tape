@@ -6,7 +6,7 @@ use super::{
     write_event_summary,
 };
 use exact_units::Bytes;
-use ww_tape::{TrackId, TrackNum};
+use ww_tape::{ItemNum, TrackId, TrackNum};
 
 impl LevelNode for EventNode {
     fn merge(&mut self, next: &Self, _items: u64, _next_items: u64) -> Result<(), BuildError> {
@@ -60,17 +60,17 @@ impl EventTree {
         track_id: TrackId,
         track_number: TrackNum,
         fields: EventFields,
-        first_item: u64,
+        first_item: ItemNum,
     ) -> Self {
         Self {
             track_id,
             track_number,
             fields,
-            origin: first_item,
-            next_item: first_item,
+            origin: first_item.get(),
+            next_item: first_item.get(),
             acc: None,
             levels: Levels::new(
-                first_item,
+                first_item.get(),
                 EVENT_BASE_SHIFT,
                 fields.node_len(),
                 crate::block_room(EVENT_BLOCK_BYTES),
@@ -91,8 +91,8 @@ impl EventTree {
     }
 
     /// The next item's number.
-    pub fn next_item(&self) -> u64 {
-        self.next_item
+    pub fn next_item(&self) -> ItemNum {
+        ItemNum::new(self.next_item)
     }
 
     /// Add the next item: its start, end (the start for an instant) and flags. Items come in order of start.
@@ -198,7 +198,7 @@ impl EventTree {
                 level: out.level,
                 node_shift: self.levels.shift(out.level)?,
                 layout: Layout::Events(self.fields),
-                first_item: out.first_item,
+                first_item: ItemNum::new(out.first_item),
                 items: out.items,
                 first_tick: first.first_tick,
                 last_tick: last.last_tick,

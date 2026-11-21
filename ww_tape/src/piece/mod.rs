@@ -150,7 +150,7 @@
 //! track written alone or among others, in one piece or many, in one file or many, has the same hash. A state
 //! track's records are all puts: its hash stays 32 zero bytes.
 
-use crate::TrackId;
+use crate::{ItemNum, TrackId};
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;
 
@@ -646,7 +646,7 @@ pub struct TrackStart {
     pub track_id: TrackId,
     pub track_number: TrackNum,
     /// The first item number of the track in this piece: one past the last in the piece before.
-    pub next_item: u64,
+    pub next_item: ItemNum,
     /// No item of the track in this piece starts before this tick: the last start in the piece before.
     pub from_tick: i64,
     /// [TrackDef::owner](crate::TrackDef::owner): with the id, which track this is.
@@ -668,7 +668,7 @@ pub struct TrackRange {
     pub track_number: TrackNum,
     /// Chunk blocks of the track in the piece; 0 for a track of records alone, whose range fields are 0.
     pub chunks: u32,
-    pub first_item: u64,
+    pub first_item: ItemNum,
     pub items: u64,
     pub first_tick: i64,
     pub last_tick: i64,
@@ -687,7 +687,7 @@ pub struct TrackRange {
 
 impl TrackRange {
     /// Item number past the last.
-    pub fn end_item(&self) -> u64 {
+    pub fn end_item(&self) -> ItemNum {
         self.first_item.saturating_add(self.items)
     }
 }
@@ -848,7 +848,7 @@ fn fill_piece_head(b: &mut [u8], head: &PieceHead, tracks: &[TrackStart]) -> Opt
         put_u32(row, 8, t.track_number.get())?;
         let flags = row_flags(t.incomplete) | if t.not_carried { ROW_NOT_CARRIED } else { 0 };
         put_u32(row, HEAD_ROW_FLAGS_AT, flags)?;
-        put_u64(row, 16, t.next_item)?;
+        put_u64(row, 16, t.next_item.get())?;
         put_i64(row, 24, t.from_tick)?;
         put(row, 32, t.owner.0)?;
         put(row, 64, t.hash.0)?;
@@ -1010,7 +1010,7 @@ impl<'b> PieceHeadBlock<'b> {
             Some(TrackStart {
                 track_id: TrackId::new(le_u64(row, 0)?),
                 track_number: TrackNum::try_new(le_u32(row, 8)?)?,
-                next_item: le_u64(row, 16)?,
+                next_item: ItemNum::new(le_u64(row, 16)?),
                 from_tick: le_i64(row, 24)?,
                 owner: OwnerId(array(row, 32)?),
                 hash: TrackHash(array(row, 64)?),
@@ -1187,7 +1187,7 @@ fn fill_close(b: &mut [u8], close: &Close, tracks: &[TrackRange]) -> Option<()> 
         put_u64(row, 0, t.track_id.get())?;
         put_u32(row, 8, t.track_number.get())?;
         put_u32(row, 12, t.chunks)?;
-        put_u64(row, 16, t.first_item)?;
+        put_u64(row, 16, t.first_item.get())?;
         put_u64(row, 24, t.items)?;
         put_i64(row, 32, t.first_tick)?;
         put_i64(row, 40, t.last_tick)?;
@@ -1302,7 +1302,7 @@ impl<'b> CloseBlock<'b> {
                 track_id: TrackId::new(le_u64(row, 0)?),
                 track_number: TrackNum::try_new(le_u32(row, 8)?)?,
                 chunks: le_u32(row, 12)?,
-                first_item: le_u64(row, 16)?,
+                first_item: ItemNum::new(le_u64(row, 16)?),
                 items: le_u64(row, 24)?,
                 first_tick: le_i64(row, 32)?,
                 last_tick: le_i64(row, 40)?,

@@ -804,7 +804,7 @@ fn a_put_writes_only_what_is_not_close_behind() {
     assert!(
         entries
             .iter()
-            .all(|(e, _)| (e.first_item, e.count) == (0, 0))
+            .all(|(e, _)| (e.first_item, e.count) == (ww_tape::ItemNum::new(0), 0))
     );
 }
 

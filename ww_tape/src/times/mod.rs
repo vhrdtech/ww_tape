@@ -74,10 +74,10 @@ pub use ww_tape_codecs::times::{encode_durations, encode_flags, encode_starts, e
 /// none per item, so the count a head states is bounded by this, not by the chunk's bytes.
 pub const ITEMS_MAX: usize = 1 << 24;
 
-use crate::TrackId;
 use crate::bitpack::GROUP;
 use crate::chunk::{Chunk, ChunkHead, Codec, Column, ColumnKind, EndMode};
 use crate::{BlockKind, BoundError, FromFile, TrackNum};
+use crate::{ItemNum, TrackId};
 use core::ops::Range;
 
 /// Codec of a starts column.
@@ -448,7 +448,7 @@ impl TimeHead {
         &self,
         track_id: TrackId,
         track_number: TrackNum,
-        first_item: u64,
+        first_item: ItemNum,
     ) -> ChunkHead {
         ChunkHead {
             kind: BlockKind::Events,

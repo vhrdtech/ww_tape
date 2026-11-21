@@ -1,4 +1,5 @@
 use super::*;
+use crate::ItemNum;
 use crate::TrackId;
 use crate::TrackNum;
 use crate::chunk::{ColumnSpec, chunk_len, write_chunk};
@@ -38,7 +39,7 @@ fn block(payloads: &[Vec<u8>]) -> Vec<u8> {
     write(
         &times
             .head
-            .chunk_head(TrackId::new(7), TrackNum::new(2), 500),
+            .chunk_head(TrackId::new(7), TrackNum::new(2), ItemNum::new(500)),
         times.columns().chain(p.columns()),
     )
 }
@@ -130,7 +131,9 @@ fn one_length_costs_records_only() {
 #[test]
 fn chunk_without_payloads_and_bad_columns() {
     let times = EncodedTimes::encode(&[1, 2, 3], None, None).unwrap();
-    let head = times.head.chunk_head(TrackId::new(7), TrackNum::new(2), 0);
+    let head = times
+        .head
+        .chunk_head(TrackId::new(7), TrackNum::new(2), ItemNum::new(0));
     let b = write(&head, times.columns());
     let blk = Block::read(&b).unwrap();
     assert!(Payloads::read(&blk.chunk().unwrap()).unwrap().is_none());
@@ -219,7 +222,9 @@ fn rewritten(w: &[Vec<u8>], edit: impl Fn(&mut [u8]), bad: &[usize]) {
         len: c.bytes.len(),
     };
     let b = write(
-        &times.head.chunk_head(TrackId::new(7), TrackNum::new(2), 0),
+        &times
+            .head
+            .chunk_head(TrackId::new(7), TrackNum::new(2), ItemNum::new(0)),
         times
             .columns()
             .chain([(spec(&l), &lengths[..]), (spec(&p), p.bytes)]),
@@ -400,7 +405,9 @@ fn an_outer_coded_column_is_refused_alone() {
             (c, b)
         });
         write(
-            &times.head.chunk_head(TrackId::new(7), TrackNum::new(2), 0),
+            &times
+                .head
+                .chunk_head(TrackId::new(7), TrackNum::new(2), ItemNum::new(0)),
             cols,
         )
     };
@@ -451,7 +458,9 @@ fn unknown_columns_are_refused_alone() {
         unknown(ColumnKind::PAYLOAD_LEAF),
     ]);
     let b = write(
-        &times.head.chunk_head(TrackId::new(7), TrackNum::new(2), 0),
+        &times
+            .head
+            .chunk_head(TrackId::new(7), TrackNum::new(2), ItemNum::new(0)),
         cols,
     );
     let c = Block::read(&b).unwrap().chunk().unwrap();
@@ -481,7 +490,9 @@ fn unknown_columns_are_refused_alone() {
                 (c, b)
             });
         let b = write(
-            &times.head.chunk_head(TrackId::new(7), TrackNum::new(2), 0),
+            &times
+                .head
+                .chunk_head(TrackId::new(7), TrackNum::new(2), ItemNum::new(0)),
             cols,
         );
         let c = Block::read(&b).unwrap().chunk().unwrap();

@@ -68,7 +68,7 @@
 //! archived pieces, never a time column. No outer codec is assigned yet: a reader refuses every outer-coded column as
 //! a column in a codec it doesn't know. Inner codec ids stop at 127.
 
-use crate::TrackId;
+use crate::{ItemNum, TrackId};
 use core::num::NonZeroUsize;
 
 use crate::TrackNum;
@@ -270,7 +270,7 @@ pub struct ChunkHead {
     /// [TrackDef::number](crate::TrackDef::number).
     pub track_number: TrackNum,
     /// Item number of the first item in the track (sample index in a series).
-    pub first_item: u64,
+    pub first_item: ItemNum,
     /// Items (samples) in the chunk, 1 and up.
     pub count: u32,
     pub first_tick: i64,
@@ -619,7 +619,7 @@ impl<'b> ChunkWriter<'b> {
             .into_iter()
             .chain(head.track_number.get().to_le_bytes())
             .chain(head.track_id.get().to_le_bytes())
-            .chain(head.first_item.to_le_bytes())
+            .chain(head.first_item.get().to_le_bytes())
             .chain(head.first_tick.to_le_bytes())
             .chain(head.last_tick.to_le_bytes())
             .chain(head.latest_end.to_le_bytes())
@@ -832,7 +832,7 @@ fn check_head(head: &ChunkHead, kinds: impl Iterator<Item = ColumnKind>) -> Resu
         (BlockKind::Series, None) => {
             return Err(ChunkError::Invalid("a series chunk without a grid"));
         }
-        (BlockKind::Series, Some(g)) if g.grid_index > head.first_item => {
+        (BlockKind::Series, Some(g)) if g.grid_index > head.first_item.get() => {
             return Err(ChunkError::Invalid(
                 "a grid that starts after the first sample",
             ));
@@ -1003,7 +1003,7 @@ fn read_fixed(block: &[u8], kind: BlockKind, table_start: usize) -> Option<Chunk
         kind,
         track_id: TrackId::new(le_u64(block, 40)?),
         track_number: TrackNum::try_new(le_u32(block, 36)?)?,
-        first_item: le_u64(block, 48)?,
+        first_item: ItemNum::new(le_u64(block, 48)?),
         count: le_u32(block, 12)?,
         first_tick: le_i64(block, 56)?,
         last_tick: le_i64(block, 64)?,

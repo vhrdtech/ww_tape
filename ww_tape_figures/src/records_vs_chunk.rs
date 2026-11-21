@@ -108,7 +108,9 @@ fn chunk(frames: &[(i64, Vec<u8>)], n: &DriveNumbers) -> anyhow::Result<(Vec<u8>
     let starts: Vec<i64> = frames.iter().map(|f| f.0).collect();
     let times = EncodedTimes::encode(&starts, None, None).or_debug()?;
     let payloads = EncodedPayloads::encode(frames.iter().map(|f| f.1.as_slice())).or_debug()?;
-    let head = times.head.chunk_head(key("can0").id(), n.can0, 0);
+    let head = times
+        .head
+        .chunk_head(key("can0").id(), n.can0, ww_tape::ItemNum::new(0));
     let columns: Vec<(ColumnSpec, &[u8])> = times.columns().chain(payloads.columns()).collect();
     let mut buf = vec![0u8; 64 << 10];
     let id = BlockId::new(SessionTag::writable(1), 0);

@@ -3,6 +3,8 @@
 //! up to sample 9 999 and 10⁻⁶ A from 10 000. Its summary nodes of 4096 samples come from the blocks
 //! [SeriesSummaries] writes: the node across the change is kept at the common scale of both.
 
+use ww_tape::ItemNum;
+
 use anyhow::{Context, ensure};
 use ww_tape::TrackId;
 use ww_tape::TrackNum;
@@ -38,12 +40,14 @@ fn stored(i: u64) -> i16 {
 /// A series chunk of samples `first..first + CHUNK` on `grid`, written as a block and read back: its head and samples.
 fn chunk(grid: SeriesGrid, period: Ratio64, first: u64) -> anyhow::Result<(ChunkHead, Vec<i16>)> {
     let count = CHUNK as u32;
-    let (first_tick, last_tick) = grid.chunk_ticks(period, first, count).or_debug()?;
+    let (first_tick, last_tick) = grid
+        .chunk_ticks(period, ItemNum::new(first), count)
+        .or_debug()?;
     let head = ChunkHead {
         kind: BlockKind::Series,
         track_id: TrackId::new(11),
         track_number: TrackNum::new(1),
-        first_item: first,
+        first_item: ItemNum::new(first),
         count,
         first_tick,
         last_tick,
@@ -107,7 +111,7 @@ pub fn autorange() -> anyhow::Result<String> {
         track_id: TrackId::new(11),
         track_number: TrackNum::new(1),
         shape: SampleShape::scalar(ElementDesc::of(Element::I16)),
-        first_item: 0,
+        first_item: ItemNum::new(0),
         grid,
         period,
     };
@@ -139,7 +143,7 @@ pub fn autorange() -> anyhow::Result<String> {
         for n in 0..summary.node_count() {
             let node = summary.series_node(n).context("a node")?;
             let stats = node.channels.first().context("a channel")?;
-            let at = first + ((n as u64) << NODE_SHIFT);
+            let at = first.get() + ((n as u64) << NODE_SHIFT);
             nodes.push((at, node.scale, stats.min[0].as_f64(), stats.max[0].as_f64()));
         }
     }
@@ -175,7 +179,7 @@ pub fn autorange() -> anyhow::Result<String> {
         let g = head.grid.context("a grid")?;
         let unit = if g.scale == milli { 1e-3 } else { 1e-6 };
         for (k, v) in values.iter().enumerate().step_by(50) {
-            let i = head.first_item + k as u64;
+            let i = head.first_item.get() + k as u64;
             let a = f64::from(*v).max(1.0) * unit;
             d.push_str(&format!(
                 "{}{:.1} {:.1} ",
@@ -187,7 +191,7 @@ pub fn autorange() -> anyhow::Result<String> {
     }
     s.path(d.trim_end(), "line");
     for (head, _) in &chunks {
-        let x0 = x(head.first_item);
+        let x0 = x(head.first_item.get());
         s.line((x0, y_top + y_h), (x0, y_top + y_h + 6.0), "thin");
     }
     s.line(

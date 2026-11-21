@@ -99,7 +99,8 @@ pub fn file(data: &[u8]) -> Vec<u8> {
         let t = EncodedTimes::encode(&starts, None, None).expect("valid times");
         let cols: Vec<_> = t.columns().collect();
         let mut b = build(
-            &t.head.chunk_head(TrackId::new(1), TrackNum::new(1), 0),
+            &t.head
+                .chunk_head(TrackId::new(1), TrackNum::new(1), ww_tape::ItemNum::new(0)),
             &cols,
         );
         ww_tape::set_id(&mut b, BlockId::new(SESSION, seq)).expect("a good chunk renumbers");

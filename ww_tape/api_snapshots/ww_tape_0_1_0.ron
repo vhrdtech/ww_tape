@@ -1,6 +1,6 @@
 // ww_tape 0.1.0 traits and types, saved by `ww api save`.
 // Do not edit, bump the crate version and save a new snapshot instead.
-// shrink_wrap sha256: d5f219b4c8f56837441f7c22d120c73cfd0c64f17dc5245604abf18115d16568
+// shrink_wrap sha256: 47839bc0477ce272fad735c3d1fcc40bbe6121ee95fb56ed7b04d5d6b4aa4b75
 (magic: 2837124336, ww_self_version: (major: 0, minor: 4, patch: 0), root: (docs: [
     "Tape blocks: the unit a producer of records hands over, a live consumer reads and a log file is made of.",
     "",
@@ -990,6 +990,14 @@
     InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
         "The block does not fit: nothing was written.",
     ], ident: "Full", generics: [], fields: Unit, sparse: false, path: None, instance_of: None, extra: None)), crate_idx: 0),
+    InLine(ty: Struct((size: UnsizedFinalStructure, crate_idx: 0, docs: [
+        "An item\'s number on its track: the first item is 0, each next one more, across chunks and pieces.",
+        "",
+        "Any value is a number. A count of items stays a plain `u64`: a number plus a count is a number",
+        "([Self::checked_add]), a number less a number is a count ([Self::offset_to]). On the wire exactly a `u64`.",
+    ], ident: "ItemNum", generics: [], fields: Unnamed([
+        (ident: None, default: None, since: None, ty: NumericAny(Base(U64)), docs: [], slot: None, series_opaque: false),
+    ]), sparse: false, path: None, instance_of: None, extra: Some((transparent: true, marker: None)))), crate_idx: 0),
     InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
         "The system\'s monotonic clock, from the first reading of any [SystemClock] in the process: every one reads the",
         "same time.",

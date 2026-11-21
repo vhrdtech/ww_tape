@@ -1,5 +1,7 @@
 //! [Indexer]: what a writer keeps to place checkpoints and write the final index and the close.
 
+use crate::ItemNum;
+
 use crate::TrackId;
 use crate::TrackNum;
 use alloc::collections::{BTreeMap, BTreeSet};
@@ -515,7 +517,7 @@ impl Indexer {
                 track_id: key.0,
                 track_number: t.number,
                 chunks: 0,
-                first_item: 0,
+                first_item: ItemNum::new(0),
                 items: 0,
                 first_tick: 0,
                 last_tick: 0,
@@ -567,7 +569,7 @@ pub(crate) fn next_starts<'r>(
         let s = out.entry((t.track_id, t.owner)).or_insert(TrackStart {
             track_id: t.track_id,
             track_number: t.track_number,
-            next_item: 0,
+            next_item: ItemNum::new(0),
             from_tick: i64::MIN,
             owner: t.owner,
             hash: TrackHash::START,
@@ -597,7 +599,7 @@ fn add_to_range(
         .and_modify(|t| {
             // a piece of more than u32::MAX chunks keeps the count at u32::MAX
             t.chunks = t.chunks.saturating_add(1);
-            t.items = e.end_item().saturating_sub(t.first_item);
+            t.items = t.first_item.saturating_offset_to(e.end_item());
             t.first_tick = t.first_tick.min(e.first_tick);
             t.last_tick = t.last_tick.max(e.last_tick);
             t.latest_end = t.latest_end.max(e.latest_end);

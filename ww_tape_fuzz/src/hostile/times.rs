@@ -133,7 +133,8 @@ pub fn times(data: &[u8]) -> Vec<u8> {
         cols.extend([source.column(), key.column()]);
     }
     let mut b = build(
-        &enc.head.chunk_head(TrackId::new(1), TrackNum::new(1), 0),
+        &enc.head
+            .chunk_head(TrackId::new(1), TrackNum::new(1), ww_tape::ItemNum::new(0)),
         &cols,
     );
     let groups = starts.len().div_ceil(GROUP);

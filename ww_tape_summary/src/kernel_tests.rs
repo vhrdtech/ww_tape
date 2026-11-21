@@ -511,7 +511,7 @@ fn blocks_are_the_same_with_every_kernel() {
             track_id: TrackId::new(9),
             track_number: TrackNum::new(2),
             shape,
-            first_item: 100,
+            first_item: ww_tape::ItemNum::new(100),
             grid: SeriesGrid::start(0, 0, Magnitude::ONE),
             period: Ratio64::ONE,
         };

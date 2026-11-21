@@ -1,6 +1,8 @@
 //! Appends on files and with chunks: a file cut at every byte of an append, read and written on through
 //! `ww_tape_fs`, and events chunks across an append against the same chunks written in one go.
 
+use ww_tape::ItemNum;
+
 use std::collections::BTreeSet;
 use std::path::Path;
 use ww_tape::ClockNum;
@@ -221,7 +223,7 @@ fn events_chunks_across_an_append_read_as_written_in_one_go() {
                 r.track_entries(0, chunk_id(t))
                     .unwrap()
                     .iter()
-                    .map(|e| e.first_item)
+                    .map(|e| e.first_item.get())
                     .collect()
             })
             .collect();
@@ -242,7 +244,10 @@ fn events_chunks_across_an_append_read_as_written_in_one_go() {
         .iter()
         .map(|e| e.first_item)
         .collect();
-    assert!(firsts.starts_with(&[0, 50, 100]), "{firsts:?}");
+    assert!(
+        firsts.starts_with(&[ItemNum::new(0), ItemNum::new(50), ItemNum::new(100)]),
+        "{firsts:?}"
+    );
 }
 
 /// A closed piece opened to write and closed again with nothing appended writes nothing: not an append head, not a

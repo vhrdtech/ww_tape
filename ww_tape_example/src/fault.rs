@@ -7,6 +7,7 @@
 //! this file; [Fault::find] runs them all and counts the bytes each step reads ([Counted]).
 
 use core::cell::Cell;
+use ww_tape::ItemNum;
 use ww_tape::TrackNum;
 
 use shrink_wrap::prelude::*;
@@ -241,7 +242,7 @@ pub fn mode<S: ByteSource>(
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Frame {
     /// Its item number on `can0`.
-    pub item: u64,
+    pub item: ItemNum,
     /// Its time, µs since boot.
     pub us: i64,
     /// Its 11-bit identifier.
@@ -294,7 +295,7 @@ pub fn frames<S: ByteSource>(
             .split_first_chunk::<4>()
             .ok_or(FaultError::Missing("id"))?;
         frames.push(Frame {
-            item: chunk.head().first_item + j as u64, // the frame's item number on can0
+            item: chunk.head().first_item.saturating_add(j as u64), // the frame's item number on can0
             us,
             id: u32::from_le_bytes(*id),
             data: data.to_vec(),
@@ -399,8 +400,10 @@ pub fn current<S: ByteSource>(
         + steps
             .and_then(|s| u64::try_from(s).ok())
             .ok_or(FaultError::Missing("sample"))?;
-    let at = usize::try_from(first - head.first_item)
-        .ok()
+    let at = head
+        .first_item
+        .offset_to(ItemNum::new(first))
+        .and_then(|n| usize::try_from(n).ok())
         .ok_or(FaultError::Missing("sample"))?; // in the chunk
     let n = period
         .recip()
@@ -506,7 +509,8 @@ fn nodes<S: ByteSource>(
         // --8<-- [start:nodes]
         for e in entries {
             // entries: phase_a's index entries in piece i
-            let wanted = e.first_item < items.end && e.end_item() > items.start;
+            let wanted =
+                e.first_item < ItemNum::new(items.end) && e.end_item() > ItemNum::new(items.start);
             if e.kind != BlockKind::Summary || e.level != level || !wanted {
                 continue; // another block, another level, or outside the range drawn
             }
@@ -517,9 +521,9 @@ fn nodes<S: ByteSource>(
                 let stats = summary
                     .channel_stats(0, n)
                     .ok_or(FaultError::Missing("node"))?;
-                let first = summary.head().first_item + n as u64 * span;
-                let samples = span.min(e.end_item() - first); // the last node may be partial
-                take(first, samples, stats);
+                let first = summary.head().first_item.saturating_add(n as u64 * span);
+                let samples = span.min(first.saturating_offset_to(e.end_item())); // the last node may be partial
+                take(first.get(), samples, stats);
             }
             // --8<-- [end:nodes]
             blocks += 1;
@@ -546,7 +550,7 @@ pub fn overview(
     for p in reader.pieces() {
         let (_, tracks) = p.close.as_ref().ok_or(FaultError::Missing("close"))?;
         for t in tracks.iter().filter(|t| t.track_id == key("phase_a").id()) {
-            total = total.max(t.end_item());
+            total = total.max(t.end_item().get());
         }
     }
     let entries = (0..reader.pieces().len())
@@ -698,7 +702,7 @@ pub fn verify_cost<S: ByteSource>(
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SameFrames {
     /// The frames of minutes 51 to 53: their item numbers, and the chunks the range hash folded, all from the index.
-    pub items: core::ops::Range<u64>,
+    pub items: core::ops::Range<ItemNum>,
     pub chunks: u64,
     pub stated: u64,
     /// The range hash in the whole chain and in a copy of its last piece alone are equal.
@@ -712,7 +716,7 @@ fn frame_items<S: ByteSource>(
     reader: &TapeReader<S>,
     piece: usize,
     minutes: core::ops::Range<i64>,
-) -> Result<core::ops::Range<u64>, FaultError<S::Error>> {
+) -> Result<core::ops::Range<ItemNum>, FaultError<S::Error>> {
     let (from, to) = (minutes.start * US_PER_MINUTE, minutes.end * US_PER_MINUTE);
     let chunks: Vec<IndexEntry> = reader
         .track_entries(piece, key("can0").id())?

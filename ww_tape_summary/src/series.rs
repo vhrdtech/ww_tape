@@ -823,6 +823,7 @@ pub use builder::{SERIES_BLOCK_BYTES, SeriesStart, SeriesSummaries};
 #[cfg(feature = "std")]
 mod builder {
     use exact_units::{Bytes, Magnitude};
+    use ww_tape::ItemNum;
 
     use super::i128_f64;
     use super::scalar::{Acc, Channel};
@@ -913,7 +914,7 @@ mod builder {
         /// 65535.
         pub shape: SampleShape,
         /// Index of the first sample in the track (a later tape piece starts past 0).
-        pub first_item: u64,
+        pub first_item: ItemNum,
         /// The grid and scale of the first sample, as its chunk's head carries them.
         pub grid: SeriesGrid,
         /// Ticks from one sample to the next, exact.
@@ -990,7 +991,7 @@ mod builder {
             if (spec.stats.power_mean || spec.stats.power_max) && !is_complex(element) {
                 return Err(BuildError::Invalid("power of a real element"));
             }
-            if start.grid.grid_index > start.first_item {
+            if start.grid.grid_index > start.first_item.get() {
                 return Err(BuildError::Series(SeriesError::GridAfterFirst {
                     first_item: start.first_item,
                     grid_index: start.grid.grid_index,
@@ -1037,7 +1038,7 @@ mod builder {
                 // base_shift is at most BASE_SHIFT_MAX, checked above
                 node_mask: !(u64::MAX << spec.base_shift),
                 spec,
-                origin: start.first_item,
+                origin: start.first_item.get(),
                 timeline,
                 grid: start.grid,
                 scale,
@@ -1045,11 +1046,11 @@ mod builder {
                 lo,
                 hi,
                 acc: vec![Acc::NEW; usize::from(channels)],
-                acc_from: start.first_item,
+                acc_from: start.first_item.get(),
                 part: None,
-                next_item: start.first_item,
+                next_item: start.first_item.get(),
                 levels: Levels::new(
-                    start.first_item,
+                    start.first_item.get(),
                     spec.base_shift,
                     node_len,
                     crate::block_room(SERIES_BLOCK_BYTES).saturating_sub(SCALE_LEN_MAX),
@@ -1070,8 +1071,8 @@ mod builder {
         }
 
         /// The next sample's index.
-        pub fn next_item(&self) -> u64 {
-            self.next_item
+        pub fn next_item(&self) -> ItemNum {
+            ItemNum::new(self.next_item)
         }
 
         /// The grids of the samples so far.
@@ -1084,13 +1085,16 @@ mod builder {
         /// starts after the next sample, a new grid's first sample isn't more than a period after the last sample's tick ([is_gap](ww_tape::series::is_gap)), or the scale
         /// has no common scale with the ones before.
         pub fn set_grid(&mut self, g: SeriesGrid) -> Result<(), BuildError> {
-            let next = self.next_item;
+            let next = ItemNum::new(self.next_item);
             let first = g
                 .chunk_ticks(self.timeline.period(), next, 1)
                 .map_err(BuildError::Series)?
                 .0;
             if !g.same_grid(&self.grid)
-                && let Some(last) = next.checked_sub(1).and_then(|i| self.timeline.tick(i))
+                && let Some(last) = self
+                    .next_item
+                    .checked_sub(1)
+                    .and_then(|i| self.timeline.tick(ItemNum::new(i)))
                 && !ww_tape::series::is_gap(self.timeline.period(), last, first)
             {
                 return Err(BuildError::Series(SeriesError::GridTooClose {
@@ -1140,7 +1144,7 @@ mod builder {
                 )]
                 let count = u32::try_from(frames).map_err(|_| past)?;
                 self.timeline
-                    .push(self.next_item, count, self.grid)
+                    .push(ItemNum::new(self.next_item), count, self.grid)
                     .map_err(BuildError::Series)?;
                 self.add(now, flags);
                 self.next_item = u64::try_from(frames)
@@ -1296,7 +1300,7 @@ mod builder {
 
         fn tick(&self, item: u64) -> Result<i64, BuildError> {
             self.timeline
-                .tick(item)
+                .tick(ItemNum::new(item))
                 .ok_or(BuildError::Invalid("sample tick past i64"))
         }
 
@@ -1336,7 +1340,7 @@ mod builder {
                         stats: self.spec.stats,
                         scale,
                     },
-                    first_item,
+                    first_item: ItemNum::new(first_item),
                     items,
                     first_tick: self.tick(first_item)?,
                     last_tick,

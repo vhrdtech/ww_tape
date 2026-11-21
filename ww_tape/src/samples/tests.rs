@@ -218,7 +218,7 @@ fn samples_golden() {
         kind: crate::BlockKind::Series,
         track_id: TrackId::new(0x5a5a),
         track_number: TrackNum::new(3),
-        first_item: 1000,
+        first_item: crate::ItemNum::new(1000),
         count: n as u32,
         first_tick: 0,
         last_tick: (n as i64 - 1) * 20,

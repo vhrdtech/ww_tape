@@ -386,7 +386,7 @@ pub fn linear_group() -> anyhow::Result<String> {
     let rmin = i32::from_le_bytes(rec.get(16..20).context("rmin")?.try_into()?);
     let width = u32::from(*rec.get(20).context("width")?);
     let period = 1_000_000 / u64::from(Drive::full().can_hz);
-    let starts: Vec<i64> = (head.first_item..head.first_item + 128)
+    let starts: Vec<i64> = (head.first_item.get()..head.first_item.get() + 128)
         .map(|k| ww_tape_example::frame(k, period).0)
         .collect();
     ensure!(
@@ -413,7 +413,7 @@ pub fn linear_group() -> anyhow::Result<String> {
         hi: (1i64 << width) as f64 + 50.0,
     };
     // how late the latest frame of the group is against its nominal tick, k periods after 0
-    let late_us = (head.first_item..head.first_item + 128)
+    let late_us = (head.first_item.get()..head.first_item.get() + 128)
         .zip(&starts)
         .map(|(k, t)| t - i64::try_from(k * period).unwrap_or(i64::MAX))
         .max()
@@ -435,7 +435,7 @@ pub fn linear_group() -> anyhow::Result<String> {
         &format!(
             "can0, frames {} to {}: one group of a linear starts column",
             head.first_item,
-            head.first_item + 127
+            head.first_item.get() + 127
         ),
     );
     s.text(LEFT, 38.0, "start", "small", &format!(
@@ -487,7 +487,7 @@ pub fn linear_group() -> anyhow::Result<String> {
 pub fn delta_group() -> anyhow::Result<String> {
     let (head, columns) = chunk_at_60_s(|n| n.phase_a)?;
     let drive = Drive::full();
-    let values = phase_values(&drive, head.first_item, 128);
+    let values = phase_values(&drive, head.first_item.get(), 128);
     let diffs: Vec<i64> = values
         .windows(2)
         .filter_map(|w| Some(i64::from(*w.get(1)?) - i64::from(*w.first()?)))
@@ -537,7 +537,7 @@ pub fn delta_group() -> anyhow::Result<String> {
         &format!(
             "phase_a, samples {} to {}: one group of a delta column",
             head.first_item,
-            head.first_item + 127
+            head.first_item.get() + 127
         ),
     );
     s.text(

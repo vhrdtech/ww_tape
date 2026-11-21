@@ -1,5 +1,5 @@
 //! Track and clock numbers, keys and ids: what records, chunks and definitions name a track or a clock by. Also
-//! [RelationSet], a set of a track's relations by index.
+//! [RelationSet], a set of a track's relations by index, and [ItemNum], an item's number on its track.
 //!
 //! A number is small and local to a producer's definitions; a key or an id is a 64-bit hash, the same across files and
 //! runs. Each has its own type, so one can't pass where another belongs; on the wire each is exactly the plain number
@@ -477,6 +477,108 @@ impl fmt::Display for RelationSet {
     }
 }
 
+/// An item's number on its track: the first item is 0, each next one more, across chunks and pieces.
+///
+/// Any value is a number. A count of items stays a plain `u64`: a number plus a count is a number
+/// ([Self::checked_add]), a number less a number is a count ([Self::offset_to]). On the wire exactly a `u64`.
+#[derive_shrink_wrap(
+    borrowed,
+    owned(feature = "std"),
+    transparent,
+    derive(Copy, Clone, Default, PartialEq, Eq, Hash, PartialOrd, Ord)
+)]
+pub struct ItemNum(u64);
+
+impl ItemNum {
+    /// Item 0, the first of a track.
+    pub const ZERO: Self = Self(0);
+    /// The highest, `u64::MAX`.
+    pub const MAX: Self = Self(u64::MAX);
+
+    /// Item `n`.
+    #[must_use]
+    pub const fn new(n: u64) -> Self {
+        Self(n)
+    }
+
+    /// The number.
+    #[must_use]
+    pub const fn get(self) -> u64 {
+        self.0
+    }
+
+    /// The item `count` items on; None past `u64::MAX`.
+    #[must_use]
+    pub const fn checked_add(self, count: u64) -> Option<Self> {
+        match self.0.checked_add(count) {
+            Some(n) => Some(Self(n)),
+            None => None,
+        }
+    }
+
+    /// The item `count` items on, [Self::MAX] past `u64::MAX`.
+    #[must_use]
+    pub const fn saturating_add(self, count: u64) -> Self {
+        Self(self.0.saturating_add(count))
+    }
+
+    /// The item `count` items back; None before 0.
+    #[must_use]
+    pub const fn checked_sub(self, count: u64) -> Option<Self> {
+        match self.0.checked_sub(count) {
+            Some(n) => Some(Self(n)),
+            None => None,
+        }
+    }
+
+    /// The item `count` items back, [Self::ZERO] before 0.
+    #[must_use]
+    pub const fn saturating_sub(self, count: u64) -> Self {
+        Self(self.0.saturating_sub(count))
+    }
+
+    /// The items from this one up to `end`: None when `end` is before it.
+    #[must_use]
+    pub const fn offset_to(self, end: Self) -> Option<u64> {
+        end.0.checked_sub(self.0)
+    }
+
+    /// The items from this one up to `end`, 0 when `end` is before it.
+    #[must_use]
+    pub const fn saturating_offset_to(self, end: Self) -> u64 {
+        end.0.saturating_sub(self.0)
+    }
+
+    /// This item and the `count - 1` after it, in order; fewer where they would number past `u64::MAX`.
+    pub fn items(self, count: u64) -> impl Iterator<Item = Self> {
+        (0..count).map_while(move |k| self.checked_add(k))
+    }
+}
+
+impl fmt::Debug for ItemNum {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "ItemNum({})", self.0)
+    }
+}
+
+impl fmt::Display for ItemNum {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&self.0, f)
+    }
+}
+
+impl From<ItemNum> for u64 {
+    fn from(i: ItemNum) -> Self {
+        i.get()
+    }
+}
+
+impl From<u64> for ItemNum {
+    fn from(n: u64) -> Self {
+        Self(n)
+    }
+}
+
 #[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
@@ -554,6 +656,31 @@ mod tests {
         );
         assert_eq!(RelationSet::try_single(16), None);
         assert_eq!(RelationSet::ALL.len(), crate::RELATIONS_MAX);
+    }
+
+    #[test]
+    fn item_numbers() {
+        let i = ItemNum::new(10);
+        assert_eq!(i.checked_add(5), Some(ItemNum::new(15)));
+        assert_eq!(ItemNum::MAX.checked_add(1), None);
+        assert_eq!(ItemNum::MAX.saturating_add(1), ItemNum::MAX);
+        assert_eq!(i.checked_sub(11), None);
+        assert_eq!(i.saturating_sub(11), ItemNum::ZERO);
+        assert_eq!(i.offset_to(ItemNum::new(15)), Some(5));
+        assert_eq!(i.offset_to(ItemNum::new(5)), None);
+        assert_eq!(i.saturating_offset_to(ItemNum::new(5)), 0);
+        assert_eq!(
+            i.items(3).collect::<Vec<_>>(),
+            [ItemNum::new(10), ItemNum::new(11), ItemNum::new(12)]
+        );
+        assert_eq!(ItemNum::MAX.items(5).count(), 1);
+        assert_eq!(i.to_string(), "10");
+        assert_eq!(format!("{i:?}"), "ItemNum(10)");
+        for v in [0, 1, u64::MAX] {
+            let b = ItemNum::new(v).to_ww_bytes_owned_vec();
+            assert_eq!(b, v.to_ww_bytes_owned_vec());
+            assert_eq!(ItemNum::from_ww_bytes(&b).unwrap(), ItemNum::new(v));
+        }
     }
 
     trait Bytes {

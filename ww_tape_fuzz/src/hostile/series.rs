@@ -1,6 +1,8 @@
 //! Series tracks: the describe record of the track (items, channels, period, scale) in a block of definitions, and series
 //! chunks of it whose heads (first sample, count, ticks, grid index, grid tick, scale) take hostile values.
 
+use ww_tape::ItemNum;
+
 use super::chunk::{build, hit_head, reseal};
 use super::{Draw, SESSION, clock_item, definition, describe_block};
 use shrink_wrap::prelude::*;
@@ -84,18 +86,20 @@ pub fn series(data: &[u8]) -> Vec<u8> {
             grid = grid.rescaled(magnitude(&mut d));
         } else if k > 0 {
             let tick = grid
-                .tick(period, first)
+                .tick(period, ItemNum::new(first))
                 .unwrap_or(0)
                 .saturating_add(i64::from(d.u32()));
             grid = SeriesGrid::start(first, tick, magnitude(&mut d));
         }
         let count = 1 + u32::from(d.u8());
-        let (first_tick, last_tick) = grid.chunk_ticks(period, first, count).unwrap_or((0, 0));
+        let (first_tick, last_tick) = grid
+            .chunk_ticks(period, ItemNum::new(first), count)
+            .unwrap_or((0, 0));
         heads.push(ChunkHead {
             kind: BlockKind::Series,
             track_id: TrackId::new(7),
             track_number: TrackNum::new(TRACK),
-            first_item: first,
+            first_item: ItemNum::new(first),
             count,
             first_tick,
             last_tick,
@@ -111,10 +115,10 @@ pub fn series(data: &[u8]) -> Vec<u8> {
         let i = d.below(heads.len());
         let h = &mut heads[i];
         let Some(g) = h.grid.as_mut() else { continue };
-        let own = [h.first_item, g.grid_index];
+        let own = [h.first_item.get(), g.grid_index];
         match d.u8() % 6 {
-            0 => h.first_item = d.value(64, caps, &own),
-            1 => g.grid_index = d.value(64, caps, &own).min(h.first_item),
+            0 => h.first_item = ItemNum::new(d.value(64, caps, &own)),
+            1 => g.grid_index = d.value(64, caps, &own).min(h.first_item.get()),
             2 => g.grid_tick = d.value(64, caps, &[g.grid_tick as u64]) as i64,
             3 => g.scale = magnitude(&mut d),
             4 => h.first_tick = d.value(64, caps, &[h.first_tick as u64]) as i64,
@@ -122,9 +126,11 @@ pub fn series(data: &[u8]) -> Vec<u8> {
         }
         h.last_tick = h.last_tick.max(h.first_tick);
         h.latest_end = h.last_tick;
-        h.first_item = h.first_item.min(u64::MAX - u64::from(h.count));
-        if g.grid_index > h.first_item {
-            g.grid_index = h.first_item;
+        h.first_item = h
+            .first_item
+            .min(ItemNum::new(u64::MAX - u64::from(h.count)));
+        if g.grid_index > h.first_item.get() {
+            g.grid_index = h.first_item.get();
         }
     }
     let samples = vec![0u8; 2 * shape.channels as usize];
