@@ -214,6 +214,9 @@ pub struct TapeWriter<S: TapeSink> {
     /// A bound on the state entries the definitions the next head carries take, built at the first track checked
     /// ([Self::track_room])
     plan: Option<carried::Plan>,
+    /// The tracks of the newest call that wrote or was to write data or a put: the next cut carries their
+    /// definitions first ([Self::want])
+    wanted: Vec<u32>,
 }
 
 /// What a cut starts the next piece with: this piece's head, the next head's rows and the definitions of their tracks.
@@ -357,6 +360,7 @@ impl<S: TapeSink> TapeWriter<S> {
             removed: Vec::new(),
             removed_added: false,
             carried_due: false,
+            wanted: Vec::new(),
             plan: None,
         }
     }
@@ -461,6 +465,7 @@ impl<S: TapeSink> TapeWriter<S> {
         defs: &Definitions,
         tracks: &[u32],
     ) -> Result<(), WriteError<S::Error>> {
+        self.want(tracks);
         let mut new = self.new_tracks(defs, tracks);
         if new.is_empty() {
             return Ok(());
@@ -544,6 +549,7 @@ impl<S: TapeSink> TapeWriter<S> {
         item: &[u8],
     ) -> Result<bool, WriteError<S::Error>> {
         self.check()?;
+        self.want(&[track]);
         let facts = defs
             .track(track)
             .ok_or(DescribeError::UnknownTrack { track })?;
@@ -743,8 +749,9 @@ impl<S: TapeSink> TapeWriter<S> {
         (blocks, dropped)
     }
 
-    /// Track numbers `numbers` of head rows `rows`, newest data first: those with a chunk in this piece by the offset
-    /// of their newest chunk, then those with records in it, then the others, each in the order given.
+    /// Track numbers `numbers` of head rows `rows`, newest data first: those [Self::want] named, then those with a
+    /// chunk in this piece by the offset of their newest chunk, then those with records in it, then the others, each
+    /// in the order given.
     fn ranked(&self, rows: &[TrackStart], numbers: &[u32]) -> Vec<u32> {
         let mut newest: BTreeMap<u64, u64> = BTreeMap::new();
         for e in self.indexer.entries() {
@@ -765,11 +772,24 @@ impl<S: TapeSink> TapeWriter<S> {
             let row = by_number.get(&n);
             let at = row.and_then(|r| newest.get(&r.track_id).copied());
             let with = row.is_some_and(|r| touched.contains(&(r.track_id, r.owner)));
-            (core::cmp::Reverse(at), !with)
+            let wanted = self
+                .wanted
+                .iter()
+                .position(|w| *w == n)
+                .unwrap_or(usize::MAX);
+            (wanted, core::cmp::Reverse(at), !with)
         };
         let mut out = numbers.to_vec();
         out.sort_by_key(|n| rank(*n));
         out
+    }
+
+    /// Name `tracks` as those of the next data: the next cut carries their definitions before any other track's, so
+    /// data on them that a full piece refused ([IndexError::StateEntries]) fits the next piece. Each call of data or
+    /// a put names its tracks itself.
+    pub fn want(&mut self, tracks: &[u32]) {
+        self.wanted.clear();
+        self.wanted.extend_from_slice(tracks);
     }
 
     /// The rows of the piece head this writer wrote or resumed after; none without a head.
@@ -1497,6 +1517,7 @@ impl<S: TapeSink> TapeWriter<S> {
         columns: &[(crate::ColumnSpec, &[u8])],
     ) -> Result<Placed, WriteError<S::Error>> {
         self.check()?;
+        self.want(&[head.track_number]);
         // the head and the column table are checked here and as the chunk is encoded: the payload is the caller's
         // columns, copied, not read back
         defs.check_chunk_head(head).map_err(WriteError::Describe)?;

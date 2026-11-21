@@ -15,6 +15,7 @@ use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::ops::Range;
+use shrink_wrap::prelude::DeserializeShrinkWrap;
 
 use super::{ByteSource, PieceInfo, R, ReadError, TapeReader, wide};
 use crate::index::{IndexEntry, STATE_TRACK_ID, StateEntry};
@@ -189,9 +190,9 @@ pub struct DefinitionsAt {
     pub uncovered: Vec<Range<u64>>,
     /// The lookup's budget ([OpenOptions::state_read_max](super::OpenOptions::state_read_max)) ran out: the slots not yet looked up are not among the items.
     pub spent: bool,
-    /// The piece head's rows marked [TrackStart::not_carried] whose track has no definition among the items: the
-    /// cut that started the piece had no room for it, so without the pieces before, the track is not defined. A
-    /// marked row whose definition is among the items is not named.
+    /// The piece head's rows marked [TrackStart::not_carried] whose track has no definition among the items, under
+    /// its number with its id and owner: the cut that started the piece had no room for it, so without the pieces
+    /// before, the track is not defined. A marked row whose definition is among the items is not named.
     pub not_carried: Vec<TrackStart>,
 }
 
@@ -205,6 +206,20 @@ impl DefinitionsAt {
     pub fn is_whole(&self) -> bool {
         self.lost.is_empty() && self.uncovered.is_empty() && !self.spent
     }
+}
+
+/// Whether `items` hold the definition of head row `row`'s track: under its number, with its id and owner. A number
+/// reused by another track doesn't count.
+fn defines(items: &BTreeMap<Slot, StateItem>, row: &TrackStart) -> bool {
+    let Some(item) = items.get(&Slot::Track {
+        number: row.track_number,
+    }) else {
+        return false;
+    };
+    matches!(
+        crate::Describe::from_ww_bytes(&item.item),
+        Ok(crate::Describe::Track(t)) if t.id() == row.track_id && t.owner == row.owner.0
+    )
 }
 
 /// The state entries of a piece, in file order and sorted: by slot then offset, and by hash then offset.
@@ -401,12 +416,7 @@ impl<S: ByteSource> TapeReader<S> {
             .head
             .iter()
             .flat_map(|(_, rows)| rows)
-            .filter(|r| {
-                r.not_carried
-                    && !out.items.contains_key(&Slot::Track {
-                        number: r.track_number,
-                    })
-            })
+            .filter(|r| r.not_carried && !defines(&out.items, r))
             .copied()
             .collect();
         Ok(out)

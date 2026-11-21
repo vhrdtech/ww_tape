@@ -174,6 +174,7 @@ Covers `ww_tape` 0.1.0.
 - `cut_on` and `cut_with` return `CutError`; a cut refused before the piece ends hands the writer back (WRITE-9).
 - `TrackStart` gains `not_carried`, piece head row flag bit 1; builds before it refuse such a head (WRITE-9).
 - `DefinitionsAt` gains `not_carried`: head rows whose definition the piece lacks; `Closed::not_carried` counts them (WRITE-9).
+- `TapeWriter::want` names the next data's tracks; the next cut carries their definitions first (WRITE-9).
 - `InputError::CarriedEntries` refuses a new track the next cut couldn't carry; a cut never refuses for carried definitions (WRITE-9).
 - Cut pieces' bytes change: carried definitions follow the head; golden `v1-index.hex` rewritten, older files read unchanged (WRITE-9).
 

@@ -369,7 +369,8 @@ impl<T: Tapes> PieceChain<T> {
     }
 
     /// `call` on the writer; when the piece lists all the state entries it may ([IndexError::StateEntries]), again
-    /// on a new piece. A call refused so has written nothing: it checks its room first.
+    /// on a new piece. A call refused so has written nothing: it checks its room first. The new piece carries the
+    /// definitions of the call's tracks first ([TapeWriter::want]), so the call fits it.
     fn with_room<R>(
         &mut self,
         defs: &Definitions,
@@ -447,6 +448,8 @@ impl<T: Tapes> PieceChain<T> {
         columns: &[(ColumnSpec, &[u8])],
     ) -> Result<ChunkPlaced, WriteError<T::Error>> {
         if self.cut_due() {
+            // the next piece carries the chunk's track first
+            self.writer()?.want(&[head.track_number]);
             self.cut_now(defs)?;
         }
         let Placed { offset, len, unit } =

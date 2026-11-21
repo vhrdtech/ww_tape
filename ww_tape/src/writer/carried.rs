@@ -81,9 +81,10 @@ pub(crate) fn blocks(defs: &Definitions, numbers: &[u32]) -> Vec<Vec<Slot>> {
 /// The blocks of definitions of tracks `numbers` (held in `defs`, [numbers], in the order of the head rows) that take
 /// at most `room` state entries, and the tracks left out. All of them in [blocks] when those fit. Else carried once
 /// each, no block repeating a chain, in this priority while room lasts: the clocks and maps the tracks need, then
-/// each track of `ranked` (newest data first) with the bundles it needs, when its whole chain is in; a track that
-/// doesn't fit is left out. Bundles, chains, then tracks in the order of the head rows, packed into blocks of at most
-/// [CARRIED_BLOCK_LEN].
+/// each track of `ranked` (the tracks of the next data, then newest data first) with the bundles it needs, when its
+/// whole chain is in; a track that doesn't fit is left out. The tracks leave room for one more track's definition
+/// and bundles: the first data on a track left out then fits the piece, which so never ends empty for it. Bundles,
+/// chains, then tracks in the order of the head rows, packed into blocks of at most [CARRIED_BLOCK_LEN].
 pub(crate) fn fit(
     defs: &Definitions,
     numbers: &[u32],
@@ -113,6 +114,13 @@ pub(crate) fn fit(
             }
         }
     }
+    // room for the definition and the bundles of a track left out, at its first data
+    let reserve = needs
+        .values()
+        .map(|(b, _, _)| b.len().saturating_add(1))
+        .max()
+        .unwrap_or(0);
+    left = left.saturating_sub(reserve);
     let mut bundles = BTreeSet::new();
     let mut taken = BTreeSet::new();
     for n in ranked {

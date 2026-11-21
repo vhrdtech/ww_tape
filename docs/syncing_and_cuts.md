@@ -98,7 +98,8 @@ each track that `defs` held at the cut:
 Some tracks have no definition there:
 
 - A track that never gave data has no row and no definition in any piece.
-- A track closed in `defs` (`Definitions::close`) keeps its row but no definition: dropping the pieces before loses it.
+- A track closed in `defs` (`Definitions::close`) keeps its row but no definition, and its row is not marked: dropping
+  the pieces before loses it.
 - A row whose number `defs` holds under another id or owner is passed over, since that definition is another track's.
 
 The carried definitions come in blocks of at most `CARRIED_BLOCK_LEN` (4 KiB):
@@ -126,11 +127,18 @@ The cut then fits them in this order, while room lasts:
 
 1. Each definition once: the blocks no longer repeat their clocks and maps.
 2. The clocks and maps the tracks count through.
-3. The tracks with data in the piece, newest data first, each with its bundles; then the quiet tracks.
+3. The tracks of the next data, those of the call the full piece refused or that `TapeWriter::want` named.
+4. The tracks with data in the piece, newest data first, each with its bundles; then the quiet tracks.
+
+Room for one more track's definition stays free, so the first data on a track left out fits the piece. Carried once,
+a damaged block of clocks and maps costs every track that counts through them.
 
 A track that doesn't fit is left out. The next head marks its row as not carried, and `Closed::tracks` of the cut marks
-it too (`Closed::not_carried` counts them). A reader of the piece without the pieces before names each such track in
-`DefinitionsAt::not_carried`, rather than missing its definition without a word.
+it too (`Closed::not_carried` counts them). A reader of the piece alone names each such track in
+`DefinitionsAt::not_carried`, by the row's id and owner, rather than missing its definition without a word.
+
+A full piece refuses data on a track left out with `IndexError::StateEntries`, nothing written. The next cut carries
+the call's tracks first. `PieceChain` cuts and retries by itself, so each piece it cuts holds data.
 
 #### What they cost
 

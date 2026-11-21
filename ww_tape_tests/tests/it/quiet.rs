@@ -129,8 +129,9 @@ fn a_chain_written_before_carried_definitions_reads() {
 }
 
 /// A piece cut by `w` after chunks of tracks 0, 1 and 2 (numbers 1 to 3), written with the index policy lowered to 5
-/// state entries: the next piece has room for the layout, the producer, the clock and two tracks. The track with
-/// the oldest data (number 1) is left out, its head row marked; the cut's [Closed](ww_tape::writer::Closed) counts it.
+/// state entries: the next piece has room for the layout, the producer, the clock and two definitions, one of them
+/// kept for the first data on a track left out. The track with the newest data (number 3) is carried; numbers 1 and 2
+/// are left out, their head rows marked; the cut's [Closed](ww_tape::writer::Closed) counts them.
 fn lowered_cut() -> (ww_tape::writer::Closed, Vec<u8>) {
     let defs = base_defs();
     let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
@@ -163,34 +164,34 @@ fn lowered_cut() -> (ww_tape::writer::Closed, Vec<u8>) {
 }
 
 /// A cut is never refused for the definitions its next piece carries: with the index policy lowered so they don't
-/// fit, it carries the clock and the tracks with the newest data, and marks the track left out in the next head.
-/// A reader of that piece alone names it.
+/// fit, it carries the clock and the tracks with the newest data, and marks the tracks left out in the next head.
+/// A reader of that piece alone names them.
 #[test]
 fn a_cut_without_room_carries_the_newest_and_names_the_rest() {
     let (closed, bytes) = lowered_cut();
-    assert_eq!(closed.not_carried(), 1);
+    assert_eq!(closed.not_carried(), 2);
     let left: Vec<u32> = closed
         .tracks
         .iter()
         .filter(|t| t.not_carried)
         .map(|t| t.track_number)
         .collect();
-    assert_eq!(left, [1]);
+    assert_eq!(left, [1, 2]);
     let r = TapeReader::open(&bytes[..]).unwrap();
     assert!(r.verify(0).unwrap().holds);
     let at = r.definitions_at(0, u64::MAX).unwrap();
     assert!(at.items.contains_key(&Slot::Clock { number: CLOCK }));
-    assert!(!at.items.contains_key(&Slot::Track { number: 1 }));
-    for number in 2..=3 {
-        assert!(at.items.contains_key(&Slot::Track { number }), "{number}");
+    for number in 1..=2 {
+        assert!(!at.items.contains_key(&Slot::Track { number }), "{number}");
     }
+    assert!(at.items.contains_key(&Slot::Track { number: 3 }));
     let named: Vec<u32> = at.not_carried.iter().map(|t| t.track_number).collect();
-    assert_eq!(named, [1]);
+    assert_eq!(named, [1, 2]);
     let head = &r.pieces()[0].head.as_ref().unwrap().1;
-    assert_eq!(head.iter().filter(|t| t.not_carried).count(), 1);
+    assert_eq!(head.iter().filter(|t| t.not_carried).count(), 2);
 }
 
-/// The piece of [lowered_cut], its head row 0 marked not carried, pinned byte for byte.
+/// The piece of [lowered_cut], two of its head rows marked not carried, pinned byte for byte.
 #[test]
 fn not_carried_golden() {
     let (_, bytes) = lowered_cut();
@@ -249,7 +250,7 @@ fn a_chain_with_its_policy_lowered_cuts_and_writes_on() {
     chain.write_chunk(defs, &h, &column(&c)).unwrap();
     let pieces = chain.close().unwrap();
     assert_eq!(pieces.len(), 2);
-    assert_eq!(pieces[0].piece.not_carried(), 1);
+    assert_eq!(pieces[0].piece.not_carried(), 2);
 }
 
 /// A crash right after a cut, before the next piece's first data: the resume keeps the piece head alone, and the
@@ -719,4 +720,181 @@ fn a_marked_row_whose_definition_the_piece_holds_is_not_named() {
     assert!(at.items.contains_key(&Slot::Track { number: 1 }));
     let named: Vec<u32> = at.not_carried.iter().map(|t| t.track_number).collect();
     assert_eq!(named, [2]);
+}
+
+/// Whether every piece of `pieces` (tapes in `mem`) holds data: a chunk or a record of some track.
+fn all_hold_data(mem: &MemTapes, pieces: &[ww_tape::ChainPiece<u64>]) -> bool {
+    pieces.iter().all(|p| {
+        let bytes = mem.get(&p.tape).unwrap().unwrap().to_vec().unwrap();
+        let r = TapeReader::open(&bytes[..]).unwrap();
+        r.pieces().iter().any(|i| {
+            i.close
+                .as_ref()
+                .is_some_and(|(_, rows)| rows.iter().any(|t| t.chunks > 0 || t.records > 0))
+        })
+    })
+}
+
+/// The chain of [a_cut_short_of_room_leaves_out_the_oldest_and_a_reader_names_them] cut after the maps came: the
+/// chain, its tapes and the numbers of the tracks the cut left out.
+fn left_out_chain(policy: usize) -> (PieceChain<MemTapes>, MemTapes, Definitions, Vec<u32>) {
+    let n = 300u32;
+    let host = 9_000;
+    let mut all = vec![keyed_clock(host)];
+    for k in 1..=n {
+        all.push(keyed_clock(1000 + k));
+        all.push(crate::definitions::track(k, 1000 + k));
+    }
+    let mut defs = Definitions::new();
+    defs.define_all(&all).unwrap();
+    let mem = MemTapes::new();
+    let mut chain = PieceChain::create_on(
+        mem.clone(),
+        OwnerId([0x77; 32]),
+        0,
+        &[],
+        chain_options(policy, 0),
+    )
+    .unwrap();
+    for t in 0..u64::from(n) {
+        let (h, c) = chunk(t, 0);
+        chain.write_chunk(&defs, &h, &column(&c)).unwrap();
+    }
+    let maps: Vec<_> = (1..=n).map(|k| map(1000 + k, host)).collect();
+    defs.define_all(&maps).unwrap();
+    chain.cut_now(&defs).unwrap();
+    let left: Vec<u32> = chain.closed()[0]
+        .piece
+        .tracks
+        .iter()
+        .filter(|t| t.not_carried)
+        .map(|t| t.track_number)
+        .collect();
+    (chain, mem, defs, left)
+}
+
+/// Data on a track the cut left out is never refused: its first write fits the piece the cut started, and a write
+/// that finds that piece full cuts to one carrying the track first. Writes on the left-out tracks in turn keep the
+/// chain writing, and every piece holds data.
+#[test]
+fn data_on_tracks_left_out_writes_on_and_no_piece_is_empty() {
+    let (mut chain, mem, defs, left) = left_out_chain(700);
+    assert!(left.len() > 100, "{}", left.len());
+    let seq = chain.seq();
+    let first = left[0];
+    let (h, c) = chunk(u64::from(first) - 1, 1);
+    chain.write_chunk(&defs, &h, &column(&c)).unwrap();
+    assert_eq!(
+        chain.seq(),
+        seq,
+        "the first data on a track left out fits the piece"
+    );
+    for (k, number) in left.iter().take(40).enumerate() {
+        let (h, c) = chunk(u64::from(*number) - 1, 2 + k as u64);
+        chain.write_chunk(&defs, &h, &column(&c)).unwrap();
+    }
+    assert!(chain.seq() > seq, "full pieces were cut");
+    let pieces = chain.close().unwrap();
+    assert!(all_hold_data(&mem, &pieces));
+}
+
+/// The same with the policy lowered mid-piece to 50 entries over 120 tracks on one clock: data on a track left out
+/// writes on.
+#[test]
+fn data_on_a_track_left_out_by_a_lowered_policy_writes_on() {
+    let mut all = vec![keyed_clock(CLOCK)];
+    all.extend((1..=120).map(|n| crate::definitions::track(n, CLOCK)));
+    let mut defs = Definitions::new();
+    defs.define_all(&all).unwrap();
+    let mem = MemTapes::new();
+    let mut chain = PieceChain::create_on(
+        mem.clone(),
+        OwnerId([0x78; 32]),
+        0,
+        &[],
+        chain_options(ww_tape::index::STATE_ENTRIES_MAX, 0),
+    )
+    .unwrap();
+    for t in 0..120 {
+        let (h, c) = chunk(t, 0);
+        chain.write_chunk(&defs, &h, &column(&c)).unwrap();
+    }
+    chain
+        .writer()
+        .unwrap()
+        .set_index_policy(IndexPolicy {
+            state_entries_max: 50,
+            ..IndexPolicy::default()
+        })
+        .unwrap();
+    chain.cut_now(&defs).unwrap();
+    let left: Vec<u32> = chain.closed()[0]
+        .piece
+        .tracks
+        .iter()
+        .filter(|t| t.not_carried)
+        .map(|t| t.track_number)
+        .collect();
+    assert!(left.contains(&5), "{left:?}");
+    for (k, number) in left.iter().take(30).enumerate() {
+        let (h, c) = chunk(u64::from(*number) - 1, 1 + k as u64);
+        chain.write_chunk(&defs, &h, &column(&c)).unwrap();
+    }
+    let pieces = chain.close().unwrap();
+    assert!(pieces.len() > 2);
+    assert!(all_hold_data(&mem, &pieces));
+}
+
+/// A marked row whose number the piece defines for another track (another id): the marked track's definition is
+/// still missing, and the reader names it.
+#[test]
+fn a_marked_row_whose_number_another_track_took_is_named() {
+    let defs = base_defs();
+    let ww_tape::Describe::Track(t) = crate::definitions::track(1, CLOCK) else {
+        unreachable!("track() gives a track")
+    };
+    let other = ww_tape::TrackDef {
+        key: ww_tape::track_key(0xad, &[ww_tape::Segment::Index(999)]),
+        ..t
+    };
+    let mut renumbered = defs.clone();
+    renumbered
+        .define(&ww_tape::Describe::Track(other.clone()))
+        .unwrap();
+    let row = ww_tape::piece::TrackStart {
+        track_id: crate::definitions::track_id(1),
+        track_number: 1,
+        next_item: 0,
+        from_tick: i64::MIN,
+        owner: OwnerId::NONE,
+        hash: ww_tape::TrackHash::START,
+        incomplete: false,
+        not_carried: true,
+    };
+    let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
+    w.set_session(SessionTag::writable(0x7175_6969)).unwrap();
+    let owner = OwnerId([0x58; 32]);
+    let head = ww_tape::PieceHead {
+        ident: ww_tape::PieceIdent {
+            id: ww_tape::piece::PieceId::first(&owner),
+            owner,
+            seq: 0,
+        },
+        prev: None,
+        prev_session: SessionTag::NONE,
+        integrity: ww_tape::Integrity::Full,
+    };
+    w.begin_piece(&head, &[row]).unwrap();
+    // number 1 now names the other track, which gives data
+    let (mut h, c) = chunk(0, 0);
+    h.track_id = other.id();
+    w.write_chunk(&renumbered, &h, &column(&c)).unwrap();
+    let tape = w.sink().tape();
+    w.close().unwrap();
+    let bytes = tape.to_vec().unwrap();
+    let r = TapeReader::open(&bytes[..]).unwrap();
+    let at = r.definitions_at(0, u64::MAX).unwrap();
+    assert!(at.items.contains_key(&Slot::Track { number: 1 }));
+    let named: Vec<u64> = at.not_carried.iter().map(|t| t.track_id).collect();
+    assert_eq!(named, [crate::definitions::track_id(1)]);
 }
