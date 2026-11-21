@@ -201,7 +201,7 @@ chapter = "../reading/"
 [[term]]
 name = "item"
 forms = ["items"]
-short = "One value on a track, such as a received frame or a temperature reading, stored as its shrink_wrap bytes."
+short = "One value on a track, such as a received frame or a temperature reading, whose bytes the track's definition explains."
 chapter = "../tracks/"
 
 [[term]]

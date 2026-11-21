@@ -19,7 +19,8 @@ A [[reader]] needs some facts before the data means anything. A [[definition]] s
 - the [[layout]], how the [[writer]] places [[blocks]];
 - an [[API bundle]], the WireWeaver description of the producer's API, which gives each [[item]]'s type;
 - a [[clock]] or a [[clock map]];
-- a [[track]]: its number, key, clock, kind and where its items come from in the API;
+- a [[track]]: its number, key, clock, kind and what its [[items|item]] are;
+- a schema of a foreign item format, such as a `.proto` file;
 - a typed item, such as a record of the run.
 
 Each definition is a [[record]] on track 0, the track that holds only definitions. The drive's definitions are its two
@@ -32,7 +33,7 @@ Each [[definition]] fills a [[slot]] that follows from the definition itself:
 - a [[track]]'s slot is its [[track number]];
 - a clock's slot is its clock number;
 - a map's slot is the two [[clocks]] it links;
-- a [[bundle]]'s slot is its hash;
+- a [[bundle]]'s slot is its hash, and so is a schema's;
 - the [[producer]] and the [[layout]] have one slot each.
 
 A newer [[record]] in a slot replaces the older one for every [[reader]] after it. A reader at a place therefore takes

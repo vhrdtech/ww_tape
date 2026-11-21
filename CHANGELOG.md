@@ -378,6 +378,7 @@ Covers `ww_tape` 0.1.0.
 - Summaries of an element with a zero `p/q` hold `q·v - p` exactly; `SeriesSummaries::push_from` takes stored samples (FMT-12).
 - An integer element narrower than its scalar clips at its own ends in summaries by default (FMT-12).
 - Codecs 16 to 22 stay readable as fixed `RAW` layouts; no writer here chose them, so nothing is lost (FMT-12).
+- The book's tracks chapter explains each kind of items, with an 8-bit IQ track as an example (FMT-12).
 
 ### Fixes
 

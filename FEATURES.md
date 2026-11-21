@@ -89,12 +89,11 @@ The bytes of blocks, records, chunks, definitions and the index, in the crate `w
   - A caller may accept a break in such a relation. The tape marks it, and readers refuse a decrease that isn't marked.
   - Kept for later, not built: postings and dictionary blocks and values stored only in the index.
   - Read more: [Relation columns](docs/format.md#relation-columns). Tests `relations.rs`; fuzz targets `tape-times` and `tape-index`.
-- 🚧 **FMT-12 What a track's items are**
+- ✅ **FMT-12 What a track's items are**
   - A track's definition says what its items are (`Items`): a WireWeaver stream's values, a ShrinkWrap type, plain bytes, numbers, or a foreign format. A foreign format has a name, a media type and a version, and may carry a schema in the tape. Numbers are of an element the definition describes. The bytes are stored as given.
   - `Items` is evolvable: a variant a newer ww_tape adds reads as unknown with the rest of the definition intact. A relay stores such events as given.
   - A series' items are `Numbers` too: any width LSB or MSB first, floats of another layout, a zero offset that summaries keep exact.
-  - Missing: the book's page on custom item formats.
-  - Read more: [Items of a track](docs/format.md#items-of-a-track), [Sample codecs](docs/format.md#sample-codecs). Tests `raw.rs`, `series.rs`; fuzz targets `tape-series`, `tape-samples`, `tape-samples-hostile`.
+  - Read more: [What a track's items are](docs/tracks.md#what-a-tracks-items-are), [Items of a track](docs/format.md#items-of-a-track), [Sample codecs](docs/format.md#sample-codecs). Tests `raw.rs`, `iq8.rs`, `series.rs`; fuzz targets `tape-series`, `tape-samples`, `tape-samples-hostile`.
 
 ## Writer (`WRITE`)
 

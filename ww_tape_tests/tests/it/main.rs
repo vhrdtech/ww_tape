@@ -26,6 +26,7 @@ mod definitions;
 mod durable;
 mod files;
 mod head_copies;
+mod iq8;
 mod lock;
 mod media;
 mod order;

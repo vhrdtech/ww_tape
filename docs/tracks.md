@@ -23,9 +23,8 @@ A sample of a series is a number in a column instead, coded by ww_tape's series 
 track's [[definition]] therefore decodes the item years later, without the device that sent it. [WireWeaver and
 logring](related_books.md) introduces both.
 
-A track may instead hold plain bytes, such as frames as a sniffer received them. It may hold numbers of an element the
-definition describes, or bytes in a format that a media type names, such as `application/vnd.tcpdump.pcap`. The track's
-definition says which, in `TrackDef::items`, and the bytes are kept as given, with nothing added.
+A track may instead hold plain bytes, numbers of an element the definition describes, or bytes of another format.
+[What a track's items are](#what-a-tracks-items-are) lists the kinds.
 
 A [[track]] is a sequence of items of one type over time. The drive has five tracks, one per stream, and [What a tape
 holds](tape.md) lists them with their rates.
@@ -126,8 +125,48 @@ needs a fixed rate.
 | | Events | Series |
 |---|---|---|
 | Time | each item has its own start, and maybe an end | the sample's index on a fixed period |
-| Items | a WireWeaver value, plain bytes, or bytes of a named format | numbers, one or more channels a sample |
+| Items | any kind: a WireWeaver value, plain bytes, numbers, bytes of a named format | numbers of one element, one or more channels a sample |
 | The drive's tracks | `log`, `mode`, `can0`, `temp` | `phase_a` |
 
 [Blocks](blocks.md) shows the blocks that hold each kind, and [Events](events.md) and [Series](series.md) how a reader
 reads them.
+
+## What a track's items are
+
+A [[reader]] must know what an [[item]]'s bytes mean before it can show a value. The track's [[definition]] says it in
+[`TrackDef::items`], one of the kinds below. A tape keeps an events item's bytes as given and never parses them, so a new
+kind of item needs no new block or codec.
+
+| `Items` | One item is | Example |
+|---|---|---|
+| `WireWeaver` | a value of a stream of a WireWeaver API, in its shrink_wrap encoding | the drive's `mode` |
+| `ShrinkWrap` | a value of a shrink_wrap type from a bundle, outside any API stream | a record of a test bench |
+| `RawBytes` | plain bytes with no type | frames as a sniffer received them |
+| `Numbers` | one number of an element the definition describes, with an optional unit | the drive's `phase_a` |
+| `Foreign` | bytes of a format with a name, a media type and a version | a pcap capture, `application/vnd.tcpdump.pcap` |
+
+A foreign format may also carry its schema, such as a `.proto` file, inside the tape. The schema is a definition of
+its own, [`Describe::Schema`], named by the BLAKE3 hash of its bytes. A reader years later then decodes the items
+without the program that wrote them.
+
+A newer ww_tape may add a kind of items. An older reader then reads that track's definition with its items marked
+unknown, and every other field intact. A relay still stores the track's events as given.
+
+### Numbers of any element
+
+The items of a [[series]] are always `Numbers`. An [`ElementDesc`] describes one number by its stored bits, its sign
+and its byte order. A float adds its exponent bits, and a pair such as I and Q has two parts. The description also
+names the stored number that stands for zero. A track thus holds numbers as a device sends them, and no predefined
+element has to match.
+
+A low-cost software-defined radio is such a device. It sends 8-bit IQ samples: each sample is two unsigned bytes, I
+then Q, and the value 127.5 stands for zero. The track describes exactly that:
+
+```rs
+--8<-- "ww_tape_tests/tests/it/iq8.rs:def"
+```
+
+The writer stores the radio's bytes as sent, two bytes a sample, and a reader decodes them back to the same numbers.
+[`iq8.rs`] writes such a track and reads it back. Summaries take the zero into account: they keep `2·v - 255` for
+each part, so the power of a node is exact. Floats of another layout, such as 16-bit or 8-bit floats, keep their own
+bits the same way. [Items of a track](format.md#items-of-a-track) gives each field's range.
