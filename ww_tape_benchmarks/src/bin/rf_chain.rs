@@ -4,7 +4,7 @@
 //! the chunks and the summaries into the chain, a piece a minute of capture, until the chain holds `--gib` GiB.
 //! Prints what the run sustained: samples a second, MB/s of 4-byte samples and MB/s written, and how busy the
 //! writer's thread was. Then a reader opens every piece and reads one second of IQ, counting the bytes and reads.
-//! The chain stays in `--dir` unless `--remove`. The load average at the start and at the end are in the output.
+//! The chain stays in `--dir` unless `--remove`. Each table carries the load average before and after it.
 #![allow(
     clippy::arithmetic_side_effects,
     clippy::as_conversions,
@@ -27,14 +27,22 @@ use ww_tape::{
     BlockKind, ChainOptions, ColumnKind, ColumnSpec, CutPolicy, OwnerId, PieceTapes, TapeReader,
     WriterOptions,
 };
+use ww_tape_bench::{Bench, Cell as TableCell, Common};
 use ww_tape_example::rf::{self, Rf, iq_key};
 use ww_tape_fs::{FileSource, FsError};
 
 #[derive(Parser)]
 #[command(
-    about = "The RF capture into a chain of piece files at full speed, then opened and queried"
+    name = "rf_chain",
+    about = "The RF capture into a chain of piece files at full speed, then opened and queried",
+    version = vc_build::version!(),
+    after_long_help = "Examples:
+  just bench-rf-chain --dir /data/rf --gib 100 --remove
+  rf_chain --dir /data/rf --read-only --second 900"
 )]
 struct Args {
+    #[command(flatten)]
+    common: Common,
     /// The directory of the chain; it must not hold one.
     #[arg(long)]
     dir: PathBuf,
@@ -64,12 +72,6 @@ struct Made {
     spec: ColumnSpec,
     bytes: Vec<u8>,
     values: Vec<i16>,
-}
-
-fn load() -> String {
-    std::fs::read_to_string("/proc/loadavg")
-        .map(|l| l.split_whitespace().take(3).collect::<Vec<_>>().join(" "))
-        .unwrap_or_else(|_| "unknown".to_owned())
 }
 
 /// Worker `w` of `n`: chunks `w`, `w + n`, ... of `rf` until `stop` chunks, each into `tx`.
@@ -223,9 +225,20 @@ fn pieces_in(dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
 }
 
 fn main() -> anyhow::Result<()> {
-    let args = Args::parse();
+    let args: Args = ww_tape_bench::args();
+    let mut bench = Bench::start(
+        "rf_chain",
+        vc_build::build_info!(),
+        &args.common,
+        vec![
+            ("MS/s", args.msps.to_string()),
+            ("GiB", args.gib.to_string()),
+            ("workers", args.workers.to_string()),
+        ],
+    )?;
+    println!("{}", bench.header());
     if args.read_only {
-        return read(&args, None);
+        return read(&args, None, bench);
     }
     anyhow::ensure!(
         !args.dir.exists() || std::fs::read_dir(&args.dir)?.next().is_none(),
@@ -235,57 +248,68 @@ fn main() -> anyhow::Result<()> {
     // a capture longer than the target needs: an hour per 100 GiB at 20 MS/s is ample
     let hours = (args.gib.div_ceil(100) * 2) as u32;
     let rf = Rf::at(args.msps * 1_000_000).seconds(3_600 * hours);
-    let load_start = load();
+    let mut table = bench.table(
+        "chain",
+        &format!(
+            "IQ at {} MS/s into a chain of piece files, {} workers and one writer thread, until it holds {} GiB.",
+            args.msps, args.workers, args.gib
+        ),
+        &["What", "Value", "Unit"],
+    );
     let w = write(&args, rf)?;
-    let load_end = load();
     let secs = w.wall.as_secs_f64();
     let msps = w.samples as f64 / secs / 1e6;
     let (min, max) = (
         w.pieces.iter().min().copied().unwrap_or(0),
         w.pieces.iter().max().copied().unwrap_or(0),
     );
-    println!(
-        "IQ at {} MS/s into a chain in {}, {} workers; load average {load_start} at the start, {load_end} at the end.\n",
-        args.msps,
-        args.dir.display(),
-        args.workers
-    );
-    println!("| What | Value |");
-    println!("|---|---:|");
-    println!(
-        "| Capture recorded | {:.1} s |",
-        w.samples as f64 / (f64::from(args.msps) * 1e6)
-    );
-    println!("| Wall time | {secs:.1} s |");
-    println!(
-        "| Sustained | {msps:.1} MS/s, {:.0} MB/s of samples |",
-        msps * 4.0
-    );
-    println!(
-        "| Written | {:.2} GiB, {:.0} MB/s |",
-        w.bytes as f64 / (1u64 << 30) as f64,
-        w.bytes as f64 / secs / 1e6
-    );
-    println!(
-        "| Writer thread busy | {:.0} % |",
-        100.0 * w.busy.as_secs_f64() / secs
-    );
-    println!(
-        "| Pieces | {} of {:.2} to {:.2} GB |",
-        w.pieces.len(),
-        min as f64 / 1e9,
-        max as f64 / 1e9
-    );
-    println!(
-        "| Bytes per sample | {:.3} |",
-        w.bytes as f64 / w.samples as f64
-    );
-    read(&args, Some(w.samples))
+    let rows = [
+        (
+            "Capture recorded",
+            TableCell::num(w.samples as f64 / (f64::from(args.msps) * 1e6), 1),
+            "s",
+        ),
+        ("Wall time", TableCell::num(secs, 1), "s"),
+        ("Sustained", TableCell::num(msps, 1), "MS/s"),
+        ("Samples in", TableCell::num(msps * 4.0, 0), "MB/s"),
+        (
+            "Written",
+            TableCell::num(w.bytes as f64 / (1u64 << 30) as f64, 2),
+            "GiB",
+        ),
+        (
+            "Write rate",
+            TableCell::num(w.bytes as f64 / secs / 1e6, 0),
+            "MB/s",
+        ),
+        (
+            "Writer thread busy",
+            TableCell::num(100.0 * w.busy.as_secs_f64() / secs, 0),
+            "%",
+        ),
+        ("Pieces", TableCell::count(w.pieces.len() as u64), ""),
+        ("Smallest piece", TableCell::num(min as f64 / 1e9, 2), "GB"),
+        ("Largest piece", TableCell::num(max as f64 / 1e9, 2), "GB"),
+        (
+            "Bytes per sample",
+            TableCell::num(w.bytes as f64 / w.samples as f64, 3),
+            "",
+        ),
+    ];
+    for (what, value, unit) in rows {
+        table.row(vec![TableCell::text(what), value, TableCell::text(unit)]);
+    }
+    println!("{}", bench.push(table));
+    read(&args, Some(w.samples), bench)
 }
 
 /// Open every piece in `--dir`, then read and decode one second of IQ: `--second`, or the middle of `samples`.
-fn read(args: &Args, samples: Option<u64>) -> anyhow::Result<()> {
-    println!("\nLoad average before reading: {}.", load());
+fn read(args: &Args, samples: Option<u64>, mut bench: Bench) -> anyhow::Result<()> {
+    let mut table = bench.table(
+        "read",
+        "Every piece of the chain opened, then one second of IQ read and decoded.",
+        &["Read", "ms", "Bytes read", "Reads"],
+    );
     // open every piece
     let (bytes, reads) = (Cell::new(0), Cell::new(0));
     let t = Instant::now();
@@ -352,24 +376,22 @@ fn read(args: &Args, samples: Option<u64>) -> anyhow::Result<()> {
         }
     }
     let query = (t.elapsed(), bytes.replace(0), reads.replace(0));
-    println!("\n| Read | Time | Bytes read | Reads |");
-    println!("|---|---:|---:|---:|");
-    println!(
-        "| Open {} pieces | {:.1} ms | {} | {} |",
-        readers.len(),
-        open.0.as_secs_f64() * 1e3,
-        open.1,
-        open.2
-    );
-    println!(
-        "| Second {second}: {got} samples decoded | {:.1} ms | {} | {} |",
-        query.0.as_secs_f64() * 1e3,
-        query.1,
-        query.2
-    );
+    table.row(vec![
+        TableCell::text(format!("Open {} pieces", readers.len())),
+        TableCell::num(open.0.as_secs_f64() * 1e3, 1),
+        TableCell::count(open.1),
+        TableCell::count(open.2),
+    ]);
+    table.row(vec![
+        TableCell::text(format!("Second {second}: {got} samples decoded")),
+        TableCell::num(query.0.as_secs_f64() * 1e3, 1),
+        TableCell::count(query.1),
+        TableCell::count(query.2),
+    ]);
+    println!("{}", bench.push(table));
     if args.remove {
         drop(readers);
         std::fs::remove_dir_all(&args.dir)?;
     }
-    Ok(())
+    bench.finish()
 }

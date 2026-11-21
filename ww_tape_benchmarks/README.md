@@ -16,6 +16,9 @@ into `docs/bench/`:
 | `starts` | `just bench-starts` | a starts column read intact and salvaged |
 | `relations` | `just bench-relations` | track relation columns |
 | `mem_reader` | `just bench-mem-reader` | a reader's wait on a memory piece being written |
+| `memory` | `just bench-memory` | the heap a writer holds over one piece, by tracks and block kind |
+| `rf_core` | `just bench-rf-core` | the RF capture's writer and reader on one core, per codec |
+| `rf_chain` | `just bench-rf-chain` | the RF capture into a chain of piece files at full speed, then read back |
 | `carried` | `just bench-carried` | the definitions a piece carries for the tracks of its head, and the most a cut carries |
 
 The `summaries` binary measures series summaries in MB/s of sample bytes per element type. It measures three paths:
@@ -57,6 +60,6 @@ holds `--gib` GiB. Worker threads make and code the chunks, and one thread write
 reads one second, counting the bytes and reads.
 
 ```sh
-cargo run -q --release -p ww_tape_benchmarks --bin rf_core
-cargo run -q --release -p ww_tape_benchmarks --bin rf_chain -- --dir /data/rf --gib 100 --remove
+just bench-rf-core
+just bench-rf-chain --dir /data/rf --gib 100 --remove
 ```

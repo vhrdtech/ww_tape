@@ -130,6 +130,14 @@ bench-relations *args:
 bench-drive *args:
     cargo run -q --release -p ww_tape_benchmarks --bin drive -- {{ args }}
 
+# ww_tape: the RF capture's writer and reader on one core, per codec (BOOK-2); `just bench-rf-core --help`
+bench-rf-core *args:
+    cargo run -q --release -p ww_tape_benchmarks --bin rf_core -- {{ args }}
+
+# ww_tape: the RF capture into a chain of piece files in `--dir` at full speed, then read back; `just bench-rf-chain --help`
+bench-rf-chain *args:
+    cargo run -q --release -p ww_tape_benchmarks --bin rf_chain -- {{ args }}
+
 # Worst wait of a reader of a memory piece while it is written, with and without reserving it (WRITE-5); `just bench-mem-reader --help`
 bench-mem-reader *args:
     cargo run -q --release -p ww_tape_benchmarks --bin mem_reader -- {{ args }}
@@ -148,6 +156,8 @@ bench-book:
     just bench-tracks --json docs/bench/tracks.json
     just bench-drive --json docs/bench/drive.json
     just bench-carried --json docs/bench/carried.json
+    just bench-memory --json docs/bench/memory.json
+    just bench-rf-core --json docs/bench/rf_core.json
 
 # Build the book (docs/, zensical.toml) into site/ with Zensical
 [group('book')]
