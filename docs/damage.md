@@ -74,14 +74,16 @@ on. Drawn by <code>ww_tape_figures</code> from the drive's last piece at 1/1000 
 </figure>
 
 [`Recovery::Prefix`], the default, reads the longest valid prefix of the bytes. It stops at the first block with a bad
-magic, length or CRC, at a block cut short, or at a sequence number going backwards. It reports where it stopped and why
-([`FileError::Cut`]). This is what a crash leaves: good blocks, then a [[torn block]]. In the flipped piece, Prefix
-reads 1158 blocks and stops at byte 9716790, where the damaged chunk starts.
+magic, length or CRC, or at a block cut short. It also stops at a sequence number going backwards, and at a good block
+of another [[session]] where none may start. It reports where it stopped and why ([`FileError::Cut`]).
+
+A crash leaves good blocks, then a [[torn block]], which is what Prefix expects. In the flipped piece, Prefix reads 1158
+blocks and stops at byte 9716790, where the damaged chunk starts.
 
 [`Recovery::Resync`] reads on. At a bad block it reports [`FileError::Bad`] and looks for the next block's magic one
-byte after the bad block's start. Any byte may start a block, so Resync takes a block only when its CRCs match. A chunk
-whose chunk head is good but whose payload is not, it hands out instead of skipping: [`Block::is_intact`] is false and
-[`Chunk::bad_segments`] names the failed segments. In the flipped piece, Resync hands out all 3459 blocks, the damaged
+byte after the bad block's start. Any byte may start a block, so Resync takes a block only when its CRCs match. It hands
+out a chunk with a good chunk head and a damaged payload instead of skipping it, with [`Block::is_intact`] false and
+[`Chunk::bad_segments`] naming the failed segments. In the flipped piece, Resync hands out all 3459 blocks, the damaged
 chunk among them, and reports nothing else.
 
 This walk counts what a flipped bit costs, as a test or a salvage tool would:
@@ -109,9 +111,9 @@ assert!(good > 50);
 ```
 
 Resync has no sequence number check, since damage can hide any block, and guards against a repeated number instead. It
-remembers the last [`RESYNC_SEQS_MAX`] blocks of data it handed out. A good block with the [[session]] and
-[[sequence number]] of one of them but other bytes is a conflict ([`FileError::Conflict`]). Resync never hands out the
-second block of a conflict as a block of its own.
+remembers the latest blocks of data it handed out, as many as the [format reference](format.md#duplicates) states. A
+good block with the [[session]] and [[sequence number]] of one of them but other bytes is a conflict
+([`FileError::Conflict`]). Resync never hands out the second block of a conflict as a block of its own.
 
 The first block of a conflict went out already when Resync meets the second. An application that keeps what Resync gives
 therefore holds blocks back since the last damage, or can take one back.
@@ -200,27 +202,34 @@ and a Resync walk reads what follows.
 
 ## What the checks cannot do
 
-The checks bound what damage costs, but some damage costs more than one segment. These limits follow from the design:
+The checks bound what damage costs, but some damage costs more than one segment. These limits follow from the design.
 
-- **No correction.** The checks detect damage and never repair it. The block kind [`BlockKind::Parity`] is reserved for
-  parity blocks, and nothing writes or reads them yet.
-- **A damaged chunk head costs the chunk.** The chunk head's CRC protects the segment CRCs, and nothing protects the
-  chunk head itself.
-- **Small shifts in salvage.** A flipped bit in a group record can shift a tick or a slope without breaking the order.
-  The group then reads shifted and is not marked suspect.
-- **The content hash needs a close.** An unclosed piece has no hash to check it by.
-- **Small unclosed pieces.** A reader scans a piece without a checkpoint yet, under about 4 MiB, from its start. The
-  scan stops at the first bad block. Only a Resync walk reads past it.
-- **Definitions near the start.** An unclosed piece shorter than 1 MiB holds each definition once, so one bad sector can
-  take it. Chunks then still place themselves by track id, item number and tick. Without clock rates and item types,
-  though, a reader cannot turn ticks into seconds or bytes into values.
-- **State in a scanned stretch.** The state lookups go by index entries. A damaged block where a scan stopped has no
-  known kind and no entries. The lookups take the newest record before it and report the stretch after it as uncovered
-  by the index.
-- **A damaged stretch stops a resume.** A [[resume]] cuts only a [[torn end]]. Damage with good blocks behind it leaves
-  the piece unclosed, and a Resync walk reads it.
-- **32-bit session tags.** Data of an earlier recording matches the current [[session]] by chance with a probability of
-  2⁻³² per earlier session.
+The checks detect damage and never repair it. The block kind [`BlockKind::Parity`] is reserved for parity blocks, and
+nothing writes or reads them yet.
+
+A damaged chunk head costs the whole chunk. Its CRC finds the damage, but no second copy of the chunk head exists to
+read instead.
+
+Salvage can miss small shifts. A flipped bit in a group record can shift a tick or a slope without breaking the order.
+The group then reads shifted and is not marked suspect.
+
+The content hash needs a close, so an unclosed piece has no hash to check it by.
+
+A reader scans an unclosed piece without a checkpoint yet, under about 4 MiB, from its start. The scan stops at the
+first bad block, and only a Resync walk reads past it.
+
+An unclosed piece shorter than 1 MiB holds each definition once, so one bad sector can take a definition. Chunks then
+still place themselves by track id, item number and tick. Without clock rates and item types, a reader cannot turn ticks
+into seconds or bytes into values.
+
+The state lookups go by index entries. A damaged block where a scan stopped has no known kind and no entries. The
+lookups therefore take the newest record before it and report the stretch after it as uncovered by the index.
+
+A [[resume]] cuts only a [[torn end]]. Damage with good blocks behind it therefore stops a resume and leaves the piece
+unclosed, and a Resync walk reads it.
+
+Session tags have 32 bits. Data of an earlier recording thus matches the current [[session]] by chance with a
+probability of 2⁻³² per earlier session.
 
 The [format reference](format.md#sessions-media-and-damage) states the walks and their reports as rules. Damage on a raw
 card brings one more question, where the data ends, which [Raw media](raw_media.md) answers.
