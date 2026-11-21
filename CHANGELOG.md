@@ -206,6 +206,8 @@ Covers `ww_tape` 0.1.0.
 - Book: sizes are rounded where precision does not matter; tests check the rounded text (BOOK-2).
 - Book: Parts I and II in the new tone: no scenes, rounded numbers, a chain's links stated exactly (BOOK-2).
 - `ww_tape_example::parts` counts a piece's blocks by part, as "Anatomy of a piece" names them (BOOK-3).
+- Book: Part V in the new tone: rounded sizes, the carried mode and layout copies after lost sectors (BOOK-2).
+- `ww_tape_example::Damage::mode_unknown` lists the chunks where a damaged piece has no mode in force (BOOK-3).
 - `ww_tape_example::fault`: Part IV's program finds the fault at minute 52 and counts each step's bytes (BOOK-3).
 - `ww_tape_example::rf`: an RF capture, ComplexI16 IQ at 20 MS/s, one piece a minute (BOOK-3).
 - `ww_tape_benchmarks --bin rf_core` and `--bin rf_chain`: the RF capture's writer, reader and a chain of files (BOOK-3).

@@ -5,9 +5,9 @@ level: basic
 # Lessons from tape and flash
 
 Tape drives and flash memory met the problems of a [[raw medium]] long before this format did. They met data of an
-earlier life behind the current end, erased space in the middle and writes retried after an error. This appendix names
-where each rule of [Where the data ends on a raw card](raw_media.md) comes from, and what the format takes from it. Each
-point names its source, and the sources are listed at the end.
+earlier life behind the current end, erased space in the middle and writes retried after an error. Each rule of [Where
+the data ends on a raw card](raw_media.md) follows one of their solutions. The format takes from each what fits a
+tape. Each point names its source, listed at the end.
 
 ## Sessions and the end of the data
 
@@ -24,15 +24,15 @@ is data.
 
 ## Erased bytes and gaps
 
-Erased is not always zero. NAND flash erases to 0xFF [Micron TN-29-19]. A SD card reads 0 or
-1 after an erase, by vendor [SD 9.10, §4.3.5.1]. An embedded MultiMediaCard (eMMC) device reports which value it uses
+Erased is not always zero. NAND flash erases to 0xFF [Micron TN-29-19]. An SD card reads 0 or
+1 after an erase, by vendor [SD 9.10, §4.3.5.1]. An eMMC device reports which value it uses
 [JESD84-A441]. A tape's blank space is therefore either value.
 
 A blank unit is not always the end. A NAND writer that hits a failed program moves on and leaves erased pages behind.
-The UBIFS looks past such units when it scans for the end of the data [UBIFS].
+UBIFS looks past such units when it scans for the end of the data [UBIFS].
 
 A tape's [[layout]] says how far a reader looks, in units that follow the media. SD allocation units reach 64 MB [SD
-9.10, §4.10.2.4, Table 4-48]. The ONFI defines NAND erase blocks and pages [ONFI 6.0, §3.1].
+9.10, §4.10.2.4, Table 4-48]. ONFI defines NAND erase blocks and pages [ONFI 6.0, §3.1].
 
 A NAND page is programmed once. Programming the same part of a page twice without an erase gives indeterminate contents
 [ONFI 6.0, §6.7.1.25]. Micron's MLC example allows one program per page [Micron TN-29-19]. A writer

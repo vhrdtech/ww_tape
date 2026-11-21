@@ -11,7 +11,23 @@
 
 use ww_tape::BlockKind;
 use ww_tape::reader::Found;
-use ww_tape_example::{Damaged, Drive, EARLIER_CHAIN, Error, FAULT_MINUTE, FLIP_MINUTE, LOST_UNIT};
+use ww_tape_example::{
+    Damaged, Drive, EARLIER_CHAIN, Error, FAULT_MINUTE, FLIP_MINUTE, LOST_UNIT, about,
+};
+
+const US_PER_S: i64 = 1_000_000;
+
+/// A book page with its line breaks as spaces.
+fn page(name: &str) -> String {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../docs/").to_owned() + name;
+    let text = std::fs::read_to_string(&path).expect("a book page");
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Asserts that `docs/{name}` holds `phrase`: a number rounded the way the pages write it (docs/writers.md, "Numbers").
+fn says(name: &str, phrase: &str) {
+    assert!(page(name).contains(phrase), "docs/{name} says {phrase:?}");
+}
 
 #[test]
 fn damage_to_the_last_piece_costs_what_the_book_says() -> Result<(), Error> {
@@ -65,7 +81,12 @@ fn check_flip(drive: &Drive, flip: &Damaged) -> Result<(), Error> {
     // the numbers the chapter "When bytes go bad" gives
     assert_eq!(flip.damage.start, 9_731_106, "the flipped byte");
     assert_eq!(s.block.len, 28_171, "the flipped chunk's bytes");
-    assert_eq!((r.read.len(), r.data_blocks()), (3444, 3445));
+    flip_on_the_page(flip.damage.start, s.block.len, stop.0);
+    assert_eq!(
+        (r.read.len(), r.data_blocks(), r.mode_unknown.len()),
+        (3444, 3445, 0),
+        "blocks that read, blocks listed, chunks without the mode"
+    );
     assert_eq!(
         (r.prefix.blocks.len(), stop.0),
         (1154, 9_717_021),
@@ -73,6 +94,25 @@ fn check_flip(drive: &Drive, flip: &Damaged) -> Result<(), Error> {
     );
     assert_eq!(r.resync.blocks.len(), 3455, "the blocks Resync hands out");
     Ok(())
+}
+
+/// The rounded numbers "When bytes go bad" gives for the flipped bit: the byte, the chunk's size, where Prefix stops.
+fn flip_on_the_page(byte: u64, chunk: u64, stop: u64) {
+    says(
+        "damage.md",
+        &format!("a flipped bit about {} in", about(byte)),
+    );
+    says(
+        "damage.md",
+        &format!("in about {}. That is less than one segment", about(chunk)),
+    );
+    says(
+        "damage.md",
+        &format!(
+            "stops where the damaged chunk starts, about {} in",
+            about(stop)
+        ),
+    );
 }
 
 fn check_first(drive: &Drive, first: &Damaged) -> Result<(), Error> {
@@ -93,17 +133,36 @@ fn check_first(drive: &Drive, first: &Damaged) -> Result<(), Error> {
         "Resync reads every block after the lost bytes"
     );
     assert_eq!((r.read.len(), r.unreadable.len()), (3441, 4));
+    // the cut's carried mode lay in the lost bytes: no mode until its copy at 45:34
+    let (from, to) = (r.mode_unknown[0], *r.mode_unknown.last().expect("chunks"));
+    assert_eq!((from / US_PER_S, to / US_PER_S), (45 * 60, 45 * 60 + 33));
+    says(
+        "damage.md",
+        &format!(
+            "no mode in force over the piece's first {} seconds",
+            to / US_PER_S - from / US_PER_S + 1
+        ),
+    );
     Ok(())
 }
 
 fn check_last(drive: &Drive, last: &Damaged) -> Result<(), Error> {
     // the last 4 KiB: the tail and the close; the reader starts at the newest checkpoint, and every block of data reads
     let r = last.read(drive)?;
-    assert_eq!(r.found, Found::Checkpoint { scanned: 1_096_734 });
+    let scanned = 1_096_734;
+    assert_eq!(r.found, Found::Checkpoint { scanned });
     assert_eq!(r.holds, None, "no close to check the piece by");
     assert_eq!(r.read.len(), r.data_blocks());
     assert!(r.unreadable.is_empty() && r.unlisted.is_empty());
     assert_eq!(r.definitions, r.definitions_written);
+    assert!(r.mode_unknown.is_empty(), "the mode reads at every chunk");
+    says(
+        "damage.md",
+        &format!(
+            "its newest checkpoint and a scan of about {}",
+            about(scanned)
+        ),
+    );
     Ok(())
 }
 
@@ -116,7 +175,6 @@ fn a_raw_card_never_reads_the_earlier_run() -> Result<(), Error> {
     let crash = crashed.crash;
     let card = crashed.on_card(&earlier)?;
     assert_eq!(card.bytes.len() as u64, earlier.len());
-    // the numbers the chapter "Where the data ends on a raw card" gives: 109.95 MiB, 68.97 MiB, 40.99 MiB
     assert_eq!((card.bytes.len(), crash.byte), (115_294_208, 72_316_956));
     let read = card.read(&earlier)?;
     assert_eq!(read.raw_pieces, 3, "two closed pieces and the torn one");
@@ -127,6 +185,22 @@ fn a_raw_card_never_reads_the_earlier_run() -> Result<(), Error> {
     );
     assert_eq!(read.raw_stop.map(|s| s.0), Some(read.raw_end));
     assert_eq!(read.raw_end, 72_315_693, "where today's data ends");
+    let len = card.bytes.len() as u64;
+    says(
+        "raw_media.md",
+        &format!(
+            "It holds about {}, and today's run wrote about {} of it",
+            about(len),
+            about(crash.byte)
+        ),
+    );
+    says(
+        "raw_media.md",
+        &format!(
+            "other {} or so stay behind as stale data",
+            about(len - read.raw_end)
+        ),
+    );
     assert_eq!(
         (read.file_pieces, read.file_earlier),
         (4, 1),

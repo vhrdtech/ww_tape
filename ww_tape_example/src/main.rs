@@ -11,7 +11,9 @@
 use ww_tape::reader::Found;
 use ww_tape_example::fault::Fault;
 use ww_tape_example::writing::Writing;
-use ww_tape_example::{Damaged, Drive, EARLIER_CHAIN, Error, Recording, Salvaged, Story, parts};
+use ww_tape_example::{
+    Damaged, Drive, EARLIER_CHAIN, Error, Recording, Salvaged, Story, about, parts,
+};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let k = match std::env::args().nth(1) {
@@ -60,14 +62,14 @@ fn print_card(drive: &Drive) -> Result<(), Error> {
     let len = card.bytes.len() as u64;
     println!(
         "On a raw card of {} that held an earlier run: the run wrote {} before the power failed.",
-        mib(len),
-        mib(card.crash.byte)
+        about(len),
+        about(card.crash.byte)
     );
     println!(
         "As a raw medium: {} pieces, the data ends at byte {}; {} of the earlier run stay behind as stale data.",
         read.raw_pieces,
         read.raw_end,
-        mib(len - read.raw_end)
+        about(len - read.raw_end)
     );
     if let Some((at, why)) = &read.raw_stop {
         println!("The walk stops at byte {at}: {why}.");
@@ -138,10 +140,11 @@ fn print_damage(drive: &Drive, recording: &Recording) -> Result<(), Error> {
             r.resync.reports.len(),
         );
         lines.push(format!(
-            "{name}: unreadable blocks {:?}; definitions at the end {} of {}.",
+            "{name}: unreadable blocks {:?}; definitions at the end {} of {}; {}.",
             r.unreadable.iter().map(|b| b.kind).collect::<Vec<_>>(),
             r.definitions,
-            r.definitions_written
+            r.definitions_written,
+            mode_unknown(&r.mode_unknown)
         ));
     }
     println!();
@@ -149,6 +152,20 @@ fn print_damage(drive: &Drive, recording: &Recording) -> Result<(), Error> {
         println!("{l}");
     }
     Ok(())
+}
+
+/// Where a reader of a damaged piece finds no mode in force, as chunks and the span of their first ticks.
+fn mode_unknown(ticks: &[i64]) -> String {
+    let at = |us: i64| format!("{:02}:{:02}", us / 60_000_000, us / 1_000_000 % 60);
+    match (ticks.first(), ticks.last()) {
+        (Some(&a), Some(&b)) => format!(
+            "no mode in force at {} chunks, from {} to {}",
+            ticks.len(),
+            at(a),
+            at(b)
+        ),
+        _ => "the mode in force at every chunk".to_owned(),
+    }
 }
 
 /// The chunk a Resync walk salvages from `d`.

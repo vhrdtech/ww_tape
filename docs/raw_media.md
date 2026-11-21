@@ -8,14 +8,13 @@ A [[raw medium]], such as an SD card without a file system, has no end of file. 
 onto a card used before, the blocks of the earlier recording stay valid behind the new ones. A [[reader]] must find
 where today's recording ends, and read it past [[stale data]], [[gaps]] and [[duplicates]].
 
-ww_tape on a raw card serves a recorder with a host-class processor and RAM. Its [[writer]] keeps the index of the open
-piece in memory. Firmware on a small device writes its card with
-[logring](related_books.md#logring-a-log-store-on-the-device) instead, a ring that needs no heap and little RAM.
+ww_tape on a raw card serves a recorder with a host-class processor and RAM. Its [[writer]] keeps the index of the
+open piece in memory. Firmware that writes an SD card or a flash chip directly takes
+[logring](https://lr.vhrd.tech/) instead. That store needs no standard library, no heap and little RAM.
 [Tapes and logring](https://lr.vhrd.tech/tapes_and_logring/) compares the two.
 
-Besides the host's files, for example, a recorder box on the bench writes the drive's run onto an SD card. The card
-still holds an earlier run of the same board, a full hour. At minute 37 the power fails, and the box stops in the
-middle of a block. Good blocks of the earlier run lie right behind it.
+In the example, the drive's run goes onto an SD card that still holds an earlier hour of the same board. The power
+fails at minute 37 in the middle of a block, so good blocks of the earlier run lie right behind the torn one.
 
 ## Sessions and stale data
 
@@ -30,7 +29,7 @@ nor FFFFFFFFh, so an erased header never names a session. A writer gets its tag 
 - [`SessionTag::from_seed`] derives it from a seed;
 - [`SessionTag::of_piece`] derives it from the [[piece]]'s id, so the same input gives the same bytes.
 
-The drive's recorder takes the third way. The earlier run on the card is another chain of the board, so its pieces have
+The drive's recording takes the third way. The earlier run on the card is another chain of the board, so its pieces have
 other ids and other session tags.
 
 ### Where a new session may start
@@ -61,10 +60,10 @@ A reader of a file finds the newest [[piece]] from the end, by its [[tail]]. On 
 nothing, and a stale tail there would pass for the newest piece. A reader of a raw medium therefore walks forward, from
 the start or from a hint the medium layer gives ([`OpenOptions::start`]).
 
-The drive's card shows the difference. It is 109.95 MiB long, and today's run wrote 68.97 MiB of it before the power
+The drive's card shows the difference. It holds about 115 MB, and today's run wrote about 72 MB of it before the power
 failed. Read as a raw medium, the card gives today's 3 pieces, the last one ending at the torn block. The earlier run's
-other 40.99 MiB stay behind as stale data. Read as a file, the card gives 4 pieces, and the fourth is the earlier run's
-last piece, found by its tail.
+other 43 MB or so stay behind as stale data. Read as a file, the card gives 4 pieces, and the fourth is the earlier
+run's last piece, found by its tail.
 
 `cargo run -p ww_tape_example` prints these numbers, and this doctest reads the same card at 1/1000 of its data:
 
@@ -100,6 +99,10 @@ the next. A writer that relays another producer's blocks onto a card passes them
 renumbers each block into the writer's own session. A jump in the producer's sequence numbers stays a jump, so a reader
 still sees that blocks were lost on the way.
 
+Each piece also carries what a reader that starts at its head needs. Right after the head come the definitions of the
+chain's tracks and each [[state track]]'s newest item. A walk that starts at a piece head, from a hint of the medium
+layer, therefore reads that piece alone, the mode in force included.
+
 On a raw medium too, a closed piece ends on a multiple of 4 KiB. A piece that starts on a 4 KiB boundary thus ends on
 one. The next piece then starts where a reader looks for it after a bad stretch.
 
@@ -115,12 +118,13 @@ The [[layout]] says how far a writer may skip and where it goes on, at a multipl
 | Medium | Longest gap (`gap_max`) | Goes on at a multiple of (`resume_align`) |
 |---|---|---|
 | a file ([`Layout::UNALIGNED`]) | 0: the first bad stretch is the end | 1 byte |
-| an SD card or embedded MultiMediaCard (eMMC) ([`Layout::on_sd_card`]) | 4 MiB | 512 bytes, a sector |
+| an SD card or eMMC device ([`Layout::on_sd_card`]) | 4 MiB | 512 bytes, a sector |
 | raw NAND ([`Layout::on_raw_nand`]) | two erase blocks | one page |
 
-A reader learns these rules from the layout definition after the piece head, and again from its copy at least 1 MiB
-on. A medium layer that knows the medium can give them from the start ([`OpenOptions::layout`]). A walk that starts
-past lost first sectors needs them there, since until the copy nothing in the piece says them.
+A reader learns these rules from the layout definition after the piece head. The writer copies that definition
+about 1 MiB on and puts it again past [[near]], as it does a track's definition. A medium layer that knows the medium
+can give them from the start ([`OpenOptions::layout`]). A walk that starts past lost first sectors needs them there,
+since until the copy nothing in the piece says them.
 
 Past a blank or bad stretch, a reader reads one block header at the first non-blank byte and one at each resume place
 within `gap_max`. A good block of the current session there goes on with the data. It makes the stretch a [[gap]], which

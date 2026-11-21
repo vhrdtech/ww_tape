@@ -8,8 +8,7 @@ Stored bytes go bad: a failing sector flips a bit, a torn write leaves half a bl
 damage costs, and how a [[reader]] says exactly what it lost instead of guessing. A tape's checks confine the damage, a
 reader reads past a bad [[block]], and it salvages the good parts of a damaged chunk.
 
-The drive's hour, for example, sits in an archive, four [[pieces]] on a disk. A year later a copy of the last piece,
-the one with the fault at minute 52, has one bit flipped by a failing sector.
+The examples damage the drive's last [[piece]], the one that holds the fault at minute 52, one copy per kind of damage.
 
 ## Checks at three levels
 
@@ -44,13 +43,13 @@ on a microcontroller, a table computes it, with the same result.
 
 ## What the flipped bit costs
 
-The flipped bit sits at byte 9731106 of the last piece. It lands in the payload of the chunk of `phase_a` that starts at
-50:00. The chunk holds one second of samples, 25000 of them, in 28171 bytes. That is less than one segment, so the chunk
-has one segment, and its CRC fails.
+In the drive's last piece, a flipped bit about 9.7 MB in lands in the chunk of `phase_a` that starts at 50:00. The chunk
+holds one second of samples, 25 000 of them, in about 28 KB. That is less than one segment, so the chunk has one
+segment, and its CRC fails.
 
-The cost is that segment: one second of `phase_a`, 25000 of the run's 90000000 samples. Every other block of the piece
-reads, and so does every other track in the same second. The fault at minute 52 is untouched.
-`cargo run -p ww_tape_example` prints these numbers, and [`ww_tape_example/src/damage.rs`] makes the damage.
+The cost is that segment: one second of `phase_a`, 25 000 of the run's 90 million samples. Every other block of the
+piece reads, and so does every other track in the same second. The fault at minute 52 is untouched. `cargo run -p
+ww_tape_example` prints these numbers, and [`ww_tape_example/src/damage.rs`] makes the damage.
 
 A [[reader]] meets the flip in two places. [`TapeReader::verify`] checks the piece against its [[content hash]] and
 finds that it no longer holds. Reading by the [[final index]], [`TapeReader::read_block`] fails for that one chunk and
@@ -80,7 +79,7 @@ magic, length or CRC, or at a block cut short. It also stops at a sequence numbe
 of another [[session]] where none may start. It reports where it stopped and why ([`FileError::Cut`]).
 
 A crash leaves good blocks, then a [[torn block]], which is what Prefix expects. In the flipped piece, Prefix reads 1154
-blocks and stops at byte 9717021, where the damaged chunk starts.
+blocks and stops where the damaged chunk starts, about 9.7 MB in.
 
 [`Recovery::Resync`] reads on. At a bad block it reports [`FileError::Bad`] and looks for the next block's magic one
 byte after the bad block's start. Any byte may start a block, so Resync takes a block only when its CRCs match. It hands
@@ -158,7 +157,7 @@ leaves:
 |---|---|---|---:|---:|
 | a flipped bit | its tail | does not hold | 3444 | 10 of 10 |
 | the first 4 KiB lost | its tail | does not hold | 3441 | 10 of 10 |
-| the last 4 KiB lost | its newest checkpoint, 1096734 bytes scanned | no close to check | 3445 | 10 of 10 |
+| the last 4 KiB lost | its newest checkpoint and a scan of about 1.1 MB | no close to check | 3445 | 10 of 10 |
 
 ### The first 4 KiB lost
 
@@ -167,18 +166,22 @@ piece from its [[tail]]. By the [[final index]] it reads every block outside the
 blocks are lost:
 
 - the [[puts]] of the layout and the producer;
-- the puts of the definitions the piece carries for the tracks its head carries;
+- the puts of the definitions the piece carries for the tracks its head carries, with the mode's newest item;
 - the chunk of frames of minute 45's first second;
 - the chunk of samples that the lost bytes reach into.
 
 Each definition comes from its newest record that reads. The writer copies a definition at a use 1 MiB or more after its
-first record. Every call that puts a definition or an item uses the [[layout]] and the producer's name too, so the writer
-copies them the same way. Every definition of the drive is thus found again, the layout and the producer among them.
-A [[reader]] scanning past the newest [[checkpoint]] takes its gap rules from the layout's copy.
+first record. Every call that puts a definition or an item uses the [[layout]] and the producer's name too, so the
+writer copies them the same way. Every definition of the drive is thus found again, the layout and the producer among
+them. A [[reader]] scanning past the newest [[checkpoint]] takes its gap rules from the layout's copy.
+
+The mode is a [[state track]], and a cut carries its newest item beside its definition. That item lay in the lost
+bytes. A reader thus finds no mode in force over the piece's first 34 seconds, 45:00 to 45:33. The mode's copy at 45:34
+gives it again from there.
 
 A raw-media walk that starts past the lost bytes knows no gap rules until it reaches that copy. Over the first MiB or so
-of the piece, only the rules a medium layer gives ([`OpenOptions::layout`]) read past a gap. Without them a blank stretch
-there ends the data.
+of the piece, only the rules a medium layer gives ([`OpenOptions::layout`]) read past a gap. Without them a blank
+stretch there ends the data.
 
 The piece head named the piece before it, so the chain's link back from this piece can no longer be checked. The last
 piece of a chain names no next piece, so it has no link forward to lose.
@@ -186,7 +189,7 @@ piece of a chain names no next piece, so it has no link forward to lose.
 ### The last 4 KiB lost
 
 These bytes hold the [[tail]], the [[close]] and the end of the [[final index]]. The reader finds no tail and reads the
-piece as unclosed. It finds the newest [[checkpoint]] and scans the 1096734 bytes after it block by block, up to the
+piece as unclosed. It finds the newest [[checkpoint]] and scans the 1.1 MB or so after it block by block, up to the
 damage. Every one of the 3445 blocks of data reads, and so does every definition. The piece loses its [[content hash]]
 and reports as unclosed instead of complete.
 
@@ -215,8 +218,8 @@ and a Resync walk reads what follows.
 
 The checks bound what damage costs, but some damage costs more than one segment. These limits follow from the design.
 
-The checks detect damage and never repair it. The block kind [`BlockKind::Parity`] is reserved for parity blocks, and
-nothing writes or reads them yet.
+The checks detect damage and never repair it. The block kind [`BlockKind::Parity`] is reserved for parity blocks: no
+writer writes one, and a reader skips one as a kind it does not know.
 
 A damaged chunk head costs the whole chunk. Its CRC finds the damage, but no second copy of the chunk head exists to
 read instead.

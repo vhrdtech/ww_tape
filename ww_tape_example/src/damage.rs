@@ -5,10 +5,10 @@ use core::ops::Range;
 
 use ww_tape::reader::Found;
 use ww_tape::{
-    BlockKind, ColumnKind, FileBlocks, FileError, Recovery, SampleShape, Samples, TapeReader,
+    BlockKind, ColumnKind, FileBlocks, FileError, Recovery, SampleShape, Samples, Slot, TapeReader,
 };
 
-use crate::defs::{PHASE_A, phase_def};
+use crate::defs::{MODE, PHASE_A, phase_def};
 use crate::record::Recording;
 use crate::signals::US_PER_MS;
 use crate::{Drive, Error};
@@ -86,6 +86,8 @@ pub struct Damage {
     /// The definitions in force at the piece's end that the reader finds, and those the piece as written gives.
     pub definitions: usize,
     pub definitions_written: usize,
+    /// The first ticks of the chunks the index lists at whose start the reader finds no mode in force.
+    pub mode_unknown: Vec<i64>,
     /// The walks over the bytes in [Recovery::Prefix] and [Recovery::Resync].
     pub prefix: Walk,
     pub resync: Walk,
@@ -234,9 +236,23 @@ impl Damaged {
             .definitions_at(0, u64::MAX)?
             .items
             .len();
+        let mut mode_unknown = Vec::new();
+        for e in entries
+            .iter()
+            .filter(|e| matches!(e.kind, BlockKind::Series | BlockKind::Events))
+        {
+            if r.state_at(0, Slot::State { track: MODE }, e.offset)?
+                .item
+                .is_none()
+            {
+                mode_unknown.push(e.first_tick);
+            }
+        }
+        mode_unknown.dedup();
         Ok(Damage {
             blocks,
             definitions,
+            mode_unknown,
             definitions_written,
             found,
             cut,
