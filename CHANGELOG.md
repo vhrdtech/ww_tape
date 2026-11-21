@@ -188,9 +188,16 @@ Covers `ww_tape` 0.1.0.
 - `Element::LEAVES`, `SampleError::UnknownElement` and `Element`'s wire form are gone; a described element replaces them (FMT-12).
 - Codecs take a `Lane` (scalar, bits, bit order, float layout) where they took a `Scalar`: pass `Lane::of(scalar)` (FMT-12).
 - `SeriesValue::ELEMENT` and `Layout::Series::element` are `ElementDesc`s; `ww_tape_summary::Scalar::TYPE` is `SCALAR` (FMT-12).
+- A new file is created under its final name: no `NAME.partial`, no rename at close; `partial_name` is gone (FS-1).
+- Read a file's state from its close and tail, never its name; `Files::closed` returns any file there (FS-1).
+- `writer::create` refuses any file there, an empty one too, with `FsError::Exists`: resume it instead (FS-1).
+- The lock is the kernel's on the open file: `NAME.lock`, `lock_name` and `LOCK_TRIES_MAX` are gone (FS-1).
+- `FsError::Replaced` and `FileSink::current_path` are gone: use `FileSink::path` (FS-1).
 
 ### Features
 
+- `FileSink::warning` returns an `FsWarning` naming a network or user-space file system (NFS, SMB, FUSE) (FS-1).
+- A fork handler keeps a file sink's lock out of a child process forked meanwhile (FS-1).
 - Book: the chapter "When the power fails" replaces "Resuming a writer", its figures drawn from a real crash (BOOK-2).
 - Book: six parts in reading order, a stub per chapter not yet written, and a glossary of 90 terms (BOOK-2).
 - Book: each page shows its reading level, basic, advanced or nomicon; "For writers" states the style (BOOK-2).

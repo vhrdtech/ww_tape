@@ -1,27 +1,42 @@
-//! Files written by path: a new file is `NAME.partial` until its close, an append goes on in place, and a failed
-//! write ends the file.
+//! Files written by path: a new file is created under its final name, an append goes on in place, and a failed write
+//! ends the file.
 
 use ww_tape::{FileBlocks, Recovery, SyncPolicy, WriteError};
 use ww_tape_fs::FsError;
 
 use crate::pieces::{records, scratch};
 
-/// A new file is written as `NAME.partial` and takes its name at the close; a second create of the name is refused,
-/// and an append adds a session the prefix walk reads after the first.
+/// A new file has its final name from the start and keeps it at the close; it reads as unclosed until then. A
+/// second create of the name is refused, open or closed, and an append adds a session the prefix walk reads after
+/// the first.
 #[test]
-fn a_new_file_is_partial_until_its_close() {
-    let dir = scratch("files_partial");
+fn a_new_file_has_its_name_from_the_start() {
+    let dir = scratch("files_named");
     let path = dir.join("cap.wwtape");
-    let partial = ww_tape_fs::partial_name(&path);
     let mut w = ww_tape_fs::writer::create(&path, SyncPolicy::EveryBlocks(2)).unwrap();
-    assert_eq!(w.sink().current_path(), partial);
+    assert_eq!(w.sink().path(), path);
     w.write_block(crate::definitions::base_defs(), &records(w.next_id(), 1))
         .unwrap();
-    assert!(!path.exists(), "named only when closed");
-    assert!(partial.exists());
+    w.sync().unwrap();
+    let unclosed = |path: &std::path::Path| {
+        let r = ww_tape::TapeReader::open(ww_tape_fs::FileSource::open(path).unwrap()).unwrap();
+        !r.pieces().iter().all(|p| p.is_closed())
+    };
+    assert!(unclosed(&path), "open until its close");
+    assert!(matches!(
+        ww_tape_fs::writer::create(&path, SyncPolicy::None),
+        Err(WriteError::Sink {
+            error: FsError::Exists(_),
+            ..
+        })
+    ));
     w.close().unwrap();
-    assert!(path.exists(), "named when closed");
-    assert!(!partial.exists());
+    assert!(!unclosed(&path), "closed by its bytes");
+    assert_eq!(
+        std::fs::read_dir(&dir).unwrap().count(),
+        1,
+        "nothing beside it"
+    );
     assert!(matches!(
         ww_tape_fs::writer::create(&path, SyncPolicy::None),
         Err(WriteError::Sink {
@@ -104,13 +119,23 @@ fn a_refused_writer_says_the_file_and_why_in_one_line() {
     let dir = scratch("files_texts");
     let path = dir.join("x.wwt");
     let first = ww_tape_fs::writer::create(&path, SyncPolicy::None).unwrap();
-    let second = ww_tape_fs::writer::create(&path, SyncPolicy::None)
+    let second = ww_tape_fs::writer::append(&path, SyncPolicy::None)
         .err()
         .unwrap();
     assert_eq!(
         chain(&second),
         [format!(
-            "creating a writer: {}: locked by another writer",
+            "opening a writer to append: {}: locked by another writer",
+            path.display()
+        )]
+    );
+    let third = ww_tape_fs::writer::create(&path, SyncPolicy::None)
+        .err()
+        .unwrap();
+    assert_eq!(
+        chain(&third),
+        [format!(
+            "creating a writer: {}: already exists",
             path.display()
         )]
     );

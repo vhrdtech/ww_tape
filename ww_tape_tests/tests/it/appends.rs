@@ -10,7 +10,7 @@ use crate::resume::{begin, options};
 use ww_tape::piece::PIECE_ALIGN;
 use ww_tape::reader::ByteSource;
 use ww_tape::{ALIGNMENT, BlockKind, BlockWriter, MemSink, TapeReader, TapeWriter};
-use ww_tape_fs::{FileSource, lock_name};
+use ww_tape_fs::FileSource;
 
 /// The ticks of the record blocks of data the entries of piece 0 list, each block once, read back by the reader.
 fn listed_ticks<S: ByteSource>(r: &TapeReader<S>) -> Vec<i64>
@@ -127,7 +127,6 @@ fn torn_file_is_written_on(path: &Path, cut: usize, whole: bool, old: &[u8], ali
     let have = crate::reclose::ticks(&kept);
     write(&mut w, (6..14).filter(|n| !have.contains(n)));
     w.close().unwrap();
-    assert!(!lock_name(path).exists(), "cut at {cut}: lock file left");
     let got = std::fs::read(path).unwrap();
     assert_eq!(got[..old.len()], old[..], "cut at {cut}");
     let r = open(path);
@@ -288,7 +287,11 @@ fn a_close_with_nothing_appended_writes_nothing() {
             modified, then,
             "alignment {alignment}: file modification time"
         );
-        assert!(!lock_name(&path).exists());
+        assert_eq!(
+            std::fs::read_dir(&dir).unwrap().count(),
+            1,
+            "nothing beside the file"
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

@@ -14,22 +14,21 @@ In short, the crash costs about the last second of data. A reader reads everythi
 holds. It assumes [Tape concepts](concepts.md), and it uses the drive's recording, a
 motor controller on a test bench, as its example throughout.
 
-## A file's names tell its state
+## A file's bytes tell its state
 
-A [[tape]] file is never [[closed]] by accident, and its name shows whether it was. [`writer::create`] makes the file
-`capture.wwt.partial` and takes a [[lock]] on `capture.wwt.lock` beside it. Only [`TapeWriter::close`] renames it to
-`capture.wwt`, after it has written the end of the [[piece]] and synced the file and its directory.
+A [[tape]] file is never [[closed]] by accident, and its bytes show whether it was. [`writer::create`] makes the file
+`capture.wwt` under its final name and takes a [[lock]] on it. Only [`TapeWriter::close`] ends the [[piece]] with a
+[[close]] and a [[tail]], and syncs the file.
 
 <figure class="ww-figure" markdown="0">
---8<-- "docs/figures/partial.svg"
-<figcaption>A file's names over its life. A closed file has its final name. A crash leaves the
-<code>.partial</code> name and a torn end, and a resume takes the file back to writing.</figcaption>
+--8<-- "docs/figures/states.svg"
+<figcaption>A file's states over its life, under one name. A closed file ends in a close and a tail. A crash leaves a
+torn end and no lock, and a resume takes the file back to writing.</figcaption>
 </figure>
 
-A program that finds `capture.wwt.partial` on disk therefore knows that no [[writer]] closed it. The lock tells whether
-a writer still works on it. The lock belongs to the writer's process, so a crash releases it. While the lock is held, a
-second writer gets [`FsError::Locked`] and stops. The lock file itself stays behind after a crash, which is harmless:
-the next writer takes the lock again.
+A program that finds `capture.wwt` on disk reads its end to learn whether a [[writer]] closed it. The lock tells whether
+a writer still works on it. The kernel holds the lock for the writer's process, so a crash releases it and leaves
+nothing behind. While the lock is held, a second writer gets [`FsError::Locked`] and stops.
 
 ## What the crash costs
 
@@ -135,8 +134,7 @@ end, and then the power failed. The [[reader]]'s scan stops at the bad sector, b
 would lose them. The resume names the first good block and refuses. The file still reads past the damage with
 [`Recovery::Resync`], as [When bytes go bad](damage.md#reading-past-damage) explains.
 
-A crash after the [[close]] needs no new data. If it came before the rename, the resume gives the file its name. A closed
-[[piece]] then goes on after its close, and a close with nothing written after it adds no byte. A crash in the middle of
+A crash after the [[close]] needs no new data. A closed [[piece]] goes on after its close, and a close with nothing written after it adds no byte. A crash in the middle of
 the close opens the piece again, and the next close writes the end anew. The [format
 reference](format.md#resuming-after-a-crash) tells a [[torn end]] from damage byte by byte and lists the bounds of the look.
 
@@ -146,7 +144,7 @@ The drive's run is long, so the recorder writes it as a [[chain]] of [[pieces]] 
 `00000001.wwt` and so on. The power failed while it wrote piece 2. On restart the recorder calls
 [`chain::resume`] with the directory, the [[owner id]], the chain number and its options.
 
-The chain reads pieces 0 and 1 back from their [[tails]] and reopens `00000002.wwt.partial` as a single file resumes.
+The chain reads pieces 0 and 1 back from their [[tails]] and reopens `00000002.wwt` as a single file resumes.
 The recorder then goes on from the first [[block]] the chain lacks, exactly as before. Two crashes at a piece boundary
 resume as well. One comes between closing a piece and creating the next, the other inside the head of the next.
 

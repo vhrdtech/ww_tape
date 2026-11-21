@@ -145,8 +145,8 @@ impl<T: Tapes> PieceChain<T> {
     /// a cut are read from their tails ([Self::closed]), the last piece is resumed ([TapeWriter::resume_on]): an
     /// unclosed one goes on after its last good block, a closed one is written on after its last close record. After
     /// a crash between a cut's close and the next piece's start, the next piece is started as the cut would have.
-    /// `options` are the ones the chain was written with. A piece cut whole whose name a crash took
-    /// ([ResumeError::Continued]) is named and read as closed.
+    /// `options` are the ones the chain was written with. A piece cut whole that a crash left unmarked
+    /// ([ResumeError::Continued]) is marked and read as closed.
     ///
     /// With [PieceTapes::One] the chain is in one tape, and its last piece is resumed with the same rules as a piece
     /// of its own: only a torn end is cut, and a resume that would drop more is refused. An application that starts
@@ -193,13 +193,13 @@ impl<T: Tapes> PieceChain<T> {
                         break (key, None);
                     };
                     match TapeWriter::resume_on(sink, options.writer.clone()) {
-                        // cut whole before a crash took its name: named now, read as closed
+                        // cut whole before a crash took its mark: marked now, read as closed
                         Err(WriteError::Resume(ResumeError::Continued { .. })) => {
                             let src = tapes
                                 .closed(&key)
                                 .map_err(sink_err("opening a closed piece"))?
                                 .ok_or(WriteError::Index(IndexError::Invalid(
-                                    "a piece given its name doesn't read as closed",
+                                    "a piece marked closed doesn't read as closed",
                                 )))?;
                             read_closed(&src)?
                         }

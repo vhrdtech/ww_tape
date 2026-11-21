@@ -187,9 +187,10 @@ Reading by position, checks and hashes, hostile bytes, in the crate `ww_tape`.
 Everything that names a path, in the crate `ww_tape_fs`.
 
 - ✅ **FS-1 Files, file sinks and locks** · `v0.5`
-  - A new file is written as `NAME.partial` and renamed when closed. The file and its directory are synced after create and rename.
+  - A new file is created exclusively under its final name; the file and its directory are synced after the create. Whether a piece is closed is read from its close and tail.
   - A sync policy syncs data by block count or time. A failed write or sync ends the file, never retried.
-  - A file sink holds a lock on `NAME.lock`, so a second writer is refused. The lock doesn't pass to a forked child.
+  - A file sink holds the kernel's lock on its open file (`flock`; a share mode on Windows), so a second writer is refused. A crash leaves nothing behind; a fork handler keeps the lock out of a forked child.
+  - A file on a network or user-space file system (NFS, SMB, FUSE) gets a typed warning, `FsWarning`; writing goes on.
   - An error names the step, the file and the kind, with the system's error as its source.
   - Read more: [Files and syncing](docs/files.md), [Writing a file durably](docs/format.md#writing-a-file-durably).
 

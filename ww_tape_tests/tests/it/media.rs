@@ -698,7 +698,7 @@ fn a_gap_after_the_newest_checkpoint_is_read_past() {
         w.write_block(crate::definitions::base_defs(), &records(w.next_id()))
             .unwrap();
     }
-    let bytes = std::fs::read(w.sink().current_path()).unwrap();
+    let bytes = std::fs::read(w.sink().path()).unwrap();
     drop(w);
     std::fs::remove_dir_all(&dir).unwrap();
     // a blank sector before a records block after the newest checkpoint
@@ -769,7 +769,7 @@ fn a_raw_piece_is_one_session() {
                 w.write_block(crate::definitions::base_defs(), b).unwrap();
             }
         }
-        let bytes = std::fs::read(w.sink().current_path()).unwrap();
+        let bytes = std::fs::read(w.sink().path()).unwrap();
         drop(w);
         let (as_file, errors) = walk(&bytes, Medium::File);
         assert_eq!((as_file.len(), errors.len()), (10, 0));
@@ -823,7 +823,7 @@ fn adopting_keeps_lost_blocks_visible() {
         )
         .unwrap();
     }
-    let bytes = std::fs::read(w.sink().current_path()).unwrap();
+    let bytes = std::fs::read(w.sink().path()).unwrap();
     drop(w);
     std::fs::remove_dir_all(&dir).unwrap();
     let (got, errors) = walk(&bytes, Medium::Raw);

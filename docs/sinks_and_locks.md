@@ -21,7 +21,7 @@ rules per system.
 
 ### One lock per file
 
-[Locks](format.md#locks) covers links, long names and devices.
+[Locks](format.md#locks) covers links, devices and network file systems.
 
 ### Errors name the step and the file
 

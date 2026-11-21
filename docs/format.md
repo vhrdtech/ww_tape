@@ -32,9 +32,9 @@ A recording cut into several files is a chain of [tape pieces](#tape-pieces).
 
 `ww_tape::TapeWriter` makes a file durable the way databases make their logs durable:
 
-- It writes a new file as `NAME.partial` and renames it to `NAME` when the file is closed.
-- It syncs the file and its directory after the create and after the rename. Neither the data nor the name then vanishes
-  in a crash.
+- It creates a new file under its final name `NAME`, and never over a file that is there. A reader tells from the end of
+  a piece, its close and tail, whether it is closed, never from its name.
+- It syncs the file and its directory after the create, so the name survives a crash.
 - A `SyncPolicy` decides when the data is synced: never, every N blocks, or at most an interval apart (1 s by default).
   A sync is `fdatasync` on Linux, `F_FULLFSYNC` on macOS and `FlushFileBuffers` on Windows.
 - A failed write or sync ends the file, and the writer never retries it. After a failed `fsync`, Linux may drop the
@@ -42,25 +42,23 @@ A recording cut into several files is a chain of [tape pieces](#tape-pieces).
 
 ### Locks
 
-A file sink holds an exclusive lock on the lock file `NAME.lock` beside `NAME`, never on `NAME` itself. A `flock` lock
-on `NAME` would pass to a child process forked before its `exec`. A POSIX record
-lock on `NAME` would drop as soon as any reader in the process closes the file.
+A file sink holds an exclusive lock on the open file `NAME` itself, from its open to its drop. No other file holds the
+lock, so a crash leaves nothing behind.
 
-- On unix, the lock is a POSIX record lock on the lock file, which a child process forked meanwhile does not hold. A
-  resume right after a writer is dropped is therefore never refused because of a child.
-- On unix, the writer removes the lock file when it lets go. On Windows the lock file stays, since removing it could
-  race the next holder. A lock file left behind holds no lock.
-- A name of 251 bytes or more leaves no room for the `.lock` suffix. Its lock file is then `HASH.lock`: the hash of the
-  name in hex, made with BLAKE3 (a cryptographic hash function).
-- One file has one lock, whatever name reaches it: the lock file is named after the canonical name, with links resolved
-  and `.partial` dropped.
-- On unix, writers of one process are also kept apart by the file's device and inode. A second writer through a hard
-  link is therefore refused. Two processes that write one file through two hard-linked names are not refused, and
-  their blocks interleave.
-- A device, such as a raw SD card, is locked itself. A FIFO special file, a
-  socket or a directory is refused (`FsError::NotAFile`).
-- A `NAME.partial` renamed or replaced between its open and its lock is refused (`FsError::Replaced`).
-- A file or lock file on a read-only mount fails with `FsError::ReadOnly` and the path.
+- On unix, the lock is an `flock` lock, which belongs to the open file. Every other open of the file conflicts with it,
+  in the same process too. A reader that opens and closes the file releases nothing.
+- A child process forked while a writer holds the lock would share the open file, and the lock with it, until its
+  `exec`. A fork handler (`pthread_atfork`) points the child's copy at `/dev/null` instead. The parent's `fork`
+  returns only after the child let go, so a resume right after a writer is dropped never fails because of a child.
+- On Windows, the writer opens the file sharing reads but not writes. A second writer's open fails, also on a network
+  share. Readers open the file as usual.
+- One file has one lock, whatever name reaches it: a link and a hard link lock the same file.
+- A device, such as a raw SD card, takes the lock as a file does. A FIFO special file, a socket or a directory is
+  refused (`FsError::NotAFile`).
+- On NFS, SMB, FUSE and other network or user-space file systems, the server or the program behind the files decides
+  whether the lock holds. On Linux, macOS and FreeBSD the sink reads the file system's type, and `FileSink::warning`
+  returns an `FsWarning` that names it. The sink writes all the same.
+- A file on a read-only mount fails with `FsError::ReadOnly` and the path.
 
 ### Reading a file back
 
@@ -1267,7 +1265,7 @@ remove the piece that holds rows later, name its rows again on the new last piec
 [When the power fails](crashes.md) explains resuming with the drive's recording as its example.
 
 `TapeWriter::resume_on` reopens an unclosed piece and goes on writing it. For a file, `ww_tape_fs::writer::resume`
-opens `NAME.partial`.
+opens `NAME`, closed or not.
 
 The resume finds the piece as `TapeReader` does. It then walks the piece's bytes from the start to where the reader
 stopped, block by block, as the content-hash walk does.
@@ -1379,7 +1377,7 @@ close leads to it. A damaged append head is such a case: the resume never cuts o
 Blocks after an append head that names a whole close and tail are the piece going on. The resume keeps that close and
 goes on after the blocks.
 
-A close that names a next piece, a cut, ends its piece for good. The resume gives the file its name and returns
+A close that names a next piece, a cut, ends its piece for good. The resume marks a tape in memory closed and returns
 `ResumeError::Continued` with the next piece's id.
 
 A piece cut off inside its close record or tail is opened again. Its final index and close are cut off, and the next
@@ -1433,7 +1431,7 @@ The writer keeps no definitions: after the resume, the application passes its ow
 ### Resuming a chain
 
 `PieceChain::resume_on` (`ww_tape_fs::chain::resume` for files) reads the closed pieces back from their tails. It then
-deals with the last piece. A closed piece that a crash left under its `.partial` name gets its name.
+deals with the last piece.
 
 | Last piece | Chain of a tape per piece | Chain in one tape (`PieceTapes::One`) |
 |---|---|---|

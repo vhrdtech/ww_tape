@@ -320,7 +320,7 @@ impl Rf {
         Ok(captured)
     }
 
-    /// Record the capture as one piece into a file at `path`, written as `path.partial` and renamed at its close.
+    /// Record the capture as one piece into a file at `path`, created under its final name.
     pub fn write_file(
         &self,
         path: &std::path::Path,

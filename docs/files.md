@@ -16,7 +16,7 @@ module `writer` opens a [`TapeWriter`] on a path in one of four ways:
 
 | Call | What it opens |
 |---|---|
-| [`writer::create`] | a new file, under the name `NAME.partial` until the close |
+| [`writer::create`] | a new file, under its final name from the start |
 | [`writer::append`] | an existing file, with a new [[piece]] after the last one, or a new file |
 | [`writer::resume`] | the unclosed piece of a file, after a crash ([Resuming the file](crashes.md#resuming-the-file)) |
 | [`writer::cut`] | the next piece of a [[chain]] in a new file ([Pieces and chains](pieces.md)) |
@@ -28,30 +28,34 @@ clock, which decides when a time interval is up:
 --8<-- "ww_tape_tests/tests/it/durable.rs:create"
 ```
 
-[`writer::create`] never empties a file. It refuses a `NAME` that exists, and a `NAME.partial` that a crash left with
-bytes in it ([`FsError::Exists`]). Reopen such a piece with [`writer::resume`], or remove it. The sink syncs the new
+[`writer::create`] never empties a file. It refuses a `NAME` that exists, closed, unclosed or empty
+([`FsError::Exists`]). Reopen such a piece with [`writer::resume`], or remove it. The sink syncs the new
 file and its directory at once, so the name cannot vanish in a crash.
 
-An error states the step, the file and the kind of failure in its first line. For example: `creating a writer:
+An error states the step, the file and the kind of failure in its first line. For example: `opening a writer to append:
 /data/x.wwt: locked by another writer`. A log line of that text alone says what went wrong. An error of the operating
 system, such as a full disk, is the source of that first error and is not repeated in its text.
 
 ## One writer per file
 
 Two writers appending to one file would interleave their [[blocks]] into a file that reads as damaged. A file sink
-therefore holds a [[lock]] on the file `NAME.lock` beside `NAME`. A second writer of the same file is refused with
+therefore holds a [[lock]] on the open file itself. A second writer of the same file is refused with
 [`FsError::Locked`], whether it runs in the same process or another:
 
 ```rs
 --8<-- "ww_tape_tests/tests/it/durable.rs:locked"
 ```
 
-The lock sits on a file of its own, so readers never touch it. A [[reader]] opens and closes `NAME` as it likes and
-never releases the lock by doing so. The lock file holds no byte that a reader needs. A piece moved without its lock
-file loses nothing.
+The kernel keeps the lock: `flock` on unix, and on Windows an open that lets no second writer in. A [[reader]] opens
+and closes the file as it likes and never releases the lock by doing so. Nothing sits beside the file, so a piece
+copied or moved loses nothing.
 
-The lock belongs to the writer's process, so a crash releases it. The lock file stays behind and holds no lock, and the
-next writer takes it as it is. [Locks](format.md#locks) gives the rules for links, long names and devices.
+The kernel releases the lock when the writer's process ends, so a crash leaves no stale lock behind. A child process
+forked by the writer's process holds no lock either. [Locks](format.md#locks) gives the rules for links, devices and
+each system.
+
+A network or user-space file system, such as NFS, SMB or sshfs, may not keep the lock. The sink still writes there,
+but [`FileSink::warning`] returns a [`FsWarning`] that names the file system. The application shows it to its user.
 
 A file on a read-only mount takes no writer: each step that meets the refusal fails with [`FsError::ReadOnly`] and the
 path. Read such a file with [`FileSource`], which opens it for reading only and takes no lock.
@@ -123,18 +127,17 @@ second `fsync` then succeeds without them.
 ## Writing so a crash costs little
 
 A file sink writes the way databases write their logs. The bytes before the last sync are whole, because the writer only
-appends and never rewrites a byte. The name tells whether the file was closed. And the close is written so that a whole
-close never names bytes that missed the disk.
+appends and never rewrites a byte. The bytes tell whether the file was closed: a closed piece ends in a close and a
+tail. And the close is written so that a whole close never names bytes that missed the disk.
 
 ### The close
 
-[`TapeWriter::close`] ends the piece in five steps:
+[`TapeWriter::close`] ends the piece in four steps:
 
 1. It places the [[deferred blocks]] still waiting.
 2. It writes the [[final index]] and syncs the file.
 3. It writes the [[close]], padded so that the piece ends on a 4 KiB boundary, then the [[tail]].
 4. It syncs the file again.
-5. It renames `NAME.partial` to `NAME` and syncs the directory.
 
 ```rs
 --8<-- "ww_tape_tests/tests/it/durable.rs:close"
@@ -142,7 +145,7 @@ close never names bytes that missed the disk.
 
 The two syncs hold whatever the sync policy. A disk may write pages out of order, so a crash could leave a whole close
 behind blocks that never reached the disk. The sync in step 2 rules that out: a close found whole names only bytes that
-were on the disk before it. A file still named `NAME.partial` was never closed.
+were on the disk before it. A file without a whole close and tail at its end was never closed.
 
 ### Appending to a closed file
 

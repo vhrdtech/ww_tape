@@ -4,7 +4,7 @@
 //! one written without the crash.
 
 use std::error::Error;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use ww_tape::{Definitions, FileBlocks, Recovery, SyncPolicy, TapeReader, TapeWriter};
 use ww_tape_fs::FileSink;
@@ -34,12 +34,6 @@ impl Recorder {
         writer.write_block(&self.defs, &block)?;
         Ok(())
     }
-}
-
-fn partial(path: &Path) -> PathBuf {
-    let mut p = path.as_os_str().to_owned();
-    p.push(".partial");
-    PathBuf::from(p)
 }
 
 /// 400 log lines into a new file at `path`, left unclosed as a crash leaves it; the recorder that wrote them.
@@ -80,7 +74,7 @@ fn power_fails_and_the_recorder_resumes() -> Result<(), Box<dyn Error>> {
     let options = ww_tape::WriterOptions::default();
 
     // the power fails in the middle of the last block: cut the file there
-    let bytes = std::fs::read(partial(&path))?;
+    let bytes = std::fs::read(&path)?;
     let mut walk = FileBlocks::with_recovery(&bytes[..], Recovery::Prefix);
     let mut last = 0;
     while let Some(Ok(_)) = walk.next_block() {
@@ -89,11 +83,11 @@ fn power_fails_and_the_recorder_resumes() -> Result<(), Box<dyn Error>> {
     let torn_at = last;
     std::fs::OpenOptions::new()
         .write(true)
-        .open(partial(&path))?
+        .open(&path)?
         .set_len(torn_at + 20)?;
 
     // --8<-- [start:read]
-    let bytes = std::fs::read(dir.join("capture.wwt.partial"))?;
+    let bytes = std::fs::read(dir.join("capture.wwt"))?;
     let reader = TapeReader::open(&bytes[..])?;
     let piece = &reader.pieces()[0];
     assert!(piece.tail.is_none()); // never closed
@@ -108,7 +102,7 @@ fn power_fails_and_the_recorder_resumes() -> Result<(), Box<dyn Error>> {
     for (_, block) in recorder.sent.iter().filter(|(seq, _)| *seq >= lost) {
         writer.write_block(&recorder.defs, block)?;
     }
-    writer.close()?; // capture.wwt.partial becomes capture.wwt
+    writer.close()?; // capture.wwt now ends in a close and a tail
     // --8<-- [end:resume]
 
     assert_eq!(

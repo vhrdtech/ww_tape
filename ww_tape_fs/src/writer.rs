@@ -10,8 +10,7 @@ use ww_tape::writer::{
 
 use crate::sink::{FileSink, Files, FsError, none_at};
 
-/// A new file at `path`, written as `path.partial` until [TapeWriter::close]; fails if `path` is there or a
-/// `path.partial` holds bytes ([FileSink::create]).
+/// A new file at `path`, created exclusively under its final name; fails if `path` is there ([FileSink::create]).
 pub fn create(
     path: &Path,
     policy: SyncPolicy,
@@ -31,8 +30,8 @@ pub fn append(
 
 /// Reopen the piece `path` to write on, see [TapeWriter::resume_on].
 ///
-/// It takes `path.partial` (written by [create] and cut off by a crash) to go on writing it, else the closed `path`,
-/// written on in place after its last close record. With neither there, its directory missing too, the error is
+/// The resume reads from the file's bytes whether a crash cut it off, to go on writing it, or it is closed, to write
+/// on in place after its last close record. With no file there, its directory missing too, the error is
 /// [FsError::NoPiece] naming `path`.
 pub fn resume(
     path: &Path,
