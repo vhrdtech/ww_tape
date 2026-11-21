@@ -348,6 +348,7 @@ Covers `ww_tape` 0.1.0.
 
 ### Fixes
 
+- CI's and the book's `cargo install` of `spl` no longer denies spl's own build warnings (REPO-84).
 - `ww_tape_example`: the drive trips at 31 A and commands that limit, so its overcurrent fits 16-bit mA (BOOK-3).
 - Book: a differing track hash no longer claims different data; the same items in other chunks hash differently (BOOK-2).
 - A close syncs after its final index, before the close record, so a whole close never names unsynced blocks (WRITE-7).

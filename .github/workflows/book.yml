@@ -37,7 +37,10 @@ jobs:
         with:
           tool: just
       # spl, spirit_level's CLI, at 0.7.5: `just book-strict` runs `spl book refs` first
+      # spl 0.7.5 has a warning of its own (unused workspace dependency anstyle); allow it for this install only
       - run: cargo install --locked --git https://github.com/romixlab/spirit_level --rev 99d6d1632be6c6474645092061bee0d5ec8fe19d spirit_level_cli
+        env:
+          CARGO_BUILD_WARNINGS: allow
       - run: just book-strict
       - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
         with:
