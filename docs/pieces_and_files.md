@@ -38,7 +38,7 @@ piece](anatomy.md#from-piece-head-to-tail) the ids in a piece head.
 
 ## Copies of a file
 
-[Pieces and chains](pieces.md#copies-of-a-file) compares whole and subset copies.
+[Pieces and chains](pieces.md#clones-and-subsets-of-a-file) compares clones and subsets of a file.
 
 ## Addressing one item
 

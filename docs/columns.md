@@ -6,7 +6,7 @@ level: advanced
 
 A [[chunk]] keeps many [[items]] of one [[track]] field by field, and the [[writer]] takes those fields already encoded.
 How does an application encode its times, [[payloads]] and [[samples]], and which [[codec]] suits each? The examples
-encode a second of the drive: 1000 Controller Area Network (CAN) frames and 25 000 current samples.
+encode a second of the drive: 1000 CAN frames and 25 000 current samples.
 
 ## A chunk is a head and its columns
 
@@ -47,10 +47,10 @@ at the width of the group's largest one.
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/plots/linear_group.svg"
-<figcaption>The drive's first 128 CAN frames, about 1 ms apart and up to 0.4 ms late. The group's line runs 1002.126 µs
-per frame, and each start is stored as its distance above it, in 10 bits instead of 64. Drawn by
-<code>ww_tape_figures</code> from the first chunk of <code>can0</code> at full rate, checked against the
-encoder.</figcaption>
+<figcaption>128 CAN frames of the drive from second 60 on, about 1 ms apart and up to 0.4 ms late. The group's line runs
+1002.126 µs per frame, and each start is stored as its distance above it, in 10 bits instead of 64. Drawn by
+<code>ww_tape_figures</code> from the first group of the chunk of <code>can0</code> at second 60, full rate, checked
+against the encoder.</figcaption>
 </figure>
 
 Each group stores a 25-byte record before its residuals: its first tick, the slope of its line, the smallest residual,
@@ -108,9 +108,10 @@ minimum are bit-packed at the group's width.
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/plots/delta_group.svg"
-<figcaption>128 samples of the drive's phase current, their differences from -43 to 117 mA, and the differences less the
-minimum. Each is stored in 8 bits instead of 16. Drawn by <code>ww_tape_figures</code> from the first group of
-<code>phase_a</code> at full rate.</figcaption>
+<figcaption>128 samples of the drive's phase current from second 60 on. Their differences run from -43 to 117 mA, and
+below them are the differences less the minimum. Each is stored in 8 bits instead of 16. Drawn by
+<code>ww_tape_figures</code> from the first group of the chunk of <code>phase_a</code> at second 60, full
+rate.</figcaption>
 </figure>
 
 [`Codec::DELTA2`] stores the differences of the differences, which suits a signal that changes by steady steps. The
@@ -139,8 +140,8 @@ samples it reads. Floats that nobody controls take [`Codec::ALP`], the one float
 The writer adds little to the encoding. `just bench-chunks` measures what it spends on a series chunk of 1 MiB, which
 holds 524 288 `i16` samples. The table shows the best of 5 rounds of 256 chunks.
 
-The bench ran on a virtual machine with 14 vCPUs on an Advanced Micro Devices (AMD) EPYC processor of the Genoa
-generation. The load average was about 5.
+The bench ran on a virtual machine with 14 virtual CPUs on an AMD EPYC processor of the Genoa generation. The load
+average was about 5.
 
 | What | µs per chunk | GB/s |
 |---|---:|---:|
@@ -150,5 +151,4 @@ generation. The load average was about 5.
 | `TapeWriter::write_chunk` from columns | 254 | 4.12 |
 | `chunk::write_chunk`, then `TapeWriter::write_block` | 281 | 3.73 |
 
-The [[content hash]] is most of the cost. Besides the hash, a writer that hands over columns spends about 41 µs per MiB.
-The next chapter puts these chunks into a file that survives a power failure.
+The [[content hash]] is most of the cost.

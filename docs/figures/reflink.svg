@@ -1,4 +1,4 @@
-<svg class="ww-svg" viewBox="0 0 680 250" width="680" height="250" role="img" aria-label="Three piece files, each ending on a 4 KiB boundary after its close padding, cloned back to back into one file all.wwt; the new file points at the same disk blocks as the three files, and nothing is copied" xmlns="http://www.w3.org/2000/svg">
+<svg class="ww-svg" viewBox="0 0 680 250" width="680" height="250" role="img" aria-label="Three piece files, each padded by its close so that its tail ends on a 4 KiB boundary, cloned back to back into one file all.wwt; the new file points at the same disk blocks as the three files, and nothing is copied" xmlns="http://www.w3.org/2000/svg">
   <!-- three files -->
   <text x="20" y="30" class="mono small">00000000.wwt</text>
   <rect x="20.5" y="38" width="170" height="30" rx="2" class="tint-blue"/>
@@ -12,7 +12,7 @@
   <rect x="490.5" y="38" width="140" height="30" rx="2" class="tint-blue"/>
   <text x="550" y="57" text-anchor="middle" class="small">piece 2</text>
   <rect x="606.5" y="38" width="24" height="30" rx="2" class="tint-ink"/>
-  <text x="20" y="88" class="soft small">each ends with its close padded to 4 KiB, then the tail</text>
+  <text x="20" y="88" class="soft small">the close pads each piece so that its tail ends on 4 KiB</text>
   <!-- clone arrows -->
   <path d="M105 70 V140" class="line dash"/>
   <path d="M105 146 l-4 -8 h8 Z" class="line head"/>

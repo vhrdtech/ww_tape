@@ -1,6 +1,6 @@
-<svg class="ww-svg" viewBox="0 0 688 298" width="688" height="298" role="img" aria-label="Two stretches of aligned files: in the drive's file a records block places the waiting summary before the next gap, and the gap before the series payload holds 5972 zero bytes; in a file of phase_a alone the summary fills the gap and 3772 zero bytes remain" xmlns="http://www.w3.org/2000/svg">
+<svg class="ww-svg" viewBox="0 0 688 298" width="688" height="298" role="img" aria-label="Two stretches of aligned files: in the drive's file the next second's put of the mode places the waiting summary before the next gap, and the gap before the series payload holds 5972 zero bytes; in a file of phase_a alone the summary fills the gap and 3772 zero bytes remain" xmlns="http://www.w3.org/2000/svg">
 <text x="24.0" y="20.0" text-anchor="start" class="strong">aligned files: every chunk's payload starts on a 4 KiB line</text>
-<text x="24.0" y="52.0" text-anchor="start" class="small">the drive's file: a records block every second places the summary first</text>
+<text x="24.0" y="52.0" text-anchor="start" class="small">the drive's file: the mode's put each second places the summary first</text>
 <rect x="24.5" y="70.0" width="53.6" height="30.0" rx="1" class="tint-teal"/>
 <text x="51.3" y="89.5" text-anchor="middle" class="small">summary</text>
 <rect x="79.1" y="70.0" width="7.2" height="30.0" rx="1" class="tint-blue"/>
@@ -35,5 +35,5 @@
 <text x="178.6" y="256.5" text-anchor="start" class="small">zeros in a chunk's head</text>
 <rect x="338.4" y="246.0" width="16.0" height="12.0" rx="2" class="thin dash"/>
 <text x="360.4" y="256.5" text-anchor="start" class="small">4 KiB lines</text>
-<text x="24.0" y="280.0" text-anchor="soft small" class="start">each row: 12.9 KiB of the drive's minute 1 at full rate</text>
+<text x="24.0" y="280.0" text-anchor="soft small" class="start">each row: 12.9 KiB of the drive's first minute at full rate</text>
 </svg>

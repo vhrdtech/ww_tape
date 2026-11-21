@@ -43,7 +43,7 @@ A recording cut into several files is a chain of [tape pieces](#tape-pieces).
 ### Locks
 
 A file sink holds an exclusive lock on the lock file `NAME.lock` beside `NAME`, never on `NAME` itself. A `flock` lock
-on `NAME` would pass to a child process forked before its `exec`. A Portable Operating System Interface (POSIX) record
+on `NAME` would pass to a child process forked before its `exec`. A POSIX record
 lock on `NAME` would drop as soon as any reader in the process closes the file.
 
 - On unix, the lock is a POSIX record lock on the lock file, which a child process forked meanwhile does not hold. A
@@ -57,7 +57,7 @@ lock on `NAME` would drop as soon as any reader in the process closes the file.
 - On unix, writers of one process are also kept apart by the file's device and inode. A second writer through a hard
   link is therefore refused. Two processes that write one file through two hard-linked names are not refused, and
   their blocks interleave.
-- A device, such as a raw Secure Digital (SD) card, is locked itself. A first-in, first-out (FIFO) special file, a
+- A device, such as a raw SD card, is locked itself. A FIFO special file, a
   socket or a directory is refused (`FsError::NotAFile`).
 - A `NAME.partial` renamed or replaced between its open and its lock is refused (`FsError::Replaced`).
 - A file or lock file on a read-only mount fails with `FsError::ReadOnly` and the path.

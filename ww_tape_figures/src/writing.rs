@@ -217,7 +217,7 @@ pub fn deferred() -> anyhow::Result<String> {
         LEFT * 2.0 + ROW_W,
         y2 + ROW_H + 92.0,
         &format!(
-            "Two stretches of aligned files: in the drive's file a records block places the waiting summary before the next gap, and the gap before the series payload holds {mz} zero bytes; in a file of phase_a alone the summary fills the gap and {az} zero bytes remain"
+            "Two stretches of aligned files: in the drive's file the next second's put of the mode places the waiting summary before the next gap, and the gap before the series payload holds {mz} zero bytes; in a file of phase_a alone the summary fills the gap and {az} zero bytes remain"
         ),
     );
     s.text(
@@ -232,7 +232,7 @@ pub fn deferred() -> anyhow::Result<String> {
         y1 - 18.0,
         "start",
         "small",
-        "the drive's file: a records block every second places the summary first",
+        "the drive's file: the mode's put each second places the summary first",
     );
     aligned_row(&mut s, &mixed, &mixed_heads, vm, y1, m0, m0 + width);
     s.text(
@@ -273,21 +273,21 @@ pub fn deferred() -> anyhow::Result<String> {
         "soft small",
         "start",
         &format!(
-            "each row: {} of the drive's minute 1 at full rate",
+            "each row: {} of the drive's first minute at full rate",
             kib(width)
         ),
     );
     Ok(s.finish())
 }
 
-/// The first chunk of `track` in the drive's first minute at full rate: its head and columns.
+/// The first chunk of `track` from second 60 on, in the drive's run at full rate: its head and columns.
 /// A chunk's head and its columns, as the recorder hands them over.
 type Columns = (
     ww_tape::chunk::ChunkHead,
     Vec<(ww_tape::ColumnSpec, Vec<u8>)>,
 );
 
-fn first_chunk(track: u32) -> anyhow::Result<Columns> {
+fn chunk_at_60_s(track: u32) -> anyhow::Result<Columns> {
     for act in Drive::full().minutes(2).acts().or_debug()? {
         if let Act::Chunk { head, columns } = act.or_debug()?
             && head.track_number == track
@@ -296,7 +296,7 @@ fn first_chunk(track: u32) -> anyhow::Result<Columns> {
             return Ok((*head, columns));
         }
     }
-    anyhow::bail!("a chunk of track {track} in minute 1")
+    anyhow::bail!("a chunk of track {track} from second 60 on")
 }
 
 /// A plot area: `x` from item 0 to 127, `y` from `lo` to `hi`, at `top` with `height`.
@@ -339,7 +339,7 @@ impl Plot {
 
 /// `linear_group.svg`.
 pub fn linear_group() -> anyhow::Result<String> {
-    let (head, columns) = first_chunk(CAN0)?;
+    let (head, columns) = chunk_at_60_s(CAN0)?;
     ensure!(head.time_mode == 1, "can0's starts are linear");
     let column = columns
         .iter()
@@ -378,11 +378,18 @@ pub fn linear_group() -> anyhow::Result<String> {
         lo: -50.0,
         hi: (1i64 << width) as f64 + 50.0,
     };
+    // how late the latest frame of the group is against its nominal tick, k periods after 0
+    let late_us = (head.first_item..head.first_item + 128)
+        .zip(&starts)
+        .map(|(k, t)| t - i64::try_from(k * period).unwrap_or(i64::MAX))
+        .max()
+        .context("a start")?;
     let mut s = Svg::new(
         LEFT * 2.0 + ROW_W,
         jitter.top + jitter.height + 92.0,
         &format!(
-            "128 CAN frame starts of the drive, about 1 ms apart and up to 0.4 ms late: the group record's line runs {:.3} µs per frame, and each start is stored as its distance above the line, {width} bits each",
+            "128 CAN frame starts of the drive, about 1 ms apart and up to {:.1} ms late: the group record's line runs {:.3} µs per frame, and each start is stored as its distance above the line, {width} bits each",
+            late_us as f64 / 1000.0,
             slope as f64 / 65536.0
         ),
     );
@@ -444,7 +451,7 @@ pub fn linear_group() -> anyhow::Result<String> {
 
 /// `delta_group.svg`.
 pub fn delta_group() -> anyhow::Result<String> {
-    let (head, columns) = first_chunk(PHASE_A)?;
+    let (head, columns) = chunk_at_60_s(PHASE_A)?;
     let drive = Drive::full();
     let values = phase_values(&drive, head.first_item, 128);
     let diffs: Vec<i64> = values

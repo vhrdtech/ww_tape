@@ -86,9 +86,9 @@ minutes at full rate.</figcaption>
 </figure>
 
 A sync after every block loses only the [[torn block]], the 1263 bytes a resume cuts off. It pays with about 8520 waits
-for the disk. The default loses the last second, three whole blocks, for a quarter of the syncs. Without syncs, the
-crash may lose all of piece 2: seven minutes of the run. A recorder of a slow, precious stream syncs after every block;
-one of a fast stream keeps the default.
+for the disk. The default loses the last second, three whole blocks, with 2223 syncs. Without syncs, the crash may lose
+all of piece 2: 420 s of the run. A recorder of a slow, precious stream syncs after every block; one of a fast stream
+keeps the default.
 
 ### A quiet input
 
@@ -112,7 +112,7 @@ standard library, the default is the system's monotonic clock, [`ClockRef::SYSTE
 [`clock::Clock`], and a test passes one it moves by hand.
 
 Time decides only when the writer syncs, places a checkpoint or cuts. No reading of the clock goes into a block. The
-drive's recorder sets no clock at all, so its bytes follow from its calls alone.
+drive's recorder sets [`ClockRef::NONE`], so its bytes follow from its calls alone.
 
 ### A failed write ends the file
 
@@ -154,5 +154,4 @@ before stay as they were, to the byte:
 ```
 
 The file then holds two pieces, each read alone. A [[resume]] differs: it writes on in the last piece, after its close,
-and the next close names the one before ([Closing more than once](format.md#closing-more-than-once)). The next chapter
-cuts a long recording into pieces on purpose.
+and the next close names the one before ([Closing more than once](format.md#closing-more-than-once)).

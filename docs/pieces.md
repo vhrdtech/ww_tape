@@ -19,9 +19,7 @@ before it. Cutting a recording into a chain gives three things:
 - **Bounded open time.** A [[reader]] opens a piece with a few small reads at its end, however long the recording is.
 - **Simple retention.** Deleting the oldest piece frees space without rewriting anything.
 
-A piece reads alone because the writer measures [[near]] inside the piece. In a new piece, it puts every definition and
-[[state item]] again, even when the piece before held them a few bytes earlier. A reader of piece 7 alone therefore
-decodes everything piece 7 holds.
+A piece reads alone because the writer measures [[near]] inside the piece. A new piece carries the definition of every track the chain has used, even when the piece before held it a few bytes earlier. A [[state item]] comes again with the application's next put of it. A reader of piece 7 alone therefore decodes everything piece 7 holds.
 
 ## A chain in a directory
 
@@ -92,8 +90,7 @@ with its head and two blocks of puts that carry the definitions, before its firs
 At full rate, piece 0 of the drive ends with a final index of 415 kB. The close takes 1297 bytes, 557 of them padding,
 and the tail 164 bytes. Piece 1 starts with a head of 540 bytes, then 2 blocks of puts of 521 bytes in all.
 
-The head lists every track that gave data so far, and the puts after it carry their definitions. At piece 1's first
-data, 4 tracks and 3 clocks and maps are defined. The mode, a [[state track]], comes back with its first put. [The
+The head lists every track the chain has used so far, a [[state track]] included, and the puts after it carry their definitions. The mode's item comes again with the recorder's next put. [The
 definitions a new piece carries](carried_definitions.md) says which definitions a piece carries and what they cost.
 
 The four pieces of the hour end on 4 KiB:
@@ -120,7 +117,7 @@ was deleted, not damaged.
 ```
 
 The drive's chain without piece 0 shows it. [`check_chain`] finds 3 pieces from piece 1, and both links between them
-hold. The report says head cut, and so not whole. At piece 1's first data, 4 tracks are defined, the carried ones. A
+hold. The report says head cut, and so not whole. Piece 1 defines every track at its start, the carried ones. A
 chain with deleted pieces cannot be resumed, since a resume starts from the first piece.
 
 A chain in memory keeps a bounded window the same way. [`MemTapes::remove`] takes a closed piece out of the store. A
@@ -135,7 +132,8 @@ sequence number, its id and its content hash ([`RemovedPiece`]).
 
 The writer appends the note to the chain's last piece, after its close:
 
-1. Resume the closed last piece ([`TapeWriter::resume_on`], or [`writer::append`] for a file).
+1. Resume the closed last piece ([`TapeWriter::resume_on`], or [`writer::resume`] for a file). An append would start a
+   new piece, which cannot name removed pieces.
 2. Name the removed pieces with [`TapeWriter::record_removed`].
 3. Close it. The new close names the pieces, and every later close of the piece names them again.
 
@@ -165,8 +163,7 @@ last piece, cut off by a crash, resumes as [When the power fails](crashes.md#res
 
 ## The 4 KiB end and cloning
 
-A closed piece is a multiple of 4 KiB long: the writer pads the close with zeros up to the boundary. The boundary makes
-copies free on file systems that share data between files. Btrfs and XFS (a Linux file system) can **clone** a range of
+A closed piece is a multiple of 4 KiB long: the writer pads the close with zeros up to the boundary. The boundary makes cloning free on file systems that share data between files. The Linux file systems Btrfs and XFS can **clone** a range of
 one file into another. The new file then points at the same disk blocks.
 
 <figure class="ww-figure" markdown="0">
@@ -180,20 +177,18 @@ The kernel clones only ranges that start on a block boundary in both files, 4 Ki
 Every closed piece ends on a boundary, so pieces clone back to back with nothing between them. In an [aligned
 file](writing.md#aligned-files), the payloads keep their alignment too.
 
-## Copies of a file
+## Clones and subsets of a file
 
-A **whole copy** has the same bytes as the original: every block, index entry and content hash. [`TapeReader::verify`]
-checks it against the hash its close states. A **subset copy** keeps only some tracks, so it is a new file:
+A **clone** of a file has the same bytes as the original: every block, index entry and content hash. [`TapeReader::verify`] checks it against the hash its close states. A **subset** keeps only some tracks, so it is a new file:
 
-| Part | Whole copy | Subset copy |
+| Part | Clone | Subset |
 |---|---|---|
 | chunk and summary bodies: columns, item numbers, ticks | same | same |
-| block headers: session tag, sequence number, CRC | same | the copy's own |
-| definitions and state records | same | the kept tracks' only, put by the copy's writer |
+| block headers: session tag, sequence number, CRC | same | the subset's own |
+| definitions and state records | same | the kept tracks' only, put by the subset's writer |
 | index, close, tail, content hash | same | new |
 | piece ids | same | new |
 
-The items of a subset copy keep their [[item numbers]] and [[ticks]], so a reference to an item stays valid. To write
+The items of a subset keep their [[item numbers]] and [[ticks]], so a reference to an item stays valid. To write
 one, an application holds the kept tracks' definitions, puts their state and writes the chosen blocks through its own
-writer. It renumbers each block into the copy's session with [`ww_tape::set_id`]. The next chapter passes another
-producer's blocks on in the same way, live.
+writer. It renumbers each block into the subset's session with [`ww_tape::set_id`].

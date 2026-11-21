@@ -46,15 +46,14 @@ The writer's settings are its [`WriterOptions`]. Each field has a default that s
 | `index` | when the writer places checkpoints | [Anatomy of a piece](anatomy.md#checkpoints-while-the-piece-grows) |
 | `layout` | how blocks are placed, such as payloads on 4 KiB | [Aligned files](#aligned-files) |
 | `producer` | the producer's name | [Definitions and state](definitions.md#the-definitions-an-application-holds) |
-| `near` | how the writer remembers puts and spaces copies | [Near, puts and copies](definitions.md#near-puts-and-copies) |
+| `near` | how the writer remembers puts and spaces state copies | [Near, puts and copies](definitions.md#near-puts-and-copies) |
 | `clock` | the clock that decides when an interval is up | [Files and syncing](files.md#the-writers-clock) |
 
 ## Four calls for data
 
 The drive's recorder hands the hour to the writer in four calls. Each second it [[puts]] the mode and writes one
-[[records block]] of log lines and temperatures. It also writes a [[chunk]] of Controller Area Network (CAN) frames and
-one of phase current. It hands over the [[summary]] blocks of the phase current as they fill. `cargo run -p
-ww_tape_example` counts the calls:
+[[records block]] of log lines and temperatures. It also writes a [[chunk]] of CAN frames and one of phase current. It
+hands over the [[summary]] blocks of the phase current as they fill. `cargo run -p ww_tape_example` counts the calls:
 
 | Call | Count |
 |---|---:|
@@ -146,9 +145,9 @@ head and the column table. It checks the chunk's track against the definitions, 
 its grid. It copies the caller's columns as they are and does not read them back.
 
 A caller's whole block, handed to [`TapeWriter::write_block`], [`TapeWriter::adopt_block`] or
-[`TapeWriter::defer_block`], is read once. The writer checks every cyclic redundancy check (CRC) in it, a [[CRC-32C]].
-Beyond that, each byte placed costs one more pass: the [[content hash]]. [Chunks from
-columns](columns.md#what-a-chunk-costs-the-writer) measures what these passes cost per chunk.
+[`TapeWriter::defer_block`], is read once. The writer checks every [[CRC]] in it, a [[CRC-32C]]. Beyond that, each byte
+placed costs one more pass: the [[content hash]]. [Chunks from columns](columns.md#what-a-chunk-costs-the-writer)
+measures what these passes cost per chunk.
 
 The writer does not compare a series chunk's grid with the chunk before it. A reader's [`SeriesTimeline`] does
 ([Series](series.md#grids-where-samples-are-in-time)). The writer computes each CRC with the processor's CRC
@@ -166,9 +165,8 @@ This rule gives the format its shape:
 - A state copy is written at a use, never scheduled ahead, so nothing is left pending when the writer stops.
 - A crash costs only the bytes not yet synced. No header exists that would be wrong after it.
 
-Append-only writing suits every medium a tape targets. A NOT-AND (NAND) flash page takes one program, and a Secure
-Digital (SD) card is fastest in long sequential writes. A tool can also copy a file that is only appended while the file
-grows.
+Append-only writing suits every medium a tape targets. A NAND flash page takes one program, and a SD card is fastest in
+long sequential writes. A tool can also read a file whole while the file grows, since it is only appended.
 
 ## Deferred blocks
 
@@ -189,15 +187,15 @@ deferred blocks while they fit. A deferred block waits at most 1 MiB of writes f
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/plots/deferred.svg"
-<figcaption>Two stretches of aligned files. In the drive's file, a records block arrives between a series chunk and the
-next one and places the waiting summary at once, so the gap before the payload holds zeros. In a file of
-<code>phase_a</code> alone, the summary fills the gap. Drawn by <code>ww_tape_figures</code> from the drive's first
-minute at full rate.</figcaption>
+<figcaption>Two stretches of aligned files. In the drive's file, the next second's put of the mode places the waiting
+summary at once, so the gap before the payload holds zeros. In a file of <code>phase_a</code> alone, the summary fills
+the gap. Drawn by <code>ww_tape_figures</code> from the drive's first minute at full rate.</figcaption>
 </figure>
 
 Alignment costs the drive more than a series alone. The hour takes 129 MB aligned against 115 MB, 12 % more. In the
-aligned drive file, 0 of the 2933 summary blocks lie in a gap. Each second's records block arrives before the next
-series chunk, and the writer places the waiting summaries ahead of it.
+aligned drive file, 0 of the 2933 summary blocks lie in a gap. Each second starts with a put of the mode and a records
+block, before the next series chunk. Every put and every block handed over places the waiting deferred blocks first,
+even a put that writes nothing.
 
 A file of `phase_a` alone takes 112 MB aligned against 104 MB, 7.3 % more. There 2724 of the 2933 summary blocks fill
 gaps. Alignment therefore suits a file that holds mostly series. The drive's recorder keeps its mixed file unaligned.
@@ -213,5 +211,4 @@ next close names the one before it ([Closing more than once](format.md#closing-m
 with nothing appended stays as it was, to the byte.
 
 [`TapeWriter::close_with_summary`] closes with a summary block of the application's own, up to 1 MiB of any bytes. A
-reader fetches it from the tail without a scan ([The close summary](format.md#the-close-summary)). The next chapter
-opens the chunks that the drive's recorder hands over and shows how their columns are made.
+reader fetches it from the tail without a scan ([The close summary](format.md#the-close-summary)).
