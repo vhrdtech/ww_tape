@@ -13,16 +13,23 @@ scheme, by the rules of stylesheets/hero.css. -->
 
 # Tapes
 
-A motor controller board, the drive, runs for an hour on an endurance bench. A host computer beside it captures the
-board's log lines, its mode, its frames on the vehicle bus and its phase current. This book is about the form that
-recording takes, a [[tape]]. This chapter says what a tape is, which of its three uses fits a job, and which crates to
-take.
+A device that runs for hours produces data of many kinds at once. It writes log lines, changes its state now and
+then, sends messages on a bus and samples a signal thousands of times a second. ww_tape records such data as a [[tape]], a sequence
+of typed values over time in blocks that check themselves. The same format streams live to a viewer, fills a file on
+a personal computer (PC), or lies on a card without a file system.
+
+A tape is built for the reader that comes later. A crash or a bad sector costs only the bytes it touched, and a reader
+finds the rest. A reader on another PC, years later, still knows what every byte means. It reads one second out of an
+hour without decoding the hour. If a program of yours records data like this and must read it back exactly, this book
+is for you.
 
 ## What a tape holds
 
 A [[tape]] is a recording of typed values over time. Each value is an [[item]], such as one log line or one current
 [[sample]]. The items of one kind form a [[track]], and every item has a time on a [[clock]] that the tape defines.
-The drive's recording has five tracks, and the whole book uses them:
+
+The book uses one recording as its example throughout. A motor controller board, the drive, runs for an hour on an
+endurance bench, and a host computer beside it records the board. The recording has five tracks:
 
 | Track | What it holds | Rate | Kept in |
 |---|---|---|---|

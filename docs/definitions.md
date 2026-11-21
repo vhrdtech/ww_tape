@@ -4,13 +4,13 @@ level: basic
 
 # Definitions and state
 
-At minute 52 the drive faults, and an engineer opens the [[piece]] that holds the fault. That piece is the last of four,
-and the engineer has only it. To read it, the viewer needs two kinds of fact that were first written long before. It
-needs what each [[track]] is, and the mode the controller was in.
+A [[reader]] that opens a recording in the middle needs facts that were first written long before. It needs to know
+what each [[track]] is, and which values were in force at that point. A [[tape]] therefore keeps such facts close to
+every place that needs them, so that a reader anywhere finds them within 32 MiB.
 
-This chapter shows how a [[tape]] keeps both close to every place that needs them. After it you can keep [[definitions]]
-in a [`Definitions`] container and [[put]] a [[state item]] at its use. You can also say why a [[reader]] anywhere finds
-it within 32 MiB.
+At minute 52, for example, the drive faults, and an engineer opens the [[piece]] that holds the fault. That piece is
+the last of four, and the engineer has only it. To read it, the viewer needs the [[definitions]] of the drive's tracks
+and the mode the controller was in, a [[state item]].
 
 ## What a definition says
 

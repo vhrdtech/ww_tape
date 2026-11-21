@@ -4,11 +4,11 @@ level: basic
 
 # Reading a tape
 
-At minute 52 the drive faults on overcurrent, and an engineer opens the bench host's recording to see why. The
-recording is a [[chain]] of four [[pieces]], 115 290 112 bytes in all, and the engineer wants the second around the
-fault. This chapter shows how a [[reader]] gets there with a few small reads. After it you can open a file or a
-chain, and find the [[blocks]] of one [[track]] in a time range. You can also look up the [[state]] in force at a
-place.
+A recording can run to hundreds of megabytes, and the question asked of it is often about one second. A [[reader]]
+opens a file or a [[chain]], finds the [[blocks]] of one [[track]] in a time range, and looks up the [[state]] in
+force there, all with a few small reads. At minute 52, for example, the drive faults on overcurrent, and an engineer
+opens the bench host's recording to see why. The recording is a chain of four [[pieces]], 115 290 112 bytes in all,
+and the engineer wants the second around the fault.
 
 Every number in this chapter comes from [`src/fault.rs`], a program that runs each step on the drive's recording. It
 counts the bytes each step reads, and `cargo run -p ww_tape_example` prints them.

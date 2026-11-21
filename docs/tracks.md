@@ -4,10 +4,14 @@ level: basic
 
 # Tracks and items
 
-The drive's recording holds five streams: log lines, the controller's mode, frames from the vehicle bus, the phase
-current and the board's temperature. A [[reader]] must keep them apart, find the same stream again in next week's file,
-and know how each one is timed. This chapter names the parts of a stream and the three numbers that identify it. After
-it you can name a [[track]], tell its number, key and id apart, and choose [[events]] or [[series]] for a stream.
+A recording usually holds several streams at once, each of its own type and timing. A [[reader]] must keep them apart,
+find the same stream again in next week's file, and know how each one is timed. The drive's recording, for example,
+holds five streams: log lines, the controller's mode, frames from the vehicle bus, the phase current and the board's
+temperature.
+
+A [[tape]] keeps each stream as a [[track]], and three numbers identify a track: its number, its key and its id. A
+track's timing decides its form: a stream of [[events]] gives each item a time, and a [[series]] samples at a fixed
+period.
 
 ## Items and tracks
 

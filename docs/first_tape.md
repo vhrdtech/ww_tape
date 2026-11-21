@@ -4,9 +4,9 @@ level: basic
 
 # A first tape
 
-The bench host is about to record the drive for the first time. Before it captures the whole hour, it should write
-one minute into a file, [[close]] the file, and read it back. This chapter does exactly that, call by call, and then
-looks at the bytes the file holds.
+The shortest useful program with a tape writes a few items into a file, [[closes|close]] the file, and reads the items
+back. It shows each call a recorder makes, and the bytes the file holds afterwards. Here the bench host writes the
+drive's first minute this way, before it captures the whole hour.
 
 ## Running the program
 

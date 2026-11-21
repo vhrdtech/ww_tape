@@ -4,13 +4,13 @@ level: basic
 
 # Blocks
 
-The drive's host receives a steady stream of bytes over USB and writes them out as a [[tape]]. A [[reader]] of that tape
-may start anywhere. It may meet bytes that a crash or a bad sector changed, or a kind of data that a newer program
-wrote. It must check what it reads before it trusts it, and skip what it does not understand.
+A [[reader]] of a [[tape]] may start anywhere in it. It may meet bytes that a crash or a bad sector changed, or a kind
+of data that a newer program wrote. It must check what it reads before it trusts it, and skip what it does not
+understand. The drive's host, for example, writes the bytes it receives over USB as a tape, and a viewer may open that
+tape at any point.
 
-This chapter shows the unit that makes this possible, the [[block]], and the two kinds of block that hold [[items]].
-After it you can read a [[block header]] and tell a [[records block]] from a [[chunk]]. You can also say why a reader
-skips what it does not know.
+The unit that makes this possible is the [[block]]. Every block starts with a [[block header]] and checks itself, and
+two kinds of block hold [[items]]: the [[records block]] and the [[chunk]].
 
 ## The block header
 

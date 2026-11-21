@@ -4,11 +4,13 @@ level: basic
 
 # Anatomy of a piece
 
-The drive's hour lies in four files, one per quarter of an hour. Each is a [[piece]]: a file that reads alone, with its
-own [[definitions]], its own index and a fixed end. This chapter follows the first piece from its first byte to its
-last, and shows how a [[reader]] finds its way in it. After it you can point at the [[piece head]], the [[checkpoints]],
-the [[final index]], the [[close]] and the [[tail]] of a piece. You can also say why the same input gives the same
-bytes.
+A [[piece]] is a file of a recording that reads alone, with its own [[definitions]], its own index and a fixed end. A
+[[reader]] that opens one must find its way in it: where the data starts, where the index lies, and whether the file
+was closed. The parts of a piece answer that. A [[piece head]] starts it and [[checkpoints]] index it as it grows. A [[final
+index]], a [[close]] and a [[tail]] end it. The same input gives the same bytes in each of them.
+
+The drive's hour, for example, lies in four pieces, one per quarter of an hour. Its first piece is the case followed
+here, from its first byte to its last.
 
 ## From piece head to tail
 

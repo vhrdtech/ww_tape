@@ -4,10 +4,13 @@ level: advanced
 
 # Checks and range hashes
 
-The engineer sends the last piece of the drive's recording, the one with the fault, to the firmware team. The bench
-host's archive keeps the whole chain. The firmware team wants to know that its file holds the frames the bench
-recorded, and the archive that no piece changed or went missing. After this chapter you can check a
-[[chain]]'s links and verify a [[piece]]. You can also prove that two files hold the same data in a range of items.
+Recordings get copied, cut apart and archived, and whoever holds a copy must know that it is whole and unchanged. A
+tape answers this at three levels. A [[chain]]'s links show a missing or swapped [[piece]], and a reader verifies a
+piece's bytes. A [[range hash]] proves that two files hold the same data in a range of items.
+
+The engineer, for example, sends the last piece of the drive's recording, the one with the fault, to the firmware
+team. The bench host's archive keeps the whole chain. The firmware team wants to know that its file holds the frames
+the bench recorded, and the archive that no piece changed or went missing.
 
 ## The links of a chain
 

@@ -4,10 +4,12 @@ level: basic
 
 # When bytes go bad
 
-The drive's hour sits in an archive, four [[pieces]] on a disk. A year later a copy of the last piece, the one with the
-fault at minute 52, has one bit flipped by a failing sector. This chapter answers two questions: what that bit costs,
-and how a [[reader]] says exactly what it lost instead of guessing. After it you can say what each check protects and
-read past a bad [[block]]. You can also salvage the good parts of a damaged chunk.
+Stored bytes go bad: a failing sector flips a bit, a torn write leaves half a block. Two questions follow: what the
+damage costs, and how a [[reader]] says exactly what it lost instead of guessing. A tape's checks confine the damage, a
+reader reads past a bad [[block]], and it salvages the good parts of a damaged chunk.
+
+The drive's hour, for example, sits in an archive, four [[pieces]] on a disk. A year later a copy of the last piece,
+the one with the fault at minute 52, has one bit flipped by a failing sector.
 
 ## Checks at three levels
 

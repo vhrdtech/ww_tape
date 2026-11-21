@@ -4,11 +4,13 @@ level: advanced
 
 # Where the data ends on a raw card
 
-Besides the host's files, a recorder box on the bench writes the drive's run onto a SD card without a
-file system. The card still holds an earlier run of the same board, a full hour. At minute 37 the power fails, and the
-box stops in the middle of a block. This chapter answers how a [[reader]] of the card finds where today's run ends, with
-good blocks of the earlier run right behind it. After it you can write a tape onto a [[raw medium]] and read it back
-past [[stale data]], [[gaps]] and [[duplicates]].
+A [[raw medium]], such as an SD card without a file system, has no end of file. When a recorder writes
+onto a card used before, the blocks of the earlier recording stay valid behind the new ones. A [[reader]] must find
+where today's recording ends, and read it past [[stale data]], [[gaps]] and [[duplicates]].
+
+Besides the host's files, for example, a recorder box on the bench writes the drive's run onto an SD card. The card
+still holds an earlier run of the same board, a full hour. At minute 37 the power fails, and the box stops in the
+middle of a block. Good blocks of the earlier run lie right behind it.
 
 ## Sessions and stale data
 

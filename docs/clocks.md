@@ -4,11 +4,14 @@ level: advanced
 
 # Clocks and time
 
-The drive stamps every [[item]] with its own microsecond timer, which starts at 0 when the board boots. The engineer who
-reads the recording wants wall time: the fault came at 09:52, not at 3 120 000 000 µs after boot. The board's crystal
-also runs 20 parts per million (ppm) fast, so its microseconds are not quite the host's. This chapter shows how a
-[[tape]] keeps each device's own time exact and still places it on the host's time line. After it you can define a
-[[clock]] with an exact rate, map a device clock to the host's, and read a time across [[epochs]].
+Every device counts time with its own counter, and no two counters agree exactly. A [[tape]] must keep each device's
+own time exact and still place it on one shared time line. The drive, for example, stamps every [[item]] with its own
+microsecond timer, which starts at 0 when the board boots. The engineer who reads the recording wants wall time: the
+fault came at 09:52, not at 3 120 000 000 µs after boot. The board's crystal also runs 20 parts per million (ppm)
+fast, so its microseconds are not quite the host's.
+
+A tape defines each of its [[clocks]] with an exact rate and maps each device clock onto the host's. [[Epochs|epoch]]
+keep a long capture in 64-bit ticks.
 
 ## Clocks and ticks
 

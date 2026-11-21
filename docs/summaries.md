@@ -4,11 +4,12 @@ level: basic
 
 # Summaries
 
-The engineer's viewer opens on the whole hour of `phase_a`, 90 million [[samples]], in a plot 600 pixels wide. Its
-[[chunks]] hold 99 617 283 bytes, far too many to read for a picture. The writer kept [[summaries]] beside them, a
-coarse view built while the run was recorded, and the viewer draws the hour from those. This chapter shows how. After
-it you can draw an hour of a [[track]] from its summaries, zoom in to the samples, and write summaries alongside the
-data.
+A plot of a long [[track]] has a few hundred pixels across, and the track may hold millions of items. Reading them
+all for one picture costs far too much. A writer therefore keeps [[summaries]] beside the data, a coarse view built
+while the run is recorded. A viewer draws the whole track from them and zooms in to the items where it needs them.
+
+The engineer's viewer, for example, opens on the whole hour of `phase_a`, 90 million [[samples]], in a plot 600 pixels
+wide. Its [[chunks]] hold 99 617 283 bytes, and the viewer draws the hour from the summaries instead.
 
 ## A tree over item numbers
 
