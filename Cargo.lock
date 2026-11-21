@@ -1140,6 +1140,7 @@ version = "0.3.0"
 dependencies = [
  "libc",
  "rustix",
+ "shrink_wrap",
  "ww_tape",
  "ww_tape_mux",
 ]

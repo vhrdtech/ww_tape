@@ -142,7 +142,7 @@ fn definitions() -> Vec<Describe<'static>> {
 }
 
 /// The id of the series track of [definitions]: what its chunks' heads carry.
-fn series_id() -> TrackId {
+pub(crate) fn series_id() -> TrackId {
     definitions()
         .iter()
         .find_map(|d| match d {
@@ -211,7 +211,7 @@ fn seal(
 
 /// The recording: batches as they come, a grid at the start, the same grid at a new scale at the prefix change and
 /// a new grid after the gap.
-fn write(path: &std::path::Path) {
+pub(crate) fn write(path: &std::path::Path) {
     let p = period();
     let mut w = ww_tape_fs::writer::create(path, SyncPolicy::None).unwrap();
     w.set_alignment(ww_tape::ALIGNMENT).unwrap();
@@ -259,15 +259,15 @@ fn write(path: &std::path::Path) {
 
 /// What a reader with ww_tape alone gets: the definition, the timeline of its chunk heads, every chunk's head and
 /// numbers.
-struct Read {
+pub(crate) struct Read {
     shape: SampleShape,
     period: Ratio64,
     scale: Magnitude,
     timeline: SeriesTimeline,
-    chunks: Vec<(ChunkHead, Vec<i32>)>,
+    pub(crate) chunks: Vec<(ChunkHead, Vec<i32>)>,
 }
 
-fn read(bytes: &[u8]) -> Read {
+pub(crate) fn read(bytes: &[u8]) -> Read {
     let r = TapeReader::open(bytes).unwrap();
     assert_eq!(r.pieces().len(), 1);
     let mut def = None;

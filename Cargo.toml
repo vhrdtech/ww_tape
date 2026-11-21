@@ -50,7 +50,7 @@ libm = { version = "0.2", default-features = false, features = ["arch"] }
 # exact: ww_tape lz4 payload columns must compress to the same bytes (ww_tape_codecs/src/lz4.rs)
 lz4_flex = { version = "=0.14.0", default-features = false, features = ["safe-decode", "checked-decode"] }
 # ww_tape_fs on unix: a file sink's flock and the file system type of its file (fstatfs)
-rustix = { version = "1.1", default-features = false, features = ["fs", "std"] }
+rustix = { version = "1.1", default-features = false, features = ["event", "fs", "std"] }
 # the bench reports, and the book's figures that read them
 serde = { version = "1", default-features = false, features = ["std"] }
 serde_json = { version = "1", default-features = false, features = ["std"] }

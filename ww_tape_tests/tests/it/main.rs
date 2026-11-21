@@ -25,6 +25,7 @@ mod crashes;
 mod definitions;
 mod durable;
 mod files;
+mod follow;
 mod head_copies;
 mod iq8;
 mod item_gap;

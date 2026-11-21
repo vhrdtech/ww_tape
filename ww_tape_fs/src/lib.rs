@@ -9,6 +9,8 @@
 //! - [FileSource] reads a file back, a closed piece or any tape, as a [ByteSource](ww_tape::ByteSource).
 //! - [writer] opens a [TapeWriter](ww_tape::TapeWriter) on a path: [writer::create], [writer::append],
 //!   [writer::resume], [writer::cut]. [chain] opens a chain in a directory: [chain::create], [chain::resume].
+//! - [follow] reads a chain while another process writes it: [follow::ChainFollower] hands out each block once it
+//!   checks, [follow::TrackFollower] one track's items, [follow::TimeMerge] merges several chains by time.
 //! - [mux] opens a chain in a directory written from a [TapeMux](ww_tape_mux::TapeMux)'s writing thread:
 //!   [mux::create], [mux::resume].
 //!
@@ -43,6 +45,7 @@
 )]
 
 pub mod chain;
+pub mod follow;
 mod lock;
 pub mod mux;
 mod sink;
