@@ -77,7 +77,7 @@ The bytes of blocks, records, chunks, definitions and the index, in the crate `w
   - A state item is put again only where the same item doesn't lie close behind. A first write gets spaced copies.
   - Adding 10 000 tracks one by one takes 60 milliseconds in all. A 256 MiB piece with 10 000 tracks in use holds 1.85 % puts and copies.
   - The index lists state records, and the reader looks state up at any place, damage included.
-  - Read more: [Definitions on track 0](docs/blocks.md#definitions-on-track-0), [State tracks](docs/index.md#state-tracks-and-near-use). Fuzz target `tape-state-hostile`.
+  - Read more: [Definitions on track 0](docs/blocks.md#definitions-on-track-0), [State tracks](docs/tape.md#state-tracks-and-near-use). Fuzz target `tape-state-hostile`.
 - ✅ **FMT-10 Series chunks carry their own grid and scale**
   - A series chunk's head carries its grid and scale, so a chunk times and scales its samples alone.
   - A timeline of a track is built from chunk heads in any order. It checks each chunk against its neighbours and says where the gaps are.
@@ -262,7 +262,7 @@ Crates, checks, fuzzing and benches.
   - Done: the writer, chain and resume build with alloc only, and the codecs build for wasm32 without std.
   - Open: owned definition records without std, which need owned types in `shrink_wrap` and `ww_version`.
   - Open: the sample, time and payload codecs on slices, memory tapes in segments, a verify-on-read setting, integrity levels and a seal.
-  - Read more: [The crates](docs/index.md#the-crates).
+  - Read more: [The crates](docs/tape.md#the-crates).
 - ✅ **REPO-84 spirit_level checks in `just lint`**
   - `just lint` and CI run `spl check` with every lint of `spirit_level.toml`. The prose lints read the book, the READMEs, AGENTS.md, the CHANGELOG and this file.
   - Every crate inherits the workspace lints, the panic-class set included.

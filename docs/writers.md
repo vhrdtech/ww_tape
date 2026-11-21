@@ -38,7 +38,7 @@ A chapter ends on its last fact, or on one sentence that leads to the next chapt
 
 The book draws most of its examples from one recording, so that a reader learns its setup once. A motor controller
 board, the drive, runs for an hour on an endurance bench. A host records it over USB into a chain of pieces.
-[What a tape holds](index.md#what-a-tape-holds) introduces it and lists its five tracks, and a chapter links that
+[What a tape holds](tape.md) introduces it and lists its five tracks, and a chapter links that
 table instead of repeating it. Other examples, such as a radio capture, join where the drive has no fitting case.
 
 The recording has a few facts that examples rely on. The board counts time in microseconds since boot and the host in

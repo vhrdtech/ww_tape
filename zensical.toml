@@ -17,6 +17,7 @@ edit_uri = "edit/main/docs/"
 nav = [
     { "Start" = [
             "index.md",
+            "tape.md",
             "first_tape.md"
         ]
     },

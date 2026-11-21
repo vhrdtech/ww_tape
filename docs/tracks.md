@@ -24,7 +24,7 @@ track's [[definition]] therefore decodes the item years later, without the devic
 logring](related_books.md) introduces both.
 
 A [[track]] is a sequence of items of one type over time. The drive has five tracks, one per stream, and [What a tape
-holds](index.md#what-a-tape-holds) lists them with their rates.
+holds](tape.md) lists them with their rates.
 
 A [[record]] is one item on one track at one time. The time is a whole number of [[ticks]] of the track's [[clock]],
 which [Clocks and time](clocks.md) explains. For the drive, every track counts the board's microsecond timer since boot.

@@ -24,7 +24,7 @@ names the file. Then it opens the file and prints one line for each [[track]]:
 --8<-- "ww_tape_example/tests/first_tape.out"
 ```
 
-The counts follow from the drive's rates, which [the first chapter](index.md#what-a-tape-holds) lists. A second
+The counts follow from the drive's rates, which [the first chapter](tape.md) lists. A second
 holds three log lines, one temperature, 1 000 frames and 25 000 [[samples]]. The mode is idle, because the bench
 switches the drive to run only after its first minute. A test checks that the program prints these lines, so they
 change with the code that makes them.
