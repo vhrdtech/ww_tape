@@ -79,6 +79,20 @@ fails the build. A renamed item thus fails the book in the same change that rena
 The book uses one name for each thing. Where two words could name one thing, the glossary entry decides, and the other
 word goes into its forms.
 
+## Abbreviations
+
+Prose writes an abbreviation alone and never spells it out: "a PC", never `a personal computer (PC)`. The
+`abbreviation-first-use` lint in `spirit_level.toml` holds two lists, and every abbreviation goes into one of them.
+
+| List | Holds | In the book |
+|---|---|---|
+| `known` | ones every reader knows, and names in capitals: PC, USB, AMD, EPYC | plain |
+| `long-forms` | every other, with its long form: CAN, SD, CRC, IQ, MCU | its long form on hover |
+
+A new abbreviation that a reader may not know goes into `long-forms`. `just book-refs` writes the table, and the
+build marks each use so that the reader sees the long form under the pointer. The lint fails an abbreviation in
+neither list, and prose that spells out one of either list.
+
 ## Code on a page
 
 Code on a page always comes from code that the tests compile and run. Two forms carry it.
