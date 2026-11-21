@@ -251,6 +251,7 @@ The pages in `docs/`.
   - `Drive::scaled` shrinks the data and the byte policies for figures; a crash at any byte resumes to the bytes of the run without it.
   - `cargo run -p ww_tape_example` prints the story's numbers; `tests/story.rs` checks them and that the full hour is the same every run.
   - Damage to the last piece and the run on a raw card over an earlier run; `tests/damage.rs` pins what each costs.
+  - `rf` records an RF capture, ComplexI16 IQ at 20 MS/s with summaries, as the book's case for high rates; `tests/rf.rs` pins its size per codec.
   - Read more: [ww_tape_example](ww_tape_example/README.md).
 
 ## Repository (`REPO`)

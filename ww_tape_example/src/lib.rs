@@ -42,6 +42,7 @@ mod defs;
 pub mod fault;
 pub mod first_tape;
 mod record;
+pub mod rf;
 mod signals;
 
 pub use card::{Card, CardRead, EARLIER_CHAIN};

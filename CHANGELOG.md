@@ -203,6 +203,8 @@ Covers `ww_tape` 0.1.0.
 - Book: Parts I and II in the new tone: no scenes, rounded numbers, a chain's links stated exactly (BOOK-2).
 - `ww_tape_example::parts` counts a piece's blocks by part, as "Anatomy of a piece" names them (BOOK-3).
 - `ww_tape_example::fault`: Part IV's program finds the fault at minute 52 and counts each step's bytes (BOOK-3).
+- `ww_tape_example::rf`: an RF capture, ComplexI16 IQ at 20 MS/s, one piece a minute (BOOK-3).
+- `ww_tape_benchmarks --bin rf_core` and `--bin rf_chain`: the RF capture's writer, reader and a chain of files (BOOK-3).
 - Book: Part IV, reading: open, find, state, events, checks and range hashes, series, summaries, on the drive's fault (BOOK-2).
 - Book: Part IV's figures: index entries a query reads, summary tree, autoranging scales; three drawn by hand (BOOK-2).
 - `TapeWriter::close_with_summary` places a close summary (kind 14) the close names; `TapeReader::close_summary` reads it (WRITE-7).

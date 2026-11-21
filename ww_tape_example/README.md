@@ -26,3 +26,14 @@ The archived last piece then takes damage three ways: a flipped bit, its first 4
 `tests/story.rs` checks three things. The full hour is the same every run, and its crash lands where the story says. A scaled run resumes from a crash at any byte.
 
 `tests/damage.rs` checks what each damage costs and that a reader of the raw card never takes the earlier run for data.
+
+## The RF capture
+
+The module `rf` records the book's case for high rates. Its samples are complex IQ values from a software-defined radio's front end, 20 million a second (80 MB/s). The signal is three steady carriers, a little noise and five bursts of 2 ms a minute. It comes from fixed numbers, so every capture is the same. A minute is one piece with one track, `iq`, in chunks of 10 ms with summaries.
+
+```sh
+cargo run --release -p ww_tape_example --bin rf                     # a minute's size in each codec
+cargo run --release -p ww_tape_example --bin rf -- write rf.wwt 100  # the minute at 1/100 of the rate, into a file
+```
+
+`tests/rf.rs` checks that a capture reads back sample for sample and pins the size of a second at the full rate. `ww_tape_benchmarks` times it: `--bin rf_core` on one core, `--bin rf_chain` into a chain of files.

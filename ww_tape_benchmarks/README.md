@@ -31,3 +31,16 @@ a writer hashes and copies per block when nothing needs writing.
 just bench-tracks
 just bench-tracks --tracks 100000
 ```
+
+The `rf_core` binary times the writer and the reader on the RF capture of `ww_tape_example::rf`, on one core. The
+samples of each chunk are made before it and not timed. It prints, per codec, what the writer spends on a chunk: the
+codec, `TapeWriter::write_chunk` and the summaries. Then it reads a capture in memory, every chunk checked and decoded.
+
+The `rf_chain` binary records the capture at full speed into a chain of piece files, a piece a minute, until the chain
+holds `--gib` GiB. Worker threads make and code the chunks, and one thread writes them. It then opens every piece and
+reads one second, counting the bytes and reads.
+
+```sh
+cargo run -q --release -p ww_tape_benchmarks --bin rf_core
+cargo run -q --release -p ww_tape_benchmarks --bin rf_chain -- --dir /data/rf --gib 100 --remove
+```

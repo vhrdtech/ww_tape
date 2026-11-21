@@ -2,7 +2,7 @@
 name = "ww_tape_benchmarks"
 version = "0.1.0"
 authors.workspace = true
-description = "Benchmarks of ww_tape: summaries, tracks, carried definitions, starts, relations, the writer's cost per chunk and its heap"
+description = "Benchmarks of ww_tape: summaries, tracks, carried definitions, starts, relations, the writer's cost per chunk and its heap, the RF capture"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -15,6 +15,7 @@ anyhow.workspace = true
 clap = { workspace = true, features = ["derive"] }
 shrink_wrap.workspace = true
 ww_tape = { workspace = true, features = ["std"] }
+ww_tape_example.workspace = true
 ww_tape_fs.workspace = true
 ww_tape_summary = { workspace = true, features = ["std"] }
 
