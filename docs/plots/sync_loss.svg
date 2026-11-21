@@ -46,7 +46,7 @@
 <text x="24.0" y="214.0" text-anchor="start" class="small">None</text>
 <line x1="24.0" y1="222.0" x2="664.0" y2="222.0" class="faint"/>
 <rect x="24.0" y="218.0" width="536.1" height="8.0" rx="1" class="tint-accent"/>
-<text x="664.0" y="214.0" text-anchor="end" class="accent small">lost: 1916.2 KiB back to its last sync</text>
+<text x="664.0" y="214.0" text-anchor="end" class="accent small">lost: 1916.3 KiB back to its last sync</text>
 <rect x="24.0" y="260.0" width="16.0" height="12.0" rx="2" class="blue"/>
 <text x="46.0" y="270.5" text-anchor="start" class="small">a sync</text>
 <rect x="93.6" y="260.0" width="16.0" height="12.0" rx="2" class="tint-accent"/>

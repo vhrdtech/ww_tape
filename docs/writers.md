@@ -64,8 +64,8 @@ assert!(story.same_bytes);
 ## Numbers
 
 A number is rounded where its precision doesn't matter and exact where it does. "A 115 MB recording" and "about
-14 KB" tell the reader the size, and the last digits would only slow the reading. A rounded size uses decimal units
-and keeps two significant digits at least: "115 MB", "14 KB", "2.1 KB".
+17 KB" tell the reader the size, and the last digits would only slow the reading. A rounded size uses decimal units
+and keeps two significant digits at least: "115 MB", "17 KB", "2.1 KB".
 
 A number stays exact where the reader uses its digits:
 

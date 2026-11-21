@@ -25,8 +25,10 @@
 //! ([state](crate::state)): before a block of data of a track the writer puts the track's definition and what it
 //! names, the application puts a state track's items ([TapeWriter::put]) at each use, and each is written only when
 //! the same item doesn't lie close behind in the piece, or as a copy ([near]). The layout and the producer are the
-//! writer's own ([WriterOptions]), put at each piece head. [TapeWriter::cut_with] ends a piece and starts the next one of
-//! the chain; [crate::PieceChain] cuts by size, chunk count or time.
+//! writer's own ([WriterOptions]), put at each piece head. A call that needs a definition or puts an item uses them
+//! too, so they are copied and put again as track 0's definitions are: a piece whose first blocks are lost still
+//! names them. [TapeWriter::cut_with] ends a piece and starts the next one of the chain; [crate::PieceChain] cuts by
+//! size, chunk count or time.
 //!
 //! The writer acts around every block of data it places, whoever made it (the caller, or the writer from its
 //! deferred blocks): before it, the definitions it puts; after it, a checkpoint when due (in an aligned file, in the
@@ -120,10 +122,10 @@ pub const DEFAULT_SYNC_INTERVAL: Duration = Duration::from_secs(1);
 pub struct WriterOptions {
     pub sync: SyncPolicy,
     pub index: IndexPolicy,
-    /// [TapeWriter::set_layout]: how the file's blocks are placed, put at each piece head; its alignment is 0 or
-    /// [crate::ALIGNMENT].
+    /// [TapeWriter::set_layout]: how the file's blocks are placed, put at each piece head and copied; its alignment
+    /// is 0 or [crate::ALIGNMENT].
     pub layout: Layout,
-    /// [TapeWriter::set_producer]: the producer named at each piece head.
+    /// [TapeWriter::set_producer]: the producer named at each piece head and copied.
     pub producer: String,
     /// [TapeWriter::set_near_policy].
     pub near: NearPolicy,
@@ -163,6 +165,9 @@ pub struct TapeWriter<S: TapeSink> {
     producer: String,
     /// The layout and the producer are put: after the piece head, or before the first block of a file without one
     head_put: bool,
+    /// The layout and the producer as put ([Self::ensure_head]), copied at a use as track 0's definitions are; none
+    /// before they are put
+    head_items: Vec<Candidate<'static>>,
     /// Seq of the next block placed by the writer: after the last block written
     next_seq: u64,
     /// Session of the blocks the writer makes: its own, or the session of the last counted block written
@@ -342,6 +347,7 @@ impl<S: TapeSink> TapeWriter<S> {
             layout: Layout::UNALIGNED,
             producer: String::new(),
             head_put: false,
+            head_items: Vec::new(),
             next_seq: 0,
             session: new_session(),
             deferred: Vec::new(),
@@ -632,10 +638,26 @@ impl<S: TapeSink> TapeWriter<S> {
         cands: &[Candidate<'_>],
         with_next: bool,
     ) -> Result<bool, WriteError<S::Error>> {
-        let chosen = self.choose(cands)?;
+        // a call that needs a definition or puts an item uses the layout and the producer: a copy is due as for a
+        // definition, where the piece has room for it
+        let copies = if cands.is_empty() {
+            0
+        } else {
+            self.head_items.len()
+        };
+        let mut all: Vec<Candidate<'_>> = self.head_items.iter().take(copies).cloned().collect();
+        all.extend_from_slice(cands);
+        let mut chosen = self.choose(&all)?;
+        if self
+            .room(chosen.iter().filter(|c| **c).count(), false)
+            .is_err()
+        {
+            all.drain(..copies);
+            chosen = self.choose(&all)?;
+        }
         self.room(chosen.iter().filter(|c| **c).count(), false)?;
-        let writes = chosen.last().copied().unwrap_or(false);
-        self.write_chosen(cands, &chosen, with_next)?;
+        let writes = !cands.is_empty() && chosen.last().copied().unwrap_or(false);
+        self.write_chosen(&all, &chosen, with_next)?;
         Ok(writes)
     }
 
@@ -895,17 +917,34 @@ impl<S: TapeSink> TapeWriter<S> {
             return Ok(());
         }
         self.head_put = true;
-        let layout = crate::open::encode(&Describe::Layout(self.layout))?;
-        let producer = crate::open::encode(&Describe::Producer(Producer {
-            name: &self.producer,
-        }))?;
-        let record = |item| RecordRef {
-            track: DESCRIBE_TRACK,
-            at: None,
-            item,
-        };
+        let items = self.head_candidates()?;
+        self.head_items.clone_from(&items);
         // they belong with the call's block; at a piece head a resume puts them again when nothing follows
-        self.write_puts(&[record(&layout), record(&producer)], true)
+        self.write_puts(&chosen_records(&items, &[true, true]), true)
+    }
+
+    /// The layout and the producer as candidates to put, on track 0 by its rule.
+    fn head_candidates(&self) -> Result<Vec<Candidate<'static>>, WriteError<S::Error>> {
+        let rule = self.definitions_rule();
+        let layout = Describe::Layout(self.layout);
+        let producer = Describe::Producer(Producer {
+            name: &self.producer,
+        });
+        [layout, producer]
+            .iter()
+            .map(|d| {
+                let bytes = crate::open::encode(d)?;
+                let hash = ItemHash::of(&bytes);
+                Ok(Candidate {
+                    slot: Slot::of_definition(d, || hash),
+                    rule,
+                    track: DESCRIBE_TRACK,
+                    at: None,
+                    item: Item::Held(bytes.into()),
+                    hash,
+                })
+            })
+            .collect()
     }
 
     /// Write `records` as blocks marked [FLAG_REPEAT](crate::FLAG_REPEAT), with the seq of the last counted block,

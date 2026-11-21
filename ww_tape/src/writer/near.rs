@@ -8,7 +8,8 @@
 //!   1 + [StatePolicy::copies](crate::StatePolicy) records of it lie in the piece and the newest lies at least
 //!   [NearPolicy::copy_spacing] behind. Nothing is scheduled ahead: a copy is written only where the item is used.
 //! - **Cap.** The memory holds at most [NearPolicy::memory_max] slots and forgets the one written longest ago first;
-//!   a slot forgotten costs one more write, never a wrong read. A slot whose newest record lies in a damaged block
+//!   a slot forgotten costs one more write, never a wrong read. The layout and the producer, two slots every call
+//!   uses, are held besides and never forgotten. A slot whose newest record lies in a damaged block
 //!   (a resume knows it from the index) is held as unknown: the next put writes.
 //!
 //! Everything here follows from the blocks written, in order (the writer learns every state record of every block, a
@@ -113,8 +114,10 @@ impl Near {
         if let Some(o) = old {
             self.by_age.remove(&(o.at, slot));
         }
-        self.by_age.insert((offset, slot));
-        while self.slots.len() > policy.memory_max.max(1) {
+        if !matches!(slot, Slot::Layout | Slot::Producer) {
+            self.by_age.insert((offset, slot));
+        }
+        while self.by_age.len() > policy.memory_max.max(1) {
             let Some((_, oldest)) = self.by_age.pop_first() else {
                 break;
             };

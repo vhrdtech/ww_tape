@@ -45,11 +45,11 @@ Verify also replays the piece block by block, as its [[writer]] placed them. Eac
 the writer makes of the block at its offset. Each track's row in the close must match the track's blocks. A writer that
 wrote a wrong index therefore fails too, not only a changed byte.
 
-Verify reads every byte. For the drive's chain it reads about 119 MB in 41 417 reads. That is about 3.7 MB more
+Verify reads every byte. For the drive's chain it reads about 119 MB in 41 425 reads. That is about 3.7 MB more
 than the recording's 115 MB. Verify reads each block's 32-byte header before the block, 13 800 headers in all.
 
 Verify reads each [[final index]] whole, about 1.7 MB in all. It then reads the index entries again, one by one
-as it replays the blocks: about 1.7 MB more. It does not read the closes and tails, about 10 KB in all.
+as it replays the blocks: about 1.7 MB more. It does not read the closes and tails, about 12 KB in all.
 
 All four pieces hold. An archive runs verify once after a transfer and on a schedule, never on each open.
 

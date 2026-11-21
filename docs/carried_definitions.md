@@ -77,6 +77,9 @@ many tracks a cut carries whole, each with its own definition and no bundle:
 | 4096 | 4090 | 2045 |
 | 256 | 250 | 125 |
 
+The copies of the layout and the producer, which every call that puts a record may write, take no part in this room.
+A copy that finds the state entries full is skipped, and the call goes on without it.
+
 A call is admitted only when its records fit an empty piece under the same policy. Those are the definitions its tracks
 need, its put, the layout and the producer. Otherwise `InputError::CarriedEntries` refuses it: nothing written, no cut.
 
@@ -116,7 +119,7 @@ grows past the cut's bound, which counts no final index:
 | tracks | cut at | records blocks | without carried | data less | piece (bytes) | without carried | piece more |
 |---|---|---|---|---|---|---|---|
 | 100 | 1 MiB | 255 | 257 | 0.8 % | 1093632 | 1081344 | 1.1 % |
-| 100 | 8 MiB | 2037 | 2042 | 0.2 % | 8769536 | 8761344 | 0.1 % |
+| 100 | 8 MiB | 2037 | 2042 | 0.2 % | 8773632 | 8761344 | 0.1 % |
 | 1000 | 1 MiB | 214 | 236 | 9.3 % | 1200128 | 1081344 | 11.0 % |
 | 1000 | 8 MiB | 1970 | 2021 | 2.5 % | 8871936 | 8634368 | 2.8 % |
 

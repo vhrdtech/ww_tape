@@ -180,6 +180,7 @@ Covers `ww_tape` 0.1.0.
 - A state put gives its track close and head rows; past the track caps it is refused (`TooManyTracks`, `TooManyCarried`) (WRITE-9).
 - A cut carries each state track's newest item beside its definition; golden `v1-carried-state.hex`, older files read unchanged (WRITE-9).
 - `NearPolicy` gains `kept_bytes_max` and `Closed` gains `states_unknown`: struct literals name them (WRITE-9).
+- Writers copy the layout and the producer like definitions; golden `v1-append.hex` rewritten, older files read unchanged (WRITE-10).
 
 ### Features
 

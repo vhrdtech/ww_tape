@@ -44,8 +44,9 @@
 //! close. The writer's state there comes from the close record (each track's range, hash and counted records, the
 //! session and the seq of its id), the piece head, the puts after the head (the layout and the producer to check), and,
 //! for a piece holding chunks or bytes after the tail, the index chain and each track's last chunk (the newest
-//! relation values; a chain that doesn't read leaves those tracks unread). The record of what lies near starts empty,
-//! so the writer puts again after the append head what the blocks after it need. Only the close record, its tail and
+//! relation values; a chain that doesn't read leaves those tracks unread). The record of what lies near starts empty
+//! but for the layout and the producer read after the head, so the writer puts again after the append head what the
+//! blocks after it need. Only the close record, its tail and
 //! the bytes after them are walked and replayed. Damage before the close never stops a writer going on.
 //!
 //! Since what the writer adds depends only on the blocks before it, the calls since and the [WriterOptions] (give the
@@ -78,6 +79,7 @@ use crate::piece::{
 };
 use crate::reader::{ByteSource, ReadError, TapeReader, wide};
 use crate::sink::{TapeSink, sink_err};
+use crate::state::{ItemHash, Slot};
 use crate::{
     Block, BlockKind, CRC_LEN, FLAG_REPEAT, FromFile, HEADER_LEN, MAX_BLOCK_LEN, block_len,
 };
@@ -599,6 +601,8 @@ fn ends_piece<S: TapeSink>(src: &S, s: &Step) -> Result<bool, WriteError<S::Erro
 struct Named {
     layout: Option<crate::Layout>,
     producer: Option<String>,
+    /// The slot, item hash and block offset of each of them
+    read: BTreeMap<Slot, (ItemHash, u64)>,
 }
 
 impl Named {
@@ -628,12 +632,21 @@ impl Named {
             .flatten()
             .filter(|r| r.track == crate::DESCRIBE_TRACK)
         {
-            match <crate::Describe<'_> as shrink_wrap::DeserializeShrinkWrap>::from_ww_bytes(r.item)
-            {
-                Ok(crate::Describe::Layout(l)) => self.layout = Some(l),
-                Ok(crate::Describe::Producer(p)) => self.producer = Some(p.name.to_owned()),
-                _ => {}
-            }
+            let slot =
+                match <crate::Describe<'_> as shrink_wrap::DeserializeShrinkWrap>::from_ww_bytes(
+                    r.item,
+                ) {
+                    Ok(crate::Describe::Layout(l)) => {
+                        self.layout = Some(l);
+                        Slot::Layout
+                    }
+                    Ok(crate::Describe::Producer(p)) => {
+                        self.producer = Some(p.name.to_owned());
+                        Slot::Producer
+                    }
+                    _ => continue,
+                };
+            self.read.insert(slot, (ItemHash::of(r.item), step.at));
         }
         Ok(())
     }
@@ -916,8 +929,7 @@ impl<S: TapeSink> TapeWriter<S> {
         w.hash = hash;
         let entries = w.indexer.entries().to_vec();
         let after_close = closes.last_key_value().map(|(_, (_, c))| *c);
-        // the layout and the producer follow the head first: a block past it means they were written
-        w.head_put = past_head;
+        w.take_head_puts(past_head, &named.read, base.is_some())?;
         // the definitions of the tracks the head carries follow the layout and the producer: lost with them, the next
         // call given definitions puts them
         w.carried_due = !past_head && w.head.as_ref().is_some_and(|(_, rows)| !rows.is_empty());
@@ -938,6 +950,27 @@ impl<S: TapeSink> TapeWriter<S> {
             after_close,
         };
         Ok((w, resumed))
+    }
+
+    /// Take the layout and the producer the piece holds: put when a block lies `past_head` (they follow the head
+    /// first), so a use copies them as the writer before the crash did; of a `closed` piece, whose record of what lies
+    /// near starts empty, those `read` after its head ([Named::read]) are its first records.
+    fn take_head_puts(
+        &mut self,
+        past_head: bool,
+        read: &BTreeMap<Slot, (ItemHash, u64)>,
+        closed: bool,
+    ) -> Result<(), WriteError<S::Error>> {
+        self.head_put = past_head;
+        if past_head {
+            self.head_items = self.head_candidates()?;
+        }
+        if closed {
+            for (slot, (hash, at)) in read {
+                self.near.wrote(*slot, Some(*hash), *at, &self.near_policy);
+            }
+        }
+        Ok(())
     }
 
     /// Take the state of a closed piece at its close in force, before the close record: the piece head's tracks,

@@ -44,7 +44,7 @@ on a microcontroller, a table computes it, with the same result.
 
 ## What the flipped bit costs
 
-The flipped bit sits at byte 9730823 of the last piece. It lands in the payload of the chunk of `phase_a` that starts at
+The flipped bit sits at byte 9731106 of the last piece. It lands in the payload of the chunk of `phase_a` that starts at
 50:00. The chunk holds one second of samples, 25000 of them, in 28171 bytes. That is less than one segment, so the chunk
 has one segment, and its CRC fails.
 
@@ -80,7 +80,7 @@ magic, length or CRC, or at a block cut short. It also stops at a sequence numbe
 of another [[session]] where none may start. It reports where it stopped and why ([`FileError::Cut`]).
 
 A crash leaves good blocks, then a [[torn block]], which is what Prefix expects. In the flipped piece, Prefix reads 1154
-blocks and stops at byte 9716738, where the damaged chunk starts.
+blocks and stops at byte 9717021, where the damaged chunk starts.
 
 [`Recovery::Resync`] reads on. At a bad block it reports [`FileError::Bad`] and looks for the next block's magic one
 byte after the bad block's start. Any byte may start a block, so Resync takes a block only when its CRCs match. It hands
@@ -157,7 +157,7 @@ leaves:
 | Damage | The reader finds the piece by | Content hash | Blocks that read | Definitions found |
 |---|---|---|---:|---:|
 | a flipped bit | its tail | does not hold | 3444 | 10 of 10 |
-| the first 4 KiB lost | its tail | does not hold | 3441 | 8 of 10 |
+| the first 4 KiB lost | its tail | does not hold | 3441 | 10 of 10 |
 | the last 4 KiB lost | its newest checkpoint, 1096734 bytes scanned | no close to check | 3445 | 10 of 10 |
 
 ### The first 4 KiB lost
@@ -172,8 +172,13 @@ blocks are lost:
 - the chunk of samples that the lost bytes reach into.
 
 Each definition comes from its newest record that reads. The writer copies a definition at a use 1 MiB or more after its
-first record. Every track, clock and clock map of the drive is thus found again. The producer's name and the [[layout]]
-are not, since no block uses them and the writer never copies them.
+first record. Every call that puts a definition or an item uses the [[layout]] and the producer's name too, so the writer
+copies them the same way. Every definition of the drive is thus found again, the layout and the producer among them.
+A [[reader]] scanning past the newest [[checkpoint]] takes its gap rules from the layout's copy.
+
+A raw-media walk that starts past the lost bytes knows no gap rules until it reaches that copy. Over the first MiB or so
+of the piece, only the rules a medium layer gives ([`OpenOptions::layout`]) read past a gap. Without them a blank stretch
+there ends the data.
 
 The piece head named the piece before it, so the chain's link back from this piece can no longer be checked. The last
 piece of a chain names no next piece, so it has no link forward to lose.
@@ -227,6 +232,10 @@ first bad block, and only a Resync walk reads past it.
 An unclosed piece shorter than 1 MiB holds each definition once, so one bad sector can take a definition. Chunks then
 still place themselves by track id, item number and tick. Without clock rates and item types, a reader cannot turn ticks
 into seconds or bytes into values.
+
+The layout and the producer have the same limit, and one more. Their copy takes two state entries of the piece's
+[index policy](carried_definitions.md#when-they-dont-fit). In a piece whose state entries are full, the writer skips the
+copy rather than refuse a call. Such a piece names the layout and the producer once, after its head.
 
 The state lookups go by index entries. A damaged block where a scan stopped has no known kind and no entries. The
 lookups therefore take the newest record before it and report the stretch after it as uncovered by the index.

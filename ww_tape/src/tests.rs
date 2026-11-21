@@ -1808,7 +1808,7 @@ fn a_close_of_the_most_tracks_fits_a_block() {
 }
 
 /// What verify holds doesn't grow with the piece: one entry per track list of its final index and the entries of
-/// one block, for 1000 blocks as for 16000; its steps grow with the blocks.
+/// one block, for 16000 blocks as for 256000, both past the copies of the definitions; its steps grow with the blocks.
 #[test]
 fn verify_holds_entries_per_track_list_not_per_block() {
     let (defs, _) = distinct_tracks(3);
@@ -1828,7 +1828,7 @@ fn verify_holds_entries_per_track_list_not_per_block() {
         assert!(v.holds, "{n} blocks verify");
         (v.held, v.steps)
     };
-    let ((small, steps_small), (large, steps_large)) = (held(1000), held(16000));
+    let ((small, steps_small), (large, steps_large)) = (held(16000), held(256_000));
     assert_eq!(small, large);
     assert!(large <= 8, "{large}");
     assert!(

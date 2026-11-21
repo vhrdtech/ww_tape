@@ -85,6 +85,9 @@ after every [[piece head]], before the first block of a file, and when a block s
 block of definitions that the caller wrote. A [[relay]] that passes on another producer's [[blocks]] uses
 [`TapeWriter::relay_block`], which holds the definitions those blocks carry and puts them by the writer's own rule.
 
+Every call that puts a definition or an item uses the producer and the layout too. They so get copies and are put again
+as the tracks' definitions are, and a piece whose first blocks are lost still names them.
+
 ## State
 
 Most [[tracks]] are streams of [[events]]: a frame received at one [[tick]] says nothing about the next tick. Some

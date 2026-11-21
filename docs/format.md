@@ -607,6 +607,12 @@ then the track. The producer and the layout are the writer's own (`WriterOptions
 The writer puts them after every piece head, before the first block of a file without one, and where a caller's block
 starts another session.
 
+A call that puts a definition or a state item also uses the producer and the layout. Each is put with the records of
+that call by track 0's policy, as a definition is. It is copied once the copy spacing is reached and put again past
+`near`.
+Such a copy is skipped when the piece's state entries are full: it never refuses a call. A reader takes the newest
+layout record, the copy included, for the gap rules.
+
 Definitions go in the order the writer puts them: the same input then gives the same bytes.
 
 ## State tracks
@@ -1238,8 +1244,8 @@ Rot that zeroes the end of a complete close across a sector boundary looks the s
 bytes cannot tell it from a crash, and a stricter rule would refuse real crashes. Reading and verify never change a
 file.
 
-Take a 12,288-byte piece closed three times, whose last final index starts at offset 9268 of the file. Zeros from 9368
-to the end cross the sector boundary at 9728, so a resume cuts the 3,020 bytes from 9268 on.
+Take a 12,288-byte piece closed three times, whose last final index starts at offset 9541 of the file. Zeros from 9641
+to the end cross the sector boundary at 9728, so a resume cuts the 2,747 bytes from 9541 on.
 
 For example, one flipped bit makes the last tail fail its CRC, so the reader takes the close before it. The resume
 refuses and keeps every byte, also when the tail's last byte is zero.

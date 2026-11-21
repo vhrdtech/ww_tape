@@ -61,7 +61,7 @@ A reader of a file finds the newest [[piece]] from the end, by its [[tail]]. On 
 nothing, and a stale tail there would pass for the newest piece. A reader of a raw medium therefore walks forward, from
 the start or from a hint the medium layer gives ([`OpenOptions::start`]).
 
-The drive's card shows the difference. It is 109.95 MiB long, and today's run wrote 68.96 MiB of it before the power
+The drive's card shows the difference. It is 109.95 MiB long, and today's run wrote 68.97 MiB of it before the power
 failed. Read as a raw medium, the card gives today's 3 pieces, the last one ending at the torn block. The earlier run's
 other 40.99 MiB stay behind as stale data. Read as a file, the card gives 4 pieces, and the fourth is the earlier run's
 last piece, found by its tail.
@@ -117,6 +117,10 @@ The [[layout]] says how far a writer may skip and where it goes on, at a multipl
 | a file ([`Layout::UNALIGNED`]) | 0: the first bad stretch is the end | 1 byte |
 | an SD card or embedded MultiMediaCard (eMMC) ([`Layout::on_sd_card`]) | 4 MiB | 512 bytes, a sector |
 | raw NAND ([`Layout::on_raw_nand`]) | two erase blocks | one page |
+
+A reader learns these rules from the layout definition after the piece head, and again from its copy at least 1 MiB
+on. A medium layer that knows the medium can give them from the start ([`OpenOptions::layout`]). A walk that starts
+past lost first sectors needs them there, since until the copy nothing in the piece says them.
 
 Past a blank or bad stretch, a reader reads one block header at the first non-blank byte and one at each resume place
 within `gap_max`. A good block of the current session there goes on with the data. It makes the stretch a [[gap]], which

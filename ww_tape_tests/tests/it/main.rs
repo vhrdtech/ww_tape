@@ -25,6 +25,7 @@ mod crashes;
 mod definitions;
 mod durable;
 mod files;
+mod head_copies;
 mod lock;
 mod media;
 mod order;

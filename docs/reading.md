@@ -48,7 +48,7 @@ one track's list, then (4) only the needed blocks. Below, an unclosed piece: the
 pointers list every earlier block, and the reader scans the blocks after it.</figcaption>
 </figure>
 
-For the drive's chain, opening reads about 15 KB in 28 reads, and [`TapeReader::pieces`] lists four pieces. Each
+For the drive's chain, opening reads about 17 KB in 28 reads, and [`TapeReader::pieces`] lists four pieces. Each
 [`PieceInfo`] holds the piece's start and end, its head and its close with a row per track. The row of `phase_a` says
 which ticks the track's [[chunks]] cover in that piece. The program picks the piece whose row reaches 52:00, without
 another read:
@@ -119,7 +119,7 @@ index to the one block it needs:
 At the chunk before the fault, the mode is `run, 31 A limit`, and its record from 45:34 lies about 12 MB behind. That
 record is the [[state copy]] which the [[writer]] adds after the record the cut carried into the last [[piece]]. At the chunk
 from 52:00, the mode is `fault: overcurrent`, from 52:00, and lies about 2 KB behind. Both lookups together read
-about 3.1 KB in 5 reads. Each record lies within [[near]], 32 MiB, so a reader of the last piece alone finds both.
+about 3.4 KB in 5 reads. Each record lies within [[near]], 32 MiB, so a reader of the last piece alone finds both.
 
 [`TapeReader::definitions_at`] answers the same question for every [[definition]] at once: the clocks, the clock map
 and each track's definition in force at a place. The program uses it to learn `phase_a`'s period before it reads the

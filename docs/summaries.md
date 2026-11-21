@@ -60,7 +60,7 @@ in each piece, and merges each node into the column its first sample falls in:
 ```
 
 The overview reads 172 summary blocks with 5 494 nodes: about 193 KB in 172 reads, and no sample. Finding those
-blocks costs more than reading them. `phase_a`'s index entries in the four pieces take about 788 KB in 20 reads,
+blocks costs more than reading them. `phase_a`'s index entries in the four pieces take about 788 KB in 19 reads,
 since the track has a chunk a second. A viewer that opens the recording once keeps the entries in memory.
 
 All 600 columns get nodes. The column with the highest peak is column 519, from 51:54.000, at 31 873 mA. It holds the

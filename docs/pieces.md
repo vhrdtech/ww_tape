@@ -89,7 +89,7 @@ with its head and two blocks of puts that carry the definitions, before its firs
 <code>ww_tape_figures</code> from the drive's chain at 1/1000 of its data; each row has its own scale.</figcaption>
 </figure>
 
-At full rate, piece 0 of the drive ends with a final index of 415 kB. The close takes 1297 bytes, 421 of them padding,
+At full rate, piece 0 of the drive ends with a final index of 415 kB. The close takes 4870 bytes, 3994 of them padding,
 and the tail 164 bytes. Piece 1 starts with a head of 636 bytes, then 2 blocks of puts of 622 bytes in all.
 
 The head lists every track the chain has used so far, a [[state track]] included. The puts after it carry their
@@ -100,10 +100,10 @@ The four pieces of the hour end on 4 KiB:
 
 | Piece | Bytes | Close padding |
 |---|---:|---:|
-| 0 | 29339648 | 421 |
-| 1 | 29560832 | 1561 |
-| 2 | 29552640 | 2250 |
-| 3 | 26836992 | 1633 |
+| 0 | 29343744 | 3994 |
+| 1 | 29560832 | 1038 |
+| 2 | 29552640 | 1727 |
+| 3 | 26836992 | 1110 |
 
 A [`TapeWriter`] without a chain cuts the same way. [`TapeWriter::cut_on`] takes a sink the caller made, and
 [`writer::cut`] the path of the next file. Only a piece of a chain can be cut: such a piece starts with a piece head,

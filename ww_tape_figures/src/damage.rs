@@ -53,13 +53,12 @@ fn damage_mark(s: &mut Svg, v: View, at: u64, end: u64, y: f64, label: &str) {
     s.text(x0 + 4.0, y - 12.0, "start", "small accent", label);
 }
 
-/// The records block about three quarters into `blocks`, and the samples chunk the flipped bit hits: the figure's two
-/// damages, in that order of bytes.
+/// The first records block after the samples chunk the flipped bit hits: the figure's second damage, after the first
+/// in the order of bytes.
 fn second_damage(blocks: &[Span], flipped: u64) -> anyhow::Result<&Span> {
-    let end = blocks.last().map_or(0, |b| b.at + b.len);
     blocks
         .iter()
-        .find(|b| b.part == Part::Log && b.at > flipped && b.at > end / 2)
+        .find(|b| b.part == Part::Log && b.at > flipped)
         .context("a records block after the flipped chunk")
 }
 

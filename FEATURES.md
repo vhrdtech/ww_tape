@@ -146,6 +146,14 @@ Writing pieces and chains, resuming them, sinks in memory, in the crate `ww_tape
   - Cost at 1000 tracks and 8 MiB pieces: 2.5 % less data and 2.8 % more bytes per piece (`just bench-carried`).
   - Read more: [The definitions a new piece carries](docs/carried_definitions.md). Tests `quiet.rs`.
 
+- ✅ **WRITE-10 A piece's layout and producer survive damage to its first blocks**
+  - Every call that puts a definition or a state item uses the layout and the producer. Each gets track 0's copy at the copy spacing (1 MiB) and is put again past `near`, in that call's block of puts.
+  - Losing a piece's first blocks loses neither: the reader takes the newest record. A scan past the newest checkpoint takes its gap rules from the copy.
+  - A raw-media walk that starts past lost first sectors knows no gap rules until the copy; `OpenOptions::layout` gives them there.
+  - A copy that finds the piece's state entries full is skipped, never refusing a call; such a piece names them once.
+  - Cost: 523 bytes in a 28 MiB piece of the drive, two records and their index entries; none in a piece under 1 MiB.
+  - Read more: [When bytes go bad](docs/damage.md#the-first-4-kib-lost). Tests `head_copies.rs`.
+
 ## Reader (`READ`)
 
 Reading by position, checks and hashes, hostile bytes, in the crate `ww_tape`.

@@ -47,8 +47,8 @@ fn a_second_at_full_rate_is_the_size_the_book_gives() {
     assert_eq!(
         got,
         [
-            (81_100_800, "4.055".to_owned()),
-            (61_100_032, "3.055".to_owned()),
+            (81_104_896, "4.055".to_owned()),
+            (61_104_128, "3.055".to_owned()),
             (57_974_784, "2.899".to_owned()),
         ]
     );
