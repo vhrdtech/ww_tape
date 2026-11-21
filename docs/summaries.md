@@ -101,6 +101,15 @@ sample. The way from the hour to the 500 samples before the trip thus runs throu
 [Events](events.md) reads the frames after the trip, and [Reading a tape](reading.md#state-at-a-place) the mode on
 either side.
 
+<figure class="ww-figure" markdown="1">
+![The phase current in eventfull at three zooms.](shots/summary-zoom-light.png#only-light){ width="880" loading="lazy" }
+![The phase current in eventfull at three zooms.](shots/summary-zoom-dark.png#only-dark){ width="880" loading="lazy" }
+<figcaption>The same zoom in a viewer. Over the hour, each column is the range of the summary nodes in it. The second
+before the trip shows the 50 Hz current and its rise at the end. At 4 ms the viewer reads the chunk and draws each
+sample as a dot, at the 32 A peak. A screenshot rendered by <code>eventfull_book_shots</code> from the recording at full
+rate.</figcaption>
+</figure>
+
 ## How nodes merge
 
 Every statistic merges: a parent is its 16 children merged in item order, with [`ChannelStats::merge`] for a series

@@ -1,0 +1,5 @@
+# The ww_tape book's data figures, rendered by eventfull_book_shots (`just book-shots` writes this file).
+# ww_tape: the commit whose ww_tape_example recorded the drive's hour.
+ww_tape = "738bf3d09e8972557f19fe62771accdab4d5f696"
+bytes = { "drive-hour-light.png" = 69735, "drive-hour-dark.png" = 72211, "fault-light.png" = 83577, "fault-dark.png" = 86318, "summary-zoom-light.png" = 189531, "summary-zoom-dark.png" = 197087, "rf-minute-light.png" = 309316, "rf-minute-dark.png" = 322901 }
+eventfull = "e978af62308ff12bac2e2b712da95329204e48c2"

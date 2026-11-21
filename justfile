@@ -157,6 +157,14 @@ book-prose:
     fi
     spl check --progress never {{ prose_lints }}
 
+# Copy the data figures eventfull renders from ww_tape_example's tapes into docs/shots, with the eventfull commit they
+# came from; refuses when that checkout's shots differ from its commit. No eventfull build here
+[group('book')]
+book-shots eventfull="../eventfull":
+    test -z "$(git -C {{ eventfull }} status --porcelain -- crates/eventfull_book_shots/shots)"
+    cp {{ eventfull }}/crates/eventfull_book_shots/shots/*.png {{ eventfull }}/crates/eventfull_book_shots/shots/manifest.toml docs/shots/
+    echo "eventfull = \"$(git -C {{ eventfull }} rev-parse HEAD)\"" >> docs/shots/manifest.toml
+
 # Rewrite the figures of the book pages drawn from the format (docs/plots/*.svg, ww_tape_figures); a test fails until
 # they match what it draws
 book-figures:

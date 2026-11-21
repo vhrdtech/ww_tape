@@ -77,6 +77,15 @@ The track stores the samples in the converter's packed form, `PACKED12_LSB`: 12 
 sends them. A sample then takes 3 bytes instead of 4, and a minute of the capture is a piece of 3.7 GB. [Sizes and
 speeds](sizes.md) gives the measured sizes and how fast the writer and the reader go.
 
+<figure class="ww-figure" markdown="1">
+![The RF capture's I and Q in eventfull at three zooms.](shots/rf-minute-light.png#only-light){ width="880" loading="lazy" }
+![The RF capture's I and Q in eventfull at three zooms.](shots/rf-minute-dark.png#only-dark){ width="880" loading="lazy" }
+<figcaption>The capture in a viewer, I and Q in lanes of their own. Over the minute, the summaries show five bursts
+above the carriers. At 200 ms the burst at 7.3 s stands out, and at 20 ms the viewer draws its 2 ms of samples. A
+screenshot rendered by <code>eventfull_book_shots</code> from the capture at 1/100 of its rate. The signal is the
+same, at 200 thousand samples a second.</figcaption>
+</figure>
+
 ## Grids: where samples are in time
 
 A series has no records. Each series chunk's head carries the [[grid]] its samples are on instead, a [`SeriesGrid`]:

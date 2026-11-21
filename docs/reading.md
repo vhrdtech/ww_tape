@@ -116,6 +116,15 @@ the ticks it covers, and the entries a query for the stretch around the fault re
 a second.</figcaption>
 </figure>
 
+<figure class="ww-figure" markdown="1">
+![The fault in eventfull.](shots/fault-light.png#only-light){ width="880" loading="lazy" }
+![The fault in eventfull.](shots/fault-dark.png#only-dark){ width="880" loading="lazy" }
+<figcaption>What the query's two chunks hold, with the mode and the frames, as a viewer draws them. Above, 40 ms up to
+the fault: the current rises past its limit, and the mode turns to fault at 52:00.000. Below, 6 ms of it, where each
+frame carries its identifier: the emergency frame <code>081</code> follows the fault. A screenshot rendered by
+<code>eventfull_book_shots</code> from the recording at full rate.</figcaption>
+</figure>
+
 An entry also carries what a query by item number needs. A reader that wants item 3 120 000 of `can0` takes the
 entry whose `first_item` and `count` hold it. Item `j` of a chunk is item `first_item + j` of its track. An item number
 counts a track's items over the whole recording, across pieces. It therefore names the same item in the recording
