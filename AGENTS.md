@@ -4,7 +4,7 @@ Guidance for AI code assistants working in this repository.
 
 ## What this is
 
-ww_tape is the tape format of [WireWeaver](https://github.com/vhrdtech/wire_weaver): tracks of ShrinkWrap records
+ww_tape is the tape format of [WireWeaver](https://github.com/vhrdtech/wire_weaver): tracks of typed records
 in self-checking, variable-length blocks, for live feeds, log files and raw media. It is layer 3 (storage) of
 WireWeaver.
 

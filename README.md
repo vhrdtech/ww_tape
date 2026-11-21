@@ -12,7 +12,7 @@
 [![docs.rs](https://img.shields.io/docsrs/ww_tape)](https://docs.rs/ww_tape)
 [![docs.rs](https://img.shields.io/docsrs/ww_tape_codecs)](https://docs.rs/ww_tape_codecs)
 
-> Tracks of ShrinkWrap records in self-checking, variable-length blocks, for live feeds, log files and raw media.
+> Tracks of typed records in self-checking, variable-length blocks, for live feeds, log files and raw media.
 
 A **tape** is how [WireWeaver](https://github.com/vhrdtech/wire_weaver) records data over time. It holds what a device
 streamed, what crossed a link and what a program computed from either.
@@ -20,7 +20,8 @@ streamed, what crossed a link and what a program computed from either.
 One format serves a live feed, a file on a PC and a raw medium. An example of a raw medium is a
 SD card in a data logger.
 
-- **Typed data.** Every item is a ShrinkWrap type, and the file carries the API bundle that defines it.
+- **Typed data.** An event's payload is a ShrinkWrap value, and the file carries the API bundle that defines its type.
+  A series stores its samples as numbers in columns.
 - **Exact time.** Times are integer ticks of a named clock with an exact rate; a file holds tracks on many clocks.
 - **Reads in place.** Large tracks are stored in columns that a reader queries as they lie in the file.
 - **Damage stays local.** A crash, a torn write or a flipped bit costs the bytes it touched, and a reader says what

@@ -18,7 +18,7 @@ A **chunk** is a block that holds a run of consecutive items of one track. There
 - A **series chunk** holds samples of a fixed-rate series. Samples have no time of their own.
 
 An item of an events chunk is an **instant**, or a **span** with an end. It may also carry **flags**, a 32-bit word, and
-a **payload**, its WireWeaver value in shrink_wrap bytes.
+a **payload**, the item's value encoded in shrink_wrap.
 
 ### The chunk head
 

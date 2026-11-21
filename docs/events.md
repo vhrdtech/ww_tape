@@ -55,7 +55,7 @@ engineer's viewer asks for the first frame at or after the fault this way.
 
 ## Payloads read in place
 
-Each item's value, its [[payload]], is its WireWeaver value in shrink_wrap bytes. A chunk keeps the payloads back to
+Each item's value, its [[payload]], is encoded in shrink_wrap. A chunk keeps the payloads back to
 back in one column, and their lengths in another, packed per group. [`Payloads::read`] opens both, and
 [`Payloads::get`] gives item `j`'s bytes from one group of lengths, without the payloads before it. A payload column
 that the writer compressed with lz4 is decoded once, whole, when the reader opens it.

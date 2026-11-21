@@ -15,9 +15,13 @@ period.
 
 ## Items and tracks
 
-An [[item]] is one value: a frame received on the bus, a temperature reading, a log line. Every item is a value of a
-WireWeaver type, kept as its shrink_wrap bytes. A [[reader]] that has the type's [[definition]] therefore decodes the
-item years later, without the device that sent it. [WireWeaver and logring](related_books.md) introduces both.
+An [[item]] is one value: a frame received on the bus, a temperature reading, a log line. The item of an events track
+is a [[WireWeaver value]]. Such a value has a type defined in a WireWeaver API, such as a struct, an enum or a number.
+The tape carries that type's definition and keeps the value in its shrink_wrap encoding.
+
+A sample of a series is a number in a column instead, coded by ww_tape's series codecs. A [[reader]] that has the
+track's [[definition]] therefore decodes the item years later, without the device that sent it. [WireWeaver and
+logring](related_books.md) introduces both.
 
 A [[track]] is a sequence of items of one type over time. The drive has five tracks, one per stream, and [What a tape
 holds](index.md#what-a-tape-holds) lists them with their rates.

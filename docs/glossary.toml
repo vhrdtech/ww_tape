@@ -259,7 +259,7 @@ chapter = "../pieces/"
 [[term]]
 name = "payload"
 forms = ["payloads"]
-short = "An item's WireWeaver value in shrink_wrap bytes; a chunk keeps the payloads of its items in one column."
+short = "An events item's value, encoded in shrink_wrap; a chunk keeps the payloads of its items in one column."
 chapter = "../events/"
 
 [[term]]
@@ -534,6 +534,12 @@ name = "unit hash"
 forms = ["unit hashes"]
 short = "A chunk's share of its track's hash, which its index entry stores so that a range hash reads no chunk."
 chapter = "../copies/"
+
+[[term]]
+name = "WireWeaver value"
+forms = ["WireWeaver values"]
+short = "A value of a type defined in a WireWeaver API, such as a struct, an enum or a number, whose definition the tape carries; encoded in shrink_wrap."
+chapter = "../tracks/"
 
 [[term]]
 name = "writer"

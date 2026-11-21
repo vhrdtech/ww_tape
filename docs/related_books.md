@@ -18,8 +18,9 @@ The messages travel in shrink_wrap, a dense binary format that needs no allocato
 
 Tapes build on two parts of WireWeaver:
 
-- **shrink_wrap.** Every item on a tape is a shrink_wrap value. A track names the type of its items, and the reader
-  decodes them with the same code that decodes them on the wire.
+- **shrink_wrap.** The item of an events track is a value in its shrink_wrap encoding. The track names the item's
+  type, and the reader decodes it with the same code that decodes it on the wire. The samples of a series are numbers
+  in columns instead, coded by ww_tape's own codecs.
 - **API bundles.** A bundle is the compiled description of an API: its types, its resources and their names. A tape
   stores the bundles of the devices it records, so a reader can name every track and decode every item without the
   device.
