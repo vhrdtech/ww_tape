@@ -20,9 +20,10 @@ An example arrives as the first concrete case, a few sentences in, and never as 
 road-map sentence such as "This chapter says what a tape is": the opening shows the subject instead of announcing it.
 
 Why and what come before how. Each new idea gets a concrete case, usually from the running example. The case states
-its setup in one sentence where it is used, such as "In the drive's recording, the fault lies in the last of four
-pieces". It never opens with a scene, such as "At minute 52 the drive faults, and an engineer opens the piece". Where the idea has a
-mechanism, a figure follows right after the sentence that needs it.
+its setup in one sentence where it is used, as in "The drive's fault lies in its last piece". It never opens with a
+scene, as in "An engineer opens the piece".
+
+Where an idea has a mechanism, a figure follows right after the sentence that needs it.
 
 A paragraph carries one idea and its reason, in two to five sentences. A list holds parallel items only, and a table
 holds a comparison only. Reasoning stays in prose.
@@ -36,7 +37,7 @@ A chapter ends on its last fact, or on one sentence that leads to the next chapt
 ## The running example
 
 The book draws most of its examples from one recording, so that a reader learns its setup once. A motor controller
-board, the drive, runs for an hour on an endurance bench, and a host records it over USB into a chain of pieces.
+board, the drive, runs for an hour on an endurance bench. A host records it over USB into a chain of pieces.
 [What a tape holds](index.md#what-a-tape-holds) introduces it and lists its five tracks, and a chapter links that
 table instead of repeating it. Other examples, such as a radio capture, join where the drive has no fitting case.
 

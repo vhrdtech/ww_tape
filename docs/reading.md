@@ -5,13 +5,13 @@ level: basic
 # Reading a tape
 
 A recording can run to hundreds of megabytes, and the question asked of it is often about one second. A [[reader]]
-opens a file or a [[chain]], finds the [[blocks]] of one [[track]] in a time range, and looks up the [[state]] in
-force there, all with a few small reads. At minute 52, for example, the drive faults on overcurrent, and an engineer
-opens the bench host's recording to see why. The recording is a chain of four [[pieces]], 115 290 112 bytes in all,
-and the engineer wants the second around the fault.
+answers it with a few small reads. It opens a file or a [[chain]], finds the [[blocks]] of one [[track]] in a time
+range, and looks up the [[state]] in force there. Each step uses what a closed [[piece]] says about itself at its end
+and in its index.
 
-Every number in this chapter comes from [`src/fault.rs`], a program that runs each step on the drive's recording. It
-counts the bytes each step reads, and `cargo run -p ww_tape_example` prints them.
+The example is a query on the drive's recording for the second around the fault at minute 52 of its hour. The recording
+is a chain of four [[pieces]], 115 290 112 bytes in all. Every number below comes from [`src/fault.rs`]. This program
+runs each step on that recording and counts the bytes it reads. `cargo run -p ww_tape_example` prints them.
 
 ## Byte sources
 
@@ -25,8 +25,8 @@ offset. The trait is [`ByteSource`], and the crate provides it for these:
 An HTTP resource read by range requests can be a byte source too. The reader itself needs no file system and no
 threads, so it builds for WebAssembly and runs in a browser.
 
-The engineer's viewer holds the drive's four pieces back to back, as one file of the chain holds them. The program
-wraps that file in a byte source that counts each read, so every step below can say what it cost.
+In the example, the drive's four pieces lie back to back in one file. The program wraps that file in a byte source
+that counts each read, so every step below can say what it cost.
 
 ## Opening from the tails
 
@@ -75,7 +75,7 @@ together. An entry says where the block is and what it holds, so a reader picks 
 
 [`TapeReader::track_entries`] gives the entries of one track in file order. In a closed piece it reads the final
 index's directory and that track's list, each checked by its own CRC. It never walks the
-file. The engineer asks for `phase_a` in the second either side of the fault:
+file. The example asks for `phase_a` in the second either side of the fault:
 
 ```rs
 --8<-- "ww_tape_example/src/fault.rs:find"
@@ -101,9 +101,10 @@ however its pieces are stored, in one file or in many.
 
 ## State at a place
 
-The two chunks tell the current, but not what the controller was doing. That is the `mode`, a [[state track]]: each
-of its items stays in force until the next one replaces it. A tape has no "current state" of a whole file, because
-what is in force depends on the place. The reader asks for the state in force where each chunk starts.
+Data often needs a state to mean something. The items of a [[state track]] stay in force until the next one replaces
+them. A tape therefore has no "current state" of a whole file: what is in force depends on the place. A reader asks for the
+state in force where its data starts. In the example, the two chunks give the drive's current, and the `mode` track
+says what the controller was doing.
 
 [`TapeReader::state_at`] finds the newest record of a [[slot]] whose block starts before a place. Every state record
 has an index entry of its own, which holds its slot and the hash of its item. The lookup therefore goes through the
@@ -138,7 +139,7 @@ both.</figcaption>
 </figure>
 
 A [`Lookup`] carries the record, the lost blocks, the uncovered stretches and whether its read budget ran out.
-[`Lookup::is_whole`] says that none of these happened, so no newer record can hide. Both of the engineer's lookups are
+[`Lookup::is_whole`] says that none of these happened, so no newer record can hide. Both lookups of the example are
 whole. A viewer that shows a state from a lookup that is not whole marks it as uncertain.
 
 ## Reading the items of a block
@@ -156,4 +157,4 @@ Once the reader has an entry, [`TapeReader::read_block`] reads the block and che
 
 A block that fails its CRC is damaged, and a reader skips it. Its index entry still says what it held: which track,
 which items and which ticks. [When bytes go bad](damage.md) shows how much of a damaged chunk still reads. The next
-chapter reads the frames on `can0` that the drive sent when it faulted.
+chapter reads an events chunk in place, such as the frames on `can0` around the fault.

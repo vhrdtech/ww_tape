@@ -140,8 +140,9 @@ draws [[summaries]] adds `ww_tape_summary`.
 The book has six parts in the order you need them. Each part lists its basic chapters first; a badge above
 each title gives its [reading level](levels.md). Read the basic chapters first and stop when you have what you need.
 
-The running example is the drive's recording, and the crate `ww_tape_example` writes it. Every figure that shows
-bytes draws from it, and every number in the story comes from running it. The format reference at the end lists every
+Most examples come from the drive's recording, and the crate `ww_tape_example` writes it. Every figure that shows
+bytes draws from it, and every number in an example comes from running it. The format reference at the end lists every
 [[block]] byte by byte, for whoever writes a [[reader]] in another language.
 
-The next chapter, [A first tape](first_tape.md), writes the drive's first minute to a [[tape]] file and reads it back.
+The next chapter, [A first tape](first_tape.md), writes a [[tape]] file and reads it back, with the drive's first
+minute as its data.

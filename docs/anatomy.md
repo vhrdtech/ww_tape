@@ -6,8 +6,10 @@ level: basic
 
 A [[piece]] is a file of a recording that reads alone, with its own [[definitions]], its own index and a fixed end. A
 [[reader]] that opens one must find its way in it: where the data starts, where the index lies, and whether the file
-was closed. The parts of a piece answer that. A [[piece head]] starts it and [[checkpoints]] index it as it grows. A [[final
-index]], a [[close]] and a [[tail]] end it. The same input gives the same bytes in each of them.
+was closed.
+
+The parts of a piece answer that. A [[piece head]] starts it, and [[checkpoints]] index it as it grows.
+A [[final index]], a [[close]] and a [[tail]] end it. The same input gives the same bytes in each of them.
 
 The drive's hour, for example, lies in four pieces, one per quarter of an hour. Its first piece is the case followed
 here, from its first byte to its last.

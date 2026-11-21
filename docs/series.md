@@ -5,8 +5,8 @@ level: basic
 # Series
 
 A sampled signal, such as a current or an audio stream, produces values at a fixed rate for as long as it runs. Its
-[[samples]] need no times of their own, and the question is how to keep them compact and still find the time and
-value of each. A [[series]] stores them in [[fixed point]] on a [[grid]], with a [[scale]] that may change mid-run.
+[[samples]] need no times of their own. The question is how to keep them compact and still find the time and value
+of each. A [[series]] stores them in [[fixed point]] on a [[grid]], with a [[scale]] that may change mid-run.
 A [[reader]] reads any range of them.
 
 The drive's phase current, for example, is a series: 25 000 samples a second, one every 40 µs, for the whole hour.
