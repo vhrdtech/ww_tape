@@ -1,1 +1,1 @@
-The benches ran on build-1, a virtual machine with 14 logical CPUs (AMD EPYC-Genoa Processor, x86_64). Each was a release build at opt-level 3 of commit `38a7722`, built with 4 jobs. The load average ran from 14.04 to 44.18 across the tables.
+The benches ran on build-1, a virtual machine with 14 logical CPUs (AMD EPYC-Genoa Processor, x86_64). Each was a release build at opt-level 3 of commit `28b0d70`, built with 4 jobs. The load average ran from 18.29 to 33.17 across the tables.

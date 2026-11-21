@@ -205,6 +205,7 @@ Covers `ww_tape` 0.1.0.
 - Every bench takes `--json FILE`, `--color`, `--version` and completion; tables carry the machine and load average (REPO-85).
 - Bench reports name the host, build profile, jobs and commit; `just bench-book` refuses a dirty tree (REPO-85).
 - Book: a test fails when "Sizes and speeds" writes a number no bench report holds (BOOK-2).
+- Book: "Sizes and speeds" measures the RF capture on one core and the writer's heap per piece (BOOK-2).
 - `just bench-carried` takes the shared bench options; the carried definitions page draws its tables from its report (REPO-85).
 - `just bench-memory`, `just bench-rf-core` and `just bench-rf-chain` take the shared bench options and write reports (REPO-85).
 - `just bench-event-times` compares event time codecs on six workloads, journal included; it was outside the repository (CODEC-2).

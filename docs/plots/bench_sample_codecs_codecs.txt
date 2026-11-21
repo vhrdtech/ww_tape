@@ -1,46 +1,46 @@
 | Data | Codec | Ratio | Bits per value | Encode ns per value | Decode ns per value |
 |---|---|---:|---:|---:|---:|
-| motor_sim f32 | DELTA of i32, power-of-ten step keeping 24 bits at the peak | 3.10 | 10.32 | 5.7 | 1.54 |
-| motor_sim f32 | GORILLA | 1.49 | 21.46 | 13.4 | 6.76 |
-| motor_sim f32 | CHIMP | 1.74 | 18.36 | 16.5 | 9.37 |
-| motor_sim f32 | FLOAT_DELTA | 1.93 | 16.62 | 9.8 | 2.20 |
-| motor_sim f32 | FLOAT_DELTA2 | 1.99 | 16.06 | 20.5 | 2.30 |
-| motor_sim f32 | ALP | 1.64 | 19.46 | 91.9 | 5.36 |
-| motor_sim f64 | DELTA of i32, power-of-ten step keeping 24 bits at the peak | 6.20 | 10.32 | 5.1 | 1.58 |
-| motor_sim f64 | GORILLA | 2.51 | 25.52 | 22.2 | 8.56 |
-| motor_sim f64 | CHIMP | 2.50 | 25.60 | 42.8 | 29.91 |
-| motor_sim f64 | FLOAT_DELTA | 1.50 | 42.61 | 17.1 | 10.93 |
-| motor_sim f64 | FLOAT_DELTA2 | 1.56 | 41.08 | 23.0 | 10.78 |
-| motor_sim f64 | ALP | 2.51 | 25.51 | 159.6 | 4.70 |
-| speech f32, 2 ch | DELTA of i16 PCM of the same decode | 3.43 | 9.32 | 7.1 | 1.87 |
-| speech f32, 2 ch | GORILLA | 1.02 | 31.25 | 26.3 | 14.17 |
-| speech f32, 2 ch | CHIMP | 1.23 | 25.97 | 45.1 | 18.57 |
-| speech f32, 2 ch | FLOAT_DELTA | 1.10 | 29.12 | 6.9 | 3.71 |
-| speech f32, 2 ch | FLOAT_DELTA2 | 1.10 | 28.98 | 10.0 | 2.63 |
-| speech f32, 2 ch | ALP | 1.16 | 27.63 | 94.3 | 2.81 |
-| ADC × 3.3/4096 f32 | DELTA of i16 ADC counts | 7.31 | 4.38 | 4.9 | 1.51 |
-| ADC × 3.3/4096 f32 | GORILLA | 1.51 | 21.25 | 13.2 | 6.91 |
-| ADC × 3.3/4096 f32 | CHIMP | 1.76 | 18.20 | 20.4 | 10.84 |
-| ADC × 3.3/4096 f32 | FLOAT_DELTA | 1.84 | 17.40 | 7.6 | 2.39 |
-| ADC × 3.3/4096 f32 | FLOAT_DELTA2 | 1.73 | 18.51 | 6.3 | 2.80 |
-| ADC × 3.3/4096 f32 | ALP | 1.59 | 20.18 | 37.9 | 3.04 |
-| ADC × 3.3/4096 f64 | DELTA of i16 ADC counts | 14.63 | 4.38 | 5.2 | 1.59 |
-| ADC × 3.3/4096 f64 | GORILLA | 1.36 | 47.10 | 20.5 | 9.10 |
-| ADC × 3.3/4096 f64 | CHIMP | 1.57 | 40.78 | 29.4 | 23.03 |
-| ADC × 3.3/4096 f64 | FLOAT_DELTA | 1.37 | 46.71 | 12.2 | 9.78 |
-| ADC × 3.3/4096 f64 | FLOAT_DELTA2 | 1.34 | 47.81 | 18.5 | 7.86 |
-| ADC × 3.3/4096 f64 | ALP | 1.32 | 48.64 | 80.0 | 4.80 |
-| ADC × 0.1 f32 | DELTA of i16 ADC counts | 7.31 | 4.38 | 4.8 | 1.44 |
-| ADC × 0.1 f32 | GORILLA | 1.53 | 20.96 | 13.6 | 6.89 |
-| ADC × 0.1 f32 | CHIMP | 1.81 | 17.70 | 23.1 | 24.67 |
-| ADC × 0.1 f32 | FLOAT_DELTA | 1.84 | 17.43 | 9.3 | 3.79 |
-| ADC × 0.1 f32 | FLOAT_DELTA2 | 1.73 | 18.55 | 11.9 | 3.70 |
-| ADC × 0.1 f32 | ALP | 4.67 | 6.85 | 42.8 | 2.30 |
-| ADC × 0.1 f64 | DELTA of i16 ADC counts | 14.63 | 4.38 | 8.2 | 1.51 |
-| ADC × 0.1 f64 | GORILLA | 1.38 | 46.53 | 44.1 | 18.94 |
-| ADC × 0.1 f64 | CHIMP | 1.59 | 40.31 | 32.7 | 20.71 |
-| ADC × 0.1 f64 | FLOAT_DELTA | 1.37 | 46.74 | 16.4 | 7.46 |
-| ADC × 0.1 f64 | FLOAT_DELTA2 | 1.34 | 47.84 | 16.0 | 8.85 |
-| ADC × 0.1 f64 | ALP | 9.02 | 7.10 | 70.0 | 2.07 |
+| motor_sim f32 | DELTA of i32, power-of-ten step keeping 24 bits at the peak | 3.10 | 10.32 | 3.2 | 1.07 |
+| motor_sim f32 | GORILLA | 1.49 | 21.46 | 8.1 | 3.92 |
+| motor_sim f32 | CHIMP | 1.74 | 18.36 | 11.3 | 5.47 |
+| motor_sim f32 | FLOAT_DELTA | 1.93 | 16.62 | 3.2 | 1.55 |
+| motor_sim f32 | FLOAT_DELTA2 | 1.99 | 16.06 | 4.0 | 1.73 |
+| motor_sim f32 | ALP | 1.64 | 19.46 | 26.3 | 1.79 |
+| motor_sim f64 | DELTA of i32, power-of-ten step keeping 24 bits at the peak | 6.20 | 10.32 | 3.1 | 1.12 |
+| motor_sim f64 | GORILLA | 2.51 | 25.52 | 9.6 | 5.04 |
+| motor_sim f64 | CHIMP | 2.50 | 25.60 | 20.5 | 6.67 |
+| motor_sim f64 | FLOAT_DELTA | 1.50 | 42.61 | 3.8 | 2.09 |
+| motor_sim f64 | FLOAT_DELTA2 | 1.56 | 41.08 | 5.6 | 2.35 |
+| motor_sim f64 | ALP | 2.51 | 25.51 | 37.8 | 2.39 |
+| speech f32, 2 ch | DELTA of i16 PCM of the same decode | 3.43 | 9.32 | 3.5 | 1.23 |
+| speech f32, 2 ch | GORILLA | 1.02 | 31.25 | 18.1 | 6.54 |
+| speech f32, 2 ch | CHIMP | 1.23 | 25.97 | 18.2 | 10.76 |
+| speech f32, 2 ch | FLOAT_DELTA | 1.10 | 29.12 | 4.7 | 2.27 |
+| speech f32, 2 ch | FLOAT_DELTA2 | 1.10 | 28.98 | 5.0 | 2.32 |
+| speech f32, 2 ch | ALP | 1.16 | 27.63 | 29.9 | 1.76 |
+| ADC × 3.3/4096 f32 | DELTA of i16 ADC counts | 7.31 | 4.38 | 2.9 | 0.89 |
+| ADC × 3.3/4096 f32 | GORILLA | 1.51 | 21.25 | 8.4 | 3.81 |
+| ADC × 3.3/4096 f32 | CHIMP | 1.76 | 18.20 | 13.4 | 8.56 |
+| ADC × 3.3/4096 f32 | FLOAT_DELTA | 1.84 | 17.40 | 3.1 | 1.26 |
+| ADC × 3.3/4096 f32 | FLOAT_DELTA2 | 1.73 | 18.51 | 3.7 | 1.44 |
+| ADC × 3.3/4096 f32 | ALP | 1.59 | 20.18 | 22.8 | 1.47 |
+| ADC × 3.3/4096 f64 | DELTA of i16 ADC counts | 14.63 | 4.38 | 2.8 | 0.86 |
+| ADC × 3.3/4096 f64 | GORILLA | 1.36 | 47.10 | 11.1 | 4.77 |
+| ADC × 3.3/4096 f64 | CHIMP | 1.57 | 40.78 | 16.6 | 8.68 |
+| ADC × 3.3/4096 f64 | FLOAT_DELTA | 1.37 | 46.71 | 3.6 | 2.04 |
+| ADC × 3.3/4096 f64 | FLOAT_DELTA2 | 1.34 | 47.81 | 4.0 | 1.99 |
+| ADC × 3.3/4096 f64 | ALP | 1.32 | 48.64 | 36.0 | 2.76 |
+| ADC × 0.1 f32 | DELTA of i16 ADC counts | 7.31 | 4.38 | 3.0 | 0.92 |
+| ADC × 0.1 f32 | GORILLA | 1.53 | 20.96 | 8.1 | 4.24 |
+| ADC × 0.1 f32 | CHIMP | 1.81 | 17.70 | 14.6 | 8.69 |
+| ADC × 0.1 f32 | FLOAT_DELTA | 1.84 | 17.43 | 4.6 | 1.28 |
+| ADC × 0.1 f32 | FLOAT_DELTA2 | 1.73 | 18.55 | 3.6 | 1.37 |
+| ADC × 0.1 f32 | ALP | 4.67 | 6.85 | 12.8 | 1.25 |
+| ADC × 0.1 f64 | DELTA of i16 ADC counts | 14.63 | 4.38 | 2.9 | 0.91 |
+| ADC × 0.1 f64 | GORILLA | 1.38 | 46.53 | 11.6 | 5.03 |
+| ADC × 0.1 f64 | CHIMP | 1.59 | 40.31 | 18.8 | 9.32 |
+| ADC × 0.1 f64 | FLOAT_DELTA | 1.37 | 46.74 | 3.8 | 2.10 |
+| ADC × 0.1 f64 | FLOAT_DELTA2 | 1.34 | 47.84 | 4.2 | 2.20 |
+| ADC × 0.1 f64 | ALP | 9.02 | 7.10 | 14.3 | 1.94 |
 
-`just bench-sample-codecs` on build-1, load average 44.18 before, 38.18 after.
+`just bench-sample-codecs` on build-1, load average 33.17 before, 27.01 after.

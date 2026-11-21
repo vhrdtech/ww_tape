@@ -224,7 +224,7 @@ Column codecs with no notion of a block, in the crate `ww_tape_codecs`.
   - Read more: [Checks at three levels](docs/damage.md#checks-at-three-levels).
 - 💡 **CODEC-6 Fast sample encoders**
   - `DELTA` and the packed codecs encode through a scalar 64-bit path, about 3.6 ns per value for `ComplexI16`, while `DELTA` decodes at 0.65 ns.
-  - On one core the encoder is the writer's limit. Packed at 12 bits, the writer takes 157 MS/s of IQ and the codec 58 % of its time (`ww_tape_benchmarks --bin rf_core`).
+  - On one core the encoder is the writer's limit. Packed at 12 bits, the writer takes 157 MS/s of IQ and the codec 58 % of its time (`just bench-rf-core`; [How fast a radio capture records](docs/sizes.md#how-fast-a-radio-capture-records)).
   - Vector kernels for 16-bit values, as the decoders and summaries have, would lift it. The bytes must stay the same.
 
 ## Summaries (`SUM`)

@@ -1,7 +1,7 @@
 | Element | One at a time MB/s | Portable kernel MB/s | AVX2 kernel MB/s | AVX-512 kernel MB/s |
 |---|---:|---:|---:|---:|
-| I16 | 1255 | 3270 | 7209 | 10 539 |
-| ComplexI16 | 792 | 2302 | 5470 | 8389 |
-| I32 | 2759 | 4013 | 11 342 | 12 468 |
+| I16 | 578 | 1662 | 4453 | 3245 |
+| ComplexI16 | 334 | 687 | 3436 | 5131 |
+| I32 | 1088 | 1153 | 3349 | 7442 |
 
-`just bench-summaries` on build-1, load average 15.31 before, 14.65 after.
+`just bench-summaries` on build-1, load average 27.50 before, 27.97 after.

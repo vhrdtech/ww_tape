@@ -1,11 +1,11 @@
 | What | ns per chunk | GB/s |
 |---|---:|---:|
-| `chunk::write_chunk`: copy and CRCs | 60 308 | 17.39 |
-| `Block::read`: the CRCs checked | 36 846 | 28.46 |
-| `ItemHash::of`: BLAKE3 | 233 555 | 4.49 |
-| `TrackHash::chunk_unit`: the unit hash | 161 | 6511.76 |
-| `TapeWriter::write_chunk` (columns) | 369 615 | 2.84 |
-| `TapeWriter::write_chunk` into a `MemSink` | 810 266 | 1.29 |
-| `chunk::write_chunk` + `TapeWriter::write_block` | 594 030 | 1.77 |
+| `chunk::write_chunk`: copy and CRCs | 82 352 | 12.74 |
+| `Block::read`: the CRCs checked | 78 583 | 13.35 |
+| `ItemHash::of`: BLAKE3 | 722 428 | 1.45 |
+| `TrackHash::chunk_unit`: the unit hash | 236 | 4453.18 |
+| `TapeWriter::write_chunk` (columns) | 860 878 | 1.22 |
+| `TapeWriter::write_chunk` into a `MemSink` | 1 434 336 | 0.73 |
+| `chunk::write_chunk` + `TapeWriter::write_block` | 1 180 102 | 0.89 |
 
-`just bench-chunks` on build-1, load average 14.65 before, 14.04 after.
+`just bench-chunks` on build-1, load average 27.64 before, 27.43 after.

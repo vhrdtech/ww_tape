@@ -59,57 +59,57 @@
 <line x1="422.8" y1="34.0" x2="422.8" y2="418.0" class="thin"/>
 <text x="422.8" y="432.0" text-anchor="middle" class="small soft">0</text>
 <line x1="468.8" y1="34.0" x2="468.8" y2="418.0" class="thin"/>
-<text x="468.8" y="432.0" text-anchor="middle" class="small soft">10</text>
+<text x="468.8" y="432.0" text-anchor="middle" class="small soft">4</text>
 <line x1="514.8" y1="34.0" x2="514.8" y2="418.0" class="thin"/>
-<text x="514.8" y="432.0" text-anchor="middle" class="small soft">20</text>
+<text x="514.8" y="432.0" text-anchor="middle" class="small soft">8</text>
 <line x1="560.8" y1="34.0" x2="560.8" y2="418.0" class="thin"/>
-<text x="560.8" y="432.0" text-anchor="middle" class="small soft">30</text>
+<text x="560.8" y="432.0" text-anchor="middle" class="small soft">12</text>
 <line x1="606.8" y1="34.0" x2="606.8" y2="418.0" class="thin"/>
-<text x="606.8" y="432.0" text-anchor="middle" class="small soft">40</text>
+<text x="606.8" y="432.0" text-anchor="middle" class="small soft">16</text>
 <line x1="652.8" y1="34.0" x2="652.8" y2="418.0" class="thin"/>
-<text x="652.8" y="432.0" text-anchor="middle" class="small soft">50</text>
-<rect x="422.8" y="40.0" width="7.1" height="12.0" rx="2" class="blue"><title>motor_sim f32, fixed point, DELTA: 1.54</title></rect>
-<text x="433.9" y="50.0" text-anchor="start" class="small">1.54</text>
-<rect x="422.8" y="54.0" width="24.6" height="12.0" rx="2" class="accent"><title>motor_sim f32, ALP: 5.36</title></rect>
-<text x="451.4" y="64.0" text-anchor="start" class="small">5.36</text>
-<rect x="422.8" y="68.0" width="10.6" height="12.0" rx="2" class="amber"><title>motor_sim f32, best other float codec: 2.30 FLOAT_DELTA2</title></rect>
-<text x="437.4" y="78.0" text-anchor="start" class="small">2.30 FLOAT_DELTA2</text>
-<rect x="422.8" y="94.0" width="7.2" height="12.0" rx="2" class="blue"><title>motor_sim f64, fixed point, DELTA: 1.58</title></rect>
-<text x="434.0" y="104.0" text-anchor="start" class="small">1.58</text>
-<rect x="422.8" y="108.0" width="21.6" height="12.0" rx="2" class="accent"><title>motor_sim f64, ALP: 4.70</title></rect>
-<text x="448.4" y="118.0" text-anchor="start" class="small">4.70</text>
-<rect x="422.8" y="122.0" width="39.4" height="12.0" rx="2" class="amber"><title>motor_sim f64, best other float codec: 8.56 GORILLA</title></rect>
-<text x="466.2" y="132.0" text-anchor="start" class="small">8.56 GORILLA</text>
-<rect x="422.8" y="148.0" width="8.6" height="12.0" rx="2" class="blue"><title>speech f32, 2 ch, fixed point, DELTA: 1.87</title></rect>
-<text x="435.4" y="158.0" text-anchor="start" class="small">1.87</text>
-<rect x="422.8" y="162.0" width="12.9" height="12.0" rx="2" class="accent"><title>speech f32, 2 ch, ALP: 2.81</title></rect>
-<text x="439.7" y="172.0" text-anchor="start" class="small">2.81</text>
-<rect x="422.8" y="176.0" width="85.4" height="12.0" rx="2" class="amber"><title>speech f32, 2 ch, best other float codec: 18.57 CHIMP</title></rect>
-<text x="512.2" y="186.0" text-anchor="start" class="small">18.57 CHIMP</text>
-<rect x="422.8" y="202.0" width="7.0" height="12.0" rx="2" class="blue"><title>ADC × 3.3/4096 f32, fixed point, DELTA: 1.51</title></rect>
-<text x="433.8" y="212.0" text-anchor="start" class="small">1.51</text>
-<rect x="422.8" y="216.0" width="14.0" height="12.0" rx="2" class="accent"><title>ADC × 3.3/4096 f32, ALP: 3.04</title></rect>
-<text x="440.8" y="226.0" text-anchor="start" class="small">3.04</text>
-<rect x="422.8" y="230.0" width="11.0" height="12.0" rx="2" class="amber"><title>ADC × 3.3/4096 f32, best other float codec: 2.39 FLOAT_DELTA</title></rect>
-<text x="437.8" y="240.0" text-anchor="start" class="small">2.39 FLOAT_DELTA</text>
-<rect x="422.8" y="256.0" width="7.3" height="12.0" rx="2" class="blue"><title>ADC × 3.3/4096 f64, fixed point, DELTA: 1.59</title></rect>
-<text x="434.1" y="266.0" text-anchor="start" class="small">1.59</text>
-<rect x="422.8" y="270.0" width="22.1" height="12.0" rx="2" class="accent"><title>ADC × 3.3/4096 f64, ALP: 4.80</title></rect>
-<text x="448.9" y="280.0" text-anchor="start" class="small">4.80</text>
-<rect x="422.8" y="284.0" width="105.9" height="12.0" rx="2" class="amber"><title>ADC × 3.3/4096 f64, best other float codec: 23.03 CHIMP</title></rect>
-<text x="532.7" y="294.0" text-anchor="start" class="small">23.03 CHIMP</text>
-<rect x="422.8" y="310.0" width="6.6" height="12.0" rx="2" class="blue"><title>ADC × 0.1 f32, fixed point, DELTA: 1.44</title></rect>
-<text x="433.4" y="320.0" text-anchor="start" class="small">1.44</text>
-<rect x="422.8" y="324.0" width="10.6" height="12.0" rx="2" class="accent"><title>ADC × 0.1 f32, ALP: 2.30</title></rect>
-<text x="437.4" y="334.0" text-anchor="start" class="small">2.30</text>
-<rect x="422.8" y="338.0" width="17.4" height="12.0" rx="2" class="amber"><title>ADC × 0.1 f32, best other float codec: 3.79 FLOAT_DELTA</title></rect>
-<text x="444.2" y="348.0" text-anchor="start" class="small">3.79 FLOAT_DELTA</text>
-<rect x="422.8" y="364.0" width="6.9" height="12.0" rx="2" class="blue"><title>ADC × 0.1 f64, fixed point, DELTA: 1.51</title></rect>
-<text x="433.7" y="374.0" text-anchor="start" class="small">1.51</text>
-<rect x="422.8" y="378.0" width="9.5" height="12.0" rx="2" class="accent"><title>ADC × 0.1 f64, ALP: 2.07</title></rect>
-<text x="436.3" y="388.0" text-anchor="start" class="small">2.07</text>
-<rect x="422.8" y="392.0" width="95.2" height="12.0" rx="2" class="amber"><title>ADC × 0.1 f64, best other float codec: 20.71 CHIMP</title></rect>
-<text x="522.0" y="402.0" text-anchor="start" class="small">20.71 CHIMP</text>
+<text x="652.8" y="432.0" text-anchor="middle" class="small soft">20</text>
+<rect x="422.8" y="40.0" width="12.3" height="12.0" rx="2" class="blue"><title>motor_sim f32, fixed point, DELTA: 1.07</title></rect>
+<text x="439.1" y="50.0" text-anchor="start" class="small">1.07</text>
+<rect x="422.8" y="54.0" width="20.6" height="12.0" rx="2" class="accent"><title>motor_sim f32, ALP: 1.79</title></rect>
+<text x="447.4" y="64.0" text-anchor="start" class="small">1.79</text>
+<rect x="422.8" y="68.0" width="19.9" height="12.0" rx="2" class="amber"><title>motor_sim f32, best other float codec: 1.73 FLOAT_DELTA2</title></rect>
+<text x="446.7" y="78.0" text-anchor="start" class="small">1.73 FLOAT_DELTA2</text>
+<rect x="422.8" y="94.0" width="12.9" height="12.0" rx="2" class="blue"><title>motor_sim f64, fixed point, DELTA: 1.12</title></rect>
+<text x="439.7" y="104.0" text-anchor="start" class="small">1.12</text>
+<rect x="422.8" y="108.0" width="27.5" height="12.0" rx="2" class="accent"><title>motor_sim f64, ALP: 2.39</title></rect>
+<text x="454.3" y="118.0" text-anchor="start" class="small">2.39</text>
+<rect x="422.8" y="122.0" width="57.9" height="12.0" rx="2" class="amber"><title>motor_sim f64, best other float codec: 5.04 GORILLA</title></rect>
+<text x="484.7" y="132.0" text-anchor="start" class="small">5.04 GORILLA</text>
+<rect x="422.8" y="148.0" width="14.2" height="12.0" rx="2" class="blue"><title>speech f32, 2 ch, fixed point, DELTA: 1.23</title></rect>
+<text x="441.0" y="158.0" text-anchor="start" class="small">1.23</text>
+<rect x="422.8" y="162.0" width="20.2" height="12.0" rx="2" class="accent"><title>speech f32, 2 ch, ALP: 1.76</title></rect>
+<text x="447.0" y="172.0" text-anchor="start" class="small">1.76</text>
+<rect x="422.8" y="176.0" width="123.7" height="12.0" rx="2" class="amber"><title>speech f32, 2 ch, best other float codec: 10.76 CHIMP</title></rect>
+<text x="550.5" y="186.0" text-anchor="start" class="small">10.76 CHIMP</text>
+<rect x="422.8" y="202.0" width="10.3" height="12.0" rx="2" class="blue"><title>ADC × 3.3/4096 f32, fixed point, DELTA: 0.89</title></rect>
+<text x="437.1" y="212.0" text-anchor="start" class="small">0.89</text>
+<rect x="422.8" y="216.0" width="16.9" height="12.0" rx="2" class="accent"><title>ADC × 3.3/4096 f32, ALP: 1.47</title></rect>
+<text x="443.7" y="226.0" text-anchor="start" class="small">1.47</text>
+<rect x="422.8" y="230.0" width="14.5" height="12.0" rx="2" class="amber"><title>ADC × 3.3/4096 f32, best other float codec: 1.26 FLOAT_DELTA</title></rect>
+<text x="441.3" y="240.0" text-anchor="start" class="small">1.26 FLOAT_DELTA</text>
+<rect x="422.8" y="256.0" width="9.9" height="12.0" rx="2" class="blue"><title>ADC × 3.3/4096 f64, fixed point, DELTA: 0.86</title></rect>
+<text x="436.7" y="266.0" text-anchor="start" class="small">0.86</text>
+<rect x="422.8" y="270.0" width="31.8" height="12.0" rx="2" class="accent"><title>ADC × 3.3/4096 f64, ALP: 2.76</title></rect>
+<text x="458.6" y="280.0" text-anchor="start" class="small">2.76</text>
+<rect x="422.8" y="284.0" width="99.8" height="12.0" rx="2" class="amber"><title>ADC × 3.3/4096 f64, best other float codec: 8.68 CHIMP</title></rect>
+<text x="526.6" y="294.0" text-anchor="start" class="small">8.68 CHIMP</text>
+<rect x="422.8" y="310.0" width="10.6" height="12.0" rx="2" class="blue"><title>ADC × 0.1 f32, fixed point, DELTA: 0.92</title></rect>
+<text x="437.4" y="320.0" text-anchor="start" class="small">0.92</text>
+<rect x="422.8" y="324.0" width="14.4" height="12.0" rx="2" class="accent"><title>ADC × 0.1 f32, ALP: 1.25</title></rect>
+<text x="441.2" y="334.0" text-anchor="start" class="small">1.25</text>
+<rect x="422.8" y="338.0" width="14.7" height="12.0" rx="2" class="amber"><title>ADC × 0.1 f32, best other float codec: 1.28 FLOAT_DELTA</title></rect>
+<text x="441.5" y="348.0" text-anchor="start" class="small">1.28 FLOAT_DELTA</text>
+<rect x="422.8" y="364.0" width="10.4" height="12.0" rx="2" class="blue"><title>ADC × 0.1 f64, fixed point, DELTA: 0.91</title></rect>
+<text x="437.2" y="374.0" text-anchor="start" class="small">0.91</text>
+<rect x="422.8" y="378.0" width="22.3" height="12.0" rx="2" class="accent"><title>ADC × 0.1 f64, ALP: 1.94</title></rect>
+<text x="449.1" y="388.0" text-anchor="start" class="small">1.94</text>
+<rect x="422.8" y="392.0" width="107.2" height="12.0" rx="2" class="amber"><title>ADC × 0.1 f64, best other float codec: 9.32 CHIMP</title></rect>
+<text x="534.0" y="402.0" text-anchor="start" class="small">9.32 CHIMP</text>
 <line x1="422.8" y1="34.0" x2="422.8" y2="418.0" class="line"/>
 <text x="122.8" y="64.0" text-anchor="end">motor_sim f32</text>
 <text x="122.8" y="118.0" text-anchor="end">motor_sim f64</text>
@@ -124,5 +124,5 @@
 <text x="305.8" y="454.0" text-anchor="start" class="small">ALP</text>
 <rect x="339.8" y="445.0" width="12.0" height="10.0" rx="2" class="amber"/>
 <text x="356.8" y="454.0" text-anchor="start" class="small">best other float codec</text>
-<text x="132.8" y="476.0" text-anchor="start" class="small soft">just bench-sample-codecs on build-1, load average 44.18 before, 38.18 after.</text>
+<text x="132.8" y="476.0" text-anchor="start" class="small soft">just bench-sample-codecs on build-1, load average 33.17 before, 27.01 after.</text>
 </svg>

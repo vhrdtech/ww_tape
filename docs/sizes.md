@@ -9,8 +9,7 @@ questions: how much disk a run takes, and whether the host keeps up. This chapte
 and it shows how to measure them again on another machine.
 
 In short, the drive's hour takes 110 MiB, and the phase current makes up most of it. The host records the hour far
-faster than the drive runs it. Each section below takes one part of that cost, gives its numbers
-and says which choice moves them.
+faster than the drive runs it.
 
 ## Where the numbers come from
 
@@ -26,7 +25,7 @@ time measured under load comes out slower than the machine can go, while a size 
 ## The drive's hour
 
 The drive's recording holds five [[tracks]], and two of them carry almost every byte. `phase_a` samples the phase
-current 25 000 times a second, and `can0` takes 1000 frames a second from the Controller Area Network (CAN) bus. `just
+current 25 000 times a second, and `can0` takes 1000 frames a second from the CAN bus. `just
 bench-drive` records the hour at full scale and sorts every byte of its [[pieces]] by the kind of [[block]] that holds
 it.
 
@@ -60,23 +59,23 @@ sample and frame as it goes, so this time includes making the signals as well as
 
 --8<-- "docs/plots/bench_drive_write.txt"
 
-The hour takes about 9.2 s, with summaries or without them. The host thus records the run about 390 times faster than
-the drive produces it, summaries included.
+The hour takes 6.0 s with summaries and 5.0 s without them. The host thus records the run 605 times faster than the
+drive produces it, summaries included.
 
 ## Samples: fixed point first
 
 `phase_a` stores 1.1 bytes a sample because its samples are [[fixed-point]] integers. A writer codes an integer column
 with `DELTA`, which bit-packs the differences between neighbours per group of 128 samples. A float column has one codec
-in the format, Adaptive Lossless floating-Point compression (ALP). ALP finds floats that began as decimals and stores
+in the format, ALP. It finds floats that began as decimals and stores
 the integers they came from.
 
 `just bench-sample-codecs` stores the same quantities both ways and checks that every value comes back bit for bit. It
 uses three kinds of data: the motor simulation of `motor_sim`, a recorded speech, and the counts of a 12-bit
-analog-to-digital converter (ADC) turned into floats. The [format reference](format.md#float-codecs-measured) describes
+ADC turned into floats. The [format reference](format.md#float-codecs-measured) describes
 each data set.
 
 The bench also runs four float codecs that the format doesn't have, to compare against. Gorilla stores each float as
-the exclusive-or (XOR) of its bits with the float before it, and Chimp is a refined Gorilla. `FLOAT_DELTA` and
+the XOR of its bits with the float before it, and Chimp is a refined Gorilla. `FLOAT_DELTA` and
 `FLOAT_DELTA2` apply `DELTA` and `DELTA2` to the floats' bits in an order that sorts like the numbers.
 
 <figure class="ww-figure" markdown="0">
@@ -100,7 +99,7 @@ A fixed-point source hands the writer the integers directly. Store the counts, a
 Floats that a device didn't choose still need a codec. ALP is the codec for floats that began as decimals. On ADC ×
 0.1 it is 2.5 to 5.7 times smaller than the best other float codec.
 
-The XOR codecs win on two sets: by 6 % on speech and by 15 % on ADC × 3.3/4096 as `f64`. They decode 4.4 to 19 times
+The XOR codecs win on two sets: by 6 % on speech and by 15 % on ADC × 3.3/4096 as `f64`. They decode 3.7 to 10 times
 slower than the bit-packed codecs, since each value waits for the one before it.
 
 A writer could try ALP and `FLOAT_DELTA` on each chunk and keep the smaller. That pair is the best float codec on four
@@ -108,7 +107,7 @@ of the seven sets, and within 13 % of the best on the others.
 
 ??? note "Every codec on every data set"
 
-    The bench runs in about 85 s. `just bench-sample-codecs` fetches the speech file into `target/bench-data` once
+    The bench runs in about 34 s. `just bench-sample-codecs` fetches the speech file into `target/bench-data` once
     and checks its hash before it decodes it.
 
     --8<-- "docs/plots/bench_sample_codecs_codecs.txt"
@@ -144,7 +143,7 @@ against 2.6 for the varints.
 
 There, the linear groups pay 1.2 bytes per event for random access. A varint reader walks from its skip entry to the
 item it fetches, while the linear groups read any item directly. With the linear groups, the first event at or after a
-tick takes 11 to 670 ns to find. With the varints it takes 130 to 660 ns. Elias-Fano finds a tick faster on three
+tick takes 17 to 2000 ns to find. With the varints it takes 190 to 2500 ns. Elias-Fano finds a tick faster on two
 workloads, at a larger size on periodic data.
 
 ??? note "Every codec on every workload"
@@ -178,12 +177,12 @@ statistic at a time, one pass each, on nodes of 1024 frames.
 
 --8<-- "docs/plots/bench_summaries_kernels.txt"
 
-On `i16` the AVX-512 kernel reaches about 11 000 MB/s, against 1300 MB/s one statistic at a time. Even the portable
-kernel, without vector extensions, reaches 3300 MB/s.
+On `i16` the AVX2 kernel reaches 4500 MB/s, against 580 MB/s one statistic at a time. Even the portable kernel,
+without vector extensions, reaches 1700 MB/s.
 
 ## What the writer spends
 
-The writer's own cost per chunk is a copy, the cyclic redundancy checks (CRCs) and the [[content hash]]. `just
+The writer's own cost per chunk is a copy, the CRCs and the [[content hash]]. `just
 bench-chunks` measures each part on a series chunk of 1 MiB, which holds 524 288 `i16` samples.
 
 <figure class="ww-figure" markdown="0">
@@ -195,9 +194,9 @@ legend. The content hash takes most of <code>TapeWriter::write_chunk</code>. Dra
 
 --8<-- "docs/plots/bench_chunks_writer.txt"
 
-[`TapeWriter::write_chunk`] takes about 370 µs per chunk, and the hash takes 230 µs of that. Besides the hash, the
-writer spends 140 µs per MiB. The copy with its CRCs takes 60 µs, and a reader checks the CRCs of the whole block in
-37 µs. A
+[`TapeWriter::write_chunk`] takes about 860 µs per chunk, and the hash takes 720 µs of that. Besides the hash, the
+writer spends 140 µs per MiB. The copy with its CRCs takes 82 µs, and a reader checks the CRCs of the whole block in
+79 µs. A
 writer into a growing memory sink spends more, since the sink copies its bytes each time it grows.
 
 ### Reading a track's timeline
@@ -212,6 +211,16 @@ file without alignment and in one aligned to 4 KiB.
 
 A head reads 335 bytes, or 4084 bytes in an aligned file, where the head reaches to the next 4 KiB boundary. A whole
 block reads 1 048 895 bytes and checks its CRCs.
+
+### What the writer holds in memory
+
+The writer keeps the index of the open piece in memory, so its heap grows with the blocks of the piece. `just
+bench-memory` counts that heap over a piece of 256 MiB, on a sink that keeps no bytes.
+
+--8<-- "docs/plots/bench_memory_heap.txt"
+
+With records blocks of 4 KiB on one track, the heap peaks at about 14 MB before the close and 44 MB with
+it.
 
 ### What definitions and puts cost
 
@@ -231,6 +240,22 @@ time within its near. It counts what the writer hashes and copies per records bl
 it compares the hash it computed once, when the application defined the item.
 
 --8<-- "docs/plots/bench_tracks_idle.txt"
+
+## How fast a radio capture records
+
+The RF capture of [Series](series.md#a-fast-series-radio-samples) takes 20 million complex samples a second.
+`just bench-rf-core` records a minute of it on one core with each codec. The bench makes each chunk's samples before
+the chunk and doesn't time them.
+
+--8<-- "docs/plots/bench_rf_core_writer.txt"
+
+`PACKED12_LSB` stores a sample in 3.1 bytes, against 4.1 bytes with `RAW`. `DELTA` saves little more, since the noise of
+the band leaves the differences of neighbours nearly as wide as the samples. The codec takes the largest share of the
+writer's time, more than `write_chunk` with its CRCs and its hash.
+
+The same bench then reads 10 s of the capture back from memory. It checks every chunk and decodes it.
+
+--8<-- "docs/plots/bench_rf_core_reader.txt"
 
 ## Running the measurements again
 

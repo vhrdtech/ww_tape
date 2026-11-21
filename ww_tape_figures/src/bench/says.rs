@@ -262,6 +262,8 @@ pub fn says(r: &Reports) -> anyhow::Result<Says> {
         &r.chunks,
         &r.tracks,
         &r.drive,
+        &r.memory,
+        &r.rf_core,
     ] {
         named(report, &mut named_);
     }
@@ -271,6 +273,7 @@ pub fn says(r: &Reports) -> anyhow::Result<Says> {
     samples(r, &mut pins)?;
     events(r, &mut pins)?;
     writer(r, &mut pins, &mut named_)?;
+    rf(r)?;
     Ok(Says {
         pins,
         named: named_,
@@ -491,6 +494,29 @@ fn writer(
             )
         ),
     ));
+    Ok(())
+}
+
+/// The claims of the radio capture's section: `DELTA` saves little over `PACKED12_LSB`, and the codec takes more of
+/// the writer's time than `write_chunk`.
+fn rf(r: &Reports) -> anyhow::Result<()> {
+    let t = table(&r.rf_core, "writer")?;
+    let bytes = |codec: &str| at(t, &[codec], "Bytes per sample");
+    let (packed, delta) = (bytes("`PACKED12_LSB`")?, bytes("`DELTA`")?);
+    ensure!(
+        delta < packed && delta > packed * 0.9,
+        "the page says DELTA saves little over PACKED12_LSB: {delta} against {packed} bytes per sample"
+    );
+    for codec in ["`PACKED12_LSB`", "`DELTA`"] {
+        let (coding, write) = (
+            at(t, &[codec], "Codec ms/s")?,
+            at(t, &[codec], "`write_chunk` ms/s")?,
+        );
+        ensure!(
+            coding > write,
+            "the page says the codec takes more than write_chunk: {codec} {coding} against {write} ms/s"
+        );
+    }
     Ok(())
 }
 
