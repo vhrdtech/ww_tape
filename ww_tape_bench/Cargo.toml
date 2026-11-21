@@ -1,6 +1,6 @@
 [package]
 name = "ww_tape_bench"
-version = "0.1.0"
+version.workspace = true
 authors.workspace = true
 description = "What every ww_tape bench binary shares: its command line, its timing loop, and its report with the build, machine and load"
 edition.workspace = true

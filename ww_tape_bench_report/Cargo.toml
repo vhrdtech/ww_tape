@@ -1,6 +1,6 @@
 [package]
 name = "ww_tape_bench_report"
-version = "0.1.0"
+version.workspace = true
 authors.workspace = true
 description = "The report of a ww_tape bench run as its JSON holds it: build, commit, machine, tables and load"
 edition.workspace = true
