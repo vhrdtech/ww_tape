@@ -10,13 +10,13 @@ use core::cell::Cell;
 
 use shrink_wrap::prelude::*;
 use ww_tape::chunk::ColumnKind;
-use ww_tape::index::IndexEntry;
+use ww_tape::index::{ENTRY_LEN, IndexEntry};
 use ww_tape::payloads::{Payloads, PayloadsError};
 use ww_tape::reader::{ByteSource, OutOfRange, ReadError};
 use ww_tape::samples::{SampleShape, Samples};
 use ww_tape::times::{EventTimes, TimesError};
 use ww_tape::{
-    BlockKind, Describe, Element, Magnitude, OwnerId, Ratio64, Rounding, SampleError, Slot,
+    BlockKind, Describe, Element, FileBlocks, Recovery, Magnitude, OwnerId, Ratio64, Rounding, SampleError, Slot,
     TapeReader, TrackHash, TrackKind,
 };
 use ww_tape_summary::{ChannelStats, SeriesSummarySpec, Summary};
@@ -92,6 +92,8 @@ pub enum FaultError<E> {
     Payloads(PayloadsError),
     /// The samples of a chunk of `phase_a`.
     Samples(SampleError),
+    /// Walking a piece's blocks.
+    Walk(ww_tape::FileError),
     /// Something the drive's tape holds is not there.
     Missing(&'static str),
 }
@@ -103,6 +105,7 @@ impl<E: core::fmt::Debug> core::fmt::Display for FaultError<E> {
             Self::Times(e) => write!(f, "the times of a chunk of frames: {e}"),
             Self::Payloads(e) => write!(f, "the payloads of a chunk of frames: {e}"),
             Self::Samples(e) => write!(f, "the samples of phase_a: {e:?}"),
+            Self::Walk(e) => write!(f, "walking a piece's blocks: {e:?}"),
             Self::Missing(what) => write!(f, "the tape holds no {what}"),
         }
     }
@@ -581,6 +584,67 @@ pub struct Checked {
     pub verified: Vec<bool>,
 }
 
+/// Where the bytes go that verifying every piece reads beyond the recording's length.
+///
+/// Each block is read as its header, then whole. The final index is read whole, then each of its entries again, as the replay merges the track
+/// lists. The close record and the tail after it are not read again. [Self::extra] adds them up.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VerifyCost {
+    /// Blocks read, before the close records: the walk's and the final indexes'.
+    pub blocks: u64,
+    /// Bytes of the final indexes, and of their entries.
+    pub index: u64,
+    pub entries: u64,
+    /// Bytes of the close records and tails, which the walk stops before.
+    pub unread: u64,
+}
+
+impl VerifyCost {
+    /// Bytes verify reads beyond the recording's length: a header per block, the final index twice, less the
+    /// closes and tails.
+    pub fn extra(&self) -> u64 {
+        let headers = self.blocks * ww_tape::HEADER_LEN as u64;
+        headers + self.index + self.entries - self.unread
+    }
+}
+
+/// What verifying each of `pieces` costs beyond its length ([VerifyCost]), from the pieces' blocks and indexes.
+pub fn verify_cost<S: ByteSource>(
+    reader: &TapeReader<S>,
+    pieces: &[Vec<u8>],
+) -> Result<VerifyCost, FaultError<S::Error>> {
+    let mut cost = VerifyCost {
+        blocks: 0,
+        index: 0,
+        entries: 0,
+        unread: 0,
+    };
+    for (i, (info, bytes)) in reader.pieces().iter().zip(pieces).enumerate() {
+        let close = info.close_offset.ok_or(FaultError::Missing("a close"))?;
+        let index = info
+            .close
+            .as_ref()
+            .and_then(|(c, _)| c.final_index)
+            .ok_or(FaultError::Missing("a final index"))?;
+        let mut walk = FileBlocks::with_recovery(&bytes[..], Recovery::Prefix);
+        let mut at = 0u64;
+        while let Some(b) = walk.next_block() {
+            let b = b.map_err(FaultError::Walk)?;
+            if at < close {
+                cost.blocks += 1;
+                if b.kind == BlockKind::Index && at >= index {
+                    cost.blocks += 1;
+                    cost.index += b.len() as u64;
+                }
+            }
+            at += b.len() as u64;
+        }
+        cost.entries += reader.closed_entries(i)?.len() as u64 * ENTRY_LEN as u64;
+        cost.unread += bytes.len() as u64 - close;
+    }
+    Ok(cost)
+}
+
 /// What [same_frames] found.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SameFrames {
@@ -670,6 +734,7 @@ pub struct Fault {
     pub overview: Overview,
     pub checked: Checked,
     pub check_read: Read,
+    pub verify_cost: VerifyCost,
     pub same: SameFrames,
     pub same_read: Read,
 }
@@ -697,6 +762,8 @@ impl Fault {
         _ = src.take();
         let checked = check(&reader)?;
         let check_read = src.take();
+        let verify_cost = verify_cost(&reader, pieces)?;
+        _ = src.take();
         let same = same_frames(&reader, copy)?;
         let same_read = src.take();
         Ok(Self {
@@ -714,6 +781,7 @@ impl Fault {
             overview,
             checked,
             check_read,
+            verify_cost,
             same,
             same_read,
         })
@@ -871,6 +939,17 @@ impl core::fmt::Display for Fault {
             k.whole,
             k.verified,
             read(&f.check_read)
+        )?;
+        let v = &f.verify_cost;
+        writeln!(
+            out,
+            "| verify's reads past the chain | {} bytes: {} block headers of {} bytes, the final indexes' {} bytes, their entries' {} bytes again, less {} bytes of closes and tails | |",
+            v.extra(),
+            v.blocks,
+            ww_tape::HEADER_LEN,
+            v.index,
+            v.entries,
+            v.unread
         )?;
         writeln!(
             out,

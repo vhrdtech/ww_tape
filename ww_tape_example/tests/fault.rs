@@ -57,5 +57,10 @@ fn part_iv_finds_the_fault_and_prints_what_the_chapters_quote() {
         "the zoom lands on the node of the peak"
     );
     assert!(f.checked.whole && f.checked.verified.iter().all(|&v| v));
+    assert_eq!(
+        f.check_read.bytes - f.len,
+        f.verify_cost.extra(),
+        "verify reads the chain once, a header per block, the final indexes twice, and not the closes and tails"
+    );
     assert!(f.same.same && f.same.stated == f.same.chunks);
 }

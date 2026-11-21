@@ -14,4 +14,5 @@ Finding the fault in the chain as one file of 115290112 bytes:
 | zoom | the level-0 node from sample 77999104 (51:59.964) | 6756 bytes in 6 reads |
 | phase_a's chunks | 99617283 bytes, read by neither | |
 | check | 3 links linked, whole true; pieces verified [true, true, true, true] | 119038948 bytes in 41441 reads |
+| verify's reads past the chain | 3748836 bytes: 13812 block headers of 32 bytes, the final indexes' 1658680 bytes, their entries' 1658040 bytes again, less 9868 bytes of closes and tails | |
 | range hash | can0 items 3060000..3180000: 120 chunks, 120 from the index; the same in the last piece alone: true | 540960 bytes in 15 reads |
