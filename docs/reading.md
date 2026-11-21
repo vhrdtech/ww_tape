@@ -27,7 +27,7 @@ so it builds for WebAssembly and runs in a browser or a tool. It needs an alloca
 meant for firmware. A small device reads its own log with [logring](related_books.md#logring-a-log-store-on-the-device).
 
 In the example, the drive's four pieces lie back to back in one file. The program wraps that file in a byte source
-that counts each read, so every step below can say what it cost.
+that counts each read, and so measures what each step costs.
 
 ## Opening from the tails
 
@@ -103,9 +103,9 @@ however its pieces are stored, in one file or in many.
 ## State at a place
 
 Data often needs a state to mean something. The items of a [[state track]] stay in force until the next one replaces
-them. A tape therefore has no "current state" of a whole file: what is in force depends on the place. A reader asks for the
-state in force where its data starts. In the example, the two chunks give the drive's current, and the `mode` track
-says what the controller was doing.
+them. A tape therefore has no "current state" of a whole file: what is in force depends on the place. A reader asks
+for the state in force where its data starts. The two chunks of the example give the drive's current, for instance,
+and the `mode` track says what the controller was doing.
 
 [`TapeReader::state_at`] finds the newest record of a [[slot]] whose block starts before a place. Every state record
 has an index entry of its own, which holds its slot and the hash of its item. The lookup therefore goes through the

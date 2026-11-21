@@ -8,9 +8,8 @@ A busy bus delivers thousands of frames a second, each with a time of its own, a
 them. A [[tape]] keeps such items in an [[events chunk]], with their times, ends and [[payloads]] in columns. A reader
 finds the first [[event]] after a [[tick]] and reads it in place, without decoding the events before it.
 
-When the drive trips at 52:00, for example, it sends an emergency frame on its CAN bus. The
-host records it on `can0` with the other frames of that second, a thousand of them. The engineer wants that frame:
-when it came, what it says, and what followed it.
+The drive's emergency frame at 52:00, for example, lies on `can0` among a thousand frames of that second. A reader
+finds it by its time, reads what it says, and reads the frames that followed it.
 
 ## Instants and spans
 
@@ -50,8 +49,8 @@ columns once. It then gives any item's time from its group's record and one load
 | [`Starts::lower_bound`] | the first item that starts at or after a tick |
 | [`Starts::last_at_or_before`] | the last item that starts at or before a tick |
 
-A search for a tick bisects the groups' first ticks, then uses the group's line to narrow the items inside it. The
-engineer's viewer asks for the first frame at or after the fault this way.
+A search for a tick bisects the groups' first ticks, then uses the group's line to narrow the items inside it. A
+viewer finds the first frame at or after the fault this way.
 
 ## Payloads read in place
 
@@ -67,10 +66,10 @@ The program reads the chunk that holds the first frame at or after the fault, th
 --8<-- "ww_tape_example/src/fault.rs:frames"
 ```
 
-The chunk holds 1 000 frames in a block of 1 739 bytes. The first frame at or after 52:00 is item 3 120 000 of
+The chunk holds 1 000 frames in a block of about 1.7 KB. The first frame at or after 52:00 is item 3 120 000 of
 `can0`, the emergency frame with identifier `0x081`. Its data begins `10 23`: the error code `0x2310`, overcurrent,
 stored little-endian. The next four frames, items 3 120 001 to 3 120 004, are the drive's status, temperature,
-voltage and command frames, one a millisecond. The step reads 109 931 bytes in 4 reads, almost all of them
+voltage and command frames, one a millisecond. The step reads about 110 KB in 4 reads, almost all of it
 `can0`'s list in the index.
 
 ## Flags
@@ -82,8 +81,8 @@ frames have none.
 
 ## From an item number to the event
 
-The item number names an event across the whole recording. A reader that holds item 3 120 000 of `can0`, from a
-marker the engineer placed, finds it in two steps:
+The item number names an event across the whole recording. A reader that holds item 3 120 000 of `can0`, such as
+a marker saved in a viewer, finds it in two steps:
 
 1. Among `can0`'s [[index entries]], it takes the one whose `first_item` and `count` hold 3 120 000.
 2. In that chunk, it reads item `3 120 000 - first_item` with the calls above.

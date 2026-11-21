@@ -10,14 +10,13 @@ of each. A [[series]] stores them in [[fixed point]] on a [[grid]], with a [[sca
 A [[reader]] reads any range of them.
 
 The drive's phase current, for example, is a series: 25 000 samples a second, one every 40 µs, for the whole hour.
-Before the drive tripped at 52:00, its current rose past the 31 A limit. The engineer reads the last 20 ms before the
-fault, 500 samples, to see how fast it rose.
+The last 20 ms before the fault at 52:00 are 500 samples. They show how fast the current rose past the 31 A limit.
 
 ## Samples without times
 
-A [[series]] is a [[track]] of samples at an exact period. An analog-to-digital converter channel, an audio stream
+A [[series]] is a [[track]] of samples at an exact period. An ADC channel, an audio stream
 and the drive's phase current are series. A sample needs no time of its own, since the period gives it. A series
-therefore stores only values, in [[series chunks]], and the drive's `phase_a` costs 1.107 bytes per sample.
+therefore stores only values, in [[series chunks]], and the drive's `phase_a` costs about 1.1 bytes per sample.
 
 The track's definition, a [`SeriesDef`], says what a sample is:
 
@@ -66,9 +65,9 @@ number with the grid, then decodes from that sample on:
 --8<-- "ww_tape_example/src/fault.rs:current"
 ```
 
-The chunk holds 25 000 samples in a block of 28 284 bytes, at period 40/1 µs and scale 10⁻³. The first sample read is
+The chunk holds 25 000 samples in a block of about 28 KB, at period 40/1 µs and scale 10⁻³. The first sample read is
 item 77 999 500 of `phase_a`. The largest in magnitude is -31 873 mA at 51:59.995, past the 31 A limit, 5 ms before
-the drive tripped. The step reads 29 055 bytes in 7 reads: the definitions in force, to learn the period, and the
+the drive tripped. The step reads about 29 KB in 7 reads: the definitions in force, to learn the period, and the
 block.
 
 [`ww_tape::Samples::decode`] starts at the group of 128 samples that holds the first sample asked for. A reader of any

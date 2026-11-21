@@ -8,8 +8,8 @@ A plot of a long [[track]] has a few hundred pixels across, and the track may ho
 all for one picture costs far too much. A writer therefore keeps [[summaries]] beside the data, a coarse view built
 while the run is recorded. A viewer draws the whole track from them and zooms in to the items where it needs them.
 
-The engineer's viewer, for example, opens on the whole hour of `phase_a`, 90 million [[samples]], in a plot 600 pixels
-wide. Its [[chunks]] hold 99 617 283 bytes, and the viewer draws the hour from the summaries instead.
+A viewer, for example, opens on the whole hour of `phase_a`, 90 million [[samples]], in a plot 600 pixels wide. The
+track's [[chunks]] hold about 100 MB, and the viewer draws the hour from the summaries instead.
 
 ## A tree over item numbers
 
@@ -59,8 +59,8 @@ in each piece, and merges each node into the column its first sample falls in:
 --8<-- "ww_tape_example/src/fault.rs:nodes"
 ```
 
-The overview reads 172 summary blocks with 5 494 nodes: 193 352 bytes in 172 reads, and no sample. Finding those
-blocks costs more than reading them. `phase_a`'s index entries in the four pieces take 788 282 bytes in 20 reads,
+The overview reads 172 summary blocks with 5 494 nodes: about 193 KB in 172 reads, and no sample. Finding those
+blocks costs more than reading them. `phase_a`'s index entries in the four pieces take about 788 KB in 20 reads,
 since the track has a chunk a second. A viewer that opens the recording once keeps the entries in memory.
 
 All 600 columns get nodes. The column with the highest peak is column 519, from 51:54.000, at 31 873 mA. It holds the
@@ -70,11 +70,12 @@ seconds just before the current stops at 52:00.
 
 Next the viewer zooms into that column. It reads the level-0 nodes of the column alone, from the summary blocks whose
 items overlap it, with the same loop. The node with the highest peak covers the 1 024 samples from item 77 999 104, at
-51:59.964. The zoom reads 6 756 bytes in 6 reads.
+51:59.964. The zoom reads about 6.8 KB in 6 reads.
 
 That node lies in the chunk from 51:59.000, which [Series](series.md#grids-where-samples-are-in-time) reads, sample by
-sample. The engineer thus went from the hour to the 500 samples before the trip through summaries and one chunk.
-[Events](events.md) gave the frames after it, and [Reading a tape](reading.md#state-at-a-place) the mode on either side.
+sample. The way from the hour to the 500 samples before the trip thus runs through summaries and one chunk.
+[Events](events.md) reads the frames after the trip, and [Reading a tape](reading.md#state-at-a-place) the mode on
+either side.
 
 ## How nodes merge
 
@@ -104,9 +105,9 @@ an aligned file into the gap before a chunk's payload:
 ```
 
 At the end of the run, [`SeriesSummaries::finish`] gives the blocks of the partial nodes. The first piece of the
-drive's recording holds 730 summary blocks of 821 980 bytes, beside 25 373 597 bytes of samples. A lost summary block
+drive's recording holds 730 summary blocks of about 822 KB, beside about 25 MB of samples. A lost summary block
 costs nothing that a reader cannot rebuild from the chunks.
 
 The crate `ww_tape` itself reads only a summary block's head, with [`Block::summary_head`], which is enough to list
-the block in the index. [`Summary::of_block`] in `ww_tape_summary` reads the nodes. The last chapter of this part
-proves that another file holds the same frames as the bench host's recording.
+the block in the index. [`Summary::of_block`] in `ww_tape_summary` reads the nodes. [Checks and range hashes](copies.md)
+shows how a copy proves that it holds the same frames as the recording.

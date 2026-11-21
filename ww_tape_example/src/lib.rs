@@ -142,6 +142,18 @@ pub fn parts(piece: &[u8]) -> Result<Vec<Part>, Error> {
     Ok(parts)
 }
 
+/// `n` with its digits in groups of three, as the book writes an exact count: "41 425", "3 120 000", "999".
+pub fn grouped(n: u64) -> String {
+    let mut out = String::new();
+    for (i, d) in n.to_string().chars().rev().enumerate() {
+        if i != 0 && i % 3 == 0 {
+            out.push(' ');
+        }
+        out.push(d);
+    }
+    out.chars().rev().collect()
+}
+
 /// The owner of the drive's chain: the board's identity.
 pub const OWNER: OwnerId = OwnerId([0xd7; 32]);
 /// The number of the drive's chain of its owner.

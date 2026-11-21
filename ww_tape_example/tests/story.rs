@@ -96,7 +96,7 @@ fn page(name: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// The pages of "How a tape is built" quote the story's numbers, rounded where their precision doesn't matter
+/// The pages of "How a tape is built", Series and Summaries quote the story's numbers, rounded where their precision doesn't matter
 /// (docs/writers.md, "Numbers").
 fn rounded_on_the_pages(
     whole: &Recording,
@@ -115,6 +115,13 @@ fn rounded_on_the_pages(
         .iter()
         .find(|p| p.name == "final index")
         .expect("a closed piece has a final index");
+    let part = |name: &str| {
+        parts
+            .iter()
+            .find(|p| p.name == name)
+            .expect("piece 0 holds every part")
+    };
+    let (summaries, series) = (part("summary blocks"), part("series chunks"));
     let len = first.len() as u64;
     let s = |us: i64| us / 1_000_000;
     for (name, phrase) in [
@@ -150,6 +157,22 @@ fn rounded_on_the_pages(
             format!("ends just short of {} MiB", len.div_ceil(1 << 20)),
         ),
         ("anatomy.md", format!("of the run in about {}", about(len))),
+        (
+            "series.md",
+            format!(
+                "costs about {:.1} bytes per sample",
+                story.sample_bytes as f64 / story.samples as f64
+            ),
+        ),
+        (
+            "summaries.md",
+            format!(
+                "holds {} summary blocks of about {}, beside about {} of samples",
+                summaries.count,
+                about(summaries.bytes),
+                about(series.bytes)
+            ),
+        ),
         (
             "anatomy.md",
             format!(

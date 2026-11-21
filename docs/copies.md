@@ -8,9 +8,9 @@ Recordings get copied, cut apart and archived, and whoever holds a copy must kno
 tape answers this at three levels. A [[chain]]'s links show a missing or swapped [[piece]], and a reader verifies a
 piece's bytes. A [[range hash]] proves that two files hold the same data in a range of items.
 
-The engineer, for example, sends the last piece of the drive's recording, the one with the fault, to the firmware
-team. The bench host's archive keeps the whole chain. The firmware team wants to know that its file holds the frames
-the bench recorded, and the archive that no piece changed or went missing.
+For example, the drive's last piece, which holds the fault, is copied alone to another computer, and an archive
+keeps the whole chain. The copy must hold the frames the bench recorded, and the archive must hold every piece
+unchanged.
 
 ## The links of a chain
 
@@ -18,8 +18,8 @@ Each [[piece]] names its neighbours, so a [[reader]] tells a whole chain from on
 links run both ways:
 
 - **Backward.** Each [[piece head]] names the piece before it by its id and by its [[content hash]]. The content hash
-  is a hash over the earlier piece's bytes, which its [[close]] states. It is made with BLAKE3 (a cryptographic hash
-function).
+  is a BLAKE3 hash, a cryptographic hash, over the earlier piece's bytes, and the earlier piece's [[close]] states
+  it.
 - **Forward.** A close cannot name the next piece's hash, which is not written yet. It names the next piece's id, and
   the next piece head repeats that id.
 
@@ -45,12 +45,11 @@ Verify also replays the piece block by block, as its [[writer]] placed them. Eac
 the writer makes of the block at its offset. Each track's row in the close must match the track's blocks. A writer that
 wrote a wrong index therefore fails too, not only a changed byte.
 
-Verify reads every byte. For the drive's chain it reads 119 038 396 bytes in 41 425 reads. That is 3 748 284 bytes
-more than the recording's 115 290 112 bytes. Verify reads each block's 32-byte header before the block, 13 804 headers
-in all.
+Verify reads every byte. For the drive's chain it reads about 119 MB in 41 425 reads. That is about 3.7 MB more
+than the recording's 115 MB. Verify reads each block's 32-byte header before the block, 13 804 headers in all.
 
-Verify reads each [[final index]] whole, 1 658 680 bytes in all. It then reads the index entries again, one by one
-as it replays the blocks: 1 658 040 bytes. It does not read the closes and tails, 10 164 bytes in all.
+Verify reads each [[final index]] whole, about 1.7 MB in all. It then reads the index entries again, one by one
+as it replays the blocks: about 1.7 MB more. It does not read the closes and tails, about 10 KB in all.
 
 All four pieces hold. An archive runs verify once after a transfer and on a schedule, never on each open.
 
@@ -86,17 +85,17 @@ its own item numbers and its own hash.
 
 ## The hash of a range
 
-The firmware team holds only the last piece, so it cannot compare whole track hashes with the archive. It compares a
-range instead. [`TapeReader::range_hash`] folds the unit hashes of the chunks that hold any item of a range, from 32
+A copy of the last piece alone cannot compare whole track hashes with the archive's chain. It compares a range
+instead. [`TapeReader::range_hash`] folds the unit hashes of the chunks that hold any item of a range, from 32
 zero bytes, and returns a [`RangeHash`]. The result depends only on those chunks, so the archive's chain and the
-team's file give the same hash for the same range:
+copied piece give the same hash for the same range:
 
 ```rs
 --8<-- "ww_tape_example/src/fault.rs:range"
 ```
 
 For the frames of minutes 51 to 53, items 3 060 000 to 3 179 999 of `can0`, the range hash folds 120 chunks. Each
-unit hash comes from its index entry, so the fold reads no payload: the chain's reader reads 540 960 bytes in 15 reads.
+unit hash comes from its index entry, so the fold reads no payload: the chain's reader reads about 541 KB in 15 reads.
 The hashes in the chain and in the last piece alone are equal. A program that analysed those frames can store the
 range hash beside its result. Anyone can later check that a file still holds that input.
 
@@ -105,5 +104,4 @@ way, all 120 here. Only verify proves the stated hashes against the chunks' byte
 own. Where the index is damaged or missing, the reader reads the chunks and computes the same hash. It counts the
 bytes that no block explains in `skipped`, so a fold over damage never passes for a whole one.
 
-This part of the book ends here, with the fault found in code and its frames checked in two files.
 [When bytes go bad](damage.md) shows what still reads when an archived piece has a flipped bit.

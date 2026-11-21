@@ -10,7 +10,7 @@
 use std::path::Path;
 
 use ww_tape_example::fault::{BEFORE_US, Fault, fault_us};
-use ww_tape_example::{Drive, EMERGENCY_ID, LIMIT_MA, Mode, about};
+use ww_tape_example::{Drive, EMERGENCY_ID, LIMIT_MA, Mode, about, grouped};
 
 #[test]
 fn part_iv_finds_the_fault_and_prints_what_the_chapters_quote() {
@@ -79,6 +79,9 @@ fn page(name: &str) -> String {
 /// "Numbers"): each phrase holds `about` of the exact value.
 fn rounded_on_the_pages(f: &Fault) {
     let (index, reading) = (page("index.md"), page("reading.md"));
+    let (events, series) = (page("events.md"), page("series.md"));
+    let (summaries, copies) = (page("summaries.md"), page("copies.md"));
+    let (o, v) = (&f.overview, &f.verify_cost);
     for (name, text, phrase) in [
         (
             "index.md",
@@ -135,6 +138,113 @@ fn rounded_on_the_pages(f: &Fault) {
                 "read about {} in {} reads",
                 about(f.mode_read.bytes),
                 f.mode_read.reads
+            ),
+        ),
+        (
+            "events.md",
+            &events,
+            format!("a block of about {}", about(u64::from(f.frames.block_len))),
+        ),
+        (
+            "events.md",
+            &events,
+            format!(
+                "The step reads about {} in {} reads",
+                about(f.frames_read.bytes),
+                f.frames_read.reads
+            ),
+        ),
+        (
+            "series.md",
+            &series,
+            format!("a block of about {}", about(u64::from(f.current.block_len))),
+        ),
+        (
+            "series.md",
+            &series,
+            format!(
+                "The step reads about {} in {} reads",
+                about(f.current_read.bytes),
+                f.current_read.reads
+            ),
+        ),
+        (
+            "summaries.md",
+            &summaries,
+            format!("chunks]] hold about {}", about(o.sample_bytes)),
+        ),
+        (
+            "summaries.md",
+            &summaries,
+            format!(
+                "about {} in {} reads, and no sample",
+                about(o.read.bytes),
+                o.read.reads
+            ),
+        ),
+        (
+            "summaries.md",
+            &summaries,
+            format!(
+                "take about {} in {} reads",
+                about(o.index_read.bytes),
+                o.index_read.reads
+            ),
+        ),
+        (
+            "summaries.md",
+            &summaries,
+            format!(
+                "The zoom reads about {} in {} reads",
+                about(o.zoom_read.bytes),
+                o.zoom_read.reads
+            ),
+        ),
+        (
+            "copies.md",
+            &copies,
+            format!(
+                "it reads about {} in {} reads",
+                about(f.check_read.bytes),
+                grouped(f.check_read.reads)
+            ),
+        ),
+        (
+            "copies.md",
+            &copies,
+            format!(
+                "about {} more than the recording's {}",
+                about(v.extra()),
+                about(f.len)
+            ),
+        ),
+        (
+            "copies.md",
+            &copies,
+            format!("{} headers in all", grouped(v.blocks)),
+        ),
+        (
+            "copies.md",
+            &copies,
+            format!("whole, about {} in all", about(v.index)),
+        ),
+        (
+            "copies.md",
+            &copies,
+            format!("the blocks: about {} more", about(v.entries)),
+        ),
+        (
+            "copies.md",
+            &copies,
+            format!("closes and tails, about {} in all", about(v.unread)),
+        ),
+        (
+            "copies.md",
+            &copies,
+            format!(
+                "reads about {} in {} reads",
+                about(f.same_read.bytes),
+                f.same_read.reads
             ),
         ),
     ] {
