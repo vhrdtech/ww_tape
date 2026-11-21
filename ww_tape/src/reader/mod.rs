@@ -23,7 +23,8 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::ops::Range;
 
-use exact_units::Ratio64;
+use exact_units::units::Entry;
+use exact_units::{Bytes, Count, Ratio64};
 
 use crate::bytes::le_u8;
 use crate::chunk::{CHUNK_HEAD_PREFIX, ChunkHead};
@@ -177,14 +178,14 @@ impl<E: core::fmt::Debug> core::error::Error for ReadError<E> {}
 
 /// Most bytes of blocks of definitions a reader reads looking for the layout of a piece's stretch after its newest
 /// checkpoint: the layout's newest record behind that stretch.
-pub const LAYOUT_READ_MAX: u64 = 256 << 20;
+pub const LAYOUT_READ_MAX: Bytes<u64> = Bytes::new(256 << 20);
 
 /// How [TapeReader::open] looks for pieces.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct OpenOptions {
     /// Most bytes looked through backwards from the end of an unclosed piece for its newest checkpoint before
     /// scanning what is left from its start instead.
-    pub scan_back_max: u64,
+    pub scan_back_max: Bytes<u64>,
     /// What the bytes are kept on. A file is read from its end (tails, checkpoints); a [Medium::Raw] is walked
     /// forward from [Self::start], since its end holds stale blocks or nothing and a stale tail there would pass
     /// for the newest piece.
@@ -194,13 +195,13 @@ pub struct OpenOptions {
     /// The gap rules of a [Medium::Raw] from its start, before the definitions say them; None: none until then.
     pub layout: Option<Layout>,
     /// Most bytes one state lookup spends, coded, decoded and held ([state::STATE_READ_MAX] by default).
-    pub state_read_max: u64,
+    pub state_read_max: Bytes<u64>,
     /// Most state entries the reader keeps sorted over all its pieces ([state::STATE_CACHE_MAX] by default).
-    pub state_cache_max: usize,
+    pub state_cache_max: Count<Entry, u64>,
 }
 
 /// Default of [OpenOptions::scan_back_max]: 256 MiB, room for a few checkpoint intervals of the largest chunks.
-pub const DEFAULT_SCAN_BACK_MAX: u64 = 256 << 20;
+pub const DEFAULT_SCAN_BACK_MAX: Bytes<u64> = Bytes::new(256 << 20);
 
 impl Default for OpenOptions {
     fn default() -> Self {
@@ -558,8 +559,8 @@ impl<S: ByteSource> TapeReader<S> {
             src,
             len,
             pieces: Vec::new(),
-            state_read_max: options.state_read_max,
-            states: state::StateCache::new(options.state_cache_max),
+            state_read_max: options.state_read_max.get(),
+            states: state::StateCache::new(crate::cap_usize(options.state_cache_max.get())),
         };
         if options.medium == Medium::Raw {
             let mut walk = SessionState::new(Medium::Raw);
@@ -772,7 +773,7 @@ impl<S: ByteSource> TapeReader<S> {
     /// The pieces of the unclosed stretch ending at `hi`: from the newest index block in reach, else scanned from
     /// the start.
     fn recover(&self, hi: u64, options: OpenOptions) -> R<Vec<PieceInfo>, S> {
-        let lo = hi.saturating_sub(options.scan_back_max);
+        let lo = hi.saturating_sub(options.scan_back_max.get());
         let mut below = hi;
         while let Some((at, ob, end)) = self.newest_index(hi, lo, below)? {
             let block = ob.block();
@@ -936,7 +937,7 @@ impl<S: ByteSource> TapeReader<S> {
             .collect();
         offsets.sort_unstable();
         offsets.dedup_by_key(|(o, _)| *o);
-        let mut budget = LAYOUT_READ_MAX;
+        let mut budget = LAYOUT_READ_MAX.get();
         for (offset, len) in offsets.into_iter().rev() {
             let Some(left) = budget.checked_sub(u64::from(len)) else {
                 break;

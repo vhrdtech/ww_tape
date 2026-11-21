@@ -306,15 +306,15 @@ fn state_readers() -> [OpenOptions; 5] {
             ..file
         },
         OpenOptions {
-            state_cache_max: 1,
+            state_cache_max: exact_units::Count::new(1),
             ..file
         },
         OpenOptions {
-            state_read_max: 2000,
+            state_read_max: exact_units::Bytes::new(2000),
             ..file
         },
         OpenOptions {
-            state_read_max: 60,
+            state_read_max: exact_units::Bytes::new(60),
             ..file
         },
     ]

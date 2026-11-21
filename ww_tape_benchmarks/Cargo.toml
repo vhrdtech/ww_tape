@@ -13,6 +13,7 @@ publish = false
 [dependencies]
 anyhow.workspace = true
 clap = { workspace = true, features = ["derive"] }
+exact_units = { workspace = true, features = ["counting", "information"] }
 libm.workspace = true
 shrink_wrap.workspace = true
 vc_build.workspace = true

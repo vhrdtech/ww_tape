@@ -355,14 +355,14 @@ pub(crate) fn options(copy_spacing: u64) -> WriterOptions {
         sync: SyncPolicy::None,
         clock: ww_tape::ClockRef::NONE,
         index: IndexPolicy {
-            bytes: 1024,
+            bytes: exact_units::Bytes::new(1024),
             interval: None,
             ..IndexPolicy::default()
         },
         layout: Layout::UNALIGNED,
         producer: "definitions".to_owned(),
         near: NearPolicy {
-            copy_spacing,
+            copy_spacing: exact_units::Bytes::new(copy_spacing),
             ..NearPolicy::default()
         },
     }
@@ -644,7 +644,7 @@ fn a_spent_read_budget_is_its_own_answer() {
     };
     let open = |max: u64| {
         let options = ww_tape::OpenOptions {
-            state_read_max: max,
+            state_read_max: exact_units::Bytes::new(max),
             ..Default::default()
         };
         TapeReader::open_with(&bytes[..], options).unwrap()

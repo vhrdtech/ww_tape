@@ -46,7 +46,9 @@ fn events(d: &mut Draw<'_>) -> Vec<Vec<u8>> {
     };
     let first = u64::from(d.u16()) * 37;
     let mut tree = EventTree::new(TrackId::new(1), TrackNum::new(1), fields, first);
-    tree.set_max_block_bytes(96 + 64 * d.range(1, 8));
+    // at most 96 + 64 * 8
+    let bytes = u32::try_from(96 + 64 * d.range(1, 8)).unwrap_or(u32::MAX);
+    tree.set_max_block_bytes(exact_units::Bytes::new(bytes));
     let mut t = i64::from(d.u8()) - 128;
     let mut r = d.bits();
     for _ in 0..1 + d.below(64) {
@@ -101,7 +103,7 @@ fn series(d: &mut Draw<'_>) -> Vec<Vec<u8>> {
     let Ok(mut s) = SeriesSummaries::<i16>::new(start, spec) else {
         return vec![];
     };
-    s.set_max_block_bytes(512);
+    s.set_max_block_bytes(exact_units::Bytes::new(512));
     let mut grid = start.grid;
     let mut r = d.bits();
     for i in 0..d.below(12) {

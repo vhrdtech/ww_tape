@@ -50,7 +50,7 @@ fn options(shape: Shape) -> ChainOptions {
             sync: SyncPolicy::None,
             clock: ww_tape::ClockRef::NONE,
             index: IndexPolicy {
-                bytes: 1024,
+                bytes: exact_units::Bytes::new(1024),
                 interval: None,
                 ..IndexPolicy::default()
             },
@@ -59,7 +59,11 @@ fn options(shape: Shape) -> ChainOptions {
             near: NearPolicy::default(),
         },
         cut: CutPolicy {
-            chunks: if shape.cut == 0 { u64::MAX } else { shape.cut },
+            chunks: if shape.cut == 0 {
+                exact_units::Count::new(u64::MAX)
+            } else {
+                exact_units::Count::new(shape.cut)
+            },
             ..CutPolicy::default()
         },
     }

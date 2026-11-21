@@ -18,10 +18,15 @@ use ww_tape::{ClockNum, TrackNum};
 const TRACK_1: TrackNum = TrackNum::new(1);
 
 /// An aligned writer on a memory sink with [base] held, no checkpoints, at most `max` state entries a piece.
-fn aligned(max: usize) -> Rig {
+/// [HEAD_ENTRIES] as a policy counts entries.
+fn head_entries() -> u64 {
+    u64::try_from(HEAD_ENTRIES).unwrap()
+}
+
+fn aligned(max: u64) -> Rig {
     let mut w = Rig::new(TapeWriter::create_on(MemSink::new(), SyncPolicy::None));
     w.set_index_policy(IndexPolicy {
-        state_entries_max: max,
+        state_entries_max: exact_units::Count::new(max),
         ..IndexPolicy::NONE
     })
     .unwrap();
@@ -91,7 +96,7 @@ fn a_full_cap_never_stops_a_cut() {
             writer: WriterOptions {
                 sync: SyncPolicy::None,
                 index: IndexPolicy {
-                    state_entries_max: 12,
+                    state_entries_max: exact_units::Count::new(12),
                     ..IndexPolicy::NONE
                 },
                 layout: Layout::ALIGNED,
@@ -149,7 +154,7 @@ pub(crate) fn long_records(id: BlockId, track: u32, len: usize) -> Vec<u8> {
 /// (writing side review 3, point 1).
 #[test]
 fn a_deferred_block_waits_at_most_the_window() {
-    let mut w = aligned(IndexPolicy::NONE.state_entries_max);
+    let mut w = aligned(IndexPolicy::NONE.state_entries_max.get());
     let tape = w.sink().tape();
     w.defer_block(long_records(w.next_id(), 2, 2 * ALIGNMENT as usize))
         .unwrap();
@@ -254,7 +259,7 @@ fn a_block_whose_definitions_lie_behind_costs_no_work() {
 /// needs are put (writing side review 3, point 5).
 #[test]
 fn a_refused_chunk_leaves_no_puts() {
-    let mut w = aligned(IndexPolicy::NONE.state_entries_max);
+    let mut w = aligned(IndexPolicy::NONE.state_entries_max.get());
     w.define(&state(1)).unwrap();
     let tape = w.sink().tape();
     write_on(&mut w, 2, 0, 1);
@@ -278,7 +283,7 @@ fn a_refused_chunk_leaves_no_puts() {
 fn a_cap_below_a_piece_head_is_refused() {
     let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     let small = IndexPolicy {
-        state_entries_max: HEAD_ENTRIES - 1,
+        state_entries_max: exact_units::Count::new(head_entries() - 1),
         ..IndexPolicy::NONE
     };
     assert!(matches!(
@@ -286,7 +291,7 @@ fn a_cap_below_a_piece_head_is_refused() {
         Err(WriteError::Index(IndexError::StateEntries { .. }))
     ));
     w.set_index_policy(IndexPolicy {
-        state_entries_max: HEAD_ENTRIES,
+        state_entries_max: exact_units::Count::new(head_entries()),
         ..IndexPolicy::NONE
     })
     .unwrap();

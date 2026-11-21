@@ -21,7 +21,7 @@ use crate::state::ItemHash;
 
 /// Bytes of state items a writer keeps for its cuts by default ([NearPolicy::kept_bytes_max](super::NearPolicy)):
 /// 64 MiB.
-pub const KEPT_BYTES_MAX: usize = 64 << 20;
+pub const KEPT_BYTES_MAX: exact_units::Bytes<u64> = exact_units::Bytes::new(64 << 20);
 
 /// The newest item of one state track.
 #[derive(Clone, Debug, PartialEq, Eq)]

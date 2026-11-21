@@ -36,7 +36,7 @@ pub(crate) fn options(aligned: bool) -> WriterOptions {
         sync: SyncPolicy::None,
         clock: ww_tape::ClockRef::NONE,
         index: IndexPolicy {
-            bytes: 1024,
+            bytes: exact_units::Bytes::new(1024),
             interval: None,
             ..IndexPolicy::default()
         },
@@ -47,8 +47,8 @@ pub(crate) fn options(aligned: bool) -> WriterOptions {
         },
         producer: "fuzz".to_owned(),
         near: NearPolicy {
-            copy_spacing: 2 << 10,
-            memory_max: 4,
+            copy_spacing: exact_units::Bytes::new(2 << 10),
+            memory_max: exact_units::Count::new(4),
             ..NearPolicy::default()
         },
     }
@@ -157,7 +157,7 @@ fn chain_options(aligned: bool) -> ChainOptions {
         tapes: PieceTapes::One,
         writer: options(aligned),
         cut: CutPolicy {
-            chunks: 4,
+            chunks: exact_units::Count::new(4),
             ..CutPolicy::default()
         },
     }

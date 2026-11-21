@@ -1111,22 +1111,23 @@ impl<'b> IndexBlock<'b> {
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct IndexPolicy {
     /// After at least this many bytes of blocks since the previous checkpoint (the rescan a crash costs); 0: never.
-    pub bytes: u64,
+    pub bytes: exact_units::Bytes<u64>,
     /// Also when blocks wait unlisted and the previous checkpoint is this long ago, at a block or a writer's tick;
     /// None by default, since a checkpoint placed by time makes the bytes depend on it.
     pub interval: Option<core::time::Duration>,
     /// Most state entries a piece lists, one per state record ([STATE_ENTRIES_MAX]): a write that would list more
     /// is refused ([IndexError::StateEntries]).
-    pub state_entries_max: usize,
+    pub state_entries_max: exact_units::Count<exact_units::units::Entry, u64>,
 }
 
 /// State entries a piece lists by default ([IndexPolicy::state_entries_max]), each [ENTRY_LEN] bytes of final index.
-pub const STATE_ENTRIES_MAX: usize = 1 << 20;
+pub const STATE_ENTRIES_MAX: exact_units::Count<exact_units::units::Entry, u64> =
+    exact_units::Count::new(1 << 20);
 
 impl IndexPolicy {
     /// No checkpoints; the final index is still written at the close.
     pub const NONE: Self = Self {
-        bytes: 0,
+        bytes: exact_units::Bytes::new(0),
         interval: None,
         state_entries_max: STATE_ENTRIES_MAX,
     };
@@ -1143,7 +1144,7 @@ impl Default for IndexPolicy {
 }
 
 /// Default of [IndexPolicy::bytes]: 4 MiB.
-pub const DEFAULT_CHECKPOINT_BYTES: u64 = 4 << 20;
+pub const DEFAULT_CHECKPOINT_BYTES: exact_units::Bytes<u64> = exact_units::Bytes::new(4 << 20);
 
 #[cfg(feature = "alloc")]
 mod build;

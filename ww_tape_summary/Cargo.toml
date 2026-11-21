@@ -18,7 +18,7 @@ alloc = ["ww_tape/alloc"]
 std = ["alloc", "exact_units/std", "ww_tape/std", "ww_tape_codecs/std"]
 
 [dependencies]
-exact_units = { workspace = true, features = ["shrink_wrap"] }
+exact_units = { workspace = true, features = ["information", "shrink_wrap"] }
 ww_tape.workspace = true
 ww_tape_codecs.workspace = true
 

@@ -309,7 +309,7 @@ impl Indexer {
 
     /// Refuse to list `n` more state entries past the policy's cap.
     pub(crate) fn room_for_states(&self, n: usize) -> Result<(), IndexError> {
-        let max = self.policy.state_entries_max;
+        let max = crate::cap_usize(self.policy.state_entries_max.get());
         if self.states.saturating_add(n) > max {
             return Err(IndexError::StateEntries {
                 max,
@@ -385,7 +385,7 @@ impl Indexer {
     /// Whether the policy's byte count, or the entry limit, asks for a checkpoint now.
     pub(crate) fn due(&self) -> bool {
         !self.pending.is_empty()
-            && ((self.policy.bytes > 0 && self.since >= self.policy.bytes)
+            && ((self.policy.bytes.get() > 0 && self.since >= self.policy.bytes.get())
                 || self.pending.len() >= CHECKPOINT_ENTRIES_MAX)
     }
 

@@ -79,7 +79,9 @@ pub fn summary(data: &[u8]) {
 
     // an event tree: each input byte is a gap, a span length, flags, or a run
     let mut tree = EventTree::new(TrackId::new(1), TrackNum::new(1), fields, first);
-    tree.set_max_block_bytes(96 + 64 * usize::from(data[3] % 8 + 1));
+    tree.set_max_block_bytes(exact_units::Bytes::new(
+        96 + 64 * u32::from(data[3] % 8 + 1),
+    ));
     let mut t = i64::from(data[3]) - 128;
     for &x in body {
         t += i64::from(x >> 2);
@@ -136,7 +138,7 @@ pub fn summary(data: &[u8]) {
         clip: None,
     };
     let mut s = SeriesSummaries::<i16>::new(start, spec).expect("a valid spec");
-    s.set_max_block_bytes(512);
+    s.set_max_block_bytes(exact_units::Bytes::new(512));
     let mut grid = start.grid;
     for (i, part) in xs
         .chunks(lanes * (1 + usize::from(data[3] % 5)))

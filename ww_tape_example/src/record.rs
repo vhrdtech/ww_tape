@@ -298,7 +298,7 @@ pub(crate) struct Made {
 pub(crate) fn options(drive: &Drive) -> ChainOptions {
     // --8<-- [start:options]
     let definitions = StatePolicy {
-        near: exact_units::Bytes::new(drive.near_bytes),
+        near: drive.near_bytes,
         copies: exact_units::Count::new(1),
     };
     ChainOptions {
@@ -319,8 +319,8 @@ pub(crate) fn options(drive: &Drive) -> ChainOptions {
             clock: ClockRef::NONE,
         },
         cut: CutPolicy {
-            bytes: 0,
-            chunks: drive.piece_chunks(),
+            bytes: exact_units::Bytes::new(0),
+            chunks: exact_units::Count::new(drive.piece_chunks()),
             interval: None,
         },
         tapes: PieceTapes::Each,
@@ -599,7 +599,7 @@ impl Crashed {
             Definitions::with_numbers(resumed.numbers.clone()),
             d.phase_hz,
             d.summaries,
-            d.near_bytes,
+            d.near_bytes.get(),
         )?;
         let mut r = Recorder {
             chain,
@@ -632,7 +632,7 @@ impl Crashed {
 
 /// The definitions `drive` records with, and the numbers they give.
 pub(crate) fn drive_definitions(drive: &Drive) -> Result<(Definitions, DriveNumbers), Error> {
-    definitions(drive.phase_hz, drive.summaries, drive.near_bytes)
+    definitions(drive.phase_hz, drive.summaries, drive.near_bytes.get())
 }
 
 /// Close the chain of `r` and read its pieces from `tapes`.

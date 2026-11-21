@@ -127,7 +127,7 @@ fn parts() -> anyhow::Result<(u64, Vec<Span>)> {
         writer: WriterOptions {
             sync: SyncPolicy::None,
             index: IndexPolicy {
-                bytes: 2 * 1024,
+                bytes: exact_units::Bytes::new(2 * 1024),
                 interval: None,
                 ..IndexPolicy::default()
             },
@@ -135,8 +135,8 @@ fn parts() -> anyhow::Result<(u64, Vec<Span>)> {
             ..WriterOptions::default()
         },
         cut: CutPolicy {
-            bytes: 0,
-            chunks: 0,
+            bytes: exact_units::Bytes::new(0),
+            chunks: exact_units::Count::new(0),
             interval: None,
         },
     };

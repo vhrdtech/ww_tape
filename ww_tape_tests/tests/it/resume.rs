@@ -141,7 +141,7 @@ pub(crate) fn options(alignment: u32) -> WriterOptions {
         sync: SyncPolicy::None,
         clock: ww_tape::ClockRef::NONE,
         index: IndexPolicy {
-            bytes: 1024,
+            bytes: exact_units::Bytes::new(1024),
             interval: None,
             ..IndexPolicy::default()
         },
@@ -153,8 +153,8 @@ pub(crate) fn options(alignment: u32) -> WriterOptions {
         .with_definitions(DEFINITIONS),
         producer: "resume".to_owned(),
         near: NearPolicy {
-            copy_spacing: 2 << 10,
-            memory_max: 3,
+            copy_spacing: exact_units::Bytes::new(2 << 10),
+            memory_max: exact_units::Count::new(3),
             ..NearPolicy::default()
         },
     }
@@ -800,7 +800,7 @@ fn a_chain_in_memory_reads_and_matches_files() {
         tapes: ww_tape::PieceTapes::Each,
         writer: options(0),
         cut: CutPolicy {
-            chunks: 5,
+            chunks: exact_units::Count::new(5),
             ..Default::default()
         },
     };
@@ -868,7 +868,7 @@ fn chain_options() -> ChainOptions {
         tapes: ww_tape::PieceTapes::Each,
         writer: options(0),
         cut: CutPolicy {
-            chunks: 6,
+            chunks: exact_units::Count::new(6),
             ..Default::default()
         },
     }

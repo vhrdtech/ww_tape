@@ -193,7 +193,8 @@ Reading by position, checks and hashes, hostile bytes, in the crate `ww_tape`.
   - Track and clock numbers are `TrackNum` and `ClockNum`, 1 and up, each exactly a `UNib32` on the wire; a definition naming 0 doesn't decode. A record names its track as a `RecordTrack`, track 0 being the definitions.
   - Track keys, track ids and clock keys are `TrackKey`, `TrackId` and `ClockKey`, any value valid, each exactly a `u64` on the wire. A key without dimensions is its id (`TrackKey::id`). The index lists record blocks of data under `RECORDS_TRACK_ID` and state records under `STATE_TRACK_ID`.
   - Which relations of a track keep a column or never decrease is a `RelationSet`, a set of relation indexes below `RELATIONS_MAX` (`StoredRelations`, `TrackFacts`). A relation index itself stays a `u16`: only an index into `TrackDef::relations`.
-  - Missing: types for the other numbers of the API (seqs, item numbers, sizes).
+  - Byte sizes in the options and limits (`NearPolicy`, `IndexPolicy`, `CutPolicy`, `OpenOptions`, the summary builders' block caps, their default constants) are exact_units `Bytes<T>`; counts of entries, chunks and slots there are `Count<_, u64>`. Offsets and lengths read from a file stay `FromFile<T>` (READ-2); plain measurements in reports stay bare.
+  - Missing: types for the other numbers of the API (seqs, item numbers).
   - Read more: the crate docs of `ww_tape` (`TrackNum`, `ClockNum`, `RecordTrack`, `TrackKey`, `TrackId`, `ClockKey`, `RelationSet`).
 
 ## Files and locks (`FS`)

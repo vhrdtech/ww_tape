@@ -426,6 +426,13 @@ pub const fn is_blank(b: u8) -> bool {
 }
 
 /// FNV-1a, 64 bit.
+/// A cap given as a `u64` as a `usize`: `usize::MAX` where it is past the address space, since nothing in memory
+/// reaches it then.
+#[cfg(feature = "alloc")]
+pub(crate) fn cap_usize(n: u64) -> usize {
+    usize::try_from(n).unwrap_or(usize::MAX)
+}
+
 pub const fn fnv1a(mut h: u64, mut bytes: &[u8]) -> u64 {
     while let [b, rest @ ..] = bytes {
         #[expect(clippy::as_conversions, reason = "u8 to u64 widens; From is not const")]

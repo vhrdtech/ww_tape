@@ -126,8 +126,8 @@ fn write(args: &Args, rf: Rf) -> anyhow::Result<Written> {
             ..WriterOptions::default()
         },
         cut: CutPolicy {
-            bytes: 0,
-            chunks: 6_000, // a minute of 10 ms chunks
+            bytes: exact_units::Bytes::new(0),
+            chunks: exact_units::Count::new(6_000), // a minute of 10 ms chunks
             interval: None,
         },
         tapes: PieceTapes::Each,

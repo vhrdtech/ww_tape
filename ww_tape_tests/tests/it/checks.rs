@@ -183,7 +183,7 @@ fn the_layout_and_the_producer_are_the_writers() {
 fn a_resume_checks_the_layout_and_producer_it_is_given() {
     let mut w = begin(options(u64::MAX));
     w.set_index_policy(ww_tape::index::IndexPolicy {
-        bytes: 512,
+        bytes: exact_units::Bytes::new(512),
         interval: None,
         ..ww_tape::index::IndexPolicy::default()
     })
@@ -201,7 +201,7 @@ fn a_resume_checks_the_layout_and_producer_it_is_given() {
         TapeWriter::resume_on(sink, o)
     };
     let mut o = options(u64::MAX);
-    o.index.bytes = 512;
+    o.index.bytes = exact_units::Bytes::new(512);
     let (_, resumed) = resume(&bytes, o.clone()).unwrap();
     assert_eq!(resumed.layout, Some(Layout::UNALIGNED));
     let mut aligned = o.clone();
@@ -270,7 +270,7 @@ fn state_entries_are_capped() {
     let used = w.state_entries();
     assert!(used > 1, "the definitions are listed too");
     w.set_index_policy(ww_tape::index::IndexPolicy {
-        state_entries_max: used + 2,
+        state_entries_max: exact_units::Count::new(u64::try_from(used).unwrap() + 2),
         ..ww_tape::index::IndexPolicy::default()
     })
     .expect("a policy with room for a piece head");

@@ -122,7 +122,7 @@ pub fn autorange() -> anyhow::Result<String> {
     };
     let mut sums = SeriesSummaries::<i16>::new(start, spec).or_debug()?;
     // a block per node, so that each block states its own node's scale
-    sums.set_max_block_bytes(0);
+    sums.set_max_block_bytes(exact_units::Bytes::new(0));
     for (head, values) in &chunks {
         sums.set_grid(head.grid.context("a series chunk")?)
             .or_debug()?;

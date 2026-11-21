@@ -27,7 +27,7 @@ fn unclosed() -> Vec<u8> {
     let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     let tape = w.sink().tape();
     w.set_index_policy(IndexPolicy {
-        bytes: 1024,
+        bytes: exact_units::Bytes::new(1024),
         interval: None,
         ..IndexPolicy::default()
     })
@@ -256,7 +256,7 @@ fn a_raw_medium_reads_appended_pieces() {
             sync: SyncPolicy::None,
             layout: Layout::UNALIGNED.on_sd_card(),
             index: IndexPolicy {
-                bytes: 2048,
+                bytes: exact_units::Bytes::new(2048),
                 interval: None,
                 ..IndexPolicy::default()
             },
@@ -264,7 +264,7 @@ fn a_raw_medium_reads_appended_pieces() {
             ..WriterOptions::default()
         },
         cut: CutPolicy {
-            chunks: 5,
+            chunks: exact_units::Count::new(5),
             ..CutPolicy::default()
         },
     };

@@ -1406,13 +1406,13 @@ fn pass_through_capture_reads_to_the_end() {
     let mut w = TapeWriter::create_on(crate::MemSink::new(), SyncPolicy::None);
     let tape = w.sink().tape();
     w.set_index_policy(IndexPolicy {
-        bytes: 1024,
+        bytes: exact_units::Bytes::new(1024),
         interval: None,
         ..IndexPolicy::default()
     })
     .expect("a policy with room for a piece head");
     w.set_near_policy(writer::NearPolicy {
-        copy_spacing: 2048,
+        copy_spacing: exact_units::Bytes::new(2048),
         ..Default::default()
     });
     // the producer's session: its records numbered 0 and up

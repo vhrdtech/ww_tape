@@ -5,6 +5,7 @@ use super::{
     EVENT_BASE_SHIFT, EventFields, EventNode, Layout, SummaryHead, Tree, summary_len,
     write_event_summary,
 };
+use exact_units::Bytes;
 use ww_tape::{TrackId, TrackNum};
 
 impl LevelNode for EventNode {
@@ -15,7 +16,7 @@ impl LevelNode for EventNode {
 }
 
 /// Default most bytes of an event tree block.
-pub const EVENT_BLOCK_BYTES: usize = 4096;
+pub const EVENT_BLOCK_BYTES: Bytes<u32> = Bytes::new(4096);
 
 /// A run of consecutive items whose summary is known (a sealed group of the time codec): count, starts, flags OR,
 /// latest end.
@@ -72,7 +73,7 @@ impl EventTree {
                 first_item,
                 EVENT_BASE_SHIFT,
                 fields.node_len(),
-                EVENT_BLOCK_BYTES,
+                crate::block_room(EVENT_BLOCK_BYTES),
             ),
             blocks: Vec::new(),
             last_tick: None,
@@ -80,8 +81,13 @@ impl EventTree {
     }
 
     /// Keep blocks within `bytes` (default [EVENT_BLOCK_BYTES]); call before the first item.
-    pub fn set_max_block_bytes(&mut self, bytes: usize) {
-        self.levels = Levels::new(self.origin, EVENT_BASE_SHIFT, self.fields.node_len(), bytes);
+    pub fn set_max_block_bytes(&mut self, bytes: Bytes<u32>) {
+        self.levels = Levels::new(
+            self.origin,
+            EVENT_BASE_SHIFT,
+            self.fields.node_len(),
+            crate::block_room(bytes),
+        );
     }
 
     /// The next item's number.

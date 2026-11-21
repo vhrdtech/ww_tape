@@ -43,7 +43,7 @@ pub(crate) fn write(files: PieceTapes, seed: u64) -> (Vec<Closed>, Vec<Vec<u8>>)
         writer: WriterOptions {
             sync: SyncPolicy::None,
             index: IndexPolicy {
-                bytes: 2048,
+                bytes: exact_units::Bytes::new(2048),
                 interval: None,
                 ..IndexPolicy::default()
             },
@@ -51,7 +51,7 @@ pub(crate) fn write(files: PieceTapes, seed: u64) -> (Vec<Closed>, Vec<Vec<u8>>)
             ..WriterOptions::default()
         },
         cut: CutPolicy {
-            chunks: 7,
+            chunks: exact_units::Count::new(7),
             ..CutPolicy::default()
         },
     };
@@ -474,7 +474,7 @@ fn a_checkpoint_naming_a_chunk_many_times_is_refused() {
     let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     let tape = w.sink().tape();
     w.set_index_policy(IndexPolicy {
-        bytes: 2048,
+        bytes: exact_units::Bytes::new(2048),
         interval: None,
         ..IndexPolicy::default()
     })

@@ -145,7 +145,7 @@ fn lowered_cut() -> (ww_tape::writer::Closed, Vec<u8>) {
         w.write_chunk(defs, &h, &column(&c)).unwrap();
     }
     w.set_index_policy(IndexPolicy {
-        state_entries_max: 7,
+        state_entries_max: exact_units::Count::new(7),
         ..IndexPolicy::default()
     })
     .unwrap();
@@ -251,7 +251,7 @@ fn a_chain_with_its_policy_lowered_cuts_and_writes_on() {
         .writer()
         .unwrap()
         .set_index_policy(IndexPolicy {
-            state_entries_max: 7,
+            state_entries_max: exact_units::Count::new(7),
             ..IndexPolicy::default()
         })
         .unwrap();
@@ -544,18 +544,18 @@ fn map(from: u32, to: u32) -> ww_tape::Describe<'static> {
 }
 
 /// Chain options of state entries `max`, cut each `chunks` chunks (0: never).
-fn chain_options(max: usize, chunks: u64) -> ww_tape::ChainOptions {
+fn chain_options(max: u64, chunks: u64) -> ww_tape::ChainOptions {
     ww_tape::ChainOptions {
         writer: ww_tape::WriterOptions {
             sync: SyncPolicy::None,
             index: IndexPolicy {
-                state_entries_max: max,
+                state_entries_max: exact_units::Count::new(max),
                 ..IndexPolicy::default()
             },
             ..Default::default()
         },
         cut: CutPolicy {
-            chunks,
+            chunks: exact_units::Count::new(chunks),
             ..CutPolicy::default()
         },
         ..Default::default()
@@ -821,7 +821,7 @@ fn all_hold_data(mem: &MemTapes, pieces: &[ww_tape::ChainPiece<u64>]) -> bool {
 
 /// The chain of [a_cut_short_of_room_leaves_out_the_oldest_and_a_reader_names_them] cut after the maps came: the
 /// chain, its tapes and the numbers of the tracks the cut left out.
-fn left_out_chain(policy: usize) -> (PieceChain<MemTapes>, MemTapes, Definitions, Vec<u32>) {
+fn left_out_chain(policy: u64) -> (PieceChain<MemTapes>, MemTapes, Definitions, Vec<u32>) {
     let n = 300u32;
     let host = 9_000;
     let mut all = vec![crate::definitions::clock(host)];
@@ -896,7 +896,7 @@ fn data_on_a_track_left_out_by_a_lowered_policy_writes_on() {
         OwnerId([0x78; 32]),
         0,
         &[],
-        chain_options(ww_tape::index::STATE_ENTRIES_MAX, 0),
+        chain_options(ww_tape::index::STATE_ENTRIES_MAX.get(), 0),
     )
     .unwrap();
     for t in 0..120 {
@@ -907,7 +907,7 @@ fn data_on_a_track_left_out_by_a_lowered_policy_writes_on() {
         .writer()
         .unwrap()
         .set_index_policy(IndexPolicy {
-            state_entries_max: 50,
+            state_entries_max: exact_units::Count::new(50),
             ..IndexPolicy::default()
         })
         .unwrap();
@@ -1032,7 +1032,7 @@ fn random_schedules_refuse_no_counted_in_track_and_leave_no_piece_empty() {
         }
         let mut defs = crate::definitions::held(&all);
         let mem = MemTapes::new();
-        let policy = 12 + usize::try_from(rng.below(60)).unwrap();
+        let policy = 12 + rng.below(60);
         let chunks = if rng.below(2) == 0 {
             0
         } else {
@@ -1097,12 +1097,12 @@ fn random_schedules_refuse_no_counted_in_track_and_leave_no_piece_empty() {
                     .unwrap();
                 }
                 2 if policy > 6 => {
-                    policy = 6 + usize::try_from(rng.below((policy - 6) as u64)).unwrap();
+                    policy = 6 + rng.below(policy - 6);
                     chain
                         .writer()
                         .unwrap()
                         .set_index_policy(IndexPolicy {
-                            state_entries_max: policy,
+                            state_entries_max: exact_units::Count::new(policy),
                             ..IndexPolicy::default()
                         })
                         .unwrap();

@@ -26,14 +26,15 @@ use crate::{Block, ClockTime};
 
 /// Most bytes one lookup spends by default ([OpenOptions::state_read_max](super::OpenOptions::state_read_max)): the
 /// coded bytes it reads, the decoded bodies and the records it keeps.
-pub const STATE_READ_MAX: u64 = 1 << 30;
+pub const STATE_READ_MAX: exact_units::Bytes<u64> = exact_units::Bytes::new(1 << 30);
 
 /// Most state entries a reader keeps sorted over all its pieces by default
 /// ([OpenOptions::state_cache_max](super::OpenOptions::state_cache_max)): two pieces at the default cap
 /// ([STATE_ENTRIES_MAX](crate::index::STATE_ENTRIES_MAX)).
 ///
 /// A piece with more is sorted again for each lookup.
-pub const STATE_CACHE_MAX: usize = 1 << 21;
+pub const STATE_CACHE_MAX: exact_units::Count<exact_units::units::Entry, u64> =
+    exact_units::Count::new(1 << 21);
 
 /// A reader's sorted state entries by piece, at most `max` entries over all pieces, the least recently used piece
 /// out first.

@@ -1074,6 +1074,7 @@ version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
+ "exact_units",
  "libm",
  "shrink_wrap",
  "vc_build",

@@ -78,7 +78,7 @@ pub(crate) fn column(bytes: &[u8]) -> [(ColumnSpec, &[u8]); 1] {
 /// `rounds` × (a chunk of each of 3 tracks, a records block), checkpoints every 2 KiB.
 fn write_tape(w: &mut TapeWriter<ww_tape_fs::FileSink>, rounds: u64) {
     w.set_index_policy(IndexPolicy {
-        bytes: 2048,
+        bytes: exact_units::Bytes::new(2048),
         interval: None,
         ..IndexPolicy::default()
     })
@@ -324,7 +324,7 @@ fn crash_anywhere_loses_only_the_cut_block() {
     let r = TapeReader::open_with(
         &bytes[..],
         OpenOptions {
-            scan_back_max: 16,
+            scan_back_max: exact_units::Bytes::new(16),
             ..Default::default()
         },
     )
@@ -375,14 +375,14 @@ fn write_chain(dir: &Path, n: u64) -> Vec<PathBuf> {
             writer: ww_tape::WriterOptions {
                 sync: SyncPolicy::None,
                 index: IndexPolicy {
-                    bytes: 2048,
+                    bytes: exact_units::Bytes::new(2048),
                     interval: None,
                     ..IndexPolicy::default()
                 },
                 ..Default::default()
             },
             cut: ww_tape::CutPolicy {
-                chunks: 4,
+                chunks: exact_units::Count::new(4),
                 ..Default::default()
             },
         },
@@ -420,7 +420,7 @@ fn a_chain_cuts_when_its_piece_is_full_of_state_entries() {
                 sync: SyncPolicy::None,
                 index: IndexPolicy {
                     // a piece's head, the clock, the track and its first item take 5
-                    state_entries_max: 8,
+                    state_entries_max: exact_units::Count::new(8),
                     ..IndexPolicy::default()
                 },
                 ..Default::default()
@@ -745,7 +745,7 @@ fn index_golden() {
             writer: ww_tape::WriterOptions {
                 sync: SyncPolicy::None,
                 index: IndexPolicy {
-                    bytes: 1000,
+                    bytes: exact_units::Bytes::new(1000),
                     interval: None,
                     ..IndexPolicy::default()
                 },
@@ -833,7 +833,7 @@ fn incomplete_golden() {
         writer: WriterOptions {
             sync: SyncPolicy::None,
             index: IndexPolicy {
-                bytes: 300,
+                bytes: exact_units::Bytes::new(300),
                 interval: None,
                 ..IndexPolicy::default()
             },
@@ -1102,7 +1102,7 @@ fn the_near_policy_carries_over_a_cut() {
     w.set_index_policy(IndexPolicy::NONE)
         .expect("a policy with room for a piece head");
     let policy = ww_tape::writer::NearPolicy {
-        copy_spacing: 64 << 10,
+        copy_spacing: exact_units::Bytes::new(64 << 10),
         ..Default::default()
     };
     w.set_near_policy(policy);
@@ -1276,7 +1276,7 @@ pub(crate) fn chain_in_memory(mem: &ww_tape::MemTapes) -> Vec<u64> {
                 ..Default::default()
             },
             cut: ww_tape::CutPolicy {
-                chunks: 2,
+                chunks: exact_units::Count::new(2),
                 ..Default::default()
             },
         },

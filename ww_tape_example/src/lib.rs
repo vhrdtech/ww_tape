@@ -49,6 +49,7 @@ pub mod writing;
 pub use card::{Card, CardRead, EARLIER_CHAIN};
 pub use damage::{Damage, Damaged, FLIP_MINUTE, LOST_UNIT, Placed, Salvaged, Walk, walk};
 pub use defs::{BOOT_UNIX_NS, DriveNumbers, define, definitions, key, phase_def, phase_summaries};
+use exact_units::Bytes;
 pub use record::{Act, CRASH_PAST_END, Crash, Crashed, Recording, Resume, Story, records_block};
 pub use signals::{
     CRASH_MINUTE, EMERGENCY_ID, FAULT_MINUTE, LIMIT_MA, Mode, RUN_MINUTE, emergency_frame, frame,
@@ -184,12 +185,12 @@ pub struct Drive {
     /// ([ww_tape::CutPolicy::chunks]), so the pieces fall at the same minutes at every scale.
     pub piece_minutes: u32,
     /// The writer places a checkpoint every this many bytes ([ww_tape::IndexPolicy::bytes]).
-    pub checkpoint_bytes: u64,
+    pub checkpoint_bytes: Bytes<u64>,
     /// The definitions and the mode lie at most this far behind each use ([ww_tape::StatePolicy::near]).
-    pub near_bytes: u32,
+    pub near_bytes: Bytes<u32>,
     /// The writer copies a state item first written in a piece this far on
     /// ([ww_tape::NearPolicy::copy_spacing]).
-    pub copy_spacing: u64,
+    pub copy_spacing: Bytes<u64>,
     /// `phase_a` carries summaries.
     pub summaries: bool,
     /// The number of the chain of [OWNER] the run records into: another number gives other piece ids and session
@@ -213,7 +214,7 @@ impl Drive {
             block_ms: 1_000,
             piece_minutes: 15,
             checkpoint_bytes: ww_tape::index::DEFAULT_CHECKPOINT_BYTES,
-            near_bytes: 32 << 20,
+            near_bytes: Bytes::new(32 << 20),
             copy_spacing: ww_tape::writer::near::COPY_SPACING,
             summaries: true,
             chain: CHAIN,
@@ -236,9 +237,9 @@ impl Drive {
             log_per_hour: full.log_per_hour / k,
             temp_per_hour: full.temp_per_hour / k,
             block_ms: full.block_ms * block_seconds(k),
-            checkpoint_bytes: full.checkpoint_bytes / k64,
-            near_bytes: full.near_bytes / k,
-            copy_spacing: full.copy_spacing / k64,
+            checkpoint_bytes: Bytes::new(full.checkpoint_bytes.get() / k64),
+            near_bytes: Bytes::new(full.near_bytes.get() / k),
+            copy_spacing: Bytes::new(full.copy_spacing.get() / k64),
             ..full
         })
     }

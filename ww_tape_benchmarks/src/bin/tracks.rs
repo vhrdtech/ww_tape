@@ -313,7 +313,7 @@ fn main() -> anyhow::Result<()> {
             args.tracks,
             args.block_kib,
             ww_tape::NEAR_DEFAULT >> 20,
-            ww_tape::NearPolicy::default().copy_spacing >> 20
+            ww_tape::NearPolicy::default().copy_spacing.get() >> 20
         ),
         &["Tracks in use", "Put and copied bytes", "Of the piece, %"],
     );

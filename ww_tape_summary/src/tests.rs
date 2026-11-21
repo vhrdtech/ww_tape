@@ -1106,7 +1106,7 @@ fn summary_golden() {
             },
             2000,
         );
-        t.set_max_block_bytes(256);
+        t.set_max_block_bytes(exact_units::Bytes::new(256));
         for i in 0..2200i64 {
             t.push(i * 7 - 3000, i * 7 - 3000 + (i % 13) * 50, 1 << (i % 5))
                 .unwrap();
@@ -1475,7 +1475,7 @@ fn series_prefix_changes_match_naive_model_in_the_unit() {
         let mut s =
             SeriesSummaries::<i16>::new(start, spec(base_shift, SeriesStats::all(element), None))
                 .unwrap();
-        s.set_max_block_bytes(600);
+        s.set_max_block_bytes(exact_units::Bytes::new(600));
         let blocks = series.push_all(&mut s, first, &at, &scales, &mut rng);
         for (i, scale) in series.scale_of.iter().enumerate() {
             assert_eq!(s.timeline().scale(first_item + i as u64), Some(*scale));

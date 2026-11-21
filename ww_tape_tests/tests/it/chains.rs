@@ -20,13 +20,13 @@ fn a_chain_of_files_cut_by_size_and_its_oldest_piece_deleted() -> Result<(), Box
     // --8<-- [start:create]
     let options = ChainOptions {
         cut: CutPolicy {
-            bytes: 16 << 10, // a new piece once one holds 16 KiB
+            bytes: exact_units::Bytes::new(16 << 10), // a new piece once one holds 16 KiB
             ..CutPolicy::default()
         },
         tapes: PieceTapes::Each, // a file per piece: 00000000.wwt, 00000001.wwt, ...
         writer: WriterOptions {
             index: IndexPolicy {
-                bytes: 4 << 10,
+                bytes: exact_units::Bytes::new(4 << 10),
                 ..IndexPolicy::default()
             },
             ..WriterOptions::default()
@@ -67,7 +67,7 @@ fn renamed_pieces_still_form_their_chain() -> Result<(), Box<dyn Error>> {
     let defs = base_defs();
     let options = ChainOptions {
         cut: CutPolicy {
-            bytes: 16 << 10,
+            bytes: exact_units::Bytes::new(16 << 10),
             ..CutPolicy::default()
         },
         ..ChainOptions::default()

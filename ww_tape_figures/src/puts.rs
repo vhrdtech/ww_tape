@@ -21,7 +21,7 @@ const DATA: u32 = 1;
 const STATE: u32 = 5;
 /// The shrunk near rule.
 const NEAR: u32 = 8 * 1024;
-const COPY_SPACING: u64 = 2 * 1024;
+const COPY_SPACING: Bytes<u64> = Bytes::new(2 * 1024);
 /// Blocks of data written, and the bytes of each one's record.
 const BLOCKS: u32 = 26;
 const RECORD: usize = 900;
@@ -157,7 +157,7 @@ pub fn puts() -> anyhow::Result<String> {
         axis + 86.0,
         &format!(
             "A state track put before every block of data: most puts write nothing; the first writes the item, a use {} KiB on writes one copy, and a use more than {} KiB after the newest record writes it again",
-            COPY_SPACING / 1024,
+            COPY_SPACING.get() / 1024,
             NEAR / 1024
         ),
     );
@@ -208,7 +208,7 @@ pub fn puts() -> anyhow::Result<String> {
                     Some(prev) if p.at - prev < u64::from(NEAR) => {
                         ensure!(!copied, "one copy per cycle");
                         ensure!(
-                            p.at - cycle_first >= COPY_SPACING,
+                            p.at - cycle_first >= COPY_SPACING.get(),
                             "a copy lies the copy spacing on"
                         );
                         copied = true;

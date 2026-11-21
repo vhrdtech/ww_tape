@@ -518,7 +518,7 @@ impl<S: TapeSink> TapeWriter<S> {
     /// call with [IndexError::StateEntries] is full, and one cut makes room: data on a track is never refused for
     /// good, and no cut made for a call leaves a piece empty.
     fn admit(&self, needed: usize) -> Result<(), WriteError<S::Error>> {
-        let max = self.indexer.policy().state_entries_max;
+        let max = crate::cap_usize(self.indexer.policy().state_entries_max.get());
         let needed = needed.saturating_add(HEAD_ENTRIES);
         if needed > max {
             return Err(WriteError::Input(InputError::CarriedEntries {
@@ -665,10 +665,15 @@ impl<S: TapeSink> TapeWriter<S> {
     /// How a put of a record of a state track of `policy` decides.
     fn rule(&self, policy: crate::StatePolicy) -> Rule {
         Rule {
-            near: u64::from(policy.near.get()),
-            copies: policy.copies.get(),
+            near: exact_units::Bytes::new(u64::from(policy.near.get())),
+            copies: policy.copies,
             spacing: self.near_policy.copy_spacing,
         }
+    }
+
+    /// [NearPolicy::kept_bytes_max] as the kept items count it.
+    fn kept_bytes_max(&self) -> usize {
+        crate::cap_usize(self.near_policy.kept_bytes_max.get())
     }
 
     /// How a put of a definition decides: track 0's policy, the layout's.
@@ -887,10 +892,8 @@ impl<S: TapeSink> TapeWriter<S> {
             .map(|(_, rows)| rows.clone())
             .unwrap_or_default();
         let head = if self.head_put { 0 } else { HEAD_ENTRIES };
-        let room = self
-            .indexer
-            .policy()
-            .state_entries_max
+        let room = self.indexer.policy().state_entries_max.get();
+        let room = crate::cap_usize(room)
             .saturating_sub(self.indexer.states())
             .saturating_sub(head);
         let (blocks, _) = self.carried(defs, &rows, room);
@@ -986,9 +989,9 @@ impl<S: TapeSink> TapeWriter<S> {
     /// A policy whose [IndexPolicy::state_entries_max] has no room for a piece head's [HEAD_ENTRIES] is refused:
     /// every new piece of a chain would fail.
     pub fn set_index_policy(&mut self, policy: IndexPolicy) -> Result<(), WriteError<S::Error>> {
-        if policy.state_entries_max < HEAD_ENTRIES {
+        if crate::cap_usize(policy.state_entries_max.get()) < HEAD_ENTRIES {
             return Err(WriteError::Index(IndexError::StateEntries {
-                max: policy.state_entries_max,
+                max: crate::cap_usize(policy.state_entries_max.get()),
                 used: HEAD_ENTRIES,
             }));
         }
@@ -1324,7 +1327,7 @@ impl<S: TapeSink> TapeWriter<S> {
             {
                 self.indexer.state_placed(key, track);
                 self.kept
-                    .placed(track, key, r.at, r.item, self.near_policy.kept_bytes_max);
+                    .placed(track, key, r.at, r.item, self.kept_bytes_max());
             }
             if matches!(slot, Slot::Track { .. })
                 && let Ok(Describe::Track(t)) =
@@ -2140,11 +2143,8 @@ impl<S: TapeSink> TapeWriter<S> {
         };
         let head = *head;
         let mut tracks = self.indexer.next_starts(starts);
-        let room = self
-            .indexer
-            .policy()
-            .state_entries_max
-            .saturating_sub(HEAD_ENTRIES);
+        let room = self.indexer.policy().state_entries_max.get();
+        let room = crate::cap_usize(room).saturating_sub(HEAD_ENTRIES);
         let (carried, dropped) = self.carried(defs, &tracks, room);
         let dropped: BTreeSet<TrackNum> = dropped.into_iter().collect();
         for t in &mut tracks {
@@ -2269,7 +2269,7 @@ impl<S: TapeSink> TapeWriter<S> {
             .map(|t| (t.track_number, (t.track_id, t.owner)))
             .collect();
         older.retain(&rows);
-        self.kept.after(older, self.near_policy.kept_bytes_max);
+        self.kept.after(older, self.kept_bytes_max());
     }
 
     /// Go on from `newest`, the newest values of the monotone relations of the pieces before: a resume's.

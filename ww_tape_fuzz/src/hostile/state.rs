@@ -40,7 +40,7 @@ pub(crate) fn options() -> ww_tape::WriterOptions {
         sync: SyncPolicy::None,
         clock: ww_tape::ClockRef::NONE,
         index: IndexPolicy {
-            bytes: 1024,
+            bytes: exact_units::Bytes::new(1024),
             interval: None,
             ..IndexPolicy::default()
         },
@@ -49,8 +49,8 @@ pub(crate) fn options() -> ww_tape::WriterOptions {
             .with_definitions(policy(1024, 2)),
         producer: "state".to_owned(),
         near: NearPolicy {
-            copy_spacing: 512,
-            memory_max: 4,
+            copy_spacing: exact_units::Bytes::new(512),
+            memory_max: exact_units::Count::new(4),
             ..NearPolicy::default()
         },
     }

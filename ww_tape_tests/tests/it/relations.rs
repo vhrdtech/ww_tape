@@ -581,7 +581,7 @@ fn a_monotone_relation_never_decreases_across_cuts_and_resumes() {
         let options = || ChainOptions {
             tapes: files,
             cut: CutPolicy {
-                chunks: 1,
+                chunks: exact_units::Count::new(1),
                 ..CutPolicy::default()
             },
             ..ChainOptions::default()
@@ -741,7 +741,7 @@ fn every_monotone_relation_keeps_its_newest_value_across_resumes() {
     // one piece, its last chunk damaged where a checkpoint lists it
     let options = WriterOptions {
         index: IndexPolicy {
-            bytes: 256,
+            bytes: exact_units::Bytes::new(256),
             interval: None,
             ..IndexPolicy::default()
         },
@@ -1153,7 +1153,7 @@ fn a_chain_piece_with_an_incomplete_row_and_two_monotone_relations_resumes_anywh
             writer: WriterOptions {
                 sync: SyncPolicy::None,
                 index: IndexPolicy {
-                    bytes: 512,
+                    bytes: exact_units::Bytes::new(512),
                     interval: None,
                     ..IndexPolicy::default()
                 },

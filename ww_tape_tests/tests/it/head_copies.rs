@@ -33,13 +33,13 @@ fn piece_with(
     let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     let tape = w.sink().tape();
     w.set_index_policy(IndexPolicy {
-        bytes: 2048,
+        bytes: exact_units::Bytes::new(2048),
         interval: None,
         ..index
     })
     .unwrap();
     w.set_near_policy(NearPolicy {
-        copy_spacing,
+        copy_spacing: exact_units::Bytes::new(copy_spacing),
         ..NearPolicy::default()
     });
     w.set_layout(layout).unwrap();
@@ -257,7 +257,7 @@ fn a_full_piece_skips_the_copy_and_refuses_nothing() {
     // the layout, the producer, the clock and track 9, and the copies of those two: no room for the copies of the
     // layout and the producer
     let full = IndexPolicy {
-        state_entries_max: 6,
+        state_entries_max: exact_units::Count::new(6),
         ..IndexPolicy::default()
     };
     let bytes = piece_with(1024, Layout::UNALIGNED, 100, true, full);

@@ -710,7 +710,7 @@ fn a_gap_after_the_newest_checkpoint_is_read_past() {
     std::fs::create_dir_all(&dir).unwrap();
     let mut w = ww_tape_fs::writer::create(&dir.join("c.wwt"), SyncPolicy::None).unwrap();
     w.set_index_policy(ww_tape::IndexPolicy {
-        bytes: 2048,
+        bytes: exact_units::Bytes::new(2048),
         interval: None,
         ..ww_tape::IndexPolicy::default()
     })

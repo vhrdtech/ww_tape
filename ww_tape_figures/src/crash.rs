@@ -15,7 +15,7 @@ use crate::svg::Svg;
 pub(crate) fn drive() -> anyhow::Result<Drive> {
     let scaled = Drive::scaled(1000).context("1000 divides the drive's rates")?;
     Ok(Drive {
-        checkpoint_bytes: 3 << 10,
+        checkpoint_bytes: exact_units::Bytes::new(3 << 10),
         ..scaled
     })
 }

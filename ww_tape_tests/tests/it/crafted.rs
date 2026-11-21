@@ -189,7 +189,7 @@ fn a_last_tail_stating_another_hash_ends_no_close() {
         (
             "scan",
             OpenOptions {
-                scan_back_max: 0,
+                scan_back_max: exact_units::Bytes::new(0),
                 ..OpenOptions::default()
             },
         ),

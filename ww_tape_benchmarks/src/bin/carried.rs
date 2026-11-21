@@ -17,6 +17,8 @@
 )]
 
 use clap::Parser;
+use exact_units::Count;
+use exact_units::units::Entry;
 use shrink_wrap::prelude::*;
 use ww_tape::index::STATE_ENTRIES_MAX;
 use ww_tape::piece::{
@@ -158,7 +160,7 @@ fn tracks_on(
 }
 
 /// A writer on the second piece of a chain, its head carrying `rows`, under `policy` state entries.
-fn start(rows: &[TrackStart], policy: usize) -> anyhow::Result<TapeWriter<MemSink>> {
+fn start(rows: &[TrackStart], policy: Count<Entry, u64>) -> anyhow::Result<TapeWriter<MemSink>> {
     let e = |e: ww_tape::WriteError<_>| anyhow::anyhow!("{e:?}");
     let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     w.set_index_policy(IndexPolicy {
@@ -226,7 +228,7 @@ fn carried(n: u32) -> anyhow::Result<(u64, u64)> {
 /// Whether a cut under `policy` state entries carries the definitions of all `n` tracks (on one clock, or each on
 /// its own): a piece whose head carries their rows and holds one records block on track 1 is cut with the definitions
 /// of every track, and the cut marks no row not carried.
-fn carries_all(policy: usize, n: u32, own_clocks: bool) -> anyhow::Result<bool> {
+fn carries_all(policy: Count<Entry, u64>, n: u32, own_clocks: bool) -> anyhow::Result<bool> {
     let e = |e: ww_tape::WriteError<_>| anyhow::anyhow!("{e:?}");
     let (every, one, rows) = tracks_on(n, own_clocks)?;
     let mut w = start(&rows, policy)?;
@@ -241,9 +243,9 @@ fn carries_all(policy: usize, n: u32, own_clocks: bool) -> anyhow::Result<bool> 
 
 /// The most tracks a cut carries whole under `policy` state entries, on one clock or each on its own, and whether
 /// the head cap ([HEAD_TRACKS_MAX]) bounds them instead of the policy.
-fn room_for(policy: usize, own_clocks: bool) -> anyhow::Result<(u32, bool)> {
+fn room_for(policy: Count<Entry, u64>, own_clocks: bool) -> anyhow::Result<(u32, bool)> {
     let cap = u32::try_from(HEAD_TRACKS_MAX)?;
-    let mut hi = cap.min(u32::try_from(policy)?);
+    let mut hi = cap.min(u32::try_from(policy.get())?);
     if carries_all(policy, hi, own_clocks)? {
         return Ok((hi, hi == cap));
     }
@@ -385,11 +387,16 @@ fn main() -> anyhow::Result<()> {
             "Tracks on their own clocks",
         ],
     );
-    for policy in [STATE_ENTRIES_MAX, 1 << 16, 1 << 12, 1 << 8] {
+    for policy in [
+        STATE_ENTRIES_MAX,
+        Count::new(1 << 16),
+        Count::new(1 << 12),
+        Count::new(1 << 8),
+    ] {
         let name = if policy == STATE_ENTRIES_MAX {
-            format!("{policy} (default)")
+            format!("{} (default)", policy.get())
         } else {
-            policy.to_string()
+            policy.get().to_string()
         };
         let cell = |(n, capped): (u32, bool)| {
             if capped {

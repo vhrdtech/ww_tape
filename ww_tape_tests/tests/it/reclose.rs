@@ -390,7 +390,7 @@ fn scans_and_checkpoints_pass_inner_closes() {
     let scanned = TapeReader::open_with(
         torn,
         OpenOptions {
-            scan_back_max: 0,
+            scan_back_max: exact_units::Bytes::new(0),
             ..OpenOptions::default()
         },
     )

@@ -5,6 +5,8 @@ use crate::TrackNum;
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
 use core::time::Duration;
+use exact_units::units::Chunk;
+use exact_units::{Bytes, Count};
 
 use super::{CloseReason, OwnerId, PieceHead, PieceId, PieceIdent, TAIL_LEN, TrackStart, UnitHash};
 use crate::index::{IndexEntry, IndexError, TrackIdent};
@@ -22,15 +24,15 @@ use crate::{ChunkHead, ColumnSpec, Definitions, HEADER_LEN, SessionTag};
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
 pub struct CutPolicy {
     /// Once a piece holds this many bytes.
-    pub bytes: u64,
+    pub bytes: Bytes<u64>,
     /// Once a piece holds this many chunk blocks.
-    pub chunks: u64,
+    pub chunks: Count<Chunk, u64>,
     /// Once a piece is this old (since it was started or resumed).
     pub interval: Option<Duration>,
 }
 
 /// What a piece may hold past [CutPolicy::bytes]: the chunk that takes it over the limit, the index, close and tail.
-pub const CUT_SLACK: u64 = 1 << 20;
+pub const CUT_SLACK: Bytes<u64> = Bytes::new(1 << 20);
 
 /// Refuse a resumed piece of a chain that kept blocks but no piece head: its head is damaged, and a piece without
 /// one has no link to the chain and can't be cut. A piece cut off inside its head keeps nothing and starts again.
@@ -46,8 +48,8 @@ fn headed<S: TapeSink>(writer: &TapeWriter<S>) -> Result<(), WriteError<S::Error
 /// Ask a new piece's sink to make room for a piece cut by `cut`, see [TapeSink::reserve]: a memory sink then never
 /// grows by doubling under its write lock while readers read.
 fn reserve_piece<S: TapeSink>(writer: &mut TapeWriter<S>, cut: CutPolicy) {
-    if cut.bytes > 0 {
-        writer.reserve(cut.bytes.saturating_add(CUT_SLACK));
+    if cut.bytes.get() > 0 {
+        writer.reserve(cut.bytes.saturating_add(CUT_SLACK).get());
     }
 }
 
@@ -440,8 +442,8 @@ impl<T: Tapes> PieceChain<T> {
             return false;
         };
         let c = self.cut;
-        (c.bytes > 0 && w.bytes() >= c.bytes)
-            || (c.chunks > 0 && w.chunks() >= c.chunks)
+        (c.bytes.get() > 0 && w.bytes() >= c.bytes.get())
+            || (c.chunks.get() > 0 && w.chunks() >= c.chunks.get())
             || c.interval
                 .is_some_and(|t| w.clock().passed(self.started, t))
     }

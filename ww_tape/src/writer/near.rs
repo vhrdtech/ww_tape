@@ -19,12 +19,14 @@
 use alloc::collections::{BTreeMap, BTreeSet};
 
 use crate::state::{ItemHash, Slot};
+use exact_units::units::Item;
+use exact_units::{Bytes, Count};
 
 /// Bytes between records of an item before a use writes a copy ([NearPolicy::copy_spacing]): 1 MiB, past the damage
 /// around one place (a block or two).
-pub const COPY_SPACING: u64 = 1 << 20;
+pub const COPY_SPACING: Bytes<u64> = Bytes::new(1 << 20);
 /// Slots a writer remembers by default ([NearPolicy::memory_max]).
-pub const MEMORY_MAX: usize = 1 << 18;
+pub const MEMORY_MAX: Count<Item, u64> = Count::new(1 << 18);
 
 /// How a [TapeWriter](super::TapeWriter) remembers and copies state records, see the [module docs](self). Changed
 /// while writing with [TapeWriter::set_near_policy](super::TapeWriter::set_near_policy); a resume is to be given the
@@ -32,11 +34,11 @@ pub const MEMORY_MAX: usize = 1 << 18;
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct NearPolicy {
     /// Bytes from the newest record of an item to where a use writes a copy ([COPY_SPACING]).
-    pub copy_spacing: u64,
+    pub copy_spacing: Bytes<u64>,
     /// Slots remembered ([MEMORY_MAX]).
-    pub memory_max: usize,
+    pub memory_max: Count<Item, u64>,
     /// Bytes of the newest state items kept for a cut to carry ([KEPT_BYTES_MAX](super::KEPT_BYTES_MAX)).
-    pub kept_bytes_max: usize,
+    pub kept_bytes_max: Bytes<u64>,
 }
 
 impl Default for NearPolicy {
@@ -64,11 +66,11 @@ struct Written {
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Rule {
     /// Bytes behind a use within which the newest record of the item serves ([StatePolicy::near](crate::StatePolicy)).
-    pub near: u64,
+    pub near: Bytes<u64>,
     /// Copies after the first record ([StatePolicy::copies](crate::StatePolicy)).
-    pub copies: u8,
+    pub copies: Count<Item, u8>,
     /// Bytes from the newest record to where a use writes a copy ([NearPolicy::copy_spacing]).
-    pub spacing: u64,
+    pub spacing: Bytes<u64>,
 }
 
 /// The state records of a piece a writer remembers, see the [module docs](self).
@@ -92,8 +94,8 @@ impl Near {
             return true;
         };
         let behind = pos.saturating_sub(w.at);
-        let copy = w.records <= u32::from(rule.copies) && behind >= rule.spacing;
-        w.hash != Some(hash) || behind > rule.near || copy
+        let copy = w.records <= u32::from(rule.copies.get()) && behind >= rule.spacing.get();
+        w.hash != Some(hash) || behind > rule.near.get() || copy
     }
 
     /// Note a record of item `hash` in `slot` written in the block at `offset` (None: the block is damaged and the
@@ -117,7 +119,7 @@ impl Near {
         if !matches!(slot, Slot::Layout | Slot::Producer) {
             self.by_age.insert((offset, slot));
         }
-        while self.by_age.len() > policy.memory_max.max(1) {
+        while self.by_age.len() > crate::cap_usize(policy.memory_max.get()).max(1) {
             let Some((_, oldest)) = self.by_age.pop_first() else {
                 break;
             };
@@ -142,9 +144,9 @@ mod tests {
     use crate::TrackNum;
 
     const RULE: Rule = Rule {
-        near: 1000,
-        copies: 0,
-        spacing: 10,
+        near: Bytes::new(1000),
+        copies: Count::new(0),
+        spacing: Bytes::new(10),
     };
 
     fn wrote(n: &mut Near, slot: Slot, item: &[u8], offset: u64, p: &NearPolicy) {
@@ -168,7 +170,10 @@ mod tests {
     #[test]
     fn a_use_writes_the_copies_spaced() {
         let p = NearPolicy::default();
-        let rule = Rule { copies: 2, ..RULE };
+        let rule = Rule {
+            copies: Count::new(2),
+            ..RULE
+        };
         let mut n = Near::default();
         let s = Slot::Track {
             number: TrackNum::new(1),
@@ -201,7 +206,7 @@ mod tests {
     #[test]
     fn the_memory_forgets_the_oldest_first() {
         let p = NearPolicy {
-            memory_max: 2,
+            memory_max: Count::new(2),
             ..NearPolicy::default()
         };
         let mut n = Near::default();

@@ -89,7 +89,7 @@ fn a_checkpoint_is_placed_when_the_clock_says_the_interval_is_up() {
     let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     w.set_clock(ClockRef::new(hand.clone()));
     w.set_index_policy(IndexPolicy {
-        bytes: 0,
+        bytes: exact_units::Bytes::new(0),
         interval: Some(Duration::from_secs(2)),
         ..IndexPolicy::default()
     })

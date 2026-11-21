@@ -87,3 +87,10 @@ pub use tree::{EVENT_BLOCK_BYTES, EventTree, ItemRun};
 mod kernel_tests;
 #[cfg(test)]
 mod tests;
+
+/// A block's byte cap as a `usize`.
+#[cfg(feature = "std")]
+fn block_room(bytes: exact_units::Bytes<u32>) -> usize {
+    // a u32 fits a usize on every target the summaries build for
+    usize::try_from(bytes.get()).unwrap_or(usize::MAX)
+}

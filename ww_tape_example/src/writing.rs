@@ -953,7 +953,7 @@ fn relay(recording: &Recording, acts: &[Act]) -> Result<Relay, Error> {
 /// The board's own tape of the hour: one piece in memory, closed, its definitions near 1 MiB.
 fn board_tape(drive: &Drive, acts: &[Act]) -> Result<Vec<u8>, Error> {
     let board = Drive {
-        near_bytes: 1 << 20,
+        near_bytes: exact_units::Bytes::new(1 << 20),
         ..*drive
     };
     one_tape(&board, acts, "drive firmware", |_| true)

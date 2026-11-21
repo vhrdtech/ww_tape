@@ -822,7 +822,7 @@ pub use builder::{SERIES_BLOCK_BYTES, SeriesStart, SeriesSummaries};
 
 #[cfg(feature = "std")]
 mod builder {
-    use exact_units::Magnitude;
+    use exact_units::{Bytes, Magnitude};
 
     use super::i128_f64;
     use super::scalar::{Acc, Channel};
@@ -921,7 +921,7 @@ mod builder {
     }
 
     /// Default most bytes of a series summary block: small enough to fit the gap before an aligned chunk payload.
-    pub const SERIES_BLOCK_BYTES: usize = 2048;
+    pub const SERIES_BLOCK_BYTES: Bytes<u32> = Bytes::new(2048);
 
     /// `v` shifted by a zero `(p, q)`: `q · v - p`, saturating (a valid element's values never saturate).
     fn shift_by(shift: Option<(i128, i128)>, v: i128) -> i128 {
@@ -1052,7 +1052,7 @@ mod builder {
                     start.first_item,
                     spec.base_shift,
                     node_len,
-                    SERIES_BLOCK_BYTES - SCALE_LEN_MAX,
+                    crate::block_room(SERIES_BLOCK_BYTES).saturating_sub(SCALE_LEN_MAX),
                 ),
                 blocks: Vec::new(),
                 kernel: Kernel::best(),
@@ -1060,12 +1060,12 @@ mod builder {
         }
 
         /// Keep blocks within `bytes` (default [SERIES_BLOCK_BYTES]); call before the first sample.
-        pub fn set_max_block_bytes(&mut self, bytes: usize) {
+        pub fn set_max_block_bytes(&mut self, bytes: Bytes<u32>) {
             self.levels = Levels::new(
                 self.origin,
                 self.spec.base_shift,
                 self.node_len,
-                bytes.saturating_sub(SCALE_LEN_MAX),
+                crate::block_room(bytes).saturating_sub(SCALE_LEN_MAX),
             );
         }
 

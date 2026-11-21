@@ -43,7 +43,7 @@ fn at(offset: u64, len: u32) -> IndexEntry {
 fn write_chunk_and_write_block_say_where_they_landed() {
     let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     w.set_index_policy(IndexPolicy {
-        bytes: 128,
+        bytes: exact_units::Bytes::new(128),
         interval: None,
         ..IndexPolicy::default()
     })
@@ -156,7 +156,7 @@ fn piece_chain_write_chunk_says_which_piece_it_landed_in() {
                 ..Default::default()
             },
             cut: CutPolicy {
-                chunks: 1,
+                chunks: exact_units::Count::new(1),
                 ..Default::default()
             },
         },
@@ -206,7 +206,7 @@ fn a_chunk_placed_states_the_unit_of_its_index_entry() {
                     ..Default::default()
                 },
                 cut: CutPolicy {
-                    chunks: 3,
+                    chunks: exact_units::Count::new(3),
                     ..Default::default()
                 },
             },
