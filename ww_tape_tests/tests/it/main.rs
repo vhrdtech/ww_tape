@@ -35,6 +35,7 @@ mod mux;
 mod order;
 mod pieces;
 mod placed;
+mod progress;
 mod puts;
 mod quiet;
 mod range_hash;

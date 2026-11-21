@@ -36,6 +36,12 @@
 //! | Refused by the writer | a chunk on a track the definitions don't hold | the handle's next call, flush or sync ([MuxError::Refused]) |
 //! | The mux failed | a failed write or sync | every handle's next call and the close ([MuxError::Failed]) |
 //!
+//! # Progress
+//!
+//! [TapeMux::watch] gives a [ProgressWatch]: the piece being written, its bytes written and synced, the newest chunk
+//! of each track. A reader in the writer's process waits on it for more instead of polling. Readers in another
+//! process follow the files (`ww_tape_fs::follow`).
+//!
 //! # Close and drop
 //!
 //! [TapeMux::close] takes nothing more: every handle's next call returns [MuxError::Closed]. Units sent before are
@@ -52,6 +58,7 @@
 mod define;
 mod error;
 mod handle;
+mod progress;
 mod queue;
 mod reply;
 mod shared;
@@ -69,6 +76,7 @@ use ww_tape::{
 
 pub use error::{CallError, MuxError, Unit};
 pub use handle::{ChunkSender, Pressure, RecordsHandle, RelayHandle, Sent, StateHandle};
+pub use progress::{Progress, ProgressWatch, TrackProgress};
 pub use shared::{RETURNED_BUFFERS_MAX, RelayMode};
 
 use reply::reply;
@@ -284,6 +292,11 @@ where
     fn flush_as(&self, sync: bool) -> Result<(), MuxError<T::Error>> {
         let (tx, rx) = reply();
         self.shared.control(Work::Flush { sync, reply: tx }, rx)?
+    }
+
+    /// A watch of what the writing thread placed, for readers in this process ([ProgressWatch]).
+    pub fn watch(&self) -> ProgressWatch {
+        ProgressWatch::new(self.shared.watch.clone())
     }
 
     /// What the mux did so far.

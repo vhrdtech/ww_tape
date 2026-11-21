@@ -23,6 +23,7 @@ struct CloseOnExit<'a, T: Tapes>(&'a Shared<T>);
 impl<T: Tapes> Drop for CloseOnExit<'_, T> {
     fn drop(&mut self) {
         self.0.queue.close();
+        self.0.watch.end();
     }
 }
 
@@ -50,6 +51,7 @@ pub(crate) fn run<T: Tapes>(
             Popped::Unit(work, bytes) => {
                 let exit = place(&mut chain, &mut defs, &shared, work, bytes);
                 shared.queue.release(bytes);
+                shared.watch.publish(&mut chain, None);
                 if let Some(exit) = exit {
                     break exit;
                 }
@@ -60,6 +62,7 @@ pub(crate) fn run<T: Tapes>(
         let now = Instant::now();
         if next_tick.is_some_and(|t| now >= t) {
             chores(&mut chain, &defs, &shared);
+            shared.watch.publish(&mut chain, None);
             next_tick = now.checked_add(tick);
         }
     };
@@ -124,7 +127,11 @@ fn place<T: Tapes>(
                 let refs: Vec<(ColumnSpec, &[u8])> =
                     columns.iter().map(|(c, b)| (*c, b.as_slice())).collect();
                 let r = chain.write_chunk(defs, &head, &refs).map(|_| ());
+                let ok = r.is_ok();
                 placed(chain, shared, &from, r, bytes);
+                if ok {
+                    shared.watch.publish(chain, Some(&head));
+                }
             } else {
                 Counters::add(&shared.counters.lost, 1);
             }

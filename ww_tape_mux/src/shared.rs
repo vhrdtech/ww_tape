@@ -13,6 +13,7 @@ use ww_tape::{
 
 use crate::MuxStats;
 use crate::error::{MuxError, Unit};
+use crate::progress::Watch;
 use crate::queue::{Queue, lock};
 use crate::reply::ReplyTx;
 use ww_tape::ClockNum;
@@ -186,6 +187,7 @@ pub(crate) struct Shared<T: Tapes> {
     pub failure: OnceLock<Arc<WriteError<T::Error>>>,
     pub counters: Counters,
     pub queue_bytes: u64,
+    pub watch: Arc<Watch>,
 }
 
 impl<T: Tapes> Shared<T> {
@@ -195,6 +197,7 @@ impl<T: Tapes> Shared<T> {
             failure: OnceLock::new(),
             counters: Counters::default(),
             queue_bytes,
+            watch: Arc::new(Watch::new()),
         }
     }
 

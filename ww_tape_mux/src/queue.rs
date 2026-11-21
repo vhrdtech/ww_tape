@@ -14,7 +14,7 @@ pub(crate) fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 /// Wait on `c` with `g`; poisoned as [lock].
-fn wait<'a, T>(c: &Condvar, g: MutexGuard<'a, T>) -> MutexGuard<'a, T> {
+pub(crate) fn wait<'a, T>(c: &Condvar, g: MutexGuard<'a, T>) -> MutexGuard<'a, T> {
     #[expect(clippy::expect_used, reason = "as in lock")]
     c.wait(g).expect("a mux lock poisoned by a panic")
 }
