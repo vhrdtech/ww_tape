@@ -351,7 +351,7 @@ fn events(r: &Reports, pins: &mut Vec<(String, String)>) -> anyhow::Result<()> {
     ));
     pins.push((
         "the time the varints take to find a tick, over the workloads".to_owned(),
-        format!("{} ns with", range(&varints, 0)?),
+        format!("takes {} ns.", range(&varints, 0)?),
     ));
     pins.push((
         "the workloads where Elias-Fano finds a tick faster than the linear groups".to_owned(),
