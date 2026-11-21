@@ -3,45 +3,45 @@
 <text x="664.0" y="20.0" text-anchor="end" class="soft small">arcs: each checkpoint points back to the one before</text>
 <rect x="24.5" y="96.0" width="15.3" height="30.0" rx="1" class="tint-green"/>
 <rect x="40.8" y="96.0" width="1.0" height="30.0" rx="1" class="tint-purple"/>
-<rect x="42.8" y="96.0" width="13.3" height="30.0" rx="1" class="tint-purple"/>
-<rect x="57.1" y="96.0" width="12.2" height="30.0" rx="1" class="tint-blue"/>
-<rect x="70.3" y="96.0" width="4.8" height="30.0" rx="1" class="tint-purple"/>
-<rect x="76.1" y="96.0" width="43.3" height="30.0" rx="1" class="tint-blue"/>
-<rect x="120.4" y="96.0" width="52.8" height="30.0" rx="1" class="tint-amber"/>
-<rect x="174.2" y="96.0" width="3.7" height="30.0" rx="1" class="tint-purple"/>
-<rect x="179.0" y="96.0" width="1.9" height="30.0" rx="1" class="tint-purple"/>
-<rect x="181.9" y="96.0" width="12.0" height="30.0" rx="1" class="tint-blue"/>
-<rect x="194.9" y="96.0" width="43.7" height="30.0" rx="1" class="tint-blue"/>
-<rect x="239.6" y="96.0" width="22.1" height="30.0" rx="1" class="tint-amber"/>
-<rect x="262.7" y="96.0" width="12.1" height="30.0" rx="1" class="tint-blue"/>
-<rect x="275.8" y="96.0" width="47.7" height="30.0" rx="1" class="tint-blue"/>
-<rect x="324.5" y="96.0" width="6.8" height="30.0" rx="1" class="tint-amber"/>
-<rect x="332.3" y="96.0" width="12.1" height="30.0" rx="1" class="tint-blue"/>
-<rect x="345.4" y="96.0" width="48.9" height="30.0" rx="1" class="tint-blue"/>
-<rect x="395.3" y="96.0" width="12.1" height="30.0" rx="1" class="tint-blue"/>
-<rect x="408.4" y="96.0" width="9.8" height="30.0" rx="1" class="tint-amber"/>
-<rect x="419.3" y="96.0" width="47.4" height="30.0" rx="1" class="tint-blue"/>
-<rect x="467.7" y="96.0" width="12.2" height="30.0" rx="1" class="tint-blue"/>
-<rect x="480.9" y="96.0" width="43.7" height="30.0" rx="1" class="tint-blue"/>
-<rect x="525.6" y="96.0" width="9.8" height="30.0" rx="1" class="tint-amber"/>
-<rect x="536.4" y="96.0" width="1.9" height="30.0" rx="1" class="tint-purple"/>
-<rect x="539.3" y="96.0" width="1.5" height="30.0" rx="1" class="tint-blue"/>
-<rect x="541.8" y="96.0" width="12.3" height="30.0" rx="1" class="tint-blue"/>
-<rect x="555.0" y="96.0" width="43.7" height="30.0" rx="1" class="tint-blue"/>
+<rect x="42.8" y="96.0" width="13.0" height="30.0" rx="1" class="tint-purple"/>
+<rect x="56.8" y="96.0" width="12.2" height="30.0" rx="1" class="tint-blue"/>
+<rect x="70.0" y="96.0" width="4.5" height="30.0" rx="1" class="tint-purple"/>
+<rect x="75.5" y="96.0" width="43.4" height="30.0" rx="1" class="tint-blue"/>
+<rect x="119.8" y="96.0" width="52.9" height="30.0" rx="1" class="tint-amber"/>
+<rect x="173.7" y="96.0" width="3.7" height="30.0" rx="1" class="tint-purple"/>
+<rect x="178.5" y="96.0" width="1.9" height="30.0" rx="1" class="tint-purple"/>
+<rect x="181.4" y="96.0" width="12.1" height="30.0" rx="1" class="tint-blue"/>
+<rect x="194.4" y="96.0" width="43.8" height="30.0" rx="1" class="tint-blue"/>
+<rect x="239.2" y="96.0" width="22.2" height="30.0" rx="1" class="tint-amber"/>
+<rect x="262.3" y="96.0" width="12.1" height="30.0" rx="1" class="tint-blue"/>
+<rect x="275.5" y="96.0" width="47.7" height="30.0" rx="1" class="tint-blue"/>
+<rect x="324.2" y="96.0" width="6.8" height="30.0" rx="1" class="tint-amber"/>
+<rect x="332.0" y="96.0" width="12.1" height="30.0" rx="1" class="tint-blue"/>
+<rect x="345.1" y="96.0" width="49.0" height="30.0" rx="1" class="tint-blue"/>
+<rect x="395.1" y="96.0" width="12.1" height="30.0" rx="1" class="tint-blue"/>
+<rect x="408.2" y="96.0" width="9.9" height="30.0" rx="1" class="tint-amber"/>
+<rect x="419.0" y="96.0" width="47.4" height="30.0" rx="1" class="tint-blue"/>
+<rect x="467.5" y="96.0" width="12.2" height="30.0" rx="1" class="tint-blue"/>
+<rect x="480.7" y="96.0" width="43.8" height="30.0" rx="1" class="tint-blue"/>
+<rect x="525.5" y="96.0" width="9.9" height="30.0" rx="1" class="tint-amber"/>
+<rect x="536.3" y="96.0" width="1.9" height="30.0" rx="1" class="tint-purple"/>
+<rect x="539.2" y="96.0" width="1.5" height="30.0" rx="1" class="tint-blue"/>
+<rect x="541.7" y="96.0" width="12.3" height="30.0" rx="1" class="tint-blue"/>
+<rect x="554.9" y="96.0" width="43.8" height="30.0" rx="1" class="tint-blue"/>
 <path d="M599.7 96.0 h12.3 v30 h-12.3 Z" class="thin dash"/>
 <rect x="599.7" y="96.0" width="5.6" height="30.0" rx="1" class="tint-accent"/>
 <rect x="607.8" y="96.0" width="56.2" height="30.0" rx="1" class="faint"/>
 <text x="634.9" y="115.5" text-anchor="middle" class="soft small">no tail</text>
-<path d="M250.7 94.0 C250.7 66.0 146.8 66.0 146.8 89.0" class="thin"/>
-<path d="M146.8 94.5 l-3.5 -6 h7 Z" class="thin head"/>
-<path d="M327.9 94.0 C327.9 66.0 250.7 66.0 250.7 89.0" class="thin"/>
-<path d="M250.7 94.5 l-3.5 -6 h7 Z" class="thin head"/>
-<path d="M413.3 94.0 C413.3 66.0 327.9 66.0 327.9 89.0" class="thin"/>
-<path d="M327.9 94.5 l-3.5 -6 h7 Z" class="thin head"/>
-<path d="M530.5 94.0 C530.5 66.0 413.3 66.0 413.3 89.0" class="thin"/>
-<path d="M413.3 94.5 l-3.5 -6 h7 Z" class="thin head"/>
-<path d="M525.1 130.0 v4 H619.3 v-4" class="thin"/>
-<path d="M525.1 136.0 L24.0 172.0 M619.3 136.0 L664.0 172.0" class="thin dash"/>
+<path d="M250.3 94.0 C250.3 66.0 146.3 66.0 146.3 89.0" class="thin"/>
+<path d="M146.3 94.5 l-3.5 -6 h7 Z" class="thin head"/>
+<path d="M327.6 94.0 C327.6 66.0 250.3 66.0 250.3 89.0" class="thin"/>
+<path d="M250.3 94.5 l-3.5 -6 h7 Z" class="thin head"/>
+<path d="M413.1 94.0 C413.1 66.0 327.6 66.0 327.6 89.0" class="thin"/>
+<path d="M327.6 94.5 l-3.5 -6 h7 Z" class="thin head"/>
+<path d="M530.4 94.0 C530.4 66.0 413.1 66.0 413.1 89.0" class="thin"/>
+<path d="M413.1 94.5 l-3.5 -6 h7 Z" class="thin head"/>
+<path d="M525.0 130.0 v4 H619.3 v-4" class="thin"/>
+<path d="M525.0 136.0 L24.0 172.0 M619.3 136.0 L664.0 172.0" class="thin dash"/>
 <text x="24.0" y="192.0" text-anchor="start" class="small">from the newest checkpoint on</text>
 <rect x="24.5" y="206.0" width="72.7" height="30.0" rx="1" class="tint-amber"/>
 <text x="60.8" y="225.5" text-anchor="middle" class="small">checkpoint</text>

@@ -1,5 +1,6 @@
 use super::*;
 use crate::tests::id;
+use shrink_wrap::prelude::UNib32;
 
 /// xorshift64*, a fixed seed per test.
 struct Rng(u64);
@@ -38,25 +39,24 @@ fn roundtrip<T: Sample>(codec: Codec, shape: SampleShape, values: &[T]) -> Vec<u
     bytes
 }
 
-/// A shape is mapped once: an element without a scalar and a shape without lanes are refused typed, a codec's error
-/// comes back whole with the shape, and its text says both.
+fn d(e: Element) -> ElementDesc {
+    ElementDesc::of(e)
+}
+
+/// A shape is mapped once: a shape without lanes is refused typed, a codec's error comes back whole with the shape,
+/// and its text says both.
 #[test]
 fn shapes_map_to_scalars_and_lanes() {
-    let leaves = SampleShape::scalar(Element::LEAVES);
-    assert_eq!(
-        Samples::new(Codec::RAW, leaves, 1, &[0; 8]).unwrap_err(),
-        SampleError::UnknownElement(Element::LEAVES)
-    );
-    assert_eq!(
-        max_encoded_len(Codec::RAW, leaves, 1),
-        Err(SampleError::UnknownElement(Element::LEAVES))
-    );
-    let none = SampleShape::new(Element::U16, 0);
+    let none = SampleShape::new(d(Element::U16), 0);
     assert_eq!(
         Samples::new(Codec::RAW, none, 3, &[0; 6]).unwrap_err(),
         SampleError::BadShape
     );
-    let iq = SampleShape::new(Element::ComplexI16, 3);
+    assert_eq!(
+        max_encoded_len(Codec::RAW, none, 1),
+        Err(SampleError::BadShape)
+    );
+    let iq = SampleShape::new(d(Element::ComplexI16), 3);
     let s = Samples::new(Codec::RAW, iq, 2, &[0; 24]).unwrap();
     assert_eq!((s.lanes(), s.count()), (6, 2));
     let wrong = s.decode(0, &mut [0u16; 6]).unwrap_err();
@@ -91,6 +91,46 @@ fn shapes_map_to_scalars_and_lanes() {
     );
 }
 
+/// A described element's column holds exactly its bits per part: 12-bit values 3 to 2 bytes, an 8-bit IQ pair
+/// with a zero as 2 bytes, bfloat16 as 2 bytes read back as f32.
+#[test]
+fn described_elements_code_at_their_width() {
+    let mut twelve = d(Element::U16);
+    twelve.bits = 12;
+    let shape = SampleShape::scalar(twelve);
+    let values: Vec<u16> = (0..64).map(|i| i * 61 % 4096).collect();
+    let bytes = roundtrip(Codec::RAW, shape, &values);
+    assert_eq!(bytes.len(), 64 * 12 / 8);
+
+    let mut iq = d(Element::U8);
+    iq.parts = UNib32(2);
+    iq.zero = exact_units::Ratio64::new(255, 2);
+    let values: Vec<u8> = (0..64u32).map(|i| (i * 7 % 256) as u8).collect();
+    let bytes = roundtrip(Codec::RAW, SampleShape::new(iq, 2), &values);
+    assert_eq!(bytes.len(), 64);
+
+    let bf16 = ElementDesc {
+        bits: 16,
+        exponent_bits: 8,
+        signed: true,
+        msb_first: false,
+        parts: UNib32(1),
+        zero: None,
+    };
+    let values: Vec<f32> = (0..32u32)
+        .map(|i| f32::from_bits((i * 2047) << 16))
+        .collect();
+    let bytes = roundtrip(Codec::RAW, SampleShape::scalar(bf16), &values);
+    assert_eq!(bytes.len(), 64);
+    let not_bf16 = encode(
+        Codec::RAW,
+        SampleShape::scalar(bf16),
+        &[1.000_1f32],
+        &mut [0; 4],
+    );
+    assert!(not_bf16.is_err(), "{not_bf16:?}");
+}
+
 /// Columns of every codec, and a series chunk holding some, are the golden file's (`WW_TAPE_GOLDEN=update` rewrites
 /// it): one line per column, `codec element channels count: hex`, then the chunk block. Inputs come from integer
 /// arithmetic only, so they are the same on every platform.
@@ -114,21 +154,23 @@ fn samples_golden() {
         let bytes = roundtrip(c, shape, v);
         let lanes = shape.lanes().unwrap() as usize;
         let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+        // a predefined element by its name, one word as the fuzz seeds parse it
+        let element = shape.element.element().expect("predefined elements");
         format!(
             "{} {:?} {} {}: {hex}",
             c.0,
-            shape.element,
-            shape.channels.0,
+            element,
+            shape.channels,
             v.len() / lanes
         )
     }
-    let s = SampleShape::scalar;
+    let s = |e: Element| SampleShape::scalar(d(e));
     add(col(Codec::RAW, s(Element::I16), &i16s));
     add(col(Codec::RAW, s(Element::Bool), &bools));
     add(col(Codec::BIG_ENDIAN, s(Element::I32), &i32s));
     add(col(
         Codec::BIG_ENDIAN,
-        SampleShape::new(Element::ComplexI16, 1),
+        SampleShape::new(d(Element::ComplexI16), 1),
         &i16s,
     ));
     for c in [Codec::PACKED12_LSB, Codec::PACKED12_MSB] {
@@ -144,7 +186,7 @@ fn samples_golden() {
     add(col(c, s(Element::F64), &f64s));
     add(col(c, s(Element::F32), &f32s));
     add(col(c, s(Element::F64), &any[..40]));
-    add(col(c, SampleShape::new(Element::ComplexF32, 1), &f32s));
+    add(col(c, SampleShape::new(d(Element::ComplexF32), 1), &f32s));
     // decimals, the data ALP codes as integers: IEEE division gives the same values everywhere
     let cents: Vec<f64> = wave.iter().map(|v| *v as f64 / 100.0).collect();
     let cents32: Vec<f32> = wave.iter().map(|v| *v as f32 / 100.0).collect();
@@ -152,7 +194,7 @@ fn samples_golden() {
     add(col(Codec::ALP, s(Element::F32), &cents32));
     for c in [Codec::DELTA, Codec::DELTA2] {
         add(col(c, s(Element::I16), &i16s));
-        add(col(c, SampleShape::new(Element::I32, 3), &i32s));
+        add(col(c, SampleShape::new(d(Element::I32), 3), &i32s));
         add(col(c, s(Element::I64), &wave));
     }
     let lz4 = {

@@ -16,8 +16,8 @@ use ww_tape::reader::{ByteSource, OutOfRange, ReadError};
 use ww_tape::samples::{SampleShape, Samples};
 use ww_tape::times::{EventTimes, TimesError};
 use ww_tape::{
-    BlockKind, Describe, Element, FileBlocks, Magnitude, OwnerId, Ratio64, Recovery, Rounding,
-    SampleError, Slot, TapeReader, TrackHash, TrackKind,
+    BlockKind, Describe, Element, ElementDesc, FileBlocks, Magnitude, OwnerId, Ratio64, Recovery,
+    Rounding, SampleError, Slot, TapeReader, TrackHash, TrackKind,
 };
 use ww_tape_summary::{ChannelStats, SeriesSummarySpec, Summary};
 
@@ -370,7 +370,7 @@ pub fn current<S: ByteSource>(
         .ok_or(FaultError::Missing("samples"))?;
     let samples = Samples::of(
         &column,
-        SampleShape::scalar(Element::I16),
+        SampleShape::scalar(ElementDesc::of(Element::I16)),
         head.count as usize,
     )
     .map_err(FaultError::Samples)?;
@@ -521,7 +521,7 @@ pub fn overview(
         level += 1;
     }
     // --8<-- [end:level]
-    let empty = ChannelStats::empty(Element::I16);
+    let empty = ChannelStats::empty(ElementDesc::of(Element::I16));
     let mut columns: Vec<Option<Column>> = vec![None; COLUMNS];
     let (blocks, count) = nodes(
         reader,

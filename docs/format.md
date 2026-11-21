@@ -447,17 +447,23 @@ It summarised complex i16 at 6.4 GB/s and i32 at 7.9 GB/s, as `just bench-summar
 The head names the track, the level, the node size, the statistics stored, the items covered and their tick range. For a
 series, it also names the element, channels and scale.
 
-An index therefore lists the block without reading its body. The header's count is the node count, and bytes 28..32 are
-0 ([summary module docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/summary/mod.rs)):
+An index therefore lists the block without reading its body. The header's count is the node count. Bytes 28..32
+describe a series' element when byte 47 is 13, and are 0 otherwise
+([summary module docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/summary/mod.rs)):
 
 ```text
 off size field
+ 28  u8  bits of one part of a described element (ElementDesc::bits), 0 for a coded element and for events
+ 29  u8  its exponent bits, 0 for an integer
+ 30  u8  bit 0 signed, bit 1 msb_first (always 0: a summary's element has no byte order)
+ 31  u8  its parts, 1 or 2
  32 u64  track id (TrackDef::id)
  40 u32  track number (TrackDef::number)
  44  u8  tree: 1 events, 2 series (Tree)
  45  u8  level, 0 and up
  46  u8  node shift: a node holds 2^shift items (events: 11 + 4 · level; series: base_shift + 4 · level)
- 47  u8  element of a series' samples (Element code), 0 for events
+ 47  u8  element of a series' summaries: an Element code, or 13 for the element bytes 28..32 describe
+         (ElementDesc::summary_element); 0 for events
  48 u16  fields: the statistics stored (EventFields, SeriesStats bits)
  50 u16  channels of a series, 1 and up; 0 for events
  52 u16  scale length: bytes of the scale after the head, 1 to SCALE_LEN_MAX for a series, 0 for events
@@ -479,7 +485,11 @@ The body holds one column per field:
 - An event block holds the first ticks (i64) and the last ticks (i64). The flags ORs (u32) and the latest ends (i64)
   follow when its fields include them.
 - A series block holds one column per statistic, channel and component of a sample, in a fixed order of statistics. A
-  complex element has two components for minimum, maximum, sum and sum of squares.
+  pair has two components for minimum, maximum, sum and sum of squares.
+- A series block's element is the samples' summary element. For an element with a zero `p/q`, it holds `q · sample - p`.
+  That number is a signed integer of twice the container's bits, at the block's scale over `q`.
+- A head names a predefined element by its code. Any other element has code 13 and its description, and a reader
+  refuses a description of a predefined one.
 - In a series block, minimum and maximum take 8 bytes and sums are f64. The clipped count is u64, flags u32, and the
   mean and maximum power f32.
 
@@ -598,7 +608,7 @@ reads a payload. Items a reader doesn't know therefore leave the bytes as they a
 | `Numbers` | one number, little-endian in its container | `element`, an `ElementDesc`; `unit`, an exact_units type as a `TypeRef`, or None |
 | `Foreign` | bytes of a format the user names | a `Foreign`: `name`, `media_type`, `version`, `schema` |
 
-A series' items are `WireWeaver` with no `item`: its `SeriesDef` names the sample type.
+A series' items are `Numbers`: the element of each channel of a sample, and the value type that gives its unit.
 
 An `ElementDesc` describes a number without a new code for it:
 
@@ -611,7 +621,17 @@ An `ElementDesc` describes a number without a new code for it:
 | `parts` | numbers per element, 1 to `ELEMENT_PARTS_MAX` (16); 2 for an I/Q pair |
 | `zero` | the stored number that stands for zero: `255/2` for 8-bit IQ offset to 127.5; None for 0 |
 
-A part is read into the smallest of 8, 16, 32 and 64 bits that holds it. A float of up to 32 bits is read into 32.
+A part is read into its scalar, `ElementDesc::scalar`:
+
+- An integer is read into the smallest of 8, 16, 32 and 64 bits that holds it, of its sign. A 1-bit unsigned one is a
+  `bool`.
+- A float is read into an `f32` when an `f32` holds each of its values exactly, else into an `f64`.
+
+A writer takes an element that `ElementDesc::is_valid` passes:
+
+- A float has 2 to 11 exponent bits and a mantissa bit. It has at most 32 bits or is an `f64`, and has no zero.
+- A zero sits only on an integer of at most 32 bits. Each stored value shifted by it fits the summary element.
+
 `ElementDesc::of` gives the description of each predefined `Element`.
 
 A `Foreign` format has four fields, each may be empty:
@@ -1702,7 +1722,6 @@ Some numbers are reserved: later features then need no format change. Readers of
 |---|---|
 | payload codec 49 (`Codec::SERIES`) | a payloads column holding one shrink_wrap `Series<T>` of the chunk's items, alone, at most 65535 items |
 | sample codec 36 (`Codec::RUNS`) | run-coded discrete lanes (`U8`, `U16`, `U32`, `Bool`) |
-| element 13 (`Element::LEAVES`) | a sample that is a struct of leaves of different element types |
 | column kind 7 (`ColumnKind::PAYLOAD_LEAF`) | one leaf of the items' payload struct, the param naming the leaf |
 | block kinds 11 and 12 (`BlockKind::POSTINGS`, `DICTIONARY`) | a relation's index per events chunk: each distinct value with its items; the distinct values and each item's index into them. Skipped by readers; writers refuse a definition that asks for one |
 | `RelationValues::IndexOnly` | values given with each item only to feed an index, no column; writers refuse it until an index is built |
@@ -1714,23 +1733,28 @@ Some numbers are reserved: later features then need no format change. Readers of
 [Series](series.md) explains series, sample codecs and why fixed point comes first.
 
 The column's codec id says how a series chunk's sample columns (`ColumnKind::Samples`) are coded. What a sample is comes
-from the track: `ww_tape::SampleShape` names an `Element` and the number of channels interleaved in the column.
+from the track: `ww_tape::SampleShape` names the items' `ElementDesc` and the number of channels interleaved in the column.
 
-The elements are `I8` to `U64`, `F32`, `F64`, `ComplexI16`, `ComplexF32` and `Bool`. An element's code, 0 to 12, is how
-other blocks name it.
+The predefined elements are `I8` to `U64`, `F32`, `F64`, `ComplexI16`, `ComplexF32` and `Bool`. An element's code, 0 to
+12, is how a summary head names it.
+
+Each part of an element is one **lane**: the scalar it is read into, its stored bits, their order and a float's layout.
 
 `ww_tape::Samples` reads a column in place and decodes any range of samples, and `ww_tape::samples::encode` writes one.
-The codecs themselves live in `ww_tape_codecs::samples`, which works on scalars and lanes with no notion of a block.
+The codecs themselves live in `ww_tape_codecs::samples`, which works on lanes with no notion of a block.
 
 Every codec gives the same bytes for the same values.
 
 | Id | Codec | Elements | Stored as |
 |---:|---|---|---|
-| 0 | `RAW` | all | little endian; `Bool` 8 per byte, the first in bit 0 |
+| 0 | `RAW` | all | each lane at its own bits: a whole scalar little or big endian; other widths packed LSB or MSB first; a float of another layout as its own bits |
 | 16 | `BIG_ENDIAN` | integers, floats | big endian |
 | 17, 18 | `PACKED10_LSB`, `PACKED10_MSB` | integers of 16 bits and more | 10 bits per value |
 | 19, 20 | `PACKED12_LSB`, `PACKED12_MSB` | integers of 16 bits and more | 12 bits per value, 2 values in 3 bytes |
 | 21, 22 | `PACKED24_LSB`, `PACKED24_MSB` | integers of 32 bits and more | 24 bits per value |
+
+Codecs 16 to 22 are the raw layouts of fixed widths, read on the same kernel as `RAW`. A writer describes the element
+instead and codes it `RAW`; readers take both.
 | 24, 25 | | | reserved: refused as an unknown codec |
 | 26 | `ALP` | floats | decimals as integers, frame of reference, bit-packed; other floats by their front bits through a dictionary |
 | 32, 33 | `DELTA`, `DELTA2` | integers | differences (or differences of differences), minus their minimum, bit-packed |
@@ -1741,9 +1765,11 @@ The codecs fall into three families:
 
 - **Raw device formats** (0 to 22) are what a device sends, stored as it is. The reader converts only the samples it
   reads, and any sample reads in place.
-  - An `_LSB` column holds value `i` at bits `i·w` up of the column read as one little-endian number.
-  - An `_MSB` column counts bits from the top of byte 0.
+  - An LSB-first column holds value `i` at bits `i·w` up of the column read as one little-endian number.
+  - An MSB-first column counts bits from the top of byte 0, up to 56 bits per value.
   - A packed value of a signed element is sign-extended.
+  - A float of another layout (f16, bfloat16, fp8) converts exactly to and from its scalar. A value its layout doesn't
+    hold is refused on write.
 - **Delta codecs** (32, 33) code groups of 128 samples on `ww_tape::bitpack`, the bit-pack primitive of the event time
   codec. Per lane, a group holds the first value (for `DELTA2` also the first difference), the minimum difference and a
   width.
@@ -1873,19 +1899,26 @@ its hash and prints the table.
 
 ## Series tracks
 
-A **series track** holds samples at an exact period, with no time per sample. Its `TrackDef` kind is a `SeriesDef`,
-which holds:
+A **series track** holds samples at an exact period, with no time per sample. Its items are `Numbers`, which hold:
 
 | Field | What |
 |---|---|
-| sample type | the type of one value as the API declares it: a `TypeRef` to an exact_units `Fixed<Ampere, Milli, i32>`, a `ww_si` quantity or a plain float |
-| element and channels | the stored element and channels, derived from that type |
+| element | the stored `ElementDesc` of one channel of a sample |
+| unit | the type of one value: a `TypeRef` to an exact_units `Fixed<Ampere, Milli, i32>` or a `ww_si` quantity; None for a plain number |
+
+Its `TrackDef` kind is a `SeriesDef`, which holds:
+
+| Field | What |
+|---|---|
+| channels | elements per sample, 1 to 65535, interleaved |
 | period | ticks per sample as an exact `Ratio64`: 48 kHz on a 1 ns clock is `62500/3` |
 | scale | what a stored number is worth, as a `Magnitude`: `10⁻³` for that `Fixed` |
 | summaries | the summaries the writer builds (`SeriesSummarySpec`) |
 | stream | for samples kept in a media file, the stream they are in |
 
-`SeriesDef::of::<Fixed<Ampere, Milli, i32>>(..)` takes the element and the scale from the type (`ww_tape::SeriesValue`).
+`Items::numbers::<Fixed<Ampere, Milli, i32>>(..)` takes the element from the type, and `SeriesDef::of` the scale
+(`ww_tape::SeriesValue`). A writer refuses a series whose element the raw codec doesn't code. Its summaries need an
+element of at most 2 parts.
 
 ### Grids
 

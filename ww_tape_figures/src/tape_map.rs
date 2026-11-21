@@ -5,7 +5,7 @@
 use anyhow::{Context, ensure};
 use ww_tape::chunk::ColumnKind;
 use ww_tape::samples::{SampleShape, Samples};
-use ww_tape::{BlockKind, Element, FLAG_REPEAT, FileBlocks};
+use ww_tape::{BlockKind, Element, ElementDesc, FLAG_REPEAT, FileBlocks};
 use ww_tape_example::{CAN0, Drive, LOG, MODE, PHASE_A, TEMP};
 
 use crate::OrDebug;
@@ -100,9 +100,12 @@ fn read() -> anyhow::Result<(Drive, Hour)> {
                                 .find(ColumnKind::Samples, 0)
                                 .context("the samples column")?;
                             let count = usize::try_from(head.count)?;
-                            let samples =
-                                Samples::of(&col, SampleShape::scalar(Element::I16), count)
-                                    .or_debug()?;
+                            let samples = Samples::of(
+                                &col,
+                                SampleShape::scalar(ElementDesc::of(Element::I16)),
+                                count,
+                            )
+                            .or_debug()?;
                             values.resize(count, 0i16);
                             samples.decode(0, &mut values).or_debug()?;
                             let step = (head.last_tick - head.first_tick) as f64

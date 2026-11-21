@@ -173,7 +173,7 @@ pub(in crate::samples) fn decode<T: Sample>(
         }),
         scalar => Err(SampleError::Unsupported {
             codec: crate::Codec::ALP,
-            scalar,
+            lane: super::super::Lane::of(scalar),
         }),
     }
 }

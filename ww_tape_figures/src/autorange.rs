@@ -7,8 +7,8 @@ use anyhow::{Context, ensure};
 use ww_tape::chunk::{ChunkHead, chunk_len, write_chunk};
 use ww_tape::samples::{SampleShape, Samples};
 use ww_tape::{
-    Block, BlockId, BlockKind, Codec, ColumnKind, ColumnSpec, Element, EndMode, Magnitude, Ratio64,
-    SeriesGrid, SessionTag,
+    Block, BlockId, BlockKind, Codec, ColumnKind, ColumnSpec, Element, ElementDesc, EndMode,
+    Magnitude, Ratio64, SeriesGrid, SessionTag,
 };
 use ww_tape_summary::{SeriesStart, SeriesStats, SeriesSummaries, SeriesSummarySpec, Summary};
 
@@ -65,7 +65,12 @@ fn chunk(grid: SeriesGrid, period: Ratio64, first: u64) -> anyhow::Result<(Chunk
     let block = Block::read(buf.get(..n).context("the block")?).or_debug()?;
     let c = block.chunk().context("a chunk")?;
     let col = c.find(ColumnKind::Samples, 0).context("samples")?;
-    let read = Samples::of(&col, SampleShape::scalar(Element::I16), CHUNK as usize).or_debug()?;
+    let read = Samples::of(
+        &col,
+        SampleShape::scalar(ElementDesc::of(Element::I16)),
+        CHUNK as usize,
+    )
+    .or_debug()?;
     let mut values = vec![0i16; CHUNK as usize];
     read.decode(0, &mut values).or_debug()?;
     Ok((c.head(), values))
@@ -99,7 +104,7 @@ pub fn autorange() -> anyhow::Result<String> {
     let start = SeriesStart {
         track_id: 11,
         track_number: 1,
-        shape: SampleShape::scalar(Element::I16),
+        shape: SampleShape::scalar(ElementDesc::of(Element::I16)),
         first_item: 0,
         grid,
         period,

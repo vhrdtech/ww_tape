@@ -2,11 +2,12 @@
 //! how its numbers come from wire_weaver's quantity types ([SeriesValue]).
 //!
 //! A series track ([TrackKind::Series](crate::TrackKind::Series)) holds samples at an exact period, with no time per
-//! sample. Its [SeriesDef] says what a sample is: the type of one value as the API declares it (a [TypeRef]: an
-//! exact_units `Fixed<Ampere, Milli, i32>`, a `ww_si` quantity, a plain float), the storage [Element] and channels
-//! derived from that type ([SampleShape]), the period in ticks of the track's clock per sample (a [Ratio64], exact:
-//! 48 kHz on a 1 ns clock is `62500/3`), the scale of the stored numbers at the start, the summaries the writer
-//! builds ([SeriesSummarySpec]) and, for samples kept in a media file, the stream they are in ([MediaStream]).
+//! sample. Its items are numbers ([Items::Numbers](crate::Items::Numbers)): the stored element ([ElementDesc]) and
+//! the exact_units type of one value, its unit and scale (a [TypeRef](crate::TypeRef): `Fixed<Ampere, Milli, i32>`, a `ww_si`
+//! quantity). Its [SeriesDef] says the rest of what a sample is: the channels of that element ([SampleShape] with
+//! the items' element), the period in ticks of the track's clock per sample (a [Ratio64], exact: 48 kHz on a 1 ns
+//! clock is `62500/3`), the scale of the stored numbers at the start, the summaries the writer builds
+//! ([SeriesSummarySpec]) and, for samples kept in a media file, the stream they are in ([MediaStream]).
 //!
 //! # Grids
 //!
@@ -60,7 +61,8 @@
 //!
 //! 1. Decode the batch with `Series::<T>::from_ww_bytes` and walk its items (`iter()`), zero-copy.
 //! 2. `T` is a `Fixed<U, P, R>` (or a `Complex`): the stored number is `item.get()`, an `R`, the element is `R`'s and
-//!    the scale is `P`'s ([SeriesValue::ELEMENT], [SeriesValue::SCALE]): [SeriesValue::write_parts] puts the
+//!    the scale is `P`'s ([SeriesValue::ELEMENT], [SeriesValue::SCALE]; [Items::numbers](crate::Items::numbers)
+//!    builds the track's items from `T`): [SeriesValue::write_parts] puts the
 //!    numbers into the open chunk's column, channels interleaved. The scale never changes.
 //! 3. `T` is a `ww_si` quantity: its prefix is the grid's scale (`Prefix::magnitude`); while it stays the same,
 //!    the number of its `NumericValue` goes into the column as the track's element, widened exactly (an `i16` into
@@ -86,10 +88,8 @@ use exact_units::{
 };
 use shrink_wrap::prelude::*;
 
-#[cfg(feature = "std")]
-use crate::TypeRefOwned;
 use crate::summary::SeriesSummarySpec;
-use crate::{BlockKind, ChunkHead, Element, Sample, SampleShape, TypeRef};
+use crate::{BlockKind, ChunkHead, ElementDesc, Sample, SampleShape};
 
 /// Most channels of a series: a chunk column and a summary name a channel by a `u16`.
 #[expect(
@@ -98,15 +98,12 @@ use crate::{BlockKind, ChunkHead, Element, Sample, SampleShape, TypeRef};
 )]
 pub const SERIES_CHANNELS_MAX: u32 = u16::MAX as u32;
 
-/// A fixed-rate series: scalar or vector samples of one element type, see the [module docs](self).
+/// A fixed-rate series: scalar or vector samples of the track's element, see the [module docs](self).
 #[derive_shrink_wrap(owned(feature = "std"), derive(Debug, PartialEq, Clone), validate = def_valid)]
 pub struct SeriesDef<'i> {
-    /// The type of one value of one channel, unit and scale included: `Fixed<Ampere, Milli, i32>`, a `ww_si`
-    /// quantity, `f32`. None: a plain number with no unit.
-    pub sample: Option<TypeRef<'i>>,
-    /// The element the numbers are stored as, derived from [Self::sample] ([SeriesValue::ELEMENT]), and the
-    /// channels of a sample, 1 to [SERIES_CHANNELS_MAX].
-    pub shape: SampleShape,
+    /// Elements of a sample, 1 to [SERIES_CHANNELS_MAX]; the element and the value type are the track's items
+    /// ([Items::Numbers](crate::Items::Numbers)).
+    pub channels: UNib32,
     /// Ticks of the track's clock from one sample to the next, exact.
     pub period: Ratio64,
     /// What a stored number is worth in the sample type's unit at the start: `10⁻³` for `Fixed<Ampere, Milli, i32>`,
@@ -131,9 +128,9 @@ pub struct MediaStream<'i> {
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum SeriesError {
-    /// The definition's shape, period or summaries break a rule: an element this reader doesn't know, no channels or
-    /// more than [SERIES_CHANNELS_MAX], a summary spec `SeriesSummaries` (crate `ww_tape_summary`) refuses,
-    /// a state policy.
+    /// The definition or its track break a rule: no channels or more than [SERIES_CHANNELS_MAX], a summary spec
+    /// `SeriesSummaries` (crate `ww_tape_summary`) refuses, items that are no numbers or of an element the raw codec
+    /// doesn't code, a state policy.
     Def(&'static str),
     /// A chunk that isn't a series chunk with a grid.
     NotSeriesChunk { first_item: u64 },
@@ -327,19 +324,19 @@ pub(crate) fn read_scale(bytes: &[u8]) -> Result<Magnitude, shrink_wrap::Error> 
 
 /// The parts of a [SeriesDef] its check on decode looks at, borrowed or owned.
 trait DefParts {
-    fn parts(&self) -> (SampleShape, Option<SeriesSummarySpec>);
+    fn parts(&self) -> (u32, Option<SeriesSummarySpec>);
 }
 
 impl DefParts for SeriesDef<'_> {
-    fn parts(&self) -> (SampleShape, Option<SeriesSummarySpec>) {
-        (self.shape, self.summaries)
+    fn parts(&self) -> (u32, Option<SeriesSummarySpec>) {
+        (self.channels.0, self.summaries)
     }
 }
 
 #[cfg(feature = "std")]
 impl DefParts for SeriesDefOwned {
-    fn parts(&self) -> (SampleShape, Option<SeriesSummarySpec>) {
-        (self.shape, self.summaries)
+    fn parts(&self) -> (u32, Option<SeriesSummarySpec>) {
+        (self.channels.0, self.summaries)
     }
 }
 
@@ -348,16 +345,13 @@ impl DefParts for SeriesDefOwned {
     reason = "shrink_wrap's decode takes its own error type, which holds no cause"
 )]
 fn def_valid(d: &impl DefParts) -> Result<(), shrink_wrap::Error> {
-    let (shape, summaries) = d.parts();
-    check_def(shape, summaries).map_err(|_| shrink_wrap::Error::SubtypeOutOfRange)
+    let (channels, summaries) = d.parts();
+    check_def(channels, summaries).map_err(|_| shrink_wrap::Error::SubtypeOutOfRange)
 }
 
-/// The rules of a definition's shape and summaries; the period and scale are valid by their types.
-fn check_def(shape: SampleShape, summaries: Option<SeriesSummarySpec>) -> Result<(), SeriesError> {
-    if Element::from_code(shape.element.code()).is_none() {
-        return Err(SeriesError::Def("an element this reader doesn't know"));
-    }
-    if shape.channels.0 == 0 || shape.channels.0 > SERIES_CHANNELS_MAX {
+/// The rules of a definition's channels and summaries; the period and scale are valid by their types.
+fn check_def(channels: u32, summaries: Option<SeriesSummarySpec>) -> Result<(), SeriesError> {
+    if channels == 0 || channels > SERIES_CHANNELS_MAX {
         return Err(SeriesError::Def("channels out of range"));
     }
     if let Some(s) = summaries {
@@ -369,19 +363,16 @@ fn check_def(shape: SampleShape, summaries: Option<SeriesSummarySpec>) -> Result
         if s.stats.is_empty() {
             return Err(SeriesError::Def("summaries with no statistics"));
         }
-        if (s.stats.power_mean || s.stats.power_max) && shape.element.parts() != 2 {
-            return Err(SeriesError::Def("power of a real element"));
-        }
     }
     Ok(())
 }
 
 impl<'i> SeriesDef<'i> {
-    /// A series of `channels` channels of `V`, whose element and scale `V` gives, one sample per `period` ticks.
-    pub fn of<V: SeriesValue>(sample: Option<TypeRef<'i>>, channels: u32, period: Ratio64) -> Self {
+    /// A series of `channels` channels of `V`, whose scale `V` gives, one sample per `period` ticks. The track's
+    /// items are [Items::numbers](crate::Items::numbers) of `V`.
+    pub fn of<V: SeriesValue>(channels: u32, period: Ratio64) -> Self {
         SeriesDef {
-            sample,
-            shape: SampleShape::new(V::ELEMENT, channels),
+            channels: UNib32(channels),
             period,
             scale: V::SCALE,
             summaries: None,
@@ -389,10 +380,16 @@ impl<'i> SeriesDef<'i> {
         }
     }
 
-    /// Check the definition as a decoded one is checked: a known element, 1 to [SERIES_CHANNELS_MAX] channels, a
-    /// summary spec within its ranges.
+    /// Check the definition as a decoded one is checked: 1 to [SERIES_CHANNELS_MAX] channels, a summary spec within
+    /// its ranges. What the element asks of the summaries is the track's check ([TrackDef::check_kind](
+    /// crate::TrackDef::check_kind)).
     pub fn check(&self) -> Result<(), SeriesError> {
-        check_def(self.shape, self.summaries)
+        check_def(self.channels.0, self.summaries)
+    }
+
+    /// The shape of a sample: `channels` of `element`, the track's items' element.
+    pub fn shape(&self, element: ElementDesc) -> SampleShape {
+        SampleShape::new(element, self.channels.0)
     }
 
     /// The grid of the first chunk: sample 0 at `tick`, at the definition's scale.
@@ -401,15 +398,16 @@ impl<'i> SeriesDef<'i> {
     }
 }
 
-/// A type whose values a series stores as numbers of an [Element] at a fixed scale: a plain number, an exact_units
+/// A type whose values a series stores as numbers of an element at a fixed scale: a plain number, an exact_units
 /// `Fixed` or `Complex`.
 ///
-/// It gives a [SeriesDef] its element and scale and puts a value's numbers into a column.
+/// It gives a track's items ([Items::numbers](crate::Items::numbers)) their element, a [SeriesDef] its scale and
+/// puts a value's numbers into a column.
 pub trait SeriesValue: Copy {
     /// The scalar a column holds.
     type Scalar: Sample;
-    /// The stored element: the scalar's, or a complex one.
-    const ELEMENT: Element;
+    /// The stored element: the scalar's, or a complex pair of it.
+    const ELEMENT: ElementDesc;
     /// What a stored number is worth in the type's unit.
     const SCALE: Magnitude;
 
@@ -422,7 +420,7 @@ macro_rules! plain_value {
     ($($t:ty),* $(,)?) => {$(
         impl SeriesValue for $t {
             type Scalar = $t;
-            const ELEMENT: Element = Element::of_scalar(<$t as Sample>::SCALAR);
+            const ELEMENT: ElementDesc = ElementDesc::of_scalar(<$t as Sample>::SCALAR, 1);
             const SCALE: Magnitude = Magnitude::ONE;
             #[inline(always)]
             fn write_parts(self, out: &mut [$t]) -> usize {
@@ -447,7 +445,7 @@ impl<U: Copy, P: FixedScale, T: Storage + Sample, B: Bounds<T> + Copy> SeriesVal
     for Fixed<U, P, T, B>
 {
     type Scalar = T;
-    const ELEMENT: Element = Element::of_scalar(T::SCALAR);
+    const ELEMENT: ElementDesc = ElementDesc::of_scalar(T::SCALAR, 1);
     const SCALE: Magnitude = P::SCALE;
 
     #[inline(always)]
@@ -457,13 +455,13 @@ impl<U: Copy, P: FixedScale, T: Storage + Sample, B: Bounds<T> + Copy> SeriesVal
 }
 
 macro_rules! complex_value {
-    ($($t:ty => $e:ident),* $(,)?) => {$(
+    ($($t:ty),* $(,)?) => {$(
         impl<U: Copy, P: FixedScale, B: Unlimited<$t> + Copy> SeriesValue for Complex<U, P, $t, B>
         where
             $t: ComplexStorage,
         {
             type Scalar = $t;
-            const ELEMENT: Element = Element::$e;
+            const ELEMENT: ElementDesc = ElementDesc::of_scalar(<$t as Sample>::SCALAR, 2);
             const SCALE: Magnitude = P::SCALE;
 
             #[inline(always)]
@@ -475,4 +473,4 @@ macro_rules! complex_value {
     )*};
 }
 
-complex_value!(i16 => ComplexI16, f32 => ComplexF32);
+complex_value!(i16, f32);

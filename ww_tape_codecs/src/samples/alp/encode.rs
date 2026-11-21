@@ -607,7 +607,7 @@ pub(in crate::samples) fn encode<T: Sample>(
         scalar => {
             return Err(SampleError::Unsupported {
                 codec: crate::Codec::ALP,
-                scalar,
+                lane: super::super::Lane::of(scalar),
             });
         }
     };

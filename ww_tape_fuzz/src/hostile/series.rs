@@ -1,24 +1,22 @@
-//! Series tracks: the describe record of the track (shape, period, scale) in a block of definitions, and series
+//! Series tracks: the describe record of the track (items, channels, period, scale) in a block of definitions, and series
 //! chunks of it whose heads (first sample, count, ticks, grid index, grid tick, scale) take hostile values.
 
 use super::chunk::{build, hit_head, reseal};
 use super::{Draw, SESSION, clock_item, definition, describe_block};
 use shrink_wrap::prelude::*;
 use ww_tape::{
-    BlockId, BlockKind, ChunkHead, Codec, ColumnKind, ColumnSpec, Describe, EndMode, FullVersion,
-    Magnitude, Ratio64, SampleShape, Segment, SeriesDef, SeriesGrid, TrackDef, TrackKind, Version,
-    track_key,
+    BlockId, BlockKind, ChunkHead, Codec, ColumnKind, ColumnSpec, Describe, EndMode, Magnitude,
+    Ratio64, SampleShape, Segment, SeriesDef, SeriesGrid, TrackDef, TrackKind, track_key,
 };
 
 /// The track number of the hostile series.
 pub(crate) const TRACK: u32 = 1;
 
-/// The describe record of series track [TRACK] on clock 1 with `shape`, `period` and `scale`; empty when it doesn't
-/// encode.
+/// The describe record of series track [TRACK] on clock 1 with numbers of `shape`'s element, its channels, `period` and
+/// `scale`; empty when it doesn't encode.
 pub(crate) fn track_item(shape: SampleShape, period: Ratio64, scale: Magnitude) -> Vec<u8> {
     let def = SeriesDef {
-        sample: None,
-        shape,
+        channels: UNib32(shape.channels),
         period,
         scale,
         summaries: None,
@@ -29,14 +27,9 @@ pub(crate) fn track_item(shape: SampleShape, period: Ratio64, scale: Magnitude) 
         key: track_key(0x5e, &[Segment::Name("hostile")]),
         clock: UNib32(1),
         dimensions: RefVec::Slice { slice: &[] },
-        items: ww_tape::Items::WireWeaver {
-            api: FullVersion::new("hostile_api", Version::new(0, 1, 0)),
-            bundle: RefVec::Slice { slice: &[] },
-            path: RefVec::Slice {
-                slice: &[UNib32(1)],
-            },
-            keys: RefVec::Slice { slice: &[] },
-            item: None,
+        items: ww_tape::Items::Numbers {
+            element: shape.element,
+            unit: None,
         },
         label: "hostile",
         repeat: ww_tape::TrackRepeat::Stream,
@@ -74,11 +67,10 @@ pub fn series(data: &[u8]) -> Vec<u8> {
     let mut d = Draw::new(data);
     let period = period(&mut d);
     let scale = magnitude(&mut d);
-    let channels = UNib32(1 + d.below(3) as u32);
-    let shape = SampleShape {
-        element: ww_tape::Element::I16,
-        channels,
-    };
+    let shape = SampleShape::new(
+        ww_tape::ElementDesc::of(ww_tape::Element::I16),
+        1 + d.below(3) as u32,
+    );
     let item = track_item(shape, period, scale);
     let mut out = describe_block(BlockId::new(SESSION, 0), &[&clock_item(), &item]);
     // chunks on valid grids first, then hostile fields
@@ -133,7 +125,7 @@ pub fn series(data: &[u8]) -> Vec<u8> {
             g.grid_index = h.first_item;
         }
     }
-    let samples = vec![0u8; 2 * shape.channels.0 as usize];
+    let samples = vec![0u8; 2 * shape.channels as usize];
     for h in &heads {
         let spec = ColumnSpec {
             kind: ColumnKind::Samples,

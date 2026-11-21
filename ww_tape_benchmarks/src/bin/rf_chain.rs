@@ -22,12 +22,12 @@ use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 use std::time::{Duration, Instant};
 use ww_tape::chunk::ChunkHead;
 use ww_tape::reader::ByteSource;
-use ww_tape::samples::{SampleShape, Samples};
+use ww_tape::samples::Samples;
 use ww_tape::{
-    BlockKind, ChainOptions, ColumnKind, ColumnSpec, CutPolicy, Element, OwnerId, PieceTapes,
-    TapeReader, WriterOptions,
+    BlockKind, ChainOptions, ColumnKind, ColumnSpec, CutPolicy, OwnerId, PieceTapes, TapeReader,
+    WriterOptions,
 };
-use ww_tape_example::rf::{Rf, iq_key};
+use ww_tape_example::rf::{self, Rf, iq_key};
 use ww_tape_fs::{FileSource, FsError};
 
 #[derive(Parser)]
@@ -343,7 +343,7 @@ fn read(args: &Args, samples: Option<u64>) -> anyhow::Result<()> {
             let column = chunk
                 .find(ColumnKind::Samples, 0)
                 .ok_or_else(|| anyhow::anyhow!("samples"))?;
-            let s = Samples::of(&column, SampleShape::new(Element::ComplexI16, 1), count)
+            let s = Samples::of(&column, rf::iq_shape(), count)
                 .map_err(|e| anyhow::anyhow!("{e:?}"))?;
             out.resize(count * 2, 0i16);
             s.decode(0, &mut out)

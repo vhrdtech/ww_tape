@@ -411,10 +411,6 @@ pub fn check_definition(d: &Describe<'_>) -> Result<(), DescribeError> {
 /// The bundles track `t` names by API hash (its API's, its item's and its series' sample type's), then the schema of
 /// its item encoding; empty hashes (not known) left out.
 fn track_bundles(t: &crate::TrackDef<'_>) -> Vec<Named> {
-    let sample = t
-        .series()
-        .and_then(|s| s.sample.as_ref())
-        .map(|i| &i.bundle);
     let (api, item, schema) = match &t.items {
         Items::WireWeaver { bundle, item, .. } => {
             (Some(bundle), item.as_ref().map(|i| &i.bundle), None)
@@ -425,7 +421,7 @@ fn track_bundles(t: &crate::TrackDef<'_>) -> Vec<Named> {
         Items::RawBytes | Items::Unknown(_) => (None, None, None),
     };
     let mut out: Vec<Named> = Vec::new();
-    let bundles = [api, item, sample].into_iter().flatten();
+    let bundles = [api, item].into_iter().flatten();
     let schemas = schema.into_iter();
     for (kind, hash) in bundles
         .map(|h| (DefinitionKind::Bundle, h))

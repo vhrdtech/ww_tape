@@ -2,8 +2,8 @@
 //! good summary block stays in bounds, and every block a builder writes reads back with its nodes covering the items,
 //! also across prefix changes of a series, whose nodes then merge at a common scale.
 use ww_tape::{
-    Block, BlockId, Element, EventFields, Magnitude, Ratio64, SampleShape, SeriesGrid, SessionTag,
-    set_id,
+    Block, BlockId, Element, ElementDesc, EventFields, Magnitude, Ratio64, SampleShape, SeriesGrid,
+    SessionTag, set_id,
 };
 use ww_tape_summary::{
     EventTree, ItemRun, SeriesStart, SeriesStats, SeriesSummaries, SeriesSummarySpec, Stat, Summary,
@@ -108,7 +108,10 @@ pub fn summary(data: &[u8]) {
     check(&tree.take_blocks(), first, end);
 
     // a series of complex i16 from the input bytes
-    let shape = SampleShape::new(Element::ComplexI16, 1 + u32::from(data[3] % 3));
+    let shape = SampleShape::new(
+        ElementDesc::of(Element::ComplexI16),
+        1 + u32::from(data[3] % 3),
+    );
     let lanes = shape.lanes().expect("lanes") as usize;
     let xs: Vec<i16> = body
         .as_chunks::<2>()
@@ -127,7 +130,7 @@ pub fn summary(data: &[u8]) {
     };
     let spec = SeriesSummarySpec {
         base_shift: 4 + data[2] % 3,
-        stats: SeriesStats::all(Element::ComplexI16),
+        stats: SeriesStats::all(ElementDesc::of(Element::ComplexI16)),
         clip: None,
     };
     let mut s = SeriesSummaries::<i16>::new(start, spec).expect("a valid spec");

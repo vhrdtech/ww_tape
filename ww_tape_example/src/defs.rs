@@ -6,9 +6,9 @@ use crate::Error;
 use shrink_wrap::prelude::*;
 use ww_tape::summary::{SeriesStats, SeriesSummarySpec};
 use ww_tape::{
-    ClockDef, ClockMap, ClockOrigin, Definitions, Describe, Element, EventsDef, FullVersion,
-    Magnitude, MapSegment, Ratio64, Segment, SeriesDef, StatePolicy, TrackDef, TrackKind,
-    TrackRepeat, UNIX_CLOCK_KEY, Version, clock_key, track_key,
+    ClockDef, ClockMap, ClockOrigin, Definitions, Describe, EventsDef, FullVersion, Items,
+    Magnitude, MapSegment, Ratio64, SampleShape, Segment, SeriesDef, SeriesValue, StatePolicy,
+    TrackDef, TrackKind, TrackRepeat, UNIX_CLOCK_KEY, Version, clock_key, track_key,
 };
 
 /// The root of the drive's API: every track and clock key starts from it.
@@ -74,16 +74,19 @@ fn track(
         key: key(name),
         clock: UNib32(BOARD_CLOCK),
         dimensions: RefVec::Slice { slice: &[] },
-        items: ww_tape::Items::WireWeaver {
-            api: FullVersion::new("drive_api", Version::new(0, 1, 0)),
-            bundle: RefVec::Slice { slice: &[] },
-            path: RefVec::Slice {
-                slice: PATHS
-                    .get(usize::try_from(number).unwrap_or(0))
-                    .map_or(&[], |p| p.as_slice()),
+        items: match kind {
+            TrackKind::Series(_) => Items::numbers::<i16>(None),
+            _ => Items::WireWeaver {
+                api: FullVersion::new("drive_api", Version::new(0, 1, 0)),
+                bundle: RefVec::Slice { slice: &[] },
+                path: RefVec::Slice {
+                    slice: PATHS
+                        .get(usize::try_from(number).unwrap_or(0))
+                        .map_or(&[], |p| p.as_slice()),
+                },
+                keys: RefVec::Slice { slice: &[] },
+                item: None,
             },
-            keys: RefVec::Slice { slice: &[] },
-            item: None,
         },
         label: name,
         repeat,
@@ -125,11 +128,15 @@ pub fn phase_summaries() -> SeriesSummarySpec {
 
 /// The `phase_a` series definition at `hz` samples a second.
 pub fn phase_def(hz: u32, summaries: bool) -> Option<SeriesDef<'static>> {
-    let mut def = SeriesDef::of::<i16>(None, 1, Ratio64::new(1_000_000, u64::from(hz))?);
+    let mut def = SeriesDef::of::<i16>(1, Ratio64::new(1_000_000, u64::from(hz))?);
     def.scale = Magnitude::pow10(-3);
     def.summaries = summaries.then(phase_summaries);
-    debug_assert_eq!(def.shape.element, Element::I16, "i16 samples");
     Some(def)
+}
+
+/// The shape of `phase_a`'s samples: its track's items are i16 numbers, one channel.
+pub fn phase_shape(def: &SeriesDef<'_>) -> SampleShape {
+    def.shape(<i16 as SeriesValue>::ELEMENT)
 }
 
 /// The drive's definitions with `phase_a` at `hz`, its summaries when `summaries`, and the mode kept within `near`

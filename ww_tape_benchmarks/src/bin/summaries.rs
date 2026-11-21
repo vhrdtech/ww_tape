@@ -15,7 +15,7 @@ use clap::Parser;
 use std::hint::black_box;
 use std::time::Instant;
 use ww_tape::samples::{encode, max_encoded_len};
-use ww_tape::{Codec, Element, Magnitude, Ratio64, Sample, SampleShape, SeriesGrid};
+use ww_tape::{Codec, Element, ElementDesc, Magnitude, Ratio64, Sample, SampleShape, SeriesGrid};
 use ww_tape_summary::{Scalar, SeriesStart, SeriesStats, SeriesSummaries, SeriesSummarySpec};
 
 #[derive(Parser)]
@@ -90,7 +90,7 @@ enum Work {
 
 /// MB/s of sample bytes for `work` on `mib` MiB of `batch` pushed again and again; the fastest of `repeats` passes.
 fn rate<T: Gen>(args: &Args, shape: SampleShape, batch: &[T], work: Work) -> anyhow::Result<f64> {
-    let frames = batch.len() / (shape.element.parts() as usize * shape.channels.0 as usize);
+    let frames = batch.len() / (shape.element.parts.0 as usize * shape.channels as usize);
     let mut out = vec![
         0u8;
         max_encoded_len(Codec::RAW, shape, frames)
@@ -134,7 +134,7 @@ fn rate<T: Gen>(args: &Args, shape: SampleShape, batch: &[T], work: Work) -> any
 }
 
 fn case<T: Gen>(args: &Args, element: Element, channels: u32) -> anyhow::Result<()> {
-    let shape = SampleShape::new(element, channels);
+    let shape = SampleShape::new(ElementDesc::of(element), channels);
     let batch: Vec<T> = noise(args.frames * element.parts() as usize * channels as usize);
     let raw = rate(args, shape, &batch, Work::Raw)?;
     let sum = rate(args, shape, &batch, Work::Summaries)?;

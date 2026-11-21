@@ -27,9 +27,9 @@ use ww_tape::piece::payload_hash;
 use ww_tape::reader::ByteSource;
 use ww_tape::{
     ALIGNMENT, Block, BlockId, BlockKind, ClockDef, ClockOrigin, Codec, ColumnKind, ColumnSpec,
-    Definitions, Describe, EndMode, FullVersion, ItemHash, Magnitude, MemSink, OwnerId, Ratio64,
-    Segment, SeriesDef, SeriesGrid, SeriesTimeline, SessionTag, SyncPolicy, TapeReader, TapeSink,
-    TapeWriter, TrackDef, TrackHash, TrackKind, Version, clock_key, track_key,
+    Definitions, Describe, EndMode, ItemHash, Magnitude, MemSink, OwnerId, Ratio64, Segment,
+    SeriesDef, SeriesGrid, SeriesTimeline, SessionTag, SyncPolicy, TapeReader, TapeSink,
+    TapeWriter, TrackDef, TrackHash, TrackKind, clock_key, track_key,
 };
 
 #[derive(Parser)]
@@ -117,18 +117,10 @@ fn definitions() -> anyhow::Result<Definitions> {
             key: track_key(0xc4, &[Segment::Name("samples")]),
             clock: UNib32(CLOCK),
             dimensions: RefVec::Slice { slice: &[] },
-            items: ww_tape::Items::WireWeaver {
-                api: FullVersion::new("bench_api", Version::new(0, 1, 0)),
-                bundle: RefVec::Slice { slice: &[] },
-                path: RefVec::Slice {
-                    slice: &[UNib32(1)],
-                },
-                keys: RefVec::Slice { slice: &[] },
-                item: None,
-            },
+            items: ww_tape::Items::numbers::<i16>(None),
             label: "bench",
             repeat: ww_tape::TrackRepeat::Stream,
-            kind: TrackKind::Series(SeriesDef::of::<i16>(None, 1, period())),
+            kind: TrackKind::Series(SeriesDef::of::<i16>(1, period())),
             relations: RefVec::Slice { slice: &[] },
             owner: [0; 32],
         }),

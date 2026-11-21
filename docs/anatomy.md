@@ -35,14 +35,14 @@ and that share:
 | Blocks | Count | Bytes |
 |---|---:|---:|
 | piece head | 1 | 156 |
-| records blocks of puts and copies | 11 | 1522 |
+| records blocks of puts and copies | 11 | 1524 |
 | records blocks | 901 | 200107 |
 | events chunks | 900 | 2161164 |
 | series chunks | 900 | 25373597 |
 | summary blocks | 730 | 821980 |
 | checkpoints | 6 | 365424 |
 | final index | 1 | 414760 |
-| close | 1 | 4870 |
+| close | 1 | 4868 |
 | tail | 1 | 164 |
 
 Every offset in a piece counts from the piece's first byte. An index therefore stays valid wherever the piece sits:

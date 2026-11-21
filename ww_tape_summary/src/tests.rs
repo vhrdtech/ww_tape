@@ -2,9 +2,14 @@ use std::{collections::BTreeMap, ops::Range};
 
 use super::*;
 use ww_tape::{
-    Block, BlockError, BoundError, Element, Magnitude, Ratio64, SampleShape, SeriesError,
-    SeriesGrid,
+    Block, BlockError, BoundError, Element, ElementDesc, Magnitude, Ratio64, SampleShape,
+    SeriesError, SeriesGrid,
 };
+
+/// The description of a predefined element.
+fn ed(e: Element) -> ElementDesc {
+    ElementDesc::of(e)
+}
 
 /// xorshift64*: workloads without a dependency.
 struct Rng(u64);
@@ -517,7 +522,7 @@ fn check_children_merged(
     level: u8,
     n: u64,
     ch: usize,
-    element: Element,
+    element: ElementDesc,
     s: &ChannelStats,
 ) {
     let mut m = ChannelStats::empty(element);
@@ -554,7 +559,7 @@ fn check_series<T: Scalar>(
     let got = series_levels(&blocks);
     let element = shape.element;
     let comps = usize::from(components(element));
-    let channels = shape.channels.0 as usize;
+    let channels = shape.channels as usize;
     let stride = channels * comps;
     let frames = data.len() / stride;
     let end = first_item + frames as u64;
@@ -613,7 +618,7 @@ fn series_summaries_match_naive_model() {
     };
 
     // complex i16 IQ, 2 channels, full scale clipping, every statistic
-    let shape = SampleShape::new(Element::ComplexI16, 2);
+    let shape = SampleShape::new(ed(Element::ComplexI16), 2);
     let iq: Vec<i16> = (0..200_000 * 4)
         .map(|i| {
             if i % 9973 == 0 {
@@ -637,7 +642,7 @@ fn series_summaries_match_naive_model() {
     }
 
     // f32 with NaN and infinities, one channel
-    let shape = SampleShape::scalar(Element::F32);
+    let shape = SampleShape::scalar(ed(Element::F32));
     let f: Vec<f32> = (0..300_000)
         .map(|i| match i % 10_007 {
             0 => f32::NAN,
@@ -660,8 +665,8 @@ fn series_summaries_match_naive_model() {
     let nan = vec![f64::NAN; 100];
     check_series(
         &nan,
-        SampleShape::scalar(Element::F64),
-        spec(4, SeriesStats::all(Element::F64), None),
+        SampleShape::scalar(ed(Element::F64)),
+        spec(4, SeriesStats::all(ed(Element::F64)), None),
         0,
         &no_flags,
         1,
@@ -670,7 +675,7 @@ fn series_summaries_match_naive_model() {
     );
 
     // u8 with a declared clip range and only some statistics, 3 channels
-    let shape = SampleShape::new(Element::U8, 3);
+    let shape = SampleShape::new(ed(Element::U8), 3);
     let u: Vec<u8> = (0..90_000).map(|_| rng.next() as u8).collect();
     let stats = SeriesStats {
         min: true,
@@ -694,7 +699,7 @@ fn series_summaries_match_naive_model() {
     );
 
     // i64 near its ends: exact min and max, sums in f64
-    let shape = SampleShape::scalar(Element::I64);
+    let shape = SampleShape::scalar(ed(Element::I64));
     let w: Vec<i64> = (0..5000).map(|_| rng.next() as i64).collect();
     check_series(
         &w,
@@ -710,7 +715,7 @@ fn series_summaries_match_naive_model() {
 
 #[test]
 fn series_refuses_partial_frames() {
-    let shape = SampleShape::new(Element::I16, 3);
+    let shape = SampleShape::new(ed(Element::I16), 3);
     let start = SeriesStart {
         track_id: 1,
         track_number: 1,
@@ -720,7 +725,8 @@ fn series_refuses_partial_frames() {
         period: Ratio64::ONE,
     };
     let mut s =
-        SeriesSummaries::<i16>::new(start, spec(4, SeriesStats::all(Element::I16), None)).unwrap();
+        SeriesSummaries::<i16>::new(start, spec(4, SeriesStats::all(ed(Element::I16)), None))
+            .unwrap();
     assert_eq!(
         s.push(&[1, 2, 3, 4], 0),
         Err(BuildError::PartialFrame { stride: 3 })
@@ -739,34 +745,40 @@ fn series_refuses_bad_specs() {
         period: Ratio64::ONE,
     };
     let s = |shape, spec| SeriesSummaries::<i16>::new(start(shape), spec).err();
-    let all = SeriesStats::all(Element::ComplexI16);
+    let all = SeriesStats::all(ed(Element::ComplexI16));
     assert!(
-        s(SampleShape::scalar(Element::F32), spec(6, all, None)).is_some(),
+        s(SampleShape::scalar(ed(Element::F32)), spec(6, all, None)).is_some(),
         "element not the scalar"
     );
     assert!(
-        s(SampleShape::new(Element::I16, 0), spec(6, all, None)).is_some(),
+        s(SampleShape::new(ed(Element::I16), 0), spec(6, all, None)).is_some(),
         "no channels"
     );
     assert!(
-        s(SampleShape::scalar(Element::I16), spec(6, all, None)).is_some(),
+        s(SampleShape::scalar(ed(Element::I16)), spec(6, all, None)).is_some(),
         "power of a real element"
     );
     assert!(
         s(
-            SampleShape::scalar(Element::I16),
-            spec(3, SeriesStats::all(Element::I16), None)
+            SampleShape::scalar(ed(Element::I16)),
+            spec(3, SeriesStats::all(ed(Element::I16)), None)
         )
         .is_some()
     );
     assert!(
         s(
-            SampleShape::scalar(Element::I16),
+            SampleShape::scalar(ed(Element::I16)),
             spec(6, SeriesStats::default(), None)
         )
         .is_some()
     );
-    assert!(s(SampleShape::new(Element::ComplexI16, 1), spec(6, all, None)).is_none());
+    assert!(
+        s(
+            SampleShape::new(ed(Element::ComplexI16), 1),
+            spec(6, all, None)
+        )
+        .is_none()
+    );
 }
 
 #[test]
@@ -856,7 +868,7 @@ fn event_tree_at_the_top_of_the_item_numbers() {
 /// Merging statistics read from a damaged block: a clipped count near u64::MAX stops there instead of overflowing.
 #[test]
 fn merge_of_huge_clipped_counts() {
-    let mut a = ChannelStats::empty(Element::I16);
+    let mut a = ChannelStats::empty(ed(Element::I16));
     a.clipped = u64::MAX - 1;
     let mut b = a;
     b.clipped = 5;
@@ -870,13 +882,14 @@ fn series_head_caps() {
     let start = SeriesStart {
         track_id: 7,
         track_number: 1,
-        shape: SampleShape::scalar(Element::I16),
+        shape: SampleShape::scalar(ed(Element::I16)),
         first_item: 0,
         grid: SeriesGrid::start(0, 0, Magnitude::pow10(-3)),
         period: Ratio64::int(1000).unwrap(),
     };
     let mut s =
-        SeriesSummaries::<i16>::new(start, spec(4, SeriesStats::all(Element::I16), None)).unwrap();
+        SeriesSummaries::<i16>::new(start, spec(4, SeriesStats::all(ed(Element::I16)), None))
+            .unwrap();
     s.push(&[1, 2, 3], 0).unwrap();
     s.finish().unwrap();
     let b = s.take_blocks().remove(0);
@@ -913,8 +926,8 @@ fn series_head_caps() {
 fn series_definitions() -> Vec<ww_tape::Describe<'static>> {
     use shrink_wrap::prelude::*;
     use ww_tape::{
-        ClockDef, ClockOrigin, Describe, FullVersion, SeriesDef, TrackDef, TrackKind, TrackRepeat,
-        Version, clock_key, track_key,
+        ClockDef, ClockOrigin, Describe, SeriesDef, TrackDef, TrackKind, TrackRepeat, clock_key,
+        track_key,
     };
     vec![
         Describe::Clock(ClockDef {
@@ -930,18 +943,10 @@ fn series_definitions() -> Vec<ww_tape::Describe<'static>> {
             key: track_key(0x5e, &[ww_tape::Segment::Name("signal")]),
             clock: UNib32(1),
             dimensions: RefVec::Slice { slice: &[] },
-            items: ww_tape::Items::WireWeaver {
-                api: FullVersion::new("summary_tests", Version::new(0, 1, 0)),
-                bundle: RefVec::Slice { slice: &[] },
-                path: RefVec::Slice {
-                    slice: &[UNib32(1)],
-                },
-                keys: RefVec::Slice { slice: &[] },
-                item: None,
-            },
+            items: ww_tape::Items::numbers::<i16>(None),
             label: "signal",
             repeat: TrackRepeat::Stream,
-            kind: TrackKind::Series(SeriesDef::of::<i16>(None, 1, Ratio64::int(1000).unwrap())),
+            kind: TrackKind::Series(SeriesDef::of::<i16>(1, Ratio64::int(1000).unwrap())),
             relations: RefVec::Slice { slice: &[] },
             owner: [0; 32],
         }),
@@ -967,7 +972,7 @@ fn summaries_fill_alignment_gaps() {
         BlockKind, ChunkHead, Codec, ColumnKind, ColumnSpec, EndMode, FileBlocks, SyncPolicy,
         TapeWriter,
     };
-    let shape = SampleShape::scalar(Element::I16);
+    let shape = SampleShape::scalar(ed(Element::I16));
     let chunk = 32_768usize;
     let chunks = 12;
     let samples: Vec<i16> = (0..chunk * chunks)
@@ -988,7 +993,7 @@ fn summaries_fill_alignment_gaps() {
             period: Ratio64::int(1000).unwrap(),
         };
         let mut s =
-            SeriesSummaries::<i16>::new(start, spec(10, SeriesStats::all(Element::I16), None))
+            SeriesSummaries::<i16>::new(start, spec(10, SeriesStats::all(ed(Element::I16)), None))
                 .unwrap();
         let mut chunk_ends = vec![];
         for c in 0..chunks {
@@ -1100,7 +1105,7 @@ fn summary_golden() {
         }
         t.finish().unwrap();
         let mut blocks = t.take_blocks();
-        let shape = SampleShape::new(Element::ComplexI16, 2);
+        let shape = SampleShape::new(ed(Element::ComplexI16), 2);
         let start = SeriesStart {
             track_id: 0x5e,
             track_number: 3,
@@ -1180,7 +1185,7 @@ fn common_scales_and_factors() {
         "past 2^53"
     );
     // statistics of no samples rescale to themselves; integer ends that leave their type are refused
-    let empty = ChannelStats::empty(Element::I32);
+    let empty = ChannelStats::empty(ed(Element::I32));
     assert!(same_bits(&empty.rescaled(1000).unwrap(), &empty));
     let mut big = empty;
     big.min[0] = Value::I64(i64::MAX / 10);
@@ -1415,14 +1420,26 @@ fn series_prefix_changes_match_naive_model_in_the_unit() {
         .reduce(|a, b| common_scale(a, b).unwrap())
         .unwrap();
     for (shape, base_shift, first_item, changes, frames) in [
-        (SampleShape::scalar(Element::I16), 4, 0u64, 40, 9000usize),
-        (SampleShape::new(Element::ComplexI16, 2), 5, 1000, 12, 6000),
-        (SampleShape::new(Element::I16, 3), 4, 77, 1, 3000),
-        (SampleShape::scalar(Element::I16), 4, 5, 2000, 4000),
+        (
+            SampleShape::scalar(ed(Element::I16)),
+            4,
+            0u64,
+            40,
+            9000usize,
+        ),
+        (
+            SampleShape::new(ed(Element::ComplexI16), 2),
+            5,
+            1000,
+            12,
+            6000,
+        ),
+        (SampleShape::new(ed(Element::I16), 3), 4, 77, 1, 3000),
+        (SampleShape::scalar(ed(Element::I16)), 4, 5, 2000, 4000),
     ] {
         let element = shape.element;
         let comps = usize::from(components(element));
-        let stride = shape.channels.0 as usize * comps;
+        let stride = shape.channels as usize * comps;
         let mut series = PrefixSeries {
             data: (0..frames * stride).map(|_| rng.next() as i16).collect(),
             stride,
@@ -1480,12 +1497,12 @@ fn series_scale_changes_refused() {
     let start = |first: SeriesGrid| SeriesStart {
         track_id: 1,
         track_number: 1,
-        shape: SampleShape::scalar(Element::I64),
+        shape: SampleShape::scalar(ed(Element::I64)),
         first_item: 0,
         grid: first,
         period: Ratio64::ONE,
     };
-    let sp = spec(4, SeriesStats::all(Element::I64), None);
+    let sp = spec(4, SeriesStats::all(ed(Element::I64)), None);
     let first = SeriesGrid::start(0, 0, Magnitude::ONE);
     let mut s = SeriesSummaries::<i64>::new(start(first), sp).unwrap();
     s.push(&[1, 2, 3], 0).unwrap();
@@ -1531,7 +1548,7 @@ fn series_scale_changes_refused() {
 /// A series block's scale: refused when missing, cut, or not as a scale writes it.
 #[test]
 fn series_block_scale_is_checked() {
-    let shape = SampleShape::scalar(Element::I16);
+    let shape = SampleShape::scalar(ed(Element::I16));
     let first = SeriesGrid::start(0, 0, Magnitude::pow10(-3));
     let mut s = SeriesSummaries::<i16>::new(
         SeriesStart {
@@ -1566,8 +1583,10 @@ fn series_block_scale_is_checked() {
         // the first channel or leaf of the block, reserved
         (54, 1),
         (55, 1),
-        // the reserved leaves element
-        (47, Element::LEAVES.code()),
+        // a described element whose bytes 28..32 describe none, and those bytes beside a coded element
+        (47, Element::DESCRIBED_CODE),
+        (28, 1),
+        (31, 1),
         (97, 0xff),
     ] {
         let mut x = b.clone();
@@ -1585,7 +1604,7 @@ fn series_block_scale_is_checked() {
 /// splits differ.
 #[test]
 fn series_cut_into_pieces_keeps_node_ticks() {
-    let shape = SampleShape::scalar(Element::I16);
+    let shape = SampleShape::scalar(ed(Element::I16));
     let period = Ratio64::new(62_500, 3).unwrap();
     let segment = SeriesGrid::start(0, 1000, Magnitude::ONE);
     let data: Vec<i16> = (0..9000).map(|i| ((i * 31) % 2000 - 1000) as i16).collect();
@@ -1599,7 +1618,7 @@ fn series_cut_into_pieces_keeps_node_ticks() {
             period,
         };
         let mut s =
-            SeriesSummaries::<i16>::new(start, spec(4, SeriesStats::all(Element::I16), None))
+            SeriesSummaries::<i16>::new(start, spec(4, SeriesStats::all(ed(Element::I16)), None))
                 .unwrap();
         s.push(&data[from..to], 0).unwrap();
         s.finish().unwrap();
@@ -1657,31 +1676,142 @@ fn series_cut_into_pieces_keeps_node_ticks() {
     assert!(split > 0, "some nodes are split");
 }
 
-/// A series writer refuses the reserved leaves element (code 13), whatever scalar type it takes.
-#[test]
-fn series_refuses_the_leaves_element() {
-    let leaves = SampleShape::new(Element::LEAVES, 1);
-    let start = SeriesStart {
+/// The start of a one-channel series of `element` at scale 10⁻³, one sample per 1000 ticks.
+fn start_of(element: ElementDesc, channels: u32) -> SeriesStart {
+    SeriesStart {
         track_id: 1,
         track_number: 1,
-        shape: leaves,
+        shape: SampleShape::new(element, channels),
         first_item: 0,
         grid: SeriesGrid::start(0, 0, Magnitude::pow10(-3)),
         period: Ratio64::int(1000).unwrap(),
-    };
-    let spec = SeriesSummarySpec {
-        base_shift: 6,
-        stats: SeriesStats::all(Element::I32),
-        clip: None,
-    };
-    for scalar in [true, false] {
-        let r = if scalar {
-            SeriesSummaries::<i32>::new(start, spec).map(|_| ())
-        } else {
-            SeriesSummaries::<u8>::new(start, spec).map(|_| ())
-        };
-        assert!(r.is_err());
     }
+}
+
+fn spec_of(element: ElementDesc) -> SeriesSummarySpec {
+    SeriesSummarySpec {
+        base_shift: 6,
+        stats: SeriesStats::all(element),
+        clip: None,
+    }
+}
+
+/// 8-bit IQ offset to 127.5 is summarised exactly: `2 · v - 255` in a complex i16 at the grid's scale over 2, and
+/// its samples clip at the u8's own ends.
+#[test]
+fn an_element_with_a_zero_is_summarised_shifted() {
+    let mut iq = ed(Element::U8);
+    iq.parts = shrink_wrap::prelude::UNib32(2);
+    iq.zero = Ratio64::new(255, 2);
+    let summary = iq.summary_element();
+    assert_eq!(summary, ed(Element::ComplexI16));
+    let mut s = SeriesSummaries::<i16>::new(start_of(iq, 1), spec_of(summary)).unwrap();
+    let half_milli = Magnitude::pow10(-3)
+        .checked_div(Magnitude::ratio(2, 1))
+        .unwrap();
+    assert_eq!(s.scale(), half_milli);
+    // I runs 0 to 255, Q stays at 128
+    let samples: Vec<u8> = (0..64u32)
+        .flat_map(|i| [(i * 255 / 63) as u8, 128])
+        .collect();
+    assert_eq!(
+        s.push_from(&[1i8, 2], 0).unwrap_err(),
+        BuildError::Invalid("samples of another scalar than the element's")
+    );
+    s.push_from(&samples, 0).unwrap();
+    s.finish().unwrap();
+    let blocks = s.take_blocks();
+    let b = &blocks[0];
+    assert_eq!(b[47], Element::ComplexI16.code());
+    assert_eq!(&b[28..32], &[0; 4]);
+    let sm = Summary::of_block(&Block::read(b).unwrap()).unwrap();
+    assert_eq!(sm.scale(), Some(half_milli));
+    let st = sm.channel_stats(0, 0).unwrap();
+    assert_eq!(st.min, [Value::I64(-255), Value::I64(1)]);
+    assert_eq!(st.max, [Value::I64(255), Value::I64(1)]);
+    let sum_i: i64 = (0..64i64).map(|i| 2 * (i * 255 / 63) - 255).sum();
+    assert_eq!(st.sum, [sum_i as f64, 64.0]);
+    assert_eq!(st.clipped, 2, "I at 0 and at 255");
+}
+
+/// A 12-bit converter's samples in a u16 are summarised as u16, the head's element described as 12 bits, and they
+/// clip at 0 and 4095.
+#[test]
+fn a_narrow_element_clips_at_its_own_ends() {
+    let mut twelve = ed(Element::U16);
+    twelve.bits = 12;
+    twelve.msb_first = true;
+    let mut s = SeriesSummaries::<u16>::new(start_of(twelve, 1), spec_of(twelve)).unwrap();
+    let samples: Vec<u16> = (0..64u16).map(|i| i * 65).collect();
+    s.push(&samples, 0).unwrap();
+    s.finish().unwrap();
+    let blocks = s.take_blocks();
+    let b = &blocks[0];
+    assert_eq!(b[47], Element::DESCRIBED_CODE);
+    assert_eq!(
+        &b[28..32],
+        &[12, 0, 0, 1],
+        "a summary's element has no byte order"
+    );
+    let st = Summary::of_block(&Block::read(b).unwrap())
+        .unwrap()
+        .channel_stats(0, 0)
+        .unwrap();
+    assert_eq!(st.max[0], Value::U64(63 * 65));
+    assert_eq!(st.clipped, 2, "0 and 4095");
+}
+
+/// A head's described element is read only as written: a predefined element, a sign byte past 1, more than 2 parts
+/// or a byte order are refused, so every element has one encoding.
+#[test]
+fn a_described_element_is_read_only_as_written() {
+    let mut twelve = ed(Element::U16);
+    twelve.bits = 12;
+    let mut s = SeriesSummaries::<u16>::new(start_of(twelve, 1), spec_of(twelve)).unwrap();
+    s.push(&[7u16; 64], 0).unwrap();
+    s.finish().unwrap();
+    let b = s.take_blocks().remove(0);
+    assert!(Block::read(&b).is_ok());
+    for described in [
+        [16, 0, 0, 1],
+        [12, 0, 2, 1],
+        [12, 0, 0, 3],
+        [12, 0, 0, 0],
+        [0, 0, 0, 1],
+        [16, 1, 1, 1],
+    ] {
+        let mut x = b.clone();
+        x[28..32].copy_from_slice(&described);
+        let n = x.len();
+        let crc = ww_tape_codecs::crc32c::Crc32c.checksum(&x[..n - 4]);
+        x[n - 4..].copy_from_slice(&crc.to_le_bytes());
+        assert!(
+            matches!(Block::read(&x), Err(BlockError::Summary(_))),
+            "{described:?}"
+        );
+    }
+}
+
+/// A series writer refuses an element it keeps no summaries of: more than 2 parts, an invalid description, a scalar
+/// type other than the summary element's.
+#[test]
+fn series_refuses_elements_without_summaries() {
+    let mut three = ed(Element::I16);
+    three.parts = shrink_wrap::prelude::UNib32(3);
+    assert!(SeriesSummaries::<i16>::new(start_of(three, 1), spec_of(ed(Element::I16))).is_err());
+    let mut none = ed(Element::I16);
+    none.bits = 0;
+    assert!(SeriesSummaries::<i16>::new(start_of(none, 1), spec_of(ed(Element::I16))).is_err());
+    assert!(
+        SeriesSummaries::<i32>::new(start_of(ed(Element::I16), 1), spec_of(ed(Element::I16)))
+            .is_err()
+    );
+    let mut iq = ed(Element::U8);
+    iq.zero = Ratio64::new(255, 2);
+    assert!(
+        SeriesSummaries::<u8>::new(start_of(iq, 1), spec_of(ed(Element::U8))).is_err(),
+        "the statistics of a zero are an i16"
+    );
 }
 
 /// [Summary::read] takes only a summary block: the bytes of a good block of another kind are refused by their kind.

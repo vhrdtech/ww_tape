@@ -21,13 +21,13 @@ use core::f64::consts::PI;
 
 use shrink_wrap::prelude::*;
 use ww_tape::chunk::ChunkHead;
-use ww_tape::samples::{Samples, encode, max_encoded_len};
+use ww_tape::samples::{Samples, Scalar, encode, max_encoded_len};
 use ww_tape::summary::{SeriesStats, SeriesSummarySpec};
 use ww_tape::{
     BlockKind, ClockDef, ClockOrigin, ClockRef, Codec, ColumnKind, ColumnSpec, Definitions,
-    Describe, Element, EndMode, FullVersion, Magnitude, MemSink, Ratio64, SampleShape, Segment,
+    Describe, ElementDesc, EndMode, Items, Magnitude, MemSink, Ratio64, SampleShape, Segment,
     SeriesDef, SeriesGrid, SessionTag, SyncPolicy, TapeReader, TapeSink, TapeWriter, TrackDef,
-    TrackKind, TrackRepeat, Version, clock_key, track_key,
+    TrackKind, TrackRepeat, clock_key, track_key,
 };
 use ww_tape_summary::{SeriesStart, SeriesSummaries};
 
@@ -35,10 +35,22 @@ use crate::signals::hash;
 
 /// The root of the front end's API: its track and clock keys start from it.
 const API_ROOT: u64 = 0x5d12_0001;
+/// The shape of a sample of `iq`: one [IQ_ELEMENT].
+pub const fn iq_shape() -> SampleShape {
+    SampleShape {
+        element: IQ_ELEMENT,
+        channels: 1,
+    }
+}
+
 /// The front end's sample clock in ns since the capture starts: the clock of `iq`.
 pub const RF_CLOCK: u32 = 1;
 /// The IQ samples, `ComplexI16`.
 pub const IQ: u32 = 1;
+// --8<-- [start:element]
+/// The element of `iq`'s items: I and Q side by side, a 16-bit signed integer each.
+pub const IQ_ELEMENT: ElementDesc = ElementDesc::of_scalar(Scalar::I16, 2);
+// --8<-- [end:element]
 /// The largest magnitude of a component: the converter's 12 bits, signed.
 pub const FULL_SCALE: i16 = 2047;
 
@@ -129,11 +141,10 @@ impl Rf {
     pub fn def(&self) -> Option<SeriesDef<'static>> {
         // --8<-- [start:def]
         let def = SeriesDef {
-            sample: None,
-            shape: SampleShape::new(Element::ComplexI16, 1), // I and Q side by side, one channel
+            channels: UNib32(1), // one sample of IQ_ELEMENT at a time
             period: Ratio64::new(1_000_000_000, u64::from(self.rate_hz))?, // 50 ns at 20 MS/s
-            scale: Magnitude::ONE,                           // one step of the converter
-            summaries: self.summaries.then(summaries),       // extremes and power per 1024 samples
+            scale: Magnitude::ONE, // one step of the converter
+            summaries: self.summaries.then(summaries), // extremes and power per 1024 samples
             media: None,
         };
         // --8<-- [end:def]
@@ -158,14 +169,9 @@ impl Rf {
                 key: iq_key(),
                 clock: UNib32(RF_CLOCK),
                 dimensions: RefVec::Slice { slice: &[] },
-                items: ww_tape::Items::WireWeaver {
-                    api: FullVersion::new("front_end_api", Version::new(0, 1, 0)),
-                    bundle: RefVec::Slice { slice: &[] },
-                    path: RefVec::Slice {
-                        slice: &[UNib32(1)],
-                    },
-                    keys: RefVec::Slice { slice: &[] },
-                    item: None,
+                items: Items::Numbers {
+                    element: IQ_ELEMENT,
+                    unit: None,
                 },
                 label: "iq",
                 repeat: TrackRepeat::Stream,
@@ -210,7 +216,7 @@ impl Rf {
         bytes: &mut Vec<u8>,
     ) -> Result<(ChunkHead, ColumnSpec), RfError<E>> {
         let def = self.def().ok_or(RfError::Settings("the rate is 0"))?;
-        let shape = SampleShape::new(Element::ComplexI16, 1);
+        let shape = iq_shape();
         let count = values.len() / 2;
         bytes.resize(max_encoded_len(self.codec, shape, count)?, 0);
         let len = encode(self.codec, shape, values, bytes)?;
@@ -248,7 +254,7 @@ impl Rf {
         let start = SeriesStart {
             track_id: iq_key(),
             track_number: IQ,
-            shape: def.shape,
+            shape: iq_shape(),
             first_item: 0,
             grid: def.first_grid(0),
             period: def.period,
@@ -408,7 +414,7 @@ pub fn read(piece: &[u8]) -> Result<ReadBack, RfError<ww_tape::reader::OutOfRang
         let column = chunk
             .find(ColumnKind::Samples, 0)
             .ok_or(RfError::Settings("a chunk of iq has samples"))?;
-        let s = Samples::of(&column, SampleShape::new(Element::ComplexI16, 1), count)?;
+        let s = Samples::of(&column, iq_shape(), count)?;
         let at = samples.len();
         samples.resize(at + count * 2, 0);
         s.decode(0, samples.get_mut(at..).unwrap_or_default())?;

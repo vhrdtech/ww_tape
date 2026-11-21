@@ -182,6 +182,12 @@ Covers `ww_tape` 0.1.0.
 - `NearPolicy` gains `kept_bytes_max` and `Closed` gains `states_unknown`: struct literals name them (WRITE-9).
 - Writers copy the layout and the producer like definitions; golden `v1-append.hex` rewritten, older files read unchanged (WRITE-10).
 - `TrackDef`'s `api`, `bundle`, `path`, `keys` and `item` move into `items: Items::WireWeaver { .. }`; files written before don't read (FMT-12).
+- A series' items are `Items::Numbers`; `SeriesDef` drops `sample` and `shape` for `channels`; older series don't read (FMT-12).
+- `SeriesDef::of` takes no sample type; `Items::numbers::<V>(unit)` gives a series track its items (FMT-12).
+- `SampleShape` holds an `ElementDesc` and plain `channels`, encodes no more, and `TrackDef::series_shape` builds it (FMT-12).
+- `Element::LEAVES`, `SampleError::UnknownElement` and `Element`'s wire form are gone; a described element replaces them (FMT-12).
+- Codecs take a `Lane` (scalar, bits, bit order, float layout) where they took a `Scalar`: pass `Lane::of(scalar)` (FMT-12).
+- `SeriesValue::ELEMENT` and `Layout::Series::element` are `ElementDesc`s; `ww_tape_summary::Scalar::TYPE` is `SCALAR` (FMT-12).
 
 ### Features
 
@@ -367,6 +373,11 @@ Covers `ww_tape` 0.1.0.
 - A track's `items` say what they are: a WireWeaver stream, a ShrinkWrap type, bytes, numbers or a foreign format (FMT-12).
 - `Describe::Schema` carries a foreign format's schema on track 0, put before its track and carried on a cut (FMT-12).
 - `ElementDesc` describes a number by bits, exponent bits, sign, byte order, parts and zero (FMT-12).
+- Series of described elements: any width packed LSB or MSB first, and f16, bfloat16 or fp8 stored exactly (FMT-12).
+- A summary head names a described element by code 13 and its description in bytes 28..32 (FMT-12).
+- Summaries of an element with a zero `p/q` hold `q·v - p` exactly; `SeriesSummaries::push_from` takes stored samples (FMT-12).
+- An integer element narrower than its scalar clips at its own ends in summaries by default (FMT-12).
+- Codecs 16 to 22 stay readable as fixed `RAW` layouts; no writer here chose them, so nothing is lost (FMT-12).
 
 ### Fixes
 

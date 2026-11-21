@@ -280,7 +280,7 @@ fn numbers_of_a_described_element_read_back() {
     assert_eq!(iq_u8().container_bits(), 8);
     assert_eq!(iq_u8().element(), None, "no predefined element is 8-bit IQ");
     assert_eq!(
-        ElementDesc::of(ww_tape::Element::ComplexI16).and_then(|d| d.element()),
+        ElementDesc::of(ww_tape::Element::ComplexI16).element(),
         Some(ww_tape::Element::ComplexI16)
     );
 }

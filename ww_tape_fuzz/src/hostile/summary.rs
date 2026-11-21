@@ -2,7 +2,7 @@
 //! the scale bytes and the node values.
 
 use super::{Draw, Field, HEADER_FIELDS, HEADER_LEN, LEN_FIELD, hit, hit_some, seal};
-use ww_tape::{Element, EventFields, Magnitude, Ratio64, SampleShape, SeriesGrid};
+use ww_tape::{Element, ElementDesc, EventFields, Magnitude, Ratio64, SampleShape, SeriesGrid};
 use ww_tape_summary::{
     EventTree, ItemRun, NODE_SHIFT_MAX, SCALE_LEN_MAX, SUMMARY_FIXED_LEN, SeriesStart, SeriesStats,
     SeriesSummaries, SeriesSummarySpec,
@@ -75,11 +75,11 @@ fn events(d: &mut Draw<'_>) -> Vec<Vec<u8>> {
 
 /// The blocks of series summaries of samples drawn from the input.
 fn series(d: &mut Draw<'_>) -> Vec<Vec<u8>> {
-    let element = if d.bool() {
+    let element = ElementDesc::of(if d.bool() {
         Element::ComplexI16
     } else {
         Element::I16
-    };
+    });
     let shape = SampleShape::new(element, 1 + d.below(3) as u32);
     let lanes = shape.lanes().expect("lanes") as usize;
     let first = u64::from(d.u16());

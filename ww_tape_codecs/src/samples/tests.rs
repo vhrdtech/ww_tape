@@ -12,15 +12,45 @@ impl Rng {
     }
 }
 
-/// The scalar and the lanes of a column.
+/// The lane and the lanes of a column.
 #[derive(Copy, Clone, Debug)]
-pub(crate) struct Shape(pub(crate) Scalar, pub(crate) NonZeroUsize);
+pub(crate) struct Shape(pub(crate) Lane, pub(crate) NonZeroUsize);
 
-/// `lanes` values of `scalar` per sample.
+/// `lanes` values of `scalar`, each filling it, per sample.
 pub(crate) const fn sh(scalar: Scalar, lanes: usize) -> Shape {
+    shl(Lane::of(scalar), lanes)
+}
+
+/// `lanes` values of `lane` per sample.
+pub(crate) const fn shl(lane: Lane, lanes: usize) -> Shape {
     match NonZeroUsize::new(lanes) {
-        Some(l) => Shape(scalar, l),
+        Some(l) => Shape(lane, l),
         None => panic!("a column has lanes"),
+    }
+}
+
+/// `bits` of `scalar`, LSB or MSB first.
+pub(crate) const fn lane(scalar: Scalar, bits: u32, msb_first: bool) -> Lane {
+    Lane {
+        scalar,
+        bits,
+        msb_first,
+        exponent_bits: 0,
+    }
+}
+
+/// A float of `bits` with `exponent_bits`, in `scalar`.
+pub(crate) const fn float_lane(
+    scalar: Scalar,
+    bits: u32,
+    exponent_bits: u32,
+    msb_first: bool,
+) -> Lane {
+    Lane {
+        scalar,
+        bits,
+        msb_first,
+        exponent_bits,
     }
 }
 
@@ -44,8 +74,12 @@ pub(crate) fn enc<T: Sample>(
     values: &[T],
     out: &mut [u8],
 ) -> Result<usize, SampleError> {
-    assert_eq!(T::SCALAR, shape.0, "the values are the shape's scalar");
-    encode(codec, shape.1, values, out)
+    assert_eq!(
+        T::SCALAR,
+        shape.0.scalar,
+        "the values are the shape's scalar"
+    );
+    encode(codec, shape.0, shape.1, values, out)
 }
 
 pub(crate) fn encode_vec<T: Sample>(codec: Codec, shape: Shape, values: &[T]) -> Vec<u8> {
@@ -60,9 +94,11 @@ pub(crate) fn roundtrip<T: Sample>(codec: Codec, shape: Shape, values: &[T]) -> 
     let lanes = shape.1.get();
     let count = values.len() / lanes;
     let bytes = encode_vec(codec, shape, values);
-    let s = read_column(codec, shape, count, &bytes).unwrap();
+    let s = read_column(codec, shape, count, &bytes)
+        .unwrap_or_else(|e| panic!("{codec:?} {shape:?}: {e:?}"));
     let mut out = vec![T::default(); values.len()];
-    s.decode(0, &mut out).unwrap();
+    s.decode(0, &mut out)
+        .unwrap_or_else(|e| panic!("{codec:?} {shape:?} decode: {e:?}"));
     assert!(
         out.iter()
             .zip(values)
@@ -156,6 +192,168 @@ fn packed_refuses_wide_values() {
             &mut out
         ),
         Err(SampleError::ValueTooWide { index: 0 })
+    );
+}
+
+/// A lane of fewer bits than its scalar packs at its width under [Codec::RAW], the same bytes the packed codecs give
+/// for that width; a whole-byte width `msb_first` is big endian; a 1-bit unsigned lane is a `Bool` column.
+#[test]
+fn described_lanes_pack_at_their_width() {
+    let v: [u16; 3] = [0xabc, 0x123, 0xfff];
+    let lsb12 = shl(lane(Scalar::U16, 12, false), 1);
+    let msb12 = shl(lane(Scalar::U16, 12, true), 1);
+    assert_eq!(
+        encode_vec(Codec::RAW, lsb12, &v),
+        encode_vec(Codec::PACKED12_LSB, sh(Scalar::U16, 1), &v)
+    );
+    assert_eq!(
+        encode_vec(Codec::RAW, msb12, &v),
+        encode_vec(Codec::PACKED12_MSB, sh(Scalar::U16, 1), &v)
+    );
+    let i: [i32; 2] = [-2, 0x123456];
+    assert_eq!(
+        encode_vec(Codec::RAW, shl(lane(Scalar::I32, 24, true), 1), &i),
+        [0xff, 0xff, 0xfe, 0x12, 0x34, 0x56]
+    );
+    assert_eq!(
+        encode_vec(Codec::RAW, shl(lane(Scalar::I32, 32, true), 1), &i[1..]),
+        encode_vec(Codec::BIG_ENDIAN, sh(Scalar::I32, 1), &i[1..])
+    );
+    let bits: [u8; 9] = [1, 0, 1, 1, 0, 0, 0, 0, 1];
+    assert_eq!(
+        encode_vec(Codec::RAW, shl(lane(Scalar::U8, 1, false), 1), &bits),
+        [0b0000_1101, 0b1]
+    );
+    let mut out = [0u8; 8];
+    assert_eq!(
+        enc(Codec::RAW, lsb12, &[0u16, 4096], &mut out),
+        Err(SampleError::ValueTooWide { index: 1 })
+    );
+    assert_eq!(
+        enc(
+            Codec::RAW,
+            shl(lane(Scalar::I16, 12, true), 1),
+            &[2048i16],
+            &mut out
+        ),
+        Err(SampleError::ValueTooWide { index: 0 })
+    );
+    let mut r = Rng(5);
+    for n in [1usize, 2, 7, 128, 129, 1000] {
+        for (bits, msb) in [
+            (3, false),
+            (3, true),
+            (12, true),
+            (17, false),
+            (17, true),
+            (33, false),
+            (48, false),
+            (48, true),
+            (56, true),
+            (63, false),
+        ] {
+            let signed: Vec<i64> = (0..n).map(|_| (r.next() as i64) >> (64 - bits)).collect();
+            let unsigned: Vec<u64> = (0..2 * n).map(|_| r.next() >> (64 - bits)).collect();
+            roundtrip(Codec::RAW, shl(lane(Scalar::I64, bits, msb), 1), &signed);
+            roundtrip(Codec::RAW, shl(lane(Scalar::U64, bits, msb), 2), &unsigned);
+        }
+        let iq8: Vec<u8> = (0..2 * n).map(|_| r.next() as u8).collect();
+        roundtrip(Codec::RAW, shl(Lane::of(Scalar::U8), 2), &iq8);
+        let s12: Vec<i16> = (0..n).map(|_| ((r.next() as i64) >> 52) as i16).collect();
+        roundtrip(Codec::DELTA, shl(lane(Scalar::I16, 12, true), 1), &s12);
+        roundtrip(Codec::DELTA2, shl(lane(Scalar::I16, 12, false), 1), &s12);
+    }
+}
+
+/// A float of another layout is stored as its own bits and read as its scalar; a value the layout can't hold exactly
+/// is refused on write.
+#[test]
+fn float_lanes_store_their_own_bits() {
+    let bf16 = shl(float_lane(Scalar::F32, 16, 8, false), 1);
+    let bf16_be = shl(float_lane(Scalar::F32, 16, 8, true), 1);
+    let f16 = shl(float_lane(Scalar::F32, 16, 5, false), 2);
+    let e4m3 = shl(float_lane(Scalar::F32, 8, 4, false), 1);
+    let v = [1.0f32, -2.5, 0.0, f32::INFINITY, 3.0];
+    assert_eq!(
+        encode_vec(Codec::RAW, bf16, &v),
+        [0x80, 0x3f, 0x20, 0xc0, 0x00, 0x00, 0x80, 0x7f, 0x40, 0x40]
+    );
+    assert_eq!(
+        encode_vec(Codec::RAW, bf16_be, &v),
+        [0x3f, 0x80, 0xc0, 0x20, 0x00, 0x00, 0x7f, 0x80, 0x40, 0x40]
+    );
+    assert_eq!(encode_vec(Codec::RAW, e4m3, &v[..2]), [0x38, 0xc2]);
+    let mut out = [0u8; 16];
+    assert_eq!(
+        enc(Codec::RAW, bf16, &[1.0f32, core::f32::consts::PI], &mut out),
+        Err(SampleError::ValueTooWide { index: 1 })
+    );
+    let mut r = Rng(17);
+    for n in [1usize, 3, 128, 300] {
+        let halves: Vec<f32> = (0..2 * n)
+            .map(|_| {
+                let raw = (r.next() & 0xffff) as u16;
+                // every f16 bit pattern is an f32 value: widen by hand
+                let l = FloatLayout {
+                    bits: 16,
+                    exponent_bits: 5,
+                };
+                f32::from_bits(l.widen(u64::from(raw), Scalar::F32).unwrap() as u32)
+            })
+            .collect();
+        roundtrip(Codec::RAW, f16, &halves);
+        let bf: Vec<f32> = (0..n)
+            .map(|_| f32::from_bits((r.next() as u32) & 0xffff_0000))
+            .collect();
+        roundtrip(Codec::RAW, bf16, &bf);
+        roundtrip(Codec::RAW, bf16_be, &bf);
+    }
+    // a float lane takes only RAW
+    for c in [Codec::ALP, Codec::DELTA, Codec::BIG_ENDIAN] {
+        assert!(matches!(
+            max_len(c, bf16, 4),
+            Err(SampleError::Unsupported { .. })
+        ));
+    }
+}
+
+/// Lanes no codec codes are refused: no bits, more bits than the scalar, a float layout in an integer, an MSB-first
+/// width past [raw::MSB_MAX], a float of a layout f32 doesn't hold in an f32.
+#[test]
+fn lanes_that_do_not_fit_are_refused() {
+    for l in [
+        lane(Scalar::U16, 0, false),
+        lane(Scalar::U16, 17, false),
+        lane(Scalar::I64, 57, true),
+        lane(Scalar::I64, 63, true),
+        float_lane(Scalar::I32, 16, 8, false),
+        float_lane(Scalar::F32, 32, 10, false),
+        float_lane(Scalar::F32, 16, 1, false),
+        float_lane(Scalar::F32, 16, 15, false),
+        float_lane(Scalar::F64, 48, 8, false),
+    ] {
+        assert!(
+            matches!(
+                read_column(Codec::RAW, shl(l, 1), 1, &[0; 8]),
+                Err(SampleError::Unsupported { .. })
+            ),
+            "{l:?}"
+        );
+        assert!(matches!(
+            max_len(Codec::RAW, shl(l, 1), 1),
+            Err(SampleError::Unsupported { .. })
+        ));
+    }
+    assert!(lane(Scalar::I64, 64, true).is_valid());
+    assert!(lane(Scalar::I64, 56, true).is_valid());
+    assert!(float_lane(Scalar::F64, 32, 10, false).is_valid());
+    assert!(float_lane(Scalar::F64, 16, 5, true).is_valid());
+    assert_eq!(
+        max_len(Codec::RAW, shl(lane(Scalar::I64, 63, true), 1), 1).unwrap_err(),
+        SampleError::Unsupported {
+            codec: Codec::RAW,
+            lane: lane(Scalar::I64, 63, true)
+        }
     );
 }
 
@@ -402,7 +600,7 @@ fn reserved_float_codec_ids_are_refused() {
     }
 }
 
-/// Random bytes as columns of every codec and element: a check or a decode may fail, never panic (the fuzz target
+/// Random bytes as columns of every codec and lane: a check or a decode may fail, never panic (the fuzz target
 /// `tape-samples` goes further).
 #[test]
 fn random_columns_never_panic() {
@@ -448,6 +646,22 @@ fn random_columns_never_panic() {
         try_all::<i64>(codec, sh(Scalar::I64, channels), count, &bytes);
         try_all::<f32>(codec, sh(Scalar::F32, 2 * channels), count, &bytes);
         try_all::<f64>(codec, sh(Scalar::F64, channels), count, &bytes);
+        let bits = 1 + (round % 63) as u32;
+        try_all::<i64>(
+            codec,
+            shl(lane(Scalar::I64, bits, round % 3 == 0), channels),
+            count,
+            &bytes,
+        );
+        try_all::<f32>(
+            codec,
+            shl(
+                float_lane(Scalar::F32, 16, 5 + (round % 4) as u32, round % 2 == 0),
+                channels,
+            ),
+            count,
+            &bytes,
+        );
     }
 }
 
@@ -473,7 +687,7 @@ fn raw_ranges_past_the_bytes_are_errors() {
         Err(SampleError::OutOfRange)
     );
     let mut out = [0u16; 3];
-    for packing in [raw::Packing::Lsb(12), raw::Packing::Msb12] {
+    for packing in [raw::Packing::Lsb(12), raw::Packing::Msb(12)] {
         assert_eq!(
             raw::decode_packed(&short, packing, false, usize::MAX - 1, &mut out),
             Err(SampleError::OutOfRange),
@@ -481,7 +695,7 @@ fn raw_ranges_past_the_bytes_are_errors() {
         );
     }
     assert_eq!(
-        raw::decode_packed(&short, raw::Packing::Msb12, false, 2, &mut out[..1]),
+        raw::decode_packed(&short, raw::Packing::Msb(12), false, 2, &mut out[..1]),
         Err(SampleError::OutOfRange)
     );
 }

@@ -6,16 +6,16 @@
 //! comes from the track definition, so a codec id names only the byte transform. [Samples] reads a column in place
 //! and decodes any range of samples; [encode] writes one.
 //!
-//! The codecs themselves, their table and their layouts are in [ww_tape_codecs::samples], which knows scalars and
-//! lanes only. This module maps a shape to them once per column: an [Element] to its [Scalar], the channels to the
-//! lanes. A codec's error comes back whole, with the shape of the column ([SampleError::Column]).
+//! The codecs themselves, their table and their layouts are in [ww_tape_codecs::samples], which knows lanes only.
+//! This module maps a shape to them once per column: an [ElementDesc] to its [Lane], the channels to the lanes. A
+//! codec's error comes back whole, with the shape of the column ([SampleError::Column]).
 
 mod element;
 #[cfg(test)]
 mod tests;
 
 pub use element::{ELEMENT_PARTS_MAX, Element, ElementDesc, SampleShape};
-pub use ww_tape_codecs::samples::{ALP_GROUP, DELTA_GROUP, Sample, Scalar, alp};
+pub use ww_tape_codecs::samples::{ALP_GROUP, DELTA_GROUP, Lane, Sample, Scalar, alp};
 
 use crate::Codec;
 use core::num::NonZeroUsize;
@@ -26,8 +26,6 @@ use ww_tape_codecs::samples as codecs;
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum SampleError {
-    /// The shape's element has no scalar this build codes: [Element::LEAVES], or a newer writer's element.
-    UnknownElement(Element),
     /// The shape has no channels, or more scalars per sample than fit in memory.
     BadShape,
     /// The codec refused or failed on a column of `shape`.
@@ -40,19 +38,12 @@ pub enum SampleError {
 impl core::fmt::Display for SampleError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::UnknownElement(e) => {
-                write!(
-                    f,
-                    "element code {} is no element this build codes",
-                    e.code()
-                )
-            }
             Self::BadShape => write!(f, "a sample shape without channels or too wide"),
             Self::Column { shape, .. } => {
                 write!(
                     f,
                     "a column of {} × {} doesn't code",
-                    shape.channels.0, shape.element
+                    shape.channels, shape.element
                 )
             }
         }
@@ -68,18 +59,14 @@ impl core::error::Error for SampleError {
     }
 }
 
-/// The scalar and the lanes of `shape`, the codecs' terms for it.
-fn lanes_of(shape: SampleShape) -> Result<(Scalar, NonZeroUsize), SampleError> {
-    let scalar = shape
-        .element
-        .scalar_type()
-        .ok_or(SampleError::UnknownElement(shape.element))?;
+/// The lane and the lanes of `shape`, the codecs' terms for it.
+fn lanes_of(shape: SampleShape) -> Result<(Lane, NonZeroUsize), SampleError> {
     let lanes = shape
         .lanes()
         .and_then(|l| usize::try_from(l).ok())
         .and_then(NonZeroUsize::new)
         .ok_or(SampleError::BadShape)?;
-    Ok((scalar, lanes))
+    Ok((shape.element.lane(), lanes))
 }
 
 /// A codec's error on a column of `shape`.
@@ -93,8 +80,8 @@ pub fn max_encoded_len(
     shape: SampleShape,
     count: usize,
 ) -> Result<usize, SampleError> {
-    let (scalar, lanes) = lanes_of(shape)?;
-    codecs::max_encoded_len(codec, scalar, lanes, count).map_err(column_err(shape))
+    let (lane, lanes) = lanes_of(shape)?;
+    codecs::max_encoded_len(codec, lane, lanes, count).map_err(column_err(shape))
 }
 
 /// Code `values` (whole samples of `shape`, lanes interleaved) in `codec` into `out`, which holds at least
@@ -105,14 +92,8 @@ pub fn encode<T: Sample>(
     values: &[T],
     out: &mut [u8],
 ) -> Result<usize, SampleError> {
-    let (scalar, lanes) = lanes_of(shape)?;
-    if scalar != T::SCALAR {
-        return Err(column_err(shape)(codecs::SampleError::WrongType {
-            column: scalar,
-            asked: T::SCALAR,
-        }));
-    }
-    codecs::encode(codec, lanes, values, out).map_err(column_err(shape))
+    let (lane, lanes) = lanes_of(shape)?;
+    codecs::encode(codec, lane, lanes, values, out).map_err(column_err(shape))
 }
 
 /// A sample column read in place: its codec, shape and count, checked against its bytes.
@@ -132,9 +113,9 @@ impl<'b> Samples<'b> {
         count: usize,
         bytes: &'b [u8],
     ) -> Result<Self, SampleError> {
-        let (scalar, lanes) = lanes_of(shape)?;
+        let (lane, lanes) = lanes_of(shape)?;
         let column =
-            codecs::Samples::new(codec, scalar, lanes, count, bytes).map_err(column_err(shape))?;
+            codecs::Samples::new(codec, lane, lanes, count, bytes).map_err(column_err(shape))?;
         Ok(Samples { shape, column })
     }
 

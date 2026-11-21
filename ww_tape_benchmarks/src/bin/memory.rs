@@ -19,7 +19,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use ww_tape::chunk::ChunkHead;
 use ww_tape::{
     ALIGNMENT, BlockKind, BlockWriter, ClockDef, ClockOrigin, ClockTime, Codec, ColumnKind,
-    ColumnSpec, Definitions, Describe, EndMode, EventsDef, FullVersion, Magnitude, Ratio64,
+    ColumnSpec, Definitions, Describe, EndMode, EventsDef, FullVersion, Items, Magnitude, Ratio64,
     Segment, SeriesDef, SeriesGrid, SyncPolicy, TapeSink, TapeWriter, TrackDef, TrackKind, Version,
     clock_key, track_key,
 };
@@ -143,14 +143,17 @@ fn track(number: u32, kind: TrackKind<'static>) -> Describe<'static> {
         key: track_key(0xd3, &[Segment::Index(number)]),
         clock: UNib32(CLOCK),
         dimensions: RefVec::Slice { slice: &[] },
-        items: ww_tape::Items::WireWeaver {
-            api: FullVersion::new("bench_api", Version::new(0, 1, 0)),
-            bundle: RefVec::Slice { slice: &[] },
-            path: RefVec::Slice {
-                slice: &[UNib32(1)],
+        items: match kind {
+            TrackKind::Series(_) => Items::numbers::<i16>(None),
+            _ => Items::WireWeaver {
+                api: FullVersion::new("bench_api", Version::new(0, 1, 0)),
+                bundle: RefVec::Slice { slice: &[] },
+                path: RefVec::Slice {
+                    slice: &[UNib32(1)],
+                },
+                keys: RefVec::Slice { slice: &[] },
+                item: None,
             },
-            keys: RefVec::Slice { slice: &[] },
-            item: None,
         },
         label: "bench",
         repeat: ww_tape::TrackRepeat::Stream,
@@ -212,7 +215,7 @@ fn series(piece: u64, chunk: usize) -> anyhow::Result<Row> {
     let mut defs = Definitions::new();
     defs.define_all(&[
         clock(),
-        track(1, TrackKind::Series(SeriesDef::of::<i16>(None, 1, period))),
+        track(1, TrackKind::Series(SeriesDef::of::<i16>(1, period))),
     ])
     .map_err(any)?;
     let samples: Vec<u8> = (0..chunk).map(|i| (i * 31 % 251) as u8).collect();

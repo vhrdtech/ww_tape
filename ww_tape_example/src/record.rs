@@ -12,8 +12,7 @@ use ww_tape::writer::NearPolicy;
 use ww_tape::{
     BlockId, BlockKind, BlockWriter, ChainOptions, ChainPiece, ClockRef, ClockTime, Codec,
     ColumnKind, ColumnSpec, CutPolicy, Definitions, EndMode, MemError, MemTapes, PieceChain,
-    PieceTapes, Resumed, SampleShape, SeriesGrid, StatePolicy, SyncPolicy, TapeSink, Tapes,
-    WriterOptions,
+    PieceTapes, Resumed, SeriesGrid, StatePolicy, SyncPolicy, TapeSink, Tapes, WriterOptions,
 };
 use ww_tape_summary::{SeriesStart, SeriesSummaries};
 
@@ -93,7 +92,7 @@ impl Acts {
             let start = SeriesStart {
                 track_id: key("phase_a"),
                 track_number: PHASE_A,
-                shape: def.shape,
+                shape: crate::defs::phase_shape(&def),
                 first_item: 0,
                 grid: def.first_grid(0),
                 period: def.period,
@@ -196,7 +195,7 @@ impl Acts {
                 .map(|n| phase_ma(item_us(n, hz), n, d.phase_hz))
                 .collect();
             // --8<-- [start:samples]
-            let shape = SampleShape::scalar(def.shape.element);
+            let shape = crate::defs::phase_shape(&def);
             let mut bytes = vec![0u8; max_encoded_len(PHASE_CODEC, shape, values.len())?];
             let len = encode(PHASE_CODEC, shape, &values, &mut bytes)?;
             bytes.truncate(len);

@@ -51,9 +51,9 @@ fn a_block_checks_and_lists_without_its_nodes() {
         level: 1,
         node_shift: 10,
         layout: Layout::Series {
-            element: crate::Element::ComplexI16,
+            element: crate::ElementDesc::of(crate::Element::ComplexI16),
             channels: 3,
-            stats: SeriesStats::all(crate::Element::ComplexI16),
+            stats: SeriesStats::all(crate::ElementDesc::of(crate::Element::ComplexI16)),
             scale: Magnitude::pow10(-3),
         },
         first_item: 1000,
@@ -150,8 +150,8 @@ fn head_read_checks_the_header() {
 /// The definitions of series track 1 on clock 1 (1 ns ticks): i16 samples on one channel, one per 1000 ticks.
 fn series_definitions() -> Vec<crate::Describe<'static>> {
     use crate::{
-        ClockDef, ClockOrigin, Describe, FullVersion, SeriesDef, TrackDef, TrackKind, TrackRepeat,
-        Version, clock_key, track_key,
+        ClockDef, ClockOrigin, Describe, SeriesDef, TrackDef, TrackKind, TrackRepeat, clock_key,
+        track_key,
     };
     use shrink_wrap::prelude::*;
     vec![
@@ -168,22 +168,10 @@ fn series_definitions() -> Vec<crate::Describe<'static>> {
             key: track_key(0x5e, &[crate::Segment::Name("signal")]),
             clock: UNib32(1),
             dimensions: RefVec::Slice { slice: &[] },
-            items: crate::Items::WireWeaver {
-                api: FullVersion::new("head_tests", Version::new(0, 1, 0)),
-                bundle: RefVec::Slice { slice: &[] },
-                path: RefVec::Slice {
-                    slice: &[UNib32(1)],
-                },
-                keys: RefVec::Slice { slice: &[] },
-                item: None,
-            },
+            items: crate::Items::numbers::<i16>(None),
             label: "signal",
             repeat: TrackRepeat::Stream,
-            kind: TrackKind::Series(SeriesDef::of::<i16>(
-                None,
-                1,
-                crate::Ratio64::int(1000).unwrap(),
-            )),
+            kind: TrackKind::Series(SeriesDef::of::<i16>(1, crate::Ratio64::int(1000).unwrap())),
             relations: RefVec::Slice { slice: &[] },
             owner: [0; 32],
         }),
@@ -211,9 +199,9 @@ fn series_summary_block(first: u64, count: u64) -> Vec<u8> {
         level: 0,
         node_shift: 10,
         layout: Layout::Series {
-            element: Element::I16,
+            element: ElementDesc::of(Element::I16),
             channels: 1,
-            stats: SeriesStats::all(Element::I16),
+            stats: SeriesStats::all(ElementDesc::of(Element::I16)),
             scale: Magnitude::ONE,
         },
         first_item: first,

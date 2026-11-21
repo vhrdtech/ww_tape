@@ -1,29 +1,31 @@
 //! Sample codecs: how the values of a column of samples are coded.
 //!
-//! A column holds `count` samples of `lanes` values each, interleaved, every value a [Scalar]. Its [Codec] says how
-//! those values are laid out; the scalar and the lanes come from elsewhere (in a tape, the track definition), so a
-//! codec id names only the byte transform. [Samples] reads a column in place and decodes any range of samples;
-//! [encode] writes one.
+//! A column holds `count` samples of `lanes` values each, interleaved, every value of one [Lane]: the [Scalar] it is
+//! read into, the bits it is stored in and their order. Its [Codec] says how those values are laid out; the lane and
+//! the lanes come from elsewhere (in a tape, the track definition), so a codec id names only the byte transform.
+//! [Samples] reads a column in place and decodes any range of samples; [encode] writes one.
 //!
-//! | id | codec | scalars | layout |
+//! | id | codec | lanes | layout |
 //! |---:|---|---|---|
-//! | 0 | [Codec::RAW] | all | little endian, `Bool` 8 per byte, first in bit 0 |
-//! | 16 | [Codec::BIG_ENDIAN] | integers, floats | big endian |
-//! | 17, 18 | [Codec::PACKED10_LSB], [Codec::PACKED10_MSB] | integers of 16 bits and more | 10 bits per value |
-//! | 19, 20 | [Codec::PACKED12_LSB], [Codec::PACKED12_MSB] | integers of 16 bits and more | 12 bits per value |
-//! | 21, 22 | [Codec::PACKED24_LSB], [Codec::PACKED24_MSB] | integers of 32 bits and more | 24 bits per value |
+//! | 0 | [Codec::RAW] | all | the lane's bits as they are: little endian or `msb_first`, a value of fewer bits than its scalar packed at its width, `Bool` 8 per byte; a float of another layout ([Lane::exponent_bits]) widened on read |
+//! | 16 | [Codec::BIG_ENDIAN] | integers, floats filling their scalar | big endian: [Codec::RAW] of the lane `msb_first` |
+//! | 17, 18 | [Codec::PACKED10_LSB], [Codec::PACKED10_MSB] | integers of 16 bits and more | 10 bits per value: [Codec::RAW] of a 10-bit lane |
+//! | 19, 20 | [Codec::PACKED12_LSB], [Codec::PACKED12_MSB] | integers of 16 bits and more | 12 bits per value: [Codec::RAW] of a 12-bit lane |
+//! | 21, 22 | [Codec::PACKED24_LSB], [Codec::PACKED24_MSB] | integers of 32 bits and more | 24 bits per value: [Codec::RAW] of a 24-bit lane |
 //! | 24, 25 | | | reserved, refused as an unknown codec |
-//! | 26 | [Codec::ALP] | floats | decimals as integers bit-packed per group, else front bits via a dictionary ([alp]) |
+//! | 26 | [Codec::ALP] | f32, f64 filling their scalar | decimals as integers bit-packed per group, else front bits via a dictionary ([alp]) |
 //! | 32 | [Codec::DELTA] | integers | differences, frame of reference, bit-packed per group |
 //! | 33 | [Codec::DELTA2] | integers | differences of differences, as [Codec::DELTA] |
 //! | 34, 35 | | | reserved, refused as an unknown codec |
 //! | 36 | [Codec::RUNS] | `U8`, `U16`, `U32`, `Bool` | reserved: run-coded discrete lanes, refused until built |
 //!
 //! The raw device formats (0 to 22) are what a device sends, stored as it is and converted on read (a packed value
-//! of a signed element is sign-extended); any sample reads in place. Value `i` of an `_LSB` column is bits
-//! `i·w .. (i+1)·w` of the column read as one little-endian number (value 0 in the low bits of byte 0); of an `_MSB`
-//! column bits `i·w ..` counted from the top bit of byte 0 (value 0 in the high bits of byte 0). Spare bits in the
-//! last byte are zero.
+//! of a signed lane is sign-extended); any sample reads in place. Value `i` of a little-endian lane of `w` bits is
+//! bits `i·w .. (i+1)·w` of the column read as one little-endian number (value 0 in the low bits of byte 0); of an
+//! `msb_first` lane bits `i·w ..` counted from the top bit of byte 0 (value 0 in the high bits of byte 0). Spare bits
+//! in the last byte are zero. Codecs 16 to 22 are the same layouts named by the codec instead of the lane: a reader
+//! takes either, a writer that describes its lane needs only [Codec::RAW]. An `msb_first` lane of 57 to 63 bits has
+//! no decoder and is refused.
 //!
 //! The delta codecs (32, 33) code groups of [DELTA_GROUP] samples on the shared [bitpack] primitive.
 //! Each group restarts, so a range decodes from its group's start and a damaged byte costs only its group
@@ -49,6 +51,7 @@
 
 pub mod alp;
 mod delta;
+mod float;
 mod raw;
 mod scalar;
 #[cfg(test)]
@@ -56,6 +59,90 @@ pub(crate) mod tests;
 
 pub use alp::ALP_GROUP;
 pub use scalar::Scalar;
+
+use float::FloatLayout;
+
+/// What one value of a column is: the scalar it is read into and how its bits are stored.
+///
+/// A device's value seldom fills its scalar: a 12-bit converter's sample sits in an i16, an 8-bit IQ part in a u8, a
+/// bfloat16 in an f32. The lane says the stored bits, their order and, for a float of another layout than the
+/// scalar's, its exponent bits. The codecs store exactly those bits and convert on read.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Lane {
+    /// The scalar a value is read into and written from.
+    pub scalar: Scalar,
+    /// Stored bits of a value, 1 to the scalar's ([Scalar::bits]).
+    pub bits: u32,
+    /// Whether a value is stored from its most significant bit: big-endian bytes for a whole-byte width, bits counted
+    /// from the top of byte 0 for another. False: little-endian, from bit 0.
+    pub msb_first: bool,
+    /// Exponent bits of a float of another layout than the scalar's (f16 5, bfloat16 8, fp8 4 or 5), the sign one bit
+    /// and the mantissa the rest; 0 for an integer or a float of the scalar's own layout.
+    pub exponent_bits: u32,
+}
+
+impl Lane {
+    /// A value that fills its scalar, little-endian.
+    pub const fn of(scalar: Scalar) -> Self {
+        Self {
+            scalar,
+            bits: scalar.bits(),
+            msb_first: false,
+            exponent_bits: 0,
+        }
+    }
+
+    /// Whether the lane is one the codecs code: 1 to the scalar's bits; a float of another layout has 2 to 11
+    /// exponent bits, at most 32 bits, and the scalar f32 when f32 holds every value of it exactly, else f64.
+    pub const fn is_valid(self) -> bool {
+        if self.bits == 0 || self.bits > self.scalar.bits() {
+            return false;
+        }
+        match self.float() {
+            None => self.exponent_bits == 0,
+            Some(layout) => {
+                self.scalar.is_float()
+                    && layout.is_valid()
+                    && (matches!(self.scalar, Scalar::F64)
+                        || matches!(layout.scalar(), Scalar::F32))
+            }
+        }
+    }
+
+    /// The layout of a float other than the scalar's own, None for an integer or a float stored as its scalar.
+    const fn float(self) -> Option<FloatLayout> {
+        let layout = FloatLayout {
+            bits: self.bits,
+            exponent_bits: self.exponent_bits,
+        };
+        let own = match self.scalar {
+            Scalar::F32 => self.bits == 32 && self.exponent_bits == 8,
+            Scalar::F64 => self.bits == 64 && self.exponent_bits == 11,
+            _ => false,
+        };
+        if self.exponent_bits == 0 || own {
+            None
+        } else {
+            Some(layout)
+        }
+    }
+}
+
+impl core::fmt::Display for Lane {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        if *self == Self::of(self.scalar) {
+            return write!(f, "{}", self.scalar);
+        }
+        write!(f, "{} bits in {}", self.bits, self.scalar)?;
+        if self.exponent_bits != 0 {
+            write!(f, ", a float of {} exponent bits", self.exponent_bits)?;
+        }
+        if self.msb_first {
+            f.write_str(", msb first")?;
+        }
+        Ok(())
+    }
+}
 
 use crate::{BoundError, Codec, FromFile, bitpack, bytes};
 use core::num::NonZeroUsize;
@@ -197,8 +284,8 @@ impl Sample for bool {
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum SampleError {
-    /// The codec doesn't code this scalar (or isn't a sample codec this reader knows).
-    Unsupported { codec: Codec, scalar: Scalar },
+    /// The codec doesn't code this lane (or isn't a sample codec this reader knows), or the lane isn't valid.
+    Unsupported { codec: Codec, lane: Lane },
     /// More values than fit in memory.
     BadShape,
     /// The Rust type asked for is not the column's scalar.
@@ -220,8 +307,8 @@ pub enum SampleError {
 impl core::fmt::Display for SampleError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::Unsupported { codec, scalar } => {
-                write!(f, "codec {} doesn't code {scalar}", codec.0)
+            Self::Unsupported { codec, lane } => {
+                write!(f, "codec {} doesn't code {lane}", codec.0)
             }
             Self::BadShape => write!(f, "more values than fit in memory"),
             Self::WrongType { column, asked } => {
@@ -251,32 +338,52 @@ enum Kind {
     Le,
     Be,
     Packed(raw::Packing),
+    /// A float of another layout than its scalar's, stored as its own bits.
+    Float {
+        layout: FloatLayout,
+        msb_first: bool,
+    },
     Delta(delta::Flavor),
     Alp,
 }
 
-fn kind(codec: Codec, scalar: Scalar) -> Result<Kind, SampleError> {
+fn kind(codec: Codec, lane: Lane) -> Result<Kind, SampleError> {
+    let unsupported = Err(SampleError::Unsupported { codec, lane });
+    if !lane.is_valid() {
+        return unsupported;
+    }
+    let scalar = lane.scalar;
     let bits = scalar.bits();
-    let unsupported = Err(SampleError::Unsupported { codec, scalar });
+    let float = lane.float();
+    let whole = lane.bits == bits && float.is_none();
     let k = match codec {
-        Codec::RAW if scalar == Scalar::Bool => Kind::Packed(raw::Packing::Lsb(1)),
-        Codec::RAW => Kind::Le,
-        Codec::BIG_ENDIAN if scalar != Scalar::Bool => Kind::Be,
+        Codec::RAW => match float {
+            Some(layout) => Kind::Float {
+                layout,
+                msb_first: lane.msb_first,
+            },
+            None if scalar == Scalar::Bool => Kind::Packed(raw::Packing::Lsb(1)),
+            None if lane.bits == bits && lane.msb_first => Kind::Be,
+            None if lane.bits == bits => Kind::Le,
+            None if lane.msb_first => Kind::Packed(raw::Packing::Msb(lane.bits)),
+            None => Kind::Packed(raw::Packing::Lsb(lane.bits)),
+        },
+        Codec::BIG_ENDIAN if scalar != Scalar::Bool && whole => Kind::Be,
         Codec(id @ 17..=22) => {
             let packing = match id {
                 17 => raw::Packing::Lsb(10),
-                18 => raw::Packing::Msb10,
+                18 => raw::Packing::Msb(10),
                 19 => raw::Packing::Lsb(12),
-                20 => raw::Packing::Msb12,
+                20 => raw::Packing::Msb(12),
                 21 => raw::Packing::Lsb(24),
-                _ => raw::Packing::Msb24,
+                _ => raw::Packing::Msb(24),
             };
             if scalar.is_float() || scalar == Scalar::Bool || bits < packing.bits() {
                 return unsupported;
             }
             Kind::Packed(packing)
         }
-        Codec::ALP if scalar.is_float() => Kind::Alp,
+        Codec::ALP if scalar.is_float() && whole => Kind::Alp,
         Codec(id @ 32..=33) => {
             if scalar.is_float() || scalar == Scalar::Bool {
                 return unsupported;
@@ -286,14 +393,23 @@ fn kind(codec: Codec, scalar: Scalar) -> Result<Kind, SampleError> {
         }
         _ => return unsupported,
     };
+    if matches!(k, Kind::Packed(raw::Packing::Msb(b)) if b > raw::MSB_MAX) {
+        return unsupported;
+    }
     Ok(k)
 }
 
+/// Whether [Codec::RAW] codes `lane`: every valid lane but an MSB-first integer wider than 56 bits.
+pub fn raw_codes(lane: Lane) -> bool {
+    kind(Codec::RAW, lane).is_ok()
+}
+
 /// Bits per value of a plain layout.
-fn value_bits(kind: Kind, scalar: Scalar) -> u32 {
+fn value_bits(kind: Kind, lane: Lane) -> u32 {
     match kind {
         Kind::Packed(packing) => packing.bits(),
-        _ => scalar.bits(),
+        Kind::Float { layout, .. } => layout.bits,
+        _ => lane.scalar.bits(),
     }
 }
 
@@ -304,45 +420,48 @@ fn plain_len(values: usize, bits: u32) -> Option<usize> {
         .map(|b| b.div_ceil(8))
 }
 
-/// The most bytes [encode] can write for `count` samples of `lanes` values of `scalar` in `codec`.
+/// The most bytes [encode] can write for `count` samples of `lanes` values of `lane` in `codec`.
 pub fn max_encoded_len(
     codec: Codec,
-    scalar: Scalar,
+    lane: Lane,
     lanes: NonZeroUsize,
     count: usize,
 ) -> Result<usize, SampleError> {
-    let kind = kind(codec, scalar)?;
+    let kind = kind(codec, lane)?;
     let values = count
         .checked_mul(lanes.get())
         .ok_or(SampleError::BadShape)?;
     let len = match kind {
-        Kind::Delta(f) => delta::max_len(f.order, count, values, scalar.bits()),
-        Kind::Alp => alp::max_len(count, values, scalar.bits()),
-        _ => plain_len(values, value_bits(kind, scalar)),
+        Kind::Delta(f) => delta::max_len(f.order, count, values, lane.scalar.bits()),
+        Kind::Alp => alp::max_len(count, values, lane.scalar.bits()),
+        _ => plain_len(values, value_bits(kind, lane)),
     };
     len.ok_or(SampleError::BadShape)
 }
 
-/// Code `values` (whole samples of `lanes` values, interleaved) in `codec` into `out`, which holds at least
-/// [max_encoded_len] bytes; returns the bytes written.
+/// Code `values` (whole samples of `lanes` values of `lane`, interleaved, `T` the lane's scalar) in `codec` into
+/// `out`, which holds at least [max_encoded_len] bytes; returns the bytes written.
 pub fn encode<T: Sample>(
     codec: Codec,
+    lane: Lane,
     lanes: NonZeroUsize,
     values: &[T],
     out: &mut [u8],
 ) -> Result<usize, SampleError> {
-    let kind = kind(codec, T::SCALAR)?;
+    check_type::<T>(lane.scalar)?;
+    let kind = kind(codec, lane)?;
     let count = values.len() / lanes;
     if !values.len().is_multiple_of(lanes.get()) {
         return Err(SampleError::OutOfRange);
     }
-    let needed = max_encoded_len(codec, T::SCALAR, lanes, count)?;
+    let needed = max_encoded_len(codec, lane, lanes, count)?;
     let lanes = lanes.get();
     let out = out.get_mut(..needed).ok_or(SampleError::Full { needed })?;
     match kind {
         Kind::Le => Ok(raw::encode_le(values, out)),
         Kind::Be => Ok(raw::encode_be(values, out)),
         Kind::Packed(packing) => raw::encode_packed(values, packing, out),
+        Kind::Float { layout, msb_first } => raw::encode_float(values, layout, msb_first, out),
         Kind::Delta(flavor) => delta::encode(flavor, values, lanes, out),
         Kind::Alp => alp::encode(values, lanes, out),
     }
@@ -550,11 +669,11 @@ fn decode_grouped<T: Sample>(
     Ok(())
 }
 
-/// A sample column read in place: its codec, scalar, lanes and count, checked against its bytes.
+/// A sample column read in place: its codec, lane, lanes and count, checked against its bytes.
 #[derive(Copy, Clone, Debug)]
 pub struct Samples<'b> {
     codec: Codec,
-    scalar: Scalar,
+    lane: Lane,
     kind: Kind,
     lanes: usize,
     count: usize,
@@ -562,17 +681,17 @@ pub struct Samples<'b> {
 }
 
 impl<'b> Samples<'b> {
-    /// Take `bytes` as `count` samples of `lanes` values of `scalar` coded in `codec`: the codec must code the scalar and the length
-    /// must fit (for the grouped codecs, the group table too). No value is decoded yet. `count` may come from the
-    /// file: it is bounded by the column's length before anything is read.
+    /// Take `bytes` as `count` samples of `lanes` values of `lane` coded in `codec`: the codec must code the lane and
+    /// the length must fit (for the grouped codecs, the group table too). No value is decoded yet. `count` may come
+    /// from the file: it is bounded by the column's length before anything is read.
     pub fn new(
         codec: Codec,
-        scalar: Scalar,
+        lane: Lane,
         lanes: NonZeroUsize,
         count: usize,
         bytes: &'b [u8],
     ) -> Result<Self, SampleError> {
-        let kind = kind(codec, scalar)?;
+        let kind = kind(codec, lane)?;
         let lanes = lanes.get();
         let values = count.checked_mul(lanes).ok_or(SampleError::BadShape)?;
         let len = bytes.len();
@@ -586,14 +705,14 @@ impl<'b> Samples<'b> {
                 alp::check_table(bytes, count)?;
             }
             _ => {
-                if plain_len(values, value_bits(kind, scalar)) != Some(len) {
+                if plain_len(values, value_bits(kind, lane)) != Some(len) {
                     return Err(SampleError::BadLength { len });
                 }
             }
         }
         Ok(Samples {
             codec,
-            scalar,
+            lane,
             kind,
             lanes,
             count,
@@ -607,7 +726,12 @@ impl<'b> Samples<'b> {
 
     /// The scalar of every value.
     pub fn scalar(&self) -> Scalar {
-        self.scalar
+        self.lane.scalar
+    }
+
+    /// What every value is.
+    pub fn lane(&self) -> Lane {
+        self.lane
     }
 
     /// Samples in the column.
@@ -622,7 +746,7 @@ impl<'b> Samples<'b> {
 
     /// Decode samples from `first` on into `out`, whole samples of interleaved lanes: `out.len() / lanes` samples.
     pub fn decode<T: Sample>(&self, first: usize, out: &mut [T]) -> Result<(), SampleError> {
-        check_type::<T>(self.scalar)?;
+        check_type::<T>(self.lane.scalar)?;
         if !out.len().is_multiple_of(self.lanes) {
             return Err(SampleError::OutOfRange);
         }
@@ -643,10 +767,13 @@ impl<'b> Samples<'b> {
             Kind::Packed(packing) => raw::decode_packed(
                 self.bytes,
                 packing,
-                self.scalar.is_signed(),
+                self.lane.scalar.is_signed(),
                 first_value,
                 out,
             ),
+            Kind::Float { layout, msb_first } => {
+                raw::decode_float(self.bytes, layout, msb_first, first_value, out)
+            }
             Kind::Delta(flavor) => {
                 delta::decode(flavor, self.bytes, self.count, self.lanes, first, out)
             }
@@ -688,7 +815,7 @@ impl<'b> Samples<'b> {
     pub fn sample_bytes(&self, samples: Range<usize>) -> Option<Range<usize>> {
         let bits = match self.kind {
             Kind::Delta(_) | Kind::Alp => return None,
-            k => usize::try_from(value_bits(k, self.scalar)).ok()?,
+            k => usize::try_from(value_bits(k, self.lane)).ok()?,
         };
         let sample_bits = self.lanes.checked_mul(bits)?;
         let from = samples.start.checked_mul(sample_bits)? / 8;

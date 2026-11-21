@@ -1,32 +1,33 @@
-//! Raw device formats: little and big endian, packed 1, 10, 12 and 24 bits.
+//! Raw device formats: little and big endian, values packed at any width LSB first or MSB first, floats of another
+//! layout than their scalar's.
 //!
-//! An `_LSB` column is the [bitpack] layout (horizontal, LSB first), so it packs and unpacks with the shared primitive
-//! and its vector kernels; `_MSB` columns have their own loop.
+//! An LSB-first column is the [bitpack] layout (horizontal, LSB first), so it packs and unpacks with the shared
+//! primitive and its vector kernels; MSB-first columns have their own loop.
 //!
 //! The decoders take a column whose length [Samples::new](super::Samples::new) checked against its count; a range
 //! past its bytes is still an error, never a panic.
 
+use super::float::FloatLayout;
 use super::{Sample, SampleError};
 use crate::bitpack::{self, Width};
 
-/// How a packed column lays out its values: the [bitpack] layout at a width, or one of the `_MSB` widths.
+/// Widest MSB-first packing: a value is read from one 8-byte load at any bit offset within a byte.
+pub(super) const MSB_MAX: u32 = 56;
+
+/// How a packed column lays out its values: the [bitpack] layout at a width, or MSB first at a width.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub(super) enum Packing {
-    /// LSB first, 1 to 24 bits.
+    /// LSB first, 1 to 64 bits.
     Lsb(u32),
-    Msb10,
-    Msb12,
-    Msb24,
+    /// MSB first, 1 to [MSB_MAX] bits.
+    Msb(u32),
 }
 
 impl Packing {
     /// Bits per value.
     pub(super) const fn bits(self) -> u32 {
         match self {
-            Self::Lsb(bits) => bits,
-            Self::Msb10 => 10,
-            Self::Msb12 => 12,
-            Self::Msb24 => 24,
+            Self::Lsb(bits) | Self::Msb(bits) => bits,
         }
     }
 }
@@ -216,14 +217,83 @@ pub(super) fn decode_packed<T: Sample>(
     let done = match (packing, signed) {
         (Packing::Lsb(bits), true) => unpack_lsb::<true, T>(bytes, bits, first, out),
         (Packing::Lsb(bits), false) => unpack_lsb::<false, T>(bytes, bits, first, out),
-        (Packing::Msb10, false) => unpack_msb::<10, false, T>(bytes, first, out),
-        (Packing::Msb10, true) => unpack_msb::<10, true, T>(bytes, first, out),
-        (Packing::Msb12, false) => unpack_msb::<12, false, T>(bytes, first, out),
-        (Packing::Msb12, true) => unpack_msb::<12, true, T>(bytes, first, out),
-        (Packing::Msb24, false) => unpack_msb::<24, false, T>(bytes, first, out),
-        (Packing::Msb24, true) => unpack_msb::<24, true, T>(bytes, first, out),
+        // the device widths get their own code, the width a constant in it
+        (Packing::Msb(10), false) => unpack_msb::<10, false, T>(bytes, first, out),
+        (Packing::Msb(10), true) => unpack_msb::<10, true, T>(bytes, first, out),
+        (Packing::Msb(12), false) => unpack_msb::<12, false, T>(bytes, first, out),
+        (Packing::Msb(12), true) => unpack_msb::<12, true, T>(bytes, first, out),
+        (Packing::Msb(24), false) => unpack_msb::<24, false, T>(bytes, first, out),
+        (Packing::Msb(24), true) => unpack_msb::<24, true, T>(bytes, first, out),
+        (Packing::Msb(bits), signed) => unpack_msb_at(bytes, bits, signed, first, out),
     };
     done.ok_or(SampleError::OutOfRange)
+}
+
+/// Code `values`, floats of `layout` stored as their own bits, LSB or MSB first, into `out` (their bytes exactly);
+/// returns its length. A value the layout has no exact representation of is [SampleError::ValueTooWide].
+pub(super) fn encode_float<T: Sample>(
+    values: &[T],
+    layout: FloatLayout,
+    msb_first: bool,
+    out: &mut [u8],
+) -> Result<usize, SampleError> {
+    let from = T::SCALAR;
+    if let Some(index) = values
+        .iter()
+        .position(|v| layout.narrow(v.to_bits(), from).is_none())
+    {
+        return Err(SampleError::ValueTooWide { index });
+    }
+    let needed = out.len();
+    let raws = values
+        .iter()
+        .map(|v| layout.narrow(v.to_bits(), from).unwrap_or(0));
+    if msb_first {
+        pack_msb(out, raws, layout.bits).ok_or(SampleError::Full { needed })?;
+    } else {
+        Width::new(layout.bits)
+            .map_err(SampleError::Bound)?
+            .pack(out, raws)
+            .or(Err(SampleError::Full { needed }))?;
+    }
+    Ok(needed)
+}
+
+/// Decode floats of `layout` from value `first` on into `out`, each widened into `T` (f32 or f64) exactly.
+pub(super) fn decode_float<T: Sample>(
+    bytes: &[u8],
+    layout: FloatLayout,
+    msb_first: bool,
+    first: usize,
+    out: &mut [T],
+) -> Result<(), SampleError> {
+    let packing = if msb_first {
+        Packing::Msb(layout.bits)
+    } else {
+        Packing::Lsb(layout.bits)
+    };
+    let to = T::SCALAR;
+    // a valid lane's scalar holds every value of the layout: None never comes, and is still an error, not a value
+    let unsupported = SampleError::Unsupported {
+        codec: crate::Codec::RAW,
+        lane: super::Lane {
+            scalar: to,
+            bits: layout.bits,
+            msb_first,
+            exponent_bits: layout.exponent_bits,
+        },
+    };
+    let mut raw = [0u64; bitpack::GROUP];
+    let mut at = first;
+    for chunk in out.chunks_mut(bitpack::GROUP) {
+        let raw = raw.get_mut(..chunk.len()).ok_or(SampleError::OutOfRange)?;
+        decode_packed::<u64>(bytes, packing, false, at, raw)?;
+        for (o, r) in chunk.iter_mut().zip(raw.iter()) {
+            *o = T::from_bits(layout.widen(*r, to).ok_or(unsupported)?);
+        }
+        at = at.checked_add(chunk.len()).ok_or(SampleError::OutOfRange)?;
+    }
+    Ok(())
 }
 
 /// Unpack `out.len()` values of `bits` bits (1 to 24) from value `first` on in the [bitpack] layout: single reads up
@@ -253,8 +323,15 @@ fn unpack_lsb<const SIGNED: bool, T: Sample>(
         *o = value(width.read(bytes, first.checked_add(k)?));
     }
     let mut at = first.checked_add(head)?;
+    if bits > 32 {
+        // a wide value: one read each, no vector kernel
+        for (k, o) in rest.iter_mut().enumerate() {
+            *o = value(width.read(bytes, at.checked_add(k)?));
+        }
+        return Some(());
+    }
     let bits_usize = usize::try_from(bits).ok()?;
-    // sign extension in 32 bits, which vectorises (packed widths are at most 24)
+    // sign extension in 32 bits, which vectorises
     let sh = 32u32.checked_sub(bits)?;
     let mut group = [0u32; bitpack::GROUP];
     let mut chunks = rest.chunks_exact_mut(g);
@@ -277,16 +354,32 @@ fn unpack_lsb<const SIGNED: bool, T: Sample>(
     Some(())
 }
 
-/// Unpack `out.len()` values of `W` bits (at most 56), MSB first, from value `first` on: an 8-byte load per value
-/// where 8 bytes are left, a padded load in the last bytes. None past the end of `bytes`.
+/// Unpack `out.len()` values of `W` bits (at most [MSB_MAX]), MSB first, from value `first` on, the width a constant.
+#[inline(always)]
 fn unpack_msb<const W: u32, const SIGNED: bool, T: Sample>(
     bytes: &[u8],
     first: usize,
     out: &mut [T],
 ) -> Option<()> {
-    let w = usize::try_from(W).ok()?;
-    let drop = u64::BITS.checked_sub(W)?;
-    let mut bit = first.checked_mul(w)?;
+    unpack_msb_at(bytes, W, SIGNED, first, out)
+}
+
+/// Unpack `out.len()` values of `w` bits (at most [MSB_MAX]), MSB first, from value `first` on: an 8-byte load per
+/// value where 8 bytes are left, a padded load in the last bytes. None past the end of `bytes`.
+#[inline(always)]
+fn unpack_msb_at<T: Sample>(
+    bytes: &[u8],
+    w: u32,
+    signed: bool,
+    first: usize,
+    out: &mut [T],
+) -> Option<()> {
+    if w > MSB_MAX {
+        return None;
+    }
+    let width = usize::try_from(w).ok()?;
+    let drop = u64::BITS.checked_sub(w)?;
+    let mut bit = first.checked_mul(width)?;
     for o in out.iter_mut() {
         let rest = bytes.get(bit / 8..)?;
         let word = match rest.first_chunk::<8>() {
@@ -295,12 +388,12 @@ fn unpack_msb<const W: u32, const SIGNED: bool, T: Sample>(
         };
         let sh = u32::try_from(bit % 8).ok()?;
         let v = word.wrapping_shl(sh).wrapping_shr(drop);
-        *o = T::from_bits(if SIGNED {
-            sign_extend(v, W).cast_unsigned()
+        *o = T::from_bits(if signed {
+            sign_extend(v, w).cast_unsigned()
         } else {
             v
         });
-        bit = bit.checked_add(w)?;
+        bit = bit.checked_add(width)?;
     }
     Some(())
 }

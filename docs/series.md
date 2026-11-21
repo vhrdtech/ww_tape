@@ -18,12 +18,12 @@ A [[series]] is a [[track]] of samples at an exact period. An ADC channel, an au
 and the drive's phase current are series. A sample needs no time of its own, since the period gives it. A series
 therefore stores only values, in [[series chunks]], and the drive's `phase_a` costs about 1.1 bytes per sample.
 
-The track's definition, a [`SeriesDef`], says what a sample is:
+The track's items and its definition, a [`SeriesDef`], say what a sample is:
 
 | Field | What it says | `phase_a` | `iq`, an RF capture |
 |---|---|---|---|
-| `sample` | the type of one value, as the producer's API declares it | a 16-bit current in mA | a complex value of the radio's converter |
-| `shape` | the stored element and the channel count | `I16`, one channel | `ComplexI16`, one channel |
+| items: `Numbers` | the stored element and the type of one value, as the producer's API declares it | `i16`, a current in mA | a complex `i16` of the radio's converter |
+| `channels` | the elements of one sample | one | one |
 | `period` | ticks per sample, as an exact fraction | 40/1 on the board's µs clock | 50/1 on a 1 ns clock |
 | `scale` | what one step of a stored number is worth | 10⁻³ A | one step of the converter |
 | `summaries` | the coarse view the writer builds | minimum, maximum, sum, sum of squares | minimum, maximum, mean and largest power |
@@ -53,9 +53,15 @@ chapter is an RF capture. A software-defined radio's front end turns a band of s
 a second. Each sample is a pair of values, the in-phase I and the quadrature Q, and the capture is one track,
 `iq`.
 
-The track's element is `ComplexI16`. A sample's I and Q lie side by side in the column. Every codec codes them as two
-lanes, so neither needs a track of its own. The converter gives 12 bits in each 16-bit word. The summaries keep
-the power of each node, `I² + Q²`, which shows where a signal is on the air:
+The track's items are numbers of two parts, a 16-bit signed integer each:
+
+```rs
+--8<-- "ww_tape_example/src/rf.rs:element"
+```
+
+A sample's I and Q lie side by side in the column. Every codec codes them as two lanes, so neither needs a track of
+its own. The converter gives 12 bits in each 16-bit word. The summaries keep the power of each node, `I² + Q²`, which
+shows where a signal is on the air:
 
 ```rs
 --8<-- "ww_tape_example/src/rf.rs:def"

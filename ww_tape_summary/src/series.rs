@@ -7,13 +7,13 @@ use exact_units::Magnitude;
 
 #[cfg(feature = "std")]
 use super::{SeriesStats, SeriesSummarySpec, components, is_complex};
-use ww_tape::Element;
+use ww_tape::ElementDesc;
 
 /// How a minimum or maximum of `element` is stored.
-fn kind(element: Element) -> ValueKind {
-    if element.is_float() {
+fn kind(element: ElementDesc) -> ValueKind {
+    if element.exponent_bits != 0 {
         ValueKind::Float
-    } else if element.is_signed() {
+    } else if element.signed {
         ValueKind::Signed
     } else {
         ValueKind::Unsigned
@@ -78,7 +78,7 @@ pub enum Value {
 }
 
 impl Value {
-    pub(super) fn from_bits(element: Element, bits: u64) -> Self {
+    pub(super) fn from_bits(element: ElementDesc, bits: u64) -> Self {
         match kind(element) {
             ValueKind::Signed => Self::I64(bits.cast_signed()),
             ValueKind::Unsigned => Self::U64(bits),
@@ -226,7 +226,7 @@ pub struct ChannelStats {
 
 impl ChannelStats {
     /// Statistics of no samples: what merging starts from, and what a block that doesn't hold a statistic reads as.
-    pub fn empty(element: Element) -> Self {
+    pub fn empty(element: ElementDesc) -> Self {
         let (min, max) = match kind(element) {
             ValueKind::Signed => (Value::I64(i64::MAX), Value::I64(i64::MIN)),
             ValueKind::Unsigned => (Value::U64(u64::MAX), Value::U64(0)),
@@ -378,15 +378,17 @@ impl SeriesNode {
 )]
 mod scalar {
     use super::{
-        ChannelStats, Element, SeriesStats, Value, components, f64_f32, fmax, i128_f64, is_complex,
-        u64_f64,
+        ChannelStats, ElementDesc, SeriesStats, Value, components, f64_f32, fmax, i128_f64,
+        is_complex, u64_f64,
     };
+    use ww_tape::samples::Scalar as ScalarType;
     use ww_tape_codecs::kernel::{IntBatch, Kernel, Narrow, int_channel};
 
-    /// A sample scalar the series writer takes: the Rust type of the scalar of an [Element].
+    /// A sample scalar the series writer takes: the Rust type a part of an element is read into
+    /// ([ElementDesc::scalar]).
     pub trait Scalar: Copy + PartialOrd + 'static + private::Sealed {
-        /// The [Element] of a real sample of this type.
-        const TYPE: Element;
+        /// The scalar this type is.
+        const SCALAR: ScalarType;
         /// The lowest and highest value: the default clip limits.
         const LOWEST: Self;
         const HIGHEST: Self;
@@ -400,6 +402,8 @@ mod scalar {
         fn value(self) -> Value;
         /// `v` rounded down (`up` false) or up, saturating; floats as they are.
         fn from_f64(v: f64, up: bool) -> Self;
+        /// `v`, saturating for an integer, rounded to the nearest for a float.
+        fn from_i128(v: i128) -> Self;
     }
 
     mod private {
@@ -420,7 +424,7 @@ mod scalar {
                 }
             }
             impl Scalar for $t {
-                const TYPE: Element = Element::$ty;
+                const SCALAR: ScalarType = ScalarType::$ty;
                 const LOWEST: Self = <$t>::MIN;
                 const HIGHEST: Self = <$t>::MAX;
                 const SQ_EXACT: bool = $exact;
@@ -439,6 +443,9 @@ mod scalar {
                 #[expect($($lint),+, reason = "saturating, NaN to 0, is the meaning: what `as` does")]
                 fn from_f64(v: f64, up: bool) -> Self {
                     if up { v.ceil() as $t } else { v.floor() as $t }
+                }
+                fn from_i128(v: i128) -> Self {
+                    <$t>::try_from(v).unwrap_or(if v < 0 { <$t>::MIN } else { <$t>::MAX })
                 }
             }
         };
@@ -543,7 +550,7 @@ mod scalar {
                 }
             }
             impl Scalar for $t {
-                const TYPE: Element = Element::$ty;
+                const SCALAR: ScalarType = ScalarType::$ty;
                 const LOWEST: Self = <$t>::NEG_INFINITY;
                 const HIGHEST: Self = <$t>::INFINITY;
                 const SQ_EXACT: bool = false;
@@ -561,6 +568,9 @@ mod scalar {
                 }
                 fn from_f64(v: f64, _up: bool) -> Self {
                     $from_f64(v)
+                }
+                fn from_i128(v: i128) -> Self {
+                    $from_f64(i128_f64(v))
                 }
             }
         };
@@ -760,7 +770,7 @@ mod scalar {
             flags: 0,
         };
 
-        pub(crate) fn stats(&self, element: Element, samples: u64) -> ChannelStats {
+        pub(crate) fn stats(&self, element: ElementDesc, samples: u64) -> ChannelStats {
             let mut s = ChannelStats::empty(element);
             let slots = s
                 .min
@@ -814,13 +824,15 @@ pub use builder::{SERIES_BLOCK_BYTES, SeriesStart, SeriesSummaries};
 mod builder {
     use exact_units::Magnitude;
 
+    use super::i128_f64;
     use super::scalar::{Acc, Channel};
     use super::{
         ChannelStats, Scalar, SeriesNode, SeriesSummarySpec, common_scale, components, is_complex,
     };
     use crate::levels::{BuildError, LevelNode, Levels, Output};
     use crate::{Layout, SCALE_LEN_MAX, SummaryHead, Tree, summary_len, write_series_summary};
-    use ww_tape::{Element, Ratio64, SampleShape, SeriesError, SeriesGrid, SeriesTimeline};
+    use ww_tape::samples::Sample;
+    use ww_tape::{ElementDesc, Ratio64, SampleShape, SeriesError, SeriesGrid, SeriesTimeline};
     use ww_tape_codecs::kernel::Kernel;
 
     impl LevelNode for SeriesNode {
@@ -842,10 +854,19 @@ mod builder {
     /// depend on how samples are split into pushes; they run through vectorised kernels chosen for the CPU at
     /// [Self::new]. Float sums and sums of squares add each sample in sample order, the squares of 64-bit integers
     /// sum per push first: the same bits for the same pushes, NaN payloads aside.
+    ///
+    /// An element with a [zero](ElementDesc::zero) `p/q` is summarised as `q · sample - p` in its
+    /// [summary element](ElementDesc::summary_element), at the grid's scale over `q`: 8-bit IQ offset to 127.5 keeps
+    /// exact minimum, maximum and sums in an i16. Its samples go in by [Self::push_from].
     pub struct SeriesSummaries<T: Scalar> {
         track_id: u64,
         track_number: u32,
-        element: Element,
+        /// The element the statistics are kept in
+        element: ElementDesc,
+        /// The stored element's zero `(p, q)`: the statistics hold `q · v - p`
+        shift: Option<(i128, i128)>,
+        /// The scalar of the stored samples [Self::push_from] takes
+        stored: ww_tape::samples::Scalar,
         channels: u16,
         /// Scalars per sample of one channel: 1, or 2 for a complex element
         components: usize,
@@ -885,7 +906,8 @@ mod builder {
         pub track_id: u64,
         /// [TrackDef::number](ww_tape::TrackDef::number).
         pub track_number: u32,
-        /// The samples' element and channels, at most 65535.
+        /// The samples' element ([TrackDef::series_shape](ww_tape::TrackDef::series_shape)) and channels, at most
+        /// 65535.
         pub shape: SampleShape,
         /// Index of the first sample in the track (a later tape piece starts past 0).
         pub first_item: u64,
@@ -898,16 +920,57 @@ mod builder {
     /// Default most bytes of a series summary block: small enough to fit the gap before an aligned chunk payload.
     pub const SERIES_BLOCK_BYTES: usize = 2048;
 
+    /// `v` shifted by a zero `(p, q)`: `q · v - p`, saturating (a valid element's values never saturate).
+    fn shift_by(shift: Option<(i128, i128)>, v: i128) -> i128 {
+        match shift {
+            Some((p, q)) => q.saturating_mul(v).saturating_sub(p),
+            None => v,
+        }
+    }
+
+    /// The low `bits` of `raw` as an integer, sign-extended when `signed`.
+    fn as_i128(raw: u64, bits: u32, signed: bool) -> i128 {
+        let unused = 64u32.saturating_sub(bits);
+        if signed {
+            i128::from((raw << unused).cast_signed() >> unused)
+        } else {
+            i128::from(raw)
+        }
+    }
+
+    /// The scale of statistics of samples at `scale`: over `q` for a zero `(p, q)`.
+    fn stat_scale(shift: Option<(i128, i128)>, scale: Magnitude) -> Result<Magnitude, BuildError> {
+        let Some((_, q)) = shift else {
+            return Ok(scale);
+        };
+        // a magnitude error says only that the result is out of range, which this error says
+        u64::try_from(q)
+            .ok()
+            .and_then(|q| Magnitude::checked_ratio(1, q).ok())
+            .and_then(|r| scale.checked_mul(r).ok())
+            .ok_or(BuildError::Invalid(
+                "scale over the zero's denominator out of a magnitude's range",
+            ))
+    }
+
     impl<T: Scalar> SeriesSummaries<T> {
         /// Summaries of the series `start` describes, kept as `spec` declares.
         pub fn new(start: SeriesStart, spec: SeriesSummarySpec) -> Result<Self, BuildError> {
-            let element = start.shape.element;
-            if element.scalar() != T::TYPE {
+            let stored = start.shape.element;
+            if !stored.is_valid() {
+                return Err(BuildError::Invalid("an element no writer takes"));
+            }
+            if stored.parts.0 > 2 {
+                return Err(BuildError::Invalid("an element of more than 2 parts"));
+            }
+            let element = stored.summary_element();
+            if element.scalar() != T::SCALAR {
                 return Err(BuildError::Invalid(
                     "element is not the samples' scalar type",
                 ));
             }
-            let channels = u16::try_from(start.shape.channels.0)
+            let shift = stored.zero_shift();
+            let channels = u16::try_from(start.shape.channels)
                 .ok()
                 .ok_or(BuildError::Invalid("more than 65535 channels"))?;
             if channels == 0 {
@@ -931,10 +994,23 @@ mod builder {
                 }));
             }
             let timeline = SeriesTimeline::new(start.period);
-            let (lo, hi) = match spec.clip {
-                None => (T::LOWEST, T::HIGHEST),
-                Some(c) => (T::from_f64(c.low, false), T::from_f64(c.high, true)),
+            let shifted = |v: f64| match shift {
+                Some((p, q)) => i128_f64(q) * v - i128_f64(p),
+                None => v,
             };
+            let (lo, hi) = match (spec.clip, stored.range()) {
+                (Some(c), _) => (
+                    T::from_f64(shifted(c.low), false),
+                    T::from_f64(shifted(c.high), true),
+                ),
+                // an integer narrower than its scalar clips at its own ends
+                (None, Some((low, high))) => (
+                    T::from_i128(shift_by(shift, low)),
+                    T::from_i128(shift_by(shift, high)),
+                ),
+                (None, None) => (T::LOWEST, T::HIGHEST),
+            };
+            let scale = stat_scale(shift, start.grid.scale)?;
             let too_wide = BuildError::Invalid("a frame or node past usize");
             let components = usize::from(components(element));
             let stride = usize::from(channels)
@@ -949,6 +1025,8 @@ mod builder {
                 track_id: start.track_id,
                 track_number: start.track_number,
                 element,
+                shift,
+                stored: stored.scalar(),
                 channels,
                 components,
                 stride,
@@ -959,8 +1037,8 @@ mod builder {
                 origin: start.first_item,
                 timeline,
                 grid: start.grid,
-                scale: start.grid.scale,
-                common: start.grid.scale,
+                scale,
+                common: scale,
                 lo,
                 hi,
                 acc: vec![Acc::NEW; usize::from(channels)],
@@ -1016,10 +1094,11 @@ mod builder {
                     first_item: next,
                 }));
             }
-            let common = common_scale(self.common, g.scale).map_err(BuildError::Scale)?;
-            if g.scale != self.scale {
+            let scale = stat_scale(self.shift, g.scale)?;
+            let common = common_scale(self.common, scale).map_err(BuildError::Scale)?;
+            if scale != self.scale {
                 self.flush_acc()?;
-                self.scale = g.scale;
+                self.scale = scale;
                 self.common = common;
             }
             self.grid = g;
@@ -1072,6 +1151,31 @@ mod builder {
                 }
             }
             Ok(())
+        }
+
+        /// Add stored samples of the element's own scalar `S` (whole frames, as [Self::push] takes them), each
+        /// `v` as `q · v - p` for the element's [zero](ElementDesc::zero) `p/q`: how the samples of an element
+        /// with a zero, or of a scalar narrower than its summary element, go in. Floats go in by [Self::push].
+        pub fn push_from<S: Sample>(
+            &mut self,
+            samples: &[S],
+            flags: u32,
+        ) -> Result<(), BuildError> {
+            if S::SCALAR != self.stored {
+                return Err(BuildError::Invalid(
+                    "samples of another scalar than the element's",
+                ));
+            }
+            if S::SCALAR.is_float() {
+                return Err(BuildError::Invalid("float samples go in by push"));
+            }
+            let bits = S::SCALAR.bits();
+            let signed = S::SCALAR.is_signed();
+            let values: Vec<T> = samples
+                .iter()
+                .map(|s| T::from_i128(shift_by(self.shift, as_i128(s.to_bits(), bits, signed))))
+                .collect();
+            self.push(&values, flags)
         }
 
         fn add(&mut self, xs: &[T], flags: u32) {
@@ -1248,6 +1352,11 @@ mod builder {
                 self.blocks.push(buf);
             }
             Ok(())
+        }
+
+        /// The scale of the statistics: the grid's scale, over `q` for an element with a zero `p/q`.
+        pub fn scale(&self) -> Magnitude {
+            self.scale
         }
 
         /// Finished summary blocks, oldest first, for

@@ -10,7 +10,8 @@ use crate::FullVersionOwned;
 use crate::series::SeriesDef;
 #[cfg(feature = "std")]
 use crate::series::SeriesDefOwned;
-use crate::{ElementDesc, FNV_OFFSET, FullVersion, Version, fnv1a};
+use crate::series::SeriesValue;
+use crate::{ElementDesc, FNV_OFFSET, FullVersion, SampleShape, Version, fnv1a};
 
 /// A definition: one per record on track 0, its item's whole bytes.
 #[derive_shrink_wrap(owned(feature = "std"), derive(Debug, PartialEq, Clone), ww_repr = u4)]
@@ -446,7 +447,8 @@ pub enum Items<'i> {
     ShrinkWrap(TypeRef<'i>),
     /// Plain bytes with no type: a frame as received, a file's contents.
     RawBytes,
-    /// Numbers of one element each: an events track's item is one element, little-endian in its container
+    /// Numbers of one element each: a series' samples ([SeriesDef::channels](crate::SeriesDef::channels) of them),
+    /// or an events track whose item is one element, little-endian in its container
     /// ([ElementDesc::container_bits]).
     Numbers {
         element: ElementDesc,
@@ -455,6 +457,16 @@ pub enum Items<'i> {
     },
     /// Bytes of a format the user names.
     Foreign(Foreign<'i>),
+}
+
+impl<'i> Items<'i> {
+    /// Numbers of `V`'s element ([SeriesValue::ELEMENT]), `unit` the exact_units type of one value.
+    pub const fn numbers<V: SeriesValue>(unit: Option<TypeRef<'i>>) -> Self {
+        Self::Numbers {
+            element: V::ELEMENT,
+            unit,
+        }
+    }
 }
 
 /// A format the user names for a track's items, see [Items::Foreign]. At least a name or a media type.
@@ -746,21 +758,44 @@ impl<'i> TrackDef<'i> {
         }
     }
 
+    /// The shape of a series track's samples: its items' element by its definition's channels; None for an events
+    /// track or items that are no numbers.
+    pub fn series_shape(&self) -> Option<SampleShape> {
+        match (&self.items, self.series()) {
+            (Items::Numbers { element, .. }, Some(s)) => Some(s.shape(*element)),
+            _ => None,
+        }
+    }
+
     /// Check what the kind asks of the track: a series has the plain policy (its chunks are data and carry their
-    /// grids), names its sample type in its definition (its items a stream's values) and has a valid [SeriesDef].
+    /// grids), its items are numbers of an element the raw codec codes, its summaries fit the element (at most 2
+    /// parts, power only of a pair) and its [SeriesDef] is valid.
     pub fn check_kind(&self) -> Result<(), crate::SeriesError> {
+        use crate::SeriesError::Def;
         let Some(s) = self.series() else {
             return Ok(());
         };
         if self.repeat.state().is_some() {
-            return Err(crate::SeriesError::Def(
+            return Err(Def(
                 "a series track takes the plain policy: its chunks are data",
             ));
         }
-        if !matches!(self.items, Items::WireWeaver { item: None, .. }) {
-            return Err(crate::SeriesError::Def(
-                "a series names its sample type in its definition: its items are a stream's values",
-            ));
+        let Items::Numbers { element, .. } = &self.items else {
+            return Err(Def("a series' items are numbers"));
+        };
+        if !element.is_valid() {
+            return Err(Def("an element no writer takes"));
+        }
+        if !element.is_coded() {
+            return Err(Def("an element the raw codec doesn't code"));
+        }
+        if let Some(sum) = s.summaries {
+            if element.parts.0 > 2 {
+                return Err(Def("summaries of an element of more than 2 parts"));
+            }
+            if (sum.stats.power_mean || sum.stats.power_max) && element.parts.0 != 2 {
+                return Err(Def("power of a real element"));
+            }
         }
         s.check()
     }

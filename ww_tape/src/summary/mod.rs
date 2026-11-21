@@ -32,16 +32,22 @@
 //! mixed.
 //!
 //! A summary block ([BlockKind::Summary]) holds a batch of consecutive nodes of one level of one track. The block
-//! header's count (bytes 12..16) is the number of nodes; bytes 28..32 stay reserved, zero:
+//! header's count (bytes 12..16) is the number of nodes; bytes 28..32 describe a series' element when byte 47 is
+//! 13, else they are zero:
 //!
 //! ```text
 //! off size field
+//!  28  u8  bits of one part of a described element (ElementDesc::bits), 0 for a coded element and for events
+//!  29  u8  its exponent bits, 0 for an integer
+//!  30  u8  bit 0 signed, bit 1 msb_first (always 0: a summary's element has no byte order)
+//!  31  u8  its parts, 1 or 2
 //!  32 u64  track id (TrackDef::id)
 //!  40 u32  track number (TrackDef::number)
 //!  44  u8  tree: 1 events, 2 series (Tree)
 //!  45  u8  level, 0 and up
 //!  46  u8  node shift: a node holds 2^shift items (events: 11 + 4 · level; series: base_shift + 4 · level)
-//!  47  u8  element of a series' samples (Element code), 0 for events
+//!  47  u8  element of a series' summaries: an Element code, or 13 for the element bytes 28..32 describe
+//!          (ElementDesc::summary_element); 0 for events
 //!  48 u16  fields: the statistics stored (EventFields, SeriesStats bits)
 //!  50 u16  channels of a series, 1 and up; 0 for events
 //!  52 u16  scale length: bytes of the scale after the head, 1 to SCALE_LEN_MAX for a series, 0 for events
@@ -62,9 +68,11 @@
 //! (i64) when [EventFields::latest_end].
 //!
 //! Series body: for each statistic the block holds, in the order of [Stat::ALL], for each channel, for each component
-//! of a sample (2 for a complex element's minimum, maximum, sum and sum of squares, else 1), one column. Value widths:
+//! of a sample (2 for a pair's minimum, maximum, sum and sum of squares, else 1), one column. Value widths:
 //! minimum and maximum 8 bytes (i64, u64 or f64, by the element's kind), sum and sum of squares f64, clipped
-//! count u64, flags u32, mean and maximum power f32.
+//! count u64, flags u32, mean and maximum power f32. The element is the samples' [summary element](
+//! ElementDesc::summary_element): for an element with a zero `p/q`, `q · sample - p` in a signed integer of twice
+//! the container's bits, at the block's scale over `q`.
 //!
 //! Summary blocks are small (a few KiB) and rebuilt from the data when lost. In an aligned file the writer places them
 //! in the gap before the next aligned chunk payload ([TapeWriter::defer_block](crate::TapeWriter::defer_block)).
@@ -77,7 +85,7 @@ use crate::bytes::{
 };
 use crate::{BlockKind, BoundError, CRC_LEN, HEADER_LEN, MAGIC, MAX_BLOCK_LEN, VERSION};
 
-use crate::Element;
+use crate::{Element, ElementDesc};
 mod spec;
 pub use spec::{ClipRange, SeriesStats, SeriesSummarySpec, Stat, components, is_complex};
 
@@ -230,7 +238,9 @@ pub struct SummaryHead {
 pub enum Layout {
     Events(EventFields),
     Series {
-        element: Element,
+        /// The element the statistics are kept in ([ElementDesc::summary_element]): at most 2 parts, no byte order,
+        /// no zero.
+        element: ElementDesc,
         channels: u16,
         stats: SeriesStats,
         /// What a stored minimum, maximum or sum of every node in the block is worth in the sample type's unit.
@@ -306,12 +316,16 @@ impl SummaryHead {
             .filter(|(b, _)| b.len() >= SCALE_AT)
             .ok_or(short)?;
         let b = head_scale_body;
-        if le_u32(b, 28).ok_or(short)? != 0 || le_u16(b, 54).ok_or(short)? != 0 {
+        if le_u16(b, 54).ok_or(short)? != 0 {
             return Err(SummaryError::Invalid("reserved bytes not zero"));
         }
         let tree = Tree::from_u8(le_u8(b, 44).ok_or(short)?)
             .ok_or(SummaryError::Invalid("unknown tree"))?;
         let element = le_u8(b, 47).ok_or(short)?;
+        let described = bytes::array::<4>(b, 28).ok_or(short)?;
+        if element != Element::DESCRIBED_CODE && described != [0; 4] {
+            return Err(SummaryError::Invalid("reserved bytes not zero"));
+        }
         let fields = le_u16(b, 48).ok_or(short)?;
         let scale_len = file_u16(b, 52).ok_or(short)?.at_most(SCALE_LEN_MAX)?;
         let (scale_bytes, body) = b
@@ -334,8 +348,7 @@ impl SummaryHead {
                 )
             }
             Tree::Series => Layout::Series {
-                element: Element::from_code(element)
-                    .ok_or(SummaryError::Invalid("unknown element"))?,
+                element: read_element(element, described)?,
                 channels,
                 stats: SeriesStats::from_bits(fields)
                     .ok_or(SummaryError::Invalid("unknown statistics"))?,
@@ -422,6 +435,11 @@ impl SummaryHead {
                 }
                 if stats.is_empty() {
                     return Err(SummaryError::Invalid("no statistics"));
+                }
+                if !summary_element_valid(&element) {
+                    return Err(SummaryError::Invalid(
+                        "an element no summary is kept in: invalid, a byte order, a zero or over 2 parts",
+                    ));
                 }
                 if (stats.power_mean || stats.power_max) && !is_complex(element) {
                     return Err(SummaryError::Invalid("power of a real element"));
@@ -566,14 +584,17 @@ impl<'b> SummaryWriter<'b> {
         buf.fill(0);
         crate::put_header(buf, BlockKind::Summary, len, count, id)
             .ok_or(SummaryError::TooLong { len })?;
-        let (element, fields, channels) = match head.layout {
-            Layout::Events(f) => (0, f.bits(), 0),
+        let (element, described, fields, channels) = match head.layout {
+            Layout::Events(f) => (0, [0; 4], f.bits(), 0),
             Layout::Series {
                 element,
                 channels,
                 stats,
                 ..
-            } => (element.code(), stats.bits(), channels),
+            } => {
+                let (code, described) = element_bytes(&element);
+                (code, described, stats.bits(), channels)
+            }
         };
         let mut scale = [0u8; SCALE_LEN_MAX];
         let scale = scale_bytes(head, &mut scale)?;
@@ -584,6 +605,7 @@ impl<'b> SummaryWriter<'b> {
         let scale_len = u16::try_from(scale.len()).map_err(|_| OWN_LAYOUT)?;
         let tree = [head.tree.to_u8(), head.level, head.node_shift, element];
         let written = [
+            bytes::put(buf, 28, described),
             bytes::put_u64(buf, 32, head.track_id),
             bytes::put_u32(buf, 40, head.track_number),
             bytes::put(buf, 44, tree),
@@ -633,6 +655,51 @@ impl<'b> SummaryWriter<'b> {
         *self.crc = crc.finalize().to_le_bytes();
         self.len
     }
+}
+
+/// Whether `e` is an element a summary is kept in ([ElementDesc::summary_element]): valid, at most 2 parts, no byte
+/// order, no zero.
+fn summary_element_valid(e: &ElementDesc) -> bool {
+    e.is_valid() && e.parts.0 <= 2 && !e.msb_first && e.zero.is_none()
+}
+
+/// Byte 47 and bytes 28..32 of a series head: a predefined element's code and zeros, or
+/// [Element::DESCRIBED_CODE] and the element's bits, exponent bits, sign and parts.
+fn element_bytes(e: &ElementDesc) -> (u8, [u8; 4]) {
+    match e.element() {
+        Some(p) => (p.code(), [0; 4]),
+        None => (
+            Element::DESCRIBED_CODE,
+            [
+                e.bits,
+                e.exponent_bits,
+                u8::from(e.signed),
+                u8::try_from(e.parts.0).unwrap_or(u8::MAX),
+            ],
+        ),
+    }
+}
+
+/// The element of a series head's byte 47 and bytes 28..32, as [element_bytes] writes them: a described element
+/// must be one a summary is kept in and no predefined one, so every element has one encoding.
+fn read_element(code: u8, described: [u8; 4]) -> Result<ElementDesc, SummaryError> {
+    let unknown = SummaryError::Invalid("unknown element");
+    if code != Element::DESCRIBED_CODE {
+        return Element::from_code(code).map(ElementDesc::of).ok_or(unknown);
+    }
+    let [bits, exponent_bits, flags, parts] = described;
+    let e = ElementDesc {
+        bits,
+        exponent_bits,
+        signed: flags == 1,
+        msb_first: false,
+        parts: UNib32(u32::from(parts)),
+        zero: None,
+    };
+    if flags > 1 || !summary_element_valid(&e) || e.element().is_some() {
+        return Err(SummaryError::Invalid("a described element not as written"));
+    }
+    Ok(e)
 }
 
 /// The scale of a series block: a Magnitude that takes exactly its bytes, written the one way it is written.

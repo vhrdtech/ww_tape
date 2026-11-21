@@ -1,6 +1,6 @@
 // ww_tape 0.1.0 traits and types, saved by `ww api save`.
 // Do not edit, bump the crate version and save a new snapshot instead.
-// shrink_wrap sha256: 58b38145c77451ea66ca811379091c4cc7fd7c38270f1e528d0ed6882712d818
+// shrink_wrap sha256: ab1213e3bd9fac8ed4d4bcbbb90f760926a34860a24c150943e200dab85a9b56
 (magic: 2837124336, ww_self_version: (major: 0, minor: 4, patch: 0), root: (docs: [
     "Tape blocks: the unit a producer of records hands over, a live consumer reads and a log file is made of.",
     "",
@@ -625,7 +625,8 @@
             "Plain bytes with no type: a frame as received, a file\'s contents.",
         ], ident: "RawBytes", fields: Unit, discriminant: 2, since: None),
         (docs: [
-            "Numbers of one element each: an events track\'s item is one element, little-endian in its container",
+            "Numbers of one element each: a series\' samples ([SeriesDef::channels](crate::SeriesDef::channels) of them),",
+            "or an events track whose item is one element, little-endian in its container",
             "([ElementDesc::container_bits]).",
         ], ident: "Numbers", fields: Named([
             (ident: Some("element"), default: None, since: None, ty: OutOfLine(type_idx: 30), docs: [], slot: None, series_opaque: false),
@@ -755,7 +756,8 @@
         "One element described by data: what a stored number is, whatever device sent it.",
         "",
         "8-bit IQ (`ComplexI8`, `ComplexU8` offset by 127.5), a packed 12-bit device format, bfloat16: each is a",
-        "description, no code change. Every [Element] is one too ([ElementDesc::of]).",
+        "description, no code change. Every [Element] is one too ([ElementDesc::of]). A part is read into its",
+        "[scalar](Self::scalar) and coded by the [raw codec](crate::Codec::RAW) as the [lane](Self::lane) says.",
     ], ident: "ElementDesc", generics: [], fields: Named([
         (ident: Some("bits"), default: None, since: None, ty: NumericAny(Base(U8)), docs: [
             "Stored bits of one part, 1 to 64.",
@@ -775,7 +777,8 @@
             "Numbers per element, 1 to [ELEMENT_PARTS_MAX]: 2 for an I/Q pair, I first.",
         ], slot: None, series_opaque: false),
         (ident: Some("zero"), default: Some(Bool(false)), since: None, ty: Option(some_ty: OutOfLine(type_idx: 3)), docs: [
-            "The stored number that stands for zero: `255/2` for 8-bit IQ offset to 127.5. None: 0.",
+            "The stored number that stands for zero: `255/2` for 8-bit IQ offset to 127.5. None: 0. Only for an integer",
+            "of at most 32 bits; its summaries hold `q · value - p` for a zero `p/q` ([Self::summary_element]).",
         ], slot: None, series_opaque: false),
     ]), sparse: false, path: None, instance_of: None, extra: None)), crate_idx: 0),
     InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
@@ -807,15 +810,11 @@
         ], slot: None, series_opaque: false),
     ]), sparse: false, path: None, instance_of: None, extra: None)), crate_idx: 0),
     InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
-        "A fixed-rate series: scalar or vector samples of one element type, see the [module docs](self).",
+        "A fixed-rate series: scalar or vector samples of the track\'s element, see the [module docs](self).",
     ], ident: "SeriesDef", generics: [], fields: Named([
-        (ident: Some("sample"), default: None, since: None, ty: Option(some_ty: OutOfLine(type_idx: 26)), docs: [
-            "The type of one value of one channel, unit and scale included: `Fixed<Ampere, Milli, i32>`, a `ww_si`",
-            "quantity, `f32`. None: a plain number with no unit.",
-        ], slot: None, series_opaque: false),
-        (ident: Some("shape"), default: None, since: None, ty: OutOfLine(type_idx: 38), docs: [
-            "The element the numbers are stored as, derived from [Self::sample] ([SeriesValue::ELEMENT]), and the",
-            "channels of a sample, 1 to [SERIES_CHANNELS_MAX].",
+        (ident: Some("channels"), default: None, since: None, ty: NumericAny(Base(UNib32)), docs: [
+            "Elements of a sample, 1 to [SERIES_CHANNELS_MAX]; the element and the value type are the track\'s items",
+            "([Items::Numbers](crate::Items::Numbers)).",
         ], slot: None, series_opaque: false),
         (ident: Some("period"), default: None, since: None, ty: OutOfLine(type_idx: 3), docs: [
             "Ticks of the track\'s clock from one sample to the next, exact.",
@@ -824,10 +823,10 @@
             "What a stored number is worth in the sample type\'s unit at the start: `10⁻³` for `Fixed<Ampere, Milli, i32>`,",
             "1 for a float. A chunk\'s [SeriesGrid] may change it.",
         ], slot: None, series_opaque: false),
-        (ident: Some("summaries"), default: None, since: None, ty: Option(some_ty: OutOfLine(type_idx: 39)), docs: [
+        (ident: Some("summaries"), default: None, since: None, ty: Option(some_ty: OutOfLine(type_idx: 38)), docs: [
             "The summaries the writer builds; None for none (a wide vector series).",
         ], slot: None, series_opaque: false),
-        (ident: Some("media"), default: None, since: None, ty: Option(some_ty: OutOfLine(type_idx: 40)), docs: [
+        (ident: Some("media"), default: None, since: None, ty: Option(some_ty: OutOfLine(type_idx: 39)), docs: [
             "The samples are in a media file\'s stream, decoded on demand, not in chunks.",
         ], slot: None, series_opaque: false),
     ]), sparse: false, path: None, instance_of: None, extra: None)), crate_idx: 0),
@@ -881,25 +880,14 @@
         ], ident: "Spans", fields: Unit, discriminant: 1, since: None),
     ], path: None, instance_of: None, future_version: Some(Variant(ident: "Unknown", bits: None)))), crate_idx: 0),
     InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
-        "What one sample of a series column is: `channels` elements, interleaved.",
-        "",
-        "A column holds one channel or several interleaved; the [Codec](crate::Codec) of the column says how the values",
-        "are coded, apart from this.",
-    ], ident: "SampleShape", generics: [], fields: Named([
-        (ident: Some("element"), default: None, since: None, ty: OutOfLine(type_idx: 41), docs: [], slot: None, series_opaque: false),
-        (ident: Some("channels"), default: None, since: None, ty: NumericAny(Base(UNib32)), docs: [
-            "Elements per sample, 1 and up.",
-        ], slot: None, series_opaque: false),
-    ]), sparse: false, path: None, instance_of: None, extra: None)), crate_idx: 0),
-    InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
         "What summaries a series track keeps: its declaration, as the track definition carries it.",
     ], ident: "SeriesSummarySpec", generics: [], fields: Named([
         (ident: Some("base_shift"), default: None, since: None, ty: NumericAny(Base(U8)), docs: [
             "A level-0 node holds `2^base_shift` samples, [Self::BASE_SHIFT_MIN] to [Self::BASE_SHIFT_MAX]; each level up 16",
             "times more. A raw format field: log2 of a sample count.",
         ], slot: None, series_opaque: false),
-        (ident: Some("stats"), default: None, since: None, ty: OutOfLine(type_idx: 42), docs: [], slot: None, series_opaque: false),
-        (ident: Some("clip"), default: None, since: None, ty: Option(some_ty: OutOfLine(type_idx: 43)), docs: [
+        (ident: Some("stats"), default: None, since: None, ty: OutOfLine(type_idx: 40), docs: [], slot: None, series_opaque: false),
+        (ident: Some("clip"), default: None, since: None, ty: Option(some_ty: OutOfLine(type_idx: 41)), docs: [
             "Where samples clip; None: at the scalar type\'s ends for integers, infinities for floats.",
         ], slot: None, series_opaque: false),
     ]), sparse: false, path: Some([
@@ -915,32 +903,6 @@
             "The stream in the file.",
         ], slot: None, series_opaque: false),
     ]), sparse: false, path: None, instance_of: None, extra: None)), crate_idx: 0),
-    InLine(ty: Enum((size: Unsized, repr: ByteAlignedU8, crate_idx: 0, docs: [
-        "The logical type of one value of a sample.",
-        "",
-        "Its number (the enum\'s discriminant, [Element::code]) is the element code every block uses: summary heads name",
-        "their element by it.",
-    ], ident: "Element", generics: [], variants: [
-        (docs: [], ident: "I8", fields: Unit, discriminant: 0, since: None),
-        (docs: [], ident: "I16", fields: Unit, discriminant: 1, since: None),
-        (docs: [], ident: "I32", fields: Unit, discriminant: 2, since: None),
-        (docs: [], ident: "I64", fields: Unit, discriminant: 3, since: None),
-        (docs: [], ident: "U8", fields: Unit, discriminant: 4, since: None),
-        (docs: [], ident: "U16", fields: Unit, discriminant: 5, since: None),
-        (docs: [], ident: "U32", fields: Unit, discriminant: 6, since: None),
-        (docs: [], ident: "U64", fields: Unit, discriminant: 7, since: None),
-        (docs: [], ident: "F32", fields: Unit, discriminant: 8, since: None),
-        (docs: [], ident: "F64", fields: Unit, discriminant: 9, since: None),
-        (docs: [
-            "An I/Q pair of `i16`, I first.",
-        ], ident: "ComplexI16", fields: Unit, discriminant: 10, since: None),
-        (docs: [
-            "An I/Q pair of `f32`, I first.",
-        ], ident: "ComplexF32", fields: Unit, discriminant: 11, since: None),
-        (docs: [
-            "A bit; stored 8 per byte, the first in bit 0.",
-        ], ident: "Bool", fields: Unit, discriminant: 12, since: None),
-    ], path: None, instance_of: None, future_version: Some(Variant(ident: "Unknown", bits: None)))), crate_idx: 0),
     InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
         "The statistics a series track keeps per channel and node. Each merges from two adjacent nodes without the samples.",
     ], ident: "SeriesStats", generics: [], fields: Named([

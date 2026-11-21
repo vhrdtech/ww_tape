@@ -124,14 +124,14 @@ The writer's own blocks hold what a [[reader]] needs to find and understand the 
 | Blocks | Made by | Count | Bytes |
 |---|---|---:|---:|
 | piece head | the writer | 4 | 2064 |
-| records blocks of puts and copies | the writer | 31 | 5607 |
+| records blocks of puts and copies | the writer | 31 | 5615 |
 | records blocks | the recorder | 3600 | 811071 |
 | events chunks | the recorder | 3600 | 8400924 |
 | series chunks | the recorder | 3600 | 99617283 |
 | summary blocks | the recorder | 2933 | 3299294 |
 | checkpoints | the writer | 24 | 1486296 |
 | final index | the writer | 4 | 1659640 |
-| close | the writer | 4 | 11373 |
+| close | the writer | 4 | 11365 |
 | tail | the writer | 4 | 656 |
 
 The writer's own blocks take 3.2 MB of the hour's 115 MB, 2.7 %. Most of that is index: the checkpoints while the pieces

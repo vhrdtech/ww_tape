@@ -1,11 +1,11 @@
 //! Series chunks of the sample codecs, behind the block of definitions of their track: the group end table, each
 //! group's lane headers (first value, minimum, width; ALP's scheme, exponents, dictionary bits and exception counts),
-//! the packed values, the chunk's sample count and the track's element and channels.
+//! the packed values, the chunk's sample count and the track's element (predefined or described) and channels.
 
 use super::chunk::{build, column_start, hit_head, reseal};
 use super::series::track_item;
 use super::{Draw, Field, SESSION, clock_item, describe_block, hit};
-use ww_tape::samples::{Element, SampleShape, encode, max_encoded_len};
+use ww_tape::samples::{Element, ElementDesc, SampleShape, Scalar, encode, max_encoded_len};
 use ww_tape::series::SERIES_CHANNELS_MAX;
 use ww_tape::{
     BlockId, BlockKind, ChunkHead, Codec, ColumnKind, ColumnSpec, EndMode, Magnitude, Ratio64,
@@ -56,18 +56,50 @@ fn coded<T: Sample>(
 
 fn column(d: &mut Draw<'_>, codec: Codec, shape: SampleShape, count: usize) -> Option<Vec<u8>> {
     match shape.element.scalar() {
-        Element::I8 => coded::<i8>(d, codec, shape, count),
-        Element::I16 => coded::<i16>(d, codec, shape, count),
-        Element::I32 => coded::<i32>(d, codec, shape, count),
-        Element::I64 => coded::<i64>(d, codec, shape, count),
-        Element::U8 => coded::<u8>(d, codec, shape, count),
-        Element::U16 => coded::<u16>(d, codec, shape, count),
-        Element::U32 => coded::<u32>(d, codec, shape, count),
-        Element::U64 => coded::<u64>(d, codec, shape, count),
-        Element::F32 => coded::<f32>(d, codec, shape, count),
-        Element::F64 => coded::<f64>(d, codec, shape, count),
-        Element::Bool => coded::<bool>(d, codec, shape, count),
+        Scalar::I8 => coded::<i8>(d, codec, shape, count),
+        Scalar::I16 => coded::<i16>(d, codec, shape, count),
+        Scalar::I32 => coded::<i32>(d, codec, shape, count),
+        Scalar::I64 => coded::<i64>(d, codec, shape, count),
+        Scalar::U8 => coded::<u8>(d, codec, shape, count),
+        Scalar::U16 => coded::<u16>(d, codec, shape, count),
+        Scalar::U32 => coded::<u32>(d, codec, shape, count),
+        Scalar::U64 => coded::<u64>(d, codec, shape, count),
+        Scalar::F32 => coded::<f32>(d, codec, shape, count),
+        Scalar::F64 => coded::<f64>(d, codec, shape, count),
+        Scalar::Bool => coded::<bool>(d, codec, shape, count),
+    }
+}
+
+/// An element from the input: a predefined one, or one described by bits, exponent bits, sign, bit order, parts and
+/// zero, whatever the raw codec codes.
+pub(crate) fn element(d: &mut Draw<'_>) -> ElementDesc {
+    let predefined = ElementDesc::of(Element::ALL[d.below(Element::ALL.len())]);
+    if !d.u8().is_multiple_of(3) {
+        return predefined;
+    }
+    let exponent_bits = [0, 0, 0, 4, 5, 8, 11][d.below(7)];
+    let bits = match exponent_bits {
+        0 => 1 + d.below(64) as u8,
+        11 => 64,
+        e => [e + 3, 16, 32][d.below(3)],
+    };
+    let zero = match d.u8() % 4 {
+        0 => Ratio64::new(255, 2),
+        1 => Ratio64::new(1, 1),
         _ => None,
+    };
+    let e = ElementDesc {
+        bits,
+        exponent_bits,
+        signed: exponent_bits != 0 || d.bool(),
+        msb_first: d.bool(),
+        parts: shrink_wrap::prelude::UNib32(1 + d.below(3) as u32),
+        zero,
+    };
+    if e.is_coded() {
+        e
+    } else {
+        ElementDesc { zero: None, ..e }
     }
 }
 
@@ -104,10 +136,10 @@ fn lane_fields(codec: Codec, b: usize, at: usize) -> Vec<Field<'static>> {
 pub fn samples(data: &[u8]) -> Vec<u8> {
     let mut d = Draw::new(data);
     let mut codec = CODECS[d.below(CODECS.len())];
-    let mut element = Element::ALL[d.below(Element::ALL.len())];
+    let mut element = element(&mut d);
     let mut channels = 1 + d.below(3) as u32;
     let per =
-        (element.scalar_bits() as usize / 8).max(1) * element.parts() as usize * channels as usize;
+        (element.container_bits() as usize / 8) * element.parts.0 as usize * channels as usize;
     // half the columns of 64 samples at most, half up to the 1 KiB a block may take
     let most = 832 / per;
     let most = if d.bool() { most.min(64) } else { most };
@@ -117,7 +149,7 @@ pub fn samples(data: &[u8]) -> Vec<u8> {
         Some(c) => c,
         None => {
             codec = Codec::RAW;
-            column(&mut d, codec, shape, count).expect("raw codes every element")
+            column(&mut d, codec, shape, count).unwrap_or_default()
         }
     };
     let groups = count.div_ceil(ww_tape::samples::DELTA_GROUP);
@@ -128,7 +160,11 @@ pub fn samples(data: &[u8]) -> Vec<u8> {
             let caps = &[SERIES_CHANNELS_MAX as u64, 1 << 16];
             channels = d.value(32, caps, &[u64::from(channels)]) as u32;
         }
-        1 => element = Element::from_code(d.u8() % 16).unwrap_or(element),
+        1 => {
+            element.bits = d.u8();
+            element.exponent_bits = d.u8() % 16;
+            element.parts = shrink_wrap::prelude::UNib32(u32::from(d.u8() % 20));
+        }
         2 => {
             let caps = &[u64::from(ww_tape::chunk::SERIES_ITEMS_MAX), 128, 256];
             count = d.value(32, caps, &[count]);
@@ -156,7 +192,7 @@ pub fn samples(data: &[u8]) -> Vec<u8> {
     };
     let mut b = build(&head, &[(spec, &col)]);
     let at = column_start(&b, 0).expect("the column is in the block");
-    let scalar = (element.scalar_bits() as usize / 8).max(1);
+    let scalar = (element.container_bits() as usize / 8).max(1);
     for _ in 0..1 + d.below(3) {
         match d.u8() % 8 {
             7 => hit_head(&mut d, &mut b),
@@ -185,11 +221,11 @@ pub fn samples(data: &[u8]) -> Vec<u8> {
     }
     reseal(&mut b, d.u8() % 4 == 3);
     let period = Ratio64::new(1, 1).expect("a ratio");
-    let def = SampleShape {
-        element,
-        channels: shrink_wrap::prelude::UNib32(channels),
-    };
-    let item = track_item(def, period, Magnitude::pow10(0));
+    let item = track_item(
+        SampleShape::new(element, channels),
+        period,
+        Magnitude::pow10(0),
+    );
     let mut out = describe_block(BlockId::new(SESSION, 0), &[&clock_item(), &item]);
     out.extend_from_slice(&b);
     out

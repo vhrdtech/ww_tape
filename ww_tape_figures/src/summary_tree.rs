@@ -4,7 +4,7 @@
 //! that start in it ([ChannelStats::merge]).
 
 use anyhow::{Context, ensure};
-use ww_tape::{BlockKind, Element, FileBlocks, Recovery};
+use ww_tape::{BlockKind, Element, ElementDesc, FileBlocks, Recovery};
 use ww_tape_example::{Drive, key};
 use ww_tape_summary::{ChannelStats, Summary};
 
@@ -114,7 +114,8 @@ pub fn summary_tree() -> anyhow::Result<String> {
     for n in level(0) {
         let c = (n.first * COLUMNS / total) as usize;
         let col = columns.get_mut(c).context("a column")?;
-        let (stats, items) = col.get_or_insert((ChannelStats::empty(Element::I16), 0));
+        let (stats, items) =
+            col.get_or_insert((ChannelStats::empty(ElementDesc::of(Element::I16)), 0));
         stats.merge(&n.stats, *items, n.items);
         *items += n.items;
     }

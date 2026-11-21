@@ -4,11 +4,12 @@
 use super::{chunk, index, payloads, reader, samples, series, summary, times};
 use crate::hostile;
 use shrink_wrap::DeserializeShrinkWrap;
+use ww_tape::samples::Scalar;
 use ww_tape::times::EventTimes;
 use ww_tape::{
-    Block, ChunkHead, Describe, Element, ItemHash, Layout, Medium, MemSink, OpenOptions, Ratio64,
-    SampleShape, Samples, SeriesGrid, SeriesTimeline, Slot, TapeReader, TapeSink, TapeWriter,
-    TrackKind, block_len,
+    Block, ChunkHead, Describe, Element, ElementDesc, ItemHash, Layout, Medium, MemSink,
+    OpenOptions, Ratio64, SampleShape, Samples, SeriesGrid, SeriesTimeline, Slot, TapeReader,
+    TapeSink, TapeWriter, TrackKind, block_len,
 };
 
 /// The blocks back to back at the start of `f`, up to the first that doesn't parse.
@@ -114,9 +115,9 @@ fn series_def(b: &[u8]) -> Option<(SampleShape, Ratio64)> {
                 t.items_valid(),
             );
             match t.kind {
-                TrackKind::Series(s) => {
+                TrackKind::Series(ref s) => {
                     let _ = (s.check(), s.first_grid(0));
-                    Some((s.shape, s.period))
+                    Some((t.series_shape()?, s.period))
                 }
                 _ => None,
             }
@@ -138,18 +139,17 @@ fn decode_column(
         };
     }
     match shape.element.scalar() {
-        Element::I8 => go!(i8),
-        Element::I16 => go!(i16),
-        Element::I32 => go!(i32),
-        Element::I64 => go!(i64),
-        Element::U8 => go!(u8),
-        Element::U16 => go!(u16),
-        Element::U32 => go!(u32),
-        Element::U64 => go!(u64),
-        Element::F32 => go!(f32),
-        Element::F64 => go!(f64),
-        Element::Bool => go!(bool),
-        _ => {}
+        Scalar::I8 => go!(i8),
+        Scalar::I16 => go!(i16),
+        Scalar::I32 => go!(i32),
+        Scalar::I64 => go!(i64),
+        Scalar::U8 => go!(u8),
+        Scalar::U16 => go!(u16),
+        Scalar::U32 => go!(u32),
+        Scalar::U64 => go!(u64),
+        Scalar::F32 => go!(f32),
+        Scalar::F64 => go!(f64),
+        Scalar::Bool => go!(bool),
     }
     if let Ok(s) = Samples::of(column, shape, count) {
         let _ = s.sample_bytes(0..count.min(s.count()));
@@ -161,10 +161,10 @@ fn decode_column(
 pub fn samples_hostile(data: &[u8]) {
     let f = hostile::samples(data);
     let bs = blocks(&f);
-    let shape = bs
-        .first()
-        .and_then(|b| series_def(b))
-        .map_or(SampleShape::scalar(Element::I16), |(s, _)| s);
+    let shape = bs.first().and_then(|b| series_def(b)).map_or(
+        SampleShape::scalar(ElementDesc::of(Element::I16)),
+        |(s, _)| s,
+    );
     for b in &bs {
         chunk::walk(b);
         let Ok(block) = Block::salvage(b) else {

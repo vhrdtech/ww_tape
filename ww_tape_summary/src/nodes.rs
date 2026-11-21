@@ -9,7 +9,7 @@ use super::SeriesNode;
 use super::{
     ChannelStats, Layout, Stat, SummaryError, SummaryHead, SummaryWriter, Value, components,
 };
-use ww_tape::{Block, BlockKind, Element};
+use ww_tape::{Block, BlockKind, ElementDesc};
 use ww_tape_codecs::bytes::{self, le_u32, le_u64};
 
 /// The summary of a summary block, read in place.
@@ -214,7 +214,7 @@ impl<'b> Summary<'b> {
 #[derive(Copy, Clone, Debug)]
 pub struct StatColumn<'b> {
     stat: Stat,
-    element: Element,
+    element: ElementDesc,
     bytes: &'b [u8],
     nodes: usize,
 }

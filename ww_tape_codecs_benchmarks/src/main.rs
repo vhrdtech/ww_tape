@@ -26,7 +26,7 @@ use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::time::Instant;
 use ww_tape_codecs::Codec;
-use ww_tape_codecs::samples::{Sample, Samples, Scalar, encode, max_encoded_len};
+use ww_tape_codecs::samples::{Lane, Sample, Samples, Scalar, encode, max_encoded_len};
 
 /// What a column holds: values of a scalar, `lanes` of them per sample, interleaved.
 #[derive(Copy, Clone, Debug)]
@@ -89,11 +89,13 @@ impl Coder {
         let w = shape.scalar.bits();
         let lanes = shape.lanes;
         let n = match self {
-            Self::Tape(c) => max_encoded_len(c, shape.scalar, lanes, count)
+            Self::Tape(c) => max_encoded_len(c, Lane::of(shape.scalar), lanes, count)
                 .map_err(|e| anyhow::anyhow!("{e:?}"))?,
             Self::Xor(_) => xor::max_len(count, count * lanes.get(), w).context("too long")?,
-            Self::FloatDelta(c) => max_encoded_len(c, int_scalar(shape.scalar)?, lanes, count)
-                .map_err(|e| anyhow::anyhow!("{e:?}"))?,
+            Self::FloatDelta(c) => {
+                max_encoded_len(c, Lane::of(int_scalar(shape.scalar)?), lanes, count)
+                    .map_err(|e| anyhow::anyhow!("{e:?}"))?
+            }
         };
         Ok(n)
     }
@@ -108,15 +110,15 @@ impl Coder {
         let e = |e| anyhow::anyhow!("{e:?}");
         let lanes = shape.lanes;
         match self {
-            Self::Tape(c) => encode(c, lanes, values, out).map_err(e),
+            Self::Tape(c) => encode(c, Lane::of(shape.scalar), lanes, values, out).map_err(e),
             Self::Xor(f) => Ok(xor::encode(f, values, lanes.get(), out)),
             Self::FloatDelta(c) => {
                 if int_scalar(shape.scalar)? == Scalar::U32 {
                     ordered(values, &mut s.u32s);
-                    encode(c, lanes, &s.u32s, out).map_err(e)
+                    encode(c, Lane::of(Scalar::U32), lanes, &s.u32s, out).map_err(e)
                 } else {
                     ordered(values, &mut s.u64s);
-                    encode(c, lanes, &s.u64s, out).map_err(e)
+                    encode(c, Lane::of(Scalar::U64), lanes, &s.u64s, out).map_err(e)
                 }
             }
         }
@@ -133,7 +135,7 @@ impl Coder {
         let lanes = shape.lanes;
         let count = out.len() / lanes;
         match self {
-            Self::Tape(c) => Samples::new(c, shape.scalar, lanes, count, bytes)
+            Self::Tape(c) => Samples::new(c, Lane::of(shape.scalar), lanes, count, bytes)
                 .and_then(|col| col.decode(0, out))
                 .map_err(e),
             Self::Xor(f) => {
@@ -142,7 +144,7 @@ impl Coder {
             Self::FloatDelta(c) => {
                 let int = int_scalar(shape.scalar)?;
                 let w = shape.scalar.bits();
-                let col = Samples::new(c, int, lanes, count, bytes).map_err(e)?;
+                let col = Samples::new(c, Lane::of(int), lanes, count, bytes).map_err(e)?;
                 if int == Scalar::U32 {
                     s.u32s.resize(out.len(), 0);
                     col.decode(0, &mut s.u32s).map_err(e)?;

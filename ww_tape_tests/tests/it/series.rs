@@ -104,7 +104,7 @@ fn sample_type() -> TypeRef<'static> {
 }
 
 fn series_def() -> SeriesDef<'static> {
-    SeriesDef::of::<MicroAmps>(Some(sample_type()), CHANNELS, period())
+    SeriesDef::of::<MicroAmps>(CHANNELS, period())
 }
 
 /// The definitions of the recording.
@@ -125,15 +125,7 @@ fn definitions() -> Vec<Describe<'static>> {
             key: track_key(0x5e, &[Segment::Name("phase")]),
             clock: UNib32(CLOCK),
             dimensions: RefVec::Slice { slice: &[] },
-            items: ww_tape::Items::WireWeaver {
-                api: FullVersion::new("motor_api", Version::new(0, 1, 0)),
-                bundle: RefVec::Slice { slice: &[] },
-                path: RefVec::Slice {
-                    slice: &[UNib32(3)],
-                },
-                keys: RefVec::Slice { slice: &[] },
-                item: None,
-            },
+            items: ww_tape::Items::numbers::<MicroAmps>(Some(sample_type())),
             label: "phase.current",
             repeat: ww_tape::TrackRepeat::Stream,
             kind: TrackKind::Series(series_def()),
@@ -283,8 +275,9 @@ fn read(bytes: &[u8]) -> Read {
                         let d = DescribeOwned::from_ww_bytes_owned(rec.item).unwrap();
                         if let DescribeOwned::Track(t) = d
                             && let ww_tape::TrackKindOwned::Series(s) = t.kind
+                            && let ww_tape::ItemsOwned::Numbers { element, .. } = t.items
                         {
-                            def = Some(s);
+                            def = Some((SampleShape::new(element, s.channels.0), s));
                         }
                     } else {
                         assert_ne!(rec.track, TRACK, "a series track has no records");
@@ -294,10 +287,10 @@ fn read(bytes: &[u8]) -> Read {
             BlockKind::Series => {
                 let c = b.chunk().unwrap();
                 let head = c.head();
-                let def = def.as_ref().expect("describe before chunks");
+                let (shape, _) = def.as_ref().expect("describe before chunks");
                 let col = c.column(0).unwrap();
                 assert_eq!(col.kind, ColumnKind::Samples);
-                let s = Samples::of(&col, def.shape, head.count as usize).unwrap();
+                let s = Samples::of(&col, *shape, head.count as usize).unwrap();
                 let mut out = vec![0i32; head.count as usize * s.lanes()];
                 s.decode(0, &mut out).unwrap();
                 chunks.push((head, out));
@@ -305,11 +298,11 @@ fn read(bytes: &[u8]) -> Read {
             _ => {}
         }
     }
-    let def = def.expect("a series track");
+    let (shape, def) = def.expect("a series track");
     let (timeline, errors) = SeriesTimeline::from_chunks(def.period, chunks.iter().map(|(h, _)| h));
     assert!(errors.is_empty(), "{errors:?}");
     Read {
-        shape: def.shape,
+        shape,
         period: def.period,
         scale: def.scale,
         timeline,

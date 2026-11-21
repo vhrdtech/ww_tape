@@ -6,9 +6,13 @@ use shrink_wrap::prelude::*;
 use super::*;
 use crate::summary::{SeriesStats, SeriesSummarySpec};
 use crate::{
-    BlockKind, ChunkHead, Describe, DescribeError, Dimension, EndMode, Ends, EventsDef,
-    FullVersion, TrackDef, TrackKind, Version,
+    BlockKind, ChunkHead, Describe, DescribeError, Dimension, Element, ElementDesc, EndMode, Ends,
+    EventsDef, FullVersion, Items, TrackDef, TrackKind, TypeRef, Version,
 };
+
+fn d(e: Element) -> ElementDesc {
+    ElementDesc::of(e)
+}
 
 /// 48 kHz on a 1 ns clock.
 fn period() -> Ratio64 {
@@ -35,15 +39,20 @@ fn def() -> SeriesDef<'static> {
     SeriesDef {
         summaries: Some(SeriesSummarySpec {
             base_shift: 6,
-            stats: SeriesStats::all(Element::I32),
+            stats: SeriesStats::all(d(Element::I32)),
             clip: None,
         }),
         media: Some(MediaStream {
             media: RefVec::Slice { slice: &[1, 2, 3] },
             stream: UNib32(1),
         }),
-        ..SeriesDef::of::<Fixed<Ampere, Milli, i32>>(Some(sample_type()), 3, period())
+        ..SeriesDef::of::<Fixed<Ampere, Milli, i32>>(3, period())
     }
+}
+
+/// The items of the series [def] describes: `Fixed<Ampere, Milli, i32>` values.
+fn items() -> Items<'static> {
+    Items::numbers::<Fixed<Ampere, Milli, i32>>(Some(sample_type()))
 }
 
 fn encode<T: SerializeShrinkWrap>(v: &T) -> std::vec::Vec<u8> {
@@ -53,19 +62,32 @@ fn encode<T: SerializeShrinkWrap>(v: &T) -> std::vec::Vec<u8> {
 
 #[test]
 fn def_takes_element_and_scale_from_the_type() {
-    let d = def();
-    assert_eq!(d.shape, SampleShape::new(Element::I32, 3));
-    assert_eq!(d.scale, milli());
-    assert_eq!(d.check(), Ok(()));
-    let bytes = encode(&d);
-    assert_eq!(SeriesDef::from_ww_bytes(&bytes).unwrap(), d);
+    let def = def();
+    assert_eq!(def.channels, UNib32(3));
+    assert_eq!(def.scale, milli());
+    assert_eq!(def.check(), Ok(()));
+    let bytes = encode(&def);
+    assert_eq!(SeriesDef::from_ww_bytes(&bytes).unwrap(), def);
+    assert_eq!(
+        items(),
+        Items::Numbers {
+            element: d(Element::I32),
+            unit: Some(sample_type()),
+        }
+    );
+    let t = track(TrackKind::Series(def.clone()), false);
+    assert_eq!(t.series_shape(), Some(SampleShape::new(d(Element::I32), 3)));
+    assert_eq!(
+        def.shape(d(Element::I32)),
+        SampleShape::new(d(Element::I32), 3)
+    );
 
-    assert_eq!(<Fixed<Volt, Micro, i16>>::ELEMENT, Element::I16);
+    assert_eq!(<Fixed<Volt, Micro, i16>>::ELEMENT, d(Element::I16));
     assert_eq!(<Fixed<Volt, Micro, i16>>::SCALE, micro());
-    assert_eq!(<Complex<Volt, One, i16>>::ELEMENT, Element::ComplexI16);
-    assert_eq!(<Complex<Volt, One, f32>>::ELEMENT, Element::ComplexF32);
+    assert_eq!(<Complex<Volt, One, i16>>::ELEMENT, d(Element::ComplexI16));
+    assert_eq!(<Complex<Volt, One, f32>>::ELEMENT, d(Element::ComplexF32));
     assert_eq!(<f32 as SeriesValue>::SCALE, Magnitude::ONE);
-    assert_eq!(<bool as SeriesValue>::ELEMENT, Element::Bool);
+    assert_eq!(<bool as SeriesValue>::ELEMENT, d(Element::Bool));
 
     let mut out = [0i16; 2];
     assert_eq!(
@@ -90,22 +112,17 @@ fn def_takes_element_and_scale_from_the_type() {
 fn bad_defs_are_refused_on_decode() {
     let bad = [
         SeriesDef {
-            shape: SampleShape::new(Element::I32, 0),
+            channels: UNib32(0),
             ..def()
         },
         SeriesDef {
-            shape: SampleShape::new(Element::I32, SERIES_CHANNELS_MAX + 1),
-            ..def()
-        },
-        SeriesDef {
-            shape: SampleShape::new(Element::Unknown(40), 1),
-            summaries: None,
+            channels: UNib32(SERIES_CHANNELS_MAX + 1),
             ..def()
         },
         SeriesDef {
             summaries: Some(SeriesSummarySpec {
                 base_shift: 2,
-                stats: SeriesStats::all(Element::I32),
+                stats: SeriesStats::all(d(Element::I32)),
                 clip: None,
             }),
             ..def()
@@ -118,19 +135,90 @@ fn bad_defs_are_refused_on_decode() {
             }),
             ..def()
         },
-        SeriesDef {
-            summaries: Some(SeriesSummarySpec {
-                base_shift: 6,
-                stats: SeriesStats::all(Element::ComplexI16),
-                clip: None,
-            }),
-            ..def()
-        },
     ];
-    for d in bad {
-        assert!(d.check().is_err(), "{d:?}");
-        let bytes = encode(&d);
-        assert!(SeriesDef::from_ww_bytes(&bytes).is_err(), "{d:?}");
+    for def in bad {
+        assert!(def.check().is_err(), "{def:?}");
+        let bytes = encode(&def);
+        assert!(SeriesDef::from_ww_bytes(&bytes).is_err(), "{def:?}");
+    }
+}
+
+/// What a series asks of its items: numbers of an element the raw codec codes; summaries of at most 2 parts, power
+/// only of a pair. A definition that passes alone is refused with the wrong items.
+#[test]
+fn a_series_track_is_checked_with_its_items() {
+    let ok = track(TrackKind::Series(def()), false);
+    assert_eq!(ok.check_kind(), Ok(()));
+    let with = |element: ElementDesc, summaries: Option<SeriesSummarySpec>| TrackDef {
+        items: Items::Numbers {
+            element,
+            unit: None,
+        },
+        kind: TrackKind::Series(SeriesDef { summaries, ..def() }),
+        ..ok.clone()
+    };
+    let power = Some(SeriesSummarySpec {
+        base_shift: 6,
+        stats: SeriesStats::all(d(Element::ComplexI16)),
+        clip: None,
+    });
+    let plain = Some(SeriesSummarySpec {
+        base_shift: 6,
+        stats: SeriesStats::all(d(Element::I16)),
+        clip: None,
+    });
+    assert_eq!(with(d(Element::ComplexI16), power).check_kind(), Ok(()));
+    assert_eq!(
+        with(d(Element::I16), power).check_kind(),
+        Err(SeriesError::Def("power of a real element"))
+    );
+    let mut three = d(Element::U8);
+    three.parts = UNib32(3);
+    assert_eq!(with(three, None).check_kind(), Ok(()));
+    assert_eq!(
+        with(three, plain).check_kind(),
+        Err(SeriesError::Def(
+            "summaries of an element of more than 2 parts"
+        ))
+    );
+    let mut wide_msb = d(Element::U64);
+    wide_msb.bits = 60;
+    wide_msb.msb_first = true;
+    assert_eq!(
+        with(wide_msb, None).check_kind(),
+        Err(SeriesError::Def("an element the raw codec doesn't code"))
+    );
+    let mut none = d(Element::U8);
+    none.bits = 0;
+    assert_eq!(
+        with(none, None).check_kind(),
+        Err(SeriesError::Def("an element no writer takes"))
+    );
+    let mut twelve = d(Element::U16);
+    twelve.bits = 12;
+    assert_eq!(with(twelve, plain).check_kind(), Ok(()));
+    for items in [
+        Items::RawBytes,
+        Items::ShrinkWrap(sample_type()),
+        Items::WireWeaver {
+            api: FullVersion::new("motor_api", Version::new(0, 3, 0)),
+            bundle: RefVec::Slice { slice: &[7, 7] },
+            path: RefVec::Slice {
+                slice: &[UNib32(4)],
+            },
+            keys: RefVec::Slice { slice: &[] },
+            item: None,
+        },
+    ] {
+        let t = TrackDef {
+            items,
+            ..ok.clone()
+        };
+        assert_eq!(
+            t.check_kind(),
+            Err(SeriesError::Def("a series' items are numbers"))
+        );
+        assert_eq!(t.series_shape(), None);
     }
 }
 
@@ -145,14 +233,18 @@ fn track(kind: TrackKind<'static>, state: bool) -> TrackDef<'static> {
                 value: "a",
             }],
         },
-        items: crate::Items::WireWeaver {
-            api: FullVersion::new("motor_api", Version::new(0, 3, 0)),
-            bundle: RefVec::Slice { slice: &[7, 7] },
-            path: RefVec::Slice {
-                slice: &[UNib32(4), UNib32(1)],
-            },
-            keys: RefVec::Slice { slice: &[] },
-            item: None,
+        items: if matches!(kind, TrackKind::Series(_)) {
+            items()
+        } else {
+            Items::WireWeaver {
+                api: FullVersion::new("motor_api", Version::new(0, 3, 0)),
+                bundle: RefVec::Slice { slice: &[7, 7] },
+                path: RefVec::Slice {
+                    slice: &[UNib32(4), UNib32(1)],
+                },
+                keys: RefVec::Slice { slice: &[] },
+                item: None,
+            }
         },
         label: "phase[a].current",
         repeat: if state {
@@ -189,14 +281,14 @@ fn track_kind_round_trips_and_is_checked() {
     assert!(!Ends::Instants.allows(EndMode::Durations));
     assert!(Ends::Spans.allows(EndMode::NextStart));
 
-    // a series' chunks are data: the state policy is refused
+    // a series' chunks are data: the state policy is refused; so are items that are no numbers
     let state = track(TrackKind::Series(def()), true);
     let with_item = TrackDef {
-        items: crate::Items::ShrinkWrap(sample_type()),
+        items: Items::ShrinkWrap(sample_type()),
         ..t.clone()
     };
     let bytes = TrackDef {
-        items: crate::Items::RawBytes,
+        items: Items::RawBytes,
         ..t.clone()
     };
     for t in [state, with_item, bytes] {
@@ -429,28 +521,6 @@ fn chunk_heads_are_checked_against_the_grid() {
         SeriesGrid::of_chunk(&head, p),
         Err(SeriesError::NotSeriesChunk { first_item: 0 })
     );
-}
-
-/// The reserved leaves element (code 13) is refused wherever a sample of it would be decoded: the track's definition,
-/// a samples column in any codec; its summaries in the summary tests.
-#[test]
-fn the_leaves_element_is_refused() {
-    let leaves = SampleShape::new(Element::LEAVES, 1);
-    assert_eq!(Element::LEAVES.code(), 13);
-    assert_eq!(Element::from_code(13), None);
-    let d = SeriesDef {
-        shape: leaves,
-        summaries: None,
-        ..def()
-    };
-    assert!(d.check().is_err());
-    assert!(SeriesDef::from_ww_bytes(&encode(&d)).is_err());
-    for codec in 0..=255u8 {
-        assert!(
-            crate::Samples::new(crate::Codec(codec), leaves, 2, &[0; 64]).is_err(),
-            "codec {codec}"
-        );
-    }
 }
 
 #[test]

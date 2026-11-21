@@ -4,9 +4,7 @@
 use core::ops::Range;
 
 use ww_tape::reader::Found;
-use ww_tape::{
-    BlockKind, ColumnKind, FileBlocks, FileError, Recovery, SampleShape, Samples, Slot, TapeReader,
-};
+use ww_tape::{BlockKind, ColumnKind, FileBlocks, FileError, Recovery, Samples, Slot, TapeReader};
 
 use crate::defs::{MODE, PHASE_A, phase_def};
 use crate::record::Recording;
@@ -130,7 +128,7 @@ fn samples_lost(drive: &Drive, chunk: &ww_tape::Chunk<'_>) -> Option<u64> {
     let def = phase_def(drive.phase_hz, drive.summaries)?;
     let column = chunk.find(ColumnKind::Samples, 0)?;
     let count = usize::try_from(head.count).ok()?;
-    let samples = Samples::of(&column, SampleShape::scalar(def.shape.element), count).ok()?;
+    let samples = Samples::of(&column, crate::defs::phase_shape(&def), count).ok()?;
     let mut lost = 0u64;
     for g in 0..samples.group_count() {
         let (items, bytes) = samples.group_bytes(g)?;

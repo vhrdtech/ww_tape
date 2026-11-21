@@ -22,8 +22,8 @@ use ww_tape::piece::{TAIL_LEN, close_padding};
 use ww_tape::samples::{encode, max_encoded_len};
 use ww_tape::{
     Block, BlockKind, Clock, ClockRef, Codec, ColumnKind, FLAG_REPEAT, FileBlocks, Layout,
-    MemError, MemSink, MemTape, MemTapes, PieceChain, Recovery, SampleShape, Slot, SyncPolicy,
-    TapeReader, TapeSink, TapeWriter, Tapes,
+    MemError, MemSink, MemTape, MemTapes, PieceChain, Recovery, Slot, SyncPolicy, TapeReader,
+    TapeSink, TapeWriter, Tapes,
 };
 
 use crate::defs::{CAN0, PHASE_A, phase_def};
@@ -369,7 +369,7 @@ pub fn phase_values(drive: &Drive, first: u64, n: u64) -> Vec<i16> {
 /// Bytes of a samples column of `values` in `codec`.
 fn sample_bytes(drive: &Drive, codec: Codec, values: &[i16]) -> Result<u64, Error> {
     let def = phase_def(drive.phase_hz, false).ok_or(Error::Settings("phase_hz is not 0"))?;
-    let shape = SampleShape::scalar(def.shape.element);
+    let shape = crate::defs::phase_shape(&def);
     let mut out = vec![0u8; max_encoded_len(codec, shape, values.len())?];
     Ok(encode(codec, shape, values, &mut out)? as u64)
 }

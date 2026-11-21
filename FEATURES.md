@@ -92,8 +92,9 @@ The bytes of blocks, records, chunks, definitions and the index, in the crate `w
 - 🚧 **FMT-12 What a track's items are**
   - A track's definition says what its items are (`Items`): a WireWeaver stream's values, a ShrinkWrap type, plain bytes, numbers, or a foreign format. A foreign format has a name, a media type and a version, and may carry a schema in the tape. Numbers are of an element the definition describes. The bytes are stored as given.
   - `Items` is evolvable: a variant a newer ww_tape adds reads as unknown with the rest of the definition intact. A relay stores such events as given.
-  - Missing: a series takes `Numbers`, and `SeriesDef` drops its sample type and element; the book's page on custom item formats.
-  - Read more: [Items of a track](docs/format.md#items-of-a-track). Tests `raw.rs`; fuzz target `tape-series` (definitions).
+  - A series' items are `Numbers` too: any width LSB or MSB first, floats of another layout, a zero offset that summaries keep exact.
+  - Missing: the book's page on custom item formats.
+  - Read more: [Items of a track](docs/format.md#items-of-a-track), [Sample codecs](docs/format.md#sample-codecs). Tests `raw.rs`, `series.rs`; fuzz targets `tape-series`, `tape-samples`, `tape-samples-hostile`.
 
 ## Writer (`WRITE`)
 

@@ -3,8 +3,13 @@
 
 use crate::series::{Acc, Channel, add_channel};
 use crate::{ChannelStats, Scalar, SeriesStats, Value};
-use ww_tape::Element;
+use ww_tape::{Element, ElementDesc};
 use ww_tape_codecs::kernel::{IntBatch, Kernel, Narrow, int_batch};
+
+/// The description of a predefined element.
+fn ed(e: Element) -> ElementDesc {
+    ElementDesc::of(e)
+}
 
 /// xorshift64*.
 struct Rng(u64);
@@ -140,9 +145,9 @@ impl<T: Scalar> Model<T> {
     }
 
     /// The earlier `Acc::stats`.
-    fn stats(&self, element: Element, samples: u64) -> ChannelStats {
+    fn stats(&self, element: ElementDesc, samples: u64) -> ChannelStats {
         let mut s = ChannelStats::empty(element);
-        let comps = if element.parts() == 2 { 2 } else { 1 };
+        let comps = if element.parts.0 == 2 { 2 } else { 1 };
         for (c, p) in self.parts.iter().take(comps).enumerate() {
             if let Some(v) = p.min {
                 s.min[c] = v.value();
@@ -159,7 +164,7 @@ impl<T: Scalar> Model<T> {
             }
         }
         s.clipped = self.clipped;
-        if element.parts() == 2 && samples > 0 {
+        if element.parts.0 == 2 && samples > 0 {
             let p = if T::SQ_EXACT {
                 self.ipow as f64
             } else {
@@ -198,7 +203,7 @@ fn same_bits(a: &ChannelStats, b: &ChannelStats) -> bool {
 }
 
 /// Statistic subsets: every one, none of the sums, only power, only clipping.
-fn subsets(element: Element) -> [SeriesStats; 4] {
+fn subsets(element: ElementDesc) -> [SeriesStats; 4] {
     let all = SeriesStats::all(element);
     [
         all,
@@ -223,13 +228,13 @@ fn subsets(element: Element) -> [SeriesStats; 4] {
 /// Every kernel and the model give the same bits on `data` (frames of `channels` channels of `element`), pushed in
 /// batches of random lengths, for each statistic subset and both clip ranges.
 fn check<T: Scalar>(
-    element: Element,
+    element: ElementDesc,
     channels: usize,
     data: &[T],
     clips: [(T, T); 2],
     rng: &mut Rng,
 ) {
-    let comps = if element.parts() == 2 { 2 } else { 1 };
+    let comps = if element.parts.0 == 2 { 2 } else { 1 };
     let stride = channels * comps;
     let frames = data.len() / stride;
     // batch ends: at most a node of 2^24, here a few thousand frames
@@ -292,7 +297,7 @@ fn integers_match_the_earlier_code() {
         let n = 4100 * channels;
         let d = ints(n, &mut rng, |v| v as i8, [i8::MIN, i8::MAX]);
         check(
-            Element::I8,
+            ed(Element::I8),
             channels,
             &d,
             [(i8::MIN, i8::MAX), (-100, 90)],
@@ -300,7 +305,7 @@ fn integers_match_the_earlier_code() {
         );
         let d = ints(n, &mut rng, |v| v as u8, [u8::MIN, u8::MAX]);
         check(
-            Element::U8,
+            ed(Element::U8),
             channels,
             &d,
             [(u8::MIN, u8::MAX), (10, 251)],
@@ -308,7 +313,7 @@ fn integers_match_the_earlier_code() {
         );
         let d = ints(n, &mut rng, |v| v as i16, [i16::MIN, i16::MAX]);
         check(
-            Element::I16,
+            ed(Element::I16),
             channels,
             &d,
             [(i16::MIN, i16::MAX), (-3000, 3000)],
@@ -316,7 +321,7 @@ fn integers_match_the_earlier_code() {
         );
         let d = ints(2 * n, &mut rng, |v| v as i16, [i16::MIN, i16::MAX]);
         check(
-            Element::ComplexI16,
+            ed(Element::ComplexI16),
             channels,
             &d,
             [(i16::MIN, i16::MAX), (-3000, 3000)],
@@ -324,7 +329,7 @@ fn integers_match_the_earlier_code() {
         );
         let d = ints(n, &mut rng, |v| v as u16, [u16::MIN, u16::MAX]);
         check(
-            Element::U16,
+            ed(Element::U16),
             channels,
             &d,
             [(u16::MIN, u16::MAX), (1, 60_000)],
@@ -332,7 +337,7 @@ fn integers_match_the_earlier_code() {
         );
         let d = ints(n, &mut rng, |v| v as i32, [i32::MIN, i32::MAX]);
         check(
-            Element::I32,
+            ed(Element::I32),
             channels,
             &d,
             [(i32::MIN, i32::MAX), (-1 << 30, 1 << 29)],
@@ -340,7 +345,7 @@ fn integers_match_the_earlier_code() {
         );
         let d = ints(n, &mut rng, |v| v as u32, [u32::MIN, u32::MAX]);
         check(
-            Element::U32,
+            ed(Element::U32),
             channels,
             &d,
             [(u32::MIN, u32::MAX), (5, 1 << 31)],
@@ -348,7 +353,7 @@ fn integers_match_the_earlier_code() {
         );
         let d = ints(n, &mut rng, |v| v as i64, [i64::MIN, i64::MAX]);
         check(
-            Element::I64,
+            ed(Element::I64),
             channels,
             &d,
             [(i64::MIN, i64::MAX), (-1 << 62, 1 << 40)],
@@ -356,7 +361,7 @@ fn integers_match_the_earlier_code() {
         );
         let d = ints(n, &mut rng, |v| v, [u64::MIN, u64::MAX]);
         check(
-            Element::U64,
+            ed(Element::U64),
             channels,
             &d,
             [(u64::MIN, u64::MAX), (3, 1 << 63)],
@@ -386,7 +391,7 @@ fn floats_match_the_earlier_code() {
             })
             .collect();
         check(
-            Element::F64,
+            ed(Element::F64),
             channels,
             &d,
             [(f64::NEG_INFINITY, f64::INFINITY), (-1e14, 1e14)],
@@ -394,7 +399,7 @@ fn floats_match_the_earlier_code() {
         );
         let f: Vec<f32> = d.iter().map(|&v| (v / 1e9) as f32).collect();
         check(
-            Element::F32,
+            ed(Element::F32),
             channels,
             &f,
             [(f32::NEG_INFINITY, f32::INFINITY), (-1e5, 1e5)],
@@ -402,7 +407,7 @@ fn floats_match_the_earlier_code() {
         );
         let f: Vec<f32> = d.iter().chain(&d).map(|&v| (v / 1e9) as f32).collect();
         check(
-            Element::ComplexF32,
+            ed(Element::ComplexF32),
             channels,
             &f,
             [(f32::NEG_INFINITY, f32::INFINITY), (-1e5, 1e5)],
@@ -412,7 +417,7 @@ fn floats_match_the_earlier_code() {
     // a channel of only NaN
     let nan = vec![f32::NAN; 300];
     check(
-        Element::F32,
+        ed(Element::F32),
         1,
         &nan,
         [(f32::NEG_INFINITY, f32::INFINITY); 2],
@@ -499,7 +504,7 @@ fn blocks_are_the_same_with_every_kernel() {
     use ww_tape::{Magnitude, Ratio64, SampleShape, SeriesGrid};
     let mut rng = Rng(5);
     let data: Vec<i16> = (0..2 * 3 * 20_000).map(|_| rng.next() as i16).collect();
-    let shape = SampleShape::new(Element::ComplexI16, 3);
+    let shape = SampleShape::new(ed(Element::ComplexI16), 3);
     let blocks = |kernel: Kernel| {
         let start = SeriesStart {
             track_id: 9,

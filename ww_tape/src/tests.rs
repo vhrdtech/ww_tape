@@ -1072,24 +1072,9 @@ pub(crate) fn test_series_track(
     Describe::Track(TrackDef {
         number: UNib32(number),
         clock: UNib32(clock),
-        items: match &t.items {
-            crate::Items::WireWeaver {
-                api,
-                bundle,
-                path,
-                keys,
-                ..
-            } => crate::Items::WireWeaver {
-                api: *api,
-                bundle: *bundle,
-                path: *path,
-                keys: keys.clone(),
-                item: None,
-            },
-            other => other.clone(),
-        },
+        items: crate::Items::numbers::<i16>(None),
         repeat: crate::TrackRepeat::Stream,
-        kind: crate::TrackKind::Series(crate::SeriesDef::of::<i16>(None, channels, period)),
+        kind: crate::TrackKind::Series(crate::SeriesDef::of::<i16>(channels, period)),
         ..t.clone()
     })
 }
@@ -1901,7 +1886,10 @@ fn a_codec_error_is_the_source_of_its_column_error_said_once() {
     let cases: [(&dyn core::error::Error, &str, String); 3] = [
         (
             &crate::samples::SampleError::Column {
-                shape: crate::samples::SampleShape::new(crate::samples::Element::I16, 2),
+                shape: crate::samples::SampleShape::new(
+                    crate::samples::ElementDesc::of(crate::samples::Element::I16),
+                    2,
+                ),
                 error: codec,
             },
             "a column of 2 × i16 doesn't code",

@@ -2,16 +2,16 @@
 
 use shrink_wrap::prelude::*;
 
-use crate::Element;
+use crate::ElementDesc;
 
-/// Scalars per sample of `element`: 2 for a complex element, else 1.
-pub fn components(element: Element) -> u8 {
-    if element.parts() == 2 { 2 } else { 1 }
+/// Scalars per sample of `element`: 2 for a pair, else 1 (a summary head takes elements of at most 2 parts).
+pub fn components(element: ElementDesc) -> u8 {
+    if is_complex(element) { 2 } else { 1 }
 }
 
-/// Whether `element` is a complex pair.
-pub fn is_complex(element: Element) -> bool {
-    element.parts() == 2
+/// Whether `element` is a pair (I/Q).
+pub fn is_complex(element: ElementDesc) -> bool {
+    element.parts.0 == 2
 }
 
 /// The statistics a series track keeps per channel and node. Each merges from two adjacent nodes without the samples.
@@ -74,7 +74,7 @@ impl Stat {
     }
 
     /// Values per channel and node: the element's components for minimum, maximum and sums, else 1.
-    pub fn components(self, element: Element) -> u8 {
+    pub fn components(self, element: ElementDesc) -> u8 {
         match self {
             Self::Min | Self::Max | Self::Sum | Self::SumSq => components(element),
             _ => 1,
@@ -96,7 +96,7 @@ impl Stat {
     }
 
     /// Bytes per channel and node: [Self::width] times [Self::components].
-    fn node_len(self, element: Element) -> usize {
+    fn node_len(self, element: ElementDesc) -> usize {
         match self {
             Self::Min | Self::Max | Self::Sum | Self::SumSq if is_complex(element) => 16,
             _ => self.width(),
@@ -105,8 +105,8 @@ impl Stat {
 }
 
 impl SeriesStats {
-    /// Every statistic for an element: power only for complex ones.
-    pub fn all(element: Element) -> Self {
+    /// Every statistic for an element: power only for pairs.
+    pub fn all(element: ElementDesc) -> Self {
         Self {
             min: true,
             max: true,
@@ -162,7 +162,7 @@ impl SeriesStats {
     }
 
     /// Bytes per channel and node: at most 8 statistics of 16 bytes.
-    pub fn node_len(self, element: Element) -> usize {
+    pub fn node_len(self, element: ElementDesc) -> usize {
         Stat::ALL
             .into_iter()
             .filter(|s| self.has(*s))
