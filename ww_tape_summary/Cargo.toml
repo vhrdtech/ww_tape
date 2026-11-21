@@ -1,6 +1,6 @@
 [package]
 name = "ww_tape_summary"
-version = "0.1.0"
+version.workspace = true
 publish = false
 authors.workspace = true
 description = "Summary trees of ww_tape tracks: event item trees and series statistics, built into summary blocks and read from them"

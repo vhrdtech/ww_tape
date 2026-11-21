@@ -1,6 +1,6 @@
 [package]
 name = "ww_tape_tests"
-version = "0.1.0"
+version.workspace = true
 publish = false
 authors.workspace = true
 description = "Integration tests of ww_tape and its file layer, through their public API"

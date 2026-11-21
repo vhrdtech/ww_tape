@@ -1,6 +1,6 @@
 [package]
 name = "ww_tape_figures"
-version = "0.1.0"
+version.workspace = true
 authors.workspace = true
 description = "The figures of ww_tape's book pages that hold bytes or numbers, drawn as SVG from blocks ww_tape writes"
 edition.workspace = true

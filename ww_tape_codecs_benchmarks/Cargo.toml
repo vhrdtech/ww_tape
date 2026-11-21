@@ -1,6 +1,6 @@
 [package]
 name = "ww_tape_codecs_benchmarks"
-version = "0.1.0"
+version.workspace = true
 authors.workspace = true
 description = "Benchmarks of ww_tape_codecs: the float sample codec and bench-only ones on simulated, decoded and sensor data"
 edition.workspace = true

@@ -1,6 +1,6 @@
 [package]
 name = "ww_tape"
-version = "0.1.0"
+version.workspace = true
 authors.workspace = true
 description = "Tape blocks: tracks of typed records in self-checking, variable-length blocks, for live feeds and log files"
 edition.workspace = true

@@ -1,6 +1,6 @@
 [package]
 name = "ww_tape_example"
-version = "0.1.0"
+version.workspace = true
 authors.workspace = true
 description = "The drive motor controller's recording that the book's figures, code and numbers use, at any scale"
 edition.workspace = true
