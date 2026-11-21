@@ -13,6 +13,7 @@ use ww_tape::{
 
 /// The root of the drive's API: every track and clock key starts from it.
 const API_ROOT: u64 = 0xd51e_0001;
+// --8<-- [start:ids_item]
 /// The board's microsecond timer since boot: the clock of every track.
 pub const BOARD_CLOCK: u32 = 1;
 /// The host's wall clock in ns since the Unix epoch, which [BOARD_CLOCK] maps to.
@@ -28,6 +29,7 @@ pub const CAN0: u32 = 3;
 pub const PHASE_A: u32 = 4;
 /// Board temperature.
 pub const TEMP: u32 = 5;
+// --8<-- [end:ids_item]
 
 /// The host's wall clock at the board's boot: 2026-11-20 09:00:00 UTC, in ns since the Unix epoch.
 pub const BOOT_UNIX_NS: i64 = 1_795_683_600_000_000_000;
@@ -36,10 +38,12 @@ const BOARD_NS_PER_US: (u64, u64) = (49_999, 50);
 /// The map's error bound, ns: a USB high-speed microframe, within which the host stamps what it receives.
 const MAP_ERROR_NS: u64 = 125_000;
 
+// --8<-- [start:key_item]
 /// The key of a track at `name` in the drive's API.
 pub fn key(name: &str) -> u64 {
     track_key(API_ROOT, &[Segment::Name(name)])
 }
+// --8<-- [end:key_item]
 
 fn clocks() -> [Describe<'static>; 2] {
     [
@@ -106,7 +110,6 @@ static PATHS: [[UNib32; 1]; 6] = [
     [UNib32(5)],
 ];
 
-// --8<-- [start:spec_item]
 /// The summaries of `phase_a`: minimum, maximum, sum and sum of squares per node of 1024 samples.
 pub fn phase_summaries() -> SeriesSummarySpec {
     // --8<-- [start:spec]
@@ -126,8 +129,8 @@ pub fn phase_summaries() -> SeriesSummarySpec {
     }
     // --8<-- [end:spec]
 }
-// --8<-- [end:spec_item]
 
+// --8<-- [start:phase_def_item]
 /// The `phase_a` series definition at `hz` samples a second.
 pub fn phase_def(hz: u32, summaries: bool) -> Option<SeriesDef<'static>> {
     let mut def = SeriesDef::of::<i16>(1, Ratio64::new(1_000_000, u64::from(hz))?);
@@ -140,6 +143,7 @@ pub fn phase_def(hz: u32, summaries: bool) -> Option<SeriesDef<'static>> {
 pub fn phase_shape(def: &SeriesDef<'_>) -> SampleShape {
     def.shape(<i16 as SeriesValue>::ELEMENT)
 }
+// --8<-- [end:phase_def_item]
 
 /// The drive's definitions with `phase_a` at `hz`, its summaries when `summaries`, and the mode kept within `near`
 /// bytes of its use.

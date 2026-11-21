@@ -23,6 +23,7 @@ use ww_tape_summary::{ChannelStats, SeriesSummarySpec, Summary};
 
 use crate::{EMERGENCY_ID, FAULT_MINUTE, MODE, PHASE_A, key};
 
+// --8<-- [start:fault_consts_item]
 /// Microseconds of the board's clock in a minute.
 const US_PER_MINUTE: i64 = 60_000_000;
 /// Pixel columns of the viewer's plot of the hour.
@@ -33,6 +34,7 @@ const COLUMNS_I64: i64 = 600;
 pub const BEFORE_US: i64 = 20_000;
 /// Microseconds of frames after the fault that [frames] lists.
 pub const AFTER_US: i64 = 5_000;
+// --8<-- [end:fault_consts_item]
 
 /// A byte source over `bytes` that counts what a reader reads: each step of [Fault::find] reports its bytes.
 pub struct Counted<'a> {
@@ -119,19 +121,22 @@ impl<E> From<ReadError<E>> for FaultError<E> {
     }
 }
 
+// --8<-- [start:fault_us_item]
 /// The ticks of the fault on the board's clock, µs since boot.
 pub const fn fault_us() -> i64 {
     FAULT_MINUTE as i64 * US_PER_MINUTE
 }
+// --8<-- [end:fault_us_item]
 
+// --8<-- [start:opened_item]
 /// What [open] found: the pieces, and the one that holds the fault.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Opened {
     pub pieces: usize,
     pub piece: usize,
 }
+// --8<-- [end:opened_item]
 
-// --8<-- [start:open_item]
 /// Open the tape in `src` and find the piece whose `phase_a` reaches the fault, from what opening read alone.
 pub fn open<S: ByteSource>(src: S) -> Result<(TapeReader<S>, Opened), FaultError<S::Error>> {
     // --8<-- [start:open]
@@ -153,8 +158,8 @@ pub fn open<S: ByteSource>(src: S) -> Result<(TapeReader<S>, Opened), FaultError
     let pieces = reader.pieces().len();
     Ok((reader, Opened { pieces, piece }))
 }
-// --8<-- [end:open_item]
 
+// --8<-- [start:found_item]
 /// What [find] found: the blocks of `phase_a` in the piece and those within a second of the fault.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Found {
@@ -163,8 +168,8 @@ pub struct Found {
     /// The chunks of the second before the fault and of the second after it, in file order.
     pub chunks: Vec<IndexEntry>,
 }
+// --8<-- [end:found_item]
 
-// --8<-- [start:find_item]
 /// Find the chunks of `phase_a` in piece `piece` that hold a second either side of the fault.
 pub fn find<S: ByteSource>(
     reader: &TapeReader<S>,
@@ -185,8 +190,8 @@ pub fn find<S: ByteSource>(
         chunks,
     })
 }
-// --8<-- [end:find_item]
 
+// --8<-- [start:inforce_item]
 /// The mode in force at a place, as [mode] found it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InForce {
@@ -199,8 +204,8 @@ pub struct InForce {
     /// Nothing newer can hide: no block lost, every stretch covered.
     pub whole: bool,
 }
+// --8<-- [end:inforce_item]
 
-// --8<-- [start:mode_item]
 /// The mode in force where each of `chunks` starts.
 pub fn mode<S: ByteSource>(
     reader: &TapeReader<S>,
@@ -223,8 +228,8 @@ pub fn mode<S: ByteSource>(
     }
     Ok(out)
 }
-// --8<-- [end:mode_item]
 
+// --8<-- [start:frame_types_item]
 /// A CAN frame as [frames] read it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Frame {
@@ -247,8 +252,8 @@ pub struct Frames {
     pub block_len: u32,
     pub frames: Vec<Frame>,
 }
+// --8<-- [end:frame_types_item]
 
-// --8<-- [start:frames_item]
 /// Read the frames of `can0` in piece `piece` from the first at or after the fault, for [AFTER_US].
 pub fn frames<S: ByteSource>(
     reader: &TapeReader<S>,
@@ -295,8 +300,8 @@ pub fn frames<S: ByteSource>(
         frames,
     })
 }
-// --8<-- [end:frames_item]
 
+// --8<-- [start:current_type_item]
 /// What [current] read: the samples of `phase_a` for [BEFORE_US] up to the fault.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Current {
@@ -314,7 +319,9 @@ pub struct Current {
     pub in_chunk: u32,
     pub block_len: u32,
 }
+// --8<-- [end:current_type_item]
 
+// --8<-- [start:series_def_item]
 /// The period and the summaries of series track `number`, from its definition in force at `offset` of piece `piece`.
 fn series_def<S: ByteSource>(
     reader: &TapeReader<S>,
@@ -335,8 +342,8 @@ fn series_def<S: ByteSource>(
     };
     Ok((series.period, series.summaries))
 }
+// --8<-- [end:series_def_item]
 
-// --8<-- [start:current_item]
 /// Read the samples of `phase_a` in `chunks` for [BEFORE_US] up to the fault.
 pub fn current<S: ByteSource>(
     reader: &TapeReader<S>,
@@ -403,7 +410,6 @@ pub fn current<S: ByteSource>(
         block_len: entry.len,
     })
 }
-// --8<-- [end:current_item]
 
 /// One pixel column of the viewer's plot: the statistics of its samples.
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -450,11 +456,13 @@ fn magnitude(s: &ChannelStats) -> i64 {
     (lo.as_f64().abs()).max(hi.as_f64().abs()) as i64
 }
 
+// --8<-- [start:column_of_item]
 /// The column of sample `i` of `total`.
 fn column_of(i: u64, total: u64) -> usize {
     let c = u128::from(i) * COLUMNS as u128 / u128::from(total.max(1));
     usize::try_from(c).map_or(COLUMNS - 1, |c| c.min(COLUMNS - 1))
 }
+// --8<-- [end:column_of_item]
 
 // --8<-- [start:nodes_item]
 /// The nodes of the summary blocks of `phase_a` at `level` in every piece that cover any sample of `items`, each with
@@ -496,7 +504,6 @@ fn nodes<S: ByteSource>(
 }
 // --8<-- [end:nodes_item]
 
-// --8<-- [start:level_item]
 /// Draw the hour of `phase_a` in [COLUMNS] columns from its summaries, then zoom into the column of the highest peak.
 pub fn overview(
     reader: &TapeReader<&Counted<'_>>,
@@ -586,8 +593,8 @@ pub fn overview(
         sample_bytes,
     })
 }
-// --8<-- [end:level_item]
 
+// --8<-- [start:checked_item]
 /// What [check] found.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Checked {
@@ -597,6 +604,7 @@ pub struct Checked {
     /// Each piece holds the content hash its close states.
     pub verified: Vec<bool>,
 }
+// --8<-- [end:checked_item]
 
 /// Where the bytes go that verifying every piece reads beyond the recording's length.
 ///
@@ -659,6 +667,7 @@ pub fn verify_cost<S: ByteSource>(
     Ok(cost)
 }
 
+// --8<-- [start:same_frames_type_item]
 /// What [same_frames] found.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SameFrames {
@@ -669,7 +678,9 @@ pub struct SameFrames {
     /// The range hash in the whole chain and in a copy of its last piece alone are equal.
     pub same: bool,
 }
+// --8<-- [end:same_frames_type_item]
 
+// --8<-- [start:frame_items_item]
 /// The item numbers of `can0` whose chunks start within minutes `from..to`, from the index of piece `piece`.
 fn frame_items<S: ByteSource>(
     reader: &TapeReader<S>,
@@ -686,8 +697,8 @@ fn frame_items<S: ByteSource>(
     let last = chunks.last().ok_or(FaultError::Missing("frames"))?;
     Ok(first.first_item..last.end_item())
 }
+// --8<-- [end:frame_items_item]
 
-// --8<-- [start:check_item]
 /// Check the chain's links and every piece's hash.
 pub fn check<S: ByteSource>(reader: &TapeReader<S>) -> Result<Checked, FaultError<S::Error>> {
     // --8<-- [start:check]
@@ -707,9 +718,7 @@ pub fn check<S: ByteSource>(reader: &TapeReader<S>) -> Result<Checked, FaultErro
         verified,
     })
 }
-// --8<-- [end:check_item]
 
-// --8<-- [start:range_item]
 /// Compare the range hash of minutes 51 to 53 of `can0` in the chain and in `copy`, a tape of its last piece alone.
 pub fn same_frames<S: ByteSource<Error = OutOfRange>>(
     reader: &TapeReader<S>,
@@ -731,7 +740,6 @@ pub fn same_frames<S: ByteSource<Error = OutOfRange>>(
         same,
     })
 }
-// --8<-- [end:range_item]
 
 /// Everything Part IV finds, and the bytes each step read.
 #[derive(Clone, Debug, PartialEq)]

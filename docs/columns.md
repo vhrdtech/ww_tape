@@ -32,10 +32,14 @@ the chunk head, since they know the first and last tick:
 --8<-- "ww_tape_example/src/record.rs:frames"
 ```
 
-??? example "The example's `Acts::fill` in full"
+??? example "What the example uses here: `the clock and track numbers`, `key`, `Act`"
 
     ```rs
-    --8<-- "ww_tape_example/src/record.rs:fill_item"
+    --8<-- "ww_tape_example/src/defs.rs:ids_item"
+
+    --8<-- "ww_tape_example/src/defs.rs:key_item"
+
+    --8<-- "ww_tape_example/src/record.rs:act_item"
     ```
 
 The two `None`s say that the frames have no ends and no flags. A track of spans passes the ends, and one with a severity
@@ -103,10 +107,16 @@ A [[series chunk]] of the drive holds a second of `phase_a`: 25 000 [[samples]] 
 --8<-- "ww_tape_example/src/record.rs:samples"
 ```
 
-??? example "The example's `Acts::fill` in full"
+??? example "What the example uses here: `the clock and track numbers`, `key`, `phase_def, phase_shape`, `Act`"
 
     ```rs
-    --8<-- "ww_tape_example/src/record.rs:fill_item"
+    --8<-- "ww_tape_example/src/defs.rs:ids_item"
+
+    --8<-- "ww_tape_example/src/defs.rs:key_item"
+
+    --8<-- "ww_tape_example/src/defs.rs:phase_def_item"
+
+    --8<-- "ww_tape_example/src/record.rs:act_item"
     ```
 
 The head's first and last tick come from the grid, by [`SeriesGrid::chunk_ticks`], and every sample's tick follows from

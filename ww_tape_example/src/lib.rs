@@ -163,6 +163,7 @@ pub const CHAIN: u64 = 0;
 /// The producer the pieces name.
 pub const PRODUCER: &str = "drive bench host";
 
+// --8<-- [start:drive_item]
 /// How much of the drive's recording to make, and the writer's policies for it.
 ///
 /// [Drive::full] is the story's hour; [Drive::scaled] divides the data rates and the byte policies alike and keeps
@@ -201,6 +202,7 @@ pub struct Drive {
     /// raw card.
     pub layout: ww_tape::Layout,
 }
+// --8<-- [end:drive_item]
 
 impl Drive {
     /// The story's hour at full rate, with the writer's default byte policies and a piece every 15 minutes.

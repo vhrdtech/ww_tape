@@ -31,6 +31,7 @@ const RECORD_OVERHEAD_MAX: usize = 32;
 /// Why [Drive::crash] refuses a byte: the recording ends before it.
 pub const CRASH_PAST_END: &str = "the crash byte lies past the end of the recording";
 
+// --8<-- [start:act_item]
 /// One thing the recorder hands the chain.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Act {
@@ -46,6 +47,7 @@ pub enum Act {
     /// A summary block of `phase_a`.
     Summary(Vec<u8>),
 }
+// --8<-- [end:act_item]
 
 /// The acts of a run in order: for each block of [Drive::block_ms] the puts of the mode, a records block, a chunk of
 /// frames, a chunk of samples and the summary blocks those samples finish; the last summaries at the end.
@@ -112,7 +114,6 @@ impl Acts {
         })
     }
 
-    // --8<-- [start:fill_item]
     /// Queue the acts of the next block, or the last summaries after the last block.
     fn fill(&mut self) -> Result<(), Error> {
         if self.block >= self.blocks {
@@ -239,7 +240,6 @@ impl Acts {
         }
         Ok(())
     }
-    // --8<-- [end:fill_item]
 }
 
 impl Iterator for Acts {
@@ -314,11 +314,13 @@ pub(crate) fn options(drive: &Drive) -> ChainOptions {
 }
 // --8<-- [end:options_item]
 
+// --8<-- [start:recorder_item]
 /// A chain and what it was written with.
 pub(crate) struct Recorder<T: Tapes<Error = MemError> = MemTapes> {
     pub(crate) chain: PieceChain<T>,
     pub(crate) defs: Definitions,
 }
+// --8<-- [end:recorder_item]
 
 impl<T: Tapes<Error = MemError>> Recorder<T> {
     /// Bytes of the pieces the chain has closed.
@@ -332,7 +334,6 @@ impl<T: Tapes<Error = MemError>> Recorder<T> {
         Ok(self.closed_bytes() + open)
     }
 
-    // --8<-- [start:cut_item]
     /// Hand `act` to the chain.
     pub(crate) fn apply(&mut self, act: &Act) -> Result<Made, Error> {
         // --8<-- [start:cut]
@@ -384,10 +385,9 @@ impl<T: Tapes<Error = MemError>> Recorder<T> {
         made.seq = w.next_seq().wrapping_sub(1);
         Ok(made)
     }
-    // --8<-- [end:cut_item]
 }
 
-// --8<-- [start:records_item]
+// --8<-- [start:records_block_item]
 /// A records block numbered `id` of `records`, (track, ticks of the board's clock, item) in time order.
 pub fn records_block(id: BlockId, records: &[(u32, i64, Vec<u8>)]) -> Result<Vec<u8>, Error> {
     let len = records
@@ -406,7 +406,7 @@ pub fn records_block(id: BlockId, records: &[(u32, i64, Vec<u8>)]) -> Result<Vec
     buf.truncate(len);
     Ok(buf)
 }
-// --8<-- [end:records_item]
+// --8<-- [end:records_block_item]
 
 /// Whether act `i` is to be given again to a chain resumed in piece `piece` with next seq `next`, `kept` bytes of
 /// that piece kept: a block it doesn't hold, a put made after the last block it kept.
@@ -624,16 +624,20 @@ impl Drive {
         })
     }
 
+    // --8<-- [start:drive_acts_item]
     /// The acts of the run in order: for each block of [Drive::block_ms] the puts of the mode, a records block, a
     /// chunk of frames, a chunk of samples and the summary blocks those samples finish; the last summaries at the end.
     pub fn acts(&self) -> Result<impl Iterator<Item = Result<Act, Error>> + use<>, Error> {
         Acts::new(*self)
     }
+    // --8<-- [end:drive_acts_item]
 
+    // --8<-- [start:drive_definitions_item]
     /// The definitions the run records with: the two clocks, the map between them and the five tracks.
     pub fn definitions(&self) -> Result<Definitions, Error> {
         drive_definitions(self)
     }
+    // --8<-- [end:drive_definitions_item]
 
     /// Record the run whole and close the chain.
     pub fn record(&self) -> Result<Recording, Error> {

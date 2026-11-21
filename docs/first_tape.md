@@ -53,10 +53,22 @@ host receives them, and four calls of the writer take them. A fifth call [[close
 --8<-- "ww_tape_example/src/first_tape.rs:write"
 ```
 
-??? example "The example's `first_tape::write` in full"
+??? example "What the example uses here: `Drive`, `Drive::acts`, `Drive::definitions`, `Act`, `records_block`, `the clock and track numbers`, `Mode`"
 
     ```rs
-    --8<-- "ww_tape_example/src/first_tape.rs:write_item"
+    --8<-- "ww_tape_example/src/lib.rs:drive_item"
+
+    --8<-- "ww_tape_example/src/record.rs:drive_acts_item"
+
+    --8<-- "ww_tape_example/src/record.rs:drive_definitions_item"
+
+    --8<-- "ww_tape_example/src/record.rs:act_item"
+
+    --8<-- "ww_tape_example/src/record.rs:records_block_item"
+
+    --8<-- "ww_tape_example/src/defs.rs:ids_item"
+
+    --8<-- "ww_tape_example/src/signals.rs:mode_type_item"
     ```
 
 Each call does one job:
@@ -76,10 +88,10 @@ The application makes a [[records block]] itself with a [`BlockWriter`]. It push
 --8<-- "ww_tape_example/src/record.rs:records"
 ```
 
-??? example "The example's `records_block` in full"
+??? example "What the example uses here: `the clock and track numbers`"
 
     ```rs
-    --8<-- "ww_tape_example/src/record.rs:records_item"
+    --8<-- "ww_tape_example/src/defs.rs:ids_item"
     ```
 
 A [[chunk]] takes more work, since its times and values go into encoded [[columns]]. [`Drive::acts`] does that work
@@ -116,10 +128,10 @@ A [[reader]] starts at the end of the [[piece]]. It finds the [[tail]] there, an
 --8<-- "ww_tape_example/src/first_tape.rs:read"
 ```
 
-??? example "The example's `first_tape::tracks` in full"
+??? example "What the example uses here: `Track, Items`"
 
     ```rs
-    --8<-- "ww_tape_example/src/first_tape.rs:read_item"
+    --8<-- "ww_tape_example/src/first_tape.rs:tracks_types_item"
     ```
 
 The close record holds a range for each [[track]]: its [[items]], its [[chunks]] and its times in the piece. The

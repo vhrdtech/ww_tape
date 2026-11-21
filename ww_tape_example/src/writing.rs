@@ -898,7 +898,6 @@ fn put_blocks(bytes: &[u8]) -> Result<(u64, u64), Error> {
     Ok(out)
 }
 
-// --8<-- [start:relay_item]
 /// The board writes its hour as one tape; the host relays it into a chain.
 fn relay(recording: &Recording, acts: &[Act]) -> Result<Relay, Error> {
     let drive = recording.drive;
@@ -947,8 +946,8 @@ fn relay(recording: &Recording, acts: &[Act]) -> Result<Relay, Error> {
         recorded_bytes: recording.len(),
     })
 }
-// --8<-- [end:relay_item]
 
+// --8<-- [start:board_tape_item]
 /// The board's own tape of the hour: one piece in memory, closed, its definitions near 1 MiB.
 fn board_tape(drive: &Drive, acts: &[Act]) -> Result<Vec<u8>, Error> {
     let board = Drive {
@@ -957,6 +956,7 @@ fn board_tape(drive: &Drive, acts: &[Act]) -> Result<Vec<u8>, Error> {
     };
     one_tape(&board, acts, "drive firmware", |_| true)
 }
+// --8<-- [end:board_tape_item]
 
 /// The acts of `drive` that `keep` takes, written by one writer into one piece in memory under the drive's options,
 /// closed.

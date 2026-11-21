@@ -67,10 +67,10 @@ shows where a signal is on the air:
 --8<-- "ww_tape_example/src/rf.rs:def"
 ```
 
-??? example "The example's `Rf::def` in full"
+??? example "What the example uses here: `Rf`"
 
     ```rs
-    --8<-- "ww_tape_example/src/rf.rs:def_item"
+    --8<-- "ww_tape_example/src/rf.rs:rf_item"
     ```
 
 The track stores the samples in the converter's packed form, `PACKED12_LSB`: 12 bits per value, as the front end
@@ -96,10 +96,16 @@ number with the grid, then decodes from that sample on:
 --8<-- "ww_tape_example/src/fault.rs:current"
 ```
 
-??? example "The example's `fault::current` in full"
+??? example "What the example uses here: `fault_us`, `the fault's constants`, `series_def`, `Current`"
 
     ```rs
-    --8<-- "ww_tape_example/src/fault.rs:current_item"
+    --8<-- "ww_tape_example/src/fault.rs:fault_us_item"
+
+    --8<-- "ww_tape_example/src/fault.rs:fault_consts_item"
+
+    --8<-- "ww_tape_example/src/fault.rs:series_def_item"
+
+    --8<-- "ww_tape_example/src/fault.rs:current_type_item"
     ```
 
 The chunk holds 25 000 samples in a block of about 28 KB, at period 40/1 µs and scale 10⁻³. The first sample read is

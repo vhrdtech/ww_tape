@@ -68,7 +68,7 @@ nav = [
 # figures.css: the classes of the SVG figures the pages inline from docs/figures and docs/plots, light and dark;
 # hero.css: the logo at the top of index.md; spl-refs.css and spl-refs.js: the cards of glossary terms and code links,
 # written by `spl book refs` (`just book-refs`)
-extra_css = ["stylesheets/vhrd.css", "stylesheets/figures.css", "stylesheets/tables.css", "stylesheets/hero.css", "stylesheets/spl-refs.css"]
+extra_css = ["stylesheets/vhrd.css", "stylesheets/figures.css", "stylesheets/tables.css", "stylesheets/code.css", "stylesheets/hero.css", "stylesheets/spl-refs.css"]
 extra_javascript = ["javascripts/spl-refs.js"]
 
 [project.theme]
@@ -152,6 +152,7 @@ pymdownx.mark = {}
 pymdownx.smartsymbols = {}
 # Inlines the SVG figures and the logo (`--8<-- "docs/figures/chain.svg"`), paths from the repository root
 pymdownx.snippets = {
+  dedent_subsections = true,
   base_path = ["."],
   check_paths = true
 }

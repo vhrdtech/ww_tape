@@ -32,10 +32,10 @@ the maximum, the sum and the sum of squares. From them a viewer draws the envelo
 --8<-- "ww_tape_example/src/defs.rs:spec"
 ```
 
-??? example "The example's `phase_summaries` in full"
+??? example "What the example uses here: `phase_def, phase_shape`"
 
     ```rs
-    --8<-- "ww_tape_example/src/defs.rs:spec_item"
+    --8<-- "ww_tape_example/src/defs.rs:phase_def_item"
     ```
 
 A node holds no ticks, since the chunks' [[grids]] give every sample's tick. A [[summary block|summary]] holds the
@@ -58,10 +58,16 @@ nodes, and no column falls between two:
 --8<-- "ww_tape_example/src/fault.rs:level"
 ```
 
-??? example "The example's `fault::overview` in full"
+??? example "What the example uses here: `the fault's constants`, `series_def`, `column_of`, `nodes`"
 
     ```rs
-    --8<-- "ww_tape_example/src/fault.rs:level_item"
+    --8<-- "ww_tape_example/src/fault.rs:fault_consts_item"
+
+    --8<-- "ww_tape_example/src/fault.rs:series_def_item"
+
+    --8<-- "ww_tape_example/src/fault.rs:column_of_item"
+
+    --8<-- "ww_tape_example/src/fault.rs:nodes_item"
     ```
 
 For the hour of `phase_a` that is level 1, nodes of 16 384 samples. The viewer reads the summary blocks of that level
@@ -71,10 +77,10 @@ in each piece, and merges each node into the column its first sample falls in:
 --8<-- "ww_tape_example/src/fault.rs:nodes"
 ```
 
-??? example "The example's `fault::nodes` in full"
+??? example "What the example uses here: `column_of`"
 
     ```rs
-    --8<-- "ww_tape_example/src/fault.rs:nodes_item"
+    --8<-- "ww_tape_example/src/fault.rs:column_of_item"
     ```
 
 The overview reads 172 summary blocks with 5 494 nodes: about 193 KB in 172 reads, and no sample. Finding those
@@ -114,10 +120,14 @@ period:
 --8<-- "ww_tape_example/src/record.rs:summaries"
 ```
 
-??? example "The example's `Acts::fill` in full"
+??? example "What the example uses here: `the clock and track numbers`, `key`, `phase_def, phase_shape`"
 
     ```rs
-    --8<-- "ww_tape_example/src/record.rs:fill_item"
+    --8<-- "ww_tape_example/src/defs.rs:ids_item"
+
+    --8<-- "ww_tape_example/src/defs.rs:key_item"
+
+    --8<-- "ww_tape_example/src/defs.rs:phase_def_item"
     ```
 
 Each second, the recorder pushes the second's samples. A level that fills a block gives that block, and the recorder
@@ -128,10 +138,10 @@ an aligned file into the gap before a chunk's payload:
 --8<-- "ww_tape_example/src/record.rs:push"
 ```
 
-??? example "The example's `Acts::fill` in full"
+??? example "What the example uses here: `Act`"
 
     ```rs
-    --8<-- "ww_tape_example/src/record.rs:fill_item"
+    --8<-- "ww_tape_example/src/record.rs:act_item"
     ```
 
 At the end of the run, [`SeriesSummaries::finish`] gives the blocks of the partial nodes. The first piece of the

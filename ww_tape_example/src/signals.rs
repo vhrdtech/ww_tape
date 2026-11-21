@@ -28,6 +28,7 @@ pub const LIMIT_MA: i32 = 31_000;
 /// How far past the limit the current rises before the drive trips, mA.
 const OVERSHOOT_MA: f64 = 1_500.0;
 
+// --8<-- [start:mode_type_item]
 /// The drive's mode, the state track `mode`.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Mode {
@@ -67,6 +68,7 @@ impl Mode {
         }
     }
 }
+// --8<-- [end:mode_type_item]
 
 /// A number from `seed` and `n`, the same for the same pair (SplitMix64).
 pub(crate) fn hash(seed: u64, n: u64) -> u64 {

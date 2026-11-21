@@ -57,10 +57,14 @@ another read:
 --8<-- "ww_tape_example/src/fault.rs:open"
 ```
 
-??? example "The example's `fault::open` in full"
+??? example "What the example uses here: `fault_us`, `key`, `Opened`"
 
     ```rs
-    --8<-- "ww_tape_example/src/fault.rs:open_item"
+    --8<-- "ww_tape_example/src/fault.rs:fault_us_item"
+
+    --8<-- "ww_tape_example/src/defs.rs:key_item"
+
+    --8<-- "ww_tape_example/src/fault.rs:opened_item"
     ```
 
 The fault lies in piece 3, the last one. A piece that a crash left without a tail is found from its newest
@@ -89,10 +93,14 @@ file. The example asks for `phase_a` in the second either side of the fault:
 --8<-- "ww_tape_example/src/fault.rs:find"
 ```
 
-??? example "The example's `fault::find` in full"
+??? example "What the example uses here: `fault_us`, `key`, `Found`"
 
     ```rs
-    --8<-- "ww_tape_example/src/fault.rs:find_item"
+    --8<-- "ww_tape_example/src/fault.rs:fault_us_item"
+
+    --8<-- "ww_tape_example/src/defs.rs:key_item"
+
+    --8<-- "ww_tape_example/src/fault.rs:found_item"
     ```
 
 `phase_a`'s list in the last piece holds 1 638 entries, its chunks and its summary blocks. The query keeps two of
@@ -128,10 +136,12 @@ index to the one block it needs:
 --8<-- "ww_tape_example/src/fault.rs:mode"
 ```
 
-??? example "The example's `fault::mode` in full"
+??? example "What the example uses here: `the clock and track numbers`, `InForce`"
 
     ```rs
-    --8<-- "ww_tape_example/src/fault.rs:mode_item"
+    --8<-- "ww_tape_example/src/defs.rs:ids_item"
+
+    --8<-- "ww_tape_example/src/fault.rs:inforce_item"
     ```
 
 At the chunk before the fault, the mode is `run, 31 A limit`, and its record from 45:34 lies about 12 MB behind. That

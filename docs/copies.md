@@ -31,10 +31,10 @@ that belong to another chain. [`ChainReport::is_whole`] says that every piece is
 --8<-- "ww_tape_example/src/fault.rs:check"
 ```
 
-??? example "The example's `fault::check` in full"
+??? example "What the example uses here: `Checked`"
 
     ```rs
-    --8<-- "ww_tape_example/src/fault.rs:check_item"
+    --8<-- "ww_tape_example/src/fault.rs:checked_item"
     ```
 
 The drive's chain has three links between its four pieces, and all three are linked. The report also tells a chain whose
@@ -100,10 +100,12 @@ copied piece give the same hash for the same range:
 --8<-- "ww_tape_example/src/fault.rs:range"
 ```
 
-??? example "The example's `fault::same_frames` in full"
+??? example "What the example uses here: `frame_items`, `SameFrames`"
 
     ```rs
-    --8<-- "ww_tape_example/src/fault.rs:range_item"
+    --8<-- "ww_tape_example/src/fault.rs:frame_items_item"
+
+    --8<-- "ww_tape_example/src/fault.rs:same_frames_type_item"
     ```
 
 For the frames of minutes 51 to 53, items 3 060 000 to 3 179 999 of `can0`, the range hash folds 120 chunks. Each

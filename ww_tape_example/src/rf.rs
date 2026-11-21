@@ -70,6 +70,7 @@ const SESSION: u32 = 0x5d12;
 /// The noise's seed.
 const NOISE_SEED: u64 = 0x1f;
 
+// --8<-- [start:rf_item]
 /// An RF capture: its rate, its length and how it is stored.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Rf {
@@ -84,6 +85,7 @@ pub struct Rf {
     /// `iq` carries summaries.
     pub summaries: bool,
 }
+// --8<-- [end:rf_item]
 
 impl Rf {
     /// A minute at 20 MS/s, 80 MB/s of samples: chunks of 10 ms, the samples packed at 12 bits as the converter gives
@@ -137,7 +139,6 @@ impl Rf {
         Ratio64::new(1_000_000_000, u64::from(self.rate_hz))
     }
 
-    // --8<-- [start:def_item]
     /// The track `iq`'s definition.
     pub fn def(&self) -> Option<SeriesDef<'static>> {
         // --8<-- [start:def]
@@ -151,7 +152,6 @@ impl Rf {
         // --8<-- [end:def]
         Some(def)
     }
-    // --8<-- [end:def_item]
 
     /// The front end's definitions: its clock and the track `iq`.
     pub fn definitions<E>(&self) -> Result<Definitions, RfError<E>> {

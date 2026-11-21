@@ -1,0 +1,5 @@
+/* Code blocks: the copy and select buttons sit in the top right corner, so a long first line scrolls under them. The
+   right padding keeps every line clear of the buttons; a line longer than the block scrolls sideways. */
+.md-typeset .highlight pre > code {
+  padding-right: 4.5rem;
+}

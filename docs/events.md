@@ -66,10 +66,16 @@ The program reads the chunk that holds the first frame at or after the fault, th
 --8<-- "ww_tape_example/src/fault.rs:frames"
 ```
 
-??? example "The example's `fault::frames` in full"
+??? example "What the example uses here: `fault_us`, `the fault's constants`, `key`, `Frame, Frames`"
 
     ```rs
-    --8<-- "ww_tape_example/src/fault.rs:frames_item"
+    --8<-- "ww_tape_example/src/fault.rs:fault_us_item"
+
+    --8<-- "ww_tape_example/src/fault.rs:fault_consts_item"
+
+    --8<-- "ww_tape_example/src/defs.rs:key_item"
+
+    --8<-- "ww_tape_example/src/fault.rs:frame_types_item"
     ```
 
 The chunk holds 1 000 frames in a block of about 1.7 KB. The first frame at or after 52:00 is item 3 120 000 of

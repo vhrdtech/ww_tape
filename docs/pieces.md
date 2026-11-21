@@ -59,10 +59,10 @@ minutes of the run make:
 --8<-- "ww_tape_example/src/record.rs:options"
 ```
 
-??? example "The example's `options` in full"
+??? example "What the example uses here: `Drive`"
 
     ```rs
-    --8<-- "ww_tape_example/src/record.rs:options_item"
+    --8<-- "ww_tape_example/src/lib.rs:drive_item"
     ```
 
 A recorder that must know in which piece a chunk lands asks [`PieceChain::cut_due`] and cuts first. The drive's recorder
@@ -72,10 +72,12 @@ does so, so that it makes each chunk in the piece it lands in:
 --8<-- "ww_tape_example/src/record.rs:cut"
 ```
 
-??? example "The example's `Recorder::apply` in full"
+??? example "What the example uses here: `Act`, `Recorder`"
 
     ```rs
-    --8<-- "ww_tape_example/src/record.rs:cut_item"
+    --8<-- "ww_tape_example/src/record.rs:act_item"
+
+    --8<-- "ww_tape_example/src/record.rs:recorder_item"
     ```
 
 ### Nothing waits for a cut
