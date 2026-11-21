@@ -61,6 +61,24 @@ let story = drive.story().expect("the run records");
 assert!(story.same_bytes);
 ```
 
+## Numbers
+
+A number is rounded where its precision doesn't matter and exact where it does. "A 115 MB recording" and "about
+14 KB" tell the reader the size, and the last digits would only slow the reading. A rounded size uses decimal units
+and keeps two significant digits at least: "115 MB", "14 KB", "2.1 KB".
+
+A number stays exact where the reader uses its digits:
+
+- byte layouts, offsets and field sizes, such as the tail's 164 bytes;
+- caps and settings, such as 32 MiB of near or pieces of 256 MiB;
+- a count the reader checks against code or output, such as item 3 120 000 or 28 reads;
+- the size tables of [Sizes and speeds](sizes.md).
+
+The test that pins a number keeps its exact value and checks the rounded text on the page. `ww_tape_example::about`
+rounds a size the way the pages write it. The test reads the page with its line breaks as spaces and asserts that it
+holds the phrase, such as `format!("opening reads about {} in {} reads", about(bytes), reads)`. A changed recording
+then fails the test until the page says the new number.
+
 ## Reading levels
 
 Each page carries a reading level in its front matter, and a badge above its title shows it. [Reading

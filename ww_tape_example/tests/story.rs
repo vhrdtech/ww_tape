@@ -10,7 +10,7 @@
 
 use ww_tape::TapeReader;
 use ww_tape_example::{
-    CRASH_MINUTE, CRASH_PAST_END, Drive, Error, FAULT_MINUTE, emergency_frame, frame,
+    CRASH_MINUTE, CRASH_PAST_END, Drive, Error, FAULT_MINUTE, about, emergency_frame, frame,
 };
 
 const US_PER_MINUTE: i64 = 60_000_000;
@@ -29,6 +29,18 @@ fn the_full_hour_is_the_same_every_run_and_tells_the_story() -> Result<(), Error
         let verified = r.verify(0).expect("a piece verifies");
         assert!(verified.holds, "every piece holds its content hash");
     }
+    // docs/tape.md quotes the pieces' sizes rounded (docs/writers.md, "Numbers")
+    let sizes: Vec<u64> = whole.pieces.iter().map(|p| p.len() as u64).collect();
+    let (least, most) = (sizes.iter().min(), sizes.iter().max());
+    let phrase = format!(
+        "four pieces of about {} to {}",
+        about(*least.expect("pieces")),
+        about(*most.expect("pieces"))
+    );
+    let tape = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../docs/tape.md"))
+        .expect("docs/tape.md");
+    let tape = tape.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(tape.contains(&phrase), "docs/tape.md says {phrase:?}");
 
     // the mode is put before each one-second block: the first piece's 900, and the first block of the next, whose put
     // comes before the cut; four puts write: idle, its copy, run at minute 1, its copy

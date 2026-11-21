@@ -57,6 +57,29 @@ pub use signals::{
 };
 use ww_tape::{MemError, OwnerId};
 
+/// `bytes` rounded for prose, in decimal units: "115 MB", "14 KB", "2.1 KB"; under 1 000, exact ("164 bytes").
+///
+/// Two significant digits at least: one decimal below 10 of a unit, dropped when it is 0. A book page writes a size
+/// whose precision doesn't matter this way, and a test checks that the page holds `about` of the exact value.
+pub fn about(bytes: u64) -> String {
+    let (b, half) = (u128::from(bytes), |unit: u128| unit / 2);
+    for (unit, name) in [(1_000_000_000_u128, "GB"), (1_000_000, "MB"), (1_000, "KB")] {
+        if b < unit {
+            continue;
+        }
+        // rounded half up: whole units from 10 on, tenths below
+        if b >= unit * 10 {
+            return format!("{} {name}", (b + half(unit)) / unit);
+        }
+        let tenths = (b * 10 + half(unit)) / unit;
+        return match (tenths / 10, tenths % 10) {
+            (w, 0) => format!("{w} {name}"),
+            (w, t) => format!("{w}.{t} {name}"),
+        };
+    }
+    format!("{bytes} bytes")
+}
+
 /// The owner of the drive's chain: the board's identity.
 pub const OWNER: OwnerId = OwnerId([0xd7; 32]);
 /// The number of the drive's chain of its owner.

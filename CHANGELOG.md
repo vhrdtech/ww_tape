@@ -199,6 +199,7 @@ Covers `ww_tape` 0.1.0.
 - Book: ww_tape is host-side; logring is the store for firmware; `just bench-memory` measures the writer's heap (BOOK-2).
 - Book: events payloads are shrink_wrap values, series samples numbers in columns; glossary adds "WireWeaver value" (BOOK-2).
 - Book: the front page is a landing page; the new "What a tape holds" page holds the details (BOOK-2).
+- Book: sizes are rounded where precision does not matter; tests check the rounded text (BOOK-2).
 - `ww_tape_example::fault`: Part IV's program finds the fault at minute 52 and counts each step's bytes (BOOK-3).
 - Book: Part IV, reading: open, find, state, events, checks and range hashes, series, summaries, on the drive's fault (BOOK-2).
 - Book: Part IV's figures: index entries a query reads, summary tree, autoranging scales; three drawn by hand (BOOK-2).

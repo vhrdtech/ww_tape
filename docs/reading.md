@@ -10,7 +10,7 @@ range, and looks up the [[state]] in force there. Each step uses what a closed [
 and in its index.
 
 The example is a query on the drive's recording for the second around the fault at minute 52 of its hour. The recording
-is a chain of four [[pieces]], 115 290 112 bytes in all. Every number below comes from [`src/fault.rs`]. This program
+is a chain of four [[pieces]], about 115 MB in all. Every number below comes from [`src/fault.rs`]. This program
 runs each step on that recording and counts the bytes it reads. `cargo run -p ww_tape_example` prints them.
 
 ## Byte sources
@@ -47,7 +47,7 @@ one track's list, then (4) only the needed blocks. Below, an unclosed piece: the
 pointers list every earlier block, and the reader scans the blocks after it.</figcaption>
 </figure>
 
-For the drive's chain, opening reads 14 100 bytes in 28 reads, and [`TapeReader::pieces`] lists four pieces. Each
+For the drive's chain, opening reads about 14 KB in 28 reads, and [`TapeReader::pieces`] lists four pieces. Each
 [`PieceInfo`] holds the piece's start and end, its head and its close with a row per track. The row of `phase_a` says
 which ticks the track's [[chunks]] cover in that piece. The program picks the piece whose row reaches 52:00, without
 another read:
@@ -83,7 +83,7 @@ file. The example asks for `phase_a` in the second either side of the fault:
 ```
 
 `phase_a`'s list in the last piece holds 1 638 entries, its chunks and its summary blocks. The query keeps two of
-them, the chunks from 51:59.000 to 51:59.999 and from 52:00.000 to 52:00.999. It reads 196 752 bytes in 3 reads,
+them, the chunks from 51:59.000 to 51:59.999 and from 52:00.000 to 52:00.999. It reads about 197 KB in 3 reads,
 almost all of them the track's list. A track with a chunk every second has a long list, and a reader that queries it
 often keeps the list in memory.
 
@@ -115,11 +115,10 @@ index to the one block it needs:
 --8<-- "ww_tape_example/src/fault.rs:mode"
 ```
 
-At the chunk before the fault, the mode is `run, 31 A limit`, and its record from 45:36 lies 12 269 082 bytes
-behind. That record is the [[state copy]] which the [[writer]] adds after the run's first record in the last
-[[piece]]. At the chunk from 52:00, the mode is `fault: overcurrent`, from 52:00, and lies 2 027 bytes behind. Both
-lookups together read 3 034 bytes in 5 reads. Each record lies within [[near]], 32 MiB, so a reader of the last piece
-alone finds both.
+At the chunk before the fault, the mode is `run, 31 A limit`, and its record from 45:36 lies about 12 MB behind. That
+record is the [[state copy]] which the [[writer]] adds after the run's first record in the last [[piece]]. At the chunk
+from 52:00, the mode is `fault: overcurrent`, from 52:00, and lies about 2 KB behind. Both lookups together read about 3
+KB in 5 reads. Each record lies within [[near]], 32 MiB, so a reader of the last piece alone finds both.
 
 [`TapeReader::definitions_at`] answers the same question for every [[definition]] at once: the clocks, the clock map
 and each track's definition in force at a place. The program uses it to learn `phase_a`'s period before it reads the

@@ -10,7 +10,7 @@
 use std::path::Path;
 
 use ww_tape_example::fault::{BEFORE_US, Fault, fault_us};
-use ww_tape_example::{Drive, EMERGENCY_ID, LIMIT_MA, Mode};
+use ww_tape_example::{Drive, EMERGENCY_ID, LIMIT_MA, Mode, about};
 
 #[test]
 fn part_iv_finds_the_fault_and_prints_what_the_chapters_quote() {
@@ -25,6 +25,7 @@ fn part_iv_finds_the_fault_and_prints_what_the_chapters_quote() {
         "tests/fault.out is what the program prints from `Finding the fault` on: copy it from `cargo run -p ww_tape_example`"
     );
 
+    rounded_on_the_pages(&f);
     assert_eq!(f.opened.piece, 3, "the fault is in the last of four pieces");
     let (before, at) = (&f.modes[0], &f.modes[1]);
     assert_eq!(
@@ -63,4 +64,80 @@ fn part_iv_finds_the_fault_and_prints_what_the_chapters_quote() {
         "verify reads the chain once, a header per block, the final indexes twice, and not the closes and tails"
     );
     assert!(f.same.same && f.same.stated == f.same.chunks);
+}
+
+/// A page of the book with its line breaks and indents as single spaces, so that a phrase matches across lines.
+fn page(name: &str) -> String {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../docs")
+        .join(name);
+    let text = std::fs::read_to_string(&path).expect("a book page");
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// The pages quote the sizes the program prints, rounded where their precision doesn't matter (docs/writers.md,
+/// "Numbers"): each phrase holds `about` of the exact value.
+fn rounded_on_the_pages(f: &Fault) {
+    let (index, reading) = (page("index.md"), page("reading.md"));
+    for (name, text, phrase) in [
+        (
+            "index.md",
+            &index,
+            format!("the example's {} recording", about(f.len)),
+        ),
+        (
+            "index.md",
+            &index,
+            format!("reads about {}", about(f.open_read.bytes)),
+        ),
+        (
+            "index.md",
+            &index,
+            format!("then reads about {}", about(f.find_read.bytes)),
+        ),
+        (
+            "reading.md",
+            &reading,
+            format!("about {} in all", about(f.len)),
+        ),
+        (
+            "reading.md",
+            &reading,
+            format!(
+                "opening reads about {} in {} reads",
+                about(f.open_read.bytes),
+                f.open_read.reads
+            ),
+        ),
+        (
+            "reading.md",
+            &reading,
+            format!(
+                "It reads about {} in {} reads",
+                about(f.find_read.bytes),
+                f.find_read.reads
+            ),
+        ),
+        (
+            "reading.md",
+            &reading,
+            format!("lies about {} behind", about(f.modes[0].behind)),
+        ),
+        (
+            "reading.md",
+            &reading,
+            format!("lies about {} behind", about(f.modes[1].behind)),
+        ),
+        (
+            "reading.md",
+            &reading,
+            format!(
+                "read about {} in {} reads",
+                about(f.mode_read.bytes),
+                f.mode_read.reads
+            ),
+        ),
+    ] {
+        assert!(text.contains(&phrase), "docs/{name} says {phrase:?}");
+    }
 }

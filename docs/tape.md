@@ -93,7 +93,7 @@ state](definitions.md) explains puts, copies and how a reader looks state up.
 
 A long recording does not go into one ever-growing file. At each [[cut]], the [[writer]] ends one [[piece]] and
 starts the next. A piece is a complete file that reads alone, with an index, a [[close record]] and a [[tail]] at the
-end. The bench host cuts the drive's hour every 15 minutes, which gives four pieces of 25.59 MiB to 28.19 MiB.
+end. The bench host cuts the drive's hour every 15 minutes, which gives four pieces of about 27 MB to 30 MB.
 
 The pieces of one recording form a [[chain]]. Each piece names the piece before it by its [[content hash]], and the
 next one by its id. A [[reader]] can therefore tell when a piece is missing. Deleting the oldest piece frees space,
@@ -116,7 +116,7 @@ draws [[summaries]] adds `ww_tape_summary`.
 | `ww_tape_summary` | the trees of summaries a viewer draws a long track from |
 
 ww_tape runs on a host. Its [[writer]] needs an allocator and keeps the index of the open [[piece]] in memory. A piece
-of 256 MiB in [[records blocks]] of 4 KiB takes its heap to a peak of 44 221 480 bytes, as `just bench-memory` measures.
+of 256 MiB in [[records blocks]] of 4 KiB takes its heap to a peak of about 44 MB, as `just bench-memory` measures.
 ww_tape spends that memory on many [[tracks]], an index, summaries, column codecs and chains of pieces.
 
 Firmware on a small device keeps its log in [logring](https://lr.vhrd.tech/) instead. That store writes a ring on an SD
