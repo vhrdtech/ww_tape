@@ -215,7 +215,7 @@ Column codecs with no notion of a block, in the crate `ww_tape_codecs`.
 - ✅ **CODEC-4 ALP for floats** · `v0.5`
   - ALP codes floats that began as decimals as bit-packed integers, after Afroozeh, Kuffó and Boncz (SIGMOD 2024). Other floats are coded by their front bits.
   - It is lossless, and a group never takes more than 7 bytes over raw. The same input gives the same bytes on every platform.
-  - Fixed point stays 1.6 to 9.3 times smaller than any float codec measured.
+  - Fixed point stays smaller than any float codec measured.
   - Read more: [Samples: fixed point first](docs/sizes.md#samples-fixed-point-first). Fuzz target `tape-samples`.
 - ✅ **CODEC-5 One fast CRC-32C**
   - Every block kind checks its CRC-32C with one table, or with the CPU's CRC instruction where there is one.

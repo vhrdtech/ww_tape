@@ -16,7 +16,8 @@ The last 20 ms before the fault at 52:00 are 500 samples. They show how fast the
 
 A [[series]] is a [[track]] of samples at an exact period. An ADC channel, an audio stream
 and the drive's phase current are series. A sample needs no time of its own, since the period gives it. A series
-therefore stores only values, in [[series chunks]], and the drive's `phase_a` costs about 1.1 bytes per sample.
+therefore stores only values, in [[series chunks]], and the drive's `phase_a` costs little more than one byte per
+sample ([Sizes and speeds](sizes.md#bytes-per-item)).
 
 The track's items and its definition, a [`SeriesDef`], say what a sample is:
 
@@ -38,9 +39,9 @@ the wire and an `i16` in the column. The scale, 10⁻³ A per step, lives in the
 sample. The numbers stay integers from the device to the file, and nothing passes through a float.
 
 Integers also compress best. The writer stores the differences between neighbouring samples, bit-packed per group of
-128 samples, and a smooth signal needs few bits per difference. Fixed point is 1.6 to 9.3 times smaller than the best
-float codec on every data set that [Float codecs measured](format.md#float-codecs-measured) lists. Floats that a
-device did not choose, such as a sensor that reports only `f32`, have codecs of their own. [Samples and their
+128 samples, and a smooth signal needs few bits per difference. Fixed point is smaller than the best float codec on
+every data set that [Sizes and speeds](sizes.md#why-fixed-point-beats-floats) measures. Floats that a device did not
+choose, such as a sensor that reports only `f32`, have codecs of their own. [Samples and their
 codecs](sample_codecs.md) explains the codecs and when to pick each.
 
 A device that sends its own packing, such as two 12-bit values in three bytes, can have its bytes stored as sent. A

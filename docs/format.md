@@ -436,7 +436,7 @@ kernels with exact integer sums.
 On x86-64, the kernels use AVX-512 or AVX2 (Advanced Vector Extensions), chosen at run time. 64-bit integers and floats
 take one sample at a time in order, since a float sum depends on the order.
 
-[Sizes and speeds](sizes.md#summaries) gives their speed per element type and kernel.
+[Sizes and speeds](sizes.md#how-fast-summaries-keep-up) gives their speed per element type and kernel.
 
 The head names the track, the level, the node size, the statistics stored, the items covered and their tick range. For a
 series, it also names the element, channels and scale.
@@ -499,10 +499,10 @@ Starts take one of two time modes:
   ticks per item. The head also holds the smallest residual, a width and an offset; each item's residual against the
   line follows, bit-packed at the group's width.
 
-Periodic items therefore cost their jitter, not their period. A 1 ms period with ±300 ns jitter takes about 1.447 bytes
-per item, against 8 bytes for raw i64 ([Sizes and speeds](sizes.md#event-times)).
+Periodic items therefore cost their jitter, not their period, against 8 bytes for a raw i64. [Sizes and
+speeds](sizes.md#what-event-times-cost) gives the bytes per item of each workload.
 
-An exact period takes almost nothing, and bursty nanosecond traffic about 3.798 bytes per item.
+An exact period takes almost nothing, and bursty nanosecond traffic takes the most.
 
 Fetching an item reads one group head and one value. A lower bound searches the groups' first ticks, then only the items the
 slope leaves possible.
