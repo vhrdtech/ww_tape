@@ -269,6 +269,8 @@ The pages in `docs/`.
   - Done: Part V, damage and raw media, with the drive's archive and card, four new figures and the lessons appendix.
   - Done: the owner's read: one term each for record, item and sample; event times and samples on pages of their own.
   - Done: the chapter "Sizes and speeds", every number from a bench report in `docs/bench/`.
+  - Done: data figures as eventfull screenshots in `docs/shots/`: the drive's hour, the fault, the zoom and the RF minute. `just book-shots` copies them; eventfull's tests keep them current (eventfull TL-79).
+  - Open: autorange and damage as screenshots, and log and temp rows in them, once eventfull draws them.
   - Open: the chapters still stubs, tested code in every guide chapter.
   - Read more: [For writers](docs/writers.md), [Glossary](docs/glossary.md).
 

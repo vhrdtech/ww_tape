@@ -33,6 +33,15 @@ of one track. Drawn by <code>ww_tape_figures</code> from the drive's recording a
 its pieces. At full rate a block covers a second, not a minute.</figcaption>
 </figure>
 
+<figure class="ww-figure" markdown="1">
+![The drive's hour in eventfull.](shots/drive-hour-light.png#only-light){ width="880" loading="lazy" }
+![The drive's hour in eventfull.](shots/drive-hour-dark.png#only-dark){ width="880" loading="lazy" }
+<figcaption>The same hour as a viewer shows it: eventfull reading the drive's four pieces. The <code>mode</code> row
+marks each record of the mode. The <code>can0</code> row counts the frames in each stretch. The <code>phase_a</code> row
+draws the current's range from its summaries, up to the fault in minute 52. A screenshot rendered by
+<code>eventfull_book_shots</code> from the recording at full rate.</figcaption>
+</figure>
+
 The `mode` track differs from the other four. Its items are not a stream of [[events]] but a [[state]]: the mode in
 force until the next one. A reader that opens the recording at minute 40 needs the mode in force there, and the
 format makes sure it finds that mode nearby.

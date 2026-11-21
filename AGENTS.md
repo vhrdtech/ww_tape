@@ -44,7 +44,7 @@ chapter reads and how it marks terms, links code and includes tested code.
 | `ww_tape_example/` | the book's running example: the drive motor controller's hour at any scale, a crash at any byte, the resume; the RF capture (`rf`); `cargo run -p ww_tape_example` prints the story's numbers |
 | `ww_tape_figures/` | the book's figures that show bytes or numbers, drawn from blocks ww_tape writes into `docs/plots/` (`just book-figures`; a test checks them) |
 | `fuzz/` | cargo-fuzz targets (`tape-*`), a workspace of its own on nightly; each target calls `ww_tape_fuzz` |
-| `docs/` | the pages of the format; `figures/` drawings by hand, `plots/` drawn by `ww_tape_figures` |
+| `docs/` | the pages of the format; `figures/` drawings by hand, `plots/` drawn by `ww_tape_figures`, `shots/` eventfull screenshots of recorded data (`just book-shots` copies them from an eventfull checkout) |
 
 What builds on ww_tape stays in WireWeaver: `ww_tape_bundle` (track name paths from an API bundle, above `ww_self`),
 `ww_tap` (the link recorder), `tests/tape_identity`, the client's tap decoder.

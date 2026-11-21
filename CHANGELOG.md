@@ -212,6 +212,7 @@ Covers `ww_tape` 0.1.0.
 - `just bench-event-times` compares event time codecs on six workloads, journal included; it was outside the repository (CODEC-2).
 - `just bench-summaries` adds the kernels against one statistic at a time, per kernel the CPU runs (SUM-3).
 - `just bench-starts` and `just bench-relations` run the starts column and relation benches (REPO-85).
+- Book: four data figures are eventfull screenshots, light and dark, copied by `just book-shots` (BOOK-2).
 - Book: the chapter "When the power fails" replaces "Resuming a writer", its figures drawn from a real crash (BOOK-2).
 - Book: six parts in reading order, a stub per chapter not yet written, and a glossary of 90 terms (BOOK-2).
 - Book: each page shows its reading level, basic, advanced or nomicon; "For writers" states the style (BOOK-2).

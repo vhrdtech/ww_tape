@@ -37,6 +37,12 @@
   height: auto;
   margin: 0 auto;
 }
+.md-typeset figure.ww-figure img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+}
 .md-typeset figure.ww-figure figcaption {
   max-width: 36rem;
   margin: 0.4em auto 0;
