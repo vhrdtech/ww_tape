@@ -1,6 +1,6 @@
-| Stream | Items | Chunk bytes | Bytes per item | Raw bytes per item |
-|---|---:|---:|---:|---:|
-| `can0` frames | 3 600 000 | 8 400 924 | 2.334 | 20.000 |
-| `phase_a` samples | 90 000 000 | 99 617 340 | 1.107 | 2.000 |
+| Stream | Items | Items per second | Chunk bytes | Bytes per item | Raw bytes per item |
+|---|---:|---:|---:|---:|---:|
+| `can0` frames | 3 600 000 | 1000 | 8 400 924 | 2.334 | 20.000 |
+| `phase_a` samples | 90 000 000 | 25 000 | 99 617 283 | 1.107 | 2.000 |
 
-`just bench-drive` on an AMD EPYC-Genoa Processor (14 logical CPUs), load average 8.23 before and 8.23 after.
+`just bench-drive` on build-1, load average 20.70 before, 20.70 after.

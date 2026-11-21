@@ -1,14 +1,14 @@
 | Part | Bytes | Of the recording, % | Bytes per second of the run |
 |---|---:|---:|---:|
-| series chunks of `phase_a` | 99 617 340 | 86.41 | 27 671 |
+| series chunks of `phase_a` | 99 617 283 | 86.41 | 27 671 |
 | events chunks of `can0` | 8 400 924 | 7.29 | 2334 |
 | summaries of `phase_a` | 3 299 294 | 2.86 | 916 |
 | records blocks of `log`, `temp` and `mode` | 811 071 | 0.70 | 225 |
 | puts and copies | 5880 | 0.01 | 2 |
 | checkpoints and final indexes | 3 144 016 | 2.73 | 873 |
-| piece heads, closes and tails | 11 587 | 0.01 | 3 |
+| piece heads, closes and tails | 11 644 | 0.01 | 3 |
 | other blocks | 0 | 0.00 | 0 |
 | zeros between blocks | 0 | 0.00 | 0 |
 | the recording | 115 290 112 | 100.00 | 32 025 |
 
-`just bench-drive` on an AMD EPYC-Genoa Processor (14 logical CPUs), load average 8.23 before and 8.23 after.
+`just bench-drive` on build-1, load average 20.70 before, 20.70 after.

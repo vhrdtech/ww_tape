@@ -1,9 +1,9 @@
 | What | s |
 |---|---:|
-| add 1000 tracks | 0.006 |
-| add 5000 tracks | 0.037 |
-| add 10000 tracks | 0.074 |
-| close the piece | 0.018 |
-| open it and read the definitions | 0.021 |
+| add 1000 tracks | 0.029 |
+| add 5000 tracks | 0.088 |
+| add 10000 tracks | 0.200 |
+| close the piece | 0.069 |
+| open it and read the definitions | 0.081 |
 
-`just bench-tracks` on an AMD EPYC-Genoa Processor (14 logical CPUs), load average 10.02 before and 10.02 after.
+`just bench-tracks` on build-1, load average 22.73 before, 22.73 after.

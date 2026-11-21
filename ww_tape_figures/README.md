@@ -12,8 +12,8 @@ The figures show:
 - the drive's crash and its resume;
 - the drive's five tracks over its hour and the blocks that hold them;
 - the file of the drive's first minute, start and end to scale.
-- the charts and tables of "Sizes and speeds", from the bench reports in `docs/bench/` (`just bench-book`), and a check
-  that every number the page's prose writes comes from those reports; a report of a debug build or a dirty tree is
+- the charts and tables of "Sizes and speeds", from the bench reports in `docs/bench/` (`just bench-book`). A test
+  checks that every number of the page's prose comes from those reports. A report of a debug build or a dirty tree is
   refused.
 
 The figures are SVG files in `docs/plots/`, kept in git so the WireWeaver book takes them with the pages. Their

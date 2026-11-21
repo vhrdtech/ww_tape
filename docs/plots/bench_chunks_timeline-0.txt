@@ -1,7 +1,7 @@
 | Read | Bytes read per chunk | ns per chunk |
 |---|---:|---:|
-| `TapeReader::series_timeline`: heads alone | 335 | 511 |
-| `TapeReader::read_block` of every chunk | 1 048 895 | 73 429 |
-| `TapeReader::range_hash`: unit hashes from the index | 120 | 165 |
+| `TapeReader::series_timeline`: heads alone | 335 | 779 |
+| `TapeReader::read_block` of every chunk | 1 048 895 | 129 078 |
+| `TapeReader::range_hash`: unit hashes from the index | 120 | 233 |
 
-`just bench-chunks` on an AMD EPYC-Genoa Processor (14 logical CPUs), load average 10.11 before and 10.11 after.
+`just bench-chunks` on build-1, load average 23.25 before, 22.99 after.

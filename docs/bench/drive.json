@@ -1,6 +1,14 @@
 {
+  "format": 1,
   "bench": "drive",
-  "version": "0.1.0 (1199719-dirty, commit 20 Nov 2026 22:42 UTC)",
+  "version": "0.1.0 (92dc8ef, commit 21 Nov 2026 04:40 UTC)",
+  "commit": "92dc8ef",
+  "dirty": false,
+  "build": {
+    "profile": "release",
+    "opt_level": "3",
+    "jobs": 4
+  },
   "settings": [
     [
       "rounds",
@@ -8,6 +16,8 @@
     ]
   ],
   "machine": {
+    "host": "build-1",
+    "virtual_machine": true,
     "cpu": "AMD EPYC-Genoa Processor",
     "cpus": 14,
     "arch": "x86_64",
@@ -31,45 +41,45 @@
         [
           "with summaries of `phase_a`",
           {
-            "value": 3.002113734,
+            "value": 4.149770771,
             "digits": 2
           },
           {
-            "value": 38.40297943888624,
+            "value": 27.782284459104645,
             "digits": 0
           },
           {
-            "value": 1199.1551016967567,
+            "value": 867.517797647527,
             "digits": 0
           }
         ],
         [
           "without summaries",
           {
-            "value": 2.85770237,
+            "value": 5.391134292,
             "digits": 2
           },
           {
-            "value": 38.97195214209799,
+            "value": 20.658034834202567,
             "digits": 0
           },
           {
-            "value": 1259.7533031405226,
+            "value": 667.7629984736429,
             "digits": 0
           }
         ]
       ],
       "load_before": {
-        "one": 10.02,
-        "five": 10.17,
-        "fifteen": 8.64
+        "one": 24.19,
+        "five": 20.46,
+        "fifteen": 21.65
       },
       "load_after": {
-        "one": 8.23,
-        "five": 9.75,
-        "fifteen": 8.54
+        "one": 20.7,
+        "five": 19.98,
+        "fifteen": 21.45
       },
-      "seconds": 18.684015569
+      "seconds": 33.019142242
     },
     {
       "id": "sizes",
@@ -84,15 +94,15 @@
         [
           "series chunks of `phase_a`",
           {
-            "value": 99617340.0,
+            "value": 99617283.0,
             "digits": 0
           },
           {
-            "value": 86.40579688221658,
+            "value": 86.40574744172336,
             "digits": 2
           },
           {
-            "value": 27671.483333333334,
+            "value": 27671.4675,
             "digits": 0
           }
         ],
@@ -174,15 +184,15 @@
         [
           "piece heads, closes and tails",
           {
-            "value": 11587.0,
+            "value": 11644.0,
             "digits": 0
           },
           {
-            "value": 0.010050298155664902,
+            "value": 0.010099738648879098,
             "digits": 2
           },
           {
-            "value": 3.218611111111111,
+            "value": 3.2344444444444442,
             "digits": 0
           }
         ],
@@ -233,16 +243,16 @@
         ]
       ],
       "load_before": {
-        "one": 8.23,
-        "five": 9.75,
-        "fifteen": 8.54
+        "one": 20.7,
+        "five": 19.98,
+        "fifteen": 21.45
       },
       "load_after": {
-        "one": 8.23,
-        "five": 9.75,
-        "fifteen": 8.54
+        "one": 20.7,
+        "five": 19.98,
+        "fifteen": 21.45
       },
-      "seconds": 0.016564706
+      "seconds": 0.024727955
     },
     {
       "id": "items",
@@ -250,6 +260,7 @@
       "columns": [
         "Stream",
         "Items",
+        "Items per second",
         "Chunk bytes",
         "Bytes per item",
         "Raw bytes per item"
@@ -259,6 +270,10 @@
           "`can0` frames",
           {
             "value": 3600000.0,
+            "digits": 0
+          },
+          {
+            "value": 1000.0,
             "digits": 0
           },
           {
@@ -281,11 +296,15 @@
             "digits": 0
           },
           {
-            "value": 99617340.0,
+            "value": 25000.0,
             "digits": 0
           },
           {
-            "value": 1.1068593333333334,
+            "value": 99617283.0,
+            "digits": 0
+          },
+          {
+            "value": 1.1068587,
             "digits": 3
           },
           {
@@ -295,16 +314,16 @@
         ]
       ],
       "load_before": {
-        "one": 8.23,
-        "five": 9.75,
-        "fifteen": 8.54
+        "one": 20.7,
+        "five": 19.98,
+        "fifteen": 21.45
       },
       "load_after": {
-        "one": 8.23,
-        "five": 9.75,
-        "fifteen": 8.54
+        "one": 20.7,
+        "five": 19.98,
+        "fifteen": 21.45
       },
-      "seconds": 0.167195813
+      "seconds": 0.257885089
     }
   ]
 }

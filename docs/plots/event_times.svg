@@ -1,4 +1,4 @@
-<svg class="ww-svg" viewBox="0 0 828.2 512" width="828.2" height="512" role="img" aria-label="Event start ticks per workload: bytes per event on a log scale, and the time to find the first event at or after a tick, for ww_tape's linear groups, delta-of-delta varints, Elias-Fano and raw ticks" xmlns="http://www.w3.org/2000/svg">
+<svg class="ww-svg" viewBox="0 0 828.2 532" width="828.2" height="532" role="img" aria-label="Event start ticks per workload: bytes per event on a log scale, and the time to find the first event at or after a tick, for ww_tape's linear groups, delta-of-delta varints, Elias-Fano and raw ticks" xmlns="http://www.w3.org/2000/svg">
 <text x="258.2" y="16.0" text-anchor="start" class="strong">Bytes per event (log scale)</text>
 <line x1="258.2" y1="34.0" x2="258.2" y2="448.0" class="thin"/>
 <text x="258.2" y="462.0" text-anchor="middle" class="small soft">0.001</text>
@@ -34,12 +34,12 @@
 <text x="463.4" y="214.0" text-anchor="start" class="small">3.158</text>
 <rect x="258.2" y="218.0" width="224.4" height="12.0" rx="2" class="tint-ink"><title>bursty traffic, raw 64-bit ticks: 8.000</title></rect>
 <text x="486.6" y="228.0" text-anchor="start" class="small">8.000</text>
-<rect x="258.2" y="244.0" width="200.1" height="12.0" rx="2" class="blue"><title>a system journal, 1 µs clock, ww_tape linear groups: 3.017</title></rect>
-<text x="462.3" y="254.0" text-anchor="start" class="small">3.017</text>
-<rect x="258.2" y="258.0" width="199.8" height="12.0" rx="2" class="amber"><title>a system journal, 1 µs clock, delta-of-delta varints: 2.980</title></rect>
-<text x="462.0" y="268.0" text-anchor="start" class="small">2.980</text>
-<rect x="258.2" y="272.0" width="196.1" height="12.0" rx="2" class="green"><title>a system journal, 1 µs clock, Elias-Fano: 2.569</title></rect>
-<text x="458.3" y="282.0" text-anchor="start" class="small">2.569</text>
+<rect x="258.2" y="244.0" width="200.1" height="12.0" rx="2" class="blue"><title>a system journal, 1 µs clock, ww_tape linear groups: 3.019</title></rect>
+<text x="462.3" y="254.0" text-anchor="start" class="small">3.019</text>
+<rect x="258.2" y="258.0" width="199.7" height="12.0" rx="2" class="amber"><title>a system journal, 1 µs clock, delta-of-delta varints: 2.978</title></rect>
+<text x="461.9" y="268.0" text-anchor="start" class="small">2.978</text>
+<rect x="258.2" y="272.0" width="196.1" height="12.0" rx="2" class="green"><title>a system journal, 1 µs clock, Elias-Fano: 2.568</title></rect>
+<text x="458.3" y="282.0" text-anchor="start" class="small">2.568</text>
 <rect x="258.2" y="286.0" width="224.4" height="12.0" rx="2" class="tint-ink"><title>a system journal, 1 µs clock, raw 64-bit ticks: 8.000</title></rect>
 <text x="486.6" y="296.0" text-anchor="start" class="small">8.000</text>
 <rect x="258.2" y="312.0" width="16.8" height="12.0" rx="2" class="blue"><title>video frames on their 60 000 Hz clock, ww_tape linear groups: 0.002</title></rect>
@@ -63,63 +63,63 @@
 <line x1="548.2" y1="34.0" x2="548.2" y2="448.0" class="thin"/>
 <text x="548.2" y="462.0" text-anchor="middle" class="small soft">0</text>
 <line x1="594.2" y1="34.0" x2="594.2" y2="448.0" class="thin"/>
-<text x="594.2" y="462.0" text-anchor="middle" class="small soft">200</text>
+<text x="594.2" y="462.0" text-anchor="middle" class="small soft">1000</text>
 <line x1="640.2" y1="34.0" x2="640.2" y2="448.0" class="thin"/>
-<text x="640.2" y="462.0" text-anchor="middle" class="small soft">400</text>
+<text x="640.2" y="462.0" text-anchor="middle" class="small soft">2000</text>
 <line x1="686.2" y1="34.0" x2="686.2" y2="448.0" class="thin"/>
-<text x="686.2" y="462.0" text-anchor="middle" class="small soft">600</text>
+<text x="686.2" y="462.0" text-anchor="middle" class="small soft">3000</text>
 <line x1="732.2" y1="34.0" x2="732.2" y2="448.0" class="thin"/>
-<text x="732.2" y="462.0" text-anchor="middle" class="small soft">800</text>
+<text x="732.2" y="462.0" text-anchor="middle" class="small soft">4000</text>
 <line x1="778.2" y1="34.0" x2="778.2" y2="448.0" class="thin"/>
-<text x="778.2" y="462.0" text-anchor="middle" class="small soft">1000</text>
-<rect x="548.2" y="40.0" width="4.5" height="12.0" rx="2" class="blue"><title>exact 1 ms period with a few gaps, ww_tape linear groups: 19</title></rect>
-<text x="556.7" y="50.0" text-anchor="start" class="small">19</text>
-<rect x="548.2" y="54.0" width="141.4" height="12.0" rx="2" class="amber"><title>exact 1 ms period with a few gaps, delta-of-delta varints: 615</title></rect>
-<text x="693.6" y="64.0" text-anchor="start" class="small">615</text>
-<rect x="548.2" y="68.0" width="77.1" height="12.0" rx="2" class="green"><title>exact 1 ms period with a few gaps, Elias-Fano: 335</title></rect>
-<text x="629.3" y="78.0" text-anchor="start" class="small">335</text>
-<rect x="548.2" y="82.0" width="160.8" height="12.0" rx="2" class="tint-ink"><title>exact 1 ms period with a few gaps, raw 64-bit ticks: 699</title></rect>
-<text x="713.0" y="92.0" text-anchor="start" class="small">699</text>
-<rect x="548.2" y="108.0" width="89.2" height="12.0" rx="2" class="blue"><title>1 ms period, ±300 ns jitter, ww_tape linear groups: 388</title></rect>
-<text x="641.4" y="118.0" text-anchor="start" class="small">388</text>
-<rect x="548.2" y="122.0" width="157.8" height="12.0" rx="2" class="amber"><title>1 ms period, ±300 ns jitter, delta-of-delta varints: 686</title></rect>
-<text x="710.0" y="132.0" text-anchor="start" class="small">686</text>
-<rect x="548.2" y="136.0" width="68.1" height="12.0" rx="2" class="green"><title>1 ms period, ±300 ns jitter, Elias-Fano: 296</title></rect>
-<text x="620.3" y="146.0" text-anchor="start" class="small">296</text>
-<rect x="548.2" y="150.0" width="175.2" height="12.0" rx="2" class="tint-ink"><title>1 ms period, ±300 ns jitter, raw 64-bit ticks: 762</title></rect>
-<text x="727.4" y="160.0" text-anchor="start" class="small">762</text>
-<rect x="548.2" y="176.0" width="106.7" height="12.0" rx="2" class="blue"><title>bursty traffic, ww_tape linear groups: 464</title></rect>
-<text x="658.9" y="186.0" text-anchor="start" class="small">464</text>
-<rect x="548.2" y="190.0" width="184.4" height="12.0" rx="2" class="amber"><title>bursty traffic, delta-of-delta varints: 802</title></rect>
-<text x="736.6" y="200.0" text-anchor="start" class="small">802</text>
-<rect x="548.2" y="204.0" width="122.6" height="12.0" rx="2" class="green"><title>bursty traffic, Elias-Fano: 533</title></rect>
-<text x="674.8" y="214.0" text-anchor="start" class="small">533</text>
-<rect x="548.2" y="218.0" width="127.2" height="12.0" rx="2" class="tint-ink"><title>bursty traffic, raw 64-bit ticks: 553</title></rect>
-<text x="679.4" y="228.0" text-anchor="start" class="small">553</text>
-<rect x="548.2" y="244.0" width="89.9" height="12.0" rx="2" class="blue"><title>a system journal, 1 µs clock, ww_tape linear groups: 391</title></rect>
-<text x="642.1" y="254.0" text-anchor="start" class="small">391</text>
-<rect x="548.2" y="258.0" width="160.8" height="12.0" rx="2" class="amber"><title>a system journal, 1 µs clock, delta-of-delta varints: 699</title></rect>
-<text x="713.0" y="268.0" text-anchor="start" class="small">699</text>
-<rect x="548.2" y="272.0" width="62.3" height="12.0" rx="2" class="green"><title>a system journal, 1 µs clock, Elias-Fano: 271</title></rect>
-<text x="614.5" y="282.0" text-anchor="start" class="small">271</text>
-<rect x="548.2" y="286.0" width="140.2" height="12.0" rx="2" class="tint-ink"><title>a system journal, 1 µs clock, raw 64-bit ticks: 609</title></rect>
-<text x="692.4" y="296.0" text-anchor="start" class="small">609</text>
-<rect x="548.2" y="312.0" width="3.2" height="12.0" rx="2" class="blue"><title>video frames on their 60 000 Hz clock, ww_tape linear groups: 14</title></rect>
-<text x="555.4" y="322.0" text-anchor="start" class="small">14</text>
-<rect x="548.2" y="326.0" width="47.9" height="12.0" rx="2" class="amber"><title>video frames on their 60 000 Hz clock, delta-of-delta varints: 208</title></rect>
-<text x="600.1" y="336.0" text-anchor="start" class="small">208</text>
-<rect x="548.2" y="340.0" width="24.2" height="12.0" rx="2" class="green"><title>video frames on their 60 000 Hz clock, Elias-Fano: 105</title></rect>
-<text x="576.4" y="350.0" text-anchor="start" class="small">105</text>
-<rect x="548.2" y="354.0" width="68.1" height="12.0" rx="2" class="tint-ink"><title>video frames on their 60 000 Hz clock, raw 64-bit ticks: 296</title></rect>
-<text x="620.3" y="364.0" text-anchor="start" class="small">296</text>
-<rect x="548.2" y="380.0" width="20.8" height="12.0" rx="2" class="blue"><title>video frames on a 1 ns clock, ww_tape linear groups: 90</title></rect>
-<text x="573.0" y="390.0" text-anchor="start" class="small">90</text>
-<rect x="548.2" y="394.0" width="27.5" height="12.0" rx="2" class="amber"><title>video frames on a 1 ns clock, delta-of-delta varints: 120</title></rect>
-<text x="579.7" y="404.0" text-anchor="start" class="small">120</text>
-<rect x="548.2" y="408.0" width="16.5" height="12.0" rx="2" class="green"><title>video frames on a 1 ns clock, Elias-Fano: 72</title></rect>
-<text x="568.7" y="418.0" text-anchor="start" class="small">72</text>
-<rect x="548.2" y="422.0" width="40.4" height="12.0" rx="2" class="tint-ink"><title>video frames on a 1 ns clock, raw 64-bit ticks: 176</title></rect>
-<text x="592.6" y="432.0" text-anchor="start" class="small">176</text>
+<text x="778.2" y="462.0" text-anchor="middle" class="small soft">5000</text>
+<rect x="548.2" y="40.0" width="2.3" height="12.0" rx="2" class="blue"><title>exact 1 ms period with a few gaps, ww_tape linear groups: 49</title></rect>
+<text x="554.5" y="50.0" text-anchor="start" class="small">49</text>
+<rect x="548.2" y="54.0" width="34.2" height="12.0" rx="2" class="amber"><title>exact 1 ms period with a few gaps, delta-of-delta varints: 744</title></rect>
+<text x="586.4" y="64.0" text-anchor="start" class="small">744</text>
+<rect x="548.2" y="68.0" width="16.8" height="12.0" rx="2" class="green"><title>exact 1 ms period with a few gaps, Elias-Fano: 365</title></rect>
+<text x="569.0" y="78.0" text-anchor="start" class="small">365</text>
+<rect x="548.2" y="82.0" width="52.4" height="12.0" rx="2" class="tint-ink"><title>exact 1 ms period with a few gaps, raw 64-bit ticks: 1140</title></rect>
+<text x="604.6" y="92.0" text-anchor="start" class="small">1140</text>
+<rect x="548.2" y="108.0" width="26.6" height="12.0" rx="2" class="blue"><title>1 ms period, ±300 ns jitter, ww_tape linear groups: 577</title></rect>
+<text x="578.8" y="118.0" text-anchor="start" class="small">577</text>
+<rect x="548.2" y="122.0" width="34.4" height="12.0" rx="2" class="amber"><title>1 ms period, ±300 ns jitter, delta-of-delta varints: 748</title></rect>
+<text x="586.6" y="132.0" text-anchor="start" class="small">748</text>
+<rect x="548.2" y="136.0" width="18.1" height="12.0" rx="2" class="green"><title>1 ms period, ±300 ns jitter, Elias-Fano: 393</title></rect>
+<text x="570.3" y="146.0" text-anchor="start" class="small">393</text>
+<rect x="548.2" y="150.0" width="48.5" height="12.0" rx="2" class="tint-ink"><title>1 ms period, ±300 ns jitter, raw 64-bit ticks: 1055</title></rect>
+<text x="600.7" y="160.0" text-anchor="start" class="small">1055</text>
+<rect x="548.2" y="176.0" width="40.1" height="12.0" rx="2" class="blue"><title>bursty traffic, ww_tape linear groups: 871</title></rect>
+<text x="592.3" y="186.0" text-anchor="start" class="small">871</text>
+<rect x="548.2" y="190.0" width="59.6" height="12.0" rx="2" class="amber"><title>bursty traffic, delta-of-delta varints: 1296</title></rect>
+<text x="611.8" y="200.0" text-anchor="start" class="small">1296</text>
+<rect x="548.2" y="204.0" width="31.1" height="12.0" rx="2" class="green"><title>bursty traffic, Elias-Fano: 677</title></rect>
+<text x="583.3" y="214.0" text-anchor="start" class="small">677</text>
+<rect x="548.2" y="218.0" width="37.2" height="12.0" rx="2" class="tint-ink"><title>bursty traffic, raw 64-bit ticks: 809</title></rect>
+<text x="589.4" y="228.0" text-anchor="start" class="small">809</text>
+<rect x="548.2" y="244.0" width="17.0" height="12.0" rx="2" class="blue"><title>a system journal, 1 µs clock, ww_tape linear groups: 369</title></rect>
+<text x="569.2" y="254.0" text-anchor="start" class="small">369</text>
+<rect x="548.2" y="258.0" width="98.1" height="12.0" rx="2" class="amber"><title>a system journal, 1 µs clock, delta-of-delta varints: 2133</title></rect>
+<text x="650.3" y="268.0" text-anchor="start" class="small">2133</text>
+<rect x="548.2" y="272.0" width="12.6" height="12.0" rx="2" class="green"><title>a system journal, 1 µs clock, Elias-Fano: 274</title></rect>
+<text x="564.8" y="282.0" text-anchor="start" class="small">274</text>
+<rect x="548.2" y="286.0" width="43.6" height="12.0" rx="2" class="tint-ink"><title>a system journal, 1 µs clock, raw 64-bit ticks: 947</title></rect>
+<text x="595.8" y="296.0" text-anchor="start" class="small">947</text>
+<rect x="548.2" y="312.0" width="1.0" height="12.0" rx="2" class="blue"><title>video frames on their 60 000 Hz clock, ww_tape linear groups: 22</title></rect>
+<text x="553.2" y="322.0" text-anchor="start" class="small">22</text>
+<rect x="548.2" y="326.0" width="14.4" height="12.0" rx="2" class="amber"><title>video frames on their 60 000 Hz clock, delta-of-delta varints: 313</title></rect>
+<text x="566.6" y="336.0" text-anchor="start" class="small">313</text>
+<rect x="548.2" y="340.0" width="6.0" height="12.0" rx="2" class="green"><title>video frames on their 60 000 Hz clock, Elias-Fano: 130</title></rect>
+<text x="558.2" y="350.0" text-anchor="start" class="small">130</text>
+<rect x="548.2" y="354.0" width="25.8" height="12.0" rx="2" class="tint-ink"><title>video frames on their 60 000 Hz clock, raw 64-bit ticks: 562</title></rect>
+<text x="578.0" y="364.0" text-anchor="start" class="small">562</text>
+<rect x="548.2" y="380.0" width="4.5" height="12.0" rx="2" class="blue"><title>video frames on a 1 ns clock, ww_tape linear groups: 97</title></rect>
+<text x="556.7" y="390.0" text-anchor="start" class="small">97</text>
+<rect x="548.2" y="394.0" width="12.1" height="12.0" rx="2" class="amber"><title>video frames on a 1 ns clock, delta-of-delta varints: 263</title></rect>
+<text x="564.3" y="404.0" text-anchor="start" class="small">263</text>
+<rect x="548.2" y="408.0" width="7.5" height="12.0" rx="2" class="green"><title>video frames on a 1 ns clock, Elias-Fano: 164</title></rect>
+<text x="559.7" y="418.0" text-anchor="start" class="small">164</text>
+<rect x="548.2" y="422.0" width="13.9" height="12.0" rx="2" class="tint-ink"><title>video frames on a 1 ns clock, raw 64-bit ticks: 303</title></rect>
+<text x="566.1" y="432.0" text-anchor="start" class="small">303</text>
 <line x1="548.2" y1="34.0" x2="548.2" y2="448.0" class="line"/>
 <text x="248.2" y="71.0" text-anchor="end">exact 1 ms period with a few gaps</text>
 <text x="248.2" y="139.0" text-anchor="end">1 ms period, ±300 ns jitter</text>
@@ -135,4 +135,5 @@
 <text x="636.2" y="484.0" text-anchor="start" class="small">Elias-Fano</text>
 <rect x="719.2" y="475.0" width="12.0" height="10.0" rx="2" class="tint-ink"/>
 <text x="736.2" y="484.0" text-anchor="start" class="small">raw 64-bit ticks</text>
+<text x="258.2" y="506.0" text-anchor="start" class="small soft">just bench-event-times on build-1, load average 18.84 before, 22.13 after.</text>
 </svg>

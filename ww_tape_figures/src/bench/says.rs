@@ -137,7 +137,7 @@ fn prose(page: &str) -> String {
 impl Says {
     /// What `page` writes that the reports don't hold: numbers of its prose none of [Says] names, and pins it lacks.
     pub fn check(&self, page: &str) -> Vec<String> {
-        let mut text = prose(page);
+        let mut text = prose(page).split_whitespace().collect::<Vec<_>>().join(" ");
         let mut problems = Vec::new();
         for (what, shown) in &self.pins {
             if text.contains(shown.as_str()) {
@@ -183,7 +183,13 @@ fn named(report: &Report, out: &mut BTreeSet<String>) {
         for c in t.rows.iter().flatten() {
             match c {
                 Cell::Text(s) => add(s),
-                c => add(&shown(c)),
+                c => {
+                    add(&shown(c));
+                    // a whole value shown with decimals, such as 20.000 raw bytes, reads as 20 in prose
+                    if let Some(v) = c.value().filter(|v| v.fract() == 0.0) {
+                        add(&format!("{v:.0}"));
+                    }
+                }
             }
         }
     }

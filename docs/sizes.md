@@ -60,7 +60,7 @@ sample and frame as it goes, so this time includes making the signals as well as
 
 --8<-- "docs/plots/bench_drive_write.txt"
 
-The hour takes 3.00 s with summaries and 2.86 s without them. The host thus records the run 1199 times faster than the
+The hour takes 4.15 s with summaries and 5.39 s without them. The host thus records the run 868 times faster than the
 drive produces it, summaries included.
 
 ## Samples: fixed point first
@@ -97,10 +97,10 @@ A fixed-point source hands the writer the integers directly. Store the counts, a
 
 ### Which float codec, when
 
-Floats that a device didn't choose still need a codec. ALP is the codec for floats that began as decimals: on ADC ×
-0.1 it is 2.5 to 5.7 times smaller than the best other float codec, and it decodes at bit-pack speed.
+Floats that a device didn't choose still need a codec. ALP is the codec for floats that began as decimals. On ADC ×
+0.1 it is 2.5 to 5.7 times smaller than the best other float codec.
 
-The XOR codecs win on two sets: by 6 % on speech and by 15 % on ADC × 3.3/4096 as `f64`. They decode 3 to 11 times
+The XOR codecs win on two sets: by 6 % on speech and by 15 % on ADC × 3.3/4096 as `f64`. They decode 3 to 17 times
 slower than the bit-packed codecs, since each value waits for the one before it.
 
 A writer could try ALP and `FLOAT_DELTA` on each chunk and keep the smaller. That pair is the best float codec on four
@@ -108,7 +108,7 @@ of the seven sets, and within 13 % of the best on the others.
 
 ??? note "Every codec on every data set"
 
-    The bench runs in about 20 s. `just bench-sample-codecs` fetches the speech file into `target/bench-data` once
+    The bench runs in about 49 s. `just bench-sample-codecs` fetches the speech file into `target/bench-data` once
     and checks its hash before it decodes it.
 
     --8<-- "docs/plots/bench_sample_codecs_codecs.txt"
@@ -125,10 +125,10 @@ with three other codecs:
 - raw 64-bit ticks, found by binary search;
 - variable-length integers (varints) of the delta of deltas, the change from one gap to the next, with a skip entry
   every 128 events;
-- Elias-Fano, which splits each tick into low bits stored as they are and high bits stored in unary, and finds an item
-  by counting set bits.
+- Elias-Fano, which stores the low bits of each tick as they are and the high bits in unary. It finds an item by
+  counting set bits.
 
-One workload reads this machine's own system journal: 5 057 012 entries of the last 20 days. Every timed lookup of
+One workload reads this machine's own system journal: 5 080 816 entries of the last 20 days. Every timed lookup of
 every codec is checked against the raw ticks.
 
 <figure class="ww-figure" markdown="0">
@@ -144,7 +144,7 @@ against 2.581 for the varints.
 
 There, the linear groups pay 1.217 bytes per event for random access. A varint reader walks from its skip entry to the
 item it fetches, while the linear groups read any item directly. With the linear groups, the first event at or after a
-tick takes 14 to 464 ns to find. With the varints it takes 120 to 802 ns. Elias-Fano finds a tick faster on three
+tick takes 22 to 871 ns to find. With the varints it takes 263 to 2133 ns. Elias-Fano finds a tick faster on three
 workloads, at a larger size on periodic data.
 
 ??? note "Every codec on every workload"
@@ -178,8 +178,8 @@ statistic at a time, one pass each, on nodes of 1024 frames.
 
 --8<-- "docs/plots/bench_summaries_kernels.txt"
 
-On `i16` the AVX-512 kernel reaches 10 671 MB/s, against 1275 MB/s one statistic at a time. Even the portable kernel,
-without vector extensions, reaches 3408 MB/s.
+On `i16` the AVX-512 kernel reaches 5020 MB/s, against 328 MB/s one statistic at a time. Even the portable kernel,
+without vector extensions, reaches 2109 MB/s.
 
 ## What the writer spends
 
@@ -195,8 +195,8 @@ legend. The content hash takes most of <code>TapeWriter::write_chunk</code>. Dra
 
 --8<-- "docs/plots/bench_chunks_writer.txt"
 
-[`TapeWriter::write_chunk`] takes 334 µs per chunk, and the hash takes 239 µs of that. Besides the hash, the writer
-spends 94 µs per MiB. The copy with its CRCs takes 60 µs, and a reader checks the CRCs of the whole block in 36 µs. A
+[`TapeWriter::write_chunk`] takes 1827 µs per chunk, and the hash takes 797 µs of that. Besides the hash, the writer
+spends 1030 µs per MiB. The copy with its CRCs takes 155 µs, and a reader checks the CRCs of the whole block in 50 µs. A
 writer into a growing memory sink spends more, since the sink copies its bytes each time it grows.
 
 ### Reading a track's timeline
@@ -226,7 +226,7 @@ default policies: a near of 32 MiB, and a copy 1 MiB after the newest record.
 --8<-- "docs/plots/bench_tracks_puts.txt"
 
 A put that finds its item near costs almost nothing. The bench writes a definition 60 KiB long again and again, each
-time within its near, and counts what the writer hashes and copies per records block. The writer hashes nothing again:
+time within its near. It counts what the writer hashes and copies per records block. The writer hashes nothing again:
 it compares the hash it computed once, when the application defined the item.
 
 --8<-- "docs/plots/bench_tracks_idle.txt"

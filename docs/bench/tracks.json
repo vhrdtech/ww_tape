@@ -1,6 +1,14 @@
 {
+  "format": 1,
   "bench": "tracks",
-  "version": "0.1.0 (1199719-dirty, commit 20 Nov 2026 22:42 UTC)",
+  "version": "0.1.0 (92dc8ef, commit 21 Nov 2026 04:40 UTC)",
+  "commit": "92dc8ef",
+  "dirty": false,
+  "build": {
+    "profile": "release",
+    "opt_level": "3",
+    "jobs": 4
+  },
   "settings": [
     [
       "tracks",
@@ -16,6 +24,8 @@
     ]
   ],
   "machine": {
+    "host": "build-1",
+    "virtual_machine": true,
     "cpu": "AMD EPYC-Genoa Processor",
     "cpus": 14,
     "arch": "x86_64",
@@ -28,7 +38,7 @@
   "tables": [
     {
       "id": "add",
-      "title": "10000 tracks added one by one, a records block each, into a piece in memory.",
+      "title": "10000 tracks added one by one, a records block each, into a piece in memory of 7426048 bytes.",
       "columns": [
         "What",
         "s"
@@ -37,54 +47,54 @@
         [
           "add 1000 tracks",
           {
-            "value": 0.006229424,
+            "value": 0.028875246,
             "digits": 3
           }
         ],
         [
           "add 5000 tracks",
           {
-            "value": 0.036840095,
+            "value": 0.088129635,
             "digits": 3
           }
         ],
         [
           "add 10000 tracks",
           {
-            "value": 0.074284851,
+            "value": 0.200322004,
             "digits": 3
           }
         ],
         [
           "close the piece",
           {
-            "value": 0.017687586,
+            "value": 0.068559649,
             "digits": 3
           }
         ],
         [
           "open it and read the definitions",
           {
-            "value": 0.021289916,
+            "value": 0.081252917,
             "digits": 3
           }
         ]
       ],
       "load_before": {
-        "one": 10.02,
-        "five": 10.17,
-        "fifteen": 8.64
+        "one": 22.73,
+        "five": 20.11,
+        "fifteen": 21.55
       },
       "load_after": {
-        "one": 10.02,
-        "five": 10.17,
-        "fifteen": 8.64
+        "one": 22.73,
+        "five": 20.11,
+        "fifteen": 21.55
       },
-      "seconds": 0.114651895
+      "seconds": 0.362430333
     },
     {
       "id": "puts",
-      "title": "Put and copied bytes in a piece of 256 MiB, 10000 tracks defined, records blocks of 4 KiB on the tracks in use in turn.",
+      "title": "Put and copied bytes in a piece of 256 MiB, 10000 tracks defined, records blocks of 4 KiB on the tracks in use in turn; the default policies: a near of 32 MiB, a copy 1 MiB after the newest record.",
       "columns": [
         "Tracks in use",
         "Put and copied bytes",
@@ -115,16 +125,16 @@
         ]
       ],
       "load_before": {
-        "one": 10.02,
-        "five": 10.17,
-        "fifteen": 8.64
+        "one": 22.73,
+        "five": 20.11,
+        "fifteen": 21.55
       },
       "load_after": {
-        "one": 10.02,
-        "five": 10.17,
-        "fifteen": 8.64
+        "one": 22.73,
+        "five": 20.11,
+        "fifteen": 21.55
       },
-      "seconds": 1.7394293589999998
+      "seconds": 3.992811568
     },
     {
       "id": "idle",
@@ -150,16 +160,16 @@
         ]
       ],
       "load_before": {
-        "one": 10.02,
-        "five": 10.17,
-        "fifteen": 8.64
+        "one": 22.73,
+        "five": 20.11,
+        "fifteen": 21.55
       },
       "load_after": {
-        "one": 10.02,
-        "five": 10.17,
-        "fifteen": 8.64
+        "one": 22.73,
+        "five": 20.11,
+        "fifteen": 21.55
       },
-      "seconds": 0.013061029
+      "seconds": 0.022949965
     }
   ]
 }

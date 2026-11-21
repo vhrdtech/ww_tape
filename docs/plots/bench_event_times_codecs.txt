@@ -1,28 +1,28 @@
 | Workload | Codec | Bytes per event | Coding ns per event | Item j ns | First at or after a tick ns |
 |---|---|---:|---:|---:|---:|
-| exact 1 ms period with a few gaps | ww_tape linear groups | 0.014 | 1.1 | 4.4 | 19.5 |
-| exact 1 ms period with a few gaps | raw 64-bit ticks | 8.000 | 0.6 | 10.9 | 699.2 |
-| exact 1 ms period with a few gaps | delta-of-delta varints | 1.149 | 1.6 | 383.3 | 614.7 |
-| exact 1 ms period with a few gaps | Elias-Fano | 2.789 | 10.0 | 287.1 | 335.3 |
-| 1 ms period, ±300 ns jitter | ww_tape linear groups | 1.447 | 5.0 | 109.7 | 387.9 |
-| 1 ms period, ±300 ns jitter | raw 64-bit ticks | 8.000 | 0.7 | 13.2 | 761.9 |
-| 1 ms period, ±300 ns jitter | delta-of-delta varints | 2.035 | 3.7 | 462.0 | 686.1 |
-| 1 ms period, ±300 ns jitter | Elias-Fano | 2.789 | 11.9 | 269.1 | 296.1 |
-| bursty traffic | ww_tape linear groups | 3.798 | 5.6 | 104.4 | 463.8 |
-| bursty traffic | raw 64-bit ticks | 8.000 | 0.7 | 14.7 | 553.1 |
-| bursty traffic | delta-of-delta varints | 2.581 | 5.7 | 513.9 | 801.7 |
-| bursty traffic | Elias-Fano | 3.158 | 11.5 | 367.7 | 533.2 |
-| a system journal, 1 µs clock | ww_tape linear groups | 3.017 | 6.0 | 103.1 | 390.7 |
-| a system journal, 1 µs clock | raw 64-bit ticks | 8.000 | 0.7 | 12.0 | 609.4 |
-| a system journal, 1 µs clock | delta-of-delta varints | 2.980 | 5.0 | 517.4 | 699.0 |
-| a system journal, 1 µs clock | Elias-Fano | 2.569 | 15.8 | 199.7 | 270.9 |
-| video frames on their 60 000 Hz clock | ww_tape linear groups | 0.002 | 1.2 | 4.3 | 13.9 |
-| video frames on their 60 000 Hz clock | raw 64-bit ticks | 8.000 | 0.7 | 11.3 | 296.0 |
-| video frames on their 60 000 Hz clock | delta-of-delta varints | 1.149 | 2.3 | 168.1 | 208.1 |
-| video frames on their 60 000 Hz clock | Elias-Fano | 1.545 | 7.5 | 79.8 | 105.1 |
-| video frames on a 1 ns clock | ww_tape linear groups | 0.320 | 4.5 | 14.6 | 90.3 |
-| video frames on a 1 ns clock | raw 64-bit ticks | 8.000 | 0.8 | 11.7 | 175.6 |
-| video frames on a 1 ns clock | delta-of-delta varints | 1.149 | 1.2 | 82.7 | 119.7 |
-| video frames on a 1 ns clock | Elias-Fano | 3.300 | 7.1 | 45.5 | 71.7 |
+| exact 1 ms period with a few gaps | ww_tape linear groups | 0.014 | 1.9 | 7.9 | 49.2 |
+| exact 1 ms period with a few gaps | raw 64-bit ticks | 8.000 | 1.0 | 54.0 | 1140.0 |
+| exact 1 ms period with a few gaps | delta-of-delta varints | 1.149 | 3.0 | 431.0 | 743.8 |
+| exact 1 ms period with a few gaps | Elias-Fano | 2.789 | 12.6 | 426.7 | 364.7 |
+| 1 ms period, ±300 ns jitter | ww_tape linear groups | 1.447 | 8.5 | 173.4 | 577.4 |
+| 1 ms period, ±300 ns jitter | raw 64-bit ticks | 8.000 | 1.0 | 17.9 | 1054.5 |
+| 1 ms period, ±300 ns jitter | delta-of-delta varints | 2.035 | 4.2 | 501.4 | 747.9 |
+| 1 ms period, ±300 ns jitter | Elias-Fano | 2.789 | 7.8 | 270.5 | 392.6 |
+| bursty traffic | ww_tape linear groups | 3.798 | 8.0 | 193.3 | 871.3 |
+| bursty traffic | raw 64-bit ticks | 8.000 | 0.9 | 15.0 | 809.4 |
+| bursty traffic | delta-of-delta varints | 2.581 | 7.4 | 700.7 | 1296.2 |
+| bursty traffic | Elias-Fano | 3.158 | 15.9 | 349.4 | 676.8 |
+| a system journal, 1 µs clock | ww_tape linear groups | 3.019 | 8.1 | 142.4 | 369.4 |
+| a system journal, 1 µs clock | raw 64-bit ticks | 8.000 | 0.7 | 14.5 | 947.0 |
+| a system journal, 1 µs clock | delta-of-delta varints | 2.978 | 6.7 | 782.8 | 2133.4 |
+| a system journal, 1 µs clock | Elias-Fano | 2.568 | 43.5 | 303.4 | 274.2 |
+| video frames on their 60 000 Hz clock | ww_tape linear groups | 0.002 | 1.2 | 5.7 | 21.9 |
+| video frames on their 60 000 Hz clock | raw 64-bit ticks | 8.000 | 0.7 | 17.8 | 561.9 |
+| video frames on their 60 000 Hz clock | delta-of-delta varints | 1.149 | 2.0 | 230.2 | 312.8 |
+| video frames on their 60 000 Hz clock | Elias-Fano | 1.545 | 10.4 | 113.8 | 129.6 |
+| video frames on a 1 ns clock | ww_tape linear groups | 0.320 | 7.5 | 20.6 | 97.3 |
+| video frames on a 1 ns clock | raw 64-bit ticks | 8.000 | 0.7 | 10.8 | 302.6 |
+| video frames on a 1 ns clock | delta-of-delta varints | 1.149 | 1.4 | 228.1 | 263.0 |
+| video frames on a 1 ns clock | Elias-Fano | 3.300 | 14.6 | 156.9 | 163.5 |
 
-`just bench-event-times` on an AMD EPYC-Genoa Processor (14 logical CPUs), load average 9.62 before and 11.68 after.
+`just bench-event-times` on build-1, load average 18.84 before, 22.13 after.

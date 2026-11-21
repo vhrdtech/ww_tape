@@ -3,4 +3,4 @@
 | hashed | 0.0 |
 | copied | 6.2 |
 
-`just bench-tracks` on an AMD EPYC-Genoa Processor (14 logical CPUs), load average 10.02 before and 10.02 after.
+`just bench-tracks` on build-1, load average 22.73 before, 22.73 after.
