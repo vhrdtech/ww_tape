@@ -227,14 +227,17 @@ impl Writing {
     /// The numbers of `recording`, the drive's run recorded whole. The parts that record the hour again run on
     /// threads of their own.
     pub fn of(recording: &Recording) -> Result<Self, Error> {
+        // the acts are the same under every byte policy: made once, shared by every run below
+        let acts = recording.drive.acts()?.collect::<Result<Vec<_>, _>>()?;
+        let acts = acts.as_slice();
         std::thread::scope(|s| {
-            let calls = s.spawn(|| calls_and_columns(recording));
-            let aligned = s.spawn(|| aligned(recording));
-            let series = s.spawn(|| series_alone(recording));
-            let relay = s.spawn(|| relay(recording));
+            let calls = s.spawn(|| calls_and_columns(recording, acts));
+            let aligned = s.spawn(|| aligned(recording, acts));
+            let series = s.spawn(|| series_alone(recording, acts));
+            let relay = s.spawn(|| relay(recording, acts));
             let syncs: Vec<_> = SYNC_POLICIES
                 .iter()
-                .map(|p| s.spawn(move || sync_loss(recording, *p)))
+                .map(|p| s.spawn(move || sync_loss(recording, acts, *p)))
                 .collect();
             let blocks = blocks(recording)?;
             let cut = cut(recording)?;
@@ -269,7 +272,7 @@ fn joined<T>(h: std::thread::ScopedJoinHandle<'_, Result<T, Error>>) -> Result<T
 }
 
 /// The recorder's calls of the hour and the columns of its chunks.
-fn calls_and_columns(recording: &Recording) -> Result<(Calls, Columns), Error> {
+fn calls_and_columns(recording: &Recording, acts: &[Act]) -> Result<(Calls, Columns), Error> {
     let drive = recording.drive;
     let mut calls = Calls {
         puts_wrote: recording
@@ -287,8 +290,8 @@ fn calls_and_columns(recording: &Recording) -> Result<(Calls, Columns), Error> {
     ];
     let mut codec_bytes = [0u64; 3];
     let mut start_bits = 0u64;
-    for act in drive.acts()? {
-        match act? {
+    for act in acts {
+        match act {
             Act::Put { .. } => calls.puts += 1,
             Act::Records(_) => calls.records += 1,
             Act::Summary(_) => calls.summaries += 1,
@@ -296,7 +299,7 @@ fn calls_and_columns(recording: &Recording) -> Result<(Calls, Columns), Error> {
                 calls.frame_chunks += 1;
                 c.frame_chunks += 1;
                 c.frames += u64::from(head.count);
-                for (spec, bytes) in &columns {
+                for (spec, bytes) in columns {
                     let len = bytes.len() as u64;
                     match spec.kind {
                         ColumnKind::Starts => {
@@ -317,12 +320,16 @@ fn calls_and_columns(recording: &Recording) -> Result<(Calls, Columns), Error> {
                     }
                 }
             }
-            Act::Chunk { head, .. } => {
+            Act::Chunk { head, columns } => {
                 calls.sample_chunks += 1;
                 c.samples += u64::from(head.count);
                 let values = phase_values(&drive, head.first_item, u64::from(head.count));
                 for ((_, codec), sum) in codecs.iter().zip(&mut codec_bytes) {
-                    *sum += sample_bytes(&drive, *codec, &values)?;
+                    // the recorder's own codec: its column as it was handed over, not encoded again
+                    *sum += match columns.iter().find(|(spec, _)| spec.codec == *codec) {
+                        Some((_, bytes)) => bytes.len() as u64,
+                        None => sample_bytes(&drive, *codec, &values)?,
+                    };
                 }
             }
         }
@@ -399,12 +406,12 @@ fn blocks(recording: &Recording) -> Result<Vec<Blocks>, Error> {
 }
 
 /// The hour in an aligned file.
-fn aligned(recording: &Recording) -> Result<Aligned, Error> {
+fn aligned(recording: &Recording, acts: &[Act]) -> Result<Aligned, Error> {
     let drive = Drive {
         layout: Layout::ALIGNED,
         ..recording.drive
     };
-    let aligned = drive.record()?;
+    let aligned = drive.record_acts(acts)?;
     let mut a = Aligned {
         unaligned: recording.len(),
         aligned: aligned.len(),
@@ -430,23 +437,29 @@ fn aligned(recording: &Recording) -> Result<Aligned, Error> {
 
 /// `phase_a` and its summaries of `drive` alone, written into one piece in memory and closed.
 pub fn series_tape(drive: &Drive) -> Result<Vec<u8>, Error> {
+    let acts = drive.acts()?.collect::<Result<Vec<_>, _>>()?;
+    series_tape_of(drive, &acts)
+}
+
+/// [series_tape] of `acts`, the acts of `drive`.
+fn series_tape_of(drive: &Drive, acts: &[Act]) -> Result<Vec<u8>, Error> {
     let series = |act: &Act| match act {
         Act::Chunk { head, .. } => head.track_number == PHASE_A,
         Act::Summary(_) => true,
         _ => false,
     };
-    one_tape(drive, crate::PRODUCER, series)
+    one_tape(drive, acts, crate::PRODUCER, series)
 }
 
 /// `phase_a` and its summaries alone in one piece: its bytes unaligned and aligned, its summary blocks and those
 /// placed right before a series chunk when aligned.
-fn series_alone(recording: &Recording) -> Result<[u64; 4], Error> {
+fn series_alone(recording: &Recording, acts: &[Act]) -> Result<[u64; 4], Error> {
     let drive = Drive {
         layout: Layout::ALIGNED,
         ..recording.drive
     };
-    let unaligned = series_tape(&recording.drive)?;
-    let aligned = series_tape(&drive)?;
+    let unaligned = series_tape_of(&recording.drive, acts)?;
+    let aligned = series_tape_of(&drive, acts)?;
     let (summaries, in_gaps) = before_series(&aligned, "summary blocks")?;
     Ok([
         unaligned.len() as u64,
@@ -625,20 +638,19 @@ fn act_ms(act: &Act) -> Option<u64> {
 }
 
 /// Record the run under `policy` with the run's own clock up to the story's crash, and what the crash loses.
-fn sync_loss(recording: &Recording, policy: SyncPolicy) -> Result<SyncLoss, Error> {
+fn sync_loss(recording: &Recording, acts: &[Act], policy: SyncPolicy) -> Result<SyncLoss, Error> {
     let drive = recording.drive;
     let crash = recording.story_crash_byte()?;
     let (mut r, tapes, clock) = logged(&drive, policy)?;
     let log = &tapes.log;
     // what the sinks had synced before the act whose write the crash tears
     let mut before = Synced::of(log);
-    for act in drive.acts()? {
-        let act = act?;
-        if let Some(ms) = act_ms(&act) {
+    for act in acts {
+        if let Some(ms) = act_ms(act) {
             clock.0.fetch_max(ms, Ordering::Relaxed);
         }
         before = Synced::of(log);
-        r.apply(&act)?;
+        r.apply(act)?;
         if r.bytes()? > crash {
             break;
         }
@@ -887,9 +899,9 @@ fn put_blocks(bytes: &[u8]) -> Result<(u64, u64), Error> {
 }
 
 /// The board writes its hour as one tape; the host relays it into a chain.
-fn relay(recording: &Recording) -> Result<Relay, Error> {
+fn relay(recording: &Recording, acts: &[Act]) -> Result<Relay, Error> {
     let drive = recording.drive;
-    let board = board_tape(&drive)?;
+    let board = board_tape(&drive, acts)?;
     // --8<-- [start:relay]
     let mut defs = ww_tape::Definitions::new(); // filled from the board's own puts
     let tapes = MemTapes::new();
@@ -936,17 +948,22 @@ fn relay(recording: &Recording) -> Result<Relay, Error> {
 }
 
 /// The board's own tape of the hour: one piece in memory, closed, its definitions near 1 MiB.
-fn board_tape(drive: &Drive) -> Result<Vec<u8>, Error> {
+fn board_tape(drive: &Drive, acts: &[Act]) -> Result<Vec<u8>, Error> {
     let board = Drive {
         near_bytes: 1 << 20,
         ..*drive
     };
-    one_tape(&board, "drive firmware", |_| true)
+    one_tape(&board, acts, "drive firmware", |_| true)
 }
 
 /// The acts of `drive` that `keep` takes, written by one writer into one piece in memory under the drive's options,
 /// closed.
-fn one_tape(drive: &Drive, producer: &str, keep: impl Fn(&Act) -> bool) -> Result<Vec<u8>, Error> {
+fn one_tape(
+    drive: &Drive,
+    acts: &[Act],
+    producer: &str,
+    keep: impl Fn(&Act) -> bool,
+) -> Result<Vec<u8>, Error> {
     let defs = drive_definitions(drive)?;
     let o = options(drive).writer;
     let sink = MemSink::new();
@@ -957,24 +974,20 @@ fn one_tape(drive: &Drive, producer: &str, keep: impl Fn(&Act) -> bool) -> Resul
     w.set_producer(producer);
     w.set_index_policy(o.index)?;
     w.set_near_policy(o.near);
-    for act in drive.acts()? {
-        let act = act?;
-        if !keep(&act) {
-            continue;
-        }
+    for act in acts.iter().filter(|a| keep(a)) {
         match act {
             Act::Put { ticks, mode } => {
-                w.put(&defs, MODE, ticks, mode.item())?;
+                w.put(&defs, MODE, *ticks, mode.item())?;
             }
             Act::Records(records) => {
-                let block = records_block(w.next_id(), &records)?;
+                let block = records_block(w.next_id(), records)?;
                 w.write_block(&defs, &block)?;
             }
             Act::Chunk { head, columns } => {
                 let columns: Vec<_> = columns.iter().map(|(s, b)| (*s, &b[..])).collect();
-                w.write_chunk(&defs, &head, &columns)?;
+                w.write_chunk(&defs, head, &columns)?;
             }
-            Act::Summary(block) => w.defer_block(&defs, block)?,
+            Act::Summary(block) => w.defer_block(&defs, block.clone())?,
         }
     }
     w.close()?;

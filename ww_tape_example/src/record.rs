@@ -638,6 +638,18 @@ impl Drive {
         close(*self, r, &tapes, made)
     }
 
+    /// Record `acts`, made by [Drive::acts] of a run that differs from this one in its byte policies only: the same
+    /// recording as [Drive::record], without making the acts again.
+    pub(crate) fn record_acts(&self, acts: &[Act]) -> Result<Recording, Error> {
+        let tapes = MemTapes::new();
+        let mut r = self.start(&tapes)?;
+        let made = acts
+            .iter()
+            .map(|act| r.apply(act))
+            .collect::<Result<Vec<_>, _>>()?;
+        close(*self, r, &tapes, made)
+    }
+
     /// Record the run until the recording holds more than `byte` bytes, then crash: the recording ends after `byte`
     /// bytes, its last piece unclosed.
     ///
