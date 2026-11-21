@@ -1036,7 +1036,7 @@ dependencies = [
 
 [[package]]
 name = "ww_tape"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "blake3",
  "exact_units",
@@ -1049,7 +1049,7 @@ dependencies = [
 
 [[package]]
 name = "ww_tape_bench"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -1061,7 +1061,7 @@ dependencies = [
 
 [[package]]
 name = "ww_tape_bench_report"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "serde",
@@ -1070,7 +1070,7 @@ dependencies = [
 
 [[package]]
 name = "ww_tape_benchmarks"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -1088,7 +1088,7 @@ dependencies = [
 
 [[package]]
 name = "ww_tape_codecs"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "crc",
  "lz4_flex",
@@ -1096,7 +1096,7 @@ dependencies = [
 
 [[package]]
 name = "ww_tape_codecs_benchmarks"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -1110,7 +1110,7 @@ dependencies = [
 
 [[package]]
 name = "ww_tape_example"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "exact_units",
  "libm",
@@ -1122,7 +1122,7 @@ dependencies = [
 
 [[package]]
 name = "ww_tape_figures"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "exact_units",
@@ -1136,7 +1136,7 @@ dependencies = [
 
 [[package]]
 name = "ww_tape_fs"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "libc",
  "rustix",
@@ -1145,7 +1145,7 @@ dependencies = [
 
 [[package]]
 name = "ww_tape_fuzz"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "blake3",
  "crc",
@@ -1157,7 +1157,7 @@ dependencies = [
 
 [[package]]
 name = "ww_tape_summary"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "exact_units",
  "shrink_wrap",
@@ -1167,7 +1167,7 @@ dependencies = [
 
 [[package]]
 name = "ww_tape_tests"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "blake3",
  "crc",

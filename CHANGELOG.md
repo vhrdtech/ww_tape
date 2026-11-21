@@ -6,6 +6,8 @@ benchmarks, golden files and book pages.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-21
+
 ### Breaking
 
 - Track and clock numbers are `TrackNum` and `ClockNum`, 1 and up, everywhere; build them with `TrackNum::new(n)` (READ-5).
