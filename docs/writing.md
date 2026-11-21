@@ -177,19 +177,33 @@ where it places the block depends on the file's layout.
 
 ### Aligned files
 
-An **aligned** file starts every chunk's sample payload on a 4 KiB boundary. A reader can then map the payloads from the
-page cache or read them with direct input and output. Choose it with the layout [`Layout::ALIGNED`], or call
-[`TapeWriter::set_alignment`] before the first block. In a file that is not aligned, blocks follow each other with
-nothing between them, and a deferred block lands at once.
+Disks, the page cache and direct input and output all work in blocks of 4 KiB, or in sectors that divide that size.
+A 4 KiB boundary is an offset in the file that 4096 divides. An **aligned** file starts every chunk's payload, the
+column bytes after its head, on such a boundary. Its samples then begin at the start of a page of the
+page cache and of a sector on the disk.
+
+A reader gains three things from that:
+
+- **Memory maps.** A reader maps the file and uses a chunk's samples in place, as a slice that starts on a page. A
+  vector kernel or a copy engine takes it without moving a byte.
+- **Direct input and output.** Reads that bypass the page cache, such as `O_DIRECT` on Linux, need offsets and lengths
+  in whole blocks. A payload on a boundary reads that way with no bytes before it.
+- **Raw media.** On a card or a disk without a file system, a payload on a boundary covers whole sectors. Reading one
+  chunk's samples then reads no sector of the block before it.
+
+Choose it with the layout [`Layout::ALIGNED`], or call [`TapeWriter::set_alignment`] before the first block. In a file
+that is not aligned, blocks follow each other with nothing between them, and a deferred block lands at once.
 
 In an aligned file, the space before a payload holds zeros in the chunk's own head. The writer fills that gap with
 deferred blocks while they fit. A deferred block waits at most 1 MiB of writes for a gap that fits it.
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/plots/deferred.svg"
-<figcaption>Two stretches of aligned files. In the drive's file, the next second's put of the mode places the waiting
-summary at once, so the gap before the payload holds zeros. In a file of <code>phase_a</code> alone, the summary fills
-the gap. Drawn by <code>ww_tape_figures</code> from the drive's first minute at full rate.</figcaption>
+<figcaption>One second of samples in three files, each row from the end of one series chunk to the end of the next.
+Not aligned, the payload starts wherever the head ends. Aligned, zeros in the chunk's head move the payload to the
+next 4 KiB boundary. In a file of <code>phase_a</code> alone, the waiting summary fills part of that gap. In the
+drive's file, the next second's put of the mode places the summary first, so the gap holds zeros only. Drawn by
+<code>ww_tape_figures</code> from the drive's first minute at full rate.</figcaption>
 </figure>
 
 Alignment costs the drive more than a series alone. The hour takes 129 MB aligned against 115 MB, 12 % more. In the
@@ -198,7 +212,9 @@ block, before the next series chunk. Every put and every block handed over place
 even a put that writes nothing.
 
 A file of `phase_a` alone takes 112 MB aligned against 104 MB, 7.3 % more. There 2724 of the 2933 summary blocks fill
-gaps. Alignment therefore suits a file that holds mostly series. The drive's recorder keeps its mixed file unaligned.
+gaps. Alignment therefore suits a file that holds mostly series and is read by memory maps or direct input and
+output. Alignment is optional: where space matters more than such reads, leave the file unaligned. The drive's
+recorder keeps its mixed file unaligned.
 
 ## Closing
 
