@@ -62,11 +62,8 @@ the power of each node, `I² + Q²`, which shows where a signal is on the air:
 ```
 
 The track stores the samples in the converter's packed form, `PACKED12_LSB`: 12 bits per value, as the front end
-sends them. A sample then takes 3 bytes instead of 4, and a minute of the capture is a piece of 3.7 GB.
-
-The phase current packs smaller with `DELTA`, because neighbouring samples of a slow sine differ little. Radio
-samples are mostly noise and carriers that change by hundreds of steps per sample, so differences and ALP gain little
-on them. [Sizes and speeds](sizes.md) gives the measured sizes and how fast the writer and the reader go.
+sends them. A sample then takes 3 bytes instead of 4, and a minute of the capture is a piece of 3.7 GB. [Sizes and
+speeds](sizes.md) gives the measured sizes and how fast the writer and the reader go.
 
 ## Grids: where samples are in time
 
