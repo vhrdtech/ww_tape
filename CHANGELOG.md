@@ -8,7 +8,10 @@ benchmarks, golden files and book pages.
 
 ### Features
 
+- New crate `ww_tape_mux`: `TapeMux` writes a chain from its own thread; producers send through handles over a byte-bounded queue (WRITE-12).
+- `ww_tape_fs::mux::create` and `resume` open a mux on a directory of piece files (WRITE-12).
 - `PieceChain::relay_block` and `adopt_block` pass a producer's blocks on into a chain; whole chunk blocks cut by the policy too (WRITE-12).
+- `PieceChain::cut_policy` gives the chain's cut policy (WRITE-12).
 
 ## [0.3.0] - 2026-11-21
 

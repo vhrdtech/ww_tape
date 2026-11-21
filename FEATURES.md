@@ -166,6 +166,15 @@ Writing pieces and chains, resuming them, sinks in memory, in the crate `ww_tape
   - A reader finds a track's number by its id (`DefinitionsAt::track_number`).
   - Missing: a chain resume that starts a new piece reads no closed piece, so its numbers start anew.
   - Read more: [Number, key and id](docs/tracks.md#number-key-and-id), [The definitions an application holds](docs/definitions.md#the-definitions-an-application-holds).
+- ✅ **WRITE-12 A writing thread for producers on any thread**
+  - A `TapeMux` (crate `ww_tape_mux`) owns a chain and its definitions on a writing thread. Producers send through handles: `ChunkSender` (one track's chunks), `RecordsHandle`, `RelayHandle` (another producer's blocks) and `StateHandle` (puts on change).
+  - Tracks and clocks are defined on the mux, which gives their numbers; handles pass no definitions.
+  - One queue bounded by bytes, waiters served in arrival order. Per handle: wait (lossless), fail with the unit back, or drop and count; a dropped chunk leaves an item-number gap that readers take as items lost.
+  - The writing thread places units in arrival order and does the puts, cuts, sync and checkpoints by time, and the close.
+  - A writer's refusal reaches the handle's next call; a failed write reaches every handle. A close refuses later calls with `Closed` and doesn't wait for handles. A mux dropped unclosed leaves its piece unclosed; `TapeMux::resume` and `ww_tape_fs::mux::resume` go on.
+  - `PieceChain::relay_block` and `adopt_block` pass a producer's blocks on into a chain.
+  - Open: typed events and series handles with summaries, latency seals, async sends, followers of a live chain.
+  - Tests `mux.rs`, `item_gap.rs`.
 
 ## Reader (`READ`)
 
