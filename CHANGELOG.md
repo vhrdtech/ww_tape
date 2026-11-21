@@ -196,6 +196,7 @@ Covers `ww_tape` 0.1.0.
 
 ### Features
 
+- Book: the footer shows the crate version, commit and build time, and how long ago that was (BOOK-2).
 - Book: tables keep code whole; snippets are dedented, with a collapsible of the example items they use (BOOK-2).
 - `FileSink::warning` returns an `FsWarning` naming a network or user-space file system (NFS, SMB, FUSE) (FS-1).
 - A fork handler keeps a file sink's lock out of a child process forked meanwhile (FS-1).
