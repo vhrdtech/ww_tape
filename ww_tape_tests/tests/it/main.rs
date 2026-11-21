@@ -30,6 +30,7 @@ mod iq8;
 mod item_gap;
 mod lock;
 mod media;
+mod mux;
 mod order;
 mod pieces;
 mod placed;
