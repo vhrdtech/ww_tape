@@ -1,8 +1,8 @@
 //! [TapeWriter]: blocks appended to a sink, a file or memory, durable the way databases make their logs durable.
 //!
-//! - A new file (`ww_tape_fs`) is written as `NAME.partial` and renamed to `NAME` when it is closed; the file and
-//!   its directory are synced after it is created and after the rename, so neither the data nor the name can vanish
-//!   in a crash.
+//! - A new file (`ww_tape_fs`) is created exclusively under its final name; the file and its directory are synced
+//!   after it is created, so the name can't vanish in a crash. Whether it is closed is read from its bytes (its close
+//!   and tail), never from its name.
 //! - The data is synced by a [SyncPolicy] (none, every N blocks, or at most an interval apart, by default 1 s), like
 //!   SQLite's `synchronous` or Postgres' `synchronous_commit`: what a crash can lose is bounded by the policy.
 //!   [std::fs::File::sync_data] is `fdatasync` on Linux, `fcntl(F_FULLFSYNC)` on macOS (a plain `fsync` there doesn't
@@ -1996,13 +1996,13 @@ impl<S: TapeSink> TapeWriter<S> {
         Ok(())
     }
 
-    /// Close the piece ([CloseReason::Closed]) and sync it; a new file gets its name, and its directory is synced.
+    /// Close the piece ([CloseReason::Closed]) and sync it.
     pub fn close(self) -> Result<Closed, WriteError<S::Error>> {
         self.close_as(CloseReason::Closed)
     }
 
     /// Close the piece for `reason`: the definitions made, the deferred blocks, the final index, the close record and
-    /// the tail; then sync, rename and sync the directory as [Self::close].
+    /// the tail; then sync as [Self::close].
     pub fn close_as(self, reason: CloseReason) -> Result<Closed, WriteError<S::Error>> {
         self.end(End::Close(reason), None).map(|e| e.closed)
     }
@@ -2183,8 +2183,8 @@ impl<S: TapeSink> TapeWriter<S> {
     /// End this piece as a cut (a [Close] naming the next piece) and start the next piece of the chain right behind it in the same
     /// sink, as [Self::cut_on] does on a new one: the sink's window ([TapeSink::rebase]) moves to the end of this
     /// piece, a multiple of [PIECE_ALIGN] when this one started on one. The sink stays open: it isn't closed, a
-    /// file keeps its name. A sink of one piece (`NAME.partial`, [TapeSink::holds_pieces] false) is refused before
-    /// anything is written: a file of several pieces is written under its own name ([Tapes::create_whole]).
+    /// file stays as it is. A sink of one piece ([TapeSink::holds_pieces] false) is refused before anything is
+    /// written: a file of several pieces is made by [Tapes::create_whole].
     ///
     /// A refusal before the cut, this one or one of [Self::cut_on]'s, hands the writer back in [CutError::writer], to
     /// go on with.
@@ -2400,7 +2400,7 @@ impl<S: TapeSink> TapeWriter<S> {
         if how != End::CutInPlace {
             self.sink
                 .close()
-                .map_err(sink_err("giving the closed piece its name"))?;
+                .map_err(sink_err("marking the piece closed"))?;
         }
         let start = self.sink.base().saturating_add(self.start);
         Ok(Ended {
@@ -2432,12 +2432,12 @@ impl<S: TapeSink> TapeWriter<S> {
 
     /// The end of a resumed closed piece to which nothing was appended: no byte is written, the close in force with
     /// content hash `hash` stays the last, and the append head is dropped unwritten. A closed piece a crash left
-    /// unnamed still gets its name ([TapeSink::close]).
+    /// that a crash left unmarked is marked closed ([TapeSink::close]).
     fn unchanged(mut self, hash: ContentHash) -> Result<Ended<S>, WriteError<S::Error>> {
         self.append_head = None;
         self.sink
             .close()
-            .map_err(sink_err("giving the closed piece its name"))?;
+            .map_err(sink_err("marking the piece closed"))?;
         let len = self
             .bytes
             .checked_sub(wide(crate::piece::APPEND_HEAD_LEN))
@@ -2683,11 +2683,11 @@ enum Again {
 /// How [TapeWriter::end] ends a piece.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum End {
-    /// Closed for the reason given; a file gets its name.
+    /// Closed for the reason given; the sink is closed.
     Close(CloseReason),
-    /// Closed by a cut, naming the next piece; a file gets its name.
+    /// Closed by a cut, naming the next piece; the sink is closed.
     Cut,
-    /// Closed by a cut, the next piece behind it in the same sink, which keeps its name.
+    /// Closed by a cut, the next piece behind it in the same sink, which stays open.
     CutInPlace,
 }
 

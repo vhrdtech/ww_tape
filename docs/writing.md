@@ -203,7 +203,7 @@ gaps. Alignment therefore suits a file that holds mostly series. The drive's rec
 ## Closing
 
 [`TapeWriter::close`] places the deferred blocks still waiting and writes the final index, the close and the tail.
-[Files and syncing](files.md#the-close) follows the syncs and the rename that make a file's close durable. The call
+[Files and syncing](files.md#the-close) follows the syncs that make a file's close durable. The call
 returns a [`writer::Closed`], which holds the piece's content hash, its length and each track's next [[item number]].
 
 A close ends a write session, not the piece. A writer that opens a closed piece again writes on after its close. The

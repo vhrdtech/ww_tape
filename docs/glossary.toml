@@ -224,8 +224,8 @@ chapter = "../live_feeds/"
 
 [[term]]
 name = "lock"
-forms = ["locks", "lock file"]
-short = "An exclusive lock on the file `NAME.lock` beside a tape file, so that one writer at a time writes it."
+forms = ["locks"]
+short = "The kernel's exclusive lock a writer holds on the open tape file, so that one writer at a time writes it; a crash releases it."
 chapter = "../files/"
 
 [[term]]

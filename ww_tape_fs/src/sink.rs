@@ -1,6 +1,6 @@
 //! Piece files: [FileSink], [Files] and [FileSource].
 
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
@@ -8,7 +8,7 @@ use ww_tape::reader::ByteSource;
 use ww_tape::sink::{BaseRefused, TapeSink, Tapes, check_base};
 
 use crate::chain::piece_name;
-use crate::lock::FileLock;
+use crate::lock::{self, FsWarning, Locked, Open};
 
 /// Why a [FileSink], [Files] or [FileSource] failed or refused.
 ///
@@ -17,27 +17,22 @@ use crate::lock::FileLock;
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum FsError {
-    /// Opening, writing, syncing, renaming or reading `path` failed, with what was being done; its text ends with the
+    /// Opening, writing, syncing or reading `path` failed, with what was being done; its text ends with the
     /// error's [kind](io::Error::kind), the system's error is its source.
     Io {
         what: &'static str,
         path: PathBuf,
         error: io::Error,
     },
-    /// A new file that is already there (or a `.partial` a crash left that holds bytes).
+    /// A new file that is already there, closed, unclosed or empty.
     Exists(PathBuf),
     /// Another writer holds the file: one writer per file ([ww_tape::sink]).
     Locked(PathBuf),
-    /// The `.partial` file `create` opened is no longer the one its name points to once locked: another writer
-    /// closed and renamed it, or it was replaced. Nothing is written.
-    Replaced(PathBuf),
-    /// A name a file sink doesn't write or lock through: a directory, a FIFO or a socket, or a lock file that is a
-    /// link or anything but a regular file.
+    /// A name a file sink doesn't write or lock through: a directory, a FIFO or a socket.
     NotAFile(PathBuf),
     /// A piece start [check_base] refused for the file at `path`.
     Base { path: PathBuf, refused: BaseRefused },
-    /// Nothing to resume at `path`: no file there nor its `.partial`, or a chain's directory that is missing or holds
-    /// no first piece.
+    /// Nothing to resume at `path`: no file there, or a chain's directory that is missing or holds no first piece.
     NoPiece(PathBuf),
     /// The file system of `path` takes no writes ([io::ErrorKind::ReadOnlyFilesystem]): a read-only mount or medium.
     /// Read the file with [crate::FileSource] instead.
@@ -52,11 +47,6 @@ impl core::fmt::Display for FsError {
             }
             Self::Exists(p) => write!(f, "{}: already exists", p.display()),
             Self::Locked(p) => write!(f, "{}: locked by another writer", p.display()),
-            Self::Replaced(p) => write!(
-                f,
-                "{}: renamed or replaced while it was opened",
-                p.display()
-            ),
             Self::NotAFile(p) => write!(f, "{}: not a regular file", p.display()),
             Self::NoPiece(p) => write!(f, "{}: no piece to resume", p.display()),
             Self::ReadOnly(p) => write!(f, "{}: on a read-only file system", p.display()),
@@ -98,177 +88,83 @@ fn file_offset(base: u64, offset: u64) -> io::Result<u64> {
         .ok_or_else(|| io::Error::from(io::ErrorKind::UnexpectedEof))
 }
 
-/// A file written as `NAME.partial` and renamed to `NAME` at its close, or a file appended to in place.
+/// A file of one piece or of pieces back to back, written under its own name from the start and appended to.
+///
+/// Whether the piece is open, closed or torn is read from its bytes (its close and tail), never from its name.
 pub struct FileSink {
-    file: File,
+    file: Locked,
     path: PathBuf,
-    /// Some while the file is written under its `.partial` name
-    partial: Option<PathBuf>,
     /// Where the piece being written starts in the file
     base: u64,
     /// The file holds pieces back to back ([TapeSink::holds_pieces])
     pieces: bool,
-    /// One writer per file; dropped after the file is closed
-    _lock: FileLock,
+    /// Set when the file is on a network or user-space file system
+    warning: Option<FsWarning>,
 }
 
 impl FileSink {
-    /// A new file at `path`, written as `path.partial` until [TapeSink::close]; the file and its directory are
-    /// synced. Fails with [FsError::Exists] if `path` is there or a `path.partial` a crash left holds bytes
-    /// ([Self::reopen] resumes it): an empty one is taken, none is ever emptied.
+    /// A new file of one piece at `path`, created exclusively: [FsError::Exists] when `path` is there, closed,
+    /// unclosed or empty ([Self::reopen] takes it). The file and its directory are synced.
     pub fn create(path: &Path) -> Result<Self, FsError> {
-        if path.exists() {
-            return Err(FsError::Exists(path.to_path_buf()));
-        }
-        let lock = FileLock::take(path)?;
-        let partial = partial_name(path);
-        let file = open_partial(&partial)?;
-        Self::claim(lock, file, path, partial)
+        Self::new_file(path, false)
     }
 
-    /// Take `file`, opened as `partial` for `path` under `lock`: still the file `partial` names (a writer that held
-    /// it may have closed and renamed it to `path` meanwhile, [FsError::Replaced]), empty, and `path` not there.
-    fn claim(
-        mut lock: FileLock,
-        file: File,
-        path: &Path,
-        partial: PathBuf,
-    ) -> Result<Self, FsError> {
-        if !names(&partial, &file).map_err(io_err("checking the file's name", &partial))? {
-            return Err(FsError::Replaced(partial));
-        }
-        lock.bind(&file, path)?;
-        let len = file
-            .metadata()
-            .map_err(io_err("reading the file's length", &partial))?
-            .len();
-        if len != 0 {
-            return Err(FsError::Exists(partial));
-        }
-        if path.exists() {
-            return Err(FsError::Exists(path.to_path_buf()));
-        }
-        file.sync_all()
-            .map_err(io_err("syncing the new file", &partial))?;
-        sync_dir(path).map_err(io_err("syncing the directory", path))?;
-        Ok(Self {
-            file,
-            path: path.to_path_buf(),
-            partial: Some(partial),
-            base: 0,
-            pieces: false,
-            _lock: lock,
-        })
+    /// A new file at `path` for pieces back to back ([Tapes::create_whole]), created exclusively as
+    /// [Self::create]; the file and its directory are synced.
+    pub fn create_whole(path: &Path) -> Result<Self, FsError> {
+        Self::new_file(path, true)
     }
 
     /// The file at `path`, appended to in place; created (and its directory synced) if it isn't there. Its length
     /// is where the writer starts.
     pub fn append(path: &Path) -> Result<Self, FsError> {
-        let mut lock = FileLock::take(path)?;
-        let existed = path.exists();
-        let file = OpenOptions::new()
-            .read(true)
-            .append(true)
-            .create(true)
-            .open(path)
-            .map_err(io_err("opening the file", path))?;
-        lock.bind(&file, path)?;
-        if !existed {
-            file.sync_all()
-                .map_err(io_err("syncing the new file", path))?;
-            sync_dir(path).map_err(io_err("syncing the directory", path))?;
+        let (file, created) = lock::open(path, Open::Either)?;
+        let sink = Self::locked(file, path, true);
+        if created {
+            sink.sync_new()?;
         }
-        Ok(Self {
-            file,
-            path: path.to_path_buf(),
-            partial: None,
-            base: 0,
-            pieces: true,
-            _lock: lock,
-        })
-    }
-
-    /// A new file at `path` written under its own name, for pieces back to back ([Tapes::create_whole]); the
-    /// file and its directory are synced. Fails if `path` is there.
-    pub fn create_whole(path: &Path) -> Result<Self, FsError> {
-        let mut lock = FileLock::take(path)?;
-        let file = match OpenOptions::new()
-            .read(true)
-            .append(true)
-            .create_new(true)
-            .open(path)
-        {
-            Ok(f) => f,
-            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
-                return Err(FsError::Exists(path.to_path_buf()));
-            }
-            Err(error) => {
-                return Err(io_err("creating the file", path)(error));
-            }
-        };
-        lock.bind(&file, path)?;
-        file.sync_all()
-            .map_err(io_err("syncing the new file", path))?;
-        sync_dir(path).map_err(io_err("syncing the directory", path))?;
-        Ok(Self {
-            file,
-            path: path.to_path_buf(),
-            partial: None,
-            base: 0,
-            pieces: true,
-            _lock: lock,
-        })
+        Ok(sink)
     }
 
     /// The file at `path`, appended to in place, closed or not ([Tapes::open_whole]); None when it isn't
     /// there.
     pub fn open_whole(path: &Path) -> Result<Option<Self>, FsError> {
-        let lock = FileLock::take(path)?;
-        match OpenOptions::new().read(true).append(true).open(path) {
-            Ok(file) => Self::opened(lock, file, path, None, true).map(Some),
-            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
-            Err(error) => Err(io_err("opening the file", path)(error)),
-        }
+        Ok(lock::open_existing(path)?.map(|file| Self::locked(file, path, true)))
     }
 
-    /// The file of one piece at `path` to write on: `path.partial` a writer left, to resume, else `path`, closed and
-    /// named, to write on in place after its last close record; None when neither is there.
+    /// The file of one piece at `path` to write on, closed or not: a resume reads which from its bytes; None when it
+    /// isn't there.
     pub fn reopen(path: &Path) -> Result<Option<Self>, FsError> {
-        let lock = FileLock::take(path)?;
-        let partial = partial_name(path);
-        // appended to: writes go to the end, after a truncate too
-        match OpenOptions::new().read(true).append(true).open(&partial) {
-            Ok(file) => return Self::opened(lock, file, path, Some(partial), false).map(Some),
-            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-            Err(error) => {
-                return Err(io_err("opening the unclosed file", &partial)(error));
-            }
-        }
-        match OpenOptions::new().read(true).append(true).open(path) {
-            Ok(file) => Self::opened(lock, file, path, None, false).map(Some),
-            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
-            Err(error) => Err(io_err("opening the closed file", path)(error)),
-        }
+        Ok(lock::open_existing(path)?.map(|file| Self::locked(file, path, false)))
     }
 
-    /// The sink of `file`, opened under `lock` as `partial` (or `path` itself when None), held by its identity too;
-    /// with `pieces` it holds pieces back to back.
-    fn opened(
-        mut lock: FileLock,
-        file: File,
-        path: &Path,
-        partial: Option<PathBuf>,
-        pieces: bool,
-    ) -> Result<Self, FsError> {
-        lock.bind(&file, path)?;
-        Ok(Self {
+    /// A new file at `path`, holding pieces back to back with `pieces`, synced with its directory.
+    fn new_file(path: &Path, pieces: bool) -> Result<Self, FsError> {
+        let (file, _) = lock::open(path, Open::New)?;
+        let sink = Self::locked(file, path, pieces);
+        sink.sync_new()?;
+        Ok(sink)
+    }
+
+    /// The sink of `file`, opened and locked as `path`.
+    fn locked(file: Locked, path: &Path, pieces: bool) -> Self {
+        let warning = lock::warning(file.file(), path);
+        Self {
             file,
             path: path.to_path_buf(),
-            partial,
             base: 0,
             pieces,
-            _lock: lock,
-        })
+            warning,
+        }
+    }
+
+    /// Sync a file just created and its directory, so its name survives a crash.
+    fn sync_new(&self) -> Result<(), FsError> {
+        self.file
+            .file()
+            .sync_all()
+            .map_err(io_err("syncing the new file", &self.path))?;
+        sync_dir(&self.path).map_err(io_err("syncing the directory", &self.path))
     }
 }
 
@@ -277,22 +173,20 @@ impl TapeSink for FileSink {
 
     fn write_all(&mut self, bytes: &[u8]) -> Result<(), FsError> {
         self.file
+            .file_mut()
             .write_all(bytes)
-            .map_err(io_err("writing the file", self.current_path()))
+            .map_err(io_err("writing the file", &self.path))
     }
 
     fn sync(&mut self) -> Result<(), FsError> {
         self.file
+            .file()
             .sync_data()
-            .map_err(io_err("syncing the file", self.current_path()))
+            .map_err(io_err("syncing the file", &self.path))
     }
 
+    /// Nothing: the file has its name from the start, and the writer synced its bytes.
     fn close(&mut self) -> Result<(), FsError> {
-        if let Some(partial) = self.partial.take() {
-            std::fs::rename(&partial, &self.path)
-                .map_err(io_err("renaming the closed file", &partial))?;
-            sync_dir(&self.path).map_err(io_err("syncing the directory", &self.path))?;
-        }
         Ok(())
     }
 
@@ -302,8 +196,8 @@ impl TapeSink for FileSink {
 
     fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), FsError> {
         file_offset(self.base, offset)
-            .and_then(|at| read_file_at(&self.file, at, buf))
-            .map_err(io_err("reading the file", self.current_path()))
+            .and_then(|at| read_file_at(self.file.file(), at, buf))
+            .map_err(io_err("reading the file", &self.path))
     }
 
     fn truncate(&mut self, len: u64) -> Result<(), FsError> {
@@ -314,7 +208,7 @@ impl TapeSink for FileSink {
             io::Seek::seek(file, io::SeekFrom::Start(len))?;
             file.sync_all()
         };
-        truncate(&mut self.file).map_err(io_err("truncating the file", self.current_path()))
+        truncate(self.file.file_mut()).map_err(io_err("truncating the file", &self.path))
     }
 
     fn base(&self) -> u64 {
@@ -328,7 +222,7 @@ impl TapeSink for FileSink {
     fn rebase(&mut self, base: u64) -> Result<(), FsError> {
         self.base = check_base(base, self.len()?, self.holds_pieces()).map_err(|refused| {
             FsError::Base {
-                path: self.current_path().to_path_buf(),
+                path: self.path.clone(),
                 refused,
             }
         })?;
@@ -337,57 +231,25 @@ impl TapeSink for FileSink {
 }
 
 impl FileSink {
-    /// The name of the file once closed.
+    /// The name of the file.
     pub fn path(&self) -> &Path {
         &self.path
     }
 
-    /// The name of the file while it is written (`NAME.partial` for a new file).
-    pub fn current_path(&self) -> &Path {
-        self.partial.as_deref().unwrap_or(&self.path)
+    /// Set when the file is on a network or user-space file system, where the lock may not keep a second writer
+    /// out: the application shows it. Writing goes on.
+    pub fn warning(&self) -> Option<&FsWarning> {
+        self.warning.as_ref()
     }
 
     /// The whole length of the file.
     fn len(&self) -> Result<u64, FsError> {
         Ok(self
             .file
+            .file()
             .metadata()
-            .map_err(io_err("reading the file's length", self.current_path()))?
+            .map_err(io_err("reading the file's length", &self.path))?
             .len())
-    }
-}
-
-/// `partial` opened to write, created if it isn't there, its bytes kept.
-fn open_partial(partial: &Path) -> Result<File, FsError> {
-    OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(partial)
-        .map_err(io_err("creating the file", partial))
-}
-
-/// Whether `path` names `file`: the same device and inode. False when `path` is gone.
-#[cfg(unix)]
-pub(super) fn names(path: &Path, file: &File) -> io::Result<bool> {
-    use std::os::unix::fs::MetadataExt;
-    let opened = file.metadata()?;
-    match std::fs::metadata(path) {
-        Ok(named) => Ok(named.dev() == opened.dev() && named.ino() == opened.ino()),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
-        Err(e) => Err(e),
-    }
-}
-
-/// Whether `path` names `file`: only whether it is there. Stable std has no file identity outside unix (Windows'
-/// file index is unstable); there [FileSink::create] relies on refusing a file with bytes.
-#[cfg(not(unix))]
-pub(super) fn names(path: &Path, _file: &File) -> io::Result<bool> {
-    match std::fs::metadata(path) {
-        Ok(_) => Ok(true),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
-        Err(e) => Err(e),
     }
 }
 
@@ -406,7 +268,8 @@ fn read_file_at(file: &File, mut offset: u64, mut buf: &mut [u8]) -> io::Result<
                 buf = core::mem::take(&mut buf)
                     .get_mut(n..)
                     .ok_or_else(past_end)?;
-                let n = u64::try_from(n).map_err(|_| past_end())?;
+                let n =
+                    u64::try_from(n).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
                 offset = offset.checked_add(n).ok_or_else(past_end)?;
             }
         }
@@ -476,6 +339,7 @@ impl Tapes for Files {
         FileSink::reopen(&self.path_of(*key))
     }
 
+    /// The file of `key`, closed or not: a chain reads from its bytes whether it is closed.
     fn closed(&self, key: &u64) -> Result<Option<FileSource>, FsError> {
         match FileSource::open(&self.path_of(*key)) {
             Ok(src) => Ok(Some(src)),
@@ -537,21 +401,13 @@ impl ByteSource for FileSource {
     }
 }
 
-/// `NAME.partial` next to `NAME`.
-pub fn partial_name(path: &Path) -> PathBuf {
-    let mut name = path.as_os_str().to_owned();
-    name.push(".partial");
-    PathBuf::from(name)
-}
-
-/// Whether neither `path` nor its `.partial` is there: nothing to resume. A name that can't be looked at counts as
-/// there, so opening it reports why.
+/// Whether nothing is at `path`: nothing to resume. A name that can't be looked at counts as there, so opening it
+/// reports why.
 pub(crate) fn none_at(path: &Path) -> bool {
-    let gone = |p: &Path| matches!(std::fs::symlink_metadata(p), Err(e) if e.kind() == io::ErrorKind::NotFound);
-    gone(path) && gone(&partial_name(path))
+    matches!(std::fs::symlink_metadata(path), Err(e) if e.kind() == io::ErrorKind::NotFound)
 }
 
-/// Sync the directory a file is in, so a new or renamed name survives a crash. Windows has no such call (NTFS
+/// Sync the directory a file is in, so a new name survives a crash. Windows has no such call (NTFS
 /// journals names itself).
 fn sync_dir(path: &Path) -> io::Result<()> {
     #[cfg(unix)]
@@ -589,59 +445,69 @@ mod tests {
         assert!(matches!(other, FsError::Io { .. }), "{other:?}");
     }
 
-    /// A create that opened `NAME.partial` while another writer held it, and locks it after that writer closed
-    /// and renamed it to `NAME`, refuses: the closed file keeps its bytes.
+    /// A child forked while a sink holds its lock, which runs no `exec`, holds no lock: the writer's process takes
+    /// the file again as soon as the writer is dropped. Without the fork handler the child would share the open
+    /// file, and with it the `flock`, until it exits.
+    #[cfg(unix)]
     #[test]
-    fn create_refuses_a_partial_renamed_before_its_lock() {
-        let dir = std::env::temp_dir().join(format!("ww_tape_sink_claim_{}", std::process::id()));
+    #[expect(
+        unsafe_code,
+        reason = "fork, sleep, _exit, kill and waitpid have no safe binding"
+    )]
+    fn a_forked_child_holds_no_lock() {
+        let dir = std::env::temp_dir().join(format!("ww_tape_sink_fork_{}", std::process::id()));
         _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("a.wwt");
-        let partial = partial_name(&path);
-        std::fs::write(&partial, b"closed bytes").unwrap();
-        let file = open_partial(&partial).unwrap();
-        std::fs::rename(&partial, &path).unwrap();
-        let r = FileSink::claim(FileLock::take(&path).unwrap(), file, &path, partial.clone());
-        assert!(
-            matches!(&r, Err(FsError::Replaced(p)) if *p == partial),
-            "{:?}",
-            r.err()
-        );
-        assert_eq!(std::fs::read(&path).unwrap(), b"closed bytes");
-        // another file under the name now: refused as well
-        let file = open_partial(&partial).unwrap();
-        std::fs::remove_file(&partial).unwrap();
-        std::fs::write(&partial, b"").unwrap();
-        let r = FileSink::claim(FileLock::take(&path).unwrap(), file, &path, partial.clone());
-        assert!(matches!(&r, Err(FsError::Replaced(_))), "{:?}", r.err());
+        let mut sink = FileSink::create(&path).unwrap();
+        sink.write_all(b"abc").unwrap();
+        // SAFETY: the child calls only async-signal-safe functions (sleep, _exit) and returns never
+        let child = unsafe { libc::fork() };
+        assert!(child >= 0, "fork failed");
+        if child == 0 {
+            // SAFETY: async-signal-safe; the child ends without running the parent's destructors
+            unsafe {
+                libc::sleep(60);
+                libc::_exit(0);
+            }
+        }
+        drop(sink);
+        let again = FileSink::reopen(&path);
+        // SAFETY: `child` is this process's child, killed and reaped once
+        unsafe {
+            libc::kill(child, libc::SIGKILL);
+            libc::waitpid(child, core::ptr::null_mut(), 0);
+        }
+        assert!(matches!(again, Ok(Some(_))), "{:?}", again.err());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
-    /// A child process that shares the writer's open file (as a child forked by the writer's process does until it
-    /// runs `exec`) holds no lock: the writer's process takes the file again as soon as the writer is dropped. An
-    /// `flock` on the file would stay with the child.
-    #[cfg(unix)]
+    /// A file on a network or user-space file system (a fake NFS type here) gets a warning naming it; writing goes
+    /// on. A local one gets none.
     #[test]
-    fn a_child_sharing_the_open_file_holds_no_lock() {
-        let dir = std::env::temp_dir().join(format!("ww_tape_sink_child_{}", std::process::id()));
+    fn a_shared_file_system_is_a_warning() {
+        let dir = std::env::temp_dir().join(format!("ww_tape_sink_warn_{}", std::process::id()));
         _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("a.wwt");
-        let sink = FileSink::create(&path).unwrap();
-        let shared = sink.file.try_clone().unwrap();
-        let mut child = std::process::Command::new("sleep")
-            .arg("60")
-            .env_clear()
-            .stdin(std::process::Stdio::null())
-            .stdout(shared)
-            .spawn()
-            .expect("sleep, a POSIX utility, runs the child");
+        lock::FAKE_MAGIC.with(|m| m.set(Some(0x6969)));
+        let mut sink = FileSink::create(&path).unwrap();
+        lock::FAKE_MAGIC.with(|m| m.set(None));
+        let w = sink.warning().expect("NFS is a shared file system").clone();
+        assert_eq!(w.fs(), lock::SharedFs::Nfs);
+        assert_eq!(w.path(), path);
+        assert!(
+            w.to_string()
+                .starts_with(&format!("{}: on NFS,", path.display())),
+            "{w}"
+        );
+        sink.write_all(b"abc").unwrap();
+        sink.sync().unwrap();
         drop(sink);
-        let again = FileSink::reopen(&path);
-        // SIGKILL: no core dump, nothing left behind
-        child.kill().unwrap();
-        child.wait().unwrap();
-        assert!(matches!(again, Ok(Some(_))), "{:?}", again.err());
+        lock::FAKE_MAGIC.with(|m| m.set(Some(0xEF53)));
+        let sink = FileSink::reopen(&path).unwrap().unwrap();
+        lock::FAKE_MAGIC.with(|m| m.set(None));
+        assert_eq!(sink.warning(), None);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -656,21 +522,19 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("x.wwt");
         let shown = path.display();
-        let partial = partial_name(&path);
 
         let mut sink = FileSink::create(&path).unwrap();
-        let e = FileSink::create(&path).err().unwrap();
+        let e = FileSink::reopen(&path).err().unwrap();
         assert_eq!(e.to_string(), format!("{shown}: locked by another writer"));
+        let e = FileSink::create(&path).err().unwrap();
+        assert_eq!(e.to_string(), format!("{shown}: already exists"));
         assert!(e.source().is_none());
 
         sink.write_all(b"abc").unwrap();
         let e = sink.rebase(1).unwrap_err();
         assert_eq!(
             e.to_string(),
-            format!(
-                "{}: a piece can't start there: a sink of one piece takes no base but 0",
-                partial.display()
-            )
+            format!("{shown}: a piece can't start there: a sink of one piece takes no base but 0")
         );
         assert!(e.source().is_none());
         sink.close().unwrap();
@@ -689,10 +553,7 @@ mod tests {
         let e = FileSink::append(&missing).err().unwrap();
         assert_eq!(
             e.to_string(),
-            format!(
-                "{}: finding the file to lock: entity not found",
-                missing.display()
-            )
+            format!("{}: creating the file: entity not found", missing.display())
         );
         let os = e.source().unwrap().to_string();
         assert!(!e.to_string().contains(&os), "{e} repeats {os}");

@@ -1,334 +1,187 @@
-//! [FileLock]: one writer per file, by a lock file beside it that only writers open.
+//! [Locked]: one writer per file, by the kernel's lock on the open file itself.
 //!
-//! The lock of the file `NAME` is held on `NAME.lock` ([lock_name]: a hashed name where `NAME` leaves no room),
-//! never on `NAME` or `NAME.partial` themselves:
+//! A file sink locks the file it writes, under whatever name reaches it (a link, a hard link), and holds the lock
+//! until it closes the file. Nothing beside the file is created, so a crash leaves nothing to clean up: the kernel
+//! lets the lock go with the process.
 //!
-//! - On unix it is a POSIX record lock (`fcntl(F_SETLK)`), which belongs to the process. A child forked while a
-//!   writer holds it inherits the open lock file but not the lock, so the writer's resume right after it lets go is
-//!   never refused because a child has not yet run `exec` (an `flock` belongs to the open file description, which
-//!   the child shares).
-//! - A record lock goes away when its process closes any descriptor of the file. Readers open `NAME` and
-//!   `NAME.partial` and close them as they like; nobody but the lock holder opens `NAME.lock`.
-//! - A record lock doesn't keep apart two writers of one process, so a table of the lock files this process holds
-//!   does. It is checked before the lock file is opened, so a refused writer never opens (and closes) a lock file
-//!   the process holds.
-//! - One file has one lock whatever name reaches it. The lock file is named after the file's canonical name, with
-//!   links resolved and a `.partial` suffix dropped, so `NAME`, a link to it and `NAME.partial` share `NAME.lock`. A
-//!   hard link is another name of the same file that no name tells apart: on unix the table also keys each file a
-//!   sink opened by its device and inode, so two writers of one process are refused through hard links too (std
-//!   has no file identity elsewhere). Two
-//!   processes writing one file through two hard-linked names are not refused: both append to the same bytes, and
-//!   their blocks interleave into a file that reads as damaged. A lock on the file itself would catch that, but
-//!   every kind either passes to a forked child (`flock`, open file description locks) or goes away when a reader
-//!   of the holder's process closes the file (record locks).
-//! - The lock file is opened without following a link, and must be a regular file ([FsError::NotAFile]): a link
-//!   planted there would lock another file, and a dangling one would create its target.
-//! - On unix the holder removes the lock file when it lets go, while it still holds the lock. A writer that opened the file
-//!   before it was removed takes the lock on a file no longer named `NAME.lock`, sees so and opens the new one
-//!   ([LOCK_TRIES_MAX]). A lock file a crash left holds no lock and is taken as it is.
+//! - On unix it is an `flock` lock, which belongs to the open file. A second open of the file conflicts with it, in
+//!   this process too, so two writers of one process are kept apart without a table. A reader opens and closes the
+//!   file as it likes: closing another open of the file lets no lock go.
+//! - A child forked while a sink holds the lock would share its open file, and with it the lock, until it runs
+//!   `exec` (the file is opened close-on-exec) or exits. A fork handler ([fork]) points each locked descriptor of
+//!   the child at `/dev/null` instead, opened to read only: the child holds no lock, and a write it makes through a
+//!   writer it inherited fails.
+//! - On Windows the file is opened sharing reads and deletes but not writes, so a second open to write is refused
+//!   by the file system, also on a network share. A lock there ([File::try_lock]) would keep readers out too. A
+//!   child gets no handle unless the parent passes it.
+//! - A device (such as a raw SD card) is locked the same way, on the sink's own handle.
 //!
-//! Elsewhere (Windows) the lock file holds the file system's lock ([File::try_lock]): a child process gets no
-//! handle there unless the parent passes it. The lock file is never removed there: removing it after it is closed
-//! could remove the file of the next holder, and a later writer would lock a new file beside it. It stays beside
-//! `NAME` once the writer is gone, holds no lock, and the next writer takes it as it is.
-//!
-//! A device (such as a raw SD card, whose directory takes no lock file) is locked itself, opened without waiting,
-//! by the file system's lock on a handle of its own: a child forked while it is held holds it too, until it runs
-//! `exec`. Any other name that isn't a regular file (a directory, a FIFO, a socket) is refused before it is opened
-//! ([FsError::NotAFile]): opening a FIFO waits for its other end.
+//! The lock is advisory: other writers of the format take it too. A network or user-space file system may not keep
+//! it ([FsWarning]).
 
-use std::collections::BTreeSet;
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 
-use crate::sink::{FsError, io_err, partial_name};
+use crate::sink::{FsError, io_err};
 
-/// How often a file sink opens its lock file again after a holder removed the one it opened: each time is a
-/// holder that let go meanwhile.
-pub const LOCK_TRIES_MAX: usize = 8;
-
-/// The files this process holds the lock of: a record lock doesn't keep apart two writers of one process. Owned by
-/// [FileLock]: taken in [FileLock::take] and [FileLock::bind], given back in its drop.
-// spirit-level: allow(static-interior-mutability) record locks are per process, so is this set
-static HELD: Mutex<BTreeSet<Held>> = Mutex::new(BTreeSet::new());
-
-/// An entry of [HELD].
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-enum Held {
-    /// A lock file, by its absolute path
-    Name(PathBuf),
-    /// A file a sink opened, by its device and inode
-    #[cfg(unix)]
-    File { dev: u64, ino: u64 },
+/// How [open] opens a file.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Open {
+    /// A new file: [FsError::Exists] when the name is there
+    New,
+    /// The file there, else a new one
+    Either,
 }
 
-/// The exclusive lock of a file, held until dropped, see the [module docs](self).
+/// An open file this process holds the lock of, see the [module docs](self).
 #[derive(Debug)]
-pub(crate) struct FileLock {
-    /// The open lock files; taken in the drop, so they close before the entries go
-    files: Vec<LockFile>,
-    /// Its entries in [HELD]
-    keys: Vec<Held>,
-}
-
-/// One lock file held.
-#[derive(Debug)]
-struct LockFile {
+pub(crate) struct Locked {
     file: File,
-    /// Its name: removed when let go, unless the lock is on the file itself (a device)
-    path: Option<PathBuf>,
 }
 
-/// The longest name of a file in a directory, in bytes (Linux, macOS; Windows counts 255 UTF-16 units, never more
-/// than the bytes).
-const NAME_BYTES_MAX: usize = 255;
-
-/// The lock file of the file `path`: `NAME.lock` next to `NAME`, or, where that name would pass the 255-byte limit
-/// of a name, `HASH.lock` next to it, `HASH` the BLAKE3 hash of `NAME` in hex.
-pub fn lock_name(path: &Path) -> PathBuf {
-    let name = path.file_name().unwrap_or(path.as_os_str());
-    if name.len().saturating_add(".lock".len()) <= NAME_BYTES_MAX {
-        let mut name = path.as_os_str().to_owned();
-        name.push(".lock");
-        return PathBuf::from(name);
-    }
-    let mut hex = blake3::hash(name.as_encoded_bytes()).to_hex().to_string();
-    hex.push_str(".lock");
-    path.with_file_name(hex)
-}
-
-/// An [FsError::Io] of `what` on the lock file `path` of the piece `name`, or [FsError::ReadOnly] naming the piece
-/// when the file system takes no writes: the caller asked for the piece and never named its lock file.
-fn lock_err(
-    what: &'static str,
-    path: &Path,
-    name: &Path,
-) -> impl FnOnce(std::io::Error) -> FsError {
-    let (path, name) = (path.to_path_buf(), name.to_path_buf());
-    move |error| match error.kind() {
-        std::io::ErrorKind::ReadOnlyFilesystem => FsError::ReadOnly(name),
-        _ => FsError::Io { what, path, error },
-    }
-}
-
-impl FileLock {
-    /// The lock of the file `name` (its final name, also while it is written as `NAME.partial`):
-    /// [FsError::Locked] while another writer, of this process or another, holds it.
-    pub(crate) fn take(name: &Path) -> Result<Self, FsError> {
-        match std::fs::metadata(name) {
-            Ok(m) if is_device(&m) => return Self::take_itself(name),
-            Ok(m) if !m.is_file() => return Err(FsError::NotAFile(name.to_path_buf())),
-            _ => {}
-        }
-        let mut lock = Self {
-            files: Vec::new(),
-            keys: Vec::new(),
-        };
-        // the names `name` and its `.partial` stand for; one unless a link points elsewhere
-        let mut keys = BTreeSet::new();
-        keys.insert(lock_key(name).map_err(io_err("finding the file to lock", name))?);
-        let partial = partial_name(name);
-        if std::fs::symlink_metadata(&partial).is_ok() {
-            keys.insert(lock_key(&partial).map_err(io_err("finding the file to lock", &partial))?);
-        }
-        for key in keys {
-            let path = lock_name(&key);
-            let entry = Entry::claim(Held::Name(path.clone()), name)?;
-            let file = Self::lock_file(&path, name)?;
-            lock.keys.push(entry.keep());
-            lock.files.push(LockFile {
-                file,
-                path: Some(path),
-            });
-        }
-        Ok(lock)
-    }
-
-    /// The lock file `path` of `name`, opened and locked.
-    fn lock_file(path: &Path, name: &Path) -> Result<File, FsError> {
-        let io_err = |what| lock_err(what, path, name);
-        for _ in 0..LOCK_TRIES_MAX {
-            let file = match open_lock_file(path) {
-                Ok(f) => f,
-                Err(e) if is_link_refused(&e) => return Err(FsError::NotAFile(path.to_path_buf())),
-                Err(error) => {
-                    return Err(io_err("opening the lock file")(error));
-                }
-            };
-            let meta = file
-                .metadata()
-                .map_err(io_err("reading the lock file's type"))?;
-            if !meta.is_file() {
-                return Err(FsError::NotAFile(path.to_path_buf()));
-            }
-            if !try_lock(&file).map_err(io_err("locking the lock file"))? {
-                return Err(FsError::Locked(name.to_path_buf()));
-            }
-            if names_itself(path, &file).map_err(io_err("checking the lock file's name"))? {
-                return Ok(file);
-            }
-            // its holder removed it as it let go: the lock is on a file nobody else finds
-        }
-        Err(FsError::Locked(name.to_path_buf()))
-    }
-
-    /// The lock of `name`, not a regular file, on the file itself.
-    fn take_itself(name: &Path) -> Result<Self, FsError> {
-        let key = absolute(name).map_err(io_err("finding the file to lock", name))?;
-        let entry = Entry::claim(Held::Name(key), name)?;
-        let file = open_device(name).map_err(io_err("opening the file to lock", name))?;
-        match file.try_lock() {
-            Ok(()) => Ok(Self {
-                files: vec![LockFile { file, path: None }],
-                keys: vec![entry.keep()],
-            }),
-            Err(std::fs::TryLockError::WouldBlock) => Err(FsError::Locked(name.to_path_buf())),
-            Err(std::fs::TryLockError::Error(error)) => {
-                Err(io_err("locking the file", name)(error))
-            }
-        }
-    }
-
-    /// Hold `file`, opened as `name` under this lock, by its identity too: [FsError::Locked] when another writer of
-    /// this process holds it under another name (a hard link). [FsError::NotAFile] unless it is a regular file or a
-    /// device.
-    pub(crate) fn bind(&mut self, file: &File, name: &Path) -> Result<(), FsError> {
-        let meta = file
-            .metadata()
-            .map_err(io_err("reading the file's type", name))?;
-        if !meta.is_file() && !is_device(&meta) {
-            return Err(FsError::NotAFile(name.to_path_buf()));
-        }
-        if let Some(id) = identity(file).map_err(io_err("reading the file's identity", name))? {
-            let entry = Entry::claim(id, name)?;
-            self.keys.push(entry.keep());
-        }
-        Ok(())
-    }
-}
-
-impl Drop for FileLock {
-    /// Remove the lock files while they are held, then close them (which lets the locks go) and give back the
-    /// entries.
-    fn drop(&mut self) {
-        for LockFile { file, path } in self.files.drain(..) {
-            if cfg!(unix)
-                && let Some(path) = &path
-                && matches!(names_itself(path, &file), Ok(true))
-            {
-                // a lock file left behind holds no lock: the next writer takes it as it is
-                _ = std::fs::remove_file(path);
-            }
-            // closed before the entry goes: a writer of this process that opened the same file and closed it
-            // after taking it would let its lock go
-            drop(file);
-        }
-        let mut held = held();
-        for key in &self.keys {
-            held.remove(key);
-        }
-    }
-}
-
-/// An entry of [HELD] taken for a lock not yet held: given back when dropped unless kept.
-struct Entry {
-    key: Held,
-    kept: bool,
-}
-
-impl Entry {
-    /// The entry `key` of the lock of `name`; [FsError::Locked] when this process holds it.
-    fn claim(key: Held, name: &Path) -> Result<Self, FsError> {
-        if !held().insert(key.clone()) {
-            return Err(FsError::Locked(name.to_path_buf()));
-        }
-        Ok(Self { key, kept: false })
-    }
-
-    /// The entry, now owned by a [FileLock].
-    fn keep(mut self) -> Held {
-        self.kept = true;
-        self.key.clone()
-    }
-}
-
-impl Drop for Entry {
-    fn drop(&mut self) {
-        if !self.kept {
-            held().remove(&self.key);
-        }
-    }
-}
-
-#[expect(
-    clippy::expect_used,
-    reason = "a poisoned lock panics: the table may be half changed"
-)]
-fn held() -> std::sync::MutexGuard<'static, BTreeSet<Held>> {
-    HELD.lock()
-        .expect("a writer panicked while it took or gave back a file lock")
-}
-
-/// The name the lock of `name` is kept under: its canonical name (links resolved), without `.partial` suffixes, so
-/// `NAME`, a link to it and `NAME.partial` are one lock.
-fn lock_key(name: &Path) -> io::Result<PathBuf> {
-    let mut key = match std::fs::canonicalize(name) {
-        Ok(p) => p,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => absolute(name)?,
+/// The file `path` opened to read and append, as `how` says, and locked; the bool is true for a file it created.
+/// [FsError::Locked] while another writer holds it, [FsError::NotAFile] for a directory, a FIFO or a socket (opening
+/// a FIFO would wait for its other end).
+pub(crate) fn open(path: &Path, how: Open) -> Result<(Locked, bool), FsError> {
+    check_type(path)?;
+    let (file, created) = match open_file(path, true) {
+        Ok(f) => (f, true),
+        Err(FsError::Exists(_)) if how == Open::Either => (open_file(path, false)?, false),
         Err(e) => return Err(e),
     };
-    while let Some(stem) = key.file_name().and_then(strip_partial) {
-        key = key.with_file_name(stem);
+    Ok((Locked::take(checked(file, path)?, path)?, created))
+}
+
+/// The file there at `path`, opened to read and append and locked as [open]; None when the name isn't there.
+pub(crate) fn open_existing(path: &Path) -> Result<Option<Locked>, FsError> {
+    check_type(path)?;
+    match open_file(path, false) {
+        Ok(file) => Ok(Some(Locked::take(checked(file, path)?, path)?)),
+        Err(FsError::Io { error, .. }) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e),
     }
-    Ok(key)
 }
 
-/// `name` without its `.partial` suffix; None when it has none or is nothing else.
+/// [FsError::NotAFile] when `path` names a directory, a FIFO or a socket, checked before it is opened.
+fn check_type(path: &Path) -> Result<(), FsError> {
+    match std::fs::metadata(path) {
+        Ok(m) if !m.is_file() && !is_device(&m) => Err(FsError::NotAFile(path.to_path_buf())),
+        _ => Ok(()),
+    }
+}
+
+/// `file`, opened as `path`, when it is a regular file or a device: the name may have changed since [check_type].
+fn checked(file: File, path: &Path) -> Result<File, FsError> {
+    let meta = file
+        .metadata()
+        .map_err(io_err("reading the file's type", path))?;
+    if !meta.is_file() && !is_device(&meta) {
+        return Err(FsError::NotAFile(path.to_path_buf()));
+    }
+    Ok(file)
+}
+
+/// `path` opened to read and append, created with `new` (refused when it is there).
+fn open_file(path: &Path, new: bool) -> Result<File, FsError> {
+    let mut options = OpenOptions::new();
+    options.read(true).append(true).create_new(new);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        /// `FILE_SHARE_READ | FILE_SHARE_DELETE`: readers may open the file, another writer may not
+        const SHARE_READ_DELETE: u32 = 0x1 | 0x4;
+        options.share_mode(SHARE_READ_DELETE);
+    }
+    match options.open(path) {
+        Ok(f) => Ok(f),
+        Err(e) if new && e.kind() == io::ErrorKind::AlreadyExists => {
+            Err(FsError::Exists(path.to_path_buf()))
+        }
+        Err(e) if is_shared_out(&e) => Err(FsError::Locked(path.to_path_buf())),
+        Err(error) => Err(io_err(
+            if new {
+                "creating the file"
+            } else {
+                "opening the file"
+            },
+            path,
+        )(error)),
+    }
+}
+
+/// Whether an open failed because another handle opened the file to write (Windows: `ERROR_SHARING_VIOLATION`).
+fn is_shared_out(e: &io::Error) -> bool {
+    /// `ERROR_SHARING_VIOLATION`
+    const SHARING_VIOLATION: i32 = 32;
+    cfg!(windows) && e.raw_os_error() == Some(SHARING_VIOLATION)
+}
+
+impl Locked {
+    /// Lock `file`, opened as `path`: [FsError::Locked] while another open of it holds the lock.
+    #[cfg(unix)]
+    fn take(file: File, path: &Path) -> Result<Self, FsError> {
+        use std::os::fd::AsRawFd;
+        // registered before the lock is taken: a fork in between leaves the child nothing to hold
+        fork::hold(file.as_raw_fd())
+            .map_err(io_err("making the lock stay with this process", path))?;
+        // from here the drop gives the registration back
+        let locked = Self { file };
+        match rustix::fs::flock(
+            &locked.file,
+            rustix::fs::FlockOperation::NonBlockingLockExclusive,
+        ) {
+            Ok(()) => Ok(locked),
+            Err(e) if e == rustix::io::Errno::WOULDBLOCK => {
+                Err(FsError::Locked(path.to_path_buf()))
+            }
+            Err(e) => Err(io_err("locking the file", path)(e.into())),
+        }
+    }
+
+    /// On Windows the open shared no writes, which is the lock.
+    #[cfg(windows)]
+    #[expect(
+        clippy::unnecessary_wraps,
+        reason = "the same signature as where the lock is taken after the open"
+    )]
+    fn take(file: File, _path: &Path) -> Result<Self, FsError> {
+        Ok(Self { file })
+    }
+
+    /// Lock `file` with the file system's lock.
+    #[cfg(not(any(unix, windows)))]
+    fn take(file: File, path: &Path) -> Result<Self, FsError> {
+        match file.try_lock() {
+            Ok(()) => Ok(Self { file }),
+            Err(std::fs::TryLockError::WouldBlock) => Err(FsError::Locked(path.to_path_buf())),
+            Err(std::fs::TryLockError::Error(e)) => Err(io_err("locking the file", path)(e)),
+        }
+    }
+
+    /// The open file.
+    pub(crate) fn file(&self) -> &File {
+        &self.file
+    }
+
+    /// The open file, to write and truncate.
+    pub(crate) fn file_mut(&mut self) -> &mut File {
+        &mut self.file
+    }
+}
+
 #[cfg(unix)]
-fn strip_partial(name: &std::ffi::OsStr) -> Option<std::ffi::OsString> {
-    use std::os::unix::ffi::OsStrExt;
-    let stem = name.as_bytes().strip_suffix(b".partial")?;
-    (!stem.is_empty()).then(|| std::ffi::OsStr::from_bytes(stem).to_owned())
+impl Drop for Locked {
+    /// Give the registration back while the descriptor still names this file: once it is closed, its number may
+    /// name a file opened by someone else.
+    fn drop(&mut self) {
+        use std::os::fd::AsRawFd;
+        fork::release(self.file.as_raw_fd());
+    }
 }
 
-#[cfg(not(unix))]
-fn strip_partial(name: &std::ffi::OsStr) -> Option<std::ffi::OsString> {
-    let stem = name.to_str()?.strip_suffix(".partial")?;
-    (!stem.is_empty()).then(|| stem.into())
-}
-
-/// The device and inode of `file`; None where std has no file identity (outside unix).
-#[cfg(unix)]
-fn identity(file: &File) -> io::Result<Option<Held>> {
-    use std::os::unix::fs::MetadataExt;
-    let m = file.metadata()?;
-    Ok(Some(Held::File {
-        dev: m.dev(),
-        ino: m.ino(),
-    }))
-}
-
-#[cfg(not(unix))]
-fn identity(_file: &File) -> io::Result<Option<Held>> {
-    Ok(None)
-}
-
-/// `path` with its directory resolved, so two names of one lock file are one entry.
-fn absolute(path: &Path) -> io::Result<PathBuf> {
-    let dir = match path.parent() {
-        Some(d) if !d.as_os_str().is_empty() => d,
-        _ => Path::new("."),
-    };
-    let name = path
-        .file_name()
-        .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
-    Ok(std::fs::canonicalize(dir)?.join(name))
-}
-
-/// Whether `meta` is a device, locked itself: a block or character device on unix, anything but a file or a
-/// directory elsewhere.
+/// Whether `meta` is a device, written and locked as a file: a block or character device on unix, anything but a
+/// file or a directory elsewhere.
 fn is_device(meta: &std::fs::Metadata) -> bool {
     #[cfg(unix)]
     return {
@@ -340,133 +193,362 @@ fn is_device(meta: &std::fs::Metadata) -> bool {
     return !meta.is_file() && !meta.is_dir();
 }
 
-/// The device `name`, opened to hold its lock: without waiting (a serial port waits for its carrier otherwise).
+/// The fork handler: a child forked while this process holds file locks holds none of them.
+///
+/// `pthread_atfork` runs [prepare] in the forking thread before the fork, then [parent] in the parent and [child]
+/// in the child. [prepare] takes the table of locked descriptors and keeps its guard in the forking thread, so no
+/// sink changes the table across the fork; with any lock held it also opens a pipe. [child] points each locked
+/// descriptor at `/dev/null` (opened to read only, close-on-exec, before any fork) with `dup2`, which drops only the
+/// child's share of the open file, then closes the pipe. [parent] waits for the pipe's end, so when `fork` returns
+/// in the parent the child holds no lock. The child's descriptor numbers stay taken, so a writer the child inherited
+/// and drops closes `/dev/null`, never a file of the child's own.
 #[cfg(unix)]
-fn open_device(name: &Path) -> io::Result<File> {
-    use rustix::fs::{Mode, OFlags};
-    let flags = OFlags::RDONLY | OFlags::NONBLOCK | OFlags::CLOEXEC;
-    Ok(File::from(rustix::fs::open(name, flags, Mode::empty())?))
-}
+#[expect(
+    unsafe_code,
+    reason = "pthread_atfork, pipe, read, dup2, fcntl and close around a fork have no safe binding"
+)]
+mod fork {
+    use std::cell::RefCell;
+    use std::collections::BTreeSet;
+    use std::io;
+    use std::os::fd::{AsRawFd, OwnedFd, RawFd};
+    use std::sync::{Mutex, MutexGuard, OnceLock, PoisonError};
 
-#[cfg(not(unix))]
-fn open_device(name: &Path) -> io::Result<File> {
-    File::open(name)
-}
+    /// The descriptors of files this process holds the lock of. Owned by [super::Locked]: added in its take, given
+    /// back in its drop; read by [child].
+    // spirit-level: allow(static-interior-mutability) the fork handler is per process, so is this set
+    static LOCKED: Mutex<BTreeSet<RawFd>> = Mutex::new(BTreeSet::new());
 
-/// The lock file `path`, opened to read and write and created if it isn't there; a link is never followed, and a
-/// FIFO doesn't block the open.
-#[cfg(unix)]
-fn open_lock_file(path: &Path) -> io::Result<File> {
-    use rustix::fs::{Mode, OFlags};
-    let flags =
-        OFlags::RDWR | OFlags::CREATE | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC;
-    let mode = Mode::RUSR | Mode::WUSR | Mode::RGRP | Mode::ROTH;
-    Ok(File::from(rustix::fs::open(path, flags, mode)?))
-}
+    /// `/dev/null`, opened to read only: what a locked descriptor names in a forked child.
+    static NULL: OnceLock<io::Result<OwnedFd>> = OnceLock::new();
 
-/// The lock file `path`, opened to read and write and created if it isn't there; a link is opened itself, not
-/// followed.
-#[cfg(windows)]
-fn open_lock_file(path: &Path) -> io::Result<File> {
-    use std::os::windows::fs::OpenOptionsExt;
-    /// `FILE_FLAG_OPEN_REPARSE_POINT`: open a link itself
-    const OPEN_REPARSE_POINT: u32 = 0x0020_0000;
-    std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .custom_flags(OPEN_REPARSE_POINT)
-        .open(path)
-}
+    /// The handlers, installed once: 0, or the error `pthread_atfork` returned.
+    static INSTALLED: OnceLock<i32> = OnceLock::new();
 
-#[cfg(not(any(unix, windows)))]
-fn open_lock_file(path: &Path) -> io::Result<File> {
-    std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(path)
-}
+    /// What [prepare] hands [parent] and [child] across a fork.
+    struct Forking {
+        /// The guard of [LOCKED]
+        locked: MutexGuard<'static, BTreeSet<RawFd>>,
+        /// The pipe the parent waits on, read end first; None with no lock held or when it couldn't be opened
+        pipe: Option<[RawFd; 2]>,
+    }
 
-/// Whether opening the lock file failed because it is a link (`O_NOFOLLOW` refuses one with `ELOOP`).
-fn is_link_refused(e: &io::Error) -> bool {
-    #[cfg(unix)]
-    return e.raw_os_error() == Some(rustix::io::Errno::LOOP.raw_os_error());
-    #[cfg(not(unix))]
-    return {
-        let _ = e;
-        false
-    };
-}
+    // spirit-level: allow(thread-local-state) handed from one fork handler to the next in the forking thread
+    thread_local! {
+        /// Set by [prepare], taken by [parent] or [child]; owned by the forking thread.
+        static FORKING: RefCell<Option<Forking>> = const { RefCell::new(None) };
+    }
 
-/// Whether `path` itself, not what a link there points to, names `file`. False when `path` is gone.
-#[cfg(unix)]
-fn names_itself(path: &Path, file: &File) -> io::Result<bool> {
-    use std::os::unix::fs::MetadataExt;
-    let opened = file.metadata()?;
-    match std::fs::symlink_metadata(path) {
-        Ok(named) => Ok(named.dev() == opened.dev() && named.ino() == opened.ino()),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
-        Err(e) => Err(e),
+    /// The table, also after a sink panicked while it held it: each change is one insert or remove, so the table is
+    /// never half changed, and a fork handler must not panic.
+    fn locked() -> MutexGuard<'static, BTreeSet<RawFd>> {
+        LOCKED.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Keep the lock `fd` will hold out of forked children: until [release].
+    pub(super) fn hold(fd: RawFd) -> io::Result<()> {
+        let null = NULL.get_or_init(|| {
+            use rustix::fs::{Mode, OFlags};
+            Ok(rustix::fs::open(
+                "/dev/null",
+                OFlags::RDONLY | OFlags::CLOEXEC,
+                Mode::empty(),
+            )?)
+        });
+        if let Err(e) = null {
+            return Err(io::Error::new(e.kind(), "/dev/null can't be opened"));
+        }
+        let installed = *INSTALLED.get_or_init(|| {
+            // SAFETY: the handlers are `extern "C"` functions that never unwind; registering them has no other
+            // precondition
+            unsafe { libc::pthread_atfork(Some(prepare), Some(parent), Some(child)) }
+        });
+        if installed != 0 {
+            return Err(io::Error::from_raw_os_error(installed));
+        }
+        locked().insert(fd);
+        Ok(())
+    }
+
+    /// `fd` holds no lock any more.
+    pub(super) fn release(fd: RawFd) {
+        locked().remove(&fd);
+    }
+
+    /// A pipe whose ends close on `exec`, so no other child keeps it open; None when it can't be opened.
+    fn pipe() -> Option<[RawFd; 2]> {
+        let mut fds: [RawFd; 2] = [-1, -1];
+        #[cfg(not(target_vendor = "apple"))]
+        // SAFETY: `fds` has room for the two descriptors pipe2 writes
+        let r = unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC) };
+        #[cfg(target_vendor = "apple")]
+        // SAFETY: `fds` has room for the two descriptors pipe writes; both are set close-on-exec at once (macOS
+        // has no pipe2), while this process's forks wait for the table this thread holds
+        let r = unsafe {
+            let r = libc::pipe(fds.as_mut_ptr());
+            if r == 0 {
+                libc::fcntl(fds[0], libc::F_SETFD, libc::FD_CLOEXEC);
+                libc::fcntl(fds[1], libc::F_SETFD, libc::FD_CLOEXEC);
+            }
+            r
+        };
+        (r == 0).then_some(fds)
+    }
+
+    extern "C" fn prepare() {
+        let locked = locked();
+        let pipe = if locked.is_empty() { None } else { pipe() };
+        FORKING.with(|f| {
+            if let Ok(mut f) = f.try_borrow_mut() {
+                *f = Some(Forking { locked, pipe });
+            }
+        });
+    }
+
+    /// Wait until the child dropped its share of the locked files (or ended), then let the table go.
+    extern "C" fn parent() {
+        let Some(Forking { locked, pipe }) = FORKING.with(|f| f.try_borrow_mut().ok()?.take())
+        else {
+            return;
+        };
+        if let Some([read, write]) = pipe {
+            let mut byte = 0u8;
+            // SAFETY: both ends are open, made by `prepare` for this fork; the parent closes its write end first,
+            // so the read ends once the child closed its own, and `byte` has room for the one byte read
+            unsafe {
+                libc::close(write);
+                loop {
+                    let n = libc::read(read, (&raw mut byte).cast(), 1);
+                    if n >= 0 || io::Error::last_os_error().kind() != io::ErrorKind::Interrupted {
+                        break;
+                    }
+                }
+                libc::close(read);
+            }
+        }
+        drop(locked);
+    }
+
+    /// In the child, which runs only this thread: async-signal-safe calls only (`dup2`, `fcntl`, `close`).
+    extern "C" fn child() {
+        let Some(Forking { locked, pipe }) = FORKING.with(|f| f.try_borrow_mut().ok()?.take())
+        else {
+            return;
+        };
+        if let Some(Ok(null)) = NULL.get() {
+            let null = null.as_raw_fd();
+            for &fd in locked.iter() {
+                // SAFETY: both descriptors are open: `null` for the life of the process, `fd` as long as its entry
+                // is in the table, which no thread changed since `prepare` took it
+                unsafe {
+                    if libc::dup2(null, fd) == fd {
+                        libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
+                    }
+                }
+            }
+        }
+        if let Some([read, write]) = pipe {
+            // SAFETY: the child's copies of the pipe `prepare` made for this fork, closed once
+            unsafe {
+                libc::close(read);
+                libc::close(write);
+            }
+        }
+        drop(locked);
     }
 }
 
-/// Whether `path` is still there: std has no file identity outside unix.
-#[cfg(not(unix))]
-fn names_itself(path: &Path, _file: &File) -> io::Result<bool> {
-    match std::fs::symlink_metadata(path) {
-        Ok(_) => Ok(true),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
-        Err(e) => Err(e),
+/// A file system where a file sink's lock may not keep a second writer out, or a sync may return before the bytes
+/// are stored: a network file system, or one a program serves in user space.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum SharedFs {
+    /// NFS: a lock is passed to the server, which may not keep it (`nolock`, an old server, a lost lease).
+    Nfs,
+    /// SMB or CIFS: a lock may not reach other clients, or may be held only in this client's cache.
+    Smb,
+    /// FUSE, such as sshfs or rclone: the program serving the file system decides whether a lock holds.
+    Fuse,
+    /// 9P, such as a folder of the host in a virtual machine or WSL2.
+    NineP,
+    /// CephFS.
+    Ceph,
+    /// AFS or OpenAFS.
+    Afs,
+    /// Lustre.
+    Lustre,
+    /// A VirtualBox shared folder.
+    VirtualBox,
+    /// AFP, a share of an older Mac.
+    Afp,
+    /// WebDAV.
+    WebDav,
+}
+
+impl SharedFs {
+    /// The file system's name, as its users know it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Nfs => "NFS",
+            Self::Smb => "SMB",
+            Self::Fuse => "FUSE",
+            Self::NineP => "9P",
+            Self::Ceph => "CephFS",
+            Self::Afs => "AFS",
+            Self::Lustre => "Lustre",
+            Self::VirtualBox => "a VirtualBox shared folder",
+            Self::Afp => "AFP",
+            Self::WebDav => "WebDAV",
+        }
+    }
+
+    /// The file system of a Linux `statfs` type number, when it is one of these.
+    pub fn from_magic(magic: u32) -> Option<Self> {
+        Some(match magic {
+            0x6969 => Self::Nfs,
+            0x517B | 0xFF53_4D42 | 0xFE53_4D42 => Self::Smb,
+            0x6573_5546 => Self::Fuse,
+            0x0102_1997 => Self::NineP,
+            0x00C3_6400 => Self::Ceph,
+            0x5346_414F | 0x6B41_4653 => Self::Afs,
+            0x0BD0_0BD0 => Self::Lustre,
+            0x786F_4256 => Self::VirtualBox,
+            _ => return None,
+        })
+    }
+
+    /// The file system of a BSD or macOS `statfs` type name, when it is one of these.
+    pub fn from_type_name(name: &str) -> Option<Self> {
+        Some(match name {
+            "nfs" => Self::Nfs,
+            "smbfs" | "cifs" => Self::Smb,
+            "afpfs" => Self::Afp,
+            "webdav" => Self::WebDav,
+            n if n.contains("fuse") => Self::Fuse,
+            _ => return None,
+        })
     }
 }
 
-/// Take the record lock on all of `file`: false when another process holds it.
-#[cfg(unix)]
-fn try_lock(file: &File) -> io::Result<bool> {
-    use rustix::fs::{FlockOperation, fcntl_lock};
-    use rustix::io::Errno;
-    match fcntl_lock(file, FlockOperation::NonBlockingLockExclusive) {
-        Ok(()) => Ok(true),
-        Err(e) if e == Errno::AGAIN || e == Errno::ACCESS => Ok(false),
-        Err(e) => Err(e.into()),
+impl core::fmt::Display for SharedFs {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(self.name())
     }
 }
 
-/// Take the file system's lock on `file`: false when another handle holds it.
-#[cfg(not(unix))]
-fn try_lock(file: &File) -> io::Result<bool> {
-    match file.try_lock() {
-        Ok(()) => Ok(true),
-        Err(std::fs::TryLockError::WouldBlock) => Ok(false),
-        Err(std::fs::TryLockError::Error(e)) => Err(e),
+/// A file sink's file is on a [SharedFs], where its lock and syncs may not hold.
+///
+/// Writing goes on, but the lock may not keep out a writer on another computer or one the file system's program lets
+/// in, and a sync may return before the bytes are stored. The application shows it; see
+/// [FileSink::warning](crate::FileSink::warning).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FsWarning {
+    path: PathBuf,
+    fs: SharedFs,
+}
+
+impl FsWarning {
+    /// The warning for the file `path` on `fs`.
+    pub fn new(path: &Path, fs: SharedFs) -> Self {
+        Self {
+            path: path.to_path_buf(),
+            fs,
+        }
     }
+
+    /// The file.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// The file system it is on.
+    pub fn fs(&self) -> SharedFs {
+        self.fs
+    }
+}
+
+impl core::fmt::Display for FsWarning {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "{}: on {}, a network or user-space file system: its lock may not keep out a second writer, and a sync \
+             may return before the bytes are stored",
+            self.path.display(),
+            self.fs
+        )
+    }
+}
+
+/// The warning for `file`, opened as `path`, when its file system is a [SharedFs]; None where it can't be told.
+pub(crate) fn warning(file: &File, path: &Path) -> Option<FsWarning> {
+    shared_fs(file).map(|fs| FsWarning::new(path, fs))
+}
+
+#[cfg(test)]
+thread_local! {
+    /// A file system type number tests make every file of this thread report.
+    pub(crate) static FAKE_MAGIC: core::cell::Cell<Option<u32>> = const { core::cell::Cell::new(None) };
+}
+
+/// The [SharedFs] `file` is on, from its `statfs` type number.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn shared_fs(file: &File) -> Option<SharedFs> {
+    #[cfg(test)]
+    if let Some(magic) = FAKE_MAGIC.with(core::cell::Cell::get) {
+        return SharedFs::from_magic(magic);
+    }
+    let st = rustix::fs::fstatfs(file).ok()?;
+    #[expect(
+        clippy::as_conversions,
+        clippy::cast_sign_loss,
+        clippy::cast_possible_truncation,
+        reason = "f_type is a 32-bit number in a word whose width and sign vary by target"
+    )]
+    let magic = st.f_type as u32;
+    SharedFs::from_magic(magic)
+}
+
+/// The [SharedFs] `file` is on, from its `statfs` type name.
+#[cfg(any(target_vendor = "apple", target_os = "freebsd"))]
+fn shared_fs(file: &File) -> Option<SharedFs> {
+    let st = rustix::fs::fstatfs(file).ok()?;
+    let name: Vec<u8> = st
+        .f_fstypename
+        .iter()
+        .take_while(|c| **c != 0)
+        .map(|c| c.to_ne_bytes()[0])
+        .collect();
+    SharedFs::from_type_name(core::str::from_utf8(&name).ok()?)
+}
+
+/// Not told elsewhere. On Windows a share keeps the open's sharing mode on the server, so the lock holds there.
+#[cfg(not(any(
+    target_os = "linux",
+    target_os = "android",
+    target_vendor = "apple",
+    target_os = "freebsd"
+)))]
+fn shared_fs(_file: &File) -> Option<SharedFs> {
+    None
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// A read-only file system met at the lock file names the piece the caller asked for, any other error the lock
-    /// file.
+    /// Each network or user-space file system is told by its Linux type number and its BSD type name; local ones
+    /// are not.
     #[test]
-    fn a_read_only_lock_file_names_the_piece() {
-        let (lock, piece) = (
-            Path::new("/media/card/x.wwt.lock"),
-            Path::new("/media/card/x.wwt"),
-        );
-        let e = lock_err("opening the lock file", lock, piece)(std::io::Error::from(
-            std::io::ErrorKind::ReadOnlyFilesystem,
-        ));
-        assert!(matches!(&e, FsError::ReadOnly(p) if p == piece), "{e:?}");
-        let e = lock_err("opening the lock file", lock, piece)(std::io::Error::from(
-            std::io::ErrorKind::PermissionDenied,
-        ));
-        assert!(
-            matches!(&e, FsError::Io { path, .. } if path == lock),
-            "{e:?}"
-        );
+    fn shared_file_systems_are_told_apart() {
+        assert_eq!(SharedFs::from_magic(0x6969), Some(SharedFs::Nfs));
+        assert_eq!(SharedFs::from_magic(0xFF53_4D42), Some(SharedFs::Smb));
+        assert_eq!(SharedFs::from_magic(0x6573_5546), Some(SharedFs::Fuse));
+        // ext4, XFS, Btrfs, tmpfs
+        for local in [0xEF53, 0x5846_5342, 0x9123_683E, 0x0102_1994] {
+            assert_eq!(SharedFs::from_magic(local), None, "{local:#x}");
+        }
+        assert_eq!(SharedFs::from_type_name("smbfs"), Some(SharedFs::Smb));
+        assert_eq!(SharedFs::from_type_name("macfuse"), Some(SharedFs::Fuse));
+        assert_eq!(SharedFs::from_type_name("apfs"), None);
     }
 }

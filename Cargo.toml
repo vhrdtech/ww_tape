@@ -36,10 +36,12 @@ clap = { version = "4.5", default-features = false, features = ["std", "color", 
 crc = { version = "3.4", default-features = false }
 # ww_tape_codecs_benchmarks: a pure-Rust Vorbis decoder for the speech data set
 lewton = { version = "0.10", default-features = false, features = ["ogg"] }
+# ww_tape_fs on unix: pthread_atfork, so a forked child holds no file sink's lock
+libc = { version = "0.2", default-features = false }
 libm = { version = "0.2", default-features = false, features = ["arch"] }
 # exact: ww_tape lz4 payload columns must compress to the same bytes (ww_tape_codecs/src/lz4.rs)
 lz4_flex = { version = "=0.14.0", default-features = false, features = ["safe-decode", "checked-decode"] }
-# ww_tape_fs on unix: the per-process record lock of a file sink's lock file (fcntl F_SETLK), which a forked child doesn't hold
+# ww_tape_fs on unix: a file sink's flock and the file system type of its file (fstatfs)
 rustix = { version = "1.1", default-features = false, features = ["fs", "std"] }
 
 # exact_units' panic-class lints for every crate: no panic, overflow or unchecked index reachable from file bytes

@@ -60,7 +60,7 @@ fn a_file_written_durably_under_its_lock() -> Result<(), Box<dyn Error>> {
     // --8<-- [end:tick]
 
     // --8<-- [start:close]
-    let closed = writer.close()?; // final index, close, tail, two syncs, then the name
+    let closed = writer.close()?; // final index, close, tail and two syncs
     assert!(path.exists());
     // --8<-- [end:close]
 

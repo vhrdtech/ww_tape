@@ -107,34 +107,45 @@ fn listed(kind: BlockKind) -> bool {
     )
 }
 
-/// `create` over a `.partial` a crash left refuses with `Exists` and keeps its bytes for a resume; an empty one is
-/// taken.
+/// `create` over an unclosed file a crash left refuses with `Exists` and keeps its bytes for a resume, and so over
+/// an empty one.
 #[test]
 fn create_keeps_an_unclosed_file() {
-    let dir = scratch("create_partial");
+    let dir = scratch("create_unclosed");
     let path = dir.join("a.wwt");
-    let partial = ww_tape_fs::partial_name(&path);
     let mut w = ww_tape_fs::writer::create(&path, SyncPolicy::None).unwrap();
     w.write_block(crate::definitions::base_defs(), &records(w.next_id(), 1))
         .unwrap();
     w.sync().unwrap();
     // a crash: the writer goes without closing
     drop(w);
-    let before = std::fs::read(&partial).unwrap();
+    let before = std::fs::read(&path).unwrap();
     assert!(!before.is_empty());
     let r = ww_tape_fs::writer::create(&path, SyncPolicy::None);
     assert!(
         matches!(
             &r,
-            Err(ww_tape::WriteError::Sink { error: ww_tape_fs::FsError::Exists(p), .. }) if *p == partial
+            Err(ww_tape::WriteError::Sink { error: ww_tape_fs::FsError::Exists(p), .. }) if *p == path
         ),
         "{:?}",
         r.err()
     );
-    assert_eq!(std::fs::read(&partial).unwrap(), before);
+    assert_eq!(std::fs::read(&path).unwrap(), before);
     ww_tape_fs::writer::resume(&path, Default::default()).unwrap();
-    std::fs::write(&partial, b"").unwrap();
-    ww_tape_fs::writer::create(&path, SyncPolicy::None).unwrap();
+    let empty = dir.join("b.wwt");
+    std::fs::write(&empty, b"").unwrap();
+    let r = ww_tape_fs::writer::create(&empty, SyncPolicy::None);
+    assert!(
+        matches!(
+            &r,
+            Err(ww_tape::WriteError::Sink {
+                error: ww_tape_fs::FsError::Exists(_),
+                ..
+            })
+        ),
+        "{:?}",
+        r.err()
+    );
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -259,7 +270,7 @@ fn crash_anywhere_loses_only_the_cut_block() {
     write_tape(&mut w, 12);
     // the writer dies here: no close
     drop(w);
-    let bytes = std::fs::read(dir.join("t.wwt.partial")).unwrap();
+    let bytes = std::fs::read(dir.join("t.wwt")).unwrap();
     let blocks = walk(&bytes);
     assert!(blocks.iter().filter(|b| b.2 == BlockKind::Index).count() >= 3);
     for at in (0..=bytes.len()).step_by(7).chain([bytes.len()]) {
@@ -804,8 +815,8 @@ fn incomplete_golden() {
         chain.write_block(defs, &records(id, n)).unwrap();
     }
     drop(chain);
-    let partial = ww_tape_fs::partial_name(&dir.join(ww_tape_fs::piece_name(0)));
-    let mut bytes = std::fs::read(&partial).unwrap();
+    let first = dir.join(ww_tape_fs::piece_name(0));
+    let mut bytes = std::fs::read(&first).unwrap();
     let listed = TapeReader::open(&bytes[..])
         .unwrap()
         .entries(0)
@@ -814,7 +825,7 @@ fn incomplete_golden() {
         .find(|e| e.kind == BlockKind::Records && !e.repeat)
         .unwrap();
     bytes[(listed.offset + u64::from(listed.len)) as usize - 8] ^= 1;
-    std::fs::write(&partial, &bytes).unwrap();
+    std::fs::write(&first, &bytes).unwrap();
     let (mut chain, _) = ww_tape_fs::chain::resume(&dir, owner, 0, options()).unwrap();
     for n in 8..10 {
         let id = chain.writer().unwrap().next_id();
@@ -1000,7 +1011,7 @@ fn a_damaged_block_of_definitions_reads_from_their_copies() {
             std::fs::read(&path).unwrap()
         } else {
             drop(w);
-            std::fs::read(dir.join("p.wwt.partial")).unwrap()
+            std::fs::read(dir.join("p.wwt")).unwrap()
         };
         assert!(definitions_at(&bytes).iter().all(|d| d.1), "all put");
         // track 1's definition put before its first chunk, then copied on a use one copy spacing (1 MiB) on
@@ -1092,10 +1103,10 @@ fn a_replaced_block_leaves_the_index() {
         w.write_block(crate::definitions::base_defs(), &records(w.next_id(), n))
             .unwrap();
     }
-    let partial = std::fs::read(w.sink().current_path()).unwrap();
+    let unclosed = std::fs::read(w.sink().path()).unwrap();
     w.close().unwrap();
     let closed = std::fs::read(&path).unwrap();
-    for bytes in [partial, closed] {
+    for bytes in [unclosed, closed] {
         // the blocks a walk ends up with: a replacement takes the place of the last counted block
         let mut rd = FileBlocks::new(&bytes[..]);
         let (mut walked, mut last, mut replaced, mut seqs) = (vec![], None, 0, vec![]);

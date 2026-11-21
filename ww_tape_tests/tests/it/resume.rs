@@ -461,15 +461,15 @@ fn a_piece_without_its_layout_resumes_unchecked() {
     assert_eq!(resumed.layout, None);
 }
 
-/// [TapeWriter::resume] reopens `NAME.partial`, keeps its good blocks and reports them.
+/// [TapeWriter::resume] reopens an unclosed file, keeps its good blocks and reports them.
 #[test]
-fn resume_reopens_the_partial_file() {
+fn resume_reopens_an_unclosed_file() {
     let dir = scratch("resume_file");
     let path = dir.join("p.wwt");
     let ops = ops(6);
     let (want, made) = reference(0, &ops);
     let cut = want.len() * 2 / 3;
-    std::fs::write(ww_tape_fs::partial_name(&path), &want[..cut]).unwrap();
+    std::fs::write(&path, &want[..cut]).unwrap();
     let (mut w, resumed) = ww_tape_fs::writer::resume(&path, options(0)).unwrap();
     assert!(resumed.kept_bytes <= cut as u64);
     assert!(
@@ -492,7 +492,6 @@ fn resume_reopens_the_partial_file() {
     let (w, resumed) = ww_tape_fs::writer::resume(&path, options(0)).unwrap();
     assert_eq!(resumed.kept_bytes, want.len() as u64);
     assert!(resumed.after_close.is_some());
-    assert!(!ww_tape_fs::partial_name(&path).exists());
     w.close().unwrap();
     let got = std::fs::read(&path).unwrap();
     assert_eq!(got[..want.len()], want[..]);
@@ -652,7 +651,7 @@ fn an_incomplete_track_hash_stays_marked_in_later_pieces() {
         c.write_block(defs, &b).unwrap();
     }
     drop(c);
-    let first = ww_tape_fs::partial_name(&dir.join(piece_name(0)));
+    let first = dir.join(piece_name(0));
     let mut bytes = std::fs::read(&first).unwrap();
     let listed = TapeReader::open(&bytes[..])
         .unwrap()
@@ -939,8 +938,7 @@ impl EachPiece for OnDisk {
             std::fs::write(d.join(piece_name(j as u64)), w).unwrap();
         }
         if let Some(open) = open {
-            let partial = ww_tape_fs::partial_name(&d.join(piece_name(done.len() as u64)));
-            std::fs::write(partial, open).unwrap();
+            std::fs::write(d.join(piece_name(done.len() as u64)), open).unwrap();
         }
         Files::new(&d)
     }
@@ -1279,7 +1277,7 @@ fn a_chain_whose_last_piece_lost_its_head_is_refused() {
         assert!(c.seq() > 0, "{files:?}: a piece was cut");
         let w = c.writer().unwrap();
         w.flush_deferred().unwrap();
-        let (file, start) = (w.sink().current_path().to_path_buf(), w.sink().base());
+        let (file, start) = (w.sink().path().to_path_buf(), w.sink().base());
         drop(c);
         let mut bytes = std::fs::read(&file).unwrap();
         // inside the piece head's rows of carried-over tracks
@@ -1372,17 +1370,23 @@ fn a_second_writer_of_one_file_is_refused() {
     drop(a);
     PieceChain::resume_on(mem.clone(), owner, 0, options()).unwrap();
 
-    // a piece file: its partial file is held from create to close
+    // a piece file: held from create to close; a second create finds it there
     let piece = dir.join("piece.wwt");
     let w = ww_tape_fs::writer::create(&piece, SyncPolicy::None).unwrap();
-    assert!(locked(ww_tape_fs::writer::create(&piece, SyncPolicy::None)));
+    assert!(matches!(
+        ww_tape_fs::writer::create(&piece, SyncPolicy::None),
+        Err(WriteError::Sink {
+            error: ww_tape_fs::FsError::Exists(_),
+            ..
+        })
+    ));
     assert!(locked(ww_tape_fs::writer::resume(&piece, options().writer)));
     drop(w);
     ww_tape_fs::writer::resume(&piece, options().writer).unwrap();
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
-/// A cut in place takes a sink of pieces back to back: a writer of one piece (`NAME.partial`, a plain memory sink)
+/// A cut in place takes a sink of pieces back to back: a writer of one piece (a new file, a plain memory sink)
 /// is refused before anything is written and handed back, so its piece goes on and closes, or resumes after a
 /// crash.
 #[test]
@@ -1401,8 +1405,7 @@ fn a_sink_of_one_piece_takes_no_cut_in_place() {
         refused.to_string(),
         "cut refused, the writer handed back: index or piece block: a sink of one piece takes no cut in place"
     );
-    let partial = ww_tape_fs::partial_name(&path);
-    assert_eq!(std::fs::metadata(&partial).unwrap().len(), len);
+    assert_eq!(std::fs::metadata(&path).unwrap().len(), len);
     drop(refused);
     let (w, resumed) = ww_tape_fs::writer::resume(&path, WriterOptions::default()).unwrap();
     assert_eq!(resumed.kept_bytes, len);
@@ -1589,7 +1592,6 @@ fn a_resume_of_a_whole_close_cuts_only_the_junk_after_its_tail() {
     // the piece ends on 4 KiB: a crash that cut this block's write off leaves zeros from a sector boundary on
     let long = crate::puts::long_records(next, 2, 2000);
     assert_eq!(done.len() % 512, 0);
-    let partial = ww_tape_fs::partial_name(&path);
     for (name, junk) in [
         ("blank bytes", vec![0; 100]),
         ("a torn block", good[..40].to_vec()),
@@ -1598,7 +1600,7 @@ fn a_resume_of_a_whole_close_cuts_only_the_junk_after_its_tail() {
             [&long[..512], &[0; 4096][..]].concat(),
         ),
     ] {
-        std::fs::write(&partial, [&done[..], &junk[..]].concat()).unwrap();
+        std::fs::write(&path, [&done[..], &junk[..]].concat()).unwrap();
         let (w, resumed) = ww_tape_fs::writer::resume(&path, WriterOptions::default())
             .unwrap_or_else(|e| panic!("{name}: {e:?}"));
         assert_eq!(resumed.kept_bytes, done.len() as u64, "{name}");
@@ -1606,11 +1608,9 @@ fn a_resume_of_a_whole_close_cuts_only_the_junk_after_its_tail() {
         w.close().unwrap();
         let got = std::fs::read(&path).unwrap();
         assert_eq!(got, done, "{name}: the junk is cut, nothing appended");
-        assert!(!partial.exists(), "{name}");
-        std::fs::remove_file(&path).unwrap();
     }
     let bytes = [&done[..], &[0xab; 100][..]].concat();
-    std::fs::write(&partial, &bytes).unwrap();
+    std::fs::write(&path, &bytes).unwrap();
     match ww_tape_fs::writer::resume(&path, WriterOptions::default()) {
         Err(WriteError::Resume(ResumeError::Damaged { offset })) => {
             assert_eq!(offset, done.len() as u64)
@@ -1618,19 +1618,19 @@ fn a_resume_of_a_whole_close_cuts_only_the_junk_after_its_tail() {
         other => panic!("{:?}", other.map(|(_, r)| r)),
     }
     assert_eq!(
-        std::fs::read(&partial).unwrap(),
+        std::fs::read(&path).unwrap(),
         bytes,
         "garbage: the bytes stay"
     );
     let bytes = [&done[..], &good[..]].concat();
-    std::fs::write(&partial, &bytes).unwrap();
+    std::fs::write(&path, &bytes).unwrap();
     match ww_tape_fs::writer::resume(&path, WriterOptions::default()) {
         Err(WriteError::Resume(ResumeError::GoodBlockAfterCut { offset })) => {
             assert_eq!(offset, done.len() as u64)
         }
         other => panic!("{:?}", other.map(|(_, r)| r)),
     }
-    assert_eq!(std::fs::read(&partial).unwrap(), bytes, "left as it was");
+    assert_eq!(std::fs::read(&path).unwrap(), bytes, "left as it was");
 }
 
 /// A piece a cut closed, naming the piece after it: a resume never writes on in it ([ResumeError::Continued] names
@@ -1701,8 +1701,8 @@ fn a_resume_of_a_piece_a_cut_closed_names_the_next() {
     }
 }
 
-/// A piece whose close and tail read whole, left as `NAME.partial` by a crash before its rename: a resume writes on
-/// after its close, every byte before the append head as it was, in a file and in memory.
+/// A piece whose close and tail read whole: a resume writes on after its close, every byte before the append head as
+/// it was, in a file and in memory.
 #[test]
 fn a_resume_of_a_whole_close_writes_on_after_it() {
     let dir = scratch("whole_close");
@@ -1714,21 +1714,14 @@ fn a_resume_of_a_whole_close_writes_on_after_it() {
     }
     w.close().unwrap();
     let done = std::fs::read(&path).unwrap();
-    let partial = ww_tape_fs::partial_name(&path);
-    std::fs::rename(&path, &partial).unwrap();
     let (mut w, resumed) = ww_tape_fs::writer::resume(&path, WriterOptions::default()).unwrap();
     assert!(resumed.after_close.is_some());
     let block = records(w.next_id(), 6);
     w.write_block(base_defs(), &block).unwrap();
     w.close().unwrap();
     let got = std::fs::read(&path).unwrap();
-    assert_eq!(
-        got[..done.len()],
-        done[..],
-        "named, bytes before as they were"
-    );
+    assert_eq!(got[..done.len()], done[..], "bytes before as they were");
     assert_eq!(got[done.len() + 5], BlockKind::AppendHead.to_u8());
-    assert!(!partial.exists());
     let mut sink = MemSink::new();
     sink.write_all(&done).unwrap();
     let tape = sink.tape();
@@ -1737,7 +1730,7 @@ fn a_resume_of_a_whole_close_writes_on_after_it() {
     w.write_block(base_defs(), &block).unwrap();
     w.close().unwrap();
     assert_eq!(tape.to_vec().unwrap(), got);
-    // a chain of files, a crash after a cut's close and before its rename: the piece is named, the next one starts
+    // a chain of files, a crash after a cut's close and before the next piece's file: the next one starts
     let chain = dir.join("chain");
     std::fs::create_dir(&chain).unwrap();
     let owner = OwnerId([9; 32]);
@@ -1750,15 +1743,10 @@ fn a_resume_of_a_whole_close_writes_on_after_it() {
     drop(c);
     let first = chain.join(piece_name(0));
     let done = std::fs::read(&first).unwrap();
-    std::fs::rename(&first, ww_tape_fs::partial_name(&first)).unwrap();
-    std::fs::remove_file(ww_tape_fs::partial_name(&chain.join(piece_name(1)))).unwrap();
+    std::fs::remove_file(chain.join(piece_name(1))).unwrap();
     let (c, _) = ww_tape_fs::chain::resume(&chain, owner, 0, chain_options()).unwrap();
     assert_eq!((c.closed().len(), c.seq()), (1, 1));
-    assert_eq!(
-        std::fs::read(&first).unwrap(),
-        done,
-        "named, bytes as they were"
-    );
+    assert_eq!(std::fs::read(&first).unwrap(), done, "bytes as they were");
     drop(c);
     std::fs::remove_dir_all(&dir).unwrap();
 }

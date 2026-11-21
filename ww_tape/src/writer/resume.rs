@@ -22,7 +22,7 @@
 //! tail, then writes on after the tail, an append head ([AppendHead]) first, every byte before it as it was. The
 //! append head goes out with the first block written: closed again with nothing appended, the piece gets no byte. A good
 //! block after the tail refuses ([ResumeError::GoodBlockAfterCut]). A close naming a next piece (a cut) ends its piece
-//! for good: the resume gives it its name ([TapeSink::close]) and returns [ResumeError::Continued]. Blocks after an
+//! for good: the resume marks it closed ([TapeSink::close]) and returns [ResumeError::Continued]. Blocks after an
 //! append head that names a whole close and tail, naming no next piece, are the piece going on: the resume keeps that
 //! close and goes on after them.
 //!
@@ -752,8 +752,7 @@ impl<S: TapeSink> TapeWriter<S> {
                 Some(((offset, close), tail)) => {
                     if let Some(next) = close.next {
                         cut_after_tail(&mut sink, tail, size)?;
-                        sink.close()
-                            .map_err(sink_err("giving the closed piece its name"))?;
+                        sink.close().map_err(sink_err("marking the piece closed"))?;
                         return Err(WriteError::Resume(ResumeError::Continued { next }));
                     }
                     walk.ending.drain(..).for_each(|e| walk.kept.take(&e));
