@@ -19,7 +19,6 @@
 use clap::Parser;
 use shrink_wrap::prelude::*;
 use ww_tape::index::STATE_ENTRIES_MAX;
-use ww_tape_bench::{Bench, Cell, Common};
 use ww_tape::piece::{
     ContentHash, HEAD_TRACKS_MAX, OwnerId, PieceHead, PieceId, PieceIdent, TRACKS_PER_PIECE_MAX,
     TrackStart,
@@ -29,6 +28,7 @@ use ww_tape::{
     EventsDef, FullVersion, IndexPolicy, Magnitude, MemSink, Segment, SessionTag, SyncPolicy,
     TapeWriter, TrackDef, TrackHash, TrackKind, Version, clock_key, track_key,
 };
+use ww_tape_bench::{Bench, Cell, Common};
 
 #[derive(Parser)]
 #[command(
