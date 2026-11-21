@@ -207,6 +207,10 @@ Column codecs with no notion of a block, in the crate `ww_tape_codecs`.
   - On x86-64 the instruction reaches 31 to 37 GiB/s on large buffers. The ARMv8 path runs in CI.
   - Tests check every kernel against the table, at lengths past 2^29.
   - Read more: [Checks at three levels](docs/damage.md#checks-at-three-levels).
+- 💡 **CODEC-6 Fast sample encoders**
+  - `DELTA` and the packed codecs encode through a scalar 64-bit path, about 3.6 ns per value for `ComplexI16`, while `DELTA` decodes at 0.65 ns.
+  - On one core the encoder is the writer's limit. Packed at 12 bits, the writer takes 157 MS/s of IQ and the codec 58 % of its time (`ww_tape_benchmarks --bin rf_core`).
+  - Vector kernels for 16-bit values, as the decoders and summaries have, would lift it. The bytes must stay the same.
 
 ## Summaries (`SUM`)
 
@@ -225,6 +229,10 @@ Summary blocks, nodes and kernels, in the crates `ww_tape_summary` and `ww_tape_
   - A batch of samples is summarised in one pass, fast enough to keep up with ingest. Any order of addition gives the same result.
   - Kernels for AVX2 and AVX-512 are picked at run time and checked against the scalar model.
   - Read more: [Numbers](docs/numbers.md#summaries); `just bench-summaries` measures them.
+- 💡 **SUM-4 Minimum and maximum at the element's width**
+  - A series node stores its minimum and maximum as 8 bytes per component, whatever the element: a `ComplexI16` node takes 32 bytes for them.
+  - The RF capture's nodes take 40 bytes each, 1.1 % of its piece; at the element's width they would take 16.
+  - A format change: the summary block's version and its readers change with it.
 
 ## Book (`BOOK`)
 
