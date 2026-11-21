@@ -52,8 +52,30 @@ reason = "every page has one title"
 
 [lints.abbreviation-first-use]
 level = "deny"
-reason = "a newcomer meets each abbreviation spelled out once per page"
-known = ["API", "ASCII", "CI", "CLI", "CPU", "CSS", "CSV", "DNS", "GPU", "HTML", "HTTP", "HTTPS", "ID", "IDE", "IP", "JSON", "OK", "OS", "PCB", "PDF", "PNG", "PR", "RAM", "README", "SDK", "SQL", "SSH", "SVG", "TCP", "TLS", "TOML", "UDP", "UI", "URL", "USB", "UTF", "XML", "YAML", "KB", "MB", "GB", "TB", "KiB", "MiB", "GiB", "TiB"]
+reason = "common abbreviations and names stand plain; any other shows its long form on hover, never spelled out in prose"
+# Abbreviations every reader knows, and names written in capitals (companies, products, standards bodies)
+known = ["AI", "AMD", "API", "ASCII", "AVX", "AVX2", "BLAKE3", "CI", "CLI", "CPU", "CSS", "CSV", "DNS", "EPYC", "FAQ", "GPU", "HTML", "HTTP", "HTTPS", "IBM", "ID", "IDE", "IP", "JEDEC", "JSON", "KB", "MB", "GB", "TB", "LED", "MIT", "NEON", "OK", "OS", "PC", "PCB", "PDF", "PNG", "POSIX", "PR", "RAM", "README", "SDK", "SIGMOD", "SNIA", "SQL", "SSH", "SVG", "TCP", "TLS", "TOML", "UDP", "UI", "URL", "USB", "UTC", "UTF", "VESC", "XFS", "XML", "XOR", "YAML"]
+
+# The rest: the book shows each long form on hover (spl_book_ext.abbreviations); prose writes the abbreviation alone
+[lints.abbreviation-first-use.long-forms]
+ADC = "analog-to-digital converter"
+ALP = "Adaptive Lossless floating-Point compression"
+CAN = "Controller Area Network"
+CRC = "cyclic redundancy check"
+FIFO = "first in, first out"
+IQ = "in-phase and quadrature"
+LTFS = "Linear Tape File System"
+LTO = "Linear Tape-Open"
+MCU = "microcontroller unit"
+MLC = "multi-level cell"
+NAND = "NOT-AND flash memory"
+ONFI = "Open NAND Flash Interface"
+PCM = "pulse-code modulation"
+SD = "Secure Digital"
+SLDC = "Streaming Lossless Data Compression"
+UBI = "Unsorted Block Images"
+UBIFS = "UBI File System"
+WASM = "WebAssembly"
 
 [lints.term-before-definition]
 level = "deny"
