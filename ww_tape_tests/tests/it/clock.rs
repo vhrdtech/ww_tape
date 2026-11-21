@@ -124,3 +124,67 @@ fn default_options_are_equal() {
     assert_ne!(hand, ClockRef::new(HandClock::default()));
     assert_ne!(hand, ClockRef::default());
 }
+
+/// A [MemSink] that counts its syncs.
+struct Syncs(MemSink, Arc<AtomicU64>);
+
+impl ww_tape::TapeSink for Syncs {
+    type Error = ww_tape::MemError;
+    fn write_all(&mut self, bytes: &[u8]) -> Result<(), Self::Error> {
+        self.0.write_all(bytes)
+    }
+    fn sync(&mut self) -> Result<(), Self::Error> {
+        self.1.fetch_add(1, Ordering::SeqCst);
+        self.0.sync()
+    }
+    fn close(&mut self) -> Result<(), Self::Error> {
+        self.0.close()
+    }
+    fn size(&self) -> Result<u64, Self::Error> {
+        self.0.size()
+    }
+    fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), Self::Error> {
+        self.0.read_at(offset, buf)
+    }
+    fn truncate(&mut self, len: u64) -> Result<(), Self::Error> {
+        self.0.truncate(len)
+    }
+    fn rebase(&mut self, base: u64) -> Result<(), Self::Error> {
+        self.0.rebase(base)
+    }
+}
+
+/// [SyncPolicy::Interval] syncs a block that waits when a later block or a tick finds the interval up, and a tick
+/// with nothing waiting syncs nothing.
+#[test]
+fn a_tick_syncs_a_quiet_input_once_the_interval_is_up() {
+    let (hand, syncs) = (HandClock::default(), Arc::new(AtomicU64::new(0)));
+    let mut w = TapeWriter::create_on(
+        Syncs(MemSink::new(), Arc::clone(&syncs)),
+        SyncPolicy::Interval(Duration::from_secs(1)),
+    );
+    w.set_clock(ClockRef::new(hand.clone()));
+    w.set_session(crate::TEST_SESSION).unwrap();
+    let defs = crate::definitions::base_defs();
+    let count = || syncs.load(Ordering::SeqCst);
+    hand.advance(400);
+    w.write_block(defs, &crate::pieces::records(w.next_id(), 0))
+        .unwrap();
+    assert_eq!(count(), 0, "400 ms into a 1 s interval: the block waits");
+    hand.advance(599);
+    w.tick().unwrap();
+    assert_eq!(count(), 0, "999 ms");
+    hand.advance(1);
+    w.tick().unwrap();
+    assert_eq!(count(), 1, "1 s: the waiting block is synced");
+    hand.advance(5_000);
+    w.tick().unwrap();
+    assert_eq!(count(), 1, "nothing waits: no sync");
+    w.write_block(defs, &crate::pieces::records(w.next_id(), 1))
+        .unwrap();
+    assert_eq!(
+        count(),
+        2,
+        "a block 5 s after the last sync is synced at once"
+    );
+}
