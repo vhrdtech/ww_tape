@@ -1,10 +1,10 @@
-//! The charts and tables of "Sizes and speeds", drawn from the bench reports in `docs/bench/` (`just bench-book`):
+//! The charts and tables of "Sizes and speeds" and "The definitions a new piece carries", drawn from the bench reports in `docs/bench/` (`just bench-book`):
 //!
 //! - `sample_codecs.svg`: ratio and decode time per data set, fixed point against `ALP` and the best other float codec.
 //! - `event_times.svg`: bytes per event and the time to find a tick, per workload and codec.
 //! - `chunk_cost.svg`: what the writer spends on a 1 MiB series chunk, by part.
 //! - `drive_sizes.svg`: where the bytes of the drive's hour go.
-//! - `bench_*.txt`: the tables the page includes, each with the bench and the load average it ran at.
+//! - `bench_*.txt`: the tables the pages include, each with the bench and the load average it ran at.
 //! - `bench_machine.txt`: the machine, build and commit every report ran, and the range of the load average.
 //!
 //! [says] gives the numbers the page's prose computes from the reports, and the numbers the reports name.
@@ -27,6 +27,7 @@ pub struct Reports {
     chunks: Report,
     tracks: Report,
     drive: Report,
+    carried: Report,
 }
 
 /// The reports in `dir`, each a release build of a clean commit.
@@ -44,6 +45,7 @@ pub fn read(dir: &Path) -> anyhow::Result<Reports> {
         chunks: r("chunks")?,
         tracks: r("tracks")?,
         drive: r("drive")?,
+        carried: r("carried")?,
     })
 }
 
@@ -373,6 +375,7 @@ fn machine(r: &Reports) -> anyhow::Result<String> {
         &r.chunks,
         &r.tracks,
         &r.drive,
+        &r.carried,
     ];
     let first = &r.drive;
     for x in all {
@@ -438,6 +441,9 @@ pub fn figures(dir: &Path) -> anyhow::Result<Vec<(String, String)>> {
         (&r.tracks, "add"),
         (&r.tracks, "puts"),
         (&r.tracks, "idle"),
+        (&r.carried, "pieces"),
+        (&r.carried, "caps"),
+        (&r.carried, "room"),
     ] {
         let name = format!("bench_{}_{id}.txt", report.bench);
         out.push((name, markdown(report, id)?));

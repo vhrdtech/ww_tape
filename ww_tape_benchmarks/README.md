@@ -16,6 +16,7 @@ into `docs/bench/`:
 | `starts` | `just bench-starts` | a starts column read intact and salvaged |
 | `relations` | `just bench-relations` | track relation columns |
 | `mem_reader` | `just bench-mem-reader` | a reader's wait on a memory piece being written |
+| `carried` | `just bench-carried` | the definitions a piece carries for the tracks of its head, and the most a cut carries |
 
 The `summaries` binary measures series summaries in MB/s of sample bytes per element type. It measures three paths:
 the `RAW` codec alone, `SeriesSummaries::push` with every statistic, and both.

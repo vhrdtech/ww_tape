@@ -98,9 +98,9 @@ bench-summaries *args:
 bench-tracks *args:
     cargo run -q --release -p ww_tape_benchmarks --bin tracks -- {{ args }}
 
-# ww_tape: the definitions a piece carries for the tracks of its head, per piece (WRITE-9)
-bench-carried:
-    cargo run -q --release -p ww_tape_benchmarks --bin carried
+# ww_tape: the definitions a piece carries for the tracks of its head, per piece (WRITE-9); `just bench-carried --help`
+bench-carried *args:
+    cargo run -q --release -p ww_tape_benchmarks --bin carried -- {{ args }}
 
 # ww_tape series chunks: ns per 1 MiB chunk the writer spends, and its parts (WRITE-4); `just bench-chunks --help`
 bench-chunks *args:
@@ -134,8 +134,8 @@ bench-drive *args:
 bench-mem-reader *args:
     cargo run -q --release -p ww_tape_benchmarks --bin mem_reader -- {{ args }}
 
-# Every bench the book's "Sizes and speeds" draws from, at release, into docs/bench/*.json; then the charts and tables
-# drawn from them (`just book-figures`). `just jobs=N bench-book` caps the build's jobs; each bench runs on one core.
+# Every bench the book draws from ("Sizes and speeds", "The definitions a new piece carries"), at release, into
+# docs/bench/*.json; then the charts and tables drawn from them (`just book-figures`). `just jobs=N bench-book` caps the build's jobs; each bench runs on one core.
 # A report names the commit it ran, so the tree must be clean, and every bench is built before the first report is written
 bench-book:
     test -z "$(git status --porcelain)" || (echo "bench-book: commit or drop the changes first, a report names its commit" && exit 1)
@@ -147,6 +147,7 @@ bench-book:
     just bench-chunks --json docs/bench/chunks.json
     just bench-tracks --json docs/bench/tracks.json
     just bench-drive --json docs/bench/drive.json
+    just bench-carried --json docs/bench/carried.json
 
 # Build the book (docs/, zensical.toml) into site/ with Zensical
 [group('book')]

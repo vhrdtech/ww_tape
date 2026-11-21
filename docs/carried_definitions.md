@@ -70,12 +70,9 @@ the piece names them (`DefinitionsAt::not_carried`).
 The room is counted in entries, not bytes, so a label's length changes it little. `just bench-carried` measures how
 many tracks a cut carries whole, each with its own definition and no bundle:
 
-| state entries | tracks on one clock | tracks on their own clocks |
-|---|---|---|
-| 1048576 (default) | 699006 (the head cap) | 524285 |
-| 65536 | 65530 | 32765 |
-| 4096 | 4090 | 2045 |
-| 256 | 250 | 125 |
+--8<-- "docs/plots/bench_carried_room.txt"
+
+### Refused calls and left-out tracks
 
 The copies of the layout and the producer, which every call that puts a record may write, take no part in this room.
 A copy that finds the state entries full is skipped, and the call goes on without it.
@@ -116,18 +113,12 @@ The cost per piece comes from `just bench-carried`. Records blocks of 4000 bytes
 each track is labeled `channel NNNNNNN`, and the piece is cut by bytes. A piece holds less data, and its final index
 grows past the cut's bound, which counts no final index:
 
-| tracks | cut at | records blocks | without carried | data less | piece (bytes) | without carried | piece more |
-|---|---|---|---|---|---|---|---|
-| 100 | 1 MiB | 255 | 257 | 0.8 % | 1093632 | 1081344 | 1.1 % |
-| 100 | 8 MiB | 2037 | 2042 | 0.2 % | 8773632 | 8761344 | 0.1 % |
-| 1000 | 1 MiB | 214 | 236 | 9.3 % | 1200128 | 1081344 | 11.0 % |
-| 1000 | 8 MiB | 1970 | 2021 | 2.5 % | 8871936 | 8634368 | 2.8 % |
+--8<-- "docs/plots/bench_carried_pieces.txt"
 
 Each definition costs its record and its index entries, in the checkpoint that lists it and in the final index. At the
-track caps, about 335 bytes per track, a piece of one records block grows:
+track caps, a piece of one records block grows by the bytes of the next table:
 
-- by 155783168 bytes for `TRACKS_PER_PIECE_MAX` (466430) tracks;
-- by 234717184 bytes for `HEAD_TRACKS_MAX` (699006) tracks.
+--8<-- "docs/plots/bench_carried_caps.txt"
 
 A piece cut by bytes below what its carried definitions take holds them and one chunk: each cut comes due right after
 the head.

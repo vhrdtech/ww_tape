@@ -6,7 +6,7 @@
 //! the most tracks a cut carries whole (none left out) under the default index policy and lower ones, on one clock and
 //! each on its own clock. Last, what a cut spends to carry the newest item of each state track besides its
 //! definition: the next piece of a chain whose first piece put `n` state tracks once, against the same with `n`
-//! stream tracks that gave data.
+//! stream tracks that gave data. Every number is a size: the load doesn't change it.
 #![allow(
     clippy::arithmetic_side_effects,
     clippy::as_conversions,
@@ -16,8 +16,10 @@
     reason = "a bench reads no file of others: it computes sizes and rates freely, fails by panicking and prints its table"
 )]
 
+use clap::Parser;
 use shrink_wrap::prelude::*;
 use ww_tape::index::STATE_ENTRIES_MAX;
+use ww_tape_bench::{Bench, Cell, Common};
 use ww_tape::piece::{
     ContentHash, HEAD_TRACKS_MAX, OwnerId, PieceHead, PieceId, PieceIdent, TRACKS_PER_PIECE_MAX,
     TrackStart,
@@ -27,6 +29,20 @@ use ww_tape::{
     EventsDef, FullVersion, IndexPolicy, Magnitude, MemSink, Segment, SessionTag, SyncPolicy,
     TapeWriter, TrackDef, TrackHash, TrackKind, Version, clock_key, track_key,
 };
+
+#[derive(Parser)]
+#[command(
+    name = "carried",
+    about = "ww_tape: the definitions a piece carries for the tracks of its head, per piece",
+    version = vc_build::version!(),
+    after_long_help = "Examples:
+  just bench-carried
+  carried --json carried.json"
+)]
+struct Args {
+    #[command(flatten)]
+    common: Common,
+}
 
 const CLOCK: u32 = 1;
 
@@ -295,43 +311,77 @@ fn after_cut(n: u32, item_len: usize, state: bool) -> anyhow::Result<u64> {
 }
 
 fn main() -> anyhow::Result<()> {
+    let args: Args = ww_tape_bench::args();
+    let mut bench = Bench::start(
+        "carried",
+        vc_build::build_info!(),
+        &args.common,
+        vec![("item bytes", ITEM_LEN.to_string())],
+    )?;
+    println!("{}", bench.header());
     let mib = |m: u64| m << 20;
-    println!(
-        "Pieces cut by bytes whose heads carry the tracks, with their definitions and without, records blocks of {ITEM_LEN} bytes on one of them:"
+    let mut table = bench.table(
+        "pieces",
+        &format!(
+            "Pieces cut by bytes whose heads carry the tracks, with their definitions and without, \
+             records blocks of {ITEM_LEN} bytes on one of them."
+        ),
+        &[
+            "Tracks",
+            "Cut at",
+            "Records blocks",
+            "Records blocks without carried",
+            "Data less (%)",
+            "Piece (bytes)",
+            "Piece without carried (bytes)",
+            "Piece more (%)",
+        ],
     );
-    println!();
-    println!(
-        "| tracks | cut at | records blocks | without carried | data less | piece (bytes) | without carried | piece more |"
-    );
-    println!("|---|---|---|---|---|---|---|---|");
     for n in [100, 1000] {
         for m in [1, 8] {
             let ((len, with), (base_len, base)) = displaced(n, mib(m))?;
-            println!(
-                "| {n} | {m} MiB | {with} | {base} | {:.1} % | {len} | {base_len} | {:.1} % |",
-                (base - with) as f64 * 100.0 / base as f64,
-                (len - base_len) as f64 * 100.0 / base_len as f64
-            );
+            table.row(vec![
+                Cell::count(n.into()),
+                Cell::text(format!("{m} MiB")),
+                Cell::count(with),
+                Cell::count(base),
+                Cell::num((base - with) as f64 * 100.0 / base as f64, 1),
+                Cell::count(len),
+                Cell::count(base_len),
+                Cell::num((len - base_len) as f64 * 100.0 / base_len as f64, 1),
+            ]);
         }
     }
-    println!();
-    println!("At the caps, a piece of one records block:");
-    println!();
-    println!("| tracks | carried (bytes) | per track (bytes) |");
-    println!("|---|---|---|");
-    for n in [TRACKS_PER_PIECE_MAX, HEAD_TRACKS_MAX] {
-        let n32 = u32::try_from(n)?;
-        let (with, base) = carried(n32)?;
-        let extra = with - base;
-        println!("| {n} | {extra} | {} |", extra / n as u64);
-    }
-    println!();
-    println!(
-        "The most tracks a cut carries whole (none left out), by the index policy's state entries, the tracks on one clock or each on its own:"
+    println!("{}", bench.push(table));
+    let mut table = bench.table(
+        "caps",
+        "A piece of one records block at the track caps, the bytes its carried definitions add.",
+        &["Cap", "Tracks", "Carried (bytes)", "Per track (bytes)"],
     );
-    println!();
-    println!("| state entries | tracks on one clock | tracks on their own clocks |");
-    println!("|---|---|---|");
+    for (cap, n) in [
+        ("`TRACKS_PER_PIECE_MAX`", TRACKS_PER_PIECE_MAX),
+        ("`HEAD_TRACKS_MAX`", HEAD_TRACKS_MAX),
+    ] {
+        let (with, base) = carried(u32::try_from(n)?)?;
+        let extra = with - base;
+        table.row(vec![
+            Cell::text(cap),
+            Cell::count(n as u64),
+            Cell::count(extra),
+            Cell::count(extra / n as u64),
+        ]);
+    }
+    println!("{}", bench.push(table));
+    let mut table = bench.table(
+        "room",
+        "The most tracks a cut carries whole (none left out), by the index policy's state entries, \
+         the tracks on one clock or each on its own.",
+        &[
+            "State entries",
+            "Tracks on one clock",
+            "Tracks on their own clocks",
+        ],
+    );
     for policy in [STATE_ENTRIES_MAX, 1 << 16, 1 << 12, 1 << 8] {
         let name = if policy == STATE_ENTRIES_MAX {
             format!("{policy} (default)")
@@ -340,33 +390,43 @@ fn main() -> anyhow::Result<()> {
         };
         let cell = |(n, capped): (u32, bool)| {
             if capped {
-                format!("{n} (the head cap)")
+                Cell::text(format!("{n} (the head cap)"))
             } else {
-                n.to_string()
+                Cell::count(n.into())
             }
         };
-        let one = cell(room_for(policy, false)?);
-        let own = cell(room_for(policy, true)?);
-        println!("| {name} | {one} | {own} |");
+        table.row(vec![
+            Cell::text(name),
+            cell(room_for(policy, false)?),
+            cell(room_for(policy, true)?),
+        ]);
     }
-    println!();
-    println!(
-        "The piece after a cut, one records block, when the piece before put each state track once (its newest item carried) or gave each stream track data (its definition alone carried):"
+    println!("{}", bench.push(table));
+    let mut table = bench.table(
+        "state",
+        "The piece after a cut, one records block, when the piece before put each state track once (its newest item \
+         carried) or gave each stream track data (its definition alone carried).",
+        &[
+            "Tracks",
+            "Item (bytes)",
+            "State tracks (bytes)",
+            "Stream tracks (bytes)",
+            "Per state (bytes)",
+        ],
     );
-    println!();
-    println!(
-        "| tracks | item (bytes) | state tracks (bytes) | stream tracks (bytes) | per state (bytes) |"
-    );
-    println!("|---|---|---|---|---|");
     for n in [100, 1000] {
         for item_len in [8, 64] {
             let with = after_cut(n, item_len, true)?;
             let base = after_cut(n, item_len, false)?;
-            println!(
-                "| {n} | {item_len} | {with} | {base} | {:.1} |",
-                (with as f64 - base as f64) / f64::from(n)
-            );
+            table.row(vec![
+                Cell::count(n.into()),
+                Cell::count(item_len as u64),
+                Cell::count(with),
+                Cell::count(base),
+                Cell::num((with as f64 - base as f64) / f64::from(n), 1),
+            ]);
         }
     }
-    Ok(())
+    println!("{}", bench.push(table));
+    bench.finish()
 }

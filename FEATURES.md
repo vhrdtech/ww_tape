@@ -148,7 +148,7 @@ Writing pieces and chains, resuming them, sinks in memory, in the crate `ww_tape
   - Past the room it carries each once: the call's tracks first, then clocks and maps, then the newest tracks. The tracks with the oldest data are left out: the head marks them, the close counts them and a reader names them (`DefinitionsAt::not_carried`).
   - A cut made for a call keeps room for its records. An admitted call so fits the piece a cut made for it: data on a track left out writes on, and that piece holds data.
   - A state track gets a head row from its first put. A cut carries its newest item beside its definition, so a state put once outlives older pieces. About 275 to 330 bytes per carried state (`just bench-carried`).
-  - Cost at 1000 tracks and 8 MiB pieces: 2.5 % less data and 2.8 % more bytes per piece (`just bench-carried`).
+  - What carrying costs a piece, measured by `just bench-carried`: [What they cost](docs/carried_definitions.md#what-they-cost).
   - Read more: [The definitions a new piece carries](docs/carried_definitions.md). Tests `quiet.rs`.
 
 - ✅ **WRITE-10 A piece's layout and producer survive damage to its first blocks**

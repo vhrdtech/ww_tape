@@ -70,7 +70,7 @@ just api-check        # ww_tape's version and wire line against ww_tape/api_snap
 just fuzz-tape-<target>   # one fuzz target until stopped, with its libFuzzer limits
 just tape-golden-update   # rewrite golden/*.hex after a deliberate format change
 just bench-<name>         # one bench at release, `--json FILE` for its report (ww_tape_benchmarks/README.md lists them)
-just bench-book           # every bench of the book's "Sizes and speeds" into docs/bench/; `just book-figures` draws them
+just bench-book           # every bench the book draws from into docs/bench/; `just book-figures` draws them
 just book-check           # the book (docs/) with warnings as errors, then spl's prose lints (deny)
 just book-refs            # spl book refs: checks docs/glossary.toml, indexes the code links; every book build runs it
 ```

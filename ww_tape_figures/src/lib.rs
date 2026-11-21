@@ -25,7 +25,8 @@
 //! - `cut.svg`: the end of the drive's piece 0 and the start of piece 1.
 //!
 //! - `sample_codecs.svg`, `event_times.svg`, `chunk_cost.svg`, `drive_sizes.svg` and the `bench_*.txt` tables: the
-//!   numbers of "Sizes and speeds", from the bench reports in `docs/bench/` (`just bench-book`).
+//!   numbers of "Sizes and speeds" and "The definitions a new piece carries", from the bench reports in `docs/bench/`
+//!   (`just bench-book`).
 //!
 //! The figures of records against chunks, the clock map, the checkpoints, the crash, the map, the first tape, the index query, the summary tree and the damage draw the book's running example, the drive's recording ([ww_tape_example]), at a small scale.
 //!
