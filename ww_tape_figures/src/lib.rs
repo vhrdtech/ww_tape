@@ -18,6 +18,11 @@
 //! - `autorange.svg`: an autoranging meter's chunks on one grid at two scales, and its summary nodes.
 //! - `prefix_resync.svg`: the drive's last piece with two damaged blocks, walked in Prefix and in Resync.
 //! - `loss_cases.svg`: the drive's last piece with three kinds of damage, and what still reads of each.
+//! - `deferred.svg`: stretches of two aligned files, the summary blocks and the zeros before each chunk payload.
+//! - `linear_group.svg`: a group of the drive's frame starts, its line and residuals.
+//! - `delta_group.svg`: a group of the drive's phase current, its differences and their width.
+//! - `sync_loss.svg`: three seconds of the drive's file, the syncs of four policies, what a crash loses.
+//! - `cut.svg`: the end of the drive's piece 0 and the start of piece 1.
 //!
 //! The figures of records against chunks, the clock map, the checkpoints, the crash, the map, the first tape, the index query, the summary tree and the damage draw the book's running example, the drive's recording ([ww_tape_example]), at a small scale.
 //!
@@ -46,6 +51,7 @@ mod records_vs_chunk;
 mod summary_tree;
 mod svg;
 mod tape_map;
+mod writing;
 
 /// Every figure: its file name and its SVG text.
 pub fn figures() -> anyhow::Result<Vec<(&'static str, String)>> {
@@ -69,6 +75,11 @@ pub fn figures() -> anyhow::Result<Vec<(&'static str, String)>> {
         ("autorange.svg", autorange::autorange()?),
         ("prefix_resync.svg", damage::prefix_resync()?),
         ("loss_cases.svg", damage::loss_cases()?),
+        ("deferred.svg", writing::deferred()?),
+        ("linear_group.svg", writing::linear_group()?),
+        ("delta_group.svg", writing::delta_group()?),
+        ("sync_loss.svg", writing::sync_loss()?),
+        ("cut.svg", writing::cut()?),
     ])
 }
 

@@ -351,8 +351,8 @@ fn residual_bits(column: &[u8], n: u64) -> u64 {
         .sum()
 }
 
-/// The samples of `phase_a` from item `first`, `n` of them.
-fn phase_values(drive: &Drive, first: u64, n: u64) -> Vec<i16> {
+/// The samples of `phase_a` of `drive` from item `first`, `n` of them.
+pub fn phase_values(drive: &Drive, first: u64, n: u64) -> Vec<i16> {
     let hz = u64::from(drive.phase_hz) * 3_600;
     (first..first + n)
         .map(|i| phase_ma(item_us(i, hz), i, drive.phase_hz))
@@ -428,20 +428,25 @@ fn aligned(recording: &Recording) -> Result<Aligned, Error> {
     Ok(a)
 }
 
-/// `phase_a` and its summaries alone in one piece: its bytes unaligned and aligned, its summary blocks and those
-/// placed right before a series chunk when aligned.
-fn series_alone(recording: &Recording) -> Result<[u64; 4], Error> {
+/// `phase_a` and its summaries of `drive` alone, written into one piece in memory and closed.
+pub fn series_tape(drive: &Drive) -> Result<Vec<u8>, Error> {
     let series = |act: &Act| match act {
         Act::Chunk { head, .. } => head.track_number == PHASE_A,
         Act::Summary(_) => true,
         _ => false,
     };
+    one_tape(drive, crate::PRODUCER, series)
+}
+
+/// `phase_a` and its summaries alone in one piece: its bytes unaligned and aligned, its summary blocks and those
+/// placed right before a series chunk when aligned.
+fn series_alone(recording: &Recording) -> Result<[u64; 4], Error> {
     let drive = Drive {
         layout: Layout::ALIGNED,
         ..recording.drive
     };
-    let unaligned = one_tape(&recording.drive, crate::PRODUCER, series)?;
-    let aligned = one_tape(&drive, crate::PRODUCER, series)?;
+    let unaligned = series_tape(&recording.drive)?;
+    let aligned = series_tape(&drive)?;
     let (summaries, in_gaps) = before_series(&aligned, "summary blocks")?;
     Ok([
         unaligned.len() as u64,
@@ -489,6 +494,8 @@ struct SyncLog {
     writes: AtomicU64,
     /// The run's time at the last sync.
     at_ms: AtomicU64,
+    /// Every sync: the piece and its bytes then.
+    all: std::sync::Mutex<Vec<(u64, u64)>>,
 }
 
 /// [MemTapes] whose sinks log their syncs.
@@ -522,6 +529,10 @@ impl TapeSink for SyncSink {
         log.size.store(self.inner.size()?, Ordering::Relaxed);
         log.writes.store(0, Ordering::Relaxed);
         log.at_ms.store(self.clock.now_ms(), Ordering::Relaxed);
+        log.all
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push((self.key, self.inner.size()?));
         self.inner.sync()
     }
 
@@ -617,19 +628,7 @@ fn act_ms(act: &Act) -> Option<u64> {
 fn sync_loss(recording: &Recording, policy: SyncPolicy) -> Result<SyncLoss, Error> {
     let drive = recording.drive;
     let crash = recording.story_crash_byte()?;
-    let clock = RunClock::default();
-    let tapes = SyncTapes {
-        inner: MemTapes::new(),
-        log: Arc::default(),
-        clock: clock.clone(),
-    };
-    let mut o = options(&drive);
-    o.writer.sync = policy;
-    o.writer.clock = ClockRef::new(clock.clone());
-    let mut r = Recorder {
-        chain: PieceChain::create_on(tapes.clone(), OWNER, drive.chain, &[], o)?,
-        defs: drive_definitions(&drive)?,
-    };
+    let (mut r, tapes, clock) = logged(&drive, policy)?;
     let log = &tapes.log;
     // what the sinks had synced before the act whose write the crash tears
     let mut before = Synced::of(log);
@@ -658,6 +657,62 @@ fn sync_loss(recording: &Recording, policy: SyncPolicy) -> Result<SyncLoss, Erro
         blocks: before.writes,
         ms: clock.now_ms().saturating_sub(before.at_ms),
     })
+}
+
+/// A recorder of `drive` under `policy` whose sinks log their syncs, on the run's own clock, moved to each act's time.
+fn logged(
+    drive: &Drive,
+    policy: SyncPolicy,
+) -> Result<(Recorder<SyncTapes>, SyncTapes, RunClock), Error> {
+    let clock = RunClock::default();
+    let tapes = SyncTapes {
+        inner: MemTapes::new(),
+        log: Arc::default(),
+        clock: clock.clone(),
+    };
+    let mut o = options(drive);
+    o.writer.sync = policy;
+    o.writer.clock = ClockRef::new(clock.clone());
+    let r = Recorder {
+        chain: PieceChain::create_on(tapes.clone(), OWNER, drive.chain, &[], o)?,
+        defs: drive_definitions(drive)?,
+    };
+    Ok((r, tapes, clock))
+}
+
+/// Where the writer synced while it recorded `drive` whole under `policy`, on the run's own clock: the bytes of the
+/// recording then, every piece counted.
+pub fn sync_offsets(drive: &Drive, policy: SyncPolicy) -> Result<Vec<u64>, Error> {
+    let (mut r, tapes, clock) = logged(drive, policy)?;
+    for act in drive.acts()? {
+        let act = act?;
+        if let Some(ms) = act_ms(&act) {
+            clock.0.fetch_max(ms, Ordering::Relaxed);
+        }
+        r.apply(&act)?;
+    }
+    let closed = r.chain.close()?;
+    let starts: Vec<u64> = closed
+        .iter()
+        .scan(0, |at, p| {
+            let start = *at;
+            *at += p.piece.len;
+            Some(start)
+        })
+        .collect();
+    tapes
+        .log
+        .all
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .iter()
+        .map(|(key, size)| {
+            let start = usize::try_from(*key).ok().and_then(|k| starts.get(k));
+            start
+                .map(|s| s + size)
+                .ok_or(Error::Settings("a sync of a piece of the chain"))
+        })
+        .collect()
 }
 
 /// A copy of a [SyncLog] at one moment.

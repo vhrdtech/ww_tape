@@ -1,0 +1,39 @@
+<svg class="ww-svg" viewBox="0 0 688 298" width="688" height="298" role="img" aria-label="Two stretches of aligned files: in the drive's file a records block places the waiting summary before the next gap, and the gap before the series payload holds 5972 zero bytes; in a file of phase_a alone the summary fills the gap and 3772 zero bytes remain" xmlns="http://www.w3.org/2000/svg">
+<text x="24.0" y="20.0" text-anchor="start" class="strong">aligned files: every chunk's payload starts on a 4 KiB line</text>
+<text x="24.0" y="52.0" text-anchor="start" class="small">the drive's file: a records block every second places the summary first</text>
+<rect x="24.5" y="70.0" width="53.6" height="30.0" rx="1" class="tint-teal"/>
+<text x="51.3" y="89.5" text-anchor="middle" class="small">summary</text>
+<rect x="79.1" y="70.0" width="7.2" height="30.0" rx="1" class="tint-blue"/>
+<text x="82.7" y="66.0" text-anchor="middle" class="soft small">log</text>
+<rect x="87.3" y="70.0" width="257.4" height="30.0" rx="1" class="tint-blue"/>
+<rect x="92.2" y="70.0" width="174.7" height="30.0" rx="0" class="faint hatch"/>
+<text x="306.1" y="89.5" text-anchor="middle" class="small">frames</text>
+<rect x="345.7" y="70.0" width="317.8" height="30.0" rx="1" class="tint-blue"/>
+<rect x="350.8" y="70.0" width="114.7" height="30.0" rx="0" class="faint hatch"/>
+<text x="564.7" y="89.5" text-anchor="middle" class="small">samples</text>
+<line x1="68.4" y1="66.0" x2="68.4" y2="104.0" class="thin dash"/>
+<line x1="267.0" y1="66.0" x2="267.0" y2="104.0" class="thin dash"/>
+<line x1="465.5" y1="66.0" x2="465.5" y2="104.0" class="thin dash"/>
+<line x1="664.0" y1="66.0" x2="664.0" y2="104.0" class="thin dash"/>
+<text x="465.5" y="118.0" text-anchor="middle" class="accent small">payload on 4 KiB; 5972 bytes of zeros before it</text>
+<text x="24.0" y="158.0" text-anchor="start" class="small">phase_a alone: the summary waits for the gap and fills it</text>
+<rect x="24.5" y="176.0" width="53.6" height="30.0" rx="1" class="tint-teal"/>
+<text x="51.3" y="195.5" text-anchor="middle" class="small">summary</text>
+<rect x="79.1" y="176.0" width="584.4" height="30.0" rx="1" class="tint-blue"/>
+<rect x="84.1" y="176.0" width="182.8" height="30.0" rx="0" class="faint hatch"/>
+<text x="465.5" y="195.5" text-anchor="middle" class="small">samples</text>
+<line x1="68.4" y1="172.0" x2="68.4" y2="210.0" class="thin dash"/>
+<line x1="267.0" y1="172.0" x2="267.0" y2="210.0" class="thin dash"/>
+<line x1="465.5" y1="172.0" x2="465.5" y2="210.0" class="thin dash"/>
+<line x1="664.0" y1="172.0" x2="664.0" y2="210.0" class="thin dash"/>
+<text x="267.0" y="224.0" text-anchor="middle" class="accent small">payload on 4 KiB; 3772 bytes of zeros before it</text>
+<rect x="24.0" y="246.0" width="16.0" height="12.0" rx="2" class="tint-blue"/>
+<text x="46.0" y="256.5" text-anchor="start" class="small">data</text>
+<rect x="80.4" y="246.0" width="16.0" height="12.0" rx="2" class="tint-teal"/>
+<text x="102.4" y="256.5" text-anchor="start" class="small">summary</text>
+<rect x="156.6" y="246.0" width="16.0" height="12.0" rx="2" class="faint hatch"/>
+<text x="178.6" y="256.5" text-anchor="start" class="small">zeros in a chunk's head</text>
+<rect x="338.4" y="246.0" width="16.0" height="12.0" rx="2" class="thin dash"/>
+<text x="360.4" y="256.5" text-anchor="start" class="small">4 KiB lines</text>
+<text x="24.0" y="280.0" text-anchor="soft small" class="start">each row: 12.9 KiB of the drive's minute 1 at full rate</text>
+</svg>
