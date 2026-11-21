@@ -48,12 +48,7 @@ writes its item.
 and cuts; the next piece holds one records block. The same chain with `n` stream tracks that gave data is the
 baseline, which carries the definitions alone:
 
-| tracks | item (bytes) | state tracks (bytes) | stream tracks (bytes) | per state (bytes) |
-|---|---|---|---|---|
-| 100 | 8 | 65536 | 36864 | 286.7 |
-| 100 | 64 | 69632 | 36864 | 327.7 |
-| 1000 | 8 | 589824 | 315392 | 274.4 |
-| 1000 | 64 | 647168 | 315392 | 331.8 |
+--8<-- "docs/plots/bench_carried_state.txt"
 
 Pieces end on 4 KiB, so the totals step by 4096 bytes. Most of the cost per state is its index entries, in the
 checkpoint and the final index, not the item.

@@ -450,6 +450,7 @@ pub fn figures(dir: &Path) -> anyhow::Result<Vec<(String, String)>> {
         (&r.carried, "pieces"),
         (&r.carried, "caps"),
         (&r.carried, "room"),
+        (&r.carried, "state"),
         (&r.memory, "heap"),
         (&r.rf_core, "writer"),
         (&r.rf_core, "reader"),
