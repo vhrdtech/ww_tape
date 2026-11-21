@@ -16,8 +16,8 @@ Every number on this page comes from a bench in the repository. `just bench-book
 each report as JSON into `docs/bench/`. `just book-figures` then draws the charts and tables of this page from those
 files. A test fails when a chart differs from its report, or when this page's text writes a number no report holds.
 
-A report names the commit and the build it ran, and the machine and the load average before and after each table. A
-time measured under load comes out slower than the machine can go, while a size never changes with the load.
+A report names the commit and the build it ran, and the machine and the load average before and after each table.
+Load slows a time, but never changes a size.
 
 --8<-- "docs/plots/bench_machine.txt"
 
@@ -57,8 +57,8 @@ sample and frame as it goes, so this time includes making the signals as well as
 
 --8<-- "docs/plots/bench_drive_write.txt"
 
-The hour takes 3.0 s with summaries and 2.7 s without them. The host thus records the run 1200 times faster than the
-drive produces it, summaries included.
+The hour takes 2.8 s with summaries and 3.1 s without them, a difference within one run's noise. The host records
+the run 1300 times faster than the drive produces it.
 
 ## Samples: fixed point first
 
@@ -72,7 +72,7 @@ uses three kinds of data: the motor simulation of `motor_sim`, a recorded speech
 ADC turned into floats. The [format reference](format.md#float-codecs-measured) describes
 each data set.
 
-The bench also runs four float codecs that the format doesn't have, to compare against. Gorilla stores each float as
+The bench also runs four float codecs the format doesn't have. Gorilla stores each float as
 the XOR of its bits with the float before it, and Chimp is a refined Gorilla. `FLOAT_DELTA` and
 `FLOAT_DELTA2` apply `DELTA` and `DELTA2` to the floats' bits in an order that sorts like the numbers.
 
@@ -97,7 +97,7 @@ A fixed-point source hands the writer the integers directly. Store the counts, a
 Floats that a device didn't choose still need a codec. ALP is the codec for floats that began as decimals. On ADC ×
 0.1 it is 2.5 to 5.7 times smaller than the best other float codec.
 
-The XOR codecs win on two sets: by 6 % on speech and by 15 % on ADC × 3.3/4096 as `f64`. They decode 3.3 to 12 times
+The XOR codecs win on two sets: by 6 % on speech and by 15 % on ADC × 3.3/4096 as `f64`. They decode 3.1 to 11 times
 slower than the bit-packed codecs, since each value waits for the one before it.
 
 A writer could try ALP and `FLOAT_DELTA` on each chunk and keep the smaller. That pair is the best float codec on four
@@ -105,7 +105,7 @@ of the seven sets, and within 13 % of the best on the others.
 
 ??? note "Every codec on every data set"
 
-    The bench runs in about 31 s. `just bench-sample-codecs` fetches the speech file into `target/bench-data` once
+    The bench runs in about 18 s. `just bench-sample-codecs` fetches the speech file into `target/bench-data` once
     and checks its hash before it decodes it.
 
     --8<-- "docs/plots/bench_sample_codecs_codecs.txt"
@@ -124,7 +124,7 @@ with three other codecs:
   every 128 events;
 - Elias-Fano, which stores the low bits of each tick as they are and the high bits in unary.
 
-One workload reads this machine's own system journal: 4.3 million entries of the last 20 days.
+One workload reads this machine's own system journal: 5.1 million entries of the last 20 days.
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/plots/event_times.svg"
@@ -139,7 +139,7 @@ against 2.6 for the varints.
 
 There, the linear groups pay 1.2 bytes per event for random access. A varint reader walks from its skip entry to the
 item it fetches, while the linear groups read any item directly. With the linear groups, the first event at or after a
-tick takes 11 to 490 ns to find. With the varints it takes 120 to 720 ns. Elias-Fano finds a tick faster on two
+tick takes 11 to 400 ns to find. With the varints it takes 100 to 570 ns. Elias-Fano finds a tick faster on four
 workloads, at a larger size on periodic data.
 
 ??? note "Every codec on every workload"
@@ -173,8 +173,8 @@ statistic at a time, one pass each, on nodes of 1024 frames.
 
 --8<-- "docs/plots/bench_summaries_kernels.txt"
 
-On `i16` the AVX2 kernel reaches 8000 MB/s, against 1400 MB/s one statistic at a time. Even the portable kernel,
-without vector extensions, reaches 3900 MB/s.
+On `i16` the AVX2 kernel reaches 8400 MB/s, against 1500 MB/s one statistic at a time. The portable kernel reaches
+4100 MB/s.
 
 ## What the writer spends
 
@@ -190,9 +190,9 @@ legend. The content hash takes most of <code>TapeWriter::write_chunk</code>. Dra
 
 --8<-- "docs/plots/bench_chunks_writer.txt"
 
-[`TapeWriter::write_chunk`] takes about 320 µs per chunk, and the hash takes 230 µs of that. Besides the hash, the
-writer spends 86 µs per MiB. The copy with its CRCs takes 57 µs, and a reader checks the CRCs of the whole block in
-36 µs. A writer into a growing memory sink spends more, since the sink copies its bytes each time it grows.
+[`TapeWriter::write_chunk`] takes about 310 µs per chunk, and the hash takes 240 µs of that. Besides the hash, the
+writer spends 71 µs per MiB. The copy with its CRCs takes 58 µs, and a reader checks the CRCs of the whole block in
+37 µs. A writer into a growing memory sink spends more, since the sink copies its bytes each time it grows.
 
 ### Reading a track's timeline
 
@@ -261,6 +261,8 @@ back.
 --8<-- "docs/plots/bench_rf_chain_chain.txt"
 
 --8<-- "docs/plots/bench_rf_chain_read.txt"
+
+The writer thread is busy the whole run and sustains 19 million samples a second, just short of the capture.
 
 ## Running the measurements again
 

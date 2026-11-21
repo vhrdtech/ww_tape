@@ -20,12 +20,12 @@
 <text x="416.5" y="102.0" text-anchor="start" class="small">3.146</text>
 <rect x="251.6" y="118.0" width="132.9" height="12.0" rx="2" class="blue"><title>records blocks of log, temp and mode, MiB of the hour: 0.773</title></rect>
 <text x="388.5" y="128.0" text-anchor="start" class="small">0.773</text>
-<rect x="251.6" y="144.0" width="32.9" height="12.0" rx="2" class="blue"><title>puts and copies, MiB of the hour: 0.005</title></rect>
-<text x="288.5" y="154.0" text-anchor="start" class="small">0.005</text>
-<rect x="251.6" y="170.0" width="159.9" height="12.0" rx="2" class="blue"><title>checkpoints and final indexes, MiB of the hour: 2.998</title></rect>
-<text x="415.5" y="180.0" text-anchor="start" class="small">2.998</text>
-<rect x="251.6" y="196.0" width="48.8" height="12.0" rx="2" class="blue"><title>piece heads, closes and tails, MiB of the hour: 0.012</title></rect>
-<text x="304.4" y="206.0" text-anchor="start" class="small">0.012</text>
+<rect x="251.6" y="144.0" width="33.5" height="12.0" rx="2" class="blue"><title>puts and copies, MiB of the hour: 0.005</title></rect>
+<text x="289.1" y="154.0" text-anchor="start" class="small">0.005</text>
+<rect x="251.6" y="170.0" width="159.9" height="12.0" rx="2" class="blue"><title>checkpoints and final indexes, MiB of the hour: 3.000</title></rect>
+<text x="415.5" y="180.0" text-anchor="start" class="small">3.000</text>
+<rect x="251.6" y="196.0" width="51.9" height="12.0" rx="2" class="blue"><title>piece heads, closes and tails, MiB of the hour: 0.013</title></rect>
+<text x="307.5" y="206.0" text-anchor="start" class="small">0.013</text>
 <line x1="251.6" y1="34.0" x2="251.6" y2="222.0" class="line"/>
 <text x="241.6" y="50.0" text-anchor="end">series chunks of phase_a</text>
 <text x="241.6" y="76.0" text-anchor="end">events chunks of can0</text>

@@ -1,8 +1,8 @@
 | Tracks | Item (bytes) | State tracks (bytes) | Stream tracks (bytes) | Per state (bytes) |
 |---:|---:|---:|---:|---:|
 | 100 | 8 | 65 536 | 36 864 | 286.7 |
-| 100 | 64 | 69 632 | 36 864 | 327.7 |
-| 1000 | 8 | 589 824 | 315 392 | 274.4 |
-| 1000 | 64 | 647 168 | 315 392 | 331.8 |
+| 100 | 64 | 73 728 | 36 864 | 368.6 |
+| 1000 | 8 | 593 920 | 315 392 | 278.5 |
+| 1000 | 64 | 651 264 | 315 392 | 335.9 |
 
-`just bench-carried` on build-1, load average 7.01 before, 7.01 after.
+`just bench-carried` on build-1, load average 6.27 before, 6.27 after.

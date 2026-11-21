@@ -12,20 +12,20 @@
 <text x="488.4" y="236.0" text-anchor="middle" class="small soft">800</text>
 <line x1="534.4" y1="34.0" x2="534.4" y2="222.0" class="thin"/>
 <text x="534.4" y="236.0" text-anchor="middle" class="small soft">1000</text>
-<rect x="304.4" y="40.0" width="13.2" height="12.0" rx="2" class="blue"><title>chunk::write_chunk: copy and CRCs, µs per 1 MiB chunk: 57</title></rect>
-<text x="321.6" y="50.0" text-anchor="start" class="small">57</text>
-<rect x="304.4" y="66.0" width="8.3" height="12.0" rx="2" class="blue"><title>Block::read: the CRCs checked, µs per 1 MiB chunk: 36</title></rect>
-<text x="316.7" y="76.0" text-anchor="start" class="small">36</text>
-<rect x="304.4" y="92.0" width="53.0" height="12.0" rx="2" class="blue"><title>ItemHash::of: BLAKE3, µs per 1 MiB chunk: 230</title></rect>
-<text x="361.4" y="102.0" text-anchor="start" class="small">230</text>
-<rect x="304.4" y="118.0" width="1.0" height="12.0" rx="2" class="blue"><title>TrackHash::chunk_unit: the unit hash, µs per 1 MiB chunk: 0.186</title></rect>
-<text x="309.4" y="128.0" text-anchor="start" class="small">0.186</text>
-<rect x="304.4" y="144.0" width="72.8" height="12.0" rx="2" class="blue"><title>TapeWriter::write_chunk (columns), µs per 1 MiB chunk: 316</title></rect>
-<text x="381.2" y="154.0" text-anchor="start" class="small">316</text>
-<rect x="304.4" y="170.0" width="136.3" height="12.0" rx="2" class="blue"><title>TapeWriter::write_chunk into a MemSink, µs per 1 MiB chunk: 593</title></rect>
-<text x="444.7" y="180.0" text-anchor="start" class="small">593</text>
-<rect x="304.4" y="196.0" width="75.3" height="12.0" rx="2" class="blue"><title>chunk::write_chunk + TapeWriter::write_block, µs per 1 MiB chunk: 327</title></rect>
-<text x="383.7" y="206.0" text-anchor="start" class="small">327</text>
+<rect x="304.4" y="40.0" width="13.3" height="12.0" rx="2" class="blue"><title>chunk::write_chunk: copy and CRCs, µs per 1 MiB chunk: 58</title></rect>
+<text x="321.7" y="50.0" text-anchor="start" class="small">58</text>
+<rect x="304.4" y="66.0" width="8.4" height="12.0" rx="2" class="blue"><title>Block::read: the CRCs checked, µs per 1 MiB chunk: 37</title></rect>
+<text x="316.8" y="76.0" text-anchor="start" class="small">37</text>
+<rect x="304.4" y="92.0" width="54.1" height="12.0" rx="2" class="blue"><title>ItemHash::of: BLAKE3, µs per 1 MiB chunk: 235</title></rect>
+<text x="362.5" y="102.0" text-anchor="start" class="small">235</text>
+<rect x="304.4" y="118.0" width="1.0" height="12.0" rx="2" class="blue"><title>TrackHash::chunk_unit: the unit hash, µs per 1 MiB chunk: 0.159</title></rect>
+<text x="309.4" y="128.0" text-anchor="start" class="small">0.159</text>
+<rect x="304.4" y="144.0" width="70.6" height="12.0" rx="2" class="blue"><title>TapeWriter::write_chunk (columns), µs per 1 MiB chunk: 307</title></rect>
+<text x="379.0" y="154.0" text-anchor="start" class="small">307</text>
+<rect x="304.4" y="170.0" width="220.3" height="12.0" rx="2" class="blue"><title>TapeWriter::write_chunk into a MemSink, µs per 1 MiB chunk: 958</title></rect>
+<text x="528.7" y="180.0" text-anchor="start" class="small">958</text>
+<rect x="304.4" y="196.0" width="75.2" height="12.0" rx="2" class="blue"><title>chunk::write_chunk + TapeWriter::write_block, µs per 1 MiB chunk: 327</title></rect>
+<text x="383.6" y="206.0" text-anchor="start" class="small">327</text>
 <line x1="304.4" y1="34.0" x2="304.4" y2="222.0" class="line"/>
 <text x="294.4" y="50.0" text-anchor="end">chunk::write_chunk: copy and CRCs</text>
 <text x="294.4" y="76.0" text-anchor="end">Block::read: the CRCs checked</text>
@@ -36,5 +36,5 @@
 <text x="294.4" y="206.0" text-anchor="end">chunk::write_chunk + TapeWriter::write_block</text>
 <rect x="304.4" y="249.0" width="12.0" height="10.0" rx="2" class="blue"/>
 <text x="321.4" y="258.0" text-anchor="start" class="small">µs per 1 MiB chunk</text>
-<text x="304.4" y="280.0" text-anchor="start" class="small soft">just bench-chunks on build-1, load average 7.34 before, 7.15 after.</text>
+<text x="304.4" y="280.0" text-anchor="start" class="small soft">just bench-chunks on build-1, load average 5.68 before, 5.68 after.</text>
 </svg>
