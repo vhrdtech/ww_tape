@@ -1,8 +1,8 @@
 {
   "format": 1,
   "bench": "chunks",
-  "version": "0.1.0 (92dc8ef, commit 21 Nov 2026 04:40 UTC)",
-  "commit": "92dc8ef",
+  "version": "0.1.0 (38a7722, commit 21 Nov 2026 05:27 UTC)",
+  "commit": "38a7722",
   "dirty": false,
   "build": {
     "profile": "release",
@@ -48,92 +48,92 @@
         [
           "`chunk::write_chunk`: copy and CRCs",
           {
-            "value": 155426.30859375,
+            "value": 60308.48046875,
             "digits": 0
           },
           {
-            "value": 6.747731510122047,
+            "value": 17.390174513573477,
             "digits": 2
           }
         ],
         [
           "`Block::read`: the CRCs checked",
           {
-            "value": 50003.6328125,
+            "value": 36845.625,
             "digits": 0
           },
           {
-            "value": 20.97397610954829,
+            "value": 28.464030668498634,
             "digits": 2
           }
         ],
         [
           "`ItemHash::of`: BLAKE3",
           {
-            "value": 796857.34765625,
+            "value": 233554.5390625,
             "digits": 0
           },
           {
-            "value": 1.3161389589801746,
+            "value": 4.49049290247082,
             "digits": 2
           }
         ],
         [
           "`TrackHash::chunk_unit`: the unit hash",
           {
-            "value": 220.0859375,
+            "value": 161.05859375,
             "digits": 0
           },
           {
-            "value": 4765.297646515921,
+            "value": 6511.760568504281,
             "digits": 2
           }
         ],
         [
           "`TapeWriter::write_chunk` (columns)",
           {
-            "value": 1826533.96875,
+            "value": 369614.9296875,
             "digits": 0
           },
           {
-            "value": 0.5741886096527051,
+            "value": 2.8374800792995902,
             "digits": 2
           }
         ],
         [
           "`TapeWriter::write_chunk` into a `MemSink`",
           {
-            "value": 2157622.63671875,
+            "value": 810265.79296875,
             "digits": 0
           },
           {
-            "value": 0.4860789751422643,
+            "value": 1.2943592202718703,
             "digits": 2
           }
         ],
         [
           "`chunk::write_chunk` + `TapeWriter::write_block`",
           {
-            "value": 522227.265625,
+            "value": 594029.7109375,
             "digits": 0
           },
           {
-            "value": 2.00827315813323,
+            "value": 1.765526169296851,
             "digits": 2
           }
         ]
       ],
       "load_before": {
-        "one": 22.02,
-        "five": 19.73,
-        "fifteen": 21.47
+        "one": 14.65,
+        "five": 29.94,
+        "fifteen": 34.36
       },
       "load_after": {
-        "one": 23.25,
-        "five": 20.07,
-        "fifteen": 21.56
+        "one": 14.04,
+        "five": 29.56,
+        "fifteen": 34.21
       },
-      "seconds": 10.572795978
+      "seconds": 3.975101929
     },
     {
       "id": "timeline-0",
@@ -151,7 +151,7 @@
             "digits": 0
           },
           {
-            "value": 778.68359375,
+            "value": 863.84375,
             "digits": 0
           }
         ],
@@ -162,7 +162,7 @@
             "digits": 0
           },
           {
-            "value": 129078.47265625,
+            "value": 109560.83984375,
             "digits": 0
           }
         ],
@@ -173,22 +173,22 @@
             "digits": 0
           },
           {
-            "value": 233.36328125,
+            "value": 228.6796875,
             "digits": 0
           }
         ]
       ],
       "load_before": {
-        "one": 23.25,
-        "five": 20.07,
-        "fifteen": 21.56
+        "one": 14.04,
+        "five": 29.56,
+        "fifteen": 34.21
       },
       "load_after": {
-        "one": 22.99,
-        "five": 20.07,
-        "fifteen": 21.55
+        "one": 14.04,
+        "five": 29.56,
+        "fifteen": 34.21
       },
-      "seconds": 1.36482638
+      "seconds": 0.770221646
     },
     {
       "id": "timeline-4096",
@@ -206,7 +206,7 @@
             "digits": 0
           },
           {
-            "value": 2628.4453125,
+            "value": 3904.828125,
             "digits": 0
           }
         ],
@@ -217,7 +217,7 @@
             "digits": 0
           },
           {
-            "value": 120403.75,
+            "value": 133615.69921875,
             "digits": 0
           }
         ],
@@ -228,22 +228,22 @@
             "digits": 0
           },
           {
-            "value": 198.35546875,
+            "value": 238.83203125,
             "digits": 0
           }
         ]
       ],
       "load_before": {
-        "one": 22.99,
-        "five": 20.07,
-        "fifteen": 21.55
+        "one": 14.04,
+        "five": 29.56,
+        "fifteen": 34.21
       },
       "load_after": {
-        "one": 22.99,
-        "five": 20.07,
-        "fifteen": 21.55
+        "one": 14.83,
+        "five": 29.46,
+        "fifteen": 34.16
       },
-      "seconds": 1.010415994
+      "seconds": 0.882412406
     }
   ]
 }

@@ -1,0 +1,8 @@
+| State entries | Tracks on one clock | Tracks on their own clocks |
+|---|---|---:|
+| 1048576 (default) | 699006 (the head cap) | 524 285 |
+| 65536 | 65 530 | 32 765 |
+| 4096 | 4090 | 2045 |
+| 256 | 250 | 125 |
+
+`just bench-carried` on build-1, load average 25.36 before, 32.08 after.

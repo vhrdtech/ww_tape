@@ -1,6 +1,6 @@
 | Recording | Seconds | MB/s of the recording | Times faster than the run |
 |---|---:|---:|---:|
-| with summaries of `phase_a` | 4.15 | 28 | 868 |
-| without summaries | 5.39 | 21 | 668 |
+| with summaries of `phase_a` | 9.19 | 13 | 392 |
+| without summaries | 9.21 | 12 | 391 |
 
-`just bench-drive` on build-1, load average 24.19 before, 20.70 after.
+`just bench-drive` on build-1, load average 18.77 before, 23.89 after.

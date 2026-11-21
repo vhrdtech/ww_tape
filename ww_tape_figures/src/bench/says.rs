@@ -3,7 +3,7 @@
 //! - pins: numbers the page computes from the reports (a range, a margin, a count), as the page writes them; each
 //!   must appear in the page;
 //! - named: every number the reports name, their cells as the page shows them and the numbers in their titles,
-//!   text cells and settings;
+//!   text cells and settings, each cell also rounded to fewer significant digits (two at least) and in millions;
 //! - given: phrases with numbers that are no measurement, each with its reason.
 //!
 //! [Says::check] takes the page and lists every number of its prose that none of them holds, and every pin it lacks.
@@ -162,6 +162,7 @@ impl Says {
 
 /// Every number `report` names: cells as the page shows them, and the numbers in its titles, text and settings.
 fn named(report: &Report, out: &mut BTreeSet<String>) {
+    let mut rounds = Vec::new();
     let mut add = |s: &str| {
         for n in numbers(s) {
             if !n.contains('.') && n.len() >= 5 && !n.contains(' ') {
@@ -184,23 +185,66 @@ fn named(report: &Report, out: &mut BTreeSet<String>) {
             match c {
                 Cell::Text(s) => add(s),
                 c => {
-                    add(&shown(c));
-                    // a whole value shown with decimals, such as 20.000 raw bytes, reads as 20 in prose
-                    if let Some(v) = c.value().filter(|v| v.fract() == 0.0) {
-                        add(&format!("{v:.0}"));
+                    let shown = shown(c);
+                    add(&shown);
+                    if let Some(v) = c.value() {
+                        // a whole value shown with decimals, such as 20.000 raw bytes, reads as 20 in prose
+                        if v.fract() == 0.0 {
+                            add(&format!("{v:.0}"));
+                        }
+                        rounds.extend(rounded(v, &shown));
                     }
                 }
             }
         }
     }
+    out.extend(rounds);
 }
 
-/// `lo to hi` of `v`, each with `digits` decimals.
-fn range(v: &[f64], digits: usize) -> anyhow::Result<String> {
+/// `v` rounded to `digits` significant digits, as the page writes it: 1.1, 870, 2100, 1 000 000.
+fn sig(v: f64, digits: i32) -> String {
+    if v == 0.0 {
+        return "0".to_owned();
+    }
+    #[expect(
+        clippy::as_conversions,
+        clippy::cast_possible_truncation,
+        reason = "the exponent of a finite f64 fits an i32"
+    )]
+    let exp = v.abs().log10().floor() as i32;
+    let decimals = digits - 1 - exp;
+    if let Ok(d) = usize::try_from(decimals)
+        && d > 0
+    {
+        format!("{v:.d$}")
+    } else {
+        let unit = 10f64.powi(-decimals);
+        let whole = format!("{:.0}", (v / unit).round() * unit);
+        if whole.trim_start_matches('-').len() >= 5 {
+            grouped(&whole)
+        } else {
+            whole
+        }
+    }
+}
+
+/// The forms of a measured `v` the prose may round it to: two significant digits up to `shown`'s, and in millions.
+fn rounded(v: f64, shown: &str) -> Vec<String> {
+    let digits = shown.chars().filter(char::is_ascii_digit).count();
+    let digits = i32::try_from(digits).unwrap_or(i32::MAX);
+    let mut out: Vec<String> = (2..digits).map(|d| sig(v, d)).collect();
+    if v.abs() >= 1e6 {
+        out.extend((2..=3).map(|d| sig(v / 1e6, d)));
+    }
+    out
+}
+
+/// `lo to hi` of `v`, each to two significant digits.
+fn range(v: &[f64]) -> anyhow::Result<String> {
     ensure!(!v.is_empty(), "a range of no values");
     let lo = v.iter().copied().fold(f64::MAX, f64::min);
     let hi = v.iter().copied().fold(f64::MIN, f64::max);
-    Ok(format!("{lo:.digits$} to {hi:.digits$}"))
+    Ok(format!("{} to {}", sig(lo, 2), sig(hi, 2)))
 }
 
 /// The value of `column` in the row `keys` of `t`.
@@ -296,7 +340,7 @@ fn samples(r: &Reports, pins: &mut Vec<(String, String)>) -> anyhow::Result<()> 
     }
     pins.push((
         "ALP's ratio over the best other float codec on the sets of ADC × 0.1".to_owned(),
-        format!("{} times", range(&alp_margin, 1)?),
+        format!("{} times", range(&alp_margin)?),
     ));
     pins.push((
         "the sets where an XOR codec has the best float ratio".to_owned(),
@@ -310,7 +354,7 @@ fn samples(r: &Reports, pins: &mut Vec<(String, String)>) -> anyhow::Result<()> 
     }
     pins.push((
         "the XOR codecs' decode time over the fastest bit-packed codec's, per set".to_owned(),
-        format!("{} times slower", range(&slower, 0)?),
+        format!("{} times slower", range(&slower)?),
     ));
     pins.push((
         "the sets where ALP or FLOAT_DELTA, whichever is smaller, is the best float codec"
@@ -353,11 +397,11 @@ fn events(r: &Reports, pins: &mut Vec<(String, String)>) -> anyhow::Result<()> {
     }
     pins.push((
         "the time the linear groups take to find a tick, over the workloads".to_owned(),
-        format!("{} ns to find", range(&linear, 0)?),
+        format!("{} ns to find", range(&linear)?),
     ));
     pins.push((
         "the time the varints take to find a tick, over the workloads".to_owned(),
-        format!("takes {} ns.", range(&varints, 0)?),
+        format!("takes {} ns.", range(&varints)?),
     ));
     pins.push((
         "the workloads where Elias-Fano finds a tick faster than the linear groups".to_owned(),
@@ -374,9 +418,12 @@ fn events(r: &Reports, pins: &mut Vec<(String, String)>) -> anyhow::Result<()> {
         "what random access costs on bursty traffic: the linear groups' bytes over the varints'"
             .to_owned(),
         format!(
-            "{:.3} bytes per event",
-            at(t, &[bursty, "ww_tape linear groups"], bytes)?
-                - at(t, &[bursty, "delta-of-delta varints"], bytes)?
+            "{} bytes per event",
+            sig(
+                at(t, &[bursty, "ww_tape linear groups"], bytes)?
+                    - at(t, &[bursty, "delta-of-delta varints"], bytes)?,
+                2
+            )
         ),
     ));
     let setting = |name: &str| -> anyhow::Result<f64> {
@@ -394,6 +441,13 @@ fn events(r: &Reports, pins: &mut Vec<(String, String)>) -> anyhow::Result<()> {
         format!("{:.0} million video frames", setting("frames")? / 1e6),
     ));
     pins.push((
+        "the entries of the system journal, in millions".to_owned(),
+        format!(
+            "{} million entries",
+            sig(setting("journal entries")? / 1e6, 2)
+        ),
+    ));
+    pins.push((
         "the days of the system journal".to_owned(),
         format!("{:.0} days", setting("journal days")?),
     ));
@@ -407,7 +461,7 @@ fn writer(
 ) -> anyhow::Result<()> {
     let t = table(&r.chunks, "writer")?;
     for row in &t.rows {
-        named.insert(format!("{:.0}", value(t, row, "ns per chunk")? / 1000.0));
+        named.insert(sig(value(t, row, "ns per chunk")? / 1000.0, 2));
     }
     let kib = r
         .chunks
@@ -428,10 +482,13 @@ fn writer(
     pins.push((
         "what the writer spends on a chunk besides the content hash".to_owned(),
         format!(
-            "{:.0} µs per MiB",
-            (ns("`TapeWriter::write_chunk` (columns)")? - ns("`ItemHash::of`")?)
-                / 1000.0
-                / f64::from(kib / 1024)
+            "{} µs per MiB",
+            sig(
+                (ns("`TapeWriter::write_chunk` (columns)")? - ns("`ItemHash::of`")?)
+                    / 1000.0
+                    / f64::from(kib / 1024),
+                2
+            )
         ),
     ));
     Ok(())
@@ -449,6 +506,28 @@ mod tests {
             ),
             ["10 671", "1.107", "300", "3.3", "4096", "2"]
         );
+    }
+
+    #[test]
+    fn rounding_keeps_two_significant_digits() {
+        assert_eq!(sig(1.107, 2), "1.1");
+        assert_eq!(sig(868.0, 2), "870");
+        assert_eq!(sig(2133.0, 2), "2100");
+        assert_eq!(sig(0.0142, 2), "0.014");
+        assert_eq!(sig(5_080_816.0, 2), "5 100 000");
+        assert_eq!(
+            rounded(5_080_816.0, "5 080 816"),
+            [
+                "5 100 000",
+                "5 080 000",
+                "5 081 000",
+                "5 080 800",
+                "5 080 820",
+                "5.1",
+                "5.08"
+            ]
+        );
+        assert_eq!(rounded(86.41, "86.41"), ["86", "86.4"]);
     }
 
     #[test]

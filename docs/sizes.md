@@ -38,8 +38,8 @@ them. Drawn by <code>ww_tape_figures</code> from <code>docs/bench/drive.json</co
 
 --8<-- "docs/plots/bench_drive_sizes.txt"
 
-The [[series chunks]] of `phase_a` take 86.41 % of the recording, and the [[events chunks]] of `can0` 7.29 %. The
-[[summaries]] of `phase_a` add 2.86 %, and the [[checkpoints]] and [[final indexes]] 2.73 %. The slow tracks, the
+The [[series chunks]] of `phase_a` take 86 % of the recording, and the [[events chunks]] of `can0` 7.3 %. The
+[[summaries]] of `phase_a` add 2.9 %, and the [[checkpoints]] and [[final indexes]] 2.7 %. The slow tracks, the
 [[puts]] and the ends of the pieces stay below one percent together.
 
 ### Bytes per item
@@ -49,7 +49,7 @@ its chunks, against the same item stored raw.
 
 --8<-- "docs/plots/bench_drive_items.txt"
 
-A sample of `phase_a` costs 1.107 bytes against its 2 raw bytes. A frame of `can0` costs 2.334 bytes against its 20 raw
+A sample of `phase_a` costs 1.1 bytes against its 2 raw bytes. A frame of `can0` costs 2.3 bytes against its 20 raw
 bytes. To predict another recording's size, multiply each stream's rate by its bytes per item. Then add the shares of
 the summaries and the index that the table above gives for the drive.
 
@@ -60,12 +60,12 @@ sample and frame as it goes, so this time includes making the signals as well as
 
 --8<-- "docs/plots/bench_drive_write.txt"
 
-The hour takes 4.15 s with summaries and 5.39 s without them. The host thus records the run 868 times faster than the
-drive produces it, summaries included.
+The hour takes about 9.2 s, with summaries or without them. The host thus records the run about 390 times faster than
+the drive produces it, summaries included.
 
 ## Samples: fixed point first
 
-`phase_a` stores 1.107 bytes a sample because its samples are [[fixed-point]] integers. A writer codes an integer column
+`phase_a` stores 1.1 bytes a sample because its samples are [[fixed-point]] integers. A writer codes an integer column
 with `DELTA`, which bit-packs the differences between neighbours per group of 128 samples. A float column has one codec
 in the format, Adaptive Lossless floating-Point compression (ALP). ALP finds floats that began as decimals and stores
 the integers they came from.
@@ -90,7 +90,7 @@ ran at is under the legend. Drawn by <code>ww_tape_figures</code> from
 ### Why fixed point beats floats
 
 Fixed point wins on every set, and by the widest margin where the floats hide integer counts. ADC × 3.3/4096 as `f64`
-reaches a ratio of 14.63 in fixed point, against 1.57 for the best float codec. ALP can't recover integers from a scale
+reaches a ratio of 15 in fixed point, against 1.6 for the best float codec. ALP can't recover integers from a scale
 like 3.3/4096, which no short decimal writes.
 
 A fixed-point source hands the writer the integers directly. Store the counts, and put the scale in the track's type.
@@ -100,7 +100,7 @@ A fixed-point source hands the writer the integers directly. Store the counts, a
 Floats that a device didn't choose still need a codec. ALP is the codec for floats that began as decimals. On ADC ×
 0.1 it is 2.5 to 5.7 times smaller than the best other float codec.
 
-The XOR codecs win on two sets: by 6 % on speech and by 15 % on ADC × 3.3/4096 as `f64`. They decode 3 to 17 times
+The XOR codecs win on two sets: by 6 % on speech and by 15 % on ADC × 3.3/4096 as `f64`. They decode 4.4 to 19 times
 slower than the bit-packed codecs, since each value waits for the one before it.
 
 A writer could try ALP and `FLOAT_DELTA` on each chunk and keep the smaller. That pair is the best float codec on four
@@ -108,7 +108,7 @@ of the seven sets, and within 13 % of the best on the others.
 
 ??? note "Every codec on every data set"
 
-    The bench runs in about 49 s. `just bench-sample-codecs` fetches the speech file into `target/bench-data` once
+    The bench runs in about 85 s. `just bench-sample-codecs` fetches the speech file into `target/bench-data` once
     and checks its hash before it decodes it.
 
     --8<-- "docs/plots/bench_sample_codecs_codecs.txt"
@@ -128,7 +128,7 @@ with three other codecs:
 - Elias-Fano, which stores the low bits of each tick as they are and the high bits in unary. It finds an item by
   counting set bits.
 
-One workload reads this machine's own system journal: 5 080 816 entries of the last 20 days. Every timed lookup of
+One workload reads this machine's own system journal: 5.1 million entries of the last 20 days. Every timed lookup of
 every codec is checked against the raw ticks.
 
 <figure class="ww-figure" markdown="0">
@@ -138,13 +138,13 @@ event at or after a tick (right), with the load the bench ran at under the legen
 periodic data. Drawn by <code>ww_tape_figures</code> from <code>docs/bench/event_times.json</code>.</figcaption>
 </figure>
 
-With a 1 ms period and ±300 ns of jitter, an event takes 1.447 bytes. The varints take 2.035 and Elias-Fano 2.789. An
-exact period takes 0.014 bytes. Bursty traffic is the one generated case where the linear groups lose: 3.798 bytes
-against 2.581 for the varints.
+With a 1 ms period and ±300 ns of jitter, an event takes 1.4 bytes. The varints take 2.0 and Elias-Fano 2.8. An
+exact period takes 0.014 bytes. Bursty traffic is the one generated case where the linear groups lose: 3.8 bytes
+against 2.6 for the varints.
 
-There, the linear groups pay 1.217 bytes per event for random access. A varint reader walks from its skip entry to the
+There, the linear groups pay 1.2 bytes per event for random access. A varint reader walks from its skip entry to the
 item it fetches, while the linear groups read any item directly. With the linear groups, the first event at or after a
-tick takes 22 to 871 ns to find. With the varints it takes 263 to 2133 ns. Elias-Fano finds a tick faster on three
+tick takes 11 to 670 ns to find. With the varints it takes 130 to 660 ns. Elias-Fano finds a tick faster on three
 workloads, at a larger size on periodic data.
 
 ??? note "Every codec on every workload"
@@ -155,7 +155,7 @@ workloads, at a larger size on periodic data.
 
 A [[clock]] that matches its source saves the most. Take 1 million video frames at 60000/1001 frames a second. On the
 stream's own 60 000 Hz clock every frame lies on the period, and a frame takes 0.002 bytes. On a 1 ns clock the same
-frames take 0.320 bytes, since rounding leaves a residual of 0 or 1 ns per frame.
+frames take 0.32 bytes, since rounding leaves a residual of 0 or 1 ns per frame.
 
 ### Ends beside the starts
 
@@ -178,8 +178,8 @@ statistic at a time, one pass each, on nodes of 1024 frames.
 
 --8<-- "docs/plots/bench_summaries_kernels.txt"
 
-On `i16` the AVX-512 kernel reaches 5020 MB/s, against 328 MB/s one statistic at a time. Even the portable kernel,
-without vector extensions, reaches 2109 MB/s.
+On `i16` the AVX-512 kernel reaches about 11 000 MB/s, against 1300 MB/s one statistic at a time. Even the portable
+kernel, without vector extensions, reaches 3300 MB/s.
 
 ## What the writer spends
 
@@ -195,8 +195,9 @@ legend. The content hash takes most of <code>TapeWriter::write_chunk</code>. Dra
 
 --8<-- "docs/plots/bench_chunks_writer.txt"
 
-[`TapeWriter::write_chunk`] takes 1827 µs per chunk, and the hash takes 797 µs of that. Besides the hash, the writer
-spends 1030 µs per MiB. The copy with its CRCs takes 155 µs, and a reader checks the CRCs of the whole block in 50 µs. A
+[`TapeWriter::write_chunk`] takes about 370 µs per chunk, and the hash takes 230 µs of that. Besides the hash, the
+writer spends 140 µs per MiB. The copy with its CRCs takes 60 µs, and a reader checks the CRCs of the whole block in
+37 µs. A
 writer into a growing memory sink spends more, since the sink copies its bytes each time it grows.
 
 ### Reading a track's timeline
