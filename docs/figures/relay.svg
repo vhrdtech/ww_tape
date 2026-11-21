@@ -1,0 +1,55 @@
+<svg class="ww-svg" viewBox="0 0 680 260" width="680" height="260" role="img" aria-label="The board's blocks relayed into the host's pieces: the board's data blocks pass byte for byte; its blocks of puts are not written but taken into the relay's Definitions; the relay puts what its own pieces need by its own near rule, after each piece head and before data far from the last record" xmlns="http://www.w3.org/2000/svg">
+  <!-- the board's stream -->
+  <text x="20" y="28" class="small">the board's tape, as it arrives</text>
+  <rect x="20.5" y="38" width="34" height="28" rx="2" class="tint-amber"/>
+  <text x="37" y="56" text-anchor="middle" class="mono small">put</text>
+  <rect x="56.5" y="38" width="90" height="28" rx="2" class="tint-blue"/>
+  <text x="101" y="56" text-anchor="middle" class="small">data 1</text>
+  <rect x="148.5" y="38" width="90" height="28" rx="2" class="tint-blue"/>
+  <text x="193" y="56" text-anchor="middle" class="small">data 2</text>
+  <rect x="240.5" y="38" width="34" height="28" rx="2" class="tint-amber"/>
+  <text x="257" y="56" text-anchor="middle" class="mono small">put</text>
+  <rect x="276.5" y="38" width="90" height="28" rx="2" class="tint-blue"/>
+  <text x="321" y="56" text-anchor="middle" class="small">data 3</text>
+  <rect x="368.5" y="38" width="90" height="28" rx="2" class="tint-blue"/>
+  <text x="413" y="56" text-anchor="middle" class="small">data 4</text>
+  <rect x="460.5" y="38" width="34" height="28" rx="2" class="tint-amber"/>
+  <text x="477" y="56" text-anchor="middle" class="mono small">put</text>
+  <rect x="496.5" y="38" width="90" height="28" rx="2" class="tint-blue"/>
+  <text x="541" y="56" text-anchor="middle" class="small">data 5</text>
+  <!-- puts into the relay's definitions -->
+  <rect x="236.5" y="100" width="206" height="34" rx="4" class="tint-ink"/>
+  <text x="339" y="122" text-anchor="middle" class="small">the relay's <tspan class="mono">Definitions</tspan></text>
+  <path d="M37 68 Q60 100 230 112" class="accent-line"/>
+  <path d="M234 113 l-8 -4 l1 8 Z" class="accent-line head"/>
+  <path d="M257 68 V94" class="accent-line"/>
+  <path d="M257 98 l-4 -8 h8 Z" class="accent-line head"/>
+  <path d="M477 68 Q470 100 448 112" class="accent-line"/>
+  <path d="M444 114 l4 -8 l5 6 Z" class="accent-line head"/>
+  <text x="600" y="100" text-anchor="end" class="accent small">puts are held, not written</text>
+  <!-- the relay's pieces -->
+  <text x="20" y="226" class="small">the host's pieces</text>
+  <rect x="20.5" y="178" width="20" height="28" rx="2" class="tint-ink"/>
+  <rect x="42.5" y="178" width="34" height="28" rx="2" class="tint-amber"/>
+  <text x="59" y="196" text-anchor="middle" class="mono small">put</text>
+  <rect x="78.5" y="178" width="90" height="28" rx="2" class="tint-blue"/>
+  <text x="123" y="196" text-anchor="middle" class="small">data 1</text>
+  <rect x="170.5" y="178" width="90" height="28" rx="2" class="tint-blue"/>
+  <text x="215" y="196" text-anchor="middle" class="small">data 2</text>
+  <rect x="262.5" y="178" width="90" height="28" rx="2" class="tint-blue"/>
+  <text x="307" y="196" text-anchor="middle" class="small">data 3</text>
+  <rect x="354.5" y="178" width="36" height="28" rx="2" class="tint-green"/>
+  <text x="372" y="196" text-anchor="middle" class="small">end</text>
+  <path d="M396 172 v40" class="accent-line"/>
+  <text x="396" y="226" text-anchor="middle" class="accent small">cut</text>
+  <rect x="402.5" y="178" width="20" height="28" rx="2" class="tint-ink"/>
+  <rect x="424.5" y="178" width="34" height="28" rx="2" class="tint-amber"/>
+  <text x="441" y="196" text-anchor="middle" class="mono small">put</text>
+  <rect x="460.5" y="178" width="90" height="28" rx="2" class="tint-blue"/>
+  <text x="505" y="196" text-anchor="middle" class="small">data 4</text>
+  <rect x="552.5" y="178" width="90" height="28" rx="2" class="tint-blue"/>
+  <text x="597" y="196" text-anchor="middle" class="small">data 5</text>
+  <path d="M339 136 Q200 150 62 174" class="line dash"/>
+  <path d="M339 136 Q400 150 440 174" class="line dash"/>
+  <text x="20" y="248" class="soft small">Data blocks pass byte for byte. The relay puts what each of its pieces needs, by its own near rule.</text>
+</svg>

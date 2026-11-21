@@ -1,0 +1,56 @@
+<svg class="ww-svg" viewBox="0 0 680 300" width="680" height="300" role="img" aria-label="The application holds its definitions and calls put, write_block, write_chunk and defer_block on TapeWriter; the writer adds puts of definitions and state, checkpoints, the placement of deferred blocks and, at the close, the final index, close and tail; its bytes go to a sink: a file, memory or a raw medium. Below, the blocks of one stretch in the order they land, coloured by who made them" xmlns="http://www.w3.org/2000/svg">
+  <!-- the application -->
+  <rect x="20.5" y="20" width="180" height="170" rx="4" class="tint-blue"/>
+  <text x="110" y="42" text-anchor="middle" class="strong">the application</text>
+  <text x="110" y="62" text-anchor="middle" class="small">holds its <tspan class="mono">Definitions</tspan></text>
+  <text x="34" y="94" class="mono small">put</text>
+  <text x="34" y="116" class="mono small">write_block</text>
+  <text x="34" y="138" class="mono small">write_chunk</text>
+  <text x="34" y="160" class="mono small">defer_block</text>
+  <text x="34" y="180" class="mono small">close</text>
+  <path d="M202 128 H250" class="line"/>
+  <path d="M256 128 l-8 -4 v8 Z" class="line head"/>
+  <text x="228" y="118" text-anchor="middle" class="soft small">calls</text>
+  <!-- the writer -->
+  <rect x="258.5" y="20" width="230" height="170" rx="4" class="tint-amber"/>
+  <text x="373" y="42" text-anchor="middle" class="strong mono">TapeWriter</text>
+  <text x="373" y="62" text-anchor="middle" class="small">adds what the piece needs</text>
+  <text x="272" y="94" class="small">puts of definitions and state</text>
+  <text x="272" y="116" class="small">a checkpoint about every 4 MiB</text>
+  <text x="272" y="138" class="small">deferred blocks into gaps</text>
+  <text x="272" y="160" class="small">syncs by its sync policy</text>
+  <text x="272" y="180" class="small">final index, close, tail</text>
+  <path d="M490 128 H538" class="line"/>
+  <path d="M544 128 l-8 -4 v8 Z" class="line head"/>
+  <text x="516" y="118" text-anchor="middle" class="soft small">bytes</text>
+  <!-- the sink -->
+  <rect x="546.5" y="70" width="114" height="100" rx="4" class="tint-green"/>
+  <text x="603" y="92" text-anchor="middle" class="strong">a sink</text>
+  <text x="603" y="116" text-anchor="middle" class="small">a file</text>
+  <text x="603" y="136" text-anchor="middle" class="small">memory</text>
+  <text x="603" y="156" text-anchor="middle" class="small">a raw medium</text>
+  <!-- the blocks as they land -->
+  <text x="20" y="222" class="soft small">blocks as they land, by who made them:</text>
+  <rect x="20.5" y="232" width="36" height="26" rx="2" class="tint-amber"/>
+  <text x="38" y="249" text-anchor="middle" class="mono small">put</text>
+  <rect x="58.5" y="232" width="86" height="26" rx="2" class="tint-blue"/>
+  <text x="101" y="249" text-anchor="middle" class="small">records</text>
+  <rect x="146.5" y="232" width="36" height="26" rx="2" class="tint-amber"/>
+  <text x="164" y="249" text-anchor="middle" class="mono small">put</text>
+  <rect x="184.5" y="232" width="120" height="26" rx="2" class="tint-blue"/>
+  <text x="244" y="249" text-anchor="middle" class="small">events chunk</text>
+  <rect x="306.5" y="232" width="160" height="26" rx="2" class="tint-blue"/>
+  <text x="386" y="249" text-anchor="middle" class="small">series chunk</text>
+  <rect x="468.5" y="232" width="56" height="26" rx="2" class="tint-teal"/>
+  <text x="496" y="249" text-anchor="middle" class="small">summary</text>
+  <rect x="526.5" y="232" width="70" height="26" rx="2" class="tint-amber"/>
+  <text x="561" y="249" text-anchor="middle" class="small">checkpoint</text>
+  <rect x="598.5" y="232" width="62" height="26" rx="2" class="tint-blue"/>
+  <text x="629" y="249" text-anchor="middle" class="small">records</text>
+  <rect x="20.5" y="272" width="12" height="12" rx="2" class="tint-blue"/>
+  <text x="38" y="282" class="small">the application's data</text>
+  <rect x="200.5" y="272" width="12" height="12" rx="2" class="tint-teal"/>
+  <text x="218" y="282" class="small">deferred, placed by the writer</text>
+  <rect x="420.5" y="272" width="12" height="12" rx="2" class="tint-amber"/>
+  <text x="438" y="282" class="small">the writer's own blocks</text>
+</svg>

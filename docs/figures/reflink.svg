@@ -1,0 +1,43 @@
+<svg class="ww-svg" viewBox="0 0 680 250" width="680" height="250" role="img" aria-label="Three piece files, each ending on a 4 KiB boundary after its close padding, cloned back to back into one file all.wwt; the new file points at the same disk blocks as the three files, and nothing is copied" xmlns="http://www.w3.org/2000/svg">
+  <!-- three files -->
+  <text x="20" y="30" class="mono small">00000000.wwt</text>
+  <rect x="20.5" y="38" width="170" height="30" rx="2" class="tint-blue"/>
+  <text x="95" y="57" text-anchor="middle" class="small">piece 0</text>
+  <rect x="170.5" y="38" width="20" height="30" rx="2" class="tint-ink"/>
+  <text x="240" y="30" class="mono small">00000001.wwt</text>
+  <rect x="240.5" y="38" width="200" height="30" rx="2" class="tint-blue"/>
+  <text x="330" y="57" text-anchor="middle" class="small">piece 1</text>
+  <rect x="412.5" y="38" width="28" height="30" rx="2" class="tint-ink"/>
+  <text x="490" y="30" class="mono small">00000002.wwt</text>
+  <rect x="490.5" y="38" width="140" height="30" rx="2" class="tint-blue"/>
+  <text x="550" y="57" text-anchor="middle" class="small">piece 2</text>
+  <rect x="606.5" y="38" width="24" height="30" rx="2" class="tint-ink"/>
+  <text x="20" y="88" class="soft small">each ends with its close padded to 4 KiB, then the tail</text>
+  <!-- clone arrows -->
+  <path d="M105 70 V140" class="line dash"/>
+  <path d="M105 146 l-4 -8 h8 Z" class="line head"/>
+  <path d="M340 70 Q340 110 296 140" class="line dash"/>
+  <path d="M292 145 l2 -9 l6 6 Z" class="line head"/>
+  <path d="M560 70 Q560 110 500 140" class="line dash"/>
+  <path d="M495 145 l2 -9 l6 6 Z" class="line head"/>
+  <text x="410" y="112" class="small">cloned: <tspan class="mono">cp --reflink</tspan>, <tspan class="mono">FICLONERANGE</tspan></text>
+  <!-- one file -->
+  <text x="20" y="140" class="mono small">all.wwt</text>
+  <rect x="20.5" y="148" width="170" height="30" rx="2" class="tint-blue"/>
+  <text x="95" y="167" text-anchor="middle" class="small">piece 0</text>
+  <rect x="170.5" y="148" width="20" height="30" rx="2" class="tint-ink"/>
+  <rect x="190.5" y="148" width="200" height="30" rx="2" class="tint-blue"/>
+  <text x="280" y="167" text-anchor="middle" class="small">piece 1</text>
+  <rect x="362.5" y="148" width="28" height="30" rx="2" class="tint-ink"/>
+  <rect x="390.5" y="148" width="140" height="30" rx="2" class="tint-blue"/>
+  <text x="450" y="167" text-anchor="middle" class="small">piece 2</text>
+  <rect x="506.5" y="148" width="24" height="30" rx="2" class="tint-ink"/>
+  <!-- 4 KiB boundaries -->
+  <path d="M190.5 140 v46" class="accent-line"/>
+  <path d="M390.5 140 v46" class="accent-line"/>
+  <path d="M530.5 140 v46" class="accent-line"/>
+  <text x="190" y="204" text-anchor="middle" class="accent small">4 KiB</text>
+  <text x="390" y="204" text-anchor="middle" class="accent small">4 KiB</text>
+  <text x="530" y="204" text-anchor="middle" class="accent small">4 KiB</text>
+  <text x="20" y="232" class="soft small">The new file points at the same disk blocks: nothing is copied, and the pieces lie back to back.</text>
+</svg>
