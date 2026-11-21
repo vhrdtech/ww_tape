@@ -11,7 +11,7 @@ read past a bad [[block]]. You can also salvage the good parts of a damaged chun
 
 ## Checks at three levels
 
-A tape finds damage before it can contain it. Every [[block]] ends with a [[CRC-32C]], a cyclic redundancy check (CRC)
+A tape finds damage before it can contain it. Every [[block]] ends with a [[CRC-32C]], a CRC
 over all its bytes. A [[chunk]] adds two finer checks inside its body, and a closed [[piece]] adds one coarse check over
 all its blocks.
 

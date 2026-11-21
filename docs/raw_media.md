@@ -4,7 +4,7 @@ level: advanced
 
 # Where the data ends on a raw card
 
-Besides the host's files, a recorder box on the bench writes the drive's run onto a Secure Digital (SD) card without a
+Besides the host's files, a recorder box on the bench writes the drive's run onto a SD card without a
 file system. The card still holds an earlier run of the same board, a full hour. At minute 37 the power fails, and the
 box stops in the middle of a block. This chapter answers how a [[reader]] of the card finds where today's run ends, with
 good blocks of the earlier run right behind it. After it you can write a tape onto a [[raw medium]] and read it back
@@ -100,7 +100,7 @@ one. The next piece then starts where a reader looks for it after a bad stretch.
 
 Blank bytes are all 0x00 or all 0xFF: what an erased or preallocated medium reads, depending on its kind. No block
 starts with either value, so blank space that runs to the end of the medium is the end of the data. A blank or damaged
-stretch in the middle is not always the end. A writer on raw NOT-AND (NAND) flash whose page program failed moves on to
+stretch in the middle is not always the end. A writer on raw NAND flash whose page program failed moves on to
 the next erase block. A writer that pads a NAND page at a sync leaves 0xFF behind.
 
 The [[layout]] says how far a writer may skip and where it goes on, at a multiple of its resume alignment:

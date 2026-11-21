@@ -5,7 +5,7 @@ level: basic
 # When the power fails
 
 The bench host has recorded the drive's endurance run for 37 minutes when its power fails. It was in the middle of
-writing a [[block]] of frames from the Controller Area Network (CAN) bus. This chapter answers three questions:
+writing a [[block]] of frames from the CAN bus. This chapter answers three questions:
 what the crash cost, how a [[reader]] reads the file left behind, and how the recorder goes on. The
 [[closed]] recording should be the same as if the power had never failed.
 

@@ -18,7 +18,7 @@ Each block also carries a **sequence number**, which counts the session's blocks
 says how many blocks are missing.
 
 The session tag tells a reader which blocks belong to the current recording. It also tells which blocks are stale
-leftovers of an older recording on the same Secure Digital (SD) card.
+leftovers of an older recording on the same SD card.
 
 ### Pieces and chains
 

@@ -4,7 +4,7 @@ Fuzzing of ww_tape's decoders, as a library the `fuzz/` targets and the tests sh
 
 - `targets::<name>(data)`: the body of the fuzz target `tape-<name>`.
 - `hostile::<decoder>(data)`: a block or file with a correct structure and hostile values from `data`. These values
-  go into counts, lengths, offsets, widths and layout fields. Each cyclic redundancy check (CRC) is computed again.
+  go into counts, lengths, offsets, widths and layout fields. Each CRC is computed again.
 - `targets::<group>_hostile(data)`: the body of `tape-<group>-hostile`, a hostile block through its decoders.
 - `seeds/<target>/`: the seed files of each target, which `ww_tape_fuzz_seeds write` writes. They hold valid blocks
   from the golden files, the inputs behind past fixes, hostile stream inputs and the known failures.

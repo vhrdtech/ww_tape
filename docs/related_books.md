@@ -32,7 +32,7 @@ The [link tap](https://ww.vhrd.tech/transport/tap/) page of the WireWeaver book 
 ## logring: a log store on the device
 
 [logring](https://lr.vhrd.tech/) is a log store for embedded devices. Firmware writes tracks of
-shrink_wrap items into a fixed-size ring on a Secure Digital (SD) card or a flash chip.
+shrink_wrap items into a fixed-size ring on a SD card or a flash chip.
 
 When the ring is full, the newest data overwrites the oldest. A power cut costs at most the last second of data.
 

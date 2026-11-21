@@ -38,7 +38,7 @@ A recording cut into several files is a chain of [tape pieces](#tape-pieces).
 
 `ww_tape::FileBlocks` reads the longest valid prefix of a file. It stops at the first of these blocks and reports where:
 
-- a block with a bad magic, length or cyclic redundancy check (CRC);
+- a block with a bad magic, length or CRC;
 - a cut block;
 - a block whose seq goes back.
 
@@ -1467,7 +1467,7 @@ a raw medium.
 
 The **medium** decides where a reader starts. A file is read from its start, or its pieces are found from its end.
 
-A raw medium (`Medium::Raw`) is a Secure Digital (SD) card, raw NOT-AND (NAND) flash or a partition. It may hold blocks
+A raw medium (`Medium::Raw`) is a SD card, raw NAND flash or a partition. It may hold blocks
 of earlier recordings behind the end of the current data.
 
 A reader therefore walks a raw medium forward, from its start or from a hint, and never trusts what it finds at the end.
@@ -1510,7 +1510,7 @@ starts the next block on the next page.
 
 The padding reads as a gap, and the format needs nothing else; the cost is up to one page per sync.
 
-The medium layer keeps the paired pages of multi-level cell (MLC) NAND with unsynced writes apart from synced data.
+The medium layer keeps the paired pages of MLC NAND with unsynced writes apart from synced data.
 
 ### Duplicates
 
@@ -1618,8 +1618,8 @@ The codecs fall into three families:
   codec. Per lane, a group holds the first value (for `DELTA2` also the first difference), the minimum difference and a
   width.
   - The differences less that minimum follow at that width. A ramp or a constant therefore costs no bits per sample.
-- **ALP** (Adaptive Lossless floating-Point, codec 26) codes groups of 128 samples. It follows the paper by Afroozeh,
-  Kuffó and Boncz at the Special Interest Group on Management of Data (SIGMOD) conference, 2024.
+- **ALP** (codec 26) codes groups of 128 samples. It follows the paper by Afroozeh,
+  Kuffó and Boncz at the SIGMOD conference, 2024.
 
 ### The ALP codec
 
@@ -1664,14 +1664,14 @@ bench-only codecs to compare against.
 `just bench-sample-codecs` measures every float codec on four kinds of data. Each set's first row is the same quantity
 stored as fixed-point integers with `DELTA`:
 
-- **motor_sim**: every variable of the Vedder Electronic Speed Controller (VESC) preset of `motor_sim`
+- **motor_sim**: every variable of the VESC preset of `motor_sim`
   (github.com/vhrdtech/motor_sim at commit 35eab07), for 1 s at 25 kHz. The bench drives it from its rotor angle with a
   fan load, as `f32` and as `f64` (its `f32` variables widened).
   - Fixed point: `i32` at the finest power-of-ten step that keeps 24 bits at each variable's peak.
 - **speech**: Roosevelt's Pearl Harbor address (Wikimedia Commons, public domain, `Roosevelt_Pearl_Harbor.ogg`, SHA-1
-  `90239988...`), decoded to `f32` by lewton. Fixed point: lewton's 16-bit pulse-code modulation (PCM) of the same
+  `90239988...`), decoded to `f32` by lewton. Fixed point: lewton's 16-bit PCM of the same
   decode.
-- **ADC** (analog-to-digital converter): 12-bit counts of 4 slow noisy channels, 250 000 samples each. The bench turns
+- **ADC**: 12-bit counts of 4 slow noisy channels, 250 000 samples each. The bench turns
   them into floats as firmware does: `counts × 3.3/4096` and `counts × 0.1`.
   - Fixed point: the counts.
 

@@ -16,7 +16,7 @@ skips what it does not know.
 
 A [[tape]] is a sequence of [[blocks]], written one after another with no space between them. A [[live feed]] sends one
 block per message, and a file is blocks back to back. Every block has three parts: a 32-byte [[block header]], a body,
-and a cyclic redundancy check (CRC) over everything before it, the [[CRC-32C]].
+and a CRC over everything before it, the [[CRC-32C]].
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/plots/block.svg"
@@ -117,7 +117,7 @@ KiB, each with its own [[CRC]], so damage costs one segment, not the chunk.
 
 There are two kinds of chunk, one per way a track keeps its items:
 
-- An [[events chunk]] holds items with times of their own, such as the drive's Controller Area Network (CAN) frames.
+- An [[events chunk]] holds items with times of their own, such as the drive's CAN frames.
 - A [[series chunk]] holds [[samples]] at a fixed period, such as the drive's `phase_a`. Its chunk head carries the
   [[grid]] that times and scales them, and the chunk holds no time per sample.
 

@@ -74,7 +74,7 @@ together. An entry says where the block is and what it holds, so a reader picks 
 | `first_tick`, `last_tick`, `latest_end` | the ticks of its first and last item, and the latest end of any item |
 
 [`TapeReader::track_entries`] gives the entries of one track in file order. In a closed piece it reads the final
-index's directory and that track's list, each checked by its own CRC (cyclic redundancy check). It never walks the
+index's directory and that track's list, each checked by its own CRC. It never walks the
 file. The engineer asks for `phase_a` in the second either side of the fault:
 
 ```rs

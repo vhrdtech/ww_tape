@@ -28,7 +28,7 @@ The drive's recording has five tracks, and the whole book uses them:
 |---|---|---|---|
 | `log` | the firmware's log lines | 3 a second | records blocks |
 | `mode` | the controller's mode: idle, run or fault | at each change | a state track |
-| `can0` | frames on the Controller Area Network (CAN) bus of the vehicle | 1 000 a second | events chunks |
+| `can0` | frames on the CAN bus of the vehicle | 1 000 a second | events chunks |
 | `phase_a` | the phase current, in milliamperes as 16-bit fixed point | 25 000 a second | series chunks |
 | `temp` | the board's temperature | once a second | records blocks |
 
@@ -62,9 +62,9 @@ a PC, or onto a card without a file system.</figcaption>
 
 - A [[live feed]] hands each block to a consumer as soon as it exists. A viewer on the bench draws the drive's
   current while the run goes on.
-- A file on a personal computer (PC) holds the recording for later. The bench host keeps the drive's hour this way,
+- A file on a PC holds the recording for later. The bench host keeps the drive's hour this way,
   and the next chapter writes such a file.
-- A [[raw medium]], such as the [[Secure Digital (SD)|SD]] card of a data logger, holds the blocks without a file
+- A [[raw medium]], such as the [[SD]] card of a data logger, holds the blocks without a file
   system. A logger in the field writes there, and a [[reader]] finds its data again after a power failure.
 
 ## What the format is for

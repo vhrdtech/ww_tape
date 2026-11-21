@@ -4,7 +4,7 @@ level: basic
 
 # Events
 
-When the drive trips at 52:00, it sends an emergency frame on its Controller Area Network (CAN) bus. The host records
+When the drive trips at 52:00, it sends an emergency frame on its CAN bus. The host records
 it on `can0` with the other frames of that second, a thousand of them. The engineer wants that frame: when it came, what
 it says, and what followed it. This chapter reads it from its [[chunk]] in place, without decoding the frames before
 it. After it you can read event times, ends and [[payloads]] of an [[events chunk]], and find the first [[event]]

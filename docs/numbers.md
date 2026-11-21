@@ -25,14 +25,13 @@ its prediction, and therefore any range of samples decodes from its group's star
 ## ALP, the one float codec
 
 Some floats come from sources nobody controls, such as a sensor that reports only `f32` or a value computed by another
-program. For them the format has one float codec, Adaptive Lossless floating-Point compression (**ALP**).
+program. For them the format has one float codec, **ALP**.
 
-ALP follows the paper by Afroozeh, Kuffó and Boncz at the 2024 conference of the Special Interest Group on Management
-of Data (SIGMOD).
+ALP follows the paper by Afroozeh, Kuffó and Boncz at the 2024 SIGMOD conference.
 
 ALP finds floats that began as decimals and stores the integers they came from.
 
-An example is an analog-to-digital converter (ADC) count times 0.1, stored as the count. ALP bit-packs these integers
+An example is an ADC count times 0.1, stored as the count. ALP bit-packs these integers
 per group of 128.
 
 Floats with full mantissas take ALP's second scheme, which codes their front bits through a small dictionary. ALP keeps
@@ -51,7 +50,7 @@ A group never grows by more than 7 bytes over its raw size.
 The bench keeps the codecs of the last item for comparison; they are not part of the format. The bench checks that
 every value comes back bit for bit.
 
-The bench runs in chunks of 4096 samples. This run used one core of an Advanced Micro Devices (AMD) processor, the
+The bench runs in chunks of 4096 samples. This run used one core of an AMD processor, the
 `Ryzen AI 9 HX 370`.
 
 The ratio is the raw float column's size over the coded size, and therefore larger is better. The decode time is in
@@ -163,7 +162,7 @@ therefore can't be rerun with the bench.
 
 ## Writing chunks
 
-The writer's own cost per chunk is a copy, the cyclic redundancy checks (CRCs) and the content hash. `just bench-chunks`
+The writer's own cost per chunk is a copy, the CRCs and the content hash. `just bench-chunks`
 measures it on series chunks of 1 MiB, and [Writing a tape](writing.md#writing-data) gives its table.
 
 On the AMD `EPYC Genoa` virtual machine of the summaries bench, `TapeWriter::write_chunk` took 254 µs per chunk. The

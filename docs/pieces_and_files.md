@@ -207,7 +207,7 @@ time. The file gains a piece only where the chain cuts.
 A closed piece is a multiple of 4 KiB long. The writer pads the close record with zeros up to the boundary, so the
 tail, still the last bytes of the piece, ends on it.
 
-The padding is part of the close record and its cyclic redundancy check (CRC). The content hash covers the bytes before
+The padding is part of the close record and its CRC. The content hash covers the bytes before
 the close, as it does without padding.
 
 The boundary makes copies free on file systems that share data between files. On btrfs and XFS (a Linux file system), a

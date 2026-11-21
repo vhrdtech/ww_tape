@@ -17,8 +17,8 @@
 A **tape** is how [WireWeaver](https://github.com/vhrdtech/wire_weaver) records data over time. It holds what a device
 streamed, what crossed a link and what a program computed from either.
 
-One format serves a live feed, a file on a personal computer (PC) and a raw medium. An example of a raw medium is a
-Secure Digital (SD) card in a data logger.
+One format serves a live feed, a file on a PC and a raw medium. An example of a raw medium is a
+SD card in a data logger.
 
 - **Typed data.** Every item is a ShrinkWrap type, and the file carries the API bundle that defines it.
 - **Exact time.** Times are integer ticks of a named clock with an exact rate; a file holds tracks on many clocks.
@@ -79,4 +79,4 @@ Leave out `default-features = false` for memory sinks, the system clock and stre
 
 ## License
 
-The Massachusetts Institute of Technology (MIT) License, see [LICENSE](LICENSE).
+The MIT License, see [LICENSE](LICENSE).

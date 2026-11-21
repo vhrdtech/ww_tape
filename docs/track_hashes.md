@@ -55,7 +55,7 @@ can later check that a file still holds exactly that input.
 The writer stores each chunk's share of the hash, its unit hash, in the chunk's index entry. The fold therefore reads
 only the index, never a payload.
 
-A fold from the index gives the hash that the writer stated, checked by the index's cyclic redundancy check (CRC) codes.
+A fold from the index gives the hash that the writer stated, checked by the index's CRC codes.
 It is not a check of the payloads.
 
 `RangeHash::stated` counts the chunks folded that way, and `RangeHash::read` those hashed from their bytes.

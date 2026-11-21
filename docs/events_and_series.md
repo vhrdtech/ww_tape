@@ -98,7 +98,7 @@ A bench of an application that records with tapes compares the linear codec with
 part of this repository.
 
 The bench codes 10 million events per workload in chunks of 4096 items. It runs on a virtual machine with 14 vCPUs of an
-Advanced Micro Devices (AMD) `EPYC Genoa` host.
+AMD `EPYC Genoa` host.
 
 The table gives bytes per event, group records and chunk overhead included. Raw 64-bit ticks take 8.01 bytes per event.
 

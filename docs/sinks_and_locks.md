@@ -75,7 +75,7 @@ is therefore refused as well.
 
 Two processes that write one file through two hard-linked names are not refused, and their blocks interleave.
 
-A device, such as a raw Secure Digital (SD) card, is locked itself. A first-in, first-out (FIFO) special file, a socket
+A device, such as a raw SD card, is locked itself. A FIFO special file, a socket
 or a directory is refused (`FsError::NotAFile`).
 
 ### Errors name the step and the file

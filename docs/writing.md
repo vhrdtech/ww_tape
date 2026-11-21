@@ -65,7 +65,7 @@ The crates provide two stores, and `ww_tape_fs::Files` lays out its files in two
   `00000001.wwt`, and so on.
 - `ww_tape_fs::Files::file(path)` keeps every piece in one file.
 
-Any other medium, such as a raw Secure Digital (SD) card or a network store, needs its own `TapeSink` and `Tapes`.
+Any other medium, such as a raw SD card or a network store, needs its own `TapeSink` and `Tapes`.
 
 ### Errors of sinks and stores
 
@@ -242,8 +242,7 @@ The writer checks what it is handed in proportion to the cost:
 - For a chunk that it encodes from columns, it checks the head and the column table.
 - It checks the chunk's track against the definitions, and a series chunk's ticks against its grid.
 - It copies the caller's columns as the payload and does not read them back.
-- It reads a caller's whole block (`write_block`, `adopt_block`, `defer_block`) once and checks every cyclic redundancy
-  check (CRC) in it.
+- It reads a caller's whole block (`write_block`, `adopt_block`, `defer_block`) once and checks every CRC in it.
 - Beyond that, each byte placed costs one more pass: the content hash.
 
 The writer does not compare a series chunk's grid with the chunk before it. A reader's `SeriesTimeline` does
@@ -259,7 +258,7 @@ Elsewhere the writer uses a table, with the same result.
 `just bench-chunks` measures what the writer spends on a series chunk of 1 MiB, which holds 524 288 `i16` samples. The
 table shows the best of 5 rounds of 256 chunks.
 
-The bench ran on a virtual machine with 14 vCPUs on an Advanced Micro Devices (AMD) processor, an EPYC (Genoa
+The bench ran on a virtual machine with 14 vCPUs on an AMD processor, an EPYC (Genoa
 generation). The load average was about 5.
 
 | What | µs per chunk | GB/s |
