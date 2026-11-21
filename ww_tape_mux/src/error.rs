@@ -3,7 +3,11 @@
 use std::sync::Arc;
 
 use ww_tape::chunk::ChunkHead;
-use ww_tape::{BlockError, BlockKind, ColumnSpec, DescribeError, TrackNum, WriteError};
+use ww_tape::{
+    BlockError, BlockKind, ColumnSpec, DescribeError, ItemNum, SampleError, SeriesError, TrackNum,
+    WriteError,
+};
+use ww_tape_summary::BuildError;
 
 /// A unit a handle sent, handed back when the queue had no room and the handle's [Pressure](crate::Pressure) is
 /// [Fail](crate::Pressure::Fail).
@@ -39,6 +43,93 @@ pub enum CallError {
     ColumnLength,
     /// A block that doesn't read.
     Block(BlockError),
+    /// An item a typed handle refuses: it would be item `item` of its track.
+    Item { item: ItemNum, why: ItemError },
+    /// A typed handle could not encode its open chunk or its summaries.
+    Encode(EncodeError),
+    /// A grid a series handle refuses: it starts after the next sample, or too close to the last one.
+    Grid(SeriesError),
+}
+
+/// Why a typed handle refuses an item.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ItemError {
+    /// It starts before the item before it.
+    Order,
+    /// It ends before it starts, or is a span on a track of instants.
+    Span,
+    /// It has flags on a track whose items have none.
+    Flags,
+    /// It has `values` relation values where the track stores `stored`.
+    Relations { values: usize, stored: usize },
+    /// Its value of monotone relation `relation` is below the item's before it.
+    RelationDecreases { relation: u16 },
+    /// Its payload is longer than [ITEM_BYTES_MAX](crate::ITEM_BYTES_MAX).
+    TooLong { len: usize },
+    /// Samples that are not whole frames of `stride` scalars.
+    PartialFrame { stride: usize },
+}
+
+impl core::fmt::Display for ItemError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Order => f.write_str("it starts before the item before it"),
+            Self::Span => {
+                f.write_str("it ends before it starts, or is a span on a track of instants")
+            }
+            Self::Flags => f.write_str("it has flags on a track whose items have none"),
+            Self::Relations { values, stored } => {
+                write!(
+                    f,
+                    "{values} relation values where the track stores {stored}"
+                )
+            }
+            Self::RelationDecreases { relation } => {
+                write!(f, "its value of monotone relation {relation} decreases")
+            }
+            Self::TooLong { len } => write!(f, "a payload of {len} bytes"),
+            Self::PartialFrame { stride } => {
+                write!(f, "samples that are not whole frames of {stride} scalars")
+            }
+        }
+    }
+}
+
+/// What a typed handle failed to encode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum EncodeError {
+    /// The times, or a relation's values, of an events chunk.
+    Times(ww_tape::times::EncodeError),
+    /// The payloads of an events chunk.
+    Payloads(ww_tape::payloads::EncodeError),
+    /// The samples of a series chunk.
+    Samples(SampleError),
+    /// The track's summaries.
+    Summary(BuildError),
+}
+
+impl core::fmt::Display for EncodeError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Times(e) => write!(f, "encoding times: {e}"),
+            Self::Payloads(e) => write!(f, "encoding payloads: {e}"),
+            Self::Samples(e) => write!(f, "encoding samples: {e}"),
+            Self::Summary(e) => write!(f, "building summaries: {e}"),
+        }
+    }
+}
+
+impl core::error::Error for EncodeError {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
+        match self {
+            Self::Times(e) => Some(e),
+            Self::Payloads(e) => Some(e),
+            Self::Samples(e) => Some(e),
+            Self::Summary(e) => Some(e),
+        }
+    }
 }
 
 impl core::fmt::Display for CallError {
@@ -58,6 +149,9 @@ impl core::fmt::Display for CallError {
             Self::BlockKind(kind) => write!(f, "a {kind:?} block where a records block goes"),
             Self::ColumnLength => f.write_str("a column's length differs from its bytes"),
             Self::Block(e) => write!(f, "the block doesn't read: {e}"),
+            Self::Item { item, why } => write!(f, "item {} refused: {why}", item.get()),
+            Self::Encode(e) => write!(f, "{e}"),
+            Self::Grid(e) => write!(f, "a grid refused: {e}"),
         }
     }
 }
@@ -66,6 +160,7 @@ impl core::error::Error for CallError {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
             Self::Block(e) => Some(e),
+            Self::Encode(e) => Some(e),
             _ => None,
         }
     }

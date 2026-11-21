@@ -3,12 +3,18 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use ww_tape::{ChainPiece, CloseReason, ColumnSpec, Definitions, PieceChain, Tapes, WriteError};
+use ww_tape::chunk::ChunkHead;
+use ww_tape::{
+    ChainPiece, CloseReason, ColumnSpec, Definitions, PieceChain, Slot as DefSlot, Tapes,
+    WriteError,
+};
 
 use crate::define;
 use crate::error::MuxError;
+use crate::open;
 use crate::queue::Popped;
 use crate::shared::{BlockHow, ClosedTx, Counters, RelayMode, Shared, Slot, Work};
+use crate::summaries::{Added, ChunkSummary, Trees};
 
 /// How the thread ended.
 enum Exit<T: Tapes> {
@@ -36,6 +42,14 @@ fn stops<T: Tapes>(chain: &mut PieceChain<T>, e: &WriteError<T::Error>) -> bool 
     ) || chain.writer().is_err()
 }
 
+/// What the writing thread works on besides the chain and its definitions.
+struct State<'a, T: Tapes> {
+    shared: &'a Shared<T>,
+    trees: Trees,
+    /// Open chunks sealed for their latency that found the queue closed: placed before the close
+    late: Vec<(Work<T>, u64)>,
+}
+
 /// The thread: place every unit until a close or a stop, ticking every `tick`.
 pub(crate) fn run<T: Tapes>(
     mut chain: PieceChain<T>,
@@ -44,12 +58,20 @@ pub(crate) fn run<T: Tapes>(
     tick: Duration,
 ) {
     let _close = CloseOnExit(&shared);
+    let mut st = State {
+        shared: &shared,
+        trees: Trees::new(chain.seq()),
+        late: Vec::new(),
+    };
     let mut next_tick = Instant::now().checked_add(tick);
     let exit = loop {
-        let deadline = next_tick.unwrap_or_else(far);
+        let deadline = match (next_tick, open::next_due(&shared)) {
+            (Some(t), Some(d)) => t.min(d),
+            (t, d) => t.or(d).unwrap_or_else(far),
+        };
         match shared.queue.pop(deadline) {
             Popped::Unit(work, bytes) => {
-                let exit = place(&mut chain, &mut defs, &shared, work, bytes);
+                let exit = place(&mut chain, &mut defs, &mut st, work, bytes);
                 shared.queue.release(bytes);
                 shared.watch.publish(&mut chain, None);
                 if let Some(exit) = exit {
@@ -60,14 +82,24 @@ pub(crate) fn run<T: Tapes>(
             Popped::Ended => break Exit::Stop,
         }
         let now = Instant::now();
+        // a quiet handle's open chunk goes behind what its handle sent before
+        let late = &mut st.late;
+        open::seal_due(&shared, now, false, &mut |work, bytes| {
+            if let Err(work) = shared.queue.push_control(work, false) {
+                late.push((work, bytes));
+            }
+        });
         if next_tick.is_some_and(|t| now >= t) {
-            chores(&mut chain, &defs, &shared);
+            chores(&mut chain, &defs, &mut st);
             shared.watch.publish(&mut chain, None);
             next_tick = now.checked_add(tick);
         }
     };
     match exit {
-        Exit::Close(reason, reply) => reply.send(close(chain, &shared, reason)),
+        Exit::Close(reason, reply) => {
+            let r = close(chain, &mut defs, &mut st, reason);
+            reply.send(r);
+        }
         Exit::Stop => {
             if shared.failure.get().is_none()
                 && let Ok(w) = chain.writer()
@@ -86,7 +118,8 @@ fn far() -> Instant {
 }
 
 /// The time-driven chores: sync and checkpoints by time; a cut by age while no chunk comes.
-fn chores<T: Tapes>(chain: &mut PieceChain<T>, defs: &Definitions, shared: &Shared<T>) {
+fn chores<T: Tapes>(chain: &mut PieceChain<T>, defs: &Definitions, st: &mut State<'_, T>) {
+    let shared = st.shared;
     if shared.failure.get().is_some() {
         return;
     }
@@ -94,7 +127,7 @@ fn chores<T: Tapes>(chain: &mut PieceChain<T>, defs: &Definitions, shared: &Shar
         chain.writer()?.tick()?;
         let by_age = chain.cut_policy().interval.is_some();
         if by_age && chain.cut_due() && chain.writer()?.chunks() > 0 {
-            chain.cut_now(defs)?;
+            cut(chain, defs, st)?;
         }
         Ok(())
     })();
@@ -108,25 +141,72 @@ fn chores<T: Tapes>(chain: &mut PieceChain<T>, defs: &Definitions, shared: &Shar
     }
 }
 
+/// End the summary trees of the piece and cut to a new one.
+fn cut<T: Tapes>(
+    chain: &mut PieceChain<T>,
+    defs: &Definitions,
+    st: &mut State<'_, T>,
+) -> Result<(), WriteError<T::Error>> {
+    end_trees(chain, defs, st)?;
+    chain.cut_now(defs)
+}
+
+/// End the summary trees of the piece: before a cut and the close.
+fn end_trees<T: Tapes>(
+    chain: &mut PieceChain<T>,
+    defs: &Definitions,
+    st: &mut State<'_, T>,
+) -> Result<(), WriteError<T::Error>> {
+    let refused = st.trees.end(chain, defs)?;
+    let n = u64::try_from(refused.len()).unwrap_or(u64::MAX);
+    Counters::add(&st.shared.counters.refused, n);
+    Ok(())
+}
+
+/// Place a typed handle's or a chunk sender's chunk, its summary into its track's tree.
+fn place_chunk<T: Tapes>(
+    chain: &mut PieceChain<T>,
+    defs: &Definitions,
+    st: &mut State<'_, T>,
+    head: &ChunkHead,
+    columns: &[(ColumnSpec, Vec<u8>)],
+    hash: [u8; 32],
+    summary: Option<Box<ChunkSummary>>,
+) -> Result<(), WriteError<T::Error>> {
+    // the chain cuts before the chunk: the trees end in the piece their items are in
+    if chain.cut_due() {
+        end_trees(chain, defs, st)?;
+    }
+    let refs: Vec<(ColumnSpec, &[u8])> = columns.iter().map(|(c, b)| (*c, b.as_slice())).collect();
+    chain.write_chunk_hashed(defs, head, &refs, hash)?;
+    if let Some(s) = summary
+        && let Added::Refused = st.trees.add(chain, defs, head, *s)?
+    {
+        Counters::add(&st.shared.counters.refused, 1);
+    }
+    Ok(())
+}
+
 /// Place `work` of `bytes`; the exit when it ends the thread.
 fn place<T: Tapes>(
     chain: &mut PieceChain<T>,
     defs: &mut Definitions,
-    shared: &Shared<T>,
+    st: &mut State<'_, T>,
     work: Work<T>,
     bytes: u64,
 ) -> Option<Exit<T>> {
+    let shared = st.shared;
     let failed = shared.failure.get().is_some();
     match work {
         Work::Chunk {
             from,
             head,
             columns,
+            hash,
+            summary,
         } => {
             if !failed {
-                let refs: Vec<(ColumnSpec, &[u8])> =
-                    columns.iter().map(|(c, b)| (*c, b.as_slice())).collect();
-                let r = chain.write_chunk(defs, &head, &refs).map(|_| ());
+                let r = place_chunk(chain, defs, st, &head, &columns, hash, summary);
                 let ok = r.is_ok();
                 placed(chain, shared, &from, r, bytes);
                 if ok {
@@ -170,11 +250,15 @@ fn place<T: Tapes>(
         Work::DefineClock { items, reply } => reply.send(define::hold_clock(defs, &items)),
         Work::DefineAll { items, reply } => reply.send(define::hold_all(defs, &items)),
         Work::Facts { track, reply } => reply.send(defs.track(track)),
+        Work::TrackDef { track, reply } => reply.send(
+            defs.get(&DefSlot::Track { number: track })
+                .map(<[u8]>::to_vec),
+        ),
         Work::Definitions { reply } => reply.send(defs.clone()),
         Work::Cut { reply } => {
             let r = match shared.failure.get() {
                 Some(f) => Err(MuxError::Failed(f.clone())),
-                None => chain.cut_now(defs).map_err(|e| refused(chain, shared, e)),
+                None => cut(chain, defs, st).map_err(|e| refused(chain, shared, e)),
             };
             reply.send(r);
         }
@@ -251,15 +335,26 @@ fn refused<T: Tapes>(
     }
 }
 
-/// Close the chain for `reason`: every piece.
+/// Close the chain for `reason`: every open chunk sealed and placed, the summary trees ended; every piece.
 fn close<T: Tapes>(
-    chain: PieceChain<T>,
-    shared: &Shared<T>,
+    mut chain: PieceChain<T>,
+    defs: &mut Definitions,
+    st: &mut State<'_, T>,
     reason: CloseReason,
 ) -> Result<Vec<ChainPiece<T::Key>>, MuxError<T::Error>> {
+    let shared = st.shared;
+    let mut last = std::mem::take(&mut st.late);
+    open::seal_due(shared, Instant::now(), true, &mut |work, bytes| {
+        last.push((work, bytes));
+    });
+    for (work, bytes) in last {
+        let exit = place(&mut chain, defs, st, work, bytes);
+        debug_assert!(exit.is_none(), "a data unit gives no exit");
+    }
     if let Some(f) = shared.failure.get() {
         return Err(MuxError::Failed(f.clone()));
     }
+    end_trees(&mut chain, defs, st).map_err(|e| MuxError::Failed(shared.fail(e)))?;
     chain
         .close_as(reason)
         .map_err(|e| MuxError::Failed(shared.fail(e)))

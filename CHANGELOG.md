@@ -19,6 +19,9 @@ benchmarks, golden files and book pages.
 - `TapeWriter::synced_bytes` gives the piece's bytes up to the last sync (READ-6).
 - `write_chunk_hashed` takes a chunk with its payload hash, computed by the producer (`columns_payload_hash`); the same bytes (WRITE-13).
 - `SeriesLeaves` and `SeriesTree` split a series' summaries between producer and writing thread; `EventRuns` does it for events (WRITE-13).
+- `EventsHandle` and `SeriesHandle` encode one track's chunks and summary leaves on the producer's thread (WRITE-13).
+- The mux builds summary trees per track and piece and seals a quiet handle's chunk by its latency (WRITE-13).
+- `ChunkSender` hashes the chunk payload on the producer's thread (WRITE-13).
 
 ## [0.3.0] - 2026-11-21
 

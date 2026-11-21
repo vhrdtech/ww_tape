@@ -32,6 +32,7 @@ mod item_gap;
 mod lock;
 mod media;
 mod mux;
+mod mux_handles;
 mod order;
 mod pieces;
 mod placed;

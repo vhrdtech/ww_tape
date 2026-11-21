@@ -33,15 +33,15 @@ pub enum Sent {
 }
 
 /// What every handle holds: the mux's share, its own, its pressure and its track.
-struct Sender<T: Tapes> {
-    shared: Arc<Shared<T>>,
-    slot: Arc<Slot<T::Error>>,
-    pressure: Pressure,
+pub(crate) struct Sender<T: Tapes> {
+    pub(crate) shared: Arc<Shared<T>>,
+    pub(crate) slot: Arc<Slot<T::Error>>,
+    pub(crate) pressure: Pressure,
     track: Option<TrackNum>,
 }
 
 impl<T: Tapes> Sender<T> {
-    fn new(shared: Arc<Shared<T>>, track: Option<TrackNum>) -> Self {
+    pub(crate) fn new(shared: Arc<Shared<T>>, track: Option<TrackNum>) -> Self {
         Self {
             shared,
             slot: Arc::new(Slot::new()),
@@ -51,7 +51,7 @@ impl<T: Tapes> Sender<T> {
     }
 
     /// The writer's refusal of a unit sent before, or the mux's failure.
-    fn ready(&self) -> Result<(), MuxError<T::Error>> {
+    pub(crate) fn ready(&self) -> Result<(), MuxError<T::Error>> {
         if let Some(e) = self.slot.take_refused() {
             return Err(MuxError::Refused(e));
         }
@@ -61,7 +61,7 @@ impl<T: Tapes> Sender<T> {
         }
     }
 
-    fn send(&self, work: Work<T>, bytes: u64) -> Result<Sent, MuxError<T::Error>> {
+    pub(crate) fn send(&self, work: Work<T>, bytes: u64) -> Result<Sent, MuxError<T::Error>> {
         self.ready()?;
         match self
             .shared
@@ -98,34 +98,45 @@ impl<T: Tapes> Sender<T> {
     }
 
     /// Wait until everything sent before is placed; with `sync`, durable. Then a refusal of one of them.
-    fn flush(&self, sync: bool) -> Result<(), MuxError<T::Error>> {
+    pub(crate) fn flush(&self, sync: bool) -> Result<(), MuxError<T::Error>> {
         let (tx, rx) = reply();
         self.shared.control(Work::Flush { sync, reply: tx }, rx)??;
         self.ready()
     }
 }
 
-/// The handle API every kind shares.
+/// The handle API every kind shares; `$s` names the field holding its [Sender].
 macro_rules! common {
     ($name:ident) => {
+        common!($name, s);
+    };
+    ($name:ident, $s:ident) => {
         impl<T: Tapes> $name<T> {
             /// What the handle does when the queue has no room.
             #[must_use]
             pub fn pressure(mut self, pressure: Pressure) -> Self {
-                self.s.pressure = pressure;
+                self.$s.pressure = pressure;
                 self
             }
 
             /// Return once everything this handle sent before is placed; a refusal of one of them.
             pub fn flush(&self) -> Result<(), MuxError<T::Error>> {
-                self.s.flush(false)
+                self.$s.flush(false)
             }
 
             /// Return once everything this handle sent before is durable; a refusal of one of them.
             pub fn sync(&self) -> Result<(), MuxError<T::Error>> {
-                self.s.flush(true)
+                self.$s.flush(true)
             }
+        }
+    };
+}
+pub(crate) use common;
 
+/// The handle API of the handles that send buffers they fill.
+macro_rules! buffered {
+    ($name:ident) => {
+        impl<T: Tapes> $name<T> {
             /// An empty buffer for the next unit: one the mux gave back once placed, else a new one.
             pub fn buffer(&self) -> Vec<u8> {
                 self.s.slot.buffer()
@@ -145,6 +156,7 @@ pub struct ChunkSender<T: Tapes> {
 }
 
 common!(ChunkSender);
+buffered!(ChunkSender);
 
 impl<T: Tapes> ChunkSender<T> {
     pub(crate) fn new(shared: Arc<Shared<T>>, track: TrackNum, facts: TrackFacts) -> Self {
@@ -186,10 +198,14 @@ impl<T: Tapes> ChunkSender<T> {
         }
         let specs: Vec<ColumnSpec> = columns.iter().map(|(c, _)| *c).collect();
         let bytes = ww_tape::chunk::chunk_len(&head, &specs, 0);
+        // the payload hashed here, on the producer's thread, not on the writing thread
+        let hash = ww_tape::piece::columns_payload_hash(columns.iter().map(|(_, b)| b.as_slice()));
         let work = Work::Chunk {
             from: self.s.slot.clone(),
             head: Box::new(head),
             columns,
+            hash,
+            summary: None,
         };
         self.s.send(work, u64::try_from(bytes).unwrap_or(u64::MAX))
     }
@@ -204,6 +220,7 @@ pub struct RecordsHandle<T: Tapes> {
 }
 
 common!(RecordsHandle);
+buffered!(RecordsHandle);
 
 impl<T: Tapes> RecordsHandle<T> {
     pub(crate) fn new(shared: Arc<Shared<T>>) -> Self {
@@ -235,6 +252,7 @@ pub struct RelayHandle<T: Tapes> {
 }
 
 common!(RelayHandle);
+buffered!(RelayHandle);
 
 impl<T: Tapes> RelayHandle<T> {
     pub(crate) fn new(shared: Arc<Shared<T>>, mode: RelayMode) -> Self {
@@ -266,6 +284,7 @@ pub struct StateHandle<T: Tapes> {
 }
 
 common!(StateHandle);
+buffered!(StateHandle);
 
 impl<T: Tapes> StateHandle<T> {
     pub(crate) fn new(shared: Arc<Shared<T>>, track: TrackNum) -> Self {

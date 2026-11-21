@@ -50,6 +50,8 @@ struct State<U> {
     serving: u64,
     /// Senders that waited for room, counted when they start to wait.
     waits: u64,
+    /// The taker is to look at its deadline again ([Queue::wake]).
+    woken: bool,
 }
 
 /// A queue of units bounded by bytes, for many senders and one taker.
@@ -73,6 +75,7 @@ impl<U> Queue<U> {
                 next_ticket: 0,
                 serving: 0,
                 waits: 0,
+                woken: false,
             }),
             budget,
             room: Condvar::new(),
@@ -158,7 +161,7 @@ impl<U> Queue<U> {
                 return Popped::Ended;
             }
             let left = deadline.saturating_duration_since(Instant::now());
-            if left.is_zero() {
+            if left.is_zero() || core::mem::take(&mut s.woken) {
                 return Popped::Timeout;
             }
             #[expect(clippy::expect_used, reason = "as in lock")]
@@ -168,6 +171,12 @@ impl<U> Queue<U> {
                 .expect("a mux lock poisoned by a panic");
             s = g;
         }
+    }
+
+    /// Wake the taker waiting for a unit: its wait ends as at its deadline, so it takes a nearer one.
+    pub(crate) fn wake(&self) {
+        lock(&self.state).woken = true;
+        self.work.notify_one();
     }
 
     /// Give back the `bytes` of a unit placed.

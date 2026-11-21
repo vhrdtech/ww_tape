@@ -173,8 +173,17 @@ Writing pieces and chains, resuming them, sinks in memory, in the crate `ww_tape
   - The writing thread places units in arrival order and does the puts, cuts, sync and checkpoints by time, and the close.
   - A writer's refusal reaches the handle's next call; a failed write reaches every handle. A close refuses later calls with `Closed` and doesn't wait for handles. A mux dropped unclosed leaves its piece unclosed; `TapeMux::resume` and `ww_tape_fs::mux::resume` go on.
   - `PieceChain::relay_block` and `adopt_block` pass a producer's blocks on into a chain.
-  - Open: typed events and series handles with summaries, latency seals, async sends.
+  - Open: async sends.
   - Tests `mux.rs`, `item_gap.rs`.
+- ✅ **WRITE-13 Typed track handles encode on the producer's thread**
+  - `EventsHandle` takes items of one events track: instants, spans, flags, relation values, payloads. `SeriesHandle` takes samples on a grid, with `regrid`.
+  - Each encodes its chunks, hashes their payload and computes the leaves of the track's summaries on its own thread. `write_chunk_hashed` takes the hash; the bytes are the same.
+  - `SeriesLeaves` and `SeriesTree`, and `EventRuns`, split the summary builders between producer and writing thread.
+  - The writing thread builds one summary tree per track and piece, ended before each cut and at the close.
+  - A quiet handle's open chunk is sealed by the writing thread when its latency is up, behind the handle's earlier units.
+  - Items are checked at the call: start order, spans, flags, relation counts and monotone values, payload length.
+  - Missing: a resumed chain's track starts are passed by the caller (`first_item`); the mux doesn't give them yet.
+  - Tests `mux_handles.rs`, `split_tests.rs`, `placed.rs`.
 
 ## Reader (`READ`)
 

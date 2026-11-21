@@ -3,7 +3,8 @@
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
+use std::time::Instant;
 
 use ww_tape::chunk::ChunkHead;
 use ww_tape::{
@@ -13,9 +14,11 @@ use ww_tape::{
 
 use crate::MuxStats;
 use crate::error::{MuxError, Unit};
+use crate::open::Seal;
 use crate::progress::Watch;
 use crate::queue::{Queue, lock};
 use crate::reply::ReplyTx;
+use crate::summaries::ChunkSummary;
 use ww_tape::ClockNum;
 
 /// Buffers a handle keeps for reuse, at most: those past it are freed.
@@ -54,6 +57,10 @@ pub(crate) enum Work<T: Tapes> {
         from: Arc<Slot<T::Error>>,
         head: Box<ChunkHead>,
         columns: Vec<(ColumnSpec, Vec<u8>)>,
+        /// The payload's hash, computed by the handle ([ww_tape::piece::columns_payload_hash])
+        hash: [u8; 32],
+        /// The leaves of the track's summaries the handle computed
+        summary: Option<Box<ChunkSummary>>,
     },
     Block {
         from: Arc<Slot<T::Error>>,
@@ -84,6 +91,11 @@ pub(crate) enum Work<T: Tapes> {
     Facts {
         track: TrackNum,
         reply: ReplyTx<Option<TrackFacts>>,
+    },
+    /// A track's definition, encoded.
+    TrackDef {
+        track: TrackNum,
+        reply: ReplyTx<Option<Vec<u8>>>,
     },
     Definitions {
         reply: ReplyTx<Definitions>,
@@ -163,6 +175,7 @@ pub(crate) struct Counters {
     pub placed_bytes: AtomicU64,
     pub refused: AtomicU64,
     pub lost: AtomicU64,
+    pub latency_seals: AtomicU64,
 }
 
 impl Counters {
@@ -188,6 +201,10 @@ pub(crate) struct Shared<T: Tapes> {
     pub counters: Counters,
     pub queue_bytes: u64,
     pub watch: Arc<Watch>,
+    /// The open chunks of the typed handles, which the writing thread seals when their latency is up
+    pub seals: Mutex<Vec<Weak<dyn Seal<T>>>>,
+    /// What the open chunks' deadlines count from
+    pub epoch: Instant,
 }
 
 impl<T: Tapes> Shared<T> {
@@ -198,6 +215,8 @@ impl<T: Tapes> Shared<T> {
             counters: Counters::default(),
             queue_bytes,
             watch: Arc::new(Watch::new()),
+            seals: Mutex::new(Vec::new()),
+            epoch: Instant::now(),
         }
     }
 
@@ -234,6 +253,7 @@ impl<T: Tapes> Shared<T> {
             placed_bytes: get(&c.placed_bytes),
             refused: get(&c.refused),
             lost: get(&c.lost),
+            latency_seals: get(&c.latency_seals),
             failed: self.failure.get().is_some(),
         }
     }

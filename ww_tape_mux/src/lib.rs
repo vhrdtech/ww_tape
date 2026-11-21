@@ -5,6 +5,8 @@
 //!
 //! | Handle | Sends | Placed as |
 //! |---|---|---|
+//! | [EventsHandle] | items of one events track, encoded into chunks on its thread | [PieceChain::write_chunk_hashed] |
+//! | [SeriesHandle] | samples of one series track on a grid, encoded the same way | [PieceChain::write_chunk_hashed] |
 //! | [ChunkSender] | a chunk of one events or series track, encoded by the caller | [PieceChain::write_chunk] |
 //! | [RecordsHandle] | a records block ([ww_tape::BlockWriter]) | the writer's next block ([PieceChain::write_block]) |
 //! | [RelayHandle] | another producer's block | [PieceChain::relay_block] or [PieceChain::adopt_block] |
@@ -14,6 +16,19 @@
 //! cuts by the chain's policy, sync and checkpoints by time ([MuxOptions::tick]), the close. Handles never pass
 //! definitions: the mux holds them, and the writer assigns each track its number when it is defined
 //! ([TapeMux::define_track]).
+//!
+//! The typed handles ([EventsHandle], [SeriesHandle]) do the costly passes on the producer's thread: the chunk's
+//! encoding, the BLAKE3 hash of its payload, and the leaves of the track's summaries (an event tree's runs, a
+//! series' level-0 statistics). The writing thread places the chunk with its hash given and builds the summary
+//! levels above the leaves: one tree per track and piece, ended before every cut and at the close, its blocks
+//! deferred into the piece.
+//!
+//! # Latency
+//!
+//! A typed handle's open chunk is shared with the writing thread. The producer seals it when full; the writing
+//! thread seals it when its first item has waited the handle's latency ([EventsOptions::latency]), so a quiet
+//! producer's items still reach the tape. Either way the chunk goes into the queue behind every unit the handle
+//! sent before.
 //!
 //! # The queue and back-pressure
 //!
@@ -54,14 +69,19 @@
 //! |---|---|---|
 //! | [MuxOptions::queue_bytes] | 64 MiB by default | the bytes of units sent and not yet placed |
 //! | [RETURNED_BUFFERS_MAX] | 64 | buffers a handle keeps for reuse |
+//! | [ITEM_BYTES_MAX] | 16 MiB | the payload of one item an [EventsHandle] takes |
 
 mod define;
 mod error;
+mod events;
 mod handle;
+mod open;
 mod progress;
 mod queue;
 mod reply;
+mod series;
 mod shared;
+mod summaries;
 mod thread;
 
 use std::sync::Arc;
@@ -74,9 +94,14 @@ use ww_tape::{
     OwnerId, PieceChain, Resumed, Tapes, TrackNum, TrackSpec, TrackStart,
 };
 
-pub use error::{CallError, MuxError, Unit};
+pub use error::{CallError, EncodeError, ItemError, MuxError, Unit};
+pub use events::{
+    CHUNK_BYTES_DEFAULT, CHUNK_ITEMS_DEFAULT, EventsHandle, EventsOptions, ITEM_BYTES_MAX,
+    LATENCY_DEFAULT,
+};
 pub use handle::{ChunkSender, Pressure, RecordsHandle, RelayHandle, Sent, StateHandle};
 pub use progress::{Progress, ProgressWatch, TrackProgress};
+pub use series::{CHUNK_SAMPLES_DEFAULT, SeriesHandle, SeriesOptions};
 pub use shared::{RETURNED_BUFFERS_MAX, RelayMode};
 
 use reply::reply;
@@ -129,6 +154,8 @@ pub struct MuxStats {
     pub refused: u64,
     /// Units sent before a failure and never placed.
     pub lost: u64,
+    /// Open chunks of quiet handles the writing thread sealed when their latency was up.
+    pub latency_seals: u64,
     /// Whether the mux failed ([MuxError::Failed]).
     pub failed: bool,
 }

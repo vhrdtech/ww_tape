@@ -1164,6 +1164,7 @@ dependencies = [
  "exact_units",
  "shrink_wrap",
  "ww_tape",
+ "ww_tape_summary",
 ]
 
 [[package]]
