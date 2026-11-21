@@ -258,7 +258,7 @@ pub use varint::{ivar_len, uvar_len};
 mod stream;
 #[cfg(feature = "std")]
 pub use stream::{
-    BlockBuf, Cut, FileBlocks, FileError, RESYNC_AHEAD_MAX, RESYNC_SEQS_MAX, Recovery,
+    BlockBuf, Cut, FileBlocks, FileError, RESYNC_AHEAD_MAX, RESYNC_SEQS_MAX, Recovery, WalkPoint,
 };
 #[cfg(feature = "alloc")]
 pub mod open;

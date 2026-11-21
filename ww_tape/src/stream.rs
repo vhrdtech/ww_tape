@@ -390,6 +390,8 @@ pub struct FileBlocks<R> {
     replacing: bool,
     /// Where the last data block taken starts (a block of the seq order, [crate::walk::is_free] not)
     last_data: Option<u64>,
+    /// Where the bytes after the last block passed over start: where [Self::point] goes on
+    passed_end: u64,
     /// [Recovery::Resync]: the data blocks handed out last, by session and seq
     seen: Seen,
     /// [Recovery::Resync] in a stretch a [Recovery::Prefix] walk reads past as a gap: the medium offset where that walk
@@ -406,6 +408,29 @@ pub struct FileBlocks<R> {
     /// Probes checked whole looking past stretches
     #[cfg(test)]
     checks: usize,
+}
+
+/// Where a [Recovery::Prefix] walk of [FileBlocks] goes on: an offset and what the walk knows there (the session, the
+/// last seq, the gap rules), see [FileBlocks::point].
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct WalkPoint {
+    offset: u64,
+    walk: SessionState,
+}
+
+impl WalkPoint {
+    /// The start of the bytes on `medium`, before any block.
+    pub fn start(medium: Medium) -> Self {
+        Self {
+            offset: 0,
+            walk: SessionState::new(medium),
+        }
+    }
+
+    /// Medium offset where the walk goes on.
+    pub fn offset(&self) -> u64 {
+        self.offset
+    }
 }
 
 /// What a step of the walk found.
@@ -440,6 +465,7 @@ impl<R: Read> FileBlocks<R> {
             done: false,
             replacing: false,
             last_data: None,
+            passed_end: 0,
             seen: Seen::default(),
             gap_end: None,
             gap_walk: SessionState::new(Medium::File),
@@ -463,6 +489,7 @@ impl<R: Read> FileBlocks<R> {
     #[must_use]
     pub fn starting_at(mut self, offset: u64) -> Self {
         self.offset = offset;
+        self.passed_end = offset;
         self
     }
 
@@ -481,6 +508,34 @@ impl<R: Read> FileBlocks<R> {
     /// Medium offset of the block [Self::next_block] returned last.
     pub fn offset(&self) -> u64 {
         self.offset
+    }
+
+    /// Where a [Recovery::Prefix] walk goes on after the block [Self::next_block] returned last, or from its start
+    /// before the first: a walk [resumed](Self::resume) there on bytes read later reads on as this one would. None in
+    /// a [Recovery::Resync] walk.
+    ///
+    /// A follower of a growing file takes it after each block, and resumes there when the file grew: what a walk
+    /// read past it (a torn block a writer is still writing, or one a resume will cut back) is read again.
+    pub fn point(&self) -> Option<WalkPoint> {
+        if self.recovery != Recovery::Prefix {
+            return None;
+        }
+        let offset = match self.current {
+            Some(c) => self.offset.checked_add(wide(c.len))?,
+            None => self.passed_end,
+        };
+        Some(WalkPoint {
+            offset,
+            walk: self.walk,
+        })
+    }
+
+    /// A [Recovery::Prefix] walk of the bytes from `point` on, read from `rd`, which starts there: it goes on with
+    /// the session, the seq and the gap rules the walk that gave `point` had.
+    pub fn resume(rd: R, point: WalkPoint) -> Self {
+        let mut w = Self::new(rd).starting_at(point.offset);
+        w.walk = point.walk;
+        w
     }
 
     /// Have at least `n` bytes in `buf`, false at the end of the file.
@@ -584,6 +639,7 @@ impl<R: Read> FileBlocks<R> {
         }
         if let Some(c) = self.current.take() {
             self.consume(self.within_gap(c.len))?;
+            self.passed_end = self.offset;
         }
         if self.gap_end.is_some_and(|end| end <= self.offset) {
             self.gap_end = None;
@@ -1026,6 +1082,68 @@ mod tests {
             seen.met((SessionTag::from_u32(2), 1), 10, 8),
             Met::New
         ));
+    }
+
+    /// A records block of session 1 with seq `seq`.
+    fn records_block(seq: u64) -> Vec<u8> {
+        let mut buf = [0u8; 128];
+        let id = crate::BlockId::new(SessionTag::writable(1), seq);
+        let mut w =
+            crate::BlockWriter::new(&mut buf, crate::BlockKind::Records, id, &[ClockNum::new(1)])
+                .unwrap();
+        let at = crate::ClockTime::new(ClockNum::new(1), 1);
+        w.push(TrackNum::new(9), at, &[&[seq as u8; 20]]).unwrap();
+        let len = w.finish();
+        buf[..len].to_vec()
+    }
+
+    /// A walk stopped at a torn block goes on from its point once the block is whole, with the session and seq it
+    /// had: the torn bytes are read again, a block that goes back is refused.
+    #[test]
+    fn a_walk_resumed_at_its_point_reads_on_as_it_would() {
+        let blocks: Vec<Vec<u8>> = (0..3).map(records_block).collect();
+        let whole = blocks.concat();
+        let torn = &whole[..whole.len() - 5];
+        let mut walk = FileBlocks::new(torn);
+        assert_eq!(walk.point().unwrap(), WalkPoint::start(Medium::File));
+        let mut seqs = Vec::new();
+        let mut point = walk.point().unwrap();
+        while let Some(b) = walk.next_block() {
+            match b {
+                Ok(b) => seqs.push(b.seq),
+                Err(e) => assert!(matches!(
+                    e,
+                    FileError::Cut {
+                        why: Cut::Truncated { .. },
+                        ..
+                    }
+                )),
+            }
+            point = walk.point().unwrap();
+        }
+        assert_eq!(seqs, [0, 1]);
+        let at = blocks[0].len() + blocks[1].len();
+        assert_eq!(point.offset(), at as u64);
+
+        let mut on = FileBlocks::resume(&whole[at..], point);
+        let b = on.next_block().unwrap().unwrap();
+        assert_eq!((b.seq, on.offset()), (2, at as u64));
+        assert!(on.next_block().is_none());
+
+        let mut back = FileBlocks::resume(&blocks[0][..], point);
+        let e = back.next_block().unwrap().unwrap_err();
+        assert!(matches!(
+            e,
+            FileError::Cut {
+                why: Cut::SeqBackwards { seq: 0, after: 1 },
+                ..
+            }
+        ));
+        assert!(
+            FileBlocks::with_recovery(&whole[..], Recovery::Resync)
+                .point()
+                .is_none()
+        );
     }
 
     /// A reader that says it read one byte more than it was asked for.
