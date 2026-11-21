@@ -191,6 +191,7 @@ Covers `ww_tape` 0.1.0.
 
 ### Features
 
+- Book: the footer shows the crate version, commit and build time, and how long ago that was (BOOK-2).
 - Book: tables keep code whole; snippets are dedented, with a collapsible of the example items they use (BOOK-2).
 - Book: the chapter "When the power fails" replaces "Resuming a writer", its figures drawn from a real crash (BOOK-2).
 - Book: six parts in reading order, a stub per chapter not yet written, and a glossary of 90 terms (BOOK-2).

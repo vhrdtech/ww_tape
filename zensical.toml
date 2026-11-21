@@ -69,10 +69,12 @@ nav = [
 # hero.css: the logo at the top of index.md; spl-refs.css and spl-refs.js: the cards of glossary terms and code links,
 # written by `spl book refs` (`just book-refs`)
 extra_css = ["stylesheets/vhrd.css", "stylesheets/figures.css", "stylesheets/tables.css", "stylesheets/code.css", "stylesheets/hero.css", "stylesheets/spl-refs.css"]
-extra_javascript = ["javascripts/spl-refs.js"]
+# javascripts/book-stamp-age.js is written by `just book-refs` (spl book stamp), not in git
+extra_javascript = ["javascripts/spl-refs.js", "javascripts/book-stamp-age.js"]
 
 [project.theme]
-# overrides/main.html: the reading level badge above a page's title, from its `level:` front matter (docs/levels.md)
+# overrides/main.html: the reading level badge above a page's title, from its `level:` front matter (docs/levels.md);
+# overrides/partials/copyright.html: the build stamp in the footer
 custom_dir = "overrides"
 favicon = "assets/ww_tape_icon.svg"
 logo = "assets/ww_tape_icon.svg"

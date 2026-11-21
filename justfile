@@ -24,7 +24,7 @@ nightly := "nightly-2026-11-19"
 zensical := "zensical==0.1.2"
 # The release of spirit_level's book extension (spl_book_ext): the same as the `spl` in use, since `spl book refs`
 # writes the code index the extension reads
-spl := "0.7.8"
+spl := "0.7.9"
 book_ext := "spl-book-ext @ git+https://github.com/romixlab/spirit_level@v" + spl + "#subdirectory=python/spl_book_ext"
 # The prose lints book-check runs: at deny in spirit_level.toml
 prose_lints := "--only prose-run-words --only page-reading-time --only heading-words --only code-wall --only code-block-language --only passive-voice --only reading-ease --only orphan-pages --only page-title --only abbreviation-first-use --only term-before-definition --only paragraph-sentences --only sentence-words --only emoji --only page-links --only nav-entries"
@@ -134,10 +134,12 @@ book-strict: book-refs
     uv run --with {{ zensical }} --with "{{ book_ext }}" zensical build --clean --strict
 
 # Check the glossary (docs/glossary.toml) and write what the book's references read: the index of the crates' public
-# items (target/spl-book/code_index.json) and the cards' stylesheet and script (not in git)
+# items (target/spl-book/code_index.json), the cards' stylesheet and script, and the footer's build stamp and its age
+# script (not in git)
 [group('book')]
 book-refs:
     spl book refs
+    spl book stamp --name ww_tape overrides/partials/stamp.html docs/javascripts/book-stamp-age.js
 
 # The book's prose lints of spirit_level.toml (sentence and paragraph length, reading time, terms). Without spl it fails
 # in CI and is skipped elsewhere
