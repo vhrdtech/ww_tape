@@ -2,7 +2,7 @@ Writing the drive's hour:
 
 | Call | Count |
 |---|---:|
-| put, the mode | 3600 (12 wrote) |
+| put, the mode | 3600 (9 wrote) |
 | write_block, log lines and temperatures | 3600 |
 | write_chunk, can0 | 3600 |
 | write_chunk, phase_a | 3600 |
@@ -10,15 +10,15 @@ Writing the drive's hour:
 
 | Blocks | Made by | Count | Bytes |
 |---|---|---:|---:|
-| piece head | the writer | 4 | 1776 |
-| records blocks of puts and copies | the writer | 35 | 5584 |
+| piece head | the writer | 4 | 2064 |
+| records blocks of puts and copies | the writer | 31 | 5435 |
 | records blocks | the recorder | 3600 | 811071 |
 | events chunks | the recorder | 3600 | 8400924 |
 | series chunks | the recorder | 3600 | 99617283 |
 | summary blocks | the recorder | 2933 | 3299294 |
 | checkpoints | the writer | 24 | 1485336 |
 | final index | the writer | 4 | 1658680 |
-| close | the writer | 4 | 9508 |
+| close | the writer | 4 | 9369 |
 | tail | the writer | 4 | 656 |
 
 The writer's own blocks: 3161540 of 115290112 bytes, 2.74 %.
@@ -41,21 +41,21 @@ The crash at minute 37, by sync policy:
 | Policy | Syncs | Bytes not synced | Whole blocks not synced | Of the run |
 |---|---:|---:|---:|---:|
 | Interval(1 s) | 2223 | 30866 | 3 | 1.000 s |
-| EveryBlocks(1) | 8518 | 1263 | 0 | 0.333 s |
-| EveryBlocks(256) | 36 | 625282 | 76 | 20.333 s |
-| None | 4 | 13412038 | 1612 | 420.000 s |
+| EveryBlocks(1) | 8516 | 1263 | 0 | 0.333 s |
+| EveryBlocks(256) | 36 | 622577 | 75 | 20.000 s |
+| None | 4 | 13412097 | 1611 | 420.000 s |
 
-The cut after piece 0: final index 414520 bytes, close 1297 bytes (557 of them padding), tail 164 bytes.
-Piece 1 starts: head 540 bytes, then 2 blocks of puts, 521 bytes; at its first data 4 tracks and 3 clocks and maps are defined.
-Pieces: piece 0 29339648 bytes, padding 557; piece 1 29560832 bytes, padding 1755; piece 2 29552640 bytes, padding 2445; piece 3 26836992 bytes, padding 1791.
+The cut after piece 0: final index 414520 bytes, close 1297 bytes (421 of them padding), tail 164 bytes.
+Piece 1 starts: head 636 bytes, then 2 blocks of puts, 622 bytes; at its first data 5 tracks and 3 clocks and maps are defined.
+Pieces: piece 0 29339648 bytes, padding 421; piece 1 29560832 bytes, padding 1561; piece 2 29552640 bytes, padding 2250; piece 3 26836992 bytes, padding 1633.
 
-Piece 0 deleted: 3 pieces from piece 1, 2 links linked; head cut true, whole false; 4 tracks defined at the first data.
+Piece 0 deleted: 3 pieces from piece 1, 2 links linked; head cut true, whole false; 5 tracks defined at the first data.
 
 The board's own tape: 115732480 bytes, 13733 data blocks, 588 blocks of puts (75971 bytes).
-Relayed: 4 pieces, 115314688 bytes (109.97 MiB), 120 blocks of puts (10681 bytes); data blocks the board's byte for byte: true.
+Relayed: 4 pieces, 115314688 bytes (109.97 MiB), 117 blocks of puts (10616 bytes); data blocks the board's byte for byte: true.
 
 Rounded for the text:
-- the writer's own blocks: 3.2 MB of 115 MB, 2.7 %; its puts 5.6 kB
+- the writer's own blocks: 3.2 MB of 115 MB, 2.7 %; its puts 5.4 kB
 - aligned: 129 MB against 115 MB, 12 % more; phase_a alone 112 MB against 104 MB, 7.3 % more
 - a sync after every block: about 8520 syncs; piece 0's final index 415 kB
 - the board's tape: 116 MB, about 13700 data blocks, 76 kB of puts; relayed: 115 MB, 11 kB of puts

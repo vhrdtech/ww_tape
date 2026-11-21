@@ -57,13 +57,13 @@ hands over the [[summary]] blocks of the phase current as they fill. `cargo run 
 
 | Call | Count |
 |---|---:|
-| [`TapeWriter::put`], the mode | 3600 (12 wrote) |
+| [`TapeWriter::put`], the mode | 3600 (9 wrote) |
 | [`TapeWriter::write_block`], log lines and temperatures | 3600 |
 | [`TapeWriter::write_chunk`], `can0` | 3600 |
 | [`TapeWriter::write_chunk`], `phase_a` | 3600 |
 | [`TapeWriter::defer_block`], summaries of `phase_a` | 2933 |
 
-Only 12 of the 3600 puts wrote a record. A put writes its [[state item]] only when no record of the same item lies
+Only 9 of the 3600 puts wrote a record. A put writes its [[state item]] only when no record of the same item lies
 [[near]] behind, as [Definitions and state](definitions.md#near-puts-and-copies) explains. The recorder therefore puts
 the mode before every block and never keeps track of what it put.
 
@@ -123,19 +123,19 @@ The writer's own blocks hold what a [[reader]] needs to find and understand the 
 
 | Blocks | Made by | Count | Bytes |
 |---|---|---:|---:|
-| piece head | the writer | 4 | 1776 |
-| records blocks of puts and copies | the writer | 35 | 5584 |
+| piece head | the writer | 4 | 2064 |
+| records blocks of puts and copies | the writer | 31 | 5435 |
 | records blocks | the recorder | 3600 | 811071 |
 | events chunks | the recorder | 3600 | 8400924 |
 | series chunks | the recorder | 3600 | 99617283 |
 | summary blocks | the recorder | 2933 | 3299294 |
 | checkpoints | the writer | 24 | 1485336 |
 | final index | the writer | 4 | 1658680 |
-| close | the writer | 4 | 9508 |
+| close | the writer | 4 | 9369 |
 | tail | the writer | 4 | 656 |
 
 The writer's own blocks take 3.2 MB of the hour's 115 MB, 2.7 %. Most of that is index: the checkpoints while the pieces
-grow, and each piece's final index. The 35 blocks of puts hold every definition and mode change of four pieces in 5.6
+grow, and each piece's final index. The 31 blocks of puts hold every definition and mode change of four pieces in 5.4
 kB.
 
 ### What the writer checks
