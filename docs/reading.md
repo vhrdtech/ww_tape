@@ -4,7 +4,8 @@ level: basic
 
 # Reading a tape
 
-A recording can run to gigabytes, and the question asked of it is often about one second. A [[reader]]
+A recording can run to gigabytes, 3.7 GB for a minute of a radio capture. The question asked of it is often about one
+second. A [[reader]]
 answers it with a few small reads. It opens a file or a [[chain]], finds the [[blocks]] of one [[track]] in a time
 range, and looks up the [[state]] in force there. Each step uses what a closed [[piece]] says about itself at its end
 and in its index.

@@ -18,8 +18,10 @@ radio front end or a simulation. A tape keeps each kind of value on a [[track]] 
 so a reader can trust any part of it without the rest.
 
 - **Any typed data over time.** Log lines, states, messages on a bus and sampled signals share one tape. The book's
-  example records log lines 3 times a second and a phase current 25 000 times a second.
-- **Recordings of gigabytes.** A long recording is a chain of pieces, each a file that reads alone.
+  example records log lines 3 times a second and a phase current 25 000 times a second. The same format takes a
+  radio capture of 20 million samples a second.
+- **Recordings of gigabytes.** A long recording is a chain of pieces, each a file that reads alone. A minute of the
+  radio capture is one piece of 3.7 GB.
 - **Small reads.** Opening the example's 115 MB recording reads about 14 KB. Finding one track's blocks around a
   given second then reads about 197 KB, nearly all of it that track's index.
 - **Damage stays local.** A crash, a torn write or a bad sector costs the bytes it touched. A reader says what it
