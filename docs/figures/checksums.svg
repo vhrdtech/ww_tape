@@ -2,7 +2,7 @@
   <text x="20" y="22" text-anchor="start" class="strong">one chunk block</text>
   <text x="660" y="22" text-anchor="end" class="soft small">not to scale</text>
   <path d="M20 46 v-4 H660 v4" class="thin"/>
-  <text x="340" y="36" text-anchor="middle" class="small">block CRC: the whole block, a reader trusts nothing else in a bad one</text>
+  <text x="340" y="36" text-anchor="middle" class="small">block CRC: the whole block</text>
   <rect x="20.5" y="56" width="50" height="34" rx="1" class="tint-green"/>
   <text x="45.5" y="77" text-anchor="middle" class="small">header</text>
   <rect x="71.5" y="56" width="150" height="34" rx="1" class="tint-purple"/>
