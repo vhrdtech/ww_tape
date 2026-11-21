@@ -42,6 +42,7 @@ mod relations;
 mod removed;
 mod reserved;
 mod resume;
+mod sample_codecs;
 mod series;
 mod tails;
 mod track_hash;

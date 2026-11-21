@@ -79,7 +79,8 @@ and for such a block the call returns `None`.
 The application hands a [[chunk head]] and its encoded [[columns]] to [`TapeWriter::write_chunk`]. The writer builds the
 chunk block around them and returns its [`ww_tape::Placed`]. For a chunk, [`Placed::unit`] is the chunk's [[unit hash]].
 The writer states that hash and does not verify it, so a writer in the same process folds [[range hashes]] without
-reading the piece back. [Chunks from columns](columns.md) shows how the recorder encodes its frames and samples.
+reading the piece back. [Event times and their codecs](columns.md) shows how the recorder encodes its frames, and
+[Samples and their codecs](sample_codecs.md) its samples.
 
 A [`PieceChain`] writes a chunk with [`PieceChain::write_chunk`], which returns a [`ChunkPlaced`]. It holds the same
 fields and the sequence number of the piece that the chunk landed in. The call may [[cut]] to a new piece first, so the
@@ -146,7 +147,7 @@ its grid. It copies the caller's columns as they are and does not read them back
 
 A caller's whole block, handed to [`TapeWriter::write_block`], [`TapeWriter::adopt_block`] or
 [`TapeWriter::defer_block`], is read once. The writer checks every [[CRC]] in it, a [[CRC-32C]]. Beyond that, each byte
-placed costs one more pass: the [[content hash]]. [Chunks from columns](columns.md#what-a-chunk-costs-the-writer)
+placed costs one more pass: the [[content hash]]. [Samples and their codecs](sample_codecs.md#what-a-chunk-costs-the-writer)
 measures what these passes cost per chunk.
 
 The writer does not compare a series chunk's grid with the chunk before it. A reader's [`SeriesTimeline`] does

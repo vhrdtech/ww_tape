@@ -40,8 +40,8 @@ sample. The numbers stay integers from the device to the file, and nothing passe
 Integers also compress best. The writer stores the differences between neighbouring samples, bit-packed per group of
 128 samples, and a smooth signal needs few bits per difference. Fixed point is 1.6 to 9.3 times smaller than the best
 float codec on every data set that [Float codecs measured](format.md#float-codecs-measured) lists. Floats that a
-device did not choose, such as a sensor that reports only `f32`, have codecs of their own. [Chunks from
-columns](columns.md) explains the codecs and when to pick each.
+device did not choose, such as a sensor that reports only `f32`, have codecs of their own. [Samples and their
+codecs](sample_codecs.md) explains the codecs and when to pick each.
 
 A device that sends its own packing, such as two 12-bit values in three bytes, can have its bytes stored as sent. A
 reader converts only the samples it reads.

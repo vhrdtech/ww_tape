@@ -35,6 +35,7 @@ nav = [
             "pieces.md",
             "crashes.md",
             "columns.md",
+            "sample_codecs.md",
             "live_feeds.md"
         ]
     },

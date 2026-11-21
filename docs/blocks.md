@@ -129,7 +129,8 @@ There are two kinds of chunk, one per way a track keeps its items:
 | Finding one item | walk the block from its start | jump to it by its item number |
 | The drive's tracks | `log`, `temp`, the puts of `mode` | `can0` in events chunks, `phase_a` in series chunks |
 
-[Chunks from columns](columns.md) shows how the columns are coded, and [Events](events.md) and [Series](series.md) how a
+[Event times and their codecs](columns.md) and [Samples and their codecs](sample_codecs.md) show how the columns are
+coded, and [Events](events.md) and [Series](series.md) how a
 reader reads them.
 
 ## Definitions on track 0
