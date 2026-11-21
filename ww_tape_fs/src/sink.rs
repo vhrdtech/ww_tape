@@ -268,7 +268,8 @@ fn read_file_at(file: &File, mut offset: u64, mut buf: &mut [u8]) -> io::Result<
                 buf = core::mem::take(&mut buf)
                     .get_mut(n..)
                     .ok_or_else(past_end)?;
-                let n = u64::try_from(n).map_err(|_| past_end())?;
+                let n =
+                    u64::try_from(n).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
                 offset = offset.checked_add(n).ok_or_else(past_end)?;
             }
         }
