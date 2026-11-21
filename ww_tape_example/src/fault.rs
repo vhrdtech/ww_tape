@@ -16,8 +16,8 @@ use ww_tape::reader::{ByteSource, OutOfRange, ReadError};
 use ww_tape::samples::{SampleShape, Samples};
 use ww_tape::times::{EventTimes, TimesError};
 use ww_tape::{
-    BlockKind, Describe, Element, FileBlocks, Recovery, Magnitude, OwnerId, Ratio64, Rounding, SampleError, Slot,
-    TapeReader, TrackHash, TrackKind,
+    BlockKind, Describe, Element, FileBlocks, Magnitude, OwnerId, Ratio64, Recovery, Rounding,
+    SampleError, Slot, TapeReader, TrackHash, TrackKind,
 };
 use ww_tape_summary::{ChannelStats, SeriesSummarySpec, Summary};
 
