@@ -2,7 +2,9 @@
 //! carries `n` tracks, records blocks on one of them until the piece holds 1 or 8 MiB, closed, as a cut by bytes
 //! closes it. The same piece with the definitions of that one track alone held is the baseline: the data it holds
 //! more is what carrying the quiet tracks costs. Prints a Markdown table for 100 and 1 000 tracks, then the bytes of a
-//! piece of one records block at the track caps ([TRACKS_PER_PIECE_MAX], [HEAD_TRACKS_MAX]) against the baseline.
+//! piece of one records block at the track caps ([TRACKS_PER_PIECE_MAX], [HEAD_TRACKS_MAX]) against the baseline, then
+//! the most tracks a cut carries whole (none left out) under the default index policy and lower ones, on one clock and
+//! each on its own clock.
 #![allow(
     clippy::arithmetic_side_effects,
     clippy::as_conversions,
@@ -13,23 +15,24 @@
 )]
 
 use shrink_wrap::prelude::*;
+use ww_tape::index::STATE_ENTRIES_MAX;
 use ww_tape::piece::{
     ContentHash, HEAD_TRACKS_MAX, OwnerId, PieceHead, PieceId, PieceIdent, TRACKS_PER_PIECE_MAX,
     TrackStart,
 };
 use ww_tape::{
     BlockId, BlockKind, BlockWriter, ClockDef, ClockOrigin, ClockTime, Definitions, Describe,
-    EventsDef, FullVersion, Magnitude, MemSink, Segment, SessionTag, SyncPolicy, TapeWriter,
-    TrackDef, TrackHash, TrackKind, Version, clock_key, track_key,
+    EventsDef, FullVersion, IndexPolicy, Magnitude, MemSink, Segment, SessionTag, SyncPolicy,
+    TapeWriter, TrackDef, TrackHash, TrackKind, Version, clock_key, track_key,
 };
 
 const CLOCK: u32 = 1;
 
-/// The clock of every track.
-fn clock() -> Describe<'static> {
+/// Clock `number`, keyed by its number.
+fn clock_numbered(number: u32) -> Describe<'static> {
     Describe::Clock(ClockDef {
-        number: UNib32(CLOCK),
-        key: clock_key(0xb8, &[], 1),
+        number: UNib32(number),
+        key: clock_key(0xb8, &[], u64::from(number)),
         rate: Magnitude::pow10(9).into(),
         resolution: Magnitude::pow10(-9).into(),
         origin: ClockOrigin::Boot,
@@ -37,12 +40,17 @@ fn clock() -> Describe<'static> {
     })
 }
 
-/// Events track `number`, labeled with its number as a sensor channel's name might be.
-fn track(number: u32, label: &str) -> TrackDef<'_> {
+/// The clock of every track.
+fn clock() -> Describe<'static> {
+    clock_numbered(CLOCK)
+}
+
+/// Events track `number` on clock `clock`, labeled with its number as a sensor channel's name might be.
+fn track(number: u32, clock: u32, label: &str) -> TrackDef<'_> {
     TrackDef {
         number: UNib32(number),
         key: track_key(0xb8, &[Segment::Index(number)]),
-        clock: UNib32(CLOCK),
+        clock: UNib32(clock),
         dimensions: RefVec::Slice { slice: &[] },
         api: FullVersion::new("bench_api", Version::new(0, 1, 0)),
         bundle: RefVec::Slice { slice: &[] },
@@ -75,10 +83,23 @@ fn records(id: BlockId, n: i64, len: usize) -> anyhow::Result<Vec<u8>> {
     Ok(buf)
 }
 
-/// The definitions of `n` tracks and the head rows of a piece that carries them all.
+/// The definitions of `n` tracks on one clock, those of track 1 alone, and the head rows of a piece that carries them
+/// all.
 fn tracks(n: u32) -> anyhow::Result<(Definitions, Definitions, Vec<TrackStart>)> {
+    tracks_on(n, false)
+}
+
+/// The definitions of `n` tracks, on one clock or each on its own (`own_clocks`), those of track 1 alone, and the
+/// head rows of a piece that carries them all.
+fn tracks_on(
+    n: u32,
+    own_clocks: bool,
+) -> anyhow::Result<(Definitions, Definitions, Vec<TrackStart>)> {
     let labels: Vec<String> = (1..=n).map(|k| format!("channel {k:07}")).collect();
-    let defs: Vec<TrackDef<'_>> = (1..=n).map(|k| track(k, &labels[k as usize - 1])).collect();
+    let clock_of = |k: u32| if own_clocks { k } else { CLOCK };
+    let defs: Vec<TrackDef<'_>> = (1..=n)
+        .map(|k| track(k, clock_of(k), &labels[k as usize - 1]))
+        .collect();
     let rows = defs
         .iter()
         .map(|t| TrackStart {
@@ -92,28 +113,33 @@ fn tracks(n: u32) -> anyhow::Result<(Definitions, Definitions, Vec<TrackStart>)>
             not_carried: false,
         })
         .collect();
+    // track 1's clock first, then its track: `one` takes the first two
     let mut all = vec![clock()];
+    for k in 2..=n {
+        if own_clocks {
+            all.push(clock_numbered(k));
+        }
+    }
     all.extend(defs.iter().cloned().map(Describe::Track));
     let mut every = Definitions::new();
     every
         .define_all(&all)
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
     let mut one = Definitions::new();
-    one.define_all(&all[..2])
+    one.define_all(&[all[0].clone(), Describe::Track(defs[0].clone())])
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
     Ok((every, one, rows))
 }
 
-/// A closed piece, second of its chain, whose head carries `rows`, written with `defs`: `blocks` records blocks on
-/// track 1, or as many as reach `fill` bytes when `blocks` is None. Its length and the blocks written.
-fn piece(
-    defs: &Definitions,
-    rows: &[TrackStart],
-    fill: u64,
-    blocks: Option<u64>,
-) -> anyhow::Result<(u64, u64)> {
+/// A writer on the second piece of a chain, its head carrying `rows`, under `policy` state entries.
+fn start(rows: &[TrackStart], policy: usize) -> anyhow::Result<TapeWriter<MemSink>> {
     let e = |e: ww_tape::WriteError<_>| anyhow::anyhow!("{e:?}");
     let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
+    w.set_index_policy(IndexPolicy {
+        state_entries_max: policy,
+        ..IndexPolicy::default()
+    })
+    .map_err(e)?;
     w.set_producer("bench");
     w.set_session(SessionTag::writable(0x6361_7272))
         .map_err(e)?;
@@ -129,6 +155,19 @@ fn piece(
         integrity: ww_tape::Integrity::Full,
     };
     w.begin_piece(&head, rows).map_err(e)?;
+    Ok(w)
+}
+
+/// A closed piece, second of its chain, whose head carries `rows`, written with `defs`: `blocks` records blocks on
+/// track 1, or as many as reach `fill` bytes when `blocks` is None. Its length and the blocks written.
+fn piece(
+    defs: &Definitions,
+    rows: &[TrackStart],
+    fill: u64,
+    blocks: Option<u64>,
+) -> anyhow::Result<(u64, u64)> {
+    let e = |e: ww_tape::WriteError<_>| anyhow::anyhow!("{e:?}");
+    let mut w = start(rows, STATE_ENTRIES_MAX)?;
     let mut n = 0u64;
     while blocks.map_or(n == 0 || w.bytes() < fill, |b| n < b) {
         let id = w.next_id();
@@ -156,6 +195,42 @@ fn carried(n: u32) -> anyhow::Result<(u64, u64)> {
     let (base, _) = piece(&one, &rows, 0, Some(1))?;
     let (with, _) = piece(&every, &rows, 0, Some(1))?;
     Ok((with, base))
+}
+
+/// Whether a cut under `policy` state entries carries the definitions of all `n` tracks (on one clock, or each on
+/// its own): a piece whose head carries their rows and holds one records block on track 1 is cut with the definitions
+/// of every track, and the cut marks no row not carried.
+fn carries_all(policy: usize, n: u32, own_clocks: bool) -> anyhow::Result<bool> {
+    let e = |e: ww_tape::WriteError<_>| anyhow::anyhow!("{e:?}");
+    let (every, one, rows) = tracks_on(n, own_clocks)?;
+    let mut w = start(&rows, policy)?;
+    let id = w.next_id();
+    w.write_block(&one, &records(id, 0, ITEM_LEN)?).map_err(e)?;
+    let (closed, _) = w
+        .cut_on(&every, MemSink::new())
+        .map_err(|c| anyhow::anyhow!("{:?}", c.error))?;
+    Ok(closed.not_carried() == 0)
+}
+
+/// The most tracks a cut carries whole under `policy` state entries, on one clock or each on its own, and whether
+/// the head cap ([HEAD_TRACKS_MAX]) bounds them instead of the policy.
+fn room_for(policy: usize, own_clocks: bool) -> anyhow::Result<(u32, bool)> {
+    let cap = u32::try_from(HEAD_TRACKS_MAX)?;
+    let mut hi = cap.min(u32::try_from(policy)?);
+    if carries_all(policy, hi, own_clocks)? {
+        return Ok((hi, hi == cap));
+    }
+    // lo carries all (none: trivially), hi doesn't
+    let mut lo = 0u32;
+    while hi - lo > 1 {
+        let mid = lo + (hi - lo) / 2;
+        if carries_all(policy, mid, own_clocks)? {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    Ok((lo, false))
 }
 
 fn main() -> anyhow::Result<()> {
@@ -188,6 +263,30 @@ fn main() -> anyhow::Result<()> {
         let (with, base) = carried(n32)?;
         let extra = with - base;
         println!("| {n} | {extra} | {} |", extra / n as u64);
+    }
+    println!();
+    println!(
+        "The most tracks a cut carries whole (none left out), by the index policy's state entries, the tracks on one clock or each on its own:"
+    );
+    println!();
+    println!("| state entries | tracks on one clock | tracks on their own clocks |");
+    println!("|---|---|---|");
+    for policy in [STATE_ENTRIES_MAX, 1 << 16, 1 << 12, 1 << 8] {
+        let name = if policy == STATE_ENTRIES_MAX {
+            format!("{policy} (default)")
+        } else {
+            policy.to_string()
+        };
+        let cell = |(n, capped): (u32, bool)| {
+            if capped {
+                format!("{n} (the head cap)")
+            } else {
+                n.to_string()
+            }
+        };
+        let one = cell(room_for(policy, false)?);
+        let own = cell(room_for(policy, true)?);
+        println!("| {name} | {one} | {own} |");
     }
     Ok(())
 }

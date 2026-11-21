@@ -139,7 +139,8 @@ Writing pieces and chains, resuming them, sinks in memory, in the crate `ww_tape
   - A cut puts the definition of every track the new head carries, with its clocks, maps and bundles, right after the head. Dropping older pieces keeps a quiet track's kind, clock and label.
   - Blocks of at most 4 KiB, each with the clocks and maps of its own tracks: a damaged block costs only its tracks. Bundles come once, first.
   - A call whose definitions fit no piece under the index policy is refused (`InputError::CarriedEntries`), nothing written, no cut. A resume that kept only the head puts them with the next call.
-  - A cut is never refused for them. Past the room it carries each once: the call's tracks first, then clocks and maps, then the newest tracks. The head marks each track left out, and a reader names it (`DefinitionsAt::not_carried`).
+  - A new piece carries every definition while the chain's tracks fit the index policy's state entries. A cut is never refused for them.
+  - Past the room it carries each once: the call's tracks first, then clocks and maps, then the newest tracks. The tracks with the oldest data are left out: the head marks them, the close counts them and a reader names them (`DefinitionsAt::not_carried`).
   - A cut made for a call keeps room for its records. An admitted call so fits the piece a cut made for it: data on a track left out writes on, and that piece holds data.
   - Cost at 1000 tracks and 8 MiB pieces: 2.5 % less data and 2.8 % more bytes per piece (`just bench-carried`).
   - Read more: [The definitions a new piece carries](docs/carried_definitions.md). Tests `quiet.rs`.

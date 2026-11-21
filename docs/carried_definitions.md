@@ -1,5 +1,8 @@
 # The definitions a new piece carries
 
+A chain is read from its oldest piece left. Dropping the pieces before it must not lose what a track is. So a new piece
+carries the definitions of the tracks it holds no data for.
+
 A piece head carries a row for every track that gave data in the chain so far. The writer puts the definition of each of
 these tracks right after the head, the layout and the producer. The clocks, maps and bundles it needs come with it. A
 quiet track, one with no data in the new piece, so keeps its kind, its clock and its label there.
@@ -28,14 +31,30 @@ bundle.
 
 ## When they don't fit
 
-Each definition is a state record and takes an index entry. A call is admitted only when its records fit an empty
-piece under `IndexPolicy::state_entries_max`: the definitions its tracks need, its put, the layout and the producer.
-Otherwise `InputError::CarriedEntries` refuses it: nothing written, no cut.
+Each definition is a state record and takes an index entry, so the index policy bounds what a piece carries. The
+contract: a new piece carries every definition while the chain's tracks fit its room. That room is
+`IndexPolicy::state_entries_max` less the layout, the producer and the records of the call the cut is made for. Past
+that room, the tracks with the oldest data are left out. The next head flags their rows, the close counts them (`Closed::not_carried`) and a reader of
+the piece names them (`DefinitionsAt::not_carried`).
 
-A cut is never refused for the definitions it carries. They outgrow the room in three ways:
+The room is counted in entries, not bytes, so a label's length changes it little. `just bench-carried` measures how
+many tracks a cut carries whole, each with its own definition and no bundle:
 
+| state entries | tracks on one clock | tracks on their own clocks |
+|---|---|---|
+| 1048576 (default) | 699006 (the head cap) | 524285 |
+| 65536 | 65530 | 32765 |
+| 4096 | 4090 | 2045 |
+| 256 | 250 | 125 |
+
+A call is admitted only when its records fit an empty piece under the same policy. Those are the definitions its tracks
+need, its put, the layout and the producer. Otherwise `InputError::CarriedEntries` refuses it: nothing written, no cut.
+
+A cut is never refused for the definitions it carries. They outgrow the room in four ways:
+
+- the chain counts in more tracks than the room holds;
 - `defs` gains a clock map after the tracks were counted in;
-- a definition grows, such as a longer label;
+- a definition grows, such as a longer label, so more blocks repeat the clocks;
 - the index policy is lowered.
 
 The cut keeps room for the records of the call it is made for. Those are its put and the definitions of the tracks

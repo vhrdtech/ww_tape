@@ -1986,11 +1986,13 @@ impl<S: TapeSink> TapeWriter<S> {
     /// alone when the pieces before it are gone. A definition is put again before the next data that needs it, unless
     /// it lies close behind. Seqs go on from this piece; the options carry over.
     ///
-    /// A cut is never refused for those definitions. When they don't fit the index policy's state entries, each goes
-    /// once, no block repeating its chain, in this order while room lasts: the tracks of the next data
-    /// ([Self::want], those of the call a full piece refused), then the clocks and maps, then the tracks with the
-    /// newest data. What doesn't fit is left out; the next head's rows and [Closed::tracks] mark each such track
-    /// ([TrackStart::not_carried], [Closed::not_carried]). A call is admitted only when its definitions fit an empty
+    /// The next piece carries every definition while the chain's tracks fit the index policy's state entries
+    /// ([IndexPolicy::state_entries_max]), less the layout, the producer and the records of the call the cut is made
+    /// for. A cut is never refused for them. Past that room each goes once, no block repeating its chain, in this
+    /// order while room lasts: the tracks of the next data ([Self::want], those of the call a full piece refused),
+    /// then the clocks and maps, then the tracks with the newest data. The tracks with the oldest data are so left
+    /// out; the next head's rows and [Closed::tracks] mark each such track ([TrackStart::not_carried],
+    /// [Closed::not_carried]), and a reader names them. A call is admitted only when its definitions fit an empty
     /// piece ([InputError::CarriedEntries]), so an admitted call always fits the piece a cut made for it.
     pub fn cut_on(self, defs: &Definitions, next: S) -> Result<(Closed, Self), CutError<S>> {
         self.cut_into(defs, || Ok(next))

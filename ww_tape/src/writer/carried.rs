@@ -7,9 +7,10 @@
 //! [CARRIED_BLOCK_LEN], in the order of the head rows. A damaged block so costs only its own tracks, never another
 //! block's clock; a lost bundle block costs its tracks their bundle.
 //!
-//! A cut is never refused for them: when they don't fit the index policy's state entries, [fit] carries what fits, by
-//! priority, and the next head names each track left out. The tracks of the call the cut is made for come first, so
-//! a call the writer admitted ([entries]) always fits the piece a cut made for it.
+//! A piece carries every definition while the chain's tracks fit the index policy's state entries. A cut is never
+//! refused for them: past that room, [fit] carries what fits, by priority, and the next head names each track left
+//! out, those with the oldest data. The tracks of the call the cut is made for come first, so a call the writer
+//! admitted ([entries]) always fits the piece a cut made for it.
 
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
