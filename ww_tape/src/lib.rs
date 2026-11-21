@@ -188,7 +188,7 @@ pub use describe::{
 };
 pub use exact_units::{Magnitude, MagnitudeOf, Ratio64, Rounding};
 mod numbers;
-pub use numbers::{ClockKey, ClockNum, RecordTrack, TrackId, TrackKey, TrackNum};
+pub use numbers::{ClockKey, ClockNum, RecordTrack, RelationSet, TrackId, TrackKey, TrackNum};
 pub mod state;
 pub use state::{DefinitionKind, ItemHash, Slot};
 

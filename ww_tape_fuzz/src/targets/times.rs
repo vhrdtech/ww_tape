@@ -2,7 +2,6 @@
 //! the input read back exactly and survive, without panic, a flipped bit and input bytes written over their columns
 //! (a good head over a damaged payload, as salvage meets it); every bit-pack kernel decodes any bytes as the scalar
 //! code does.
-use ww_tape::TrackId;
 use ww_tape::TrackNum;
 use ww_tape::bitpack::{self, GROUP, Kernel};
 use ww_tape::chunk::{chunk_len, write_chunk};
@@ -10,6 +9,7 @@ use ww_tape::times::{
     EncodedRelation, EncodedTimes, Ends, EventTimes, RelationColumn, StoredRelations,
 };
 use ww_tape::{Block, ColumnSpec};
+use ww_tape::{RelationSet, TrackId};
 
 /// Items read one by one in full; past it, the first and last half of these and a stride between. An implicit chunk
 /// may state up to [ww_tape::times::ITEMS_MAX] items in a few bytes, and every item read four ways under the
@@ -119,19 +119,19 @@ pub(crate) fn walk(block: &[u8]) {
             .columns()
             .filter(|col| col.kind == ww_tape::ColumnKind::Relation && col.param < 16)
             .fold(StoredRelations::default(), |mut s, col| {
-                s.stored |= 1 << col.param;
+                s.stored.insert(col.param);
                 if col.codec == ww_tape::times::STARTS {
-                    s.monotone |= 1 << col.param;
+                    s.monotone.insert(col.param);
                 }
                 s
             });
         let others = [
             StoredRelations {
-                stored: own.stored ^ 1,
+                stored: RelationSet::from_bits(own.stored.bits() ^ 1),
                 ..own
             },
             StoredRelations {
-                monotone: own.monotone ^ 4,
+                monotone: RelationSet::from_bits(own.monotone.bits() ^ 4),
                 ..own
             },
         ];
@@ -260,8 +260,8 @@ pub fn times(data: &[u8]) {
     read_all(&times);
     for (relation, values) in [(0, &sources), (2, &keys)] {
         let track = StoredRelations {
-            stored: 0b101,
-            monotone: 0b001,
+            stored: RelationSet::from_bits(0b101),
+            monotone: RelationSet::from_bits(0b001),
         };
         let r = RelationColumn::read(&chunk, track, relation)
             .expect("written relation reads")

@@ -16,17 +16,18 @@ use crate::FromFile;
 #[cfg(feature = "std")]
 use crate::chunk::ColumnSpec;
 use crate::chunk::{Chunk, Codec, Column, ColumnKind};
-use crate::{RELATIONS_MAX, RelationValues, TrackDef};
+use crate::{RELATIONS_MAX, RelationSet, RelationValues, TrackDef};
 
 /// Which relations of a track keep their values in a column of its chunks, and which never decrease.
 ///
-/// Bit `i` is relation `i` of [TrackDef::relations]. A reader checks an events chunk's relation columns against it.
+/// Each is a [RelationSet] of relation indexes into [TrackDef::relations]. A reader checks an events chunk's
+/// relation columns against it.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub struct StoredRelations {
     /// Relations with [RelationValues::Stored].
-    pub stored: u16,
+    pub stored: RelationSet,
     /// Relations whose values never decrease ([RelationDef::monotone](crate::RelationDef::monotone)).
-    pub monotone: u16,
+    pub monotone: RelationSet,
 }
 
 impl StoredRelations {
@@ -35,15 +36,14 @@ impl StoredRelations {
         let mut out = Self::default();
         // at most RELATIONS_MAX (16): each has a bit
         for (i, r) in track.relations.iter().enumerate().take(RELATIONS_MAX) {
-            let (Ok(r), Some(bit)) = (r, u32::try_from(i).ok().and_then(|i| 1u16.checked_shl(i)))
-            else {
+            let (Ok(r), Ok(i)) = (r, u16::try_from(i)) else {
                 continue;
             };
             if r.values == RelationValues::Stored {
-                out.stored |= bit;
+                out.stored.insert(i);
             }
             if r.monotone {
-                out.monotone |= bit;
+                out.monotone.insert(i);
             }
         }
         out
@@ -52,24 +52,20 @@ impl StoredRelations {
     /// Check the relation columns of `chunk` against these relations: a column for each stored relation and none for
     /// another, a monotone relation's in [STARTS]; [TimesError::Relation] names the first that isn't.
     pub fn check(&self, chunk: &Chunk<'_>) -> Result<(), TimesError> {
-        let mut seen = 0u16;
+        let mut seen = RelationSet::EMPTY;
         for c in chunk.columns().filter(|c| c.kind == ColumnKind::Relation) {
             let bad = TimesError::Relation { relation: c.param };
-            let bit = 1u16
-                .checked_shl(u32::from(c.param))
-                .filter(|b| self.stored & b != 0 && seen & b == 0)
-                .ok_or(bad)?;
-            if self.monotone & bit != 0 && c.codec != STARTS {
+            if !self.stored.contains(c.param) || seen.contains(c.param) {
                 return Err(bad);
             }
-            seen |= bit;
+            if self.monotone.contains(c.param) && c.codec != STARTS {
+                return Err(bad);
+            }
+            seen.insert(c.param);
         }
-        match self.stored & !seen {
-            0 => Ok(()),
-            // a u16's trailing zeros are at most 16
-            missing => Err(TimesError::Relation {
-                relation: u16::try_from(missing.trailing_zeros()).unwrap_or(u16::MAX),
-            }),
+        match self.stored.without(seen).first() {
+            None => Ok(()),
+            Some(relation) => Err(TimesError::Relation { relation }),
         }
     }
 }

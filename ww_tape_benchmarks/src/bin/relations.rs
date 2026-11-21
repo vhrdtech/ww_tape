@@ -17,7 +17,6 @@
 use clap::Parser;
 use shrink_wrap::prelude::*;
 use std::time::Instant;
-use ww_tape::TrackId;
 use ww_tape::times::{EncodedRelation, EncodedTimes, RelationColumn, StoredRelations};
 use ww_tape::{
     Block, ClockOrigin, ClockSpec, Definitions, EventsDef, FullVersion, Magnitude, MemSink,
@@ -25,6 +24,7 @@ use ww_tape::{
     TrackKind, TrackSpec, Version, clock_key, track_key,
 };
 use ww_tape::{ClockNum, TrackNum};
+use ww_tape::{RelationSet, TrackId};
 use ww_tape_bench::{Bench, Cell, Common, Rng, ns_per};
 
 #[derive(Parser)]
@@ -171,8 +171,8 @@ fn main() -> anyhow::Result<()> {
         let column = RelationColumn::read(
             &chunk,
             StoredRelations {
-                stored: 1,
-                monotone: u16::from(monotone),
+                stored: RelationSet::single(0),
+                monotone: RelationSet::from_bits(u16::from(monotone)),
             },
             0,
         )?

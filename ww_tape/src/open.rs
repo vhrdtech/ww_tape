@@ -13,7 +13,7 @@
 //! [Definitions::len] and [Definitions::bytes] say how much is held, for the application to bound as it likes. Every
 //! item fits a block alone ([STATE_ITEM_MAX]), so it can always be put.
 
-use crate::{ClockKey, TrackId};
+use crate::{ClockKey, RelationSet, TrackId};
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::sync::Arc;
 use alloc::vec;
@@ -295,10 +295,10 @@ pub struct TrackFacts {
     pub state: Option<StatePolicy>,
     /// The period of a series track, in ticks per sample; None for an events track.
     pub period: Option<crate::Ratio64>,
-    /// Which relations, by index, keep their values in a column: bit `i` for relation `i`.
-    pub stored: u16,
-    /// Which relations' values never decrease: bit `i` for relation `i`.
-    pub monotone: u16,
+    /// Which relations, by index, keep their values in a column.
+    pub stored: RelationSet,
+    /// Which relations' values never decrease.
+    pub monotone: RelationSet,
     /// The relation whose values' smallest and largest go into each chunk's index entry.
     pub range: Option<u16>,
 }
@@ -1076,22 +1076,21 @@ impl Definitions {
         let t = self
             .track(track)
             .ok_or(DescribeError::UnknownTrack { track })?;
-        let mut seen = 0u16;
+        let mut seen = RelationSet::EMPTY;
         for c in columns
             .iter()
             .filter(|c| c.kind == crate::ColumnKind::Relation)
         {
-            let bit = 1u16
-                .checked_shl(u32::from(c.param))
-                .filter(|b| t.stored & b != 0 && seen & b == 0)
-                .ok_or(DescribeError::RelationColumns { track })?;
-            let monotone = t.monotone & bit != 0;
+            if !t.stored.contains(c.param) || seen.contains(c.param) {
+                return Err(DescribeError::RelationColumns { track });
+            }
+            let monotone = t.monotone.contains(c.param);
             let codec_ok = c.codec == crate::times::STARTS
                 || (!monotone && c.codec == crate::times::DURATIONS);
             if !codec_ok {
                 return Err(DescribeError::RelationColumns { track });
             }
-            seen |= bit;
+            seen.insert(c.param);
         }
         if seen != t.stored {
             return Err(DescribeError::RelationColumns { track });

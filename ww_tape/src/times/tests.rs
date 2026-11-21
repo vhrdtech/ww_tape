@@ -1,7 +1,7 @@
 use super::*;
-use crate::Block;
 use crate::chunk::{ColumnSpec, chunk_len, write_chunk};
 use crate::tests::id;
+use crate::{Block, RelationSet};
 use std::vec::Vec;
 
 /// xorshift64*, fixed seeds.
@@ -772,8 +772,8 @@ fn relation_round_trip(values: &[u64], monotone: bool) {
     let block = Block::read(&b).expect("a good block");
     let chunk = block.chunk().expect("a chunk");
     let stored = StoredRelations {
-        stored: 1 << 3,
-        monotone: u16::from(monotone) << 3,
+        stored: RelationSet::single(3),
+        monotone: RelationSet::from_bits(u16::from(monotone) << 3),
     };
     assert!(
         RelationColumn::read(&chunk, stored, 2)
@@ -872,8 +872,8 @@ fn a_relation_column_of_another_count_is_refused() {
     let starts = [1i64, 2, 3, 4, 5];
     let enc = EncodedTimes::encode(&starts, None, None).expect("valid times");
     let track = StoredRelations {
-        stored: 1,
-        monotone: 0,
+        stored: RelationSet::from_bits(1),
+        monotone: RelationSet::from_bits(0),
     };
     for values in [
         &[5u64, 4][..],
@@ -928,8 +928,8 @@ fn a_relation_column_in_an_unknown_codec_is_refused_and_the_times_still_read() {
         RelationColumn::read(
             &chunk,
             StoredRelations {
-                stored: 1,
-                monotone: 0
+                stored: RelationSet::from_bits(1),
+                monotone: RelationSet::from_bits(0)
             },
             0
         )
@@ -941,8 +941,8 @@ fn a_relation_column_in_an_unknown_codec_is_refused_and_the_times_still_read() {
 
 /// Relation 0 stored and monotone.
 const ONE_MONOTONE: StoredRelations = StoredRelations {
-    stored: 1,
-    monotone: 1,
+    stored: RelationSet::from_bits(1),
+    monotone: RelationSet::from_bits(1),
 };
 
 #[test]
@@ -987,8 +987,8 @@ fn relation_columns_are_checked_against_the_track_on_read() {
     let block = Block::read(&b).expect("a good block");
     let chunk = block.chunk().expect("a chunk");
     let both = StoredRelations {
-        stored: 0b101,
-        monotone: 0b001,
+        stored: RelationSet::from_bits(0b101),
+        monotone: RelationSet::from_bits(0b001),
     };
     assert_eq!(
         RelationColumn::read(&chunk, both, 2)
@@ -1001,24 +1001,24 @@ fn relation_columns_are_checked_against_the_track_on_read() {
         // relation 2 keeps no column
         (
             StoredRelations {
-                stored: 0b001,
-                monotone: 0b001,
+                stored: RelationSet::from_bits(0b001),
+                monotone: RelationSet::from_bits(0b001),
             },
             2,
         ),
         // relation 1 keeps one the chunk lacks
         (
             StoredRelations {
-                stored: 0b111,
-                monotone: 0b001,
+                stored: RelationSet::from_bits(0b111),
+                monotone: RelationSet::from_bits(0b001),
             },
             1,
         ),
         // relation 2 never decreases, its column is in DURATIONS
         (
             StoredRelations {
-                stored: 0b101,
-                monotone: 0b101,
+                stored: RelationSet::from_bits(0b101),
+                monotone: RelationSet::from_bits(0b101),
             },
             2,
         ),
@@ -1048,8 +1048,8 @@ fn a_damaged_relation_column_is_salvaged_as_times_are() {
         .collect();
     let good = relation_block(&[(1, &values, true)]);
     let stored = StoredRelations {
-        stored: 0b10,
-        monotone: 0b10,
+        stored: RelationSet::from_bits(0b10),
+        monotone: RelationSet::from_bits(0b10),
     };
     let at = {
         let block = Block::read(&good).unwrap();

@@ -1,4 +1,5 @@
-//! Track and clock numbers, keys and ids: what records, chunks and definitions name a track or a clock by.
+//! Track and clock numbers, keys and ids: what records, chunks and definitions name a track or a clock by. Also
+//! [RelationSet], a set of a track's relations by index.
 //!
 //! A number is small and local to a producer's definitions; a key or an id is a 64-bit hash, the same across files and
 //! runs. Each has its own type, so one can't pass where another belongs; on the wire each is exactly the plain number
@@ -9,6 +10,7 @@
 //! the wire each is exactly a `UNib32`, as it was before the types; a definition naming 0 doesn't decode.
 
 use core::fmt;
+use core::ops::{BitAnd, BitOr};
 use shrink_wrap::UNib32;
 use shrink_wrap::prelude::*;
 
@@ -295,6 +297,186 @@ impl fmt::Display for RecordTrack {
     }
 }
 
+/// A set of a track's relations, by index: relation `i` of [TrackDef::relations](crate::TrackDef::relations), `i`
+/// below [RELATIONS_MAX](crate::RELATIONS_MAX).
+///
+/// Bit `i` of [Self::bits] is relation `i`. A relation index past the cap is in no set, and can't be inserted: a
+/// column's `param` read from a file is checked with [Self::contains] before it means a relation.
+#[derive(Copy, Clone, Default, PartialEq, Eq, Hash)]
+pub struct RelationSet(u16);
+
+impl RelationSet {
+    /// No relation.
+    pub const EMPTY: Self = Self(0);
+    /// Every relation index below the cap.
+    pub const ALL: Self = Self(u16::MAX);
+
+    /// The set of bit `i` for relation `i`.
+    #[must_use]
+    pub const fn from_bits(bits: u16) -> Self {
+        Self(bits)
+    }
+
+    /// Bit `i` for relation `i`.
+    #[must_use]
+    pub const fn bits(self) -> u16 {
+        self.0
+    }
+
+    /// The set of relation `i` alone.
+    ///
+    /// # Panics
+    ///
+    /// For `i` at or past [RELATIONS_MAX](crate::RELATIONS_MAX); [Self::try_single] takes an index that may be past
+    /// it.
+    #[must_use]
+    pub fn single(i: u16) -> Self {
+        assert!(
+            usize::from(i) < crate::RELATIONS_MAX,
+            "relation index past RELATIONS_MAX"
+        );
+        Self(1u16.wrapping_shl(u32::from(i)))
+    }
+
+    /// The set of relation `i` alone; None for `i` at or past [RELATIONS_MAX](crate::RELATIONS_MAX).
+    #[must_use]
+    pub fn try_single(i: u16) -> Option<Self> {
+        // RELATIONS_MAX is 16, a u16's bits: the shift is in range iff the index is below the cap
+        const {
+            assert!(
+                crate::RELATIONS_MAX == 16,
+                "a RelationSet has a bit per relation index below the cap"
+            )
+        }
+        1u16.checked_shl(u32::from(i)).map(Self)
+    }
+
+    /// Whether relation `i` is in the set; false for an index past the cap.
+    #[must_use]
+    pub fn contains(self, i: u16) -> bool {
+        Self::try_single(i).is_some_and(|s| self.0 & s.0 != 0)
+    }
+
+    /// The set with relation `i`.
+    ///
+    /// # Panics
+    ///
+    /// For `i` at or past [RELATIONS_MAX](crate::RELATIONS_MAX).
+    #[must_use]
+    pub fn with(self, i: u16) -> Self {
+        Self(self.0 | Self::single(i).0)
+    }
+
+    /// Adds relation `i`.
+    ///
+    /// # Panics
+    ///
+    /// For `i` at or past [RELATIONS_MAX](crate::RELATIONS_MAX).
+    pub fn insert(&mut self, i: u16) {
+        *self = self.with(i);
+    }
+
+    /// Whether no relation is in the set.
+    #[must_use]
+    pub const fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    /// How many relations are in the set.
+    #[must_use]
+    pub fn len(self) -> usize {
+        // at most 16 ones: fits any usize
+        usize::try_from(self.0.count_ones()).unwrap_or(crate::RELATIONS_MAX)
+    }
+
+    /// The relations in this set and not in `other`.
+    #[must_use]
+    pub const fn without(self, other: Self) -> Self {
+        Self(self.0 & !other.0)
+    }
+
+    /// The lowest relation index in the set; None when it is empty.
+    #[must_use]
+    pub fn first(self) -> Option<u16> {
+        // a u16's trailing zeros are at most 15 when a bit is set
+        (self.0 != 0)
+            .then(|| u16::try_from(self.0.trailing_zeros()).ok())
+            .flatten()
+    }
+
+    /// The relation indexes in the set, lowest first.
+    pub fn iter(self) -> RelationIter {
+        self.into_iter()
+    }
+}
+
+impl BitAnd for RelationSet {
+    type Output = Self;
+
+    fn bitand(self, rhs: Self) -> Self {
+        Self(self.0 & rhs.0)
+    }
+}
+
+impl BitOr for RelationSet {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self {
+        Self(self.0 | rhs.0)
+    }
+}
+
+impl IntoIterator for RelationSet {
+    type Item = u16;
+    type IntoIter = RelationIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        RelationIter { set: self, next: 0 }
+    }
+}
+
+/// The relation indexes of a [RelationSet], lowest first.
+#[derive(Clone, Debug)]
+pub struct RelationIter {
+    set: RelationSet,
+    next: u16,
+}
+
+impl Iterator for RelationIter {
+    type Item = u16;
+
+    fn next(&mut self) -> Option<u16> {
+        while usize::from(self.next) < crate::RELATIONS_MAX {
+            let i = self.next;
+            self.next = i.saturating_add(1);
+            if self.set.contains(i) {
+                return Some(i);
+            }
+        }
+        None
+    }
+}
+
+impl fmt::Debug for RelationSet {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "RelationSet{self}")
+    }
+}
+
+/// The indexes in braces: `{0, 2}`.
+impl fmt::Display for RelationSet {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("{")?;
+        for (n, i) in self.iter().enumerate() {
+            if n > 0 {
+                f.write_str(", ")?;
+            }
+            write!(f, "{i}")?;
+        }
+        f.write_str("}")
+    }
+}
+
 #[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
@@ -350,6 +532,28 @@ mod tests {
             RecordTrack::Data(TrackNum::new(5))
         );
         assert_eq!(RecordTrack::Data(TrackNum::new(5)).get(), 5);
+    }
+
+    #[test]
+    fn relation_sets() {
+        let s = RelationSet::from_bits(0b101);
+        assert!(s.contains(0) && s.contains(2) && !s.contains(1) && !s.contains(16));
+        assert_eq!(s.iter().collect::<Vec<_>>(), [0, 2]);
+        assert_eq!(s.len(), 2);
+        assert_eq!(s.first(), Some(0));
+        assert_eq!(RelationSet::EMPTY.first(), None);
+        assert_eq!(s.to_string(), "{0, 2}");
+        assert_eq!(format!("{s:?}"), "RelationSet{0, 2}");
+        assert_eq!(RelationSet::EMPTY.with(3).with(0).bits(), 0b1001);
+        assert_eq!(s.without(RelationSet::single(0)), RelationSet::single(2));
+        assert_eq!((s & RelationSet::from_bits(0b110)).bits(), 0b100);
+        assert_eq!((s | RelationSet::from_bits(0b110)).bits(), 0b111);
+        assert_eq!(
+            RelationSet::try_single(15),
+            Some(RelationSet::from_bits(1 << 15))
+        );
+        assert_eq!(RelationSet::try_single(16), None);
+        assert_eq!(RelationSet::ALL.len(), crate::RELATIONS_MAX);
     }
 
     trait Bytes {

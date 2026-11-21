@@ -345,10 +345,5 @@ impl Relations {
 
 /// The relations of `facts` that keep their values in a column and never decrease, by index.
 fn monotone(facts: &TrackFacts) -> impl Iterator<Item = u16> + '_ {
-    (0..crate::RELATIONS_MAX)
-        .filter_map(|i| u16::try_from(i).ok())
-        .filter(|i| {
-            1u16.checked_shl(u32::from(*i))
-                .is_some_and(|bit| facts.stored & facts.monotone & bit != 0)
-        })
+    (facts.stored & facts.monotone).iter()
 }

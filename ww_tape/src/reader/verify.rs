@@ -418,13 +418,7 @@ impl<L: Listed> Replay<L> {
         let Some(facts) = self.facts.get(&c.head().track_number).copied() else {
             return;
         };
-        for relation in (0..crate::RELATIONS_MAX).filter_map(|i| u16::try_from(i).ok()) {
-            let monotone = 1u16
-                .checked_shl(u32::from(relation))
-                .is_some_and(|bit| facts.stored & facts.monotone & bit != 0);
-            if !monotone {
-                continue;
-            }
+        for relation in facts.stored & facts.monotone {
             match RelationColumn::open(c, relation, |_| false) {
                 Ok(Some(col)) => self.monotone(at, key, relation, col.range()),
                 // a column that doesn't read says nothing of its values: the next chunk can't be checked against it

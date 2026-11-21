@@ -1518,9 +1518,7 @@ impl<S: TapeSink> TapeWriter<S> {
         let (Some(facts), Some((id, _))) = (defs.track(track), defs.track_key(track)) else {
             return Err(WriteError::Describe(DescribeError::UnknownTrack { track }));
         };
-        let monotone = 1u16
-            .checked_shl(u32::from(relation))
-            .is_some_and(|bit| facts.stored & facts.monotone & bit != 0);
+        let monotone = (facts.stored & facts.monotone).contains(relation);
         let key = self.indexer.key_of(track, Some(id));
         let (true, Some(key)) = (monotone, key) else {
             return Err(WriteError::Describe(DescribeError::NotMonotone {
