@@ -16,7 +16,7 @@ use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::sync::Arc;
 
 use crate::ClockTime;
-use crate::index::TrackKey;
+use crate::index::TrackIdent;
 use crate::state::ItemHash;
 
 /// Bytes of state items a writer keeps for its cuts by default ([NearPolicy::kept_bytes_max](super::NearPolicy)):
@@ -27,7 +27,7 @@ pub const KEPT_BYTES_MAX: usize = 64 << 20;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct State {
     /// The track the number stood for when the item was placed
-    pub(crate) key: TrackKey,
+    pub(crate) key: TrackIdent,
     pub(crate) at: Option<ClockTime>,
     pub(crate) item: Arc<[u8]>,
     pub(crate) hash: ItemHash,
@@ -51,7 +51,7 @@ impl Kept {
     pub(crate) fn placed(
         &mut self,
         number: TrackNum,
-        key: TrackKey,
+        key: TrackIdent,
         at: Option<ClockTime>,
         item: &[u8],
         bytes_max: usize,
@@ -90,7 +90,7 @@ impl Kept {
     }
 
     /// The newest item of track `number` while it stands for `key`.
-    pub(crate) fn get(&self, number: TrackNum, key: TrackKey) -> Option<&State> {
+    pub(crate) fn get(&self, number: TrackNum, key: TrackIdent) -> Option<&State> {
         self.states.get(&number).filter(|s| s.key == key)
     }
 
@@ -109,7 +109,7 @@ impl Kept {
     }
 
     /// Keep only the items of the tracks `keep` holds by number and key: those a next piece's head carries.
-    pub(crate) fn retain(&mut self, keep: &BTreeMap<TrackNum, TrackKey>) {
+    pub(crate) fn retain(&mut self, keep: &BTreeMap<TrackNum, TrackIdent>) {
         let gone: alloc::vec::Vec<TrackNum> = self
             .states
             .iter()
@@ -130,9 +130,9 @@ impl Kept {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::OwnerId;
+    use crate::{OwnerId, TrackId};
 
-    const KEY: TrackKey = (7, OwnerId::NONE);
+    const KEY: TrackIdent = (TrackId::new(7), OwnerId::NONE);
 
     #[test]
     fn the_newest_item_replaces_the_one_before() {
@@ -141,7 +141,10 @@ mod tests {
         k.placed(TrackNum::new(1), KEY, None, b"run", 100);
         assert_eq!(&*k.get(TrackNum::new(1), KEY).unwrap().item, b"run");
         assert_eq!(k.bytes(), 3);
-        assert!(k.get(TrackNum::new(1), (8, OwnerId::NONE)).is_none());
+        assert!(
+            k.get(TrackNum::new(1), (TrackId::new(8), OwnerId::NONE))
+                .is_none()
+        );
     }
 
     #[test]
@@ -163,7 +166,7 @@ mod tests {
         k.placed(TrackNum::new(2), KEY, None, b"b", 8);
         k.retain(&BTreeMap::from([
             (TrackNum::new(1), KEY),
-            (TrackNum::new(2), (9, OwnerId::NONE)),
+            (TrackNum::new(2), (TrackId::new(9), OwnerId::NONE)),
         ]));
         assert!(k.get(TrackNum::new(1), KEY).is_some());
         assert!(k.get(TrackNum::new(2), KEY).is_none());

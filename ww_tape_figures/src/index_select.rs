@@ -32,7 +32,7 @@ pub fn index_select() -> anyhow::Result<String> {
         (
             "phase_a",
             reader
-                .track_entries(piece, key("phase_a"))
+                .track_entries(piece, key("phase_a").id())
                 .or_debug()?
                 .into_iter()
                 .filter(|e| e.kind == BlockKind::Series)
@@ -41,7 +41,7 @@ pub fn index_select() -> anyhow::Result<String> {
         (
             "can0",
             reader
-                .track_entries(piece, key("can0"))
+                .track_entries(piece, key("can0").id())
                 .or_debug()?
                 .into_iter()
                 .filter(|e| e.kind == BlockKind::Events)

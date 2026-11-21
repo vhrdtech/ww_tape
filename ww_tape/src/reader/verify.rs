@@ -14,6 +14,7 @@
 //! file order ([Lists]), so verify holds one entry per track list and the entries of one block, whatever the piece's
 //! size.
 
+use crate::TrackId;
 use crate::TrackNum;
 use alloc::collections::{BTreeMap, BTreeSet, BinaryHeap};
 use alloc::vec::Vec;
@@ -29,7 +30,7 @@ use crate::{Block, BlockKind, Chunk, Describe, FLAG_REPEAT, RecordTrack, Slot, T
 use super::wide;
 
 /// A track by its id and owner.
-type Key = (u64, OwnerId);
+type Key = (TrackId, OwnerId);
 
 /// Most track lists of a final index [TapeReader::verify](super::TapeReader::verify) takes: one per track a piece takes
 /// data of ([TRACKS_PER_PIECE_MAX](crate::piece::TRACKS_PER_PIECE_MAX)), the state records' and the records of data's.
@@ -222,7 +223,7 @@ pub(super) struct Replay<L> {
     tops: BTreeMap<(Key, u16), u64>,
     /// The first chunk whose monotone relation goes below the one before without a break: its offset, track id and
     /// relation (None: the range relation, from a damaged chunk's entry)
-    order: Option<(u64, u64, Option<u16>)>,
+    order: Option<(u64, TrackId, Option<u16>)>,
 }
 
 impl<L: Listed> Replay<L> {
@@ -265,7 +266,7 @@ impl<L: Listed> Replay<L> {
 
     /// The first chunk whose monotone relation goes below the chunk before it of its track without a break marked: its
     /// offset in the piece, its track id and the relation (None: the range relation, by a damaged chunk's entry).
-    pub(super) fn order(&self) -> Option<(u64, u64, Option<u16>)> {
+    pub(super) fn order(&self) -> Option<(u64, TrackId, Option<u16>)> {
         self.order
     }
 
@@ -322,7 +323,7 @@ impl<L: Listed> Replay<L> {
     }
     /// The track of number `number`, its id `id` when the block says it, as the writer keyed it: by the definition
     /// placed in the piece, else by the head; a chunk whose number names no track of its id is of the piece's owner.
-    fn key_of(&self, number: TrackNum, id: Option<u64>) -> Option<Key> {
+    fn key_of(&self, number: TrackNum, id: Option<TrackId>) -> Option<Key> {
         let fits = |k: &&Key| id.is_none_or(|id| k.0 == id);
         self.numbers
             .get(&number)
@@ -590,7 +591,7 @@ fn same_entries(a: &mut [IndexEntry], b: &mut [IndexEntry]) -> bool {
 }
 
 /// What orders the entries of one block.
-fn entry_key(e: &IndexEntry) -> (u64, u32, u32, u64, u64, i64, i64, i64, [u8; 32], u8) {
+fn entry_key(e: &IndexEntry) -> (TrackId, u32, u32, u64, u64, i64, i64, i64, [u8; 32], u8) {
     (
         e.track_id,
         e.number,

@@ -1,6 +1,10 @@
-//! Track and clock numbers: the small numbers records, chunks and definitions name a track or a clock by.
+//! Track and clock numbers, keys and ids: what records, chunks and definitions name a track or a clock by.
 //!
-//! Both count from 1. Track 0 holds the definitions and has no clock ([RecordTrack::Definitions]), so neither type
+//! A number is small and local to a producer's definitions; a key or an id is a 64-bit hash, the same across files and
+//! runs. Each has its own type, so one can't pass where another belongs; on the wire each is exactly the plain number
+//! it wraps.
+//!
+//! Numbers count from 1. Track 0 holds the definitions and has no clock ([RecordTrack::Definitions]), so neither type
 //! holds 0: a clock number can't pass for a track number, and the definitions track can't pass for a data track. On
 //! the wire each is exactly a `UNib32`, as it was before the types; a definition naming 0 doesn't decode.
 
@@ -149,6 +153,92 @@ impl From<ClockNum> for u32 {
     }
 }
 
+/// A track's stable key: the hash of its name path ([track_key](crate::track_key)), the same across files and
+/// producer runs ([TrackDef::key](crate::TrackDef::key)).
+///
+/// Any value is a key. A track without dimensions has its key for its id ([Self::id]).
+#[derive_shrink_wrap(
+    borrowed,
+    owned(feature = "std"),
+    transparent,
+    derive(Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)
+)]
+pub struct TrackKey(u64);
+
+/// A track's identity: the hash of its key and dimensions ([track_id](crate::track_id),
+/// [TrackDef::id](crate::TrackDef::id)), what chunks, summaries and the index place a track by.
+///
+/// Any value is an id.
+#[derive_shrink_wrap(
+    borrowed,
+    owned(feature = "std"),
+    transparent,
+    derive(Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)
+)]
+pub struct TrackId(u64);
+
+/// A clock's stable key: the hash of the name path of what counts and its epoch ([clock_key](crate::clock_key)),
+/// the same across files and runs ([ClockDef::key](crate::ClockDef::key)).
+///
+/// Any value is a key.
+#[derive_shrink_wrap(
+    borrowed,
+    owned(feature = "std"),
+    transparent,
+    derive(Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)
+)]
+pub struct ClockKey(u64);
+
+/// The constructor, the accessor, Debug, Display (hex) and the conversion to `u64` of a 64-bit hash type.
+macro_rules! hash_impls {
+    ($name:ident, $what:literal) => {
+        impl $name {
+            #[doc = concat!("The ", $what, " `v`; any value is one.")]
+            #[must_use]
+            pub const fn new(v: u64) -> Self {
+                Self(v)
+            }
+
+            /// The hash.
+            #[must_use]
+            pub const fn get(self) -> u64 {
+                self.0
+            }
+        }
+
+        impl fmt::Debug for $name {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, concat!(stringify!($name), "({:#018x})"), self.0)
+            }
+        }
+
+        /// In hex, 18 characters: `0x0158_4c57_693f_d3f2` shows as `0x01584c57693fd3f2`.
+        impl fmt::Display for $name {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "{:#018x}", self.0)
+            }
+        }
+
+        impl From<$name> for u64 {
+            fn from(v: $name) -> Self {
+                v.get()
+            }
+        }
+    };
+}
+
+hash_impls!(TrackKey, "track key");
+hash_impls!(TrackId, "track id");
+hash_impls!(ClockKey, "clock key");
+
+impl TrackKey {
+    /// The id of the track of this key without dimensions: the key itself.
+    #[must_use]
+    pub const fn id(self) -> TrackId {
+        TrackId(self.0)
+    }
+}
+
 /// The track a record is on: track 0, the definitions, or a data track.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum RecordTrack {
@@ -220,6 +310,31 @@ mod tests {
             assert_eq!(TrackNum::from_ww_bytes(&t).unwrap(), TrackNum::new(n));
             assert_eq!(ClockNum::from_ww_bytes(&c).unwrap(), ClockNum::new(n));
         }
+    }
+
+    #[test]
+    fn hashes_are_a_u64() {
+        for v in [0, 1, 0x0158_4c57_693f_d3f2, u64::MAX] {
+            let plain = v.to_ww_bytes_owned_vec();
+            let k = TrackKey::new(v).to_ww_bytes_owned_vec();
+            let i = TrackId::new(v).to_ww_bytes_owned_vec();
+            let c = ClockKey::new(v).to_ww_bytes_owned_vec();
+            assert_eq!(k, plain);
+            assert_eq!(i, plain);
+            assert_eq!(c, plain);
+            assert_eq!(TrackKey::from_ww_bytes(&k).unwrap(), TrackKey::new(v));
+            assert_eq!(TrackId::from_ww_bytes(&i).unwrap(), TrackId::new(v));
+            assert_eq!(ClockKey::from_ww_bytes(&c).unwrap(), ClockKey::new(v));
+            assert_eq!(TrackKey::new(v).id(), TrackId::new(v));
+        }
+        let k = TrackKey::new(0x0158_4c57_693f_d3f2);
+        assert_eq!(k.to_string(), "0x01584c57693fd3f2");
+        assert_eq!(format!("{k:?}"), "TrackKey(0x01584c57693fd3f2)");
+        assert_eq!(
+            format!("{:?}", TrackId::new(1)),
+            "TrackId(0x0000000000000001)"
+        );
+        assert_eq!(ClockKey::new(1).to_string(), "0x0000000000000001");
     }
 
     #[test]

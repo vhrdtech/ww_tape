@@ -480,7 +480,7 @@ fn an_items_variant_this_crate_does_not_know_reads_as_unknown() {
     let today = raw_track(7, Items::RawBytes);
     let newer = NewerDescribe::Track(NewerTrackDef {
         number: UNib32(today.number.get()),
-        key: today.key,
+        key: today.key.get(),
         clock: UNib32(today.clock.get()),
         dimensions: RefVec::Slice { slice: &[] },
         items: NewerItems::Packed {

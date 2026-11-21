@@ -11,6 +11,7 @@
 //! body's decoded length is charged before it is decoded. A lookup whose budget runs out stops there and says so
 //! ([Lookup::spent]): that is not damage, and no block is listed lost for it.
 
+use crate::TrackId;
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -209,7 +210,7 @@ impl DefinitionsAt {
 
     /// The number of the track of id `id` ([TrackDef::id](crate::TrackDef::id)) and owner `owner` among the
     /// definitions: how a reader finds a track it knows by its key.
-    pub fn track_number(&self, id: u64, owner: [u8; 32]) -> Option<crate::TrackNum> {
+    pub fn track_number(&self, id: TrackId, owner: [u8; 32]) -> Option<crate::TrackNum> {
         let tracks = self.items.iter().filter_map(|(slot, s)| match slot {
             Slot::Track { number } => Some((*number, s)),
             _ => None,

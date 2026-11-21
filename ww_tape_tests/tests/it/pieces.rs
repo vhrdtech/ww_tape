@@ -1,6 +1,8 @@
 //! Index, close, tail, piece chains and the positional reader, through the public API.
 
 use std::path::{Path, PathBuf};
+use ww_tape::TrackId;
+use ww_tape::index::RECORDS_TRACK_ID;
 use ww_tape::{ClockNum, RecordTrack, TrackNum};
 
 use ww_tape::chunk::ChunkHead;
@@ -35,7 +37,7 @@ pub(crate) fn records(id: BlockId, n: i64) -> Vec<u8> {
 }
 
 /// The id [chunk] writes track `t` under: that of track `t + 1` of [crate::definitions::base].
-pub(crate) fn chunk_id(t: u64) -> u64 {
+pub(crate) fn chunk_id(t: u64) -> TrackId {
     crate::definitions::track_id(t as u32 + 1)
 }
 
@@ -257,7 +259,7 @@ fn index_lists_every_block(r: &TapeReader<&[u8]>, bytes: &[u8]) -> Vec<ww_tape::
     let mut buf = vec![];
     let b = r.read_block(0, &t1[3], &mut buf).unwrap();
     assert_eq!(b.chunk().unwrap().head().first_item, 150);
-    let rec = r.track_entries(0, 0).unwrap();
+    let rec = r.track_entries(0, RECORDS_TRACK_ID).unwrap();
     assert_eq!(
         rec.iter().filter(|e| e.kind == BlockKind::Records).count(),
         20
@@ -1232,7 +1234,7 @@ fn every_block_of_data_has_its_definitions_behind_it() {
         let bytes = std::fs::read(&path).unwrap();
         let r = TapeReader::open(&bytes[..]).unwrap();
         let data: Vec<u64> = r
-            .track_entries(0, 0)
+            .track_entries(0, RECORDS_TRACK_ID)
             .unwrap()
             .iter()
             .map(|e| e.offset)

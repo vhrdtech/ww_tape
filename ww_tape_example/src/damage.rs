@@ -122,7 +122,7 @@ fn report(e: &FileError) -> (u64, &'static str, u64) {
 /// The samples of a series chunk of `drive`'s `phase_a` in groups whose bytes lie in a bad segment.
 fn samples_lost(drive: &Drive, chunk: &ww_tape::Chunk<'_>) -> Option<u64> {
     let head = chunk.head();
-    if head.track_id != key("phase_a") {
+    if head.track_id != key("phase_a").id() {
         return None;
     }
     let def = phase_def(drive.phase_hz, drive.summaries)?;
@@ -234,7 +234,7 @@ impl Damaged {
         let definitions_written = written.items.len();
         // the mode's number, found by its key where the recording is whole
         let mode = written
-            .track_number(key("mode"), [0; 32])
+            .track_number(key("mode").id(), [0; 32])
             .ok_or(Error::Settings("the recording defines the mode"))?;
         let mut mode_unknown = Vec::new();
         for e in entries

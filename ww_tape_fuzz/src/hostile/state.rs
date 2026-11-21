@@ -226,7 +226,7 @@ fn hit_state_entry(d: &mut Draw<'_>, b: &mut [u8]) {
     let entries_at = get(b, 32, 4) as usize;
     let states: Vec<usize> = (0..entries)
         .map(|e| entries_at + e * ENTRY_LEN)
-        .filter(|at| get(b, at + 16, 8) == STATE_TRACK_ID)
+        .filter(|at| get(b, at + 16, 8) == STATE_TRACK_ID.get())
         .collect();
     if let Some(at) = states.get(d.below(states.len().max(1))) {
         hit_some(d, b, &state_entry_fields(*at));

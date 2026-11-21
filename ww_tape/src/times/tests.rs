@@ -35,7 +35,7 @@ pub(crate) fn block(starts: &[i64], ends: Option<&[i64]>, flags: Option<&[u32]>)
         &payload,
     ));
     let specs: Vec<ColumnSpec> = cols.iter().map(|c| c.0).collect();
-    let head = enc.head.chunk_head(9, TrackNum::new(1), 1000);
+    let head = enc.head.chunk_head(TrackId::new(9), TrackNum::new(1), 1000);
     let mut buf = std::vec![0u8; chunk_len(&head, &specs, 0)];
     let len = write_chunk(&mut buf, id(1), &head, &cols, 0).expect("a valid chunk");
     buf.truncate(len);
@@ -646,7 +646,7 @@ fn read_refuses_wrong_shapes() {
         buf.truncate(len);
         buf
     };
-    let head = enc.head.chunk_head(1, TrackNum::new(1), 0);
+    let head = enc.head.chunk_head(TrackId::new(1), TrackNum::new(1), 0);
     let read = |b: &[u8]| {
         let block = Block::read(b).unwrap();
         EventTimes::read(&block.chunk().unwrap()).map(|_| ())
@@ -759,7 +759,7 @@ fn relation_block(relations: &[(u16, &[u64], bool)]) -> Vec<u8> {
     let mut cols: Vec<(ColumnSpec, &[u8])> = enc.columns().collect();
     cols.extend(encoded.iter().map(EncodedRelation::column));
     let specs: Vec<ColumnSpec> = cols.iter().map(|c| c.0).collect();
-    let head = enc.head.chunk_head(9, TrackNum::new(1), 1000);
+    let head = enc.head.chunk_head(TrackId::new(9), TrackNum::new(1), 1000);
     let mut buf = std::vec![0u8; chunk_len(&head, &specs, 0)];
     let len = write_chunk(&mut buf, id(1), &head, &cols, 0).expect("a valid chunk");
     buf.truncate(len);
@@ -885,7 +885,7 @@ fn a_relation_column_of_another_count_is_refused() {
         let mut cols: Vec<(ColumnSpec, &[u8])> = enc.columns().collect();
         cols.push(rel.column());
         let specs: Vec<ColumnSpec> = cols.iter().map(|c| c.0).collect();
-        let head = enc.head.chunk_head(9, TrackNum::new(1), 1000);
+        let head = enc.head.chunk_head(TrackId::new(9), TrackNum::new(1), 1000);
         let mut b = std::vec![0u8; chunk_len(&head, &specs, 0)];
         let len = write_chunk(&mut b, id(1), &head, &cols, 0).expect("a valid chunk");
         b.truncate(len);
@@ -918,7 +918,7 @@ fn a_relation_column_in_an_unknown_codec_is_refused_and_the_times_still_read() {
         &odd,
     ));
     let specs: Vec<ColumnSpec> = cols.iter().map(|c| c.0).collect();
-    let head = enc.head.chunk_head(9, TrackNum::new(1), 1000);
+    let head = enc.head.chunk_head(TrackId::new(9), TrackNum::new(1), 1000);
     let mut b = std::vec![0u8; chunk_len(&head, &specs, 0)];
     let len = write_chunk(&mut b, id(1), &head, &cols, 0).expect("a valid chunk");
     b.truncate(len);
@@ -956,7 +956,7 @@ fn a_starts_coded_relation_column_that_does_not_read_names_the_relation() {
         let mut cols: Vec<(ColumnSpec, &[u8])> = enc.columns().collect();
         cols.push(rel.column());
         let specs: Vec<ColumnSpec> = cols.iter().map(|c| c.0).collect();
-        let head = enc.head.chunk_head(9, TrackNum::new(1), 1000);
+        let head = enc.head.chunk_head(TrackId::new(9), TrackNum::new(1), 1000);
         let mut b = std::vec![0u8; chunk_len(&head, &specs, 0)];
         let len = write_chunk(&mut b, id(1), &head, &cols, 0).expect("a valid chunk");
         b.truncate(len);

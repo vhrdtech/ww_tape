@@ -2,6 +2,7 @@
 
 use crate::id;
 use crate::range_hash::{crc32c, id_of, rewrite_final_entries, write};
+use ww_tape::TrackId;
 use ww_tape::index::IndexEntry;
 use ww_tape::piece::{
     ChainEnd, Close, CloseReason, ContentHash, TAIL_LEN, Tail, close_len, write_close,
@@ -58,7 +59,10 @@ fn final_index_past_the_piece_is_an_error() {
         assert_eq!(r.pieces().len(), 1, "final index at {at}");
         assert!(r.pieces()[0].close.is_some());
         assert!(r.entries(0).is_err(), "final index at {at}");
-        assert!(r.track_entries(0, 1).is_err(), "final index at {at}");
+        assert!(
+            r.track_entries(0, TrackId::new(1)).is_err(),
+            "final index at {at}"
+        );
     }
 }
 
@@ -74,7 +78,7 @@ fn entry_past_the_piece_is_an_error() {
             kind: BlockKind::Series,
             level: 0,
             tree: 0,
-            track_id: 1,
+            track_id: TrackId::new(1),
             number: 1,
             second: 0,
             first_item: 0,
@@ -103,7 +107,10 @@ fn a_piece_number_past_the_pieces_is_an_error() {
     let r = TapeReader::open(&bytes[..]).unwrap();
     let n = r.pieces().len();
     assert!(matches!(r.entries(n), Err(ReadError::NoPiece(i)) if i == n));
-    assert!(matches!(r.track_entries(n, 0), Err(ReadError::NoPiece(_))));
+    assert!(matches!(
+        r.track_entries(n, TrackId::new(0)),
+        Err(ReadError::NoPiece(_))
+    ));
     assert!(matches!(
         r.definitions_at(usize::MAX, 0),
         Err(ReadError::NoPiece(_))
@@ -124,7 +131,7 @@ fn an_entry_longer_than_any_block_is_refused_before_reading() {
         kind: BlockKind::Series,
         level: 0,
         tree: 0,
-        track_id: 1,
+        track_id: TrackId::new(1),
         number: 1,
         second: 0,
         first_item: 0,

@@ -27,8 +27,8 @@ use ww_tape::summary::{SeriesStats, SeriesSummarySpec};
 use ww_tape::{
     BlockKind, ClockOrigin, ClockRef, ClockSpec, Codec, ColumnKind, ColumnSpec, Definitions,
     ElementDesc, EndMode, Items, Magnitude, MemSink, Ratio64, SampleShape, Segment, SeriesDef,
-    SeriesGrid, SessionTag, SyncPolicy, TapeReader, TapeSink, TapeWriter, TrackKind, TrackRepeat,
-    TrackSpec, clock_key, track_key,
+    SeriesGrid, SessionTag, SyncPolicy, TapeReader, TapeSink, TapeWriter, TrackKey, TrackKind,
+    TrackRepeat, TrackSpec, clock_key, track_key,
 };
 use ww_tape_summary::{SeriesStart, SeriesSummaries};
 
@@ -223,7 +223,7 @@ impl Rf {
         let (first_tick, last_tick) = grid.chunk_ticks(def.period, first, count)?;
         let head = ChunkHead {
             kind: BlockKind::Series,
-            track_id: iq_key(),
+            track_id: iq_key().id(),
             track_number: iq,
             first_item: first,
             count,
@@ -252,7 +252,7 @@ impl Rf {
             return Ok(None);
         };
         let start = SeriesStart {
-            track_id: iq_key(),
+            track_id: iq_key().id(),
             track_number: iq,
             shape: iq_shape(),
             first_item: 0,
@@ -336,7 +336,7 @@ impl Rf {
 }
 
 /// The key of the track `iq`.
-pub fn iq_key() -> u64 {
+pub fn iq_key() -> TrackKey {
     track_key(API_ROOT, &[Segment::Name("iq")])
 }
 
@@ -404,7 +404,7 @@ pub fn read(piece: &[u8]) -> Result<ReadBack, RfError<ww_tape::reader::OutOfRang
     let mut buf = Vec::new();
     let mut samples = Vec::new();
     let mut chunks = 0;
-    for entry in reader.track_entries(0, iq_key())? {
+    for entry in reader.track_entries(0, iq_key().id())? {
         let block = reader.read_block(0, &entry, &mut buf)?;
         // the track's summary blocks are listed beside its chunks
         let Some(chunk) = block.chunk() else {

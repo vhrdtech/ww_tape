@@ -17,6 +17,7 @@
 use clap::Parser;
 use shrink_wrap::prelude::*;
 use std::time::Instant;
+use ww_tape::TrackId;
 use ww_tape::times::{EncodedRelation, EncodedTimes, RelationColumn, StoredRelations};
 use ww_tape::{
     Block, ClockOrigin, ClockSpec, Definitions, EventsDef, FullVersion, Magnitude, MemSink,
@@ -83,7 +84,7 @@ const RELATIONS: &[RelationDef<'static>] = &[
         name: "source",
         target: Some(RelationTarget {
             run: [1; 16],
-            track: 7,
+            track: TrackId::new(7),
         }),
         values: RelationValues::Stored,
         monotone: true,
@@ -160,7 +161,7 @@ fn main() -> anyhow::Result<()> {
         let mut cols: Vec<_> = times.columns().collect();
         cols.push(enc.column());
         let specs: Vec<_> = cols.iter().map(|c| c.0).collect();
-        let head = times.head.chunk_head(1, TrackNum::new(1), 0);
+        let head = times.head.chunk_head(TrackId::new(1), TrackNum::new(1), 0);
         let mut buf = vec![0u8; ww_tape::chunk::chunk_len(&head, &specs, 0)];
         let id = ww_tape::BlockId::new(ww_tape::SessionTag::writable(1), 1);
         let len = ww_tape::chunk::write_chunk(&mut buf, id, &head, &cols, 0)

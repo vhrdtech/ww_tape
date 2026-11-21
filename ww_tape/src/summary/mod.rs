@@ -77,6 +77,7 @@
 //! Summary blocks are small (a few KiB) and rebuilt from the data when lost. In an aligned file the writer places them
 //! in the gap before the next aligned chunk payload ([TapeWriter::defer_block](crate::TapeWriter::defer_block)).
 
+use crate::TrackId;
 use exact_units::Magnitude;
 use shrink_wrap::prelude::*;
 
@@ -208,7 +209,7 @@ impl EventFields {
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct SummaryHead {
     /// [TrackDef::id](crate::TrackDef::id).
-    pub track_id: u64,
+    pub track_id: TrackId,
     /// [TrackDef::number](crate::TrackDef::number).
     pub track_number: TrackNum,
     pub tree: Tree,
@@ -357,7 +358,7 @@ impl SummaryHead {
         };
         let first_item = le_u64(b, 56).ok_or(short)?;
         let head = Self {
-            track_id: le_u64(b, 32).ok_or(short)?,
+            track_id: TrackId::new(le_u64(b, 32).ok_or(short)?),
             track_number: TrackNum::try_new(le_u32(b, 40).ok_or(short)?)
                 .ok_or(SummaryError::Invalid("track 0"))?,
             tree,
@@ -607,7 +608,7 @@ impl<'b> SummaryWriter<'b> {
         let tree = [head.tree.to_u8(), head.level, head.node_shift, element];
         let written = [
             bytes::put(buf, 28, described),
-            bytes::put_u64(buf, 32, head.track_id),
+            bytes::put_u64(buf, 32, head.track_id.get()),
             bytes::put_u32(buf, 40, head.track_number.get()),
             bytes::put(buf, 44, tree),
             bytes::put_u16(buf, 48, fields),

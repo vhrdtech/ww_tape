@@ -14,6 +14,7 @@
 )]
 
 use clap::Parser;
+use ww_tape::TrackId;
 use ww_tape::TrackNum;
 use ww_tape::chunk::{ChunkHead, chunk_len, write_chunk};
 use ww_tape::times::{EncodedTimes, EventTimes};
@@ -55,7 +56,7 @@ fn block(starts: &[i64]) -> anyhow::Result<Vec<u8>> {
         &payload,
     ));
     let specs: Vec<ColumnSpec> = cols.iter().map(|c| c.0).collect();
-    let head: ChunkHead = enc.head.chunk_head(9, TrackNum::new(1), 0);
+    let head: ChunkHead = enc.head.chunk_head(TrackId::new(9), TrackNum::new(1), 0);
     let mut buf = vec![0u8; chunk_len(&head, &specs, 0)];
     let id = BlockId::new(SessionTag::from_u32(1), 0);
     let len = write_chunk(&mut buf, id, &head, &cols, 0).map_err(|e| anyhow::anyhow!("{e:?}"))?;

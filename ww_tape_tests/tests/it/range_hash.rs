@@ -1,6 +1,8 @@
 //! The hash of a range of a track's chunks from the index ([TapeReader::range_hash]) against a fold that reads them.
 
 use std::path::Path;
+use ww_tape::TrackId;
+use ww_tape::index::{RECORDS_TRACK_ID, STATE_TRACK_ID};
 
 use crate::definitions::base_defs;
 use crate::pieces::{chunk, column, records};
@@ -28,7 +30,7 @@ impl Rng {
 }
 
 /// Track `t`'s id: [chunk] writes track `t` as number `t + 1` with this id.
-pub(crate) fn id_of(t: u64) -> u64 {
+pub(crate) fn id_of(t: u64) -> TrackId {
     crate::pieces::chunk_id(t)
 }
 
@@ -212,7 +214,7 @@ pub(crate) fn rewrite_final_entries(
 pub(crate) fn rewrite_final_entries_of(
     bytes: &mut [u8],
     i: usize,
-    track_id: u64,
+    track_id: TrackId,
     mut change: impl FnMut(usize, &mut [u8]),
 ) {
     use ww_tape::index::{ENTRY_LEN, INDEX_FIXED_LEN, IndexBlock, TRACK_LEN};
@@ -987,7 +989,7 @@ fn a_range_hash_over_pieces_without_a_head_says_so() {
     let id = (0..r.pieces().len())
         .flat_map(|i| r.entries(i).unwrap_or_default())
         .map(|e| e.track_id)
-        .find(|t| *t != 0 && *t != u64::MAX)
+        .find(|t| *t != RECORDS_TRACK_ID && *t != STATE_TRACK_ID)
         .unwrap();
     let headless = r.pieces().iter().filter(|p| p.head.is_none()).count() as u64;
     assert!(headless > 0);

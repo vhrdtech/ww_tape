@@ -9,7 +9,7 @@ use ww_tape::summary::{SeriesStats, SeriesSummarySpec};
 use ww_tape::{
     ClockMap, ClockOrigin, ClockSpec, Definitions, Describe, EventsDef, FullVersion, Items,
     Magnitude, MapSegment, Ratio64, SampleShape, Segment, SeriesDef, SeriesValue, StatePolicy,
-    TrackKind, TrackRepeat, TrackSpec, UNIX_CLOCK_KEY, Version, clock_key, track_key,
+    TrackKey, TrackKind, TrackRepeat, TrackSpec, UNIX_CLOCK_KEY, Version, clock_key, track_key,
 };
 
 /// The root of the drive's API: every track and clock key starts from it.
@@ -45,7 +45,7 @@ const MAP_ERROR_NS: u64 = 125_000;
 
 // --8<-- [start:key_item]
 /// The key of a track at `name` in the drive's API.
-pub fn key(name: &str) -> u64 {
+pub fn key(name: &str) -> TrackKey {
     track_key(API_ROOT, &[Segment::Name(name)])
 }
 // --8<-- [end:key_item]

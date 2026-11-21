@@ -1,6 +1,7 @@
 //! The running hash of each track ([TrackHash]) and the owner of a track ([TrackDef::owner]), through the public API.
 
 use std::collections::BTreeMap;
+use ww_tape::TrackId;
 use ww_tape::{RecordTrack, TrackNum};
 
 use crate::definitions::{CLOCK, base_defs, state, track};
@@ -83,7 +84,7 @@ fn pieces(done: Vec<ChainPiece<u64>>) -> Vec<Closed> {
 }
 
 /// Each track's hash after the chain `done`, by id and owner.
-fn hashes(done: &[Closed]) -> BTreeMap<(u64, OwnerId), TrackHash> {
+fn hashes(done: &[Closed]) -> BTreeMap<(TrackId, OwnerId), TrackHash> {
     done.last()
         .unwrap()
         .tracks
@@ -164,7 +165,7 @@ fn chunk_block(head: &ww_tape::ChunkHead, starts: &[u8]) -> Vec<u8> {
 }
 
 /// Track 9's id: [crate::pieces::records] writes on it.
-fn track_9_id() -> u64 {
+fn track_9_id() -> TrackId {
     let Describe::Track(t) = track(9, CLOCK) else {
         unreachable!("track() gives a track")
     };
@@ -286,8 +287,8 @@ fn shapes(alone: Shape) -> Vec<Shape> {
 /// piece's close rows.
 fn same_hash_in(
     shape: Shape,
-    want: &BTreeMap<(u64, OwnerId), TrackHash>,
-    keys: &[(u64, OwnerId); 2],
+    want: &BTreeMap<(TrackId, OwnerId), TrackHash>,
+    keys: &[(TrackId, OwnerId); 2],
 ) {
     let (done, bytes) = write(shape);
     if shape.cut != 0 {

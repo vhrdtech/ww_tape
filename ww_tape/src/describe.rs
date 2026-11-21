@@ -12,7 +12,8 @@ use crate::series::SeriesDef;
 use crate::series::SeriesDefOwned;
 use crate::series::SeriesValue;
 use crate::{
-    ClockNum, ElementDesc, FNV_OFFSET, FullVersion, SampleShape, TrackNum, Version, fnv1a,
+    ClockKey, ClockNum, ElementDesc, FNV_OFFSET, FullVersion, SampleShape, TrackId, TrackKey,
+    TrackNum, Version, fnv1a,
 };
 
 /// A definition: one per record on track 0, its item's whole bytes.
@@ -165,7 +166,7 @@ pub struct ClockDef<'i> {
     /// life.
     pub number: ClockNum,
     /// Stable identity across files and runs, see [clock_key].
-    pub key: u64,
+    pub key: ClockKey,
     /// Ticks per second, exact (`60000/1001`, `125 MHz`).
     pub rate: ClockRate,
     /// Seconds between two values the clock can really give, exact: `1/32768` for a 32 kHz counter read as
@@ -181,7 +182,7 @@ pub struct ClockDef<'i> {
 #[derive(Debug, PartialEq, Clone)]
 pub struct ClockSpec<'i> {
     /// Stable identity across files and runs, see [clock_key]: defining the same key again gives the same number.
-    pub key: u64,
+    pub key: ClockKey,
     /// Ticks per second, exact.
     pub rate: ClockRate,
     /// Seconds between two values the clock can really give, exact; at least one tick.
@@ -436,7 +437,7 @@ pub struct TrackDef<'i> {
     /// life.
     pub number: TrackNum,
     /// Stable key: the same track across files and producer runs, see [track_key].
-    pub key: u64,
+    pub key: TrackKey,
     /// The [ClockDef::number] record times of this track count.
     pub clock: ClockNum,
     /// Name and value pairs that are part of the identity (`input=cam1`, `producer=vad`), in ascending order of
@@ -472,7 +473,7 @@ pub struct TrackDef<'i> {
 #[derive(Debug, PartialEq, Clone)]
 pub struct TrackSpec<'i> {
     /// Stable key: the same track across files and producer runs, see [track_key](crate::track_key).
-    pub key: u64,
+    pub key: TrackKey,
     /// The clock record times of this track count, as [Definitions::define_clock](crate::Definitions::define_clock)
     /// numbered it.
     pub clock: ClockNum,
@@ -510,7 +511,7 @@ impl<'i> TrackSpec<'i> {
     }
 
     /// Id of the track's identity, see [track_id].
-    pub fn id(&self) -> u64 {
+    pub fn id(&self) -> TrackId {
         track_id(self.key, self.dimensions.iter().filter_map(Result::ok))
     }
 }
@@ -693,7 +694,7 @@ pub struct RelationTarget {
     /// The run, opaque to `ww_tape` (eventfull's 16-byte run id), the same for a target in the run itself.
     pub run: [u8; 16],
     /// The target track's [id](TrackDef::id).
-    pub track: u64,
+    pub track: TrackId,
 }
 
 /// Where a relation's per-item values are kept.
@@ -839,25 +840,28 @@ pub struct Dimension<'i> {
 }
 
 /// Key of the wall clock (origin Unix epoch), the same for every producer.
-pub const UNIX_CLOCK_KEY: u64 = fnv1a(FNV_OFFSET, b"ww_tape unix epoch");
+pub const UNIX_CLOCK_KEY: ClockKey = ClockKey::new(fnv1a(FNV_OFFSET, b"ww_tape unix epoch"));
 
 /// Stable key of a clock: the [track_key](crate::track_key) of the name path of the thing that counts, then FNV-1a of
 /// `epoch` (u64 LE, a boot count).
-pub const fn clock_key(api_root: u64, segments: &[crate::Segment<'_>], epoch: u64) -> u64 {
-    fnv1a(crate::track_key(api_root, segments), &epoch.to_le_bytes())
+pub const fn clock_key(api_root: u64, segments: &[crate::Segment<'_>], epoch: u64) -> ClockKey {
+    ClockKey::new(fnv1a(
+        crate::track_key(api_root, segments).get(),
+        &epoch.to_le_bytes(),
+    ))
 }
 
 /// Id of a track's identity: its key without dimensions, else FNV-1a of the key (u64 LE) and of every dimension's
 /// name and value, each followed by a 0 byte.
-pub fn track_id<'a>(key: u64, dimensions: impl IntoIterator<Item = Dimension<'a>>) -> u64 {
+pub fn track_id<'a>(key: TrackKey, dimensions: impl IntoIterator<Item = Dimension<'a>>) -> TrackId {
     let mut h = None;
     for d in dimensions {
-        let mut x = h.unwrap_or_else(|| fnv1a(FNV_OFFSET, &key.to_le_bytes()));
+        let mut x = h.unwrap_or_else(|| fnv1a(FNV_OFFSET, &key.get().to_le_bytes()));
         x = fnv1a(fnv1a(x, d.name.as_bytes()), &[0]);
         x = fnv1a(fnv1a(x, d.value.as_bytes()), &[0]);
         h = Some(x);
     }
-    h.unwrap_or(key)
+    h.map_or(key.id(), TrackId::new)
 }
 
 impl<'i> TrackDef<'i> {
@@ -923,7 +927,7 @@ impl<'i> TrackDef<'i> {
     }
 
     /// Id of the track's identity, see [track_id].
-    pub fn id(&self) -> u64 {
+    pub fn id(&self) -> TrackId {
         track_id(self.key, self.dimensions.iter().filter_map(Result::ok))
     }
 

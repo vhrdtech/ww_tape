@@ -2,6 +2,7 @@
 //! autorange prefix change, a gap) and its samples, from `Series<Fixed<..>>` batches to chunk columns without a float.
 
 use std::path::PathBuf;
+use ww_tape::TrackId;
 use ww_tape::{ClockNum, RecordTrack, TrackNum};
 
 use exact_units::prefix::{Micro, Milli};
@@ -139,7 +140,7 @@ fn definitions() -> Vec<Describe<'static>> {
 }
 
 /// The id of the series track of [definitions]: what its chunks' heads carry.
-fn series_id() -> u64 {
+fn series_id() -> TrackId {
     definitions()
         .iter()
         .find_map(|d| match d {

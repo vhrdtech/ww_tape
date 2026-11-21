@@ -72,7 +72,7 @@ fn chunk(t: u64, number: TrackNum, k: u64) -> (ChunkHead, Vec<u8>) {
         .collect();
     let head = ChunkHead {
         kind: BlockKind::Events,
-        track_id: track_key(0xf2, &[Segment::Index(t as u32 + 1)]),
+        track_id: track_key(0xf2, &[Segment::Index(t as u32 + 1)]).id(),
         track_number: number,
         first_item: first,
         count: 16,
@@ -422,7 +422,7 @@ fn folds_alike(out: &[u8], final_index: Option<u64>) {
     let Some(at) = final_index.and_then(|a| usize::try_from(a).ok()) else {
         return;
     };
-    let id = track_key(0xf2, &[Segment::Index(1)]);
+    let id = track_key(0xf2, &[Segment::Index(1)]).id();
     let hash = |b: &[u8]| {
         TapeReader::open(b)
             .ok()?

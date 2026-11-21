@@ -191,8 +191,9 @@ Reading by position, checks and hashes, hostile bytes, in the crate `ww_tape`.
   - Read more: [Finding blocks through the index](docs/reading.md#finding-blocks-through-the-index).
 - 🚧 **READ-5 Typed numbers in the API**
   - Track and clock numbers are `TrackNum` and `ClockNum`, 1 and up, each exactly a `UNib32` on the wire; a definition naming 0 doesn't decode. A record names its track as a `RecordTrack`, track 0 being the definitions.
-  - Missing: types for the other numbers of the API (ids, keys, seqs, item numbers, sizes).
-  - Read more: the crate docs of `ww_tape` (`TrackNum`, `ClockNum`, `RecordTrack`).
+  - Track keys, track ids and clock keys are `TrackKey`, `TrackId` and `ClockKey`, any value valid, each exactly a `u64` on the wire. A key without dimensions is its id (`TrackKey::id`). The index lists record blocks of data under `RECORDS_TRACK_ID` and state records under `STATE_TRACK_ID`.
+  - Missing: types for the other numbers of the API (seqs, item numbers, sizes).
+  - Read more: the crate docs of `ww_tape` (`TrackNum`, `ClockNum`, `RecordTrack`, `TrackKey`, `TrackId`, `ClockKey`).
 
 ## Files and locks (`FS`)
 

@@ -49,12 +49,12 @@ stands for the track. The values are the drive's <code>can0</code>.</figcaption>
 
 The [[track key]] is a 64-bit hash of where the track comes from in the [[producer]]'s API. The drive's `can0` comes
 from the resource `can0` of the drive's API, so its key is the hash of that path. Two files of the drive give `can0` the
-same key, whichever program wrote them. [`track_key`] computes it.
+same key, whichever program wrote them. [`track_key`] computes it as a [`TrackKey`].
 
 A [[dimension]] is a name and value pair, such as `bench = 2`, that tells apart tracks of one key. Two benches that
 record the same `can0` resource tell their tracks apart by `bench = 1` and `bench = 2`. The [[track id]] is a hash of the key and the
-dimensions, and a track without dimensions has its key as its id. [`describe::track_id`] computes it. A [[chunk]]
-carries the id, so it names its track even to a reader without the definitions.
+dimensions, and a track without dimensions has its key as its id. [`describe::track_id`] computes it as a
+[`struct@TrackId`]. A [[chunk]] carries the id, so it names its track even to a reader without the definitions.
 
 The [[track number]] is the small number a track has inside one file. Every [[record]], the form of one event in a
 [[records block]], carries it, because it costs one byte where the id costs eight. The producer never picks it: when it
@@ -71,12 +71,12 @@ use ww_tape_example::{definitions, key};
 
 // The key of can0 is the hash of its path in the drive's API.
 let can0 = key("can0");
-assert_eq!(can0, 0x0158_4c57_693f_d3f2);
+assert_eq!(can0.get(), 0x0158_4c57_693f_d3f2);
 // Without dimensions, the id is the key.
-assert_eq!(track_id(can0, []), can0);
+assert_eq!(track_id(can0, []), can0.id());
 // A dimension gives the same resource another id.
 let bench2 = track_id(can0, [Dimension { name: "bench", value: "2" }]);
-assert_eq!(bench2, 0x4d71_7cfb_2248_cb86);
+assert_eq!(bench2.get(), 0x4d71_7cfb_2248_cb86);
 // Inside the drive's files, can0 is track 3: the number its definition was given.
 let (_, numbers) = definitions(25_000, true, 32 << 20).expect("the drive's definitions");
 assert_eq!(numbers.can0.get(), 3);

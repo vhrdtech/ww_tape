@@ -17,6 +17,7 @@
 //! Index entries of a closed piece are read when asked for: all of them ([TapeReader::entries]) or one track's
 //! ([TapeReader::track_entries]: the final index's head and that track's entries, each checked by its own CRC).
 
+use crate::TrackId;
 use alloc::collections::BTreeMap;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -132,7 +133,7 @@ pub enum ReadError<E> {
     /// track's definition, None for the range relation read from the index entries, which don't name it.
     RelationOrder {
         offset: u64,
-        track_id: u64,
+        track_id: TrackId,
         relation: Option<u16>,
     },
 }
@@ -165,7 +166,7 @@ impl<E: core::fmt::Debug> core::fmt::Display for ReadError<E> {
                 relation,
             } => write!(
                 f,
-                "chunk at byte {offset} of track {track_id:#x}: monotone relation {relation:?} goes below the chunk \
+                "chunk at byte {offset} of track {track_id}: monotone relation {relation:?} goes below the chunk \
                  before, with no break marked"
             ),
         }
@@ -1254,7 +1255,7 @@ impl<S: ByteSource> TapeReader<S> {
     /// The range relation of a track never decreases ([RelationIndex::Range](crate::RelationIndex::Range) is only on a
     /// monotone relation): each chunk's range starts at or above the top of the range before it of its track number,
     /// but at a chunk marked as a break ([IndexEntry::relation_break]); else [ReadError::RelationOrder].
-    pub fn track_entries(&self, i: usize, track_id: u64) -> R<Vec<IndexEntry>, S> {
+    pub fn track_entries(&self, i: usize, track_id: TrackId) -> R<Vec<IndexEntry>, S> {
         let p = self.piece(i)?;
         let entries = self.track_entries_unordered(p, track_id)?;
         ranges_in_order(p, &entries)?;
@@ -1265,7 +1266,11 @@ impl<S: ByteSource> TapeReader<S> {
     /// marked [FLAG_RELATION_BREAK](crate::FLAG_RELATION_BREAK), by its piece and its index entry (where it lies, its
     /// first item, its range). A lookup by a monotone relation's value holds within the stretch between two breaks;
     /// one that spans a break may find the value on both sides of it.
-    pub fn relation_breaks(&self, track_id: u64, owner: OwnerId) -> R<Vec<(usize, IndexEntry)>, S> {
+    pub fn relation_breaks(
+        &self,
+        track_id: TrackId,
+        owner: OwnerId,
+    ) -> R<Vec<(usize, IndexEntry)>, S> {
         let mut out = Vec::new();
         for i in 0..self.pieces.len() {
             let numbers = self.numbers_of(i, track_id, owner)?;
@@ -1281,7 +1286,7 @@ impl<S: ByteSource> TapeReader<S> {
     }
 
     /// [Self::track_entries] of piece `p`, the ranges unchecked.
-    fn track_entries_unordered(&self, p: &PieceInfo, track_id: u64) -> R<Vec<IndexEntry>, S> {
+    fn track_entries_unordered(&self, p: &PieceInfo, track_id: TrackId) -> R<Vec<IndexEntry>, S> {
         if let Some(e) = &p.entries {
             let track = e.iter().filter(|e| e.track_id == track_id).copied();
             return in_order(p, track.collect());
@@ -1385,7 +1390,12 @@ impl<S: ByteSource> TapeReader<S> {
     /// chunks alone ([Self::read_chunk_head]). A chunk whose head is damaged, or out of line with its neighbours, is
     /// left out with its error beside the timeline, as a lost chunk: the samples around it keep their grid. An
     /// index that can't be read, or a failing source, is an error.
-    pub fn series_timeline(&self, i: usize, track_id: u64, period: Ratio64) -> R<Timeline<S>, S> {
+    pub fn series_timeline(
+        &self,
+        i: usize,
+        track_id: TrackId,
+        period: Ratio64,
+    ) -> R<Timeline<S>, S> {
         let start = self.piece(i)?.start;
         let mut buf = Vec::new();
         let mut heads = Vec::new();
@@ -1701,7 +1711,7 @@ impl<S: ByteSource> TapeReader<S> {
     /// as on the index path, and bytes no block explains are counted in [RangeHash::skipped].
     pub fn range_hash(
         &self,
-        track_id: u64,
+        track_id: TrackId,
         owner: OwnerId,
         items: Range<u64>,
         from: TrackHash,
@@ -1808,7 +1818,7 @@ impl<S: ByteSource> TapeReader<S> {
 
     /// The track numbers piece `i`'s head and close rows give track `track_id` of `owner`, and those they give it
     /// for other owners.
-    fn numbers_of(&self, i: usize, track_id: u64, owner: OwnerId) -> R<Numbers, S> {
+    fn numbers_of(&self, i: usize, track_id: TrackId, owner: OwnerId) -> R<Numbers, S> {
         let p = self.piece(i)?;
         let rows = p
             .head

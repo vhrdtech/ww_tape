@@ -365,7 +365,7 @@ fn sample_describe() -> Vec<Describe<'static>> {
         }),
         Describe::Clock(ClockDef {
             number: EPOCH,
-            key: clock_key(api_root_id("host"), &[], 17) ^ 1,
+            key: ClockKey::new(clock_key(api_root_id("host"), &[], 17).get() ^ 1),
             rate: Magnitude::pow10(9).into(),
             resolution: Magnitude::ratio(1, 32768).into(),
             origin: ClockOrigin::Epoch,
@@ -464,7 +464,7 @@ fn track_key_segments() {
     );
     assert_ne!(key(&[]), track_key(api_root_id("ww_tapx"), &[]));
     // a const fn: a firmware writer's keys are constants
-    const LINK_RX: u64 = track_key(
+    const LINK_RX: TrackKey = track_key(
         api_root_id("ww_tap"),
         &[
             Segment::Name("link"),
@@ -482,16 +482,16 @@ fn track_key_segments() {
     );
     // the hash is part of the format: recordings keep their ids
     assert_eq!(api_root_id("ww_tap"), 0x18cd_d9fe_1470_3049);
-    assert_eq!(key(&NAME_PATH), 0xd060_2e4e_94a3_be63);
+    assert_eq!(key(&NAME_PATH).get(), 0xd060_2e4e_94a3_be63);
 }
 
 #[test]
 fn track_identity() {
     let key = track_key(api_root_id("ww_tap"), &NAME_PATH);
-    assert_eq!(track_id(key, []), key);
+    assert_eq!(track_id(key, []), key.id());
     let d = |name, value| Dimension { name, value };
     let a = track_id(key, [d("input", "cam1")]);
-    assert_ne!(a, key);
+    assert_ne!(a, key.id());
     assert_ne!(a, track_id(key, [d("input", "cam2")]));
     // the separator keeps `ab=c` and `a=bc` apart
     assert_ne!(track_id(key, [d("ab", "c")]), track_id(key, [d("a", "bc")]));
@@ -918,7 +918,7 @@ fn clock_resolution_at_least_a_tick() {
     let clock = |rate: Magnitude, resolution: Magnitude| {
         Describe::Clock(ClockDef {
             number: ClockNum::new(1),
-            key: 1,
+            key: ClockKey::new(1),
             rate: rate.into(),
             resolution: resolution.into(),
             origin: ClockOrigin::Free,
@@ -1145,7 +1145,7 @@ pub(crate) fn test_definitions(clock: ClockNum, tracks: &[u32]) -> Vec<Describe<
     };
     let mut out = vec![Describe::Clock(ClockDef {
         number: clock,
-        key: u64::from(clock.get()),
+        key: ClockKey::new(u64::from(clock.get())),
         rate: Magnitude::pow10(9).into(),
         resolution: Magnitude::pow10(-9).into(),
         origin: ClockOrigin::Free,
@@ -1163,7 +1163,7 @@ pub(crate) fn test_definitions(clock: ClockNum, tracks: &[u32]) -> Vec<Describe<
 }
 
 /// The id of every track of [test_definitions] and [test_series_track]: what their chunks' heads carry.
-pub(crate) fn test_track_id() -> u64 {
+pub(crate) fn test_track_id() -> TrackId {
     let Describe::Track(t) = &sample_describe()[1] else {
         unreachable!("the second sample is a track")
     };
@@ -1654,7 +1654,7 @@ fn typed_items_hash() {
 fn bare_track_round_trips() {
     let d = Describe::Track(TrackDef {
         number: TrackNum::new(1),
-        key: 7,
+        key: TrackKey::new(7),
         clock: ClockNum::new(1),
         dimensions: RefVec::Slice { slice: &[] },
         items: crate::Items::WireWeaver {
@@ -1698,7 +1698,7 @@ fn a_chunk_with_its_payload_unchecked_is_refused_as_a_level() {
     let enc = crate::times::EncodedTimes::encode(&starts, None, None).unwrap();
     let cols: std::vec::Vec<_> = enc.columns().collect();
     let specs: std::vec::Vec<crate::ColumnSpec> = cols.iter().map(|c| c.0).collect();
-    let head = enc.head.chunk_head(9, TrackNum::new(1), 0);
+    let head = enc.head.chunk_head(TrackId::new(9), TrackNum::new(1), 0);
     let mut buf = std::vec![0u8; crate::chunk::chunk_len(&head, &specs, 0)];
     let n = crate::chunk::write_chunk(&mut buf, id(1), &head, &cols, 0).unwrap();
     buf.truncate(n);
@@ -1735,7 +1735,7 @@ fn a_walk_steps_over_a_chunk_with_its_payload_unchecked() {
     let enc = crate::times::EncodedTimes::encode(&[1i64, 2, 3], None, None).unwrap();
     let cols: std::vec::Vec<_> = enc.columns().collect();
     let specs: std::vec::Vec<crate::ColumnSpec> = cols.iter().map(|c| c.0).collect();
-    let head = enc.head.chunk_head(9, TrackNum::new(1), 0);
+    let head = enc.head.chunk_head(TrackId::new(9), TrackNum::new(1), 0);
     let mut chunk = std::vec![0u8; crate::chunk::chunk_len(&head, &specs, 0)];
     let n = crate::chunk::write_chunk(&mut chunk, id(3), &head, &cols, 0).unwrap();
     chunk.truncate(n);
@@ -1771,12 +1771,12 @@ fn a_walk_steps_over_a_chunk_with_its_payload_unchecked() {
 }
 
 /// Tracks 1 to `n` on [C1], each of its own id: what a test of tracks per piece needs; their ids by number.
-fn distinct_tracks(n: u32) -> (Definitions, std::collections::BTreeMap<u32, u64>) {
+fn distinct_tracks(n: u32) -> (Definitions, std::collections::BTreeMap<u32, TrackId>) {
     let mut out = test_definitions(C1, &(1..=n).collect::<Vec<_>>());
     let mut ids = std::collections::BTreeMap::new();
     for d in &mut out {
         if let Describe::Track(t) = d {
-            t.key = 0x7700 + u64::from(t.number.get());
+            t.key = TrackKey::new(0x7700 + u64::from(t.number.get()));
             ids.insert(t.number.get(), t.id());
         }
     }
@@ -1891,7 +1891,7 @@ fn a_piece_head_carries_at_most_its_track_limit() {
 }
 
 /// A chunk of 2 items with raw starts on track `number` of id `id`.
-fn chunk_on(number: u32, id: u64) -> (ChunkHead, (ColumnSpec, Vec<u8>)) {
+fn chunk_on(number: u32, id: TrackId) -> (ChunkHead, (ColumnSpec, Vec<u8>)) {
     let starts: Vec<u8> = [10i64, 20].iter().flat_map(|t| t.to_le_bytes()).collect();
     let head = ChunkHead {
         kind: BlockKind::Events,

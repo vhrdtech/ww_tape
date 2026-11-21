@@ -53,6 +53,8 @@
 //! A final index longer than [INDEX_LEN_MAX] is several final blocks, chained like checkpoints, each holding whole
 //! tracks in ascending track id order.
 
+use crate::TrackId;
+use crate::TrackNum;
 use crate::bytes::{file_u16, file_u32, le_u16, le_u32, le_u64};
 use crate::chunk::u32_len;
 use crate::piece::UnitHash;
@@ -61,7 +63,6 @@ use crate::{
     Block, BlockError, BlockId, BlockKind, BoundError, CRC, CRC_LEN, ChunkHead, HEADER_LEN,
     MAX_BLOCK_LEN, VERSION, put_header,
 };
-use crate::{RecordTrack, TrackNum};
 
 /// Bytes of one index entry.
 pub const ENTRY_LEN: usize = 120;
@@ -84,7 +85,10 @@ pub const CHECKPOINT_ENTRIES_MAX: usize =
     (INDEX_LEN_MAX - HEADER_LEN - INDEX_FIXED_LEN - CRC_LEN) / ENTRY_LEN;
 /// The track id the index lists state records under, one entry each: no track's identity hash, by convention (a
 /// hash of all ones is as likely as any other, and would share the list).
-pub const STATE_TRACK_ID: u64 = u64::MAX;
+pub const STATE_TRACK_ID: TrackId = TrackId::new(u64::MAX);
+/// The track id the index lists record blocks of data under, one entry per block: no track's identity hash, by
+/// convention, as [STATE_TRACK_ID].
+pub const RECORDS_TRACK_ID: TrackId = TrackId::new(0);
 /// Bit 0 of an entry's byte 15: the block is marked [FLAG_REPEAT](crate::FLAG_REPEAT).
 const ENTRY_REPEAT: u8 = 1;
 /// Entry flag: the entry carries the range of its chunk's range relation.
@@ -142,9 +146,9 @@ pub struct IndexEntry {
     pub level: u8,
     /// A summary block's tree (1 events, 2 series), else 0.
     pub tree: u8,
-    /// The track's identity hash ([TrackDef::id](crate::TrackDef::id)); 0 for record blocks of data,
+    /// The track's identity hash ([TrackDef::id](crate::TrackDef::id)); [RECORDS_TRACK_ID] for record blocks of data,
     /// [STATE_TRACK_ID] for a state record.
-    pub track_id: u64,
+    pub track_id: TrackId,
     /// Bytes 24..28 as written: a chunk's or summary's track number ([Self::track]), a state record's first slot
     /// number ([Self::state]), else 0.
     pub number: u32,
@@ -194,7 +198,7 @@ impl IndexEntry {
         let Ok(b) = block.decode(&mut buf) else {
             return alloc::vec![e];
         };
-        if !b.is_repeat() && b.first_track() != Some(RecordTrack::Definitions) {
+        if !b.is_repeat() && b.first_track() != Some(crate::RecordTrack::Definitions) {
             return alloc::vec![e];
         }
         let mut out = alloc::vec::Vec::new();
@@ -285,7 +289,7 @@ impl IndexEntry {
             kind: block.kind,
             level: 0,
             tree: 0,
-            track_id: 0,
+            track_id: RECORDS_TRACK_ID,
             number: 0,
             second: 0,
             first_item: 0,
@@ -361,7 +365,7 @@ impl IndexEntry {
 
     /// Where the entry goes in a final index: by track id, then offset. The state records of one block share both
     /// and keep their block order (a stable sort).
-    pub(crate) fn order(&self) -> (u64, u64) {
+    pub(crate) fn order(&self) -> (TrackId, u64) {
         (self.track_id, self.offset)
     }
 
@@ -405,7 +409,7 @@ impl IndexEntry {
                     | (if self.range.is_some() { ENTRY_RANGE } else { 0 })
                     | (if self.relation_break { ENTRY_BREAK } else { 0 }),
             ])
-            .chain(self.track_id.to_le_bytes())
+            .chain(self.track_id.get().to_le_bytes())
             .chain(self.number.to_le_bytes())
             .chain(self.second.to_le_bytes())
             .chain(self.first_item.to_le_bytes())
@@ -469,7 +473,7 @@ impl IndexEntry {
             kind: BlockKind::from_u8(kind),
             level,
             tree,
-            track_id: u64::from_le_bytes([t0, t1, t2, t3, t4, t5, t6, t7]),
+            track_id: TrackId::new(u64::from_le_bytes([t0, t1, t2, t3, t4, t5, t6, t7])),
             number: u32::from_le_bytes([n0, n1, n2, n3]),
             second: u32::from_le_bytes([r0, r1, r2, r3]),
             first_item: u64::from_le_bytes([i0, i1, i2, i3, i4, i5, i6, i7]),
@@ -532,7 +536,7 @@ pub struct IndexHead {
 /// One track of a final index's directory.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct TrackList {
-    pub track_id: u64,
+    pub track_id: TrackId,
     /// Index of its first entry in the block.
     pub first: u32,
     pub count: u32,
@@ -548,7 +552,7 @@ impl TrackList {
             f0, f1, f2, f3, n0, n1, n2, n3, c0, c1, c2, c3, _, _, _, _,
         ] = *b;
         Self {
-            track_id: u64::from_le_bytes([i0, i1, i2, i3, i4, i5, i6, i7]),
+            track_id: TrackId::new(u64::from_le_bytes([i0, i1, i2, i3, i4, i5, i6, i7])),
             first: u32::from_le_bytes([f0, f1, f2, f3]),
             count: u32::from_le_bytes([n0, n1, n2, n3]),
             crc: u32::from_le_bytes([c0, c1, c2, c3]),
@@ -559,6 +563,7 @@ impl TrackList {
         let mut out = [0u8; TRACK_LEN];
         let fields = self
             .track_id
+            .get()
             .to_le_bytes()
             .into_iter()
             .chain(self.first.to_le_bytes())
@@ -818,7 +823,7 @@ pub fn write_index(
         rest = r;
         let count = u32::try_from(track.len()).ok().ok_or(too_long)?;
         let list = TrackList {
-            track_id: track.first().map_or(0, |e| e.track_id),
+            track_id: track.first().map_or(RECORDS_TRACK_ID, |e| e.track_id),
             first,
             count,
             crc: CRC.checksum(bytes),
@@ -1045,7 +1050,7 @@ impl<'b> IndexBlock<'b> {
     }
 
     /// The directory entry of `track_id`, by binary search.
-    pub fn track(&self, track_id: u64) -> Option<TrackList> {
+    pub fn track(&self, track_id: TrackId) -> Option<TrackList> {
         let i = self
             .dir
             .binary_search_by(|t| TrackList::decode(t).track_id.cmp(&track_id))
@@ -1143,7 +1148,7 @@ pub const DEFAULT_CHECKPOINT_BYTES: u64 = 4 << 20;
 #[cfg(feature = "alloc")]
 mod build;
 #[cfg(feature = "alloc")]
-pub(crate) use build::{Indexer, TrackKey, next_starts};
+pub(crate) use build::{Indexer, TrackIdent, next_starts};
 
 #[cfg(test)]
 mod tests;

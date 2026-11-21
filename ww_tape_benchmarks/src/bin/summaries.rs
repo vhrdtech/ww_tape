@@ -17,6 +17,7 @@
 use clap::Parser;
 use std::hint::black_box;
 use std::time::Instant;
+use ww_tape::TrackId;
 use ww_tape::TrackNum;
 use ww_tape::samples::{encode, max_encoded_len};
 use ww_tape::{Codec, Element, ElementDesc, Magnitude, Ratio64, Sample, SampleShape, SeriesGrid};
@@ -120,7 +121,7 @@ fn rate<T: Gen>(args: &Args, shape: SampleShape, batch: &[T], work: Work) -> any
         clip: None,
     };
     let start = SeriesStart {
-        track_id: 1,
+        track_id: TrackId::new(1),
         track_number: TrackNum::new(1),
         shape,
         first_item: 0,

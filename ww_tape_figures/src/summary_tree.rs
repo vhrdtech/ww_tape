@@ -41,7 +41,7 @@ pub fn summary_tree() -> anyhow::Result<String> {
             }
             let summary = Summary::of_block(&b).context("a summary block")?;
             let head = summary.head();
-            ensure!(head.track_id == key("phase_a"), "phase_a's summaries");
+            ensure!(head.track_id == key("phase_a").id(), "phase_a's summaries");
             let span = 1u64 << head.node_shift;
             let end = head.first_item + head.items;
             for n in 0..summary.node_count() {

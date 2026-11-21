@@ -1,4 +1,5 @@
 use crate::{ClockNum, TrackNum};
+use crate::{TrackId, TrackKey};
 use exact_units::prefix::{Micro, Milli, One};
 use exact_units::units::{Ampere, Volt};
 use exact_units::{Complex, Fixed};
@@ -226,7 +227,7 @@ fn a_series_track_is_checked_with_its_items() {
 fn track(kind: TrackKind<'static>, state: bool) -> TrackDef<'static> {
     TrackDef {
         number: TrackNum::new(2),
-        key: 0x5e71e5,
+        key: TrackKey::new(0x5e71e5),
         clock: ClockNum::new(1),
         dimensions: RefVec::Slice {
             slice: &[Dimension {
@@ -305,7 +306,7 @@ fn head_on(grid: SeriesGrid, first: u64, count: u32) -> ChunkHead {
     let (first_tick, last_tick) = grid.chunk_ticks(period(), first, count).unwrap();
     ChunkHead {
         kind: BlockKind::Series,
-        track_id: 1,
+        track_id: TrackId::new(1),
         track_number: TrackNum::new(2),
         first_item: first,
         count,
@@ -532,7 +533,7 @@ fn a_series_relation_has_no_values() {
         name: "context",
         target: Some(crate::RelationTarget {
             run: [1; 16],
-            track: 9,
+            track: TrackId::new(9),
         }),
         values: crate::RelationValues::None,
         monotone: false,

@@ -3,6 +3,7 @@
 //! timeline builds from the heads and a track's range hash folds from the index or the chunks, the same from both for a
 //! piece that verifies; index blocks built from the input read back equal, a final one also track by track from its
 //! head.
+use ww_tape::TrackId;
 use ww_tape::index::{
     IndexBlock, IndexEntry, IndexHead, IndexKind, index_len, track_count, write_index,
 };
@@ -29,7 +30,7 @@ pub(crate) fn decode(data: &[u8]) {
     if let Ok(b) = Block::read(data) {
         if let Ok(ix) = IndexBlock::read(&b) {
             assert_eq!(ix.entries().count(), ix.entry_count());
-            let _ = ix.track(0);
+            let _ = ix.track(TrackId::new(0));
         }
         if let Ok(f) = CloseBlock::read(&b) {
             let _ = f.close();
@@ -92,13 +93,13 @@ pub(crate) fn read(data: &[u8], options: OpenOptions) {
                 }
             }
         }
-        let _ = r.track_entries(i, 0);
+        let _ = r.track_entries(i, TrackId::new(0));
         relations_in_order(&r, i);
     }
     let _ = r.chain();
     // the hash of a track's chunks, from the index or, where it doesn't read, from the chunks; never more chunks
     // than blocks fit the bytes
-    let ids: Vec<u64> = r
+    let ids: Vec<TrackId> = r
         .pieces()
         .iter()
         .enumerate()
@@ -119,7 +120,7 @@ pub(crate) fn read(data: &[u8], options: OpenOptions) {
 /// in order) lists no entries that go down unmarked.
 fn relations_in_order(r: &TapeReader<&[u8]>, i: usize) {
     let verified = r.verify(i).map(|v| v.holds).is_ok_and(|v| v);
-    let mut ids: Vec<u64> = r
+    let mut ids: Vec<TrackId> = r
         .entries(i)
         .unwrap_or_default()
         .iter()
@@ -142,7 +143,7 @@ fn relations_in_order(r: &TapeReader<&[u8]>, i: usize) {
                         let before = top.insert(e.number, hi);
                         assert!(
                             before.is_none_or(|t| lo >= t),
-                            "track {id:#x}: a range goes down without a break: {entries:?}"
+                            "track {id}: a range goes down without a break: {entries:?}"
                         );
                     }
                 }
@@ -151,7 +152,7 @@ fn relations_in_order(r: &TapeReader<&[u8]>, i: usize) {
                 assert_eq!(track_id, id);
                 assert!(
                     !verified,
-                    "a verified piece lists track {id:#x} out of relation order"
+                    "a verified piece lists track {id} out of relation order"
                 );
             }
             Err(_) => {}
@@ -185,7 +186,7 @@ fn index_folds_as_the_walk(data: &[u8]) {
     let Ok(w) = TapeReader::open(&walked[..]) else {
         return;
     };
-    let mut ids: Vec<u64> = r
+    let mut ids: Vec<TrackId> = r
         .entries(0)
         .unwrap_or_default()
         .iter()
@@ -204,7 +205,7 @@ fn index_folds_as_the_walk(data: &[u8]) {
             assert_eq!(
                 (a.hash, a.items),
                 (b.hash, b.items),
-                "a verified piece folds track {id:#x} from its index as from its chunks"
+                "a verified piece folds track {id} from its index as from its chunks"
             );
         }
     }
@@ -238,7 +239,7 @@ pub fn index(data: &[u8]) {
             kind: BlockKind::from_u8(c[0]),
             level: c[0],
             tree: 0,
-            track_id: u64::from(c[0] % 5),
+            track_id: TrackId::new(u64::from(c[0] % 5)),
             number: c[0].into(),
             second: 0,
             first_item: 0,

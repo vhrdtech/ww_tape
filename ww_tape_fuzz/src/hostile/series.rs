@@ -4,6 +4,7 @@
 use super::chunk::{build, hit_head, reseal};
 use super::{Draw, SESSION, clock_item, definition, describe_block};
 use shrink_wrap::prelude::*;
+use ww_tape::TrackId;
 use ww_tape::{
     BlockId, BlockKind, ChunkHead, Codec, ColumnKind, ColumnSpec, Describe, EndMode, Magnitude,
     Ratio64, SampleShape, Segment, SeriesDef, SeriesGrid, TrackDef, TrackKind, track_key,
@@ -92,7 +93,7 @@ pub fn series(data: &[u8]) -> Vec<u8> {
         let (first_tick, last_tick) = grid.chunk_ticks(period, first, count).unwrap_or((0, 0));
         heads.push(ChunkHead {
             kind: BlockKind::Series,
-            track_id: 7,
+            track_id: TrackId::new(7),
             track_number: TrackNum::new(TRACK),
             first_item: first,
             count,

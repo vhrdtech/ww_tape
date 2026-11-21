@@ -3,6 +3,7 @@
 //! with blocks damaged.
 
 use std::cell::Cell;
+use ww_tape::TrackId;
 use ww_tape::{ClockNum, RecordTrack, TrackNum};
 
 use shrink_wrap::prelude::*;
@@ -45,7 +46,7 @@ pub(crate) fn track(number: u32, clock: u32) -> Describe<'static> {
 }
 
 /// The id of [track] `number`: what its chunks' heads carry.
-pub(crate) fn track_id(number: u32) -> u64 {
+pub(crate) fn track_id(number: u32) -> TrackId {
     let Describe::Track(t) = track(number, CLOCK) else {
         unreachable!("track() gives a track")
     };
@@ -1543,7 +1544,7 @@ const fn rel(
         name,
         target: Some(RelationTarget {
             run: [7; 16],
-            track: 0x5eed,
+            track: TrackId::new(0x5eed),
         }),
         values,
         monotone,
@@ -1795,7 +1796,7 @@ fn a_track_def_reads_across_the_relations_change() {
     };
     let old = TrackDefBeforeRelations {
         number: UNib32(new.number.get()),
-        key: new.key,
+        key: new.key.get(),
         clock: UNib32(new.clock.get()),
         dimensions: new.dimensions.clone(),
         items: new.items.clone(),
@@ -1815,7 +1816,7 @@ fn a_track_def_reads_across_the_relations_change() {
         name: "source",
         target: Some(RelationTarget {
             run: [3; 16],
-            track: 9,
+            track: TrackId::new(9),
         }),
         values: RelationValues::Stored,
         monotone: true,

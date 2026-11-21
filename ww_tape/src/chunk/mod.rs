@@ -68,6 +68,7 @@
 //! archived pieces, never a time column. No outer codec is assigned yet: a reader refuses every outer-coded column as
 //! a column in a codec it doesn't know. Inner codec ids stop at 127.
 
+use crate::TrackId;
 use core::num::NonZeroUsize;
 
 use crate::TrackNum;
@@ -265,7 +266,7 @@ pub struct ChunkHead {
     /// [BlockKind::Events] or [BlockKind::Series].
     pub kind: BlockKind,
     /// [TrackDef::id](crate::TrackDef::id).
-    pub track_id: u64,
+    pub track_id: TrackId,
     /// [TrackDef::number](crate::TrackDef::number).
     pub track_number: TrackNum,
     /// Item number of the first item in the track (sample index in a series).
@@ -617,7 +618,7 @@ impl<'b> ChunkWriter<'b> {
             .to_le_bytes()
             .into_iter()
             .chain(head.track_number.get().to_le_bytes())
-            .chain(head.track_id.to_le_bytes())
+            .chain(head.track_id.get().to_le_bytes())
             .chain(head.first_item.to_le_bytes())
             .chain(head.first_tick.to_le_bytes())
             .chain(head.last_tick.to_le_bytes())
@@ -1000,7 +1001,7 @@ fn read_fixed(block: &[u8], kind: BlockKind, table_start: usize) -> Option<Chunk
     };
     Some(ChunkHead {
         kind,
-        track_id: le_u64(block, 40)?,
+        track_id: TrackId::new(le_u64(block, 40)?),
         track_number: TrackNum::try_new(le_u32(block, 36)?)?,
         first_item: le_u64(block, 48)?,
         count: le_u32(block, 12)?,

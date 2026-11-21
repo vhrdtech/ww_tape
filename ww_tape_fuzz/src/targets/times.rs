@@ -2,6 +2,7 @@
 //! the input read back exactly and survive, without panic, a flipped bit and input bytes written over their columns
 //! (a good head over a damaged payload, as salvage meets it); every bit-pack kernel decodes any bytes as the scalar
 //! code does.
+use ww_tape::TrackId;
 use ww_tape::TrackNum;
 use ww_tape::bitpack::{self, GROUP, Kernel};
 use ww_tape::chunk::{chunk_len, write_chunk};
@@ -231,11 +232,18 @@ pub fn times(data: &[u8]) {
     let mut cols: Vec<_> = enc.columns().collect();
     cols.extend([source.column(), key.column()]);
     let specs: Vec<ColumnSpec> = cols.iter().map(|c| c.0).collect();
-    let mut buf = vec![0u8; chunk_len(&enc.head.chunk_head(1, TrackNum::new(1), 0), &specs, 0)];
+    let mut buf = vec![
+        0u8;
+        chunk_len(
+            &enc.head.chunk_head(TrackId::new(1), TrackNum::new(1), 0),
+            &specs,
+            0
+        )
+    ];
     let len = write_chunk(
         &mut buf,
         ww_tape::BlockId::new(ww_tape::SessionTag::writable(1), 1),
-        &enc.head.chunk_head(1, TrackNum::new(1), 0),
+        &enc.head.chunk_head(TrackId::new(1), TrackNum::new(1), 0),
         &cols,
         0,
     )

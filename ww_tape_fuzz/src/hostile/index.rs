@@ -6,6 +6,7 @@
 use super::{
     Draw, Field, HEADER_FIELDS, LEN_FIELD, SESSION, crc32c, get, hit, hit_some, seal, span,
 };
+use ww_tape::TrackId;
 use ww_tape::TrackNum;
 use ww_tape::index::{
     CHECKPOINT_ENTRIES_MAX, ENTRY_LEN, INDEX_LEN_MAX, IndexEntry, IndexHead, IndexKind, TRACK_LEN,
@@ -108,7 +109,7 @@ fn entries(d: &mut Draw<'_>, n: usize, sorted: bool) -> Vec<IndexEntry> {
                 kind,
                 level: d.u8() % 3,
                 tree: d.u8() % 3,
-                track_id: u64::from(d.u8() % 4),
+                track_id: TrackId::new(u64::from(d.u8() % 4)),
                 number: u32::from(d.u8() % 4),
                 second: u32::from(d.u8() % 4),
                 first_item: u64::from(d.u16()),
@@ -213,7 +214,7 @@ pub(crate) fn close_block(
 ) -> Vec<u8> {
     let tracks: Vec<TrackRange> = (0..d.below(3))
         .map(|t| TrackRange {
-            track_id: t as u64 + 1,
+            track_id: TrackId::new(t as u64 + 1),
             track_number: TrackNum::new(t as u32 + 1),
             chunks: u32::from(d.u8()),
             first_item: u64::from(d.u16()),
@@ -331,7 +332,7 @@ fn widen_entries(b: &[u8], extra: usize, fill: u8) -> Vec<u8> {
 pub(crate) fn piece_head_block(d: &mut Draw<'_>, id: BlockId) -> Vec<u8> {
     let tracks: Vec<TrackStart> = (0..d.below(3))
         .map(|t| TrackStart {
-            track_id: t as u64 + 1,
+            track_id: TrackId::new(t as u64 + 1),
             track_number: TrackNum::new(t as u32 + 1),
             next_item: u64::from(d.u16()),
             from_tick: i64::from(d.u16() as i16),

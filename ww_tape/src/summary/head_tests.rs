@@ -9,7 +9,7 @@ use crate::{Block, BlockError};
 #[test]
 fn node_items_at_the_top_of_the_item_numbers() {
     let h = SummaryHead {
-        track_id: 1,
+        track_id: TrackId::new(1),
         track_number: TrackNum::new(1),
         tree: Tree::Events,
         level: 0,
@@ -46,7 +46,7 @@ fn node_items_at_the_top_of_the_item_numbers() {
 #[test]
 fn a_block_checks_and_lists_without_its_nodes() {
     let h = SummaryHead {
-        track_id: 9,
+        track_id: TrackId::new(9),
         track_number: TrackNum::new(2),
         tree: Tree::Series,
         level: 1,
@@ -100,7 +100,7 @@ fn a_block_checks_and_lists_without_its_nodes() {
 #[test]
 fn head_read_checks_the_header() {
     let h = SummaryHead {
-        track_id: 1,
+        track_id: TrackId::new(1),
         track_number: TrackNum::new(1),
         tree: Tree::Events,
         level: 0,
@@ -180,7 +180,7 @@ fn series_definitions() -> Vec<crate::Describe<'static>> {
 }
 
 /// The id of the track of [series_definitions].
-fn series_track_id() -> u64 {
+fn series_track_id() -> TrackId {
     series_definitions()
         .iter()
         .find_map(|d| match d {

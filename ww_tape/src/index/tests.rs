@@ -11,7 +11,7 @@ fn entry(track_id: u64, offset: u64) -> IndexEntry {
         kind: BlockKind::Events,
         level: 0,
         tree: 0,
-        track_id,
+        track_id: TrackId::new(track_id),
         number: track_id as u32 + 1,
         second: 0,
         first_item: offset * 10,
@@ -103,7 +103,7 @@ fn final_index_reads_one_track_from_its_head() {
     let bytes = write(&head, &entries);
     let ix = IndexBlock::read(&Block::read(&bytes).unwrap()).unwrap();
     assert_eq!(
-        ix.tracks().map(|t| t.track_id).collect::<Vec<_>>(),
+        ix.tracks().map(|t| t.track_id.get()).collect::<Vec<_>>(),
         [0, 3, 7, 9]
     );
 
@@ -111,7 +111,7 @@ fn final_index_reads_one_track_from_its_head() {
     assert_eq!(head_len, 32 + 28 + 4 * 24);
     let only_head = IndexBlock::read_head(&bytes[..head_len]).unwrap();
     assert_eq!(only_head.entries().count(), 0, "entries aren't in the head");
-    let list = only_head.track(7).unwrap();
+    let list = only_head.track(TrackId::new(7)).unwrap();
     assert_eq!((list.first, list.count), (20, 10));
     let (from, n) = only_head.track_range(&list);
     let got: Vec<_> = only_head
@@ -119,7 +119,7 @@ fn final_index_reads_one_track_from_its_head() {
         .unwrap()
         .collect();
     assert_eq!(got, entries[20..30]);
-    assert!(only_head.track(4).is_none());
+    assert!(only_head.track(TrackId::new(4)).is_none());
 
     let mut bad = bytes[from..from + n].to_vec();
     bad[3] ^= 1;
@@ -205,12 +205,12 @@ fn entries_of_blocks() {
     let e = IndexEntry::of_block(77, &Block::read(&buf[..len]).unwrap()).unwrap();
     assert_eq!(
         (e.offset, e.len, e.kind, e.track_id, e.count),
-        (77, len as u32, BlockKind::Records, 0, 2)
+        (77, len as u32, BlockKind::Records, RECORDS_TRACK_ID, 2)
     );
 
     let head = crate::ChunkHead {
         kind: BlockKind::Events,
-        track_id: 0xfeed,
+        track_id: TrackId::new(0xfeed),
         track_number: TrackNum::new(2),
         first_item: 4096,
         count: 3,
@@ -237,7 +237,7 @@ fn entries_of_blocks() {
     assert_eq!(Some(e), IndexEntry::of_chunk(4000, n, &head));
     assert_eq!(
         (
-            e.track_id,
+            e.track_id.get(),
             e.first_item,
             e.count,
             e.first_tick,
@@ -250,7 +250,7 @@ fn entries_of_blocks() {
     // a summary block: the fields of its head, its nodes left zero
     use crate::summary::{EventFields, Layout, SummaryHead, SummaryWriter, Tree, summary_len};
     let h = SummaryHead {
-        track_id: 0xabc,
+        track_id: TrackId::new(0xabc),
         track_number: TrackNum::new(5),
         tree: Tree::Events,
         level: 0,
@@ -272,7 +272,7 @@ fn entries_of_blocks() {
     assert_eq!(block.summary_head(), Some(h));
     let e = IndexEntry::of_block(10, &block).unwrap();
     assert_eq!(
-        (e.kind, e.len as usize, e.track_id, e.track()),
+        (e.kind, e.len as usize, e.track_id.get(), e.track()),
         (BlockKind::Summary, sb.len(), 0xabc, Some(TrackNum::new(5)))
     );
     assert_eq!((e.tree, e.level), (1, h.level));
@@ -442,7 +442,7 @@ fn entries_naming_no_block_are_refused() {
             );
             if kind == IndexKind::Final {
                 let only_head = IndexBlock::read_head(&b).unwrap();
-                let list = only_head.track(1).unwrap();
+                let list = only_head.track(TrackId::new(1)).unwrap();
                 let (from, n) = only_head.track_range(&list);
                 assert!(matches!(
                     only_head.track_entries(&list, &b[from..from + n]),
@@ -500,7 +500,7 @@ fn lists_past_the_entries_are_refused() {
     let list = TrackList {
         first: 3,
         count: 2,
-        ..ix.track(1).unwrap()
+        ..ix.track(TrackId::new(1)).unwrap()
     };
     let (from, n) = ix.track_range(&list);
     assert_eq!(from + n, bytes.len() - CRC_LEN + ENTRY_LEN);
@@ -542,7 +542,7 @@ fn refused_both_ways(change: impl Fn(&mut [u8]), error: IndexError) {
     };
     let mut bytes = write(&head, &entries);
     let ix = IndexBlock::read(&Block::read(&bytes).unwrap()).unwrap();
-    let list = ix.track(1).unwrap();
+    let list = ix.track(TrackId::new(1)).unwrap();
     let (from, n) = ix.track_range(&list);
     change(&mut bytes[from..from + ENTRY_LEN]);
     // the list's CRC in the directory, then the head CRC and the block CRC
@@ -554,7 +554,7 @@ fn refused_both_ways(change: impl Fn(&mut [u8]), error: IndexError) {
     let block = Block::read(&bytes).expect("a good block");
     assert_eq!(IndexBlock::read(&block).err(), Some(error));
     let ix = IndexBlock::read_head(&bytes).unwrap();
-    let list = ix.track(1).unwrap();
+    let list = ix.track(TrackId::new(1)).unwrap();
     assert_eq!(
         ix.track_entries(&list, &bytes[from..from + n]).err(),
         Some(error)

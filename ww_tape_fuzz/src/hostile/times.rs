@@ -4,6 +4,7 @@
 use super::chunk::{build, column_start, hit_head, reseal};
 use super::{Draw, Field, hit};
 use ww_tape::ColumnKind;
+use ww_tape::TrackId;
 use ww_tape::TrackNum;
 use ww_tape::bitpack::{GROUP, WIDTH_MAX};
 use ww_tape::times::{DURATIONS, EncodedRelation, EncodedTimes, SLOPE_MAX, TimeMode};
@@ -131,7 +132,10 @@ pub fn times(data: &[u8]) -> Vec<u8> {
     if d.bool() {
         cols.extend([source.column(), key.column()]);
     }
-    let mut b = build(&enc.head.chunk_head(1, TrackNum::new(1), 0), &cols);
+    let mut b = build(
+        &enc.head.chunk_head(TrackId::new(1), TrackNum::new(1), 0),
+        &cols,
+    );
     let groups = starts.len().div_ceil(GROUP);
     let linear = enc.head.time_mode == ww_tape::times::TimeMode::Linear;
     // the chunk's columns are in the order written

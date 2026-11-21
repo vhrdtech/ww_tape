@@ -38,6 +38,7 @@
 //! A writer puts its bytes in a [TapeSink]: memory ([crate::sink::MemSink], with `std`) or a file (`FileSink` of the
 //! crate `ww_tape_fs`).
 
+use crate::TrackId;
 use alloc::borrow::ToOwned;
 use alloc::boxed::Box;
 use alloc::string::String;
@@ -46,7 +47,7 @@ use alloc::vec::Vec;
 use core::time::Duration;
 
 use crate::clock::ClockRef;
-use crate::index::{IndexPolicy, Indexer, STATE_TRACK_ID, TrackKey};
+use crate::index::{IndexPolicy, Indexer, RECORDS_TRACK_ID, STATE_TRACK_ID, TrackIdent};
 use crate::open::{RecordRef, write_records};
 use crate::piece::{
     Close, CloseReason, ContentHash, OwnerId, PIECE_ALIGN, PieceHead, PieceId, PieceIdent,
@@ -467,7 +468,7 @@ impl<S: TapeSink> TapeWriter<S> {
     /// (deferred blocks it places were taken on before). A deferred block is placed with no puts, so a cut or a
     /// close never meets the cap.
     /// The tracks of `tracks` (numbers held in `defs`) without a row in the close yet, each once.
-    fn new_tracks(&self, defs: &Definitions, tracks: &[TrackNum]) -> BTreeSet<TrackKey> {
+    fn new_tracks(&self, defs: &Definitions, tracks: &[TrackNum]) -> BTreeSet<TrackIdent> {
         tracks
             .iter()
             .filter_map(|n| defs.track_key(*n))
@@ -826,14 +827,14 @@ impl<S: TapeSink> TapeWriter<S> {
     /// chunk in this piece by the offset of their newest chunk, then those with records in it, then the others, each
     /// in the order given.
     fn ranked(&self, rows: &[TrackStart], numbers: &[TrackNum]) -> Vec<TrackNum> {
-        let mut newest: BTreeMap<u64, u64> = BTreeMap::new();
+        let mut newest: BTreeMap<TrackId, u64> = BTreeMap::new();
         for e in self.indexer.entries() {
-            if e.track_id != 0 && e.track_id != STATE_TRACK_ID {
+            if e.track_id != RECORDS_TRACK_ID && e.track_id != STATE_TRACK_ID {
                 let n = newest.entry(e.track_id).or_default();
                 *n = (*n).max(e.offset);
             }
         }
-        let touched: BTreeSet<TrackKey> = self
+        let touched: BTreeSet<TrackIdent> = self
             .indexer
             .track_ranges()
             .iter()
@@ -2264,7 +2265,7 @@ impl<S: TapeSink> TapeWriter<S> {
     /// Go on after `older`, the newest state items of the pieces before ([kept]): those of the tracks the piece head
     /// carries, older than those this piece holds.
     pub(crate) fn keep_after(&mut self, mut older: kept::Kept) {
-        let rows: BTreeMap<TrackNum, TrackKey> = self
+        let rows: BTreeMap<TrackNum, TrackIdent> = self
             .head_rows()
             .iter()
             .map(|t| (t.track_number, (t.track_id, t.owner)))
@@ -2592,7 +2593,7 @@ struct Deferred {
     /// The data tracks it holds: placed before any later block of them
     tracks: Vec<TrackNum>,
     /// Those of them without a row in the close when it was deferred: counted as with data ([TapeWriter::track_room])
-    keys: BTreeSet<TrackKey>,
+    keys: BTreeSet<TrackIdent>,
 }
 
 /// Bytes of the blocks of puts holding `records`, as [TapeWriter::write_puts] writes them.

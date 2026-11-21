@@ -3,8 +3,8 @@
 
 use crate::series::{Acc, Channel, add_channel};
 use crate::{ChannelStats, Scalar, SeriesStats, Value};
-use ww_tape::TrackNum;
 use ww_tape::{Element, ElementDesc};
+use ww_tape::{TrackId, TrackNum};
 use ww_tape_codecs::kernel::{IntBatch, Kernel, Narrow, int_batch};
 
 /// The description of a predefined element.
@@ -508,7 +508,7 @@ fn blocks_are_the_same_with_every_kernel() {
     let shape = SampleShape::new(ed(Element::ComplexI16), 3);
     let blocks = |kernel: Kernel| {
         let start = SeriesStart {
-            track_id: 9,
+            track_id: TrackId::new(9),
             track_number: TrackNum::new(2),
             shape,
             first_item: 100,

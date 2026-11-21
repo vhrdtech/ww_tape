@@ -150,7 +150,9 @@ pub fn open<S: ByteSource>(src: S) -> Result<(TapeReader<S>, Opened), FaultError
         .position(|p| {
             p.close.as_ref().is_some_and(|(_, tracks)| {
                 tracks.iter().any(|t| {
-                    t.track_id == key("phase_a") && t.first_tick <= fault && fault <= t.last_tick
+                    t.track_id == key("phase_a").id()
+                        && t.first_tick <= fault
+                        && fault <= t.last_tick
                 })
             })
         })
@@ -179,7 +181,7 @@ pub fn find<S: ByteSource>(
     let fault = fault_us();
     // --8<-- [start:find]
     let (from, to) = (fault - 1_000_000, fault + 1_000_000); // a second either side
-    let entries = reader.track_entries(piece, key("phase_a"))?; // the directory and one track's list
+    let entries = reader.track_entries(piece, key("phase_a").id())?; // the directory and one track's list
     let chunks: Vec<IndexEntry> = entries
         .iter()
         .filter(|e| e.kind == BlockKind::Series && e.first_tick < to && e.last_tick >= from)
@@ -268,7 +270,7 @@ pub fn frames<S: ByteSource>(
     // --8<-- [start:frames]
     // the first chunk of can0 whose last frame is at or after the fault
     let entry = reader
-        .track_entries(piece, key("can0"))?
+        .track_entries(piece, key("can0").id())?
         .into_iter()
         .find(|e| e.kind == BlockKind::Events && e.last_tick >= fault)
         .ok_or(FaultError::Missing("frame after the fault"))?;
@@ -336,7 +338,7 @@ fn series_def<S: ByteSource>(
 ) -> Result<(Ratio64, Option<SeriesSummarySpec>), FaultError<S::Error>> {
     let defs = reader.definitions_at(piece, offset)?;
     let number = defs
-        .track_number(key("phase_a"), [0; 32])
+        .track_number(key("phase_a").id(), [0; 32])
         .ok_or(FaultError::Missing("phase_a"))?;
     let state = defs
         .items
@@ -363,7 +365,7 @@ fn number_of<S: ByteSource>(
 ) -> Result<TrackNum, FaultError<S::Error>> {
     reader
         .definitions_at(piece, offset)?
-        .track_number(key(name), [0; 32])
+        .track_number(key(name).id(), [0; 32])
         .ok_or(FaultError::Missing(name))
 }
 // --8<-- [end:number_of_item]
@@ -543,12 +545,12 @@ pub fn overview(
     let mut sample_bytes = 0;
     for p in reader.pieces() {
         let (_, tracks) = p.close.as_ref().ok_or(FaultError::Missing("close"))?;
-        for t in tracks.iter().filter(|t| t.track_id == key("phase_a")) {
+        for t in tracks.iter().filter(|t| t.track_id == key("phase_a").id()) {
             total = total.max(t.end_item());
         }
     }
     let entries = (0..reader.pieces().len())
-        .map(|i| reader.track_entries(i, key("phase_a")))
+        .map(|i| reader.track_entries(i, key("phase_a").id()))
         .collect::<Result<Vec<_>, _>>()?;
     for e in entries
         .iter()
@@ -713,7 +715,7 @@ fn frame_items<S: ByteSource>(
 ) -> Result<core::ops::Range<u64>, FaultError<S::Error>> {
     let (from, to) = (minutes.start * US_PER_MINUTE, minutes.end * US_PER_MINUTE);
     let chunks: Vec<IndexEntry> = reader
-        .track_entries(piece, key("can0"))?
+        .track_entries(piece, key("can0").id())?
         .into_iter()
         .filter(|e| e.kind == BlockKind::Events && from <= e.first_tick && e.first_tick < to)
         .collect();
@@ -752,7 +754,7 @@ pub fn same_frames<S: ByteSource<Error = OutOfRange>>(
     let items = frame_items(reader, last, 51..53)?;
     let copy_reader = TapeReader::open(copy)?; // the last piece alone, as a colleague got it
     // --8<-- [start:range]
-    let can0 = key("can0");
+    let can0 = key("can0").id();
     let whole = reader.range_hash(can0, OwnerId::NONE, items.clone(), TrackHash::START)?;
     let alone = copy_reader.range_hash(can0, OwnerId::NONE, items.clone(), TrackHash::START)?;
     let same = whole.hash == alone.hash && whole.items == alone.items;

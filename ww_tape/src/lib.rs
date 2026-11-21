@@ -188,7 +188,7 @@ pub use describe::{
 };
 pub use exact_units::{Magnitude, MagnitudeOf, Ratio64, Rounding};
 mod numbers;
-pub use numbers::{ClockNum, RecordTrack, TrackNum};
+pub use numbers::{ClockKey, ClockNum, RecordTrack, TrackId, TrackKey, TrackNum};
 pub mod state;
 pub use state::{DefinitionKind, ItemHash, Slot};
 
@@ -482,13 +482,13 @@ impl Segment<'_> {
 
 /// Stable key of a track: FNV-1a of `api_root` (u64 LE), then of every segment of the resource's name path (see
 /// [Segment]), so the key survives renumbered ids and indices assigned in another order.
-pub const fn track_key(api_root: u64, mut segments: &[Segment<'_>]) -> u64 {
+pub const fn track_key(api_root: u64, mut segments: &[Segment<'_>]) -> TrackKey {
     let mut h = fnv1a(FNV_OFFSET, &api_root.to_le_bytes());
     while let [segment, rest @ ..] = segments {
         h = segment.hash(h);
         segments = rest;
     }
-    h
+    TrackKey::new(h)
 }
 
 /// A record's time: ticks of a clock.

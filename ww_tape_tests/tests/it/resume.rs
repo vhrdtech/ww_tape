@@ -3,6 +3,8 @@
 use std::collections::BTreeMap;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
+use ww_tape::TrackId;
+use ww_tape::index::RECORDS_TRACK_ID;
 use ww_tape::{ClockNum, RecordTrack, TrackNum};
 
 use crate::definitions::{CLOCK, base_defs, clock, state, track, tracks};
@@ -598,7 +600,8 @@ fn a_damaged_block_of_definitions_is_put_again_after_a_resume() {
         .unwrap()
         .iter()
         .filter(|e| {
-            e.kind == BlockKind::Events || (e.kind == BlockKind::Records && e.track_id == 0)
+            e.kind == BlockKind::Events
+                || (e.kind == BlockKind::Records && e.track_id == RECORDS_TRACK_ID)
         })
         .map(|e| e.offset)
         .filter(|at| *at >= kept)
@@ -620,7 +623,7 @@ fn a_damaged_block_of_definitions_is_put_again_after_a_resume() {
 }
 
 /// The hash of track `id` in the close of the one piece of `bytes`.
-fn close_hash(bytes: &[u8], id: u64) -> ww_tape::TrackHash {
+fn close_hash(bytes: &[u8], id: TrackId) -> ww_tape::TrackHash {
     let r = TapeReader::open(bytes).unwrap();
     let (_, rows) = r.pieces()[0].close.as_ref().unwrap();
     rows.iter().find(|t| t.track_id == id).unwrap().hash
@@ -685,7 +688,7 @@ fn a_damaged_record_block_kept_by_a_resume_marks_its_tracks_incomplete() {
         .rfind(|e| {
             e.kind == BlockKind::Records
                 && !e.repeat
-                && e.track_id == 0
+                && e.track_id == RECORDS_TRACK_ID
                 && (e.offset as usize) < cut - 2000
         })
         .unwrap();
@@ -735,7 +738,7 @@ fn an_incomplete_track_hash_stays_marked_in_later_pieces() {
         .entries(0)
         .unwrap()
         .into_iter()
-        .find(|e| e.kind == BlockKind::Records && !e.repeat && e.track_id == 0)
+        .find(|e| e.kind == BlockKind::Records && !e.repeat && e.track_id == RECORDS_TRACK_ID)
         .unwrap();
     bytes[(listed.offset + u64::from(listed.len)) as usize - 8] ^= 1;
     std::fs::write(&first, &bytes).unwrap();
@@ -2001,8 +2004,13 @@ fn a_piece_of_another_integrity_level_is_refused_everywhere() {
             );
             assert!(refused(r.entries(0).map(|_| ())), "{level}: entries");
             assert!(refused(
-                r.range_hash(1, OwnerId::NONE, 0..u64::MAX, ww_tape::TrackHash::START)
-                    .map(|_| ())
+                r.range_hash(
+                    TrackId::new(1),
+                    OwnerId::NONE,
+                    0..u64::MAX,
+                    ww_tape::TrackHash::START
+                )
+                .map(|_| ())
             ));
             let chain = r.chain();
             assert_eq!(chain.refused, [0], "{level}: {chain:?}");

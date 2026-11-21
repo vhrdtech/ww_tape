@@ -2,6 +2,7 @@
 //! chunk's index entry, against the values written.
 
 use shrink_wrap::prelude::*;
+use ww_tape::TrackId;
 use ww_tape::TrackNum;
 use ww_tape::times::{EncodedRelation, EncodedTimes, RelationColumn, StoredRelations};
 use ww_tape::{
@@ -26,7 +27,7 @@ const fn rel(
         name,
         target: Some(RelationTarget {
             run: [3; 16],
-            track: 0xc0ffee,
+            track: TrackId::new(0xc0ffee),
         }),
         values,
         monotone,
@@ -105,7 +106,7 @@ fn write_chunk(
     w.write_chunk(defs, &head, &cols).map(|_| ())
 }
 
-fn track_id() -> u64 {
+fn track_id() -> TrackId {
     let Describe::Track(t) = decoded() else {
         unreachable!()
     };
@@ -517,11 +518,11 @@ fn a_chunk_under_another_track_id_is_refused() {
     write_chunk(&mut w, &defs, 0, &[100, 101], &[1, 1]).unwrap();
     let len = tape.to_vec().unwrap().len();
     let (mut head, cols) = chunk_of(2, &[101, 102], &[1, 1]);
-    head.track_id = 0xdead;
+    head.track_id = TrackId::new(0xdead);
     let wrong = |r: Result<(), WriteError<_>>| {
         matches!(
             r,
-            Err(WriteError::Describe(DescribeError::TrackId { track: TRACK_3, id: 0xdead, defined })) if defined == track_id()
+            Err(WriteError::Describe(DescribeError::TrackId { track: TRACK_3, id, defined })) if id == TrackId::new(0xdead) && defined == track_id()
         )
     };
     let refs: Vec<_> = cols.iter().map(|(s, b)| (*s, &b[..])).collect();

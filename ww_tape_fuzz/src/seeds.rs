@@ -20,6 +20,7 @@ use ww_tape::{
     GAP_MAX_MAX, GAP_PROBES_MAX, Layout, Producer, SessionTag, TrackKind,
 };
 use ww_tape::{ClockNum, TrackNum};
+use ww_tape::{TrackId, TrackKey};
 
 /// Longest seed file.
 pub const SEED_LEN_MAX: usize = 64 << 10;
@@ -282,7 +283,7 @@ fn encoding_seeds() -> Vec<Seed> {
         .map(|(name, items)| {
             let t = ww_tape::TrackDef {
                 number: TrackNum::new(1),
-                key: 0x7261_7774,
+                key: TrackKey::new(0x7261_7774),
                 clock: ClockNum::new(1),
                 dimensions: RefVec::Slice { slice: &[] },
                 items,
@@ -311,7 +312,7 @@ fn encoding_seeds() -> Vec<Seed> {
 fn chunk_block(enc: &EncodedTimes) -> Vec<u8> {
     let cols: Vec<_> = enc.columns().collect();
     let specs: Vec<_> = cols.iter().map(|c| c.0).collect();
-    let head = enc.head.chunk_head(1, TrackNum::new(1), 0);
+    let head = enc.head.chunk_head(TrackId::new(1), TrackNum::new(1), 0);
     let mut buf = vec![0u8; ww_tape::chunk::chunk_len(&head, &specs, 0)];
     let n = ww_tape::chunk::write_chunk(
         &mut buf,

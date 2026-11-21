@@ -352,15 +352,15 @@ fn read(args: &Args, samples: Option<u64>, mut bench: Bench) -> anyhow::Result<(
             .first()
             .and_then(|p| p.close.as_ref())
             .is_some_and(|(_, tracks)| {
-                tracks
-                    .iter()
-                    .any(|t| t.track_id == iq_key() && t.first_tick < to && from <= t.last_tick)
+                tracks.iter().any(|t| {
+                    t.track_id == iq_key().id() && t.first_tick < to && from <= t.last_tick
+                })
             });
         if !holds {
             continue;
         }
         for entry in r
-            .track_entries(0, iq_key())
+            .track_entries(0, iq_key().id())
             .map_err(|e| anyhow::anyhow!("{e:?}"))?
         {
             if entry.kind != BlockKind::Series || entry.first_tick >= to || entry.last_tick < from {

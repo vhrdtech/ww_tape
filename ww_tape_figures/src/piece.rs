@@ -103,7 +103,7 @@ fn frames(on: Numbers, k: u64) -> (ChunkHead, Vec<u8>) {
     let starts: Vec<u8> = (0..96).flat_map(|i| tick(i).to_le_bytes()).collect();
     let head = ChunkHead {
         kind: BlockKind::Events,
-        track_id: ww_tape::track_key(0xf1, &[ww_tape::Segment::Index(FRAMES)]),
+        track_id: ww_tape::track_key(0xf1, &[ww_tape::Segment::Index(FRAMES)]).id(),
         track_number: on.frames,
         first_item: first,
         count: 96,

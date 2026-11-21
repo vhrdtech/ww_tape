@@ -36,6 +36,7 @@ pub(crate) use state::{
 pub use summary::summary;
 pub use times::times;
 
+use ww_tape::ClockKey;
 use ww_tape::{
     BlockId, BlockKind, BlockWriter, ClockDef, ClockOrigin, ClockTime, Describe, Magnitude,
     SessionTag,
@@ -274,7 +275,7 @@ pub(crate) fn definition(d: &Describe<'_>) -> Vec<u8> {
 pub(crate) fn clock_item() -> Vec<u8> {
     definition(&Describe::Clock(ClockDef {
         number: ClockNum::new(1),
-        key: 1,
+        key: ClockKey::new(1),
         rate: Magnitude::pow10(9).into(),
         resolution: Magnitude::pow10(-9).into(),
         origin: ClockOrigin::Free,

@@ -3,6 +3,7 @@
 //! [TapeReader::read_block].
 
 use ww_tape::TrackNum;
+use ww_tape::index::RECORDS_TRACK_ID;
 use ww_tape::index::{IndexEntry, IndexPolicy};
 use ww_tape::{
     BlockId, BlockKind, ChainOptions, CutPolicy, MemSink, OwnerId, SessionTag, SyncPolicy,
@@ -20,7 +21,7 @@ fn at(offset: u64, len: u32) -> IndexEntry {
         kind: BlockKind::Records,
         level: 0,
         tree: 0,
-        track_id: 0,
+        track_id: RECORDS_TRACK_ID,
         number: 0,
         second: 0,
         first_item: 0,

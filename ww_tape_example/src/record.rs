@@ -96,7 +96,7 @@ impl Acts {
                 .ok_or(Error::Settings("phase_hz is not 0"))?;
             // --8<-- [start:summaries]
             let start = SeriesStart {
-                track_id: key("phase_a"),
+                track_id: key("phase_a").id(),
                 track_number: numbers.phase_a,
                 shape: crate::defs::phase_shape(&def),
                 first_item: 0,
@@ -188,7 +188,7 @@ impl Acts {
             let payloads = EncodedPayloads::encode(payloads.iter().map(Vec::as_slice))?;
             let head = times
                 .head
-                .chunk_head(key("can0"), self.numbers.can0, frames.start);
+                .chunk_head(key("can0").id(), self.numbers.can0, frames.start);
             let columns = times
                 .columns()
                 .chain(payloads.columns())
@@ -222,7 +222,7 @@ impl Acts {
             let (first_tick, last_tick) = grid.chunk_ticks(def.period, samples.start, count)?;
             let head = ChunkHead {
                 kind: BlockKind::Series,
-                track_id: key("phase_a"),
+                track_id: key("phase_a").id(),
                 track_number: self.numbers.phase_a,
                 first_item: samples.start,
                 count,

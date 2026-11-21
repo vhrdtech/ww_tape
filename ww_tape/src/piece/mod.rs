@@ -150,6 +150,7 @@
 //! track written alone or among others, in one piece or many, in one file or many, has the same hash. A state
 //! track's records are all puts: its hash stays 32 zero bytes.
 
+use crate::TrackId;
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;
 
@@ -642,7 +643,7 @@ pub struct PieceIdent {
 /// Where a track's items continue in a piece, from its head.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TrackStart {
-    pub track_id: u64,
+    pub track_id: TrackId,
     pub track_number: TrackNum,
     /// The first item number of the track in this piece: one past the last in the piece before.
     pub next_item: u64,
@@ -663,7 +664,7 @@ pub struct TrackStart {
 /// The items and ticks of one track's chunk blocks in a piece, its counted records and its hash, from its close.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TrackRange {
-    pub track_id: u64,
+    pub track_id: TrackId,
     pub track_number: TrackNum,
     /// Chunk blocks of the track in the piece; 0 for a track of records alone, whose range fields are 0.
     pub chunks: u32,
@@ -843,7 +844,7 @@ fn fill_piece_head(b: &mut [u8], head: &PieceHead, tracks: &[TrackStart]) -> Opt
         .0
         .iter_mut();
     for (row, t) in rows.zip(tracks) {
-        put_u64(row, 0, t.track_id)?;
+        put_u64(row, 0, t.track_id.get())?;
         put_u32(row, 8, t.track_number.get())?;
         let flags = row_flags(t.incomplete) | if t.not_carried { ROW_NOT_CARRIED } else { 0 };
         put_u32(row, HEAD_ROW_FLAGS_AT, flags)?;
@@ -1007,7 +1008,7 @@ impl<'b> PieceHeadBlock<'b> {
     pub fn tracks(&self) -> impl Iterator<Item = TrackStart> + '_ {
         self.rows.chunks_exact(self.row).map_while(|row| {
             Some(TrackStart {
-                track_id: le_u64(row, 0)?,
+                track_id: TrackId::new(le_u64(row, 0)?),
                 track_number: TrackNum::try_new(le_u32(row, 8)?)?,
                 next_item: le_u64(row, 16)?,
                 from_tick: le_i64(row, 24)?,
@@ -1183,7 +1184,7 @@ fn fill_close(b: &mut [u8], close: &Close, tracks: &[TrackRange]) -> Option<()> 
         .0
         .iter_mut();
     for (row, t) in rows.zip(tracks) {
-        put_u64(row, 0, t.track_id)?;
+        put_u64(row, 0, t.track_id.get())?;
         put_u32(row, 8, t.track_number.get())?;
         put_u32(row, 12, t.chunks)?;
         put_u64(row, 16, t.first_item)?;
@@ -1298,7 +1299,7 @@ impl<'b> CloseBlock<'b> {
     pub fn tracks(&self) -> impl Iterator<Item = TrackRange> + '_ {
         self.rows.chunks_exact(self.row).map_while(|row| {
             Some(TrackRange {
-                track_id: le_u64(row, 0)?,
+                track_id: TrackId::new(le_u64(row, 0)?),
                 track_number: TrackNum::try_new(le_u32(row, 8)?)?,
                 chunks: le_u32(row, 12)?,
                 first_item: le_u64(row, 16)?,

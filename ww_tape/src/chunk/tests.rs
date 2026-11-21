@@ -29,7 +29,7 @@ fn events(first_item: u64, n: u32) -> (ChunkHead, Vec<Vec<u8>>) {
         .collect();
     let head = ChunkHead {
         kind: BlockKind::Events,
-        track_id: 0x1122_3344_5566_7788,
+        track_id: TrackId::new(0x1122_3344_5566_7788),
         track_number: TrackNum::new(4),
         first_item,
         count: n,
@@ -62,7 +62,7 @@ fn event_columns(cols: &[Vec<u8>]) -> Vec<(ColumnSpec, &[u8])> {
 fn series(first: u64, n: u32) -> (ChunkHead, Vec<Vec<u8>>) {
     let head = ChunkHead {
         kind: BlockKind::Series,
-        track_id: 0xabcd,
+        track_id: TrackId::new(0xabcd),
         track_number: TrackNum::new(7),
         first_item: first,
         count: n,

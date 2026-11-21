@@ -2,6 +2,7 @@
 //! tables are those of the module docs and of the blocks this crate writes.
 
 use std::path::Path;
+use ww_tape::TrackId;
 use ww_tape::{ClockNum, TrackNum};
 
 use ww_tape::chunk::{ChunkHead, Codec, ColumnKind, ColumnSpec};
@@ -313,7 +314,7 @@ fn format_page_chunk_head_offsets_read_a_chunk() {
     let (first_tick, last_tick) = grid.chunk_ticks(period, 100, 4).unwrap();
     let head = ChunkHead {
         kind: BlockKind::Series,
-        track_id: 0x1122_3344_5566_7788,
+        track_id: TrackId::new(0x1122_3344_5566_7788),
         track_number: TrackNum::new(9),
         first_item: 100,
         count: 4,

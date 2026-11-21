@@ -295,7 +295,7 @@ fn calls_and_columns(recording: &Recording, acts: &[Act]) -> Result<(Calls, Colu
             Act::Put { .. } => calls.puts += 1,
             Act::Records(_) => calls.records += 1,
             Act::Summary(_) => calls.summaries += 1,
-            Act::Chunk { head, columns } if head.track_id == key("can0") => {
+            Act::Chunk { head, columns } if head.track_id == key("can0").id() => {
                 calls.frame_chunks += 1;
                 c.frame_chunks += 1;
                 c.frames += u64::from(head.count);
@@ -444,7 +444,7 @@ pub fn series_tape(drive: &Drive) -> Result<Vec<u8>, Error> {
 /// [series_tape] of `acts`, the acts of `drive`.
 fn series_tape_of(drive: &Drive, acts: &[Act]) -> Result<Vec<u8>, Error> {
     let series = |act: &Act| match act {
-        Act::Chunk { head, .. } => head.track_id == key("phase_a"),
+        Act::Chunk { head, .. } => head.track_id == key("phase_a").id(),
         Act::Summary(_) => true,
         _ => false,
     };

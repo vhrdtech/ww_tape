@@ -7,7 +7,7 @@ use alloc::vec::Vec;
 use core::time::Duration;
 
 use super::{CloseReason, OwnerId, PieceHead, PieceId, PieceIdent, TAIL_LEN, TrackStart, UnitHash};
-use crate::index::{IndexEntry, IndexError, TrackKey};
+use crate::index::{IndexEntry, IndexError, TrackIdent};
 use crate::reader::{ByteSource, TapeReader};
 use crate::sink::{TapeSink, Tapes, sink_err};
 use crate::writer::kept::Kept;
@@ -599,7 +599,7 @@ fn closed_in<S: TapeSink, K: Clone>(
 type Done<K> = (ChainPiece<K>, LastPiece);
 
 /// Each track's last chunk in a piece, by its entry.
-type LastChunks = BTreeMap<TrackKey, IndexEntry>;
+type LastChunks = BTreeMap<TrackIdent, IndexEntry>;
 
 /// What the piece after a closed one starts from.
 struct LastPiece {
@@ -612,7 +612,7 @@ struct LastPiece {
     /// The tops of its chunks' ranges, for the monotone relations' newest values
     ranges: Newest,
     /// Each track's last chunk in the piece, by its entry, read only when no later piece holds a chunk of the track
-    last_chunks: BTreeMap<TrackKey, IndexEntry>,
+    last_chunks: BTreeMap<TrackIdent, IndexEntry>,
     /// The newest item of each state track of its next head that reads in it, for the next cut to carry
     kept: Kept,
 }
@@ -711,7 +711,7 @@ fn kept_of<B: ByteSource>(
 ) -> Result<Kept, WriteError<B::Error>> {
     let mut items = reader.states_in(i).map_err(WriteError::Read)?;
     items.sort_by_key(|s| s.offset);
-    let keys: BTreeMap<TrackNum, TrackKey> = rows
+    let keys: BTreeMap<TrackNum, TrackIdent> = rows
         .iter()
         .map(|t| (t.track_number, (t.track_id, t.owner)))
         .collect();
@@ -744,7 +744,7 @@ fn last_chunks_in(
     rows: &[crate::piece::TrackRange],
 ) -> (Newest, LastChunks) {
     let mut ranges = Newest::default();
-    let mut last: BTreeMap<TrackKey, IndexEntry> = BTreeMap::new();
+    let mut last: BTreeMap<TrackIdent, IndexEntry> = BTreeMap::new();
     for &e in entries {
         if e.kind != crate::BlockKind::Events || e.repeat {
             continue;
@@ -839,7 +839,7 @@ fn newest_in<K, E>(
         later.after(&newest);
         newest = later;
     }
-    let mut known: BTreeSet<TrackKey> = BTreeSet::new();
+    let mut known: BTreeSet<TrackIdent> = BTreeSet::new();
     let mut buf = Vec::new();
     for (done, last) in closed.iter().rev() {
         for (key, e) in &last.last_chunks {

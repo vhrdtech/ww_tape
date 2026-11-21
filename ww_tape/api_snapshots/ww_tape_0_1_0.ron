@@ -1,6 +1,6 @@
 // ww_tape 0.1.0 traits and types, saved by `ww api save`.
 // Do not edit, bump the crate version and save a new snapshot instead.
-// shrink_wrap sha256: a49a797f93da4dc89a0d774ece14f40cab32822dc75207d63f380b5edc155e58
+// shrink_wrap sha256: d5f219b4c8f56837441f7c22d120c73cfd0c64f17dc5245604abf18115d16568
 (magic: 2837124336, ww_self_version: (major: 0, minor: 4, patch: 0), root: (docs: [
     "Tape blocks: the unit a producer of records hands over, a live consumer reads and a log file is made of.",
     "",
@@ -355,7 +355,7 @@
             "[Definitions::define_clock](crate::Definitions::define_clock) gives it; it stays the same for the producer\'s",
             "life.",
         ], slot: None, series_opaque: false),
-        (ident: Some("key"), default: None, since: None, ty: NumericAny(Base(U64)), docs: [
+        (ident: Some("key"), default: None, since: None, ty: OutOfLine(type_idx: 13), docs: [
             "Stable identity across files and runs, see [clock_key].",
         ], slot: None, series_opaque: false),
         (ident: Some("rate"), default: None, since: None, ty: Instance(type_idx: 2, args: [
@@ -372,7 +372,7 @@
             "Seconds between two values the clock can really give, exact: `1/32768` for a 32 kHz counter read as",
             "nanoseconds. At least one tick.",
         ], slot: None, series_opaque: false),
-        (ident: Some("origin"), default: None, since: None, ty: OutOfLine(type_idx: 13), docs: [], slot: None, series_opaque: false),
+        (ident: Some("origin"), default: None, since: None, ty: OutOfLine(type_idx: 14), docs: [], slot: None, series_opaque: false),
         (ident: Some("label"), default: None, since: None, ty: String, docs: [
             "A name for people (`host`, `dev[3].boot[17]`).",
         ], slot: None, series_opaque: false),
@@ -384,6 +384,14 @@
         "[ClockDef::number]: crate::ClockDef::number",
     ], ident: "ClockNum", generics: [], fields: Unnamed([
         (ident: None, default: None, since: None, ty: NumericAny(Base(UNib32)), docs: [], slot: None, series_opaque: false),
+    ]), sparse: false, path: None, instance_of: None, extra: Some((transparent: true, marker: None)))), crate_idx: 0),
+    InLine(ty: Struct((size: UnsizedFinalStructure, crate_idx: 0, docs: [
+        "A clock\'s stable key: the hash of the name path of what counts and its epoch ([clock_key](crate::clock_key)),",
+        "the same across files and runs ([ClockDef::key](crate::ClockDef::key)).",
+        "",
+        "Any value is a key.",
+    ], ident: "ClockKey", generics: [], fields: Unnamed([
+        (ident: None, default: None, since: None, ty: NumericAny(Base(U64)), docs: [], slot: None, series_opaque: false),
     ]), sparse: false, path: None, instance_of: None, extra: Some((transparent: true, marker: None)))), crate_idx: 0),
     InLine(ty: Enum((size: Unsized, repr: BitAligned(4), crate_idx: 0, docs: [
         "What tick 0 of a clock is, as an identity, never as a number.",
@@ -423,7 +431,7 @@
     ], ident: "ClockMap", generics: [], fields: Named([
         (ident: Some("from"), default: None, since: None, ty: OutOfLine(type_idx: 12), docs: [], slot: None, series_opaque: false),
         (ident: Some("to"), default: None, since: None, ty: OutOfLine(type_idx: 12), docs: [], slot: None, series_opaque: false),
-        (ident: Some("segments"), default: None, since: None, ty: Vec(OutOfLine(type_idx: 15)), docs: [], slot: None, series_opaque: false),
+        (ident: Some("segments"), default: None, since: None, ty: Vec(OutOfLine(type_idx: 16)), docs: [], slot: None, series_opaque: false),
     ]), sparse: false, path: None, instance_of: None, extra: None)), crate_idx: 0),
     InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
         "`b = b0 + (a - a0) · slope` for `a` in `[a0, a1)` (`a1` None: to the end), within `± error` ticks of `to`.",
@@ -444,10 +452,10 @@
         "A definition: one per record on track 0, its item\'s whole bytes.",
     ], ident: "Describe", generics: [], variants: [
         (docs: [], ident: "Producer", fields: Unnamed([
-            (ident: None, default: None, since: None, ty: OutOfLine(type_idx: 17), docs: [], slot: None, series_opaque: false),
+            (ident: None, default: None, since: None, ty: OutOfLine(type_idx: 18), docs: [], slot: None, series_opaque: false),
         ]), discriminant: 0, since: None),
         (docs: [], ident: "Track", fields: Unnamed([
-            (ident: None, default: None, since: None, ty: OutOfLine(type_idx: 18), docs: [], slot: None, series_opaque: false),
+            (ident: None, default: None, since: None, ty: OutOfLine(type_idx: 19), docs: [], slot: None, series_opaque: false),
         ]), discriminant: 1, since: None),
         (docs: [
             "An API bundle (`ww_self` `ApiBundle` in its ShrinkWrap encoding) by its hash, the hash as the producer,",
@@ -461,22 +469,22 @@
             (ident: None, default: None, since: None, ty: OutOfLine(type_idx: 11), docs: [], slot: None, series_opaque: false),
         ]), discriminant: 3, since: None),
         (docs: [], ident: "Map", fields: Unnamed([
-            (ident: None, default: None, since: None, ty: OutOfLine(type_idx: 14), docs: [], slot: None, series_opaque: false),
+            (ident: None, default: None, since: None, ty: OutOfLine(type_idx: 15), docs: [], slot: None, series_opaque: false),
         ]), discriminant: 4, since: None),
         (docs: [
             "Any wire_weaver value, typed by its bundle and type path: a run record, a media reference, settings.",
         ], ident: "Item", fields: Unnamed([
-            (ident: None, default: None, since: None, ty: OutOfLine(type_idx: 19), docs: [], slot: None, series_opaque: false),
+            (ident: None, default: None, since: None, ty: OutOfLine(type_idx: 20), docs: [], slot: None, series_opaque: false),
         ]), discriminant: 5, since: None),
         (docs: [
             "How the file\'s blocks are placed; a file that defines none is not aligned.",
         ], ident: "Layout", fields: Unnamed([
-            (ident: None, default: None, since: None, ty: OutOfLine(type_idx: 20), docs: [], slot: None, series_opaque: false),
+            (ident: None, default: None, since: None, ty: OutOfLine(type_idx: 21), docs: [], slot: None, series_opaque: false),
         ]), discriminant: 6, since: None),
         (docs: [
             "A schema a [Foreign] format names by its hash.",
         ], ident: "Schema", fields: Unnamed([
-            (ident: None, default: None, since: None, ty: OutOfLine(type_idx: 21), docs: [], slot: None, series_opaque: false),
+            (ident: None, default: None, since: None, ty: OutOfLine(type_idx: 22), docs: [], slot: None, series_opaque: false),
         ]), discriminant: 7, since: None),
     ], path: None, instance_of: None, future_version: Some(Variant(ident: "Unknown", bits: None)))), crate_idx: 0),
     InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
@@ -491,33 +499,33 @@
         "",
         "Its identity is [key](Self::key) plus [dimensions](Self::dimensions), see [track_id].",
     ], ident: "TrackDef", generics: [], fields: Named([
-        (ident: Some("number"), default: None, since: None, ty: OutOfLine(type_idx: 22), docs: [
+        (ident: Some("number"), default: None, since: None, ty: OutOfLine(type_idx: 23), docs: [
             "Number in records, 1 and up (track 0 holds the definitions, [RecordTrack::Definitions](crate::RecordTrack)).",
             "[Definitions::define_track](crate::Definitions::define_track) gives it; it stays the same for the producer\'s",
             "life.",
         ], slot: None, series_opaque: false),
-        (ident: Some("key"), default: None, since: None, ty: NumericAny(Base(U64)), docs: [
+        (ident: Some("key"), default: None, since: None, ty: OutOfLine(type_idx: 24), docs: [
             "Stable key: the same track across files and producer runs, see [track_key].",
         ], slot: None, series_opaque: false),
         (ident: Some("clock"), default: None, since: None, ty: OutOfLine(type_idx: 12), docs: [
             "The [ClockDef::number] record times of this track count.",
         ], slot: None, series_opaque: false),
-        (ident: Some("dimensions"), default: None, since: None, ty: Vec(OutOfLine(type_idx: 23)), docs: [
+        (ident: Some("dimensions"), default: None, since: None, ty: Vec(OutOfLine(type_idx: 25)), docs: [
             "Name and value pairs that are part of the identity (`input=cam1`, `producer=vad`), in ascending order of",
             "name, names unique. Two variants of one track coexist when their dimensions differ.",
         ], slot: None, series_opaque: false),
-        (ident: Some("items"), default: None, since: None, ty: OutOfLine(type_idx: 24), docs: [
+        (ident: Some("items"), default: None, since: None, ty: OutOfLine(type_idx: 26), docs: [
             "What one item is: a WireWeaver stream\'s value, a ShrinkWrap value, plain bytes, numbers or a format the user",
             "names.",
         ], slot: None, series_opaque: false),
         (ident: Some("label"), default: None, since: None, ty: String, docs: [
             "A name for people (`link[1].rx.frames`); readers go by [items](Self::items).",
         ], slot: None, series_opaque: false),
-        (ident: Some("repeat"), default: None, since: None, ty: OutOfLine(type_idx: 25), docs: [
+        (ident: Some("repeat"), default: None, since: None, ty: OutOfLine(type_idx: 27), docs: [
             "Whether the track\'s records are events or state. Always [TrackRepeat::Stream] for a series: its chunks are",
             "data and carry their own grid ([SeriesGrid](crate::series::SeriesGrid)).",
         ], slot: None, series_opaque: false),
-        (ident: Some("kind"), default: None, since: None, ty: OutOfLine(type_idx: 26), docs: [
+        (ident: Some("kind"), default: None, since: None, ty: OutOfLine(type_idx: 28), docs: [
             "How the track\'s items are stored: events or a fixed-rate series.",
         ], slot: None, series_opaque: false),
         (ident: Some("owner"), default: Some(Bool(false)), since: None, ty: Array(len: Fixed(32), ty: NumericAny(Base(U8))), docs: [
@@ -525,7 +533,7 @@
             "one identity written into one file by several owners. Not part of the identity: [Self::id] and",
             "[key](Self::key) don\'t hash it. All zeros: the owner of the piece ([OwnerId](crate::OwnerId)).",
         ], slot: None, series_opaque: false),
-        (ident: Some("relations"), default: Some(Bool(false)), since: None, ty: Vec(OutOfLine(type_idx: 27)), docs: [
+        (ident: Some("relations"), default: Some(Bool(false)), since: None, ty: Vec(OutOfLine(type_idx: 29)), docs: [
             "What the track\'s items relate to, each by its [name](RelationDef::name), unique, at most [RELATIONS_MAX]:",
             "per-item values, a target, an index. `ww_tape` gives the building blocks; what a relation means is the",
             "writer\'s (eventfull\'s `source`, `parent`, `context`, an entity key).",
@@ -534,7 +542,7 @@
     InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
         "A wire_weaver value of a type in a bundle.",
     ], ident: "TypedItem", generics: [], fields: Named([
-        (ident: Some("ty"), default: None, since: None, ty: OutOfLine(type_idx: 28), docs: [], slot: None, series_opaque: false),
+        (ident: Some("ty"), default: None, since: None, ty: OutOfLine(type_idx: 30), docs: [], slot: None, series_opaque: false),
         (ident: Some("value"), default: None, since: None, ty: Vec(NumericAny(Base(U8))), docs: [
             "The value in its ShrinkWrap encoding.",
         ], slot: None, series_opaque: false),
@@ -570,7 +578,7 @@
             "Where a writer resumes after such a stretch: at a multiple of it in the file or medium, 1 and up (a sector,",
             "a NAND page). A reader probes these places and the first non-blank byte.",
         ], slot: None, series_opaque: false),
-        (ident: Some("definitions"), default: None, since: None, ty: OutOfLine(type_idx: 29), docs: [
+        (ident: Some("definitions"), default: None, since: None, ty: OutOfLine(type_idx: 31), docs: [
             "How track 0, the definitions, is repeated: what [TrackRepeat::State] says of a state track.",
         ], slot: None, series_opaque: false),
     ]), sparse: false, path: None, instance_of: None, extra: None)), crate_idx: 0),
@@ -598,6 +606,14 @@
     ], ident: "TrackNum", generics: [], fields: Unnamed([
         (ident: None, default: None, since: None, ty: NumericAny(Base(UNib32)), docs: [], slot: None, series_opaque: false),
     ]), sparse: false, path: None, instance_of: None, extra: Some((transparent: true, marker: None)))), crate_idx: 0),
+    InLine(ty: Struct((size: UnsizedFinalStructure, crate_idx: 0, docs: [
+        "A track\'s stable key: the hash of its name path ([track_key](crate::track_key)), the same across files and",
+        "producer runs ([TrackDef::key](crate::TrackDef::key)).",
+        "",
+        "Any value is a key. A track without dimensions has its key for its id ([Self::id]).",
+    ], ident: "TrackKey", generics: [], fields: Unnamed([
+        (ident: None, default: None, since: None, ty: NumericAny(Base(U64)), docs: [], slot: None, series_opaque: false),
+    ]), sparse: false, path: None, instance_of: None, extra: Some((transparent: true, marker: None)))), crate_idx: 0),
     InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
         "A name and value of a track\'s identity.",
     ], ident: "Dimension", generics: [], fields: Named([
@@ -618,7 +634,7 @@
         (docs: [
             "The values of a stream of a WireWeaver API, in their ShrinkWrap encoding.",
         ], ident: "WireWeaver", fields: Named([
-            (ident: Some("api"), default: None, since: None, ty: OutOfLine(type_idx: 30), docs: [
+            (ident: Some("api"), default: None, since: None, ty: OutOfLine(type_idx: 32), docs: [
                 "The API the track\'s resource is in.",
             ], slot: None, series_opaque: false),
             (ident: Some("bundle"), default: None, since: None, ty: Vec(NumericAny(Base(U8))), docs: [
@@ -627,18 +643,18 @@
             (ident: Some("path"), default: None, since: None, ty: Vec(NumericAny(Base(UNib32))), docs: [
                 "Resource path of the track\'s stream in the API: `ww_trait` ids, array indices included.",
             ], slot: None, series_opaque: false),
-            (ident: Some("keys"), default: None, since: None, ty: Vec(OutOfLine(type_idx: 31)), docs: [
+            (ident: Some("keys"), default: None, since: None, ty: Vec(OutOfLine(type_idx: 33)), docs: [
                 "Keys of the elements of keyed arrays on `path`, in ascending order of position: what the track\'s",
                 "[key](TrackDef::key) hashes instead of those indices. Empty when `path` crosses no keyed array.",
             ], slot: None, series_opaque: false),
-            (ident: Some("item"), default: None, since: None, ty: Option(some_ty: OutOfLine(type_idx: 28)), docs: [
+            (ident: Some("item"), default: None, since: None, ty: Option(some_ty: OutOfLine(type_idx: 30)), docs: [
                 "The item type when the path doesn\'t give it (a producer\'s result, a map track); None: the stream\'s type.",
             ], slot: None, series_opaque: false),
         ]), discriminant: 0, since: None),
         (docs: [
             "Values of a type in a bundle, in their ShrinkWrap encoding, with no API stream.",
         ], ident: "ShrinkWrap", fields: Unnamed([
-            (ident: None, default: None, since: None, ty: OutOfLine(type_idx: 28), docs: [], slot: None, series_opaque: false),
+            (ident: None, default: None, since: None, ty: OutOfLine(type_idx: 30), docs: [], slot: None, series_opaque: false),
         ]), discriminant: 1, since: None),
         (docs: [
             "Plain bytes with no type: a frame as received, a file\'s contents.",
@@ -648,15 +664,15 @@
             "or an events track whose item is one element, little-endian in its container",
             "([ElementDesc::container_bits]).",
         ], ident: "Numbers", fields: Named([
-            (ident: Some("element"), default: None, since: None, ty: OutOfLine(type_idx: 32), docs: [], slot: None, series_opaque: false),
-            (ident: Some("unit"), default: None, since: None, ty: Option(some_ty: OutOfLine(type_idx: 28)), docs: [
+            (ident: Some("element"), default: None, since: None, ty: OutOfLine(type_idx: 34), docs: [], slot: None, series_opaque: false),
+            (ident: Some("unit"), default: None, since: None, ty: Option(some_ty: OutOfLine(type_idx: 30)), docs: [
                 "The exact_units type of one value, its unit and scale (`Fixed<Ampere, Milli, i32>`); None: a plain number.",
             ], slot: None, series_opaque: false),
         ]), discriminant: 3, since: None),
         (docs: [
             "Bytes of a format the user names.",
         ], ident: "Foreign", fields: Unnamed([
-            (ident: None, default: None, since: None, ty: OutOfLine(type_idx: 33), docs: [], slot: None, series_opaque: false),
+            (ident: None, default: None, since: None, ty: OutOfLine(type_idx: 35), docs: [], slot: None, series_opaque: false),
         ]), discriminant: 4, since: None),
     ], path: None, instance_of: None, future_version: Some(Variant(ident: "Unknown", bits: None)))), crate_idx: 0),
     InLine(ty: Enum((size: Unsized, repr: BitAligned(4), crate_idx: 0, docs: [
@@ -670,7 +686,7 @@
             "so that a copy lies at most `near` behind wherever it is used, and a reader takes the nearest record behind a",
             "place.",
         ], ident: "State", fields: Unnamed([
-            (ident: None, default: None, since: None, ty: OutOfLine(type_idx: 29), docs: [], slot: None, series_opaque: false),
+            (ident: None, default: None, since: None, ty: OutOfLine(type_idx: 31), docs: [], slot: None, series_opaque: false),
         ]), discriminant: 1, since: None),
     ], path: None, instance_of: None, future_version: Some(Variant(ident: "Unknown", bits: None)))), crate_idx: 0),
     InLine(ty: Enum((size: Unsized, repr: BitAligned(4), crate_idx: 0, docs: [
@@ -680,13 +696,13 @@
             "Items with a start tick, an optional end, an optional flags word and a payload: in record blocks or in events",
             "chunks ([BlockKind::Events](crate::BlockKind::Events)).",
         ], ident: "Events", fields: Unnamed([
-            (ident: None, default: None, since: None, ty: OutOfLine(type_idx: 34), docs: [], slot: None, series_opaque: false),
+            (ident: None, default: None, since: None, ty: OutOfLine(type_idx: 36), docs: [], slot: None, series_opaque: false),
         ]), discriminant: 0, since: None),
         (docs: [
             "Samples at an exact period, no time per sample: in series chunks ([BlockKind::Series](crate::BlockKind::Series)),",
             "each timed and scaled by the [SeriesGrid](crate::series::SeriesGrid) its head carries.",
         ], ident: "Series", fields: Unnamed([
-            (ident: None, default: None, since: None, ty: OutOfLine(type_idx: 35), docs: [], slot: None, series_opaque: false),
+            (ident: None, default: None, since: None, ty: OutOfLine(type_idx: 37), docs: [], slot: None, series_opaque: false),
         ]), discriminant: 1, since: None),
     ], path: None, instance_of: None, future_version: Some(Variant(ident: "Unknown", bits: None)))), crate_idx: 0),
     InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
@@ -695,17 +711,17 @@
         (ident: Some("name"), default: None, since: None, ty: String, docs: [
             "The relation\'s name, not empty, at most [RELATION_NAME_MAX] bytes; the writer gives it meaning.",
         ], slot: None, series_opaque: false),
-        (ident: Some("target"), default: None, since: None, ty: Option(some_ty: OutOfLine(type_idx: 36)), docs: [
+        (ident: Some("target"), default: None, since: None, ty: Option(some_ty: OutOfLine(type_idx: 38)), docs: [
             "The track the values point into, by run and identity; None when the values are not references (keys).",
         ], slot: None, series_opaque: false),
-        (ident: Some("values"), default: None, since: None, ty: OutOfLine(type_idx: 37), docs: [
+        (ident: Some("values"), default: None, since: None, ty: OutOfLine(type_idx: 39), docs: [
             "Whether the items carry a value, and where it is kept.",
         ], slot: None, series_opaque: false),
         (ident: Some("monotone"), default: None, since: None, ty: Bool, docs: [
             "Whether the values never decrease along the track\'s item order (source ordinals 10, 10, 11, 15; not 10, 12,",
             "11). A writer refuses a value below the item\'s before it.",
         ], slot: None, series_opaque: false),
-        (ident: Some("index"), default: None, since: None, ty: OutOfLine(type_idx: 38), docs: [
+        (ident: Some("index"), default: None, since: None, ty: OutOfLine(type_idx: 40), docs: [
             "The index the values feed.",
         ], slot: None, series_opaque: false),
     ]), sparse: false, path: None, instance_of: None, extra: None)), crate_idx: 0),
@@ -716,7 +732,7 @@
         (ident: Some("bundle"), default: None, since: None, ty: Vec(NumericAny(Base(U8))), docs: [
             "Hash of the bundle holding the definition, as in [Describe::Bundle].",
         ], slot: None, series_opaque: false),
-        (ident: Some("krate"), default: None, since: None, ty: OutOfLine(type_idx: 30), docs: [], slot: None, series_opaque: false),
+        (ident: Some("krate"), default: None, since: None, ty: OutOfLine(type_idx: 32), docs: [], slot: None, series_opaque: false),
         (ident: Some("path"), default: None, since: None, ty: String, docs: [
             "Modules from the crate root and the type\'s name, `::` between them.",
         ], slot: None, series_opaque: false),
@@ -823,7 +839,7 @@
     InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
         "An events track: what its chunks may hold besides starts and payloads.",
     ], ident: "EventsDef", generics: [], fields: Named([
-        (ident: Some("ends"), default: None, since: None, ty: OutOfLine(type_idx: 39), docs: [], slot: None, series_opaque: false),
+        (ident: Some("ends"), default: None, since: None, ty: OutOfLine(type_idx: 41), docs: [], slot: None, series_opaque: false),
         (ident: Some("flags"), default: None, since: None, ty: Bool, docs: [
             "Items carry a `u32` flags word (severity in its low bits), which summaries OR together.",
         ], slot: None, series_opaque: false),
@@ -842,10 +858,10 @@
             "What a stored number is worth in the sample type\'s unit at the start: `10⁻³` for `Fixed<Ampere, Milli, i32>`,",
             "1 for a float. A chunk\'s [SeriesGrid] may change it.",
         ], slot: None, series_opaque: false),
-        (ident: Some("summaries"), default: None, since: None, ty: Option(some_ty: OutOfLine(type_idx: 40)), docs: [
+        (ident: Some("summaries"), default: None, since: None, ty: Option(some_ty: OutOfLine(type_idx: 42)), docs: [
             "The summaries the writer builds; None for none (a wide vector series).",
         ], slot: None, series_opaque: false),
-        (ident: Some("media"), default: None, since: None, ty: Option(some_ty: OutOfLine(type_idx: 41)), docs: [
+        (ident: Some("media"), default: None, since: None, ty: Option(some_ty: OutOfLine(type_idx: 43)), docs: [
             "The samples are in a media file\'s stream, decoded on demand, not in chunks.",
         ], slot: None, series_opaque: false),
     ]), sparse: false, path: None, instance_of: None, extra: None)), crate_idx: 0),
@@ -855,7 +871,7 @@
         (ident: Some("run"), default: None, since: None, ty: Array(len: Fixed(16), ty: NumericAny(Base(U8))), docs: [
             "The run, opaque to `ww_tape` (eventfull\'s 16-byte run id), the same for a target in the run itself.",
         ], slot: None, series_opaque: false),
-        (ident: Some("track"), default: None, since: None, ty: NumericAny(Base(U64)), docs: [
+        (ident: Some("track"), default: None, since: None, ty: OutOfLine(type_idx: 44), docs: [
             "The target track\'s [id](TrackDef::id).",
         ], slot: None, series_opaque: false),
     ]), sparse: false, path: None, instance_of: None, extra: None)), crate_idx: 0),
@@ -905,8 +921,8 @@
             "A level-0 node holds `2^base_shift` samples, [Self::BASE_SHIFT_MIN] to [Self::BASE_SHIFT_MAX]; each level up 16",
             "times more. A raw format field: log2 of a sample count.",
         ], slot: None, series_opaque: false),
-        (ident: Some("stats"), default: None, since: None, ty: OutOfLine(type_idx: 42), docs: [], slot: None, series_opaque: false),
-        (ident: Some("clip"), default: None, since: None, ty: Option(some_ty: OutOfLine(type_idx: 43)), docs: [
+        (ident: Some("stats"), default: None, since: None, ty: OutOfLine(type_idx: 45), docs: [], slot: None, series_opaque: false),
+        (ident: Some("clip"), default: None, since: None, ty: Option(some_ty: OutOfLine(type_idx: 46)), docs: [
             "Where samples clip; None: at the scalar type\'s ends for integers, infinities for floats.",
         ], slot: None, series_opaque: false),
     ]), sparse: false, path: Some([
@@ -922,6 +938,14 @@
             "The stream in the file.",
         ], slot: None, series_opaque: false),
     ]), sparse: false, path: None, instance_of: None, extra: None)), crate_idx: 0),
+    InLine(ty: Struct((size: UnsizedFinalStructure, crate_idx: 0, docs: [
+        "A track\'s identity: the hash of its key and dimensions ([track_id](crate::track_id),",
+        "[TrackDef::id](crate::TrackDef::id)), what chunks, summaries and the index place a track by.",
+        "",
+        "Any value is an id.",
+    ], ident: "TrackId", generics: [], fields: Unnamed([
+        (ident: None, default: None, since: None, ty: NumericAny(Base(U64)), docs: [], slot: None, series_opaque: false),
+    ]), sparse: false, path: None, instance_of: None, extra: Some((transparent: true, marker: None)))), crate_idx: 0),
     InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
         "The statistics a series track keeps per channel and node. Each merges from two adjacent nodes without the samples.",
     ], ident: "SeriesStats", generics: [], fields: Named([

@@ -1,5 +1,6 @@
 //! A new piece carries the definitions of the tracks its head carries, quiet ones too (WRITE-9).
 
+use ww_tape::TrackId;
 use ww_tape::index::IndexPolicy;
 use ww_tape::{ClockNum, TrackNum};
 use ww_tape::{
@@ -983,7 +984,7 @@ fn a_marked_row_whose_number_another_track_took_is_named() {
     assert!(at.items.contains_key(&Slot::Track {
         number: TrackNum::new(1)
     }));
-    let named: Vec<u64> = at.not_carried.iter().map(|t| t.track_id).collect();
+    let named: Vec<TrackId> = at.not_carried.iter().map(|t| t.track_id).collect();
     assert_eq!(named, [crate::definitions::track_id(1)]);
 }
 
@@ -1047,7 +1048,7 @@ fn random_schedules_refuse_no_counted_in_track_and_leave_no_piece_empty() {
         .unwrap();
         let mut next_chunk = vec![0u64; usize::try_from(tracks).unwrap() + 1];
         // the tracks with data in each piece, by seq
-        let mut data_in: Vec<std::collections::BTreeSet<u64>> = vec![Default::default()];
+        let mut data_in: Vec<std::collections::BTreeSet<TrackId>> = vec![Default::default()];
         let mut has_data = false;
         let mut maps_left = own_clock.clone();
         let mut policy = policy;
@@ -1055,7 +1056,7 @@ fn random_schedules_refuse_no_counted_in_track_and_leave_no_piece_empty() {
         let mut write = |chain: &mut PieceChain<MemTapes>,
                          defs: &Definitions,
                          k: u32,
-                         data_in: &mut Vec<std::collections::BTreeSet<u64>>,
+                         data_in: &mut Vec<std::collections::BTreeSet<TrackId>>,
                          step: u64| {
             let (h, c) = chunk(u64::from(k) - 1, next_chunk[usize::try_from(k).unwrap()]);
             next_chunk[usize::try_from(k).unwrap()] += 1;
@@ -1126,7 +1127,7 @@ fn random_schedules_refuse_no_counted_in_track_and_leave_no_piece_empty() {
         assert!(all_hold_data(&mem, &pieces), "seed {seed}");
         for (i, p) in pieces.iter().enumerate().skip(1) {
             // the writer's marks for this piece's head, less the tracks whose data put their definition here
-            let mut want: Vec<u64> = pieces[i - 1]
+            let mut want: Vec<TrackId> = pieces[i - 1]
                 .piece
                 .tracks
                 .iter()
@@ -1138,7 +1139,7 @@ fn random_schedules_refuse_no_counted_in_track_and_leave_no_piece_empty() {
             let r = TapeReader::open(&bytes[..]).unwrap();
             let at = r.definitions_at(0, u64::MAX).unwrap();
             assert!(at.is_whole(), "seed {seed} piece {i}");
-            let mut named: Vec<u64> = at.not_carried.iter().map(|t| t.track_id).collect();
+            let mut named: Vec<TrackId> = at.not_carried.iter().map(|t| t.track_id).collect();
             named.sort_unstable();
             assert_eq!(named, want, "seed {seed} piece {i}");
         }

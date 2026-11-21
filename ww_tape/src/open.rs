@@ -13,6 +13,7 @@
 //! [Definitions::len] and [Definitions::bytes] say how much is held, for the application to bound as it likes. Every
 //! item fits a block alone ([STATE_ITEM_MAX]), so it can always be put.
 
+use crate::{ClockKey, TrackId};
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::sync::Arc;
 use alloc::vec;
@@ -117,8 +118,8 @@ pub enum DescribeError {
     /// gives ([TrackDef::id](crate::TrackDef::id)).
     TrackId {
         track: TrackNum,
-        id: u64,
-        defined: u64,
+        id: TrackId,
+        defined: TrackId,
     },
     /// An events chunk of a state track: its items are put one by one.
     StateChunk { track: TrackNum },
@@ -248,7 +249,7 @@ impl core::fmt::Display for DescribeError {
             ),
             Self::TrackId { track, id, defined } => write!(
                 f,
-                "a chunk or summary of track {track} under id {id:#x}: its definition's id is {defined:#x}"
+                "a chunk or summary of track {track} under id {id}: its definition's id is {defined}"
             ),
             Self::StateChunk { track } => write!(
                 f,
@@ -332,7 +333,7 @@ struct HeldTrack {
     facts: TrackFacts,
     bundles: Vec<Named>,
     /// [TrackDef::id](crate::TrackDef::id) and [TrackDef::owner](crate::TrackDef::owner)
-    key: (u64, [u8; 32]),
+    key: (TrackId, [u8; 32]),
 }
 
 /// Check that every relation column of the events chunk `c` reads, one value for each of its items.
@@ -480,10 +481,10 @@ pub struct Held {
 /// taken.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Numbers {
-    tracks: BTreeMap<(u64, [u8; 32]), TrackNum>,
-    track_keys: BTreeMap<TrackNum, (u64, [u8; 32])>,
-    clocks: BTreeMap<u64, ClockNum>,
-    clock_keys: BTreeMap<ClockNum, u64>,
+    tracks: BTreeMap<(TrackId, [u8; 32]), TrackNum>,
+    track_keys: BTreeMap<TrackNum, (TrackId, [u8; 32])>,
+    clocks: BTreeMap<ClockKey, ClockNum>,
+    clock_keys: BTreeMap<ClockNum, ClockKey>,
 }
 
 impl Numbers {
@@ -493,17 +494,17 @@ impl Numbers {
     }
 
     /// The number of the track of id `id` and owner `owner`.
-    pub fn track(&self, id: u64, owner: [u8; 32]) -> Option<TrackNum> {
+    pub fn track(&self, id: TrackId, owner: [u8; 32]) -> Option<TrackNum> {
         self.tracks.get(&(id, owner)).copied()
     }
 
     /// The number of the clock of key `key`.
-    pub fn clock(&self, key: u64) -> Option<ClockNum> {
+    pub fn clock(&self, key: ClockKey) -> Option<ClockNum> {
         self.clocks.get(&key).copied()
     }
 
     /// Track `number` stands for the track of id `id` and owner `owner`; a track it stood for before loses it.
-    pub fn take_track(&mut self, number: TrackNum, id: u64, owner: [u8; 32]) {
+    pub fn take_track(&mut self, number: TrackNum, id: TrackId, owner: [u8; 32]) {
         if let Some(old) = self.track_keys.insert(number, (id, owner)) {
             self.tracks.remove(&old);
         }
@@ -515,7 +516,7 @@ impl Numbers {
     }
 
     /// Clock `number` stands for the clock of key `key`; a clock it stood for before loses it.
-    pub fn take_clock(&mut self, number: ClockNum, key: u64) {
+    pub fn take_clock(&mut self, number: ClockNum, key: ClockKey) {
         if let Some(old) = self.clock_keys.insert(number, key) {
             self.clocks.remove(&old);
         }
@@ -527,7 +528,7 @@ impl Numbers {
     }
 
     /// The number of the track of id `id` and owner `owner`, else the lowest not taken.
-    fn track_for(&self, id: u64, owner: [u8; 32]) -> Result<TrackNum, DescribeError> {
+    fn track_for(&self, id: TrackId, owner: [u8; 32]) -> Result<TrackNum, DescribeError> {
         if let Some(n) = self.track(id, owner) {
             return Ok(n);
         }
@@ -537,7 +538,7 @@ impl Numbers {
     }
 
     /// The number of the clock of key `key`, else the lowest not taken.
-    fn clock_for(&self, key: u64) -> Result<ClockNum, DescribeError> {
+    fn clock_for(&self, key: ClockKey) -> Result<ClockNum, DescribeError> {
         if let Some(n) = self.clock(key) {
             return Ok(n);
         }
@@ -718,7 +719,7 @@ impl Definitions {
 
     /// The id and owner of held track `number`, as its definition says.
     #[cfg(feature = "alloc")]
-    pub(crate) fn track_key(&self, number: TrackNum) -> Option<(u64, [u8; 32])> {
+    pub(crate) fn track_key(&self, number: TrackNum) -> Option<(TrackId, [u8; 32])> {
         self.tracks.get(&number).map(|t| t.key)
     }
 
@@ -1099,7 +1100,7 @@ impl Definitions {
     }
 
     /// Check that track `track` is held and named by its definition's id `id` in a chunk or summary head.
-    fn check_track_id(&self, track: TrackNum, id: u64) -> Result<TrackFacts, DescribeError> {
+    fn check_track_id(&self, track: TrackNum, id: TrackId) -> Result<TrackFacts, DescribeError> {
         let held = self
             .tracks
             .get(&track)

@@ -149,7 +149,7 @@ fn head(track: TrackNum, k: u64, count: u32) -> anyhow::Result<ChunkHead> {
     Ok(ChunkHead {
         kind: BlockKind::Series,
         // the track's id: its key, it has no dimensions
-        track_id: track_key(0xc4, &[Segment::Name("samples")]),
+        track_id: track_key(0xc4, &[Segment::Name("samples")]).id(),
         track_number: track,
         first_item: first,
         count,

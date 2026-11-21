@@ -19,7 +19,7 @@ fn piece_head_round_trip() {
     };
     let tracks = [
         TrackStart {
-            track_id: 11,
+            track_id: TrackId::new(11),
             track_number: TrackNum::new(1),
             next_item: 8192,
             from_tick: -5,
@@ -29,7 +29,7 @@ fn piece_head_round_trip() {
             not_carried: true,
         },
         TrackStart {
-            track_id: 12,
+            track_id: TrackId::new(12),
             track_number: TrackNum::new(2),
             next_item: 0,
             from_tick: i64::MIN,
@@ -89,7 +89,7 @@ fn close_and_tail_round_trip() {
         next: Some(PieceId([0x55; 16])),
     };
     let tracks = [TrackRange {
-        track_id: 11,
+        track_id: TrackId::new(11),
         track_number: TrackNum::new(1),
         chunks: 2,
         first_item: 8192,
@@ -500,7 +500,7 @@ fn plain_close() -> Close {
 fn removed_pieces_round_trip_in_the_close() {
     let removed = [removed_row(1), removed_row(2), removed_row(5)];
     let tracks = [TrackRange {
-        track_id: 1,
+        track_id: TrackId::new(1),
         track_number: TrackNum::new(1),
         chunks: 0,
         first_item: 0,

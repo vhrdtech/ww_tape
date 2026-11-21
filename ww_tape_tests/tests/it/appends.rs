@@ -4,6 +4,7 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 use ww_tape::ClockNum;
+use ww_tape::index::RECORDS_TRACK_ID;
 
 use crate::pieces::{chunk, chunk_id, column, scratch};
 use crate::reclose::{close, closes, reopen, write};
@@ -22,7 +23,11 @@ where
     let mut seen = BTreeSet::new();
     let mut buf = vec![];
     for e in r.entries(0).unwrap() {
-        if e.kind != BlockKind::Records || e.track_id != 0 || e.repeat || !seen.insert(e.offset) {
+        if e.kind != BlockKind::Records
+            || e.track_id != RECORDS_TRACK_ID
+            || e.repeat
+            || !seen.insert(e.offset)
+        {
             continue;
         }
         let b = r.read_block(0, &e, &mut buf).unwrap();

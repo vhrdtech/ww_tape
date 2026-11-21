@@ -833,7 +833,8 @@ mod builder {
     use crate::{Layout, SCALE_LEN_MAX, SummaryHead, Tree, summary_len, write_series_summary};
     use ww_tape::samples::Sample;
     use ww_tape::{
-        ElementDesc, Ratio64, SampleShape, SeriesError, SeriesGrid, SeriesTimeline, TrackNum,
+        ElementDesc, Ratio64, SampleShape, SeriesError, SeriesGrid, SeriesTimeline, TrackId,
+        TrackNum,
     };
     use ww_tape_codecs::kernel::Kernel;
 
@@ -861,7 +862,7 @@ mod builder {
     /// [summary element](ElementDesc::summary_element), at the grid's scale over `q`: 8-bit IQ offset to 127.5 keeps
     /// exact minimum, maximum and sums in an i16. Its samples go in by [Self::push_from].
     pub struct SeriesSummaries<T: Scalar> {
-        track_id: u64,
+        track_id: TrackId,
         track_number: TrackNum,
         /// The element the statistics are kept in
         element: ElementDesc,
@@ -905,7 +906,7 @@ mod builder {
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     pub struct SeriesStart {
         /// [TrackDef::id](ww_tape::TrackDef::id).
-        pub track_id: u64,
+        pub track_id: TrackId,
         /// [TrackDef::number](ww_tape::TrackDef::number).
         pub track_number: TrackNum,
         /// The samples' element ([TrackDef::series_shape](ww_tape::TrackDef::series_shape)) and channels, at most

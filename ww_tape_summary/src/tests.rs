@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, ops::Range};
 use ww_tape::ClockNum;
-use ww_tape::TrackNum;
+use ww_tape::{TrackId, TrackNum};
 
 use super::*;
 use ww_tape::{
@@ -143,7 +143,7 @@ fn naive_event(items: &[(i64, i64, u32)], fields: EventFields) -> EventNode {
 /// Build the tree of `items` (item numbers from `origin`), check every level against the naive model and that each
 /// parent is its children merged; returns the blocks.
 fn check_events(items: &Items, origin: u64, fields: EventFields, runs: bool) -> Vec<Vec<u8>> {
-    let mut tree = EventTree::new(0x1234, TrackNum::new(3), fields, origin);
+    let mut tree = EventTree::new(TrackId::new(0x1234), TrackNum::new(3), fields, origin);
     if runs {
         // the same items as runs that stop at level-0 node edges and every 128 items
         let mut i = 0usize;
@@ -253,7 +253,7 @@ fn event_tree_refuses_bad_input() {
         flags: false,
         latest_end: false,
     };
-    let mut t = EventTree::new(1, TrackNum::new(1), f, 0);
+    let mut t = EventTree::new(TrackId::new(1), TrackNum::new(1), f, 0);
     t.push(10, 10, 0).unwrap();
     assert!(t.push(9, 9, 0).is_err(), "out of order");
     assert!(t.push(11, 12, 0).is_err(), "a span in a tree of instants");
@@ -281,7 +281,7 @@ fn overview_of_a_billion_items_reads_a_level() {
         flags: true,
         latest_end: false,
     };
-    let mut tree = EventTree::new(9, TrackNum::new(1), fields, 0);
+    let mut tree = EventTree::new(TrackId::new(9), TrackNum::new(1), fields, 0);
     let mut item = 0u64;
     let mut bytes = BTreeMap::<u8, (usize, u64)>::new();
     let mut tally = |blocks: Vec<Vec<u8>>| {
@@ -334,7 +334,7 @@ fn series_blocks<T: Scalar>(
     pushes: usize,
 ) -> Vec<Vec<u8>> {
     let start = SeriesStart {
-        track_id: 77,
+        track_id: TrackId::new(77),
         track_number: TrackNum::new(2),
         shape,
         first_item,
@@ -719,7 +719,7 @@ fn series_summaries_match_naive_model() {
 fn series_refuses_partial_frames() {
     let shape = SampleShape::new(ed(Element::I16), 3);
     let start = SeriesStart {
-        track_id: 1,
+        track_id: TrackId::new(1),
         track_number: TrackNum::new(1),
         shape,
         first_item: 0,
@@ -739,7 +739,7 @@ fn series_refuses_partial_frames() {
 #[test]
 fn series_refuses_bad_specs() {
     let start = |shape| SeriesStart {
-        track_id: 1,
+        track_id: TrackId::new(1),
         track_number: TrackNum::new(1),
         shape,
         first_item: 0,
@@ -786,7 +786,7 @@ fn series_refuses_bad_specs() {
 #[test]
 fn heads_read_back_and_bad_heads_are_refused() {
     let mut t = EventTree::new(
-        5,
+        TrackId::new(5),
         TrackNum::new(6),
         EventFields {
             flags: true,
@@ -802,7 +802,13 @@ fn heads_read_back_and_bad_heads_are_refused() {
     let b = &blocks[0];
     let h = Summary::read(b).unwrap().head();
     assert_eq!(
-        (h.track_id, h.track_number, h.tree, h.level, h.node_shift),
+        (
+            h.track_id.get(),
+            h.track_number,
+            h.tree,
+            h.level,
+            h.node_shift
+        ),
         (5, TrackNum::new(6), Tree::Events, 0, 11)
     );
     assert_eq!(
@@ -854,7 +860,12 @@ fn heads_read_back_and_bad_heads_are_refused() {
 #[test]
 fn event_tree_at_the_top_of_the_item_numbers() {
     let first = u64::MAX - 100;
-    let mut t = EventTree::new(1, TrackNum::new(1), EventFields::default(), first);
+    let mut t = EventTree::new(
+        TrackId::new(1),
+        TrackNum::new(1),
+        EventFields::default(),
+        first,
+    );
     for i in 0..50 {
         t.push(i, i, 0).unwrap();
     }
@@ -882,7 +893,7 @@ fn merge_of_huge_clipped_counts() {
 #[test]
 fn series_head_caps() {
     let start = SeriesStart {
-        track_id: 7,
+        track_id: TrackId::new(7),
         track_number: TrackNum::new(1),
         shape: SampleShape::scalar(ed(Element::I16)),
         first_item: 0,
@@ -957,7 +968,7 @@ fn define_series(defs: &mut ww_tape::Definitions) -> TrackNum {
 }
 
 /// The id of [series_track]: what its chunks' heads carry.
-fn series_track_id() -> u64 {
+fn series_track_id() -> TrackId {
     series_track(ClockNum::new(1)).id()
 }
 
@@ -1087,7 +1098,7 @@ fn summaries_fill_alignment_gaps() {
 fn summary_golden() {
     let build = || {
         let mut t = EventTree::new(
-            0xabcd,
+            TrackId::new(0xabcd),
             TrackNum::new(2),
             EventFields {
                 flags: true,
@@ -1104,7 +1115,7 @@ fn summary_golden() {
         let mut blocks = t.take_blocks();
         let shape = SampleShape::new(ed(Element::ComplexI16), 2);
         let start = SeriesStart {
-            track_id: 0x5e,
+            track_id: TrackId::new(0x5e),
             track_number: TrackNum::new(3),
             shape,
             first_item: 30,
@@ -1454,7 +1465,7 @@ fn series_prefix_changes_match_naive_model_in_the_unit() {
         at.dedup();
         let first = SeriesGrid::start(first_item, 0, scales[0]);
         let start = SeriesStart {
-            track_id: 9,
+            track_id: TrackId::new(9),
             track_number: TrackNum::new(1),
             shape,
             first_item,
@@ -1492,7 +1503,7 @@ fn series_prefix_changes_match_naive_model_in_the_unit() {
 #[test]
 fn series_scale_changes_refused() {
     let start = |first: SeriesGrid| SeriesStart {
-        track_id: 1,
+        track_id: TrackId::new(1),
         track_number: TrackNum::new(1),
         shape: SampleShape::scalar(ed(Element::I64)),
         first_item: 0,
@@ -1549,7 +1560,7 @@ fn series_block_scale_is_checked() {
     let first = SeriesGrid::start(0, 0, Magnitude::pow10(-3));
     let mut s = SeriesSummaries::<i16>::new(
         SeriesStart {
-            track_id: 1,
+            track_id: TrackId::new(1),
             track_number: TrackNum::new(1),
             shape,
             first_item: 0,
@@ -1607,7 +1618,7 @@ fn series_cut_into_pieces_keeps_node_ticks() {
     let data: Vec<i16> = (0..9000).map(|i| ((i * 31) % 2000 - 1000) as i16).collect();
     let summarise = |from: usize, to: usize| -> Vec<Vec<u8>> {
         let start = SeriesStart {
-            track_id: 77,
+            track_id: TrackId::new(77),
             track_number: TrackNum::new(2),
             shape,
             first_item: from as u64,
@@ -1676,7 +1687,7 @@ fn series_cut_into_pieces_keeps_node_ticks() {
 /// The start of a one-channel series of `element` at scale 10⁻³, one sample per 1000 ticks.
 fn start_of(element: ElementDesc, channels: u32) -> SeriesStart {
     SeriesStart {
-        track_id: 1,
+        track_id: TrackId::new(1),
         track_number: TrackNum::new(1),
         shape: SampleShape::new(element, channels),
         first_item: 0,
@@ -1814,7 +1825,7 @@ fn series_refuses_elements_without_summaries() {
 /// [Summary::read] takes only a summary block: the bytes of a good block of another kind are refused by their kind.
 #[test]
 fn summary_read_refuses_another_kind() {
-    let mut t = EventTree::new(1, TrackNum::new(1), EventFields::default(), 0);
+    let mut t = EventTree::new(TrackId::new(1), TrackNum::new(1), EventFields::default(), 0);
     for i in 0..100 {
         t.push(i, i, 0).unwrap();
     }
