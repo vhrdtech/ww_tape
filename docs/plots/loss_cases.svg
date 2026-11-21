@@ -132,7 +132,7 @@
 <rect x="24.0" y="164.0" width="49.2" height="42.0" rx="0" class="tint-accent"/>
 <path d="M24.0 160.0 V206.0" class="accent-line"/>
 <text x="28.0" y="158.0" text-anchor="start" class="small accent"></text>
-<text x="664.0" y="218.0" text-anchor="end" class="small">40 of 49 blocks of data read; 7 of 9 definitions found</text>
+<text x="664.0" y="218.0" text-anchor="end" class="small">40 of 49 blocks of data read; the piece head is lost</text>
 <text x="24.0" y="240.0" text-anchor="start" class="small strong">the last 4 KiB lost</text>
 <rect x="24.5" y="262.0" width="5.5" height="30.0" rx="1" class="tint-green"/>
 <rect x="31.0" y="262.0" width="1.0" height="30.0" rx="1" class="tint-purple"/>

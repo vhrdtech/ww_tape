@@ -260,11 +260,9 @@ pub fn loss_cases() -> anyhow::Result<String> {
                 read.data_blocks()
             ),
             1 => format!(
-                "{} of {} blocks of data read; {} of {} definitions found",
+                "{} of {} blocks of data read; the piece head is lost",
                 read.read.len(),
-                read.data_blocks(),
-                read.definitions,
-                read.definitions_written
+                read.data_blocks()
             ),
             _ => format!(
                 "{} of {} blocks of data read; no close, found from the newest checkpoint",
