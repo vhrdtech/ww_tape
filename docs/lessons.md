@@ -4,10 +4,10 @@ level: basic
 
 # Lessons from tape and flash
 
-Tape drives and flash memory met the problems of a [[raw medium]] long before tapes did. They met data of an earlier
-life behind the current end, erased space in the middle and writes retried after an error. This appendix names where
-each rule of [Where the data ends on a raw card](raw_media.md) comes from, and what the format takes from it. Each point
-names its source, and the sources are listed at the end.
+Tape drives and flash memory met the problems of a [[raw medium]] long before this format did. They met data of an
+earlier life behind the current end, erased space in the middle and writes retried after an error. This appendix names
+where each rule of [Where the data ends on a raw card](raw_media.md) comes from, and what the format takes from it. Each
+point names its source, and the sources are listed at the end.
 
 ## Sessions and the end of the data
 
@@ -25,8 +25,8 @@ is data.
 ## Erased bytes and gaps
 
 Erased is not always zero. NOT-AND (NAND) flash erases to 0xFF [Micron TN-29-19]. A Secure Digital (SD) card reads 0 or
-1 after an erase, by vendor [SD 9.10, §4.3.5.1]. An eMMC device reports which value it uses [JESD84-A441]. A tape's
-blank space is therefore either value.
+1 after an erase, by vendor [SD 9.10, §4.3.5.1]. An embedded MultiMediaCard (eMMC) device reports which value it uses
+[JESD84-A441]. A tape's blank space is therefore either value.
 
 A blank unit is not always the end. A NAND writer that hits a failed program moves on and leaves erased pages behind.
 The UBI file system (UBIFS) looks past such units when it scans for the end of the data [UBIFS].

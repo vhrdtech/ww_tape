@@ -5,16 +5,15 @@ level: advanced
 # Where the data ends on a raw card
 
 Besides the host's files, a recorder box on the bench writes the drive's run onto a Secure Digital (SD) card without a
-file system. The card still holds an earlier run of the same board, a full hour. At minute 37 the power fails,
-and the box stops in the middle of a block. This chapter answers how a [[reader]] of the card finds where today's run
-ends, with good blocks of the earlier run right behind it. After it you can write a tape onto a [[raw medium]]
-and read it back past [[stale data]], [[gaps]] and [[duplicates]].
+file system. The card still holds an earlier run of the same board, a full hour. At minute 37 the power fails, and the
+box stops in the middle of a block. This chapter answers how a [[reader]] of the card finds where today's run ends, with
+good blocks of the earlier run right behind it. After it you can write a tape onto a [[raw medium]] and read it back
+past [[stale data]], [[gaps]] and [[duplicates]].
 
 ## Sessions and stale data
 
 In a file, the data ends where the file ends. A [[raw medium]] has no such end. A reused card holds an older recording
-behind the current one, and its [[blocks]] are as valid as the new ones. A reader tells them apart by their
-[[session]].
+behind the current one, and its [[blocks]] are as valid as the new ones. A reader tells them apart by their [[session]].
 
 A [[session]] is one writer's unbroken append, such as a producer's start or a device's boot. Every block of a session
 carries the same 32-bit [[session tag]] in its header, and its sequence numbers count up from zero. A tag is never zero
@@ -60,8 +59,7 @@ failed. Read as a raw medium, the card gives today's 3 pieces, the last one endi
 other 40.99 MiB stay behind as stale data. Read as a file, the card gives 4 pieces, and the fourth is the earlier run's
 last piece, found by its tail.
 
-`cargo run -p ww_tape_example` prints these numbers, and this doctest reads the same card
-at 1/1000 of its data:
+`cargo run -p ww_tape_example` prints these numbers, and this doctest reads the same card at 1/1000 of its data:
 
 ```rust
 use ww_tape::{Medium, OpenOptions, TapeReader};
@@ -110,7 +108,7 @@ The [[layout]] says how far a writer may skip and where it goes on, at a multipl
 | Medium | Longest gap (`gap_max`) | Goes on at a multiple of (`resume_align`) |
 |---|---|---|
 | a file ([`Layout::UNALIGNED`]) | 0: the first bad stretch is the end | 1 byte |
-| an SD card or eMMC ([`Layout::on_sd_card`]) | 4 MiB | 512 bytes, a sector |
+| an SD card or embedded MultiMediaCard (eMMC) ([`Layout::on_sd_card`]) | 4 MiB | 512 bytes, a sector |
 | raw NAND ([`Layout::on_raw_nand`]) | two erase blocks | one page |
 
 Past a blank or bad stretch, a reader reads one block header at the first non-blank byte and one at each resume place
@@ -128,16 +126,15 @@ stretch.</figcaption>
 On the drive's card the torn block is such a stretch. Within 4 MiB after it, the reader finds only the earlier run's
 blocks, which are stale. Today's data therefore ends at the torn block, and the reader reads nothing further.
 
-The format bounds what a gap costs a reader. It reads a header per resume place and checks at most [`GAP_CHECKS_MAX`]
-blocks whole. It reads no further than blank space longer than `gap_max`. An erased 64 GB card thus costs one gap's
-worth of reads. The
+The format bounds what a gap costs a reader. It reads a header per resume place and checks only a few blocks whole. It
+reads no further than blank space longer than `gap_max`, so an erased 64 GB card costs one gap's worth of reads. The
 [format reference](format.md#blank-space-and-gaps) lists the bounds.
 
 ## Duplicates
 
 A writer that retried a write may leave the same block twice. The same session and sequence number twice is a
-[[duplicate]], not a new block. A reader in [`Recovery::Prefix`] drops a second copy with the same bytes. A copy with
-other bytes it takes in place of the first, and reports the replacement ([`FileError::Replaced`]).
+[[duplicate]], not a new block. A reader in [`Recovery::Prefix`] drops a second copy with the same bytes. It takes a
+copy with other bytes in place of the first, and reports the replacement ([`FileError::Replaced`]).
 
 [`Recovery::Resync`] reports a pair with other bytes as a conflict instead, as
 [When bytes go bad](damage.md#reading-past-damage) explains. In damaged bytes it cannot tell a copy from a rewrite, so
