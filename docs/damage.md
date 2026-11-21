@@ -12,8 +12,8 @@ read past a bad [[block]]. You can also salvage the good parts of a damaged chun
 ## Checks at three levels
 
 A tape finds damage before it can contain it. Every [[block]] ends with a [[CRC-32C]], a cyclic redundancy check (CRC)
-over all its bytes. A
-[[chunk]] adds two finer checks inside its body, and a closed [[piece]] adds one coarse check over all its blocks.
+over all its bytes. A [[chunk]] adds two finer checks inside its body, and a closed [[piece]] adds one coarse check over
+all its blocks.
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/figures/checksums.svg"
@@ -72,9 +72,9 @@ on. Drawn by <code>ww_tape_figures</code> from the drive's last piece at 1/1000 
 </figure>
 
 [`Recovery::Prefix`], the default, reads the longest valid prefix of the bytes. It stops at the first block with a bad
-magic, length or CRC, at a block cut short, or at a sequence number going backwards. It reports where it stopped and
-why ([`FileError::Cut`]). This is what a crash leaves: good blocks, then a [[torn block]]. In the flipped piece,
-Prefix reads 1158 blocks and stops at byte 9716790, where the damaged chunk starts.
+magic, length or CRC, at a block cut short, or at a sequence number going backwards. It reports where it stopped and why
+([`FileError::Cut`]). This is what a crash leaves: good blocks, then a [[torn block]]. In the flipped piece, Prefix
+reads 1158 blocks and stops at byte 9716790, where the damaged chunk starts.
 
 [`Recovery::Resync`] reads on. At a bad block it reports [`FileError::Bad`] and looks for the next block's magic one
 byte after the bad block's start. Any byte may start a block, so Resync takes a block only when its CRCs match. A chunk
@@ -134,8 +134,8 @@ The cost depends on where the damage lands:
 ## What a damaged piece still gives
 
 Damage to a piece lands in one of three places: the start, the end or somewhere between. The drive's last piece shows
-all three, each on its own copy: the flipped bit, the first 4 KiB lost, the last 4 KiB lost. A lost stretch here
-reads as zeros, as sectors that a disk could not read.
+all three, each on its own copy: the flipped bit, the first 4 KiB lost, the last 4 KiB lost. A lost stretch here reads
+as zeros, as sectors that a disk could not read.
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/plots/loss_cases.svg"
@@ -165,15 +165,17 @@ Each definition comes from its newest record that reads. The writer copies a def
 first record. Every track, clock and clock map of the drive is thus found again. The producer's name and the [[layout]]
 are not, since no block uses them and the writer never copies them.
 
-The piece head named the piece before it. The chain's link back from this piece can therefore no longer be checked,
-while the link forward still can.
+The piece head named the piece before it, so the chain's link back from this piece can no longer be checked. The last
+piece of a chain names no next piece, so it has no link forward to lose.
 
 ### The last 4 KiB lost
 
 These bytes hold the [[tail]], the [[close]] and the end of the [[final index]]. The reader finds no tail and reads the
 piece as unclosed. It finds the newest [[checkpoint]] and scans the 1096734 bytes after it block by block, up to the
 damage. Every one of the 3449 blocks of data reads, and so does every definition. The piece loses its [[content hash]]
-and its link forward to the next piece, and reports as unclosed instead of complete.
+and reports as unclosed instead of complete.
+
+A piece in the middle of a chain would also lose its close's link to the next piece.
 
 ### One block in the middle lost
 
