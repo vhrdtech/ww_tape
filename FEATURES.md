@@ -45,7 +45,7 @@ The bytes of blocks, records, chunks, definitions and the index, in the crate `w
   - A chunk block holds one stretch of one track's events or samples, read in place. Its head places it without an index.
   - The head has its own CRC, and the payload has a CRC for every 64 KiB. A flipped bit in a series chunk loses one segment.
   - An aligned file puts every chunk payload on a 4 KiB boundary. Small blocks fill the gaps before them.
-  - Read more: [Chunks](docs/events_and_series.md#chunks). Golden file `v1-chunks.hex`; fuzz target `tape-chunk`.
+  - Read more: [Chunks from columns](docs/columns.md). Golden file `v1-chunks.hex`; fuzz target `tape-chunk`.
 - ✅ **FMT-4 Index, close and tail** · `v0.5`
   - A checkpoint index every 4 MiB lists the blocks since the one before, so a crash costs at most the open chunk.
   - A closed piece ends with a final index sorted by track, a close block and a fixed tail found from the end of the file.
@@ -70,7 +70,7 @@ The bytes of blocks, records, chunks, definitions and the index, in the crate `w
 - ✅ **FMT-8 Closed pieces end on 4 KiB** · `v0.5`
   - A closed piece is a multiple of 4 KiB long. Pieces clone back to back into one file on btrfs and XFS with nothing between them.
   - The writer pads the close block, which states the padding. Blocks inside a piece stay unaligned.
-  - Read more: [The 4 KiB end and cloning](docs/pieces_and_files.md#the-4-kib-end-and-cloning).
+  - Read more: [The 4 KiB end and cloning](docs/pieces.md#the-4-kib-end-and-cloning).
 - ✅ **FMT-9 Definitions and state near their use** · `v0.5`
   - Definitions are plain records on track 0: the producer, the layout, bundles, clocks, maps, tracks and typed items. Each has a slot, and the newest per slot counts.
   - The application holds its definitions and passes them with each write. Data of a track it doesn't hold is refused.
@@ -97,7 +97,7 @@ Writing pieces and chains, resuming them, sinks in memory, in the crate `ww_tape
 - ✅ **WRITE-1 Pieces and chains** · `v0.5`
   - One recording is cut into complete pieces at chunk boundaries. A cut happens by bytes, chunks or age, and never leaves a piece empty.
   - Each piece names the one before by its id and content hash. A chain check reports gaps, broken links, an open end and a lost first piece.
-  - Read more: [Sessions, pieces and chains](docs/sessions_and_pieces.md), [Pieces and files](docs/pieces_and_files.md).
+  - Read more: [Anatomy of a piece](docs/anatomy.md), [Pieces and chains](docs/pieces.md).
 - ✅ **WRITE-2 Resume after a crash** · `v0.5`
   - A writer reopens an unclosed piece and keeps every block up to the last one written. The resumed piece ends with the bytes of a write that never stopped.
   - A chain resume also reads the closed pieces back. It handles a crash between a cut's close and the next piece.
@@ -114,12 +114,12 @@ Writing pieces and chains, resuming them, sinks in memory, in the crate `ww_tape
   - A closed piece can be taken out of memory, and readers holding it read on.
   - A memory sink reserves room for a whole piece, so a reader waits at most 0.16 ms while a 256 MiB piece is written.
   - Open: resuming a chain in memory whose first pieces were taken out.
-  - Read more: [Writing to memory](docs/sinks_and_locks.md#writing-to-memory).
+  - Read more: [Reading while the writer writes](docs/live_feeds.md#reading-while-the-writer-writes).
 - ✅ **WRITE-6 Pieces in one file, track owners and hashes**
   - A chain writes a file per piece or all pieces into one file. Each session that opens the file adds a piece.
   - A sink is the only writer of its bytes. A second writer is refused.
   - Tracks of one identity are told apart by an owner. A running hash per track is the same alone or interleaved, in one piece or many.
-  - Read more: [Writing a chain into one file](docs/pieces_and_files.md#writing-a-chain-into-one-file), [Track owners and hashes](docs/track_hashes.md). Fuzz target `tape-resume`.
+  - Read more: [Writing a chain into one file](docs/pieces.md#writing-a-chain-into-one-file), [Track owners and hashes](docs/track_hashes.md). Fuzz target `tape-resume`.
 
 - ✅ **WRITE-7 A piece closes more than once**
   - A close ends a write session, not the piece. A writer resumed on a closed piece appends after its tail and closes again.
@@ -133,7 +133,7 @@ Writing pieces and chains, resuming them, sinks in memory, in the crate `ww_tape
   - `TapeWriter::record_removed` appends them to the chain's last piece after its close; every later close of the piece names them again.
   - `check_chain` links over the hole (`ChainLink::Removed`) when both ends match the rows. A head cut the rows cover reads as `head_removed`.
   - Rows live in the piece that holds them: removing that piece later means naming them again (`ChainReport::removed`).
-  - Read more: [Pieces removed on purpose](docs/pieces_and_files.md#pieces-removed-on-purpose). Golden `v1-removed.hex`.
+  - Read more: [Pieces removed on purpose](docs/pieces.md#pieces-removed-on-purpose). Golden `v1-removed.hex`.
 
 - ✅ **WRITE-9 A new piece carries its quiet tracks' definitions**
   - A cut puts the definition of every track the new head carries, with its clocks, maps and bundles, right after the head. Dropping older pieces keeps a quiet track's kind, clock and label.
@@ -178,7 +178,7 @@ Everything that names a path, in the crate `ww_tape_fs`.
   - A sync policy syncs data by block count or time. A failed write or sync ends the file, never retried.
   - A file sink holds a lock on `NAME.lock`, so a second writer is refused. The lock doesn't pass to a forked child.
   - An error names the step, the file and the kind, with the system's error as its source.
-  - Read more: [Writing to files](docs/sinks_and_locks.md#writing-to-files), [Writing a file durably](docs/format.md#writing-a-file-durably).
+  - Read more: [Files and syncing](docs/files.md), [Writing a file durably](docs/format.md#writing-a-file-durably).
 
 ## Codecs (`CODEC`)
 
@@ -193,11 +193,11 @@ Column codecs with no notion of a block, in the crate `ww_tape_codecs`.
   - Starts are implicit, from a period, or a linear fit per group of 128 with bit-packed residuals. Ends are absent, the next start, or packed durations.
   - Times are searched and read in place. A damaged column marks only the bad groups' items suspect.
   - The bit-pack kernels have AVX-512, AVX2 and NEON paths picked at run time, each checked against scalar.
-  - Read more: [Event times](docs/events_and_series.md#event-times). Golden file `v1-times.hex`; fuzz target `tape-times`.
+  - Read more: [Event times](docs/columns.md#event-times). Golden file `v1-times.hex`; fuzz target `tape-times`.
 - ✅ **CODEC-3 Payloads** · `v0.5`
   - Item payloads are a column of bit-packed lengths and a column of raw or lz4 bytes, whichever is smaller.
   - A damaged column is salvaged group by group. Only a bad group's items are marked.
-  - Read more: [Payloads](docs/events_and_series.md#payloads). Golden file `v1-payloads.hex`; fuzz target `tape-payloads`.
+  - Read more: [Payloads](docs/columns.md#payloads). Golden file `v1-payloads.hex`; fuzz target `tape-payloads`.
 - ✅ **CODEC-4 ALP for floats** · `v0.5`
   - ALP codes floats that began as decimals as bit-packed integers, after Afroozeh, Kuffó and Boncz (SIGMOD 2024). Other floats are coded by their front bits.
   - It is lossless, and a group never takes more than 7 bytes over raw. The same input gives the same bytes on every platform.
@@ -250,9 +250,10 @@ The pages in `docs/`.
   - Done: the running example as code (BOOK-3).
   - Done: Part I, "Tapes" and "A first tape": the drive's hour as a tape, and a program that writes and reads its first minute.
   - Done: Part II, how a tape is built: five chapters with the drive's case, tested code and seven new figures.
+  - Done: Part III, writing: five chapters with every writing call the drive makes in tested code, and eight new figures.
   - Done: Part IV, reading: five chapters that find the drive's fault in code, with six new figures.
   - Done: Part V, damage and raw media, with the drive's archive and card, four new figures and the lessons appendix.
-  - Open: the chapters still stubs, tested code in every guide chapter.
+  - Open: the chapter "Sizes and speeds", still a stub; tested code in every guide chapter.
   - Read more: [For writers](docs/writers.md), [Glossary](docs/glossary.md).
 
 - ✅ **BOOK-3 The running example as code**

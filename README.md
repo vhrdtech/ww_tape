@@ -40,7 +40,7 @@ system clock, reading blocks from a stream and owned definitions.
 The pages in [`docs/`](docs) explain the format. They start with these:
 
 - [Tapes](docs/index.md): records, clocks, the anatomy of a file;
-- [Events and series](docs/events_and_series.md);
+- [Writing a tape](docs/writing.md) and [Chunks from columns](docs/columns.md);
 - [When bytes go bad](docs/damage.md);
 - the [Format reference](docs/format.md).
 

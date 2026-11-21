@@ -6,7 +6,7 @@ and time.
 Every figure names the bench that produced it and the machine it ran on. A loaded machine gives lower figures than it
 can reach, and therefore each table also gives the load.
 
-The page assumes [Tape concepts](concepts.md) and [Events and series](events_and_series.md).
+The page assumes [Tracks and items](tracks.md) and [Chunks from columns](columns.md).
 
 ## Fixed point first
 
@@ -104,8 +104,24 @@ salvaged starts column.
 | a real system journal, 1 µs ticks | 2.97 | 5.2 | 26.4 | 163.8 |
 | bursty traffic, 1 ns ticks | 3.84 | 5.5 | 23.3 | 216.6 |
 
-[Events and series](events_and_series.md#what-it-costs) compares the codec with two alternatives on the same
-workloads.
+The same bench compares the linear codec with two alternatives. The table gives bytes per event, with group records
+and chunk overhead. It stores the residual minimum in 8 bytes, a 29-byte group record against the format's 25 bytes. The linear
+column is therefore an upper bound.
+
+| Workload | Linear groups | Delta-of-delta varints | Elias-Fano |
+|---|---:|---:|---:|
+| 1 ms period, ±300 ns jitter, 1 ns ticks | 1.48 | 1.88 | 2.79 |
+| exact 1 ms period with a few gaps | 0.022 | 0.99 | 2.79 |
+| bursty traffic, 1 ns ticks | 3.84 | 2.43 | 3.16 |
+| a real system journal, 6.4 M entries, 1 µs ticks | 2.97 | 2.76 | 2.51 |
+
+A search over the packed starts beats a binary search over raw ticks of the same items, which takes 244 to 280 ns.
+The packed track is smaller. Bursty nanosecond traffic is the one case where the linear codec loses. Varints can't be read
+in place, though: fetching one item costs 190 to 310 ns, since the reader must walk to it. On such data the format pays
+about 1.4 bytes per event for random access.
+
+Back-to-back spans cost 2.98 bytes per event for starts and ends together, against 16.01 raw. Spans with gaps between
+them cost 5.97 bytes.
 
 A clock that matches its source saves the most. One million video frames at 60000/1001 frames per second cost 0.010
 bytes per frame on the stream's own 60 000 Hz clock.
@@ -162,8 +178,8 @@ therefore can't be rerun with the bench.
 
 ## Writing chunks
 
-The writer's own cost per chunk is a copy, the CRCs and the content hash. `just bench-chunks`
-measures it on series chunks of 1 MiB, and [Writing a tape](writing.md#writing-data) gives its table.
+The writer's own cost per chunk is a copy, the CRCs and the content hash. `just bench-chunks` measures it on series
+chunks of 1 MiB, and [Chunks from columns](columns.md#what-a-chunk-costs-the-writer) gives its table.
 
 On the AMD `EPYC Genoa` virtual machine of the summaries bench, `TapeWriter::write_chunk` took 254 µs per chunk. The
 content hash, `blake3`, took 213 µs of that, and the copy with its CRCs 53 µs.

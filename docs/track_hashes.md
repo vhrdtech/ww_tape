@@ -3,7 +3,7 @@
 One tape can hold tracks from several sources, and one track can lie in several files. A reader then has two
 questions: which source a track came from, and whether two recordings hold the same data for it. A track's
 [[owner|track owner]] answers the first and its [[track hash]] the second. Both build on
-[Pieces and files](pieces_and_files.md).
+[Pieces and chains](pieces.md).
 
 ## Tracks of several owners
 
@@ -35,7 +35,7 @@ in one piece or many, in one file or many, ends with the same hash.
 The hash takes in each chunk whole, with its head and how its columns are coded. Two recordings with the same hash
 for a track hold the same chunks, and so the same data. The same items cut into other chunks, or coded with another
 codec, hash differently, so a different hash alone does not prove different data. A [subset
-copy](pieces_and_files.md#copies-of-a-file) that keeps a track's chunks and records unchanged ends with the original's
+copy](pieces.md#copies-of-a-file) that keeps a track's chunks and records unchanged ends with the original's
 hash.
 
 [The file format](format.md) lists the bytes that the hash takes in.

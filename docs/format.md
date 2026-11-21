@@ -9,8 +9,14 @@ covers definitions, state, the index and the end of a piece.
 
 Later sections cover resuming after a crash, reading by position, sessions and damage, and the codecs of chunk columns.
 
-[Tape concepts](concepts.md) names the parts of a tape. [Events and series](events_and_series.md) and [When bytes go
-bad](damage.md) explain the format with examples.
+The chapters of the book explain the format with examples, starting at [Tapes](index.md). Pages of earlier editions
+point to where their sections went:
+
+- [Tape concepts](concepts.md) and [Records, tracks and clocks](records_and_clocks.md);
+- [Events and series](events_and_series.md);
+- [Sessions, pieces and chains](sessions_and_pieces.md) and [Pieces and files](pieces_and_files.md);
+- [Sinks, files and locks](sinks_and_locks.md) and [Syncing, cuts and relays](syncing_and_cuts.md);
+- [Damage and recovery](recovery.md).
 
 The byte layouts on this page are copied from the module docs of the crate `ww_tape`, and a test checks that they match.
 Numbers are little endian.
@@ -33,6 +39,28 @@ A recording cut into several files is a chain of [tape pieces](#tape-pieces).
   A sync is `fdatasync` on Linux, `F_FULLFSYNC` on macOS and `FlushFileBuffers` on Windows.
 - A failed write or sync ends the file, and the writer never retries it. After a failed `fsync`, Linux may drop the
   dirty pages, and a second `fsync` then succeeds without them.
+
+### Locks
+
+A file sink holds an exclusive lock on the lock file `NAME.lock` beside `NAME`, never on `NAME` itself. A `flock` lock
+on `NAME` would pass to a child process forked before its `exec`. A Portable Operating System Interface (POSIX) record
+lock on `NAME` would drop as soon as any reader in the process closes the file.
+
+- On unix, the lock is a POSIX record lock on the lock file, which a child process forked meanwhile does not hold. A
+  resume right after a writer is dropped is therefore never refused because of a child.
+- On unix, the writer removes the lock file when it lets go. On Windows the lock file stays, since removing it could
+  race the next holder. A lock file left behind holds no lock.
+- A name of 251 bytes or more leaves no room for the `.lock` suffix. Its lock file is then `HASH.lock`: the hash of the
+  name in hex, made with BLAKE3 (a cryptographic hash function).
+- One file has one lock, whatever name reaches it: the lock file is named after the canonical name, with links resolved
+  and `.partial` dropped.
+- On unix, writers of one process are also kept apart by the file's device and inode. A second writer through a hard
+  link is therefore refused. Two processes that write one file through two hard-linked names are not refused, and
+  their blocks interleave.
+- A device, such as a raw Secure Digital (SD) card, is locked itself. A first-in, first-out (FIFO) special file, a
+  socket or a directory is refused (`FsError::NotAFile`).
+- A `NAME.partial` renamed or replaced between its open and its lock is refused (`FsError::Replaced`).
+- A file or lock file on a read-only mount fails with `FsError::ReadOnly` and the path.
 
 ### Reading a file back
 
@@ -1110,7 +1138,34 @@ piece has no tail is open: it is being written, or a crash cut it off.
 
 A close record may name pieces of its chain that were removed on purpose. Each takes 56 bytes after the track rows:
 its sequence number, id and content hash. `check_chain` links over such pieces. A chain whose first pieces are named so
-reads as removed, not head cut ([Pieces removed on purpose](pieces_and_files.md#pieces-removed-on-purpose)).
+reads as removed, not head cut ([Pieces removed on purpose](pieces.md#pieces-removed-on-purpose)).
+
+### The chain report
+
+`check_chain` takes a `PieceSummary` of each piece at hand (`PieceInfo::summary` gives one) and returns a
+`ChainReport`:
+
+- each link between neighbours (`ChainLink`): linked, broken, a gap, removed pieces, or `HeadLost`, a link checked from
+  one side only because the later piece's head is damaged;
+- whether the chain's start was deleted (`head_cut`) or removed on purpose (`head_removed`, the count of pieces);
+- how the chain ends;
+- the pieces that do not belong (`strays`): a second piece with one sequence number, or a piece of another owner;
+- the pieces whose head is of an integrity level the reader does not handle (`refused`);
+- the pieces the closes at hand name as removed (`removed`).
+
+`ChainReport::is_whole` says whether all is well, and takes removed pieces as part of a whole chain.
+
+A hole of removed pieces is checked at its ends only. The piece before the hole names the first removed piece's id, and
+the piece after it names the last removed piece's content hash and id. No piece at hand names the rows between, so a
+hole of two pieces or more links whatever those rows say. A row that disagrees with either end reads as broken, and a
+hole the rows do not cover whole reads as a gap. A head removed on purpose needs rows from sequence number 0 on.
+
+Rows go on the last piece and name only pieces before it, so the last pieces of a chain cannot be named as removed. To
+remove the piece that holds rows later, name its rows again on the new last piece. The writer refuses:
+
+- a row for a piece that is not before its own;
+- a second row for one piece with another id or hash;
+- more than `REMOVED_PIECES_MAX` rows in one close.
 
 ## Resuming after a crash
 
