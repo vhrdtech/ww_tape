@@ -384,6 +384,52 @@ fn a_refused_new_track_in_a_full_piece_cuts_no_piece() {
     assert!(all_hold_data(&mem, &pieces));
 }
 
+/// A chain cutting by chunks admits a chunk before the cut its policy makes due: a chunk whose definitions fit no
+/// piece is refused without a cut, as it is when no cut is due, and the piece goes on to hold the next chunk.
+#[test]
+fn a_refused_chunk_cuts_no_piece_when_a_cut_is_due() {
+    let mut all = vec![
+        keyed_clock(CLOCK),
+        keyed_clock(9),
+        keyed_clock(10),
+        map(9, 10),
+    ];
+    all.extend((1..=2).map(|n| crate::definitions::track(n, CLOCK)));
+    all.push(crate::definitions::track(3, 9));
+    let mut defs = Definitions::new();
+    defs.define_all(&all).unwrap();
+    let mem = MemTapes::new();
+    let mut chain = PieceChain::create_on(
+        mem.clone(),
+        OwnerId([0x57; 32]),
+        0,
+        &[],
+        chain_options(5, 1),
+    )
+    .unwrap();
+    let (h, c) = chunk(0, 0);
+    chain.write_chunk(&defs, &h, &column(&c)).unwrap();
+    assert!(chain.cut_due(), "one chunk: the policy's cut is due");
+    let (h, c) = chunk(2, 0);
+    let r = chain.write_chunk(&defs, &h, &column(&c));
+    assert!(
+        matches!(
+            r,
+            Err(WriteError::Input(InputError::CarriedEntries {
+                needed: 6,
+                max: 5
+            }))
+        ),
+        "{r:?}"
+    );
+    assert_eq!(chain.seq(), 0, "no cut for a refused call, due or not");
+    let (h, c) = chunk(1, 0);
+    chain.write_chunk(&defs, &h, &column(&c)).unwrap();
+    assert_eq!(chain.seq(), 1, "the due cut comes with the admitted chunk");
+    let pieces = chain.close().unwrap();
+    assert!(all_hold_data(&mem, &pieces));
+}
+
 /// Carried blocks are at most [CARRIED_BLOCK_LEN](ww_tape::CARRIED_BLOCK_LEN) and each holds the clock its tracks
 /// count on: one damaged block costs only its own tracks, never another block's clock.
 #[test]

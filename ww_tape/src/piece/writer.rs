@@ -441,7 +441,8 @@ impl<T: Tapes> PieceChain<T> {
     }
 
     /// A chunk ([TapeWriter::write_chunk]), in a new piece when [Self::cut_due]: a cut happens before a chunk, never
-    /// after the last one, so no piece is left empty. Where it landed.
+    /// after the last one, so no piece is left empty. A chunk whose definitions fit no piece
+    /// ([crate::InputError::CarriedEntries]) is refused before that cut, so it cuts no piece either. Where it landed.
     pub fn write_chunk(
         &mut self,
         defs: &Definitions,
@@ -449,8 +450,10 @@ impl<T: Tapes> PieceChain<T> {
         columns: &[(ColumnSpec, &[u8])],
     ) -> Result<ChunkPlaced, WriteError<T::Error>> {
         if self.cut_due() {
+            let w = self.writer()?;
+            w.admit_data(defs, &[head.track_number])?;
             // the next piece carries the chunk's track first
-            self.writer()?.want(&[head.track_number]);
+            w.want(&[head.track_number]);
             self.cut_now(defs)?;
         }
         let Placed { offset, len, unit } =

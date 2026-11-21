@@ -465,7 +465,7 @@ impl<S: TapeSink> TapeWriter<S> {
         tracks: &[u32],
     ) -> Result<(), WriteError<S::Error>> {
         self.want(tracks);
-        self.admit(carried::entries(defs, tracks))?;
+        self.admit_data(defs, tracks)?;
         let mut new = self.new_tracks(defs, tracks);
         if new.is_empty() {
             return Ok(());
@@ -504,6 +504,16 @@ impl<S: TapeSink> TapeWriter<S> {
             }));
         }
         Ok(())
+    }
+
+    /// [Self::admit] data on `tracks` (numbers held in `defs`): the state entries its definitions take
+    /// ([carried::entries]). A chain checks it before a cut due by its policy ([crate::PieceChain::write_chunk]).
+    pub(crate) fn admit_data(
+        &self,
+        defs: &Definitions,
+        tracks: &[u32],
+    ) -> Result<(), WriteError<S::Error>> {
+        self.admit(carried::entries(defs, tracks))
     }
 
     fn room(&self, puts: usize, head: bool) -> Result<(), WriteError<S::Error>> {
