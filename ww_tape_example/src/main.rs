@@ -10,6 +10,7 @@
 
 use ww_tape::reader::Found;
 use ww_tape_example::fault::Fault;
+use ww_tape_example::writing::Writing;
 use ww_tape_example::{Damaged, Drive, EARLIER_CHAIN, Error, Recording, Salvaged, Story, parts};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -39,6 +40,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     println!();
     print!("{}", Fault::find(&recording.pieces)?);
+    println!();
+    print!("{}", Writing::of(&recording)?);
     println!();
     print_damage(&drive, &recording)?;
     println!();

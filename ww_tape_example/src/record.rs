@@ -11,8 +11,9 @@ use ww_tape::times::EncodedTimes;
 use ww_tape::writer::NearPolicy;
 use ww_tape::{
     BlockId, BlockKind, BlockWriter, ChainOptions, ChainPiece, ClockRef, ClockTime, Codec,
-    ColumnKind, ColumnSpec, CutPolicy, Definitions, EndMode, MemTapes, PieceChain, PieceTapes,
-    Resumed, SampleShape, SeriesGrid, StatePolicy, SyncPolicy, TapeSink, WriterOptions,
+    ColumnKind, ColumnSpec, CutPolicy, Definitions, EndMode, MemError, MemTapes, PieceChain,
+    PieceTapes, Resumed, SampleShape, SeriesGrid, StatePolicy, SyncPolicy, TapeSink, Tapes,
+    WriterOptions,
 };
 use ww_tape_summary::{SeriesStart, SeriesSummaries};
 
@@ -67,7 +68,7 @@ fn first_at(us: i64, per_hour: u64) -> u64 {
 }
 
 /// The time of item `i` of a track of `per_hour` items, µs.
-fn item_us(i: u64, per_hour: u64) -> i64 {
+pub(crate) fn item_us(i: u64, per_hour: u64) -> i64 {
     let us = u128::from(i) * u128::from(US_PER_HOUR) / u128::from(per_hour.max(1));
     i64::try_from(us).unwrap_or(i64::MAX)
 }
@@ -251,7 +252,7 @@ impl Iterator for Acts {
 
 /// What an act did: where it was made and what it wrote.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-struct Made {
+pub(crate) struct Made {
     /// The piece it was made in.
     piece: u64,
     /// The seq of the writer's last block after it.
@@ -269,11 +270,11 @@ struct Made {
     /// Items in its chunk.
     items: u64,
     /// For a put of the mode: whether it wrote a record; its ticks are in `first_tick`.
-    put: Option<bool>,
+    pub(crate) put: Option<bool>,
 }
 
 /// The chain's options for `drive`.
-fn options(drive: &Drive) -> ChainOptions {
+pub(crate) fn options(drive: &Drive) -> ChainOptions {
     let definitions = StatePolicy {
         near: exact_units::Bytes::new(drive.near_bytes),
         copies: exact_units::Count::new(1),
@@ -305,25 +306,25 @@ fn options(drive: &Drive) -> ChainOptions {
 }
 
 /// A chain and what it was written with.
-struct Recorder {
-    chain: PieceChain<MemTapes>,
-    defs: Definitions,
+pub(crate) struct Recorder<T: Tapes<Error = MemError> = MemTapes> {
+    pub(crate) chain: PieceChain<T>,
+    pub(crate) defs: Definitions,
 }
 
-impl Recorder {
+impl<T: Tapes<Error = MemError>> Recorder<T> {
     /// Bytes of the pieces the chain has closed.
     fn closed_bytes(&self) -> u64 {
         self.chain.closed().iter().map(|p| p.piece.len).sum()
     }
 
     /// Bytes of the whole recording so far.
-    fn bytes(&mut self) -> Result<u64, Error> {
+    pub(crate) fn bytes(&mut self) -> Result<u64, Error> {
         let open = self.chain.writer()?.bytes();
         Ok(self.closed_bytes() + open)
     }
 
     /// Hand `act` to the chain.
-    fn apply(&mut self, act: &Act) -> Result<Made, Error> {
+    pub(crate) fn apply(&mut self, act: &Act) -> Result<Made, Error> {
         if matches!(act, Act::Chunk { .. }) && self.chain.cut_due() {
             // the cut comes first, so that the chunk is made in the piece it lands in
             self.chain.cut_now(&self.defs)?;
@@ -416,7 +417,7 @@ pub struct Recording {
     /// The chain's closed pieces: their tapes and how each ended.
     pub closed: Vec<ChainPiece<u64>>,
     /// What each act did, in order.
-    made: Vec<Made>,
+    pub(crate) made: Vec<Made>,
 }
 
 impl Recording {
@@ -575,7 +576,7 @@ impl Crashed {
 }
 
 /// The definitions `drive` records with.
-fn drive_definitions(drive: &Drive) -> Result<Definitions, Error> {
+pub(crate) fn drive_definitions(drive: &Drive) -> Result<Definitions, Error> {
     definitions(drive.phase_hz, drive.summaries, drive.near_bytes)
 }
 
