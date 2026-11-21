@@ -20,13 +20,13 @@ therefore stores only values, in [[series chunks]], and the drive's `phase_a` co
 
 The track's definition, a [`SeriesDef`], says what a sample is:
 
-| Field | What it says | `phase_a` |
-|---|---|---|
-| `sample` | the type of one value, as the producer's API declares it | a 16-bit current in mA |
-| `shape` | the stored element and the channel count | `I16`, one channel |
-| `period` | ticks per sample, as an exact fraction | 40/1 on the board's µs clock |
-| `scale` | what one step of a stored number is worth | 10⁻³ A |
-| `summaries` | the coarse view the writer builds | minimum, maximum, sum, sum of squares |
+| Field | What it says | `phase_a` | `iq`, an RF capture |
+|---|---|---|---|
+| `sample` | the type of one value, as the producer's API declares it | a 16-bit current in mA | a complex value of the radio's converter |
+| `shape` | the stored element and the channel count | `I16`, one channel | `ComplexI16`, one channel |
+| `period` | ticks per sample, as an exact fraction | 40/1 on the board's µs clock | 50/1 on a 1 ns clock |
+| `scale` | what one step of a stored number is worth | 10⁻³ A | one step of the converter |
+| `summaries` | the coarse view the writer builds | minimum, maximum, sum, sum of squares | minimum, maximum, mean and largest power |
 
 The period is a fraction, so no sample time drifts by rounding. Audio at 48 kHz on a 1 ns clock has the period
 62500/3: three samples take exactly 62 500 ns.
@@ -45,6 +45,28 @@ columns](columns.md) explains the codecs and when to pick each.
 
 A device that sends its own packing, such as two 12-bit values in three bytes, can have its bytes stored as sent. A
 reader converts only the samples it reads.
+
+## A fast series: radio samples
+
+A series at a high rate is stored the same way as a slow one, and only the numbers grow. The second case of this
+chapter is an RF capture. A software-defined radio's front end turns a band of spectrum into 20 million complex samples
+a second. Each sample is a pair of values, the in-phase I and the quadrature Q, and the capture is one track,
+`iq`.
+
+The track's element is `ComplexI16`. A sample's I and Q lie side by side in the column. Every codec codes them as two
+lanes, so neither needs a track of its own. The converter gives 12 bits in each 16-bit word. The summaries keep
+the power of each node, `I² + Q²`, which shows where a signal is on the air:
+
+```rs
+--8<-- "ww_tape_example/src/rf.rs:def"
+```
+
+The track stores the samples in the converter's packed form, `PACKED12_LSB`: 12 bits per value, as the front end
+sends them. A sample then takes 3 bytes instead of 4, and a minute of the capture is a piece of 3.7 GB.
+
+The phase current packs smaller with `DELTA`, because neighbouring samples of a slow sine differ little. Radio
+samples are mostly noise and carriers that change by hundreds of steps per sample, so differences and ALP gain little
+on them. [Sizes and speeds](sizes.md) gives the measured sizes and how fast the writer and the reader go.
 
 ## Grids: where samples are in time
 
