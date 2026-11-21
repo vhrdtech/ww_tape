@@ -1,0 +1,210 @@
+{
+  "format": 1,
+  "bench": "rf_core",
+  "version": "0.1.0 (28b0d70, commit 21 Nov 2026 06:45 UTC)",
+  "commit": "28b0d70",
+  "dirty": false,
+  "build": {
+    "profile": "release",
+    "opt_level": "3",
+    "jobs": 4
+  },
+  "settings": [
+    [
+      "MS/s",
+      "20"
+    ],
+    [
+      "seconds",
+      "60"
+    ],
+    [
+      "chunk samples",
+      "200000"
+    ],
+    [
+      "read seconds",
+      "10"
+    ],
+    [
+      "rounds",
+      "3"
+    ]
+  ],
+  "machine": {
+    "host": "build-1",
+    "virtual_machine": true,
+    "cpu": "AMD EPYC-Genoa Processor",
+    "cpus": 14,
+    "arch": "x86_64",
+    "extensions": [
+      "sse4.2",
+      "avx2",
+      "avx512bw+vl"
+    ]
+  },
+  "tables": [
+    {
+      "id": "writer",
+      "title": "The writer on 60 s of IQ at 20 MS/s in 6000 chunks, one core: ms of work per second of capture.",
+      "columns": [
+        "Codec",
+        "Bytes per sample",
+        "Codec ms/s",
+        "`write_chunk` ms/s",
+        "Summaries ms/s",
+        "Writer MS/s",
+        "Writer MB/s"
+      ],
+      "rows": [
+        [
+          "`RAW`",
+          {
+            "value": 4.055046826666667,
+            "digits": 3
+          },
+          {
+            "value": 12.07063775,
+            "digits": 1
+          },
+          {
+            "value": 54.82279076666667,
+            "digits": 1
+          },
+          {
+            "value": 47.14491363333333,
+            "digits": 1
+          },
+          {
+            "value": 174.30104591734883,
+            "digits": 0
+          },
+          {
+            "value": 697.2041836693953,
+            "digits": 0
+          }
+        ],
+        [
+          "`PACKED12_LSB`",
+          {
+            "value": 3.05496064,
+            "digits": 3
+          },
+          {
+            "value": 133.42006901666667,
+            "digits": 1
+          },
+          {
+            "value": 35.529202966666666,
+            "digits": 1
+          },
+          {
+            "value": 37.80152893333334,
+            "digits": 1
+          },
+          {
+            "value": 96.32594802806217,
+            "digits": 0
+          },
+          {
+            "value": 385.3037921122487,
+            "digits": 0
+          }
+        ],
+        [
+          "`DELTA`",
+          {
+            "value": 2.89874944,
+            "digits": 3
+          },
+          {
+            "value": 230.25741895,
+            "digits": 1
+          },
+          {
+            "value": 38.65624978333333,
+            "digits": 1
+          },
+          {
+            "value": 40.58847445,
+            "digits": 1
+          },
+          {
+            "value": 64.49645835104947,
+            "digits": 0
+          },
+          {
+            "value": 257.9858334041979,
+            "digits": 0
+          }
+        ]
+      ],
+      "load_before": {
+        "one": 31.39,
+        "five": 27.55,
+        "fifteen": 32.23
+      },
+      "load_after": {
+        "one": 28.52,
+        "five": 27.4,
+        "fifteen": 31.71
+      },
+      "seconds": 93.573467985
+    },
+    {
+      "id": "reader",
+      "title": "The reader on 10 s in memory, every chunk read with its CRCs checked and decoded, best of 3.",
+      "columns": [
+        "Codec",
+        "Reader MS/s",
+        "Reader MB/s"
+      ],
+      "rows": [
+        [
+          "`RAW`",
+          {
+            "value": 331.4690327169299,
+            "digits": 0
+          },
+          {
+            "value": 1325.8761308677197,
+            "digits": 0
+          }
+        ],
+        [
+          "`PACKED12_LSB`",
+          {
+            "value": 204.26661462334624,
+            "digits": 0
+          },
+          {
+            "value": 817.066458493385,
+            "digits": 0
+          }
+        ],
+        [
+          "`DELTA`",
+          {
+            "value": 134.5710433272131,
+            "digits": 0
+          },
+          {
+            "value": 538.2841733088524,
+            "digits": 0
+          }
+        ]
+      ],
+      "load_before": {
+        "one": 28.52,
+        "five": 27.4,
+        "fifteen": 31.71
+      },
+      "load_after": {
+        "one": 30.87,
+        "five": 28.04,
+        "fifteen": 31.79
+      },
+      "seconds": 29.528877763
+    }
+  ]
+}
