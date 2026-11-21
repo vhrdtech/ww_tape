@@ -95,7 +95,7 @@ events chunk on a series track.
 
 ## Definitions with every call
 
-The writer keeps no table of definitions. The application holds them in a [`Definitions`] container and passes it by
+The writer keeps no table of definitions. The application holds them in a [`struct@Definitions`] container and passes it by
 reference with every write of data and every put. Before each block, the writer puts the [[definitions]] that the
 block's tracks need: the clocks, maps and [[bundles]] a track names, then the track itself.
 

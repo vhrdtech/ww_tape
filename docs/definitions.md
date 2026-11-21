@@ -50,7 +50,7 @@ and fills a slot the same way, so this reader reads the mode as run.</figcaption
 ## The definitions an application holds
 
 The [[definitions]] belong to the application, not to the file. The application keeps the definitions of what it works
-on in a [`Definitions`] container and passes the container with every write. Defining writes nothing to the [[tape]]:
+on in a [`struct@Definitions`] container and passes the container with every write. Defining writes nothing to the [[tape]]:
 the [[writer]] places each definition just before the first data that needs it.
 
 [`Definitions::define_all`] holds several definitions at once and checks them against those already held. A [[track]] or

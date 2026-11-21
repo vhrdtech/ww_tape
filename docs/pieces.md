@@ -118,7 +118,7 @@ A [[cut]] ends the current piece and starts the next one. [`TapeWriter::cut_with
 2. It writes the [[final index]], the [[close]] and the [[tail]].
 3. It closes the sink; a file takes its final name.
 4. It starts the next piece in a new sink, which the [[store]] makes under the next key.
-5. It puts the definitions of every track that the new head carries, from the application's [`Definitions`].
+5. It puts the definitions of every track that the new head carries, from the application's [`struct@Definitions`].
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/plots/cut.svg"

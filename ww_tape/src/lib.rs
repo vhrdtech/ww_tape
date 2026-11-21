@@ -187,6 +187,8 @@ pub use describe::{
     TypeRefOwned, TypedItemOwned,
 };
 pub use exact_units::{Magnitude, MagnitudeOf, Ratio64, Rounding};
+mod numbers;
+pub use numbers::{ClockNum, RecordTrack, TrackNum};
 pub mod state;
 pub use state::{DefinitionKind, ItemHash, Slot};
 

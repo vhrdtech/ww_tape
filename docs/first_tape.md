@@ -32,7 +32,7 @@ change with the code that makes them.
 
 A [[writer]] refuses an [[item]] of a [[track]] it does not know. Every write therefore takes the [[definitions]] of
 the recording along: what each track holds and the [[clock]] its times count on. The program gets them from
-[`Drive::definitions`] as a [`Definitions`] container, which holds eight of them:
+[`Drive::definitions`] as a [`struct@Definitions`] container, which holds eight of them:
 
 - the board's clock, in microseconds since its boot;
 - the host's clock, in nanoseconds since 1970;

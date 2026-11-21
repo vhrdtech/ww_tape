@@ -30,7 +30,7 @@ another.
 
 The producer's stream carries its own [[puts]], placed by its own [[near]] rule in its own stream. They do not fit the
 relay's file, which may start later, be [[cut]] elsewhere, or have lost blocks. [`TapeWriter::relay_block`] therefore
-takes the definitions of a block of puts into the relay's own [`Definitions`]. It puts the block's state records by the
+takes the definitions of a block of puts into the relay's own [`struct@Definitions`]. It puts the block's state records by the
 relay's own rule ([`TapeWriter::put_block`]). Every other block passes as data, byte for byte.
 
 <figure class="ww-figure" markdown="0">
