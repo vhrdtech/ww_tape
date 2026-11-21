@@ -394,14 +394,72 @@ impl<T: Tapes> PieceChain<T> {
         }
     }
 
-    /// A record block ([TapeWriter::write_block]).
+    /// A whole block ([TapeWriter::write_block]); a chunk block in a new piece when [Self::cut_due].
     pub fn write_block(
         &mut self,
         defs: &Definitions,
         block: &[u8],
     ) -> Result<(), WriteError<T::Error>> {
+        self.cut_for_block(defs, block)?;
         self.with_room(defs, |w| w.write_block(defs, block))
             .map(|_| ())
+    }
+
+    /// Pass on a live producer's block ([TapeWriter::relay_block]), its definitions held in `defs`; a chunk block in
+    /// a new piece when [Self::cut_due]. When the piece lists all the state entries it may, again on a new piece.
+    pub fn relay_block(
+        &mut self,
+        defs: &mut Definitions,
+        block: &[u8],
+    ) -> Result<(), WriteError<T::Error>> {
+        self.cut_for_block(defs, block)?;
+        match self.writer()?.relay_block(defs, block) {
+            Err(WriteError::Index(IndexError::StateEntries { .. })) => {
+                self.cut_now(defs)?;
+                self.writer()?.relay_block(defs, block)
+            }
+            r => r,
+        }
+    }
+
+    /// A producer's block as the writer's own ([TapeWriter::adopt_block]); a chunk block in a new piece when
+    /// [Self::cut_due].
+    pub fn adopt_block(
+        &mut self,
+        defs: &Definitions,
+        block: &[u8],
+    ) -> Result<(), WriteError<T::Error>> {
+        self.cut_for_block(defs, block)?;
+        self.with_room(defs, |w| w.adopt_block(defs, block))
+            .map(|_| ())
+    }
+
+    /// Cut before the chunk block `block` when [Self::cut_due]; any other block, or one that doesn't read, writes on
+    /// in the piece (the writer refuses a bad block).
+    fn cut_for_block(
+        &mut self,
+        defs: &Definitions,
+        block: &[u8],
+    ) -> Result<(), WriteError<T::Error>> {
+        if !self.cut_due() {
+            return Ok(());
+        }
+        let chunk = crate::Block::read(block)
+            .ok()
+            .and_then(|b| b.chunk().map(|c| c.head().track_number));
+        match chunk {
+            Some(track) => self.cut_for(defs, track),
+            None => Ok(()),
+        }
+    }
+
+    /// Cut before a chunk of `track`, due by the policy: refused before the cut when the chunk's definitions fit no
+    /// piece; the next piece carries `track` first.
+    fn cut_for(&mut self, defs: &Definitions, track: TrackNum) -> Result<(), WriteError<T::Error>> {
+        let w = self.writer()?;
+        w.admit_data(defs, &[track])?;
+        w.want(&[track]);
+        self.cut_now(defs)
     }
 
     /// Put a state track's item ([TapeWriter::put]).
@@ -458,11 +516,7 @@ impl<T: Tapes> PieceChain<T> {
         columns: &[(ColumnSpec, &[u8])],
     ) -> Result<ChunkPlaced, WriteError<T::Error>> {
         if self.cut_due() {
-            let w = self.writer()?;
-            w.admit_data(defs, &[head.track_number])?;
-            // the next piece carries the chunk's track first
-            w.want(&[head.track_number]);
-            self.cut_now(defs)?;
+            self.cut_for(defs, head.track_number)?;
         }
         let Placed { offset, len, unit } =
             self.with_room(defs, |w| w.write_chunk(defs, head, columns))?;

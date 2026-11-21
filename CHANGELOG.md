@@ -6,6 +6,10 @@ benchmarks, golden files and book pages.
 
 ## [Unreleased]
 
+### Features
+
+- `PieceChain::relay_block` and `adopt_block` pass a producer's blocks on into a chain; whole chunk blocks cut by the policy too (WRITE-12).
+
 ## [0.3.0] - 2026-11-21
 
 ### Breaking

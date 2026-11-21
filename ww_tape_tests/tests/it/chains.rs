@@ -127,3 +127,55 @@ fn renamed_pieces_still_form_their_chain() -> Result<(), Box<dyn Error>> {
     std::fs::remove_dir_all(&mixed)?;
     Ok(())
 }
+
+/// Track `t`'s chunk `k` ([chunk]) as a whole block numbered `id`, as a producer passes it on.
+fn chunk_block(id: ww_tape::BlockId, t: u64, k: u64) -> Vec<u8> {
+    let (head, starts) = chunk(t, k);
+    let mut buf = vec![0u8; 4096];
+    let len = ww_tape::chunk::write_chunk(&mut buf, id, &head, &column(&starts), 0).unwrap();
+    buf.truncate(len);
+    buf
+}
+
+/// A chain cuts before a chunk passed on whole, by relay, adoption or as a block, as before a chunk it encodes: six
+/// chunks, two per piece.
+#[test]
+fn a_chain_cuts_before_a_chunk_passed_on_whole() {
+    use ww_tape::{BlockId, Layout, MemTapes, PieceChain, SessionTag};
+
+    let options = ChainOptions {
+        cut: CutPolicy {
+            chunks: exact_units::Count::new(2),
+            ..CutPolicy::default()
+        },
+        ..ChainOptions::default()
+    };
+    let producer = BlockId::new(SessionTag::random(), 1);
+    for how in ["relay", "adopt", "write"] {
+        let mem = MemTapes::new();
+        let mut chain =
+            PieceChain::create_on(mem.clone(), OwnerId([0xd9; 32]), 0, &[], options.clone())
+                .unwrap();
+        let mut relayed = ww_tape::Definitions::new();
+        let held = crate::definitions::base(Layout::UNALIGNED);
+        let puts = crate::definitions::puts_of(producer, &held[2..], &[]);
+        chain.relay_block(&mut relayed, &puts).unwrap();
+        for k in 0..6 {
+            let mut id = producer;
+            for _ in 0..=k {
+                id = id.next();
+            }
+            if how == "write" {
+                id = chain.writer().unwrap().next_id();
+            }
+            let block = chunk_block(id, 0, k);
+            match how {
+                "relay" => chain.relay_block(&mut relayed, &block).unwrap(),
+                "adopt" => chain.adopt_block(base_defs(), &block).unwrap(),
+                _ => chain.write_block(base_defs(), &block).unwrap(),
+            }
+        }
+        let pieces = chain.close().unwrap();
+        assert_eq!(pieces.len(), 3, "{how}");
+    }
+}
