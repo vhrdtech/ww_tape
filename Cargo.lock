@@ -1053,10 +1053,19 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
- "serde",
- "serde_json",
+ "vc_build",
  "vc_complete",
  "vc_ui",
+ "ww_tape_bench_report",
+]
+
+[[package]]
+name = "ww_tape_bench_report"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1068,7 +1077,6 @@ dependencies = [
  "libm",
  "shrink_wrap",
  "vc_build",
- "vc_ui",
  "ww_tape",
  "ww_tape_bench",
  "ww_tape_codecs",
@@ -1095,7 +1103,6 @@ dependencies = [
  "libm",
  "motor_sim",
  "vc_build",
- "vc_ui",
  "ww_tape_bench",
  "ww_tape_codecs",
 ]
@@ -1121,7 +1128,7 @@ dependencies = [
  "libm",
  "shrink_wrap",
  "ww_tape",
- "ww_tape_bench",
+ "ww_tape_bench_report",
  "ww_tape_example",
  "ww_tape_summary",
 ]

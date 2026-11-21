@@ -14,13 +14,10 @@
 )]
 
 use clap::Parser;
-use std::hint::black_box;
-use std::time::Instant;
-use vc_ui::Paint;
 use ww_tape::chunk::{ChunkHead, chunk_len, write_chunk};
 use ww_tape::times::{EncodedTimes, EventTimes};
 use ww_tape::{Block, BlockId, Codec, ColumnKind, ColumnSpec, SessionTag};
-use ww_tape_bench::{Cell, Common, Machine, Report, Rng};
+use ww_tape_bench::{Bench, Cell, Common, Rng, ns_per};
 
 #[derive(Parser)]
 #[command(
@@ -40,12 +37,6 @@ struct Args {
     /// Items in the chunk.
     #[arg(long, default_value_t = 1 << 20)]
     items: usize,
-}
-
-impl AsRef<Common> for Args {
-    fn as_ref(&self) -> &Common {
-        &self.common
-    }
 }
 
 /// An events chunk of `starts` and a small payload column, as a block.
@@ -71,31 +62,24 @@ fn block(starts: &[i64]) -> anyhow::Result<Vec<u8>> {
     Ok(buf)
 }
 
-/// Best of `rounds`, ns per item of `f` over `n` items.
-fn best(rounds: u32, n: usize, mut f: impl FnMut() -> u64) -> f64 {
-    let mut best = f64::MAX;
-    for _ in 0..rounds {
-        let t = Instant::now();
-        black_box(f());
-        best = best.min(t.elapsed().as_nanos() as f64 / n as f64);
-    }
-    best
+/// Best of `rounds`, ns per item of `f`, which reads all `n` items.
+fn per_item(rounds: u32, n: usize, mut f: impl FnMut() -> u64) -> f64 {
+    ns_per(rounds, 1, |_| f()) / n as f64
 }
 
 fn main() -> anyhow::Result<()> {
     let args: Args = ww_tape_bench::args();
-    let paint = Paint::stdout();
     let n = args.items;
-    let mut report = Report::new(
+    let mut bench = Bench::start(
         "starts",
-        vc_build::version!(),
-        Machine::this(),
+        vc_build::build_info!(),
+        &args.common,
         vec![
             ("items", n.to_string()),
             ("rounds", args.rounds.to_string()),
         ],
-    );
-    println!("{}", report.header(paint));
+    )?;
+    println!("{}", bench.header());
     let mut r = Rng(0xc0de);
     let mut t = 0i64;
     let starts: Vec<i64> = (0..n)
@@ -116,7 +100,7 @@ fn main() -> anyhow::Result<()> {
     );
     let salvaged = EventTimes::salvage(&bad)?;
     let s = salvaged.starts();
-    let mut table = report.table(
+    let mut table = bench.table(
         "starts",
         &format!("A starts column of {n} items, intact and with one damaged byte."),
         &["Starts column", "ns per item"],
@@ -124,25 +108,25 @@ fn main() -> anyhow::Result<()> {
     let rows = [
         (
             "`EventTimes::read`, intact",
-            best(args.rounds, n, || {
+            per_item(args.rounds, n, || {
                 EventTimes::read(&good).map_or(0, |t| t.len() as u64)
             }),
         ),
         (
             "`EventTimes::salvage`, damaged",
-            best(args.rounds, n, || {
+            per_item(args.rounds, n, || {
                 EventTimes::salvage(&bad).map_or(0, |t| t.len() as u64)
             }),
         ),
         (
             "`Starts::get` each item, salvaged",
-            best(args.rounds, n, || {
+            per_item(args.rounds, n, || {
                 (0..n).fold(0u64, |a, i| a.wrapping_add(s.get(i) as u64))
             }),
         ),
         (
             "`Starts::is_suspect` each item, salvaged",
-            best(args.rounds, n, || {
+            per_item(args.rounds, n, || {
                 (0..n).filter(|i| s.is_suspect(*i)).count() as u64
             }),
         ),
@@ -150,6 +134,6 @@ fn main() -> anyhow::Result<()> {
     for (what, ns) in rows {
         table.row(vec![Cell::text(what), Cell::num(ns, 2)]);
     }
-    println!("{}", report.push(table, paint));
-    report.finish(args.common.json.as_deref())
+    println!("{}", bench.push(table));
+    bench.finish()
 }

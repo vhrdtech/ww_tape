@@ -203,6 +203,7 @@ Covers `ww_tape` 0.1.0.
 - Book: "Sizes and speeds" draws every chart and table from bench reports; `just bench-book` reruns them (BOOK-2).
 - `just bench-drive` measures the drive's hour at full scale: bytes by block kind, bytes per item, time to record (BOOK-3).
 - Every bench takes `--json FILE`, `--color`, `--version` and completion; tables carry the machine and load average (REPO-85).
+- Bench reports name the host, build profile, jobs and commit; `just bench-book` refuses a dirty tree (REPO-85).
 - `just bench-event-times` compares event time codecs on six workloads, journal included; it was outside the repository (CODEC-2).
 - `just bench-summaries` adds the kernels against one statistic at a time, per kernel the CPU runs (SUM-3).
 - `just bench-starts` and `just bench-relations` run the starts column and relation benches (REPO-85).

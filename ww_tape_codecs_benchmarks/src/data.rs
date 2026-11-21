@@ -185,7 +185,7 @@ pub fn adc() -> [DataSet; 4] {
     };
     [
         make(
-            "ADC x 3.3/4096 f32",
+            "ADC × 3.3/4096 f32",
             Columns::F32(vec![
                 counts
                     .iter()
@@ -194,15 +194,15 @@ pub fn adc() -> [DataSet; 4] {
             ]),
         ),
         make(
-            "ADC x 3.3/4096 f64",
+            "ADC × 3.3/4096 f64",
             Columns::F64(vec![counts.iter().map(|c| f64::from(*c) * volts).collect()]),
         ),
         make(
-            "ADC x 0.1 f32",
+            "ADC × 0.1 f32",
             Columns::F32(vec![counts.iter().map(|c| f32::from(*c) * 0.1).collect()]),
         ),
         make(
-            "ADC x 0.1 f64",
+            "ADC × 0.1 f64",
             Columns::F64(vec![counts.iter().map(|c| f64::from(*c) * 0.1).collect()]),
         ),
     ]

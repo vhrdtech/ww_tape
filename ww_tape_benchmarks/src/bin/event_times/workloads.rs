@@ -129,20 +129,69 @@ pub fn spans_gaps(n: usize) -> Workload {
     }
 }
 
-/// The entries of a system journal on a 1 µs clock: one `SECONDS.MICROS` time at the start of each line of `text`
-/// (`journalctl -o short-unix`), the rest of the line ignored; sorted, since a journal is merged from several sources.
-pub fn journal(text: &str) -> Workload {
-    let mut starts: Vec<i64> = text
-        .lines()
-        .filter_map(|l| {
-            let (s, u) = l.split_whitespace().next()?.split_once('.')?;
-            Some(s.parse::<i64>().ok()? * 1_000_000 + u.parse::<i64>().ok()?)
-        })
-        .collect();
-    starts.sort_unstable();
-    Workload {
-        name: "a system journal, 1 µs clock".to_owned(),
-        starts,
-        ends: None,
+/// The largest journal [journal] reads: the times of 20 days of a busy host take about 100 MB.
+pub const JOURNAL_BYTES_MAX: u64 = 1 << 30;
+
+/// A journal's entries, and the lines that held no time.
+pub struct Journal {
+    pub workload: Workload,
+    pub skipped: usize,
+}
+
+impl Journal {
+    /// Days from the first entry to the last.
+    pub fn days(&self) -> f64 {
+        let s = &self.workload.starts;
+        match (s.first(), s.last()) {
+            (Some(a), Some(b)) => (b - a) as f64 / 86_400e6,
+            _ => 0.0,
+        }
     }
+}
+
+/// The time of a journal line, `SECONDS.MICROS` before its first space, in µs; None for anything else.
+fn entry(line: &[u8]) -> Option<i64> {
+    let field = line.split(|b| *b == b' ').next()?;
+    let (s, u) = std::str::from_utf8(field).ok()?.split_once('.')?;
+    if u.len() != 6 {
+        return None;
+    }
+    s.parse::<i64>()
+        .ok()?
+        .checked_mul(1_000_000)?
+        .checked_add(u.parse::<i64>().ok()?)
+}
+
+/// The entries of a system journal on a 1 µs clock, read from `path`: one `SECONDS.MICROS` time at the start of
+/// each line (`journalctl -o short-unix`), the rest of the line ignored; sorted, since a journal is merged from
+/// several sources. A file over [JOURNAL_BYTES_MAX] is refused.
+pub fn journal(path: &std::path::Path) -> anyhow::Result<Journal> {
+    use anyhow::Context as _;
+    use std::io::Read as _;
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)
+        .and_then(|f| f.take(JOURNAL_BYTES_MAX + 1).read_to_end(&mut bytes))
+        .with_context(|| format!("--journal {}", path.display()))?;
+    anyhow::ensure!(
+        bytes.len() as u64 <= JOURNAL_BYTES_MAX,
+        "--journal {}: over {JOURNAL_BYTES_MAX} bytes; keep only the times (`just bench-event-times` does)",
+        path.display()
+    );
+    let mut skipped = 0;
+    let mut starts = Vec::new();
+    for line in bytes.split(|b| *b == b'\n').filter(|l| !l.is_empty()) {
+        match entry(line) {
+            Some(t) => starts.push(t),
+            None => skipped += 1,
+        }
+    }
+    starts.sort_unstable();
+    Ok(Journal {
+        workload: Workload {
+            name: "a system journal, 1 µs clock".to_owned(),
+            starts,
+            ends: None,
+        },
+        skipped,
+    })
 }

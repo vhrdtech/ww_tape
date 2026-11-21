@@ -17,10 +17,9 @@
 use clap::Parser;
 use std::hint::black_box;
 use std::time::Instant;
-use vc_ui::Paint;
 use ww_tape::samples::{encode, max_encoded_len};
 use ww_tape::{Codec, Element, ElementDesc, Magnitude, Ratio64, Sample, SampleShape, SeriesGrid};
-use ww_tape_bench::{Cell, Common, Machine, Report, Table};
+use ww_tape_bench::{Bench, Cell, Common, Measure};
 use ww_tape_codecs::kernel::{IntBatch, Kernel, Narrow};
 use ww_tape_summary::{Scalar, SeriesStart, SeriesStats, SeriesSummaries, SeriesSummarySpec};
 
@@ -49,12 +48,6 @@ struct Args {
     /// log2 of a level-0 node's samples.
     #[arg(long, default_value_t = 10)]
     base_shift: u8,
-}
-
-impl AsRef<Common> for Args {
-    fn as_ref(&self) -> &Common {
-        &self.common
-    }
 }
 
 /// A sample type the bench generates: ADC-like noise, small steps around zero.
@@ -157,7 +150,7 @@ fn rate<T: Gen>(args: &Args, shape: SampleShape, batch: &[T], work: Work) -> any
 
 fn case<T: Gen>(
     args: &Args,
-    table: &mut Table,
+    table: &mut Measure,
     element: Element,
     channels: u32,
 ) -> anyhow::Result<()> {
@@ -226,7 +219,7 @@ fn node_rate<T, const C: usize>(
 /// The kernels and the one-at-a-time summariser on frames of `C` components of `T`.
 fn kernels<T: Gen + Narrow + Into<i64>, const C: usize>(
     args: &Args,
-    table: &mut Table,
+    table: &mut Measure,
     name: &str,
 ) {
     let flat: Vec<T> = noise(args.frames * C);
@@ -283,20 +276,19 @@ fn main() -> anyhow::Result<()> {
         args.frames > 0 && args.repeats > 0,
         "frames and repeats must be positive"
     );
-    let paint = Paint::stdout();
-    let mut report = Report::new(
+    let mut bench = Bench::start(
         "summaries",
-        vc_build::version!(),
-        Machine::this(),
+        vc_build::build_info!(),
+        &args.common,
         vec![
             ("frames a push", args.frames.to_string()),
             ("MiB a pass", args.mib.to_string()),
             ("best of", args.repeats.to_string()),
             ("node", format!("2^{} samples", args.base_shift)),
         ],
-    );
-    println!("{}", report.header(paint));
-    let mut t = report.table(
+    )?;
+    println!("{}", bench.header());
+    let mut t = bench.table(
         "summaries",
         &format!(
             "Series summaries, every statistic, nodes of 2^{} samples, {} frames a push, {} MiB a pass, best of {}.",
@@ -324,9 +316,9 @@ fn main() -> anyhow::Result<()> {
     case::<i16>(&args, &mut t, Element::ComplexI16, 1)?;
     case::<i16>(&args, &mut t, Element::ComplexI16, 4)?;
     case::<f32>(&args, &mut t, Element::ComplexF32, 1)?;
-    println!("{}", report.push(t, paint));
+    println!("{}", bench.push(t));
 
-    let mut k = report.table(
+    let mut k = bench.table(
         "kernels",
         &format!(
             "Every statistic of a node of 2^{} frames: one at a time, one pass each, against the single-pass kernel, \
@@ -344,6 +336,6 @@ fn main() -> anyhow::Result<()> {
     kernels::<i16, 1>(&args, &mut k, "I16");
     kernels::<i16, 2>(&args, &mut k, "ComplexI16");
     kernels::<i32, 1>(&args, &mut k, "I32");
-    println!("{}", report.push(k, paint));
-    report.finish(args.common.json.as_deref())
+    println!("{}", bench.push(k));
+    bench.finish()
 }

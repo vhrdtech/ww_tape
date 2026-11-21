@@ -9,20 +9,23 @@ pub struct Series {
     pub class: &'static str,
 }
 
-/// A panel: what its axis measures and each row's value per series (None: no bar).
+/// A panel: what its axis measures and each row's value per series (None: no bar), with an optional word after a
+/// bar's value (`tags`, by row and series; empty: none).
 pub struct Panel {
     pub axis: String,
     pub log: bool,
     pub digits: usize,
     pub values: Vec<Vec<Option<f64>>>,
+    pub tags: Vec<Vec<Option<String>>>,
 }
 
-/// A chart: its rows, its series and its panels.
+/// A chart: its rows, its series and its panels, and a note under the legend (where and at what load it ran).
 pub struct Chart {
     pub label: String,
     pub rows: Vec<String>,
     pub series: Vec<Series>,
     pub panels: Vec<Panel>,
+    pub note: String,
 }
 
 const BAR: f64 = 12.0;
@@ -33,10 +36,18 @@ const PANEL_GAP: f64 = 60.0;
 const TOP: f64 = 40.0;
 /// The width of a character of a row label, at the figures' 13 px.
 const CHAR: f64 = 6.6;
+/// The width of a character of small text.
+const SMALL_CHAR: f64 = 6.0;
 
-/// `v` with `digits` decimals.
+/// `v` with `digits` decimals, or with 3 significant digits where `digits` would round it to 0.
 pub fn fmt(v: f64, digits: usize) -> String {
-    format!("{v:.digits$}")
+    let unit = libm::pow(10.0, -(digits as f64));
+    if v != 0.0 && v.abs() < unit / 2.0 {
+        let d = (2.0 - libm::floor(libm::log10(v.abs()))) as usize;
+        format!("{v:.d$}")
+    } else {
+        format!("{v:.digits$}")
+    }
 }
 
 /// The range a panel's axis spans: from 0, or from a power of ten below its smallest value on a log axis.
@@ -116,8 +127,9 @@ impl Chart {
             .max()
             .unwrap_or(0);
         let labels = CHAR * longest as f64 + 14.0;
-        let width = labels + panels * PANEL + (panels - 1.0) * PANEL_GAP + 50.0;
-        let height = TOP + plot_h + 64.0;
+        let width = (labels + panels * PANEL + (panels - 1.0) * PANEL_GAP + 50.0)
+            .max(labels + SMALL_CHAR * self.note.chars().count() as f64 + 10.0);
+        let height = TOP + plot_h + 84.0;
         let mut s = Svg::new(width, height, &self.label);
         for (k, p) in self.panels.iter().enumerate() {
             let x0 = labels + k as f64 * (PANEL + PANEL_GAP);
@@ -137,7 +149,10 @@ impl Chart {
                     };
                     let y = y_row + j as f64 * (BAR + BAR_GAP);
                     let w = at(*v, r, p.log).max(1.0);
-                    let label = fmt(*v, p.digits);
+                    let label = match p.tags.get(i).and_then(|t| t.get(j)).cloned().flatten() {
+                        Some(tag) => format!("{} {tag}", fmt(*v, p.digits)),
+                        None => fmt(*v, p.digits),
+                    };
                     let row = self.rows.get(i).map_or("", String::as_str);
                     s.rect_titled(
                         (x0, y),
@@ -162,6 +177,7 @@ impl Chart {
             s.text(x + 17.0, y, "start", "small", &series.name);
             x += 30.0 + 7.0 * series.name.chars().count() as f64;
         }
+        s.text(labels, y + 22.0, "start", "small soft", &self.note);
         s.finish()
     }
 }

@@ -4,17 +4,23 @@
 //! - `event_times.svg`: bytes per event and the time to find a tick, per workload and codec.
 //! - `chunk_cost.svg`: what the writer spends on a 1 MiB series chunk, by part.
 //! - `drive_sizes.svg`: where the bytes of the drive's hour go.
-//! - `bench_*.txt`: the tables the page includes, each with the machine and the load average it ran at.
+//! - `bench_*.txt`: the tables the page includes, each with the bench and the load average it ran at.
+//! - `bench_machine.txt`: the machine, build and commit every report ran, and the range of the load average.
+//!
+//! [says] gives the numbers the page's prose computes from the reports, and the numbers the reports name.
 
 mod chart;
+mod says;
+
+pub use says::{Says, says};
 
 use anyhow::{Context, ensure};
 use chart::{Chart, Panel, Series};
 use std::path::Path;
-use ww_tape_bench::{Cell, Report, Table};
+use ww_tape_bench_report::{Cell, Report, Table};
 
 /// The bench reports, read from `dir`.
-struct Reports {
+pub struct Reports {
     sample_codecs: Report,
     event_times: Report,
     summaries: Report,
@@ -23,10 +29,13 @@ struct Reports {
     drive: Report,
 }
 
-fn read(dir: &Path) -> anyhow::Result<Reports> {
+/// The reports in `dir`, each a release build of a clean commit.
+pub fn read(dir: &Path) -> anyhow::Result<Reports> {
     let r = |name: &str| {
-        Report::read(&dir.join(format!("{name}.json")))
-            .with_context(|| format!("docs/bench/{name}.json: run `just bench-book`"))
+        let report = Report::read(&dir.join(format!("{name}.json")))
+            .with_context(|| format!("docs/bench/{name}.json: run `just bench-book`"))?;
+        report.measured()?;
+        Ok::<_, anyhow::Error>(report)
     };
     Ok(Reports {
         sample_codecs: r("sample_codecs")?,
@@ -47,29 +56,62 @@ fn table<'r>(report: &'r Report, id: &str) -> anyhow::Result<&'r Table> {
 /// The value of `column` in `row`.
 fn value(t: &Table, row: &[Cell], column: &str) -> anyhow::Result<f64> {
     let c = t
-        .columns
-        .iter()
-        .position(|n| n == column)
+        .column(column)
         .with_context(|| format!("column {column} of table {}", t.id))?;
     row.get(c)
         .and_then(Cell::value)
         .with_context(|| format!("a number in column {column} of table {}", t.id))
 }
 
-fn text(row: &[Cell], at: usize) -> &str {
-    row.get(at).and_then(Cell::as_text).unwrap_or("")
+/// The text of cell `at` of `row`.
+fn text(row: &[Cell], at: usize) -> anyhow::Result<&str> {
+    row.get(at)
+        .and_then(Cell::as_text)
+        .with_context(|| format!("text in cell {at} of a row {row:?}"))
+}
+
+/// The rows of `t` whose first cells are `keys`.
+fn rows<'t>(t: &'t Table, keys: &[&str]) -> anyhow::Result<Vec<&'t Vec<Cell>>> {
+    let mut out = Vec::new();
+    for r in &t.rows {
+        let mut hit = true;
+        for (at, k) in keys.iter().enumerate() {
+            hit &= text(r, at)? == *k;
+        }
+        if hit {
+            out.push(r);
+        }
+    }
+    Ok(out)
+}
+
+/// The one row of `t` whose first cells are `keys`.
+fn row<'t>(t: &'t Table, keys: &[&str]) -> anyhow::Result<&'t Vec<Cell>> {
+    let found = rows(t, keys)?;
+    ensure!(found.len() == 1, "one row {keys:?} in table {}", t.id);
+    found.into_iter().next().context("one row")
 }
 
 /// The distinct first cells of `t`'s rows, in order.
-fn groups(t: &Table) -> Vec<String> {
+fn groups(t: &Table) -> anyhow::Result<Vec<String>> {
     let mut out: Vec<String> = Vec::new();
     for r in &t.rows {
-        let g = text(r, 0);
+        let g = text(r, 0)?;
         if !out.iter().any(|o| o == g) {
             out.push(g.to_owned());
         }
     }
-    out
+    Ok(out)
+}
+
+/// What a chart says under its legend: the bench and the load average of its table.
+fn note(report: &Report, t: &Table) -> String {
+    format!(
+        "just bench-{} on {}, load average {}.",
+        report.bench.replace('_', "-"),
+        report.machine.host,
+        t.load()
+    )
 }
 
 /// `s` without the backticks of Markdown code spans.
@@ -87,47 +129,60 @@ fn series(names: &[(&str, &'static str)]) -> Vec<Series> {
         .collect()
 }
 
+/// The float codecs besides `ALP`; the bench keeps them to compare, the format has none of them.
 const FLOAT_CODECS: [&str; 4] = ["GORILLA", "CHIMP", "FLOAT_DELTA", "FLOAT_DELTA2"];
+
+/// Of the rows of one data set: the fixed-point row, `ALP`'s, and the other float codec of the best ratio.
+struct SetRows<'t> {
+    fixed: &'t Vec<Cell>,
+    alp: &'t Vec<Cell>,
+    best: &'t Vec<Cell>,
+}
+
+fn set_rows<'t>(t: &'t Table, set: &str) -> anyhow::Result<SetRows<'t>> {
+    let all = rows(t, &[set])?;
+    let mut fixed = None;
+    let mut best: Option<&Vec<Cell>> = None;
+    for r in &all {
+        let codec = text(r, 1)?;
+        if codec.starts_with("DELTA of") {
+            fixed = Some(*r);
+        } else if FLOAT_CODECS.contains(&codec) {
+            let better = match best {
+                Some(b) => value(t, r, "Ratio")? > value(t, b, "Ratio")?,
+                None => true,
+            };
+            if better {
+                best = Some(*r);
+            }
+        }
+    }
+    Ok(SetRows {
+        fixed: fixed.with_context(|| format!("the fixed-point row of {set}"))?,
+        alp: row(t, &[set, "ALP"])?,
+        best: best.with_context(|| format!("the float codecs of {set}"))?,
+    })
+}
 
 fn sample_codecs(r: &Reports) -> anyhow::Result<String> {
     let t = table(&r.sample_codecs, "codecs")?;
-    let sets = groups(t);
-    let mut ratio = Vec::new();
-    let mut decode = Vec::new();
+    let sets = groups(t)?;
+    let (mut ratio, mut decode, mut tags) = (Vec::new(), Vec::new(), Vec::new());
     for set in &sets {
-        let rows: Vec<&Vec<Cell>> = t.rows.iter().filter(|r| text(r, 0) == set).collect();
-        let fixed = rows
-            .iter()
-            .find(|r| text(r, 1).starts_with("DELTA of"))
-            .context("the fixed-point row")?;
-        let alp = rows
-            .iter()
-            .find(|r| text(r, 1) == "ALP")
-            .context("the ALP row")?;
-        let mut best = None::<(f64, f64)>;
-        for row in rows.iter().filter(|r| FLOAT_CODECS.contains(&text(r, 1))) {
-            let x = (
-                value(t, row, "Ratio")?,
-                value(t, row, "Decode ns per value")?,
-            );
-            if best.is_none_or(|b| x.0 > b.0) {
-                best = Some(x);
-            }
+        let s = set_rows(t, set)?;
+        let three = [s.fixed, s.alp, s.best];
+        let mut rr = Vec::new();
+        let mut dd = Vec::new();
+        for row in three {
+            rr.push(Some(value(t, row, "Ratio")?));
+            dd.push(Some(value(t, row, "Decode ns per value")?));
         }
-        let best = best.context("the float codecs")?;
-        ratio.push(vec![
-            Some(value(t, fixed, "Ratio")?),
-            Some(value(t, alp, "Ratio")?),
-            Some(best.0),
-        ]);
-        decode.push(vec![
-            Some(value(t, fixed, "Decode ns per value")?),
-            Some(value(t, alp, "Decode ns per value")?),
-            Some(best.1),
-        ]);
+        ratio.push(rr);
+        decode.push(dd);
+        tags.push(vec![None, None, Some(text(s.best, 1)?.to_owned())]);
     }
     Ok(Chart {
-        label: "Sample codecs per data set: ratio to the raw floats and decode time per value, fixed point with DELTA against ALP and the best other float codec".to_owned(),
+        label: "Sample codecs per data set: ratio to the raw floats and decode time per value, fixed point with DELTA against ALP and the best other float codec, named at its bar".to_owned(),
         rows: sets,
         series: series(&[
             ("fixed point, DELTA", "blue"),
@@ -136,71 +191,70 @@ fn sample_codecs(r: &Reports) -> anyhow::Result<String> {
         ]),
         panels: vec![
             Panel {
-                axis: "Ratio to the raw floats (larger is smaller)".to_owned(),
+                axis: "Ratio to the raw floats (larger: smaller file)".to_owned(),
                 log: false,
                 digits: 2,
                 values: ratio,
+                tags: tags.clone(),
             },
             Panel {
                 axis: "Decode, ns per value".to_owned(),
                 log: false,
                 digits: 2,
                 values: decode,
+                tags,
             },
         ],
+        note: note(&r.sample_codecs, t),
     }
     .svg())
 }
 
-const EVENT_CODECS: [(&str, &str, &str); 4] = [
-    ("ww_tape linear groups", "ww_tape linear groups", "blue"),
-    ("delta-of-delta varints", "delta-of-delta varints", "amber"),
-    ("Elias-Fano", "Elias-Fano", "green"),
-    ("raw 64-bit ticks", "raw 64-bit ticks", "tint-ink"),
+/// The codecs of the event time bench, as its table names them, and their bars' class.
+const EVENT_CODECS: [(&str, &str); 4] = [
+    ("ww_tape linear groups", "blue"),
+    ("delta-of-delta varints", "amber"),
+    ("Elias-Fano", "green"),
+    ("raw 64-bit ticks", "tint-ink"),
 ];
 
 fn event_times(r: &Reports) -> anyhow::Result<String> {
     let t = table(&r.event_times, "codecs")?;
-    let workloads = groups(t);
+    let workloads = groups(t)?;
     let mut bytes = Vec::new();
     let mut find = Vec::new();
     for w in &workloads {
         let mut b = Vec::new();
         let mut f = Vec::new();
-        for (codec, _, _) in EVENT_CODECS {
-            let row = t
-                .rows
-                .iter()
-                .find(|r| text(r, 0) == w && text(r, 1) == codec)
-                .with_context(|| format!("{w}, {codec}"))?;
+        for (codec, _) in EVENT_CODECS {
+            let row = row(t, &[w, codec])?;
             b.push(Some(value(t, row, "Bytes per event")?));
             f.push(Some(value(t, row, "First at or after a tick ns")?));
         }
         bytes.push(b);
         find.push(f);
     }
-    let names: Vec<(&str, &'static str)> = EVENT_CODECS
-        .iter()
-        .map(|&(_, name, class)| (name, class))
-        .collect();
     Ok(Chart {
         label: "Event start ticks per workload: bytes per event on a log scale, and the time to find the first event at or after a tick, for ww_tape's linear groups, delta-of-delta varints, Elias-Fano and raw ticks".to_owned(),
         rows: workloads,
-        series: series(&names),
+        series: series(&EVENT_CODECS),
         panels: vec![
             Panel {
                 axis: "Bytes per event (log scale)".to_owned(),
                 log: true,
                 digits: 3,
                 values: bytes,
+                tags: Vec::new(),
             },
             Panel {
                 axis: "First at or after a tick, ns".to_owned(),
                 log: false,
                 digits: 0,
                 values: find,
+                tags: Vec::new(),
             },
         ],
+        note: note(&r.event_times, t),
     }
     .svg())
 }
@@ -210,7 +264,7 @@ fn chunk_cost(r: &Reports) -> anyhow::Result<String> {
     let mut rows = Vec::new();
     let mut us = Vec::new();
     for row in &t.rows {
-        rows.push(plain(text(row, 0)));
+        rows.push(plain(text(row, 0)?));
         us.push(vec![Some(value(t, row, "ns per chunk")? / 1000.0)]);
     }
     Ok(Chart {
@@ -222,7 +276,9 @@ fn chunk_cost(r: &Reports) -> anyhow::Result<String> {
             log: false,
             digits: 0,
             values: us,
+            tags: Vec::new(),
         }],
+        note: note(&r.chunks, t),
     }
     .svg())
 }
@@ -231,12 +287,13 @@ fn drive_sizes(r: &Reports) -> anyhow::Result<String> {
     let t = table(&r.drive, "sizes")?;
     let mut rows = Vec::new();
     let mut mib = Vec::new();
-    for row in t.rows.iter().filter(|r| text(r, 0) != "the recording") {
+    for row in &t.rows {
+        let part = text(row, 0)?;
         let bytes = value(t, row, "Bytes")?;
-        if bytes == 0.0 {
+        if part == "the recording" || bytes == 0.0 {
             continue;
         }
-        rows.push(plain(text(row, 0)));
+        rows.push(plain(part));
         mib.push(vec![Some(bytes / f64::from(1 << 20))]);
     }
     Ok(Chart {
@@ -249,31 +306,40 @@ fn drive_sizes(r: &Reports) -> anyhow::Result<String> {
             log: true,
             digits: 3,
             values: mib,
+            tags: Vec::new(),
         }],
+        note: format!(
+            "just bench-drive on {}: sizes don't change with the load.",
+            r.drive.machine.host
+        ),
     }
     .svg())
 }
 
 /// A number as a page shows it: whole numbers of five digits or more in groups of three, split by spaces.
-fn shown(c: &Cell) -> String {
+pub(crate) fn shown(c: &Cell) -> String {
     match c {
         Cell::Num { value, digits: 0 } if value.abs() >= 10_000.0 => {
-            let s = format!("{value:.0}");
-            let (sign, digits) = s.split_at(usize::from(s.starts_with('-')));
-            let mut out = String::new();
-            for (i, ch) in digits.chars().enumerate() {
-                if i > 0 && (digits.len() - i) % 3 == 0 {
-                    out.push(' ');
-                }
-                out.push(ch);
-            }
-            format!("{sign}{out}")
+            grouped(&format!("{value:.0}"))
         }
         c => c.to_string(),
     }
 }
 
-/// Table `id` of `report` as Markdown a page includes, then the line saying where and at what load it ran.
+/// A whole number's digits in groups of three, split by spaces.
+pub(crate) fn grouped(s: &str) -> String {
+    let (sign, digits) = s.split_at(usize::from(s.starts_with('-')));
+    let mut out = String::new();
+    for (i, ch) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push(' ');
+        }
+        out.push(ch);
+    }
+    format!("{sign}{out}")
+}
+
+/// Table `id` of `report` as Markdown a page includes, then the line saying which bench it is and its load.
 fn markdown(report: &Report, id: &str) -> anyhow::Result<String> {
     let t = table(report, id)?;
     let mut out = format!("| {} |\n", t.columns.join(" | "));
@@ -289,19 +355,62 @@ fn markdown(report: &Report, id: &str) -> anyhow::Result<String> {
         let cells: Vec<String> = r.iter().map(shown).collect();
         out.push_str(&format!("| {} |\n", cells.join(" | ")));
     }
-    let load = |l: Option<ww_tape_bench::Load>| {
-        l.map_or_else(|| "unknown".to_owned(), |l| format!("{:.2}", l.one))
-    };
-    let m = &report.machine;
     out.push_str(&format!(
-        "\n`just bench-{}` on an {} ({} logical CPUs), load average {} before and {} after.\n",
+        "\n`just bench-{}` on {}, load average {}.\n",
         report.bench.replace('_', "-"),
-        m.cpu,
-        m.cpus,
-        load(t.load_before),
-        load(t.load_after)
+        report.machine.host,
+        t.load()
     ));
     Ok(out)
+}
+
+/// The paragraph saying where every report ran: the machine, the build, the commit and the range of the load.
+fn machine(r: &Reports) -> anyhow::Result<String> {
+    let all = [
+        &r.sample_codecs,
+        &r.event_times,
+        &r.summaries,
+        &r.chunks,
+        &r.tracks,
+        &r.drive,
+    ];
+    let first = &r.drive;
+    for x in all {
+        ensure!(
+            x.machine == first.machine && x.build == first.build && x.commit == first.commit,
+            "bench {} ran on another machine, build or commit than bench drive: run `just bench-book` again",
+            x.bench
+        );
+    }
+    let loads = all
+        .iter()
+        .flat_map(|x| &x.tables)
+        .flat_map(|t| [t.load_before, t.load_after])
+        .flatten()
+        .map(|l| l.one);
+    let lo = loads.clone().fold(f64::MAX, f64::min);
+    let hi = loads.fold(0.0f64, f64::max);
+    let m = &first.machine;
+    let jobs = first
+        .build
+        .jobs
+        .map_or_else(|| "the default jobs".to_owned(), |j| format!("{j} jobs"));
+    Ok(format!(
+        "The benches ran on {}, a {} with {} logical CPUs ({}, {}). Each was a {} build at opt-level {} of commit `{}`, \
+         built with {jobs}. The load average ran from {lo:.2} to {hi:.2} across the tables.\n",
+        m.host,
+        if m.virtual_machine {
+            "virtual machine"
+        } else {
+            "machine"
+        },
+        m.cpus,
+        m.cpu,
+        m.arch,
+        first.build.profile,
+        first.build.opt_level,
+        first.commit,
+    ))
 }
 
 /// Every chart and table, drawn from the reports in `dir`.
@@ -312,6 +421,7 @@ pub fn figures(dir: &Path) -> anyhow::Result<Vec<(String, String)>> {
         ("event_times.svg".to_owned(), event_times(&r)?),
         ("chunk_cost.svg".to_owned(), chunk_cost(&r)?),
         ("drive_sizes.svg".to_owned(), drive_sizes(&r)?),
+        ("bench_machine.txt".to_owned(), machine(&r)?),
     ];
     for (report, id) in [
         (&r.drive, "sizes"),
@@ -332,6 +442,5 @@ pub fn figures(dir: &Path) -> anyhow::Result<Vec<(String, String)>> {
         let name = format!("bench_{}_{id}.txt", report.bench);
         out.push((name, markdown(report, id)?));
     }
-    ensure!(!out.is_empty(), "figures drawn");
     Ok(out)
 }

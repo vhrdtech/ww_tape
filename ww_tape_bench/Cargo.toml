@@ -2,7 +2,7 @@
 name = "ww_tape_bench"
 version = "0.1.0"
 authors.workspace = true
-description = "What every ww_tape bench binary shares: its command line, the machine and load it ran at, and its report as Markdown and JSON"
+description = "What every ww_tape bench binary shares: its command line, its timing loop, and its report with the build, machine and load"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -13,10 +13,10 @@ publish = false
 [dependencies]
 anyhow.workspace = true
 clap = { workspace = true, features = ["derive"] }
-serde = { workspace = true, features = ["derive"] }
-serde_json.workspace = true
+vc_build.workspace = true
 vc_complete.workspace = true
 vc_ui.workspace = true
+ww_tape_bench_report.workspace = true
 
 [lints]
 workspace = true

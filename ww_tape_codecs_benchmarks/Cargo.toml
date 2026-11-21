@@ -22,7 +22,6 @@ lewton.workspace = true
 libm.workspace = true
 motor_sim.workspace = true
 vc_build.workspace = true
-vc_ui.workspace = true
 ww_tape_bench.workspace = true
 ww_tape_codecs = { workspace = true, features = ["std"] }
 

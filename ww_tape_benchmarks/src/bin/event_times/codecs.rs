@@ -338,46 +338,65 @@ impl Column for EliasFano {
     }
 }
 
-/// A track of chunks in one codec, with the first tick of each chunk as its index has it.
+/// One chunk of ticks read in place, by item and by time: a codec's [Column], or ww_tape's own starts column.
+pub trait Chunk {
+    /// Item `i`.
+    fn get(&self, i: usize) -> i64;
+    /// The first item at or after `t`; the item count when none is.
+    fn lower_bound(&self, t: i64) -> usize;
+}
+
+impl<C: Column> Chunk for C {
+    fn get(&self, i: usize) -> i64 {
+        Column::get(self, i)
+    }
+
+    fn lower_bound(&self, t: i64) -> usize {
+        Column::lower_bound(self, t)
+    }
+}
+
+/// A track of chunks of `chunk` items each, with the first tick of each chunk as its index has it.
 pub struct Track<C> {
     chunk: usize,
     chunks: Vec<C>,
     firsts: Vec<i64>,
 }
 
-impl<C: Column> Track<C> {
-    /// `v` cut into chunks of `chunk` items.
-    pub fn build(v: &[i64], chunk: usize) -> Self {
+impl<C: Chunk> Track<C> {
+    /// A track of `chunks` that hold `v` in chunks of `chunk` items.
+    pub fn new(v: &[i64], chunk: usize, chunks: Vec<C>) -> Self {
         Self {
             chunk,
-            chunks: v.chunks(chunk).map(C::encode).collect(),
+            chunks,
             firsts: v.chunks(chunk).map(|c| c[0]).collect(),
         }
     }
 
-    /// Bytes of every chunk's column.
-    pub fn bytes(&self) -> usize {
-        self.chunks.iter().map(C::bytes).sum()
-    }
-}
-
-/// A track of chunks read by item and by time.
-pub trait Lookup {
-    fn get(&self, i: usize) -> i64;
-    fn lower_bound(&self, t: i64) -> usize;
-}
-
-impl<C: Column> Lookup for Track<C> {
-    fn get(&self, i: usize) -> i64 {
+    /// Item `i`.
+    pub fn get(&self, i: usize) -> i64 {
         self.chunks[i / self.chunk].get(i % self.chunk)
     }
 
-    fn lower_bound(&self, t: i64) -> usize {
+    /// The first item at or after `t`.
+    pub fn lower_bound(&self, t: i64) -> usize {
         let idx = self.firsts.partition_point(|&f| f < t);
         if idx == 0 {
             return 0;
         }
         let c = idx - 1;
         c * self.chunk + self.chunks[c].lower_bound(t)
+    }
+}
+
+impl<C: Column> Track<C> {
+    /// `v` cut into chunks of `chunk` items.
+    pub fn build(v: &[i64], chunk: usize) -> Self {
+        Self::new(v, chunk, v.chunks(chunk).map(C::encode).collect())
+    }
+
+    /// Bytes of every chunk's column.
+    pub fn bytes(&self) -> usize {
+        self.chunks.iter().map(C::bytes).sum()
     }
 }

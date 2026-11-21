@@ -22,7 +22,6 @@ use shrink_wrap::prelude::*;
 use std::hint::black_box;
 use std::io;
 use std::time::Instant;
-use vc_ui::Paint;
 use ww_tape::chunk::{ChunkHead, chunk_len, write_chunk};
 use ww_tape::piece::payload_hash;
 use ww_tape::reader::ByteSource;
@@ -32,7 +31,7 @@ use ww_tape::{
     SeriesDef, SeriesGrid, SeriesTimeline, SessionTag, SyncPolicy, TapeReader, TapeSink,
     TapeWriter, TrackDef, TrackHash, TrackKind, clock_key, track_key,
 };
-use ww_tape_bench::{Cell, Common, Machine, Report};
+use ww_tape_bench::{Bench, Cell, Common, Measure, ns_per_try};
 
 #[derive(Parser)]
 #[command(
@@ -56,12 +55,6 @@ struct Args {
     /// Rounds; the best is kept.
     #[arg(long, default_value_t = 5)]
     rounds: u32,
-}
-
-impl AsRef<Common> for Args {
-    fn as_ref(&self) -> &Common {
-        &self.common
-    }
 }
 
 /// A sink that keeps no bytes: the writer's own work is measured, not a file's.
@@ -170,38 +163,20 @@ fn head(k: u64, count: u32) -> anyhow::Result<ChunkHead> {
     })
 }
 
-/// The best of `rounds` rounds of `f` over `chunks` chunks, in ns per chunk.
-fn best(
-    rounds: u32,
-    chunks: u32,
-    mut f: impl FnMut(u64) -> anyhow::Result<()>,
-) -> anyhow::Result<f64> {
-    let mut best = f64::INFINITY;
-    for _ in 0..rounds {
-        let t = Instant::now();
-        for k in 0..u64::from(chunks) {
-            f(k)?;
-        }
-        best = best.min(t.elapsed().as_nanos() as f64 / f64::from(chunks));
-    }
-    Ok(best)
-}
-
 fn main() -> anyhow::Result<()> {
     let args: Args = ww_tape_bench::args();
-    let paint = Paint::stdout();
-    let mut report = Report::new(
+    let mut bench = Bench::start(
         "chunks",
-        vc_build::version!(),
-        Machine::this(),
+        vc_build::build_info!(),
+        &args.common,
         vec![
             ("chunk KiB", args.chunk_kib.to_string()),
             ("chunks", args.chunks.to_string()),
             ("rounds", args.rounds.to_string()),
         ],
-    );
-    println!("{}", report.header(paint));
-    let mut table = report.table(
+    )?;
+    println!("{}", bench.header());
+    let mut table = bench.table(
         "writer",
         &format!(
             "Series chunks of {} KiB ({} i16 samples), best of {} rounds of {}.",
@@ -235,19 +210,19 @@ fn main() -> anyhow::Result<()> {
         Ok::<_, anyhow::Error>(w)
     };
 
-    let (r, c) = (args.rounds, args.chunks);
+    let (r, c) = (args.rounds, args.chunks as usize);
     let mut buf = vec![0u8; block.len()];
-    let encode = best(r, c, |k| {
-        let h = head(k, count)?;
+    let encode = ns_per_try(r, c, |k| {
+        let h = head(k as u64, count)?;
         let n = write_chunk(&mut buf, id, &h, &columns, 0).map_err(|e| anyhow::anyhow!("{e:?}"))?;
         black_box(n);
         Ok(())
     })?;
-    let read = best(r, c, |_| {
+    let read = ns_per_try(r, c, |_| {
         black_box(Block::read(black_box(&block)).map_err(|e| anyhow::anyhow!("{e:?}"))?);
         Ok(())
     })?;
-    let hash = best(r, c, |_| {
+    let hash = ns_per_try(r, c, |_| {
         black_box(ItemHash::of(black_box(&block)));
         Ok(())
     })?;
@@ -256,7 +231,7 @@ fn main() -> anyhow::Result<()> {
         .chunk()
         .ok_or_else(|| anyhow::anyhow!("not a chunk"))?;
     let payload = payload_hash(chunk.payload());
-    let unit = best(r, c, |_| {
+    let unit = ns_per_try(r, c, |_| {
         black_box(TrackHash::chunk_unit(
             black_box(&chunk),
             black_box(&payload),
@@ -264,7 +239,7 @@ fn main() -> anyhow::Result<()> {
         Ok(())
     })?;
     let mut w = writer()?;
-    let own = best(r, c, |_| {
+    let own = ns_per_try(r, c, |_| {
         let k = w.next_id().seq;
         w.write_chunk(&defs, &head(k, count)?, &columns)
             .map_err(e)?;
@@ -273,7 +248,7 @@ fn main() -> anyhow::Result<()> {
     // into memory, as a setup kept in RAM writes: every byte kept (rounds x chunks of them)
     let mut mem = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     mem.set_alignment(ALIGNMENT)?;
-    let in_memory = best(r, c, |_| {
+    let in_memory = ns_per_try(r, c, |_| {
         let k = mem.next_id().seq;
         mem.write_chunk(&defs, &head(k, count)?, &columns)
             .map_err(|e| anyhow::anyhow!("{e:?}"))?;
@@ -281,7 +256,7 @@ fn main() -> anyhow::Result<()> {
     })?;
     drop(mem);
     let mut w = writer()?;
-    let theirs = best(r, c, |_| {
+    let theirs = ns_per_try(r, c, |_| {
         let k = w.next_id().seq;
         let h = head(k, count)?;
         let n = write_chunk(&mut buf, w.next_id(), &h, &columns, 0)
@@ -306,12 +281,12 @@ fn main() -> anyhow::Result<()> {
             Cell::num(gbs(ns), 2),
         ]);
     }
-    println!("{}", report.push(table, paint));
+    println!("{}", bench.push(table));
     for alignment in [0, ALIGNMENT] {
-        let table = timeline(&report, &defs, &columns, count, &args, alignment)?;
-        println!("{}", report.push(table, paint));
+        let table = timeline(&bench, &defs, &columns, count, &args, alignment)?;
+        println!("{}", bench.push(table));
     }
-    report.finish(args.common.json.as_deref())
+    bench.finish()
 }
 
 /// Bytes that count what is read of them.
@@ -343,14 +318,14 @@ impl ByteSource for Counted {
 /// (`TapeReader::series_timeline`) and from whole blocks, in a file of payloads aligned to `alignment`, in memory:
 /// bytes read and ns per chunk.
 fn timeline(
-    report: &Report,
+    bench: &Bench,
     defs: &Definitions,
     columns: &[(ColumnSpec, &[u8])],
     count: u32,
     args: &Args,
     alignment: u32,
-) -> anyhow::Result<ww_tape_bench::Table> {
-    let mut table = report.table(
+) -> anyhow::Result<Measure> {
+    let mut table = bench.table(
         &format!("timeline-{alignment}"),
         &format!(
             "Timeline of a track of {} chunks, aligned to {alignment} bytes (0: not aligned), in memory.",

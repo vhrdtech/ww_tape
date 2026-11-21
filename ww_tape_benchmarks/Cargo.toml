@@ -16,7 +16,6 @@ clap = { workspace = true, features = ["derive"] }
 libm.workspace = true
 shrink_wrap.workspace = true
 vc_build.workspace = true
-vc_ui.workspace = true
 ww_tape = { workspace = true, features = ["std"] }
 ww_tape_bench.workspace = true
 ww_tape_codecs = { workspace = true, features = ["std"] }

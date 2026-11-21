@@ -34,3 +34,16 @@ fn figures_in_docs_are_current() {
         "docs/plots/{stale:?} differ from what ww_tape_figures draws: run `just book-figures` and check them"
     );
 }
+
+#[test]
+fn prose_numbers_come_from_reports() {
+    let page =
+        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs/sizes.md"))
+            .unwrap();
+    let problems = ww_tape_figures::bench_says().unwrap().check(&page);
+    assert!(
+        problems.is_empty(),
+        "docs/sizes.md writes numbers the bench reports don't hold:\n{}",
+        problems.join("\n")
+    );
+}

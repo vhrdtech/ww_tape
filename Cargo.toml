@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["ww_tape", "ww_tape_bench", "ww_tape_benchmarks", "ww_tape_codecs", "ww_tape_codecs_benchmarks", "ww_tape_example", "ww_tape_figures", "ww_tape_fs", "ww_tape_fuzz", "ww_tape_summary", "ww_tape_tests"]
+members = ["ww_tape", "ww_tape_bench", "ww_tape_bench_report", "ww_tape_benchmarks", "ww_tape_codecs", "ww_tape_codecs_benchmarks", "ww_tape_example", "ww_tape_figures", "ww_tape_fs", "ww_tape_fuzz", "ww_tape_summary", "ww_tape_tests"]
 # cargo-fuzz targets, a workspace of its own (nightly)
 exclude = ["fuzz"]
 
@@ -16,6 +16,7 @@ license = "MIT"
 [workspace.dependencies]
 ww_tape = { version = "0.1.0", path = "./ww_tape", default-features = false }
 ww_tape_bench = { path = "./ww_tape_bench" }
+ww_tape_bench_report = { path = "./ww_tape_bench_report" }
 ww_tape_codecs = { version = "0.1.0", path = "./ww_tape_codecs", default-features = false }
 ww_tape_example = { path = "./ww_tape_example" }
 ww_tape_fs = { version = "0.1.0", path = "./ww_tape_fs" }

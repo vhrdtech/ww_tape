@@ -58,8 +58,15 @@ mod svg;
 mod tape_map;
 mod writing;
 
+pub use bench::Says;
+
 /// Where the bench reports the charts draw from are kept: `docs/bench` of this repository.
 pub const BENCH_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../docs/bench");
+
+/// What the prose of "Sizes and speeds" may write, from the bench reports in [BENCH_DIR].
+pub fn bench_says() -> anyhow::Result<Says> {
+    bench::says(&bench::read(std::path::Path::new(BENCH_DIR))?)
+}
 
 /// Every figure: its file name and its text.
 pub fn figures() -> anyhow::Result<Vec<(String, String)>> {

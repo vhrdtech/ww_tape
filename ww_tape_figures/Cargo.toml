@@ -16,7 +16,7 @@ exact_units = { workspace = true, features = ["counting", "information"] }
 libm.workspace = true
 shrink_wrap.workspace = true
 ww_tape = { workspace = true, features = ["std"] }
-ww_tape_bench.workspace = true
+ww_tape_bench_report.workspace = true
 ww_tape_example.workspace = true
 ww_tape_summary = { workspace = true, features = ["std"] }
 

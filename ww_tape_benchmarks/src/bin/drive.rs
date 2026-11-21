@@ -12,9 +12,8 @@
 
 use clap::Parser;
 use std::time::Instant;
-use vc_ui::Paint;
 use ww_tape::{BlockKind, FLAG_REPEAT, FileBlocks};
-use ww_tape_bench::{Cell, Common, Machine, Report, Table};
+use ww_tape_bench::{Bench, Cell, Common, Measure};
 use ww_tape_example::{CAN0, Drive, PHASE_A, Recording, frame};
 
 #[derive(Parser)]
@@ -33,12 +32,6 @@ struct Args {
     /// Rounds of each recording; the fastest counts.
     #[arg(long, default_value_t = 3)]
     rounds: u32,
-}
-
-impl AsRef<Common> for Args {
-    fn as_ref(&self) -> &Common {
-        &self.common
-    }
 }
 
 /// The parts of a recording the sizes table names, in its order.
@@ -95,10 +88,10 @@ fn record(drive: &Drive, rounds: u32) -> anyhow::Result<(f64, Recording)> {
     Ok((best, last.ok_or_else(|| anyhow::anyhow!("rounds is 0"))?))
 }
 
-fn sizes(report: &Report, rec: &Recording) -> anyhow::Result<Table> {
+fn sizes(bench: &Bench, rec: &Recording) -> anyhow::Result<Measure> {
     let total = rec.len();
     let seconds = f64::from(rec.drive.minutes) * 60.0;
-    let mut t = report.table(
+    let mut t = bench.table(
         "sizes",
         &format!(
             "The drive's hour at full scale: {} pieces, {total} bytes.",
@@ -138,13 +131,14 @@ fn sizes(report: &Report, rec: &Recording) -> anyhow::Result<Table> {
     Ok(t)
 }
 
-fn items(report: &Report, rec: &Recording) -> Table {
-    let mut t = report.table(
+fn items(bench: &Bench, rec: &Recording) -> Measure {
+    let mut t = bench.table(
         "items",
         "Bytes per item of the drive's streams, their chunks whole.",
         &[
             "Stream",
             "Items",
+            "Items per second",
             "Chunk bytes",
             "Bytes per item",
             "Raw bytes per item",
@@ -157,6 +151,7 @@ fn items(report: &Report, rec: &Recording) -> Table {
         .map(|k| frame(k, period_us).1.len() as u64)
         .sum();
     let raw_frame = (8 * frames + payloads) as f64 / frames as f64;
+    let seconds = f64::from(rec.drive.minutes) * 60.0;
     for (name, track, raw) in [
         ("`can0` frames", CAN0, raw_frame),
         ("`phase_a` samples", PHASE_A, size_of::<i16>() as f64),
@@ -165,6 +160,7 @@ fn items(report: &Report, rec: &Recording) -> Table {
         t.row(vec![
             Cell::text(name),
             Cell::count(n),
+            Cell::num(n as f64 / seconds, 0),
             Cell::count(bytes),
             Cell::num(bytes as f64 / n as f64, 3),
             Cell::num(raw, 3),
@@ -176,16 +172,15 @@ fn items(report: &Report, rec: &Recording) -> Table {
 fn main() -> anyhow::Result<()> {
     let a: Args = ww_tape_bench::args();
     anyhow::ensure!(a.rounds > 0, "rounds must be positive");
-    let paint = Paint::stdout();
-    let mut report = Report::new(
+    let mut bench = Bench::start(
         "drive",
-        vc_build::version!(),
-        Machine::this(),
+        vc_build::build_info!(),
+        &a.common,
         vec![("rounds", a.rounds.to_string())],
-    );
-    println!("{}", report.header(paint));
+    )?;
+    println!("{}", bench.header());
     let drive = Drive::full();
-    let mut time = report.table(
+    let mut time = bench.table(
         "write",
         &format!(
             "The drive's hour recorded into memory, its signals made by the example as it goes, the best of {} rounds.",
@@ -213,10 +208,10 @@ fn main() -> anyhow::Result<()> {
             Cell::num(run / s, 0),
         ]);
     }
-    println!("{}", report.push(time, paint));
-    let t = sizes(&report, &rec)?;
-    println!("{}", report.push(t, paint));
-    let t = items(&report, &rec);
-    println!("{}", report.push(t, paint));
-    report.finish(a.common.json.as_deref())
+    println!("{}", bench.push(time));
+    let t = sizes(&bench, &rec)?;
+    println!("{}", bench.push(t));
+    let t = items(&bench, &rec);
+    println!("{}", bench.push(t));
+    bench.finish()
 }

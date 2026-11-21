@@ -15,10 +15,9 @@
 use clap::Parser;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
-use vc_ui::Paint;
 use ww_tape::reader::ByteSource;
 use ww_tape::{MemSink, TapeSink};
-use ww_tape_bench::{Cell, Common, Machine, Report};
+use ww_tape_bench::{Bench, Cell, Common};
 
 #[derive(Parser)]
 #[command(
@@ -38,12 +37,6 @@ struct Args {
     /// Rounds each; the worst is kept.
     #[arg(long, default_value_t = 5)]
     rounds: u32,
-}
-
-impl AsRef<Common> for Args {
-    fn as_ref(&self) -> &Common {
-        &self.common
-    }
 }
 
 /// (worst, p99.9) of the reader's waits, in the order of the writer's progress.
@@ -90,18 +83,17 @@ fn round(piece_mib: usize, reserve: bool) -> (Duration, Duration, usize) {
 
 fn main() -> anyhow::Result<()> {
     let a: Args = ww_tape_bench::args();
-    let paint = Paint::stdout();
-    let mut report = Report::new(
+    let mut bench = Bench::start(
         "mem_reader",
-        vc_build::version!(),
-        Machine::this(),
+        vc_build::build_info!(),
+        &a.common,
         vec![
             ("piece MiB", a.piece_mib.to_string()),
             ("rounds", a.rounds.to_string()),
         ],
-    );
-    println!("{}", report.header(paint));
-    let mut table = report.table(
+    )?;
+    println!("{}", bench.header());
+    let mut table = bench.table(
         "waits",
         &format!(
             "A reader of a memory piece of {} MiB while it is written, the worst of {} rounds.",
@@ -128,6 +120,6 @@ fn main() -> anyhow::Result<()> {
             Cell::count(worst.2 as u64),
         ]);
     }
-    println!("{}", report.push(table, paint));
-    report.finish(a.common.json.as_deref())
+    println!("{}", bench.push(table));
+    bench.finish()
 }

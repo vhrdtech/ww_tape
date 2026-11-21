@@ -15,23 +15,22 @@
     clippy::indexing_slicing,
     clippy::print_stderr,
     clippy::print_stdout,
-    reason = "a bench reads no file of others: it computes sizes and rates freely, fails by panicking and prints its table"
+    reason = "a bench computes sizes and rates of data it makes freely, fails by panicking and prints its table; the journal it reads is parsed with checked arithmetic under a cap (workloads.rs)"
 )]
 
 mod codecs;
 mod workloads;
 
 use clap::Parser;
-use codecs::{Column, DodVarint, EliasFano, Lookup, Raw, Track};
+use codecs::{Chunk, Column, DodVarint, EliasFano, Raw, Track};
 use std::hint::black_box;
 use std::path::PathBuf;
 use std::time::Instant;
-use vc_ui::Paint;
 use workloads::Workload;
 use ww_tape::chunk::{chunk_len, write_chunk};
 use ww_tape::times::{EncodedTimes, EventTimes};
 use ww_tape::{Block, BlockId, ColumnSpec, SessionTag};
-use ww_tape_bench::{Cell, Common, Machine, Report, Rng, Table};
+use ww_tape_bench::{Bench, Cell, Common, Measure, Rng, ns_per};
 
 #[derive(Parser)]
 #[command(
@@ -65,27 +64,6 @@ struct Args {
     /// without it that workload is skipped.
     #[arg(long, value_name = "FILE", value_hint = clap::ValueHint::FilePath)]
     journal: Option<PathBuf>,
-}
-
-impl AsRef<Common> for Args {
-    fn as_ref(&self) -> &Common {
-        &self.common
-    }
-}
-
-/// Best of `rounds`, ns per call of `f` over `iters` calls.
-fn ns_per(rounds: u32, iters: usize, mut f: impl FnMut(usize) -> u64) -> f64 {
-    let mut best = f64::MAX;
-    for _ in 0..rounds {
-        let t = Instant::now();
-        let mut acc = 0u64;
-        for i in 0..iters {
-            acc = acc.wrapping_add(f(i));
-        }
-        black_box(acc);
-        best = best.min(t.elapsed().as_nanos() as f64 / iters as f64);
-    }
-    best
 }
 
 /// The items and ticks a round looks up: items uniform, ticks half uniform over the time range (a view) and half
@@ -136,31 +114,26 @@ fn time_bytes(starts: &[i64], ends: Option<&[i64]>, chunk: usize) -> anyhow::Res
     Ok(bytes)
 }
 
-/// ww_tape's events chunks of a track, their starts read in place.
-struct Tape<'b> {
-    chunk: usize,
-    times: Vec<EventTimes<'b>>,
-    firsts: Vec<i64>,
-}
-
-impl Lookup for Tape<'_> {
+/// ww_tape's starts column of an events chunk, read in place.
+impl Chunk for EventTimes<'_> {
     fn get(&self, i: usize) -> i64 {
-        self.times[i / self.chunk].starts().get(i % self.chunk)
+        self.starts().get(i)
     }
 
     fn lower_bound(&self, t: i64) -> usize {
-        let idx = self.firsts.partition_point(|&f| f < t);
-        if idx == 0 {
-            return 0;
-        }
-        let c = idx - 1;
-        c * self.chunk + self.times[c].starts().lower_bound(t)
+        self.starts().lower_bound(t)
     }
 }
 
 /// Check `track` against the raw ticks, then time item `j` and the first at or after a tick.
-fn lookup_ns(a: &Args, v: &[i64], q: &Lookups, track: &impl Lookup, name: &str) -> (f64, f64) {
-    for k in 0..q.items.len().min(4096) {
+fn lookup_ns(
+    a: &Args,
+    v: &[i64],
+    q: &Lookups,
+    track: &Track<impl Chunk>,
+    name: &str,
+) -> (f64, f64) {
+    for k in 0..q.items.len() {
         let i = q.items[k];
         assert_eq!(track.get(i), v[i], "{name}: item {i}");
         let t = q.ticks[k];
@@ -176,7 +149,7 @@ fn lookup_ns(a: &Args, v: &[i64], q: &Lookups, track: &impl Lookup, name: &str) 
     (get, lower)
 }
 
-fn row(t: &mut Table, w: &Workload, codec: &str, bytes: usize, encode: f64, look: (f64, f64)) {
+fn row(t: &mut Measure, w: &Workload, codec: &str, bytes: usize, encode: f64, look: (f64, f64)) {
     let n = w.starts.len() as f64;
     t.row(vec![
         Cell::text(&w.name),
@@ -188,7 +161,7 @@ fn row(t: &mut Table, w: &Workload, codec: &str, bytes: usize, encode: f64, look
     ]);
 }
 
-fn other<C: Column>(a: &Args, t: &mut Table, w: &Workload, q: &Lookups) {
+fn other<C: Column>(a: &Args, t: &mut Measure, w: &Workload, q: &Lookups) {
     let mut encode = f64::MAX;
     let mut track = None;
     for _ in 0..a.rounds {
@@ -203,7 +176,7 @@ fn other<C: Column>(a: &Args, t: &mut Table, w: &Workload, q: &Lookups) {
 }
 
 /// Every codec on workload `w`.
-fn workload(a: &Args, t: &mut Table, w: &Workload) -> anyhow::Result<()> {
+fn workload(a: &Args, t: &mut Measure, w: &Workload) -> anyhow::Result<()> {
     eprintln!("{}: {} events", w.name, w.starts.len());
     let q = lookups(&w.starts, a.lookups);
     let mut encode = f64::MAX;
@@ -227,14 +200,14 @@ fn workload(a: &Args, t: &mut Table, w: &Workload) -> anyhow::Result<()> {
         .iter()
         .map(|b| b.chunk().ok_or_else(|| anyhow::anyhow!("not a chunk")))
         .collect::<anyhow::Result<_>>()?;
-    let tape = Tape {
-        chunk: a.chunk,
-        times: chunks
+    let tape = Track::new(
+        &w.starts,
+        a.chunk,
+        chunks
             .iter()
             .map(EventTimes::read)
             .collect::<Result<_, _>>()?,
-        firsts: w.starts.chunks(a.chunk).map(|c| c[0]).collect(),
-    };
+    );
     let look = lookup_ns(a, &w.starts, &q, &tape, "ww_tape");
     let bytes = time_bytes(&w.starts, None, a.chunk)?;
     row(t, w, "ww_tape linear groups", bytes, encode, look);
@@ -250,32 +223,39 @@ fn main() -> anyhow::Result<()> {
         a.events > 0 && a.frames > 0 && a.chunk > 0 && a.lookups > 0 && a.rounds > 0,
         "events, frames, chunk, lookups and rounds must be positive"
     );
-    let paint = Paint::stdout();
-    let mut report = Report::new(
-        "event_times",
-        vc_build::version!(),
-        Machine::this(),
-        vec![
-            ("events", a.events.to_string()),
-            ("frames", a.frames.to_string()),
-            ("chunk", a.chunk.to_string()),
-            ("lookups", a.lookups.to_string()),
-            ("rounds", a.rounds.to_string()),
-        ],
-    );
-    println!("{}", report.header(paint));
+    let journal = a.journal.as_deref().map(workloads::journal).transpose()?;
+    let mut settings = vec![
+        ("events", a.events.to_string()),
+        ("frames", a.frames.to_string()),
+        ("chunk", a.chunk.to_string()),
+        ("lookups", a.lookups.to_string()),
+        ("rounds", a.rounds.to_string()),
+    ];
+    if let Some(j) = &journal {
+        settings.push(("journal entries", j.workload.starts.len().to_string()));
+        settings.push(("journal lines skipped", j.skipped.to_string()));
+        settings.push(("journal days", format!("{:.1}", j.days())));
+    }
+    let mut bench = Bench::start("event_times", vc_build::build_info!(), &a.common, settings)?;
+    println!("{}", bench.header());
     let mut sets = vec![
         workloads::exact_gaps(a.events),
         workloads::jitter(a.events),
         workloads::bursty(a.events),
     ];
-    match &a.journal {
-        Some(path) => sets.push(workloads::journal(&std::fs::read_to_string(path)?)),
-        None => eprintln!("journal: skipped, no --journal file"),
+    match journal {
+        Some(j) if j.workload.starts.is_empty() => {
+            println!(
+                "{}",
+                bench.skipped("journal", "no entry in the --journal file")
+            );
+        }
+        Some(j) => sets.push(j.workload),
+        None => println!("{}", bench.skipped("journal", "no --journal file")),
     }
     sets.push(workloads::frames(a.frames, 60_000));
     sets.push(workloads::frames(a.frames, 1_000_000_000));
-    let mut t = report.table(
+    let mut t = bench.table(
         "codecs",
         &format!(
             "Event start ticks in chunks of {} items, the time columns alone; lookups of uniform items and ticks, best of {}.",
@@ -290,12 +270,12 @@ fn main() -> anyhow::Result<()> {
             "First at or after a tick ns",
         ],
     );
-    for w in sets.iter().filter(|w| !w.starts.is_empty()) {
+    for w in &sets {
         workload(&a, &mut t, w)?;
     }
-    println!("{}", report.push(t, paint));
+    println!("{}", bench.push(t));
 
-    let mut e = report.table(
+    let mut e = bench.table(
         "ends",
         &format!(
             "Spans: starts and ends in chunks of {} items, the time columns alone.",
@@ -322,6 +302,6 @@ fn main() -> anyhow::Result<()> {
             Cell::num(both as f64 / n, 3),
         ]);
     }
-    println!("{}", report.push(e, paint));
-    report.finish(a.common.json.as_deref())
+    println!("{}", bench.push(e));
+    bench.finish()
 }

@@ -1,77 +1,50 @@
 //! The machine a bench runs on and its load average: what a reader needs to weigh a time.
 
-use serde::{Deserialize, Serialize};
+use ww_tape_bench_report::{Build, Load, Machine};
 
-/// The load average: runnable tasks averaged over 1, 5 and 15 minutes (`/proc/loadavg`).
-#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Load {
-    pub one: f64,
-    pub five: f64,
-    pub fifteen: f64,
+/// The load average now; None where the system doesn't say (not Linux).
+pub fn load() -> Option<Load> {
+    Load::parse(&std::fs::read_to_string("/proc/loadavg").ok()?)
 }
 
-impl Load {
-    /// The load average now; None where the system doesn't say (not Linux).
-    pub fn now() -> Option<Self> {
-        let text = std::fs::read_to_string("/proc/loadavg").ok()?;
-        let mut v = text.split_whitespace().map(str::parse::<f64>);
-        Some(Self {
-            one: v.next()?.ok()?,
-            five: v.next()?.ok()?,
-            fifteen: v.next()?.ok()?,
-        })
-    }
-
-    /// `5.62 before, 5.80 after` of the 1-minute averages, `unknown` where one is missing.
-    pub fn span(before: Option<Self>, after: Option<Self>) -> String {
-        let one =
-            |l: Option<Self>| l.map_or_else(|| "unknown".to_owned(), |l| format!("{:.2}", l.one));
-        format!("{} before, {} after", one(before), one(after))
+/// This machine.
+pub fn machine() -> Machine {
+    let cpuinfo = std::fs::read_to_string("/proc/cpuinfo").unwrap_or_default();
+    Machine {
+        host: host().unwrap_or_else(|| "unknown host".to_owned()),
+        virtual_machine: cpuinfo
+            .lines()
+            .any(|l| l.starts_with("flags") && l.split_whitespace().any(|f| f == "hypervisor")),
+        cpu: cpu_model(&cpuinfo).unwrap_or_else(|| "unknown CPU".to_owned()),
+        cpus: std::thread::available_parallelism().map_or(1, usize::from),
+        arch: std::env::consts::ARCH.to_owned(),
+        extensions: extensions(),
     }
 }
 
-/// What a bench ran on.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Machine {
-    /// The CPU's model name, as the system reports it.
-    pub cpu: String,
-    /// Logical CPUs the bench could use.
-    pub cpus: usize,
-    /// `x86_64`, `aarch64`, ...
-    pub arch: String,
-    /// The vector and CRC extensions the kernels of ww_tape may pick.
-    pub extensions: Vec<String>,
-}
-
-impl Machine {
-    /// This machine.
-    pub fn this() -> Self {
-        Self {
-            cpu: cpu_model().unwrap_or_else(|| "unknown CPU".to_owned()),
-            cpus: std::thread::available_parallelism().map_or(1, usize::from),
-            arch: std::env::consts::ARCH.to_owned(),
-            extensions: extensions(),
-        }
+/// How this bench was built: cargo's profile kind and opt-level (this crate's build script), and the jobs of
+/// `CARGO_BUILD_JOBS`, which `just jobs=N` exports to the run as well.
+pub fn build() -> Build {
+    Build {
+        profile: env!("WW_TAPE_BENCH_PROFILE").to_owned(),
+        opt_level: env!("WW_TAPE_BENCH_OPT_LEVEL").to_owned(),
+        jobs: std::env::var("CARGO_BUILD_JOBS")
+            .ok()
+            .and_then(|j| j.parse().ok()),
     }
 }
 
-impl core::fmt::Display for Machine {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(
-            f,
-            "{}, {} logical CPUs, {} ({})",
-            self.cpu,
-            self.cpus,
-            self.arch,
-            self.extensions.join(", ")
-        )
-    }
+/// The host name, from the kernel.
+fn host() -> Option<String> {
+    let h = std::fs::read_to_string("/proc/sys/kernel/hostname").ok()?;
+    let h = h.trim();
+    (!h.is_empty()).then(|| h.to_owned())
 }
 
-/// The model name of the first CPU in `/proc/cpuinfo`.
-fn cpu_model() -> Option<String> {
-    let text = std::fs::read_to_string("/proc/cpuinfo").ok()?;
-    text.lines()
+/// The model name of the first CPU in `/proc/cpuinfo`'s text.
+fn cpu_model(cpuinfo: &str) -> Option<String> {
+    cpuinfo
+        .lines()
         .find_map(|l| l.strip_prefix("model name")?.split_once(':'))
         .map(|(_, v)| v.trim().to_owned())
 }

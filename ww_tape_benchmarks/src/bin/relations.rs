@@ -16,16 +16,14 @@
 
 use clap::Parser;
 use shrink_wrap::prelude::*;
-use std::hint::black_box;
 use std::time::Instant;
-use vc_ui::Paint;
 use ww_tape::times::{EncodedRelation, EncodedTimes, RelationColumn, StoredRelations};
 use ww_tape::{
     Block, ClockDef, ClockOrigin, Definitions, Describe, EventsDef, FullVersion, Magnitude,
     MemSink, RelationDef, RelationIndex, RelationTarget, RelationValues, Segment, SyncPolicy,
     TapeWriter, TrackDef, TrackKind, Version, clock_key, track_key,
 };
-use ww_tape_bench::{Cell, Common, Machine, Report, Rng};
+use ww_tape_bench::{Bench, Cell, Common, Rng, ns_per};
 
 #[derive(Parser)]
 #[command(
@@ -45,12 +43,6 @@ struct Args {
     /// Chunks per round of the writer rows.
     #[arg(long, default_value_t = 2000)]
     chunks: u32,
-}
-
-impl AsRef<Common> for Args {
-    fn as_ref(&self) -> &Common {
-        &self.common
-    }
 }
 
 const N: usize = 4096;
@@ -84,21 +76,6 @@ fn shapes() -> Vec<(&'static str, Vec<u64>, bool)> {
         ("key, 20 CAN ids", keys, false),
         ("key, random u64", wide, false),
     ]
-}
-
-/// Best of `rounds`, ns per call of `f` over `iters` calls.
-fn best(rounds: u32, iters: usize, mut f: impl FnMut(usize) -> u64) -> f64 {
-    let mut best = f64::MAX;
-    for _ in 0..rounds {
-        let t = Instant::now();
-        let mut acc = 0u64;
-        for i in 0..iters {
-            acc = acc.wrapping_add(f(i));
-        }
-        black_box(acc);
-        best = best.min(t.elapsed().as_nanos() as f64 / iters as f64);
-    }
-    best
 }
 
 const RELATIONS: &[RelationDef<'static>] = &[
@@ -144,18 +121,17 @@ fn track(number: u32, relations: &'static [RelationDef<'static>]) -> TrackDef<'s
 
 fn main() -> anyhow::Result<()> {
     let args: Args = ww_tape_bench::args();
-    let paint = Paint::stdout();
-    let mut report = Report::new(
+    let mut bench = Bench::start(
         "relations",
-        vc_build::version!(),
-        Machine::this(),
+        vc_build::build_info!(),
+        &args.common,
         vec![
             ("rounds", args.rounds.to_string()),
             ("chunks", args.chunks.to_string()),
         ],
-    );
-    println!("{}", report.header(paint));
-    let mut columns = report.table(
+    )?;
+    println!("{}", bench.header());
+    let mut columns = bench.table(
         "columns",
         &format!("Relation columns of {N} items."),
         &[
@@ -172,7 +148,7 @@ fn main() -> anyhow::Result<()> {
     for (what, values, monotone) in shapes() {
         let enc = EncodedRelation::encode(0, &values, monotone)?;
         let (spec, bytes) = enc.column();
-        let encode = best(args.rounds, 64, |_| {
+        let encode = ns_per(args.rounds, 64, |_| {
             EncodedRelation::encode(0, &values, monotone)
                 .map(|e| e.column().1.len() as u64)
                 .unwrap_or(0)
@@ -196,7 +172,7 @@ fn main() -> anyhow::Result<()> {
             0,
         )?
         .ok_or_else(|| anyhow::anyhow!("its column"))?;
-        let get = best(args.rounds, 64, |_| {
+        let get = ns_per(args.rounds, 64, |_| {
             (0..N).map(|i| column.get(i)).fold(0, u64::wrapping_add)
         }) / N as f64;
         let mut r = Rng(9);
@@ -205,7 +181,7 @@ fn main() -> anyhow::Result<()> {
             .collect();
         let lower = match column.lower_bound(0) {
             Some(_) => Cell::num(
-                best(args.rounds, probes.len(), |i| {
+                ns_per(args.rounds, probes.len(), |i| {
                     column.lower_bound(probes[i]).unwrap_or(0) as u64
                 }),
                 0,
@@ -221,9 +197,9 @@ fn main() -> anyhow::Result<()> {
             lower,
         ]);
     }
-    println!("{}", report.push(columns, paint));
+    println!("{}", bench.push(columns));
 
-    let mut writes = report.table(
+    let mut writes = bench.table(
         "write",
         &format!("`write_chunk` of an events chunk of {N} instants."),
         &["Chunk", "ns per chunk"],
@@ -273,6 +249,6 @@ fn main() -> anyhow::Result<()> {
         }
         writes.row(vec![Cell::text(what), Cell::num(best_ns, 0)]);
     }
-    println!("{}", report.push(writes, paint));
-    report.finish(args.common.json.as_deref())
+    println!("{}", bench.push(writes));
+    bench.finish()
 }

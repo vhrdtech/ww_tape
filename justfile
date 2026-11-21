@@ -114,7 +114,7 @@ bench-memory *args:
 # (CODEC-2); the system journal workload reads this machine's last 20 days of journal times, when journalctl has them
 bench-event-times *args:
     mkdir -p target/bench-data
-    -journalctl -q --no-pager -o short-unix --since -20d > target/bench-data/journal.txt
+    -journalctl -q --no-pager -o short-unix --since -20d | cut -d" " -f1 > target/bench-data/journal.txt
     cargo run -q --release -p ww_tape_benchmarks --bin event_times -- --journal target/bench-data/journal.txt {{ args }}
 
 # ww_tape events chunk starts column: open intact and salvaged, get and is_suspect per item (READ-2); `just bench-starts --help`
@@ -135,8 +135,11 @@ bench-mem-reader *args:
     cargo run -q --release -p ww_tape_benchmarks --bin mem_reader -- {{ args }}
 
 # Every bench the book's "Sizes and speeds" draws from, at release, into docs/bench/*.json; then the charts and tables
-# drawn from them (`just book-figures`). `just jobs=N bench-book` caps the build's jobs; each bench runs on one core
+# drawn from them (`just book-figures`). `just jobs=N bench-book` caps the build's jobs; each bench runs on one core.
+# A report names the commit it ran, so the tree must be clean, and every bench is built before the first report is written
 bench-book:
+    test -z "$(git status --porcelain)" || (echo "bench-book: commit or drop the changes first, a report names its commit" && exit 1)
+    cargo build -q --release -p ww_tape_benchmarks -p ww_tape_codecs_benchmarks
     mkdir -p docs/bench
     just bench-sample-codecs --json docs/bench/sample_codecs.json
     just bench-event-times --json docs/bench/event_times.json

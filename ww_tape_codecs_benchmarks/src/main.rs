@@ -11,7 +11,7 @@
     clippy::indexing_slicing,
     clippy::print_stderr,
     clippy::print_stdout,
-    reason = "a bench reads no file of others: it computes sizes and rates freely, fails by panicking and prints its table"
+    reason = "a bench computes sizes and rates of data it makes freely, fails by panicking and prints its table; the speech file it reads is checked by hash and decoded by lewton"
 )]
 
 mod data;
@@ -25,8 +25,7 @@ use std::hint::black_box;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::time::Instant;
-use vc_ui::Paint;
-use ww_tape_bench::{Cell, Common, Machine, Report, Table};
+use ww_tape_bench::{Bench, Cell, Common, Measure};
 use ww_tape_codecs::Codec;
 use ww_tape_codecs::samples::{Lane, Sample, Samples, Scalar, encode, max_encoded_len};
 
@@ -59,12 +58,6 @@ struct Args {
     /// Timed passes over each set; the fastest counts.
     #[arg(long, default_value_t = 5)]
     repeats: usize,
-}
-
-impl AsRef<Common> for Args {
-    fn as_ref(&self) -> &Common {
-        &self.common
-    }
 }
 
 /// A codec the bench runs: one of ww_tape's, or a bench-only float codec.
@@ -277,7 +270,7 @@ fn run_cols(codec: Coder, channels: u32, cols: &Columns, a: &Args) -> anyhow::Re
     }
 }
 
-fn row(t: &mut Table, set: &str, codec: &str, raw_bytes: usize, values: usize, r: &Run) {
+fn row(t: &mut Measure, set: &str, codec: &str, raw_bytes: usize, values: usize, r: &Run) {
     t.row(vec![
         Cell::text(set),
         Cell::text(codec),
@@ -288,7 +281,7 @@ fn row(t: &mut Table, set: &str, codec: &str, raw_bytes: usize, values: usize, r
     ]);
 }
 
-fn bench(t: &mut Table, set: &DataSet, a: &Args) -> anyhow::Result<()> {
+fn data_set(t: &mut Measure, set: &DataSet, a: &Args) -> anyhow::Result<()> {
     let (values, raw_bytes) = raw(&set.floats);
     let fixed = run_cols(Coder::Tape(Codec::DELTA), set.channels, &set.fixed, a)?;
     row(
@@ -308,11 +301,10 @@ fn bench(t: &mut Table, set: &DataSet, a: &Args) -> anyhow::Result<()> {
 
 fn main() -> anyhow::Result<()> {
     let a: Args = ww_tape_bench::args();
-    let paint = Paint::stdout();
-    let mut report = Report::new(
+    let mut bench = Bench::start(
         "sample_codecs",
-        vc_build::version!(),
-        Machine::this(),
+        vc_build::build_info!(),
+        &a.common,
         vec![
             ("samples per chunk", a.chunk.to_string()),
             ("best of", a.repeats.to_string()),
@@ -321,15 +313,15 @@ fn main() -> anyhow::Result<()> {
                 format!("{:?}", ww_tape_codecs::bitpack::Kernel::best()),
             ),
         ],
-    );
-    println!("{}", report.header(paint));
+    )?;
+    println!("{}", bench.header());
     let mut sets: Vec<DataSet> = data::motor().into();
     match &a.speech {
         Some(p) => sets.push(data::speech(p)?),
         None => eprintln!("speech: skipped, no --speech file"),
     }
     sets.extend(data::adc());
-    let mut t = report.table(
+    let mut t = bench.table(
         "codecs",
         &format!(
             "Sample codecs on chunks of {} samples, the best of {} passes; ratio to the raw floats.",
@@ -345,8 +337,8 @@ fn main() -> anyhow::Result<()> {
         ],
     );
     for s in &sets {
-        bench(&mut t, s, &a)?;
+        data_set(&mut t, s, &a)?;
     }
-    println!("{}", report.push(t, paint));
-    report.finish(a.common.json.as_deref())
+    println!("{}", bench.push(t));
+    bench.finish()
 }
