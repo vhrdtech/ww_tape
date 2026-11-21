@@ -57,7 +57,7 @@ a map must name [[clocks]] that the container holds, and an [[epoch]] clock must
 [`Definitions::close`] drops a track, and the clocks, maps and [[bundles]] that no held track names go with it. The
 container reports how many definitions it holds and their size in bytes, and the application decides how many to keep.
 
-The drive holds 8 definitions in 467 bytes. The test below takes them from the example, [[puts]] the mode three times
+The drive holds 8 definitions in 481 bytes. The test below takes them from the example, [[puts]] the mode three times
 and closes a track:
 
 ```rust
@@ -65,7 +65,7 @@ use ww_tape::{MemSink, SyncPolicy, TapeWriter};
 use ww_tape_example::{CAN0, MODE, Mode, definitions};
 
 let mut defs = definitions(25_000, true, 32 << 20).expect("the drive's definitions");
-assert_eq!((defs.len(), defs.bytes()), (8, 467));
+assert_eq!((defs.len(), defs.bytes()), (8, 481));
 
 let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
 // The first put writes the mode, with the definitions it needs.

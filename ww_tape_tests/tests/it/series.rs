@@ -125,13 +125,15 @@ fn definitions() -> Vec<Describe<'static>> {
             key: track_key(0x5e, &[Segment::Name("phase")]),
             clock: UNib32(CLOCK),
             dimensions: RefVec::Slice { slice: &[] },
-            api: FullVersion::new("motor_api", Version::new(0, 1, 0)),
-            bundle: RefVec::Slice { slice: &[] },
-            path: RefVec::Slice {
-                slice: &[UNib32(3)],
+            items: ww_tape::Items::WireWeaver {
+                api: FullVersion::new("motor_api", Version::new(0, 1, 0)),
+                bundle: RefVec::Slice { slice: &[] },
+                path: RefVec::Slice {
+                    slice: &[UNib32(3)],
+                },
+                keys: RefVec::Slice { slice: &[] },
+                item: None,
             },
-            keys: RefVec::Slice { slice: &[] },
-            item: None,
             label: "phase.current",
             repeat: ww_tape::TrackRepeat::Stream,
             kind: TrackKind::Series(series_def()),

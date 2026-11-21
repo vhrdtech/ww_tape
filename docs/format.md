@@ -539,11 +539,12 @@ A record holds one `Describe`, the item's whole bytes, with no time delta. A def
 |---|---|
 | `Producer` | the producer's name |
 | `Layout` | how blocks are placed: alignment, `gap_max`, `resume_align`, and the `StatePolicy` of track 0 (`definitions`) |
-| `Bundle` | an API bundle (a `ww_self` `ApiBundle` in its ShrinkWrap encoding) and its hash, by which the producer, `TrackDef::bundle` and `TypeRef::bundle` name it |
+| `Bundle` | an API bundle (a `ww_self` `ApiBundle` in its ShrinkWrap encoding) and its hash, by which the producer, a track's `Items::WireWeaver` and `TypeRef::bundle` name it |
 | `Clock` | a `ClockDef`: number, stable key, exact rate and resolution as `Magnitude`s, and origin |
 | `Map` | a `ClockMap` between two clocks |
 | `Track` | a `TrackDef`: what a track is ([below](#track-definitions)) |
 | `Item` | a `TypedItem`: any wire_weaver value by bundle hash and type path, such as a run record |
+| `Schema` | a schema a foreign format names, by its BLAKE3 hash ([Items of a track](#items-of-a-track)) |
 
 A clock's origin is free-running, a boot, the Unix epoch, a media start, a session start, or the next epoch of a
 counter. A counter's epochs are fixed to each other by an exact offset map.
@@ -568,9 +569,7 @@ A `TrackDef` holds:
 | `key` | the stable key ([Track identity](#track-identity)) |
 | `clock` | the clock its times count |
 | `dimensions` | name and value pairs that are part of its identity |
-| `api`, `bundle`, `path` | the API, its bundle's hash, and the resource's numeric path in it |
-| `keys` | the keys of [keyed arrays](#track-identity) on the path |
-| `item` | the item type, when the path doesn't give it |
+| `items` | what one item is: a WireWeaver stream's value, a ShrinkWrap value, plain bytes, a number or bytes of a foreign format ([below](#items-of-a-track)) |
 | `label` | a name for people |
 | `repeat` | events or state (`TrackRepeat`, [State tracks](#state-tracks)) |
 | `kind` | events, with or without ends and flags, or a [series](#series-tracks) |
@@ -585,12 +584,79 @@ and which index they feed.
 
 An index is none, a range in the index entry, postings or a dictionary, and a track has at most one range.
 
+### Items of a track
+
+`TrackDef::items` says what one item of a track is. It changes no byte of a record or a chunk. An events item's bytes
+are stored as given in every form, after the duration and flags an `EventRecord` puts before them. `ww_tape` never
+reads a payload. Items a reader doesn't know therefore leave the bytes as they are, never damage.
+
+| `Items` | One item is | Fields |
+|---|---|---|
+| `WireWeaver` | a value of a stream of a WireWeaver API, in its shrink_wrap encoding | `api`; `bundle`, the hash of a `Bundle` definition, or empty; `path`, the stream's numeric resource path; `keys`, of [keyed arrays](#track-identity) on the path; `item`, the type when the path doesn't give it |
+| `ShrinkWrap` | a value of a type in a bundle, with no API stream | a `TypeRef` |
+| `RawBytes` | plain bytes with no type: a frame as received, a file's contents | none |
+| `Numbers` | one number, little-endian in its container | `element`, an `ElementDesc`; `unit`, an exact_units type as a `TypeRef`, or None |
+| `Foreign` | bytes of a format the user names | a `Foreign`: `name`, `media_type`, `version`, `schema` |
+
+A series' items are `WireWeaver` with no `item`: its `SeriesDef` names the sample type.
+
+An `ElementDesc` describes a number without a new code for it:
+
+| Field | What |
+|---|---|
+| `bits` | stored bits of one part, 1 to 64 |
+| `exponent_bits` | 0 for an integer; a float has at least 2, and a mantissa bit |
+| `signed` | whether an integer is signed; a float always is |
+| `msb_first` | the byte order of a part |
+| `parts` | numbers per element, 1 to `ELEMENT_PARTS_MAX` (16); 2 for an I/Q pair |
+| `zero` | the stored number that stands for zero: `255/2` for 8-bit IQ offset to 127.5; None for 0 |
+
+A part is read into the smallest of 8, 16, 32 and 64 bits that holds it. A float of up to 32 bits is read into 32.
+`ElementDesc::of` gives the description of each predefined `Element`.
+
+A `Foreign` format has four fields, each may be empty:
+
+| Field | What |
+|---|---|
+| `name` | the user's name for the format, such as `com.example.frame` |
+| `media_type` | a media type (RFC 6838, parameters allowed), such as `application/vnd.tcpdump.pcap` |
+| `version` | the format's version as the user writes it |
+| `schema` | the hash of a `Schema` definition that describes the format |
+
+A writer refuses a foreign format with neither a name nor a media type. A name or a version is at most
+`ENCODING_NAME_MAX` (255 bytes) of printable ASCII. A schema hash is 32 bytes or empty. A media type is printable ASCII
+with a `/` between a type and a subtype, at most `MEDIA_TYPE_MAX` (255 bytes). Numbers of an element that does not fit
+the rules above are refused too.
+
+A **schema** (`Describe::Schema`) is any blob that describes a format: a protobuf file, a JSON schema, a Kaitai
+Struct file. It holds its BLAKE3 hash, a media type and the bytes. It fills a slot of its own by hash, as a bundle
+does. The writer puts a track's schema before the track's definition, and a cut carries it with the track. A writer
+refuses a schema whose hash isn't BLAKE3 of its bytes.
+
+`Items` is evolvable. A variant a newer ww_tape adds reads as `Items::Unknown` with the rest of the definition intact.
+A reader passes such a track's items on as bytes. A relay that takes a producer's block holds such an events track and
+stores its items as given. A program's own definition never carries an unknown variant: the writer refuses one (test
+`raw.rs`).
+
+The bytes a track definition takes, as its `Describe` item, for each kind of items. The track is an events track with
+a label of three letters and no dimensions or relations (test `raw.rs`):
+
+| `items` | Bytes |
+|---|---|
+| `WireWeaver`: `drive_api 0.1.0`, a path of one segment, no bundle hash | 73 |
+| `RawBytes` | 56 |
+| `Foreign`: media type `application/vnd.tcpdump.pcap` | 90 |
+| `Foreign`: name `com.example.frame`, version `3`, a schema hash | 112 |
+| `Numbers`: 8-bit IQ with zero `255/2` | 65 |
+
+A schema definition takes 54 bytes over the schema's own bytes.
+
 ### Slots
 
 Each definition fills a **slot**, which `ww_tape::Slot::of` gives. The producer and the layout fill one slot each, a
 track and a clock one per number, and a map one per pair of clocks.
 
-A bundle, a typed item or a variant the reader doesn't know fills a slot of its own, by its hash. The definition in
+A bundle, a schema, a typed item or a variant the reader doesn't know fills a slot of its own, by its hash. The definition in
 force at a place is the newest record of its slot behind that place.
 
 ### How a writer puts definitions
@@ -713,8 +779,8 @@ Index(2), Name("rx_frames")])`. The function `ww_tap::track_key(2, ids::RX_FRAME
 A dissector may number flows in a different order in two sessions. Each flow's tracks still get the same key, since the
 flow's key is hashed, not its index.
 
-`TrackDef::path` stays numeric. `TrackDef::keys` holds the key bytes for each index into a keyed array, by its position
-in `path`.
+The `path` of a track's `Items::WireWeaver` stays numeric. Its `keys` holds the key bytes for each index into a keyed
+array, by its position in `path`.
 
 In WireWeaver, `ww_tape_bundle::name_path` builds the name path from the API bundle, the numeric path and the keys.
 `key_in_bundle` builds the key under the bundle's own crate.
@@ -817,11 +883,11 @@ Beside the block's offset, length and kind, a state entry holds:
 The slot codes (`DefinitionKind`) are:
 
 - 1 producer, 2 track, 3 bundle, 4 clock;
-- 5 map, 6 item, 7 layout;
-- 8 to 15 for a definition the writer doesn't know: its discriminant plus 1, at most 15.
+- 5 map, 6 item, 7 layout, 8 schema;
+- 9 to 15 for a definition the writer doesn't know: its discriminant plus 1, at most 15.
 
 A code is a `Describe` variant's discriminant plus 1. A newer writer therefore lists a definition under the code an
-older reader computes for it, and the older reader's content check agrees with the entries.
+older reader computes for it. The older reader's content check then agrees with the entries.
 
 Byte 14 is 0, and bytes 16..24 hold `STATE_TRACK_ID`.
 
@@ -1247,8 +1313,8 @@ Rot that zeroes the end of a complete close across a sector boundary looks the s
 bytes cannot tell it from a crash, and a stricter rule would refuse real crashes. Reading and verify never change a
 file.
 
-Take a 12,288-byte piece closed three times, whose last final index starts at offset 9541 of the file. Zeros from 9641
-to the end cross the sector boundary at 9728, so a resume cuts the 2,747 bytes from 9541 on.
+Take a 12,288-byte piece closed three times, whose last final index starts at offset 9544 of the file. Zeros from 9644
+to the end cross the sector boundary at 9728, so a resume cuts the 2,744 bytes from 9544 on.
 
 For example, one flipped bit makes the last tail fail its CRC, so the reader takes the close before it. The resume
 refuses and keeps every byte, also when the tail's last byte is zero.

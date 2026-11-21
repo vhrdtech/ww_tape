@@ -145,13 +145,15 @@ fn track(kind: TrackKind<'static>, state: bool) -> TrackDef<'static> {
                 value: "a",
             }],
         },
-        api: FullVersion::new("motor_api", Version::new(0, 3, 0)),
-        bundle: RefVec::Slice { slice: &[7, 7] },
-        path: RefVec::Slice {
-            slice: &[UNib32(4), UNib32(1)],
+        items: crate::Items::WireWeaver {
+            api: FullVersion::new("motor_api", Version::new(0, 3, 0)),
+            bundle: RefVec::Slice { slice: &[7, 7] },
+            path: RefVec::Slice {
+                slice: &[UNib32(4), UNib32(1)],
+            },
+            keys: RefVec::Slice { slice: &[] },
+            item: None,
         },
-        keys: RefVec::Slice { slice: &[] },
-        item: None,
         label: "phase[a].current",
         repeat: if state {
             crate::TrackRepeat::STATE
@@ -190,10 +192,14 @@ fn track_kind_round_trips_and_is_checked() {
     // a series' chunks are data: the state policy is refused
     let state = track(TrackKind::Series(def()), true);
     let with_item = TrackDef {
-        item: Some(sample_type()),
+        items: crate::Items::ShrinkWrap(sample_type()),
         ..t.clone()
     };
-    for t in [state, with_item] {
+    let bytes = TrackDef {
+        items: crate::Items::RawBytes,
+        ..t.clone()
+    };
+    for t in [state, with_item, bytes] {
         assert!(matches!(
             crate::open::check_definition(&Describe::Track(t)),
             Err(DescribeError::Kind { track: 2, .. })

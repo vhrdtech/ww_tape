@@ -22,7 +22,7 @@ so a reader can trust any part of it without the rest.
   radio capture of 20 million samples a second.
 - **Recordings of gigabytes.** A long recording is a chain of pieces, each a file that reads alone. A minute of the
   radio capture is one piece of 3.7 GB.
-- **Small reads.** Opening the example's 115 MB recording reads about 17 KB. Finding one track's blocks around a
+- **Small reads.** Opening the example's 115 MB recording reads about 16 KB. Finding one track's blocks around a
   given second then reads about 197 KB, nearly all of it that track's index.
 - **Damage stays local.** A crash, a torn write or a bad sector costs the bytes it touched. A reader says what it
   lost and reads the rest.

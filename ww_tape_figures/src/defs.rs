@@ -27,13 +27,15 @@ pub fn track(number: u32, label: &'static str, repeat: TrackRepeat) -> Describe<
         key: track_key(0xf1, &[Segment::Index(number)]),
         clock: UNib32(CLOCK),
         dimensions: RefVec::Slice { slice: &[] },
-        api: FullVersion::new("figures_api", Version::new(0, 1, 0)),
-        bundle: RefVec::Slice { slice: &[] },
-        path: RefVec::Slice {
-            slice: &[UNib32(1)],
+        items: ww_tape::Items::WireWeaver {
+            api: FullVersion::new("figures_api", Version::new(0, 1, 0)),
+            bundle: RefVec::Slice { slice: &[] },
+            path: RefVec::Slice {
+                slice: &[UNib32(1)],
+            },
+            keys: RefVec::Slice { slice: &[] },
+            item: None,
         },
-        keys: RefVec::Slice { slice: &[] },
-        item: None,
         label,
         repeat,
         kind: TrackKind::Events(EventsDef::INSTANTS),

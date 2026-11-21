@@ -264,8 +264,8 @@ fn a_full_piece_skips_the_copy_and_refuses_nothing() {
 }
 
 /// A piece written by the writer before WRITE-10 (`data/before-head-copies/`, the recipe `piece(1024,
-/// Layout::UNALIGNED, 100, true)` at main 3be9dcb): it reads and verifies as before, its layout and producer put once;
-/// the same recipe now adds their copies.
+/// Layout::UNALIGNED, 100, true)` at main 3be9dcb, its track definitions in the FMT-12 shape): it reads and verifies
+/// as before, its layout and producer put once; the same recipe now adds their copies.
 #[test]
 fn a_piece_written_before_head_copies_reads() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

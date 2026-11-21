@@ -168,13 +168,15 @@ fn series_definitions() -> Vec<crate::Describe<'static>> {
             key: track_key(0x5e, &[crate::Segment::Name("signal")]),
             clock: UNib32(1),
             dimensions: RefVec::Slice { slice: &[] },
-            api: FullVersion::new("head_tests", Version::new(0, 1, 0)),
-            bundle: RefVec::Slice { slice: &[] },
-            path: RefVec::Slice {
-                slice: &[UNib32(1)],
+            items: crate::Items::WireWeaver {
+                api: FullVersion::new("head_tests", Version::new(0, 1, 0)),
+                bundle: RefVec::Slice { slice: &[] },
+                path: RefVec::Slice {
+                    slice: &[UNib32(1)],
+                },
+                keys: RefVec::Slice { slice: &[] },
+                item: None,
             },
-            keys: RefVec::Slice { slice: &[] },
-            item: None,
             label: "signal",
             repeat: TrackRepeat::Stream,
             kind: TrackKind::Series(SeriesDef::of::<i16>(

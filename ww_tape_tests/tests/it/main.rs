@@ -34,6 +34,7 @@ mod placed;
 mod puts;
 mod quiet;
 mod range_hash;
+mod raw;
 mod reader;
 mod reclose;
 mod relations;

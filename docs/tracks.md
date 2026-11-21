@@ -15,13 +15,17 @@ period.
 
 ## Items and tracks
 
-An [[item]] is one value: a frame received on the bus, a temperature reading, a log line. The item of an events track
-is a [[WireWeaver value]]. Such a value has a type defined in a WireWeaver API, such as a struct, an enum or a number.
-The tape carries that type's definition and keeps the value in its shrink_wrap encoding.
+An [[item]] is one value: a frame received on the bus, a temperature reading, a log line. The item of an events track is
+most often a [[WireWeaver value]]. Such a value has a type defined in a WireWeaver API, such as a struct, an enum or a
+number. The tape carries that type's definition and keeps the value in its shrink_wrap encoding.
 
 A sample of a series is a number in a column instead, coded by ww_tape's series codecs. A [[reader]] that has the
 track's [[definition]] therefore decodes the item years later, without the device that sent it. [WireWeaver and
 logring](related_books.md) introduces both.
+
+A track may instead hold plain bytes, such as frames as a sniffer received them. It may hold numbers of an element the
+definition describes, or bytes in a format that a media type names, such as `application/vnd.tcpdump.pcap`. The track's
+definition says which, in `TrackDef::items`, and the bytes are kept as given, with nothing added.
 
 A [[track]] is a sequence of items of one type over time. The drive has five tracks, one per stream, and [What a tape
 holds](tape.md) lists them with their rates.
@@ -122,7 +126,7 @@ needs a fixed rate.
 | | Events | Series |
 |---|---|---|
 | Time | each item has its own start, and maybe an end | the sample's index on a fixed period |
-| Items | any WireWeaver value | numbers, one or more channels a sample |
+| Items | a WireWeaver value, plain bytes, or bytes of a named format | numbers, one or more channels a sample |
 | The drive's tracks | `log`, `mode`, `can0`, `temp` | `phase_a` |
 
 [Blocks](blocks.md) shows the blocks that hold each kind, and [Events](events.md) and [Series](series.md) how a reader

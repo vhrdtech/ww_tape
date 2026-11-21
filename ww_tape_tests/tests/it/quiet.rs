@@ -102,32 +102,6 @@ fn carried_definitions_follow_the_head_and_serve_the_data_after_them() {
     assert!(blocks.iter().all(|b| b.offset < chunk_at));
 }
 
-/// A chain written by the writer before WRITE-9 (`data/before-quiet-defs/`, the recipe of [quiet_chain] at main
-/// 50bc1ad6): it reads and verifies as before, its later pieces with only the definitions of their data.
-#[test]
-fn a_chain_written_before_carried_definitions_reads() {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/it/data/before-quiet-defs/quiet-track-chain.wwt");
-    let bytes = std::fs::read(path).unwrap();
-    let r = TapeReader::open(&bytes[..]).unwrap();
-    assert_eq!(r.pieces().len(), 3);
-    assert!(r.chain().is_whole(), "{:?}", r.chain());
-    for i in 0..3 {
-        assert!(r.verify(i).unwrap().holds, "piece {i}");
-        let at = r.definitions_at(i, u64::MAX).unwrap();
-        assert!(at.items.contains_key(&Slot::Track { number: 2 }), "{i}");
-        assert_eq!(
-            at.items.contains_key(&Slot::Track { number: 1 }),
-            i == 0,
-            "piece {i}"
-        );
-    }
-    // the same recipe now differs only in the later pieces' definitions
-    let now = quiet_chain(base_defs());
-    assert!(bytes.starts_with(&now[0]), "the first piece is the same");
-    assert_ne!(bytes, now.concat());
-}
-
 /// A piece cut by `w` after chunks of tracks 0, 1 and 2 (numbers 1 to 3), written with the index policy lowered to 7
 /// state entries: past the layout and the producer, the next piece keeps 3 entries for the next data on track 3 (the
 /// last written: its clock, its definition and a record), and has room for that track's clock and definition. Tracks

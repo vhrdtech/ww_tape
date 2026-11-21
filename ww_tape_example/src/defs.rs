@@ -74,15 +74,17 @@ fn track(
         key: key(name),
         clock: UNib32(BOARD_CLOCK),
         dimensions: RefVec::Slice { slice: &[] },
-        api: FullVersion::new("drive_api", Version::new(0, 1, 0)),
-        bundle: RefVec::Slice { slice: &[] },
-        path: RefVec::Slice {
-            slice: PATHS
-                .get(usize::try_from(number).unwrap_or(0))
-                .map_or(&[], |p| p.as_slice()),
+        items: ww_tape::Items::WireWeaver {
+            api: FullVersion::new("drive_api", Version::new(0, 1, 0)),
+            bundle: RefVec::Slice { slice: &[] },
+            path: RefVec::Slice {
+                slice: PATHS
+                    .get(usize::try_from(number).unwrap_or(0))
+                    .map_or(&[], |p| p.as_slice()),
+            },
+            keys: RefVec::Slice { slice: &[] },
+            item: None,
         },
-        keys: RefVec::Slice { slice: &[] },
-        item: None,
         label: name,
         repeat,
         kind,

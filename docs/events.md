@@ -54,9 +54,9 @@ viewer finds the first frame at or after the fault this way.
 
 ## Payloads read in place
 
-Each item's value, its [[payload]], is encoded in shrink_wrap. A chunk keeps the payloads back to
-back in one column, and their lengths in another, packed per group. [`Payloads::read`] opens both, and
-[`Payloads::get`] gives item `j`'s bytes from one group of lengths, without the payloads before it. A payload column
+Each item's value, its [[payload]], is encoded in shrink_wrap, or kept as given on a track of other items. A chunk keeps
+the payloads back to back in one column, and their lengths in another, packed per group. [`Payloads::read`] opens both,
+and [`Payloads::get`] gives item `j`'s bytes from one group of lengths, without the payloads before it. A payload column
 that the writer compressed with lz4 is decoded once, whole, when the reader opens it.
 
 The drive's frames carry their 11-bit identifier in the first 4 bytes of the payload and the frame's data after it.

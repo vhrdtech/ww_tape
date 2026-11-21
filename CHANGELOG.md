@@ -181,6 +181,7 @@ Covers `ww_tape` 0.1.0.
 - A cut carries each state track's newest item beside its definition; golden `v1-carried-state.hex`, older files read unchanged (WRITE-9).
 - `NearPolicy` gains `kept_bytes_max` and `Closed` gains `states_unknown`: struct literals name them (WRITE-9).
 - Writers copy the layout and the producer like definitions; golden `v1-append.hex` rewritten, older files read unchanged (WRITE-10).
+- `TrackDef`'s `api`, `bundle`, `path`, `keys` and `item` move into `items: Items::WireWeaver { .. }`; files written before don't read (FMT-12).
 
 ### Features
 
@@ -363,6 +364,9 @@ Covers `ww_tape` 0.1.0.
 - A head cut that removed-piece rows cover from seq 0 reads as `ChainReport::head_removed`, not head cut (WRITE-8).
 - `ww_tape_example`: the drive motor controller's hour, recorded at any scale, crashed at any byte and resumed (BOOK-3).
 - Book: the crash figures draw the drive's recording, and page doctests can call `ww_tape_example` (BOOK-3).
+- A track's `items` say what they are: a WireWeaver stream, a ShrinkWrap type, bytes, numbers or a foreign format (FMT-12).
+- `Describe::Schema` carries a foreign format's schema on track 0, put before its track and carried on a cut (FMT-12).
+- `ElementDesc` describes a number by bits, exponent bits, sign, byte order, parts and zero (FMT-12).
 
 ### Fixes
 

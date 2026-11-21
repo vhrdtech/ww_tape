@@ -107,7 +107,12 @@ fn series_def(b: &[u8]) -> Option<(SampleShape, Ratio64)> {
     let r = block.records().flatten().next()?;
     match Describe::from_ww_bytes(r.item).ok()? {
         Describe::Track(t) => {
-            let _ = (t.check_kind(), t.id(), t.dimensions_canonical());
+            let _ = (
+                t.check_kind(),
+                t.id(),
+                t.dimensions_canonical(),
+                t.items_valid(),
+            );
             match t.kind {
                 TrackKind::Series(s) => {
                     let _ = (s.check(), s.first_grid(0));

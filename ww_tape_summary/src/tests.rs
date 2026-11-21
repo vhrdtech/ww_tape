@@ -930,13 +930,15 @@ fn series_definitions() -> Vec<ww_tape::Describe<'static>> {
             key: track_key(0x5e, &[ww_tape::Segment::Name("signal")]),
             clock: UNib32(1),
             dimensions: RefVec::Slice { slice: &[] },
-            api: FullVersion::new("summary_tests", Version::new(0, 1, 0)),
-            bundle: RefVec::Slice { slice: &[] },
-            path: RefVec::Slice {
-                slice: &[UNib32(1)],
+            items: ww_tape::Items::WireWeaver {
+                api: FullVersion::new("summary_tests", Version::new(0, 1, 0)),
+                bundle: RefVec::Slice { slice: &[] },
+                path: RefVec::Slice {
+                    slice: &[UNib32(1)],
+                },
+                keys: RefVec::Slice { slice: &[] },
+                item: None,
             },
-            keys: RefVec::Slice { slice: &[] },
-            item: None,
             label: "signal",
             repeat: TrackRepeat::Stream,
             kind: TrackKind::Series(SeriesDef::of::<i16>(None, 1, Ratio64::int(1000).unwrap())),

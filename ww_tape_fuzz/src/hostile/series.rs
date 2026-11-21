@@ -29,13 +29,15 @@ pub(crate) fn track_item(shape: SampleShape, period: Ratio64, scale: Magnitude) 
         key: track_key(0x5e, &[Segment::Name("hostile")]),
         clock: UNib32(1),
         dimensions: RefVec::Slice { slice: &[] },
-        api: FullVersion::new("hostile_api", Version::new(0, 1, 0)),
-        bundle: RefVec::Slice { slice: &[] },
-        path: RefVec::Slice {
-            slice: &[UNib32(1)],
+        items: ww_tape::Items::WireWeaver {
+            api: FullVersion::new("hostile_api", Version::new(0, 1, 0)),
+            bundle: RefVec::Slice { slice: &[] },
+            path: RefVec::Slice {
+                slice: &[UNib32(1)],
+            },
+            keys: RefVec::Slice { slice: &[] },
+            item: None,
         },
-        keys: RefVec::Slice { slice: &[] },
-        item: None,
         label: "hostile",
         repeat: ww_tape::TrackRepeat::Stream,
         kind: TrackKind::Series(def),

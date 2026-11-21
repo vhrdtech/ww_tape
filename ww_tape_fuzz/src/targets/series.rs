@@ -91,11 +91,20 @@ fn u64_at(data: &[u8], at: usize) -> u64 {
 
 pub fn series(data: &[u8]) {
     // any bytes as a describe record
-    if let Ok(Describe::Track(t)) = Describe::from_ww_bytes(data) {
-        let _ = (t.check_kind(), t.id());
-        if let TrackKind::Series(s) = &t.kind {
-            let _ = (s.check(), s.first_grid(0));
+    match Describe::from_ww_bytes(data) {
+        Ok(Describe::Track(t)) => {
+            let _ = (t.check_kind(), t.id(), t.items_valid());
+            if let ww_tape::Items::Numbers { element, .. } = &t.items {
+                let _ = (element.element(), element.container_bits());
+            }
+            if let TrackKind::Series(s) = &t.kind {
+                let _ = (s.check(), s.first_grid(0));
+            }
         }
+        Ok(Describe::Schema(schema)) => {
+            let _ = schema.is_valid();
+        }
+        _ => {}
     }
 
     let period = Ratio64::new(u64_at(data, 0) % 100_000 + 1, u64_at(data, 8) % 1000 + 1)

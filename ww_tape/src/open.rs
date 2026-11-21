@@ -21,7 +21,7 @@ use shrink_wrap::prelude::*;
 use crate::state::{DefinitionKind, ItemHash, Slot};
 use crate::{
     Block, BlockId, BlockKind, BlockWriter, CRC_LEN, ClockOrigin, ClockTime, DESCRIBE_TRACK,
-    Describe, HEADER_LEN, MAX_BLOCK_CLOCKS, MAX_BLOCK_LEN, MAX_CLOCK_TABLE, MAX_RECORD_HEAD,
+    Describe, HEADER_LEN, Items, MAX_BLOCK_CLOCKS, MAX_BLOCK_LEN, MAX_CLOCK_TABLE, MAX_RECORD_HEAD,
     StatePolicy,
 };
 
@@ -76,6 +76,11 @@ pub enum DescribeError {
         track: u32,
         error: crate::SeriesError,
     },
+    /// A [Schema](crate::Schema) whose hash isn't BLAKE3 of its bytes, or whose media type isn't valid.
+    Schema,
+    /// A track's items are of a kind this crate doesn't know, or break a rule
+    /// ([TrackDef::items_valid](crate::TrackDef::items_valid)).
+    Items { track: u32 },
     /// A record or an events chunk on a series track, or a series chunk on an events track.
     WrongKind { track: u32 },
     /// An events chunk whose relation columns are not one per stored relation of its track, or one in a codec its
@@ -182,6 +187,15 @@ impl core::fmt::Display for DescribeError {
                 "the producer and the layout are the writer's own (WriterOptions), not definitions to hold"
             ),
             Self::Kind { track, error } => write!(f, "track {track}: {error}"),
+            Self::Schema => write!(
+                f,
+                "a schema whose hash isn't BLAKE3 of its bytes, or whose media type isn't valid"
+            ),
+            Self::Items { track } => write!(
+                f,
+                "track {track}: items of an unknown kind, a foreign format with a bad name, version, media type or \
+                 schema hash, or numbers of a bad element"
+            ),
             Self::WrongKind { track } => write!(
                 f,
                 "track {track}: a record or events chunk on a series track, or a series chunk on an events track"
@@ -287,11 +301,14 @@ impl TrackFacts {
     }
 }
 
-/// A held track: its facts and the bundles it names, by API hash.
+/// A bundle by its API hash, or a schema by its hash: what a track names that a definition of its own holds.
+type Named = (DefinitionKind, Vec<u8>);
+
+/// A held track: its facts and the bundles and schema it names.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct HeldTrack {
     facts: TrackFacts,
-    bundles: Vec<Vec<u8>>,
+    bundles: Vec<Named>,
     /// [TrackDef::id](crate::TrackDef::id) and [TrackDef::owner](crate::TrackDef::owner)
     key: (u64, [u8; 32]),
 }
@@ -344,8 +361,11 @@ fn resolution_ok(c: &crate::ClockDef<'_>) -> bool {
     }
 }
 
-/// Check what one definition says by itself: a track's dimensions and kind, a clock's resolution, a map's order. A
-/// variant this crate doesn't know is refused.
+/// Check what one definition says by itself.
+///
+/// A track's dimensions, items and kind, a clock's resolution, a map's order. A definition of a kind this crate
+/// doesn't know is refused; a track whose [items](crate::TrackDef::items) are of such a kind is well formed when it
+/// is an events track, its items stored as given.
 pub fn check_definition(d: &Describe<'_>) -> Result<(), DescribeError> {
     match d {
         Describe::Track(t) => {
@@ -367,6 +387,9 @@ pub fn check_definition(d: &Describe<'_>) -> Result<(), DescribeError> {
             if !t.relations_canonical() {
                 return Err(DescribeError::Relations { track: t.number.0 });
             }
+            if !t.items_valid() && !matches!(t.items, Items::Unknown(_)) {
+                return Err(DescribeError::Items { track: t.number.0 });
+            }
             t.check_kind().map_err(|error| DescribeError::Kind {
                 track: t.number.0,
                 error,
@@ -375,6 +398,7 @@ pub fn check_definition(d: &Describe<'_>) -> Result<(), DescribeError> {
         Describe::Clock(c) if !resolution_ok(c) => {
             Err(DescribeError::Resolution { clock: c.number.0 })
         }
+        Describe::Schema(schema) if !schema.is_valid() => Err(DescribeError::Schema),
         Describe::Map(m) if !m.is_increasing() => Err(DescribeError::MapNotIncreasing {
             from: m.from.0,
             to: m.to.0,
@@ -384,20 +408,31 @@ pub fn check_definition(d: &Describe<'_>) -> Result<(), DescribeError> {
     }
 }
 
-/// The API hashes of the bundles track `t` names: its API's, its item's and its series' sample type's; empty hashes
-/// (not known) left out.
-fn track_bundles(t: &crate::TrackDef<'_>) -> Vec<Vec<u8>> {
-    let item = t.item.as_ref().map(|i| &i.bundle);
+/// The bundles track `t` names by API hash (its API's, its item's and its series' sample type's), then the schema of
+/// its item encoding; empty hashes (not known) left out.
+fn track_bundles(t: &crate::TrackDef<'_>) -> Vec<Named> {
     let sample = t
         .series()
         .and_then(|s| s.sample.as_ref())
         .map(|i| &i.bundle);
-    let mut out: Vec<Vec<u8>> = Vec::new();
-    for hash in [Some(&t.bundle), item, sample].into_iter().flatten() {
-        let Ok(h) = hash.iter().collect::<Result<Vec<u8>, _>>() else {
-            continue;
-        };
-        if !h.is_empty() && !out.contains(&h) {
+    let (api, item, schema) = match &t.items {
+        Items::WireWeaver { bundle, item, .. } => {
+            (Some(bundle), item.as_ref().map(|i| &i.bundle), None)
+        }
+        Items::ShrinkWrap(ty) => (None, Some(&ty.bundle), None),
+        Items::Numbers { unit, .. } => (None, unit.as_ref().map(|u| &u.bundle), None),
+        Items::Foreign(f) => (None, None, Some(&f.schema)),
+        Items::RawBytes | Items::Unknown(_) => (None, None, None),
+    };
+    let mut out: Vec<Named> = Vec::new();
+    let bundles = [api, item, sample].into_iter().flatten();
+    let schemas = schema.into_iter();
+    for (kind, hash) in bundles
+        .map(|h| (DefinitionKind::Bundle, h))
+        .chain(schemas.map(|h| (DefinitionKind::Schema, h)))
+    {
+        let h = (kind, hash.as_slice().to_vec());
+        if !h.1.is_empty() && !out.contains(&h) {
             out.push(h);
         }
     }
@@ -429,8 +464,8 @@ pub struct Definitions {
     clocks: BTreeMap<u32, bool>,
     /// Maps held that are epoch links, by (from, to)
     links: BTreeSet<(u32, u32)>,
-    /// Bundles' slots by API hash
-    bundles: BTreeMap<Vec<u8>, Slot>,
+    /// Bundles' slots by API hash, schemas' by hash
+    bundles: BTreeMap<Named, Slot>,
     /// Bytes of the items held
     bytes: usize,
 }
@@ -472,6 +507,12 @@ impl Definitions {
             _ => None,
         }) {
             return Err(DescribeError::RelationNotBuilt { track: t.number.0 });
+        }
+        if let Some(t) = defs.iter().find_map(|d| match d {
+            Describe::Track(t) if matches!(t.items, Items::Unknown(_)) => Some(t),
+            _ => None,
+        }) {
+            return Err(DescribeError::Items { track: t.number.0 });
         }
         self.check_batch(defs.iter().zip(&items).map(|(d, i)| (d, i.as_slice())))?;
         for (d, item) in defs.iter().zip(&items) {
@@ -536,7 +577,17 @@ impl Definitions {
 
     /// The bundle of API hash `hash`: its slot and item.
     pub fn bundle(&self, hash: &[u8]) -> Option<(Slot, &[u8])> {
-        let slot = self.bundles.get(hash)?;
+        self.named(DefinitionKind::Bundle, hash)
+    }
+
+    /// The [Schema](crate::Schema) of hash `hash`: its slot and item.
+    pub fn schema(&self, hash: &[u8]) -> Option<(Slot, &[u8])> {
+        self.named(DefinitionKind::Schema, hash)
+    }
+
+    /// The bundle or schema of `kind` and `hash`: its slot and item.
+    fn named(&self, kind: DefinitionKind, hash: &[u8]) -> Option<(Slot, &[u8])> {
+        let slot = self.bundles.get(&(kind, hash.to_vec()))?;
         Some((*slot, &*self.defs.get(slot)?.item))
     }
 
@@ -692,7 +743,13 @@ impl Definitions {
                 }
             }
             Describe::Bundle { hash, .. } => {
-                let h: Vec<u8> = hash.iter().filter_map(Result::ok).collect();
+                let h = (DefinitionKind::Bundle, hash.as_slice().to_vec());
+                if let Some(old) = self.bundles.insert(h, slot) {
+                    self.remove(&old);
+                }
+            }
+            Describe::Schema(schema) => {
+                let h = (DefinitionKind::Schema, schema.hash.as_slice().to_vec());
                 if let Some(old) = self.bundles.insert(h, slot) {
                     self.remove(&old);
                 }
@@ -727,8 +784,8 @@ impl Definitions {
             return false;
         };
         self.remove(&Slot::Track { number });
-        let named: BTreeSet<&Vec<u8>> = self.tracks.values().flat_map(|t| &t.bundles).collect();
-        let gone: Vec<Vec<u8>> = t
+        let named: BTreeSet<&Named> = self.tracks.values().flat_map(|t| &t.bundles).collect();
+        let gone: Vec<Named> = t
             .bundles
             .into_iter()
             .filter(|h| !named.contains(h))

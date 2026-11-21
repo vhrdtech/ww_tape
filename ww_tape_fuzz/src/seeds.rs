@@ -231,6 +231,81 @@ fn golden_series() -> Vec<Seed> {
     out
 }
 
+/// Describe records of events tracks of plain bytes, a media type, a named format with a schema and numbers, and the
+/// schema itself (FMT-12), for the definition decoder.
+fn encoding_seeds() -> Vec<Seed> {
+    const SCHEMA: &[u8] = b"syntax = \"proto3\"; message Frame { uint32 id = 1; bytes data = 2; }";
+    let hash = *blake3::hash(SCHEMA).as_bytes();
+    let schema = ww_tape::Schema {
+        hash: RefVec::Slice { slice: &hash },
+        media_type: "text/x-protobuf",
+        bytes: RefVec::Slice { slice: SCHEMA },
+    };
+    let encodings = [
+        ("bytes", ww_tape::Items::RawBytes),
+        (
+            "pcap",
+            ww_tape::Items::Foreign(ww_tape::Foreign {
+                name: "",
+                media_type: "application/vnd.tcpdump.pcap",
+                version: "",
+                schema: RefVec::Slice { slice: &[] },
+            }),
+        ),
+        (
+            "named",
+            ww_tape::Items::Foreign(ww_tape::Foreign {
+                name: "com.example.frame",
+                media_type: "",
+                version: "3",
+                schema: RefVec::Slice { slice: &hash },
+            }),
+        ),
+        (
+            "numbers",
+            ww_tape::Items::Numbers {
+                element: ww_tape::ElementDesc {
+                    bits: 8,
+                    exponent_bits: 0,
+                    signed: false,
+                    msb_first: false,
+                    parts: UNib32(2),
+                    zero: ww_tape::Ratio64::new(255, 2),
+                },
+                unit: None,
+            },
+        ),
+    ];
+    let mut out: Vec<Seed> = encodings
+        .into_iter()
+        .map(|(name, items)| {
+            let t = ww_tape::TrackDef {
+                number: UNib32(1),
+                key: 0x7261_7774,
+                clock: UNib32(1),
+                dimensions: RefVec::Slice { slice: &[] },
+                items,
+                label: "raw",
+                repeat: ww_tape::TrackRepeat::Stream,
+                kind: TrackKind::Events(ww_tape::EventsDef::INSTANTS),
+                relations: RefVec::Slice { slice: &[] },
+                owner: [0; 32],
+            };
+            seed(
+                "tape-series",
+                format!("encoding-{name}"),
+                definition(&Describe::Track(t)),
+            )
+        })
+        .collect();
+    out.push(seed(
+        "tape-series",
+        "encoding-schema",
+        definition(&Describe::Schema(schema)),
+    ));
+    out
+}
+
 /// A chunk block of `cols` with `head`.
 fn chunk_block(enc: &EncodedTimes) -> Vec<u8> {
     let cols: Vec<_> = enc.columns().collect();
@@ -695,6 +770,7 @@ pub fn all() -> Vec<Seed> {
     out.extend(golden_samples());
     out.extend(lz4_fixes());
     out.extend(golden_series());
+    out.extend(encoding_seeds());
     out.extend(golden_blocks("tape-summary", "v1-summary", GOLDEN_SUMMARY));
     out.extend(golden_blocks("tape-times", "v1-times", GOLDEN_TIMES));
     out.extend(times_fixes());

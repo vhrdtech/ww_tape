@@ -48,7 +48,7 @@ one track's list, then (4) only the needed blocks. Below, an unclosed piece: the
 pointers list every earlier block, and the reader scans the blocks after it.</figcaption>
 </figure>
 
-For the drive's chain, opening reads about 17 KB in 28 reads, and [`TapeReader::pieces`] lists four pieces. Each
+For the drive's chain, opening reads about 16 KB in 28 reads, and [`TapeReader::pieces`] lists four pieces. Each
 [`PieceInfo`] holds the piece's start and end, its head and its close with a row per track. The row of `phase_a` says
 which ticks the track's [[chunks]] cover in that piece. The program picks the piece whose row reaches 52:00, without
 another read:

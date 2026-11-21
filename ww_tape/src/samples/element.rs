@@ -184,6 +184,93 @@ impl core::fmt::Display for Element {
     }
 }
 
+/// Most parts of an [ElementDesc]: a value of up to 16 numbers.
+pub const ELEMENT_PARTS_MAX: u32 = 16;
+
+/// One element described by data: what a stored number is, whatever device sent it.
+///
+/// 8-bit IQ (`ComplexI8`, `ComplexU8` offset by 127.5), a packed 12-bit device format, bfloat16: each is a
+/// description, no code change. Every [Element] is one too ([ElementDesc::of]).
+#[derive_shrink_wrap(
+    borrowed,
+    owned(feature = "std"),
+    derive(Debug, Clone, Copy, PartialEq, Eq, Hash)
+)]
+pub struct ElementDesc {
+    /// Stored bits of one part, 1 to 64.
+    pub bits: u8,
+    /// 0: an integer. Else a float of this many exponent bits, the sign one bit and the mantissa the rest: f16 5,
+    /// bfloat16 8, f32 8, f64 11.
+    pub exponent_bits: u8,
+    /// Whether an integer is signed (two's complement); a float is always signed.
+    pub signed: bool,
+    /// How the raw codec stores a part: a whole-byte width big-endian, any other width from the top bit of the
+    /// first byte. False: little-endian, from bit 0.
+    pub msb_first: bool,
+    /// Numbers per element, 1 to [ELEMENT_PARTS_MAX]: 2 for an I/Q pair, I first.
+    pub parts: UNib32,
+    /// The stored number that stands for zero: `255/2` for 8-bit IQ offset to 127.5. None: 0.
+    #[default = None]
+    pub zero: Option<exact_units::Ratio64>,
+}
+
+impl ElementDesc {
+    /// The description of `element`, None for one this reader doesn't know.
+    pub const fn of(element: Element) -> Option<Self> {
+        let Some(s) = element.scalar_type() else {
+            return None;
+        };
+        let bits = s.bits();
+        let exponent_bits = match (s.is_float(), bits) {
+            (true, 32) => 8,
+            (true, _) => 11,
+            (false, _) => 0,
+        };
+        #[expect(
+            clippy::as_conversions,
+            clippy::cast_possible_truncation,
+            reason = "a scalar has at most 64 bits"
+        )]
+        let bits = bits as u8;
+        Some(Self {
+            bits,
+            exponent_bits,
+            signed: s.is_signed() || s.is_float(),
+            msb_first: false,
+            parts: UNib32(element.parts()),
+            zero: None,
+        })
+    }
+
+    /// The predefined [Element] this describes, None for any other description.
+    pub fn element(&self) -> Option<Element> {
+        Element::ALL
+            .into_iter()
+            .find(|e| Self::of(*e).as_ref() == Some(self))
+    }
+
+    /// Bits of the integer or float a part is read into: the smallest of 8, 16, 32 and 64 that holds it; 32 for a
+    /// float of up to 32 bits.
+    pub const fn container_bits(&self) -> u32 {
+        match (self.exponent_bits, self.bits) {
+            (0, 0..=8) => 8,
+            (0, 9..=16) => 16,
+            (0, 17..=32) | (1.., 0..=32) => 32,
+            _ => 64,
+        }
+    }
+
+    /// Whether the description is one a writer takes: 1 to 64 bits; a float with 2 or more exponent bits, at least
+    /// one mantissa bit and signed; 1 to [ELEMENT_PARTS_MAX] parts.
+    pub fn is_valid(&self) -> bool {
+        let float_ok = self.exponent_bits == 0
+            || (self.exponent_bits >= 2
+                && u32::from(self.exponent_bits).saturating_add(2) <= u32::from(self.bits)
+                && self.signed);
+        (1..=64).contains(&self.bits) && float_ok && (1..=ELEMENT_PARTS_MAX).contains(&self.parts.0)
+    }
+}
+
 /// What one sample of a series column is: `channels` elements, interleaved.
 ///
 /// A column holds one channel or several interleaved; the [Codec](crate::Codec) of the column says how the values

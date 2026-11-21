@@ -1,4 +1,4 @@
-//! What describe records say: the producer, clocks, clock maps, tracks, API bundles and typed items.
+//! What describe records say: the producer, clocks, clock maps, tracks, API bundles, schemas and typed items.
 
 use exact_units::units::Item;
 use exact_units::units::{Per, Second, Tick};
@@ -10,7 +10,7 @@ use crate::FullVersionOwned;
 use crate::series::SeriesDef;
 #[cfg(feature = "std")]
 use crate::series::SeriesDefOwned;
-use crate::{FNV_OFFSET, FullVersion, Version, fnv1a};
+use crate::{ElementDesc, FNV_OFFSET, FullVersion, Version, fnv1a};
 
 /// A definition: one per record on track 0, its item's whole bytes.
 #[derive_shrink_wrap(owned(feature = "std"), derive(Debug, PartialEq, Clone), ww_repr = u4)]
@@ -18,7 +18,7 @@ pub enum Describe<'i> {
     Producer(Producer<'i>),
     Track(TrackDef<'i>),
     /// An API bundle (`ww_self` `ApiBundle` in its ShrinkWrap encoding) by its hash, the hash as the producer,
-    /// [TrackDef::bundle] and [TypeRef::bundle] know it (wire_weaver's `ApiHash`). Written once per hash in a describe
+    /// a track's [Items::WireWeaver] and [TypeRef::bundle] know it (wire_weaver's `ApiHash`). Written once per hash in a describe
     /// set; a live feed may leave it out and let the consumer look the hash up.
     Bundle {
         hash: RefVec<'i, u8>,
@@ -30,6 +30,8 @@ pub enum Describe<'i> {
     Item(TypedItem<'i>),
     /// How the file's blocks are placed; a file that defines none is not aligned.
     Layout(Layout),
+    /// A schema a [Foreign] format names by its hash.
+    Schema(Schema<'i>),
 }
 
 /// How blocks are placed in a file or on a medium.
@@ -393,19 +395,10 @@ pub struct TrackDef<'i> {
     /// Name and value pairs that are part of the identity (`input=cam1`, `producer=vad`), in ascending order of
     /// name, names unique. Two variants of one track coexist when their dimensions differ.
     pub dimensions: RefVec<'i, Dimension<'i>>,
-    /// The API the track's resource is in.
-    pub api: FullVersion<'i>,
-    /// Hash of that API's bundle, as in [Describe::Bundle]; empty when not known.
-    pub bundle: RefVec<'i, u8>,
-    /// Resource path of the track's stream in the API: `ww_trait` ids, array indices included.
-    pub path: RefVec<'i, UNib32>,
-    /// Keys of the elements of keyed arrays on `path`, in ascending order of position: what the track's
-    /// [key](Self::key) hashes instead of those indices. Empty when `path` crosses no keyed array.
-    pub keys: RefVec<'i, KeySegment<'i>>,
-    /// The item type when the path doesn't give it (a producer's result, a map track); None: the stream's type. None
-    /// for a series: [SeriesDef::sample] names the type of its values.
-    pub item: Option<TypeRef<'i>>,
-    /// A name for people (`link[1].rx.frames`); readers go by `path`.
+    /// What one item is: a WireWeaver stream's value, a ShrinkWrap value, plain bytes, numbers or a format the user
+    /// names.
+    pub items: Items<'i>,
+    /// A name for people (`link[1].rx.frames`); readers go by [items](Self::items).
     pub label: &'i str,
     /// Whether the track's records are events or state. Always [TrackRepeat::Stream] for a series: its chunks are
     /// data and carry their own grid ([SeriesGrid](crate::series::SeriesGrid)).
@@ -422,6 +415,124 @@ pub struct TrackDef<'i> {
     /// writer's (eventfull's `source`, `parent`, `context`, an entity key).
     #[default = Default::default()]
     pub relations: RefVec<'i, RelationDef<'i>>,
+}
+
+/// What one item of a track is, see [TrackDef::items].
+///
+/// An events item's bytes are stored as given whatever the variant: the payload of a record or a chunk item, after
+/// the duration and flags an [EventRecord](crate::EventRecord) puts before it. The variant only says how to read
+/// them; `ww_tape` never reads a payload. A variant a reader doesn't know reads as `Unknown`, the rest of the
+/// definition intact: a reader passes such items on as bytes, a relay holds such an events track and stores its items
+/// as given ([Definitions::take_block](crate::Definitions::take_block)), and neither takes it for damage. A program
+/// builds no `Unknown` of its own: [Definitions::define](crate::Definitions::define) refuses one. The variant is not
+/// part of the track's identity: [TrackDef::key] is the producer's, see [track_key].
+#[derive_shrink_wrap(owned(feature = "std"), derive(Debug, PartialEq, Clone), ww_repr = u4)]
+pub enum Items<'i> {
+    /// The values of a stream of a WireWeaver API, in their ShrinkWrap encoding.
+    WireWeaver {
+        /// The API the track's resource is in.
+        api: FullVersion<'i>,
+        /// Hash of that API's bundle, as in [Describe::Bundle]; empty when not known.
+        bundle: RefVec<'i, u8>,
+        /// Resource path of the track's stream in the API: `ww_trait` ids, array indices included.
+        path: RefVec<'i, UNib32>,
+        /// Keys of the elements of keyed arrays on `path`, in ascending order of position: what the track's
+        /// [key](TrackDef::key) hashes instead of those indices. Empty when `path` crosses no keyed array.
+        keys: RefVec<'i, KeySegment<'i>>,
+        /// The item type when the path doesn't give it (a producer's result, a map track); None: the stream's type.
+        item: Option<TypeRef<'i>>,
+    },
+    /// Values of a type in a bundle, in their ShrinkWrap encoding, with no API stream.
+    ShrinkWrap(TypeRef<'i>),
+    /// Plain bytes with no type: a frame as received, a file's contents.
+    RawBytes,
+    /// Numbers of one element each: an events track's item is one element, little-endian in its container
+    /// ([ElementDesc::container_bits]).
+    Numbers {
+        element: ElementDesc,
+        /// The exact_units type of one value, its unit and scale (`Fixed<Ampere, Milli, i32>`); None: a plain number.
+        unit: Option<TypeRef<'i>>,
+    },
+    /// Bytes of a format the user names.
+    Foreign(Foreign<'i>),
+}
+
+/// A format the user names for a track's items, see [Items::Foreign]. At least a name or a media type.
+#[derive_shrink_wrap(owned(feature = "std"), derive(Debug, PartialEq, Eq, Clone, Hash))]
+pub struct Foreign<'i> {
+    /// The user's name for the format (`com.acme.frame`), at most [ENCODING_NAME_MAX] bytes of printable ASCII;
+    /// empty when the media type says it all.
+    pub name: &'i str,
+    /// A media type (RFC 6838, parameters allowed): `application/vnd.tcpdump.pcap`, `application/cbor`,
+    /// `application/x-protobuf; messageType=pkg.Msg`; empty for none. See [media_type_valid].
+    pub media_type: &'i str,
+    /// The format's version as the user writes it (`3`, `2.1`), at most [ENCODING_NAME_MAX] bytes of printable
+    /// ASCII; empty for none.
+    pub version: &'i str,
+    /// The [hash](Schema::hash) of the [Schema] that describes the format, carried on track 0 with the track; empty
+    /// for none.
+    pub schema: RefVec<'i, u8>,
+}
+
+/// Longest media type of a [Foreign] format or a [Schema], in bytes: RFC 6838 allows 127 each for the type and the
+/// subtype, and the parameters take the rest.
+pub const MEDIA_TYPE_MAX: usize = 255;
+
+/// Longest [name](Foreign::name) and [version](Foreign::version) of a foreign format, in bytes.
+pub const ENCODING_NAME_MAX: usize = 255;
+
+/// Bytes of a [Schema::hash]: a whole BLAKE3 hash.
+pub const SCHEMA_HASH_LEN: usize = 32;
+
+/// Whether `m` is a media type a writer takes: at most [MEDIA_TYPE_MAX] bytes of printable ASCII and spaces, a `/`
+/// between a type and a subtype.
+pub fn media_type_valid(m: &str) -> bool {
+    m.len() <= MEDIA_TYPE_MAX
+        && printable(m)
+        && m.find('/')
+            .is_some_and(|at| at > 0 && at < m.len().saturating_sub(1))
+}
+
+/// Whether `s` is printable ASCII and spaces only.
+fn printable(s: &str) -> bool {
+    s.bytes().all(|b| b.is_ascii_graphic() || b == b' ')
+}
+
+impl Foreign<'_> {
+    /// Whether a writer takes this format: a name or a media type, a name and a version of at most
+    /// [ENCODING_NAME_MAX] bytes of printable ASCII, a media type empty or [valid](media_type_valid), a schema hash
+    /// empty or [SCHEMA_HASH_LEN] bytes.
+    pub fn is_valid(&self) -> bool {
+        (!self.name.is_empty() || !self.media_type.is_empty())
+            && self.name.len() <= ENCODING_NAME_MAX
+            && printable(self.name)
+            && self.version.len() <= ENCODING_NAME_MAX
+            && printable(self.version)
+            && (self.media_type.is_empty() || media_type_valid(self.media_type))
+            && (self.schema.is_empty() || self.schema.len() == SCHEMA_HASH_LEN)
+    }
+}
+
+/// A schema of a foreign format ([Foreign::schema]): any blob that describes a format, by its hash. A protobuf
+/// descriptor set, a JSON schema, a Kaitai Struct file.
+///
+/// One definition per hash, carried on track 0 before the tracks that name it, as a [Describe::Bundle] is. At most
+/// [STATE_ITEM_MAX](crate::STATE_ITEM_MAX) bytes whole, as any definition.
+#[derive_shrink_wrap(owned(feature = "std"), derive(Debug, PartialEq, Eq, Clone))]
+pub struct Schema<'i> {
+    /// BLAKE3 of [bytes](Self::bytes), [SCHEMA_HASH_LEN] bytes.
+    pub hash: RefVec<'i, u8>,
+    /// What the bytes are, a [valid](media_type_valid) media type (`application/schema+json`).
+    pub media_type: &'i str,
+    pub bytes: RefVec<'i, u8>,
+}
+
+impl Schema<'_> {
+    /// Whether a writer takes the schema: its hash is BLAKE3 of its bytes and its media type is valid.
+    pub fn is_valid(&self) -> bool {
+        self.hash.as_slice() == blake3::hash(self.bytes.as_slice()).as_bytes()
+            && media_type_valid(self.media_type)
+    }
 }
 
 /// Most relations one track declares.
@@ -534,10 +645,10 @@ impl TrackRepeat {
     }
 }
 
-/// The key of the keyed-array element a [TrackDef::path] index points at.
+/// The key of the keyed-array element an [Items::WireWeaver] path index points at.
 #[derive_shrink_wrap(owned(feature = "std"), derive(Debug, PartialEq, Eq, Clone))]
 pub struct KeySegment<'i> {
-    /// Position in [TrackDef::path] of the index this key stands for.
+    /// Position in the path of the index this key stands for.
     pub at: UNib32,
     /// The key in its shrink_wrap encoding.
     pub bytes: RefVec<'i, u8>,
@@ -636,7 +747,7 @@ impl<'i> TrackDef<'i> {
     }
 
     /// Check what the kind asks of the track: a series has the plain policy (its chunks are data and carry their
-    /// grids), names its sample type in its definition (not in [Self::item]) and has a valid [SeriesDef].
+    /// grids), names its sample type in its definition (its items a stream's values) and has a valid [SeriesDef].
     pub fn check_kind(&self) -> Result<(), crate::SeriesError> {
         let Some(s) = self.series() else {
             return Ok(());
@@ -646,12 +757,23 @@ impl<'i> TrackDef<'i> {
                 "a series track takes the plain policy: its chunks are data",
             ));
         }
-        if self.item.is_some() {
+        if !matches!(self.items, Items::WireWeaver { item: None, .. }) {
             return Err(crate::SeriesError::Def(
-                "a series names its sample type in its definition, not as the item",
+                "a series names its sample type in its definition: its items are a stream's values",
             ));
         }
         s.check()
+    }
+
+    /// Whether [items](Self::items) is of a kind this crate writes and valid: a [Foreign] format
+    /// [valid](Foreign::is_valid), numbers of a [valid](ElementDesc::is_valid) element, no unknown variant.
+    pub fn items_valid(&self) -> bool {
+        match &self.items {
+            Items::WireWeaver { .. } | Items::ShrinkWrap(_) | Items::RawBytes => true,
+            Items::Numbers { element, .. } => element.is_valid(),
+            Items::Foreign(f) => f.is_valid(),
+            Items::Unknown(_) => false,
+        }
     }
 
     /// Id of the track's identity, see [track_id].

@@ -173,15 +173,18 @@ pub use ww_version::{FullVersion, Version};
 mod describe;
 pub use describe::{
     ALIGNMENT, ClockDef, ClockMap, ClockOrigin, ClockRate, ClockResolution, Describe, Dimension,
-    Ends, EventsDef, GAP_CHECKS_MAX, GAP_MAX_MAX, GAP_PROBES_MAX, KeySegment, Layout, MapSegment,
-    NEAR_DEFAULT, NO_CLOCK, Producer, RELATION_NAME_MAX, RELATIONS_MAX, RelationDef, RelationIndex,
-    RelationTarget, RelationValues, SD_GAP_MAX, SD_RESUME_ALIGN, StatePolicy, TrackDef, TrackKind,
-    TrackRepeat, TypeRef, TypedItem, UNIX_CLOCK_KEY, api, clock_key, segments_increasing, track_id,
+    ENCODING_NAME_MAX, Ends, EventsDef, Foreign, GAP_CHECKS_MAX, GAP_MAX_MAX, GAP_PROBES_MAX,
+    Items, KeySegment, Layout, MEDIA_TYPE_MAX, MapSegment, NEAR_DEFAULT, NO_CLOCK, Producer,
+    RELATION_NAME_MAX, RELATIONS_MAX, RelationDef, RelationIndex, RelationTarget, RelationValues,
+    SCHEMA_HASH_LEN, SD_GAP_MAX, SD_RESUME_ALIGN, Schema, StatePolicy, TrackDef, TrackKind,
+    TrackRepeat, TypeRef, TypedItem, UNIX_CLOCK_KEY, api, clock_key, media_type_valid,
+    segments_increasing, track_id,
 };
 #[cfg(feature = "std")]
 pub use describe::{
-    ClockDefOwned, ClockMapOwned, DescribeOwned, DimensionOwned, KeySegmentOwned, ProducerOwned,
-    RelationDefOwned, TrackDefOwned, TrackKindOwned, TypeRefOwned, TypedItemOwned,
+    ClockDefOwned, ClockMapOwned, DescribeOwned, DimensionOwned, ForeignOwned, ItemsOwned,
+    KeySegmentOwned, ProducerOwned, RelationDefOwned, SchemaOwned, TrackDefOwned, TrackKindOwned,
+    TypeRefOwned, TypedItemOwned,
 };
 pub use exact_units::{Magnitude, MagnitudeOf, Ratio64, Rounding};
 pub mod state;
@@ -206,7 +209,9 @@ pub use ww_tape_codecs::lz4;
 #[cfg(feature = "alloc")]
 pub mod payloads;
 pub mod samples;
-pub use samples::{Element, Sample, SampleError, SampleShape, Samples};
+pub use samples::{
+    ELEMENT_PARTS_MAX, Element, ElementDesc, Sample, SampleError, SampleShape, Samples,
+};
 
 pub mod series;
 pub use series::{MediaStream, SeriesDef, SeriesError, SeriesGrid, SeriesValue};

@@ -62,13 +62,15 @@ fn track(number: u32, label: &'static str, state: Option<StatePolicy>) -> Descri
         key: track_key(0x57, &[Segment::Index(number)]),
         clock: UNib32(CLOCK),
         dimensions: RefVec::Slice { slice: &[] },
-        api: FullVersion::new("state_api", Version::new(0, 1, 0)),
-        bundle: RefVec::Slice { slice: &[] },
-        path: RefVec::Slice {
-            slice: &[UNib32(1)],
+        items: ww_tape::Items::WireWeaver {
+            api: FullVersion::new("state_api", Version::new(0, 1, 0)),
+            bundle: RefVec::Slice { slice: &[] },
+            path: RefVec::Slice {
+                slice: &[UNib32(1)],
+            },
+            keys: RefVec::Slice { slice: &[] },
+            item: None,
         },
-        keys: RefVec::Slice { slice: &[] },
-        item: None,
         label,
         repeat: state.map_or(TrackRepeat::Stream, TrackRepeat::State),
         kind: TrackKind::Events(EventsDef::INSTANTS),

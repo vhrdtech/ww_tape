@@ -14,7 +14,7 @@ mod element;
 #[cfg(test)]
 mod tests;
 
-pub use element::{Element, SampleShape};
+pub use element::{ELEMENT_PARTS_MAX, Element, ElementDesc, SampleShape};
 pub use ww_tape_codecs::samples::{ALP_GROUP, DELTA_GROUP, Sample, Scalar, alp};
 
 use crate::Codec;

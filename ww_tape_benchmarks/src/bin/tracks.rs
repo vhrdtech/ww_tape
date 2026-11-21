@@ -177,13 +177,15 @@ fn track(number: u32) -> Describe<'static> {
         key: track_key(0xb7, &[Segment::Index(number)]),
         clock: UNib32(CLOCK),
         dimensions: RefVec::Slice { slice: &[] },
-        api: FullVersion::new("bench_api", Version::new(0, 1, 0)),
-        bundle: RefVec::Slice { slice: &[] },
-        path: RefVec::Slice {
-            slice: &[UNib32(1)],
+        items: ww_tape::Items::WireWeaver {
+            api: FullVersion::new("bench_api", Version::new(0, 1, 0)),
+            bundle: RefVec::Slice { slice: &[] },
+            path: RefVec::Slice {
+                slice: &[UNib32(1)],
+            },
+            keys: RefVec::Slice { slice: &[] },
+            item: None,
         },
-        keys: RefVec::Slice { slice: &[] },
-        item: None,
         label: "bench",
         repeat: ww_tape::TrackRepeat::Stream,
         kind: TrackKind::Events(EventsDef::INSTANTS),

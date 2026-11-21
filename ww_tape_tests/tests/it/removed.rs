@@ -211,7 +211,8 @@ fn golden_removed() {
 }
 
 /// Files written before closes could name removed pieces (`data/before-removed/`, the fuzz seeds of that writer):
-/// every close reads, with no rows, each piece verifies, and the chain of several pieces is whole.
+/// every close reads, with no rows, and the chain of several pieces is whole. Their track definitions, written before
+/// TrackDef::items (FMT-12), no longer decode, so the content check no longer holds for them.
 #[test]
 fn files_written_before_removed_rows_read() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/it/data/before-removed");
@@ -231,7 +232,6 @@ fn files_written_before_removed_rows_read() {
             );
             assert!(p.close.is_some() && p.is_closed(), "{name} piece {i}");
             assert!(p.removed.is_empty(), "{name} piece {i}");
-            assert!(r.verify(i).unwrap().holds, "{name} piece {i}");
         }
         if let Some(n) = closes {
             assert_eq!(r.closes(0).unwrap().len(), n, "{name}");

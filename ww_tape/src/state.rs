@@ -7,7 +7,7 @@
 //! - a record of a state track fills the track's slot, [Slot::State];
 //! - a definition fills the slot of what it defines: the producer, the layout, a track or a clock by number, a map by
 //!   its two clocks;
-//! - a bundle, a typed item, or a definition of a kind this crate doesn't know is a slot of its own, by its hash.
+//! - a bundle, a schema, a typed item, or a definition of a kind this crate doesn't know is a slot of its own, by its hash.
 //!
 //! An item is known by its [ItemHash]: BLAKE3 of its bytes, cut to 128 bits. A writer puts an item again only when
 //! the newest record of its slot isn't the same item close behind ([TrackRepeat::State](crate::TrackRepeat::State)'s
@@ -61,6 +61,8 @@ pub enum DefinitionKind {
     Map,
     Item,
     Layout,
+    /// A [Schema](crate::Schema) of an item encoding.
+    Schema,
     /// A [Describe] variant this crate doesn't know, by its code: its discriminant plus 1, at most 15. A newer
     /// writer's code for it is the same, so a reader that replays the index agrees with the writer's entries.
     Unknown(u8),
@@ -77,6 +79,7 @@ impl DefinitionKind {
             Describe::Map(_) => Self::Map,
             Describe::Item(_) => Self::Item,
             Describe::Layout(_) => Self::Layout,
+            Describe::Schema(_) => Self::Schema,
             Describe::Unknown(d) => Self::Unknown(match u8::try_from(*d) {
                 Ok(d) if d < 15 => d.saturating_add(1),
                 _ => 15,
@@ -94,6 +97,7 @@ impl DefinitionKind {
             Self::Map => 5,
             Self::Item => 6,
             Self::Layout => 7,
+            Self::Schema => 8,
             Self::Unknown(code) => code,
         }
     }
@@ -108,7 +112,8 @@ impl DefinitionKind {
             5 => Self::Map,
             6 => Self::Item,
             7 => Self::Layout,
-            8..=15 => Self::Unknown(v),
+            8 => Self::Schema,
+            9..=15 => Self::Unknown(v),
             _ => return None,
         })
     }
@@ -136,7 +141,7 @@ pub enum Slot {
         from: u32,
         to: u32,
     },
-    /// A bundle, a typed item or a definition of a kind this crate doesn't know: each item a slot of its own.
+    /// A bundle, a schema, a typed item or a definition of a kind this crate doesn't know: each item a slot of its own.
     Own {
         kind: DefinitionKind,
         hash: ItemHash,
@@ -233,6 +238,10 @@ mod tests {
             Slot::Map { from: 2, to: 1 },
             Slot::Own {
                 kind: DefinitionKind::Bundle,
+                hash,
+            },
+            Slot::Own {
+                kind: DefinitionKind::Schema,
                 hash,
             },
             Slot::Own {
