@@ -973,7 +973,7 @@ pub(crate) fn is_held(d: &Describe<'_>) -> bool {
     !matches!(
         DefinitionKind::of(d),
         DefinitionKind::Item
-            | DefinitionKind::Unknown
+            | DefinitionKind::Unknown(_)
             | DefinitionKind::Producer
             | DefinitionKind::Layout
     )

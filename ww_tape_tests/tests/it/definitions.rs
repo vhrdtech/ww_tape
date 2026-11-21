@@ -785,6 +785,16 @@ fn a_producers_block_of_puts_is_put_on_the_tape() {
     let r = TapeReader::open(&bytes[..]).unwrap();
     let found = r.state_at(0, Slot::State { track: 5 }, u64::MAX).unwrap();
     assert_eq!(found.item.unwrap().at, Some(ClockTime::new(CLOCK, 5)));
+    // it is listed under its discriminant plus 1, the code a reader that knows it lists it under too
+    assert!(r.verify(0).unwrap().holds);
+    let at = r.definitions_at(0, u64::MAX).unwrap();
+    assert!(at.items.keys().any(|s| matches!(
+        s,
+        Slot::Own {
+            kind: ww_tape::state::DefinitionKind::Unknown(14),
+            ..
+        }
+    )));
     // the writer's own session and seq: the producer's block id isn't kept
     assert!(
         record_blocks(&bytes)

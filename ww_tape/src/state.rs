@@ -61,8 +61,9 @@ pub enum DefinitionKind {
     Map,
     Item,
     Layout,
-    /// A [Describe] variant this crate doesn't know.
-    Unknown,
+    /// A [Describe] variant this crate doesn't know, by its code: its discriminant plus 1, at most 15. A newer
+    /// writer's code for it is the same, so a reader that replays the index agrees with the writer's entries.
+    Unknown(u8),
 }
 
 impl DefinitionKind {
@@ -76,11 +77,14 @@ impl DefinitionKind {
             Describe::Map(_) => Self::Map,
             Describe::Item(_) => Self::Item,
             Describe::Layout(_) => Self::Layout,
-            Describe::Unknown(_) => Self::Unknown,
+            Describe::Unknown(d) => Self::Unknown(match u8::try_from(*d) {
+                Ok(d) if d < 15 => d.saturating_add(1),
+                _ => 15,
+            }),
         }
     }
 
-    /// Its code in an index entry: 1 and up.
+    /// Its code in an index entry: 1 to 15, a [Describe] variant's discriminant plus 1.
     pub const fn to_u8(self) -> u8 {
         match self {
             Self::Producer => 1,
@@ -90,7 +94,7 @@ impl DefinitionKind {
             Self::Map => 5,
             Self::Item => 6,
             Self::Layout => 7,
-            Self::Unknown => 15,
+            Self::Unknown(code) => code,
         }
     }
 
@@ -104,7 +108,7 @@ impl DefinitionKind {
             5 => Self::Map,
             6 => Self::Item,
             7 => Self::Layout,
-            15 => Self::Unknown,
+            8..=15 => Self::Unknown(v),
             _ => return None,
         })
     }
@@ -231,12 +235,16 @@ mod tests {
                 kind: DefinitionKind::Bundle,
                 hash,
             },
+            Slot::Own {
+                kind: DefinitionKind::Unknown(14),
+                hash,
+            },
         ];
         for s in slots {
             let (level, n, second) = s.code();
             assert_eq!(Slot::from_code(level, n, second, hash), Some(s));
         }
-        assert_eq!(Slot::from_code(9, 0, 0, hash), None);
+        assert_eq!(Slot::from_code(16, 0, 0, hash), None);
     }
 
     #[test]

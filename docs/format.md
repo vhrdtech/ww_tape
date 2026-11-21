@@ -818,7 +818,10 @@ The slot codes (`DefinitionKind`) are:
 
 - 1 producer, 2 track, 3 bundle, 4 clock;
 - 5 map, 6 item, 7 layout;
-- 15 for a definition the writer doesn't know.
+- 8 to 15 for a definition the writer doesn't know: its discriminant plus 1, at most 15.
+
+A code is a `Describe` variant's discriminant plus 1. A newer writer therefore lists a definition under the code an
+older reader computes for it, and the older reader's content check agrees with the entries.
 
 Byte 14 is 0, and bytes 16..24 hold `STATE_TRACK_ID`.
 
