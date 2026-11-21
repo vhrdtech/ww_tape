@@ -54,8 +54,11 @@ pub(crate) struct Indexer {
     tallies: BTreeMap<TrackKey, Tally>,
     /// The tallies before the last counted block of data, to take it back ([Self::undo_block])
     undo: Vec<(TrackKey, Option<Tally>)>,
-    /// The tracks with a row in the close: in `tracks`, or tallied by a counted block ([Self::has_row])
+    /// The tracks with a row in the close: in `tracks`, or tallied by a counted block or a state record
+    /// ([Self::has_row])
     rows: BTreeSet<TrackKey>,
+    /// The tracks a state record of is placed in the piece ([Self::state_placed])
+    stated: BTreeMap<TrackKey, u32>,
     /// The tracks the piece head carries over
     head_keys: BTreeSet<TrackKey>,
     /// Those of `rows` the head doesn't carry
@@ -155,6 +158,9 @@ impl Indexer {
                 Some(t) => self.tallies.insert(key, t),
                 None => self.tallies.remove(&key),
             };
+            if let Some(number) = self.stated.get(&key).copied() {
+                self.state_placed(key, number);
+            }
             self.note_row(key);
         }
     }
@@ -197,6 +203,22 @@ impl Indexer {
         if self.rows.insert(key) && !self.head_keys.contains(&key) {
             self.rows_past_head = self.rows_past_head.saturating_add(1);
         }
+    }
+
+    /// A state record of track `key` (number `number`) is placed: the track gets a row in the close, so the next
+    /// head carries it, its hash and counted records unchanged.
+    pub(crate) fn state_placed(&mut self, key: TrackKey, number: u32) {
+        let t = self.tallies.entry(key).or_insert(Tally {
+            number,
+            hash: TrackHash::START,
+            records: 0,
+            touched: false,
+            incomplete: false,
+        });
+        t.number = number;
+        t.touched = true;
+        self.stated.insert(key, number);
+        self.insert_row(key);
     }
 
     /// The counted chunk of track `number` of id `id` with unit hash `unit` goes into its track's hash: one read,

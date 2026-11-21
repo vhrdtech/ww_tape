@@ -47,8 +47,8 @@
 <text x="512.9" y="343.5" text-anchor="middle" class="small">final index</text>
 <rect x="76.3" y="362.0" width="599.4" height="30.0" rx="1.5" class="tint-amber"/>
 <rect x="76.3" y="400.0" width="182.1" height="30.0" rx="1.5" class="tint-amber"/>
-<rect x="259.0" y="400.0" width="26.4" height="30.0" rx="1.5" class="tint-green"/>
-<rect x="286.0" y="400.0" width="83.6" height="30.0" rx="1.5" class="faint hatch"/>
+<rect x="259.0" y="400.0" width="31.3" height="30.0" rx="1.5" class="tint-green"/>
+<rect x="290.9" y="400.0" width="78.6" height="30.0" rx="1.5" class="faint hatch"/>
 <rect x="370.1" y="400.0" width="0.8" height="30.0" rx="1.5" class="tint-green"/>
 <rect x="370.3" y="400.0" width="5.4" height="30.0" rx="1.5" class="tint-green"/>
 <text x="68.0" y="49.5" text-anchor="end" class="small soft">first KiB</text>

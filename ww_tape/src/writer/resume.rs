@@ -1067,6 +1067,12 @@ impl<S: TapeSink> TapeWriter<S> {
         // a state record in it: its slot's newest record is here, its item unknown
         for s in entries.iter().filter_map(IndexEntry::state) {
             self.near.wrote(s.slot, None, e.offset, &self.near_policy);
+            if let crate::state::Slot::State { track } = s.slot {
+                self.kept.forget(track);
+                if let Some(key) = self.indexer.key_of(track, None) {
+                    self.indexer.state_placed(key, track);
+                }
+            }
         }
         Ok(())
     }

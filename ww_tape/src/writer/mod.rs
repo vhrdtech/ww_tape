@@ -62,11 +62,13 @@ use alloc::collections::{BTreeMap, BTreeSet};
 
 mod carried;
 mod error;
+pub(crate) mod kept;
 pub mod near;
 mod relations;
 pub mod resume;
 pub use carried::CARRIED_BLOCK_LEN;
 pub use error::{CutError, InputError, RemovedRefusal, ResumeError, WriteError};
+pub use kept::KEPT_BYTES_MAX;
 pub use near::NearPolicy;
 use near::Rule;
 pub(crate) use relations::Newest;
@@ -182,6 +184,8 @@ pub struct TapeWriter<S: TapeSink> {
     /// The state records of the piece the writer remembers
     near: near::Near,
     near_policy: NearPolicy,
+    /// The newest item of each state track, for the next cut to carry
+    kept: kept::Kept,
     /// Chunk blocks counted in this piece
     chunks: u64,
     /// The last counted block written: its id, length, CRC and offset, to tell a block written again
@@ -221,6 +225,8 @@ struct NextRows {
     head: PieceHead,
     tracks: Vec<TrackStart>,
     carried: Vec<Vec<Candidate<'static>>>,
+    /// [Closed::states_unknown]
+    states_unknown: usize,
 }
 
 /// A close record of the piece a writer writes on after: where it and its tail are, and its hash.
@@ -275,6 +281,10 @@ pub struct Closed {
     /// then owner: its [hash](crate::TrackHash) after this piece and where its items go on. After a cut, the next
     /// head's rows: [TrackStart::not_carried] marks a track whose definition the next piece doesn't carry.
     pub tracks: Vec<TrackStart>,
+    /// After a cut, the state tracks whose definition the next piece carries without their newest item: the writer
+    /// didn't hold it, forgotten past [NearPolicy::kept_bytes_max] or lying only in a piece before a resume. The next
+    /// put of such a track writes its item. 0 for a piece not cut.
+    pub states_unknown: usize,
 }
 
 impl Closed {
@@ -344,6 +354,7 @@ impl<S: TapeSink> TapeWriter<S> {
             head: None,
             near: near::Near::default(),
             near_policy: NearPolicy::default(),
+            kept: kept::Kept::default(),
             chunks: 0,
             last_counted: None,
             adopted: None,
@@ -423,6 +434,11 @@ impl<S: TapeSink> TapeWriter<S> {
     /// over to the next piece of a [cut](Self::cut_with).
     pub fn set_near_policy(&mut self, policy: NearPolicy) {
         self.near_policy = policy;
+    }
+
+    /// Bytes of the newest state items the writer keeps for its next cut, against [NearPolicy::kept_bytes_max].
+    pub fn kept_bytes(&self) -> usize {
+        self.kept.bytes()
     }
 
     /// Slots the writer remembers in this piece, against [NearPolicy::memory_max].
@@ -542,6 +558,8 @@ impl<S: TapeSink> TapeWriter<S> {
         if item.len() > STATE_ITEM_MAX {
             return Err(DescribeError::TooLong { len: item.len() }.into());
         }
+        // a state record gives its track a row in the close and the next head
+        self.track_room(defs, &[track])?;
         let mut cands = self.needed(defs, &[track]);
         self.work.hash(item.len());
         cands.push(Candidate {
@@ -725,8 +743,16 @@ impl<S: TapeSink> TapeWriter<S> {
         let rule = self.definitions_rule();
         let rows: Vec<TrackStart> = rows.iter().filter(|r| !r.not_carried).copied().collect();
         let numbers = carried::numbers(defs, &rows);
+        let states = self.carried_states(defs, &rows);
+        let lens: BTreeMap<u32, usize> = states
+            .iter()
+            .map(|(n, (_, s))| (*n, s.item.len()))
+            .collect();
         let (blocks, dropped) = carried::fit(
-            defs,
+            carried::Source {
+                defs,
+                states: &lens,
+            },
             &numbers,
             &self.wanted,
             &self.ranked(&rows, &numbers),
@@ -736,11 +762,42 @@ impl<S: TapeSink> TapeWriter<S> {
             .iter()
             .map(|b| {
                 b.iter()
-                    .filter_map(|s| defs.held(s).map(|h| Candidate::held(*s, rule, h)))
+                    .filter_map(|s| match s {
+                        Slot::State { track } => {
+                            let (policy, state) = states.get(track)?;
+                            Some(Candidate {
+                                slot: *s,
+                                rule: self.rule(*policy),
+                                track: *track,
+                                at: state.at,
+                                item: Item::Held(state.item.clone()),
+                                hash: state.hash,
+                            })
+                        }
+                        _ => defs.held(s).map(|h| Candidate::held(*s, rule, h)),
+                    })
                     .collect()
             })
             .collect();
         (blocks, dropped)
+    }
+
+    /// The newest item the writer keeps ([kept]) of each state track of head rows `rows` that `defs` holds as a state
+    /// track under the row's number, id and owner, with the track's policy, by number.
+    fn carried_states<'k>(
+        &'k self,
+        defs: &Definitions,
+        rows: &[TrackStart],
+    ) -> BTreeMap<u32, (crate::StatePolicy, &'k kept::State)> {
+        rows.iter()
+            .filter_map(|r| {
+                let key = (r.track_id, r.owner);
+                (defs.track_key(r.track_number) == Some((key.0, key.1.0))).then_some(())?;
+                let policy = defs.track(r.track_number)?.state?;
+                let state = self.kept.get(r.track_number, key)?;
+                Some((r.track_number, (policy, state)))
+            })
+            .collect()
     }
 
     /// Track numbers `numbers` of head rows `rows`, newest data first: those [Self::want] named, then those with a
@@ -1220,6 +1277,13 @@ impl<S: TapeSink> TapeWriter<S> {
             let Some(slot) = Slot::of(r.track, r.item) else {
                 continue;
             };
+            if let Slot::State { track } = slot
+                && let Some(key) = self.indexer.key_of(track, None)
+            {
+                self.indexer.state_placed(key, track);
+                self.kept
+                    .placed(track, key, r.at, r.item, self.near_policy.kept_bytes_max);
+            }
             if matches!(slot, Slot::Track { .. })
                 && let Ok(Describe::Track(t)) =
                     <Describe<'_> as shrink_wrap::DeserializeShrinkWrap>::from_ww_bytes(r.item)
@@ -1983,7 +2047,8 @@ impl<S: TapeSink> TapeWriter<S> {
     /// starts moved on by this piece's chunks, then the layout and the producer put, then the definitions of every
     /// track the head carries that `defs` holds ([Definitions::needs]), in blocks of at most [CARRIED_BLOCK_LEN] that
     /// each hold their tracks' clocks and maps: a piece holds the definitions of its quiet tracks too, so it reads
-    /// alone when the pieces before it are gone. A definition is put again before the next data that needs it, unless
+    /// alone when the pieces before it are gone. A state track carries its newest item beside its definition ([NearPolicy::kept_bytes_max]),
+    /// so the state in force reads there too. A definition is put again before the next data that needs it, unless
     /// it lies close behind. Seqs go on from this piece; the options carry over.
     ///
     /// The next piece carries every definition while the chain's tracks fit the index policy's state entries
@@ -2004,9 +2069,10 @@ impl<S: TapeSink> TapeWriter<S> {
         defs: &Definitions,
         next: impl FnOnce() -> Result<S, WriteError<S::Error>>,
     ) -> Result<(Closed, Self), CutError<S>> {
-        let (w, rows) = self.next_rows(defs)?;
+        let (mut w, rows) = self.next_rows(defs)?;
         let options = w.options();
         let newest = w.relations.newest().clone();
+        let kept = core::mem::take(&mut w.kept);
         let done = w.end(End::Cut, None)?;
         let mut next_piece = NextPiece::after(
             &rows.head,
@@ -2016,10 +2082,12 @@ impl<S: TapeSink> TapeWriter<S> {
             done.next_seq,
         )?;
         next_piece.newest = newest;
+        next_piece.kept = kept;
         let mut next = Self::start_next(next()?, &options, next_piece)?;
         next.put_carried(&rows.carried)?;
         let mut closed = done.closed;
         closed.tracks = next.head_rows().to_vec();
+        closed.states_unknown = rows.states_unknown;
         Ok((closed, next))
     }
 
@@ -2044,12 +2112,23 @@ impl<S: TapeSink> TapeWriter<S> {
         for t in &mut tracks {
             t.not_carried = dropped.contains(&t.track_number);
         }
+        let states = self.carried_states(defs, &tracks);
+        let states_unknown = tracks
+            .iter()
+            .filter(|t| !t.not_carried && !states.contains_key(&t.track_number))
+            .filter(|t| defs.track_key(t.track_number) == Some((t.track_id, t.owner.0)))
+            .filter(|t| {
+                defs.track(t.track_number)
+                    .is_some_and(|f| f.state.is_some())
+            })
+            .count();
         Ok((
             self,
             NextRows {
                 head,
                 tracks,
                 carried,
+                states_unknown,
             },
         ))
     }
@@ -2076,9 +2155,10 @@ impl<S: TapeSink> TapeWriter<S> {
                 "a sink of one piece takes no cut in place",
             ))));
         }
-        let (w, rows) = self.next_rows(defs)?;
+        let (mut w, rows) = self.next_rows(defs)?;
         let options = w.options();
         let newest = w.relations.newest().clone();
+        let kept = core::mem::take(&mut w.kept);
         let mut done = w.end(End::CutInPlace, None)?;
         let mut next_piece = NextPiece::after(
             &rows.head,
@@ -2088,6 +2168,7 @@ impl<S: TapeSink> TapeWriter<S> {
             done.next_seq,
         )?;
         next_piece.newest = newest;
+        next_piece.kept = kept;
         let base = done
             .closed
             .start
@@ -2101,6 +2182,7 @@ impl<S: TapeSink> TapeWriter<S> {
         let mut next = Self::start_next(done.sink, &options, next_piece)?;
         next.put_carried(&rows.carried)?;
         done.closed.tracks = next.head_rows().to_vec();
+        done.closed.states_unknown = rows.states_unknown;
         Ok((done.closed, next))
     }
 
@@ -2134,7 +2216,22 @@ impl<S: TapeSink> TapeWriter<S> {
         self.next_seq = next.next_seq;
         self.session = next.session;
         self.relations.take_newest(&next.newest);
-        self.write_piece_head(&next.head, &next.tracks)
+        self.kept = kept::Kept::default();
+        self.write_piece_head(&next.head, &next.tracks)?;
+        self.keep_after(next.kept);
+        Ok(())
+    }
+
+    /// Go on after `older`, the newest state items of the pieces before ([kept]): those of the tracks the piece head
+    /// carries, older than those this piece holds.
+    pub(crate) fn keep_after(&mut self, mut older: kept::Kept) {
+        let rows: BTreeMap<u32, TrackKey> = self
+            .head_rows()
+            .iter()
+            .map(|t| (t.track_number, (t.track_id, t.owner)))
+            .collect();
+        older.retain(&rows);
+        self.kept.after(older, self.near_policy.kept_bytes_max);
     }
 
     /// Go on from `newest`, the newest values of the monotone relations of the pieces before: a resume's.
@@ -2275,6 +2372,7 @@ impl<S: TapeSink> TapeWriter<S> {
                 next,
                 start,
                 tracks,
+                states_unknown: 0,
             },
             next_seq: self.next_seq,
             session: self.session,
@@ -2318,6 +2416,7 @@ impl<S: TapeSink> TapeWriter<S> {
                 next: None,
                 start,
                 tracks,
+                states_unknown: 0,
             },
             next_seq: self.next_seq,
             session: self.session,
@@ -2491,6 +2590,8 @@ pub(crate) struct NextPiece {
     next_seq: u64,
     /// The newest values of the monotone relations so far
     newest: relations::Newest,
+    /// The newest item of each state track so far ([kept])
+    pub(crate) kept: kept::Kept,
 }
 
 impl NextPiece {
@@ -2526,6 +2627,7 @@ impl NextPiece {
             session,
             next_seq,
             newest: relations::Newest::default(),
+            kept: kept::Kept::default(),
         })
     }
 }

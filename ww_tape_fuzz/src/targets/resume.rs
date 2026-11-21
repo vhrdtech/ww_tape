@@ -48,6 +48,7 @@ pub(crate) fn options(aligned: bool) -> WriterOptions {
         near: NearPolicy {
             copy_spacing: 2 << 10,
             memory_max: 4,
+            ..NearPolicy::default()
         },
     }
 }

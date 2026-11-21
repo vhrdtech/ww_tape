@@ -200,6 +200,11 @@ fn not_carried_golden() {
     let row = rows.iter().position(|t| t.not_carried).unwrap();
     // the head row's flags: bit 1, not carried
     assert_eq!(bytes[152 + row * 96 + 12..][..4], 2u32.to_le_bytes());
+    golden(&bytes, "v1-not-carried.hex");
+}
+
+/// `bytes` as the golden file `name` holds them in hex, 64 bytes a line; `WW_TAPE_GOLDEN=update` rewrites it.
+fn golden(bytes: &[u8], name: &str) {
     let mut hex = String::new();
     for line in bytes.chunks(64) {
         for byte in line {
@@ -207,16 +212,17 @@ fn not_carried_golden() {
         }
         hex.push('\n');
     }
-    let golden = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../ww_tape/golden/v1-not-carried.hex");
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../ww_tape/golden")
+        .join(name);
     if std::env::var("WW_TAPE_GOLDEN").as_deref() == Ok("update") {
-        std::fs::write(&golden, &hex).unwrap();
+        std::fs::write(&path, &hex).unwrap();
     }
-    let want = std::fs::read_to_string(&golden)
-        .expect("golden/v1-not-carried.hex: run with WW_TAPE_GOLDEN=update");
+    let want = std::fs::read_to_string(&path)
+        .unwrap_or_else(|_| panic!("golden/{name}: run with WW_TAPE_GOLDEN=update"));
     assert!(
         hex == want,
-        "the format changed: bytes differ from golden/v1-not-carried.hex"
+        "the format changed: bytes differ from golden/{name}"
     );
 }
 
@@ -1118,4 +1124,75 @@ fn random_schedules_refuse_no_counted_in_track_and_leave_no_piece_empty() {
             assert_eq!(named, want, "seed {seed} piece {i}");
         }
     }
+}
+
+/// The base definitions and state track 10, whose item the tests put once.
+fn defs_with_state() -> Definitions {
+    let mut defs = base_defs().clone();
+    defs.define_all(&[crate::definitions::state(10)]).unwrap();
+    defs
+}
+
+/// A chain of two pieces in memory: track 10's state put once, then a chunk of track 1 in each piece. The bytes of
+/// each piece, oldest first.
+fn state_chain(defs: &Definitions) -> Vec<Vec<u8>> {
+    let mem = MemTapes::new();
+    let mut chain = PieceChain::create_on(
+        mem.clone(),
+        OwnerId([0x53; 32]),
+        0,
+        &[],
+        ww_tape::ChainOptions {
+            tapes: ww_tape::PieceTapes::Each,
+            writer: ww_tape::WriterOptions {
+                sync: SyncPolicy::None,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(chain.put(defs, 10, 5, b"run").unwrap());
+    let (h, c) = chunk(0, 0);
+    chain.write_chunk(defs, &h, &column(&c)).unwrap();
+    chain.cut_now(defs).unwrap();
+    let (h, c) = chunk(0, 1);
+    chain.write_chunk(defs, &h, &column(&c)).unwrap();
+    chain
+        .close()
+        .unwrap()
+        .iter()
+        .map(|f| mem.get(&f.tape).unwrap().unwrap().to_vec().unwrap())
+        .collect()
+}
+
+/// A state put once and never again: the piece after the cut alone holds the state track's definition and its
+/// newest item, so dropping the first piece loses neither.
+#[test]
+fn a_new_piece_carries_a_quiet_state_and_its_definition() {
+    let defs = defs_with_state();
+    let pieces = state_chain(&defs);
+    assert_eq!(pieces.len(), 2);
+    let r = TapeReader::open(&pieces[1][..]).unwrap();
+    assert!(r.verify(0).unwrap().holds);
+    let at = r.definitions_at(0, u64::MAX).unwrap();
+    assert_eq!(
+        at.items
+            .get(&Slot::Track { number: 10 })
+            .map(|i| i.item.as_slice()),
+        defs.get(&Slot::Track { number: 10 }),
+    );
+    let found = r
+        .state_at(0, Slot::State { track: 10 }, u64::MAX)
+        .unwrap()
+        .item
+        .expect("the newest state of track 10");
+    assert_eq!(found.item, b"run");
+}
+
+/// The piece after the cut of [state_chain], carrying track 10's definition and state, pinned byte for byte.
+#[test]
+fn carried_state_golden() {
+    let pieces = state_chain(&defs_with_state());
+    golden(&pieces[1], "v1-carried-state.hex");
 }

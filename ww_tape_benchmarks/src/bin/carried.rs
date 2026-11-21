@@ -4,7 +4,9 @@
 //! more is what carrying the quiet tracks costs. Prints a Markdown table for 100 and 1 000 tracks, then the bytes of a
 //! piece of one records block at the track caps ([TRACKS_PER_PIECE_MAX], [HEAD_TRACKS_MAX]) against the baseline, then
 //! the most tracks a cut carries whole (none left out) under the default index policy and lower ones, on one clock and
-//! each on its own clock.
+//! each on its own clock. Last, what a cut spends to carry the newest item of each state track besides its
+//! definition: the next piece of a chain whose first piece put `n` state tracks once, against the same with `n`
+//! stream tracks that gave data.
 #![allow(
     clippy::arithmetic_side_effects,
     clippy::as_conversions,
@@ -72,11 +74,16 @@ const ITEM_LEN: usize = 4000;
 
 /// A records block of one record of `len` bytes on track 1.
 fn records(id: BlockId, n: i64, len: usize) -> anyhow::Result<Vec<u8>> {
+    records_on(id, 1, n, len)
+}
+
+/// A records block of one record of `len` bytes on track `track`.
+fn records_on(id: BlockId, track: u32, n: i64, len: usize) -> anyhow::Result<Vec<u8>> {
     let mut buf = vec![0u8; len + 64];
     let item = vec![0x5a; len];
     let mut b = BlockWriter::new(&mut buf, BlockKind::Records, id, &[CLOCK])
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
-    b.push(1, ClockTime::new(CLOCK, n), &[&item])
+    b.push(track, ClockTime::new(CLOCK, n), &[&item])
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
     let len = b.finish();
     buf.truncate(len);
@@ -233,6 +240,58 @@ fn room_for(policy: usize, own_clocks: bool) -> anyhow::Result<(u32, bool)> {
     Ok((lo, false))
 }
 
+/// The bytes of the piece after a cut, holding one records block on a stream track, when the first piece gave `n`
+/// other tracks a record each: a put of an item of `item_len` bytes on each of `n` state tracks (`state`), or a
+/// records block on each of `n` stream tracks.
+fn after_cut(n: u32, item_len: usize, state: bool) -> anyhow::Result<u64> {
+    let e = |e: ww_tape::WriteError<_>| anyhow::anyhow!("{e:?}");
+    let labels: Vec<String> = (1..=n + 1).map(|k| format!("channel {k:07}")).collect();
+    let mut all = vec![clock()];
+    for k in 1..=n + 1 {
+        let mut t = track(k, CLOCK, &labels[k as usize - 1]);
+        if state && k <= n {
+            t.repeat = ww_tape::TrackRepeat::State(ww_tape::StatePolicy::DEFAULT);
+        }
+        all.push(Describe::Track(t));
+    }
+    let mut defs = Definitions::new();
+    defs.define_all(&all)
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
+    w.set_producer("bench");
+    w.set_session(SessionTag::writable(0x7374_6174))
+        .map_err(e)?;
+    let owner = OwnerId([8; 32]);
+    let head = PieceHead {
+        ident: PieceIdent {
+            id: PieceId::first(&owner),
+            owner,
+            seq: 0,
+        },
+        prev: None,
+        prev_session: SessionTag::NONE,
+        integrity: ww_tape::Integrity::Full,
+    };
+    w.begin_piece(&head, &[]).map_err(e)?;
+    let item = vec![0x5a; item_len];
+    for k in 1..=n {
+        if state {
+            w.put(&defs, k, 0, &item).map_err(e)?;
+        } else {
+            let id = w.next_id();
+            w.write_block(&defs, &records_on(id, k, 0, item_len)?)
+                .map_err(e)?;
+        }
+    }
+    let (_, mut next) = w
+        .cut_on(&defs, MemSink::new())
+        .map_err(|c| anyhow::anyhow!("{:?}", c.error))?;
+    let id = next.next_id();
+    next.write_block(&defs, &records_on(id, n + 1, 0, ITEM_LEN)?)
+        .map_err(e)?;
+    Ok(next.close().map_err(e)?.len)
+}
+
 fn main() -> anyhow::Result<()> {
     let mib = |m: u64| m << 20;
     println!(
@@ -287,6 +346,25 @@ fn main() -> anyhow::Result<()> {
         let one = cell(room_for(policy, false)?);
         let own = cell(room_for(policy, true)?);
         println!("| {name} | {one} | {own} |");
+    }
+    println!();
+    println!(
+        "The piece after a cut, one records block, when the piece before put each state track once (its newest item carried) or gave each stream track data (its definition alone carried):"
+    );
+    println!();
+    println!(
+        "| tracks | item (bytes) | state tracks (bytes) | stream tracks (bytes) | per state (bytes) |"
+    );
+    println!("|---|---|---|---|---|");
+    for n in [100, 1000] {
+        for item_len in [8, 64] {
+            let with = after_cut(n, item_len, true)?;
+            let base = after_cut(n, item_len, false)?;
+            println!(
+                "| {n} | {item_len} | {with} | {base} | {:.1} |",
+                (with as f64 - base as f64) / f64::from(n)
+            );
+        }
     }
     Ok(())
 }

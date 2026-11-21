@@ -9,6 +9,7 @@ use super::{CloseReason, OwnerId, PieceHead, PieceId, PieceIdent, TAIL_LEN, Trac
 use crate::index::{IndexEntry, IndexError, TrackKey};
 use crate::reader::{ByteSource, TapeReader};
 use crate::sink::{TapeSink, Tapes, sink_err};
+use crate::writer::kept::Kept;
 use crate::writer::resume::SinkSource;
 use crate::writer::{
     Closed, Newest, NextPiece, Placed, ResumeError, Resumed, TapeWriter, WriteError, WriterOptions,
@@ -228,6 +229,8 @@ impl<T: Tapes> PieceChain<T> {
                         None => w.begin_piece(&first_head(owner, chain), &[])?,
                         Some((done, last)) => w.begin_next(next_piece(&done.piece, last)?)?,
                     }
+                } else if let Some((_, last)) = closed.last() {
+                    w.keep_after(last.kept.clone());
                 }
                 (w, resumed)
             }
@@ -311,6 +314,8 @@ impl<T: Tapes> PieceChain<T> {
                     None => w.begin_piece(&first_head(owner, chain), &[])?,
                     Some((done, last)) => w.begin_next(next_piece(&done.piece, last)?)?,
                 }
+            } else if let Some((_, last)) = closed.last() {
+                w.keep_after(last.kept.clone());
             }
             (w, resumed)
         } else {
@@ -545,13 +550,15 @@ fn first_head(owner: OwnerId, chain: u64) -> PieceHead {
 
 /// The piece after the closed piece `done`, continued, as its cut would have started it.
 fn next_piece<E>(done: &Closed, last: &LastPiece) -> Result<NextPiece, WriteError<E>> {
-    NextPiece::after(
+    let mut next = NextPiece::after(
         &last.head,
         done,
         last.next_tracks.clone(),
         last.session,
         last.next_seq,
-    )
+    )?;
+    next.kept = last.kept.clone();
+    Ok(next)
 }
 
 fn too_many<E>() -> WriteError<E> {
@@ -605,6 +612,8 @@ struct LastPiece {
     ranges: Newest,
     /// Each track's last chunk in the piece, by its entry, read only when no later piece holds a chunk of the track
     last_chunks: BTreeMap<TrackKey, IndexEntry>,
+    /// The newest item of each state track of its next head that reads in it, for the next cut to carry
+    kept: Kept,
 }
 
 /// The closed piece in `src`, from its tail, close and head.
@@ -668,6 +677,7 @@ fn read_closed_at<B: ByteSource>(
     };
     let next_tracks = crate::index::next_starts(starts, ranges);
     let (newest, last_chunks) = last_chunks_of(reader, i, ranges)?;
+    let kept = kept_of(reader, i, &next_tracks)?;
     Ok((
         Closed {
             hash: close.hash,
@@ -676,6 +686,7 @@ fn read_closed_at<B: ByteSource>(
             next: close.next,
             start: p.start,
             tracks: next_tracks.clone(),
+            states_unknown: 0,
         },
         LastPiece {
             continued: close.next.is_some(),
@@ -685,8 +696,33 @@ fn read_closed_at<B: ByteSource>(
             next_seq,
             ranges: newest,
             last_chunks,
+            kept,
         },
     ))
+}
+
+/// The newest item of each state track of rows `rows` in piece `i` of `reader` that reads, oldest first: what the
+/// writer of the piece kept for its cut ([crate::writer]). A state that only older pieces hold isn't read.
+fn kept_of<B: ByteSource>(
+    reader: &TapeReader<B>,
+    i: usize,
+    rows: &[TrackStart],
+) -> Result<Kept, WriteError<B::Error>> {
+    let mut items = reader.states_in(i).map_err(WriteError::Read)?;
+    items.sort_by_key(|s| s.offset);
+    let keys: BTreeMap<u32, TrackKey> = rows
+        .iter()
+        .map(|t| (t.track_number, (t.track_id, t.owner)))
+        .collect();
+    let mut kept = Kept::default();
+    for s in items {
+        if let crate::state::Slot::State { track } = s.slot
+            && let Some(key) = keys.get(&track)
+        {
+            kept.placed(track, *key, s.at, &s.item, usize::MAX);
+        }
+    }
+    Ok(kept)
 }
 
 /// The tops of the chunks' ranges of the tracks of piece `i` of `reader`, whose close lists `rows`, from each

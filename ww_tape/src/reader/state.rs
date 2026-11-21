@@ -283,9 +283,14 @@ impl StateIndex {
 
     /// The definition slots with an entry whose block starts before `before`.
     fn definition_slots(&self, before: u64) -> Vec<Slot> {
+        self.slots(before, Slot::is_definition)
+    }
+
+    /// The slots `of` takes with a record whose block starts before `before`, each once, in slot order.
+    fn slots(&self, before: u64, of: impl Fn(&Slot) -> bool) -> Vec<Slot> {
         let mut out: Vec<Slot> = Vec::new();
         for (e, s) in self.by_slot.iter().filter_map(|i| self.at(i)) {
-            if s.slot.is_definition() && e.offset < before && out.last() != Some(&s.slot) {
+            if of(&s.slot) && e.offset < before && out.last() != Some(&s.slot) {
                 out.push(s.slot);
             }
         }
@@ -419,6 +424,22 @@ impl<S: ByteSource> TapeReader<S> {
             .filter(|r| r.not_carried && !defines(&out.items, r))
             .copied()
             .collect();
+        Ok(out)
+    }
+
+    /// The newest record of every state track in piece `i` that reads, by track number: what a chain resumed after
+    /// the piece goes on from. A slot whose records don't read, or past the budget, is left out.
+    pub(crate) fn states_in(&self, i: usize) -> R<Vec<StateItem>, S> {
+        let ix = self.state_index(i)?;
+        let slots = ix.slots(u64::MAX, |s| matches!(s, Slot::State { .. }));
+        let mut out = Vec::new();
+        for slot in slots {
+            let candidates: Vec<&(IndexEntry, StateEntry)> =
+                ix.of_slot(slot, u64::MAX).rev().collect();
+            if let Some(item) = self.first_good(i, &candidates)?.item {
+                out.push(item);
+            }
+        }
         Ok(out)
     }
 

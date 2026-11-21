@@ -3,7 +3,7 @@
 A chain is read from its oldest piece left. Dropping the pieces before it must not lose what a track is. So a new piece
 carries the definitions of the tracks it holds no data for.
 
-A piece head carries a row for every track that gave data in the chain so far. The writer puts the definition of each of
+A piece head carries a row for every track that gave data or a state in the chain so far. The writer puts the definition of each of
 these tracks right after the head, the layout and the producer. The clocks, maps and bundles it needs come with it. A
 quiet track, one with no data in the new piece, so keeps its kind, its clock and its label there.
 
@@ -15,7 +15,7 @@ each track that `defs` held at the cut:
 
 Some tracks have no definition there:
 
-- A track that never gave data has no row and no definition in any piece.
+- A track that never gave data or a state has no row and no definition in any piece.
 - A track closed in `defs` (`Definitions::close`) keeps its row but no definition, and its row is not marked: dropping
   the pieces before loses it.
 - A row whose number `defs` holds under another id or owner is passed over, since that definition is another track's.
@@ -29,9 +29,39 @@ The carried definitions come in blocks of at most `CARRIED_BLOCK_LEN` (4 KiB):
 One damaged block so costs only its own tracks, never another block's clock. A lost bundle block costs its tracks their
 bundle.
 
+## State tracks
+
+A state put once and never again lies only in the piece that holds it. So a cut carries more for a state track: its
+newest item, with its time, right after its definition in the same block. A reader of the new piece alone finds the
+state in force with [`TapeReader::state_at`], as it finds the track.
+
+The carried item counts as a record of the item in the piece. A put of the same item close behind writes nothing. Its
+copy comes at a use 1 MiB on, as after any first record.
+
+The writer keeps the newest item of each state track for this, learned from every state record it places. The items
+take at most `NearPolicy::kept_bytes_max` (64 MiB by default); past it, the item placed longest ago is forgotten. A
+resumed chain learns the items of its last closed piece and of the piece it resumes. A cut that finds no item for a
+state track carries its definition alone, and `Closed::states_unknown` counts such tracks. The next put of the track
+writes its item.
+
+`just bench-carried` measures what a carried state costs. A chain puts each of `n` state tracks once in its first piece
+and cuts; the next piece holds one records block. The same chain with `n` stream tracks that gave data is the
+baseline, which carries the definitions alone:
+
+| tracks | item (bytes) | state tracks (bytes) | stream tracks (bytes) | per state (bytes) |
+|---|---|---|---|---|
+| 100 | 8 | 65536 | 36864 | 286.7 |
+| 100 | 64 | 69632 | 36864 | 327.7 |
+| 1000 | 8 | 589824 | 315392 | 274.4 |
+| 1000 | 64 | 647168 | 315392 | 331.8 |
+
+Pieces end on 4 KiB, so the totals step by 4096 bytes. Most of the cost per state is its index entries, in the
+checkpoint and the final index, not the item.
+
 ## When they don't fit
 
-Each definition is a state record and takes an index entry, so the index policy bounds what a piece carries. The
+Each definition and each carried state is a state record and takes an index entry, so the index policy bounds what a
+piece carries. The
 contract: a new piece carries every definition while the chain's tracks fit its room. That room is
 `IndexPolicy::state_entries_max` less the layout, the producer and the records of the call the cut is made for. Past
 that room, the tracks with the oldest data are left out. The next head flags their rows, the close counts them (`Closed::not_carried`) and a reader of
@@ -67,7 +97,8 @@ clocks and maps, in this order while room lasts:
 
 Carried once, a damaged block of clocks and maps costs every track using them.
 
-A track that doesn't fit is left out. The next head marks its row as not carried, as does `Closed::tracks` of the cut
+A state track's carried item goes with its definition, so a track left out leaves out its state too. A track that
+doesn't fit is left out. The next head marks its row as not carried, as does `Closed::tracks` of the cut
 (`Closed::not_carried` counts them). A reader of the piece alone names each such track in `DefinitionsAt::not_carried`,
 by the row's id and owner.
 
@@ -99,5 +130,6 @@ A piece cut by bytes below what its carried definitions take holds them and one 
 the head.
 
 A resume that keeps only the piece head (a crash right after the cut) leaves the definitions out. The next call given
-`defs` puts them first, so the piece gets the bytes of a cut that never stopped. A piece closed before any such call
+`defs` puts them first, with the states the chain's last closed piece holds. The piece so gets the bytes of a cut
+that never stopped. A piece closed before any such call
 carries none: `close` takes no `defs`, so the piece before it keeps the only copy.

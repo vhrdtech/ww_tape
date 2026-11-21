@@ -177,6 +177,9 @@ Covers `ww_tape` 0.1.0.
 - `TapeWriter::want` names the next data's tracks; the next cut carries their definitions first (WRITE-9).
 - `InputError::CarriedEntries` refuses a call whose definitions fit no piece, before any cut; cuts never refuse for them (WRITE-9).
 - Cut pieces' bytes change: carried definitions follow the head; golden `v1-index.hex` rewritten, older files read unchanged (WRITE-9).
+- A state put gives its track close and head rows; past the track caps it is refused (`TooManyTracks`, `TooManyCarried`) (WRITE-9).
+- A cut carries each state track's newest item beside its definition; golden `v1-carried-state.hex`, older files read unchanged (WRITE-9).
+- `NearPolicy` gains `kept_bytes_max` and `Closed` gains `states_unknown`: struct literals name them (WRITE-9).
 
 ### Features
 

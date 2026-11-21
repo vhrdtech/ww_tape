@@ -34,6 +34,8 @@ pub struct NearPolicy {
     pub copy_spacing: u64,
     /// Slots remembered ([MEMORY_MAX]).
     pub memory_max: usize,
+    /// Bytes of the newest state items kept for a cut to carry ([KEPT_BYTES_MAX](super::KEPT_BYTES_MAX)).
+    pub kept_bytes_max: usize,
 }
 
 impl Default for NearPolicy {
@@ -41,6 +43,7 @@ impl Default for NearPolicy {
         Self {
             copy_spacing: COPY_SPACING,
             memory_max: MEMORY_MAX,
+            kept_bytes_max: super::KEPT_BYTES_MAX,
         }
     }
 }

@@ -86,7 +86,7 @@ number with the grid, then decodes from that sample on:
 
 The chunk holds 25 000 samples in a block of about 28 KB, at period 40/1 µs and scale 10⁻³. The first sample read is
 item 77 999 500 of `phase_a`. The largest in magnitude is -31 873 mA at 51:59.995, past the 31 A limit, 5 ms before
-the drive tripped. The step reads about 29 KB in 7 reads: the definitions in force, to learn the period, and the
+the drive tripped. The step reads about 29 KB in 6 reads: the definitions in force, to learn the period, and the
 block.
 
 [`ww_tape::Samples::decode`] starts at the group of 128 samples that holds the first sample asked for. A reader of any

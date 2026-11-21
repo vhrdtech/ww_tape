@@ -50,6 +50,7 @@ pub(crate) fn options() -> ww_tape::WriterOptions {
         near: NearPolicy {
             copy_spacing: 512,
             memory_max: 4,
+            ..NearPolicy::default()
         },
     }
 }
