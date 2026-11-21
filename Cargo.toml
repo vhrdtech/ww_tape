@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["ww_tape", "ww_tape_bench", "ww_tape_bench_report", "ww_tape_benchmarks", "ww_tape_codecs", "ww_tape_codecs_benchmarks", "ww_tape_example", "ww_tape_figures", "ww_tape_fs", "ww_tape_fuzz", "ww_tape_summary", "ww_tape_tests"]
+members = ["ww_tape", "ww_tape_bench", "ww_tape_bench_report", "ww_tape_benchmarks", "ww_tape_codecs", "ww_tape_codecs_benchmarks", "ww_tape_example", "ww_tape_figures", "ww_tape_fs", "ww_tape_fuzz", "ww_tape_mux", "ww_tape_summary", "ww_tape_tests"]
 # cargo-fuzz targets, a workspace of its own (nightly)
 exclude = ["fuzz"]
 
@@ -21,6 +21,7 @@ ww_tape_bench_report = { path = "./ww_tape_bench_report" }
 ww_tape_codecs = { version = "0.3.0", path = "./ww_tape_codecs", default-features = false }
 ww_tape_example = { path = "./ww_tape_example" }
 ww_tape_fs = { version = "0.3.0", path = "./ww_tape_fs" }
+ww_tape_mux = { path = "./ww_tape_mux" }
 ww_tape_summary = { version = "0.3.0", path = "./ww_tape_summary", default-features = false }
 
 # git dependencies without rev or tag: Cargo.lock pins the commit, `cargo update -p NAME` moves it

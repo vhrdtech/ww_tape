@@ -3,7 +3,7 @@ name = "ww_tape_fs"
 version.workspace = true
 publish = false
 authors.workspace = true
-description = "Files of ww_tape: a file sink and store of piece files, their lock, and writers and chains opened by path"
+description = "Files of ww_tape: a file sink and store of piece files, their lock, and writers, chains and muxes opened by path"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -16,6 +16,7 @@ rustix.workspace = true
 
 [dependencies]
 ww_tape = { workspace = true, features = ["std"] }
+ww_tape_mux.workspace = true
 
 [lints]
 workspace = true

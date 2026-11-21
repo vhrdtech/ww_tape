@@ -1,5 +1,5 @@
 //! Files of ww_tape: a [TapeSink](ww_tape::TapeSink) that writes a file, a [Tapes](ww_tape::Tapes) store of piece
-//! files, and writers and chains opened by path.
+//! files, and writers, chains and muxes opened by path.
 //!
 //! - [FileSink] writes one file under its final name from the start: a new file of one piece, created exclusively, a
 //!   file appended to in place, or a file that holds every piece of a chain. Whether a piece is open, closed or torn
@@ -9,6 +9,8 @@
 //! - [FileSource] reads a file back, a closed piece or any tape, as a [ByteSource](ww_tape::ByteSource).
 //! - [writer] opens a [TapeWriter](ww_tape::TapeWriter) on a path: [writer::create], [writer::append],
 //!   [writer::resume], [writer::cut]. [chain] opens a chain in a directory: [chain::create], [chain::resume].
+//! - [mux] opens a chain in a directory written from a [TapeMux](ww_tape_mux::TapeMux)'s writing thread:
+//!   [mux::create], [mux::resume].
 //!
 //! A file sink is the only writer of its file while it lives: it holds the kernel's exclusive lock on the open file
 //! (`flock` on unix, a sharing mode that admits no second writer on Windows). A second sink of the same file, under
@@ -42,6 +44,7 @@
 
 pub mod chain;
 mod lock;
+pub mod mux;
 mod sink;
 pub mod writer;
 

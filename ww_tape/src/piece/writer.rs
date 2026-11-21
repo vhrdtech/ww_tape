@@ -358,6 +358,11 @@ impl<T: Tapes> PieceChain<T> {
         &self.closed
     }
 
+    /// When the chain cuts.
+    pub fn cut_policy(&self) -> CutPolicy {
+        self.cut
+    }
+
     /// Sequence number of the piece being written.
     pub fn seq(&self) -> u64 {
         self.seq

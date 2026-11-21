@@ -1141,6 +1141,7 @@ dependencies = [
  "libc",
  "rustix",
  "ww_tape",
+ "ww_tape_mux",
 ]
 
 [[package]]
@@ -1153,6 +1154,15 @@ dependencies = [
  "shrink_wrap",
  "ww_tape",
  "ww_tape_summary",
+]
+
+[[package]]
+name = "ww_tape_mux"
+version = "0.3.0"
+dependencies = [
+ "exact_units",
+ "shrink_wrap",
+ "ww_tape",
 ]
 
 [[package]]
@@ -1176,6 +1186,7 @@ dependencies = [
  "ww_tape",
  "ww_tape_example",
  "ww_tape_fs",
+ "ww_tape_mux",
  "ww_tape_summary",
 ]
 

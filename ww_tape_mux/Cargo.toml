@@ -1,0 +1,19 @@
+[package]
+name = "ww_tape_mux"
+version.workspace = true
+publish = false
+authors.workspace = true
+description = "A writing thread for ww_tape chains: producers on any thread send through handles and a byte-bounded queue"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+exact_units = { workspace = true, features = ["information", "std"] }
+shrink_wrap = { workspace = true, features = ["std"] }
+ww_tape = { workspace = true, features = ["std"] }
+
+[lints]
+workspace = true
