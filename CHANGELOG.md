@@ -195,6 +195,7 @@ Covers `ww_tape` 0.1.0.
 - Book: "When bytes go bad": the checks, a flipped bit costing one segment, Prefix and Resync (BOOK-2).
 - Book: "Where the data ends on a raw card": sessions, stale data, gaps, duplicates, on the drive's card (BOOK-2).
 - Book: the appendix "Lessons from tape and flash" names the sources of the raw media rules (BOOK-2).
+- Book: chapters open with their subject and question; the drive is an example, not a story (BOOK-2).
 - `ww_tape_example::fault`: Part IV's program finds the fault at minute 52 and counts each step's bytes (BOOK-3).
 - Book: Part IV, reading: open, find, state, events, checks and range hashes, series, summaries, on the drive's fault (BOOK-2).
 - Book: Part IV's figures: index entries a query reads, summary tree, autoranging scales; three drawn by hand (BOOK-2).

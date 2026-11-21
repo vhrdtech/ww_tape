@@ -9,11 +9,19 @@ and code, and how its code and figures stay true. A reader of the book can skip 
 
 ## How a chapter reads
 
-A chapter answers one question, and its title names it: "When the power fails", not "Resuming". It opens with the
-running example's situation and the question, in two or three sentences. The reader then knows why the chapter
-matters before it explains anything.
+The book is about ww_tape: what a tape is, how it works and why it is built the way it is. Examples show a point and
+then step aside. No chapter follows a plot, and no character, such as an engineer, carries it.
 
-Why and what come before how. Each new idea gets a concrete case from the running example. Where the idea has a
+A chapter answers one question, and its title names it: "When the power fails", not "Resuming". It opens with its
+subject and that question, in plain terms that a reader new to the book follows. The reader then knows why the
+chapter matters before it explains anything.
+
+An example arrives as the first concrete case, a few sentences in, and never as the first line. A chapter has no
+road-map sentence such as "This chapter says what a tape is": the opening shows the subject instead of announcing it.
+
+Why and what come before how. Each new idea gets a concrete case, usually from the running example. The case states
+its setup in one sentence where it is used, such as "In the drive's recording, the fault lies in the last of four
+pieces". It never opens with a scene, such as "At minute 52 the drive faults, and an engineer opens the piece". Where the idea has a
 mechanism, a figure follows right after the sentence that needs it.
 
 A paragraph carries one idea and its reason, in two to five sentences. A list holds parallel items only, and a table
@@ -27,17 +35,20 @@ A chapter ends on its last fact, or on one sentence that leads to the next chapt
 
 ## The running example
 
-One recording runs through the whole book: a motor controller board, the drive, on an endurance bench. The host
-records it over USB into a chain of pieces. [What a tape holds](index.md#what-a-tape-holds) lists its five tracks,
-and a chapter links that table instead of repeating it.
+The book draws most of its examples from one recording, so that a reader learns its setup once. A motor controller
+board, the drive, runs for an hour on an endurance bench, and a host records it over USB into a chain of pieces.
+[What a tape holds](index.md#what-a-tape-holds) introduces it and lists its five tracks, and a chapter links that
+table instead of repeating it. Other examples, such as a radio capture, join where the drive has no fitting case.
 
-The board counts time in microseconds since boot and the host in nanoseconds. A clock map joins the two. At minute 37
-the host loses power while it writes piece 2, and at minute 52 the board faults on overcurrent.
+The recording has a few facts that examples rely on. The board counts time in microseconds since boot and the host in
+nanoseconds, and a clock map joins the two. At minute 37 the host loses power while it writes piece 2, and at minute
+52 the board faults on overcurrent. A chapter uses such a fact where it shows a point, not as an event in a story.
 
-A number in the story comes from running code, never from a hand calculation. The bytes a crash loses and the bytes
+A number in an example comes from running code, never from a hand calculation. The bytes a crash loses and the bytes
 per frame are such numbers.
 
-The crate `ww_tape_example` records the drive's hour, and `cargo run -p ww_tape_example` prints the story's numbers.
+The crate `ww_tape_example` records the drive's hour, and `cargo run -p ww_tape_example` prints the example's
+numbers.
 Figures draw from a scaled run, which has a fraction of the data and of every byte policy. A doctest calls the same
 code:
 
