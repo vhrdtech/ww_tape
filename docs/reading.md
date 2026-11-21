@@ -141,7 +141,7 @@ index to the one block it needs:
     ```rs
     --8<-- "ww_tape_example/src/defs.rs:ids_item"
 
-    --8<-- "ww_tape_example/src/fault.rs:inforce_item"
+    --8<-- "ww_tape_example/src/fault.rs:in_force_item"
     ```
 
 At the chunk before the fault, the mode is `run, 31 A limit`, and its record from 45:34 lies about 12 MB behind. That

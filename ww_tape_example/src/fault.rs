@@ -191,7 +191,7 @@ pub fn find<S: ByteSource>(
     })
 }
 
-// --8<-- [start:inforce_item]
+// --8<-- [start:in_force_item]
 /// The mode in force at a place, as [mode] found it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InForce {
@@ -204,7 +204,7 @@ pub struct InForce {
     /// Nothing newer can hide: no block lost, every stretch covered.
     pub whole: bool,
 }
-// --8<-- [end:inforce_item]
+// --8<-- [end:in_force_item]
 
 /// The mode in force where each of `chunks` starts.
 pub fn mode<S: ByteSource>(
