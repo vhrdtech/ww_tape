@@ -104,8 +104,8 @@ salvaged starts column.
 | a real system journal, 1 µs ticks | 2.97 | 5.2 | 26.4 | 163.8 |
 | bursty traffic, 1 ns ticks | 3.84 | 5.5 | 23.3 | 216.6 |
 
-The same bench compares the linear codec with two alternatives. The table gives bytes per event, with group records
-and chunk overhead. It stores the residual minimum in 8 bytes, a 29-byte group record against the format's 25 bytes. The linear
+The same bench compares the linear codec with two alternatives. The table gives bytes per event, with group heads
+and chunk overhead. It stores the residual minimum in 8 bytes, a 29-byte group head against the format's 25 bytes. The linear
 column is therefore an upper bound.
 
 | Workload | Linear groups | Delta-of-delta varints | Elias-Fano |

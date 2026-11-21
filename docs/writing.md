@@ -113,7 +113,7 @@ and pass them all with each block. A block of 3 sensors' readings gets only thos
 before it. The writer writes each of them once per 32 MiB, plus one [[state copy]].
 
 A track added an hour into the recording costs one record at its first block. An item that belongs to no track, such as
-a run record, goes in with [`TapeWriter::put_item`]. The writer refuses a block of definitions that the caller wrote, so
+a description of the run, goes in with [`TapeWriter::put_item`]. The writer refuses a block of definitions that the caller wrote, so
 every definition in a file lies near the data that needs it.
 
 ## What the writer adds

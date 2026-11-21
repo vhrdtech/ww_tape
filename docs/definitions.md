@@ -21,7 +21,7 @@ A [[reader]] needs some facts before the data means anything. A [[definition]] s
 - a [[clock]] or a [[clock map]];
 - a [[track]]: its number, key, clock, kind and what its [[items|item]] are;
 - a schema of a foreign item format, such as a `.proto` file;
-- a typed item, such as a record of the run.
+- a typed item, such as a description of the run.
 
 Each definition is a [[record]] on track 0, the track that holds only definitions. The drive's definitions are its two
 clocks, the map between them and its five tracks.
@@ -132,10 +132,10 @@ Each time the [[producer]] uses a [[state item]], it [[puts]] the item: it calls
 `near` behind, the put writes nothing. Otherwise the put writes the item again, and a [[reader]] at this place finds it
 close behind.
 
-A put is idempotent, so the producer needs no record of what it put before. The drive's recorder puts the mode before
+A put is idempotent, so the producer keeps no memory of what it put before. The drive's recorder puts the mode before
 each one-second [[block]], 901 times while it writes the first piece. Only four of those puts write, as `cargo run -p
 ww_tape_example` prints. They are idle at the start, its copy at 40 seconds, run at minute 1 and its copy at 96 seconds.
-The piece ends just short of 28 MiB, before the run record lies 32 MiB behind, so no other put writes.
+The piece ends just short of 28 MiB, before the record of run lies 32 MiB behind, so no other put writes.
 
 The writer puts [[definitions]] the same way before every block of data, by the [[layout]]'s own policy. The drawing
 shows the rule shrunk, so that a whole cycle fits on one line.

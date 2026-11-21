@@ -63,12 +63,12 @@ at the width of the group's largest one.
 against the encoder.</figcaption>
 </figure>
 
-Each group stores a 25-byte record before its residuals: its first tick, the slope of its line, the smallest residual,
+Each group stores a 25-byte head before its residuals: its first tick, the slope of its line, the smallest residual,
 the width and an offset. The slope makes periodic data cheap. A residual needs only the bits of the jitter, not those of
 the 1 ms period. The encoder keeps a slope only when it narrows the width, so data without a trend loses nothing.
 
 The drive's frames show the gain. All 3600 chunks of `can0` take the linear mode, at 9.335 bits per residual. With the
-group records, a start costs 1.37 bytes against 8 bytes raw. The encoder uses integers only, so the same starts always
+group heads, a start costs 1.37 bytes against 8 bytes raw. The encoder uses integers only, so the same starts always
 give the same bytes.
 
 ### Ends and flags
@@ -78,7 +78,7 @@ A chunk of spans stores their ends in one of three end modes, which [Events](eve
 value bounds the group's longest span, so an overlap query knows how far back to look.
 
 Flags are one 32-bit word per item. The writer packs them per group beside the bitwise OR of the group's flags. A group
-without flags costs its record only, and a chunk whose flags are all 0 has no flags column.
+without flags costs its head only, and a chunk whose flags are all 0 has no flags column.
 
 ### Monotone relations
 
