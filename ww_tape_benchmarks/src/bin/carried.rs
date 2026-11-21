@@ -89,6 +89,7 @@ fn tracks(n: u32) -> anyhow::Result<(Definitions, Definitions, Vec<TrackStart>)>
             owner: OwnerId(t.owner),
             hash: TrackHash::START,
             incomplete: false,
+            not_carried: false,
         })
         .collect();
     let mut all = vec![clock()];

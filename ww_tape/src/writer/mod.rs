@@ -44,7 +44,7 @@ use alloc::vec::Vec;
 use core::time::Duration;
 
 use crate::clock::ClockRef;
-use crate::index::{IndexPolicy, Indexer, TrackKey};
+use crate::index::{IndexPolicy, Indexer, STATE_TRACK_ID, TrackKey};
 use crate::open::{RecordRef, write_records};
 use crate::piece::{
     Close, CloseReason, ContentHash, OwnerId, PIECE_ALIGN, PieceHead, PieceId, PieceIdent,
@@ -58,7 +58,7 @@ use crate::{
     BlockId, BlockKind, ClockTime, DESCRIBE_TRACK, Definitions, Describe, DescribeError,
     IndexError, Layout, Producer, STATE_ITEM_MAX, SessionTag, TypedItem,
 };
-use alloc::collections::BTreeSet;
+use alloc::collections::{BTreeMap, BTreeSet};
 
 mod carried;
 mod error;
@@ -272,8 +272,17 @@ pub struct Closed {
     /// a file of several.
     pub start: u64,
     /// Every track of the chain so far (carried over by the piece head, or with data in the piece), ascending id
-    /// then owner: its [hash](crate::TrackHash) after this piece and where its items go on.
+    /// then owner: its [hash](crate::TrackHash) after this piece and where its items go on. After a cut, the next
+    /// head's rows: [TrackStart::not_carried] marks a track whose definition the next piece doesn't carry.
     pub tracks: Vec<TrackStart>,
+}
+
+impl Closed {
+    /// How many tracks' definitions the next piece doesn't carry, its cut having no room for them
+    /// ([TrackStart::not_carried]); 0 for a piece not cut.
+    pub fn not_carried(&self) -> usize {
+        self.tracks.iter().filter(|t| t.not_carried).count()
+    }
 }
 
 /// Where [TapeWriter::write_chunk], [TapeWriter::write_block] or [TapeWriter::adopt_block] placed the block it was
@@ -474,7 +483,7 @@ impl<S: TapeSink> TapeWriter<S> {
 
     /// Refuse data on `tracks` when the definitions the next head carries would take more state entries, with the
     /// layout and the producer, than the index policy allows ([carried::Plan]): so a cut never runs out of room for
-    /// them. A track checked here stays counted in until the cut, written or not.
+    /// them. A track checked here stays counted in until the cut, written or not; data on it is never refused here.
     fn carried_room(
         &mut self,
         defs: &Definitions,
@@ -501,7 +510,9 @@ impl<S: TapeSink> TapeWriter<S> {
         }
         let max = self.indexer.policy().state_entries_max;
         let needed = plan.entries_max().saturating_add(HEAD_ENTRIES);
-        if needed > max {
+        // a track counted in already is never refused: past the bound (definitions grown, the policy lowered), the
+        // cut leaves out what doesn't fit
+        if !added.is_empty() && needed > max {
             for (key, n) in added {
                 plan.remove(defs, key, n);
             }
@@ -707,23 +718,71 @@ impl<S: TapeSink> TapeWriter<S> {
         self.put_chosen(cands, true).map(|_| ())
     }
 
-    /// The blocks of definitions the tracks of head rows `rows` carry ([carried]), as candidates to put: of each row
-    /// whose track `defs` holds under the row's number with the row's id and owner; another is passed over.
-    fn carried(&self, defs: &Definitions, rows: &[TrackStart]) -> Vec<Vec<Candidate<'static>>> {
+    /// The blocks of definitions the tracks of head rows `rows` carry ([carried]), as candidates to put, taking at
+    /// most `room` state entries ([carried::fit]), and the numbers of the tracks left out: of each row whose track
+    /// `defs` holds under the row's number with the row's id and owner and that isn't marked
+    /// [TrackStart::not_carried]; another is passed over. Tracks with data in this piece come first, newest first.
+    fn carried(
+        &self,
+        defs: &Definitions,
+        rows: &[TrackStart],
+        room: usize,
+    ) -> (Vec<Vec<Candidate<'static>>>, Vec<u32>) {
         let rule = self.definitions_rule();
-        carried::blocks(defs, &carried::numbers(defs, rows))
+        let rows: Vec<TrackStart> = rows.iter().filter(|r| !r.not_carried).copied().collect();
+        let numbers = carried::numbers(defs, &rows);
+        let (blocks, dropped) = carried::fit(defs, &numbers, &self.ranked(&rows, &numbers), room);
+        let blocks = blocks
             .iter()
             .map(|b| {
                 b.iter()
                     .filter_map(|s| defs.held(s).map(|h| Candidate::held(*s, rule, h)))
                     .collect()
             })
-            .collect()
+            .collect();
+        (blocks, dropped)
+    }
+
+    /// Track numbers `numbers` of head rows `rows`, newest data first: those with a chunk in this piece by the offset
+    /// of their newest chunk, then those with records in it, then the others, each in the order given.
+    fn ranked(&self, rows: &[TrackStart], numbers: &[u32]) -> Vec<u32> {
+        let mut newest: BTreeMap<u64, u64> = BTreeMap::new();
+        for e in self.indexer.entries() {
+            if e.track_id != 0 && e.track_id != STATE_TRACK_ID {
+                let n = newest.entry(e.track_id).or_default();
+                *n = (*n).max(e.offset);
+            }
+        }
+        let touched: BTreeSet<TrackKey> = self
+            .indexer
+            .track_ranges()
+            .iter()
+            .map(|t| (t.track_id, t.owner))
+            .collect();
+        let by_number: BTreeMap<u32, &TrackStart> =
+            rows.iter().map(|r| (r.track_number, r)).collect();
+        let rank = |n: u32| {
+            let row = by_number.get(&n);
+            let at = row.and_then(|r| newest.get(&r.track_id).copied());
+            let with = row.is_some_and(|r| touched.contains(&(r.track_id, r.owner)));
+            (core::cmp::Reverse(at), !with)
+        };
+        let mut out = numbers.to_vec();
+        out.sort_by_key(|n| rank(*n));
+        out
+    }
+
+    /// The rows of the piece head this writer wrote or resumed after; none without a head.
+    fn head_rows(&self) -> &[TrackStart] {
+        self.head
+            .as_ref()
+            .map(|(_, rows)| rows.as_slice())
+            .unwrap_or_default()
     }
 
     /// The layout and the producer ([Self::ensure_head]), then, when due, the definitions of the tracks the piece head
     /// carries ([Self::carried]), belonging with the call's block: what a call given `defs` writes before its own.
-    /// Refused with nothing written when the piece has no room for their state entries.
+    /// Those of rows marked [TrackStart::not_carried] are left out, and so are those past the state entries left.
     fn ensure_carried(&mut self, defs: &Definitions) -> Result<(), WriteError<S::Error>> {
         if !self.carried_due {
             return self.ensure_head();
@@ -733,7 +792,14 @@ impl<S: TapeSink> TapeWriter<S> {
             .as_ref()
             .map(|(_, rows)| rows.clone())
             .unwrap_or_default();
-        let blocks = self.carried(defs, &rows);
+        let head = if self.head_put { 0 } else { HEAD_ENTRIES };
+        let room = self
+            .indexer
+            .policy()
+            .state_entries_max
+            .saturating_sub(self.indexer.states())
+            .saturating_sub(head);
+        let (blocks, _) = self.carried(defs, &rows, room);
         self.put_carried(&blocks)
     }
 
@@ -1907,8 +1973,10 @@ impl<S: TapeSink> TapeWriter<S> {
     /// it lies close behind. Seqs go on from this piece; the options carry over.
     ///
     /// A write that would bring those definitions past the index policy's state entries is refused
-    /// ([InputError::CarriedEntries]), so a cut has room for them. A cut whose `defs` needs more than that is refused
-    /// the same way before this piece ends: the writer comes back in [CutError::writer].
+    /// ([InputError::CarriedEntries]), so a cut has room for them. A cut is never refused for them: when they still
+    /// don't fit (`defs` changed since, or the policy), it carries the clocks and maps first, then the tracks with the
+    /// newest data, each block no longer repeating its chain, and leaves out what doesn't fit. The next head's rows
+    /// and [Closed::tracks] mark each track left out ([TrackStart::not_carried], [Closed::not_carried]).
     pub fn cut_on(self, defs: &Definitions, next: S) -> Result<(Closed, Self), CutError<S>> {
         self.cut_into(defs, || Ok(next))
     }
@@ -1933,12 +2001,14 @@ impl<S: TapeSink> TapeWriter<S> {
         next_piece.newest = newest;
         let mut next = Self::start_next(next()?, &options, next_piece)?;
         next.put_carried(&rows.carried)?;
-        Ok((done.closed, next))
+        let mut closed = done.closed;
+        closed.tracks = next.head_rows().to_vec();
+        Ok((closed, next))
     }
 
     /// What a cut starts the next piece with ([NextRows]), or the writer back in a [CutError] when the cut is
-    /// refused: this piece has no head, or the carried definitions with the layout and the producer would list more
-    /// state entries than the index policy allows.
+    /// refused: this piece has no head. The carried definitions take what the index policy's state entries leave
+    /// past the layout and the producer ([carried::fit]); the next head's rows mark the tracks left out.
     fn next_rows(self, defs: &Definitions) -> Result<(Self, NextRows), CutError<S>> {
         let Some((head, starts)) = self.head.as_ref() else {
             return Err(self.refuse(WriteError::Index(IndexError::Invalid(
@@ -1946,19 +2016,16 @@ impl<S: TapeSink> TapeWriter<S> {
             ))));
         };
         let head = *head;
-        let tracks = self.indexer.next_starts(starts);
-        let carried = self.carried(defs, &tracks);
-        let max = self.indexer.policy().state_entries_max;
-        let needed = carried
-            .iter()
-            .map(Vec::len)
-            .sum::<usize>()
-            .saturating_add(HEAD_ENTRIES);
-        if needed > max {
-            return Err(self.refuse(WriteError::Input(InputError::CarriedEntries {
-                needed,
-                max,
-            })));
+        let mut tracks = self.indexer.next_starts(starts);
+        let room = self
+            .indexer
+            .policy()
+            .state_entries_max
+            .saturating_sub(HEAD_ENTRIES);
+        let (carried, dropped) = self.carried(defs, &tracks, room);
+        let dropped: BTreeSet<u32> = dropped.into_iter().collect();
+        for t in &mut tracks {
+            t.not_carried = dropped.contains(&t.track_number);
         }
         Ok((
             self,
@@ -2016,6 +2083,7 @@ impl<S: TapeSink> TapeWriter<S> {
             .map_err(sink_err("starting the next piece behind the last"))?;
         let mut next = Self::start_next(done.sink, &options, next_piece)?;
         next.put_carried(&rows.carried)?;
+        done.closed.tracks = next.head_rows().to_vec();
         Ok((done.closed, next))
     }
 

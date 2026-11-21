@@ -70,7 +70,8 @@
 //! 146 u8   integrity (Integrity): 0 Full, 1 CrcOnly, 2 None (written Full; a reader refuses another)    147 [5] reserved
 //! 152 ...  tracks × 96, one per track carried over from the pieces before:
 //!            0 u64 id    8 u32 number
-//!           12 u32 flags, as a close row's: bit 0 incomplete (from the pieces before)
+//!           12 u32 flags, as a close row's: bit 0 incomplete (from the pieces before); bit 1, a head row's only:
+//!                  not carried, the piece holds no definition of the track, its cut had no room for it
 //!           16 u64 next item (the first item number this piece holds)
 //!           24 i64 from tick (no item of the track here starts before it)
 //!           32 [32] owner (TrackDef::owner; zeros: the piece's owner)
@@ -221,6 +222,9 @@ const _: () = assert!(
 const ROW_FLAGS_AT: usize = 128;
 /// A track row's flag: the track hash leaves out units a resume kept unread.
 const ROW_INCOMPLETE: u32 = 1;
+/// A piece head's track row flag: the piece doesn't carry the track's definition, its cut had no room for it
+/// ([TrackStart::not_carried]). A close's row never holds it.
+const ROW_NOT_CARRIED: u32 = 2;
 /// Where a close names its row length.
 const CLOSE_ROW_LEN_AT: usize = 34;
 /// Where a close record's tracks start.
@@ -649,6 +653,10 @@ pub struct TrackStart {
     pub hash: TrackHash,
     /// The hash leaves out units a resume kept unread in a piece before ([TrackRange::incomplete]).
     pub incomplete: bool,
+    /// The piece doesn't carry the track's definition: the cut that started it had no room for it in the index
+    /// policy's state entries. A reader of the piece without the pieces before names the track as not carried
+    /// ([DefinitionsAt::not_carried](crate::reader::DefinitionsAt::not_carried)).
+    pub not_carried: bool,
 }
 
 /// The items and ticks of one track's chunk blocks in a piece, its counted records and its hash, from its close.
@@ -836,7 +844,8 @@ fn fill_piece_head(b: &mut [u8], head: &PieceHead, tracks: &[TrackStart]) -> Opt
     for (row, t) in rows.zip(tracks) {
         put_u64(row, 0, t.track_id)?;
         put_u32(row, 8, t.track_number)?;
-        put_u32(row, HEAD_ROW_FLAGS_AT, row_flags(t.incomplete))?;
+        let flags = row_flags(t.incomplete) | if t.not_carried { ROW_NOT_CARRIED } else { 0 };
+        put_u32(row, HEAD_ROW_FLAGS_AT, flags)?;
         put_u64(row, 16, t.next_item)?;
         put_i64(row, 24, t.from_tick)?;
         put(row, 32, t.owner.0)?;
@@ -908,11 +917,11 @@ fn row_flags(incomplete: bool) -> u32 {
 }
 
 /// Refuse rows of `row` bytes each (at least the fixed row length, so each holds the u32 at `at`) whose flags at
-/// `at` hold a bit this build doesn't know.
-fn known_row_flags(rows: &[u8], row: usize, at: usize) -> Result<(), IndexError> {
+/// `at` hold a bit past `known`.
+fn known_row_flags(rows: &[u8], row: usize, at: usize, known: u32) -> Result<(), IndexError> {
     if rows
         .chunks_exact(row)
-        .any(|r| le_u32(r, at).is_none_or(|f| f & !ROW_INCOMPLETE != 0))
+        .any(|r| le_u32(r, at).is_none_or(|f| f & !known != 0))
     {
         return Err(IndexError::Invalid(
             "a track row flag this build doesn't know",
@@ -945,7 +954,12 @@ impl<'b> PieceHeadBlock<'b> {
         if integrity != Integrity::Full {
             return Err(IndexError::UnhandledIntegrity { level: integrity });
         }
-        known_row_flags(rows, row, HEAD_ROW_FLAGS_AT)?;
+        known_row_flags(
+            rows,
+            row,
+            HEAD_ROW_FLAGS_AT,
+            ROW_INCOMPLETE | ROW_NOT_CARRIED,
+        )?;
         let link = read_link(block.bytes()).ok_or(IndexError::BadHead)?;
         let head = PieceHead {
             ident: link.ident,
@@ -999,6 +1013,7 @@ impl<'b> PieceHeadBlock<'b> {
                 owner: OwnerId(array(row, 32)?),
                 hash: TrackHash(array(row, 64)?),
                 incomplete: le_u32(row, HEAD_ROW_FLAGS_AT)? & ROW_INCOMPLETE != 0,
+                not_carried: le_u32(row, HEAD_ROW_FLAGS_AT)? & ROW_NOT_CARRIED != 0,
             })
         })
     }
@@ -1242,7 +1257,7 @@ impl<'b> CloseBlock<'b> {
             .and_then(|r| r.get(..removed_len))
             .ok_or(IndexError::BadHead)?;
         let close = read_close(b).ok_or(IndexError::BadHead)?;
-        known_row_flags(all, row, ROW_FLAGS_AT)?;
+        known_row_flags(all, row, ROW_FLAGS_AT, ROW_INCOMPLETE)?;
         let c = CloseBlock {
             close,
             rows: all,

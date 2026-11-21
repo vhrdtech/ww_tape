@@ -526,8 +526,17 @@ pub(crate) fn next_starts<'r>(
     prev: &[TrackStart],
     ranges: impl IntoIterator<Item = &'r TrackRange>,
 ) -> Vec<TrackStart> {
-    let mut out: BTreeMap<TrackKey, TrackStart> =
-        prev.iter().map(|t| ((t.track_id, t.owner), *t)).collect();
+    // which definitions the next piece carries is its cut's to say
+    let mut out: BTreeMap<TrackKey, TrackStart> = prev
+        .iter()
+        .map(|t| {
+            let t = TrackStart {
+                not_carried: false,
+                ..*t
+            };
+            ((t.track_id, t.owner), t)
+        })
+        .collect();
     for t in ranges {
         let s = out.entry((t.track_id, t.owner)).or_insert(TrackStart {
             track_id: t.track_id,
@@ -537,6 +546,7 @@ pub(crate) fn next_starts<'r>(
             owner: t.owner,
             hash: TrackHash::START,
             incomplete: false,
+            not_carried: false,
         });
         s.track_number = t.track_number;
         s.hash = t.hash;

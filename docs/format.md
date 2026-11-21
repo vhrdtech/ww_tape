@@ -924,7 +924,8 @@ piece head (kind 10)
 146 u8   integrity (Integrity): 0 Full, 1 CrcOnly, 2 None (written Full; a reader refuses another)    147 [5] reserved
 152 ...  tracks × 96, one per track carried over from the pieces before:
            0 u64 id    8 u32 number
-          12 u32 flags, as a close row's: bit 0 incomplete (from the pieces before)
+          12 u32 flags, as a close row's: bit 0 incomplete (from the pieces before); bit 1, a head row's only:
+                 not carried, the piece holds no definition of the track, its cut had no room for it
           16 u64 next item (the first item number this piece holds)
           24 i64 from tick (no item of the track here starts before it)
           32 [32] owner (TrackDef::owner; zeros: the piece's owner)
@@ -1072,6 +1073,11 @@ The mark travels with the hash. The next piece's head row carries it (row byte 1
 
 A piece therefore still says so when the piece that lost the units is gone. A reader refuses a row flag it doesn't know,
 in a head row as in a close row.
+
+A head row's flag bit 1 (`TrackStart::not_carried`) says the piece doesn't carry the track's definition: its cut had no
+room for it in the index. A close row never sets it, and the next cut sets it afresh. A reader of the piece without
+the pieces before names such a track in `DefinitionsAt::not_carried`. A marked row whose definition is in force all
+the same is not named.
 
 ## Tape pieces
 

@@ -110,10 +110,29 @@ The carried definitions come in blocks of at most `CARRIED_BLOCK_LEN` (4 KiB):
 One damaged block so costs only its own tracks, never another block's clock. A lost bundle block costs its tracks their
 bundle.
 
-The definitions are state records, so each one also takes an index entry. A write that would bring the next head's
-definitions past `IndexPolicy::state_entries_max` is refused with `InputError::CarriedEntries`, nothing written. A cut
-then has room for them. It is refused, before the piece ends, only when `defs` at the cut needs more than at the writes,
-and the writer comes back in `CutError::writer`.
+#### When they don't fit
+
+The definitions are state records, so each one also takes an index entry. A write that brings in a track past what
+`IndexPolicy::state_entries_max` leaves for the next head's definitions is refused with `InputError::CarriedEntries`,
+nothing written. Data on a track counted in already is never refused.
+
+A cut is never refused for the definitions it carries. They can still outgrow the room in three ways:
+
+- `defs` gains a clock map after the tracks were counted in;
+- a definition grows, such as a longer label;
+- the index policy is lowered.
+
+The cut then fits them in this order, while room lasts:
+
+1. Each definition once: the blocks no longer repeat their clocks and maps.
+2. The clocks and maps the tracks count through.
+3. The tracks with data in the piece, newest data first, each with its bundles; then the quiet tracks.
+
+A track that doesn't fit is left out. The next head marks its row as not carried, and `Closed::tracks` of the cut marks
+it too (`Closed::not_carried` counts them). A reader of the piece without the pieces before names each such track in
+`DefinitionsAt::not_carried`, rather than missing its definition without a word.
+
+#### What they cost
 
 The cost per piece comes from `just bench-carried`. Records blocks of 4000 bytes go on one track, the others stay quiet,
 each track is labeled `channel NNNNNNN`, and the piece is cut by bytes. A piece holds less data, and its final index

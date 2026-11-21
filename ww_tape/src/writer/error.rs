@@ -64,7 +64,8 @@ pub enum InputError {
     TooManyCarried { max: usize },
     /// The definitions the next piece's head carries, with the layout and the producer, would take `needed` state
     /// entries, more than the index policy's `max` ([IndexPolicy::state_entries_max](crate::index::IndexPolicy)). A
-    /// write that would bring them there is refused, nothing written; a cut, before the piece ends.
+    /// write that would bring a new track there is refused, nothing written. A cut is never refused for them: it
+    /// leaves out what doesn't fit ([TrackStart::not_carried](crate::piece::TrackStart::not_carried)).
     CarriedEntries { needed: usize, max: usize },
     /// A caller's block of `kind` with header `flags` its kind doesn't take: reserved bits, or a flag only the
     /// writer sets. A records block may carry [FLAG_BODY_CODED](crate::FLAG_BODY_CODED), other kinds none.

@@ -6,6 +6,9 @@
 //! maps they need (their clock chain): each block holds that chain, then as many of the group's tracks as fit in
 //! [CARRIED_BLOCK_LEN], in the order of the head rows. A damaged block so costs only its own tracks, never another
 //! block's clock; a lost bundle block costs its tracks their bundle.
+//!
+//! A cut is never refused for them: when they don't fit the index policy's state entries, [fit] carries what fits, by
+//! priority, and the next head names each track left out.
 
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
@@ -73,6 +76,76 @@ pub(crate) fn blocks(defs: &Definitions, numbers: &[u32]) -> Vec<Vec<Slot>> {
         pack(defs, chain, tracks, &mut out);
     }
     out
+}
+
+/// The blocks of definitions of tracks `numbers` (held in `defs`, [numbers], in the order of the head rows) that take
+/// at most `room` state entries, and the tracks left out. All of them in [blocks] when those fit. Else carried once
+/// each, no block repeating a chain, in this priority while room lasts: the clocks and maps the tracks need, then
+/// each track of `ranked` (newest data first) with the bundles it needs, when its whole chain is in; a track that
+/// doesn't fit is left out. Bundles, chains, then tracks in the order of the head rows, packed into blocks of at most
+/// [CARRIED_BLOCK_LEN].
+pub(crate) fn fit(
+    defs: &Definitions,
+    numbers: &[u32],
+    ranked: &[u32],
+    room: usize,
+) -> (Vec<Vec<Slot>>, Vec<u32>) {
+    let all = blocks(defs, numbers);
+    if all.iter().map(Vec::len).sum::<usize>() <= room {
+        return (all, Vec::new());
+    }
+    let needs: BTreeMap<u32, (Vec<Slot>, Vec<Slot>, Slot)> = numbers
+        .iter()
+        .filter_map(|n| Some((*n, split(defs, *n)?)))
+        .collect();
+    let mut left = room;
+    let mut chains = Vec::new();
+    let mut in_chain = BTreeSet::new();
+    for n in ranked {
+        let Some((_, chain, _)) = needs.get(n) else {
+            continue;
+        };
+        for s in chain {
+            if left > 0 && !in_chain.contains(s) {
+                in_chain.insert(*s);
+                chains.push(*s);
+                left = left.saturating_sub(1);
+            }
+        }
+    }
+    let mut bundles = BTreeSet::new();
+    let mut taken = BTreeSet::new();
+    for n in ranked {
+        let Some((b, chain, _)) = needs.get(n) else {
+            continue;
+        };
+        let new = b.iter().filter(|s| !bundles.contains(*s)).count();
+        if chain.iter().all(|s| in_chain.contains(s)) && new.saturating_add(1) <= left {
+            bundles.extend(b.iter().copied());
+            taken.insert(*n);
+            left = left.saturating_sub(new.saturating_add(1));
+        }
+    }
+    let mut order = Vec::new();
+    let mut seen = BTreeSet::new();
+    let mut tracks = Vec::new();
+    let mut dropped = Vec::new();
+    for n in numbers {
+        let Some((b, _, track)) = needs.get(n) else {
+            continue;
+        };
+        if taken.contains(n) {
+            order.extend(b.iter().filter(|s| seen.insert(**s)).copied());
+            tracks.push(*track);
+        } else {
+            dropped.push(*n);
+        }
+    }
+    let mut out = Vec::new();
+    pack(defs, &[], &order, &mut out);
+    pack(defs, &[], &chains, &mut out);
+    pack(defs, &[], &tracks, &mut out);
+    (out, dropped)
 }
 
 /// Push onto `out` blocks of `prefix` then as many of `items` as fit in [CARRIED_BLOCK_LEN], at least one each, in

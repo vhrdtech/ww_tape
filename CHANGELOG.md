@@ -172,7 +172,9 @@ Covers `ww_tape` 0.1.0.
 - The close record states removed-piece rows: row length (56) at offset 36, count at 188, rows after the tracks (WRITE-8).
 - Cuts put the next head's track definitions: `cut_on`, `cut_with`, `cut_in_place`, `cut_now`, `writer::cut` take `defs` (WRITE-9).
 - `cut_on` and `cut_with` return `CutError`; a cut refused before the piece ends hands the writer back (WRITE-9).
-- `InputError::CarriedEntries` refuses a track the next cut couldn't carry; cuts no longer refuse with `StateEntries` (WRITE-9).
+- `TrackStart` gains `not_carried`, piece head row flag bit 1; builds before it refuse such a head (WRITE-9).
+- `DefinitionsAt` gains `not_carried`: head rows whose definition the piece lacks; `Closed::not_carried` counts them (WRITE-9).
+- `InputError::CarriedEntries` refuses a new track the next cut couldn't carry; a cut never refuses for carried definitions (WRITE-9).
 - Cut pieces' bytes change: carried definitions follow the head; golden `v1-index.hex` rewritten, older files read unchanged (WRITE-9).
 
 ### Features

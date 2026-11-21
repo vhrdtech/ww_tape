@@ -1741,6 +1741,7 @@ fn a_piece_head_carries_at_most_its_track_limit() {
         owner: crate::OwnerId::NONE,
         hash: TrackHash::START,
         incomplete: false,
+        not_carried: false,
     };
     let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     w.head_rows_max = 3;

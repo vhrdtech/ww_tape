@@ -18,6 +18,7 @@ use core::ops::Range;
 
 use super::{ByteSource, PieceInfo, R, ReadError, TapeReader, wide};
 use crate::index::{IndexEntry, STATE_TRACK_ID, StateEntry};
+use crate::piece::TrackStart;
 use crate::state::{ItemHash, Slot};
 use crate::{Block, ClockTime};
 
@@ -188,6 +189,10 @@ pub struct DefinitionsAt {
     pub uncovered: Vec<Range<u64>>,
     /// The lookup's budget ([OpenOptions::state_read_max](super::OpenOptions::state_read_max)) ran out: the slots not yet looked up are not among the items.
     pub spent: bool,
+    /// The piece head's rows marked [TrackStart::not_carried] whose track has no definition among the items: the
+    /// cut that started the piece had no room for it, so without the pieces before, the track is not defined. A
+    /// marked row whose definition is among the items is not named.
+    pub not_carried: Vec<TrackStart>,
 }
 
 impl DefinitionsAt {
@@ -390,7 +395,20 @@ impl<S: ByteSource> TapeReader<S> {
                 }
             }
         }
-        out.uncovered = uncovered(self.piece(i)?, 0..offset);
+        let piece = self.piece(i)?;
+        out.uncovered = uncovered(piece, 0..offset);
+        out.not_carried = piece
+            .head
+            .iter()
+            .flat_map(|(_, rows)| rows)
+            .filter(|r| {
+                r.not_carried
+                    && !out.items.contains_key(&Slot::Track {
+                        number: r.track_number,
+                    })
+            })
+            .copied()
+            .collect();
         Ok(out)
     }
 

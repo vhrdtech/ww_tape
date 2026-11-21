@@ -26,6 +26,7 @@ fn piece_head_round_trip() {
             owner: OwnerId([4; 32]),
             hash: TrackHash([5; 32]),
             incomplete: true,
+            not_carried: true,
         },
         TrackStart {
             track_id: 12,
@@ -35,6 +36,7 @@ fn piece_head_round_trip() {
             owner: OwnerId::NONE,
             hash: TrackHash::START,
             incomplete: false,
+            not_carried: false,
         },
     ];
     let mut buf = vec![0u8; piece_head_len(2)];
@@ -45,10 +47,13 @@ fn piece_head_round_trip() {
     let h = PieceHeadBlock::read(&block).unwrap();
     assert_eq!(h.head(), head);
     assert_eq!(h.tracks().collect::<Vec<_>>(), tracks);
-    // the first row's flags carry its incomplete mark; a flag this build doesn't know is refused, its CRC good
+    // the first row's flags carry its incomplete and not-carried marks; a flag this build doesn't know is refused, its CRC good
     let at = HEAD_TRACKS_AT + HEAD_ROW_FLAGS_AT;
-    assert_eq!(buf[at..at + 4], ROW_INCOMPLETE.to_le_bytes());
-    for flag in [2u32, 1 << 31] {
+    assert_eq!(
+        buf[at..at + 4],
+        (ROW_INCOMPLETE | ROW_NOT_CARRIED).to_le_bytes()
+    );
+    for flag in [4u32, 1 << 31] {
         let mut b = buf[..n].to_vec();
         b[at..at + 4].copy_from_slice(&(flag | ROW_INCOMPLETE).to_le_bytes());
         crate::index::seal(&mut b);
