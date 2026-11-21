@@ -370,7 +370,8 @@ impl<T: Tapes> PieceChain<T> {
 
     /// `call` on the writer; when the piece lists all the state entries it may ([IndexError::StateEntries]), again
     /// on a new piece. A call refused so has written nothing: it checks its room first. The new piece carries the
-    /// definitions of the call's tracks first ([TapeWriter::want]), so the call fits it.
+    /// definitions of the call's tracks first ([TapeWriter::want]), so the call fits it. A call the writer refuses
+    /// as input ([crate::InputError]) is checked before its room, so it never cuts.
     fn with_room<R>(
         &mut self,
         defs: &Definitions,
@@ -463,7 +464,9 @@ impl<T: Tapes> PieceChain<T> {
     }
 
     /// Cut to a new piece now, its head followed by the definitions `defs` holds of the tracks it carries
-    /// ([TapeWriter::cut_on]). A cut refused before the piece ends keeps the piece being written.
+    /// ([TapeWriter::cut_on]). A cut refused before the piece ends keeps the piece being written. The new piece
+    /// carries the last call's tracks first and keeps room for their records; a caller writing other tracks next
+    /// names them with [TapeWriter::want] first.
     pub fn cut_now(&mut self, defs: &Definitions) -> Result<(), WriteError<T::Error>> {
         let seq = self
             .seq

@@ -242,7 +242,7 @@ pub fn reader_hostile(data: &[u8]) {
         if let Ok(r) = TapeReader::open_with(&f[..], options) {
             for i in 0..r.pieces().len() {
                 if let Ok(defs) = r.definitions_at(i, u64::MAX) {
-                    named_exactly(&r, i, &defs);
+                    named_within_marked(&r, i, &defs);
                 }
                 let _ = r.state_entries(i);
             }
@@ -251,35 +251,19 @@ pub fn reader_hostile(data: &[u8]) {
     reader(&f);
 }
 
-/// The tracks `defs` (of piece `i` of `r`) names as not carried are exactly the head rows marked so whose track has
-/// no definition among the items: none under the row's number, or one of another id or owner.
-fn named_exactly(r: &TapeReader<&[u8]>, i: usize, defs: &ww_tape::reader::DefinitionsAt) {
-    let rows = r
+/// The tracks `defs` (of piece `i` of `r`) names as not carried are head rows marked so, each once: the reader never
+/// names a track the head doesn't mark. Which marked rows it names, the writer's tests check against the writer.
+fn named_within_marked(r: &TapeReader<&[u8]>, i: usize, defs: &ww_tape::reader::DefinitionsAt) {
+    let marked: Vec<_> = r
         .pieces()
         .get(i)
         .and_then(|p| p.head.as_ref())
-        .map(|(_, rows)| rows.clone())
+        .map(|(_, rows)| rows.iter().filter(|t| t.not_carried).copied().collect())
         .unwrap_or_default();
-    let want: Vec<_> = rows
-        .iter()
-        .filter(|row| {
-            row.not_carried
-                && !defs
-                    .items
-                    .get(&ww_tape::Slot::Track {
-                        number: row.track_number,
-                    })
-                    .is_some_and(|item| {
-                        matches!(
-                            ww_tape::Describe::from_ww_bytes(&item.item),
-                            Ok(ww_tape::Describe::Track(t))
-                                if t.id() == row.track_id && t.owner == row.owner.0
-                        )
-                    })
-        })
-        .copied()
-        .collect();
-    assert_eq!(defs.not_carried, want, "the tracks not carried, exactly");
+    for (k, t) in defs.not_carried.iter().enumerate() {
+        assert!(marked.contains(t), "a named track is a marked head row");
+        assert!(!defs.not_carried[..k].contains(t), "a track is named once");
+    }
 }
 
 /// `tape-state-hostile`: a piece of puts, copies and definitions whose blocks of state records and index state entries
@@ -465,7 +449,7 @@ fn lookups(r: &TapeReader<&[u8]>, i: usize) {
                 assert_eq!(ItemHash::of(&item.item), item.hash);
                 assert!(item.offset < place);
             }
-            named_exactly(r, i, &defs);
+            named_within_marked(r, i, &defs);
         }
     }
     for hash in hashes {

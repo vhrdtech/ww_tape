@@ -8,13 +8,13 @@
 //! block's clock; a lost bundle block costs its tracks their bundle.
 //!
 //! A cut is never refused for them: when they don't fit the index policy's state entries, [fit] carries what fits, by
-//! priority, and the next head names each track left out.
+//! priority, and the next head names each track left out. The tracks of the call the cut is made for come first, so
+//! a call the writer admitted ([entries]) always fits the piece a cut made for it.
 
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
 
 use crate::Definitions;
-use crate::index::TrackKey;
 use crate::open::EMPTY_LEN;
 use crate::piece::TrackStart;
 use crate::state::Slot;
@@ -78,63 +78,103 @@ pub(crate) fn blocks(defs: &Definitions, numbers: &[u32]) -> Vec<Vec<Slot>> {
     out
 }
 
+/// The state entries the definitions data on `tracks` needs take together ([Definitions::needs], each slot once):
+/// what a piece holding only them lists past its layout and producer.
+pub(crate) fn entries(defs: &Definitions, tracks: &[u32]) -> usize {
+    let mut seen = BTreeSet::new();
+    for t in tracks {
+        seen.extend(defs.needs(*t));
+    }
+    seen.len()
+}
+
 /// The blocks of definitions of tracks `numbers` (held in `defs`, [numbers], in the order of the head rows) that take
-/// at most `room` state entries, and the tracks left out. All of them in [blocks] when those fit. Else carried once
-/// each, no block repeating a chain, in this priority while room lasts: the clocks and maps the tracks need, then
-/// each track of `ranked` (the tracks of the next data, then newest data first) with the bundles it needs, when its
-/// whole chain is in; a track that doesn't fit is left out. The tracks leave room for one more track's definition
-/// and bundles: the first data on a track left out then fits the piece, which so never ends empty for it. Bundles,
-/// chains, then tracks in the order of the head rows, packed into blocks of at most [CARRIED_BLOCK_LEN].
+/// at most `room` state entries, and the tracks left out. Room stays for the state records of the call the cut is
+/// made for, on the tracks of `wanted`: their definitions put again before its data, and a put's record ([entries]
+/// plus one). All of them in [blocks] when those fit beside it. Else once each, no block repeating a chain, in this
+/// priority while room lasts:
+///
+/// 1. the tracks of `wanted`, each with its bundles, its chain and its definition;
+/// 2. the clocks and maps the other tracks need;
+/// 3. each track of `ranked` (newest data first) with the bundles it needs, when its whole chain is in.
+///
+/// A track that doesn't fit is left out. Bundles, chains, then tracks in the order of the head rows, packed into
+/// blocks of at most [CARRIED_BLOCK_LEN]. A call admitted by the writer so fits the piece a cut made for it.
 pub(crate) fn fit(
     defs: &Definitions,
     numbers: &[u32],
+    wanted: &[u32],
     ranked: &[u32],
     room: usize,
 ) -> (Vec<Vec<Slot>>, Vec<u32>) {
+    let reserve = entries(defs, wanted).saturating_add(1);
     let all = blocks(defs, numbers);
-    if all.iter().map(Vec::len).sum::<usize>() <= room {
+    if all
+        .iter()
+        .map(Vec::len)
+        .sum::<usize>()
+        .saturating_add(reserve)
+        <= room
+    {
         return (all, Vec::new());
     }
     let needs: BTreeMap<u32, (Vec<Slot>, Vec<Slot>, Slot)> = numbers
         .iter()
         .filter_map(|n| Some((*n, split(defs, *n)?)))
         .collect();
-    let mut left = room;
+    let mut left = room.saturating_sub(reserve);
+    let mut held: BTreeSet<Slot> = BTreeSet::new();
     let mut chains = Vec::new();
-    let mut in_chain = BTreeSet::new();
+    let mut taken = BTreeSet::new();
+    // 1. the wanted tracks whole
+    for n in wanted {
+        let Some((b, chain, track)) = needs.get(n) else {
+            continue;
+        };
+        let new = b
+            .iter()
+            .chain(chain)
+            .filter(|s| !held.contains(*s))
+            .count()
+            .saturating_add(1);
+        if taken.contains(n) || new > left {
+            continue;
+        }
+        chains.extend(chain.iter().filter(|s| !held.contains(*s)).copied());
+        held.extend(b.iter().chain(chain).copied());
+        held.insert(*track);
+        taken.insert(*n);
+        left = left.saturating_sub(new);
+    }
+    // 2. the clocks and maps
     for n in ranked {
         let Some((_, chain, _)) = needs.get(n) else {
             continue;
         };
         for s in chain {
-            if left > 0 && !in_chain.contains(s) {
-                in_chain.insert(*s);
+            if left > 0 && held.insert(*s) {
                 chains.push(*s);
                 left = left.saturating_sub(1);
             }
         }
     }
-    // room for the definition and the bundles of a track left out, at its first data
-    let reserve = needs
-        .values()
-        .map(|(b, _, _)| b.len().saturating_add(1))
-        .max()
-        .unwrap_or(0);
-    left = left.saturating_sub(reserve);
-    let mut bundles = BTreeSet::new();
-    let mut taken = BTreeSet::new();
+    // 3. the tracks by rank, with their bundles
     for n in ranked {
-        let Some((b, chain, _)) = needs.get(n) else {
+        let Some((b, chain, track)) = needs.get(n) else {
             continue;
         };
-        let new = b.iter().filter(|s| !bundles.contains(*s)).count();
-        if chain.iter().all(|s| in_chain.contains(s)) && new.saturating_add(1) <= left {
-            bundles.extend(b.iter().copied());
+        if taken.contains(n) {
+            continue;
+        }
+        let new = b.iter().filter(|s| !held.contains(*s)).count();
+        if chain.iter().all(|s| held.contains(s)) && new.saturating_add(1) <= left {
+            held.extend(b.iter().copied());
+            held.insert(*track);
             taken.insert(*n);
             left = left.saturating_sub(new.saturating_add(1));
         }
     }
-    let mut order = Vec::new();
+    let mut bundles = Vec::new();
     let mut seen = BTreeSet::new();
     let mut tracks = Vec::new();
     let mut dropped = Vec::new();
@@ -143,14 +183,14 @@ pub(crate) fn fit(
             continue;
         };
         if taken.contains(n) {
-            order.extend(b.iter().filter(|s| seen.insert(**s)).copied());
+            bundles.extend(b.iter().filter(|s| seen.insert(**s)).copied());
             tracks.push(*track);
         } else {
             dropped.push(*n);
         }
     }
     let mut out = Vec::new();
-    pack(defs, &[], &order, &mut out);
+    pack(defs, &[], &bundles, &mut out);
     pack(defs, &[], &chains, &mut out);
     pack(defs, &[], &tracks, &mut out);
     (out, dropped)
@@ -177,132 +217,5 @@ fn pack(defs: &Definitions, prefix: &[Slot], items: &[Slot], out: &mut Vec<Vec<S
     }
     if any {
         out.push(cur);
-    }
-}
-
-/// The tracks of one clock chain the next head carries: how many, the bytes of their definitions' records, and the
-/// bytes of a block holding only the chain.
-#[derive(Clone, Copy, Debug, Default)]
-struct Group {
-    tracks: usize,
-    bytes: usize,
-    base: usize,
-    chain: usize,
-}
-
-impl Group {
-    /// Most blocks [pack] cuts the group into: any two blocks in a row hold more than a block's room past the chain,
-    /// so at most twice the bytes over that room, plus one; never more than one per track.
-    fn blocks_max(&self) -> usize {
-        let room = CARRIED_BLOCK_LEN.saturating_sub(self.base);
-        if room == 0 {
-            return self.tracks;
-        }
-        self.tracks
-            .min(
-                (self
-                    .bytes
-                    .saturating_mul(2)
-                    .checked_div(room)
-                    .unwrap_or(self.tracks))
-                .saturating_add(1),
-            )
-            .max(usize::from(self.tracks > 0))
-    }
-
-    /// Most state entries its blocks take: each track's definition, and the chain in each block.
-    fn entries_max(&self) -> usize {
-        self.tracks
-            .saturating_add(self.chain.saturating_mul(self.blocks_max()))
-    }
-}
-
-/// A bound on the state entries the definitions the next head carries take, over the tracks counted in so far:
-/// what a writer checks before a track joins the next head, so a cut never runs out of room for them.
-#[derive(Clone, Debug, Default)]
-pub(crate) struct Plan {
-    keys: BTreeSet<TrackKey>,
-    /// The bundles counted in, and how many tracks need each
-    bundles: BTreeMap<Slot, usize>,
-    /// The tracks by clock chain
-    groups: BTreeMap<Vec<Slot>, Group>,
-    /// [Self::entries_max], kept as tracks are counted in
-    entries: usize,
-}
-
-impl Plan {
-    /// The plan of head rows `rows`, the tracks `defs` holds ([numbers]).
-    pub(crate) fn of(defs: &Definitions, rows: &[TrackStart]) -> Self {
-        let mut p = Self::default();
-        for r in rows {
-            p.add(defs, (r.track_id, r.owner), r.track_number);
-        }
-        p
-    }
-
-    /// Count in track `number` of `key`, as [numbers] takes it: once per key, nothing for a track `defs` doesn't hold
-    /// under that key. Whether it was counted in now.
-    pub(crate) fn add(&mut self, defs: &Definitions, key: TrackKey, number: u32) -> bool {
-        self.change(defs, key, number, true)
-    }
-
-    /// Count track `number` of `key` out again, right after [Self::add] counted it in.
-    pub(crate) fn remove(&mut self, defs: &Definitions, key: TrackKey, number: u32) {
-        self.change(defs, key, number, false);
-    }
-
-    /// [Self::add] with `add`, else [Self::remove].
-    fn change(&mut self, defs: &Definitions, key: TrackKey, number: u32, add: bool) -> bool {
-        if defs.track_key(number) != Some((key.0, key.1.0)) || self.keys.contains(&key) != !add {
-            return false;
-        }
-        let Some((bundles, chain, track)) = split(defs, number) else {
-            return false;
-        };
-        if add {
-            self.keys.insert(key);
-        } else {
-            self.keys.remove(&key);
-        }
-        for b in bundles {
-            let n = self.bundles.entry(b).or_default();
-            let was = *n;
-            *n = if add {
-                was.saturating_add(1)
-            } else {
-                was.saturating_sub(1)
-            };
-            match (was, *n) {
-                (0, 1) => self.entries = self.entries.saturating_add(1),
-                (1, 0) => {
-                    self.bundles.remove(&b);
-                    self.entries = self.entries.saturating_sub(1);
-                }
-                _ => {}
-            }
-        }
-        let base = chain
-            .iter()
-            .fold(EMPTY_LEN, |n, s| n.saturating_add(slot_len(defs, s)));
-        let len = slot_len(defs, &track);
-        let chain_len = chain.len();
-        let g = self.groups.entry(chain).or_default();
-        self.entries = self.entries.saturating_sub(g.entries_max());
-        if add {
-            g.tracks = g.tracks.saturating_add(1);
-            g.bytes = g.bytes.saturating_add(len);
-        } else {
-            g.tracks = g.tracks.saturating_sub(1);
-            g.bytes = g.bytes.saturating_sub(len);
-        }
-        g.base = base;
-        g.chain = chain_len;
-        self.entries = self.entries.saturating_add(g.entries_max());
-        true
-    }
-
-    /// Most state entries the carried definitions take: each bundle once, and each group's.
-    pub(crate) fn entries_max(&self) -> usize {
-        self.entries
     }
 }

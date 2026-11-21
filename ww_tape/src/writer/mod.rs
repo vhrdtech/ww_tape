@@ -211,9 +211,6 @@ pub struct TapeWriter<S: TapeSink> {
     /// The definitions of the tracks the piece head carries are not in the piece yet: the next call given
     /// definitions puts them first ([Self::ensure_carried])
     carried_due: bool,
-    /// A bound on the state entries the definitions the next head carries take, built at the first track checked
-    /// ([Self::track_room])
-    plan: Option<carried::Plan>,
     /// The tracks of the newest call that wrote or was to write data or a put: the next cut carries their
     /// definitions first ([Self::want])
     wanted: Vec<u32>,
@@ -361,7 +358,6 @@ impl<S: TapeSink> TapeWriter<S> {
             removed_added: false,
             carried_due: false,
             wanted: Vec::new(),
-            plan: None,
         }
     }
 
@@ -458,14 +454,18 @@ impl<S: TapeSink> TapeWriter<S> {
             .collect()
     }
 
-    /// Refuse data on `tracks` (numbers held in `defs`) when it would bring the tracks with data in the piece,
-    /// those of the deferred blocks counted, past [Self::tracks_max]: the close of the piece must fit a block.
+    /// Refuse data on `tracks` (numbers held in `defs`): with [InputError::CarriedEntries] when the definitions it
+    /// needs fit no piece under the index policy ([Self::admit]); with [InputError::TooManyTracks] or
+    /// [InputError::TooManyCarried] when it would bring the tracks with data in the piece, those of the deferred
+    /// blocks counted, past [Self::tracks_max], or the next head past [Self::head_rows_max]: the close and the head
+    /// must each fit a block. The tracks become those the next cut carries first ([Self::want]).
     fn track_room(
         &mut self,
         defs: &Definitions,
         tracks: &[u32],
     ) -> Result<(), WriteError<S::Error>> {
         self.want(tracks);
+        self.admit(carried::entries(defs, tracks))?;
         let mut new = self.new_tracks(defs, tracks);
         if new.is_empty() {
             return Ok(());
@@ -483,51 +483,26 @@ impl<S: TapeSink> TapeWriter<S> {
                 max: self.head_rows_max,
             }));
         }
-        self.carried_room(defs, tracks)
+        Ok(())
     }
 
-    /// Refuse data on `tracks` when the definitions the next head carries would take more state entries, with the
-    /// layout and the producer, than the index policy allows ([carried::Plan]): so a cut never runs out of room for
-    /// them. A track checked here stays counted in until the cut, written or not; data on it is never refused here.
-    fn carried_room(
-        &mut self,
-        defs: &Definitions,
-        tracks: &[u32],
-    ) -> Result<(), WriteError<S::Error>> {
-        let mut plan = match self.plan.take() {
-            Some(p) => p,
-            None => {
-                let starts = self
-                    .head
-                    .as_ref()
-                    .map(|(_, rows)| rows.as_slice())
-                    .unwrap_or_default();
-                carried::Plan::of(defs, &self.indexer.next_starts(starts))
-            }
-        };
-        let mut added = Vec::new();
-        for n in tracks {
-            if let Some((id, owner)) = defs.track_key(*n)
-                && plan.add(defs, (id, OwnerId(owner)), *n)
-            {
-                added.push(((id, OwnerId(owner)), *n));
-            }
-        }
+    /// Refuse a call whose state records, `needed` entries of definitions and puts, don't fit an empty piece with
+    /// the layout and the producer under the index policy ([InputError::CarriedEntries]): no cut could make room for
+    /// it. Checked before the piece's own room, so a call refused here never cuts a piece ([crate::PieceChain]).
+    ///
+    /// The invariant this keeps with [Self::cut_on] and [carried::fit]: a call admitted here fits the piece a cut
+    /// made for it, since that cut carries the call's tracks' definitions first. A piece that refuses an admitted
+    /// call with [IndexError::StateEntries] is full, and one cut makes room: data on a track is never refused for
+    /// good, and no cut made for a call leaves a piece empty.
+    fn admit(&self, needed: usize) -> Result<(), WriteError<S::Error>> {
         let max = self.indexer.policy().state_entries_max;
-        let needed = plan.entries_max().saturating_add(HEAD_ENTRIES);
-        // a track counted in already is never refused: past the bound (definitions grown, the policy lowered), the
-        // cut leaves out what doesn't fit
-        if !added.is_empty() && needed > max {
-            for (key, n) in added {
-                plan.remove(defs, key, n);
-            }
-            self.plan = Some(plan);
+        let needed = needed.saturating_add(HEAD_ENTRIES);
+        if needed > max {
             return Err(WriteError::Input(InputError::CarriedEntries {
                 needed,
                 max,
             }));
         }
-        self.plan = Some(plan);
         Ok(())
     }
 
@@ -570,6 +545,7 @@ impl<S: TapeSink> TapeWriter<S> {
             hash: ItemHash::of(item),
             item: Item::Given(item),
         });
+        self.admit(cands.len())?;
         self.room(0, !self.head_put)?;
         self.flush_deferred()?;
         self.ensure_carried(defs)?;
@@ -608,6 +584,7 @@ impl<S: TapeSink> TapeWriter<S> {
             hash,
             item: Item::Owned(bytes),
         });
+        self.admit(cands.len())?;
         self.room(0, !self.head_put)?;
         self.flush_deferred()?;
         self.ensure_carried(defs)?;
@@ -727,7 +704,8 @@ impl<S: TapeSink> TapeWriter<S> {
     /// The blocks of definitions the tracks of head rows `rows` carry ([carried]), as candidates to put, taking at
     /// most `room` state entries ([carried::fit]), and the numbers of the tracks left out: of each row whose track
     /// `defs` holds under the row's number with the row's id and owner and that isn't marked
-    /// [TrackStart::not_carried]; another is passed over. Tracks with data in this piece come first, newest first.
+    /// [TrackStart::not_carried]; another is passed over. The tracks [Self::want] named come first, then those with
+    /// data in this piece, newest first.
     fn carried(
         &self,
         defs: &Definitions,
@@ -737,7 +715,13 @@ impl<S: TapeSink> TapeWriter<S> {
         let rule = self.definitions_rule();
         let rows: Vec<TrackStart> = rows.iter().filter(|r| !r.not_carried).copied().collect();
         let numbers = carried::numbers(defs, &rows);
-        let (blocks, dropped) = carried::fit(defs, &numbers, &self.ranked(&rows, &numbers), room);
+        let (blocks, dropped) = carried::fit(
+            defs,
+            &numbers,
+            &self.wanted,
+            &self.ranked(&rows, &numbers),
+            room,
+        );
         let blocks = blocks
             .iter()
             .map(|b| {
@@ -786,7 +770,7 @@ impl<S: TapeSink> TapeWriter<S> {
 
     /// Name `tracks` as those of the next data: the next cut carries their definitions before any other track's, so
     /// data on them that a full piece refused ([IndexError::StateEntries]) fits the next piece. Each call of data or
-    /// a put names its tracks itself.
+    /// a put names its tracks itself; a caller cutting between calls names those of the call to come.
     pub fn want(&mut self, tracks: &[u32]) {
         self.wanted.clear();
         self.wanted.extend_from_slice(tracks);
@@ -940,7 +924,6 @@ impl<S: TapeSink> TapeWriter<S> {
         // the layout and the producer follow every piece head, the definitions of the tracks it carries them
         self.head_put = false;
         self.carried_due = !tracks.is_empty();
-        self.plan = None;
         self.ensure_head()
     }
 
@@ -1538,8 +1521,8 @@ impl<S: TapeSink> TapeWriter<S> {
             }));
         }
         let needs = self.needed(defs, &[head.track_number]);
-        self.room(0, !self.head_put)?;
         self.track_room(defs, &[head.track_number])?;
+        self.room(0, !self.head_put)?;
         self.ensure_carried(defs)?;
         let payload = specs.iter().fold(0usize, |n, c| n.saturating_add(c.len));
         let head_len = crate::chunk::chunk_head_len(head, columns.len(), payload);
@@ -1993,11 +1976,12 @@ impl<S: TapeSink> TapeWriter<S> {
     /// alone when the pieces before it are gone. A definition is put again before the next data that needs it, unless
     /// it lies close behind. Seqs go on from this piece; the options carry over.
     ///
-    /// A write that would bring those definitions past the index policy's state entries is refused
-    /// ([InputError::CarriedEntries]), so a cut has room for them. A cut is never refused for them: when they still
-    /// don't fit (`defs` changed since, or the policy), it carries the clocks and maps first, then the tracks with the
-    /// newest data, each block no longer repeating its chain, and leaves out what doesn't fit. The next head's rows
-    /// and [Closed::tracks] mark each track left out ([TrackStart::not_carried], [Closed::not_carried]).
+    /// A cut is never refused for those definitions. When they don't fit the index policy's state entries, each goes
+    /// once, no block repeating its chain, in this order while room lasts: the tracks of the next data
+    /// ([Self::want], those of the call a full piece refused), then the clocks and maps, then the tracks with the
+    /// newest data. What doesn't fit is left out; the next head's rows and [Closed::tracks] mark each such track
+    /// ([TrackStart::not_carried], [Closed::not_carried]). A call is admitted only when its definitions fit an empty
+    /// piece ([InputError::CarriedEntries]), so an admitted call always fits the piece a cut made for it.
     pub fn cut_on(self, defs: &Definitions, next: S) -> Result<(Closed, Self), CutError<S>> {
         self.cut_into(defs, || Ok(next))
     }

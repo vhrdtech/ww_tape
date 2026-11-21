@@ -62,10 +62,11 @@ pub enum InputError {
     /// The next piece's head would carry more than `max` tracks ([HEAD_TRACKS_MAX](crate::HEAD_TRACKS_MAX)): each
     /// track the chain's pieces carried or gave data. Nothing is written; a new chain takes the track.
     TooManyCarried { max: usize },
-    /// The definitions the next piece's head carries, with the layout and the producer, would take `needed` state
-    /// entries, more than the index policy's `max` ([IndexPolicy::state_entries_max](crate::index::IndexPolicy)). A
-    /// write that would bring a new track there is refused, nothing written. A cut is never refused for them: it
-    /// leaves out what doesn't fit ([TrackStart::not_carried](crate::piece::TrackStart::not_carried)).
+    /// The call's state records, the definitions its tracks need and its puts, take `needed` state entries with the
+    /// layout and the producer, more than the index policy's `max`
+    /// ([IndexPolicy::state_entries_max](crate::index::IndexPolicy)): no piece can hold the call, so no cut is made
+    /// for it. Nothing is written. A cut is never refused for the definitions it carries: it leaves out what doesn't
+    /// fit ([TrackStart::not_carried](crate::piece::TrackStart::not_carried)).
     CarriedEntries { needed: usize, max: usize },
     /// A caller's block of `kind` with header `flags` its kind doesn't take: reserved bits, or a flag only the
     /// writer sets. A records block may carry [FLAG_BODY_CODED](crate::FLAG_BODY_CODED), other kinds none.
@@ -229,7 +230,7 @@ impl core::fmt::Display for InputError {
             ),
             Self::CarriedEntries { needed, max } => write!(
                 f,
-                "the next piece's head would carry definitions taking {needed} state entries, more than {max}: start a new chain"
+                "the call's definitions and puts take {needed} state entries with the layout and the producer, more than the index policy's {max}"
             ),
             Self::SummaryTooLong { len, max } => write!(
                 f,

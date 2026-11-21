@@ -113,32 +113,34 @@ bundle.
 
 #### When they don't fit
 
-The definitions are state records, so each one also takes an index entry. A write that brings in a track past what
-`IndexPolicy::state_entries_max` leaves for the next head's definitions is refused with `InputError::CarriedEntries`,
-nothing written. Data on a track counted in already is never refused.
+Each definition is a state record and takes an index entry. A call is admitted only when its records fit an empty
+piece under `IndexPolicy::state_entries_max`: the definitions its tracks need, its put, the layout and the producer.
+Otherwise `InputError::CarriedEntries` refuses it: nothing written, no cut.
 
-A cut is never refused for the definitions it carries. They can still outgrow the room in three ways:
+A cut is never refused for the definitions it carries. They outgrow the room in three ways:
 
 - `defs` gains a clock map after the tracks were counted in;
 - a definition grows, such as a longer label;
 - the index policy is lowered.
 
-The cut then fits them in this order, while room lasts:
+The cut keeps room for the records of the call it is made for. Those are its put and the definitions of the tracks
+written last, or named with `TapeWriter::want`, put again before its data. The rest goes once each, with no repeated
+clocks and maps, in this order while room lasts:
 
-1. Each definition once: the blocks no longer repeat their clocks and maps.
-2. The clocks and maps the tracks count through.
-3. The tracks of the next data, those of the call the full piece refused or that `TapeWriter::want` named.
-4. The tracks with data in the piece, newest data first, each with its bundles; then the quiet tracks.
+1. The tracks of that call, each with its clock chain and bundles.
+2. The clocks and maps the other tracks count through.
+3. The tracks with data in the piece, newest first, each with its bundles; then the quiet tracks.
 
-Room for one more track's definition stays free, so the first data on a track left out fits the piece. Carried once,
-a damaged block of clocks and maps costs every track that counts through them.
+Carried once, a damaged block of clocks and maps costs every track using them.
 
-A track that doesn't fit is left out. The next head marks its row as not carried, and `Closed::tracks` of the cut marks
-it too (`Closed::not_carried` counts them). A reader of the piece alone names each such track in
-`DefinitionsAt::not_carried`, by the row's id and owner, rather than missing its definition without a word.
+A track that doesn't fit is left out. The next head marks its row as not carried, as does `Closed::tracks` of the cut
+(`Closed::not_carried` counts them). A reader of the piece alone names each such track in `DefinitionsAt::not_carried`,
+by the row's id and owner.
 
-A full piece refuses data on a track left out with `IndexError::StateEntries`, nothing written. The next cut carries
-the call's tracks first. `PieceChain` cuts and retries by itself, so each piece it cuts holds data.
+The invariant: an admitted call fits the piece a cut made for it. A full piece refuses data on a track left out
+(`IndexError::StateEntries`, nothing written). `PieceChain` cuts for that call and writes it again: that piece holds data.
+A cut by hand (`cut_now`) carries the last call's tracks first. Data on other tracks or changed definitions after it
+may find no room and cut again, leaving a piece of definitions alone.
 
 #### What they cost
 
