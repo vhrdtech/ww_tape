@@ -1004,6 +1004,7 @@ enum Here {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{ClockNum, TrackNum};
 
     /// The Resync window holds the last [RESYNC_SEQS_MAX] data blocks: the oldest id leaves it, the rest still meet a
     /// block of their id.
@@ -1056,9 +1057,15 @@ mod tests {
     fn work_over_magics(magics: usize, medium: Medium) -> (usize, usize) {
         let mut buf = [0u8; 256];
         let id = crate::BlockId::new(SessionTag::writable(0x7465_7374), 1);
-        let mut w = crate::BlockWriter::new(&mut buf, crate::BlockKind::Records, id, &[1]).unwrap();
-        w.push(9, crate::ClockTime::new(1, 1), &[&[1u8; 40]])
-            .unwrap();
+        let mut w =
+            crate::BlockWriter::new(&mut buf, crate::BlockKind::Records, id, &[ClockNum::new(1)])
+                .unwrap();
+        w.push(
+            TrackNum::new(9),
+            crate::ClockTime::new(ClockNum::new(1), 1),
+            &[&[1u8; 40]],
+        )
+        .unwrap();
         let len = w.finish();
         let mut bytes = buf[..len].to_vec();
         bytes.extend(MAGIC.repeat(magics));

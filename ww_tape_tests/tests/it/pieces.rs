@@ -1,6 +1,7 @@
 //! Index, close, tail, piece chains and the positional reader, through the public API.
 
 use std::path::{Path, PathBuf};
+use ww_tape::{ClockNum, RecordTrack, TrackNum};
 
 use ww_tape::chunk::ChunkHead;
 use ww_tape::index::IndexPolicy;
@@ -22,8 +23,13 @@ pub(crate) fn scratch(name: &str) -> PathBuf {
 
 pub(crate) fn records(id: BlockId, n: i64) -> Vec<u8> {
     let mut buf = [0u8; 256];
-    let mut b = BlockWriter::new(&mut buf, BlockKind::Records, id, &[1]).unwrap();
-    b.push(9, ClockTime::new(1, n), &[&[n as u8; 30]]).unwrap();
+    let mut b = BlockWriter::new(&mut buf, BlockKind::Records, id, &[ClockNum::new(1)]).unwrap();
+    b.push(
+        TrackNum::new(9),
+        ClockTime::new(ClockNum::new(1), n),
+        &[&[n as u8; 30]],
+    )
+    .unwrap();
     let len = b.finish();
     buf[..len].to_vec()
 }
@@ -42,7 +48,7 @@ pub(crate) fn chunk(t: u64, k: u64) -> (ChunkHead, Vec<u8>) {
     let head = ChunkHead {
         kind: BlockKind::Events,
         track_id: chunk_id(t),
-        track_number: t as u32 + 1,
+        track_number: TrackNum::new(t as u32 + 1),
         first_item: first,
         count: 50,
         first_tick: first as i64 * 10 + t as i64,
@@ -197,7 +203,10 @@ fn closed_file_is_found_by_its_tail() {
 fn close_rows_count_every_track(ranges: &[ww_tape::piece::TrackRange], done: &ww_tape::Closed) {
     // three tracks of chunks, one of records alone
     assert_eq!(ranges.len(), 4);
-    let rec = ranges.iter().find(|t| t.track_number == 9).unwrap();
+    let rec = ranges
+        .iter()
+        .find(|t| t.track_number == TrackNum::new(9))
+        .unwrap();
     assert_eq!((rec.chunks, rec.items, rec.records), (0, 0, 20));
     let want = (0..20i64).fold(ww_tape::TrackHash::START, |h, n| {
         h.record(n, &[n as u8; 30])
@@ -212,12 +221,15 @@ fn close_rows_count_every_track(ranges: &[ww_tape::piece::TrackRange], done: &ww
     assert_eq!(
         done.tracks
             .iter()
-            .find(|t| t.track_number == 9)
+            .find(|t| t.track_number == TrackNum::new(9))
             .unwrap()
             .hash,
         want
     );
-    let t1 = ranges.iter().find(|t| t.track_number == 2).unwrap();
+    let t1 = ranges
+        .iter()
+        .find(|t| t.track_number == TrackNum::new(2))
+        .unwrap();
     assert_eq!(
         (t1.track_id, t1.chunks, t1.first_item, t1.items),
         (chunk_id(1), 20, 0, 1000)
@@ -418,7 +430,11 @@ fn a_chain_cuts_when_its_piece_is_full_of_state_entries() {
     let mut defs = crate::definitions::base_defs().clone();
     defs.define(&crate::definitions::state(5)).unwrap();
     for k in 0..6u8 {
-        assert!(chain.put(&defs, 5, i64::from(k), &[k]).unwrap());
+        assert!(
+            chain
+                .put(&defs, TrackNum::new(5), i64::from(k), &[k])
+                .unwrap()
+        );
     }
     let pieces: Vec<PathBuf> = chain
         .close()
@@ -429,7 +445,15 @@ fn a_chain_cuts_when_its_piece_is_full_of_state_entries() {
     assert_eq!(pieces.len(), 2);
     let bytes = std::fs::read(&pieces[1]).unwrap();
     let r = TapeReader::open(&bytes[..]).unwrap();
-    let found = r.state_at(0, Slot::State { track: 5 }, u64::MAX).unwrap();
+    let found = r
+        .state_at(
+            0,
+            Slot::State {
+                track: TrackNum::new(5),
+            },
+            u64::MAX,
+        )
+        .unwrap();
     assert_eq!(found.item.unwrap().item, [5]);
     std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -735,7 +759,7 @@ fn index_golden() {
     });
     let mut defs = Definitions::new();
     let mut all = crate::definitions::base(ww_tape::Layout::UNALIGNED)[2..].to_vec();
-    all.retain(|d| !matches!(d, Describe::Track(t) if t.number.0 == 3));
+    all.retain(|d| !matches!(d, Describe::Track(t) if t.number.get() == 3));
     all.push(related);
     defs.define_all(&all).unwrap();
     let mut source = 100;
@@ -950,7 +974,13 @@ fn definitions_are_put_in_each_piece() {
         let bytes = std::fs::read(p).unwrap();
         let r = TapeReader::open(&bytes[..]).unwrap();
         let defs = r.definitions_at(0, u64::MAX).unwrap();
-        for slot in [Slot::Layout, Slot::Producer, Slot::Clock { number: 1 }] {
+        for slot in [
+            Slot::Layout,
+            Slot::Producer,
+            Slot::Clock {
+                number: ClockNum::new(1),
+            },
+        ] {
             assert!(defs.items.contains_key(&slot), "{p:?}: {slot:?}");
         }
     }
@@ -967,7 +997,7 @@ fn big_chunk(k: u64) -> (ChunkHead, Vec<u8>) {
     let head = ChunkHead {
         kind: BlockKind::Events,
         track_id: chunk_id(0),
-        track_number: 1,
+        track_number: TrackNum::new(1),
         first_item: first,
         count: n as u32,
         first_tick: first as i64,
@@ -1015,7 +1045,12 @@ fn a_damaged_block_of_definitions_reads_from_their_copies() {
         };
         assert!(definitions_at(&bytes).iter().all(|d| d.1), "all put");
         // track 1's definition put before its first chunk, then copied on a use one copy spacing (1 MiB) on
-        let describe = crate::definitions::writes_of(&bytes, Slot::Track { number: 1 });
+        let describe = crate::definitions::writes_of(
+            &bytes,
+            Slot::Track {
+                number: TrackNum::new(1),
+            },
+        );
         assert!(describe.len() >= 2, "{describe:?}");
         assert!((1 << 20..2 << 20).contains(&describe[1]), "{describe:?}");
 
@@ -1036,7 +1071,13 @@ fn a_damaged_block_of_definitions_reads_from_their_copies() {
         assert_eq!(defs.items(), whole.items(), "closed {closed}");
         // just after the damaged block, before any copy, the definitions of track 1 are lost
         let early = rd
-            .state_at(0, Slot::Track { number: 1 }, describe[0] + 1)
+            .state_at(
+                0,
+                Slot::Track {
+                    number: TrackNum::new(1),
+                },
+                describe[0] + 1,
+            )
             .unwrap();
         assert_eq!(early.item, None);
         assert_eq!(early.lost.len(), 1);
@@ -1113,7 +1154,9 @@ fn a_replaced_block_leaves_the_index() {
         while let Some(b) = rd.next_block() {
             match b {
                 Ok(b) if listed(b.kind) => {
-                    if b.kind == BlockKind::Records && b.first_track() != Some(0) {
+                    if b.kind == BlockKind::Records
+                        && b.first_track() != Some(RecordTrack::Definitions)
+                    {
                         seqs.push(b.seq);
                     }
                     if !b.is_repeat() {
@@ -1186,14 +1229,23 @@ fn every_block_of_data_has_its_definitions_behind_it() {
             .collect();
         assert!(!data.is_empty());
         for at in data {
-            for slot in [Slot::Track { number: 9 }, Slot::Clock { number: 1 }] {
+            for slot in [
+                Slot::Track {
+                    number: TrackNum::new(9),
+                },
+                Slot::Clock {
+                    number: ClockNum::new(1),
+                },
+            ] {
                 let found = r.state_at(0, slot, at).unwrap();
                 assert!(found.item.is_some(), "{path:?} at {at}: {slot:?}");
             }
         }
         // track 10 has no data: its definition is in no piece
         let ten = r.definitions_at(0, u64::MAX).unwrap();
-        assert!(!ten.items.contains_key(&Slot::Track { number: 10 }));
+        assert!(!ten.items.contains_key(&Slot::Track {
+            number: TrackNum::new(10)
+        }));
     }
     std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -1221,7 +1273,11 @@ pub(crate) fn chain_in_memory(mem: &ww_tape::MemTapes) -> Vec<u64> {
     let mut defs = crate::definitions::base_defs().clone();
     defs.define(&crate::definitions::state(5)).unwrap();
     for k in 0..8u8 {
-        assert!(chain.put(&defs, 5, i64::from(k), &[k]).unwrap());
+        assert!(
+            chain
+                .put(&defs, TrackNum::new(5), i64::from(k), &[k])
+                .unwrap()
+        );
         let (h, c) = chunk(0, u64::from(k));
         chain.write_chunk(&defs, &h, &column(&c)).unwrap();
     }
@@ -1275,12 +1331,20 @@ fn a_chain_in_memory_without_its_first_pieces_is_head_cut() {
     for i in 0..left.len() {
         let defs = r.definitions_at(i, u64::MAX).unwrap();
         assert!(
-            defs.items.contains_key(&Slot::Track { number: 1 }),
+            defs.items.contains_key(&Slot::Track {
+                number: TrackNum::new(1)
+            }),
             "piece {i}: {:?}",
             defs.items.keys().collect::<Vec<_>>()
         );
         let newest = r
-            .state_at(i, Slot::State { track: 5 }, u64::MAX)
+            .state_at(
+                i,
+                Slot::State {
+                    track: TrackNum::new(5),
+                },
+                u64::MAX,
+            )
             .unwrap()
             .item
             .unwrap_or_else(|| panic!("piece {i} has no state"));

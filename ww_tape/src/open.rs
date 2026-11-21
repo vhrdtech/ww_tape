@@ -20,9 +20,9 @@ use shrink_wrap::prelude::*;
 
 use crate::state::{DefinitionKind, ItemHash, Slot};
 use crate::{
-    Block, BlockId, BlockKind, BlockWriter, CRC_LEN, ClockOrigin, ClockTime, DESCRIBE_TRACK,
-    Describe, HEADER_LEN, Items, MAX_BLOCK_CLOCKS, MAX_BLOCK_LEN, MAX_CLOCK_TABLE, MAX_RECORD_HEAD,
-    StatePolicy,
+    Block, BlockId, BlockKind, BlockWriter, CRC_LEN, ClockNum, ClockOrigin, ClockTime, Describe,
+    HEADER_LEN, Items, MAX_BLOCK_CLOCKS, MAX_BLOCK_LEN, MAX_CLOCK_TABLE, MAX_RECORD_HEAD,
+    RecordTrack, StatePolicy, TrackNum,
 };
 
 /// Bytes of a record block before its records: header, the longest clock table and CRC.
@@ -42,84 +42,90 @@ pub enum DescribeError {
     /// A [Describe] variant this writer doesn't know: it can't check it.
     Unknown,
     /// A track's dimensions aren't in ascending order of name, or a name repeats.
-    Dimensions { track: u32 },
+    Dimensions { track: TrackNum },
     /// A track or map names a clock that isn't open.
-    UnknownClock { clock: u32 },
+    UnknownClock { clock: ClockNum },
     /// A clock's resolution is under one tick (`resolution · rate < 1`), or not a time step at all.
-    Resolution { clock: u32 },
+    Resolution { clock: ClockNum },
     /// A record, chunk, summary or put on a track that isn't open.
-    UnknownTrack { track: u32 },
+    UnknownTrack { track: TrackNum },
     /// A record on another clock than its track's.
     WrongClock {
-        track: u32,
-        clock: u32,
-        track_clock: u32,
+        track: TrackNum,
+        clock: ClockNum,
+        track_clock: ClockNum,
     },
     /// A map that isn't strictly increasing over its segments.
-    MapNotIncreasing { from: u32, to: u32 },
+    MapNotIncreasing { from: ClockNum, to: ClockNum },
     /// An [Epoch](crate::ClockOrigin::Epoch) clock without its epoch link: a map from it to the previous epoch's
     /// clock ([ClockMap::is_epoch_link](crate::ClockMap::is_epoch_link)).
-    EpochUnmapped { clock: u32 },
+    EpochUnmapped { clock: ClockNum },
     /// A record longer than a block can be, or a definition or state item longer than [STATE_ITEM_MAX].
     TooLong { len: usize },
     /// A producer or layout definition: those are the writer's own ([crate::WriterOptions]).
     WriterOwned,
     /// A track's relations break a rule ([TrackDef::relations_canonical](crate::TrackDef::relations_canonical)).
-    Relations { track: u32 },
+    Relations { track: TrackNum },
     /// A relation's name of `len` bytes, longer than [RELATION_NAME_MAX](crate::RELATION_NAME_MAX).
-    RelationName { track: u32, len: usize },
+    RelationName { track: TrackNum, len: usize },
     /// A track declares a relation of a kind this crate doesn't write yet: index-only values, a postings or
     /// dictionary index ([TrackDef::relations_built](crate::TrackDef::relations_built)).
-    RelationNotBuilt { track: u32 },
+    RelationNotBuilt { track: TrackNum },
     /// A track's kind breaks a rule ([TrackDef::check_kind](crate::TrackDef::check_kind)).
     Kind {
-        track: u32,
+        track: TrackNum,
         error: crate::SeriesError,
     },
     /// A [Schema](crate::Schema) whose hash isn't BLAKE3 of its bytes, or whose media type isn't valid.
     Schema,
     /// A track's items are of a kind this crate doesn't know, or break a rule
     /// ([TrackDef::items_valid](crate::TrackDef::items_valid)).
-    Items { track: u32 },
+    Items { track: TrackNum },
     /// A record or an events chunk on a series track, or a series chunk on an events track.
-    WrongKind { track: u32 },
+    WrongKind { track: TrackNum },
     /// An events chunk whose relation columns are not one per stored relation of its track, or one in a codec its
     /// relation doesn't take (a monotone relation's values in [DURATIONS](crate::times::DURATIONS)).
-    RelationColumns { track: u32 },
+    RelationColumns { track: TrackNum },
     /// An events chunk's column of relation `relation` doesn't read for every item of the chunk.
     RelationColumnRead {
-        track: u32,
+        track: TrackNum,
         relation: u16,
         error: crate::times::TimesError,
     },
     /// An events chunk whose first value of monotone relation `relation`, at item `item`, is below the newest value
     /// placed before it on the track ([RelationDef::monotone](crate::RelationDef::monotone)).
     RelationDecrease {
-        track: u32,
+        track: TrackNum,
         relation: u16,
         item: u64,
     },
     /// An events chunk of a track whose newest value of monotone relation `relation` lies in a chunk that doesn't read
     /// (damaged, kept by a resume or the last of the track in a piece before): the chunk can't be checked, so it is
     /// refused rather than written unchecked.
-    RelationUnread { track: u32, relation: u16 },
+    RelationUnread { track: TrackNum, relation: u16 },
     /// A break accepted for relation `relation` of track `track`, which is not a monotone relation with stored values
     /// ([TapeWriter::accept_relation_break](crate::TapeWriter::accept_relation_break)).
-    NotMonotone { track: u32, relation: u16 },
+    NotMonotone { track: TrackNum, relation: u16 },
     /// A chunk or summary whose head names track `track` with id `id`, not the id `defined` its held definition
     /// gives ([TrackDef::id](crate::TrackDef::id)).
-    TrackId { track: u32, id: u64, defined: u64 },
+    TrackId {
+        track: TrackNum,
+        id: u64,
+        defined: u64,
+    },
     /// An events chunk of a state track: its items are put one by one.
-    StateChunk { track: u32 },
+    StateChunk { track: TrackNum },
     /// A record of a state track in a caller's block: its items are put ([TapeWriter::put](crate::TapeWriter::put)).
-    StateRecord { track: u32 },
+    StateRecord { track: TrackNum },
     /// A put on a track whose records are events.
-    NotState { track: u32 },
+    NotState { track: TrackNum },
     /// A relayed definition other than the one held in its slot: a relay holds a block's definitions before it
     /// puts the block ([crate::TapeWriter::relay_block]).
     NotHeld { slot: Slot },
     /// A caller's record block holding definitions: those are kept in [Definitions] and put by the writer.
     DefinitionBlock,
+    /// A [RecordRef] whose time doesn't fit its track: a data record without one, or a definition with one.
+    RecordTime { track: RecordTrack },
     /// A block doesn't start: its clocks break a block's rules.
     Start(crate::BlockStartError),
     /// A record doesn't go into the block sized for it.
@@ -254,6 +260,10 @@ impl core::fmt::Display for DescribeError {
                 f,
                 "a caller's block holds definitions: keep them in Definitions, the writer puts them"
             ),
+            Self::RecordTime { track } => write!(
+                f,
+                "record on track {track}: a data record has a time, a definition (track 0) none"
+            ),
             Self::Start(e) => write!(f, "block doesn't start: {e:?}"),
             Self::Push(e) => write!(f, "record doesn't fit its block: {e:?}"),
             Self::Block(e) => write!(f, "block doesn't read: {e:?}"),
@@ -267,7 +277,7 @@ impl core::error::Error for DescribeError {}
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct TrackFacts {
     /// [TrackDef::clock](crate::TrackDef::clock).
-    pub clock: u32,
+    pub clock: ClockNum,
     /// [TrackDef::repeat](crate::TrackDef::repeat)'s policy, None for a stream.
     pub state: Option<StatePolicy>,
     /// The period of a series track, in ticks per sample; None for an events track.
@@ -291,7 +301,7 @@ impl TrackFacts {
             .position(|r| r.is_ok_and(|r| r.index == crate::RelationIndex::Range))
             .and_then(|i| u16::try_from(i).ok());
         Self {
-            clock: t.clock.0,
+            clock: t.clock,
             state: t.repeat.state(),
             period: t.series().map(|s| s.period),
             stored: relations.stored,
@@ -370,7 +380,7 @@ pub fn check_definition(d: &Describe<'_>) -> Result<(), DescribeError> {
     match d {
         Describe::Track(t) => {
             if !t.dimensions_canonical() {
-                return Err(DescribeError::Dimensions { track: t.number.0 });
+                return Err(DescribeError::Dimensions { track: t.number });
             }
             let long = t
                 .relations
@@ -380,28 +390,28 @@ pub fn check_definition(d: &Describe<'_>) -> Result<(), DescribeError> {
                 .find(|len| *len > crate::RELATION_NAME_MAX);
             if let Some(len) = long {
                 return Err(DescribeError::RelationName {
-                    track: t.number.0,
+                    track: t.number,
                     len,
                 });
             }
             if !t.relations_canonical() {
-                return Err(DescribeError::Relations { track: t.number.0 });
+                return Err(DescribeError::Relations { track: t.number });
             }
             if !t.items_valid() && !matches!(t.items, Items::Unknown(_)) {
-                return Err(DescribeError::Items { track: t.number.0 });
+                return Err(DescribeError::Items { track: t.number });
             }
             t.check_kind().map_err(|error| DescribeError::Kind {
-                track: t.number.0,
+                track: t.number,
                 error,
             })
         }
         Describe::Clock(c) if !resolution_ok(c) => {
-            Err(DescribeError::Resolution { clock: c.number.0 })
+            Err(DescribeError::Resolution { clock: c.number })
         }
         Describe::Schema(schema) if !schema.is_valid() => Err(DescribeError::Schema),
         Describe::Map(m) if !m.is_increasing() => Err(DescribeError::MapNotIncreasing {
-            from: m.from.0,
-            to: m.to.0,
+            from: m.from,
+            to: m.to,
         }),
         Describe::Unknown(_) => Err(DescribeError::Unknown),
         _ => Ok(()),
@@ -438,9 +448,9 @@ fn track_bundles(t: &crate::TrackDef<'_>) -> Vec<Named> {
 /// What a batch of definitions adds over a [Definitions], while it is checked.
 #[derive(Default)]
 struct Layer {
-    clocks: BTreeMap<u32, bool>,
+    clocks: BTreeMap<ClockNum, bool>,
     /// Maps by (from, to), and whether each is an epoch link
-    maps: BTreeMap<(u32, u32), bool>,
+    maps: BTreeMap<(ClockNum, ClockNum), bool>,
 }
 
 /// A definition held: its item, shared with whoever puts it, and the item's hash, computed once when it is defined.
@@ -455,11 +465,11 @@ pub struct Held {
 pub struct Definitions {
     /// Every definition's item by slot: tracks, clocks, maps, bundles
     defs: BTreeMap<Slot, Held>,
-    tracks: BTreeMap<u32, HeldTrack>,
+    tracks: BTreeMap<TrackNum, HeldTrack>,
     /// Clocks held, and whether each is of origin Epoch
-    clocks: BTreeMap<u32, bool>,
+    clocks: BTreeMap<ClockNum, bool>,
     /// Maps held that are epoch links, by (from, to)
-    links: BTreeSet<(u32, u32)>,
+    links: BTreeSet<(ClockNum, ClockNum)>,
     /// Bundles' slots by API hash, schemas' by hash
     bundles: BTreeMap<Named, Slot>,
     /// Bytes of the items held
@@ -502,13 +512,13 @@ impl Definitions {
             Describe::Track(t) if !t.relations_built() => Some(t),
             _ => None,
         }) {
-            return Err(DescribeError::RelationNotBuilt { track: t.number.0 });
+            return Err(DescribeError::RelationNotBuilt { track: t.number });
         }
         if let Some(t) = defs.iter().find_map(|d| match d {
             Describe::Track(t) if matches!(t.items, Items::Unknown(_)) => Some(t),
             _ => None,
         }) {
-            return Err(DescribeError::Items { track: t.number.0 });
+            return Err(DescribeError::Items { track: t.number });
         }
         self.check_batch(defs.iter().zip(&items).map(|(d, i)| (d, i.as_slice())))?;
         for (d, item) in defs.iter().zip(&items) {
@@ -524,7 +534,7 @@ impl Definitions {
         let mut batch: Vec<(Describe<'_>, &[u8])> = Vec::new();
         for r in b.records() {
             let r = r.map_err(DescribeError::Block)?;
-            if r.track != DESCRIBE_TRACK {
+            if !r.track.is_definitions() {
                 continue;
             }
             let d = Describe::from_ww_bytes(r.item).map_err(DescribeError::Decode)?;
@@ -540,23 +550,23 @@ impl Definitions {
     }
 
     /// Track `number`'s facts.
-    pub fn track(&self, number: u32) -> Option<TrackFacts> {
+    pub fn track(&self, number: TrackNum) -> Option<TrackFacts> {
         self.tracks.get(&number).map(|t| t.facts)
     }
 
     /// The id and owner of held track `number`, as its definition says.
     #[cfg(feature = "alloc")]
-    pub(crate) fn track_key(&self, number: u32) -> Option<(u64, [u8; 32])> {
+    pub(crate) fn track_key(&self, number: TrackNum) -> Option<(u64, [u8; 32])> {
         self.tracks.get(&number).map(|t| t.key)
     }
 
     /// The held tracks' numbers, ascending.
-    pub fn tracks(&self) -> impl Iterator<Item = u32> + '_ {
+    pub fn tracks(&self) -> impl Iterator<Item = TrackNum> + '_ {
         self.tracks.keys().copied()
     }
 
     /// Whether clock `number` is held.
-    pub fn has_clock(&self, number: u32) -> bool {
+    pub fn has_clock(&self, number: ClockNum) -> bool {
         self.clocks.contains_key(&number)
     }
 
@@ -593,14 +603,14 @@ impl Definitions {
     }
 
     /// How items of state track `track` are repeated; None for a stream or a track not held.
-    pub fn policy(&self, track: u32) -> Option<StatePolicy> {
+    pub fn policy(&self, track: TrackNum) -> Option<StatePolicy> {
         self.track(track)?.state
     }
 
     /// The definitions data of track `number` needs, in the order a writer puts them: the clocks it counts through
     /// (its own, then those its clock maps to, on and on), the maps between them, its bundles, then its own; only
     /// those held. Empty for a track not held.
-    pub fn needs(&self, number: u32) -> Vec<Slot> {
+    pub fn needs(&self, number: TrackNum) -> Vec<Slot> {
         let Some(t) = self.tracks.get(&number) else {
             return Vec::new();
         };
@@ -633,11 +643,14 @@ impl Definitions {
     }
 
     /// The maps held from clock `c`.
-    fn maps_from(&self, c: u32) -> impl Iterator<Item = (&Slot, &Held)> {
+    fn maps_from(&self, c: ClockNum) -> impl Iterator<Item = (&Slot, &Held)> {
         self.defs.range(
-            Slot::Map { from: c, to: 0 }..=Slot::Map {
+            Slot::Map {
                 from: c,
-                to: u32::MAX,
+                to: ClockNum::MIN,
+            }..=Slot::Map {
+                from: c,
+                to: ClockNum::MAX,
             },
         )
     }
@@ -665,12 +678,12 @@ impl Definitions {
                 Describe::Clock(c) => {
                     layer
                         .clocks
-                        .insert(c.number.0, c.origin == ClockOrigin::Epoch);
-                    touched.insert(c.number.0);
+                        .insert(c.number, c.origin == ClockOrigin::Epoch);
+                    touched.insert(c.number);
                 }
                 Describe::Map(m) => {
-                    layer.maps.insert((m.from.0, m.to.0), m.is_epoch_link());
-                    touched.insert(m.from.0);
+                    layer.maps.insert((m.from, m.to), m.is_epoch_link());
+                    touched.insert(m.from);
                 }
                 _ => {}
             }
@@ -678,8 +691,8 @@ impl Definitions {
         }
         for d in named {
             let clocks = match d {
-                Describe::Track(t) => [Some(t.clock.0), None],
-                Describe::Map(m) => [Some(m.from.0), Some(m.to.0)],
+                Describe::Track(t) => [Some(t.clock), None],
+                Describe::Map(m) => [Some(m.from), Some(m.to)],
                 _ => [None, None],
             };
             for clock in clocks.into_iter().flatten() {
@@ -698,8 +711,8 @@ impl Definitions {
     }
 
     /// Whether an epoch link maps from clock `c`, with `layer` over the open maps.
-    fn linked(&self, layer: &Layer, c: u32) -> bool {
-        let range = (c, 0)..=(c, u32::MAX);
+    fn linked(&self, layer: &Layer, c: ClockNum) -> bool {
+        let range = (c, ClockNum::MIN)..=(c, ClockNum::MAX);
         if layer.maps.range(range.clone()).any(|(_, link)| *link) {
             return true;
         }
@@ -718,7 +731,7 @@ impl Definitions {
             Describe::Track(t) => {
                 let bundles = track_bundles(t);
                 self.tracks.insert(
-                    t.number.0,
+                    t.number,
                     HeldTrack {
                         facts: TrackFacts::of(t),
                         bundles,
@@ -727,11 +740,10 @@ impl Definitions {
                 );
             }
             Describe::Clock(c) => {
-                self.clocks
-                    .insert(c.number.0, c.origin == ClockOrigin::Epoch);
+                self.clocks.insert(c.number, c.origin == ClockOrigin::Epoch);
             }
             Describe::Map(m) => {
-                let key = (m.from.0, m.to.0);
+                let key = (m.from, m.to);
                 if m.is_epoch_link() {
                     self.links.insert(key);
                 } else {
@@ -775,7 +787,7 @@ impl Definitions {
 
     /// Drop track `number`: its definition goes, and with it the clocks, maps and bundles no held track names any
     /// more. Nothing is written. False when it wasn't held.
-    pub fn close(&mut self, number: u32) -> bool {
+    pub fn close(&mut self, number: TrackNum) -> bool {
         let Some(t) = self.tracks.remove(&number) else {
             return false;
         };
@@ -793,7 +805,7 @@ impl Definitions {
         }
         // the clocks open tracks count through, and on through the maps from them
         let mut kept = BTreeSet::new();
-        let mut todo: Vec<u32> = self.tracks.values().map(|t| t.facts.clock).collect();
+        let mut todo: Vec<ClockNum> = self.tracks.values().map(|t| t.facts.clock).collect();
         while let Some(c) = todo.pop() {
             if kept.insert(c) {
                 todo.extend(self.maps_from(c).filter_map(|(s, _)| match s {
@@ -802,7 +814,7 @@ impl Definitions {
                 }));
             }
         }
-        let clocks: Vec<u32> = self.clocks.keys().copied().collect();
+        let clocks: Vec<ClockNum> = self.clocks.keys().copied().collect();
         for c in clocks.into_iter().filter(|c| !kept.contains(c)) {
             self.clocks.remove(&c);
             self.remove(&Slot::Clock { number: c });
@@ -826,22 +838,26 @@ impl Definitions {
         }
         for r in b.records() {
             let r = r.map_err(DescribeError::Block)?;
-            let Some(at) = r.at else {
+            let (RecordTrack::Data(track), Some(at)) = (r.track, r.at) else {
                 return Err(DescribeError::DefinitionBlock);
             };
-            let t = self.check_on_track(r.track, at)?;
+            let t = self.check_on_track(track, at)?;
             if t.period.is_some() {
-                return Err(DescribeError::WrongKind { track: r.track });
+                return Err(DescribeError::WrongKind { track });
             }
             if t.state.is_some() {
-                return Err(DescribeError::StateRecord { track: r.track });
+                return Err(DescribeError::StateRecord { track });
             }
         }
         Ok(())
     }
 
     /// The facts of held track `track` when `at` is on its clock.
-    pub fn check_on_track(&self, track: u32, at: ClockTime) -> Result<TrackFacts, DescribeError> {
+    pub fn check_on_track(
+        &self,
+        track: TrackNum,
+        at: ClockTime,
+    ) -> Result<TrackFacts, DescribeError> {
         let t = self
             .track(track)
             .ok_or(DescribeError::UnknownTrack { track })?;
@@ -889,7 +905,7 @@ impl Definitions {
     /// relation, none for another, a monotone relation's in [STARTS](crate::times::STARTS).
     pub fn check_relation_columns(
         &self,
-        track: u32,
+        track: TrackNum,
         columns: &[crate::ColumnSpec],
     ) -> Result<(), DescribeError> {
         let t = self
@@ -919,7 +935,7 @@ impl Definitions {
     }
 
     /// Check that track `track` is held and named by its definition's id `id` in a chunk or summary head.
-    fn check_track_id(&self, track: u32, id: u64) -> Result<TrackFacts, DescribeError> {
+    fn check_track_id(&self, track: TrackNum, id: u64) -> Result<TrackFacts, DescribeError> {
         let held = self
             .tracks
             .get(&track)
@@ -952,9 +968,29 @@ impl Definitions {
 /// One record to write: its track, its time (None on track 0) and its item.
 #[derive(Copy, Clone, Debug)]
 pub struct RecordRef<'a> {
-    pub track: u32,
+    pub track: RecordTrack,
     pub at: Option<ClockTime>,
     pub item: &'a [u8],
+}
+
+impl<'a> RecordRef<'a> {
+    /// A record of data track `track` at `at`.
+    pub const fn data(track: TrackNum, at: ClockTime, item: &'a [u8]) -> Self {
+        Self {
+            track: RecordTrack::Data(track),
+            at: Some(at),
+            item,
+        }
+    }
+
+    /// A definition: a record of track 0, no time.
+    pub const fn definition(item: &'a [u8]) -> Self {
+        Self {
+            track: RecordTrack::Definitions,
+            at: None,
+            item,
+        }
+    }
 }
 
 /// Write `records` as record blocks of at most `block_len_max` bytes (a longer record gets a block of its own) with
@@ -976,9 +1012,12 @@ pub fn write_records<'a, E: From<DescribeError>>(
         let mut w = BlockWriter::new(&mut buf, BlockKind::Records, next_id(), &clocks)
             .map_err(DescribeError::Start)?;
         for e in now {
-            let pushed = match e.at {
-                Some(at) => w.push(e.track, at, &[e.item]),
-                None => w.push_describe(&[e.item]).map_err(crate::PushError::from),
+            let pushed = match (e.track, e.at) {
+                (RecordTrack::Data(track), Some(at)) => w.push(track, at, &[e.item]),
+                (RecordTrack::Definitions, None) => {
+                    w.push_describe(&[e.item]).map_err(crate::PushError::from)
+                }
+                (track, _) => return Err(DescribeError::RecordTime { track }.into()),
             };
             pushed.map_err(DescribeError::Push)?;
         }
@@ -995,7 +1034,7 @@ pub fn write_records<'a, E: From<DescribeError>>(
 fn next_block(
     records: &[RecordRef<'_>],
     block_len_max: usize,
-) -> Result<(usize, usize, Vec<u32>), DescribeError> {
+) -> Result<(usize, usize, Vec<ClockNum>), DescribeError> {
     let mut size = EMPTY_LEN;
     let mut clocks = BTreeSet::new();
     let mut taken = 0usize;

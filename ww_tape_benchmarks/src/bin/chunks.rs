@@ -31,6 +31,7 @@ use ww_tape::{
     SeriesDef, SeriesGrid, SeriesTimeline, SessionTag, SyncPolicy, TapeReader, TapeSink,
     TapeWriter, TrackDef, TrackHash, TrackKind, clock_key, track_key,
 };
+use ww_tape::{ClockNum, TrackNum};
 use ww_tape_bench::{Bench, Cell, Common, Measure, ns_per_try};
 
 #[derive(Parser)]
@@ -105,7 +106,7 @@ impl TapeSink for Discard {
     }
 }
 
-const CLOCK: u32 = 1;
+const CLOCK: ClockNum = ClockNum::new(1);
 const TRACK: u32 = 1;
 
 fn period() -> Ratio64 {
@@ -116,7 +117,7 @@ fn definitions() -> anyhow::Result<Definitions> {
     let mut defs = Definitions::new();
     defs.define_all(&[
         Describe::Clock(ClockDef {
-            number: UNib32(CLOCK),
+            number: CLOCK,
             key: clock_key(0xc4, &[], 1),
             rate: Magnitude::pow10(9).into(),
             resolution: Magnitude::pow10(-9).into(),
@@ -124,9 +125,9 @@ fn definitions() -> anyhow::Result<Definitions> {
             label: "bench",
         }),
         Describe::Track(TrackDef {
-            number: UNib32(TRACK),
+            number: TrackNum::new(TRACK),
             key: track_key(0xc4, &[Segment::Name("samples")]),
-            clock: UNib32(CLOCK),
+            clock: CLOCK,
             dimensions: RefVec::Slice { slice: &[] },
             items: ww_tape::Items::numbers::<i16>(None),
             label: "bench",
@@ -151,7 +152,7 @@ fn head(k: u64, count: u32) -> anyhow::Result<ChunkHead> {
         kind: BlockKind::Series,
         // the track's id: its key, it has no dimensions
         track_id: track_key(0xc4, &[Segment::Name("samples")]),
-        track_number: TRACK,
+        track_number: TrackNum::new(TRACK),
         first_item: first,
         count,
         first_tick,

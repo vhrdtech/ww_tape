@@ -3,6 +3,7 @@
 //! and a gap to a new grid. Each chunk is written as a block by `chunk::write_chunk` and its head read back.
 
 use anyhow::{Context, ensure};
+use ww_tape::TrackNum;
 use ww_tape::chunk::{ChunkHead, chunk_len, write_chunk};
 use ww_tape::series::is_gap;
 use ww_tape::{
@@ -30,7 +31,7 @@ fn head(grid: SeriesGrid, first: u64) -> anyhow::Result<ChunkHead> {
     let head = ChunkHead {
         kind: BlockKind::Series,
         track_id: 7,
-        track_number: 1,
+        track_number: TrackNum::new(1),
         first_item: first,
         count: COUNT,
         first_tick,

@@ -10,6 +10,7 @@ use ww_tape::{
     Definitions, EndMode, FLAG_REPEAT, FileBlocks, MemTapes, OwnerId, PieceChain, SyncPolicy,
     TrackRepeat, WriterOptions,
 };
+use ww_tape::{ClockNum, TrackNum};
 
 use crate::OrDebug;
 use crate::defs::{CLOCK, clock, track};
@@ -69,11 +70,17 @@ impl Part {
 /// A records block of one log line on [LOG].
 fn log_line(w: &ww_tape::TapeWriter<ww_tape::MemSink>, n: i64) -> anyhow::Result<Vec<u8>> {
     let mut buf = vec![0u8; 1024];
-    let mut b = BlockWriter::new(&mut buf, BlockKind::Records, w.next_id(), &[CLOCK]).or_debug()?;
+    let mut b = BlockWriter::new(
+        &mut buf,
+        BlockKind::Records,
+        w.next_id(),
+        &[ClockNum::new(CLOCK)],
+    )
+    .or_debug()?;
     let line = format!("{n:>4} ms: link up, 2 peers, queue {:>3}", n % 97).repeat(4);
     b.push(
-        LOG,
-        ClockTime::new(CLOCK, n * 1_000_000),
+        TrackNum::new(LOG),
+        ClockTime::new(ClockNum::new(CLOCK), n * 1_000_000),
         &[line.as_bytes()],
     )
     .or_debug()?;
@@ -90,7 +97,7 @@ fn frames(k: u64) -> (ChunkHead, Vec<u8>) {
     let head = ChunkHead {
         kind: BlockKind::Events,
         track_id: ww_tape::track_key(0xf1, &[ww_tape::Segment::Index(FRAMES)]),
-        track_number: FRAMES,
+        track_number: TrackNum::new(FRAMES),
         first_item: first,
         count: 96,
         first_tick: tick(0),

@@ -15,6 +15,7 @@
 //! out, those with the oldest data. The tracks of the call the cut is made for come first, so a call the writer
 //! admitted ([entries]) always fits the piece a cut made for it.
 
+use crate::TrackNum;
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec;
 use alloc::vec::Vec;
@@ -40,7 +41,7 @@ type Needs = (Vec<Slot>, Vec<Slot>, Vec<Slot>);
 #[derive(Copy, Clone)]
 pub(crate) struct Source<'a> {
     pub(crate) defs: &'a Definitions,
-    pub(crate) states: &'a BTreeMap<u32, usize>,
+    pub(crate) states: &'a BTreeMap<TrackNum, usize>,
 }
 
 impl Source<'_> {
@@ -54,7 +55,7 @@ impl Source<'_> {
 
     /// What track `number` needs carried ([Definitions::needs]): its bundles, its clock chain (clocks, then maps) and
     /// its own records, its definition then its newest state; None for a track `defs` doesn't hold.
-    fn split(&self, number: u32) -> Option<Needs> {
+    fn split(&self, number: TrackNum) -> Option<Needs> {
         let mut bundles = Vec::new();
         let mut chain = Vec::new();
         let mut track = None;
@@ -75,7 +76,7 @@ impl Source<'_> {
 
 /// The numbers of the tracks of head rows `rows` whose definition `defs` holds under the row's number with the row's
 /// id and owner, in the order of the rows; another row is passed over.
-pub(crate) fn numbers(defs: &Definitions, rows: &[TrackStart]) -> Vec<u32> {
+pub(crate) fn numbers(defs: &Definitions, rows: &[TrackStart]) -> Vec<TrackNum> {
     rows.iter()
         .filter(|r| defs.track_key(r.track_number) == Some((r.track_id, r.owner.0)))
         .map(|r| r.track_number)
@@ -84,7 +85,7 @@ pub(crate) fn numbers(defs: &Definitions, rows: &[TrackStart]) -> Vec<u32> {
 
 /// The blocks of definitions tracks `numbers` (held in `defs`, [numbers]) carry, each as the slots it holds, in the
 /// order they are written ([module docs](self)).
-pub(crate) fn blocks(from: Source<'_>, numbers: &[u32]) -> Vec<Vec<Slot>> {
+pub(crate) fn blocks(from: Source<'_>, numbers: &[TrackNum]) -> Vec<Vec<Slot>> {
     let mut bundles = Vec::new();
     let mut seen = BTreeSet::new();
     let mut groups: BTreeMap<Vec<Slot>, Vec<Vec<Slot>>> = BTreeMap::new();
@@ -105,7 +106,7 @@ pub(crate) fn blocks(from: Source<'_>, numbers: &[u32]) -> Vec<Vec<Slot>> {
 
 /// The state entries the definitions data on `tracks` needs take together ([Definitions::needs], each slot once):
 /// what a piece holding only them lists past its layout and producer.
-pub(crate) fn entries(defs: &Definitions, tracks: &[u32]) -> usize {
+pub(crate) fn entries(defs: &Definitions, tracks: &[TrackNum]) -> usize {
     let mut seen = BTreeSet::new();
     for t in tracks {
         seen.extend(defs.needs(*t));
@@ -127,11 +128,11 @@ pub(crate) fn entries(defs: &Definitions, tracks: &[u32]) -> usize {
 /// blocks of at most [CARRIED_BLOCK_LEN]. A call admitted by the writer so fits the piece a cut made for it.
 pub(crate) fn fit(
     from: Source<'_>,
-    numbers: &[u32],
-    wanted: &[u32],
-    ranked: &[u32],
+    numbers: &[TrackNum],
+    wanted: &[TrackNum],
+    ranked: &[TrackNum],
     room: usize,
-) -> (Vec<Vec<Slot>>, Vec<u32>) {
+) -> (Vec<Vec<Slot>>, Vec<TrackNum>) {
     let reserve = entries(from.defs, wanted).saturating_add(1);
     let all = blocks(from, numbers);
     if all
@@ -143,7 +144,7 @@ pub(crate) fn fit(
     {
         return (all, Vec::new());
     }
-    let needs: BTreeMap<u32, Needs> = numbers
+    let needs: BTreeMap<TrackNum, Needs> = numbers
         .iter()
         .filter_map(|n| Some((*n, from.split(*n)?)))
         .collect();

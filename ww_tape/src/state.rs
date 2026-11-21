@@ -20,7 +20,7 @@
 
 use shrink_wrap::prelude::*;
 
-use crate::{DESCRIBE_TRACK, Describe};
+use crate::{ClockNum, Describe, RecordTrack, TrackNum};
 
 /// Bytes of an [ItemHash].
 pub const ITEM_HASH_LEN: usize = 16;
@@ -124,22 +124,22 @@ impl DefinitionKind {
 pub enum Slot {
     /// The item of state track `track` (1 and up).
     State {
-        track: u32,
+        track: TrackNum,
     },
     Producer,
     Layout,
     /// The definition of track `number`.
     Track {
-        number: u32,
+        number: TrackNum,
     },
     /// The definition of clock `number`.
     Clock {
-        number: u32,
+        number: ClockNum,
     },
     /// The map from clock `from` to clock `to`.
     Map {
-        from: u32,
-        to: u32,
+        from: ClockNum,
+        to: ClockNum,
     },
     /// A bundle, a schema, a typed item or a definition of a kind this crate doesn't know: each item a slot of its own.
     Own {
@@ -150,8 +150,8 @@ pub enum Slot {
 
 impl Slot {
     /// The slot of record `item` on `track`: on track 0 by the definition it decodes to, None when it doesn't decode.
-    pub fn of(track: u32, item: &[u8]) -> Option<Self> {
-        if track != DESCRIBE_TRACK {
+    pub fn of(track: RecordTrack, item: &[u8]) -> Option<Self> {
+        if let RecordTrack::Data(track) = track {
             return Some(Self::State { track });
         }
         let d = Describe::from_ww_bytes(item).ok()?;
@@ -163,11 +163,11 @@ impl Slot {
         match d {
             Describe::Producer(_) => Self::Producer,
             Describe::Layout(_) => Self::Layout,
-            Describe::Track(t) => Self::Track { number: t.number.0 },
-            Describe::Clock(c) => Self::Clock { number: c.number.0 },
+            Describe::Track(t) => Self::Track { number: t.number },
+            Describe::Clock(c) => Self::Clock { number: c.number },
             Describe::Map(m) => Self::Map {
-                from: m.from.0,
-                to: m.to.0,
+                from: m.from,
+                to: m.to,
             },
             _ => Self::Own {
                 kind: DefinitionKind::of(d),
@@ -181,11 +181,11 @@ impl Slot {
         !matches!(self, Self::State { .. })
     }
 
-    /// The track its records are on: 0 for a definition.
-    pub fn track(&self) -> u32 {
+    /// The track its records are on: the definitions for a definition.
+    pub fn track(&self) -> RecordTrack {
         match self {
-            Self::State { track } => *track,
-            _ => DESCRIBE_TRACK,
+            Self::State { track } => RecordTrack::Data(*track),
+            _ => RecordTrack::Definitions,
         }
     }
 
@@ -193,29 +193,36 @@ impl Slot {
     /// How an index entry lists the slot: its level code, number and second number.
     pub(crate) fn code(&self) -> (u8, u32, u32) {
         match *self {
-            Self::State { track } => (0, track, 0),
+            Self::State { track } => (0, track.get(), 0),
             Self::Producer => (DefinitionKind::Producer.to_u8(), 0, 0),
             Self::Layout => (DefinitionKind::Layout.to_u8(), 0, 0),
-            Self::Track { number } => (DefinitionKind::Track.to_u8(), number, 0),
-            Self::Clock { number } => (DefinitionKind::Clock.to_u8(), number, 0),
-            Self::Map { from, to } => (DefinitionKind::Map.to_u8(), from, to),
+            Self::Track { number } => (DefinitionKind::Track.to_u8(), number.get(), 0),
+            Self::Clock { number } => (DefinitionKind::Clock.to_u8(), number.get(), 0),
+            Self::Map { from, to } => (DefinitionKind::Map.to_u8(), from.get(), to.get()),
             Self::Own { kind, .. } => (kind.to_u8(), 0, 0),
         }
     }
 
-    /// The slot an index entry lists by `code`, with the item's `hash`; None for a level no slot has.
+    /// The slot an index entry lists by `code`, with the item's `hash`; None for a level no slot has, or a track or
+    /// clock numbered 0.
     pub(crate) fn from_code(level: u8, number: u32, second: u32, hash: ItemHash) -> Option<Self> {
         if level == 0 {
-            return Some(Self::State { track: number });
+            return Some(Self::State {
+                track: TrackNum::try_new(number)?,
+            });
         }
         Some(match DefinitionKind::from_u8(level)? {
             DefinitionKind::Producer => Self::Producer,
             DefinitionKind::Layout => Self::Layout,
-            DefinitionKind::Track => Self::Track { number },
-            DefinitionKind::Clock => Self::Clock { number },
+            DefinitionKind::Track => Self::Track {
+                number: TrackNum::try_new(number)?,
+            },
+            DefinitionKind::Clock => Self::Clock {
+                number: ClockNum::try_new(number)?,
+            },
             DefinitionKind::Map => Self::Map {
-                from: number,
-                to: second,
+                from: ClockNum::try_new(number)?,
+                to: ClockNum::try_new(second)?,
             },
             kind => Self::Own { kind, hash },
         })
@@ -230,12 +237,21 @@ mod tests {
     fn a_slot_reads_back_from_its_index_code() {
         let hash = ItemHash::of(b"bundle");
         let slots = [
-            Slot::State { track: 9 },
+            Slot::State {
+                track: TrackNum::new(9),
+            },
             Slot::Producer,
             Slot::Layout,
-            Slot::Track { number: 3 },
-            Slot::Clock { number: 2 },
-            Slot::Map { from: 2, to: 1 },
+            Slot::Track {
+                number: TrackNum::new(3),
+            },
+            Slot::Clock {
+                number: ClockNum::new(2),
+            },
+            Slot::Map {
+                from: ClockNum::new(2),
+                to: ClockNum::new(1),
+            },
             Slot::Own {
                 kind: DefinitionKind::Bundle,
                 hash,

@@ -14,6 +14,7 @@
 //! file order ([Lists]), so verify holds one entry per track list and the entries of one block, whatever the piece's
 //! size.
 
+use crate::TrackNum;
 use alloc::collections::{BTreeMap, BTreeSet, BinaryHeap};
 use alloc::vec::Vec;
 use core::cmp::Reverse;
@@ -23,7 +24,7 @@ use shrink_wrap::DeserializeShrinkWrap;
 use crate::index::{ENTRY_LEN, IndexEntry, STATE_TRACK_ID, in_file_order, is_structural};
 use crate::piece::{OwnerId, TrackHash, TrackRange, TrackStart, UnitHash};
 use crate::times::RelationColumn;
-use crate::{Block, BlockKind, Chunk, DESCRIBE_TRACK, Describe, FLAG_REPEAT, Slot, TrackFacts};
+use crate::{Block, BlockKind, Chunk, Describe, FLAG_REPEAT, RecordTrack, Slot, TrackFacts};
 
 use super::wide;
 
@@ -206,11 +207,11 @@ pub(super) struct Replay<L> {
     /// Steps taken: blocks walked, entries met and compared
     steps: u64,
     /// Track numbers defined in the piece
-    numbers: BTreeMap<u32, Key>,
+    numbers: BTreeMap<TrackNum, Key>,
     /// Track numbers the head carries
-    carried: BTreeMap<u32, Key>,
+    carried: BTreeMap<TrackNum, Key>,
     /// The relations of each track number defined in the piece
-    facts: BTreeMap<u32, TrackFacts>,
+    facts: BTreeMap<TrackNum, TrackFacts>,
     /// Each track's hash so far
     hashes: BTreeMap<Key, TrackHash>,
     /// Tracks a block of data was folded into
@@ -321,7 +322,7 @@ impl<L: Listed> Replay<L> {
     }
     /// The track of number `number`, its id `id` when the block says it, as the writer keyed it: by the definition
     /// placed in the piece, else by the head; a chunk whose number names no track of its id is of the piece's owner.
-    fn key_of(&self, number: u32, id: Option<u64>) -> Option<Key> {
+    fn key_of(&self, number: TrackNum, id: Option<u64>) -> Option<Key> {
         let fits = |k: &&Key| id.is_none_or(|id| k.0 == id);
         self.numbers
             .get(&number)
@@ -445,8 +446,10 @@ impl<L: Listed> Replay<L> {
         };
         let repeat = b.is_repeat();
         for r in b.records().flatten() {
-            if r.track != DESCRIBE_TRACK && !repeat {
-                if tally && let Some(key) = self.key_of(r.track, None) {
+            if let RecordTrack::Data(track) = r.track
+                && !repeat
+            {
+                if tally && let Some(key) = self.key_of(track, None) {
                     let ticks = r.at.map_or(0, |a| a.ticks);
                     self.fold(key, |h| h.record(ticks, r.item));
                 }
@@ -455,8 +458,8 @@ impl<L: Listed> Replay<L> {
             if let Some(Slot::Track { .. }) = Slot::of(r.track, r.item)
                 && let Ok(Describe::Track(t)) = Describe::from_ww_bytes(r.item)
             {
-                self.numbers.insert(t.number.0, (t.id(), OwnerId(t.owner)));
-                self.facts.insert(t.number.0, TrackFacts::of(&t));
+                self.numbers.insert(t.number, (t.id(), OwnerId(t.owner)));
+                self.facts.insert(t.number, TrackFacts::of(&t));
             }
         }
     }
@@ -489,7 +492,9 @@ impl<L: Listed> Replay<L> {
         if !e.repeat {
             match e.kind {
                 BlockKind::Events | BlockKind::Series => {
-                    if let Some(key) = self.key_of(e.track_number, Some(e.track_id)) {
+                    if let Some(track) = e.track()
+                        && let Some(key) = self.key_of(track, Some(e.track_id))
+                    {
                         self.order_of_damaged(e, key);
                         match e.unit == UnitHash::NONE {
                             true => {
@@ -502,7 +507,7 @@ impl<L: Listed> Replay<L> {
                 }
                 // the records of a damaged block of data: each track that may hold records leaves them out
                 BlockKind::Records if e.track_id != STATE_TRACK_ID => {
-                    let takes = |n: &u32| {
+                    let takes = |n: &TrackNum| {
                         self.facts
                             .get(n)
                             .is_none_or(|f| f.period.is_none() && f.state.is_none())
@@ -533,7 +538,10 @@ impl<L: Listed> Replay<L> {
         if e.relation_break {
             self.restart(key);
         }
-        let range = self.facts.get(&e.track_number).and_then(|f| f.range);
+        let range = e
+            .track()
+            .and_then(|t| self.facts.get(&t))
+            .and_then(|f| f.range);
         self.tops.retain(|(k, r), _| *k != key || Some(*r) == range);
         if let (Some(relation), Some(values)) = (range, e.range) {
             self.monotone(e.offset, key, relation, values);
@@ -585,7 +593,7 @@ fn same_entries(a: &mut [IndexEntry], b: &mut [IndexEntry]) -> bool {
 fn entry_key(e: &IndexEntry) -> (u64, u32, u32, u64, u64, i64, i64, i64, [u8; 32], u8) {
     (
         e.track_id,
-        e.track_number,
+        e.number,
         e.second,
         e.first_item,
         e.count,
@@ -600,6 +608,7 @@ fn entry_key(e: &IndexEntry) -> (u64, u32, u32, u64, u64, i64, i64, i64, [u8; 32
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ClockNum;
     use crate::{BlockId, BlockWriter, ClockTime, SessionTag};
 
     /// Entries in file order, from a list.
@@ -619,8 +628,14 @@ mod tests {
 
     fn records(id: BlockId, n: i64) -> Vec<u8> {
         let mut buf = [0u8; 256];
-        let mut b = BlockWriter::new(&mut buf, BlockKind::Records, id, &[1]).unwrap();
-        b.push(9, ClockTime::new(1, n), &[&[n as u8; 30]]).unwrap();
+        let mut b =
+            BlockWriter::new(&mut buf, BlockKind::Records, id, &[ClockNum::new(1)]).unwrap();
+        b.push(
+            TrackNum::new(9),
+            ClockTime::new(ClockNum::new(1), n),
+            &[&[n as u8; 30]],
+        )
+        .unwrap();
         let len = b.finish();
         buf[..len].to_vec()
     }

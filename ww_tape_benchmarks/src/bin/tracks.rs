@@ -28,6 +28,7 @@ use ww_tape::{
     EventsDef, FLAG_REPEAT, FullVersion, Magnitude, MemSink, Segment, SessionTag, Slot, SyncPolicy,
     TapeReader, TapeSink, TapeWriter, TrackDef, TrackKind, Version, clock_key, track_key,
 };
+use ww_tape::{ClockNum, TrackNum};
 use ww_tape_bench::{Bench, Cell, Common};
 
 #[derive(Parser)]
@@ -130,8 +131,12 @@ fn repeat_bytes(tracks: u32, in_use: u32, piece: u64, block: usize) -> anyhow::R
         let mut buf = vec![0u8; block];
         let mut b = BlockWriter::new(&mut buf, BlockKind::Records, w.next_id(), &[CLOCK])
             .map_err(|e| anyhow::anyhow!("{e:?}"))?;
-        b.push(t, ClockTime::new(CLOCK, i64::from(n)), &[&item])
-            .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+        b.push(
+            TrackNum::new(t),
+            ClockTime::new(CLOCK, i64::from(n)),
+            &[&item],
+        )
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
         let len = b.finish();
         w.write_block(&defs, &buf[..len]).map_err(e)?;
         n = n.wrapping_add(1);
@@ -167,7 +172,7 @@ fn idle_work(blocks: u32, label_len: usize) -> anyhow::Result<(f64, f64)> {
 /// The clock of every track.
 fn clock() -> Describe<'static> {
     Describe::Clock(ClockDef {
-        number: UNib32(CLOCK),
+        number: CLOCK,
         key: clock_key(0xb7, &[], 1),
         rate: Magnitude::pow10(9).into(),
         resolution: Magnitude::pow10(-9).into(),
@@ -180,13 +185,13 @@ fn d(e: ww_tape::DescribeError) -> anyhow::Error {
     anyhow::anyhow!("{e:?}")
 }
 
-const CLOCK: u32 = 1;
+const CLOCK: ClockNum = ClockNum::new(1);
 
 fn track(number: u32) -> Describe<'static> {
     Describe::Track(TrackDef {
-        number: UNib32(number),
+        number: TrackNum::new(number),
         key: track_key(0xb7, &[Segment::Index(number)]),
-        clock: UNib32(CLOCK),
+        clock: CLOCK,
         dimensions: RefVec::Slice { slice: &[] },
         items: ww_tape::Items::WireWeaver {
             api: FullVersion::new("bench_api", Version::new(0, 1, 0)),
@@ -210,8 +215,12 @@ fn records(id: BlockId, track: u32) -> anyhow::Result<Vec<u8>> {
     let mut buf = [0u8; 128];
     let mut b = BlockWriter::new(&mut buf, BlockKind::Records, id, &[CLOCK])
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
-    b.push(track, ClockTime::new(CLOCK, i64::from(track)), &[b"x"])
-        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    b.push(
+        TrackNum::new(track),
+        ClockTime::new(CLOCK, i64::from(track)),
+        &[b"x"],
+    )
+    .map_err(|e| anyhow::anyhow!("{e:?}"))?;
     let len = b.finish();
     Ok(buf[..len].to_vec())
 }

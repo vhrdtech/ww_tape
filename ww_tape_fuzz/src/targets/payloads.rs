@@ -2,6 +2,7 @@
 //! from the input read back exactly and survive, without panic, a flipped bit and input bytes written over their
 //! columns (a good head over a damaged payload, as salvage meets it), every item not marked suspect reading as
 //! written.
+use ww_tape::TrackNum;
 use ww_tape::chunk::{chunk_len, write_chunk};
 use ww_tape::payloads::{EncodedPayloads, Payloads};
 use ww_tape::times::EncodedTimes;
@@ -71,11 +72,11 @@ pub fn payloads(data: &[u8]) {
     let enc = EncodedPayloads::encode(items.iter().map(Vec::as_slice)).expect("valid payloads");
     let cols: Vec<_> = times.columns().chain(enc.columns()).collect();
     let specs: Vec<ColumnSpec> = cols.iter().map(|c| c.0).collect();
-    let mut buf = vec![0u8; chunk_len(&times.head.chunk_head(1, 1, 0), &specs, 0)];
+    let mut buf = vec![0u8; chunk_len(&times.head.chunk_head(1, TrackNum::new(1), 0), &specs, 0)];
     let len = write_chunk(
         &mut buf,
         ww_tape::BlockId::new(ww_tape::SessionTag::writable(1), 1),
-        &times.head.chunk_head(1, 1, 0),
+        &times.head.chunk_head(1, TrackNum::new(1), 0),
         &cols,
         0,
     )

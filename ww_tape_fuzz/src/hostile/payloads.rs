@@ -3,6 +3,7 @@
 
 use super::chunk::{build, column_fields, column_start, hit_head, reseal};
 use super::{Draw, Field, hit};
+use ww_tape::TrackNum;
 use ww_tape::bitpack::GROUP;
 use ww_tape::lz4::LZ4_DECODED_MAX;
 use ww_tape::payloads::EncodedPayloads;
@@ -34,7 +35,7 @@ pub fn payloads(data: &[u8]) -> Vec<u8> {
     let times = EncodedTimes::encode(&starts, None, None).expect("valid times");
     let enc = EncodedPayloads::encode(items.iter().map(Vec::as_slice)).expect("valid payloads");
     let cols: Vec<(ColumnSpec, &[u8])> = times.columns().chain(enc.columns()).collect();
-    let mut b = build(&times.head.chunk_head(1, 1, 0), &cols);
+    let mut b = build(&times.head.chunk_head(1, TrackNum::new(1), 0), &cols);
     // the chunk's columns are in the order written
     let kinds: Vec<ColumnKind> = cols.iter().map(|c| c.0.kind).collect();
     let groups = n.div_ceil(GROUP);

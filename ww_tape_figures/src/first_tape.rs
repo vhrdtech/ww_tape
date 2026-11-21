@@ -5,6 +5,7 @@
 use anyhow::{Context, ensure};
 use shrink_wrap::prelude::*;
 use ww_tape::{BlockKind, Describe, FLAG_REPEAT, FileBlocks};
+use ww_tape::{RecordTrack, TrackNum};
 use ww_tape_example::{CAN0, Drive, MODE, PHASE_A};
 
 use crate::OrDebug;
@@ -69,14 +70,18 @@ fn puts_of(b: &ww_tape::Block<'_>) -> anyhow::Result<Vec<String>> {
     let (mut defs, mut clocks, mut state): (Vec<String>, usize, Vec<String>) = Default::default();
     for r in b.records() {
         let r = r.or_debug()?;
-        if r.track == MODE {
+        if r.track == RecordTrack::from_u32(MODE) {
             state.push(format!(
                 "\u{201c}{}\u{201d}",
                 String::from_utf8_lossy(r.item)
             ));
             continue;
         }
-        ensure!(r.track == 0, "a put on track {}", r.track);
+        ensure!(
+            r.track == RecordTrack::Definitions,
+            "a put on track {}",
+            r.track
+        );
         match Describe::from_ww_bytes(r.item).or_debug()? {
             Describe::Producer(_) => defs.push("producer".to_owned()),
             Describe::Layout(_) => defs.push("layout".to_owned()),
@@ -119,12 +124,18 @@ fn spans() -> anyhow::Result<(u64, Vec<Span>)> {
             BlockKind::Records => Part::Records,
             BlockKind::Events => {
                 let head = b.chunk().context("a chunk's head")?.head();
-                ensure!(head.track_number == CAN0, "events chunks are can0's");
+                ensure!(
+                    head.track_number == TrackNum::new(CAN0),
+                    "events chunks are can0's"
+                );
                 Part::Frames
             }
             BlockKind::Series => {
                 let head = b.chunk().context("a chunk's head")?.head();
-                ensure!(head.track_number == PHASE_A, "series chunks are phase_a's");
+                ensure!(
+                    head.track_number == TrackNum::new(PHASE_A),
+                    "series chunks are phase_a's"
+                );
                 Part::Samples
             }
             BlockKind::Summary => Part::Summary,

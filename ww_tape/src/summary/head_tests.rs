@@ -1,6 +1,7 @@
 //! The head of a summary block in the core: written, checked and listed without its nodes.
 
 use super::*;
+use crate::ClockNum;
 use crate::tests::id;
 use crate::{Block, BlockError};
 
@@ -9,7 +10,7 @@ use crate::{Block, BlockError};
 fn node_items_at_the_top_of_the_item_numbers() {
     let h = SummaryHead {
         track_id: 1,
-        track_number: 1,
+        track_number: TrackNum::new(1),
         tree: Tree::Events,
         level: 0,
         node_shift: 62,
@@ -46,7 +47,7 @@ fn node_items_at_the_top_of_the_item_numbers() {
 fn a_block_checks_and_lists_without_its_nodes() {
     let h = SummaryHead {
         track_id: 9,
-        track_number: 2,
+        track_number: TrackNum::new(2),
         tree: Tree::Series,
         level: 1,
         node_shift: 10,
@@ -100,7 +101,7 @@ fn a_block_checks_and_lists_without_its_nodes() {
 fn head_read_checks_the_header() {
     let h = SummaryHead {
         track_id: 1,
-        track_number: 1,
+        track_number: TrackNum::new(1),
         tree: Tree::Events,
         level: 0,
         node_shift: 11,
@@ -156,7 +157,7 @@ fn series_definitions() -> Vec<crate::Describe<'static>> {
     use shrink_wrap::prelude::*;
     vec![
         Describe::Clock(ClockDef {
-            number: UNib32(1),
+            number: ClockNum::new(1),
             key: clock_key(0x5e, &[], 1),
             rate: Magnitude::pow10(9).into(),
             resolution: Magnitude::pow10(-9).into(),
@@ -164,9 +165,9 @@ fn series_definitions() -> Vec<crate::Describe<'static>> {
             label: "dev",
         }),
         Describe::Track(TrackDef {
-            number: UNib32(1),
+            number: TrackNum::new(1),
             key: track_key(0x5e, &[crate::Segment::Name("signal")]),
-            clock: UNib32(1),
+            clock: ClockNum::new(1),
             dimensions: RefVec::Slice { slice: &[] },
             items: crate::Items::numbers::<i16>(None),
             label: "signal",
@@ -194,7 +195,7 @@ fn series_track_id() -> u64 {
 fn series_summary_block(first: u64, count: u64) -> Vec<u8> {
     let h = SummaryHead {
         track_id: series_track_id(),
-        track_number: 1,
+        track_number: TrackNum::new(1),
         tree: Tree::Series,
         level: 0,
         node_shift: 10,
@@ -247,7 +248,7 @@ fn a_core_only_tape_lists_verifies_and_skips_summary_blocks() {
         let head = ChunkHead {
             kind: BlockKind::Series,
             track_id: series_track_id(),
-            track_number: 1,
+            track_number: TrackNum::new(1),
             first_item: first,
             count: chunk as u32,
             first_tick: first as i64 * 1000,

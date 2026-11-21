@@ -11,7 +11,9 @@ use crate::series::SeriesDef;
 #[cfg(feature = "std")]
 use crate::series::SeriesDefOwned;
 use crate::series::SeriesValue;
-use crate::{ElementDesc, FNV_OFFSET, FullVersion, SampleShape, Version, fnv1a};
+use crate::{
+    ClockNum, ElementDesc, FNV_OFFSET, FullVersion, SampleShape, TrackNum, Version, fnv1a,
+};
 
 /// A definition: one per record on track 0, its item's whole bytes.
 #[derive_shrink_wrap(owned(feature = "std"), derive(Debug, PartialEq, Clone), ww_repr = u4)]
@@ -158,9 +160,9 @@ pub struct Producer<'i> {
 /// by [ClockMap]s. Wall time is a clock too: origin [ClockOrigin::UnixEpoch], key [UNIX_CLOCK_KEY].
 #[derive_shrink_wrap(owned(feature = "std"), derive(Debug, PartialEq, Clone))]
 pub struct ClockDef<'i> {
-    /// Number among the definitions, 1 and up ([NO_CLOCK] is none): [TrackDef::clock] and [ClockMap] name it, and record
-    /// blocks list it. Stays the same for the producer's life.
-    pub number: UNib32,
+    /// Number among the definitions, 1 and up: [TrackDef::clock] and [ClockMap] name it, and record blocks list it.
+    /// Stays the same for the producer's life.
+    pub number: ClockNum,
     /// Stable identity across files and runs, see [clock_key].
     pub key: u64,
     /// Ticks per second, exact (`60000/1001`, `125 MHz`).
@@ -211,8 +213,8 @@ pub enum ClockOrigin {
 /// over time is a track whose items are [MapSegment]s.
 #[derive_shrink_wrap(owned(feature = "std"), derive(Debug, PartialEq, Clone), validate = map_increasing)]
 pub struct ClockMap<'i> {
-    pub from: UNib32,
-    pub to: UNib32,
+    pub from: ClockNum,
+    pub to: ClockNum,
     pub segments: RefVec<'i, MapSegment>,
 }
 
@@ -386,13 +388,13 @@ pub struct TypedItem<'i> {
 /// Its identity is [key](Self::key) plus [dimensions](Self::dimensions), see [track_id].
 #[derive_shrink_wrap(owned(feature = "std"), derive(Debug, PartialEq, Clone))]
 pub struct TrackDef<'i> {
-    /// Number in records, 1 and up (0 is [DESCRIBE_TRACK](crate::DESCRIBE_TRACK)); stays the same for the producer's
-    /// life.
-    pub number: UNib32,
+    /// Number in records, 1 and up (track 0 holds the definitions, [RecordTrack::Definitions](crate::RecordTrack));
+    /// stays the same for the producer's life.
+    pub number: TrackNum,
     /// Stable key: the same track across files and producer runs, see [track_key].
     pub key: u64,
     /// The [ClockDef::number] record times of this track count.
-    pub clock: UNib32,
+    pub clock: ClockNum,
     /// Name and value pairs that are part of the identity (`input=cam1`, `producer=vad`), in ascending order of
     /// name, names unique. Two variants of one track coexist when their dimensions differ.
     pub dimensions: RefVec<'i, Dimension<'i>>,
@@ -723,9 +725,6 @@ pub struct Dimension<'i> {
     pub name: &'i str,
     pub value: &'i str,
 }
-
-/// No clock: never a [ClockDef::number]; record blocks and tracks name clocks 1 and up.
-pub const NO_CLOCK: u32 = 0;
 
 /// Key of the wall clock (origin Unix epoch), the same for every producer.
 pub const UNIX_CLOCK_KEY: u64 = fnv1a(FNV_OFFSET, b"ww_tape unix epoch");

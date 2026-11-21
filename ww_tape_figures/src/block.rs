@@ -5,6 +5,7 @@ use anyhow::{Context, ensure};
 use ww_tape::{
     Block, BlockId, BlockKind, BlockWriter, CRC_LEN, ClockTime, HEADER_LEN, MAGIC, SessionTag,
 };
+use ww_tape::{ClockNum, TrackNum};
 
 use crate::OrDebug;
 use crate::defs::CLOCK;
@@ -69,10 +70,15 @@ fn le_u64(b: &[u8], at: usize) -> anyhow::Result<u64> {
 fn fields() -> anyhow::Result<(Vec<u8>, Vec<Field>)> {
     let mut buf = [0u8; 256];
     let id = BlockId::new(SessionTag::writable(SESSION), SEQ);
-    let mut b = BlockWriter::new(&mut buf, BlockKind::Records, id, &[CLOCK]).or_debug()?;
+    let mut b =
+        BlockWriter::new(&mut buf, BlockKind::Records, id, &[ClockNum::new(CLOCK)]).or_debug()?;
     for (track, tick, item) in RECORDS {
-        b.push(track, ClockTime::new(CLOCK, tick), &[item])
-            .or_debug()?;
+        b.push(
+            TrackNum::new(track),
+            ClockTime::new(ClockNum::new(CLOCK), tick),
+            &[item],
+        )
+        .or_debug()?;
     }
     let len = b.finish();
     let bytes = buf.get(..len).context("the finished block")?.to_vec();

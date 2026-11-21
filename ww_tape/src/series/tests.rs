@@ -1,3 +1,4 @@
+use crate::{ClockNum, TrackNum};
 use exact_units::prefix::{Micro, Milli, One};
 use exact_units::units::{Ampere, Volt};
 use exact_units::{Complex, Fixed};
@@ -224,9 +225,9 @@ fn a_series_track_is_checked_with_its_items() {
 
 fn track(kind: TrackKind<'static>, state: bool) -> TrackDef<'static> {
     TrackDef {
-        number: UNib32(2),
+        number: TrackNum::new(2),
         key: 0x5e71e5,
-        clock: UNib32(1),
+        clock: ClockNum::new(1),
         dimensions: RefVec::Slice {
             slice: &[Dimension {
                 name: "phase",
@@ -294,7 +295,7 @@ fn track_kind_round_trips_and_is_checked() {
     for t in [state, with_item, bytes] {
         assert!(matches!(
             crate::open::check_definition(&Describe::Track(t)),
-            Err(DescribeError::Kind { track: 2, .. })
+            Err(DescribeError::Kind { track, .. }) if track == TrackNum::new(2)
         ));
     }
 }
@@ -305,7 +306,7 @@ fn head_on(grid: SeriesGrid, first: u64, count: u32) -> ChunkHead {
     ChunkHead {
         kind: BlockKind::Series,
         track_id: 1,
-        track_number: 2,
+        track_number: TrackNum::new(2),
         first_item: first,
         count,
         first_tick,

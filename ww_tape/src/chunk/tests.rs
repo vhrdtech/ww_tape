@@ -1,4 +1,5 @@
 use super::*;
+use crate::ClockNum;
 use crate::tests::id;
 use crate::{
     Block, BlockError, BlockId, BlockWriter, ClockTime, FileBlocks, FileError, Layout, Recovery,
@@ -29,7 +30,7 @@ fn events(first_item: u64, n: u32) -> (ChunkHead, Vec<Vec<u8>>) {
     let head = ChunkHead {
         kind: BlockKind::Events,
         track_id: 0x1122_3344_5566_7788,
-        track_number: 4,
+        track_number: TrackNum::new(4),
         first_item,
         count: n,
         first_tick: starts[0],
@@ -62,7 +63,7 @@ fn series(first: u64, n: u32) -> (ChunkHead, Vec<Vec<u8>>) {
     let head = ChunkHead {
         kind: BlockKind::Series,
         track_id: 0xabcd,
-        track_number: 7,
+        track_number: TrackNum::new(7),
         first_item: first,
         count: n,
         first_tick: first as i64 * 20,
@@ -459,8 +460,13 @@ fn renumbered_blocks_stay_good() {
     let b = Block::read(&bytes).unwrap();
     assert_eq!((b.session, b.seq), (other.session, 42));
     let mut buf = [0u8; 64];
-    let mut w = BlockWriter::new(&mut buf, BlockKind::Records, id(3), &[1]).unwrap();
-    w.push(1, ClockTime::new(1, 5), &[b"x"]).unwrap();
+    let mut w = BlockWriter::new(&mut buf, BlockKind::Records, id(3), &[ClockNum::new(1)]).unwrap();
+    w.push(
+        TrackNum::new(1),
+        ClockTime::new(ClockNum::new(1), 5),
+        &[b"x"],
+    )
+    .unwrap();
     let len = w.finish();
     set_id(&mut buf[..len], other.next()).unwrap();
     let b = Block::read(&buf[..len]).unwrap();
@@ -518,18 +524,24 @@ fn write_tape(layout: Layout) -> Vec<u8> {
     w.set_producer("test");
     w.set_layout(layout).unwrap();
     let mut defs = crate::Definitions::new();
-    let mut held = crate::tests::test_definitions(1, &[2, 4]);
+    let mut held = crate::tests::test_definitions(ClockNum::new(1), &[2, 4]);
     held.push(crate::tests::test_series_track(
-        1,
-        7,
+        ClockNum::new(1),
+        TrackNum::new(7),
         2,
         crate::Ratio64::int(20).unwrap(),
     ));
     defs.define_all(&held).unwrap();
     let small = |n: i64| {
         let mut buf = [0u8; 128];
-        let mut b = BlockWriter::new(&mut buf, BlockKind::Records, id(0), &[1]).unwrap();
-        b.push(2, ClockTime::new(1, n), &[&[n as u8; 20]]).unwrap();
+        let mut b =
+            BlockWriter::new(&mut buf, BlockKind::Records, id(0), &[ClockNum::new(1)]).unwrap();
+        b.push(
+            TrackNum::new(2),
+            ClockTime::new(ClockNum::new(1), n),
+            &[&[n as u8; 20]],
+        )
+        .unwrap();
         let len = b.finish();
         buf[..len].to_vec()
     };

@@ -139,6 +139,7 @@ impl Near {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::TrackNum;
 
     const RULE: Rule = Rule {
         near: 1000,
@@ -154,7 +155,9 @@ mod tests {
     fn a_slot_that_moved_on_and_back_is_written_again() {
         let p = NearPolicy::default();
         let mut n = Near::default();
-        let s = Slot::State { track: 3 };
+        let s = Slot::State {
+            track: TrackNum::new(3),
+        };
         wrote(&mut n, s, b"A", 0, &p);
         assert!(!n.writes(&s, ItemHash::of(b"A"), 100, RULE));
         wrote(&mut n, s, b"B", 100, &p);
@@ -167,7 +170,9 @@ mod tests {
         let p = NearPolicy::default();
         let rule = Rule { copies: 2, ..RULE };
         let mut n = Near::default();
-        let s = Slot::Track { number: 1 };
+        let s = Slot::Track {
+            number: TrackNum::new(1),
+        };
         let a = ItemHash::of(b"A");
         wrote(&mut n, s, b"A", 0, &p);
         assert!(!n.writes(&s, a, 9, rule));
@@ -185,7 +190,9 @@ mod tests {
     fn a_damaged_record_is_written_again() {
         let p = NearPolicy::default();
         let mut n = Near::default();
-        let s = Slot::State { track: 3 };
+        let s = Slot::State {
+            track: TrackNum::new(3),
+        };
         wrote(&mut n, s, b"A", 0, &p);
         n.wrote(s, None, 50, &p);
         assert!(n.writes(&s, ItemHash::of(b"A"), 60, RULE));
@@ -199,10 +206,32 @@ mod tests {
         };
         let mut n = Near::default();
         for (i, t) in [1u32, 2, 3].into_iter().enumerate() {
-            wrote(&mut n, Slot::State { track: t }, b"x", i as u64, &p);
+            wrote(
+                &mut n,
+                Slot::State {
+                    track: TrackNum::new(t),
+                },
+                b"x",
+                i as u64,
+                &p,
+            );
         }
         assert_eq!(n.len(), 2);
-        assert!(n.writes(&Slot::State { track: 1 }, ItemHash::of(b"x"), 3, RULE));
-        assert!(!n.writes(&Slot::State { track: 3 }, ItemHash::of(b"x"), 3, RULE));
+        assert!(n.writes(
+            &Slot::State {
+                track: TrackNum::new(1)
+            },
+            ItemHash::of(b"x"),
+            3,
+            RULE
+        ));
+        assert!(!n.writes(
+            &Slot::State {
+                track: TrackNum::new(3)
+            },
+            ItemHash::of(b"x"),
+            3,
+            RULE
+        ));
     }
 }

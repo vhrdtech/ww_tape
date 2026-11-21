@@ -23,6 +23,7 @@ use ww_tape::{
     Segment, SeriesDef, SeriesGrid, SyncPolicy, TapeSink, TapeWriter, TrackDef, TrackKind, Version,
     clock_key, track_key,
 };
+use ww_tape::{ClockNum, TrackNum};
 use ww_tape_bench::{Bench, Cell, Common};
 
 /// The system allocator, counting the bytes live and their peak.
@@ -134,11 +135,11 @@ impl TapeSink for Discard {
     }
 }
 
-const CLOCK: u32 = 1;
+const CLOCK: ClockNum = ClockNum::new(1);
 
 fn clock() -> Describe<'static> {
     Describe::Clock(ClockDef {
-        number: UNib32(CLOCK),
+        number: CLOCK,
         key: clock_key(0xd3, &[], 1),
         rate: Magnitude::pow10(9).into(),
         resolution: Magnitude::pow10(-9).into(),
@@ -149,9 +150,9 @@ fn clock() -> Describe<'static> {
 
 fn track(number: u32, kind: TrackKind<'static>) -> Describe<'static> {
     Describe::Track(TrackDef {
-        number: UNib32(number),
+        number: TrackNum::new(number),
         key: track_key(0xd3, &[Segment::Index(number)]),
-        clock: UNib32(CLOCK),
+        clock: CLOCK,
         dimensions: RefVec::Slice { slice: &[] },
         items: match kind {
             TrackKind::Series(_) => Items::numbers::<i16>(None),
@@ -201,8 +202,12 @@ fn records(tracks: u32, piece: u64, block: usize) -> anyhow::Result<Row> {
         let t = 1 + n % tracks;
         let mut b =
             BlockWriter::new(&mut buf, BlockKind::Records, w.next_id(), &[CLOCK]).map_err(any)?;
-        b.push(t, ClockTime::new(CLOCK, i64::from(n)), &[&item])
-            .map_err(any)?;
+        b.push(
+            TrackNum::new(t),
+            ClockTime::new(CLOCK, i64::from(n)),
+            &[&item],
+        )
+        .map_err(any)?;
         let len = b.finish();
         w.write_block(&defs, buf.get(..len).ok_or_else(|| any("block"))?)
             .map_err(any)?;
@@ -249,7 +254,7 @@ fn series(piece: u64, chunk: usize) -> anyhow::Result<Row> {
         let head = ChunkHead {
             kind: BlockKind::Series,
             track_id: track_key(0xd3, &[Segment::Index(1)]),
-            track_number: 1,
+            track_number: TrackNum::new(1),
             first_item: first,
             count,
             first_tick,

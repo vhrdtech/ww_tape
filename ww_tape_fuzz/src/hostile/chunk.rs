@@ -4,6 +4,7 @@
 use super::{
     Draw, Field, HEADER_FIELDS, LEN_FIELD, SESSION, crc32c, get, hit, hit_some, seal, span,
 };
+use ww_tape::TrackNum;
 use ww_tape::chunk::{
     CHUNK_FIXED_LEN, COLUMN_ENTRY_LEN, MAX_COLUMNS, SEGMENT_SHIFT_MAX, SEGMENT_SHIFT_MIN,
     SERIES_GRID_LEN, chunk_len, write_chunk,
@@ -178,7 +179,7 @@ pub fn chunk(data: &[u8]) -> Vec<u8> {
             BlockKind::Events
         },
         track_id: 7,
-        track_number: 1,
+        track_number: TrackNum::new(1),
         first_item,
         count,
         first_tick,

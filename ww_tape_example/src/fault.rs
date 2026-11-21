@@ -7,6 +7,7 @@
 //! this file; [Fault::find] runs them all and counts the bytes each step reads ([Counted]).
 
 use core::cell::Cell;
+use ww_tape::TrackNum;
 
 use shrink_wrap::prelude::*;
 use ww_tape::chunk::ColumnKind;
@@ -215,7 +216,13 @@ pub fn mode<S: ByteSource>(
     let mut out = Vec::new();
     for chunk in chunks {
         // --8<-- [start:mode]
-        let lookup = reader.state_at(piece, Slot::State { track: MODE }, chunk.offset)?;
+        let lookup = reader.state_at(
+            piece,
+            Slot::State {
+                track: TrackNum::new(MODE),
+            },
+            chunk.offset,
+        )?;
         let record = lookup.item.as_ref().ok_or(FaultError::Missing("mode"))?;
         // record.item is the mode in force; record.offset is where its block starts
         // --8<-- [end:mode]
@@ -327,7 +334,7 @@ fn series_def<S: ByteSource>(
     reader: &TapeReader<S>,
     piece: usize,
     offset: u64,
-    number: u32,
+    number: TrackNum,
 ) -> Result<(Ratio64, Option<SeriesSummarySpec>), FaultError<S::Error>> {
     let defs = reader.definitions_at(piece, offset)?;
     let state = defs
@@ -356,7 +363,7 @@ pub fn current<S: ByteSource>(
         .iter()
         .find(|e| e.first_tick <= from && from <= e.last_tick)
         .ok_or(FaultError::Missing("chunk before the fault"))?;
-    let (period, _) = series_def(reader, piece, entry.offset, PHASE_A)?;
+    let (period, _) = series_def(reader, piece, entry.offset, TrackNum::new(PHASE_A))?;
     // --8<-- [start:current]
     let mut buf = Vec::new();
     let block = reader.read_block(piece, entry, &mut buf)?;
@@ -513,7 +520,7 @@ pub fn overview(
         .pieces()
         .first()
         .ok_or(FaultError::Missing("piece"))?;
-    let (_, spec) = series_def(reader, 0, piece.end, PHASE_A)?;
+    let (_, spec) = series_def(reader, 0, piece.end, TrackNum::new(PHASE_A))?;
     let spec = spec.ok_or(FaultError::Missing("summaries"))?;
     let mut total = 0;
     let mut sample_bytes = 0;

@@ -2,6 +2,8 @@
 //! file in the order of the calls, whatever waits for an aligned chunk's gap.
 
 use shrink_wrap::prelude::*;
+use ww_tape::TrackNum;
+use ww_tape::{ClockNum, RecordTrack};
 
 use crate::definitions::{CLOCK, Rig, base, clock, on_tracks, record_blocks, track};
 use ww_tape::{
@@ -22,12 +24,18 @@ fn aligned() -> Rig {
 fn clock_at(bytes: &[u8], number: u32, offset: u64) -> u32 {
     let r = TapeReader::open(bytes).unwrap();
     let found = r
-        .state_at(0, Slot::Track { number }, offset)
+        .state_at(
+            0,
+            Slot::Track {
+                number: TrackNum::new(number),
+            },
+            offset,
+        )
         .unwrap()
         .item
         .unwrap();
     match DescribeOwned::from_ww_bytes_owned(&found.item).unwrap() {
-        DescribeOwned::Track(t) => t.clock.0,
+        DescribeOwned::Track(t) => t.clock.get(),
         other => panic!("not a track: {other:?}"),
     }
 }
@@ -62,8 +70,8 @@ fn a_deferred_block_of_puts_is_put() {
     let mut out = Vec::new();
     ww_tape::open::write_records(
         &[ww_tape::RecordRef {
-            track: 6,
-            at: Some(ww_tape::ClockTime::new(CLOCK, 3)),
+            track: RecordTrack::from_u32(6),
+            at: Some(ww_tape::ClockTime::new(ClockNum::new(CLOCK), 3)),
             item: b"A",
         }],
         4096,
@@ -86,7 +94,9 @@ fn a_deferred_block_of_puts_is_put() {
         .into_iter()
         .filter(|b| {
             let block = ww_tape::Block::read(&b.bytes).unwrap();
-            block.records().any(|r| r.unwrap().track == 6)
+            block
+                .records()
+                .any(|r| r.unwrap().track == RecordTrack::from_u32(6))
         })
         .collect();
     assert_eq!(state.len(), 1, "put once");

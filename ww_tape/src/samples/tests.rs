@@ -1,4 +1,5 @@
 use super::*;
+use crate::TrackNum;
 use crate::tests::id;
 use shrink_wrap::prelude::UNib32;
 
@@ -215,7 +216,7 @@ fn samples_golden() {
     let head = crate::ChunkHead {
         kind: crate::BlockKind::Series,
         track_id: 0x5a5a,
-        track_number: 3,
+        track_number: TrackNum::new(3),
         first_item: 1000,
         count: n as u32,
         first_tick: 0,

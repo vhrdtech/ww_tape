@@ -4,6 +4,7 @@
 use super::{chunk, index, payloads, reader, samples, series, summary, times};
 use crate::hostile;
 use shrink_wrap::DeserializeShrinkWrap;
+use ww_tape::TrackNum;
 use ww_tape::samples::Scalar;
 use ww_tape::times::EventTimes;
 use ww_tape::{
@@ -483,7 +484,7 @@ fn resume_state(f: &[u8], forged: bool) {
     };
     let defs = hostile::state_definitions();
     for t in hostile::STATES {
-        w.put(&defs, t, 1000, b"resumed")
+        w.put(&defs, TrackNum::new(t), 1000, b"resumed")
             .expect("a resumed piece takes puts");
     }
     w.write_block(&defs, &hostile::state_records(w.next_id(), 1000))
@@ -504,7 +505,7 @@ fn resume_state(f: &[u8], forged: bool) {
         .state_at(
             last,
             Slot::State {
-                track: hostile::STATES[0],
+                track: TrackNum::new(hostile::STATES[0]),
             },
             u64::MAX,
         )

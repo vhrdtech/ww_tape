@@ -581,6 +581,7 @@ mod tests {
     use crate::open::{RecordRef, write_records};
     use crate::reader::Found;
     use crate::{BlockId, BodyCodec, SessionTag};
+    use crate::{ClockNum, RecordTrack, TrackNum};
 
     /// An lz4-coded block of `n` state records on track 5, `len` bytes each, the `i`th all `i`.
     fn coded(n: u8, len: usize) -> (Vec<u8>, Vec<Vec<u8>>) {
@@ -589,8 +590,8 @@ mod tests {
             .iter()
             .enumerate()
             .map(|(i, item)| RecordRef {
-                track: 5,
-                at: Some(ClockTime::new(1, i64::try_from(i).unwrap())),
+                track: RecordTrack::from_u32(5),
+                at: Some(ClockTime::new(ClockNum::new(1), i64::try_from(i).unwrap())),
                 item,
             })
             .collect();
@@ -628,7 +629,9 @@ mod tests {
         let b = Block::read(&block).unwrap();
         assert!(b.is_coded());
         let e = IndexEntry::of_block(0, &b).unwrap();
-        let slot = Slot::State { track: 5 };
+        let slot = Slot::State {
+            track: TrackNum::new(5),
+        };
         let wanted: BTreeSet<_> = items.iter().map(|i| (slot, ItemHash::of(i))).collect();
         let mut r = reads(&wanted, wide(block.len()));
         assert_eq!(kept(&b, &e, &mut r), Read::Spent);
@@ -655,7 +658,9 @@ mod tests {
         block[n - 4..].copy_from_slice(&crc.to_le_bytes());
         let b = Block::read(&block).unwrap();
         let e = IndexEntry::of_block(0, &b).unwrap();
-        let slot = Slot::State { track: 5 };
+        let slot = Slot::State {
+            track: TrackNum::new(5),
+        };
         let wanted: BTreeSet<_> = items.iter().map(|i| (slot, ItemHash::of(i))).collect();
         let left = 8 * 4000;
         let mut r = reads(&wanted, left);
@@ -675,7 +680,9 @@ mod tests {
         let (block, items) = coded(8, 4000);
         let b = Block::read(&block).unwrap();
         let e = IndexEntry::of_block(0, &b).unwrap();
-        let slot = Slot::State { track: 5 };
+        let slot = Slot::State {
+            track: TrackNum::new(5),
+        };
         let wanted = BTreeSet::from([(slot, ItemHash::of(&items[3]))]);
         let mut r = reads(&wanted, u64::MAX);
         let Read::Kept(k) = kept(&b, &e, &mut r) else {
@@ -712,7 +719,7 @@ mod tests {
             level: 0,
             tree: 0,
             track_id: STATE_TRACK_ID,
-            track_number: 0,
+            number: 0,
             second: 0,
             first_item: 0,
             count: 0,
@@ -739,7 +746,9 @@ mod tests {
     #[test]
     fn the_state_cache_keeps_a_budget_over_all_pieces() {
         let index = |n: u64| {
-            let slot = Slot::State { track: 5 };
+            let slot = Slot::State {
+                track: TrackNum::new(5),
+            };
             StateIndex::new((0..n).map(|k| entry(k, slot, b"x")).collect())
         };
         let cache = StateCache::new(10);
@@ -762,7 +771,14 @@ mod tests {
     /// The sorted entries find a slot's entries before a place and an item's entries by binary search.
     #[test]
     fn the_sorted_index_finds_slots_and_hashes() {
-        let (a, b) = (Slot::State { track: 5 }, Slot::Track { number: 2 });
+        let (a, b) = (
+            Slot::State {
+                track: TrackNum::new(5),
+            },
+            Slot::Track {
+                number: TrackNum::new(2),
+            },
+        );
         let ix = StateIndex::new(alloc::vec![
             entry(10, a, b"x"),
             entry(20, b, b"t"),

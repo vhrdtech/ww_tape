@@ -2,6 +2,7 @@
 //! [PieceChain::write_chunk] say a block landed: the offset and length read back as that block with
 //! [TapeReader::read_block].
 
+use ww_tape::TrackNum;
 use ww_tape::index::{IndexEntry, IndexPolicy};
 use ww_tape::{
     BlockId, BlockKind, ChainOptions, CutPolicy, MemSink, OwnerId, SessionTag, SyncPolicy,
@@ -20,7 +21,7 @@ fn at(offset: u64, len: u32) -> IndexEntry {
         level: 0,
         tree: 0,
         track_id: 0,
-        track_number: 0,
+        number: 0,
         second: 0,
         first_item: 0,
         count: 0,
@@ -55,7 +56,7 @@ fn write_chunk_and_write_block_say_where_they_landed() {
     let chunk_placed = w.write_chunk(&defs, &head, &column(&cols)).unwrap();
 
     // an explicit put lands right before the next block
-    assert!(w.put(&defs, 5, 1, b"state").unwrap());
+    assert!(w.put(&defs, TrackNum::new(5), 1, b"state").unwrap());
     let block_placed = w
         .write_block(&defs, &records(w.next_id(), 7))
         .unwrap()
@@ -105,7 +106,7 @@ fn write_chunk_and_write_block_say_where_they_landed() {
     let mut decoded = Vec::new();
     let d = b.decode(&mut decoded).unwrap();
     let rec = d.records().next().unwrap().unwrap();
-    assert_eq!((rec.track, rec.item), (9, [7u8; 30].as_slice()));
+    assert_eq!((rec.track.get(), rec.item), (9, [7u8; 30].as_slice()));
 }
 
 /// [TapeWriter::adopt_block] says where a producer's block landed, once renumbered into the writer's own session.
@@ -130,7 +131,7 @@ fn adopt_block_says_where_it_landed() {
     let mut decoded = Vec::new();
     let d = b.decode(&mut decoded).unwrap();
     let rec = d.records().next().unwrap().unwrap();
-    assert_eq!((rec.track, rec.item), (9, [11u8; 30].as_slice()));
+    assert_eq!((rec.track.get(), rec.item), (9, [11u8; 30].as_slice()));
 }
 
 /// [PieceChain::write_chunk] says which piece a chunk landed in: a cut before the second chunk (its [CutPolicy]

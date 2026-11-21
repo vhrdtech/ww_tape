@@ -5,6 +5,7 @@
 //! `cargo run -p ww_tape_example --bin first_tape` runs both on the drive's first minute.
 
 use std::path::Path;
+use ww_tape::TrackNum;
 
 use shrink_wrap::prelude::*;
 use ww_tape::{
@@ -25,7 +26,7 @@ pub fn write(path: &Path, drive: &Drive) -> Result<Closed, FirstTapeError> {
         match act? {
             // the mode in force from `ticks` on, put at each use
             Act::Put { ticks, mode } => {
-                writer.put(&defs, MODE, ticks, mode.item())?;
+                writer.put(&defs, TrackNum::new(MODE), ticks, mode.item())?;
             }
             // log lines and temperatures, one records block a second
             Act::Records(records) => {
@@ -54,7 +55,7 @@ pub fn write(path: &Path, drive: &Drive) -> Result<Closed, FirstTapeError> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Track {
     /// The track's number in the file.
-    pub number: u32,
+    pub number: TrackNum,
     /// The label of its definition.
     pub label: String,
     /// How its items are kept: `records`, `state`, `events chunks` or `series chunks`.
@@ -154,7 +155,7 @@ pub enum FirstTapeError {
     /// The piece has no close record: it was never closed.
     NotClosed,
     /// The definition of this track does not decode.
-    Definition(u32),
+    Definition(TrackNum),
 }
 
 impl core::fmt::Display for FirstTapeError {

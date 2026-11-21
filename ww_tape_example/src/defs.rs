@@ -1,6 +1,7 @@
 //! The drive's definitions: its two clocks, the map between them and its five tracks.
 
 use exact_units::{Bytes, Count};
+use ww_tape::{ClockNum, TrackNum};
 
 use crate::Error;
 use shrink_wrap::prelude::*;
@@ -48,7 +49,7 @@ pub fn key(name: &str) -> u64 {
 fn clocks() -> [Describe<'static>; 2] {
     [
         Describe::Clock(ClockDef {
-            number: UNib32(BOARD_CLOCK),
+            number: ClockNum::new(BOARD_CLOCK),
             key: clock_key(API_ROOT, &[Segment::Name("timer")], 1),
             rate: Magnitude::pow10(6).into(),
             resolution: Magnitude::pow10(-6).into(),
@@ -56,7 +57,7 @@ fn clocks() -> [Describe<'static>; 2] {
             label: "board µs since boot",
         }),
         Describe::Clock(ClockDef {
-            number: UNib32(HOST_CLOCK),
+            number: ClockNum::new(HOST_CLOCK),
             key: UNIX_CLOCK_KEY,
             rate: Magnitude::pow10(9).into(),
             resolution: Magnitude::pow10(-9).into(),
@@ -74,9 +75,9 @@ fn track(
     kind: TrackKind<'static>,
 ) -> Describe<'static> {
     Describe::Track(TrackDef {
-        number: UNib32(number),
+        number: TrackNum::new(number),
         key: key(name),
-        clock: UNib32(BOARD_CLOCK),
+        clock: ClockNum::new(BOARD_CLOCK),
         dimensions: RefVec::Slice { slice: &[] },
         items: match kind {
             TrackKind::Series(_) => Items::numbers::<i16>(None),
@@ -160,8 +161,8 @@ pub fn definitions(hz: u32, summaries: bool, near: u32) -> Result<Definitions, E
     .ok_or(Error::Settings("the clock map's segment"))?;
     let segments = [segment];
     let map = Describe::Map(ClockMap {
-        from: UNib32(BOARD_CLOCK),
-        to: UNib32(HOST_CLOCK),
+        from: ClockNum::new(BOARD_CLOCK),
+        to: ClockNum::new(HOST_CLOCK),
         segments: RefVec::Slice { slice: &segments },
     });
     let mode = TrackRepeat::State(StatePolicy {

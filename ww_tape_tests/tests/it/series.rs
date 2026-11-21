@@ -2,6 +2,7 @@
 //! autorange prefix change, a gap) and its samples, from `Series<Fixed<..>>` batches to chunk columns without a float.
 
 use std::path::PathBuf;
+use ww_tape::{ClockNum, RecordTrack, TrackNum};
 
 use exact_units::prefix::{Micro, Milli};
 use exact_units::units::{Ampere, Second, Tick};
@@ -17,7 +18,9 @@ use ww_tape::{
     TapeWriter, TrackDef, TrackKind, TypeRef, Version, clock_key, track_key,
 };
 
-const CLOCK: u32 = 1;
+const TRACK_NUM: TrackNum = TrackNum::new(TRACK);
+
+const CLOCK: ClockNum = ClockNum::new(1);
 const TRACK: u32 = 1;
 const CHANNELS: u32 = 2;
 /// Samples per chunk at most.
@@ -113,7 +116,7 @@ fn definitions() -> Vec<Describe<'static>> {
         Describe::Producer(Producer { name: "series" }),
         Describe::Layout(Layout::ALIGNED),
         Describe::Clock(ClockDef {
-            number: UNib32(CLOCK),
+            number: CLOCK,
             key: clock_key(0x5e, &[], 1),
             rate: MagnitudeOf::<Per<Tick, Second>>::from(Magnitude::pow10(9)),
             resolution: Magnitude::pow10(-9).into(),
@@ -121,9 +124,9 @@ fn definitions() -> Vec<Describe<'static>> {
             label: "dev",
         }),
         Describe::Track(TrackDef {
-            number: UNib32(TRACK),
+            number: TrackNum::new(TRACK),
             key: track_key(0x5e, &[Segment::Name("phase")]),
-            clock: UNib32(CLOCK),
+            clock: CLOCK,
             dimensions: RefVec::Slice { slice: &[] },
             items: ww_tape::Items::numbers::<MicroAmps>(Some(sample_type())),
             label: "phase.current",
@@ -178,7 +181,7 @@ fn seal(
         let head = ChunkHead {
             kind: BlockKind::Series,
             track_id: series_id(),
-            track_number: TRACK,
+            track_number: TrackNum::new(TRACK),
             first_item: *first,
             count,
             first_tick,
@@ -271,7 +274,7 @@ fn read(bytes: &[u8]) -> Read {
             BlockKind::Records => {
                 for rec in b.records() {
                     let rec = rec.unwrap();
-                    if rec.track == 0 {
+                    if rec.track == RecordTrack::Definitions {
                         let d = DescribeOwned::from_ww_bytes_owned(rec.item).unwrap();
                         if let DescribeOwned::Track(t) = d
                             && let ww_tape::TrackKindOwned::Series(s) = t.kind
@@ -280,7 +283,7 @@ fn read(bytes: &[u8]) -> Read {
                             def = Some((SampleShape::new(element, s.channels.0), s));
                         }
                     } else {
-                        assert_ne!(rec.track, TRACK, "a series track has no records");
+                        assert_ne!(rec.track.get(), TRACK, "a series track has no records");
                     }
                 }
             }
@@ -526,7 +529,7 @@ fn writer_refuses_what_a_series_track_does_not_hold() {
     let head = ChunkHead {
         kind: BlockKind::Series,
         track_id: series_id(),
-        track_number: TRACK,
+        track_number: TrackNum::new(TRACK),
         first_item: 0,
         count: 4,
         first_tick,
@@ -552,7 +555,7 @@ fn writer_refuses_what_a_series_track_does_not_hold() {
         w.write_chunk(defs, &off_grid, &[(spec, &bytes)]),
         Err(ww_tape::WriteError::Describe(
             ww_tape::DescribeError::Kind {
-                track: TRACK,
+                track: TRACK_NUM,
                 error: ww_tape::SeriesError::ChunkTicks { first_item: 0 }
             }
         ))
@@ -570,23 +573,30 @@ fn writer_refuses_what_a_series_track_does_not_hold() {
     assert!(matches!(
         w.write_chunk(defs, &events, &[(starts, &bytes)]),
         Err(ww_tape::WriteError::Describe(
-            ww_tape::DescribeError::WrongKind { track: TRACK }
+            ww_tape::DescribeError::WrongKind { track: TRACK_NUM }
         ))
     ));
     // a put: the track is not a state track
-    assert!(w.put(defs, TRACK, START, &[1, 2, 3]).is_err());
+    assert!(
+        w.put(defs, TrackNum::new(TRACK), START, &[1, 2, 3])
+            .is_err()
+    );
     w.write_chunk(defs, &head, &[(spec, &bytes)]).unwrap();
     // a record in a caller's block
     let mut buf = [0u8; 128];
     let mut b =
         ww_tape::BlockWriter::new(&mut buf, BlockKind::Records, w.next_id(), &[CLOCK]).unwrap();
-    b.push(TRACK, ww_tape::ClockTime::new(CLOCK, START), &[b"x"])
-        .unwrap();
+    b.push(
+        TrackNum::new(TRACK),
+        ww_tape::ClockTime::new(CLOCK, START),
+        &[b"x"],
+    )
+    .unwrap();
     let len = b.finish();
     assert!(matches!(
         w.write_block(defs, &buf[..len]),
         Err(ww_tape::WriteError::Describe(
-            ww_tape::DescribeError::WrongKind { track: TRACK }
+            ww_tape::DescribeError::WrongKind { track: TRACK_NUM }
         ))
     ));
     _ = std::fs::remove_dir_all(&dir);
@@ -606,7 +616,7 @@ fn caller_chunks_are_checked_once() {
     let head = ChunkHead {
         kind: BlockKind::Series,
         track_id: series_id(),
-        track_number: TRACK,
+        track_number: TrackNum::new(TRACK),
         first_item: 0,
         count: 4,
         first_tick,
@@ -700,7 +710,7 @@ fn writer_refuses_chunks_too_long_without_a_panic() {
     let head = ChunkHead {
         kind: BlockKind::Series,
         track_id: series_id(),
-        track_number: TRACK,
+        track_number: TrackNum::new(TRACK),
         first_item: 0,
         count: 4,
         first_tick,
@@ -721,7 +731,7 @@ fn writer_refuses_chunks_too_long_without_a_panic() {
         w.write_chunk(defs, &head, &[(spec, &samples)]),
         Err(ww_tape::WriteError::Describe(
             ww_tape::DescribeError::Kind {
-                track: TRACK,
+                track: TRACK_NUM,
                 error: ww_tape::SeriesError::ScaleTooLong { first_item: 0 }
             }
         ))
@@ -764,7 +774,7 @@ fn summarized(w: &mut TapeWriter<ww_tape_fs::FileSink>, from: u64, to: u64) -> u
     let shape = SampleShape::new(i32::ELEMENT, CHANNELS);
     let start = SeriesStart {
         track_id: series_id(),
-        track_number: TRACK,
+        track_number: TrackNum::new(TRACK),
         shape,
         first_item: from,
         grid,
@@ -827,7 +837,7 @@ fn summaries_listed(bytes: &[u8]) -> Listed {
         .unwrap()
         .1
         .iter()
-        .map(|t| (t.track_number, t.chunks, t.first_item, t.items))
+        .map(|t| (t.track_number.get(), t.chunks, t.first_item, t.items))
         .collect();
     let mut buf = vec![];
     let mut listed: Vec<_> = r

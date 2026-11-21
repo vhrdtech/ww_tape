@@ -61,6 +61,7 @@ use crate::{
     Block, BlockError, BlockId, BlockKind, BoundError, CRC, CRC_LEN, ChunkHead, HEADER_LEN,
     MAX_BLOCK_LEN, VERSION, put_header,
 };
+use crate::{RecordTrack, TrackNum};
 
 /// Bytes of one index entry.
 pub const ENTRY_LEN: usize = 120;
@@ -144,7 +145,9 @@ pub struct IndexEntry {
     /// The track's identity hash ([TrackDef::id](crate::TrackDef::id)); 0 for record blocks of data,
     /// [STATE_TRACK_ID] for a state record.
     pub track_id: u64,
-    pub track_number: u32,
+    /// Bytes 24..28 as written: a chunk's or summary's track number ([Self::track]), a state record's first slot
+    /// number ([Self::state]), else 0.
+    pub number: u32,
     /// A state record's second number ([IndexEntry::state]), else 0.
     pub second: u32,
     /// First item number (sample index) the block holds or covers.
@@ -191,7 +194,7 @@ impl IndexEntry {
         let Ok(b) = block.decode(&mut buf) else {
             return alloc::vec![e];
         };
-        if !b.is_repeat() && b.first_track() != Some(crate::DESCRIBE_TRACK) {
+        if !b.is_repeat() && b.first_track() != Some(RecordTrack::Definitions) {
             return alloc::vec![e];
         }
         let mut out = alloc::vec::Vec::new();
@@ -224,7 +227,7 @@ impl IndexEntry {
             level,
             tree: 0,
             track_id: STATE_TRACK_ID,
-            track_number: number,
+            number,
             second,
             first_item: 0,
             count: 0,
@@ -242,7 +245,7 @@ impl IndexEntry {
     pub(crate) fn names_chunk(&self, head: &ChunkHead) -> bool {
         self.kind == head.kind
             && self.track_id == head.track_id
-            && self.track_number == head.track_number
+            && self.number == head.track_number.get()
             && self.first_item == head.first_item
             && self.count == u64::from(head.count)
     }
@@ -263,7 +266,7 @@ impl IndexEntry {
         }
         let hash = ItemHash(hash);
         Some(StateEntry {
-            slot: Slot::from_code(self.level, self.track_number, self.second, hash)?,
+            slot: Slot::from_code(self.level, self.number, self.second, hash)?,
             hash,
             ticks: self.latest_end,
         })
@@ -283,7 +286,7 @@ impl IndexEntry {
             level: 0,
             tree: 0,
             track_id: 0,
-            track_number: 0,
+            number: 0,
             second: 0,
             first_item: 0,
             count: u64::from(block.record_count),
@@ -314,7 +317,7 @@ impl IndexEntry {
             BlockKind::Summary => {
                 if let Some(h) = block.summary_head() {
                     e.track_id = h.track_id;
-                    e.track_number = h.track_number;
+                    e.number = h.track_number.get();
                     e.tree = h.tree.to_u8();
                     e.level = h.level;
                     e.first_item = h.first_item;
@@ -342,7 +345,7 @@ impl IndexEntry {
             level: 0,
             tree: 0,
             track_id: head.track_id,
-            track_number: head.track_number,
+            number: head.track_number.get(),
             second: 0,
             first_item: head.first_item,
             count: u64::from(head.count),
@@ -368,6 +371,20 @@ impl IndexEntry {
             || (self.order() == next.order() && self.track_id == STATE_TRACK_ID)
     }
 
+    /// The track of a chunk's or summary's entry; None for an entry of another block or a state record, and for a
+    /// damaged entry naming track 0.
+    pub fn track(&self) -> Option<TrackNum> {
+        let block = matches!(
+            self.kind,
+            BlockKind::Events | BlockKind::Series | BlockKind::Summary
+        );
+        if block && self.track_id != STATE_TRACK_ID {
+            TrackNum::try_new(self.number)
+        } else {
+            None
+        }
+    }
+
     /// Item numbers past the last one the block holds.
     pub fn end_item(&self) -> u64 {
         self.first_item.saturating_add(self.count)
@@ -389,7 +406,7 @@ impl IndexEntry {
                     | (if self.relation_break { ENTRY_BREAK } else { 0 }),
             ])
             .chain(self.track_id.to_le_bytes())
-            .chain(self.track_number.to_le_bytes())
+            .chain(self.number.to_le_bytes())
             .chain(self.second.to_le_bytes())
             .chain(self.first_item.to_le_bytes())
             .chain(self.count.to_le_bytes())
@@ -453,7 +470,7 @@ impl IndexEntry {
             level,
             tree,
             track_id: u64::from_le_bytes([t0, t1, t2, t3, t4, t5, t6, t7]),
-            track_number: u32::from_le_bytes([n0, n1, n2, n3]),
+            number: u32::from_le_bytes([n0, n1, n2, n3]),
             second: u32::from_le_bytes([r0, r1, r2, r3]),
             first_item: u64::from_le_bytes([i0, i1, i2, i3, i4, i5, i6, i7]),
             count: u64::from_le_bytes([c0, c1, c2, c3, c4, c5, c6, c7]),

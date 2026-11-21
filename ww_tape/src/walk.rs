@@ -4,8 +4,8 @@ use core::num::NonZeroU64;
 
 use crate::piece::PieceHeadBlock;
 use crate::{
-    Block, BlockKind, DESCRIBE_TRACK, Describe, FLAG_REPEAT, HEADER_LEN, Layout, Medium,
-    SessionTag, block_len,
+    Block, BlockKind, Describe, FLAG_REPEAT, HEADER_LEN, Layout, Medium, RecordTrack, SessionTag,
+    block_len,
 };
 
 /// Whether a good block met in a walk belongs to the data.
@@ -216,7 +216,7 @@ pub(crate) fn starts_with_definitions(b: &Block<'_>) -> bool {
         return false;
     }
     let mut buf = alloc::vec::Vec::new();
-    b.decode(&mut buf).ok().and_then(|d| d.first_track()) == Some(DESCRIBE_TRACK)
+    b.decode(&mut buf).ok().and_then(|d| d.first_track()) == Some(RecordTrack::Definitions)
 }
 
 /// The [Layout] the track-0 records of record block `b` say, the last one in it; None for any other block.
@@ -227,12 +227,12 @@ pub(crate) fn layout_in(b: &Block<'_>) -> Option<Layout> {
     let mut buf = alloc::vec::Vec::new();
     let d = b.decode(&mut buf).ok()?;
     // a block of data holds no track-0 record: one look at its first
-    if d.first_track() != Some(DESCRIBE_TRACK) {
+    if d.first_track() != Some(RecordTrack::Definitions) {
         return None;
     }
     d.records()
         .map_while(Result::ok)
-        .filter(|r| r.track == DESCRIBE_TRACK)
+        .filter(|r| r.track.is_definitions())
         .filter_map(|r| {
             match <Describe<'_> as shrink_wrap::DeserializeShrinkWrap>::from_ww_bytes(r.item) {
                 Ok(Describe::Layout(l)) => Some(l),
@@ -245,6 +245,7 @@ pub(crate) fn layout_in(b: &Block<'_>) -> Option<Layout> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{ClockNum, TrackNum};
     use exact_units::Bytes;
 
     fn walk(gap_max: u32, resume_align: u32) -> SessionState {
@@ -293,11 +294,15 @@ mod tests {
             &mut buf,
             BlockKind::Records,
             crate::BlockId::new(a, 0),
-            &[1],
+            &[ClockNum::new(1)],
         )
         .unwrap();
-        w.push(9, crate::ClockTime::new(1, 1), &[&[1u8; 4]])
-            .unwrap();
+        w.push(
+            TrackNum::new(9),
+            crate::ClockTime::new(ClockNum::new(1), 1),
+            &[&[1u8; 4]],
+        )
+        .unwrap();
         let n = w.finish();
         let mut walk = SessionState::new(Medium::Raw);
         walk.take(&Block::read(&buf[..n]).unwrap());

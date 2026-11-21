@@ -12,6 +12,10 @@ Covers `ww_tape` 0.1.0.
 
 ### Breaking
 
+- Track and clock numbers are `TrackNum` and `ClockNum` (1 and up) in definitions, records, chunks, slots and errors; build them with `TrackNum::new(n)` (READ-5).
+- `Record::track`, `RecordRef::track` and `Block::first_track` are a `RecordTrack`; `DESCRIBE_TRACK` and `NO_CLOCK` are gone, use `RecordTrack::Definitions` (READ-5).
+- `PushError::DescribeTrack` and `BlockStartError::NoClock` are gone: the types exclude them; `DescribeError::RecordTime` refuses a mismatched `RecordRef` (READ-5).
+- `IndexEntry::track_number` is `number`, the raw field; `IndexEntry::track()` gives a chunk's or summary's `TrackNum` (READ-5).
 - The finish block is the close record (kind 8, new layout): `Close`, `CloseBlock`, `write_close`, `close_len`, `close_padding` (WRITE-7).
 - `FinishState` splits: `CloseReason` (`Closed`, `Aborted`) says why; a piece continues iff its close names `next` (WRITE-7).
 - `TapeWriter::finish`/`finish_as` are `close`/`close_as(CloseReason)`, returning `Closed`; `PieceChain` likewise; `TapeSink::finish` is `close` (WRITE-7).

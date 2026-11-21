@@ -5,15 +5,20 @@ use ww_tape::{
     BlockId, BlockKind, BlockWriter, ClockTime, Cut, Describe, FileBlocks, FileError, Layout,
     Medium, OpenOptions, Recovery, SessionTag, SyncPolicy, TapeReader,
 };
+use ww_tape::{ClockNum, RecordTrack, TrackNum};
 
 const OLD: SessionTag = SessionTag::writable(0x0bad_0001);
 const NEW: SessionTag = SessionTag::writable(0x600d_0002);
 
 fn records(id: BlockId) -> Vec<u8> {
     let mut buf = [0u8; 256];
-    let mut b = BlockWriter::new(&mut buf, BlockKind::Records, id, &[1]).unwrap();
-    b.push(9, ClockTime::new(1, id.seq as i64), &[&[id.seq as u8; 40]])
-        .unwrap();
+    let mut b = BlockWriter::new(&mut buf, BlockKind::Records, id, &[ClockNum::new(1)]).unwrap();
+    b.push(
+        TrackNum::new(9),
+        ClockTime::new(ClockNum::new(1), id.seq as i64),
+        &[&[id.seq as u8; 40]],
+    )
+    .unwrap();
     let len = b.finish();
     buf[..len].to_vec()
 }
@@ -44,11 +49,7 @@ fn describe_blocks_max(layout: Layout, first: BlockId, max: usize) -> Vec<Vec<u8
         .collect();
     let refs: Vec<ww_tape::RecordRef<'_>> = items
         .iter()
-        .map(|item| ww_tape::RecordRef {
-            track: ww_tape::DESCRIBE_TRACK,
-            at: None,
-            item,
-        })
+        .map(|item| ww_tape::RecordRef::definition(item))
         .collect();
     let mut id = first;
     let mut blocks = vec![];
@@ -90,7 +91,10 @@ fn walk(bytes: &[u8], medium: Medium) -> (Vec<(SessionTag, u64)>, Vec<FileError>
     let (mut got, mut errors) = (vec![], vec![]);
     while let Some(b) = rd.next_block() {
         match b {
-            Ok(b) if b.kind == BlockKind::Records && b.first_track() != Some(0) => {
+            Ok(b)
+                if b.kind == BlockKind::Records
+                    && b.first_track() != Some(RecordTrack::Definitions) =>
+            {
                 got.push((b.session, b.seq))
             }
             Ok(_) => {}
@@ -176,7 +180,12 @@ fn a_records_block_of_another_session_is_stale_on_a_file() {
     let (mut got, mut stale) = (vec![], 0);
     while let Some(b) = rd.next_block() {
         match b {
-            Ok(b) if b.kind == BlockKind::Records && b.first_track() != Some(0) => got.push(b.seq),
+            Ok(b)
+                if b.kind == BlockKind::Records
+                    && b.first_track() != Some(RecordTrack::Definitions) =>
+            {
+                got.push(b.seq)
+            }
             Ok(_) => {}
             Err(FileError::Stale { session, .. }) if session == OLD => stale += 1,
             Err(e) => panic!("{e}"),
@@ -410,9 +419,19 @@ fn a_duplicate_block_is_not_a_cut() {
     // other bytes under the same id: the later copy wins, reported
     let other = {
         let mut buf = [0u8; 256];
-        let mut b =
-            BlockWriter::new(&mut buf, BlockKind::Records, BlockId::new(NEW, 3), &[1]).unwrap();
-        b.push(9, ClockTime::new(1, 3), &[b"rewritten"]).unwrap();
+        let mut b = BlockWriter::new(
+            &mut buf,
+            BlockKind::Records,
+            BlockId::new(NEW, 3),
+            &[ClockNum::new(1)],
+        )
+        .unwrap();
+        b.push(
+            TrackNum::new(9),
+            ClockTime::new(ClockNum::new(1), 3),
+            &[b"rewritten"],
+        )
+        .unwrap();
         let len = b.finish();
         buf[..len].to_vec()
     };
@@ -438,9 +457,19 @@ fn a_duplicate_after_a_gap_resumes_the_data() {
     let (from, at) = (block_start(&card, 3), block_start(&card, 4));
     let other = {
         let mut buf = [0u8; 256];
-        let mut b =
-            BlockWriter::new(&mut buf, BlockKind::Records, BlockId::new(NEW, 3), &[1]).unwrap();
-        b.push(9, ClockTime::new(1, 3), &[b"rewritten"]).unwrap();
+        let mut b = BlockWriter::new(
+            &mut buf,
+            BlockKind::Records,
+            BlockId::new(NEW, 3),
+            &[ClockNum::new(1)],
+        )
+        .unwrap();
+        b.push(
+            TrackNum::new(9),
+            ClockTime::new(ClockNum::new(1), 3),
+            &[b"rewritten"],
+        )
+        .unwrap();
         let len = b.finish();
         buf[..len].to_vec()
     };
@@ -743,7 +772,9 @@ fn a_raw_piece_is_one_session() {
     let mut rd = FileBlocks::new(&producer[..]);
     let mut blocks = vec![];
     while let Some(Ok(b)) = rd.next_block() {
-        if b.kind != BlockKind::PieceHead && b.first_track() != Some(ww_tape::DESCRIBE_TRACK) {
+        if b.kind != BlockKind::PieceHead
+            && b.first_track() != Some(ww_tape::RecordTrack::Definitions)
+        {
             blocks.push(b.bytes().to_vec());
         }
     }
@@ -876,7 +907,8 @@ fn may_start(b: &ww_tape::Block<'_>, last: SessionTag, medium: Medium) -> bool {
     match medium {
         Medium::File => {
             b.kind == BlockKind::PieceHead
-                || (b.kind == BlockKind::Records && b.first_track() == Some(0))
+                || (b.kind == BlockKind::Records
+                    && b.first_track() == Some(RecordTrack::Definitions))
         }
         Medium::Raw => {
             b.kind == BlockKind::PieceHead
@@ -1014,8 +1046,19 @@ fn resync_reads_the_block_a_gap_ends_at_inside_another() {
     let at = block_start(&card, 5);
     let resumed = records(BlockId::new(NEW, 5));
     let mut buf = [0u8; 512];
-    let mut w = BlockWriter::new(&mut buf, BlockKind::Records, BlockId::new(NEW, 3), &[1]).unwrap();
-    w.push(9, ClockTime::new(1, 3), &[&resumed]).unwrap();
+    let mut w = BlockWriter::new(
+        &mut buf,
+        BlockKind::Records,
+        BlockId::new(NEW, 3),
+        &[ClockNum::new(1)],
+    )
+    .unwrap();
+    w.push(
+        TrackNum::new(9),
+        ClockTime::new(ClockNum::new(1), 3),
+        &[&resumed],
+    )
+    .unwrap();
     let len = w.finish();
     let outer = buf[..len].to_vec();
     let inner = outer

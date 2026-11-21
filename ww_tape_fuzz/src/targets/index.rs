@@ -69,7 +69,7 @@ pub(crate) fn read(data: &[u8], options: OpenOptions) {
                 if let Some(c) = chunk {
                     let named = e.kind == c.kind
                         && e.track_id == c.track_id
-                        && e.track_number == c.track_number
+                        && e.number == c.track_number.get()
                         && e.first_item == c.first_item
                         && e.count == u64::from(c.count);
                     match named {
@@ -136,10 +136,10 @@ fn relations_in_order(r: &TapeReader<&[u8]>, i: usize) {
                     .filter(|e| e.kind == BlockKind::Events && !e.repeat)
                 {
                     if e.relation_break {
-                        top.remove(&e.track_number);
+                        top.remove(&e.number);
                     }
                     if let Some((lo, hi)) = e.range {
-                        let before = top.insert(e.track_number, hi);
+                        let before = top.insert(e.number, hi);
                         assert!(
                             before.is_none_or(|t| lo >= t),
                             "track {id:#x}: a range goes down without a break: {entries:?}"
@@ -239,7 +239,7 @@ pub fn index(data: &[u8]) {
             level: c[0],
             tree: 0,
             track_id: u64::from(c[0] % 5),
-            track_number: c[0].into(),
+            number: c[0].into(),
             second: 0,
             first_item: 0,
             count: 1,

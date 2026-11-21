@@ -2,6 +2,7 @@
 //! chunk's index entry, against the values written.
 
 use shrink_wrap::prelude::*;
+use ww_tape::TrackNum;
 use ww_tape::times::{EncodedRelation, EncodedTimes, RelationColumn, StoredRelations};
 use ww_tape::{
     BlockKind, Definitions, Describe, DescribeError, InputError, MemSink, RelationDef,
@@ -10,6 +11,10 @@ use ww_tape::{
 };
 
 use crate::definitions::{CLOCK, clock, track};
+
+const TRACK_3: TrackNum = TrackNum::new(3);
+const TRACK_4: TrackNum = TrackNum::new(4);
+const TRACK_9: TrackNum = TrackNum::new(9);
 
 const fn rel(
     name: &'static str,
@@ -74,7 +79,10 @@ pub(crate) fn relation_chunk(
     for (s, b) in [source.column(), key.column()] {
         cols.push((s, b.to_vec()));
     }
-    (times.head.chunk_head(track_id(), 3, first), cols)
+    (
+        times.head.chunk_head(track_id(), TrackNum::new(3), first),
+        cols,
+    )
 }
 
 /// A chunk of `sources.len()` items of track 3 from item `first` with these relation values; its head and columns.
@@ -93,7 +101,7 @@ fn write_chunk(
     let key = EncodedRelation::encode(2, keys, false).unwrap();
     let mut cols: Vec<_> = times.columns().collect();
     cols.extend([source.column(), key.column()]);
-    let head = times.head.chunk_head(track_id(), 3, first);
+    let head = times.head.chunk_head(track_id(), TrackNum::new(3), first);
     w.write_chunk(defs, &head, &cols).map(|_| ())
 }
 
@@ -192,12 +200,12 @@ fn a_chunk_without_its_relation_columns_is_refused() {
     defs.define_all(&[clock(CLOCK), decoded()]).unwrap();
     let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     let times = EncodedTimes::encode(&[1, 2, 3], None, None).unwrap();
-    let head = times.head.chunk_head(track_id(), 3, 0);
+    let head = times.head.chunk_head(track_id(), TrackNum::new(3), 0);
     let cols: Vec<_> = times.columns().collect();
     assert!(matches!(
         w.write_chunk(&defs, &head, &cols),
         Err(WriteError::Describe(DescribeError::RelationColumns {
-            track: 3
+            track: TRACK_3
         }))
     ));
     // the writer goes on: a good chunk after it is written
@@ -218,7 +226,10 @@ fn chunk_of(
     let key = EncodedRelation::encode(2, keys, false).unwrap();
     let mut cols: Vec<_> = times.columns().map(|(s, b)| (s, b.to_vec())).collect();
     cols.extend([source.column(), key.column()].map(|(s, b)| (s, b.to_vec())));
-    (times.head.chunk_head(track_id(), 3, first), cols)
+    (
+        times.head.chunk_head(track_id(), TrackNum::new(3), first),
+        cols,
+    )
 }
 
 /// The ranges of the events chunks' entries of piece `piece` of `bytes`, in file order.
@@ -303,7 +314,7 @@ fn a_relation_column_that_does_not_read_is_refused() {
     let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     let tape = w.sink().tape();
     let times = EncodedTimes::encode(&[0, 10, 20, 30, 40], None, None).unwrap();
-    let head = times.head.chunk_head(track_id(), 3, 0);
+    let head = times.head.chunk_head(track_id(), TrackNum::new(3), 0);
     let keys = EncodedRelation::encode(2, &[1, 2, 3, 4, 5], false).unwrap();
     // 2 sources for 5 items: one period that doesn't reach the last value
     let short = EncodedRelation::encode(0, &[10, 11], true).unwrap();
@@ -314,7 +325,7 @@ fn a_relation_column_that_does_not_read_is_refused() {
         matches!(
             refused,
             Err(WriteError::Describe(DescribeError::RelationColumnRead {
-                track: 3,
+                track: TRACK_3,
                 relation: 0,
                 error: ww_tape::times::TimesError::Corrupt {
                     kind: ww_tape::ColumnKind::Relation,
@@ -333,7 +344,7 @@ fn a_relation_column_that_does_not_read_is_refused() {
     assert!(matches!(
         other.write_block(&defs, &block),
         Err(WriteError::Describe(DescribeError::RelationColumnRead {
-            track: 3,
+            track: TRACK_3,
             relation: 0,
             ..
         }))
@@ -367,7 +378,7 @@ fn a_callers_monotone_column_out_of_order_is_refused() {
     let mut defs = Definitions::new();
     defs.define_all(&[clock(CLOCK), decoded()]).unwrap();
     let times = EncodedTimes::encode(&[0, 10, 20], None, None).unwrap();
-    let head = times.head.chunk_head(track_id(), 3, 0);
+    let head = times.head.chunk_head(track_id(), TrackNum::new(3), 0);
     let keys = EncodedRelation::encode(2, &[1, 1, 1], false).unwrap();
     // first 10 and last 20 in the head; the items 10, 3, 20 decrease, 10, 99, 20 leave [first, last]
     for (rmin, residuals) in [(-7, [7u8, 0, 17]), (0, [0u8, 89, 10])] {
@@ -386,7 +397,7 @@ fn a_callers_monotone_column_out_of_order_is_refused() {
             matches!(
                 refused,
                 Err(WriteError::Describe(DescribeError::RelationColumnRead {
-                    track: 3,
+                    track: TRACK_3,
                     relation: 0,
                     ..
                 }))
@@ -411,7 +422,7 @@ fn chunk_block(id: ww_tape::BlockId, first: u64, sources: &[u64], keys: &[u64]) 
 fn decrease<T: std::fmt::Debug, E>(r: Result<T, WriteError<E>>, item: u64) -> bool {
     matches!(
         r,
-        Err(WriteError::Describe(DescribeError::RelationDecrease { track: 3, relation: 0, item: i })) if i == item
+        Err(WriteError::Describe(DescribeError::RelationDecrease { track: TRACK_3, relation: 0, item: i })) if i == item
     )
 }
 
@@ -451,7 +462,7 @@ fn long_block() -> Vec<u8> {
     let head = ww_tape::ChunkHead {
         kind: BlockKind::Events,
         track_id: crate::definitions::track_id(4),
-        track_number: 4,
+        track_number: TrackNum::new(4),
         first_item: 0,
         count: 600,
         first_tick: 0,
@@ -499,7 +510,7 @@ fn a_deferred_chunk_counts_before_the_chunks_after_it() {
         .entries(0)
         .unwrap()
         .into_iter()
-        .filter(|e| e.kind == BlockKind::Events && e.track_number == 3)
+        .filter(|e| e.kind == BlockKind::Events && e.track() == Some(TrackNum::new(3)))
         .map(|e| (e.first_item, e.range))
         .collect();
     assert_eq!(firsts, [(0, Some((100, 101))), (2, Some((101, 102)))]);
@@ -520,7 +531,7 @@ fn a_chunk_under_another_track_id_is_refused() {
     let wrong = |r: Result<(), WriteError<_>>| {
         matches!(
             r,
-            Err(WriteError::Describe(DescribeError::TrackId { track: 3, id: 0xdead, defined })) if defined == track_id()
+            Err(WriteError::Describe(DescribeError::TrackId { track: TRACK_3, id: 0xdead, defined })) if defined == track_id()
         )
     };
     let refs: Vec<_> = cols.iter().map(|(s, b)| (*s, &b[..])).collect();
@@ -642,7 +653,10 @@ fn two_chunk(
     let b = EncodedRelation::encode(1, seq, true).unwrap();
     let mut cols: Vec<_> = times.columns().map(|(s, b)| (s, b.to_vec())).collect();
     cols.extend([a.column(), b.column()].map(|(s, b)| (s, b.to_vec())));
-    (times.head.chunk_head(track_id(), 3, first), cols)
+    (
+        times.head.chunk_head(track_id(), TrackNum::new(3), first),
+        cols,
+    )
 }
 
 /// Flip a byte in the payload of the last events chunk of the piece in `bytes`: its CRC fails, its head and its index
@@ -663,7 +677,7 @@ fn unread<E>(r: &Result<(), WriteError<E>>) -> bool {
     matches!(
         r,
         Err(WriteError::Describe(DescribeError::RelationUnread {
-            track: 3,
+            track: TRACK_3,
             relation: 1
         }))
     )
@@ -693,7 +707,7 @@ fn every_monotone_relation_keeps_its_newest_value_across_resumes() {
     let seq_decrease = |r: Result<(), WriteError<_>>, item: u64| {
         matches!(
             r,
-            Err(WriteError::Describe(DescribeError::RelationDecrease { track: 3, relation: 1, item: i })) if i == item
+            Err(WriteError::Describe(DescribeError::RelationDecrease { track: TRACK_3, relation: 1, item: i })) if i == item
         )
     };
     let dir = crate::pieces::scratch("two_monotone");
@@ -901,7 +915,7 @@ fn breaks_in(f: &ww_tape::MemTapes, key: &u64) -> Vec<(bool, bool)> {
     r.entries(0)
         .unwrap()
         .into_iter()
-        .filter(|e| e.kind == BlockKind::Events && e.track_number == 3)
+        .filter(|e| e.kind == BlockKind::Events && e.track() == Some(TrackNum::new(3)))
         .map(|e| {
             let at = e.offset as usize;
             let b = ww_tape::Block::read(&bytes[at..at + e.len as usize]).unwrap();
@@ -947,26 +961,27 @@ fn a_caller_accepts_a_relation_break_and_the_tape_marks_it() {
     assert!(unread(&write(&mut c, 2, &[30, 31], &[200, 201])));
     let w = c.writer().unwrap();
     assert!(matches!(
-        w.accept_relation_break(&defs, 9, 0, 0),
+        w.accept_relation_break(&defs, TrackNum::new(9), 0, 0),
         Err(WriteError::Describe(DescribeError::NotMonotone {
-            track: 9,
+            track: TRACK_9,
             relation: 0
         }))
     ));
     assert!(matches!(
-        w.accept_relation_break(&defs, 4, 0, 0),
+        w.accept_relation_break(&defs, TrackNum::new(4), 0, 0),
         Err(WriteError::Describe(DescribeError::UnknownTrack {
-            track: 4
+            track: TRACK_4
         }))
     ));
-    w.accept_relation_break(&defs, 3, 1, 50).unwrap();
+    w.accept_relation_break(&defs, TrackNum::new(3), 1, 50)
+        .unwrap();
     // the range relation's newest value is in the damaged chunk's entry: 20, until a break goes below it
     let r = write(&mut c, 2, &[0, 1], &[50, 51]);
     assert!(
         matches!(
             r,
             Err(WriteError::Describe(DescribeError::RelationDecrease {
-                track: 3,
+                track: TRACK_3,
                 relation: 0,
                 ..
             }))
@@ -975,14 +990,14 @@ fn a_caller_accepts_a_relation_break_and_the_tape_marks_it() {
     );
     c.writer()
         .unwrap()
-        .accept_relation_break(&defs, 3, 0, 0)
+        .accept_relation_break(&defs, TrackNum::new(3), 0, 0)
         .unwrap();
     let r = write(&mut c, 2, &[0, 1], &[49, 51]);
     assert!(
         matches!(
             r,
             Err(WriteError::Describe(DescribeError::RelationDecrease {
-                track: 3,
+                track: TRACK_3,
                 relation: 1,
                 ..
             }))
@@ -998,7 +1013,7 @@ fn a_caller_accepts_a_relation_break_and_the_tape_marks_it() {
         matches!(
             r,
             Err(WriteError::Describe(DescribeError::RelationDecrease {
-                track: 3,
+                track: TRACK_3,
                 relation: 1,
                 ..
             }))
@@ -1020,7 +1035,7 @@ fn a_caller_accepts_a_relation_break_and_the_tape_marks_it() {
         matches!(
             r,
             Err(WriteError::Describe(DescribeError::RelationDecrease {
-                track: 3,
+                track: TRACK_3,
                 relation: 0,
                 ..
             }))
@@ -1057,7 +1072,8 @@ fn a_callers_chunk_carries_the_break_mark_exactly_when_one_waits() {
     assert!(flags(w.write_block(&defs, &b)), "a mark without a break");
     let b = block(&w, 0, &[100, 101], false);
     w.write_block(&defs, &b).unwrap();
-    w.accept_relation_break(&defs, 3, 1, 0).unwrap();
+    w.accept_relation_break(&defs, TrackNum::new(3), 1, 0)
+        .unwrap();
     let b = block(&w, 2, &[10, 11], false);
     assert!(flags(w.write_block(&defs, &b)), "a break without its mark");
     let b = block(&w, 2, &[10, 11], true);
@@ -1093,8 +1109,10 @@ fn a_resume_replays_a_relation_break() {
         write(&mut c, 0, &[10, 20], &[100, 101]).unwrap();
         c.cut_now(&defs).unwrap();
         let w = c.writer().unwrap();
-        w.accept_relation_break(&defs, 3, 0, 1).unwrap();
-        w.accept_relation_break(&defs, 3, 1, 5).unwrap();
+        w.accept_relation_break(&defs, TrackNum::new(3), 0, 1)
+            .unwrap();
+        w.accept_relation_break(&defs, TrackNum::new(3), 1, 5)
+            .unwrap();
         write(&mut c, 2, &[1, 2], &[5, 6]).unwrap();
         c.writer().unwrap().sync().unwrap();
         drop(c);
@@ -1104,7 +1122,7 @@ fn a_resume_replays_a_relation_break() {
             matches!(
                 r,
                 Err(WriteError::Describe(DescribeError::RelationDecrease {
-                    track: 3,
+                    track: TRACK_3,
                     relation: 1,
                     ..
                 }))
@@ -1342,7 +1360,8 @@ fn a_reader_refuses_a_decrease_across_chunks_that_isnt_marked_a_break() {
         let tape = w.sink().tape();
         write(&mut w, 0, &[10, 20], &[100, 101]);
         for r in breaks {
-            w.accept_relation_break(&defs, 3, *r, 0).unwrap();
+            w.accept_relation_break(&defs, TrackNum::new(3), *r, 0)
+                .unwrap();
         }
         let at = write(&mut w, 2, &source, &[5, 6]);
         w.close().unwrap();

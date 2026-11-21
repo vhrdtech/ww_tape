@@ -10,6 +10,7 @@ use ww_tape::{
     Block, BlockKind, BlockWriter, ClockTime, Definitions, FLAG_REPEAT, FLAG_WITH_NEXT, FileBlocks,
     MemSink, StatePolicy, SyncPolicy, TapeWriter, TrackRepeat,
 };
+use ww_tape::{ClockNum, TrackNum};
 
 use crate::OrDebug;
 use crate::defs::{CLOCK, clock, track};
@@ -68,14 +69,28 @@ fn run() -> anyhow::Result<(u64, Vec<Placed>, usize)> {
     let mut written = 0;
     for k in 0..BLOCKS {
         let tick = i64::from(k) * 1_000_000;
-        if w.put(&defs, STATE, tick, b"session 7: 2 Mbit/s, CRC on")? {
+        if w.put(
+            &defs,
+            TrackNum::new(STATE),
+            tick,
+            b"session 7: 2 Mbit/s, CRC on",
+        )? {
             written += 1;
         }
         let mut buf = vec![0u8; RECORD + 64];
-        let mut b =
-            BlockWriter::new(&mut buf, BlockKind::Records, w.next_id(), &[CLOCK]).or_debug()?;
-        b.push(DATA, ClockTime::new(CLOCK, tick), &[&[0x5a; RECORD]])
-            .or_debug()?;
+        let mut b = BlockWriter::new(
+            &mut buf,
+            BlockKind::Records,
+            w.next_id(),
+            &[ClockNum::new(CLOCK)],
+        )
+        .or_debug()?;
+        b.push(
+            TrackNum::new(DATA),
+            ClockTime::new(ClockNum::new(CLOCK), tick),
+            &[&[0x5a; RECORD]],
+        )
+        .or_debug()?;
         let n = b.finish();
         w.write_block(&defs, buf.get(..n).context("the block")?)?;
     }
@@ -94,7 +109,7 @@ fn run() -> anyhow::Result<(u64, Vec<Placed>, usize)> {
         let (flags, len) = (b.flags, u64::try_from(b.len())?);
         let tracks: Vec<u32> = b
             .records()
-            .map(|r| r.map(|r| r.track))
+            .map(|r| r.map(|r| r.track.get()))
             .collect::<Result<_, _>>()
             .or_debug()?;
         let at = walk.offset();

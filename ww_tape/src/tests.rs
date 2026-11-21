@@ -9,10 +9,10 @@ pub(crate) fn id(seq: u64) -> BlockId {
     BlockId::new(TEST_SESSION, seq)
 }
 
-const C1: u32 = 1;
-const C3: u32 = 3;
+const C1: ClockNum = ClockNum::new(1);
+const C3: ClockNum = ClockNum::new(3);
 
-fn at(clock: u32, ticks: i64) -> ClockTime {
+fn at(clock: ClockNum, ticks: i64) -> ClockTime {
     ClockTime::new(clock, ticks)
 }
 
@@ -20,9 +20,10 @@ fn at(clock: u32, ticks: i64) -> ClockTime {
 fn write_and_read_back() {
     let mut buf = [0u8; 256];
     let mut w = BlockWriter::new(&mut buf, BlockKind::Records, id(7), &[C1]).unwrap();
-    w.push(1, at(C1, 1_000), &[b"ab"]).unwrap();
-    w.push(300, at(C1, 900), &[b"c", b"de"]).unwrap();
-    w.push_with(2, at(C1, 5_000), |b| {
+    w.push(TrackNum::new(1), at(C1, 1_000), &[b"ab"]).unwrap();
+    w.push(TrackNum::new(300), at(C1, 900), &[b"c", b"de"])
+        .unwrap();
+    w.push_with(TrackNum::new(2), at(C1, 5_000), |b| {
         b[..3].copy_from_slice(b"xyz");
         Some(3)
     })
@@ -44,17 +45,17 @@ fn write_and_read_back() {
         records,
         [
             Record {
-                track: 1,
+                track: RecordTrack::from_u32(1),
                 at: Some(at(C1, 1_000)),
                 item: b"ab"
             },
             Record {
-                track: 300,
+                track: RecordTrack::from_u32(300),
                 at: Some(at(C1, 900)),
                 item: b"cde"
             },
             Record {
-                track: 2,
+                track: RecordTrack::from_u32(2),
                 at: Some(at(C1, 5_000)),
                 item: b"xyz"
             },
@@ -71,20 +72,20 @@ fn deltas_per_clock() {
     let mut buf = [0u8; 256];
     let mut w = BlockWriter::new(&mut buf, BlockKind::Records, id(0), &[C1, C3]).unwrap();
     let big = 1_700_000_000_000_000_000i64;
-    w.push(1, at(C1, 10), &[b"a"]).unwrap();
-    w.push(2, at(C3, big), &[b"b"]).unwrap();
-    w.push(1, at(C1, 11), &[b"c"]).unwrap();
-    w.push(2, at(C3, big + 1), &[b"d"]).unwrap();
-    w.push(5, at(C1, -4), &[b"e"]).unwrap();
-    w.push(3, at(C1, i64::MIN), &[]).unwrap();
-    w.push(3, at(C1, i64::MAX), &[]).unwrap();
+    w.push(TrackNum::new(1), at(C1, 10), &[b"a"]).unwrap();
+    w.push(TrackNum::new(2), at(C3, big), &[b"b"]).unwrap();
+    w.push(TrackNum::new(1), at(C1, 11), &[b"c"]).unwrap();
+    w.push(TrackNum::new(2), at(C3, big + 1), &[b"d"]).unwrap();
+    w.push(TrackNum::new(5), at(C1, -4), &[b"e"]).unwrap();
+    w.push(TrackNum::new(3), at(C1, i64::MIN), &[]).unwrap();
+    w.push(TrackNum::new(3), at(C1, i64::MAX), &[]).unwrap();
     let len = w.finish();
     let block = Block::read(&buf[..len]).unwrap();
     assert_eq!(block.clocks().collect::<Vec<_>>(), [C1, C3]);
     let got: Vec<_> = block
         .records()
         .map(|r| r.unwrap())
-        .map(|r| (r.track, r.at.unwrap(), r.item))
+        .map(|r| (r.track.get(), r.at.unwrap(), r.item))
         .collect();
     assert_eq!(
         got,
@@ -114,7 +115,10 @@ fn describe_records_have_no_time() {
     assert_eq!(len, HEADER_LEN + 1 + 1 + 1 + 2 + CRC_LEN);
     let block = Block::read(&buf[..len]).unwrap();
     let r = block.records().next().unwrap().unwrap();
-    assert_eq!((r.track, r.at, r.item), (DESCRIBE_TRACK, None, &b"xy"[..]));
+    assert_eq!(
+        (r.track, r.at, r.item),
+        (RecordTrack::Definitions, None, &b"xy"[..])
+    );
     // track 1 in a block without clocks
     let mut bad = buf;
     bad[HEADER_LEN + 1] = 1 << 0;
@@ -130,14 +134,14 @@ fn describe_records_have_no_time() {
 fn block_writer_refuses_bad_input() {
     let mut buf = [0u8; 64];
     let mut w = BlockWriter::new(&mut buf, BlockKind::Records, id(0), &[C1]).unwrap();
-    assert_eq!(w.push(1, at(C3, 0), &[]), Err(PushError::UnknownClock(C3)));
     assert_eq!(
-        w.push(DESCRIBE_TRACK, at(C1, 0), &[]),
-        Err(PushError::DescribeTrack)
+        w.push(TrackNum::new(1), at(C3, 0), &[]),
+        Err(PushError::UnknownClock(C3))
     );
     assert_eq!(w.records(), 0, "a refused record writes nothing");
     let start = |buf: &mut [u8], clocks: &[u32]| {
-        BlockWriter::new(buf, BlockKind::Records, id(0), clocks).err()
+        let clocks: Vec<ClockNum> = clocks.iter().map(|c| ClockNum::new(*c)).collect();
+        BlockWriter::new(buf, BlockKind::Records, id(0), &clocks).err()
     };
     assert_eq!(
         start(&mut buf, &[1; MAX_BLOCK_CLOCKS + 1]),
@@ -151,9 +155,8 @@ fn block_writer_refuses_bad_input() {
         start(&mut buf, &[1, 1]),
         Some(BlockStartError::ClocksUnordered)
     );
-    assert_eq!(start(&mut buf, &[NO_CLOCK]), Some(BlockStartError::NoClock));
     assert_eq!(
-        start(&mut buf[..HEADER_LEN], &[C1]),
+        start(&mut buf[..HEADER_LEN], &[C1.get()]),
         Some(BlockStartError::BufferTooSmall {
             needed: HEADER_LEN + 2 + CRC_LEN
         })
@@ -166,12 +169,12 @@ fn an_encoder_claiming_more_than_it_was_given_is_full() {
     let mut w = BlockWriter::new(&mut buf, BlockKind::Records, id(0), &[C1]).unwrap();
     let free = w.free();
     assert_eq!(
-        w.push_with(1, at(C1, 0), |space| Some(space.len() + 1)),
+        w.push_with(TrackNum::new(1), at(C1, 0), |space| Some(space.len() + 1)),
         Err(PushError::Full)
     );
     assert_eq!(w.push_describe_with(|_| Some(usize::MAX)), Err(Full));
     assert_eq!((w.records(), w.free()), (0, free), "nothing kept");
-    w.push(1, at(C1, 5), &[b"ok"]).unwrap();
+    w.push(TrackNum::new(1), at(C1, 5), &[b"ok"]).unwrap();
     let len = w.finish();
     let b = Block::read(&buf[..len]).unwrap();
     assert_eq!(b.records().count(), 1);
@@ -199,9 +202,15 @@ fn tape_writer_refuses_bad_settings() {
 fn full_leaves_the_block_as_it_was() {
     let mut buf = [0u8; HEADER_LEN + 2 + CRC_LEN + 6];
     let mut w = BlockWriter::new(&mut buf, BlockKind::Records, id(0), &[C1]).unwrap();
-    w.push(1, at(C1, 0), &[b"abc"]).unwrap();
-    assert_eq!(w.push(1, at(C1, 0), &[b"ab"]), Err(PushError::Full));
-    assert_eq!(w.push_with(1, at(C1, 0), |_| None), Err(PushError::Full));
+    w.push(TrackNum::new(1), at(C1, 0), &[b"abc"]).unwrap();
+    assert_eq!(
+        w.push(TrackNum::new(1), at(C1, 0), &[b"ab"]),
+        Err(PushError::Full)
+    );
+    assert_eq!(
+        w.push_with(TrackNum::new(1), at(C1, 0), |_| None),
+        Err(PushError::Full)
+    );
     let len = w.finish();
     assert_eq!(Block::read(&buf[..len]).unwrap().record_count, 1);
 }
@@ -211,7 +220,7 @@ fn push_with_big_item_moves_down() {
     let mut buf = vec![0u8; 4096];
     let mut w = BlockWriter::new(&mut buf, BlockKind::Records, id(0), &[C1]).unwrap();
     let item: Vec<u8> = (0..200).map(|i| i as u8).collect();
-    w.push_with(1, at(C1, 10), |b| {
+    w.push_with(TrackNum::new(1), at(C1, 10), |b| {
         b[..200].copy_from_slice(&item);
         Some(200)
     })
@@ -241,10 +250,10 @@ fn corrupt_blocks_are_refused() {
     assert_eq!(Block::read(&bad[..len]).unwrap_err(), BlockError::BadMagic);
 }
 
-const HOST: u32 = 1;
-const WALL: u32 = 2;
+const HOST: ClockNum = ClockNum::new(1);
+const WALL: ClockNum = ClockNum::new(2);
 /// The host counter's next epoch.
-const EPOCH: u32 = 3;
+const EPOCH: ClockNum = ClockNum::new(3);
 
 /// The epoch link: tick 0 of [EPOCH] is tick 4e18 of [HOST].
 const EPOCH_START: [MapSegment; 1] = [MapSegment::offset(0, 4_000_000_000_000_000_000)];
@@ -304,9 +313,9 @@ fn sample_describe() -> Vec<Describe<'static>> {
             value: RefVec::Slice { slice: &[1, 2, 3] },
         }),
         Describe::Track(TrackDef {
-            number: UNib32(4),
+            number: TrackNum::new(4),
             key: track_key(api_root_id("ww_tap"), &NAME_PATH),
-            clock: UNib32(HOST),
+            clock: HOST,
             dimensions: RefVec::Slice { slice: &DIMS },
             items: crate::Items::WireWeaver {
                 api: FullVersion::new("ww_tap", Version::new(0, 1, 0)),
@@ -322,12 +331,12 @@ fn sample_describe() -> Vec<Describe<'static>> {
             owner: [0; 32],
         }),
         Describe::Map(ClockMap {
-            from: UNib32(HOST),
-            to: UNib32(WALL),
+            from: HOST,
+            to: WALL,
             segments: RefVec::Slice { slice: &SEGMENTS },
         }),
         Describe::Clock(ClockDef {
-            number: UNib32(WALL),
+            number: WALL,
             key: UNIX_CLOCK_KEY,
             rate: Magnitude::pow10(9).into(),
             resolution: Magnitude::pow10(-6).into(),
@@ -335,7 +344,7 @@ fn sample_describe() -> Vec<Describe<'static>> {
             label: "wall",
         }),
         Describe::Clock(ClockDef {
-            number: UNib32(HOST),
+            number: HOST,
             key: clock_key(api_root_id("host"), &[], 17),
             rate: Magnitude::pow10(9).into(),
             resolution: Magnitude::ratio(1, 32768).into(),
@@ -348,14 +357,14 @@ fn sample_describe() -> Vec<Describe<'static>> {
         },
         Describe::Producer(Producer { name: "test" }),
         Describe::Map(ClockMap {
-            from: UNib32(EPOCH),
-            to: UNib32(HOST),
+            from: EPOCH,
+            to: HOST,
             segments: RefVec::Slice {
                 slice: &EPOCH_START,
             },
         }),
         Describe::Clock(ClockDef {
-            number: UNib32(EPOCH),
+            number: EPOCH,
             key: clock_key(api_root_id("host"), &[], 17) ^ 1,
             rate: Magnitude::pow10(9).into(),
             resolution: Magnitude::ratio(1, 32768).into(),
@@ -502,7 +511,9 @@ fn track_identity() {
     assert!(!t.dimensions_canonical());
     assert_eq!(
         open::check_definition(&Describe::Track(t)),
-        Err(DescribeError::Dimensions { track: 4 })
+        Err(DescribeError::Dimensions {
+            track: TrackNum::new(4)
+        })
     );
 }
 
@@ -515,11 +526,7 @@ fn defined(records: impl IntoIterator<Item = Describe<'static>>) -> (Definitions
     table.define_all(&held(&records)).unwrap();
     let refs: Vec<RecordRef<'_>> = items
         .iter()
-        .map(|item| RecordRef {
-            track: DESCRIBE_TRACK,
-            at: None,
-            item,
-        })
+        .map(|item| RecordRef::definition(item))
         .collect();
     let mut blocks = vec![];
     let mut seq = 0;
@@ -597,7 +604,7 @@ fn definitions_open_by_slot() {
 fn definitions_need_their_clocks() {
     let no_wall: Vec<_> = sample_describe()
         .into_iter()
-        .filter(|d| !matches!(d, Describe::Clock(c) if c.number.0 == WALL))
+        .filter(|d| !matches!(d, Describe::Clock(c) if c.number == WALL))
         .collect();
     let unknown = Err(DescribeError::UnknownClock { clock: WALL });
     assert_eq!(check_defs(&Definitions::new(), &held(&no_wall)), unknown);
@@ -614,13 +621,13 @@ fn definitions_need_their_clocks() {
 
 /// A record block of `records` on their clocks.
 fn records_block(seq: BlockId, records: &[(u32, ClockTime, &[u8])]) -> Vec<u8> {
-    let mut clocks: Vec<u32> = records.iter().map(|r| r.1.clock).collect();
+    let mut clocks: Vec<ClockNum> = records.iter().map(|r| r.1.clock).collect();
     clocks.sort();
     clocks.dedup();
     let mut buf = [0u8; 1024];
     let mut w = BlockWriter::new(&mut buf, BlockKind::Records, seq, &clocks).unwrap();
     for (track, at, item) in records {
-        w.push(*track, *at, &[item]).unwrap();
+        w.push(TrackNum::new(*track), *at, &[item]).unwrap();
     }
     let len = w.finish();
     buf[..len].to_vec()
@@ -639,24 +646,31 @@ fn records_are_on_their_tracks_clock() {
     assert_eq!(
         check(10, WALL),
         Err(DescribeError::WrongClock {
-            track: 10,
+            track: TrackNum::new(10),
             clock: WALL,
             track_clock: HOST
         })
     );
     assert_eq!(
-        check(10, 9),
+        check(10, ClockNum::new(9)),
         Err(DescribeError::WrongClock {
-            track: 10,
-            clock: 9,
+            track: TrackNum::new(10),
+            clock: ClockNum::new(9),
             track_clock: HOST
         })
     );
     assert_eq!(
         check(5, HOST),
-        Err(DescribeError::UnknownTrack { track: 5 })
+        Err(DescribeError::UnknownTrack {
+            track: TrackNum::new(5)
+        })
     );
-    assert_eq!(check(4, HOST), Err(DescribeError::StateRecord { track: 4 }));
+    assert_eq!(
+        check(4, HOST),
+        Err(DescribeError::StateRecord {
+            track: TrackNum::new(4)
+        })
+    );
 }
 
 /// A caller's block holds no definitions: they are held in [Definitions] and put by the writer.
@@ -675,7 +689,7 @@ fn definitions_are_not_in_a_callers_block() {
     let mut buf = [0u8; 256];
     let mut w = BlockWriter::new(&mut buf, BlockKind::Records, id(0), &[HOST]).unwrap();
     w.push_describe(&[&item]).unwrap();
-    w.push(10, at(HOST, 0), &[b"s"]).unwrap();
+    w.push(TrackNum::new(10), at(HOST, 0), &[b"s"]).unwrap();
     let len = w.finish();
     assert_eq!(
         table.check_block(&Block::read(&buf[..len]).unwrap()),
@@ -683,10 +697,10 @@ fn definitions_are_not_in_a_callers_block() {
     );
 }
 
-fn map(from: u32, to: u32, segments: &'static [MapSegment]) -> Describe<'static> {
+fn map(from: ClockNum, to: ClockNum, segments: &'static [MapSegment]) -> Describe<'static> {
     Describe::Map(ClockMap {
-        from: UNib32(from),
-        to: UNib32(to),
+        from,
+        to,
         segments: RefVec::Slice { slice: segments },
     })
 }
@@ -748,7 +762,7 @@ fn maps_increase_across_segments() {
 fn epoch_clocks_need_their_link() {
     let without: Vec<_> = held(&sample_describe())
         .into_iter()
-        .filter(|d| !matches!(d, Describe::Map(m) if m.from.0 == EPOCH && m.to.0 == HOST))
+        .filter(|d| !matches!(d, Describe::Map(m) if m.from == EPOCH && m.to == HOST))
         .collect();
     let empty = Definitions::new();
     let unmapped = Err(DescribeError::EpochUnmapped { clock: EPOCH });
@@ -799,7 +813,7 @@ fn epoch_clocks_need_their_link() {
     let linked = open_of(sample_describe());
     let epoch = sample_describe()
         .into_iter()
-        .find(|d| matches!(d, Describe::Clock(c) if c.number.0 == EPOCH))
+        .find(|d| matches!(d, Describe::Clock(c) if c.number == EPOCH))
         .unwrap();
     assert_eq!(check_defs(&linked, [&epoch]), Ok(()));
     assert!(seg.is_exact_offset());
@@ -810,7 +824,7 @@ fn epoch_clocks_need_their_link() {
 fn clock_resolution_at_least_a_tick() {
     let clock = |rate: Magnitude, resolution: Magnitude| {
         Describe::Clock(ClockDef {
-            number: UNib32(1),
+            number: ClockNum::new(1),
             key: 1,
             rate: rate.into(),
             resolution: resolution.into(),
@@ -845,7 +859,9 @@ fn clock_resolution_at_least_a_tick() {
     ] {
         assert_eq!(
             open::check_definition(&clock(rate, resolution)),
-            Err(DescribeError::Resolution { clock: 1 }),
+            Err(DescribeError::Resolution {
+                clock: ClockNum::new(1)
+            }),
             "{rate} {resolution}"
         );
     }
@@ -866,7 +882,7 @@ fn records_as_blocks() {
     let refs: Vec<RecordRef<'_>> = want
         .iter()
         .map(|(track, at, item)| RecordRef {
-            track: *track,
+            track: RecordTrack::from_u32(*track),
             at: *at,
             item,
         })
@@ -894,7 +910,7 @@ fn records_as_blocks() {
             );
             for r in b.records() {
                 let r = r.unwrap();
-                got.push((r.track, r.at, r.item.to_vec()));
+                got.push((r.track.get(), r.at, r.item.to_vec()));
             }
         }
         assert_eq!(got, want);
@@ -907,7 +923,8 @@ fn resync_skips_bad_and_reports_cut() {
     for seq in 0..3u64 {
         let mut buf = [0u8; 64];
         let mut w = BlockWriter::new(&mut buf, BlockKind::Records, id(seq), &[C1]).unwrap();
-        w.push(1, at(C1, seq as i64), &[&[seq as u8; 5]]).unwrap();
+        w.push(TrackNum::new(1), at(C1, seq as i64), &[&[seq as u8; 5]])
+            .unwrap();
         let len = w.finish();
         file.extend_from_slice(&buf[..len]);
     }
@@ -945,7 +962,8 @@ fn unknown_versions_kinds_and_describe_variants_are_skipped() {
     ] {
         let mut buf = [0u8; 64];
         let mut w = BlockWriter::new(&mut buf, BlockKind::Records, id(seq), &[C1]).unwrap();
-        w.push(1, at(C1, seq as i64), &[&[seq as u8; 5]]).unwrap();
+        w.push(TrackNum::new(1), at(C1, seq as i64), &[&[seq as u8; 5]])
+            .unwrap();
         let len = w.finish();
         buf[4] = version;
         buf[5] = kind;
@@ -1014,7 +1032,7 @@ fn tape(n: u64) -> (Vec<u8>, Vec<usize>) {
         let mut w = BlockWriter::new(&mut buf, BlockKind::Records, id(seq), &[C1]).unwrap();
         for i in 0..=seq % 3 {
             w.push(
-                1 + i as u32,
+                TrackNum::new(1 + i as u32),
                 at(C1, (seq * 10 + i) as i64),
                 &[&[seq as u8; 7][..(seq as usize % 7) + 1]],
             )
@@ -1028,13 +1046,13 @@ fn tape(n: u64) -> (Vec<u8>, Vec<usize>) {
 }
 
 /// Clock `clock` and events tracks `tracks` on it, all streams: what test records, chunks and summaries need.
-pub(crate) fn test_definitions(clock: u32, tracks: &[u32]) -> Vec<Describe<'static>> {
+pub(crate) fn test_definitions(clock: ClockNum, tracks: &[u32]) -> Vec<Describe<'static>> {
     let Describe::Track(t) = &sample_describe()[1] else {
         unreachable!("the second sample is a track")
     };
     let mut out = vec![Describe::Clock(ClockDef {
-        number: UNib32(clock),
-        key: u64::from(clock),
+        number: clock,
+        key: u64::from(clock.get()),
         rate: Magnitude::pow10(9).into(),
         resolution: Magnitude::pow10(-9).into(),
         origin: ClockOrigin::Free,
@@ -1042,8 +1060,8 @@ pub(crate) fn test_definitions(clock: u32, tracks: &[u32]) -> Vec<Describe<'stat
     })];
     for number in tracks {
         out.push(Describe::Track(TrackDef {
-            number: UNib32(*number),
-            clock: UNib32(clock),
+            number: TrackNum::new(*number),
+            clock,
             repeat: crate::TrackRepeat::Stream,
             ..t.clone()
         }));
@@ -1061,8 +1079,8 @@ pub(crate) fn test_track_id() -> u64 {
 
 /// Series track `number` on `clock`: i16 samples on `channels` channels, one per `period` ticks.
 pub(crate) fn test_series_track(
-    clock: u32,
-    number: u32,
+    clock: ClockNum,
+    number: TrackNum,
     channels: u32,
     period: crate::Ratio64,
 ) -> Describe<'static> {
@@ -1070,8 +1088,8 @@ pub(crate) fn test_series_track(
         unreachable!("the second sample is a track")
     };
     Describe::Track(TrackDef {
-        number: UNib32(number),
-        clock: UNib32(clock),
+        number,
+        clock,
         items: crate::Items::numbers::<i16>(None),
         repeat: crate::TrackRepeat::Stream,
         kind: crate::TrackKind::Series(crate::SeriesDef::of::<i16>(channels, period)),
@@ -1169,10 +1187,9 @@ fn seq_order_and_duplicates() {
     let block = |track, id, item: &[u8]| {
         let mut buf = [0u8; 64];
         let mut w = BlockWriter::new(&mut buf, BlockKind::Records, id, &[C1]).unwrap();
-        if track == DESCRIBE_TRACK {
-            w.push_describe(&[item]).unwrap();
-        } else {
-            w.push(track, at(C1, 0), &[item]).unwrap();
+        match track {
+            RecordTrack::Definitions => w.push_describe(&[item]).unwrap(),
+            RecordTrack::Data(track) => w.push(track, at(C1, 0), &[item]).unwrap(),
         }
         let len = w.finish();
         buf[..len].to_vec()
@@ -1190,15 +1207,15 @@ fn seq_order_and_duplicates() {
         (got, errors)
     };
     let file: Vec<u8> = [
-        block(1, id(5), b"a"),
-        block(1, id(6), b"b"),
-        block(DESCRIBE_TRACK, other(0), b"d"),
-        block(1, other(1), b"c"),
-        block(1, other(1), b"c"),
-        block(1, other(2), b"e"),
-        block(1, other(2), b"E"),
-        block(1, other(3), b"f"),
-        block(1, other(2), b"g"),
+        block(RecordTrack::Data(TrackNum::new(1)), id(5), b"a"),
+        block(RecordTrack::Data(TrackNum::new(1)), id(6), b"b"),
+        block(RecordTrack::Definitions, other(0), b"d"),
+        block(RecordTrack::Data(TrackNum::new(1)), other(1), b"c"),
+        block(RecordTrack::Data(TrackNum::new(1)), other(1), b"c"),
+        block(RecordTrack::Data(TrackNum::new(1)), other(2), b"e"),
+        block(RecordTrack::Data(TrackNum::new(1)), other(2), b"E"),
+        block(RecordTrack::Data(TrackNum::new(1)), other(3), b"f"),
+        block(RecordTrack::Data(TrackNum::new(1)), other(2), b"g"),
     ]
     .concat();
     let (got, errors) = walk(&file);
@@ -1229,7 +1246,11 @@ fn seq_order_and_duplicates() {
         "{errors:?}"
     );
     // a records block can't start a session on a file: another session's data block is stale
-    let file = [block(1, id(5), b"a"), block(1, other(6), b"b")].concat();
+    let file = [
+        block(RecordTrack::Data(TrackNum::new(1)), id(5), b"a"),
+        block(RecordTrack::Data(TrackNum::new(1)), other(6), b"b"),
+    ]
+    .concat();
     let (got, errors) = walk(&file);
     assert_eq!(got.len(), 1);
     assert!(matches!(
@@ -1361,13 +1382,13 @@ fn sample_with_wall_track() -> Vec<Describe<'static>> {
         unreachable!("the second sample is a track")
     };
     let on_wall = TrackDef {
-        number: UNib32(9),
-        clock: UNib32(WALL),
+        number: TrackNum::new(9),
+        clock: WALL,
         repeat: crate::TrackRepeat::Stream,
         ..t.clone()
     };
     let on_host = TrackDef {
-        number: UNib32(10),
+        number: TrackNum::new(10),
         repeat: crate::TrackRepeat::Stream,
         ..t.clone()
     };
@@ -1396,9 +1417,9 @@ fn write_sample_tape(describe: Vec<Describe<'static>>) -> Vec<u8> {
             assert!(w.put_item(&defs, item).unwrap());
         }
     }
-    assert!(w.put(&defs, 4, 7, b"session").unwrap());
+    assert!(w.put(&defs, TrackNum::new(4), 7, b"session").unwrap());
     assert!(
-        !w.put(&defs, 4, 8, b"session").unwrap(),
+        !w.put(&defs, TrackNum::new(4), 8, b"session").unwrap(),
         "close behind: not again"
     );
     w.write_block(
@@ -1464,7 +1485,7 @@ fn deterministic_and_golden() {
             let r = r.unwrap();
             match r.at {
                 None => describe.push(DescribeOwned::from_ww_bytes_owned(r.item).unwrap()),
-                Some(t) => times.push((r.track, t)),
+                Some(t) => times.push((r.track.get(), t)),
             }
         }
     }
@@ -1487,7 +1508,7 @@ fn deterministic_and_golden() {
     let numbers: Vec<u32> = describe
         .iter()
         .filter_map(|d| match d {
-            DescribeOwned::Track(t) => Some(t.number.0),
+            DescribeOwned::Track(t) => Some(t.number.get()),
             _ => None,
         })
         .collect();
@@ -1539,9 +1560,9 @@ fn typed_items_hash() {
 #[test]
 fn bare_track_round_trips() {
     let d = Describe::Track(TrackDef {
-        number: UNib32(1),
+        number: TrackNum::new(1),
         key: 7,
-        clock: UNib32(1),
+        clock: ClockNum::new(1),
         dimensions: RefVec::Slice { slice: &[] },
         items: crate::Items::WireWeaver {
             api: FullVersion::new("ww_tap", Version::new(0, 1, 0)),
@@ -1584,7 +1605,7 @@ fn a_chunk_with_its_payload_unchecked_is_refused_as_a_level() {
     let enc = crate::times::EncodedTimes::encode(&starts, None, None).unwrap();
     let cols: std::vec::Vec<_> = enc.columns().collect();
     let specs: std::vec::Vec<crate::ColumnSpec> = cols.iter().map(|c| c.0).collect();
-    let head = enc.head.chunk_head(9, 1, 0);
+    let head = enc.head.chunk_head(9, TrackNum::new(1), 0);
     let mut buf = std::vec![0u8; crate::chunk::chunk_len(&head, &specs, 0)];
     let n = crate::chunk::write_chunk(&mut buf, id(1), &head, &cols, 0).unwrap();
     buf.truncate(n);
@@ -1621,7 +1642,7 @@ fn a_walk_steps_over_a_chunk_with_its_payload_unchecked() {
     let enc = crate::times::EncodedTimes::encode(&[1i64, 2, 3], None, None).unwrap();
     let cols: std::vec::Vec<_> = enc.columns().collect();
     let specs: std::vec::Vec<crate::ColumnSpec> = cols.iter().map(|c| c.0).collect();
-    let head = enc.head.chunk_head(9, 1, 0);
+    let head = enc.head.chunk_head(9, TrackNum::new(1), 0);
     let mut chunk = std::vec![0u8; crate::chunk::chunk_len(&head, &specs, 0)];
     let n = crate::chunk::write_chunk(&mut chunk, id(3), &head, &cols, 0).unwrap();
     chunk.truncate(n);
@@ -1662,8 +1683,8 @@ fn distinct_tracks(n: u32) -> (Definitions, std::collections::BTreeMap<u32, u64>
     let mut ids = std::collections::BTreeMap::new();
     for d in &mut out {
         if let Describe::Track(t) = d {
-            t.key = 0x7700 + u64::from(t.number.0);
-            ids.insert(t.number.0, t.id());
+            t.key = 0x7700 + u64::from(t.number.get());
+            ids.insert(t.number.get(), t.id());
         }
     }
     let mut defs = Definitions::new();
@@ -1676,7 +1697,8 @@ fn records_on(id: BlockId, tracks: &[u32]) -> Vec<u8> {
     let mut buf = vec![0u8; 4096];
     let mut w = BlockWriter::new(&mut buf, BlockKind::Records, id, &[C1]).unwrap();
     for t in tracks {
-        w.push(*t, at(C1, i64::from(*t)), &[b"x"]).unwrap();
+        w.push(TrackNum::new(*t), at(C1, i64::from(*t)), &[b"x"])
+            .unwrap();
     }
     let len = w.finish();
     buf.truncate(len);
@@ -1739,7 +1761,7 @@ fn a_piece_head_carries_at_most_its_track_limit() {
     };
     let carried = |n: u32| TrackStart {
         track_id: ids[&n],
-        track_number: n,
+        track_number: TrackNum::new(n),
         next_item: 0,
         from_tick: i64::MIN,
         owner: crate::OwnerId::NONE,
@@ -1781,7 +1803,7 @@ fn chunk_on(number: u32, id: u64) -> (ChunkHead, (ColumnSpec, Vec<u8>)) {
     let head = ChunkHead {
         kind: BlockKind::Events,
         track_id: id,
-        track_number: number,
+        track_number: TrackNum::new(number),
         first_item: 0,
         count: 2,
         first_tick: 10,

@@ -224,15 +224,17 @@ mod tests {
     use super::*;
     use crate::tests::id;
     use crate::{BlockWriter, ClockTime, FLAG_REPEAT, Record, mark_repeat};
+    use crate::{ClockNum, TrackNum};
 
     /// A records block of `n` alike records.
     fn records_block(n: u32) -> Vec<u8> {
         let mut buf = vec![0u8; 4096];
-        let mut w = BlockWriter::new(&mut buf, BlockKind::Records, id(3), &[1]).unwrap();
+        let mut w =
+            BlockWriter::new(&mut buf, BlockKind::Records, id(3), &[ClockNum::new(1)]).unwrap();
         for i in 0..n {
             w.push(
-                5,
-                ClockTime::new(1, i64::from(i) * 10),
+                TrackNum::new(5),
+                ClockTime::new(ClockNum::new(1), i64::from(i) * 10),
                 &[b"frame ok; frame ok"],
             )
             .unwrap();
@@ -308,9 +310,12 @@ mod tests {
     fn a_stored_body_past_the_longest_block_is_refused() {
         // one record filling a block of MAX_BLOCK_LEN: storing it adds a codec byte and a length
         let mut buf = vec![0u8; MAX_BLOCK_LEN];
-        let mut w = BlockWriter::new(&mut buf, BlockKind::Records, id(3), &[1]).unwrap();
-        w.push_with(5, ClockTime::new(1, 0), |b| Some(b.len()))
-            .unwrap();
+        let mut w =
+            BlockWriter::new(&mut buf, BlockKind::Records, id(3), &[ClockNum::new(1)]).unwrap();
+        w.push_with(TrackNum::new(5), ClockTime::new(ClockNum::new(1), 0), |b| {
+            Some(b.len())
+        })
+        .unwrap();
         assert_eq!(w.free(), 0);
         let len = w.finish();
         let plain = &buf[..len];

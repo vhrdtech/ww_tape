@@ -15,6 +15,7 @@
 use core::fmt;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use ww_tape::TrackNum;
 
 use ww_tape::index::{IndexBlock, IndexKind};
 use ww_tape::piece::{ChainLink, check_chain};
@@ -295,7 +296,7 @@ fn calls_and_columns(recording: &Recording, acts: &[Act]) -> Result<(Calls, Colu
             Act::Put { .. } => calls.puts += 1,
             Act::Records(_) => calls.records += 1,
             Act::Summary(_) => calls.summaries += 1,
-            Act::Chunk { head, columns } if head.track_number == CAN0 => {
+            Act::Chunk { head, columns } if head.track_number == TrackNum::new(CAN0) => {
                 calls.frame_chunks += 1;
                 c.frame_chunks += 1;
                 c.frames += u64::from(head.count);
@@ -444,7 +445,7 @@ pub fn series_tape(drive: &Drive) -> Result<Vec<u8>, Error> {
 /// [series_tape] of `acts`, the acts of `drive`.
 fn series_tape_of(drive: &Drive, acts: &[Act]) -> Result<Vec<u8>, Error> {
     let series = |act: &Act| match act {
-        Act::Chunk { head, .. } => head.track_number == PHASE_A,
+        Act::Chunk { head, .. } => head.track_number == TrackNum::new(PHASE_A),
         Act::Summary(_) => true,
         _ => false,
     };
@@ -979,7 +980,7 @@ fn one_tape(
     for act in acts.iter().filter(|a| keep(a)) {
         match act {
             Act::Put { ticks, mode } => {
-                w.put(&defs, MODE, *ticks, mode.item())?;
+                w.put(&defs, TrackNum::new(MODE), *ticks, mode.item())?;
             }
             Act::Records(records) => {
                 let block = records_block(w.next_id(), records)?;

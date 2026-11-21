@@ -1,6 +1,7 @@
 //! A new piece carries the definitions of the tracks its head carries, quiet ones too (WRITE-9).
 
 use ww_tape::index::IndexPolicy;
+use ww_tape::{ClockNum, TrackNum};
 use ww_tape::{
     CutPolicy, Definitions, InputError, MemSink, MemTapes, OwnerId, PieceChain, SessionTag, Slot,
     SyncPolicy, TapeReader, TapeSink, TapeWriter, WriteError,
@@ -63,9 +64,15 @@ fn a_new_piece_carries_its_quiet_tracks_definitions() {
     for (i, p) in pieces.iter().enumerate() {
         let held = held(p);
         for slot in [
-            Slot::Track { number: 1 },
-            Slot::Track { number: 2 },
-            Slot::Clock { number: CLOCK },
+            Slot::Track {
+                number: TrackNum::new(1),
+            },
+            Slot::Track {
+                number: TrackNum::new(2),
+            },
+            Slot::Clock {
+                number: ClockNum::new(CLOCK),
+            },
         ] {
             assert_eq!(
                 held.get(&slot).map(Vec::as_slice),
@@ -74,7 +81,12 @@ fn a_new_piece_carries_its_quiet_tracks_definitions() {
             );
         }
         // a track that gave no data in the chain has no head row and no definition
-        assert!(!held.contains_key(&Slot::Track { number: 3 }), "piece {i}");
+        assert!(
+            !held.contains_key(&Slot::Track {
+                number: TrackNum::new(3)
+            }),
+            "piece {i}"
+        );
         let r = TapeReader::open(&p[..]).unwrap();
         assert!(r.verify(0).unwrap().holds, "piece {i}");
     }
@@ -84,7 +96,12 @@ fn a_new_piece_carries_its_quiet_tracks_definitions() {
     assert!(!r.chain().is_whole());
     for i in 0..r.pieces().len() {
         let at = r.definitions_at(i, u64::MAX).unwrap();
-        assert!(at.items.contains_key(&Slot::Track { number: 1 }), "{i}");
+        assert!(
+            at.items.contains_key(&Slot::Track {
+                number: TrackNum::new(1)
+            }),
+            "{i}"
+        );
     }
 }
 
@@ -148,18 +165,31 @@ fn a_cut_without_room_carries_the_newest_and_names_the_rest() {
         .tracks
         .iter()
         .filter(|t| t.not_carried)
-        .map(|t| t.track_number)
+        .map(|t| t.track_number.get())
         .collect();
     assert_eq!(left, [1, 2]);
     let r = TapeReader::open(&bytes[..]).unwrap();
     assert!(r.verify(0).unwrap().holds);
     let at = r.definitions_at(0, u64::MAX).unwrap();
-    assert!(at.items.contains_key(&Slot::Clock { number: CLOCK }));
+    assert!(at.items.contains_key(&Slot::Clock {
+        number: ClockNum::new(CLOCK)
+    }));
     for number in 1..=2 {
-        assert!(!at.items.contains_key(&Slot::Track { number }), "{number}");
+        assert!(
+            !at.items.contains_key(&Slot::Track {
+                number: TrackNum::new(number)
+            }),
+            "{number}"
+        );
     }
-    assert!(at.items.contains_key(&Slot::Track { number: 3 }));
-    let named: Vec<u32> = at.not_carried.iter().map(|t| t.track_number).collect();
+    assert!(at.items.contains_key(&Slot::Track {
+        number: TrackNum::new(3)
+    }));
+    let named: Vec<u32> = at
+        .not_carried
+        .iter()
+        .map(|t| t.track_number.get())
+        .collect();
     assert_eq!(named, [1, 2]);
     let head = &r.pieces()[0].head.as_ref().unwrap().1;
     assert_eq!(head.iter().filter(|t| t.not_carried).count(), 2);
@@ -268,7 +298,9 @@ fn a_resume_after_a_cut_puts_the_carried_definitions_again() {
     next.write_chunk(defs, &h, &column(&c)).unwrap();
     next.close().unwrap();
     let whole = tape.to_vec().unwrap();
-    assert!(held(&whole).contains_key(&Slot::Track { number: 1 }));
+    assert!(held(&whole).contains_key(&Slot::Track {
+        number: TrackNum::new(1)
+    }));
 
     let mut sink = MemSink::new();
     sink.write_all(&at_cut).unwrap();
@@ -448,7 +480,9 @@ fn a_damaged_carried_block_costs_only_its_own_tracks() {
         .filter(|b| b.repeat && b.first_track == Some(0))
         .collect();
     // the layout and the producer, then the carried blocks: each but the first holds the clock
-    let clock = Slot::Clock { number: CLOCK };
+    let clock = Slot::Clock {
+        number: ClockNum::new(CLOCK),
+    };
     let with_clock: Vec<_> = crate::definitions::puts(&bytes)
         .into_iter()
         .filter(|(_, slots)| slots.contains(&clock))
@@ -516,8 +550,8 @@ fn map(from: u32, to: u32) -> ww_tape::Describe<'static> {
         .into_boxed_slice(),
     );
     ww_tape::Describe::Map(ww_tape::ClockMap {
-        from: UNib32(from),
-        to: UNib32(to),
+        from: ClockNum::new(from),
+        to: ClockNum::new(to),
         segments: RefVec::Slice { slice: seg },
     })
 }
@@ -601,7 +635,7 @@ fn maps_added_to_tracks_on_their_own_clocks_keep_the_chain_writing() {
         };
         rows.push(ww_tape::piece::TrackStart {
             track_id: t.id(),
-            track_number: number,
+            track_number: TrackNum::new(number),
             next_item: 1,
             from_tick: 0,
             owner: OwnerId(t.owner),
@@ -711,7 +745,7 @@ fn a_cut_short_of_room_leaves_out_the_oldest_and_a_reader_names_them() {
         p.piece
             .tracks
             .iter()
-            .find(|t| t.track_number == number)
+            .find(|t| t.track_number == TrackNum::new(number))
             .unwrap()
             .not_carried
     };
@@ -726,7 +760,9 @@ fn a_cut_short_of_room_leaves_out_the_oldest_and_a_reader_names_them() {
             number: t.track_number
         }));
     }
-    assert!(at.items.contains_key(&Slot::Track { number: n }));
+    assert!(at.items.contains_key(&Slot::Track {
+        number: TrackNum::new(n)
+    }));
 }
 
 /// A head row marked not carried whose definition the piece holds all the same (a hostile or careless writer): the
@@ -736,7 +772,7 @@ fn a_marked_row_whose_definition_the_piece_holds_is_not_named() {
     let defs = base_defs();
     let row = |number: u32| ww_tape::piece::TrackStart {
         track_id: crate::definitions::track_id(number),
-        track_number: number,
+        track_number: TrackNum::new(number),
         next_item: 0,
         from_tick: i64::MIN,
         owner: OwnerId::NONE,
@@ -767,8 +803,14 @@ fn a_marked_row_whose_definition_the_piece_holds_is_not_named() {
     let r = TapeReader::open(&bytes[..]).unwrap();
     assert!(r.verify(0).unwrap().holds);
     let at = r.definitions_at(0, u64::MAX).unwrap();
-    assert!(at.items.contains_key(&Slot::Track { number: 1 }));
-    let named: Vec<u32> = at.not_carried.iter().map(|t| t.track_number).collect();
+    assert!(at.items.contains_key(&Slot::Track {
+        number: TrackNum::new(1)
+    }));
+    let named: Vec<u32> = at
+        .not_carried
+        .iter()
+        .map(|t| t.track_number.get())
+        .collect();
     assert_eq!(named, [2]);
 }
 
@@ -821,7 +863,7 @@ fn left_out_chain(policy: usize) -> (PieceChain<MemTapes>, MemTapes, Definitions
         .tracks
         .iter()
         .filter(|t| t.not_carried)
-        .map(|t| t.track_number)
+        .map(|t| t.track_number.get())
         .collect();
     (chain, mem, defs, left)
 }
@@ -885,7 +927,7 @@ fn data_on_a_track_left_out_by_a_lowered_policy_writes_on() {
         .tracks
         .iter()
         .filter(|t| t.not_carried)
-        .map(|t| t.track_number)
+        .map(|t| t.track_number.get())
         .collect();
     assert!(left.contains(&5), "{left:?}");
     for (k, number) in left.iter().take(30).enumerate() {
@@ -915,7 +957,7 @@ fn a_marked_row_whose_number_another_track_took_is_named() {
         .unwrap();
     let row = ww_tape::piece::TrackStart {
         track_id: crate::definitions::track_id(1),
-        track_number: 1,
+        track_number: TrackNum::new(1),
         next_item: 0,
         from_tick: i64::MIN,
         owner: OwnerId::NONE,
@@ -946,7 +988,9 @@ fn a_marked_row_whose_number_another_track_took_is_named() {
     let bytes = tape.to_vec().unwrap();
     let r = TapeReader::open(&bytes[..]).unwrap();
     let at = r.definitions_at(0, u64::MAX).unwrap();
-    assert!(at.items.contains_key(&Slot::Track { number: 1 }));
+    assert!(at.items.contains_key(&Slot::Track {
+        number: TrackNum::new(1)
+    }));
     let named: Vec<u64> = at.not_carried.iter().map(|t| t.track_id).collect();
     assert_eq!(named, [crate::definitions::track_id(1)]);
 }
@@ -1126,7 +1170,7 @@ fn state_chain(defs: &Definitions) -> Vec<Vec<u8>> {
         },
     )
     .unwrap();
-    assert!(chain.put(defs, 10, 5, b"run").unwrap());
+    assert!(chain.put(defs, TrackNum::new(10), 5, b"run").unwrap());
     let (h, c) = chunk(0, 0);
     chain.write_chunk(defs, &h, &column(&c)).unwrap();
     chain.cut_now(defs).unwrap();
@@ -1152,12 +1196,22 @@ fn a_new_piece_carries_a_quiet_state_and_its_definition() {
     let at = r.definitions_at(0, u64::MAX).unwrap();
     assert_eq!(
         at.items
-            .get(&Slot::Track { number: 10 })
+            .get(&Slot::Track {
+                number: TrackNum::new(10)
+            })
             .map(|i| i.item.as_slice()),
-        defs.get(&Slot::Track { number: 10 }),
+        defs.get(&Slot::Track {
+            number: TrackNum::new(10)
+        }),
     );
     let found = r
-        .state_at(0, Slot::State { track: 10 }, u64::MAX)
+        .state_at(
+            0,
+            Slot::State {
+                track: TrackNum::new(10),
+            },
+            u64::MAX,
+        )
         .unwrap()
         .item
         .expect("the newest state of track 10");

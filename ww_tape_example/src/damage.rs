@@ -2,6 +2,7 @@
 //! what each reader still gets from the piece.
 
 use core::ops::Range;
+use ww_tape::TrackNum;
 
 use ww_tape::reader::Found;
 use ww_tape::{BlockKind, ColumnKind, FileBlocks, FileError, Recovery, Samples, Slot, TapeReader};
@@ -122,7 +123,7 @@ fn report(e: &FileError) -> (u64, &'static str, u64) {
 /// The samples of a series chunk of `drive`'s `phase_a` in groups whose bytes lie in a bad segment.
 fn samples_lost(drive: &Drive, chunk: &ww_tape::Chunk<'_>) -> Option<u64> {
     let head = chunk.head();
-    if head.track_number != PHASE_A {
+    if head.track_number != TrackNum::new(PHASE_A) {
         return None;
     }
     let def = phase_def(drive.phase_hz, drive.summaries)?;
@@ -239,9 +240,15 @@ impl Damaged {
             .iter()
             .filter(|e| matches!(e.kind, BlockKind::Series | BlockKind::Events))
         {
-            if r.state_at(0, Slot::State { track: MODE }, e.offset)?
-                .item
-                .is_none()
+            if r.state_at(
+                0,
+                Slot::State {
+                    track: TrackNum::new(MODE),
+                },
+                e.offset,
+            )?
+            .item
+            .is_none()
             {
                 mode_unknown.push(e.first_tick);
             }
@@ -312,9 +319,11 @@ impl Recording {
     /// `phase_a` at or after minute [FLIP_MINUTE].
     pub fn story_flip(&self) -> Result<(usize, u64), Error> {
         let at = i64::from(FLIP_MINUTE) * 60_000 * US_PER_MS;
-        let byte = self.chunk_at(PHASE_A, at).ok_or(Error::Settings(
-            "the run ends before the flipped bit's minute",
-        ))?;
+        let byte = self
+            .chunk_at(TrackNum::new(PHASE_A), at)
+            .ok_or(Error::Settings(
+                "the run ends before the flipped bit's minute",
+            ))?;
         let (piece, offset) = self
             .locate(byte)
             .ok_or(Error::Settings("the flipped byte lies in the recording"))?;

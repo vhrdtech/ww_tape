@@ -5,6 +5,7 @@
 use super::chunk::{build, column_start, hit_head, reseal};
 use super::series::track_item;
 use super::{Draw, Field, SESSION, clock_item, describe_block, hit};
+use ww_tape::TrackNum;
 use ww_tape::samples::{Element, ElementDesc, SampleShape, Scalar, encode, max_encoded_len};
 use ww_tape::series::SERIES_CHANNELS_MAX;
 use ww_tape::{
@@ -174,7 +175,7 @@ pub fn samples(data: &[u8]) -> Vec<u8> {
     let head = ChunkHead {
         kind: BlockKind::Series,
         track_id: 1,
-        track_number: 1,
+        track_number: TrackNum::new(1),
         first_item: 0,
         count: count.max(1) as u32,
         first_tick: 0,

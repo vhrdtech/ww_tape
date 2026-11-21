@@ -13,6 +13,7 @@ use ww_tape::{
     Slot, SyncPolicy, TapeReader, TapeWriter, TrackDef, TrackKind, TrackRepeat, TypeRef, Version,
     track_key,
 };
+use ww_tape::{ClockNum, RecordTrack, TrackNum};
 
 use crate::definitions::{CLOCK, begin, clock, on_tracks, options};
 
@@ -73,9 +74,9 @@ fn iq_u8() -> ElementDesc {
 /// An events track of instants: its items are what `items` says.
 fn raw_track(number: u32, items: Items<'static>) -> TrackDef<'static> {
     TrackDef {
-        number: UNib32(number),
+        number: TrackNum::new(number),
         key: track_key(0x77, &[Segment::Index(number)]),
-        clock: UNib32(CLOCK),
+        clock: ClockNum::new(CLOCK),
         dimensions: RefVec::Slice { slice: &[] },
         items,
         label: "raw",
@@ -113,14 +114,14 @@ fn write(def: &TrackDef<'static>) -> (Vec<u8>, usize) {
     let records: Vec<(u32, i64, &[u8])> = items
         .iter()
         .enumerate()
-        .map(|(i, b)| (def.number.0, i as i64, b.as_slice()))
+        .map(|(i, b)| (def.number.get(), i as i64, b.as_slice()))
         .collect();
     let block = on_tracks(w.next_id(), &records);
     w.write_block(&defs, &block).unwrap();
     let starts: Vec<i64> = (10..10 + items.len() as i64).collect();
     let times = EncodedTimes::encode(&starts, None, None).unwrap();
     let payloads = EncodedPayloads::encode(items.iter().map(Vec::as_slice)).unwrap();
-    let head = times.head.chunk_head(def.id(), def.number.0, 0);
+    let head = times.head.chunk_head(def.id(), def.number, 0);
     let columns: Vec<_> = times.columns().chain(payloads.columns()).collect();
     w.write_chunk(&defs, &head, &columns).unwrap();
     w.close().unwrap();
@@ -131,7 +132,11 @@ fn write(def: &TrackDef<'static>) -> (Vec<u8>, usize) {
 fn track_read(bytes: &[u8], number: u32) -> TrackDef<'_> {
     let r = TapeReader::open(bytes).unwrap();
     let at = r.definitions_at(0, u64::MAX).unwrap();
-    let item = at.items[&Slot::Track { number }].item.clone();
+    let item = at.items[&Slot::Track {
+        number: TrackNum::new(number),
+    }]
+        .item
+        .clone();
     let item: &'static [u8] = Box::leak(item.into_boxed_slice());
     let Ok(Describe::Track(t)) = Describe::from_ww_bytes(item) else {
         panic!("track {number} reads");
@@ -151,7 +156,7 @@ fn plain_bytes_are_stored_as_given() {
         if b.kind == BlockKind::Records && !b.is_repeat() {
             for r in b.records() {
                 let r = r.unwrap();
-                if r.track == 1 {
+                if r.track == RecordTrack::from_u32(1) {
                     in_records.push(r.item.to_vec());
                 }
             }
@@ -189,7 +194,7 @@ fn a_named_format_carries_its_schema() {
     let def = raw_track(3, Items::Foreign(named()));
     let defs = definitions(&def);
     assert_eq!(
-        defs.needs(3)
+        defs.needs(TrackNum::new(3))
             .iter()
             .map(|s| match s {
                 Slot::Own { kind, .. } => Some(*kind),
@@ -252,7 +257,9 @@ fn a_named_format_carries_its_schema() {
     let last = mem.get(&pieces[1].tape).unwrap().unwrap().to_vec().unwrap();
     let r = TapeReader::open(&last[..]).unwrap();
     let at = r.definitions_at(0, u64::MAX).unwrap();
-    assert!(at.items.contains_key(&Slot::Track { number: 3 }));
+    assert!(at.items.contains_key(&Slot::Track {
+        number: TrackNum::new(3)
+    }));
     assert!(
         at.items.keys().any(|s| matches!(
             s,
@@ -298,7 +305,9 @@ fn items_or_a_schema_that_do_not_fit_are_refused() {
         let mut defs = Definitions::new();
         defs.define_all(&[clock(CLOCK), Describe::Track(t)])
     };
-    let bad = Err(DescribeError::Items { track: 4 });
+    let bad = Err(DescribeError::Items {
+        track: TrackNum::new(4),
+    });
     let long_media = format!("application/{}", "x".repeat(MEDIA_TYPE_MAX));
     for m in [
         "",
@@ -472,9 +481,9 @@ fn an_items_variant_this_crate_does_not_know_reads_as_unknown() {
     }
     let today = raw_track(7, Items::RawBytes);
     let newer = NewerDescribe::Track(NewerTrackDef {
-        number: today.number,
+        number: UNib32(today.number.get()),
         key: today.key,
-        clock: today.clock,
+        clock: UNib32(today.clock.get()),
         dimensions: RefVec::Slice { slice: &[] },
         items: NewerItems::Packed {
             codec: UNib32(3),
@@ -502,7 +511,9 @@ fn an_items_variant_this_crate_does_not_know_reads_as_unknown() {
     let mut defs = Definitions::new();
     assert_eq!(
         defs.define_all(&[clock(CLOCK), Describe::Track(read.clone())]),
-        Err(DescribeError::Items { track: 7 }),
+        Err(DescribeError::Items {
+            track: TrackNum::new(7)
+        }),
         "a program builds no unknown variant"
     );
 
@@ -513,7 +524,7 @@ fn an_items_variant_this_crate_does_not_know_reads_as_unknown() {
     let mut out = Vec::new();
     ww_tape::open::write_records(
         &[RecordRef {
-            track: 0,
+            track: RecordTrack::Definitions,
             at: None,
             item: &newer,
         }],
@@ -543,7 +554,7 @@ fn an_items_variant_this_crate_does_not_know_reads_as_unknown() {
         if b.kind == BlockKind::Records && !b.is_repeat() {
             for r in b.records() {
                 let r = r.unwrap();
-                if r.track == 7 {
+                if r.track == RecordTrack::from_u32(7) {
                     stored.push(r.item.to_vec());
                 }
             }

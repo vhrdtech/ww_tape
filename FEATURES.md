@@ -181,6 +181,10 @@ Reading by position, checks and hashes, hostile bytes, in the crate `ww_tape`.
   - Entries of a piece are sorted by offset. Entries that name one block twice or overlap are refused, wherever they came from.
   - A final index out of order is refused when read, so every call that gives entries agrees.
   - Read more: [Finding blocks through the index](docs/reading.md#finding-blocks-through-the-index).
+- 🚧 **READ-5 Typed numbers in the API**
+  - Track and clock numbers are `TrackNum` and `ClockNum`, 1 and up, each exactly a `UNib32` on the wire; a definition naming 0 doesn't decode. A record names its track as a `RecordTrack`, track 0 being the definitions.
+  - Missing: the writer assigning track and clock numbers, and types for the other numbers of the API (ids, keys, seqs, item numbers, sizes).
+  - Read more: the crate docs of `ww_tape` (`TrackNum`, `ClockNum`, `RecordTrack`).
 
 ## Files and locks (`FS`)
 

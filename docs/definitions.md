@@ -62,22 +62,24 @@ The drive holds 8 definitions in 468 bytes. The test below takes them from the e
 and closes a track:
 
 ```rust
-use ww_tape::{MemSink, SyncPolicy, TapeWriter};
+use ww_tape::{MemSink, SyncPolicy, TapeWriter, TrackNum};
 use ww_tape_example::{CAN0, MODE, Mode, definitions};
+
+let (can0, mode) = (TrackNum::new(CAN0), TrackNum::new(MODE));
 
 let mut defs = definitions(25_000, true, 32 << 20).expect("the drive's definitions");
 assert_eq!((defs.len(), defs.bytes()), (8, 468));
 
 let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
 // The first put writes the mode, with the definitions it needs.
-assert!(w.put(&defs, MODE, 0, Mode::Run.item()).expect("put"));
+assert!(w.put(&defs, mode, 0, Mode::Run.item()).expect("put"));
 // The same mode 1 ms later lies close behind: the put writes nothing.
-assert!(!w.put(&defs, MODE, 1_000, Mode::Run.item()).expect("put"));
+assert!(!w.put(&defs, mode, 1_000, Mode::Run.item()).expect("put"));
 // A new mode is written.
-assert!(w.put(&defs, MODE, 2_000, Mode::Fault.item()).expect("put"));
+assert!(w.put(&defs, mode, 2_000, Mode::Fault.item()).expect("put"));
 
 // Closing can0 drops its definition; the clocks stay, since other tracks name them.
-assert!(defs.close(CAN0));
+assert!(defs.close(can0));
 assert_eq!(defs.len(), 7);
 ```
 

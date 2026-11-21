@@ -1,4 +1,5 @@
 use super::*;
+use crate::ClockNum;
 use crate::tests::id;
 use crate::{BlockWriter, ClockTime, EndMode};
 
@@ -11,7 +12,7 @@ fn entry(track_id: u64, offset: u64) -> IndexEntry {
         level: 0,
         tree: 0,
         track_id,
-        track_number: track_id as u32 + 1,
+        number: track_id as u32 + 1,
         second: 0,
         first_item: offset * 10,
         count: 10,
@@ -187,9 +188,19 @@ fn final_index_refuses_overlapping_blocks() {
 #[test]
 fn entries_of_blocks() {
     let mut buf = [0u8; 128];
-    let mut w = BlockWriter::new(&mut buf, BlockKind::Records, id(3), &[1]).unwrap();
-    w.push(2, ClockTime::new(1, 5), &[b"x"]).unwrap();
-    w.push(4, ClockTime::new(1, 6), &[b"y"]).unwrap();
+    let mut w = BlockWriter::new(&mut buf, BlockKind::Records, id(3), &[ClockNum::new(1)]).unwrap();
+    w.push(
+        TrackNum::new(2),
+        ClockTime::new(ClockNum::new(1), 5),
+        &[b"x"],
+    )
+    .unwrap();
+    w.push(
+        TrackNum::new(4),
+        ClockTime::new(ClockNum::new(1), 6),
+        &[b"y"],
+    )
+    .unwrap();
     let len = w.finish();
     let e = IndexEntry::of_block(77, &Block::read(&buf[..len]).unwrap()).unwrap();
     assert_eq!(
@@ -200,7 +211,7 @@ fn entries_of_blocks() {
     let head = crate::ChunkHead {
         kind: BlockKind::Events,
         track_id: 0xfeed,
-        track_number: 2,
+        track_number: TrackNum::new(2),
         first_item: 4096,
         count: 3,
         first_tick: 10,
@@ -240,7 +251,7 @@ fn entries_of_blocks() {
     use crate::summary::{EventFields, Layout, SummaryHead, SummaryWriter, Tree, summary_len};
     let h = SummaryHead {
         track_id: 0xabc,
-        track_number: 5,
+        track_number: TrackNum::new(5),
         tree: Tree::Events,
         level: 0,
         node_shift: 11,
@@ -261,8 +272,8 @@ fn entries_of_blocks() {
     assert_eq!(block.summary_head(), Some(h));
     let e = IndexEntry::of_block(10, &block).unwrap();
     assert_eq!(
-        (e.kind, e.len as usize, e.track_id, e.track_number),
-        (BlockKind::Summary, sb.len(), 0xabc, 5)
+        (e.kind, e.len as usize, e.track_id, e.track()),
+        (BlockKind::Summary, sb.len(), 0xabc, Some(TrackNum::new(5)))
     );
     assert_eq!((e.tree, e.level), (1, h.level));
     assert_eq!((e.first_item, e.count), (h.first_item, h.items));
@@ -337,7 +348,7 @@ fn renumbered_index_block_reads() {
 fn structural_blocks_are_not_deferred() {
     let mut w = crate::TapeWriter::create_on(crate::MemSink::new(), crate::SyncPolicy::None);
     let mut defs = crate::Definitions::new();
-    defs.define_all(&crate::tests::test_definitions(1, &[1]))
+    defs.define_all(&crate::tests::test_definitions(ClockNum::new(1), &[1]))
         .unwrap();
     let head = IndexHead {
         kind: IndexKind::Checkpoint,
@@ -362,8 +373,13 @@ fn structural_blocks_are_not_deferred() {
     .write(&mut tail, id(0));
     assert!(w.defer_block(&defs, tail.to_vec()).is_err());
     let mut buf = [0u8; 64];
-    let mut b = BlockWriter::new(&mut buf, BlockKind::Records, id(0), &[1]).unwrap();
-    b.push(1, ClockTime::new(1, 5), &[b"x"]).unwrap();
+    let mut b = BlockWriter::new(&mut buf, BlockKind::Records, id(0), &[ClockNum::new(1)]).unwrap();
+    b.push(
+        TrackNum::new(1),
+        ClockTime::new(ClockNum::new(1), 5),
+        &[b"x"],
+    )
+    .unwrap();
     let len = b.finish();
     w.defer_block(&defs, buf[..len].to_vec()).unwrap();
     w.close().unwrap();

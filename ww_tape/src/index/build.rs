@@ -1,5 +1,6 @@
 //! [Indexer]: what a writer keeps to place checkpoints and write the final index and the close.
 
+use crate::TrackNum;
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec;
 use alloc::vec::Vec;
@@ -22,7 +23,7 @@ pub(crate) type TrackKey = (u64, OwnerId);
 /// A track's hash and counted records in a piece.
 #[derive(Copy, Clone, Debug)]
 struct Tally {
-    number: u32,
+    number: TrackNum,
     hash: TrackHash,
     records: u64,
     /// The piece holds a counted chunk or record of the track: the close lists it
@@ -48,9 +49,9 @@ pub(crate) struct Indexer {
     last_checkpoint: Option<u64>,
     tracks: BTreeMap<TrackKey, TrackRange>,
     /// The track each number stands for, from the definitions placed in the piece
-    numbers: BTreeMap<u32, TrackKey>,
+    numbers: BTreeMap<TrackNum, TrackKey>,
     /// The tracks the piece head carries over, by number: where a number has no definition placed (a damaged one)
-    carried: BTreeMap<u32, TrackKey>,
+    carried: BTreeMap<TrackNum, TrackKey>,
     tallies: BTreeMap<TrackKey, Tally>,
     /// The tallies before the last counted block of data, to take it back ([Self::undo_block])
     undo: Vec<(TrackKey, Option<Tally>)>,
@@ -58,7 +59,7 @@ pub(crate) struct Indexer {
     /// ([Self::has_row])
     rows: BTreeSet<TrackKey>,
     /// The tracks a state record of is placed in the piece ([Self::state_placed])
-    stated: BTreeMap<TrackKey, u32>,
+    stated: BTreeMap<TrackKey, TrackNum>,
     /// The tracks the piece head carries over
     head_keys: BTreeSet<TrackKey>,
     /// Those of `rows` the head doesn't carry
@@ -128,13 +129,13 @@ impl Indexer {
     }
 
     /// Track number `number` stands for track `id` of `owner` from here on: a track definition was placed.
-    pub(crate) fn define(&mut self, number: u32, id: u64, owner: OwnerId) {
+    pub(crate) fn define(&mut self, number: TrackNum, id: u64, owner: OwnerId) {
         self.numbers.insert(number, (id, owner));
     }
 
     /// The track of number `number`, its id `id` when the block says it: by the definition placed in the piece, else
     /// by the head; a chunk whose number names no track of its id is of the piece's owner.
-    pub(crate) fn key_of(&self, number: u32, id: Option<u64>) -> Option<TrackKey> {
+    pub(crate) fn key_of(&self, number: TrackNum, id: Option<u64>) -> Option<TrackKey> {
         let fits = |k: &&TrackKey| id.is_none_or(|id| k.0 == id);
         self.numbers
             .get(&number)
@@ -168,7 +169,7 @@ impl Indexer {
     fn tally(
         &mut self,
         key: TrackKey,
-        number: u32,
+        number: TrackNum,
         unit: impl FnOnce(&TrackHash) -> TrackHash,
         records: u64,
     ) {
@@ -207,7 +208,7 @@ impl Indexer {
 
     /// A state record of track `key` (number `number`) is placed: the track gets a row in the close, so the next
     /// head carries it, its hash and counted records unchanged.
-    pub(crate) fn state_placed(&mut self, key: TrackKey, number: u32) {
+    pub(crate) fn state_placed(&mut self, key: TrackKey, number: TrackNum) {
         let t = self.tallies.entry(key).or_insert(Tally {
             number,
             hash: TrackHash::START,
@@ -223,7 +224,7 @@ impl Indexer {
 
     /// The counted chunk of track `number` of id `id` with unit hash `unit` goes into its track's hash: one read,
     /// or a damaged one by the unit hash its index entry states.
-    pub(crate) fn tally_chunk(&mut self, number: u32, id: u64, unit: &UnitHash) {
+    pub(crate) fn tally_chunk(&mut self, number: TrackNum, id: u64, unit: &UnitHash) {
         if let Some(key) = self.key_of(number, Some(id)) {
             self.tally(key, number, |h| h.then(unit), 0);
         }
@@ -231,8 +232,8 @@ impl Indexer {
 
     /// Records of data a resume keeps unread, in a block whose entry doesn't say which tracks they are on: every
     /// track the piece defines or its head carries for which `takes` holds is marked incomplete.
-    pub(crate) fn tally_unread_records(&mut self, takes: impl Fn(u32) -> bool) {
-        let tracks: BTreeMap<TrackKey, u32> = self
+    pub(crate) fn tally_unread_records(&mut self, takes: impl Fn(TrackNum) -> bool) {
+        let tracks: BTreeMap<TrackKey, TrackNum> = self
             .carried
             .iter()
             .chain(&self.numbers)
@@ -249,7 +250,7 @@ impl Indexer {
 
     /// Units of track `number` of id `id` that a resume keeps unread (a damaged block of its data whose entry holds no
     /// unit hash): its hash leaves them out, and the close marks it incomplete.
-    pub(crate) fn tally_unread(&mut self, number: u32, id: u64) {
+    pub(crate) fn tally_unread(&mut self, number: TrackNum, id: u64) {
         if let Some(key) = self.key_of(number, Some(id)) {
             self.tally(key, number, |h| *h, 0);
             if let Some(t) = self.tallies.get_mut(&key) {
@@ -260,7 +261,7 @@ impl Indexer {
 
     /// The counted record on track `number` at `ticks` holding `item` goes into its track's hash; a number no
     /// definition in the piece or the head names is left out.
-    pub(crate) fn tally_record(&mut self, number: u32, ticks: i64, item: &[u8]) {
+    pub(crate) fn tally_record(&mut self, number: TrackNum, ticks: i64, item: &[u8]) {
         if let Some(key) = self.key_of(number, None) {
             self.tally(key, number, |h| h.record(ticks, item), 1);
         }
@@ -286,9 +287,10 @@ impl Indexer {
         self.placed_unlisted(len);
         for e in entries {
             if matches!(e.kind, BlockKind::Events | BlockKind::Series)
-                && let Some(key) = self.key_of(e.track_number, Some(e.track_id))
+                && let Some(track) = e.track()
+                && let Some(key) = self.key_of(track, Some(e.track_id))
             {
-                add_to_range(&mut self.tracks, key, e);
+                add_to_range(&mut self.tracks, key, track, e);
                 self.insert_row(key);
             }
             if e.track_id == STATE_TRACK_ID {
@@ -342,7 +344,8 @@ impl Indexer {
         self.all.retain(|e| e.offset != offset);
         self.pending.retain(|e| e.offset != offset);
         if matches!(gone.kind, BlockKind::Events | BlockKind::Series)
-            && let Some(key) = self.key_of(gone.track_number, Some(gone.track_id))
+            && let Some(track) = gone.track()
+            && let Some(key) = self.key_of(track, Some(gone.track_id))
         {
             self.tracks.remove(&key);
             let same: Vec<IndexEntry> = self
@@ -350,12 +353,12 @@ impl Indexer {
                 .iter()
                 .filter(|e| {
                     matches!(e.kind, BlockKind::Events | BlockKind::Series)
-                        && self.key_of(e.track_number, Some(e.track_id)) == Some(key)
+                        && e.track().and_then(|t| self.key_of(t, Some(e.track_id))) == Some(key)
                 })
                 .copied()
                 .collect();
             for e in &same {
-                add_to_range(&mut self.tracks, key, e);
+                add_to_range(&mut self.tracks, key, track, e);
             }
             self.note_row(key);
         }
@@ -582,7 +585,12 @@ pub(crate) fn next_starts<'r>(
 }
 
 /// Add chunk entry `e` to the item and tick range of its track `key`.
-fn add_to_range(tracks: &mut BTreeMap<TrackKey, TrackRange>, key: TrackKey, e: &IndexEntry) {
+fn add_to_range(
+    tracks: &mut BTreeMap<TrackKey, TrackRange>,
+    key: TrackKey,
+    track: TrackNum,
+    e: &IndexEntry,
+) {
     tracks
         .entry(key)
         .and_modify(|t| {
@@ -595,7 +603,7 @@ fn add_to_range(tracks: &mut BTreeMap<TrackKey, TrackRange>, key: TrackKey, e: &
         })
         .or_insert(TrackRange {
             track_id: e.track_id,
-            track_number: e.track_number,
+            track_number: track,
             chunks: 1,
             first_item: e.first_item,
             items: e.count,

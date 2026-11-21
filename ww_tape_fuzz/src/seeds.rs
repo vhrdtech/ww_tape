@@ -19,6 +19,7 @@ use ww_tape::{
     Block, BlockId, BlockKind, BlockWriter, ClockTime, ColumnKind, Describe, Element, FLAG_REPEAT,
     GAP_MAX_MAX, GAP_PROBES_MAX, Layout, Producer, SessionTag, TrackKind,
 };
+use ww_tape::{ClockNum, TrackNum};
 
 /// Longest seed file.
 pub const SEED_LEN_MAX: usize = 64 << 10;
@@ -280,9 +281,9 @@ fn encoding_seeds() -> Vec<Seed> {
         .into_iter()
         .map(|(name, items)| {
             let t = ww_tape::TrackDef {
-                number: UNib32(1),
+                number: TrackNum::new(1),
                 key: 0x7261_7774,
-                clock: UNib32(1),
+                clock: ClockNum::new(1),
                 dimensions: RefVec::Slice { slice: &[] },
                 items,
                 label: "raw",
@@ -310,7 +311,7 @@ fn encoding_seeds() -> Vec<Seed> {
 fn chunk_block(enc: &EncodedTimes) -> Vec<u8> {
     let cols: Vec<_> = enc.columns().collect();
     let specs: Vec<_> = cols.iter().map(|c| c.0).collect();
-    let head = enc.head.chunk_head(1, 1, 0);
+    let head = enc.head.chunk_head(1, TrackNum::new(1), 0);
     let mut buf = vec![0u8; ww_tape::chunk::chunk_len(&head, &specs, 0)];
     let n = ww_tape::chunk::write_chunk(
         &mut buf,
@@ -482,9 +483,14 @@ fn index_fixes() -> Vec<Seed> {
 
 fn records(id: BlockId) -> Vec<u8> {
     let mut buf = [0u8; 256];
-    let mut b = BlockWriter::new(&mut buf, BlockKind::Records, id, &[1]).expect("a block");
-    b.push(9, ClockTime::new(1, id.seq as i64), &[&[id.seq as u8; 40]])
-        .expect("fits");
+    let mut b =
+        BlockWriter::new(&mut buf, BlockKind::Records, id, &[ClockNum::new(1)]).expect("a block");
+    b.push(
+        TrackNum::new(9),
+        ClockTime::new(ClockNum::new(1), id.seq as i64),
+        &[&[id.seq as u8; 40]],
+    )
+    .expect("fits");
     let len = b.finish();
     buf[..len].to_vec()
 }

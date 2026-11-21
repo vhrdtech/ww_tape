@@ -22,8 +22,8 @@ pub fn drive_segment() -> anyhow::Result<MapSegment> {
     let defs = definitions(25, false, 1 << 20).or_debug()?;
     for (_, bytes) in defs.definitions() {
         if let Describe::Map(m) = Describe::from_ww_bytes(bytes).or_debug()?
-            && m.from.0 == BOARD_CLOCK
-            && m.to.0 == HOST_CLOCK
+            && m.from.get() == BOARD_CLOCK
+            && m.to.get() == HOST_CLOCK
         {
             let mut segments = m.segments.iter();
             let first = segments.next().context("a segment")?.or_debug()?;

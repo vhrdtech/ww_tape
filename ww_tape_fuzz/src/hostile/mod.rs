@@ -36,11 +36,11 @@ pub(crate) use state::{
 pub use summary::summary;
 pub use times::times;
 
-use shrink_wrap::prelude::UNib32;
 use ww_tape::{
     BlockId, BlockKind, BlockWriter, ClockDef, ClockOrigin, ClockTime, Describe, Magnitude,
     SessionTag,
 };
+use ww_tape::{ClockNum, TrackNum};
 
 /// The session every hostile block is written in.
 pub(crate) const SESSION: SessionTag = SessionTag::writable(0x5eed);
@@ -273,7 +273,7 @@ pub(crate) fn definition(d: &Describe<'_>) -> Vec<u8> {
 /// The definition of clock 1, which the drawn tracks run on.
 pub(crate) fn clock_item() -> Vec<u8> {
     definition(&Describe::Clock(ClockDef {
-        number: UNib32(1),
+        number: ClockNum::new(1),
         key: 1,
         rate: Magnitude::pow10(9).into(),
         resolution: Magnitude::pow10(-9).into(),
@@ -285,9 +285,16 @@ pub(crate) fn clock_item() -> Vec<u8> {
 /// A records block of `records` (track, tick, item) on clock 1.
 pub(crate) fn records_block(id: BlockId, records: &[(u32, i64, &[u8])]) -> Vec<u8> {
     let mut buf = vec![0u8; 4096];
-    let mut w = BlockWriter::new(&mut buf, BlockKind::Records, id, &[1]).expect("a records block");
+    let mut w = BlockWriter::new(&mut buf, BlockKind::Records, id, &[ClockNum::new(1)])
+        .expect("a records block");
     for (track, tick, item) in records {
-        if w.push(*track, ClockTime::new(1, *tick), &[item]).is_err() {
+        if w.push(
+            TrackNum::new(*track),
+            ClockTime::new(ClockNum::new(1), *tick),
+            &[item],
+        )
+        .is_err()
+        {
             break;
         }
     }

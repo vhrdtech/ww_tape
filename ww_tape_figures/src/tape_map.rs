@@ -66,7 +66,7 @@ fn read() -> anyhow::Result<(Drive, Hour)> {
                         let Some(at) = r.at.map(|t| t.ticks) else {
                             continue;
                         };
-                        match r.track {
+                        match r.track.get() {
                             MODE => {
                                 if h.modes.last().is_none_or(|m| m.1 != r.item) {
                                     h.modes.push((at, r.item.to_vec()));
@@ -92,7 +92,7 @@ fn read() -> anyhow::Result<(Drive, Hour)> {
                     let head = chunk.head();
                     first_chunk.get_or_insert(head.first_tick);
                     let span = (head.first_tick, head.last_tick);
-                    match head.track_number {
+                    match head.track_number.get() {
                         CAN0 => h.frames.push(span),
                         PHASE_A => {
                             h.samples.push(span);

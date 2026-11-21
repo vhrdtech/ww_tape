@@ -23,6 +23,11 @@ use shrink_wrap::prelude::*;
 pub struct TrackNum(UNib32);
 
 impl TrackNum {
+    /// The lowest, 1.
+    pub const MIN: Self = Self(UNib32(1));
+    /// The highest, `u32::MAX`.
+    pub const MAX: Self = Self(UNib32(u32::MAX));
+
     /// Track `n`, for a constant: `const PHASE_A: TrackNum = TrackNum::new(4);`.
     ///
     /// # Panics
@@ -88,6 +93,11 @@ impl From<TrackNum> for u32 {
 pub struct ClockNum(UNib32);
 
 impl ClockNum {
+    /// The lowest, 1.
+    pub const MIN: Self = Self(UNib32(1));
+    /// The highest, `u32::MAX`.
+    pub const MAX: Self = Self(UNib32(u32::MAX));
+
     /// Clock `n`, for a constant: `const HOST: ClockNum = ClockNum::new(1);`.
     ///
     /// # Panics

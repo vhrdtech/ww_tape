@@ -3,6 +3,7 @@
 
 use crate::series::{Acc, Channel, add_channel};
 use crate::{ChannelStats, Scalar, SeriesStats, Value};
+use ww_tape::TrackNum;
 use ww_tape::{Element, ElementDesc};
 use ww_tape_codecs::kernel::{IntBatch, Kernel, Narrow, int_batch};
 
@@ -508,7 +509,7 @@ fn blocks_are_the_same_with_every_kernel() {
     let blocks = |kernel: Kernel| {
         let start = SeriesStart {
             track_id: 9,
-            track_number: 2,
+            track_number: TrackNum::new(2),
             shape,
             first_item: 100,
             grid: SeriesGrid::start(0, 0, Magnitude::ONE),

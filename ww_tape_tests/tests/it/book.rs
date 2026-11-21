@@ -2,6 +2,7 @@
 //! tables are those of the module docs and of the blocks this crate writes.
 
 use std::path::Path;
+use ww_tape::{ClockNum, TrackNum};
 
 use ww_tape::chunk::{ChunkHead, Codec, ColumnKind, ColumnSpec};
 use ww_tape::{
@@ -21,16 +22,26 @@ fn example(writer: &mut TapeWriter<MemSink>) -> Result<(), WriteError<MemError>>
     let ticks = 1_000;
     let mode_bytes = b"mode: run".to_vec();
     let mut buf = [0u8; 128];
-    let mut b = BlockWriter::new(&mut buf, BlockKind::Records, writer.next_id(), &[CLOCK]).unwrap();
-    b.push(1, ClockTime::new(CLOCK, ticks), &[&21i16.to_le_bytes()])
-        .unwrap();
+    let mut b = BlockWriter::new(
+        &mut buf,
+        BlockKind::Records,
+        writer.next_id(),
+        &[ClockNum::new(CLOCK)],
+    )
+    .unwrap();
+    b.push(
+        TrackNum::new(1),
+        ClockTime::new(ClockNum::new(CLOCK), ticks),
+        &[&21i16.to_le_bytes()],
+    )
+    .unwrap();
     let n = b.finish();
     let readings = buf[..n].to_vec();
 
     // --8<-- [start:definitions]
     let mut defs = Definitions::new();
     defs.define_all(&[clock, temperature_track, mode_track])?;
-    writer.put(&defs, MODE, ticks, &mode_bytes)?; // a state item, at its use
+    writer.put(&defs, TrackNum::new(MODE), ticks, &mode_bytes)?; // a state item, at its use
     writer.write_block(&defs, &readings)?; // the definitions it needs go first
     // --8<-- [end:definitions]
     Ok(())
@@ -253,13 +264,21 @@ fn format_page_header_offsets_read_a_block() {
         &mut buf,
         BlockKind::Records,
         BlockId::new(session, 3),
-        &[CLOCK],
+        &[ClockNum::new(CLOCK)],
     )
     .unwrap();
-    b.push(2, ClockTime::new(CLOCK, 1_000_000), &[b"ok"])
-        .unwrap();
-    b.push(3, ClockTime::new(CLOCK, 1_000_250), &[&[0x9c]])
-        .unwrap();
+    b.push(
+        TrackNum::new(2),
+        ClockTime::new(ClockNum::new(CLOCK), 1_000_000),
+        &[b"ok"],
+    )
+    .unwrap();
+    b.push(
+        TrackNum::new(3),
+        ClockTime::new(ClockNum::new(CLOCK), 1_000_250),
+        &[&[0x9c]],
+    )
+    .unwrap();
     let n = b.finish();
     let bytes = &buf[..n];
     Block::read(bytes).unwrap();
@@ -290,7 +309,7 @@ fn format_page_chunk_head_offsets_read_a_chunk() {
     let head = ChunkHead {
         kind: BlockKind::Series,
         track_id: 0x1122_3344_5566_7788,
-        track_number: 9,
+        track_number: TrackNum::new(9),
         first_item: 100,
         count: 4,
         first_tick,

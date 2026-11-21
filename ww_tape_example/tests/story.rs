@@ -262,9 +262,7 @@ fn a_shorter_run_is_the_start_of_the_hour() -> Result<(), Error> {
         .entries(0)
         .expect("its index")
         .iter()
-        .filter(|e| {
-            e.track_number == ww_tape_example::PHASE_A && e.kind == ww_tape::BlockKind::Series
-        })
+        .filter(|e| e.number == ww_tape_example::PHASE_A && e.kind == ww_tape::BlockKind::Series)
         .map(|e| e.offset + u64::from(e.len))
         .max()
         .expect("a chunk of phase_a");

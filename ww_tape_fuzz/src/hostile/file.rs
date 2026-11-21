@@ -10,6 +10,7 @@ use super::index::{
 use super::{
     Draw, Field, SESSION, definition, describe_block, get, hit, hit_some, put, records_block, seal,
 };
+use ww_tape::TrackNum;
 use ww_tape::index::{IndexEntry, IndexKind};
 use ww_tape::piece::{ContentHash, TAIL_LEN};
 use ww_tape::times::EncodedTimes;
@@ -96,7 +97,7 @@ pub fn file(data: &[u8]) -> Vec<u8> {
         let starts: Vec<i64> = (0..1 + d.below(40) as i64).map(|i| i * 3).collect();
         let t = EncodedTimes::encode(&starts, None, None).expect("valid times");
         let cols: Vec<_> = t.columns().collect();
-        let mut b = build(&t.head.chunk_head(1, 1, 0), &cols);
+        let mut b = build(&t.head.chunk_head(1, TrackNum::new(1), 0), &cols);
         ww_tape::set_id(&mut b, BlockId::new(SESSION, seq)).expect("a good chunk renumbers");
         place(&mut f, &mut placed, &b, BlockKind::Events);
     }

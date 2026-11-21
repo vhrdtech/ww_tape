@@ -1,6 +1,7 @@
 //! ww_tape chunk blocks on any bytes, and on chunks built from the input with one byte flipped: reading and salvaging
 //! never panic, a salvaged chunk's head reads back, alone too, a byte flipped in the payload of a good chunk costs exactly the
 //! segment it is in, and a block given another session and seq stays good.
+use ww_tape::TrackNum;
 use ww_tape::chunk::{chunk_len, write_chunk};
 use ww_tape::{
     Block, BlockId, BlockKind, ChunkHead, Codec, ColumnKind, ColumnSpec, EndMode, SessionTag,
@@ -85,7 +86,7 @@ pub fn chunk(data: &[u8]) {
             BlockKind::Events
         },
         track_id: 7,
-        track_number: 1,
+        track_number: TrackNum::new(1),
         first_item: 0,
         count: 1,
         first_tick: 0,

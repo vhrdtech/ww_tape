@@ -2,6 +2,7 @@
 //! the scale bytes and the node values.
 
 use super::{Draw, Field, HEADER_FIELDS, HEADER_LEN, LEN_FIELD, hit, hit_some, seal};
+use ww_tape::TrackNum;
 use ww_tape::{Element, ElementDesc, EventFields, Magnitude, Ratio64, SampleShape, SeriesGrid};
 use ww_tape_summary::{
     EventTree, ItemRun, NODE_SHIFT_MAX, SCALE_LEN_MAX, SUMMARY_FIXED_LEN, SeriesStart, SeriesStats,
@@ -43,7 +44,7 @@ fn events(d: &mut Draw<'_>) -> Vec<Vec<u8>> {
         latest_end: d.bool(),
     };
     let first = u64::from(d.u16()) * 37;
-    let mut tree = EventTree::new(1, 1, fields, first);
+    let mut tree = EventTree::new(1, TrackNum::new(1), fields, first);
     tree.set_max_block_bytes(96 + 64 * d.range(1, 8));
     let mut t = i64::from(d.u8()) - 128;
     let mut r = d.bits();
@@ -85,7 +86,7 @@ fn series(d: &mut Draw<'_>) -> Vec<Vec<u8>> {
     let first = u64::from(d.u16());
     let start = SeriesStart {
         track_id: 2,
-        track_number: 2,
+        track_number: TrackNum::new(2),
         shape,
         first_item: first,
         grid: SeriesGrid::start(first, -5, Magnitude::pow10(-3)),
@@ -133,7 +134,7 @@ pub fn summary(data: &[u8]) -> Vec<u8> {
     };
     if blocks.is_empty() {
         // one item of an event tree
-        let mut tree = EventTree::new(1, 1, EventFields::default(), 0);
+        let mut tree = EventTree::new(1, TrackNum::new(1), EventFields::default(), 0);
         tree.push(0, 0, 0).expect("an item");
         tree.finish().expect("a tree of one item finishes");
         blocks = tree.take_blocks();

@@ -5,6 +5,7 @@ use super::{
     EVENT_BASE_SHIFT, EventFields, EventNode, Layout, SummaryHead, Tree, summary_len,
     write_event_summary,
 };
+use ww_tape::TrackNum;
 
 impl LevelNode for EventNode {
     fn merge(&mut self, next: &Self, _items: u64, _next_items: u64) -> Result<(), BuildError> {
@@ -39,7 +40,7 @@ pub struct ItemRun {
 /// writes the partial nodes at the end.
 pub struct EventTree {
     track_id: u64,
-    track_number: u32,
+    track_number: TrackNum,
     fields: EventFields,
     origin: u64,
     next_item: u64,
@@ -54,7 +55,12 @@ pub struct EventTree {
 impl EventTree {
     /// The tree of track `track_id` (number `track_number`) from item `first_item` on; `fields` says whether the
     /// track has flags and spans.
-    pub fn new(track_id: u64, track_number: u32, fields: EventFields, first_item: u64) -> Self {
+    pub fn new(
+        track_id: u64,
+        track_number: TrackNum,
+        fields: EventFields,
+        first_item: u64,
+    ) -> Self {
         Self {
             track_id,
             track_number,

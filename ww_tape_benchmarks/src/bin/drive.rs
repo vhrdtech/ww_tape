@@ -12,6 +12,7 @@
 
 use clap::Parser;
 use std::time::Instant;
+use ww_tape::TrackNum;
 use ww_tape::{BlockKind, FLAG_REPEAT, FileBlocks};
 use ww_tape_bench::{Bench, Cell, Common, Measure};
 use ww_tape_example::{CAN0, Drive, PHASE_A, Recording, frame};
@@ -145,7 +146,7 @@ fn items(bench: &Bench, rec: &Recording) -> Measure {
         ],
     );
     // raw: a frame's 64-bit time and its payload, a sample's 16 bits
-    let (_, frames) = rec.chunk_bytes(CAN0);
+    let (_, frames) = rec.chunk_bytes(TrackNum::new(CAN0));
     let period_us = 1_000_000 / u64::from(rec.drive.can_hz);
     let payloads: u64 = (0..frames)
         .map(|k| frame(k, period_us).1.len() as u64)
@@ -156,7 +157,7 @@ fn items(bench: &Bench, rec: &Recording) -> Measure {
         ("`can0` frames", CAN0, raw_frame),
         ("`phase_a` samples", PHASE_A, size_of::<i16>() as f64),
     ] {
-        let (bytes, n) = rec.chunk_bytes(track);
+        let (bytes, n) = rec.chunk_bytes(TrackNum::new(track));
         t.row(vec![
             Cell::text(name),
             Cell::count(n),

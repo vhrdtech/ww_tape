@@ -3,6 +3,7 @@
 //! hostile values behind good CRCs, or the piece is cut.
 
 use std::sync::OnceLock;
+use ww_tape::{ClockNum, TrackNum};
 
 use super::index::reseal_index;
 use super::{Draw, Field, HEADER_FIELDS, get, hit, hit_some, seal};
@@ -58,9 +59,9 @@ pub(crate) fn options() -> ww_tape::WriterOptions {
 /// Track `number` on [CLOCK], labeled `label`, a state track of `state` or a stream.
 fn track(number: u32, label: &'static str, state: Option<StatePolicy>) -> Describe<'static> {
     Describe::Track(TrackDef {
-        number: UNib32(number),
+        number: TrackNum::new(number),
         key: track_key(0x57, &[Segment::Index(number)]),
-        clock: UNib32(CLOCK),
+        clock: ClockNum::new(CLOCK),
         dimensions: RefVec::Slice { slice: &[] },
         items: ww_tape::Items::WireWeaver {
             api: FullVersion::new("state_api", Version::new(0, 1, 0)),
@@ -85,7 +86,7 @@ pub(crate) fn definitions() -> Definitions {
     let mut defs = Definitions::new();
     defs.define_all(&[
         Describe::Clock(ClockDef {
-            number: UNib32(CLOCK),
+            number: ClockNum::new(CLOCK),
             key: clock_key(0x57, &[], 1),
             rate: Magnitude::pow10(9).into(),
             resolution: Magnitude::pow10(-9).into(),
@@ -103,10 +104,15 @@ pub(crate) fn definitions() -> Definitions {
 /// A records block of the stream track at tick `k`.
 pub(crate) fn records(id: ww_tape::BlockId, k: i64) -> Vec<u8> {
     let mut buf = [0u8; 128];
-    let mut b = ww_tape::BlockWriter::new(&mut buf, BlockKind::Records, id, &[CLOCK])
-        .expect("a block fits");
-    b.push(STREAM, ClockTime::new(CLOCK, k), &[&[k as u8; 24]])
-        .expect("a record fits");
+    let mut b =
+        ww_tape::BlockWriter::new(&mut buf, BlockKind::Records, id, &[ClockNum::new(CLOCK)])
+            .expect("a block fits");
+    b.push(
+        TrackNum::new(STREAM),
+        ClockTime::new(ClockNum::new(CLOCK), k),
+        &[&[k as u8; 24]],
+    )
+    .expect("a record fits");
     let len = b.finish();
     buf[..len].to_vec()
 }
@@ -128,10 +134,15 @@ fn template() -> Vec<u8> {
             defs.define(&track(STREAM, labels[(k / 7) as usize % 3], None))
                 .expect("a label changes");
         }
-        w.put(&defs, STATES[0], k, &[(k % 3) as u8; 12])
+        w.put(&defs, TrackNum::new(STATES[0]), k, &[(k % 3) as u8; 12])
             .expect("a put");
-        w.put(&defs, STATES[1], k, &[(k / 8) as u8 | 0x80; 40])
-            .expect("a put");
+        w.put(
+            &defs,
+            TrackNum::new(STATES[1]),
+            k,
+            &[(k / 8) as u8 | 0x80; 40],
+        )
+        .expect("a put");
         w.write_block(&defs, &records(w.next_id(), k))
             .expect("a records block");
     }
@@ -238,7 +249,7 @@ pub fn attacked(data: &[u8]) -> Attacked {
         .filter(|(at, len, kind)| {
             *kind == BlockKind::Records
                 && ww_tape::Block::read(&f[*at..at + len]).is_ok_and(|b| {
-                    b.is_repeat() || b.first_track() == Some(ww_tape::DESCRIBE_TRACK)
+                    b.is_repeat() || b.first_track() == Some(ww_tape::RecordTrack::Definitions)
                 })
         })
         .collect();

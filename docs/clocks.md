@@ -94,11 +94,11 @@ A [[reader]] turns any board time into host time with the segment. At minute 37 
 
 ```rust
 use shrink_wrap::prelude::*;
-use ww_tape::{Describe, Rounding, Slot};
+use ww_tape::{ClockNum, Describe, Rounding, Slot};
 use ww_tape_example::{BOARD_CLOCK, BOOT_UNIX_NS, HOST_CLOCK, definitions};
 
 let defs = definitions(25_000, true, 32 << 20).expect("the drive's definitions");
-let slot = Slot::Map { from: BOARD_CLOCK, to: HOST_CLOCK };
+let slot = Slot::Map { from: ClockNum::new(BOARD_CLOCK), to: ClockNum::new(HOST_CLOCK) };
 let bytes = defs.get(&slot).expect("the drive maps the board's clock to the host's");
 let Describe::Map(map) = Describe::from_ww_bytes(bytes).expect("a definition") else {
     panic!("the slot of a map holds a map");

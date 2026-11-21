@@ -9,9 +9,10 @@ use ww_tape::{
     ElementDesc, EndMode, Items, Magnitude, MemSink, Ratio64, SeriesDef, SeriesGrid, SyncPolicy,
     TapeReader, TapeWriter, TrackDef, TrackKind, TrackRepeat, clock_key, track_key,
 };
+use ww_tape::{ClockNum, TrackNum};
 
 /// The radio's clock: ns since the capture starts.
-const CLOCK: u32 = 1;
+const CLOCK: ClockNum = ClockNum::new(1);
 /// Samples in the chunk the test writes.
 const COUNT: u32 = 1024;
 
@@ -35,9 +36,9 @@ fn iq8_track() -> TrackDef<'static> {
         media: None,
     };
     TrackDef {
-        number: UNib32(1),
+        number: TrackNum::new(1),
         key: track_key(0x5d8, &[]),
-        clock: UNib32(CLOCK),
+        clock: CLOCK,
         dimensions: RefVec::Slice { slice: &[] },
         items: Items::Numbers {
             element,
@@ -77,7 +78,7 @@ fn an_8_bit_iq_track_is_stored_as_the_radio_sends_it() {
     let mut defs = Definitions::new();
     defs.define_all(&[
         Describe::Clock(ClockDef {
-            number: UNib32(CLOCK),
+            number: CLOCK,
             key: clock_key(0x5d8, &[], 1),
             rate: Magnitude::pow10(9).into(),
             resolution: Magnitude::pow10(-9).into(),
@@ -94,7 +95,7 @@ fn an_8_bit_iq_track_is_stored_as_the_radio_sends_it() {
     let head = ChunkHead {
         kind: BlockKind::Series,
         track_id: track.id(),
-        track_number: 1,
+        track_number: TrackNum::new(1),
         first_item: 0,
         count: COUNT,
         first_tick,

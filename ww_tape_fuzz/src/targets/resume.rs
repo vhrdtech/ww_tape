@@ -12,6 +12,7 @@
 //! piece closed for a file of several), a cut (u16 little endian, modulo the last piece's length + 1), then flips of
 //! three bytes each (an offset, u16 little endian, modulo the cut last piece's length, and the bits to flip).
 use std::sync::OnceLock;
+use ww_tape::{ClockNum, TrackNum};
 
 use shrink_wrap::prelude::{RefVec, UNib32};
 use ww_tape::chunk::ChunkHead;
@@ -55,9 +56,14 @@ pub(crate) fn options(aligned: bool) -> WriterOptions {
 
 pub(crate) fn records(id: BlockId, n: u64) -> Vec<u8> {
     let mut buf = [0u8; 128];
-    let mut b = BlockWriter::new(&mut buf, BlockKind::Records, id, &[1]).expect("a block fits");
-    b.push(9, ClockTime::new(1, n as i64), &[&[n as u8; 20]])
-        .expect("a record fits");
+    let mut b = BlockWriter::new(&mut buf, BlockKind::Records, id, &[ClockNum::new(1)])
+        .expect("a block fits");
+    b.push(
+        TrackNum::new(9),
+        ClockTime::new(ClockNum::new(1), n as i64),
+        &[&[n as u8; 20]],
+    )
+    .expect("a record fits");
     let len = b.finish();
     buf[..len].to_vec()
 }
@@ -71,7 +77,7 @@ fn chunk(t: u64, k: u64) -> (ChunkHead, Vec<u8>) {
     let head = ChunkHead {
         kind: BlockKind::Events,
         track_id: track_key(0xf2, &[Segment::Index(t as u32 + 1)]),
-        track_number: t as u32 + 1,
+        track_number: TrackNum::new(t as u32 + 1),
         first_item: first,
         count: 16,
         first_tick: first as i64 * 4 + t as i64,
@@ -247,9 +253,9 @@ pub(crate) fn removed_chain() -> Vec<u8> {
 /// Events track `number` on clock `clock`.
 pub(crate) fn track(number: u32, clock: u32) -> Describe<'static> {
     Describe::Track(TrackDef {
-        number: UNib32(number),
+        number: TrackNum::new(number),
         key: track_key(0xf2, &[Segment::Index(number)]),
-        clock: UNib32(clock),
+        clock: ClockNum::new(clock),
         dimensions: RefVec::Slice { slice: &[] },
         items: ww_tape::Items::WireWeaver {
             api: FullVersion::new("fuzz_api", Version::new(0, 1, 0)),
@@ -270,7 +276,7 @@ pub(crate) fn track(number: u32, clock: u32) -> Describe<'static> {
 
 pub(crate) fn clock(number: u32) -> Describe<'static> {
     Describe::Clock(ClockDef {
-        number: UNib32(number),
+        number: ClockNum::new(number),
         key: clock_key(0xf2, &[], number.into()),
         rate: Magnitude::pow10(9).into(),
         resolution: Magnitude::pow10(-9).into(),

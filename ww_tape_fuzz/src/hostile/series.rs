@@ -8,6 +8,7 @@ use ww_tape::{
     BlockId, BlockKind, ChunkHead, Codec, ColumnKind, ColumnSpec, Describe, EndMode, Magnitude,
     Ratio64, SampleShape, Segment, SeriesDef, SeriesGrid, TrackDef, TrackKind, track_key,
 };
+use ww_tape::{ClockNum, TrackNum};
 
 /// The track number of the hostile series.
 pub(crate) const TRACK: u32 = 1;
@@ -23,9 +24,9 @@ pub(crate) fn track_item(shape: SampleShape, period: Ratio64, scale: Magnitude) 
         media: None,
     };
     let track = Describe::Track(TrackDef {
-        number: UNib32(TRACK),
+        number: TrackNum::new(TRACK),
         key: track_key(0x5e, &[Segment::Name("hostile")]),
-        clock: UNib32(1),
+        clock: ClockNum::new(1),
         dimensions: RefVec::Slice { slice: &[] },
         items: ww_tape::Items::Numbers {
             element: shape.element,
@@ -92,7 +93,7 @@ pub fn series(data: &[u8]) -> Vec<u8> {
         heads.push(ChunkHead {
             kind: BlockKind::Series,
             track_id: 7,
-            track_number: TRACK,
+            track_number: TrackNum::new(TRACK),
             first_item: first,
             count,
             first_tick,

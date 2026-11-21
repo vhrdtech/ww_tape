@@ -121,11 +121,12 @@ hour, the board's count runs 72 ms ahead of the host's:
 
 ```rust
 use shrink_wrap::prelude::*;
-use ww_tape::{Describe, Rounding, Slot};
+use ww_tape::{ClockNum, Describe, Rounding, Slot};
 use ww_tape_example::{BOARD_CLOCK, BOOT_UNIX_NS, HOST_CLOCK, definitions};
 
 let defs = definitions(25_000, true, 32 << 20).expect("the drive's definitions");
-let bytes = defs.get(&Slot::Map { from: BOARD_CLOCK, to: HOST_CLOCK }).expect("the drive's map");
+let map = Slot::Map { from: ClockNum::new(BOARD_CLOCK), to: ClockNum::new(HOST_CLOCK) };
+let bytes = defs.get(&map).expect("the drive's map");
 let Describe::Map(map) = Describe::from_ww_bytes(bytes).expect("a definition") else {
     panic!("the slot of a map holds a map");
 };

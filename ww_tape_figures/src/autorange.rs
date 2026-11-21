@@ -4,6 +4,7 @@
 //! [SeriesSummaries] writes: the node across the change is kept at the common scale of both.
 
 use anyhow::{Context, ensure};
+use ww_tape::TrackNum;
 use ww_tape::chunk::{ChunkHead, chunk_len, write_chunk};
 use ww_tape::samples::{SampleShape, Samples};
 use ww_tape::{
@@ -40,7 +41,7 @@ fn chunk(grid: SeriesGrid, period: Ratio64, first: u64) -> anyhow::Result<(Chunk
     let head = ChunkHead {
         kind: BlockKind::Series,
         track_id: 11,
-        track_number: 1,
+        track_number: TrackNum::new(1),
         first_item: first,
         count,
         first_tick,
@@ -103,7 +104,7 @@ pub fn autorange() -> anyhow::Result<String> {
     // the summaries, built as a writer builds them, the grid rescaled at the switch
     let start = SeriesStart {
         track_id: 11,
-        track_number: 1,
+        track_number: TrackNum::new(1),
         shape: SampleShape::scalar(ElementDesc::of(Element::I16)),
         first_item: 0,
         grid,

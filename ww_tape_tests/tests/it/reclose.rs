@@ -4,6 +4,7 @@
 
 use crate::pieces::records;
 use crate::resume::{begin, head, options};
+use ww_tape::RecordTrack;
 use ww_tape::index::{IndexEntry, IndexKind};
 use ww_tape::piece::{APPEND_HEAD_LEN, Close, PIECE_ALIGN, TAIL_LEN};
 use ww_tape::reader::Found;
@@ -17,7 +18,10 @@ pub(crate) fn ticks(bytes: &[u8]) -> Vec<i64> {
     let mut rd = FileBlocks::with_recovery(bytes, Recovery::Prefix);
     let mut out = vec![];
     while let Some(Ok(b)) = rd.next_block() {
-        if b.kind == BlockKind::Records && !b.is_repeat() && b.first_track() != Some(0) {
+        if b.kind == BlockKind::Records
+            && !b.is_repeat()
+            && b.first_track() != Some(RecordTrack::Definitions)
+        {
             out.push(b.records().next().unwrap().unwrap().at.unwrap().ticks);
         }
     }

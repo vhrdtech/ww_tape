@@ -18,6 +18,7 @@
 //! ```
 
 use core::f64::consts::PI;
+use ww_tape::{ClockNum, TrackNum};
 
 use shrink_wrap::prelude::*;
 use ww_tape::chunk::ChunkHead;
@@ -159,7 +160,7 @@ impl Rf {
         let mut defs = Definitions::new();
         defs.define_all(&[
             Describe::Clock(ClockDef {
-                number: UNib32(RF_CLOCK),
+                number: ClockNum::new(RF_CLOCK),
                 key: clock_key(API_ROOT, &[Segment::Name("sample_clock")], 1),
                 rate: Magnitude::pow10(9).into(),
                 resolution: Magnitude::pow10(-9).into(),
@@ -167,9 +168,9 @@ impl Rf {
                 label: "front end ns",
             }),
             Describe::Track(TrackDef {
-                number: UNib32(IQ),
+                number: TrackNum::new(IQ),
                 key: iq_key(),
-                clock: UNib32(RF_CLOCK),
+                clock: ClockNum::new(RF_CLOCK),
                 dimensions: RefVec::Slice { slice: &[] },
                 items: Items::Numbers {
                     element: IQ_ELEMENT,
@@ -229,7 +230,7 @@ impl Rf {
         let head = ChunkHead {
             kind: BlockKind::Series,
             track_id: iq_key(),
-            track_number: IQ,
+            track_number: TrackNum::new(IQ),
             first_item: first,
             count,
             first_tick,
@@ -255,7 +256,7 @@ impl Rf {
         };
         let start = SeriesStart {
             track_id: iq_key(),
-            track_number: IQ,
+            track_number: TrackNum::new(IQ),
             shape: iq_shape(),
             first_item: 0,
             grid: def.first_grid(0),

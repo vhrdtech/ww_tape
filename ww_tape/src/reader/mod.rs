@@ -38,7 +38,7 @@ use crate::series::{SeriesError, SeriesTimeline};
 use crate::walk::{Head, SessionState, Verdict, is_free};
 use crate::{
     Block, BlockError, BlockKind, GAP_CHECKS_MAX, HEADER_LEN, Layout, MAGIC, MAX_BLOCK_LEN, Medium,
-    VERSION, block_len,
+    TrackNum, VERSION, block_len,
 };
 
 mod state;
@@ -1273,7 +1273,7 @@ impl<S: ByteSource> TapeReader<S> {
                 self.track_entries(i, track_id)?
                     .into_iter()
                     .filter(|e| e.kind == BlockKind::Events && e.relation_break)
-                    .filter(|e| numbers.takes(e.track_number))
+                    .filter(|e| e.track().is_some_and(|t| numbers.takes(t)))
                     .map(|e| (i, e)),
             );
         }
@@ -1713,7 +1713,7 @@ impl<S: ByteSource> TapeReader<S> {
             let numbers = self.numbers_of(i, track_id, owner)?;
             let ours = |e: &IndexEntry| {
                 matches!(e.kind, BlockKind::Events | BlockKind::Series)
-                    && numbers.takes(e.track_number)
+                    && e.track().is_some_and(|t| numbers.takes(t))
                     && e.first_item < items.end
                     && e.end_item() > items.start
             };
@@ -1835,13 +1835,13 @@ impl<S: ByteSource> TapeReader<S> {
 /// The track numbers of one track in a piece, from its rows: its own, and those of the same id with other owners.
 #[derive(Default)]
 struct Numbers {
-    own: Vec<u32>,
-    others: Vec<u32>,
+    own: Vec<TrackNum>,
+    others: Vec<TrackNum>,
 }
 
 impl Numbers {
     /// Whether a chunk numbered `number` is the track's.
-    fn takes(&self, number: u32) -> bool {
+    fn takes(&self, number: TrackNum) -> bool {
         if self.own.is_empty() {
             !self.others.contains(&number)
         } else {
@@ -2021,19 +2021,19 @@ fn ranges_in_order<E>(p: &PieceInfo, entries: &[IndexEntry]) -> Result<(), ReadE
         .filter(|e| e.kind == BlockKind::Events && !e.repeat)
     {
         if e.relation_break {
-            top.remove(&e.track_number);
+            top.remove(&e.number);
         }
         let Some((lo, hi)) = e.range else {
             continue;
         };
-        if top.get(&e.track_number).is_some_and(|t| lo < *t) {
+        if top.get(&e.number).is_some_and(|t| lo < *t) {
             return Err(ReadError::RelationOrder {
                 offset: p.start.saturating_add(e.offset),
                 track_id: e.track_id,
                 relation: None,
             });
         }
-        top.insert(e.track_number, hi);
+        top.insert(e.number, hi);
     }
     Ok(())
 }

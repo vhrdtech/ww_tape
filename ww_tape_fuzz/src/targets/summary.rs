@@ -1,6 +1,7 @@
 //! ww_tape summary blocks on any bytes, and trees built from the input: reading never panics, every accessor of a
 //! good summary block stays in bounds, and every block a builder writes reads back with its nodes covering the items,
 //! also across prefix changes of a series, whose nodes then merge at a common scale.
+use ww_tape::TrackNum;
 use ww_tape::{
     Block, BlockId, Element, ElementDesc, EventFields, Magnitude, Ratio64, SampleShape, SeriesGrid,
     SessionTag, set_id,
@@ -76,7 +77,7 @@ pub fn summary(data: &[u8]) {
     let body = &data[4..];
 
     // an event tree: each input byte is a gap, a span length, flags, or a run
-    let mut tree = EventTree::new(1, 1, fields, first);
+    let mut tree = EventTree::new(1, TrackNum::new(1), fields, first);
     tree.set_max_block_bytes(96 + 64 * usize::from(data[3] % 8 + 1));
     let mut t = i64::from(data[3]) - 128;
     for &x in body {
@@ -122,7 +123,7 @@ pub fn summary(data: &[u8]) {
     let xs = &xs[..xs.len() / lanes * lanes];
     let start = SeriesStart {
         track_id: 2,
-        track_number: 2,
+        track_number: TrackNum::new(2),
         shape,
         first_item: first,
         grid: SeriesGrid::start(first, -5, Magnitude::pow10(-3)),

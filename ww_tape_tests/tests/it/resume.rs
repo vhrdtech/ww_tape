@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
+use ww_tape::{ClockNum, RecordTrack, TrackNum};
 
 use crate::definitions::{CLOCK, base_defs, clock, state, track, tracks};
 use crate::id;
@@ -102,7 +103,7 @@ fn ranged_chunk(k: u64) -> (ChunkHead, Vec<(ColumnSpec, Vec<u8>)>) {
     (
         times
             .head
-            .chunk_head(crate::definitions::track_id(13), 13, k * 20),
+            .chunk_head(crate::definitions::track_id(13), TrackNum::new(13), k * 20),
         cols,
     )
 }
@@ -120,7 +121,8 @@ fn apply<S: TapeSink>(w: &mut TapeWriter<S>, defs: &mut Definitions, op: Op) {
             w.write_chunk(defs, &h, &column(&c)).unwrap();
         }
         Op::Put(t, k) => {
-            w.put(defs, t, k as i64, &[k as u8; 40]).unwrap();
+            w.put(defs, TrackNum::new(t), k as i64, &[k as u8; 40])
+                .unwrap();
         }
         Op::Ranged(k) => {
             let (h, cols) = ranged_chunk(k);
@@ -188,7 +190,10 @@ fn record_seqs(bytes: &[u8]) -> BTreeMap<i64, u64> {
     let mut rd = FileBlocks::with_recovery(bytes, Recovery::Prefix);
     let mut out = BTreeMap::new();
     while let Some(Ok(b)) = rd.next_block() {
-        if b.kind == BlockKind::Records && !b.is_repeat() && b.first_track() != Some(0) {
+        if b.kind == BlockKind::Records
+            && !b.is_repeat()
+            && b.first_track() != Some(RecordTrack::Definitions)
+        {
             let at = b.records().next().unwrap().unwrap().at.unwrap();
             out.insert(at.ticks, b.seq);
         }
@@ -247,7 +252,7 @@ fn reference(alignment: u32, ops: &[Op]) -> (Vec<u8>, Made) {
         .entries(0)
         .unwrap()
         .into_iter()
-        .filter(|e| e.track_number == 13 && e.kind == BlockKind::Events)
+        .filter(|e| e.track() == Some(TrackNum::new(13)) && e.kind == BlockKind::Events)
         .map(|e| e.range)
         .collect();
     assert!(
@@ -353,7 +358,13 @@ fn cut_anywhere(alignment: u32) {
         r.state_entries(0)
             .unwrap()
             .iter()
-            .filter(|(_, s)| s.slot == Slot::State { track: 11 } && s.hash == hash)
+            .filter(|(_, s)| {
+                s.slot
+                    == Slot::State {
+                        track: TrackNum::new(11),
+                    }
+                    && s.hash == hash
+            })
             .count()
             >= 2
     });
@@ -512,7 +523,13 @@ fn a_damaged_block_of_definitions_is_put_again_after_a_resume() {
         .state_entries(0)
         .unwrap()
         .into_iter()
-        .rfind(|(e, s)| s.slot == Slot::Track { number: 1 } && (e.offset as usize) < cut - 200)
+        .rfind(|(e, s)| {
+            s.slot
+                == Slot::Track {
+                    number: TrackNum::new(1),
+                }
+                && (e.offset as usize) < cut - 200
+        })
         .unwrap()
         .0;
     let flipped = newest.offset as usize + 40;
@@ -537,7 +554,14 @@ fn a_damaged_block_of_definitions_is_put_again_after_a_resume() {
         .collect();
     assert!(!data.is_empty());
     for at in data {
-        for slot in [Slot::Track { number: 1 }, Slot::Clock { number: 1 }] {
+        for slot in [
+            Slot::Track {
+                number: TrackNum::new(1),
+            },
+            Slot::Clock {
+                number: ClockNum::new(1),
+            },
+        ] {
             let found = r.state_at(0, slot, at).unwrap();
             assert!(found.item.is_some(), "at {at}: {slot:?}");
         }
@@ -564,7 +588,9 @@ fn a_damaged_chunk_kept_by_a_resume_counts_in_its_track_hash() {
         .unwrap()
         .into_iter()
         .rfind(|e| {
-            e.track_number == 1 && e.kind == BlockKind::Events && (e.offset as usize) < cut - 2000
+            e.track() == Some(TrackNum::new(1))
+                && e.kind == BlockKind::Events
+                && (e.offset as usize) < cut - 2000
         })
         .unwrap();
     // a byte of its payload: the chunk doesn't read, its entry in a checkpoint stands for it

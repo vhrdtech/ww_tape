@@ -13,6 +13,9 @@ use ww_tape::{
     DescribeError, HEAD_ENTRIES, IndexError, Layout, MemSink, OwnerId, SessionTag, Slot,
     SyncPolicy, TapeReader, TapeWriter, WriteError, WriterOptions,
 };
+use ww_tape::{ClockNum, TrackNum};
+
+const TRACK_1: TrackNum = TrackNum::new(1);
 
 /// An aligned writer on a memory sink with [base] held, no checkpoints, at most `max` state entries a piece.
 fn aligned(max: usize) -> Rig {
@@ -63,7 +66,14 @@ fn a_full_cap_never_stops_a_close() {
     w.close_piece().unwrap();
     let bytes = tape.to_vec().unwrap();
     let data = data_on(&bytes, 2);
-    assert!(writes_of(&bytes, Slot::Track { number: 2 })[0] < data);
+    assert!(
+        writes_of(
+            &bytes,
+            Slot::Track {
+                number: TrackNum::new(2)
+            }
+        )[0] < data
+    );
 }
 
 /// The same in a chain: a deferred block waits while puts fill the piece; the chain cuts, the block is placed in the
@@ -98,13 +108,22 @@ fn a_full_cap_never_stops_a_cut() {
         .defer_block(&defs, on_tracks(id, &[(2, 1, b"deferred")]))
         .unwrap();
     for k in 0..12u8 {
-        chain.put(&defs, 12, i64::from(k), &[k]).unwrap();
+        chain
+            .put(&defs, TrackNum::new(12), i64::from(k), &[k])
+            .unwrap();
     }
     let pieces = chain.close().unwrap();
     assert!(pieces.len() >= 2, "the chain cut");
     let bytes = std::fs::read(ww_tape_fs::Files::new(&dir).path_of(pieces[0].tape)).unwrap();
     let data = data_on(&bytes, 2);
-    assert!(writes_of(&bytes, Slot::Track { number: 2 })[0] < data);
+    assert!(
+        writes_of(
+            &bytes,
+            Slot::Track {
+                number: TrackNum::new(2)
+            }
+        )[0] < data
+    );
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -112,9 +131,14 @@ fn a_full_cap_never_stops_a_cut() {
 /// chunk.
 pub(crate) fn long_records(id: BlockId, track: u32, len: usize) -> Vec<u8> {
     let mut buf = vec![0u8; len + 256];
-    let mut b = BlockWriter::new(&mut buf, BlockKind::Records, id, &[CLOCK]).unwrap();
-    b.push(track, ClockTime::new(CLOCK, 1), &[&vec![7u8; len]])
-        .unwrap();
+    let mut b =
+        BlockWriter::new(&mut buf, BlockKind::Records, id, &[ClockNum::new(CLOCK)]).unwrap();
+    b.push(
+        TrackNum::new(track),
+        ClockTime::new(ClockNum::new(CLOCK), 1),
+        &[&vec![7u8; len]],
+    )
+    .unwrap();
     let n = b.finish();
     buf.truncate(n);
     buf
@@ -142,7 +166,12 @@ fn a_deferred_block_waits_at_most_the_window() {
     let data = data_on(&bytes, 2);
     assert!(data > deferred_at, "it waited");
     assert!(data - deferred_at <= DEFER_WINDOW, "{}", data - deferred_at);
-    let def = writes_of(&bytes, Slot::Track { number: 2 })[0];
+    let def = writes_of(
+        &bytes,
+        Slot::Track {
+            number: TrackNum::new(2),
+        },
+    )[0];
     let near = Layout::ALIGNED.definitions.near.get();
     assert!(data - def <= u64::from(near) + DEFER_WINDOW);
 }
@@ -164,11 +193,29 @@ fn a_relayed_put_takes_its_definitions_into_each_piece() {
         .unwrap();
     w.close_piece().unwrap();
     let bytes = tape.to_vec().unwrap();
-    let state_at = writes_of(&bytes, Slot::State { track: 7 });
-    let def_at = writes_of(&bytes, Slot::Track { number: 7 });
+    let state_at = writes_of(
+        &bytes,
+        Slot::State {
+            track: TrackNum::new(7),
+        },
+    );
+    let def_at = writes_of(
+        &bytes,
+        Slot::Track {
+            number: TrackNum::new(7),
+        },
+    );
     assert!(!def_at.is_empty() && def_at[0] <= state_at[0]);
     let r = TapeReader::open(&bytes[..]).unwrap();
-    let found = r.state_at(0, Slot::State { track: 7 }, u64::MAX).unwrap();
+    let found = r
+        .state_at(
+            0,
+            Slot::State {
+                track: TrackNum::new(7),
+            },
+            u64::MAX,
+        )
+        .unwrap();
     assert_eq!(found.item.unwrap().item, b"B");
 }
 
@@ -218,7 +265,7 @@ fn a_refused_chunk_leaves_no_puts() {
     assert!(
         matches!(
             e,
-            WriteError::Describe(DescribeError::StateChunk { track: 1 })
+            WriteError::Describe(DescribeError::StateChunk { track: TRACK_1 })
         ),
         "{e:?}"
     );

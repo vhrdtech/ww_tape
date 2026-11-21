@@ -3,6 +3,7 @@
 //! order the input picks, give a timeline whose kept stretches hold its rules, and every tick, scale and grid query
 //! on it answers without panic.
 use shrink_wrap::prelude::*;
+use ww_tape::TrackNum;
 use ww_tape::chunk::ChunkHead;
 use ww_tape::{
     BlockKind, Describe, EndMode, Magnitude, Ratio64, SeriesGrid, SeriesTimeline, TrackKind,
@@ -15,7 +16,7 @@ pub(crate) fn head_on(period: Ratio64, grid: SeriesGrid, first: u64, count: u32)
     ChunkHead {
         kind: BlockKind::Series,
         track_id: 1,
-        track_number: 1,
+        track_number: TrackNum::new(1),
         first_item: first,
         count,
         first_tick,

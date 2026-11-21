@@ -23,6 +23,7 @@ use ww_tape::{
     MemSink, RelationDef, RelationIndex, RelationTarget, RelationValues, Segment, SyncPolicy,
     TapeWriter, TrackDef, TrackKind, Version, clock_key, track_key,
 };
+use ww_tape::{ClockNum, TrackNum};
 use ww_tape_bench::{Bench, Cell, Common, Rng, ns_per};
 
 #[derive(Parser)]
@@ -46,7 +47,7 @@ struct Args {
 }
 
 const N: usize = 4096;
-const CLOCK: u32 = 1;
+const CLOCK: ClockNum = ClockNum::new(1);
 
 /// The values of each shape, `N` of them, and whether they never decrease.
 fn shapes() -> Vec<(&'static str, Vec<u64>, bool)> {
@@ -100,9 +101,9 @@ const RELATIONS: &[RelationDef<'static>] = &[
 
 fn track(number: u32, relations: &'static [RelationDef<'static>]) -> TrackDef<'static> {
     TrackDef {
-        number: UNib32(number),
+        number: TrackNum::new(number),
         key: track_key(0xc5, &[Segment::Index(number)]),
-        clock: UNib32(CLOCK),
+        clock: CLOCK,
         dimensions: RefVec::Slice { slice: &[] },
         items: ww_tape::Items::WireWeaver {
             api: FullVersion::new("bench_api", Version::new(0, 1, 0)),
@@ -156,7 +157,7 @@ fn main() -> anyhow::Result<()> {
         let mut cols: Vec<_> = times.columns().collect();
         cols.push(enc.column());
         let specs: Vec<_> = cols.iter().map(|c| c.0).collect();
-        let head = times.head.chunk_head(1, 1, 0);
+        let head = times.head.chunk_head(1, TrackNum::new(1), 0);
         let mut buf = vec![0u8; ww_tape::chunk::chunk_len(&head, &specs, 0)];
         let id = ww_tape::BlockId::new(ww_tape::SessionTag::writable(1), 1);
         let len = ww_tape::chunk::write_chunk(&mut buf, id, &head, &cols, 0)
@@ -221,7 +222,7 @@ fn main() -> anyhow::Result<()> {
         let mut defs = Definitions::new();
         defs.define_all(&[
             Describe::Clock(ClockDef {
-                number: UNib32(CLOCK),
+                number: CLOCK,
                 key: clock_key(0xc5, &[], 1),
                 rate: Magnitude::pow10(9).into(),
                 resolution: Magnitude::pow10(-9).into(),
@@ -237,7 +238,7 @@ fn main() -> anyhow::Result<()> {
             let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
             let t = Instant::now();
             for (k, source) in (0..u64::from(args.chunks)).zip(&sources) {
-                let head = times.head.chunk_head(id, 1, k * N as u64);
+                let head = times.head.chunk_head(id, TrackNum::new(1), k * N as u64);
                 let mut cols: Vec<_> = times.columns().collect();
                 if with {
                     cols.extend([source.column(), key.column()]);

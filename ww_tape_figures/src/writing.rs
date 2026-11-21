@@ -11,6 +11,7 @@
 //! - `cut.svg`: the end of piece 0 and the start of piece 1 of the drive's chain at 1/1000 of its data.
 
 use anyhow::{Context, ensure};
+use ww_tape::TrackNum;
 use ww_tape::piece::close_padding;
 use ww_tape::times::TimeMode;
 use ww_tape::{BlockKind, ColumnKind, FileBlocks, Layout, Recovery, SyncPolicy, TapeReader};
@@ -320,7 +321,7 @@ type Columns = (
 fn chunk_at_60_s(track: u32) -> anyhow::Result<Columns> {
     for act in Drive::full().minutes(2).acts().or_debug()? {
         if let Act::Chunk { head, columns } = act.or_debug()?
-            && head.track_number == track
+            && head.track_number == TrackNum::new(track)
             && head.first_tick >= 60_000_000
         {
             return Ok((*head, columns));

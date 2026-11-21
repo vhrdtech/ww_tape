@@ -832,7 +832,9 @@ mod builder {
     use crate::levels::{BuildError, LevelNode, Levels, Output};
     use crate::{Layout, SCALE_LEN_MAX, SummaryHead, Tree, summary_len, write_series_summary};
     use ww_tape::samples::Sample;
-    use ww_tape::{ElementDesc, Ratio64, SampleShape, SeriesError, SeriesGrid, SeriesTimeline};
+    use ww_tape::{
+        ElementDesc, Ratio64, SampleShape, SeriesError, SeriesGrid, SeriesTimeline, TrackNum,
+    };
     use ww_tape_codecs::kernel::Kernel;
 
     impl LevelNode for SeriesNode {
@@ -860,7 +862,7 @@ mod builder {
     /// exact minimum, maximum and sums in an i16. Its samples go in by [Self::push_from].
     pub struct SeriesSummaries<T: Scalar> {
         track_id: u64,
-        track_number: u32,
+        track_number: TrackNum,
         /// The element the statistics are kept in
         element: ElementDesc,
         /// The stored element's zero `(p, q)`: the statistics hold `q · v - p`
@@ -905,7 +907,7 @@ mod builder {
         /// [TrackDef::id](ww_tape::TrackDef::id).
         pub track_id: u64,
         /// [TrackDef::number](ww_tape::TrackDef::number).
-        pub track_number: u32,
+        pub track_number: TrackNum,
         /// The samples' element ([TrackDef::series_shape](ww_tape::TrackDef::series_shape)) and channels, at most
         /// 65535.
         pub shape: SampleShape,

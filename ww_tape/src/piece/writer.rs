@@ -1,6 +1,7 @@
 //! [PieceChain]: a recording written as a chain of pieces, cut at chunk boundaries, on files or any store of
 //! [Tapes]: each piece a tape of its own, or all of them back to back in one tape ([PieceTapes]).
 
+use crate::TrackNum;
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
 use core::time::Duration;
@@ -405,7 +406,7 @@ impl<T: Tapes> PieceChain<T> {
     pub fn put(
         &mut self,
         defs: &Definitions,
-        track: u32,
+        track: TrackNum,
         ticks: i64,
         item: &[u8],
     ) -> Result<bool, WriteError<T::Error>> {
@@ -710,7 +711,7 @@ fn kept_of<B: ByteSource>(
 ) -> Result<Kept, WriteError<B::Error>> {
     let mut items = reader.states_in(i).map_err(WriteError::Read)?;
     items.sort_by_key(|s| s.offset);
-    let keys: BTreeMap<u32, TrackKey> = rows
+    let keys: BTreeMap<TrackNum, TrackKey> = rows
         .iter()
         .map(|t| (t.track_number, (t.track_id, t.owner)))
         .collect();
@@ -751,7 +752,7 @@ fn last_chunks_in(
         // the owner by the close's row of the track; a track it doesn't list is of the piece's owner
         let owner = rows
             .iter()
-            .find(|r| r.track_id == e.track_id && r.track_number == e.track_number)
+            .find(|r| r.track_id == e.track_id && Some(r.track_number) == e.track())
             .map_or(OwnerId::NONE, |r| r.owner);
         let key = (e.track_id, owner);
         // a track's entries come by offset: a break forgets the ranges before it

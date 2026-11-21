@@ -3,6 +3,7 @@
 //! with blocks damaged.
 
 use std::cell::Cell;
+use ww_tape::{ClockNum, RecordTrack, TrackNum};
 
 use shrink_wrap::prelude::*;
 use ww_tape::index::IndexPolicy;
@@ -18,12 +19,18 @@ use ww_tape::{
     WriterOptions, clock_key, track_key,
 };
 
+const TRACK_1: TrackNum = TrackNum::new(1);
+const TRACK_2: TrackNum = TrackNum::new(2);
+const TRACK_20: TrackNum = TrackNum::new(20);
+const TRACK_6: TrackNum = TrackNum::new(6);
+const TRACK_7: TrackNum = TrackNum::new(7);
+
 /// The clock of the tests' tracks.
 pub(crate) const CLOCK: u32 = 1;
 
 pub(crate) fn clock(number: u32) -> Describe<'static> {
     Describe::Clock(ClockDef {
-        number: UNib32(number),
+        number: ClockNum::new(number),
         key: clock_key(0xad, &[], 1),
         rate: Magnitude::pow10(9).into(),
         resolution: Magnitude::pow10(-9).into(),
@@ -48,9 +55,9 @@ pub(crate) fn track_id(number: u32) -> u64 {
 /// Events track `number` on `clock`, labeled `label`.
 pub(crate) fn labeled(number: u32, clock: u32, label: &'static str) -> Describe<'static> {
     Describe::Track(TrackDef {
-        number: UNib32(number),
+        number: TrackNum::new(number),
         key: track_key(0xad, &[Segment::Index(number)]),
-        clock: UNib32(clock),
+        clock: ClockNum::new(clock),
         dimensions: RefVec::Slice { slice: &[] },
         items: ww_tape::Items::WireWeaver {
             api: FullVersion::new("definitions_api", Version::new(0, 1, 0)),
@@ -143,7 +150,7 @@ impl<S: TapeSink> Rig<S> {
     }
 
     pub(crate) fn close(&mut self, number: u32) -> bool {
-        self.defs.close(number)
+        self.defs.close(TrackNum::new(number))
     }
 
     pub(crate) fn write_block(&mut self, block: &[u8]) -> Result<(), WriteError<S::Error>> {
@@ -160,7 +167,7 @@ impl<S: TapeSink> Rig<S> {
         ticks: i64,
         item: &[u8],
     ) -> Result<bool, WriteError<S::Error>> {
-        self.w.put(&self.defs, track, ticks, item)
+        self.w.put(&self.defs, TrackNum::new(track), ticks, item)
     }
 
     pub(crate) fn put_item(&mut self, item: &TypedItem<'_>) -> Result<bool, WriteError<S::Error>> {
@@ -192,7 +199,7 @@ pub(crate) fn tracks(defs: &DefinitionsAt) -> Vec<u32> {
     defs.items
         .keys()
         .filter_map(|s| match s {
-            Slot::Track { number } => Some(*number),
+            Slot::Track { number } => Some(number.get()),
             _ => None,
         })
         .collect()
@@ -222,7 +229,7 @@ pub(crate) fn record_blocks(bytes: &[u8]) -> Vec<RecordsAt> {
         out.push(RecordsAt {
             offset: rd.offset(),
             repeat,
-            first_track,
+            first_track: first_track.map(RecordTrack::get),
             bytes,
         });
     }
@@ -316,10 +323,15 @@ pub(crate) fn begin(o: WriterOptions) -> Rig {
 /// A record block numbered `id` of records `(track, ticks, item)` on [CLOCK].
 pub(crate) fn on_tracks(id: BlockId, records: &[(u32, i64, &[u8])]) -> Vec<u8> {
     let mut buf = vec![0u8; 4096];
-    let mut b = BlockWriter::new(&mut buf, BlockKind::Records, id, &[CLOCK]).unwrap();
+    let mut b =
+        BlockWriter::new(&mut buf, BlockKind::Records, id, &[ClockNum::new(CLOCK)]).unwrap();
     for (track, ticks, item) in records {
-        b.push(*track, ClockTime::new(CLOCK, *ticks), &[item])
-            .unwrap();
+        b.push(
+            TrackNum::new(*track),
+            ClockTime::new(ClockNum::new(CLOCK), *ticks),
+            &[item],
+        )
+        .unwrap();
     }
     let len = b.finish();
     buf.truncate(len);
@@ -361,7 +373,12 @@ fn a_definition_is_put_where_it_is_used() {
     w.close_piece().unwrap();
     let bytes = tape.to_vec().unwrap();
     let r = TapeReader::open(&bytes[..]).unwrap();
-    let one = writes_of(&bytes, Slot::Track { number: 1 });
+    let one = writes_of(
+        &bytes,
+        Slot::Track {
+            number: TrackNum::new(1),
+        },
+    );
     assert!(one.len() > 3, "{one:?}");
     assert!(one.windows(2).all(|w| w[1] - w[0] > 2048), "{one:?}");
     let data: Vec<u64> = record_blocks(&bytes)
@@ -376,10 +393,23 @@ fn a_definition_is_put_where_it_is_used() {
             at - behind <= 2048 + 200,
             "data at {at}, definition at {behind}"
         );
-        let found = r.state_at(0, Slot::Track { number: 1 }, at).unwrap();
+        let found = r
+            .state_at(
+                0,
+                Slot::Track {
+                    number: TrackNum::new(1),
+                },
+                at,
+            )
+            .unwrap();
         assert_eq!(found.item.map(|i| i.offset), Some(*behind));
     }
-    let two = writes_of(&bytes, Slot::Track { number: 2 });
+    let two = writes_of(
+        &bytes,
+        Slot::Track {
+            number: TrackNum::new(2),
+        },
+    );
     let first_data_two = record_blocks(&bytes)
         .iter()
         .find(|b| b.first_track == Some(2))
@@ -391,7 +421,13 @@ fn a_definition_is_put_where_it_is_used() {
     );
     assert!(two[1] > first_data_two - 300, "{two:?}");
     assert_eq!(
-        writes_of(&bytes, Slot::Track { number: 3 }).len(),
+        writes_of(
+            &bytes,
+            Slot::Track {
+                number: TrackNum::new(3)
+            }
+        )
+        .len(),
         0,
         "no data: never"
     );
@@ -416,7 +452,15 @@ fn the_reader_takes_the_definition_in_force() {
         .map(|b| b.offset)
         .collect();
     let label = |r: &TapeReader<&[u8]>, at: u64| {
-        let found = r.state_at(0, Slot::Track { number: 1 }, at).unwrap();
+        let found = r
+            .state_at(
+                0,
+                Slot::Track {
+                    number: TrackNum::new(1),
+                },
+                at,
+            )
+            .unwrap();
         let item = found.item.map(|i| i.item);
         item.map(|i| match DescribeOwned::from_ww_bytes_owned(&i).unwrap() {
             DescribeOwned::Track(t) => t.label,
@@ -430,17 +474,32 @@ fn the_reader_takes_the_definition_in_force() {
     assert_eq!(tracks(&all), [1]);
 
     // the block of the redefinition damaged: the old one, the damage reported
-    let v2 = writes_of(&bytes, Slot::Track { number: 1 })[1];
+    let v2 = writes_of(
+        &bytes,
+        Slot::Track {
+            number: TrackNum::new(1),
+        },
+    )[1];
     let mut damaged = bytes.clone();
     damaged[v2 as usize + 40] ^= 1;
     let r = TapeReader::open(&damaged[..]).unwrap();
-    let found = r.state_at(0, Slot::Track { number: 1 }, u64::MAX).unwrap();
+    let found = r
+        .state_at(
+            0,
+            Slot::Track {
+                number: TrackNum::new(1),
+            },
+            u64::MAX,
+        )
+        .unwrap();
     assert!(found.item.is_some());
     assert_eq!(
         found.lost,
         [ww_tape::reader::Lost {
             offset: v2,
-            slot: Slot::Track { number: 1 }
+            slot: Slot::Track {
+                number: TrackNum::new(1)
+            }
         }]
     );
     assert!(!r.definitions_at(0, u64::MAX).unwrap().is_whole());
@@ -455,7 +514,9 @@ fn a_lookup_names_the_stretches_the_index_does_not_cover() {
     write_records(&mut w, 0, 3);
     w.close_piece().unwrap();
     let bytes = tape.to_vec().unwrap();
-    let slot = Slot::Track { number: 1 };
+    let slot = Slot::Track {
+        number: TrackNum::new(1),
+    };
     let r = TapeReader::open(&bytes[..]).unwrap();
     let at_end = r.state_at(0, slot, u64::MAX).unwrap();
     assert!(at_end.item.is_some());
@@ -491,7 +552,9 @@ fn a_spent_read_budget_is_its_own_answer() {
     write_records(&mut w, 0, 3);
     w.close_piece().unwrap();
     let bytes = tape.to_vec().unwrap();
-    let slot = Slot::Track { number: 1 };
+    let slot = Slot::Track {
+        number: TrackNum::new(1),
+    };
     let open = |max: u64| {
         let options = ww_tape::OpenOptions {
             state_read_max: max,
@@ -552,11 +615,27 @@ fn a_reader_keeps_the_state_entries_once_read() {
     .unwrap();
     let reads = || r.source().reads.get();
     let before = reads();
-    let found = r.state_at(0, Slot::Track { number: 4 }, u64::MAX).unwrap();
+    let found = r
+        .state_at(
+            0,
+            Slot::Track {
+                number: TrackNum::new(4),
+            },
+            u64::MAX,
+        )
+        .unwrap();
     assert!(found.item.is_some());
     let first = reads() - before;
     let before = reads();
-    let found = r.state_at(0, Slot::Track { number: 7 }, u64::MAX).unwrap();
+    let found = r
+        .state_at(
+            0,
+            Slot::Track {
+                number: TrackNum::new(7),
+            },
+            u64::MAX,
+        )
+        .unwrap();
     assert!(found.item.is_some());
     assert_eq!(reads() - before, 1, "one read: the record's block");
     assert!(first > 1, "the first lookup read the index too");
@@ -578,8 +657,18 @@ fn a_put_writes_only_what_is_not_close_behind() {
     write_records(&mut w, 0, 40);
     assert!(w.put(5, 5, b"A").unwrap(), "past near: written again");
     for (track, e) in [
-        (1, DescribeError::NotState { track: 1 }),
-        (6, DescribeError::UnknownTrack { track: 6 }),
+        (
+            1,
+            DescribeError::NotState {
+                track: TrackNum::new(1),
+            },
+        ),
+        (
+            6,
+            DescribeError::UnknownTrack {
+                track: TrackNum::new(6),
+            },
+        ),
     ] {
         assert!(
             matches!(w.put(track, 0, b"x"), Err(WriteError::Describe(got)) if got == e),
@@ -593,14 +682,31 @@ fn a_put_writes_only_what_is_not_close_behind() {
     ));
     w.close_piece().unwrap();
     let bytes = tape.to_vec().unwrap();
-    assert_eq!(writes_of(&bytes, Slot::State { track: 5 }).len(), 4);
+    assert_eq!(
+        writes_of(
+            &bytes,
+            Slot::State {
+                track: TrackNum::new(5)
+            }
+        )
+        .len(),
+        4
+    );
     // the reader takes the item in force
     let r = TapeReader::open(&bytes[..]).unwrap();
-    let found = r.state_at(0, Slot::State { track: 5 }, u64::MAX).unwrap();
+    let found = r
+        .state_at(
+            0,
+            Slot::State {
+                track: TrackNum::new(5),
+            },
+            u64::MAX,
+        )
+        .unwrap();
     let item = found.item.unwrap();
     assert_eq!(
         (item.item.as_slice(), item.at),
-        (&b"A"[..], Some(ClockTime::new(CLOCK, 5)))
+        (&b"A"[..], Some(ClockTime::new(ClockNum::new(CLOCK), 5)))
     );
     let by_hash = r.item_by_hash(0, ww_tape::ItemHash::of(b"B")).unwrap();
     assert_eq!(by_hash.item.unwrap().item, b"B");
@@ -627,7 +733,7 @@ pub(crate) fn puts_of(
     let mut refs: Vec<ww_tape::RecordRef<'_>> = items
         .iter()
         .map(|item| ww_tape::RecordRef {
-            track: 0,
+            track: RecordTrack::Definitions,
             at: None,
             item,
         })
@@ -636,8 +742,8 @@ pub(crate) fn puts_of(
         records
             .iter()
             .map(|(track, ticks, item)| ww_tape::RecordRef {
-                track: *track,
-                at: Some(ClockTime::new(CLOCK, *ticks)),
+                track: RecordTrack::from_u32(*track),
+                at: Some(ClockTime::new(ClockNum::new(CLOCK), *ticks)),
                 item,
             }),
     );
@@ -670,7 +776,10 @@ fn a_relay_holds_the_definitions_of_the_blocks_of_puts() {
         &[(5, 3, b"A")],
     );
     w.w.relay_block(&mut defs, &puts).unwrap();
-    assert!(defs.track(6).is_some(), "the block's definitions are held");
+    assert!(
+        defs.track(TrackNum::new(6)).is_some(),
+        "the block's definitions are held"
+    );
     let data = on_tracks(producer.next(), &[(6, 4, b"data")]);
     w.w.relay_block(&mut defs, &data).unwrap();
     // a records block on a track the relay doesn't hold is refused
@@ -680,8 +789,18 @@ fn a_relay_holds_the_definitions_of_the_blocks_of_puts() {
     let bytes = tape.to_vec().unwrap();
     let r = TapeReader::open(&bytes[..]).unwrap();
     let at = r.definitions_at(0, u64::MAX).unwrap();
-    assert!(at.items.contains_key(&Slot::Track { number: 6 }));
-    let found = r.state_at(0, Slot::State { track: 5 }, u64::MAX).unwrap();
+    assert!(at.items.contains_key(&Slot::Track {
+        number: TrackNum::new(6)
+    }));
+    let found = r
+        .state_at(
+            0,
+            Slot::State {
+                track: TrackNum::new(5),
+            },
+            u64::MAX,
+        )
+        .unwrap();
     assert_eq!(found.item.unwrap().item, b"A");
 }
 
@@ -709,7 +828,9 @@ fn a_producers_block_of_puts_is_put_on_the_tape() {
     let stream = puts_of(&[], &[(5, 4, b"B"), (1, 4, b"x")]);
     assert!(matches!(
         w.write_block(&stream),
-        Err(WriteError::Describe(DescribeError::NotState { track: 1 }))
+        Err(WriteError::Describe(DescribeError::NotState {
+            track: TRACK_1
+        }))
     ));
     assert_eq!(tape.to_vec().unwrap().len(), after_first, "nothing put");
     // a definition the writer doesn't hold is refused with nothing put: a relay holds a block's definitions first,
@@ -718,7 +839,7 @@ fn a_producers_block_of_puts_is_put_on_the_tape() {
     assert!(matches!(
         w.write_block(&unheld),
         Err(WriteError::Describe(DescribeError::NotHeld {
-            slot: Slot::Track { number: 6 }
+            slot: Slot::Track { number: TRACK_6 }
         }))
     ));
     assert_eq!(tape.to_vec().unwrap().len(), after_first, "nothing put");
@@ -754,13 +875,13 @@ fn a_producers_block_of_puts_is_put_on_the_tape() {
     ww_tape::open::write_records(
         &[
             ww_tape::RecordRef {
-                track: 0,
+                track: RecordTrack::Definitions,
                 at: None,
                 item: &newer,
             },
             ww_tape::RecordRef {
-                track: 5,
-                at: Some(ClockTime::new(CLOCK, 5)),
+                track: RecordTrack::from_u32(5),
+                at: Some(ClockTime::new(ClockNum::new(CLOCK), 5)),
                 item: b"C",
             },
         ],
@@ -783,10 +904,30 @@ fn a_producers_block_of_puts_is_put_on_the_tape() {
             .any(|r| r.unwrap().item == newer.as_slice())
     });
     assert!(relayed, "the unknown definition is on the tape");
-    assert_eq!(writes_of(&bytes, Slot::State { track: 5 }).len(), 2);
+    assert_eq!(
+        writes_of(
+            &bytes,
+            Slot::State {
+                track: TrackNum::new(5)
+            }
+        )
+        .len(),
+        2
+    );
     let r = TapeReader::open(&bytes[..]).unwrap();
-    let found = r.state_at(0, Slot::State { track: 5 }, u64::MAX).unwrap();
-    assert_eq!(found.item.unwrap().at, Some(ClockTime::new(CLOCK, 5)));
+    let found = r
+        .state_at(
+            0,
+            Slot::State {
+                track: TrackNum::new(5),
+            },
+            u64::MAX,
+        )
+        .unwrap();
+    assert_eq!(
+        found.item.unwrap().at,
+        Some(ClockTime::new(ClockNum::new(CLOCK), 5))
+    );
     // it is listed under its discriminant plus 1, the code a reader that knows it lists it under too
     assert!(r.verify(0).unwrap().holds);
     let at = r.definitions_at(0, u64::MAX).unwrap();
@@ -830,11 +971,22 @@ fn a_use_writes_the_copies() {
     }
     w.close_piece().unwrap();
     let bytes = tape.to_vec().unwrap();
-    let five = writes_of(&bytes, Slot::State { track: 5 });
+    let five = writes_of(
+        &bytes,
+        Slot::State {
+            track: TrackNum::new(5),
+        },
+    );
     assert_eq!(five.len(), 3, "the first write and two copies: {five:?}");
     assert!(five.windows(2).all(|w| w[1] - w[0] >= 1024), "{five:?}");
     assert_eq!(
-        writes_of(&bytes, Slot::State { track: 6 }).len(),
+        writes_of(
+            &bytes,
+            Slot::State {
+                track: TrackNum::new(6)
+            }
+        )
+        .len(),
         1 + 3,
         "six once, never used again: no copy; six again and its two copies"
     );
@@ -852,21 +1004,26 @@ fn a_track_dropped_from_the_definitions_is_refused() {
     assert!(w.close(7));
     assert!(!w.close(7));
     assert_eq!(tape.to_vec().unwrap().len(), len, "nothing written");
-    assert!(w.defs.track(7).is_none());
-    assert!(!w.defs.has_clock(2));
-    assert!(w.defs.has_clock(CLOCK), "track 1 counts through it");
+    assert!(w.defs.track(TrackNum::new(7)).is_none());
+    assert!(!w.defs.has_clock(ClockNum::new(2)));
+    assert!(
+        w.defs.has_clock(ClockNum::new(CLOCK)),
+        "track 1 counts through it"
+    );
     assert!(matches!(
         w.write_block(&on_tracks(w.next_id(), &[(7, 9, b"x")])),
         Err(WriteError::Describe(DescribeError::UnknownTrack {
-            track: 7
+            track: TRACK_7
         }))
     ));
     assert_eq!(
         w.define(&track(7, 2)),
-        Err(DescribeError::UnknownClock { clock: 2 })
+        Err(DescribeError::UnknownClock {
+            clock: ClockNum::new(2)
+        })
     );
     define_all(&mut w, &[clock(2), track(7, 2)]);
-    assert!(w.defs.track(7).is_some());
+    assert!(w.defs.track(TrackNum::new(7)).is_some());
     w.close_piece().unwrap();
 }
 
@@ -907,9 +1064,14 @@ fn definitions_that_do_not_hold_together_are_refused() {
         w.define(&track(2, 9)).unwrap_err(),
         w.define_all(&[track(2, 9), track(3, 9)]).unwrap_err(),
     ] {
-        assert_eq!(e, DescribeError::UnknownClock { clock: 9 });
+        assert_eq!(
+            e,
+            DescribeError::UnknownClock {
+                clock: ClockNum::new(9)
+            }
+        );
     }
-    assert!(w.defs.track(2).is_none());
+    assert!(w.defs.track(TrackNum::new(2)).is_none());
 
     // a caller's block of definitions, through write_block
     let item = ww_tape::open::encode(&track(2, CLOCK)).unwrap();
@@ -924,7 +1086,7 @@ fn definitions_that_do_not_hold_together_are_refused() {
     assert!(matches!(
         w.write_block(&on_tracks(w.next_id(), &[(2, 0, b"x")])),
         Err(WriteError::Describe(DescribeError::UnknownTrack {
-            track: 2
+            track: TRACK_2
         }))
     ));
     assert_eq!(tape.to_vec().unwrap().len(), len, "nothing written");
@@ -944,7 +1106,7 @@ fn definitions_that_do_not_hold_together_are_refused() {
     assert!(matches!(
         w.defer_block(on_tracks(w.next_id(), &[(20, 0, b"x")])),
         Err(WriteError::Describe(DescribeError::UnknownTrack {
-            track: 20
+            track: TRACK_20
         }))
     ));
     w.defer_block(on_tracks(w.next_id(), &[(2, 0, b"deferred")]))
@@ -1002,7 +1164,15 @@ fn a_resumed_piece_takes_the_definitions_passed() {
         .filter(|b| !b.repeat && b.first_track.is_some_and(|t| t > 0))
     {
         let t = b.first_track.unwrap();
-        let found = r.state_at(0, Slot::Track { number: t }, b.offset).unwrap();
+        let found = r
+            .state_at(
+                0,
+                Slot::Track {
+                    number: TrackNum::new(t),
+                },
+                b.offset,
+            )
+            .unwrap();
         assert!(found.item.is_some(), "track {t} at {}", b.offset);
     }
     std::fs::remove_dir_all(&dir).unwrap();
@@ -1105,9 +1275,20 @@ fn a_block_on_many_tracks_puts_each_definition_once() {
     write_records(&mut w, 0, 100);
     let before = tape.to_vec().unwrap().len() as u64;
     let mut buf = vec![0u8; 1 << 20];
-    let mut b = BlockWriter::new(&mut buf, BlockKind::Records, w.next_id(), &[CLOCK]).unwrap();
+    let mut b = BlockWriter::new(
+        &mut buf,
+        BlockKind::Records,
+        w.next_id(),
+        &[ClockNum::new(CLOCK)],
+    )
+    .unwrap();
     for n in 2..TRACKS + 2 {
-        b.push(n, ClockTime::new(CLOCK, 1), &[b"x"]).unwrap();
+        b.push(
+            TrackNum::new(n),
+            ClockTime::new(ClockNum::new(CLOCK), 1),
+            &[b"x"],
+        )
+        .unwrap();
     }
     let len = b.finish();
     w.write_block(&buf[..len]).unwrap();
@@ -1148,10 +1329,15 @@ fn near_is_measured_to_the_data() {
         .rfind(|b| b.first_track == Some(2) && !b.repeat)
         .unwrap()
         .offset;
-    let newest = writes_of(&bytes, Slot::Track { number: 2 })
-        .into_iter()
-        .rfind(|at| *at < data)
-        .unwrap();
+    let newest = writes_of(
+        &bytes,
+        Slot::Track {
+            number: TrackNum::new(2),
+        },
+    )
+    .into_iter()
+    .rfind(|at| *at < data)
+    .unwrap();
     assert!(newest >= before, "track 2 put again before the data");
 }
 
@@ -1211,7 +1397,9 @@ fn a_tracks_relations_are_checked_by_themselves() {
     // the target is another run's track: nothing in this file needs to hold it
     assert_eq!(check(&with(decoded.clone())), Ok(()));
 
-    let shape = Err(DescribeError::Relations { track: 3 });
+    let shape = Err(DescribeError::Relations {
+        track: TrackNum::new(3),
+    });
     const REFUSED: [(&[RelationDef<'static>], &str); 7] = [
         (
             &[rel("", RelationValues::Stored, false, RelationIndex::None)],
@@ -1297,7 +1485,10 @@ fn a_tracks_relations_are_checked_by_themselves() {
     assert_eq!(check(&with(related(3, LONGEST))), Ok(()));
     assert_eq!(
         check(&with(related(3, LONGER))),
-        Err(DescribeError::RelationName { track: 3, len: 65 })
+        Err(DescribeError::RelationName {
+            track: TrackNum::new(3),
+            len: 65
+        })
     );
     let Describe::Track(t) = related(3, LONGER) else {
         unreachable!("related() gives a track")
@@ -1316,7 +1507,9 @@ fn a_tracks_relations_are_checked_by_themselves() {
     defs.define(&clock(CLOCK)).unwrap();
     assert_eq!(
         defs.define(&related(3, KEYS)),
-        Err(DescribeError::RelationNotBuilt { track: 3 })
+        Err(DescribeError::RelationNotBuilt {
+            track: TrackNum::new(3)
+        })
     );
     assert_eq!(defs.define(&decoded), Ok(()));
 }
@@ -1361,8 +1554,10 @@ fn relation_columns_match_the_stored_relations() {
         param: 0,
         len: 8,
     };
-    let check = |cols: &[ww_tape::ColumnSpec]| defs.check_relation_columns(3, cols);
-    let bad = Err(DescribeError::RelationColumns { track: 3 });
+    let check = |cols: &[ww_tape::ColumnSpec]| defs.check_relation_columns(TrackNum::new(3), cols);
+    let bad = Err(DescribeError::RelationColumns {
+        track: TrackNum::new(3),
+    });
     assert_eq!(check(&[starts, col(0, 1), col(2, 2)]), Ok(()));
     assert_eq!(
         check(&[starts, col(0, 1), col(2, 1)]),
@@ -1417,9 +1612,9 @@ fn a_track_def_reads_across_the_relations_change() {
         unreachable!("labeled() gives a track")
     };
     let old = TrackDefBeforeRelations {
-        number: new.number,
+        number: UNib32(new.number.get()),
         key: new.key,
-        clock: new.clock,
+        clock: UNib32(new.clock.get()),
         dimensions: new.dimensions.clone(),
         items: new.items.clone(),
         label: new.label,

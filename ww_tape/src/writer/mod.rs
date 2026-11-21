@@ -57,8 +57,8 @@ use crate::reader::wide;
 use crate::sink::{TapeSink, Tapes, sink_err};
 use crate::state::{ItemHash, Slot};
 use crate::{
-    BlockId, BlockKind, ClockTime, DESCRIBE_TRACK, Definitions, Describe, DescribeError,
-    IndexError, Layout, Producer, STATE_ITEM_MAX, SessionTag, TypedItem,
+    BlockId, BlockKind, ClockTime, Definitions, Describe, DescribeError, IndexError, Layout,
+    Producer, RecordTrack, STATE_ITEM_MAX, SessionTag, TrackNum, TypedItem,
 };
 use alloc::collections::{BTreeMap, BTreeSet};
 
@@ -222,7 +222,7 @@ pub struct TapeWriter<S: TapeSink> {
     carried_due: bool,
     /// The tracks of the newest call that wrote or was to write data or a put: the next cut carries their
     /// definitions first ([Self::want])
-    wanted: Vec<u32>,
+    wanted: Vec<TrackNum>,
 }
 
 /// What a cut starts the next piece with: this piece's head, the next head's rows and the definitions of their tracks.
@@ -467,7 +467,7 @@ impl<S: TapeSink> TapeWriter<S> {
     /// (deferred blocks it places were taken on before). A deferred block is placed with no puts, so a cut or a
     /// close never meets the cap.
     /// The tracks of `tracks` (numbers held in `defs`) without a row in the close yet, each once.
-    fn new_tracks(&self, defs: &Definitions, tracks: &[u32]) -> BTreeSet<TrackKey> {
+    fn new_tracks(&self, defs: &Definitions, tracks: &[TrackNum]) -> BTreeSet<TrackKey> {
         tracks
             .iter()
             .filter_map(|n| defs.track_key(*n))
@@ -484,7 +484,7 @@ impl<S: TapeSink> TapeWriter<S> {
     fn track_room(
         &mut self,
         defs: &Definitions,
-        tracks: &[u32],
+        tracks: &[TrackNum],
     ) -> Result<(), WriteError<S::Error>> {
         self.want(tracks);
         self.admit_data(defs, tracks)?;
@@ -533,7 +533,7 @@ impl<S: TapeSink> TapeWriter<S> {
     pub(crate) fn admit_data(
         &self,
         defs: &Definitions,
-        tracks: &[u32],
+        tracks: &[TrackNum],
     ) -> Result<(), WriteError<S::Error>> {
         self.admit(carried::entries(defs, tracks))
     }
@@ -551,7 +551,7 @@ impl<S: TapeSink> TapeWriter<S> {
     pub fn put(
         &mut self,
         defs: &Definitions,
-        track: u32,
+        track: TrackNum,
         ticks: i64,
         item: &[u8],
     ) -> Result<bool, WriteError<S::Error>> {
@@ -571,7 +571,7 @@ impl<S: TapeSink> TapeWriter<S> {
         cands.push(Candidate {
             slot: Slot::State { track },
             rule: self.rule(policy),
-            track,
+            track: RecordTrack::Data(track),
             at: Some(ClockTime {
                 clock: facts.clock,
                 ticks,
@@ -613,7 +613,7 @@ impl<S: TapeSink> TapeWriter<S> {
         cands.push(Candidate {
             slot: Slot::of_definition(&d, || hash),
             rule,
-            track: DESCRIBE_TRACK,
+            track: RecordTrack::Definitions,
             at: None,
             hash,
             item: Item::Owned(bytes),
@@ -682,7 +682,7 @@ impl<S: TapeSink> TapeWriter<S> {
 
     /// The definitions data of `tracks` needs ([Definitions::needs]), each once, as candidates to put: shared with
     /// `defs`, nothing copied or hashed.
-    fn needed(&self, defs: &Definitions, tracks: &[u32]) -> Vec<Candidate<'static>> {
+    fn needed(&self, defs: &Definitions, tracks: &[TrackNum]) -> Vec<Candidate<'static>> {
         let mut seen = BTreeSet::new();
         let mut out = Vec::new();
         for t in tracks {
@@ -761,12 +761,12 @@ impl<S: TapeSink> TapeWriter<S> {
         defs: &Definitions,
         rows: &[TrackStart],
         room: usize,
-    ) -> (Vec<Vec<Candidate<'static>>>, Vec<u32>) {
+    ) -> (Vec<Vec<Candidate<'static>>>, Vec<TrackNum>) {
         let rule = self.definitions_rule();
         let rows: Vec<TrackStart> = rows.iter().filter(|r| !r.not_carried).copied().collect();
         let numbers = carried::numbers(defs, &rows);
         let states = self.carried_states(defs, &rows);
-        let lens: BTreeMap<u32, usize> = states
+        let lens: BTreeMap<TrackNum, usize> = states
             .iter()
             .map(|(n, (_, s))| (*n, s.item.len()))
             .collect();
@@ -790,7 +790,7 @@ impl<S: TapeSink> TapeWriter<S> {
                             Some(Candidate {
                                 slot: *s,
                                 rule: self.rule(*policy),
-                                track: *track,
+                                track: RecordTrack::Data(*track),
                                 at: state.at,
                                 item: Item::Held(state.item.clone()),
                                 hash: state.hash,
@@ -810,7 +810,7 @@ impl<S: TapeSink> TapeWriter<S> {
         &'k self,
         defs: &Definitions,
         rows: &[TrackStart],
-    ) -> BTreeMap<u32, (crate::StatePolicy, &'k kept::State)> {
+    ) -> BTreeMap<TrackNum, (crate::StatePolicy, &'k kept::State)> {
         rows.iter()
             .filter_map(|r| {
                 let key = (r.track_id, r.owner);
@@ -825,7 +825,7 @@ impl<S: TapeSink> TapeWriter<S> {
     /// Track numbers `numbers` of head rows `rows`, newest data first: those [Self::want] named, then those with a
     /// chunk in this piece by the offset of their newest chunk, then those with records in it, then the others, each
     /// in the order given.
-    fn ranked(&self, rows: &[TrackStart], numbers: &[u32]) -> Vec<u32> {
+    fn ranked(&self, rows: &[TrackStart], numbers: &[TrackNum]) -> Vec<TrackNum> {
         let mut newest: BTreeMap<u64, u64> = BTreeMap::new();
         for e in self.indexer.entries() {
             if e.track_id != 0 && e.track_id != STATE_TRACK_ID {
@@ -839,9 +839,9 @@ impl<S: TapeSink> TapeWriter<S> {
             .iter()
             .map(|t| (t.track_id, t.owner))
             .collect();
-        let by_number: BTreeMap<u32, &TrackStart> =
+        let by_number: BTreeMap<TrackNum, &TrackStart> =
             rows.iter().map(|r| (r.track_number, r)).collect();
-        let rank = |n: u32| {
+        let rank = |n: TrackNum| {
             let row = by_number.get(&n);
             let at = row.and_then(|r| newest.get(&r.track_id).copied());
             let with = row.is_some_and(|r| touched.contains(&(r.track_id, r.owner)));
@@ -860,7 +860,7 @@ impl<S: TapeSink> TapeWriter<S> {
     /// Name `tracks` as those of the next data: the next cut carries their definitions before any other track's, so
     /// data on them that a full piece refused ([IndexError::StateEntries]) fits the next piece. Each call of data or
     /// a put names its tracks itself; a caller cutting between calls names those of the call to come.
-    pub fn want(&mut self, tracks: &[u32]) {
+    pub fn want(&mut self, tracks: &[TrackNum]) {
         self.wanted.clear();
         self.wanted.extend_from_slice(tracks);
     }
@@ -938,7 +938,7 @@ impl<S: TapeSink> TapeWriter<S> {
                 Ok(Candidate {
                     slot: Slot::of_definition(d, || hash),
                     rule,
-                    track: DESCRIBE_TRACK,
+                    track: RecordTrack::Definitions,
                     at: None,
                     item: Item::Held(bytes.into()),
                     hash,
@@ -1287,7 +1287,7 @@ impl<S: TapeSink> TapeWriter<S> {
     /// marked [FLAG_REPEAT](crate::FLAG_REPEAT)) noted as written there ([near]), the track each definition of a
     /// track names, and, with `tally`, each record of data into its track's hash. Returns the data tracks it holds
     /// records or a chunk of.
-    fn learn(&mut self, block: &[u8], at: u64, tally: bool) -> Vec<u32> {
+    fn learn(&mut self, block: &[u8], at: u64, tally: bool) -> Vec<TrackNum> {
         // every block placed was made or checked whole before: its CRCs are not checked again
         let Ok(b) = crate::Block::read_trusted(block) else {
             return Vec::new();
@@ -1305,11 +1305,13 @@ impl<S: TapeSink> TapeWriter<S> {
         let repeat = b.is_repeat();
         let mut tracks = Vec::new();
         for r in b.records().flatten() {
-            if r.track != DESCRIBE_TRACK && !repeat {
-                tracks.push(r.track);
+            if let RecordTrack::Data(track) = r.track
+                && !repeat
+            {
+                tracks.push(track);
                 if tally {
                     self.indexer
-                        .tally_record(r.track, r.at.map_or(0, |a| a.ticks), r.item);
+                        .tally_record(track, r.at.map_or(0, |a| a.ticks), r.item);
                 }
                 continue;
             }
@@ -1327,9 +1329,9 @@ impl<S: TapeSink> TapeWriter<S> {
                 && let Ok(Describe::Track(t)) =
                     <Describe<'_> as shrink_wrap::DeserializeShrinkWrap>::from_ww_bytes(r.item)
             {
-                self.indexer.define(t.number.0, t.id(), OwnerId(t.owner));
+                self.indexer.define(t.number, t.id(), OwnerId(t.owner));
                 self.relations
-                    .define(t.number.0, crate::open::TrackFacts::of(&t));
+                    .define(t.number, crate::open::TrackFacts::of(&t));
             }
             self.near
                 .wrote(slot, Some(ItemHash::of(r.item)), at, &self.near_policy);
@@ -1507,7 +1509,7 @@ impl<S: TapeSink> TapeWriter<S> {
     pub fn accept_relation_break(
         &mut self,
         defs: &Definitions,
-        track: u32,
+        track: TrackNum,
         relation: u16,
         from: u64,
     ) -> Result<(), WriteError<S::Error>> {
@@ -1863,10 +1865,10 @@ impl<S: TapeSink> TapeWriter<S> {
         let mut cands: Vec<Candidate<'_>> = Vec::new();
         let mut seen = BTreeSet::new();
         // the hash of the newest record of each state track in the block: the same item again adds nothing
-        let mut newest: alloc::collections::BTreeMap<u32, ItemHash> = Default::default();
+        let mut newest: alloc::collections::BTreeMap<TrackNum, ItemHash> = Default::default();
         for r in b.records() {
             let r = r.map_err(WriteError::Block)?;
-            let Some(at) = r.at else {
+            let (RecordTrack::Data(track), Some(at)) = (r.track, r.at) else {
                 let d = <Describe<'_> as shrink_wrap::DeserializeShrinkWrap>::from_ww_bytes(r.item)
                     .map_err(DescribeError::Decode)?;
                 if matches!(d, Describe::Producer(_) | Describe::Layout(_)) {
@@ -1878,10 +1880,10 @@ impl<S: TapeSink> TapeWriter<S> {
                         return Err(DescribeError::NotHeld { slot }.into());
                     }
                     let named = match &d {
-                        Describe::Track(t) => defs.needs(t.number.0),
+                        Describe::Track(t) => defs.needs(t.number),
                         Describe::Map(m) => vec![
-                            Slot::Clock { number: m.from.0 },
-                            Slot::Clock { number: m.to.0 },
+                            Slot::Clock { number: m.from },
+                            Slot::Clock { number: m.to },
                             slot,
                         ],
                         _ => vec![slot],
@@ -1904,30 +1906,28 @@ impl<S: TapeSink> TapeWriter<S> {
                 cands.push(Candidate {
                     slot: Slot::of_definition(&d, || hash),
                     rule,
-                    track: DESCRIBE_TRACK,
+                    track: RecordTrack::Definitions,
                     at: None,
                     hash,
                     item: Item::Given(r.item),
                 });
                 continue;
             };
-            let facts = defs.check_on_track(r.track, at)?;
-            let policy = facts
-                .state
-                .ok_or(DescribeError::NotState { track: r.track })?;
+            let facts = defs.check_on_track(track, at)?;
+            let policy = facts.state.ok_or(DescribeError::NotState { track })?;
             if r.item.len() > STATE_ITEM_MAX {
                 return Err(DescribeError::TooLong { len: r.item.len() }.into());
             }
             self.work.hash(r.item.len());
             let hash = ItemHash::of(r.item);
-            if newest.insert(r.track, hash) == Some(hash) {
+            if newest.insert(track, hash) == Some(hash) {
                 continue;
             }
             let mut needs = Vec::new();
-            self.push_needs(defs, defs.needs(r.track), &mut seen, &mut needs);
+            self.push_needs(defs, defs.needs(track), &mut seen, &mut needs);
             cands.extend(needs);
             cands.push(Candidate {
-                slot: Slot::State { track: r.track },
+                slot: Slot::State { track },
                 rule: self.rule(policy),
                 track: r.track,
                 at: Some(at),
@@ -2147,7 +2147,7 @@ impl<S: TapeSink> TapeWriter<S> {
             .state_entries_max
             .saturating_sub(HEAD_ENTRIES);
         let (carried, dropped) = self.carried(defs, &tracks, room);
-        let dropped: BTreeSet<u32> = dropped.into_iter().collect();
+        let dropped: BTreeSet<TrackNum> = dropped.into_iter().collect();
         for t in &mut tracks {
             t.not_carried = dropped.contains(&t.track_number);
         }
@@ -2264,7 +2264,7 @@ impl<S: TapeSink> TapeWriter<S> {
     /// Go on after `older`, the newest state items of the pieces before ([kept]): those of the tracks the piece head
     /// carries, older than those this piece holds.
     pub(crate) fn keep_after(&mut self, mut older: kept::Kept) {
-        let rows: BTreeMap<u32, TrackKey> = self
+        let rows: BTreeMap<TrackNum, TrackKey> = self
             .head_rows()
             .iter()
             .map(|t| (t.track_number, (t.track_id, t.owner)))
@@ -2550,7 +2550,7 @@ impl Item<'_> {
 struct Candidate<'a> {
     slot: Slot,
     rule: Rule,
-    track: u32,
+    track: RecordTrack,
     at: Option<ClockTime>,
     item: Item<'a>,
     hash: ItemHash,
@@ -2562,7 +2562,7 @@ impl Candidate<'static> {
         Candidate {
             slot,
             rule,
-            track: DESCRIBE_TRACK,
+            track: RecordTrack::Definitions,
             at: None,
             item: Item::Held(held.item.clone()),
             hash: held.hash,
@@ -2590,7 +2590,7 @@ struct Deferred {
     block: Vec<u8>,
     at: u64,
     /// The data tracks it holds: placed before any later block of them
-    tracks: Vec<u32>,
+    tracks: Vec<TrackNum>,
     /// Those of them without a row in the close when it was deferred: counted as with data ([TapeWriter::track_room])
     keys: BTreeSet<TrackKey>,
 }
@@ -2708,7 +2708,7 @@ pub(crate) fn block_id(block: &[u8]) -> Option<BlockId> {
 
 /// The data tracks a block names: the tracks of a record block's records past track 0, a chunk's or summary's
 /// track; none for a body that doesn't read.
-fn data_tracks(b: &crate::Block<'_>) -> Vec<u32> {
+fn data_tracks(b: &crate::Block<'_>) -> Vec<TrackNum> {
     if let Some(c) = b.chunk() {
         return vec![c.head().track_number];
     }
@@ -2719,11 +2719,10 @@ fn data_tracks(b: &crate::Block<'_>) -> Vec<u32> {
     let Ok(d) = b.decode(&mut buf) else {
         return Vec::new();
     };
-    let mut tracks: Vec<u32> = d
+    let mut tracks: Vec<TrackNum> = d
         .records()
         .flatten()
-        .map(|r| r.track)
-        .filter(|t| *t != crate::DESCRIBE_TRACK)
+        .filter_map(|r| r.track.data())
         .collect();
     tracks.sort_unstable();
     tracks.dedup();

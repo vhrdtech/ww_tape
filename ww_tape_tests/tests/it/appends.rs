@@ -3,6 +3,7 @@
 
 use std::collections::BTreeSet;
 use std::path::Path;
+use ww_tape::ClockNum;
 
 use crate::pieces::{chunk, chunk_id, column, scratch};
 use crate::reclose::{close, closes, reopen, write};
@@ -308,7 +309,13 @@ fn a_deferred_block_waiting_at_the_close_is_appended() {
         let (mut w, _) = reopen(&old, ALIGNMENT);
         let block = if empty {
             let mut buf = [0u8; 256];
-            let b = BlockWriter::new(&mut buf, BlockKind::Records, w.next_id(), &[1]).unwrap();
+            let b = BlockWriter::new(
+                &mut buf,
+                BlockKind::Records,
+                w.next_id(),
+                &[ClockNum::new(1)],
+            )
+            .unwrap();
             let len = b.finish();
             buf[..len].to_vec()
         } else {

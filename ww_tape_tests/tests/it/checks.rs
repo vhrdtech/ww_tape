@@ -2,6 +2,7 @@
 
 use crate::definitions::{base, begin, on_tracks, options, track_id, write_records};
 use crate::pieces::{chunk, column};
+use ww_tape::TrackNum;
 use ww_tape::{
     ALIGNMENT, Describe, InputError, Layout, MemSink, SyncPolicy, TapeReader, TapeWriter,
     WriteError,
@@ -261,7 +262,7 @@ fn state_entries_are_capped() {
     crate::definitions::define_all(&mut w, &[crate::definitions::state(5)]);
     let tape = w.sink().tape();
     let defs = w.defs.clone();
-    assert!(w.w.put(&defs, 5, 0, &[0]).unwrap());
+    assert!(w.w.put(&defs, TrackNum::new(5), 0, &[0]).unwrap());
     let used = w.state_entries();
     assert!(used > 1, "the definitions are listed too");
     w.set_index_policy(ww_tape::index::IndexPolicy {
@@ -270,11 +271,14 @@ fn state_entries_are_capped() {
     })
     .expect("a policy with room for a piece head");
     for k in 1..3u8 {
-        assert!(w.w.put(&defs, 5, i64::from(k), &[k]).unwrap());
+        assert!(
+            w.w.put(&defs, TrackNum::new(5), i64::from(k), &[k])
+                .unwrap()
+        );
     }
     assert_eq!(w.state_entries(), used + 2);
     let len = tape.to_vec().unwrap().len();
-    match w.w.put(&defs, 5, 3, &[3]) {
+    match w.w.put(&defs, TrackNum::new(5), 3, &[3]) {
         Err(WriteError::Index(ww_tape::IndexError::StateEntries { max, used: now })) => {
             assert_eq!((max, now), (used + 2, used + 2));
         }

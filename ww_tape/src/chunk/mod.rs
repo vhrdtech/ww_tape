@@ -70,6 +70,7 @@
 
 use core::num::NonZeroUsize;
 
+use crate::TrackNum;
 use crate::bytes::{file_u8, file_u32, le_i64, le_u8, le_u16, le_u32, le_u64};
 use crate::series::{SCALE_LEN_MAX, SeriesGrid, read_scale, scale_bytes};
 use crate::{
@@ -266,7 +267,7 @@ pub struct ChunkHead {
     /// [TrackDef::id](crate::TrackDef::id).
     pub track_id: u64,
     /// [TrackDef::number](crate::TrackDef::number).
-    pub track_number: u32,
+    pub track_number: TrackNum,
     /// Item number of the first item in the track (sample index in a series).
     pub first_item: u64,
     /// Items (samples) in the chunk, 1 and up.
@@ -615,7 +616,7 @@ impl<'b> ChunkWriter<'b> {
         let fields = payload_at
             .to_le_bytes()
             .into_iter()
-            .chain(head.track_number.to_le_bytes())
+            .chain(head.track_number.get().to_le_bytes())
             .chain(head.track_id.to_le_bytes())
             .chain(head.first_item.to_le_bytes())
             .chain(head.first_tick.to_le_bytes())
@@ -1000,7 +1001,7 @@ fn read_fixed(block: &[u8], kind: BlockKind, table_start: usize) -> Option<Chunk
     Some(ChunkHead {
         kind,
         track_id: le_u64(block, 40)?,
-        track_number: le_u32(block, 36)?,
+        track_number: TrackNum::try_new(le_u32(block, 36)?)?,
         first_item: le_u64(block, 48)?,
         count: le_u32(block, 12)?,
         first_tick: le_i64(block, 56)?,

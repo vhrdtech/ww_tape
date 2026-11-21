@@ -76,7 +76,7 @@ pub const ITEMS_MAX: usize = 1 << 24;
 
 use crate::bitpack::GROUP;
 use crate::chunk::{Chunk, ChunkHead, Codec, Column, ColumnKind, EndMode};
-use crate::{BlockKind, BoundError, FromFile};
+use crate::{BlockKind, BoundError, FromFile, TrackNum};
 use core::ops::Range;
 
 /// Codec of a starts column.
@@ -443,7 +443,7 @@ pub struct TimeHead {
 
 impl TimeHead {
     /// A chunk head for these times.
-    pub fn chunk_head(&self, track_id: u64, track_number: u32, first_item: u64) -> ChunkHead {
+    pub fn chunk_head(&self, track_id: u64, track_number: TrackNum, first_item: u64) -> ChunkHead {
         ChunkHead {
             kind: BlockKind::Events,
             track_id,

@@ -627,11 +627,7 @@ impl Named {
         let Ok(b) = b.decode(&mut body) else {
             return Ok(());
         };
-        for r in b
-            .records()
-            .flatten()
-            .filter(|r| r.track == crate::DESCRIBE_TRACK)
-        {
+        for r in b.records().flatten().filter(|r| r.track.is_definitions()) {
             let slot =
                 match <crate::Describe<'_> as shrink_wrap::DeserializeShrinkWrap>::from_ww_bytes(
                     r.item,
@@ -1059,7 +1055,9 @@ impl<S: TapeSink> TapeWriter<S> {
             .iter()
             .filter(|e| e.kind == BlockKind::Events && !e.repeat)
         {
-            if let Some(key) = self.indexer.key_of(e.track_number, Some(e.track_id)) {
+            if let Some(track) = e.track()
+                && let Some(key) = self.indexer.key_of(track, Some(e.track_id))
+            {
                 self.relations
                     .seed_damaged(key, e.range.map(|(_, hi)| hi), e.relation_break);
             }
@@ -1080,11 +1078,11 @@ impl<S: TapeSink> TapeWriter<S> {
             // one the track's hash leaves it out and the close says so
             if !e.repeat {
                 self.indexer.begin_block();
-                match e.unit == crate::piece::UnitHash::NONE {
-                    true => self.indexer.tally_unread(e.track_number, e.track_id),
-                    false => self
-                        .indexer
-                        .tally_chunk(e.track_number, e.track_id, &e.unit),
+                if let Some(track) = e.track() {
+                    match e.unit == crate::piece::UnitHash::NONE {
+                        true => self.indexer.tally_unread(track, e.track_id),
+                        false => self.indexer.tally_chunk(track, e.track_id, &e.unit),
+                    }
                 }
             }
         }

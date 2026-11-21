@@ -174,7 +174,7 @@ mod describe;
 pub use describe::{
     ALIGNMENT, ClockDef, ClockMap, ClockOrigin, ClockRate, ClockResolution, Describe, Dimension,
     ENCODING_NAME_MAX, Ends, EventsDef, Foreign, GAP_CHECKS_MAX, GAP_MAX_MAX, GAP_PROBES_MAX,
-    Items, KeySegment, Layout, MEDIA_TYPE_MAX, MapSegment, NEAR_DEFAULT, NO_CLOCK, Producer,
+    Items, KeySegment, Layout, MEDIA_TYPE_MAX, MapSegment, NEAR_DEFAULT, Producer,
     RELATION_NAME_MAX, RELATIONS_MAX, RelationDef, RelationIndex, RelationTarget, RelationValues,
     SCHEMA_HASH_LEN, SD_GAP_MAX, SD_RESUME_ALIGN, Schema, StatePolicy, TrackDef, TrackKind,
     TrackRepeat, TypeRef, TypedItem, UNIX_CLOCK_KEY, api, clock_key, media_type_valid,
@@ -334,8 +334,6 @@ pub const RESERVED_KIND: u8 = 2;
 pub const FLAG_BODY_CODED: u16 = 1 << 0;
 /// Bytes of the CRC at the end of a block.
 pub const CRC_LEN: usize = 4;
-/// Track 0: the definitions, [Describe] records without time.
-pub const DESCRIBE_TRACK: u32 = 0;
 /// Most clocks in one block's clock table; a producer writing on more starts another block.
 pub const MAX_BLOCK_CLOCKS: usize = 16;
 /// Longest record head: head, time delta and length varints.
@@ -496,13 +494,12 @@ pub const fn track_key(api_root: u64, mut segments: &[Segment<'_>]) -> u64 {
 /// A record's time: ticks of a clock.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ClockTime {
-    /// [ClockDef::number].
-    pub clock: u32,
+    pub clock: ClockNum,
     pub ticks: i64,
 }
 
 impl ClockTime {
-    pub const fn new(clock: u32, ticks: i64) -> Self {
+    pub const fn new(clock: ClockNum, ticks: i64) -> Self {
         Self { clock, ticks }
     }
 }
@@ -522,14 +519,15 @@ const fn slot_bits(n: usize) -> u32 {
 /// The clocks of a block and the last time on each.
 #[derive(Copy, Clone, Debug)]
 struct Slots {
-    clocks: [u32; MAX_BLOCK_CLOCKS],
+    /// The first [Self::len] are the block's; the rest are filler.
+    clocks: [ClockNum; MAX_BLOCK_CLOCKS],
     last: [i64; MAX_BLOCK_CLOCKS],
     n: u8,
 }
 
 impl Slots {
     const NONE: Self = Self {
-        clocks: [0; MAX_BLOCK_CLOCKS],
+        clocks: [ClockNum::MIN; MAX_BLOCK_CLOCKS],
         last: [0; MAX_BLOCK_CLOCKS],
         n: 0,
     };
@@ -539,7 +537,7 @@ impl Slots {
         usize::from(self.n).min(MAX_BLOCK_CLOCKS)
     }
 
-    fn clocks(&self) -> &[u32] {
+    fn clocks(&self) -> &[ClockNum] {
         self.clocks.get(..self.len()).unwrap_or_default()
     }
 
@@ -547,7 +545,7 @@ impl Slots {
         slot_bits(self.len())
     }
 
-    fn slot(&self, clock: u32) -> Option<usize> {
+    fn slot(&self, clock: ClockNum) -> Option<usize> {
         self.clocks().binary_search(&clock).ok()
     }
 }
@@ -564,8 +562,6 @@ pub enum BlockStartError {
     TooManyClocks,
     /// The clocks are not strictly ascending.
     ClocksUnordered,
-    /// One of the clocks is [NO_CLOCK].
-    NoClock,
     /// The buffer doesn't hold the header, the clock table and the CRC: `needed` bytes.
     BufferTooSmall { needed: usize },
 }
@@ -576,10 +572,8 @@ pub enum BlockStartError {
 pub enum PushError {
     /// The record doesn't fit the block.
     Full,
-    /// Track [DESCRIBE_TRACK] has no time: describe records go through [BlockWriter::push_describe].
-    DescribeTrack,
     /// The record's clock is not one the block was started with.
-    UnknownClock(u32),
+    UnknownClock(ClockNum),
 }
 
 impl From<Full> for PushError {
@@ -595,14 +589,13 @@ pub struct BlockWriter<'b> {
 }
 
 impl<'b> BlockWriter<'b> {
-    /// Start a block in `buf` holding records on `clocks` (strictly ascending clock numbers, none of them
-    /// [NO_CLOCK]; at most [MAX_BLOCK_CLOCKS]); at most [MAX_BLOCK_LEN] of `buf` is used. A `buf` that doesn't hold
+    /// Start a block in `buf` holding records on `clocks` (strictly ascending; at most [MAX_BLOCK_CLOCKS]); at most [MAX_BLOCK_LEN] of `buf` is used. A `buf` that doesn't hold
     /// the header, the clock table and the CRC is refused.
     pub fn new(
         buf: &'b mut [u8],
         kind: BlockKind,
         id: BlockId,
-        clocks: &[u32],
+        clocks: &[ClockNum],
     ) -> Result<Self, BlockStartError> {
         if clocks.len() > MAX_BLOCK_CLOCKS {
             return Err(BlockStartError::TooManyClocks);
@@ -610,13 +603,11 @@ impl<'b> BlockWriter<'b> {
         if !clocks.is_sorted_by(|a, b| a < b) {
             return Err(BlockStartError::ClocksUnordered);
         }
-        if clocks.contains(&NO_CLOCK) {
-            return Err(BlockStartError::NoClock);
-        }
         let n = u8::try_from(clocks.len())
             .ok()
             .ok_or(BlockStartError::TooManyClocks)?;
-        let table = || core::iter::once(u64::from(n)).chain(clocks.iter().map(|c| u64::from(*c)));
+        let table =
+            || core::iter::once(u64::from(n)).chain(clocks.iter().map(|c| u64::from(c.get())));
         // at most MAX_CLOCK_TABLE bytes: 16 clocks of 5 bytes and the count
         let needed = table()
             .map(uvar_len)
@@ -685,7 +676,7 @@ impl<'b> BlockWriter<'b> {
     }
 
     /// The clocks the block was started with.
-    pub fn clocks(&self) -> &[u32] {
+    pub fn clocks(&self) -> &[ClockNum] {
         self.state.slots.clocks()
     }
 
@@ -699,9 +690,14 @@ impl<'b> BlockWriter<'b> {
     }
 
     /// Add a record on `track` at `at` whose item is `parts` back to back; `at`'s clock is the track's
-    /// [TrackDef::clock]. Track [DESCRIBE_TRACK] (see [Self::push_describe]) and a clock that isn't one of the
-    /// block's are refused.
-    pub fn push(&mut self, track: u32, at: ClockTime, parts: &[&[u8]]) -> Result<(), PushError> {
+    /// [TrackDef::clock]. A clock that isn't one of the block's is refused; definitions go through
+    /// [Self::push_describe].
+    pub fn push(
+        &mut self,
+        track: TrackNum,
+        at: ClockTime,
+        parts: &[&[u8]],
+    ) -> Result<(), PushError> {
         self.push_with(track, at, |buf| copy_parts(buf, parts))
     }
 
@@ -714,19 +710,16 @@ impl<'b> BlockWriter<'b> {
     /// value is serialized in place without a copy. `encode` returning None (did not fit) leaves the block as it was.
     pub fn push_with(
         &mut self,
-        track: u32,
+        track: TrackNum,
         at: ClockTime,
         encode: impl FnOnce(&mut [u8]) -> Option<usize>,
     ) -> Result<(), PushError> {
-        if track == DESCRIBE_TRACK {
-            return Err(PushError::DescribeTrack);
-        }
         let slots = &self.state.slots;
         let slot = slots
             .slot(at.clock)
             .ok_or(PushError::UnknownClock(at.clock))?;
         // a track number of 32 bits shifted by at most 4 slot bits fits a u64
-        let head = (u64::from(track) << slots.bits()) | bytes::u64_of(slot);
+        let head = (u64::from(track.get()) << slots.bits()) | bytes::u64_of(slot);
         let last = slots
             .last
             .get(slot)
@@ -967,7 +960,7 @@ pub struct Block<'b> {
 /// A record of a [Block], borrowed from it.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Record<'b> {
-    pub track: u32,
+    pub track: RecordTrack,
     /// None for a describe record (track 0).
     pub at: Option<ClockTime>,
     pub item: &'b [u8],
@@ -1082,14 +1075,14 @@ fn read_clock_table(body: &[u8]) -> Option<(Slots, usize)> {
     let n = rd.uvar_file()?.at_most(MAX_BLOCK_CLOCKS).ok()?;
     let mut slots = Slots::NONE;
     slots.n = u8::try_from(n).ok()?;
-    // strictly ascending from NO_CLOCK (0): no clock is 0 and none repeats
-    let mut prev = NO_CLOCK;
+    // strictly ascending from 0: no clock is 0 and none repeats
+    let mut prev = 0;
     for slot in slots.clocks.iter_mut().take(n) {
         let c = u32::try_from(rd.uvar()?).ok()?;
         if c <= prev {
             return None;
         }
-        *slot = c;
+        *slot = ClockNum::try_new(c)?;
         prev = c;
     }
     Some((slots, body.len().checked_sub(rd.0.len())?))
@@ -1251,7 +1244,7 @@ impl<'b> Block<'b> {
 
     /// The track of its first record, None for a block without records this reader reads in place: what tells a
     /// block of definitions (track 0) from a block of data.
-    pub fn first_track(&self) -> Option<u32> {
+    pub fn first_track(&self) -> Option<RecordTrack> {
         self.records().next()?.ok().map(|r| r.track)
     }
 
@@ -1307,7 +1300,7 @@ impl<'b> Block<'b> {
     }
 
     /// The clocks of its records, ascending; none for a block whose body this reader doesn't know.
-    pub fn clocks(&self) -> impl Iterator<Item = u32> {
+    pub fn clocks(&self) -> impl Iterator<Item = ClockNum> {
         self.clock_table()
             .into_iter()
             .flat_map(|(s, _)| s.clocks.into_iter().take(s.len()))
@@ -1419,9 +1412,9 @@ impl<'b> Records<'b> {
         let head = rd.uvar()?;
         // bits is at most 4 (16 slots): the shifts stay in range
         let bits = self.slots.bits();
-        let track = u32::try_from(head >> bits).ok()?;
+        let track = RecordTrack::from_u32(u32::try_from(head >> bits).ok()?);
         let slot = usize::try_from(head & ((1u64 << bits).wrapping_sub(1))).ok()?;
-        let at = if track == DESCRIBE_TRACK {
+        let at = if track.is_definitions() {
             if slot != 0 {
                 return None;
             }

@@ -2,6 +2,7 @@
 //! still names them, and a reader takes the gap rules from the copy on.
 
 use shrink_wrap::prelude::*;
+use ww_tape::TrackNum;
 use ww_tape::index::IndexPolicy;
 use ww_tape::piece::{OwnerId, PieceHead, PieceId, PieceIdent};
 use ww_tape::writer::NearPolicy;
@@ -129,7 +130,13 @@ fn a_piece_whose_first_blocks_are_lost_names_its_layout_and_producer() {
             "the content hash finds the loss"
         );
         let at = r.definitions_at(0, u64::MAX).unwrap();
-        for slot in [Slot::Layout, Slot::Producer, Slot::Track { number: 9 }] {
+        for slot in [
+            Slot::Layout,
+            Slot::Producer,
+            Slot::Track {
+                number: TrackNum::new(9),
+            },
+        ] {
             assert_eq!(
                 at.items.contains_key(&slot),
                 found,
@@ -275,7 +282,13 @@ fn a_piece_written_before_head_copies_reads() {
     assert_eq!(r.pieces().len(), 1);
     assert!(r.verify(0).unwrap().holds);
     let at = r.definitions_at(0, u64::MAX).unwrap();
-    for slot in [Slot::Layout, Slot::Producer, Slot::Track { number: 9 }] {
+    for slot in [
+        Slot::Layout,
+        Slot::Producer,
+        Slot::Track {
+            number: TrackNum::new(9),
+        },
+    ] {
         assert!(at.items.contains_key(&slot), "{slot:?}");
     }
     for slot in [Slot::Layout, Slot::Producer] {

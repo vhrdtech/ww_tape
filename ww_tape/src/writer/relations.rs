@@ -16,6 +16,7 @@
 //! against the value the caller gives and is marked [FLAG_RELATION_BREAK](crate::FLAG_RELATION_BREAK), in its header
 //! and its index entry. A marked chunk restarts the track's values, in the writer, in a resume and in the pieces after.
 
+use crate::TrackNum;
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
 
@@ -189,7 +190,7 @@ impl Newest {
 #[derive(Debug, Default)]
 pub(crate) struct Relations {
     /// The relations of each track number, from the newest track definition placed
-    facts: BTreeMap<u32, TrackFacts>,
+    facts: BTreeMap<TrackNum, TrackFacts>,
     newest: Newest,
     /// The track of the last counted chunk and what the values held of it before: a block with its id and other
     /// bytes takes its place
@@ -198,13 +199,13 @@ pub(crate) struct Relations {
 
 impl Relations {
     /// Track number `number` has the relations of `facts` from here on: its definition was placed.
-    pub(crate) fn define(&mut self, number: u32, facts: TrackFacts) {
+    pub(crate) fn define(&mut self, number: TrackNum, facts: TrackFacts) {
         self.facts.insert(number, facts);
     }
 
     /// Whether track number `number` takes records of data in caller's blocks: none of a series or a state track;
     /// a number whose definition wasn't placed may.
-    pub(crate) fn takes_records(&self, number: u32) -> bool {
+    pub(crate) fn takes_records(&self, number: TrackNum) -> bool {
         self.facts
             .get(&number)
             .is_none_or(|f| f.period.is_none() && f.state.is_none())

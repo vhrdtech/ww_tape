@@ -2,6 +2,7 @@
 //! and the resume.
 
 use std::collections::VecDeque;
+use ww_tape::{ClockNum, TrackNum};
 
 use ww_tape::chunk::ChunkHead;
 use ww_tape::index::IndexPolicy;
@@ -93,7 +94,7 @@ impl Acts {
             // --8<-- [start:summaries]
             let start = SeriesStart {
                 track_id: key("phase_a"),
-                track_number: PHASE_A,
+                track_number: TrackNum::new(PHASE_A),
                 shape: crate::defs::phase_shape(&def),
                 first_item: 0,
                 grid: def.first_grid(0),
@@ -173,7 +174,9 @@ impl Acts {
             // --8<-- [start:frames]
             let times = EncodedTimes::encode(&starts, None, None)?; // instants, no flags
             let payloads = EncodedPayloads::encode(payloads.iter().map(Vec::as_slice))?;
-            let head = times.head.chunk_head(key("can0"), CAN0, frames.start);
+            let head = times
+                .head
+                .chunk_head(key("can0"), TrackNum::new(CAN0), frames.start);
             let columns = times
                 .columns()
                 .chain(payloads.columns())
@@ -208,7 +211,7 @@ impl Acts {
             let head = ChunkHead {
                 kind: BlockKind::Series,
                 track_id: key("phase_a"),
-                track_number: PHASE_A,
+                track_number: TrackNum::new(PHASE_A),
                 first_item: samples.start,
                 count,
                 first_tick,
@@ -269,8 +272,8 @@ pub(crate) struct Made {
     at: u64,
     /// Its block's length: for a chunk.
     len: u64,
-    /// The track and first tick of its chunk.
-    track: u32,
+    /// The track and first tick of its chunk; None for no chunk.
+    track: Option<TrackNum>,
     first_tick: i64,
     /// Items in its chunk.
     items: u64,
@@ -351,14 +354,18 @@ impl<T: Tapes<Error = MemError>> Recorder<T> {
             after: before,
             at: 0,
             len: 0,
-            track: 0,
+            track: None,
             first_tick: 0,
             items: 0,
             put: None,
         };
         match act {
             Act::Put { ticks, mode } => {
-                made.put = Some(self.chain.put(&self.defs, MODE, *ticks, mode.item())?);
+                made.put =
+                    Some(
+                        self.chain
+                            .put(&self.defs, TrackNum::new(MODE), *ticks, mode.item())?,
+                    );
                 made.first_tick = *ticks;
             }
             Act::Records(records) => {
@@ -372,7 +379,7 @@ impl<T: Tapes<Error = MemError>> Recorder<T> {
                 made.piece = placed.seq;
                 made.at = self.closed_bytes() + placed.offset;
                 made.len = u64::from(placed.len);
-                made.track = head.track_number;
+                made.track = Some(head.track_number);
                 made.first_tick = head.first_tick;
                 made.items = u64::from(head.count);
             }
@@ -397,9 +404,18 @@ pub fn records_block(id: BlockId, records: &[(u32, i64, Vec<u8>)]) -> Result<Vec
         + 256;
     let mut buf = vec![0u8; len];
     // --8<-- [start:records]
-    let mut block = BlockWriter::new(&mut buf, BlockKind::Records, id, &[BOARD_CLOCK])?;
+    let mut block = BlockWriter::new(
+        &mut buf,
+        BlockKind::Records,
+        id,
+        &[ClockNum::new(BOARD_CLOCK)],
+    )?;
     for (track, ticks, item) in records {
-        block.push(*track, ClockTime::new(BOARD_CLOCK, *ticks), &[item])?;
+        block.push(
+            TrackNum::new(*track),
+            ClockTime::new(ClockNum::new(BOARD_CLOCK), *ticks),
+            &[item],
+        )?;
     }
     let len = block.finish(); // the block's header, records and CRC: its bytes in buf
     // --8<-- [end:records]
@@ -452,14 +468,14 @@ impl Recording {
     }
 
     /// The chunks of track `track`: where each starts in the recording, its length and items.
-    fn chunks(&self, track: u32) -> impl Iterator<Item = &Made> + '_ {
+    fn chunks(&self, track: TrackNum) -> impl Iterator<Item = &Made> + '_ {
         self.made
             .iter()
-            .filter(move |m| m.track == track && m.len > 0)
+            .filter(move |m| m.track == Some(track) && m.len > 0)
     }
 
     /// Bytes of the chunks of `track` and the items in them.
-    pub fn chunk_bytes(&self, track: u32) -> (u64, u64) {
+    pub fn chunk_bytes(&self, track: TrackNum) -> (u64, u64) {
         self.chunks(track)
             .fold((0, 0), |(bytes, items), m| (bytes + m.len, items + m.items))
     }
@@ -467,14 +483,14 @@ impl Recording {
     /// The byte the story's crash happens at: the middle of the first chunk of `can0` at or after minute 37.
     pub fn story_crash_byte(&self) -> Result<u64, Error> {
         let at = i64::from(CRASH_MINUTE) * 60_000 * US_PER_MS;
-        self.chunks(CAN0)
+        self.chunks(TrackNum::new(CAN0))
             .find(|m| m.first_tick >= at)
             .map(|m| m.at + m.len / 2)
             .ok_or(Error::Settings("the run ends before minute 37"))
     }
 
     /// The byte in the middle of the first chunk of `track` at or after `ticks`, counted in the whole recording.
-    pub(crate) fn chunk_at(&self, track: u32, ticks: i64) -> Option<u64> {
+    pub(crate) fn chunk_at(&self, track: TrackNum, ticks: i64) -> Option<u64> {
         self.chunks(track)
             .find(|m| m.first_tick >= ticks)
             .map(|m| m.at + m.len / 2)
@@ -735,10 +751,10 @@ impl Recording {
         let crashed = self.drive.crash(self.story_crash_byte()?)?;
         let crash = crashed.crash;
         let resume = crashed.resume()?;
-        let (frame_bytes, frames) = self.chunk_bytes(CAN0);
-        let (sample_bytes, samples) = self.chunk_bytes(PHASE_A);
+        let (frame_bytes, frames) = self.chunk_bytes(TrackNum::new(CAN0));
+        let (sample_bytes, samples) = self.chunk_bytes(TrackNum::new(PHASE_A));
         let torn = self
-            .chunks(CAN0)
+            .chunks(TrackNum::new(CAN0))
             .find(|m| m.at <= crash.byte && crash.byte < m.at + m.len)
             .ok_or(Error::Settings("the crash tears a chunk of frames"))?;
         Ok(Story {

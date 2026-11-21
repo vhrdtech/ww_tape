@@ -83,7 +83,7 @@ use shrink_wrap::prelude::*;
 use crate::bytes::{
     self, file_u8, file_u16, file_u32, file_u64, le_i64, le_u8, le_u16, le_u32, le_u64,
 };
-use crate::{BlockKind, BoundError, CRC_LEN, HEADER_LEN, MAGIC, MAX_BLOCK_LEN, VERSION};
+use crate::{BlockKind, BoundError, CRC_LEN, HEADER_LEN, MAGIC, MAX_BLOCK_LEN, TrackNum, VERSION};
 
 use crate::{Element, ElementDesc};
 mod spec;
@@ -210,7 +210,7 @@ pub struct SummaryHead {
     /// [TrackDef::id](crate::TrackDef::id).
     pub track_id: u64,
     /// [TrackDef::number](crate::TrackDef::number).
-    pub track_number: u32,
+    pub track_number: TrackNum,
     pub tree: Tree,
     pub level: u8,
     /// A node holds `2^node_shift` items.
@@ -358,7 +358,8 @@ impl SummaryHead {
         let first_item = le_u64(b, 56).ok_or(short)?;
         let head = Self {
             track_id: le_u64(b, 32).ok_or(short)?,
-            track_number: le_u32(b, 40).ok_or(short)?,
+            track_number: TrackNum::try_new(le_u32(b, 40).ok_or(short)?)
+                .ok_or(SummaryError::Invalid("track 0"))?,
             tree,
             level: file_u8(b, 45).ok_or(short)?.bounded(LEVEL_MAX)?,
             node_shift: file_u8(b, 46).ok_or(short)?.bounded(NODE_SHIFT_MAX)?,
@@ -607,7 +608,7 @@ impl<'b> SummaryWriter<'b> {
         let written = [
             bytes::put(buf, 28, described),
             bytes::put_u64(buf, 32, head.track_id),
-            bytes::put_u32(buf, 40, head.track_number),
+            bytes::put_u32(buf, 40, head.track_number.get()),
             bytes::put(buf, 44, tree),
             bytes::put_u16(buf, 48, fields),
             bytes::put_u16(buf, 50, channels),

@@ -153,6 +153,7 @@
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;
 
+use crate::TrackNum;
 use crate::bytes::{
     array, le_i64, le_u8, le_u16, le_u32, le_u64, put, put_i64, put_u16, put_u32, put_u64,
 };
@@ -642,7 +643,7 @@ pub struct PieceIdent {
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TrackStart {
     pub track_id: u64,
-    pub track_number: u32,
+    pub track_number: TrackNum,
     /// The first item number of the track in this piece: one past the last in the piece before.
     pub next_item: u64,
     /// No item of the track in this piece starts before this tick: the last start in the piece before.
@@ -663,7 +664,7 @@ pub struct TrackStart {
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TrackRange {
     pub track_id: u64,
-    pub track_number: u32,
+    pub track_number: TrackNum,
     /// Chunk blocks of the track in the piece; 0 for a track of records alone, whose range fields are 0.
     pub chunks: u32,
     pub first_item: u64,
@@ -843,7 +844,7 @@ fn fill_piece_head(b: &mut [u8], head: &PieceHead, tracks: &[TrackStart]) -> Opt
         .iter_mut();
     for (row, t) in rows.zip(tracks) {
         put_u64(row, 0, t.track_id)?;
-        put_u32(row, 8, t.track_number)?;
+        put_u32(row, 8, t.track_number.get())?;
         let flags = row_flags(t.incomplete) | if t.not_carried { ROW_NOT_CARRIED } else { 0 };
         put_u32(row, HEAD_ROW_FLAGS_AT, flags)?;
         put_u64(row, 16, t.next_item)?;
@@ -1007,7 +1008,7 @@ impl<'b> PieceHeadBlock<'b> {
         self.rows.chunks_exact(self.row).map_while(|row| {
             Some(TrackStart {
                 track_id: le_u64(row, 0)?,
-                track_number: le_u32(row, 8)?,
+                track_number: TrackNum::try_new(le_u32(row, 8)?)?,
                 next_item: le_u64(row, 16)?,
                 from_tick: le_i64(row, 24)?,
                 owner: OwnerId(array(row, 32)?),
@@ -1183,7 +1184,7 @@ fn fill_close(b: &mut [u8], close: &Close, tracks: &[TrackRange]) -> Option<()> 
         .iter_mut();
     for (row, t) in rows.zip(tracks) {
         put_u64(row, 0, t.track_id)?;
-        put_u32(row, 8, t.track_number)?;
+        put_u32(row, 8, t.track_number.get())?;
         put_u32(row, 12, t.chunks)?;
         put_u64(row, 16, t.first_item)?;
         put_u64(row, 24, t.items)?;
@@ -1298,7 +1299,7 @@ impl<'b> CloseBlock<'b> {
         self.rows.chunks_exact(self.row).map_while(|row| {
             Some(TrackRange {
                 track_id: le_u64(row, 0)?,
-                track_number: le_u32(row, 8)?,
+                track_number: TrackNum::try_new(le_u32(row, 8)?)?,
                 chunks: le_u32(row, 12)?,
                 first_item: le_u64(row, 16)?,
                 items: le_u64(row, 24)?,

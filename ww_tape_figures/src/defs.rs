@@ -5,13 +5,14 @@ use ww_tape::{
     ClockDef, ClockOrigin, Describe, EventsDef, FullVersion, Magnitude, Segment, TrackDef,
     TrackKind, TrackRepeat, Version, clock_key, track_key,
 };
+use ww_tape::{ClockNum, TrackNum};
 
 /// The clock of every track: 1 ns ticks since boot.
 pub const CLOCK: u32 = 1;
 
 pub fn clock() -> Describe<'static> {
     Describe::Clock(ClockDef {
-        number: UNib32(CLOCK),
+        number: ClockNum::new(CLOCK),
         key: clock_key(0xf1, &[], 1),
         rate: Magnitude::pow10(9).into(),
         resolution: Magnitude::pow10(-9).into(),
@@ -23,9 +24,9 @@ pub fn clock() -> Describe<'static> {
 /// Events track `number` on [CLOCK], repeated as `repeat`.
 pub fn track(number: u32, label: &'static str, repeat: TrackRepeat) -> Describe<'static> {
     Describe::Track(TrackDef {
-        number: UNib32(number),
+        number: TrackNum::new(number),
         key: track_key(0xf1, &[Segment::Index(number)]),
-        clock: UNib32(CLOCK),
+        clock: ClockNum::new(CLOCK),
         dimensions: RefVec::Slice { slice: &[] },
         items: ww_tape::Items::WireWeaver {
             api: FullVersion::new("figures_api", Version::new(0, 1, 0)),

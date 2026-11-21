@@ -10,6 +10,7 @@ use ww_tape::{
     Block, BlockId, BlockKind, BlockWriter, CRC_LEN, ClockTime, ColumnKind, ColumnSpec, HEADER_LEN,
     SessionTag,
 };
+use ww_tape::{ClockNum, RecordTrack, TrackNum};
 use ww_tape_example::{BOARD_CLOCK, CAN0, frame, key};
 
 use crate::OrDebug;
@@ -44,10 +45,20 @@ fn offset_in(outer: &[u8], inner: &[u8]) -> anyhow::Result<usize> {
 fn records(frames: &[(i64, Vec<u8>)]) -> anyhow::Result<(Vec<u8>, Vec<Part>)> {
     let mut buf = vec![0u8; 64 << 10];
     let id = BlockId::new(SessionTag::writable(1), 0);
-    let mut w = BlockWriter::new(&mut buf, BlockKind::Records, id, &[BOARD_CLOCK]).or_debug()?;
+    let mut w = BlockWriter::new(
+        &mut buf,
+        BlockKind::Records,
+        id,
+        &[ClockNum::new(BOARD_CLOCK)],
+    )
+    .or_debug()?;
     for (t, payload) in frames {
-        w.push(CAN0, ClockTime::new(BOARD_CLOCK, *t), &[payload])
-            .or_debug()?;
+        w.push(
+            TrackNum::new(CAN0),
+            ClockTime::new(ClockNum::new(BOARD_CLOCK), *t),
+            &[payload],
+        )
+        .or_debug()?;
     }
     let len = w.finish();
     buf.truncate(len);
@@ -62,7 +73,10 @@ fn records(frames: &[(i64, Vec<u8>)]) -> anyhow::Result<(Vec<u8>, Vec<Part>)> {
     let mut ends = Vec::new();
     for r in block.records() {
         let r = r.or_debug()?;
-        ensure!(r.track == CAN0, "every record is a frame of can0");
+        ensure!(
+            r.track == RecordTrack::from_u32(CAN0),
+            "every record is a frame of can0"
+        );
         ends.push(offset_in(&buf, r.item)? + r.item.len());
     }
     ensure!(ends.len() == frames.len(), "one record per frame");
@@ -104,7 +118,7 @@ fn chunk(frames: &[(i64, Vec<u8>)]) -> anyhow::Result<(Vec<u8>, Vec<Part>)> {
     let starts: Vec<i64> = frames.iter().map(|f| f.0).collect();
     let times = EncodedTimes::encode(&starts, None, None).or_debug()?;
     let payloads = EncodedPayloads::encode(frames.iter().map(|f| f.1.as_slice())).or_debug()?;
-    let head = times.head.chunk_head(key("can0"), CAN0, 0);
+    let head = times.head.chunk_head(key("can0"), TrackNum::new(CAN0), 0);
     let columns: Vec<(ColumnSpec, &[u8])> = times.columns().chain(payloads.columns()).collect();
     let mut buf = vec![0u8; 64 << 10];
     let id = BlockId::new(SessionTag::writable(1), 0);

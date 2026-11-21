@@ -1,11 +1,11 @@
 //! The running hash of each track ([TrackHash]) and the owner of a track ([TrackDef::owner]), through the public API.
 
 use std::collections::BTreeMap;
+use ww_tape::{RecordTrack, TrackNum};
 
 use crate::definitions::{CLOCK, base_defs, state, track};
 use crate::id;
 use crate::pieces::{chunk, column, records};
-use shrink_wrap::prelude::*;
 use ww_tape::index::IndexPolicy;
 use ww_tape::piece::payload_hash;
 use ww_tape::writer::NearPolicy;
@@ -113,7 +113,7 @@ fn write(shape: Shape) -> (Vec<Closed>, Vec<u8>) {
             c.write_chunk(&defs, &h, &column(&b)).unwrap();
             c.writer()
                 .unwrap()
-                .put(&defs, 11, k as i64, &[k as u8; 20])
+                .put(&defs, TrackNum::new(11), k as i64, &[k as u8; 20])
                 .unwrap();
         }
         let (h, b) = chunk(0, k);
@@ -191,7 +191,7 @@ fn fold(bytes: &[u8], number: u32) -> TrackHash {
             before = h;
         }
         if let Some(c) = b.chunk() {
-            if c.head().track_number == number {
+            if c.head().track_number == TrackNum::new(number) {
                 h = h.chunk(&c, &payload_hash(c.payload()));
             }
             continue;
@@ -203,7 +203,7 @@ fn fold(bytes: &[u8], number: u32) -> TrackHash {
         let b = b.decode(&mut buf).unwrap();
         for r in b.records() {
             let r = r.unwrap();
-            if r.track == number {
+            if r.track == RecordTrack::from_u32(number) {
                 h = h.record(r.at.map_or(0, |a| a.ticks), r.item);
             }
         }
@@ -342,7 +342,7 @@ fn owned(number: u32, owner: [u8; 32]) -> TrackDef<'static> {
         unreachable!("track() gives a track")
     };
     TrackDef {
-        number: UNib32(number),
+        number: TrackNum::new(number),
         owner,
         ..t
     }
@@ -368,7 +368,7 @@ fn write_owned(tracks: &[TrackDef<'static>]) -> Vec<Closed> {
         for (i, t) in tracks.iter().enumerate() {
             let (mut h, b) = chunk(i as u64, k);
             h.track_id = t.id();
-            h.track_number = t.number.0;
+            h.track_number = t.number;
             c.write_chunk(&defs, &h, &column(&b)).unwrap();
         }
     }
@@ -396,8 +396,8 @@ fn tracks_of_one_key_with_two_owners_are_two_tracks() {
     assert_eq!(rows.len(), 2, "{rows:?}");
     assert_eq!(rows[0].owner, OwnerId(a));
     assert_eq!(rows[1].owner, OwnerId(b));
-    assert_eq!(rows[0].track_number, 20);
-    assert_eq!(rows[1].track_number, 21);
+    assert_eq!(rows[0].track_number, TrackNum::new(20));
+    assert_eq!(rows[1].track_number, TrackNum::new(21));
     assert_eq!(rows[0].next_item, 8 * 50);
     assert_eq!(rows[1].next_item, 8 * 50);
     assert_ne!(rows[0].hash, rows[1].hash);
@@ -425,7 +425,7 @@ fn tracks_of_one_key_with_two_owners_are_two_tracks() {
     for k in 0..8 {
         let (mut h, bytes) = chunk(1, k);
         h.track_id = id;
-        h.track_number = 21;
+        h.track_number = TrackNum::new(21);
         c.write_chunk(&defs, &h, &column(&bytes)).unwrap();
     }
     let alone_b = hashes(&pieces(c.close().unwrap()));
