@@ -520,11 +520,34 @@ impl<T: Tapes> PieceChain<T> {
         head: &ChunkHead,
         columns: &[(ColumnSpec, &[u8])],
     ) -> Result<ChunkPlaced, WriteError<T::Error>> {
+        self.write_chunk_as(defs, head, columns, None)
+    }
+
+    /// [Self::write_chunk] with the hash of its payload given ([TapeWriter::write_chunk_hashed]).
+    pub fn write_chunk_hashed(
+        &mut self,
+        defs: &Definitions,
+        head: &ChunkHead,
+        columns: &[(ColumnSpec, &[u8])],
+        payload_hash: [u8; 32],
+    ) -> Result<ChunkPlaced, WriteError<T::Error>> {
+        self.write_chunk_as(defs, head, columns, Some(payload_hash))
+    }
+
+    fn write_chunk_as(
+        &mut self,
+        defs: &Definitions,
+        head: &ChunkHead,
+        columns: &[(ColumnSpec, &[u8])],
+        payload_hash: Option<[u8; 32]>,
+    ) -> Result<ChunkPlaced, WriteError<T::Error>> {
         if self.cut_due() {
             self.cut_for(defs, head.track_number)?;
         }
-        let Placed { offset, len, unit } =
-            self.with_room(defs, |w| w.write_chunk(defs, head, columns))?;
+        let Placed { offset, len, unit } = self.with_room(defs, |w| match payload_hash {
+            Some(h) => w.write_chunk_hashed(defs, head, columns, h),
+            None => w.write_chunk(defs, head, columns),
+        })?;
         Ok(ChunkPlaced {
             seq: self.seq,
             offset,

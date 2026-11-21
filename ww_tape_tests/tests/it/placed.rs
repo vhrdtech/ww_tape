@@ -285,3 +285,29 @@ fn an_empty_chunk_placed_states_the_unit_of_its_index_entry() {
         placed.unit
     );
 }
+
+/// [TapeWriter::write_chunk_hashed] with the payload hash a producer computed writes the same bytes, the same content
+/// hash and the same track hashes as [TapeWriter::write_chunk] (WRITE-13).
+#[test]
+fn a_chunk_with_its_payload_hash_given_writes_the_same_piece() {
+    let defs = crate::definitions::base_defs().clone();
+    let write = |hashed: bool| {
+        let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
+        w.set_session(crate::TEST_SESSION).unwrap();
+        for k in 0..4 {
+            let (head, cols) = chunk(0, k);
+            let columns = column(&cols);
+            if hashed {
+                let h = ww_tape::piece::columns_payload_hash(columns.iter().map(|(_, b)| *b));
+                w.write_chunk_hashed(&defs, &head, &columns, h).unwrap();
+            } else {
+                w.write_chunk(&defs, &head, &columns).unwrap();
+            }
+        }
+        let tape = w.sink().tape();
+        let closed = w.close().unwrap();
+        (tape.to_vec().unwrap(), closed.hash, closed.tracks)
+    };
+    // compared whole: a difference prints both pieces, so only a bool is asserted
+    assert!(write(true) == write(false), "the same piece either way");
+}

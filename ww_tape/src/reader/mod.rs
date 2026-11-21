@@ -1666,7 +1666,7 @@ impl<S: ByteSource> TapeReader<S> {
                             });
                         }
                         pos = pos.saturating_add(wide(block.len()));
-                        let chunk = crate::piece::hash_block(&mut h, block);
+                        let chunk = crate::piece::hash_block(&mut h, block, None);
                         replay.block(block, chunk);
                     }
                     Walked::Raw(raw) => {

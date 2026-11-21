@@ -1145,6 +1145,15 @@ impl<S: TapeSink> TapeWriter<S> {
     /// Write `block` at the end: one the writer made itself, or a caller's checked before ([Self::check_data]).
     /// Where it landed in the piece.
     fn write_own(&mut self, block: &[u8]) -> Result<Placed, WriteError<S::Error>> {
+        self.write_own_hashed(block, None)
+    }
+
+    /// [Self::write_own] of a chunk whose payload hash the caller gives.
+    fn write_own_hashed(
+        &mut self,
+        block: &[u8],
+        payload: Option<[u8; 32]>,
+    ) -> Result<Placed, WriteError<S::Error>> {
         self.check()?;
         if !self.session.is_session() {
             return Err(WriteError::Input(InputError::Session(self.session)));
@@ -1183,7 +1192,7 @@ impl<S: TapeSink> TapeWriter<S> {
             });
         }
         let offset = self.offset();
-        let unit = self.account(block, header, *crc)?;
+        let unit = self.account_hashed(block, header, *crc, payload)?;
         self.unsynced = self.unsynced.saturating_add(1);
         let due = match self.policy {
             SyncPolicy::None => false,
@@ -1240,8 +1249,19 @@ impl<S: TapeSink> TapeWriter<S> {
         header: &[u8; crate::HEADER_LEN],
         crc: [u8; crate::CRC_LEN],
     ) -> Result<UnitHash, WriteError<S::Error>> {
+        self.account_hashed(block, header, crc, None)
+    }
+
+    /// [Self::account] of a chunk whose payload hash the caller gives ([crate::piece::columns_payload_hash]).
+    fn account_hashed(
+        &mut self,
+        block: &[u8],
+        header: &[u8; crate::HEADER_LEN],
+        crc: [u8; crate::CRC_LEN],
+        payload: Option<[u8; 32]>,
+    ) -> Result<UnitHash, WriteError<S::Error>> {
         let bytes = self.end_after(block.len())?;
-        let chunk = hash_block(&mut self.hash, block);
+        let chunk = hash_block(&mut self.hash, block, payload);
         // the unit hash goes into the chunk's index entry and its track's hash: computed once, here
         let unit = chunk.as_ref().map_or(UnitHash::NONE, |(c, payload)| {
             TrackHash::chunk_unit(c, payload)
@@ -1625,6 +1645,30 @@ impl<S: TapeSink> TapeWriter<S> {
         head: &crate::ChunkHead,
         columns: &[(crate::ColumnSpec, &[u8])],
     ) -> Result<Placed, WriteError<S::Error>> {
+        self.write_chunk_as(defs, head, columns, None)
+    }
+
+    /// [Self::write_chunk] with the hash of the chunk's payload given: `payload` is
+    /// [columns_payload_hash](crate::piece::columns_payload_hash) of `columns`, computed by the producer on its own
+    /// thread, so the writer hashes no payload. Stated, not verified (a debug build checks it): a wrong hash makes
+    /// the piece's content hash and the track's hash wrong. The bytes written are the same.
+    pub fn write_chunk_hashed(
+        &mut self,
+        defs: &Definitions,
+        head: &crate::ChunkHead,
+        columns: &[(crate::ColumnSpec, &[u8])],
+        payload: [u8; 32],
+    ) -> Result<Placed, WriteError<S::Error>> {
+        self.write_chunk_as(defs, head, columns, Some(payload))
+    }
+
+    fn write_chunk_as(
+        &mut self,
+        defs: &Definitions,
+        head: &crate::ChunkHead,
+        columns: &[(crate::ColumnSpec, &[u8])],
+        payload_hash: Option<[u8; 32]>,
+    ) -> Result<Placed, WriteError<S::Error>> {
         self.check()?;
         self.want(&[head.track_number]);
         // the head and the column table are checked here and as the chunk is encoded: the payload is the caller's
@@ -1721,7 +1765,7 @@ impl<S: TapeSink> TapeWriter<S> {
                         "the puts before a chunk took other bytes than chosen",
                     )));
                 }
-                self.write_own(&buf)
+                self.write_own_hashed(&buf, payload_hash)
             });
         self.chunk_buf = buf;
         let placed = r?;

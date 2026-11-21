@@ -823,7 +823,7 @@ impl<S: TapeSink> TapeWriter<S> {
                 }
                 let (len, good) = match s {
                     Walked::Block(b) => {
-                        hash_block(&mut hash, b);
+                        hash_block(&mut hash, b, None);
                         (wide(b.len()), true)
                     }
                     Walked::Raw(r) => {

@@ -330,12 +330,25 @@ pub fn payload_hash(payload: &[u8]) -> [u8; 32] {
     *blake3::hash(payload).as_bytes()
 }
 
+/// [payload_hash] of the payload a chunk of `columns` gets: the columns back to back, then the 16 zero bytes of
+/// padding. What a producer computes on its own thread for [TapeWriter::write_chunk_hashed](crate::TapeWriter::write_chunk_hashed).
+pub fn columns_payload_hash<'c>(columns: impl IntoIterator<Item = &'c [u8]>) -> [u8; 32] {
+    let mut h = blake3::Hasher::new();
+    for c in columns {
+        h.update(c);
+    }
+    h.update(&[0u8; crate::chunk::PAYLOAD_PADDING]);
+    *h.finalize().as_bytes()
+}
+
 #[cfg(feature = "alloc")]
 /// Feed the good block `block` to a piece's content hash: a chunk's payload by its hash, which is returned with the
-/// chunk; any other block, or one that doesn't read as a chunk, as it is.
+/// chunk; any other block, or one that doesn't read as a chunk, as it is. `given` is the payload's hash when the
+/// caller computed it already ([columns_payload_hash]): stated, not computed again.
 pub(crate) fn hash_block<'b>(
     h: &mut blake3::Hasher,
     block: &'b [u8],
+    given: Option<[u8; 32]>,
 ) -> Option<(crate::Chunk<'b>, [u8; 32])> {
     let chunk = crate::Block::read_trusted(block)
         .ok()
@@ -348,7 +361,12 @@ pub(crate) fn hash_block<'b>(
     let end = at.saturating_add(c.payload().len());
     match (block.get(..at), block.get(end..)) {
         (Some(before), Some(after)) => {
-            let p = payload_hash(c.payload());
+            let p = given.unwrap_or_else(|| payload_hash(c.payload()));
+            debug_assert_eq!(
+                p,
+                payload_hash(c.payload()),
+                "a payload hash given is the payload's"
+            );
             h.update(before);
             h.update(&p);
             h.update(after);
@@ -391,7 +409,7 @@ pub(crate) fn hash_piece<E>(
 ) -> Result<bool, E> {
     walk_piece(0, end, read, |step| match step {
         Walked::Block(block) => {
-            hash_block(h, block);
+            hash_block(h, block, None);
         }
         Walked::Raw(raw) => {
             h.update(raw);
