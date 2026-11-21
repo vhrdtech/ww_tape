@@ -531,7 +531,7 @@ fn write_tape(layout: Layout) -> Vec<u8> {
         2,
         crate::Ratio64::int(20).unwrap(),
     ));
-    defs.define_all(&held).unwrap();
+    crate::tests::relay(&mut defs, &held).unwrap();
     let small = |n: i64| {
         let mut buf = [0u8; 128];
         let mut b =

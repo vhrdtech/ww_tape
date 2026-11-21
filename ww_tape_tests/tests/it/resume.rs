@@ -111,7 +111,7 @@ fn ranged_chunk(k: u64) -> (ChunkHead, Vec<(ColumnSpec, Vec<u8>)>) {
 /// Make the call `op` on `w` with the definitions `defs`.
 fn apply<S: TapeSink>(w: &mut TapeWriter<S>, defs: &mut Definitions, op: Op) {
     match op {
-        Op::Add(i) => defs.define(&added()[i]).unwrap(),
+        Op::Add(i) => crate::definitions::hold(defs, core::slice::from_ref(&added()[i])).unwrap(),
         Op::Records(n) => {
             w.write_block(defs, &records(w.next_id(), n)).unwrap();
         }
@@ -199,6 +199,57 @@ fn record_seqs(bytes: &[u8]) -> BTreeMap<i64, u64> {
         }
     }
     out
+}
+
+/// A resumed piece's numbers ([ww_tape::Resumed::numbers]) give the tracks and clock an application defines again
+/// their numbers in any order; a new track takes a number none of them has, and data on them writes on.
+#[test]
+fn a_resume_gives_tracks_defined_in_another_order_their_numbers() {
+    let batch = [
+        clock(CLOCK),
+        track(1, CLOCK),
+        track(2, CLOCK),
+        track(3, CLOCK),
+    ];
+    let mut defs = Definitions::new();
+    crate::definitions::hold(&mut defs, &batch).unwrap();
+    let mut w = begin(0);
+    let tape = w.sink().tape();
+    for n in 1..=3u32 {
+        let block = crate::definitions::on_tracks(w.next_id(), &[(n, i64::from(n), b"x")]);
+        w.write_block(&defs, &block).unwrap();
+    }
+    // a crash: the piece is left unclosed
+    drop(w);
+    let mut sink = MemSink::new();
+    sink.write_all(&tape.to_vec().unwrap()).unwrap();
+    let (mut w, resumed) = TapeWriter::resume_on(sink, options(0)).unwrap();
+    assert_eq!(&resumed.numbers, defs.numbers());
+    let mut again = Definitions::with_numbers(resumed.numbers.clone());
+    // the clock first, as its tracks need it held; the tracks last to first
+    for d in batch.iter().take(1).chain(batch[1..].iter().rev()) {
+        match d {
+            Describe::Clock(c) => assert_eq!(again.define_clock(c.spec()), Ok(c.number)),
+            Describe::Track(t) => assert_eq!(again.define_track(t.spec()), Ok(t.number)),
+            _ => unreachable!("a clock or a track"),
+        }
+    }
+    let Describe::Track(new) = track(9, CLOCK) else {
+        unreachable!("track() gives a track")
+    };
+    assert_eq!(again.define_track(new.spec()), Ok(TrackNum::new(4)));
+    let tape = w.sink().tape();
+    for n in [3, 4] {
+        let block = crate::definitions::on_tracks(w.next_id(), &[(n, 10, b"y")]);
+        w.write_block(&again, &block).unwrap();
+    }
+    w.close().unwrap();
+    let bytes = tape.to_vec().unwrap();
+    let r = TapeReader::open(&bytes[..]).unwrap();
+    assert_eq!(
+        tracks(&r.definitions_at(0, u64::MAX).unwrap()),
+        [1, 2, 3, 4]
+    );
 }
 
 /// Where each call of a run was made: the seq of the block it placed (a put: of the last block before it), the

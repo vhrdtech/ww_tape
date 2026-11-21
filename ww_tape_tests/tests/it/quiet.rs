@@ -354,15 +354,14 @@ fn a_call_whose_definitions_fit_no_piece_is_refused_without_a_cut() {
 #[test]
 fn a_refused_new_track_in_a_full_piece_cuts_no_piece() {
     let mut all = vec![
-        keyed_clock(CLOCK),
-        keyed_clock(9),
-        keyed_clock(10),
+        crate::definitions::clock(CLOCK),
+        crate::definitions::clock(9),
+        crate::definitions::clock(10),
         map(9, 10),
     ];
     all.extend((1..=2).map(|n| crate::definitions::track(n, CLOCK)));
     all.push(crate::definitions::track(3, 9));
-    let mut defs = Definitions::new();
-    defs.define_all(&all).unwrap();
+    let defs = crate::definitions::held(&all);
     let mem = MemTapes::new();
     let mut chain = PieceChain::create_on(
         mem.clone(),
@@ -401,15 +400,14 @@ fn a_refused_new_track_in_a_full_piece_cuts_no_piece() {
 #[test]
 fn a_refused_chunk_cuts_no_piece_when_a_cut_is_due() {
     let mut all = vec![
-        keyed_clock(CLOCK),
-        keyed_clock(9),
-        keyed_clock(10),
+        crate::definitions::clock(CLOCK),
+        crate::definitions::clock(9),
+        crate::definitions::clock(10),
         map(9, 10),
     ];
     all.extend((1..=2).map(|n| crate::definitions::track(n, CLOCK)));
     all.push(crate::definitions::track(3, 9));
-    let mut defs = Definitions::new();
-    defs.define_all(&all).unwrap();
+    let defs = crate::definitions::held(&all);
     let mem = MemTapes::new();
     let mut chain = PieceChain::create_on(
         mem.clone(),
@@ -446,10 +444,9 @@ fn a_refused_chunk_cuts_no_piece_when_a_cut_is_due() {
 /// count on: one damaged block costs only its own tracks, never another block's clock.
 #[test]
 fn a_damaged_carried_block_costs_only_its_own_tracks() {
-    let mut defs = Definitions::new();
     let mut all = vec![crate::definitions::clock(CLOCK)];
     all.extend((1..=200).map(|n| crate::definitions::track(n, CLOCK)));
-    defs.define_all(&all).unwrap();
+    let defs = crate::definitions::held(&all);
     let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     w.set_session(SessionTag::writable(0x7175_6967)).unwrap();
     let owner = OwnerId([0x56; 32]);
@@ -529,17 +526,6 @@ fn a_damaged_carried_block_costs_only_its_own_tracks() {
     assert_eq!(tracks, 200 - lost, "{lost} tracks in the damaged block");
 }
 
-/// Clock `number`, its key its own.
-fn keyed_clock(number: u32) -> ww_tape::Describe<'static> {
-    let ww_tape::Describe::Clock(c) = crate::definitions::clock(number) else {
-        unreachable!("clock() gives a clock")
-    };
-    ww_tape::Describe::Clock(ww_tape::ClockDef {
-        key: ww_tape::clock_key(0xad, &[], u64::from(number)),
-        ..c
-    })
-}
-
 /// A map from clock `from` to clock `to`, one to one.
 fn map(from: u32, to: u32) -> ww_tape::Describe<'static> {
     use shrink_wrap::prelude::*;
@@ -588,11 +574,13 @@ fn admit(chain: &mut PieceChain<MemTapes>, defs: &Definitions) -> u64 {
 /// chain, carries what fits, and the chain writes on, cutting by chunks or by hand; every piece holds data.
 #[test]
 fn a_map_defined_after_the_tracks_keeps_the_chain_writing() {
-    let mut all = vec![keyed_clock(CLOCK), keyed_clock(2)];
+    let mut all = vec![
+        crate::definitions::clock(CLOCK),
+        crate::definitions::clock(2),
+    ];
     all.extend((1..=200).map(|n| crate::definitions::track(n, CLOCK)));
     for chunks in [0, 4] {
-        let mut defs = Definitions::new();
-        defs.define_all(&all).unwrap();
+        let mut defs = crate::definitions::held(&all);
         let mem = MemTapes::new();
         let mut chain = PieceChain::create_on(
             mem.clone(),
@@ -603,7 +591,7 @@ fn a_map_defined_after_the_tracks_keeps_the_chain_writing() {
         )
         .unwrap();
         admit(&mut chain, &defs);
-        defs.define(&map(CLOCK, 2)).unwrap();
+        crate::definitions::hold(&mut defs, core::slice::from_ref(&map(CLOCK, 2))).unwrap();
         if chunks == 0 {
             chain.cut_now(&defs).unwrap();
         }
@@ -624,11 +612,14 @@ fn a_map_defined_after_the_tracks_keeps_the_chain_writing() {
 fn maps_added_to_tracks_on_their_own_clocks_keep_the_chain_writing() {
     let n = 300u32;
     let host = 9_000_000;
-    let mut all = vec![keyed_clock(CLOCK), keyed_clock(host)];
+    let mut all = vec![
+        crate::definitions::clock(CLOCK),
+        crate::definitions::clock(host),
+    ];
     let mut rows = Vec::new();
     for k in 0..n {
         let (number, c) = (100 + k, 1000 + k);
-        all.push(keyed_clock(c));
+        all.push(crate::definitions::clock(c));
         let d = crate::definitions::track(number, c);
         let ww_tape::Describe::Track(t) = &d else {
             unreachable!("track() gives a track")
@@ -646,8 +637,7 @@ fn maps_added_to_tracks_on_their_own_clocks_keep_the_chain_writing() {
         all.push(d);
     }
     all.push(crate::definitions::track(1, CLOCK));
-    let mut defs = Definitions::new();
-    defs.define_all(&all).unwrap();
+    let mut defs = crate::definitions::held(&all);
     let mut chain = PieceChain::create_on(
         MemTapes::new(),
         OwnerId([0x73; 32]),
@@ -661,7 +651,7 @@ fn maps_added_to_tracks_on_their_own_clocks_keep_the_chain_writing() {
         chain.write_chunk(&defs, &h, &column(&c)).unwrap();
     }
     let maps: Vec<_> = (0..n).map(|k| map(1000 + k, host)).collect();
-    defs.define_all(&maps).unwrap();
+    crate::definitions::hold(&mut defs, &maps).unwrap();
     for k in 2..5 {
         let (h, c) = chunk(0, k);
         chain.write_chunk(&defs, &h, &column(&c)).unwrap();
@@ -675,10 +665,9 @@ fn maps_added_to_tracks_on_their_own_clocks_keep_the_chain_writing() {
 /// fits; the cut carries what fits once each, and the chain writes on.
 #[test]
 fn definitions_grown_after_admission_keep_the_chain_writing() {
-    let mut all = vec![keyed_clock(CLOCK)];
+    let mut all = vec![crate::definitions::clock(CLOCK)];
     all.extend((1..=200).map(|n| crate::definitions::track(n, CLOCK)));
-    let mut defs = Definitions::new();
-    defs.define_all(&all).unwrap();
+    let mut defs = crate::definitions::held(&all);
     let mem = MemTapes::new();
     let mut chain = PieceChain::create_on(
         mem.clone(),
@@ -691,8 +680,11 @@ fn definitions_grown_after_admission_keep_the_chain_writing() {
     let admitted = admit(&mut chain, &defs);
     let long: &'static str = Box::leak("y".repeat(2000).into_boxed_str());
     for n in 1..=u32::try_from(admitted).unwrap() {
-        defs.define(&crate::definitions::labeled(n, CLOCK, long))
-            .unwrap();
+        crate::definitions::hold(
+            &mut defs,
+            core::slice::from_ref(&crate::definitions::labeled(n, CLOCK, long)),
+        )
+        .unwrap();
     }
     let before = chain.seq();
     chain.cut_now(&defs).unwrap();
@@ -710,13 +702,12 @@ fn definitions_grown_after_admission_keep_the_chain_writing() {
 fn a_cut_short_of_room_leaves_out_the_oldest_and_a_reader_names_them() {
     let n = 300u32;
     let host = 9_000;
-    let mut all = vec![keyed_clock(host)];
+    let mut all = vec![crate::definitions::clock(host)];
     for k in 1..=n {
-        all.push(keyed_clock(1000 + k));
+        all.push(crate::definitions::clock(1000 + k));
         all.push(crate::definitions::track(k, 1000 + k));
     }
-    let mut defs = Definitions::new();
-    defs.define_all(&all).unwrap();
+    let mut defs = crate::definitions::held(&all);
     let mem = MemTapes::new();
     let mut chain = PieceChain::create_on(
         mem.clone(),
@@ -731,7 +722,7 @@ fn a_cut_short_of_room_leaves_out_the_oldest_and_a_reader_names_them() {
         chain.write_chunk(&defs, &h, &column(&c)).unwrap();
     }
     let maps: Vec<_> = (1..=n).map(|k| map(1000 + k, host)).collect();
-    defs.define_all(&maps).unwrap();
+    crate::definitions::hold(&mut defs, &maps).unwrap();
     chain.cut_now(&defs).unwrap();
     let (h, c) = chunk(u64::from(n) - 1, 1);
     chain.write_chunk(&defs, &h, &column(&c)).unwrap();
@@ -832,13 +823,12 @@ fn all_hold_data(mem: &MemTapes, pieces: &[ww_tape::ChainPiece<u64>]) -> bool {
 fn left_out_chain(policy: usize) -> (PieceChain<MemTapes>, MemTapes, Definitions, Vec<u32>) {
     let n = 300u32;
     let host = 9_000;
-    let mut all = vec![keyed_clock(host)];
+    let mut all = vec![crate::definitions::clock(host)];
     for k in 1..=n {
-        all.push(keyed_clock(1000 + k));
+        all.push(crate::definitions::clock(1000 + k));
         all.push(crate::definitions::track(k, 1000 + k));
     }
-    let mut defs = Definitions::new();
-    defs.define_all(&all).unwrap();
+    let mut defs = crate::definitions::held(&all);
     let mem = MemTapes::new();
     let mut chain = PieceChain::create_on(
         mem.clone(),
@@ -853,7 +843,7 @@ fn left_out_chain(policy: usize) -> (PieceChain<MemTapes>, MemTapes, Definitions
         chain.write_chunk(&defs, &h, &column(&c)).unwrap();
     }
     let maps: Vec<_> = (1..=n).map(|k| map(1000 + k, host)).collect();
-    defs.define_all(&maps).unwrap();
+    crate::definitions::hold(&mut defs, &maps).unwrap();
     chain.cut_now(&defs).unwrap();
     let left: Vec<u32> = chain
         .closed()
@@ -896,10 +886,9 @@ fn data_on_tracks_left_out_writes_on_and_no_piece_is_empty() {
 /// writes on.
 #[test]
 fn data_on_a_track_left_out_by_a_lowered_policy_writes_on() {
-    let mut all = vec![keyed_clock(CLOCK)];
+    let mut all = vec![crate::definitions::clock(CLOCK)];
     all.extend((1..=120).map(|n| crate::definitions::track(n, CLOCK)));
-    let mut defs = Definitions::new();
-    defs.define_all(&all).unwrap();
+    let defs = crate::definitions::held(&all);
     let mem = MemTapes::new();
     let mut chain = PieceChain::create_on(
         mem.clone(),
@@ -943,7 +932,6 @@ fn data_on_a_track_left_out_by_a_lowered_policy_writes_on() {
 /// still missing, and the reader names it.
 #[test]
 fn a_marked_row_whose_number_another_track_took_is_named() {
-    let defs = base_defs();
     let ww_tape::Describe::Track(t) = crate::definitions::track(1, CLOCK) else {
         unreachable!("track() gives a track")
     };
@@ -951,10 +939,14 @@ fn a_marked_row_whose_number_another_track_took_is_named() {
         key: ww_tape::track_key(0xad, &[ww_tape::Segment::Index(999)]),
         ..t
     };
-    let mut renumbered = defs.clone();
-    renumbered
-        .define(&ww_tape::Describe::Track(other.clone()))
-        .unwrap();
+    // a producer that numbers the other track 1: the base definitions with it in track 1's place
+    let mut all = crate::definitions::base(ww_tape::Layout::UNALIGNED)[2..].to_vec();
+    all[1] = ww_tape::Describe::Track(other.clone());
+    let renumbered = crate::definitions::held(&all);
+    assert_eq!(
+        renumbered.numbers().track(other.id(), other.owner),
+        Some(TrackNum::new(1))
+    );
     let row = ww_tape::piece::TrackStart {
         track_id: crate::definitions::track_id(1),
         track_number: TrackNum::new(1),
@@ -1023,19 +1015,21 @@ fn random_schedules_refuse_no_counted_in_track_and_leave_no_piece_empty() {
     for seed in 1..=40u64 {
         let mut rng = Rng(seed.wrapping_mul(0x9e37_79b9_7f4a_7c15) | 1);
         let tracks = 8 + u32::try_from(rng.below(48)).unwrap();
-        let mut all = vec![keyed_clock(CLOCK), keyed_clock(host)];
+        let mut all = vec![
+            crate::definitions::clock(CLOCK),
+            crate::definitions::clock(host),
+        ];
         let mut own_clock = Vec::new();
         for k in 1..=tracks {
             let own = rng.below(2) == 0;
             let clock = if own { 1000 + k } else { CLOCK };
             if own {
-                all.push(keyed_clock(clock));
+                all.push(crate::definitions::clock(clock));
                 own_clock.push(k);
             }
             all.push(crate::definitions::track(k, clock));
         }
-        let mut defs = Definitions::new();
-        defs.define_all(&all).unwrap();
+        let mut defs = crate::definitions::held(&all);
         let mem = MemTapes::new();
         let policy = 12 + usize::try_from(rng.below(60)).unwrap();
         let chunks = if rng.below(2) == 0 {
@@ -1078,7 +1072,11 @@ fn random_schedules_refuse_no_counted_in_track_and_leave_no_piece_empty() {
                 0 if !maps_left.is_empty() => {
                     let k = maps_left
                         .swap_remove(usize::try_from(rng.below(maps_left.len() as u64)).unwrap());
-                    defs.define(&map(1000 + k, host)).unwrap();
+                    crate::definitions::hold(
+                        &mut defs,
+                        core::slice::from_ref(&map(1000 + k, host)),
+                    )
+                    .unwrap();
                 }
                 1 => {
                     let k = 1 + u32::try_from(rng.below(u64::from(tracks))).unwrap();
@@ -1091,8 +1089,11 @@ fn random_schedules_refuse_no_counted_in_track_and_leave_no_piece_empty() {
                         "z".repeat(200 + usize::try_from(step).unwrap() * 9)
                             .into_boxed_str(),
                     );
-                    defs.define(&crate::definitions::labeled(k, clock, long))
-                        .unwrap();
+                    crate::definitions::hold(
+                        &mut defs,
+                        core::slice::from_ref(&crate::definitions::labeled(k, clock, long)),
+                    )
+                    .unwrap();
                 }
                 2 if policy > 6 => {
                     policy = 6 + usize::try_from(rng.below((policy - 6) as u64)).unwrap();
@@ -1147,7 +1148,7 @@ fn random_schedules_refuse_no_counted_in_track_and_leave_no_piece_empty() {
 /// The base definitions and state track 10, whose item the tests put once.
 fn defs_with_state() -> Definitions {
     let mut defs = base_defs().clone();
-    defs.define_all(&[crate::definitions::state(10)]).unwrap();
+    crate::definitions::hold(&mut defs, &[crate::definitions::state(10)]).unwrap();
     defs
 }
 

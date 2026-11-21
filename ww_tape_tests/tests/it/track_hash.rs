@@ -10,9 +10,8 @@ use ww_tape::index::IndexPolicy;
 use ww_tape::piece::payload_hash;
 use ww_tape::writer::NearPolicy;
 use ww_tape::{
-    BlockKind, ChainOptions, ChainPiece, Closed, CutPolicy, Definitions, Describe, FileBlocks,
-    Layout, MemTapes, OwnerId, PieceChain, PieceTapes, SyncPolicy, TapeReader, TrackDef, TrackHash,
-    WriterOptions,
+    BlockKind, ChainOptions, ChainPiece, Closed, CutPolicy, Describe, FileBlocks, Layout, MemTapes,
+    OwnerId, PieceChain, PieceTapes, SyncPolicy, TapeReader, TrackDef, TrackHash, WriterOptions,
 };
 
 /// How a recording of the same tracks is written.
@@ -97,7 +96,7 @@ fn hashes(done: &[Closed]) -> BTreeMap<(u64, OwnerId), TrackHash> {
 /// the bytes of their files.
 fn write(shape: Shape) -> (Vec<Closed>, Vec<u8>) {
     let mut defs = base_defs().clone();
-    defs.define(&state(11)).unwrap();
+    crate::definitions::hold(&mut defs, core::slice::from_ref(&state(10))).unwrap();
     let mut c =
         PieceChain::create_on(MemTapes::new(), OwnerId([5; 32]), 0, &[], options(shape)).unwrap();
     for k in 0..12u64 {
@@ -113,7 +112,7 @@ fn write(shape: Shape) -> (Vec<Closed>, Vec<u8>) {
             c.write_chunk(&defs, &h, &column(&b)).unwrap();
             c.writer()
                 .unwrap()
-                .put(&defs, TrackNum::new(11), k as i64, &[k as u8; 20])
+                .put(&defs, TrackNum::new(10), k as i64, &[k as u8; 20])
                 .unwrap();
         }
         let (h, b) = chunk(0, k);
@@ -309,10 +308,10 @@ fn same_hash_in(
         "{shape:?}: track 9 read back"
     );
     // puts are repeats: the state track holding only puts has the hash of no data
-    let Describe::Track(t11) = state(11) else {
+    let Describe::Track(t10) = state(10) else {
         unreachable!("state() gives a track")
     };
-    let puts = got.get(&(t11.id(), OwnerId::NONE));
+    let puts = got.get(&(t10.id(), OwnerId::NONE));
     assert!(
         puts.is_none_or(|h| *h == TrackHash::START),
         "{shape:?}: {puts:?}"
@@ -350,10 +349,9 @@ fn owned(number: u32, owner: [u8; 32]) -> TrackDef<'static> {
 
 /// 8 chunks on each track of `tracks`, alternating; the closed chain.
 fn write_owned(tracks: &[TrackDef<'static>]) -> Vec<Closed> {
-    let mut defs: Definitions = base_defs().clone();
-    for t in tracks {
-        defs.define(&Describe::Track(t.clone())).unwrap();
-    }
+    let mut all = crate::definitions::base(Layout::UNALIGNED)[2..].to_vec();
+    all.extend(tracks.iter().map(|t| Describe::Track(t.clone())));
+    let defs = crate::definitions::held(&all);
     let shape = Shape {
         interleaved: false,
         cut: 5,
@@ -405,8 +403,9 @@ fn tracks_of_one_key_with_two_owners_are_two_tracks() {
     // alone, as its chunks in both: the first track's chunks are chunk(0, k), the second's chunk(1, k)
     let alone_a = hashes(&write_owned(&[ta]));
     assert_eq!(alone_a[&(id, OwnerId(a))], rows[0].hash);
-    let mut defs: Definitions = base_defs().clone();
-    defs.define(&Describe::Track(tb.clone())).unwrap();
+    let mut all = crate::definitions::base(Layout::UNALIGNED)[2..].to_vec();
+    all.push(Describe::Track(tb.clone()));
+    let defs = crate::definitions::held(&all);
     let mut c = PieceChain::create_on(
         MemTapes::new(),
         OwnerId([5; 32]),

@@ -31,7 +31,7 @@ pub use samples::samples;
 pub use series::series;
 pub use state::{Attacked, attacked as state_attacked, state, state_template};
 pub(crate) use state::{
-    STATES, definitions as state_definitions, options as state_options, records as state_records,
+    definitions as state_definitions, options as state_options, records as state_records,
 };
 pub use summary::summary;
 pub use times::times;

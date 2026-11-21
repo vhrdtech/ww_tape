@@ -158,6 +158,14 @@ Writing pieces and chains, resuming them, sinks in memory, in the crate `ww_tape
   - A copy that finds the piece's state entries full is skipped, never refusing a call; such a piece names them once.
   - Cost: 523 bytes in a 28 MiB piece of the drive, two records and their index entries; none in a piece under 1 MiB.
   - Read more: [When bytes go bad](docs/damage.md#the-first-4-kib-lost). Tests `head_copies.rs`.
+- 🚧 **WRITE-11 The definitions number tracks and clocks**
+  - An application defines a track or a clock without a number (`TrackSpec`, `ClockSpec`); `Definitions` gives the lowest number not taken and returns it.
+  - The same track identity (key, dimensions, owner) or clock key gets its number back, also after a close.
+  - A number never goes to another track or clock.
+  - A resume reads the numbers of the piece's definitions (`Resumed::numbers`), so the application's definitions keep them (`Definitions::with_numbers`).
+  - A reader finds a track's number by its id (`DefinitionsAt::track_number`).
+  - Missing: a chain resume that starts a new piece reads no closed piece, so its numbers start anew.
+  - Read more: [Number, key and id](docs/tracks.md#number-key-and-id), [The definitions an application holds](docs/definitions.md#the-definitions-an-application-holds).
 
 ## Reader (`READ`)
 
@@ -183,7 +191,7 @@ Reading by position, checks and hashes, hostile bytes, in the crate `ww_tape`.
   - Read more: [Finding blocks through the index](docs/reading.md#finding-blocks-through-the-index).
 - 🚧 **READ-5 Typed numbers in the API**
   - Track and clock numbers are `TrackNum` and `ClockNum`, 1 and up, each exactly a `UNib32` on the wire; a definition naming 0 doesn't decode. A record names its track as a `RecordTrack`, track 0 being the definitions.
-  - Missing: the writer assigning track and clock numbers, and types for the other numbers of the API (ids, keys, seqs, item numbers, sizes).
+  - Missing: types for the other numbers of the API (ids, keys, seqs, item numbers, sizes).
   - Read more: the crate docs of `ww_tape` (`TrackNum`, `ClockNum`, `RecordTrack`).
 
 ## Files and locks (`FS`)

@@ -33,7 +33,7 @@ the chunk head, since they know the first and last tick:
 --8<-- "ww_tape_example/src/record.rs:frames"
 ```
 
-??? example "What the example uses here: `the clock and track numbers`, `key`, `Act`"
+??? example "What the example uses here: `DriveNumbers`, `key`, `Act`"
 
     ```rs
     --8<-- "ww_tape_example/src/defs.rs:ids_item"

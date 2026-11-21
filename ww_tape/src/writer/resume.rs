@@ -120,6 +120,10 @@ pub struct Resumed {
     /// tail, with an append head first; a piece with blocks after its last close (a writer stopped while writing on)
     /// goes on after them.
     pub after_close: Option<Close>,
+    /// Which number stands for which track and clock in the definitions the resume read: the walked blocks, and the
+    /// puts after the head of a piece written on after its close. An application numbers with them
+    /// ([crate::Definitions::with_numbers]), so the tracks and clocks it defines again keep their numbers.
+    pub numbers: crate::Numbers,
 }
 
 impl Resumed {
@@ -133,6 +137,7 @@ impl Resumed {
             ended: None,
             layout: None,
             after_close: None,
+            numbers: crate::Numbers::new(),
         }
     }
 }
@@ -603,10 +608,13 @@ struct Named {
     producer: Option<String>,
     /// The slot, item hash and block offset of each of them
     read: BTreeMap<Slot, (ItemHash, u64)>,
+    /// The numbers the track and clock definitions read give
+    numbers: crate::Numbers,
 }
 
 impl Named {
-    /// Take the layout and producer records of the good record block of `step` in `src`.
+    /// Take the layout and producer records of the good record block of `step` in `src`, and the numbers of its track
+    /// and clock definitions.
     fn take<S: TapeSink>(&mut self, src: &S, step: &Step) -> Result<(), WriteError<S::Error>> {
         let What::Block {
             kind: BlockKind::Records,
@@ -639,6 +647,14 @@ impl Named {
                     Ok(crate::Describe::Producer(p)) => {
                         self.producer = Some(p.name.to_owned());
                         Slot::Producer
+                    }
+                    Ok(crate::Describe::Track(t)) => {
+                        self.numbers.take_track(t.number, t.id(), t.owner);
+                        continue;
+                    }
+                    Ok(crate::Describe::Clock(c)) => {
+                        self.numbers.take_clock(c.number, c.key);
+                        continue;
                     }
                     _ => continue,
                 };
@@ -943,6 +959,7 @@ impl<S: TapeSink> TapeWriter<S> {
             ended,
             layout: named.layout,
             after_close,
+            numbers: named.numbers,
         };
         Ok((w, resumed))
     }

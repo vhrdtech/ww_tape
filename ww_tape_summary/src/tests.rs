@@ -924,46 +924,41 @@ fn series_head_caps() {
     }
 }
 
-/// The definitions of series track 1 on clock 1 (1 ns ticks): i16 samples on one channel, one per 1000 ticks.
-fn series_definitions() -> Vec<ww_tape::Describe<'static>> {
+/// The series track the tests write, on `clock` (1 ns ticks): i16 samples on one channel, one per 1000 ticks.
+fn series_track(clock: ClockNum) -> ww_tape::TrackSpec<'static> {
     use shrink_wrap::prelude::*;
-    use ww_tape::{
-        ClockDef, ClockOrigin, Describe, SeriesDef, TrackDef, TrackKind, TrackRepeat, clock_key,
-        track_key,
-    };
-    vec![
-        Describe::Clock(ClockDef {
-            number: ClockNum::new(1),
+    use ww_tape::{SeriesDef, TrackKind, TrackRepeat, TrackSpec, track_key};
+    TrackSpec {
+        key: track_key(0x5e, &[ww_tape::Segment::Name("signal")]),
+        clock,
+        dimensions: RefVec::Slice { slice: &[] },
+        items: ww_tape::Items::numbers::<i16>(None),
+        label: "signal",
+        repeat: TrackRepeat::Stream,
+        kind: TrackKind::Series(SeriesDef::of::<i16>(1, Ratio64::int(1000).unwrap())),
+        relations: RefVec::Slice { slice: &[] },
+        owner: [0; 32],
+    }
+}
+
+/// Define the clock of [series_track] and the track in `defs`: the track's number.
+fn define_series(defs: &mut ww_tape::Definitions) -> TrackNum {
+    use ww_tape::{ClockOrigin, ClockSpec, clock_key};
+    let clock = defs
+        .define_clock(ClockSpec {
             key: clock_key(0x5e, &[], 1),
             rate: Magnitude::pow10(9).into(),
             resolution: Magnitude::pow10(-9).into(),
             origin: ClockOrigin::Boot,
             label: "dev",
-        }),
-        Describe::Track(TrackDef {
-            number: TrackNum::new(1),
-            key: track_key(0x5e, &[ww_tape::Segment::Name("signal")]),
-            clock: ClockNum::new(1),
-            dimensions: RefVec::Slice { slice: &[] },
-            items: ww_tape::Items::numbers::<i16>(None),
-            label: "signal",
-            repeat: TrackRepeat::Stream,
-            kind: TrackKind::Series(SeriesDef::of::<i16>(1, Ratio64::int(1000).unwrap())),
-            relations: RefVec::Slice { slice: &[] },
-            owner: [0; 32],
-        }),
-    ]
+        })
+        .unwrap();
+    defs.define_track(series_track(clock)).unwrap()
 }
 
-/// The id of the track of [series_definitions]: what its chunks' heads carry.
+/// The id of [series_track]: what its chunks' heads carry.
 fn series_track_id() -> u64 {
-    series_definitions()
-        .iter()
-        .find_map(|d| match d {
-            ww_tape::Describe::Track(t) => Some(t.id()),
-            _ => None,
-        })
-        .unwrap()
+    series_track(ClockNum::new(1)).id()
 }
 
 /// Series chunks in an aligned file with their summaries deferred: the summaries fill the gaps in front of the chunk
@@ -985,10 +980,10 @@ fn summaries_fill_alignment_gaps() {
         let tape = w.sink().tape();
         w.set_alignment(ww_tape::ALIGNMENT).unwrap();
         let mut defs = ww_tape::Definitions::new();
-        defs.define_all(&series_definitions()).unwrap();
+        let track = define_series(&mut defs);
         let start = SeriesStart {
             track_id: series_track_id(),
-            track_number: TrackNum::new(1),
+            track_number: track,
             shape,
             first_item: 0,
             grid: SeriesGrid::start(0, 0, Magnitude::pow10(-3)),
@@ -1011,7 +1006,7 @@ fn summaries_fill_alignment_gaps() {
             let head = ChunkHead {
                 kind: BlockKind::Series,
                 track_id: series_track_id(),
-                track_number: TrackNum::new(1),
+                track_number: track,
                 first_item: first,
                 count: chunk as u32,
                 first_tick: first as i64 * 1000,

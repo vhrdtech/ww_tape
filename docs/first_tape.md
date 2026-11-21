@@ -39,6 +39,9 @@ the recording along: what each track holds and the [[clock]] its times count on.
 - a [[clock map]] that turns board time into host time;
 - the five tracks `log`, `mode`, `can0`, `phase_a` and `temp`.
 
+Defining a clock or a track gives it a small number, which every [[record]] and [[chunk]] in the file names it by. The
+container picks the number, and [`Drive::definitions`] keeps them in a [`DriveNumbers`] for the program to write with.
+
 The application never writes a definition itself. The writer [[puts]] each one into the file just before the first
 [[block]] that needs it. It puts it again wherever the last one lies too far behind. [Tracks and items](tracks.md)
 shows how to define a track of your own.
@@ -53,7 +56,7 @@ host receives them, and four calls of the writer take them. A fifth call [[close
 --8<-- "ww_tape_example/src/first_tape.rs:write"
 ```
 
-??? example "What the example uses here: `Drive`, `Drive::acts`, `Drive::definitions`, `Act`, `records_block`, `the clock and track numbers`, `Mode`"
+??? example "What the example uses here: `Drive`, `Drive::acts`, `Drive::definitions`, `Act`, `records_block`, `DriveNumbers`, `Mode`"
 
     ```rs
     --8<-- "ww_tape_example/src/lib.rs:drive_item"
@@ -88,7 +91,7 @@ The application makes a [[records block]] itself with a [`BlockWriter`]. It push
 --8<-- "ww_tape_example/src/record.rs:records"
 ```
 
-??? example "What the example uses here: `the clock and track numbers`"
+??? example "What the example uses here: `DriveNumbers`"
 
     ```rs
     --8<-- "ww_tape_example/src/defs.rs:ids_item"

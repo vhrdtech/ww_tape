@@ -24,9 +24,9 @@ use ww_tape::piece::{
     TrackStart,
 };
 use ww_tape::{
-    BlockId, BlockKind, BlockWriter, ClockDef, ClockOrigin, ClockTime, Definitions, Describe,
-    EventsDef, FullVersion, IndexPolicy, Magnitude, MemSink, Segment, SessionTag, SyncPolicy,
-    TapeWriter, TrackDef, TrackHash, TrackKind, Version, clock_key, track_key,
+    BlockId, BlockKind, BlockWriter, ClockOrigin, ClockSpec, ClockTime, Definitions, EventsDef,
+    FullVersion, IndexPolicy, Magnitude, MemSink, Segment, SessionTag, SyncPolicy, TapeWriter,
+    TrackHash, TrackKind, TrackSpec, Version, clock_key, track_key,
 };
 use ww_tape::{ClockNum, TrackNum};
 use ww_tape_bench::{Bench, Cell, Common};
@@ -45,31 +45,22 @@ struct Args {
     common: Common,
 }
 
-const CLOCK: u32 = 1;
-
-/// Clock `number`, keyed by its number.
-fn clock_numbered(number: u32) -> Describe<'static> {
-    Describe::Clock(ClockDef {
-        number: ClockNum::new(number),
-        key: clock_key(0xb8, &[], u64::from(number)),
+/// Clock `index`, keyed by its index.
+fn clock(index: u32) -> ClockSpec<'static> {
+    ClockSpec {
+        key: clock_key(0xb8, &[], u64::from(index)),
         rate: Magnitude::pow10(9).into(),
         resolution: Magnitude::pow10(-9).into(),
         origin: ClockOrigin::Boot,
         label: "bench",
-    })
+    }
 }
 
-/// The clock of every track.
-fn clock() -> Describe<'static> {
-    clock_numbered(CLOCK)
-}
-
-/// Events track `number` on clock `clock`, labeled with its number as a sensor channel's name might be.
-fn track(number: u32, clock: u32, label: &str) -> TrackDef<'_> {
-    TrackDef {
-        number: TrackNum::new(number),
-        key: track_key(0xb8, &[Segment::Index(number)]),
-        clock: ClockNum::new(clock),
+/// Events track `index` on clock `clock`, keyed by its index and labeled as a sensor channel's name might be.
+fn track(index: u32, clock: ClockNum, label: &str) -> TrackSpec<'_> {
+    TrackSpec {
+        key: track_key(0xb8, &[Segment::Index(index)]),
+        clock,
         dimensions: RefVec::Slice { slice: &[] },
         items: ww_tape::Items::WireWeaver {
             api: FullVersion::new("bench_api", Version::new(0, 1, 0)),
@@ -91,23 +82,30 @@ fn track(number: u32, clock: u32, label: &str) -> TrackDef<'_> {
 /// Bytes of the item of each records block.
 const ITEM_LEN: usize = 4000;
 
-/// A records block of one record of `len` bytes on track 1.
-fn records(id: BlockId, n: i64, len: usize) -> anyhow::Result<Vec<u8>> {
-    records_on(id, 1, n, len)
+/// A records block of one record of `len` bytes on the first track of `rows`, on the first clock.
+fn records(id: BlockId, rows: &[TrackStart], n: i64, len: usize) -> anyhow::Result<Vec<u8>> {
+    let first = rows.first().map(|r| r.track_number);
+    let first = first.ok_or_else(|| anyhow::anyhow!("a track"))?;
+    records_on(id, FIRST_CLOCK, first, n, len)
 }
 
-/// A records block of one record of `len` bytes on track `track`.
-fn records_on(id: BlockId, track: u32, n: i64, len: usize) -> anyhow::Result<Vec<u8>> {
+/// The number of the first clock defined: track 1's.
+const FIRST_CLOCK: ClockNum = ClockNum::new(1);
+
+/// A records block of one record of `len` bytes on track `track` of clock `clock`.
+fn records_on(
+    id: BlockId,
+    clock: ClockNum,
+    track: TrackNum,
+    n: i64,
+    len: usize,
+) -> anyhow::Result<Vec<u8>> {
     let mut buf = vec![0u8; len + 64];
     let item = vec![0x5a; len];
-    let mut b = BlockWriter::new(&mut buf, BlockKind::Records, id, &[ClockNum::new(CLOCK)])
+    let mut b = BlockWriter::new(&mut buf, BlockKind::Records, id, &[clock])
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
-    b.push(
-        TrackNum::new(track),
-        ClockTime::new(ClockNum::new(CLOCK), n),
-        &[&item],
-    )
-    .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    b.push(track, ClockTime::new(clock, n), &[&item])
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
     let len = b.finish();
     buf.truncate(len);
     Ok(buf)
@@ -125,39 +123,37 @@ fn tracks_on(
     n: u32,
     own_clocks: bool,
 ) -> anyhow::Result<(Definitions, Definitions, Vec<TrackStart>)> {
+    let d = |e: ww_tape::DescribeError| anyhow::anyhow!("{e:?}");
     let labels: Vec<String> = (1..=n).map(|k| format!("channel {k:07}")).collect();
-    let clock_of = |k: u32| if own_clocks { k } else { CLOCK };
-    let defs: Vec<TrackDef<'_>> = (1..=n)
-        .map(|k| track(k, clock_of(k), &labels[k as usize - 1]))
-        .collect();
-    let rows = defs
-        .iter()
-        .map(|t| TrackStart {
+    // track 1's clock first, then its track: `one` holds those two
+    let (mut every, mut one) = (Definitions::new(), Definitions::new());
+    let first = every.define_clock(clock(1)).map_err(d)?;
+    one.define_clock(clock(1)).map_err(d)?;
+    let mut clocks = vec![first];
+    for k in 2..=n {
+        clocks.push(if own_clocks {
+            every.define_clock(clock(k)).map_err(d)?
+        } else {
+            first
+        });
+    }
+    let mut rows = Vec::new();
+    for k in 1..=n {
+        let t = track(k, clocks[k as usize - 1], &labels[k as usize - 1]);
+        if k == 1 {
+            one.define_track(t.clone()).map_err(d)?;
+        }
+        rows.push(TrackStart {
             track_id: t.id(),
-            track_number: t.number,
+            track_number: every.define_track(t.clone()).map_err(d)?,
             next_item: 1,
             from_tick: 0,
             owner: OwnerId(t.owner),
             hash: TrackHash::START,
             incomplete: false,
             not_carried: false,
-        })
-        .collect();
-    // track 1's clock first, then its track: `one` takes the first two
-    let mut all = vec![clock()];
-    for k in 2..=n {
-        if own_clocks {
-            all.push(clock_numbered(k));
-        }
+        });
     }
-    all.extend(defs.iter().cloned().map(Describe::Track));
-    let mut every = Definitions::new();
-    every
-        .define_all(&all)
-        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
-    let mut one = Definitions::new();
-    one.define_all(&[all[0].clone(), Describe::Track(defs[0].clone())])
-        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
     Ok((every, one, rows))
 }
 
@@ -201,7 +197,7 @@ fn piece(
     let mut n = 0u64;
     while blocks.map_or(n == 0 || w.bytes() < fill, |b| n < b) {
         let id = w.next_id();
-        w.write_block(defs, &records(id, n.cast_signed(), ITEM_LEN)?)
+        w.write_block(defs, &records(id, rows, n.cast_signed(), ITEM_LEN)?)
             .map_err(e)?;
         n += 1;
     }
@@ -235,7 +231,8 @@ fn carries_all(policy: usize, n: u32, own_clocks: bool) -> anyhow::Result<bool> 
     let (every, one, rows) = tracks_on(n, own_clocks)?;
     let mut w = start(&rows, policy)?;
     let id = w.next_id();
-    w.write_block(&one, &records(id, 0, ITEM_LEN)?).map_err(e)?;
+    w.write_block(&one, &records(id, &rows, 0, ITEM_LEN)?)
+        .map_err(e)?;
     let (closed, _) = w
         .cut_on(&every, MemSink::new())
         .map_err(|c| anyhow::anyhow!("{:?}", c.error))?;
@@ -268,18 +265,19 @@ fn room_for(policy: usize, own_clocks: bool) -> anyhow::Result<(u32, bool)> {
 /// records block on each of `n` stream tracks.
 fn after_cut(n: u32, item_len: usize, state: bool) -> anyhow::Result<u64> {
     let e = |e: ww_tape::WriteError<_>| anyhow::anyhow!("{e:?}");
+    let d = |e: ww_tape::DescribeError| anyhow::anyhow!("{e:?}");
     let labels: Vec<String> = (1..=n + 1).map(|k| format!("channel {k:07}")).collect();
-    let mut all = vec![clock()];
+    let mut defs = Definitions::new();
+    let c = defs.define_clock(clock(1)).map_err(d)?;
+    let mut numbers = Vec::new();
     for k in 1..=n + 1 {
-        let mut t = track(k, CLOCK, &labels[k as usize - 1]);
+        let mut t = track(k, c, &labels[k as usize - 1]);
         if state && k <= n {
             t.repeat = ww_tape::TrackRepeat::State(ww_tape::StatePolicy::DEFAULT);
         }
-        all.push(Describe::Track(t));
+        numbers.push(defs.define_track(t).map_err(d)?);
     }
-    let mut defs = Definitions::new();
-    defs.define_all(&all)
-        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    let (given, last) = numbers.split_at(n as usize);
     let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     w.set_producer("bench");
     w.set_session(SessionTag::writable(0x7374_6174))
@@ -297,12 +295,12 @@ fn after_cut(n: u32, item_len: usize, state: bool) -> anyhow::Result<u64> {
     };
     w.begin_piece(&head, &[]).map_err(e)?;
     let item = vec![0x5a; item_len];
-    for k in 1..=n {
+    for t in given {
         if state {
-            w.put(&defs, TrackNum::new(k), 0, &item).map_err(e)?;
+            w.put(&defs, *t, 0, &item).map_err(e)?;
         } else {
             let id = w.next_id();
-            w.write_block(&defs, &records_on(id, k, 0, item_len)?)
+            w.write_block(&defs, &records_on(id, c, *t, 0, item_len)?)
                 .map_err(e)?;
         }
     }
@@ -310,7 +308,7 @@ fn after_cut(n: u32, item_len: usize, state: bool) -> anyhow::Result<u64> {
         .cut_on(&defs, MemSink::new())
         .map_err(|c| anyhow::anyhow!("{:?}", c.error))?;
     let id = next.next_id();
-    next.write_block(&defs, &records_on(id, n + 1, 0, ITEM_LEN)?)
+    next.write_block(&defs, &records_on(id, c, last[0], 0, ITEM_LEN)?)
         .map_err(e)?;
     Ok(next.close().map_err(e)?.len)
 }

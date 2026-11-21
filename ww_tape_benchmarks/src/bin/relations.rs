@@ -19,9 +19,9 @@ use shrink_wrap::prelude::*;
 use std::time::Instant;
 use ww_tape::times::{EncodedRelation, EncodedTimes, RelationColumn, StoredRelations};
 use ww_tape::{
-    Block, ClockDef, ClockOrigin, Definitions, Describe, EventsDef, FullVersion, Magnitude,
-    MemSink, RelationDef, RelationIndex, RelationTarget, RelationValues, Segment, SyncPolicy,
-    TapeWriter, TrackDef, TrackKind, Version, clock_key, track_key,
+    Block, ClockOrigin, ClockSpec, Definitions, EventsDef, FullVersion, Magnitude, MemSink,
+    RelationDef, RelationIndex, RelationTarget, RelationValues, Segment, SyncPolicy, TapeWriter,
+    TrackKind, TrackSpec, Version, clock_key, track_key,
 };
 use ww_tape::{ClockNum, TrackNum};
 use ww_tape_bench::{Bench, Cell, Common, Rng, ns_per};
@@ -47,7 +47,6 @@ struct Args {
 }
 
 const N: usize = 4096;
-const CLOCK: ClockNum = ClockNum::new(1);
 
 /// The values of each shape, `N` of them, and whether they never decrease.
 fn shapes() -> Vec<(&'static str, Vec<u64>, bool)> {
@@ -99,11 +98,15 @@ const RELATIONS: &[RelationDef<'static>] = &[
     },
 ];
 
-fn track(number: u32, relations: &'static [RelationDef<'static>]) -> TrackDef<'static> {
-    TrackDef {
-        number: TrackNum::new(number),
-        key: track_key(0xc5, &[Segment::Index(number)]),
-        clock: CLOCK,
+/// Track `index` on `clock`, keyed by its index, with `relations`.
+fn track(
+    index: u32,
+    clock: ClockNum,
+    relations: &'static [RelationDef<'static>],
+) -> TrackSpec<'static> {
+    TrackSpec {
+        key: track_key(0xc5, &[Segment::Index(index)]),
+        clock,
         dimensions: RefVec::Slice { slice: &[] },
         items: ww_tape::Items::WireWeaver {
             api: FullVersion::new("bench_api", Version::new(0, 1, 0)),
@@ -219,26 +222,26 @@ fn main() -> anyhow::Result<()> {
         ("without relations", false),
         ("with a source (range) and a key column", true),
     ] {
+        let d = |e: ww_tape::DescribeError| anyhow::anyhow!("{e:?}");
         let mut defs = Definitions::new();
-        defs.define_all(&[
-            Describe::Clock(ClockDef {
-                number: CLOCK,
+        let clock = defs
+            .define_clock(ClockSpec {
                 key: clock_key(0xc5, &[], 1),
                 rate: Magnitude::pow10(9).into(),
                 resolution: Magnitude::pow10(-9).into(),
                 origin: ClockOrigin::Boot,
                 label: "bench",
-            }),
-            Describe::Track(track(1, if with { RELATIONS } else { &[] })),
-        ])
-        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
-        let id = track(1, if with { RELATIONS } else { &[] }).id();
+            })
+            .map_err(d)?;
+        let spec = track(1, clock, if with { RELATIONS } else { &[] });
+        let id = spec.id();
+        let number = defs.define_track(spec).map_err(d)?;
         let mut best_ns = f64::MAX;
         for _ in 0..args.rounds {
             let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
             let t = Instant::now();
             for (k, source) in (0..u64::from(args.chunks)).zip(&sources) {
-                let head = times.head.chunk_head(id, TrackNum::new(1), k * N as u64);
+                let head = times.head.chunk_head(id, number, k * N as u64);
                 let mut cols: Vec<_> = times.columns().collect();
                 if with {
                     cols.extend([source.column(), key.column()]);

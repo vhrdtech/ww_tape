@@ -21,10 +21,10 @@ use ww_tape::piece::{OwnerId, PieceHead, PieceId, PieceIdent, TrackHash};
 use ww_tape::reader::Found;
 use ww_tape::writer::NearPolicy;
 use ww_tape::{
-    BlockId, BlockKind, BlockWriter, ChainOptions, ClockDef, ClockOrigin, ClockTime, Codec,
-    ColumnKind, ColumnSpec, CutPolicy, Definitions, Describe, EndMode, EventsDef, FullVersion,
-    Layout, Magnitude, MemSink, MemTapes, PieceChain, PieceTapes, Segment, SessionTag, SyncPolicy,
-    TapeReader, TapeSink, TapeWriter, TrackDef, TrackKind, Version, WriterOptions, clock_key,
+    BlockId, BlockKind, BlockWriter, ChainOptions, ClockOrigin, ClockSpec, ClockTime, Codec,
+    ColumnKind, ColumnSpec, CutPolicy, Definitions, EndMode, EventsDef, FullVersion, Layout,
+    Magnitude, MemSink, MemTapes, PieceChain, PieceTapes, Segment, SessionTag, SyncPolicy,
+    TapeReader, TapeSink, TapeWriter, TrackKind, TrackSpec, Version, WriterOptions, clock_key,
     track_key,
 };
 
@@ -54,22 +54,18 @@ pub(crate) fn options(aligned: bool) -> WriterOptions {
     }
 }
 
-pub(crate) fn records(id: BlockId, n: u64) -> Vec<u8> {
+/// A records block of one record at tick `n` of clock `clock` on track `track`.
+pub(crate) fn records(id: BlockId, clock: ClockNum, track: TrackNum, n: u64) -> Vec<u8> {
     let mut buf = [0u8; 128];
-    let mut b = BlockWriter::new(&mut buf, BlockKind::Records, id, &[ClockNum::new(1)])
-        .expect("a block fits");
-    b.push(
-        TrackNum::new(9),
-        ClockTime::new(ClockNum::new(1), n as i64),
-        &[&[n as u8; 20]],
-    )
-    .expect("a record fits");
+    let mut b = BlockWriter::new(&mut buf, BlockKind::Records, id, &[clock]).expect("a block fits");
+    b.push(track, ClockTime::new(clock, n as i64), &[&[n as u8; 20]])
+        .expect("a record fits");
     let len = b.finish();
     buf[..len].to_vec()
 }
 
-/// Track `t`'s chunk `k`: 16 items with raw starts, on track number `t + 1` under its id.
-fn chunk(t: u64, k: u64) -> (ChunkHead, Vec<u8>) {
+/// Track `t`'s chunk `k`: 16 items with raw starts, on the track of key index `t + 1`, numbered `number`.
+fn chunk(t: u64, number: TrackNum, k: u64) -> (ChunkHead, Vec<u8>) {
     let first = k * 16;
     let starts: Vec<u8> = (first..first + 16)
         .flat_map(|i| (i as i64 * 4 + t as i64).to_le_bytes())
@@ -77,7 +73,7 @@ fn chunk(t: u64, k: u64) -> (ChunkHead, Vec<u8>) {
     let head = ChunkHead {
         kind: BlockKind::Events,
         track_id: track_key(0xf2, &[Segment::Index(t as u32 + 1)]),
-        track_number: TrackNum::new(t as u32 + 1),
+        track_number: number,
         first_item: first,
         count: 16,
         first_tick: first as i64 * 4 + t as i64,
@@ -90,8 +86,14 @@ fn chunk(t: u64, k: u64) -> (ChunkHead, Vec<u8>) {
     (head, starts)
 }
 
-fn write_chunk<S: TapeSink>(w: &mut TapeWriter<S>, defs: &Definitions, t: u64, k: u64) {
-    let (h, c) = chunk(t, k);
+fn write_chunk<S: TapeSink>(
+    w: &mut TapeWriter<S>,
+    defs: &Definitions,
+    on: Defined,
+    t: u64,
+    k: u64,
+) {
+    let (h, c) = chunk(t, on.chunks[t as usize], k);
     let spec = ColumnSpec {
         kind: ColumnKind::Starts,
         codec: Codec::RAW,
@@ -126,19 +128,18 @@ fn template(aligned: bool, head: bool) -> Vec<u8> {
         };
         w.begin_piece(&h, &[]).expect("a head writes");
     }
-    let mut defs = Definitions::new();
-    defs.define_all(&[clock(1), track(1, 1), track(2, 1), track(9, 1)])
-        .expect("the definitions hold");
+    let (mut defs, on) = template_definitions();
     for k in 0..ROUNDS {
         if k == ROUNDS / 2 {
-            defs.define_all(&[clock(2), track(10, 2)])
-                .expect("the definitions hold");
+            let c = defs.define_clock(clock(2)).expect("the clock holds");
+            let t = defs.define_track(track(10, c)).expect("the track holds");
+            assert_eq!((c.get(), t.get()), (2, 10), "the numbers of the seeds");
         }
-        write_chunk(&mut w, &defs, 0, k);
-        w.write_block(&defs, &records(w.next_id(), k))
+        write_chunk(&mut w, &defs, on, 0, k);
+        w.write_block(&defs, &records(w.next_id(), on.clock, on.records, k))
             .expect("a records block writes");
-        write_chunk(&mut w, &defs, 1, k);
-        w.defer_block(&defs, records(w.next_id(), 100 + k))
+        write_chunk(&mut w, &defs, on, 1, k);
+        w.defer_block(&defs, records(w.next_id(), on.clock, on.records, 100 + k))
             .expect("a deferred block");
     }
     w.flush_deferred().expect("deferred blocks write");
@@ -162,8 +163,8 @@ fn chain_options(aligned: bool) -> ChainOptions {
     }
 }
 
-fn chain_chunk(c: &mut PieceChain<MemTapes>, defs: &Definitions, t: u64, k: u64) {
-    let (h, b) = chunk(t, k);
+fn chain_chunk(c: &mut PieceChain<MemTapes>, defs: &Definitions, on: Defined, t: u64, k: u64) {
+    let (h, b) = chunk(t, on.chunks[t as usize], k);
     let spec = ColumnSpec {
         kind: ColumnKind::Starts,
         codec: Codec::RAW,
@@ -174,10 +175,10 @@ fn chain_chunk(c: &mut PieceChain<MemTapes>, defs: &Definitions, t: u64, k: u64)
         .expect("a chunk writes");
 }
 
-fn chain_records(c: &mut PieceChain<MemTapes>, defs: &Definitions, n: u64) {
+fn chain_records(c: &mut PieceChain<MemTapes>, defs: &Definitions, on: Defined, n: u64) {
     let w = c.writer().expect("a chain writing");
     let id = w.next_id();
-    w.write_block(defs, &records(id, n))
+    w.write_block(defs, &records(id, on.clock, on.records, n))
         .expect("a records block writes");
 }
 
@@ -186,13 +187,11 @@ fn chain_records(c: &mut PieceChain<MemTapes>, defs: &Definitions, n: u64) {
 pub(crate) fn chain_template(aligned: bool, closed: bool) -> (Vec<u8>, usize) {
     let mut c = PieceChain::create_on(MemTapes::new(), OWNER, 0, &[], chain_options(aligned))
         .expect("a chain starts");
-    let mut defs = Definitions::new();
-    defs.define_all(&[clock(1), track(1, 1), track(2, 1), track(9, 1)])
-        .expect("the definitions hold");
+    let (defs, on) = template_definitions();
     for k in 0..7 {
-        chain_chunk(&mut c, &defs, 0, k);
-        chain_records(&mut c, &defs, k);
-        chain_chunk(&mut c, &defs, 1, k);
+        chain_chunk(&mut c, &defs, on, 0, k);
+        chain_records(&mut c, &defs, on, k);
+        chain_chunk(&mut c, &defs, on, 1, k);
     }
     let w = c.writer().expect("a chain writing");
     w.flush_deferred().expect("deferred blocks write");
@@ -250,12 +249,11 @@ pub(crate) fn removed_chain() -> Vec<u8> {
     out
 }
 
-/// Events track `number` on clock `clock`.
-pub(crate) fn track(number: u32, clock: u32) -> Describe<'static> {
-    Describe::Track(TrackDef {
-        number: TrackNum::new(number),
-        key: track_key(0xf2, &[Segment::Index(number)]),
-        clock: ClockNum::new(clock),
+/// Events track `index` on clock `clock`: its key is the index's, the number its template gives it.
+pub(crate) fn track(index: u32, clock: ClockNum) -> TrackSpec<'static> {
+    TrackSpec {
+        key: track_key(0xf2, &[Segment::Index(index)]),
+        clock,
         dimensions: RefVec::Slice { slice: &[] },
         items: ww_tape::Items::WireWeaver {
             api: FullVersion::new("fuzz_api", Version::new(0, 1, 0)),
@@ -271,18 +269,65 @@ pub(crate) fn track(number: u32, clock: u32) -> Describe<'static> {
         kind: TrackKind::Events(EventsDef::INSTANTS),
         relations: RefVec::Slice { slice: &[] },
         owner: [0; 32],
-    })
+    }
 }
 
-pub(crate) fn clock(number: u32) -> Describe<'static> {
-    Describe::Clock(ClockDef {
-        number: ClockNum::new(number),
-        key: clock_key(0xf2, &[], number.into()),
+/// Clock `index`: its key is the index's, the number its template gives it.
+pub(crate) fn clock(index: u32) -> ClockSpec<'static> {
+    ClockSpec {
+        key: clock_key(0xf2, &[], index.into()),
         rate: Magnitude::pow10(9).into(),
         resolution: Magnitude::pow10(-9).into(),
         origin: ClockOrigin::Boot,
         label: "host",
-    })
+    }
+}
+
+/// The numbers the data of a template or a resume is written on: its clock, the tracks of the chunks of track
+/// indexes 0 and 1 and the track of the records.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Defined {
+    pub(crate) clock: ClockNum,
+    pub(crate) chunks: [TrackNum; 2],
+    pub(crate) records: TrackNum,
+}
+
+/// Clock 1 and tracks 1, 2 and 9 on it, under those numbers: the template's definitions, as its seeds were written.
+fn template_definitions() -> (Definitions, Defined) {
+    let mut defs = Definitions::new();
+    let c = defs.define_clock(clock(1)).expect("the clock holds");
+    let chunks = [1, 2].map(|i| defs.define_track(track(i, c)).expect("the track holds"));
+    let records = super::define_track_as(&mut defs, &track(9, c), TrackNum::new(9));
+    assert_eq!(
+        (c.get(), chunks.map(TrackNum::get)),
+        (1, [1, 2]),
+        "the numbers of the seeds"
+    );
+    (
+        defs,
+        Defined {
+            clock: c,
+            chunks,
+            records,
+        },
+    )
+}
+
+/// Clock 1 and tracks 1 and 9 on it, numbered as the piece `resumed` read numbers them: the definitions a resume
+/// writes on with, its chunks all on track 1.
+fn resumed_definitions(resumed: &ww_tape::Resumed) -> (Definitions, Defined) {
+    let mut defs = Definitions::with_numbers(resumed.numbers.clone());
+    let c = defs.define_clock(clock(1)).expect("the clock holds");
+    let first = defs.define_track(track(1, c)).expect("the track holds");
+    let records = defs.define_track(track(9, c)).expect("the track holds");
+    (
+        defs,
+        Defined {
+            clock: c,
+            chunks: [first, first],
+            records,
+        },
+    )
 }
 
 /// The templates by mode, made once: the bytes and where the last piece starts.
@@ -340,13 +385,11 @@ pub fn resume(data: &[u8]) {
             .iter()
             .all(|e| e.offset < resumed.kept_bytes)
     );
-    let mut defs = Definitions::new();
-    defs.define_all(&[clock(1), track(1, 1), track(9, 1)])
-        .expect("the definitions hold");
+    let (defs, on) = resumed_definitions(&resumed);
     for k in 0..2 {
-        w.write_block(&defs, &records(w.next_id(), 200 + k))
+        w.write_block(&defs, &records(w.next_id(), on.clock, on.records, 200 + k))
             .expect("a resumed piece takes blocks");
-        write_chunk(&mut w, &defs, 0, ROUNDS + k);
+        write_chunk(&mut w, &defs, on, 0, ROUNDS + k);
     }
     let closed = w.close().expect("a resumed piece closes");
     let out = tape.to_vec().expect("the bytes");
@@ -421,12 +464,10 @@ fn resume_chain(aligned: bool, bytes: &[u8], last: usize, open: Option<&[u8]>) {
     if let (Some(template), Some(piece)) = (open, bytes.get(last..)) {
         no_good_block_cut(template, piece, resumed.kept_bytes);
     }
-    let mut defs = Definitions::new();
-    defs.define_all(&[clock(1), track(1, 1), track(9, 1)])
-        .expect("the definitions hold");
+    let (defs, on) = resumed_definitions(&resumed);
     for k in 0..6 {
-        chain_records(&mut c, &defs, 200 + k);
-        chain_chunk(&mut c, &defs, 0, 100 + k);
+        chain_records(&mut c, &defs, on, 200 + k);
+        chain_chunk(&mut c, &defs, on, 0, 100 + k);
     }
     let mem = c.tapes().clone();
     let done = c.close().expect("a resumed chain closes");

@@ -18,17 +18,17 @@
 //! ```
 
 use core::f64::consts::PI;
-use ww_tape::{ClockNum, TrackNum};
+use ww_tape::TrackNum;
 
 use shrink_wrap::prelude::*;
 use ww_tape::chunk::ChunkHead;
 use ww_tape::samples::{Samples, Scalar, encode, max_encoded_len};
 use ww_tape::summary::{SeriesStats, SeriesSummarySpec};
 use ww_tape::{
-    BlockKind, ClockDef, ClockOrigin, ClockRef, Codec, ColumnKind, ColumnSpec, Definitions,
-    Describe, ElementDesc, EndMode, Items, Magnitude, MemSink, Ratio64, SampleShape, Segment,
-    SeriesDef, SeriesGrid, SessionTag, SyncPolicy, TapeReader, TapeSink, TapeWriter, TrackDef,
-    TrackKind, TrackRepeat, clock_key, track_key,
+    BlockKind, ClockOrigin, ClockRef, ClockSpec, Codec, ColumnKind, ColumnSpec, Definitions,
+    ElementDesc, EndMode, Items, Magnitude, MemSink, Ratio64, SampleShape, Segment, SeriesDef,
+    SeriesGrid, SessionTag, SyncPolicy, TapeReader, TapeSink, TapeWriter, TrackKind, TrackRepeat,
+    TrackSpec, clock_key, track_key,
 };
 use ww_tape_summary::{SeriesStart, SeriesSummaries};
 
@@ -44,10 +44,6 @@ pub const fn iq_shape() -> SampleShape {
     }
 }
 
-/// The front end's sample clock in ns since the capture starts: the clock of `iq`.
-pub const RF_CLOCK: u32 = 1;
-/// The IQ samples, `ComplexI16`.
-pub const IQ: u32 = 1;
 // --8<-- [start:element]
 /// The element of `iq`'s items: I and Q side by side, a 16-bit signed integer each.
 pub const IQ_ELEMENT: ElementDesc = ElementDesc::of_scalar(Scalar::I16, 2);
@@ -135,7 +131,7 @@ impl Rf {
         u64::from(self.rate_hz) * u64::from(self.seconds)
     }
 
-    /// Ticks of [RF_CLOCK] (ns) from one sample to the next.
+    /// Ticks of the front end's sample clock (ns) from one sample to the next.
     pub fn period(&self) -> Option<Ratio64> {
         Ratio64::new(1_000_000_000, u64::from(self.rate_hz))
     }
@@ -154,36 +150,33 @@ impl Rf {
         Some(def)
     }
 
-    /// The front end's definitions: its clock and the track `iq`.
-    pub fn definitions<E>(&self) -> Result<Definitions, RfError<E>> {
+    /// The front end's definitions: its sample clock in ns since the capture starts, and the track `iq` of
+    /// `ComplexI16` samples on it; with the number `iq` was given.
+    pub fn definitions<E>(&self) -> Result<(Definitions, TrackNum), RfError<E>> {
         let def = self.def().ok_or(RfError::Settings("the rate is 0"))?;
         let mut defs = Definitions::new();
-        defs.define_all(&[
-            Describe::Clock(ClockDef {
-                number: ClockNum::new(RF_CLOCK),
-                key: clock_key(API_ROOT, &[Segment::Name("sample_clock")], 1),
-                rate: Magnitude::pow10(9).into(),
-                resolution: Magnitude::pow10(-9).into(),
-                origin: ClockOrigin::Boot,
-                label: "front end ns",
-            }),
-            Describe::Track(TrackDef {
-                number: TrackNum::new(IQ),
-                key: iq_key(),
-                clock: ClockNum::new(RF_CLOCK),
-                dimensions: RefVec::Slice { slice: &[] },
-                items: Items::Numbers {
-                    element: IQ_ELEMENT,
-                    unit: None,
-                },
-                label: "iq",
-                repeat: TrackRepeat::Stream,
-                kind: TrackKind::Series(def),
-                relations: RefVec::Slice { slice: &[] },
-                owner: [0; 32],
-            }),
-        ])?;
-        Ok(defs)
+        let clock = defs.define_clock(ClockSpec {
+            key: clock_key(API_ROOT, &[Segment::Name("sample_clock")], 1),
+            rate: Magnitude::pow10(9).into(),
+            resolution: Magnitude::pow10(-9).into(),
+            origin: ClockOrigin::Boot,
+            label: "front end ns",
+        })?;
+        let iq = defs.define_track(TrackSpec {
+            key: iq_key(),
+            clock,
+            dimensions: RefVec::Slice { slice: &[] },
+            items: Items::Numbers {
+                element: IQ_ELEMENT,
+                unit: None,
+            },
+            label: "iq",
+            repeat: TrackRepeat::Stream,
+            kind: TrackKind::Series(def),
+            relations: RefVec::Slice { slice: &[] },
+            owner: [0; 32],
+        })?;
+        Ok((defs, iq))
     }
 
     /// The signal of this capture.
@@ -210,10 +203,11 @@ impl Rf {
         (first, u32::try_from(count).unwrap_or(0))
     }
 
-    /// Encode `values`, the samples from `first` on, into `bytes`: the chunk's head and its column, `bytes` cut to
-    /// the column's length.
+    /// Encode `values`, the samples from `first` on of track `iq`, into `bytes`: the chunk's head and its column,
+    /// `bytes` cut to the column's length.
     pub fn encode_chunk<E>(
         &self,
+        iq: TrackNum,
         first: u64,
         values: &[i16],
         bytes: &mut Vec<u8>,
@@ -230,7 +224,7 @@ impl Rf {
         let head = ChunkHead {
             kind: BlockKind::Series,
             track_id: iq_key(),
-            track_number: TrackNum::new(IQ),
+            track_number: iq,
             first_item: first,
             count,
             first_tick,
@@ -249,14 +243,17 @@ impl Rf {
         Ok((head, spec))
     }
 
-    /// The summaries of `iq`, empty, when the capture has them.
-    pub fn summary_builder<E>(&self) -> Result<Option<SeriesSummaries<i16>>, RfError<E>> {
+    /// The summaries of track `iq`, empty, when the capture has them.
+    pub fn summary_builder<E>(
+        &self,
+        iq: TrackNum,
+    ) -> Result<Option<SeriesSummaries<i16>>, RfError<E>> {
         let Some(def) = self.def().filter(|_| self.summaries) else {
             return Ok(None);
         };
         let start = SeriesStart {
             track_id: iq_key(),
-            track_number: TrackNum::new(IQ),
+            track_number: iq,
             shape: iq_shape(),
             first_item: 0,
             grid: def.first_grid(0),
@@ -267,12 +264,12 @@ impl Rf {
 
     /// Record the capture as one piece into `sink`: what it wrote.
     pub fn record_on<S: TapeSink>(&self, sink: S) -> Result<Captured, RfError<S::Error>> {
-        let defs = self.definitions()?;
+        let (defs, iq) = self.definitions()?;
         let mut writer = TapeWriter::create_on(sink, SyncPolicy::None);
         // no clock and a fixed session: the same capture gives the same bytes
         writer.set_clock(ClockRef::NONE);
         writer.set_session(SessionTag::writable(SESSION))?;
-        let mut summaries = self.summary_builder()?;
+        let mut summaries = self.summary_builder(iq)?;
         let signal = self.signal();
         let mut values = Vec::new();
         let mut bytes = Vec::new();
@@ -289,7 +286,7 @@ impl Rf {
             let (first, count) = self.chunk_range(k);
             values.resize(usize::try_from(count).unwrap_or(0) * 2, 0);
             signal.fill(first, &mut values);
-            let (head, spec) = self.encode_chunk(first, &values, &mut bytes)?;
+            let (head, spec) = self.encode_chunk(iq, first, &values, &mut bytes)?;
             writer.write_chunk(&defs, &head, &[(spec, &bytes)])?;
             captured.chunks += 1;
             captured.sample_bytes += bytes.len() as u64;

@@ -428,7 +428,11 @@ fn a_chain_cuts_when_its_piece_is_full_of_state_entries() {
     )
     .unwrap();
     let mut defs = crate::definitions::base_defs().clone();
-    defs.define(&crate::definitions::state(5)).unwrap();
+    crate::definitions::hold(
+        &mut defs,
+        core::slice::from_ref(&crate::definitions::state(5)),
+    )
+    .unwrap();
     for k in 0..6u8 {
         assert!(
             chain
@@ -759,9 +763,12 @@ fn index_golden() {
     });
     let mut defs = Definitions::new();
     let mut all = crate::definitions::base(ww_tape::Layout::UNALIGNED)[2..].to_vec();
-    all.retain(|d| !matches!(d, Describe::Track(t) if t.number.get() == 3));
-    all.push(related);
-    defs.define_all(&all).unwrap();
+    for d in &mut all {
+        if matches!(d, Describe::Track(t) if t.number.get() == 3) {
+            *d = related.clone();
+        }
+    }
+    crate::definitions::hold(&mut defs, &all).unwrap();
     let mut source = 100;
     let mut related_chunk = |chain: &mut PieceChain<_>, first: u64| {
         let sources: Vec<u64> = (0..4).map(|i| source + i / 2).collect();
@@ -1207,8 +1214,11 @@ fn every_block_of_data_has_its_definitions_behind_it() {
     for n in 0..50 {
         w.write_block(&defs, &records(w.next_id(), n)).unwrap();
     }
-    defs.define(&crate::definitions::track(10, crate::definitions::CLOCK))
-        .unwrap();
+    crate::definitions::hold(
+        &mut defs,
+        core::slice::from_ref(&crate::definitions::track(10, crate::definitions::CLOCK)),
+    )
+    .unwrap();
     for n in 50..100 {
         w.write_block(&defs, &records(w.next_id(), n)).unwrap();
     }
@@ -1271,7 +1281,11 @@ pub(crate) fn chain_in_memory(mem: &ww_tape::MemTapes) -> Vec<u64> {
     )
     .unwrap();
     let mut defs = crate::definitions::base_defs().clone();
-    defs.define(&crate::definitions::state(5)).unwrap();
+    crate::definitions::hold(
+        &mut defs,
+        core::slice::from_ref(&crate::definitions::state(5)),
+    )
+    .unwrap();
     for k in 0..8u8 {
         assert!(
             chain

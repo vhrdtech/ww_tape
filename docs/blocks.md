@@ -70,10 +70,12 @@ The drive writes its log lines and temperatures into one records block a second.
 [`BlockWriter`], reads it back with [`Block::read`], and changes one byte:
 
 ```rust
-use ww_tape::{Block, BlockId, BlockKind, BlockWriter, ClockNum, ClockTime, SessionTag, TrackNum};
-use ww_tape_example::{BOARD_CLOCK, LOG, TEMP};
+use ww_tape::{Block, BlockId, BlockKind, BlockWriter, ClockTime, SessionTag};
+use ww_tape_example::definitions;
 
-let (board, log, temp) = (ClockNum::new(BOARD_CLOCK), TrackNum::new(LOG), TrackNum::new(TEMP));
+// The numbers the drive's definitions give its board clock and its tracks.
+let (_, numbers) = definitions(25_000, true, 32 << 20).expect("the drive's definitions");
+let (board, log, temp) = (numbers.board_clock, numbers.log, numbers.temp);
 let mut buf = [0u8; 256];
 let id = BlockId::new(SessionTag::writable(1), 0);
 let mut w = BlockWriter::new(&mut buf, BlockKind::Records, id, &[board]).expect("room");

@@ -53,8 +53,14 @@ The [[definitions]] belong to the application, not to the file. The application 
 on in a [`struct@Definitions`] container and passes the container with every write. Defining writes nothing to the [[tape]]:
 the [[writer]] places each definition just before the first data that needs it.
 
-[`Definitions::define_all`] holds several definitions at once and checks them against those already held. A [[track]] or
-a map must name [[clocks]] that the container holds, and an [[epoch]] clock must come with its link.
+[`Definitions::define_clock`] and [`Definitions::define_track`] hold a [[clock]] or a [[track]]. Each returns the
+number it gives, the lowest not yet taken, so the application never picks a number. Defining the same clock key again
+gives the same number back. So does the same track key with the same dimensions, in any order.
+
+Each definition is checked against those already held. A track or a map must name clocks that the container holds.
+An [[epoch]] clock must come with its link, which [`Definitions::define_clock_with_maps`] defines with it.
+[`Definitions::define_all`] holds several maps, bundles or schemas at once.
+
 [`Definitions::close`] drops a track, and the clocks, maps and [[bundles]] that no held track names go with it. The
 container reports how many definitions it holds and their size in bytes, and the application decides how many to keep.
 
@@ -62,12 +68,12 @@ The drive holds 8 definitions in 468 bytes. The test below takes them from the e
 and closes a track:
 
 ```rust
-use ww_tape::{MemSink, SyncPolicy, TapeWriter, TrackNum};
-use ww_tape_example::{CAN0, MODE, Mode, definitions};
+use ww_tape::{MemSink, SyncPolicy, TapeWriter};
+use ww_tape_example::{Mode, definitions};
 
-let (can0, mode) = (TrackNum::new(CAN0), TrackNum::new(MODE));
-
-let mut defs = definitions(25_000, true, 32 << 20).expect("the drive's definitions");
+// The definitions, and the numbers they gave the drive's clocks and tracks.
+let (mut defs, numbers) = definitions(25_000, true, 32 << 20).expect("the drive's definitions");
+let (can0, mode) = (numbers.can0, numbers.mode);
 assert_eq!((defs.len(), defs.bytes()), (8, 468));
 
 let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);

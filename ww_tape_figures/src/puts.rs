@@ -10,13 +10,13 @@ use ww_tape::{
     Block, BlockKind, BlockWriter, ClockTime, Definitions, FLAG_REPEAT, FLAG_WITH_NEXT, FileBlocks,
     MemSink, StatePolicy, SyncPolicy, TapeWriter, TrackRepeat,
 };
-use ww_tape::{ClockNum, TrackNum};
 
 use crate::OrDebug;
-use crate::defs::{CLOCK, clock, track};
+use crate::defs::{define_clock, define_track};
 use crate::svg::Svg;
 
-/// The plain track of the data and the state track put before each of its blocks.
+/// The plain track of the data and the state track put before each of its blocks, as the figure's labels number
+/// them.
 const DATA: u32 = 1;
 const STATE: u32 = 5;
 /// The shrunk near rule.
@@ -54,43 +54,29 @@ fn run() -> anyhow::Result<(u64, Vec<Placed>, usize)> {
         ..NearPolicy::default()
     });
     let mut defs = Definitions::new();
-    defs.define_all(&[
-        clock(),
-        track(DATA, "readings", TrackRepeat::Stream),
-        track(
-            STATE,
-            "link session",
-            TrackRepeat::State(StatePolicy {
-                near: Bytes::new(NEAR),
-                copies: Count::new(1),
-            }),
-        ),
-    ])?;
+    let clock = define_clock(&mut defs)?;
+    let data = define_track(&mut defs, DATA, clock, "readings", TrackRepeat::Stream)?;
+    let state = define_track(
+        &mut defs,
+        STATE,
+        clock,
+        "link session",
+        TrackRepeat::State(StatePolicy {
+            near: Bytes::new(NEAR),
+            copies: Count::new(1),
+        }),
+    )?;
     let mut written = 0;
     for k in 0..BLOCKS {
         let tick = i64::from(k) * 1_000_000;
-        if w.put(
-            &defs,
-            TrackNum::new(STATE),
-            tick,
-            b"session 7: 2 Mbit/s, CRC on",
-        )? {
+        if w.put(&defs, state, tick, b"session 7: 2 Mbit/s, CRC on")? {
             written += 1;
         }
         let mut buf = vec![0u8; RECORD + 64];
-        let mut b = BlockWriter::new(
-            &mut buf,
-            BlockKind::Records,
-            w.next_id(),
-            &[ClockNum::new(CLOCK)],
-        )
-        .or_debug()?;
-        b.push(
-            TrackNum::new(DATA),
-            ClockTime::new(ClockNum::new(CLOCK), tick),
-            &[&[0x5a; RECORD]],
-        )
-        .or_debug()?;
+        let mut b =
+            BlockWriter::new(&mut buf, BlockKind::Records, w.next_id(), &[clock]).or_debug()?;
+        b.push(data, ClockTime::new(clock, tick), &[&[0x5a; RECORD]])
+            .or_debug()?;
         let n = b.finish();
         w.write_block(&defs, buf.get(..n).context("the block")?)?;
     }
@@ -114,12 +100,15 @@ fn run() -> anyhow::Result<(u64, Vec<Placed>, usize)> {
             .or_debug()?;
         let at = walk.offset();
         let kind = if flags & FLAG_REPEAT == 0 {
-            ensure!(tracks == [DATA], "a block of data holds the data track");
+            ensure!(
+                tracks == [data.get()],
+                "a block of data holds the data track"
+            );
             Kind::Data
-        } else if tracks.contains(&STATE) {
+        } else if tracks.contains(&state.get()) {
             // the first put of the state track carries its definition on track 0 too
             ensure!(
-                tracks.iter().all(|t| *t == 0 || *t == STATE),
+                tracks.iter().all(|t| *t == 0 || *t == state.get()),
                 "puts of track 0 and the state track: {tracks:?}"
             );
             Kind::State

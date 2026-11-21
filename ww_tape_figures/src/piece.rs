@@ -13,12 +13,20 @@ use ww_tape::{
 use ww_tape::{ClockNum, TrackNum};
 
 use crate::OrDebug;
-use crate::defs::{CLOCK, clock, track};
+use crate::defs::{define_clock, define_track};
 use crate::svg::Svg;
 
-/// Track of the log lines (records blocks) and of the frames (events chunks).
+/// Track of the log lines (records blocks) and of the frames (events chunks), as the figure defines them.
 const LOG: u32 = 1;
 const FRAMES: u32 = 2;
+
+/// The numbers the piece's data is written on.
+#[derive(Clone, Copy)]
+struct Numbers {
+    clock: ClockNum,
+    log: TrackNum,
+    frames: TrackNum,
+}
 /// Bytes a row of the drawing holds.
 const ROW: u64 = 1024;
 /// [ww_tape::piece::PIECE_ALIGN] as a byte count.
@@ -67,20 +75,19 @@ impl Part {
     }
 }
 
-/// A records block of one log line on [LOG].
-fn log_line(w: &ww_tape::TapeWriter<ww_tape::MemSink>, n: i64) -> anyhow::Result<Vec<u8>> {
+/// A records block of one log line on the log track of `on`.
+fn log_line(
+    w: &ww_tape::TapeWriter<ww_tape::MemSink>,
+    on: Numbers,
+    n: i64,
+) -> anyhow::Result<Vec<u8>> {
     let mut buf = vec![0u8; 1024];
-    let mut b = BlockWriter::new(
-        &mut buf,
-        BlockKind::Records,
-        w.next_id(),
-        &[ClockNum::new(CLOCK)],
-    )
-    .or_debug()?;
+    let mut b =
+        BlockWriter::new(&mut buf, BlockKind::Records, w.next_id(), &[on.clock]).or_debug()?;
     let line = format!("{n:>4} ms: link up, 2 peers, queue {:>3}", n % 97).repeat(4);
     b.push(
-        TrackNum::new(LOG),
-        ClockTime::new(ClockNum::new(CLOCK), n * 1_000_000),
+        on.log,
+        ClockTime::new(on.clock, n * 1_000_000),
         &[line.as_bytes()],
     )
     .or_debug()?;
@@ -89,15 +96,15 @@ fn log_line(w: &ww_tape::TapeWriter<ww_tape::MemSink>, n: i64) -> anyhow::Result
     Ok(buf)
 }
 
-/// Frames chunk `k`: 96 items with raw start ticks.
-fn frames(k: u64) -> (ChunkHead, Vec<u8>) {
+/// Frames chunk `k` on the frames track of `on`: 96 items with raw start ticks.
+fn frames(on: Numbers, k: u64) -> (ChunkHead, Vec<u8>) {
     let first = k * 96;
     let tick = |i: u64| i64::try_from((first + i) * 250_000).unwrap_or(i64::MAX);
     let starts: Vec<u8> = (0..96).flat_map(|i| tick(i).to_le_bytes()).collect();
     let head = ChunkHead {
         kind: BlockKind::Events,
         track_id: ww_tape::track_key(0xf1, &[ww_tape::Segment::Index(FRAMES)]),
-        track_number: TrackNum::new(FRAMES),
+        track_number: on.frames,
         first_item: first,
         count: 96,
         first_tick: tick(0),
@@ -134,17 +141,18 @@ fn parts() -> anyhow::Result<(u64, Vec<Span>)> {
         },
     };
     let mut defs = Definitions::new();
-    defs.define_all(&[
-        clock(),
-        track(LOG, "log", TrackRepeat::Stream),
-        track(FRAMES, "frames", TrackRepeat::Stream),
-    ])?;
+    let clock = define_clock(&mut defs)?;
+    let on = Numbers {
+        clock,
+        log: define_track(&mut defs, LOG, clock, "log", TrackRepeat::Stream)?,
+        frames: define_track(&mut defs, FRAMES, clock, "frames", TrackRepeat::Stream)?,
+    };
     let mut chain = PieceChain::create_on(MemTapes::new(), OwnerId([0xf1; 32]), 0, &[], options)?;
     for k in 0..4 {
         let w = chain.writer()?;
-        let line = log_line(w, i64::try_from(k)? * 40)?;
+        let line = log_line(w, on, i64::try_from(k)? * 40)?;
         w.write_block(&defs, &line)?;
-        let (head, starts) = frames(k);
+        let (head, starts) = frames(on, k);
         let spec = ColumnSpec {
             kind: ColumnKind::Starts,
             codec: Codec::RAW,

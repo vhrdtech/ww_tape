@@ -136,9 +136,12 @@ fn the_layout_and_the_producer_are_the_writers() {
         w.set_producer("checks");
         let tape = w.sink().tape();
         let mut defs = ww_tape::Definitions::new();
-        defs.define_all(&base(Layout::UNALIGNED)[2..]).unwrap();
+        crate::definitions::hold(&mut defs, &base(Layout::UNALIGNED)[2..]).unwrap();
         assert_eq!(
-            defs.define(&Describe::Layout(Layout::ALIGNED)),
+            crate::definitions::hold(
+                &mut defs,
+                core::slice::from_ref(&Describe::Layout(Layout::ALIGNED))
+            ),
             Err(ww_tape::DescribeError::WriterOwned)
         );
         w.write_block(&defs, &on_tracks(w.next_id(), &[(1, 0, b"x")]))
@@ -258,8 +261,9 @@ fn a_piece_of_another_version_is_reported_where_it_is_met() {
 /// with nothing written, naming the cap and its use (writing side review 2, point 8).
 #[test]
 fn state_entries_are_capped() {
-    let mut w = begin(options(u64::MAX));
-    crate::definitions::define_all(&mut w, &[crate::definitions::state(5)]);
+    let five = [crate::definitions::state(5)];
+    let mut w = crate::definitions::begin_numbered(options(u64::MAX), Layout::UNALIGNED, &five);
+    crate::definitions::define_all(&mut w, &five);
     let tape = w.sink().tape();
     let defs = w.defs.clone();
     assert!(w.w.put(&defs, TrackNum::new(5), 0, &[0]).unwrap());

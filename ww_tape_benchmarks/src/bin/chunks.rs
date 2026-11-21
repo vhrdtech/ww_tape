@@ -22,16 +22,16 @@ use shrink_wrap::prelude::*;
 use std::hint::black_box;
 use std::io;
 use std::time::Instant;
+use ww_tape::TrackNum;
 use ww_tape::chunk::{ChunkHead, chunk_len, write_chunk};
 use ww_tape::piece::payload_hash;
 use ww_tape::reader::ByteSource;
 use ww_tape::{
-    ALIGNMENT, Block, BlockId, BlockKind, ClockDef, ClockOrigin, Codec, ColumnKind, ColumnSpec,
-    Definitions, Describe, EndMode, ItemHash, Magnitude, MemSink, OwnerId, Ratio64, Segment,
-    SeriesDef, SeriesGrid, SeriesTimeline, SessionTag, SyncPolicy, TapeReader, TapeSink,
-    TapeWriter, TrackDef, TrackHash, TrackKind, clock_key, track_key,
+    ALIGNMENT, Block, BlockId, BlockKind, ClockOrigin, ClockSpec, Codec, ColumnKind, ColumnSpec,
+    Definitions, EndMode, ItemHash, Magnitude, MemSink, OwnerId, Ratio64, Segment, SeriesDef,
+    SeriesGrid, SeriesTimeline, SessionTag, SyncPolicy, TapeReader, TapeSink, TapeWriter,
+    TrackHash, TrackKind, TrackSpec, clock_key, track_key,
 };
-use ww_tape::{ClockNum, TrackNum};
 use ww_tape_bench::{Bench, Cell, Common, Measure, ns_per_try};
 
 #[derive(Parser)]
@@ -106,28 +106,27 @@ impl TapeSink for Discard {
     }
 }
 
-const CLOCK: ClockNum = ClockNum::new(1);
-const TRACK: u32 = 1;
-
 fn period() -> Ratio64 {
     Ratio64::new(62_500, 3).expect("48 kHz on a 1 ns clock")
 }
 
-fn definitions() -> anyhow::Result<Definitions> {
+/// The definitions of the series track and its clock, and the track's number.
+fn definitions() -> anyhow::Result<(Definitions, TrackNum)> {
+    let d = |e: ww_tape::DescribeError| anyhow::anyhow!("{e:?}");
     let mut defs = Definitions::new();
-    defs.define_all(&[
-        Describe::Clock(ClockDef {
-            number: CLOCK,
+    let clock = defs
+        .define_clock(ClockSpec {
             key: clock_key(0xc4, &[], 1),
             rate: Magnitude::pow10(9).into(),
             resolution: Magnitude::pow10(-9).into(),
             origin: ClockOrigin::Boot,
             label: "bench",
-        }),
-        Describe::Track(TrackDef {
-            number: TrackNum::new(TRACK),
+        })
+        .map_err(d)?;
+    let track = defs
+        .define_track(TrackSpec {
             key: track_key(0xc4, &[Segment::Name("samples")]),
-            clock: CLOCK,
+            clock,
             dimensions: RefVec::Slice { slice: &[] },
             items: ww_tape::Items::numbers::<i16>(None),
             label: "bench",
@@ -135,14 +134,13 @@ fn definitions() -> anyhow::Result<Definitions> {
             kind: TrackKind::Series(SeriesDef::of::<i16>(1, period())),
             relations: RefVec::Slice { slice: &[] },
             owner: [0; 32],
-        }),
-    ])
-    .map_err(|e| anyhow::anyhow!("{e:?}"))?;
-    Ok(defs)
+        })
+        .map_err(d)?;
+    Ok((defs, track))
 }
 
-/// The head of chunk `k` of `count` i16 samples.
-fn head(k: u64, count: u32) -> anyhow::Result<ChunkHead> {
+/// The head of chunk `k` of `count` i16 samples on track `track`.
+fn head(track: TrackNum, k: u64, count: u32) -> anyhow::Result<ChunkHead> {
     let grid = SeriesGrid::start(0, 0, Magnitude::ONE);
     let first = k * u64::from(count);
     let (first_tick, last_tick) = grid
@@ -152,7 +150,7 @@ fn head(k: u64, count: u32) -> anyhow::Result<ChunkHead> {
         kind: BlockKind::Series,
         // the track's id: its key, it has no dimensions
         track_id: track_key(0xc4, &[Segment::Name("samples")]),
-        track_number: TrackNum::new(TRACK),
+        track_number: track,
         first_item: first,
         count,
         first_tick,
@@ -199,11 +197,11 @@ fn main() -> anyhow::Result<()> {
     };
     let columns = [(spec, samples.as_slice())];
     let id = BlockId::new(SessionTag::writable(1), 0);
-    let h0 = head(0, count)?;
+    let (defs, track) = definitions()?;
+    let h0 = head(track, 0, count)?;
     let mut block = vec![0u8; chunk_len(&h0, &[spec], 0)];
     let n = write_chunk(&mut block, id, &h0, &columns, 0).map_err(|e| anyhow::anyhow!("{e:?}"))?;
     block.truncate(n);
-    let defs = definitions()?;
     let e = |e: ww_tape::WriteError<_>| anyhow::anyhow!("{e:?}");
     let writer = || {
         let mut w = TapeWriter::create_on(Discard { bytes: 0 }, SyncPolicy::None);
@@ -214,7 +212,7 @@ fn main() -> anyhow::Result<()> {
     let (r, c) = (args.rounds, args.chunks as usize);
     let mut buf = vec![0u8; block.len()];
     let encode = ns_per_try(r, c, |k| {
-        let h = head(k as u64, count)?;
+        let h = head(track, k as u64, count)?;
         let n = write_chunk(&mut buf, id, &h, &columns, 0).map_err(|e| anyhow::anyhow!("{e:?}"))?;
         black_box(n);
         Ok(())
@@ -242,7 +240,7 @@ fn main() -> anyhow::Result<()> {
     let mut w = writer()?;
     let own = ns_per_try(r, c, |_| {
         let k = w.next_id().seq;
-        w.write_chunk(&defs, &head(k, count)?, &columns)
+        w.write_chunk(&defs, &head(track, k, count)?, &columns)
             .map_err(e)?;
         Ok(())
     })?;
@@ -251,7 +249,7 @@ fn main() -> anyhow::Result<()> {
     mem.set_alignment(ALIGNMENT)?;
     let in_memory = ns_per_try(r, c, |_| {
         let k = mem.next_id().seq;
-        mem.write_chunk(&defs, &head(k, count)?, &columns)
+        mem.write_chunk(&defs, &head(track, k, count)?, &columns)
             .map_err(|e| anyhow::anyhow!("{e:?}"))?;
         Ok(())
     })?;
@@ -259,7 +257,7 @@ fn main() -> anyhow::Result<()> {
     let mut w = writer()?;
     let theirs = ns_per_try(r, c, |_| {
         let k = w.next_id().seq;
-        let h = head(k, count)?;
+        let h = head(track, k, count)?;
         let n = write_chunk(&mut buf, w.next_id(), &h, &columns, 0)
             .map_err(|e| anyhow::anyhow!("{e:?}"))?;
         w.write_block(&defs, &buf[..n]).map_err(e)?;
@@ -284,7 +282,7 @@ fn main() -> anyhow::Result<()> {
     }
     println!("{}", bench.push(table));
     for alignment in [0, ALIGNMENT] {
-        let table = timeline(&bench, &defs, &columns, count, &args, alignment)?;
+        let table = timeline(&bench, &defs, track, &columns, count, &args, alignment)?;
         println!("{}", bench.push(table));
     }
     bench.finish()
@@ -317,10 +315,11 @@ impl ByteSource for Counted {
 
 /// What a series timeline of a track of `--chunks` chunks costs a reader, from the chunk heads alone
 /// (`TapeReader::series_timeline`) and from whole blocks, in a file of payloads aligned to `alignment`, in memory:
-/// bytes read and ns per chunk.
+/// bytes read and ns per chunk; the track is `track`, held in `defs`.
 fn timeline(
     bench: &Bench,
     defs: &Definitions,
+    track: TrackNum,
     columns: &[(ColumnSpec, &[u8])],
     count: u32,
     args: &Args,
@@ -341,7 +340,8 @@ fn timeline(
     let mut w = ww_tape_fs::writer::create(&path, SyncPolicy::None).map_err(e)?;
     w.set_alignment(alignment).map_err(e)?;
     for k in 0..u64::from(args.chunks) {
-        w.write_chunk(defs, &head(k, count)?, columns).map_err(e)?;
+        w.write_chunk(defs, &head(track, k, count)?, columns)
+            .map_err(e)?;
     }
     w.close().map_err(e)?;
     let src = Counted {
@@ -351,7 +351,7 @@ fn timeline(
     _ = std::fs::remove_dir_all(&dir);
     let r = TapeReader::open(&src).map_err(|e| anyhow::anyhow!("{e:?}"))?;
     let re = |e: ww_tape::ReadError<()>| anyhow::anyhow!("{e:?}");
-    let track_id = head(0, count)?.track_id;
+    let track_id = head(track, 0, count)?.track_id;
     let c = f64::from(args.chunks);
     let mut heads = (f64::INFINITY, 0u64);
     let mut whole = (f64::INFINITY, 0u64);

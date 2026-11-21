@@ -18,9 +18,9 @@ use std::io;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use ww_tape::chunk::ChunkHead;
 use ww_tape::{
-    ALIGNMENT, BlockKind, BlockWriter, ClockDef, ClockOrigin, ClockTime, Codec, ColumnKind,
-    ColumnSpec, Definitions, Describe, EndMode, EventsDef, FullVersion, Items, Magnitude, Ratio64,
-    Segment, SeriesDef, SeriesGrid, SyncPolicy, TapeSink, TapeWriter, TrackDef, TrackKind, Version,
+    ALIGNMENT, BlockKind, BlockWriter, ClockOrigin, ClockSpec, ClockTime, Codec, ColumnKind,
+    ColumnSpec, Definitions, EndMode, EventsDef, FullVersion, Items, Magnitude, Ratio64, Segment,
+    SeriesDef, SeriesGrid, SyncPolicy, TapeSink, TapeWriter, TrackKind, TrackSpec, Version,
     clock_key, track_key,
 };
 use ww_tape::{ClockNum, TrackNum};
@@ -135,24 +135,21 @@ impl TapeSink for Discard {
     }
 }
 
-const CLOCK: ClockNum = ClockNum::new(1);
-
-fn clock() -> Describe<'static> {
-    Describe::Clock(ClockDef {
-        number: CLOCK,
+fn clock() -> ClockSpec<'static> {
+    ClockSpec {
         key: clock_key(0xd3, &[], 1),
         rate: Magnitude::pow10(9).into(),
         resolution: Magnitude::pow10(-9).into(),
         origin: ClockOrigin::Boot,
         label: "bench",
-    })
+    }
 }
 
-fn track(number: u32, kind: TrackKind<'static>) -> Describe<'static> {
-    Describe::Track(TrackDef {
-        number: TrackNum::new(number),
-        key: track_key(0xd3, &[Segment::Index(number)]),
-        clock: CLOCK,
+/// Track `index` on `clock`, keyed by its index.
+fn track(index: u32, clock: ClockNum, kind: TrackKind<'static>) -> TrackSpec<'static> {
+    TrackSpec {
+        key: track_key(0xd3, &[Segment::Index(index)]),
+        clock,
         dimensions: RefVec::Slice { slice: &[] },
         items: match kind {
             TrackKind::Series(_) => Items::numbers::<i16>(None),
@@ -171,7 +168,7 @@ fn track(number: u32, kind: TrackKind<'static>) -> Describe<'static> {
         kind,
         relations: RefVec::Slice { slice: &[] },
         owner: [0; 32],
-    })
+    }
 }
 
 fn any(e: impl core::fmt::Debug) -> anyhow::Error {
@@ -188,10 +185,12 @@ struct Row {
 
 /// Records blocks of `block` bytes on `tracks` tracks in turn, until the piece reaches `piece` bytes, then the close.
 fn records(tracks: u32, piece: u64, block: usize) -> anyhow::Result<Row> {
-    let mut all = vec![clock()];
-    all.extend((1..=tracks).map(|n| track(n, TrackKind::Events(EventsDef::INSTANTS))));
     let mut defs = Definitions::new();
-    defs.define_all(&all).map_err(any)?;
+    let clock = defs.define_clock(clock()).map_err(any)?;
+    let numbers = (1..=tracks)
+        .map(|n| defs.define_track(track(n, clock, TrackKind::Events(EventsDef::INSTANTS))))
+        .collect::<Result<Vec<TrackNum>, _>>()
+        .map_err(any)?;
     let item = vec![0x5a; block.saturating_sub(64)];
     let mut buf = vec![0u8; block];
     let start = baseline();
@@ -199,15 +198,13 @@ fn records(tracks: u32, piece: u64, block: usize) -> anyhow::Result<Row> {
     let new = LIVE.load(Ordering::Relaxed) - start;
     let mut n = 0u32;
     while w.sink().bytes < piece {
-        let t = 1 + n % tracks;
+        let t = numbers
+            .get((n % tracks) as usize)
+            .ok_or_else(|| any("a track"))?;
         let mut b =
-            BlockWriter::new(&mut buf, BlockKind::Records, w.next_id(), &[CLOCK]).map_err(any)?;
-        b.push(
-            TrackNum::new(t),
-            ClockTime::new(CLOCK, i64::from(n)),
-            &[&item],
-        )
-        .map_err(any)?;
+            BlockWriter::new(&mut buf, BlockKind::Records, w.next_id(), &[clock]).map_err(any)?;
+        b.push(*t, ClockTime::new(clock, i64::from(n)), &[&item])
+            .map_err(any)?;
         let len = b.finish();
         w.write_block(&defs, buf.get(..len).ok_or_else(|| any("block"))?)
             .map_err(any)?;
@@ -228,11 +225,10 @@ fn records(tracks: u32, piece: u64, block: usize) -> anyhow::Result<Row> {
 fn series(piece: u64, chunk: usize) -> anyhow::Result<Row> {
     let period = Ratio64::new(62_500, 3).ok_or_else(|| any("48 kHz on a 1 ns clock"))?;
     let mut defs = Definitions::new();
-    defs.define_all(&[
-        clock(),
-        track(1, TrackKind::Series(SeriesDef::of::<i16>(1, period))),
-    ])
-    .map_err(any)?;
+    let clock = defs.define_clock(clock()).map_err(any)?;
+    let spec = track(1, clock, TrackKind::Series(SeriesDef::of::<i16>(1, period)));
+    let track_id = spec.id();
+    let number = defs.define_track(spec).map_err(any)?;
     let samples: Vec<u8> = (0..chunk).map(|i| (i * 31 % 251) as u8).collect();
     let spec = ColumnSpec {
         kind: ColumnKind::Samples,
@@ -253,8 +249,8 @@ fn series(piece: u64, chunk: usize) -> anyhow::Result<Row> {
         let (first_tick, last_tick) = grid.chunk_ticks(period, first, count).map_err(any)?;
         let head = ChunkHead {
             kind: BlockKind::Series,
-            track_id: track_key(0xd3, &[Segment::Index(1)]),
-            track_number: TrackNum::new(1),
+            track_id,
+            track_number: number,
             first_item: first,
             count,
             first_tick,

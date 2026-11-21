@@ -6,7 +6,7 @@ use anyhow::{Context, ensure};
 use ww_tape::chunk::ColumnKind;
 use ww_tape::samples::{SampleShape, Samples};
 use ww_tape::{BlockKind, Element, ElementDesc, FLAG_REPEAT, FileBlocks};
-use ww_tape_example::{CAN0, Drive, LOG, MODE, PHASE_A, TEMP};
+use ww_tape_example::Drive;
 
 use crate::OrDebug;
 use crate::svg::Svg;
@@ -48,6 +48,7 @@ fn column(us: i64) -> usize {
 fn read() -> anyhow::Result<(Drive, Hour)> {
     let drive = Drive::scaled(SCALE).context("100 divides the drive's rates")?;
     let recording = drive.record()?;
+    let n = recording.numbers;
     let mut h = Hour {
         envelope: vec![None; COLUMNS],
         ..Hour::default()
@@ -67,13 +68,13 @@ fn read() -> anyhow::Result<(Drive, Hour)> {
                             continue;
                         };
                         match r.track.get() {
-                            MODE => {
+                            t if t == n.mode.get() => {
                                 if h.modes.last().is_none_or(|m| m.1 != r.item) {
                                     h.modes.push((at, r.item.to_vec()));
                                 }
                             }
-                            LOG => h.log.push(at),
-                            TEMP => {
+                            t if t == n.log.get() => h.log.push(at),
+                            t if t == n.temp.get() => {
                                 let v = r.item.first_chunk::<2>().context("a temperature")?;
                                 h.temp.push((at, i16::from_le_bytes(*v)));
                             }
@@ -92,9 +93,9 @@ fn read() -> anyhow::Result<(Drive, Hour)> {
                     let head = chunk.head();
                     first_chunk.get_or_insert(head.first_tick);
                     let span = (head.first_tick, head.last_tick);
-                    match head.track_number.get() {
-                        CAN0 => h.frames.push(span),
-                        PHASE_A => {
+                    match head.track_number {
+                        t if t == n.can0 => h.frames.push(span),
+                        t if t == n.phase_a => {
                             h.samples.push(span);
                             let col = chunk
                                 .find(ColumnKind::Samples, 0)

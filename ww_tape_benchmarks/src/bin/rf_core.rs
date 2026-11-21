@@ -62,9 +62,9 @@ impl Parts {
 
 fn write(rf: &Rf) -> anyhow::Result<(Parts, u64)> {
     let e = |e| anyhow::anyhow!("{e}");
-    let defs = rf.definitions::<std::io::Error>().map_err(e)?;
+    let (defs, iq) = rf.definitions::<std::io::Error>().map_err(e)?;
     let mut writer = TapeWriter::create_on(Tally::default(), SyncPolicy::None);
-    let mut summaries = rf.summary_builder::<std::io::Error>().map_err(e)?;
+    let mut summaries = rf.summary_builder::<std::io::Error>(iq).map_err(e)?;
     let signal = rf.signal();
     let (mut values, mut bytes) = (Vec::new(), Vec::new());
     let mut parts = Parts::default();
@@ -74,7 +74,7 @@ fn write(rf: &Rf) -> anyhow::Result<(Parts, u64)> {
         signal.fill(first, &mut values);
         let t = Instant::now();
         let (head, spec) = rf
-            .encode_chunk::<std::io::Error>(first, &values, &mut bytes)
+            .encode_chunk::<std::io::Error>(iq, first, &values, &mut bytes)
             .map_err(e)?;
         parts.codec += t.elapsed();
         let t = Instant::now();

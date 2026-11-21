@@ -1,6 +1,6 @@
 // ww_tape 0.1.0 traits and types, saved by `ww api save`.
 // Do not edit, bump the crate version and save a new snapshot instead.
-// shrink_wrap sha256: 5dfd1dd170376a48e1c31332252b07595cd8e8c4b957554d732c7c18495d7918
+// shrink_wrap sha256: a49a797f93da4dc89a0d774ece14f40cab32822dc75207d63f380b5edc155e58
 (magic: 2837124336, ww_self_version: (major: 0, minor: 4, patch: 0), root: (docs: [
     "Tape blocks: the unit a producer of records hands over, a live consumer reads and a log file is made of.",
     "",
@@ -352,7 +352,8 @@
     ], ident: "ClockDef", generics: [], fields: Named([
         (ident: Some("number"), default: None, since: None, ty: OutOfLine(type_idx: 12), docs: [
             "Number among the definitions, 1 and up: [TrackDef::clock] and [ClockMap] name it, and record blocks list it.",
-            "Stays the same for the producer\'s life.",
+            "[Definitions::define_clock](crate::Definitions::define_clock) gives it; it stays the same for the producer\'s",
+            "life.",
         ], slot: None, series_opaque: false),
         (ident: Some("key"), default: None, since: None, ty: NumericAny(Base(U64)), docs: [
             "Stable identity across files and runs, see [clock_key].",
@@ -491,8 +492,9 @@
         "Its identity is [key](Self::key) plus [dimensions](Self::dimensions), see [track_id].",
     ], ident: "TrackDef", generics: [], fields: Named([
         (ident: Some("number"), default: None, since: None, ty: OutOfLine(type_idx: 22), docs: [
-            "Number in records, 1 and up (track 0 holds the definitions, [RecordTrack::Definitions](crate::RecordTrack));",
-            "stays the same for the producer\'s life.",
+            "Number in records, 1 and up (track 0 holds the definitions, [RecordTrack::Definitions](crate::RecordTrack)).",
+            "[Definitions::define_track](crate::Definitions::define_track) gives it; it stays the same for the producer\'s",
+            "life.",
         ], slot: None, series_opaque: false),
         (ident: Some("key"), default: None, since: None, ty: NumericAny(Base(U64)), docs: [
             "Stable key: the same track across files and producer runs, see [track_key].",
@@ -610,7 +612,7 @@
         "them; `ww_tape` never reads a payload. A variant a reader doesn\'t know reads as `Unknown`, the rest of the",
         "definition intact: a reader passes such items on as bytes, a relay holds such an events track and stores its items",
         "as given ([Definitions::take_block](crate::Definitions::take_block)), and neither takes it for damage. A program",
-        "builds no `Unknown` of its own: [Definitions::define](crate::Definitions::define) refuses one. The variant is not",
+        "builds no `Unknown` of its own: [Definitions::define_track](crate::Definitions::define_track) refuses one. The variant is not",
         "part of the track\'s identity: [TrackDef::key] is the producer\'s, see [track_key].",
     ], ident: "Items", generics: [], variants: [
         (docs: [

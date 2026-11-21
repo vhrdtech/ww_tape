@@ -12,7 +12,9 @@
 //! a byte per append (bits 0 to 2 its record blocks; none closes with a close summary alone), a cut (u16 little endian, modulo the last append's length + 1),
 //! then flips of three bytes each (an offset, u16 little endian, modulo the bytes they may touch, and the bits).
 use ww_tape::piece::{Close, OwnerId, PieceHead, PieceId, PieceIdent};
-use ww_tape::{Definitions, MemSink, SessionTag, TapeReader, TapeSink, TapeWriter};
+use ww_tape::{
+    ClockNum, Definitions, MemSink, SessionTag, TapeReader, TapeSink, TapeWriter, TrackNum,
+};
 
 use super::resume::{clock, options, records, track};
 
@@ -24,18 +26,29 @@ pub(crate) struct Made {
     pub(crate) hash: ww_tape::ContentHash,
 }
 
-/// The definitions the records need: clock 1 and track 9 on it.
-fn defs() -> Definitions {
-    let mut defs = Definitions::new();
-    defs.define_all(&[clock(1), track(9, 1)])
-        .expect("the definitions hold");
-    defs
+/// The definitions the records need, clock 1 and track 9 on it, and their numbers: as the piece `resumed` read
+/// numbers them, else fresh under those numbers, as the seeds were written.
+fn defs(resumed: Option<&ww_tape::Resumed>) -> (Definitions, ClockNum, TrackNum) {
+    let mut defs = resumed.map_or_else(Definitions::new, |r| {
+        Definitions::with_numbers(r.numbers.clone())
+    });
+    let c = defs.define_clock(clock(1)).expect("the clock holds");
+    let t = match resumed {
+        Some(_) => defs.define_track(track(9, c)).expect("the track holds"),
+        None => super::define_track_as(&mut defs, &track(9, c), TrackNum::new(9)),
+    };
+    (defs, c, t)
 }
 
-/// Write `n` record blocks from tick `from` on `w`.
-fn append<S: TapeSink>(w: &mut TapeWriter<S>, defs: &Definitions, from: u64, n: u64) {
+/// Write `n` record blocks from tick `from` on `w`, on the clock and track of `defs`.
+fn append<S: TapeSink>(
+    w: &mut TapeWriter<S>,
+    (defs, clock, track): &(Definitions, ClockNum, TrackNum),
+    from: u64,
+    n: u64,
+) {
     for k in from..from + n {
-        w.write_block(defs, &records(w.next_id(), k))
+        w.write_block(defs, &records(w.next_id(), *clock, *track, k))
             .expect("a records block writes");
     }
 }
@@ -77,7 +90,7 @@ fn reopen(
 
 /// The piece the input says, closed after each append: its bytes and its closes, oldest first.
 pub(crate) fn build(aligned: bool, appends: &[u8]) -> (Vec<u8>, Vec<Made>) {
-    let defs = defs();
+    let first = defs(None);
     let o = options(aligned);
     let mut w = TapeWriter::create_on(MemSink::new(), o.sync);
     w.set_layout(o.layout).expect("a new piece takes a layout");
@@ -97,14 +110,14 @@ pub(crate) fn build(aligned: bool, appends: &[u8]) -> (Vec<u8>, Vec<Made>) {
         integrity: ww_tape::Integrity::Full,
     };
     w.begin_piece(&head, &[]).expect("a head writes");
-    append(&mut w, &defs, 0, 3);
+    append(&mut w, &first, 0, 3);
     let (mut bytes, first) = close(w);
     let mut made = vec![first];
     let mut tick = 3;
     for a in appends {
-        let (mut w, _) = reopen(&bytes, aligned).expect("a closed piece reopens");
+        let (mut w, resumed) = reopen(&bytes, aligned).expect("a closed piece reopens");
         let n = u64::from(a & 7);
-        append(&mut w, &defs, tick, n);
+        append(&mut w, &defs(Some(&resumed)), tick, n);
         tick += n;
         // a close with nothing appended writes nothing: an append of no block closes with a summary alone
         let (b, m) = closed_with(w, (n == 0).then_some(&b"nothing else"[..]));
@@ -133,8 +146,8 @@ fn torn_record(bytes: &[u8], cut: usize) -> usize {
 /// A piece closed twice, the second close naming a close summary: a seed of the readers.
 pub(crate) fn summarized() -> Vec<u8> {
     let (bytes, _) = build(false, &[2]);
-    let (mut w, _) = reopen(&bytes, false).expect("a closed piece reopens");
-    append(&mut w, &defs(), 10, 1);
+    let (mut w, resumed) = reopen(&bytes, false).expect("a closed piece reopens");
+    append(&mut w, &defs(Some(&resumed)), 10, 1);
     let tape = w.sink().tape();
     w.close_with_summary(
         ww_tape::piece::CloseReason::Closed,
@@ -195,7 +208,7 @@ pub fn reclose(data: &[u8]) {
         "the closed bytes are kept"
     );
     check_cut_is_torn_end(&torn, &bytes, resumed.kept_bytes);
-    check_written_on(w, &bytes, &made, kept, first_flip);
+    check_written_on(w, &resumed, &bytes, &made, kept, first_flip);
 }
 
 /// `bytes` with its last append cut and flipped as `rest` says: the flips fall anywhere when `anywhere`, else in that
@@ -269,12 +282,13 @@ fn check_cut_is_torn_end(torn: &[u8], bytes: &[u8], kept_bytes: u64) {
 /// in place, and the piece verifies when no flip fell before.
 fn check_written_on(
     mut w: TapeWriter<MemSink>,
+    resumed: &ww_tape::Resumed,
     bytes: &[u8],
     made: &[Made],
     kept: usize,
     first_flip: usize,
 ) {
-    append(&mut w, &defs(), 100, 2);
+    append(&mut w, &defs(Some(resumed)), 100, 2);
     let (out, _) = close(w);
     assert_eq!(
         out[..kept],

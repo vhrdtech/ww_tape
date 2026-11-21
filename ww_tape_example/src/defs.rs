@@ -1,4 +1,4 @@
-//! The drive's definitions: its two clocks, the map between them and its five tracks.
+//! The drive's definitions: its two clocks, the map between them and its five tracks, and the numbers they get.
 
 use exact_units::{Bytes, Count};
 use ww_tape::{ClockNum, TrackNum};
@@ -7,29 +7,33 @@ use crate::Error;
 use shrink_wrap::prelude::*;
 use ww_tape::summary::{SeriesStats, SeriesSummarySpec};
 use ww_tape::{
-    ClockDef, ClockMap, ClockOrigin, Definitions, Describe, EventsDef, FullVersion, Items,
+    ClockMap, ClockOrigin, ClockSpec, Definitions, Describe, EventsDef, FullVersion, Items,
     Magnitude, MapSegment, Ratio64, SampleShape, Segment, SeriesDef, SeriesValue, StatePolicy,
-    TrackDef, TrackKind, TrackRepeat, UNIX_CLOCK_KEY, Version, clock_key, track_key,
+    TrackKind, TrackRepeat, TrackSpec, UNIX_CLOCK_KEY, Version, clock_key, track_key,
 };
 
 /// The root of the drive's API: every track and clock key starts from it.
 const API_ROOT: u64 = 0xd51e_0001;
 // --8<-- [start:ids_item]
-/// The board's microsecond timer since boot: the clock of every track.
-pub const BOARD_CLOCK: u32 = 1;
-/// The host's wall clock in ns since the Unix epoch, which [BOARD_CLOCK] maps to.
-pub const HOST_CLOCK: u32 = 2;
-
-/// The firmware's log lines.
-pub const LOG: u32 = 1;
-/// The controller's mode, a state track.
-pub const MODE: u32 = 2;
-/// CAN frames on the vehicle bus.
-pub const CAN0: u32 = 3;
-/// Phase current, 16-bit fixed point in mA.
-pub const PHASE_A: u32 = 4;
-/// Board temperature.
-pub const TEMP: u32 = 5;
+/// The numbers the drive's definitions were given ([Definitions::define_clock], [Definitions::define_track]): what its
+/// records, chunks and maps name each clock and track by.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DriveNumbers {
+    /// The board's microsecond timer since boot: the clock of every track.
+    pub board_clock: ClockNum,
+    /// The host's wall clock in ns since the Unix epoch, which the board's clock maps to.
+    pub host_clock: ClockNum,
+    /// The firmware's log lines.
+    pub log: TrackNum,
+    /// The controller's mode, a state track.
+    pub mode: TrackNum,
+    /// CAN frames on the vehicle bus.
+    pub can0: TrackNum,
+    /// Phase current, 16-bit fixed point in mA.
+    pub phase_a: TrackNum,
+    /// Board temperature.
+    pub temp: TrackNum,
+}
 // --8<-- [end:ids_item]
 
 /// The host's wall clock at the board's boot: 2026-11-20 09:00:00 UTC, in ns since the Unix epoch.
@@ -46,38 +50,36 @@ pub fn key(name: &str) -> u64 {
 }
 // --8<-- [end:key_item]
 
-fn clocks() -> [Describe<'static>; 2] {
+fn clocks() -> [ClockSpec<'static>; 2] {
     [
-        Describe::Clock(ClockDef {
-            number: ClockNum::new(BOARD_CLOCK),
+        ClockSpec {
             key: clock_key(API_ROOT, &[Segment::Name("timer")], 1),
             rate: Magnitude::pow10(6).into(),
             resolution: Magnitude::pow10(-6).into(),
             origin: ClockOrigin::Boot,
             label: "board µs since boot",
-        }),
-        Describe::Clock(ClockDef {
-            number: ClockNum::new(HOST_CLOCK),
+        },
+        ClockSpec {
             key: UNIX_CLOCK_KEY,
             rate: Magnitude::pow10(9).into(),
             resolution: Magnitude::pow10(-9).into(),
             origin: ClockOrigin::UnixEpoch,
             label: "host",
-        }),
+        },
     ]
 }
 
-/// A track of the drive on [BOARD_CLOCK].
+/// The drive's track `name` on clock `clock`, at resource path `path` of its API.
 fn track(
-    number: u32,
+    clock: ClockNum,
+    path: &'static [UNib32; 1],
     name: &'static str,
     repeat: TrackRepeat,
     kind: TrackKind<'static>,
-) -> Describe<'static> {
-    Describe::Track(TrackDef {
-        number: TrackNum::new(number),
+) -> TrackSpec<'static> {
+    TrackSpec {
         key: key(name),
-        clock: ClockNum::new(BOARD_CLOCK),
+        clock,
         dimensions: RefVec::Slice { slice: &[] },
         items: match kind {
             TrackKind::Series(_) => Items::numbers::<i16>(None),
@@ -85,9 +87,7 @@ fn track(
                 api: FullVersion::new("drive_api", Version::new(0, 1, 0)),
                 bundle: RefVec::Slice { slice: &[] },
                 path: RefVec::Slice {
-                    slice: PATHS
-                        .get(usize::try_from(number).unwrap_or(0))
-                        .map_or(&[], |p| p.as_slice()),
+                    slice: path.as_slice(),
                 },
                 keys: RefVec::Slice { slice: &[] },
                 item: None,
@@ -98,12 +98,11 @@ fn track(
         kind,
         relations: RefVec::Slice { slice: &[] },
         owner: [0; 32],
-    })
+    }
 }
 
-/// Each track's resource path in the drive's API, by track number.
-static PATHS: [[UNib32; 1]; 6] = [
-    [UNib32(0)],
+/// The tracks' resource paths in the drive's API: `log`, `mode`, `can0`, `phase_a`, `temp`.
+static PATHS: [[UNib32; 1]; 5] = [
     [UNib32(1)],
     [UNib32(2)],
     [UNib32(3)],
@@ -147,8 +146,23 @@ pub fn phase_shape(def: &SeriesDef<'_>) -> SampleShape {
 // --8<-- [end:phase_def_item]
 
 /// The drive's definitions with `phase_a` at `hz`, its summaries when `summaries`, and the mode kept within `near`
-/// bytes of its use.
-pub fn definitions(hz: u32, summaries: bool, near: u32) -> Result<Definitions, Error> {
+/// bytes of its use; with the numbers they were given.
+pub fn definitions(
+    hz: u32,
+    summaries: bool,
+    near: u32,
+) -> Result<(Definitions, DriveNumbers), Error> {
+    define(Definitions::new(), hz, summaries, near)
+}
+
+/// [definitions] defined into `defs`: those of a resumed recording ([Definitions::with_numbers]) keep the numbers
+/// the recording gave them.
+pub fn define(
+    mut defs: Definitions,
+    hz: u32,
+    summaries: bool,
+    near: u32,
+) -> Result<(Definitions, DriveNumbers), Error> {
     let phase = phase_def(hz, summaries).ok_or(Error::Settings("phase_a's rate is 0"))?;
     let segment = MapSegment::new(
         0,
@@ -160,46 +174,36 @@ pub fn definitions(hz: u32, summaries: bool, near: u32) -> Result<Definitions, E
     )
     .ok_or(Error::Settings("the clock map's segment"))?;
     let segments = [segment];
-    let map = Describe::Map(ClockMap {
-        from: ClockNum::new(BOARD_CLOCK),
-        to: ClockNum::new(HOST_CLOCK),
-        segments: RefVec::Slice { slice: &segments },
-    });
     let mode = TrackRepeat::State(StatePolicy {
         near: Bytes::new(near),
         copies: Count::new(1),
     });
-    let mut defs = Definitions::new();
+    let events = TrackKind::Events(EventsDef::INSTANTS);
     let [board, host] = clocks();
-    defs.define_all(&[
-        board,
-        host,
-        map,
-        track(
-            LOG,
-            "log",
-            TrackRepeat::Stream,
-            TrackKind::Events(EventsDef::INSTANTS),
-        ),
-        track(MODE, "mode", mode, TrackKind::Events(EventsDef::INSTANTS)),
-        track(
-            CAN0,
-            "can0",
-            TrackRepeat::Stream,
-            TrackKind::Events(EventsDef::INSTANTS),
-        ),
-        track(
-            PHASE_A,
+    let [log, mode_path, can0, phase_a, temp] = &PATHS;
+    // --8<-- [start:define]
+    let board_clock = defs.define_clock(board)?;
+    let host_clock = defs.define_clock(host)?;
+    defs.define(&Describe::Map(ClockMap {
+        from: board_clock,
+        to: host_clock,
+        segments: RefVec::Slice { slice: &segments },
+    }))?;
+    let on_board = |path, name, repeat, kind| track(board_clock, path, name, repeat, kind);
+    let numbers = DriveNumbers {
+        board_clock,
+        host_clock,
+        log: defs.define_track(on_board(log, "log", TrackRepeat::Stream, events.clone()))?,
+        mode: defs.define_track(on_board(mode_path, "mode", mode, events.clone()))?,
+        can0: defs.define_track(on_board(can0, "can0", TrackRepeat::Stream, events.clone()))?,
+        phase_a: defs.define_track(on_board(
+            phase_a,
             "phase_a",
             TrackRepeat::Stream,
             TrackKind::Series(phase),
-        ),
-        track(
-            TEMP,
-            "temp",
-            TrackRepeat::Stream,
-            TrackKind::Events(EventsDef::INSTANTS),
-        ),
-    ])?;
-    Ok(defs)
+        ))?,
+        temp: defs.define_track(on_board(temp, "temp", TrackRepeat::Stream, events))?,
+    };
+    // --8<-- [end:define]
+    Ok((defs, numbers))
 }

@@ -348,8 +348,11 @@ fn renumbered_index_block_reads() {
 fn structural_blocks_are_not_deferred() {
     let mut w = crate::TapeWriter::create_on(crate::MemSink::new(), crate::SyncPolicy::None);
     let mut defs = crate::Definitions::new();
-    defs.define_all(&crate::tests::test_definitions(ClockNum::new(1), &[1]))
-        .unwrap();
+    crate::tests::hold(
+        &mut defs,
+        &crate::tests::test_definitions(ClockNum::new(1), &[1]),
+    )
+    .unwrap();
     let head = IndexHead {
         kind: IndexKind::Checkpoint,
         self_offset: 0,

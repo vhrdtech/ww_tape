@@ -56,13 +56,18 @@ record the same `can0` resource tell their tracks apart by `bench = 1` and `benc
 dimensions, and a track without dimensions has its key as its id. [`describe::track_id`] computes it. A [[chunk]]
 carries the id, so it names its track even to a reader without the definitions.
 
-The [[track number]] is the small number a track has inside one file: `can0` is track 3 in the drive's files. Every
-[[record]], the form of one event in a [[records block]], carries it, because it costs one byte where the id costs eight. The track's [[definition]] ties the number to the key and
-the dimensions, so a reader turns any number into an id.
+The [[track number]] is the small number a track has inside one file. Every [[record]], the form of one event in a
+[[records block]], carries it, because it costs one byte where the id costs eight. The producer never picks it: when it
+defines a track, [`Definitions::define_track`] gives the track the lowest number not yet taken and returns it. The drive
+defines `can0` third, so `can0` is track 3 in the drive's files. Defining the same key and dimensions again gives the
+same number back.
+
+The track's [[definition]] ties the number to the key and the dimensions, so a reader turns any
+number into an id.
 
 ```rust
 use ww_tape::{Dimension, track_id};
-use ww_tape_example::{CAN0, key};
+use ww_tape_example::{definitions, key};
 
 // The key of can0 is the hash of its path in the drive's API.
 let can0 = key("can0");
@@ -72,8 +77,9 @@ assert_eq!(track_id(can0, []), can0);
 // A dimension gives the same resource another id.
 let bench2 = track_id(can0, [Dimension { name: "bench", value: "2" }]);
 assert_eq!(bench2, 0x4d71_7cfb_2248_cb86);
-// Inside the drive's files, can0 is track 3.
-assert_eq!(CAN0, 3);
+// Inside the drive's files, can0 is track 3: the number its definition was given.
+let (_, numbers) = definitions(25_000, true, 32 << 20).expect("the drive's definitions");
+assert_eq!(numbers.can0.get(), 3);
 ```
 
 The three names compare like this:
@@ -121,11 +127,11 @@ hour, the board's count runs 72 ms ahead of the host's:
 
 ```rust
 use shrink_wrap::prelude::*;
-use ww_tape::{ClockNum, Describe, Rounding, Slot};
-use ww_tape_example::{BOARD_CLOCK, BOOT_UNIX_NS, HOST_CLOCK, definitions};
+use ww_tape::{Describe, Rounding, Slot};
+use ww_tape_example::{BOOT_UNIX_NS, definitions};
 
-let defs = definitions(25_000, true, 32 << 20).expect("the drive's definitions");
-let map = Slot::Map { from: ClockNum::new(BOARD_CLOCK), to: ClockNum::new(HOST_CLOCK) };
+let (defs, numbers) = definitions(25_000, true, 32 << 20).expect("the drive's definitions");
+let map = Slot::Map { from: numbers.board_clock, to: numbers.host_clock };
 let bytes = defs.get(&map).expect("the drive's map");
 let Describe::Map(map) = Describe::from_ww_bytes(bytes).expect("a definition") else {
     panic!("the slot of a map holds a map");

@@ -158,7 +158,7 @@ fn series_defs() -> &'static ww_tape::Definitions {
             .filter(|d| !matches!(d, Describe::Producer(_) | Describe::Layout(_)))
             .collect();
         let mut d = ww_tape::Definitions::new();
-        d.define_all(&held).unwrap();
+        crate::definitions::hold(&mut d, &held).unwrap();
         d
     })
 }

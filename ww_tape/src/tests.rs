@@ -523,7 +523,7 @@ fn defined(records: impl IntoIterator<Item = Describe<'static>>) -> (Definitions
     let records: Vec<_> = records.into_iter().collect();
     let items: Vec<Vec<u8>> = records.iter().map(|d| open::encode(d).unwrap()).collect();
     let mut table = Definitions::new();
-    table.define_all(&held(&records)).unwrap();
+    relay(&mut table, &records).unwrap();
     let refs: Vec<RecordRef<'_>> = items
         .iter()
         .map(|item| RecordRef::definition(item))
@@ -560,6 +560,93 @@ pub(crate) fn held(records: &[Describe<'static>]) -> Vec<Describe<'static>> {
         .collect()
 }
 
+/// Hold `batch` in `defs` as a relay holds another producer's numbered definitions: written as one block of
+/// definitions and taken with [Definitions::take_block], each track and clock under the number `batch` gives it.
+///
+/// The tests' tracks often share one identity under several numbers, which only a producer's own blocks can carry.
+pub(crate) fn relay(
+    defs: &mut Definitions,
+    batch: &[Describe<'_>],
+) -> Result<usize, DescribeError> {
+    let items = batch
+        .iter()
+        .map(open::encode)
+        .collect::<Result<Vec<_>, _>>()?;
+    let refs: Vec<RecordRef<'_>> = items
+        .iter()
+        .map(|item| RecordRef::definition(item))
+        .collect();
+    let mut blocks = vec![];
+    open::write_records(
+        &refs,
+        MAX_BLOCK_LEN,
+        0,
+        || id(0),
+        |b| {
+            blocks.push(b.to_vec());
+            Ok::<(), DescribeError>(())
+        },
+    )?;
+    assert!(blocks.len() <= 1, "the batch fits one block");
+    match blocks.first() {
+        Some(b) => defs.take_block(&Block::read(b).expect("a block just written reads")),
+        None => Ok(0),
+    }
+}
+
+/// Hold `batch` in `defs` as a producer defines it: each clock through [Definitions::define_clock_with_maps], an
+/// epoch clock with the maps from it in the batch, then the other definitions, then each track through
+/// [Definitions::define_track]. Each number given must be the one written in `batch`.
+pub(crate) fn hold(defs: &mut Definitions, batch: &[Describe<'_>]) -> Result<(), DescribeError> {
+    let maps_from = |from| -> Vec<(ClockNum, &[MapSegment])> {
+        batch
+            .iter()
+            .filter_map(|d| match d {
+                Describe::Map(m) if m.from == from => match &m.segments {
+                    RefVec::Slice { slice } => Some((m.to, *slice)),
+                    RefVec::Buf { .. } => None,
+                },
+                _ => None,
+            })
+            .collect()
+    };
+    let epochs: Vec<ClockNum> = batch
+        .iter()
+        .filter_map(|d| match d {
+            Describe::Clock(c) if c.origin == ClockOrigin::Epoch => Some(c.number),
+            _ => None,
+        })
+        .collect();
+    for d in batch {
+        if let Describe::Clock(c) = d {
+            let maps = if epochs.contains(&c.number) {
+                maps_from(c.number)
+            } else {
+                Vec::new()
+            };
+            let given = defs.define_clock_with_maps(c.spec(), &maps)?;
+            assert_eq!(given, c.number, "clock {} is defined as {given}", c.number);
+        }
+    }
+    let rest: Vec<Describe<'_>> = batch
+        .iter()
+        .filter(|d| match d {
+            Describe::Clock(_) | Describe::Track(_) => false,
+            Describe::Map(m) => !epochs.contains(&m.from),
+            _ => true,
+        })
+        .cloned()
+        .collect();
+    defs.define_all(&rest)?;
+    for d in batch {
+        if let Describe::Track(t) = d {
+            let given = defs.define_track(t.spec())?;
+            assert_eq!(given, t.number, "track {} is defined as {given}", t.number);
+        }
+    }
+    Ok(())
+}
+
 /// A definition is held in its slot whatever order the batch came in, and replaces the one there; a typed item, the
 /// producer and the layout are not held.
 #[test]
@@ -584,11 +671,17 @@ fn definitions_open_by_slot() {
     )));
     assert!(!slots.contains(&Slot::Producer));
     let mut replaced = forward.clone();
-    let mut other = test_definitions(HOST, &[]);
-    if let Describe::Clock(c) = &mut other[0] {
-        c.label = "other";
-    }
-    replaced.define(&other[0]).unwrap();
+    let other = sample_describe()
+        .into_iter()
+        .find_map(|d| match d {
+            Describe::Clock(c) if c.number == HOST => Some(ClockSpec {
+                label: "other",
+                ..c.spec()
+            }),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(replaced.define_clock(other), Ok(HOST));
     assert_eq!(replaced.len(), forward.len());
     let host = Slot::Clock { number: HOST };
     assert_ne!(replaced.get(&host), forward.get(&host));
@@ -1100,7 +1193,7 @@ pub(crate) fn test_series_track(
 /// The definitions [tape]'s records need (clock C1, tracks 1 to 3) and its `n` blocks: what a writer takes.
 fn defined_tape(n: u64) -> (Definitions, Vec<u8>, Vec<usize>) {
     let mut defs = Definitions::new();
-    defs.define_all(&test_definitions(C1, &[1, 2, 3])).unwrap();
+    relay(&mut defs, &test_definitions(C1, &[1, 2, 3])).unwrap();
     let (data, ends) = tape(n);
     (defs, data, ends)
 }
@@ -1411,7 +1504,7 @@ fn write_sample_tape(describe: Vec<Describe<'static>>) -> Vec<u8> {
         }
     }
     let mut defs = Definitions::new();
-    defs.define_all(&held(&describe)).unwrap();
+    relay(&mut defs, &describe).unwrap();
     for d in &describe {
         if let Describe::Item(item) = d {
             assert!(w.put_item(&defs, item).unwrap());
@@ -1688,7 +1781,7 @@ fn distinct_tracks(n: u32) -> (Definitions, std::collections::BTreeMap<u32, u64>
         }
     }
     let mut defs = Definitions::new();
-    defs.define_all(&out).unwrap();
+    hold(&mut defs, &out).unwrap();
     (defs, ids)
 }
 

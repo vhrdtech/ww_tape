@@ -4,7 +4,6 @@
 use super::{chunk, index, payloads, reader, samples, series, summary, times};
 use crate::hostile;
 use shrink_wrap::DeserializeShrinkWrap;
-use ww_tape::TrackNum;
 use ww_tape::samples::Scalar;
 use ww_tape::times::EventTimes;
 use ww_tape::{
@@ -482,12 +481,12 @@ fn resume_state(f: &[u8], forged: bool) {
     let Ok((mut w, resumed)) = TapeWriter::resume_on(sink, hostile::state_options()) else {
         return;
     };
-    let defs = hostile::state_definitions();
-    for t in hostile::STATES {
-        w.put(&defs, TrackNum::new(t), 1000, b"resumed")
+    let (defs, on) = hostile::state_definitions(Some(&resumed));
+    for t in on.states {
+        w.put(&defs, t, 1000, b"resumed")
             .expect("a resumed piece takes puts");
     }
-    w.write_block(&defs, &hostile::state_records(w.next_id(), 1000))
+    w.write_block(&defs, &hostile::state_records(w.next_id(), on, 1000))
         .expect("a resumed piece takes blocks");
     w.close().expect("a resumed piece closes");
     let out = tape.to_vec().expect("the bytes");
@@ -505,7 +504,7 @@ fn resume_state(f: &[u8], forged: bool) {
         .state_at(
             last,
             Slot::State {
-                track: TrackNum::new(hostile::STATES[0]),
+                track: on.states[0],
             },
             u64::MAX,
         )

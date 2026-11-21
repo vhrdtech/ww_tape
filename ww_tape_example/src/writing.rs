@@ -15,7 +15,6 @@
 use core::fmt;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use ww_tape::TrackNum;
 
 use ww_tape::index::{IndexBlock, IndexKind};
 use ww_tape::piece::{ChainLink, check_chain};
@@ -27,10 +26,10 @@ use ww_tape::{
     TapeSink, TapeWriter, Tapes,
 };
 
-use crate::defs::{CAN0, PHASE_A, phase_def};
+use crate::defs::{key, phase_def};
 use crate::record::{Act, Recorder, drive_definitions, item_us, options, records_block};
 use crate::signals::{US_PER_MS, phase_ma};
-use crate::{CHAIN, Drive, Error, MODE, OWNER, Recording};
+use crate::{CHAIN, Drive, Error, OWNER, Recording};
 
 /// What a block of a piece is, as the book names it.
 pub fn part(b: &Block<'_>) -> Result<&'static str, Error> {
@@ -296,7 +295,7 @@ fn calls_and_columns(recording: &Recording, acts: &[Act]) -> Result<(Calls, Colu
             Act::Put { .. } => calls.puts += 1,
             Act::Records(_) => calls.records += 1,
             Act::Summary(_) => calls.summaries += 1,
-            Act::Chunk { head, columns } if head.track_number == TrackNum::new(CAN0) => {
+            Act::Chunk { head, columns } if head.track_id == key("can0") => {
                 calls.frame_chunks += 1;
                 c.frame_chunks += 1;
                 c.frames += u64::from(head.count);
@@ -445,7 +444,7 @@ pub fn series_tape(drive: &Drive) -> Result<Vec<u8>, Error> {
 /// [series_tape] of `acts`, the acts of `drive`.
 fn series_tape_of(drive: &Drive, acts: &[Act]) -> Result<Vec<u8>, Error> {
     let series = |act: &Act| match act {
-        Act::Chunk { head, .. } => head.track_number == TrackNum::new(PHASE_A),
+        Act::Chunk { head, .. } => head.track_id == key("phase_a"),
         Act::Summary(_) => true,
         _ => false,
     };
@@ -686,9 +685,11 @@ fn logged(
     let mut o = options(drive);
     o.writer.sync = policy;
     o.writer.clock = ClockRef::new(clock.clone());
+    let (defs, numbers) = drive_definitions(drive)?;
     let r = Recorder {
         chain: PieceChain::create_on(tapes.clone(), OWNER, drive.chain, &[], o)?,
-        defs: drive_definitions(drive)?,
+        defs,
+        numbers,
     };
     Ok((r, tapes, clock))
 }
@@ -967,7 +968,7 @@ fn one_tape(
     producer: &str,
     keep: impl Fn(&Act) -> bool,
 ) -> Result<Vec<u8>, Error> {
-    let defs = drive_definitions(drive)?;
+    let (defs, numbers) = drive_definitions(drive)?;
     let o = options(drive).writer;
     let sink = MemSink::new();
     let tape = sink.tape();
@@ -980,10 +981,10 @@ fn one_tape(
     for act in acts.iter().filter(|a| keep(a)) {
         match act {
             Act::Put { ticks, mode } => {
-                w.put(&defs, TrackNum::new(MODE), *ticks, mode.item())?;
+                w.put(&defs, numbers.mode, *ticks, mode.item())?;
             }
             Act::Records(records) => {
-                let block = records_block(w.next_id(), records)?;
+                let block = records_block(w.next_id(), numbers.board_clock, records)?;
                 w.write_block(&defs, &block)?;
             }
             Act::Chunk { head, columns } => {

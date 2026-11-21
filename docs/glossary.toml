@@ -526,7 +526,7 @@ chapter = "../tracks/"
 [[term]]
 name = "track number"
 forms = ["track numbers"]
-short = "The small number a track has inside one file, also the slot of its definition."
+short = "The small number a track has inside one file, given by the definitions when the track is defined; also the slot of its definition."
 chapter = "../tracks/"
 
 [[term]]

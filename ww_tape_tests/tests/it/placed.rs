@@ -48,7 +48,11 @@ fn write_chunk_and_write_block_say_where_they_landed() {
     })
     .expect("a policy with room for a piece head");
     let mut defs = crate::definitions::base_defs().clone();
-    defs.define(&crate::definitions::state(5)).unwrap();
+    crate::definitions::hold(
+        &mut defs,
+        core::slice::from_ref(&crate::definitions::state(5)),
+    )
+    .unwrap();
 
     // the layout, the producer, the clock and the track go in as puts before this, the first call; a checkpoint is
     // due once its bytes pass the policy's, right after this block

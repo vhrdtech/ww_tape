@@ -161,7 +161,8 @@ pub struct Producer<'i> {
 #[derive_shrink_wrap(owned(feature = "std"), derive(Debug, PartialEq, Clone))]
 pub struct ClockDef<'i> {
     /// Number among the definitions, 1 and up: [TrackDef::clock] and [ClockMap] name it, and record blocks list it.
-    /// Stays the same for the producer's life.
+    /// [Definitions::define_clock](crate::Definitions::define_clock) gives it; it stays the same for the producer's
+    /// life.
     pub number: ClockNum,
     /// Stable identity across files and runs, see [clock_key].
     pub key: u64,
@@ -173,6 +174,48 @@ pub struct ClockDef<'i> {
     pub origin: ClockOrigin,
     /// A name for people (`host`, `dev[3].boot[17]`).
     pub label: &'i str,
+}
+
+/// A clock as an application defines it: a [ClockDef] without its number, which
+/// [Definitions::define_clock](crate::Definitions::define_clock) gives it.
+#[derive(Debug, PartialEq, Clone)]
+pub struct ClockSpec<'i> {
+    /// Stable identity across files and runs, see [clock_key]: defining the same key again gives the same number.
+    pub key: u64,
+    /// Ticks per second, exact.
+    pub rate: ClockRate,
+    /// Seconds between two values the clock can really give, exact; at least one tick.
+    pub resolution: ClockResolution,
+    pub origin: ClockOrigin,
+    /// A name for people.
+    pub label: &'i str,
+}
+
+impl<'i> ClockSpec<'i> {
+    /// The definition of this clock as number `number`.
+    pub fn numbered(self, number: ClockNum) -> ClockDef<'i> {
+        ClockDef {
+            number,
+            key: self.key,
+            rate: self.rate,
+            resolution: self.resolution,
+            origin: self.origin,
+            label: self.label,
+        }
+    }
+}
+
+impl<'i> ClockDef<'i> {
+    /// The clock without its number.
+    pub fn spec(&self) -> ClockSpec<'i> {
+        ClockSpec {
+            key: self.key,
+            rate: self.rate,
+            resolution: self.resolution,
+            origin: self.origin,
+            label: self.label,
+        }
+    }
 }
 
 /// A clock's rate: ticks per second, exact. On the wire exactly its [Magnitude](exact_units::Magnitude).
@@ -388,8 +431,9 @@ pub struct TypedItem<'i> {
 /// Its identity is [key](Self::key) plus [dimensions](Self::dimensions), see [track_id].
 #[derive_shrink_wrap(owned(feature = "std"), derive(Debug, PartialEq, Clone))]
 pub struct TrackDef<'i> {
-    /// Number in records, 1 and up (track 0 holds the definitions, [RecordTrack::Definitions](crate::RecordTrack));
-    /// stays the same for the producer's life.
+    /// Number in records, 1 and up (track 0 holds the definitions, [RecordTrack::Definitions](crate::RecordTrack)).
+    /// [Definitions::define_track](crate::Definitions::define_track) gives it; it stays the same for the producer's
+    /// life.
     pub number: TrackNum,
     /// Stable key: the same track across files and producer runs, see [track_key].
     pub key: u64,
@@ -420,6 +464,74 @@ pub struct TrackDef<'i> {
     pub relations: RefVec<'i, RelationDef<'i>>,
 }
 
+/// A track as an application defines it: a [TrackDef] without its number, which
+/// [Definitions::define_track](crate::Definitions::define_track) gives it.
+///
+/// Its identity is [key](Self::key) plus [dimensions](Self::dimensions) and its [owner](Self::owner): defining the
+/// same identity again gives the same number.
+#[derive(Debug, PartialEq, Clone)]
+pub struct TrackSpec<'i> {
+    /// Stable key: the same track across files and producer runs, see [track_key](crate::track_key).
+    pub key: u64,
+    /// The clock record times of this track count, as [Definitions::define_clock](crate::Definitions::define_clock)
+    /// numbered it.
+    pub clock: ClockNum,
+    /// Name and value pairs that are part of the identity, in ascending order of name, names unique.
+    pub dimensions: RefVec<'i, Dimension<'i>>,
+    /// What one item is.
+    pub items: Items<'i>,
+    /// A name for people.
+    pub label: &'i str,
+    /// Whether the track's records are events or state.
+    pub repeat: TrackRepeat,
+    /// How the track's items are stored: events or a fixed-rate series.
+    pub kind: TrackKind<'i>,
+    /// Whose track this is, see [TrackDef::owner]; all zeros: the owner of the piece.
+    pub owner: [u8; 32],
+    /// What the track's items relate to, see [TrackDef::relations].
+    pub relations: RefVec<'i, RelationDef<'i>>,
+}
+
+impl<'i> TrackSpec<'i> {
+    /// The definition of this track as number `number`.
+    pub fn numbered(self, number: TrackNum) -> TrackDef<'i> {
+        TrackDef {
+            number,
+            key: self.key,
+            clock: self.clock,
+            dimensions: self.dimensions,
+            items: self.items,
+            label: self.label,
+            repeat: self.repeat,
+            kind: self.kind,
+            owner: self.owner,
+            relations: self.relations,
+        }
+    }
+
+    /// Id of the track's identity, see [track_id].
+    pub fn id(&self) -> u64 {
+        track_id(self.key, self.dimensions.iter().filter_map(Result::ok))
+    }
+}
+
+impl<'i> TrackDef<'i> {
+    /// The track without its number.
+    pub fn spec(&self) -> TrackSpec<'i> {
+        TrackSpec {
+            key: self.key,
+            clock: self.clock,
+            dimensions: self.dimensions.clone(),
+            items: self.items.clone(),
+            label: self.label,
+            repeat: self.repeat,
+            kind: self.kind.clone(),
+            owner: self.owner,
+            relations: self.relations.clone(),
+        }
+    }
+}
+
 /// What one item of a track is, see [TrackDef::items].
 ///
 /// An events item's bytes are stored as given whatever the variant: the payload of a record or a chunk item, after
@@ -427,7 +539,7 @@ pub struct TrackDef<'i> {
 /// them; `ww_tape` never reads a payload. A variant a reader doesn't know reads as `Unknown`, the rest of the
 /// definition intact: a reader passes such items on as bytes, a relay holds such an events track and stores its items
 /// as given ([Definitions::take_block](crate::Definitions::take_block)), and neither takes it for damage. A program
-/// builds no `Unknown` of its own: [Definitions::define](crate::Definitions::define) refuses one. The variant is not
+/// builds no `Unknown` of its own: [Definitions::define_track](crate::Definitions::define_track) refuses one. The variant is not
 /// part of the track's identity: [TrackDef::key] is the producer's, see [track_key].
 #[derive_shrink_wrap(owned(feature = "std"), derive(Debug, PartialEq, Clone), ww_repr = u4)]
 pub enum Items<'i> {

@@ -129,7 +129,7 @@ period:
 --8<-- "ww_tape_example/src/record.rs:summaries"
 ```
 
-??? example "What the example uses here: `the clock and track numbers`, `key`, `phase_def, phase_shape`"
+??? example "What the example uses here: `DriveNumbers`, `key`, `phase_def, phase_shape`"
 
     ```rs
     --8<-- "ww_tape_example/src/defs.rs:ids_item"

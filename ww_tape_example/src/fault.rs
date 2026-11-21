@@ -22,7 +22,7 @@ use ww_tape::{
 };
 use ww_tape_summary::{ChannelStats, SeriesSummarySpec, Summary};
 
-use crate::{EMERGENCY_ID, FAULT_MINUTE, MODE, PHASE_A, key};
+use crate::{EMERGENCY_ID, FAULT_MINUTE, key};
 
 // --8<-- [start:fault_consts_item]
 /// Microseconds of the board's clock in a minute.
@@ -214,15 +214,13 @@ pub fn mode<S: ByteSource>(
     chunks: &[IndexEntry],
 ) -> Result<Vec<InForce>, FaultError<S::Error>> {
     let mut out = Vec::new();
+    let Some(first) = chunks.first() else {
+        return Ok(out);
+    };
+    let mode = number_of(reader, piece, first.offset, "mode")?;
     for chunk in chunks {
         // --8<-- [start:mode]
-        let lookup = reader.state_at(
-            piece,
-            Slot::State {
-                track: TrackNum::new(MODE),
-            },
-            chunk.offset,
-        )?;
+        let lookup = reader.state_at(piece, Slot::State { track: mode }, chunk.offset)?;
         let record = lookup.item.as_ref().ok_or(FaultError::Missing("mode"))?;
         // record.item is the mode in force; record.offset is where its block starts
         // --8<-- [end:mode]
@@ -329,14 +327,17 @@ pub struct Current {
 // --8<-- [end:current_type_item]
 
 // --8<-- [start:series_def_item]
-/// The period and the summaries of series track `number`, from its definition in force at `offset` of piece `piece`.
+/// The period and the summaries of `phase_a`, found by its key among the definitions in force at `offset` of piece
+/// `piece`.
 fn series_def<S: ByteSource>(
     reader: &TapeReader<S>,
     piece: usize,
     offset: u64,
-    number: TrackNum,
 ) -> Result<(Ratio64, Option<SeriesSummarySpec>), FaultError<S::Error>> {
     let defs = reader.definitions_at(piece, offset)?;
+    let number = defs
+        .track_number(key("phase_a"), [0; 32])
+        .ok_or(FaultError::Missing("phase_a"))?;
     let state = defs
         .items
         .get(&Slot::Track { number })
@@ -351,6 +352,22 @@ fn series_def<S: ByteSource>(
 }
 // --8<-- [end:series_def_item]
 
+// --8<-- [start:number_of_item]
+/// The number of the drive's track `name` among the definitions in force at `offset` of piece `piece`: a reader
+/// finds a track by its key.
+fn number_of<S: ByteSource>(
+    reader: &TapeReader<S>,
+    piece: usize,
+    offset: u64,
+    name: &'static str,
+) -> Result<TrackNum, FaultError<S::Error>> {
+    reader
+        .definitions_at(piece, offset)?
+        .track_number(key(name), [0; 32])
+        .ok_or(FaultError::Missing(name))
+}
+// --8<-- [end:number_of_item]
+
 /// Read the samples of `phase_a` in `chunks` for [BEFORE_US] up to the fault.
 pub fn current<S: ByteSource>(
     reader: &TapeReader<S>,
@@ -363,7 +380,7 @@ pub fn current<S: ByteSource>(
         .iter()
         .find(|e| e.first_tick <= from && from <= e.last_tick)
         .ok_or(FaultError::Missing("chunk before the fault"))?;
-    let (period, _) = series_def(reader, piece, entry.offset, TrackNum::new(PHASE_A))?;
+    let (period, _) = series_def(reader, piece, entry.offset)?;
     // --8<-- [start:current]
     let mut buf = Vec::new();
     let block = reader.read_block(piece, entry, &mut buf)?;
@@ -520,7 +537,7 @@ pub fn overview(
         .pieces()
         .first()
         .ok_or(FaultError::Missing("piece"))?;
-    let (_, spec) = series_def(reader, 0, piece.end, TrackNum::new(PHASE_A))?;
+    let (_, spec) = series_def(reader, 0, piece.end)?;
     let spec = spec.ok_or(FaultError::Missing("summaries"))?;
     let mut total = 0;
     let mut sample_bytes = 0;

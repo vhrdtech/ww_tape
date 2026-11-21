@@ -48,10 +48,7 @@ pub mod writing;
 
 pub use card::{Card, CardRead, EARLIER_CHAIN};
 pub use damage::{Damage, Damaged, FLIP_MINUTE, LOST_UNIT, Placed, Salvaged, Walk, walk};
-pub use defs::{
-    BOARD_CLOCK, BOOT_UNIX_NS, CAN0, HOST_CLOCK, LOG, MODE, PHASE_A, TEMP, definitions, key,
-    phase_def, phase_summaries,
-};
+pub use defs::{BOOT_UNIX_NS, DriveNumbers, define, definitions, key, phase_def, phase_summaries};
 pub use record::{Act, CRASH_PAST_END, Crash, Crashed, Recording, Resume, Story, records_block};
 pub use signals::{
     CRASH_MINUTE, EMERGENCY_ID, FAULT_MINUTE, LIMIT_MA, Mode, RUN_MINUTE, emergency_frame, frame,

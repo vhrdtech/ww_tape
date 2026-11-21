@@ -1,7 +1,9 @@
 //! [Definitions]: the definitions an application works with, which a writer checks data against and puts before it.
 //!
 //! The application keeps the definitions of what it works on in a [Definitions]: each track's, and the clocks, clock
-//! maps and bundles they name. It passes them with every call that writes data or puts an item; the writer checks the
+//! maps and bundles they name. It defines a track or a clock without a number ([crate::TrackSpec],
+//! [crate::ClockSpec]); [Definitions::define_track] and [Definitions::define_clock] give it one, which [Numbers]
+//! keeps, and return it. It passes them with every call that writes data or puts an item; the writer checks the
 //! data against them and, before a block of data of a track, puts the track's definition and what it names
 //! ([Definitions::needs]) where those don't lie close behind ([state](crate::state)). Which definitions are held is
 //! the application's state, not the file's: [Definitions::close] drops a track, and a clock, map or bundle goes with
@@ -20,9 +22,9 @@ use shrink_wrap::prelude::*;
 
 use crate::state::{DefinitionKind, ItemHash, Slot};
 use crate::{
-    Block, BlockId, BlockKind, BlockWriter, CRC_LEN, ClockNum, ClockOrigin, ClockTime, Describe,
-    HEADER_LEN, Items, MAX_BLOCK_CLOCKS, MAX_BLOCK_LEN, MAX_CLOCK_TABLE, MAX_RECORD_HEAD,
-    RecordTrack, StatePolicy, TrackNum,
+    Block, BlockId, BlockKind, BlockWriter, CRC_LEN, ClockMap, ClockNum, ClockOrigin, ClockSpec,
+    ClockTime, Describe, HEADER_LEN, Items, MAX_BLOCK_CLOCKS, MAX_BLOCK_LEN, MAX_CLOCK_TABLE,
+    MAX_RECORD_HEAD, MapSegment, RecordTrack, StatePolicy, TrackNum, TrackSpec,
 };
 
 /// Bytes of a record block before its records: header, the longest clock table and CRC.
@@ -64,6 +66,11 @@ pub enum DescribeError {
     TooLong { len: usize },
     /// A producer or layout definition: those are the writer's own ([crate::WriterOptions]).
     WriterOwned,
+    /// A track or clock definition given with its number: [Definitions::define_track] and
+    /// [Definitions::define_clock] number them.
+    Numbered,
+    /// Every track or clock number is taken.
+    NumbersSpent,
     /// A track's relations break a rule ([TrackDef::relations_canonical](crate::TrackDef::relations_canonical)).
     Relations { track: TrackNum },
     /// A relation's name of `len` bytes, longer than [RELATION_NAME_MAX](crate::RELATION_NAME_MAX).
@@ -192,6 +199,11 @@ impl core::fmt::Display for DescribeError {
                 f,
                 "the producer and the layout are the writer's own (WriterOptions), not definitions to hold"
             ),
+            Self::Numbered => write!(
+                f,
+                "a track or clock is defined without a number: define_track and define_clock number it"
+            ),
+            Self::NumbersSpent => write!(f, "every track or clock number is taken"),
             Self::Kind { track, error } => write!(f, "track {track}: {error}"),
             Self::Schema => write!(
                 f,
@@ -460,6 +472,93 @@ pub struct Held {
     pub hash: ItemHash,
 }
 
+/// Which number stands for which track and clock: what [Definitions] numbers new ones by.
+///
+/// A track is known by its identity ([TrackDef::id](crate::TrackDef::id) and owner), a clock by its key. A number
+/// once given, or read from a resumed piece ([crate::Resumed::numbers]), is never given to another: defining the
+/// same identity again, also after [Definitions::close], gives it back, and a new one takes the lowest number not
+/// taken.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Numbers {
+    tracks: BTreeMap<(u64, [u8; 32]), TrackNum>,
+    track_keys: BTreeMap<TrackNum, (u64, [u8; 32])>,
+    clocks: BTreeMap<u64, ClockNum>,
+    clock_keys: BTreeMap<ClockNum, u64>,
+}
+
+impl Numbers {
+    /// None taken.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The number of the track of id `id` and owner `owner`.
+    pub fn track(&self, id: u64, owner: [u8; 32]) -> Option<TrackNum> {
+        self.tracks.get(&(id, owner)).copied()
+    }
+
+    /// The number of the clock of key `key`.
+    pub fn clock(&self, key: u64) -> Option<ClockNum> {
+        self.clocks.get(&key).copied()
+    }
+
+    /// Track `number` stands for the track of id `id` and owner `owner`; a track it stood for before loses it.
+    pub fn take_track(&mut self, number: TrackNum, id: u64, owner: [u8; 32]) {
+        if let Some(old) = self.track_keys.insert(number, (id, owner)) {
+            self.tracks.remove(&old);
+        }
+        if let Some(old) = self.tracks.insert((id, owner), number)
+            && old != number
+        {
+            self.track_keys.remove(&old);
+        }
+    }
+
+    /// Clock `number` stands for the clock of key `key`; a clock it stood for before loses it.
+    pub fn take_clock(&mut self, number: ClockNum, key: u64) {
+        if let Some(old) = self.clock_keys.insert(number, key) {
+            self.clocks.remove(&old);
+        }
+        if let Some(old) = self.clocks.insert(key, number)
+            && old != number
+        {
+            self.clock_keys.remove(&old);
+        }
+    }
+
+    /// The number of the track of id `id` and owner `owner`, else the lowest not taken.
+    fn track_for(&self, id: u64, owner: [u8; 32]) -> Result<TrackNum, DescribeError> {
+        if let Some(n) = self.track(id, owner) {
+            return Ok(n);
+        }
+        lowest_free(self.track_keys.keys().map(|n| n.get()))
+            .and_then(TrackNum::try_new)
+            .ok_or(DescribeError::NumbersSpent)
+    }
+
+    /// The number of the clock of key `key`, else the lowest not taken.
+    fn clock_for(&self, key: u64) -> Result<ClockNum, DescribeError> {
+        if let Some(n) = self.clock(key) {
+            return Ok(n);
+        }
+        lowest_free(self.clock_keys.keys().map(|n| n.get()))
+            .and_then(ClockNum::try_new)
+            .ok_or(DescribeError::NumbersSpent)
+    }
+}
+
+/// The lowest number from 1 up that `taken`, ascending, doesn't hold; None when all are.
+fn lowest_free(taken: impl Iterator<Item = u32>) -> Option<u32> {
+    let mut next = 1u32;
+    for n in taken {
+        if n != next {
+            break;
+        }
+        next = next.checked_add(1)?;
+    }
+    Some(next)
+}
+
 /// The definitions an application works with, see the [module docs](self).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Definitions {
@@ -474,6 +573,8 @@ pub struct Definitions {
     bundles: BTreeMap<Named, Slot>,
     /// Bytes of the items held
     bytes: usize,
+    /// The numbers given to tracks and clocks
+    numbers: Numbers,
 }
 
 impl Definitions {
@@ -496,17 +597,78 @@ impl Definitions {
         self.bytes
     }
 
-    /// Hold `d` in its slot ([Slot]: a track by number, a clock, a map, a bundle by its hash), replacing the one
-    /// there, checked against those held ([Self::check_batch]): a track or map names clocks held, an epoch clock
-    /// comes with its link through [Self::define_all]. Nothing is written: a writer puts it before data that needs
-    /// it. A typed item isn't held ([crate::TapeWriter::put_item] puts it).
+    /// No definitions, numbering tracks and clocks as `numbers` does: those a resumed piece holds
+    /// ([crate::Resumed::numbers]), so a track or clock defined again gets its number there.
+    pub fn with_numbers(numbers: Numbers) -> Self {
+        Self {
+            numbers,
+            ..Self::default()
+        }
+    }
+
+    /// Which number stands for which track and clock.
+    pub fn numbers(&self) -> &Numbers {
+        &self.numbers
+    }
+
+    /// Define clock `c` and give its number: the one its key has ([Numbers]), else the lowest not taken. It is held
+    /// as [Self::define] holds a definition, replacing the one of the same key; an epoch clock comes with its link
+    /// through [Self::define_clock_with_maps].
+    pub fn define_clock(&mut self, c: ClockSpec<'_>) -> Result<ClockNum, DescribeError> {
+        self.define_clock_with_maps(c, &[])
+    }
+
+    /// Define clock `c` as [Self::define_clock] does, with a map from it to each held clock `to` of `maps` over its
+    /// segments, checked as one batch: an [Epoch](ClockOrigin::Epoch) clock with its epoch link.
+    pub fn define_clock_with_maps(
+        &mut self,
+        c: ClockSpec<'_>,
+        maps: &[(ClockNum, &[MapSegment])],
+    ) -> Result<ClockNum, DescribeError> {
+        let number = self.numbers.clock_for(c.key)?;
+        let mut batch = vec![Describe::Clock(c.numbered(number))];
+        batch.extend(maps.iter().map(|(to, segments)| {
+            Describe::Map(ClockMap {
+                from: number,
+                to: *to,
+                segments: RefVec::Slice { slice: segments },
+            })
+        }));
+        self.hold(&batch)?;
+        Ok(number)
+    }
+
+    /// Define track `t` and give its number: the one its identity has ([Numbers]), else the lowest not taken. It is
+    /// held as [Self::define] holds a definition, replacing the one of the same identity; its clock is held. A refused
+    /// track takes no number; the error names the one it would have had.
+    pub fn define_track(&mut self, t: TrackSpec<'_>) -> Result<TrackNum, DescribeError> {
+        let number = self.numbers.track_for(t.id(), t.owner)?;
+        self.hold(&[Describe::Track(t.numbered(number))])?;
+        Ok(number)
+    }
+
+    /// Hold `d` in its slot ([Slot]: a map, a bundle or a schema by its hash), replacing the one there, checked
+    /// against those held ([Self::check_batch]): a map names clocks held. A track or a clock is numbered by
+    /// [Self::define_track] and [Self::define_clock] ([DescribeError::Numbered]). Nothing is written: a writer puts it
+    /// before data that needs it. A typed item isn't held ([crate::TapeWriter::put_item] puts it).
     pub fn define(&mut self, d: &Describe<'_>) -> Result<(), DescribeError> {
         self.define_all(core::slice::from_ref(d))
     }
 
-    /// Hold each of `defs` as [Self::define] does, checked as one batch in any order (an epoch clock with its link);
-    /// none is held when one is refused.
+    /// Hold each of `defs` as [Self::define] does, checked as one batch in any order; none is held when one is
+    /// refused.
     pub fn define_all(&mut self, defs: &[Describe<'_>]) -> Result<(), DescribeError> {
+        if defs
+            .iter()
+            .any(|d| matches!(d, Describe::Track(_) | Describe::Clock(_)))
+        {
+            return Err(DescribeError::Numbered);
+        }
+        self.hold(defs)
+    }
+
+    /// Hold `defs`, checked as one batch.
+    fn hold(&mut self, defs: &[Describe<'_>]) -> Result<(), DescribeError> {
         let items = defs.iter().map(encode).collect::<Result<Vec<_>, _>>()?;
         if let Some(t) = defs.iter().find_map(|d| match d {
             Describe::Track(t) if !t.relations_built() => Some(t),
@@ -729,6 +891,7 @@ impl Definitions {
         let slot = Slot::of_definition(d, || hash);
         match d {
             Describe::Track(t) => {
+                self.numbers.take_track(t.number, t.id(), t.owner);
                 let bundles = track_bundles(t);
                 self.tracks.insert(
                     t.number,
@@ -740,6 +903,7 @@ impl Definitions {
                 );
             }
             Describe::Clock(c) => {
+                self.numbers.take_clock(c.number, c.key);
                 self.clocks.insert(c.number, c.origin == ClockOrigin::Epoch);
             }
             Describe::Map(m) => {

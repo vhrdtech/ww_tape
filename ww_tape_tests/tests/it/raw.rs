@@ -99,10 +99,7 @@ fn items() -> Vec<Vec<u8>> {
 
 /// The clock, [proto_schema] and `def`, held.
 fn definitions(def: &TrackDef<'static>) -> Definitions {
-    let mut defs = Definitions::new();
-    defs.define_all(&[clock(CLOCK), proto_schema(), Describe::Track(def.clone())])
-        .unwrap();
-    defs
+    crate::definitions::held(&[clock(CLOCK), proto_schema(), Describe::Track(def.clone())])
 }
 
 /// A tape of `def`'s [items] as a records block and as an events chunk; the records block's length.
@@ -302,8 +299,9 @@ fn items_or_a_schema_that_do_not_fit_are_refused() {
             items,
             ..raw_track(4, Items::RawBytes)
         };
-        let mut defs = Definitions::new();
-        defs.define_all(&[clock(CLOCK), Describe::Track(t)])
+        let batch = [clock(CLOCK), Describe::Track(t)];
+        let mut defs = Definitions::with_numbers(crate::definitions::numbers_of(&batch));
+        crate::definitions::hold(&mut defs, &batch)
     };
     let bad = Err(DescribeError::Items {
         track: TrackNum::new(4),
@@ -439,7 +437,7 @@ fn items_or_a_schema_that_do_not_fit_are_refused() {
     ] {
         let mut defs = Definitions::new();
         assert_eq!(
-            defs.define(&Describe::Schema(schema)),
+            crate::definitions::hold(&mut defs, core::slice::from_ref(&Describe::Schema(schema))),
             Err(DescribeError::Schema)
         );
     }
@@ -508,9 +506,10 @@ fn an_items_variant_this_crate_does_not_know_reads_as_unknown() {
         },
         "the rest of the definition is intact"
     );
-    let mut defs = Definitions::new();
+    let batch = [clock(CLOCK), Describe::Track(read.clone())];
+    let mut defs = Definitions::with_numbers(crate::definitions::numbers_of(&batch));
     assert_eq!(
-        defs.define_all(&[clock(CLOCK), Describe::Track(read.clone())]),
+        crate::definitions::hold(&mut defs, &batch),
         Err(DescribeError::Items {
             track: TrackNum::new(7)
         }),

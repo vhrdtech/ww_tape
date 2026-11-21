@@ -206,6 +206,24 @@ impl DefinitionsAt {
     pub fn is_whole(&self) -> bool {
         self.lost.is_empty() && self.uncovered.is_empty() && !self.spent
     }
+
+    /// The number of the track of id `id` ([TrackDef::id](crate::TrackDef::id)) and owner `owner` among the
+    /// definitions: how a reader finds a track it knows by its key.
+    pub fn track_number(&self, id: u64, owner: [u8; 32]) -> Option<crate::TrackNum> {
+        let tracks = self.items.iter().filter_map(|(slot, s)| match slot {
+            Slot::Track { number } => Some((*number, s)),
+            _ => None,
+        });
+        for (number, s) in tracks {
+            if matches!(
+                crate::Describe::from_ww_bytes(&s.item),
+                Ok(crate::Describe::Track(t)) if t.id() == id && t.owner == owner
+            ) {
+                return Some(number);
+            }
+        }
+        None
+    }
 }
 
 /// Whether `items` hold the definition of head row `row`'s track: under its number, with its id and owner. A number

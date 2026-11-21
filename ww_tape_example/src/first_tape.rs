@@ -15,22 +15,23 @@ use ww_tape::{
 use ww_tape::reader::{OutOfRange, ReadError};
 use ww_tape_fs::FsError;
 
-use crate::{Act, Drive, MODE, records_block};
+use crate::{Act, Drive, records_block};
 
 /// Write `drive`'s run into a new file at `path`, then close it: the piece's end written and the file synced.
 pub fn write(path: &Path, drive: &Drive) -> Result<Closed, FirstTapeError> {
     // --8<-- [start:write]
-    let defs = drive.definitions()?; // the clocks, the clock map and the five tracks
+    // the clocks, the clock map and the five tracks, and the numbers they were given
+    let (defs, numbers) = drive.definitions()?;
     let mut writer = ww_tape_fs::writer::create(path, SyncPolicy::default())?;
     for act in drive.acts()? {
         match act? {
             // the mode in force from `ticks` on, put at each use
             Act::Put { ticks, mode } => {
-                writer.put(&defs, TrackNum::new(MODE), ticks, mode.item())?;
+                writer.put(&defs, numbers.mode, ticks, mode.item())?;
             }
             // log lines and temperatures, one records block a second
             Act::Records(records) => {
-                let block = records_block(writer.next_id(), &records)?;
+                let block = records_block(writer.next_id(), numbers.board_clock, &records)?;
                 writer.write_block(&defs, &block)?;
             }
             // a second of CAN frames or of phase current, as the columns of a chunk

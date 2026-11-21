@@ -4,9 +4,9 @@
 
 use anyhow::{Context, ensure};
 use shrink_wrap::prelude::*;
+use ww_tape::RecordTrack;
 use ww_tape::{BlockKind, Describe, FLAG_REPEAT, FileBlocks};
-use ww_tape::{RecordTrack, TrackNum};
-use ww_tape_example::{CAN0, Drive, MODE, PHASE_A};
+use ww_tape_example::{Drive, DriveNumbers};
 
 use crate::OrDebug;
 use crate::svg::Svg;
@@ -65,12 +65,12 @@ impl Part {
 type Span = (u64, u64, Part, Option<Vec<String>>);
 
 /// What the records of a block of puts hold, as the lines of its label: the definitions (the producer, the layout,
-/// clocks, the map, track labels), then the mode's item.
-fn puts_of(b: &ww_tape::Block<'_>) -> anyhow::Result<Vec<String>> {
+/// clocks, the map, track labels), then the item of the mode, track `mode`.
+fn puts_of(b: &ww_tape::Block<'_>, mode: ww_tape::TrackNum) -> anyhow::Result<Vec<String>> {
     let (mut defs, mut clocks, mut state): (Vec<String>, usize, Vec<String>) = Default::default();
     for r in b.records() {
         let r = r.or_debug()?;
-        if r.track == RecordTrack::from_u32(MODE) {
+        if r.track == RecordTrack::Data(mode) {
             state.push(format!(
                 "\u{201c}{}\u{201d}",
                 String::from_utf8_lossy(r.item)
@@ -109,7 +109,9 @@ fn spans() -> anyhow::Result<(u64, Vec<Span>)> {
     if path.exists() {
         std::fs::remove_file(&path)?;
     }
-    ww_tape_example::first_tape::write(&path, &Drive::full().minutes(1))?;
+    let drive = Drive::full().minutes(1);
+    let numbers: DriveNumbers = drive.numbers()?;
+    ww_tape_example::first_tape::write(&path, &drive)?;
     let bytes = std::fs::read(&path)?;
     std::fs::remove_dir_all(&dir)?;
     let len = u64::try_from(bytes.len())?;
@@ -125,7 +127,7 @@ fn spans() -> anyhow::Result<(u64, Vec<Span>)> {
             BlockKind::Events => {
                 let head = b.chunk().context("a chunk's head")?.head();
                 ensure!(
-                    head.track_number == TrackNum::new(CAN0),
+                    head.track_number == numbers.can0,
                     "events chunks are can0's"
                 );
                 Part::Frames
@@ -133,7 +135,7 @@ fn spans() -> anyhow::Result<(u64, Vec<Span>)> {
             BlockKind::Series => {
                 let head = b.chunk().context("a chunk's head")?.head();
                 ensure!(
-                    head.track_number == TrackNum::new(PHASE_A),
+                    head.track_number == numbers.phase_a,
                     "series chunks are phase_a's"
                 );
                 Part::Samples
@@ -157,7 +159,7 @@ fn spans() -> anyhow::Result<(u64, Vec<Span>)> {
             other => anyhow::bail!("a block of kind {other:?} in the first tape"),
         };
         let name = if part == Part::Puts {
-            Some(puts_of(&b)?)
+            Some(puts_of(&b, numbers.mode)?)
         } else {
             None
         };

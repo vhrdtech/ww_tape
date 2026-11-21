@@ -6,7 +6,7 @@
 use anyhow::{Context, ensure};
 use shrink_wrap::prelude::*;
 use ww_tape::{Describe, MapSegment, Rounding, segments_increasing};
-use ww_tape_example::{BOARD_CLOCK, BOOT_UNIX_NS, CRASH_MINUTE, HOST_CLOCK, definitions};
+use ww_tape_example::{BOOT_UNIX_NS, CRASH_MINUTE, definitions};
 
 use crate::OrDebug;
 use crate::svg::Svg;
@@ -19,11 +19,11 @@ const STEP_NS: i64 = 20_000_000;
 
 /// The drive's map from the board's clock to the host's: its one segment.
 pub fn drive_segment() -> anyhow::Result<MapSegment> {
-    let defs = definitions(25, false, 1 << 20).or_debug()?;
+    let (defs, n) = definitions(25, false, 1 << 20).or_debug()?;
     for (_, bytes) in defs.definitions() {
         if let Describe::Map(m) = Describe::from_ww_bytes(bytes).or_debug()?
-            && m.from.get() == BOARD_CLOCK
-            && m.to.get() == HOST_CLOCK
+            && m.from == n.board_clock
+            && m.to == n.host_clock
         {
             let mut segments = m.segments.iter();
             let first = segments.next().context("a segment")?.or_debug()?;

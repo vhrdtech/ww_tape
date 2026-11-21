@@ -25,7 +25,7 @@ use ww_tape::reader::ByteSource;
 use ww_tape::samples::Samples;
 use ww_tape::{
     BlockKind, ChainOptions, ColumnKind, ColumnSpec, CutPolicy, OwnerId, PieceTapes, TapeReader,
-    WriterOptions,
+    TrackNum, WriterOptions,
 };
 use ww_tape_bench::{Bench, Cell as TableCell, Common};
 use ww_tape_example::rf::{self, Rf, iq_key};
@@ -74,8 +74,15 @@ struct Made {
     values: Vec<i16>,
 }
 
-/// Worker `w` of `n`: chunks `w`, `w + n`, ... of `rf` until `stop` chunks, each into `tx`.
-fn worker(rf: Rf, w: u64, n: u64, chunks: u64, tx: &SyncSender<anyhow::Result<Made>>) {
+/// Worker `w` of `n`: chunks `w`, `w + n`, ... of `rf` on track `iq` until `stop` chunks, each into `tx`.
+fn worker(
+    rf: Rf,
+    iq: TrackNum,
+    w: u64,
+    n: u64,
+    chunks: u64,
+    tx: &SyncSender<anyhow::Result<Made>>,
+) {
     let signal = rf.signal();
     let mut k = w;
     while k < chunks {
@@ -84,7 +91,7 @@ fn worker(rf: Rf, w: u64, n: u64, chunks: u64, tx: &SyncSender<anyhow::Result<Ma
         signal.fill(first, &mut values);
         let mut bytes = Vec::new();
         let made = rf
-            .encode_chunk::<FsError>(first, &values, &mut bytes)
+            .encode_chunk::<FsError>(iq, first, &values, &mut bytes)
             .map(|(head, spec)| Made {
                 head,
                 spec,
@@ -110,7 +117,7 @@ struct Written {
 
 fn write(args: &Args, rf: Rf) -> anyhow::Result<Written> {
     let e = |e: ww_tape::WriteError<FsError>| anyhow::anyhow!("{e:?}");
-    let defs = rf
+    let (defs, iq) = rf
         .definitions::<FsError>()
         .map_err(|e| anyhow::anyhow!("{e}"))?;
     let options = ChainOptions {
@@ -129,7 +136,7 @@ fn write(args: &Args, rf: Rf) -> anyhow::Result<Written> {
     let mut chain =
         ww_tape_fs::chain::create(&args.dir, OwnerId([0x5d; 32]), 0, &[], options).map_err(e)?;
     let mut summaries = rf
-        .summary_builder::<FsError>()
+        .summary_builder::<FsError>(iq)
         .map_err(|e| anyhow::anyhow!("{e}"))?;
     let target = args.gib << 30;
     // more chunks than the target needs: the writer stops at the target
@@ -141,7 +148,7 @@ fn write(args: &Args, rf: Rf) -> anyhow::Result<Written> {
     let mut samples = 0u64;
     std::thread::scope(|s| -> anyhow::Result<()> {
         for (w, tx) in txs.into_iter().enumerate() {
-            s.spawn(move || worker(rf, w as u64, n, chunks, &tx));
+            s.spawn(move || worker(rf, iq, w as u64, n, chunks, &tx));
         }
         for k in 0..chunks {
             let made = rxs

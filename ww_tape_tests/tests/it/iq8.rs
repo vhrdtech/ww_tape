@@ -76,17 +76,20 @@ fn an_8_bit_iq_track_is_stored_as_the_radio_sends_it() {
         unreachable!("iq8_track is a series")
     };
     let mut defs = Definitions::new();
-    defs.define_all(&[
-        Describe::Clock(ClockDef {
-            number: CLOCK,
-            key: clock_key(0x5d8, &[], 1),
-            rate: Magnitude::pow10(9).into(),
-            resolution: Magnitude::pow10(-9).into(),
-            origin: ClockOrigin::Boot,
-            label: "radio ns",
-        }),
-        Describe::Track(track.clone()),
-    ])
+    crate::definitions::hold(
+        &mut defs,
+        &[
+            Describe::Clock(ClockDef {
+                number: CLOCK,
+                key: clock_key(0x5d8, &[], 1),
+                rate: Magnitude::pow10(9).into(),
+                resolution: Magnitude::pow10(-9).into(),
+                origin: ClockOrigin::Boot,
+                label: "radio ns",
+            }),
+            Describe::Track(track.clone()),
+        ],
+    )
     .unwrap();
 
     let bytes = radio_bytes(COUNT);

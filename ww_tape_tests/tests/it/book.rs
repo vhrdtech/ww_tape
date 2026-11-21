@@ -7,18 +7,21 @@ use ww_tape::{ClockNum, TrackNum};
 use ww_tape::chunk::{ChunkHead, Codec, ColumnKind, ColumnSpec};
 use ww_tape::{
     Block, BlockId, BlockKind, BlockWriter, ChainOptions, ChainPiece, ClockTime, Definitions,
-    EndMode, Magnitude, MemError, MemSink, OwnerId, PieceTapes, Ratio64, SeriesGrid, SessionTag,
-    SyncPolicy, TapeWriter, WriteError,
+    Describe, EndMode, Magnitude, MemError, MemSink, OwnerId, PieceTapes, Ratio64, SeriesGrid,
+    SessionTag, SyncPolicy, TapeWriter, WriteError,
 };
 use ww_tape_fs::FsError;
 
 use crate::definitions::{CLOCK, clock, state, track};
 
-const MODE: u32 = 5;
-
 /// The lines `docs/writing.md` includes (`definitions`), between the setup and the checks.
 fn example(writer: &mut TapeWriter<MemSink>) -> Result<(), WriteError<MemError>> {
-    let (clock, temperature_track, mode_track) = (clock(CLOCK), track(1, CLOCK), state(MODE));
+    let (Describe::Clock(clock), Describe::Track(temperature), Describe::Track(mode)) =
+        (clock(CLOCK), track(1, CLOCK), state(2))
+    else {
+        unreachable!("clock() gives a clock, track() and state() tracks")
+    };
+    let (clock, temperature_track, mode_track) = (clock.spec(), temperature.spec(), mode.spec());
     let ticks = 1_000;
     let mode_bytes = b"mode: run".to_vec();
     let mut buf = [0u8; 128];
@@ -40,8 +43,10 @@ fn example(writer: &mut TapeWriter<MemSink>) -> Result<(), WriteError<MemError>>
 
     // --8<-- [start:definitions]
     let mut defs = Definitions::new();
-    defs.define_all(&[clock, temperature_track, mode_track])?;
-    writer.put(&defs, TrackNum::new(MODE), ticks, &mode_bytes)?; // a state item, at its use
+    defs.define_clock(clock)?;
+    defs.define_track(temperature_track)?; // track 1, the one the readings name
+    let mode = defs.define_track(mode_track)?;
+    writer.put(&defs, mode, ticks, &mode_bytes)?; // a state item, at its use
     writer.write_block(&defs, &readings)?; // the definitions it needs go first
     // --8<-- [end:definitions]
     Ok(())
@@ -645,7 +650,7 @@ fn format_page_integrity_reservations_are_the_constants() {
 /// integrity byte on the page, read from a chain of two pieces of a track with a range relation and an owner.
 #[test]
 fn format_page_relations_and_owner_read_a_chain() {
-    use ww_tape::{ChainOptions, Definitions, Describe, MemTapes, OwnerId, PieceChain, TrackDef};
+    use ww_tape::{ChainOptions, Describe, MemTapes, OwnerId, PieceChain, TrackDef};
     let page = std::fs::read_to_string("../docs/format.md").unwrap();
     for line in [
         "15 u8 flags: bit 0 repeat, bit 1 range",
@@ -662,9 +667,8 @@ fn format_page_relations_and_owner_read_a_chain() {
         unreachable!("decoded() gives a track")
     };
     let def = Describe::Track(TrackDef { owner, ..t });
-    let mut defs = Definitions::new();
-    defs.define_all(&[crate::definitions::clock(crate::definitions::CLOCK), def])
-        .unwrap();
+    let defs =
+        crate::definitions::held(&[crate::definitions::clock(crate::definitions::CLOCK), def]);
     let tapes = MemTapes::new();
     let mut chain = PieceChain::create_on(
         tapes.clone(),

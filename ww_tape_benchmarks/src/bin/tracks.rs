@@ -24,9 +24,9 @@ use std::io;
 use std::time::Instant;
 use ww_tape::piece::{OwnerId, PieceHead, PieceId, PieceIdent};
 use ww_tape::{
-    BlockId, BlockKind, BlockWriter, ClockDef, ClockOrigin, ClockTime, Definitions, Describe,
-    EventsDef, FLAG_REPEAT, FullVersion, Magnitude, MemSink, Segment, SessionTag, Slot, SyncPolicy,
-    TapeReader, TapeSink, TapeWriter, TrackDef, TrackKind, Version, clock_key, track_key,
+    BlockId, BlockKind, BlockWriter, ClockOrigin, ClockSpec, ClockTime, Definitions, EventsDef,
+    FLAG_REPEAT, FullVersion, Magnitude, MemSink, Segment, SessionTag, Slot, SyncPolicy,
+    TapeReader, TapeSink, TapeWriter, TrackKind, TrackSpec, Version, clock_key, track_key,
 };
 use ww_tape::{ClockNum, TrackNum};
 use ww_tape_bench::{Bench, Cell, Common};
@@ -120,23 +120,21 @@ fn repeat_bytes(tracks: u32, in_use: u32, piece: u64, block: usize) -> anyhow::R
         repeat: 0,
     };
     let mut w = TapeWriter::create_on(sink, SyncPolicy::None);
-    let mut all = vec![clock()];
-    all.extend((1..=tracks).map(track));
     let mut defs = Definitions::new();
-    defs.define_all(&all).map_err(d)?;
+    let clock = defs.define_clock(clock()).map_err(d)?;
+    let numbers = (1..=tracks)
+        .map(|n| defs.define_track(track(n, clock)))
+        .collect::<Result<Vec<TrackNum>, _>>()
+        .map_err(d)?;
     let item = vec![0x5a; block.saturating_sub(64)];
     let mut n = 0u32;
     while w.sink().bytes < piece {
-        let t = 1 + n % in_use;
+        let t = numbers[(n % in_use) as usize];
         let mut buf = vec![0u8; block];
-        let mut b = BlockWriter::new(&mut buf, BlockKind::Records, w.next_id(), &[CLOCK])
+        let mut b = BlockWriter::new(&mut buf, BlockKind::Records, w.next_id(), &[clock])
             .map_err(|e| anyhow::anyhow!("{e:?}"))?;
-        b.push(
-            TrackNum::new(t),
-            ClockTime::new(CLOCK, i64::from(n)),
-            &[&item],
-        )
-        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+        b.push(t, ClockTime::new(clock, i64::from(n)), &[&item])
+            .map_err(|e| anyhow::anyhow!("{e:?}"))?;
         let len = b.finish();
         w.write_block(&defs, &buf[..len]).map_err(e)?;
         n = n.wrapping_add(1);
@@ -150,16 +148,20 @@ fn idle_work(blocks: u32, label_len: usize) -> anyhow::Result<(f64, f64)> {
     let e = |e: ww_tape::WriteError<_>| anyhow::anyhow!("{e:?}");
     let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     let label = "x".repeat(label_len);
-    let Describe::Track(t) = track(1) else {
-        anyhow::bail!("track() gives a track");
-    };
     let mut defs = Definitions::new();
-    defs.define_all(&[clock(), Describe::Track(TrackDef { label: &label, ..t })])
+    let clock = defs.define_clock(clock()).map_err(d)?;
+    let t = defs
+        .define_track(TrackSpec {
+            label: &label,
+            ..track(1, clock)
+        })
         .map_err(d)?;
-    w.write_block(&defs, &records(w.next_id(), 1)?).map_err(e)?;
+    w.write_block(&defs, &records(w.next_id(), clock, t, 1)?)
+        .map_err(e)?;
     let first = w.put_work();
     for _ in 0..blocks {
-        w.write_block(&defs, &records(w.next_id(), 1)?).map_err(e)?;
+        w.write_block(&defs, &records(w.next_id(), clock, t, 1)?)
+            .map_err(e)?;
     }
     let work = w.put_work();
     let per = |a: u64, b: u64| a.saturating_sub(b) as f64 / f64::from(blocks);
@@ -170,28 +172,25 @@ fn idle_work(blocks: u32, label_len: usize) -> anyhow::Result<(f64, f64)> {
 }
 
 /// The clock of every track.
-fn clock() -> Describe<'static> {
-    Describe::Clock(ClockDef {
-        number: CLOCK,
+fn clock() -> ClockSpec<'static> {
+    ClockSpec {
         key: clock_key(0xb7, &[], 1),
         rate: Magnitude::pow10(9).into(),
         resolution: Magnitude::pow10(-9).into(),
         origin: ClockOrigin::Boot,
         label: "bench",
-    })
+    }
 }
 
 fn d(e: ww_tape::DescribeError) -> anyhow::Error {
     anyhow::anyhow!("{e:?}")
 }
 
-const CLOCK: ClockNum = ClockNum::new(1);
-
-fn track(number: u32) -> Describe<'static> {
-    Describe::Track(TrackDef {
-        number: TrackNum::new(number),
-        key: track_key(0xb7, &[Segment::Index(number)]),
-        clock: CLOCK,
+/// Track `index` on `clock`, keyed by its index.
+fn track(index: u32, clock: ClockNum) -> TrackSpec<'static> {
+    TrackSpec {
+        key: track_key(0xb7, &[Segment::Index(index)]),
+        clock,
         dimensions: RefVec::Slice { slice: &[] },
         items: ww_tape::Items::WireWeaver {
             api: FullVersion::new("bench_api", Version::new(0, 1, 0)),
@@ -207,20 +206,16 @@ fn track(number: u32) -> Describe<'static> {
         kind: TrackKind::Events(EventsDef::INSTANTS),
         relations: RefVec::Slice { slice: &[] },
         owner: [0; 32],
-    })
+    }
 }
 
-/// A records block of one record on `track`.
-fn records(id: BlockId, track: u32) -> anyhow::Result<Vec<u8>> {
+/// A records block of one record at tick `tick` of `clock` on `track`.
+fn records(id: BlockId, clock: ClockNum, track: TrackNum, tick: u32) -> anyhow::Result<Vec<u8>> {
     let mut buf = [0u8; 128];
-    let mut b = BlockWriter::new(&mut buf, BlockKind::Records, id, &[CLOCK])
+    let mut b = BlockWriter::new(&mut buf, BlockKind::Records, id, &[clock])
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;
-    b.push(
-        TrackNum::new(track),
-        ClockTime::new(CLOCK, i64::from(track)),
-        &[b"x"],
-    )
-    .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    b.push(track, ClockTime::new(clock, i64::from(tick)), &[b"x"])
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
     let len = b.finish();
     Ok(buf[..len].to_vec())
 }
@@ -263,13 +258,14 @@ fn main() -> anyhow::Result<()> {
     w.set_producer("bench");
     w.begin_piece(&head, &[]).map_err(e)?;
     let mut defs = Definitions::new();
-    defs.define(&clock()).map_err(d)?;
+    let clock = defs.define_clock(clock()).map_err(d)?;
     let marks = [1_000, 5_000, args.tracks];
     let mut at = vec![];
     let t = Instant::now();
     for n in 1..=args.tracks {
-        defs.define(&track(n)).map_err(d)?;
-        w.write_block(&defs, &records(w.next_id(), n)?).map_err(e)?;
+        let number = defs.define_track(track(n, clock)).map_err(d)?;
+        w.write_block(&defs, &records(w.next_id(), clock, number, n)?)
+            .map_err(e)?;
         if marks.contains(&n) {
             at.push((n, t.elapsed().as_secs_f64()));
         }

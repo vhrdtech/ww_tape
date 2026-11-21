@@ -11,16 +11,16 @@ use shrink_wrap::prelude::{RefVec, UNib32};
 use ww_tape::index::{ENTRY_LEN, IndexPolicy, STATE_TRACK_ID};
 use ww_tape::writer::NearPolicy;
 use ww_tape::{
-    BlockKind, ClockDef, ClockOrigin, ClockTime, Definitions, Describe, EventsDef, FileBlocks,
-    FullVersion, Layout, Magnitude, MemSink, Recovery, Segment, StatePolicy, SyncPolicy,
-    TapeWriter, TrackDef, TrackKind, TrackRepeat, Version, clock_key, track_key,
+    BlockKind, ClockOrigin, ClockSpec, ClockTime, Definitions, EventsDef, FileBlocks, FullVersion,
+    Layout, Magnitude, MemSink, Recovery, Segment, StatePolicy, SyncPolicy, TapeWriter, TrackKind,
+    TrackRepeat, TrackSpec, Version, clock_key, track_key,
 };
 
-/// The clock of the template's tracks.
+/// The number of the clock of the template's tracks.
 pub(crate) const CLOCK: u32 = 1;
-/// The template's stream track.
+/// The number of the template's stream track.
 pub(crate) const STREAM: u32 = 1;
-/// The template's state tracks.
+/// The numbers of the template's state tracks, which the hostile values of a state entry's number name.
 pub(crate) const STATES: [u32; 2] = [5, 6];
 /// Rounds of puts and records in the template.
 const ROUNDS: i64 = 24;
@@ -56,12 +56,17 @@ pub(crate) fn options() -> ww_tape::WriterOptions {
     }
 }
 
-/// Track `number` on [CLOCK], labeled `label`, a state track of `state` or a stream.
-fn track(number: u32, label: &'static str, state: Option<StatePolicy>) -> Describe<'static> {
-    Describe::Track(TrackDef {
-        number: TrackNum::new(number),
-        key: track_key(0x57, &[Segment::Index(number)]),
-        clock: ClockNum::new(CLOCK),
+/// Track `index` on clock `clock`, labeled `label`, a state track of `state` or a stream: its key is the index's,
+/// the number the template gives it.
+fn track(
+    index: u32,
+    clock: ClockNum,
+    label: &'static str,
+    state: Option<StatePolicy>,
+) -> TrackSpec<'static> {
+    TrackSpec {
+        key: track_key(0x57, &[Segment::Index(index)]),
+        clock,
         dimensions: RefVec::Slice { slice: &[] },
         items: ww_tape::Items::WireWeaver {
             api: FullVersion::new("state_api", Version::new(0, 1, 0)),
@@ -77,42 +82,76 @@ fn track(number: u32, label: &'static str, state: Option<StatePolicy>) -> Descri
         kind: TrackKind::Events(EventsDef::INSTANTS),
         relations: RefVec::Slice { slice: &[] },
         owner: [0; 32],
-    })
+    }
 }
 
-/// The definitions the template holds: the clock, the stream track and the state tracks. The producer and the
-/// layout (definitions put again 1 KiB on, two copies) are the writer's, in [options].
-pub(crate) fn definitions() -> Definitions {
-    let mut defs = Definitions::new();
-    defs.define_all(&[
-        Describe::Clock(ClockDef {
-            number: ClockNum::new(CLOCK),
+/// The stream track labeled `label`.
+fn stream(clock: ClockNum, label: &'static str) -> TrackSpec<'static> {
+    track(STREAM, clock, label, None)
+}
+
+/// The numbers the template's data is written on.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct StateTracks {
+    pub(crate) clock: ClockNum,
+    pub(crate) stream: TrackNum,
+    pub(crate) states: [TrackNum; 2],
+}
+
+/// The definitions the template holds: the clock, the stream track and the state tracks, under [CLOCK], [STREAM]
+/// and [STATES] fresh, else numbered as the piece `resumed` read numbers them. The producer and the layout
+/// (definitions put again 1 KiB on, two copies) are the writer's, in [options].
+pub(crate) fn definitions(resumed: Option<&ww_tape::Resumed>) -> (Definitions, StateTracks) {
+    let mut defs = resumed.map_or_else(Definitions::new, |r| {
+        Definitions::with_numbers(r.numbers.clone())
+    });
+    let clock = defs
+        .define_clock(ClockSpec {
             key: clock_key(0x57, &[], 1),
             rate: Magnitude::pow10(9).into(),
             resolution: Magnitude::pow10(-9).into(),
             origin: ClockOrigin::Boot,
             label: "host",
-        }),
-        track(STREAM, "stream", None),
-        track(STATES[0], "near", Some(policy(512, 1))),
-        track(STATES[1], "far", Some(policy(4096, 2))),
-    ])
-    .expect("the definitions hold");
-    defs
+        })
+        .expect("the clock holds");
+    let stream = defs
+        .define_track(stream(clock, "stream"))
+        .expect("the track holds");
+    let states = [
+        (STATES[0], "near", policy(512, 1)),
+        (STATES[1], "far", policy(4096, 2)),
+    ]
+    .map(|(index, label, p)| {
+        let t = track(index, clock, label, Some(p));
+        match resumed {
+            Some(_) => defs.define_track(t).expect("the track holds"),
+            None => crate::targets::define_track_as(&mut defs, &t, TrackNum::new(index)),
+        }
+    });
+    if resumed.is_none() {
+        assert_eq!(
+            (clock.get(), stream.get()),
+            (CLOCK, STREAM),
+            "the template's numbers"
+        );
+    }
+    (
+        defs,
+        StateTracks {
+            clock,
+            stream,
+            states,
+        },
+    )
 }
 
 /// A records block of the stream track at tick `k`.
-pub(crate) fn records(id: ww_tape::BlockId, k: i64) -> Vec<u8> {
+pub(crate) fn records(id: ww_tape::BlockId, on: StateTracks, k: i64) -> Vec<u8> {
     let mut buf = [0u8; 128];
-    let mut b =
-        ww_tape::BlockWriter::new(&mut buf, BlockKind::Records, id, &[ClockNum::new(CLOCK)])
-            .expect("a block fits");
-    b.push(
-        TrackNum::new(STREAM),
-        ClockTime::new(ClockNum::new(CLOCK), k),
-        &[&[k as u8; 24]],
-    )
-    .expect("a record fits");
+    let mut b = ww_tape::BlockWriter::new(&mut buf, BlockKind::Records, id, &[on.clock])
+        .expect("a block fits");
+    b.push(on.stream, ClockTime::new(on.clock, k), &[&[k as u8; 24]])
+        .expect("a record fits");
     let len = b.finish();
     buf[..len].to_vec()
 }
@@ -127,23 +166,20 @@ fn template() -> Vec<u8> {
     w.set_near_policy(o.near);
     w.set_layout(o.layout).expect("a new piece takes a layout");
     w.set_producer(&o.producer);
-    let mut defs = definitions();
+    let (mut defs, on) = definitions(None);
     let labels = ["stream", "stream, again", "stream, once more"];
     for k in 0..ROUNDS {
         if k % 7 == 6 {
-            defs.define(&track(STREAM, labels[(k / 7) as usize % 3], None))
+            let again = defs
+                .define_track(stream(on.clock, labels[(k / 7) as usize % 3]))
                 .expect("a label changes");
+            assert_eq!(again, on.stream, "the same track keeps its number");
         }
-        w.put(&defs, TrackNum::new(STATES[0]), k, &[(k % 3) as u8; 12])
+        w.put(&defs, on.states[0], k, &[(k % 3) as u8; 12])
             .expect("a put");
-        w.put(
-            &defs,
-            TrackNum::new(STATES[1]),
-            k,
-            &[(k / 8) as u8 | 0x80; 40],
-        )
-        .expect("a put");
-        w.write_block(&defs, &records(w.next_id(), k))
+        w.put(&defs, on.states[1], k, &[(k / 8) as u8 | 0x80; 40])
+            .expect("a put");
+        w.write_block(&defs, &records(w.next_id(), on, k))
             .expect("a records block");
     }
     let tape = w.sink().tape();

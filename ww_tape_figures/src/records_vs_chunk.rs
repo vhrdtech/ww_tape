@@ -3,6 +3,7 @@
 //! back from the block [ww_tape] wrote.
 
 use anyhow::{Context, ensure};
+use ww_tape::RecordTrack;
 use ww_tape::chunk::write_chunk;
 use ww_tape::payloads::EncodedPayloads;
 use ww_tape::times::EncodedTimes;
@@ -10,8 +11,7 @@ use ww_tape::{
     Block, BlockId, BlockKind, BlockWriter, CRC_LEN, ClockTime, ColumnKind, ColumnSpec, HEADER_LEN,
     SessionTag,
 };
-use ww_tape::{ClockNum, RecordTrack, TrackNum};
-use ww_tape_example::{BOARD_CLOCK, CAN0, frame, key};
+use ww_tape_example::{Drive, DriveNumbers, frame, key};
 
 use crate::OrDebug;
 use crate::svg::Svg;
@@ -41,24 +41,14 @@ fn offset_in(outer: &[u8], inner: &[u8]) -> anyhow::Result<usize> {
     Ok(at)
 }
 
-/// The frames as a records block, and its parts: header, clock table, the records, CRC.
-fn records(frames: &[(i64, Vec<u8>)]) -> anyhow::Result<(Vec<u8>, Vec<Part>)> {
+/// The frames as a records block on the drive's numbers `n`, and its parts: header, clock table, the records, CRC.
+fn records(frames: &[(i64, Vec<u8>)], n: &DriveNumbers) -> anyhow::Result<(Vec<u8>, Vec<Part>)> {
     let mut buf = vec![0u8; 64 << 10];
     let id = BlockId::new(SessionTag::writable(1), 0);
-    let mut w = BlockWriter::new(
-        &mut buf,
-        BlockKind::Records,
-        id,
-        &[ClockNum::new(BOARD_CLOCK)],
-    )
-    .or_debug()?;
+    let mut w = BlockWriter::new(&mut buf, BlockKind::Records, id, &[n.board_clock]).or_debug()?;
     for (t, payload) in frames {
-        w.push(
-            TrackNum::new(CAN0),
-            ClockTime::new(ClockNum::new(BOARD_CLOCK), *t),
-            &[payload],
-        )
-        .or_debug()?;
+        w.push(n.can0, ClockTime::new(n.board_clock, *t), &[payload])
+            .or_debug()?;
     }
     let len = w.finish();
     buf.truncate(len);
@@ -74,7 +64,7 @@ fn records(frames: &[(i64, Vec<u8>)]) -> anyhow::Result<(Vec<u8>, Vec<Part>)> {
     for r in block.records() {
         let r = r.or_debug()?;
         ensure!(
-            r.track == RecordTrack::from_u32(CAN0),
+            r.track == RecordTrack::Data(n.can0),
             "every record is a frame of can0"
         );
         ends.push(offset_in(&buf, r.item)? + r.item.len());
@@ -113,12 +103,12 @@ fn records(frames: &[(i64, Vec<u8>)]) -> anyhow::Result<(Vec<u8>, Vec<Part>)> {
 }
 
 /// The frames as an events chunk, and its parts: header, chunk head, column table and segment CRC, the columns, the
-/// zeros after them, CRC.
-fn chunk(frames: &[(i64, Vec<u8>)]) -> anyhow::Result<(Vec<u8>, Vec<Part>)> {
+/// zeros after them, CRC; on the drive's numbers `n`.
+fn chunk(frames: &[(i64, Vec<u8>)], n: &DriveNumbers) -> anyhow::Result<(Vec<u8>, Vec<Part>)> {
     let starts: Vec<i64> = frames.iter().map(|f| f.0).collect();
     let times = EncodedTimes::encode(&starts, None, None).or_debug()?;
     let payloads = EncodedPayloads::encode(frames.iter().map(|f| f.1.as_slice())).or_debug()?;
-    let head = times.head.chunk_head(key("can0"), TrackNum::new(CAN0), 0);
+    let head = times.head.chunk_head(key("can0"), n.can0, 0);
     let columns: Vec<(ColumnSpec, &[u8])> = times.columns().chain(payloads.columns()).collect();
     let mut buf = vec![0u8; 64 << 10];
     let id = BlockId::new(SessionTag::writable(1), 0);
@@ -178,8 +168,9 @@ fn chunk(frames: &[(i64, Vec<u8>)]) -> anyhow::Result<(Vec<u8>, Vec<Part>)> {
 pub fn records_vs_chunk() -> anyhow::Result<String> {
     let frames: Vec<(i64, Vec<u8>)> = (0..FRAMES).map(|k| frame(k, PERIOD_US)).collect();
     let payload: usize = frames.iter().map(|f| f.1.len()).sum();
-    let (rec, rec_parts) = records(&frames)?;
-    let (chk, chk_parts) = chunk(&frames)?;
+    let n = Drive::full().numbers().or_debug()?;
+    let (rec, rec_parts) = records(&frames, &n)?;
+    let (chk, chk_parts) = chunk(&frames, &n)?;
     let (left, width) = (20.0, 640.0);
     let px = width / rec.len() as f64;
     let mut s = Svg::new(

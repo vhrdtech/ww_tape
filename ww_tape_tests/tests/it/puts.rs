@@ -3,8 +3,8 @@
 //! side review 3).
 
 use crate::definitions::{
-    CLOCK, Rig, base, begin, labeled, on_tracks, options, puts, puts_of, record_blocks, state,
-    track, write_on, writes_of,
+    CLOCK, Rig, base, begin, begin_numbered, labeled, on_tracks, options, puts, puts_of,
+    record_blocks, state, track, write_on, writes_of,
 };
 use crate::pieces::{chunk, column, scratch};
 use ww_tape::index::IndexPolicy;
@@ -50,13 +50,13 @@ fn data_on(bytes: &[u8], track: u32) -> u64 {
 #[test]
 fn a_full_cap_never_stops_a_close() {
     let mut w = aligned(16);
-    w.define(&state(12)).unwrap();
+    w.define(&state(10)).unwrap();
     let tape = w.sink().tape();
     w.defer_block(on_tracks(w.next_id(), &[(2, 1, b"deferred")]))
         .unwrap();
     let mut k = 0u8;
     let e = loop {
-        match w.put(12, i64::from(k), &[k]) {
+        match w.put(10, i64::from(k), &[k]) {
             Ok(_) => k += 1,
             Err(e) => break e,
         }
@@ -102,14 +102,14 @@ fn a_full_cap_never_stops_a_cut() {
     )
     .unwrap();
     let mut defs = crate::definitions::base_defs().clone();
-    defs.define(&state(12)).unwrap();
+    crate::definitions::hold(&mut defs, core::slice::from_ref(&state(10))).unwrap();
     let id = chain.writer().unwrap().next_id();
     chain
         .defer_block(&defs, on_tracks(id, &[(2, 1, b"deferred")]))
         .unwrap();
     for k in 0..12u8 {
         chain
-            .put(&defs, TrackNum::new(12), i64::from(k), &[k])
+            .put(&defs, TrackNum::new(10), i64::from(k), &[k])
             .unwrap();
     }
     let pieces = chain.close().unwrap();
@@ -180,7 +180,7 @@ fn a_deferred_block_waits_at_most_the_window() {
 /// puts track 7's definition in the new piece before it (writing side review 3, point 2).
 #[test]
 fn a_relayed_put_takes_its_definitions_into_each_piece() {
-    let mut w = begin(options(u64::MAX));
+    let mut w = begin_numbered(options(u64::MAX), Layout::UNALIGNED, &[state(7)]);
     w.define(&state(7)).unwrap();
     let producer = BlockId::new(SessionTag::random(), 3);
     w.write_block(&puts_of(producer, &[], &[(7, 1, b"A")]))

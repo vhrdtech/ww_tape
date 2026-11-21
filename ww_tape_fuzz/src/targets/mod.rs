@@ -62,3 +62,36 @@ pub const ALL: [(&str, Target); 20] = [
 pub fn by_name(name: &str) -> Option<Target> {
     ALL.iter().find(|(n, _)| *n == name).map(|(_, t)| *t)
 }
+
+/// Define `spec` in `defs` as track `number`, which no track has taken: the lower numbers still free go to
+/// placeholder tracks, defined and closed, so a template keeps the numbers its seeds were written with.
+///
+/// # Panics
+///
+/// When `number` is taken, or a definition is refused.
+pub(crate) fn define_track_as(
+    defs: &mut ww_tape::Definitions,
+    spec: &ww_tape::TrackSpec<'_>,
+    number: ww_tape::TrackNum,
+) -> ww_tape::TrackNum {
+    let mut placeholders = vec![];
+    for k in 0u32.. {
+        let mut probe = defs.clone();
+        let n = probe.define_track(spec.clone()).expect("the track holds");
+        if n == number {
+            *defs = probe;
+            break;
+        }
+        assert!(n < number, "track {number} is taken: {n} comes next");
+        let placeholder = ww_tape::TrackSpec {
+            key: ww_tape::track_key(0x91ace, &[ww_tape::Segment::Index(k)]),
+            label: "placeholder",
+            ..spec.clone()
+        };
+        placeholders.push(defs.define_track(placeholder).expect("a placeholder holds"));
+    }
+    for p in placeholders {
+        defs.close(p);
+    }
+    number
+}

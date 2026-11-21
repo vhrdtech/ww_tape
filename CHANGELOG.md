@@ -12,10 +12,14 @@ Covers `ww_tape` 0.1.0.
 
 ### Breaking
 
-- Track and clock numbers are `TrackNum` and `ClockNum` (1 and up) in definitions, records, chunks, slots and errors; build them with `TrackNum::new(n)` (READ-5).
+- Track and clock numbers are `TrackNum` and `ClockNum`, 1 and up, everywhere; build them with `TrackNum::new(n)` (READ-5).
 - `Record::track`, `RecordRef::track` and `Block::first_track` are a `RecordTrack`; `DESCRIBE_TRACK` and `NO_CLOCK` are gone, use `RecordTrack::Definitions` (READ-5).
 - `PushError::DescribeTrack` and `BlockStartError::NoClock` are gone: the types exclude them; `DescribeError::RecordTime` refuses a mismatched `RecordRef` (READ-5).
 - `IndexEntry::track_number` is `number`, the raw field; `IndexEntry::track()` gives a chunk's or summary's `TrackNum` (READ-5).
+- Define tracks and clocks with `Definitions::define_track(TrackSpec)` and `define_clock(ClockSpec)`, which return their numbers (WRITE-11).
+- `Definitions::define` and `define_all` refuse a track or clock: `DescribeError::Numbered` (WRITE-11).
+- After a resume, start the definitions with `Definitions::with_numbers(resumed.numbers)` to keep each track's number (WRITE-11).
+- `ww_tape_example` drops its number constants: `definitions()` returns the numbers as `DriveNumbers` (WRITE-11).
 - The finish block is the close record (kind 8, new layout): `Close`, `CloseBlock`, `write_close`, `close_len`, `close_padding` (WRITE-7).
 - `FinishState` splits: `CloseReason` (`Closed`, `Aborted`) says why; a piece continues iff its close names `next` (WRITE-7).
 - `TapeWriter::finish`/`finish_as` are `close`/`close_as(CloseReason)`, returning `Closed`; `PieceChain` likewise; `TapeSink::finish` is `close` (WRITE-7).
@@ -203,6 +207,7 @@ Covers `ww_tape` 0.1.0.
 ### Features
 
 - Book: the footer shows the crate version, commit and build time, and how long ago that was (BOOK-2).
+- `DefinitionsAt::track_number` finds a track's number by its id among the definitions in force (WRITE-11).
 - Book: tables keep code whole; snippets are dedented, with a collapsible of the example items they use (BOOK-2).
 - `FileSink::warning` returns an `FsWarning` naming a network or user-space file system (NFS, SMB, FUSE) (FS-1).
 - A fork handler keeps a file sink's lock out of a child process forked meanwhile (FS-1).

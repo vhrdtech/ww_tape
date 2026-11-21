@@ -2,12 +2,11 @@
 //! what each reader still gets from the piece.
 
 use core::ops::Range;
-use ww_tape::TrackNum;
 
 use ww_tape::reader::Found;
 use ww_tape::{BlockKind, ColumnKind, FileBlocks, FileError, Recovery, Samples, Slot, TapeReader};
 
-use crate::defs::{MODE, PHASE_A, phase_def};
+use crate::defs::{key, phase_def};
 use crate::record::Recording;
 use crate::signals::US_PER_MS;
 use crate::{Drive, Error};
@@ -123,7 +122,7 @@ fn report(e: &FileError) -> (u64, &'static str, u64) {
 /// The samples of a series chunk of `drive`'s `phase_a` in groups whose bytes lie in a bad segment.
 fn samples_lost(drive: &Drive, chunk: &ww_tape::Chunk<'_>) -> Option<u64> {
     let head = chunk.head();
-    if head.track_number != TrackNum::new(PHASE_A) {
+    if head.track_id != key("phase_a") {
         return None;
     }
     let def = phase_def(drive.phase_hz, drive.summaries)?;
@@ -231,24 +230,20 @@ impl Damaged {
             .copied()
             .collect();
         let definitions = r.definitions_at(0, u64::MAX)?.items.len();
-        let definitions_written = TapeReader::open(&self.whole[..])?
-            .definitions_at(0, u64::MAX)?
-            .items
-            .len();
+        let written = TapeReader::open(&self.whole[..])?.definitions_at(0, u64::MAX)?;
+        let definitions_written = written.items.len();
+        // the mode's number, found by its key where the recording is whole
+        let mode = written
+            .track_number(key("mode"), [0; 32])
+            .ok_or(Error::Settings("the recording defines the mode"))?;
         let mut mode_unknown = Vec::new();
         for e in entries
             .iter()
             .filter(|e| matches!(e.kind, BlockKind::Series | BlockKind::Events))
         {
-            if r.state_at(
-                0,
-                Slot::State {
-                    track: TrackNum::new(MODE),
-                },
-                e.offset,
-            )?
-            .item
-            .is_none()
+            if r.state_at(0, Slot::State { track: mode }, e.offset)?
+                .item
+                .is_none()
             {
                 mode_unknown.push(e.first_tick);
             }
@@ -320,7 +315,7 @@ impl Recording {
     pub fn story_flip(&self) -> Result<(usize, u64), Error> {
         let at = i64::from(FLIP_MINUTE) * 60_000 * US_PER_MS;
         let byte = self
-            .chunk_at(TrackNum::new(PHASE_A), at)
+            .chunk_at(self.numbers.phase_a, at)
             .ok_or(Error::Settings(
                 "the run ends before the flipped bit's minute",
             ))?;

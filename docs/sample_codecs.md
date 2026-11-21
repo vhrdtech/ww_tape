@@ -18,7 +18,7 @@ A [[series chunk]] of the drive holds a second of `phase_a`: 25 000 samples as `
 --8<-- "ww_tape_example/src/record.rs:samples"
 ```
 
-??? example "What the example uses here: `the clock and track numbers`, `key`, `phase_def, phase_shape`, `Act`"
+??? example "What the example uses here: `DriveNumbers`, `key`, `phase_def, phase_shape`, `Act`"
 
     ```rs
     --8<-- "ww_tape_example/src/defs.rs:ids_item"

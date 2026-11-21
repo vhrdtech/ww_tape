@@ -13,10 +13,10 @@ use ww_tape::writer::NearPolicy;
 use ww_tape::{
     Block, BlockId, BlockKind, BlockWriter, ClockDef, ClockOrigin, ClockTime, Definitions,
     Describe, DescribeError, DescribeOwned, EventsDef, FileBlocks, FullVersion, Layout, Magnitude,
-    MemSink, Producer, Recovery, RelationDef, RelationIndex, RelationTarget, RelationValues,
-    STATE_ITEM_MAX, Segment, SessionTag, Slot, StatePolicy, SyncPolicy, TapeReader, TapeSink,
-    TapeWriter, TrackDef, TrackKind, TrackRepeat, TypeRef, TypedItem, Version, WriteError,
-    WriterOptions, clock_key, track_key,
+    MemSink, Numbers, Producer, Recovery, RelationDef, RelationIndex, RelationTarget,
+    RelationValues, STATE_ITEM_MAX, Segment, SessionTag, Slot, StatePolicy, SyncPolicy, TapeReader,
+    TapeSink, TapeWriter, TrackDef, TrackKind, TrackRepeat, TypeRef, TypedItem, Version,
+    WriteError, WriterOptions, clock_key, track_key,
 };
 
 const TRACK_1: TrackNum = TrackNum::new(1);
@@ -31,7 +31,7 @@ pub(crate) const CLOCK: u32 = 1;
 pub(crate) fn clock(number: u32) -> Describe<'static> {
     Describe::Clock(ClockDef {
         number: ClockNum::new(number),
-        key: clock_key(0xad, &[], 1),
+        key: clock_key(0xad, &[], u64::from(number)),
         rate: Magnitude::pow10(9).into(),
         resolution: Magnitude::pow10(-9).into(),
         origin: ClockOrigin::Boot,
@@ -104,6 +104,81 @@ pub(crate) fn base(layout: Layout) -> Vec<Describe<'static>> {
     out
 }
 
+/// Hold `batch` in `defs` as a producer defines it: each clock through [Definitions::define_clock_with_maps], an
+/// epoch clock with the maps from it in the batch, then the other definitions, then each track through
+/// [Definitions::define_track].
+/// The tests name tracks and clocks by the numbers they expect: each number given must be the one written in `batch`.
+pub(crate) fn hold(defs: &mut Definitions, batch: &[Describe<'_>]) -> Result<(), DescribeError> {
+    let maps_from = |from| -> Vec<(ClockNum, &[ww_tape::MapSegment])> {
+        batch
+            .iter()
+            .filter_map(|d| match d {
+                Describe::Map(m) if m.from == from => match &m.segments {
+                    RefVec::Slice { slice } => Some((m.to, *slice)),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect()
+    };
+    let epochs: Vec<ClockNum> = batch
+        .iter()
+        .filter_map(|d| match d {
+            Describe::Clock(c) if c.origin == ClockOrigin::Epoch => Some(c.number),
+            _ => None,
+        })
+        .collect();
+    for d in batch {
+        if let Describe::Clock(c) = d {
+            let maps = if epochs.contains(&c.number) {
+                maps_from(c.number)
+            } else {
+                Vec::new()
+            };
+            let given = defs.define_clock_with_maps(c.spec(), &maps)?;
+            assert_eq!(given, c.number, "clock {} is defined as {given}", c.number);
+        }
+    }
+    let rest: Vec<Describe<'_>> = batch
+        .iter()
+        .filter(|d| match d {
+            Describe::Clock(_) | Describe::Track(_) => false,
+            Describe::Map(m) => !epochs.contains(&m.from),
+            _ => true,
+        })
+        .cloned()
+        .collect();
+    defs.define_all(&rest)?;
+    for d in batch {
+        if let Describe::Track(t) = d {
+            let given = defs.define_track(t.spec())?;
+            assert_eq!(given, t.number, "track {} is defined as {given}", t.number);
+        }
+    }
+    Ok(())
+}
+
+/// The numbers `batch` writes its tracks and clocks under: what an application that numbered them before passes to
+/// [Definitions::with_numbers], so that defining them gives these numbers back.
+pub(crate) fn numbers_of(batch: &[Describe<'_>]) -> Numbers {
+    let mut n = Numbers::new();
+    for d in batch {
+        match d {
+            Describe::Track(t) => n.take_track(t.number, t.id(), t.owner),
+            Describe::Clock(c) => n.take_clock(c.number, c.key),
+            _ => {}
+        }
+    }
+    n
+}
+
+/// Definitions holding `batch`, numbered as `batch` writes it ([numbers_of]).
+pub(crate) fn held(batch: &[Describe<'_>]) -> Definitions {
+    let mut defs = Definitions::with_numbers(numbers_of(batch));
+    hold(&mut defs, batch).unwrap();
+    defs
+}
+
 /// A writer and the definitions the test passes with each call: the application's side of [TapeWriter].
 pub(crate) struct Rig<S: TapeSink = MemSink> {
     pub w: TapeWriter<S>,
@@ -125,9 +200,14 @@ impl<S: TapeSink> std::ops::DerefMut for Rig<S> {
 
 impl<S: TapeSink> Rig<S> {
     pub(crate) fn new(w: TapeWriter<S>) -> Self {
+        Self::with_numbers(w, Numbers::new())
+    }
+
+    /// A rig whose definitions number tracks and clocks as `numbers` does ([Definitions::with_numbers]).
+    pub(crate) fn with_numbers(w: TapeWriter<S>, numbers: Numbers) -> Self {
         Self {
             w,
-            defs: Definitions::new(),
+            defs: Definitions::with_numbers(numbers),
         }
     }
 
@@ -146,7 +226,7 @@ impl<S: TapeSink> Rig<S> {
                 d => held.push(d.clone()),
             }
         }
-        self.defs.define_all(&held)
+        hold(&mut self.defs, &held)
     }
 
     pub(crate) fn close(&mut self, number: u32) -> bool {
@@ -184,7 +264,7 @@ pub(crate) fn base_defs() -> &'static Definitions {
     static D: std::sync::OnceLock<Definitions> = std::sync::OnceLock::new();
     D.get_or_init(|| {
         let mut d = Definitions::new();
-        d.define_all(&base(Layout::UNALIGNED)[2..]).unwrap();
+        crate::definitions::hold(&mut d, &base(Layout::UNALIGNED)[2..]).unwrap();
         d
     })
 }
@@ -289,6 +369,11 @@ pub(crate) fn options(copy_spacing: u64) -> WriterOptions {
 
 /// A first piece on a memory sink with a producer, `layout`, a clock and track 1 defined, not yet flushed.
 fn begin_with(o: WriterOptions, layout: Layout) -> Rig {
+    begin_numbered(o, layout, &[])
+}
+
+/// [begin_with], the definitions numbering the tracks and clocks of `later` as it writes them ([numbers_of]).
+pub(crate) fn begin_numbered(o: WriterOptions, layout: Layout, later: &[Describe<'_>]) -> Rig {
     let mut w = TapeWriter::create_on(MemSink::new(), o.sync);
     w.set_index_policy(o.index)
         .expect("a policy with room for a piece head");
@@ -310,8 +395,9 @@ fn begin_with(o: WriterOptions, layout: Layout) -> Rig {
         &[],
     )
     .unwrap();
-    let mut w = Rig::new(w);
-    define_all(&mut w, &[clock(CLOCK), track(1, CLOCK)]);
+    let first = [clock(CLOCK), track(1, CLOCK)];
+    let mut w = Rig::with_numbers(w, numbers_of(&[&first[..], later].concat()));
+    define_all(&mut w, &first);
     w
 }
 
@@ -646,8 +732,9 @@ fn a_reader_keeps_the_state_entries_once_read() {
 /// track, on a track not open or of an item too long for a block is refused.
 #[test]
 fn a_put_writes_only_what_is_not_close_behind() {
-    let mut w = begin(options(u64::MAX));
-    define_all(&mut w, &[state_with(5, NEAR_2K)]);
+    let fives = [state_with(5, NEAR_2K)];
+    let mut w = begin_numbered(options(u64::MAX), Layout::UNALIGNED, &fives);
+    define_all(&mut w, &fives);
     let tape = w.sink().tape();
     assert!(w.put(5, 0, b"A").unwrap());
     assert!(!w.put(5, 1, b"A").unwrap());
@@ -950,12 +1037,13 @@ fn a_producers_block_of_puts_is_put_on_the_tape() {
 /// least `copy_spacing` behind; nothing is written ahead, and a new item in the slot starts over.
 #[test]
 fn a_use_writes_the_copies() {
-    let mut w = begin(options(1024));
     let policy = StatePolicy {
         near: exact_units::Bytes::new(1 << 20),
         copies: exact_units::Count::new(2),
     };
-    define_all(&mut w, &[state_with(5, policy), state_with(6, policy)]);
+    let states = [state_with(5, policy), state_with(6, policy)];
+    let mut w = begin_numbered(options(1024), Layout::UNALIGNED, &states);
+    define_all(&mut w, &states);
     let tape = w.sink().tape();
     assert!(w.put(5, 0, b"five").unwrap());
     w.put(6, 0, b"six").unwrap();
@@ -996,7 +1084,11 @@ fn a_use_writes_the_copies() {
 /// it is held again, and the writer writes nothing for it.
 #[test]
 fn a_track_dropped_from_the_definitions_is_refused() {
-    let mut w = begin(options(u64::MAX));
+    let mut w = begin_numbered(
+        options(u64::MAX),
+        Layout::UNALIGNED,
+        &[clock(2), track(7, 2)],
+    );
     define_all(&mut w, &[clock(2), track(7, 2)]);
     write_records(&mut w, 0, 1);
     let tape = w.sink().tape();
@@ -1027,25 +1119,113 @@ fn a_track_dropped_from_the_definitions_is_refused() {
     w.close_piece().unwrap();
 }
 
+/// The track spec of [track]-like `d`.
+fn track_spec(d: Describe<'static>) -> ww_tape::TrackSpec<'static> {
+    let Describe::Track(t) = d else {
+        unreachable!("a track")
+    };
+    t.spec()
+}
+
+/// The clock spec of [clock] `number`.
+fn clock_spec(number: u32) -> ww_tape::ClockSpec<'static> {
+    let Describe::Clock(c) = clock(number) else {
+        unreachable!("clock() gives a clock")
+    };
+    c.spec()
+}
+
+/// Definitions number tracks and clocks by identity: the same one defined again gets its number back, a new one the
+/// lowest not taken; a closed track's number stays its own, and the same key with another owner is another track.
+#[test]
+fn definitions_number_tracks_and_clocks_by_identity() {
+    let mut defs = Definitions::new();
+    assert_eq!(defs.define_clock(clock_spec(CLOCK)), Ok(ClockNum::new(1)));
+    assert_eq!(
+        defs.define_clock(clock_spec(CLOCK)),
+        Ok(ClockNum::new(1)),
+        "the same key"
+    );
+    assert_eq!(defs.define_clock(clock_spec(7)), Ok(ClockNum::new(2)));
+    let (a, b, c) = (
+        track_spec(track(40, CLOCK)),
+        track_spec(track(41, CLOCK)),
+        track_spec(track(42, CLOCK)),
+    );
+    assert_eq!(defs.define_track(a.clone()), Ok(TRACK_1));
+    assert_eq!(defs.define_track(b.clone()), Ok(TRACK_2));
+    // the same identity with another label: its number, the definition replaced
+    assert_eq!(
+        defs.define_track(track_spec(labeled(40, CLOCK, "renamed"))),
+        Ok(TRACK_1)
+    );
+    assert_eq!(defs.tracks().count(), 2);
+    // a new track doesn't take a closed track's number; the closed one defined again gets it back
+    assert!(defs.close(TRACK_1));
+    assert_eq!(defs.define_track(c), Ok(TrackNum::new(3)));
+    assert_eq!(defs.define_track(a.clone()), Ok(TRACK_1));
+    // the owner is part of the identity, not of the id
+    let owned = ww_tape::TrackSpec {
+        owner: [4; 32],
+        ..b.clone()
+    };
+    assert_eq!(owned.id(), b.id());
+    assert_eq!(defs.define_track(owned), Ok(TrackNum::new(4)));
+    assert_eq!(defs.numbers().track(b.id(), b.owner), Some(TRACK_2));
+    assert_eq!(defs.numbers().track(a.id(), [4; 32]), None);
+}
+
+/// [Definitions::define] and [Definitions::define_all] take no track and no clock ([DescribeError::Numbered]): those
+/// are numbered by [Definitions::define_track] and [Definitions::define_clock]. Nothing of a refused batch is held.
+#[test]
+fn define_all_refuses_a_track_or_a_clock() {
+    let mut defs = Definitions::new();
+    assert_eq!(defs.define(&clock(CLOCK)), Err(DescribeError::Numbered));
+    assert_eq!(defs.define(&track(1, CLOCK)), Err(DescribeError::Numbered));
+    assert!(defs.is_empty());
+    defs.define_clock(clock_spec(CLOCK)).unwrap();
+    defs.define_clock(clock_spec(2)).unwrap();
+    let seg =
+        [ww_tape::MapSegment::new(0, None, 0, ww_tape::Ratio64::new(1, 1).unwrap(), 0).unwrap()];
+    let map = Describe::Map(ww_tape::ClockMap {
+        from: ClockNum::new(CLOCK),
+        to: ClockNum::new(2),
+        segments: RefVec::Slice { slice: &seg },
+    });
+    assert_eq!(
+        defs.define_all(&[map.clone(), track(1, CLOCK)]),
+        Err(DescribeError::Numbered)
+    );
+    assert_eq!(defs.len(), 2, "the map is not held");
+    assert_eq!(defs.define_all(core::slice::from_ref(&map)), Ok(()));
+    assert_eq!(defs.len(), 3);
+}
+
 /// The definitions say how much they hold, for the application to bound; the producer and the layout are the
 /// writer's own, not definitions to hold.
 #[test]
 fn definitions_report_their_size() {
     let mut defs = Definitions::new();
     assert!(defs.is_empty());
-    defs.define_all(&[clock(CLOCK), track(1, CLOCK)]).unwrap();
+    crate::definitions::hold(&mut defs, &[clock(CLOCK), track(1, CLOCK)]).unwrap();
     assert_eq!(defs.len(), 2);
     let bytes = defs.bytes();
     assert!(bytes > 0);
-    defs.define(&labeled(1, CLOCK, "a longer label than before"))
-        .unwrap();
+    crate::definitions::hold(
+        &mut defs,
+        core::slice::from_ref(&labeled(1, CLOCK, "a longer label than before")),
+    )
+    .unwrap();
     assert_eq!(defs.len(), 2);
     assert!(defs.bytes() > bytes);
     for d in [
         Describe::Producer(Producer { name: "p" }),
         Describe::Layout(Layout::UNALIGNED),
     ] {
-        assert_eq!(defs.define(&d), Err(DescribeError::WriterOwned));
+        assert_eq!(
+            crate::definitions::hold(&mut defs, core::slice::from_ref(&d)),
+            Err(DescribeError::WriterOwned)
+        );
     }
 }
 
@@ -1132,9 +1312,7 @@ fn a_resumed_piece_takes_the_definitions_passed() {
         cut: ww_tape::CutPolicy::default(),
     };
     let owner = OwnerId([6; 32]);
-    let mut defs = Definitions::new();
-    defs.define_all(&[clock(CLOCK), track(5, CLOCK), track(9, CLOCK)])
-        .unwrap();
+    let defs = held(&[clock(CLOCK), track(5, CLOCK), track(9, CLOCK)]);
     let write = |c: &mut ww_tape::PieceChain<ww_tape_fs::Files>,
                  defs: &Definitions,
                  track: u32,
@@ -1310,12 +1488,13 @@ fn a_block_on_many_tracks_puts_each_definition_once() {
 /// again (writing side review 2, point 11).
 #[test]
 fn near_is_measured_to_the_data() {
-    let mut w = begin_with(
+    let defs: Vec<Describe<'_>> = (10..70).map(|n| track(n, CLOCK)).collect();
+    let mut w = begin_numbered(
         options(u64::MAX),
         Layout::UNALIGNED.with_definitions(NEAR_2K),
+        &[&defs[..], &[track(2, CLOCK)]].concat(),
     );
     let tape = w.sink().tape();
-    let defs: Vec<Describe<'_>> = (10..70).map(|n| track(n, CLOCK)).collect();
     w.define_all(&defs).unwrap();
     write_records(&mut w, 0, 100);
     w.define(&track(2, CLOCK)).unwrap();
@@ -1503,15 +1682,18 @@ fn a_tracks_relations_are_checked_by_themselves() {
         RelationIndex::Postings,
     )];
     assert_eq!(check(&with(related(3, KEYS))), Ok(()));
-    let mut defs = Definitions::new();
-    defs.define(&clock(CLOCK)).unwrap();
+    let mut defs = Definitions::with_numbers(numbers_of(&[clock(CLOCK), decoded.clone()]));
+    crate::definitions::hold(&mut defs, core::slice::from_ref(&clock(CLOCK))).unwrap();
     assert_eq!(
-        defs.define(&related(3, KEYS)),
+        crate::definitions::hold(&mut defs, core::slice::from_ref(&related(3, KEYS))),
         Err(DescribeError::RelationNotBuilt {
             track: TrackNum::new(3)
         })
     );
-    assert_eq!(defs.define(&decoded), Ok(()));
+    assert_eq!(
+        crate::definitions::hold(&mut defs, core::slice::from_ref(&decoded)),
+        Ok(())
+    );
 }
 
 /// A track's relations are not part of its identity: its id is the same with any relations or none.
@@ -1539,9 +1721,9 @@ fn relation_columns_match_the_stored_relations() {
         CONTEXT,
         rel("key", RelationValues::Stored, false, RelationIndex::None),
     ];
-    let mut defs = Definitions::new();
-    defs.define(&clock(CLOCK)).unwrap();
-    defs.define(&related(3, RELATIONS)).unwrap();
+    let mut defs = Definitions::with_numbers(numbers_of(&[clock(CLOCK), related(3, RELATIONS)]));
+    crate::definitions::hold(&mut defs, core::slice::from_ref(&clock(CLOCK))).unwrap();
+    crate::definitions::hold(&mut defs, core::slice::from_ref(&related(3, RELATIONS))).unwrap();
     let col = |param: u16, codec: u8| ww_tape::ColumnSpec {
         kind: ww_tape::ColumnKind::Relation,
         codec: ww_tape::Codec(codec),

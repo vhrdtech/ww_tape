@@ -17,7 +17,7 @@ use ww_tape::{
 };
 use ww_tape_summary::{SeriesStart, SeriesSummaries};
 
-use crate::defs::{BOARD_CLOCK, CAN0, LOG, MODE, PHASE_A, TEMP, definitions, key};
+use crate::defs::{DriveNumbers, define, definitions, key};
 use crate::signals::{
     CRASH_MINUTE, FAULT_MINUTE, Mode, US_PER_HOUR, US_PER_MS, emergency_frame, frame, log_line,
     phase_ma, temp_centi,
@@ -39,7 +39,7 @@ pub enum Act {
     /// A put of the mode in force from `ticks` on.
     Put { ticks: i64, mode: Mode },
     /// A records block: log lines and temperatures, (track, ticks, item) in time order.
-    Records(Vec<(u32, i64, Vec<u8>)>),
+    Records(Vec<(TrackNum, i64, Vec<u8>)>),
     /// A chunk of `can0` or `phase_a`: its head and columns.
     Chunk {
         head: Box<ChunkHead>,
@@ -54,6 +54,8 @@ pub enum Act {
 /// frames, a chunk of samples and the summary blocks those samples finish; the last summaries at the end.
 struct Acts {
     drive: Drive,
+    /// The numbers of the drive's clocks and tracks
+    numbers: DriveNumbers,
     /// The next block of the run
     block: u64,
     blocks: u64,
@@ -86,6 +88,7 @@ impl Acts {
         if drive.block_ms == 0 || 60_000 % drive.block_ms != 0 {
             return Err(Error::Settings("block_ms divides a minute"));
         }
+        let numbers = drive.numbers()?;
         let run_ms = u64::from(drive.minutes) * 60_000;
         let blocks = run_ms.div_ceil(u64::from(drive.block_ms));
         let summaries = if drive.summaries {
@@ -94,7 +97,7 @@ impl Acts {
             // --8<-- [start:summaries]
             let start = SeriesStart {
                 track_id: key("phase_a"),
-                track_number: TrackNum::new(PHASE_A),
+                track_number: numbers.phase_a,
                 shape: crate::defs::phase_shape(&def),
                 first_item: 0,
                 grid: def.first_grid(0),
@@ -107,6 +110,7 @@ impl Acts {
         };
         Ok(Self {
             drive,
+            numbers,
             block: 0,
             blocks,
             summaries,
@@ -150,13 +154,21 @@ impl Acts {
         if log > 0 {
             for n in first_at(t0, log)..first_at(t1, log) {
                 let us = item_us(n, log);
-                records.push((LOG, us, log_line(n, us / US_PER_MS).into_bytes()));
+                records.push((
+                    self.numbers.log,
+                    us,
+                    log_line(n, us / US_PER_MS).into_bytes(),
+                ));
             }
         }
         if temp > 0 {
             for n in first_at(t0, temp)..first_at(t1, temp) {
                 let us = item_us(n, temp);
-                records.push((TEMP, us, temp_centi(us / US_PER_MS).to_le_bytes().to_vec()));
+                records.push((
+                    self.numbers.temp,
+                    us,
+                    temp_centi(us / US_PER_MS).to_le_bytes().to_vec(),
+                ));
             }
         }
         records.sort_by_key(|&(track, us, _)| (us, track));
@@ -176,7 +188,7 @@ impl Acts {
             let payloads = EncodedPayloads::encode(payloads.iter().map(Vec::as_slice))?;
             let head = times
                 .head
-                .chunk_head(key("can0"), TrackNum::new(CAN0), frames.start);
+                .chunk_head(key("can0"), self.numbers.can0, frames.start);
             let columns = times
                 .columns()
                 .chain(payloads.columns())
@@ -211,7 +223,7 @@ impl Acts {
             let head = ChunkHead {
                 kind: BlockKind::Series,
                 track_id: key("phase_a"),
-                track_number: TrackNum::new(PHASE_A),
+                track_number: self.numbers.phase_a,
                 first_item: samples.start,
                 count,
                 first_tick,
@@ -322,6 +334,8 @@ pub(crate) fn options(drive: &Drive) -> ChainOptions {
 pub(crate) struct Recorder<T: Tapes<Error = MemError> = MemTapes> {
     pub(crate) chain: PieceChain<T>,
     pub(crate) defs: Definitions,
+    /// The numbers `defs` gave the drive's clocks and tracks.
+    pub(crate) numbers: DriveNumbers,
 }
 // --8<-- [end:recorder_item]
 
@@ -364,12 +378,16 @@ impl<T: Tapes<Error = MemError>> Recorder<T> {
                 made.put =
                     Some(
                         self.chain
-                            .put(&self.defs, TrackNum::new(MODE), *ticks, mode.item())?,
+                            .put(&self.defs, self.numbers.mode, *ticks, mode.item())?,
                     );
                 made.first_tick = *ticks;
             }
             Act::Records(records) => {
-                let block = records_block(self.chain.writer()?.next_id(), records)?;
+                let block = records_block(
+                    self.chain.writer()?.next_id(),
+                    self.numbers.board_clock,
+                    records,
+                )?;
                 self.chain.write_block(&self.defs, &block)?;
             }
             Act::Chunk { head, columns } => {
@@ -395,8 +413,12 @@ impl<T: Tapes<Error = MemError>> Recorder<T> {
 }
 
 // --8<-- [start:records_block_item]
-/// A records block numbered `id` of `records`, (track, ticks of the board's clock, item) in time order.
-pub fn records_block(id: BlockId, records: &[(u32, i64, Vec<u8>)]) -> Result<Vec<u8>, Error> {
+/// A records block numbered `id` of `records` on the board's clock `board`, (track, ticks, item) in time order.
+pub fn records_block(
+    id: BlockId,
+    board: ClockNum,
+    records: &[(TrackNum, i64, Vec<u8>)],
+) -> Result<Vec<u8>, Error> {
     let len = records
         .iter()
         .map(|(_, _, item)| item.len() + RECORD_OVERHEAD_MAX)
@@ -404,18 +426,9 @@ pub fn records_block(id: BlockId, records: &[(u32, i64, Vec<u8>)]) -> Result<Vec
         + 256;
     let mut buf = vec![0u8; len];
     // --8<-- [start:records]
-    let mut block = BlockWriter::new(
-        &mut buf,
-        BlockKind::Records,
-        id,
-        &[ClockNum::new(BOARD_CLOCK)],
-    )?;
+    let mut block = BlockWriter::new(&mut buf, BlockKind::Records, id, &[board])?;
     for (track, ticks, item) in records {
-        block.push(
-            TrackNum::new(*track),
-            ClockTime::new(ClockNum::new(BOARD_CLOCK), *ticks),
-            &[item],
-        )?;
+        block.push(*track, ClockTime::new(board, *ticks), &[item])?;
     }
     let len = block.finish(); // the block's header, records and CRC: its bytes in buf
     // --8<-- [end:records]
@@ -447,6 +460,8 @@ pub struct Recording {
     pub pieces: Vec<Vec<u8>>,
     /// The chain's closed pieces: their tapes and how each ended.
     pub closed: Vec<ChainPiece<u64>>,
+    /// The numbers the drive's clocks and tracks were given.
+    pub numbers: DriveNumbers,
     /// What each act did, in order.
     pub(crate) made: Vec<Made>,
 }
@@ -483,7 +498,7 @@ impl Recording {
     /// The byte the story's crash happens at: the middle of the first chunk of `can0` at or after minute 37.
     pub fn story_crash_byte(&self) -> Result<u64, Error> {
         let at = i64::from(CRASH_MINUTE) * 60_000 * US_PER_MS;
-        self.chunks(TrackNum::new(CAN0))
+        self.chunks(self.numbers.can0)
             .find(|m| m.first_tick >= at)
             .map(|m| m.at + m.len / 2)
             .ok_or(Error::Settings("the run ends before minute 37"))
@@ -578,9 +593,18 @@ impl Crashed {
             self.drive.chain,
             options(&self.drive),
         )?;
+        // the tracks and clocks keep the numbers the resumed piece gives them
+        let d = self.drive;
+        let (defs, numbers) = define(
+            Definitions::with_numbers(resumed.numbers.clone()),
+            d.phase_hz,
+            d.summaries,
+            d.near_bytes,
+        )?;
         let mut r = Recorder {
             chain,
-            defs: drive_definitions(&self.drive)?,
+            defs,
+            numbers,
         };
         let piece = r.chain.seq();
         let next = r.chain.writer()?.next_seq();
@@ -606,8 +630,8 @@ impl Crashed {
     }
 }
 
-/// The definitions `drive` records with.
-pub(crate) fn drive_definitions(drive: &Drive) -> Result<Definitions, Error> {
+/// The definitions `drive` records with, and the numbers they give.
+pub(crate) fn drive_definitions(drive: &Drive) -> Result<(Definitions, DriveNumbers), Error> {
     definitions(drive.phase_hz, drive.summaries, drive.near_bytes)
 }
 
@@ -628,15 +652,18 @@ fn close(drive: Drive, r: Recorder, tapes: &MemTapes, made: Vec<Made>) -> Result
         drive,
         pieces,
         closed,
+        numbers: r.numbers,
         made,
     })
 }
 
 impl Drive {
     fn start(&self, tapes: &MemTapes) -> Result<Recorder, Error> {
+        let (defs, numbers) = drive_definitions(self)?;
         Ok(Recorder {
             chain: PieceChain::create_on(tapes.clone(), OWNER, self.chain, &[], options(self))?,
-            defs: drive_definitions(self)?,
+            defs,
+            numbers,
         })
     }
 
@@ -649,9 +676,15 @@ impl Drive {
     // --8<-- [end:drive_acts_item]
 
     // --8<-- [start:drive_definitions_item]
-    /// The definitions the run records with: the two clocks, the map between them and the five tracks.
-    pub fn definitions(&self) -> Result<Definitions, Error> {
+    /// The definitions the run records with: the two clocks, the map between them and the five tracks; and the
+    /// numbers they give the clocks and tracks.
+    pub fn definitions(&self) -> Result<(Definitions, DriveNumbers), Error> {
         drive_definitions(self)
+    }
+
+    /// The numbers the run's definitions give its clocks and tracks.
+    pub fn numbers(&self) -> Result<DriveNumbers, Error> {
+        Ok(drive_definitions(self)?.1)
     }
     // --8<-- [end:drive_definitions_item]
 
@@ -751,10 +784,10 @@ impl Recording {
         let crashed = self.drive.crash(self.story_crash_byte()?)?;
         let crash = crashed.crash;
         let resume = crashed.resume()?;
-        let (frame_bytes, frames) = self.chunk_bytes(TrackNum::new(CAN0));
-        let (sample_bytes, samples) = self.chunk_bytes(TrackNum::new(PHASE_A));
+        let (frame_bytes, frames) = self.chunk_bytes(self.numbers.can0);
+        let (sample_bytes, samples) = self.chunk_bytes(self.numbers.phase_a);
         let torn = self
-            .chunks(TrackNum::new(CAN0))
+            .chunks(self.numbers.can0)
             .find(|m| m.at <= crash.byte && crash.byte < m.at + m.len)
             .ok_or(Error::Settings("the crash tears a chunk of frames"))?;
         Ok(Story {

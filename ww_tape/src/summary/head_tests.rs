@@ -237,7 +237,7 @@ fn a_core_only_tape_lists_verifies_and_skips_summary_blocks() {
     let tape = w.sink().tape();
     w.set_alignment(crate::ALIGNMENT).unwrap();
     let mut defs = Definitions::new();
-    defs.define_all(&series_definitions()).unwrap();
+    crate::tests::hold(&mut defs, &series_definitions()).unwrap();
     for c in 0..chunks {
         let first = (c * chunk) as u64;
         w.defer_block(&defs, series_summary_block(first, chunk as u64))

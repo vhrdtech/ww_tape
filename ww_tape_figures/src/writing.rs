@@ -16,7 +16,7 @@ use ww_tape::piece::close_padding;
 use ww_tape::times::TimeMode;
 use ww_tape::{BlockKind, ColumnKind, FileBlocks, Layout, Recovery, SyncPolicy, TapeReader};
 use ww_tape_example::writing::{SYNC_POLICIES, phase_values, series_tape, sync_offsets};
-use ww_tape_example::{Act, CAN0, Drive, PHASE_A};
+use ww_tape_example::{Act, Drive, DriveNumbers};
 
 use crate::OrDebug;
 use crate::crash::{LEFT, Part, ROW_H, ROW_W, View, drive, kib, legend, row, spans};
@@ -318,10 +318,13 @@ type Columns = (
     Vec<(ww_tape::ColumnSpec, Vec<u8>)>,
 );
 
-fn chunk_at_60_s(track: u32) -> anyhow::Result<Columns> {
-    for act in Drive::full().minutes(2).acts().or_debug()? {
+/// The first chunk from second 60 on of the drive's track `track` names.
+fn chunk_at_60_s(track: fn(&DriveNumbers) -> TrackNum) -> anyhow::Result<Columns> {
+    let drive = Drive::full().minutes(2);
+    let track = track(&drive.numbers().or_debug()?);
+    for act in drive.acts().or_debug()? {
         if let Act::Chunk { head, columns } = act.or_debug()?
-            && head.track_number == TrackNum::new(track)
+            && head.track_number == track
             && head.first_tick >= 60_000_000
         {
             return Ok((*head, columns));
@@ -370,7 +373,7 @@ impl Plot {
 
 /// `linear_group.svg`.
 pub fn linear_group() -> anyhow::Result<String> {
-    let (head, columns) = chunk_at_60_s(CAN0)?;
+    let (head, columns) = chunk_at_60_s(|n| n.can0)?;
     ensure!(head.time_mode == 1, "can0's starts are linear");
     let column = columns
         .iter()
@@ -482,7 +485,7 @@ pub fn linear_group() -> anyhow::Result<String> {
 
 /// `delta_group.svg`.
 pub fn delta_group() -> anyhow::Result<String> {
-    let (head, columns) = chunk_at_60_s(PHASE_A)?;
+    let (head, columns) = chunk_at_60_s(|n| n.phase_a)?;
     let drive = Drive::full();
     let values = phase_values(&drive, head.first_item, 128);
     let diffs: Vec<i64> = values
