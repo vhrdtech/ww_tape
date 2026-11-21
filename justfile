@@ -106,6 +106,10 @@ bench-carried:
 bench-chunks *args:
     cargo run -q --release -p ww_tape_benchmarks --bin chunks -- {{ args }}
 
+# ww_tape: the heap a writer holds over one 256 MiB piece, by tracks and block kind (BOOK-2); `just bench-memory --help`
+bench-memory *args:
+    cargo run -q --release -p ww_tape_benchmarks --bin memory -- {{ args }}
+
 # Worst wait of a reader of a memory piece while it is written, with and without reserving it (WRITE-5); `just bench-mem-reader --help`
 bench-mem-reader *args:
     cargo run -q --release -p ww_tape_benchmarks --bin mem_reader -- {{ args }}

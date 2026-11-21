@@ -4,7 +4,7 @@ level: basic
 
 # Reading a tape
 
-A recording can run to hundreds of megabytes, and the question asked of it is often about one second. A [[reader]]
+A recording can run to gigabytes, and the question asked of it is often about one second. A [[reader]]
 answers it with a few small reads. It opens a file or a [[chain]], finds the [[blocks]] of one [[track]] in a time
 range, and looks up the [[state]] in force there. Each step uses what a closed [[piece]] says about itself at its end
 and in its index.
@@ -22,8 +22,9 @@ offset. The trait is [`ByteSource`], and the crate provides it for these:
 - a file on disk, through [`FileSource::open`], which reads only what the reader asks for;
 - a tape still being written into memory, through [`MemSink::tape`].
 
-An HTTP resource read by range requests can be a byte source too. The reader itself needs no file system and no
-threads, so it builds for WebAssembly and runs in a browser.
+An HTTP resource read by range requests can be a byte source too. The reader itself needs no file system and no threads,
+so it builds for WebAssembly and runs in a browser or a tool. It needs an allocator, like the writer, and it is not
+meant for firmware. A small device reads its own log with [logring](related_books.md#logring-a-log-store-on-the-device).
 
 In the example, the drive's four pieces lie back to back in one file. The program wraps that file in a byte source
 that counts each read, so every step below can say what it cost.

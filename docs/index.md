@@ -13,15 +13,16 @@ scheme, by the rules of stylesheets/hero.css. -->
 
 # Tapes
 
-A device that runs for hours produces data of many kinds at once. It writes log lines, changes its state now and
-then, sends messages on a bus and samples a signal thousands of times a second. ww_tape records such data as a [[tape]], a sequence
-of typed values over time in blocks that check themselves. The same format streams live to a viewer, fills a file on
-a personal computer (PC), or lies on a card without a file system.
+Many programs record typed values over time, often of many kinds at once. The source may be a device under test, a
+capture front end, a protocol analyser or a simulation. Its data mixes log lines, states that change now and then,
+messages on a bus and signals sampled millions of times a second. ww_tape records such data as a [[tape]]: tracks of
+typed values over time, in blocks that check themselves. The same format streams live to a viewer, fills a file on a
+PC, or lies on a card without a file system.
 
 A tape is built for the reader that comes later. A crash or a bad sector costs only the bytes it touched, and a reader
-finds the rest. A reader on another PC, years later, still knows what every byte means. It reads one second out of an
-hour without decoding the hour. If a program of yours records data like this and must read it back exactly, this book
-is for you.
+finds the rest. A reader on another PC, years later, still knows what every byte means. It reads one second out of
+gigabytes without decoding the rest. If a program of yours records data like this and must read it back exactly, this
+book is for you.
 
 ## What a tape holds
 
@@ -71,8 +72,9 @@ a PC, or onto a card without a file system.</figcaption>
   current while the run goes on.
 - A file on a PC holds the recording for later. The bench host keeps the drive's hour this way,
   and the next chapter writes such a file.
-- A [[raw medium]], such as the [[SD]] card of a data logger, holds the blocks without a file
-  system. A logger in the field writes there, and a [[reader]] finds its data again after a power failure.
+- A [[raw medium]], such as an [[SD]] card, holds the blocks without a file system. A [[reader]]
+  finds the data again after a power failure. The recorder that writes there has a host-class processor and RAM. A
+  recorder that is itself a small device takes [logring](related_books.md#logring-a-log-store-on-the-device) instead.
 
 ## What the format is for
 
@@ -134,6 +136,15 @@ draws [[summaries]] adds `ww_tape_summary`.
 | `ww_tape_codecs` | the column codecs, which know nothing of blocks: bit packing, checksums, varints, lz4, and the codecs of samples, times and lengths; `ww_tape` re-exports them |
 | `ww_tape_fs` | everything that names a path: the file sink [`FileSink`], the reader's [`FileSource`], and writers and chains opened by path |
 | `ww_tape_summary` | the trees of summaries a viewer draws a long track from |
+
+ww_tape runs on a host. Its [[writer]] needs an allocator and keeps the index of the open [[piece]] in memory. A piece
+of 256 MiB in [[records blocks]] of 4 KiB takes its heap to a peak of 44 221 480 bytes, as `just bench-memory` measures.
+ww_tape spends that memory on many [[tracks]], an index, summaries, column codecs and chains of pieces.
+
+Firmware on a small device keeps its log in [logring](https://lr.vhrd.tech/) instead. That store writes a ring on an SD
+card or a flash chip with no heap and little RAM. A power cut costs it at most the last second.
+[Tapes and logring](https://lr.vhrd.tech/tapes_and_logring/) compares the two.
+[WireWeaver and logring](related_books.md) introduces logring.
 
 ## How to read this book
 

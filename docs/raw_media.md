@@ -8,6 +8,11 @@ A [[raw medium]], such as an SD card without a file system, has no end of file. 
 onto a card used before, the blocks of the earlier recording stay valid behind the new ones. A [[reader]] must find
 where today's recording ends, and read it past [[stale data]], [[gaps]] and [[duplicates]].
 
+ww_tape on a raw card serves a recorder with a host-class processor and RAM. Its [[writer]] keeps the index of the open
+piece in memory. Firmware on a small device writes its card with
+[logring](related_books.md#logring-a-log-store-on-the-device) instead, a ring that needs no heap and little RAM.
+[Tapes and logring](https://lr.vhrd.tech/tapes_and_logring/) compares the two.
+
 Besides the host's files, for example, a recorder box on the bench writes the drive's run onto an SD card. The card
 still holds an earlier run of the same board, a full hour. At minute 37 the power fails, and the box stops in the
 middle of a block. Good blocks of the earlier run lie right behind it.
