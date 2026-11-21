@@ -67,7 +67,7 @@ A **cut** ends the current piece and starts the next piece of the chain. The wri
 close and tail, then a new piece head.
 
 In the new piece, the writer puts the layout and the producer first. The definition of every track the new head carries
-follows ([The definitions a new piece carries](syncing_and_cuts.md#the-definitions-a-new-piece-carries)). It puts
+follows ([The definitions a new piece carries](carried_definitions.md)). It puts
 other definitions and every state item again at its first use, since nothing in the old piece counts as near.
 
 A chain cuts by its policy (size, chunk count or age) only before a chunk. It also cuts before a write for which the

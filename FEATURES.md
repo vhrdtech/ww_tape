@@ -142,7 +142,7 @@ Writing pieces and chains, resuming them, sinks in memory, in the crate `ww_tape
   - A cut is never refused for them. Past the room it carries each once: the call's tracks first, then clocks and maps, then the newest tracks. The head marks each track left out, and a reader names it (`DefinitionsAt::not_carried`).
   - A cut made for a call keeps room for its records. An admitted call so fits the piece a cut made for it: data on a track left out writes on, and that piece holds data.
   - Cost at 1000 tracks and 8 MiB pieces: 2.5 % less data and 2.8 % more bytes per piece (`just bench-carried`).
-  - Read more: [The definitions a new piece carries](docs/syncing_and_cuts.md#the-definitions-a-new-piece-carries). Tests `quiet.rs`.
+  - Read more: [The definitions a new piece carries](docs/carried_definitions.md). Tests `quiet.rs`.
 
 ## Reader (`READ`)
 

@@ -1,0 +1,84 @@
+# The definitions a new piece carries
+
+A piece head carries a row for every track that gave data in the chain so far. The writer puts the definition of each of
+these tracks right after the head, the layout and the producer. The clocks, maps and bundles it needs come with it. A
+quiet track, one with no data in the new piece, so keeps its kind, its clock and its label there.
+
+Older pieces may be dropped or removed. A reader of the chain then finds, in the oldest piece left, the definition of
+each track that `defs` held at the cut:
+
+- a track that gave data before that piece: right after its head;
+- a track that gives data first in a later piece: beside its first data, as before.
+
+Some tracks have no definition there:
+
+- A track that never gave data has no row and no definition in any piece.
+- A track closed in `defs` (`Definitions::close`) keeps its row but no definition, and its row is not marked: dropping
+  the pieces before loses it.
+- A row whose number `defs` holds under another id or owner is passed over, since that definition is another track's.
+
+The carried definitions come in blocks of at most `CARRIED_BLOCK_LEN` (4 KiB):
+
+- First the bundles, each once. A bundle longer than a block has a block of its own.
+- Then the tracks, grouped by the clocks and maps they count through. Each block holds its group's clocks and maps
+  again, then as many tracks as fit.
+
+One damaged block so costs only its own tracks, never another block's clock. A lost bundle block costs its tracks their
+bundle.
+
+## When they don't fit
+
+Each definition is a state record and takes an index entry. A call is admitted only when its records fit an empty
+piece under `IndexPolicy::state_entries_max`: the definitions its tracks need, its put, the layout and the producer.
+Otherwise `InputError::CarriedEntries` refuses it: nothing written, no cut.
+
+A cut is never refused for the definitions it carries. They outgrow the room in three ways:
+
+- `defs` gains a clock map after the tracks were counted in;
+- a definition grows, such as a longer label;
+- the index policy is lowered.
+
+The cut keeps room for the records of the call it is made for. Those are its put and the definitions of the tracks
+written last, or named with `TapeWriter::want`, put again before its data. The rest goes once each, with no repeated
+clocks and maps, in this order while room lasts:
+
+1. The tracks of that call, each with its clock chain and bundles.
+2. The clocks and maps the other tracks count through.
+3. The tracks with data in the piece, newest first, each with its bundles; then the quiet tracks.
+
+Carried once, a damaged block of clocks and maps costs every track using them.
+
+A track that doesn't fit is left out. The next head marks its row as not carried, as does `Closed::tracks` of the cut
+(`Closed::not_carried` counts them). A reader of the piece alone names each such track in `DefinitionsAt::not_carried`,
+by the row's id and owner.
+
+The invariant: an admitted call fits the piece a cut made for it. A full piece refuses data on a track left out
+(`IndexError::StateEntries`, nothing written). `PieceChain` cuts for that call and writes it again: that piece holds data.
+A cut by hand (`cut_now`) carries the last call's tracks first. Data on other tracks or changed definitions after it
+may find no room and cut again, leaving a piece of definitions alone.
+
+## What they cost
+
+The cost per piece comes from `just bench-carried`. Records blocks of 4000 bytes go on one track, the others stay quiet,
+each track is labeled `channel NNNNNNN`, and the piece is cut by bytes. A piece holds less data, and its final index
+grows past the cut's bound, which counts no final index:
+
+| tracks | cut at | records blocks | without carried | data less | piece (bytes) | without carried | piece more |
+|---|---|---|---|---|---|---|---|
+| 100 | 1 MiB | 255 | 257 | 0.8 % | 1093632 | 1081344 | 1.1 % |
+| 100 | 8 MiB | 2037 | 2042 | 0.2 % | 8769536 | 8761344 | 0.1 % |
+| 1000 | 1 MiB | 214 | 236 | 9.3 % | 1200128 | 1081344 | 11.0 % |
+| 1000 | 8 MiB | 1970 | 2021 | 2.5 % | 8871936 | 8634368 | 2.8 % |
+
+Each definition costs its record and its index entries, in the checkpoint that lists it and in the final index. At the
+track caps, about 335 bytes per track, a piece of one records block grows:
+
+- by 155783168 bytes for `TRACKS_PER_PIECE_MAX` (466430) tracks;
+- by 234717184 bytes for `HEAD_TRACKS_MAX` (699006) tracks.
+
+A piece cut by bytes below what its carried definitions take holds them and one chunk: each cut comes due right after
+the head.
+
+A resume that keeps only the piece head (a crash right after the cut) leaves the definitions out. The next call given
+`defs` puts them first, so the piece gets the bytes of a cut that never stopped. A piece closed before any such call
+carries none: `close` takes no `defs`, so the piece before it keeps the only copy.
