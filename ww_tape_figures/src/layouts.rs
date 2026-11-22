@@ -18,6 +18,12 @@ use crate::svg::Svg;
 const SCALE: u32 = 1000;
 /// Bytes of the payload `chunk_head.svg` shows after the head.
 const PAYLOAD_SHOWN: usize = 16;
+/// The numbers the captions in `docs/format.md` state: a changed recording fails here until they follow.
+const CAPTION_SAMPLES: u32 = 1500;
+const CAPTION_PAYLOAD_AT: usize = 115;
+const CAPTION_ENTRY_AT: usize = 396;
+const CAPTION_PIECE_LEN: u64 = 8192;
+const CAPTION_CLOSE_AT: u64 = 6308;
 
 /// The bytes of the drive's first piece.
 fn first_piece() -> anyhow::Result<Vec<u8>> {
@@ -136,6 +142,26 @@ pub fn chunk_head() -> anyhow::Result<String> {
     let columns = chunk.column_count();
     let segments = chunk.segment_count();
     let scale_len = usize::try_from(le(&bytes, 100, 1)?)?;
+    ensure!(
+        head.count == CAPTION_SAMPLES,
+        "format.md's caption: {CAPTION_SAMPLES} samples, the payload at {CAPTION_PAYLOAD_AT}"
+    );
+    ensure!(
+        payload_at == CAPTION_PAYLOAD_AT,
+        "format.md's caption: {CAPTION_SAMPLES} samples, the payload at {CAPTION_PAYLOAD_AT}"
+    );
+    ensure!(
+        head.first_item.get() == 0,
+        "format.md's caption: the grid from sample 0 at tick 0"
+    );
+    ensure!(
+        grid.grid_index == 0,
+        "format.md's caption: the grid from sample 0 at tick 0"
+    );
+    ensure!(
+        grid.grid_tick == 0,
+        "format.md's caption: the grid from sample 0 at tick 0"
+    );
 
     ensure!(
         le(&bytes, 32, 4)? == u64::try_from(payload_at)?,
@@ -190,10 +216,8 @@ pub fn chunk_head() -> anyhow::Result<String> {
         "zeros up to the payload"
     );
     let column = chunk.column(0).context("the samples column")?;
-    ensure!(
-        column.kind == ColumnKind::Samples && le(&bytes, entries_at, 1)? == 6,
-        "column kind"
-    );
+    ensure!(column.kind == ColumnKind::Samples, "column kind");
+    ensure!(le(&bytes, entries_at, 1)? == 6, "column kind");
     ensure!(
         le(&bytes, entries_at + 1, 1)? == u64::from(column.codec.0),
         "column codec"
@@ -323,6 +347,10 @@ pub fn index_entry() -> anyhow::Result<String> {
         .find(|(_, e)| e.offset == u64::try_from(chunk_at).unwrap_or(u64::MAX))
         .context("the chunk's entry")?;
     let from = entries_at + i * entry_len;
+    ensure!(
+        from == CAPTION_ENTRY_AT,
+        "format.md's caption: the entry at byte {CAPTION_ENTRY_AT}"
+    );
     let e = index
         .get(from..from + entry_len)
         .context("the entry's bytes")?;
@@ -352,10 +380,8 @@ pub fn index_entry() -> anyhow::Result<String> {
         le(e, 64, 8)?.cast_signed() == entry.latest_end,
         "latest end at 64"
     );
-    ensure!(
-        entry.range.is_none() && le(e, 72, 16)? == 0,
-        "no range relation"
-    );
+    ensure!(entry.range.is_none(), "no range relation");
+    ensure!(le(e, 72, 16)? == 0, "no range relation");
     ensure!(
         e.get(88..120) == Some(entry.unit.0.as_slice()),
         "unit hash at 88"
@@ -423,10 +449,8 @@ pub fn tail() -> anyhow::Result<String> {
         le(&bytes, 48, 4)? == u64::from(t.close_len),
         "close length at 48"
     );
-    ensure!(
-        t.reason == CloseReason::Closed && le(&bytes, 52, 1)? == 1,
-        "closed, at 52"
-    );
+    ensure!(t.reason == CloseReason::Closed, "closed, at 52");
+    ensure!(le(&bytes, 52, 1)? == 1, "closed, at 52");
     ensure!(
         bytes.get(56..88) == Some(t.hash.0.as_slice()),
         "content hash at 56"
@@ -445,6 +469,22 @@ pub fn tail() -> anyhow::Result<String> {
         "owner at 120"
     );
     ensure!(le(&bytes, 152, 8)? == ident.seq, "sequence at 152");
+    ensure!(
+        t.piece_len == CAPTION_PIECE_LEN,
+        "format.md's caption: a piece of {CAPTION_PIECE_LEN} bytes, its close at {CAPTION_CLOSE_AT}, sequence 0"
+    );
+    ensure!(
+        t.close_offset == CAPTION_CLOSE_AT,
+        "format.md's caption: a piece of {CAPTION_PIECE_LEN} bytes, its close at {CAPTION_CLOSE_AT}, sequence 0"
+    );
+    ensure!(
+        ident.seq == 0,
+        "format.md's caption: a piece of {CAPTION_PIECE_LEN} bytes, its close at {CAPTION_CLOSE_AT}, sequence 0"
+    );
+    ensure!(
+        le(&bytes, 53, 1)? == 1,
+        "format.md's caption: flags 1, the piece has a head"
+    );
 
     let mut fields = header(&bytes, "count", false)?;
     fields.extend([

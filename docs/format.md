@@ -296,6 +296,14 @@ off size field
 len-4 u32 CRC over bytes 0..len-4, as in every block
 ```
 
+<figure class="ww-figure" markdown="0">
+--8<-- "docs/plots/chunk_head.svg"
+<figcaption>The head of the first <code>phase_a</code> chunk of the drive's first piece, byte by byte: 1,500 samples on the
+grid from sample 0 at tick 0, one samples column coded <code>DELTA</code> (32), and one segment CRC. The payload starts
+at byte 115, right after the head, since the file is not aligned. Drawn by <code>ww_tape_figures</code> from the
+drive's recording at 1/1000 of its data.</figcaption>
+</figure>
+
 The column kinds (`ColumnKind`):
 
 | Kind | Column | Holds |
@@ -844,6 +852,14 @@ Every few MiB of blocks (`ww_tape::IndexPolicy`, 4 MiB by default), the writer p
 an index block with one 120-byte entry per block placed since the previous checkpoint, and a pointer back at that
 checkpoint.
 
+<figure class="ww-figure" markdown="0">
+--8<-- "docs/plots/checkpoints.svg"
+<figcaption>The drive's first piece, closed. Each checkpoint points back to the one before, so the newest one leads to all.
+At the end, the close names the final index and the newest checkpoint, and the tail names the close. Drawn by
+<code>ww_tape_figures</code> from the drive's recording at 1/1000 of its data, with a checkpoint every 3 KiB instead
+of every 4 MiB.</figcaption>
+</figure>
+
 A policy can also place checkpoints by time, but only when asked, since that makes the bytes depend on the clock.
 
 ### 7.1 Index entries {#index-entries}
@@ -891,6 +907,13 @@ off size field
           80 u64 its largest value, else 0          88 [32] a chunk's unit hash, else 0
 len-4 u32 CRC over bytes 0..len-4, as in every block
 ```
+
+<figure class="ww-figure" markdown="0">
+--8<-- "docs/plots/index_entry.svg"
+<figcaption>The entry of the same <code>phase_a</code> chunk in the piece's final index, at byte 396 of the index block: the
+chunk's offset, length and kind, its track, its items and ticks, no range relation, and its unit hash. Drawn by
+<code>ww_tape_figures</code> from the drive's recording at 1/1000 of its data.</figcaption>
+</figure>
 
 A final index longer than `INDEX_LEN_MAX` (1 MiB) is several final blocks. Each holds whole tracks in ascending track id
 and points back at the one before.
@@ -1110,6 +1133,13 @@ append head (kind 13), APPEND_HEAD_LEN bytes, right after the tail of the close 
  80 u32  CRC
 ```
 
+<figure class="ww-figure" markdown="0">
+--8<-- "docs/plots/tail.svg"
+<figcaption>The tail of the drive's first piece: the last 164 bytes of its 8,192. It names the close at byte 6,308 and its
+length, the reason 1 (closed) and the flags 1 (the piece has a head). The content hash, the ids and the sequence
+number 0 follow. Drawn by <code>ww_tape_figures</code> from the drive's recording at 1/1000 of its data.</figcaption>
+</figure>
+
 ### 7.4 Piece ids and session tags {#piece-ids-and-session-tags}
 
 The writer derives the ids with BLAKE3 in its key derivation mode:
@@ -1226,6 +1256,13 @@ A recording can be cut into **pieces**. Each piece is a complete file that reads
 - the data, with the definitions and state it needs close behind it;
 - its checkpoints;
 - the final index, the close and the tail.
+
+<figure class="ww-figure" markdown="0">
+--8<-- "docs/plots/piece.svg"
+<figcaption>A closed piece, each block to scale on rows of 1 KiB: records blocks and events chunks with the puts they need,
+two checkpoints, the final index, the close with its padding, and the 164-byte tail ending on 12 KiB. Drawn by
+<code>ww_tape_figures</code> from a small piece that <code>PieceChain</code> wrote.</figcaption>
+</figure>
 
 `ww_tape::PieceChain` writes the pieces as `dir/00000000.wwt`, `00000001.wwt` and so on, through `ww_tape_fs::Files`. It
 cuts before a chunk by size, chunk count or age (`CutPolicy`).
