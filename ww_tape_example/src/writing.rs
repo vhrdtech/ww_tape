@@ -13,8 +13,9 @@
 )]
 
 use core::fmt;
-use std::sync::Arc;
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use ww_tape::chunk::{ChunkHead, ColumnSpec};
 use ww_tape::index::{IndexBlock, IndexKind};
@@ -363,11 +364,52 @@ fn residual_bits(column: &[u8], n: u64) -> u64 {
 }
 
 /// The samples of `phase_a` of `drive` from item `first`, `n` of them.
+///
+/// Each run of samples is made once in a process and kept ([PHASE_KEPT_MAX] at most): the hour is recorded several
+/// times in a test (the same settings again, the resume, the earlier run on a card), and making its samples is
+/// most of a recording's time.
 pub fn phase_values(drive: &Drive, first: u64, n: u64) -> Vec<i16> {
+    let key = (drive.phase_hz, first, n);
+    if let Some(values) = kept().runs.get(&key) {
+        return values.to_vec();
+    }
     let hz = u64::from(drive.phase_hz) * 3_600;
-    (first..first + n)
+    let values: Vec<i16> = (first..first.saturating_add(n))
         .map(|i| phase_ma(item_us(i, hz), i, drive.phase_hz))
-        .collect()
+        .collect();
+    let mut k = kept();
+    let samples = k.samples.saturating_add(n);
+    if samples <= PHASE_KEPT_MAX && !k.runs.contains_key(&key) {
+        k.samples = samples;
+        k.runs.insert(key, Arc::from(values.as_slice()));
+    }
+    values
+}
+
+/// Samples [phase_values] keeps in a process at most: the full hour's 90 million, 180 MB.
+pub const PHASE_KEPT_MAX: u64 = 90_000_000;
+
+/// The runs of samples [phase_values] made, by rate, first item and count.
+struct Kept {
+    samples: u64,
+    runs: BTreeMap<(u32, u64, u64), Arc<[i16]>>,
+}
+
+/// The samples kept, owned by [phase_values]: a pure function of its key, shared by every thread of the process.
+// spirit-level: allow(static-interior-mutability) a process-wide memo of a pure function: every thread of a test records the same hour
+static PHASE_KEPT: Mutex<Kept> = Mutex::new(Kept {
+    samples: 0,
+    runs: BTreeMap::new(),
+});
+
+fn kept() -> MutexGuard<'static, Kept> {
+    #[expect(
+        clippy::expect_used,
+        reason = "a poisoned lock means a thread panicked while it held the samples: the process stops, as the rules for locks say"
+    )]
+    PHASE_KEPT
+        .lock()
+        .expect("the samples' lock poisoned by a panic")
 }
 
 /// The samples of the chunk `head` of `phase_a`: decoded from its samples column when the act carries one ([Drive::acts]),

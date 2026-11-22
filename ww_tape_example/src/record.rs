@@ -27,9 +27,9 @@ use ww_tape_summary::{SeriesStart, SeriesSummaries};
 use crate::defs::{DriveNumbers, define_on_mux, definitions, key};
 use crate::signals::{
     CRASH_MINUTE, FAULT_MINUTE, Mode, US_PER_HOUR, US_PER_MS, emergency_frame, frame, log_line,
-    phase_ma, temp_centi,
+    temp_centi,
 };
-use crate::writing::chunk_values;
+use crate::writing::{chunk_values, phase_values};
 use crate::{Drive, Error, OWNER, PRODUCER};
 
 /// The codec of `phase_a`'s samples: differences, bit-packed in groups.
@@ -234,10 +234,7 @@ impl Acts {
             let values: Vec<i16> = if self.lean {
                 Vec::new()
             } else {
-                samples
-                    .clone()
-                    .map(|n| phase_ma(item_us(n, hz), n, d.phase_hz))
-                    .collect()
+                phase_values(&d, samples.start, samples.end - samples.start)
             };
             // --8<-- [start:samples]
             let shape = crate::defs::phase_shape(&def);
