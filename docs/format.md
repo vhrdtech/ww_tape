@@ -2099,6 +2099,7 @@ A value past its cap is damage, refused with an error; no file a writer of this 
 | `GAP_PROBES_MAX` | 8192 | the resume places a reader probes in one gap |
 | `GAP_CHECKS_MAX` | 4 | the blocks a reader checks whole past one gap |
 | `STATE_READ_MAX` | 1 GiB | the bytes of blocks one state lookup reads |
+| `LAYOUT_READ_MAX` | 256 MiB | the bytes of definitions blocks a reader reads to find a piece's layout |
 
 Walks over many blocks and the writer have caps of their own. A walk stops at its cap, and a writer refuses input that
 would pass one:

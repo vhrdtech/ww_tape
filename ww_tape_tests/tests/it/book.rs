@@ -483,6 +483,7 @@ fn page_caps() -> Vec<(&'static str, u64)> {
         ("GAP_PROBES_MAX", ww_tape::GAP_PROBES_MAX.into()),
         ("GAP_CHECKS_MAX", ww_tape::GAP_CHECKS_MAX.into()),
         ("STATE_READ_MAX", ww_tape::reader::STATE_READ_MAX.get()),
+        ("LAYOUT_READ_MAX", ww_tape::reader::LAYOUT_READ_MAX.get()),
     ]
 }
 
