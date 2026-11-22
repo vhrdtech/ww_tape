@@ -1,4 +1,4 @@
-//! Tracks whose items are not a WireWeaver stream's values ([Items], FMT-12): plain bytes, a media type, a format
+//! Tracks whose items are not a WireWeaver stream's values ([Items], TRACK-4): plain bytes, a media type, a format
 //! the user names with a [Schema] the tape carries, numbers of a described element. The items are stored as given,
 //! in records and in events chunks, and the definitions say what they are.
 

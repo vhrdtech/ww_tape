@@ -1,4 +1,4 @@
-//! The layout and the producer copied as track 0's definitions are (WRITE-10): a piece whose first blocks are lost
+//! The layout and the producer copied as track 0's definitions are (TRACK-6): a piece whose first blocks are lost
 //! still names them, and a reader takes the gap rules from the copy on.
 
 use shrink_wrap::prelude::*;
@@ -270,8 +270,8 @@ fn a_full_piece_skips_the_copy_and_refuses_nothing() {
     assert!(r.verify(0).unwrap().holds);
 }
 
-/// A piece written by the writer before WRITE-10 (`data/before-head-copies/`, the recipe `piece(1024,
-/// Layout::UNALIGNED, 100, true)` at main 3be9dcb, its track definitions in the FMT-12 shape): it reads and verifies
+/// A piece written by the writer before TRACK-6 (`data/before-head-copies/`, the recipe `piece(1024,
+/// Layout::UNALIGNED, 100, true)` at main 3be9dcb, its track definitions in the TRACK-4 shape): it reads and verifies
 /// as before, its layout and producer put once; the same recipe now adds their copies.
 #[test]
 fn a_piece_written_before_head_copies_reads() {

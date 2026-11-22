@@ -212,7 +212,7 @@ fn golden_removed() {
 
 /// Files written before closes could name removed pieces (`data/before-removed/`, the fuzz seeds of that writer):
 /// every close reads, with no rows, and the chain of several pieces is whole. Their track definitions, written before
-/// TrackDef::items (FMT-12), no longer decode, so the content check no longer holds for them.
+/// TrackDef::items (TRACK-4), no longer decode, so the content check no longer holds for them.
 #[test]
 fn files_written_before_removed_rows_read() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/it/data/before-removed");

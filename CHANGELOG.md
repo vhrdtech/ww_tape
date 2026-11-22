@@ -8,19 +8,19 @@ benchmarks, golden files and book pages.
 
 ### Features
 
-- `Drive::record_unplaced` records the drive's hour through the mux without a writer round trip per act (WRITE-15).
-- Book pages "Every frame of a 10 Gbps link" and "A billion samples a second", measured by their benches (BOOK-4).
-- `ww_tape_example::ethernet`: a protocol analyser's frames and decoded headers, spread over receive queues and muxes (BOOK-4).
-- `ww_tape_example::wideband`: a 1 GS/s receiver in channels over several muxes, with an overview from summaries (BOOK-4).
-- `just bench-ethernet` and `just bench-wideband` record both cases at full speed; `bench-book` runs them (BOOK-4).
+- `Drive::record_unplaced` records the drive's hour through the mux without a writer round trip per act (EX-3).
+- Book pages "Every frame of a 10 Gbps link" and "A billion samples a second", measured by their benches (EX-2).
+- `ww_tape_example::ethernet`: a protocol analyser's frames and decoded headers, spread over receive queues and muxes (EX-2).
+- `ww_tape_example::wideband`: a 1 GS/s receiver in channels over several muxes, with an overview from summaries (EX-2).
+- `just bench-ethernet` and `just bench-wideband` record both cases at full speed; `bench-book` runs them (EX-2).
 - Book: "Writing from many threads" explains the mux, its queue, back-pressure, order, errors and speed (BOOK-2).
 - `just bench-book` also runs `bench-handles`; the book draws its tables from `docs/bench/handles.json` (BOOK-2).
-- The example's calls table names each handle call and counts the summary blocks the mux defers (WRITE-15).
+- The example's calls table names each handle call and counts the summary blocks the mux defers (EX-3).
 
 ### Fixes
 
-- The book shows the screenshot of its scheme only; Rust code has a palette in both schemes (BOOK-1).
-- A resumed `TapeMux` writes no summary tree for a track its handle writes without summaries (WRITE-13).
+- The book shows one screenshot of a pair per scheme; Rust code has a palette in both schemes (BOOK-1).
+- A resumed `TapeMux` writes no summary tree for a track its handle writes without summaries (MUX-2).
 - `TapeMux::sync`, `flush` and `cut` return only once `ProgressWatch` shows their bytes and piece (READ-6).
 - `ChainFollower` never hands out puts or a piece's end that a resume after a crash takes back (READ-6).
 
