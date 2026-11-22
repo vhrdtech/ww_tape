@@ -43,6 +43,7 @@ pub mod fault;
 pub mod first_tape;
 mod record;
 pub mod rf;
+pub mod rf_chains;
 mod signals;
 pub mod writing;
 
