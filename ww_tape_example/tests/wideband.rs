@@ -156,12 +156,23 @@ fn the_page_gives_what_a_second_takes() {
     // a level-3 node: 2^(10 + 3 * 4) samples of a channel
     let node = 1_u64 << 22;
     let node_ms = (node as f64 / f64::from(full.channel_rate()) * 1e3).round();
+    let ram = ww_tape_example::wideband::ram::RfCapture::full();
+    let times = f64::from(ram.wb.rate_hz) / f64::from(ww_tape_example::rf::Rf::capture().rate_hz);
     for phrase in [
-        format!("A second of the receiver takes about {second}, and a minute about {minute}."),
+        format!(
+            "At 1 GS/s, a second of the receiver takes about {second}, and a minute about {minute}."
+        ),
         format!("a second of the receiver is about {second}"),
-        "The example splits it into 8 channels of 125 million samples a second.".to_owned(),
+        "splits its band into 8 channels of 125 million.".to_owned(),
+        format!(
+            "The example takes {} million samples a second in {} channels of {} million.",
+            ram.wb.rate_hz / 1_000_000,
+            ram.wb.channels,
+            ram.wb.channel_rate() / 1_000_000
+        ),
         format!("A node of level 3 covers 4 194 304 samples, {node_ms} ms of a channel."),
-        "at 50 times its rate".to_owned(),
+        format!("at {times} times its rate"),
+        format!("a piece every {} MiB", ram.wb.piece_bytes >> 20),
     ] {
         assert!(
             page("wideband.md").contains(&phrase),

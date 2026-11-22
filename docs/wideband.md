@@ -2,18 +2,20 @@
 level: advanced
 ---
 
-# A billion samples a second
+# Keeping the bursts of a fast band
 
-A wideband radio receiver can digitize a band at a billion complex samples a second. As 16-bit I and Q that is 4 GB
-of samples every second. What does it take to keep such a stream on a tape, on one PC, and where is the limit? The
-case here builds on the RF capture of [Series](series.md#a-fast-series-radio-samples), at 50 times its rate. The crate
-`ww_tape_example` makes it in the module `wideband`.
+A wideband radio receiver digitizes a band at hundreds of millions of complex samples a second. Most of the time the
+band holds the same carriers and noise, and what matters are the short bursts between them. How does one PC keep the
+bursts of such a band without writing all of it? It captures into memory, finds the bursts there from the energy in
+the summaries, and writes only the stretches around them. The case here builds on the RF capture of
+[Series](series.md#a-fast-series-radio-samples), at 12.5 times its rate. The crate `ww_tape_example` makes it in the
+module `wideband`.
 
 ## Channels, each a track
 
 A receiver at this rate splits its band into channels of equal width, each a stream at its share of the rate. The
-example splits it into 8 channels of 125 million samples a second. Each channel carries the RF capture's signal, its
-carriers and its bursts, with noise of its own.
+example takes 250 million samples a second in 2 channels of 125 million. Each channel carries the RF capture's signal,
+its carriers and its bursts, with noise of its own.
 
 Each channel is a [[series]] track `iq` with a producer thread of its own. The thread pushes the channel's samples into
 a series handle. The handle packs them at 12 bits and cuts them into chunks of 1 MiB of samples:
@@ -24,7 +26,7 @@ a series handle. The handle packs them at 12 bits and cuts them into chunks of 1
 
 The split into channels is what lets the work spread. A track has one producer, and its handle does the costly work on
 that producer's thread. It packs the samples, hashes them and computes the leaves of the [[summaries]]. One thread then
-serves one channel's 125 million samples a second, not the whole billion.
+serves one channel's 125 million samples a second, not the whole band.
 
 ??? example "What the example uses here: `Wideband`"
 
@@ -32,46 +34,65 @@ serves one channel's 125 million samples a second, not the whole billion.
     --8<-- "ww_tape_example/src/wideband/mod.rs:wideband"
     ```
 
-## Several muxes, several chains
+## Energy in the summary nodes
 
-A [`TapeMux`] places every chunk of its handles on its one writing thread, into one [[chain]]. At this rate one writing
-thread and one disk become the limit. So channel `k` goes to mux `k % m`, and each mux writes a chain of its own in a
-directory of its own. One process holds them all, as the RF capture's two chains in [Series](series.md) do.
+A burst raises the power `I² + Q²` of the samples it covers. The leaves of a series' summaries already hold that power:
+each [[summary node]] of level 0 keeps the mean and the largest power of 1 024 samples. An analyser that detects
+energy therefore reads the nodes, never the samples: a few values for each 1 024 samples.
 
-Each chain then holds whole channels, and each can sit on a disk of its own. A crash leaves each chain unclosed at its
-own byte, and each resumes alone. A reader of one channel opens only that channel's chain.
+The analyser opens a piece, reads the summary blocks of level 0 of each channel, and compares each node's largest power
+with a threshold. The carriers of the band add up to 1 050 steps of amplitude, and a burst adds 900 more. A threshold of
+1.5 million, [`POWER_MIN`], lies between a quiet node and one that holds a burst:
 
-## What a second takes
+```rs
+--8<-- "ww_tape_example/src/wideband/ram.rs:detect"
+```
 
-Packed at 12 bits, a sample takes 3 bytes and a little more for its chunk, its summaries and its share of the index. A
-second of the receiver takes about 3.1 GB, and a minute about 183 GB. The test `tests/wideband.rs` records the
-channels through two muxes and reads every sample back from its chain.
+Consecutive loud nodes make one burst, from the first node's start to the last node's end. A burst may cross from one
+[[piece]] into the next: the analyser carries it over and ends it at the next quiet node. The nodes come from one
+function, which the overview below uses too:
 
-## How fast it records
+```rs
+--8<-- "ww_tape_example/src/wideband/mod.rs:summary_nodes"
+```
 
-`just bench-wideband` records the receiver at full speed into a store that keeps no bytes, once per number of channels,
-muxes and codec. Each channel's thread pushes chunks made before the run, again and again, so the run times the
-recorder and not the maths of the signal. With the most channels and muxes it then writes chains of piece files on the
-machine's disk.
+## A window in memory
 
---8<-- "docs/plots/bench_wideband_writer.txt"
+The receiver records into a window in memory, as the protocol analyser does in [Keeping what matters of a 10 Gbps
+link](protocol_analyser.md#a-window-in-memory). A [[mux]] writes the [[chain]] into a [`MemTapes`], a piece every
+64 MiB. A triage thread opens each piece as it closes and asks the analyser whether it holds a burst. A piece with one
+is copied to a piece file, with one piece before it and one after it. Every other piece leaves memory unwritten.
+
+```rs
+--8<-- "ww_tape_example/src/wideband/ram.rs:rf_capture"
+```
+
+The analyser's findings go to a chain of results on disk. Each channel has a track `bursts`, one span per burst with its
+largest power. A track `kept` names each kept piece with the span of time it covers. A minute of the band holds five
+bursts of 2 ms each, so the disk sees a few pieces a minute.
+
+The test `tests/wideband_ram.rs` records a minute at 1/5 000 of the rate. It checks that each channel's five bursts are
+found, that their samples lie in the kept pieces, and that those pieces hold the signal's own samples.
+
+## What one PC holds and keeps
+
+`just bench-wideband` captures the band into the window at full speed. One run replays chunks made before it, so it
+times the recorder and the triage, not the signal's maths; it holds no bursts. A second run makes the signal as it
+goes for a minute, its bursts included, and keeps the pieces around them in piece files on the machine's disk.
+
+--8<-- "docs/plots/bench_wideband_window.txt"
 
 --8<-- "docs/plots/bench_cases_machine.txt"
 
-The column "Of 1 GS/s" is the samples recorded a second against the receiver's rate. A
-value of 1 or more keeps up. The waits count the times a handle found its mux's queue full: its writing thread, or the
-disk behind it, fell behind.
+The column "Of the pace" is the seconds of the band captured per second of the run: a value of 1 or more keeps up. The
+live run makes its samples as it goes, and that maths sets its pace. "Window s" is how many seconds of the band half the
+machine's memory holds.
 
-Three limits stand in turn. Each channel's thread packs, hashes and summarizes its own samples, so more channels spread
-that work over more cores. Each mux places its chunks on one writing thread, so more muxes spread the placing.
+--8<-- "docs/plots/bench_wideband_triage.txt"
 
-Past both, the disk decides: a second of the receiver is about 3.1 GB. That is more than one disk of a common PC writes
-in a second. A machine that keeps the whole band needs a chain per fast disk, or it keeps fewer channels.
-
-The machine of the table sits at the edge. Without a disk, raw samples pass the full rate once two muxes or more share
-the channels. Packed 12-bit samples come near it with eight channels or more, with every core busy. Its disk keeps only
-a small part of the band. On such a machine the receiver records the whole band into memory for a short capture, or a
-few of its channels to disk.
+The triage reads only summary nodes, so it gets through the band many times faster than the band arrives. "Kept %" is
+the share of the capture's bytes that reaches the disk, and "To disk MB per s" what the disk writes per second of the
+band.
 
 ## The overview from the summaries
 
@@ -89,3 +110,23 @@ bursts of a minute in the overview alone. Exactly the nodes that hold a burst st
 bench reads channel 0's overview from its chain of files:
 
 --8<-- "docs/plots/bench_wideband_overview.txt"
+
+## Writing the whole band to disk
+
+Some captures must keep every sample. A receiver of a billion samples a second splits its band into 8 channels of
+125 million. Packed at 12 bits, a sample takes 3 bytes and a little more for its chunk, its summaries and its share of
+the index. At 1 GS/s, a second of the receiver takes about 3.1 GB, and a minute about 183 GB.
+
+A [`TapeMux`] places every chunk of its handles on its one writing thread, into one chain. So channel `k` goes to mux
+`k % m`, and each mux writes a chain of its own, on a disk of its own if the machine has several. The test
+`tests/wideband.rs` records the channels through two muxes and reads every sample back from its chain.
+
+`just bench-wideband` records the receiver at full speed into a store that keeps no bytes, once per number of channels,
+muxes and codec. With the most channels and muxes it then writes chains of piece files on the machine's disk:
+
+--8<-- "docs/plots/bench_wideband_writer.txt"
+
+The column "Of 1 GS/s" is the samples recorded a second against the receiver's rate, and the waits count the times a
+handle found its mux's queue full. Without a disk, enough channels and muxes come near the full rate. With a disk, a
+second of the receiver is about 3.1 GB, more than one disk of a common PC writes in a second. That is why the receiver
+keeps the band in memory and writes only the bursts.
