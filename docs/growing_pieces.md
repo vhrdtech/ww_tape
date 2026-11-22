@@ -39,9 +39,11 @@ once the block checks, and remembers where the valid prefix of the [[piece]] end
 from there. A block the writer is still writing, or a torn end that a crash left, is read again at the next look.
 So a block is never handed out half.
 
-A writer that resumes after a crash cuts back only the torn end and writes on in the same piece. The follower reads
-the new blocks from the same place, so it never hands out a block that a resume took back. At the tail of a piece
-whose [[close]] names the next piece, it moves on to that piece's file.
+A writer that resumes after a crash cuts back the torn end and writes on in the same piece. It also cuts back blocks
+that wait for the next block: puts that belong with it, and a piece's end before its tail. The follower holds such
+blocks back until the block they wait for checks. It reads the new blocks from the same place, so it never hands out a
+block that a resume took back. At the tail of a piece whose [[close]] names the next piece, it moves on to that piece's
+file.
 
 Three pieces build on the follower:
 

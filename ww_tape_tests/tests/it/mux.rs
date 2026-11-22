@@ -667,11 +667,19 @@ fn a_crash_at_any_byte_resumes_through_a_mux() {
     assert_eq!(crashed.len(), 3);
     let (done, last) = crashed.split_at(crashed.len() - 1);
     let mut cuts: Vec<(usize, Option<usize>)> = vec![(done.len(), None)];
-    // every byte of the open piece, every 13th of the pieces before it, read as the open one
-    cuts.extend((0..=last[0].len()).map(|at| (done.len(), Some(at))));
-    for (i, p) in done.iter().enumerate() {
-        cuts.extend((0..=p.len()).step_by(13).map(|at| (i, Some(at))));
+    // in the open piece and in each piece before it, read as the open one: every block boundary, the bytes either
+    // side of it, and bytes in between
+    for (i, p) in done.iter().chain(last).enumerate() {
+        let mut at: Vec<usize> = crate::resume::cut_points(p, 64)
+            .into_iter()
+            .flat_map(|b| [b.saturating_sub(1), b, b + 1])
+            .filter(|&b| b <= p.len())
+            .collect();
+        at.sort_unstable();
+        at.dedup();
+        cuts.extend(at.into_iter().map(|at| (i, Some(at))));
     }
+    assert!(cuts.len() > 300, "{} crashes", cuts.len());
     for (i, at) in cuts {
         let open = at.map(|at| &crashed[i][..at]);
         let mem = plant(&crashed[..i], open);

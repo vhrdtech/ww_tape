@@ -27,9 +27,9 @@ use ww_tape_summary::{SeriesStart, SeriesSummaries};
 use crate::defs::{DriveNumbers, define_on_mux, definitions, key};
 use crate::signals::{
     CRASH_MINUTE, FAULT_MINUTE, Mode, US_PER_HOUR, US_PER_MS, emergency_frame, frame, log_line,
-    phase_ma, temp_centi,
+    temp_centi,
 };
-use crate::writing::phase_values;
+use crate::writing::{chunk_values, phase_values};
 use crate::{Drive, Error, OWNER, PRODUCER};
 
 /// The codec of `phase_a`'s samples: differences, bit-packed in groups.
@@ -234,10 +234,7 @@ impl Acts {
             let values: Vec<i16> = if self.lean {
                 Vec::new()
             } else {
-                samples
-                    .clone()
-                    .map(|n| phase_ma(item_us(n, hz), n, d.phase_hz))
-                    .collect()
+                phase_values(&d, samples.start, samples.end - samples.start)
             };
             // --8<-- [start:samples]
             let shape = crate::defs::phase_shape(&def);
@@ -271,7 +268,12 @@ impl Acts {
             // --8<-- [end:samples]
             self.queue.push_back(Act::Chunk {
                 head: Box::new(head),
-                columns: vec![(spec, bytes)],
+                // a lean run's chunk holds its head only: the recorder makes its samples
+                columns: if self.lean {
+                    Vec::new()
+                } else {
+                    vec![(spec, bytes)]
+                },
             });
             // --8<-- [start:push]
             if let Some(s) = &mut self.summaries {
@@ -522,9 +524,8 @@ where
                 // frames are encoded as the page "Columns" says: the sender takes the chunk as it is
                 self.can0.send(**head, columns.clone())?;
             }
-            Act::Chunk { head, .. } => {
-                let values =
-                    phase_values(&self.drive, head.first_item.get(), u64::from(head.count));
+            Act::Chunk { head, columns } => {
+                let values = chunk_values(&self.drive, head, columns)?;
                 let phase_a = self.phase_handle(head)?;
                 phase_a.push(&values)?;
                 phase_a.seal()?; // a chunk a block of the run
