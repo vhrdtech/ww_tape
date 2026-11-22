@@ -1345,6 +1345,7 @@ dependencies = [
  "vc_build",
  "vc_complete",
  "vc_ui",
+ "ww_tape",
  "ww_tape_bench_report",
 ]
 

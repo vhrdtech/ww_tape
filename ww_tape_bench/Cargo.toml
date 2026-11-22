@@ -16,6 +16,7 @@ clap = { workspace = true, features = ["derive"] }
 vc_build.workspace = true
 vc_complete.workspace = true
 vc_ui.workspace = true
+ww_tape = { workspace = true, features = ["std"] }
 ww_tape_bench_report.workspace = true
 
 [lints]

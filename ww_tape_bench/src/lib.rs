@@ -29,9 +29,11 @@
     reason = "benches compute times, sizes and rates of data they make themselves, far from any limit"
 )]
 
+mod discard;
 mod machine;
 mod rng;
 
+pub use discard::{Discard, DiscardSink, NoSource};
 pub use machine::{build, load, machine};
 pub use rng::Rng;
 pub use ww_tape_bench_report::{Build, Cell, FORMAT, Load, Machine, Report, Table};

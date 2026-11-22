@@ -20,23 +20,20 @@
 use clap::Parser;
 use exact_units::{Count, Magnitude};
 use shrink_wrap::prelude::*;
-use std::io;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 use ww_tape::chunk::ChunkHead;
 use ww_tape::index::IndexPolicy;
 use ww_tape::payloads::EncodedPayloads;
-use ww_tape::reader::ByteSource;
 use ww_tape::samples::{encode, max_encoded_len};
 use ww_tape::times::EncodedTimes;
 use ww_tape::{
     BlockKind, ChainOptions, ClockNum, ClockOrigin, ClockSpec, ColumnKind, ColumnSpec, CutPolicy,
     Definitions, EndMode, EventsDef, ItemNum, Items, OwnerId, PieceChain, PieceTapes, Segment,
-    SeriesDef, SyncPolicy, TapeSink, Tapes, TrackId, TrackKind, TrackNum, TrackRepeat, TrackSpec,
-    WriterOptions, clock_key, track_key,
+    SeriesDef, SyncPolicy, TrackId, TrackKind, TrackNum, TrackRepeat, TrackSpec, WriterOptions,
+    clock_key, track_key,
 };
-use ww_tape_bench::{Bench, Cell, Common};
+use ww_tape_bench::{Bench, Cell, Common, Discard};
 use ww_tape_example::rf::{IQ_ELEMENT, Rf, iq_shape, summaries};
 use ww_tape_mux::{Event, EventsOptions, MuxOptions, SeriesOptions, TapeMux};
 use ww_tape_summary::{EventFields, EventTree, SeriesStart, SeriesSummaries};
@@ -83,109 +80,6 @@ fn payload(i: u64) -> [u8; 16] {
 
 /// Ticks from one event of a track to the next.
 const EVENT_STEP: i64 = 1_000;
-
-/// A store whose tapes keep no bytes, counting what is written into all of them.
-#[derive(Clone, Default)]
-struct Discard {
-    written: Arc<AtomicU64>,
-}
-
-/// A tape of [Discard].
-struct DiscardSink {
-    written: Arc<AtomicU64>,
-    bytes: u64,
-}
-
-/// A closed tape of [Discard]: there is none, so none is read.
-struct NoSource;
-
-fn kept_none() -> io::Error {
-    io::Error::new(
-        io::ErrorKind::Unsupported,
-        "a discarding store keeps no bytes",
-    )
-}
-
-impl ByteSource for NoSource {
-    type Error = io::Error;
-
-    fn size(&self) -> io::Result<u64> {
-        Err(kept_none())
-    }
-
-    fn read_at(&self, _: u64, _: &mut [u8]) -> io::Result<()> {
-        Err(kept_none())
-    }
-}
-
-impl TapeSink for DiscardSink {
-    type Error = io::Error;
-
-    fn write_all(&mut self, bytes: &[u8]) -> io::Result<()> {
-        self.bytes += bytes.len() as u64;
-        self.written
-            .fetch_add(bytes.len() as u64, Ordering::Relaxed);
-        Ok(())
-    }
-
-    fn sync(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-
-    fn close(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-
-    fn size(&self) -> io::Result<u64> {
-        Ok(self.bytes)
-    }
-
-    fn read_at(&self, _: u64, _: &mut [u8]) -> io::Result<()> {
-        Err(kept_none())
-    }
-
-    fn truncate(&mut self, _: u64) -> io::Result<()> {
-        Err(kept_none())
-    }
-
-    fn rebase(&mut self, base: u64) -> io::Result<()> {
-        if base == 0 { Ok(()) } else { Err(kept_none()) }
-    }
-}
-
-impl Tapes for Discard {
-    type Key = u64;
-    type Error = io::Error;
-    type Sink = DiscardSink;
-    type Source = NoSource;
-
-    fn key_of(&self, seq: u64) -> u64 {
-        seq
-    }
-
-    fn create(&mut self, _: &u64) -> io::Result<DiscardSink> {
-        Ok(DiscardSink {
-            written: self.written.clone(),
-            bytes: 0,
-        })
-    }
-
-    fn reopen(&mut self, _: &u64) -> io::Result<Option<DiscardSink>> {
-        Ok(None)
-    }
-
-    fn closed(&self, _: &u64) -> io::Result<Option<NoSource>> {
-        Ok(None)
-    }
-
-    fn create_whole(&mut self, key: &u64) -> io::Result<DiscardSink> {
-        self.create(key)
-    }
-
-    fn open_whole(&mut self, _: &u64) -> io::Result<Option<DiscardSink>> {
-        Ok(None)
-    }
-}
 
 /// A chain of a piece per 1000 chunks, with no sync and no checkpoint by time.
 fn options() -> ChainOptions {
