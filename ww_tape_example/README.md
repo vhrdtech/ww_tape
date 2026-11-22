@@ -45,7 +45,7 @@ cargo run --release -p ww_tape_example --bin rf -- chains rf 100     # the same 
 
 ## The protocol analyser
 
-The module `ethernet` records both directions of a 10 Gbps Ethernet link, as an analyser on a tap sees them. Every frame is an event of the track `frames` with its bytes. A decoder finds each frame's IPv4 header and its TCP or UDP header and writes them to the tracks `ipv4` and `l4`, each item related to its frame. The traffic is synthetic: the simple IMIX over a set of flows, with random payloads, made from the frame's number.
+The module `ethernet` records both directions of a 10 Gbps Ethernet link, as a protocol analyser sees them. Every frame is an event of the track `frames` with its bytes. A decoder finds each frame's IPv4 header and its TCP or UDP header. It writes them to the tracks `ipv4` and `l4`, each item related to its frame. The traffic is synthetic: the simple IMIX over a set of flows, with random payloads, made from the frame's number.
 
 A port spreads its frames over receive queues, as a NIC does. Each queue has a capture thread and a decoder thread, since a track has one producer. Both ports go through one mux, or a mux per port into a chain each.
 

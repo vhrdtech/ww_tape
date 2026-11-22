@@ -15,16 +15,16 @@ A receiver at this rate splits its band into channels of equal width, each a str
 example splits it into 8 channels of 125 million samples a second. Each channel carries the RF capture's signal, its
 carriers and its bursts, with noise of its own.
 
-Each channel is a [[series]] track `iq` with a producer thread of its own. The thread pushes the channel's samples
-into a series handle, which packs them at 12 bits and cuts them into chunks of 1 MiB of samples:
+Each channel is a [[series]] track `iq` with a producer thread of its own. The thread pushes the channel's samples into
+a series handle. The handle packs them at 12 bits and cuts them into chunks of 1 MiB of samples:
 
 ```rs
 --8<-- "ww_tape_example/src/wideband.rs:channel"
 ```
 
-The split into channels is what lets the work spread. A track has one producer, and its handle does the costly work
-on that producer's thread: it packs the samples, hashes them and computes the leaves of the [[summaries]]. One thread
-then serves one channel's 125 million samples a second, not the whole billion.
+The split into channels is what lets the work spread. A track has one producer, and its handle does the costly work on
+that producer's thread. It packs the samples, hashes them and computes the leaves of the [[summaries]]. One thread then
+serves one channel's 125 million samples a second, not the whole billion.
 
 ??? example "What the example uses here: `Wideband`"
 
@@ -58,19 +58,20 @@ machine's disk.
 
 --8<-- "docs/plots/bench_cases_machine.txt"
 
-The column "Of 1 GS/s" is the samples recorded a second against the receiver's rate. A value of 1 or more keeps up.
-The waits count the times a handle found its mux's queue full: its writing thread, or the disk behind it, fell
-behind.
+The column "Of 1 GS/s" is the samples recorded a second against the receiver's rate. A
+value of 1 or more keeps up. The waits count the times a handle found its mux's queue full: its writing thread, or the
+disk behind it, fell behind.
 
 Three limits stand in turn. Each channel's thread packs, hashes and summarizes its own samples, so more channels spread
-that work over more cores. Each mux places its chunks on one writing thread, so more muxes spread the placing. Past
-both, the disk decides: a second of the receiver is about 3.1 GB, more than one disk of a common PC writes in a
-second. A machine that keeps the whole band needs a chain per fast disk, or it keeps fewer channels.
+that work over more cores. Each mux places its chunks on one writing thread, so more muxes spread the placing.
 
-The machine of the table sits at the edge. Without a disk, raw samples pass the full rate once two muxes or more
-share the channels, and packed 12-bit samples come near it with eight channels or more: every core is busy. Its disk
-keeps only a small part of the band. On such a machine the receiver records the whole band into memory for
-a short capture, or a few of its channels to disk.
+Past both, the disk decides: a second of the receiver is about 3.1 GB. That is more than one disk of a common PC writes
+in a second. A machine that keeps the whole band needs a chain per fast disk, or it keeps fewer channels.
+
+The machine of the table sits at the edge. Without a disk, raw samples pass the full rate once two muxes or more share
+the channels. Packed 12-bit samples come near it with eight channels or more, with every core busy. Its disk keeps only
+a small part of the band. On such a machine the receiver records the whole band into memory for a short capture, or a
+few of its channels to disk.
 
 ## The overview from the summaries
 
@@ -83,8 +84,8 @@ blocks of one level:
 --8<-- "ww_tape_example/src/wideband.rs:overview"
 ```
 
-Each piece has a tree of its own, so the nodes at a piece's ends may hold fewer samples. The test finds the five
-bursts of a minute in the overview alone: exactly the nodes that hold a burst stand out by their largest power. The
+Each piece has a tree of its own. The nodes at a piece's ends may therefore hold fewer samples. The test finds the five
+bursts of a minute in the overview alone. Exactly the nodes that hold a burst stand out by their largest power. The
 bench reads channel 0's overview from its chain of files:
 
 --8<-- "docs/plots/bench_wideband_overview.txt"

@@ -357,8 +357,8 @@ The pages in `docs/`.
   - Read more: [ww_tape_example](ww_tape_example/README.md).
 
 - ✅ **BOOK-4 Cases beside the drive**
-  - `ethernet` records a protocol analyser on both directions of a 10 Gbps link: frames as raw-bytes events, decoded IPv4 and TCP or UDP headers as tracks related to their frames, a capture and a decoder thread per receive queue, one mux or a mux per port. `tests/ethernet.rs` reads every frame and header back.
-  - `wideband` records a 1 GS/s receiver in channels, a series track and a producer thread each, spread over several muxes and chains; an overview reads only the summary nodes. `tests/wideband.rs` reads every sample back and finds the bursts from the overview.
+  - `ethernet` records a protocol analyser on both directions of a 10 Gbps link. Frames are raw-bytes events; decoded IPv4 and TCP or UDP headers are tracks related to their frames. Each receive queue has a capture and a decoder thread; one mux or a mux per port writes them. `tests/ethernet.rs` reads every frame and header back.
+  - `wideband` records a 1 GS/s receiver in channels, each a series track with a producer thread. The channels spread over several muxes and chains; an overview reads only the summary nodes. `tests/wideband.rs` reads every sample back and finds the bursts from the overview.
   - `just bench-ethernet` and `just bench-wideband` measure how much of the link and the band one PC keeps, without a disk and into piece files; `bench-book` runs both.
   - Read more: [Every frame of a 10 Gbps link](docs/protocol_analyser.md), [A billion samples a second](docs/wideband.md), [ww_tape_example](ww_tape_example/README.md).
 

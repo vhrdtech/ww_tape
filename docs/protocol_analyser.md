@@ -33,10 +33,12 @@ records instead, as a `Foreign` item with the media type `application/vnd.tcpdum
 
 ## Decoded layers as tracks
 
-A decoder reads each frame's IPv4 header and its TCP or UDP header. It keeps a few fields of each: addresses, protocol,
-TTL and length of the IPv4 header, and the ports, flags and payload length of the transport header. Each layer goes
-into a [[track]] of its own, `ipv4` and `l4`. A reader looking for one flow's packets then reads 12 or 8 bytes per frame
-instead of the whole frame.
+A decoder reads each frame's IPv4 header and its TCP or UDP header. It keeps a few fields of each. From the IPv4 header
+it keeps the addresses, the protocol, the time to live and the length. From the transport header it keeps the ports, the
+flags and the payload length.
+
+Each layer goes into a [[track]] of its own, `ipv4` and `l4`. A reader looking for one flow's packets then reads 12 or 8
+bytes per frame instead of the whole frame.
 
 A decoded header must lead back to its frame. Each item of `ipv4` and `l4` keeps its frame's [[item number]] in a
 relation named `frame`:
@@ -65,10 +67,10 @@ not compress. Each direction runs at the line rate, 10 Gbps of frames, their pre
 
 --8<-- "docs/plots/ethernet_sizes.txt"
 
-10 ms of the link hold 65 663 frames of 23 MB in both directions. The chain takes 1.023 bytes per byte of the frames:
-the frames' own chunks take a little less than their bytes, since LZ4 finds repeats among the headers. A decoded
-header takes about 7 bytes in the chain, against 12 or 8 bytes as the decoder gives it. A second of the link at its
-line rate therefore takes about 2.4 GB on a tape.
+10 ms of the link hold 65 663 frames of 23 MB in both directions. The chain takes 1.023 bytes per byte of the frames.
+The frames' own chunks take a little less than their bytes, since LZ4 finds repeats among the headers. A decoded header
+takes about 7 bytes in the chain, against 12 or 8 bytes as the decoder gives it. A second of the link at its line rate
+therefore takes about 2.4 GB on a tape.
 
 ## Spreading a port over cores
 
@@ -80,16 +82,17 @@ The analyser does the same. Each port spreads its flows over its receive queues,
 a decoder thread and its own three tracks. The test `tests/ethernet.rs` checks that four queues hold exactly the frames
 of one, at the same ticks. A reader merges the queues of a port by time, as it merges any tracks.
 
-All tracks may go through one [`TapeMux`], or each port through a mux of its own, into a chain of its own. A mux places
-the chunks of all its handles on one writing thread, so a second mux adds a second writing thread and a second chain.
-Each chain can live on a disk of its own.
+All tracks may go through one [`TapeMux`], or each port may have a mux and a chain of its own. A mux places the chunks
+of all its handles on one writing thread. A second mux adds a second writing thread and a second chain. Each chain
+can live on a disk of its own.
 
 ## How fast it records
 
-`just bench-ethernet` records 2 s of the link at full speed. The threads take the frames as fast as they can, not at
-the link's pace, so a run says how much of the link the analyser keeps up with. It runs once per number of queues and
-muxes into a store that keeps no bytes, so the encoding and the writing thread are measured, not a disk. It then
-writes chains of piece files on the machine's disk.
+`just bench-ethernet` records 2 s of the link at full speed. The threads take the frames as fast as they can, not at the
+link's pace. A run thus says how much of the link the analyser keeps up with.
+
+The bench runs once per number of queues and muxes into a store that keeps no bytes. These runs measure the encoding and
+the writing thread, not a disk. It then writes chains of piece files on the machine's disk.
 
 --8<-- "docs/plots/bench_ethernet_writer.txt"
 
@@ -100,9 +103,9 @@ keeps up with the link. The waits count the times a handle found the mux's queue
 behind it, fell behind the producers.
 
 Without a disk, the limit is the cores: each queue's threads encode, compress and hash their frames, and the queues
-spread that work. With a disk, the limit is the disk. A chain at the line rate writes about 2.4 GB a second, which
-asks for a mux per port and a fast disk under each chain.
+spread that work. With a disk, the limit is the disk. A chain at the line rate writes about 2.4 GB a second. That asks
+for a mux per port and a fast disk under each chain.
 
-On the machine of the table, four receive queues a port keep up with the link when no disk is behind them, and one queue
-a port falls short. Its disk keeps only a small part of the link. Such a machine records every frame into memory for a
-short capture, or a part of the traffic to disk through a filter on the capture threads.
+On the machine of the table, four receive queues a port keep up with the link when no disk is behind them. One queue a
+port falls short. Its disk keeps only a small part of the link. Such a machine records every frame into memory for a
+short capture. To disk it records a part of the traffic, through a filter on the capture threads.

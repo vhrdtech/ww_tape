@@ -67,21 +67,22 @@ just bench-rf-core
 just bench-rf-chain --dir /data/rf --gib 100 --remove
 ```
 
-The `ethernet` binary records the protocol analyser of `ww_tape_example::ethernet` at full speed: both directions of a
-10 Gbps link at its line rate, per receive queue a capture and a decoder thread. A run per number of queues and of
-muxes writes into a store that keeps no bytes; with `--dir`, the most queues also write chains of piece files there.
-It prints the frames a second and the share of the link the run kept up with.
+The `ethernet` binary records the protocol analyser of `ww_tape_example::ethernet` at full speed. It takes both
+directions of a 10 Gbps link at its line rate, with a capture and a decoder thread per receive queue. A run per number
+of queues and of muxes writes into a store that keeps no bytes. With `--dir`, the most queues also write chains of
+piece files there. It prints the frames a second and the share of the link the run kept up with.
 
 ```sh
 just bench-ethernet --dir target/bench-ethernet
 just bench-ethernet --ms 500 --queues 1,2,4,8 --muxes 1,2
 ```
 
-The `wideband` binary records the receiver of `ww_tape_example::wideband` at full speed: 1 GS/s of IQ split into
-channels, each a producer thread, over one or several muxes. Each thread pushes chunks made before the run, so the
-run times the recorder and not the signal. A run per number of channels, muxes and codec writes into a store that
-keeps no bytes; with `--dir`, the most channels and muxes also write chains of piece files there. A reader then
-draws channel 0's overview from its summary nodes, counting the bytes it reads.
+The `wideband` binary records the receiver of `ww_tape_example::wideband` at full speed. It splits 1 GS/s of IQ into
+channels, each a producer thread, over one or several muxes. Each thread pushes chunks made before the run, so the run
+times the recorder and not the signal. A run per number of channels, muxes and codec writes into a store that keeps no
+bytes. With `--dir`, the most channels and muxes also write chains of piece files there.
+
+A reader then draws channel 0's overview from its summary nodes, counting the bytes it reads.
 
 ```sh
 just bench-wideband --dir target/bench-wideband
