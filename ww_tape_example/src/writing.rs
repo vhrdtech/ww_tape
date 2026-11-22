@@ -13,13 +13,15 @@
 )]
 
 use core::fmt;
-use std::sync::Arc;
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard};
 
+use ww_tape::chunk::{ChunkHead, ColumnSpec};
 use ww_tape::index::{IndexBlock, IndexKind};
 use ww_tape::piece::{ChainLink, check_chain};
 use ww_tape::piece::{TAIL_LEN, close_padding};
-use ww_tape::samples::{encode, max_encoded_len};
+use ww_tape::samples::{Samples, encode, max_encoded_len};
 use ww_tape::{
     Block, BlockKind, Clock, ClockRef, Codec, ColumnKind, FLAG_REPEAT, FileBlocks, Layout,
     MemError, MemSink, MemTape, MemTapes, Recovery, Slot, SyncPolicy, TapeReader, TapeSink,
@@ -82,7 +84,7 @@ pub struct Calls {
     /// Chunks of `can0` and of `phase_a`.
     pub frame_chunks: u64,
     pub sample_chunks: u64,
-    /// Summary blocks of `phase_a` handed over to wait for a gap.
+    /// Summary blocks of `phase_a` that the mux built from the samples and deferred.
     pub summaries: u64,
 }
 
@@ -243,7 +245,11 @@ impl Writing {
             let blocks = blocks(recording)?;
             let cut = cut(recording)?;
             let retention = retention(recording)?;
-            let (calls, columns) = joined(calls)?;
+            let (mut calls, columns) = joined(calls)?;
+            calls.summaries = blocks
+                .iter()
+                .find(|b| b.part == "summary blocks")
+                .map_or(0, |b| b.count);
             let mut aligned = joined(aligned)?;
             [
                 aligned.series_unaligned,
@@ -297,7 +303,8 @@ fn calls_and_columns(recording: &Recording, acts: &[Act]) -> Result<(Calls, Colu
         match act {
             Act::Put { .. } => calls.puts += 1,
             Act::Records(_) => calls.records += 1,
-            Act::Summary(_) => calls.summaries += 1,
+            // the mux builds the summaries itself: [Writing::of] counts the blocks it deferred
+            Act::Summary(_) => {}
             Act::Chunk { head, columns } if head.track_id == key("can0").id() => {
                 calls.frame_chunks += 1;
                 c.frame_chunks += 1;
@@ -326,7 +333,7 @@ fn calls_and_columns(recording: &Recording, acts: &[Act]) -> Result<(Calls, Colu
             Act::Chunk { head, columns } => {
                 calls.sample_chunks += 1;
                 c.samples += u64::from(head.count);
-                let values = phase_values(&drive, head.first_item.get(), u64::from(head.count));
+                let values = chunk_values(&drive, head, columns)?;
                 for ((_, codec), sum) in codecs.iter().zip(&mut codec_bytes) {
                     // the recorder's own codec: its column as it was handed over, not encoded again
                     *sum += match columns.iter().find(|(spec, _)| spec.codec == *codec) {
@@ -362,11 +369,71 @@ fn residual_bits(column: &[u8], n: u64) -> u64 {
 }
 
 /// The samples of `phase_a` of `drive` from item `first`, `n` of them.
+///
+/// Each run of samples is made once in a process and kept ([PHASE_KEPT_MAX] at most): the hour is recorded several
+/// times in a test (the same settings again, the resume, the earlier run on a card), and making its samples is
+/// most of a recording's time.
 pub fn phase_values(drive: &Drive, first: u64, n: u64) -> Vec<i16> {
+    let key = (drive.phase_hz, first, n);
+    if let Some(values) = kept().runs.get(&key) {
+        return values.to_vec();
+    }
     let hz = u64::from(drive.phase_hz) * 3_600;
-    (first..first + n)
+    let values: Vec<i16> = (first..first.saturating_add(n))
         .map(|i| phase_ma(item_us(i, hz), i, drive.phase_hz))
-        .collect()
+        .collect();
+    let mut k = kept();
+    let samples = k.samples.saturating_add(n);
+    if samples <= PHASE_KEPT_MAX && !k.runs.contains_key(&key) {
+        k.samples = samples;
+        k.runs.insert(key, Arc::from(values.as_slice()));
+    }
+    values
+}
+
+/// Samples [phase_values] keeps in a process at most: the full hour's 90 million, 180 MB.
+pub const PHASE_KEPT_MAX: u64 = 90_000_000;
+
+/// The runs of samples [phase_values] made, by rate, first item and count.
+struct Kept {
+    samples: u64,
+    runs: BTreeMap<(u32, u64, u64), Arc<[i16]>>,
+}
+
+/// The samples kept, owned by [phase_values]: a pure function of its key, shared by every thread of the process.
+// spirit-level: allow(static-interior-mutability) a process-wide memo of a pure function: every thread of a test records the same hour
+static PHASE_KEPT: Mutex<Kept> = Mutex::new(Kept {
+    samples: 0,
+    runs: BTreeMap::new(),
+});
+
+fn kept() -> MutexGuard<'static, Kept> {
+    #[expect(
+        clippy::expect_used,
+        reason = "a poisoned lock means a thread panicked while it held the samples: the process stops, as the rules for locks say"
+    )]
+    PHASE_KEPT
+        .lock()
+        .expect("the samples' lock poisoned by a panic")
+}
+
+/// The samples of the chunk `head` of `phase_a`: decoded from its samples column when the act carries one ([Drive::acts]),
+/// else made ([phase_values]) for the act of a lean run, which carries none.
+pub(crate) fn chunk_values(
+    drive: &Drive,
+    head: &ChunkHead,
+    columns: &[(ColumnSpec, Vec<u8>)],
+) -> Result<Vec<i16>, Error> {
+    let count = u64::from(head.count);
+    let Some((spec, bytes)) = columns.iter().find(|(s, _)| s.kind == ColumnKind::Samples) else {
+        return Ok(phase_values(drive, head.first_item.get(), count));
+    };
+    let def = phase_def(drive.phase_hz, false).ok_or(Error::Settings("phase_hz is not 0"))?;
+    let n =
+        usize::try_from(count).map_err(|_e| Error::Settings("a chunk's samples fit a usize"))?;
+    let mut values = vec![0i16; n];
+    Samples::new(spec.codec, crate::defs::phase_shape(&def), n, bytes)?.decode(0, &mut values)?;
+    Ok(values)
 }
 
 /// Bytes of a samples column of `values` in `codec`.
@@ -1067,17 +1134,33 @@ impl fmt::Display for Writing {
         let c = &self.calls;
         writeln!(f, "Writing the drive's hour:")?;
         writeln!(f)?;
-        writeln!(f, "| Call | Count |")?;
-        writeln!(f, "|---|---:|")?;
-        writeln!(f, "| put, the mode | {} ({} wrote) |", c.puts, c.puts_wrote)?;
+        writeln!(f, "| Handle call | Writer call | Count |")?;
+        writeln!(f, "|---|---|---:|")?;
         writeln!(
             f,
-            "| write_block, log lines and temperatures | {} |",
+            "| StateHandle::put, the mode | put | {} ({} wrote) |",
+            c.puts, c.puts_wrote
+        )?;
+        writeln!(
+            f,
+            "| RecordsHandle::send, log lines and temperatures | write_block | {} |",
             c.records
         )?;
-        writeln!(f, "| write_chunk, can0 | {} |", c.frame_chunks)?;
-        writeln!(f, "| write_chunk, phase_a | {} |", c.sample_chunks)?;
-        writeln!(f, "| defer_block, summaries of phase_a | {} |", c.summaries)?;
+        writeln!(
+            f,
+            "| ChunkSender::send, can0 | write_chunk | {} |",
+            c.frame_chunks
+        )?;
+        writeln!(
+            f,
+            "| SeriesHandle::push, phase_a | write_chunk_hashed | {} |",
+            c.sample_chunks
+        )?;
+        writeln!(
+            f,
+            "| none: the mux's summaries of phase_a | defer_block | {} |",
+            c.summaries
+        )?;
         writeln!(f)?;
         writeln!(f, "| Blocks | Made by | Count | Bytes |")?;
         writeln!(f, "|---|---|---:|---:|")?;
@@ -1085,6 +1168,8 @@ impl fmt::Display for Writing {
         for b in &self.blocks {
             let by = if b.by_writer {
                 "the writer"
+            } else if b.part == "summary blocks" {
+                "the mux"
             } else {
                 "the recorder"
             };

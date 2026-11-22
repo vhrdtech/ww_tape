@@ -75,6 +75,13 @@ pub fn bench_says() -> anyhow::Result<Says> {
     bench::says(&bench::read(std::path::Path::new(BENCH_DIR))?)
 }
 
+/// What the prose of "Writing from many threads" writes from the handles report in [BENCH_DIR]: the pins it lacks
+/// in `page`.
+pub fn handles_missing(page: &str) -> anyhow::Result<Vec<String>> {
+    let pins = bench::handles(&bench::read(std::path::Path::new(BENCH_DIR))?)?;
+    Ok(bench::missing(&pins, page))
+}
+
 /// Every figure: its file name and its text.
 pub fn figures() -> anyhow::Result<Vec<(String, String)>> {
     let drawn: Vec<(&str, String)> = vec![

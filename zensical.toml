@@ -31,6 +31,7 @@ nav = [
     },
     { "Writing" = [
             "writing.md",
+            "writing_thread.md",
             "files.md",
             "pieces.md",
             "crashes.md",

@@ -59,3 +59,45 @@ fn the_progress_watch_wakes_a_reader_in_the_writers_process() {
     assert!(p.ended);
     assert!(watch.wait_past_for(p.version, Duration::ZERO).is_some());
 }
+
+/// A sync, a flush and a cut return only after the watch shows what they did: a reader in the writer's process
+/// that asks the watch right after one sees the synced bytes, the placed chunk and the new piece.
+#[test]
+fn the_watch_shows_a_sync_flush_and_cut_before_they_return() {
+    let mem = MemTapes::new();
+    let mux = TapeMux::create(
+        mem.clone(),
+        OWNER,
+        0,
+        &[],
+        options(0),
+        MuxOptions::default(),
+    )
+    .unwrap();
+    let senders = define(&mux);
+    let watch = mux.watch();
+    for k in 0..400 {
+        send(&senders[0], 0, k);
+        mux.sync().unwrap();
+        let p = watch.get();
+        assert_eq!(
+            p.tracks[&TrackNum::new(1)].next_item,
+            ItemNum::new((k + 1) * 50),
+            "round {k}: the chunk sent before the sync is placed"
+        );
+        assert_eq!(
+            p.synced_bytes, p.piece_bytes,
+            "round {k}: the sync's bytes are published before it returns"
+        );
+        if k % 50 == 49 {
+            mux.cut().unwrap();
+            assert_eq!(
+                watch.get().piece,
+                (k + 1) / 50,
+                "round {k}: the cut's piece is published before it returns"
+            );
+        }
+    }
+    drop(senders);
+    mux.close().unwrap();
+}

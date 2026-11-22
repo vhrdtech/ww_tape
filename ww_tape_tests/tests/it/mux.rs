@@ -417,6 +417,7 @@ fn dropping_producers_leave_item_gaps_and_failing_ones_get_the_unit_back() {
     let mux = rigged_mux(&rigged, 4 << 10);
     mux.flush().unwrap();
     rigged.rig.set(false);
+    // --8<-- [start:pressure]
     let drop = mux
         .chunks(TrackNum::new(1))
         .unwrap()
@@ -436,6 +437,7 @@ fn dropping_producers_leave_item_gaps_and_failing_ones_get_the_unit_back() {
         Err(MuxError::Full(Unit::Chunk { head, .. })) => assert_eq!(head.first_item.get(), 0),
         other => panic!("{other:?}"),
     }
+    // --8<-- [end:pressure]
     rigged.rig.set(true);
     let stats = mux.stats();
     assert_eq!(stats.drops, dropped);
@@ -466,6 +468,7 @@ fn a_failed_sink_reaches_every_handle() {
     send_chunk(&chunks, 0, 0).unwrap();
     log.send(records(crate::id(1), 1)).unwrap();
     mux.flush().unwrap();
+    // --8<-- [start:failed]
     rigged.rig.fail.store(true, Ordering::SeqCst);
     // taken by the queue; the writing thread's write of it fails
     assert_eq!(send_chunk(&chunks, 0, 1).unwrap(), Sent::Queued);
@@ -480,6 +483,7 @@ fn a_failed_sink_reaches_every_handle() {
     assert!(matches!(mux.cut(), Err(MuxError::Failed(_))));
     assert!(mux.stats().failed);
     assert!(matches!(mux.close(), Err(MuxError::Failed(_))));
+    // --8<-- [end:failed]
     assert!(matches!(log.flush(), Err(MuxError::Failed(_))));
 }
 
@@ -667,11 +671,19 @@ fn a_crash_at_any_byte_resumes_through_a_mux() {
     assert_eq!(crashed.len(), 3);
     let (done, last) = crashed.split_at(crashed.len() - 1);
     let mut cuts: Vec<(usize, Option<usize>)> = vec![(done.len(), None)];
-    // every byte of the open piece, every 13th of the pieces before it, read as the open one
-    cuts.extend((0..=last[0].len()).map(|at| (done.len(), Some(at))));
-    for (i, p) in done.iter().enumerate() {
-        cuts.extend((0..=p.len()).step_by(13).map(|at| (i, Some(at))));
+    // in the open piece and in each piece before it, read as the open one: every block boundary, the bytes either
+    // side of it, and bytes in between
+    for (i, p) in done.iter().chain(last).enumerate() {
+        let mut at: Vec<usize> = crate::resume::cut_points(p, 64)
+            .into_iter()
+            .flat_map(|b| [b.saturating_sub(1), b, b + 1])
+            .filter(|&b| b <= p.len())
+            .collect();
+        at.sort_unstable();
+        at.dedup();
+        cuts.extend(at.into_iter().map(|at| (i, Some(at))));
     }
+    assert!(cuts.len() > 300, "{} crashes", cuts.len());
     for (i, at) in cuts {
         let open = at.map(|at| &crashed[i][..at]);
         let mem = plant(&crashed[..i], open);

@@ -51,6 +51,7 @@ pub struct ViaHandles {
 ///
 /// A setting of `drive` the recording can't be made with, or a mux or handle call that failed.
 pub fn record(drive: &Drive) -> Result<ViaHandles, Error> {
+    // --8<-- [start:create]
     let mux_tapes = MemTapes::new();
     let mux = TapeMux::create(
         mux_tapes.clone(),
@@ -67,8 +68,10 @@ pub fn record(drive: &Drive) -> Result<ViaHandles, Error> {
         drive.near_bytes.get(),
     )?;
     let end_us = i64::from(drive.minutes) * 60_000 * US_PER_MS;
+    // --8<-- [end:create]
 
     let (puts, records, frames, samples) = thread::scope(|s| -> Result<_, Error> {
+        // --8<-- [start:mode]
         let mode_t = s.spawn(|| -> Result<u64, Error> {
             let state = mux.state(numbers.mode)?;
             let mut mode = Mode::at(0);
@@ -81,6 +84,7 @@ pub fn record(drive: &Drive) -> Result<ViaHandles, Error> {
             }
             Ok(n)
         });
+        // --8<-- [end:mode]
         let records_t = s.spawn(|| -> Result<u64, Error> {
             let log = mux.records();
             let mut items: Vec<(TrackNum, i64, Vec<u8>)> = Vec::new();
@@ -111,6 +115,7 @@ pub fn record(drive: &Drive) -> Result<ViaHandles, Error> {
             }
             Ok(sent)
         });
+        // --8<-- [start:can0]
         let can0_t = s.spawn(|| -> Result<u64, Error> {
             let mut can0 = mux.events(numbers.can0, EventsOptions::default())?;
             let period_us = 1_000_000 / u64::from(drive.can_hz);
@@ -135,6 +140,8 @@ pub fn record(drive: &Drive) -> Result<ViaHandles, Error> {
             can0.finish()?;
             Ok(total)
         });
+        // --8<-- [end:can0]
+        // --8<-- [start:phase_a]
         let phase_t = s.spawn(|| -> Result<u64, Error> {
             let mut phase_a = mux.series::<i16>(
                 numbers.phase_a,
@@ -155,6 +162,7 @@ pub fn record(drive: &Drive) -> Result<ViaHandles, Error> {
             phase_a.finish()?;
             Ok(total)
         });
+        // --8<-- [end:phase_a]
         let join = |h: ScopedJoinHandle<'_, Result<u64, Error>>| joined(h);
         Ok((
             join(mode_t)?,
@@ -165,7 +173,9 @@ pub fn record(drive: &Drive) -> Result<ViaHandles, Error> {
     })?;
 
     let tapes = mux_tapes;
+    // --8<-- [start:close]
     let closed = mux.close()?;
+    // --8<-- [end:close]
     let pieces = closed
         .iter()
         .map(|p| {

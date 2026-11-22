@@ -13,10 +13,15 @@ benchmarks, golden files and book pages.
 - `ww_tape_example::ethernet`: a protocol analyser's frames and decoded headers, spread over receive queues and muxes (BOOK-4).
 - `ww_tape_example::wideband`: a 1 GS/s receiver in channels over several muxes, with an overview from summaries (BOOK-4).
 - `just bench-ethernet` and `just bench-wideband` record both cases at full speed; `bench-book` runs them (BOOK-4).
+- Book: "Writing from many threads" explains the mux, its queue, back-pressure, order, errors and speed (BOOK-2).
+- `just bench-book` also runs `bench-handles`; the book draws its tables from `docs/bench/handles.json` (BOOK-2).
+- The example's calls table names each handle call and counts the summary blocks the mux defers (WRITE-15).
 
 ### Fixes
 
 - A resumed `TapeMux` writes no summary tree for a track its handle writes without summaries (WRITE-13).
+- `TapeMux::sync`, `flush` and `cut` return only once `ProgressWatch` shows their bytes and piece (READ-6).
+- `ChainFollower` never hands out puts or a piece's end that a resume after a crash takes back (READ-6).
 
 ## [0.4.0] - 2026-11-22
 

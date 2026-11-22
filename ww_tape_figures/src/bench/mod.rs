@@ -6,14 +6,17 @@
 //! - `drive_sizes.svg`: where the bytes of the drive's hour go.
 //! - `bench_*.txt`: the tables the pages include, each with the bench and the load average it ran at.
 //! - `bench_machine.txt`: the machine, build and commit every report of "Sizes and speeds" ran, and the range of the
-//!   load average; `bench_cases_machine.txt` the same of the reports of the two case pages, a run of their own.
+//!   load average.
+//! - `bench_handles_machine.txt`: the same for the handles report of "Writing from many threads".
+//! - `bench_cases_machine.txt`: the same for the reports of the two case pages, "Every frame of a 10 Gbps link" and
+//!   "A billion samples a second".
 //!
 //! [says] gives the numbers the page's prose computes from the reports, and the numbers the reports name.
 
 mod chart;
 mod says;
 
-pub use says::{Says, says};
+pub use says::{Says, handles, missing, says};
 
 use anyhow::{Context, ensure};
 use chart::{Chart, Panel, Series};
@@ -32,6 +35,7 @@ pub struct Reports {
     memory: Report,
     rf_core: Report,
     rf_chain: Report,
+    handles: Report,
     ethernet: Report,
     wideband: Report,
 }
@@ -55,6 +59,7 @@ pub fn read(dir: &Path) -> anyhow::Result<Reports> {
         memory: r("memory")?,
         rf_core: r("rf_core")?,
         rf_chain: r("rf_chain")?,
+        handles: r("handles")?,
         ethernet: r("ethernet")?,
         wideband: r("wideband")?,
     })
@@ -377,10 +382,10 @@ fn markdown(report: &Report, id: &str) -> anyhow::Result<String> {
     Ok(out)
 }
 
-/// The paragraph saying where every report ran: the machine, the build, the commit and the range of the load.
-/// The reports the tables of "Sizes and speeds" draw from.
-fn sizes_reports(r: &Reports) -> [&Report; 10] {
-    [
+/// The paragraph saying where every report of "Sizes and speeds" ran: the machine, the build, the commit and the
+/// range of the load.
+fn machine(r: &Reports) -> anyhow::Result<String> {
+    machine_of(&[
         &r.drive,
         &r.sample_codecs,
         &r.event_times,
@@ -391,16 +396,11 @@ fn sizes_reports(r: &Reports) -> [&Report; 10] {
         &r.memory,
         &r.rf_core,
         &r.rf_chain,
-    ]
+    ])
 }
 
-/// The reports the case pages "Every frame of a 10 Gbps link" and "A billion samples a second" draw from.
-fn cases_reports(r: &Reports) -> [&Report; 2] {
-    [&r.ethernet, &r.wideband]
-}
-
-/// The machine, build and commit the reports `all` ran, one run: the same for each, against the first.
-fn machine(all: &[&Report]) -> anyhow::Result<String> {
+/// The paragraph saying where `all` ran, the first report's machine, build and commit those of every other.
+fn machine_of(all: &[&Report]) -> anyhow::Result<String> {
     let first = all.first().context("a report")?;
     for x in all {
         ensure!(
@@ -423,8 +423,13 @@ fn machine(all: &[&Report]) -> anyhow::Result<String> {
         .build
         .jobs
         .map_or_else(|| "the default jobs".to_owned(), |j| format!("{j} jobs"));
+    let (benches, each) = if all.len() == 1 {
+        ("The bench ran", "It")
+    } else {
+        ("The benches ran", "Each")
+    };
     Ok(format!(
-        "The benches ran on {}, a {} with {} logical CPUs ({}, {}). Each was a {} build at opt-level {} of commit `{}`, \
+        "{benches} on {}, a {} with {} logical CPUs ({}, {}). {each} was a {} build at opt-level {} of commit `{}`, \
          built with {jobs}. The load average ran from {lo:.2} to {hi:.2} across the tables.\n",
         m.host,
         if m.virtual_machine {
@@ -449,10 +454,14 @@ pub fn figures(dir: &Path) -> anyhow::Result<Vec<(String, String)>> {
         ("event_times.svg".to_owned(), event_times(&r)?),
         ("chunk_cost.svg".to_owned(), chunk_cost(&r)?),
         ("drive_sizes.svg".to_owned(), drive_sizes(&r)?),
-        ("bench_machine.txt".to_owned(), machine(&sizes_reports(&r))?),
+        ("bench_machine.txt".to_owned(), machine(&r)?),
+        (
+            "bench_handles_machine.txt".to_owned(),
+            machine_of(&[&r.handles])?,
+        ),
         (
             "bench_cases_machine.txt".to_owned(),
-            machine(&cases_reports(&r))?,
+            machine_of(&[&r.ethernet, &r.wideband])?,
         ),
     ];
     for (report, id) in [
@@ -479,6 +488,8 @@ pub fn figures(dir: &Path) -> anyhow::Result<Vec<(String, String)>> {
         (&r.rf_core, "reader"),
         (&r.rf_chain, "chain"),
         (&r.rf_chain, "read"),
+        (&r.handles, "events"),
+        (&r.handles, "iq"),
         (&r.ethernet, "writer"),
         (&r.wideband, "writer"),
         (&r.wideband, "overview"),

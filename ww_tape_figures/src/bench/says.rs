@@ -521,6 +521,97 @@ fn rf(r: &Reports) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// The pins of `pins` that the prose of `page` lacks, each as a problem to report.
+pub fn missing(pins: &[(String, String)], page: &str) -> Vec<String> {
+    let text = prose(page).split_whitespace().collect::<Vec<_>>().join(" ");
+    pins.iter()
+        .filter(|(_, shown)| !text.contains(shown.as_str()))
+        .map(|(what, shown)| format!("the page lacks \"{shown}\": {what}"))
+        .collect()
+}
+
+/// The value of `column` in the row of `t` for `writer` with `tracks` tracks.
+fn at_tracks(t: &Table, writer: &str, tracks: f64, column: &str) -> anyhow::Result<f64> {
+    let mut found = Vec::new();
+    for r in rows(t, &[writer])? {
+        if value(t, r, "Tracks")? == tracks {
+            found.push(r);
+        }
+    }
+    ensure!(
+        found.len() == 1,
+        "one row {writer} with {tracks} tracks in table {}",
+        t.id
+    );
+    value(t, found.first().context("a row")?, column)
+}
+
+/// The numbers the prose of "Writing from many threads" computes from the handles report, as it writes them, and
+/// what each is. The page holds each one ([Says::pins]).
+pub fn handles(r: &Reports) -> anyhow::Result<Vec<(String, String)>> {
+    let events = table(&r.handles, "events")?;
+    let iq = table(&r.handles, "iq")?;
+    let tracks_max = events
+        .rows
+        .iter()
+        .map(|row| value(events, row, "Tracks"))
+        .collect::<anyhow::Result<Vec<f64>>>()?
+        .into_iter()
+        .fold(0.0f64, f64::max);
+    let percent = |v: f64| format!("{} %", sig(v * 100.0, 2));
+    let one = at_tracks(events, "mux", 1.0, "vs direct")?;
+    let one_by_one = at_tracks(events, "mux, one by one", 1.0, "vs direct")?;
+    let many = at_tracks(events, "mux", tracks_max, "vs direct")?;
+    let iq_many = at_tracks(iq, "mux", tracks_max, "vs direct")?;
+    ensure!(
+        one < 1.0 && one_by_one < one && many > 1.0 && iq_many > 1.0,
+        "the page says one track through the mux is slower than direct, one by one slower still, and many tracks \
+         faster: {one}, {one_by_one}, {many}, {iq_many}"
+    );
+    Ok(vec![
+        (
+            "one events track through the mux against direct".to_owned(),
+            percent(one),
+        ),
+        (
+            "one events track pushed one by one against direct".to_owned(),
+            percent(one_by_one),
+        ),
+        (
+            "the most events tracks through the mux against direct".to_owned(),
+            format!("{} times as many events", sig(many, 2)),
+        ),
+        (
+            "the most IQ tracks through the mux against direct".to_owned(),
+            format!("{} times as many samples", sig(iq_many, 2)),
+        ),
+        (
+            "the bytes the mux writes a second with the most IQ tracks".to_owned(),
+            format!(
+                "{} GB/s",
+                sig(
+                    at_tracks(iq, "mux", tracks_max, "MB/s written")? / 1000.0,
+                    2
+                )
+            ),
+        ),
+        (
+            "sends that waited for room with the most IQ tracks".to_owned(),
+            format!(
+                "{} sends waited",
+                grouped(&format!(
+                    "{:.0}",
+                    at_tracks(iq, "mux", tracks_max, "Waits")?
+                ))
+            ),
+        ),
+        (
+            "the most tracks of the handles bench".to_owned(),
+            format!("{tracks_max:.0} tracks"),
+        ),
+    ])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

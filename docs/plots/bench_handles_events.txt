@@ -1,0 +1,13 @@
+| Writer | Tracks | ms | M events/s | MB/s written | vs direct | Waits |
+|---|---:|---:|---:|---:|---:|---:|
+| direct | 1 | 128 | 62.3 | 262 | 1.00 | 0 |
+| mux | 1 | 145 | 55.0 | 231 | 0.88 | 0 |
+| mux, one by one | 1 | 553 | 14.5 | 61 | 0.23 | 0 |
+| direct | 4 | 118 | 67.7 | 285 | 1.00 | 0 |
+| mux | 4 | 47 | 170.4 | 717 | 2.52 | 0 |
+| mux, one by one | 4 | 137 | 58.5 | 246 | 0.86 | 0 |
+| direct | 16 | 115 | 69.7 | 294 | 1.00 | 0 |
+| mux | 16 | 25 | 323.9 | 1365 | 4.65 | 0 |
+| mux, one by one | 16 | 59 | 135.9 | 573 | 1.95 | 0 |
+
+`just bench-handles` on gpd-omarchy, load average 9.21 before, 8.71 after.

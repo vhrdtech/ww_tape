@@ -47,3 +47,17 @@ fn prose_numbers_come_from_reports() {
         problems.join("\n")
     );
 }
+
+#[test]
+fn writing_thread_numbers_come_from_reports() {
+    let page = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs/writing_thread.md"),
+    )
+    .unwrap();
+    let problems = ww_tape_figures::handles_missing(&page).unwrap();
+    assert!(
+        problems.is_empty(),
+        "docs/writing_thread.md writes numbers the handles report doesn't hold:\n{}",
+        problems.join("\n")
+    );
+}

@@ -1,0 +1,497 @@
+{
+  "format": 1,
+  "bench": "handles",
+  "version": "0.4.0 (d7abba98a, commit 22 Nov 2026 13:18 UTC)",
+  "commit": "d7abba98a",
+  "dirty": false,
+  "build": {
+    "profile": "release",
+    "opt_level": "3",
+    "jobs": 24
+  },
+  "settings": [
+    [
+      "tracks",
+      "1,4,16"
+    ],
+    [
+      "events",
+      "8000000"
+    ],
+    [
+      "RF s",
+      "16"
+    ]
+  ],
+  "machine": {
+    "host": "gpd-omarchy",
+    "virtual_machine": false,
+    "cpu": "AMD Ryzen AI 9 HX 370 w/ Radeon 890M",
+    "cpus": 24,
+    "arch": "x86_64",
+    "extensions": [
+      "sse4.2",
+      "avx2",
+      "avx512bw+vl"
+    ]
+  },
+  "tables": [
+    {
+      "id": "events",
+      "title": "8000000 instants with a 16-byte payload and their item trees, 4096 to a chunk, split across the tracks.",
+      "columns": [
+        "Writer",
+        "Tracks",
+        "ms",
+        "M events/s",
+        "MB/s written",
+        "vs direct",
+        "Waits"
+      ],
+      "rows": [
+        [
+          "direct",
+          {
+            "value": 1.0,
+            "digits": 0
+          },
+          {
+            "value": 128.381046,
+            "digits": 0
+          },
+          {
+            "value": 62.31050649018703,
+            "digits": 1
+          },
+          {
+            "value": 262.25927462843697,
+            "digits": 0
+          },
+          {
+            "value": 1.0,
+            "digits": 2
+          },
+          {
+            "value": 0.0,
+            "digits": 0
+          }
+        ],
+        [
+          "mux",
+          {
+            "value": 1.0,
+            "digits": 0
+          },
+          {
+            "value": 145.485003,
+            "digits": 0
+          },
+          {
+            "value": 54.984966388597456,
+            "digits": 1
+          },
+          {
+            "value": 231.42674025308298,
+            "digits": 0
+          },
+          {
+            "value": 0.8824349132398203,
+            "digits": 2
+          },
+          {
+            "value": 0.0,
+            "digits": 0
+          }
+        ],
+        [
+          "mux, one by one",
+          {
+            "value": 1.0,
+            "digits": 0
+          },
+          {
+            "value": 552.8301829999999,
+            "digits": 0
+          },
+          {
+            "value": 14.47006376639895,
+            "digits": 1
+          },
+          {
+            "value": 60.9031869737836,
+            "digits": 0
+          },
+          {
+            "value": 0.23222510265869475,
+            "digits": 2
+          },
+          {
+            "value": 0.0,
+            "digits": 0
+          }
+        ],
+        [
+          "direct",
+          {
+            "value": 4.0,
+            "digits": 0
+          },
+          {
+            "value": 118.024241,
+            "digits": 0
+          },
+          {
+            "value": 67.7436425962697,
+            "digits": 1
+          },
+          {
+            "value": 285.2035117090904,
+            "digits": 0
+          },
+          {
+            "value": 1.0,
+            "digits": 2
+          },
+          {
+            "value": 0.0,
+            "digits": 0
+          }
+        ],
+        [
+          "mux",
+          {
+            "value": 4.0,
+            "digits": 0
+          },
+          {
+            "value": 46.915794,
+            "digits": 0
+          },
+          {
+            "value": 170.42005086815755,
+            "digits": 1
+          },
+          {
+            "value": 717.4753985832575,
+            "digits": 0
+          },
+          {
+            "value": 2.515661165193112,
+            "digits": 2
+          },
+          {
+            "value": 0.0,
+            "digits": 0
+          }
+        ],
+        [
+          "mux, one by one",
+          {
+            "value": 4.0,
+            "digits": 0
+          },
+          {
+            "value": 136.75662699999998,
+            "digits": 0
+          },
+          {
+            "value": 58.46438432559469,
+            "digits": 1
+          },
+          {
+            "value": 246.1374540920785,
+            "digits": 0
+          },
+          {
+            "value": 0.8630239249758624,
+            "digits": 2
+          },
+          {
+            "value": 0.0,
+            "digits": 0
+          }
+        ],
+        [
+          "direct",
+          {
+            "value": 16.0,
+            "digits": 0
+          },
+          {
+            "value": 114.772284,
+            "digits": 0
+          },
+          {
+            "value": 69.66309043740908,
+            "digits": 1
+          },
+          {
+            "value": 293.6056583138138,
+            "digits": 0
+          },
+          {
+            "value": 1.0,
+            "digits": 2
+          },
+          {
+            "value": 0.0,
+            "digits": 0
+          }
+        ],
+        [
+          "mux",
+          {
+            "value": 16.0,
+            "digits": 0
+          },
+          {
+            "value": 24.682565,
+            "digits": 0
+          },
+          {
+            "value": 323.9287326904639,
+            "digits": 1
+          },
+          {
+            "value": 1365.0808171679078,
+            "digits": 0
+          },
+          {
+            "value": 4.649933424666359,
+            "digits": 2
+          },
+          {
+            "value": 0.0,
+            "digits": 0
+          }
+        ],
+        [
+          "mux, one by one",
+          {
+            "value": 16.0,
+            "digits": 0
+          },
+          {
+            "value": 58.828138,
+            "digits": 0
+          },
+          {
+            "value": 135.91101591554707,
+            "digits": 1
+          },
+          {
+            "value": 572.7479594883658,
+            "digits": 0
+          },
+          {
+            "value": 1.9509759768361188,
+            "digits": 2
+          },
+          {
+            "value": 0.0,
+            "digits": 0
+          }
+        ]
+      ],
+      "load_before": {
+        "one": 9.21,
+        "five": 7.05,
+        "fifteen": 4.11
+      },
+      "load_after": {
+        "one": 8.71,
+        "five": 6.99,
+        "fifteen": 4.1
+      },
+      "seconds": 1.326721108
+    },
+    {
+      "id": "iq",
+      "title": "16 s of 20 MS/s IQ, 12-bit packed with summaries, chunks of 10 ms, split across the tracks.",
+      "columns": [
+        "Writer",
+        "Tracks",
+        "ms",
+        "MS/s",
+        "MB/s written",
+        "vs direct",
+        "Waits"
+      ],
+      "rows": [
+        [
+          "direct",
+          {
+            "value": 1.0,
+            "digits": 0
+          },
+          {
+            "value": 1247.82474,
+            "digits": 0
+          },
+          {
+            "value": 256.44626985036376,
+            "digits": 1
+          },
+          {
+            "value": 783.443764706893,
+            "digits": 0
+          },
+          {
+            "value": 1.0,
+            "digits": 2
+          },
+          {
+            "value": 0.0,
+            "digits": 0
+          }
+        ],
+        [
+          "mux",
+          {
+            "value": 1.0,
+            "digits": 0
+          },
+          {
+            "value": 1168.978919,
+            "digits": 0
+          },
+          {
+            "value": 273.74317431980995,
+            "digits": 1
+          },
+          {
+            "value": 836.2858355360984,
+            "digits": 0
+          },
+          {
+            "value": 1.0674484541324736,
+            "digits": 2
+          },
+          {
+            "value": 0.0,
+            "digits": 0
+          }
+        ],
+        [
+          "direct",
+          {
+            "value": 4.0,
+            "digits": 0
+          },
+          {
+            "value": 1189.7430769999999,
+            "digits": 0
+          },
+          {
+            "value": 268.96563315745186,
+            "digits": 1
+          },
+          {
+            "value": 821.7248672420727,
+            "digits": 0
+          },
+          {
+            "value": 1.0,
+            "digits": 2
+          },
+          {
+            "value": 0.0,
+            "digits": 0
+          }
+        ],
+        [
+          "mux",
+          {
+            "value": 4.0,
+            "digits": 0
+          },
+          {
+            "value": 401.213812,
+            "digits": 0
+          },
+          {
+            "value": 797.5797204110211,
+            "digits": 1
+          },
+          {
+            "value": 2436.699203167014,
+            "digits": 0
+          },
+          {
+            "value": 2.96535922098315,
+            "digits": 2
+          },
+          {
+            "value": 0.0,
+            "digits": 0
+          }
+        ],
+        [
+          "direct",
+          {
+            "value": 16.0,
+            "digits": 0
+          },
+          {
+            "value": 1230.641353,
+            "digits": 0
+          },
+          {
+            "value": 260.0270169858334,
+            "digits": 1
+          },
+          {
+            "value": 794.5327284967321,
+            "digits": 0
+          },
+          {
+            "value": 1.0,
+            "digits": 2
+          },
+          {
+            "value": 0.0,
+            "digits": 0
+          }
+        ],
+        [
+          "mux",
+          {
+            "value": 16.0,
+            "digits": 0
+          },
+          {
+            "value": 303.24185,
+            "digits": 0
+          },
+          {
+            "value": 1055.2633154032005,
+            "digits": 1
+          },
+          {
+            "value": 3224.438948647755,
+            "digits": 0
+          },
+          {
+            "value": 4.058283356997064,
+            "digits": 2
+          },
+          {
+            "value": 1400.0,
+            "digits": 0
+          }
+        ]
+      ],
+      "load_before": {
+        "one": 8.71,
+        "five": 6.99,
+        "fifteen": 4.1
+      },
+      "load_after": {
+        "one": 8.25,
+        "five": 6.92,
+        "fifteen": 4.09
+      },
+      "seconds": 5.541701714
+    }
+  ]
+}
