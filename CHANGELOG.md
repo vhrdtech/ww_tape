@@ -18,6 +18,7 @@ benchmarks, golden files and book pages.
 - The example's calls table names each handle call and counts the summary blocks the mux defers (WRITE-15).
 
 ### Fixes
+- The book shows one eventfull screenshot of a light and dark pair per scheme, and Rust code blocks have a palette in both schemes (BOOK-1).
 
 - A resumed `TapeMux` writes no summary tree for a track its handle writes without summaries (WRITE-13).
 - `TapeMux::sync`, `flush` and `cut` return only once `ProgressWatch` shows their bytes and piece (READ-6).
