@@ -82,7 +82,7 @@ api-check:
     fi
     {{ ww }} api check ww_tape
 
-# Rewrite the golden files of ww_tape and ww_tape_summary (golden/v1*.hex) after a deliberate format change (FMT-2, FMT-3, CODEC-2, SUM-1, FMT-9)
+# Rewrite the golden files of ww_tape and ww_tape_summary (golden/v1*.hex) after a deliberate format change (TRACK-1, FMT-3, CODEC-2, SUM-1, TRACK-3)
 tape-golden-update:
     WW_TAPE_GOLDEN=update cargo nextest run -p ww_tape -p ww_tape_summary -p ww_tape_tests golden
 
@@ -99,11 +99,11 @@ bench-sample-codecs *args:
 bench-summaries *args:
     cargo run -q --release -p ww_tape_benchmarks --bin summaries -- {{ args }}
 
-# ww_tape tracks added one by one, then the bytes put and copied per 256 MiB piece (FMT-9); `just bench-tracks --help`
+# ww_tape tracks added one by one, then the bytes put and copied per 256 MiB piece (TRACK-3); `just bench-tracks --help`
 bench-tracks *args:
     cargo run -q --release -p ww_tape_benchmarks --bin tracks -- {{ args }}
 
-# ww_tape: the definitions a piece carries for the tracks of its head, per piece (WRITE-9); `just bench-carried --help`
+# ww_tape: the definitions a piece carries for the tracks of its head, per piece (TRACK-5); `just bench-carried --help`
 bench-carried *args:
     cargo run -q --release -p ww_tape_benchmarks --bin carried -- {{ args }}
 
@@ -131,7 +131,7 @@ bench-relations *args:
     cargo run -q --release -p ww_tape_benchmarks --bin relations -- {{ args }}
 
 # The book's running example at full scale: the drive's hour by block kind, bytes per item and time to record
-# (BOOK-3); `just bench-drive --help`
+# (EX-1); `just bench-drive --help`
 bench-drive *args:
     cargo run -q --release -p ww_tape_benchmarks --bin drive -- {{ args }}
 
@@ -144,16 +144,16 @@ bench-rf-chain *args:
     cargo run -q --release -p ww_tape_benchmarks --bin rf_chain -- {{ args }}
 
 # ww_tape: a protocol analyser on both directions of a 10 Gbps link through one mux or a mux per port, at full speed
-# (BOOK-4); `just bench-ethernet --help`
+# (EX-2); `just bench-ethernet --help`
 bench-ethernet *args:
     cargo run -q --release -p ww_tape_benchmarks --bin ethernet -- {{ args }}
 
 # ww_tape: a wideband receiver at 1 GS/s in channels over one or several muxes at full speed, then an overview read
-# from its summaries (BOOK-4); `just bench-wideband --help`
+# from its summaries (EX-2); `just bench-wideband --help`
 bench-wideband *args:
     cargo run -q --release -p ww_tape_benchmarks --bin wideband -- {{ args }}
 
-# Events and series handles on a TapeMux against one thread writing a chain directly, by 1, 4 and 16 tracks (WRITE-13); `just bench-handles --help`
+# Events and series handles on a TapeMux against one thread writing a chain directly, by 1, 4 and 16 tracks (MUX-2); `just bench-handles --help`
 bench-handles *args:
     cargo run -q --release -p ww_tape_benchmarks --bin handles -- {{ args }}
 
@@ -416,7 +416,7 @@ deploy:
     git pull --ff-only
     just install
 
-# Fuzz ww_tape state records and their index entries lying behind good CRCs: lookups and resume (FMT-9)
+# Fuzz ww_tape state records and their index entries lying behind good CRCs: lookups and resume (TRACK-3)
 [working-directory('fuzz')]
 fuzz-tape-state-hostile:
     cargo +{{ nightly }} fuzz run --target {{ fuzz_host_triple }} tape-state-hostile -- -max_len=256 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10

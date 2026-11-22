@@ -1,6 +1,6 @@
 //! A [TapeMux] resumed after a crash rebuilds the summary trees of the piece the crash tore: crashed anywhere and
 //! given the items it lost, it writes the bytes of the run without the crash, in both layouts, flagged samples
-//! included (WRITE-13).
+//! included (MUX-2).
 
 use exact_units::Count;
 use ww_tape::index::IndexPolicy;

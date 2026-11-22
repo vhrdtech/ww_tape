@@ -256,7 +256,7 @@ fn golden_flags() -> Vec<Seed> {
 }
 
 /// Describe records of events tracks of plain bytes, a media type, a named format with a schema and numbers, and the
-/// schema itself (FMT-12), for the definition decoder.
+/// schema itself (TRACK-4), for the definition decoder.
 fn encoding_seeds() -> Vec<Seed> {
     const SCHEMA: &[u8] = b"syntax = \"proto3\"; message Frame { uint32 id = 1; bytes data = 2; }";
     let hash = *blake3::hash(SCHEMA).as_bytes();

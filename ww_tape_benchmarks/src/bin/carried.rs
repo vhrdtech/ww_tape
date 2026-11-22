@@ -1,4 +1,4 @@
-//! The bytes a piece spends on the definitions of the tracks its head carries (WRITE-9): a piece of a chain whose head
+//! The bytes a piece spends on the definitions of the tracks its head carries (TRACK-5): a piece of a chain whose head
 //! carries `n` tracks, records blocks on one of them until the piece holds 1 or 8 MiB, closed, as a cut by bytes
 //! closes it. The same piece with the definitions of that one track alone held is the baseline: the data it holds
 //! more is what carrying the quiet tracks costs. Prints a Markdown table for 100 and 1 000 tracks, then the bytes of a

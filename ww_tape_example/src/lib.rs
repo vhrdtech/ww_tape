@@ -43,6 +43,7 @@ pub mod ethernet;
 pub mod fault;
 pub mod first_tape;
 pub mod handles;
+pub mod producers;
 mod record;
 pub mod rf;
 pub mod rf_chains;
