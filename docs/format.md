@@ -1523,60 +1523,6 @@ another version that goes on with the data ends the piece the reader is in and s
 The reader lists that piece with its version (`PieceInfo::version`) and refuses to read it. A reader skips a block of a
 kind it doesn't know by its length, as it skips definitions of a variant it doesn't know.
 
-## Caps on what a reader takes
-
-Every count, length, offset or layout value a reader takes from the bytes is bounded before it sizes an allocation, a
-slice or a loop. The bound is a length already in hand (the block's, a table's) or one of these caps.
-
-A value past its cap is damage, refused with an error; no file a writer of this crate writes has one.
-
-| Cap | Value | Bounds |
-|---|---|---|
-| `MAX_BLOCK_LEN` | 64 MiB | a block's length |
-| `DECODED_BODY_MAX` | 64 MiB - 36 | a coded body's decoded length |
-| `LZ4_DECODED_MAX` | 64 MiB | an lz4 column's decoded length |
-| `MAX_BLOCK_CLOCKS` | 16 | the clocks of one block's clock table |
-| `MAX_RECORD_HEAD` | 25 | a record head's bytes |
-| `MAX_CLOCK_TABLE` | 81 | a clock table's bytes |
-| `MAX_COLUMNS` | 255 | a chunk's columns |
-| `SEGMENT_SHIFT_MAX` | 24 | a chunk's segment shift (16 MiB segments) |
-| `MAX_SEGMENTS` | 16384 | a chunk's segments |
-| `SERIES_ITEMS_MAX` | 65535 | the items of a chunk with a series payloads column |
-| `WIDTH_MAX` | 64 | a bit width (`bitpack::Width`) |
-| `KERNEL_WIDTH_MAX` | 32 | a bit width the 32-bit kernels unpack |
-| `SLOPE_MAX` | 2^55 | a start group's slope (Q16 ticks per item) |
-| `ITEMS_MAX` | 16 Mi | the items of an events chunk |
-| `INDEX_LEN_MAX` | 1 MiB | an index block a writer makes, and a reader looks for from the end |
-| `CHECKPOINT_ENTRIES_MAX` | 8737 | entries a writer puts in a checkpoint index block |
-| `NODE_SHIFT_MAX` | 62 | a summary node's items, as a power of 2 |
-| `LEVEL_MAX` | 15 | a summary tree's level |
-| `SCALE_LEN_MAX` | 64 | the scale bytes of a series chunk or summary |
-| `FACTOR_MAX` | 2^53 | a factor to the common scale (`ww_tape_summary`) |
-| `SeriesSummarySpec::BASE_SHIFT_MAX` | 24 | a series summary's base node, as a power of 2 |
-| `SERIES_CHANNELS_MAX` | 65535 | a series track's channels |
-| `GAP_MAX_MAX` | 64 MiB | a layout's gap |
-| `GAP_PROBES_MAX` | 8192 | the resume places a reader probes in one gap |
-| `GAP_CHECKS_MAX` | 4 | the blocks a reader checks whole past one gap |
-| `STATE_READ_MAX` | 1 GiB | the bytes of blocks one state lookup reads |
-| `DEFERRED_BYTES_MAX` | 1 MiB | the deferred blocks a writer keeps |
-
-Walks over many blocks and the writer have caps of their own. A walk stops at its cap, and a writer refuses input that
-would pass one:
-
-| Walk or writer cap | Value | Bounds |
-|---|---|---|
-| `RESYNC_AHEAD_MAX` | 128 MiB | the bytes a salvage walk (`Recovery::Resync`) reads ahead |
-| `RESYNC_SEQS_MAX` | 65536 | the data blocks a salvage walk remembers by session and seq, for conflicts |
-| `VERIFY_LISTS_MAX` | 466432 | the track lists of a final index one verify takes |
-| `TRACKS_PER_PIECE_MAX` | 466430 | the tracks with data in one piece, so its close fits a block |
-| `HEAD_TRACKS_MAX` | 699006 | the tracks a piece head carries over the chain, so the head fits a block |
-| `CLOSE_SUMMARY_MAX` | 1 MiB | the body of the summary block a close names |
-| `REMOVED_PIECES_MAX` | 65536 | the removed pieces one close names |
-| `WALK_MISS_BASE_MAX` | 1 MiB | the bytes a content-hash walk's missed blocks claim at its start |
-| `WALK_MISS_PER_BYTE_MAX` | 4 | the bytes they claim per byte walked, past that |
-| `RESUME_LOOK_MAX` | 128 MiB | the bytes past a reader's stop a resume looks through for a good block |
-| `RESUME_PROBES_MAX` | 4 | the places there a resume reads whole |
-
 ## Sessions, media and damage
 
 [When bytes go bad](damage.md) and [Where the data ends on a raw card](raw_media.md) explain these rules with examples.
@@ -1708,19 +1654,103 @@ it needs within `near` behind.
 An item first written in a piece gets `copies` more records at later uses, at least 1 MiB apart. A lookup that meets a
 damaged block lists it and takes the next older record of the slot ([Reading by position](#reading-by-position)).
 
-## Reserved numbers
+## Series tracks
 
-Some numbers are reserved: later features then need no format change. Readers of this version refuse each:
+A **series track** holds samples at an exact period, with no time per sample. Its items are `Numbers`, which hold:
 
-| Reserved | For |
+| Field | What |
 |---|---|
-| payload codec 49 (`Codec::SERIES`) | a payloads column holding one shrink_wrap `Series<T>` of the chunk's items, alone, at most 65535 items |
-| sample codec 36 (`Codec::RUNS`) | run-coded discrete lanes (`U8`, `U16`, `U32`, `Bool`) |
-| column kind 7 (`ColumnKind::PAYLOAD_LEAF`) | one leaf of the items' payload struct, the param naming the leaf |
-| block kinds 11 and 12 (`BlockKind::POSTINGS`, `DICTIONARY`) | a relation's index per events chunk: each distinct value with its items; the distinct values and each item's index into them. Skipped by readers; writers refuse a definition that asks for one |
-| `RelationValues::IndexOnly` | values given with each item only to feed an index, no column; writers refuse it until an index is built |
-| piece head byte 146 `integrity`, header flag bit 3 `FLAG_PAYLOAD_UNCHECKED`, index entry flag bit 2 `ENTRY_UNHASHED` | integrity levels below `Full`: a piece of level `CrcOnly` computes no hashes and marks each index entry `ENTRY_UNHASHED`; a piece of level `None` also skips payload CRCs (chunk head CRCs and structure blocks stay checked) and marks each chunk `FLAG_PAYLOAD_UNCHECKED`. Written as `Full` and 0; a reader refuses `CrcOnly` and `None` as levels it doesn't handle (`IndexError::UnhandledIntegrity`), another byte as `IndexError::UnknownIntegrity`, the bits as `BlockError::PayloadUnchecked` and `IndexError::Unhashed`, never as damage |
-| summary head bytes 54..56 | the first channel or leaf of the block, 0 today |
+| element | the stored `ElementDesc` of one channel of a sample |
+| unit | the type of one value: a `TypeRef` to an exact_units `Fixed<Ampere, Milli, i32>` or a `ww_si` quantity; None for a plain number |
+
+Its `TrackDef` kind is a `SeriesDef`, which holds:
+
+| Field | What |
+|---|---|
+| channels | elements per sample, 1 to 65535, interleaved |
+| period | ticks per sample as an exact `Ratio64`: 48 kHz on a 1 ns clock is `62500/3` |
+| scale | what a stored number is worth, as a `Magnitude`: `10⁻³` for that `Fixed` |
+| summaries | the summaries the writer builds (`SeriesSummarySpec`) |
+| stream | for samples kept in a media file, the stream they are in |
+
+`Items::numbers::<Fixed<Ampere, Milli, i32>>(..)` takes the element from the type, and `SeriesDef::of` the scale
+(`ww_tape::SeriesValue`). A writer refuses a series whose element the raw codec doesn't code. Its summaries need an
+element of at most 2 parts.
+
+### Grids
+
+A series track has no records. Its samples are in series chunks, and each chunk's head carries the **grid** its samples
+are on (`SeriesGrid`).
+
+A chunk therefore times and scales its samples alone. A grid is a sample index at or before the chunk's first sample,
+that sample's tick, and the scale of the chunk's stored numbers.
+
+Sample `i` is at `grid_tick + (i - grid_index) · period`, rounded down. A stored number means `number · scale` of the
+sample type's unit.
+
+A grid takes 17 bytes and the scale: 19 bytes for a power of ten (`10⁻⁶` is `f4 00`).
+
+For example, take the period `62500/3` and grid index 96 at grid tick 5000. Sample 100 then lies at tick 5000 + 4 ·
+62500/3, rounded down.
+
+The head's first and last tick are its first and last sample's ticks on that grid (`SeriesGrid::of_chunk` checks them).
+The index lists each chunk's first sample and first tick.
+
+A reader therefore finds the chunk of a sample or a time without reading a head.
+
+Consecutive chunks of one stretch of recording carry the same grid. No sample time therefore moves by rounding, however
+the samples are cut into chunks.
+
+#### Changing scale or starting a grid
+
+With `SeriesGrid::rescaled`, a prefix change of an autoranging device keeps the grid at another scale. A chunk has one
+scale, and a writer therefore seals the open chunk there.
+
+`SeriesGrid::start` starts a new grid at a gap or a restart on the same clock. Such a grid starts more than a period,
+rounded up, after the last tick of the chunk before, as `series::is_gap` checks.
+
+The chunks are data like events chunks, written once and never repeated. A series track therefore takes the plain policy
+(`TrackRepeat::Stream`).
+
+A writer refuses a record, a put or an events chunk on a series track. It also refuses a series chunk whose ticks are
+not on its grid.
+
+### Gaps and lost samples
+
+A **gap** is a chunk on another grid than the chunk before it. Its first sample lies more than a period, rounded up,
+after that chunk's last tick, and no sample lies between them.
+
+A reader therefore draws no line across. The next sample on the same grid lies at most that far on.
+
+The first and last ticks of two neighbouring index entries therefore tell a gap from a continuation or from lost chunks
+without reading a head.
+
+A new grid at most that far on (a phase shift) is refused (`SeriesError::GridTooClose`).
+
+Sample indexes missing between two chunks of one grid are **lost samples**: a chunk was damaged or is in another piece.
+Their ticks are known and their values are not, and a reader shows them as missing.
+
+#### The series timeline
+
+`ww_tape::SeriesTimeline` collects a track's chunk heads in any order (`from_chunks`, `push_chunk`). It checks each
+chunk against its grid and its neighbours:
+
+- no sample lies on two grids or at two scales;
+- a new grid starts more than a period after the chunk before, and before the chunk after.
+
+The timeline keeps consecutive chunks of one grid and scale as one `SeriesStretch`. It gives any sample's tick and
+scale, and says where the gaps are (`gap_before`).
+
+### From a wire batch to chunk columns
+
+A received `Series<Fixed<..>>` batch goes into chunk columns as integers. `SeriesValue::write_parts` puts each item's
+stored number into the column as it is.
+
+A `ww_si` quantity's prefix becomes the grid's scale. A change of prefix seals the chunk at the same item where the
+`Series` restarts its numeric column.
+
+The wire codecs of `Series<T>` and these sample codecs are separate layers. A batch is decoded once on the host and
+coded again for random access in the file.
 
 ## Sample codecs
 
@@ -1828,104 +1858,6 @@ stored as fixed-point integers with `DELTA`:
 Every value comes back bit for bit. [Sizes and speeds](sizes.md#samples-fixed-point-first) gives the ratio and the
 times of every codec on every set. The bench's `--chunk` and `--repeats` change the chunk size and the timed passes.
 
-## Series tracks
-
-A **series track** holds samples at an exact period, with no time per sample. Its items are `Numbers`, which hold:
-
-| Field | What |
-|---|---|
-| element | the stored `ElementDesc` of one channel of a sample |
-| unit | the type of one value: a `TypeRef` to an exact_units `Fixed<Ampere, Milli, i32>` or a `ww_si` quantity; None for a plain number |
-
-Its `TrackDef` kind is a `SeriesDef`, which holds:
-
-| Field | What |
-|---|---|
-| channels | elements per sample, 1 to 65535, interleaved |
-| period | ticks per sample as an exact `Ratio64`: 48 kHz on a 1 ns clock is `62500/3` |
-| scale | what a stored number is worth, as a `Magnitude`: `10⁻³` for that `Fixed` |
-| summaries | the summaries the writer builds (`SeriesSummarySpec`) |
-| stream | for samples kept in a media file, the stream they are in |
-
-`Items::numbers::<Fixed<Ampere, Milli, i32>>(..)` takes the element from the type, and `SeriesDef::of` the scale
-(`ww_tape::SeriesValue`). A writer refuses a series whose element the raw codec doesn't code. Its summaries need an
-element of at most 2 parts.
-
-### Grids
-
-A series track has no records. Its samples are in series chunks, and each chunk's head carries the **grid** its samples
-are on (`SeriesGrid`).
-
-A chunk therefore times and scales its samples alone. A grid is a sample index at or before the chunk's first sample,
-that sample's tick, and the scale of the chunk's stored numbers.
-
-Sample `i` is at `grid_tick + (i - grid_index) · period`, rounded down. A stored number means `number · scale` of the
-sample type's unit.
-
-A grid takes 17 bytes and the scale: 19 bytes for a power of ten (`10⁻⁶` is `f4 00`).
-
-For example, take the period `62500/3` and grid index 96 at grid tick 5000. Sample 100 then lies at tick 5000 + 4 ·
-62500/3, rounded down.
-
-The head's first and last tick are its first and last sample's ticks on that grid (`SeriesGrid::of_chunk` checks them).
-The index lists each chunk's first sample and first tick.
-
-A reader therefore finds the chunk of a sample or a time without reading a head.
-
-Consecutive chunks of one stretch of recording carry the same grid. No sample time therefore moves by rounding, however
-the samples are cut into chunks.
-
-#### Changing scale or starting a grid
-
-With `SeriesGrid::rescaled`, a prefix change of an autoranging device keeps the grid at another scale. A chunk has one
-scale, and a writer therefore seals the open chunk there.
-
-`SeriesGrid::start` starts a new grid at a gap or a restart on the same clock. Such a grid starts more than a period,
-rounded up, after the last tick of the chunk before, as `series::is_gap` checks.
-
-The chunks are data like events chunks, written once and never repeated. A series track therefore takes the plain policy
-(`TrackRepeat::Stream`).
-
-A writer refuses a record, a put or an events chunk on a series track. It also refuses a series chunk whose ticks are
-not on its grid.
-
-### Gaps and lost samples
-
-A **gap** is a chunk on another grid than the chunk before it. Its first sample lies more than a period, rounded up,
-after that chunk's last tick, and no sample lies between them.
-
-A reader therefore draws no line across. The next sample on the same grid lies at most that far on.
-
-The first and last ticks of two neighbouring index entries therefore tell a gap from a continuation or from lost chunks
-without reading a head.
-
-A new grid at most that far on (a phase shift) is refused (`SeriesError::GridTooClose`).
-
-Sample indexes missing between two chunks of one grid are **lost samples**: a chunk was damaged or is in another piece.
-Their ticks are known and their values are not, and a reader shows them as missing.
-
-#### The series timeline
-
-`ww_tape::SeriesTimeline` collects a track's chunk heads in any order (`from_chunks`, `push_chunk`). It checks each
-chunk against its grid and its neighbours:
-
-- no sample lies on two grids or at two scales;
-- a new grid starts more than a period after the chunk before, and before the chunk after.
-
-The timeline keeps consecutive chunks of one grid and scale as one `SeriesStretch`. It gives any sample's tick and
-scale, and says where the gaps are (`gap_before`).
-
-### From a wire batch to chunk columns
-
-A received `Series<Fixed<..>>` batch goes into chunk columns as integers. `SeriesValue::write_parts` puts each item's
-stored number into the column as it is.
-
-A `ww_si` quantity's prefix becomes the grid's scale. A change of prefix seals the chunk at the same item where the
-`Series` restarts its numeric column.
-
-The wire codecs of `Series<T>` and these sample codecs are separate layers. A batch is decoded once on the host and
-coded again for random access in the file.
-
 ## Payload codec
 
 An events chunk's payloads take two columns, both or neither (`ww_tape::payloads`). `EncodedPayloads::encode` writes
@@ -1953,3 +1885,71 @@ the same total.
 
 `Payloads::is_suspect` reports as suspect only the items of a group that fails, or raw items with a byte in a bad
 segment. A damaged lz4 column makes every item suspect.
+
+## Reserved numbers
+
+Some numbers are reserved: later features then need no format change. Readers of this version refuse each:
+
+| Reserved | For |
+|---|---|
+| payload codec 49 (`Codec::SERIES`) | a payloads column holding one shrink_wrap `Series<T>` of the chunk's items, alone, at most 65535 items |
+| sample codec 36 (`Codec::RUNS`) | run-coded discrete lanes (`U8`, `U16`, `U32`, `Bool`) |
+| column kind 7 (`ColumnKind::PAYLOAD_LEAF`) | one leaf of the items' payload struct, the param naming the leaf |
+| block kinds 11 and 12 (`BlockKind::POSTINGS`, `DICTIONARY`) | a relation's index per events chunk: each distinct value with its items; the distinct values and each item's index into them. Skipped by readers; writers refuse a definition that asks for one |
+| `RelationValues::IndexOnly` | values given with each item only to feed an index, no column; writers refuse it until an index is built |
+| piece head byte 146 `integrity`, header flag bit 3 `FLAG_PAYLOAD_UNCHECKED`, index entry flag bit 2 `ENTRY_UNHASHED` | integrity levels below `Full`: a piece of level `CrcOnly` computes no hashes and marks each index entry `ENTRY_UNHASHED`; a piece of level `None` also skips payload CRCs (chunk head CRCs and structure blocks stay checked) and marks each chunk `FLAG_PAYLOAD_UNCHECKED`. Written as `Full` and 0; a reader refuses `CrcOnly` and `None` as levels it doesn't handle (`IndexError::UnhandledIntegrity`), another byte as `IndexError::UnknownIntegrity`, the bits as `BlockError::PayloadUnchecked` and `IndexError::Unhashed`, never as damage |
+| summary head bytes 54..56 | the first channel or leaf of the block, 0 today |
+
+## Caps on what a reader takes
+
+Every count, length, offset or layout value a reader takes from the bytes is bounded before it sizes an allocation, a
+slice or a loop. The bound is a length already in hand (the block's, a table's) or one of these caps.
+
+A value past its cap is damage, refused with an error; no file a writer of this crate writes has one.
+
+| Cap | Value | Bounds |
+|---|---|---|
+| `MAX_BLOCK_LEN` | 64 MiB | a block's length |
+| `DECODED_BODY_MAX` | 64 MiB - 36 | a coded body's decoded length |
+| `LZ4_DECODED_MAX` | 64 MiB | an lz4 column's decoded length |
+| `MAX_BLOCK_CLOCKS` | 16 | the clocks of one block's clock table |
+| `MAX_RECORD_HEAD` | 25 | a record head's bytes |
+| `MAX_CLOCK_TABLE` | 81 | a clock table's bytes |
+| `MAX_COLUMNS` | 255 | a chunk's columns |
+| `SEGMENT_SHIFT_MAX` | 24 | a chunk's segment shift (16 MiB segments) |
+| `MAX_SEGMENTS` | 16384 | a chunk's segments |
+| `SERIES_ITEMS_MAX` | 65535 | the items of a chunk with a series payloads column |
+| `WIDTH_MAX` | 64 | a bit width (`bitpack::Width`) |
+| `KERNEL_WIDTH_MAX` | 32 | a bit width the 32-bit kernels unpack |
+| `SLOPE_MAX` | 2^55 | a start group's slope (Q16 ticks per item) |
+| `ITEMS_MAX` | 16 Mi | the items of an events chunk |
+| `INDEX_LEN_MAX` | 1 MiB | an index block a writer makes, and a reader looks for from the end |
+| `CHECKPOINT_ENTRIES_MAX` | 8737 | entries a writer puts in a checkpoint index block |
+| `NODE_SHIFT_MAX` | 62 | a summary node's items, as a power of 2 |
+| `LEVEL_MAX` | 15 | a summary tree's level |
+| `SCALE_LEN_MAX` | 64 | the scale bytes of a series chunk or summary |
+| `FACTOR_MAX` | 2^53 | a factor to the common scale (`ww_tape_summary`) |
+| `SeriesSummarySpec::BASE_SHIFT_MAX` | 24 | a series summary's base node, as a power of 2 |
+| `SERIES_CHANNELS_MAX` | 65535 | a series track's channels |
+| `GAP_MAX_MAX` | 64 MiB | a layout's gap |
+| `GAP_PROBES_MAX` | 8192 | the resume places a reader probes in one gap |
+| `GAP_CHECKS_MAX` | 4 | the blocks a reader checks whole past one gap |
+| `STATE_READ_MAX` | 1 GiB | the bytes of blocks one state lookup reads |
+| `DEFERRED_BYTES_MAX` | 1 MiB | the deferred blocks a writer keeps |
+
+Walks over many blocks and the writer have caps of their own. A walk stops at its cap, and a writer refuses input that
+would pass one:
+
+| Walk or writer cap | Value | Bounds |
+|---|---|---|
+| `RESYNC_AHEAD_MAX` | 128 MiB | the bytes a salvage walk (`Recovery::Resync`) reads ahead |
+| `RESYNC_SEQS_MAX` | 65536 | the data blocks a salvage walk remembers by session and seq, for conflicts |
+| `VERIFY_LISTS_MAX` | 466432 | the track lists of a final index one verify takes |
+| `TRACKS_PER_PIECE_MAX` | 466430 | the tracks with data in one piece, so its close fits a block |
+| `HEAD_TRACKS_MAX` | 699006 | the tracks a piece head carries over the chain, so the head fits a block |
+| `CLOSE_SUMMARY_MAX` | 1 MiB | the body of the summary block a close names |
+| `REMOVED_PIECES_MAX` | 65536 | the removed pieces one close names |
+| `WALK_MISS_BASE_MAX` | 1 MiB | the bytes a content-hash walk's missed blocks claim at its start |
+| `WALK_MISS_PER_BYTE_MAX` | 4 | the bytes they claim per byte walked, past that |
+| `RESUME_LOOK_MAX` | 128 MiB | the bytes past a reader's stop a resume looks through for a good block |
+| `RESUME_PROBES_MAX` | 4 | the places there a resume reads whole |
