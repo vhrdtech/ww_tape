@@ -39,6 +39,7 @@
 mod card;
 mod damage;
 mod defs;
+pub mod ethernet;
 pub mod fault;
 pub mod first_tape;
 pub mod handles;
