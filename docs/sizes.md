@@ -264,6 +264,10 @@ back.
 
 The writer thread is busy the whole run and sustains 19 million samples a second, just short of the capture.
 
+Two faster streams have pages of their own, each with its bench: a [protocol analyser](protocol_analyser.md) on both
+directions of a network link, and a [wideband radio receiver](wideband.md). Both spread their work over threads and
+muxes.
+
 ## Running the measurements again
 
 One recipe reruns every number on this page:

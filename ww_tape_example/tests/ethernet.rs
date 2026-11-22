@@ -13,6 +13,7 @@
 )]
 
 use ww_tape::{ChainOptions, MemTapes, OwnerId};
+use ww_tape_example::about;
 use ww_tape_example::ethernet::{self, Link, Rx, Traffic, digest};
 use ww_tape_mux::{MuxOptions, TapeMux};
 
@@ -196,4 +197,62 @@ fn decoded_headers_say_what_the_frame_holds() {
         }
     }
     assert!(tcp > 2 * udp && udp > 0, "{tcp} TCP and {udp} UDP frames");
+}
+
+/// The text of the book page `name`, its line breaks as spaces.
+fn page(name: &str) -> String {
+    let path = format!("{}/../docs/{name}", env!("CARGO_MANIFEST_DIR"));
+    let text = std::fs::read_to_string(&path).expect("the page is there");
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+#[test]
+fn the_page_gives_what_the_link_takes() {
+    let sizes = Link::full()
+        .micros(10_000)
+        .sizes()
+        .expect("the link records");
+    let (frames, frame_bytes, _) = sizes.frames();
+    let per_frame_byte = sizes.read.piece_bytes as f64 / frame_bytes as f64;
+    let (_, ipv4) = sizes.track(1);
+    let (_, l4) = sizes.track(2);
+    let per_header = |b: ethernet::TrackBytes, items: u64| {
+        (b.chunk_bytes + b.summary_bytes) as f64 / items as f64
+    };
+    let (n_ip, _) = sizes.track(1);
+    for per in [per_header(ipv4, n_ip), per_header(l4, n_ip)] {
+        assert_eq!(per.round(), 7.0, "a decoded header takes about 7 bytes");
+    }
+    // a second is a hundred such 10 ms, to within one piece's head, index and close
+    let second = about(sizes.read.piece_bytes * 100);
+    let port = about(frame_bytes * 100 / 2);
+    for phrase in [
+        format!(
+            "10 ms of the link hold {} frames of {} in both directions",
+            grouped(frames),
+            about(frame_bytes)
+        ),
+        format!("The chain takes {per_frame_byte:.3} bytes per byte of the frames"),
+        format!("A second of the link at its line rate therefore takes about {second} on a tape"),
+        format!("A chain at the line rate writes about {second} a second"),
+        format!("A port's {port} of frames a second on one thread"),
+    ] {
+        assert!(
+            page("protocol_analyser.md").contains(&phrase),
+            "docs/protocol_analyser.md says: {phrase}"
+        );
+    }
+}
+
+/// `n` with its digits in groups of three split by spaces, as the pages write a count.
+fn grouped(n: u64) -> String {
+    let digits = n.to_string();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(' ');
+        }
+        out.push(c);
+    }
+    out
 }

@@ -59,6 +59,8 @@ nav = [
             "levels.md",
             "writers.md",
             "sizes.md",
+            "protocol_analyser.md",
+            "wideband.md",
             "format.md",
             { "Features and roadmap" = "https://github.com/vhrdtech/ww_tape/blob/main/FEATURES.md" },
             { "Changelog" = "https://github.com/vhrdtech/ww_tape/blob/main/CHANGELOG.md" }

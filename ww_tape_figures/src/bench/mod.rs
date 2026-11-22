@@ -5,7 +5,8 @@
 //! - `chunk_cost.svg`: what the writer spends on a 1 MiB series chunk, by part.
 //! - `drive_sizes.svg`: where the bytes of the drive's hour go.
 //! - `bench_*.txt`: the tables the pages include, each with the bench and the load average it ran at.
-//! - `bench_machine.txt`: the machine, build and commit every report ran, and the range of the load average.
+//! - `bench_machine.txt`: the machine, build and commit every report of "Sizes and speeds" ran, and the range of the
+//!   load average; `bench_cases_machine.txt` the same of the reports of the two case pages, a run of their own.
 //!
 //! [says] gives the numbers the page's prose computes from the reports, and the numbers the reports name.
 
@@ -31,6 +32,8 @@ pub struct Reports {
     memory: Report,
     rf_core: Report,
     rf_chain: Report,
+    ethernet: Report,
+    wideband: Report,
 }
 
 /// The reports in `dir`, each a release build of a clean commit.
@@ -52,6 +55,8 @@ pub fn read(dir: &Path) -> anyhow::Result<Reports> {
         memory: r("memory")?,
         rf_core: r("rf_core")?,
         rf_chain: r("rf_chain")?,
+        ethernet: r("ethernet")?,
+        wideband: r("wideband")?,
     })
 }
 
@@ -373,25 +378,36 @@ fn markdown(report: &Report, id: &str) -> anyhow::Result<String> {
 }
 
 /// The paragraph saying where every report ran: the machine, the build, the commit and the range of the load.
-fn machine(r: &Reports) -> anyhow::Result<String> {
-    let all = [
+/// The reports the tables of "Sizes and speeds" draw from.
+fn sizes_reports(r: &Reports) -> [&Report; 10] {
+    [
+        &r.drive,
         &r.sample_codecs,
         &r.event_times,
         &r.summaries,
         &r.chunks,
         &r.tracks,
-        &r.drive,
         &r.carried,
         &r.memory,
         &r.rf_core,
         &r.rf_chain,
-    ];
-    let first = &r.drive;
+    ]
+}
+
+/// The reports the case pages "Every frame of a 10 Gbps link" and "A billion samples a second" draw from.
+fn cases_reports(r: &Reports) -> [&Report; 2] {
+    [&r.ethernet, &r.wideband]
+}
+
+/// The machine, build and commit the reports `all` ran, one run: the same for each, against the first.
+fn machine(all: &[&Report]) -> anyhow::Result<String> {
+    let first = all.first().context("a report")?;
     for x in all {
         ensure!(
             x.machine == first.machine && x.build == first.build && x.commit == first.commit,
-            "bench {} ran on another machine, build or commit than bench drive: run `just bench-book` again",
-            x.bench
+            "bench {} ran on another machine, build or commit than bench {}: run `just bench-book` again",
+            x.bench,
+            first.bench
         );
     }
     let loads = all
@@ -433,7 +449,11 @@ pub fn figures(dir: &Path) -> anyhow::Result<Vec<(String, String)>> {
         ("event_times.svg".to_owned(), event_times(&r)?),
         ("chunk_cost.svg".to_owned(), chunk_cost(&r)?),
         ("drive_sizes.svg".to_owned(), drive_sizes(&r)?),
-        ("bench_machine.txt".to_owned(), machine(&r)?),
+        ("bench_machine.txt".to_owned(), machine(&sizes_reports(&r))?),
+        (
+            "bench_cases_machine.txt".to_owned(),
+            machine(&cases_reports(&r))?,
+        ),
     ];
     for (report, id) in [
         (&r.drive, "sizes"),
@@ -459,6 +479,9 @@ pub fn figures(dir: &Path) -> anyhow::Result<Vec<(String, String)>> {
         (&r.rf_core, "reader"),
         (&r.rf_chain, "chain"),
         (&r.rf_chain, "read"),
+        (&r.ethernet, "writer"),
+        (&r.wideband, "writer"),
+        (&r.wideband, "overview"),
     ] {
         let name = format!("bench_{}_{id}.txt", report.bench);
         out.push((name, markdown(report, id)?));

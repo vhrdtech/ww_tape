@@ -25,10 +25,11 @@
 //! - `cut.svg`: the end of the drive's piece 0 and the start of piece 1.
 //! - `chunk_head.svg`, `index_entry.svg`, `tail.svg`: the format reference's layouts, byte by byte, from the drive's
 //!   first piece: the head of a `phase_a` chunk, its entry in the final index, and the piece's tail.
+//! - `ethernet_sizes.txt`: what each track of the protocol analyser takes, from `ww_tape_example::ethernet`.
 //!
 //! - `sample_codecs.svg`, `event_times.svg`, `chunk_cost.svg`, `drive_sizes.svg` and the `bench_*.txt` tables: the
-//!   numbers of "Sizes and speeds" and "The definitions a new piece carries", from the bench reports in `docs/bench/`
-//!   (`just bench-book`).
+//!   numbers of "Sizes and speeds", "The definitions a new piece carries" and the two case pages, from the bench
+//!   reports in `docs/bench/` (`just bench-book`).
 //!
 //! The figures of records against chunks, the clock map, the checkpoints, the crash, the map, the first tape, the index query, the summary tree and the damage draw the book's running example, the drive's recording ([ww_tape_example]), at a small scale.
 //!
@@ -45,6 +46,7 @@
 mod autorange;
 mod bench;
 mod block;
+mod cases;
 mod checkpoints;
 mod clock_map;
 mod crash;
@@ -103,6 +105,7 @@ pub fn figures() -> anyhow::Result<Vec<(String, String)>> {
         ("chunk_head.svg", layouts::chunk_head()?),
         ("index_entry.svg", layouts::index_entry()?),
         ("tail.svg", layouts::tail()?),
+        ("ethernet_sizes.txt", cases::ethernet_sizes()?),
     ];
     let mut out: Vec<(String, String)> =
         drawn.into_iter().map(|(n, s)| (n.to_owned(), s)).collect();

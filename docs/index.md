@@ -19,7 +19,8 @@ so a reader can trust any part of it without the rest.
 
 - **Any typed data over time.** Log lines, states, messages on a bus and sampled signals share one tape. The book's
   example records log lines 3 times a second and a phase current 25 000 times a second. The same format takes a
-  radio capture of 20 million samples a second.
+  radio capture of 20 million samples a second, [every frame of a 10 Gbps link](protocol_analyser.md) and [a billion
+  samples a second](wideband.md).
 - **Recordings of gigabytes.** A long recording is a chain of pieces, each a file that reads alone. A minute of the
   radio capture is one piece of 3.7 GB.
 - **Small reads.** Opening the example's 115 MB recording reads about 17 KB. Finding one track's blocks around a

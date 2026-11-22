@@ -5,6 +5,7 @@
     clippy::as_conversions,
     clippy::cast_possible_truncation,
     clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
     clippy::expect_used,
     clippy::indexing_slicing,
     clippy::panic,
@@ -12,6 +13,7 @@
 )]
 
 use ww_tape::{MemTapes, OwnerId};
+use ww_tape_example::about;
 use ww_tape_example::ethernet::pieces;
 use ww_tape_example::rf::{BURSTS_MS, Signal};
 use ww_tape_example::wideband::{Source, Wideband, overview, read_channel};
@@ -128,4 +130,43 @@ fn the_overview_finds_the_bursts_from_the_summaries() {
             "no sample read"
         );
     }
+}
+
+/// The text of the book page `name`, its line breaks as spaces.
+fn page(name: &str) -> String {
+    let path = format!("{}/../docs/{name}", env!("CARGO_MANIFEST_DIR"));
+    let text = std::fs::read_to_string(&path).expect("the page is there");
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+#[test]
+fn the_page_gives_what_a_second_takes() {
+    // one channel of the full receiver's chunks: 50 ms at 1 GS/s, 50 million samples
+    let wb = Wideband::full().channels(1).ms(50);
+    let chains = record(wb, 1);
+    let bytes: u64 = chains[0].iter().map(|p| p.len() as u64).sum();
+    let per_sample = bytes as f64 / wb.channel_samples() as f64;
+    let full = Wideband::full();
+    assert_eq!(
+        (full.rate_hz, full.channels, full.channel_rate()),
+        (1_000_000_000, 8, 125_000_000)
+    );
+    let second = about((per_sample * f64::from(full.rate_hz)) as u64);
+    let minute = about((per_sample * f64::from(full.rate_hz) * 60.0) as u64);
+    // a level-3 node: 2^(10 + 3 * 4) samples of a channel
+    let node = 1_u64 << 22;
+    let node_ms = (node as f64 / f64::from(full.channel_rate()) * 1e3).round();
+    for phrase in [
+        format!("A second of the receiver takes about {second}, and a minute about {minute}."),
+        format!("a second of the receiver is about {second}"),
+        "The example splits it into 8 channels of 125 million samples a second.".to_owned(),
+        format!("A node of level 3 covers 4 194 304 samples, {node_ms} ms of a channel."),
+        "at 50 times its rate".to_owned(),
+    ] {
+        assert!(
+            page("wideband.md").contains(&phrase),
+            "docs/wideband.md says: {phrase}"
+        );
+    }
+    assert_eq!(node, 4_194_304);
 }
