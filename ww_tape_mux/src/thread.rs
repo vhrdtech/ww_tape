@@ -175,7 +175,6 @@ fn writes<T: Tapes>(work: &Work<T>) -> bool {
             | Work::Block { .. }
             | Work::Put { .. }
             | Work::Cut { .. }
-            | Work::Plain { .. }
             | Work::Flush { sync: true, .. }
             | Work::Close { .. }
     )

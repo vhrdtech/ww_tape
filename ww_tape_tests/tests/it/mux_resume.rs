@@ -302,8 +302,6 @@ fn an_aligned_mux_crashed_anywhere_resumes_to_the_bytes_of_the_whole_run() {
 fn a_track_written_without_its_tree_resumes_to_the_same_bytes() {
     for aligned in [false, true] {
         let run = Run {
-            events: 4096,
-            chunk_items: 1024,
             event_tree: false,
             ..run(aligned)
         };

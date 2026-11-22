@@ -117,6 +117,8 @@ pub(crate) struct Trees {
     /// Trees a resume rebuilt of which the piece kept no block: the mux may not have built them (a track written
     /// without summaries), dropped when their track's next chunk comes without a summary
     unconfirmed: BTreeSet<TrackNum>,
+    /// Tracks a handle without summaries was made for: a resume that comes after builds no tree for them
+    plain: BTreeSet<TrackNum>,
 }
 
 impl Trees {
@@ -126,6 +128,7 @@ impl Trees {
             trees: BTreeMap::new(),
             kept: BTreeSet::new(),
             unconfirmed: BTreeSet::new(),
+            plain: BTreeSet::new(),
         }
     }
 
@@ -143,9 +146,11 @@ impl Trees {
         self.kept = entries.iter().filter_map(Covers::of).collect();
         let mut refused = 0u64;
         let mut buf = Vec::new();
+        let plain: BTreeSet<u32> = self.plain.iter().map(|t| t.get()).collect();
         for e in entries
             .iter()
             .filter(|e| matches!(e.kind, BlockKind::Events | BlockKind::Series))
+            .filter(|e| !plain.contains(&e.number))
         {
             let Some((head, summary)) = read_back(chain.writer()?.sink(), defs, e, &mut buf)
                 .map_err(ww_tape::sink::sink_err("reading a kept chunk back"))?
@@ -169,6 +174,7 @@ impl Trees {
     /// A handle of `track` that writes no summaries is made: the tree a resume rebuilt of it, whatever the piece
     /// kept, is none the run built.
     pub(crate) fn drop_rebuilt(&mut self, track: TrackNum) {
+        self.plain.insert(track);
         self.unconfirmed.remove(&track);
         self.trees.remove(&track);
     }
