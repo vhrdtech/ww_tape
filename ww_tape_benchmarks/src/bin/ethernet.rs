@@ -5,6 +5,9 @@
 //! headers: four producer threads and the mux's writing thread. The frames come as fast as the threads take them,
 //! not at the link's pace, so a run says how fast the analyser could record against the link it watches. Each table
 //! carries the load average before and after it.
+//!
+//! The tables `window` and `triage` capture the link into a window in memory (`ethernet::ram`) while the triage reads
+//! each piece and keeps those around a TCP reset: into memory, then into piece files in `--dir`.
 #![allow(
     clippy::arithmetic_side_effects,
     clippy::as_conversions,
@@ -16,9 +19,12 @@
 use clap::Parser;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
-use ww_tape::{ChainOptions, CutPolicy, OwnerId, Tapes};
+use ww_tape::{ChainOptions, CutPolicy, MemTapes, OwnerId, Tapes};
 use ww_tape_bench::{Bench, Cell, Common, Discard};
-use ww_tape_example::ethernet::{Captured, LINE_BPS, Link, chain_options};
+use ww_tape_benchmarks::{TRIAGE_COLUMNS, WINDOW_COLUMNS, WindowRun, triage_row, window_row};
+use ww_tape_example::ethernet::ram::RamCapture;
+use ww_tape_example::ethernet::{Captured, LINE_BPS, Link, RESET_EVERY, chain_options};
+use ww_tape_fs::Files;
 use ww_tape_mux::{MuxOptions, TapeMux};
 
 #[derive(Parser)]
@@ -51,6 +57,12 @@ struct Args {
     /// MiB of a piece of a chain of files.
     #[arg(long, default_value_t = 1_024)]
     piece_mib: u64,
+    /// The receive queues of a port of the capture into memory, a run per number.
+    #[arg(long, value_delimiter = ',', default_values_t = [2, 4])]
+    window_queues: Vec<u32>,
+    /// MiB of a piece in memory.
+    #[arg(long, default_value_t = 64)]
+    window_piece_mib: u64,
 }
 
 /// An error of the library, kept as its debug text.
@@ -59,6 +71,8 @@ fn err<E: core::fmt::Debug>(e: E) -> anyhow::Error {
 }
 
 const OWNER: OwnerId = OwnerId([0xe7; 32]);
+/// The owner of the analyser's results.
+const RESULTS_OWNER: OwnerId = OwnerId([0xe8; 32]);
 
 /// What one run took.
 struct Run {
@@ -183,7 +197,111 @@ fn main() -> anyhow::Result<()> {
         std::fs::remove_dir_all(dir)?;
     }
     println!("{}", bench.push(table));
+    windows(&args, &mut bench)?;
     bench.finish()
+}
+
+/// The tables `window` and `triage`: the link into a window in memory, the pieces around each reset kept in memory,
+/// then in piece files in `--dir` with the most queues.
+fn windows(args: &Args, bench: &mut Bench) -> anyhow::Result<()> {
+    let title = |what: &str| {
+        format!(
+            "{} ms of both directions of a 10 Gbps link at {} % load into a window in memory, pieces of {} MiB, \
+             a TCP reset in one frame of {} a port; the triage keeps the piece before and after each. {what}",
+            args.ms,
+            args.load,
+            args.window_piece_mib,
+            RESET_EVERY
+        )
+    };
+    let columns = ["Kept to", "Queues a port"];
+    let mut window = bench.table(
+        "window",
+        &title(
+            "The frames come as fast as the threads take them; a window takes half the machine's memory.",
+        ),
+        &[columns.as_slice(), &WINDOW_COLUMNS].concat(),
+    );
+    let mut triage = bench.table(
+        "triage",
+        &title("The analyser decodes every frame of each piece on one thread."),
+        &[columns.as_slice(), &TRIAGE_COLUMNS].concat(),
+    );
+    let memory = bench.report().machine.memory_bytes;
+    let capture = |queues: u32| RamCapture {
+        link: Link::full()
+            .micros(args.ms * 1_000)
+            .load(args.load)
+            .queues(queues),
+        piece_bytes: args.window_piece_mib << 20,
+        ..RamCapture::full()
+    };
+    let mut rows = |kept: &str, queues: u32, r: &WindowRun| {
+        let head = [Cell::text(kept), Cell::count(u64::from(queues))];
+        window.row([head.to_vec(), window_row(r, memory)].concat());
+        triage.row([head.to_vec(), triage_row(r)].concat());
+    };
+    for &queues in &args.window_queues {
+        let mut kept = MemTapes::new();
+        let results = TapeMux::create(
+            MemTapes::new(),
+            RESULTS_OWNER,
+            0,
+            &[],
+            chain_options(),
+            MuxOptions::default(),
+        )
+        .map_err(err)?;
+        let r = window_run(&capture(queues), &mut kept, results)?;
+        rows("memory", queues, &r);
+    }
+    if let (Some(dir), Some(&queues)) = (&args.dir, args.window_queues.iter().max()) {
+        anyhow::ensure!(
+            !dir.exists() || std::fs::read_dir(dir)?.next().is_none(),
+            "{} is not empty",
+            dir.display()
+        );
+        let (kept_dir, results_dir) = (dir.join("kept"), dir.join("results"));
+        std::fs::create_dir_all(&kept_dir)?;
+        std::fs::create_dir_all(&results_dir)?;
+        let results = ww_tape_fs::mux::create(
+            &results_dir,
+            RESULTS_OWNER,
+            0,
+            &[],
+            chain_options(),
+            MuxOptions::default(),
+        )
+        .map_err(err)?;
+        let r = window_run(&capture(queues), &mut Files::new(&kept_dir), results)?;
+        rows("piece files", queues, &r);
+        std::fs::remove_dir_all(dir)?;
+    }
+    println!("{}", bench.push(window));
+    println!("{}", bench.push(triage));
+    Ok(())
+}
+
+/// Run capture `c`, kept pieces into `kept`, results through `results`, closed after.
+fn window_run<K, R>(c: &RamCapture, kept: &mut K, results: TapeMux<R>) -> anyhow::Result<WindowRun>
+where
+    K: Tapes + Send,
+    K::Error: Send + core::fmt::Debug,
+    R: Tapes + Send + 'static,
+    R::Sink: Send,
+    R::Key: Send,
+    R::Error: Send + Sync + core::fmt::Debug,
+{
+    let start = Instant::now();
+    let run = c.run(kept, &results).map_err(err)?;
+    let wall = start.elapsed();
+    let closed = results.close().map_err(err)?;
+    Ok(WindowRun {
+        signal_s: c.link.micros as f64 / 1e6,
+        wall,
+        triaged: run.triaged,
+        results_bytes: closed.iter().map(|p| p.piece.len).sum(),
+    })
 }
 
 /// The analyser's chain options, cut into pieces of `mib` MiB.

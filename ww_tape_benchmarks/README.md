@@ -20,8 +20,8 @@ into `docs/bench/`:
 | `rf_core` | `just bench-rf-core` | the RF capture's writer and reader on one core, per codec |
 | `rf_chain` | `just bench-rf-chain` | the RF capture into a chain of piece files at full speed, then read back |
 | `carried` | `just bench-carried` | the definitions a piece carries for the tracks of its head, and the most a cut carries |
-| `ethernet` | `just bench-ethernet` | a protocol analyser on both directions of a 10 Gbps link: receive queues a port, one mux or two, against the link |
-| `wideband` | `just bench-wideband` | a wideband receiver at 1 GS/s in channels over one or several muxes, against its rate; one channel's overview read from its summaries |
+| `ethernet` | `just bench-ethernet` | a protocol analyser on both directions of a 10 Gbps link: receive queues a port, one mux or two, against the link; the link into a window in memory, the triage's speed and the bytes it keeps |
+| `wideband` | `just bench-wideband` | a wideband receiver at 1 GS/s in channels over one or several muxes, against its rate; one channel's overview read from its summaries; 250 MS/s into a window in memory, the triage's speed and the bytes it keeps |
 | `handles` | `just bench-handles` | events and series handles on a `TapeMux` against one thread writing a chain directly, by tracks |
 
 The `summaries` binary measures series summaries in MB/s of sample bytes per element type. It measures three paths:
