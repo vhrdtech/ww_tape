@@ -74,10 +74,12 @@ host receives them, and four calls of the writer take them. A fifth call [[close
     --8<-- "ww_tape_example/src/signals.rs:mode_type_item"
     ```
 
-A recorder with several sources, or a thread that must not wait for the disk, hands the acts to a [`TapeMux`] instead.
-The mux owns the writer and its definitions on a thread of its own. A handle takes each kind of act: the mode's puts,
-the records blocks, the chunks of frames and the samples. The drive's own recorder works so.
-It defines the clocks and tracks on the mux, then makes the handles:
+The program drives the writer from one thread, which then waits for every write. A recorder with several sources, or
+a thread that must not wait for the disk, hands the acts to a [[mux]] instead. A [`TapeMux`] owns the writer and its
+definitions on a thread of its own, the [[writing thread]].
+
+A [[handle]] of the mux takes each kind of act: the mode's puts, the records blocks, the chunks of frames and the
+samples. The drive's own recorder works so. It defines the clocks and tracks on the mux, then makes the handles:
 
 ```rs
 --8<-- "ww_tape_example/src/record.rs:create"
@@ -94,8 +96,10 @@ it:
 
 The recorder never passes a definition. The summaries of `phase_a` come from the mux: the handle of samples builds
 them as it takes the samples in. The mux cuts to a new piece by the chain's policy. Driven by one thread, it writes the
-same bytes every run, and a crash at any byte resumes to the same bytes. The file the program writes needs none of this
-and uses the writer's own calls.
+same bytes every run, and a crash at any byte resumes to the same bytes.
+
+[Writing from many threads](writing_thread.md) drives the same handles from a thread per source. The file the program
+writes needs none of this and uses the writer's own calls.
 
 ??? example "What the example uses here: `Recorder`"
 
