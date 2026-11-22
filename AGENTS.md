@@ -81,8 +81,8 @@ just book-refs            # spl book refs: checks docs/glossary.toml, indexes th
 - Plain `cargo sort` flattens grouped tables: always pass `-w -g`.
 - Project words go into `typos.toml`.
 - CI (`.github/workflows/ci.yml`) fails on any warning.
-- `ww_tape`, `ww_tape_codecs`, `ww_tape_summary`, `ww_tape_fuzz` and `ww_tape_tests` build at opt-level 3 in tests:
-  the hostile streams decode a million blocks.
+- `ww_tape`, `ww_tape_codecs`, `ww_tape_summary`, `ww_tape_mux`, `ww_tape_fuzz` and `ww_tape_tests` build at opt-level
+  3 in tests: the hostile streams decode a million blocks, the mux tests resume at every block boundary.
 
 ## The format is a contract
 
