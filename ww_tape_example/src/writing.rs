@@ -25,6 +25,7 @@ use ww_tape::{
     MemError, MemSink, MemTape, MemTapes, PieceChain, Recovery, Slot, SyncPolicy, TapeReader,
     TapeSink, TapeWriter, Tapes,
 };
+use ww_tape_mux::{MuxOptions, RelayMode, TapeMux};
 
 use crate::defs::{key, phase_def};
 use crate::record::{Act, Recorder, drive_definitions, item_us, options, records_block};
@@ -266,7 +267,9 @@ impl Writing {
 }
 
 /// What a thread of [Writing::of] made; its panic goes on in the caller.
-fn joined<T>(h: std::thread::ScopedJoinHandle<'_, Result<T, Error>>) -> Result<T, Error> {
+pub(crate) fn joined<T>(
+    h: std::thread::ScopedJoinHandle<'_, Result<T, Error>>,
+) -> Result<T, Error> {
     h.join()
         .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
 }
@@ -900,26 +903,31 @@ fn put_blocks(bytes: &[u8]) -> Result<(u64, u64), Error> {
     Ok(out)
 }
 
-/// The board writes its hour as one tape; the host relays it into a chain.
+/// The board writes its hour as one tape; the host relays it into a chain, through a mux and a
+/// [`RelayHandle`](ww_tape_mux::RelayHandle).
 fn relay(recording: &Recording, acts: &[Act]) -> Result<Relay, Error> {
     let drive = recording.drive;
     let board = board_tape(&drive, acts)?;
     // --8<-- [start:relay]
-    let mut defs = ww_tape::Definitions::new(); // filled from the board's own puts
     let tapes = MemTapes::new();
-    let mut chain = PieceChain::create_on(tapes.clone(), OWNER, CHAIN, &[], options(&drive))?;
+    let mux = TapeMux::create(
+        tapes.clone(),
+        OWNER,
+        CHAIN,
+        &[],
+        options(&drive),
+        MuxOptions::default(),
+    )?;
+    let relay = mux.relay(RelayMode::Relay); // the board's own defs, filled from its puts
     let mut walk = FileBlocks::with_recovery(&board[..], Recovery::Prefix);
     while let Some(b) = walk.next_block() {
         let b = b?;
         if ww_tape::index::is_structural(b.kind) {
             continue; // the board's index, close and tail: the relay writes its own
         }
-        if matches!(b.kind, BlockKind::Events | BlockKind::Series) && chain.cut_due() {
-            chain.cut_now(&defs)?; // a new piece every 15 minutes, as the host's own recording
-        }
-        chain.writer()?.relay_block(&mut defs, b.bytes())?;
+        relay.send(b.bytes().to_vec())?; // a new piece every 15 minutes, as the host's own recording: the mux cuts
     }
-    let closed = chain.close()?;
+    let closed = mux.close()?;
     // --8<-- [end:relay]
     let pieces = closed
         .iter()

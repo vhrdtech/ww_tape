@@ -207,6 +207,11 @@ Writing pieces and chains, resuming them, sinks in memory, in the crate `ww_tape
   - A timeout of the caller's runtime bounds a wait.
   - Missing: a typed handle's drop still sends blocking; async code ends a handle with `finish_async`.
   - Tests `mux_async.rs`: tokio's two schedulers and smol, without timer or I/O driver, woken from another thread.
+- ✅ **WRITE-15 The example and the book's writer code through handles**
+  - `ww_tape_example`'s relay (`writing::relay`, quoted in [Relays](docs/live_feeds.md#relays)) writes through a `TapeMux` and a `RelayHandle` instead of a bare `PieceChain` and `&Definitions`: the same bytes, `tests/writing.rs` still compares `writing.out`.
+  - `ww_tape_example::handles::record` records the drive's hour into its own chain through the mux's typed handles, one thread per source. `StateHandle` for the mode, `RecordsHandle` for log and temperature, `EventsHandle::push_all` for `can0`, `SeriesHandle` for `phase_a`.
+  - `Drive::record`, `crash` and `resume` stay on the direct `PieceChain`: a crash at an exact byte needs a synchronous byte count the mux's queue doesn't give. The pinned story numbers stay on that path.
+  - Test `ww_tape_example/tests/handles.rs`: a sanity check (pieces, bytes, item counts), not the pinned numbers.
 
 ## Reader (`READ`)
 

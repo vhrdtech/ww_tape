@@ -8,9 +8,11 @@ use shrink_wrap::prelude::*;
 use ww_tape::summary::{SeriesStats, SeriesSummarySpec};
 use ww_tape::{
     ClockMap, ClockOrigin, ClockSpec, Definitions, Describe, EventsDef, FullVersion, Items,
-    Magnitude, MapSegment, Ratio64, SampleShape, Segment, SeriesDef, SeriesValue, StatePolicy,
-    TrackKey, TrackKind, TrackRepeat, TrackSpec, UNIX_CLOCK_KEY, Version, clock_key, track_key,
+    Magnitude, MapSegment, MemTapes, Ratio64, SampleShape, Segment, SeriesDef, SeriesValue,
+    StatePolicy, TrackKey, TrackKind, TrackRepeat, TrackSpec, UNIX_CLOCK_KEY, Version, clock_key,
+    track_key,
 };
+use ww_tape_mux::TapeMux;
 
 /// The root of the drive's API: every track and clock key starts from it.
 const API_ROOT: u64 = 0xd51e_0001;
@@ -206,4 +208,48 @@ pub fn define(
     };
     // --8<-- [end:define]
     Ok((defs, numbers))
+}
+
+/// [define] on `mux` instead of into a [Definitions] of its own: the numbers its clocks and tracks get.
+pub(crate) fn define_on_mux(
+    mux: &TapeMux<MemTapes>,
+    hz: u32,
+    summaries: bool,
+    near: u32,
+) -> Result<DriveNumbers, Error> {
+    let phase = phase_def(hz, summaries).ok_or(Error::Settings("phase_a's rate is 0"))?;
+    let segment = MapSegment::new(
+        0,
+        None,
+        BOOT_UNIX_NS,
+        Ratio64::new(BOARD_NS_PER_US.0, BOARD_NS_PER_US.1)
+            .ok_or(Error::Settings("the board's rate"))?,
+        MAP_ERROR_NS,
+    )
+    .ok_or(Error::Settings("the clock map's segment"))?;
+    let segments = [segment];
+    let mode = TrackRepeat::State(StatePolicy {
+        near: Bytes::new(near),
+        copies: Count::new(1),
+    });
+    let events = TrackKind::Events(EventsDef::INSTANTS);
+    let [board, host] = clocks();
+    let [log, mode_path, can0, phase_a, temp] = &PATHS;
+    let host_clock = mux.define_clock(host)?;
+    let board_clock = mux.define_clock_with_maps(board, &[(host_clock, &segments)])?;
+    let on_board = |path, name, repeat, kind| track(board_clock, path, name, repeat, kind);
+    Ok(DriveNumbers {
+        board_clock,
+        host_clock,
+        log: mux.define_track(on_board(log, "log", TrackRepeat::Stream, events.clone()))?,
+        mode: mux.define_track(on_board(mode_path, "mode", mode, events.clone()))?,
+        can0: mux.define_track(on_board(can0, "can0", TrackRepeat::Stream, events.clone()))?,
+        phase_a: mux.define_track(on_board(
+            phase_a,
+            "phase_a",
+            TrackRepeat::Stream,
+            TrackKind::Series(phase),
+        ))?,
+        temp: mux.define_track(on_board(temp, "temp", TrackRepeat::Stream, events))?,
+    })
 }

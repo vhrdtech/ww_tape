@@ -49,6 +49,7 @@ benchmarks, golden files and book pages.
 - `EventRuns::push_columns` adds items as columns of starts, ends and flags: the same runs (WRITE-13).
 - `EventsHandle::push_all` takes a batch of `Event`s in one pass: the bytes of pushing them one by one (WRITE-13).
 - Book: the format reference numbers its sections, adds conventions, policies, verify and caps, and draws layouts from blocks (BOOK-2).
+- The example's relay, and a new `handles::record`, write through `TapeMux` handles, one thread per source (WRITE-15).
 
 ## [0.3.0] - 2026-11-21
 

@@ -27,7 +27,7 @@ use crate::signals::{
 use crate::{Drive, Error, OWNER, PRODUCER};
 
 /// The codec of `phase_a`'s samples: differences, bit-packed in groups.
-const PHASE_CODEC: Codec = Codec::DELTA;
+pub(crate) const PHASE_CODEC: Codec = Codec::DELTA;
 /// Bytes a record of a records block takes past its item, at most: its head, time and length.
 const RECORD_OVERHEAD_MAX: usize = 32;
 
@@ -67,7 +67,7 @@ struct Acts {
 }
 
 /// The first item of a track of `per_hour` items, item `i` at `i * US_PER_HOUR / per_hour` µs, at or after `us`.
-fn first_at(us: i64, per_hour: u64) -> u64 {
+pub(crate) fn first_at(us: i64, per_hour: u64) -> u64 {
     let us = u128::from(us.unsigned_abs());
     let n = (us * u128::from(per_hour)).div_ceil(u128::from(US_PER_HOUR));
     u64::try_from(n).unwrap_or(u64::MAX)

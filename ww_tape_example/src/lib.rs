@@ -41,6 +41,7 @@ mod damage;
 mod defs;
 pub mod fault;
 pub mod first_tape;
+pub mod handles;
 mod record;
 pub mod rf;
 pub mod rf_chains;
@@ -305,6 +306,8 @@ pub enum Error {
     Write(ww_tape::WriteError<MemError>),
     /// The memory the pieces are in.
     Mem(MemError),
+    /// A mux or one of its handles.
+    Mux(ww_tape_mux::MuxError<MemError>),
     /// Reading a piece back.
     Read(Reading),
 }
@@ -361,6 +364,7 @@ impl core::fmt::Display for Error {
             Self::Summaries(e) => write!(f, "the summaries of phase_a: {e:?}"),
             Self::Write(e) => write!(f, "writing the chain: {e:?}"),
             Self::Mem(e) => write!(f, "the pieces in memory: {e:?}"),
+            Self::Mux(e) => write!(f, "a mux: {e:?}"),
             Self::Read(e) => write!(f, "reading a piece: {e:?}"),
         }
     }
@@ -389,4 +393,5 @@ from! {
     Summaries(ww_tape_summary::BuildError),
     Write(ww_tape::WriteError<MemError>),
     Mem(MemError),
+    Mux(ww_tape_mux::MuxError<MemError>),
 }
