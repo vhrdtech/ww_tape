@@ -5,7 +5,7 @@
 //!
 //! | Handle | Sends | Placed as |
 //! |---|---|---|
-//! | [EventsHandle] | items of one events track, encoded into chunks on its thread | [PieceChain::write_chunk_hashed] |
+//! | [EventsHandle] | items of one events track, one by one or in batches ([Event]), encoded into chunks on its thread | [PieceChain::write_chunk_hashed] |
 //! | [SeriesHandle] | samples of one series track on a grid, encoded the same way | [PieceChain::write_chunk_hashed] |
 //! | [ChunkSender] | a chunk of one events or series track, encoded by the caller | [PieceChain::write_chunk] |
 //! | [RecordsHandle] | a records block ([ww_tape::BlockWriter]) | the writer's next block ([PieceChain::write_block]) |
@@ -113,7 +113,7 @@ use ww_tape::{
 
 pub use error::{CallError, EncodeError, ItemError, MuxError, Unit};
 pub use events::{
-    CHUNK_BYTES_DEFAULT, CHUNK_ITEMS_DEFAULT, EventsHandle, EventsOptions, ITEM_BYTES_MAX,
+    CHUNK_BYTES_DEFAULT, CHUNK_ITEMS_DEFAULT, Event, EventsHandle, EventsOptions, ITEM_BYTES_MAX,
     LATENCY_DEFAULT,
 };
 pub use handle::{ChunkSender, Pressure, RecordsHandle, RelayHandle, Sent, StateHandle};

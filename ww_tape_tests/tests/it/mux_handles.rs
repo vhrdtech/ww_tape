@@ -20,7 +20,7 @@ use ww_tape::{
     SyncPolicy, TapeReader, TrackId, TrackKind, TrackNum, TrackRepeat, TrackSpec, WriterOptions,
     clock_key, track_key,
 };
-use ww_tape_mux::{EventsOptions, MuxOptions, SeriesOptions, TapeMux};
+use ww_tape_mux::{Event, EventsOptions, MuxOptions, SeriesOptions, TapeMux};
 use ww_tape_summary::{EventFields, EventTree, SeriesStats, SeriesSummarySpec, Summary};
 
 const OWNER: OwnerId = OwnerId([0x4d; 32]);
@@ -444,6 +444,174 @@ fn one_events_handle_writes_the_bytes_of_a_chain_written_directly() {
         assert!(got.len() > 3, "the chain is cut");
         assert!(got == want, "track {k}: the same pieces");
     }
+}
+
+/// The pieces one events handle writes for the first `items` items of [item] track `k`, cut at `chunk_items` items
+/// and `chunk_bytes` payload bytes: pushed one by one when `batches` is empty, else in batches of those lengths.
+fn events_pieces(k: u32, items: u64, chunk_bytes: u32, batches: &[usize]) -> Vec<Vec<u8>> {
+    let mem = MemTapes::new();
+    let mux = TapeMux::create(
+        mem.clone(),
+        OWNER,
+        0,
+        &[],
+        options(5),
+        MuxOptions::default(),
+    )
+    .unwrap();
+    let c = mux.define_clock(clock()).unwrap();
+    let track = mux.define_track(events_track(k, c)).unwrap();
+    let mut h = mux
+        .events(
+            track,
+            EventsOptions {
+                chunk_items: 1500,
+                chunk_bytes: exact_units::Bytes::new(chunk_bytes),
+                latency: None,
+                ..EventsOptions::default()
+            },
+        )
+        .unwrap();
+    let all: Vec<Item> = (0..items).map(|i| item(k, i)).collect();
+    if batches.is_empty() {
+        for (start, end, flags, payload, values) in &all {
+            h.push_related(*start, *end, *flags, payload, values)
+                .unwrap();
+        }
+    } else {
+        let mut at = 0;
+        for n in batches.iter().cycle() {
+            if at == all.len() {
+                break;
+            }
+            let to = (at + n).min(all.len());
+            let batch: Vec<Event<'_>> = all[at..to]
+                .iter()
+                .map(|(start, end, flags, payload, values)| Event {
+                    start: *start,
+                    end: *end,
+                    flags: *flags,
+                    payload,
+                    values,
+                })
+                .collect();
+            h.push_all(&batch).unwrap();
+            at = to;
+        }
+    }
+    assert_eq!(h.next_item(), ItemNum::new(items), "every item taken");
+    h.finish().unwrap();
+    mux.close().unwrap();
+    pieces(&mem)
+}
+
+/// Items pushed in batches of any length, across chunks cut by items and by bytes, write the bytes of the same
+/// items pushed one by one.
+#[test]
+fn events_pushed_in_batches_write_the_bytes_of_items_one_by_one() {
+    for k in [0, 1, 2] {
+        for chunk_bytes in [1 << 20, 4000] {
+            let one = events_pieces(k, 30_000, chunk_bytes, &[]);
+            assert!(one.len() > 3, "the chain is cut");
+            for batches in [&[1, 2, 3][..], &[1499, 1501, 7], &[30_000], &[4096, 0, 333]] {
+                let got = events_pieces(k, 30_000, chunk_bytes, batches);
+                assert!(
+                    got == one,
+                    "track {k}, {chunk_bytes} bytes, batches {batches:?}: the same pieces"
+                );
+            }
+        }
+    }
+}
+
+/// A refused item in a batch refuses the rest: the items before it are taken, and the refusal names its number.
+#[test]
+fn a_batch_takes_the_items_before_a_refused_one() {
+    use ww_tape_mux::{CallError, ItemError, MuxError};
+    let mem = MemTapes::new();
+    let mux = TapeMux::create(
+        mem.clone(),
+        OWNER,
+        0,
+        &[],
+        options(0),
+        MuxOptions::default(),
+    )
+    .unwrap();
+    let c = mux.define_clock(clock()).unwrap();
+    let track = mux.define_track(events_track(0, c)).unwrap();
+    let def = events_track(0, c).numbered(track);
+    let mut h = mux
+        .events(
+            track,
+            EventsOptions {
+                chunk_items: 4,
+                ..EventsOptions::default()
+            },
+        )
+        .unwrap();
+    let at = |start| Event {
+        start,
+        end: start,
+        payload: b"p",
+        ..Event::default()
+    };
+    let r = h.push_all(&[at(1), at(2), at(3), at(4), at(5), at(4), at(6)]);
+    match r {
+        Err(MuxError::Call(CallError::Item { item, why })) => {
+            assert_eq!(item, ItemNum::new(5), "the refused item's number");
+            assert_eq!(why, ItemError::Order);
+        }
+        other => panic!("refused at the call: {other:?}"),
+    }
+    assert_eq!(h.next_item(), ItemNum::new(5), "the items before it taken");
+    h.push_all(&[at(6)]).unwrap();
+    h.finish().unwrap();
+
+    let why = |r: Result<_, MuxError<_>>| match r {
+        Err(MuxError::Call(CallError::Item { item, why })) => (item, why),
+        other => panic!("refused at the call: {other:?}"),
+    };
+    // refused, not sealed for, when it would also pass the chunk's bytes
+    let mut b = mux
+        .events(
+            mux.define_track(events_track(3, c)).unwrap(),
+            EventsOptions {
+                chunk_bytes: exact_units::Bytes::new(3),
+                ..EventsOptions::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        why(b.push_all(&[at(1), at(2), at(3), at(2)])),
+        (ItemNum::new(3), ItemError::Order)
+    );
+    // a monotone relation's value decreasing inside the batch
+    let mut r = mux
+        .events(
+            mux.define_track(events_track(2, c)).unwrap(),
+            EventsOptions::default(),
+        )
+        .unwrap();
+    let rel = |start, values: &'static [u64]| Event {
+        start,
+        end: start,
+        values,
+        ..Event::default()
+    };
+    assert_eq!(
+        why(r.push_all(&[rel(1, &[1, 9]), rel(2, &[2, 0]), rel(3, &[1, 5])])),
+        (
+            ItemNum::new(2),
+            ItemError::RelationDecreases { relation: 0 }
+        )
+    );
+    assert_eq!(r.next_item(), ItemNum::new(2), "the items before it taken");
+    drop((b, r));
+    mux.close().unwrap();
+    let (items, _) = read_events(&pieces(&mem), &def);
+    let starts: Vec<i64> = items.iter().map(|i| i.0).collect();
+    assert_eq!(starts, [1, 2, 3, 4, 5, 6], "what was taken reads back");
 }
 
 /// A series handle with summaries, its samples pushed in uneven batches and a new grid after a gap: every sample

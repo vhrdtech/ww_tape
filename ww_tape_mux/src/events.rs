@@ -8,7 +8,7 @@ use std::time::Duration;
 use exact_units::Bytes;
 use ww_tape::payloads::EncodedPayloads;
 use ww_tape::times::{EncodedRelation, EncodedTimes};
-use ww_tape::{Describe, Ends, ItemNum, Tapes, TrackDef, TrackId, TrackKind, TrackNum};
+use ww_tape::{ColumnSpec, Describe, Ends, ItemNum, Tapes, TrackDef, TrackId, TrackKind, TrackNum};
 use ww_tape_summary::{EventFields, EventRuns};
 
 use crate::TapeMux;
@@ -57,6 +57,56 @@ impl Default for EventsOptions {
     }
 }
 
+/// One item of an events track, as [EventsHandle::push_all] takes it.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct Event<'a> {
+    /// The tick it starts at.
+    pub start: i64,
+    /// The tick it ends at: the start for an instant.
+    pub end: i64,
+    /// Its flags: 0 on a track without flags.
+    pub flags: u32,
+    /// Its payload, [ITEM_BYTES_MAX] bytes at most.
+    pub payload: &'a [u8],
+    /// Its value of each relation the track keeps values of, in the order of the track's relations.
+    pub values: &'a [u64],
+}
+
+/// The length of a payload checked against [ITEM_BYTES_MAX].
+#[expect(
+    clippy::as_conversions,
+    clippy::cast_possible_truncation,
+    reason = "a payload checked holds ITEM_BYTES_MAX bytes at most: it fits a u32"
+)]
+fn payload_len(payload: &[u8]) -> u32 {
+    const {
+        assert!(
+            ITEM_BYTES_MAX <= u32::MAX as usize,
+            "a payload length fits a u32"
+        )
+    };
+    debug_assert!(payload.len() <= ITEM_BYTES_MAX, "a payload checked");
+    payload.len() as u32
+}
+
+/// Copy `src` into `dst` of its length: one of 4 to 16 bytes as two overlapping words, not a call to `memcpy`.
+fn copy_payload(dst: &mut [u8], src: &[u8]) {
+    fn words<const N: usize>(dst: &mut [u8], src: &[u8]) {
+        if let (Some(d), Some(s)) = (dst.first_chunk_mut::<N>(), src.first_chunk::<N>()) {
+            *d = *s;
+        }
+        if let (Some(d), Some(s)) = (dst.last_chunk_mut::<N>(), src.last_chunk::<N>()) {
+            *d = *s;
+        }
+    }
+    debug_assert_eq!(dst.len(), src.len(), "a payload's room");
+    match src.len() {
+        8..=16 => words::<8>(dst, src),
+        4..=7 => words::<4>(dst, src),
+        _ => dst.copy_from_slice(src),
+    }
+}
+
 /// A relation the track keeps values of: its index and whether its values never decrease.
 #[derive(Copy, Clone)]
 struct Stored {
@@ -78,8 +128,8 @@ pub(crate) struct EventsChunk {
     ends: Vec<i64>,
     flags: Vec<u32>,
     payload: Vec<u8>,
-    /// Where each payload ends in [Self::payload]
-    ends_at: Vec<usize>,
+    /// The length of each payload in [Self::payload]
+    lens: Vec<u32>,
     /// Per stored relation, its values
     values: Vec<Vec<u64>>,
     last_start: Option<i64>,
@@ -99,75 +149,192 @@ impl EventsChunk {
         ItemNum::new(self.next_item.saturating_add(n))
     }
 
-    /// Whether `len` more payload bytes pass the chunk's bytes.
-    fn full_for(&self, len: usize) -> bool {
-        self.items() >= self.chunk_items
-            || (self.items() > 0 && self.payload.len().saturating_add(len) > self.chunk_bytes)
+    /// How many items from the front of `items` the open chunk takes, each checked against the track and the items
+    /// before; why the next one is refused when that is where they stop. An item that would pass the chunk's items
+    /// stops them unchecked, one that would pass its bytes checked: the chunk is sealed before it.
+    ///
+    /// One pass finds where the chunk is full and whether any item before is refused, without a branch per check;
+    /// only then [Self::take_one_by_one] finds which.
+    fn take(&self, items: &[Event<'_>]) -> (usize, Option<ItemError>) {
+        let count = self.items();
+        let run = items
+            .get(..self.chunk_items.saturating_sub(count))
+            .unwrap_or(items);
+        let mut bytes = self.payload.len();
+        let mut last = self.last_start.unwrap_or(i64::MIN);
+        let mut refused = false;
+        let mut n = run.len();
+        for (i, it) in run.iter().enumerate() {
+            bytes = bytes.saturating_add(it.payload.len());
+            if bytes > self.chunk_bytes && (count > 0 || i > 0) {
+                n = i;
+                break;
+            }
+            refused |= self.refuses(it, last);
+            last = it.start;
+        }
+        let taken = run.get(..n).unwrap_or_default();
+        // the item past the bytes is refused before the chunk is sealed for it
+        let next_refused = n < run.len() && run.get(n).is_some_and(|it| self.refuses(it, last));
+        if refused || next_refused || self.decreases(taken) {
+            return self.take_one_by_one(items);
+        }
+        (n, None)
     }
 
-    /// Check item `start..end` with `flags`, `payload` and `values` against the track and the items before.
+    /// Whether item `it` is refused after an item starting at `last`, but for its relation values' order.
+    fn refuses(&self, it: &Event<'_>, last: i64) -> bool {
+        (it.start < last)
+            | (it.end < it.start)
+            | (!self.fields.latest_end & (it.end != it.start))
+            | (!self.fields.flags & (it.flags != 0))
+            | (it.payload.len() > ITEM_BYTES_MAX)
+            | (it.values.len() != self.stored.len())
+    }
+
+    /// Whether a monotone relation's values decrease in `items`, from the open chunk's last ones on.
+    fn decreases(&self, items: &[Event<'_>]) -> bool {
+        self.stored
+            .iter()
+            .zip(&self.last_values)
+            .enumerate()
+            .filter(|(_, (s, _))| s.monotone)
+            .any(|(j, (_, last))| {
+                let mut prev = last.unwrap_or(0);
+                let mut down = false;
+                for v in items.iter().filter_map(|it| it.values.get(j).copied()) {
+                    down |= v < prev;
+                    prev = v;
+                }
+                down
+            })
+    }
+
+    /// [Self::take], an item at a time: where it stops and why.
+    fn take_one_by_one(&self, items: &[Event<'_>]) -> (usize, Option<ItemError>) {
+        let mut count = self.items();
+        let mut bytes = self.payload.len();
+        let mut last_start = self.last_start;
+        let mut last_values: Option<&[u64]> = None;
+        for (i, it) in items.iter().enumerate() {
+            if count >= self.chunk_items {
+                return (i, None);
+            }
+            if let Err(why) = self.check(it, last_start, last_values) {
+                return (i, Some(why));
+            }
+            let len = it.payload.len();
+            if count > 0 && bytes.saturating_add(len) > self.chunk_bytes {
+                return (i, None);
+            }
+            count = count.saturating_add(1);
+            bytes = bytes.saturating_add(len);
+            last_start = Some(it.start);
+            last_values = Some(it.values);
+        }
+        (items.len(), None)
+    }
+
+    /// Check item `it` against the track, the start of the item before and its relation values; None for the item
+    /// before the open chunk's.
     fn check(
         &self,
-        start: i64,
-        end: i64,
-        flags: u32,
-        payload: &[u8],
-        values: &[u64],
-    ) -> Result<(), CallError> {
-        let refuse = |why| CallError::Item {
-            item: self.item_num(),
-            why,
-        };
-        if self.last_start.is_some_and(|last| start < last) {
-            return Err(refuse(ItemError::Order));
+        it: &Event<'_>,
+        last_start: Option<i64>,
+        last_values: Option<&[u64]>,
+    ) -> Result<(), ItemError> {
+        if last_start.is_some_and(|last| it.start < last) {
+            return Err(ItemError::Order);
         }
-        if end < start || (!self.fields.latest_end && end != start) {
-            return Err(refuse(ItemError::Span));
+        if it.end < it.start || (!self.fields.latest_end && it.end != it.start) {
+            return Err(ItemError::Span);
         }
-        if !self.fields.flags && flags != 0 {
-            return Err(refuse(ItemError::Flags));
+        if !self.fields.flags && it.flags != 0 {
+            return Err(ItemError::Flags);
         }
-        if payload.len() > ITEM_BYTES_MAX {
-            return Err(refuse(ItemError::TooLong { len: payload.len() }));
+        if it.payload.len() > ITEM_BYTES_MAX {
+            return Err(ItemError::TooLong {
+                len: it.payload.len(),
+            });
         }
-        if values.len() != self.stored.len() {
-            return Err(refuse(ItemError::Relations {
-                values: values.len(),
+        if it.values.len() != self.stored.len() {
+            return Err(ItemError::Relations {
+                values: it.values.len(),
                 stored: self.stored.len(),
-            }));
+            });
         }
-        for ((s, v), last) in self.stored.iter().zip(values).zip(&self.last_values) {
+        for (j, (s, v)) in self.stored.iter().zip(it.values).enumerate() {
+            let last = match last_values {
+                Some(l) => l.get(j).copied(),
+                None => self.last_values.get(j).copied().flatten(),
+            };
             if s.monotone && last.is_some_and(|l| *v < l) {
-                return Err(refuse(ItemError::RelationDecreases {
+                return Err(ItemError::RelationDecreases {
                     relation: s.relation,
-                }));
+                });
             }
         }
         Ok(())
     }
 
-    /// Add an item checked before.
-    fn add(&mut self, start: i64, end: i64, flags: u32, payload: &[u8], values: &[u64]) {
-        if let Some(runs) = &mut self.runs {
-            // checked as the runs check: start order, spans, flags
-            let r = runs.push(start, end, flags);
-            debug_assert!(r.is_ok(), "an item checked before goes into its run");
+    /// Add items [Self::take] took, column by column.
+    fn add(&mut self, items: &[Event<'_>]) {
+        let Some(last) = items.last() else {
+            return;
+        };
+        let from = self.items();
+        self.starts.extend(items.iter().map(|it| it.start));
+        if self.fields.latest_end {
+            self.ends.extend(items.iter().map(|it| it.end));
         }
-        self.starts.push(start);
-        self.ends.push(end);
-        self.flags.push(flags);
-        self.payload.extend_from_slice(payload);
-        self.ends_at.push(self.payload.len());
-        for ((col, last), v) in self
+        if self.fields.flags {
+            self.flags.extend(items.iter().map(|it| it.flags));
+        }
+        if let (Some(runs), [it]) = (&mut self.runs, items) {
+            // one item, as [EventsHandle::push] gives it: no pass over columns
+            let r = runs.push(it.start, it.end, it.flags);
+            debug_assert!(r.is_ok(), "an item checked before goes into its run");
+        } else if let Some(runs) = &mut self.runs {
+            let starts = self.starts.get(from..).unwrap_or_default();
+            let ends = self
+                .fields
+                .latest_end
+                .then(|| self.ends.get(from..).unwrap_or_default());
+            let flags = self
+                .fields
+                .flags
+                .then(|| self.flags.get(from..).unwrap_or_default());
+            // checked as the runs check: start order, spans, flags
+            let r = runs.push_columns(starts, ends, flags);
+            debug_assert!(r.is_ok(), "items checked before go into their runs");
+        }
+        let from = self.payload.len();
+        let len = items
+            .iter()
+            .fold(0usize, |n, it| n.saturating_add(it.payload.len()));
+        self.payload.resize(from.saturating_add(len), 0);
+        let mut rest = self.payload.get_mut(from..).unwrap_or_default();
+        for it in items {
+            let Some((now, later)) = rest.split_at_mut_checked(it.payload.len()) else {
+                debug_assert!(false, "room for every payload");
+                break;
+            };
+            copy_payload(now, it.payload);
+            rest = later;
+        }
+        self.lens
+            .extend(items.iter().map(|it| payload_len(it.payload)));
+        for (j, (col, l)) in self
             .values
             .iter_mut()
             .zip(&mut self.last_values)
-            .zip(values)
+            .enumerate()
         {
-            col.push(*v);
-            *last = Some(*v);
+            // each item holds a value per stored relation: checked
+            col.extend(items.iter().filter_map(|it| it.values.get(j).copied()));
+            *l = last.values.get(j).copied();
         }
-        self.last_start = Some(start);
+        self.last_start = Some(last.start);
     }
 
     fn encode(&mut self, buffers: &dyn Buffers) -> Result<Option<Sealed>, EncodeError> {
@@ -177,13 +344,8 @@ impl EventsChunk {
         let ends = self.fields.latest_end.then_some(self.ends.as_slice());
         let flags = self.fields.flags.then_some(self.flags.as_slice());
         let times = EncodedTimes::encode(&self.starts, ends, flags).map_err(EncodeError::Times)?;
-        let mut from = 0;
-        let payloads = EncodedPayloads::encode(self.ends_at.iter().map(|&to| {
-            let p = self.payload.get(from..to).unwrap_or_default();
-            from = to;
-            p
-        }))
-        .map_err(EncodeError::Payloads)?;
+        let payloads = EncodedPayloads::from_parts(&self.lens, &self.payload, buffers.buffer())
+            .map_err(EncodeError::Payloads)?;
         let relations = self
             .stored
             .iter()
@@ -193,15 +355,16 @@ impl EventsChunk {
             .map_err(EncodeError::Times)?;
         let first_item = ItemNum::new(self.next_item);
         let head = times.head.chunk_head(self.track_id, self.track, first_item);
+        let copy = |(spec, bytes): (ColumnSpec, &[u8])| {
+            let mut b = buffers.buffer();
+            b.extend_from_slice(bytes);
+            (spec, b)
+        };
         let columns: Vec<_> = times
             .columns()
-            .chain(payloads.columns())
-            .chain(relations.iter().map(EncodedRelation::column))
-            .map(|(spec, bytes)| {
-                let mut b = buffers.buffer();
-                b.extend_from_slice(bytes);
-                (spec, b)
-            })
+            .map(copy)
+            .chain(payloads.into_columns())
+            .chain(relations.iter().map(EncodedRelation::column).map(copy))
             .collect();
         let hash = ww_tape::piece::columns_payload_hash(columns.iter().map(|(_, b)| b.as_slice()));
         let summary = self.runs.as_mut().map(|runs| {
@@ -216,7 +379,7 @@ impl EventsChunk {
         self.ends.clear();
         self.flags.clear();
         self.payload.clear();
-        self.ends_at.clear();
+        self.lens.clear();
         self.values.iter_mut().for_each(Vec::clear);
         Ok(Some(Sealed {
             head,
@@ -326,7 +489,7 @@ fn events_chunk(def: &TrackDef<'_>, options: EventsOptions) -> Option<EventsChun
         ends: Vec::new(),
         flags: Vec::new(),
         payload: Vec::new(),
-        ends_at: Vec::new(),
+        lens: Vec::new(),
         values: vec![Vec::new(); n],
         last_start: None,
         last_values: vec![None; n],
@@ -375,10 +538,23 @@ where
         payload: &[u8],
         values: &[u64],
     ) -> Result<Option<Sent>, MuxError<T::Error>> {
-        let open = self.add(start, end, flags, payload, values)?;
+        self.push_all(&[Event {
+            start,
+            end,
+            flags,
+            payload,
+            values,
+        }])
+    }
+
+    /// Add `items` in order, in one pass under one hold of the open chunk: the bytes are those of pushing them one by
+    /// one. Each chunk they fill is sent: what became of the last. A refused item refuses the rest: the items before
+    /// it are added and their chunks sent, and the refusal names its number.
+    pub fn push_all(&mut self, items: &[Event<'_>]) -> Result<Option<Sent>, MuxError<T::Error>> {
+        let (open, refused) = self.add(items)?;
         let sent = self.backlog.send(&self.s)?;
         self.opened(open);
-        Ok(sent)
+        refused.map_or(Ok(sent), |r| Err(r.into()))
     }
 
     /// [Self::push] as a future, waiting for room by waker.
@@ -405,37 +581,56 @@ where
         payload: &[u8],
         values: &[u64],
     ) -> Result<Option<Sent>, MuxError<T::Error>> {
-        let open = self.add(start, end, flags, payload, values)?;
-        let sent = self.backlog.send_async(&self.s).await?;
-        self.opened(open);
-        Ok(sent)
+        self.push_all_async(&[Event {
+            start,
+            end,
+            flags,
+            payload,
+            values,
+        }])
+        .await
     }
 
-    /// Check and add an item, the chunks it seals into the backlog; whether the open chunk holds items after.
+    /// [Self::push_all] as a future; see [Self::push_async].
+    pub async fn push_all_async(
+        &mut self,
+        items: &[Event<'_>],
+    ) -> Result<Option<Sent>, MuxError<T::Error>> {
+        let (open, refused) = self.add(items)?;
+        let sent = self.backlog.send_async(&self.s).await?;
+        self.opened(open);
+        refused.map_or(Ok(sent), |r| Err(r.into()))
+    }
+
+    /// Check and add items, the chunks they seal into the backlog: whether the open chunk holds items after, and why
+    /// an item was refused when one was.
     fn add(
         &mut self,
-        start: i64,
-        end: i64,
-        flags: u32,
-        payload: &[u8],
-        values: &[u64],
-    ) -> Result<bool, MuxError<T::Error>> {
+        items: &[Event<'_>],
+    ) -> Result<(bool, Option<CallError>), MuxError<T::Error>> {
         self.s.ready()?;
         let mut e = crate::queue::lock(&self.open.encoder);
-        e.check(start, end, flags, payload, values)?;
-        // the chunk this item doesn't fit goes first
-        if e.full_for(payload.len())
-            && let Some(unit) = self.open.seal_locked(&mut e).map_err(CallError::Encode)?
-        {
-            self.backlog.push(unit);
-        }
-        e.add(start, end, flags, payload, values);
-        let full = e.items() >= e.chunk_items;
-        if full && let Some(unit) = self.open.seal_locked(&mut e).map_err(CallError::Encode)? {
-            self.backlog.push(unit);
+        let mut rest = items;
+        while !rest.is_empty() {
+            let (n, why) = e.take(rest);
+            let (now, later) = rest.split_at(n);
+            e.add(now);
+            rest = later;
+            if let Some(why) = why {
+                let item = e.item_num();
+                return Ok((e.items() > 0, Some(CallError::Item { item, why })));
+            }
+            // full, or the next item doesn't fit
+            if e.items() >= e.chunk_items || !rest.is_empty() {
+                match self.open.seal_locked(&mut e) {
+                    Ok(Some(unit)) => self.backlog.push(unit),
+                    Ok(None) => {}
+                    Err(err) => return Ok((e.items() > 0, Some(CallError::Encode(err)))),
+                }
+            }
         }
         // dropped before sending: the writing thread may need the chunk to seal it
-        Ok(!full)
+        Ok((e.items() > 0, None))
     }
 
     /// Start the open chunk's latency once the chunks sealed before are queued, so the writing thread seals it
@@ -492,5 +687,32 @@ impl<T: Tapes> Drop for EventsHandle<T> {
         }
         // a closed or failed mux takes nothing: the items are lost as after a close
         drop(self.backlog.send(&self.s));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![expect(
+        clippy::indexing_slicing,
+        clippy::as_conversions,
+        clippy::cast_possible_truncation,
+        reason = "tests fail by panicking"
+    )]
+
+    use super::*;
+
+    /// Every length, short or long, copies its bytes and nothing past them.
+    #[test]
+    fn copy_payload_copies_every_length() {
+        let src: Vec<u8> = (1..=40).collect();
+        for n in 0..=40 {
+            let mut dst = [0u8; 42];
+            copy_payload(&mut dst[1..=n], &src[..n]);
+            assert_eq!(&dst[1..=n], &src[..n], "length {n}");
+            assert_eq!(dst[0], 0, "length {n}: before");
+            assert!(dst[n + 1..].iter().all(|&b| b == 0), "length {n}: after");
+        }
+        let len = payload_len(&src);
+        assert_eq!(len, src.len() as u32);
     }
 }

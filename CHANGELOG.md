@@ -28,6 +28,7 @@ benchmarks, golden files and book pages.
 - The RF example writes IQ and decoded bursts through two muxes into two chains, merged by a follower (WRITE-12).
 - `EncodedPayloads::from_parts` encodes payloads given as lengths and bytes into a reused buffer; `into_columns` takes the columns (WRITE-13).
 - `EventRuns::push_columns` adds items as columns of starts, ends and flags: the same runs (WRITE-13).
+- `EventsHandle::push_all` takes a batch of `Event`s in one pass: the bytes of pushing them one by one (WRITE-13).
 
 ## [0.3.0] - 2026-11-21
 
