@@ -1834,14 +1834,14 @@ Every codec gives the same bytes for the same values.
 | 17, 18 | `PACKED10_LSB`, `PACKED10_MSB` | integers of 16 bits and more | 10 bits per value |
 | 19, 20 | `PACKED12_LSB`, `PACKED12_MSB` | integers of 16 bits and more | 12 bits per value, 2 values in 3 bytes |
 | 21, 22 | `PACKED24_LSB`, `PACKED24_MSB` | integers of 32 bits and more | 24 bits per value |
-
-Codecs 16 to 22 are the raw layouts of fixed widths, read on the same kernel as `RAW`. A writer describes the element
-instead and codes it `RAW`; readers take both.
 | 24, 25 | | | reserved: refused as an unknown codec |
 | 26 | `ALP` | floats | decimals as integers, frame of reference, bit-packed; other floats by their front bits through a dictionary |
 | 32, 33 | `DELTA`, `DELTA2` | integers | differences (or differences of differences), minus their minimum, bit-packed |
 | 34, 35 | | | reserved: refused as an unknown codec |
 | 48 | `LZ4` | payload columns | a u32 decoded length (at most `LZ4_DECODED_MAX`, 64 MiB), then one lz4 block (`ww_tape::lz4`) |
+
+Codecs 16 to 22 are the raw layouts of fixed widths, read on the same kernel as `RAW`. A writer describes the element
+instead and codes it `RAW`; readers take both.
 
 The codecs fall into three families:
 
