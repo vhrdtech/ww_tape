@@ -2,5 +2,6 @@
 
 [files]
 # binary seed files of the fuzz targets; the logo's exported SVG files and the book's copy of the icon (glyph ids are hashes);
-# the bench reports and the tables drawn from them, which name a commit hash; superseded API snapshots, named by their hash
-extend-exclude = ["ww_tape_fuzz/seeds/", "assets/logo/*.svg", "docs/assets/*.svg", "docs/bench/*.json", "docs/plots/bench_*.txt", "ww_tape/api_snapshots/superseded/"]
+# the bench reports and the tables drawn from them, which name a commit hash; the layout figures, whose cells are the
+# hex bytes of hashes and ids; superseded API snapshots, named by their hash
+extend-exclude = ["ww_tape_fuzz/seeds/", "assets/logo/*.svg", "docs/assets/*.svg", "docs/bench/*.json", "docs/plots/bench_*.txt", "docs/plots/chunk_head.svg", "docs/plots/index_entry.svg", "docs/plots/tail.svg", "ww_tape/api_snapshots/superseded/"]
