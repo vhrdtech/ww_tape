@@ -2,7 +2,7 @@
 name = "ww_tape_benchmarks"
 version.workspace = true
 authors.workspace = true
-description = "Benchmarks of ww_tape: summaries, tracks, carried definitions, starts, relations, the writer's cost per chunk and its heap, the RF capture, the protocol analyser, the mux's handles"
+description = "Benchmarks of ww_tape: summaries, tracks, carried definitions, starts, relations, the writer's cost per chunk and its heap, the RF capture, the protocol analyser, the wideband receiver, the mux's handles"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

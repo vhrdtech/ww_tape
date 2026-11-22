@@ -21,6 +21,7 @@ into `docs/bench/`:
 | `rf_chain` | `just bench-rf-chain` | the RF capture into a chain of piece files at full speed, then read back |
 | `carried` | `just bench-carried` | the definitions a piece carries for the tracks of its head, and the most a cut carries |
 | `ethernet` | `just bench-ethernet` | a protocol analyser on both directions of a 10 Gbps link: receive queues a port, one mux or two, against the link |
+| `wideband` | `just bench-wideband` | a wideband receiver at 1 GS/s in channels over one or several muxes, against its rate; one channel's overview read from its summaries |
 | `handles` | `just bench-handles` | events and series handles on a `TapeMux` against one thread writing a chain directly, by tracks |
 
 The `summaries` binary measures series summaries in MB/s of sample bytes per element type. It measures three paths:
@@ -74,4 +75,15 @@ It prints the frames a second and the share of the link the run kept up with.
 ```sh
 just bench-ethernet --dir target/bench-ethernet
 just bench-ethernet --ms 500 --queues 1,2,4,8 --muxes 1,2
+```
+
+The `wideband` binary records the receiver of `ww_tape_example::wideband` at full speed: 1 GS/s of IQ split into
+channels, each a producer thread, over one or several muxes. Each thread pushes chunks made before the run, so the
+run times the recorder and not the signal. A run per number of channels, muxes and codec writes into a store that
+keeps no bytes; with `--dir`, the most channels and muxes also write chains of piece files there. A reader then
+draws channel 0's overview from its summary nodes, counting the bytes it reads.
+
+```sh
+just bench-wideband --dir target/bench-wideband
+just bench-wideband --ms 500 --channels 8,16 --muxes 1,2,4,8
 ```
