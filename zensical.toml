@@ -175,4 +175,4 @@ pymdownx.tilde = {}
 "spl_book_ext.abbreviations" = {}
 # [`Name`], [`file.rs`], [`file.rs:section`]: an item or file of these crates, the format's and the running example's:
 # its code on hover, its lines on GitHub on click; a name that matches nothing fails the build
-"spl_book_ext.code_refs" = { crates = ["ww_tape", "ww_tape_codecs", "ww_tape_summary", "ww_tape_fs", "ww_tape_example"] }
+"spl_book_ext.code_refs" = { crates = ["ww_tape", "ww_tape_codecs", "ww_tape_summary", "ww_tape_fs", "ww_tape_mux", "ww_tape_example"] }

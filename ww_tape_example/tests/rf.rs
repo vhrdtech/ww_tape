@@ -179,3 +179,64 @@ fn two_chains_hold_the_samples_and_the_finds_and_merge_by_time() {
     assert!(samples == rf.samples(), "every sample comes back");
     std::fs::remove_dir_all(&dir).expect("the scratch directory goes");
 }
+
+/// The numbers the RF page gives for the two chains: the minute at 1/100 of the rate, as `rf chains` writes it.
+#[test]
+fn the_page_gives_the_two_chains_numbers() {
+    let rf = Rf::scaled(100).expect("100 divides the rate");
+    let dir = scratch("two_chains_page");
+    let w = Chains::new(rf)
+        .write_followed(&dir)
+        .expect("the chains are written and followed");
+    std::fs::remove_dir_all(&dir).expect("the scratch directory goes");
+    let (written, followed) = (&w.written, &w.followed);
+    // the exact numbers `rf chains DIR` prints
+    assert_eq!(
+        (
+            written.iq_pieces,
+            written.iq_bytes,
+            written.decoded_pieces,
+            written.decoded_bytes
+        ),
+        (60, 38_338_560, 1, 20_480)
+    );
+    assert_eq!(
+        (followed.chunks, followed.decoded.len(), followed.late),
+        (6000, 65, 0)
+    );
+    let (first, chunk) = followed.bursts.first().expect("a burst");
+    assert!(
+        matches!(
+            first,
+            Decoded::Burst {
+                start: 7_300_000_000,
+                ..
+            }
+        ),
+        "{first:?}"
+    );
+    assert_eq!(*chunk, 1_460_000);
+    for phrase in [
+        format!(
+            "A minute at 1/100 of the rate then holds {} of samples and five bursts.",
+            about(written.iq_bytes)
+        ),
+        format!(
+            "The chain `iq` holds {} pieces of {} together, a piece per second, and `decoded` one piece of {}.",
+            written.iq_pieces,
+            about(written.iq_bytes),
+            about(written.decoded_bytes)
+        ),
+        format!(
+            "The reader merges {} chunks and {} finds, none of them late.",
+            followed.chunks,
+            followed.decoded.len()
+        ),
+        "The burst at 7.3 s comes after the chunk from sample 1 460 000.".to_owned(),
+    ] {
+        assert!(
+            page("series.md").contains(&phrase),
+            "docs/series.md says: {phrase}"
+        );
+    }
+}

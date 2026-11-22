@@ -173,8 +173,9 @@ Writing pieces and chains, resuming them, sinks in memory, in the crate `ww_tape
   - The writing thread places units in arrival order and does the puts, cuts, sync and checkpoints by time, and the close.
   - A writer's refusal reaches the handle's next call; a failed write reaches every handle. A close refuses later calls with `Closed` and doesn't wait for handles. A mux dropped unclosed leaves its piece unclosed; `TapeMux::resume` and `ww_tape_fs::mux::resume` go on.
   - `PieceChain::relay_block` and `adopt_block` pass a producer's blocks on into a chain.
+  - Several muxes in one process write chains of their own; each resumes alone after a crash (test `mux_multi.rs`). The RF example writes its IQ and its decoded bursts through two ([Samples and what they mean, in two chains](docs/series.md#samples-and-what-they-mean-in-two-chains)).
   - Open: async sends.
-  - Tests `mux.rs`, `item_gap.rs`.
+  - Tests `mux.rs`, `item_gap.rs`, `mux_multi.rs`.
 - ✅ **WRITE-13 Typed track handles encode on the producer's thread**
   - `EventsHandle` takes items of one events track: instants, spans, flags, relation values, payloads. `SeriesHandle` takes samples on a grid, with `regrid`.
   - Each encodes its chunks, hashes their payload and computes the leaves of the track's summaries on its own thread. `write_chunk_hashed` takes the hash; the bytes are the same.
@@ -322,7 +323,7 @@ The pages in `docs/`.
   - `Drive::scaled` shrinks the data and the byte policies for figures; a crash at any byte resumes to the bytes of the run without it.
   - `cargo run -p ww_tape_example` prints the story's numbers; `tests/story.rs` checks them and that the full hour is the same every run.
   - Damage to the last piece and the run on a raw card over an earlier run; `tests/damage.rs` pins what each costs.
-  - `rf` records an RF capture, ComplexI16 IQ at 20 MS/s with summaries, as the book's case for high rates; `tests/rf.rs` pins its size per codec.
+  - `rf` records an RF capture, ComplexI16 IQ at 20 MS/s with summaries, as the book's case for high rates; `tests/rf.rs` pins its size per codec. `rf chains` writes it into two chains, IQ and decoded bursts, through two muxes while a reader merges both.
   - Read more: [ww_tape_example](ww_tape_example/README.md).
 
 ## Repository (`REPO`)
