@@ -126,6 +126,10 @@ opt-level = 3
 [profile.test.package.ww_tape_fuzz]
 opt-level = 3
 
+# the mux tests send millions of items through the handles and resume at every block boundary
+[profile.test.package.ww_tape_mux]
+opt-level = 3
+
 [profile.test.package.ww_tape_summary]
 opt-level = 3
 
