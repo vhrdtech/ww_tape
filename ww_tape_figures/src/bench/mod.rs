@@ -8,8 +8,8 @@
 //! - `bench_machine.txt`: the machine, build and commit every report of "Sizes and speeds" ran, and the range of the
 //!   load average.
 //! - `bench_handles_machine.txt`: the same for the handles report of "Writing from many threads".
-//! - `bench_cases_machine.txt`: the same for the reports of the two case pages, "Every frame of a 10 Gbps link" and
-//!   "A billion samples a second".
+//! - `bench_cases_machine.txt`: the same for the reports of the two case pages, "Keeping what matters of a 10 Gbps
+//!   link" and "Keeping the bursts of a fast band".
 //!
 //! [says] gives the numbers the page's prose computes from the reports, and the numbers the reports name.
 
@@ -494,8 +494,12 @@ pub fn figures(dir: &Path) -> anyhow::Result<Vec<(String, String)>> {
         (&r.handles, "events"),
         (&r.handles, "iq"),
         (&r.ethernet, "writer"),
+        (&r.ethernet, "window"),
+        (&r.ethernet, "triage"),
         (&r.wideband, "writer"),
         (&r.wideband, "overview"),
+        (&r.wideband, "window"),
+        (&r.wideband, "triage"),
     ] {
         let name = format!("bench_{}_{id}.txt", report.bench);
         out.push((name, markdown(report, id)?));
