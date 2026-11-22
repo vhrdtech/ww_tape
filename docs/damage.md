@@ -41,6 +41,27 @@ controller or of a file system. A tape catches only what that correction missed.
 Every CRC is CRC-32C. The processor's CRC instructions compute it where they exist. Elsewhere, such as in a browser or
 on a microcontroller, a table computes it, with the same result.
 
+### Checks on bytes kept in memory
+
+A tape kept in memory by the process that writes it is read without the CRCs over payloads, by default. No disk or
+wire touched those bytes, so a failed CRC there could only be a fault of the memory itself. [`OpenOptions::check_payloads`]
+makes the choice. Its default, [`PayloadCheck::BySource`], checks a file and skips the payload CRCs of a
+[`ByteSource::trusted`] source, such as a memory tape. [`PayloadCheck::Always`] checks every payload, for a reader
+that looks for memory faults too.
+
+An unchecked read keeps every other check: the header, the chunk head's CRC, the lengths and the records. Bytes that
+break the structure are refused as before. [`Block::checked`] says how far a block was checked: verified, unverified,
+or damaged after a salvage.
+
+`just bench-chunks` measures [`TapeReader::read_block`] from a tape in memory on build-1, at load 4.35:
+
+| Block | Bytes | Payload CRCs checked | Not checked |
+|---|---:|---:|---:|
+| series chunk | 1 048 775 | 68 971 ns | 33 516 ns |
+| records block | 4 043 | 361 ns | 133 ns |
+
+The unchecked read of a chunk is the copy of its bytes; the CRCs take the other half.
+
 ## What the flipped bit costs
 
 In the drive's last piece, a flipped bit about 9.7 MB in lands in the chunk of `phase_a` that starts at 50:00. The chunk

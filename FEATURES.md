@@ -387,7 +387,9 @@ Crates, checks, fuzzing and benches.
 
 - 🚧 **REPO-1 Crates by what they touch**
 
-  `ww_tape` writes and reads tapes on sinks and sources without std, `ww_tape_codecs` holds the codecs and `ww_tape_summary` the summaries. `ww_tape_fs` holds everything that names a path. The writer, chain and resume build with alloc only, and the codecs build for wasm32 without std. The codecs work on slices. Memory tapes keep their bytes in extents that never move, and `MemTapes::drop_front` frees a tape's oldest pieces. A reader checks payload CRCs as `OpenOptions::check_payloads` says: by default a file is checked and a memory tape of this process is not.
+  `ww_tape` writes and reads tapes on sinks and sources without std, `ww_tape_codecs` holds the codecs and `ww_tape_summary` the summaries. `ww_tape_fs` holds everything that names a path. The writer, chain and resume build with alloc only, and the codecs build for wasm32 without std.
+
+  The codecs work on slices. Memory tapes keep their bytes in extents that never move, and `MemTapes::drop_front` frees a tape's oldest pieces. A reader checks payload CRCs as `OpenOptions::check_payloads` says: by default a file is checked and a memory tape of this process is not.
 
   Open: std-free definition records (owned types in `shrink_wrap` and `ww_version`), integrity levels, a seal.
 
