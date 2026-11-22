@@ -143,8 +143,8 @@ bench-rf-core *args:
 bench-rf-chain *args:
     cargo run -q --release -p ww_tape_benchmarks --bin rf_chain -- {{ args }}
 
-# ww_tape: a protocol analyser on both directions of a 10 Gbps link through one mux or a mux per port, at full speed
-# (EX-2); `just bench-ethernet --help`
+# ww_tape: a protocol analyser on both directions of a 10 Gbps link through one mux or a mux per port, at full speed,
+# then into a window in memory that keeps the pieces around each reset (EX-2, EX-4); `just bench-ethernet --help`
 bench-ethernet *args:
     cargo run -q --release -p ww_tape_benchmarks --bin ethernet -- {{ args }}
 
@@ -162,7 +162,7 @@ bench-mem-reader *args:
     cargo run -q --release -p ww_tape_benchmarks --bin mem_reader -- {{ args }}
 
 # Every bench the book draws from ("Sizes and speeds", "The definitions a new piece carries", "Writing from many
-# threads", "Every frame of a 10 Gbps link", "A billion samples a second"), at release, into docs/bench/*.json; then
+# threads", "Keeping what matters of a 10 Gbps link", "Keeping the bursts of a fast band"), at release, into docs/bench/*.json; then
 # the charts and tables drawn from them (`just book-figures`). `just jobs=N bench-book` caps the build's jobs. Each
 # bench runs on one core, except rf_chain (8 workers and a writer thread), handles (up to 16 producer threads and a
 # writing thread), ethernet (up to 16 producer threads and two muxes) and wideband (up to 16 channel threads and 4

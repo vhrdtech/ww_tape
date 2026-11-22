@@ -9,7 +9,7 @@ benchmarks, golden files and book pages.
 ### Features
 
 - `Drive::record_unplaced` records the drive's hour through the mux without a writer round trip per act (EX-3).
-- Book pages "Every frame of a 10 Gbps link" and "A billion samples a second", measured by their benches (EX-2).
+- Book pages "Keeping what matters of a 10 Gbps link" and "Keeping the bursts of a fast band", measured by benches (EX-2).
 - `ww_tape_example::ethernet`: a protocol analyser's frames and decoded headers, spread over receive queues and muxes (EX-2).
 - `ww_tape_example::wideband`: a 1 GS/s receiver in channels over several muxes, with an overview from summaries (EX-2).
 - `just bench-ethernet` and `just bench-wideband` record both cases at full speed; `bench-book` runs them (EX-2).

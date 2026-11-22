@@ -363,7 +363,7 @@ The book's running example and its other cases, in the crate `ww_tape_example`.
 
   `ethernet` records a protocol analyser on both directions of a 10 Gbps link: frames as raw-bytes events, decoded headers as tracks related to their frames. `wideband` records a 1 GS/s receiver in channels, each a series track with its own producer thread, over several muxes and chains. `just bench-ethernet` and `just bench-wideband` measure how much of the link and the band one PC keeps.
 
-  Read more: [Every frame of a 10 Gbps link](docs/protocol_analyser.md), [A billion samples a second](docs/wideband.md). Tests `ethernet.rs`, `wideband.rs`.
+  Read more: [Keeping what matters of a 10 Gbps link](docs/protocol_analyser.md), [Keeping the bursts of a fast band](docs/wideband.md). Tests `ethernet.rs`, `wideband.rs`.
 
 - ✅ **EX-3 The example writes through the mux**
 
