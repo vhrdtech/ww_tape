@@ -287,6 +287,20 @@ impl TrackFollower {
         }
     }
 
+    /// [Self::wait_next] as a future, for a task; see [ChainFollower::wait_next_async]. Dropped while it waits, it
+    /// takes nothing.
+    pub async fn wait_next_async(&mut self) -> Result<Option<TrackItem>, FollowError> {
+        loop {
+            if let Some(i) = self.pending.pop_front() {
+                return Ok(Some(i));
+            }
+            let Some(f) = self.chain.wait_next_async().await? else {
+                return Ok(None);
+            };
+            self.take(&f)?;
+        }
+    }
+
     /// The next item, waiting `timeout` at most; None when none came, or the chain is closed.
     pub fn wait_next_for(&mut self, timeout: Duration) -> Result<Option<TrackItem>, FollowError> {
         let deadline = Instant::now().checked_add(timeout);

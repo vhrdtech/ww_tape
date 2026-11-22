@@ -13,10 +13,8 @@ use ww_tape_summary::{EventFields, EventRuns};
 
 use crate::TapeMux;
 use crate::error::{CallError, EncodeError, ItemError, MuxError};
-use crate::handle::{Pressure, Sender, Sent, common};
+use crate::handle::{Backlog, Pressure, Sender, Sent, common};
 use crate::open::{Buffers, Encoder, Open, Sealed};
-use crate::reply::reply;
-use crate::shared::Work;
 use crate::summaries::ChunkSummary;
 
 /// Default of [EventsOptions::chunk_items].
@@ -245,6 +243,7 @@ impl Encoder for EventsChunk {
 pub struct EventsHandle<T: Tapes> {
     s: Sender<T>,
     open: Arc<Open<T, EventsChunk>>,
+    backlog: Backlog<T>,
     track: TrackNum,
 }
 
@@ -264,18 +263,28 @@ where
         track: TrackNum,
         options: EventsOptions,
     ) -> Result<EventsHandle<T>, MuxError<T::Error>> {
-        let (tx, rx) = reply();
-        let bytes = self
-            .shared
-            .control(Work::TrackDef { track, reply: tx }, rx)?
-            .ok_or(CallError::Kind { track })?;
+        crate::wait::block_on(self.events_async(track, options))
+    }
+
+    /// [Self::events] as a future.
+    pub async fn events_async(
+        &self,
+        track: TrackNum,
+        options: EventsOptions,
+    ) -> Result<EventsHandle<T>, MuxError<T::Error>> {
+        let bytes = self.track_def(track).await?;
         let Ok(Describe::Track(def)) = Describe::from_ww_bytes(&bytes) else {
             return Err(CallError::Kind { track }.into());
         };
         let chunk = events_chunk(&def, options).ok_or(CallError::Kind { track })?;
         let s = Sender::new(self.shared.clone(), Some(track));
         let open = Open::register(&self.shared, s.slot.clone(), chunk, options.latency);
-        Ok(EventsHandle { s, open, track })
+        Ok(EventsHandle {
+            s,
+            open,
+            backlog: Backlog::new(),
+            track,
+        })
     }
 }
 
@@ -366,46 +375,95 @@ where
         payload: &[u8],
         values: &[u64],
     ) -> Result<Option<Sent>, MuxError<T::Error>> {
+        let open = self.add(start, end, flags, payload, values)?;
+        let sent = self.backlog.send(&self.s)?;
+        self.opened(open);
+        Ok(sent)
+    }
+
+    /// [Self::push] as a future, waiting for room by waker.
+    ///
+    /// Dropped while it waits, the item stays added and the chunk it sealed stays with the handle: its next push,
+    /// seal, finish or drop sends that chunk first.
+    pub async fn push_async(
+        &mut self,
+        start: i64,
+        end: i64,
+        flags: u32,
+        payload: &[u8],
+    ) -> Result<Option<Sent>, MuxError<T::Error>> {
+        self.push_related_async(start, end, flags, payload, &[])
+            .await
+    }
+
+    /// [Self::push_related] as a future; see [Self::push_async].
+    pub async fn push_related_async(
+        &mut self,
+        start: i64,
+        end: i64,
+        flags: u32,
+        payload: &[u8],
+        values: &[u64],
+    ) -> Result<Option<Sent>, MuxError<T::Error>> {
+        let open = self.add(start, end, flags, payload, values)?;
+        let sent = self.backlog.send_async(&self.s).await?;
+        self.opened(open);
+        Ok(sent)
+    }
+
+    /// Check and add an item, the chunks it seals into the backlog; whether the open chunk holds items after.
+    fn add(
+        &mut self,
+        start: i64,
+        end: i64,
+        flags: u32,
+        payload: &[u8],
+        values: &[u64],
+    ) -> Result<bool, MuxError<T::Error>> {
         self.s.ready()?;
         let mut e = crate::queue::lock(&self.open.encoder);
         e.check(start, end, flags, payload, values)?;
         // the chunk this item doesn't fit goes first
-        let before = if e.full_for(payload.len()) {
-            self.open.seal_locked(&mut e).map_err(CallError::Encode)?
-        } else {
-            None
-        };
+        if e.full_for(payload.len())
+            && let Some(unit) = self.open.seal_locked(&mut e).map_err(CallError::Encode)?
+        {
+            self.backlog.push(unit);
+        }
         e.add(start, end, flags, payload, values);
         let full = e.items() >= e.chunk_items;
-        let after = if full {
-            self.open.seal_locked(&mut e).map_err(CallError::Encode)?
-        } else {
-            None
-        };
-        // never held while sending: the writing thread may need the chunk to seal it
-        drop(e);
-        let mut sent = None;
-        for (work, bytes) in before.into_iter().chain(after) {
-            sent = Some(self.s.send(work, bytes)?);
+        if full && let Some(unit) = self.open.seal_locked(&mut e).map_err(CallError::Encode)? {
+            self.backlog.push(unit);
         }
-        // the latency runs only once the chunks sealed before are queued: the writing thread seals the open chunk
-        // behind them, never ahead
-        if !full {
+        // dropped before sending: the writing thread may need the chunk to seal it
+        Ok(!full)
+    }
+
+    /// Start the open chunk's latency once the chunks sealed before are queued, so the writing thread seals it
+    /// behind them, never ahead.
+    fn opened(&self, open: bool) {
+        if open {
             self.open.opened();
         }
-        Ok(sent)
     }
 
     /// Seal the open chunk and send it now; None when it holds no item.
     pub fn seal(&mut self) -> Result<Option<Sent>, MuxError<T::Error>> {
-        let unit = {
-            let mut e = crate::queue::lock(&self.open.encoder);
-            self.open.seal_locked(&mut e).map_err(CallError::Encode)?
-        };
-        match unit {
-            Some((work, bytes)) => Ok(Some(self.s.send(work, bytes)?)),
-            None => Ok(None),
+        self.seal_open()?;
+        self.backlog.send(&self.s)
+    }
+
+    /// [Self::seal] as a future; dropped while it waits, the chunk stays with the handle, as for [Self::push_async].
+    pub async fn seal_async(&mut self) -> Result<Option<Sent>, MuxError<T::Error>> {
+        self.seal_open()?;
+        self.backlog.send_async(&self.s).await
+    }
+
+    fn seal_open(&mut self) -> Result<(), MuxError<T::Error>> {
+        let mut e = crate::queue::lock(&self.open.encoder);
+        if let Some(unit) = self.open.seal_locked(&mut e).map_err(CallError::Encode)? {
+            self.backlog.push(unit);
         }
+        Ok(())
     }
 
     /// Seal and send the open chunk, then return once everything this handle sent is placed.
@@ -413,18 +471,26 @@ where
         self.seal()?;
         self.s.flush(false)
     }
+
+    /// [Self::finish] as a future. Async code finishes a handle so: its drop sends what it holds blocking.
+    pub async fn finish_async(mut self) -> Result<(), MuxError<T::Error>> {
+        self.seal_async().await?;
+        self.s.flush_async(false).await
+    }
 }
 
 impl<T: Tapes> Drop for EventsHandle<T> {
-    /// Seal and send the open chunk, as far as the mux takes it.
+    /// Seal and send the open chunk and any chunk a dropped async call left, as far as the mux takes them; waits
+    /// for room on this thread.
     fn drop(&mut self) {
         let unit = {
             let mut e = crate::queue::lock(&self.open.encoder);
             self.open.seal_locked(&mut e)
         };
-        if let Ok(Some((work, bytes))) = unit {
-            // a closed or failed mux takes nothing: the items are lost as after a close
-            drop(self.s.send(work, bytes));
+        if let Ok(Some(unit)) = unit {
+            self.backlog.push(unit);
         }
+        // a closed or failed mux takes nothing: the items are lost as after a close
+        drop(self.backlog.send(&self.s));
     }
 }

@@ -25,7 +25,7 @@ use ww_tape_mux::{ChunkSender, MuxOptions, TapeMux};
 use crate::definitions::base;
 use crate::pieces::{chunk, chunk_id, scratch};
 
-const OWNER: OwnerId = OwnerId([0x5f; 32]);
+pub(crate) const OWNER: OwnerId = OwnerId([0x5f; 32]);
 /// Tracks the tests write, `t` of [chunk].
 const TRACKS: u64 = 3;
 /// The directory [follow_child] writes, when the test binary runs as one.

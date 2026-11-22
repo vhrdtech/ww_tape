@@ -57,6 +57,22 @@
 //! of each track. A reader in the writer's process waits on it for more instead of polling. Readers in another
 //! process follow the files (`ww_tape_fs::follow`).
 //!
+//! # Sync and async
+//!
+//! Every call that waits has an async twin, named with `_async`: [ChunkSender::send_async],
+//! [EventsHandle::push_async], [EventsHandle::finish_async], [TapeMux::flush_async], [TapeMux::close_async],
+//! [ProgressWatch::wait_past_async] and the rest. The writing thread wakes the task; no runtime is needed, and the
+//! crate depends on none. The writing thread stays an OS thread under either: its writes and syncs block.
+//!
+//! A sender waits for room by [Waker](core::task::Waker); a blocking call parks its thread on the same future. So
+//! threads and tasks wait in one line, served in the order they came.
+//!
+//! The futures are cancel-safe. A send dropped while it waits leaves the line and sends nothing. A typed handle's
+//! push dropped while it waits keeps the chunks it sealed: the handle's next push, seal, finish or drop sends them
+//! first, so no item is lost and the track stays in order. A control call dropped once sent is done all the same. A
+//! timeout of the caller's runtime bounds a wait. A typed handle's drop sends its open chunk blocking: async code
+//! ends a handle with its `finish_async`.
+//!
 //! # Close and drop
 //!
 //! [TapeMux::close] takes nothing more: every handle's next call returns [MuxError::Closed]. Units sent before are
@@ -83,6 +99,7 @@ mod series;
 mod shared;
 mod summaries;
 mod thread;
+mod wait;
 
 use std::sync::Arc;
 use std::thread::JoinHandle;
@@ -100,12 +117,13 @@ pub use events::{
     LATENCY_DEFAULT,
 };
 pub use handle::{ChunkSender, Pressure, RecordsHandle, RelayHandle, Sent, StateHandle};
-pub use progress::{Progress, ProgressWatch, TrackProgress};
+pub use progress::{Progress, ProgressWatch, TrackProgress, WaitPast};
 pub use series::{CHUNK_SAMPLES_DEFAULT, SeriesHandle, SeriesOptions};
 pub use shared::{RETURNED_BUFFERS_MAX, RelayMode};
 
 use reply::reply;
 use shared::{Shared, Work};
+use wait::block_on;
 
 /// Default of [MuxOptions::queue_bytes].
 pub const QUEUE_BYTES_DEFAULT: Bytes<u64> = Bytes::new(64 << 20);
@@ -225,21 +243,47 @@ where
 
     /// Define track `t` ([Definitions::define_track]) and give its number, once the writing thread holds it.
     pub fn define_track(&self, t: TrackSpec<'_>) -> Result<TrackNum, MuxError<T::Error>> {
+        block_on(self.define_track_async(t))
+    }
+
+    /// [Self::define_track] as a future. Like every async twin of the mux, it is woken by the writing thread and
+    /// needs no runtime; dropped once sent, the work is done all the same.
+    pub async fn define_track_async(
+        &self,
+        t: TrackSpec<'_>,
+    ) -> Result<TrackNum, MuxError<T::Error>> {
         let (tx, rx) = reply();
         let w = Work::DefineTrack {
             item: define::track(t)?,
             reply: tx,
         };
-        Ok(self.shared.control(w, rx)??)
+        Ok(self.shared.control_async(w, rx).await??)
     }
 
     /// Define clock `c` ([Definitions::define_clock]) and give its number.
     pub fn define_clock(&self, c: ClockSpec<'_>) -> Result<ClockNum, MuxError<T::Error>> {
-        self.define_clock_with_maps(c, &[])
+        block_on(self.define_clock_with_maps_async(c, &[]))
+    }
+
+    /// [Self::define_clock] as a future.
+    pub async fn define_clock_async(
+        &self,
+        c: ClockSpec<'_>,
+    ) -> Result<ClockNum, MuxError<T::Error>> {
+        self.define_clock_with_maps_async(c, &[]).await
     }
 
     /// Define clock `c` with maps from it to held clocks ([Definitions::define_clock_with_maps]) and give its number.
     pub fn define_clock_with_maps(
+        &self,
+        c: ClockSpec<'_>,
+        maps: &[(ClockNum, &[MapSegment])],
+    ) -> Result<ClockNum, MuxError<T::Error>> {
+        block_on(self.define_clock_with_maps_async(c, maps))
+    }
+
+    /// [Self::define_clock_with_maps] as a future.
+    pub async fn define_clock_with_maps_async(
         &self,
         c: ClockSpec<'_>,
         maps: &[(ClockNum, &[MapSegment])],
@@ -249,29 +293,49 @@ where
             items: define::clock(c, maps)?,
             reply: tx,
         };
-        Ok(self.shared.control(w, rx)??)
+        Ok(self.shared.control_async(w, rx).await??)
     }
 
     /// Hold the maps, bundles and schemas `defs` as one batch ([Definitions::define_all]).
     pub fn define_all(&self, defs: &[Describe<'_>]) -> Result<(), MuxError<T::Error>> {
+        block_on(self.define_all_async(defs))
+    }
+
+    /// [Self::define_all] as a future.
+    pub async fn define_all_async(&self, defs: &[Describe<'_>]) -> Result<(), MuxError<T::Error>> {
         let items = defs
             .iter()
             .map(ww_tape::open::encode)
             .collect::<Result<Vec<_>, _>>()?;
         let (tx, rx) = reply();
         let w = Work::DefineAll { items, reply: tx };
-        Ok(self.shared.control(w, rx)??)
+        Ok(self.shared.control_async(w, rx).await??)
     }
 
     /// A copy of the definitions the mux holds, as of every unit sent before.
     pub fn definitions(&self) -> Result<Definitions, MuxError<T::Error>> {
+        block_on(self.definitions_async())
+    }
+
+    /// [Self::definitions] as a future.
+    pub async fn definitions_async(&self) -> Result<Definitions, MuxError<T::Error>> {
         let (tx, rx) = reply();
-        self.shared.control(Work::Definitions { reply: tx }, rx)
+        self.shared
+            .control_async(Work::Definitions { reply: tx }, rx)
+            .await
     }
 
     /// A sender of chunks of events or series track `track`.
     pub fn chunks(&self, track: TrackNum) -> Result<ChunkSender<T>, MuxError<T::Error>> {
-        match self.facts(track)? {
+        block_on(self.chunks_async(track))
+    }
+
+    /// [Self::chunks] as a future.
+    pub async fn chunks_async(
+        &self,
+        track: TrackNum,
+    ) -> Result<ChunkSender<T>, MuxError<T::Error>> {
+        match self.facts(track).await? {
             Some(f) if f.state.is_none() => Ok(ChunkSender::new(self.shared.clone(), track, f)),
             _ => Err(CallError::Kind { track }.into()),
         }
@@ -279,7 +343,12 @@ where
 
     /// A handle that puts on state track `track`.
     pub fn state(&self, track: TrackNum) -> Result<StateHandle<T>, MuxError<T::Error>> {
-        match self.facts(track)? {
+        block_on(self.state_async(track))
+    }
+
+    /// [Self::state] as a future.
+    pub async fn state_async(&self, track: TrackNum) -> Result<StateHandle<T>, MuxError<T::Error>> {
+        match self.facts(track).await? {
             Some(f) if f.state.is_some() => Ok(StateHandle::new(self.shared.clone(), track)),
             _ => Err(CallError::Kind { track }.into()),
         }
@@ -295,30 +364,64 @@ where
         RelayHandle::new(self.shared.clone(), mode)
     }
 
-    fn facts(&self, track: TrackNum) -> Result<Option<ww_tape::TrackFacts>, MuxError<T::Error>> {
+    /// Track `track`'s definition, encoded; refused when the mux doesn't hold it.
+    async fn track_def(&self, track: TrackNum) -> Result<Vec<u8>, MuxError<T::Error>> {
         let (tx, rx) = reply();
-        self.shared.control(Work::Facts { track, reply: tx }, rx)
+        let bytes = self
+            .shared
+            .control_async(Work::TrackDef { track, reply: tx }, rx)
+            .await?;
+        Ok(bytes.ok_or(CallError::Kind { track })?)
+    }
+
+    async fn facts(
+        &self,
+        track: TrackNum,
+    ) -> Result<Option<ww_tape::TrackFacts>, MuxError<T::Error>> {
+        let (tx, rx) = reply();
+        self.shared
+            .control_async(Work::Facts { track, reply: tx }, rx)
+            .await
     }
 
     /// Cut to a new piece once every unit sent before is placed ([PieceChain::cut_now]).
     pub fn cut(&self) -> Result<(), MuxError<T::Error>> {
+        block_on(self.cut_async())
+    }
+
+    /// [Self::cut] as a future.
+    pub async fn cut_async(&self) -> Result<(), MuxError<T::Error>> {
         let (tx, rx) = reply();
-        self.shared.control(Work::Cut { reply: tx }, rx)?
+        self.shared
+            .control_async(Work::Cut { reply: tx }, rx)
+            .await?
     }
 
     /// Return once every unit sent before is placed.
     pub fn flush(&self) -> Result<(), MuxError<T::Error>> {
-        self.flush_as(false)
+        block_on(self.flush_as(false))
     }
 
     /// Return once every unit sent before is durable.
     pub fn sync(&self) -> Result<(), MuxError<T::Error>> {
-        self.flush_as(true)
+        block_on(self.flush_as(true))
     }
 
-    fn flush_as(&self, sync: bool) -> Result<(), MuxError<T::Error>> {
+    /// [Self::flush] as a future.
+    pub async fn flush_async(&self) -> Result<(), MuxError<T::Error>> {
+        self.flush_as(false).await
+    }
+
+    /// [Self::sync] as a future.
+    pub async fn sync_async(&self) -> Result<(), MuxError<T::Error>> {
+        self.flush_as(true).await
+    }
+
+    async fn flush_as(&self, sync: bool) -> Result<(), MuxError<T::Error>> {
         let (tx, rx) = reply();
-        self.shared.control(Work::Flush { sync, reply: tx }, rx)?
+        self.shared
+            .control_async(Work::Flush { sync, reply: tx }, rx)
+            .await?
     }
 
     /// A watch of what the writing thread placed, for readers in this process ([ProgressWatch]).
@@ -333,20 +436,36 @@ where
 
     /// Close the chain ([CloseReason::Closed]) once every unit sent before is placed; every piece.
     pub fn close(self) -> Result<Vec<ChainPiece<T::Key>>, MuxError<T::Error>> {
-        self.close_as(CloseReason::Closed)
+        block_on(self.close_as_async(CloseReason::Closed))
     }
 
     /// Close the chain for `reason`; see [Self::close]. Every handle's next call returns [MuxError::Closed].
     pub fn close_as(
+        self,
+        reason: CloseReason,
+    ) -> Result<Vec<ChainPiece<T::Key>>, MuxError<T::Error>> {
+        block_on(self.close_as_async(reason))
+    }
+
+    /// [Self::close] as a future.
+    pub async fn close_async(self) -> Result<Vec<ChainPiece<T::Key>>, MuxError<T::Error>> {
+        self.close_as_async(CloseReason::Closed).await
+    }
+
+    /// [Self::close_as] as a future. Dropped before the writing thread ended, the mux is dropped: the close goes on
+    /// and the drop waits for it on this thread.
+    pub async fn close_as_async(
         mut self,
         reason: CloseReason,
     ) -> Result<Vec<ChainPiece<T::Key>>, MuxError<T::Error>> {
         let (tx, rx) = reply();
         let w = Work::Close { reason, reply: tx };
         let r = match self.shared.queue.push_control(w, true) {
-            Ok(()) => rx.wait().unwrap_or_else(|| Err(self.shared.ended())),
+            Ok(()) => rx.await.unwrap_or_else(|| Err(self.shared.ended())),
             Err(_) => Err(self.shared.ended()),
         };
+        // the thread ends right after its reply: joined once it says so, the join doesn't block a task
+        self.watch().wait_past_async(u64::MAX).await;
         self.join();
         r
     }

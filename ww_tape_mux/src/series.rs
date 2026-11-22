@@ -16,11 +16,9 @@ use ww_tape_summary::{BuildError, Scalar, SeriesLeaf, SeriesLeaves, SeriesSummar
 use crate::TapeMux;
 use crate::error::{CallError, EncodeError, ItemError, MuxError};
 use crate::events::{CHUNK_BYTES_DEFAULT, LATENCY_DEFAULT};
-use crate::handle::{Pressure, Sender, Sent};
+use crate::handle::{Backlog, Pressure, Sender, Sent};
 use crate::open::{Buffers, Encoder, Open, Sealed};
 use crate::queue::lock;
-use crate::reply::reply;
-use crate::shared::Work;
 use crate::summaries::ChunkSummary;
 
 /// Default of [SeriesOptions::chunk_samples].
@@ -223,6 +221,7 @@ impl<S: Scalar + Sample + Send> Encoder for SeriesChunk<S> {
 pub struct SeriesHandle<T: Tapes, S: Scalar + Sample + Send + 'static> {
     s: Sender<T>,
     open: Arc<Open<T, SeriesChunk<S>>>,
+    backlog: Backlog<T>,
     track: TrackNum,
 }
 
@@ -243,6 +242,16 @@ impl<T: Tapes, S: Scalar + Sample + Send + 'static> SeriesHandle<T, S> {
     pub fn sync(&self) -> Result<(), MuxError<T::Error>> {
         self.s.flush(true)
     }
+
+    /// [Self::flush] as a future, woken by the writing thread. Dropped before, the flush is done all the same.
+    pub async fn flush_async(&self) -> Result<(), MuxError<T::Error>> {
+        self.s.flush_async(false).await
+    }
+
+    /// [Self::sync] as a future; see [Self::flush_async].
+    pub async fn sync_async(&self) -> Result<(), MuxError<T::Error>> {
+        self.s.flush_async(true).await
+    }
 }
 
 impl<T> TapeMux<T>
@@ -260,18 +269,28 @@ where
         track: TrackNum,
         options: SeriesOptions,
     ) -> Result<SeriesHandle<T, S>, MuxError<T::Error>> {
-        let (tx, rx) = reply();
-        let bytes = self
-            .shared
-            .control(Work::TrackDef { track, reply: tx }, rx)?
-            .ok_or(CallError::Kind { track })?;
+        crate::wait::block_on(self.series_async::<S>(track, options))
+    }
+
+    /// [Self::series] as a future.
+    pub async fn series_async<S: Scalar + Sample + Send + 'static>(
+        &self,
+        track: TrackNum,
+        options: SeriesOptions,
+    ) -> Result<SeriesHandle<T, S>, MuxError<T::Error>> {
+        let bytes = self.track_def(track).await?;
         let Ok(Describe::Track(def)) = Describe::from_ww_bytes(&bytes) else {
             return Err(CallError::Kind { track }.into());
         };
         let chunk = series_chunk::<S>(&def, options)?.ok_or(CallError::Kind { track })?;
         let s = Sender::new(self.shared.clone(), Some(track));
         let open = Open::register(&self.shared, s.slot.clone(), chunk, options.latency);
-        Ok(SeriesHandle { s, open, track })
+        Ok(SeriesHandle {
+            s,
+            open,
+            backlog: Backlog::new(),
+            track,
+        })
     }
 }
 
@@ -359,48 +378,73 @@ where
         samples: &[S],
         flags: u32,
     ) -> Result<Option<Sent>, MuxError<T::Error>> {
+        let open = self.add(samples, flags)?;
+        let sent = self.backlog.send(&self.s)?;
+        self.opened(open);
+        Ok(sent)
+    }
+
+    /// [Self::push] as a future, waiting for room by waker.
+    ///
+    /// Dropped while it waits, the samples stay added and the chunks they sealed stay with the handle: its next
+    /// push, regrid, seal, finish or drop sends those chunks first.
+    pub async fn push_async(&mut self, samples: &[S]) -> Result<Option<Sent>, MuxError<T::Error>> {
+        self.push_flagged_async(samples, 0).await
+    }
+
+    /// [Self::push_flagged] as a future; see [Self::push_async].
+    pub async fn push_flagged_async(
+        &mut self,
+        samples: &[S],
+        flags: u32,
+    ) -> Result<Option<Sent>, MuxError<T::Error>> {
+        let open = self.add(samples, flags)?;
+        let sent = self.backlog.send_async(&self.s).await?;
+        self.opened(open);
+        Ok(sent)
+    }
+
+    /// Check and add samples, the chunks they fill into the backlog; whether the open chunk holds samples after.
+    fn add(&mut self, samples: &[S], flags: u32) -> Result<bool, MuxError<T::Error>> {
         self.s.ready()?;
-        let mut units = Vec::new();
-        let open = {
-            let mut e = lock(&self.open.encoder);
-            let stride = e.stride;
-            if !samples.len().is_multiple_of(stride) {
-                return Err(CallError::Item {
-                    item: e.item_num(),
-                    why: ItemError::PartialFrame { stride },
-                }
-                .into());
+        let mut e = lock(&self.open.encoder);
+        let stride = e.stride;
+        if !samples.len().is_multiple_of(stride) {
+            return Err(CallError::Item {
+                item: e.item_num(),
+                why: ItemError::PartialFrame { stride },
             }
-            let mut rest = samples;
-            while !rest.is_empty() {
-                let room = e
-                    .chunk_frames
-                    .saturating_sub(e.frames())
-                    .saturating_mul(stride);
-                let (now, later) = rest.split_at(room.min(rest.len()));
-                if let Some((_, l)) = &mut e.leaves {
-                    l.push(now, flags)
-                        .map_err(|err| CallError::Encode(EncodeError::Summary(err)))?;
-                }
-                e.samples.extend_from_slice(now);
-                rest = later;
-                if e.frames() >= e.chunk_frames {
-                    units.extend(self.open.seal_locked(&mut e).map_err(CallError::Encode)?);
-                }
-            }
-            e.frames() > 0
-        };
-        // never held while sending: the writing thread may need the chunk to seal it
-        let mut sent = None;
-        for (work, bytes) in units {
-            sent = Some(self.s.send(work, bytes)?);
+            .into());
         }
-        // the latency runs only once the chunks sealed before are queued: the writing thread seals the open chunk
-        // behind them, never ahead
+        let mut rest = samples;
+        while !rest.is_empty() {
+            let room = e
+                .chunk_frames
+                .saturating_sub(e.frames())
+                .saturating_mul(stride);
+            let (now, later) = rest.split_at(room.min(rest.len()));
+            if let Some((_, l)) = &mut e.leaves {
+                l.push(now, flags)
+                    .map_err(|err| CallError::Encode(EncodeError::Summary(err)))?;
+            }
+            e.samples.extend_from_slice(now);
+            rest = later;
+            if e.frames() >= e.chunk_frames
+                && let Some(unit) = self.open.seal_locked(&mut e).map_err(CallError::Encode)?
+            {
+                self.backlog.push(unit);
+            }
+        }
+        // dropped before sending: the writing thread may need the chunk to seal it
+        Ok(e.frames() > 0)
+    }
+
+    /// Start the open chunk's latency once the chunks sealed before are queued, so the writing thread seals it
+    /// behind them, never ahead.
+    fn opened(&self, open: bool) {
         if open {
             self.open.opened();
         }
-        Ok(sent)
     }
 
     /// Put the samples from the next one on grid `g`: a new grid (a gap, a restart) or the same grid at a new scale.
@@ -408,50 +452,69 @@ where
     /// first sample isn't more than a period after the last sample's tick, or the scale has no common scale with
     /// the ones before.
     pub fn regrid(&mut self, g: SeriesGrid) -> Result<Option<Sent>, MuxError<T::Error>> {
-        let unit = {
-            let mut e = lock(&self.open.encoder);
-            let next = e.item_num();
-            if g.grid_index > next.get() {
-                return Err(CallError::Grid(SeriesError::GridAfterFirst {
-                    first_item: next,
-                    grid_index: g.grid_index,
-                })
-                .into());
-            }
-            if !g.same_grid(&e.grid)
-                && let Some(last) = next
-                    .get()
-                    .checked_sub(1)
-                    .and_then(|i| e.grid.tick(e.period, ItemNum::new(i)))
-                && let Some(first) = g.tick(e.period, next)
-                && !ww_tape::series::is_gap(e.period, last, first)
-            {
-                return Err(CallError::Grid(SeriesError::GridTooClose { first_item: next }).into());
-            }
-            if let Some((_, l)) = &mut e.leaves {
-                l.set_scale(g.scale)
-                    .map_err(|err| CallError::Encode(EncodeError::Summary(err)))?;
-            }
-            let unit = self.open.seal_locked(&mut e).map_err(CallError::Encode)?;
-            e.grid = g;
-            unit
-        };
-        match unit {
-            Some((work, bytes)) => Ok(Some(self.s.send(work, bytes)?)),
-            None => Ok(None),
+        self.set_grid(g)?;
+        self.backlog.send(&self.s)
+    }
+
+    /// [Self::regrid] as a future; dropped while it waits, the chunk stays with the handle, as for
+    /// [Self::push_async].
+    pub async fn regrid_async(
+        &mut self,
+        g: SeriesGrid,
+    ) -> Result<Option<Sent>, MuxError<T::Error>> {
+        self.set_grid(g)?;
+        self.backlog.send_async(&self.s).await
+    }
+
+    fn set_grid(&mut self, g: SeriesGrid) -> Result<(), MuxError<T::Error>> {
+        let mut e = lock(&self.open.encoder);
+        let next = e.item_num();
+        if g.grid_index > next.get() {
+            return Err(CallError::Grid(SeriesError::GridAfterFirst {
+                first_item: next,
+                grid_index: g.grid_index,
+            })
+            .into());
         }
+        if !g.same_grid(&e.grid)
+            && let Some(last) = next
+                .get()
+                .checked_sub(1)
+                .and_then(|i| e.grid.tick(e.period, ItemNum::new(i)))
+            && let Some(first) = g.tick(e.period, next)
+            && !ww_tape::series::is_gap(e.period, last, first)
+        {
+            return Err(CallError::Grid(SeriesError::GridTooClose { first_item: next }).into());
+        }
+        if let Some((_, l)) = &mut e.leaves {
+            l.set_scale(g.scale)
+                .map_err(|err| CallError::Encode(EncodeError::Summary(err)))?;
+        }
+        if let Some(unit) = self.open.seal_locked(&mut e).map_err(CallError::Encode)? {
+            self.backlog.push(unit);
+        }
+        e.grid = g;
+        Ok(())
     }
 
     /// Seal the open chunk and send it now; None when it holds no sample.
     pub fn seal(&mut self) -> Result<Option<Sent>, MuxError<T::Error>> {
-        let unit = {
-            let mut e = lock(&self.open.encoder);
-            self.open.seal_locked(&mut e).map_err(CallError::Encode)?
-        };
-        match unit {
-            Some((work, bytes)) => Ok(Some(self.s.send(work, bytes)?)),
-            None => Ok(None),
+        self.seal_open()?;
+        self.backlog.send(&self.s)
+    }
+
+    /// [Self::seal] as a future; dropped while it waits, the chunk stays with the handle, as for [Self::push_async].
+    pub async fn seal_async(&mut self) -> Result<Option<Sent>, MuxError<T::Error>> {
+        self.seal_open()?;
+        self.backlog.send_async(&self.s).await
+    }
+
+    fn seal_open(&mut self) -> Result<(), MuxError<T::Error>> {
+        let mut e = lock(&self.open.encoder);
+        if let Some(unit) = self.open.seal_locked(&mut e).map_err(CallError::Encode)? {
+            self.backlog.push(unit);
         }
+        Ok(())
     }
 
     /// Seal and send the open chunk, then return once everything this handle sent is placed.
@@ -459,18 +522,26 @@ where
         self.seal()?;
         self.s.flush(false)
     }
+
+    /// [Self::finish] as a future. Async code finishes a handle so: its drop sends what it holds blocking.
+    pub async fn finish_async(mut self) -> Result<(), MuxError<T::Error>> {
+        self.seal_async().await?;
+        self.s.flush_async(false).await
+    }
 }
 
 impl<T: Tapes, S: Scalar + Sample + Send + 'static> Drop for SeriesHandle<T, S> {
-    /// Seal and send the open chunk, as far as the mux takes it.
+    /// Seal and send the open chunk and any chunk a dropped async call left, as far as the mux takes them; waits
+    /// for room on this thread.
     fn drop(&mut self) {
         let unit = {
             let mut e = lock(&self.open.encoder);
             self.open.seal_locked(&mut e)
         };
-        if let Ok(Some((work, bytes))) = unit {
-            // a closed or failed mux takes nothing: the samples are lost as after a close
-            drop(self.s.send(work, bytes));
+        if let Ok(Some(unit)) = unit {
+            self.backlog.push(unit);
         }
+        // a closed or failed mux takes nothing: the samples are lost as after a close
+        drop(self.backlog.send(&self.s));
     }
 }

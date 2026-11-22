@@ -1,6 +1,9 @@
-//! A reply from the writing thread to one caller waiting for it.
+//! A reply from the writing thread to one caller waiting for it, by thread or by task.
 
-use std::sync::{Arc, Condvar, Mutex};
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll, Waker};
 
 use crate::queue::lock;
 
@@ -8,65 +11,59 @@ struct Slot<T> {
     value: Option<T>,
     /// The sending side is gone: sent, or dropped unsent (the writing thread stopped).
     done: bool,
-}
-
-struct Inner<T> {
-    slot: Mutex<Slot<T>>,
-    ready: Condvar,
+    /// The caller waiting.
+    waker: Option<Waker>,
 }
 
 /// The writing thread's side: [Self::send] once; dropped unsent, the caller wakes with nothing.
-pub(crate) struct ReplyTx<T>(Arc<Inner<T>>);
+pub(crate) struct ReplyTx<T>(Arc<Mutex<Slot<T>>>);
 
-/// The caller's side.
-pub(crate) struct ReplyRx<T>(Arc<Inner<T>>);
+/// The caller's side: a future of the reply, None when the writing thread stopped without one.
+pub(crate) struct ReplyRx<T>(Arc<Mutex<Slot<T>>>);
 
 /// A reply's two sides.
 pub(crate) fn reply<T>() -> (ReplyTx<T>, ReplyRx<T>) {
-    let inner = Arc::new(Inner {
-        slot: Mutex::new(Slot {
-            value: None,
-            done: false,
-        }),
-        ready: Condvar::new(),
-    });
-    (ReplyTx(inner.clone()), ReplyRx(inner))
+    let slot = Arc::new(Mutex::new(Slot {
+        value: None,
+        done: false,
+        waker: None,
+    }));
+    (ReplyTx(slot.clone()), ReplyRx(slot))
 }
 
 impl<T> ReplyTx<T> {
     pub(crate) fn send(self, value: T) {
-        let mut s = lock(&self.0.slot);
-        s.value = Some(value);
+        self.finish(Some(value));
+    }
+
+    fn finish(&self, value: Option<T>) {
+        let mut s = lock(&self.0);
+        if s.done {
+            return;
+        }
+        s.value = value;
         s.done = true;
+        let waker = s.waker.take();
         drop(s);
-        self.0.ready.notify_all();
+        waker.into_iter().for_each(Waker::wake);
     }
 }
 
 impl<T> Drop for ReplyTx<T> {
     fn drop(&mut self) {
-        let mut s = lock(&self.0.slot);
-        if !s.done {
-            s.done = true;
-            drop(s);
-            self.0.ready.notify_all();
-        }
+        self.finish(None);
     }
 }
 
-impl<T> ReplyRx<T> {
-    /// The reply; None when the writing thread stopped without one.
-    pub(crate) fn wait(self) -> Option<T> {
-        let mut s = lock(&self.0.slot);
-        while !s.done {
-            #[expect(clippy::expect_used, reason = "as in crate::queue::lock")]
-            let g = self
-                .0
-                .ready
-                .wait(s)
-                .expect("a mux lock poisoned by a panic");
-            s = g;
+impl<T> Future for ReplyRx<T> {
+    type Output = Option<T>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<T>> {
+        let mut s = lock(&self.0);
+        if s.done {
+            return Poll::Ready(s.value.take());
         }
-        s.value.take()
+        s.waker = Some(cx.waker().clone());
+        Poll::Pending
     }
 }

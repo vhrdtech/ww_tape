@@ -73,7 +73,7 @@ fn options(chunks: u64) -> ChainOptions {
 }
 
 /// The bytes of pieces 0, 1, ... of `mem`, while there are any.
-fn pieces(mem: &MemTapes) -> Vec<Vec<u8>> {
+pub(crate) fn pieces(mem: &MemTapes) -> Vec<Vec<u8>> {
     (0..)
         .map_while(|seq| mem.get(&seq).unwrap())
         .map(|t| t.to_vec().unwrap())
@@ -81,7 +81,7 @@ fn pieces(mem: &MemTapes) -> Vec<Vec<u8>> {
 }
 
 /// The (first item, count) of every chunk of track `t` ([chunk]) in `pieces`, in item order.
-fn items_of(pieces: &[Vec<u8>], t: u64) -> Vec<(u64, u64)> {
+pub(crate) fn items_of(pieces: &[Vec<u8>], t: u64) -> Vec<(u64, u64)> {
     let mut out = Vec::new();
     for p in pieces {
         let r = TapeReader::open(&p[..]).unwrap();
@@ -96,7 +96,7 @@ fn items_of(pieces: &[Vec<u8>], t: u64) -> Vec<(u64, u64)> {
 }
 
 /// The end of the items of `items`, each chunk right after the one before from item 0.
-fn contiguous(items: &[(u64, u64)]) -> u64 {
+pub(crate) fn contiguous(items: &[(u64, u64)]) -> u64 {
     let mut end = 0;
     for (first, count) in items {
         assert_eq!(*first, end, "the chunk after item {end}: {items:?}");
@@ -106,7 +106,7 @@ fn contiguous(items: &[(u64, u64)]) -> u64 {
 }
 
 /// Every piece of `pieces` checks, and they form one whole chain.
-fn whole(pieces: &[Vec<u8>]) {
+pub(crate) fn whole(pieces: &[Vec<u8>]) {
     let mut summaries = Vec::new();
     for (i, p) in pieces.iter().enumerate() {
         let r = TapeReader::open(&p[..]).unwrap();
@@ -234,13 +234,13 @@ fn eight_threads_write_one_chain() {
 
 /// A store of tapes in memory whose sinks write only while the gate is open, and fail once told to.
 #[derive(Clone, Default)]
-struct Rigged {
-    mem: MemTapes,
-    rig: Arc<Rig>,
+pub(crate) struct Rigged {
+    pub(crate) mem: MemTapes,
+    pub(crate) rig: Arc<Rig>,
 }
 
 #[derive(Default)]
-struct Rig {
+pub(crate) struct Rig {
     open: Mutex<bool>,
     opened: Condvar,
     fail: AtomicBool,
@@ -248,7 +248,7 @@ struct Rig {
 }
 
 impl Rig {
-    fn set(&self, open: bool) {
+    pub(crate) fn set(&self, open: bool) {
         *self.open.lock().unwrap() = open;
         self.opened.notify_all();
     }
@@ -267,14 +267,14 @@ impl Rig {
 }
 
 impl Rigged {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let r = Self::default();
         r.rig.set(true);
         r
     }
 }
 
-struct RiggedSink {
+pub(crate) struct RiggedSink {
     sink: MemSink<u64>,
     rig: Arc<Rig>,
 }
@@ -345,14 +345,14 @@ impl Tapes for Rigged {
 }
 
 /// Wait until `done` holds, yielding: a condition another thread makes true, never a time.
-fn until(mut done: impl FnMut() -> bool) {
+pub(crate) fn until(mut done: impl FnMut() -> bool) {
     while !done() {
         thread::yield_now();
     }
 }
 
 /// A mux on `rigged` with a queue of `queue_bytes`, its definitions placed.
-fn rigged_mux(rigged: &Rigged, queue_bytes: u64) -> TapeMux<Rigged> {
+pub(crate) fn rigged_mux(rigged: &Rigged, queue_bytes: u64) -> TapeMux<Rigged> {
     let mux = TapeMux::create(
         rigged.clone(),
         OWNER,

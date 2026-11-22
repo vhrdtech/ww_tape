@@ -258,8 +258,9 @@ impl<T: Tapes> Shared<T> {
         }
     }
 
-    /// Send control work `w` and wait for its reply from `rx`.
-    pub(crate) fn control<R>(
+    /// Send control work `w` and wait for its reply from `rx`, as a future. Dropped once sent, the work is done all
+    /// the same.
+    pub(crate) async fn control_async<R>(
         &self,
         w: Work<T>,
         rx: crate::reply::ReplyRx<R>,
@@ -267,6 +268,6 @@ impl<T: Tapes> Shared<T> {
         if self.queue.push_control(w, false).is_err() {
             return Err(self.ended());
         }
-        rx.wait().ok_or_else(|| self.ended())
+        rx.await.ok_or_else(|| self.ended())
     }
 }

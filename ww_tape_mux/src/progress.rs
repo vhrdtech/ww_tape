@@ -1,13 +1,17 @@
 //! What the writing thread has placed so far, published for readers in the writer's process.
 
 use std::collections::BTreeMap;
-use std::sync::{Arc, Condvar, Mutex};
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll, Waker};
 use std::time::{Duration, Instant};
 
 use ww_tape::chunk::ChunkHead;
 use ww_tape::{ItemNum, Tapes, TrackNum};
 
-use crate::queue::{lock, wait};
+use crate::queue::lock;
+use crate::wait::{block_on, block_on_until, register, wake_all};
 
 /// The newest chunk the writing thread placed on a track.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -39,12 +43,13 @@ pub struct Progress {
 
 struct State {
     progress: Progress,
+    /// Readers waiting for a change, by thread or by task.
+    waiting: Vec<Waker>,
 }
 
 /// The published progress and its waiters.
 pub(crate) struct Watch {
     state: Mutex<State>,
-    changed: Condvar,
 }
 
 impl Watch {
@@ -52,8 +57,8 @@ impl Watch {
         Self {
             state: Mutex::new(State {
                 progress: Progress::default(),
+                waiting: Vec::new(),
             }),
-            changed: Condvar::new(),
         }
     }
 
@@ -87,8 +92,9 @@ impl Watch {
         }
         if changed {
             p.version = p.version.saturating_add(1);
+            let waiting = core::mem::take(&mut s.waiting);
             drop(s);
-            self.changed.notify_all();
+            wake_all(waiting);
         }
     }
 
@@ -99,8 +105,9 @@ impl Watch {
             s.progress.ended = true;
             s.progress.version = s.progress.version.saturating_add(1);
         }
+        let waiting = core::mem::take(&mut s.waiting);
         drop(s);
-        self.changed.notify_all();
+        wake_all(waiting);
     }
 }
 
@@ -126,28 +133,43 @@ impl ProgressWatch {
     /// The progress once its version is past `version`, waiting as long as it takes; at once when the writing thread
     /// ended.
     pub fn wait_past(&self, version: u64) -> Progress {
-        let mut s = lock(&self.watch.state);
-        while !is_past(&s.progress, version) {
-            s = wait(&self.watch.changed, s);
-        }
-        s.progress.clone()
+        block_on(self.wait_past_async(version))
     }
 
     /// The progress once its version is past `version`, or None when `timeout` passed first.
     pub fn wait_past_for(&self, version: u64, timeout: Duration) -> Option<Progress> {
         let deadline = Instant::now().checked_add(timeout)?;
-        let mut s = lock(&self.watch.state);
-        while !is_past(&s.progress, version) {
-            let left = deadline.checked_duration_since(Instant::now())?;
-            #[expect(clippy::expect_used, reason = "as in lock")]
-            let (g, _) = self
-                .watch
-                .changed
-                .wait_timeout(s, left)
-                .expect("a mux lock poisoned by a panic");
-            s = g;
+        block_on_until(self.wait_past_async(version), deadline)
+    }
+
+    /// The progress once its version is past `version`, as a future: [Self::wait_past] for a task.
+    ///
+    /// Woken from the writing thread; it needs no runtime. Dropped before, it takes nothing: a timeout of the
+    /// caller's runtime bounds the wait.
+    pub fn wait_past_async(&self, version: u64) -> WaitPast<'_> {
+        WaitPast {
+            watch: &self.watch,
+            version,
         }
-        Some(s.progress.clone())
+    }
+}
+
+/// A wait for progress past a version ([ProgressWatch::wait_past_async]).
+pub struct WaitPast<'a> {
+    watch: &'a Watch,
+    version: u64,
+}
+
+impl Future for WaitPast<'_> {
+    type Output = Progress;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Progress> {
+        let mut s = lock(&self.watch.state);
+        if is_past(&s.progress, self.version) {
+            return Poll::Ready(s.progress.clone());
+        }
+        register(&mut s.waiting, cx.waker());
+        Poll::Pending
     }
 }
 

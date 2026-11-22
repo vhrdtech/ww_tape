@@ -173,7 +173,7 @@ Writing pieces and chains, resuming them, sinks in memory, in the crate `ww_tape
   - The writing thread places units in arrival order and does the puts, cuts, sync and checkpoints by time, and the close.
   - A writer's refusal reaches the handle's next call; a failed write reaches every handle. A close refuses later calls with `Closed` and doesn't wait for handles. A mux dropped unclosed leaves its piece unclosed; `TapeMux::resume` and `ww_tape_fs::mux::resume` go on.
   - `PieceChain::relay_block` and `adopt_block` pass a producer's blocks on into a chain.
-  - Open: async sends.
+  - Async sends: WRITE-14.
   - Tests `mux.rs`, `item_gap.rs`.
 - ✅ **WRITE-13 Typed track handles encode on the producer's thread**
   - `EventsHandle` takes items of one events track: instants, spans, flags, relation values, payloads. `SeriesHandle` takes samples on a grid, with `regrid`.
@@ -186,6 +186,16 @@ Writing pieces and chains, resuming them, sinks in memory, in the crate `ww_tape
   - Missing: a batch push. One events producer reaches 21.6 M events/s, one thread writing directly 52.8 (bench `handles`).
   - Tests `mux_handles.rs`, `split_tests.rs`, `placed.rs`.
   - Bench `handles` (`just bench-handles`): direct writer against the mux by 1, 4 and 16 tracks.
+- ✅ **WRITE-14 Async twins of the mux's and the followers' waits**
+  - Every call that waits has an `_async` twin. Handles: send, put, push, regrid, seal, finish, flush, sync.
+  - The mux: definitions, making handles, cut, flush, sync, close. Readers: `ProgressWatch::wait_past_async`, the followers' `wait_next_async`.
+  - The queue's senders wait by waker, in arrival order, threads and tasks alike. A blocking call parks its thread on the same future.
+  - The writing thread stays an OS thread.
+  - No async runtime in any crate's dependencies: the writing thread, or a follower's own waiting thread on inotify, wakes the task.
+  - Cancel-safe: a send dropped while it waits leaves the line. A typed handle keeps the chunks a dropped push sealed, and sends them first on its next call.
+  - A timeout of the caller's runtime bounds a wait.
+  - Missing: a typed handle's drop still sends blocking; async code ends a handle with `finish_async`.
+  - Tests `mux_async.rs`: tokio's two schedulers and smol, without timer or I/O driver, woken from another thread.
 
 ## Reader (`READ`)
 

@@ -23,6 +23,8 @@ benchmarks, golden files and book pages.
 - The mux builds summary trees per track and piece and seals a quiet handle's chunk by its latency (WRITE-13).
 - `ChunkSender` hashes the chunk payload on the producer's thread (WRITE-13).
 - `just bench-handles` measures events and series handles on the mux against one thread writing directly, by tracks (WRITE-13).
+- Every waiting call of the mux, its handles and `ProgressWatch` has an `_async` twin needing no runtime (WRITE-14).
+- `ChainFollower` and `TrackFollower` gain `wait_next_async`, woken by a thread of the follower's own (WRITE-14).
 
 ## [0.3.0] - 2026-11-21
 

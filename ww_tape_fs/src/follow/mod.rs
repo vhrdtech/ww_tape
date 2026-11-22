@@ -13,7 +13,9 @@
 //! blocks carry ([ChainFollower::definitions]), so a reader decodes what it hands out ([TrackFollower]).
 //!
 //! It wakes on inotify where there is one (Linux), else it looks again every [FollowOptions::poll]; the poll also
-//! bounds a wait under inotify, for file systems that don't report changes.
+//! bounds a wait under inotify, for file systems that don't report changes. A task waits as a thread does, in
+//! [ChainFollower::wait_next_async] and [TrackFollower::wait_next_async]: a thread of the follower's own does the
+//! waiting and wakes it, so they need no async runtime.
 //!
 //! Several chains, one per process, merge by time in a [TimeMerge].
 
@@ -199,6 +201,23 @@ impl ChainFollower {
                 return Ok(None);
             }
             self.wake.wait(self.options.poll);
+        }
+    }
+
+    /// [Self::wait_next] as a future, for a task.
+    ///
+    /// A thread of the follower's own waits for the files to change and wakes the task: no runtime is needed, and
+    /// none is blocked. Dropped while it waits, it takes nothing: a timeout of the caller's runtime bounds the wait,
+    /// as [Self::wait_next_for] does for a thread.
+    pub async fn wait_next_async(&mut self) -> Result<Option<Followed>, FollowError> {
+        loop {
+            if let Some(f) = self.try_next()? {
+                return Ok(Some(f));
+            }
+            if self.closed {
+                return Ok(None);
+            }
+            self.wake.changed(self.options.poll).await?;
         }
     }
 

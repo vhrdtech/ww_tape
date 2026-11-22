@@ -1,5 +1,6 @@
 //! The handles producers send through: a chunk sender, records, relayed blocks and state puts.
 
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 use ww_tape::chunk::ChunkHead;
@@ -9,6 +10,7 @@ use crate::error::{CallError, MuxError};
 use crate::queue::Pushed;
 use crate::reply::reply;
 use crate::shared::{BlockHow, RelayMode, Shared, Slot, Work};
+use crate::wait::block_on;
 
 /// What a handle does when the queue has no room for a unit.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
@@ -62,46 +64,111 @@ impl<T: Tapes> Sender<T> {
     }
 
     pub(crate) fn send(&self, work: Work<T>, bytes: u64) -> Result<Sent, MuxError<T::Error>> {
+        block_on(self.send_async(work, bytes))
+    }
+
+    pub(crate) async fn send_async(
+        &self,
+        work: Work<T>,
+        bytes: u64,
+    ) -> Result<Sent, MuxError<T::Error>> {
+        let mut slot = Some(work);
+        self.send_slot(&mut slot, bytes).await
+    }
+
+    /// Send the unit in `slot`, of `bytes`, as the handle's pressure says. Dropped while it waits for room, the unit
+    /// stays in `slot`.
+    pub(crate) async fn send_slot(
+        &self,
+        slot: &mut Option<Work<T>>,
+        bytes: u64,
+    ) -> Result<Sent, MuxError<T::Error>> {
         self.ready()?;
-        match self
-            .shared
-            .queue
-            .push(work, bytes, self.pressure == Pressure::Wait)
-        {
+        let pushed = match self.pressure {
+            Pressure::Wait => self.shared.queue.push_wait(slot, bytes).await,
+            Pressure::Fail | Pressure::Drop => self.shared.queue.try_push(slot, bytes),
+        };
+        match pushed {
             Pushed::Queued => Ok(Sent::Queued),
-            Pushed::Full(work) if self.pressure == Pressure::Drop => {
+            Pushed::Full if self.pressure == Pressure::Drop => {
                 self.shared.counters.drop_on(self.track);
-                self.recycle(work);
+                self.recycle(slot.take());
                 Ok(Sent::Dropped)
             }
-            Pushed::Full(work) => match work.into_unit() {
+            Pushed::Full => match slot.take().and_then(Work::into_unit) {
                 Some(unit) => Err(MuxError::Full(unit)),
                 None => Err(MuxError::Closed),
             },
-            Pushed::Closed(work) => {
-                self.recycle(work);
+            Pushed::Closed => {
+                self.recycle(slot.take());
                 Err(self.shared.ended())
             }
         }
     }
 
     /// Keep the buffers of a unit not sent.
-    fn recycle(&self, work: Work<T>) {
+    fn recycle(&self, work: Option<Work<T>>) {
         match work {
-            Work::Chunk { columns, .. } => columns
+            Some(Work::Chunk { columns, .. }) => columns
                 .into_iter()
                 .for_each(|(_, b)| self.slot.give_back(b)),
-            Work::Block { block, .. } => self.slot.give_back(block),
-            Work::Put { item, .. } => self.slot.give_back(item),
+            Some(Work::Block { block, .. }) => self.slot.give_back(block),
+            Some(Work::Put { item, .. }) => self.slot.give_back(item),
             _ => {}
         }
     }
 
     /// Wait until everything sent before is placed; with `sync`, durable. Then a refusal of one of them.
     pub(crate) fn flush(&self, sync: bool) -> Result<(), MuxError<T::Error>> {
+        block_on(self.flush_async(sync))
+    }
+
+    pub(crate) async fn flush_async(&self, sync: bool) -> Result<(), MuxError<T::Error>> {
         let (tx, rx) = reply();
-        self.shared.control(Work::Flush { sync, reply: tx }, rx)??;
+        self.shared
+            .control_async(Work::Flush { sync, reply: tx }, rx)
+            .await??;
         self.ready()
+    }
+}
+
+/// Units a typed handle sealed and has yet to queue, oldest first.
+///
+/// An async call dropped while it waits for room leaves its units here, and the handle's next call sends them
+/// before its own, so no item is lost and the track's chunks stay in order.
+pub(crate) struct Backlog<T: Tapes>(VecDeque<(Option<Work<T>>, u64)>);
+
+impl<T: Tapes> Backlog<T> {
+    pub(crate) fn new() -> Self {
+        Self(VecDeque::new())
+    }
+
+    pub(crate) fn push(&mut self, (work, bytes): (Work<T>, u64)) {
+        self.0.push_back((Some(work), bytes));
+    }
+
+    /// Send every unit through `s`: what became of the last one. A unit the call ends before stays.
+    pub(crate) fn send(&mut self, s: &Sender<T>) -> Result<Option<Sent>, MuxError<T::Error>> {
+        if self.0.is_empty() {
+            return Ok(None);
+        }
+        block_on(self.send_async(s))
+    }
+
+    pub(crate) async fn send_async(
+        &mut self,
+        s: &Sender<T>,
+    ) -> Result<Option<Sent>, MuxError<T::Error>> {
+        let mut sent = None;
+        while let Some((slot, bytes)) = self.0.front_mut() {
+            let r = s.send_slot(slot, *bytes).await;
+            // a unit refused by the handle's earlier refusal stays for the next call; any other left its slot
+            if slot.is_none() {
+                self.0.pop_front();
+            }
+            sent = Some(r?);
+        }
+        Ok(sent)
     }
 }
 
@@ -127,6 +194,17 @@ macro_rules! common {
             /// Return once everything this handle sent before is durable; a refusal of one of them.
             pub fn sync(&self) -> Result<(), MuxError<T::Error>> {
                 self.$s.flush(true)
+            }
+
+            /// [Self::flush] as a future, woken by the writing thread. Dropped before, the flush is done all the
+            /// same.
+            pub async fn flush_async(&self) -> Result<(), MuxError<T::Error>> {
+                self.$s.flush_async(false).await
+            }
+
+            /// [Self::sync] as a future; see [Self::flush_async].
+            pub async fn sync_async(&self) -> Result<(), MuxError<T::Error>> {
+                self.$s.flush_async(true).await
             }
         }
     };
@@ -183,6 +261,26 @@ impl<T: Tapes> ChunkSender<T> {
         head: ChunkHead,
         columns: Vec<(ColumnSpec, Vec<u8>)>,
     ) -> Result<Sent, MuxError<T::Error>> {
+        let (work, bytes) = self.unit(head, columns)?;
+        self.s.send(work, bytes)
+    }
+
+    /// [Self::send] as a future, waiting for room by waker. Dropped while it waits, the chunk is not sent.
+    pub async fn send_async(
+        &self,
+        head: ChunkHead,
+        columns: Vec<(ColumnSpec, Vec<u8>)>,
+    ) -> Result<Sent, MuxError<T::Error>> {
+        let (work, bytes) = self.unit(head, columns)?;
+        self.s.send_async(work, bytes).await
+    }
+
+    /// The unit of a chunk checked as [Self::send] says, its payload hashed.
+    fn unit(
+        &self,
+        head: ChunkHead,
+        columns: Vec<(ColumnSpec, Vec<u8>)>,
+    ) -> Result<(Work<T>, u64), MuxError<T::Error>> {
         if head.track_number != self.track {
             return Err(CallError::WrongTrack {
                 sender: self.track,
@@ -207,7 +305,7 @@ impl<T: Tapes> ChunkSender<T> {
             hash,
             summary: None,
         };
-        self.s.send(work, u64::try_from(bytes).unwrap_or(u64::MAX))
+        Ok((work, u64::try_from(bytes).unwrap_or(u64::MAX)))
     }
 }
 
@@ -231,6 +329,17 @@ impl<T: Tapes> RecordsHandle<T> {
 
     /// Send a records block. One that doesn't read, or of another kind, is refused before it is sent.
     pub fn send(&self, block: Vec<u8>) -> Result<Sent, MuxError<T::Error>> {
+        let (work, bytes) = self.unit(block)?;
+        self.s.send(work, bytes)
+    }
+
+    /// [Self::send] as a future, waiting for room by waker. Dropped while it waits, the block is not sent.
+    pub async fn send_async(&self, block: Vec<u8>) -> Result<Sent, MuxError<T::Error>> {
+        let (work, bytes) = self.unit(block)?;
+        self.s.send_async(work, bytes).await
+    }
+
+    fn unit(&self, block: Vec<u8>) -> Result<(Work<T>, u64), MuxError<T::Error>> {
         let kind = Block::read(&block).map_err(CallError::Block)?.kind;
         if kind != BlockKind::Records {
             return Err(CallError::BlockKind(kind).into());
@@ -241,7 +350,7 @@ impl<T: Tapes> RecordsHandle<T> {
             how: BlockHow::Records,
             block,
         };
-        self.s.send(work, bytes)
+        Ok((work, bytes))
     }
 }
 
@@ -264,6 +373,17 @@ impl<T: Tapes> RelayHandle<T> {
 
     /// Send a block as its producer made it. One that doesn't read is refused before it is sent.
     pub fn send(&self, block: Vec<u8>) -> Result<Sent, MuxError<T::Error>> {
+        let (work, bytes) = self.unit(block)?;
+        self.s.send(work, bytes)
+    }
+
+    /// [Self::send] as a future, waiting for room by waker. Dropped while it waits, the block is not sent.
+    pub async fn send_async(&self, block: Vec<u8>) -> Result<Sent, MuxError<T::Error>> {
+        let (work, bytes) = self.unit(block)?;
+        self.s.send_async(work, bytes).await
+    }
+
+    fn unit(&self, block: Vec<u8>) -> Result<(Work<T>, u64), MuxError<T::Error>> {
         Block::read(&block).map_err(CallError::Block)?;
         let bytes = block_bytes(&block);
         let work = Work::Block {
@@ -271,7 +391,7 @@ impl<T: Tapes> RelayHandle<T> {
             how: BlockHow::Relay(self.mode),
             block,
         };
-        self.s.send(work, bytes)
+        Ok((work, bytes))
     }
 }
 
@@ -301,6 +421,17 @@ impl<T: Tapes> StateHandle<T> {
 
     /// Put `item` at `ticks` of the track's clock.
     pub fn put(&self, ticks: i64, item: &[u8]) -> Result<Sent, MuxError<T::Error>> {
+        let (work, bytes) = self.unit(ticks, item);
+        self.s.send(work, bytes)
+    }
+
+    /// [Self::put] as a future, waiting for room by waker. Dropped while it waits, the item is not put.
+    pub async fn put_async(&self, ticks: i64, item: &[u8]) -> Result<Sent, MuxError<T::Error>> {
+        let (work, bytes) = self.unit(ticks, item);
+        self.s.send_async(work, bytes).await
+    }
+
+    fn unit(&self, ticks: i64, item: &[u8]) -> (Work<T>, u64) {
         let mut buf = self.s.slot.buffer();
         buf.extend_from_slice(item);
         let bytes = block_bytes(&buf).saturating_add(PUT_OVERHEAD_BYTES);
@@ -310,7 +441,7 @@ impl<T: Tapes> StateHandle<T> {
             ticks,
             item: buf,
         };
-        self.s.send(work, bytes)
+        (work, bytes)
     }
 }
 
