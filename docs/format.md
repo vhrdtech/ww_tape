@@ -1958,7 +1958,46 @@ Some numbers are reserved: later features then need no format change. Readers of
 | piece head byte 146 `integrity`, header flag bit 3 `FLAG_PAYLOAD_UNCHECKED`, index entry flag bit 2 `ENTRY_UNHASHED` | integrity levels below `Full`: a piece of level `CrcOnly` computes no hashes and marks each index entry `ENTRY_UNHASHED`; a piece of level `None` also skips payload CRCs (chunk head CRCs and structure blocks stay checked) and marks each chunk `FLAG_PAYLOAD_UNCHECKED`. Written as `Full` and 0; a reader refuses `CrcOnly` and `None` as levels it doesn't handle (`IndexError::UnhandledIntegrity`), another byte as `IndexError::UnknownIntegrity`, the bits as `BlockError::PayloadUnchecked` and `IndexError::Unhashed`, never as damage |
 | summary head bytes 54..56 | the first channel or leaf of the block, 0 today |
 
-## 16 Caps on what a reader takes {#caps-on-what-a-reader-takes}
+## 16 Policies and their defaults {#policies-and-their-defaults}
+
+A policy is a setting of the writer or the reader. It changes where blocks fall or what a reader spends, never what a
+block means. A reader needs none of the writer's policies to read a tape. Track 0's state policy is the exception: the
+layout definition states it.
+
+The writer's policies (`WriterOptions`, `PieceChain`'s `ChainOptions`):
+
+| Policy | Default | Sets |
+|---|---|---|
+| `WriterOptions::sync` | `SyncPolicy::Interval`, 1 s (`DEFAULT_SYNC_INTERVAL`) | when the sink syncs: only at the end, after every N blocks, or once the last sync is an interval ago |
+| `WriterOptions::layout` | `Layout::UNALIGNED` | how blocks are placed, stated in the layout definition ([Blank space and gaps](#blank-space-and-gaps)) |
+| `IndexPolicy::bytes` | 4 MiB (`DEFAULT_CHECKPOINT_BYTES`) | the bytes of blocks after which the next checkpoint falls; 0: never |
+| `IndexPolicy::interval` | None | a checkpoint also once the one before is this long ago; the bytes then depend on the clock |
+| `IndexPolicy::state_entries_max` | 1 Mi entries (`STATE_ENTRIES_MAX`) | the state entries one piece lists ([State entries](#state-entries)) |
+| `NearPolicy::copy_spacing` | 1 MiB (`COPY_SPACING`) | the bytes from an item's newest record to where a use writes a copy |
+| `NearPolicy::memory_max` | 262,144 slots (`MEMORY_MAX`) | the slots whose newest record the writer remembers |
+| `NearPolicy::kept_bytes_max` | 64 MiB (`KEPT_BYTES_MAX`) | the bytes of newest state items the writer keeps for a cut to carry |
+| `CutPolicy::bytes`, `chunks`, `interval` | none: 0 or None turns each off | when a chain cuts to a new piece: by size, chunk count or age |
+
+A track's state policy (`StatePolicy`) is part of its definition, and track 0's is in the layout:
+
+| Field | Default (`StatePolicy::DEFAULT`) | Sets |
+|---|---|---|
+| `near` | 32 MiB | how far behind a use an item lies at most, in the same piece |
+| `copies` | 1 | the records an item gets after its first one in a piece |
+
+The reader's policies (`OpenOptions`):
+
+| Policy | Default | Sets |
+|---|---|---|
+| `medium` | `Medium::File` | read a file from its end, or walk a raw medium forward ([Media](#media)) |
+| `start`, `layout` | 0, None | where a raw medium's walk starts, and its gap rules before the definitions state them |
+| `scan_back_max` | 256 MiB (`DEFAULT_SCAN_BACK_MAX`) | the bytes looked through backwards from the end of an unclosed piece for its newest checkpoint |
+| `state_read_max` | 1 GiB (`STATE_READ_MAX`) | the bytes one state lookup reads, coded and decoded ([State lookups](#state-lookups)) |
+| `state_cache_max` | 2 Mi entries (`STATE_CACHE_MAX`) | the state entries the reader keeps sorted over all its pieces |
+
+Past `scan_back_max`, a reader reads the unclosed piece from its start instead.
+
+## 17 Caps on what a reader takes {#caps-on-what-a-reader-takes}
 
 Every count, length, offset or layout value a reader takes from the bytes is bounded before it sizes an allocation, a
 slice or a loop. The bound is a length already in hand (the block's, a table's) or one of these caps.
