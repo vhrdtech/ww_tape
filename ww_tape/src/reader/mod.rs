@@ -55,8 +55,14 @@ pub trait ByteSource {
     /// Length of the bytes. (Not `len`, so it never shadows a slice's own.)
     fn size(&self) -> Result<u64, Self::Error>;
 
-    /// Fill `buf` from `offset`; the range is within [Self::size] (the reader checks).
+    /// Fill `buf` from `offset`; the range is within [Self::start] and [Self::size] (the reader checks).
     fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), Self::Error>;
+
+    /// Offset of the first byte there is: 0, or where bytes before it were freed (a memory tape whose oldest pieces
+    /// were dropped). A reader finds no piece before it.
+    fn start(&self) -> Result<u64, Self::Error> {
+        Ok(0)
+    }
 }
 
 /// A read past the end of a byte slice.
@@ -94,6 +100,10 @@ impl<S: ByteSource + ?Sized> ByteSource for &S {
 
     fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), S::Error> {
         (**self).read_at(offset, buf)
+    }
+
+    fn start(&self) -> Result<u64, S::Error> {
+        (**self).start()
     }
 }
 
@@ -527,6 +537,8 @@ const WINDOW: usize = 64 * 1024;
 pub struct TapeReader<S> {
     src: S,
     len: u64,
+    /// [ByteSource::start]: no piece is looked for before it
+    front: u64,
     pieces: Vec<PieceInfo>,
     /// [OpenOptions::state_read_max]
     state_read_max: u64,
@@ -555,9 +567,11 @@ impl<S: ByteSource> TapeReader<S> {
     /// When [OpenOptions::layout] is not [valid](Layout::is_valid).
     pub fn open_with(src: S, options: OpenOptions) -> R<Self, S> {
         let len = src.size().map_err(ReadError::Source)?;
+        let front = src.start().map_err(ReadError::Source)?.min(len);
         let mut r = Self {
             src,
             len,
+            front,
             pieces: Vec::new(),
             state_read_max: options.state_read_max.get(),
             states: state::StateCache::new(crate::cap_usize(options.state_cache_max.get())),
@@ -567,7 +581,7 @@ impl<S: ByteSource> TapeReader<S> {
             if let Some(l) = &options.layout {
                 walk.set_layout(l);
             }
-            let start = options.start.min(len);
+            let start = options.start.clamp(front, len);
             r.pieces = r.scan_with(
                 start,
                 len,
@@ -578,7 +592,7 @@ impl<S: ByteSource> TapeReader<S> {
         }
         let mut hi = len;
         let mut rev: Vec<PieceInfo> = Vec::new();
-        while hi > 0 {
+        while hi > front {
             if let Some(p) = r.by_tail(hi)?
                 && p.start < hi
             {
@@ -773,7 +787,9 @@ impl<S: ByteSource> TapeReader<S> {
     /// The pieces of the unclosed stretch ending at `hi`: from the newest index block in reach, else scanned from
     /// the start.
     fn recover(&self, hi: u64, options: OpenOptions) -> R<Vec<PieceInfo>, S> {
-        let lo = hi.saturating_sub(options.scan_back_max.get());
+        let lo = hi
+            .saturating_sub(options.scan_back_max.get())
+            .max(self.front);
         let mut below = hi;
         while let Some((at, ob, end)) = self.newest_index(hi, lo, below)? {
             let block = ob.block();
@@ -782,11 +798,20 @@ impl<S: ByteSource> TapeReader<S> {
                 continue;
             };
             return match at.checked_sub(ix.self_offset()) {
-                Some(start) => self.by_checkpoint(hi, start, at, end, &ix),
-                None => self.scan(0, hi, PieceInfo::new(0, Found::Scan { scanned: 0 })),
+                Some(start) if start >= self.front => self.by_checkpoint(hi, start, at, end, &ix),
+                _ => self.scan_all(hi),
             };
         }
-        self.scan(0, hi, PieceInfo::new(0, Found::Scan { scanned: 0 }))
+        self.scan_all(hi)
+    }
+
+    /// Every piece from [Self::front] to `hi`, found by a scan.
+    fn scan_all(&self, hi: u64) -> R<Vec<PieceInfo>, S> {
+        self.scan(
+            self.front,
+            hi,
+            PieceInfo::new(self.front, Found::Scan { scanned: 0 }),
+        )
     }
 
     /// The piece at `start` whose newest checkpoint `ix` is at `at` (ending at `end`), the stretch after it to `hi`

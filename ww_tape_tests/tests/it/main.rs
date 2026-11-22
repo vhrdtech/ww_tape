@@ -31,6 +31,7 @@ mod iq8;
 mod item_gap;
 mod lock;
 mod media;
+mod mem_tapes;
 mod mux;
 mod mux_async;
 mod mux_handles;

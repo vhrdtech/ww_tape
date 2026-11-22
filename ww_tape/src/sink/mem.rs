@@ -5,8 +5,9 @@ use std::marker::PhantomData;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
+use super::segments::{SegmentError, Segments};
 use super::{BaseRefused, TapeSink, Tapes, check_base};
-use crate::reader::{ByteSource, OutOfRange, wide};
+use crate::reader::{ByteSource, OutOfRange};
 
 /// Why a [MemSink], [MemTape] or [MemTapes] failed or refused; a refusal of [MemTapes] names the tape by its key
 /// `K`.
@@ -23,6 +24,8 @@ pub enum MemError<K = u64> {
     Poisoned,
     /// A read past the end of the bytes.
     OutOfRange,
+    /// A read or truncate before `front`, the first byte kept: [MemTapes::drop_front] freed the bytes before it.
+    Dropped { front: u64 },
     /// A piece start refused: past the end of the bytes, or any but 0 on a sink of one piece.
     Base(BaseRefused),
 }
@@ -37,6 +40,9 @@ impl<K: core::fmt::Debug> core::fmt::Display for MemError<K> {
             }
             Self::Poisoned => f.write_str("a writer of the memory tape panicked"),
             Self::OutOfRange => f.write_str("a read past the end of the memory tape"),
+            Self::Dropped { front } => {
+                write!(f, "the memory tape keeps its bytes from {front} on only")
+            }
             Self::Base(refused) => write!(f, "a piece can't start there: {refused}"),
         }
     }
@@ -50,6 +56,15 @@ impl<K> From<OutOfRange> for MemError<K> {
     }
 }
 
+impl<K> From<SegmentError> for MemError<K> {
+    fn from(e: SegmentError) -> Self {
+        match e {
+            SegmentError::OutOfRange => Self::OutOfRange,
+            SegmentError::Dropped { front } => Self::Dropped { front },
+        }
+    }
+}
+
 impl<K> From<BaseRefused> for MemError<K> {
     fn from(refused: BaseRefused) -> Self {
         Self::Base(refused)
@@ -58,6 +73,10 @@ impl<K> From<BaseRefused> for MemError<K> {
 
 /// Bytes in memory that a [MemSink] writes and readers read at the same time: a [ByteSource] whose size grows. `K`
 /// is the key type of the [MemTapes] it is kept in, named by its errors.
+///
+/// The bytes are kept in segments, one per piece: a new piece seals the segment before it, and appending copies
+/// nothing written before. [MemTapes::drop_front] frees the oldest pieces of a tape of several; offsets stay as
+/// they were, and the tape's [ByteSource::start] moves to the first byte kept.
 pub struct MemTape<K = u64>(Arc<MemBytes>, PhantomData<fn() -> K>);
 
 impl<K> Clone for MemTape<K> {
@@ -80,16 +99,29 @@ impl<K> core::fmt::Debug for MemTape<K> {
 
 #[derive(Debug, Default)]
 struct MemBytes {
-    bytes: RwLock<Vec<u8>>,
+    bytes: RwLock<Segments>,
     closed: AtomicBool,
     /// A [MemSink] writes the bytes
     held: AtomicBool,
 }
 
 impl<K> MemTape<K> {
-    /// A copy of the bytes.
+    /// A copy of the bytes kept, from [ByteSource::start] to the end.
     pub fn to_vec(&self) -> Result<Vec<u8>, MemError<K>> {
-        Ok(self.read()?.clone())
+        let segments = self.read()?;
+        #[expect(
+            clippy::map_err_ignore,
+            reason = "a TryFromIntError says only that the number is out of range, which this error says"
+        )]
+        let len = usize::try_from(segments.held()).map_err(|_| MemError::OutOfRange)?;
+        let mut out = vec![0; len];
+        segments.read_at(segments.front(), &mut out)?;
+        Ok(out)
+    }
+
+    /// Bytes held in memory: from [ByteSource::start] to the end.
+    pub fn held(&self) -> Result<u64, MemError<K>> {
+        Ok(self.read()?.held())
     }
 
     /// Whether the sink writing these bytes closed.
@@ -110,11 +142,11 @@ impl<K> MemTape<K> {
         })
     }
 
-    fn read(&self) -> Result<std::sync::RwLockReadGuard<'_, Vec<u8>>, MemError<K>> {
+    fn read(&self) -> Result<std::sync::RwLockReadGuard<'_, Segments>, MemError<K>> {
         self.0.bytes.read().map_err(|_poisoned| MemError::Poisoned)
     }
 
-    fn write(&self) -> Result<std::sync::RwLockWriteGuard<'_, Vec<u8>>, MemError<K>> {
+    fn write(&self) -> Result<std::sync::RwLockWriteGuard<'_, Segments>, MemError<K>> {
         self.0.bytes.write().map_err(|_poisoned| MemError::Poisoned)
     }
 }
@@ -123,11 +155,15 @@ impl<K: core::fmt::Debug + 'static> ByteSource for MemTape<K> {
     type Error = MemError<K>;
 
     fn size(&self) -> Result<u64, MemError<K>> {
-        Ok(wide(self.read()?.len()))
+        Ok(self.read()?.len())
+    }
+
+    fn start(&self) -> Result<u64, MemError<K>> {
+        Ok(self.read()?.front())
     }
 
     fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), MemError<K>> {
-        Ok(self.read()?.as_slice().read_at(offset, buf)?)
+        Ok(self.read()?.read_at(offset, buf)?)
     }
 }
 
@@ -177,7 +213,7 @@ impl<K: core::fmt::Debug + 'static> TapeSink for MemSink<K> {
     type Error = MemError<K>;
 
     fn write_all(&mut self, bytes: &[u8]) -> Result<(), MemError<K>> {
-        self.tape.write()?.extend_from_slice(bytes);
+        self.tape.write()?.append(bytes);
         Ok(())
     }
 
@@ -186,6 +222,7 @@ impl<K: core::fmt::Debug + 'static> TapeSink for MemSink<K> {
     }
 
     fn close(&mut self) -> Result<(), MemError<K>> {
+        self.tape.write()?.seal();
         self.tape.0.closed.store(true, Ordering::Release);
         Ok(())
     }
@@ -208,24 +245,23 @@ impl<K: core::fmt::Debug + 'static> TapeSink for MemSink<K> {
     }
 
     fn rebase(&mut self, base: u64) -> Result<(), MemError<K>> {
-        self.base = check_base(base, ByteSource::size(&self.tape)?, self.whole)?;
+        let mut segments = self.tape.write()?;
+        let base = check_base(base, segments.len(), self.whole)?;
+        segments.rebase(base)?;
+        self.base = base;
         Ok(())
     }
 
     fn reserve(&mut self, bytes: u64) {
-        if let (Ok(more), Ok(mut vec)) = (usize::try_from(bytes), self.tape.write()) {
+        if let (Ok(more), Ok(mut segments)) = (usize::try_from(bytes), self.tape.write()) {
             // one allocation up front: growing by doubling copies the piece under the write lock, and `read_at` waits
-            _ = vec.try_reserve_exact(more);
+            segments.reserve(more);
         }
     }
 
     fn truncate(&mut self, len: u64) -> Result<(), MemError<K>> {
         let len = self.base.checked_add(len).ok_or(MemError::OutOfRange)?;
-        let mut bytes = self.tape.write()?;
-        if let Ok(len) = usize::try_from(len) {
-            bytes.truncate(len);
-        }
-        Ok(())
+        Ok(self.tape.write()?.truncate(len)?)
     }
 }
 
@@ -274,6 +310,22 @@ impl<K: Ord + Clone> MemTapes<K> {
             Some(t) if !t.is_closed() => Err(MemError::Unclosed(key.clone())),
             Some(_) => Ok(map.remove(key).is_some()),
         }
+    }
+
+    /// Free the oldest pieces of the tape under `key` that end at or before `to`, an offset in the tape: the first
+    /// byte it keeps ([ByteSource::start]), None when there is no tape under `key`.
+    ///
+    /// Meant for a tape of several pieces ([Tapes::create_whole]) whose oldest pieces are no longer needed, while a
+    /// writer goes on in it or after it closed. Pieces are dropped whole, and the piece being written never: a `to`
+    /// inside a piece keeps that piece. Offsets don't move: a [PieceInfo](crate::PieceInfo) a reader holds stays
+    /// valid for the pieces kept, a read of a dropped one fails with [MemError::Dropped], and a
+    /// [TapeReader](crate::TapeReader) opened afterwards finds the pieces from the new start on. As for
+    /// [Self::remove], the chain then has a head cut and is not resumed.
+    pub fn drop_front(&self, key: &K, to: u64) -> Result<Option<u64>, MemError<K>> {
+        let Some(tape) = self.get(key)? else {
+            return Ok(None);
+        };
+        Ok(Some(tape.write()?.drop_front(to)))
     }
 
     /// Every key with bytes, in order.

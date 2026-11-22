@@ -22,6 +22,8 @@ use crate::writer::WriteError;
 #[cfg(feature = "std")]
 mod mem;
 #[cfg(feature = "std")]
+mod segments;
+#[cfg(feature = "std")]
 pub use mem::{MemError, MemSink, MemTape, MemTapes};
 
 /// Where a [TapeWriter](crate::TapeWriter) appends its bytes.
