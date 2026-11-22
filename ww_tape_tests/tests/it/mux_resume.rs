@@ -197,7 +197,8 @@ fn last_events_end(piece: &[u8]) -> usize {
         .unwrap()
 }
 
-/// Crash `run` at many bytes: at every block boundary of every piece and at bytes in between. Each crash keeps the
+/// Crash `run` at many bytes: at every block boundary of every piece and at bytes in between. The run is a full
+/// piece ended by a cut and a short last piece, so each crash gives again at most a piece. Each crash keeps the
 /// pieces before and the torn piece up to the crash; a mux resumes the chain, is given every item after the last
 /// chunk kept of each track, and closes. The chain holds the bytes of the run without the crash.
 ///
@@ -205,8 +206,8 @@ fn last_events_end(piece: &[u8]) -> usize {
 /// is dropped by it, as the mux built none.
 fn crash_anywhere(run: Run, extra: usize) {
     let want = whole_run(run);
-    assert!(want.len() > 2, "the run is cut into pieces: {}", want.len());
-    let (events_mid, series_mid) = summaries_mid_piece(&want);
+    assert_eq!(want.len(), 2, "a piece ended by a cut and the last");
+    let (events_mid, series_mid) = summaries_mid_piece(&want[..1]);
     assert!(
         (events_mid > 0) == run.event_tree && series_mid > 0,
         "the trees write blocks mid-piece: {events_mid} and {series_mid}"
@@ -242,14 +243,16 @@ fn crash_anywhere(run: Run, extra: usize) {
             crashes += 1;
         }
     }
-    assert!(crashes > 100, "{crashes} crashes");
+    // every block boundary of the full piece and the last, and bytes in between
+    assert!(crashes > 50, "{crashes} crashes");
 }
 
-/// The runs of the tests: an events tree that fills a block mid-piece takes 2^11 items a node, so many items.
+/// The runs of the tests: an events tree that fills a block mid-piece takes 2^11 items a node, so many items. Six
+/// steps of 8 chunks fill the first piece; the seventh is the second, after the cut.
 fn run(aligned: bool) -> Run {
     Run {
         aligned,
-        steps: 18,
+        steps: 7,
         events: 65_536,
         samples: 4096,
         chunk_items: 16_384,
