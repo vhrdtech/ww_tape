@@ -128,6 +128,9 @@ pub struct Machine {
     pub arch: String,
     /// The vector and CRC extensions the kernels of ww_tape may pick.
     pub extensions: Vec<String>,
+    /// Bytes of memory the system has; None where it doesn't say, as in reports written before the field.
+    #[serde(default)]
+    pub memory_bytes: Option<u64>,
 }
 
 impl core::fmt::Display for Machine {
@@ -145,7 +148,11 @@ impl core::fmt::Display for Machine {
             self.cpu,
             self.arch,
             self.extensions.join(", ")
-        )
+        )?;
+        match self.memory_bytes {
+            Some(b) => write!(f, " and {} GiB of memory", b >> 30),
+            None => Ok(()),
+        }
     }
 }
 
@@ -354,6 +361,7 @@ mod tests {
                 cpus: 2,
                 arch: "x86_64".to_owned(),
                 extensions: vec!["avx2".to_owned()],
+                memory_bytes: Some(8 << 30),
             },
             tables: vec![t],
         };

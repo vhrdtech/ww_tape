@@ -423,14 +423,17 @@ fn machine_of(all: &[&Report]) -> anyhow::Result<String> {
         .build
         .jobs
         .map_or_else(|| "the default jobs".to_owned(), |j| format!("{j} jobs"));
+    let memory = m
+        .memory_bytes
+        .map_or_else(String::new, |b| format!(" and {} GiB of memory", b >> 30));
     let (benches, each) = if all.len() == 1 {
         ("The bench ran", "It")
     } else {
         ("The benches ran", "Each")
     };
     Ok(format!(
-        "{benches} on {}, a {} with {} logical CPUs ({}, {}). {each} was a {} build at opt-level {} of commit `{}`, \
-         built with {jobs}. The load average ran from {lo:.2} to {hi:.2} across the tables.\n",
+        "{benches} on {}, a {} with {} logical CPUs ({}, {}){memory}. {each} was a {} build at opt-level {} of \
+         commit `{}`, built with {jobs}. The load average ran from {lo:.2} to {hi:.2} across the tables.\n",
         m.host,
         if m.virtual_machine {
             "virtual machine"
