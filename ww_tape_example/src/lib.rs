@@ -47,6 +47,7 @@ mod record;
 pub mod rf;
 pub mod rf_chains;
 mod signals;
+pub mod wideband;
 pub mod writing;
 
 pub use card::{Card, CardRead, EARLIER_CHAIN};

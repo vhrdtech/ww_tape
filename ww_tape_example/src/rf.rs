@@ -443,6 +443,8 @@ pub struct Signal {
     minute: u64,
     /// Each burst's samples in its minute, first to end.
     bursts: Vec<(u64, u64)>,
+    /// The noise's seed.
+    noise_seed: u64,
 }
 
 /// Turns per sample of `num/den` of the rate, of 2^32: a negative fraction turns the other way.
@@ -460,6 +462,12 @@ fn turns(num: i64, den: i64) -> u32 {
 impl Signal {
     /// The signal at `rate_hz` samples a second.
     pub fn new(rate_hz: u32) -> Self {
+        Self::channel(rate_hz, 0)
+    }
+
+    /// The signal of channel `channel` of a receiver with several, at `rate_hz` samples a second: the same carriers
+    /// and bursts, its own noise. Channel 0 is [Self::new]'s signal.
+    pub fn channel(rate_hz: u32, channel: u32) -> Self {
         #[expect(
             clippy::cast_possible_truncation,
             reason = "a sine times 2^15 is within i32"
@@ -479,6 +487,7 @@ impl Signal {
             table,
             minute: u64::from(rate_hz) * 60,
             bursts,
+            noise_seed: NOISE_SEED ^ (u64::from(channel) << 32),
         }
     }
 
@@ -511,7 +520,7 @@ impl Signal {
                 i += ci;
                 q += cq;
             }
-            let noise = hash(NOISE_SEED, n);
+            let noise = hash(self.noise_seed, n);
             let gauss = |shift: u32| {
                 // a sum of four bytes: near a normal of 148 steps, divided to about 6
                 let b = |k: u32| {
