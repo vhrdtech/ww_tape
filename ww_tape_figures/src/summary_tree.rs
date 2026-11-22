@@ -43,9 +43,7 @@ pub fn summary_tree() -> anyhow::Result<String> {
             let head = summary.head();
             ensure!(head.track_id == key("phase_a").id(), "phase_a's summaries");
             for n in 0..summary.node_count() {
-                let (first, items) = head
-                    .node_items(n as u64)
-                    .context("a node's items")?;
+                let (first, items) = head.node_items(n as u64).context("a node's items")?;
                 nodes.push(Node {
                     level: head.level,
                     first,
