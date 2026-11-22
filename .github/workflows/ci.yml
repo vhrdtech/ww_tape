@@ -8,7 +8,8 @@ on:
   workflow_call:
   pull_request:
   push:
-    branches: [main]
+    # next is the integration branch: main moves to it only after its checks pass
+    branches: [main, next]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
