@@ -9,6 +9,8 @@ benchmarks, golden files and book pages.
 ### Features
 
 - `Drive::record_unplaced` records the drive's hour through the mux without a writer round trip per act (WRITE-15).
+- Book: "Writing from many threads" explains the mux, its queue, back-pressure, order, errors and speed (BOOK-2).
+- `just bench-book` also runs `bench-handles`; the book draws its tables from `docs/bench/handles.json` (BOOK-2).
 
 ### Fixes
 

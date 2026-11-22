@@ -417,6 +417,7 @@ fn dropping_producers_leave_item_gaps_and_failing_ones_get_the_unit_back() {
     let mux = rigged_mux(&rigged, 4 << 10);
     mux.flush().unwrap();
     rigged.rig.set(false);
+    // --8<-- [start:pressure]
     let drop = mux
         .chunks(TrackNum::new(1))
         .unwrap()
@@ -436,6 +437,7 @@ fn dropping_producers_leave_item_gaps_and_failing_ones_get_the_unit_back() {
         Err(MuxError::Full(Unit::Chunk { head, .. })) => assert_eq!(head.first_item.get(), 0),
         other => panic!("{other:?}"),
     }
+    // --8<-- [end:pressure]
     rigged.rig.set(true);
     let stats = mux.stats();
     assert_eq!(stats.drops, dropped);
@@ -466,6 +468,7 @@ fn a_failed_sink_reaches_every_handle() {
     send_chunk(&chunks, 0, 0).unwrap();
     log.send(records(crate::id(1), 1)).unwrap();
     mux.flush().unwrap();
+    // --8<-- [start:failed]
     rigged.rig.fail.store(true, Ordering::SeqCst);
     // taken by the queue; the writing thread's write of it fails
     assert_eq!(send_chunk(&chunks, 0, 1).unwrap(), Sent::Queued);
@@ -480,6 +483,7 @@ fn a_failed_sink_reaches_every_handle() {
     assert!(matches!(mux.cut(), Err(MuxError::Failed(_))));
     assert!(mux.stats().failed);
     assert!(matches!(mux.close(), Err(MuxError::Failed(_))));
+    // --8<-- [end:failed]
     assert!(matches!(log.flush(), Err(MuxError::Failed(_))));
 }
 

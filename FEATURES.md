@@ -342,6 +342,7 @@ The pages in `docs/`.
   - Done: Part V, damage and raw media, with the drive's archive and card, four new figures and the lessons appendix.
   - Done: the owner's read: one term each for record, item and sample; event times and samples on pages of their own.
   - Done: the chapter "Sizes and speeds", every number from a bench report in `docs/bench/`.
+  - Done: the chapter "Writing from many threads": the mux, its queue and back-pressure, order, cuts, errors, async, followers and speed from the handles bench.
   - Done: data figures as eventfull screenshots in `docs/shots/`: the drive's hour, the fault, the zoom and the RF minute. `just book-shots` copies them; eventfull's tests keep them current (eventfull TL-79).
   - Done: the format reference with numbered sections, conventions, policies, verify and the detail the guides dropped. Its chunk head, index entry and tail are drawn from blocks.
   - Open: autorange and damage as screenshots, and log and temp rows in them, once eventfull draws them.

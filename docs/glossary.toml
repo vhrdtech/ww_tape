@@ -15,6 +15,11 @@ short = "The block a writer places right after a closed piece's tail when it wri
 chapter = "../anatomy/"
 
 [[term]]
+name = "back-pressure"
+short = "What a producer meets when the mux's queue is full: its handle waits, fails or drops the unit, by its pressure."
+chapter = "../writing_thread/"
+
+[[term]]
 name = "BLAKE3"
 short = "The cryptographic hash function behind the content hash and the track hash."
 chapter = "../copies/"
@@ -193,6 +198,12 @@ short = "Numbers stored as integers with one scale for the whole track, such as 
 chapter = "../series/"
 
 [[term]]
+name = "follower"
+forms = ["followers"]
+short = "A reader in another process that follows a chain's files while they are written and hands out each block once it checks."
+chapter = "../growing_pieces/"
+
+[[term]]
 name = "gap"
 forms = ["gaps"]
 short = "A blank or bad stretch of a raw medium after which the same session goes on; a reader reports its length and reads on."
@@ -203,6 +214,12 @@ name = "grid"
 forms = ["grids"]
 short = "The tick of one sample and the scale of the stored numbers that a series chunk carries, which place its samples in time."
 chapter = "../series/"
+
+[[term]]
+name = "handle"
+forms = ["handles"]
+short = "What a producer holds to write through a mux: it takes one kind of data, makes finished units of it and sends them into the mux's queue."
+chapter = "../writing_thread/"
 
 [[term]]
 name = "index entry"
@@ -256,6 +273,12 @@ name = "monotone relation"
 forms = ["monotone relations"]
 short = "A value per item that a track declares never to decrease, across chunks and pieces, so that a reader finds an item by search."
 chapter = "../columns/"
+
+[[term]]
+name = "mux"
+forms = ["muxes"]
+short = "The owner of one chain's writer on a writing thread, which places the units that producers send through their handles."
+chapter = "../writing_thread/"
 
 [[term]]
 name = "near"
@@ -594,3 +617,9 @@ name = "writer"
 forms = ["writers"]
 short = "The part of the crate that turns an application's calls into blocks; in the crate, `TapeWriter`."
 chapter = "../writing/"
+
+[[term]]
+name = "writing thread"
+forms = ["writing threads"]
+short = "The thread of a mux that owns the writer: it places each unit in the order it came and does every chore of the chain."
+chapter = "../writing_thread/"
