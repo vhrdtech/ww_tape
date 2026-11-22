@@ -131,17 +131,12 @@ fn phase_chunk(piece: &[u8]) -> anyhow::Result<(usize, Vec<u8>)> {
         .context("a chunk of phase_a")
 }
 
-pub fn chunk_head() -> anyhow::Result<String> {
-    let piece = first_piece()?;
-    let (_, bytes) = phase_chunk(&piece)?;
-    let block = Block::read(&bytes).or_debug()?;
-    let chunk = block.chunk().context("a chunk")?;
+/// Check the fixed part of the head in `bytes` against what [ww_tape] reads, and the numbers the caption states.
+fn check_head(bytes: &[u8], chunk: &ww_tape::Chunk<'_>) -> anyhow::Result<()> {
     let head = chunk.head();
     let grid = head.grid.context("a series chunk's grid")?;
     let payload_at = chunk.payload_offset();
     let columns = chunk.column_count();
-    let segments = chunk.segment_count();
-    let scale_len = usize::try_from(le(&bytes, 100, 1)?)?;
     ensure!(
         head.count == CAPTION_SAMPLES,
         "format.md's caption: {CAPTION_SAMPLES} samples, the payload at {CAPTION_PAYLOAD_AT}"
@@ -164,43 +159,58 @@ pub fn chunk_head() -> anyhow::Result<String> {
     );
 
     ensure!(
-        le(&bytes, 32, 4)? == u64::try_from(payload_at)?,
+        le(bytes, 32, 4)? == u64::try_from(payload_at)?,
         "payload offset at 32"
     );
     ensure!(
-        le(&bytes, 36, 4)? == u64::from(head.track_number.get()),
+        le(bytes, 36, 4)? == u64::from(head.track_number.get()),
         "track number at 36"
     );
-    ensure!(le(&bytes, 40, 8)? == head.track_id.get(), "track id at 40");
+    ensure!(le(bytes, 40, 8)? == head.track_id.get(), "track id at 40");
     ensure!(
-        le(&bytes, 48, 8)? == head.first_item.get(),
+        le(bytes, 48, 8)? == head.first_item.get(),
         "first item at 48"
     );
     ensure!(
-        le(&bytes, 56, 8)?.cast_signed() == head.first_tick,
+        le(bytes, 56, 8)?.cast_signed() == head.first_tick,
         "first tick at 56"
     );
     ensure!(
-        le(&bytes, 64, 8)?.cast_signed() == head.last_tick,
+        le(bytes, 64, 8)?.cast_signed() == head.last_tick,
         "last tick at 64"
     );
     ensure!(
-        le(&bytes, 72, 8)?.cast_signed() == head.latest_end,
+        le(bytes, 72, 8)?.cast_signed() == head.latest_end,
         "latest end at 72"
     );
     ensure!(
-        1usize << le(&bytes, 80, 1)? == chunk.segment_len(),
+        1usize << le(bytes, 80, 1)? == chunk.segment_len(),
         "segment shift at 80"
     );
     ensure!(
-        usize::try_from(le(&bytes, 81, 1)?)? == columns,
+        usize::try_from(le(bytes, 81, 1)?)? == columns,
         "columns at 81"
     );
-    ensure!(le(&bytes, 84, 8)? == grid.grid_index, "grid index at 84");
+    ensure!(le(bytes, 84, 8)? == grid.grid_index, "grid index at 84");
     ensure!(
-        le(&bytes, 92, 8)?.cast_signed() == grid.grid_tick,
+        le(bytes, 92, 8)?.cast_signed() == grid.grid_tick,
         "grid tick at 92"
     );
+    Ok(())
+}
+
+pub fn chunk_head() -> anyhow::Result<String> {
+    let piece = first_piece()?;
+    let (_, bytes) = phase_chunk(&piece)?;
+    let block = Block::read(&bytes).or_debug()?;
+    let chunk = block.chunk().context("a chunk")?;
+    let head = chunk.head();
+    let grid = head.grid.context("a series chunk's grid")?;
+    let payload_at = chunk.payload_offset();
+    let columns = chunk.column_count();
+    let segments = chunk.segment_count();
+    let scale_len = usize::try_from(le(&bytes, 100, 1)?)?;
+    check_head(&bytes, &chunk)?;
     ensure!(columns == 1, "phase_a's chunk has one column, its samples");
     let entries_at = 101 + scale_len;
     let crcs_at = entries_at + 8 * columns;
