@@ -1,5 +1,6 @@
-//! Print the sizes of the analyser's capture: `ethernet [MS]` records MS milliseconds of the link (10 by default) at
-//! its line rate in both directions into one chain in memory, reads it back and prints what each track takes.
+//! Print the sizes of the analyser's capture: `ethernet_sizes [MS]` records MS milliseconds of the link (10 by
+//! default) at its line rate in both directions into one chain in memory, reads it back and prints what each track
+//! takes.
 #![allow(
     clippy::print_stdout,
     clippy::as_conversions,

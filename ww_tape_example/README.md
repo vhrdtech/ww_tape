@@ -50,8 +50,8 @@ The module `ethernet` records both directions of a 10 Gbps Ethernet link, as a p
 A port spreads its frames over receive queues, as a NIC does. Each queue has a capture thread and a decoder thread, since a track has one producer. Both ports go through one mux, or a mux per port into a chain each.
 
 ```sh
-cargo run --release -p ww_tape_example --bin ethernet        # what each track takes for 10 ms of the link
-cargo run --release -p ww_tape_example --bin ethernet -- 100  # the same for 100 ms
+cargo run --release -p ww_tape_example --bin ethernet_sizes         # what each track takes for 10 ms of the link
+cargo run --release -p ww_tape_example --bin ethernet_sizes -- 100  # the same for 100 ms
 ```
 
 `tests/ethernet.rs` reads every frame and header back and pins the sizes the book quotes. `ww_tape_benchmarks` times it: `--bin ethernet`, or `just bench-ethernet`.

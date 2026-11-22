@@ -63,7 +63,8 @@ The link carries the simple mix of frame lengths that network tests use: 7 frame
 1514. Three flows in four are TCP and the rest UDP. The payloads are random bytes, as encrypted traffic is, so they do
 not compress. Each direction runs at the line rate, 10 Gbps of frames, their preambles and gaps included.
 
-`cargo run --release -p ww_tape_example --bin ethernet` records 10 ms of the link into one chain and reads it back:
+`cargo run --release -p ww_tape_example --bin ethernet_sizes` records 10 ms of the link into one chain and reads it
+back:
 
 --8<-- "docs/plots/ethernet_sizes.txt"
 
