@@ -373,7 +373,7 @@ A monotone relation is always in codec 1.
 A **monotone** relation's values never decrease along its track, across chunks and pieces: 10, 10, 11, 15 is monotone,
 10, 12, 11 is not.
 
-A **relation break** marks the chunk where a track's monotone relations start again. Only the writer's caller can make
+A **[[relation break]]** marks the chunk where a track's monotone relations start again. Only the writer's caller can make
 one.
 
 A writer keeps each monotone relation's newest value. When the chunk holding that value doesn't read, as after a resume
@@ -920,7 +920,7 @@ and points back at the one before.
 
 ### 7.2 State entries {#state-entries}
 
-A block of state records gets one **state entry** per record instead of one entry per block. Such a block is one whose
+A block of state records gets one **[[state entry]]** per record instead of one entry per block. Such a block is one whose
 first record is on track 0, or any block marked `FLAG_REPEAT`.
 
 State entries sit under track id `STATE_TRACK_ID` (`u64::MAX`).
@@ -1038,7 +1038,7 @@ close right after the newest of them.
 ##### 7.3.2.3 The close in force {#the-close-in-force}
 
 The last close with a whole tail is the close **in force**: a reader takes the piece as closed by it. Bytes after its
-tail are an **unclosed tail**, like the end of an unclosed piece.
+tail are an **[[unclosed tail]]**, like the end of an unclosed piece.
 
 A tail is whole only right after the close record it names, as the last bytes of the piece it states. Any other good
 tail ends no close, and a reader never takes it as the end of the piece.
@@ -1057,7 +1057,7 @@ the links between pieces never move.
 
 ##### 7.3.2.4 The close summary {#the-close-summary}
 
-A close may carry a **close summary**: one block (kind 14) whose body the caller gives and the format never reads. A
+A close may carry a **[[close summary]]**: one block (kind 14) whose body the caller gives and the format never reads. A
 journal, for example, keeps there the counts and names of what one input added.
 
 `TapeWriter::close_with_summary` places the block right before the final index, and the close record names it by its
@@ -1960,7 +1960,7 @@ Some numbers are reserved: later features then need no format change. Readers of
 
 ## 16 Policies and their defaults {#policies-and-their-defaults}
 
-A policy is a setting of the writer or the reader. It changes where blocks fall or what a reader spends, never what a
+A [[policy]] is a setting of the writer or the reader. It changes where blocks fall or what a reader spends, never what a
 block means. A reader needs none of the writer's policies to read a tape. Track 0's state policy is the exception: the
 layout definition states it.
 
@@ -2000,7 +2000,7 @@ Past `scan_back_max`, a reader reads the unclosed piece from its start instead.
 ## 17 Caps on what a reader takes {#caps-on-what-a-reader-takes}
 
 Every count, length, offset or layout value a reader takes from the bytes is bounded before it sizes an allocation, a
-slice or a loop. The bound is a length already in hand (the block's, a table's) or one of these caps.
+slice or a loop. The bound is a length already in hand (the block's, a table's) or one of these [[caps]].
 
 A value past its cap is damage, refused with an error; no file a writer of this crate writes has one.
 

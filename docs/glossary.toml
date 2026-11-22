@@ -44,6 +44,12 @@ short = "The vehicle bus whose frames the drive's track `can0` records, about a 
 chapter = "../events/"
 
 [[term]]
+name = "cap"
+forms = ["caps"]
+short = "A named upper bound on a count, length or offset a reader takes from the bytes, checked before the value sizes an allocation or a loop."
+chapter = "../format/#caps-on-what-a-reader-takes"
+
+[[term]]
 name = "chain"
 forms = ["chains"]
 short = "The pieces of one recording in order, each head naming the piece before it, so that a reader checks that none is missing."
@@ -89,6 +95,12 @@ chapter = "../anatomy/"
 name = "close in force"
 short = "The last close of a piece whose tail is whole; a reader takes the piece as closed by it."
 chapter = "../reading/"
+
+[[term]]
+name = "close summary"
+forms = ["close summaries"]
+short = "A block the caller gives at a close, placed before the final index and named by the close record; the format never reads its body."
+chapter = "../format/#the-close-summary"
 
 [[term]]
 name = "codec"
@@ -281,6 +293,12 @@ short = "A piece's place in its chain, counted from 0, which its head and close 
 chapter = "../pieces/"
 
 [[term]]
+name = "policy"
+forms = ["policies"]
+short = "A setting of the writer or the reader, such as when to sync or how far behind state may lie; it changes where blocks fall, never what they mean."
+chapter = "../format/#policies-and-their-defaults"
+
+[[term]]
 name = "producer"
 forms = ["producers"]
 short = "The program that makes a tape, such as a recorder on a test bench, a device logger or an analysis tool."
@@ -327,6 +345,12 @@ name = "recovery mode"
 forms = ["recovery modes"]
 short = "How a walk over blocks meets damage: Prefix stops at the first bad block, Resync reports it and reads on."
 chapter = "../damage/"
+
+[[term]]
+name = "relation break"
+forms = ["relation breaks"]
+short = "A mark on an events chunk where its track's monotone relations start again, so that a reader assumes no order across its start."
+chapter = "../format/#relation-breaks"
 
 [[term]]
 name = "relay"
@@ -427,6 +451,12 @@ name = "state copy"
 forms = ["state copies"]
 short = "An extra record of a state item at a later use, at least 1 MiB after the first, as a guard against damage around one place; a copy in this book is always a state copy."
 chapter = "../definitions/"
+
+[[term]]
+name = "state entry"
+forms = ["state entries"]
+short = "An index entry for one state record, listing its slot and item hash, so that a reader finds the item in force without reading blocks."
+chapter = "../format/#state-entries"
 
 [[term]]
 name = "state track"
@@ -536,10 +566,22 @@ short = "The 32 bytes a track's definition carries to say whose data it is; ww_t
 chapter = "../copies/"
 
 [[term]]
+name = "unclosed tail"
+forms = ["unclosed tails"]
+short = "The bytes after the tail of the close in force: blocks a writer added since, or a crash left, read as the end of an unclosed piece."
+chapter = "../format/#the-close-in-force"
+
+[[term]]
 name = "unit hash"
 forms = ["unit hashes"]
 short = "A chunk's share of its track's hash, which its index entry stores so that a range hash reads no chunk."
 chapter = "../copies/"
+
+[[term]]
+name = "uvar"
+forms = ["uvars", "ivar", "ivars"]
+short = "An unsigned number in LEB128, 7 bits per byte and low bits first; an ivar is a signed number zigzag-coded into one."
+chapter = "../format/#conventions"
 
 [[term]]
 name = "WireWeaver value"
