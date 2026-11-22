@@ -4,7 +4,8 @@
 //! packed, with summaries), a track per producer. The direct writer encodes every track's chunks and builds their
 //! summaries on one thread, a chunk of each track in turn, as an application without the mux does. Through the mux
 //! each producer thread encodes its own track's chunks, hashes their payload and computes the summaries' leaves;
-//! the writing thread places the chunks and builds the levels above. Both write into a store that keeps no bytes,
+//! the writing thread places the chunks and builds the levels above. An events producer pushes a chunk's worth of
+//! events per call, and in a second row one event per call. Both write into a store that keeps no bytes,
 //! so the encoding and the writer's work are measured, not a disk. Each table carries the load average before and
 //! after it.
 #![allow(
@@ -37,7 +38,7 @@ use ww_tape::{
 };
 use ww_tape_bench::{Bench, Cell, Common};
 use ww_tape_example::rf::{IQ_ELEMENT, Rf, iq_shape, summaries};
-use ww_tape_mux::{EventsOptions, MuxOptions, SeriesOptions, TapeMux};
+use ww_tape_mux::{Event, EventsOptions, MuxOptions, SeriesOptions, TapeMux};
 use ww_tape_summary::{EventFields, EventTree, SeriesStart, SeriesSummaries};
 
 #[derive(Parser)]
@@ -473,8 +474,9 @@ fn builders_mut(all: &mut [Option<Builder>]) -> impl Iterator<Item = Builder> + 
     all.iter_mut().filter_map(Option::take)
 }
 
-/// A producer thread per track pushes into its handle on a mux.
-fn mux(w: &Work<'_>) -> anyhow::Result<Run> {
+/// A producer thread per track pushes into its handle on a mux: events a chunk's worth per call with `batch`, else
+/// one by one.
+fn mux(w: &Work<'_>, batch: bool) -> anyhow::Result<Run> {
     let store = Discard::default();
     let start = Instant::now();
     let mux = TapeMux::create(
@@ -505,9 +507,31 @@ fn mux(w: &Work<'_>) -> anyhow::Result<Run> {
                         )
                         .map_err(err)?;
                     s.spawn(move || -> anyhow::Result<()> {
-                        for i in 0..chunks * n {
-                            let tick = i.cast_signed() * EVENT_STEP;
-                            h.push(tick, tick, 0, &payload(i)).map_err(err)?;
+                        if !batch {
+                            for i in 0..chunks * n {
+                                let tick = i.cast_signed() * EVENT_STEP;
+                                h.push(tick, tick, 0, &payload(i)).map_err(err)?;
+                            }
+                            return h.finish().map_err(err);
+                        }
+                        let mut payloads = Vec::with_capacity(n as usize);
+                        for chunk in 0..chunks {
+                            payloads.clear();
+                            payloads.extend((chunk * n..(chunk + 1) * n).map(payload));
+                            let items: Vec<Event<'_>> = payloads
+                                .iter()
+                                .enumerate()
+                                .map(|(j, p)| {
+                                    let tick = (chunk * n + j as u64).cast_signed() * EVENT_STEP;
+                                    Event {
+                                        start: tick,
+                                        end: tick,
+                                        payload: &p[..],
+                                        ..Event::default()
+                                    }
+                                })
+                                .collect();
+                            h.push_all(&items).map_err(err)?;
                         }
                         h.finish().map_err(err)
                     })
@@ -602,16 +626,20 @@ fn table(bench: &mut Bench, args: &Args, load: Load, rf: &Rf, iq: &[i16]) -> any
             iq,
         };
         let d = direct(&w)?;
-        let m = mux(&w)?;
-        for (writer, run) in [("direct", &d), ("mux", &m)] {
+        let direct_secs = d.wall.as_secs_f64();
+        let mut runs = vec![("direct", d), ("mux", mux(&w, true)?)];
+        if load == Load::Events {
+            runs.push(("mux, one by one", mux(&w, false)?));
+        }
+        for (writer, run) in &runs {
             let secs = run.wall.as_secs_f64();
             t.row(vec![
-                Cell::text(writer),
+                Cell::text(*writer),
                 Cell::count(tracks as u64),
                 Cell::num(secs * 1e3, 0),
                 Cell::num(w.items() as f64 / secs / 1e6, 1),
                 Cell::num(run.written as f64 / secs / 1e6, 0),
-                Cell::num(d.wall.as_secs_f64() / secs, 2),
+                Cell::num(direct_secs / secs, 2),
                 Cell::count(run.waits),
             ]);
         }
