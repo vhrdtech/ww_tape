@@ -77,7 +77,9 @@
 //!
 //! [TapeMux::close] takes nothing more: every handle's next call returns [MuxError::Closed]. Units sent before are
 //! placed, then the chain is closed. A close doesn't wait for the handles to be dropped. A mux dropped unclosed
-//! places what was sent, syncs, and leaves its piece unclosed, as after a crash: [TapeMux::resume] goes on.
+//! places what was sent, syncs, and leaves its piece unclosed, as after a crash: [TapeMux::resume] goes on. It
+//! rebuilds the summary trees of the piece it goes on with from the chunks the piece kept, so given the items the
+//! crash lost, the chain gets the bytes of the run without the crash.
 //!
 //! # Caps
 //!
@@ -106,6 +108,7 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use exact_units::Bytes;
+use ww_tape::index::IndexEntry;
 use ww_tape::{
     ChainOptions, ChainPiece, ClockNum, ClockSpec, CloseReason, Definitions, Describe, MapSegment,
     OwnerId, PieceChain, Resumed, Tapes, TrackNum, TrackSpec, TrackStart,
@@ -197,11 +200,34 @@ where
         defs: Definitions,
         options: MuxOptions,
     ) -> Result<Self, MuxError<T::Error>> {
+        Self::spawn(chain, defs, None, options)
+    }
+
+    /// Write `chain`, just resumed ([PieceChain::resume_on]) as `resumed` says, from a new writing thread: the
+    /// definitions start empty and number as the resumed piece does ([Resumed::numbers]).
+    ///
+    /// The summary trees of the resumed piece are rebuilt from the chunks it kept before the mux writes anything:
+    /// the tracks are defined again first. See [TapeMux::resume].
+    pub fn start_resumed(
+        chain: PieceChain<T>,
+        resumed: &Resumed,
+        options: MuxOptions,
+    ) -> Result<Self, MuxError<T::Error>> {
+        let defs = Definitions::with_numbers(resumed.numbers.clone());
+        Self::spawn(chain, defs, Some(resumed.entries.clone()), options)
+    }
+
+    fn spawn(
+        chain: PieceChain<T>,
+        defs: Definitions,
+        rebuild: Option<Vec<IndexEntry>>,
+        options: MuxOptions,
+    ) -> Result<Self, MuxError<T::Error>> {
         let shared = Arc::new(Shared::new(options.queue_bytes.get()));
         let theirs = shared.clone();
         let thread = std::thread::Builder::new()
             .name("ww_tape_mux".to_owned())
-            .spawn(move || thread::run(chain, defs, theirs, options.tick))
+            .spawn(move || thread::run(chain, defs, rebuild, theirs, options.tick))
             .map_err(MuxError::Spawn)?;
         Ok(Self {
             shared,
@@ -228,6 +254,18 @@ where
     /// The definitions start empty and number as the resumed piece does ([Resumed::numbers]): a track or clock
     /// defined again gets its number back. Its items go on after those [Resumed::entries] and the closed pieces
     /// hold.
+    ///
+    /// The summary trees of the piece the crash tore are rebuilt, so the piece goes on as it would have without the
+    /// crash: before the mux first writes (a unit placed, a cut, a sync, the close), each chunk the piece kept of a
+    /// track defined again is read back and its leaves computed as a typed handle computed them; the summary blocks
+    /// the piece kept are not written again, those the crash lost are. Define the tracks again before sending
+    /// anything. Given again every item after the last chunk kept of each track, through typed handles cut as
+    /// before, the chain gets the bytes of the run without the crash.
+    ///
+    /// The flags a [SeriesHandle] took ([SeriesHandle::push_flagged]) are in its summaries only: the leaves of
+    /// kept samples are rebuilt without them. A tree is rebuilt for each track a typed handle summarises by
+    /// default; one the piece kept no block of is dropped when the track's next chunk comes without a summary (a
+    /// [ChunkSender], a handle with summaries off).
     pub fn resume(
         tapes: T,
         owner: OwnerId,
@@ -237,8 +275,7 @@ where
     ) -> Result<(Self, Resumed), MuxError<T::Error>> {
         let (chain, resumed) =
             PieceChain::resume_on(tapes, owner, chain, options).map_err(MuxError::Start)?;
-        let defs = Definitions::with_numbers(resumed.numbers.clone());
-        Ok((Self::start(chain, defs, mux)?, resumed))
+        Ok((Self::start_resumed(chain, &resumed, mux)?, resumed))
     }
 
     /// Define track `t` ([Definitions::define_track]) and give its number, once the writing thread holds it.

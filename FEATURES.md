@@ -181,11 +181,15 @@ Writing pieces and chains, resuming them, sinks in memory, in the crate `ww_tape
   - Each encodes its chunks, hashes their payload and computes the leaves of the track's summaries on its own thread. `write_chunk_hashed` takes the hash; the bytes are the same.
   - `SeriesLeaves` and `SeriesTree`, and `EventRuns`, split the summary builders between producer and writing thread.
   - The writing thread builds one summary tree per track and piece, ended before each cut and at the close.
+  - A resumed mux rebuilds the trees of the torn piece before it first writes. It reads the kept chunks back and computes their leaves again. Kept summary blocks are not written again; lost ones are deferred again in order.
+  - Given the lost items again, the chain gets the bytes of the run without the crash, in both layouts.
+  - A tree rebuilt for a track written without summaries is dropped by the track's next chunk. With no such chunk left in the piece, it writes blocks the run without the crash didn't.
+  - Missing: series flags (`push_flagged`) live in the summaries only, so kept samples' leaves are rebuilt without them.
   - A quiet handle's open chunk is sealed by the writing thread when its latency is up, behind the handle's earlier units.
   - Items are checked at the call: start order, spans, flags, relation counts and monotone values, payload length.
   - Missing: a resumed chain's track starts are passed by the caller (`first_item`); the mux doesn't give them yet.
   - `EventsHandle::push_all` takes a batch of `Event`s in one pass, the bytes of pushing them one by one. One events producer writes 56.0 M events/s through the mux, one thread writing directly 54.8 (bench `handles`).
-  - Tests `mux_handles.rs`, `split_tests.rs`, `placed.rs`.
+  - Tests `mux_handles.rs`, `split_tests.rs`, `placed.rs`, `mux_resume.rs`.
   - Bench `handles` (`just bench-handles`): direct writer against the mux by 1, 4 and 16 tracks.
 - ✅ **WRITE-14 Async twins of the mux's and the followers' waits**
   - Every call that waits has an `_async` twin. Handles: send, put, push, regrid, seal, finish, flush, sync.

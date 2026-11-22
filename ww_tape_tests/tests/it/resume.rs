@@ -327,7 +327,7 @@ fn reference(alignment: u32, ops: &[Op]) -> (Vec<u8>, Made) {
 }
 
 /// The ends of the blocks of `bytes` and some places in between, ascending: where the tests cut a piece.
-fn cut_points(bytes: &[u8], extra: usize) -> Vec<usize> {
+pub(crate) fn cut_points(bytes: &[u8], extra: usize) -> Vec<usize> {
     let mut rd = FileBlocks::with_recovery(bytes, Recovery::Prefix);
     let mut out = vec![0];
     while let Some(Ok(_)) = rd.next_block() {

@@ -33,6 +33,5 @@ pub fn resume(
 ) -> Result<(TapeMux<Files>, Resumed), MuxError<FsError>> {
     let (chain, resumed) =
         crate::chain::resume(dir, owner, chain, options).map_err(MuxError::Start)?;
-    let defs = Definitions::with_numbers(resumed.numbers.clone());
-    Ok((TapeMux::start(chain, defs, mux)?, resumed))
+    Ok((TapeMux::start_resumed(chain, &resumed, mux)?, resumed))
 }

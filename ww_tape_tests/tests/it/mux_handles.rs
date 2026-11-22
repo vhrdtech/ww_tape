@@ -45,7 +45,7 @@ fn options(chunks: u64) -> ChainOptions {
     }
 }
 
-fn clock() -> ClockSpec<'static> {
+pub(crate) fn clock() -> ClockSpec<'static> {
     ClockSpec {
         key: clock_key(0x4d, &[], 1),
         rate: Magnitude::pow10(9).into(),
@@ -81,7 +81,7 @@ const RELATIONS: &[RelationDef<'static>] = &[
 ];
 
 /// Events track `k`: 0 instants, 1 spans with flags, 2 spans with flags and [RELATIONS], 3 and up instants.
-fn events_track(k: u32, clock: ClockNum) -> TrackSpec<'static> {
+pub(crate) fn events_track(k: u32, clock: ClockNum) -> TrackSpec<'static> {
     let (def, relations) = match k {
         1 => (
             EventsDef {
@@ -113,7 +113,7 @@ fn events_track(k: u32, clock: ClockNum) -> TrackSpec<'static> {
 }
 
 /// The summary spec of [series_track].
-const SPEC: SeriesSummarySpec = SeriesSummarySpec {
+pub(crate) const SPEC: SeriesSummarySpec = SeriesSummarySpec {
     base_shift: 8,
     stats: SeriesStats {
         min: true,
@@ -129,7 +129,7 @@ const SPEC: SeriesSummarySpec = SeriesSummarySpec {
 };
 
 /// A series of i16 on two channels, a sample per 1000 ticks, summarised as [SPEC].
-fn series_track(clock: ClockNum) -> TrackSpec<'static> {
+pub(crate) fn series_track(clock: ClockNum) -> TrackSpec<'static> {
     let mut def = SeriesDef::of::<i16>(2, Ratio64::int(1000).unwrap());
     def.summaries = Some(SPEC);
     TrackSpec {

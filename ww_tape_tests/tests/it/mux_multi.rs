@@ -228,7 +228,7 @@ pub(crate) fn pieces(mem: &MemTapes) -> Vec<Vec<u8>> {
 }
 
 /// A store holding the closed pieces `done` and the start `open` of the next, unclosed.
-fn plant(done: &[Vec<u8>], open: &[u8]) -> MemTapes {
+pub(crate) fn plant(done: &[Vec<u8>], open: &[u8]) -> MemTapes {
     let mem = MemTapes::new();
     for (j, w) in done.iter().enumerate() {
         let mut s = mem.create(&(j as u64)).unwrap();
@@ -306,7 +306,7 @@ fn joined(chunks: &[(u64, Vec<i64>)], per_item: usize, what: &str) -> Vec<i64> {
 
 /// The item after the last chunk of track `id` that the closed pieces `done` and the resumed piece's `entries`
 /// keep: chunks follow each other, so the last ends where the next goes on.
-fn next_item(done: &[Vec<u8>], entries: &[IndexEntry], id: TrackId) -> u64 {
+pub(crate) fn next_item(done: &[Vec<u8>], entries: &[IndexEntry], id: TrackId) -> u64 {
     let closed = done.iter().flat_map(|p| {
         TapeReader::open(&p[..])
             .unwrap()

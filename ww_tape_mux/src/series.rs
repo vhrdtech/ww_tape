@@ -6,7 +6,8 @@ use shrink_wrap::DeserializeShrinkWrap;
 use std::time::Duration;
 
 use exact_units::Bytes;
-use ww_tape::samples::{Sample, encode, max_encoded_len};
+use ww_tape::chunk::Chunk;
+use ww_tape::samples::{Sample, Samples, Scalar as ScalarKind, encode, max_encoded_len};
 use ww_tape::{
     BlockKind, ChunkHead, Codec, ColumnKind, ColumnSpec, Describe, EndMode, ItemNum, Ratio64,
     SampleShape, SeriesError, SeriesGrid, Tapes, TrackDef, TrackId, TrackNum,
@@ -291,6 +292,68 @@ where
             backlog: Backlog::new(),
             track,
         })
+    }
+}
+
+/// The summary of series chunk `chunk` of track `def` read back: the leaves its handle computed of its samples, as
+/// pushed without flags. None for a chunk of a track without summaries, or one whose samples don't read.
+pub(crate) fn read_summary(def: &TrackDef<'_>, chunk: &Chunk<'_>) -> Option<ChunkSummary> {
+    let (Some(series), Some(shape)) = (def.series(), def.series_shape()) else {
+        return None;
+    };
+    let spec = series.summaries.filter(|_| series.media.is_none())?;
+    let head = chunk.head();
+    let grid = head.grid?;
+    let column = chunk.find(ColumnKind::Samples, 0)?;
+    // the count from the head is bounded by the column's length before anything is decoded
+    let samples = Samples::of(&column, shape, usize::try_from(head.count).ok()?).ok()?;
+    let read = Read {
+        shape,
+        grid,
+        first_item: head.first_item,
+        spec,
+        samples: &samples,
+    };
+    let leaves = match shape.element.scalar() {
+        ScalarKind::I8 => read.leaves::<i8>(),
+        ScalarKind::I16 => read.leaves::<i16>(),
+        ScalarKind::I32 => read.leaves::<i32>(),
+        ScalarKind::I64 => read.leaves::<i64>(),
+        ScalarKind::U8 => read.leaves::<u8>(),
+        ScalarKind::U16 => read.leaves::<u16>(),
+        ScalarKind::U32 => read.leaves::<u32>(),
+        ScalarKind::U64 => read.leaves::<u64>(),
+        ScalarKind::F32 => read.leaves::<f32>(),
+        ScalarKind::F64 => read.leaves::<f64>(),
+        ScalarKind::Bool => None,
+    }?;
+    Some(ChunkSummary::Series {
+        shape,
+        period: series.period,
+        spec,
+        leaves,
+    })
+}
+
+/// A series chunk's samples read back, for the leaves a handle of their scalar computed.
+struct Read<'a, 'b> {
+    shape: SampleShape,
+    grid: SeriesGrid,
+    first_item: ItemNum,
+    spec: SeriesSummarySpec,
+    samples: &'a Samples<'b>,
+}
+
+impl Read<'_, '_> {
+    /// The leaves of the samples decoded as `S`, sealed at the chunk's end as the handle seals them.
+    fn leaves<S: Scalar + Sample>(&self) -> Option<Vec<SeriesLeaf>> {
+        let n = self.samples.count().checked_mul(self.samples.lanes())?;
+        let mut values = vec![S::default(); n];
+        self.samples.decode(0, &mut values).ok()?;
+        let mut leaves =
+            Leaves::<S>::new(self.shape, self.grid, self.first_item, self.spec).ok()?;
+        leaves.push(&values, 0).ok()?;
+        leaves.seal().ok()
     }
 }
 

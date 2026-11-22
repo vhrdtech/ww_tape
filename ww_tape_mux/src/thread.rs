@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use ww_tape::chunk::ChunkHead;
+use ww_tape::index::IndexEntry;
 use ww_tape::{
     ChainPiece, CloseReason, ColumnSpec, Definitions, PieceChain, Slot as DefSlot, Tapes,
     WriteError,
@@ -48,12 +49,16 @@ struct State<'a, T: Tapes> {
     trees: Trees,
     /// Open chunks sealed for their latency that found the queue closed: placed before the close
     late: Vec<(Work<T>, u64)>,
+    /// The blocks a resume kept of the piece whose trees are still to be rebuilt: before the first write, so the
+    /// tracks are defined again by then
+    rebuild: Option<Vec<IndexEntry>>,
 }
 
 /// The thread: place every unit until a close or a stop, ticking every `tick`.
 pub(crate) fn run<T: Tapes>(
     mut chain: PieceChain<T>,
     mut defs: Definitions,
+    rebuild: Option<Vec<IndexEntry>>,
     shared: Arc<Shared<T>>,
     tick: Duration,
 ) {
@@ -62,6 +67,7 @@ pub(crate) fn run<T: Tapes>(
         shared: &shared,
         trees: Trees::new(chain.seq()),
         late: Vec::new(),
+        rebuild,
     };
     let mut next_tick = Instant::now().checked_add(tick);
     let exit = loop {
@@ -120,7 +126,8 @@ fn far() -> Instant {
 /// The time-driven chores: sync and checkpoints by time; a cut by age while no chunk comes.
 fn chores<T: Tapes>(chain: &mut PieceChain<T>, defs: &Definitions, st: &mut State<'_, T>) {
     let shared = st.shared;
-    if shared.failure.get().is_some() {
+    // nothing is written before the trees of a resumed piece are rebuilt
+    if shared.failure.get().is_some() || st.rebuild.is_some() {
         return;
     }
     let r = (|| {
@@ -139,6 +146,38 @@ fn chores<T: Tapes>(chain: &mut PieceChain<T>, defs: &Definitions, st: &mut Stat
             Counters::add(&shared.counters.refused, 1);
         }
     }
+}
+
+/// Rebuild the summary trees of a resumed piece, once, before the first write: a failure stops the chain, a refusal
+/// is counted.
+fn rebuilt<T: Tapes>(chain: &mut PieceChain<T>, defs: &Definitions, st: &mut State<'_, T>) {
+    let Some(entries) = st.rebuild.take() else {
+        return;
+    };
+    let shared = st.shared;
+    if shared.failure.get().is_some() {
+        return;
+    }
+    match st.trees.rebuild(chain, defs, &entries) {
+        Ok(refused) => Counters::add(&shared.counters.refused, refused),
+        Err(e) if stops(chain, &e) => {
+            shared.fail(e);
+        }
+        Err(_) => Counters::add(&shared.counters.refused, 1),
+    }
+}
+
+/// Whether placing `work` writes: it waits for the rebuild of a resumed piece's trees.
+fn writes<T: Tapes>(work: &Work<T>) -> bool {
+    matches!(
+        work,
+        Work::Chunk { .. }
+            | Work::Block { .. }
+            | Work::Put { .. }
+            | Work::Cut { .. }
+            | Work::Flush { sync: true, .. }
+            | Work::Close { .. }
+    )
 }
 
 /// End the summary trees of the piece and cut to a new one.
@@ -179,10 +218,13 @@ fn place_chunk<T: Tapes>(
     }
     let refs: Vec<(ColumnSpec, &[u8])> = columns.iter().map(|(c, b)| (*c, b.as_slice())).collect();
     chain.write_chunk_hashed(defs, head, &refs, hash)?;
-    if let Some(s) = summary
-        && let Added::Refused = st.trees.add(chain, defs, head, *s)?
-    {
-        Counters::add(&st.shared.counters.refused, 1);
+    match summary {
+        Some(s) => {
+            if let Added::Refused = st.trees.add(chain, defs, head, *s)? {
+                Counters::add(&st.shared.counters.refused, 1);
+            }
+        }
+        None => st.trees.plain(head.track_number),
     }
     Ok(())
 }
@@ -196,6 +238,9 @@ fn place<T: Tapes>(
     bytes: u64,
 ) -> Option<Exit<T>> {
     let shared = st.shared;
+    if writes(&work) {
+        rebuilt(chain, defs, st);
+    }
     let failed = shared.failure.get().is_some();
     match work {
         Work::Chunk {

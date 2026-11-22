@@ -6,8 +6,9 @@ use shrink_wrap::DeserializeShrinkWrap;
 use std::time::Duration;
 
 use exact_units::Bytes;
+use ww_tape::chunk::Chunk;
 use ww_tape::payloads::EncodedPayloads;
-use ww_tape::times::{EncodedRelation, EncodedTimes};
+use ww_tape::times::{EncodedRelation, EncodedTimes, EventTimes};
 use ww_tape::{ColumnSpec, Describe, Ends, ItemNum, Tapes, TrackDef, TrackId, TrackKind, TrackNum};
 use ww_tape_summary::{EventFields, EventRuns};
 
@@ -451,23 +452,51 @@ where
     }
 }
 
-/// The open chunk of events track `def` cut as `options` say; None for another kind of track or options out of
-/// range.
-fn events_chunk(def: &TrackDef<'_>, options: EventsOptions) -> Option<EventsChunk> {
+/// The fields of the item tree of events track `def`; None for another kind of track.
+fn event_fields(def: &TrackDef<'_>) -> Option<EventFields> {
     let TrackKind::Events(e) = &def.kind else {
         return None;
     };
     if def.repeat.state().is_some() {
         return None;
     }
+    Some(EventFields {
+        flags: e.flags,
+        latest_end: e.ends == Ends::Spans,
+    })
+}
+
+/// The summary of events chunk `chunk` of track `def` read back: the runs its handle computed of its items.
+/// None for a chunk of another kind of track, or one whose times don't read.
+pub(crate) fn read_summary(def: &TrackDef<'_>, chunk: &Chunk<'_>) -> Option<ChunkSummary> {
+    let fields = event_fields(def)?;
+    let times = EventTimes::read(chunk).ok()?;
+    let n = times.len();
+    let starts: Vec<i64> = (0..n).map(|i| times.start(i)).collect();
+    let ends: Option<Vec<i64>> = fields
+        .latest_end
+        .then(|| (0..n).map(|i| times.end(i)).collect());
+    let flags: Option<Vec<u32>> = fields
+        .flags
+        .then(|| (0..n).map(|i| times.flag(i)).collect());
+    let mut runs = EventRuns::new(fields, chunk.head().first_item);
+    runs.push_columns(&starts, ends.as_deref(), flags.as_deref())
+        .ok()?;
+    runs.seal();
+    Some(ChunkSummary::Events {
+        fields,
+        runs: runs.take_runs(),
+    })
+}
+
+/// The open chunk of events track `def` cut as `options` say; None for another kind of track or options out of
+/// range.
+fn events_chunk(def: &TrackDef<'_>, options: EventsOptions) -> Option<EventsChunk> {
+    let fields = event_fields(def)?;
     let chunk_items = usize::try_from(options.chunk_items)
         .ok()
         .filter(|n| (1..=ww_tape::times::ITEMS_MAX).contains(n))?;
     let chunk_bytes = usize::try_from(options.chunk_bytes.get()).ok()?;
-    let fields = EventFields {
-        flags: e.flags,
-        latest_end: e.ends == Ends::Spans,
-    };
     let relations = ww_tape::times::StoredRelations::of(def);
     let stored: Vec<Stored> = (0..u16::try_from(ww_tape::RELATIONS_MAX).ok()?)
         .filter(|i| relations.stored.contains(*i))

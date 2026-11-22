@@ -6,6 +6,11 @@ benchmarks, golden files and book pages.
 
 ## [Unreleased]
 
+### Features
+
+- A resumed `TapeMux` rebuilds the torn piece's summary trees: it writes the bytes of an uninterrupted run (WRITE-13).
+- `TapeMux::start_resumed` starts a mux on a chain just resumed; `ww_tape_fs::mux::resume` uses it (WRITE-13).
+
 ## [0.3.1] - 2026-11-22
 
 ### Features
