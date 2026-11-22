@@ -67,6 +67,11 @@ that work over more cores. Each mux places its chunks on one writing thread, so 
 both, the disk decides: a second of the receiver is about 3.1 GB, more than one disk of a common PC writes in a
 second. A machine that keeps the whole band needs a chain per fast disk, or it keeps fewer channels.
 
+The machine of the table sits at the edge. Without a disk, raw samples pass the full rate once two muxes or more
+share the channels, and packed 12-bit samples come near it with eight channels or more: every core is busy. Its disk
+keeps only a small part of the band. On such a machine the receiver records the whole band into memory for
+a short capture, or a few of its channels to disk.
+
 ## The overview from the summaries
 
 A viewer that shows a minute of a channel draws from its [[summary nodes]], never from its samples. Each node holds

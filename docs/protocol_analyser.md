@@ -102,3 +102,7 @@ behind it, fell behind the producers.
 Without a disk, the limit is the cores: each queue's threads encode, compress and hash their frames, and the queues
 spread that work. With a disk, the limit is the disk. A chain at the line rate writes about 2.4 GB a second, which
 asks for a mux per port and a fast disk under each chain.
+
+On the machine of the table, four receive queues a port keep up with the link when no disk is behind them, and one queue
+a port falls short. Its disk keeps only a small part of the link. Such a machine records every frame into memory for a
+short capture, or a part of the traffic to disk through a filter on the capture threads.
