@@ -48,21 +48,34 @@ pub struct WindowRun {
     pub capture: Duration,
     /// Until the triage read the last piece.
     pub wall: Duration,
-    pub triaged: Triaged,
+    /// What the triage of each chain did.
+    pub triaged: Vec<Triaged>,
     /// Bytes of the results' chain.
     pub results_bytes: u64,
 }
 
 impl WindowRun {
-    /// Bytes the capture takes in memory per second of the signal.
+    /// The sum of `f` over the chains.
+    fn sum(&self, f: impl Fn(&Triaged) -> u64) -> u64 {
+        self.triaged.iter().map(f).sum()
+    }
+
+    /// Bytes the capture takes in memory per second of the signal, in all chains.
     fn tape_per_s(&self) -> f64 {
-        self.triaged.piece_bytes as f64 / self.signal_s.max(f64::MIN_POSITIVE)
+        self.sum(|t| t.piece_bytes) as f64 / self.signal_s.max(f64::MIN_POSITIVE)
     }
 }
 
-/// The cells of `r` under [WINDOW_COLUMNS], its window in half of `memory_bytes`, the machine's memory.
+/// The bytes the triage of `t` read, the pieces it looked at, of the same size on average as all of them; and the
+/// seconds it took.
+fn read_of(t: &Triaged) -> (f64, f64) {
+    let read = t.piece_bytes as f64 * t.looked as f64 / t.pieces.max(1) as f64;
+    (read, t.looking.as_secs_f64().max(f64::MIN_POSITIVE))
+}
+
+/// The cells of `r` under [WINDOW_COLUMNS], its window in half of `memory_bytes`, the machine's memory. "Held max
+/// MB" adds up the most each chain held.
 pub fn window_row(r: &WindowRun, memory_bytes: Option<u64>) -> Vec<Cell> {
-    let t = &r.triaged;
     let capture = r.capture.as_secs_f64();
     let window = memory_bytes.map_or(Cell::text("unknown"), |m| {
         Cell::num(m as f64 / 2.0 / r.tape_per_s(), 1)
@@ -71,33 +84,41 @@ pub fn window_row(r: &WindowRun, memory_bytes: Option<u64>) -> Vec<Cell> {
         Cell::num(capture * 1e3, 0),
         Cell::num(r.signal_s / capture, 2),
         Cell::num(r.wall.as_secs_f64() * 1e3, 0),
-        Cell::count(t.pieces),
-        Cell::count(t.overrun.len() as u64),
-        Cell::num(t.held_max as f64 / 1e6, 0),
+        Cell::count(r.sum(|t| t.pieces)),
+        Cell::count(r.sum(|t| t.overrun.len() as u64)),
+        Cell::num(r.sum(|t| t.held_max) as f64 / 1e6, 0),
         Cell::num(r.tape_per_s() / 1e6, 0),
         window,
     ]
 }
 
-/// The cells of `r` under [TRIAGE_COLUMNS].
+/// The cells of `r` under [TRIAGE_COLUMNS]. "Triage MB/s" is what one triage thread reads a second, and "Of the
+/// pace" that of the slowest chain against its own share of the signal.
 pub fn triage_row(r: &WindowRun) -> Vec<Cell> {
-    let t = &r.triaged;
-    let looking = t.looking.as_secs_f64().max(f64::MIN_POSITIVE);
-    // the bytes read: the pieces looked at, of the same size on average as all of them
-    let read = t.piece_bytes as f64 * t.looked as f64 / t.pieces.max(1) as f64;
-    let copying = t.copying.as_secs_f64();
+    let (read, looking) = r
+        .triaged
+        .iter()
+        .map(read_of)
+        .fold((0.0, 0.0), |(r, l), (r1, l1)| (r + r1, l + l1));
+    let pace = r
+        .triaged
+        .iter()
+        .map(|t| {
+            let (read, looking) = read_of(t);
+            read / looking / (t.piece_bytes as f64 / r.signal_s.max(f64::MIN_POSITIVE))
+        })
+        .fold(f64::INFINITY, f64::min);
+    let (pieces, kept) = (r.sum(|t| t.piece_bytes), r.sum(|t| t.kept_bytes));
+    let copying: f64 = r.triaged.iter().map(|t| t.copying.as_secs_f64()).sum();
     vec![
-        Cell::num(read / looking / 1e6, 0),
-        Cell::num(read / looking / r.tape_per_s(), 1),
-        Cell::count(t.kept.len() as u64),
-        Cell::num(100.0 * t.kept_bytes as f64 / t.piece_bytes.max(1) as f64, 1),
+        Cell::num(read / looking.max(f64::MIN_POSITIVE) / 1e6, 0),
+        Cell::num(pace, 1),
+        Cell::count(r.sum(|t| t.kept.len() as u64)),
+        Cell::num(100.0 * kept as f64 / pieces.max(1) as f64, 1),
         Cell::num(r.results_bytes as f64 / 1e3, 0),
-        Cell::num(
-            (t.kept_bytes + r.results_bytes) as f64 / r.signal_s / 1e6,
-            1,
-        ),
+        Cell::num((kept + r.results_bytes) as f64 / r.signal_s / 1e6, 1),
         if copying > 0.0 {
-            Cell::num(t.kept_bytes as f64 / copying / 1e6, 0)
+            Cell::num(kept as f64 / copying / 1e6, 0)
         } else {
             Cell::text("none kept")
         },

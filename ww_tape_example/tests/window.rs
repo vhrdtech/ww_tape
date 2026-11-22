@@ -1,4 +1,5 @@
-//! The window in memory: what it keeps around a verdict, and what it drops unread when its analyser falls behind.
+//! The window in memory: what it keeps around a verdict, what it drops unread when its analyser falls behind, and a
+//! triage of its own for each chain.
 #![allow(
     clippy::arithmetic_side_effects,
     clippy::as_conversions,
@@ -11,9 +12,9 @@
 use std::sync::mpsc;
 
 use ww_tape::{MemTape, MemTapes, OwnerId, TapeReader};
-use ww_tape_example::ethernet::Link;
 use ww_tape_example::ethernet::ram::RamCapture;
-use ww_tape_example::window::{Analyser, Triaged, Window, run};
+use ww_tape_example::ethernet::{Link, Rx, frames_id};
+use ww_tape_example::window::{Analyser, Chain, RunError, Triaged, Window, run};
 
 /// Keeps the pieces `keep` names; before its first look it waits for `go`, when there is one.
 struct Picks {
@@ -46,6 +47,7 @@ fn triaged(window: Window, keep: fn(u64) -> bool, hold: bool) -> (Triaged, MemTa
             chunk_bytes: 16 << 10,
             ..Link::full().micros(2_000)
         },
+        chains: 1,
         piece_bytes: 64 << 10,
         window,
     };
@@ -60,16 +62,19 @@ fn triaged(window: Window, keep: fn(u64) -> bool, hold: bool) -> (Triaged, MemTa
         OwnerId([0xe7; 32]),
         c.chain_options(),
         window,
-        &mut kept,
-        &mut picks,
-        |mux| {
-            let r = c.link.record(&[mux]);
+        &mut [Chain {
+            kept: &mut kept,
+            analyser: &mut picks,
+        }],
+        |muxes| {
+            let r = c.link.record(muxes);
             go_tx.send(()).ok();
             r
         },
     )
     .expect("the capture runs");
-    (ran.triaged, kept, picks.kept)
+    let [triaged] = <[Triaged; 1]>::try_from(ran.triaged).expect("a chain");
+    (triaged, kept, picks.kept)
 }
 
 #[test]
@@ -119,4 +124,103 @@ fn a_full_window_drops_the_oldest_pieces_unread() {
     assert_eq!(t.kept.len() as u64, t.looked);
     assert!(t.looked <= 1 + 9, "{} read", t.looked);
     assert_eq!(kept.keys().expect("the keys"), t.kept);
+}
+
+/// Keeps every fifth piece.
+fn fifth(seq: u64) -> bool {
+    seq.is_multiple_of(5)
+}
+
+#[test]
+fn each_chain_has_a_triage_of_its_own() {
+    let c = RamCapture {
+        link: Link {
+            chunk_bytes: 16 << 10,
+            ..Link::full().micros(2_000)
+        },
+        chains: 2,
+        piece_bytes: 64 << 10,
+        window: Window::default(),
+    };
+    let picks = || Picks {
+        keep: fifth,
+        go: None,
+        kept: Vec::new(),
+    };
+    let (mut kept0, mut kept1) = (MemTapes::new(), MemTapes::new());
+    let (mut picks0, mut picks1) = (picks(), picks());
+    let ran = run(
+        OwnerId([0xe7; 32]),
+        c.chain_options(),
+        c.window,
+        &mut [
+            Chain {
+                kept: &mut kept0,
+                analyser: &mut picks0,
+            },
+            Chain {
+                kept: &mut kept1,
+                analyser: &mut picks1,
+            },
+        ],
+        |muxes| {
+            assert_eq!(muxes.len(), 2, "a mux per chain");
+            c.link.record(muxes)
+        },
+    )
+    .expect("the capture runs");
+    assert_eq!(ran.triaged.len(), 2);
+    for (port, (t, kept, picks)) in [
+        (&ran.triaged[0], &kept0, &picks0),
+        (&ran.triaged[1], &kept1, &picks1),
+    ]
+    .into_iter()
+    .zip(0u32..)
+    .map(|(chain, port)| (port, chain))
+    {
+        assert!(t.pieces > 10, "chain {port}: {} pieces", t.pieces);
+        assert_eq!(t.looked, t.pieces, "chain {port}: every piece read");
+        let want: Vec<u64> = (0..t.pieces).filter(|&s| fifth(s)).collect();
+        assert_eq!(t.kept, want, "chain {port}");
+        assert_eq!(picks.kept, t.kept, "chain {port}");
+        assert_eq!(kept.keys().expect("the keys"), t.kept, "chain {port}");
+        // a chain holds the frames of its own port only
+        let (own, other) = (
+            Rx { port, queue: 0 },
+            Rx {
+                port: 1 - port,
+                queue: 0,
+            },
+        );
+        let mut own_chunks = 0;
+        for seq in &t.kept {
+            let tape = kept.closed(seq).expect("the store").expect("a kept piece");
+            let r = TapeReader::open(tape).expect("a kept piece reads alone");
+            own_chunks += r.track_entries(0, frames_id(own)).expect("the index").len();
+            assert!(
+                r.track_entries(0, frames_id(other))
+                    .expect("the index")
+                    .is_empty(),
+                "chain {port}, piece {seq}"
+            );
+        }
+        assert!(own_chunks > 0, "chain {port}");
+    }
+}
+
+#[test]
+fn a_capture_needs_a_chain() {
+    let c = RamCapture {
+        chains: 1,
+        ..RamCapture::full()
+    };
+    let chains: &mut [Chain<'_, MemTapes, Picks>] = &mut [];
+    let ran = run(
+        OwnerId([0xe7; 32]),
+        c.chain_options(),
+        c.window,
+        chains,
+        |muxes| c.link.record(muxes),
+    );
+    assert!(matches!(ran, Err(RunError::NoChain)), "{ran:?}");
 }

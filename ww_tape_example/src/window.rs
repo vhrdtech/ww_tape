@@ -2,7 +2,9 @@
 //! closes, and only the pieces worth keeping copied to a store of their own.
 //!
 //! A [TapeMux] writes the capture into a chain of pieces in a [MemTapes], a tape per piece
-//! ([PieceTapes::Each](ww_tape::PieceTapes)), cut by size. [triage] runs beside it in the same process. It waits on
+//! ([PieceTapes::Each](ww_tape::PieceTapes)), cut by size. A mux has one writing thread, so [run] spreads a capture
+//! faster than one thread copies over several chains, each with a mux of its own. [triage] runs beside each chain in
+//! the same process, on a thread of its own. It waits on
 //! the mux's [ProgressWatch], opens each piece once it closes ([TapeReader] over the [MemTape], no copy) and asks the
 //! [Analyser] whether to keep it. A kept piece is copied whole to the kept store, such as a directory of piece files,
 //! where it reads alone. Every other piece leaves memory ([MemTapes::remove]).
@@ -54,8 +56,7 @@ use shrink_wrap::prelude::*;
 use ww_tape::reader::ReadError;
 use ww_tape::{
     ByteSource, ChainOptions, ClockNum, Ends, EventsDef, Items, MemError, MemTape, MemTapes,
-    OwnerId, PieceTapes, Segment, TapeReader, TapeSink, Tapes, TrackKind, TrackRepeat, TrackSpec,
-    track_key,
+    OwnerId, PieceTapes, TapeReader, TapeSink, Tapes, TrackKey, TrackKind, TrackRepeat, TrackSpec,
 };
 use ww_tape_mux::{Event, EventsHandle, MuxError, MuxOptions, ProgressWatch, TapeMux};
 
@@ -65,7 +66,7 @@ pub const COPY_BYTES: usize = 4 << 20;
 /// What a window of a capture in memory keeps, and how much memory it may take.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Window {
-    /// Bytes the pieces in memory take at most, the piece being written included. Past it the oldest pieces leave
+    /// Bytes the pieces of a chain in memory take at most, the piece being written included. Past it the oldest pieces leave
     /// memory: first those already read, then those not yet read ([Triaged::overrun]).
     pub bytes_max: u64,
     /// Pieces before a piece the analyser keeps that are kept with it.
@@ -289,22 +290,30 @@ impl Run {
     }
 }
 
-/// Capture into a window in memory: `record` writes the capture through a mux into a chain in memory cut by
-/// `options`, a tape per piece, while [triage] runs `analyser` over it on a thread of its own.
+/// A chain of a capture in memory as [run] reads it: the store its kept pieces go to and its analyser.
+pub struct Chain<'k, K, A> {
+    pub kept: &'k mut K,
+    pub analyser: A,
+}
+
+/// Capture into a window in memory, a chain in memory for each of `chains`, each read by a triage of its own.
 ///
-/// What `record` returned and what the triage did. The mux closes once `record` returns, so `record` ends its
-/// handles first.
+/// `record` writes the capture through a mux per chain, each into a chain in memory cut by `options`, a tape per
+/// piece. [triage] runs each chain's analyser over it on a thread of its own, `window` holding each chain's pieces.
+///
+/// The mux of `chains[c]` writes chain `c`. A mux has one writing thread, so a capture faster than one thread copies
+/// spreads over several chains. What `record` returned and what each chain's triage did. The muxes close once
+/// `record` returns, so `record` ends its handles first.
 ///
 /// # Errors
 ///
-/// The capture's error, the mux's, or the triage's.
+/// No chain, the capture's error, a mux's, or a triage's.
 pub fn run<K, A, X, C>(
     owner: OwnerId,
     options: ChainOptions,
     window: Window,
-    kept: &mut K,
-    analyser: A,
-    record: impl FnOnce(&TapeMux<MemTapes>) -> Result<X, C>,
+    chains: &mut [Chain<'_, K, A>],
+    record: impl FnOnce(&[&TapeMux<MemTapes>]) -> Result<X, C>,
 ) -> Result<Ran<X>, RunError<C, K::Error, A::Error>>
 where
     K: Tapes + Send,
@@ -312,49 +321,83 @@ where
     A::Error: Send,
     K::Error: Send,
 {
-    let ram = MemTapes::new();
+    if chains.is_empty() {
+        return Err(RunError::NoChain);
+    }
     let options = ChainOptions {
         tapes: PieceTapes::Each,
         ..options
     };
-    let mux = TapeMux::create(ram.clone(), owner, 0, &[], options, MuxOptions::default())
+    let rams: Vec<MemTapes> = chains.iter().map(|_| MemTapes::new()).collect();
+    let muxes = rams
+        .iter()
+        .zip(0..)
+        .map(|(ram, chain)| {
+            TapeMux::create(
+                ram.clone(),
+                owner,
+                chain,
+                &[],
+                options.clone(),
+                MuxOptions::default(),
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()
         .map_err(RunError::Mux)?;
-    let watch = mux.watch();
-    let start = std::time::Instant::now();
+    let watches: Vec<ProgressWatch> = muxes.iter().map(TapeMux::watch).collect();
+    let start = Instant::now();
     std::thread::scope(|s| {
-        let triaged = s.spawn(|| triage(&ram, &watch, window, kept, analyser));
-        let recorded = record(&mux);
-        // a mux closed, or dropped after a failed capture, ends the triage
-        let closed = mux.close();
+        let triages: Vec<_> = chains
+            .iter_mut()
+            .zip(&rams)
+            .zip(&watches)
+            .map(|((c, ram), watch)| {
+                s.spawn(move || triage(ram, watch, window, c.kept, &mut c.analyser))
+            })
+            .collect();
+        let recorded = record(&muxes.iter().collect::<Vec<_>>());
+        // a mux closed, or dropped after a failed capture, ends its triage
+        let closed: Vec<_> = muxes.into_iter().map(TapeMux::close).collect();
         let capture_time = start.elapsed();
-        let triaged = triaged
-            .join()
-            .map_err(|_panic| RunError::Thread("the triage"))?;
+        let mut triaged = Vec::with_capacity(triages.len());
+        for t in triages {
+            let t = t.join().map_err(|_panic| RunError::Thread("a triage"))?;
+            triaged.push(t);
+        }
         let recorded = recorded.map_err(RunError::Capture)?;
-        closed.map_err(RunError::Mux)?;
+        for c in closed {
+            c.map_err(RunError::Mux)?;
+        }
         Ok(Ran {
             recorded,
             capture_time,
-            triaged: triaged.map_err(RunError::Window)?,
+            triaged: triaged
+                .into_iter()
+                .collect::<Result<_, _>>()
+                .map_err(RunError::Window)?,
         })
     })
 }
 
-/// What [run] gives: what the capture returned and what the triage did.
+/// What [run] gives: what the capture returned and what each chain's triage did.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Ran<X> {
     pub recorded: X,
-    /// From the mux's start until it closed: every byte of the capture in memory, the triage perhaps still reading.
-    pub capture_time: core::time::Duration,
-    pub triaged: Triaged,
+    /// From the muxes' start until they closed: every byte of the capture in memory, the triage perhaps still
+    /// reading.
+    pub capture_time: Duration,
+    /// A [Triaged] per chain, in the order of the chains.
+    pub triaged: Vec<Triaged>,
 }
 
 /// Why [run] failed: `C` is the capture's error, `K` the kept store's, `A` the analyser's.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum RunError<C, K, A> {
+    /// [run] was given no chain.
+    NoChain,
     Capture(C),
-    /// The mux of the chain in memory.
+    /// A mux of a chain in memory.
     Mux(MuxError<MemError>),
     Window(WindowError<K, A>),
     /// A thread panicked.
@@ -366,8 +409,9 @@ impl<C: core::fmt::Debug, K: core::fmt::Debug, A: core::fmt::Debug> core::fmt::D
 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
+            Self::NoChain => f.write_str("a capture into memory needs a chain"),
             Self::Capture(e) => write!(f, "the capture: {e:?}"),
-            Self::Mux(e) => write!(f, "the mux in memory: {e:?}"),
+            Self::Mux(e) => write!(f, "a mux in memory: {e:?}"),
             Self::Window(e) => write!(f, "{e}"),
             Self::Thread(what) => write!(f, "{what} panicked"),
         }
@@ -396,11 +440,11 @@ impl<P, R> From<MuxError<R>> for LookError<P, R> {
     }
 }
 
-/// The track `kept` of an analyser's results under `root`, on `clock`: a span per piece kept, from its first item's
-/// tick to its last one's, the piece's sequence number as 8 bytes little-endian.
-pub fn kept_spec(root: u64, clock: ClockNum) -> TrackSpec<'static> {
+/// A track `kept` of an analyser's results under `key`, on `clock`: a span per piece of its chain kept, from its
+/// first item's tick to its last one's, the piece's sequence number as 8 bytes little-endian.
+pub fn kept_spec(key: TrackKey, clock: ClockNum) -> TrackSpec<'static> {
     TrackSpec {
-        key: track_key(root, &[Segment::Name("kept")]),
+        key,
         clock,
         dimensions: RefVec::Slice { slice: &[] },
         items: Items::RawBytes,

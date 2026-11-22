@@ -109,21 +109,26 @@ impl RfCapture {
             .channel()
             .def()
             .ok_or(RfError::Settings("a channel's rate"))?;
-        let mut analyser = Bursts::new(self, def, results).map_err(RfError::Results)?;
+        let mut chain = [window::Chain {
+            kept,
+            analyser: Bursts::new(self, def, results).map_err(RfError::Results)?,
+        }];
         let ran = window::run(
             OWNER,
             self.wb.chain_options(),
             self.window,
-            kept,
-            &mut analyser,
-            |mux| self.wb.record(&[mux], source),
+            &mut chain,
+            |muxes| self.wb.record(muxes, source),
         )
         .map_err(RfError::Run)?;
+        let [window::Chain { analyser, .. }] = chain;
         let bursts = analyser.finish().map_err(RfError::Results)?;
+        let [triaged] = <[Triaged; 1]>::try_from(ran.triaged)
+            .map_err(|_triaged| RfError::Settings("a triage of the one chain"))?;
         Ok(RfRun {
             recorded: ran.recorded,
             capture_time: ran.capture_time,
-            triaged: ran.triaged,
+            triaged,
             bursts,
         })
     }
@@ -177,7 +182,7 @@ pub fn bursts_spec(k: u32, clock: ClockNum) -> TrackSpec<'static> {
 
 /// The results' track `kept`, on `clock`.
 pub fn kept_track(clock: ClockNum) -> TrackSpec<'static> {
-    kept_spec(RESULTS_ROOT, clock)
+    kept_spec(track_key(RESULTS_ROOT, &[Segment::Name("kept")]), clock)
 }
 
 /// A channel as the analyser reads and reports it.

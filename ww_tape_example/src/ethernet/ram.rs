@@ -1,7 +1,8 @@
 //! The analyser capturing the link into memory at line rate and keeping only the pieces around TCP resets.
 //!
-//! [RamCapture::run] records the link as [Link::record] does, into a chain of pieces in memory ([crate::window]).
-//! Its analyser, [Resets], reads each piece as it closes. It decodes every frame of the piece and looks for a TCP
+//! [RamCapture::run] records the link as [Link::record] does, into chains of pieces in memory ([crate::window]):
+//! port `p` into chain `p % chains`, through a mux of its own. A chain's analyser, [Resets], reads each piece of its
+//! chain as it closes, on a thread of its own. It decodes every frame of the piece and looks for a TCP
 //! reset ([L4::is_reset]). A piece that holds one is kept, with [Window::before] pieces before it and
 //! [Window::after] after it; the rest leave memory unwritten.
 //!
@@ -10,10 +11,10 @@
 //! | Track | Item | Payload |
 //! |---|---|---|
 //! | `resets` of each receive queue | a TCP reset at its frame's tick, the frame's number in the relation `frame` | the frame's `ipv4` and `l4` items: [RESET_BYTES] |
-//! | `kept` | a piece kept, from its first item's tick to its last one's ([KeptLog]) | the piece's sequence number, 8 bytes LE |
+//! | `kept` of each chain | a piece of the chain kept, from its first item's tick to its last one's ([KeptLog]) | the piece's sequence number, 8 bytes LE |
 //!
-//! A reset names its frame by its item number in the queue's `frames`. The frame lies in the kept piece the analyser
-//! found it in, and a reader finds it by that number there.
+//! A reset names its frame by its item number in the queue's `frames`. The frame lies in the kept piece of its chain
+//! the analyser found it in, and a reader finds it by that number there.
 
 use shrink_wrap::prelude::*;
 use ww_tape::payloads::Payloads;
@@ -40,6 +41,8 @@ pub const RESET_BYTES: usize = IPV4_BYTES + L4_BYTES;
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct RamCapture {
     pub link: Link,
+    /// Chains in memory, each written by a mux and read by a triage of its own: 1 or 2, one per port.
+    pub chains: u32,
     /// Bytes of a piece in memory at most: the unit the window keeps or drops.
     pub piece_bytes: u64,
     pub window: Window,
@@ -47,14 +50,15 @@ pub struct RamCapture {
 // --8<-- [end:ram_capture]
 
 impl RamCapture {
-    /// A second of the link at its line rate over 4 receive queues a port, pieces of 64 MiB, a window of 8 GiB, the
-    /// piece before and the piece after a reset kept with it.
+    /// A second of the link at its line rate over 4 receive queues a port, a chain per port, pieces of 64 MiB, a
+    /// window of 4 GiB a chain, the piece before and the piece after a reset kept with it.
     pub const fn full() -> Self {
         Self {
             link: Link::full().queues(4),
+            chains: 2,
             piece_bytes: 64 << 20,
             window: Window {
-                bytes_max: 8 << 30,
+                bytes_max: 4 << 30,
                 before: 1,
                 after: 1,
             },
@@ -72,15 +76,15 @@ impl RamCapture {
         }
     }
 
-    /// Record the link into memory, keep the pieces around each reset in `kept` and the analyser's results through
-    /// `results`, as the [module docs](self) say.
+    /// Record the link into memory, keep the pieces of chain `c` around each reset in `kept[c]` and the analysers'
+    /// results through `results`, as the [module docs](self) say.
     ///
     /// # Errors
     ///
-    /// The capture's, the triage's or the results' error.
+    /// Not a kept store per chain, or the capture's, a triage's or the results' error.
     pub fn run<K, R>(
         &self,
-        kept: &mut K,
+        kept: &mut [K],
         results: &TapeMux<R>,
     ) -> Result<RamRun, RamError<K::Error, R::Error>>
     where
@@ -91,17 +95,33 @@ impl RamCapture {
         R::Key: Send,
         R::Error: Send + Sync,
     {
-        let mut analyser = Resets::new(&self.link, results).map_err(RamError::Results)?;
+        if !(1..=2).contains(&self.chains) || kept.len() != self.chains as usize {
+            return Err(RamError::Chains);
+        }
+        let clock = results.define_clock(clock()).map_err(RamError::Results)?;
+        let mut chains = kept
+            .iter_mut()
+            .zip(0..)
+            .map(|(kept, chain)| {
+                Ok(window::Chain {
+                    kept,
+                    analyser: Resets::new(&self.link, chain, self.chains, clock, results)?,
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(RamError::Results)?;
         let ran = window::run(
             OWNER,
             self.chain_options(),
             self.window,
-            kept,
-            &mut analyser,
-            |mux| self.link.record(&[mux]),
+            &mut chains,
+            |muxes| self.link.record(muxes),
         )
         .map_err(RamError::Run)?;
-        let resets = analyser.finish().map_err(RamError::Results)?;
+        let mut resets = Vec::new();
+        for c in chains {
+            resets.extend(c.analyser.finish().map_err(RamError::Results)?);
+        }
         Ok(RamRun {
             captured: ran.recorded,
             capture_time: ran.capture_time,
@@ -111,13 +131,15 @@ impl RamCapture {
     }
 }
 
-/// What [RamCapture::run] did: what the ports sent, what the window kept, and every reset the analyser found.
+/// What [RamCapture::run] did: what the ports sent, what the window of each chain kept, and every reset the analysers
+/// found.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RamRun {
     pub captured: super::Captured,
     /// [Ran::capture_time](crate::window::Ran::capture_time).
     pub capture_time: core::time::Duration,
-    pub triaged: Triaged,
+    /// A [Triaged] per chain.
+    pub triaged: Vec<Triaged>,
     pub resets: Vec<Reset>,
 }
 
@@ -130,7 +152,8 @@ pub struct Reset {
     pub frame: u64,
     pub ipv4: Ipv4,
     pub l4: L4,
-    /// The piece of the capture that holds it.
+    /// The chain of the capture that holds it, and the piece of that chain.
+    pub chain: u32,
     pub piece: u64,
 }
 
@@ -144,8 +167,8 @@ impl Reset {
         b
     }
 
-    /// The reset of queue `rx` from its tick, its frame and its payload in `resets`; it doesn't say its piece,
-    /// which is 0.
+    /// The reset of queue `rx` from its tick, its frame and its payload in `resets`; it doesn't say its chain or its
+    /// piece, which are 0.
     pub fn from_bytes(rx: Rx, tick: i64, frame: u64, b: &[u8]) -> Option<Self> {
         let (ipv4, l4) = b.split_at_checked(IPV4_BYTES)?;
         Some(Self {
@@ -154,6 +177,7 @@ impl Reset {
             frame,
             ipv4: Ipv4::from_bytes(ipv4)?,
             l4: L4::from_bytes(l4)?,
+            chain: 0,
             piece: 0,
         })
     }
@@ -195,9 +219,19 @@ pub fn resets_spec<'r>(rx: Rx, clock: ClockNum, relations: &'r [RelationDef<'r>]
     }
 }
 
-/// The results' track `kept`, on `clock`.
-pub fn kept_track(clock: ClockNum) -> TrackSpec<'static> {
-    kept_spec(RESULTS_ROOT, clock)
+/// The results' track `kept` of chain `chain`, on `clock`.
+pub fn kept_track(chain: u32, clock: ClockNum) -> TrackSpec<'static> {
+    kept_spec(
+        track_key(
+            RESULTS_ROOT,
+            &[
+                Segment::Name("chain"),
+                Segment::Index(chain),
+                Segment::Name("kept"),
+            ],
+        ),
+        clock,
+    )
 }
 
 /// A receive queue as the analyser reads and reports it.
@@ -215,8 +249,8 @@ where
     resets: EventsHandle<R>,
 }
 
-/// The analyser of [RamCapture]: it finds the TCP resets among the frames of each piece, keeps the pieces that hold
-/// one and pushes its results.
+/// The analyser of a chain of [RamCapture]: it finds the TCP resets among the frames of each piece, keeps the pieces
+/// that hold one and pushes its results.
 pub struct Resets<R>
 where
     R: Tapes + Send + 'static,
@@ -224,6 +258,7 @@ where
     R::Key: Send,
     R::Error: Send + Sync,
 {
+    chain: u32,
     queues: Vec<Queue<R>>,
     kept: KeptLog<R>,
     found: Vec<Reset>,
@@ -237,19 +272,25 @@ where
     R::Key: Send,
     R::Error: Send + Sync,
 {
-    /// The analyser of `link`'s receive queues, its results' clock and tracks defined on `results`.
+    /// The analyser of chain `chain` of `chains`: the receive queues of `link`'s ports `p` with `p % chains ==
+    /// chain`, its results' tracks defined on `results` on `clock`.
     ///
     /// # Errors
     ///
     /// A definition or handle `results` refused.
-    pub fn new(link: &Link, results: &TapeMux<R>) -> Result<Self, MuxError<R::Error>> {
-        let clock = results.define_clock(clock())?;
+    pub fn new(
+        link: &Link,
+        chain: u32,
+        chains: u32,
+        clock: ClockNum,
+        results: &TapeMux<R>,
+    ) -> Result<Self, MuxError<R::Error>> {
         let options = EventsOptions {
             latency: None,
             ..EventsOptions::default()
         };
         let mut queues = Vec::new();
-        for rx in link.rxs() {
+        for rx in link.rxs().filter(|rx| rx.port % chains.max(1) == chain) {
             let relation = [frame_relation(rx)];
             let track = results.define_track(resets_spec(rx, clock, &relation))?;
             queues.push(Queue {
@@ -258,8 +299,9 @@ where
                 resets: results.events(track, options)?,
             });
         }
-        let kept = results.events(results.define_track(kept_track(clock))?, options)?;
+        let kept = results.events(results.define_track(kept_track(chain, clock))?, options)?;
         Ok(Self {
+            chain,
             queues,
             kept: KeptLog::new(kept),
             found: Vec::new(),
@@ -282,10 +324,11 @@ where
 }
 
 // --8<-- [start:look]
-/// The resets among the frames of queue `frames` (its id) in piece `seq`: each frame decoded, its TCP flags tested.
+/// The resets among the frames of queue `frames` (its id) in piece `seq` of chain `chain`: each frame decoded, its
+/// TCP flags tested.
 fn resets_of(
     piece: &TapeReader<MemTape>,
-    seq: u64,
+    (chain, seq): (u32, u64),
     rx: Rx,
     frames: TrackId,
     buf: &mut Vec<u8>,
@@ -310,6 +353,7 @@ fn resets_of(
                     frame: entry.first_item.get() + j as u64,
                     ipv4,
                     l4,
+                    chain,
                     piece: seq,
                 });
             }
@@ -331,8 +375,8 @@ where
     fn look(&mut self, seq: u64, piece: &TapeReader<MemTape>) -> Result<bool, Self::Error> {
         let mut hit = false;
         for q in &mut self.queues {
-            let found =
-                resets_of(piece, seq, q.rx, q.frames, &mut self.buf).map_err(LookError::Piece)?;
+            let found = resets_of(piece, (self.chain, seq), q.rx, q.frames, &mut self.buf)
+                .map_err(LookError::Piece)?;
             let payloads: Vec<[u8; RESET_BYTES]> = found.iter().map(Reset::to_bytes).collect();
             let frames: Vec<u64> = found.iter().map(|r| r.frame).collect();
             let events: Vec<Event<'_>> = found
@@ -365,6 +409,8 @@ where
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum RamError<K, R> {
+    /// [RamCapture::chains] is not 1 or 2, or not the number of kept stores.
+    Chains,
     /// The results' mux refused a definition or a handle, or the last chunk of one.
     Results(MuxError<R>),
     /// The capture, the window or the analyser.
@@ -374,6 +420,7 @@ pub enum RamError<K, R> {
 impl<K: core::fmt::Debug, R: core::fmt::Debug> core::fmt::Display for RamError<K, R> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
+            Self::Chains => f.write_str("1 or 2 chains, a kept store each"),
             Self::Results(e) => write!(f, "the results: {e:?}"),
             Self::Run(e) => write!(f, "{e}"),
         }

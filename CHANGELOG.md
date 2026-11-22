@@ -23,8 +23,8 @@ benchmarks, golden files and book pages.
 - `just bench-chunks` also times a chain written into one memory tape, a cut per 16 chunks (REPO-1).
 - A bench report names the machine's memory, and the book's machine lines say it (EX-4).
 - `bench-ethernet` and `bench-wideband` time a capture into a window in memory, its triage and the bytes kept (EX-4).
-- `ww_tape_example::window`: a capture in memory whose analyser keeps pieces, the rest freed unwritten (EX-4).
-- `ethernet::ram`: the analyser keeps the pieces around each TCP reset of the link and logs the resets (EX-4).
+- `ww_tape_example::window`: a capture into memory chains, a triage thread each, keeping what its analyser picks (EX-4).
+- `ethernet::ram`: a chain per port keeps the pieces around each TCP reset and logs the resets (EX-4).
 - `wideband::ram`: a 250 MS/s receiver into memory; energy detection on summaries keeps the pieces around bursts (EX-4).
 - The analyser's link sends a TCP reset in one frame of 4 million by default, `Link::resets` sets the rate (EX-4).
 

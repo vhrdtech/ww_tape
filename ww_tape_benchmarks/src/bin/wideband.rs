@@ -351,7 +351,7 @@ where
         signal_s: c.wb.ms as f64 / 1e3,
         capture: run.capture_time,
         wall,
-        triaged: run.triaged,
+        triaged: vec![run.triaged],
         results_bytes: closed.iter().map(|p| p.piece.len).sum(),
     })
 }
