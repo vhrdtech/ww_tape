@@ -11,7 +11,7 @@ into `docs/bench/`:
 | `drive` | `just bench-drive` | the book's running example at full scale: bytes by block kind, bytes per item, time to record |
 | `event_times` | `just bench-event-times` | event start ticks against raw ticks, varints and Elias-Fano |
 | `summaries` | `just bench-summaries` | series summaries, and the kernels against one statistic at a time |
-| `chunks` | `just bench-chunks` | the writer's cost per series chunk, and a track's timeline |
+| `chunks` | `just bench-chunks` | the writer's cost per series chunk, into a memory sink and a chain in one memory tape, and a track's timeline |
 | `tracks` | `just bench-tracks` | tracks added one by one, puts and copies |
 | `starts` | `just bench-starts` | a starts column read intact and salvaged |
 | `relations` | `just bench-relations` | track relation columns |
