@@ -356,10 +356,11 @@ The pages in `docs/`.
   - `rf` records an RF capture, ComplexI16 IQ at 20 MS/s with summaries, as the book's case for high rates; `tests/rf.rs` pins its size per codec. `rf chains` writes it into two chains, IQ and decoded bursts, through two muxes while a reader merges both.
   - Read more: [ww_tape_example](ww_tape_example/README.md).
 
-- 🚧 **BOOK-4 Cases beside the drive**
-  - Done: `ethernet` records a protocol analyser on both directions of a 10 Gbps link: frames as raw-bytes events, decoded IPv4 and TCP or UDP headers as tracks related to their frames, a capture and a decoder thread per receive queue, one mux or a mux per port. `tests/ethernet.rs` reads every frame and header back; `just bench-ethernet` measures how much of the link it keeps up with.
-  - Open: the 1 GS/s radio case, and the book's chapters using both cases.
-  - Read more: [ww_tape_example](ww_tape_example/README.md).
+- ✅ **BOOK-4 Cases beside the drive**
+  - `ethernet` records a protocol analyser on both directions of a 10 Gbps link: frames as raw-bytes events, decoded IPv4 and TCP or UDP headers as tracks related to their frames, a capture and a decoder thread per receive queue, one mux or a mux per port. `tests/ethernet.rs` reads every frame and header back.
+  - `wideband` records a 1 GS/s receiver in channels, a series track and a producer thread each, spread over several muxes and chains; an overview reads only the summary nodes. `tests/wideband.rs` reads every sample back and finds the bursts from the overview.
+  - `just bench-ethernet` and `just bench-wideband` measure how much of the link and the band one PC keeps, without a disk and into piece files; `bench-book` runs both.
+  - Read more: [Every frame of a 10 Gbps link](docs/protocol_analyser.md), [A billion samples a second](docs/wideband.md), [ww_tape_example](ww_tape_example/README.md).
 
 ## Repository (`REPO`)
 

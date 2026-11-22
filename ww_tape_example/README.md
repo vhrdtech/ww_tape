@@ -42,3 +42,22 @@ cargo run --release -p ww_tape_example --bin rf -- chains rf 100     # the same 
 ```
 
 `tests/rf.rs` checks that a capture reads back sample for sample and pins the size of a second at the full rate. It also checks the two chains: every burst found, every sample kept, the merge in time order. `ww_tape_benchmarks` times it: `--bin rf_core` on one core, `--bin rf_chain` into a chain of files.
+
+## The protocol analyser
+
+The module `ethernet` records both directions of a 10 Gbps Ethernet link, as an analyser on a tap sees them. Every frame is an event of the track `frames` with its bytes. A decoder finds each frame's IPv4 header and its TCP or UDP header and writes them to the tracks `ipv4` and `l4`, each item related to its frame. The traffic is synthetic: the simple IMIX over a set of flows, with random payloads, made from the frame's number.
+
+A port spreads its frames over receive queues, as a NIC does. Each queue has a capture thread and a decoder thread, since a track has one producer. Both ports go through one mux, or a mux per port into a chain each.
+
+```sh
+cargo run --release -p ww_tape_example --bin ethernet        # what each track takes for 10 ms of the link
+cargo run --release -p ww_tape_example --bin ethernet -- 100  # the same for 100 ms
+```
+
+`tests/ethernet.rs` reads every frame and header back and pins the sizes the book quotes. `ww_tape_benchmarks` times it: `--bin ethernet`, or `just bench-ethernet`.
+
+## The wideband receiver
+
+The module `wideband` records a receiver of 1 billion complex samples a second, split into channels of equal width. Each channel is the RF capture's signal at its share of the rate, a series track with summaries and a producer thread of its own. Channel `k` goes to mux `k % m`, so several muxes write several chains from one process. `overview` reads the nodes of one summary level from every piece and no samples.
+
+`tests/wideband.rs` reads every sample of every channel back, finds the bursts from the overview alone and pins the sizes the book quotes. `ww_tape_benchmarks` times it: `--bin wideband`, or `just bench-wideband`.
