@@ -27,17 +27,17 @@ use ww_tape::chunk::ChunkHead;
 use ww_tape::samples::{Samples, Scalar, encode, max_encoded_len};
 use ww_tape::summary::{SeriesStats, SeriesSummarySpec};
 use ww_tape::{
-    BlockKind, ClockOrigin, ClockRef, ClockSpec, Codec, ColumnKind, ColumnSpec, Definitions,
-    ElementDesc, EndMode, Items, Magnitude, MemSink, Ratio64, SampleShape, Segment, SeriesDef,
-    SeriesGrid, SessionTag, SyncPolicy, TapeReader, TapeSink, TapeWriter, TrackKey, TrackKind,
-    TrackRepeat, TrackSpec, clock_key, track_key,
+    BlockKind, ClockNum, ClockOrigin, ClockRef, ClockSpec, Codec, ColumnKind, ColumnSpec,
+    Definitions, ElementDesc, EndMode, Items, Magnitude, MemSink, Ratio64, SampleShape, Segment,
+    SeriesDef, SeriesGrid, SessionTag, SyncPolicy, TapeReader, TapeSink, TapeWriter, TrackKey,
+    TrackKind, TrackRepeat, TrackSpec, clock_key, track_key,
 };
 use ww_tape_summary::{SeriesStart, SeriesSummaries};
 
 use crate::signals::hash;
 
 /// The root of the front end's API: its track and clock keys start from it.
-const API_ROOT: u64 = 0x5d12_0001;
+pub(crate) const API_ROOT: u64 = 0x5d12_0001;
 /// The shape of a sample of `iq`: one [IQ_ELEMENT].
 pub const fn iq_shape() -> SampleShape {
     SampleShape {
@@ -155,16 +155,16 @@ impl Rf {
     /// The front end's definitions: its sample clock in ns since the capture starts, and the track `iq` of
     /// `ComplexI16` samples on it; with the number `iq` was given.
     pub fn definitions<E>(&self) -> Result<(Definitions, TrackNum), RfError<E>> {
-        let def = self.def().ok_or(RfError::Settings("the rate is 0"))?;
         let mut defs = Definitions::new();
-        let clock = defs.define_clock(ClockSpec {
-            key: clock_key(API_ROOT, &[Segment::Name("sample_clock")], 1),
-            rate: Magnitude::pow10(9).into(),
-            resolution: Magnitude::pow10(-9).into(),
-            origin: ClockOrigin::Boot,
-            label: "front end ns",
-        })?;
-        let iq = defs.define_track(TrackSpec {
+        let clock = defs.define_clock(clock())?;
+        let iq = defs.define_track(self.iq_track(clock)?)?;
+        Ok((defs, iq))
+    }
+
+    /// The track `iq` of `ComplexI16` samples on clock `clock`.
+    pub fn iq_track<E>(&self, clock: ClockNum) -> Result<TrackSpec<'static>, RfError<E>> {
+        let def = self.def().ok_or(RfError::Settings("the rate is 0"))?;
+        Ok(TrackSpec {
             key: iq_key(),
             clock,
             dimensions: RefVec::Slice { slice: &[] },
@@ -177,8 +177,7 @@ impl Rf {
             kind: TrackKind::Series(def),
             relations: RefVec::Slice { slice: &[] },
             owner: [0; 32],
-        })?;
-        Ok((defs, iq))
+        })
     }
 
     /// The signal of this capture.
@@ -334,6 +333,17 @@ impl Rf {
             })
         })?;
         self.record_on(sink)
+    }
+}
+
+/// The front end's sample clock: ns since the capture starts.
+pub fn clock() -> ClockSpec<'static> {
+    ClockSpec {
+        key: clock_key(API_ROOT, &[Segment::Name("sample_clock")], 1),
+        rate: Magnitude::pow10(9).into(),
+        resolution: Magnitude::pow10(-9).into(),
+        origin: ClockOrigin::Boot,
+        label: "front end ns",
     }
 }
 
