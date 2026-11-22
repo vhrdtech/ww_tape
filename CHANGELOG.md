@@ -14,6 +14,7 @@ benchmarks, golden files and book pages.
 - `ww_tape_example::wideband`: a 1 GS/s receiver in channels over several muxes, with an overview from summaries (EX-2).
 - `just bench-ethernet` and `just bench-wideband` record both cases at full speed; `bench-book` runs them (EX-2).
 - Book: "Writing from many threads" explains the mux, its queue, back-pressure, order, errors and speed (BOOK-2).
+- Book: the chapter opens with two short examples, threads and tasks, before the drive's case (BOOK-2).
 - `just bench-book` also runs `bench-handles`; the book draws its tables from `docs/bench/handles.json` (BOOK-2).
 - The example's calls table names each handle call and counts the summary blocks the mux defers (EX-3).
 

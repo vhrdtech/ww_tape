@@ -21,5 +21,9 @@ ww_tape_fs.workspace = true
 ww_tape_mux.workspace = true
 ww_tape_summary = { workspace = true, features = ["std"] }
 
+[dev-dependencies]
+# tests/producers.rs: the async twin of producers::threads, on tokio tasks; ww_tape_mux itself keeps no runtime dependency
+tokio.workspace = true
+
 [lints]
 workspace = true

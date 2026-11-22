@@ -41,6 +41,27 @@ A shared lock around the writer would serialize the producers instead. A slow sy
 producer that waits for the lock. With a writing thread, a sync blocks only that thread. A producer waits only when
 the queue is full, and the thread wakes by itself when a sync or a checkpoint falls due.
 
+## A small mux
+
+A mux this small still shows the shape. Two sensors push pings on their own events track, each in one call to
+[`EventsHandle::push_all`]. A third pushes levels on a series track with [`SeriesHandle::push`]. Each thread holds
+its own handle into one chain in memory, joins, and the mux closes:
+
+```rs
+--8<-- "ww_tape_example/src/producers.rs:threads"
+```
+
+Reading the chain back after the close shows every item of every thread arrived.
+
+Every blocking call has an async twin, named with `_async`. The same three sources, as tasks on tokio instead of
+threads, push and close the same way:
+
+```rs
+--8<-- "ww_tape_example/tests/producers.rs:tasks"
+```
+
+`smol::spawn` schedules the same futures the same way; neither runtime is a dependency of `ww_tape_mux`.
+
 ## The drive with one thread per source
 
 The drive's hour ([What a tape holds](tape.md)) shows the pattern with four threads. The program first starts a mux on a chain in memory and

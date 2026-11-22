@@ -56,7 +56,8 @@ serde = { version = "1", default-features = false, features = ["std"] }
 serde_json = { version = "1", default-features = false, features = ["std"] }
 # ww_tape_tests: the mux's and the followers' futures run on smol, no runtime in any crate's dependencies
 smol = { version = "2", default-features = false }
-# ww_tape_tests: the mux's and the followers' futures run on tokio's schedulers, without its I/O or time drivers
+# ww_tape_tests and ww_tape_example's tests: the mux's and the followers' futures run on tokio's schedulers, without
+# its I/O or time drivers
 tokio = { version = "1", default-features = false, features = ["rt", "rt-multi-thread"] }
 
 # exact_units' panic-class lints for every crate: no panic, overflow or unchecked index reachable from file bytes
