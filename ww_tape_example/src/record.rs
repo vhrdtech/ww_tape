@@ -70,6 +70,9 @@ struct Acts {
     summaries: Option<SeriesSummaries<i16>>,
     queue: VecDeque<Act>,
     finished: bool,
+    /// Whether the acts are for a mux, which encodes the samples and makes the summaries itself: a chunk of `phase_a`
+    /// then holds its head only and no summary acts are made.
+    lean: bool,
 }
 
 /// The first item of a track of `per_hour` items, item `i` at `i * US_PER_HOUR / per_hour` µs, at or after `us`.
@@ -86,7 +89,17 @@ pub(crate) fn item_us(i: u64, per_hour: u64) -> i64 {
 }
 
 impl Acts {
+    /// The acts of `drive` for a writer that takes every block made, as [Drive::acts] says.
     fn new(drive: Drive) -> Result<Self, Error> {
+        Self::make(drive, false)
+    }
+
+    /// The acts of `drive` for a mux: its `phase_a` chunks carry no columns.
+    fn lean(drive: Drive) -> Result<Self, Error> {
+        Self::make(drive, true)
+    }
+
+    fn make(drive: Drive, lean: bool) -> Result<Self, Error> {
         if drive.phase_hz == 0 || 1_000_000 % drive.phase_hz != 0 {
             return Err(Error::Settings("phase_hz divides 1 000 000"));
         }
@@ -99,7 +112,7 @@ impl Acts {
         let numbers = drive.numbers()?;
         let run_ms = u64::from(drive.minutes) * 60_000;
         let blocks = run_ms.div_ceil(u64::from(drive.block_ms));
-        let summaries = if drive.summaries {
+        let summaries = if drive.summaries && !lean {
             let def = crate::defs::phase_def(drive.phase_hz, true)
                 .ok_or(Error::Settings("phase_hz is not 0"))?;
             // --8<-- [start:summaries]
@@ -124,6 +137,7 @@ impl Acts {
             summaries,
             queue: VecDeque::new(),
             finished: false,
+            lean,
         })
     }
 
@@ -217,17 +231,21 @@ impl Acts {
         if !samples.is_empty() {
             let def = crate::defs::phase_def(d.phase_hz, d.summaries)
                 .ok_or(Error::Settings("phase_hz is not 0"))?;
-            let values: Vec<i16> = samples
-                .clone()
-                .map(|n| phase_ma(item_us(n, hz), n, d.phase_hz))
-                .collect();
+            let values: Vec<i16> = if self.lean {
+                Vec::new()
+            } else {
+                samples
+                    .clone()
+                    .map(|n| phase_ma(item_us(n, hz), n, d.phase_hz))
+                    .collect()
+            };
             // --8<-- [start:samples]
             let shape = crate::defs::phase_shape(&def);
             let mut bytes = vec![0u8; max_encoded_len(PHASE_CODEC, shape, values.len())?];
             let len = encode(PHASE_CODEC, shape, &values, &mut bytes)?;
             bytes.truncate(len);
             let grid: SeriesGrid = def.first_grid(0);
-            let count = u32::try_from(values.len())
+            let count = u32::try_from(samples.end - samples.start)
                 .map_err(|_e| Error::Settings("a block of phase_a holds at most 2^32 samples"))?;
             let (first_tick, last_tick) =
                 grid.chunk_ticks(def.period, ItemNum::new(samples.start), count)?;
@@ -765,7 +783,7 @@ impl Crashed {
         let (piece, kept) = (self.crash.piece, resumed.kept_bytes);
         let mut made = Vec::new();
         let (mut lost_acts, mut replayed) = (0, 0);
-        for (i, act) in Acts::new(self.drive)?.enumerate() {
+        for (i, act) in Acts::lean(self.drive)?.enumerate() {
             let act = act?;
             match self.made.get(i) {
                 Some(m) if !lost(&act, m, piece, kept) => made.push(*m),
@@ -920,7 +938,7 @@ impl Drive {
 
     /// Record the run whole and close the chain.
     pub fn record(&self) -> Result<Recording, Error> {
-        self.record_acts(&Acts::new(*self)?.collect::<Result<Vec<_>, _>>()?)
+        self.record_acts(&Acts::lean(*self)?.collect::<Result<Vec<_>, _>>()?)
     }
 
     /// Record the run whole and close the chain, without waiting for the writer after each act: the same bytes as
@@ -930,7 +948,7 @@ impl Drive {
         let tapes = MemTapes::new();
         let mut r = Recorder::create(self, &tapes)?.unplaced();
         let mut made = Vec::new();
-        for act in Acts::new(*self)? {
+        for act in Acts::lean(*self)? {
             made.push(r.apply(&act?)?);
         }
         close(*self, r, &tapes, made, false)
@@ -941,8 +959,10 @@ impl Drive {
     pub(crate) fn record_acts(&self, acts: &[Act]) -> Result<Recording, Error> {
         let tapes = MemTapes::new();
         let mut r = Recorder::create(self, &tapes)?;
+        // the mux builds the summaries itself, as the acts of a lean run say
         let made = acts
             .iter()
+            .filter(|act| !matches!(act, Act::Summary(_)))
             .map(|act| r.apply(act))
             .collect::<Result<Vec<_>, _>>()?;
         close(*self, r, &tapes, made, true)
