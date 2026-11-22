@@ -11,6 +11,7 @@ mod reclose;
 mod resume;
 mod samples;
 mod series;
+mod stores;
 mod summary;
 mod times;
 
@@ -27,9 +28,12 @@ pub(crate) use reclose::build as reclosed;
 pub use reclose::reclose;
 pub(crate) use reclose::summarized;
 pub use resume::resume;
-pub(crate) use resume::{chain_template, removed_chain};
+pub(crate) use resume::{
+    Defined, chain_template, chunk as chunk_of, options, removed_chain, template_definitions,
+};
 pub use samples::samples;
 pub use series::series;
+pub use stores::stores;
 pub use summary::summary;
 pub use times::times;
 
@@ -37,7 +41,7 @@ pub use times::times;
 pub type Target = fn(&[u8]);
 
 /// Every ww_tape fuzz target by its name in `fuzz/Cargo.toml`.
-pub const ALL: [(&str, Target); 22] = [
+pub const ALL: [(&str, Target); 23] = [
     ("tape-chunk", chunk),
     ("tape-index", index),
     ("tape-payloads", payloads),
@@ -60,6 +64,7 @@ pub const ALL: [(&str, Target); 22] = [
     ("tape-reclose", reclose),
     ("tape-flags", flags),
     ("tape-flags-hostile", flags_hostile),
+    ("tape-stores", stores),
 ];
 
 /// The target named `name`.

@@ -15,7 +15,7 @@ rf_gib := "100"
 # The WireWeaver command line that checks the API snapshot: `ww` from PATH, or the binary `WW` names
 ww := env_var_or_default('WW', 'ww')
 
-fuzz_targets := "reader resume reclose chunk summary index times samples series payloads records-hostile chunk-hostile times-hostile payloads-hostile samples-hostile series-hostile summary-hostile index-hostile reader-hostile state-hostile flags flags-hostile"
+fuzz_targets := "reader resume reclose stores chunk summary index times samples series payloads records-hostile chunk-hostile times-hostile payloads-hostile samples-hostile series-hostile summary-hostile index-hostile reader-hostile state-hostile flags flags-hostile"
 # cargo-fuzz defaults its fuzz target to the triple its own binary was built for; a
 # prebuilt cargo-fuzz release (taiki-e/install-action's cargo-binstall fallback uses
 # one) is a static musl build, so that default becomes a musl target this host never
@@ -307,6 +307,11 @@ fuzz-tape-resume:
 [working-directory('fuzz')]
 fuzz-tape-reclose:
     cargo +{{ nightly }} fuzz run --target {{ fuzz_host_triple }} tape-reclose -- -max_len=512 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10
+
+# Fuzz a chain on memory tapes through writes, cuts, crashes, closes, removals and dropped fronts (REPO-1)
+[working-directory('fuzz')]
+fuzz-tape-stores:
+    cargo +{{ nightly }} fuzz run --target {{ fuzz_host_triple }} tape-stores -- -max_len=512 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10
 
 # Fuzz ww_tape chunk blocks: reading and salvage on any bytes, a flipped bit costs one segment (FMT-3)
 [working-directory('fuzz')]

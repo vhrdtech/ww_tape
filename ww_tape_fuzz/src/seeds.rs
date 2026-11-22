@@ -771,6 +771,24 @@ fn stream(target: &'static str, mut x: u64) -> Vec<Seed> {
     out
 }
 
+/// Inputs of `tape-stores`: each mode with a run of writes, a cut, a crash, a close and a removal in turn; then a
+/// stream.
+fn stores_seeds() -> Vec<Seed> {
+    let mut out = vec![];
+    for mode in 0..4u8 {
+        let ops = [
+            0x00, 0x80, 0x04, 0x00, 0x05, 0x80, 0x06, 0x00, 0x04, 0x80, 0x07, 0x00, 0x00,
+        ];
+        out.push(seed(
+            "tape-stores",
+            format!("mode{mode}-each-op"),
+            [&[mode][..], &ops].concat(),
+        ));
+    }
+    out.extend(stream("tape-stores", 0x5eed_0000_5707_0001));
+    out
+}
+
 /// Every seed file of every target.
 pub fn all() -> Vec<Seed> {
     let mut out = vec![];
@@ -784,6 +802,7 @@ pub fn all() -> Vec<Seed> {
     out.extend(media_fixes());
     out.extend(resume_seeds());
     out.extend(reclose_seeds());
+    out.extend(stores_seeds());
     out.extend(chain_seeds());
     out.extend(golden_blocks("tape-chunk", "v1-chunks", GOLDEN_CHUNKS));
     out.extend(golden_blocks("tape-index", "v1-index", GOLDEN_INDEX));

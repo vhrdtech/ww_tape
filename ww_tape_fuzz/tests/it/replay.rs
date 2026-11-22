@@ -60,6 +60,7 @@ replays! {
     replay_tape_resume: "tape-resume";
     replay_tape_samples: "tape-samples";
     replay_tape_series: "tape-series";
+    replay_tape_stores: "tape-stores";
     replay_tape_summary: "tape-summary";
     replay_tape_times: "tape-times";
     replay_tape_chunk_hostile: "tape-chunk-hostile";

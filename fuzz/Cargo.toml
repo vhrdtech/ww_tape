@@ -32,6 +32,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "tape-stores"
+path = "src/tape_stores.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "tape-resume"
 path = "src/tape_resume.rs"
 test = false

@@ -20,4 +20,5 @@
 pub mod case;
 pub mod hostile;
 pub mod seeds;
+pub mod stores;
 pub mod targets;

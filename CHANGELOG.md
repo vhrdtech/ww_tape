@@ -18,6 +18,7 @@ benchmarks, golden files and book pages.
 - The example's calls table names each handle call and counts the summary blocks the mux defers (WRITE-15).
 - Memory tapes keep each piece in a segment of its own: appending copies nothing written before (REPO-1).
 - `MemTapes::drop_front` frees the oldest pieces of a memory tape of several, offsets kept; `ByteSource::start` (REPO-1).
+- Fuzz target `tape-stores`: a chain on memory tapes through writes, cuts, crashes, closes, removals and drops (REPO-1).
 
 ### Fixes
 

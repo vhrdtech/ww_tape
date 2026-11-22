@@ -23,6 +23,7 @@ mod known;
 mod limits;
 mod replay;
 mod seeds;
+mod stores;
 mod stream;
 
 use std::time::Duration;

@@ -66,7 +66,7 @@ pub(crate) fn records(id: BlockId, clock: ClockNum, track: TrackNum, n: u64) -> 
 }
 
 /// Track `t`'s chunk `k`: 16 items with raw starts, on the track of key index `t + 1`, numbered `number`.
-fn chunk(t: u64, number: TrackNum, k: u64) -> (ChunkHead, Vec<u8>) {
+pub(crate) fn chunk(t: u64, number: TrackNum, k: u64) -> (ChunkHead, Vec<u8>) {
     let first = k * 16;
     let starts: Vec<u8> = (first..first + 16)
         .flat_map(|i| (i as i64 * 4 + t as i64).to_le_bytes())
@@ -294,7 +294,7 @@ pub(crate) struct Defined {
 }
 
 /// Clock 1 and tracks 1, 2 and 9 on it, under those numbers: the template's definitions, as its seeds were written.
-fn template_definitions() -> (Definitions, Defined) {
+pub(crate) fn template_definitions() -> (Definitions, Defined) {
     let mut defs = Definitions::new();
     let c = defs.define_clock(clock(1)).expect("the clock holds");
     let chunks = [1, 2].map(|i| defs.define_track(track(i, c)).expect("the track holds"));
