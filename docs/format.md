@@ -1507,7 +1507,7 @@ the head of the next piece starts that piece again.
 
 The resume refuses a last piece whose head is damaged, with `WriteError::Index`. Keeping its blocks would leave them
 outside the chain, and dropping them would lose more than a torn end. A chain kept in memory from which
-`MemTapes::remove` took pieces is not resumed.
+`MemTapes::remove` took pieces, or whose front `MemTapes::drop_front` dropped, is not resumed.
 
 ### 9.7 Monotone relations after a resume {#monotone-relations-after-a-resume}
 

@@ -167,6 +167,11 @@ A chain in memory keeps a bounded window the same way. [`MemTapes::remove`] take
 reader that already holds the piece reads on unchanged. The piece still being written is not removed
 ([`MemError::Unclosed`]).
 
+A chain in one memory tape keeps its window with [`MemTapes::drop_front`]. The tape keeps each piece in a segment of
+its own, and the call frees the oldest ones whole. Offsets don't move: the tape now starts at its first kept piece
+([`ByteSource::start`]). A reader opened on it finds the pieces from there, as a head cut. The piece being
+written stays, and a read of a dropped piece fails with [`MemError::Dropped`].
+
 ### Pieces removed on purpose
 
 An application may delete pieces from the middle of a chain on purpose, such as a stretch a user cut out. Without a

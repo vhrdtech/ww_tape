@@ -371,7 +371,8 @@ Crates, checks, fuzzing and benches.
   - Done: `ww_tape_codecs` holds the codecs, and `ww_tape` writes and reads tapes on sinks and sources without std. `ww_tape_summary` builds summaries, and `ww_tape_fs` holds everything that names a path.
   - Done: the writer, chain and resume build with alloc only, and the codecs build for wasm32 without std.
   - Open: owned definition records without std, which need owned types in `shrink_wrap` and `ww_version`.
-  - Open: the sample, time and payload codecs on slices, memory tapes in segments, a verify-on-read setting, integrity levels and a seal.
+  - Done: the sample, time and payload codecs work on slices in `ww_tape_codecs`. Memory tapes keep a segment per piece, and `MemTapes::drop_front` frees a tape's oldest pieces.
+  - Open: a verify-on-read setting, integrity levels and a seal.
   - Read more: [The crates](docs/tape.md#the-crates).
 - ✅ **REPO-84 spirit_level checks in `just lint`**
   - `just lint` and CI run `spl check` with every lint of `spirit_level.toml`. The prose lints read the book, the READMEs, AGENTS.md, the CHANGELOG and this file.
