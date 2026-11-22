@@ -1,7 +1,7 @@
 //! The structure-aware targets `tape-<group>-hostile`: each builds a block or file with [crate::hostile], then runs
 //! the decoders of its group, read and salvage paths, and goes through everything they hand out.
 
-use super::{chunk, index, payloads, reader, samples, series, summary, times};
+use super::{chunk, flags, index, payloads, reader, samples, series, summary, times};
 use crate::hostile;
 use shrink_wrap::DeserializeShrinkWrap;
 use ww_tape::samples::Scalar;
@@ -177,6 +177,19 @@ pub fn samples_hostile(data: &[u8]) {
             decode_column(&col, shape, count, data.len());
         }
     }
+}
+
+/// `tape-flags-hostile`: a series track and a series chunk of hostile flag runs, read and salvaged, the chunk's
+/// samples pushed with them into summaries, the whole read as a file.
+pub fn flags_hostile(data: &[u8]) {
+    let f = hostile::flags(data);
+    let bs = blocks(&f);
+    let shape = bs.first().and_then(|b| series_def(b)).map(|(s, _)| s);
+    for b in bs.iter().skip(1) {
+        chunk::walk(b);
+        flags::walk(b, shape);
+    }
+    reader(&f);
 }
 
 /// `tape-series-hostile`: a series track and its chunks of hostile grids, ticks and scales.

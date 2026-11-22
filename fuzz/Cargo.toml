@@ -156,3 +156,17 @@ path = "src/tape_state_hostile.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "tape-flags"
+path = "src/tape_flags.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tape-flags-hostile"
+path = "src/tape_flags_hostile.rs"
+test = false
+doc = false
+bench = false

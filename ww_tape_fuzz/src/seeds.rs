@@ -233,6 +233,28 @@ fn golden_series() -> Vec<Seed> {
     out
 }
 
+/// The flag runs columns of the golden series chunks as `tape-flags` inputs: `[count u32][column]`.
+fn golden_flags() -> Vec<Seed> {
+    let mut out = vec![];
+    for b in golden(GOLDEN_SERIES) {
+        let Some(c) = Block::read(&b).ok().and_then(|b| b.chunk()) else {
+            continue;
+        };
+        let Some(col) = c.find(ColumnKind::Flags, 0) else {
+            continue;
+        };
+        let mut input = c.head().count.to_le_bytes().to_vec();
+        input.extend_from_slice(col.bytes);
+        let n = out.len();
+        out.push(seed(
+            "tape-flags",
+            format!("golden-v1-series-runs-{n:02}"),
+            input,
+        ));
+    }
+    out
+}
+
 /// Describe records of events tracks of plain bytes, a media type, a named format with a schema and numbers, and the
 /// schema itself (FMT-12), for the definition decoder.
 fn encoding_seeds() -> Vec<Seed> {
@@ -779,6 +801,7 @@ pub fn all() -> Vec<Seed> {
     out.extend(golden_samples());
     out.extend(lz4_fixes());
     out.extend(golden_series());
+    out.extend(golden_flags());
     out.extend(encoding_seeds());
     out.extend(golden_blocks("tape-summary", "v1-summary", GOLDEN_SUMMARY));
     out.extend(golden_blocks("tape-times", "v1-times", GOLDEN_TIMES));

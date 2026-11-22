@@ -72,6 +72,8 @@ replays! {
     replay_tape_state_hostile: "tape-state-hostile";
     replay_tape_summary_hostile: "tape-summary-hostile";
     replay_tape_times_hostile: "tape-times-hostile";
+    replay_tape_flags: "tape-flags";
+    replay_tape_flags_hostile: "tape-flags-hostile";
 }
 
 /// Every target has a replay test above.

@@ -15,7 +15,7 @@ rf_gib := "100"
 # The WireWeaver command line that checks the API snapshot: `ww` from PATH, or the binary `WW` names
 ww := env_var_or_default('WW', 'ww')
 
-fuzz_targets := "reader resume reclose chunk summary index times samples series payloads records-hostile chunk-hostile times-hostile payloads-hostile samples-hostile series-hostile summary-hostile index-hostile reader-hostile state-hostile"
+fuzz_targets := "reader resume reclose chunk summary index times samples series payloads records-hostile chunk-hostile times-hostile payloads-hostile samples-hostile series-hostile summary-hostile index-hostile reader-hostile state-hostile flags flags-hostile"
 # cargo-fuzz defaults its fuzz target to the triple its own binary was built for; a
 # prebuilt cargo-fuzz release (taiki-e/install-action's cargo-binstall fallback uses
 # one) is a static musl build, so that default becomes a musl target this host never
@@ -355,6 +355,16 @@ fuzz-tape-samples-hostile:
 [working-directory('fuzz')]
 fuzz-tape-series-hostile:
     cargo +{{ nightly }} fuzz run --target {{ fuzz_host_triple }} tape-series-hostile -- -max_len=256 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10
+
+# Fuzz ww_tape series chunks' flag runs on any bytes, and runs built from pushes read back (FMT-13)
+[working-directory('fuzz')]
+fuzz-tape-flags:
+    cargo +{{ nightly }} fuzz run --target {{ fuzz_host_triple }} tape-flags -- -max_len=4096 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10
+
+# Fuzz ww_tape series chunks of hostile flag runs, read, salvaged and summarised (FMT-13)
+[working-directory('fuzz')]
+fuzz-tape-flags-hostile:
+    cargo +{{ nightly }} fuzz run --target {{ fuzz_host_triple }} tape-flags-hostile -- -max_len=256 -rss_limit_mb=1024 -malloc_limit_mb=128 -timeout=10
 
 # Fuzz ww_tape summary blocks of a hostile head, scale or node values (READ-2)
 [working-directory('fuzz')]

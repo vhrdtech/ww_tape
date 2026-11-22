@@ -2,6 +2,7 @@
 //! libFuzzer's input.
 
 mod chunk;
+mod flags;
 mod hostile;
 mod index;
 mod payloads;
@@ -14,8 +15,9 @@ mod summary;
 mod times;
 
 pub use chunk::chunk;
+pub use flags::flags;
 pub use hostile::{
-    chunk_hostile, index_hostile, payloads_hostile, reader_hostile, records_hostile,
+    chunk_hostile, flags_hostile, index_hostile, payloads_hostile, reader_hostile, records_hostile,
     samples_hostile, series_hostile, state_hostile, summary_hostile, times_hostile,
 };
 pub use index::index;
@@ -35,7 +37,7 @@ pub use times::times;
 pub type Target = fn(&[u8]);
 
 /// Every ww_tape fuzz target by its name in `fuzz/Cargo.toml`.
-pub const ALL: [(&str, Target); 20] = [
+pub const ALL: [(&str, Target); 22] = [
     ("tape-chunk", chunk),
     ("tape-index", index),
     ("tape-payloads", payloads),
@@ -56,6 +58,8 @@ pub const ALL: [(&str, Target); 20] = [
     ("tape-state-hostile", state_hostile),
     ("tape-resume", resume),
     ("tape-reclose", reclose),
+    ("tape-flags", flags),
+    ("tape-flags-hostile", flags_hostile),
 ];
 
 /// The target named `name`.

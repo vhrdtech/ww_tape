@@ -129,4 +129,5 @@ streams! {
     index_hostile_stream: "tape-index-hostile" => targets::index_hostile, 0xa54f_f53a_5f1d_36f1, CASES;
     reader_hostile_stream: "tape-reader-hostile" => targets::reader_hostile, 0x510e_527f_ade6_82d1, PIECES;
     state_hostile_stream: "tape-state-hostile" => targets::state_hostile, 0x9b05_688c_2b3e_6c1f, STATE_PIECES;
+    flags_hostile_stream: "tape-flags-hostile" => targets::flags_hostile, 0x1f83_d9ab_fb41_bd6b, CASES;
 }
