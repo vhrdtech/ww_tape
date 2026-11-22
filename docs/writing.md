@@ -8,6 +8,10 @@ An application that records data hands it to a [[writer]], which turns it into t
 the application hand over, and what does the writer add on its own? Four calls carry the data, and the writer adds the
 blocks that let a [[reader]] find and understand it. The examples count the calls of the drive's recorder over an hour.
 
+The writer serves one thread at a time. A recorder with several sources writes through a [[mux]] instead, which owns
+the writer on a thread of its own. [Writing from many threads](writing_thread.md) explains it, and the drive's recorder
+writes so. Each [[handle]] of the mux sends units, and the mux turns each into one call of the writer.
+
 ## The writer and its sink
 
 A [`TapeWriter`] turns the application's calls into [[blocks]] of a [[piece]]. The application keeps its [[definitions]]
@@ -51,17 +55,19 @@ The writer's settings are its [`WriterOptions`]. Each field has a default that s
 
 ## Four calls for data
 
-The drive's recorder hands the hour to the writer in four calls. Each second it [[puts]] the mode and writes one
-[[records block]] of log lines and temperatures. It also writes a [[chunk]] of CAN frames and one of phase current. It
-hands over the [[summary]] blocks of the phase current as they fill. `cargo run -p ww_tape_example` counts the calls:
+The drive's recorder hands the hour to the mux through four handles. Each second it [[puts]] the mode and sends one
+[[records block]] of log lines and temperatures. It also sends a [[chunk]] of CAN frames and pushes a second of phase
+current. The mux turns each into one call of the writer, and adds the [[summary]] blocks of the phase current.
 
-| Call | Count |
-|---|---:|
-| [`TapeWriter::put`], the mode | 3600 (9 wrote) |
-| [`TapeWriter::write_block`], log lines and temperatures | 3600 |
-| [`TapeWriter::write_chunk`], `can0` | 3600 |
-| [`TapeWriter::write_chunk`], `phase_a` | 3600 |
-| [`TapeWriter::defer_block`], summaries of `phase_a` | 2933 |
+`cargo run -p ww_tape_example` counts the calls:
+
+| Handle call | Writer call | Count |
+|---|---|---:|
+| [`StateHandle::put`], the mode | [`TapeWriter::put`] | 3600 (9 wrote) |
+| [`RecordsHandle::send`], log lines and temperatures | [`TapeWriter::write_block`] | 3600 |
+| [`ChunkSender::send`], `can0` | [`TapeWriter::write_chunk`] | 3600 |
+| [`SeriesHandle::push`], `phase_a` | [`TapeWriter::write_chunk_hashed`] | 3600 |
+| none: the mux's summaries of `phase_a` | [`TapeWriter::defer_block`] | 2948 |
 
 Only 9 of the 3600 puts wrote a record. A put writes its [[state item]] only when no record of the same item lies
 [[near]] behind, as [Definitions and state](definitions.md#near-puts-and-copies) explains. The recorder therefore puts
@@ -72,7 +78,8 @@ the mode before every block and never keeps track of what it put.
 The application builds a [[records block]] with a [`BlockWriter`], as [A first tape](first_tape.md#writing-the-minute)
 shows. It hands the finished bytes to [`TapeWriter::write_block`], which returns where the block landed as a
 [`ww_tape::Placed`]: its offset from the start of the piece and its length. A block of puts lands as no single block,
-and for such a block the call returns `None`.
+and for such a block the call returns `None`. Through a mux, a [`RecordsHandle`] sends the bytes, and the mux's
+[`ProgressWatch`] tells the piece and the bytes written.
 
 ### Chunks
 
@@ -81,6 +88,10 @@ chunk block around them and returns its [`ww_tape::Placed`]. For a chunk, [`Plac
 The writer states that hash and does not verify it, so a writer in the same process folds [[range hashes]] without
 reading the piece back. [Event times and their codecs](columns.md) shows how the recorder encodes its frames, and
 [Samples and their codecs](sample_codecs.md) its samples.
+
+A typed handle of a mux encodes the chunk on its producer's thread and hashes its payload there. The mux then calls
+[`TapeWriter::write_chunk_hashed`], which takes the payload's hash as given instead of computing it. The bytes are
+those of [`TapeWriter::write_chunk`].
 
 A [`PieceChain`] writes a chunk with [`PieceChain::write_chunk`], which returns a [`ChunkPlaced`]. It holds the same
 fields and the sequence number of the piece that the chunk landed in. The call may [[cut]] to a new piece first, so the
@@ -95,8 +106,9 @@ events chunk on a series track.
 
 ## Definitions with every call
 
-The writer keeps no table of definitions. The application holds them in a [`struct@Definitions`] container and passes it by
-reference with every write of data and every put. Before each block, the writer puts the [[definitions]] that the
+The writer keeps no table of definitions. Whoever drives it holds them in a [`struct@Definitions`] container and passes it
+by reference with every write of data and every put. A mux holds the container itself, so its handles never name a
+definition. A program that drives the writer directly passes it. Before each block, the writer puts the [[definitions]] that the
 block's tracks need: the clocks, maps and [[bundles]] a track names, then the track itself.
 
 ```rs
@@ -129,7 +141,7 @@ The writer's own blocks hold what a [[reader]] needs to find and understand the 
 | records blocks | the recorder | 3600 | 811071 |
 | events chunks | the recorder | 3600 | 8400924 |
 | series chunks | the recorder | 3600 | 99617283 |
-| summary blocks | the recorder | 2948 | 3301304 |
+| summary blocks | the mux | 2948 | 3301304 |
 | checkpoints | the writer | 24 | 1486296 |
 | final index | the writer | 4 | 1661440 |
 | close | the writer | 4 | 11614 |
@@ -172,8 +184,8 @@ long sequential writes. A tool can also read a file whole while the file grows, 
 ## Deferred blocks
 
 Some blocks may wait. A [[summary]] block of a series is the usual case: a [`SeriesSummaries`] or an [`EventTree`] from
-`ww_tape_summary` fills one as data comes. The application hands such a block to [`TapeWriter::defer_block`], and the
-writer chooses where it lands. That makes it a [[deferred block]]. The writer puts the block's definitions at once, and
+`ww_tape_summary` fills one as data comes. The mux, or an application that drives the writer itself, hands such a
+block to [`TapeWriter::defer_block`], and the writer chooses where it lands. That makes it a [[deferred block]]. The writer puts the block's definitions at once, and
 where it places the block depends on the file's layout.
 
 ### Aligned files

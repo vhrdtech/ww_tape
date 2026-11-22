@@ -135,6 +135,7 @@ fn a_push_dropped_while_it_waits_loses_no_item() {
         assert_eq!(h.next_item(), ItemNum::new(i));
         assert_eq!(mux.stats().waiting, 0, "the dropped push left the line");
         rigged.rig.set(true);
+        // --8<-- [start:push_async]
         for i in i..ITEMS {
             h.push_async(i as i64 * 10, i as i64 * 10, 0, &i.to_le_bytes())
                 .await
@@ -142,6 +143,7 @@ fn a_push_dropped_while_it_waits_loses_no_item() {
         }
         h.finish_async().await.unwrap();
         mux.close_async().await.unwrap();
+        // --8<-- [end:push_async]
         let pieces = pieces(&rigged.mem);
         whole(&pieces);
         assert_eq!(contiguous(&items_of(&pieces, 0)), ITEMS);

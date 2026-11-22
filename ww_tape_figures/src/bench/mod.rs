@@ -5,14 +5,16 @@
 //! - `chunk_cost.svg`: what the writer spends on a 1 MiB series chunk, by part.
 //! - `drive_sizes.svg`: where the bytes of the drive's hour go.
 //! - `bench_*.txt`: the tables the pages include, each with the bench and the load average it ran at.
-//! - `bench_machine.txt`: the machine, build and commit every report ran, and the range of the load average.
+//! - `bench_machine.txt`: the machine, build and commit every report of "Sizes and speeds" ran, and the range of the
+//!   load average.
+//! - `bench_handles_machine.txt`: the same for the handles report of "Writing from many threads".
 //!
 //! [says] gives the numbers the page's prose computes from the reports, and the numbers the reports name.
 
 mod chart;
 mod says;
 
-pub use says::{Says, says};
+pub use says::{Says, handles, missing, says};
 
 use anyhow::{Context, ensure};
 use chart::{Chart, Panel, Series};
@@ -31,6 +33,7 @@ pub struct Reports {
     memory: Report,
     rf_core: Report,
     rf_chain: Report,
+    handles: Report,
 }
 
 /// The reports in `dir`, each a release build of a clean commit.
@@ -52,6 +55,7 @@ pub fn read(dir: &Path) -> anyhow::Result<Reports> {
         memory: r("memory")?,
         rf_core: r("rf_core")?,
         rf_chain: r("rf_chain")?,
+        handles: r("handles")?,
     })
 }
 
@@ -372,26 +376,32 @@ fn markdown(report: &Report, id: &str) -> anyhow::Result<String> {
     Ok(out)
 }
 
-/// The paragraph saying where every report ran: the machine, the build, the commit and the range of the load.
+/// The paragraph saying where every report of "Sizes and speeds" ran: the machine, the build, the commit and the
+/// range of the load.
 fn machine(r: &Reports) -> anyhow::Result<String> {
-    let all = [
+    machine_of(&[
+        &r.drive,
         &r.sample_codecs,
         &r.event_times,
         &r.summaries,
         &r.chunks,
         &r.tracks,
-        &r.drive,
         &r.carried,
         &r.memory,
         &r.rf_core,
         &r.rf_chain,
-    ];
-    let first = &r.drive;
+    ])
+}
+
+/// The paragraph saying where `all` ran, the first report's machine, build and commit those of every other.
+fn machine_of(all: &[&Report]) -> anyhow::Result<String> {
+    let first = all.first().context("a report")?;
     for x in all {
         ensure!(
             x.machine == first.machine && x.build == first.build && x.commit == first.commit,
-            "bench {} ran on another machine, build or commit than bench drive: run `just bench-book` again",
-            x.bench
+            "bench {} ran on another machine, build or commit than bench {}: run `just bench-book` again",
+            x.bench,
+            first.bench
         );
     }
     let loads = all
@@ -407,8 +417,13 @@ fn machine(r: &Reports) -> anyhow::Result<String> {
         .build
         .jobs
         .map_or_else(|| "the default jobs".to_owned(), |j| format!("{j} jobs"));
+    let (benches, each) = if all.len() == 1 {
+        ("The bench ran", "It")
+    } else {
+        ("The benches ran", "Each")
+    };
     Ok(format!(
-        "The benches ran on {}, a {} with {} logical CPUs ({}, {}). Each was a {} build at opt-level {} of commit `{}`, \
+        "{benches} on {}, a {} with {} logical CPUs ({}, {}). {each} was a {} build at opt-level {} of commit `{}`, \
          built with {jobs}. The load average ran from {lo:.2} to {hi:.2} across the tables.\n",
         m.host,
         if m.virtual_machine {
@@ -434,6 +449,10 @@ pub fn figures(dir: &Path) -> anyhow::Result<Vec<(String, String)>> {
         ("chunk_cost.svg".to_owned(), chunk_cost(&r)?),
         ("drive_sizes.svg".to_owned(), drive_sizes(&r)?),
         ("bench_machine.txt".to_owned(), machine(&r)?),
+        (
+            "bench_handles_machine.txt".to_owned(),
+            machine_of(&[&r.handles])?,
+        ),
     ];
     for (report, id) in [
         (&r.drive, "sizes"),
@@ -459,6 +478,8 @@ pub fn figures(dir: &Path) -> anyhow::Result<Vec<(String, String)>> {
         (&r.rf_core, "reader"),
         (&r.rf_chain, "chain"),
         (&r.rf_chain, "read"),
+        (&r.handles, "events"),
+        (&r.handles, "iq"),
     ] {
         let name = format!("bench_{}_{id}.txt", report.bench);
         out.push((name, markdown(report, id)?));

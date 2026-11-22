@@ -240,6 +240,7 @@ where
     let events = TrackKind::Events(EventsDef::INSTANTS);
     let [board, host] = clocks();
     let [log, mode_path, can0, phase_a, temp] = &PATHS;
+    // --8<-- [start:define_on_mux]
     let host_clock = mux.define_clock(host)?;
     let board_clock = mux.define_clock_with_maps(board, &[(host_clock, &segments)])?;
     let on_board = |path, name, repeat, kind| track(board_clock, path, name, repeat, kind);
@@ -257,4 +258,5 @@ where
         ))?,
         temp: mux.define_track(on_board(temp, "temp", TrackRepeat::Stream, events))?,
     })
+    // --8<-- [end:define_on_mux]
 }
