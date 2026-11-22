@@ -56,12 +56,12 @@
 <rect x="474.3" y="92.0" width="1.0" height="30.0" rx="1" class="faint"/>
 <rect x="475.5" y="92.0" width="3.9" height="30.0" rx="1" class="faint"/>
 <rect x="480.4" y="92.0" width="16.4" height="30.0" rx="1" class="faint"/>
-<rect x="497.8" y="92.0" width="8.7" height="30.0" rx="1" class="faint"/>
-<rect x="507.5" y="92.0" width="2.3" height="30.0" rx="1" class="faint"/>
-<rect x="510.8" y="92.0" width="10.4" height="30.0" rx="1" class="faint"/>
-<rect x="522.2" y="92.0" width="1.0" height="30.0" rx="1" class="faint"/>
-<rect x="523.7" y="92.0" width="89.2" height="30.0" rx="1" class="faint"/>
-<rect x="613.9" y="92.0" width="47.8" height="30.0" rx="1" class="faint"/>
+<rect x="497.8" y="92.0" width="8.4" height="30.0" rx="1" class="faint"/>
+<rect x="507.1" y="92.0" width="1.0" height="30.0" rx="1" class="faint"/>
+<rect x="509.0" y="92.0" width="10.4" height="30.0" rx="1" class="faint"/>
+<rect x="520.4" y="92.0" width="1.0" height="30.0" rx="1" class="faint"/>
+<rect x="521.9" y="92.0" width="89.2" height="30.0" rx="1" class="faint"/>
+<rect x="612.1" y="92.0" width="49.6" height="30.0" rx="1" class="faint"/>
 <rect x="662.7" y="92.0" width="1.0" height="30.0" rx="1" class="faint"/>
 <rect x="235.8" y="86.0" width="2.0" height="42.0" rx="0" class="tint-accent"/>
 <path d="M235.8 82.0 V128.0" class="accent-line"/>
@@ -121,12 +121,12 @@
 <rect x="474.3" y="196.0" width="1.0" height="30.0" rx="1" class="tint-purple"/>
 <rect x="475.5" y="196.0" width="3.9" height="30.0" rx="1" class="tint-blue"/>
 <rect x="480.4" y="196.0" width="16.4" height="30.0" rx="1" class="tint-blue"/>
-<rect x="497.8" y="196.0" width="8.7" height="30.0" rx="1" class="tint-teal"/>
-<rect x="507.5" y="196.0" width="2.3" height="30.0" rx="1" class="tint-teal"/>
-<rect x="510.8" y="196.0" width="10.4" height="30.0" rx="1" class="tint-amber"/>
-<rect x="522.2" y="196.0" width="1.0" height="30.0" rx="1" class="tint-teal"/>
-<rect x="523.7" y="196.0" width="89.2" height="30.0" rx="1" class="tint-green"/>
-<rect x="613.9" y="196.0" width="47.8" height="30.0" rx="1" class="tint-green"/>
+<rect x="497.8" y="196.0" width="8.4" height="30.0" rx="1" class="tint-teal"/>
+<rect x="507.1" y="196.0" width="1.0" height="30.0" rx="1" class="tint-teal"/>
+<rect x="509.0" y="196.0" width="10.4" height="30.0" rx="1" class="tint-amber"/>
+<rect x="520.4" y="196.0" width="1.0" height="30.0" rx="1" class="tint-teal"/>
+<rect x="521.9" y="196.0" width="89.2" height="30.0" rx="1" class="tint-green"/>
+<rect x="612.1" y="196.0" width="49.6" height="30.0" rx="1" class="tint-green"/>
 <rect x="662.7" y="196.0" width="1.0" height="30.0" rx="1" class="tint-green"/>
 <rect x="235.8" y="190.0" width="2.0" height="42.0" rx="0" class="tint-accent"/>
 <path d="M235.8 186.0 V232.0" class="accent-line"/>

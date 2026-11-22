@@ -55,12 +55,12 @@
 <rect x="474.3" y="78.0" width="1.0" height="30.0" rx="1" class="tint-purple"/>
 <rect x="475.5" y="78.0" width="3.9" height="30.0" rx="1" class="tint-blue"/>
 <rect x="480.4" y="78.0" width="16.4" height="30.0" rx="1" class="tint-blue"/>
-<rect x="497.8" y="78.0" width="8.7" height="30.0" rx="1" class="tint-teal"/>
-<rect x="507.5" y="78.0" width="2.3" height="30.0" rx="1" class="tint-teal"/>
-<rect x="510.8" y="78.0" width="10.4" height="30.0" rx="1" class="tint-amber"/>
-<rect x="522.2" y="78.0" width="1.0" height="30.0" rx="1" class="tint-teal"/>
-<rect x="523.7" y="78.0" width="89.2" height="30.0" rx="1" class="tint-green"/>
-<rect x="613.9" y="78.0" width="47.8" height="30.0" rx="1" class="tint-green"/>
+<rect x="497.8" y="78.0" width="8.4" height="30.0" rx="1" class="tint-teal"/>
+<rect x="507.1" y="78.0" width="1.0" height="30.0" rx="1" class="tint-teal"/>
+<rect x="509.0" y="78.0" width="10.4" height="30.0" rx="1" class="tint-amber"/>
+<rect x="520.4" y="78.0" width="1.0" height="30.0" rx="1" class="tint-teal"/>
+<rect x="521.9" y="78.0" width="89.2" height="30.0" rx="1" class="tint-green"/>
+<rect x="612.1" y="78.0" width="49.6" height="30.0" rx="1" class="tint-green"/>
 <rect x="662.7" y="78.0" width="1.0" height="30.0" rx="1" class="tint-green"/>
 <rect x="235.8" y="72.0" width="2.0" height="42.0" rx="0" class="tint-accent"/>
 <path d="M235.8 68.0 V114.0" class="accent-line"/>
@@ -120,12 +120,12 @@
 <rect x="474.3" y="170.0" width="1.0" height="30.0" rx="1" class="tint-purple"/>
 <rect x="475.5" y="170.0" width="3.9" height="30.0" rx="1" class="tint-blue"/>
 <rect x="480.4" y="170.0" width="16.4" height="30.0" rx="1" class="tint-blue"/>
-<rect x="497.8" y="170.0" width="8.7" height="30.0" rx="1" class="tint-teal"/>
-<rect x="507.5" y="170.0" width="2.3" height="30.0" rx="1" class="tint-teal"/>
-<rect x="510.8" y="170.0" width="10.4" height="30.0" rx="1" class="tint-amber"/>
-<rect x="522.2" y="170.0" width="1.0" height="30.0" rx="1" class="tint-teal"/>
-<rect x="523.7" y="170.0" width="89.2" height="30.0" rx="1" class="tint-green"/>
-<rect x="613.9" y="170.0" width="47.8" height="30.0" rx="1" class="tint-green"/>
+<rect x="497.8" y="170.0" width="8.4" height="30.0" rx="1" class="tint-teal"/>
+<rect x="507.1" y="170.0" width="1.0" height="30.0" rx="1" class="tint-teal"/>
+<rect x="509.0" y="170.0" width="10.4" height="30.0" rx="1" class="tint-amber"/>
+<rect x="520.4" y="170.0" width="1.0" height="30.0" rx="1" class="tint-teal"/>
+<rect x="521.9" y="170.0" width="89.2" height="30.0" rx="1" class="tint-green"/>
+<rect x="612.1" y="170.0" width="49.6" height="30.0" rx="1" class="tint-green"/>
 <rect x="662.7" y="170.0" width="1.0" height="30.0" rx="1" class="tint-green"/>
 <rect x="24.0" y="164.0" width="45.7" height="42.0" rx="0" class="tint-accent"/>
 <path d="M24.0 160.0 V206.0" class="accent-line"/>
@@ -185,12 +185,12 @@
 <rect x="474.3" y="262.0" width="1.0" height="30.0" rx="1" class="tint-purple"/>
 <rect x="475.5" y="262.0" width="3.9" height="30.0" rx="1" class="tint-blue"/>
 <rect x="480.4" y="262.0" width="16.4" height="30.0" rx="1" class="tint-blue"/>
-<rect x="497.8" y="262.0" width="8.7" height="30.0" rx="1" class="tint-teal"/>
-<rect x="507.5" y="262.0" width="2.3" height="30.0" rx="1" class="tint-teal"/>
-<rect x="510.8" y="262.0" width="10.4" height="30.0" rx="1" class="tint-amber"/>
-<rect x="522.2" y="262.0" width="1.0" height="30.0" rx="1" class="tint-teal"/>
-<rect x="523.7" y="262.0" width="89.2" height="30.0" rx="1" class="tint-green"/>
-<rect x="613.9" y="262.0" width="47.8" height="30.0" rx="1" class="faint"/>
+<rect x="497.8" y="262.0" width="8.4" height="30.0" rx="1" class="tint-teal"/>
+<rect x="507.1" y="262.0" width="1.0" height="30.0" rx="1" class="tint-teal"/>
+<rect x="509.0" y="262.0" width="10.4" height="30.0" rx="1" class="tint-amber"/>
+<rect x="520.4" y="262.0" width="1.0" height="30.0" rx="1" class="tint-teal"/>
+<rect x="521.9" y="262.0" width="89.2" height="30.0" rx="1" class="tint-green"/>
+<rect x="612.1" y="262.0" width="49.6" height="30.0" rx="1" class="faint"/>
 <rect x="662.7" y="262.0" width="1.0" height="30.0" rx="1" class="faint"/>
 <rect x="618.3" y="256.0" width="45.7" height="42.0" rx="0" class="tint-accent"/>
 <path d="M618.3 252.0 V298.0" class="accent-line"/>
