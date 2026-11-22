@@ -244,7 +244,8 @@ pub use piece::{
 pub mod reader;
 #[cfg(feature = "alloc")]
 pub use reader::{
-    ByteSource, OpenOptions, PieceInfo, RangeHash, ReadError, TapeReader, Verification,
+    ByteSource, OpenOptions, PayloadCheck, PieceInfo, RangeHash, ReadError, TapeReader,
+    Verification,
 };
 
 mod event;
@@ -966,8 +967,22 @@ pub struct Block<'b> {
     body: &'b [u8],
     /// The block CRC as written.
     crc: u32,
-    /// False for a chunk block handed out by [Block::salvage] whose payload doesn't match its CRCs.
-    intact: bool,
+    /// How far the bytes were checked when the block was read.
+    checked: Checked,
+}
+
+/// How far a [Block]'s bytes were checked when it was read.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Checked {
+    /// Every CRC of the block matched ([Block::read]).
+    Verified,
+    /// The header, a chunk's head CRC and the block's structure checked, not the CRCs over a chunk's payload or a
+    /// block's body ([Block::read_unverified]): for bytes a writer in this process made and kept in its memory.
+    Unverified,
+    /// A chunk block whose head is good and whose payload doesn't match its CRCs ([Block::salvage]):
+    /// [Chunk::bad_segments] says what is lost.
+    Damaged,
 }
 
 /// A record of a [Block], borrowed from it.
@@ -1131,11 +1146,32 @@ impl<'b> Block<'b> {
         block.check_integrity(chunk.is_some())?;
         match chunk {
             Some(c) => {
-                block.intact = c.check_payload();
+                if !c.check_payload() {
+                    block.checked = Checked::Damaged;
+                }
                 Ok(block)
             }
             None => Self::read(bytes),
         }
+    }
+
+    /// Read a block as [Self::read] does but without the CRCs over a chunk's payload or a block's body: the header,
+    /// a chunk's head CRC and ranges, the records and a summary head are checked; [Self::checked] is then
+    /// [Checked::Unverified].
+    ///
+    /// For bytes a writer in this process made and kept in its memory, which no disk or wire touched: what the CRCs
+    /// would catch there is a fault of the memory itself. The checks that keep hostile bytes from being misread stay.
+    pub fn read_unverified(bytes: &'b [u8]) -> Result<Self, BlockError> {
+        let (mut block, chunk) = Self::read_unchecked(bytes)?;
+        block.check_integrity(chunk.is_some())?;
+        if chunk.is_none() {
+            block.check_records()?;
+            if block.is_summary() {
+                SummaryHead::read(block.bytes).map_err(BlockError::Summary)?;
+            }
+        }
+        block.checked = Checked::Unverified;
+        Ok(block)
     }
 
     /// The block's header, with no bytes: [Block::on] lends it again on the bytes it was read from, without a
@@ -1153,7 +1189,7 @@ impl<'b> Block<'b> {
             covered: &[],
             body: &[],
             crc: self.crc,
-            intact: self.intact,
+            checked: self.checked,
         }
     }
 
@@ -1174,7 +1210,7 @@ impl<'b> Block<'b> {
             covered,
             body,
             crc: self.crc,
-            intact: self.intact,
+            checked: self.checked,
         })
     }
 
@@ -1212,7 +1248,7 @@ impl<'b> Block<'b> {
             covered,
             body,
             crc: u32::from_le_bytes(*crc),
-            intact: true,
+            checked: Checked::Verified,
         };
         if block.body_known() && block.is_chunk() {
             let chunk = Chunk::read_head(block.bytes).map_err(BlockError::Chunk)?;
@@ -1266,9 +1302,14 @@ impl<'b> Block<'b> {
         self.crc
     }
 
-    /// Whether the block is good throughout. Only [Self::salvage] hands out one that isn't.
+    /// Whether the block is good throughout, as far as it was checked. Only [Self::salvage] hands out one that isn't.
     pub fn is_intact(&self) -> bool {
-        self.intact
+        self.checked != Checked::Damaged
+    }
+
+    /// How far the bytes were checked when the block was read.
+    pub fn checked(&self) -> Checked {
+        self.checked
     }
 
     fn is_chunk(&self) -> bool {

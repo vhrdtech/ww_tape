@@ -6,8 +6,14 @@ benchmarks, golden files and book pages.
 
 ## [Unreleased]
 
+### Breaking
+
+- A memory tape of this process reads without payload CRCs by default; `PayloadCheck::Always` checks them (REPO-1).
+- `OpenOptions` gains `check_payloads`: a struct literal adds it or `..OpenOptions::default()` (REPO-1).
+
 ### Features
 
+- `Block::read_unverified` skips payload CRCs, not structure checks; `Block::checked` says how a block was read (REPO-1).
 - `Drive::record_unplaced` records the drive's hour through the mux without a writer round trip per act (EX-3).
 - Book pages "Every frame of a 10 Gbps link" and "A billion samples a second", measured by their benches (EX-2).
 - `ww_tape_example::ethernet`: a protocol analyser's frames and decoded headers, spread over receive queues and muxes (EX-2).

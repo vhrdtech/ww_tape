@@ -162,6 +162,11 @@ impl<K: core::fmt::Debug + 'static> ByteSource for MemTape<K> {
         Ok(self.read()?.front())
     }
 
+    /// A memory tape is written by a [MemSink] of this process and never leaves its memory.
+    fn trusted(&self) -> bool {
+        true
+    }
+
     fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), MemError<K>> {
         Ok(self.read()?.read_at(offset, buf)?)
     }

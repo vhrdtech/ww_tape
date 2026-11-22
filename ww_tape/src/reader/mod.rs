@@ -63,6 +63,12 @@ pub trait ByteSource {
     fn start(&self) -> Result<u64, Self::Error> {
         Ok(0)
     }
+
+    /// Whether a writer in this process made the bytes and kept them in its memory, so no disk or wire touched them:
+    /// a reader with [PayloadCheck::BySource] then skips the CRCs over payloads ([Block::read_unverified]).
+    fn trusted(&self) -> bool {
+        false
+    }
 }
 
 /// A read past the end of a byte slice.
@@ -104,6 +110,10 @@ impl<S: ByteSource + ?Sized> ByteSource for &S {
 
     fn start(&self) -> Result<u64, S::Error> {
         (**self).start()
+    }
+
+    fn trusted(&self) -> bool {
+        (**self).trusted()
     }
 }
 
@@ -208,6 +218,36 @@ pub struct OpenOptions {
     pub state_read_max: Bytes<u64>,
     /// Most state entries the reader keeps sorted over all its pieces ([state::STATE_CACHE_MAX] by default).
     pub state_cache_max: Count<Entry, u64>,
+    /// Whether [TapeReader::read_block] and [TapeReader::range_hash] check the CRCs over payloads.
+    pub check_payloads: PayloadCheck,
+}
+
+/// Whether a [TapeReader] checks the CRCs over the payloads of the blocks it reads for its caller
+/// ([OpenOptions::check_payloads]).
+///
+/// The blocks that say where things are (index, close, tail, piece head) are checked whatever this says, and so is
+/// every block's structure: an unchecked read differs only in the CRCs over a chunk's payload and a block's body.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub enum PayloadCheck {
+    /// Check unless the source is [trusted](ByteSource::trusted): a memory tape a writer of this process wrote is
+    /// read unchecked, a file checked.
+    #[default]
+    BySource,
+    /// Check every payload: a reader that looks for memory faults too.
+    Always,
+    /// Check no payload.
+    Never,
+}
+
+impl PayloadCheck {
+    /// Whether a reader of `src` checks payloads.
+    pub fn checks<S: ByteSource + ?Sized>(self, src: &S) -> bool {
+        match self {
+            Self::BySource => !src.trusted(),
+            Self::Always => true,
+            Self::Never => false,
+        }
+    }
 }
 
 /// Default of [OpenOptions::scan_back_max]: 256 MiB, room for a few checkpoint intervals of the largest chunks.
@@ -222,6 +262,7 @@ impl Default for OpenOptions {
             layout: None,
             state_read_max: state::STATE_READ_MAX,
             state_cache_max: state::STATE_CACHE_MAX,
+            check_payloads: PayloadCheck::BySource,
         }
     }
 }
@@ -539,6 +580,8 @@ pub struct TapeReader<S> {
     len: u64,
     /// [ByteSource::start]: no piece is looked for before it
     front: u64,
+    /// [OpenOptions::check_payloads] as it applies to the source
+    check_payloads: bool,
     pieces: Vec<PieceInfo>,
     /// [OpenOptions::state_read_max]
     state_read_max: u64,
@@ -568,10 +611,12 @@ impl<S: ByteSource> TapeReader<S> {
     pub fn open_with(src: S, options: OpenOptions) -> R<Self, S> {
         let len = src.size().map_err(ReadError::Source)?;
         let front = src.start().map_err(ReadError::Source)?.min(len);
+        let check_payloads = options.check_payloads.checks(&src);
         let mut r = Self {
             src,
             len,
             front,
+            check_payloads,
             pieces: Vec::new(),
             state_read_max: options.state_read_max.get(),
             states: state::StateCache::new(crate::cap_usize(options.state_cache_max.get())),
@@ -1363,8 +1408,9 @@ impl<S: ByteSource> TapeReader<S> {
         Ok(())
     }
 
-    /// Read the block of `entry` in piece `i` into `buf` and check it. Only the entry's offset and length are used:
-    /// what the block holds is the caller's to compare with the entry ([Self::read_chunk_head] compares a chunk's).
+    /// Read the block of `entry` in piece `i` into `buf` and check it, its payload as [OpenOptions::check_payloads]
+    /// says ([Block::checked] tells which). Only the entry's offset and length are used: what the block holds is the
+    /// caller's to compare with the entry ([Self::read_chunk_head] compares a chunk's).
     pub fn read_block<'b>(
         &self,
         i: usize,
@@ -1374,7 +1420,22 @@ impl<S: ByteSource> TapeReader<S> {
         let (offset, len) = self.place(i, entry)?;
         buf.resize(len, 0);
         self.src.read_at(offset, buf).map_err(ReadError::Source)?;
-        Block::read(buf).map_err(|error| ReadError::Block { offset, error })
+        self.read_payload(buf)
+            .map_err(|error| ReadError::Block { offset, error })
+    }
+
+    /// A block read for the caller: its payload checked as [OpenOptions::check_payloads] says.
+    fn read_payload<'b>(&self, bytes: &'b [u8]) -> Result<Block<'b>, BlockError> {
+        if self.check_payloads {
+            Block::read(bytes)
+        } else {
+            Block::read_unverified(bytes)
+        }
+    }
+
+    /// Whether the reader checks the CRCs over the payloads it reads ([OpenOptions::check_payloads] for its source).
+    pub fn checks_payloads(&self) -> bool {
+        self.check_payloads
     }
 
     /// Read the head of the chunk block of `entry` in piece `i`, using `buf`: its header, then its bytes up to the
@@ -1821,7 +1882,8 @@ impl<S: ByteSource> TapeReader<S> {
                                 }
                                 return;
                             }
-                            let Some(c) = Block::read(bytes).ok().and_then(|b| b.chunk()) else {
+                            let Some(c) = self.read_payload(bytes).ok().and_then(|b| b.chunk())
+                            else {
                                 return;
                             };
                             let head = c.head();

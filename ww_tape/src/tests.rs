@@ -17,6 +17,36 @@ fn at(clock: ClockNum, ticks: i64) -> ClockTime {
     ClockTime::new(clock, ticks)
 }
 
+/// An unverified read skips the body CRC of a records block, not its structure.
+#[test]
+fn read_unverified_skips_the_crc_not_the_records() {
+    let mut buf = [0u8; 256];
+    let mut w = BlockWriter::new(&mut buf, BlockKind::Records, id(7), &[C1]).unwrap();
+    w.push(TrackNum::new(1), at(C1, 1_000), &[b"abcdef"])
+        .unwrap();
+    let len = w.finish();
+    let good = &buf[..len];
+    assert_eq!(Block::read(good).unwrap().checked(), Checked::Verified);
+    assert_eq!(
+        Block::read_unverified(good).unwrap().checked(),
+        Checked::Unverified
+    );
+    // a byte of the item, before the CRC: only the CRC sees it
+    let mut item = good.to_vec();
+    item[len - 6] ^= 0x01;
+    assert_eq!(Block::read(&item).unwrap_err(), BlockError::BadCrc);
+    let b = Block::read_unverified(&item).unwrap();
+    assert!(b.is_intact());
+    // a record count the records don't match: refused either way
+    let mut count = good.to_vec();
+    count[12] = 2;
+    assert_eq!(Block::read(&count).unwrap_err(), BlockError::BadCrc);
+    assert_eq!(
+        Block::read_unverified(&count).unwrap_err(),
+        BlockError::BadRecords
+    );
+}
+
 #[test]
 fn write_and_read_back() {
     let mut buf = [0u8; 256];

@@ -1,5 +1,5 @@
-//! ww_tape chunk blocks on any bytes, and on chunks built from the input with one byte flipped: reading and salvaging
-//! never panic, a salvaged chunk's head reads back, alone too, a byte flipped in the payload of a good chunk costs exactly the
+//! ww_tape chunk blocks on any bytes, and on chunks built from the input with one byte flipped: reading, reading
+//! unverified and salvaging never panic, a block that reads also reads unverified, a salvaged chunk's head reads back, alone too, a byte flipped in the payload of a good chunk costs exactly the
 //! segment it is in, and a block given another session and seq stays good.
 use ww_tape::TrackId;
 use ww_tape::TrackNum;
@@ -39,7 +39,15 @@ pub(crate) fn walk(data: &[u8]) {
             }
         }
     }
+    // an unverified read checks a subset of what a read checks: it takes every block a read takes, alike
+    let unverified = Block::read_unverified(data);
+    if let Ok(u) = &unverified {
+        let _ = u.chunk().map(|c| c.head());
+        let _ = u.records().count();
+    }
     if let Ok(b) = Block::read(data) {
+        let u = unverified.expect("a block that reads reads unverified");
+        assert_eq!((u.kind, u.seq, u.len()), (b.kind, b.seq, b.len()));
         let mut copy = b.bytes().to_vec();
         let id = BlockId::new(
             SessionTag::from_u32(b.session.get().wrapping_add(1)),

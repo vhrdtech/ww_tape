@@ -38,6 +38,7 @@ mod mux_handles;
 mod mux_multi;
 mod mux_resume;
 mod order;
+mod payload_check;
 mod pieces;
 mod placed;
 mod progress;
