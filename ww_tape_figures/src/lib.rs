@@ -51,6 +51,7 @@ mod defs;
 mod first_tape;
 mod grids;
 mod index_select;
+mod layout;
 mod piece;
 mod puts;
 mod records_vs_chunk;
