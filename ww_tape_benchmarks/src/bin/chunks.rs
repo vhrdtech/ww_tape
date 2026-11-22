@@ -29,12 +29,16 @@ use ww_tape::chunk::{ChunkHead, chunk_len, write_chunk};
 use ww_tape::piece::payload_hash;
 use ww_tape::reader::ByteSource;
 use ww_tape::{
-    ALIGNMENT, Block, BlockId, BlockKind, ClockOrigin, ClockSpec, Codec, ColumnKind, ColumnSpec,
-    Definitions, EndMode, ItemHash, Magnitude, MemSink, OwnerId, Ratio64, Segment, SeriesDef,
-    SeriesGrid, SeriesTimeline, SessionTag, SyncPolicy, TapeReader, TapeSink, TapeWriter,
-    TrackHash, TrackKind, TrackSpec, clock_key, track_key,
+    ALIGNMENT, Block, BlockId, BlockKind, ChainOptions, ClockOrigin, ClockSpec, Codec, ColumnKind,
+    ColumnSpec, CutPolicy, Definitions, EndMode, ItemHash, Layout, Magnitude, MemSink, MemTapes,
+    OwnerId, PieceChain, PieceTapes, Ratio64, Segment, SeriesDef, SeriesGrid, SeriesTimeline,
+    SessionTag, SyncPolicy, TapeReader, TapeSink, TapeWriter, TrackHash, TrackKind, TrackSpec,
+    WriterOptions, clock_key, track_key,
 };
 use ww_tape_bench::{Bench, Cell, Common, Measure, ns_per_try};
+
+/// Chunks per piece of the chain row: a cut every 16 chunks.
+const CHAIN_CUT_CHUNKS: u64 = 16;
 
 #[derive(Parser)]
 #[command(
@@ -256,6 +260,35 @@ fn main() -> anyhow::Result<()> {
         Ok(())
     })?;
     drop(mem);
+    // a chain in one memory tape, a piece per CHAIN_CUT_CHUNKS chunks: growing the tape copies only the open piece
+    let mut chain = PieceChain::create_on(
+        MemTapes::new(),
+        OwnerId([1; 32]),
+        0,
+        &[],
+        ChainOptions {
+            tapes: PieceTapes::One,
+            writer: WriterOptions {
+                sync: SyncPolicy::None,
+                layout: Layout::ALIGNED,
+                ..WriterOptions::default()
+            },
+            cut: CutPolicy {
+                chunks: exact_units::Count::new(CHAIN_CUT_CHUNKS),
+                ..CutPolicy::default()
+            },
+        },
+    )
+    .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    let mut k = 0;
+    let in_chain = ns_per_try(r, c, |_| {
+        chain
+            .write_chunk(&defs, &head(track, k, count)?, &columns)
+            .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+        k += 1;
+        Ok(())
+    })?;
+    drop(chain);
     let mut w = writer()?;
     let theirs = ns_per_try(r, c, |_| {
         let k = w.next_id().seq;
@@ -274,6 +307,10 @@ fn main() -> anyhow::Result<()> {
         ("`TrackHash::chunk_unit`: the unit hash", unit),
         ("`TapeWriter::write_chunk` (columns)", own),
         ("`TapeWriter::write_chunk` into a `MemSink`", in_memory),
+        (
+            "`PieceChain::write_chunk` into one memory tape, a cut per 16 chunks",
+            in_chain,
+        ),
         ("`chunk::write_chunk` + `TapeWriter::write_block`", theirs),
     ] {
         table.row(vec![
