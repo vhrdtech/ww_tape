@@ -6,6 +6,10 @@ benchmarks, golden files and book pages.
 
 ## [Unreleased]
 
+### Fixes
+
+- A resumed `TapeMux` writes no summary tree for a track its handle writes without summaries (WRITE-13).
+
 ## [0.4.0] - 2026-11-22
 
 ### Breaking

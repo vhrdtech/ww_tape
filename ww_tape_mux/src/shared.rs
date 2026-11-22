@@ -92,6 +92,11 @@ pub(crate) enum Work<T: Tapes> {
         track: TrackNum,
         reply: ReplyTx<Option<TrackFacts>>,
     },
+    /// A handle of a track without summaries is made: a tree a resume rebuilt of the track is dropped.
+    Plain {
+        track: TrackNum,
+        reply: ReplyTx<()>,
+    },
     /// A track's definition, encoded.
     TrackDef {
         track: TrackNum,

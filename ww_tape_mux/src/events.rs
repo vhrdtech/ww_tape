@@ -441,6 +441,9 @@ where
             return Err(CallError::Kind { track }.into());
         };
         let chunk = events_chunk(&def, options).ok_or(CallError::Kind { track })?;
+        if !options.summaries {
+            self.plain(track).await?;
+        }
         let s = Sender::new(self.shared.clone(), Some(track));
         let open = Open::register(&self.shared, s.slot.clone(), chunk, options.latency);
         Ok(EventsHandle {

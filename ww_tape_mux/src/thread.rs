@@ -175,6 +175,7 @@ fn writes<T: Tapes>(work: &Work<T>) -> bool {
             | Work::Block { .. }
             | Work::Put { .. }
             | Work::Cut { .. }
+            | Work::Plain { .. }
             | Work::Flush { sync: true, .. }
             | Work::Close { .. }
     )
@@ -295,6 +296,11 @@ fn place<T: Tapes>(
         Work::DefineClock { items, reply } => reply.send(define::hold_clock(defs, &items)),
         Work::DefineAll { items, reply } => reply.send(define::hold_all(defs, &items)),
         Work::Facts { track, reply } => reply.send(defs.track(track)),
+        Work::Plain { track, reply } => {
+            // the handle writes no summaries: the tree rebuilt of its kept chunks is none the run built
+            st.trees.drop_rebuilt(track);
+            reply.send(());
+        }
         Work::TrackDef { track, reply } => reply.send(
             defs.get(&DefSlot::Track { number: track })
                 .map(<[u8]>::to_vec),

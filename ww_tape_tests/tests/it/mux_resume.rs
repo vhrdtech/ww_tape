@@ -222,25 +222,13 @@ fn summaries_mid_piece(pieces: &[Vec<u8>]) -> (usize, usize) {
     (events, series)
 }
 
-/// The end of the last events chunk of `piece`.
-fn last_events_end(piece: &[u8]) -> usize {
-    let r = TapeReader::open(piece).unwrap();
-    r.entries(0)
-        .unwrap()
-        .iter()
-        .filter(|e| e.kind == BlockKind::Events)
-        .map(|e| (e.offset + u64::from(e.len)) as usize)
-        .max()
-        .unwrap()
-}
-
 /// Crash `run` at many bytes: at every block boundary of every piece and at bytes in between. The run is a full
 /// piece ended by a cut and a short last piece, so each crash gives again at most a piece. Each crash keeps the
 /// pieces before and the torn piece up to the crash; a mux resumes the chain, is given every item after the last
 /// chunk kept of each track, and closes. The chain holds the bytes of the run without the crash.
 ///
-/// Without the events' tree, the crashes are those after which the piece gets another events chunk: a rebuilt tree
-/// is dropped by it, as the mux built none.
+/// Without the events' tree, a tree rebuilt of the kept events is dropped, as the mux built none: wherever the crash
+/// falls, also after the last events chunk of the piece.
 fn crash_anywhere(run: Run, extra: usize) {
     let want = whole_run(run);
     assert_eq!(want.len(), 2, "a piece ended by a cut and the last");
@@ -252,10 +240,8 @@ fn crash_anywhere(run: Run, extra: usize) {
     let mut crashes = 0;
     for (p, piece) in want.iter().enumerate() {
         let (done, _) = want.split_at(p);
-        let last_events = last_events_end(piece);
         for at in cut_points(piece, extra) {
-            if (p + 1 == want.len() && at == piece.len()) || (!run.event_tree && at >= last_events)
-            {
+            if p + 1 == want.len() && at == piece.len() {
                 continue;
             }
             let mem = plant(done, &piece[..at]);

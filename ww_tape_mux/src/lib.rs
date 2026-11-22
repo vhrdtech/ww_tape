@@ -264,8 +264,8 @@ where
     ///
     /// The flags a [SeriesHandle] took ([SeriesHandle::push_flagged]) are in its chunks' flag runs, so the leaves
     /// of kept samples are rebuilt with them. A tree is rebuilt for each track a typed handle summarises by
-    /// default; one the piece kept no block of is dropped when the track's next chunk comes without a summary (a
-    /// [ChunkSender], a handle with summaries off).
+    /// default; one is dropped when a handle without summaries is made for its track (a [ChunkSender], a handle
+    /// with summaries off), or when the track's next chunk comes without a summary.
     pub fn resume(
         tapes: T,
         owner: OwnerId,
@@ -373,7 +373,10 @@ where
         track: TrackNum,
     ) -> Result<ChunkSender<T>, MuxError<T::Error>> {
         match self.facts(track).await? {
-            Some(f) if f.state.is_none() => Ok(ChunkSender::new(self.shared.clone(), track, f)),
+            Some(f) if f.state.is_none() => {
+                self.plain(track).await?;
+                Ok(ChunkSender::new(self.shared.clone(), track, f))
+            }
             _ => Err(CallError::Kind { track }.into()),
         }
     }
@@ -409,6 +412,14 @@ where
             .control_async(Work::TrackDef { track, reply: tx }, rx)
             .await?;
         Ok(bytes.ok_or(CallError::Kind { track })?)
+    }
+
+    /// Tell the writing thread that the handle being made writes no summaries of `track`.
+    pub(crate) async fn plain(&self, track: TrackNum) -> Result<(), MuxError<T::Error>> {
+        let (tx, rx) = reply();
+        self.shared
+            .control_async(Work::Plain { track, reply: tx }, rx)
+            .await
     }
 
     async fn facts(

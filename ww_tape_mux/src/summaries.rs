@@ -166,6 +166,13 @@ impl Trees {
         Ok(refused)
     }
 
+    /// A handle of `track` that writes no summaries is made: the tree a resume rebuilt of it, whatever the piece
+    /// kept, is none the run built.
+    pub(crate) fn drop_rebuilt(&mut self, track: TrackNum) {
+        self.unconfirmed.remove(&track);
+        self.trees.remove(&track);
+    }
+
     /// A chunk of `track` placed without a summary: a tree rebuilt at the resume that no kept block confirms is
     /// dropped, as the mux didn't build it.
     pub(crate) fn plain(&mut self, track: TrackNum) {
