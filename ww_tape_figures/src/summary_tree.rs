@@ -42,14 +42,14 @@ pub fn summary_tree() -> anyhow::Result<String> {
             let summary = Summary::of_block(&b).context("a summary block")?;
             let head = summary.head();
             ensure!(head.track_id == key("phase_a").id(), "phase_a's summaries");
-            let span = 1u64 << head.node_shift;
-            let end = head.first_item.saturating_add(head.items);
             for n in 0..summary.node_count() {
-                let first = head.first_item.saturating_add(n as u64 * span);
+                let (first, items) = head
+                    .node_items(n as u64)
+                    .context("a node's items")?;
                 nodes.push(Node {
                     level: head.level,
-                    first: first.get(),
-                    items: span.min(first.saturating_offset_to(end)),
+                    first,
+                    items,
                     stats: summary.channel_stats(0, n).context("a node")?,
                 });
             }
