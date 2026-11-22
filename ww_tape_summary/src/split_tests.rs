@@ -150,6 +150,93 @@ fn event_runs_write_what_the_items_write() {
     }
 }
 
+/// Items added as columns, in batches of any length, give the runs the items one by one give.
+#[test]
+fn event_runs_take_columns_as_items() {
+    let mut rng = Rng(12);
+    let items = spans(40_000, &mut rng);
+    for fields in [
+        EventFields {
+            flags: true,
+            latest_end: true,
+        },
+        EventFields {
+            flags: false,
+            latest_end: false,
+        },
+    ] {
+        let items: Vec<(i64, i64, u32)> = if fields.latest_end {
+            items.clone()
+        } else {
+            items.iter().map(|&(s, _, _)| (s, s, 0)).collect()
+        };
+        for first in [0u64, 2047, 5000] {
+            let mut one = EventRuns::new(fields, ItemNum::new(first));
+            let mut cols = EventRuns::new(fields, ItemNum::new(first));
+            let mut at = 0;
+            for n in chunks(items.len(), 3000, &mut rng) {
+                let batch = &items[at..at + n];
+                for &(s, e, f) in batch {
+                    one.push(s, e, f).unwrap();
+                }
+                let starts: Vec<i64> = batch.iter().map(|i| i.0).collect();
+                let ends: Vec<i64> = batch.iter().map(|i| i.1).collect();
+                let flags: Vec<u32> = batch.iter().map(|i| i.2).collect();
+                cols.push_columns(
+                    &starts,
+                    fields.latest_end.then_some(&ends[..]),
+                    fields.flags.then_some(&flags[..]),
+                )
+                .unwrap();
+                at += n;
+                if n % 3 == 0 {
+                    one.seal();
+                    cols.seal();
+                }
+            }
+            one.seal();
+            cols.seal();
+            assert_eq!(cols.next_item(), one.next_item(), "first item {first}");
+            assert_eq!(cols.take_runs(), one.take_runs(), "first item {first}");
+        }
+    }
+}
+
+/// Columns refuse what items would, adding none: a start before the last, a span on a track of instants, columns
+/// of other lengths.
+#[test]
+fn event_runs_refuse_bad_columns() {
+    let mut runs = EventRuns::new(
+        EventFields {
+            flags: false,
+            latest_end: false,
+        },
+        ItemNum::new(0),
+    );
+    runs.push_columns(&[10, 11], None, None).unwrap();
+    assert!(
+        runs.push_columns(&[12, 9], None, None).is_err(),
+        "out of order"
+    );
+    assert!(
+        runs.push_columns(&[10], None, None).is_err(),
+        "before the last"
+    );
+    assert!(
+        runs.push_columns(&[12, 13], Some(&[12, 14]), None).is_err(),
+        "a span"
+    );
+    assert!(
+        runs.push_columns(&[12, 13], Some(&[12]), None).is_err(),
+        "an end missing"
+    );
+    assert_eq!(
+        runs.next_item(),
+        ItemNum::new(2),
+        "nothing refused was added"
+    );
+}
+
 /// Runs refuse what the tree would: a start before the last, a span on a track of instants.
 #[test]
 fn event_runs_refuse_bad_items() {

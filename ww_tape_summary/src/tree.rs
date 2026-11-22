@@ -316,6 +316,94 @@ impl EventRuns {
         Ok(())
     }
 
+    /// Add the next items as columns: their starts, ends (None: instants) and flags (None: all 0), each item as
+    /// [Self::push] takes it, the same runs. Refused, adding none, when one would be refused or a column's length
+    /// isn't the starts'.
+    pub fn push_columns(
+        &mut self,
+        starts: &[i64],
+        ends: Option<&[i64]>,
+        flags: Option<&[u32]>,
+    ) -> Result<(), BuildError> {
+        let (Some(&first), Some(&last)) = (starts.first(), starts.last()) else {
+            return Ok(());
+        };
+        if ends.is_some_and(|e| e.len() != starts.len())
+            || flags.is_some_and(|f| f.len() != starts.len())
+        {
+            return Err(BuildError::Invalid("columns of different lengths"));
+        }
+        if self.last_start.is_some_and(|l| first < l) || !starts.is_sorted() {
+            return Err(BuildError::Invalid("items out of order of start"));
+        }
+        if let Some(ends) = ends {
+            if ends.iter().zip(starts).any(|(e, s)| e < s) {
+                return Err(BuildError::Invalid("run ticks out of order"));
+            }
+            if !self.fields.latest_end && ends != starts {
+                return Err(BuildError::Invalid("a span in a tree of instants"));
+            }
+        }
+        let n = u64::try_from(starts.len())
+            .map_err(|_e| BuildError::Invalid("item numbers past u64"))?;
+        self.next_item
+            .checked_add(n)
+            .ok_or(BuildError::Invalid("item numbers past u64"))?;
+        let flags = flags.filter(|_| self.fields.flags);
+        let mut at = 0usize;
+        while at < starts.len() {
+            // the items up to the end of the open run's level-0 node
+            let node_end = (self.next_item >> EVENT_BASE_SHIFT)
+                .saturating_add(1)
+                .saturating_mul(1 << EVENT_BASE_SHIFT);
+            let room =
+                usize::try_from(node_end.saturating_sub(self.next_item)).unwrap_or(usize::MAX);
+            let to = at.saturating_add(room).min(starts.len());
+            let (Some(seg), Some(&seg_first), Some(&seg_last)) = (
+                starts.get(at..to),
+                starts.get(at),
+                to.checked_sub(1).and_then(|i| starts.get(i)),
+            ) else {
+                break;
+            };
+            let seg_flags = flags
+                .and_then(|f| f.get(at..to))
+                .map_or(0, |f| f.iter().fold(0, |a, &b| a | b));
+            // at least the last start: starts don't decrease
+            let seg_end = ends
+                .and_then(|e| e.get(at..to))
+                .map_or(seg_last, |e| e.iter().copied().fold(seg_last, i64::max));
+            let count = u64::try_from(seg.len()).unwrap_or(u64::MAX);
+            match &mut self.open {
+                Some((_, run)) => {
+                    run.count = run.count.saturating_add(count);
+                    run.last_tick = seg_last;
+                    run.flags |= seg_flags;
+                    run.latest_end = run.latest_end.max(seg_end);
+                }
+                None => {
+                    self.open = Some((
+                        self.next_item,
+                        ItemRun {
+                            count,
+                            first_tick: seg_first,
+                            last_tick: seg_last,
+                            flags: seg_flags,
+                            latest_end: seg_end,
+                        },
+                    ));
+                }
+            }
+            self.next_item = self.next_item.saturating_add(count);
+            if self.next_item.is_multiple_of(1 << EVENT_BASE_SHIFT) {
+                self.seal();
+            }
+            at = to;
+        }
+        self.last_start = Some(last);
+        Ok(())
+    }
+
     /// End the open run: at the end of a chunk.
     pub fn seal(&mut self) {
         if let Some((first, run)) = self.open.take() {
