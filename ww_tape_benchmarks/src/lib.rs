@@ -18,9 +18,10 @@ use ww_tape_bench::Cell;
 use ww_tape_example::window::Triaged;
 
 /// The columns of [window_row], after the run's own.
-pub const WINDOW_COLUMNS: [&str; 7] = [
-    "Wall ms",
+pub const WINDOW_COLUMNS: [&str; 8] = [
+    "Capture ms",
     "Of the pace",
+    "Wall ms",
     "Pieces",
     "Overrun",
     "Held max MB",
@@ -43,6 +44,9 @@ pub const TRIAGE_COLUMNS: [&str; 7] = [
 pub struct WindowRun {
     /// Seconds of the signal the run captured.
     pub signal_s: f64,
+    /// Until every byte was in memory.
+    pub capture: Duration,
+    /// Until the triage read the last piece.
     pub wall: Duration,
     pub triaged: Triaged,
     /// Bytes of the results' chain.
@@ -59,13 +63,14 @@ impl WindowRun {
 /// The cells of `r` under [WINDOW_COLUMNS], its window in half of `memory_bytes`, the machine's memory.
 pub fn window_row(r: &WindowRun, memory_bytes: Option<u64>) -> Vec<Cell> {
     let t = &r.triaged;
-    let wall = r.wall.as_secs_f64();
+    let capture = r.capture.as_secs_f64();
     let window = memory_bytes.map_or(Cell::text("unknown"), |m| {
         Cell::num(m as f64 / 2.0 / r.tape_per_s(), 1)
     });
     vec![
-        Cell::num(wall * 1e3, 0),
-        Cell::num(r.signal_s / wall, 2),
+        Cell::num(capture * 1e3, 0),
+        Cell::num(r.signal_s / capture, 2),
+        Cell::num(r.wall.as_secs_f64() * 1e3, 0),
         Cell::count(t.pieces),
         Cell::count(t.overrun.len() as u64),
         Cell::num(t.held_max as f64 / 1e6, 0),

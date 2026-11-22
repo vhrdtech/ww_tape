@@ -122,6 +122,7 @@ impl RfCapture {
         let bursts = analyser.finish().map_err(RfError::Results)?;
         Ok(RfRun {
             recorded: ran.recorded,
+            capture_time: ran.capture_time,
             triaged: ran.triaged,
             bursts,
         })
@@ -132,6 +133,8 @@ impl RfCapture {
 #[derive(Clone, Debug, PartialEq)]
 pub struct RfRun {
     pub recorded: Recorded,
+    /// [Ran::capture_time](crate::window::Ran::capture_time).
+    pub capture_time: core::time::Duration,
     pub triaged: Triaged,
     pub bursts: Vec<Burst>,
 }

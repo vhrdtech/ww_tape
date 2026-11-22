@@ -320,11 +320,13 @@ where
     let mux = TapeMux::create(ram.clone(), owner, 0, &[], options, MuxOptions::default())
         .map_err(RunError::Mux)?;
     let watch = mux.watch();
+    let start = std::time::Instant::now();
     std::thread::scope(|s| {
         let triaged = s.spawn(|| triage(&ram, &watch, window, kept, analyser));
         let recorded = record(&mux);
         // a mux closed, or dropped after a failed capture, ends the triage
         let closed = mux.close();
+        let capture_time = start.elapsed();
         let triaged = triaged
             .join()
             .map_err(|_panic| RunError::Thread("the triage"))?;
@@ -332,6 +334,7 @@ where
         closed.map_err(RunError::Mux)?;
         Ok(Ran {
             recorded,
+            capture_time,
             triaged: triaged.map_err(RunError::Window)?,
         })
     })
@@ -341,6 +344,8 @@ where
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Ran<X> {
     pub recorded: X,
+    /// From the mux's start until it closed: every byte of the capture in memory, the triage perhaps still reading.
+    pub capture_time: core::time::Duration,
     pub triaged: Triaged,
 }
 

@@ -104,6 +104,7 @@ impl RamCapture {
         let resets = analyser.finish().map_err(RamError::Results)?;
         Ok(RamRun {
             captured: ran.recorded,
+            capture_time: ran.capture_time,
             triaged: ran.triaged,
             resets,
         })
@@ -114,6 +115,8 @@ impl RamCapture {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RamRun {
     pub captured: super::Captured,
+    /// [Ran::capture_time](crate::window::Ran::capture_time).
+    pub capture_time: core::time::Duration,
     pub triaged: Triaged,
     pub resets: Vec<Reset>,
 }

@@ -295,6 +295,7 @@ where
     let closed = results.close().map_err(err)?;
     Ok(WindowRun {
         signal_s: c.link.micros as f64 / 1e6,
+        capture: run.capture_time,
         wall,
         triaged: run.triaged,
         results_bytes: closed.iter().map(|p| p.piece.len).sum(),

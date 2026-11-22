@@ -252,7 +252,7 @@ fn windows(args: &Args, bench: &mut Bench) -> anyhow::Result<()> {
             full.wb.piece_bytes >> 20
         )
     };
-    let columns = ["Kept to", "Source", "Capture ms"];
+    let columns = ["Kept to", "Source", "Signal ms"];
     let mut window = bench.table(
         "window",
         &title(
@@ -349,6 +349,7 @@ where
     let closed = results.close().map_err(err)?;
     Ok(WindowRun {
         signal_s: c.wb.ms as f64 / 1e3,
+        capture: run.capture_time,
         wall,
         triaged: run.triaged,
         results_bytes: closed.iter().map(|p| p.piece.len).sum(),
