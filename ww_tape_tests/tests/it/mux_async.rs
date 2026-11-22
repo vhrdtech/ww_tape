@@ -1,5 +1,5 @@
 //! The async side of the mux and the followers: each future runs on tokio's two schedulers and on smol, without a
-//! timer or an I/O driver, and is woken from another thread: the writing thread, or a follower's own (WRITE-14).
+//! timer or an I/O driver, and is woken from another thread: the writing thread, or a follower's own (MUX-3).
 
 use std::future::Future;
 use std::pin::pin;

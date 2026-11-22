@@ -36,11 +36,6 @@ The bytes of blocks, records, chunks, definitions and the index, in the crate `w
   - Nothing in a block knows its producer. WireWeaver's link tap (TR-14) writes tapes, and eventfull uses them as its file format (CORE-19).
   - Open: splitting a recording into files by size or time, and preallocation. Zeros at the end already read as the end.
   - Read more: [Blocks](docs/blocks.md#blocks). Tests cut and flip every byte; fuzz target `tape-reader`.
-- ✅ **FMT-2 Clocks, clock maps and typed items** · `v0.5`
-  - A record's time is a signed 64-bit tick count of its track's clock. Times are deltas per clock, so a block reads alone and holds no wall time.
-  - A clock has a stable key and an exact rate and resolution. A clock map turns the ticks of one clock into another's, with a named rounding.
-  - A typed item carries any WireWeaver value by its type. A track names its clock, its dimensions and its item type.
-  - Read more: [Clocks and ticks](docs/records_and_clocks.md#clocks-and-ticks).
 - ✅ **FMT-3 Chunk blocks** · `v0.5`
   - A chunk block holds one stretch of one track's events or samples, read in place. Its head places it without an index.
   - The head has its own CRC, and the payload has a CRC for every 64 KiB. A flipped bit in a series chunk loses one segment.
@@ -51,11 +46,6 @@ The bytes of blocks, records, chunks, definitions and the index, in the crate `w
   - A closed piece ends with a final index sorted by track, a close block and a fixed tail found from the end of the file.
   - The close holds a BLAKE3 hash of the piece's content. Offsets count from the piece, so files placed back to back keep their indexes.
   - Read more: [Index, close and tail](docs/format.md#index-close-and-tail). Golden file `v1-index.hex`; fuzz target `tape-index`.
-- ✅ **FMT-5 Track identity by name path** · `v0.5`
-  - A track's key hashes the names of its resource, array indices and the keys of keyed arrays. Two runs that number things differently get the same ids (API-67).
-  - A resource renamed with `#[moved_from]` keeps its key (INT-17). A resource moved to another trait still gets a new key.
-  - The bundle side is WireWeaver's crate `ww_tape_bundle`.
-  - Read more: [Track identity](docs/format.md#track-identity). Tests in WireWeaver's `tests/tape_identity`.
 - ✅ **FMT-6 Series tracks** · `v0.5`
   - A track is either events or a series. A series track states the type of one value, its period in ticks per sample and the scale of the stored numbers.
   - The period is an exact ratio. A batch of fixed-point values becomes chunk columns without a float.
@@ -71,13 +61,6 @@ The bytes of blocks, records, chunks, definitions and the index, in the crate `w
   - A closed piece is a multiple of 4 KiB long. Pieces clone back to back into one file on btrfs and XFS with nothing between them.
   - The writer pads the close block, which states the padding. Blocks inside a piece stay unaligned.
   - Read more: [The 4 KiB end and cloning](docs/pieces.md#the-4-kib-end-and-cloning).
-- ✅ **FMT-9 Definitions and state near their use** · `v0.5`
-  - Definitions are plain records on track 0: the producer, the layout, bundles, clocks, maps, tracks and typed items. Each has a slot, and the newest per slot counts.
-  - The application holds its definitions and passes them with each write. Data of a track it doesn't hold is refused.
-  - A state item is put again only where the same item doesn't lie close behind. A first write gets spaced copies.
-  - Adding 10 000 tracks one by one takes 60 milliseconds in all. A 256 MiB piece with 10 000 tracks in use holds 1.85 % puts and copies.
-  - The index lists state records, and the reader looks state up at any place, damage included.
-  - Read more: [Definitions on track 0](docs/blocks.md#definitions-on-track-0), [State tracks](docs/tape.md#state-tracks-and-near-use). Fuzz target `tape-state-hostile`.
 - ✅ **FMT-10 Series chunks carry their own grid and scale**
   - A series chunk's head carries its grid and scale, so a chunk times and scales its samples alone.
   - A timeline of a track is built from chunk heads in any order. It checks each chunk against its neighbours and says where the gaps are.
@@ -89,17 +72,64 @@ The bytes of blocks, records, chunks, definitions and the index, in the crate `w
   - A caller may accept a break in such a relation. The tape marks it, and readers refuse a decrease that isn't marked.
   - Kept for later, not built: postings and dictionary blocks and values stored only in the index.
   - Read more: [Relation columns](docs/format.md#relation-columns). Tests `relations.rs`; fuzz targets `tape-times` and `tape-index`.
-- ✅ **FMT-12 What a track's items are**
-  - A track's definition says what its items are (`Items`): a WireWeaver stream's values, a ShrinkWrap type, plain bytes, numbers, or a foreign format. A foreign format has a name, a media type and a version, and may carry a schema in the tape. Numbers are of an element the definition describes. The bytes are stored as given.
-  - `Items` is evolvable: a variant a newer ww_tape adds reads as unknown with the rest of the definition intact. A relay stores such events as given.
-  - A series' items are `Numbers` too: any width LSB or MSB first, floats of another layout, a zero offset that summaries keep exact.
-  - Read more: [What a track's items are](docs/tracks.md#what-a-tracks-items-are), [Items of a track](docs/format.md#items-of-a-track), [Sample codecs](docs/format.md#sample-codecs). Tests `raw.rs`, `iq8.rs`, `series.rs`; fuzz targets `tape-series`, `tape-samples`, `tape-samples-hostile`.
 - ✅ **FMT-13 Series chunks carry their samples' flags**
   - A series chunk keeps its samples' flags words as runs of consecutive samples sharing a word, in a `Flags` column in codec `FLAG_RUNS`. Only a chunk with a flagged sample has it, so an unflagged series keeps its bytes.
   - The runs are in one form only, at most `FLAG_RUNS_MAX` (4096) per chunk; a writer seals a chunk before one more.
   - The summaries derive their flags from the runs, so a resumed writer rebuilds them from the kept chunks (`SeriesSummaries::push_runs`).
   - Readers take the runs per chunk: `Chunk::flag_runs`, `SeriesSamples::flag_runs` of a track follower.
   - Read more: [Sample flags](docs/format.md#sample-flags). Golden file `v1-series.hex`; tests `series_flags.rs`, `mux_resume.rs`; fuzz targets `tape-flags`, `tape-flags-hostile`.
+
+## Tracks, clocks and definitions (`TRACK`)
+
+Clocks, track identity, definitions on track 0, state, what items are and how tracks are numbered, in the crate `ww_tape`.
+
+- ✅ **TRACK-1 Clocks, clock maps and typed items** · `v0.5`
+  - A record's time is a signed 64-bit tick count of its track's clock. Times are deltas per clock, so a block reads alone and holds no wall time.
+  - A clock has a stable key and an exact rate and resolution. A clock map turns the ticks of one clock into another's, with a named rounding.
+  - A typed item carries any WireWeaver value by its type. A track names its clock, its dimensions and its item type.
+  - Read more: [Clocks and ticks](docs/records_and_clocks.md#clocks-and-ticks).
+- ✅ **TRACK-2 Track identity by name path** · `v0.5`
+  - A track's key hashes the names of its resource, array indices and the keys of keyed arrays. Two runs that number things differently get the same ids (API-67).
+  - A resource renamed with `#[moved_from]` keeps its key (INT-17). A resource moved to another trait still gets a new key.
+  - The bundle side is WireWeaver's crate `ww_tape_bundle`.
+  - Read more: [Track identity](docs/format.md#track-identity). Tests in WireWeaver's `tests/tape_identity`.
+- ✅ **TRACK-3 Definitions and state near their use** · `v0.5`
+  - Definitions are plain records on track 0: the producer, the layout, bundles, clocks, maps, tracks and typed items. Each has a slot, and the newest per slot counts.
+  - The application holds its definitions and passes them with each write. Data of a track it doesn't hold is refused.
+  - A state item is put again only where the same item doesn't lie close behind. A first write gets spaced copies.
+  - Adding 10 000 tracks one by one takes 60 milliseconds in all. A 256 MiB piece with 10 000 tracks in use holds 1.85 % puts and copies.
+  - The index lists state records, and the reader looks state up at any place, damage included.
+  - Read more: [Definitions on track 0](docs/blocks.md#definitions-on-track-0), [State tracks](docs/tape.md#state-tracks-and-near-use). Fuzz target `tape-state-hostile`.
+- ✅ **TRACK-4 What a track's items are**
+  - A track's definition says what its items are (`Items`): a WireWeaver stream's values, a ShrinkWrap type, plain bytes, numbers, or a foreign format. A foreign format has a name, a media type and a version, and may carry a schema in the tape. Numbers are of an element the definition describes. The bytes are stored as given.
+  - `Items` is evolvable: a variant a newer ww_tape adds reads as unknown with the rest of the definition intact. A relay stores such events as given.
+  - A series' items are `Numbers` too: any width LSB or MSB first, floats of another layout, a zero offset that summaries keep exact.
+  - Read more: [What a track's items are](docs/tracks.md#what-a-tracks-items-are), [Items of a track](docs/format.md#items-of-a-track), [Sample codecs](docs/format.md#sample-codecs). Tests `raw.rs`, `iq8.rs`, `series.rs`; fuzz targets `tape-series`, `tape-samples`, `tape-samples-hostile`.
+- ✅ **TRACK-5 A new piece carries its quiet tracks' definitions**
+  - A cut puts the definition of every track the new head carries, with its clocks, maps and bundles, right after the head. Dropping older pieces keeps a quiet track's kind, clock and label.
+  - Blocks of at most 4 KiB, each with the clocks and maps of its own tracks: a damaged block costs only its tracks. Bundles come once, first.
+  - A call whose definitions fit no piece under the index policy is refused (`InputError::CarriedEntries`), nothing written, no cut. A resume that kept only the head puts them with the next call.
+  - A new piece carries every definition while the chain's tracks fit the index policy's state entries. A cut is never refused for them.
+  - Past the room it carries each once: the call's tracks first, then clocks and maps, then the newest tracks. The tracks with the oldest data are left out: the head marks them, the close counts them and a reader names them (`DefinitionsAt::not_carried`).
+  - A cut made for a call keeps room for its records. An admitted call so fits the piece a cut made for it: data on a track left out writes on, and that piece holds data.
+  - A state track gets a head row from its first put. A cut carries its newest item beside its definition, so a state put once outlives older pieces. About 275 to 330 bytes per carried state (`just bench-carried`).
+  - What carrying costs a piece, measured by `just bench-carried`: [What they cost](docs/carried_definitions.md#what-they-cost).
+  - Read more: [The definitions a new piece carries](docs/carried_definitions.md). Tests `quiet.rs`.
+- ✅ **TRACK-6 A piece's layout and producer survive damage to its first blocks**
+  - Every call that puts a definition or a state item uses the layout and the producer. Each gets track 0's copy at the copy spacing (1 MiB) and is put again past `near`, in that call's block of puts.
+  - Losing a piece's first blocks loses neither: the reader takes the newest record. A scan past the newest checkpoint takes its gap rules from the copy.
+  - A raw-media walk that starts past lost first sectors knows no gap rules until the copy; `OpenOptions::layout` gives them there.
+  - A copy that finds the piece's state entries full is skipped, never refusing a call; such a piece names them once.
+  - Cost: 523 bytes in a 28 MiB piece of the drive, two records and their index entries; none in a piece under 1 MiB.
+  - Read more: [When bytes go bad](docs/damage.md#the-first-4-kib-lost). Tests `head_copies.rs`.
+- 🚧 **TRACK-7 The definitions number tracks and clocks**
+  - An application defines a track or a clock without a number (`TrackSpec`, `ClockSpec`); `Definitions` gives the lowest number not taken and returns it.
+  - The same track identity (key, dimensions, owner) or clock key gets its number back, also after a close.
+  - A number never goes to another track or clock.
+  - A resume reads the numbers of the piece's definitions (`Resumed::numbers`), so the application's definitions keep them (`Definitions::with_numbers`).
+  - A reader finds a track's number by its id (`DefinitionsAt::track_number`).
+  - Missing: a chain resume that starts a new piece reads no closed piece, so its numbers start anew.
+  - Read more: [Number, key and id](docs/tracks.md#number-key-and-id), [The definitions an application holds](docs/definitions.md#the-definitions-an-application-holds).
 
 ## Writer (`WRITE`)
 
@@ -146,33 +176,11 @@ Writing pieces and chains, resuming them, sinks in memory, in the crate `ww_tape
   - Rows live in the piece that holds them: removing that piece later means naming them again (`ChainReport::removed`).
   - Read more: [Pieces removed on purpose](docs/pieces.md#pieces-removed-on-purpose). Golden `v1-removed.hex`.
 
-- ✅ **WRITE-9 A new piece carries its quiet tracks' definitions**
-  - A cut puts the definition of every track the new head carries, with its clocks, maps and bundles, right after the head. Dropping older pieces keeps a quiet track's kind, clock and label.
-  - Blocks of at most 4 KiB, each with the clocks and maps of its own tracks: a damaged block costs only its tracks. Bundles come once, first.
-  - A call whose definitions fit no piece under the index policy is refused (`InputError::CarriedEntries`), nothing written, no cut. A resume that kept only the head puts them with the next call.
-  - A new piece carries every definition while the chain's tracks fit the index policy's state entries. A cut is never refused for them.
-  - Past the room it carries each once: the call's tracks first, then clocks and maps, then the newest tracks. The tracks with the oldest data are left out: the head marks them, the close counts them and a reader names them (`DefinitionsAt::not_carried`).
-  - A cut made for a call keeps room for its records. An admitted call so fits the piece a cut made for it: data on a track left out writes on, and that piece holds data.
-  - A state track gets a head row from its first put. A cut carries its newest item beside its definition, so a state put once outlives older pieces. About 275 to 330 bytes per carried state (`just bench-carried`).
-  - What carrying costs a piece, measured by `just bench-carried`: [What they cost](docs/carried_definitions.md#what-they-cost).
-  - Read more: [The definitions a new piece carries](docs/carried_definitions.md). Tests `quiet.rs`.
+## Writing from many threads (`MUX`)
 
-- ✅ **WRITE-10 A piece's layout and producer survive damage to its first blocks**
-  - Every call that puts a definition or a state item uses the layout and the producer. Each gets track 0's copy at the copy spacing (1 MiB) and is put again past `near`, in that call's block of puts.
-  - Losing a piece's first blocks loses neither: the reader takes the newest record. A scan past the newest checkpoint takes its gap rules from the copy.
-  - A raw-media walk that starts past lost first sectors knows no gap rules until the copy; `OpenOptions::layout` gives them there.
-  - A copy that finds the piece's state entries full is skipped, never refusing a call; such a piece names them once.
-  - Cost: 523 bytes in a 28 MiB piece of the drive, two records and their index entries; none in a piece under 1 MiB.
-  - Read more: [When bytes go bad](docs/damage.md#the-first-4-kib-lost). Tests `head_copies.rs`.
-- 🚧 **WRITE-11 The definitions number tracks and clocks**
-  - An application defines a track or a clock without a number (`TrackSpec`, `ClockSpec`); `Definitions` gives the lowest number not taken and returns it.
-  - The same track identity (key, dimensions, owner) or clock key gets its number back, also after a close.
-  - A number never goes to another track or clock.
-  - A resume reads the numbers of the piece's definitions (`Resumed::numbers`), so the application's definitions keep them (`Definitions::with_numbers`).
-  - A reader finds a track's number by its id (`DefinitionsAt::track_number`).
-  - Missing: a chain resume that starts a new piece reads no closed piece, so its numbers start anew.
-  - Read more: [Number, key and id](docs/tracks.md#number-key-and-id), [The definitions an application holds](docs/definitions.md#the-definitions-an-application-holds).
-- ✅ **WRITE-12 A writing thread for producers on any thread**
+The writing thread and its handles, in the crate `ww_tape_mux`.
+
+- ✅ **MUX-1 A writing thread for producers on any thread**
   - A `TapeMux` (crate `ww_tape_mux`) owns a chain and its definitions on a writing thread. Producers send through handles: `ChunkSender` (one track's chunks), `RecordsHandle`, `RelayHandle` (another producer's blocks) and `StateHandle` (puts on change).
   - Tracks and clocks are defined on the mux, which gives their numbers; handles pass no definitions.
   - One queue bounded by bytes, waiters served in arrival order. Per handle: wait (lossless), fail with the unit back, or drop and count. A dropped chunk leaves an item-number gap: readers take it as items lost.
@@ -180,9 +188,9 @@ Writing pieces and chains, resuming them, sinks in memory, in the crate `ww_tape
   - A writer's refusal reaches the handle's next call; a failed write reaches every handle. A close refuses later calls with `Closed` and doesn't wait for handles. A mux dropped unclosed leaves its piece unclosed; `TapeMux::resume` and `ww_tape_fs::mux::resume` go on.
   - `PieceChain::relay_block` and `adopt_block` pass a producer's blocks on into a chain.
   - Several muxes in one process write chains of their own; each resumes alone after a crash (test `mux_multi.rs`). The RF example writes its IQ and its decoded bursts through two ([Samples and what they mean, in two chains](docs/series.md#samples-and-what-they-mean-in-two-chains)).
-  - Async sends: WRITE-14.
+  - Async sends: MUX-3.
   - Tests `mux.rs`, `item_gap.rs`, `mux_multi.rs`.
-- ✅ **WRITE-13 Typed track handles encode on the producer's thread**
+- ✅ **MUX-2 Typed track handles encode on the producer's thread**
   - `EventsHandle` takes items of one events track: instants, spans, flags, relation values, payloads. `SeriesHandle` takes samples on a grid, with `regrid`.
   - Each encodes its chunks, hashes their payload and computes the leaves of the track's summaries on its own thread. `write_chunk_hashed` takes the hash; the bytes are the same.
   - `SeriesLeaves` and `SeriesTree`, and `EventRuns`, split the summary builders between producer and writing thread.
@@ -197,7 +205,7 @@ Writing pieces and chains, resuming them, sinks in memory, in the crate `ww_tape
   - `EventsHandle::push_all` takes a batch of `Event`s in one pass, the bytes of pushing them one by one. One events producer writes 56.0 M events/s through the mux, one thread writing directly 54.8 (bench `handles`).
   - Tests `mux_handles.rs`, `split_tests.rs`, `placed.rs`, `mux_resume.rs`, `series_flags.rs`.
   - Bench `handles` (`just bench-handles`): direct writer against the mux by 1, 4 and 16 tracks.
-- ✅ **WRITE-14 Async twins of the mux's and the followers' waits**
+- ✅ **MUX-3 Async twins of the mux's and the followers' waits**
   - Every call that waits has an `_async` twin. Handles: send, put, push, regrid, seal, finish, flush, sync.
   - The mux: definitions, making handles, cut, flush, sync, close. Readers: `ProgressWatch::wait_past_async`, the followers' `wait_next_async`.
   - The queue's senders wait by waker, in arrival order, threads and tasks alike. A blocking call parks its thread on the same future.
@@ -207,15 +215,6 @@ Writing pieces and chains, resuming them, sinks in memory, in the crate `ww_tape
   - A timeout of the caller's runtime bounds a wait.
   - Missing: a typed handle's drop still sends blocking; async code ends a handle with `finish_async`.
   - Tests `mux_async.rs`: tokio's two schedulers and smol, without timer or I/O driver, woken from another thread.
-- ✅ **WRITE-15 The example and the book's writer code through handles**
-  - `Drive::record` writes through a `TapeMux` from one thread in the story's fixed order, with no tick and no latency seal: the placement is the same every run.
-  - The mode goes through a `StateHandle`, records blocks through a `RecordsHandle`, `can0` through a `ChunkSender`, `phase_a` through a `SeriesHandle` whose summaries the mux builds, one tree a piece.
-  - The relay (`writing::relay`) writes through a `RelayHandle`: the same bytes.
-  - `Drive::crash` writes the chain, then cuts its bytes at the crash byte.
-  - `Crashed::resume` is a `TapeMux::resume` given the acts the crash lost. The resume equals the whole run byte for byte, at every byte of a scaled run.
-  - The mux builds one summary tree a piece, where the direct writer built one across pieces. The pinned numbers were run again: `writing.out`, `fault.out`, the damage tests and the pages that quote them.
-  - The book's included writer code comes from the handles path (`first_tape.md`, `columns.md`, `sample_codecs.md`, `summaries.md`, `pieces.md`); `first_tape.rs` keeps the `TapeWriter` lesson beside it.
-  - `ww_tape_example::handles::record` is the concurrent demo, one thread per source. Test `tests/handles.rs` compares each track's decoded items with the story's recording.
 
 ## Reader (`READ`)
 
@@ -334,7 +333,7 @@ The pages in `docs/`.
   - Done: `[[term]]` marks a glossary term and ``[`Item`]`` links code, both with a card on hover; a stale name fails `just book-check`.
   - Done: six parts in dependency order, a reading level on every page, and doctests of a page's `rust` blocks.
   - Done: the chapter "When the power fails", its figures drawn from a real crash and its code from a test.
-  - Done: the running example as code (BOOK-3).
+  - Done: the running example as code (EX-1).
   - Done: Part I, "Tapes" and "A first tape": the drive's hour as a tape, and a program that writes and reads its first minute.
   - Done: Part II, how a tape is built: five chapters with the drive's case, tested code and seven new figures.
   - Done: Part III, writing: five chapters with every writing call the drive makes in tested code, and eight new figures.
@@ -349,19 +348,31 @@ The pages in `docs/`.
   - Open: the chapters still stubs, tested code in every guide chapter.
   - Read more: [For writers](docs/writers.md), [Glossary](docs/glossary.md).
 
-- ✅ **BOOK-3 The running example as code**
+## Example and cases (`EX`)
+
+The book's running example and its other cases, in the crate `ww_tape_example`.
+
+- ✅ **EX-1 The running example as code**
   - `ww_tape_example` records the drive motor controller's hour: log lines, mode, CAN frames, phase current with summaries and temperature, in a chain of pieces.
   - `Drive::scaled` shrinks the data and the byte policies for figures; a crash at any byte resumes to the bytes of the run without it.
   - `cargo run -p ww_tape_example` prints the story's numbers; `tests/story.rs` checks them and that the full hour is the same every run.
   - Damage to the last piece and the run on a raw card over an earlier run; `tests/damage.rs` pins what each costs.
   - `rf` records an RF capture, ComplexI16 IQ at 20 MS/s with summaries, as the book's case for high rates; `tests/rf.rs` pins its size per codec. `rf chains` writes it into two chains, IQ and decoded bursts, through two muxes while a reader merges both.
   - Read more: [ww_tape_example](ww_tape_example/README.md).
-
-- ✅ **BOOK-4 Cases beside the drive**
+- ✅ **EX-2 Cases beside the drive**
   - `ethernet` records a protocol analyser on both directions of a 10 Gbps link. Frames are raw-bytes events; decoded IPv4 and TCP or UDP headers are tracks related to their frames. Each receive queue has a capture and a decoder thread; one mux or a mux per port writes them. `tests/ethernet.rs` reads every frame and header back.
   - `wideband` records a 1 GS/s receiver in channels, each a series track with a producer thread. The channels spread over several muxes and chains; an overview reads only the summary nodes. `tests/wideband.rs` reads every sample back and finds the bursts from the overview.
   - `just bench-ethernet` and `just bench-wideband` measure how much of the link and the band one PC keeps, without a disk and into piece files; `bench-book` runs both.
   - Read more: [Every frame of a 10 Gbps link](docs/protocol_analyser.md), [A billion samples a second](docs/wideband.md), [ww_tape_example](ww_tape_example/README.md).
+- ✅ **EX-3 The example and the book's writer code through handles**
+  - `Drive::record` writes through a `TapeMux` from one thread in the story's fixed order, with no tick and no latency seal: the placement is the same every run.
+  - The mode goes through a `StateHandle`, records blocks through a `RecordsHandle`, `can0` through a `ChunkSender`, `phase_a` through a `SeriesHandle` whose summaries the mux builds, one tree a piece.
+  - The relay (`writing::relay`) writes through a `RelayHandle`: the same bytes.
+  - `Drive::crash` writes the chain, then cuts its bytes at the crash byte.
+  - `Crashed::resume` is a `TapeMux::resume` given the acts the crash lost. The resume equals the whole run byte for byte, at every byte of a scaled run.
+  - The mux builds one summary tree a piece, where the direct writer built one across pieces. The pinned numbers were run again: `writing.out`, `fault.out`, the damage tests and the pages that quote them.
+  - The book's included writer code comes from the handles path (`first_tape.md`, `columns.md`, `sample_codecs.md`, `summaries.md`, `pieces.md`); `first_tape.rs` keeps the `TapeWriter` lesson beside it.
+  - `ww_tape_example::handles::record` is the concurrent demo, one thread per source. Test `tests/handles.rs` compares each track's decoded items with the story's recording.
 
 ## Repository (`REPO`)
 
@@ -392,14 +403,14 @@ The entries came from WireWeaver with `STD` ids, and new ones took `TAPE` ids. E
 | Former | Now |
 | --- | --- |
 | STD-42 | FMT-1 |
-| STD-117 | FMT-2 |
+| STD-117 | TRACK-1 |
 | STD-118 | FMT-3 |
 | STD-122 | FMT-4 |
-| STD-125 | FMT-5 |
+| STD-125 | TRACK-2 |
 | STD-127 | FMT-6 |
 | STD-129 | FMT-7 |
 | STD-134 | FMT-8 |
-| STD-135 | FMT-9 |
+| STD-135 | TRACK-3 |
 | TAPE-3 | FMT-10 |
 | TAPE-7 | FMT-11 |
 | STD-123 | WRITE-1 |
@@ -423,3 +434,16 @@ The entries came from WireWeaver with `STD` ids, and new ones took `TAPE` ids. E
 | STD-133 | SUM-3 |
 | TAPE-13 | BOOK-1 |
 | TAPE-12 | REPO-1 |
+| FMT-2 | TRACK-1 |
+| FMT-5 | TRACK-2 |
+| FMT-9 | TRACK-3 |
+| FMT-12 | TRACK-4 |
+| WRITE-9 | TRACK-5 |
+| WRITE-10 | TRACK-6 |
+| WRITE-11 | TRACK-7 |
+| WRITE-12 | MUX-1 |
+| WRITE-13 | MUX-2 |
+| WRITE-14 | MUX-3 |
+| BOOK-3 | EX-1 |
+| BOOK-4 | EX-2 |
+| WRITE-15 | EX-3 |

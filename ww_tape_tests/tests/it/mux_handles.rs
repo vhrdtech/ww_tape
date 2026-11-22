@@ -1,5 +1,5 @@
 //! Typed track handles on a [TapeMux]: events and series encoded on the producers' threads, their summaries built
-//! per piece on the writing thread, a quiet handle's chunk sealed by its latency (WRITE-13).
+//! per piece on the writing thread, a quiet handle's chunk sealed by its latency (MUX-2).
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};

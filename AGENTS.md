@@ -55,8 +55,8 @@ What builds on ww_tape stays in WireWeaver: `ww_tape_bundle` (track name paths f
 `FEATURES.md` is the feature tracker and roadmap, the only place status is kept. Check it before starting a feature
 and update the matching item in the same change when finishing one (conventions at its top).
 
-- IDs carry their area's prefix (`FMT`, `WRITE`, `READ`, `FS`, `CODEC`, `SUM`, `BOOK`, `REPO`) and are stable:
-  never renumber or reuse one. A new item takes the next free number of its area.
+- IDs carry their area's prefix (`FMT`, `TRACK`, `WRITE`, `MUX`, `READ`, `FS`, `CODEC`, `SUM`, `BOOK`, `EX`,
+  `REPO`) and are stable: never renumber or reuse one. A new item takes the next free number of its area.
 - Use IDs in commits, CHANGELOG entries and `// TODO(FMT-1): ...`.
 - When talking to the user, name an ID with a 2-4 word kebab-case slug from its title: `FMT-4 index-close-tail`.
 

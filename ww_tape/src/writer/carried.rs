@@ -1,4 +1,4 @@
-//! The definitions a piece carries for the tracks its head carries (WRITE-9): how they are cut into blocks, and a
+//! The definitions a piece carries for the tracks its head carries (TRACK-5): how they are cut into blocks, and a
 //! bound on the state entries they take, which a writer checks before a track joins the next head.
 //!
 //! The blocks follow the piece head, the layout and the producer. Bundles come first, each once, packed into blocks

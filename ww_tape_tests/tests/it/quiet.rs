@@ -1,4 +1,4 @@
-//! A new piece carries the definitions of the tracks its head carries, quiet ones too (WRITE-9).
+//! A new piece carries the definitions of the tracks its head carries, quiet ones too (TRACK-5).
 
 use ww_tape::ItemNum;
 

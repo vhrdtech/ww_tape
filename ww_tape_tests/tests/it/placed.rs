@@ -287,7 +287,7 @@ fn an_empty_chunk_placed_states_the_unit_of_its_index_entry() {
 }
 
 /// [TapeWriter::write_chunk_hashed] with the payload hash a producer computed writes the same bytes, the same content
-/// hash and the same track hashes as [TapeWriter::write_chunk] (WRITE-13).
+/// hash and the same track hashes as [TapeWriter::write_chunk] (MUX-2).
 #[test]
 fn a_chunk_with_its_payload_hash_given_writes_the_same_piece() {
     let defs = crate::definitions::base_defs().clone();

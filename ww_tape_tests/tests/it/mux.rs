@@ -1,5 +1,5 @@
 //! A chain written through a [TapeMux]: producers on their own threads, a queue bounded by bytes, a sink slow or
-//! failing, cuts and closes under live handles, a crash at any byte and the resume (WRITE-12).
+//! failing, cuts and closes under live handles, a crash at any byte and the resume (MUX-1).
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
