@@ -22,8 +22,8 @@ use ww_tape::piece::{TAIL_LEN, close_padding};
 use ww_tape::samples::{encode, max_encoded_len};
 use ww_tape::{
     Block, BlockKind, Clock, ClockRef, Codec, ColumnKind, FLAG_REPEAT, FileBlocks, Layout,
-    MemError, MemSink, MemTape, MemTapes, PieceChain, Recovery, Slot, SyncPolicy, TapeReader,
-    TapeSink, TapeWriter, Tapes,
+    MemError, MemSink, MemTape, MemTapes, Recovery, Slot, SyncPolicy, TapeReader, TapeSink,
+    TapeWriter, Tapes,
 };
 use ww_tape_mux::{MuxOptions, RelayMode, TapeMux};
 
@@ -654,7 +654,8 @@ fn sync_loss(recording: &Recording, acts: &[Act], policy: SyncPolicy) -> Result<
         }
         before = Synced::of(log);
         r.apply(act)?;
-        if r.bytes()? > crash {
+        let (piece, bytes) = r.position();
+        if closed_bytes(recording, piece) + bytes > crash {
             break;
         }
     }
@@ -674,6 +675,16 @@ fn sync_loss(recording: &Recording, acts: &[Act], policy: SyncPolicy) -> Result<
     })
 }
 
+/// Bytes of the pieces of `recording` before piece `piece`.
+fn closed_bytes(recording: &Recording, piece: u64) -> u64 {
+    recording
+        .closed
+        .iter()
+        .take(usize::try_from(piece).unwrap_or(usize::MAX))
+        .map(|p| p.piece.len)
+        .sum()
+}
+
 /// A recorder of `drive` under `policy` whose sinks log their syncs, on the run's own clock, moved to each act's time.
 fn logged(
     drive: &Drive,
@@ -688,12 +699,7 @@ fn logged(
     let mut o = options(drive);
     o.writer.sync = policy;
     o.writer.clock = ClockRef::new(clock.clone());
-    let (defs, numbers) = drive_definitions(drive)?;
-    let r = Recorder {
-        chain: PieceChain::create_on(tapes.clone(), OWNER, drive.chain, &[], o)?,
-        defs,
-        numbers,
-    };
+    let r = Recorder::create_with(drive, &tapes, o)?;
     Ok((r, tapes, clock))
 }
 
@@ -708,7 +714,7 @@ pub fn sync_offsets(drive: &Drive, policy: SyncPolicy) -> Result<Vec<u64>, Error
         }
         r.apply(&act)?;
     }
-    let closed = r.chain.close()?;
+    let closed = r.finish()?;
     let starts: Vec<u64> = closed
         .iter()
         .scan(0, |at, p| {

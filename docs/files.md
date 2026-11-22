@@ -77,9 +77,9 @@ was not synced when the power failed at minute 37:
 | Policy | Syncs | Bytes not synced | Whole blocks not synced | Of the run |
 |---|---:|---:|---:|---:|
 | `Interval(1 s)` | 2223 | 30866 | 3 | 1.000 s |
-| `EveryBlocks(1)` | 8516 | 1263 | 0 | 0.333 s |
+| `EveryBlocks(1)` | 8526 | 1263 | 0 | 0.333 s |
 | `EveryBlocks(256)` | 36 | 622577 | 75 | 20.000 s |
-| `None` | 4 | 13412382 | 1611 | 420.000 s |
+| `None` | 4 | 13410910 | 1611 | 420.000 s |
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/plots/sync_loss.svg"
@@ -89,7 +89,7 @@ Without syncs, it is everything since the last close. Drawn by <code>ww_tape_fig
 minutes at full rate.</figcaption>
 </figure>
 
-A sync after every block loses only the [[torn block]], the 1263 bytes a resume cuts off. It pays with about 8520 waits
+A sync after every block loses only the [[torn block]], the 1263 bytes a resume cuts off. It pays with about 8530 waits
 for the disk. The default loses the last second, three whole blocks, with 2223 syncs. Without syncs, the crash may lose
 all of piece 2: 420 s of the run. A recorder of a slow, precious stream syncs after every block; one of a fast stream
 keeps the default.

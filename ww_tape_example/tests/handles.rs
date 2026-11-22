@@ -1,31 +1,36 @@
-//! The drive's hour through mux handles, one thread per source (H5): a sanity check, not the pinned story numbers
-//! ([`handles`](ww_tape_example::handles)'s own chain, written and cut on its own).
+//! The drive's hour through mux handles, one thread per source, holds what the story's recording holds: each
+//! track's decoded items are the same, though the bytes differ with the order the threads' units reach the queue.
 #![allow(clippy::expect_used, reason = "tests fail by panicking")]
 
 use ww_tape_example::Drive;
-use ww_tape_example::handles::record;
+use ww_tape_example::handles::{decode, record};
 
 #[test]
-fn one_thread_per_source_writes_a_chain() {
+fn one_thread_per_source_writes_the_items_of_the_story() {
+    // 20 minutes of the hour at 1/1000 of its data: two pieces, the mode changes at minute 1
     let drive = Drive::scaled(1000)
         .expect("1000 divides the rates")
-        .minutes(5);
-    let via = record(&drive).expect("the hour records through handles");
-    assert!(via.pieces > 0, "at least one piece");
-    assert!(via.bytes > 0, "at least one byte");
+        .minutes(20);
+    let direct = drive.record().expect("the run records");
+    let via = record(&drive).expect("the run records through handles");
+    assert_eq!(direct.pieces.len(), 2, "the run cuts a piece at minute 15");
+    let want = decode(&direct.pieces, &direct.numbers).expect("the story's pieces decode");
+    let got = decode(&via.pieces, &direct.numbers).expect("the handles' pieces decode");
     assert_eq!(
-        via.frames,
+        u64::try_from(got.frames.len()).expect("fits"),
         u64::from(drive.can_hz) * 60 * u64::from(drive.minutes),
-        "every can0 frame of the run, sent by its own thread"
+        "every frame of can0"
     );
     assert_eq!(
-        via.samples,
+        u64::try_from(got.samples.len()).expect("fits"),
         u64::from(drive.phase_hz) * 60 * u64::from(drive.minutes),
-        "every phase_a sample of the run, sent by its own thread"
+        "every sample of phase_a"
     );
-    assert!(via.puts >= 1, "at least the mode's first put");
-    assert!(
-        via.records > 0,
-        "log lines and temperatures, sent by their own thread"
-    );
+    assert!(got.mode.len() >= 2, "the mode changed");
+    assert!(!got.log.is_empty() && !got.temp.is_empty());
+    assert_eq!(got.log, want.log, "log lines");
+    assert_eq!(got.temp, want.temp, "temperatures");
+    assert_eq!(got.mode, want.mode, "the mode's changes");
+    assert_eq!(got.frames, want.frames, "frames of can0");
+    assert_eq!(got.samples, want.samples, "samples of phase_a");
 }

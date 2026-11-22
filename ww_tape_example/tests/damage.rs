@@ -79,7 +79,7 @@ fn check_flip(drive: &Drive, flip: &Damaged) -> Result<(), Error> {
     assert_eq!((s.items, s.items_lost), (25_000, Some(25_000)));
     assert_eq!(s.first_tick, i64::from(FLIP_MINUTE) * 60_000_000);
     // the numbers the chapter "When bytes go bad" gives
-    assert_eq!(flip.damage.start, 9_731_108, "the flipped byte");
+    assert_eq!(flip.damage.start, 9_729_481, "the flipped byte");
     assert_eq!(s.block.len, 28_171, "the flipped chunk's bytes");
     flip_on_the_page(flip.damage.start, s.block.len, stop.0);
     assert_eq!(
@@ -89,7 +89,7 @@ fn check_flip(drive: &Drive, flip: &Damaged) -> Result<(), Error> {
     );
     assert_eq!(
         (r.prefix.blocks.len(), stop.0),
-        (1154, 9_717_023),
+        (1155, 9_715_396),
         "Prefix's blocks and where it stops"
     );
     assert_eq!(r.resync.blocks.len(), 3455, "the blocks Resync hands out");
@@ -135,7 +135,7 @@ fn check_first(drive: &Drive, first: &Damaged) -> Result<(), Error> {
     assert_eq!((r.read.len(), r.unreadable.len()), (3441, 4));
     // the cut's carried mode lay in the lost bytes: no mode until its copy at 45:34
     let (from, to) = (r.mode_unknown[0], *r.mode_unknown.last().expect("chunks"));
-    assert_eq!((from / US_PER_S, to / US_PER_S), (45 * 60, 45 * 60 + 33));
+    assert_eq!((from / US_PER_S, to / US_PER_S), (45 * 60, 45 * 60 + 34));
     says(
         "damage.md",
         &format!(
@@ -147,22 +147,16 @@ fn check_first(drive: &Drive, first: &Damaged) -> Result<(), Error> {
 }
 
 fn check_last(drive: &Drive, last: &Damaged) -> Result<(), Error> {
-    // the last 4 KiB: the tail and the close; the reader starts at the newest checkpoint, and every block of data reads
+    // the last 4 KiB: the padding, the close and the tail; the final index before them is the newest index block, and
+    // every block of data reads
     let r = last.read(drive)?;
-    let scanned = 1_096_734;
-    assert_eq!(r.found, Found::Checkpoint { scanned });
+    assert_eq!(r.found, Found::Checkpoint { scanned: 0 });
     assert_eq!(r.holds, None, "no close to check the piece by");
     assert_eq!(r.read.len(), r.data_blocks());
     assert!(r.unreadable.is_empty() && r.unlisted.is_empty());
     assert_eq!(r.definitions, r.definitions_written);
     assert!(r.mode_unknown.is_empty(), "the mode reads at every chunk");
-    says(
-        "damage.md",
-        &format!(
-            "its newest checkpoint and a scan of about {}",
-            about(scanned)
-        ),
-    );
+    says("damage.md", "its final index, with no scan after it");
     Ok(())
 }
 
@@ -171,11 +165,11 @@ fn a_raw_card_never_reads_the_earlier_run() -> Result<(), Error> {
     let today = Drive::full().on_sd_card();
     let earlier = today.chain(EARLIER_CHAIN).record()?;
     let run = today.record()?;
-    let crashed = today.crash(run.story_crash_byte()?)?;
+    let crashed = run.crash(run.story_crash_byte()?)?;
     let crash = crashed.crash;
     let card = crashed.on_card(&earlier)?;
     assert_eq!(card.bytes.len() as u64, earlier.len());
-    assert_eq!((card.bytes.len(), crash.byte), (115_294_208, 72_316_958));
+    assert_eq!((card.bytes.len(), crash.byte), (115_298_304, 72_315_486));
     let read = card.read(&earlier)?;
     assert_eq!(read.raw_pieces, 3, "two closed pieces and the torn one");
     let torn_start = crash.byte - crash.offset;
@@ -184,7 +178,7 @@ fn a_raw_card_never_reads_the_earlier_run() -> Result<(), Error> {
         "the data ends at the torn block"
     );
     assert_eq!(read.raw_stop.map(|s| s.0), Some(read.raw_end));
-    assert_eq!(read.raw_end, 72_315_695, "where today's data ends");
+    assert_eq!(read.raw_end, 72_314_223, "where today's data ends");
     let len = card.bytes.len() as u64;
     says(
         "raw_media.md",

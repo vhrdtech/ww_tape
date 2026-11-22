@@ -8,9 +8,9 @@ use shrink_wrap::prelude::*;
 use ww_tape::summary::{SeriesStats, SeriesSummarySpec};
 use ww_tape::{
     ClockMap, ClockOrigin, ClockSpec, Definitions, Describe, EventsDef, FullVersion, Items,
-    Magnitude, MapSegment, MemTapes, Ratio64, SampleShape, Segment, SeriesDef, SeriesValue,
-    StatePolicy, TrackKey, TrackKind, TrackRepeat, TrackSpec, UNIX_CLOCK_KEY, Version, clock_key,
-    track_key,
+    Magnitude, MapSegment, MemError, Ratio64, SampleShape, Segment, SeriesDef, SeriesValue,
+    StatePolicy, Tapes, TrackKey, TrackKind, TrackRepeat, TrackSpec, UNIX_CLOCK_KEY, Version,
+    clock_key, track_key,
 };
 use ww_tape_mux::TapeMux;
 
@@ -211,12 +211,17 @@ pub fn define(
 }
 
 /// [define] on `mux` instead of into a [Definitions] of its own: the numbers its clocks and tracks get.
-pub(crate) fn define_on_mux(
-    mux: &TapeMux<MemTapes>,
+pub(crate) fn define_on_mux<T>(
+    mux: &TapeMux<T>,
     hz: u32,
     summaries: bool,
     near: u32,
-) -> Result<DriveNumbers, Error> {
+) -> Result<DriveNumbers, Error>
+where
+    T: Tapes<Error = MemError> + Send + 'static,
+    T::Sink: Send,
+    T::Key: Send,
+{
     let phase = phase_def(hz, summaries).ok_or(Error::Settings("phase_a's rate is 0"))?;
     let segment = MapSegment::new(
         0,

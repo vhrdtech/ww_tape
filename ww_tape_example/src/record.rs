@@ -3,7 +3,7 @@
 
 use ww_tape::ItemNum;
 
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use ww_tape::{ClockNum, TrackNum};
 
 use ww_tape::chunk::ChunkHead;
@@ -14,16 +14,22 @@ use ww_tape::times::EncodedTimes;
 use ww_tape::writer::NearPolicy;
 use ww_tape::{
     BlockId, BlockKind, BlockWriter, ChainOptions, ChainPiece, ClockRef, ClockTime, Codec,
-    ColumnKind, ColumnSpec, CutPolicy, Definitions, EndMode, MemError, MemTapes, PieceChain,
-    PieceTapes, Resumed, SeriesGrid, StatePolicy, SyncPolicy, TapeSink, Tapes, WriterOptions,
+    ColumnKind, ColumnSpec, CutPolicy, Definitions, EndMode, FileBlocks, MemError, MemTapes,
+    PieceTapes, Recovery, Resumed, SeriesGrid, SessionTag, StatePolicy, SyncPolicy, TapeReader,
+    TapeSink, Tapes, WriterOptions,
+};
+use ww_tape_mux::{
+    ChunkSender, MuxOptions, ProgressWatch, RecordsHandle, SeriesHandle, SeriesOptions,
+    StateHandle, TapeMux,
 };
 use ww_tape_summary::{SeriesStart, SeriesSummaries};
 
-use crate::defs::{DriveNumbers, define, definitions, key};
+use crate::defs::{DriveNumbers, define_on_mux, definitions, key};
 use crate::signals::{
     CRASH_MINUTE, FAULT_MINUTE, Mode, US_PER_HOUR, US_PER_MS, emergency_frame, frame, log_line,
     phase_ma, temp_centi,
 };
+use crate::writing::phase_values;
 use crate::{Drive, Error, OWNER, PRODUCER};
 
 /// The codec of `phase_a`'s samples: differences, bit-packed in groups.
@@ -280,8 +286,6 @@ impl Iterator for Acts {
 pub(crate) struct Made {
     /// The piece it was made in.
     piece: u64,
-    /// The seq of the writer's last block after it.
-    seq: u64,
     /// The piece's bytes before and after it.
     before: u64,
     after: u64,
@@ -292,6 +296,8 @@ pub(crate) struct Made {
     /// The track and first tick of its chunk; None for no chunk.
     track: Option<TrackNum>,
     first_tick: i64,
+    /// The first item of its chunk.
+    first_item: u64,
     /// Items in its chunk.
     items: u64,
     /// For a put of the mode: whether it wrote a record; its ticks are in `first_tick`.
@@ -334,86 +340,201 @@ pub(crate) fn options(drive: &Drive) -> ChainOptions {
 }
 // --8<-- [end:options_item]
 
+/// The mux's options: no tick, so that nothing is placed by time and the bytes follow from the acts alone.
+fn mux_options() -> MuxOptions {
+    MuxOptions {
+        tick: std::time::Duration::MAX,
+        ..MuxOptions::default()
+    }
+}
+
 // --8<-- [start:recorder_item]
-/// A chain and what it was written with.
-pub(crate) struct Recorder<T: Tapes<Error = MemError> = MemTapes> {
-    pub(crate) chain: PieceChain<T>,
-    pub(crate) defs: Definitions,
-    /// The numbers `defs` gave the drive's clocks and tracks.
+/// A chain written through a mux, one handle for each kind of act.
+pub(crate) struct Recorder<T: Tapes = MemTapes> {
+    mux: TapeMux<T>,
+    drive: Drive,
+    /// The numbers the mux gave the drive's clocks and tracks.
     pub(crate) numbers: DriveNumbers,
+    mode: StateHandle<T>,
+    records: RecordsHandle<T>,
+    can0: ChunkSender<T>,
+    /// Made at the first chunk of `phase_a` it is given, which says where the track goes on from.
+    phase_a: Option<SeriesHandle<T, i16>>,
+    watch: ProgressWatch,
+    /// The piece and its bytes after the last act.
+    seen: (u64, u64),
 }
 // --8<-- [end:recorder_item]
 
-impl<T: Tapes<Error = MemError>> Recorder<T> {
-    /// Bytes of the pieces the chain has closed.
-    fn closed_bytes(&self) -> u64 {
-        self.chain.closed().iter().map(|p| p.piece.len).sum()
+impl<T> Recorder<T>
+where
+    T: Tapes<Error = MemError> + Clone + Send + 'static,
+    T::Sink: Send,
+    T::Key: Send,
+{
+    /// A new chain of `drive` in `tapes`.
+    fn create(drive: &Drive, tapes: &T) -> Result<Self, Error> {
+        Self::create_with(drive, tapes, options(drive))
     }
 
-    /// Bytes of the whole recording so far.
-    pub(crate) fn bytes(&mut self) -> Result<u64, Error> {
-        let open = self.chain.writer()?.bytes();
-        Ok(self.closed_bytes() + open)
+    /// A new chain of `drive` in `tapes` under `options`, which differ from [options] in a policy under test.
+    pub(crate) fn create_with(
+        drive: &Drive,
+        tapes: &T,
+        options: ChainOptions,
+    ) -> Result<Self, Error> {
+        // --8<-- [start:create]
+        let mux = TapeMux::create(
+            tapes.clone(),
+            OWNER,
+            drive.chain,
+            &[],
+            options,
+            mux_options(),
+        )?;
+        // --8<-- [end:create]
+        Self::start(drive, mux)
     }
 
-    /// Hand `act` to the chain.
-    pub(crate) fn apply(&mut self, act: &Act) -> Result<Made, Error> {
-        // --8<-- [start:cut]
-        if matches!(act, Act::Chunk { .. }) && self.chain.cut_due() {
-            // the cut comes first, so that the chunk is made in the piece it lands in
-            self.chain.cut_now(&self.defs)?;
+    /// The chain in `tapes` after a crash, resumed: the tracks defined again, so that they get their numbers back.
+    fn resume(drive: &Drive, tapes: &T) -> Result<(Self, Resumed), Error> {
+        let (mux, resumed) = TapeMux::resume(
+            tapes.clone(),
+            OWNER,
+            drive.chain,
+            options(drive),
+            mux_options(),
+        )?;
+        Ok((Self::start(drive, mux)?, resumed))
+    }
+
+    fn start(drive: &Drive, mux: TapeMux<T>) -> Result<Self, Error> {
+        // --8<-- [start:handles]
+        let numbers = define_on_mux(
+            &mux,
+            drive.phase_hz,
+            drive.summaries,
+            drive.near_bytes.get(),
+        )?;
+        let mode = mux.state(numbers.mode)?;
+        let records = mux.records();
+        let can0 = mux.chunks(numbers.can0)?;
+        // --8<-- [end:handles]
+        let watch = mux.watch();
+        mux.flush()?;
+        let p = watch.get();
+        Ok(Self {
+            mux,
+            drive: *drive,
+            numbers,
+            mode,
+            records,
+            can0,
+            phase_a: None,
+            watch,
+            seen: (p.piece, p.piece_bytes),
+        })
+    }
+
+    /// The handle of `phase_a`, started at the item and tick of `head` when it has none yet.
+    fn phase_handle(&mut self, head: &ChunkHead) -> Result<&mut SeriesHandle<T, i16>, Error> {
+        if self.phase_a.is_none() {
+            // --8<-- [start:series]
+            let options = SeriesOptions {
+                chunk_samples: u32::MAX,
+                chunk_bytes: exact_units::Bytes::new(u32::MAX),
+                latency: None, // a chunk is sealed after each block of the run, not by time
+                codec: PHASE_CODEC,
+                summaries: self.drive.summaries,
+                first_item: head.first_item,
+                first_tick: head.first_tick,
+            };
+            let mut phase_a = self.mux.series::<i16>(self.numbers.phase_a, options)?;
+            if head.first_item.get() > 0 {
+                // a resumed track goes on on the grid the run started with, from sample 0
+                let def = crate::defs::phase_def(self.drive.phase_hz, self.drive.summaries)
+                    .ok_or(Error::Settings("phase_hz is not 0"))?;
+                phase_a.regrid(def.first_grid(0))?;
+            }
+            self.phase_a = Some(phase_a);
+            // --8<-- [end:series]
         }
-        // --8<-- [end:cut]
-        let piece = self.chain.seq();
-        let before = self.chain.writer()?.bytes();
+        self.phase_a
+            .as_mut()
+            .ok_or(Error::Settings("the handle of phase_a"))
+    }
+
+    /// Hand `act` to its handle and wait until it is placed.
+    pub(crate) fn apply(&mut self, act: &Act) -> Result<Made, Error> {
         let mut made = Made {
-            piece,
-            seq: 0,
-            before,
-            after: before,
+            piece: self.seen.0,
+            before: self.seen.1,
+            after: self.seen.1,
             at: 0,
             len: 0,
             track: None,
             first_tick: 0,
+            first_item: 0,
             items: 0,
             put: None,
         };
+        // --8<-- [start:apply]
         match act {
             Act::Put { ticks, mode } => {
-                made.put =
-                    Some(
-                        self.chain
-                            .put(&self.defs, self.numbers.mode, *ticks, mode.item())?,
-                    );
+                self.mode.put(*ticks, mode.item())?;
                 made.first_tick = *ticks;
+                made.put = Some(false);
             }
             Act::Records(records) => {
-                let block = records_block(
-                    self.chain.writer()?.next_id(),
-                    self.numbers.board_clock,
-                    records,
-                )?;
-                self.chain.write_block(&self.defs, &block)?;
+                // the mux numbers the block as the writer's next
+                let id = BlockId::new(SessionTag::NONE, 0);
+                let block = records_block(id, self.numbers.board_clock, records)?;
+                self.records.send(block)?;
             }
-            Act::Chunk { head, columns } => {
-                let columns: Vec<(ColumnSpec, &[u8])> =
-                    columns.iter().map(|(s, b)| (*s, b.as_slice())).collect();
-                let placed = self.chain.write_chunk(&self.defs, head, &columns)?;
-                made.piece = placed.seq;
-                made.at = self.closed_bytes() + placed.offset;
-                made.len = u64::from(placed.len);
-                made.track = Some(head.track_number);
-                made.first_tick = head.first_tick;
-                made.items = u64::from(head.count);
+            Act::Chunk { head, columns } if head.track_number == self.numbers.can0 => {
+                // frames are encoded as the page "Columns" says: the sender takes the chunk as it is
+                self.can0.send(**head, columns.clone())?;
             }
-            Act::Summary(block) => {
-                self.chain.defer_block(&self.defs, block.clone())?;
+            Act::Chunk { head, .. } => {
+                let values =
+                    phase_values(&self.drive, head.first_item.get(), u64::from(head.count));
+                let phase_a = self.phase_handle(head)?;
+                phase_a.push(&values)?;
+                phase_a.seal()?; // a chunk a block of the run
             }
+            // the mux builds the summaries of `phase_a` itself
+            Act::Summary(_) => return Ok(made),
         }
-        let w = self.chain.writer()?;
-        made.after = w.bytes();
-        made.seq = w.next_seq().wrapping_sub(1);
+        // --8<-- [end:apply]
+        if let Act::Chunk { head, .. } = act {
+            made.track = Some(head.track_number);
+            made.first_tick = head.first_tick;
+            made.first_item = head.first_item.get();
+            made.items = u64::from(head.count);
+        }
+        self.mux.flush()?;
+        let p = self.watch.get();
+        if p.piece == self.seen.0 {
+            made.before = self.seen.1;
+        }
+        made.piece = p.piece;
+        made.after = p.piece_bytes;
+        if made.put.is_some() {
+            made.put = Some(made.after != made.before || p.piece != self.seen.0);
+        }
+        self.seen = (p.piece, p.piece_bytes);
         Ok(made)
+    }
+
+    /// The piece being written and its bytes, after the last act.
+    pub(crate) fn position(&self) -> (u64, u64) {
+        self.seen
+    }
+
+    /// Close the chain: the pieces it holds, closed.
+    pub(crate) fn finish(mut self) -> Result<Vec<ChainPiece<T::Key>>, Error> {
+        drop(self.phase_a.take());
+        Ok(self.mux.close()?)
     }
 }
 
@@ -442,17 +563,19 @@ pub fn records_block(
 }
 // --8<-- [end:records_block_item]
 
-/// Whether act `i` is to be given again to a chain resumed in piece `piece` with next seq `next`, `kept` bytes of
-/// that piece kept: a block it doesn't hold, a put made after the last block it kept.
-fn lost(act: &Act, made: &Made, piece: u64, next: u64, kept: u64) -> bool {
+/// Whether an act made as `made` is to be given again to a chain resumed in piece `piece` with `kept` bytes of that
+/// piece kept: a block it doesn't hold, a put made after the last block it kept. The mux builds summaries itself,
+/// from the chunks the piece kept.
+fn lost(act: &Act, made: &Made, piece: u64, kept: u64) -> bool {
     match act {
+        Act::Summary(_) => false,
         // a put whose last block is kept isn't given again: its records changed what the writer remembers
         Act::Put { .. } => {
             made.piece > piece
                 || (made.piece == piece
                     && (made.after > kept || (made.after == kept && made.before == made.after)))
         }
-        _ => made.piece > piece || (made.piece == piece && made.seq >= next),
+        _ => made.piece > piece || (made.piece == piece && made.after > kept),
     }
 }
 
@@ -531,6 +654,31 @@ impl Recording {
         (puts.count(), wrote)
     }
 
+    /// This recording cut off at `byte` ([Drive::crash]).
+    pub fn crash(&self, byte: u64) -> Result<Crashed, Error> {
+        let (piece, offset) = self.locate(byte).ok_or(Error::Settings(CRASH_PAST_END))?;
+        let at = usize::try_from(piece).map_err(|_e| Error::Settings("a piece number"))?;
+        let torn = self
+            .pieces
+            .get(at)
+            .ok_or(Error::Settings("the piece the crash tore"))?;
+        let done = self
+            .pieces
+            .get(..at)
+            .ok_or(Error::Settings("the pieces before the crash"))?;
+        let cut = usize::try_from(offset).map_err(|_e| Error::Settings("a crash offset"))?;
+        Ok(Crashed {
+            drive: self.drive,
+            tapes: plant(done, torn, cut)?,
+            made: self.made.clone(),
+            crash: Crash {
+                byte,
+                piece,
+                offset,
+            },
+        })
+    }
+
     /// The piece and the offset in it of byte `byte` of the recording.
     pub fn locate(&self, byte: u64) -> Option<(u64, u64)> {
         let mut start = 0;
@@ -592,37 +740,21 @@ impl Crashed {
 
     /// Resume the chain and give it every act the crash lost, then close it.
     pub fn resume(self) -> Result<Resume, Error> {
-        let (chain, resumed) = PieceChain::resume_on(
-            self.tapes.clone(),
-            OWNER,
-            self.drive.chain,
-            options(&self.drive),
-        )?;
-        // the tracks and clocks keep the numbers the resumed piece gives them
-        let d = self.drive;
-        let (defs, numbers) = define(
-            Definitions::with_numbers(resumed.numbers.clone()),
-            d.phase_hz,
-            d.summaries,
-            d.near_bytes.get(),
-        )?;
-        let mut r = Recorder {
-            chain,
-            defs,
-            numbers,
-        };
-        let piece = r.chain.seq();
-        let next = r.chain.writer()?.next_seq();
+        let (mut r, resumed) = Recorder::resume(&self.drive, &self.tapes)?;
+        let (piece, kept) = (self.crash.piece, resumed.kept_bytes);
         let mut made = Vec::new();
         let (mut lost_acts, mut replayed) = (0, 0);
         for (i, act) in Acts::new(self.drive)?.enumerate() {
             let act = act?;
             match self.made.get(i) {
-                Some(m) if !lost(&act, m, piece, next, resumed.kept_bytes) => made.push(*m),
+                Some(m) if !lost(&act, m, piece, kept) => made.push(*m),
                 was => {
                     made.push(r.apply(&act)?);
                     replayed += 1;
-                    lost_acts += usize::from(was.is_some());
+                    // the acts the run made before the crash; those after it were never made
+                    lost_acts += usize::from(was.is_some_and(|m| {
+                        m.piece < piece || (m.piece == piece && m.before < self.crash.offset)
+                    }));
                 }
             }
         }
@@ -640,10 +772,16 @@ pub(crate) fn drive_definitions(drive: &Drive) -> Result<(Definitions, DriveNumb
     definitions(drive.phase_hz, drive.summaries, drive.near_bytes.get())
 }
 
-/// Close the chain of `r` and read its pieces from `tapes`.
-fn close(drive: Drive, r: Recorder, tapes: &MemTapes, made: Vec<Made>) -> Result<Recording, Error> {
-    let closed = r.chain.close()?;
-    let pieces = closed
+/// Close the chain of `r`, read its pieces from `tapes` and place each chunk `made` lists in them.
+fn close(
+    drive: Drive,
+    r: Recorder,
+    tapes: &MemTapes,
+    mut made: Vec<Made>,
+) -> Result<Recording, Error> {
+    let numbers = r.numbers;
+    let closed = r.finish()?;
+    let pieces: Vec<Vec<u8>> = closed
         .iter()
         .map(|p| {
             tapes
@@ -653,25 +791,89 @@ fn close(drive: Drive, r: Recorder, tapes: &MemTapes, made: Vec<Made>) -> Result
                 .map_err(Error::from)
         })
         .collect::<Result<_, _>>()?;
+    place_chunks(&mut made, &pieces)?;
+    settle(&mut made, &pieces)?;
     Ok(Recording {
         drive,
         pieces,
         closed,
-        numbers: r.numbers,
+        numbers,
         made,
     })
 }
 
-impl Drive {
-    fn start(&self, tapes: &MemTapes) -> Result<Recorder, Error> {
-        let (defs, numbers) = drive_definitions(self)?;
-        Ok(Recorder {
-            chain: PieceChain::create_on(tapes.clone(), OWNER, self.chain, &[], options(self))?,
-            defs,
-            numbers,
-        })
+/// Fill in where each chunk of `made` lies in the recording, from the pieces' own indexes.
+fn place_chunks(made: &mut [Made], pieces: &[Vec<u8>]) -> Result<(), Error> {
+    let mut start = 0u64;
+    for piece in pieces {
+        let reader = TapeReader::open(&piece[..])?;
+        for e in reader.entries(0)? {
+            if !matches!(e.kind, BlockKind::Events | BlockKind::Series) {
+                continue;
+            }
+            let item = e.first_item.get();
+            let slot = made
+                .iter_mut()
+                .find(|m| m.track == e.track() && m.first_item == item && m.items > 0);
+            if let Some(m) = slot {
+                m.at = start + e.offset;
+                m.len = u64::from(e.len);
+            }
+        }
+        start += u64::try_from(piece.len()).map_err(|_e| Error::Settings("a piece's length"))?;
     }
+    Ok(())
+}
 
+/// Move the end of each act before the checkpoints and summaries the writer placed right after its blocks: they are no block
+/// of the act, so a crash that tears only them keeps the act: the resume writes the summaries it lost.
+fn settle(made: &mut [Made], pieces: &[Vec<u8>]) -> Result<(), Error> {
+    for (seq, piece) in (0u64..).zip(pieces) {
+        let mut checkpoints = BTreeMap::new();
+        let mut walk = FileBlocks::with_recovery(&piece[..], Recovery::Prefix);
+        while let Some(block) = walk.next_block() {
+            let (kind, len) = {
+                let block = block?;
+                (block.kind, u64::try_from(block.bytes().len()).unwrap_or(0))
+            };
+            if matches!(kind, BlockKind::Index | BlockKind::Summary) {
+                let start = walk.offset();
+                checkpoints.insert(start.saturating_add(len), start);
+            }
+        }
+        let before_checkpoints = |mut at: u64| {
+            while let Some(&start) = checkpoints.get(&at) {
+                at = start;
+            }
+            at
+        };
+        for m in made.iter_mut().filter(|m| m.piece == seq) {
+            m.before = before_checkpoints(m.before);
+            m.after = before_checkpoints(m.after);
+        }
+    }
+    Ok(())
+}
+
+/// A store holding the pieces `done`, closed, and the first `offset` bytes of `torn` as the unclosed piece after
+/// them: a chain cut off at that byte.
+fn plant(done: &[Vec<u8>], torn: &[u8], offset: usize) -> Result<MemTapes, Error> {
+    let tapes = MemTapes::new();
+    for (seq, bytes) in (0u64..).zip(done) {
+        let mut sink = tapes.create(&seq)?;
+        sink.write_all(bytes)?;
+        sink.close()?;
+    }
+    let mut sink =
+        tapes.create(&u64::try_from(done.len()).map_err(|_e| Error::Settings("pieces"))?)?;
+    sink.write_all(
+        torn.get(..offset)
+            .ok_or(Error::Settings("the crash offset"))?,
+    )?;
+    Ok(tapes)
+}
+
+impl Drive {
     // --8<-- [start:drive_acts_item]
     /// The acts of the run in order: for each block of [Drive::block_ms] the puts of the mode, a records block, a
     /// chunk of frames, a chunk of samples and the summary blocks those samples finish; the last summaries at the end.
@@ -695,19 +897,14 @@ impl Drive {
 
     /// Record the run whole and close the chain.
     pub fn record(&self) -> Result<Recording, Error> {
-        let tapes = MemTapes::new();
-        let mut r = self.start(&tapes)?;
-        let made = Acts::new(*self)?
-            .map(|act| r.apply(&act?))
-            .collect::<Result<Vec<_>, _>>()?;
-        close(*self, r, &tapes, made)
+        self.record_acts(&Acts::new(*self)?.collect::<Result<Vec<_>, _>>()?)
     }
 
     /// Record `acts`, made by [Drive::acts] of a run that differs from this one in its byte policies only: the same
     /// recording as [Drive::record], without making the acts again.
     pub(crate) fn record_acts(&self, acts: &[Act]) -> Result<Recording, Error> {
         let tapes = MemTapes::new();
-        let mut r = self.start(&tapes)?;
+        let mut r = Recorder::create(self, &tapes)?;
         let made = acts
             .iter()
             .map(|act| r.apply(act))
@@ -715,65 +912,13 @@ impl Drive {
         close(*self, r, &tapes, made)
     }
 
-    /// Record the run until the recording holds more than `byte` bytes, then crash: the recording ends after `byte`
-    /// bytes, its last piece unclosed.
+    /// Record the run, then cut its bytes at `byte`: the recording ends after `byte` bytes, its last piece unclosed.
     ///
     /// The crash may fall anywhere: in a block of data, in a checkpoint, or in the end of a piece while a cut or the
-    /// close writes its final index, close and tail; the pieces after the torn one were never made. A byte at or past
-    /// the end of the recording is refused: [CRASH_PAST_END].
+    /// close writes its final index, close and tail; the pieces after the torn one are gone. A byte at or past the end
+    /// of the recording is refused: [CRASH_PAST_END].
     pub fn crash(&self, byte: u64) -> Result<Crashed, Error> {
-        let tapes = MemTapes::new();
-        let mut r = self.start(&tapes)?;
-        let mut made = Vec::new();
-        let mut acts = Acts::new(*self)?;
-        let stopped = loop {
-            let Some(act) = acts.next() else { break false };
-            made.push(r.apply(&act?)?);
-            if r.bytes()? > byte {
-                break true;
-            }
-        };
-        if stopped {
-            // the power fails: the writer stops where it is
-            drop(r);
-        } else {
-            r.chain.close()?;
-        }
-        // the piece the crash tore ends where the bytes on disk end; those after it were never made
-        let mut start = 0;
-        let mut torn = None;
-        for seq in tapes.keys()? {
-            let len = tapes
-                .get(&seq)?
-                .map_or(Ok(0), |t| t.to_vec().map(|b| b.len() as u64))?;
-            match torn {
-                None if byte < start + len => torn = Some((seq, byte - start)),
-                None => start += len,
-                Some(_) => {
-                    // a tape still being written is not removed: marked closed first
-                    if let Some(mut sink) = tapes.reopen(&seq)? {
-                        sink.close()?;
-                    }
-                    tapes.remove(&seq)?;
-                }
-            }
-        }
-        let (piece, offset) = torn.ok_or(Error::Settings(CRASH_PAST_END))?;
-        let mut sink = tapes
-            .reopen(&piece)?
-            .ok_or(Error::Settings("the piece the crash tore"))?;
-        sink.truncate(offset)?;
-        drop(sink);
-        Ok(Crashed {
-            drive: *self,
-            tapes,
-            made,
-            crash: Crash {
-                byte,
-                piece,
-                offset,
-            },
-        })
+        self.record()?.crash(byte)
     }
 
     /// The story the book tells: the run recorded whole, the crash at minute 37 and its resume.
@@ -786,7 +931,7 @@ impl Recording {
     /// The story of this recording: the crash at minute 37 ([Self::story_crash_byte]), the resume, and what each
     /// cost.
     pub fn story(&self) -> Result<Story, Error> {
-        let crashed = self.drive.crash(self.story_crash_byte()?)?;
+        let crashed = self.crash(self.story_crash_byte()?)?;
         let crash = crashed.crash;
         let resume = crashed.resume()?;
         let (frame_bytes, frames) = self.chunk_bytes(self.numbers.can0);

@@ -1,21 +1,25 @@
 //! The drive's hour recorded through [ww_tape_mux] handles: one thread per source into one chain, the pattern a
 //! live recorder follows.
 //!
-//! [`Drive::record`] drives every source from one thread into a [`ww_tape::PieceChain`] directly, so that a crash at
-//! any exact byte ([`Drive::crash`]) reproduces: the mux's own writing thread and its queue would make that byte no
-//! longer synchronous. This module shows the pattern the design favors for a live recorder instead: the mode's puts,
-//! the log and temperature records, `can0`'s frames and `phase_a`'s samples each come from a thread of its own, each
-//! through its own handle; one mux does every chore (cuts, the close) and places them.
-//!
-//! The chain this writes is its own, independent of [`Drive::record`]'s: nothing here is compared byte for byte
-//! against the story.
+//! [`Drive::record`] drives the same handles from one thread in the story's fixed order, so that the bytes are the
+//! same every run. Here the mode's puts, the log and temperature records, `can0`'s frames and `phase_a`'s samples
+//! each come from a thread of its own, each through its own handle; one mux does every chore (cuts, the close) and
+//! places them. Which unit lands first is up to the threads, so the bytes differ from the story's. What each track
+//! holds is the same: [decode] reads it back, and a test compares it with [`Drive::record`]'s.
 
 use std::thread::{self, ScopedJoinHandle};
 
-use ww_tape::{BlockId, MemTapes, SessionTag, TrackNum};
+use ww_tape::chunk::ColumnKind;
+use ww_tape::payloads::Payloads;
+use ww_tape::samples::{SampleShape, Samples};
+use ww_tape::times::EventTimes;
+use ww_tape::{
+    BlockId, BlockKind, Element, ElementDesc, FileBlocks, MemTapes, RecordTrack, Recovery,
+    SessionTag, TrackNum,
+};
 use ww_tape_mux::{Event, EventsOptions, MuxOptions, SeriesOptions, TapeMux};
 
-use crate::defs::define_on_mux;
+use crate::defs::{DriveNumbers, define_on_mux};
 use crate::record::{PHASE_CODEC, first_at, item_us, options, records_block};
 use crate::signals::{Mode, US_PER_MS, frame, log_line, temp_centi};
 use crate::writing::{joined, phase_values};
@@ -29,9 +33,8 @@ const CAN0_BATCH: u64 = 4096;
 /// What [record] wrote.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ViaHandles {
-    /// Pieces of the chain, and their bytes.
-    pub pieces: usize,
-    pub bytes: u64,
+    /// The bytes of each piece of the chain.
+    pub pieces: Vec<Vec<u8>>,
     /// Puts of the mode, sent by its own thread.
     pub puts: u64,
     /// Records (log lines and temperatures), sent by their own thread.
@@ -48,8 +51,9 @@ pub struct ViaHandles {
 ///
 /// A setting of `drive` the recording can't be made with, or a mux or handle call that failed.
 pub fn record(drive: &Drive) -> Result<ViaHandles, Error> {
+    let mux_tapes = MemTapes::new();
     let mux = TapeMux::create(
-        MemTapes::new(),
+        mux_tapes.clone(),
         OWNER,
         drive.chain,
         &[],
@@ -160,13 +164,106 @@ pub fn record(drive: &Drive) -> Result<ViaHandles, Error> {
         ))
     })?;
 
+    let tapes = mux_tapes;
     let closed = mux.close()?;
+    let pieces = closed
+        .iter()
+        .map(|p| {
+            tapes
+                .get(&p.tape)?
+                .ok_or(Error::Settings("a closed piece"))?
+                .to_vec()
+                .map_err(Error::from)
+        })
+        .collect::<Result<_, _>>()?;
     Ok(ViaHandles {
-        pieces: closed.len(),
-        bytes: closed.iter().map(|p| p.piece.len).sum(),
+        pieces,
         puts,
         records,
         frames,
         samples,
     })
+}
+
+/// What a chain of the drive's holds, track by track and in time order.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct Decoded {
+    /// The log lines: ticks and text.
+    pub log: Vec<(i64, Vec<u8>)>,
+    /// The temperatures: ticks and item.
+    pub temp: Vec<(i64, Vec<u8>)>,
+    /// The mode's changes: ticks and item, the first record of each; copies are no change.
+    pub mode: Vec<(i64, Vec<u8>)>,
+    /// The frames of `can0`: start and payload.
+    pub frames: Vec<(i64, Vec<u8>)>,
+    /// The samples of `phase_a`.
+    pub samples: Vec<i16>,
+}
+
+/// Read the items of every track of `pieces` back, the drive's tracks numbered as `numbers`.
+///
+/// # Errors
+///
+/// A piece that doesn't read, or a chunk that doesn't decode.
+pub fn decode(pieces: &[Vec<u8>], numbers: &DriveNumbers) -> Result<Decoded, Error> {
+    let mut out = Decoded::default();
+    for piece in pieces {
+        let mut walk = FileBlocks::with_recovery(&piece[..], Recovery::Prefix);
+        while let Some(block) = walk.next_block() {
+            let block = block?;
+            match block.kind {
+                BlockKind::Records => {
+                    for r in block.records() {
+                        let r = r?;
+                        let (RecordTrack::Data(t), Some(at)) = (r.track, r.at) else {
+                            continue;
+                        };
+                        let item = (at.ticks, r.item.to_vec());
+                        if t == numbers.log {
+                            out.log.push(item);
+                        } else if t == numbers.temp {
+                            out.temp.push(item);
+                        } else if t == numbers.mode && out.mode.last().is_none_or(|m| m.1 != item.1)
+                        {
+                            out.mode.push(item);
+                        }
+                    }
+                }
+                BlockKind::Events => {
+                    let chunk = block.chunk().ok_or(Error::Settings("a chunk of frames"))?;
+                    if chunk.head().track_number != numbers.can0 {
+                        continue;
+                    }
+                    let times = EventTimes::read(&chunk)?;
+                    let payloads = Payloads::read(&chunk)?
+                        .ok_or(Error::Settings("the payloads of a chunk of frames"))?;
+                    for j in 0..times.len() {
+                        let payload = payloads
+                            .get(j)
+                            .ok_or(Error::Settings("a payload of a chunk of frames"))?;
+                        out.frames.push((times.start(j), payload.to_vec()));
+                    }
+                }
+                BlockKind::Series => {
+                    let chunk = block.chunk().ok_or(Error::Settings("a chunk of samples"))?;
+                    let head = chunk.head();
+                    let column = chunk
+                        .find(ColumnKind::Samples, 0)
+                        .ok_or(Error::Settings("the samples of a chunk"))?;
+                    let count = usize::try_from(head.count)
+                        .map_err(|_e| Error::Settings("a chunk's sample count"))?;
+                    let samples = Samples::of(
+                        &column,
+                        SampleShape::scalar(ElementDesc::of(Element::I16)),
+                        count,
+                    )?;
+                    let mut values = vec![0i16; count];
+                    samples.decode(0, &mut values)?;
+                    out.samples.extend(values);
+                }
+                _ => {}
+            }
+        }
+    }
+    Ok(out)
 }

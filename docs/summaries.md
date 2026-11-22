@@ -83,8 +83,8 @@ in each piece, and merges each node into the column its first sample falls in:
     --8<-- "ww_tape_example/src/fault.rs:column_of_item"
     ```
 
-The overview reads 172 summary blocks with 5 494 nodes: about 193 KB in 172 reads, and no sample. Finding those
-blocks costs more than reading them. `phase_a`'s index entries in the four pieces take about 788 KB in 19 reads,
+The overview reads 175 summary blocks with 5 497 nodes: about 194 KB in 175 reads, and no sample. Finding those
+blocks costs more than reading them. `phase_a`'s index entries in the four pieces take about 790 KB in 19 reads,
 since the track has a chunk a second. A viewer that opens the recording once keeps the entries in memory.
 
 All 600 columns get nodes. The column with the highest peak is column 519, from 51:54.000, at 31 873 mA. It holds the
@@ -122,7 +122,7 @@ shows. A summary block states its scale, so it reads without the chunks.
 ## Writing summaries
 
 The crate `ww_tape_summary` builds the trees as the items arrive: an [`EventTree`] for an event track, a
-[`SeriesSummaries`] for a series. The drive's recorder starts one for `phase_a` with the track's first grid and
+[`SeriesSummaries`] for a series. A recorder that writes the file itself starts one for `phase_a` with the track's first grid and
 period:
 
 ```rs
@@ -154,8 +154,14 @@ an aligned file into the gap before a chunk's payload:
     ```
 
 At the end of the run, [`SeriesSummaries::finish`] gives the blocks of the partial nodes. The first piece of the
-drive's recording holds 730 summary blocks of about 822 KB, beside about 25 MB of samples. A lost summary block
+drive's recording holds 735 summary blocks of about 825 KB, beside about 25 MB of samples. A lost summary block
 costs nothing that a reader cannot rebuild from the chunks.
+
+A recorder that writes through a [`TapeMux`] builds no tree of its own. Its [`SeriesHandle`] computes the leaves of the
+samples it takes, as its `summaries` option says ([Samples into columns](sample_codecs.md#samples-into-columns) shows
+it). The writing thread builds the levels above them, one tree per piece, ended before each cut and at the close. A mux
+resumed after a crash rebuilds the tree of the torn piece from the chunks the piece kept. The resumed file then holds
+the bytes of the run without the crash.
 
 The crate `ww_tape` itself reads only a summary block's head, with [`Block::summary_head`], which is enough to list
 the block in the index. [`Summary::of_block`] in `ww_tape_summary` reads the nodes. [Checks and range hashes](copies.md)

@@ -44,7 +44,9 @@ the chunk head, since they know the first and last tick:
     ```
 
 The two `None`s say that the frames have no ends and no flags. A track of spans passes the ends, and one with a severity
-per item passes the flags. The recorder hands the head and the columns to [`TapeWriter::write_chunk`] unchanged.
+per item passes the flags. A recorder that writes the file itself hands the head and the columns to
+[`TapeWriter::write_chunk`] unchanged. The drive's recorder writes through a [`TapeMux`] and sends them with
+[`ChunkSender::send`], which places the same chunk.
 
 ## Event times
 

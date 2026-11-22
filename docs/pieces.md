@@ -89,11 +89,12 @@ minutes of the run make:
     --8<-- "ww_tape_example/src/lib.rs:drive_item"
     ```
 
-A recorder that must know in which piece a chunk lands asks [`PieceChain::cut_due`] and cuts first. The drive's recorder
-does so, so that it makes each chunk in the piece it lands in:
+A recorder that writes a [`PieceChain`] itself and must know in which piece a chunk lands asks [`PieceChain::cut_due`]
+and cuts first with [`PieceChain::cut_now`]. A [`TapeMux`] does so before it places each chunk. The drive's recorder
+only starts the mux with these options, and hands it the acts through its handles:
 
 ```rs
---8<-- "ww_tape_example/src/record.rs:cut"
+--8<-- "ww_tape_example/src/record.rs:create"
 ```
 
 ??? example "What the example uses here: `Act`, `Recorder`"
@@ -127,7 +128,7 @@ with its head and two blocks of puts that carry the definitions, before its firs
 <code>ww_tape_figures</code> from the drive's chain at 1/1000 of its data; each row has its own scale.</figcaption>
 </figure>
 
-At full rate, piece 0 of the drive ends with a final index of 415 kB. The close takes 4868 bytes, 3992 of them padding,
+At full rate, piece 0 of the drive ends with a final index of 415 kB. The close takes 1198 bytes, 322 of them padding,
 and the tail 164 bytes. Piece 1 starts with a head of 636 bytes, then 2 blocks of puts of 623 bytes in all.
 
 The head lists every track the chain has used so far, a [[state track]] included. The puts after it carry their
@@ -138,10 +139,10 @@ The four pieces of the hour end on 4 KiB:
 
 | Piece | Bytes | Close padding |
 |---|---:|---:|
-| 0 | 29343744 | 3992 |
-| 1 | 29560832 | 1036 |
-| 2 | 29552640 | 1725 |
-| 3 | 26836992 | 1108 |
+| 0 | 29343744 | 322 |
+| 1 | 29560832 | 374 |
+| 2 | 29556736 | 3849 |
+| 3 | 26836992 | 3565 |
 
 A [`TapeWriter`] without a chain cuts the same way. [`TapeWriter::cut_on`] takes a sink the caller made, and
 [`writer::cut`] the path of the next file. Only a piece of a chain can be cut: such a piece starts with a piece head,

@@ -11,20 +11,20 @@ Writing the drive's hour:
 | Blocks | Made by | Count | Bytes |
 |---|---|---:|---:|
 | piece head | the writer | 4 | 2064 |
-| records blocks of puts and copies | the writer | 31 | 5615 |
+| records blocks of puts and copies | the writer | 32 | 5652 |
 | records blocks | the recorder | 3600 | 811071 |
 | events chunks | the recorder | 3600 | 8400924 |
 | series chunks | the recorder | 3600 | 99617283 |
-| summary blocks | the recorder | 2933 | 3299294 |
+| summary blocks | the recorder | 2948 | 3301304 |
 | checkpoints | the writer | 24 | 1486296 |
-| final index | the writer | 4 | 1659640 |
-| close | the writer | 4 | 11365 |
+| final index | the writer | 4 | 1661440 |
+| close | the writer | 4 | 11614 |
 | tail | the writer | 4 | 656 |
 
-The writer's own blocks: 3165636 of 115294208 bytes, 2.75 %.
+The writer's own blocks: 3167722 of 115298304 bytes, 2.75 %.
 
-Aligned: 128991232 bytes against 115294208 unaligned, 13697024 more (11.88 %).
-In the aligned file 0 of 2933 summary blocks and 4 of 28 checkpoints lie right before a series chunk.
+Aligned: 128999424 bytes against 115298304 unaligned, 13701120 more (11.88 %).
+In the aligned file 0 of 2948 summary blocks and 4 of 28 checkpoints lie right before a series chunk.
 phase_a alone: 112144384 bytes aligned against 104472576 unaligned, 7671808 more (7.34 %); 2724 of 2933 summary blocks lie right before a series chunk.
 
 can0: 3600000 frames in 3600 chunks, 3600 with linear starts; residuals 9.335 bits per start.
@@ -41,13 +41,13 @@ The crash at minute 37, by sync policy:
 | Policy | Syncs | Bytes not synced | Whole blocks not synced | Of the run |
 |---|---:|---:|---:|---:|
 | Interval(1 s) | 2223 | 30866 | 3 | 1.000 s |
-| EveryBlocks(1) | 8516 | 1263 | 0 | 0.333 s |
+| EveryBlocks(1) | 8526 | 1263 | 0 | 0.333 s |
 | EveryBlocks(256) | 36 | 622577 | 75 | 20.000 s |
-| None | 4 | 13412382 | 1611 | 420.000 s |
+| None | 4 | 13410910 | 1611 | 420.000 s |
 
-The cut after piece 0: final index 414760 bytes, close 4868 bytes (3992 of them padding), tail 164 bytes.
+The cut after piece 0: final index 415360 bytes, close 1198 bytes (322 of them padding), tail 164 bytes.
 Piece 1 starts: head 636 bytes, then 2 blocks of puts, 623 bytes; at its first data 5 tracks and 3 clocks and maps are defined.
-Pieces: piece 0 29343744 bytes, padding 3992; piece 1 29560832 bytes, padding 1036; piece 2 29552640 bytes, padding 1725; piece 3 26836992 bytes, padding 1108.
+Pieces: piece 0 29343744 bytes, padding 322; piece 1 29560832 bytes, padding 374; piece 2 29556736 bytes, padding 3849; piece 3 26836992 bytes, padding 3565.
 
 Piece 0 deleted: 3 pieces from piece 1, 2 links linked; head cut true, whole false; 5 tracks defined at the first data.
 
@@ -55,8 +55,8 @@ The board's own tape: 115793920 bytes, 13733 data blocks, 726 blocks of puts (85
 Relayed: 4 pieces, 115314688 bytes (109.97 MiB), 116 blocks of puts (10670 bytes); data blocks the board's byte for byte: true.
 
 Rounded for the text:
-- the writer's own blocks: 3.2 MB of 115 MB, 2.7 %; its puts 5.6 kB
+- the writer's own blocks: 3.2 MB of 115 MB, 2.7 %; its puts 5.7 kB
 - aligned: 129 MB against 115 MB, 12 % more; phase_a alone 112 MB against 104 MB, 7.3 % more
-- a sync after every block: about 8520 syncs; piece 0's final index 415 kB
+- a sync after every block: about 8530 syncs; piece 0's final index 415 kB
 - the board's tape: 116 MB, about 13700 data blocks, 86 kB of puts; relayed: 115 MB, 11 kB of puts
-The host's own recording: 115294208 bytes.
+The host's own recording: 115298304 bytes.

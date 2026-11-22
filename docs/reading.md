@@ -153,12 +153,12 @@ index to the one block it needs:
     --8<-- "ww_tape_example/src/fault.rs:in_force_item"
     ```
 
-At the chunk before the fault, the mode is `run, 31 A limit`, and its record from 45:34 lies about 12 MB behind. That
+At the chunk before the fault, the mode is `run, 31 A limit`, and its record from 45:35 lies about 12 MB behind. That
 record is the [[state copy]] which the [[writer]] adds after the record the cut carried into the last [[piece]]. At the chunk
 from 52:00, the mode is `fault: overcurrent`, from 52:00, and lies about 2 KB behind.
 
 The number of `mode` is only the file's name for the track, so the reader first finds it by its key among the
-definitions in force. With that, both lookups together read about 4.1 KB in 9 reads. Each record lies within [[near]],
+definitions in force. With that, both lookups together read about 4 KB in 10 reads. Each record lies within [[near]],
 32 MiB, so a reader of the last piece alone finds both.
 
 [`TapeReader::definitions_at`] answers the same question for every [[definition]] at once: the clocks, the clock map

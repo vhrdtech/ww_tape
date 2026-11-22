@@ -39,10 +39,10 @@ and that share:
 | records blocks | 901 | 200107 |
 | events chunks | 900 | 2161164 |
 | series chunks | 900 | 25373597 |
-| summary blocks | 730 | 821980 |
+| summary blocks | 735 | 825050 |
 | checkpoints | 6 | 365424 |
-| final index | 1 | 414760 |
-| close | 1 | 4868 |
+| final index | 1 | 415360 |
+| close | 1 | 1198 |
 | tail | 1 | 164 |
 
 How much disk a whole run takes, and what writing it costs, is the subject of [Sizes and

@@ -324,6 +324,12 @@ pub enum Reading {
     Walk(ww_tape::FileError),
     /// An index block of a piece.
     Index(ww_tape::index::IndexError),
+    /// A block of a piece that doesn't read.
+    Block(ww_tape::BlockError),
+    /// The times of a chunk of frames that don't read.
+    Times(ww_tape::times::TimesError),
+    /// The payloads of a chunk of frames that don't read.
+    Payloads(ww_tape::payloads::PayloadsError),
 }
 
 impl From<ww_tape::reader::ReadError<MemError>> for Error {
@@ -341,6 +347,24 @@ impl From<ww_tape::reader::ReadError<ww_tape::reader::OutOfRange>> for Error {
 impl From<ww_tape::FileError> for Error {
     fn from(e: ww_tape::FileError) -> Self {
         Self::Read(Reading::Walk(e))
+    }
+}
+
+impl From<ww_tape::BlockError> for Error {
+    fn from(e: ww_tape::BlockError) -> Self {
+        Self::Read(Reading::Block(e))
+    }
+}
+
+impl From<ww_tape::times::TimesError> for Error {
+    fn from(e: ww_tape::times::TimesError) -> Self {
+        Self::Read(Reading::Times(e))
+    }
+}
+
+impl From<ww_tape::payloads::PayloadsError> for Error {
+    fn from(e: ww_tape::payloads::PayloadsError) -> Self {
+        Self::Read(Reading::Payloads(e))
     }
 }
 

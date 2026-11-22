@@ -25,6 +25,7 @@ benchmarks, golden files and book pages.
 - A resumed `TapeMux` rebuilds series flags from the kept chunks' flag runs (WRITE-13).
 
 - A resumed `TapeMux` rebuilds the torn piece's summary trees: it writes the bytes of an uninterrupted run (WRITE-13).
+- The example records, crashes and resumes through `TapeMux` handles; `handles::record` writes one thread per source (WRITE-15).
 - `TapeMux::start_resumed` starts a mux on a chain just resumed; `ww_tape_fs::mux::resume` uses it (WRITE-13).
 
 ## [0.3.1] - 2026-11-22
@@ -53,7 +54,6 @@ benchmarks, golden files and book pages.
 - `EventRuns::push_columns` adds items as columns of starts, ends and flags: the same runs (WRITE-13).
 - `EventsHandle::push_all` takes a batch of `Event`s in one pass: the bytes of pushing them one by one (WRITE-13).
 - Book: the format reference numbers its sections, adds conventions, policies, verify and caps, and draws layouts from blocks (BOOK-2).
-- The example's relay, and a new `handles::record`, write through `TapeMux` handles, one thread per source (WRITE-15).
 
 ## [0.3.0] - 2026-11-21
 

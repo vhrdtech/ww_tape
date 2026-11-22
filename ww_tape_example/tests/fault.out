@@ -1,18 +1,18 @@
-Finding the fault in the chain as one file of 115294208 bytes:
+Finding the fault in the chain as one file of 115298304 bytes:
 
 | Step | Finds | Reads |
 |---|---|---:|
-| open | 4 pieces; the fault in piece 3 | 16533 bytes in 28 reads |
-| find | 2 of phase_a's 1638 entries: 51:59.000 to 51:59.999, 52:00.000 to 52:00.999 | 196752 bytes in 3 reads |
-| mode | "run, 31 A limit" from 45:34.000, 12330429 bytes behind; "fault: overcurrent" from 52:00.000, 2027 bytes behind | 4117 bytes in 9 reads |
+| open | 4 pieces; the fault in piece 3 | 16782 bytes in 28 reads |
+| find | 2 of phase_a's 1637 entries: 51:59.000 to 51:59.999, 52:00.000 to 52:00.999 | 196632 bytes in 3 reads |
+| mode | "run, 31 A limit" from 45:35.000, 12299868 bytes behind; "fault: overcurrent" from 52:00.000, 2027 bytes behind | 4012 bytes in 10 reads |
 | frames | of 1000 in a block of 1739 bytes: 3120000 at 52:00.000 id 0x081, 3120001 at 52:00.001 id 0x181, 3120002 at 52:00.002 id 0x281, 3120003 at 52:00.003 id 0x381, 3120004 at 52:00.004 id 0x101 | 109931 bytes in 4 reads |
 | emergency frame | data [10, 23, 00, 00, 00, 00, 00, 00]; first after the fault: true | |
-| current | 500 samples from 77999500, period 40/1 µs, scale ·10⁻³; peak -31873 mA at 51:59.995 | 28982 bytes in 5 reads |
+| current | 500 samples from 77999500, period 40/1 µs, scale ·10⁻³; peak -31873 mA at 51:59.995 | 29019 bytes in 6 reads |
 | current's chunk | 25000 samples in a block of 28284 bytes | |
-| overview | level 1 nodes of 16384 samples: 172 blocks, 5494 nodes, 600 columns; peak column 519 from 51:54.000, 31873 mA | 193352 bytes in 172 reads |
-| phase_a's index entries | in 4 pieces | 788486 bytes in 19 reads |
+| overview | level 1 nodes of 16384 samples: 175 blocks, 5497 nodes, 600 columns; peak column 519 from 51:54.000, 31873 mA | 193754 bytes in 175 reads |
+| phase_a's index entries | in 4 pieces | 790286 bytes in 19 reads |
 | zoom | the level-0 node from sample 77999104 (51:59.964) | 6756 bytes in 6 reads |
 | phase_a's chunks | 99617283 bytes, read by neither | |
-| check | 3 links linked, whole true; pieces verified [true, true, true, true] | 119042427 bytes in 41425 reads |
-| verify's reads past the chain | 3748219 bytes: 13800 block headers of 32 bytes, the final indexes' 1659640 bytes, their entries' 1659000 bytes again, less 12021 bytes of closes and tails | |
+| check | 3 links linked, whole true; pieces verified [true, true, true, true] | 119050386 bytes in 41472 reads |
+| verify's reads past the chain | 3752082 bytes: 13816 block headers of 32 bytes, the final indexes' 1661440 bytes, their entries' 1660800 bytes again, less 12270 bytes of closes and tails | |
 | range hash | can0 items 3060000..3180000: 120 chunks, 120 from the index; the same in the last piece alone: true | 540960 bytes in 15 reads |

@@ -30,6 +30,13 @@ A [[series chunk]] of the drive holds a second of `phase_a`: 25 000 samples as `
     --8<-- "ww_tape_example/src/record.rs:act_item"
     ```
 
+A recorder that writes through a [`TapeMux`] leaves the encoding to the handle of the track. The drive's recorder gives
+the [`SeriesHandle`] the codec of the column, and then only the samples of each second:
+
+```rs
+--8<-- "ww_tape_example/src/record.rs:series"
+```
+
 The head's first and last tick come from the grid, by [`SeriesGrid::chunk_ticks`], and every sample's tick follows from
 them. The chunk stores no time per sample. The column's codec is the recorder's choice, here [`Codec::DELTA`].
 

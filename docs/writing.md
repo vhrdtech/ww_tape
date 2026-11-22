@@ -125,18 +125,18 @@ The writer's own blocks hold what a [[reader]] needs to find and understand the 
 | Blocks | Made by | Count | Bytes |
 |---|---|---:|---:|
 | piece head | the writer | 4 | 2064 |
-| records blocks of puts and copies | the writer | 31 | 5615 |
+| records blocks of puts and copies | the writer | 32 | 5652 |
 | records blocks | the recorder | 3600 | 811071 |
 | events chunks | the recorder | 3600 | 8400924 |
 | series chunks | the recorder | 3600 | 99617283 |
-| summary blocks | the recorder | 2933 | 3299294 |
+| summary blocks | the recorder | 2948 | 3301304 |
 | checkpoints | the writer | 24 | 1486296 |
-| final index | the writer | 4 | 1659640 |
-| close | the writer | 4 | 11365 |
+| final index | the writer | 4 | 1661440 |
+| close | the writer | 4 | 11614 |
 | tail | the writer | 4 | 656 |
 
 The writer's own blocks take 3.2 MB of the hour's 115 MB, 2.7 %. Most of that is index: the checkpoints while the pieces
-grow, and each piece's final index. The 31 blocks of puts hold every definition and mode change of four pieces in 5.4
+grow, and each piece's final index. The 32 blocks of puts hold every definition and mode change of four pieces in 5.5
 kB.
 
 ### What the writer checks
@@ -208,7 +208,7 @@ drive's file, the next second's put of the mode places the summary first, so the
 </figure>
 
 Alignment costs the drive more than a series alone. The hour takes 129 MB aligned against 115 MB, 12 % more. In the
-aligned drive file, 0 of the 2933 summary blocks lie in a gap. Each second starts with a put of the mode and a records
+aligned drive file, 0 of the 2948 summary blocks lie in a gap. Each second starts with a put of the mode and a records
 block, before the next series chunk. Every put and every block handed over places the waiting deferred blocks first,
 even a put that writes nothing.
 

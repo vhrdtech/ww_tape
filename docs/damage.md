@@ -157,7 +157,7 @@ leaves:
 |---|---|---|---:|---:|
 | a flipped bit | its tail | does not hold | 3444 | 10 of 10 |
 | the first 4 KiB lost | its tail | does not hold | 3441 | 10 of 10 |
-| the last 4 KiB lost | its newest checkpoint and a scan of about 1.1 MB | no close to check | 3445 | 10 of 10 |
+| the last 4 KiB lost | its final index, with no scan after it | no close to check | 3445 | 10 of 10 |
 
 ### The first 4 KiB lost
 
@@ -176,7 +176,7 @@ writer copies them the same way. Every definition of the drive is thus found aga
 them. A [[reader]] scanning past the newest [[checkpoint]] takes its gap rules from the layout's copy.
 
 The mode is a [[state track]], and a cut carries its newest item beside its definition. That item lay in the lost
-bytes. A reader thus finds no mode in force over the piece's first 34 seconds, 45:00 to 45:33. The mode's copy at 45:34
+bytes. A reader thus finds no mode in force over the piece's first 35 seconds, 45:00 to 45:34. The mode's copy at 45:35
 gives it again from there.
 
 A raw-media walk that starts past the lost bytes knows no gap rules until it reaches that copy. Over the first MiB or so
@@ -188,10 +188,12 @@ piece of a chain names no next piece, so it has no link forward to lose.
 
 ### The last 4 KiB lost
 
-These bytes hold the [[tail]], the [[close]] and the end of the [[final index]]. The reader finds no tail and reads the
-piece as unclosed. It finds the newest [[checkpoint]] and scans the 1.1 MB or so after it block by block, up to the
-damage. Every one of the 3445 blocks of data reads, and so does every definition. The piece loses its [[content hash]]
-and reports as unclosed instead of complete.
+These bytes hold the [[tail]], the [[close]] and the padding up to a multiple of 4 KiB. The [[final index]] before
+them is whole. The reader finds no tail and reads the piece as unclosed. It takes the final index as the newest index
+block, with no byte to scan after it. Every one of the 3445 blocks of data reads, and so does every definition,
+but the piece loses its [[content hash]].
+
+Lost bytes that reach into the final index make the reader take the newest [[checkpoint]] and scan the stretch after it.
 
 A piece in the middle of a chain would also lose its close's link to the next piece.
 
