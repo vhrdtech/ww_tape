@@ -4,6 +4,7 @@
 //! - [Codec]: the ids of how columns are coded, each defined once.
 //! - [bitpack]: bit widths, frame-of-reference groups and their vector kernels.
 //! - [crc32c]: the CRC-32C of every block, in hardware where the CPU has it.
+//! - [flag_runs]: the runs of flagged samples of a series chunk.
 //! - [from_file]: numbers read from file bytes, [FromFile], reaching a length or a loop only through a bound.
 //! - [varint] and [bytes]: variable-length integers and little-endian fields.
 //! - [lengths]: the payload lengths of events, packed per group.
@@ -42,6 +43,7 @@ pub mod bytes;
 pub mod codec;
 pub use codec::Codec;
 pub mod crc32c;
+pub mod flag_runs;
 pub mod from_file;
 pub use from_file::{BoundError, FromFile};
 #[cfg(feature = "std")]

@@ -17,6 +17,8 @@ impl Codec {
     pub const FLAGS: Self = Self(3);
     /// Payload lengths, bit-packed per group.
     pub const LENGTHS: Self = Self(4);
+    /// Sample flags: runs of samples sharing a flags word ([flag_runs](crate::flag_runs)).
+    pub const FLAG_RUNS: Self = Self(5);
     /// Samples: the element type big endian.
     pub const BIG_ENDIAN: Self = Self(16);
     /// Samples: 10 bits per value, the first value in the low bits.
@@ -70,6 +72,7 @@ mod tests {
             Codec::DURATIONS,
             Codec::FLAGS,
             Codec::LENGTHS,
+            Codec::FLAG_RUNS,
             Codec::BIG_ENDIAN,
             Codec::PACKED10_LSB,
             Codec::PACKED10_MSB,
