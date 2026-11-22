@@ -6,6 +6,8 @@ benchmarks, golden files and book pages.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-22
+
 ### Breaking
 
 - Series chunks keep their samples' flags in a flag runs column; direct writers add it with `FlagRunsBuilder` (FMT-13).
