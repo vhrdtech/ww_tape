@@ -1,12 +1,12 @@
 Writing the drive's hour:
 
-| Call | Count |
-|---|---:|
-| put, the mode | 3600 (9 wrote) |
-| write_block, log lines and temperatures | 3600 |
-| write_chunk, can0 | 3600 |
-| write_chunk, phase_a | 3600 |
-| defer_block, summaries of phase_a | 2933 |
+| Handle call | Writer call | Count |
+|---|---|---:|
+| StateHandle::put, the mode | put | 3600 (9 wrote) |
+| RecordsHandle::send, log lines and temperatures | write_block | 3600 |
+| ChunkSender::send, can0 | write_chunk | 3600 |
+| SeriesHandle::push, phase_a | write_chunk_hashed | 3600 |
+| none: the mux's summaries of phase_a | defer_block | 2948 |
 
 | Blocks | Made by | Count | Bytes |
 |---|---|---:|---:|
@@ -15,7 +15,7 @@ Writing the drive's hour:
 | records blocks | the recorder | 3600 | 811071 |
 | events chunks | the recorder | 3600 | 8400924 |
 | series chunks | the recorder | 3600 | 99617283 |
-| summary blocks | the recorder | 2948 | 3301304 |
+| summary blocks | the mux | 2948 | 3301304 |
 | checkpoints | the writer | 24 | 1486296 |
 | final index | the writer | 4 | 1661440 |
 | close | the writer | 4 | 11614 |

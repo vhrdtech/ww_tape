@@ -82,7 +82,7 @@ pub struct Calls {
     /// Chunks of `can0` and of `phase_a`.
     pub frame_chunks: u64,
     pub sample_chunks: u64,
-    /// Summary blocks of `phase_a` handed over to wait for a gap.
+    /// Summary blocks of `phase_a` that the mux built from the samples and deferred.
     pub summaries: u64,
 }
 
@@ -243,7 +243,11 @@ impl Writing {
             let blocks = blocks(recording)?;
             let cut = cut(recording)?;
             let retention = retention(recording)?;
-            let (calls, columns) = joined(calls)?;
+            let (mut calls, columns) = joined(calls)?;
+            calls.summaries = blocks
+                .iter()
+                .find(|b| b.part == "summary blocks")
+                .map_or(0, |b| b.count);
             let mut aligned = joined(aligned)?;
             [
                 aligned.series_unaligned,
@@ -297,7 +301,8 @@ fn calls_and_columns(recording: &Recording, acts: &[Act]) -> Result<(Calls, Colu
         match act {
             Act::Put { .. } => calls.puts += 1,
             Act::Records(_) => calls.records += 1,
-            Act::Summary(_) => calls.summaries += 1,
+            // the mux builds the summaries itself: [Writing::of] counts the blocks it deferred
+            Act::Summary(_) => {}
             Act::Chunk { head, columns } if head.track_id == key("can0").id() => {
                 calls.frame_chunks += 1;
                 c.frame_chunks += 1;
@@ -1067,17 +1072,33 @@ impl fmt::Display for Writing {
         let c = &self.calls;
         writeln!(f, "Writing the drive's hour:")?;
         writeln!(f)?;
-        writeln!(f, "| Call | Count |")?;
-        writeln!(f, "|---|---:|")?;
-        writeln!(f, "| put, the mode | {} ({} wrote) |", c.puts, c.puts_wrote)?;
+        writeln!(f, "| Handle call | Writer call | Count |")?;
+        writeln!(f, "|---|---|---:|")?;
         writeln!(
             f,
-            "| write_block, log lines and temperatures | {} |",
+            "| StateHandle::put, the mode | put | {} ({} wrote) |",
+            c.puts, c.puts_wrote
+        )?;
+        writeln!(
+            f,
+            "| RecordsHandle::send, log lines and temperatures | write_block | {} |",
             c.records
         )?;
-        writeln!(f, "| write_chunk, can0 | {} |", c.frame_chunks)?;
-        writeln!(f, "| write_chunk, phase_a | {} |", c.sample_chunks)?;
-        writeln!(f, "| defer_block, summaries of phase_a | {} |", c.summaries)?;
+        writeln!(
+            f,
+            "| ChunkSender::send, can0 | write_chunk | {} |",
+            c.frame_chunks
+        )?;
+        writeln!(
+            f,
+            "| SeriesHandle::push, phase_a | write_chunk_hashed | {} |",
+            c.sample_chunks
+        )?;
+        writeln!(
+            f,
+            "| none: the mux's summaries of phase_a | defer_block | {} |",
+            c.summaries
+        )?;
         writeln!(f)?;
         writeln!(f, "| Blocks | Made by | Count | Bytes |")?;
         writeln!(f, "|---|---|---:|---:|")?;
@@ -1085,6 +1106,8 @@ impl fmt::Display for Writing {
         for b in &self.blocks {
             let by = if b.by_writer {
                 "the writer"
+            } else if b.part == "summary blocks" {
+                "the mux"
             } else {
                 "the recorder"
             };
