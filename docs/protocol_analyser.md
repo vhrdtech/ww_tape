@@ -5,8 +5,9 @@ level: advanced
 # Keeping what matters of a 10 Gbps link
 
 A protocol analyser on a network link sees every frame that passes, in both directions. At 10 Gbps a second of the link
-takes gigabytes, more than the disk of a common PC writes. How does an analyser keep up, and what does it keep? It
-captures into memory at the line rate, analyses each stretch there while the capture goes on, and writes only what
+takes gigabytes, more than the disk of a common PC writes. How does an analyser keep up, and what does it keep?
+
+It captures into memory at the line rate, analyses each stretch there while the capture goes on, and writes only what
 matters to disk. The case here is an analyser on a tap of a full-duplex Ethernet link. Its traffic is synthetic, made
 by `ww_tape_example::ethernet` from fixed numbers, so every run sees the same frames.
 
@@ -80,10 +81,14 @@ Memory takes the link at its line rate where a disk does not. So the analyser re
 memory, a [`MemTapes`] that keeps each [[piece]] as a tape of its own. The [[mux]] cuts a piece every 64 MiB, about
 28 ms of the link. The pieces held in memory form the **window**: the newest stretch of the capture.
 
-A triage thread reads the window while the capture goes on. It waits on the mux's [`ProgressWatch`] and opens each piece
-as it closes, a [`TapeReader`] over the bytes in memory without a copy. The analyser decides whether the piece holds
-something worth keeping. A kept piece is copied whole to a directory of piece files, where it reads alone. Every other
-piece leaves memory unwritten ([`MemTapes::remove`]).
+A mux writes its chain from one thread, which copies every byte of the capture into memory. One such thread for both
+ports only just keeps pace with the link, as the bench below shows. So each port goes into a chain of its own, with a
+mux of its own and a triage thread of its own ([`RamCapture::chains`]).
+
+A triage thread reads each chain's window while the capture goes on. It waits on the mux's [`ProgressWatch`] and opens
+each piece as it closes, a [`TapeReader`] over the bytes in memory without a copy. The analyser decides whether the
+piece holds something worth keeping. A kept piece is copied whole to the chain's own directory of piece files, where it
+reads alone. Every other piece leaves memory unwritten ([`MemTapes::remove`]).
 
 ```rs
 --8<-- "ww_tape_example/src/ethernet/ram.rs:ram_capture"
@@ -93,10 +98,10 @@ A verdict often depends on what came before. The window therefore keeps [`Window
 until no later verdict can keep them, and [`Window::after`] pieces after a kept one are kept too. Here one piece on each
 side goes with each kept piece.
 
-The window has a size, [`Window::bytes_max`]. An analyser that falls behind lets the window grow until it is full. The
-oldest pieces then leave memory unread, and [`Triaged::overrun`] counts them, as a capture card counts the frames it
-drops. The test `tests/window.rs` holds the analyser back until the capture ends and checks that every piece was read
-or counted.
+Each chain's window has a size, [`Window::bytes_max`]. An analyser that falls behind lets the window grow until it is
+full. The oldest pieces then leave memory unread, and [`Triaged::overrun`] counts them, as a capture card counts the
+frames it drops. The test `tests/window.rs` holds the analyser back until the capture ends and checks that every piece
+was read or counted.
 
 ## The analyser: TCP resets
 
@@ -109,32 +114,40 @@ frames of a port. The analyser decodes every frame of each piece and tests its f
 
 Its findings go to a second chain, the results, which a mux of its own writes to disk beside the kept pieces. Each
 receive queue has a track `resets`, one item per reset with its IPv4 and TCP headers. Like a decoded header, a reset
-keeps its frame's number in the relation `frame`. The frame lies in the kept piece the analyser found it in. A track
-`kept` names each kept piece with the span of time it covers.
+keeps its frame's number in the relation `frame`. The frame lies in the kept piece the analyser found it in. Each chain
+has a track `kept`, which names each kept piece of the chain with the span of time it covers.
 
-The kept pieces form a chain with holes, where the pieces left memory. Each piece reads alone, and the results say why
-it was kept. The test `tests/ethernet_ram.rs` checks that the kept pieces hold the frames the link sent, and that every
-reset is found.
+The kept pieces of a chain form a chain with holes, where the pieces left memory. Each piece reads alone, and the
+results say why it was kept. The test `tests/ethernet_ram.rs` checks that the kept pieces hold the frames the link sent,
+and that every reset is found.
 
 ## What one PC holds and keeps
 
 `just bench-ethernet` captures 2 s of the link into the window at full speed. The capture threads take the frames as
-fast as they can, not at the link's pace, while the triage reads each piece and keeps those around a reset. It runs
-once with the kept pieces in memory and once with piece files on the machine's disk.
+fast as they can, not at the link's pace. Meanwhile the triage reads each piece and keeps those around a reset.
+
+The bench runs in one chain and in a chain per port, the kept pieces in memory. Each runs with 2 and with 4 receive
+queues a port. With a chain per port and 4 queues it runs once more, the kept pieces in piece files on the machine's
+disk.
 
 --8<-- "docs/plots/bench_ethernet_window.txt"
 
 --8<-- "docs/plots/bench_cases_machine.txt"
 
-The column "Of the pace" is the seconds of the link captured per second of the run: a value of 1 or more keeps up with
-the link. "Tape MB per s" is what a second of the link takes in memory. "Window s" is how many seconds of the link half
-the machine's memory holds: how long a verdict may wait.
+"Capture ms" is the time until every frame was in memory. The column "Of the pace" is the seconds of the link captured
+per second of that time: a value of 1 or more keeps up with the link. "Wall ms" adds the time the triage took to read
+the last pieces. "Tape MB per s" is what a second of the link takes in memory. "Window s" is how many seconds of the
+link half the machine's memory holds: how long a verdict may wait.
+
+In one chain, the mux's writing thread sets the pace: more receive queues barely raise it. A chain per port splits the
+copying over two writing threads, and with 4 queues a port the capture runs ahead of the link.
 
 --8<-- "docs/plots/bench_ethernet_triage.txt"
 
-The triage reads the pieces on one thread. Its "Of the pace" is the seconds of the link it gets through per second of
-its own work: 1 or more keeps up. "Kept %" is the share of the capture's bytes that reaches the kept store, and "To disk
-MB per s" is what the disk writes per second of the link, the results included.
+The triage reads each chain's pieces on a thread of its own. "Triage MB/s" is what one triage thread reads a second.
+Its "Of the pace" is the seconds of the link the slowest triage reads per second of its work: 1 or more keeps up.
+"Kept %" is the share of the capture's bytes that reaches the kept store. "To disk MB per s" is what the disk
+writes per second of the link, the results included.
 
 ## Writing every frame to disk
 
@@ -143,11 +156,12 @@ pace. A chain at the line rate writes about 2.4 GB a second.
 
 One track has one producer: its handle encodes and hashes its chunks on that producer's thread. A port's 1.2 GB of
 frames a second on one thread is more than one core encodes, hashes and copies. So each port spreads its flows over
-receive queues, as a network card does, each queue with a capture thread, a decoder thread and its own three tracks.
+receive queues, as a network card does. Each queue has a capture thread, a decoder thread and its own three tracks.
 The test `tests/ethernet.rs` checks that four queues hold exactly the frames of one, at the same ticks.
 
-`just bench-ethernet` also records 2 s of the link at full speed through one or two muxes. It writes into a store that
-keeps no bytes, which measures the encoding and the writing thread, and then into chains of piece files on the disk:
+`just bench-ethernet` also records 2 s of the link at full speed through one or two muxes. It first writes into a store
+that keeps no bytes, which measures the encoding and the writing thread. It then writes chains of piece files on the
+disk:
 
 --8<-- "docs/plots/bench_ethernet_writer.txt"
 

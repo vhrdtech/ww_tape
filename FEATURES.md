@@ -371,12 +371,13 @@ The book's running example and its other cases, in the crate `ww_tape_example`.
 
   Read more: [The drive with one thread per source](docs/writing_thread.md#the-drive-with-one-thread-per-source). Tests `handles.rs`.
 
-- 🚧 **EX-4 Capture into memory, keep what matters**
+- ✅ **EX-4 Capture into memory, keep what matters**
 
-  `window` runs a capture into chains of pieces in memory, a mux each, while an analyser on a thread per chain reads each piece as it closes. The pieces it keeps, with their neighbours, are copied to a store of their own, and the rest leave memory unwritten. `ethernet::ram` captures the 10 Gbps link in a chain per port, keeps the pieces around each TCP reset and writes the resets it finds to a results chain. `wideband::ram` captures a 250 MS/s receiver and keeps the pieces around each burst, found by energy detection on the summary nodes alone.
-  - Open: the benches and the book pages.
+  `window` runs a capture into chains of pieces in memory, each written by a mux of its own. An analyser on a thread per chain reads each piece as it closes. The pieces it keeps, with their neighbours, are copied to a store of their own, and the rest leave memory unwritten.
 
-  Read more: tests `window.rs`, `ethernet_ram.rs`, `wideband_ram.rs`.
+  `ethernet::ram` captures the 10 Gbps link in a chain per port and keeps the pieces around each TCP reset. It writes the resets it finds to a results chain. `wideband::ram` captures a 250 MS/s receiver and keeps the pieces around each burst, found by energy detection on the summary nodes alone. `just bench-ethernet` and `just bench-wideband` measure the capture's pace, the triage's speed and the bytes kept.
+
+  Read more: [Keeping what matters of a 10 Gbps link](docs/protocol_analyser.md), [Keeping the bursts of a fast band](docs/wideband.md). Tests `window.rs`, `ethernet_ram.rs`, `wideband_ram.rs`.
 
 ## Repository (`REPO`)
 

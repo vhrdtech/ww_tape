@@ -72,9 +72,9 @@ directions of a 10 Gbps link at its line rate, with a capture and a decoder thre
 of queues and of muxes writes into a store that keeps no bytes. With `--dir`, the most queues also write chains of
 piece files there. It prints the frames a second and the share of the link the run kept up with.
 
-It then captures the link into a window in memory (`ethernet::ram`), in one chain and in a chain per port, while a
-triage thread per chain keeps the pieces around each TCP reset. It prints the capture's pace against the link's, the
-seconds of the link half the machine's memory holds, the triage's speed and the bytes kept. With `--dir`, the most
+It then captures the link into a window in memory (`ethernet::ram`), in one chain and in a chain per port. A triage
+thread per chain keeps the pieces around each TCP reset. It prints the capture's pace against the link's and the
+seconds of the link half the machine's memory holds. It also prints the triage's speed and the bytes kept. With `--dir`, the most
 chains and queues keep their pieces in piece files there.
 
 ```sh
@@ -89,8 +89,8 @@ bytes. With `--dir`, the most channels and muxes also write chains of piece file
 
 A reader then draws channel 0's overview from its summary nodes, counting the bytes it reads.
 
-It then captures 250 MS/s into a window in memory (`wideband::ram`), once from chunks made before the run and once
-for `--live-ms` from the signal made as it goes, with its bursts. It prints the same columns as `ethernet`; with
+It then captures 250 million samples a second into a window in memory (`wideband::ram`). One run replays chunks made
+before it, and one makes the signal as it goes for `--live-ms`, with its bursts. It prints the same columns as `ethernet`; with
 `--dir`, the live run keeps its pieces in piece files there.
 
 ```sh

@@ -6,10 +6,11 @@ level: advanced
 
 A wideband radio receiver digitizes a band at hundreds of millions of complex samples a second. Most of the time the
 band holds the same carriers and noise, and what matters are the short bursts between them. How does one PC keep the
-bursts of such a band without writing all of it? It captures into memory, finds the bursts there from the energy in
-the summaries, and writes only the stretches around them. The case here builds on the RF capture of
-[Series](series.md#a-fast-series-radio-samples), at 12.5 times its rate. The crate `ww_tape_example` makes it in the
-module `wideband`.
+bursts of such a band without writing all of it?
+
+It captures into memory, finds the bursts there from the energy in the summaries, and writes only the stretches around
+them. The case here builds on the RF capture of [Series](series.md#a-fast-series-radio-samples), at 12.5 times its rate.
+The crate `ww_tape_example` makes it in the module `wideband`.
 
 ## Channels, each a track
 
@@ -36,8 +37,8 @@ serves one channel's 125 million samples a second, not the whole band.
 
 ## Energy in the summary nodes
 
-A burst raises the power `I² + Q²` of the samples it covers. The leaves of a series' summaries already hold that power:
-each [[summary node]] of level 0 keeps the mean and the largest power of 1 024 samples. An analyser that detects
+A burst raises the power `I² + Q²` of the samples it covers. The leaves of a series' summaries already hold that
+power. Each [[summary node]] of level 0 keeps the mean and the largest power of 1 024 samples. An analyser that detects
 energy therefore reads the nodes, never the samples: a few values for each 1 024 samples.
 
 The analyser opens a piece, reads the summary blocks of level 0 of each channel, and compares each node's largest power
@@ -60,8 +61,11 @@ function, which the overview below uses too:
 
 The receiver records into a window in memory, as the protocol analyser does in [Keeping what matters of a 10 Gbps
 link](protocol_analyser.md#a-window-in-memory). A [[mux]] writes the [[chain]] into a [`MemTapes`], a piece every
-64 MiB. A triage thread opens each piece as it closes and asks the analyser whether it holds a burst. A piece with one
-is copied to a piece file, with one piece before it and one after it. Every other piece leaves memory unwritten.
+64 MiB. A triage thread opens each piece as it closes and asks the analyser whether it holds a burst.
+
+A piece with a burst is copied to a piece file, with one piece before it and one after it. Every other piece leaves
+memory unwritten. The band takes fewer bytes a second than the link, and one chain keeps up with it, as the bench below
+shows.
 
 ```rs
 --8<-- "ww_tape_example/src/wideband/ram.rs:rf_capture"
@@ -72,21 +76,21 @@ largest power. A track `kept` names each kept piece with the span of time it cov
 bursts of 2 ms each, so the disk sees a few pieces a minute.
 
 The test `tests/wideband_ram.rs` records a minute at 1/5 000 of the rate. It checks that each channel's five bursts are
-found, that their samples lie in the kept pieces, and that those pieces hold the signal's own samples.
+found and that their samples lie in the kept pieces. It also checks that those pieces hold the signal's own samples.
 
 ## What one PC holds and keeps
 
 `just bench-wideband` captures the band into the window at full speed. One run replays chunks made before it, so it
 times the recorder and the triage, not the signal's maths; it holds no bursts. A second run makes the signal as it
-goes for a minute, its bursts included, and keeps the pieces around them in piece files on the machine's disk.
+goes for a minute, its bursts included. It keeps the pieces around the bursts in piece files on the machine's disk.
 
 --8<-- "docs/plots/bench_wideband_window.txt"
 
 --8<-- "docs/plots/bench_cases_machine.txt"
 
-The column "Of the pace" is the seconds of the band captured per second of the run: a value of 1 or more keeps up. The
-live run makes its samples as it goes, and that maths sets its pace. "Window s" is how many seconds of the band half the
-machine's memory holds.
+"Capture ms" is the time until every sample was in memory. The column "Of the pace" is the seconds of the band captured
+per second of that time: a value of 1 or more keeps up. The live run makes its samples as it goes, and that maths sets
+its pace. "Window s" is how many seconds of the band half the machine's memory holds.
 
 --8<-- "docs/plots/bench_wideband_triage.txt"
 
