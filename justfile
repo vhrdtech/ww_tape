@@ -143,6 +143,11 @@ bench-rf-core *args:
 bench-rf-chain *args:
     cargo run -q --release -p ww_tape_benchmarks --bin rf_chain -- {{ args }}
 
+# ww_tape: a protocol analyser on both directions of a 10 Gbps link through one mux or a mux per port, at full speed
+# (BOOK-4); `just bench-ethernet --help`
+bench-ethernet *args:
+    cargo run -q --release -p ww_tape_benchmarks --bin ethernet -- {{ args }}
+
 # Events and series handles on a TapeMux against one thread writing a chain directly, by 1, 4 and 16 tracks (WRITE-13); `just bench-handles --help`
 bench-handles *args:
     cargo run -q --release -p ww_tape_benchmarks --bin handles -- {{ args }}
@@ -153,7 +158,8 @@ bench-mem-reader *args:
 
 # Every bench the book draws from ("Sizes and speeds", "The definitions a new piece carries"), at release, into
 # docs/bench/*.json; then the charts and tables drawn from them (`just book-figures`). `just jobs=N bench-book` caps
-# the build's jobs. Each bench runs on one core, except rf_chain: 8 workers and a writer thread.
+# the build's jobs. Each bench runs on one core, except rf_chain (8 workers and a writer thread) and ethernet (up to 16
+# producer threads and two muxes); ethernet writes about 5 GB into target/bench-ethernet and removes it.
 # rf_chain needs `rf_gib` GiB free on the disk of `rf_dir` (100 GiB by default), and removes its chain after the read:
 # `just rf_dir=/data/rf bench-book` puts it elsewhere.
 # A report names the commit it ran, so the tree must be clean, and every bench is built before the first report is written
@@ -171,6 +177,7 @@ bench-book:
     just bench-memory --json docs/bench/memory.json
     just bench-rf-core --json docs/bench/rf_core.json
     just bench-rf-chain --dir {{ rf_dir }} --gib {{ rf_gib }} --remove --json docs/bench/rf_chain.json
+    just bench-ethernet --dir target/bench-ethernet --json docs/bench/ethernet.json
 
 # Build the book (docs/, zensical.toml) into site/ with Zensical
 [group('book')]

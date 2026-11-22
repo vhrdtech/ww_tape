@@ -356,6 +356,11 @@ The pages in `docs/`.
   - `rf` records an RF capture, ComplexI16 IQ at 20 MS/s with summaries, as the book's case for high rates; `tests/rf.rs` pins its size per codec. `rf chains` writes it into two chains, IQ and decoded bursts, through two muxes while a reader merges both.
   - Read more: [ww_tape_example](ww_tape_example/README.md).
 
+- 🚧 **BOOK-4 Cases beside the drive**
+  - Done: `ethernet` records a protocol analyser on both directions of a 10 Gbps link: frames as raw-bytes events, decoded IPv4 and TCP or UDP headers as tracks related to their frames, a capture and a decoder thread per receive queue, one mux or a mux per port. `tests/ethernet.rs` reads every frame and header back; `just bench-ethernet` measures how much of the link it keeps up with.
+  - Open: the 1 GS/s radio case, and the book's chapters using both cases.
+  - Read more: [ww_tape_example](ww_tape_example/README.md).
+
 ## Repository (`REPO`)
 
 Crates, checks, fuzzing and benches.

@@ -2,7 +2,8 @@
 //! the layers a decoder finds in them as tracks of their own.
 //!
 //! The analyser sits on a tap of a full-duplex link and sees two directions, port 0 from the clients and port 1 from
-//! the servers. Each port is three events tracks on the analyser's ns clock:
+//! the servers. A port spreads its flows over [Link::queues] receive queues, as a NIC does, and each queue ([Rx]) is
+//! three events tracks on the analyser's ns clock:
 //!
 //! | Track | Item | Bytes of an item |
 //! |---|---|---|
@@ -10,15 +11,16 @@
 //! | `ipv4` | the frame's IPv4 header: source, destination, protocol, TTL, length ([Ipv4]) | 12 |
 //! | `l4` | the frame's TCP or UDP header: protocol, flags, ports, payload length ([L4]) | 8 |
 //!
-//! An item of `ipv4` and `l4` keeps the item number of its frame in the relation `frame`, so a reader goes from a
-//! decoded header to the bytes it came from. A frame without IPv4, such as ARP, has no item in either.
+//! An item of `ipv4` and `l4` keeps the item number of its frame in the queue's `frames` in the relation `frame`, so
+//! a reader goes from a decoded header to the bytes it came from. A frame without IPv4, such as ARP, has no item in either.
 //!
 //! The traffic is synthetic and a pure function of the frame's number ([Traffic]): the simple IMIX of 7 frames of
 //! 60 bytes, 4 of 590 and 1 of 1514, over [FLOWS] flows, three in four of them TCP. The payloads are random bytes,
 //! as encrypted traffic is, so they don't compress. A port sends its frames back to back at the link's load.
 //!
-//! [Link::record] records both ports into one chain through a [TapeMux]: per port a capture thread pushes the frames
-//! and hands each batch to a decoder thread, which pushes the headers it decodes.
+//! [Link::record] records both ports through one [TapeMux] or a mux per port, each into a chain of its own. Per
+//! receive queue a capture thread pushes the frames and hands each batch to a decoder thread, which pushes the
+//! headers it decodes. One track has one producer, so the queues are what spreads a port's line rate over cores.
 //!
 //! ```
 //! let link = ww_tape_example::ethernet::Link::full().micros(200);
@@ -31,9 +33,9 @@
 //!     ww_tape::ChainOptions::default(),
 //!     ww_tape_mux::MuxOptions::default(),
 //! )?;
-//! let captured = link.record(&mux)?;
+//! let captured = link.record(&[&mux])?;
 //! let pieces = ww_tape_example::ethernet::pieces(&tapes, &mux.close()?)?;
-//! let read = ww_tape_example::ethernet::read(&pieces)?;
+//! let read = ww_tape_example::ethernet::read(&pieces, link.queues)?;
 //! assert_eq!(read.ports[0].frames, captured.ports[0].frames);
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
@@ -82,6 +84,8 @@ pub const FRAME_BYTES_MAX: usize = 1514;
 pub const BATCH_FRAMES: usize = 512;
 /// Batches a capture thread hands its decoder and the decoder hasn't taken, at most.
 pub const DECODER_QUEUE_MAX: usize = 8;
+/// Receive queues of a port at most.
+pub const QUEUES_MAX: u32 = 16;
 /// Bytes of an item of `ipv4` and of `l4`.
 pub const IPV4_BYTES: usize = 12;
 pub const L4_BYTES: usize = 8;
@@ -105,16 +109,21 @@ pub struct Link {
     pub micros: u64,
     /// Frame bytes of a chunk of `frames` at most.
     pub chunk_bytes: u32,
+    /// The receive queues of each port, 1 to [QUEUES_MAX]: the flows are spread over them, and each is a thread
+    /// and tracks of its own.
+    pub queues: u32,
 }
 // --8<-- [end:link]
 
 impl Link {
-    /// A second of the link at its line rate in both directions, chunks of `frames` of 1 MiB.
+    /// A second of the link at its line rate in both directions, two receive queues a port, chunks of `frames` of
+    /// 1 MiB.
     pub const fn full() -> Self {
         Self {
             load_percent: 100,
             micros: 1_000_000,
             chunk_bytes: 1 << 20,
+            queues: 2,
         }
     }
 
@@ -131,17 +140,26 @@ impl Link {
         }
     }
 
-    /// The traffic of port `port`, 0 or 1.
-    pub fn traffic(&self, port: u32) -> Traffic {
-        Traffic::new(*self, port)
+    /// The same capture over `queues` receive queues a port.
+    pub const fn queues(self, queues: u32) -> Self {
+        Self { queues, ..self }
     }
 
-    /// Record both ports into the chain of `mux`, as the [module docs](self) say: what each port sent.
+    /// The receive queues of both ports.
+    pub fn rxs(&self) -> impl Iterator<Item = Rx> + use<> {
+        let queues = self.queues;
+        [0, 1]
+            .into_iter()
+            .flat_map(move |port| (0..queues).map(move |queue| Rx { port, queue }))
+    }
+
+    /// Record both ports, port `p` into the chain of `muxes[p % muxes.len()]`, as the [module docs](self) say: what
+    /// each port sent.
     ///
     /// # Errors
     ///
     /// A setting the capture can't be made with, or a mux or handle call that failed.
-    pub fn record<T>(&self, mux: &TapeMux<T>) -> Result<Captured, EthError<T::Error>>
+    pub fn record<T>(&self, muxes: &[&TapeMux<T>]) -> Result<Captured, EthError<T::Error>>
     where
         T: Tapes + Send + 'static,
         T::Sink: Send,
@@ -151,39 +169,49 @@ impl Link {
         if !(1..=100).contains(&self.load_percent) {
             return Err(EthError::Settings("the load is 1 to 100 percent"));
         }
-        let numbers = define(mux)?;
-        let ports = std::thread::scope(|s| -> Result<_, EthError<T::Error>> {
-            let threads: Vec<_> = [0, 1]
-                .into_iter()
-                .map(|port| {
+        if !(1..=QUEUES_MAX).contains(&self.queues) {
+            return Err(EthError::Settings("1 to QUEUES_MAX queues a port"));
+        }
+        let rxs = define(self, muxes)?;
+        let mut ports = [Sent::default(), Sent::default()];
+        std::thread::scope(|s| -> Result<_, EthError<T::Error>> {
+            let threads: Vec<_> = rxs
+                .iter()
+                .map(|tracks| {
+                    let mux = muxes
+                        .get(port_index(tracks.rx.port) % muxes.len().max(1))
+                        .copied()
+                        .ok_or(EthError::Settings("a mux"))?;
                     let (to_decoder, from_capture) = mpsc::sync_channel(DECODER_QUEUE_MAX);
-                    let capture = s.spawn(move || self.capture(mux, &numbers, port, &to_decoder));
-                    let decoder = s.spawn(move || decode_port(mux, &numbers, port, &from_capture));
-                    (capture, decoder)
+                    // the batches the decoder is done with go back to be filled again
+                    let (to_capture, from_decoder) = mpsc::sync_channel(DECODER_QUEUE_MAX);
+                    let queues = (to_decoder, from_decoder);
+                    let capture = s.spawn(move || self.capture(mux, tracks, &queues));
+                    let decoder =
+                        s.spawn(move || decode_rx(mux, tracks, &from_capture, &to_capture));
+                    Ok((tracks.rx, capture, decoder))
                 })
-                .collect();
-            let mut ports = Vec::new();
-            for (capture, decoder) in threads {
+                .collect::<Result<_, EthError<T::Error>>>()?;
+            for (rx, capture, decoder) in threads {
                 let mut sent = joined(capture)?;
-                let (ipv4, l4) = joined(decoder)?;
-                sent.ipv4 = ipv4;
-                sent.l4 = l4;
-                ports.push(sent);
+                (sent.ipv4, sent.l4) = joined(decoder)?;
+                ports
+                    .get_mut(port_index(rx.port))
+                    .ok_or(EthError::Settings("port 0 or 1"))?
+                    .merge(&sent);
             }
-            Ok(ports)
+            Ok(())
         })?;
-        let [a, b] = <[Sent; 2]>::try_from(ports).map_err(|_e| EthError::Thread("a port"))?;
-        Ok(Captured { ports: [a, b] })
+        Ok(Captured { ports })
     }
 
-    /// The capture thread of port `port`: push its frames into `frames` a batch at a time, and hand each batch to the
-    /// decoder.
+    /// The capture thread of a receive queue: push its frames into its `frames` a batch at a time, and hand each
+    /// batch to the decoder; fill the batches the decoder hands back again.
     fn capture<T>(
         &self,
         mux: &TapeMux<T>,
-        numbers: &Numbers,
-        port: u32,
-        to_decoder: &mpsc::SyncSender<Batch>,
+        tracks: &RxTracks,
+        (to_decoder, from_decoder): &(mpsc::SyncSender<Batch>, mpsc::Receiver<Batch>),
     ) -> Result<Sent, EthError<T::Error>>
     where
         T: Tapes + Send + 'static,
@@ -191,21 +219,20 @@ impl Link {
         T::Key: Send,
         T::Error: Send + Sync,
     {
-        let at = |t: [TrackNum; 2]| t.get(port_index(port)).copied();
-        let track = at(numbers.frames).ok_or(EthError::Settings("port 0 or 1"))?;
         // --8<-- [start:capture]
         let mut frames = mux.events(
-            track,
+            tracks.frames,
             EventsOptions {
                 chunk_bytes: exact_units::Bytes::new(self.chunk_bytes),
                 latency: None, // a capture at line rate fills its chunks
                 ..EventsOptions::default()
             },
         )?;
-        let mut traffic = self.traffic(port);
+        let mut traffic = Traffic::new(*self, tracks.rx);
         let mut sent = Sent::default();
         loop {
-            let mut batch = Batch::new(frames.next_item().get());
+            let mut batch = from_decoder.try_recv().unwrap_or_default();
+            batch.restart(frames.next_item().get());
             while batch.len() < BATCH_FRAMES && traffic.next_into(&mut batch) {}
             if batch.is_empty() {
                 break;
@@ -231,7 +258,7 @@ impl Link {
     }
 }
 
-/// Port `port`'s index in the arrays of [Numbers].
+/// Port `port`'s index in [Captured::ports].
 fn port_index(port: u32) -> usize {
     usize::try_from(port).unwrap_or(usize::MAX)
 }
@@ -242,13 +269,13 @@ fn joined<R, E>(h: ScopedJoinHandle<'_, Result<R, EthError<E>>>) -> Result<R, Et
         .map_err(|_e| EthError::Thread("a thread panicked"))?
 }
 
-/// The decoder thread of port `port`: decode each batch of frames and push the headers into `ipv4` and `l4`, each
-/// with the number of its frame. What it pushed into each.
-fn decode_port<T>(
+/// The decoder thread of a receive queue: decode each batch of frames and push the headers into its `ipv4` and
+/// `l4`, each with the number of its frame. What it pushed into each.
+fn decode_rx<T>(
     mux: &TapeMux<T>,
-    numbers: &Numbers,
-    port: u32,
+    tracks: &RxTracks,
     from_capture: &mpsc::Receiver<Batch>,
+    to_capture: &mpsc::SyncSender<Batch>,
 ) -> Result<(u64, u64), EthError<T::Error>>
 where
     T: Tapes + Send + 'static,
@@ -256,17 +283,13 @@ where
     T::Key: Send,
     T::Error: Send + Sync,
 {
-    let at = |t: [TrackNum; 2]| t.get(port_index(port)).copied();
-    let (ipv4_track, l4_track) = at(numbers.ipv4)
-        .zip(at(numbers.l4))
-        .ok_or(EthError::Settings("port 0 or 1"))?;
     let options = EventsOptions {
         latency: None,
         ..EventsOptions::default()
     };
     let (mut ipv4, mut l4) = (
-        mux.events(ipv4_track, options)?,
-        mux.events(l4_track, options)?,
+        mux.events(tracks.ipv4, options)?,
+        mux.events(tracks.l4, options)?,
     );
     let (mut ip_items, mut l4_items) = (Decoded::default(), Decoded::default());
     let (mut n_ip, mut n_l4) = (0u64, 0u64);
@@ -289,6 +312,8 @@ where
         // --8<-- [end:decoded]
         n_ip += ip_items.len() as u64;
         n_l4 += l4_items.len() as u64;
+        // a batch the capture thread has no room for, or no use for once done, is dropped
+        to_capture.try_send(batch).ok();
     }
     ipv4.finish()?;
     l4.finish()?;
@@ -347,13 +372,12 @@ pub struct Batch {
 }
 
 impl Batch {
-    fn new(first_item: u64) -> Self {
-        Self {
-            first_item,
-            ticks: Vec::with_capacity(BATCH_FRAMES),
-            lens: Vec::with_capacity(BATCH_FRAMES),
-            bytes: Vec::with_capacity(BATCH_FRAMES * 400),
-        }
+    /// Empty the batch for frames from item `first_item` on, keeping its room.
+    fn restart(&mut self, first_item: u64) {
+        self.first_item = first_item;
+        self.ticks.clear();
+        self.lens.clear();
+        self.bytes.clear();
     }
 
     /// Frames in the batch.
@@ -377,28 +401,40 @@ impl Batch {
     }
 }
 
-/// The frames of one port: a pure function of their numbers, back to back at the link's load.
+/// The frames of one receive queue: the port's frames of the flows the queue takes.
+///
+/// A port's frame `n` is a pure function of `n`, and the port sends its frames back to back at the link's load. The
+/// queue of a frame is its flow's number modulo the queues, as a NIC spreads flows by a hash; every queue walks all
+/// of its port's frames for their times and makes the bytes of its own only.
 #[derive(Clone, Debug)]
 pub struct Traffic {
     link: Link,
-    port: u32,
+    rx: Rx,
     pool: Vec<u8>,
-    /// The next frame's number and the ps its first bit starts at.
+    /// The port's next frame's number and the ps its first bit starts at.
     next: u64,
     at_ps: u64,
     end_ps: u64,
 }
 
+/// What a port's frame is, before its bytes: its choices, its flow and its length.
+struct Shape {
+    h: u64,
+    flow: u64,
+    arp: bool,
+    len: usize,
+}
+
 impl Traffic {
-    /// The traffic of port `port` of `link`.
-    pub fn new(link: Link, port: u32) -> Self {
-        let seed = POOL_SEED ^ u64::from(port);
+    /// The traffic of receive queue `rx` of `link`.
+    pub fn new(link: Link, rx: Rx) -> Self {
+        let seed = POOL_SEED ^ u64::from(rx.port);
         let pool = (0..PAYLOAD_POOL_BYTES / 8)
             .flat_map(|i| hash(seed, i as u64).to_le_bytes())
             .collect();
         Self {
             link,
-            port,
+            rx,
             pool,
             next: 0,
             at_ps: 0,
@@ -406,51 +442,78 @@ impl Traffic {
         }
     }
 
-    /// Add the next frame to `batch`: false past the capture's end.
+    /// Add the queue's next frame to `batch`: false past the capture's end.
     pub fn next_into(&mut self, batch: &mut Batch) -> bool {
-        if self.at_ps >= self.end_ps {
-            return false;
+        while self.at_ps < self.end_ps {
+            let n = self.next;
+            let shape = self.shape(n);
+            let at_ps = self.at_ps;
+            let wire_ps = (shape.len as u64 + WIRE_EXTRA_BYTES) * PS_PER_BYTE;
+            self.at_ps += wire_ps * 100 / self.link.load_percent.clamp(1, 100);
+            self.next += 1;
+            if shape.flow % u64::from(self.link.queues.max(1)) != u64::from(self.rx.queue) {
+                continue;
+            }
+            let from = batch.bytes.len();
+            self.frame(n, &shape, &mut batch.bytes);
+            batch.lens.push(batch.bytes.len() - from);
+            batch
+                .ticks
+                .push(i64::try_from(at_ps / 1_000).unwrap_or(i64::MAX));
+            return true;
         }
-        let from = batch.bytes.len();
-        self.frame(self.next, &mut batch.bytes);
-        let len = batch.bytes.len() - from;
-        batch
-            .ticks
-            .push(i64::try_from(self.at_ps / 1_000).unwrap_or(i64::MAX));
-        batch.lens.push(len);
-        let wire_ps = (len as u64 + WIRE_EXTRA_BYTES) * PS_PER_BYTE;
-        self.at_ps += wire_ps * 100 / self.link.load_percent.clamp(1, 100);
-        self.next += 1;
-        true
+        false
     }
 
-    /// Every frame of the capture: its tick and bytes.
+    /// Every frame of the queue: its tick and bytes.
     pub fn all(mut self) -> Vec<(i64, Vec<u8>)> {
         let mut out = Vec::new();
-        let mut batch = Batch::new(0);
+        let mut batch = Batch::default();
         while self.next_into(&mut batch) {
             if batch.len() == BATCH_FRAMES {
                 out.extend(batch.frames().map(|(t, b)| (t, b.to_vec())));
-                batch = Batch::new(0);
+                batch.restart(0);
             }
         }
         out.extend(batch.frames().map(|(t, b)| (t, b.to_vec())));
         out
     }
 
-    /// Append frame `n`'s bytes to `out`.
-    fn frame(&self, n: u64, out: &mut Vec<u8>) {
-        let h = hash(FRAME_SEED ^ u64::from(self.port), n);
-        let flow = Flow::new((h >> 32) % FLOWS);
+    /// The port's frame `n` before its bytes.
+    fn shape(&self, n: u64) -> Shape {
+        let h = hash(FRAME_SEED ^ u64::from(self.rx.port), n);
+        let arp = (h >> 8).is_multiple_of(ARP_EVERY);
+        let pick = h % 12;
+        let mut seen = 0;
+        let len = IMIX
+            .iter()
+            .find(|(n, _)| {
+                seen += n;
+                pick < seen
+            })
+            .map_or(60, |(_, len)| *len);
+        Shape {
+            h,
+            flow: (h >> 32) % FLOWS,
+            arp,
+            len: if arp { 60 } else { len },
+        }
+    }
+
+    /// Append the bytes of the port's frame `n` of shape `shape` to `out`.
+    fn frame(&self, n: u64, shape: &Shape, out: &mut Vec<u8>) {
+        let Shape { h, len, .. } = *shape;
+        let port = self.rx.port;
+        let flow = Flow::new(shape.flow);
         // the server's side mirrors the client's
-        let (src, dst) = if self.port == 0 {
+        let (src, dst) = if port == 0 {
             (&flow.client, &flow.server)
         } else {
             (&flow.server, &flow.client)
         };
         out.extend_from_slice(&dst.mac);
         out.extend_from_slice(&src.mac);
-        if (h >> 8).is_multiple_of(ARP_EVERY) {
+        if shape.arp {
             out.extend_from_slice(&ETHERTYPE_ARP.to_be_bytes());
             // an ARP request for the destination, padded to the shortest frame
             out.extend_from_slice(&[0, 1, 8, 0, 6, 4, 0, 1]);
@@ -461,22 +524,13 @@ impl Traffic {
             out.extend_from_slice(&[0; 18]);
             return;
         }
-        let pick = h % 12;
-        let mut seen = 0;
-        let len = IMIX
-            .iter()
-            .find(|(n, _)| {
-                seen += n;
-                pick < seen
-            })
-            .map_or(60, |(_, len)| *len);
         out.extend_from_slice(&ETHERTYPE_IPV4.to_be_bytes());
         let ip_len = u16::try_from(len - 14).unwrap_or(u16::MAX);
         let ip_at = out.len();
         out.extend_from_slice(&[0x45, 0]);
         out.extend_from_slice(&ip_len.to_be_bytes());
         out.extend_from_slice(&n.to_be_bytes()[6..]);
-        out.extend_from_slice(&[0x40, 0, if self.port == 0 { 64 } else { 57 }, flow.proto]);
+        out.extend_from_slice(&[0x40, 0, if port == 0 { 64 } else { 57 }, flow.proto]);
         out.extend_from_slice(&[0, 0]);
         out.extend_from_slice(&src.ip);
         out.extend_from_slice(&dst.ip);
@@ -686,35 +740,46 @@ pub fn clock() -> ClockSpec<'static> {
     }
 }
 
-/// The key of track `name` (`frames`, `ipv4` or `l4`) of port `port`.
-pub fn key(port: u32, name: &str) -> TrackKey {
+/// A receive queue of a port.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Rx {
+    /// 0 from the clients, 1 from the servers.
+    pub port: u32,
+    pub queue: u32,
+}
+
+/// The key of track `name` (`frames`, `ipv4` or `l4`) of receive queue `rx`.
+pub fn key(rx: Rx, name: &str) -> TrackKey {
     track_key(
         API_ROOT,
         &[
             Segment::Name("port"),
-            Segment::Index(port),
+            Segment::Index(rx.port),
+            Segment::Name("queue"),
+            Segment::Index(rx.queue),
             Segment::Name(name),
         ],
     )
 }
 
-/// The numbers of the analyser's tracks, by port.
+/// The tracks of a receive queue, and the numbers its mux gave them.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub struct Numbers {
-    pub frames: [TrackNum; 2],
-    pub ipv4: [TrackNum; 2],
-    pub l4: [TrackNum; 2],
+pub struct RxTracks {
+    pub rx: Rx,
+    pub frames: TrackNum,
+    pub ipv4: TrackNum,
+    pub l4: TrackNum,
 }
 
-/// The events track `name` of port `port` on clock `clock`, its items related to `relations`.
+/// The events track `name` of receive queue `rx` on clock `clock`, its items related to `relations`.
 fn spec<'r>(
-    port: u32,
+    rx: Rx,
     name: &'static str,
     clock: ClockNum,
     relations: &'r [RelationDef<'r>],
 ) -> TrackSpec<'r> {
     TrackSpec {
-        key: key(port, name),
+        key: key(rx, name),
         clock,
         dimensions: RefVec::Slice { slice: &[] },
         items: Items::RawBytes,
@@ -730,14 +795,14 @@ fn spec<'r>(
 }
 
 // --8<-- [start:frame_relation]
-/// The relation of a decoded header to its frame: the frame's item number in `frames` of the same port, never
-/// decreasing, its range per chunk in the index.
-pub fn frame_relation(port: u32) -> RelationDef<'static> {
+/// The relation of a decoded header to its frame: the frame's item number in `frames` of the same receive queue,
+/// never decreasing, its range per chunk in the index.
+pub fn frame_relation(rx: Rx) -> RelationDef<'static> {
     RelationDef {
         name: "frame",
         target: Some(RelationTarget {
             run: [0; 16], // this run
-            track: frames_id(port),
+            track: frames_id(rx),
         }),
         values: RelationValues::Stored,
         monotone: true,
@@ -746,43 +811,47 @@ pub fn frame_relation(port: u32) -> RelationDef<'static> {
 }
 // --8<-- [end:frame_relation]
 
-/// The id of track `frames` of port `port`.
-pub fn frames_id(port: u32) -> TrackId {
-    spec(port, "frames", ClockNum::MIN, &[]).id()
+/// The id of track `frames` of receive queue `rx`.
+pub fn frames_id(rx: Rx) -> TrackId {
+    spec(rx, "frames", ClockNum::MIN, &[]).id()
 }
 
-/// Define the analyser's clock and its six tracks on `mux`.
+/// Define the analyser's clock and the tracks of every receive queue of `link`, port `p`'s on
+/// `muxes[p % muxes.len()]`.
 ///
 /// # Errors
 ///
-/// A definition the mux refused.
-pub fn define<T>(mux: &TapeMux<T>) -> Result<Numbers, EthError<T::Error>>
+/// No mux, or a definition a mux refused.
+pub fn define<T>(link: &Link, muxes: &[&TapeMux<T>]) -> Result<Vec<RxTracks>, EthError<T::Error>>
 where
     T: Tapes + Send + 'static,
     T::Sink: Send,
     T::Key: Send,
     T::Error: Send + Sync,
 {
-    let clock = mux.define_clock(clock())?;
-    let mut n = Vec::new();
-    for port in [0, 1] {
-        let relation = [frame_relation(port)];
-        n.push((
-            mux.define_track(spec(port, "frames", clock, &[]))?,
-            mux.define_track(spec(port, "ipv4", clock, &relation))?,
-            mux.define_track(spec(port, "l4", clock, &relation))?,
-        ));
+    let mut clocks = Vec::new();
+    for mux in muxes {
+        clocks.push(mux.define_clock(clock())?);
     }
-    let [(f0, i0, l0), (f1, i1, l1)] =
-        <[_; 2]>::try_from(n).map_err(|_e| EthError::Settings("two ports"))?;
-    Ok(Numbers {
-        frames: [f0, f1],
-        ipv4: [i0, i1],
-        l4: [l0, l1],
-    })
+    let mut out = Vec::new();
+    for rx in link.rxs() {
+        let at = port_index(rx.port) % muxes.len().max(1);
+        let (mux, clock) = muxes
+            .get(at)
+            .zip(clocks.get(at))
+            .ok_or(EthError::Settings("a mux"))?;
+        let relation = [frame_relation(rx)];
+        out.push(RxTracks {
+            rx,
+            frames: mux.define_track(spec(rx, "frames", *clock, &[]))?,
+            ipv4: mux.define_track(spec(rx, "ipv4", *clock, &relation))?,
+            l4: mux.define_track(spec(rx, "l4", *clock, &relation))?,
+        });
+    }
+    Ok(out)
 }
 
-/// What one port sent.
+/// What one port, or one of its receive queues, sent.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Sent {
     /// Frames and their bytes.
@@ -804,6 +873,16 @@ impl Sent {
         self.frame_bytes += bytes as u64;
         self.wire_bytes += bytes as u64 + batch.len() as u64 * WIRE_EXTRA_BYTES;
         self.last_tick = batch.ticks.last().copied().unwrap_or(self.last_tick);
+    }
+
+    /// Add what another receive queue of the port sent.
+    fn merge(&mut self, o: &Self) {
+        self.frames += o.frames;
+        self.frame_bytes += o.frame_bytes;
+        self.wire_bytes += o.wire_bytes;
+        self.ipv4 += o.ipv4;
+        self.l4 += o.l4;
+        self.last_tick = self.last_tick.max(o.last_tick);
     }
 }
 
@@ -868,9 +947,9 @@ impl Link {
             chain_options(),
             MuxOptions::default(),
         )?;
-        let captured = self.record(&mux)?;
+        let captured = self.record(&[&mux])?;
         let pieces = pieces(&tapes, &mux.close()?)?;
-        let read = read(&pieces).map_err(|e| EthError::Back(e.to_string()))?;
+        let read = read(&pieces, self.queues).map_err(|e| EthError::Back(e.to_string()))?;
         Ok(Sizes {
             link: *self,
             captured,
@@ -971,8 +1050,8 @@ pub struct PortRead {
     pub l4: u64,
     /// Items of `ipv4` and `l4` whose relation `frame` names a frame whose bytes decode to that very item.
     pub matched: u64,
-    /// A hash of every frame's tick and bytes, in order.
-    pub digest: u64,
+    /// Per receive queue, a hash of every frame's tick and bytes, in order ([digest]).
+    pub digests: Vec<u64>,
     /// The bytes each track takes: `frames`, `ipv4`, `l4`.
     pub bytes: [TrackBytes; 3],
 }
@@ -1002,23 +1081,30 @@ fn pad8(w: &[u8]) -> [u8; 8] {
     b
 }
 
-/// Read a chain of the analyser back: every chunk of every track checked and decoded, each decoded header against
-/// the frame its relation names.
+/// Read the pieces of the analyser's chains back, its ports' `queues` receive queues: every chunk of every track
+/// checked and decoded, each decoded header against the frame its relation names.
 ///
 /// # Errors
 ///
 /// A piece that doesn't read, or a track that doesn't hold what the capture writes.
-pub fn read(pieces: &[Vec<u8>]) -> Result<ReadBack, EthError<ww_tape::reader::OutOfRange>> {
+pub fn read(
+    pieces: &[Vec<u8>],
+    queues: u32,
+) -> Result<ReadBack, EthError<ww_tape::reader::OutOfRange>> {
     let mut out = ReadBack::default();
     let mut buf = Vec::new();
-    for (port, p) in (0..).zip(out.ports.iter_mut()) {
-        // every frame of the port, kept to check the headers against
+    for rx in Link::full().queues(queues).rxs() {
+        let p = out
+            .ports
+            .get_mut(port_index(rx.port))
+            .ok_or(EthError::Settings("port 0 or 1"))?;
+        // every frame of the queue, kept to check the headers against
         let mut frames: Vec<Vec<u8>> = Vec::new();
         let mut ticks = Vec::new();
         for (t, name) in ["frames", "ipv4", "l4"].into_iter().enumerate() {
-            let relation = [frame_relation(port)];
+            let relation = [frame_relation(rx)];
             let def = spec(
-                port,
+                rx,
                 name,
                 ClockNum::MIN,
                 if t == 0 { &[] } else { &relation },
@@ -1072,13 +1158,13 @@ pub fn read(pieces: &[Vec<u8>]) -> Result<ReadBack, EthError<ww_tape::reader::Ou
                         }
                     }
                 }
-                if port == 0 && t == 0 {
-                    out.piece_bytes += piece.len() as u64;
-                }
             }
         }
-        p.digest = digest(ticks.iter().copied().zip(frames.iter().map(Vec::as_slice)));
+        p.digests.push(digest(
+            ticks.iter().copied().zip(frames.iter().map(Vec::as_slice)),
+        ));
     }
+    out.piece_bytes = pieces.iter().map(|p| p.len() as u64).sum();
     Ok(out)
 }
 
