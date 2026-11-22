@@ -208,10 +208,7 @@ fn windows(args: &Args, bench: &mut Bench) -> anyhow::Result<()> {
         format!(
             "{} ms of both directions of a 10 Gbps link at {} % load into a window in memory, pieces of {} MiB, \
              a TCP reset in one frame of {} a port; the triage keeps the piece before and after each. {what}",
-            args.ms,
-            args.load,
-            args.window_piece_mib,
-            RESET_EVERY
+            args.ms, args.load, args.window_piece_mib, RESET_EVERY
         )
     };
     let columns = ["Kept to", "Queues a port"];
