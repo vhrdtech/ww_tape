@@ -16,10 +16,11 @@ use core::fmt;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use ww_tape::chunk::{ChunkHead, ColumnSpec};
 use ww_tape::index::{IndexBlock, IndexKind};
 use ww_tape::piece::{ChainLink, check_chain};
 use ww_tape::piece::{TAIL_LEN, close_padding};
-use ww_tape::samples::{encode, max_encoded_len};
+use ww_tape::samples::{Samples, encode, max_encoded_len};
 use ww_tape::{
     Block, BlockKind, Clock, ClockRef, Codec, ColumnKind, FLAG_REPEAT, FileBlocks, Layout,
     MemError, MemSink, MemTape, MemTapes, Recovery, Slot, SyncPolicy, TapeReader, TapeSink,
@@ -326,7 +327,7 @@ fn calls_and_columns(recording: &Recording, acts: &[Act]) -> Result<(Calls, Colu
             Act::Chunk { head, columns } => {
                 calls.sample_chunks += 1;
                 c.samples += u64::from(head.count);
-                let values = phase_values(&drive, head.first_item.get(), u64::from(head.count));
+                let values = chunk_values(&drive, head, columns)?;
                 for ((_, codec), sum) in codecs.iter().zip(&mut codec_bytes) {
                     // the recorder's own codec: its column as it was handed over, not encoded again
                     *sum += match columns.iter().find(|(spec, _)| spec.codec == *codec) {
@@ -367,6 +368,25 @@ pub fn phase_values(drive: &Drive, first: u64, n: u64) -> Vec<i16> {
     (first..first + n)
         .map(|i| phase_ma(item_us(i, hz), i, drive.phase_hz))
         .collect()
+}
+
+/// The samples of the chunk `head` of `phase_a`: decoded from its samples column when the act carries one ([Drive::acts]),
+/// else made ([phase_values]) for the act of a lean run, which carries none.
+pub(crate) fn chunk_values(
+    drive: &Drive,
+    head: &ChunkHead,
+    columns: &[(ColumnSpec, Vec<u8>)],
+) -> Result<Vec<i16>, Error> {
+    let count = u64::from(head.count);
+    let Some((spec, bytes)) = columns.iter().find(|(s, _)| s.kind == ColumnKind::Samples) else {
+        return Ok(phase_values(drive, head.first_item.get(), count));
+    };
+    let def = phase_def(drive.phase_hz, false).ok_or(Error::Settings("phase_hz is not 0"))?;
+    let n =
+        usize::try_from(count).map_err(|_e| Error::Settings("a chunk's samples fit a usize"))?;
+    let mut values = vec![0i16; n];
+    Samples::new(spec.codec, crate::defs::phase_shape(&def), n, bytes)?.decode(0, &mut values)?;
+    Ok(values)
 }
 
 /// Bytes of a samples column of `values` in `codec`.
