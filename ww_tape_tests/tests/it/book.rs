@@ -483,10 +483,6 @@ fn page_caps() -> Vec<(&'static str, u64)> {
         ("GAP_PROBES_MAX", ww_tape::GAP_PROBES_MAX.into()),
         ("GAP_CHECKS_MAX", ww_tape::GAP_CHECKS_MAX.into()),
         ("STATE_READ_MAX", ww_tape::reader::STATE_READ_MAX.get()),
-        (
-            "DEFERRED_BYTES_MAX",
-            ww_tape::writer::DEFERRED_BYTES_MAX as u64,
-        ),
     ]
 }
 
@@ -495,6 +491,10 @@ fn walk_caps() -> Vec<(&'static str, u64)> {
     vec![
         ("RESYNC_AHEAD_MAX", ww_tape::RESYNC_AHEAD_MAX as u64),
         ("RESYNC_SEQS_MAX", ww_tape::RESYNC_SEQS_MAX as u64),
+        (
+            "DEFERRED_BYTES_MAX",
+            ww_tape::writer::DEFERRED_BYTES_MAX as u64,
+        ),
         ("VERIFY_LISTS_MAX", ww_tape::reader::VERIFY_LISTS_MAX as u64),
         ("TRACKS_PER_PIECE_MAX", ww_tape::TRACKS_PER_PIECE_MAX as u64),
         ("HEAD_TRACKS_MAX", ww_tape::HEAD_TRACKS_MAX as u64),

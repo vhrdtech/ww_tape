@@ -29,7 +29,8 @@ The layouts on this page share a few rules. A reader in another language needs t
 - **`uvar`** is LEB128: 7 bits per byte, low bits first, the top bit set on every byte but the last, at most 10 bytes.
   **`ivar`** is a signed number, zigzag-coded (`(n << 1) ^ (n >> 63)`) and then written as a `uvar`.
 - **CRC-32C** is the Castagnoli CRC (`CRC_32_ISCSI`): polynomial 82F63B78h reflected, initial value and final XOR
-  FFFFFFFFh. The nine ASCII bytes `123456789` give E3069283h. Every block ends with one, and chunk and index blocks
+  FFFFFFFFh. The nine ASCII bytes `123456789` give E3069283h. `ww_tape_codecs::crc32c` runs it on SSE4.2 on x86-64
+  and on the CRC extension on aarch64, and through a table elsewhere, with the same result. Every block ends with one, and chunk and index blocks
   also check their heads with one.
 - **BLAKE3** gives the content hash, the unit and track hashes, the item hashes and the piece ids. An item hash
   (`ItemHash`) is BLAKE3 of the item's bytes, cut to its first 16 bytes.
@@ -413,8 +414,9 @@ long track then reads a few hundred KB instead of its items.
 
 #### 3.7.1 Summary nodes {#summary-nodes}
 
-Nodes run over item numbers, not time. A level-0 node of an event track holds 2048 items, and a node one level up holds
-16 nodes of the level below.
+Nodes run over item numbers, not time. A level-0 node of an event track holds 2048 items (`EVENT_BASE_SHIFT`, 11),
+and a node one level up holds 16 nodes of the level below (`FANOUT_SHIFT`, 4). A series' level-0 node holds
+`2^base_shift` samples, `base_shift` from 4 to 24 (`SeriesSummarySpec::BASE_SHIFT_MIN`, `BASE_SHIFT_MAX`).
 
 Node `n` of a level holds items `[n << shift, (n + 1) << shift)`.
 
@@ -456,7 +458,8 @@ scales with no common scale (a ratio that isn't a fraction of integers) rather t
 The builders write a block when a level's batch fills, and the partial nodes at `close`, up to a level with a single
 node. A lost summary block is rebuilt from the data.
 
-The blocks are small (a few KiB) and go through `TapeWriter::defer_block` as deferred blocks. In an aligned file, they
+The blocks are small, at most 4,096 bytes for an event tree (`EVENT_BLOCK_BYTES`) and 2,048 for a series
+(`SERIES_BLOCK_BYTES`) by default. They go through `TapeWriter::defer_block` as deferred blocks. In an aligned file, they
 therefore fill the gaps before chunk payloads and cost no space.
 
 `SeriesSummaries::push` keeps every statistic in one pass over the samples. Integers up to 32 bits go through vector
@@ -588,7 +591,8 @@ bound. A map is strictly increasing across its segments.
 For example, WireWeaver's link tap maps its own clock to the wall clock it reads at its start.
 
 Definitions sit in records blocks of their own, with no record of another track. Each such block is at most
-`DEFINITION_BLOCK_LEN` (64 KiB), unless one record is longer.
+`DEFINITION_BLOCK_LEN` (64 KiB), unless one record is longer. A definition or a state item is at most
+`STATE_ITEM_MAX` (67,108,722) bytes: one that long fills a block of `MAX_BLOCK_LEN` alone.
 
 `Describe` is an evolvable enum: a variant a reader doesn't know reads as `Describe::Unknown` and is skipped.
 
@@ -609,7 +613,8 @@ A `TrackDef` holds:
 | `owner` | 32 opaque bytes that tell apart tracks of one identity ([below](#track-owners)) |
 | `relations` | what its items relate to (`RelationDef`) |
 
-A track declares at most 16 relations, with unique names. Each `RelationDef` has a name and a target: a run's 16 opaque
+A track declares at most `RELATIONS_MAX` (16) relations, with unique names of at most `RELATION_NAME_MAX` (64)
+bytes. Each `RelationDef` has a name and a target: a run's 16 opaque
 bytes and a track id, explicit and never bound by position.
 
 A `RelationDef` also says where its per-item values are (none, a column, or only an index), whether they never decrease,
@@ -798,7 +803,8 @@ later with no puts.
 A deferred block waits at most `DEFER_WINDOW` (1 MiB) of writes. It therefore lies at most its tracks' `near` plus that
 window after their definitions.
 
-A cut and a close place every deferred block first.
+A writer keeps at most `DEFERRED_BYTES_MAX` (1 MiB) of deferred blocks and writes them out once they pass it. A cut
+and a close place every deferred block first.
 
 ## 6 Track identity {#track-identity}
 
@@ -959,7 +965,8 @@ A piece lists at most `IndexPolicy::state_entries_max` state entries, 1 Mi by de
 1. A **final index** lists every block again, sorted by track, with the state entries of one block in block order. Its
    head holds a directory of tracks and a CRC per track's entries.
    - A reader of one track out of thousands reads the head and that track's list.
-2. The **close** block (kind 8) states why the writer stopped: closed or aborted. It holds the BLAKE3 content hash of
+2. The **close** block (kind 8) states why the writer stopped: closed or aborted (`TapeWriter::close_as` takes the
+   reason). It holds the BLAKE3 content hash of
    every byte before it and where the newest checkpoint and the final index are.
    - A close that a cut wrote names the next piece.
    - Per track, the close also holds the chunks, items and ticks the piece holds.
@@ -1538,16 +1545,40 @@ stretch after that checkpoint block by block.
 A piece without any checkpoint is read from the start. A raw medium is read forward instead (`OpenOptions::medium`,
 [below](#sessions-media-and-damage)).
 
+To find the layout in force over the stretch after the newest checkpoint, a reader reads at most `LAYOUT_READ_MAX`
+(256 MiB) of definition blocks behind it.
+
+Each piece the reader finds has a `PieceInfo`. Its `found` says how the reader found it:
+
+| `Found` | The piece was found |
+|---|---|
+| `Tail` | by its tail |
+| `Checkpoint { scanned }` | by its newest checkpoint or final index block, with `scanned` bytes after it read block by block |
+| `Scan { scanned }` | without an index, `scanned` bytes read block by block |
+
+A `PieceInfo` also lists what a scan met:
+
+- `cut`: where the bytes stopped being good blocks, when a scan stopped before the end of the piece's stretch;
+- `gaps`: the blank or bad stretches the session's data goes on after, as offset and length;
+- `replaced`: the blocks a later copy with the same session and seq but other bytes replaced ([Duplicates](#duplicates));
+- `version`: the format version of a piece of another version, which every lookup refuses ([below](#versions-and-unknown-blocks));
+- `head_error`: why a good piece head did not read as the head, as an integrity level this reader does not handle.
+
+Every lookup in a piece whose head is of such a level returns that error (`ReadError::Index`).
+
 | Method | Gives |
 |---|---|
 | `entries`, `track_entries` | where a piece's blocks are |
 | `read_block` | one block, read and checked |
-| `verify` | the content hash, checked |
+| `verify` | the piece checked whole ([below](#what-verify-checks)) |
 | `chain` | how the pieces link up |
 | `state_at` | the record of a slot in force at a place |
 | `item_by_hash` | an item by its hash |
 | `definitions_at` | every definition in force at a place |
 | `state_entries` | a piece's state entries |
+
+`track_entries` takes a track id. Two ids name no track: `RECORDS_TRACK_ID` (0) gives the records blocks of data, and
+`STATE_TRACK_ID` (`u64::MAX`) gives the state entries.
 
 ### 10.1 State lookups {#state-lookups}
 
@@ -1562,18 +1593,45 @@ Damage is never an error: a lookup lists what didn't read. It also lists the str
 Such a stretch is a gap a scan read past, or the bytes past a cut. Which stretches a lookup lists depends on the lookup:
 
 - `state_at`: those between the record and the place;
-- `definitions_at`: those before the place;
+- `definitions_at`: those before the place, `u64::MAX` standing for the end of the piece;
 - `item_by_hash`: those after the record.
 
 The reader keeps the sorted entries in one cache over all pieces, at most `OpenOptions::state_cache_max` entries
-(`STATE_CACHE_MAX`, 2 Mi, by default). The piece used longest ago goes first.
+(`STATE_CACHE_MAX`, 2 Mi, by default). The piece used longest ago goes first. A piece with more state entries than
+the cache holds is sorted again for each lookup.
 
 A lookup reads at most `OpenOptions::state_read_max` bytes (`STATE_READ_MAX`, 1 GiB, by default). It charges a coded
 body's decoded length before it decodes it.
 
 When that budget runs out, the lookup stops and sets `spent`, which is not damage.
 
-### 10.2 Versions and unknown blocks {#versions-and-unknown-blocks}
+### 10.2 What verify checks {#what-verify-checks}
+
+`TapeReader::verify` checks a closed piece whole. It walks the piece from its start to its close in force and reads
+the final index as it goes. A piece holds up when every check passes:
+
+1. The bytes before the close record hash to the close's content hash ([Content hash](#content-hash)).
+2. The final index and the blocks walked are the same set. Each block walked that its writer lists has exactly the
+   entries the writer made of it, field for field. A byte-identical copy of the listed block before it is the one
+   exception.
+3. Each entry names a block walked, or a block that does not read whole in bytes no block explains. Such a block ends
+   before the close and before the next block walked.
+4. Each close row states the hash its track's blocks fold to from the head row's hash. A row says its hash is
+   incomplete exactly where a damaged block a resume kept, or the head, leaves units out.
+5. Each monotone relation starts each chunk at or above the chunk before it in the piece, except at a chunk marked
+   `FLAG_RELATION_BREAK` (`ReadError::RelationOrder`).
+
+The fields of check 2 are the offset, length, kind, track, items and ticks, and a chunk's unit hash and range
+relation's range. The reader computes the unit hash from the chunk's bytes and the range from its relation column.
+`TapeReader::range_hash` takes these same values from the index unread, and verify is their strict check.
+
+Verify merges the final index's track lists in file order. It holds one entry per track list and the entries of one
+block, whatever the piece's size. A final index of more than `VERIFY_LISTS_MAX` (466,432) track lists fails. A writer
+gives a piece at most `TRACKS_PER_PIECE_MAX` track lists, a state list and a list of records of data.
+
+The check ends at the close in force. `Verification::unchecked` names the bytes after it that no close covers.
+
+### 10.3 Versions and unknown blocks {#versions-and-unknown-blocks}
 
 The header and the CRC at the end stay the same in every version: a later version changes only the body. A block of
 another version that goes on with the data ends the piece the reader is in and starts a piece of that version.
@@ -1651,6 +1709,10 @@ When none of them goes on, the stretch is the end of data.
 On a raw medium, blank space longer than `gap_max` is the end too, and a reader reads nothing after it. An erased 64 GB
 card therefore costs one gap's worth of reads.
 
+A `Recovery::Resync` walk looks for where the data goes on once per stretch too, and never past where a
+`Recovery::Prefix` walk ends. It reads at most `RESYNC_AHEAD_MAX` (128 MiB) ahead: the longest gap a layout allows
+(`GAP_MAX_MAX`) and the block that ends it.
+
 #### 11.3.1 Writing on raw NAND {#writing-on-raw-nand}
 
 A writer on raw NAND programs each page once, in page order. At a sync, it pads the rest of the page with 0xFF and
@@ -1658,7 +1720,8 @@ starts the next block on the next page.
 
 The padding reads as a gap, and the format needs nothing else; the cost is up to one page per sync.
 
-The medium layer keeps the paired pages of MLC NAND with unsynced writes apart from synced data.
+On MLC NAND, a power cut can also corrupt an earlier, synced page that is paired with the page being programmed.
+Keeping the paired pages of unsynced writes apart from synced data is the medium layer's task, not the format's.
 
 ### 11.4 Duplicates {#duplicates}
 
@@ -1765,7 +1828,8 @@ With `SeriesGrid::rescaled`, a prefix change of an autoranging device keeps the 
 scale, and a writer therefore seals the open chunk there.
 
 `SeriesGrid::start` starts a new grid at a gap or a restart on the same clock. Such a grid starts more than a period,
-rounded up, after the last tick of the chunk before, as `series::is_gap` checks.
+rounded up, after the last tick of the chunk before, as `series::is_gap` checks. A device restart that starts a new
+clock is a new track on that clock, since a track's clock is part of its definition.
 
 The chunks are data like events chunks, written once and never repeated. A series track therefore takes the plain policy
 (`TrackRepeat::Stream`).
@@ -1978,6 +2042,9 @@ The writer's policies (`WriterOptions`, `PieceChain`'s `ChainOptions`):
 | `NearPolicy::kept_bytes_max` | 64 MiB (`KEPT_BYTES_MAX`) | the bytes of newest state items the writer keeps for a cut to carry |
 | `CutPolicy::bytes`, `chunks`, `interval` | none: 0 or None turns each off | when a chain cuts to a new piece: by size, chunk count or age |
 
+A piece holds at most `CUT_SLACK` (1 MiB) past `CutPolicy::bytes`: the chunk that takes it over the limit, the index,
+the close and the tail. A memory sink reserves the cut size plus `CUT_SLACK` when a piece starts.
+
 A track's state policy (`StatePolicy`) is part of its definition, and track 0's is in the layout:
 
 | Field | Default (`StatePolicy::DEFAULT`) | Sets |
@@ -2032,7 +2099,6 @@ A value past its cap is damage, refused with an error; no file a writer of this 
 | `GAP_PROBES_MAX` | 8192 | the resume places a reader probes in one gap |
 | `GAP_CHECKS_MAX` | 4 | the blocks a reader checks whole past one gap |
 | `STATE_READ_MAX` | 1 GiB | the bytes of blocks one state lookup reads |
-| `DEFERRED_BYTES_MAX` | 1 MiB | the deferred blocks a writer keeps |
 
 Walks over many blocks and the writer have caps of their own. A walk stops at its cap, and a writer refuses input that
 would pass one:
@@ -2041,6 +2107,7 @@ would pass one:
 |---|---|---|
 | `RESYNC_AHEAD_MAX` | 128 MiB | the bytes a salvage walk (`Recovery::Resync`) reads ahead |
 | `RESYNC_SEQS_MAX` | 65536 | the data blocks a salvage walk remembers by session and seq, for conflicts |
+| `DEFERRED_BYTES_MAX` | 1 MiB | the deferred blocks a writer keeps before it writes them out |
 | `VERIFY_LISTS_MAX` | 466432 | the track lists of a final index one verify takes |
 | `TRACKS_PER_PIECE_MAX` | 466430 | the tracks with data in one piece, so its close fits a block |
 | `HEAD_TRACKS_MAX` | 699006 | the tracks a piece head carries over the chain, so the head fits a block |
@@ -2050,3 +2117,8 @@ would pass one:
 | `WALK_MISS_PER_BYTE_MAX` | 4 | the bytes they claim per byte walked, past that |
 | `RESUME_LOOK_MAX` | 128 MiB | the bytes past a reader's stop a resume looks through for a good block |
 | `RESUME_PROBES_MAX` | 4 | the places there a resume reads whole |
+
+A cut does not lift the two limits on tracks. A block or chunk that would bring a piece past `TRACKS_PER_PIECE_MAX`
+tracks with data is refused with `InputError::TooManyTracks`, and the piece must be cut first. A next piece head that
+would carry more than `HEAD_TRACKS_MAX` tracks is refused with `InputError::TooManyCarried`, and a new chain takes the
+track. Nothing is written in either case.
