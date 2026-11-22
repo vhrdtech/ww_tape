@@ -1,14 +1,28 @@
-//! The bytes of a [MemTape](super::MemTape): sealed segments, each one piece or more, and the open segment a sink
-//! appends to.
+//! The bytes of a [MemTape](super::MemTape): extents that are filled and never moved, and the seals that mark where
+//! pieces start.
 //!
-//! Appending grows only the open segment, so a write never copies the pieces before it. A new piece seals the open
-//! segment ([Segments::rebase] to the end), and so does a close. [Segments::drop_front] frees the oldest sealed
-//! segments and keeps every offset: the dropped bytes are counted in [Segments::front], not shifted out.
+//! Appending fills the last extent and then adds a new one as large as the tape holds, at least [EXTENT_MIN] and at
+//! most [EXTENT_MAX] (or as a [Segments::reserve] hint asks), so a write never copies a byte written before and a
+//! reader waits only for the bytes being appended. A new piece seals the bytes before it ([Segments::rebase] to the
+//! end), and so does a close. [Segments::drop_front] cuts at a seal and keeps every offset: the dropped bytes are
+//! counted in [Segments::front], not shifted out. An extent may hold bytes of several pieces, so the memory of the
+//! extent a cut falls inside is freed with the next cut past it.
 
-use alloc::boxed::Box;
 use alloc::vec::Vec;
 
 use crate::reader::wide;
+
+/// Smallest extent added when the last one is full, and the unit of every extent's size: a huge page of x86-64
+/// and aarch64. An extent of whole huge pages lets the kernel back it with them, a page fault per 2 MiB, not per
+/// 4 KiB.
+pub(super) const EXTENT_MIN: usize = 2 << 20;
+
+/// What an extent's size leaves for the allocator's own header, so that the mapping with it is whole huge pages:
+/// one page, which covers glibc's header on its mmap path.
+const EXTENT_HEADROOM: usize = 4 << 10;
+
+/// Largest extent added when the last one is full and no hint asked for more: what an extent may leave unused.
+pub(super) const EXTENT_MAX: usize = 64 << 20;
 
 /// Why a read or a cut of [Segments] failed.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -21,13 +35,13 @@ pub(super) enum SegmentError {
 
 #[derive(Debug, Default)]
 pub(super) struct Segments {
-    /// Bytes dropped before the first segment.
+    /// Bytes dropped before the first extent.
     front: u64,
-    /// Sealed segments in order, each with its offset; contiguous from `front` to `open_at`.
-    sealed: Vec<(u64, Box<[u8]>)>,
-    /// Where the open segment starts.
-    open_at: u64,
-    open: Vec<u8>,
+    /// The extents in order, each with its offset; contiguous from `front`. Only the last one grows, within its
+    /// capacity.
+    extents: Vec<(u64, Vec<u8>)>,
+    /// Where pieces start after `front`, ascending: the places [Self::drop_front] may cut at.
+    seals: Vec<u64>,
 }
 
 impl Segments {
@@ -38,7 +52,9 @@ impl Segments {
 
     /// Offset of the end: every byte ever written, dropped ones included.
     pub(super) fn len(&self) -> u64 {
-        self.open_at.saturating_add(wide(self.open.len()))
+        self.extents
+            .last()
+            .map_or(self.front, |(at, b)| Self::end_of(*at, b))
     }
 
     /// Bytes held in memory: [Self::len] less [Self::front].
@@ -46,68 +62,83 @@ impl Segments {
         self.len().saturating_sub(self.front)
     }
 
-    /// Sealed segments and the open one when it holds bytes.
-    #[cfg(test)]
-    fn count(&self) -> usize {
-        self.sealed
-            .len()
-            .saturating_add(usize::from(!self.open.is_empty()))
-    }
-
-    pub(super) fn append(&mut self, bytes: &[u8]) {
-        self.open.extend_from_slice(bytes);
-    }
-
-    /// Room for `bytes` more in the open segment, in one allocation.
-    pub(super) fn reserve(&mut self, bytes: usize) {
-        _ = self.open.try_reserve_exact(bytes);
-    }
-
-    /// Seal the open segment; the next byte starts a new one.
-    pub(super) fn seal(&mut self) {
-        if self.open.is_empty() {
-            return;
+    pub(super) fn append(&mut self, mut bytes: &[u8]) {
+        while !bytes.is_empty() {
+            let spare = self
+                .open_extent()
+                .map_or(0, |v| v.capacity().saturating_sub(v.len()));
+            if spare == 0 {
+                self.add_extent(self.extent_len(bytes.len()));
+                continue;
+            }
+            let (now, rest) = bytes.split_at(spare.min(bytes.len()));
+            if let Some(v) = self.open_extent() {
+                v.extend_from_slice(now);
+            }
+            bytes = rest;
         }
-        let bytes = core::mem::take(&mut self.open).into_boxed_slice();
-        let at = self.open_at;
-        self.open_at = Self::len_of(at, &bytes);
-        self.sealed.push((at, bytes));
     }
 
-    /// A piece starts at `base`, at most [Self::len] and not before [Self::front]: the bytes before it are sealed
-    /// and the open segment starts there.
+    /// Room for `bytes` more in the last extent: when it is short, a new one at least that large.
+    pub(super) fn reserve(&mut self, bytes: usize) {
+        let spare = self
+            .open_extent()
+            .map_or(0, |v| v.capacity().saturating_sub(v.len()));
+        if spare < bytes {
+            self.add_extent(self.extent_len(bytes));
+        }
+    }
+
+    /// Seal the bytes written: a piece starts at the end.
+    pub(super) fn seal(&mut self) {
+        let end = self.len();
+        if end > self.front && self.seals.last().is_none_or(|s| *s < end) {
+            self.seals.push(end);
+        }
+    }
+
+    /// A piece starts at `base`, at most [Self::len] and not before [Self::front]: the bytes before it are sealed.
     pub(super) fn rebase(&mut self, base: u64) -> Result<(), SegmentError> {
-        self.open_from(base)?;
-        let split = self.local(base)?;
-        let tail = self.open.split_off(split);
-        self.seal();
-        self.open = tail;
+        self.within(base)?;
+        self.seals.retain(|s| *s < base);
+        if base > self.front {
+            self.seals.push(base);
+        }
         Ok(())
     }
 
     /// Drop every byte from `len` on, not before [Self::front].
     pub(super) fn truncate(&mut self, len: u64) -> Result<(), SegmentError> {
-        self.open_from(len)?;
-        let keep = self.local(len)?;
-        self.open.truncate(keep);
+        self.within(len)?;
+        self.extents.retain(|(at, _)| *at < len);
+        if let Some((at, v)) = self.extents.last_mut() {
+            let keep = len
+                .checked_sub(*at)
+                .and_then(|n| usize::try_from(n).ok())
+                .ok_or(SegmentError::OutOfRange)?;
+            v.truncate(keep);
+        }
+        self.seals.retain(|s| *s <= len);
         Ok(())
     }
 
-    /// Free the sealed segments that end at or before `to`: the new [Self::front]. The open segment, and a sealed
-    /// one `to` falls inside, are kept.
+    /// Free the bytes before the last seal at or before `to`: the new [Self::front]. Pieces go whole; the bytes
+    /// after the last seal, the piece being written, are kept.
     pub(super) fn drop_front(&mut self, to: u64) -> u64 {
-        let n = self
-            .sealed
-            .iter()
-            .take_while(|(at, b)| Self::len_of(*at, b) <= to)
-            .count();
-        if let Some((at, b)) = self.sealed.drain(..n).next_back() {
-            self.front = Self::len_of(at, &b);
-        }
+        let n = self.seals.partition_point(|s| *s <= to);
+        let Some(&cut) = n.checked_sub(1).and_then(|i| self.seals.get(i)) else {
+            return self.front;
+        };
+        self.seals.drain(..n);
+        let gone = self
+            .extents
+            .partition_point(|(at, b)| Self::end_of(*at, b) <= cut);
+        self.extents.drain(..gone);
+        self.front = cut;
         self.front
     }
 
-    /// Fill `buf` from `offset`, across segments.
+    /// Fill `buf` from `offset`, across extents.
     pub(super) fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), SegmentError> {
         if offset < self.front {
             return Err(SegmentError::Dropped { front: self.front });
@@ -118,28 +149,22 @@ impl Segments {
         if end > self.len() {
             return Err(SegmentError::OutOfRange);
         }
-        // the first sealed segment the read touches: the last one starting at or before `offset`
+        // the first extent the read touches: the last one starting at or before `offset`
         let first = self
-            .sealed
+            .extents
             .partition_point(|(at, _)| *at <= offset)
             .saturating_sub(1);
         let mut at = offset;
         let mut out = buf;
-        let sealed = self.sealed.get(first..).unwrap_or_default();
-        let segments = sealed
-            .iter()
-            .map(|(s, b)| (*s, &**b))
-            .chain(core::iter::once((self.open_at, self.open.as_slice())));
-        for (start, bytes) in segments {
+        for (start, bytes) in self.extents.get(first..).unwrap_or_default() {
             if out.is_empty() {
                 break;
             }
-            let Some(skip) = at.checked_sub(start) else {
-                return Err(SegmentError::OutOfRange);
-            };
-            let Some(from) = usize::try_from(skip).ok().and_then(|s| bytes.get(s..)) else {
-                continue;
-            };
+            let skip = at.checked_sub(*start).ok_or(SegmentError::OutOfRange)?;
+            let from = usize::try_from(skip)
+                .ok()
+                .and_then(|s| bytes.get(s..))
+                .ok_or(SegmentError::OutOfRange)?;
             let n = from.len().min(out.len());
             let (head, rest) = out.split_at_mut(n);
             head.copy_from_slice(from.get(..n).ok_or(SegmentError::OutOfRange)?);
@@ -153,52 +178,51 @@ impl Segments {
         }
     }
 
-    /// Move the sealed segments that end after `at` back into the open segment, so that it starts at or before
-    /// `at`.
-    fn open_from(&mut self, at: u64) -> Result<(), SegmentError> {
+    /// The last extent, which appends go on in.
+    fn open_extent(&mut self) -> Option<&mut Vec<u8>> {
+        self.extents.last_mut().map(|(_, v)| v)
+    }
+
+    /// Capacity of a new extent that takes `bytes`: as large as the tape holds, within [EXTENT_MIN] and
+    /// [EXTENT_MAX], or `bytes` when more, in whole [EXTENT_MIN]s.
+    fn extent_len(&self, bytes: usize) -> usize {
+        let held = usize::try_from(self.held()).unwrap_or(usize::MAX);
+        round_up(
+            held.clamp(EXTENT_MIN - EXTENT_HEADROOM, EXTENT_MAX - EXTENT_HEADROOM)
+                .max(bytes),
+        )
+    }
+
+    fn add_extent(&mut self, cap: usize) {
+        let at = self.len();
+        self.extents.push((at, Vec::with_capacity(cap)));
+    }
+
+    /// `at` within [Self::front] and [Self::len].
+    fn within(&self, at: u64) -> Result<(), SegmentError> {
         if at < self.front {
             return Err(SegmentError::Dropped { front: self.front });
         }
         if at > self.len() {
             return Err(SegmentError::OutOfRange);
         }
-        if at >= self.open_at {
-            return Ok(());
-        }
-        let k = self
-            .sealed
-            .partition_point(|(s, b)| Self::len_of(*s, b) <= at);
-        let back = self.sealed.split_off(k);
-        let Some(&(start, _)) = back.first() else {
-            return Ok(());
-        };
-        let mut open = Vec::new();
-        let more = back
-            .iter()
-            .map(|(_, b)| b.len())
-            .fold(self.open.len(), usize::saturating_add);
-        _ = open.try_reserve_exact(more);
-        for (_, b) in &back {
-            open.extend_from_slice(b);
-        }
-        open.append(&mut self.open);
-        self.open = open;
-        self.open_at = start;
         Ok(())
     }
 
-    /// `at` as an index into the open segment.
-    fn local(&self, at: u64) -> Result<usize, SegmentError> {
-        at.checked_sub(self.open_at)
-            .and_then(|n| usize::try_from(n).ok())
-            .filter(|n| *n <= self.open.len())
-            .ok_or(SegmentError::OutOfRange)
-    }
-
-    /// End of a segment at `at`.
-    fn len_of(at: u64, bytes: &[u8]) -> u64 {
+    /// End of an extent at `at`.
+    fn end_of(at: u64, bytes: &[u8]) -> u64 {
         at.saturating_add(wide(bytes.len()))
     }
+}
+
+/// `n` and [EXTENT_HEADROOM] rounded up to a multiple of [EXTENT_MIN], less the headroom; `n` itself past
+/// `usize::MAX`.
+fn round_up(n: usize) -> usize {
+    n.saturating_add(EXTENT_HEADROOM)
+        .div_ceil(EXTENT_MIN)
+        .checked_mul(EXTENT_MIN)
+        .and_then(|m| m.checked_sub(EXTENT_HEADROOM))
+        .unwrap_or(n)
 }
 
 #[cfg(test)]
@@ -212,34 +236,70 @@ mod tests {
     }
 
     #[test]
-    fn reads_across_segments() {
+    fn reads_across_extents() {
         let mut s = Segments::default();
         s.append(b"abc");
         s.rebase(3).unwrap();
         s.append(b"de");
         s.rebase(5).unwrap();
         s.append(b"fgh");
-        assert_eq!(s.count(), 3);
+        assert_eq!(s.seals, [3, 5]);
+        s.reserve(EXTENT_MIN);
+        s.append(b"ij");
+        assert_eq!(
+            s.extents.len(),
+            2,
+            "a hint past the room left adds an extent"
+        );
         let mut buf = [0; 6];
         s.read_at(1, &mut buf).unwrap();
         assert_eq!(&buf, b"bcdefg");
-        assert_eq!(s.read_at(7, &mut [0; 2]), Err(SegmentError::OutOfRange));
-        assert_eq!(s.read_at(8, &mut []), Ok(()));
+        s.read_at(6, &mut buf[..4]).unwrap();
+        assert_eq!(&buf[..4], b"ghij");
+        assert_eq!(s.read_at(9, &mut [0; 2]), Err(SegmentError::OutOfRange));
+        assert_eq!(s.read_at(10, &mut []), Ok(()));
     }
 
     #[test]
-    fn rebase_back_reopens_sealed() {
+    fn appends_never_move_what_is_written() {
+        let mut s = Segments::default();
+        let chunk = vec![7u8; EXTENT_MIN / 2 + 1];
+        s.append(&chunk);
+        let first = s.extents[0].1.as_ptr();
+        for _ in 0..8 {
+            s.append(&chunk);
+        }
+        assert_eq!(s.extents[0].1.as_ptr(), first, "the first extent stayed");
+        assert!(s.extents.len() > 1, "{} extents", s.extents.len());
+        assert_eq!(s.held(), 9 * chunk.len() as u64);
+        assert!(bytes(&s).iter().all(|b| *b == 7));
+        // every extent is whole huge pages less the headroom
+        for (_, v) in &s.extents {
+            assert_eq!(
+                (v.capacity() + EXTENT_HEADROOM) % EXTENT_MIN,
+                0,
+                "{}",
+                v.capacity()
+            );
+        }
+    }
+
+    #[test]
+    fn rebase_back_moves_the_seals() {
         let mut s = Segments::default();
         s.append(b"abc");
         s.rebase(3).unwrap();
         s.append(b"de");
         s.seal();
         s.rebase(1).unwrap();
-        assert_eq!(s.open_at, 1);
-        assert_eq!(s.open, b"bcde");
+        assert_eq!(s.seals, [1]);
+        s.append(b"x");
+        assert_eq!(bytes(&s), b"abcdex");
         s.truncate(2).unwrap();
         assert_eq!(bytes(&s), b"ab");
         assert_eq!(s.rebase(3), Err(SegmentError::OutOfRange));
+        assert_eq!(s.drop_front(9), 1);
+        assert_eq!(bytes(&s), b"b");
     }
 
     #[test]
@@ -259,7 +319,10 @@ mod tests {
             Err(SegmentError::Dropped { front: 5 })
         );
         assert_eq!(s.truncate(4), Err(SegmentError::Dropped { front: 5 }));
-        s.truncate(5).unwrap();
-        assert_eq!(s.held(), 0);
+        s.seal();
+        assert_eq!(s.drop_front(6), 6);
+        assert_eq!((s.held(), s.len()), (0, 6));
+        s.append(b"g");
+        assert_eq!(bytes(&s), b"g");
     }
 }

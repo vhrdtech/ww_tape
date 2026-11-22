@@ -16,7 +16,7 @@ benchmarks, golden files and book pages.
 - Book: "Writing from many threads" explains the mux, its queue, back-pressure, order, errors and speed (BOOK-2).
 - `just bench-book` also runs `bench-handles`; the book draws its tables from `docs/bench/handles.json` (BOOK-2).
 - The example's calls table names each handle call and counts the summary blocks the mux defers (WRITE-15).
-- Memory tapes keep each piece in a segment of its own: appending copies nothing written before (REPO-1).
+- Memory tapes keep their bytes in extents that never move: appending copies nothing written before (REPO-1).
 - `MemTapes::drop_front` frees the oldest pieces of a memory tape of several, offsets kept; `ByteSource::start` (REPO-1).
 - Fuzz target `tape-stores`: a chain on memory tapes through writes, cuts, crashes, closes, removals and drops (REPO-1).
 - `just bench-chunks` also times a chain written into one memory tape, a cut per 16 chunks (REPO-1).

@@ -74,8 +74,8 @@ impl<K> From<BaseRefused> for MemError<K> {
 /// Bytes in memory that a [MemSink] writes and readers read at the same time: a [ByteSource] whose size grows. `K`
 /// is the key type of the [MemTapes] it is kept in, named by its errors.
 ///
-/// The bytes are kept in segments, one per piece: a new piece seals the segment before it, and appending copies
-/// nothing written before. [MemTapes::drop_front] frees the oldest pieces of a tape of several; offsets stay as
+/// The bytes are kept in extents that are filled and never moved, so appending copies nothing written before and a
+/// reader waits only for the bytes being appended. [MemTapes::drop_front] frees the oldest pieces of a tape of several; offsets stay as
 /// they were, and the tape's [ByteSource::start] moves to the first byte kept.
 pub struct MemTape<K = u64>(Arc<MemBytes>, PhantomData<fn() -> K>);
 
@@ -254,7 +254,7 @@ impl<K: core::fmt::Debug + 'static> TapeSink for MemSink<K> {
 
     fn reserve(&mut self, bytes: u64) {
         if let (Ok(more), Ok(mut segments)) = (usize::try_from(bytes), self.tape.write()) {
-            // one allocation up front: growing by doubling copies the piece under the write lock, and `read_at` waits
+            // one extent for what is to come, instead of extents that grow as the piece does
             segments.reserve(more);
         }
     }
@@ -317,7 +317,8 @@ impl<K: Ord + Clone> MemTapes<K> {
     ///
     /// Meant for a tape of several pieces ([Tapes::create_whole]) whose oldest pieces are no longer needed, while a
     /// writer goes on in it or after it closed. Pieces are dropped whole, and the piece being written never: a `to`
-    /// inside a piece keeps that piece. Offsets don't move: a [PieceInfo](crate::PieceInfo) a reader holds stays
+    /// inside a piece keeps that piece. The memory is freed in extents of up to 64 MiB: the one a cut falls inside
+    /// goes with a later cut past it. Offsets don't move: a [PieceInfo](crate::PieceInfo) a reader holds stays
     /// valid for the pieces kept, a read of a dropped one fails with [MemError::Dropped], and a
     /// [TapeReader](crate::TapeReader) opened afterwards finds the pieces from the new start on. As for
     /// [Self::remove], the chain then has a head cut and is not resumed.
