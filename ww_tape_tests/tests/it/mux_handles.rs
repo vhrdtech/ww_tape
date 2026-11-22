@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
+use crate::mux_multi::pieces;
 use exact_units::{Count, Magnitude};
 use shrink_wrap::prelude::*;
 use ww_tape::chunk::ChunkHead;
@@ -142,14 +143,6 @@ fn series_track(clock: ClockNum) -> TrackSpec<'static> {
         relations: RefVec::Slice { slice: &[] },
         owner: [0; 32],
     }
-}
-
-/// The pieces of `mem`, while there are any.
-fn pieces(mem: &MemTapes) -> Vec<Vec<u8>> {
-    (0..)
-        .map_while(|seq| mem.get(&seq).unwrap())
-        .map(|t| t.to_vec().unwrap())
-        .collect()
 }
 
 /// The entries of `track` of kind `kind` in the only piece of `bytes`, in item order.

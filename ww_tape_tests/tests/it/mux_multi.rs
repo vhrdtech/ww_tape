@@ -220,7 +220,7 @@ fn write<T>(
 }
 
 /// The bytes of pieces 0, 1, ... of `mem`, while there are any.
-fn pieces(mem: &MemTapes) -> Vec<Vec<u8>> {
+pub(crate) fn pieces(mem: &MemTapes) -> Vec<Vec<u8>> {
     (0..)
         .map_while(|seq| mem.get(&seq).unwrap())
         .map(|t| t.to_vec().unwrap())
