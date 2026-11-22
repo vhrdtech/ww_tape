@@ -23,6 +23,8 @@
 //! - `delta_group.svg`: a group of the drive's phase current, its differences and their width.
 //! - `sync_loss.svg`: three seconds of the drive's file, the syncs of four policies, what a crash loses.
 //! - `cut.svg`: the end of the drive's piece 0 and the start of piece 1.
+//! - `chunk_head.svg`, `index_entry.svg`, `tail.svg`: the format reference's layouts, byte by byte, from the drive's
+//!   first piece: the head of a `phase_a` chunk, its entry in the final index, and the piece's tail.
 //!
 //! - `sample_codecs.svg`, `event_times.svg`, `chunk_cost.svg`, `drive_sizes.svg` and the `bench_*.txt` tables: the
 //!   numbers of "Sizes and speeds" and "The definitions a new piece carries", from the bench reports in `docs/bench/`
@@ -52,6 +54,7 @@ mod first_tape;
 mod grids;
 mod index_select;
 mod layout;
+mod layouts;
 mod piece;
 mod puts;
 mod records_vs_chunk;
@@ -97,6 +100,9 @@ pub fn figures() -> anyhow::Result<Vec<(String, String)>> {
         ("delta_group.svg", writing::delta_group()?),
         ("sync_loss.svg", writing::sync_loss()?),
         ("cut.svg", writing::cut()?),
+        ("chunk_head.svg", layouts::chunk_head()?),
+        ("index_entry.svg", layouts::index_entry()?),
+        ("tail.svg", layouts::tail()?),
     ];
     let mut out: Vec<(String, String)> =
         drawn.into_iter().map(|(n, s)| (n.to_owned(), s)).collect();

@@ -178,3 +178,12 @@ pub fn le(b: &[u8], at: usize, n: usize) -> anyhow::Result<u64> {
         .rev()
         .fold(0u64, |v, byte| (v << 8) | u64::from(*byte)))
 }
+
+/// The first bytes of `b` as hex and an ellipsis: a hash or an id, shortened to fit its field.
+pub fn hex_start(b: &[u8], n: usize) -> String {
+    let mut s: String = b.iter().take(n).map(|x| format!("{x:02x}")).collect();
+    if b.len() > n {
+        s.push('…');
+    }
+    s
+}
