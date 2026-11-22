@@ -23,6 +23,7 @@ benchmarks, golden files and book pages.
 - `just bench-chunks` also times a chain written into one memory tape, a cut per 16 chunks (REPO-1).
 - `ww_tape_example::window`: a capture in memory whose analyser keeps pieces, the rest freed unwritten (EX-4).
 - `ethernet::ram`: the analyser keeps the pieces around each TCP reset of the link and logs the resets (EX-4).
+- `wideband::ram`: a 250 MS/s receiver into memory; energy detection on summaries keeps the pieces around bursts (EX-4).
 - The analyser's link sends a TCP reset in one frame of 4 million by default, `Link::resets` sets the rate (EX-4).
 
 ### Fixes

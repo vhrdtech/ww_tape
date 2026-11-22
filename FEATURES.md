@@ -373,10 +373,10 @@ The book's running example and its other cases, in the crate `ww_tape_example`.
 
 - 🚧 **EX-4 Capture into memory, keep what matters**
 
-  `window` runs a capture into a chain of pieces in memory while an analyser reads each piece as it closes. The pieces it keeps, with their neighbours, are copied to a store of their own, and the rest leave memory unwritten. `ethernet::ram` keeps the pieces around each TCP reset on the 10 Gbps link and writes the resets it finds to a results chain.
-  - Open: the RF receiver's capture with energy detection, the benches and the book pages.
+  `window` runs a capture into a chain of pieces in memory while an analyser reads each piece as it closes. The pieces it keeps, with their neighbours, are copied to a store of their own, and the rest leave memory unwritten. `ethernet::ram` keeps the pieces around each TCP reset on the 10 Gbps link and writes the resets it finds to a results chain. `wideband::ram` captures a 250 MS/s receiver and keeps the pieces around each burst, found by energy detection on the summary nodes alone.
+  - Open: the benches and the book pages.
 
-  Read more: tests `window.rs`, `ethernet_ram.rs`.
+  Read more: tests `window.rs`, `ethernet_ram.rs`, `wideband_ram.rs`.
 
 ## Repository (`REPO`)
 

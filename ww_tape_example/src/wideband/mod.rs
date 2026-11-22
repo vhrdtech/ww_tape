@@ -44,6 +44,8 @@ use ww_tape::{
 use ww_tape_mux::{MuxError, SeriesOptions, TapeMux};
 use ww_tape_summary::Summary;
 
+pub mod ram;
+
 use crate::rf::{API_ROOT, Rf, RfError, Signal, clock, iq_shape};
 
 /// The receiver's rate in all, complex samples a second.
