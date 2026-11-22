@@ -48,7 +48,8 @@
 //! [Chunk::column_damaged].
 //!
 //! Codec ids name how a column is coded: [Codec::RAW] is the column as plain little-endian values or bytes, ids 1 to
-//! 3 are the event time codec's ([crate::times]), 4 payload lengths ([crate::payloads]), 16 to 47 the sample codecs'
+//! 3 are the event time codec's ([crate::times]), 4 payload lengths ([crate::payloads]), 5 a series chunk's flag
+//! runs ([crate::flag_runs]), 16 to 47 the sample codecs'
 //! ([crate::samples]), 48 lz4 payloads ([crate::lz4]), 49 [Codec::SERIES] reserved.
 //!
 //! A reader refuses a column whose kind or codec it doesn't know, and still reads the chunk's other columns: each
@@ -150,7 +151,8 @@ pub enum ColumnKind {
     Starts,
     /// Item ends, as the end mode says (events).
     Ends,
-    /// A u32 flags word per item (events).
+    /// The items' flags: a u32 word per item (events), or runs of samples sharing a word (series,
+    /// [Codec::FLAG_RUNS], [Chunk::flag_runs]).
     Flags,
     /// Length of each item's payload (events).
     PayloadLengths,
@@ -224,7 +226,8 @@ impl ColumnKind {
     fn fits(self, block: BlockKind) -> bool {
         match self {
             Self::Samples => block == BlockKind::Series,
-            Self::Other(_) => true,
+            // per item in an events chunk, as flag runs in a series chunk
+            Self::Flags | Self::Other(_) => true,
             _ => block == BlockKind::Events,
         }
     }
@@ -788,6 +791,14 @@ pub fn write_chunk(
         if spec.len != bytes.len() {
             return Err(ChunkError::Invalid("column length differs from its bytes"));
         }
+        if head.kind == BlockKind::Series
+            && spec.kind == ColumnKind::Flags
+            && (spec.codec != Codec::FLAG_RUNS || crate::FlagRuns::of(bytes, head.count).is_err())
+        {
+            return Err(ChunkError::Invalid(
+                "a series chunk's flags not as flag runs in the writer's form",
+            ));
+        }
         *slot = *spec;
     }
     // every column is copied in below: its bytes need no zeros first
@@ -1178,6 +1189,19 @@ impl<'b> Chunk<'b> {
     /// The first column of `kind` (and `param`, for samples).
     pub fn find(&self, kind: ColumnKind, param: u16) -> Option<Column<'b>> {
         self.columns().find(|c| c.kind == kind && c.param == param)
+    }
+
+    /// The flag runs of a series chunk's samples ([flag_runs](crate::flag_runs)): its first [ColumnKind::Flags]
+    /// column, [FlagRuns::NONE](crate::FlagRuns::NONE) when it has none. Refused for a column in another codec than
+    /// [Codec::FLAG_RUNS] or not in the writer's form.
+    pub fn flag_runs(&self) -> Result<crate::FlagRuns<'b>, crate::FlagRunsError> {
+        let Some(c) = self.find(ColumnKind::Flags, 0) else {
+            return Ok(crate::FlagRuns::NONE);
+        };
+        if c.codec != Codec::FLAG_RUNS {
+            return Err(crate::FlagRunsError::Codec(c.codec));
+        }
+        crate::FlagRuns::of(c.bytes, self.head.count)
     }
 
     /// Bytes of a segment, 2^shift.

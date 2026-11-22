@@ -52,6 +52,7 @@ mod reserved;
 mod resume;
 mod sample_codecs;
 mod series;
+mod series_flags;
 mod tails;
 mod track_hash;
 

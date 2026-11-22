@@ -40,6 +40,24 @@
 //! ([summary](crate::summary#scales)). The writer gives each grid to
 //! `SeriesSummaries::set_grid` (crate `ww_tape_summary`).
 //!
+//! # Flags
+//!
+//! A sample may carry a u32 flags word: an overrange, a dropout, a marker. A series chunk keeps the words of its
+//! samples in a [ColumnKind::Flags](crate::ColumnKind::Flags) column in [Codec::FLAG_RUNS](crate::Codec::FLAG_RUNS):
+//! runs of consecutive samples sharing a word not 0 ([flag_runs](crate::flag_runs)). A chunk with no flagged sample
+//! has no such column, so an unflagged series costs nothing.
+//!
+//! ```text
+//! n × run, n from 1 to FLAG_RUNS_MAX, ascending:
+//!   u32  first: the run's first sample, counted from the chunk's first
+//!   u32  count: samples in the run, 1 and up
+//!   u32  flags: their flags word, not 0
+//! ```
+//!
+//! The chunk is the source of the flags: the summaries OR them into their nodes, and a writer resumed after a crash
+//! rebuilds those nodes from the kept chunks, their samples and runs (`SeriesSummaries::push_runs`, crate
+//! `ww_tape_summary`). [Chunk::flag_runs](crate::Chunk::flag_runs) reads the runs in place.
+//!
 //! # Sample codecs and `Series<T>` codecs
 //!
 //! Two layers code the same numbers for different readers:

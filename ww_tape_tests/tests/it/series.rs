@@ -48,6 +48,16 @@ fn value(i: u64, c: u32) -> i32 {
     ((i as i32 * 37) % 1000) - 500 + c as i32 * 10_000
 }
 
+/// Flags of sample `i`: overrange (1) for a stretch after the prefix change, a dropout (2) for a few samples after
+/// the gap.
+pub(crate) fn flags_of(i: u64) -> u32 {
+    match i {
+        400..420 => 1,
+        500..503 => 2,
+        _ => 0,
+    }
+}
+
 /// A stretch of the recording: samples `from..to` as the device sends them.
 #[derive(Copy, Clone)]
 enum Unit {
@@ -180,6 +190,12 @@ fn seal(
         let (first_tick, last_tick) = grid
             .chunk_ticks(period(), ItemNum::new(*first), count)
             .unwrap();
+        let mut runs = ww_tape::flag_runs::FlagRunsBuilder::new();
+        for i in *first..*first + u64::from(count) {
+            runs.push(1, flags_of(i)).unwrap();
+        }
+        let mut flags = vec![];
+        runs.write(&mut flags);
         let mut bytes = vec![0u8; max_encoded_len(Codec::DELTA, shape, count as usize).unwrap()];
         let n = encode(Codec::DELTA, shape, part, &mut bytes).unwrap();
         bytes.truncate(n);
@@ -202,8 +218,17 @@ fn seal(
             param: 0,
             len: bytes.len(),
         };
-        w.write_chunk(series_defs(), &head, &[(spec, &bytes)])
-            .unwrap();
+        let mut columns = vec![(spec, &bytes[..])];
+        if !runs.is_empty() {
+            let runs = ColumnSpec {
+                kind: ColumnKind::Flags,
+                codec: Codec::FLAG_RUNS,
+                param: 0,
+                len: flags.len(),
+            };
+            columns.push((runs, &flags[..]));
+        }
+        w.write_chunk(series_defs(), &head, &columns).unwrap();
         *first += u64::from(count);
     }
     column.clear();
@@ -265,6 +290,8 @@ pub(crate) struct Read {
     scale: Magnitude,
     timeline: SeriesTimeline,
     pub(crate) chunks: Vec<(ChunkHead, Vec<i32>)>,
+    /// The flags word of each sample of each chunk, from its flag runs.
+    pub(crate) flags: Vec<Vec<u32>>,
 }
 
 pub(crate) fn read(bytes: &[u8]) -> Read {
@@ -272,6 +299,7 @@ pub(crate) fn read(bytes: &[u8]) -> Read {
     assert_eq!(r.pieces().len(), 1);
     let mut def = None;
     let mut chunks = vec![];
+    let mut flags = vec![];
     let mut buf = vec![];
     for e in r.entries(0).unwrap() {
         let b = r.read_block(0, &e, &mut buf).unwrap();
@@ -301,6 +329,8 @@ pub(crate) fn read(bytes: &[u8]) -> Read {
                 let s = Samples::of(&col, *shape, head.count as usize).unwrap();
                 let mut out = vec![0i32; head.count as usize * s.lanes()];
                 s.decode(0, &mut out).unwrap();
+                let runs = c.flag_runs().unwrap();
+                flags.push((0..head.count).map(|i| runs.flags_at(i)).collect());
                 chunks.push((head, out));
             }
             _ => {}
@@ -315,6 +345,7 @@ pub(crate) fn read(bytes: &[u8]) -> Read {
         scale: def.scale,
         timeline,
         chunks,
+        flags,
     }
 }
 
@@ -357,7 +388,11 @@ fn series_reads_back_to_samples_ticks_and_scales() {
     assert!(!t.gap_before(1) && t.gap_before(2));
 
     let mut index = 0u64;
-    for (head, numbers) in &got.chunks {
+    for ((head, numbers), flags) in got.chunks.iter().zip(&got.flags) {
+        let want: Vec<u32> = (index..index + u64::from(head.count))
+            .map(flags_of)
+            .collect();
+        assert_eq!(*flags, want, "flags of the chunk from {index}");
         assert_eq!(
             head.first_item,
             ItemNum::new(index),
@@ -909,6 +944,7 @@ fn series_and_summaries_across_an_append_read_as_one_writer_wrote_them() {
     );
     let (a, b) = (read(&one), read(&twice));
     assert_eq!(a.chunks, b.chunks, "heads and samples");
+    assert_eq!(a.flags, b.flags, "flags");
     assert_eq!(
         b.chunks
             .iter()

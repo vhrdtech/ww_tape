@@ -1,5 +1,6 @@
 //! A [TapeMux] resumed after a crash rebuilds the summary trees of the piece the crash tore: crashed anywhere and
-//! given the items it lost, it writes the bytes of the run without the crash, in both layouts (WRITE-13).
+//! given the items it lost, it writes the bytes of the run without the crash, in both layouts, flagged samples
+//! included (WRITE-13).
 
 use exact_units::Count;
 use ww_tape::index::IndexPolicy;
@@ -7,7 +8,7 @@ use ww_tape::{
     BlockKind, ChainOptions, CutPolicy, ItemNum, Layout, MemTapes, OwnerId, PieceTapes, SeriesGrid,
     SyncPolicy, TapeReader, TrackId, TrackNum, WriterOptions,
 };
-use ww_tape_mux::{Event, EventsOptions, MuxOptions, SeriesOptions, TapeMux};
+use ww_tape_mux::{Event, EventsOptions, MuxOptions, SeriesHandle, SeriesOptions, TapeMux};
 
 use crate::mux_handles::{clock, events_track, series_track};
 use crate::mux_multi::{next_item, pieces, plant};
@@ -30,6 +31,8 @@ struct Run {
     chunk_samples: u32,
     cut: u64,
     event_tree: bool,
+    /// Whether the series' samples are flagged ([sample_flags])
+    flagged: bool,
 }
 
 impl Run {
@@ -70,9 +73,35 @@ fn event(i: u64) -> Event<'static> {
 }
 
 /// Sample `i` of the series: two channels.
-fn sample(i: u64) -> [i16; 2] {
+pub(crate) fn sample(i: u64) -> [i16; 2] {
     let x = (i * 37 % 4001) as i16 - 2000;
     [x, (i % 300) as i16]
+}
+
+/// The flags of sample `i` of a flagged series: stretches of no flag and of a few words, some longer than a chunk.
+pub(crate) fn sample_flags(i: u64) -> u32 {
+    match (i / 150) % 7 {
+        1 => 1,
+        2 => 4,
+        3 => 1,
+        4 if i % 300 < 20 => 1 << (i % 3),
+        _ if (i / 1050) % 5 == 4 => 2,
+        _ => 0,
+    }
+}
+
+/// Push samples `from..to` to `series`, flagged when `flagged`: each stretch of one flags word in one push.
+fn push_samples(series: &mut SeriesHandle<MemTapes, i16>, from: u64, to: u64, flagged: bool) {
+    let mut i = from;
+    while i < to {
+        let flags = if flagged { sample_flags(i) } else { 0 };
+        let end = (i..to)
+            .find(|j| flagged && sample_flags(*j) != flags)
+            .unwrap_or(to);
+        let samples: Vec<i16> = (i..end).flat_map(sample).collect();
+        series.push_flagged(&samples, flags).unwrap();
+        i = end;
+    }
 }
 
 /// The tracks of a run: the events track and the series, with their numbers.
@@ -81,12 +110,23 @@ struct Tracks {
     series: (TrackNum, TrackId),
 }
 
-/// Define the clock and the two tracks on `mux`, in the same order each time, so a resumed mux gives the numbers
-/// back.
-fn define(mux: &TapeMux<MemTapes>) -> Tracks {
+/// The series of a run: [series_track], its summaries with the flags word when `flagged`.
+pub(crate) fn series_spec(c: ww_tape::ClockNum, flagged: bool) -> ww_tape::TrackSpec<'static> {
+    let mut s = series_track(c);
+    if let ww_tape::TrackKind::Series(def) = &mut s.kind
+        && let Some(spec) = &mut def.summaries
+    {
+        spec.stats.flags = flagged;
+    }
+    s
+}
+
+/// Define the clock and the two tracks of `run` on `mux`, in the same order each time, so a resumed mux gives the
+/// numbers back.
+fn define(mux: &TapeMux<MemTapes>, run: Run) -> Tracks {
     let c = mux.define_clock(clock()).unwrap();
     let e = events_track(1, c);
-    let s = series_track(c);
+    let s = series_spec(c, run.flagged);
     let ids = (e.key.id(), s.key.id());
     Tracks {
         events: (mux.define_track(e).unwrap(), ids.0),
@@ -131,11 +171,8 @@ fn write(mux: TapeMux<MemTapes>, run: Run, t: &Tracks, events_from: u64, samples
             .map(event)
             .collect();
         events.push_all(&items).unwrap();
-        let samples: Vec<i16> = (step * run.samples..(step + 1) * run.samples)
-            .filter(|i| *i >= samples_from)
-            .flat_map(sample)
-            .collect();
-        series.push(&samples).unwrap();
+        let from = (step * run.samples).max(samples_from);
+        push_samples(&mut series, from, (step + 1) * run.samples, run.flagged);
     }
     events.finish().unwrap();
     series.finish().unwrap();
@@ -154,7 +191,7 @@ fn whole_run(run: Run) -> Vec<Vec<u8>> {
         MuxOptions::default(),
     )
     .unwrap();
-    let t = define(&mux);
+    let t = define(&mux, run);
     write(mux, run, &t, 0, 0);
     pieces(&mem)
 }
@@ -225,7 +262,7 @@ fn crash_anywhere(run: Run, extra: usize) {
             let (mux, resumed) =
                 TapeMux::resume(mem.clone(), OWNER, 0, run.options(), MuxOptions::default())
                     .unwrap();
-            let t = define(&mux);
+            let t = define(&mux, run);
             let events_from = next_item(done, &resumed.entries, t.events.1);
             let samples_from = next_item(done, &resumed.entries, t.series.1);
             write(mux, run, &t, events_from, samples_from);
@@ -259,6 +296,7 @@ fn run(aligned: bool) -> Run {
         chunk_samples: 1024,
         cut: 48,
         event_tree: true,
+        flagged: false,
     }
 }
 
@@ -283,6 +321,48 @@ fn a_track_written_without_its_tree_resumes_to_the_same_bytes() {
             event_tree: false,
             ..run(aligned)
         };
+        crash_anywhere(run, 20);
+    }
+}
+
+/// Flags of the series' samples in every summary block of `pieces`: the OR of the words of its nodes.
+pub(crate) fn summary_flags(pieces: &[Vec<u8>], series: TrackId) -> u32 {
+    let mut out = 0;
+    let mut buf = vec![];
+    for p in pieces {
+        let r = TapeReader::open(&p[..]).unwrap();
+        for e in r.entries(0).unwrap() {
+            if e.kind != BlockKind::Summary || e.track_id != series {
+                continue;
+            }
+            let b = r.read_block(0, &e, &mut buf).unwrap();
+            let s = ww_tape_summary::Summary::of_block(&b).unwrap();
+            for i in 0..s.node_count() {
+                out |= s.channel_stats(0, i).unwrap().flags;
+            }
+        }
+    }
+    out
+}
+
+/// A flagged series keeps its flags in its chunks: a resume rebuilds the summaries from the kept chunks' flag runs,
+/// to the bytes of the run without the crash.
+#[test]
+fn a_flagged_series_crashed_anywhere_resumes_to_the_bytes_of_the_whole_run() {
+    for aligned in [false, true] {
+        let run = Run {
+            events: 4096,
+            chunk_items: 1024,
+            event_tree: false,
+            flagged: true,
+            ..run(aligned)
+        };
+        let series = series_spec(ww_tape::ClockNum::new(1), true).key.id();
+        assert_eq!(
+            summary_flags(&whole_run(run), series),
+            7,
+            "every word in the summaries"
+        );
         crash_anywhere(run, 20);
     }
 }

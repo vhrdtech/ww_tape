@@ -108,6 +108,7 @@
 //! | [SEGMENT_SHIFT_MAX](chunk::SEGMENT_SHIFT_MAX) | 24 | a chunk's segment shift (16 MiB segments) |
 //! | [MAX_SEGMENTS](chunk::MAX_SEGMENTS) | 16384 | a chunk's segments |
 //! | [SERIES_ITEMS_MAX](chunk::SERIES_ITEMS_MAX) | 65535 | the items of a chunk with a series payloads column |
+//! | [FLAG_RUNS_MAX](flag_runs::FLAG_RUNS_MAX) | 4096 | the flag runs of a series chunk |
 //! | [WIDTH_MAX](bitpack::WIDTH_MAX) | 64 | a bit width ([bitpack::Width]) |
 //! | [KERNEL_WIDTH_MAX](bitpack::KERNEL_WIDTH_MAX) | 32 | a bit width the 32-bit kernels unpack |
 //! | [SLOPE_MAX](times::SLOPE_MAX) | 2^55 | a start group's slope (Q16 ticks per item) |
@@ -206,9 +207,11 @@ pub use chunk::{
     ColumnKind, ColumnSpec, EndMode,
 };
 
+pub use flag_runs::{FlagRun, FlagRuns, FlagRunsError};
 pub use from_file::{BoundError, FromFile};
 use ww_tape_codecs::bytes;
 use ww_tape_codecs::crc32c;
+pub use ww_tape_codecs::flag_runs;
 pub use ww_tape_codecs::from_file;
 pub use ww_tape_codecs::lz4;
 #[cfg(feature = "alloc")]

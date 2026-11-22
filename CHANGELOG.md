@@ -6,7 +6,17 @@ benchmarks, golden files and book pages.
 
 ## [Unreleased]
 
+### Breaking
+
+- Series chunks keep their samples' flags in a flag runs column; direct writers add it with `FlagRunsBuilder` (FMT-13).
+- A flagged series chunk has a `Flags` column in codec 5; earlier readers refuse its head (FMT-13).
+- `EncodeError::FlagRuns` and `TrackError::FlagRuns` are new variants (FMT-13).
+
 ### Features
+
+- `Chunk::flag_runs` and `SeriesSamples::flag_runs` read a series chunk's flag runs; `FlagRuns::spans` cuts samples by word (FMT-13).
+- `SeriesSummaries::push_runs` and `SeriesLeaves::push_runs` rebuild flagged summaries from a chunk alone (FMT-13).
+- A resumed `TapeMux` rebuilds series flags from the kept chunks' flag runs (WRITE-13).
 
 - A resumed `TapeMux` rebuilds the torn piece's summary trees: it writes the bytes of an uninterrupted run (WRITE-13).
 - `TapeMux::start_resumed` starts a mux on a chain just resumed; `ww_tape_fs::mux::resume` uses it (WRITE-13).

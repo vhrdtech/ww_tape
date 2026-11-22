@@ -836,8 +836,8 @@ mod builder {
     use crate::{Layout, SCALE_LEN_MAX, SummaryHead, Tree, summary_len, write_series_summary};
     use ww_tape::samples::Sample;
     use ww_tape::{
-        ElementDesc, Ratio64, SampleShape, SeriesError, SeriesGrid, SeriesTimeline, TrackId,
-        TrackNum,
+        ElementDesc, FlagRuns, Ratio64, SampleShape, SeriesError, SeriesGrid, SeriesTimeline,
+        TrackId, TrackNum,
     };
     use ww_tape_codecs::kernel::Kernel;
 
@@ -894,6 +894,41 @@ mod builder {
     pub const SERIES_BLOCK_BYTES: Bytes<u32> = Bytes::new(2048);
 
     /// `v` shifted by a zero `(p, q)`: `q · v - p`, saturating (a valid element's values never saturate).
+    /// Push each stretch of `samples` (frames of `stride` scalars) that one flags word of `runs` covers, with that
+    /// word: how a chunk's samples go in with its flag runs ([Chunk::flag_runs](ww_tape::Chunk::flag_runs)), as the
+    /// writer pushed them. Refused when the samples are not whole frames or the runs reach past them.
+    fn by_runs<X>(
+        samples: &[X],
+        stride: usize,
+        runs: &FlagRuns<'_>,
+        mut push: impl FnMut(&[X], u32) -> Result<(), BuildError>,
+    ) -> Result<(), BuildError> {
+        let partial = BuildError::PartialFrame { stride };
+        if stride == 0 || !samples.len().is_multiple_of(stride) {
+            return Err(partial);
+        }
+        let past = BuildError::Invalid("flag runs past the samples");
+        let frames = samples.len().checked_div(stride).ok_or(partial)?;
+        let count = u32::try_from(frames).map_err(|_e| past)?;
+        if runs
+            .get(runs.len().saturating_sub(1))
+            .is_some_and(|r| r.end().is_none_or(|end| end > count))
+        {
+            return Err(past);
+        }
+        for (span, flags) in runs.spans(count) {
+            let at = |i: u32| {
+                usize::try_from(i)
+                    .ok()
+                    .and_then(|i| i.checked_mul(stride))
+                    .ok_or(past)
+            };
+            let part = samples.get(at(span.start)?..at(span.end)?).ok_or(past)?;
+            push(part, flags)?;
+        }
+        Ok(())
+    }
+
     fn shift_by(shift: Option<(i128, i128)>, v: i128) -> i128 {
         match shift {
             Some((p, q)) => q.saturating_mul(v).saturating_sub(p),
@@ -1149,6 +1184,20 @@ mod builder {
                 }
             }
             Ok(())
+        }
+
+        /// Add samples flagged by `runs`, as [SeriesSummaries::push_runs] takes them.
+        pub fn push_runs(&mut self, samples: &[T], runs: &FlagRuns<'_>) -> Result<(), BuildError> {
+            by_runs(samples, self.d.stride, runs, |x, f| self.push(x, f))
+        }
+
+        /// Add stored samples flagged by `runs`, as [SeriesSummaries::push_from_runs] takes them.
+        pub fn push_from_runs<S: Sample>(
+            &mut self,
+            samples: &[S],
+            runs: &FlagRuns<'_>,
+        ) -> Result<(), BuildError> {
+            by_runs(samples, self.d.stride, runs, |x, f| self.push_from(x, f))
         }
 
         /// Add stored samples of the element's own scalar, as [SeriesSummaries::push_from] takes them.
@@ -1590,6 +1639,24 @@ mod builder {
             self.tree.samples(frames)?;
             self.leaves.push_from(samples, flags)?;
             self.take_leaves()
+        }
+
+        /// Add the samples of a chunk (whole frames, as [Self::push] takes them) flagged as its flag runs say
+        /// ([Chunk::flag_runs](ww_tape::Chunk::flag_runs)): the summaries a writer built of them, rebuilt from the
+        /// chunk alone. Refused when the runs reach past the samples.
+        pub fn push_runs(&mut self, samples: &[T], runs: &FlagRuns<'_>) -> Result<(), BuildError> {
+            by_runs(samples, self.leaves.d.stride, runs, |x, f| self.push(x, f))
+        }
+
+        /// [Self::push_runs] of stored samples of the element's own scalar, as [Self::push_from] takes them.
+        pub fn push_from_runs<S: Sample>(
+            &mut self,
+            samples: &[S],
+            runs: &FlagRuns<'_>,
+        ) -> Result<(), BuildError> {
+            by_runs(samples, self.leaves.d.stride, runs, |x, f| {
+                self.push_from(x, f)
+            })
         }
 
         /// The frames in `scalars` scalars; refused when they are not whole frames.

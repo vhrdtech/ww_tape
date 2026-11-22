@@ -8,8 +8,8 @@ use ww_tape::chunk::{ChunkHead, ColumnKind};
 use ww_tape::payloads::{Payloads, PayloadsError};
 use ww_tape::times::{EventTimes, TimesError};
 use ww_tape::{
-    Block, BlockBuf, BlockKind, Definitions, Describe, ItemNum, Sample, SampleError, SampleShape,
-    Samples, SeriesGrid, Slot, TrackId,
+    Block, BlockBuf, BlockKind, Definitions, Describe, FlagRuns, FlagRunsError, ItemNum, Sample,
+    SampleError, SampleShape, Samples, SeriesGrid, Slot, TrackId,
 };
 
 use super::{ChainFollower, FollowError, Followed};
@@ -66,6 +66,13 @@ impl SeriesSamples {
         samples.decode(0, &mut out).map_err(TrackError::Samples)?;
         Ok(out)
     }
+
+    /// The flags of the samples, as runs of samples sharing a word ([ww_tape::Chunk::flag_runs]); a sample in no
+    /// run has the word 0.
+    pub fn flag_runs(&self) -> Result<FlagRuns<'_>, TrackError> {
+        let chunk = self.block.block().chunk().ok_or(TrackError::NoSamples)?;
+        chunk.flag_runs().map_err(TrackError::FlagRuns)
+    }
 }
 
 /// Why a chunk of the track did not decode.
@@ -75,6 +82,7 @@ pub enum TrackError {
     Times(TimesError),
     Payloads(PayloadsError),
     Samples(SampleError),
+    FlagRuns(FlagRunsError),
     /// A series chunk whose track's definition isn't held, or names no numbers: its samples have no shape.
     NoShape,
     /// A series chunk without a samples column.
@@ -87,6 +95,7 @@ impl core::fmt::Display for TrackError {
             Self::Times(_) => write!(f, "the chunk's times don't decode"),
             Self::Payloads(_) => write!(f, "the chunk's payloads don't decode"),
             Self::Samples(_) => write!(f, "the chunk's samples don't decode"),
+            Self::FlagRuns(_) => write!(f, "the chunk's flag runs don't decode"),
             Self::NoShape => write!(f, "a series chunk of a track whose definition isn't held"),
             Self::NoSamples => write!(f, "a series chunk without samples"),
         }
@@ -99,6 +108,7 @@ impl core::error::Error for TrackError {
             Self::Times(e) => Some(e),
             Self::Payloads(e) => Some(e),
             Self::Samples(e) => Some(e),
+            Self::FlagRuns(e) => Some(e),
             Self::NoShape | Self::NoSamples => None,
         }
     }

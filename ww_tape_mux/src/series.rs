@@ -7,10 +7,11 @@ use std::time::Duration;
 
 use exact_units::Bytes;
 use ww_tape::chunk::Chunk;
+use ww_tape::flag_runs::FlagRunsBuilder;
 use ww_tape::samples::{Sample, Samples, Scalar as ScalarKind, encode, max_encoded_len};
 use ww_tape::{
-    BlockKind, ChunkHead, Codec, ColumnKind, ColumnSpec, Describe, EndMode, ItemNum, Ratio64,
-    SampleShape, SeriesError, SeriesGrid, Tapes, TrackDef, TrackId, TrackNum,
+    BlockKind, ChunkHead, Codec, ColumnKind, ColumnSpec, Describe, EndMode, FlagRuns, ItemNum,
+    Ratio64, SampleError, SampleShape, SeriesError, SeriesGrid, Tapes, TrackDef, TrackId, TrackNum,
 };
 use ww_tape_summary::{BuildError, Scalar, SeriesLeaf, SeriesLeaves, SeriesSummarySpec};
 
@@ -97,6 +98,16 @@ impl<S: Scalar + Sample> Leaves<S> {
         }
     }
 
+    /// Push a chunk's samples flagged by its runs, as the handle pushed them.
+    fn push_runs(&mut self, samples: &[S], runs: &FlagRuns<'_>) -> Result<(), BuildError> {
+        match self {
+            Self::Same(l) => l.push_runs(samples, runs),
+            Self::I16(l) => l.push_from_runs(samples, runs),
+            Self::I32(l) => l.push_from_runs(samples, runs),
+            Self::I64(l) => l.push_from_runs(samples, runs),
+        }
+    }
+
     fn set_scale(&mut self, scale: exact_units::Magnitude) -> Result<(), BuildError> {
         match self {
             Self::Same(l) => l.set_scale(scale),
@@ -132,6 +143,8 @@ pub(crate) struct SeriesChunk<S: Scalar> {
     /// The first sample of the open chunk
     next_item: u64,
     samples: Vec<S>,
+    /// The flag runs of the open chunk's samples
+    runs: FlagRunsBuilder,
     leaves: Option<(SeriesSummarySpec, Leaves<S>)>,
 }
 
@@ -183,7 +196,18 @@ impl<S: Scalar + Sample> SeriesChunk<S> {
             param: 0,
             len: bytes.len(),
         };
-        let columns = vec![(spec, bytes)];
+        let mut columns = vec![(spec, bytes)];
+        if !self.runs.is_empty() {
+            let mut runs = buffers.buffer();
+            self.runs.write(&mut runs);
+            let spec = ColumnSpec {
+                kind: ColumnKind::Flags,
+                codec: Codec::FLAG_RUNS,
+                param: 0,
+                len: runs.len(),
+            };
+            columns.push((spec, runs));
+        }
         let hash = ww_tape::piece::columns_payload_hash(columns.iter().map(|(_, b)| b.as_slice()));
         let summary = match &mut self.leaves {
             Some((spec, leaves)) => Some(ChunkSummary::Series {
@@ -196,6 +220,7 @@ impl<S: Scalar + Sample> SeriesChunk<S> {
         };
         self.next_item = self.next_item.saturating_add(u64::from(count));
         self.samples.clear();
+        self.runs.clear();
         Ok(Some(Sealed {
             head,
             columns,
@@ -216,7 +241,8 @@ impl<S: Scalar + Sample + Send> Encoder for SeriesChunk<S> {
 /// Samples are encoded into the open chunk on the producer's thread, its payload hashed there too, and the
 /// statistics of the summaries' level-0 nodes computed; the writing thread only places the chunk and builds the
 /// levels above. A chunk is sealed when it holds [SeriesOptions::chunk_samples] samples or
-/// [SeriesOptions::chunk_bytes] bytes, at a new grid ([Self::regrid]), by [Self::seal], and by the writing thread
+/// [SeriesOptions::chunk_bytes] bytes, at a new grid ([Self::regrid]), before samples that would start a flag run past
+/// [FLAG_RUNS_MAX](ww_tape::flag_runs::FLAG_RUNS_MAX) ([Self::push_flagged]), by [Self::seal], and by the writing thread
 /// when its first sample waited [SeriesOptions::latency]. Dropping the handle seals and sends the open chunk;
 /// [Self::finish] does so and returns the error.
 pub struct SeriesHandle<T: Tapes, S: Scalar + Sample + Send + 'static> {
@@ -295,8 +321,9 @@ where
     }
 }
 
-/// The summary of series chunk `chunk` of track `def` read back: the leaves its handle computed of its samples, as
-/// pushed without flags. None for a chunk of a track without summaries, or one whose samples don't read.
+/// The summary of series chunk `chunk` of track `def` read back: the leaves its handle computed of its samples,
+/// flagged as its flag runs say. None for a chunk of a track without summaries, or one whose samples or flag runs
+/// don't read.
 pub(crate) fn read_summary(def: &TrackDef<'_>, chunk: &Chunk<'_>) -> Option<ChunkSummary> {
     let (Some(series), Some(shape)) = (def.series(), def.series_shape()) else {
         return None;
@@ -313,6 +340,7 @@ pub(crate) fn read_summary(def: &TrackDef<'_>, chunk: &Chunk<'_>) -> Option<Chun
         first_item: head.first_item,
         spec,
         samples: &samples,
+        runs: chunk.flag_runs().ok()?,
     };
     let leaves = match shape.element.scalar() {
         ScalarKind::I8 => read.leaves::<i8>(),
@@ -342,6 +370,7 @@ struct Read<'a, 'b> {
     first_item: ItemNum,
     spec: SeriesSummarySpec,
     samples: &'a Samples<'b>,
+    runs: FlagRuns<'b>,
 }
 
 impl Read<'_, '_> {
@@ -352,7 +381,7 @@ impl Read<'_, '_> {
         self.samples.decode(0, &mut values).ok()?;
         let mut leaves =
             Leaves::<S>::new(self.shape, self.grid, self.first_item, self.spec).ok()?;
-        leaves.push(&values, 0).ok()?;
+        leaves.push_runs(&values, &self.runs).ok()?;
         leaves.seal().ok()
     }
 }
@@ -408,6 +437,7 @@ fn series_chunk<S: Scalar + Sample>(
         grid,
         next_item: options.first_item.get(),
         samples: Vec::new(),
+        runs: FlagRunsBuilder::new(),
         leaves,
     }))
 }
@@ -435,7 +465,10 @@ where
         self.push_flagged(samples, 0)
     }
 
-    /// Add samples as [Self::push] does, `flags` ORed into the summary nodes they fall in.
+    /// Add samples as [Self::push] does, each flagged `flags`: kept in the chunk's flag runs
+    /// ([Chunk::flag_runs](ww_tape::Chunk::flag_runs)) and ORed into the summary nodes they fall in. A chunk holds
+    /// at most [FLAG_RUNS_MAX](ww_tape::flag_runs::FLAG_RUNS_MAX) runs: samples that would start one more seal it
+    /// first.
     pub fn push_flagged(
         &mut self,
         samples: &[S],
@@ -481,11 +514,22 @@ where
         }
         let mut rest = samples;
         while !rest.is_empty() {
+            // a chunk holds at most FLAG_RUNS_MAX runs: one more seals it first
+            if !e.runs.fits(flags)
+                && let Some(unit) = self.open.seal_locked(&mut e).map_err(CallError::Encode)?
+            {
+                self.backlog.push(unit);
+            }
             let room = e
                 .chunk_frames
                 .saturating_sub(e.frames())
                 .saturating_mul(stride);
             let (now, later) = rest.split_at(room.min(rest.len()));
+            let frames = u32::try_from(now.len().checked_div(stride).unwrap_or(0))
+                .map_err(|_e| CallError::Encode(EncodeError::Samples(SampleError::BadShape)))?;
+            e.runs
+                .push(frames, flags)
+                .map_err(|err| CallError::Encode(EncodeError::FlagRuns(err)))?;
             if let Some((_, l)) = &mut e.leaves {
                 l.push(now, flags)
                     .map_err(|err| CallError::Encode(EncodeError::Summary(err)))?;

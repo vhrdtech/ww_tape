@@ -532,8 +532,8 @@ fn a_track_follower_gives_events_and_lost_items() {
     }
 }
 
-/// A track follower of a series track gives its chunks' samples as a reader of the closed file decodes them; a
-/// chain of one file, aligned for its payloads.
+/// A track follower of a series track gives its chunks' samples and flag runs as a reader of the closed file decodes
+/// them; a chain of one file, aligned for its payloads.
 #[test]
 fn a_track_follower_gives_series_samples() {
     let dir = scratch("follow-series");
@@ -552,13 +552,20 @@ fn a_track_follower_gives_series_samples() {
         let TrackItem::Samples(s) = i else {
             panic!("a series track gives samples: {i:?}");
         };
-        got.push((s.first.get(), s.decode::<i32>().unwrap()));
+        let runs = s.flag_runs().unwrap();
+        let flags: Vec<u32> = (0..s.count).map(|i| runs.flags_at(i)).collect();
+        got.push((s.first.get(), s.decode::<i32>().unwrap(), flags));
     }
-    let want: Vec<(u64, Vec<i32>)> = want
+    let want: Vec<(u64, Vec<i32>, Vec<u32>)> = want
         .chunks
         .into_iter()
-        .map(|(h, s)| (h.first_item.get(), s))
+        .zip(want.flags)
+        .map(|((h, s), f)| (h.first_item.get(), s, f))
         .collect();
+    assert!(
+        want.iter().any(|(_, _, f)| f.iter().any(|w| *w != 0)),
+        "flagged samples"
+    );
     assert_eq!(got, want);
 }
 

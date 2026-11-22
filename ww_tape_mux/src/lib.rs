@@ -262,8 +262,8 @@ where
     /// anything. Given again every item after the last chunk kept of each track, through typed handles cut as
     /// before, the chain gets the bytes of the run without the crash.
     ///
-    /// The flags a [SeriesHandle] took ([SeriesHandle::push_flagged]) are in its summaries only: the leaves of
-    /// kept samples are rebuilt without them. A tree is rebuilt for each track a typed handle summarises by
+    /// The flags a [SeriesHandle] took ([SeriesHandle::push_flagged]) are in its chunks' flag runs, so the leaves
+    /// of kept samples are rebuilt with them. A tree is rebuilt for each track a typed handle summarises by
     /// default; one the piece kept no block of is dropped when the track's next chunk comes without a summary (a
     /// [ChunkSender], a handle with summaries off).
     pub fn resume(

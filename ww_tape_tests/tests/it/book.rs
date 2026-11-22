@@ -455,6 +455,7 @@ fn page_caps() -> Vec<(&'static str, u64)> {
         ),
         ("MAX_SEGMENTS", ww_tape::chunk::MAX_SEGMENTS as u64),
         ("SERIES_ITEMS_MAX", ww_tape::chunk::SERIES_ITEMS_MAX.into()),
+        ("FLAG_RUNS_MAX", ww_tape::flag_runs::FLAG_RUNS_MAX as u64),
         ("WIDTH_MAX", ww_tape::bitpack::WIDTH_MAX.into()),
         (
             "KERNEL_WIDTH_MAX",

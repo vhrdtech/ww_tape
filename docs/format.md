@@ -311,7 +311,7 @@ The column kinds (`ColumnKind`):
 |---:|---|---|
 | 1 | `Starts` | the items' starts ([event times](#event-times)) |
 | 2 | `Ends` | the items' ends, as the head's end mode says |
-| 3 | `Flags` | a u32 flags word per item |
+| 3 | `Flags` | a u32 flags word per item; in a series chunk, runs of flagged samples ([Sample flags](#sample-flags)) |
 | 4 | `PayloadLengths` | each item's payload length ([Payload codec](#payload-codec)) |
 | 5 | `Payloads` | the items' payloads back to back |
 | 6 | `Samples` | a series' samples; the param names the first channel ([Sample codecs](#sample-codecs)) |
@@ -325,6 +325,7 @@ The codec ids (`Codec`):
 | 0 | `RAW`: plain little-endian values or bytes |
 | 1 to 3 | the event time codec: `STARTS`, `DURATIONS`, `FLAGS` |
 | 4 | payload lengths, `LENGTHS` |
+| 5 | a series chunk's flag runs, `FLAG_RUNS` |
 | 16 to 47 | the sample codecs |
 | 48 | `LZ4` payloads |
 | 49 | `SERIES`, reserved |
@@ -1874,6 +1875,35 @@ A `ww_si` quantity's prefix becomes the grid's scale. A change of prefix seals t
 The wire codecs of `Series<T>` and these sample codecs are separate layers. A batch is decoded once on the host and
 coded again for random access in the file.
 
+### 12.4 Sample flags {#sample-flags}
+
+A sample may carry a u32 flags word: an overrange, a dropout, a marker. A series chunk keeps its samples' words in a
+`Flags` column in codec `FLAG_RUNS` (5), as runs of consecutive samples sharing a word ([series module
+docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/series/mod.rs)):
+
+```text
+n × run, n from 1 to FLAG_RUNS_MAX, ascending:
+  u32  first: the run's first sample, counted from the chunk's first
+  u32  count: samples in the run, 1 and up
+  u32  flags: their flags word, not 0
+```
+
+A sample in no run has the word 0. A chunk with no flagged sample has no such column. An unflagged series therefore
+costs no byte.
+
+The runs lie within the chunk's samples and apart. Two runs that touch have other words, since a writer merges them.
+The column is therefore in one form only, and a reader refuses any other (`FlagRunsError`).
+
+A chunk holds at most `FLAG_RUNS_MAX` (4096) runs, 48 KiB. A writer seals the chunk before samples that would start
+one more.
+
+The chunk is the source of the flags. The series summaries OR them into their nodes. A writer resumed after a crash
+rebuilds those nodes from the kept chunks alone, their samples and runs (`SeriesSummaries::push_runs`). The piece
+therefore goes on with the bytes it would have had without the crash.
+
+`Chunk::flag_runs` reads the runs in place. `FlagRuns::spans` cuts a chunk's samples where their word changes, and
+`FlagRunsBuilder` writes the column as samples come.
+
 ## 13 Sample codecs {#sample-codecs}
 
 [Series](series.md) explains series, sample codecs and why fixed point comes first.
@@ -2083,6 +2113,7 @@ A value past its cap is damage, refused with an error; no file a writer of this 
 | `SEGMENT_SHIFT_MAX` | 24 | a chunk's segment shift (16 MiB segments) |
 | `MAX_SEGMENTS` | 16384 | a chunk's segments |
 | `SERIES_ITEMS_MAX` | 65535 | the items of a chunk with a series payloads column |
+| `FLAG_RUNS_MAX` | 4096 | the flag runs of a series chunk |
 | `WIDTH_MAX` | 64 | a bit width (`bitpack::Width`) |
 | `KERNEL_WIDTH_MAX` | 32 | a bit width the 32-bit kernels unpack |
 | `SLOPE_MAX` | 2^55 | a start group's slope (Q16 ticks per item) |

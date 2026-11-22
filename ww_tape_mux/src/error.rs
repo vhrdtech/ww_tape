@@ -108,6 +108,8 @@ pub enum EncodeError {
     Samples(SampleError),
     /// The track's summaries.
     Summary(BuildError),
+    /// The flag runs of a series chunk.
+    FlagRuns(ww_tape::FlagRunsError),
 }
 
 impl core::fmt::Display for EncodeError {
@@ -117,6 +119,7 @@ impl core::fmt::Display for EncodeError {
             Self::Payloads(e) => write!(f, "encoding payloads: {e}"),
             Self::Samples(e) => write!(f, "encoding samples: {e}"),
             Self::Summary(e) => write!(f, "building summaries: {e}"),
+            Self::FlagRuns(e) => write!(f, "encoding flag runs: {e}"),
         }
     }
 }
@@ -128,6 +131,7 @@ impl core::error::Error for EncodeError {
             Self::Payloads(e) => Some(e),
             Self::Samples(e) => Some(e),
             Self::Summary(e) => Some(e),
+            Self::FlagRuns(e) => Some(e),
         }
     }
 }

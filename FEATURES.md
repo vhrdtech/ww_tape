@@ -94,6 +94,12 @@ The bytes of blocks, records, chunks, definitions and the index, in the crate `w
   - `Items` is evolvable: a variant a newer ww_tape adds reads as unknown with the rest of the definition intact. A relay stores such events as given.
   - A series' items are `Numbers` too: any width LSB or MSB first, floats of another layout, a zero offset that summaries keep exact.
   - Read more: [What a track's items are](docs/tracks.md#what-a-tracks-items-are), [Items of a track](docs/format.md#items-of-a-track), [Sample codecs](docs/format.md#sample-codecs). Tests `raw.rs`, `iq8.rs`, `series.rs`; fuzz targets `tape-series`, `tape-samples`, `tape-samples-hostile`.
+- ✅ **FMT-13 Series chunks carry their samples' flags**
+  - A series chunk keeps its samples' flags words as runs of consecutive samples sharing a word, in a `Flags` column in codec `FLAG_RUNS`. Only a chunk with a flagged sample has it, so an unflagged series keeps its bytes.
+  - The runs are in one form only, at most `FLAG_RUNS_MAX` (4096) per chunk; a writer seals a chunk before one more.
+  - The summaries derive their flags from the runs, so a resumed writer rebuilds them from the kept chunks (`SeriesSummaries::push_runs`).
+  - Readers take the runs per chunk: `Chunk::flag_runs`, `SeriesSamples::flag_runs` of a track follower.
+  - Read more: [Sample flags](docs/format.md#sample-flags). Golden file `v1-series.hex`; tests `series_flags.rs`, `mux_resume.rs`; fuzz targets `tape-flags`, `tape-flags-hostile`.
 
 ## Writer (`WRITE`)
 
@@ -184,12 +190,12 @@ Writing pieces and chains, resuming them, sinks in memory, in the crate `ww_tape
   - A resumed mux rebuilds the trees of the torn piece before it first writes. It reads the kept chunks back and computes their leaves again. Kept summary blocks are not written again; lost ones are deferred again in order.
   - Given the lost items again, the chain gets the bytes of the run without the crash, in both layouts.
   - A tree rebuilt for a track written without summaries is dropped by the track's next chunk. With no such chunk left in the piece, it writes blocks the run without the crash didn't.
-  - Missing: series flags (`push_flagged`) live in the summaries only, so kept samples' leaves are rebuilt without them.
+  - Series flags (`push_flagged`) are kept in the chunks' flag runs (FMT-13), so kept samples' leaves are rebuilt with them.
   - A quiet handle's open chunk is sealed by the writing thread when its latency is up, behind the handle's earlier units.
   - Items are checked at the call: start order, spans, flags, relation counts and monotone values, payload length.
   - Missing: a resumed chain's track starts are passed by the caller (`first_item`); the mux doesn't give them yet.
   - `EventsHandle::push_all` takes a batch of `Event`s in one pass, the bytes of pushing them one by one. One events producer writes 56.0 M events/s through the mux, one thread writing directly 54.8 (bench `handles`).
-  - Tests `mux_handles.rs`, `split_tests.rs`, `placed.rs`, `mux_resume.rs`.
+  - Tests `mux_handles.rs`, `split_tests.rs`, `placed.rs`, `mux_resume.rs`, `series_flags.rs`.
   - Bench `handles` (`just bench-handles`): direct writer against the mux by 1, 4 and 16 tracks.
 - ✅ **WRITE-14 Async twins of the mux's and the followers' waits**
   - Every call that waits has an `_async` twin. Handles: send, put, push, regrid, seal, finish, flush, sync.
