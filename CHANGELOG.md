@@ -6,6 +6,8 @@ benchmarks, golden files and book pages.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-22
+
 ### Features
 
 - New crate `ww_tape_mux`: `TapeMux` writes a chain from its own thread; producers send through handles over a byte-bounded queue (WRITE-12).
