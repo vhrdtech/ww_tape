@@ -9,7 +9,7 @@ benchmarks, golden files and book pages.
 ### Features
 
 - `Drive::record_unplaced` records the drive's hour through the mux without a writer round trip per act (EX-3).
-- Book pages "Keeping what matters of a 10 Gbps link" and "Keeping the bursts of a fast band", measured by benches (EX-2).
+- Book pages on a 10 Gbps link and a fast band captured into memory, measured by benches (EX-2, EX-4).
 - `ww_tape_example::ethernet`: a protocol analyser's frames and decoded headers, spread over receive queues and muxes (EX-2).
 - `ww_tape_example::wideband`: a 1 GS/s receiver in channels over several muxes, with an overview from summaries (EX-2).
 - `just bench-ethernet` and `just bench-wideband` record both cases at full speed; `bench-book` runs them (EX-2).
@@ -26,7 +26,7 @@ benchmarks, golden files and book pages.
 - `ww_tape_example::window`: a capture into memory chains, a triage thread each, keeping what its analyser picks (EX-4).
 - `ethernet::ram`: a chain per port keeps the pieces around each TCP reset and logs the resets (EX-4).
 - `wideband::ram`: a 250 MS/s receiver into memory; energy detection on summaries keeps the pieces around bursts (EX-4).
-- The analyser's link sends a TCP reset in one frame of 4 million by default, `Link::resets` sets the rate (EX-4).
+- The analyser's link sends a TCP reset in one frame of 4 million; `Link::resets` sets the rate (EX-4).
 
 ### Fixes
 

@@ -118,8 +118,8 @@ fn a_full_window_drops_the_oldest_pieces_unread() {
         "the window filled: {}",
         t.held_max
     );
-    // one piece read before the wait, then what is left once the capture ended: what fits the window, and the last
-    // piece if it closed later
+    // the analyser reads one piece and is held back; once the capture ended it reads what fits the window, and the
+    // last piece if it closed later
     assert!(t.kept.iter().all(|s| !t.overrun.contains(s)));
     assert_eq!(t.kept.len() as u64, t.looked);
     assert!(t.looked <= 1 + 9, "{} read", t.looked);
