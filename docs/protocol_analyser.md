@@ -82,7 +82,7 @@ memory, a [`MemTapes`] that keeps each [[piece]] as a tape of its own. The [[mux
 28 ms of the link. The pieces held in memory form the **window**: the newest stretch of the capture.
 
 A mux writes its chain from one thread, which copies every byte of the capture into memory. One such thread for both
-ports only just keeps pace with the link, as the bench below shows. So each port goes into a chain of its own, with a
+ports falls just short of the link's pace, as the bench below shows. So each port goes into a chain of its own, with a
 mux of its own and a triage thread of its own ([`RamCapture::chains`]).
 
 A triage thread reads each chain's window while the capture goes on. It waits on the mux's [`ProgressWatch`] and opens
@@ -139,7 +139,7 @@ per second of that time: a value of 1 or more keeps up with the link. "Wall ms" 
 the last pieces. "Tape MB per s" is what a second of the link takes in memory. "Window s" is how many seconds of the
 link half the machine's memory holds: how long a verdict may wait.
 
-In one chain, the mux's writing thread sets the pace: more receive queues barely raise it. A chain per port splits the
+In one chain, the mux's writing thread sets the pace: more receive queues do not raise it. A chain per port splits the
 copying over two writing threads, and with 4 queues a port the capture runs ahead of the link.
 
 --8<-- "docs/plots/bench_ethernet_triage.txt"
