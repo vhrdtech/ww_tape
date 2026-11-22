@@ -34,3 +34,14 @@ fn one_thread_per_source_writes_the_items_of_the_story() {
     assert_eq!(got.frames, want.frames, "frames of can0");
     assert_eq!(got.samples, want.samples, "samples of phase_a");
 }
+
+#[test]
+fn a_run_recorded_without_positions_has_the_same_bytes() {
+    let drive = Drive::scaled(1000)
+        .expect("1000 divides the rates")
+        .minutes(20);
+    let placed = drive.record().expect("the run records");
+    let unplaced = drive.record_unplaced().expect("the run records unplaced");
+    assert_eq!(unplaced.pieces, placed.pieces);
+    assert!(unplaced.crash(1).is_err(), "no positions to crash by");
+}

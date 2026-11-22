@@ -6,6 +6,10 @@ benchmarks, golden files and book pages.
 
 ## [Unreleased]
 
+### Features
+
+- `Drive::record_unplaced` records the drive's hour through the mux without a writer round trip per act (WRITE-15).
+
 ### Fixes
 
 - A resumed `TapeMux` writes no summary tree for a track its handle writes without summaries (WRITE-13).

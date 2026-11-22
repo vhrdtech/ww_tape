@@ -81,7 +81,7 @@ fn record(drive: &Drive, rounds: u32) -> anyhow::Result<(f64, Recording)> {
     let mut last = None;
     for _ in 0..rounds {
         let t = Instant::now();
-        let rec = drive.record()?;
+        let rec = drive.record_unplaced()?;
         best = best.min(t.elapsed().as_secs_f64());
         last = Some(rec);
     }

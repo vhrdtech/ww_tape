@@ -363,6 +363,8 @@ pub(crate) struct Recorder<T: Tapes = MemTapes> {
     watch: ProgressWatch,
     /// The piece and its bytes after the last act.
     seen: (u64, u64),
+    /// Whether each act waits until it is placed, to say where it lies: only a crash and its resume need that.
+    placed: bool,
 }
 // --8<-- [end:recorder_item]
 
@@ -433,7 +435,14 @@ where
             phase_a: None,
             watch,
             seen: (p.piece, p.piece_bytes),
+            placed: true,
         })
+    }
+
+    /// The recorder without positions: an act is handed over and the next one made while the writer places it.
+    fn unplaced(mut self) -> Self {
+        self.placed = false;
+        self
     }
 
     /// The handle of `phase_a`, started at the item and tick of `head` when it has none yet.
@@ -512,6 +521,9 @@ where
             made.first_item = head.first_item.get();
             made.items = u64::from(head.count);
         }
+        if !self.placed {
+            return Ok(made);
+        }
         self.mux.flush()?;
         let p = self.watch.get();
         if p.piece == self.seen.0 {
@@ -579,6 +591,9 @@ fn lost(act: &Act, made: &Made, piece: u64, kept: u64) -> bool {
     }
 }
 
+/// What a recording made without positions refuses.
+const UNPLACED: &str = "a recording made without positions";
+
 /// A recording of the drive: its pieces in chain order.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Recording {
@@ -592,6 +607,8 @@ pub struct Recording {
     pub numbers: DriveNumbers,
     /// What each act did, in order.
     pub(crate) made: Vec<Made>,
+    /// Whether `made` says where each act was written: not for [Drive::record_unplaced].
+    placed: bool,
 }
 
 impl Recording {
@@ -642,6 +659,7 @@ impl Recording {
     /// The puts of the mode made in piece `piece`, and the ticks of those that wrote a record: the first record of a
     /// mode, its copy, or the mode again once its record lies more than `near` behind.
     pub fn mode_puts(&self, piece: u64) -> (usize, Vec<i64>) {
+        debug_assert!(self.placed, "{UNPLACED}");
         let puts = self
             .made
             .iter()
@@ -656,6 +674,9 @@ impl Recording {
 
     /// This recording cut off at `byte` ([Drive::crash]).
     pub fn crash(&self, byte: u64) -> Result<Crashed, Error> {
+        if !self.placed {
+            return Err(Error::Settings(UNPLACED));
+        }
         let (piece, offset) = self.locate(byte).ok_or(Error::Settings(CRASH_PAST_END))?;
         let at = usize::try_from(piece).map_err(|_e| Error::Settings("a piece number"))?;
         let torn = self
@@ -762,7 +783,7 @@ impl Crashed {
             resumed,
             lost: lost_acts,
             replayed,
-            recording: close(self.drive, r, &self.tapes, made)?,
+            recording: close(self.drive, r, &self.tapes, made, true)?,
         })
     }
 }
@@ -778,6 +799,7 @@ fn close(
     r: Recorder,
     tapes: &MemTapes,
     mut made: Vec<Made>,
+    placed: bool,
 ) -> Result<Recording, Error> {
     let numbers = r.numbers;
     let closed = r.finish()?;
@@ -799,6 +821,7 @@ fn close(
         closed,
         numbers,
         made,
+        placed,
     })
 }
 
@@ -900,6 +923,19 @@ impl Drive {
         self.record_acts(&Acts::new(*self)?.collect::<Result<Vec<_>, _>>()?)
     }
 
+    /// Record the run whole and close the chain, without waiting for the writer after each act: the same bytes as
+    /// [Drive::record], made while the producer and the writer thread overlap. The recording cannot [Recording::crash]:
+    /// it does not know where each act was written.
+    pub fn record_unplaced(&self) -> Result<Recording, Error> {
+        let tapes = MemTapes::new();
+        let mut r = Recorder::create(self, &tapes)?.unplaced();
+        let mut made = Vec::new();
+        for act in Acts::new(*self)? {
+            made.push(r.apply(&act?)?);
+        }
+        close(*self, r, &tapes, made, false)
+    }
+
     /// Record `acts`, made by [Drive::acts] of a run that differs from this one in its byte policies only: the same
     /// recording as [Drive::record], without making the acts again.
     pub(crate) fn record_acts(&self, acts: &[Act]) -> Result<Recording, Error> {
@@ -909,7 +945,7 @@ impl Drive {
             .iter()
             .map(|act| r.apply(act))
             .collect::<Result<Vec<_>, _>>()?;
-        close(*self, r, &tapes, made)
+        close(*self, r, &tapes, made, true)
     }
 
     /// Record the run, then cut its bytes at `byte`: the recording ends after `byte` bytes, its last piece unclosed.
