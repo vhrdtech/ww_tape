@@ -310,6 +310,8 @@ fn place<T: Tapes>(
                 Some(f) => Err(MuxError::Failed(f.clone())),
                 None => cut(chain, defs, st).map_err(|e| refused(chain, shared, e)),
             };
+            // the caller may ask the watch as soon as it has the reply
+            shared.watch.publish(chain, None);
             reply.send(r);
         }
         Work::Flush { sync, reply } => {
@@ -321,6 +323,7 @@ fn place<T: Tapes>(
                     .map_err(|e| refused(chain, shared, e)),
                 None => Ok(()),
             };
+            shared.watch.publish(chain, None);
             reply.send(r);
         }
         Work::Close { reason, reply } => return Some(Exit::Close(reason, reply)),

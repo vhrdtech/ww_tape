@@ -115,6 +115,8 @@ impl Watch {
 ///
 /// A reader of the same tapes ([ww_tape::MemTapes], or files) waits here instead of polling, then reads the piece up
 /// to [Progress::piece_bytes]. Cloned freely; it outlives the mux, whose end it reports ([Progress::ended]).
+///
+/// A [sync](crate::TapeMux::sync), flush or cut shows here before it returns.
 #[derive(Clone)]
 pub struct ProgressWatch {
     watch: Arc<Watch>,
