@@ -19,7 +19,29 @@ point to where their sections went:
 - [Damage and recovery](recovery.md).
 
 The byte layouts on this page are copied from the module docs of the crate `ww_tape`, and a test checks that they match.
-Numbers are little endian.
+
+## Conventions
+
+The layouts on this page share a few rules. A reader in another language needs them before the first block.
+
+- **Numbers** are little endian: `u8` to `u64` unsigned, `i64` signed in two's complement. Only the sample codecs that
+  say so store big endian ([Sample codecs](#sample-codecs)).
+- **`uvar`** is LEB128: 7 bits per byte, low bits first, the top bit set on every byte but the last, at most 10 bytes.
+  **`ivar`** is a signed number, zigzag-coded (`(n << 1) ^ (n >> 63)`) and then written as a `uvar`.
+- **CRC-32C** is the Castagnoli CRC (`CRC_32_ISCSI`): polynomial 82F63B78h reflected, initial value and final XOR
+  FFFFFFFFh. The nine ASCII bytes `123456789` give E3069283h. Every block ends with one, and chunk and index blocks
+  also check their heads with one.
+- **BLAKE3** gives the content hash, the unit and track hashes, the item hashes and the piece ids. An item hash
+  (`ItemHash`) is BLAKE3 of the item's bytes, cut to its first 16 bytes.
+- **Offsets** in an index entry, a close or a tail count from the start of the piece. Offsets inside a
+  block count from the start of that block.
+- **Times** are `i64` ticks of a clock that a definition names ([Definitions on track 0](#definitions-on-track-0)).
+- **Sizes** use binary units: 1 KiB is 1,024 bytes and 1 MiB is 1,048,576 bytes. 1 Mi entries is 1,048,576 entries.
+- **Reserved** bytes are written as 0. Whether a reader ignores or refuses a reserved field that is not 0 is stated
+  per field.
+
+A reader checks each value it takes from the bytes against a cap before the value sizes anything ([Caps on what
+a reader takes](#caps-on-what-a-reader-takes)).
 
 ## Files
 
@@ -167,8 +189,7 @@ Header bytes 6..8 hold flags. A reader ignores the bits it doesn't know.
 A **records block** (kind 1) holds records: items on tracks at times. Its body starts with a clock table, which lists
 the clocks its records count, then holds the records back to back.
 
-In the layouts, `uvar` is LEB128 (7 bits per byte, low bits first, at most 10 bytes). `ivar` is a signed number,
-zigzag-coded and then written as a `uvar`:
+The body uses `uvar` and `ivar` ([Conventions](#conventions)):
 
 ```text
 uvar n, n × uvar clock number (ascending, 1 and up): the clocks of the block's records; slot i is the i-th
