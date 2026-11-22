@@ -50,9 +50,14 @@
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
+use shrink_wrap::prelude::*;
 use ww_tape::reader::ReadError;
-use ww_tape::{ByteSource, MemError, MemTape, MemTapes, TapeReader, TapeSink, Tapes};
-use ww_tape_mux::ProgressWatch;
+use ww_tape::{
+    ByteSource, ChainOptions, ClockNum, Ends, EventsDef, Items, MemError, MemTape, MemTapes,
+    OwnerId, PieceTapes, Segment, TapeReader, TapeSink, Tapes, TrackKind, TrackRepeat, TrackSpec,
+    track_key,
+};
+use ww_tape_mux::{Event, EventsHandle, MuxError, MuxOptions, ProgressWatch, TapeMux};
 
 /// Bytes [triage] copies from memory to the kept store in one write.
 pub const COPY_BYTES: usize = 4 << 20;
@@ -191,7 +196,10 @@ impl Run {
             let oldest = match self.read.pop_front() {
                 Some(read) => read,
                 None => match ram.keys().map_err(WindowError::Ram)?.first() {
-                    Some(&first) if first <= seq && ram.closed(&first).map_err(WindowError::Ram)?.is_some() => {
+                    Some(&first)
+                        if first <= seq
+                            && ram.closed(&first).map_err(WindowError::Ram)?.is_some() =>
+                    {
                         self.out.overrun.push(first);
                         first
                     }
@@ -262,7 +270,9 @@ impl Run {
             tape.size().map_err(WindowError::Ram)?,
         );
         while at < end {
-            let n = usize::try_from(end - at).unwrap_or(COPY_BYTES).min(COPY_BYTES);
+            let n = usize::try_from(end - at)
+                .unwrap_or(COPY_BYTES)
+                .min(COPY_BYTES);
             self.buf.resize(n, 0);
             tape.read_at(at, &mut self.buf).map_err(WindowError::Ram)?;
             sink.write_all(&self.buf).map_err(WindowError::Kept)?;
@@ -277,6 +287,215 @@ impl Run {
         ram.remove(&seq).map_err(WindowError::Ram)?;
         Ok(())
     }
+}
+
+/// Capture into a window in memory: `record` writes the capture through a mux into a chain in memory cut by
+/// `options`, a tape per piece, while [triage] runs `analyser` over it on a thread of its own.
+///
+/// What `record` returned and what the triage did. The mux closes once `record` returns, so `record` ends its
+/// handles first.
+///
+/// # Errors
+///
+/// The capture's error, the mux's, or the triage's.
+pub fn run<K, A, X, C>(
+    owner: OwnerId,
+    options: ChainOptions,
+    window: Window,
+    kept: &mut K,
+    analyser: A,
+    record: impl FnOnce(&TapeMux<MemTapes>) -> Result<X, C>,
+) -> Result<Ran<X>, RunError<C, K::Error, A::Error>>
+where
+    K: Tapes + Send,
+    A: Analyser + Send,
+    A::Error: Send,
+    K::Error: Send,
+{
+    let ram = MemTapes::new();
+    let options = ChainOptions {
+        tapes: PieceTapes::Each,
+        ..options
+    };
+    let mux = TapeMux::create(ram.clone(), owner, 0, &[], options, MuxOptions::default())
+        .map_err(RunError::Mux)?;
+    let watch = mux.watch();
+    std::thread::scope(|s| {
+        let triaged = s.spawn(|| triage(&ram, &watch, window, kept, analyser));
+        let recorded = record(&mux);
+        // a mux closed, or dropped after a failed capture, ends the triage
+        let closed = mux.close();
+        let triaged = triaged
+            .join()
+            .map_err(|_panic| RunError::Thread("the triage"))?;
+        let recorded = recorded.map_err(RunError::Capture)?;
+        closed.map_err(RunError::Mux)?;
+        Ok(Ran {
+            recorded,
+            triaged: triaged.map_err(RunError::Window)?,
+        })
+    })
+}
+
+/// What [run] gives: what the capture returned and what the triage did.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Ran<X> {
+    pub recorded: X,
+    pub triaged: Triaged,
+}
+
+/// Why [run] failed: `C` is the capture's error, `K` the kept store's, `A` the analyser's.
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum RunError<C, K, A> {
+    Capture(C),
+    /// The mux of the chain in memory.
+    Mux(MuxError<MemError>),
+    Window(WindowError<K, A>),
+    /// A thread panicked.
+    Thread(&'static str),
+}
+
+impl<C: core::fmt::Debug, K: core::fmt::Debug, A: core::fmt::Debug> core::fmt::Display
+    for RunError<C, K, A>
+{
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Capture(e) => write!(f, "the capture: {e:?}"),
+            Self::Mux(e) => write!(f, "the mux in memory: {e:?}"),
+            Self::Window(e) => write!(f, "{e}"),
+            Self::Thread(what) => write!(f, "{what} panicked"),
+        }
+    }
+}
+
+impl<C: core::fmt::Debug, K: core::fmt::Debug, A: core::fmt::Debug> core::error::Error
+    for RunError<C, K, A>
+{
+}
+
+/// Why an analyser failed: `P` is what reading a piece in memory failed with, `R` the error of the store its results
+/// go to.
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum LookError<P, R> {
+    /// A piece in memory that doesn't read as the capture writes it.
+    Piece(P),
+    /// The mux of the results, or a handle of it.
+    Results(MuxError<R>),
+}
+
+impl<P, R> From<MuxError<R>> for LookError<P, R> {
+    fn from(e: MuxError<R>) -> Self {
+        Self::Results(e)
+    }
+}
+
+/// The track `kept` of an analyser's results under `root`, on `clock`: a span per piece kept, from its first item's
+/// tick to its last one's, the piece's sequence number as 8 bytes little-endian.
+pub fn kept_spec(root: u64, clock: ClockNum) -> TrackSpec<'static> {
+    TrackSpec {
+        key: track_key(root, &[Segment::Name("kept")]),
+        clock,
+        dimensions: RefVec::Slice { slice: &[] },
+        items: Items::RawBytes,
+        label: "kept",
+        repeat: TrackRepeat::Stream,
+        kind: TrackKind::Events(EventsDef {
+            ends: Ends::Spans,
+            flags: false,
+        }),
+        relations: RefVec::Slice { slice: &[] },
+        owner: [0; 32],
+    }
+}
+
+/// The pieces a window kept, for an analyser's track `kept` ([kept_spec]): noted as each is kept, pushed in time
+/// order at the end.
+///
+/// A piece holds chunks of several tracks, each cut where it filled, so a later piece may start before an earlier
+/// one. The log sorts the spans by their start before it pushes them.
+pub struct KeptLog<T>
+where
+    T: Tapes + Send + 'static,
+    T::Sink: Send,
+    T::Key: Send,
+    T::Error: Send + Sync,
+{
+    handle: EventsHandle<T>,
+    spans: Vec<(i64, i64, u64)>,
+}
+
+impl<T> KeptLog<T>
+where
+    T: Tapes + Send + 'static,
+    T::Sink: Send,
+    T::Key: Send,
+    T::Error: Send + Sync,
+{
+    /// A log pushing into `handle`, the handle of a track [kept_spec] defines.
+    pub fn new(handle: EventsHandle<T>) -> Self {
+        Self {
+            handle,
+            spans: Vec::new(),
+        }
+    }
+
+    /// Note piece `seq`, kept: its span ([span]). A piece without chunks takes no item.
+    ///
+    /// # Errors
+    ///
+    /// A piece whose index doesn't read.
+    pub fn note(
+        &mut self,
+        seq: u64,
+        piece: &TapeReader<MemTape>,
+    ) -> Result<(), ReadError<MemError>> {
+        if let Some((start, end)) = span(piece)? {
+            self.spans.push((start, end, seq));
+        }
+        Ok(())
+    }
+
+    /// Push every piece noted, in the order of their starts, and end the handle.
+    ///
+    /// # Errors
+    ///
+    /// A push the mux refused.
+    pub fn finish(mut self) -> Result<(), MuxError<T::Error>> {
+        self.spans.sort_unstable();
+        for (start, end, seq) in &self.spans {
+            self.handle.push_all(&[Event {
+                start: *start,
+                end: *end,
+                payload: &seq.to_le_bytes(),
+                ..Event::default()
+            }])?;
+        }
+        self.handle.finish()
+    }
+}
+
+/// The ticks of the first and the last item of a piece: the smallest first tick and the largest last tick of its
+/// chunks' index entries; None for a piece without chunks.
+///
+/// # Errors
+///
+/// A piece whose index doesn't read.
+pub fn span(piece: &TapeReader<MemTape>) -> Result<Option<(i64, i64)>, ReadError<MemError>> {
+    let mut span: Option<(i64, i64)> = None;
+    for e in piece.entries(0)? {
+        if !matches!(
+            e.kind,
+            ww_tape::BlockKind::Events | ww_tape::BlockKind::Series
+        ) {
+            continue;
+        }
+        span = Some(span.map_or((e.first_tick, e.last_tick), |(a, b)| {
+            (a.min(e.first_tick), b.max(e.last_tick))
+        }));
+    }
+    Ok(span)
 }
 
 /// Bytes the tapes of `ram` hold, the one being written included.

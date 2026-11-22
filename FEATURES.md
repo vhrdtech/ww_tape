@@ -371,6 +371,13 @@ The book's running example and its other cases, in the crate `ww_tape_example`.
 
   Read more: [The drive with one thread per source](docs/writing_thread.md#the-drive-with-one-thread-per-source). Tests `handles.rs`.
 
+- 🚧 **EX-4 Capture into memory, keep what matters**
+
+  `window` runs a capture into a chain of pieces in memory while an analyser reads each piece as it closes. The pieces it keeps, with their neighbours, are copied to a store of their own, and the rest leave memory unwritten. `ethernet::ram` keeps the pieces around each TCP reset on the 10 Gbps link and writes the resets it finds to a results chain.
+  - Open: the RF receiver's capture with energy detection, the benches and the book pages.
+
+  Read more: tests `window.rs`, `ethernet_ram.rs`.
+
 ## Repository (`REPO`)
 
 Crates, checks, fuzzing and benches.
