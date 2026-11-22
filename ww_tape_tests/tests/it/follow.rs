@@ -420,6 +420,100 @@ fn a_follower_reads_on_after_a_writer_killed_anywhere() {
     seen.is_chain_of(&dir);
 }
 
+/// A writer crashed at any byte, a cut's included: the follower hands out what the crash left, the resume writes on
+/// from what it keeps, and the follower reads on to the close, every block once and none the resume took back.
+///
+/// The crash points are each block's start and end in every piece of a finished chain, and bytes inside each block;
+/// each is a prefix of that chain, as the writer leaves it when killed there.
+#[test]
+fn a_follower_reads_on_after_a_crash_at_any_byte() {
+    let whole = scratch("follow-any-whole");
+    let mux =
+        ww_tape_fs::mux::create(&whole, OWNER, 0, &[], options(4), MuxOptions::default()).unwrap();
+    let senders = define(&mux);
+    for k in 0..3 {
+        for (t, s) in senders.iter().enumerate() {
+            send(s, t as u64, k);
+        }
+    }
+    drop(senders);
+    mux.close().unwrap();
+    // written on after its close: an append head and a second close in the last piece
+    let (mux, _) =
+        ww_tape_fs::mux::resume(&whole, OWNER, 0, options(4), MuxOptions::default()).unwrap();
+    let senders = define(&mux);
+    for (t, s) in senders.iter().enumerate() {
+        send(s, t as u64, 3);
+    }
+    drop(senders);
+    mux.close().unwrap();
+    let pieces: Vec<Vec<u8>> = (0..)
+        .map_while(|seq| std::fs::read(whole.join(ww_tape_fs::piece_name(seq))).ok())
+        .collect();
+    assert!(
+        pieces.len() >= 3,
+        "a cut every 4 chunks: 9 chunks span pieces"
+    );
+
+    let mut points = Vec::new();
+    for (seq, bytes) in pieces.iter().enumerate() {
+        points.push((seq, 0));
+        for (offset, block) in walk(bytes) {
+            let len = block.len() as u64;
+            for at in [
+                offset,
+                offset + 1,
+                offset + len / 2,
+                offset + len - 1,
+                offset + len,
+            ] {
+                points.push((seq, at as usize));
+            }
+        }
+    }
+    points.sort_unstable();
+    points.dedup();
+    let dir = scratch("follow-any");
+    for (seq, at) in points {
+        std::fs::remove_dir_all(&dir).unwrap();
+        std::fs::create_dir_all(&dir).unwrap();
+        for (s, bytes) in pieces.iter().enumerate().take(seq + 1) {
+            let end = if s == seq { at } else { bytes.len() };
+            std::fs::write(dir.join(ww_tape_fs::piece_name(s as u64)), &bytes[..end]).unwrap();
+        }
+        let mut f = ChainFollower::new(&dir, FollowOptions::default()).unwrap();
+        let mut seen = Seen::default();
+        seen.drain(&mut f);
+        let from: Vec<u64> = (0..TRACKS).map(|t| seen.end_of(t) / 50).collect();
+        let Ok((mux, _)) =
+            ww_tape_fs::mux::resume(&dir, OWNER, 0, options(4), MuxOptions::default())
+        else {
+            // a crash inside the first piece's head leaves nothing to resume
+            assert_eq!((seq, seen.blocks.len()), (0, 0), "crash at {seq}:{at}");
+            continue;
+        };
+        let senders = define(&mux);
+        for r in 0..2 {
+            for (t, s) in senders.iter().enumerate() {
+                send(s, t as u64, from[t] + r);
+            }
+        }
+        drop(senders);
+        mux.close().unwrap();
+        seen.drain(&mut f);
+        assert!(
+            f.is_closed(),
+            "crash at {seq}:{at}: the follower reads to the close, stopped {:?} in piece {:?}",
+            f.stopped(),
+            f.piece()
+        );
+        for (t, k) in from.iter().enumerate() {
+            assert_eq!(seen.end_of(t as u64), (k + 2) * 50, "crash at {seq}:{at}");
+        }
+        seen.is_chain_of(&dir);
+    }
+}
+
 /// A follower waiting on another thread wakes as the writer writes, and its wait ends at the close.
 #[test]
 fn a_waiting_follower_wakes_for_each_write_and_ends_at_the_close() {

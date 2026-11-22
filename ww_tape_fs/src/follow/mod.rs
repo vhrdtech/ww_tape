@@ -4,8 +4,9 @@
 //! A follower reads the piece being written by its valid prefix ([FileBlocks]) and remembers where that prefix ends
 //! ([WalkPoint]). When the file grows it reads on from there; what it read past the point and didn't hand out (a
 //! block the writer is still writing, or a torn end a crash left) is read again. A writer that resumes after a crash
-//! cuts back only that torn end and writes on, so the follower never hands out a block that doesn't check, and never
-//! one that a resume took back.
+//! cuts back that torn end, and the blocks that wait for one after them: puts that belong with the next block, and a
+//! piece's end before its tail. The follower holds such blocks back until the block they wait for checks, then hands
+//! them out with it. So it never hands out a block that doesn't check, and never one that a resume took back.
 //!
 //! At the tail of a piece whose close names a next piece, the follower moves to the next piece's file
 //! ([crate::piece_name]); in a chain of one file ([PieceTapes::One]) the next piece follows in the same file. A piece
@@ -29,10 +30,11 @@ use std::io::{Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use ww_tape::index::{IndexBlock, IndexKind};
 use ww_tape::piece::Tail;
 use ww_tape::{
-    BlockBuf, BlockKind, Cut, Definitions, DescribeError, FileBlocks, FileError, Medium,
-    PieceTapes, RecordTrack, WalkPoint,
+    BlockBuf, BlockKind, Cut, Definitions, DescribeError, FLAG_WITH_NEXT, FileBlocks, FileError,
+    Medium, PieceTapes, RecordTrack, WalkPoint,
 };
 
 pub use merge::{Merged, TimeMerge};
@@ -344,11 +346,14 @@ impl ChainFollower {
     }
 
     /// Walk `file` of piece `piece` from the point on; the next piece's seq when a tail naming one ended the walk.
+    ///
+    /// A block a resume may still take back ([held_back]) is handed out with the block it waits for; until that
+    /// block checks, the point stays before it and the next walk reads it again.
     fn walk(&mut self, piece: u64, mut file: &File) -> Result<Option<u64>, FollowError> {
         file.seek(SeekFrom::Start(self.point.offset()))?;
         let mut walk = FileBlocks::resume(file, self.point);
         self.stopped = None;
-        let mut buf = Vec::new();
+        let mut held: Vec<(u64, BlockBuf)> = Vec::new();
         while let Some(next) = walk.next_block() {
             let bytes = match next {
                 Ok(b) if b.is_intact() => b.bytes().to_vec(),
@@ -369,41 +374,73 @@ impl ChainFollower {
             let Some(point) = walk.point() else {
                 break;
             };
-            self.point = point;
-            let b = block.block();
-            self.closed = false;
-            let mut next_piece = None;
-            match b.kind {
-                BlockKind::Records => {
-                    let held =
-                        b.decode(&mut buf)
-                            .map_err(DescribeError::Block)
-                            .and_then(|d| match d.first_track() {
-                                Some(RecordTrack::Definitions) => self.defs.take_block(&d),
-                                _ => Ok(0),
-                            });
-                    if let Err(error) = held {
-                        self.ready
-                            .push_back(Err(FollowError::Definitions { offset, error }));
-                    }
-                }
-                BlockKind::Tail => match Tail::read(block.bytes()).map(|t| t.next) {
-                    Ok(Some(_)) => next_piece = piece.checked_add(1),
-                    Ok(None) => self.closed = true,
-                    Err(_) => {}
-                },
-                _ => {}
+            if held_back(&block) {
+                held.push((offset, block));
+                continue;
             }
-            self.ready.push_back(Ok(Followed {
-                piece,
-                offset,
-                block,
-            }));
+            self.point = point;
+            let mut next_piece = None;
+            for (offset, block) in held.drain(..).chain([(offset, block)]) {
+                next_piece = self.hand_out(piece, offset, block);
+            }
             if next_piece.is_some() {
                 return Ok(next_piece);
             }
         }
         Ok(None)
+    }
+
+    /// Take the definitions of `block` at `offset` of `piece`, note a close, and queue it; the next piece's seq when
+    /// it is a tail naming one.
+    fn hand_out(&mut self, piece: u64, offset: u64, block: BlockBuf) -> Option<u64> {
+        let b = block.block();
+        self.closed = false;
+        let mut next_piece = None;
+        match b.kind {
+            BlockKind::Records => {
+                let mut buf = Vec::new();
+                let held = b
+                    .decode(&mut buf)
+                    .map_err(DescribeError::Block)
+                    .and_then(|d| match d.first_track() {
+                        Some(RecordTrack::Definitions) => self.defs.take_block(&d),
+                        _ => Ok(0),
+                    });
+                if let Err(error) = held {
+                    self.ready
+                        .push_back(Err(FollowError::Definitions { offset, error }));
+                }
+            }
+            BlockKind::Tail => match Tail::read(block.bytes()).map(|t| t.next) {
+                Ok(Some(_)) => next_piece = piece.checked_add(1),
+                Ok(None) => self.closed = true,
+                Err(_) => {}
+            },
+            _ => {}
+        }
+        self.ready.push_back(Ok(Followed {
+            piece,
+            offset,
+            block,
+        }));
+        next_piece
+    }
+}
+
+/// Whether a resume after a crash right after `block` takes it back ([TapeWriter::resume_on]): puts that belong with
+/// the block after them ([FLAG_WITH_NEXT]), and what ends a piece before its tail (a close summary, a
+/// final index, a close).
+///
+/// [TapeWriter::resume_on]: ww_tape::TapeWriter::resume_on
+fn held_back(block: &BlockBuf) -> bool {
+    let b = block.block();
+    if b.flags & FLAG_WITH_NEXT != 0 {
+        return true;
+    }
+    match b.kind {
+        BlockKind::CloseSummary | BlockKind::Close => true,
+        BlockKind::Index => IndexBlock::read(&b).is_ok_and(|ix| ix.kind() == IndexKind::Final),
+        _ => false,
     }
 }
 

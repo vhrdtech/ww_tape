@@ -14,6 +14,7 @@ benchmarks, golden files and book pages.
 
 - A resumed `TapeMux` writes no summary tree for a track its handle writes without summaries (WRITE-13).
 - `TapeMux::sync`, `flush` and `cut` return only once `ProgressWatch` shows their bytes and piece (READ-6).
+- `ChainFollower` never hands out puts or a piece's end that a resume after a crash takes back (READ-6).
 
 ## [0.4.0] - 2026-11-22
 
