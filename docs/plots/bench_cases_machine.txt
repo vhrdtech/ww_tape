@@ -1,1 +1,1 @@
-The benches ran on build-1, a virtual machine with 14 logical CPUs (AMD EPYC-Genoa Processor, x86_64). Each was a release build at opt-level 3 of commit `1452bfd`, built with 14 jobs. The load average ran from 1.89 to 6.54 across the tables.
+The benches ran on gpd-omarchy, a machine with 24 logical CPUs (AMD Ryzen AI 9 HX 370 w/ Radeon 890M, x86_64) and 30 GiB of memory. Each was a release build at opt-level 3 of commit `dcd1ec15a`, built with 8 jobs. The load average ran from 2.61 to 4.83 across the tables.
