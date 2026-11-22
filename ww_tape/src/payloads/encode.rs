@@ -3,6 +3,7 @@
 use super::LENGTHS;
 use crate::chunk::{Codec, ColumnKind, ColumnSpec};
 use crate::lz4::{LZ4_DECODED_MAX, Lz4Error, lz4_encode, lz4_max_len};
+use alloc::borrow::Cow;
 use alloc::vec;
 use alloc::vec::Vec;
 use ww_tape_codecs::lengths::encode_lengths;
@@ -19,6 +20,8 @@ pub enum EncodeError {
     TooLong { len: usize },
     /// The lz4 encoder refused the payloads.
     Lz4(Lz4Error),
+    /// The lengths don't add up to the payload bytes.
+    Lengths,
 }
 
 impl core::fmt::Display for EncodeError {
@@ -30,6 +33,7 @@ impl core::fmt::Display for EncodeError {
                 write!(f, "{len} bytes of payloads, over {LZ4_DECODED_MAX}")
             }
             Self::Lz4(_) => write!(f, "lz4 encoder refused the payloads"),
+            Self::Lengths => write!(f, "lengths don't add up to the payload bytes"),
         }
     }
 }
@@ -74,17 +78,55 @@ impl EncodedPayloads {
             lens.push(item_len);
             raw.extend_from_slice(item);
         }
+        Self::pack(&lens, Cow::Owned(raw), Vec::new())
+    }
+
+    /// Encode payloads given as their lengths in item order and their bytes one after another, as [Self::encode]
+    /// does: the same bytes. The payloads column goes into `out`, a buffer to reuse (its bytes are dropped). Refused
+    /// when the lengths don't add up to the bytes.
+    pub fn from_parts(lens: &[u32], raw: &[u8], out: Vec<u8>) -> Result<Self, EncodeError> {
+        if raw.len() > LZ4_DECODED_MAX {
+            return Err(EncodeError::TooLong { len: raw.len() });
+        }
+        if !u32::try_from(lens.len()).is_ok_and(|n| n < u32::MAX) {
+            return Err(EncodeError::TooMany);
+        }
+        let sum = lens
+            .iter()
+            .try_fold(0usize, |sum, &l| sum.checked_add(usize::try_from(l).ok()?));
+        if sum != Some(raw.len()) {
+            return Err(EncodeError::Lengths);
+        }
+        Self::pack(lens, Cow::Borrowed(raw), out)
+    }
+
+    /// Encode lengths `lens` and payload bytes `raw` checked before, the payloads column into `out`.
+    fn pack(lens: &[u32], raw: Cow<'_, [u8]>, mut out: Vec<u8>) -> Result<Self, EncodeError> {
         if lens.is_empty() {
             return Err(EncodeError::Empty);
         }
-        let lengths = encode_lengths(&lens).ok_or(EncodeError::TooLong { len: raw.len() })?;
-        let mut lz4 = vec![0u8; lz4_max_len(raw.len())];
-        let n = lz4_encode(&raw, &mut lz4).map_err(EncodeError::Lz4)?;
-        let (payloads, codec) = if n < raw.len() {
-            lz4.truncate(n);
-            (lz4, Codec::LZ4)
+        let lengths = encode_lengths(lens).ok_or(EncodeError::TooLong { len: raw.len() })?;
+        let max = lz4_max_len(raw.len());
+        if out.capacity() < max {
+            // a fresh buffer comes zeroed from the allocator
+            out = vec![0; max];
         } else {
-            (raw, Codec::RAW)
+            out.clear();
+            out.resize(max, 0);
+        }
+        let n = lz4_encode(&raw, &mut out).map_err(EncodeError::Lz4)?;
+        let (payloads, codec) = if n < raw.len() {
+            out.truncate(n);
+            (out, Codec::LZ4)
+        } else {
+            match raw {
+                Cow::Owned(raw) => (raw, Codec::RAW),
+                Cow::Borrowed(raw) => {
+                    out.clear();
+                    out.extend_from_slice(raw);
+                    (out, Codec::RAW)
+                }
+            }
         };
         Ok(Self {
             lengths,
@@ -96,6 +138,23 @@ impl EncodedPayloads {
     /// The codec of the payloads column: [Codec::RAW] or [Codec::LZ4].
     pub fn codec(&self) -> Codec {
         self.codec
+    }
+
+    /// The two columns with their bytes, taken: lengths, then payloads.
+    pub fn into_columns(self) -> [(ColumnSpec, Vec<u8>); 2] {
+        let lengths = ColumnSpec {
+            kind: ColumnKind::PayloadLengths,
+            codec: LENGTHS,
+            param: 0,
+            len: self.lengths.len(),
+        };
+        let payloads = ColumnSpec {
+            kind: ColumnKind::Payloads,
+            codec: self.codec,
+            param: 0,
+            len: self.payloads.len(),
+        };
+        [(lengths, self.lengths), (payloads, self.payloads)]
     }
 
     /// The two columns with their bytes: lengths, then payloads.

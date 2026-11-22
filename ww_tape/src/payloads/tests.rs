@@ -504,3 +504,29 @@ fn unknown_columns_are_refused_alone() {
         assert_eq!(EventTimes::read(&c).unwrap().len(), 20);
     }
 }
+
+/// Payloads given as lengths and bytes encode to the bytes of the payloads one by one; lengths that don't add up to
+/// the bytes are refused.
+#[test]
+fn from_parts_encodes_as_items_do() {
+    for (name, w) in workloads() {
+        let lens: Vec<u32> = w.iter().map(|p| p.len() as u32).collect();
+        let raw: Vec<u8> = w.concat();
+        let parts = EncodedPayloads::from_parts(&lens, &raw, vec![7; 3]).unwrap();
+        let items = EncodedPayloads::encode(w.iter().map(Vec::as_slice)).unwrap();
+        assert_eq!(parts, items, "{name}");
+        let taken = parts
+            .into_columns()
+            .map(|(spec, bytes)| (spec, bytes.to_vec()));
+        let given = items.columns().map(|(spec, bytes)| (spec, bytes.to_vec()));
+        assert_eq!(taken, given, "{name}: the columns");
+    }
+    assert_eq!(
+        EncodedPayloads::from_parts(&[1, 2], b"ab", Vec::new()),
+        Err(EncodeError::Lengths)
+    );
+    assert_eq!(
+        EncodedPayloads::from_parts(&[], b"", Vec::new()),
+        Err(EncodeError::Empty)
+    );
+}

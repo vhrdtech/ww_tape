@@ -26,6 +26,7 @@ benchmarks, golden files and book pages.
 - Every waiting call of the mux, its handles and `ProgressWatch` has an `_async` twin needing no runtime (WRITE-14).
 - `ChainFollower` and `TrackFollower` gain `wait_next_async`, woken by a thread of the follower's own (WRITE-14).
 - The RF example writes IQ and decoded bursts through two muxes into two chains, merged by a follower (WRITE-12).
+- `EncodedPayloads::from_parts` encodes payloads given as lengths and bytes into a reused buffer; `into_columns` takes the columns (WRITE-13).
 
 ## [0.3.0] - 2026-11-21
 
