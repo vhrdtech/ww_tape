@@ -1,0 +1,381 @@
+{
+  "format": 1,
+  "bench": "ethernet",
+  "version": "0.4.0 (1452bfd, commit 22 Nov 2026 15:29 UTC)",
+  "commit": "1452bfd",
+  "dirty": false,
+  "build": {
+    "profile": "release",
+    "opt_level": "3",
+    "jobs": 14
+  },
+  "settings": [
+    [
+      "ms",
+      "2000"
+    ],
+    [
+      "load %",
+      "100"
+    ],
+    [
+      "piece MiB",
+      "1024"
+    ]
+  ],
+  "machine": {
+    "host": "build-1",
+    "virtual_machine": true,
+    "cpu": "AMD EPYC-Genoa Processor",
+    "cpus": 14,
+    "arch": "x86_64",
+    "extensions": [
+      "sse4.2",
+      "avx2",
+      "avx512bw+vl"
+    ]
+  },
+  "tables": [
+    {
+      "id": "writer",
+      "title": "2000 ms of both directions of a 10 Gbps link at 100 % load: per receive queue a capture and a decoder thread. The frames come as fast as the threads take them.",
+      "columns": [
+        "Store",
+        "Queues a port",
+        "Muxes",
+        "Frames",
+        "Wall ms",
+        "M frames/s",
+        "Gbit/s",
+        "Of the link",
+        "MB/s written",
+        "Waits"
+      ],
+      "rows": [
+        [
+          "no bytes kept",
+          {
+            "value": 1.0,
+            "digits": 0
+          },
+          {
+            "value": 1.0,
+            "digits": 0
+          },
+          {
+            "value": 13104037.0,
+            "digits": 0
+          },
+          {
+            "value": 3151.5946989999998,
+            "digits": 0
+          },
+          {
+            "value": 4.157906790539376,
+            "digits": 2
+          },
+          {
+            "value": 12.691990186648047,
+            "digits": 1
+          },
+          {
+            "value": 0.6345995093324023,
+            "digits": 2
+          },
+          {
+            "value": 1525.7274755303174,
+            "digits": 0
+          },
+          {
+            "value": 0.0,
+            "digits": 0
+          }
+        ],
+        [
+          "no bytes kept",
+          {
+            "value": 2.0,
+            "digits": 0
+          },
+          {
+            "value": 1.0,
+            "digits": 0
+          },
+          {
+            "value": 13104037.0,
+            "digits": 0
+          },
+          {
+            "value": 2110.388033,
+            "digits": 0
+          },
+          {
+            "value": 6.209302173388509,
+            "digits": 2
+          },
+          {
+            "value": 18.953864581547315,
+            "digits": 1
+          },
+          {
+            "value": 0.9476932290773656,
+            "digits": 2
+          },
+          {
+            "value": 2268.9200986385617,
+            "digits": 0
+          },
+          {
+            "value": 0.0,
+            "digits": 0
+          }
+        ],
+        [
+          "no bytes kept",
+          {
+            "value": 4.0,
+            "digits": 0
+          },
+          {
+            "value": 1.0,
+            "digits": 0
+          },
+          {
+            "value": 13104037.0,
+            "digits": 0
+          },
+          {
+            "value": 1750.207423,
+            "digits": 0
+          },
+          {
+            "value": 7.487133712150871,
+            "digits": 2
+          },
+          {
+            "value": 22.85443911752853,
+            "digits": 1
+          },
+          {
+            "value": 1.1427219558764266,
+            "digits": 2
+          },
+          {
+            "value": 2721.925788564091,
+            "digits": 0
+          },
+          {
+            "value": 829.0,
+            "digits": 0
+          }
+        ],
+        [
+          "piece files",
+          {
+            "value": 4.0,
+            "digits": 0
+          },
+          {
+            "value": 1.0,
+            "digits": 0
+          },
+          {
+            "value": 13104037.0,
+            "digits": 0
+          },
+          {
+            "value": 58935.387208,
+            "digits": 0
+          },
+          {
+            "value": 0.22234582007159925,
+            "digits": 2
+          },
+          {
+            "value": 0.6787095306734546,
+            "digits": 1
+          },
+          {
+            "value": 0.03393547653367273,
+            "digits": 2
+          },
+          {
+            "value": 80.83338777747664,
+            "digits": 0
+          },
+          {
+            "value": 8310.0,
+            "digits": 0
+          }
+        ],
+        [
+          "no bytes kept",
+          {
+            "value": 1.0,
+            "digits": 0
+          },
+          {
+            "value": 2.0,
+            "digits": 0
+          },
+          {
+            "value": 13104037.0,
+            "digits": 0
+          },
+          {
+            "value": 3198.4228209999997,
+            "digits": 0
+          },
+          {
+            "value": 4.097030859698209,
+            "digits": 2
+          },
+          {
+            "value": 12.506166704842931,
+            "digits": 1
+          },
+          {
+            "value": 0.6253083352421466,
+            "digits": 2
+          },
+          {
+            "value": 1503.3419097781007,
+            "digits": 0
+          },
+          {
+            "value": 0.0,
+            "digits": 0
+          }
+        ],
+        [
+          "no bytes kept",
+          {
+            "value": 2.0,
+            "digits": 0
+          },
+          {
+            "value": 2.0,
+            "digits": 0
+          },
+          {
+            "value": 13104037.0,
+            "digits": 0
+          },
+          {
+            "value": 2106.2205559999998,
+            "digits": 0
+          },
+          {
+            "value": 6.2215882200325465,
+            "digits": 2
+          },
+          {
+            "value": 18.99136767896971,
+            "digits": 1
+          },
+          {
+            "value": 0.9495683839484854,
+            "digits": 2
+          },
+          {
+            "value": 2273.267537134416,
+            "digits": 0
+          },
+          {
+            "value": 0.0,
+            "digits": 0
+          }
+        ],
+        [
+          "no bytes kept",
+          {
+            "value": 4.0,
+            "digits": 0
+          },
+          {
+            "value": 2.0,
+            "digits": 0
+          },
+          {
+            "value": 13104037.0,
+            "digits": 0
+          },
+          {
+            "value": 1684.680886,
+            "digits": 0
+          },
+          {
+            "value": 7.778349661883681,
+            "digits": 2
+          },
+          {
+            "value": 23.743374382891883,
+            "digits": 1
+          },
+          {
+            "value": 1.187168719144594,
+            "digits": 2
+          },
+          {
+            "value": 2827.4804323980443,
+            "digits": 0
+          },
+          {
+            "value": 0.0,
+            "digits": 0
+          }
+        ],
+        [
+          "piece files",
+          {
+            "value": 4.0,
+            "digits": 0
+          },
+          {
+            "value": 2.0,
+            "digits": 0
+          },
+          {
+            "value": 13104037.0,
+            "digits": 0
+          },
+          {
+            "value": 59966.415609,
+            "digits": 0
+          },
+          {
+            "value": 0.21852293266021544,
+            "digits": 2
+          },
+          {
+            "value": 0.6670401855067128,
+            "digits": 1
+          },
+          {
+            "value": 0.03335200927533564,
+            "digits": 2
+          },
+          {
+            "value": 79.43429507374276,
+            "digits": 0
+          },
+          {
+            "value": 303.0,
+            "digits": 0
+          }
+        ]
+      ],
+      "load_before": {
+        "one": 1.92,
+        "five": 9.86,
+        "fifteen": 13.16
+      },
+      "load_after": {
+        "one": 6.54,
+        "five": 8.69,
+        "fifteen": 12.26
+      },
+      "seconds": 133.027785062
+    }
+  ]
+}

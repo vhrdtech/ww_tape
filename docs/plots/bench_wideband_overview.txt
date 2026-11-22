@@ -1,0 +1,6 @@
+| Level | Samples a node | Nodes | ms | Bytes read | Reads | Chain bytes |
+|---:|---:|---:|---:|---:|---:|---:|
+| 2 | 262 144 | 239 | 0.4 | 287 557 | 18 | 763 666 432 |
+| 3 | 4 194 304 | 15 | 0.1 | 277 883 | 11 | 763 666 432 |
+
+`just bench-wideband` on build-1, load average 4.37 before, 4.37 after.

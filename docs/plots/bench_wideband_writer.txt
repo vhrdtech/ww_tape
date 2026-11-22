@@ -1,0 +1,23 @@
+| Store | Channels | Muxes | Codec | Wall ms | MS/s | Of 1 GS/s | MB/s written | Waits |
+|---|---:|---:|---|---:|---:|---:|---:|---:|
+| no bytes kept | 4 | 1 | `PACKED12_LSB` | 1277 | 783 | 0.78 | 2393 | 0 |
+| no bytes kept | 4 | 2 | `PACKED12_LSB` | 1345 | 744 | 0.74 | 2272 | 0 |
+| no bytes kept | 4 | 4 | `PACKED12_LSB` | 1340 | 746 | 0.75 | 2280 | 0 |
+| no bytes kept | 4 | 1 | `RAW` | 996 | 1004 | 1.00 | 4072 | 3114 |
+| no bytes kept | 4 | 2 | `RAW` | 679 | 1472 | 1.47 | 5967 | 0 |
+| no bytes kept | 4 | 4 | `RAW` | 671 | 1490 | 1.49 | 6040 | 0 |
+| no bytes kept | 8 | 1 | `PACKED12_LSB` | 955 | 1047 | 1.05 | 3199 | 818 |
+| no bytes kept | 8 | 2 | `PACKED12_LSB` | 1035 | 967 | 0.97 | 2952 | 0 |
+| no bytes kept | 8 | 4 | `PACKED12_LSB` | 1063 | 941 | 0.94 | 2874 | 0 |
+| no bytes kept | 8 | 1 | `RAW` | 877 | 1141 | 1.14 | 4626 | 3713 |
+| no bytes kept | 8 | 2 | `RAW` | 663 | 1507 | 1.51 | 6111 | 2403 |
+| no bytes kept | 8 | 4 | `RAW` | 660 | 1516 | 1.52 | 6147 | 0 |
+| no bytes kept | 16 | 1 | `PACKED12_LSB` | 1007 | 993 | 0.99 | 3034 | 2913 |
+| no bytes kept | 16 | 2 | `PACKED12_LSB` | 811 | 1233 | 1.23 | 3767 | 249 |
+| no bytes kept | 16 | 4 | `PACKED12_LSB` | 930 | 1075 | 1.08 | 3285 | 0 |
+| no bytes kept | 16 | 1 | `RAW` | 902 | 1108 | 1.11 | 4495 | 3731 |
+| no bytes kept | 16 | 2 | `RAW` | 700 | 1428 | 1.43 | 5791 | 3459 |
+| no bytes kept | 16 | 4 | `RAW` | 688 | 1453 | 1.45 | 5893 | 464 |
+| piece files | 16 | 4 | `PACKED12_LSB` | 19 133 | 52 | 0.05 | 160 | 421 |
+
+`just bench-wideband` on build-1, load average 1.89 before, 4.37 after.

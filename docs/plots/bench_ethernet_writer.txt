@@ -1,0 +1,12 @@
+| Store | Queues a port | Muxes | Frames | Wall ms | M frames/s | Gbit/s | Of the link | MB/s written | Waits |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| no bytes kept | 1 | 1 | 13 104 037 | 3152 | 4.16 | 12.7 | 0.63 | 1526 | 0 |
+| no bytes kept | 2 | 1 | 13 104 037 | 2110 | 6.21 | 19.0 | 0.95 | 2269 | 0 |
+| no bytes kept | 4 | 1 | 13 104 037 | 1750 | 7.49 | 22.9 | 1.14 | 2722 | 829 |
+| piece files | 4 | 1 | 13 104 037 | 58 935 | 0.22 | 0.7 | 0.03 | 81 | 8310 |
+| no bytes kept | 1 | 2 | 13 104 037 | 3198 | 4.10 | 12.5 | 0.63 | 1503 | 0 |
+| no bytes kept | 2 | 2 | 13 104 037 | 2106 | 6.22 | 19.0 | 0.95 | 2273 | 0 |
+| no bytes kept | 4 | 2 | 13 104 037 | 1685 | 7.78 | 23.7 | 1.19 | 2827 | 0 |
+| piece files | 4 | 2 | 13 104 037 | 59 966 | 0.22 | 0.7 | 0.03 | 79 | 303 |
+
+`just bench-ethernet` on build-1, load average 1.92 before, 6.54 after.
