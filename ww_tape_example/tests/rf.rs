@@ -4,13 +4,17 @@
     clippy::arithmetic_side_effects,
     clippy::as_conversions,
     clippy::cast_precision_loss,
+    clippy::cast_possible_wrap,
     clippy::expect_used,
-    reason = "tests compute expected values freely"
+    clippy::panic,
+    reason = "tests fail by panicking and compute expected values freely"
 )]
 
 use ww_tape::Codec;
 use ww_tape_example::about;
-use ww_tape_example::rf::{Rf, Tally, read};
+use ww_tape_example::rf::{BURST_MS, BURSTS_MS, Rf, Tally, iq_key, read};
+use ww_tape_example::rf_chains::{Chains, Decoded, WINDOW_SAMPLES};
+use ww_tape_fs::follow::{ChainFollower, FollowOptions, TrackItem};
 
 #[test]
 fn a_scaled_capture_is_the_same_every_run_and_reads_back() {
@@ -94,5 +98,145 @@ fn the_pages_give_the_size_of_a_minute() {
         ),
     ] {
         assert!(page(name).contains(&phrase), "docs/{name} says: {phrase}");
+    }
+}
+
+/// A scratch directory of its own for test `name`, empty.
+fn scratch(name: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("ww_tape_example_{name}_{}", std::process::id()));
+    drop(std::fs::remove_dir_all(&dir));
+    dir
+}
+
+/// The minute at 1/1000 of the rate in two chains, followed while written: the decoder finds every burst and
+/// second, the reader gets every chunk and every find in time order, each burst right after the chunk it starts
+/// in, and the chain `iq` holds every sample.
+#[test]
+fn two_chains_hold_the_samples_and_the_finds_and_merge_by_time() {
+    let rf = Rf::scaled(1000).expect("1000 divides the rate");
+    let dir = scratch("two_chains");
+    let w = Chains::new(rf)
+        .write_followed(&dir)
+        .expect("the chains are written and followed");
+    let (written, followed) = (&w.written, &w.followed);
+    assert_eq!(
+        followed.decoded, written.decoded,
+        "the reader reads every find, in the decoder's order"
+    );
+    assert_eq!(
+        (followed.chunks, followed.samples),
+        (rf.chunks(), rf.count())
+    );
+    assert_eq!(followed.late, 0, "the merge waits for both chains");
+
+    let period = 1_000_000_000 / i64::from(rf.rate_hz);
+    let window = WINDOW_SAMPLES as i64 * period;
+    let powers: Vec<i64> = written
+        .decoded
+        .iter()
+        .filter_map(|d| match d {
+            Decoded::Power { at, .. } => Some(*at),
+            Decoded::Burst { .. } => None,
+        })
+        .collect();
+    assert_eq!(
+        powers,
+        (1..=60).map(|s| s * 1_000_000_000).collect::<Vec<_>>(),
+        "a power each second"
+    );
+    assert_eq!(followed.bursts.len(), BURSTS_MS.len());
+    for ((d, first), ms) in followed.bursts.iter().zip(BURSTS_MS) {
+        let Decoded::Burst { start, end, .. } = *d else {
+            panic!("{d:?}")
+        };
+        let at = i64::from(ms) * 1_000_000;
+        assert!(
+            (start - at).abs() < window,
+            "the burst at {ms} ms starts at {start}"
+        );
+        assert!(
+            (end - start - i64::from(BURST_MS) * 1_000_000).abs() <= window,
+            "it lasts {BURST_MS} ms"
+        );
+        let first_tick = *first as i64 * period;
+        let chunk_ticks = i64::from(rf.chunk_samples) * period;
+        assert!(
+            first_tick <= start && start < first_tick + chunk_ticks,
+            "the chunk before holds its start"
+        );
+    }
+
+    let mut iq = ChainFollower::new(&Chains::iq_dir(&dir), FollowOptions::default())
+        .expect("the chain is there")
+        .track(iq_key().id());
+    let mut samples = Vec::new();
+    while let Some(item) = iq.try_next().expect("the chain reads") {
+        let TrackItem::Samples(s) = item else {
+            panic!("{item:?}")
+        };
+        samples.extend(s.decode::<i16>().expect("the samples decode"));
+    }
+    assert!(samples == rf.samples(), "every sample comes back");
+    std::fs::remove_dir_all(&dir).expect("the scratch directory goes");
+}
+
+/// The numbers the RF page gives for the two chains: the minute at 1/100 of the rate, as `rf chains` writes it.
+#[test]
+fn the_page_gives_the_two_chains_numbers() {
+    let rf = Rf::scaled(100).expect("100 divides the rate");
+    let dir = scratch("two_chains_page");
+    let w = Chains::new(rf)
+        .write_followed(&dir)
+        .expect("the chains are written and followed");
+    std::fs::remove_dir_all(&dir).expect("the scratch directory goes");
+    let (written, followed) = (&w.written, &w.followed);
+    // the exact numbers `rf chains DIR` prints
+    assert_eq!(
+        (
+            written.iq_pieces,
+            written.iq_bytes,
+            written.decoded_pieces,
+            written.decoded_bytes
+        ),
+        (60, 38_338_560, 1, 20_480)
+    );
+    assert_eq!(
+        (followed.chunks, followed.decoded.len(), followed.late),
+        (6000, 65, 0)
+    );
+    let (first, chunk) = followed.bursts.first().expect("a burst");
+    assert!(
+        matches!(
+            first,
+            Decoded::Burst {
+                start: 7_300_000_000,
+                ..
+            }
+        ),
+        "{first:?}"
+    );
+    assert_eq!(*chunk, 1_460_000);
+    for phrase in [
+        format!(
+            "A minute at 1/100 of the rate then holds {} of samples and five bursts.",
+            about(written.iq_bytes)
+        ),
+        format!(
+            "The chain `iq` holds {} pieces of {} together, a piece per second, and `decoded` one piece of {}.",
+            written.iq_pieces,
+            about(written.iq_bytes),
+            about(written.decoded_bytes)
+        ),
+        format!(
+            "The reader merges {} chunks and {} finds, none of them late.",
+            followed.chunks,
+            followed.decoded.len()
+        ),
+        "The burst at 7.3 s comes after the chunk from sample 1 460 000.".to_owned(),
+    ] {
+        assert!(
+            page("series.md").contains(&phrase),
+            "docs/series.md says: {phrase}"
+        );
     }
 }

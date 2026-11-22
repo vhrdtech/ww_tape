@@ -34,6 +34,7 @@ mod media;
 mod mux;
 mod mux_async;
 mod mux_handles;
+mod mux_multi;
 mod order;
 mod pieces;
 mod placed;

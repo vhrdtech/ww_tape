@@ -87,6 +87,45 @@ screenshot rendered by <code>eventfull_book_shots</code> from the capture at 1/1
 same, at 200 thousand samples a second.</figcaption>
 </figure>
 
+### Samples and what they mean, in two chains
+
+A radio's samples and what a decoder finds in them grow at very different rates. The example's decoder finds bursts
+by the mean power of 16 samples, and it measures the band's mean power each second. A minute at 1/100 of the rate
+then holds 38 MB of samples and five bursts.
+
+Each kind goes into a [[chain]] of its own, `iq` and `decoded`. A reader of the bursts never walks the samples, and
+each chain is cut at its own size. One process writes both, each through a [`TapeMux`] of its own:
+
+```rs
+--8<-- "ww_tape_example/src/rf_chains.rs:two_muxes"
+```
+
+A radio thread pushes each chunk's samples into the series handle of `iq` and hands them to a decoder thread through
+a bounded queue. The decoder pushes a span per burst into the track `bursts` and a power reading per second into the
+track `power`. It seals each second's finds, so they reach the tape a second at a time and in time order:
+
+```rs
+--8<-- "ww_tape_example/src/rf_chains.rs:threads"
+```
+
+Each mux places the units of its own handles on its own writing thread, so neither chain waits for the other's
+writes. A crash leaves each chain unclosed at its own byte, and each resumes alone. The test `mux_multi.rs` of
+`ww_tape_tests` cuts two such chains at 201 pairs of bytes and resumes both at once.
+
+A reader follows both chains while they are written. A [`ChainFollower`] on each hands out the blocks that check, and
+a [`TimeMerge`] gives their items in time order. A chunk of samples counts at the tick of its first sample, and a find
+at its start. The two tracks of `decoded` form one source, since the decoder sends them in time order. The merge
+holds the chunks of samples back until the decoder's next second shows that no burst comes before them:
+
+```rs
+--8<-- "ww_tape_example/src/rf_chains.rs:follow"
+```
+
+`cargo run --release -p ww_tape_example --bin rf chains DIR` writes the minute at 1/100 of the rate. The chain `iq`
+holds 60 pieces of 38 MB together, a piece per second, and `decoded` one piece of 20 KB. The reader merges 6000 chunks
+and 65 finds, none of them late. Each burst comes right after the chunk that holds its first sample. The burst at
+7.3 s comes after the chunk from sample 1 460 000.
+
 ## Grids: where samples are in time
 
 A series has no records. Each series chunk's head carries the [[grid]] its samples are on instead, a [`SeriesGrid`]:

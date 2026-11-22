@@ -33,9 +33,12 @@ The archived last piece then takes damage three ways: a flipped bit, its first 4
 
 The module `rf` records the book's case for high rates. Its samples are complex IQ values from a software-defined radio's front end, 20 million a second (80 MB/s). The signal is three steady carriers, a little noise and five bursts of 2 ms a minute. It comes from fixed numbers, so every capture is the same. A minute is one piece with one track, `iq`, in chunks of 10 ms with summaries.
 
+The module `rf_chains` writes the capture into two chains through two muxes in one process. A radio thread writes `iq`. A decoder thread finds the bursts, measures the band's power each second and writes them to `decoded`. A reader follows both while they are written and merges them by time.
+
 ```sh
 cargo run --release -p ww_tape_example --bin rf                     # a minute's size in each codec
 cargo run --release -p ww_tape_example --bin rf -- write rf.wwt 100  # the minute at 1/100 of the rate, into a file
+cargo run --release -p ww_tape_example --bin rf -- chains rf 100     # the same minute in two chains under rf/, followed
 ```
 
-`tests/rf.rs` checks that a capture reads back sample for sample and pins the size of a second at the full rate. `ww_tape_benchmarks` times it: `--bin rf_core` on one core, `--bin rf_chain` into a chain of files.
+`tests/rf.rs` checks that a capture reads back sample for sample and pins the size of a second at the full rate. It also checks the two chains: every burst found, every sample kept, the merge in time order. `ww_tape_benchmarks` times it: `--bin rf_core` on one core, `--bin rf_chain` into a chain of files.
