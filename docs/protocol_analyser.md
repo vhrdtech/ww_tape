@@ -18,7 +18,7 @@ the event's [[payload]]. The track's items are plain bytes with no type, `RawByt
 A capture thread takes the frames in batches, as a network card hands them over, and pushes each batch in one call:
 
 ```rs
---8<-- "ww_tape_example/src/ethernet.rs:capture"
+--8<-- "ww_tape_example/src/ethernet/mod.rs:capture"
 ```
 
 The handle copies the batch into its open [[events chunk]] and seals the chunk at 1 MiB of frames. It compresses the
@@ -28,7 +28,7 @@ records instead, as a `Foreign` item with the media type `application/vnd.tcpdum
 ??? example "What the example uses here: `Link`"
 
     ```rs
-    --8<-- "ww_tape_example/src/ethernet.rs:link"
+    --8<-- "ww_tape_example/src/ethernet/mod.rs:link"
     ```
 
 ## Decoded layers as tracks
@@ -44,13 +44,13 @@ A decoded header must lead back to its frame. Each item of `ipv4` and `l4` keeps
 relation named `frame`:
 
 ```rs
---8<-- "ww_tape_example/src/ethernet.rs:frame_relation"
+--8<-- "ww_tape_example/src/ethernet/mod.rs:frame_relation"
 ```
 
 The decoder thread pushes the headers of a batch with their frames' numbers, one value each:
 
 ```rs
---8<-- "ww_tape_example/src/ethernet.rs:decoded"
+--8<-- "ww_tape_example/src/ethernet/mod.rs:decoded"
 ```
 
 The numbers only grow, so the relation is a [[monotone relation]]. The index then keeps each chunk's smallest and

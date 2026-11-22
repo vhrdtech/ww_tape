@@ -19,7 +19,7 @@ Each channel is a [[series]] track `iq` with a producer thread of its own. The t
 a series handle. The handle packs them at 12 bits and cuts them into chunks of 1 MiB of samples:
 
 ```rs
---8<-- "ww_tape_example/src/wideband.rs:channel"
+--8<-- "ww_tape_example/src/wideband/mod.rs:channel"
 ```
 
 The split into channels is what lets the work spread. A track has one producer, and its handle does the costly work on
@@ -29,7 +29,7 @@ serves one channel's 125 million samples a second, not the whole billion.
 ??? example "What the example uses here: `Wideband`"
 
     ```rs
-    --8<-- "ww_tape_example/src/wideband.rs:wideband"
+    --8<-- "ww_tape_example/src/wideband/mod.rs:wideband"
     ```
 
 ## Several muxes, several chains
@@ -81,7 +81,7 @@ the smallest and largest I and Q and the mean and largest power `I² + Q²` of i
 blocks of one level:
 
 ```rs
---8<-- "ww_tape_example/src/wideband.rs:overview"
+--8<-- "ww_tape_example/src/wideband/mod.rs:overview"
 ```
 
 Each piece has a tree of its own. The nodes at a piece's ends may therefore hold fewer samples. The test finds the five
