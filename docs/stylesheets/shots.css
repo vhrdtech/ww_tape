@@ -1,0 +1,8 @@
+/* Screenshots come in pairs, shots/X-light.png#only-light and shots/X-dark.png#only-dark: one shows per scheme. Zensical
+   has the same two rules, but `.md-typeset figure.ww-figure img` (figures.css) sets display: block with a higher
+   specificity and undid them, so both showed. These win over it. The system-preference palette entry sets the scheme
+   to default or slate too. */
+[data-md-color-scheme="default"] .md-typeset img[src$="#only-dark"],
+[data-md-color-scheme="slate"] .md-typeset img[src$="#only-light"] {
+  display: none;
+}

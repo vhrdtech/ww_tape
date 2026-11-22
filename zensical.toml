@@ -70,9 +70,10 @@ nav = [
 ]
 
 # figures.css: the classes of the SVG figures the pages inline from docs/figures and docs/plots, light and dark;
+# shots.css: shows the light or the dark screenshot of a pair per scheme;
 # hero.css: the logo at the top of index.md; spl-refs.css and spl-refs.js: the cards of glossary terms and code links,
 # written by `spl book refs` (`just book-refs`)
-extra_css = ["stylesheets/vhrd.css", "stylesheets/figures.css", "stylesheets/tables.css", "stylesheets/code.css", "stylesheets/hero.css", "stylesheets/spl-refs.css"]
+extra_css = ["stylesheets/vhrd.css", "stylesheets/figures.css", "stylesheets/tables.css", "stylesheets/code.css", "stylesheets/shots.css", "stylesheets/hero.css", "stylesheets/spl-refs.css"]
 # javascripts/book-stamp-age.js is written by `just book-refs` (spl book stamp), not in git
 extra_javascript = ["javascripts/spl-refs.js", "javascripts/book-stamp-age.js"]
 
