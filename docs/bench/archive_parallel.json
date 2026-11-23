@@ -1,13 +1,13 @@
 {
   "format": 1,
   "bench": "archive_parallel",
-  "version": "0.6.0 (9659308c-dirty, commit 23 Nov 2026 10:20 UTC)",
-  "commit": "9659308c",
-  "dirty": true,
+  "version": "0.7.0 (60db6275, commit 23 Nov 2026 16:16 UTC)",
+  "commit": "60db6275",
+  "dirty": false,
   "build": {
     "profile": "release",
     "opt_level": "3",
-    "jobs": 10
+    "jobs": null
   },
   "settings": [
     [
@@ -55,7 +55,7 @@
         [
           "verify_chain (Integrity::Full)",
           {
-            "value": 10.00018310546875,
+            "value": 10.000411987304688,
             "digits": 2
           },
           {
@@ -63,18 +63,18 @@
             "digits": 0
           },
           {
-            "value": 162.649754875,
+            "value": 185.400768059,
             "digits": 1
           },
           {
-            "value": 0.06601679084147466,
-            "digits": 0
+            "value": 0.05791702332421242,
+            "digits": 2
           }
         ],
         [
           "range_chain (Integrity::CrcOnly)",
           {
-            "value": 6.000221252441406,
+            "value": 6.000358581542969,
             "digits": 2
           },
           {
@@ -82,18 +82,18 @@
             "digits": 0
           },
           {
-            "value": 82.748193008,
+            "value": 104.656493234,
             "digits": 1
           },
           {
-            "value": 0.0778589631724904,
-            "digits": 0
+            "value": 0.06156174135889068,
+            "digits": 2
           }
         ],
         [
           "resume_pieces (unclosed)",
           {
-            "value": 4.501707460731268,
+            "value": 4.501769419759512,
             "digits": 2
           },
           {
@@ -101,45 +101,55 @@
             "digits": 0
           },
           {
-            "value": 80.108903304,
+            "value": 69.558051286,
             "digits": 1
           },
           {
-            "value": 0.06033875612623254,
-            "digits": 0
+            "value": 0.06949214388030003,
+            "digits": 2
           }
         ]
       ],
       "load_before": {
-        "one": 3.98,
-        "five": 4.83,
-        "fifteen": 4.62
+        "one": 24.76,
+        "five": 18.41,
+        "fifteen": 15.05
       },
       "load_after": {
-        "one": 18.42,
-        "five": 10.43,
-        "fifteen": 6.89
+        "one": 14.02,
+        "five": 14.4,
+        "fifteen": 14.05
       },
-      "seconds": 325.673172471
+      "seconds": 359.676702479
     },
     {
       "id": "verify",
       "title": "TapeReader::verify over every piece of verify_chain, each replayed and content-hashed whole.",
       "columns": [
         "Strategy",
-        "Wall",
-        "Throughput",
-        "Speedup vs sequential"
+        "Shortest s",
+        "Median s",
+        "Longest s",
+        "GB/s at the median",
+        "Speedup at the median"
       ],
       "rows": [
         [
           "20 pieces one at a time",
           {
-            "value": 18.949057853,
-            "digits": 1
+            "value": 3.257063782,
+            "digits": 2
           },
           {
-            "value": 0.5666569246502158,
+            "value": 3.662256335,
+            "digits": 2
+          },
+          {
+            "value": 28.520350168,
+            "digits": 2
+          },
+          {
+            "value": 2.9320341411874438,
             "digits": 2
           },
           {
@@ -150,49 +160,67 @@
         [
           "20 pieces in parallel (rayon)",
           {
-            "value": 0.584286842,
-            "digits": 1
-          },
-          {
-            "value": 18.37730045613452,
+            "value": 0.576353927,
             "digits": 2
           },
           {
-            "value": 32.43108776527951,
+            "value": 0.885298202,
+            "digits": 2
+          },
+          {
+            "value": 1.41681153,
+            "digits": 2
+          },
+          {
+            "value": 12.12908891460733,
+            "digits": 2
+          },
+          {
+            "value": 4.136748868038478,
             "digits": 2
           }
         ]
       ],
       "load_before": {
-        "one": 16.27,
-        "five": 10.58,
-        "fifteen": 7.04
+        "one": 14.72,
+        "five": 14.68,
+        "fifteen": 14.17
       },
       "load_after": {
-        "one": 16.27,
-        "five": 10.58,
-        "fifteen": 7.04
+        "one": 14.72,
+        "five": 14.68,
+        "fifteen": 14.17
       },
-      "seconds": 0.0000109
+      "seconds": 0.000011731
     },
     {
       "id": "range_hash",
       "title": "TapeReader::range_hash over every piece of range_chain: no stated unit hash, so every chunk's payload is read and hashed.",
       "columns": [
         "Strategy",
-        "Wall",
-        "Throughput",
-        "Speedup vs sequential"
+        "Shortest s",
+        "Median s",
+        "Longest s",
+        "GB/s at the median",
+        "Speedup at the median"
       ],
       "rows": [
         [
           "12 pieces one at a time",
           {
-            "value": 3.483878439,
-            "digits": 1
+            "value": 2.6480029739999997,
+            "digits": 2
           },
           {
-            "value": 1.8492862551912936,
+            "value": 2.888253298,
+            "digits": 2
+          },
+          {
+            "value": 3.112647294,
+            "digits": 2
+          },
+          {
+            "value": 2.230703232455895,
             "digits": 2
           },
           {
@@ -203,49 +231,67 @@
         [
           "12 pieces in parallel (rayon)",
           {
-            "value": 0.314043533,
-            "digits": 1
-          },
-          {
-            "value": 20.515272040325698,
+            "value": 0.556463921,
             "digits": 2
           },
           {
-            "value": 11.093616243961948,
+            "value": 0.698962521,
+            "digits": 2
+          },
+          {
+            "value": 0.732180138,
+            "digits": 2
+          },
+          {
+            "value": 9.21771307391745,
+            "digits": 2
+          },
+          {
+            "value": 4.132200527530145,
             "digits": 2
           }
         ]
       ],
       "load_before": {
-        "one": 15.28,
-        "five": 10.47,
-        "fifteen": 7.02
+        "one": 15.25,
+        "five": 14.84,
+        "fifteen": 14.25
       },
       "load_after": {
-        "one": 15.28,
-        "five": 10.47,
-        "fifteen": 7.02
+        "one": 15.25,
+        "five": 14.84,
+        "fifteen": 14.25
       },
-      "seconds": 9.111e-6
+      "seconds": 0.00001308
     },
     {
       "id": "resume",
       "title": "ww_tape_fs::writer::resume over every unclosed piece of resume_pieces: a from-scratch content-hash walk, as a crash leaves one.",
       "columns": [
         "Strategy",
-        "Wall",
-        "Throughput",
-        "Speedup vs sequential"
+        "Shortest s",
+        "Median s",
+        "Longest s",
+        "GB/s at the median",
+        "Speedup at the median"
       ],
       "rows": [
         [
           "12 pieces one at a time",
           {
-            "value": 3.449801389,
-            "digits": 1
+            "value": 4.35711934,
+            "digits": 2
           },
           {
-            "value": 1.4011448877644357,
+            "value": 4.7269014689999995,
+            "digits": 2
+          },
+          {
+            "value": 7.956123563,
+            "digits": 2
+          },
+          {
+            "value": 1.0226018332941056,
             "digits": 2
           },
           {
@@ -256,34 +302,42 @@
         [
           "12 pieces in parallel (rayon)",
           {
-            "value": 0.584963707,
-            "digits": 1
-          },
-          {
-            "value": 8.26319910476087,
+            "value": 0.95663514,
             "digits": 2
           },
           {
-            "value": 5.89746226597952,
+            "value": 1.003066917,
+            "digits": 2
+          },
+          {
+            "value": 1.26289638,
+            "digits": 2
+          },
+          {
+            "value": 4.818958761452204,
+            "digits": 2
+          },
+          {
+            "value": 4.712448779725829,
             "digits": 2
           }
         ]
       ],
       "load_before": {
-        "one": 14.13,
-        "five": 10.39,
-        "fifteen": 7.03
+        "one": 15.03,
+        "five": 14.86,
+        "fifteen": 14.28
       },
       "load_after": {
-        "one": 14.13,
-        "five": 10.39,
-        "fifteen": 7.03
+        "one": 15.03,
+        "five": 14.86,
+        "fifteen": 14.28
       },
-      "seconds": 7.98e-6
+      "seconds": 0.00001962
     },
     {
       "id": "blake3_raw",
-      "title": "For comparison: BLAKE3 of a piece's raw bytes, one piece at a time, single- and multithreaded (update_rayon). A piece's content hash is a chained hash with chunk payloads substituted by their own hash, not one contiguous buffer, so this is a ceiling, not a literal stand-in for the rows above.",
+      "title": "For comparison: BLAKE3 of a piece's raw bytes, one piece at a time, single- and multithreaded (update_rayon), GB/s at the median. A piece's content hash is a chained hash with chunk payloads substituted by their own hash, not one contiguous buffer, so this is a ceiling, not a literal stand-in for the rows above.",
       "columns": [
         "Set",
         "GiB",
@@ -295,72 +349,72 @@
         [
           "verify_chain",
           {
-            "value": 10.00018310546875,
+            "value": 10.000411987304688,
             "digits": 2
           },
           {
-            "value": 2.5763315110890925,
+            "value": 2.2860413753223408,
             "digits": 2
           },
           {
-            "value": 5.840451387942876,
+            "value": 5.088923861110928,
             "digits": 2
           },
           {
-            "value": 2.2669642329817803,
+            "value": 2.226085632589817,
             "digits": 2
           }
         ],
         [
           "range_chain",
           {
-            "value": 6.000221252441406,
+            "value": 6.000358581542969,
             "digits": 2
           },
           {
-            "value": 2.4449065432854837,
+            "value": 2.4732651001684354,
             "digits": 2
           },
           {
-            "value": 5.310714382858155,
+            "value": 5.497012851176932,
             "digits": 2
           },
           {
-            "value": 2.172154349802499,
+            "value": 2.222573249750935,
             "digits": 2
           }
         ],
         [
           "resume_pieces",
           {
-            "value": 4.501707460731268,
+            "value": 4.501769419759512,
             "digits": 2
           },
           {
-            "value": 2.439743027675191,
+            "value": 2.2457620765966357,
             "digits": 2
           },
           {
-            "value": 4.939969916891275,
+            "value": 4.876220432834153,
             "digits": 2
           },
           {
-            "value": 2.0247910787549324,
+            "value": 2.171298769201711,
             "digits": 2
           }
         ]
       ],
       "load_before": {
-        "one": 14.13,
-        "five": 10.39,
-        "fifteen": 7.03
+        "one": 15.03,
+        "five": 14.86,
+        "fifteen": 14.28
       },
       "load_after": {
-        "one": 13.23,
-        "five": 10.73,
-        "fifteen": 7.31
+        "one": 7.45,
+        "five": 12.66,
+        "fifteen": 13.58
       },
-      "seconds": 44.350336682
+      "seconds": 100.275548545
     }
   ]
 }
