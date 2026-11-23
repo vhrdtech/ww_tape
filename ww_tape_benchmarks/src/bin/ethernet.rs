@@ -11,7 +11,8 @@
 //!
 //! The tables `window` and `triage` capture the link into a window in memory (`example_ethernet::ram`) while the triage reads
 //! each piece and keeps those around a TCP reset: in one chain, whose mux writes both ports, and in a chain per port,
-//! each with a mux and a triage thread of its own; into memory, then into piece files in `--dir`.
+//! each with a mux and a triage thread of its own; into memory, then into piece files in `--dir`. The largest capture
+//! into memory runs again for each size of the triage pool in `--triage-threads` and for the machine's cores.
 #![allow(
     clippy::arithmetic_side_effects,
     clippy::as_conversions,
@@ -24,6 +25,7 @@ use clap::Parser;
 use example_capture::chain_options;
 use example_ethernet::ram::RamCapture;
 use example_ethernet::{Captured, LINE_BPS, Link, PayloadMix, RESET_EVERY};
+use std::num::NonZeroU32;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use ww_tape::payloads::PayloadCodec;
@@ -72,6 +74,10 @@ struct Args {
     /// MiB of a piece in memory.
     #[arg(long, default_value_t = 64)]
     window_piece_mib: u64,
+    /// Threads of the triage pool: the largest capture into memory runs once for each, and once for the machine's
+    /// cores. The other runs take the cores the capture leaves free.
+    #[arg(long, value_delimiter = ',', default_values_t = [1, 2, 4])]
+    triage_threads: Vec<u32>,
 }
 
 /// An error of the library, kept as its debug text.
@@ -135,6 +141,14 @@ fn main() -> anyhow::Result<()> {
             ("ms", args.ms.to_string()),
             ("load %", args.load.to_string()),
             ("piece MiB", args.piece_mib.to_string()),
+            (
+                "triage threads",
+                args.triage_threads
+                    .iter()
+                    .map(u32::to_string)
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            ),
         ],
     )?;
     println!("{}", bench.header());
@@ -291,7 +305,7 @@ fn windows(args: &Args, bench: &mut Bench) -> anyhow::Result<()> {
             args.ms, args.load, args.window_piece_mib, RESET_EVERY
         )
     };
-    let columns = ["Kept to", "Chains", "Queues a port"];
+    let columns = ["Kept to", "Chains", "Queues a port", "Triage threads"];
     let mut window = bench.table(
         "window",
         &title(
@@ -305,7 +319,8 @@ fn windows(args: &Args, bench: &mut Bench) -> anyhow::Result<()> {
         &[columns.as_slice(), &TRIAGE_COLUMNS].concat(),
     );
     let memory = bench.report().machine.memory_bytes;
-    let capture = |chains: u32, queues: u32| RamCapture {
+    let capture = |chains: u32, queues: u32, threads: Option<NonZeroU32>| RamCapture {
+        triage_threads: threads,
         link: Link::full()
             .micros(args.ms * 1_000)
             .load(args.load)
@@ -314,29 +329,48 @@ fn windows(args: &Args, bench: &mut Bench) -> anyhow::Result<()> {
         piece_bytes: args.window_piece_mib << 20,
         ..RamCapture::full()
     };
-    let mut rows = |kept: &str, chains: u32, queues: u32, r: &WindowRun| {
+    let mut rows = |kept: &str, c: &RamCapture, r: &WindowRun| {
         let head = [
             Cell::text(kept),
-            Cell::count(u64::from(chains)),
-            Cell::count(u64::from(queues)),
+            Cell::count(u64::from(c.chains)),
+            Cell::count(u64::from(c.link.queues)),
+            Cell::count(c.triage_threads_used() as u64),
         ];
         window.row([head.to_vec(), window_row(r, memory)].concat());
         triage.row([head.to_vec(), triage_row(r)].concat());
     };
+    let in_memory = |c: &RamCapture| -> anyhow::Result<WindowRun> {
+        let kept: Vec<MemTapes> = (0..c.chains).map(|_| MemTapes::new()).collect();
+        let results = TapeMux::create(
+            MemTapes::new(),
+            RESULTS_OWNER,
+            0,
+            &[],
+            chain_options(),
+            MuxOptions::default(),
+        )
+        .map_err(err)?;
+        window_run(c, kept, results)
+    };
     for &chains in &args.window_chains {
         for &queues in &args.window_queues {
-            let kept: Vec<MemTapes> = (0..chains).map(|_| MemTapes::new()).collect();
-            let results = TapeMux::create(
-                MemTapes::new(),
-                RESULTS_OWNER,
-                0,
-                &[],
-                chain_options(),
-                MuxOptions::default(),
-            )
-            .map_err(err)?;
-            let r = window_run(&capture(chains, queues), kept, results)?;
-            rows("memory", chains, queues, &r);
+            let c = capture(chains, queues, None);
+            rows("memory", &c, &in_memory(&c)?);
+        }
+    }
+    // the largest capture again with each size of the triage pool: one thread decodes the chunks one after the other
+    if let (Some(&chains), Some(&queues)) = (
+        args.window_chains.iter().max(),
+        args.window_queues.iter().max(),
+    ) {
+        let cores = std::thread::available_parallelism().map_or(1, usize::from);
+        let mut sweep: Vec<u32> = args.triage_threads.clone();
+        sweep.extend(u32::try_from(cores));
+        sweep.sort_unstable();
+        sweep.dedup();
+        for threads in sweep.into_iter().filter_map(NonZeroU32::new) {
+            let c = capture(chains, queues, Some(threads));
+            rows("memory", &c, &in_memory(&c)?);
         }
     }
     if let (Some(dir), Some(&chains), Some(&queues)) = (
@@ -357,6 +391,7 @@ fn windows(args: &Args, bench: &mut Bench) -> anyhow::Result<()> {
             std::fs::create_dir_all(&d)?;
             kept.push(Files::new(&d));
         }
+        let c = capture(chains, queues, None);
         let results = ww_tape_fs::mux::create(
             &results_dir,
             RESULTS_OWNER,
@@ -366,8 +401,8 @@ fn windows(args: &Args, bench: &mut Bench) -> anyhow::Result<()> {
             MuxOptions::default(),
         )
         .map_err(err)?;
-        let r = window_run(&capture(chains, queues), kept, results)?;
-        rows("piece files", chains, queues, &r);
+        let r = window_run(&c, kept, results)?;
+        rows("piece files", &c, &r);
         std::fs::remove_dir_all(dir)?;
     }
     println!("{}", bench.push(window));

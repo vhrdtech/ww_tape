@@ -94,9 +94,9 @@ each piece as it closes, a [`TapeReader`] over the bytes in memory without a cop
 piece holds something worth keeping. A kept piece is copied whole to the chain's own directory of piece files, where it
 reads alone. Every other piece leaves memory unwritten ([`MemTapes::remove`]).
 
-The chunks of a piece are independent, so the analyser decodes them in parallel: a rayon pool of
-[`RamCapture::triage_threads`] threads, shared by the chains' triages. The pool is small on purpose. The capture's
-threads take most cores of the machine, and a pool as large as the machine speeds the triage but slows the capture. The
+The chunks of a piece are independent, so the analyser decodes them in parallel on a rayon pool, shared by the chains'
+triages. By default the pool takes the cores that the capture's own threads leave free ([`RamCapture::triage_threads`]).
+Nothing keeps the pool off the capture's cores, so a pool larger than the free cores takes time from the capture. The
 capture itself keeps its explicit threads, one per queue and one per mux.
 
 ```rs
@@ -169,12 +169,15 @@ copying over two writing threads, and with 4 queues a port the capture runs ahea
 
 --8<-- "docs/plots/bench_ethernet_triage.txt"
 
-"Triage MB/s" is what one chain's triage reads a second, its chunks decoded on the shared pool. Its "Of the pace" is
-the seconds of the link the slowest triage reads per second of its work: 1 or more keeps up.
+"Triage threads" is the size of the pool. The largest capture runs again with 1, 2 and 4 threads and with every core of
+the machine. One thread decodes the chunks one after the other, as a triage without a pool does.
 
-"Kept %" is the share of the capture's bytes that reaches the kept store. "To disk MB per s" is what the disk writes
-per second of the link, the results included. "Copy MB/s" is the speed of copying the kept pieces. Copying them in
-parallel was slower than one after the other, so they are copied in order.
+"Triage MB/s" is what one chain's triage reads a second. Its "Of the pace" is the seconds of the link the slowest triage
+reads per second of its work: 1 or more keeps up. Compare the rows of one capture: "Capture ms" in the first table
+shows what each size of the pool costs the capture.
+
+"Kept %" is the share of the capture's bytes that reaches the kept store. "To disk MB per s" is what the disk writes per
+second of the link, the results included.
 
 ## Writing every frame to disk
 

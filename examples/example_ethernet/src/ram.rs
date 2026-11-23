@@ -16,6 +16,7 @@
 //! A reset names its frame by its item number in the queue's `frames`. The frame lies in the kept piece of its chain
 //! the analyser found it in, and a reader finds it by that number there.
 
+use std::num::NonZeroU32;
 use std::sync::Arc;
 
 use rayon::prelude::*;
@@ -52,9 +53,10 @@ pub struct RamCapture {
     /// Bytes of a piece in memory at most: the unit the window keeps or drops.
     pub piece_bytes: u64,
     pub window: Window,
-    /// Threads the triages of every chain share to decode the chunks of a piece in parallel. The capture's own threads
-    /// keep their cores: more triage threads speed the triage but slow the capture.
-    pub triage_threads: u32,
+    /// Threads the triages of every chain share to decode the chunks of a piece in parallel; None: the cores the
+    /// capture's own threads leave free ([Self::triage_threads_used]). Nothing keeps these threads off the capture's
+    /// cores: more of them than there are free cores take time from the capture.
+    pub triage_threads: Option<NonZeroU32>,
 }
 // --8<-- [end:ram_capture]
 
@@ -71,8 +73,21 @@ impl RamCapture {
                 before: 1,
                 after: 1,
             },
-            triage_threads: 4,
+            triage_threads: None,
         }
+    }
+
+    /// The threads of the triage pool: [Self::triage_threads], or the cores of the machine less the threads the
+    /// capture takes (a capture and a decoder thread a receive queue, a mux and a triage thread a chain), at least 1.
+    pub fn triage_threads_used(&self) -> usize {
+        self.triage_threads.map_or_else(
+            || {
+                let cores = std::thread::available_parallelism().map_or(1, usize::from);
+                let busy = self.link.rxs().count() * 2 + self.chains as usize * 2;
+                cores.saturating_sub(busy).max(1)
+            },
+            |n| n.get() as usize,
+        )
     }
 
     /// The chain options of the capture in memory: [chain_options] cut at [Self::piece_bytes].
@@ -111,7 +126,7 @@ impl RamCapture {
         }
         let pool = Arc::new(
             rayon::ThreadPoolBuilder::new()
-                .num_threads(self.triage_threads.max(1) as usize)
+                .num_threads(self.triage_threads_used())
                 .thread_name(|i| format!("triage-{i}"))
                 .build()
                 .map_err(RamError::Pool)?,

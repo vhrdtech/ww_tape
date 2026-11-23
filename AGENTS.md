@@ -133,8 +133,8 @@ or the docs page they change.
 - The workspace `[lints]` hold the panic-class lints. Tests, benches, the figures and the fuzz bodies allow those
   that fire at their crate root, with a reason.
 - No C build step: `lz4_flex` is pure Rust and pinned exactly, since payload columns must compress to the same bytes.
-- `cc` (a build-dependency of `blake3`, built `pure`: it compiles no C) and `rayon-core` (`links` only, no build step)
-  stay, allowed in `no-sys-crates`. rayon is a dependency of the example crates only.
+- `cc` (a build-dependency of `blake3`, built `pure`: it compiles no C) and `rayon-core` (an empty build script, there
+  for `links`) stay, allowed in `no-sys-crates`. rayon is a dependency of the example crates only.
 
 ## Changelogs, commits and versions
 

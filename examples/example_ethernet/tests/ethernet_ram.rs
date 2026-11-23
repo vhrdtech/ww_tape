@@ -11,6 +11,7 @@
 )]
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::num::NonZeroU32;
 
 use example_capture::window::Window;
 use example_ethernet::ram::{RamCapture, RamError, RamRun, Reset, kept_track, resets_spec};
@@ -27,7 +28,7 @@ use ww_tape_mux::{MuxOptions, TapeMux};
 /// 128 KiB.
 fn capture(chains: u32) -> RamCapture {
     RamCapture {
-        triage_threads: 2,
+        triage_threads: NonZeroU32::new(2),
         link: Link {
             chunk_bytes: 16 << 10,
             ..Link::full().micros(5_000).queues(2).resets(5_000)
@@ -353,4 +354,48 @@ fn a_kept_store_per_chain() {
         );
     }
     results.close().expect("the results close");
+}
+
+/// The resets a capture of `c` into memory found and the results' chain holds, by tick and queue, and with `c`'s
+/// threads. Each kept piece holds the frames the link sent, and each reset's frame lies in its piece. Where the pieces
+/// are cut depends on the capture's timing, so their numbers are left out.
+fn outcome(c: &RamCapture) -> (Vec<Reset>, Vec<Reset>) {
+    let kept: Vec<MemTapes> = (0..c.chains).map(|_| MemTapes::new()).collect();
+    let results_tapes = MemTapes::new();
+    let results = TapeMux::create(
+        results_tapes.clone(),
+        OwnerId([0xe8; 32]),
+        0,
+        &[],
+        ChainOptions::default(),
+        MuxOptions::default(),
+    )
+    .expect("the results' mux");
+    let run = c.run(kept.to_vec(), &results).expect("the capture runs");
+    kept_pieces_hold_their_frames(c, &run, &kept);
+    let closed = results.close().expect("the results close");
+    let pieces = example_capture::pieces(&results_tapes, &closed).expect("the results' pieces");
+    let mut found: Vec<Reset> = run
+        .resets
+        .iter()
+        .map(|r| Reset { piece: 0, ..*r })
+        .collect();
+    found.sort_by_key(|r| (r.tick, r.rx.port, r.rx.queue));
+    (found, results_of(&pieces, c.link, c.chains).0)
+}
+
+/// The pool's size changes the speed of the triage, never what it finds or keeps.
+#[test]
+fn the_triage_threads_change_nothing_it_finds() {
+    let one = outcome(&RamCapture {
+        triage_threads: NonZeroU32::new(1),
+        ..capture(2)
+    });
+    let four = outcome(&RamCapture {
+        triage_threads: NonZeroU32::new(4),
+        ..capture(2)
+    });
+    assert!(!one.0.is_empty(), "the link sends resets");
+    assert_eq!(one.0, four.0, "the resets found");
+    assert_eq!(one.1, four.1, "the results' chain");
 }
