@@ -1,0 +1,12 @@
+# cargo-deny policy: the licences and sources the dependency tree may hold.
+
+[licenses]
+# Every licence the tree holds today; a new one is a decision, not a drift.
+allow = ["Apache-2.0", "Apache-2.0 WITH LLVM-exception", "BSD-3-Clause", "CC0-1.0", "MIT", "MIT-0", "Unicode-3.0", "Unlicense", "Zlib"]
+confidence-threshold = 0.9
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+# The format's own family takes its siblings by git (AGENTS.md, Dependencies).
+allow-org = { github = ["romixlab", "vhrdtech"] }
