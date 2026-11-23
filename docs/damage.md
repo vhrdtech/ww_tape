@@ -52,7 +52,7 @@ how far a block was checked. The bench `read_check` times [`TapeReader::read_blo
 
 --8<-- "docs/plots/bench_read_check_read.txt"
 
-An unchecked read takes 47 % of the time of a checked one for a chunk, mostly its copy, and 36 % for a records block.
+An unchecked read takes 47 % of the time of a checked one for a chunk, mostly its copy, and 33 % for a records block.
 
 --8<-- "docs/plots/bench_read_check_machine.txt"
 

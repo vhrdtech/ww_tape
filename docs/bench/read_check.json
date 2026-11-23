@@ -1,8 +1,8 @@
 {
   "format": 1,
   "bench": "read_check",
-  "version": "0.4.0 (feddefd51, commit 23 Nov 2026 03:56 UTC)",
-  "commit": "feddefd51",
+  "version": "0.4.0 (026660e71, commit 23 Nov 2026 04:09 UTC)",
+  "commit": "026660e71",
   "dirty": false,
   "build": {
     "profile": "release",
@@ -33,7 +33,8 @@
       "sse4.2",
       "avx2",
       "avx512bw+vl"
-    ]
+    ],
+    "memory_bytes": 32704200704
   },
   "tables": [
     {
@@ -55,11 +56,11 @@
             "digits": 0
           },
           {
-            "value": 55937.32421875,
+            "value": 57400.90625,
             "digits": 0
           },
           {
-            "value": 18.749109197619685,
+            "value": 18.271052994045718,
             "digits": 2
           }
         ],
@@ -71,11 +72,11 @@
             "digits": 0
           },
           {
-            "value": 288.25,
+            "value": 294.86328125,
             "digits": 0
           },
           {
-            "value": 14.025151777970512,
+            "value": 13.710591508246672,
             "digits": 2
           }
         ],
@@ -87,11 +88,11 @@
             "digits": 0
           },
           {
-            "value": 26438.23828125,
+            "value": 26789.03125,
             "digits": 0
           },
           {
-            "value": 39.668868585082365,
+            "value": 39.14941866365548,
             "digits": 2
           }
         ],
@@ -103,26 +104,26 @@
             "digits": 0
           },
           {
-            "value": 103.63671875,
+            "value": 98.0390625,
             "digits": 0
           },
           {
-            "value": 39.008857562851006,
+            "value": 41.2361144314288,
             "digits": 2
           }
         ]
       ],
       "load_before": {
-        "one": 1.1,
-        "five": 1.12,
-        "fifteen": 1.18
+        "one": 3.32,
+        "five": 2.61,
+        "fifteen": 1.77
       },
       "load_after": {
-        "one": 1.1,
-        "five": 1.12,
-        "fifteen": 1.18
+        "one": 3.32,
+        "five": 2.61,
+        "fifteen": 1.77
       },
-      "seconds": 0.296249163
+      "seconds": 0.30614634
     }
   ]
 }
