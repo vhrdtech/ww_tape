@@ -3,9 +3,10 @@
 //! could not check.
 
 use ww_tape::index::IndexEntry;
+use ww_tape::sink::TapeSink;
 use ww_tape::{
-    BlockKind, Checked, Integrity, ItemNum, OwnerId, PieceTapes, TapeReader, TrackHash,
-    piece::ChainLink,
+    BlockKind, Checked, Integrity, ItemNum, MemTapes, OwnerId, PieceTapes, Sealed, TapeReader,
+    TrackHash, piece::ChainLink,
 };
 
 use crate::range_hash::{id_of, write_at};
@@ -133,4 +134,117 @@ fn a_chain_of_each_level_is_full_without_its_hashes() {
             }
         }
     }
+}
+
+/// A store holding `tapes`, each closed: under keys 0, 1, ..., a tape of several pieces for [PieceTapes::One].
+fn store(tapes: &[Vec<u8>], whole: bool) -> MemTapes {
+    let mem = MemTapes::new();
+    for (k, bytes) in (0u64..).zip(tapes) {
+        let mut sink = match whole {
+            true => mem.create_whole(&k),
+            false => mem.create(&k),
+        }
+        .unwrap();
+        sink.write_all(bytes).unwrap();
+        sink.close().unwrap();
+    }
+    mem
+}
+
+/// Sealing a chain of each level tape by tape, in order, gives the bytes of the chain written at Full, and the
+/// content hashes Full's pieces close with.
+#[test]
+fn a_sealed_chain_is_the_chain_written_at_full() {
+    for tapes in [PieceTapes::Each, PieceTapes::One] {
+        let (full_done, full) = write_at(tapes, 0x5ea1, Integrity::Full);
+        for level in [Integrity::Full, Integrity::CrcOnly, Integrity::None] {
+            let (_, bytes) = write_at(tapes, 0x5ea1, level);
+            assert_eq!(bytes == full, level == Integrity::Full);
+            let mem = store(&bytes, tapes == PieceTapes::One);
+            let mut sealed: Vec<Sealed> = vec![];
+            for k in mem.keys().unwrap() {
+                let s = mem.seal(&k, sealed.last()).unwrap().unwrap();
+                sealed.extend(s);
+            }
+            for (k, f) in (0u64..).zip(&full) {
+                let got = mem.get(&k).unwrap().unwrap().to_vec().unwrap();
+                assert!(got == *f, "{level:?} {tapes:?} tape {k}");
+            }
+            assert_eq!(sealed.len(), full_done.len());
+            for (s, d) in sealed.iter().zip(&full_done) {
+                assert_eq!(
+                    (s.hash, s.ident, s.next, s.was),
+                    (d.hash, d.ident, d.next, level)
+                );
+            }
+        }
+    }
+}
+
+/// A piece written on after its close (a close summary, two closes, an append head), aligned or not, seals to the
+/// piece written at Full from the same calls; sealed again, it stays as it is.
+#[test]
+fn a_piece_written_on_after_its_close_seals_to_full() {
+    for alignment in [0, ww_tape::ALIGNMENT] {
+        let full = crate::resume::written_on(alignment, Integrity::Full);
+        for level in [Integrity::Full, Integrity::CrcOnly, Integrity::None] {
+            let bytes = crate::resume::written_on(alignment, level);
+            assert_eq!(bytes.len(), full.len());
+            assert_eq!(bytes == full, level == Integrity::Full);
+            let mem = store(&[bytes], false);
+            let s = mem.seal(&0, None).unwrap().unwrap();
+            let got = mem.get(&0).unwrap().unwrap().to_vec().unwrap();
+            assert!(got == full, "{level:?} alignment {alignment}");
+            assert_eq!(s[0].was, level);
+            mem.seal(&0, None).unwrap().unwrap();
+            assert!(mem.get(&0).unwrap().unwrap().to_vec().unwrap() == full);
+            let r = TapeReader::open(&full[..]).unwrap();
+            assert!(r.verify(0).unwrap().holds);
+        }
+    }
+}
+
+/// A seal refuses a tape still being written, a piece without its tail and a damaged one, and leaves each as it
+/// was; a reader holding the tape before a seal reads the old bytes on.
+#[test]
+fn a_seal_refuses_what_it_cannot_raise_and_leaves_readers_alone() {
+    use ww_tape::{SealError, WriteError};
+    let bytes = crate::resume::written_on(0, Integrity::CrcOnly);
+    let mem = MemTapes::new();
+    let mut open = mem.create(&0).unwrap();
+    open.write_all(&bytes).unwrap();
+    assert!(matches!(
+        mem.seal(&0, None),
+        Err(WriteError::Sink {
+            error: ww_tape::MemError::Unclosed(0),
+            ..
+        })
+    ));
+    drop(open);
+    let refused = |bytes: &[u8]| {
+        let mem = store(&[bytes.to_vec()], false);
+        let Err(WriteError::Seal(e)) = mem.seal(&0, None) else {
+            panic!("refused")
+        };
+        assert!(mem.get(&0).unwrap().unwrap().to_vec().unwrap() == bytes);
+        e
+    };
+    assert_eq!(refused(&bytes[..bytes.len() - 8]), SealError::NotClosed);
+    // a byte of the payload of the first events chunk, whose CRCs a piece of CrcOnly holds
+    let r = TapeReader::open(&bytes[..]).unwrap();
+    let e = r.entries(0).unwrap();
+    let chunk = e.iter().find(|e| e.kind == BlockKind::Events).unwrap();
+    let mut damaged = bytes.clone();
+    damaged[(chunk.offset + u64::from(chunk.len) - 40) as usize] ^= 1;
+    assert_eq!(
+        refused(&damaged),
+        SealError::Damaged {
+            offset: chunk.offset
+        }
+    );
+    let mem = store(std::slice::from_ref(&bytes), false);
+    let held = mem.get(&0).unwrap().unwrap();
+    mem.seal(&0, None).unwrap().unwrap();
+    assert!(held.to_vec().unwrap() == bytes);
+    assert!(mem.get(&0).unwrap().unwrap().to_vec().unwrap() != bytes);
 }

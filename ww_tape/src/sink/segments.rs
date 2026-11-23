@@ -45,6 +45,15 @@ pub(super) struct Segments {
 }
 
 impl Segments {
+    /// No bytes, the first one to come at `front`: a copy of a tape whose oldest bytes were dropped keeps its
+    /// offsets.
+    pub(super) fn starting_at(front: u64) -> Self {
+        Self {
+            front,
+            ..Self::default()
+        }
+    }
+
     /// Offset of the first byte kept.
     pub(super) fn front(&self) -> u64 {
         self.front

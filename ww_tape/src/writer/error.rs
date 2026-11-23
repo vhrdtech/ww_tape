@@ -36,6 +36,8 @@ pub enum WriteError<E> {
     Input(InputError),
     /// A resume refused to cut the bytes of the piece; they stay as they are.
     Resume(ResumeError),
+    /// A seal refused the piece ([TapeWriter::seal_on](super::TapeWriter::seal_on)).
+    Seal(super::SealError),
 }
 
 /// What a caller passed that the writer refuses ([WriteError::Input]); nothing is written.
@@ -180,6 +182,12 @@ impl<E> From<ResumeError> for WriteError<E> {
     }
 }
 
+impl<E> From<super::SealError> for WriteError<E> {
+    fn from(e: super::SealError) -> Self {
+        Self::Seal(e)
+    }
+}
+
 impl<E> From<DescribeError> for WriteError<E> {
     fn from(e: DescribeError) -> Self {
         Self::Describe(e)
@@ -201,6 +209,7 @@ impl<E: core::fmt::Display + core::fmt::Debug> core::fmt::Display for WriteError
             Self::Describe(e) => write!(f, "{e}"),
             Self::Input(e) => write!(f, "{e}"),
             Self::Resume(e) => write!(f, "{e}"),
+            Self::Seal(e) => write!(f, "sealing: {e}"),
         }
     }
 }

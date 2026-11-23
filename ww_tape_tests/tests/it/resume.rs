@@ -2073,3 +2073,31 @@ fn a_chain_whose_last_piece_is_of_an_unknown_level_is_refused() {
     );
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// A piece of `level` holding the first half of [ops], closed with a summary, then written on after its close with
+/// the second half and closed again: two closes, an append head and a close summary.
+pub(crate) fn written_on(alignment: u32, level: ww_tape::Integrity) -> Vec<u8> {
+    let all = ops(6);
+    let (first, second) = all.split_at(all.len() / 2);
+    let mut w = begin_at(alignment, level);
+    let mut defs = base_defs().clone();
+    for op in first {
+        apply(&mut w, &mut defs, *op);
+    }
+    let tape = w.sink().tape();
+    w.close_with_summary(ww_tape::piece::CloseReason::Closed, b"first half")
+        .unwrap();
+    let mem = MemTapes::new();
+    let mut sink = mem.create(&0).unwrap();
+    sink.write_all(&tape.to_vec().unwrap()).unwrap();
+    sink.close().unwrap();
+    drop(sink);
+    let sink = mem.reopen(&0).unwrap().unwrap();
+    let (mut w, resumed) = TapeWriter::resume_on(sink, options(alignment)).unwrap();
+    assert!(resumed.after_close.is_some(), "written on after its close");
+    for op in second {
+        apply(&mut w, &mut defs, *op);
+    }
+    w.close().unwrap();
+    mem.get(&0).unwrap().unwrap().to_vec().unwrap()
+}

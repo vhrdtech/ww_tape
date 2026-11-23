@@ -69,6 +69,7 @@ pub(crate) mod kept;
 pub mod near;
 mod relations;
 pub mod resume;
+mod seal;
 pub use carried::CARRIED_BLOCK_LEN;
 pub use error::{CutError, InputError, RemovedRefusal, ResumeError, WriteError};
 pub use kept::KEPT_BYTES_MAX;
@@ -76,6 +77,7 @@ pub use near::NearPolicy;
 use near::Rule;
 pub(crate) use relations::Newest;
 pub use resume::{RESUME_LOOK_MAX, RESUME_PROBES_MAX, Resumed};
+pub use seal::{SealError, Sealed};
 
 /// When a [TapeWriter] syncs the data to the disk, besides at [TapeWriter::close].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2414,16 +2416,34 @@ impl<S: TapeSink> TapeWriter<S> {
         }
         self.flush_deferred()?;
         self.ensure_head()?;
-        // the caller's summary, right before the final index, with the id of the blocks the file structure adds
+        let (closed, ..) = self.write_end(how, summary, None)?;
+        if how != End::CutInPlace {
+            self.sink
+                .close()
+                .map_err(sink_err("marking the piece closed"))?;
+        }
+        Ok(Ended {
+            closed,
+            next_seq: self.next_seq,
+            session: self.session,
+            sink: self.sink,
+        })
+    }
+
+    /// Write the end of the piece as `how` says: the caller's `summary` block, the final index, the close record and
+    /// the tail, synced after the final index and after the tail ([Self::end]); gives the piece closed, where its close
+    /// record starts and what it says. With `fits` (where the end starts and its length), an end of another length is
+    /// refused before any byte of it is written ([SealError::Moved]): a seal writes it over the end it replaces.
+    fn write_end(
+        &mut self,
+        how: End,
+        summary: Option<Vec<u8>>,
+        fits: Option<(u64, u64)>,
+    ) -> Result<(Closed, u64, Close), WriteError<S::Error>> {
         let summary = match summary {
             Some(mut block) => {
                 crate::set_id(&mut block, self.structural_id()).map_err(WriteError::Block)?;
-                let at = self.offset();
-                let len = u32::try_from(block.len()).map_err(|_overflow| {
-                    WriteError::Index(IndexError::Invalid("a summary block past u32::MAX bytes"))
-                })?;
-                self.write_own(&block)?;
-                Some((at, len))
+                Some(block)
             }
             None => None,
         };
@@ -2433,12 +2453,43 @@ impl<S: TapeSink> TapeWriter<S> {
         if parts.is_empty() && self.closed_at.is_some() {
             parts.push(Vec::new());
         }
+        // the final index blocks, each pointing back at the one before, placed after the summary
+        let summary_len = summary.as_ref().map_or(0, Vec::len);
+        let mut at = self.end_after(summary_len)?;
+        let mut finals = Vec::with_capacity(parts.len());
         for part in parts {
-            let at = self.offset();
             let b = Indexer::final_block(&part, at, prev, self.structural_id())
                 .map_err(WriteError::Index)?;
-            self.write_own(&b)?;
             prev = Some(at);
+            at = at.saturating_add(wide(b.len()));
+            finals.push(b);
+        }
+        let ranges = self.indexer.track_ranges();
+        let removed = self.removed.len();
+        let padding = close_padding(at, ranges.len(), removed);
+        let close_len = close_len(ranges.len(), removed).saturating_add(padding);
+        if let Some((from, len)) = fits {
+            let end = at
+                .saturating_add(wide(close_len))
+                .saturating_add(wide(TAIL_LEN));
+            if self.offset() != from || end.checked_sub(from) != Some(len) {
+                return Err(WriteError::Seal(SealError::Moved { offset: from }));
+            }
+        }
+        // the caller's summary, right before the final index, with the id of the blocks the file structure adds
+        let summary = match summary {
+            Some(block) => {
+                let at = self.offset();
+                let len = u32::try_from(block.len()).map_err(|_overflow| {
+                    WriteError::Index(IndexError::Invalid("a summary block past u32::MAX bytes"))
+                })?;
+                self.write_own(&block)?;
+                Some((at, len))
+            }
+            None => None,
+        };
+        for b in &finals {
+            self.write_own(b)?;
         }
         // the blocks and the final index reach the disk before a close record names them: a close and tail found
         // whole after a crash then never stand for bytes a disk never got
@@ -2466,13 +2517,10 @@ impl<S: TapeSink> TapeWriter<S> {
             ident,
             next,
         };
-        let ranges = self.indexer.track_ranges();
         let tracks = self.next_tracks(&ranges);
         let close_offset = self.offset();
         // the piece ends, after its tail, on a multiple of PIECE_ALIGN
-        let removed = self.removed.len();
-        let padding = close_padding(close_offset, ranges.len(), removed);
-        let mut buf = vec![0u8; close_len(ranges.len(), removed).saturating_add(padding)];
+        let mut buf = vec![0u8; close_len];
         let n = write_close(
             &mut buf,
             self.structural_id(),
@@ -2509,26 +2557,16 @@ impl<S: TapeSink> TapeWriter<S> {
         tail.write(&mut tb, self.structural_id());
         self.write_own(&tb)?;
         self.sync()?;
-        if how != End::CutInPlace {
-            self.sink
-                .close()
-                .map_err(sink_err("marking the piece closed"))?;
-        }
-        let start = self.sink.base().saturating_add(self.start);
-        Ok(Ended {
-            closed: Closed {
-                hash,
-                len: self.bytes,
-                ident,
-                next,
-                start,
-                tracks,
-                states_unknown: 0,
-            },
-            next_seq: self.next_seq,
-            session: self.session,
-            sink: self.sink,
-        })
+        let closed = Closed {
+            hash,
+            len: self.bytes,
+            ident,
+            next,
+            start: self.sink.base().saturating_add(self.start),
+            tracks,
+            states_unknown: 0,
+        };
+        Ok((closed, close_offset, close))
     }
 
     /// Where each track goes on in the next piece, from the ranges `ranges` of this one.

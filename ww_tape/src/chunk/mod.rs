@@ -800,7 +800,6 @@ pub(crate) fn restamp(block: &mut [u8]) -> Result<(), ChunkHeadError> {
 /// [FLAG_PAYLOAD_UNCHECKED](crate::FLAG_PAYLOAD_UNCHECKED), clear the mark and rewrite its head CRC: the block a
 /// writer of [Integrity::Full](crate::Integrity::Full) writes from the same chunk. An error says why the block's head
 /// is out of range; nothing is written then.
-#[cfg_attr(not(test), expect(dead_code, reason = "the seal (FMT-14) calls it"))]
 pub(crate) fn fill_payload_crcs(block: &mut [u8]) -> Result<(), ChunkHeadError> {
     let payload_at = payload_offset(block, block.len())?;
     let l = Layout::of(

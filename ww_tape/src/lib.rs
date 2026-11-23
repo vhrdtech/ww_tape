@@ -286,8 +286,8 @@ pub mod writer;
 #[cfg(feature = "alloc")]
 pub use writer::{
     CARRIED_BLOCK_LEN, Closed, CutError, DEFER_WINDOW, HEAD_ENTRIES, InputError, NearPolicy,
-    Placed, PutWork, RemovedRefusal, ResumeError, Resumed, SyncPolicy, TapeWriter, WriteError,
-    WriterOptions,
+    Placed, PutWork, RemovedRefusal, ResumeError, Resumed, SealError, Sealed, SyncPolicy,
+    TapeWriter, WriteError, WriterOptions,
 };
 
 /// `WWTP`
