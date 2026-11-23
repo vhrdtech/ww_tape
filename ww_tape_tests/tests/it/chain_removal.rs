@@ -473,3 +473,67 @@ fn files_of(dir: &Path) -> Vec<u8> {
         .flat_map(|p| std::fs::read(p).unwrap())
         .collect()
 }
+
+/// Every piece file of `dir`, by name, with its bytes.
+fn snapshot(dir: &Path) -> Vec<(std::path::PathBuf, Vec<u8>)> {
+    let mut files: Vec<_> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|e| {
+            let p = e.unwrap().path();
+            let b = std::fs::read(&p).unwrap();
+            (p, b)
+        })
+        .collect();
+    files.sort();
+    files
+}
+
+/// A resume refused for a hole writes nothing: neither the torn last piece after the hole nor a stray piece past a
+/// missing end is cut or marked.
+#[test]
+fn a_refused_resume_writes_nothing() {
+    let defs = defs();
+    let each = options(PieceTapes::Each);
+    // the last piece torn inside its last block, piece 2 gone without a row
+    let dir = scratch("refused_torn");
+    let mut c = ww_tape_fs::chain::create(&dir, OWNER, 0, &[], each.clone()).unwrap();
+    write(&mut c, &defs, 0, 10);
+    drop(c);
+    let last = dir.join(ww_tape_fs::piece_name(4));
+    let len = std::fs::metadata(&last).unwrap().len();
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&last)
+        .unwrap()
+        .set_len(len - 7)
+        .unwrap();
+    std::fs::remove_file(dir.join(ww_tape_fs::piece_name(2))).unwrap();
+    let before = snapshot(&dir);
+    let e = ww_tape_fs::chain::resume(&dir, OWNER, 0, each.clone())
+        .err()
+        .unwrap();
+    assert!(
+        matches!(e, WriteError::Resume(ResumeError::Gap { from: 2, to: 3 })),
+        "{e:?}"
+    );
+    assert!(snapshot(&dir) == before, "a refused resume wrote");
+
+    // a crash between a cut and the next piece's start, and a stray piece far past it
+    let dir = scratch("refused_stray");
+    let mut c = ww_tape_fs::chain::create(&dir, OWNER, 0, &[], each.clone()).unwrap();
+    write(&mut c, &defs, 0, 10);
+    drop(c);
+    let torn = std::fs::read(&last).unwrap();
+    let stray = dir.join(ww_tape_fs::piece_name(9));
+    std::fs::write(&stray, &torn[..torn.len() - 7]).unwrap();
+    std::fs::remove_file(dir.join(ww_tape_fs::piece_name(4))).unwrap();
+    let before = snapshot(&dir);
+    let e = ww_tape_fs::chain::resume(&dir, OWNER, 0, each)
+        .err()
+        .unwrap();
+    assert!(
+        matches!(e, WriteError::Resume(ResumeError::Gap { from: 4, to: 9 })),
+        "{e:?}"
+    );
+    assert!(snapshot(&dir) == before, "a refused resume wrote");
+}

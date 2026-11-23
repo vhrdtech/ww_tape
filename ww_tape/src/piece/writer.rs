@@ -173,72 +173,48 @@ impl<T: PieceStore> PieceChain<T> {
         }
     }
 
-    /// [Self::resume_on] of a chain whose pieces are tapes of their own.
+    /// [Self::resume_on] of a chain whose pieces are tapes of their own. The pieces are read first and the holes
+    /// between them checked; only then is a piece written: the last one resumed, or a cut piece a crash left unmarked
+    /// marked closed. A refused resume writes nothing.
     fn resume_each(
         mut store: T,
         owner: OwnerId,
         chain: u64,
         options: ChainOptions,
     ) -> Result<(Self, Resumed), WriteError<T::Error>> {
-        let mut closed: Vec<Done<T::Key>> = Vec::new();
-        // a head cut starts the chain at hand: the lowest piece there
-        let Some(mut seq) = store
-            .first_from(0)
-            .map_err(sink_err("finding the lowest piece"))?
-        else {
-            return Err(WriteError::Resume(ResumeError::NoPiece));
-        };
-        // pieces missing between those at hand: (from, to, closed before them)
-        let mut gaps: Vec<(u64, u64, usize)> = Vec::new();
-        let (key, reopened) = loop {
-            let key = store.key_of(seq);
-            let named = store
-                .closed(&key)
-                .map_err(sink_err("opening a closed piece"))?;
-            // a piece the chain goes on from: cut, closed by its last close record
-            let cut = match &named {
-                Some(src) => cut_piece(src)?,
-                None => None,
-            };
-            let (piece, last) = match cut {
-                Some(done) => done,
-                None => {
-                    let Some(sink) = store
-                        .reopen(&key)
-                        .map_err(sink_err("reopening the last piece"))?
-                    else {
-                        // the end of the chain, or pieces missing before later ones
-                        let after = seq.checked_add(1).ok_or_else(too_many)?;
-                        match store
-                            .first_from(after)
-                            .map_err(sink_err("finding the next piece"))?
-                        {
-                            None => break (key, None),
-                            Some(next) => {
-                                gaps.push((seq, next, closed.len()));
-                                seq = next;
-                                continue;
-                            }
-                        }
-                    };
-                    match TapeWriter::resume_on(sink, options.writer.clone()) {
-                        // cut whole before a crash took its mark: marked now, read as closed
-                        Err(WriteError::Resume(ResumeError::Continued { .. })) => {
-                            let src = store
-                                .closed(&key)
-                                .map_err(sink_err("opening a closed piece"))?
-                                .ok_or(WriteError::Index(IndexError::Invalid(
-                                    "a piece marked closed doesn't read as closed",
-                                )))?;
-                            read_closed(&src)?
-                        }
-                        r => break (key, Some(r?)),
-                    }
+        // a resume that finds its last piece cut after all marks it and reads the chain again, once
+        let mut again = true;
+        let (walk, key, reopened) = loop {
+            let walk = walk_each(&mut store)?;
+            check_gaps(&walk.closed, walk.last_seen.as_ref(), &walk.gaps)?;
+            for key in &walk.unmarked {
+                if let Some(mut sink) = store
+                    .reopen(key)
+                    .map_err(sink_err("reopening a piece cut whole"))?
+                {
+                    sink.close()
+                        .map_err(sink_err("marking a piece cut whole closed"))?;
                 }
-            };
-            closed.push((ChainPiece { tape: key, piece }, last));
-            seq = seq.checked_add(1).ok_or_else(too_many)?;
+            }
+            let key = store.key_of(walk.seq);
+            if walk.last_seen.is_none() {
+                break (walk, key, None);
+            }
+            let sink = store
+                .reopen(&key)
+                .map_err(sink_err("reopening the last piece"))?
+                .ok_or(WriteError::Index(IndexError::Invalid(
+                    "the last piece of the chain is gone",
+                )))?;
+            match TapeWriter::resume_on(sink, options.writer.clone()) {
+                // cut whole before a crash took its mark: marked now, read as closed
+                Err(WriteError::Resume(ResumeError::Continued { .. })) if again => again = false,
+                r => break (walk, key, Some(r?)),
+            }
         };
+        let Walk {
+            closed, gaps, seq, ..
+        } = walk;
         let newest = newest_in(&closed, |done, e, buf| {
             let src = store
                 .closed(&done.tape)
@@ -248,7 +224,6 @@ impl<T: PieceStore> PieceChain<T> {
                 )))?;
             read_listed(&src, done.piece.start, e, buf)
         })?;
-        check_gaps(&closed, reopened.as_ref().map(|(w, _)| w), &gaps)?;
         let (mut writer, resumed) = match reopened {
             Some((mut w, resumed)) => {
                 headed(&w)?;
@@ -811,20 +786,125 @@ fn next_piece<E>(done: &Closed, last: &LastPiece) -> Result<NextPiece, WriteErro
     Ok(next)
 }
 
+/// What a resume of a chain of a tape per piece finds before it writes: the closed pieces from the lowest there, the
+/// holes between them, and the last piece.
+struct Walk<K> {
+    closed: Vec<Done<K>>,
+    /// Pieces missing between those at hand: (from, to, how many closed pieces come before them)
+    gaps: Vec<(u64, u64, usize)>,
+    /// Pieces cut whole that a crash left unmarked ([TapeSink::close]): read as closed, marked once the holes hold
+    unmarked: Vec<K>,
+    /// The last piece's seq: the one to resume, or the one to start
+    seq: u64,
+    /// The last piece, as a reader finds it; None when there is none and it is to be started
+    last_seen: Option<Seen>,
+}
+
+/// A piece the resume goes on in, read before it is touched: its head and the removed pieces its close in force names.
+#[derive(Default)]
+struct Seen {
+    /// None when the head doesn't read: cut off inside it, or damaged
+    head: Option<PieceHead>,
+    removed: Vec<RemovedPiece>,
+}
+
+/// Read the pieces of a chain of a tape per piece from the lowest there, writing nothing ([PieceChain::resume_on]).
+fn walk_each<T: PieceStore>(store: &mut T) -> Result<Walk<T::Key>, WriteError<T::Error>> {
+    let mut walk = Walk {
+        closed: Vec::new(),
+        gaps: Vec::new(),
+        unmarked: Vec::new(),
+        seq: 0,
+        last_seen: None,
+    };
+    // a head cut starts the chain at hand: the lowest piece there
+    walk.seq = store
+        .first_from(0)
+        .map_err(sink_err("finding the lowest piece"))?
+        .ok_or(WriteError::Resume(ResumeError::NoPiece))?;
+    loop {
+        let key = store.key_of(walk.seq);
+        let named = store
+            .closed(&key)
+            .map_err(sink_err("opening a closed piece"))?;
+        // a piece the chain goes on from: cut, closed by its last close record
+        let (cut, seen) = match &named {
+            Some(src) => (cut_piece(src)?, Some(seen_in(src)?)),
+            // a store that marks pieces closed may hold one a crash left unmarked: read through its sink
+            None => match store
+                .reopen(&key)
+                .map_err(sink_err("reopening the last piece"))?
+            {
+                Some(sink) => {
+                    let src = SinkSource(&sink);
+                    let cut = cut_piece(&src)?;
+                    if cut.is_some() {
+                        walk.unmarked.push(key.clone());
+                    }
+                    (cut, Some(seen_in(&src)?))
+                }
+                None => (None, None),
+            },
+        };
+        match (cut, seen) {
+            (Some((piece, last)), _) => {
+                walk.closed.push((ChainPiece { tape: key, piece }, last));
+                walk.seq = walk.seq.checked_add(1).ok_or_else(too_many)?;
+            }
+            (None, Some(seen)) => {
+                walk.last_seen = Some(seen);
+                return Ok(walk);
+            }
+            // the end of the chain, or pieces missing before later ones
+            (None, None) => {
+                let after = walk.seq.checked_add(1).ok_or_else(too_many)?;
+                match store
+                    .first_from(after)
+                    .map_err(sink_err("finding the next piece"))?
+                {
+                    None => return Ok(walk),
+                    Some(next) => {
+                        walk.gaps.push((walk.seq, next, walk.closed.len()));
+                        walk.seq = next;
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The head and the removed pieces of the piece in `src`, as a reader finds them; an unreadable piece has neither.
+fn seen_in<B: ByteSource>(src: &B) -> Result<Seen, WriteError<B::Error>> {
+    match TapeReader::open(src) {
+        Ok(reader) => Ok(reader
+            .pieces()
+            .first()
+            .map_or_else(Seen::default, |p| Seen {
+                head: p.head.as_ref().map(|(h, _)| *h),
+                removed: p.removed.clone(),
+            })),
+        Err(crate::reader::ReadError::Source(e)) => {
+            Err(WriteError::Read(crate::reader::ReadError::Source(e)))
+        }
+        // bytes that don't read as a piece: no head, nothing named
+        Err(_) => Ok(Seen::default()),
+    }
+}
+
 /// Refuse each gap of `gaps` (pieces `from..to` missing after the first `before` pieces of `closed`) that the closes at
 /// hand don't name as removed on purpose, as [check_chain](super::check_chain) links over them
 /// ([ChainLink::Removed](super::ChainLink::Removed)): every missing piece named, agreed; the cut before the gap names
-/// the first one's id; the head after it names the last one's hash and id. The piece after the last gap is `last` when
-/// it is resumed, else a closed one.
-fn check_gaps<K, S: TapeSink>(
+/// the first one's id; the head after it names the last one's hash and id. The piece after the last gap is `last`, the
+/// piece to resume, when no closed piece comes after it.
+fn check_gaps<K, E>(
     closed: &[Done<K>],
-    last: Option<&TapeWriter<S>>,
+    last: Option<&Seen>,
     gaps: &[(u64, u64, usize)],
-) -> Result<(), WriteError<S::Error>> {
+) -> Result<(), WriteError<E>> {
     if gaps.is_empty() {
         return Ok(());
     }
-    let resumed: &[RemovedPiece] = last.map_or(&[], |w| w.removed());
+    let resumed: &[RemovedPiece] = last.map_or(&[], |s| &s.removed);
     let removed = Removed::of_rows(closed.iter().flat_map(|(_, l)| &l.removed).chain(resumed));
     for &(from, to, before) in gaps {
         let gap = WriteError::Resume(ResumeError::Gap { from, to });
@@ -837,7 +917,7 @@ fn check_gaps<K, S: TapeSink>(
             .and_then(|(done, _)| done.piece.next);
         let head = match (closed.get(before), last) {
             (Some((_, l)), _) => Some(l.head.prev),
-            (None, Some(w)) => match w.piece_head() {
+            (None, Some(s)) => match s.head {
                 Some(h) => Some(h.prev),
                 // cut off inside its head: the piece before it is gone, so it can't start again
                 None => return Err(WriteError::Resume(ResumeError::HeadLost { seq: to })),
@@ -906,17 +986,6 @@ struct LastPiece {
     kept: Kept,
     /// The pieces of the chain its close in force names as removed on purpose
     removed: Vec<RemovedPiece>,
-}
-
-/// The closed piece in `src`, from its tail, close and head.
-fn read_closed<B: ByteSource>(src: &B) -> Result<(Closed, LastPiece), WriteError<B::Error>> {
-    let reader = TapeReader::open(src).map_err(WriteError::Read)?;
-    if !matches!(reader.pieces(), [p] if p.start == 0) {
-        return Err(WriteError::Index(IndexError::Invalid(
-            "a closed piece holds one piece",
-        )));
-    }
-    read_closed_at(&reader, 0)
 }
 
 /// The piece in `src` when the chain goes on from it: one piece, closed by a cut (its last close record names the
