@@ -905,6 +905,55 @@ fn a_lowest_piece_without_its_head_is_refused_untouched() {
     assert!(snapshot(&dir) == before, "a refused resume wrote");
 }
 
+/// The lowest piece at hand after deleted ones, a byte of its head flipped: refused untouched with the refusal of the
+/// piece's own resume, not as a head lost: good blocks after the head, or (the piece cut to its head) damage.
+#[test]
+fn a_damaged_lowest_piece_is_refused_with_its_own_error() {
+    let defs = defs();
+    let each = options(PieceTapes::Each);
+    for whole in [true, false] {
+        let dir = scratch(&format!("lowest_damaged_{whole}"));
+        let mut c = ww_tape_fs::chain::create(&dir, OWNER, 0, &[], each.clone()).unwrap();
+        write(&mut c, &defs, 0, 9);
+        drop(c);
+        for seq in 0..4 {
+            std::fs::remove_file(dir.join(ww_tape_fs::piece_name(seq))).unwrap();
+        }
+        let last = dir.join(ww_tape_fs::piece_name(4));
+        let mut bytes = std::fs::read(&last).unwrap();
+        if !whole {
+            let head = u32::from_le_bytes(bytes[8..12].try_into().unwrap());
+            bytes.truncate(usize::try_from(head).unwrap());
+        }
+        bytes[20] ^= 0x40;
+        std::fs::write(&last, &bytes).unwrap();
+        let copy = scratch(&format!("lowest_damaged_copy_{whole}")).join("piece");
+        std::fs::write(&copy, &bytes).unwrap();
+        let own = ww_tape_fs::writer::resume(&copy, each.writer.clone())
+            .err()
+            .unwrap();
+        let before = snapshot(&dir);
+        let e = ww_tape_fs::chain::resume(&dir, OWNER, 0, each.clone())
+            .err()
+            .unwrap();
+        match whole {
+            true => assert!(
+                matches!(
+                    own,
+                    WriteError::Resume(ResumeError::GoodBlockAfterCut { .. })
+                ),
+                "{own:?}"
+            ),
+            false => assert!(
+                matches!(own, WriteError::Resume(ResumeError::Damaged { .. })),
+                "{own:?}"
+            ),
+        }
+        assert_eq!(format!("{e:?}"), format!("{own:?}"));
+        assert!(snapshot(&dir) == before, "a refused resume wrote");
+    }
+}
+
 /// A piece cut whole with torn bytes after its tail (a crash during the cut), the next piece missing: as the chain's
 /// end it is repaired and the next piece starts; with a hole past it the resume is refused and nothing is cut.
 #[test]

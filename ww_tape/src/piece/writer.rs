@@ -16,7 +16,7 @@ use crate::index::{IndexEntry, IndexError, TrackIdent};
 use crate::reader::{ByteSource, TapeReader};
 use crate::sink::{PieceStore, TapeSink, sink_err};
 use crate::writer::kept::Kept;
-use crate::writer::resume::SinkSource;
+use crate::writer::resume::{SinkSource, refuse_headless};
 use crate::writer::{
     Closed, Newest, NextPiece, Placed, ResumeError, Resumed, TapeWriter, WriteError, WriterOptions,
     block_id,
@@ -175,9 +175,11 @@ impl<T: PieceStore> PieceChain<T> {
 
     /// [Self::resume_on] of a chain whose pieces are tapes of their own. The pieces are read first and the holes
     /// between them checked; only then is a piece written: a piece cut whole that a crash left unmarked, or torn after
-    /// its tail, is made so, and the last piece is resumed. A resume refused for the chain (a hole, a lost head) writes
-    /// nothing. A refusal by the last piece's own resume ([TapeWriter::resume_on]) comes after those repairs: the bytes
-    /// after a cut piece's tail are dropped and its closed mark set, as any later resume would do.
+    /// its tail, is made so, and the last piece is resumed. A resume refused for the chain (a hole, a lost head, a last
+    /// piece whose head doesn't read and whose bytes its own resume refuses) writes nothing. A repair that refuses (a
+    /// good block after a torn cut piece's tail, or damage there) comes after the repairs before it, and a refusal by
+    /// the last piece's own resume ([TapeWriter::resume_on]) after all of them: the bytes after a cut piece's tail are
+    /// dropped and its closed mark set, as any later resume would do.
     fn resume_each(
         mut store: T,
         owner: OwnerId,
@@ -186,12 +188,22 @@ impl<T: PieceStore> PieceChain<T> {
     ) -> Result<(Self, Resumed), WriteError<T::Error>> {
         let (walk, key, reopened) = {
             let walk = walk_each(&mut store)?;
+            // the last piece's head unread, no piece just before it to start it again (deleted, or a hole): refused,
+            // with its own bytes' refusal when they are more than a head a crash cut off
+            let unread = walk.last_seen.as_ref().is_some_and(|s| s.head.is_none());
+            let after_gap = walk.gaps.last().is_some_and(|g| g.1 == walk.seq);
+            let headless = unread && (after_gap || (walk.closed.is_empty() && walk.seq != 0));
+            if headless {
+                let key = store.key_of(walk.seq);
+                if let Some(sink) = store
+                    .reopen(&key)
+                    .map_err(sink_err("reopening the last piece"))?
+                {
+                    refuse_headless(&sink)?;
+                }
+            }
             check_gaps(&walk.closed, walk.last_seen.as_ref(), &walk.gaps)?;
-            // the lowest piece at hand after deleted ones, its head unread: no piece before it to start it again
-            if walk.closed.is_empty()
-                && walk.seq != 0
-                && walk.last_seen.as_ref().is_some_and(|s| s.head.is_none())
-            {
+            if headless {
                 return Err(WriteError::Resume(ResumeError::HeadLost {
                     seq: Some(walk.seq),
                 }));
@@ -912,22 +924,17 @@ fn walk_each<T: PieceStore>(store: &mut T) -> Result<Walk<T::Key>, WriteError<T:
     }
 }
 
-/// The head and the removed pieces of the piece in `src`, as a reader finds them; an unreadable piece has neither.
+/// The head and the removed pieces of the piece in `src`, as a reader finds them; a head the reader doesn't take (cut
+/// off or damaged) is None. A reader's refusal of the bytes is kept.
 fn seen_in<B: ByteSource>(src: &B) -> Result<Seen, WriteError<B::Error>> {
-    match TapeReader::open(src) {
-        Ok(reader) => Ok(reader
-            .pieces()
-            .first()
-            .map_or_else(Seen::default, |p| Seen {
-                head: p.head.as_ref().map(|(h, _)| *h),
-                removed: p.removed.clone(),
-            })),
-        Err(crate::reader::ReadError::Source(e)) => {
-            Err(WriteError::Read(crate::reader::ReadError::Source(e)))
-        }
-        // bytes that don't read as a piece: no head, nothing named
-        Err(_) => Ok(Seen::default()),
-    }
+    let reader = TapeReader::open(src).map_err(WriteError::Read)?;
+    Ok(reader
+        .pieces()
+        .first()
+        .map_or_else(Seen::default, |p| Seen {
+            head: p.head.as_ref().map(|(h, _)| *h),
+            removed: p.removed.clone(),
+        }))
 }
 
 /// Refuse each gap of `gaps` (pieces `from..to` missing after the first `before` pieces of `closed`) that the closes at

@@ -129,9 +129,10 @@ pub enum ResumeError {
     /// name them as removed on purpose ([TapeWriter::record_removed](super::TapeWriter::record_removed)) or name them
     /// with ends that don't link to the pieces on either side.
     Gap { from: u64, to: u64 },
-    /// A piece after removed pieces has no head that reads, cut off inside it or damaged: the piece before it is
-    /// gone, so its head can't be written again. `seq` is its sequence number, None when nothing at hand gives it (the front of a tape of several
-    /// whose earlier pieces were dropped).
+    /// A piece after removed pieces was cut off inside its head by a crash: the piece before it is gone, so its head
+    /// can't be written again. A damaged head with more bytes after it is refused as the piece's own resume refuses it
+    /// ([Self::GoodBlockAfterCut], [Self::Damaged]). `seq` is its sequence number, None when nothing at hand gives it
+    /// (the front of a tape of several whose earlier pieces were dropped).
     HeadLost { seq: Option<u64> },
 }
 

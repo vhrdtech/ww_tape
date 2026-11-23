@@ -395,6 +395,24 @@ fn good_block_after<S: TapeSink>(
 /// The unit a disk writes whole or not at all: a write a crash cut off leaves zeros from a boundary of it.
 const SECTOR_LEN: u64 = 512;
 
+/// Refuse a resume of the piece in `sink`, whose head doesn't read, as [TapeWriter::resume_on] refuses it, reading
+/// only: a good block in its bytes ([ResumeError::GoodBlockAfterCut]) or bytes that aren't a torn end
+/// ([ResumeError::Damaged]). Ok when the bytes are a head cut off by a crash, which a resume cuts away.
+pub(crate) fn refuse_headless<S: TapeSink>(sink: &S) -> Result<(), WriteError<S::Error>> {
+    let size = sink
+        .size()
+        .map_err(sink_err("reading the length to resume"))?;
+    if let Some(offset) = good_block_after(sink, 0, size, &alloc::collections::BTreeSet::new())? {
+        return Err(WriteError::Resume(ResumeError::GoodBlockAfterCut {
+            offset,
+        }));
+    }
+    match torn_end(sink, 0, size)? {
+        Some(offset) => Err(WriteError::Resume(ResumeError::Damaged { offset })),
+        None => Ok(()),
+    }
+}
+
 /// Refuse a resume when a good block of any session lies between the end of the tail at `tail` and `size`.
 fn no_good_block_after<S: TapeSink>(
     src: &S,

@@ -1521,9 +1521,12 @@ outside the chain, and dropping them would lose more than a torn end.
 The resume starts at the lowest piece at hand: the pieces before it were deleted, by file, `MemPieces::remove` or
 `MemPieces::drop_front`, and the chain is head cut. A hole between pieces at hand is walked over only when the closes
 at hand name every missing piece alike, as for `ChainLink::Removed`. The cut before the hole names the first one's id,
-and the head after it names the last one's hash and id. Any other hole refuses with `ResumeError::Gap`,
-which gives the missing sequence numbers. A piece after removed pieces whose head was cut off can't be started again, since
-the piece before it is gone: `ResumeError::HeadLost`.
+and the head after it names the last one's hash and id. Any other hole refuses with `ResumeError::Gap`, which gives
+the missing sequence numbers.
+
+A piece after removed pieces whose head was cut off can't be started again, since the piece before it is gone:
+`ResumeError::HeadLost`. A damaged head with bytes after it refuses as the piece's own resume does, with
+`ResumeError::GoodBlockAfterCut` or `ResumeError::Damaged`.
 
 ### 9.7 Monotone relations after a resume {#monotone-relations-after-a-resume}
 
