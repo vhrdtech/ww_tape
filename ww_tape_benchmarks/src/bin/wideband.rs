@@ -5,6 +5,11 @@
 //! times the recorder, not the signal's maths. With `--dir` the most channels and muxes also write chains of piece
 //! files there, and a reader then draws one channel's overview from its summaries. Each table carries the load
 //! average before and after it.
+//!
+//! The tables `window` and `triage` capture a 250 MS/s receiver into a window in memory (`wideband::ram`) while the
+//! triage detects energy in each piece's summary nodes and keeps the pieces around a burst. One run replays its
+//! chunks, for speed; one makes the signal as it goes for `--live-ms`, bursts and all, and keeps them in piece files
+//! in `--dir`.
 #![allow(
     clippy::arithmetic_side_effects,
     clippy::as_conversions,
@@ -16,10 +21,13 @@
 use clap::Parser;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
-use ww_tape::{Codec, OwnerId, Tapes};
+use ww_tape::{Codec, MemTapes, OwnerId, Tapes};
 use ww_tape_bench::{Bench, Cell, Common, Discard};
+use ww_tape_benchmarks::{TRIAGE_COLUMNS, WINDOW_COLUMNS, WindowRun, triage_row, window_row};
+use ww_tape_example::ethernet::chain_options;
+use ww_tape_example::wideband::ram::RfCapture;
 use ww_tape_example::wideband::{RATE_HZ, Source, Wideband, overview};
-use ww_tape_fs::FileSource;
+use ww_tape_fs::{FileSource, Files};
 use ww_tape_mux::{MuxOptions, TapeMux};
 
 #[derive(Parser)]
@@ -49,6 +57,9 @@ struct Args {
     /// Chunks of each channel made before the run and pushed again and again.
     #[arg(long, default_value_t = 16)]
     replay_chunks: u64,
+    /// Milliseconds of the 250 MS/s capture into memory made live, its bursts included.
+    #[arg(long, default_value_t = 60_000)]
+    live_ms: u64,
 }
 
 /// An error of the library, kept as its debug text.
@@ -57,6 +68,8 @@ fn err<E: core::fmt::Debug>(e: E) -> anyhow::Error {
 }
 
 const OWNER: OwnerId = OwnerId([0x5d; 32]);
+/// The owner of the analyser's results.
+const RESULTS_OWNER: OwnerId = OwnerId([0x5e; 32]);
 
 /// What one run took.
 struct Run {
@@ -111,6 +124,7 @@ fn main() -> anyhow::Result<()> {
         vec![
             ("ms", args.ms.to_string()),
             ("replay chunks", args.replay_chunks.to_string()),
+            ("live ms", args.live_ms.to_string()),
         ],
     )?;
     println!("{}", bench.header());
@@ -175,10 +189,19 @@ fn main() -> anyhow::Result<()> {
         _ => None,
     };
     println!("{}", bench.push(table));
-    let Some((wb, r)) = files else {
-        println!("{}", bench.skipped("overview", "no --dir"));
-        return bench.finish();
-    };
+    match files {
+        Some((wb, r)) => overview_table(&args, &mut bench, wb, &r)?,
+        None => println!("{}", bench.skipped("overview", "no --dir")),
+    }
+    if let Some(dir) = &args.dir {
+        std::fs::remove_dir_all(dir)?;
+    }
+    windows(&args, &mut bench)?;
+    bench.finish()
+}
+
+/// The table `overview`: channel 0's overview read from the chain of piece files of run `r` of `wb`.
+fn overview_table(args: &Args, bench: &mut Bench, wb: Wideband, r: &Run) -> anyhow::Result<()> {
     let mut table = bench.table(
         "overview",
         &format!(
@@ -213,10 +236,124 @@ fn main() -> anyhow::Result<()> {
         ]);
     }
     println!("{}", bench.push(table));
-    if let Some(dir) = &args.dir {
-        std::fs::remove_dir_all(dir)?;
+    Ok(())
+}
+
+/// The tables `window` and `triage`: 250 MS/s into a window in memory, replayed into memory, then made live for
+/// `--live-ms`, its kept pieces in piece files in `--dir`.
+fn windows(args: &Args, bench: &mut Bench) -> anyhow::Result<()> {
+    let full = RfCapture::full();
+    let title = |what: &str| {
+        format!(
+            "{} MS/s of IQ in {} channels, `PACKED12_LSB`, into a window in memory, pieces of {} MiB; the triage \
+             keeps the piece before and after each burst. {what}",
+            full.wb.rate_hz / 1_000_000,
+            full.wb.channels,
+            full.wb.piece_bytes >> 20
+        )
+    };
+    let columns = ["Kept to", "Source", "Signal ms"];
+    let mut window = bench.table(
+        "window",
+        &title(
+            "The samples come as fast as the threads take them; a window takes half the machine's memory.",
+        ),
+        &[columns.as_slice(), &WINDOW_COLUMNS].concat(),
+    );
+    let mut triage = bench.table(
+        "triage",
+        &title("The analyser reads the level-0 summary nodes of each piece on one thread."),
+        &[columns.as_slice(), &TRIAGE_COLUMNS].concat(),
+    );
+    let memory = bench.report().machine.memory_bytes;
+    let mut rows = |kept: &str, source: &str, ms: u64, r: &WindowRun| {
+        let head = [Cell::text(kept), Cell::text(source), Cell::count(ms)];
+        window.row([head.to_vec(), window_row(r, memory)].concat());
+        triage.row([head.to_vec(), triage_row(r)].concat());
+    };
+    let replayed = RfCapture {
+        wb: full.wb.ms(args.ms),
+        ..full
+    };
+    let source = replayed.wb.replay(args.replay_chunks);
+    let r = window_run(&replayed, &source, &mut MemTapes::new(), mem_results()?)?;
+    rows("memory", "replayed", args.ms, &r);
+    let live = RfCapture {
+        wb: full.wb.ms(args.live_ms),
+        ..full
+    };
+    match &args.dir {
+        Some(dir) => {
+            anyhow::ensure!(
+                !dir.exists() || std::fs::read_dir(dir)?.next().is_none(),
+                "{} is not empty",
+                dir.display()
+            );
+            let (kept_dir, results_dir) = (dir.join("kept"), dir.join("results"));
+            std::fs::create_dir_all(&kept_dir)?;
+            std::fs::create_dir_all(&results_dir)?;
+            let results = ww_tape_fs::mux::create(
+                &results_dir,
+                RESULTS_OWNER,
+                0,
+                &[],
+                chain_options(),
+                MuxOptions::default(),
+            )
+            .map_err(err)?;
+            let r = window_run(&live, &Source::Live, &mut Files::new(&kept_dir), results)?;
+            rows("piece files", "live", args.live_ms, &r);
+            std::fs::remove_dir_all(dir)?;
+        }
+        None => {
+            let r = window_run(&live, &Source::Live, &mut MemTapes::new(), mem_results()?)?;
+            rows("memory", "live", args.live_ms, &r);
+        }
     }
-    bench.finish()
+    println!("{}", bench.push(window));
+    println!("{}", bench.push(triage));
+    Ok(())
+}
+
+/// A mux of the analyser's results in memory.
+fn mem_results() -> anyhow::Result<TapeMux<MemTapes>> {
+    TapeMux::create(
+        MemTapes::new(),
+        RESULTS_OWNER,
+        0,
+        &[],
+        chain_options(),
+        MuxOptions::default(),
+    )
+    .map_err(err)
+}
+
+/// Run capture `c` from `source`, kept pieces into `kept`, results through `results`, closed after.
+fn window_run<K, R>(
+    c: &RfCapture,
+    source: &Source,
+    kept: &mut K,
+    results: TapeMux<R>,
+) -> anyhow::Result<WindowRun>
+where
+    K: Tapes + Send,
+    K::Error: Send + core::fmt::Debug,
+    R: Tapes + Send + 'static,
+    R::Sink: Send,
+    R::Key: Send,
+    R::Error: Send + Sync + core::fmt::Debug,
+{
+    let start = Instant::now();
+    let run = c.run(source, kept, &results).map_err(err)?;
+    let wall = start.elapsed();
+    let closed = results.close().map_err(err)?;
+    Ok(WindowRun {
+        signal_s: c.wb.ms as f64 / 1e3,
+        capture: run.capture_time,
+        wall,
+        triaged: vec![run.triaged],
+        results_bytes: closed.iter().map(|p| p.piece.len).sum(),
+    })
 }
 
 /// Record `wb` into `muxes` chains of piece files under `dir`: what the run took, and each chain's pieces.

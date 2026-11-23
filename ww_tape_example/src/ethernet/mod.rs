@@ -16,7 +16,8 @@
 //!
 //! The traffic is synthetic and a pure function of the frame's number ([Traffic]): the simple IMIX of 7 frames of
 //! 60 bytes, 4 of 590 and 1 of 1514, over [FLOWS] flows, three in four of them TCP. The payloads are random bytes,
-//! as encrypted traffic is, so they don't compress. A port sends its frames back to back at the link's load.
+//! as encrypted traffic is, so they don't compress. A port sends its frames back to back at the link's load. One frame
+//! in [Link::reset_every] is a TCP reset ([L4::is_reset]) on a TCP flow: the rare event [ram]'s analyser looks for.
 //!
 //! [Link::record] records both ports through one [TapeMux] or a mux per port, each into a chain of its own. Per
 //! receive queue a capture thread pushes the frames and hands each batch to a decoder thread, which pushes the
@@ -39,6 +40,8 @@
 //! assert_eq!(read.ports[0].frames, captured.ports[0].frames);
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
+
+pub mod ram;
 
 use std::sync::mpsc;
 use std::thread::ScopedJoinHandle;
@@ -75,6 +78,11 @@ const IMIX: [(u64, usize); 3] = [(7, 60), (4, 590), (1, 1514)];
 pub const FLOWS: u64 = 1024;
 /// One frame in this many is an ARP request, no IPv4.
 pub const ARP_EVERY: u64 = 1000;
+/// One frame of a port in this many is a TCP reset by default, where its flow is TCP.
+pub const RESET_EVERY: u64 = 4_000_000;
+/// TCP's flags of a reset, RST and ACK; [L4::is_reset] tests the RST bit.
+const FLAGS_RESET: u8 = 0x14;
+const FLAG_RST: u8 = 0x04;
 /// Bytes of random payload each port draws its frames' payloads from: larger than the LZ4 window by far, so no two
 /// payloads in a chunk repeat each other.
 const PAYLOAD_POOL_BYTES: usize = 16 << 20;
@@ -98,6 +106,7 @@ const PROTO_UDP: u8 = 17;
 const FRAME_SEED: u64 = 0xe7_f0;
 const FLOW_SEED: u64 = 0xe7_f1;
 const POOL_SEED: u64 = 0xe7_f2;
+const RESET_SEED: u64 = 0xe7_f3;
 
 // --8<-- [start:link]
 /// A capture of the link: how loaded it is, how long, and how its frames are cut into chunks.
@@ -112,6 +121,8 @@ pub struct Link {
     /// The receive queues of each port, 1 to [QUEUES_MAX]: the flows are spread over them, and each is a thread
     /// and tracks of its own.
     pub queues: u32,
+    /// One frame of a port in this many is a TCP reset, where its flow is TCP; 0 for none.
+    pub reset_every: u64,
 }
 // --8<-- [end:link]
 
@@ -124,6 +135,7 @@ impl Link {
             micros: 1_000_000,
             chunk_bytes: 1 << 20,
             queues: 2,
+            reset_every: RESET_EVERY,
         }
     }
 
@@ -143,6 +155,14 @@ impl Link {
     /// The same capture over `queues` receive queues a port.
     pub const fn queues(self, queues: u32) -> Self {
         Self { queues, ..self }
+    }
+
+    /// The same capture with one frame in `reset_every` a TCP reset, 0 for none.
+    pub const fn resets(self, reset_every: u64) -> Self {
+        Self {
+            reset_every,
+            ..self
+        }
     }
 
     /// The receive queues of both ports.
@@ -422,6 +442,8 @@ struct Shape {
     h: u64,
     flow: u64,
     arp: bool,
+    /// A TCP reset, where the flow is TCP: the shortest frame.
+    reset: bool,
     len: usize,
 }
 
@@ -492,11 +514,15 @@ impl Traffic {
                 pick < seen
             })
             .map_or(60, |(_, len)| *len);
+        let reset = !arp
+            && self.link.reset_every > 0
+            && hash(RESET_SEED ^ u64::from(self.rx.port), n).is_multiple_of(self.link.reset_every);
         Shape {
             h,
             flow: (h >> 32) % FLOWS,
             arp,
-            len: if arp { 60 } else { len },
+            reset,
+            len: if arp || reset { 60 } else { len },
         }
     }
 
@@ -544,7 +570,11 @@ impl Traffic {
             // sequence and acknowledgment, a header of 5 words, ACK with PSH on a frame with data, window, no
             // checksum (left to the NIC's offload)
             out.extend_from_slice(&h.to_be_bytes());
-            let flags = if len > 60 { 0x18 } else { 0x10 };
+            let flags = match (shape.reset, len > 60) {
+                (true, _) => FLAGS_RESET,
+                (false, true) => 0x18,
+                (false, false) => 0x10,
+            };
             out.extend_from_slice(&[0x50, flags, 0x01, 0xf6, 0, 0, 0, 0]);
         } else {
             let udp_len = u16::try_from(len - 34).unwrap_or(u16::MAX);
@@ -673,6 +703,11 @@ impl L4 {
         let [d0, d1] = self.dst_port.to_be_bytes();
         let [p0, p1] = self.payload.to_be_bytes();
         [self.proto, self.flags, s0, s1, d0, d1, p0, p1]
+    }
+
+    /// Whether the header is a TCP reset: its RST flag set.
+    pub fn is_reset(&self) -> bool {
+        self.proto == PROTO_TCP && self.flags & FLAG_RST != 0
     }
 
     /// The item from its bytes in `l4`.

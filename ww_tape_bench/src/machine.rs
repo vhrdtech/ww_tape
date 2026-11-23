@@ -19,7 +19,22 @@ pub fn machine() -> Machine {
         cpus: std::thread::available_parallelism().map_or(1, usize::from),
         arch: std::env::consts::ARCH.to_owned(),
         extensions: extensions(),
+        memory_bytes: memory_bytes(),
     }
+}
+
+/// Bytes of memory the system has: `MemTotal` of `/proc/meminfo`; None where it doesn't say (not Linux).
+fn memory_bytes() -> Option<u64> {
+    let meminfo = std::fs::read_to_string("/proc/meminfo").ok()?;
+    let kib = meminfo
+        .lines()
+        .find_map(|l| l.strip_prefix("MemTotal:"))?
+        .trim()
+        .strip_suffix("kB")?
+        .trim()
+        .parse::<u64>()
+        .ok()?;
+    kib.checked_mul(1024)
 }
 
 /// How this bench was built: cargo's profile kind and opt-level (this crate's build script), and the jobs of

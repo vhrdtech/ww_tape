@@ -56,6 +56,14 @@ cargo run --release -p ww_tape_example --bin ethernet_sizes -- 100  # the same f
 
 `tests/ethernet.rs` reads every frame and header back and pins the sizes the book quotes. `ww_tape_benchmarks` times it: `--bin ethernet`, or `just bench-ethernet`.
 
+## Capturing into memory
+
+The module `window` captures into chains of pieces in memory, a mux each. An analyser reads each piece as it closes, on a triage thread per chain. A piece the analyser keeps is copied whole, with its neighbours, to a store of its own, such as a directory of piece files. Every other piece leaves memory unwritten. When the analyser falls behind and the window is full, the oldest pieces leave unread, and the triage counts them.
+
+`ethernet::ram` captures the 10 Gbps link into a chain per port and keeps the pieces around each TCP reset. `wideband::ram` captures a band of 250 million samples a second and keeps the pieces around each burst, found from the summary nodes alone. Each writes its findings to a results chain: the resets or bursts, and the pieces kept.
+
+`tests/window.rs`, `tests/ethernet_ram.rs` and `tests/wideband_ram.rs` check what each keeps and that every finding lies in a kept piece. `just bench-ethernet` and `just bench-wideband` time the capture and the triage.
+
 ## The wideband receiver
 
 The module `wideband` records a receiver of 1 billion complex samples a second, split into channels of equal width. Each channel is the RF capture's signal at its share of the rate, a series track with summaries and a producer thread of its own. Channel `k` goes to mux `k % m`, so several muxes write several chains from one process. `overview` reads the nodes of one summary level from every piece and no samples.

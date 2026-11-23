@@ -1,0 +1,9 @@
+| Kept to | Chains | Queues a port | Capture ms | Of the pace | Wall ms | Pieces | Overrun | Held max MB | Tape MB per s | Window s |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| memory | 1 | 2 | 2033 | 0.98 | 2111 | 71 | 0 | 540 | 2395 | 6.8 |
+| memory | 1 | 4 | 2147 | 0.93 | 2169 | 71 | 0 | 406 | 2383 | 6.9 |
+| memory | 2 | 2 | 2040 | 0.98 | 2058 | 72 | 0 | 272 | 2394 | 6.8 |
+| memory | 2 | 4 | 1567 | 1.28 | 1587 | 71 | 0 | 501 | 2382 | 6.9 |
+| piece files | 2 | 4 | 1597 | 1.25 | 1814 | 71 | 0 | 1659 | 2382 | 6.9 |
+
+`just bench-ethernet` on gpd-omarchy, load average 4.06 before, 4.83 after.

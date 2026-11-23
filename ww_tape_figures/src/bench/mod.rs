@@ -9,8 +9,8 @@
 //!   load average.
 //! - `bench_handles_machine.txt`: the same for the handles report of "Writing from many threads".
 //! - `bench_read_check_machine.txt`: the same for the read_check report of "When bytes go bad".
-//! - `bench_cases_machine.txt`: the same for the reports of the two case pages, "Every frame of a 10 Gbps link" and
-//!   "A billion samples a second".
+//! - `bench_cases_machine.txt`: the same for the reports of the two case pages, "Keeping what matters of a 10 Gbps
+//!   link" and "Keeping the bursts of a fast band".
 //!
 //! [says] gives the numbers the page's prose computes from the reports, and the numbers the reports name.
 
@@ -426,14 +426,17 @@ fn machine_of(all: &[&Report]) -> anyhow::Result<String> {
         .build
         .jobs
         .map_or_else(|| "the default jobs".to_owned(), |j| format!("{j} jobs"));
+    let memory = m
+        .memory_bytes
+        .map_or_else(String::new, |b| format!(" and {} GiB of memory", b >> 30));
     let (benches, each) = if all.len() == 1 {
         ("The bench ran", "It")
     } else {
         ("The benches ran", "Each")
     };
     Ok(format!(
-        "{benches} on {}, a {} with {} logical CPUs ({}, {}). {each} was a {} build at opt-level {} of commit `{}`, \
-         built with {jobs}. The load average ran from {lo:.2} to {hi:.2} across the tables.\n",
+        "{benches} on {}, a {} with {} logical CPUs ({}, {}){memory}. {each} was a {} build at opt-level {} of \
+         commit `{}`, built with {jobs}. The load average ran from {lo:.2} to {hi:.2} across the tables.\n",
         m.host,
         if m.virtual_machine {
             "virtual machine"
@@ -499,8 +502,12 @@ pub fn figures(dir: &Path) -> anyhow::Result<Vec<(String, String)>> {
         (&r.handles, "iq"),
         (&r.read_check, "read"),
         (&r.ethernet, "writer"),
+        (&r.ethernet, "window"),
+        (&r.ethernet, "triage"),
         (&r.wideband, "writer"),
         (&r.wideband, "overview"),
+        (&r.wideband, "window"),
+        (&r.wideband, "triage"),
     ] {
         let name = format!("bench_{}_{id}.txt", report.bench);
         out.push((name, markdown(report, id)?));

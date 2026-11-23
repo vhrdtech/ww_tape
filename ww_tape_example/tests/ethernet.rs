@@ -226,6 +226,9 @@ fn the_page_gives_what_the_link_takes() {
     // a second is a hundred such 10 ms, to within one piece's head, index and close
     let second = about(sizes.read.piece_bytes * 100);
     let port = about(frame_bytes * 100 / 2);
+    // a piece in memory, against what a second of the link takes
+    let piece = ww_tape_example::ethernet::ram::RamCapture::full().piece_bytes;
+    let piece_ms = (piece as f64 / (sizes.read.piece_bytes * 100) as f64 * 1e3).round();
     for phrase in [
         format!(
             "10 ms of the link hold {} frames of {} in both directions",
@@ -236,6 +239,11 @@ fn the_page_gives_what_the_link_takes() {
         format!("A second of the link at its line rate therefore takes about {second} on a tape"),
         format!("A chain at the line rate writes about {second} a second"),
         format!("A port's {port} of frames a second on one thread"),
+        format!("The [[mux]] cuts a piece every 64 MiB, about {piece_ms} ms of the link"),
+        format!(
+            "The link sends one in {} million frames of a port",
+            ethernet::RESET_EVERY / 1_000_000
+        ),
     ] {
         assert!(
             page("protocol_analyser.md").contains(&phrase),

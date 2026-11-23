@@ -20,8 +20,8 @@ into `docs/bench/`:
 | `rf_core` | `just bench-rf-core` | the RF capture's writer and reader on one core, per codec |
 | `rf_chain` | `just bench-rf-chain` | the RF capture into a chain of piece files at full speed, then read back |
 | `carried` | `just bench-carried` | the definitions a piece carries for the tracks of its head, and the most a cut carries |
-| `ethernet` | `just bench-ethernet` | a protocol analyser on both directions of a 10 Gbps link: receive queues a port, one mux or two, against the link |
-| `wideband` | `just bench-wideband` | a wideband receiver at 1 GS/s in channels over one or several muxes, against its rate; one channel's overview read from its summaries |
+| `ethernet` | `just bench-ethernet` | a protocol analyser on both directions of a 10 Gbps link: receive queues a port, one mux or two, against the link; the link into a window in memory, the triage's speed and the bytes it keeps |
+| `wideband` | `just bench-wideband` | a wideband receiver at 1 GS/s in channels over one or several muxes, against its rate; one channel's overview read from its summaries; 250 MS/s into a window in memory, the triage's speed and the bytes it keeps |
 | `read_check` | `just bench-read-check` | `TapeReader::read_block` of chunks and records blocks in memory, payload CRCs checked and not |
 | `handles` | `just bench-handles` | events and series handles on a `TapeMux` against one thread writing a chain directly, by tracks |
 
@@ -73,6 +73,11 @@ directions of a 10 Gbps link at its line rate, with a capture and a decoder thre
 of queues and of muxes writes into a store that keeps no bytes. With `--dir`, the most queues also write chains of
 piece files there. It prints the frames a second and the share of the link the run kept up with.
 
+It then captures the link into a window in memory (`ethernet::ram`), in one chain and in a chain per port. A triage
+thread per chain keeps the pieces around each TCP reset. It prints the capture's pace against the link's and the
+seconds of the link half the machine's memory holds. It also prints the triage's speed and the bytes kept. With `--dir`, the most
+chains and queues keep their pieces in piece files there.
+
 ```sh
 just bench-ethernet --dir target/bench-ethernet
 just bench-ethernet --ms 500 --queues 1,2,4,8 --muxes 1,2
@@ -84,6 +89,10 @@ times the recorder and not the signal. A run per number of channels, muxes and c
 bytes. With `--dir`, the most channels and muxes also write chains of piece files there.
 
 A reader then draws channel 0's overview from its summary nodes, counting the bytes it reads.
+
+It then captures 250 million samples a second into a window in memory (`wideband::ram`). One run replays chunks made
+before it, and one makes the signal as it goes for `--live-ms`, with its bursts. It prints the same columns as `ethernet`; with
+`--dir`, the live run keeps its pieces in piece files there.
 
 ```sh
 just bench-wideband --dir target/bench-wideband

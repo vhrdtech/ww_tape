@@ -126,8 +126,8 @@ holds 60 pieces of 38 MB together, a piece per second, and `decoded` one piece o
 and 65 finds, none of them late. Each burst comes right after the chunk that holds its first sample. The burst at
 7.3 s comes after the chunk from sample 1 460 000.
 
-At 50 times the rate, a billion samples a second, the same signal needs its band split into channels. [A billion samples
-a second](wideband.md) spreads them over several muxes and measures where that stops.
+At 50 times the rate, a billion samples a second, the same signal needs its band split into channels. [Keeping the
+bursts of a fast band](wideband.md) spreads them over several muxes and measures where that stops.
 
 ## Grids: where samples are in time
 

@@ -38,11 +38,13 @@ use core::cell::Cell;
 use ww_tape::reader::ByteSource;
 use ww_tape::samples::Samples;
 use ww_tape::{
-    BlockKind, ChainOptions, Codec, ColumnKind, CutPolicy, ItemNum, Segment, TapeReader, Tapes,
-    TrackId, TrackKey, TrackNum, TrackSpec, track_key,
+    BlockKind, ChainOptions, Codec, ColumnKind, CutPolicy, ItemNum, Segment, SeriesDef, TapeReader,
+    Tapes, TrackId, TrackKey, TrackNum, TrackSpec, track_key,
 };
 use ww_tape_mux::{MuxError, SeriesOptions, TapeMux};
 use ww_tape_summary::Summary;
+
+pub mod ram;
 
 use crate::rf::{API_ROOT, Rf, RfError, Signal, clock, iq_shape};
 
@@ -369,12 +371,14 @@ pub fn read_channel(
     Ok(out)
 }
 
-/// A node of a channel's overview: the tick it starts at, its samples, and their mean and largest power `I² + Q²`.
+/// A node of a channel's overview: the tick it starts at, the tick after its last sample, its samples, and their
+/// mean and largest power `I² + Q²`.
 ///
 /// Each piece has a tree of its own, so a piece's last node may hold fewer samples than a full node.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct OverviewNode {
     pub first_tick: i64,
+    pub end_tick: i64,
     pub samples: u64,
     pub power_mean: f32,
     pub power_max: f32,
@@ -427,7 +431,6 @@ pub fn overview<S: ByteSource>(
         .channel()
         .def()
         .ok_or(WidebandError::Settings("a rate"))?;
-    let grid = def.first_grid(0);
     let mut out = Overview::default();
     let mut buf = Vec::new();
     for source in pieces {
@@ -436,38 +439,68 @@ pub fn overview<S: ByteSource>(
             bytes: &bytes,
             reads: &reads,
         })?;
-        for entry in reader.track_entries(0, channel_id(k))? {
-            if entry.kind != BlockKind::Summary || entry.level != level {
-                continue;
-            }
-            let block = reader.read_block(0, &entry, &mut buf)?;
-            let summary = Summary::of_block(&block).ok_or(WidebandError::Read("a summary"))?;
-            let head = summary.head();
-            for i in 0..summary.node_count() {
-                let stats = summary
-                    .channel_stats(0, i)
-                    .ok_or(WidebandError::Read("a node"))?;
-                // nodes lie on multiples of their size in item numbers: the first and last may be cut
-                let (from, to) = (head.first_item.get(), head.first_item.get() + head.items);
-                let start =
-                    (from >> head.node_shift << head.node_shift) + ((i as u64) << head.node_shift);
-                let (first, end) = (start.max(from), (start + (1 << head.node_shift)).min(to));
-                out.nodes.push(OverviewNode {
-                    first_tick: grid
-                        .tick(def.period, ItemNum::new(first))
-                        .ok_or(WidebandError::Read("a node's tick"))?,
-                    samples: end.saturating_sub(first),
-                    power_mean: stats.power_mean,
-                    power_max: stats.power_max,
-                });
-            }
-        }
+        out.nodes.extend(summary_nodes(
+            &reader,
+            &def,
+            channel_id(k),
+            level,
+            &mut buf,
+        )?);
     }
     // --8<-- [end:overview]
     out.bytes_read = bytes.get();
     out.reads = reads.get();
     Ok(out)
 }
+
+// --8<-- [start:summary_nodes]
+/// The summary nodes of level `level` of track `id`, a channel's `iq` of definition `def`, in the first piece of
+/// `reader`: only the summary blocks of that level read, in order.
+///
+/// # Errors
+///
+/// A summary block that doesn't read.
+pub fn summary_nodes<S: ByteSource>(
+    reader: &TapeReader<S>,
+    def: &SeriesDef<'_>,
+    id: TrackId,
+    level: u8,
+    buf: &mut Vec<u8>,
+) -> Result<Vec<OverviewNode>, WidebandError<S::Error>> {
+    let grid = def.first_grid(0);
+    let tick = |n: u64| {
+        grid.tick(def.period, ItemNum::new(n))
+            .ok_or(WidebandError::Read("a node's tick"))
+    };
+    let mut out = Vec::new();
+    for entry in reader.track_entries(0, id)? {
+        if entry.kind != BlockKind::Summary || entry.level != level {
+            continue;
+        }
+        let block = reader.read_block(0, &entry, buf)?;
+        let summary = Summary::of_block(&block).ok_or(WidebandError::Read("a summary"))?;
+        let head = summary.head();
+        for i in 0..summary.node_count() {
+            let stats = summary
+                .channel_stats(0, i)
+                .ok_or(WidebandError::Read("a node"))?;
+            // nodes lie on multiples of their size in item numbers: the first and last may be cut
+            let (from, to) = (head.first_item.get(), head.first_item.get() + head.items);
+            let start =
+                (from >> head.node_shift << head.node_shift) + ((i as u64) << head.node_shift);
+            let (first, end) = (start.max(from), (start + (1 << head.node_shift)).min(to));
+            out.push(OverviewNode {
+                first_tick: tick(first)?,
+                end_tick: tick(end)?,
+                samples: end.saturating_sub(first),
+                power_mean: stats.power_mean,
+                power_max: stats.power_max,
+            });
+        }
+    }
+    Ok(out)
+}
+// --8<-- [end:summary_nodes]
 
 /// Why a capture could not be recorded or read: `E` is the store's or the source's error.
 #[derive(Debug)]

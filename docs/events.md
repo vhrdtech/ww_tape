@@ -60,7 +60,8 @@ and [`Payloads::get`] gives item `j`'s bytes from one group of lengths, without 
 that the writer compressed with lz4 is decoded once, whole, when the reader opens it.
 
 A payload may be a whole frame as received. A protocol analyser keeps every frame of a network link that way, with the
-headers its decoder finds on tracks beside them. [Every frame of a 10 Gbps link](protocol_analyser.md) shows how.
+headers its decoder finds on tracks beside them. [Keeping what matters of a 10 Gbps link](protocol_analyser.md) shows
+how.
 
 The drive's frames carry their 11-bit identifier in the first 4 bytes of the payload and the frame's data after it.
 The program reads the chunk that holds the first frame at or after the fault, then every frame of the next 5 ms:
