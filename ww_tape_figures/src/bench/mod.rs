@@ -8,6 +8,7 @@
 //! - `bench_machine.txt`: the machine, build and commit every report of "Sizes and speeds" ran, and the range of the
 //!   load average.
 //! - `bench_handles_machine.txt`: the same for the handles report of "Writing from many threads".
+//! - `bench_read_check_machine.txt`: the same for the read_check report of "When bytes go bad".
 //! - `bench_cases_machine.txt`: the same for the reports of the two case pages, "Every frame of a 10 Gbps link" and
 //!   "A billion samples a second".
 //!
@@ -16,7 +17,7 @@
 mod chart;
 mod says;
 
-pub use says::{Says, handles, missing, says};
+pub use says::{Says, handles, missing, read_check, says};
 
 use anyhow::{Context, ensure};
 use chart::{Chart, Panel, Series};
@@ -36,6 +37,7 @@ pub struct Reports {
     rf_core: Report,
     rf_chain: Report,
     handles: Report,
+    read_check: Report,
     ethernet: Report,
     wideband: Report,
 }
@@ -60,6 +62,7 @@ pub fn read(dir: &Path) -> anyhow::Result<Reports> {
         rf_core: r("rf_core")?,
         rf_chain: r("rf_chain")?,
         handles: r("handles")?,
+        read_check: r("read_check")?,
         ethernet: r("ethernet")?,
         wideband: r("wideband")?,
     })
@@ -460,6 +463,10 @@ pub fn figures(dir: &Path) -> anyhow::Result<Vec<(String, String)>> {
             machine_of(&[&r.handles])?,
         ),
         (
+            "bench_read_check_machine.txt".to_owned(),
+            machine_of(&[&r.read_check])?,
+        ),
+        (
             "bench_cases_machine.txt".to_owned(),
             machine_of(&[&r.ethernet, &r.wideband])?,
         ),
@@ -490,6 +497,7 @@ pub fn figures(dir: &Path) -> anyhow::Result<Vec<(String, String)>> {
         (&r.rf_chain, "read"),
         (&r.handles, "events"),
         (&r.handles, "iq"),
+        (&r.read_check, "read"),
         (&r.ethernet, "writer"),
         (&r.wideband, "writer"),
         (&r.wideband, "overview"),

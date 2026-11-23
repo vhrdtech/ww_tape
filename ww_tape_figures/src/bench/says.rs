@@ -612,6 +612,32 @@ pub fn handles(r: &Reports) -> anyhow::Result<Vec<(String, String)>> {
     ])
 }
 
+/// The numbers the prose of "When bytes go bad" computes from the read_check report, as it writes them, and what
+/// each is. The page holds each one ([missing]).
+pub fn read_check(r: &Reports) -> anyhow::Result<Vec<(String, String)>> {
+    let t = table(&r.read_check, "read")?;
+    let ns = |block: &str, check: &str| value(t, row(t, &[block, check])?, "ns per block");
+    let share = |block: &str| -> anyhow::Result<f64> {
+        Ok(ns(block, "not checked")? / ns(block, "checked")?)
+    };
+    let (chunk, records) = (share("chunk")?, share("records")?);
+    ensure!(
+        chunk < 1.0 && records < 1.0,
+        "the page says an unchecked read is faster: {chunk}, {records}"
+    );
+    let percent = |v: f64| format!("{} %", sig(v * 100.0, 2));
+    Ok(vec![
+        (
+            "an unchecked read of a chunk against a checked one".to_owned(),
+            percent(chunk),
+        ),
+        (
+            "an unchecked read of a records block against a checked one".to_owned(),
+            percent(records),
+        ),
+    ])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

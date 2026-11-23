@@ -43,24 +43,18 @@ on a microcontroller, a table computes it, with the same result.
 
 ### Checks on bytes kept in memory
 
-A tape kept in memory by the process that writes it is read without the CRCs over payloads, by default. No disk or
-wire touched those bytes, so a failed CRC there could only be a fault of the memory itself. [`OpenOptions::check_payloads`]
-makes the choice. Its default, [`PayloadCheck::BySource`], checks a file and skips the payload CRCs of a
-[`ByteSource::trusted`] source, such as a memory tape. [`PayloadCheck::Always`] checks every payload, for a reader
-that looks for memory faults too.
+A tape kept in memory by the process that writes it is read without its payload CRCs by default. No disk or wire
+touched those bytes. [`OpenOptions::check_payloads`] decides. [`PayloadCheck::BySource`] checks a file and skips a
+[`ByteSource::trusted`] source, such as a memory tape. [`PayloadCheck::Always`] also catches memory faults.
 
-An unchecked read keeps every other check: the header, the chunk head's CRC, the lengths and the records. Bytes that
-break the structure are refused as before. [`Block::checked`] says how far a block was checked: verified, unverified,
-or damaged after a salvage.
+An unchecked read keeps every other check: header, chunk head CRC, lengths and records. [`Block::checked`] says
+how far a block was checked. The bench `read_check` times [`TapeReader::read_block`] from memory both ways:
 
-`just bench-chunks` measures [`TapeReader::read_block`] from a tape in memory on build-1, at load 4.35:
+--8<-- "docs/plots/bench_read_check_read.txt"
 
-| Block | Bytes | Payload CRCs checked | Not checked |
-|---|---:|---:|---:|
-| series chunk | 1 048 775 | 68 971 ns | 33 516 ns |
-| records block | 4 043 | 361 ns | 133 ns |
+An unchecked read takes 47 % of the time of a checked one for a chunk, mostly its copy, and 36 % for a records block.
 
-The unchecked read of a chunk is the copy of its bytes; the CRCs take the other half.
+--8<-- "docs/plots/bench_read_check_machine.txt"
 
 ## What the flipped bit costs
 

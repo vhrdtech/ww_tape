@@ -82,6 +82,13 @@ pub fn handles_missing(page: &str) -> anyhow::Result<Vec<String>> {
     Ok(bench::missing(&pins, page))
 }
 
+/// What the prose of "When bytes go bad" writes from the read_check report in [BENCH_DIR]: the pins it lacks in
+/// `page`.
+pub fn read_check_missing(page: &str) -> anyhow::Result<Vec<String>> {
+    let pins = bench::read_check(&bench::read(std::path::Path::new(BENCH_DIR))?)?;
+    Ok(bench::missing(&pins, page))
+}
+
 /// Every figure: its file name and its text.
 pub fn figures() -> anyhow::Result<Vec<(String, String)>> {
     let drawn: Vec<(&str, String)> = vec![
