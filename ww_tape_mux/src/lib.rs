@@ -92,12 +92,12 @@
 mod define;
 mod error;
 mod events;
+mod grid;
 mod handle;
 mod open;
 mod progress;
 mod queue;
 mod reply;
-mod series;
 mod shared;
 mod summaries;
 mod thread;
@@ -119,9 +119,9 @@ pub use events::{
     CHUNK_BYTES_DEFAULT, CHUNK_ITEMS_DEFAULT, Event, EventsHandle, EventsOptions, ITEM_BYTES_MAX,
     LATENCY_DEFAULT,
 };
+pub use grid::{CHUNK_SAMPLES_DEFAULT, SeriesHandle, SeriesOptions};
 pub use handle::{ChunkSender, Pressure, RecordsHandle, RelayHandle, Sent, StateHandle};
 pub use progress::{Progress, ProgressWatch, TrackProgress, WaitPast};
-pub use series::{CHUNK_SAMPLES_DEFAULT, SeriesHandle, SeriesOptions};
 pub use shared::{RETURNED_BUFFERS_MAX, RelayMode};
 
 use reply::reply;
