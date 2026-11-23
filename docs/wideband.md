@@ -141,7 +141,14 @@ muxes and codec. With the most channels and muxes it then writes chains of piece
 
 --8<-- "docs/plots/bench_wideband_writer.txt"
 
-The column "Of 1 GS/s" is the samples recorded a second against the receiver's rate, and the waits count the times a
-handle found its mux's queue full. Without a disk, enough channels and muxes come near the full rate. With a disk, a
-second of the receiver is about 3.1 GB, more than one disk of a common PC writes in a second. That is why the receiver
-keeps the band in memory and writes only the bursts.
+The column "Of 1 GS/s" is the samples recorded a second against the receiver's rate. The waits count the times a handle
+found its mux's queue full. Without a disk, enough channels and muxes come near the full rate. With a disk, a second of
+the receiver is about 3.1 GB, more than one disk of a common PC writes in a second. That is why the receiver keeps the
+band in memory and writes only the bursts.
+
+The band has no payload column to compress. A channel is a series track, and its samples go through a sample codec:
+`RAW` and `PACKED12_LSB` are the two the table compares. "Bytes per sample" is what the chain keeps for each sample,
+and "CPU ns per sample" is the CPU time of every thread of the process for it. Packing saves a byte of each four and
+costs more CPU time. The bursts and the kept pieces the analyser writes are events of 8 bytes, which no payload codec
+shrinks.
+
