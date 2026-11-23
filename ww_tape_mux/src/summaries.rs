@@ -314,6 +314,8 @@ impl Trees {
                             first_item: head.first_item,
                             grid,
                             period,
+                            tile: ww_tape::TileCoords::NONE,
+                            tile_cells: 1,
                         };
                         v.insert(Tree::Series(Box::new(SeriesTree::new(start, spec)?)))
                     }

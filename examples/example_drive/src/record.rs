@@ -123,6 +123,8 @@ impl Acts {
                 first_item: ItemNum::new(0),
                 grid: def.first_grid(0),
                 period: def.period,
+                tile: ww_tape::TileCoords::NONE,
+                tile_cells: 1,
             };
             Some(SeriesSummaries::new(start, crate::defs::phase_summaries())?)
             // --8<-- [end:summaries]

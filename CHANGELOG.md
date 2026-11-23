@@ -9,11 +9,14 @@ benchmarks, golden files and book pages.
 ### Breaking
 
 - `SummaryHead` gains `tile`, a grid tile's coordinates: a struct literal adds `tile: TileCoords::NONE` (FMT-15).
+- `SeriesStart` gains `tile` and `tile_cells`: a series' literal adds `tile: TileCoords::NONE, tile_cells: 1` (FMT-15).
 
 ### Features
 
 - A grid tile's summary block carries header flag `FLAG_TILE` and its tile after the scale; series blocks unchanged (FMT-15).
 - A grid tile's summary block's index entry carries its tile number at bytes 72..88, as its chunks' do (FMT-15).
+- A grid tile's summary tree: an item is a time step, a node the tile's cells over its steps (FMT-15).
+- `SeriesLeaves::of_tile` computes a tile's leaves, a time step of the tile's cells per item (FMT-15).
 
 ## [0.7.0] - 2026-11-23
 

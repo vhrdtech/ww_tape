@@ -91,6 +91,8 @@ mod kernel_tests;
 mod split_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(all(test, feature = "std"))]
+mod tile_tests;
 
 /// A block's byte cap as a `usize`.
 #[cfg(feature = "std")]

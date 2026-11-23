@@ -252,6 +252,8 @@ impl Rf {
             first_item: ItemNum::new(0),
             grid: def.first_grid(0),
             period: def.period,
+            tile: ww_tape::TileCoords::NONE,
+            tile_cells: 1,
         };
         Ok(Some(SeriesSummaries::new(start, summaries())?))
     }

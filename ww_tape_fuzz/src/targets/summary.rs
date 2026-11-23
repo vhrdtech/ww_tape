@@ -142,6 +142,8 @@ pub fn summary(data: &[u8]) {
         first_item: ItemNum::new(first),
         grid: SeriesGrid::start(first, -5, Magnitude::pow10(-3)),
         period: Ratio64::new(3, 2).expect("a ratio"),
+        tile: ww_tape::TileCoords::NONE,
+        tile_cells: 1,
     };
     let spec = SeriesSummarySpec {
         base_shift: 4 + data[2] % 3,

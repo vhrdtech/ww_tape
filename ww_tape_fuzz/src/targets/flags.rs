@@ -60,6 +60,8 @@ pub(crate) fn walk(b: &[u8], shape: Option<SampleShape>) {
         first_item: c.head().first_item,
         grid: ww_tape::SeriesGrid::start(c.head().first_item.get(), 0, ww_tape::Magnitude::ONE),
         period: ww_tape::Ratio64::int(1).expect("a ratio"),
+        tile: ww_tape::TileCoords::NONE,
+        tile_cells: 1,
     };
     if let Ok(mut s) = ww_tape_summary::SeriesSummaries::<i16>::new(start, spec) {
         let values = vec![0i16; len];

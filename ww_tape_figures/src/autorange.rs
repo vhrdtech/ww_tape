@@ -115,6 +115,8 @@ pub fn autorange() -> anyhow::Result<String> {
         first_item: ItemNum::new(0),
         grid,
         period,
+        tile: ww_tape::TileCoords::NONE,
+        tile_cells: 1,
     };
     let spec = SeriesSummarySpec {
         base_shift: NODE_SHIFT,

@@ -835,10 +835,11 @@ mod builder {
     };
     use crate::levels::{BuildError, LevelNode, Levels, Output};
     use crate::{Layout, SCALE_LEN_MAX, SummaryHead, Tree, summary_len, write_series_summary};
+    use ww_tape::grid::GRID_TILE_CELLS_MAX;
     use ww_tape::samples::Sample;
     use ww_tape::{
         ElementDesc, FlagRuns, Ratio64, SampleShape, SeriesError, SeriesGrid, SeriesTimeline,
-        TrackId, TrackNum,
+        TileCoords, TrackId, TrackNum,
     };
     use ww_tape_codecs::kernel::Kernel;
 
@@ -873,7 +874,11 @@ mod builder {
         tree: SeriesTree,
     }
 
-    /// Where a series starts: its track, its samples and the grid of its first sample.
+    /// Where a series starts: its track, its samples and the grid of its first sample; for a grid, the tile whose tree
+    /// it is.
+    ///
+    /// A grid's tile has a tree of its own ([summary](ww_tape::summary#tiles)): an item is a time step of the tile,
+    /// its samples the tile's cells at that step, each a frame of `channels` elements, in tile order.
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     pub struct SeriesStart {
         /// [TrackDef::id](ww_tape::TrackDef::id).
@@ -889,6 +894,26 @@ mod builder {
         pub grid: SeriesGrid,
         /// Ticks from one sample to the next, exact.
         pub period: Ratio64,
+        /// The tile of a grid ([ChunkHead::tile](ww_tape::ChunkHead::tile)); [TileCoords::NONE] for a series.
+        pub tile: TileCoords,
+        /// Cells of one time step of the tile ([TileLayout::tile_cells](ww_tape::TileLayout::tile_cells)), 1 up to
+        /// [GRID_TILE_CELLS_MAX]; 1 for a series.
+        pub tile_cells: u64,
+    }
+
+    impl SeriesStart {
+        /// Frames of one item: the tile's cells, checked.
+        fn cells(&self) -> Result<u64, BuildError> {
+            if self.tile_cells == 0 || self.tile_cells > GRID_TILE_CELLS_MAX {
+                return Err(BuildError::Invalid(
+                    "tile cells not 1 to GRID_TILE_CELLS_MAX",
+                ));
+            }
+            if self.tile.is_empty() && self.tile_cells != 1 {
+                return Err(BuildError::Invalid("a series of more than 1 cell"));
+            }
+            Ok(self.tile_cells)
+        }
     }
 
     /// Default most bytes of a series summary block: small enough to fit the gap before an aligned chunk payload.
@@ -1068,6 +1093,10 @@ mod builder {
     /// merges the parts of a node and builds the levels above.
     pub struct SeriesLeaves<T: Scalar> {
         d: Declared,
+        /// Frames of one item: a tile's cells, 1 for a series
+        cells: u64,
+        /// Scalars of one item: the stride times the cells
+        item_len: usize,
         lo: T,
         hi: T,
         /// Scale of the samples from [Self::acc_from] on
@@ -1093,7 +1122,28 @@ mod builder {
             first_item: ItemNum,
             spec: SeriesSummarySpec,
         ) -> Result<Self, BuildError> {
+            Self::of_tile(shape, scale, first_item, spec, 1)
+        }
+
+        /// The pass over the time steps of a grid's tile of `cells` cells ([SeriesStart::tile_cells]) from time step
+        /// `first_item` on: an item is a time step, its samples the tile's cells; else as [Self::new].
+        pub fn of_tile(
+            shape: SampleShape,
+            scale: Magnitude,
+            first_item: ItemNum,
+            spec: SeriesSummarySpec,
+            cells: u64,
+        ) -> Result<Self, BuildError> {
             let d = Declared::of(shape, spec, Some(T::SCALAR))?;
+            if cells == 0 || cells > GRID_TILE_CELLS_MAX {
+                return Err(BuildError::Invalid(
+                    "tile cells not 1 to GRID_TILE_CELLS_MAX",
+                ));
+            }
+            let item_len = usize::try_from(cells)
+                .ok()
+                .and_then(|c| c.checked_mul(d.stride))
+                .ok_or(BuildError::Invalid("a time step of a tile past usize"))?;
             let shift = d.shift;
             let shifted = |v: f64| match shift {
                 Some((p, q)) => i128_f64(q) * v - i128_f64(p),
@@ -1114,6 +1164,8 @@ mod builder {
             let scale = stat_scale(shift, scale)?;
             Ok(Self {
                 d,
+                cells,
+                item_len,
                 lo,
                 hi,
                 scale,
@@ -1150,9 +1202,9 @@ mod builder {
             Ok(())
         }
 
-        /// Add samples, as [SeriesSummaries::push] takes them.
+        /// Add samples, as [SeriesSummaries::push] takes them: whole items, a tile's whole time steps.
         pub fn push(&mut self, samples: &[T], flags: u32) -> Result<(), BuildError> {
-            let stride = self.d.stride;
+            let stride = self.item_len;
             let partial = BuildError::PartialFrame { stride };
             if stride == 0 || !samples.len().is_multiple_of(stride) {
                 return Err(partial);
@@ -1189,7 +1241,7 @@ mod builder {
 
         /// Add samples flagged by `runs`, as [SeriesSummaries::push_runs] takes them.
         pub fn push_runs(&mut self, samples: &[T], runs: &FlagRuns<'_>) -> Result<(), BuildError> {
-            by_runs(samples, self.d.stride, runs, |x, f| self.push(x, f))
+            by_runs(samples, self.item_len, runs, |x, f| self.push(x, f))
         }
 
         /// Add stored samples flagged by `runs`, as [SeriesSummaries::push_from_runs] takes them.
@@ -1198,7 +1250,7 @@ mod builder {
             samples: &[S],
             runs: &FlagRuns<'_>,
         ) -> Result<(), BuildError> {
-            by_runs(samples, self.d.stride, runs, |x, f| self.push_from(x, f))
+            by_runs(samples, self.item_len, runs, |x, f| self.push_from(x, f))
         }
 
         /// Add stored samples of the element's own scalar, as [SeriesSummaries::push_from] takes them.
@@ -1251,16 +1303,20 @@ mod builder {
             self.kernel = kernel;
         }
 
-        /// The open part's samples since the last change of scale, at their scale, and their count.
+        /// The open part's samples since the last change of scale, at their scale, and their count of items.
         fn acc_node(&self) -> Result<(SeriesNode, u64), BuildError> {
             let samples = self
                 .next_item
                 .checked_sub(self.acc_from)
                 .ok_or(BuildError::Invalid("open node starts past the next sample"))?;
+            // every cell of a tile's time step is a sample of the statistics
+            let cells = samples
+                .checked_mul(self.cells)
+                .ok_or(BuildError::Invalid("open node past u64 samples"))?;
             let channels = self
                 .acc
                 .iter()
-                .map(|a| a.stats(self.d.element, samples))
+                .map(|a| a.stats(self.d.element, cells))
                 .collect();
             Ok((
                 SeriesNode {
@@ -1338,6 +1394,7 @@ mod builder {
     pub struct SeriesTree {
         track_id: TrackId,
         track_number: TrackNum,
+        tile: TileCoords,
         d: Declared,
         origin: u64,
         timeline: SeriesTimeline,
@@ -1357,6 +1414,7 @@ mod builder {
         /// The tree of the series `start` describes, kept as `spec` declares.
         pub fn new(start: SeriesStart, spec: SeriesSummarySpec) -> Result<Self, BuildError> {
             let d = Declared::of(start.shape, spec, None)?;
+            start.cells()?;
             if start.grid.grid_index > start.first_item.get() {
                 return Err(BuildError::Series(SeriesError::GridAfterFirst {
                     first_item: start.first_item,
@@ -1367,6 +1425,7 @@ mod builder {
             Ok(Self {
                 track_id: start.track_id,
                 track_number: start.track_number,
+                tile: start.tile,
                 d,
                 origin: first,
                 timeline: SeriesTimeline::new(start.period),
@@ -1378,7 +1437,7 @@ mod builder {
                     first,
                     spec.base_shift,
                     d.node_len,
-                    crate::block_room(SERIES_BLOCK_BYTES).saturating_sub(SCALE_LEN_MAX),
+                    head_room(SERIES_BLOCK_BYTES, &start.tile),
                 ),
                 blocks: Vec::new(),
             })
@@ -1390,7 +1449,7 @@ mod builder {
                 self.origin,
                 self.d.spec.base_shift,
                 self.d.node_len,
-                crate::block_room(bytes).saturating_sub(SCALE_LEN_MAX),
+                head_room(bytes, &self.tile),
             );
         }
 
@@ -1547,7 +1606,7 @@ mod builder {
                     first_tick: self.tick(first_item)?,
                     last_tick,
                     latest_end: last_tick,
-                    tile: ww_tape::TileCoords::NONE,
+                    tile: self.tile,
                 };
                 let refs: Vec<&[ChannelStats]> =
                     nodes.iter().map(|n| n.channels.as_slice()).collect();
@@ -1586,10 +1645,29 @@ mod builder {
         }
     }
 
+    /// The bytes of a block of `bytes` the levels may fill: all but the largest scale and the tile.
+    fn head_room(bytes: Bytes<u32>, tile: &TileCoords) -> usize {
+        // a tile takes its axis count and a u32 per axis, nothing for a series
+        let tile_len = if tile.is_empty() {
+            0
+        } else {
+            tile.len().saturating_mul(4).saturating_add(1)
+        };
+        crate::block_room(bytes)
+            .saturating_sub(SCALE_LEN_MAX)
+            .saturating_sub(tile_len)
+    }
+
     impl<T: Scalar> SeriesSummaries<T> {
-        /// Summaries of the series `start` describes, kept as `spec` declares.
+        /// Summaries of the series `start` describes, or of its tile of a grid, kept as `spec` declares.
         pub fn new(start: SeriesStart, spec: SeriesSummarySpec) -> Result<Self, BuildError> {
-            let leaves = SeriesLeaves::new(start.shape, start.grid.scale, start.first_item, spec)?;
+            let leaves = SeriesLeaves::of_tile(
+                start.shape,
+                start.grid.scale,
+                start.first_item,
+                spec,
+                start.cells()?,
+            )?;
             let tree = SeriesTree::new(start, spec)?;
             Ok(Self { leaves, tree })
         }
@@ -1647,7 +1725,7 @@ mod builder {
         /// ([Chunk::flag_runs](ww_tape::Chunk::flag_runs)): the summaries a writer built of them, rebuilt from the
         /// chunk alone. Refused when the runs reach past the samples.
         pub fn push_runs(&mut self, samples: &[T], runs: &FlagRuns<'_>) -> Result<(), BuildError> {
-            by_runs(samples, self.leaves.d.stride, runs, |x, f| self.push(x, f))
+            by_runs(samples, self.leaves.item_len, runs, |x, f| self.push(x, f))
         }
 
         /// [Self::push_runs] of stored samples of the element's own scalar, as [Self::push_from] takes them.
@@ -1656,14 +1734,15 @@ mod builder {
             samples: &[S],
             runs: &FlagRuns<'_>,
         ) -> Result<(), BuildError> {
-            by_runs(samples, self.leaves.d.stride, runs, |x, f| {
+            by_runs(samples, self.leaves.item_len, runs, |x, f| {
                 self.push_from(x, f)
             })
         }
 
-        /// The frames in `scalars` scalars; refused when they are not whole frames.
+        /// The items in `scalars` scalars (frames of a series, time steps of a tile); refused when they are not
+        /// whole items.
         fn frames(&self, scalars: usize) -> Result<u64, BuildError> {
-            let stride = self.leaves.d.stride;
+            let stride = self.leaves.item_len;
             let partial = BuildError::PartialFrame { stride };
             if stride == 0 || !scalars.is_multiple_of(stride) {
                 return Err(partial);
