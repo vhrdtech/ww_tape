@@ -256,7 +256,7 @@ pub(crate) fn grid_def(b: &[u8]) -> Option<(ww_tape::TrackId, ww_tape::TileLayou
 /// them and lies in the box of the whole grid, others pack to none. Read as a tape, the box of the whole grid finds
 /// only tiles the grid holds: from the tile numbers of a checkpoint's entries, packed or hostile, or from the chunk
 /// heads where an entry holds none or one the grid holds no tile of. Its tile summary blocks, hostile tiles
-/// included, are found and merged as [super::grid::summaries] checks.
+/// included, are found and merged as `tape-grid` checks them.
 pub fn grid_hostile(data: &[u8]) {
     let f = hostile::grid(data);
     let bs = blocks(&f);
