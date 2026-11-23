@@ -628,7 +628,8 @@ impl<T: PieceStore> PieceChain<T> {
     /// A piece after one that stays is named first ([TapeWriter::record_removed]) in the piece being written, with
     /// the rows the removed pieces held of pieces gone before; that piece is then closed and synced, and goes on after
     /// its close ([TapeWriter::close_and_go_on]). Only then are the pieces taken out of the store, oldest first
-    /// ([PieceStore::remove]). The pieces before every piece that stays need no row: the chain reads as cut at its
+    /// ([PieceStore::remove]); when the piece being written becomes the lowest, it is synced first. The pieces before
+    /// every piece that stays need no row: the chain reads as cut at its
     /// head ([ChainReport::head_cut](super::ChainReport::head_cut)), as after retention. In a chain in one tape
     /// ([PieceTapes::One]) only those go, as the front of the tape ([PieceStore::drop_front]).
     ///
@@ -710,6 +711,10 @@ impl<T: PieceStore> PieceChain<T> {
             let w = self.writer.take().ok_or(WriteError::Failed)?;
             let (w, _) = w.close_and_go_on()?;
             self.writer = Some(w);
+        } else if lowest == self.seq {
+            // the piece written becomes the lowest: its head, which a cut wrote unsynced, must outlive the pieces
+            // before it, or a crash leaves no piece to resume from
+            self.writer()?.sync()?;
         }
         match self.pieces {
             PieceTapes::Each => {

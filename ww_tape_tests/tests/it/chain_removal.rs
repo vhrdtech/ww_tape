@@ -537,3 +537,148 @@ fn a_refused_resume_writes_nothing() {
     );
     assert!(snapshot(&dir) == before, "a refused resume wrote");
 }
+
+/// The synced length of each tape of a [Durable] store, by key.
+type SyncedLens = std::sync::Arc<std::sync::Mutex<std::collections::BTreeMap<u64, u64>>>;
+
+/// Memory pieces that remember how much of each tape was synced: [Durable::crash] keeps only that, as a disk does.
+/// A tape is created synced and empty, as a file and its name are; a removal is durable.
+#[derive(Clone, Default)]
+struct Durable {
+    mem: MemPieces,
+    synced: SyncedLens,
+}
+
+struct DurableSink {
+    inner: MemSink,
+    key: u64,
+    synced: SyncedLens,
+}
+
+impl TapeSink for DurableSink {
+    type Error = MemError;
+    fn write_all(&mut self, bytes: &[u8]) -> Result<(), MemError> {
+        self.inner.write_all(bytes)
+    }
+    fn sync(&mut self) -> Result<(), MemError> {
+        let len = self.inner.base() + self.inner.size()?;
+        self.synced.lock().unwrap().insert(self.key, len);
+        self.inner.sync()
+    }
+    fn close(&mut self) -> Result<(), MemError> {
+        self.inner.close()
+    }
+    fn size(&self) -> Result<u64, MemError> {
+        self.inner.size()
+    }
+    fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), MemError> {
+        self.inner.read_at(offset, buf)
+    }
+    fn truncate(&mut self, len: u64) -> Result<(), MemError> {
+        self.inner.truncate(len)?;
+        self.sync()
+    }
+    fn base(&self) -> u64 {
+        self.inner.base()
+    }
+    fn front(&self) -> Result<u64, MemError> {
+        self.inner.front()
+    }
+    fn holds_pieces(&self) -> bool {
+        self.inner.holds_pieces()
+    }
+    fn rebase(&mut self, base: u64) -> Result<(), MemError> {
+        self.inner.rebase(base)
+    }
+}
+
+impl Durable {
+    fn wrap(&self, key: u64, inner: MemSink) -> DurableSink {
+        DurableSink {
+            inner,
+            key,
+            synced: self.synced.clone(),
+        }
+    }
+
+    /// The tapes as a crash leaves them: each cut to its synced length, marked closed as it was.
+    fn crash(&self) -> MemPieces {
+        let after = MemPieces::new();
+        let synced = self.synced.lock().unwrap();
+        for key in self.mem.keys().unwrap() {
+            let tape = self.mem.get(&key).unwrap().unwrap();
+            let bytes = tape.to_vec().unwrap();
+            let len = synced.get(&key).copied().unwrap_or(0) as usize;
+            let mut sink = after.create(&key).unwrap();
+            sink.write_all(&bytes[..len.min(bytes.len())]).unwrap();
+            if tape.is_closed() {
+                sink.close().unwrap();
+            }
+        }
+        after
+    }
+}
+
+impl PieceStore for Durable {
+    type Key = u64;
+    type Error = MemError;
+    type Sink = DurableSink;
+    type Source = MemPiece;
+    fn key_of(&self, seq: u64) -> u64 {
+        seq
+    }
+    fn create(&mut self, key: &u64) -> Result<DurableSink, MemError> {
+        let sink = self.mem.create(key)?;
+        self.synced.lock().unwrap().insert(*key, 0);
+        Ok(self.wrap(*key, sink))
+    }
+    fn reopen(&mut self, key: &u64) -> Result<Option<DurableSink>, MemError> {
+        Ok(self.mem.reopen(key)?.map(|s| self.wrap(*key, s)))
+    }
+    fn closed(&self, key: &u64) -> Result<Option<MemPiece>, MemError> {
+        self.mem.closed(key)
+    }
+    fn create_whole(&mut self, key: &u64) -> Result<DurableSink, MemError> {
+        let sink = self.mem.create_whole(key)?;
+        self.synced.lock().unwrap().insert(*key, 0);
+        Ok(self.wrap(*key, sink))
+    }
+    fn open_whole(&mut self, key: &u64) -> Result<Option<DurableSink>, MemError> {
+        Ok(self.mem.open_whole(key)?.map(|s| self.wrap(*key, s)))
+    }
+    fn first_from(&self, from: u64) -> Result<Option<u64>, MemError> {
+        self.mem.first_from(from)
+    }
+    fn remove(&mut self, key: &u64) -> Result<bool, MemError> {
+        PieceStore::remove(&mut self.mem, key)
+    }
+    fn drop_front(&mut self, key: &u64, to: u64) -> Result<Option<u64>, MemError> {
+        self.mem.drop_front(key, to)
+    }
+}
+
+/// Retention right after a cut removes every closed piece, so the piece being written becomes the chain's lowest
+/// while its head is not yet synced. A crash then must still find that head: the removal syncs it first.
+#[test]
+fn retention_right_after_a_cut_survives_a_crash() {
+    let defs = defs();
+    let store = Durable::default();
+    let mut c =
+        PieceChain::create_on(store.clone(), OWNER, 0, &[], options(PieceTapes::Each)).unwrap();
+    write(&mut c, &defs, 0, 8);
+    c.cut_now(&defs).unwrap();
+    assert_eq!(c.seq(), 4);
+    c.remove(&[0, 1, 2, 3]).unwrap();
+    let crashed = store.crash();
+    drop(c);
+    assert_eq!(crashed.keys().unwrap(), [4]);
+
+    let (mut c, _) =
+        PieceChain::resume_on(crashed.clone(), OWNER, 0, options(PieceTapes::Each)).unwrap();
+    assert_eq!((c.seq(), c.closed().len()), (4, 0));
+    write(&mut c, &defs, 8, 11);
+    c.close().unwrap();
+    let r = report(&bytes_of(&crashed));
+    assert!(r.head_cut);
+    linked(&r);
+}
