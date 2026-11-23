@@ -8,6 +8,9 @@ benchmarks, golden files and book pages.
 
 ### Breaking
 
+- `WriterOptions` gains `integrity`: a struct literal adds it or `..WriterOptions::default()` (FMT-14).
+- `IndexEntry::unhashed`, `PieceSummary::integrity`, `Verification::integrity` and `RangeHash::unprotected` are new fields (FMT-14).
+- `IndexError::UnhandledIntegrity`, `IndexError::Unhashed` and `BlockError::PayloadUnchecked` are gone: every level reads (FMT-14).
 - A memory tape of this process reads without payload CRCs by default; `PayloadCheck::Always` checks them (REPO-1).
 - `OpenOptions` gains `check_payloads`: a struct literal adds it or `..OpenOptions::default()` (REPO-1).
 - `EncodedPayloads::from_parts` takes a `PayloadCodec` first; pass `PayloadCodec::Auto` for the bytes as before (CODEC-3).
@@ -17,6 +20,9 @@ benchmarks, golden files and book pages.
 
 ### Features
 
+- Pieces of `Integrity::CrcOnly` skip hashes, of `None` payload CRCs too; readers read every level (FMT-14).
+- `Checked::Unprotected`, `ChainLink::Unproven` and `RangeHash::unprotected` say what a lower level left unchecked (FMT-14).
+- Mux handles hash no payload when the chain's pieces are below `Integrity::Full` (FMT-14).
 - The payload codec is a writer's choice per track: `PayloadCodec` Auto, Raw or named; `EventsOptions::payload_codec` (CODEC-3).
 - Payload codecs past raw sit in the `payloads::CODERS` registry; format.md says how a codec is added (CODEC-3).
 - `Block::read_unverified` skips payload CRCs, not structure checks; `Block::checked` says how a block was read (REPO-1).

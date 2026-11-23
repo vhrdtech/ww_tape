@@ -78,5 +78,6 @@ The fold also guards against a wrong index. An index entry of a kind that the re
 `RangeHash::skipped`, never dropped silently. A chunk that the fold reads must be the one its entry names, with the
 range the entry states.
 
-This build writes and reads full integrity only. A chunk marked `FLAG_PAYLOAD_UNCHECKED` or an index entry marked
-`ENTRY_UNHASHED` belongs to a reserved integrity level without unit hashes, and is refused.
+A piece below `Integrity::Full` holds no unit hashes: each of its index entries is marked `ENTRY_UNHASHED`. The fold
+then reads each such chunk and hashes its bytes, so the hash is real; `RangeHash::read` counts those chunks.
+`RangeHash::unprotected` counts the chunks of a piece of `Integrity::None`, whose payload no CRC covered.

@@ -19,7 +19,7 @@
 //!   5  u8  kind: 1 records, 3 and up other kinds (BlockKind); 2 is reserved (RESERVED_KIND)
 //!   6 u16  flags: bit 0 body coded (FLAG_BODY_CODED, records blocks only), bit 1 state records a writer put or
 //!          copied (FLAG_REPEAT), bit 2 puts that belong with the next block (FLAG_WITH_NEXT), bit 3 on a
-//!          chunk its payload unchecked (FLAG_PAYLOAD_UNCHECKED, reserved: 0, a reader refuses it), bit 4 on an
+//!          chunk its payload unchecked (FLAG_PAYLOAD_UNCHECKED: segment CRCs 0, the block CRC over the head), bit 4 on an
 //!          events chunk a break in its track's monotone relations (FLAG_RELATION_BREAK); others 0 (a reader
 //!          ignores bits it doesn't know)
 //!   8 u32  len: the whole block, header and CRC included
@@ -320,11 +320,11 @@ pub const FLAG_REPEAT: u16 = 1 << 1;
 /// A writer resumed after a crash drops such blocks at the end of what it keeps, and the call given again writes them
 /// as it did. A reader takes the block as any other.
 pub const FLAG_WITH_NEXT: u16 = 1 << 2;
-/// Header flag on chunk blocks: the payload's CRCs were not computed, set on each chunk of a piece of
-/// [Integrity::None].
+/// Header flag on chunk blocks: the payload's CRCs were not computed, set on each chunk a writer of
+/// [Integrity::None] encodes.
 ///
-/// Written 0; a reader of this build refuses such a chunk as [BlockError::PayloadUnchecked], a level it doesn't handle,
-/// not damage.
+/// The segment CRC slots hold zero and the block CRC covers the head alone; the head CRC covers the header, this flag
+/// with it. A reader checks the head and takes the payload as it is ([Checked::Unprotected]).
 pub const FLAG_PAYLOAD_UNCHECKED: u16 = 1 << 3;
 /// Header flag on events chunk blocks: the order of its track's monotone relations starts again at this chunk.
 ///
@@ -908,11 +908,9 @@ pub enum BlockError {
     Coded,
     /// A chunk's head was asked of a block that isn't a chunk block this reader reads ([ChunkHead::head_len]).
     NotChunk,
-    /// A chunk block marked [FLAG_PAYLOAD_UNCHECKED]: an integrity level this build doesn't handle, not damage.
-    PayloadUnchecked,
-    /// A piece head of an integrity level (its byte 146, `level`) this build doesn't handle, not damage: what a
+    /// A piece head of an integrity level (its byte 146, `level`) this build doesn't know, not damage: what a
     /// `FileBlocks` reports (`FileError::Refused`). [PieceHeadBlock::read](piece::PieceHeadBlock::read) says it as
-    /// [IndexError::UnhandledIntegrity] or [IndexError::UnknownIntegrity].
+    /// [IndexError::UnknownIntegrity].
     UnhandledIntegrity {
         level: u8,
     },
@@ -930,16 +928,10 @@ impl core::fmt::Display for BlockError {
             Self::BadRecords => write!(f, "the records don't parse as the header says"),
             Self::Coded => write!(f, "a coded body: its records are read by decoding it"),
             Self::NotChunk => write!(f, "not a chunk block this reader reads"),
-            Self::PayloadUnchecked => {
-                write!(
-                    f,
-                    "a chunk with unchecked payload: an integrity level this build doesn't handle"
-                )
-            }
             Self::UnhandledIntegrity { level } => {
                 write!(
                     f,
-                    "a piece head of integrity level {level}, which this build doesn't handle"
+                    "a piece head of integrity level {level}, which this build doesn't know"
                 )
             }
         }
@@ -983,6 +975,20 @@ pub enum Checked {
     /// A chunk block whose head is good and whose payload doesn't match its CRCs ([Block::salvage]):
     /// [Chunk::bad_segments] says what is lost.
     Damaged,
+    /// A chunk block whose writer computed no CRCs over its payload ([FLAG_PAYLOAD_UNCHECKED], [Integrity::None]):
+    /// its header and head checked, its payload taken as it is, whatever the reader asked for.
+    Unprotected,
+}
+
+impl Checked {
+    /// How far the chunk `c` was checked, read as `as_read`: [Checked::Unprotected] when its writer computed no
+    /// payload CRCs, whatever the read asked for.
+    fn of_chunk(c: &Chunk<'_>, as_read: Self) -> Self {
+        match c.is_unchecked() {
+            true => Self::Unprotected,
+            false => as_read,
+        }
+    }
 }
 
 /// A record of a [Block], borrowed from it.
@@ -1121,10 +1127,12 @@ impl<'b> Block<'b> {
     ///
     /// A chunk block is checked by its head CRC, its segment CRCs and its block CRC, in one pass over the payload.
     pub fn read(bytes: &'b [u8]) -> Result<Self, BlockError> {
-        let (block, chunk) = Self::read_unchecked(bytes)?;
-        block.check_integrity(chunk.is_some())?;
+        let (mut block, chunk) = Self::read_unchecked(bytes)?;
         match chunk {
-            Some(c) if c.check_payload() => Ok(block),
+            Some(c) if c.check_payload() => {
+                block.checked = Checked::of_chunk(&c, Checked::Verified);
+                Ok(block)
+            }
             Some(_) => Err(BlockError::BadCrc),
             None => {
                 if CRC.checksum(block.covered) != block.crc {
@@ -1143,12 +1151,12 @@ impl<'b> Block<'b> {
     /// (head CRC, ranges): [Self::is_intact] is then false and [Chunk::bad_segments] says what is lost.
     pub fn salvage(bytes: &'b [u8]) -> Result<Self, BlockError> {
         let (mut block, chunk) = Self::read_unchecked(bytes)?;
-        block.check_integrity(chunk.is_some())?;
         match chunk {
             Some(c) => {
-                if !c.check_payload() {
-                    block.checked = Checked::Damaged;
-                }
+                block.checked = match c.check_payload() {
+                    true => Checked::of_chunk(&c, Checked::Verified),
+                    false => Checked::Damaged,
+                };
                 Ok(block)
             }
             None => Self::read(bytes),
@@ -1157,20 +1165,22 @@ impl<'b> Block<'b> {
 
     /// Read a block as [Self::read] does but without the CRCs over a chunk's payload or a block's body: the header,
     /// a chunk's head CRC and ranges, the records and a summary head are checked; [Self::checked] is then
-    /// [Checked::Unverified].
+    /// [Checked::Unverified], or [Checked::Unprotected] for a chunk whose writer computed no payload CRCs.
     ///
     /// For bytes a writer in this process made and kept in its memory, which no disk or wire touched: what the CRCs
     /// would catch there is a fault of the memory itself. The checks that keep hostile bytes from being misread stay.
     pub fn read_unverified(bytes: &'b [u8]) -> Result<Self, BlockError> {
         let (mut block, chunk) = Self::read_unchecked(bytes)?;
-        block.check_integrity(chunk.is_some())?;
-        if chunk.is_none() {
-            block.check_records()?;
-            if block.is_summary() {
-                SummaryHead::read(block.bytes).map_err(BlockError::Summary)?;
+        block.checked = match &chunk {
+            Some(c) => Checked::of_chunk(c, Checked::Unverified),
+            None => {
+                block.check_records()?;
+                if block.is_summary() {
+                    SummaryHead::read(block.bytes).map_err(BlockError::Summary)?;
+                }
+                Checked::Unverified
             }
-        }
-        block.checked = Checked::Unverified;
+        };
         Ok(block)
     }
 
@@ -1219,14 +1229,6 @@ impl<'b> Block<'b> {
     /// the header, and for a chunk block its head with its head CRC, read; no pass over the payload or the records.
     pub(crate) fn read_trusted(bytes: &'b [u8]) -> Result<Self, BlockError> {
         Self::read_unchecked(bytes).map(|(b, _)| b)
-    }
-
-    /// Refuse a chunk block marked [FLAG_PAYLOAD_UNCHECKED]: this build handles full integrity only.
-    fn check_integrity(&self, chunk: bool) -> Result<(), BlockError> {
-        match chunk && self.flags & FLAG_PAYLOAD_UNCHECKED != 0 {
-            true => Err(BlockError::PayloadUnchecked),
-            false => Ok(()),
-        }
     }
 
     /// The header, and for a chunk block its head checked; no CRC over the payload yet.

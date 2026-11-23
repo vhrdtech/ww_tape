@@ -47,6 +47,7 @@ pub(crate) fn options(aligned: bool) -> WriterOptions {
             Layout::UNALIGNED
         },
         producer: "fuzz".to_owned(),
+        integrity: ww_tape::Integrity::Full,
         near: NearPolicy {
             copy_spacing: exact_units::Bytes::new(2 << 10),
             memory_max: exact_units::Count::new(4),

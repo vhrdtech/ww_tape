@@ -208,7 +208,6 @@ impl<S: Scalar + Sample> SeriesChunk<S> {
             };
             columns.push((spec, runs));
         }
-        let hash = ww_tape::piece::columns_payload_hash(columns.iter().map(|(_, b)| b.as_slice()));
         let summary = match &mut self.leaves {
             Some((spec, leaves)) => Some(ChunkSummary::Series {
                 shape: self.shape,
@@ -224,7 +223,6 @@ impl<S: Scalar + Sample> SeriesChunk<S> {
         Ok(Some(Sealed {
             head,
             columns,
-            hash,
             summary,
         }))
     }

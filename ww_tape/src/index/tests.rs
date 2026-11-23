@@ -23,6 +23,7 @@ fn entry(track_id: u64, offset: u64) -> IndexEntry {
         repeat: offset % 2 == 1,
         relation_break: false,
         unit: crate::piece::UnitHash([offset.to_le_bytes()[0]; 32]),
+        unhashed: false,
         // every third entry a chunk with a range relation, (0, 0) and values past i64 among them
         range: match offset % 3 {
             0 => None,
@@ -512,24 +513,26 @@ fn lists_past_the_entries_are_refused() {
 }
 
 /// An index whose entry is marked unhashed (flag bit 2, reserved) is refused as a level this build doesn't handle.
+/// An entry of a writer below Integrity::Full is marked unhashed and holds no unit hash: it reads back so.
 #[test]
-fn an_unhashed_entry_is_refused_as_a_level() {
-    let entries: Vec<_> = (0..3).map(|i| entry(i % 2, 1000 + i * 300)).collect();
+fn an_unhashed_entry_reads_back_with_no_unit_hash() {
+    let entries: Vec<_> = (0..3)
+        .map(|i| IndexEntry {
+            unit: crate::piece::UnitHash::NONE,
+            unhashed: true,
+            ..entry(i % 2, 1000 + i * 300)
+        })
+        .collect();
     let head = IndexHead {
         kind: IndexKind::Checkpoint,
         self_offset: 2500,
         prev: None,
     };
-    let mut bytes = write(&head, &entries);
+    let bytes = write(&head, &entries);
     let ix = IndexBlock::read(&Block::read(&bytes).unwrap()).unwrap();
     let at = ix.entry_offset(1).unwrap() + 15;
-    assert_eq!(bytes[at] & ENTRY_UNHASHED, 0, "written 0");
-    bytes[at] |= ENTRY_UNHASHED;
-    let n = bytes.len();
-    let crc = crate::CRC.checksum(&bytes[..n - 4]);
-    bytes[n - 4..].copy_from_slice(&crc.to_le_bytes());
-    let block = Block::read(&bytes).expect("a good block");
-    assert_eq!(IndexBlock::read(&block).err(), Some(IndexError::Unhashed));
+    assert_eq!(bytes[at] & ENTRY_UNHASHED, ENTRY_UNHASHED, "marked");
+    assert_eq!(ix.entries().collect::<Vec<_>>(), entries);
 }
 
 /// An entry with its flag byte or range rewritten in a final index, its list, head and block CRCs made good again:
@@ -562,11 +565,11 @@ fn refused_both_ways(change: impl Fn(&mut [u8]), error: IndexError) {
     );
 }
 
-/// One check of an entry on every read: unhashed and unknown flag bits, a range that decreases or sits on a block
+/// One check of an entry on every read: an unhashed entry holding a unit hash, unknown flag bits, a range that decreases or sits on a block
 /// that isn't a chunk, a relation break on a block that isn't an events chunk, refused by a whole index and by one track's entries alike.
 #[test]
 fn an_entry_is_checked_the_same_on_every_read() {
-    refused_both_ways(|e| e[15] |= ENTRY_UNHASHED, IndexError::Unhashed);
+    refused_both_ways(|e| e[15] |= ENTRY_UNHASHED, IndexError::BadEntries);
     for bit in 4..8 {
         refused_both_ways(
             |e| e[15] |= 1 << bit,

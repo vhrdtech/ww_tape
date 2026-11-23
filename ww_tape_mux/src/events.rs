@@ -378,7 +378,6 @@ impl EventsChunk {
             .chain(payloads.into_columns())
             .chain(relations.iter().map(EncodedRelation::column).map(copy))
             .collect();
-        let hash = ww_tape::piece::columns_payload_hash(columns.iter().map(|(_, b)| b.as_slice()));
         let summary = self.runs.as_mut().map(|runs| {
             runs.seal();
             ChunkSummary::Events {
@@ -396,7 +395,6 @@ impl EventsChunk {
         Ok(Some(Sealed {
             head,
             columns,
-            hash,
             summary,
         }))
     }

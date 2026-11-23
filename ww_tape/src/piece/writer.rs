@@ -132,7 +132,7 @@ impl<T: Tapes> PieceChain<T> {
         let mut writer = TapeWriter::create_on(sink, options.writer.sync);
         writer.apply(&options.writer)?;
         reserve_piece(&mut writer, options.cut);
-        writer.begin_piece(&first_head(owner, chain), tracks)?;
+        writer.begin_piece(&first_head(owner, chain, options.writer.integrity), tracks)?;
         Ok(Self {
             tapes,
             pieces: options.tapes,
@@ -229,7 +229,9 @@ impl<T: Tapes> PieceChain<T> {
                 if w.bytes() == 0 {
                     // cut off inside its head: the piece starts again (a first piece without carried-over tracks)
                     match closed.last() {
-                        None => w.begin_piece(&first_head(owner, chain), &[])?,
+                        None => {
+                            w.begin_piece(&first_head(owner, chain, options.writer.integrity), &[])?
+                        }
                         Some((done, last)) => w.begin_next(next_piece(&done.piece, last)?)?,
                     }
                 } else if let Some((_, last)) = closed.last() {
@@ -314,7 +316,9 @@ impl<T: Tapes> PieceChain<T> {
             if w.bytes() == 0 {
                 // cut off inside its head: the piece starts again
                 match closed.last() {
-                    None => w.begin_piece(&first_head(owner, chain), &[])?,
+                    None => {
+                        w.begin_piece(&first_head(owner, chain, options.writer.integrity), &[])?
+                    }
                     Some((done, last)) => w.begin_next(next_piece(&done.piece, last)?)?,
                 }
             } else if let Some((_, last)) = closed.last() {
@@ -524,6 +528,12 @@ impl<T: Tapes> PieceChain<T> {
     }
 
     /// [Self::write_chunk] with the hash of its payload given ([TapeWriter::write_chunk_hashed]).
+    /// The level of the pieces the chain starts ([WriterOptions::integrity]): below [Integrity::Full](crate::Integrity::Full)
+    /// a producer need not hash payloads for [Self::write_chunk_hashed]. None after a failed cut.
+    pub fn integrity(&self) -> Option<crate::Integrity> {
+        self.writer.as_ref().map(|w| w.options().integrity)
+    }
+
     pub fn write_chunk_hashed(
         &mut self,
         defs: &Definitions,
@@ -619,8 +629,8 @@ impl<T: Tapes> PieceChain<T> {
     }
 }
 
-/// The head of the first piece of chain `chain` of `owner`.
-fn first_head(owner: OwnerId, chain: u64) -> PieceHead {
+/// The head of the first piece of chain `chain` of `owner`, of level `integrity`.
+fn first_head(owner: OwnerId, chain: u64, integrity: crate::Integrity) -> PieceHead {
     PieceHead {
         ident: PieceIdent {
             id: PieceId::first_of(&owner, chain),
@@ -629,7 +639,7 @@ fn first_head(owner: OwnerId, chain: u64) -> PieceHead {
         },
         prev: None,
         prev_session: SessionTag::NONE,
-        integrity: crate::Integrity::Full,
+        integrity,
     }
 }
 
@@ -733,9 +743,7 @@ fn read_closed_at<B: ByteSource>(
     let bad = |what| WriteError::Index(IndexError::Invalid(what));
     let src = reader.source();
     let p = reader.pieces().get(i).ok_or(bad("no such piece"))?;
-    if let Some(e @ (IndexError::UnhandledIntegrity { .. } | IndexError::UnknownIntegrity { .. })) =
-        p.head_error
-    {
+    if let Some(e @ IndexError::UnknownIntegrity { .. }) = p.head_error {
         return Err(WriteError::Index(e));
     }
     let (Some(tail), Some((close, ranges)), Some((head, starts))) =

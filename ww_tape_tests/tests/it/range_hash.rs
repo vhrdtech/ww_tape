@@ -38,6 +38,15 @@ pub(crate) fn id_of(t: u64) -> TrackId {
 /// A chain of 60 chunks on tracks 0 to 2 in a random order, with record blocks between, cut every 7 chunks: the
 /// closed pieces and the bytes of each file, in order.
 pub(crate) fn write(files: PieceTapes, seed: u64) -> (Vec<Closed>, Vec<Vec<u8>>) {
+    write_at(files, seed, ww_tape::Integrity::Full)
+}
+
+/// [write] with pieces of `integrity`.
+pub(crate) fn write_at(
+    files: PieceTapes,
+    seed: u64,
+    integrity: ww_tape::Integrity,
+) -> (Vec<Closed>, Vec<Vec<u8>>) {
     let mut rng = Rng(seed);
     let options = ChainOptions {
         tapes: files,
@@ -49,6 +58,7 @@ pub(crate) fn write(files: PieceTapes, seed: u64) -> (Vec<Closed>, Vec<Vec<u8>>)
                 ..IndexPolicy::default()
             },
             producer: "range_hash".to_owned(),
+            integrity,
             ..WriterOptions::default()
         },
         cut: CutPolicy {
@@ -586,11 +596,11 @@ fn a_checkpoint_naming_a_chunk_many_times_is_refused() {
 }
 
 /// The index path folds each chunk by the unit hash its entry states, read from an index whose CRCs hold: a chunk
-/// marked `FLAG_PAYLOAD_UNCHECKED` behind such an entry (a piece of level `Full` never writes one, and a piece of a
-/// lower level marks every entry `ENTRY_UNHASHED`, which no reader takes) folds as the writer stated it. Every read
-/// of the chunk refuses the flag, and so does the content hash check: it is caught where the payload is read.
+/// marked `FLAG_PAYLOAD_UNCHECKED` behind such an entry, its segment CRCs kept and its block CRC over it all (no
+/// writer writes one: a writer of `None` zeroes them and marks the entry `ENTRY_UNHASHED`) folds as the writer stated
+/// it. Its head reads, the block doesn't, and the content hash check fails: it is caught where the payload is read.
 #[test]
-fn an_unchecked_chunk_folds_by_its_entry_and_fails_verify() {
+fn a_crafted_unchecked_chunk_folds_by_its_entry_and_fails_verify() {
     use ww_tape::{BlockKind, ChunkHead};
     let (_, bytes) = write(PieceTapes::One, 0x9a7);
     let good = TapeReader::open(&bytes[0][..]).unwrap();
@@ -630,8 +640,11 @@ fn an_unchecked_chunk_folds_by_its_entry_and_fails_verify() {
         .unwrap();
     assert_eq!((got.hash, got.chunks), (want.hash, want.chunks));
     let mut buf = vec![];
-    let refused = format!("{:?}", r.read_chunk_head(1, &e, &mut buf).err());
-    assert!(refused.contains("PayloadUnchecked"), "{refused}");
+    assert!(r.read_chunk_head(1, &e, &mut buf).is_ok());
+    assert_eq!(
+        ww_tape::Block::read(&crafted[at..at + len]).err(),
+        Some(ww_tape::BlockError::BadCrc)
+    );
     assert!(good.verify(1).map(|v| v.holds).unwrap());
     assert!(
         !r.verify(1).map(|v| v.holds).unwrap(),

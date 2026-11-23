@@ -238,9 +238,8 @@ pub enum FileError {
         session: SessionTag,
         len: u64,
     },
-    /// A block at `offset`, `len` bytes by its head-CRC-checked length, of an integrity level this build doesn't
-    /// handle (`error`: [BlockError::PayloadUnchecked] for a chunk, [BlockError::UnhandledIntegrity] for a piece
-    /// head): not damage. Both recoveries step over it and go on.
+    /// A piece head at `offset`, `len` bytes, of an integrity level this build doesn't know (`error`:
+    /// [BlockError::UnhandledIntegrity]): not damage. Both recoveries step over it and go on.
     Refused {
         offset: u64,
         error: BlockError,
@@ -717,7 +716,7 @@ impl<R: Read> FileBlocks<R> {
             return Ok(Here::Truncated);
         }
         Ok(match Block::read(&self.buf) {
-            // a piece of a level this build doesn't handle: its head is refused, as a chunk of one is
+            // a piece of a level this build doesn't know: its head is refused
             Ok(b)
                 if b.kind == BlockKind::PieceHead
                     && let Some(level) = PieceHeadBlock::refused_level(&b) =>
@@ -728,8 +727,6 @@ impl<R: Read> FileBlocks<R> {
                 }
             }
             Ok(b) => Here::Good(Checked::of(&b)),
-            // the head CRC holds: the length is the block's
-            Err(error @ BlockError::PayloadUnchecked) => Here::Refused { len, error },
             // a chunk block with a good head: its length holds, the payload is handed out with its bad segments
             // marked, and the walk goes on after it without looking for a magic in the payload
             Err(e) if self.recovery == Recovery::Resync => match Block::salvage(&self.buf) {

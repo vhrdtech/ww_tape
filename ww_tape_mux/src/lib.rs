@@ -223,7 +223,8 @@ where
         rebuild: Option<Vec<IndexEntry>>,
         options: MuxOptions,
     ) -> Result<Self, MuxError<T::Error>> {
-        let shared = Arc::new(Shared::new(options.queue_bytes.get()));
+        let hash = chain.integrity() == Some(ww_tape::Integrity::Full);
+        let shared = Arc::new(Shared::new(options.queue_bytes.get(), hash));
         let theirs = shared.clone();
         let thread = std::thread::Builder::new()
             .name("ww_tape_mux".to_owned())

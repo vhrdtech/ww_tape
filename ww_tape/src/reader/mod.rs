@@ -33,8 +33,8 @@ use crate::index::{
 };
 use crate::piece::{
     APPEND_HEAD_LEN, AppendHead, ChainReport, Close, CloseBlock, ContentHash, HeadLink, HeadStatus,
-    OwnerId, PieceHead, PieceHeadBlock, PieceSummary, RemovedPiece, TAIL_LEN, Tail, TrackHash,
-    TrackRange, TrackStart, UnitHash, Walked, check_chain, payload_hash, walk_piece,
+    Integrity, OwnerId, PieceHead, PieceHeadBlock, PieceSummary, RemovedPiece, TAIL_LEN, Tail,
+    TrackHash, TrackRange, TrackStart, UnitHash, Walked, check_chain, payload_hash, walk_piece,
 };
 use crate::series::{SeriesError, SeriesTimeline};
 use crate::walk::{Head, SessionState, Verdict, is_free};
@@ -282,8 +282,10 @@ pub enum Found {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Verification {
     /// Whether every check held: each stretch against the hash its close states, the index against the blocks, the
-    /// track rows, the append heads.
+    /// track rows, the append heads. Below [Integrity::Full] no hash is checked: the structure only.
     pub holds: bool,
+    /// The piece's level: below [Integrity::Full], [Self::holds] claims no hash agreement.
+    pub integrity: Integrity,
     /// The close record in force, where the check ends: its offset in the piece and the hash it states.
     pub close: (u64, ContentHash),
     /// The stretches checked, one per close record up to the one in force.
@@ -305,8 +307,8 @@ pub struct PieceInfo {
     pub end: u64,
     pub head: Option<(PieceHead, Vec<TrackStart>)>,
     /// Why a good piece head block at the piece's start didn't read as its head: damage, or an integrity level this
-    /// build doesn't handle ([IndexError::UnhandledIntegrity], [IndexError::UnknownIntegrity]), for which every
-    /// lookup in the piece returns it ([ReadError::Index]).
+    /// build doesn't know ([IndexError::UnknownIntegrity]), for which every lookup in the piece returns it
+    /// ([ReadError::Index]).
     pub head_error: Option<IndexError>,
     pub close: Option<(Close, Vec<TrackRange>)>,
     /// The pieces of the chain the close names as removed on purpose, ascending by sequence number; empty without a
@@ -355,6 +357,14 @@ struct InForce {
 }
 
 impl PieceInfo {
+    /// The piece's integrity level, as its head names it: which CRCs and hashes its writer computed.
+    /// [Integrity::Full] for a piece without a head.
+    pub fn integrity(&self) -> Integrity {
+        self.head
+            .as_ref()
+            .map_or(Integrity::Full, |(h, _)| h.integrity)
+    }
+
     fn new(start: u64, found: Found) -> Self {
         Self {
             start,
@@ -488,6 +498,7 @@ impl PieceInfo {
                 unclosed,
                 head: HeadStatus::Read,
                 removed: self.removed.clone(),
+                integrity: Some(head.integrity),
             });
         }
         if let Some((link, error)) = self.refused_link.zip(self.head_error) {
@@ -498,6 +509,7 @@ impl PieceInfo {
                 unclosed,
                 head: HeadStatus::Refused(error),
                 removed: self.removed.clone(),
+                integrity: None,
             });
         }
         // a head lost to damage: the close of a piece that had one carries its ident
@@ -509,6 +521,7 @@ impl PieceInfo {
             unclosed,
             head: HeadStatus::Lost,
             removed: self.removed.clone(),
+            integrity: None,
         })
     }
 }
@@ -1567,6 +1580,7 @@ impl<S: ByteSource> TapeReader<S> {
         let hi = self.stretch_end(i);
         Ok(Verification {
             holds: held.holds,
+            integrity: p.integrity(),
             close: (at, close.hash),
             stretches: self.closes(i)?.len(),
             checked_end,
@@ -1718,7 +1732,9 @@ impl<S: ByteSource> TapeReader<S> {
             listed.add(at, count, step);
         }
         let starts = p.head.as_ref().map_or(&[][..], |(_, t)| &t[..]);
-        let mut replay = verify::Replay::new(starts, listed, end);
+        // below Integrity::Full the hashes are absent: the structure is checked, no hash
+        let hashed = p.integrity() == Integrity::Full;
+        let mut replay = verify::Replay::new(starts, listed, end, !hashed);
         let mut h = blake3::Hasher::new();
         // a walk that spent its budget before the close stops short: what it hashed is not the piece
         let walked = walk_piece(
@@ -1734,7 +1750,8 @@ impl<S: ByteSource> TapeReader<S> {
                     && at <= pos
                     && let Some((_, stated)) = earlier.pop_first()
                 {
-                    stretches_hold &= at == pos && *h.finalize().as_bytes() == stated.0;
+                    stretches_hold &=
+                        at == pos && (!hashed || *h.finalize().as_bytes() == stated.0);
                     h = crate::piece::chained(&stated);
                     last_close = Some((at, stated));
                 }
@@ -1752,12 +1769,21 @@ impl<S: ByteSource> TapeReader<S> {
                             });
                         }
                         pos = pos.saturating_add(wide(block.len()));
-                        let chunk = crate::piece::hash_block(&mut h, block, None);
+                        let chunk = match hashed {
+                            true => crate::piece::hash_block(&mut h, block, None)
+                                .map(|(c, payload)| (c, Some(payload))),
+                            false => Block::read_trusted(block)
+                                .ok()
+                                .and_then(|b| b.chunk())
+                                .map(|c| (c, None)),
+                        };
                         replay.block(block, chunk);
                     }
                     Walked::Raw(raw) => {
                         pos = pos.saturating_add(wide(raw.len()));
-                        h.update(raw);
+                        if hashed {
+                            h.update(raw);
+                        }
                         replay.raw(raw.len());
                     }
                 }
@@ -1776,7 +1802,7 @@ impl<S: ByteSource> TapeReader<S> {
         Ok(verify::Verified {
             holds: stretches_hold
                 && walked
-                && *h.finalize().as_bytes() == fin.hash.0
+                && (!hashed || *h.finalize().as_bytes() == fin.hash.0)
                 && replay.check(rows),
             steps: replay.steps(),
             held: replay.listed().held().saturating_add(replay.group_max()),
@@ -1836,9 +1862,10 @@ impl<S: ByteSource> TapeReader<S> {
                                     e.names_chunk(&c.head()) && range_of_columns(c, e.range)
                                 })
                                 .ok_or(ReadError::Index(IndexError::BadEntries))?;
-                            (TrackHash::chunk_unit(&c, &payload_hash(c.payload())), true)
+                            let unit = TrackHash::chunk_unit(&c, &payload_hash(c.payload()));
+                            (unit, UnitFrom::read(&b))
                         } else {
-                            (e.unit, false)
+                            (e.unit, UnitFrom::Index)
                         };
                         fold.push(unit, e.first_item, e.end_item(), offset, read)?;
                     }
@@ -1882,7 +1909,10 @@ impl<S: ByteSource> TapeReader<S> {
                                 }
                                 return;
                             }
-                            let Some(c) = self.read_payload(bytes).ok().and_then(|b| b.chunk())
+                            let Some((c, from)) = self
+                                .read_payload(bytes)
+                                .ok()
+                                .and_then(|b| Some((b.chunk()?, UnitFrom::read(&b))))
                             else {
                                 return;
                             };
@@ -1893,7 +1923,7 @@ impl<S: ByteSource> TapeReader<S> {
                             {
                                 let unit = TrackHash::chunk_unit(&c, &payload_hash(c.payload()));
                                 failed =
-                                    fold.push(unit, head.first_item, end_of(&head), offset, true);
+                                    fold.push(unit, head.first_item, end_of(&head), offset, from);
                             }
                         },
                     )?;
@@ -1950,7 +1980,7 @@ impl Numbers {
 
 impl RangeHash {
     /// Take in a chunk of unit hash `unit` holding items `first..end`, read from the chunk if `read`.
-    fn fold(&mut self, unit: &UnitHash, first: ItemNum, end: ItemNum, read: bool) {
+    fn fold(&mut self, unit: &UnitHash, first: ItemNum, end: ItemNum, from: UnitFrom) {
         self.hash = self.hash.then(unit);
         let (start, stop) = (self.items.start, self.items.end);
         self.items = if self.chunks == 0 {
@@ -1959,7 +1989,31 @@ impl RangeHash {
             start.min(first)..stop.max(end)
         };
         self.chunks = self.chunks.saturating_add(1);
-        self.read = self.read.saturating_add(u64::from(read));
+        self.read = self.read.saturating_add(u64::from(from != UnitFrom::Index));
+        self.unprotected = self
+            .unprotected
+            .saturating_add(u64::from(from == UnitFrom::Unprotected));
+    }
+}
+
+/// Where [TapeReader::range_hash] took a chunk's unit hash from.
+#[derive(Copy, Clone, PartialEq, Eq)]
+enum UnitFrom {
+    /// The chunk's index entry
+    Index,
+    /// The chunk's bytes, CRC-checked as read
+    Bytes,
+    /// The chunk's bytes, no CRC over its payload ([crate::Checked::Unprotected])
+    Unprotected,
+}
+
+impl UnitFrom {
+    /// Hashed from the bytes of the block `b`.
+    fn read(b: &Block<'_>) -> Self {
+        match b.checked() {
+            crate::Checked::Unprotected => Self::Unprotected,
+            _ => Self::Bytes,
+        }
     }
 }
 
@@ -1969,7 +2023,7 @@ struct Held {
     unit: UnitHash,
     first: ItemNum,
     end: ItemNum,
-    read: bool,
+    from: UnitFrom,
 }
 
 /// [TapeReader::range_hash]'s fold, one chunk behind: a copy of the chunk before (the same items and unit hash) takes
@@ -1987,6 +2041,7 @@ impl Fold {
                 items: ItemNum::ZERO..ItemNum::ZERO,
                 chunks: 0,
                 read: 0,
+                unprotected: 0,
                 skipped: 0,
                 headless: 0,
             },
@@ -1994,20 +2049,20 @@ impl Fold {
         }
     }
 
-    /// Take in the chunk at `offset` of unit hash `unit` holding items `first..end`, read from the chunk if `read`.
+    /// Take in the chunk at `offset` of unit hash `unit` holding items `first..end`, taken as `from` says.
     fn push<E>(
         &mut self,
         unit: UnitHash,
         first: ItemNum,
         end: ItemNum,
         offset: u64,
-        read: bool,
+        from: UnitFrom,
     ) -> Result<(), ReadError<E>> {
         let next = Held {
             unit,
             first,
             end,
-            read,
+            from,
         };
         match self.held {
             // a copy: the same items and the same unit hash; other bytes stating the same items overlap
@@ -2018,7 +2073,7 @@ impl Fold {
                     end: h.end.get(),
                 });
             }
-            Some(h) => self.out.fold(&h.unit, h.first, h.end, h.read),
+            Some(h) => self.out.fold(&h.unit, h.first, h.end, h.from),
             None => {}
         }
         self.held = Some(next);
@@ -2037,7 +2092,7 @@ impl Fold {
 
     fn finish(mut self) -> RangeHash {
         if let Some(h) = self.held.take() {
-            self.out.fold(&h.unit, h.first, h.end, h.read);
+            self.out.fold(&h.unit, h.first, h.end, h.from);
         }
         self.out
     }
@@ -2058,9 +2113,13 @@ pub struct RangeHash {
     pub items: Range<ItemNum>,
     /// Chunks folded.
     pub chunks: u64,
-    /// Chunks of those whose unit hash was read from the chunk, not the index: an entry made by a scan, or a piece
-    /// whose index doesn't read.
+    /// Chunks of those whose unit hash was read from the chunk, not the index: an entry made by a scan or by a writer
+    /// below [Integrity::Full] ([IndexEntry::unhashed]), or a piece whose index doesn't read.
     pub read: u64,
+    /// Chunks of those read whose payload no CRC covers ([crate::Checked::Unprotected], a piece of [Integrity::None]): the
+    /// hash is of the bytes present, which nothing vouches for. A caller that needs vouched bytes refuses a hash
+    /// with any.
+    pub unprotected: u64,
     /// Bytes of pieces walked without their index that no block explains: damage that may have held chunks of the
     /// range whose heads are lost too; and bytes of blocks the track's index entries list of a kind this reader
     /// doesn't fold (a reserved kind). 0 when every byte walked is a block and every entry one folded.

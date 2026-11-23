@@ -17,7 +17,6 @@ use crate::summaries::ChunkSummary;
 pub(crate) struct Sealed {
     pub head: ChunkHead,
     pub columns: Vec<(ColumnSpec, Vec<u8>)>,
-    pub hash: [u8; 32],
     pub summary: Option<ChunkSummary>,
 }
 
@@ -117,11 +116,19 @@ impl<T: Tapes, E: Encoder> Open<T, E> {
         };
         let specs: Vec<ColumnSpec> = s.columns.iter().map(|(c, _)| *c).collect();
         let bytes = ww_tape::chunk::chunk_len(&s.head, &specs, 0);
+        // hashed here, on the thread that seals; below Integrity::Full not at all
+        let hash = self
+            .shared
+            .upgrade()
+            .is_some_and(|sh| sh.hash_payloads)
+            .then(|| {
+                ww_tape::piece::columns_payload_hash(s.columns.iter().map(|(_, b)| b.as_slice()))
+            });
         let work = Work::Chunk {
             from: self.from.clone(),
             head: Box::new(s.head),
             columns: s.columns,
-            hash: s.hash,
+            hash,
             summary: s.summary.map(Box::new),
         };
         Ok(Some((work, u64::try_from(bytes).unwrap_or(u64::MAX))))

@@ -258,6 +258,7 @@ fn summary(seq: u64, end: Option<Ends>) -> PieceSummary {
         unclosed: false,
         head: HeadStatus::Read,
         removed: Vec::new(),
+        integrity: Some(Integrity::Full),
     }
 }
 
@@ -391,10 +392,10 @@ fn close_padding_is_checked_against_the_length() {
     }
 }
 
-/// The integrity byte (146) is read through [Integrity]: a level other than full is refused as a level this build
-/// doesn't handle, a byte no level has as unknown, neither as damage; the writer writes full only.
+/// The integrity byte (146) is read through [Integrity]: each level writes and reads back, a byte no level has is
+/// refused as unknown, not as damage.
 #[test]
-fn a_piece_head_of_another_integrity_level_is_refused() {
+fn a_piece_head_reads_each_integrity_level() {
     let mut head = PieceHead {
         ident: ident(0),
         prev: None,
@@ -406,35 +407,22 @@ fn a_piece_head_of_another_integrity_level_is_refused() {
     assert_eq!(buf[146], u8::from(Integrity::Full));
     let block = Block::read(&buf[..n]).unwrap();
     assert_eq!(PieceHeadBlock::read(&block).unwrap().head(), head);
-    let refused = [
-        (
-            1u8,
-            IndexError::UnhandledIntegrity {
-                level: Integrity::CrcOnly,
-            },
-        ),
-        (
-            2,
-            IndexError::UnhandledIntegrity {
-                level: Integrity::None,
-            },
-        ),
-        (3, IndexError::UnknownIntegrity { level: 3 }),
-        (255, IndexError::UnknownIntegrity { level: 255 }),
-    ];
-    for (level, error) in refused {
+    for level in [Integrity::CrcOnly, Integrity::None] {
+        head.integrity = level;
+        let n = write_piece_head(&mut buf, id(0), &head, &[]).unwrap();
+        assert_eq!(buf[146], u8::from(level));
+        let block = Block::read(&buf[..n]).unwrap();
+        assert_eq!(PieceHeadBlock::read(&block).unwrap().head(), head);
+    }
+    for level in [3u8, 255] {
         let mut b = buf[..n].to_vec();
         b[146] = level;
         let crc = crate::CRC.checksum(&b[..n - 4]);
         b[n - 4..].copy_from_slice(&crc.to_le_bytes());
         let block = Block::read(&b).expect("a good block");
-        assert_eq!(PieceHeadBlock::read(&block).err(), Some(error));
-    }
-    for level in [Integrity::CrcOnly, Integrity::None] {
-        head.integrity = level;
         assert_eq!(
-            write_piece_head(&mut buf, id(0), &head, &[]),
-            Err(IndexError::UnhandledIntegrity { level })
+            PieceHeadBlock::read(&block).err(),
+            Some(IndexError::UnknownIntegrity { level })
         );
     }
 }
@@ -728,4 +716,36 @@ fn a_head_cut_the_closes_name_reads_as_removed() {
     let r = check_chain(&[forged]);
     assert!(r.head_cut);
     assert_eq!(r.head_removed, 0);
+}
+
+/// A piece below Integrity::Full has no content hash: the next head names it by id with a zero hash, the link is
+/// by id alone (Unproven), whole but not proven; another id is broken, and the zero hash is never compared.
+#[test]
+fn a_link_from_a_piece_without_a_content_hash_is_by_id() {
+    use Ends::*;
+    let unhashed = |seq, end| {
+        let mut s = summary(seq, end);
+        s.integrity = Some(Integrity::CrcOnly);
+        if let Some(e) = &mut s.end {
+            e.1 = ContentHash::default();
+        }
+        s
+    };
+    let mut second = summary(1, Some(Complete));
+    second.prev = second.prev.map(|(_, id)| (ContentHash::default(), id));
+    let r = check_chain(&[unhashed(0, Some(Continued)), second.clone()]);
+    assert_eq!(r.links, [ChainLink::Unproven]);
+    assert!(r.is_whole());
+    assert!(!r.is_proven());
+    // the head names some hash: still by id, the hash absent
+    let r = check_chain(&[unhashed(0, Some(Continued)), summary(1, Some(Complete))]);
+    assert_eq!(r.links, [ChainLink::Unproven]);
+    // another id: broken
+    second.prev = Some((ContentHash::default(), PieceId([0x55; 16])));
+    let r = check_chain(&[unhashed(0, Some(Continued)), second]);
+    assert_eq!(r.links, [ChainLink::Broken]);
+    // pieces of Full: proven
+    let r = check_chain(&[summary(0, Some(Continued)), summary(1, Some(Complete))]);
+    assert_eq!(r.links, [ChainLink::Linked]);
+    assert!(r.is_proven());
 }

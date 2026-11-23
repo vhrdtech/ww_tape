@@ -50,9 +50,9 @@ use crate::clock::ClockRef;
 use crate::index::{IndexPolicy, Indexer, RECORDS_TRACK_ID, STATE_TRACK_ID, TrackIdent};
 use crate::open::{RecordRef, write_records};
 use crate::piece::{
-    Close, CloseReason, ContentHash, OwnerId, PIECE_ALIGN, PieceHead, PieceId, PieceIdent,
-    TAIL_LEN, Tail, TrackHash, TrackStart, UnitHash, close_len, close_padding, hash_block,
-    piece_head_len, write_close, write_piece_head,
+    Close, CloseReason, ContentHash, Integrity, OwnerId, PIECE_ALIGN, PieceHead, PieceId,
+    PieceIdent, TAIL_LEN, Tail, TrackHash, TrackStart, UnitHash, close_len, close_padding,
+    hash_block, piece_head_len, write_close, write_piece_head,
 };
 use crate::reader::wide;
 use crate::sink::{TapeSink, Tapes, sink_err};
@@ -132,6 +132,9 @@ pub struct WriterOptions {
     pub near: NearPolicy,
     /// [TapeWriter::set_clock]: when intervals are up (the system clock with `std`).
     pub clock: ClockRef,
+    /// Which CRCs and hashes the pieces this writer starts get ([Integrity]), named in each piece head. A piece the
+    /// writer goes on with (a resume, [TapeWriter::begin_piece]) keeps the level its head names.
+    pub integrity: Integrity,
 }
 
 impl Default for WriterOptions {
@@ -143,6 +146,7 @@ impl Default for WriterOptions {
             producer: String::new(),
             near: NearPolicy::default(),
             clock: ClockRef::default(),
+            integrity: Integrity::Full,
         }
     }
 }
@@ -185,8 +189,13 @@ pub struct TapeWriter<S: TapeSink> {
     /// A checkpoint waits for the gap before the next aligned chunk
     index_due: bool,
     last_checkpoint: Option<u64>,
-    /// The piece's content hash so far: BLAKE3 of its bytes, each chunk payload by its hash
+    /// The piece's content hash so far: BLAKE3 of its bytes, each chunk payload by its hash; untouched below
+    /// [Integrity::Full]
     hash: blake3::Hasher,
+    /// The level of this piece, as its head names it; [Integrity::Full] for a file without a piece head
+    level: Integrity,
+    /// The level of the pieces this writer starts ([WriterOptions::integrity])
+    level_next: Integrity,
     /// The piece head written first, and its track starts
     head: Option<(PieceHead, Vec<TrackStart>)>,
     /// The state records of the piece the writer remembers
@@ -361,6 +370,8 @@ impl<S: TapeSink> TapeWriter<S> {
             index_due: false,
             last_checkpoint: now,
             hash: blake3::Hasher::new(),
+            level: Integrity::Full,
+            level_next: Integrity::Full,
             head: None,
             near: near::Near::default(),
             near_policy: NearPolicy::default(),
@@ -389,6 +400,7 @@ impl<S: TapeSink> TapeWriter<S> {
         self.set_index_policy(options.index)?;
         self.set_near_policy(options.near);
         self.set_clock(options.clock.clone());
+        self.level_next = options.integrity;
         Ok(())
     }
 
@@ -1030,6 +1042,7 @@ impl<S: TapeSink> TapeWriter<S> {
         let n = write_piece_head(&mut buf, self.structural_id(), head, tracks)
             .map_err(WriteError::Index)?;
         buf.truncate(n);
+        self.set_level(head.integrity);
         self.indexer.start(tracks);
         self.write_own(&buf)?;
         self.head = Some((*head, tracks.to_vec()));
@@ -1038,6 +1051,17 @@ impl<S: TapeSink> TapeWriter<S> {
         self.head_put = false;
         self.carried_due = !tracks.is_empty();
         self.ensure_head()
+    }
+
+    /// Compute the CRCs and hashes of `level` in this piece from its head on.
+    pub(crate) fn set_level(&mut self, level: Integrity) {
+        self.level = level;
+        self.indexer.set_hashed(level == Integrity::Full);
+    }
+
+    /// The level of the piece being written, as its head names it ([Integrity::Full] without a head).
+    pub fn integrity(&self) -> Integrity {
+        self.level
     }
 
     /// Where the next block goes, from the start of the piece.
@@ -1261,13 +1285,25 @@ impl<S: TapeSink> TapeWriter<S> {
         payload: Option<[u8; 32]>,
     ) -> Result<UnitHash, WriteError<S::Error>> {
         let bytes = self.end_after(block.len())?;
-        let chunk = hash_block(&mut self.hash, block, payload);
-        // the unit hash goes into the chunk's index entry and its track's hash: computed once, here
-        let unit = chunk.as_ref().map_or(UnitHash::NONE, |(c, payload)| {
-            TrackHash::chunk_unit(c, payload)
-        });
+        // below Integrity::Full nothing is hashed: the chunk is only read, by its head
+        let (chunk, unit) = match self.level {
+            Integrity::Full => {
+                let chunk = hash_block(&mut self.hash, block, payload);
+                // the unit hash goes into the chunk's index entry and its track's hash: computed once, here
+                let unit = chunk.as_ref().map_or(UnitHash::NONE, |(c, payload)| {
+                    TrackHash::chunk_unit(c, payload)
+                });
+                (chunk.map(|(c, _)| c), unit)
+            }
+            Integrity::CrcOnly | Integrity::None => (
+                crate::Block::read_trusted(block)
+                    .ok()
+                    .and_then(|b| b.chunk()),
+                UnitHash::NONE,
+            ),
+        };
         // the range from the chunk's own column, by the definition placed before it: a resume derives the same
-        let range = chunk.as_ref().and_then(|(c, _)| self.relations.range(c));
+        let range = chunk.as_ref().and_then(|c| self.relations.range(c));
         // blocks the file structure adds are not counted: seq stays the producer's count of its own blocks
         let kind = BlockKind::from_u8(header[5]);
         let flags = u16::from_le_bytes([header[6], header[7]]);
@@ -1282,7 +1318,7 @@ impl<S: TapeSink> TapeWriter<S> {
                 self.indexer.undo_block();
             }
             self.indexer.begin_block();
-            if let Some((c, _)) = &chunk {
+            if let Some(c) = &chunk {
                 let head = c.head();
                 self.indexer
                     .tally_chunk(head.track_number, head.track_id, &unit);
@@ -1390,7 +1426,7 @@ impl<S: TapeSink> TapeWriter<S> {
             .last_counted
             .filter(|(last, ..)| counted && id == Some(*last));
         let again = match last {
-            Some((_, len, c, _)) if len == block.len() && c == crc => {
+            Some((_, len, c, at)) if len == block.len() && c == crc && self.same_as(at, block) => {
                 self.indexer.placed_unlisted(block.len());
                 Again::Same
             }
@@ -1408,6 +1444,19 @@ impl<S: TapeSink> TapeWriter<S> {
             self.last_counted = Some((id, block.len(), crc, self.bytes));
         }
         again
+    }
+
+    /// Whether the block at `at` holds the bytes of `block`, which has its length and CRC. Below
+    /// [Integrity::None] the CRC covers them all; at None a chunk's covers its head only, so its payload is read back
+    /// and compared (a block written again is rare). A read that fails says no.
+    fn same_as(&self, at: u64, block: &[u8]) -> bool {
+        let unchecked =
+            crate::bytes::le_u16(block, 6).is_some_and(|f| f & crate::FLAG_PAYLOAD_UNCHECKED != 0);
+        if !unchecked {
+            return true;
+        }
+        let mut old = vec![0u8; block.len()];
+        self.sink.read_at(at, &mut old).is_ok() && old == block
     }
 
     /// After every counted block, whoever placed it: a checkpoint when due (in an aligned file, in the gap before
@@ -1746,7 +1795,8 @@ impl<S: TapeSink> TapeWriter<S> {
         let len = crate::chunk::chunk_len(head, &specs, padding);
         let mut buf = core::mem::take(&mut self.chunk_buf);
         buf.resize(len, 0);
-        let r = crate::chunk::write_chunk(&mut buf, self.next_id(), head, columns, padding)
+        let crcs = self.level != Integrity::None;
+        let r = crate::chunk::encode_chunk(&mut buf, self.next_id(), head, columns, padding, crcs)
             .map_err(WriteError::Chunk)
             .and_then(|n| {
                 buf.truncate(n);
@@ -2287,6 +2337,7 @@ impl<S: TapeSink> TapeWriter<S> {
             producer: self.producer.clone(),
             near: self.near_policy,
             clock: self.clock.clone(),
+            integrity: self.level_next,
         }
     }
 
@@ -2309,7 +2360,11 @@ impl<S: TapeSink> TapeWriter<S> {
         self.session = next.session;
         self.relations.take_newest(&next.newest);
         self.kept = kept::Kept::default();
-        self.write_piece_head(&next.head, &next.tracks)?;
+        let head = PieceHead {
+            integrity: self.level_next,
+            ..next.head
+        };
+        self.write_piece_head(&head, &next.tracks)?;
         self.keep_after(next.kept);
         Ok(())
     }
@@ -2388,7 +2443,11 @@ impl<S: TapeSink> TapeWriter<S> {
         // the blocks and the final index reach the disk before a close record names them: a close and tail found
         // whole after a crash then never stand for bytes a disk never got
         self.sync()?;
-        let hash = ContentHash(*self.hash.clone().finalize().as_bytes());
+        // below Integrity::Full the content hash is absent: zero, read as absent by the head's level
+        let hash = match self.level {
+            Integrity::Full => ContentHash(*self.hash.clone().finalize().as_bytes()),
+            Integrity::CrcOnly | Integrity::None => ContentHash::default(),
+        };
         let ident = self.head.as_ref().map(|(h, _)| h.ident);
         let (reason, continued) = match how {
             End::Close(reason) => (reason, false),
