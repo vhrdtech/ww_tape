@@ -2,6 +2,8 @@
 
 use std::sync::Arc;
 
+use exact_units::Bytes;
+
 use ww_tape::chunk::ChunkHead;
 use ww_tape::{
     BlockError, BlockKind, ColumnSpec, DescribeError, ItemNum, SampleError, SeriesError, TrackNum,
@@ -47,8 +49,14 @@ pub enum CallError {
     Item { item: ItemNum, why: ItemError },
     /// A typed handle could not encode its open chunk or its summaries.
     Encode(EncodeError),
-    /// A grid a series handle refuses: it starts after the next sample, or too close to the last one.
+    /// A grid a grid handle refuses: it starts after the next time step, or too close to the last one.
     Grid(SeriesError),
+    /// A box of cells that isn't one range per fixed axis of the grid, each non-empty, within the axis' extent and
+    /// starting and ending at a tile's edge.
+    TileBox,
+    /// One time step of a tile takes `bytes` bytes, more than a chunk holds: `max`, the smaller of the handle's
+    /// chunk bytes and what fits a block.
+    StepTooLarge { bytes: Bytes<u64>, max: Bytes<u64> },
 }
 
 /// Why a typed handle refuses an item.
@@ -67,8 +75,8 @@ pub enum ItemError {
     RelationDecreases { relation: u16 },
     /// Its payload is longer than [ITEM_BYTES_MAX](crate::ITEM_BYTES_MAX).
     TooLong { len: usize },
-    /// Samples that are not whole frames of `stride` scalars.
-    PartialFrame { stride: usize },
+    /// Values that are not whole time steps of `scalars` scalars each.
+    PartialStep { scalars: usize },
 }
 
 impl core::fmt::Display for ItemError {
@@ -89,8 +97,11 @@ impl core::fmt::Display for ItemError {
                 write!(f, "its value of monotone relation {relation} decreases")
             }
             Self::TooLong { len } => write!(f, "a payload of {len} bytes"),
-            Self::PartialFrame { stride } => {
-                write!(f, "samples that are not whole frames of {stride} scalars")
+            Self::PartialStep { scalars } => {
+                write!(
+                    f,
+                    "values that are not whole time steps of {scalars} scalars"
+                )
             }
         }
     }
@@ -156,6 +167,15 @@ impl core::fmt::Display for CallError {
             Self::Item { item, why } => write!(f, "item {} refused: {why}", item.get()),
             Self::Encode(e) => write!(f, "{e}"),
             Self::Grid(e) => write!(f, "a grid refused: {e}"),
+            Self::TileBox => f.write_str(
+                "a box of cells that isn't one non-empty, tile-aligned range per fixed axis within its extent",
+            ),
+            Self::StepTooLarge { bytes, max } => write!(
+                f,
+                "one time step of a tile takes {} bytes, more than a chunk holds ({})",
+                bytes.get(),
+                max.get()
+            ),
         }
     }
 }

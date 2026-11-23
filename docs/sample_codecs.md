@@ -31,7 +31,7 @@ A [[series chunk]] of the drive holds a second of `phase_a`: 25 000 samples as `
     ```
 
 A recorder that writes through a [`TapeMux`] leaves the encoding to the handle of the track. The drive's recorder gives
-the [`SeriesHandle`] the codec of the column, and then only the samples of each second:
+the [`GridHandle`] the codec of the column, and then only the samples of each second:
 
 ```rs
 --8<-- "examples/example_drive/src/record.rs:series"

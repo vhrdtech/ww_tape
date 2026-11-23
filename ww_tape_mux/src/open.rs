@@ -33,8 +33,13 @@ impl<E> Buffers for Slot<E> {
 
 /// What a typed handle's open chunk does.
 pub(crate) trait Encoder: Send {
-    /// Complete the items so far into a chunk, its columns in buffers of `buffers`; None when there are none.
-    fn complete(&mut self, buffers: &dyn Buffers) -> Result<Option<Completed>, EncodeError>;
+    /// Complete the items so far into chunks, their columns in buffers of `buffers`, each handed to `out` in the
+    /// order they go to the tape; none when there are no items. On an error none is handed out.
+    fn complete(
+        &mut self,
+        buffers: &dyn Buffers,
+        out: &mut dyn FnMut(Completed),
+    ) -> Result<(), EncodeError>;
 }
 
 /// An open chunk the writing thread may complete.
@@ -105,33 +110,49 @@ where
 }
 
 impl<T: PieceStore, E: Encoder> Open<T, E> {
-    /// Complete `encoder`, held by the caller: the unit and the bytes it takes of the queue's budget.
+    /// Complete `encoder`, held by the caller: each unit and the bytes it takes of the queue's budget handed to
+    /// `out`, in order. Whether it completed a unit.
     pub(crate) fn complete_locked(
         &self,
         encoder: &mut E,
-    ) -> Result<Option<(Work<T>, u64)>, EncodeError> {
+        out: &mut dyn FnMut((Work<T>, u64)),
+    ) -> Result<bool, EncodeError> {
         self.due.store(0, Ordering::Relaxed);
-        let Some(s) = encoder.complete(self.from.as_ref())? else {
-            return Ok(None);
-        };
-        let specs: Vec<ColumnSpec> = s.columns.iter().map(|(c, _)| *c).collect();
-        let bytes = ww_tape::chunk::chunk_len(&s.head, &specs, 0);
         // hashed here, on the thread that completes; below Integrity::Full not at all
-        let hash = self
-            .shared
-            .upgrade()
-            .is_some_and(|sh| sh.hash_payloads)
-            .then(|| {
+        let hash_payloads = self.shared.upgrade().is_some_and(|sh| sh.hash_payloads);
+        let mut any = false;
+        encoder.complete(self.from.as_ref(), &mut |s| {
+            let specs: Vec<ColumnSpec> = s.columns.iter().map(|(c, _)| *c).collect();
+            let bytes = ww_tape::chunk::chunk_len(&s.head, &specs, 0);
+            let hash = hash_payloads.then(|| {
                 ww_tape::piece::columns_payload_hash(s.columns.iter().map(|(_, b)| b.as_slice()))
             });
-        let work = Work::Chunk {
-            from: self.from.clone(),
-            head: Box::new(s.head),
-            columns: s.columns,
-            hash,
-            summary: s.summary.map(Box::new),
-        };
-        Ok(Some((work, u64::try_from(bytes).unwrap_or(u64::MAX))))
+            let work = Work::Chunk {
+                from: self.from.clone(),
+                head: Box::new(s.head),
+                columns: s.columns,
+                hash,
+                summary: s.summary.map(Box::new),
+            };
+            any = true;
+            out((work, u64::try_from(bytes).unwrap_or(u64::MAX)));
+        })?;
+        Ok(any)
+    }
+
+    /// [Self::complete_locked] where no caller takes its error: items the handle checked as they came always
+    /// encode, so a refusal is a bug, counted. Whether it completed a unit.
+    pub(crate) fn complete_counted(
+        &self,
+        encoder: &mut E,
+        out: &mut dyn FnMut((Work<T>, u64)),
+    ) -> bool {
+        self.complete_locked(encoder, out).unwrap_or_else(|_e| {
+            if let Some(s) = self.shared.upgrade() {
+                Counters::add(&s.counters.refused, 1);
+            }
+            false
+        })
     }
 }
 
@@ -164,20 +185,7 @@ where
         {
             return false;
         }
-        match self.complete_locked(&mut e) {
-            Ok(Some((work, bytes))) => {
-                out(work, bytes);
-                true
-            }
-            Ok(None) => false,
-            Err(_) => {
-                // items the handle checked as they came always encode: a refusal here is a bug, counted
-                if let Some(s) = self.shared.upgrade() {
-                    Counters::add(&s.counters.refused, 1);
-                }
-                false
-            }
-        }
+        self.complete_counted(&mut e, &mut |(work, bytes)| out(work, bytes))
     }
 }
 

@@ -101,9 +101,11 @@ The bytes of blocks, records, chunks, sessions and the index, in the crate `ww_t
 
   Index entries are 128 bytes: the fields before keep their offsets and bytes 120..128 are reserved for every kind. Each index block declares its entry length, and readers read the first 120 bytes of each entry, so pieces of 120-byte entries still read.
 
-  Open: a handle that writes a grid's time steps as tiles, summaries per tile, space overviews, a book chapter.
+  A `GridHandle` (`TapeMux::grid`, `grid_box`) takes a time step of the grid or of a box of its tiles and splits it into the open chunk of each tile. The tiles' chunks are completed together, by steps, bytes or latency. Edge tiles hold the cells left over, and a tile no box holds is never written. A tile's time step that fits no chunk or block is refused, never split. A series is the grid of no fixed axes and writes the bytes it wrote before.
 
-  Read more: [Fixed axes and tiles](docs/format.md#fixed-axes-and-tiles), [Index entries](docs/format.md#index-entries). Golden files `v1-index.hex`, `v1-grid-{1,2,5,31}.hex`; tests `grids.rs`, `reserved.rs`, `grid::tests`, `index::tests`; fuzz targets `tape-grid`, `tape-grid-hostile`, `tape-index`.
+  Open: summaries per tile, space overviews, a book chapter.
+
+  Read more: [Fixed axes and tiles](docs/format.md#fixed-axes-and-tiles), [Index entries](docs/format.md#index-entries), [Typed handles encode on their own thread](docs/writing_thread.md#typed-handles-encode-on-their-own-thread). Golden files `v1-index.hex`, `v1-grid-{1,2,5,31}.hex`; tests `grids.rs`, `mux_grids.rs`, `reserved.rs`, `grid::tests`, `index::tests`; fuzz targets `tape-grid`, `tape-grid-hostile`, `tape-index`.
 
 ## Tracks, clocks and definitions (`TRACK`)
 

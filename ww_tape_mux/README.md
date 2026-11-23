@@ -5,7 +5,7 @@ A writing thread for [ww_tape](../README.md) chains. A `TapeMux` owns a `PieceCh
 | Handle | Sends |
 |---|---|
 | `EventsHandle` | items of one events track (instants, spans, flags, relation values), encoded into chunks on the producer's thread |
-| `SeriesHandle` | samples of one series track on a grid, encoded the same way |
+| `GridHandle` | time steps of one series track (its samples, or the cells of its tiles), encoded the same way, a chunk per tile |
 | `ChunkSender` | chunks of one events or series track, encoded by the caller |
 | `RecordsHandle` | records blocks |
 | `RelayHandle` | another producer's blocks |

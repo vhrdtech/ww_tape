@@ -6,7 +6,7 @@
 //! | Handle | Sends | Placed as |
 //! |---|---|---|
 //! | [EventsHandle] | items of one events track, one by one or in batches ([Event]), encoded into chunks on its thread | [PieceChain::write_chunk_hashed] |
-//! | [SeriesHandle] | samples of one series track on a grid, encoded the same way | [PieceChain::write_chunk_hashed] |
+//! | [GridHandle] | time steps of one series track (its samples, or its tiles' cells), encoded the same way, a chunk per tile | [PieceChain::write_chunk_hashed] |
 //! | [ChunkSender] | a chunk of one events or series track, encoded by the caller | [PieceChain::write_chunk] |
 //! | [RecordsHandle] | a records block ([ww_tape::BlockWriter]) | the writer's next block ([PieceChain::write_block]) |
 //! | [RelayHandle] | another producer's block | [PieceChain::relay_block] or [PieceChain::adopt_block] |
@@ -17,7 +17,7 @@
 //! definitions: the mux holds them, and the writer assigns each track its number when it is defined
 //! ([TapeMux::define_track]).
 //!
-//! The typed handles ([EventsHandle], [SeriesHandle]) do the costly passes on the producer's thread: the chunk's
+//! The typed handles ([EventsHandle], [GridHandle]) do the costly passes on the producer's thread: the chunk's
 //! encoding, the BLAKE3 hash of its payload, and the leaves of the track's summaries (an event tree's runs, a
 //! series' level-0 statistics). The writing thread places the chunk with its hash given and builds the summary
 //! levels above the leaves: one tree per track and piece, ended before every cut and at the close, its blocks
@@ -92,12 +92,12 @@
 mod define;
 mod error;
 mod events;
+mod grid;
 mod handle;
 mod open;
 mod progress;
 mod queue;
 mod reply;
-mod series;
 mod shared;
 mod summaries;
 mod thread;
@@ -119,9 +119,9 @@ pub use events::{
     CHUNK_BYTES_DEFAULT, CHUNK_ITEMS_DEFAULT, Event, EventsHandle, EventsOptions, ITEM_BYTES_MAX,
     LATENCY_DEFAULT,
 };
+pub use grid::{CHUNK_STEPS_DEFAULT, GridHandle, GridOptions};
 pub use handle::{ChunkSender, Pressure, RecordsHandle, RelayHandle, Sent, StateHandle};
 pub use progress::{Progress, ProgressWatch, TrackProgress, WaitPast};
-pub use series::{CHUNK_SAMPLES_DEFAULT, SeriesHandle, SeriesOptions};
 pub use shared::{RETURNED_BUFFERS_MAX, RelayMode};
 
 use reply::reply;
@@ -263,7 +263,7 @@ where
     /// anything. Given again every item after the last chunk kept of each track, through typed handles cut as
     /// before, the chain gets the bytes of the run without the crash.
     ///
-    /// The flags a [SeriesHandle] took ([SeriesHandle::push_flagged]) are in its chunks' flag runs, so the leaves
+    /// The flags a [GridHandle] took ([GridHandle::push_flagged]) are in its chunks' flag runs, so the leaves
     /// of kept samples are rebuilt with them. A tree is rebuilt for each track a typed handle summarises by
     /// default; one is dropped when a handle without summaries is made for its track (a [ChunkSender], a handle
     /// with summaries off), or when the track's next chunk comes without a summary.

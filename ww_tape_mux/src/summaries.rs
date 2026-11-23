@@ -415,7 +415,7 @@ fn read_back<S: TapeSink>(
     }
     let summary = match head.kind {
         BlockKind::Events => crate::events::read_summary(&def, &chunk),
-        _ => crate::series::read_summary(&def, &chunk),
+        _ => crate::grid::read_summary(&def, &chunk),
     };
     Ok(summary.map(|s| (head, s)))
 }

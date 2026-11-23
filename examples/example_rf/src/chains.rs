@@ -1,7 +1,7 @@
 //! The RF capture in two chains: the samples in one, what a decoder finds in them in another, each written through a
 //! mux of its own in one process, and a reader that follows both and merges them by time.
 //!
-//! A radio thread pushes each chunk's samples into a series handle of the chain `iq` and hands them to a decoder
+//! A radio thread pushes each chunk's samples into a grid handle of the chain `iq` and hands them to a decoder
 //! thread. The decoder looks for bursts and measures the band ([Detector]), and pushes what it finds into two events
 //! handles of the chain `decoded`: track `bursts`, a span per burst, and track `power`, the band's mean power each
 //! second. The chains live in two directories of piece files ([Chains::write]).
@@ -35,7 +35,7 @@ use ww_tape_fs::follow::{
     ChainFollower, FollowError, FollowOptions, TimeMerge, TrackItem, TrackItems,
 };
 use ww_tape_fs::{FilePieces, FsError};
-use ww_tape_mux::{EventsHandle, EventsOptions, MuxError, MuxOptions, SeriesOptions, TapeMux};
+use ww_tape_mux::{EventsHandle, EventsOptions, GridOptions, MuxError, MuxOptions, TapeMux};
 
 use example_capture::rf::{API_ROOT, Rf, RfError, clock, iq_key};
 
@@ -351,13 +351,13 @@ impl Chains {
             power,
         } = open;
         // --8<-- [start:threads]
-        let mut samples = iq_mux.series::<i16>(
+        let mut samples = iq_mux.grid::<i16>(
             iq,
-            SeriesOptions {
-                chunk_samples: rf.chunk_samples,
+            GridOptions {
+                chunk_steps: rf.chunk_samples,
                 latency: None, // the radio fills every chunk
                 codec: rf.codec,
-                ..SeriesOptions::default()
+                ..GridOptions::default()
             },
         )?;
         let finds = |track| {

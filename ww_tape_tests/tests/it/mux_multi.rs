@@ -16,7 +16,7 @@ use ww_tape::{
     Ratio64, SampleShape, SyncPolicy, TapeReader, TapeSink, TrackId, TrackKind, TrackNum,
     TrackRepeat, TrackSpec, WriterOptions, clock_key, track_key,
 };
-use ww_tape_mux::{EventsOptions, MuxOptions, SeriesOptions, TapeMux};
+use ww_tape_mux::{EventsOptions, GridOptions, MuxOptions, TapeMux};
 
 /// One process writes both chains: one owner, two chain numbers.
 const OWNER: OwnerId = OwnerId([0x6d; 32]);
@@ -173,13 +173,13 @@ fn write<T>(
         for (k, ((number, _), (from, to))) in tracks.series.iter().zip(series).enumerate() {
             let mut h = muxes
                 .0
-                .series::<i16>(
+                .grid::<i16>(
                     *number,
-                    SeriesOptions {
-                        chunk_samples: CHUNK_SAMPLES,
+                    GridOptions {
+                        chunk_steps: CHUNK_SAMPLES,
                         first_item: ItemNum::new(*from),
                         first_tick: *from as i64 * PERIOD,
-                        ..SeriesOptions::default()
+                        ..GridOptions::default()
                     },
                 )
                 .unwrap();

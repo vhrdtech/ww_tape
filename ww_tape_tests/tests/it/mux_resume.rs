@@ -8,7 +8,7 @@ use ww_tape::{
     BlockKind, ChainOptions, CutPolicy, ItemNum, Layout, MemPieces, OwnerId, PieceTapes,
     SeriesGrid, SyncPolicy, TapeReader, TrackId, TrackNum, WriterOptions,
 };
-use ww_tape_mux::{Event, EventsOptions, MuxOptions, SeriesHandle, SeriesOptions, TapeMux};
+use ww_tape_mux::{Event, EventsOptions, GridHandle, GridOptions, MuxOptions, TapeMux};
 
 use crate::mux_handles::{clock, events_track, series_track};
 use crate::mux_multi::{next_item, pieces, plant};
@@ -91,7 +91,7 @@ pub(crate) fn sample_flags(i: u64) -> u32 {
 }
 
 /// Push samples `from..to` to `series`, flagged when `flagged`: each stretch of one flags word in one push.
-fn push_samples(series: &mut SeriesHandle<MemPieces, i16>, from: u64, to: u64, flagged: bool) {
+fn push_samples(series: &mut GridHandle<MemPieces, i16>, from: u64, to: u64, flagged: bool) {
     let mut i = from;
     while i < to {
         let flags = if flagged { sample_flags(i) } else { 0 };
@@ -150,14 +150,14 @@ fn write(mux: TapeMux<MemPieces>, run: Run, t: &Tracks, events_from: u64, sample
         )
         .unwrap();
     let mut series = mux
-        .series::<i16>(
+        .grid::<i16>(
             t.series.0,
-            SeriesOptions {
-                chunk_samples: run.chunk_samples,
+            GridOptions {
+                chunk_steps: run.chunk_samples,
                 latency: None,
                 first_item: ItemNum::new(samples_from),
                 first_tick: samples_from as i64 * PERIOD,
-                ..SeriesOptions::default()
+                ..GridOptions::default()
             },
         )
         .unwrap();

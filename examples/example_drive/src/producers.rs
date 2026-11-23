@@ -10,7 +10,7 @@ use ww_tape::{
     GridDef, Items, Magnitude, MemPieces, OwnerId, Ratio64, Recovery, Segment, TrackKind, TrackNum,
     TrackRepeat, TrackSpec, clock_key, track_key,
 };
-use ww_tape_mux::{Event, EventsOptions, MuxOptions, SeriesOptions, TapeMux};
+use ww_tape_mux::{Event, EventsOptions, GridOptions, MuxOptions, TapeMux};
 
 use crate::Error;
 use crate::writing::joined;
@@ -21,7 +21,7 @@ pub const OWNER: OwnerId = OwnerId([0x51; 32]);
 const API_ROOT: u64 = 0xe5a3_0001;
 /// Pings each events thread sends in one [`EventsHandle::push_all`](ww_tape_mux::EventsHandle::push_all) call.
 pub const PINGS: u32 = 1_000;
-/// Levels the series thread sends in one [`SeriesHandle::push`](ww_tape_mux::SeriesHandle::push) call.
+/// Levels the series thread sends in one [`GridHandle::push`](ww_tape_mux::GridHandle::push) call.
 pub const LEVELS: usize = 3_000;
 
 /// The clock every track of this example runs on: nanoseconds since some boot, not tied to a wall clock.
@@ -178,7 +178,7 @@ pub fn threads() -> Result<Counts, Error> {
             Ok(())
         });
         let c = s.spawn(|| -> Result<(), Error> {
-            let mut h = mux.series::<i16>(levels, SeriesOptions::default())?;
+            let mut h = mux.grid::<i16>(levels, GridOptions::default())?;
             h.push(&vec![0i16; LEVELS])?;
             h.finish()?;
             Ok(())

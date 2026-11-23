@@ -66,7 +66,7 @@ current. The mux turns each into one call of the writer, and adds the [[summary]
 | [`StateHandle::put`], the mode | [`TapeWriter::put`] | 3600 (9 wrote) |
 | [`RecordsHandle::send`], log lines and temperatures | [`TapeWriter::write_block`] | 3600 |
 | [`ChunkSender::send`], `can0` | [`TapeWriter::write_chunk`] | 3600 |
-| [`SeriesHandle::push`], `phase_a` | [`TapeWriter::write_chunk_hashed`] | 3600 |
+| [`GridHandle::push`], `phase_a` | [`TapeWriter::write_chunk_hashed`] | 3600 |
 | none: the mux's summaries of `phase_a` | [`TapeWriter::defer_block`] | 2948 |
 
 Only 9 of the 3600 puts wrote a record. A put writes its [[state item]] only when no record of the same item lies

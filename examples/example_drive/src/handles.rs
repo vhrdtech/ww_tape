@@ -17,7 +17,7 @@ use ww_tape::{
     BlockId, BlockKind, Element, ElementDesc, FileBlocks, MemPieces, RecordTrack, Recovery,
     SessionTag, TrackNum,
 };
-use ww_tape_mux::{Event, EventsOptions, MuxOptions, SeriesOptions, TapeMux};
+use ww_tape_mux::{Event, EventsOptions, GridOptions, MuxOptions, TapeMux};
 
 use crate::defs::{DriveNumbers, define_on_mux};
 use crate::record::{PHASE_CODEC, first_at, item_us, options, records_block};
@@ -143,12 +143,12 @@ pub fn record(drive: &Drive) -> Result<ViaHandles, Error> {
         // --8<-- [end:can0]
         // --8<-- [start:phase_a]
         let phase_t = s.spawn(|| -> Result<u64, Error> {
-            let mut phase_a = mux.series::<i16>(
+            let mut phase_a = mux.grid::<i16>(
                 numbers.phase_a,
-                SeriesOptions {
+                GridOptions {
                     codec: PHASE_CODEC,
                     summaries: drive.summaries,
-                    ..SeriesOptions::default()
+                    ..GridOptions::default()
                 },
             )?;
             let total = first_at(end_us, u64::from(drive.phase_hz) * 3_600);

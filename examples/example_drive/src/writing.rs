@@ -1153,7 +1153,7 @@ impl fmt::Display for Writing {
         )?;
         writeln!(
             f,
-            "| SeriesHandle::push, phase_a | write_chunk_hashed | {} |",
+            "| GridHandle::push, phase_a | write_chunk_hashed | {} |",
             c.sample_chunks
         )?;
         writeln!(

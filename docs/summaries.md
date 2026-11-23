@@ -157,7 +157,7 @@ At the end of the run, [`SeriesSummaries::finish`] gives the blocks of the parti
 drive's recording holds 735 summary blocks of about 825 KB, beside about 25 MB of samples. A lost summary block
 costs nothing that a reader cannot rebuild from the chunks.
 
-A recorder that writes through a [`TapeMux`] builds no tree of its own. Its [`SeriesHandle`] computes the leaves of the
+A recorder that writes through a [`TapeMux`] builds no tree of its own. Its [`GridHandle`] computes the leaves of the
 samples it takes, as its `summaries` option says ([Samples into columns](sample_codecs.md#samples-into-columns) shows
 it). The writing thread builds the levels above them, one tree per piece, ended before each cut and at the close. A mux
 resumed after a crash rebuilds the tree of the torn piece from the chunks the piece kept. The resumed file then holds

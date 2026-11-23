@@ -19,7 +19,7 @@ example takes 250 million samples a second in 2 channels of 125 million. Each ch
 its carriers and its bursts, with noise of its own.
 
 Each channel is a [[series]] track `iq` with a producer thread of its own. The thread pushes the channel's samples into
-a series handle. The handle packs them at 12 bits and cuts them into chunks of 1 MiB of samples:
+a grid handle. The handle packs them at 12 bits and cuts them into chunks of 1 MiB of samples:
 
 ```rs
 --8<-- "examples/example_wideband/src/lib.rs:channel"

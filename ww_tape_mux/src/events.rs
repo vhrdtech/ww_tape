@@ -23,10 +23,10 @@ use crate::summaries::ChunkSummary;
 /// Default of [EventsOptions::chunk_items].
 pub const CHUNK_ITEMS_DEFAULT: u32 = 4096;
 
-/// Default of [EventsOptions::chunk_bytes] and [SeriesOptions::chunk_bytes](crate::SeriesOptions::chunk_bytes).
+/// Default of [EventsOptions::chunk_bytes] and [GridOptions::chunk_bytes](crate::GridOptions::chunk_bytes).
 pub const CHUNK_BYTES_DEFAULT: Bytes<u32> = Bytes::new(1 << 20);
 
-/// Default of [EventsOptions::latency] and [SeriesOptions::latency](crate::SeriesOptions::latency).
+/// Default of [EventsOptions::latency] and [GridOptions::latency](crate::GridOptions::latency).
 pub const LATENCY_DEFAULT: Duration = Duration::from_secs(1);
 
 /// The longest payload of one item an events handle takes: a chunk holds it alone.
@@ -403,8 +403,15 @@ impl EventsChunk {
 }
 
 impl Encoder for EventsChunk {
-    fn complete(&mut self, buffers: &dyn Buffers) -> Result<Option<Completed>, EncodeError> {
-        self.encode(buffers)
+    fn complete(
+        &mut self,
+        buffers: &dyn Buffers,
+        out: &mut dyn FnMut(Completed),
+    ) -> Result<(), EncodeError> {
+        if let Some(c) = self.encode(buffers)? {
+            out(c);
+        }
+        Ok(())
     }
 }
 
@@ -672,10 +679,9 @@ where
             }
             // full, or the next item doesn't fit
             if e.items() >= e.chunk_items || !rest.is_empty() {
-                match self.open.complete_locked(&mut e) {
-                    Ok(Some(unit)) => self.backlog.push(unit),
-                    Ok(None) => {}
-                    Err(err) => return Ok((e.items() > 0, Some(CallError::Encode(err)))),
+                let backlog = &mut self.backlog;
+                if let Err(err) = self.open.complete_locked(&mut e, &mut |u| backlog.push(u)) {
+                    return Ok((e.items() > 0, Some(CallError::Encode(err))));
                 }
             }
         }
@@ -705,13 +711,10 @@ where
 
     fn complete_open(&mut self) -> Result<(), MuxError<T::Error>> {
         let mut e = crate::queue::lock(&self.open.encoder);
-        if let Some(unit) = self
-            .open
-            .complete_locked(&mut e)
-            .map_err(CallError::Encode)?
-        {
-            self.backlog.push(unit);
-        }
+        let backlog = &mut self.backlog;
+        self.open
+            .complete_locked(&mut e, &mut |u| backlog.push(u))
+            .map_err(CallError::Encode)?;
         Ok(())
     }
 
@@ -732,12 +735,10 @@ impl<T: PieceStore> Drop for EventsHandle<T> {
     /// Complete and send the open chunk and any chunk a dropped async call left, as far as the mux takes them; waits
     /// for room on this thread.
     fn drop(&mut self) {
-        let unit = {
+        {
             let mut e = crate::queue::lock(&self.open.encoder);
-            self.open.complete_locked(&mut e)
-        };
-        if let Ok(Some(unit)) = unit {
-            self.backlog.push(unit);
+            let backlog = &mut self.backlog;
+            self.open.complete_counted(&mut e, &mut |u| backlog.push(u));
         }
         // a closed or failed mux takes nothing: the items are lost as after a close
         drop(self.backlog.send(&self.s));
