@@ -325,6 +325,7 @@ mod fork {
     extern "C" fn prepare() {
         let locked = locked();
         let pipe = if locked.is_empty() { None } else { pipe() };
+        // spirit-level: allow(nested-locks) the table's guard moves into FORKING to stay held over the fork; FORKING is this thread's RefCell, no lock
         FORKING.with(|f| {
             if let Ok(mut f) = f.try_borrow_mut() {
                 *f = Some(Forking { locked, pipe });
