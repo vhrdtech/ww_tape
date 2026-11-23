@@ -547,12 +547,15 @@ type SyncedLens = std::sync::Arc<std::sync::Mutex<std::collections::BTreeMap<u64
 struct Durable {
     mem: MemPieces,
     synced: SyncedLens,
+    /// Syncs that still succeed; None for every one
+    syncs_left: std::sync::Arc<std::sync::Mutex<Option<usize>>>,
 }
 
 struct DurableSink {
     inner: MemSink,
     key: u64,
     synced: SyncedLens,
+    syncs_left: std::sync::Arc<std::sync::Mutex<Option<usize>>>,
 }
 
 impl TapeSink for DurableSink {
@@ -561,6 +564,9 @@ impl TapeSink for DurableSink {
         self.inner.write_all(bytes)
     }
     fn sync(&mut self) -> Result<(), MemError> {
+        if let Some(left) = self.syncs_left.lock().unwrap().as_mut() {
+            *left = left.checked_sub(1).ok_or(MemError::Poisoned)?;
+        }
         let len = self.inner.base() + self.inner.size()?;
         self.synced.lock().unwrap().insert(self.key, len);
         self.inner.sync()
@@ -598,17 +604,31 @@ impl Durable {
             inner,
             key,
             synced: self.synced.clone(),
+            syncs_left: self.syncs_left.clone(),
         }
+    }
+
+    /// Let `n` more syncs succeed, and fail every one after them.
+    fn fail_after(&self, n: usize) {
+        *self.syncs_left.lock().unwrap() = Some(n);
     }
 
     /// The tapes as a crash leaves them: each cut to its synced length, marked closed as it was.
     fn crash(&self) -> MemPieces {
+        self.crash_keeping(false)
+    }
+
+    /// [Self::crash]; with `written`, each tape keeps every byte written, as a disk that wrote them unasked does.
+    fn crash_keeping(&self, written: bool) -> MemPieces {
         let after = MemPieces::new();
         let synced = self.synced.lock().unwrap();
         for key in self.mem.keys().unwrap() {
             let tape = self.mem.get(&key).unwrap().unwrap();
             let bytes = tape.to_vec().unwrap();
-            let len = synced.get(&key).copied().unwrap_or(0) as usize;
+            let len = match written {
+                true => bytes.len(),
+                false => synced.get(&key).copied().unwrap_or(0) as usize,
+            };
             let mut sink = after.create(&key).unwrap();
             sink.write_all(&bytes[..len.min(bytes.len())]).unwrap();
             if tape.is_closed() {
@@ -681,4 +701,129 @@ fn retention_right_after_a_cut_survives_a_crash() {
     let r = report(&bytes_of(&crashed));
     assert!(r.head_cut);
     linked(&r);
+}
+
+/// A crash while the rows of a removal are written, before their sync: the first sync of the close fails (no close
+/// record written), or the second (close and tail written, not synced), and the disk keeps the synced bytes or every
+/// byte written. No piece was deleted; the chain resumes and links whole, and the removal is made again.
+#[test]
+fn a_crash_before_the_rows_are_synced_leaves_every_piece() {
+    for (syncs, written) in [(0, false), (0, true), (1, false), (1, true)] {
+        let defs = defs();
+        let store = Durable::default();
+        let mut c =
+            PieceChain::create_on(store.clone(), OWNER, 0, &[], options(PieceTapes::Each)).unwrap();
+        write(&mut c, &defs, 0, 9);
+        store.fail_after(syncs);
+        c.remove(&[1, 2]).unwrap_err();
+        let crashed = store.crash_keeping(written);
+        drop(c);
+        assert_eq!(
+            crashed.keys().unwrap(),
+            [0, 1, 2, 3, 4],
+            "{syncs} {written}"
+        );
+
+        let (mut c, _) =
+            PieceChain::resume_on(crashed.clone(), OWNER, 0, options(PieceTapes::Each)).unwrap();
+        assert_eq!((c.seq(), c.closed().len()), (4, 4));
+        c.remove(&[1, 2]).unwrap();
+        write(&mut c, &defs, 9, 11);
+        c.close().unwrap();
+        let r = report(&bytes_of(&crashed));
+        assert_eq!(r.links[0], ChainLink::Removed { pieces: 2 });
+        assert!(r.is_whole(), "{syncs} {written}: {r:?}");
+    }
+}
+
+/// Where each block of `bytes` starts, and its end.
+fn boundaries(bytes: &[u8]) -> Vec<usize> {
+    let mut at = 0usize;
+    let mut out = vec![0];
+    while at + 12 <= bytes.len() {
+        let len = u32::from_le_bytes(bytes[at + 8..at + 12].try_into().unwrap()) as usize;
+        if len == 0 || at + len > bytes.len() {
+            break;
+        }
+        at += len;
+        out.push(at);
+    }
+    out
+}
+
+/// The number of chunks of track 0 the tapes of `mem` hold, from the newest one's first item: chunk `k` starts at
+/// item `k * 50`.
+fn chunks_written(mem: &MemPieces) -> u64 {
+    let mut next = 0;
+    for key in mem.keys().unwrap() {
+        let bytes = mem.get(&key).unwrap().unwrap().to_vec().unwrap();
+        let ends = boundaries(&bytes);
+        for w in ends.windows(2) {
+            if let Ok(b) = ww_tape::Block::read(&bytes[w[0]..w[1]])
+                && let Some(c) = b.chunk()
+            {
+                next = next.max(c.head().first_item.get() / 50 + 1);
+            }
+        }
+    }
+    next
+}
+
+/// A chain with pieces removed from its middle, crashed at every block boundary written after the removal synced its
+/// rows, resumed and given the chunks it lost: the same pieces, byte for byte, as the run without a crash.
+#[test]
+fn a_resume_after_a_removal_at_every_block_boundary_matches_the_run_without_a_crash() {
+    let defs = defs();
+    let mem = MemPieces::new();
+    let mut c = chain_at_four(&mem, PieceTapes::Each);
+    c.remove(&[1, 2]).unwrap();
+    // what the removal synced: the piece written up to the rows' close
+    let synced = mem.get(&4).unwrap().unwrap().to_vec().unwrap().len();
+    write(&mut c, &defs, 9, 15);
+    c.close().unwrap();
+    let keys = mem.keys().unwrap();
+    assert_eq!(keys, [0, 3, 4, 5, 6, 7]);
+    let reference: Vec<Vec<u8>> = keys
+        .iter()
+        .map(|k| mem.get(k).unwrap().unwrap().to_vec().unwrap())
+        .collect();
+
+    let mut runs = 0;
+    for (i, &key) in keys.iter().enumerate().skip(2) {
+        let piece = &reference[i];
+        for cut in boundaries(piece) {
+            if key == 4 && cut < synced {
+                continue;
+            }
+            let crashed = MemPieces::new();
+            for (j, &k) in keys.iter().enumerate().take(i + 1) {
+                let mut sink = crashed.create(&k).unwrap();
+                let bytes = if j == i {
+                    &piece[..cut]
+                } else {
+                    &reference[j][..]
+                };
+                sink.write_all(bytes).unwrap();
+                if j < i {
+                    sink.close().unwrap();
+                }
+            }
+            let (mut c, _) =
+                PieceChain::resume_on(crashed.clone(), OWNER, 0, options(PieceTapes::Each))
+                    .unwrap_or_else(|e| panic!("piece {key} cut at {cut}: {e:?}"));
+            let from = chunks_written(&crashed);
+            write(&mut c, &defs, from, 15);
+            c.close().unwrap();
+            assert_eq!(crashed.keys().unwrap(), keys, "piece {key} cut at {cut}");
+            for (j, k) in keys.iter().enumerate() {
+                let got = crashed.get(k).unwrap().unwrap().to_vec().unwrap();
+                assert!(
+                    got == reference[j],
+                    "piece {key} cut at {cut}: piece {k} differs"
+                );
+            }
+            runs += 1;
+        }
+    }
+    assert!(runs > 20, "{runs} crashes");
 }
