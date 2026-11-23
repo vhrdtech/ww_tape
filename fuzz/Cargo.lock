@@ -334,7 +334,7 @@ dependencies = [
 
 [[package]]
 name = "ww_tape"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "blake3",
  "exact_units",
@@ -346,7 +346,7 @@ dependencies = [
 
 [[package]]
 name = "ww_tape_codecs"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "crc",
  "lz4_flex",
@@ -354,7 +354,7 @@ dependencies = [
 
 [[package]]
 name = "ww_tape_fuzz"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "blake3",
  "crc",
@@ -374,7 +374,7 @@ dependencies = [
 
 [[package]]
 name = "ww_tape_summary"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "exact_units",
  "ww_tape",
