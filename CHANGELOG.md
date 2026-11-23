@@ -6,6 +6,8 @@ benchmarks, golden files and book pages.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-23
+
 ### Breaking
 
 - `EventsHandle::seal` and `SeriesHandle::seal` are `complete`, `seal_async` is `complete_async`: seal names the integrity raise only (MUX-2).
