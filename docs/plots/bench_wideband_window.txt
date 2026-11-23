@@ -1,6 +1,6 @@
 | Kept to | Source | Signal ms | Capture ms | Of the pace | Wall ms | Pieces | Overrun | Held max MB | Tape MB per s | Window s |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| memory | replayed | 1000 | 525 | 1.91 | 530 | 12 | 0 | 135 | 764 | 21.4 |
-| piece files | live | 60 000 | 75 245 | 0.80 | 75 249 | 682 | 0 | 137 | 764 | 21.4 |
+| memory | replayed | 1000 | 536 | 1.86 | 542 | 12 | 0 | 135 | 764 | 21.4 |
+| piece files | live | 60 000 | 78 200 | 0.77 | 78 204 | 682 | 0 | 137 | 764 | 21.4 |
 
-`just bench-wideband` on gpd-omarchy, load average 6.80 before, 4.78 after.
+`just bench-wideband` on gpd-omarchy, load average 6.84 before, 4.70 after.

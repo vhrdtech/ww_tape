@@ -12,6 +12,7 @@ benchmarks, golden files and book pages.
 - `OpenOptions` gains `check_payloads`: a struct literal adds it or `..OpenOptions::default()` (REPO-1).
 - `EncodedPayloads::from_parts` takes a `PayloadCodec` first; pass `PayloadCodec::Auto` for the bytes as before (CODEC-3).
 - `ww_tape_example` is `example_drive`; the cases are `example_rf`, `example_ethernet`, `example_wideband`, shared parts `example_capture` (EX-5).
+- `RamCapture` gains `triage_threads`: a struct literal adds it or `..RamCapture::full()` (EX-8).
 - `window::run`, `RamCapture::run` and `RfCapture::run` take their kept stores and source by value (EX-5).
 - The RF recording is `example_rf::{record, record_on, write_file}`; `cargo run -p example_rf` runs the two chains (EX-5).
 

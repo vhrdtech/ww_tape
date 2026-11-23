@@ -105,9 +105,11 @@ its pace. "Window s" is how many seconds of the band half the machine's memory h
 
 --8<-- "docs/plots/bench_wideband_triage.txt"
 
-The triage reads only summary nodes, so it gets through the band many times faster than the band arrives. "Kept %" is
-the share of the capture's bytes that reaches the disk, and "To disk MB per s" what the disk writes per second of the
-band.
+The triage reads only summary nodes, so it gets through the band many times faster than the band arrives. It stays
+on one thread: reading the channels' summaries on a rayon pool raised its speed but slowed the capture.
+
+"Kept %" is the share of the capture's bytes that reaches the disk, and "To disk MB per s" what the disk writes per
+second of the band.
 
 ## The overview from the summaries
 
