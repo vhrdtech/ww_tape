@@ -169,6 +169,13 @@ const GOLDEN_SUMMARY: &str = include_str!("../../ww_tape_summary/golden/v1-summa
 const GOLDEN_TIMES: &str = include_str!("../../ww_tape/golden/v1-times.hex");
 const GOLDEN_CRC_ONLY: &str = include_str!("../../ww_tape/golden/v1-level-crc-only.hex");
 const GOLDEN_NONE: &str = include_str!("../../ww_tape/golden/v1-level-none.hex");
+/// The golden grids by their count of fixed axes.
+const GOLDEN_GRIDS: [(u32, &str); 4] = [
+    (1, include_str!("../../ww_tape/golden/v1-grid-1.hex")),
+    (2, include_str!("../../ww_tape/golden/v1-grid-2.hex")),
+    (5, include_str!("../../ww_tape/golden/v1-grid-5.hex")),
+    (31, include_str!("../../ww_tape/golden/v1-grid-31.hex")),
+];
 
 /// Each block of a golden file as a seed of `target`.
 fn golden_blocks(target: &'static str, file: &str, text: &str) -> Vec<Seed> {
@@ -230,6 +237,49 @@ fn golden_series() -> Vec<Seed> {
                 format!("golden-v1-series-{name}-{n:02}"),
                 r.item.to_vec(),
             ));
+        }
+    }
+    out
+}
+
+/// The golden grids: each piece as a `tape-reader` input, its grid definition as a `tape-grid` input and its chunks
+/// (tile coordinates after the scale) as `tape-chunk` inputs.
+fn golden_grids() -> Vec<Seed> {
+    let mut out = vec![];
+    for (n, text) in GOLDEN_GRIDS {
+        let blocks = golden(text);
+        out.push(seed(
+            "tape-reader",
+            format!("golden-v1-grid-{n}"),
+            blocks.concat(),
+        ));
+        for (i, b) in blocks.iter().enumerate() {
+            let Ok(block) = Block::read(b) else { continue };
+            if block.chunk().is_some() {
+                out.push(seed(
+                    "tape-chunk",
+                    format!("golden-v1-grid-{n}-{i:02}"),
+                    b.clone(),
+                ));
+                continue;
+            }
+            let mut plain = Vec::new();
+            let Ok(decoded) = block.decode(&mut plain) else {
+                continue;
+            };
+            for r in decoded.records().flatten() {
+                if let Ok(Describe::Track(t)) = Describe::from_ww_bytes(r.item)
+                    && let TrackKind::Series(g) = &t.kind
+                {
+                    let mut buf = vec![0u8; SEED_LEN_MAX];
+                    let def = g.to_ww_bytes(&mut buf).expect("a grid fits a seed");
+                    out.push(seed(
+                        "tape-grid",
+                        format!("golden-v1-grid-{n}-def"),
+                        def.to_vec(),
+                    ));
+                }
+            }
         }
     }
     out
@@ -857,6 +907,7 @@ pub fn all() -> Vec<Seed> {
     out.extend(lz4_fixes());
     out.extend(golden_series());
     out.extend(golden_flags());
+    out.extend(golden_grids());
     out.extend(encoding_seeds());
     out.extend(golden_blocks("tape-summary", "v1-summary", GOLDEN_SUMMARY));
     out.extend(golden_blocks("tape-times", "v1-times", GOLDEN_TIMES));

@@ -13,6 +13,7 @@
 mod chunk;
 mod file;
 mod flags;
+mod grid;
 mod index;
 mod payloads;
 mod records;
@@ -25,6 +26,7 @@ mod times;
 pub use chunk::chunk;
 pub use file::file;
 pub use flags::flags;
+pub use grid::grid;
 pub use index::index;
 pub use payloads::payloads;
 pub use records::records;

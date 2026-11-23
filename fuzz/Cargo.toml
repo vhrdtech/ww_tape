@@ -144,6 +144,20 @@ doc = false
 bench = false
 
 [[bin]]
+name = "tape-grid"
+path = "src/tape_grid.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tape-grid-hostile"
+path = "src/tape_grid_hostile.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "tape-summary-hostile"
 path = "src/tape_summary_hostile.rs"
 test = false
