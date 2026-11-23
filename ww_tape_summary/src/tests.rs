@@ -346,6 +346,8 @@ fn series_blocks<T: Scalar>(
         first_item: ItemNum::new(first_item),
         grid: SeriesGrid::start(first_item, 1000, Magnitude::ONE),
         period: Ratio64::new(62_500, 3).unwrap(),
+        tile: ww_tape::TileCoords::NONE,
+        tile_cells: 1,
     };
     let mut s = SeriesSummaries::<T>::new(start, spec).unwrap();
     let stride = shape.lanes().unwrap() as usize;
@@ -731,6 +733,8 @@ fn series_refuses_partial_frames() {
         first_item: ItemNum::new(0),
         grid: SeriesGrid::start(0, 0, Magnitude::ONE),
         period: Ratio64::ONE,
+        tile: ww_tape::TileCoords::NONE,
+        tile_cells: 1,
     };
     let mut s =
         SeriesSummaries::<i16>::new(start, spec(4, SeriesStats::all(ed(Element::I16)), None))
@@ -751,6 +755,8 @@ fn series_refuses_bad_specs() {
         first_item: ItemNum::new(0),
         grid: SeriesGrid::start(0, 0, Magnitude::ONE),
         period: Ratio64::ONE,
+        tile: ww_tape::TileCoords::NONE,
+        tile_cells: 1,
     };
     let s = |shape, spec| SeriesSummaries::<i16>::new(start(shape), spec).err();
     let all = SeriesStats::all(ed(Element::ComplexI16));
@@ -905,6 +911,8 @@ fn series_head_caps() {
         first_item: ItemNum::new(0),
         grid: SeriesGrid::start(0, 0, Magnitude::pow10(-3)),
         period: Ratio64::int(1000).unwrap(),
+        tile: ww_tape::TileCoords::NONE,
+        tile_cells: 1,
     };
     let mut s =
         SeriesSummaries::<i16>::new(start, spec(4, SeriesStats::all(ed(Element::I16)), None))
@@ -1005,6 +1013,8 @@ fn summaries_fill_alignment_gaps() {
             first_item: ItemNum::new(0),
             grid: SeriesGrid::start(0, 0, Magnitude::pow10(-3)),
             period: Ratio64::int(1000).unwrap(),
+            tile: ww_tape::TileCoords::NONE,
+            tile_cells: 1,
         };
         let mut s =
             SeriesSummaries::<i16>::new(start, spec(10, SeriesStats::all(ed(Element::I16)), None))
@@ -1128,6 +1138,8 @@ fn summary_golden() {
             first_item: ItemNum::new(30),
             grid: SeriesGrid::start(30, -100, Magnitude::pow10(-3)),
             period: Ratio64::new(62_500, 3).unwrap(),
+            tile: ww_tape::TileCoords::NONE,
+            tile_cells: 1,
         };
         let mut s =
             SeriesSummaries::<i16>::new(start, spec(4, SeriesStats::all(shape.element), None))
@@ -1478,6 +1490,8 @@ fn series_prefix_changes_match_naive_model_in_the_unit() {
             first_item: ItemNum::new(first_item),
             grid: first,
             period: Ratio64::new(62_500, 3).unwrap(),
+            tile: ww_tape::TileCoords::NONE,
+            tile_cells: 1,
         };
         let mut s =
             SeriesSummaries::<i16>::new(start, spec(base_shift, SeriesStats::all(element), None))
@@ -1519,6 +1533,8 @@ fn series_scale_changes_refused() {
         first_item: ItemNum::new(0),
         grid: first,
         period: Ratio64::ONE,
+        tile: ww_tape::TileCoords::NONE,
+        tile_cells: 1,
     };
     let sp = spec(4, SeriesStats::all(ed(Element::I64)), None);
     let first = SeriesGrid::start(0, 0, Magnitude::ONE);
@@ -1574,6 +1590,8 @@ fn series_block_scale_is_checked() {
             first_item: ItemNum::new(0),
             grid: first,
             period: Ratio64::ONE,
+            tile: ww_tape::TileCoords::NONE,
+            tile_cells: 1,
         },
         spec(4, SeriesStats::all(shape.element), None),
     )
@@ -1632,6 +1650,8 @@ fn series_cut_into_pieces_keeps_node_ticks() {
             first_item: ItemNum::new(from as u64),
             grid: segment,
             period,
+            tile: ww_tape::TileCoords::NONE,
+            tile_cells: 1,
         };
         let mut s =
             SeriesSummaries::<i16>::new(start, spec(4, SeriesStats::all(ed(Element::I16)), None))
@@ -1701,6 +1721,8 @@ fn start_of(element: ElementDesc, channels: u32) -> SeriesStart {
         first_item: ItemNum::new(0),
         grid: SeriesGrid::start(0, 0, Magnitude::pow10(-3)),
         period: Ratio64::int(1000).unwrap(),
+        tile: ww_tape::TileCoords::NONE,
+        tile_cells: 1,
     }
 }
 

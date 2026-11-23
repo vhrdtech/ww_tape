@@ -9,13 +9,23 @@ use shrink_wrap::prelude::DeserializeShrinkWrap;
 use super::{ByteSource, R, ReadError, TapeReader};
 use crate::index::IndexEntry;
 use crate::state::{ItemHash, Slot};
-use crate::{BlockKind, Describe, TileBox, TileCoords, TileLayout, TrackFacts, TrackId};
+use crate::summary::SummaryHead;
+use crate::{
+    BlockError, BlockKind, Describe, TileBox, TileCoords, TileLayout, TrackFacts, TrackId,
+};
 
-/// A chunk a box query found: its index entry and its tile's coordinates.
+/// What a box query finds: chunks, or summary blocks of a level.
+#[derive(Copy, Clone)]
+enum Of {
+    Chunks,
+    Summaries(u8),
+}
+
+/// A chunk or summary block a box query found: its index entry and its tile's coordinates.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct GridTile {
     pub entry: IndexEntry,
-    /// The tile the chunk holds; none for a series.
+    /// The tile the chunk or summary block holds; none for a series.
     pub tile: TileCoords,
 }
 
@@ -34,12 +44,49 @@ impl<S: ByteSource> TapeReader<S> {
         time: Range<i64>,
         tiles: &TileBox,
     ) -> R<Vec<GridTile>, S> {
+        self.tiles_of(i, track_id, time, tiles, Of::Chunks)
+    }
+
+    /// The summary blocks of `level` of grid track `track_id` in piece `i` whose items meet the ticks `time` and
+    /// whose tile lies in `tiles`, in file order: the blocks of each tile's time pyramid ([summary](
+    /// crate::summary#tiles)) a region's timeline merges. Found as [Self::grid_tiles] finds chunks: by the entries'
+    /// tile numbers, reading the head only of a block whose entry has none; a series' blocks by their time alone.
+    ///
+    /// A found block's [GridTile::tile] comes from its index entry, unread: a caller reading the block checks it
+    /// against the block's head ([SummaryHead::tile](crate::summary::SummaryHead::tile)) before trusting either, as
+    /// `ww_tape_summary::region_timeline` does.
+    pub fn grid_summaries(
+        &self,
+        i: usize,
+        track_id: TrackId,
+        time: Range<i64>,
+        tiles: &TileBox,
+        level: u8,
+    ) -> R<Vec<GridTile>, S> {
+        self.tiles_of(i, track_id, time, tiles, Of::Summaries(level))
+    }
+
+    fn tiles_of(
+        &self,
+        i: usize,
+        track_id: TrackId,
+        time: Range<i64>,
+        tiles: &TileBox,
+        of: Of,
+    ) -> R<Vec<GridTile>, S> {
         let mut out = Vec::new();
         if time.is_empty() {
             return Ok(out);
         }
+        let series_tree = crate::summary::Tree::Series.to_u8();
         let meets = |e: &IndexEntry| {
-            e.kind == BlockKind::Series && e.first_tick < time.end && time.start <= e.last_tick
+            let kind = match of {
+                Of::Chunks => e.kind == BlockKind::Series,
+                Of::Summaries(level) => {
+                    e.kind == BlockKind::Summary && e.tree == series_tree && e.level == level
+                }
+            };
+            kind && e.first_tick < time.end && time.start <= e.last_tick
         };
         let layout = tiles.layout();
         let mut layouts = BTreeMap::new();
@@ -64,8 +111,11 @@ impl<S: ByteSource> TapeReader<S> {
             let tile = match entry.tile.and_then(|n| layout.unpack(n)) {
                 Some(c) => tiles.holds_coords(&c).then_some(c),
                 None => {
-                    let head = self.read_chunk_head(i, &entry, &mut buf)?;
-                    tiles.holds_coords(&head.tile).then_some(head.tile)
+                    let tile = match of {
+                        Of::Chunks => self.read_chunk_head(i, &entry, &mut buf)?.tile,
+                        Of::Summaries(_) => self.read_summary_tile(i, &entry, &mut buf)?,
+                    };
+                    tiles.holds_coords(&tile).then_some(tile)
                 }
             };
             if let Some(tile) = tile {
@@ -73,6 +123,22 @@ impl<S: ByteSource> TapeReader<S> {
             }
         }
         Ok(out)
+    }
+
+    /// The tile of the summary block of `entry` in piece `i`, read whole into `buf`; a block other than a summary
+    /// is [ReadError::Block].
+    fn read_summary_tile(
+        &self,
+        i: usize,
+        entry: &IndexEntry,
+        buf: &mut Vec<u8>,
+    ) -> R<TileCoords, S> {
+        let block = self.read_block(i, entry, buf)?;
+        let (head, _, _) = SummaryHead::read(block.bytes()).map_err(|e| ReadError::Block {
+            offset: entry.offset,
+            error: BlockError::Summary(e),
+        })?;
+        Ok(head.tile)
     }
 
     /// The tile layout of the definition of `entry`'s track in force at it, None when none reads or it isn't track

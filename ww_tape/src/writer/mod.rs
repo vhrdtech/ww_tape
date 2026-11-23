@@ -103,6 +103,7 @@ fn caller_flags(kind: BlockKind) -> u16 {
     match kind {
         BlockKind::Records => crate::FLAG_BODY_CODED,
         BlockKind::Events => crate::FLAG_RELATION_BREAK,
+        BlockKind::Summary => crate::FLAG_TILE,
         _ => 0,
     }
 }
@@ -1311,7 +1312,14 @@ impl<S: TapeSink> TapeWriter<S> {
         let flags = u16::from_le_bytes([header[6], header[7]]);
         let repeat = kind == BlockKind::Records && flags & crate::FLAG_REPEAT != 0;
         let counted = !repeat && !crate::index::is_structural(kind);
-        let tile = chunk.as_ref().and_then(|c| self.relations.tile(c));
+        let tile = match &chunk {
+            Some(c) => self.relations.tile(c),
+            None if kind == BlockKind::Summary => crate::Block::read_trusted(block)
+                .ok()
+                .and_then(|b| b.summary_head())
+                .and_then(|h| self.relations.summary_tile(&h)),
+            None => None,
+        };
         let extras = crate::index::ChunkExtras { unit, range, tile };
         let again = self.index(block, crc, counted, extras);
         // a counted block of data goes into its tracks' hashes once: written again with the same bytes it adds

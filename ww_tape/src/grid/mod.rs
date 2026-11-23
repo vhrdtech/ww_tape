@@ -198,8 +198,9 @@ pub(crate) fn check_axes<'a, A: AxisParts + 'a>(
     TileLayout::new(extents.get(..n).unwrap_or(&[]))
 }
 
-/// The tile coordinates of a chunk: one per fixed axis of its grid, none for a series.
-#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+/// The tile coordinates of a chunk: one per fixed axis of its grid, none for a series. Ordered by their count, then
+/// row-major.
+#[derive(Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TileCoords {
     len: u8,
     coords: [u32; GRID_FIXED_AXES_MAX],

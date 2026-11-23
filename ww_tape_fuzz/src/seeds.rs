@@ -166,6 +166,7 @@ const GOLDEN_PAYLOADS: &str = include_str!("../../ww_tape/golden/v1-payloads.hex
 const GOLDEN_SAMPLES: &str = include_str!("../../ww_tape/golden/v1-samples.hex");
 const GOLDEN_SERIES: &str = include_str!("../../ww_tape/golden/v1-series.hex");
 const GOLDEN_SUMMARY: &str = include_str!("../../ww_tape_summary/golden/v1-summary.hex");
+const GOLDEN_GRID_SUMMARY: &str = include_str!("../../ww_tape_summary/golden/v1-grid-summary.hex");
 const GOLDEN_TIMES: &str = include_str!("../../ww_tape/golden/v1-times.hex");
 const GOLDEN_CRC_ONLY: &str = include_str!("../../ww_tape/golden/v1-level-crc-only.hex");
 const GOLDEN_NONE: &str = include_str!("../../ww_tape/golden/v1-level-none.hex");
@@ -831,6 +832,38 @@ fn stream(target: &'static str, mut x: u64) -> Vec<Seed> {
     out
 }
 
+/// Grid files with tile summaries a region's timeline merges, as `tape-grid` inputs: the first
+/// [GRID_FILE_SEEDS] hostile grid files of a stream that reach merged nodes.
+fn grid_files() -> Vec<Seed> {
+    let mut x = 0x9e37_79b9_7f4a_7c15_u64;
+    let mut out = vec![];
+    for _ in 0..4096 {
+        let input: Vec<u8> = (0..STREAM_INPUT_LEN)
+            .map(|_| {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                x as u8
+            })
+            .collect();
+        let file = crate::hostile::grid(&input);
+        if crate::targets::summary_reach(&file).nodes > 0 {
+            out.push(seed(
+                "tape-grid",
+                format!("grid-file-{:02}", out.len()),
+                file,
+            ));
+            if out.len() == GRID_FILE_SEEDS {
+                break;
+            }
+        }
+    }
+    out
+}
+
+/// Grid files among the `tape-grid` seeds.
+const GRID_FILE_SEEDS: usize = 8;
+
 /// Inputs of `tape-stores`: each mode with a run of writes, a cut, a crash, a close and a removal in turn; then a
 /// stream.
 fn stores_seeds() -> Vec<Seed> {
@@ -910,8 +943,14 @@ pub fn all() -> Vec<Seed> {
     out.extend(golden_grids());
     out.extend(encoding_seeds());
     out.extend(golden_blocks("tape-summary", "v1-summary", GOLDEN_SUMMARY));
+    out.extend(golden_blocks(
+        "tape-summary",
+        "v1-grid-summary",
+        GOLDEN_GRID_SUMMARY,
+    ));
     out.extend(golden_blocks("tape-times", "v1-times", GOLDEN_TIMES));
     out.extend(times_fixes());
+    out.extend(grid_files());
     for (i, (name, _)) in crate::targets::ALL.iter().enumerate() {
         if name.ends_with("-hostile") {
             out.extend(stream(name, 0x5eed_0000_0000_0001 + i as u64 * 0x9e37_79b9));

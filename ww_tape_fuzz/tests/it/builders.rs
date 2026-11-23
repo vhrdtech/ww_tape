@@ -94,3 +94,43 @@ fn blocks_stay_small() {
         }
     }
 }
+
+/// Of 1000 hostile summary blocks, some name a grid tile and read whole, and some carry FLAG_TILE and fail: the tile
+/// head's reader runs on good and on hostile bytes.
+#[test]
+fn summaries_reach_the_tile_head() {
+    let (mut tiles, mut refused) = (0, 0);
+    for input in inputs(1000) {
+        let bytes = hostile::summary(&input);
+        let flagged = bytes
+            .get(6..8)
+            .is_some_and(|f| u16::from_le_bytes([f[0], f[1]]) & ww_tape::FLAG_TILE != 0);
+        match Block::read(&bytes).ok().and_then(|b| b.summary_head()) {
+            Some(h) if !h.tile.is_empty() => tiles += 1,
+            None if flagged => refused += 1,
+            _ => {}
+        }
+    }
+    assert!(tiles > 50, "{tiles} of 1000 tile heads read whole");
+    assert!(refused > 5, "{refused} of 1000 tile heads refused");
+}
+
+/// Of the hostile grid files whose grid definition decodes, some hold tile summary blocks the box of the whole grid
+/// finds and merges into a region's timeline, by their entries' tile numbers and by their heads.
+#[test]
+fn grid_files_reach_the_tile_summaries() {
+    let (mut defined, mut found, mut by_number, mut by_head, mut merged) = (0, 0, 0, 0, 0);
+    for input in inputs(2000) {
+        let r = ww_tape_fuzz::targets::summary_reach(&hostile::grid(&input));
+        defined += usize::from(r.defined);
+        found += usize::from(r.found > 0);
+        by_number += usize::from(r.found > r.scanned);
+        by_head += usize::from(r.scanned > 0);
+        merged += usize::from(r.nodes > 0);
+    }
+    assert!(defined > 200, "{defined} of 2000 grids decode");
+    assert!(found * 8 > defined, "{found} of {defined} find summaries");
+    assert!(merged * 8 > defined, "{merged} of {defined} merge nodes");
+    assert!(by_number > 10, "{by_number} found by tile number");
+    assert!(by_head > 10, "{by_head} found by head");
+}

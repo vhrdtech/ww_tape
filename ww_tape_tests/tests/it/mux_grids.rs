@@ -53,7 +53,7 @@ fn axes(extents: &[(u32, u32)]) -> &'static [FixedAxis<'static>] {
     Box::leak(axes.into_boxed_slice())
 }
 
-/// A grid of i32 on [CHANNELS] channels over `axes`, summarised when it has no fixed axes.
+/// A grid of i32 on [CHANNELS] channels over `axes`, each tile summarised.
 fn grid_track(clock: ClockNum, axes: &'static [FixedAxis<'static>]) -> TrackSpec<'static> {
     let mut def = GridDef::of::<i32>(CHANNELS, period());
     def.axes = RefVec::Slice { slice: axes };

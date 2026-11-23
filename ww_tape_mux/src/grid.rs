@@ -73,22 +73,30 @@ enum Leaves<S: Scalar> {
 }
 
 impl<S: Scalar + Sample> Leaves<S> {
+    /// The leaves of a tile of `cells` cells per time step (1 for a series) from time step `first_item` on.
     fn new(
         shape: SampleShape,
         grid: SeriesGrid,
         first_item: ItemNum,
         spec: SeriesSummarySpec,
+        cells: u64,
     ) -> Result<Self, BuildError> {
         let scale = grid.scale;
         if shape.element.zero.is_none() {
-            return Ok(Self::Same(SeriesLeaves::new(
-                shape, scale, first_item, spec,
+            return Ok(Self::Same(SeriesLeaves::of_tile(
+                shape, scale, first_item, spec, cells,
             )?));
         }
         Ok(match shape.element.summary_element().bits {
-            16 => Self::I16(SeriesLeaves::new(shape, scale, first_item, spec)?),
-            32 => Self::I32(SeriesLeaves::new(shape, scale, first_item, spec)?),
-            _ => Self::I64(SeriesLeaves::new(shape, scale, first_item, spec)?),
+            16 => Self::I16(SeriesLeaves::of_tile(
+                shape, scale, first_item, spec, cells,
+            )?),
+            32 => Self::I32(SeriesLeaves::of_tile(
+                shape, scale, first_item, spec, cells,
+            )?),
+            _ => Self::I64(SeriesLeaves::of_tile(
+                shape, scale, first_item, spec, cells,
+            )?),
         })
     }
 
@@ -134,6 +142,8 @@ impl<S: Scalar + Sample> Leaves<S> {
 /// The open chunk of one tile of a grid: its cells of the time steps so far, in tile order.
 struct TileChunk<S: Scalar> {
     coords: TileCoords,
+    /// Cells of one time step of the tile, fewer at an axis' far edge
+    cells: u64,
     samples: Vec<S>,
     leaves: Option<Leaves<S>>,
 }
@@ -393,6 +403,8 @@ impl<S: Scalar + Sample> GridChunks<S> {
                 period: self.period,
                 spec,
                 leaves: leaves.complete().map_err(EncodeError::Summary)?,
+                tile: tile.coords,
+                tile_cells: tile.cells,
             }),
             _ => None,
         };
@@ -562,19 +574,19 @@ pub(crate) fn read_summary(def: &TrackDef<'_>, chunk: &Chunk<'_>) -> Option<Chun
     let (Some(series), Some(shape)) = (def.series(), def.series_shape()) else {
         return None;
     };
-    // TODO(FMT-15): summaries of a grid with fixed axes, per tile
-    let spec = series
-        .summaries
-        .filter(|_| series.media.is_none() && series.axes.is_empty())?;
+    let spec = series.summaries.filter(|_| series.media.is_none())?;
     let head = chunk.head();
     let grid = head.grid?;
+    let cells = series.tile_layout().ok()?.tile_cells(&head.tile)?;
     let column = chunk.find(ColumnKind::Samples, 0)?;
     // the count from the head is bounded by the column's length before anything is decoded
-    let samples = Samples::of(&column, shape, usize::try_from(head.count).ok()?).ok()?;
+    let frames = u64::from(head.count).checked_mul(cells)?;
+    let samples = Samples::of(&column, shape, usize::try_from(frames).ok()?).ok()?;
     let read = Read {
         shape,
         grid,
         first_item: head.first_item,
+        cells,
         spec,
         samples: &samples,
         runs: chunk.flag_runs().ok()?,
@@ -597,6 +609,8 @@ pub(crate) fn read_summary(def: &TrackDef<'_>, chunk: &Chunk<'_>) -> Option<Chun
         period: series.period,
         spec,
         leaves,
+        tile: head.tile,
+        tile_cells: cells,
     })
 }
 
@@ -605,6 +619,8 @@ struct Read<'a, 'b> {
     shape: SampleShape,
     grid: SeriesGrid,
     first_item: ItemNum,
+    /// Cells of one time step of the chunk's tile
+    cells: u64,
     spec: SeriesSummarySpec,
     samples: &'a Samples<'b>,
     runs: FlagRuns<'b>,
@@ -616,8 +632,14 @@ impl Read<'_, '_> {
         let n = self.samples.count().checked_mul(self.samples.lanes())?;
         let mut values = vec![S::default(); n];
         self.samples.decode(0, &mut values).ok()?;
-        let mut leaves =
-            Leaves::<S>::new(self.shape, self.grid, self.first_item, self.spec).ok()?;
+        let mut leaves = Leaves::<S>::new(
+            self.shape,
+            self.grid,
+            self.first_item,
+            self.spec,
+            self.cells,
+        )
+        .ok()?;
         leaves.push_runs(&values, &self.runs).ok()?;
         leaves.complete().ok()
     }
@@ -678,21 +700,20 @@ fn grid_chunks<S: Scalar + Sample>(
     let Some(chunk_steps) = chunk_steps::<S>(&head, shape, stride, tile_cells, options)? else {
         return Ok(None);
     };
-    // TODO(FMT-15): summaries of a grid with fixed axes, per tile
-    let summaries = series
-        .summaries
-        .filter(|_| options.summaries && layout.axes() == 0);
+    let summaries = series.summaries.filter(|_| options.summaries);
     let mut tiles = Vec::with_capacity(coords.len());
     for coords in coords {
+        let cells = layout.tile_cells(&coords).ok_or(CallError::TileBox)?;
         let leaves = match summaries {
             Some(spec) => Some(
-                Leaves::new(shape, grid, options.first_item, spec)
+                Leaves::new(shape, grid, options.first_item, spec, cells)
                     .map_err(|e| CallError::Encode(EncodeError::Summary(e)))?,
             ),
             None => None,
         };
         tiles.push(TileChunk {
             coords,
+            cells,
             samples: Vec::new(),
             leaves,
         });

@@ -830,6 +830,8 @@ fn summarized(w: &mut TapeWriter<ww_tape_fs::FileSink>, from: u64, to: u64) -> u
         first_item: ItemNum::new(from),
         grid,
         period: period(),
+        tile: ww_tape::TileCoords::NONE,
+        tile_cells: 1,
     };
     let spec = SeriesSummarySpec {
         base_shift: 4,

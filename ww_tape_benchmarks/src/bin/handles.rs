@@ -208,6 +208,8 @@ impl Builder {
                     first_item: ItemNum::new(first),
                     grid: def.first_grid(0),
                     period: def.period,
+                    tile: ww_tape::TileCoords::NONE,
+                    tile_cells: 1,
                 };
                 Self::Iq(Box::new(
                     SeriesSummaries::new(start, summaries()).map_err(err)?,

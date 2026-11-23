@@ -203,6 +203,7 @@ impl EventTree {
                 first_tick: first.first_tick,
                 last_tick: last.last_tick,
                 latest_end: out.nodes.iter().map(|n| n.latest_end).max().ok_or(empty)?,
+                tile: ww_tape::TileCoords::NONE,
             };
             let mut buf = vec![0u8; summary_len(&head)?];
             let len = write_event_summary(

@@ -22,6 +22,7 @@ fn node_items_at_the_top_of_the_item_numbers() {
         first_tick: 0,
         last_tick: 0,
         latest_end: 0,
+        tile: crate::TileCoords::NONE,
     };
     assert_eq!(h.node_count(), 1);
     assert_eq!(h.node_items(0), Some((3 << 62, (1 << 62) - 1)));
@@ -64,6 +65,7 @@ fn a_block_checks_and_lists_without_its_nodes() {
         first_tick: 100,
         last_tick: 900,
         latest_end: 900,
+        tile: crate::TileCoords::NONE,
     };
     let len = summary_len(&h).unwrap();
     let mut b = vec![0u8; len];
@@ -113,6 +115,7 @@ fn head_read_checks_the_header() {
         first_tick: 0,
         last_tick: 9,
         latest_end: 9,
+        tile: crate::TileCoords::NONE,
     };
     let mut b = vec![0u8; summary_len(&h).unwrap()];
     SummaryWriter::new(&mut b, id(1), &h).unwrap().finish();
@@ -212,6 +215,7 @@ fn series_summary_block(first: u64, count: u64) -> Vec<u8> {
         first_tick: first as i64 * 1000,
         last_tick: (first + count - 1) as i64 * 1000,
         latest_end: (first + count - 1) as i64 * 1000,
+        tile: crate::TileCoords::NONE,
     };
     let mut b = vec![0u8; summary_len(&h).unwrap()];
     let mut w = SummaryWriter::new(&mut b, id(0), &h).unwrap();
@@ -334,4 +338,135 @@ fn a_core_only_tape_lists_verifies_and_skips_summary_blocks() {
     bad[at + 130] ^= 0x80;
     let held = TapeReader::open(&bad[..]).and_then(|r| r.verify(0).map(|v| v.holds));
     assert_ne!(held.ok(), Some(true), "a flipped bit doesn't verify");
+}
+
+/// A tile's series head: [FLAG_TILE] set, the axis count and the coordinates after the scale, the body after them;
+/// read back as written. The same head without its tile writes a series block of none of these bytes.
+#[test]
+fn a_tile_head_round_trips_after_the_scale() {
+    let tile = crate::TileCoords::new(&[7, 3, 2, 5]).unwrap();
+    let series = SummaryHead {
+        track_id: TrackId::new(9),
+        track_number: TrackNum::new(2),
+        tree: Tree::Series,
+        level: 0,
+        node_shift: 4,
+        layout: Layout::Series {
+            element: ElementDesc::of(Element::I16),
+            channels: 1,
+            stats: SeriesStats::all(ElementDesc::of(Element::I16)),
+            scale: Magnitude::pow10(-3),
+        },
+        first_item: ItemNum::new(0),
+        items: 40,
+        first_tick: 0,
+        last_tick: 39,
+        latest_end: 39,
+        tile: crate::TileCoords::NONE,
+    };
+    let h = SummaryHead { tile, ..series };
+    let plain = summary_len(&series).unwrap();
+    let len = summary_len(&h).unwrap();
+    assert_eq!(len, plain + 1 + 4 * 4);
+    let mut b = vec![0u8; len];
+    let mut w = SummaryWriter::new(&mut b, id(3), &h).unwrap();
+    w.body_mut().fill(0x5a);
+    w.finish();
+    assert_eq!(u16::from_le_bytes([b[6], b[7]]), FLAG_TILE);
+    let scale_len = usize::from(u16::from_le_bytes([b[52], b[53]]));
+    let at = SCALE_AT + scale_len;
+    assert_eq!(b[at], 4);
+    assert_eq!(
+        b[at + 1..at + 17],
+        [7, 0, 0, 0, 3, 0, 0, 0, 2, 0, 0, 0, 5, 0, 0, 0]
+    );
+    let (head, body, nodes) = SummaryHead::read(&b).unwrap();
+    assert_eq!(head, h);
+    assert_eq!(nodes, 3);
+    assert!(body.iter().all(|v| *v == 0x5a));
+    assert_eq!(Block::read(&b).unwrap().summary_head(), Some(h));
+    let mut s = vec![0u8; plain];
+    SummaryWriter::new(&mut s, id(3), &series).unwrap().finish();
+    assert_eq!(u16::from_le_bytes([s[6], s[7]]), 0);
+    assert_eq!(
+        SummaryHead::read(&s).unwrap().0.tile,
+        crate::TileCoords::NONE
+    );
+}
+
+/// A tile's head that lies under a good CRC: no axes, more than [GRID_FIXED_AXES_MAX], coordinates past the end, the
+/// flag on a series block (its body read as a tile) or off on a tile's (the tile read as body), a tile in an event
+/// tree.
+#[test]
+fn a_tile_head_that_lies_is_refused() {
+    let tile = crate::TileCoords::new(&[1, 2]).unwrap();
+    let h = SummaryHead {
+        track_id: TrackId::new(9),
+        track_number: TrackNum::new(2),
+        tree: Tree::Series,
+        level: 0,
+        node_shift: 4,
+        layout: Layout::Series {
+            element: ElementDesc::of(Element::I16),
+            channels: 1,
+            stats: SeriesStats::all(ElementDesc::of(Element::I16)),
+            scale: Magnitude::ONE,
+        },
+        first_item: ItemNum::new(0),
+        items: 16,
+        first_tick: 0,
+        last_tick: 15,
+        latest_end: 15,
+        tile,
+    };
+    let mut b = vec![0u8; summary_len(&h).unwrap()];
+    SummaryWriter::new(&mut b, id(3), &h).unwrap().finish();
+    let at = SCALE_AT + usize::from(u16::from_le_bytes([b[52], b[53]]));
+    let resealed = |x: &mut Vec<u8>| {
+        let n = x.len();
+        let crc = crate::CRC.checksum(&x[..n - 4]);
+        x[n - 4..].copy_from_slice(&crc.to_le_bytes());
+    };
+    let read = |f: &dyn Fn(&mut Vec<u8>)| {
+        let mut x = b.clone();
+        f(&mut x);
+        resealed(&mut x);
+        SummaryHead::read(&x).map(|(head, _, _)| head)
+    };
+    assert_eq!(read(&|_| ()), Ok(h));
+    assert_eq!(
+        read(&|x| x[at] = 0),
+        Err(SummaryError::Invalid("a tile of no fixed axes"))
+    );
+    assert!(matches!(read(&|x| x[at] = 32), Err(SummaryError::Bound(_))));
+    assert!(read(&|x| x[at] = 31).is_err(), "coordinates past the end");
+    assert!(read(&|x| x[at] = 1).is_err(), "body one coordinate long");
+    assert!(read(&|x| x[6] = 0).is_err(), "the tile read as body");
+    // a series block marked as a tile reads its body's first bytes as a tile and is short by them
+    let series = SummaryHead {
+        tile: crate::TileCoords::NONE,
+        ..h
+    };
+    let mut s = vec![0u8; summary_len(&series).unwrap()];
+    SummaryWriter::new(&mut s, id(3), &series).unwrap().finish();
+    s[6] = 1 << 5;
+    s[at] = 1;
+    resealed(&mut s);
+    assert!(SummaryHead::read(&s).is_err());
+    // other unknown flag bits are ignored, as on every block
+    let mut x = b.clone();
+    x[7] = 0x80;
+    resealed(&mut x);
+    assert_eq!(SummaryHead::read(&x).map(|r| r.0), Ok(h));
+    let events = SummaryHead {
+        tree: Tree::Events,
+        node_shift: 11,
+        layout: Layout::Events(EventFields::default()),
+        ..h
+    };
+    let mut e = vec![0u8; 4096];
+    assert_eq!(
+        SummaryWriter::new(&mut e, id(3), &events).err(),
+        Some(SummaryError::Invalid("a tile in an event tree"))
+    );
 }
