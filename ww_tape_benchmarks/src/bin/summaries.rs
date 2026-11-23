@@ -127,6 +127,8 @@ fn rate<T: Gen>(args: &Args, shape: SampleShape, batch: &[T], work: Work) -> any
         first_item: ww_tape::ItemNum::new(0),
         grid: SeriesGrid::start(0, 0, Magnitude::ONE),
         period: Ratio64::ONE,
+        tile: ww_tape::TileCoords::NONE,
+        tile_cells: 1,
     };
     let mut best = f64::MAX;
     for _ in 0..args.repeats {

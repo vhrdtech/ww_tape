@@ -20,6 +20,14 @@ pub(crate) fn walk(data: &[u8]) {
     };
     let h = s.head();
     assert_eq!(h.node_count(), s.node_count() as u64);
+    assert!(
+        h.tile.len() <= ww_tape::grid::GRID_FIXED_AXES_MAX,
+        "a tile has at most the fixed axes a grid can"
+    );
+    assert!(
+        h.tile.is_empty() || h.node_count() == 0 || s.series_node(0).is_some(),
+        "only series trees name a tile"
+    );
     for i in 0..s.node_count() {
         let (first, items) = h
             .node_items(i as u64)
@@ -57,6 +65,11 @@ fn check(blocks: &[Vec<u8>], first: u64, end: u64) {
         walk(b);
         let s = Summary::of_block(&Block::read(b).expect("written good")).expect("a summary");
         let h = s.head();
+        assert!(
+            h.tile.is_empty()
+                || Block::read(b).expect("written good").flags & ww_tape::FLAG_TILE != 0,
+            "a tile's block carries FLAG_TILE"
+        );
         assert!(h.first_item.get() >= first, "a child starts in its parent");
         assert!(
             h.first_item.get() + h.items <= end,
@@ -127,7 +140,18 @@ pub fn summary(data: &[u8]) {
         ElementDesc::of(Element::ComplexI16),
         1 + u32::from(data[3] % 3),
     );
-    let lanes = shape.lanes().expect("lanes") as usize;
+    // a grid tile's tree where the input says so: an item is a time step of the tile's cells
+    let (tile, cells) = if data[2] & 4 != 0 {
+        let coords = [u32::from(data[0]), u32::from(data[1]), u32::MAX];
+        let axes = 1 + usize::from(data[2] >> 3) % 3;
+        (
+            ww_tape::TileCoords::new(&coords[..axes]).expect("at most 3 axes"),
+            1 + u64::from(data[2] >> 5),
+        )
+    } else {
+        (ww_tape::TileCoords::NONE, 1)
+    };
+    let lanes = shape.lanes().expect("lanes") as usize * cells as usize;
     let xs: Vec<i16> = body
         .as_chunks::<2>()
         .0
@@ -142,6 +166,8 @@ pub fn summary(data: &[u8]) {
         first_item: ItemNum::new(first),
         grid: SeriesGrid::start(first, -5, Magnitude::pow10(-3)),
         period: Ratio64::new(3, 2).expect("a ratio"),
+        tile,
+        tile_cells: cells,
     };
     let spec = SeriesSummarySpec {
         base_shift: 4 + data[2] % 3,
@@ -165,6 +191,13 @@ pub fn summary(data: &[u8]) {
     }
     s.finish().expect("finishes");
     let blocks = s.take_blocks();
+    for b in &blocks {
+        let h = Block::read(b)
+            .expect("written good")
+            .summary_head()
+            .expect("a summary");
+        assert_eq!(h.tile, tile, "every block names the tree's tile");
+    }
     check(&blocks, first, first + (xs.len() / lanes) as u64);
     // every node of every block merges with every other at their common scale
     let nodes: Vec<_> = blocks

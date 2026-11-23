@@ -1,13 +1,15 @@
 //! ww_tape grids on any bytes: a grid definition decodes without panic, and one that decodes has a tile layout (its
 //! axes were checked on decode); tile layouts of extents from the input are made exactly when their axes hold, and
-//! their tile numbers pack, unpack and test boxes alike by shift and mask and by coordinates.
+//! their tile numbers pack, unpack and test boxes alike by shift and mask and by coordinates. Read as a tape, a grid
+//! track's tile summaries are found and merged into a region's timeline without panic ([summaries]).
 
 use std::ops::Range;
 
 use crate::hostile::Draw;
 use shrink_wrap::prelude::*;
 use ww_tape::grid::{GRID_FIXED_AXES_MAX, TILE_NUMBER_BITS};
-use ww_tape::{GridDef, TileCoords, TileLayout};
+use ww_tape::reader::ByteSource;
+use ww_tape::{GridDef, TapeReader, TileBox, TileCoords, TileLayout, TrackId};
 
 /// Bits of a field of `tiles` tiles, ⌈log2(tiles)⌉, computed apart from the layout.
 fn width(tiles: u32) -> u32 {
@@ -92,8 +94,9 @@ fn laws(l: &TileLayout, extents: &[(u32, u32)], d: &mut Draw<'_>) {
     }
 }
 
-/// `tape-grid`: grid definitions and tile layouts from any bytes; see the module docs.
+/// `tape-grid`: grid definitions and tile layouts from any bytes, and the bytes as a tape; see the module docs.
 pub fn grid(data: &[u8]) {
+    tape(data);
     if let Ok(def) = GridDef::from_ww_bytes(data) {
         let l = def
             .tile_layout()
@@ -126,4 +129,92 @@ pub fn grid(data: &[u8]) {
         }
         Err(_) => assert!(!holds(&extents), "{extents:?}"),
     }
+}
+
+/// The summary blocks of levels 0 and 1 of grid track `id` (layout `l`) in the first piece of `r` that lie in the box
+/// `tiles`: each found tile is one the grid holds and the box meets, by entry tile number or by the block's head where
+/// a scan left none; merged into a region's timeline, nodes in order, each holding a tile, a time step and a sample
+/// per tile.
+pub(crate) fn summaries<S: ByteSource>(
+    r: &TapeReader<S>,
+    id: TrackId,
+    l: &TileLayout,
+    tiles: &TileBox,
+) where
+    S::Error: core::fmt::Debug,
+{
+    for level in [0u8, 1] {
+        if let Ok(found) = r.grid_summaries(0, id, i64::MIN..i64::MAX, tiles, level) {
+            for t in &found {
+                assert!(l.holds(&t.tile), "{:?}", t.tile);
+                assert!(tiles.holds_coords(&t.tile), "{:?}", t.tile);
+            }
+        }
+        if let Ok(nodes) =
+            ww_tape_summary::region_timeline(r, 0, id, i64::MIN..i64::MAX, tiles, level)
+        {
+            for w in nodes.windows(2) {
+                assert!(w[0].node < w[1].node, "nodes in order, once each");
+            }
+            for n in &nodes {
+                assert!(n.tiles >= 1, "a node holds a tile");
+                assert!(n.items >= 1, "a node holds a time step");
+                assert!(n.samples >= u64::from(n.tiles), "a sample a tile at least");
+            }
+        }
+    }
+}
+
+/// `data` read as a tape whose first block defines a grid track: its tile summaries in the box of the whole grid.
+fn tape(data: &[u8]) {
+    let Ok(r) = TapeReader::open(data) else {
+        return;
+    };
+    let first = ww_tape::block_len(data).ok().and_then(|n| data.get(..n));
+    let Some((id, l, extents)) = first.and_then(super::hostile::grid_def) else {
+        return;
+    };
+    let cells: Vec<Range<u32>> = extents.iter().map(|e| 0..*e).collect();
+    if !r.pieces().is_empty()
+        && let Some(whole) = l.tile_box(&cells)
+    {
+        summaries(&r, id, &l, &whole);
+    }
+}
+
+/// How far a hostile grid file reaches into the tile summaries' readers.
+///
+/// Whether its grid definition decodes, the level-0 summary blocks found in the box of the whole grid, those of them
+/// whose entry held no tile number (the head read), and region nodes merged.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SummaryReach {
+    pub defined: bool,
+    pub found: usize,
+    pub scanned: usize,
+    pub nodes: usize,
+}
+
+/// [SummaryReach] of `file`, a grid file [crate::hostile::grid] builds.
+pub fn summary_reach(file: &[u8]) -> SummaryReach {
+    let mut reach = SummaryReach::default();
+    let first = ww_tape::block_len(file).ok().and_then(|n| file.get(..n));
+    let Some((id, l, extents)) = first.and_then(super::hostile::grid_def) else {
+        return reach;
+    };
+    reach.defined = true;
+    let cells: Vec<Range<u32>> = extents.iter().map(|e| 0..*e).collect();
+    let (Ok(r), Some(whole)) = (TapeReader::open(file), l.tile_box(&cells)) else {
+        return reach;
+    };
+    if r.pieces().is_empty() {
+        return reach;
+    }
+    if let Ok(found) = r.grid_summaries(0, id, i64::MIN..i64::MAX, &whole, 0) {
+        reach.found = found.len();
+        reach.scanned = found.iter().filter(|t| t.entry.tile.is_none()).count();
+    }
+    if let Ok(nodes) = ww_tape_summary::region_timeline(&r, 0, id, i64::MIN..i64::MAX, &whole, 0) {
+        reach.nodes = nodes.len();
+    }
+    reach
 }

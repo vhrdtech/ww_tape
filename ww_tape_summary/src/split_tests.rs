@@ -43,6 +43,8 @@ fn series_leaves_and_tree_write_what_the_whole_builder_writes() {
             first_item: ItemNum::new(first),
             grid: SeriesGrid::start(first, 0, Magnitude::ONE),
             period: Ratio64::new(1000, 1).unwrap(),
+            tile: ww_tape::TileCoords::NONE,
+            tile_cells: 1,
         };
         let sizes = chunks(data.len() / 2, 3000, &mut rng);
 
@@ -92,6 +94,8 @@ fn series_tree_refuses_leaves_out_of_order() {
         first_item: ItemNum::new(0),
         grid: SeriesGrid::start(0, 0, Magnitude::ONE),
         period: Ratio64::new(1, 1).unwrap(),
+        tile: ww_tape::TileCoords::NONE,
+        tile_cells: 1,
     };
     let mut leaves =
         SeriesLeaves::<i16>::new(shape, Magnitude::ONE, ItemNum::new(0), spec).unwrap();

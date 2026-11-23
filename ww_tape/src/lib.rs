@@ -20,8 +20,9 @@
 //!   6 u16  flags: bit 0 body coded (FLAG_BODY_CODED, records blocks only), bit 1 state records a writer put or
 //!          copied (FLAG_REPEAT), bit 2 puts that belong with the next block (FLAG_WITH_NEXT), bit 3 on a
 //!          chunk its payload unchecked (FLAG_PAYLOAD_UNCHECKED: segment CRCs 0, the block CRC over the head), bit 4 on an
-//!          events chunk a break in its track's monotone relations (FLAG_RELATION_BREAK); others 0 (a reader
-//!          ignores bits it doesn't know)
+//!          events chunk a break in its track's monotone relations (FLAG_RELATION_BREAK), bit 5 on a summary block
+//!          a grid tile's tree, its tile after the scale (FLAG_TILE: it changes the layout, so a reader
+//!          without it refuses the block); others 0, and a reader ignores them
 //!   8 u32  len: the whole block, header and CRC included
 //!  12 u32  records in the block
 //!  16 u64  seq: the block number in its session, from 0, +1 per block; a gap is lost blocks. Index, close, tail and
@@ -342,6 +343,11 @@ pub const FLAG_PAYLOAD_UNCHECKED: u16 = 1 << 3;
 /// so a reader takes no order across its start. Its index entry carries the mark too
 /// ([IndexEntry::relation_break](crate::index::IndexEntry::relation_break)).
 pub const FLAG_RELATION_BREAK: u16 = 1 << 4;
+/// Header flag on summary blocks: the block belongs to the tree of one tile of a grid, whose coordinates follow its
+/// scale ([summary](crate::summary#tiles)).
+///
+/// Its index entry carries the tile number, as the tile's chunks' entries do.
+pub const FLAG_TILE: u16 = 1 << 5;
 /// Block kind 2, which earlier drafts gave describe blocks: reserved, never written, read as a kind this reader
 /// doesn't know.
 pub const RESERVED_KIND: u8 = 2;

@@ -67,6 +67,8 @@ fn summaries(track: TrackNum, id: TrackId) -> SeriesSummaries<i16> {
         first_item: ItemNum::new(0),
         grid: SeriesGrid::start(0, 0, exact_units::Magnitude::ONE),
         period: period(),
+        tile: ww_tape::TileCoords::NONE,
+        tile_cells: 1,
     };
     let mut out = SeriesSummaries::new(start, s.summaries.unwrap()).unwrap();
     out.set_max_block_bytes(Bytes::new(BLOCK_BYTES));

@@ -268,6 +268,7 @@ fn entries_of_blocks() {
         first_tick: -7,
         last_tick: 29_983,
         latest_end: 29_995,
+        tile: crate::TileCoords::NONE,
     };
     let mut sb = vec![0u8; summary_len(&h).unwrap()];
     let n = SummaryWriter::new(&mut sb, id(3), &h).unwrap().finish();
@@ -606,6 +607,35 @@ fn an_entry_is_checked_the_same_on_every_read() {
         |e| {
             e[15] = ENTRY_TILE | ENTRY_RANGE;
             e[12] = BlockKind::Series.to_u8();
+        },
+        IndexError::BadEntries,
+    );
+}
+
+/// A tile number on a series summary block's entry reads back; on an event tree's summary block it is refused.
+#[test]
+fn summary_entries_carry_tile_numbers() {
+    let tree = |t: crate::summary::Tree| IndexEntry {
+        kind: BlockKind::Summary,
+        tree: t.to_u8(),
+        range: None,
+        tile: Some(7 << 12 | 3 << 6 | 2 << 3 | 5),
+        ..entry(1, 1000)
+    };
+    let head = IndexHead {
+        kind: IndexKind::Checkpoint,
+        self_offset: 4000,
+        prev: None,
+    };
+    let series = [tree(crate::summary::Tree::Series)];
+    let bytes = write(&head, &series);
+    let ix = IndexBlock::read(&Block::read(&bytes).unwrap()).unwrap();
+    assert_eq!(ix.entries().collect::<Vec<_>>(), series);
+    refused_both_ways(
+        |e| {
+            e[15] = ENTRY_TILE;
+            e[12] = BlockKind::Summary.to_u8();
+            e[14] = crate::summary::Tree::Events.to_u8();
         },
         IndexError::BadEntries,
     );

@@ -11,6 +11,10 @@ benchmarks, golden files and book pages.
 - `SeriesHandle` and `SeriesOptions` are `GridHandle` and `GridOptions`; `TapeMux::series` is `TapeMux::grid` (FMT-15).
 - `GridOptions::chunk_samples` is `chunk_steps`, `CHUNK_SAMPLES_DEFAULT` is `CHUNK_STEPS_DEFAULT` (FMT-15).
 - `ItemError::PartialFrame { stride }` is `PartialStep { scalars }`: a push takes whole time steps (FMT-15).
+- `SummaryHead` gains `tile`, a grid tile's coordinates: a struct literal adds `tile: TileCoords::NONE` (FMT-15).
+- `SeriesStart` gains `tile` and `tile_cells`: a series' literal adds `tile: TileCoords::NONE, tile_cells: 1` (FMT-15).
+- A tile's summary block sets `FLAG_TILE`, its tile after the scale; 0.7 readers refuse it: upgrade readers (FMT-15).
+- A tile's summary index entry carries its tile number; 0.7 readers refuse that index block (FMT-15).
 - `PieceStore` gains `first_from`, `remove` and `drop_front`: a store of its own implements them (WRITE-16).
 - `ResumeError` gains `Gap` and `HeadLost { seq: Option<u64> }`, `RemovedRefusal` gains `NotAtHand` and `InTape`, `FsError` gains `Whole` (WRITE-16).
 
@@ -19,6 +23,12 @@ benchmarks, golden files and book pages.
 - `GridHandle` splits a grid's time steps into the open chunk of each tile; `TapeMux::grid_box` writes one box (FMT-15).
 - A tile's time step over a chunk's bytes or a block is refused with `CallError::StepTooLarge` (FMT-15).
 - `TileLayout::cell_range` and `tile_cells` give a tile's cells, fewer at an axis' far edge (FMT-15).
+- A grid tile's summary tree: an item is a time step, a node the tile's cells over its steps (FMT-15).
+- `SeriesLeaves::of_tile` computes a tile's leaves, a time step of the tile's cells per item (FMT-15).
+- `TapeReader::grid_summaries` finds the summary blocks of a level of the tiles in a box (FMT-15).
+- `region_timeline` merges the tiles' nodes in a box into a region's timeline, at tile resolution (FMT-15).
+- The writer refuses a summary block naming a tile its grid doesn't hold, or none on a grid (FMT-15).
+- `GridHandle` builds each tile's summaries; a resumed mux rebuilds the tile trees of the torn piece (FMT-15).
 - `ww_tape_fs::check` verifies and range-hashes many pieces at once; cargo feature `parallel` spreads them over rayon (FS-2).
 - A chain resumes from its lowest piece, over holes its closes name as removed; others refuse with `ResumeError::Gap` (WRITE-16).
 - `PieceChain::remove` names, syncs, then deletes removed pieces; a crash between leaves a chain that resumes (WRITE-16).

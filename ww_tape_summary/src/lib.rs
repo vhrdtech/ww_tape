@@ -80,6 +80,11 @@ mod levels;
 #[cfg(feature = "std")]
 pub use levels::BuildError;
 
+#[cfg(feature = "alloc")]
+mod region;
+#[cfg(feature = "alloc")]
+pub use region::{RegionError, RegionNode, region_timeline};
+
 #[cfg(feature = "std")]
 mod tree;
 #[cfg(feature = "std")]
@@ -91,6 +96,8 @@ mod kernel_tests;
 mod split_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(all(test, feature = "std"))]
+mod tile_tests;
 
 /// A block's byte cap as a `usize`.
 #[cfg(feature = "std")]

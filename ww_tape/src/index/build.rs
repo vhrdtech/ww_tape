@@ -660,6 +660,18 @@ impl ChunkExtras {
             ..e
         })
     }
+
+    /// The entries of the good block `block` at `offset`, not a chunk: a summary block's carries the tile number of
+    /// these.
+    pub(crate) fn summary_entries(self, offset: u64, block: &Block<'_>) -> Vec<IndexEntry> {
+        let mut entries = IndexEntry::all_of_block(offset, block);
+        if block.kind == BlockKind::Summary {
+            for e in &mut entries {
+                e.tile = self.tile;
+            }
+        }
+        entries
+    }
 }
 
 /// The entries of the block `bytes` (exactly one) a writer placed at `offset`: a chunk block's head is checked by its
@@ -676,5 +688,5 @@ fn of_placed(offset: u64, bytes: &[u8], extras: ChunkExtras) -> Vec<IndexEntry> 
         };
         return extras.entry(offset, bytes.len(), &c).into_iter().collect();
     }
-    Block::read(bytes).map_or_else(|_| Vec::new(), |b| IndexEntry::all_of_block(offset, &b))
+    Block::read(bytes).map_or_else(|_| Vec::new(), |b| extras.summary_entries(offset, &b))
 }

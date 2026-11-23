@@ -1,19 +1,23 @@
 //! Grid tracks: the describe record of a grid track whose fixed axes take hostile values (more axes than
 //! `GRID_FIXED_AXES_MAX`, extents and tile extents at 0, 1 and past the caps, listed coordinates out of order or of
 //! another length, steps of 0, names empty or past `AXIS_NAME_LEN_MAX`), and grid chunks whose tile coordinates (their
-//! count at byte 82, their values) take hostile values.
+//! count at byte 82, their values) take hostile values, and tile summary blocks whose tile (its axis count and
+//! coordinates after the scale) takes hostile values.
 
 use super::chunk::{build, reseal, table};
 use super::index::{index_block, reseal_index};
-use super::{Draw, SESSION, clock_item, definition, get, put};
+use super::summary::hit_tile;
+use super::{Draw, SESSION, clock_item, definition, get, put, seal};
 use shrink_wrap::prelude::*;
 use ww_tape::grid::{GRID_FIXED_AXES_MAX, GRID_LISTED_MAX, GRID_TILE_CELLS_MAX};
 use ww_tape::index::{IndexEntry, IndexKind};
 use ww_tape::{
     AxisCoords, Block, BlockId, BlockKind, BlockWriter, ChunkHead, ClockNum, Codec, ColumnKind,
-    ColumnSpec, Describe, EndMode, FixedAxis, GridDef, ItemNum, Magnitude, Ratio64, SeriesGrid,
-    TileCoords, TileLayout, TrackDef, TrackKind, TrackNum, track_key,
+    ColumnSpec, Describe, Element, ElementDesc, EndMode, FixedAxis, GridDef, ItemNum, Magnitude,
+    Ratio64, SampleShape, SeriesGrid, TileCoords, TileLayout, TrackDef, TrackId, TrackKind,
+    TrackNum, set_id, track_key,
 };
+use ww_tape_summary::{SeriesStart, SeriesStats, SeriesSummaries, SeriesSummarySpec};
 
 /// The track number of the hostile grid.
 pub(crate) const TRACK: u32 = 1;
@@ -201,26 +205,110 @@ pub fn grid(data: &[u8]) -> Vec<u8> {
         reseal(&mut b, false);
         out.extend(b);
     }
-    if d.bool() {
-        let extents: Vec<(u32, u32)> = shape.iter().map(|&(e, t, ..)| (e, t)).collect();
-        checkpoint(&mut d, &mut out, TileLayout::new(&extents).ok());
+    let extents: Vec<(u32, u32)> = shape.iter().map(|&(e, t, ..)| (e, t)).collect();
+    let layout = TileLayout::new(&extents).ok();
+    // past the input's end too: every draw is 0 there
+    if !d.bool() {
+        summaries(&mut d, &mut out, &shape, grid_track(&fixed).id(), layout);
+    }
+    if d.u8() % 3 != 1 {
+        checkpoint(&mut d, &mut out, layout);
     }
     out
 }
 
-/// A checkpoint index of the blocks in `f` put after them: each chunk's entry carries the tile number `layout` packs
-/// its head's coordinates to, a hostile number (bits outside the fields, any bits) or none.
+/// Most cells of a hostile tile's time step: the blocks stay small.
+const TILE_CELLS_DRAWN_MAX: u64 = 6;
+
+/// Summary blocks of one to three tiles, mostly of the grid, put after the blocks in `f`: a few
+/// time steps each, at most [TILE_CELLS_DRAWN_MAX] cells a step; then the axis count or a coordinate of a block's
+/// tile may take a hostile value.
+fn summaries(
+    d: &mut Draw<'_>,
+    f: &mut Vec<u8>,
+    shape: &[AxisShape],
+    track_id: TrackId,
+    layout: Option<TileLayout>,
+) {
+    let samples = SampleShape::new(ElementDesc::of(Element::I32), 1);
+    for _ in 0..1 + d.below(3) {
+        let coords: Vec<u32> = shape
+            .iter()
+            .take(GRID_FIXED_AXES_MAX)
+            .map(|&(extent, tile, ..)| {
+                // mostly a tile of the grid: a hostile coordinate now and then
+                let tiles = extent.div_ceil(tile.max(1));
+                match d.u8() % 8 {
+                    7 => d.value(32, &[u64::from(tiles)], &[u64::from(tiles)]) as u32,
+                    _ => d.u32() % tiles.max(1),
+                }
+            })
+            .collect();
+        let tile = TileCoords::new(&coords).expect("at most GRID_FIXED_AXES_MAX coordinates");
+        let cells = if tile.is_empty() {
+            1
+        } else {
+            layout
+                .and_then(|l| l.tile_cells(&tile))
+                .unwrap_or(1)
+                .min(TILE_CELLS_DRAWN_MAX)
+        };
+        let first = d.below(40) as u64;
+        let start = SeriesStart {
+            track_id,
+            track_number: TrackNum::new(TRACK),
+            shape: samples,
+            first_item: ItemNum::new(first),
+            grid: SeriesGrid::start(0, 0, Magnitude::ONE),
+            period: period(),
+            tile,
+            tile_cells: cells,
+        };
+        let spec = SeriesSummarySpec {
+            base_shift: SeriesSummarySpec::BASE_SHIFT_MIN + d.below(3) as u8,
+            stats: SeriesStats::all(ElementDesc::of(Element::I32)),
+            clip: None,
+        };
+        let Ok(mut s) = SeriesSummaries::<i32>::new(start, spec) else {
+            continue;
+        };
+        s.set_max_block_bytes(exact_units::Bytes::new(384));
+        let mut bits = d.bits();
+        let steps = 1 + d.below(80);
+        let xs: Vec<i32> = (0..steps as u64 * cells)
+            .map(|_| bits.u64() as i32 >> 8)
+            .collect();
+        if s.push(&xs, 0).is_err() || s.finish().is_err() {
+            continue;
+        }
+        for mut b in s.take_blocks() {
+            if set_id(&mut b, BlockId::new(SESSION, 1)).is_err() {
+                continue;
+            }
+            if d.u8() % 4 == 3 {
+                hit_tile(d, &mut b);
+                seal(&mut b);
+            }
+            f.extend(b);
+        }
+    }
+}
+
+/// A checkpoint index of the blocks in `f` put after them: each chunk's or summary block's entry carries the tile
+/// number `layout` packs its head's coordinates to, a hostile number (bits outside the fields, any bits) or none.
 fn checkpoint(d: &mut Draw<'_>, f: &mut Vec<u8>, layout: Option<TileLayout>) {
     let mut entries = vec![];
     let mut at = 0;
     while let Some(b) = f.get(at..).and_then(|r| Block::read(r).ok()) {
         let len = b.bytes().len();
         for mut e in IndexEntry::all_of_block(at as u64, &b) {
-            if e.kind == BlockKind::Series {
-                let packed = ChunkHead::read_head(b.bytes())
-                    .ok()
-                    .zip(layout)
-                    .and_then(|(h, l)| l.pack(&h.tile));
+            let tile = match e.kind {
+                BlockKind::Series => ChunkHead::read_head(b.bytes()).ok().map(|h| h.tile),
+                BlockKind::Summary => b.summary_head().map(|h| h.tile),
+                _ => None,
+            };
+            if matches!(e.kind, BlockKind::Series | BlockKind::Summary) {
+                let packed = tile.zip(layout).and_then(|(t, l)| l.pack(&t));
                 let outside = layout.map_or(0, |l| !l.field_bits());
                 let mut bits = d.bits();
                 e.tile = match d.u8() % 4 {

@@ -231,11 +231,17 @@ impl Relations {
             .map(|col| col.range())
     }
 
+    /// The tile number of a grid tile's summary block with head `h`, by the definition placed of its track; None
+    /// for a series' or an event tree's block.
+    pub(crate) fn summary_tile(&self, h: &crate::summary::SummaryHead) -> Option<u128> {
+        self.facts.get(&h.track_number)?.tile_number(&h.tile)
+    }
+
     /// The tile number of grid chunk `c` by the definition placed of its track; None for a series or events chunk
     /// and for coordinates the grid doesn't hold (a damaged block a resume keeps).
     pub(crate) fn tile(&self, c: &Chunk<'_>) -> Option<u128> {
         let head = c.head();
-        self.facts.get(&head.track_number)?.tile_number(&head)
+        self.facts.get(&head.track_number)?.tile_number(&head.tile)
     }
 
     /// Track `key`'s next chunk is checked against `from` for monotone relation `relation`, not against the values

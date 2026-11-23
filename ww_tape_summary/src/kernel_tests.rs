@@ -514,6 +514,8 @@ fn blocks_are_the_same_with_every_kernel() {
             first_item: ww_tape::ItemNum::new(100),
             grid: SeriesGrid::start(0, 0, Magnitude::ONE),
             period: Ratio64::ONE,
+            tile: ww_tape::TileCoords::NONE,
+            tile_cells: 1,
         };
         let spec = SeriesSummarySpec {
             base_shift: 6,

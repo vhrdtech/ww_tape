@@ -307,13 +307,13 @@ pub struct TrackFacts {
 }
 
 impl TrackFacts {
-    /// The tile number a chunk of the track with `head` goes into its index entry with; None for a series or events
-    /// track, and for coordinates the grid doesn't hold.
-    pub(crate) fn tile_number(&self, head: &crate::ChunkHead) -> Option<u128> {
+    /// The tile number a chunk or summary block of the track with tile coordinates `tile` goes into its index entry
+    /// with; None for a series or events track, and for coordinates the grid doesn't hold.
+    pub(crate) fn tile_number(&self, tile: &crate::TileCoords) -> Option<u128> {
         if self.tiles.axes() == 0 {
             return None;
         }
-        self.tiles.pack(&head.tile)
+        self.tiles.pack(tile)
     }
 
     /// The facts of track definition `t`.
@@ -1056,7 +1056,7 @@ impl Definitions {
     /// Check a chunk or summary block's track before a writer writes it: held and under its definition's id, an
     /// events chunk on an events track
     /// that isn't a state track with its relation columns as its definition says, a series chunk on a series track
-    /// with its ticks on its grid.
+    /// with its ticks on its grid, a series summary block of a tile of its grid (none for a series).
     fn check_track_block(&self, b: &Block<'_>) -> Result<(), DescribeError> {
         if let Some(c) = b.chunk() {
             let head = c.head();
@@ -1076,8 +1076,18 @@ impl Definitions {
             self.check_relation_columns(head.track_number, &specs)?;
             relation_columns_read(&c)
         } else if let Some(head) = b.summary_head() {
-            self.check_track_id(head.track_number, head.track_id)
-                .map(|_| ())
+            let track = head.track_number;
+            let t = self.check_track_id(track, head.track_id)?;
+            // a grid's series trees are its tiles', one per tile of the grid; an event tree has no tile
+            if head.tree == crate::summary::Tree::Series && !t.tiles.holds(&head.tile) {
+                return Err(DescribeError::Kind {
+                    track,
+                    error: crate::SeriesError::TileOutside {
+                        first_item: head.first_item,
+                    },
+                });
+            }
+            Ok(())
         } else {
             Ok(())
         }

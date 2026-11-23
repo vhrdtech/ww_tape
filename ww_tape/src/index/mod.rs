@@ -526,7 +526,7 @@ impl IndexEntry {
     }
 
     /// Whether the entry names a block ([Self::is_in_range]), its range, if any, is a chunk's and doesn't
-    /// decrease, and a tile number is a series chunk's, never beside a range.
+    /// decrease, and a tile number is a series chunk's or a series summary block's, never beside a range.
     fn is_valid(&self) -> bool {
         let range = match self.range {
             None => true,
@@ -534,7 +534,11 @@ impl IndexEntry {
                 lo <= hi && matches!(self.kind, BlockKind::Events | BlockKind::Series)
             }
         };
-        let tile = self.tile.is_none() || (self.kind == BlockKind::Series && self.range.is_none());
+        let tile = self.tile.is_none()
+            || (self.range.is_none()
+                && (self.kind == BlockKind::Series
+                    || (self.kind == BlockKind::Summary
+                        && self.tree == crate::summary::Tree::Series.to_u8())));
         let mark = !self.relation_break || self.kind == BlockKind::Events;
         let unit = !self.unhashed || self.unit.is_none();
         range && tile && mark && unit && self.is_in_range()
