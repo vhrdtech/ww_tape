@@ -114,6 +114,17 @@ reason = "the navigation names pages that exist"
 ignore = ["CAN"]
 reason = "the glossary's CAN, the vehicle bus, matches the everyday word \"can\" on every page"
 
+[[exceptions]]
+lint = "glossary-terms"
+paths = ["docs/format.md"]
+level = "allow"
+reason = "the format reference is looked up block by block and defines the terms itself; a mark in every section would underline every line"
+
+[lints.publish-false]
+level = "deny"
+published = ["ww_tape", "ww_tape_codecs"]
+reason = "ww_tape and ww_tape_codecs are published; every other crate is a build unit and says publish = false"
+
 [lints.no-sys-crates]
 allow = ["cc"]
 reason = "cc is a build-dependency of blake3, built pure: its build script compiles no C (AGENTS.md, Dependencies)"
