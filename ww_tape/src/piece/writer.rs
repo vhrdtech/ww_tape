@@ -641,6 +641,9 @@ impl<T: PieceStore> PieceChain<T> {
     /// chain at hand ([RemovedRefusal::NotAtHand](crate::writer::RemovedRefusal::NotAtHand)), the piece being written
     /// among them; a piece inside a tape of several after one that stays
     /// ([RemovedRefusal::InTape](crate::writer::RemovedRefusal::InTape)); rows [TapeWriter::record_removed] refuses.
+    ///
+    /// A close that fails leaves the chain failed ([WriteError::Failed] from then on), as a failed cut does, with no
+    /// piece removed: the piece reads as a crash left it, and a resume goes on from there.
     pub fn remove(&mut self, seqs: &[u64]) -> Result<(), WriteError<T::Error>> {
         use crate::writer::{InputError, RemovedRefusal};
         let refuse = |why| Err(WriteError::Input(InputError::Removed(why)));
@@ -713,7 +716,8 @@ impl<T: PieceStore> PieceChain<T> {
         if !rows.is_empty() {
             self.writer()?.record_removed(&rows)?;
             let w = self.writer.take().ok_or(WriteError::Failed)?;
-            let (w, _) = w.close_and_go_on()?;
+            let (mut w, _) = w.close_and_go_on()?;
+            reserve_piece(&mut w, self.cut);
             self.writer = Some(w);
         } else if lowest == self.seq {
             // the piece written becomes the lowest: its head, which a cut wrote unsynced, must outlive the pieces
