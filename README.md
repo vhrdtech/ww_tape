@@ -11,6 +11,7 @@
 [![crates.io](https://img.shields.io/crates/v/ww_tape_codecs)](https://crates.io/crates/ww_tape_codecs)
 [![docs.rs](https://img.shields.io/docsrs/ww_tape)](https://docs.rs/ww_tape)
 [![docs.rs](https://img.shields.io/docsrs/ww_tape_codecs)](https://docs.rs/ww_tape_codecs)
+[![spirit level](.github/spl-badge.svg)](https://spl.vhrd.tech/tiers/small-workspace/)
 
 > Tracks of typed records in self-checking, variable-length blocks, for live feeds, log files and raw media.
 
