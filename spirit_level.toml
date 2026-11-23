@@ -134,10 +134,12 @@ after = "17ad6a7185a627efb58e066af34e83de9f078d97"
 reason = "history up to main's tip of 21 Nov 2026 is pushed and cannot be rewritten"
 
 [lints.commit-body-lines]
+level = "deny"
 after = "17ad6a7185a627efb58e066af34e83de9f078d97"
 reason = "history up to main's tip of 21 Nov 2026 is pushed and cannot be rewritten"
 
 [lints.commit-prose]
+level = "deny"
 after = "17ad6a7185a627efb58e066af34e83de9f078d97"
 reason = "history up to main's tip of 21 Nov 2026 is pushed and cannot be rewritten"
 
@@ -146,9 +148,317 @@ after = "17ad6a7185a627efb58e066af34e83de9f078d97"
 reason = "history up to main's tip of 21 Nov 2026 is pushed and cannot be rewritten"
 
 [lints.fix-without-test]
+level = "deny"
 after = "17ad6a7185a627efb58e066af34e83de9f078d97"
 reason = "history up to main's tip of 21 Nov 2026 is pushed and cannot be rewritten"
 
 [lints.commit-tested-line]
 after = "17ad6a7185a627efb58e066af34e83de9f078d97"
 reason = "history up to main's tip of 21 Nov 2026 is pushed and cannot be rewritten"
+
+# Lints with no finding left, raised to deny one by one so a new finding fails the run. A lint that still has
+# findings stays at its tier's level until they are fixed.
+
+[lints.assert-message]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.book-deploy]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.build-info-env]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.build-script-clock]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.cargo-doc]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.cargo-msrv]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.changelog-describes-diff]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.changelog-unreleased]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.cli-color-flag]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.cli-completion]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.cli-help-clean]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.cli-help-examples]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.cli-help-text]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.cli-no-abbreviations]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.cli-plain-when-piped]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.cli-secret-flags]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.cli-standard-flags]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.cli-subprocess]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.cli-usage-error]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.cli-version-line]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.command-registry]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.commit-mixed-move]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.compound-assert]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.core-crate-deps]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.core-crate-types]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.crate-cycles]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.crate-dir-name]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.crate-docs]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.crate-folder-size]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.crate-table]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.dead-features]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.default-features-off]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.deny-bans]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.deny-licenses]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.deny-sources]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.dev-debug-off]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.duplicate-versions]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.edition-latest]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.error-enum-growth]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.exact-units-bounds]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.feature-docs]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.float-determinism]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.float-partial-cmp-unwrap]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.fuzz-corpus-test]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.git-dependency-pins]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.image-alt]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.justfile-recipes]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.large-blobs]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.lock-held-across]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.machete-unused-deps]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.macro-compile-fail]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.macro-crate-suffix]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.manifest-homepage]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.nested-locks]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.orphan-source-file]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.package-description]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.package-license]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.page-headings]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.print-in-library]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.profile-defaults]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.profile-no-lto]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.pub-surface]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.random-state-hash]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.readme-badges]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.restating-comments]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.rust-version-set]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.sized-ints-in-contracts]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.term-synonyms]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.test-support-gated]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.toolchain-overrides-pinned]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.toolchain-pinned]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.typos-misspelling]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.unbounded-read]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.url-tracking-params]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.waiver-unused]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.workspace-dependencies]
+level = "deny"
+reason = "no finding left; a new one fails the run"
