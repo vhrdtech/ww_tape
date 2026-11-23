@@ -66,8 +66,8 @@ tracks, blocks and summaries a piece in a file holds. A triage thread opens each
 analyser whether it holds a burst.
 
 A piece with a burst is copied to a piece file, with one piece before it and one after it. Every other piece leaves
-memory unwritten. The band takes fewer bytes a second than the link. In the bench below the replayed run keeps up with it in one chain,
-and the live run is held back by the signal's maths.
+memory unwritten. The band takes fewer bytes a second than the link. In the bench below the replayed run keeps up with
+it in one chain, and the live run is held back by the signal's maths.
 
 ```rs
 --8<-- "examples/example_wideband/src/ram.rs:rf_capture"

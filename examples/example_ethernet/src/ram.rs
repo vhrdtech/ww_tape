@@ -80,9 +80,8 @@ impl RamCapture {
     /// The threads of the triage pool: [Self::triage_threads], or 2 a chain.
     ///
     /// The bench's sweep of the pool's size sets the default (the book's page on this case shows it): one thread
-    /// a chain keeps pace on the bench machine, 2 keep it with margin, and on a slower machine one falls behind the
-    /// capture and the window fills. So the default is the smallest pool with margin: 2 threads a chain, whatever the
-    /// cores of the machine.
+    /// a chain keeps pace on the bench machine and 2 keep it with margin. So the default is the smallest pool with
+    /// margin: 2 threads a chain, whatever the cores of the machine.
     pub fn triage_threads_used(&self) -> usize {
         self.triage_threads
             .map_or(self.chains as usize * 2, |n| n.get() as usize)
