@@ -89,6 +89,8 @@ jobs:
         env:
           CARGO_BUILD_WARNINGS: allow
       - run: spl tools needed --spec --missing | xargs -r cargo binstall -y
+      # cargo-msrv builds the workspace on the declared rust-version (Cargo.toml) to check that it is the real minimum
+      - run: rustup toolchain install 1.99.0 --profile minimal
       - run: spl check --progress never
 
   test:
