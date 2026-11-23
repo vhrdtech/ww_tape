@@ -17,6 +17,9 @@ benchmarks, golden files and book pages.
 - A grid tile's summary block's index entry carries its tile number at bytes 72..88, as its chunks' do (FMT-15).
 - A grid tile's summary tree: an item is a time step, a node the tile's cells over its steps (FMT-15).
 - `SeriesLeaves::of_tile` computes a tile's leaves, a time step of the tile's cells per item (FMT-15).
+- `TapeReader::grid_summaries` finds the summary blocks of a level of the tiles in a box (FMT-15).
+- `region_timeline` merges the tiles' nodes in a box into a region's timeline, at tile resolution (FMT-15).
+- The writer refuses a summary block naming a tile its grid doesn't hold, or none on a grid (FMT-15).
 
 ## [0.7.0] - 2026-11-23
 

@@ -597,8 +597,8 @@ fn read_tile(rest: &[u8]) -> Result<(TileCoords, &[u8]), SummaryError> {
         .and_then(|r| r.split_at_checked(axes.saturating_mul(4)))
         .ok_or(SummaryError::Invalid("tile past the end"))?;
     let mut out = [0u32; GRID_FIXED_AXES_MAX];
-    for (d, c) in out.iter_mut().zip(coords.chunks_exact(4)) {
-        *d = le_u32(c, 0).ok_or(SummaryError::Invalid("tile past the end"))?;
+    for (d, c) in out.iter_mut().zip(coords.as_chunks::<4>().0) {
+        *d = u32::from_le_bytes(*c);
     }
     let tile = out
         .get(..axes)
@@ -696,7 +696,12 @@ impl<'b> SummaryWriter<'b> {
             .and_then(|t| t.split_first_mut())
         {
             *axes = u8::try_from(head.tile.len()).map_err(|_e| OWN_LAYOUT)?;
-            for (d, c) in coords.chunks_exact_mut(4).zip(head.tile.as_slice()) {
+            for (d, c) in coords
+                .as_chunks_mut::<4>()
+                .0
+                .iter_mut()
+                .zip(head.tile.as_slice())
+            {
                 d.copy_from_slice(&c.to_le_bytes());
             }
         }

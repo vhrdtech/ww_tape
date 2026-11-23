@@ -159,3 +159,54 @@ fn a_tile_refuses_partial_steps_and_bad_cells() {
     }
     assert!(SeriesLeaves::<i16>::of_tile(shape, Magnitude::ONE, ItemNum::new(0), sp, 0).is_err());
 }
+
+/// A grid tile's summary blocks of a small fixed workload are the golden file's (`WW_TAPE_GOLDEN=update` rewrites
+/// it): three fixed axes, a tile of 6 cells of two complex channels, a change of scale mid-node, blocks of at most
+/// 1 KiB. Built twice: the same bytes.
+#[test]
+fn grid_summary_golden() {
+    let build = || {
+        let shape = SampleShape::new(ElementDesc::of(Element::ComplexI16), 2);
+        let st = SeriesStart {
+            grid: SeriesGrid::start(30, -100, Magnitude::pow10(-3)),
+            period: Ratio64::new(62_500, 3).unwrap(),
+            ..start(shape, TileCoords::new(&[1, 0, 2]).unwrap(), 6, 30)
+        };
+        let mut s = SeriesSummaries::<i16>::new(st, spec(4, shape.element)).unwrap();
+        s.set_max_block_bytes(exact_units::Bytes::new(1024));
+        let xs: Vec<i16> = (0..300 * 6 * 4)
+            .map(|i| ((i * 7919) % 65_536 - 32_768) as i16)
+            .collect();
+        // milli to micro at time step 170, mid-node
+        let (a, b) = xs.split_at((170 - 30) * 6 * 4);
+        s.push(a, 0x10).unwrap();
+        s.set_grid(st.grid.rescaled(Magnitude::pow10(-6))).unwrap();
+        s.push(b, 0x20).unwrap();
+        s.finish().unwrap();
+        s.take_blocks()
+    };
+    let blocks = build();
+    assert_eq!(blocks, build(), "deterministic");
+    assert!(blocks.len() > 3, "several blocks and levels");
+    let mut hex = String::new();
+    for b in &blocks {
+        let h = Block::read(b).unwrap().summary_head().unwrap();
+        assert_eq!(h.tile, TileCoords::new(&[1, 0, 2]).unwrap());
+        assert!(b.len() <= 1024);
+        for byte in b {
+            hex.push_str(&format!("{byte:02x}"));
+        }
+        hex.push('\n');
+    }
+    let golden =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("golden/v1-grid-summary.hex");
+    if std::env::var("WW_TAPE_GOLDEN").as_deref() == Ok("update") {
+        std::fs::write(&golden, &hex).unwrap();
+    }
+    let want = std::fs::read_to_string(&golden)
+        .expect("golden/v1-grid-summary.hex: run with WW_TAPE_GOLDEN=update");
+    assert!(
+        hex == want,
+        "the format changed: bytes differ from golden/v1-grid-summary.hex"
+    );
+}
