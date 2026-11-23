@@ -1,10 +1,10 @@
-//! The bytes of a [MemTape](super::MemTape): extents that are filled and never moved, and the seals that mark where
+//! The bytes of a [MemTape](super::MemTape): extents that are filled and never moved, and the bounds that mark where
 //! pieces start.
 //!
 //! Appending fills the last extent and then adds a new one as large as the tape holds, at least [EXTENT_MIN] and at
 //! most [EXTENT_MAX] (or as a [Segments::reserve] hint asks), so a write never copies a byte written before and a
-//! reader waits only for the bytes being appended. A new piece seals the bytes before it ([Segments::rebase] to the
-//! end), and so does a close. [Segments::drop_front] cuts at a seal and keeps every offset: the dropped bytes are
+//! reader waits only for the bytes being appended. A new piece bounds the bytes before it ([Segments::rebase] to the
+//! end), and so does a close. [Segments::drop_front] cuts at a bound and keeps every offset: the dropped bytes are
 //! counted in [Segments::front], not shifted out. An extent may hold bytes of several pieces, so the memory of the
 //! extent a cut falls inside is freed with the next cut past it.
 
@@ -41,7 +41,7 @@ pub(super) struct Segments {
     /// capacity.
     extents: Vec<(u64, Vec<u8>)>,
     /// Where pieces start after `front`, ascending: the places [Self::drop_front] may cut at.
-    seals: Vec<u64>,
+    bounds: Vec<u64>,
 }
 
 impl Segments {
@@ -98,20 +98,20 @@ impl Segments {
         }
     }
 
-    /// Seal the bytes written: a piece starts at the end.
-    pub(super) fn seal(&mut self) {
+    /// Bound the bytes written: a piece starts at the end.
+    pub(super) fn bound(&mut self) {
         let end = self.len();
-        if end > self.front && self.seals.last().is_none_or(|s| *s < end) {
-            self.seals.push(end);
+        if end > self.front && self.bounds.last().is_none_or(|s| *s < end) {
+            self.bounds.push(end);
         }
     }
 
-    /// A piece starts at `base`, at most [Self::len] and not before [Self::front]: the bytes before it are sealed.
+    /// A piece starts at `base`, at most [Self::len] and not before [Self::front]: the bytes before it are bounded.
     pub(super) fn rebase(&mut self, base: u64) -> Result<(), SegmentError> {
         self.within(base)?;
-        self.seals.retain(|s| *s < base);
+        self.bounds.retain(|s| *s < base);
         if base > self.front {
-            self.seals.push(base);
+            self.bounds.push(base);
         }
         Ok(())
     }
@@ -127,18 +127,18 @@ impl Segments {
                 .ok_or(SegmentError::OutOfRange)?;
             v.truncate(keep);
         }
-        self.seals.retain(|s| *s <= len);
+        self.bounds.retain(|s| *s <= len);
         Ok(())
     }
 
-    /// Free the bytes before the last seal at or before `to`: the new [Self::front]. Pieces go whole; the bytes
-    /// after the last seal, the piece being written, are kept.
+    /// Free the bytes before the last bound at or before `to`: the new [Self::front]. Pieces go whole; the bytes
+    /// after the last bound, the piece being written, are kept.
     pub(super) fn drop_front(&mut self, to: u64) -> u64 {
-        let n = self.seals.partition_point(|s| *s <= to);
-        let Some(&cut) = n.checked_sub(1).and_then(|i| self.seals.get(i)) else {
+        let n = self.bounds.partition_point(|s| *s <= to);
+        let Some(&cut) = n.checked_sub(1).and_then(|i| self.bounds.get(i)) else {
             return self.front;
         };
-        self.seals.drain(..n);
+        self.bounds.drain(..n);
         let gone = self
             .extents
             .partition_point(|(at, b)| Self::end_of(*at, b) <= cut);
@@ -252,7 +252,7 @@ mod tests {
         s.append(b"de");
         s.rebase(5).unwrap();
         s.append(b"fgh");
-        assert_eq!(s.seals, [3, 5]);
+        assert_eq!(s.bounds, [3, 5]);
         s.reserve(EXTENT_MIN);
         s.append(b"ij");
         assert_eq!(
@@ -294,14 +294,14 @@ mod tests {
     }
 
     #[test]
-    fn rebase_back_moves_the_seals() {
+    fn rebase_back_moves_the_bounds() {
         let mut s = Segments::default();
         s.append(b"abc");
         s.rebase(3).unwrap();
         s.append(b"de");
-        s.seal();
+        s.bound();
         s.rebase(1).unwrap();
-        assert_eq!(s.seals, [1]);
+        assert_eq!(s.bounds, [1]);
         s.append(b"x");
         assert_eq!(bytes(&s), b"abcdex");
         s.truncate(2).unwrap();
@@ -328,7 +328,7 @@ mod tests {
             Err(SegmentError::Dropped { front: 5 })
         );
         assert_eq!(s.truncate(4), Err(SegmentError::Dropped { front: 5 }));
-        s.seal();
+        s.bound();
         assert_eq!(s.drop_front(6), 6);
         assert_eq!((s.held(), s.len()), (0, 6));
         s.append(b"g");

@@ -240,7 +240,7 @@ impl<K: core::fmt::Debug + 'static> TapeSink for MemSink<K> {
     }
 
     fn close(&mut self) -> Result<(), MemError<K>> {
-        self.tape.write()?.seal();
+        self.tape.write()?.bound();
         self.tape.0.closed.store(true, Ordering::Release);
         Ok(())
     }
