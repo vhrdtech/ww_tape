@@ -333,6 +333,33 @@ impl TileLayout {
         self.tiles.get(..self.axes()).unwrap_or(&[])
     }
 
+    /// Cells of each fixed axis and of its tiles, `(extent, tile extent)`, in definition order.
+    pub fn extents(&self) -> &[(u32, u32)] {
+        self.extents.get(..self.axes()).unwrap_or(&[])
+    }
+
+    /// The cells of fixed axis `axis` that its tile `coord` holds: a tile extent of them, fewer in the axis' last
+    /// tile. None past the fixed axes or the axis' tiles.
+    pub fn cell_range(&self, axis: usize, coord: u32) -> Option<Range<u32>> {
+        let &(extent, tile) = self.extents().get(axis)?;
+        let start = coord.checked_mul(tile).filter(|s| *s < extent)?;
+        Some(start..start.saturating_add(tile).min(extent))
+    }
+
+    /// Cells of one time step of the tile at `coords`: the product of its cells along each fixed axis, fewer for a
+    /// tile at an axis' far edge; 1 for a series. None when the grid holds no such tile ([Self::holds]).
+    pub fn tile_cells(&self, coords: &TileCoords) -> Option<u64> {
+        if !self.holds(coords) {
+            return None;
+        }
+        let mut cells = 1u64;
+        for (axis, c) in coords.as_slice().iter().enumerate() {
+            let r = self.cell_range(axis, *c)?;
+            cells = cells.checked_mul(u64::from(r.end.checked_sub(r.start)?))?;
+        }
+        Some(cells)
+    }
+
     /// Bits of each axis' field in the tile number.
     pub fn widths(&self) -> &[u8] {
         self.widths.get(..self.axes()).unwrap_or(&[])
