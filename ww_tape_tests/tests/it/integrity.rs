@@ -284,7 +284,12 @@ fn files_seal_in_place_to_the_chain_written_at_full() {
             for (p, f) in paths.iter().zip(&full) {
                 let got = std::fs::read(p).unwrap();
                 let first = got.iter().zip(f).position(|(a, b)| a != b);
-                assert!(got == *f, "{level:?} {tapes:?} {} {} {first:?}", got.len(), f.len());
+                assert!(
+                    got == *f,
+                    "{level:?} {tapes:?} {} {} {first:?}",
+                    got.len(),
+                    f.len()
+                );
             }
             // the first file sealed but for its head: sealed again, it is Full's
             let head = TapeReader::open(&bytes[0][..]).unwrap().entries(0).unwrap();
