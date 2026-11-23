@@ -6,6 +6,8 @@ benchmarks, golden files and book pages.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-23
+
 ### Breaking
 
 - Index entries are 128 bytes, 120..128 reserved; goldens rewritten. Pieces of 120-byte entries still read (FMT-15).
