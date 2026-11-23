@@ -95,8 +95,8 @@ piece holds something worth keeping. A kept piece is copied whole to the chain's
 reads alone. Every other piece leaves memory unwritten ([`MemTapes::remove`]).
 
 The chunks of a piece are independent, so the analyser decodes them in parallel on a rayon pool, shared by the chains'
-triages. By default the pool takes the cores that the capture's own threads leave free ([`RamCapture::triage_threads`]).
-Nothing keeps the pool off the capture's cores, so a pool larger than the free cores takes time from the capture. The
+triages. By default the pool has 2 threads a chain ([`RamCapture::triage_threads`]). Nothing keeps the pool off the capture's
+cores, so a large pool can take time from the capture. The
 capture itself keeps its explicit threads, one per queue and one per mux.
 
 ```rs
@@ -169,7 +169,7 @@ copying over two writing threads, and with 4 queues a port the capture runs ahea
 
 --8<-- "docs/plots/bench_ethernet_triage.txt"
 
-"Triage threads" is the size of the pool. Where the capture's threads take every core, the default is 1.
+"Triage threads" is the size of the pool, marked where it is the default.
 
 The largest capture runs again with 1, 2 and 4 threads, and with every core of the machine. One thread decodes the
 chunks one after the other, as a triage without a pool does.

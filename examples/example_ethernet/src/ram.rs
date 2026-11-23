@@ -53,9 +53,9 @@ pub struct RamCapture {
     /// Bytes of a piece in memory at most: the unit the window keeps or drops.
     pub piece_bytes: u64,
     pub window: Window,
-    /// Threads the triages of every chain share to decode the chunks of a piece in parallel; None: the cores the
-    /// capture's own threads leave free ([Self::triage_threads_used]). Nothing keeps these threads off the capture's
-    /// cores: more of them than there are free cores take time from the capture.
+    /// Threads the triages of every chain share to decode the chunks of a piece in parallel; None: 2 a chain
+    /// ([Self::triage_threads_used]). Nothing keeps these threads off the capture's cores: a pool larger than the
+    /// cores the capture leaves free takes time from the capture.
     pub triage_threads: Option<NonZeroU32>,
 }
 // --8<-- [end:ram_capture]
@@ -77,17 +77,15 @@ impl RamCapture {
         }
     }
 
-    /// The threads of the triage pool: [Self::triage_threads], or the cores of the machine less the threads the
-    /// capture takes (a capture and a decoder thread a receive queue, a mux and a triage thread a chain), at least 1.
+    /// The threads of the triage pool: [Self::triage_threads], or 2 a chain.
+    ///
+    /// The bench's sweep of the pool's size sets the default (the book's page on this case shows it): one thread
+    /// a chain keeps pace on the bench machine, 2 keep it with margin, and on a slower machine one falls behind the
+    /// capture and the window fills. So the default is the smallest pool with margin: 2 threads a chain, whatever the
+    /// cores of the machine.
     pub fn triage_threads_used(&self) -> usize {
-        self.triage_threads.map_or_else(
-            || {
-                let cores = std::thread::available_parallelism().map_or(1, usize::from);
-                let busy = self.link.rxs().count() * 2 + self.chains as usize * 2;
-                cores.saturating_sub(busy).max(1)
-            },
-            |n| n.get() as usize,
-        )
+        self.triage_threads
+            .map_or(self.chains as usize * 2, |n| n.get() as usize)
     }
 
     /// The chain options of the capture in memory: [chain_options] cut at [Self::piece_bytes].

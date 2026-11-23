@@ -18,7 +18,7 @@ benchmarks, golden files and book pages.
 
 ### Features
 
-- `example_ethernet` decodes a piece's chunks on a rayon pool of the free cores; `bench-ethernet` sweeps its size (EX-8).
+- `example_ethernet` decodes a piece's chunks on a rayon pool, 2 threads a chain; `bench-ethernet` sweeps its size (EX-8).
 - `example_ethernet` writes its `frames` raw by default; `Link::payload(PayloadMix::Plain)` makes compressible payloads (EX-6).
 - `just bench-ethernet` measures bytes kept and CPU per frame for random and plaintext payloads, Raw and Auto (EX-6).
 - `just bench-wideband` reports bytes and CPU time per sample under each sample codec (EX-6).

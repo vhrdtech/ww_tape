@@ -75,7 +75,7 @@ struct Args {
     #[arg(long, default_value_t = 64)]
     window_piece_mib: u64,
     /// Threads of the triage pool: the largest capture into memory runs once for each, and once for the machine's
-    /// cores. The other runs take the cores the capture leaves free.
+    /// cores. The other runs take the default, 2 threads a chain.
     #[arg(long, value_delimiter = ',', default_values_t = [1, 2, 4])]
     triage_threads: Vec<u32>,
 }
@@ -334,7 +334,11 @@ fn windows(args: &Args, bench: &mut Bench) -> anyhow::Result<()> {
             Cell::text(kept),
             Cell::count(u64::from(c.chains)),
             Cell::count(u64::from(c.link.queues)),
-            Cell::count(c.triage_threads_used() as u64),
+            if c.triage_threads.is_none() {
+                Cell::text(format!("{} (default)", c.triage_threads_used()))
+            } else {
+                Cell::count(c.triage_threads_used() as u64)
+            },
         ];
         window.row([head.to_vec(), window_row(r, memory)].concat());
         triage.row([head.to_vec(), triage_row(r)].concat());
