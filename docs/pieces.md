@@ -160,8 +160,10 @@ was deleted, not damaged.
 ```
 
 The drive's chain without piece 0 shows it. [`check_chain`] finds 3 pieces from piece 1, and both links between them
-hold. The report says head cut, and so not whole. Piece 1 defines every track at its start, the carried ones. A chain
-with deleted pieces cannot be resumed, since a resume starts from the first piece.
+hold. The report says head cut, and so not whole. Piece 1 defines every track at its start, the carried ones.
+
+A resume ([`PieceChain::resume_on`], or [`chain::resume`] for files) starts at the lowest piece there, as a reader
+does. Retention and a writer that goes on after a restart thus work together.
 
 A chain in memory keeps a bounded window the same way. [`MemPieces::remove`] takes a closed piece out of the store. A
 reader that already holds the piece reads on unchanged. The piece still being written is not removed
@@ -188,6 +190,35 @@ new piece, which cannot name removed pieces.
 [`check_chain`] then links over the hole as [`ChainLink::Removed`], and checks both ends of the hole by the rows. A row
 that disagrees with either end reads as broken. A chain whose first pieces were named this way reads as removed, not as
 head cut. [The chain report](format.md#the-chain-report) gives the rules the writer enforces on the rows.
+
+A resume walks over such a hole the same way. Any other hole stops it with [`ResumeError::Gap`], which names the
+missing [[piece numbers|piece number]]. The writer never goes on after pieces that may have been lost.
+
+### Removing pieces while the chain is written
+
+[`PieceChain::remove`] removes closed pieces of a chain that is being written, in one call. Order matters, since a
+crash can come between any two steps:
+
+1. Name each removed piece that comes after a piece that stays in the piece being written. The rows a removed piece
+   held for a hole removed before are named again.
+2. Close that piece and sync it, then write on after the close ([`TapeWriter::close_and_go_on`]).
+3. Take the pieces out of the store, oldest first ([`PieceStore::remove`]): a file is deleted and its directory synced.
+
+```rs
+--8<-- "ww_tape_tests/tests/it/chain_removal.rs:remove"
+```
+
+A crash before the third step leaves pieces at hand that the rows name. A row for a piece still there plays no part in
+a link. A crash part way through it leaves a hole the rows cover. Either way the chain reads whole and resumes:
+
+```rs
+--8<-- "ww_tape_tests/tests/it/chain_removal.rs:resume"
+```
+
+The pieces before every piece that stays get no row: they go as retention does, and the chain reads as head cut. Rows
+for them would only pile up, while a head cut already says the start was deleted. In a chain in one memory tape only
+those pieces go, as the tape's front ([`MemPieces::drop_front`]). A piece from the middle of a tape is refused, as is
+the piece being written.
 
 ## Writing a chain into one file
 
