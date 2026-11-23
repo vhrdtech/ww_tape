@@ -6,6 +6,8 @@ benchmarks, golden files and book pages.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-23
+
 ### Breaking
 
 - `WriterOptions` gains `integrity`: a struct literal adds it or `..WriterOptions::default()` (FMT-14).
