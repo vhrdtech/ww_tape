@@ -169,9 +169,10 @@ copying over two writing threads, and with 4 queues a port the capture runs ahea
 
 --8<-- "docs/plots/bench_ethernet_triage.txt"
 
-"Triage threads" is the size of the pool. Where the capture's threads take every core, the default is 1. The largest
-capture runs again with 1, 2 and 4 threads and with every core of
-the machine. One thread decodes the chunks one after the other, as a triage without a pool does.
+"Triage threads" is the size of the pool. Where the capture's threads take every core, the default is 1.
+
+The largest capture runs again with 1, 2 and 4 threads, and with every core of the machine. One thread decodes the
+chunks one after the other, as a triage without a pool does.
 
 "Triage MB/s" is what one chain's triage reads a second. Its "Of the pace" is the seconds of the link the slowest triage
 reads per second of its work: 1 or more keeps up. Compare the rows of one capture: "Capture ms" in the first table
