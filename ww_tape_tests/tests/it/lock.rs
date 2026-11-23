@@ -19,10 +19,6 @@ const CHILD_OP_ENV: &str = "WW_TAPE_LOCK_OP";
 /// in [CHILD_ENV] as [CHILD_OP_ENV] says and prints whether its lock was free; `hold` writes four blocks, syncs,
 /// prints `held` and waits to be killed.
 #[test]
-#[expect(
-    clippy::print_stdout,
-    reason = "the child reports its verdict to the test that started it"
-)]
 fn lock_child() {
     let Some(path) = std::env::var_os(CHILD_ENV) else {
         return;
