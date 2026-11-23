@@ -1,0 +1,7 @@
+| Set | GiB | Single-threaded | update_rayon | Ratio |
+|---|---:|---:|---:|---:|
+| verify_chain | 10.00 | 2.29 | 5.09 | 2.23 |
+| range_chain | 6.00 | 2.47 | 5.50 | 2.22 |
+| resume_pieces | 4.50 | 2.25 | 4.88 | 2.17 |
+
+`just bench-archive-parallel` on build-1, load average 15.03 before, 7.45 after.

@@ -1,0 +1,6 @@
+| Strategy | Shortest s | Median s | Longest s | GB/s at the median | Speedup at the median |
+|---|---:|---:|---:|---:|---:|
+| 12 pieces one at a time | 2.65 | 2.89 | 3.11 | 2.23 | 1.00 |
+| 12 pieces in parallel (rayon) | 0.56 | 0.70 | 0.73 | 9.22 | 4.13 |
+
+`just bench-archive-parallel` on build-1, load average 15.25 before, 15.25 after.
