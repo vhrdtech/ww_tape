@@ -1,9 +1,13 @@
-| Kept to | Chains | Queues a port | Triage MB/s | Of the pace | Kept pieces | Kept % | Results KB | To disk MB per s | Copy MB/s |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| memory | 1 | 2 | 12 546 | 5.1 | 3 | 4.1 | 4 | 101.8 | 3940 |
-| memory | 1 | 4 | 10 167 | 4.1 | 3 | 4.1 | 4 | 101.8 | 3671 |
-| memory | 2 | 2 | 10 915 | 8.8 | 3 | 4.2 | 4 | 102.2 | 3161 |
-| memory | 2 | 4 | 7265 | 5.8 | 3 | 4.2 | 4 | 102.1 | 2498 |
-| piece files | 2 | 4 | 8128 | 6.6 | 3 | 4.2 | 4 | 102.1 | 987 |
+| Kept to | Chains | Queues a port | Triage threads | Triage MB/s | Of the pace | Kept pieces | Kept % | Results KB | To disk MB per s | Copy MB/s |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| memory | 1 | 2 | 4 | 3580 | 1.5 | 3 | 4.1 | 4 | 101.8 | 1398 |
+| memory | 1 | 4 | 1 | 1593 | 0.6 | 3 | 4.1 | 4 | 101.8 | 1518 |
+| memory | 2 | 2 | 2 | 1580 | 1.3 | 3 | 4.2 | 4 | 102.2 | 1350 |
+| memory | 2 | 4 | 1 | 646 | 0.5 | 3 | 4.2 | 4 | 102.1 | 831 |
+| memory | 2 | 4 | 1 | 693 | 0.6 | 3 | 4.2 | 4 | 102.1 | 741 |
+| memory | 2 | 4 | 2 | 1039 | 0.8 | 3 | 4.2 | 4 | 102.1 | 895 |
+| memory | 2 | 4 | 4 | 1316 | 1.0 | 3 | 4.2 | 4 | 102.1 | 1001 |
+| memory | 2 | 4 | 14 | 1329 | 1.1 | 3 | 4.2 | 4 | 102.2 | 811 |
+| piece files | 2 | 4 | 1 | 717 | 0.6 | 3 | 4.2 | 4 | 102.1 | 399 |
 
-`just bench-ethernet` on gpd-omarchy, load average 5.11 before, 6.58 after.
+`just bench-ethernet` on alma-1b, load average 6.61 before, 9.89 after.

@@ -1,8 +1,8 @@
 | Payloads | Codec | Frames | Wall ms | M frames/s | Chain MB | Bytes per frame | CPU ns per frame |
 |---|---|---:|---:|---:|---:|---:|---:|
-| random | Raw | 13 104 037 | 1296 | 10.11 | 4918 | 375.3 | 581 |
-| random | Auto | 13 104 037 | 1765 | 7.43 | 4788 | 365.4 | 720 |
-| plain | Raw | 13 104 037 | 1354 | 9.68 | 4918 | 375.3 | 598 |
-| plain | Auto | 13 104 037 | 2165 | 6.05 | 1289 | 98.4 | 815 |
+| random | Raw | 13 104 037 | 2748 | 4.77 | 4918 | 375.3 | 1189 |
+| random | Auto | 13 104 037 | 3657 | 3.58 | 4788 | 365.4 | 1447 |
+| plain | Raw | 13 104 037 | 2522 | 5.20 | 4918 | 375.3 | 1103 |
+| plain | Auto | 13 104 037 | 3476 | 3.77 | 1289 | 98.4 | 1297 |
 
-`just bench-ethernet` on gpd-omarchy, load average 4.77 before, 5.11 after.
+`just bench-ethernet` on alma-1b, load average 6.46 before, 6.61 after.
