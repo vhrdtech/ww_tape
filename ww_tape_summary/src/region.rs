@@ -72,7 +72,10 @@ impl<E> From<ReadError<E>> for RegionError<E> {
 ///
 /// The blocks read are those [TapeReader::grid_summaries] finds: every block meeting `time` gives all its nodes, so
 /// the first and last node may reach past `time`. Tiles merge in the order of their coordinates, then their blocks'
-/// places, so the same tiles give the same bits.
+/// places, so the same tiles give the same bits. A tile's own blocks merge first: a tree started again after a gap in
+/// its items gives a node in two blocks, and the tile still counts once in [RegionNode::tiles].
+///
+/// A block whose head names another tile than its index entry is refused ([RegionError::Summary]).
 pub fn region_timeline<S: ByteSource>(
     reader: &TapeReader<S>,
     i: usize,
@@ -88,8 +91,15 @@ pub fn region_timeline<S: ByteSource>(
     let layout = tiles.layout();
     let past = || RegionError::Invalid("samples of a node past u64");
     let mut nodes: BTreeMap<u64, RegionNode> = BTreeMap::new();
+    // the parts of the current tile's nodes: a tree started again after a gap gives a node in two blocks
+    let mut own: BTreeMap<u64, RegionNode> = BTreeMap::new();
+    let mut own_tile = None;
     let mut buf = Vec::new();
     for t in found {
+        if own_tile != Some(t.tile) {
+            add_tile(&mut nodes, &mut own)?;
+            own_tile = Some(t.tile);
+        }
         let cells = layout
             .tile_cells(&t.tile)
             .ok_or(RegionError::Invalid("a tile the box's grid doesn't hold"))?;
@@ -120,51 +130,63 @@ pub fn region_timeline<S: ByteSource>(
                 .series_node(k)
                 .ok_or(bad("a node of an event tree"))?;
             let samples = items.checked_mul(cells).ok_or_else(past)?;
-            merge_into(&mut nodes, n, first, items, samples, stats)?;
-        }
-    }
-    Ok(nodes.into_values().collect())
-}
-
-/// Merge a tile's node `n` (`items` time steps from `first`, `samples` samples) into the region's node `n`.
-fn merge_into<E>(
-    nodes: &mut BTreeMap<u64, RegionNode>,
-    n: u64,
-    first: u64,
-    items: u64,
-    samples: u64,
-    stats: SeriesNode,
-) -> Result<(), RegionError<E>> {
-    let past = || RegionError::Invalid("time steps of a node past u64");
-    let end = first.checked_add(items).ok_or_else(past)?;
-    let Some(r) = nodes.get_mut(&n) else {
-        nodes.insert(
-            n,
-            RegionNode {
+            let part = RegionNode {
                 node: n,
                 first_item: ItemNum::new(first),
                 items,
-                tiles: 1,
+                tiles: 0,
                 samples,
                 stats,
-            },
-        );
+            };
+            merge_into(&mut own, part)?;
+        }
+    }
+    add_tile(&mut nodes, &mut own)?;
+    Ok(nodes.into_values().collect())
+}
+
+/// Merge the nodes of one tile, `own`, into the region's, the tile counted once in each; `own` is left empty.
+fn add_tile<E>(
+    nodes: &mut BTreeMap<u64, RegionNode>,
+    own: &mut BTreeMap<u64, RegionNode>,
+) -> Result<(), RegionError<E>> {
+    for (_, mut part) in core::mem::take(own) {
+        part.tiles = 1;
+        merge_into(nodes, part)?;
+    }
+    Ok(())
+}
+
+/// Merge `part` into the node of its number in `nodes`: the statistics weighted by their samples, the time steps
+/// spanning both, the tiles and samples added.
+fn merge_into<E>(
+    nodes: &mut BTreeMap<u64, RegionNode>,
+    part: RegionNode,
+) -> Result<(), RegionError<E>> {
+    let past = || RegionError::Invalid("time steps of a node past u64");
+    let end = part
+        .first_item
+        .get()
+        .checked_add(part.items)
+        .ok_or_else(past)?;
+    let Some(r) = nodes.get_mut(&part.node) else {
+        nodes.insert(part.node, part);
         return Ok(());
     };
     r.stats
-        .merge(&stats, r.samples, samples)
+        .merge(&part.stats, r.samples, part.samples)
         .map_err(RegionError::Scale)?;
-    let start = r.first_item.get().min(first);
+    let start = r.first_item.get().min(part.first_item.get());
     let r_end = r.first_item.get().checked_add(r.items).ok_or_else(past)?;
     r.first_item = ItemNum::new(start);
     r.items = r_end.max(end).checked_sub(start).ok_or_else(past)?;
     r.tiles = r
         .tiles
-        .checked_add(1)
+        .checked_add(part.tiles)
         .ok_or(RegionError::Invalid("tiles of a node past u32"))?;
     r.samples = r
         .samples
-        .checked_add(samples)
+        .checked_add(part.samples)
         .ok_or(RegionError::Invalid("samples of a node past u64"))?;
     Ok(())
 }
