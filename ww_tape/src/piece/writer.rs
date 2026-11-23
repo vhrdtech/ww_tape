@@ -187,6 +187,15 @@ impl<T: PieceStore> PieceChain<T> {
         let (walk, key, reopened) = loop {
             let walk = walk_each(&mut store)?;
             check_gaps(&walk.closed, walk.last_seen.as_ref(), &walk.gaps)?;
+            // the lowest piece at hand after deleted ones, its head unread: no piece before it to start it again
+            if walk.closed.is_empty()
+                && walk.seq != 0
+                && walk.last_seen.as_ref().is_some_and(|s| s.head.is_none())
+            {
+                return Err(WriteError::Resume(ResumeError::HeadLost {
+                    seq: Some(walk.seq),
+                }));
+            }
             for key in &walk.unmarked {
                 if let Some(mut sink) = store
                     .reopen(key)

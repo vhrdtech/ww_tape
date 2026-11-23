@@ -871,3 +871,36 @@ fn a_tape_dropped_to_a_lost_head_names_no_piece() {
         "{e:?}"
     );
 }
+
+/// The lowest piece at hand cut off inside its head, the pieces before it deleted: refused before its bytes are cut.
+#[test]
+fn a_lowest_piece_without_its_head_is_refused_untouched() {
+    let defs = defs();
+    let each = options(PieceTapes::Each);
+    let dir = scratch("lowest_headless");
+    let mut c = ww_tape_fs::chain::create(&dir, OWNER, 0, &[], each.clone()).unwrap();
+    write(&mut c, &defs, 0, 9);
+    drop(c);
+    for seq in 0..4 {
+        std::fs::remove_file(dir.join(ww_tape_fs::piece_name(seq))).unwrap();
+    }
+    let last = dir.join(ww_tape_fs::piece_name(4));
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&last)
+        .unwrap()
+        .set_len(20)
+        .unwrap();
+    let before = snapshot(&dir);
+    let e = ww_tape_fs::chain::resume(&dir, OWNER, 0, each)
+        .err()
+        .unwrap();
+    assert!(
+        matches!(
+            e,
+            WriteError::Resume(ResumeError::HeadLost { seq: Some(4) })
+        ),
+        "{e:?}"
+    );
+    assert!(snapshot(&dir) == before, "a refused resume wrote");
+}
