@@ -1,12 +1,16 @@
 //! Summary blocks: the head (tree, level, node shift, element, fields, channels, scale length, item range, ticks),
-//! the scale bytes and the node values.
+//! the scale bytes, a grid tile's axis count and coordinates after the scale ([ww_tape::FLAG_TILE], set or cleared)
+//! and the node values.
 
 use ww_tape::ItemNum;
 
-use super::{Draw, Field, HEADER_FIELDS, HEADER_LEN, LEN_FIELD, hit, hit_some, seal};
+use super::{Draw, Field, HEADER_FIELDS, HEADER_LEN, LEN_FIELD, get, hit, hit_some, put, seal};
 use ww_tape::TrackId;
 use ww_tape::TrackNum;
-use ww_tape::{Element, ElementDesc, EventFields, Magnitude, Ratio64, SampleShape, SeriesGrid};
+use ww_tape::grid::GRID_FIXED_AXES_MAX;
+use ww_tape::{
+    Element, ElementDesc, EventFields, Magnitude, Ratio64, SampleShape, SeriesGrid, TileCoords,
+};
 use ww_tape_summary::{
     EventTree, ItemRun, NODE_SHIFT_MAX, SCALE_LEN_MAX, SUMMARY_FIXED_LEN, SeriesStart, SeriesStats,
     SeriesSummaries, SeriesSummarySpec,
@@ -84,15 +88,29 @@ fn events(d: &mut Draw<'_>) -> Vec<Vec<u8>> {
     tree.take_blocks()
 }
 
-/// The blocks of series summaries of samples drawn from the input.
+/// A grid tile drawn from the input with the cells of one of its time steps, or a series' none and 1.
+fn tile(d: &mut Draw<'_>) -> (TileCoords, u64) {
+    if !d.bool() {
+        return (TileCoords::NONE, 1);
+    }
+    let coords: Vec<u32> = (0..d.range(1, 3))
+        .map(|_| [0, 1, d.u32(), u32::MAX][d.below(4)])
+        .collect();
+    let tile = TileCoords::new(&coords).expect("at most 3 axes");
+    (tile, d.range(1, 4) as u64)
+}
+
+/// The blocks of series summaries of samples drawn from the input: a series', or a grid tile's whose items are time
+/// steps of its cells.
 fn series(d: &mut Draw<'_>) -> Vec<Vec<u8>> {
+    let (tile, cells) = tile(d);
     let element = ElementDesc::of(if d.bool() {
         Element::ComplexI16
     } else {
         Element::I16
     });
     let shape = SampleShape::new(element, 1 + d.below(3) as u32);
-    let lanes = shape.lanes().expect("lanes") as usize;
+    let lanes = shape.lanes().expect("lanes") as usize * cells as usize;
     let first = u64::from(d.u16());
     let start = SeriesStart {
         track_id: TrackId::new(2),
@@ -101,8 +119,8 @@ fn series(d: &mut Draw<'_>) -> Vec<Vec<u8>> {
         first_item: ItemNum::new(first),
         grid: SeriesGrid::start(first, -5, Magnitude::pow10(-3)),
         period: Ratio64::new(3, 2).expect("a ratio"),
-        tile: ww_tape::TileCoords::NONE,
-        tile_cells: 1,
+        tile,
+        tile_cells: cells,
     };
     let spec = SeriesSummarySpec {
         base_shift: 4 + d.below(3) as u8,
@@ -159,8 +177,31 @@ pub fn summary(data: &[u8]) -> Vec<u8> {
     let i = d.below(blocks.len());
     let mut b = blocks.swap_remove(i);
     let body_at = HEADER_LEN + SUMMARY_FIXED_LEN;
-    match d.u8() % 10 {
+    // a tile's axis count and coordinates sit after the scale
+    let tile_at = body_at + get(&b, HEADER_LEN + 52, 2) as usize;
+    match d.u8() % 12 {
         9 => hit(&mut d, &mut b, LEN_FIELD),
+        10 => {
+            // FLAG_TILE set on a series block, cleared on a tile's: the scale's bytes or the coordinates misread
+            let flags = get(&b, 6, 2) ^ u64::from(ww_tape::FLAG_TILE);
+            put(&mut b, 6, 2, flags);
+        }
+        11 => {
+            // the axis count or one coordinate of a tile
+            let axis = d.below(4);
+            let f = if axis == 0 {
+                Field::new(
+                    tile_at,
+                    1,
+                    &[GRID_FIXED_AXES_MAX as u64, GRID_FIXED_AXES_MAX as u64 + 1],
+                )
+            } else {
+                Field::new(tile_at + 1 + 4 * (axis - 1), 4, &[u32::MAX as u64])
+            };
+            if f.at + f.width <= b.len().saturating_sub(4) {
+                hit(&mut d, &mut b, f);
+            }
+        }
         1 | 2 => {
             let f = HEADER_FIELDS[d.below(HEADER_FIELDS.len())];
             hit(&mut d, &mut b, f);

@@ -166,6 +166,7 @@ const GOLDEN_PAYLOADS: &str = include_str!("../../ww_tape/golden/v1-payloads.hex
 const GOLDEN_SAMPLES: &str = include_str!("../../ww_tape/golden/v1-samples.hex");
 const GOLDEN_SERIES: &str = include_str!("../../ww_tape/golden/v1-series.hex");
 const GOLDEN_SUMMARY: &str = include_str!("../../ww_tape_summary/golden/v1-summary.hex");
+const GOLDEN_GRID_SUMMARY: &str = include_str!("../../ww_tape_summary/golden/v1-grid-summary.hex");
 const GOLDEN_TIMES: &str = include_str!("../../ww_tape/golden/v1-times.hex");
 const GOLDEN_CRC_ONLY: &str = include_str!("../../ww_tape/golden/v1-level-crc-only.hex");
 const GOLDEN_NONE: &str = include_str!("../../ww_tape/golden/v1-level-none.hex");
@@ -910,6 +911,11 @@ pub fn all() -> Vec<Seed> {
     out.extend(golden_grids());
     out.extend(encoding_seeds());
     out.extend(golden_blocks("tape-summary", "v1-summary", GOLDEN_SUMMARY));
+    out.extend(golden_blocks(
+        "tape-summary",
+        "v1-grid-summary",
+        GOLDEN_GRID_SUMMARY,
+    ));
     out.extend(golden_blocks("tape-times", "v1-times", GOLDEN_TIMES));
     out.extend(times_fixes());
     for (i, (name, _)) in crate::targets::ALL.iter().enumerate() {
