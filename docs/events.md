@@ -67,19 +67,19 @@ The drive's frames carry their 11-bit identifier in the first 4 bytes of the pay
 The program reads the chunk that holds the first frame at or after the fault, then every frame of the next 5 ms:
 
 ```rs
---8<-- "ww_tape_example/src/fault.rs:frames"
+--8<-- "example_drive/src/fault.rs:frames"
 ```
 
 ??? example "What the example uses here: `fault_us`, `the fault's constants`, `key`, `Frame, Frames`"
 
     ```rs
-    --8<-- "ww_tape_example/src/fault.rs:fault_us_item"
+    --8<-- "example_drive/src/fault.rs:fault_us_item"
 
-    --8<-- "ww_tape_example/src/fault.rs:fault_consts_item"
+    --8<-- "example_drive/src/fault.rs:fault_consts_item"
 
-    --8<-- "ww_tape_example/src/defs.rs:key_item"
+    --8<-- "example_drive/src/defs.rs:key_item"
 
-    --8<-- "ww_tape_example/src/fault.rs:frame_types_item"
+    --8<-- "example_drive/src/fault.rs:frame_types_item"
     ```
 
 The chunk holds 1 000 frames in a block of about 1.7 KB. The first frame at or after 52:00 is item 3 120 000 of

@@ -15,9 +15,9 @@
 //! pieces go unread: [Triaged::overrun] counts them, as a capture card counts the frames it drops.
 //!
 //! ```
-//! use ww_tape::{ChainOptions, CutPolicy, MemTapes, OwnerId, PieceTapes};
-//! use ww_tape_example::window::{Analyser, Window, triage};
-//! use ww_tape_mux::{MuxOptions, TapeMux};
+//! use example_capture::window::{Analyser, Window, kept_spec, triage};
+//! use ww_tape::{ChainOptions, CutPolicy, MemTapes, OwnerId, PieceTapes, Segment, track_key};
+//! use ww_tape_mux::{Event, EventsOptions, MuxOptions, TapeMux};
 //!
 //! // keeps every third piece
 //! struct Third;
@@ -30,20 +30,27 @@
 //!
 //! let ram = MemTapes::new();
 //! let options = ChainOptions {
-//!     cut: CutPolicy { bytes: exact_units::Bytes::new(64 << 10), ..CutPolicy::default() },
+//!     cut: CutPolicy { bytes: exact_units::Bytes::new(16 << 10), ..CutPolicy::default() },
 //!     tapes: PieceTapes::Each,
-//!     ..ww_tape_example::ethernet::chain_options()
+//!     ..example_capture::chain_options()
 //! };
 //! let mux = TapeMux::create(ram.clone(), OwnerId([0xe7; 32]), 0, &[], options, MuxOptions::default())?;
 //! let watch = mux.watch();
-//! let link = ww_tape_example::ethernet::Link::full().micros(500);
+//! let clock = mux.define_clock(example_capture::rf::clock())?;
+//! let track = mux.define_track(kept_spec(track_key(1, &[Segment::Name("ticks")]), clock))?;
+//! let mut ticks = mux.events(track, EventsOptions { chunk_items: 256, latency: None, ..EventsOptions::default() })?;
 //! let mut kept = MemTapes::new();
 //! let triaged = std::thread::scope(|s| {
 //!     let t = s.spawn(|| triage(&ram, &watch, Window::default(), &mut kept, &mut Third));
-//!     link.record(&[&mux]).expect("the capture");
+//!     for k in 0..20_000 {
+//!         let event = Event { start: k, end: k + 1, payload: &(k * 7919).to_le_bytes(), ..Event::default() };
+//!         ticks.push_all(&[event]).expect("a push");
+//!     }
+//!     ticks.finish().expect("the last chunk");
 //!     mux.close().expect("the close");
 //!     t.join().expect("the triage")
 //! })?;
+//! assert!(triaged.pieces > 3, "several pieces: {triaged:?}");
 //! assert_eq!(triaged.kept, (0..triaged.pieces).filter(|s| s % 3 == 0).collect::<Vec<_>>());
 //! assert!(ram.keys()?.is_empty(), "every piece left memory");
 //! # Ok::<(), Box<dyn std::error::Error>>(())

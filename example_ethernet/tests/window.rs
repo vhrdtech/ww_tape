@@ -11,10 +11,10 @@
 
 use std::sync::mpsc;
 
+use example_capture::window::{Analyser, Chain, RunError, Triaged, Window, run};
+use example_ethernet::ram::RamCapture;
+use example_ethernet::{Link, Rx, frames_id};
 use ww_tape::{MemTape, MemTapes, OwnerId, TapeReader};
-use ww_tape_example::ethernet::ram::RamCapture;
-use ww_tape_example::ethernet::{Link, Rx, frames_id};
-use ww_tape_example::window::{Analyser, Chain, RunError, Triaged, Window, run};
 
 /// Keeps the pieces `keep` names; before its first look it waits for `go`, when there is one.
 struct Picks {

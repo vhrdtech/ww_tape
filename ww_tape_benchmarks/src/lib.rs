@@ -1,5 +1,5 @@
 //! What more than one bench binary shares: the tables of a capture into a window in memory
-//! (`ww_tape_example::window`) for the case benches `ethernet` and `wideband`, and the series track of i16 samples
+//! (`example_capture::window`) for the case benches `ethernet` and `wideband`, and the series track of i16 samples
 //! ([series]) for `chunks` and `read_check`.
 //!
 //! A run captures at full speed into memory while the triage reads each piece and keeps a few. Its rows say how fast
@@ -18,8 +18,8 @@ pub mod series;
 
 use std::time::Duration;
 
+use example_capture::window::Triaged;
 use ww_tape_bench::Cell;
-use ww_tape_example::window::Triaged;
 
 /// The columns of [window_row], after the run's own.
 pub const WINDOW_COLUMNS: [&str; 8] = [

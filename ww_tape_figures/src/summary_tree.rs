@@ -1,11 +1,11 @@
-//! `summary_tree.svg`: the summary nodes of `phase_a` in the drive's hour ([ww_tape_example]) at 1/1000 of its data,
+//! `summary_tree.svg`: the summary nodes of `phase_a` in the drive's hour ([example_drive]) at 1/1000 of its data,
 //! read from its summary blocks: level 0 over the item numbers, level 1 above it with each node over its 16 children,
 //! each node a bar from its minimum to its maximum; below, a viewer's pixel columns, each merging the level-0 nodes
 //! that start in it ([ChannelStats::merge]).
 
 use anyhow::{Context, ensure};
+use example_drive::{Drive, key};
 use ww_tape::{BlockKind, Element, ElementDesc, FileBlocks, Recovery};
-use ww_tape_example::{Drive, key};
 use ww_tape_summary::{ChannelStats, Summary};
 
 use crate::OrDebug;

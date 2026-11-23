@@ -9,11 +9,12 @@
     reason = "tests compute expected values freely"
 )]
 
-use ww_tape::TapeReader;
-use ww_tape_example::{
-    CRASH_MINUTE, CRASH_PAST_END, Drive, Error, FAULT_MINUTE, Recording, Story, about,
-    emergency_frame, frame, parts,
+use example_capture::about;
+use example_drive::{
+    CRASH_MINUTE, CRASH_PAST_END, Drive, Error, FAULT_MINUTE, Recording, Story, emergency_frame,
+    frame, parts,
 };
+use ww_tape::TapeReader;
 
 const US_PER_MINUTE: i64 = 60_000_000;
 
@@ -86,7 +87,7 @@ fn the_full_hour_is_the_same_every_run_and_tells_the_story() -> Result<(), Error
     let (at, payload) = frame(emergency_frame(period_us), period_us);
     assert_eq!(story.fault_minute, FAULT_MINUTE);
     assert!(at >= i64::from(FAULT_MINUTE) * US_PER_MINUTE);
-    assert_eq!(payload[..4], ww_tape_example::EMERGENCY_ID.to_le_bytes());
+    assert_eq!(payload[..4], example_drive::EMERGENCY_ID.to_le_bytes());
     Ok(())
 }
 
@@ -281,12 +282,12 @@ fn the_overcurrent_passes_the_limit_within_16_bits() {
         .map(|k| {
             let us = fault_us - 20_000 + 40 * k;
             let n = (us / 40).cast_unsigned();
-            ww_tape_example::phase_ma(us, n, 25_000).unsigned_abs()
+            example_drive::phase_ma(us, n, 25_000).unsigned_abs()
         })
         .max()
         .expect("samples");
     assert!(
-        i32::from(peak) > ww_tape_example::LIMIT_MA,
+        i32::from(peak) > example_drive::LIMIT_MA,
         "the current passes the limit: {peak} mA"
     );
     assert!(peak < i16::MAX.unsigned_abs(), "no sample clips: {peak} mA");
@@ -295,12 +296,12 @@ fn the_overcurrent_passes_the_limit_within_16_bits() {
 #[test]
 fn the_command_frame_sends_the_trip_limit() {
     // frames at 1 ms; the first in each turn of four is the command 0x101
-    let (_, payload) = ww_tape_example::frame(0, 1_000);
+    let (_, payload) = example_drive::frame(0, 1_000);
     assert_eq!(payload[..4], 0x101u32.to_le_bytes(), "frame 0 is a command");
     let limit = u16::from_le_bytes([payload[6], payload[7]]);
     assert_eq!(
         i32::from(limit) * 100,
-        ww_tape_example::LIMIT_MA,
+        example_drive::LIMIT_MA,
         "the torque limit in 0.1 A is the limit the drive trips at"
     );
 }

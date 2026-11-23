@@ -59,7 +59,7 @@ The drive's recorder hands the hour to the mux through four handles. Each second
 [[records block]] of log lines and temperatures. It also sends a [[chunk]] of CAN frames and pushes a second of phase
 current. The mux turns each into one call of the writer, and adds the [[summary]] blocks of the phase current.
 
-`cargo run -p ww_tape_example` counts the calls:
+`cargo run -p example_drive` counts the calls:
 
 | Handle call | Writer call | Count |
 |---|---|---:|

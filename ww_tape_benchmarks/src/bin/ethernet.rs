@@ -1,4 +1,4 @@
-//! The protocol analyser of `ww_tape_example::ethernet` at full speed: both directions of a 10 Gbps link through
+//! The protocol analyser of `example_ethernet` at full speed: both directions of a 10 Gbps link through
 //! one `TapeMux`, into a store that keeps no bytes and into a chain of piece files.
 //!
 //! Per port a capture thread makes the frames and pushes them, and a decoder thread pushes their IPv4 and TCP or UDP
@@ -6,7 +6,7 @@
 //! not at the link's pace, so a run says how fast the analyser could record against the link it watches. Each table
 //! carries the load average before and after it.
 //!
-//! The tables `window` and `triage` capture the link into a window in memory (`ethernet::ram`) while the triage reads
+//! The tables `window` and `triage` capture the link into a window in memory (`example_ethernet::ram`) while the triage reads
 //! each piece and keeps those around a TCP reset: in one chain, whose mux writes both ports, and in a chain per port,
 //! each with a mux and a triage thread of its own; into memory, then into piece files in `--dir`.
 #![allow(
@@ -18,13 +18,14 @@
 )]
 
 use clap::Parser;
+use example_capture::chain_options;
+use example_ethernet::ram::RamCapture;
+use example_ethernet::{Captured, LINE_BPS, Link, RESET_EVERY};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use ww_tape::{ChainOptions, CutPolicy, MemTapes, OwnerId, Tapes};
 use ww_tape_bench::{Bench, Cell, Common, Discard};
 use ww_tape_benchmarks::{TRIAGE_COLUMNS, WINDOW_COLUMNS, WindowRun, triage_row, window_row};
-use ww_tape_example::ethernet::ram::RamCapture;
-use ww_tape_example::ethernet::{Captured, LINE_BPS, Link, RESET_EVERY, chain_options};
 use ww_tape_fs::Files;
 use ww_tape_mux::{MuxOptions, TapeMux};
 

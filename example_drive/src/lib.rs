@@ -21,14 +21,14 @@
 //! the run without it.
 //!
 //! ```
-//! let drive = ww_tape_example::Drive::scaled(1000).expect("1000 divides the rates");
+//! let drive = example_drive::Drive::scaled(1000).expect("1000 divides the rates");
 //! let whole = drive.record()?;
 //! let crashed = drive.crash(whole.story_crash_byte()?)?;
 //! assert_eq!(crashed.resume()?.recording.pieces, whole.pieces);
-//! # Ok::<(), ww_tape_example::Error>(())
+//! # Ok::<(), example_drive::Error>(())
 //! ```
 //!
-//! `cargo run -p ww_tape_example` prints the numbers the story tells, at full scale.
+//! `cargo run -p example_drive` prints the numbers the story tells, at full scale.
 #![allow(
     clippy::arithmetic_side_effects,
     clippy::as_conversions,
@@ -39,17 +39,12 @@
 mod card;
 mod damage;
 mod defs;
-pub mod ethernet;
 pub mod fault;
 pub mod first_tape;
 pub mod handles;
 pub mod producers;
 mod record;
-pub mod rf;
-pub mod rf_chains;
 mod signals;
-pub mod wideband;
-pub mod window;
 pub mod writing;
 
 pub use card::{Card, CardRead, EARLIER_CHAIN};
@@ -62,29 +57,6 @@ pub use signals::{
     log_line, phase_ma, temp_centi,
 };
 use ww_tape::{MemError, OwnerId};
-
-/// `bytes` rounded for prose, in decimal units: "115 MB", "14 KB", "2.1 KB"; under 1 000, exact ("164 bytes").
-///
-/// Two significant digits at least: one decimal below 10 of a unit, dropped when it is 0. A book page writes a size
-/// whose precision doesn't matter this way, and a test checks that the page holds `about` of the exact value.
-pub fn about(bytes: u64) -> String {
-    let (b, half) = (u128::from(bytes), |unit: u128| unit / 2);
-    for (unit, name) in [(1_000_000_000_u128, "GB"), (1_000_000, "MB"), (1_000, "KB")] {
-        if b < unit {
-            continue;
-        }
-        // rounded half up: whole units from 10 on, tenths below
-        if b >= unit * 10 {
-            return format!("{} {name}", (b + half(unit)) / unit);
-        }
-        let tenths = (b * 10 + half(unit)) / unit;
-        return match (tenths / 10, tenths % 10) {
-            (w, 0) => format!("{w} {name}"),
-            (w, t) => format!("{w}.{t} {name}"),
-        };
-    }
-    format!("{bytes} bytes")
-}
 
 /// Blocks of one part of a piece, as the book's anatomy of a piece names the parts.
 #[derive(Clone, Debug, PartialEq, Eq)]

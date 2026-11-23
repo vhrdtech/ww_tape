@@ -1,10 +1,10 @@
-//! [producers::threads](ww_tape_example::producers::threads) and its async twin on tokio tasks, each a producer
+//! [producers::threads](example_drive::producers::threads) and its async twin on tokio tasks, each a producer
 //! thread or task per track, read back after the close.
 #![allow(clippy::expect_used, reason = "tests fail by panicking")]
 
+use example_drive::Error;
+use example_drive::producers::{self, Counts, LEVELS, OWNER, PINGS};
 use ww_tape::{ChainOptions, MemTapes};
-use ww_tape_example::Error;
-use ww_tape_example::producers::{self, Counts, LEVELS, OWNER, PINGS};
 use ww_tape_mux::{Event, EventsOptions, MuxOptions, SeriesOptions, TapeMux};
 
 fn counts() -> Counts {

@@ -5,7 +5,7 @@
 //! with its first piece deleted, and the hour relayed from the board's own tape.
 //!
 //! [Writing::of] computes them from a recording; its [Display](core::fmt::Display) is what
-//! `cargo run -p ww_tape_example` prints from "Writing the drive's hour" on and what `tests/writing.out` pins.
+//! `cargo run -p example_drive` prints from "Writing the drive's hour" on and what `tests/writing.out` pins.
 
 #![expect(
     clippy::cast_precision_loss,

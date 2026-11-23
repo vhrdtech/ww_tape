@@ -1,6 +1,6 @@
 //! A mux small enough for one page: three producer threads, each with its own handle, into one chain in memory.
 //!
-//! [threads] runs them on [std::thread]; `ww_tape_example`'s tests run the same calls as `_async` on tokio tasks.
+//! [threads] runs them on [std::thread]; `example_drive`'s tests run the same calls as `_async` on tokio tasks.
 
 use std::thread;
 

@@ -50,6 +50,6 @@ Start where your question is:
 - [WireWeaver and logring](related_books.md): the framework tapes belong to, and the store for firmware.
 - [Format reference](format.md): every block byte by byte, for a reader in another language.
 
-Most examples come from one recording, a motor controller's hour on a test bench, and the crate `ww_tape_example`
+Most examples come from one recording, a motor controller's hour on a test bench, and the crate `example_drive`
 writes it. Every number in an example comes from running that code. A badge above each title gives its [reading
 level](levels.md): read the basic chapters first and stop when you have what you need.

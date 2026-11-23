@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 
-use ww_tape_example::Drive;
+use example_drive::Drive;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let dir = std::env::args_os().nth(1).map_or_else(
@@ -18,7 +18,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if path.exists() {
         std::fs::remove_file(&path)?;
     }
-    let report = ww_tape_example::first_tape::run(&path, &Drive::full().minutes(1))?;
+    let report = example_drive::first_tape::run(&path, &Drive::full().minutes(1))?;
     println!("wrote {}", path.display());
     print!("{report}");
     Ok(())

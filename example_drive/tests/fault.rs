@@ -9,8 +9,9 @@
 
 use std::path::Path;
 
-use ww_tape_example::fault::{BEFORE_US, Fault, fault_us};
-use ww_tape_example::{Drive, EMERGENCY_ID, LIMIT_MA, Mode, about, grouped};
+use example_capture::about;
+use example_drive::fault::{BEFORE_US, Fault, fault_us};
+use example_drive::{Drive, EMERGENCY_ID, LIMIT_MA, Mode, grouped};
 
 #[test]
 fn part_iv_finds_the_fault_and_prints_what_the_chapters_quote() {
@@ -22,7 +23,7 @@ fn part_iv_finds_the_fault_and_prints_what_the_chapters_quote() {
     assert_eq!(
         f.to_string(),
         want,
-        "tests/fault.out is what the program prints from `Finding the fault` on: copy it from `cargo run -p ww_tape_example`"
+        "tests/fault.out is what the program prints from `Finding the fault` on: copy it from `cargo run -p example_drive`"
     );
 
     rounded_on_the_pages(&f);

@@ -65,11 +65,11 @@ failed. Read as a raw medium, the card gives today's 3 pieces, the last one endi
 other 43 MB or so stay behind as stale data. Read as a file, the card gives 4 pieces, and the fourth is the earlier
 run's last piece, found by its tail.
 
-`cargo run -p ww_tape_example` prints these numbers, and this doctest reads the same card at 1/1000 of its data:
+`cargo run -p example_drive` prints these numbers, and this doctest reads the same card at 1/1000 of its data:
 
 ```rust
 use ww_tape::{Medium, OpenOptions, TapeReader};
-use ww_tape_example::{Drive, EARLIER_CHAIN};
+use example_drive::{Drive, EARLIER_CHAIN};
 
 let today = Drive::scaled(1000).expect("1000 divides the rates").on_sd_card();
 let earlier = today.chain(EARLIER_CHAIN).record().expect("the earlier run records");
@@ -91,7 +91,7 @@ assert_eq!(as_file.pieces().len(), 4);
 
 A tape on a raw medium is written by the same [[writer]] as a file, with two differences. The [[layout]] says how far a
 reader looks past a bad stretch, and every [[piece]] is one [[session]]. The drive's recorder for the card sets the
-layout with [`Layout::on_sd_card`], and [`Drive::on_sd_card`] in `ww_tape_example` does the same.
+layout with [`Layout::on_sd_card`], and [`Drive::on_sd_card`] in `example_drive` does the same.
 
 A piece on a raw medium is one session, since a new session may start only at a piece head. The writer's next piece of a
 chain starts with a piece head that names the session of the piece before it. A reader thus goes on from one piece into

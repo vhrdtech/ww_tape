@@ -19,6 +19,7 @@
 
 use clap::Parser;
 use exact_units::{Count, Magnitude};
+use example_capture::rf::{IQ_ELEMENT, Rf, iq_shape, summaries};
 use shrink_wrap::prelude::*;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
@@ -34,7 +35,6 @@ use ww_tape::{
     clock_key, track_key,
 };
 use ww_tape_bench::{Bench, Cell, Common, Discard};
-use ww_tape_example::rf::{IQ_ELEMENT, Rf, iq_shape, summaries};
 use ww_tape_mux::{Event, EventsOptions, MuxOptions, SeriesOptions, TapeMux};
 use ww_tape_summary::{EventFields, EventTree, SeriesStart, SeriesSummaries};
 

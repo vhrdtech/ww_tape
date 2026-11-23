@@ -1,4 +1,4 @@
-//! The figures of the book's Part III, writing, drawn from the drive's recording ([ww_tape_example]):
+//! The figures of the book's Part III, writing, drawn from the drive's recording ([example_drive]):
 //!
 //! - `deferred.svg`: the same stretch of `phase_a` alone unaligned and aligned, and of the drive's aligned file: whole
 //!   blocks, where the summary blocks land and the zeros in each chunk's head that put its payload on 4 KiB.
@@ -11,12 +11,12 @@
 //! - `cut.svg`: the end of piece 0 and the start of piece 1 of the drive's chain at 1/1000 of its data.
 
 use anyhow::{Context, ensure};
+use example_drive::writing::{SYNC_POLICIES, phase_values, series_tape, sync_offsets};
+use example_drive::{Act, Drive, DriveNumbers};
 use ww_tape::TrackNum;
 use ww_tape::piece::close_padding;
 use ww_tape::times::TimeMode;
 use ww_tape::{BlockKind, ColumnKind, FileBlocks, Layout, Recovery, SyncPolicy, TapeReader};
-use ww_tape_example::writing::{SYNC_POLICIES, phase_values, series_tape, sync_offsets};
-use ww_tape_example::{Act, Drive, DriveNumbers};
 
 use crate::OrDebug;
 use crate::crash::{LEFT, Part, ROW_H, ROW_W, View, drive, kib, legend, row, spans};
@@ -387,7 +387,7 @@ pub fn linear_group() -> anyhow::Result<String> {
     let width = u32::from(*rec.get(20).context("width")?);
     let period = 1_000_000 / u64::from(Drive::full().can_hz);
     let starts: Vec<i64> = (head.first_item.get()..head.first_item.get() + 128)
-        .map(|k| ww_tape_example::frame(k, period).0)
+        .map(|k| example_drive::frame(k, period).0)
         .collect();
     ensure!(
         starts.first() == Some(&first),

@@ -1,4 +1,4 @@
-//! The RF capture's writer and reader on one core: a minute of IQ (`ww_tape_example::rf`) at `--msps`, chunk by
+//! The RF capture's writer and reader on one core: a minute of IQ (`example_capture::rf`) at `--msps`, chunk by
 //! chunk, the samples made before each chunk and not timed. Prints, per codec, what the writer spends on a chunk:
 //! the codec, `TapeWriter::write_chunk` into a sink that keeps no bytes (CRCs, the content hash, the index), and the
 //! summaries; the rate they sustain together in MS/s and MB/s of 4-byte samples. Then the reader on `--read-seconds`
@@ -13,11 +13,12 @@
 )]
 
 use clap::Parser;
+use example_capture::rf::Rf;
+use example_rf::Tally;
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 use ww_tape::{Codec, SyncPolicy, TapeWriter};
 use ww_tape_bench::{Bench, Cell, Common};
-use ww_tape_example::rf::{self, Rf, Tally};
 
 #[derive(Parser)]
 #[command(
@@ -173,11 +174,12 @@ fn main() -> anyhow::Result<()> {
     );
     for (name, codec) in codecs {
         let rf = base.codec(codec).seconds(args.read_seconds);
-        let piece = rf.record().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let piece = example_rf::record(&rf).map_err(|e| anyhow::anyhow!("{e}"))?;
         let mut best = f64::INFINITY;
         for _ in 0..args.rounds {
             let t = Instant::now();
-            let read = rf::read(black_box(&piece.bytes)).map_err(|e| anyhow::anyhow!("{e}"))?;
+            let read =
+                example_rf::read(black_box(&piece.bytes)).map_err(|e| anyhow::anyhow!("{e}"))?;
             best = best.min(t.elapsed().as_secs_f64());
             anyhow::ensure!(read.chunks == rf.chunks(), "every chunk read");
             black_box(read);

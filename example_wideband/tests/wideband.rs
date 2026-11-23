@@ -12,11 +12,11 @@
     reason = "tests fail by panicking, compute expected values freely"
 )]
 
+use example_capture::about;
+use example_capture::pieces;
+use example_capture::rf::{BURSTS_MS, Signal};
+use example_wideband::{Source, Wideband, overview, read_channel};
 use ww_tape::{MemTapes, OwnerId};
-use ww_tape_example::about;
-use ww_tape_example::ethernet::pieces;
-use ww_tape_example::rf::{BURSTS_MS, Signal};
-use ww_tape_example::wideband::{Source, Wideband, overview, read_channel};
 use ww_tape_mux::{MuxOptions, TapeMux};
 
 /// Record `wb` live through `muxes` muxes in memory: each chain's pieces.
@@ -113,7 +113,7 @@ fn the_overview_finds_the_bursts_from_the_summaries() {
         );
         let quiet = o.nodes.iter().map(|n| n.power_max).fold(f32::MAX, f32::min);
         // a node's span in ns at 10 kS/s
-        let span = |n: &ww_tape_example::wideband::OverviewNode| {
+        let span = |n: &example_wideband::OverviewNode| {
             n.first_tick..n.first_tick + n.samples.cast_signed() * 100_000
         };
         for n in &o.nodes {
@@ -156,8 +156,8 @@ fn the_page_gives_what_a_second_takes() {
     // a level-3 node: 2^(10 + 3 * 4) samples of a channel
     let node = 1_u64 << 22;
     let node_ms = (node as f64 / f64::from(full.channel_rate()) * 1e3).round();
-    let ram = ww_tape_example::wideband::ram::RfCapture::full();
-    let times = f64::from(ram.wb.rate_hz) / f64::from(ww_tape_example::rf::Rf::capture().rate_hz);
+    let ram = example_wideband::ram::RfCapture::full();
+    let times = f64::from(ram.wb.rate_hz) / f64::from(example_capture::rf::Rf::capture().rate_hz);
     for phrase in [
         format!(
             "At 1 GS/s, a second of the receiver takes about {second}, and a minute about {minute}."

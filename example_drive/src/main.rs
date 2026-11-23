@@ -1,4 +1,4 @@
-//! Print the numbers of the drive's story, recorded at a scale: `ww_tape_example [K]`, `K` dividing 1000 (1, the full
+//! Print the numbers of the drive's story, recorded at a scale: `example_drive [K]`, `K` dividing 1000 (1, the full
 //! hour, by default).
 #![allow(
     clippy::print_stdout,
@@ -8,12 +8,11 @@
     reason = "the binary prints the story's numbers, computed freely from sizes far below 2^52"
 )]
 
+use example_capture::about;
+use example_drive::fault::Fault;
+use example_drive::writing::Writing;
+use example_drive::{Damaged, Drive, EARLIER_CHAIN, Error, Recording, Salvaged, Story, parts};
 use ww_tape::reader::Found;
-use ww_tape_example::fault::Fault;
-use ww_tape_example::writing::Writing;
-use ww_tape_example::{
-    Damaged, Drive, EARLIER_CHAIN, Error, Recording, Salvaged, Story, about, parts,
-};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let k = match std::env::args().nth(1) {

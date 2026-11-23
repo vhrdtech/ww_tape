@@ -11,6 +11,7 @@ benchmarks, golden files and book pages.
 - A memory tape of this process reads without payload CRCs by default; `PayloadCheck::Always` checks them (REPO-1).
 - `OpenOptions` gains `check_payloads`: a struct literal adds it or `..OpenOptions::default()` (REPO-1).
 - `EncodedPayloads::from_parts` takes a `PayloadCodec` first; pass `PayloadCodec::Auto` for the bytes as before (CODEC-3).
+- `ww_tape_example` is `example_drive`; the cases are `example_rf`, `example_ethernet`, `example_wideband`, shared parts `example_capture` (EX-5).
 
 ### Features
 

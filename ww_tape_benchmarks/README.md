@@ -55,7 +55,7 @@ just bench-tracks
 just bench-tracks --tracks 100000
 ```
 
-The `rf_core` binary times the writer and the reader on the RF capture of `ww_tape_example::rf`, on one core. The
+The `rf_core` binary times the writer and the reader on the RF capture of `example_rf`, on one core. The
 samples of each chunk are made before it and not timed. It prints, per codec, what the writer spends on a chunk: the
 codec, `TapeWriter::write_chunk` and the summaries. Then it reads a capture in memory, every chunk checked and decoded.
 
@@ -68,7 +68,7 @@ just bench-rf-core
 just bench-rf-chain --dir /data/rf --gib 100 --remove
 ```
 
-The `ethernet` binary records the protocol analyser of `ww_tape_example::ethernet` at full speed. It takes both
+The `ethernet` binary records the protocol analyser of `example_ethernet` at full speed. It takes both
 directions of a 10 Gbps link at its line rate, with a capture and a decoder thread per receive queue. A run per number
 of queues and of muxes writes into a store that keeps no bytes. With `--dir`, the most queues also write chains of
 piece files there. It prints the frames a second and the share of the link the run kept up with.
@@ -83,7 +83,7 @@ just bench-ethernet --dir target/bench-ethernet
 just bench-ethernet --ms 500 --queues 1,2,4,8 --muxes 1,2
 ```
 
-The `wideband` binary records the receiver of `ww_tape_example::wideband` at full speed. It splits 1 GS/s of IQ into
+The `wideband` binary records the receiver of `example_wideband` at full speed. It splits 1 GS/s of IQ into
 channels, each a producer thread, over one or several muxes. Each thread pushes chunks made before the run, so the run
 times the recorder and not the signal. A run per number of channels, muxes and codec writes into a store that keeps no
 bytes. With `--dir`, the most channels and muxes also write chains of piece files there.

@@ -9,7 +9,7 @@
     reason = "the binary prints the capture's numbers, computed freely from sizes far below 2^52"
 )]
 
-use ww_tape_example::ethernet::Link;
+use example_ethernet::Link;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ms: u64 = match std::env::args().nth(1) {

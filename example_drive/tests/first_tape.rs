@@ -4,13 +4,13 @@
 
 use std::path::Path;
 
+use example_drive::Drive;
+use example_drive::first_tape::{FirstTapeError, run};
 use ww_tape::TapeReader;
-use ww_tape_example::Drive;
-use ww_tape_example::first_tape::{FirstTapeError, run};
 
 #[test]
 fn the_first_tape_prints_what_the_page_shows() -> Result<(), FirstTapeError> {
-    let dir = std::env::temp_dir().join(format!("ww_tape_example-first-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("example_drive-first-{}", std::process::id()));
     std::fs::create_dir_all(&dir).map_err(FirstTapeError::Io)?;
     let path = dir.join("drive.wwt");
     _ = std::fs::remove_file(&path);
@@ -20,7 +20,7 @@ fn the_first_tape_prints_what_the_page_shows() -> Result<(), FirstTapeError> {
             .map_err(FirstTapeError::Io)?;
     assert_eq!(
         report, want,
-        "tests/first_tape.out is what the program prints: copy it from `cargo run -p ww_tape_example --bin first_tape`"
+        "tests/first_tape.out is what the program prints: copy it from `cargo run -p example_drive --bin first_tape`"
     );
 
     let bytes = std::fs::read(&path).map_err(FirstTapeError::Io)?;

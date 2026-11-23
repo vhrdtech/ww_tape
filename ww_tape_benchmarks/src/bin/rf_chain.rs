@@ -1,4 +1,4 @@
-//! The RF capture (`ww_tape_example::rf`) recorded at full speed into a chain of piece files, then read back.
+//! The RF capture (`example_capture::rf`) recorded at full speed into a chain of piece files, then read back.
 //!
 //! Worker threads make each chunk's samples and code them, as a recorder's receive threads do; one thread writes
 //! the chunks and the summaries into the chain, a piece a minute of capture, until the chain holds `--gib` GiB.
@@ -16,6 +16,7 @@
 
 use anyhow::Context;
 use clap::Parser;
+use example_capture::rf::{self, Rf, iq_key};
 use std::cell::Cell;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
@@ -28,7 +29,6 @@ use ww_tape::{
     TrackNum, WriterOptions,
 };
 use ww_tape_bench::{Bench, Cell as TableCell, Common};
-use ww_tape_example::rf::{self, Rf, iq_key};
 use ww_tape_fs::{FileSource, FsError};
 
 #[derive(Parser)]

@@ -1,7 +1,7 @@
 //! A receiver at 250 MS/s captured into memory, only the stretches around its bursts kept.
 //!
 //! [RfCapture::run] records the receiver as [Wideband::record] does, into a chain of pieces in memory
-//! ([crate::window]). Its analyser, [Bursts], detects energy: it reads each piece's level-0 summary nodes, never its
+//! ([example_capture::window]). Its analyser, [Bursts], detects energy: it reads each piece's level-0 summary nodes, never its
 //! samples. A node whose largest power `I² + Q²` passes [RfCapture::power_min] holds a burst. A piece with such a
 //! node is kept, with [Window::before] pieces before it and [Window::after] after it; the rest leave memory unwritten.
 //!
@@ -22,9 +22,11 @@ use ww_tape::{
 };
 use ww_tape_mux::{Event, EventsHandle, EventsOptions, MuxError, TapeMux};
 
-use super::{Recorded, Source, Wideband, WidebandError, channel_id, summary_nodes};
-use crate::rf::clock;
-use crate::window::{self, Analyser, KeptLog, LookError, RunError, Triaged, Window, kept_spec};
+use crate::{Recorded, Source, Wideband, WidebandError, channel_id, summary_nodes};
+use example_capture::rf::clock;
+use example_capture::window::{
+    self, Analyser, KeptLog, LookError, RunError, Triaged, Window, kept_spec,
+};
 
 /// The root of the results' API: their track and clock keys start from it.
 pub const RESULTS_ROOT: u64 = 0x5d_0002;
@@ -138,7 +140,7 @@ impl RfCapture {
 #[derive(Clone, Debug, PartialEq)]
 pub struct RfRun {
     pub recorded: Recorded,
-    /// [Ran::capture_time](crate::window::Ran::capture_time).
+    /// [Ran::capture_time](example_capture::window::Ran::capture_time).
     pub capture_time: core::time::Duration,
     pub triaged: Triaged,
     pub bursts: Vec<Burst>,

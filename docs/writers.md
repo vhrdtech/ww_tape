@@ -48,14 +48,14 @@ nanoseconds, and a clock map joins the two. At minute 37 the host loses power wh
 A number in an example comes from running code, never from a hand calculation. The bytes a crash loses and the bytes
 per frame are such numbers.
 
-The crate `ww_tape_example` records the drive's hour, and `cargo run -p ww_tape_example` prints the example's
+The crate `example_drive` records the drive's hour, and `cargo run -p example_drive` prints the example's
 numbers.
 Figures draw from a scaled run, which has a fraction of the data and of every byte policy. A doctest calls the same
 code:
 
 ```rust
 // The drive's hour at 1/1000 of its data, as the figures draw it.
-let drive = ww_tape_example::Drive::scaled(1000).expect("1000 divides the rates");
+let drive = example_drive::Drive::scaled(1000).expect("1000 divides the rates");
 let story = drive.story().expect("the run records");
 // The crash at minute 37 resumes to the bytes of the run without it.
 assert!(story.same_bytes);
@@ -74,7 +74,7 @@ A number stays exact where the reader uses its digits:
 - a count the reader checks against code or output, such as item 3 120 000 or 28 reads;
 - the size tables of [Sizes and speeds](sizes.md).
 
-The test that pins a number keeps its exact value and checks the rounded text on the page. `ww_tape_example::about`
+The test that pins a number keeps its exact value and checks the rounded text on the page. `example_capture::about`
 rounds a size the way the pages write it. The test reads the page with its line breaks as spaces and asserts that it
 holds the phrase, such as `format!("opening reads about {} in {} reads", about(bytes), reads)`. A changed recording
 then fails the test until the page says the new number.

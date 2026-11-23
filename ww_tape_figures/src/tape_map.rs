@@ -1,12 +1,12 @@
-//! `tape_map.svg`: the drive's hour ([ww_tape_example]) at 1/100 of its data, read back from its pieces. Above, its
+//! `tape_map.svg`: the drive's hour ([example_drive]) at 1/100 of its data, read back from its pieces. Above, its
 //! five tracks over the hour; below, the blocks that hold them on the same time line: records blocks that carry the
 //! slow tracks together, and chunks of one track each. The cuts between the pieces cross both.
 
 use anyhow::{Context, ensure};
+use example_drive::Drive;
 use ww_tape::chunk::ColumnKind;
 use ww_tape::samples::{SampleShape, Samples};
 use ww_tape::{BlockKind, Element, ElementDesc, FLAG_REPEAT, FileBlocks};
-use ww_tape_example::Drive;
 
 use crate::OrDebug;
 use crate::svg::Svg;

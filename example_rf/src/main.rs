@@ -10,9 +10,10 @@
     reason = "the binary prints the capture's numbers, computed freely from sizes far below 2^52"
 )]
 
+use example_capture::rf::Rf;
+use example_rf::chains::{Chains, Decoded};
+use example_rf::{Tally, record_on, write_file};
 use ww_tape::Codec;
-use ww_tape_example::rf::{Rf, Tally};
-use ww_tape_example::rf_chains::{Chains, Decoded};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     if std::env::args().nth(1).as_deref() == Some("chains") {
@@ -30,7 +31,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             None => 1,
         };
         let rf = Rf::scaled(k).ok_or("K divides 200 000")?;
-        let c = rf.write_file(std::path::Path::new(&path))?;
+        let c = write_file(&rf, std::path::Path::new(&path))?;
         println!(
             "{path}: a minute of IQ at {} S/s, {} bytes, {:.3} per sample.",
             rf.rate_hz,
@@ -60,7 +61,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ("`DELTA`", Codec::DELTA),
         ("`DELTA2`", Codec::DELTA2),
     ] {
-        let c = rf.codec(codec).record_on(Tally::default())?;
+        let c = record_on(&rf.codec(codec), Tally::default())?;
         println!(
             "| {name} | {:.1} | {:.3} | {:.1} | {:.1} | {} |",
             c.len as f64 / 1e6,

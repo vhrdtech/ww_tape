@@ -1,6 +1,6 @@
 //! The analyser capturing the link into memory at line rate and keeping only the pieces around TCP resets.
 //!
-//! [RamCapture::run] records the link as [Link::record] does, into chains of pieces in memory ([crate::window]):
+//! [RamCapture::run] records the link as [Link::record] does, into chains of pieces in memory ([example_capture::window]):
 //! port `p` into chain `p % chains`, through a mux of its own. A chain's analyser, [Resets], reads each piece of its
 //! chain as it closes, on a thread of its own. It decodes every frame of the piece and looks for a TCP
 //! reset ([L4::is_reset]). A piece that holds one is kept, with [Window::before] pieces before it and
@@ -25,11 +25,14 @@ use ww_tape::{
 };
 use ww_tape_mux::{Event, EventsHandle, EventsOptions, MuxError, TapeMux};
 
-use super::{
-    EthError, IPV4_BYTES, Ipv4, L4, L4_BYTES, Link, OWNER, Rx, chain_options, clock, decode_frame,
-    frame_relation, frames_id,
+use crate::{
+    EthError, IPV4_BYTES, Ipv4, L4, L4_BYTES, Link, OWNER, Rx, clock, decode_frame, frame_relation,
+    frames_id,
 };
-use crate::window::{self, Analyser, KeptLog, LookError, RunError, Triaged, Window, kept_spec};
+use example_capture::chain_options;
+use example_capture::window::{
+    self, Analyser, KeptLog, LookError, RunError, Triaged, Window, kept_spec,
+};
 
 /// The root of the results' API: their track and clock keys start from it.
 pub const RESULTS_ROOT: u64 = 0xe7_0002;
@@ -135,8 +138,8 @@ impl RamCapture {
 /// found.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RamRun {
-    pub captured: super::Captured,
-    /// [Ran::capture_time](crate::window::Ran::capture_time).
+    pub captured: crate::Captured,
+    /// [Ran::capture_time](example_capture::window::Ran::capture_time).
     pub capture_time: core::time::Duration,
     /// A [Triaged] per chain.
     pub triaged: Vec<Triaged>,

@@ -12,7 +12,7 @@ and in its index.
 
 The example is a query on the drive's recording for the second around the fault at minute 52 of its hour. The recording
 is a chain of four [[pieces]], about 115 MB in all. Every number below comes from [`src/fault.rs`]. This program
-runs each step on that recording and counts the bytes it reads. `cargo run -p ww_tape_example` prints them.
+runs each step on that recording and counts the bytes it reads. `cargo run -p example_drive` prints them.
 
 ## Byte sources
 
@@ -54,17 +54,17 @@ which ticks the track's [[chunks]] cover in that piece. The program picks the pi
 another read:
 
 ```rs
---8<-- "ww_tape_example/src/fault.rs:open"
+--8<-- "example_drive/src/fault.rs:open"
 ```
 
 ??? example "What the example uses here: `fault_us`, `key`, `Opened`"
 
     ```rs
-    --8<-- "ww_tape_example/src/fault.rs:fault_us_item"
+    --8<-- "example_drive/src/fault.rs:fault_us_item"
 
-    --8<-- "ww_tape_example/src/defs.rs:key_item"
+    --8<-- "example_drive/src/defs.rs:key_item"
 
-    --8<-- "ww_tape_example/src/fault.rs:opened_item"
+    --8<-- "example_drive/src/fault.rs:opened_item"
     ```
 
 The fault lies in piece 3, the last one. A piece that a crash left without a tail is found from its newest
@@ -90,17 +90,17 @@ index's directory and that track's list, each checked by its own CRC. It never w
 file. The example asks for `phase_a` in the second either side of the fault:
 
 ```rs
---8<-- "ww_tape_example/src/fault.rs:find"
+--8<-- "example_drive/src/fault.rs:find"
 ```
 
 ??? example "What the example uses here: `fault_us`, `key`, `Found`"
 
     ```rs
-    --8<-- "ww_tape_example/src/fault.rs:fault_us_item"
+    --8<-- "example_drive/src/fault.rs:fault_us_item"
 
-    --8<-- "ww_tape_example/src/defs.rs:key_item"
+    --8<-- "example_drive/src/defs.rs:key_item"
 
-    --8<-- "ww_tape_example/src/fault.rs:found_item"
+    --8<-- "example_drive/src/fault.rs:found_item"
     ```
 
 `phase_a`'s list in the last piece holds 1 638 entries, its chunks and its summary blocks. The query keeps two of
@@ -142,15 +142,15 @@ has an index entry of its own, which holds its slot and the hash of its item. Th
 index to the one block it needs:
 
 ```rs
---8<-- "ww_tape_example/src/fault.rs:mode"
+--8<-- "example_drive/src/fault.rs:mode"
 ```
 
 ??? example "What the example uses here: `number_of`, `InForce`"
 
     ```rs
-    --8<-- "ww_tape_example/src/fault.rs:number_of_item"
+    --8<-- "example_drive/src/fault.rs:number_of_item"
 
-    --8<-- "ww_tape_example/src/fault.rs:in_force_item"
+    --8<-- "example_drive/src/fault.rs:in_force_item"
     ```
 
 At the chunk before the fault, the mode is `run, 31 A limit`, and its record from 45:35 lies about 12 MB behind. That

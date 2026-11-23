@@ -12,13 +12,13 @@
     reason = "tests fail by panicking, compute expected values freely and print what they saw"
 )]
 
+use example_capture::about;
+use example_ethernet::{Link, Rx, Traffic, digest};
 use ww_tape::{ChainOptions, MemTapes, OwnerId};
-use ww_tape_example::about;
-use ww_tape_example::ethernet::{self, Link, Rx, Traffic, digest};
 use ww_tape_mux::{MuxOptions, TapeMux};
 
 /// Record `link` into one chain in memory: what it sent, and the chain read back.
-fn record(link: Link) -> (ethernet::Captured, ethernet::ReadBack) {
+fn record(link: Link) -> (example_ethernet::Captured, example_ethernet::ReadBack) {
     let tapes = MemTapes::new();
     let mux = TapeMux::create(
         tapes.clone(),
@@ -31,10 +31,10 @@ fn record(link: Link) -> (ethernet::Captured, ethernet::ReadBack) {
     .expect("the mux starts");
     let captured = link.record(&[&mux]).expect("the link records");
     let closed = mux.close().expect("the chain closes");
-    let pieces = ethernet::pieces(&tapes, &closed).expect("the pieces");
+    let pieces = example_capture::pieces(&tapes, &closed).expect("the pieces");
     (
         captured,
-        ethernet::read(&pieces, link.queues).expect("the chain reads"),
+        example_ethernet::read(&pieces, link.queues).expect("the chain reads"),
     )
 }
 
@@ -73,7 +73,7 @@ fn every_frame_and_header_reads_back() {
             );
             let ip = frames
                 .iter()
-                .filter(|(_, f)| ethernet::decode_frame(f).is_some())
+                .filter(|(_, f)| example_ethernet::decode_frame(f).is_some())
                 .count() as u64;
             assert_eq!(
                 (got.ipv4, sent.ipv4),
@@ -131,8 +131,8 @@ fn a_mux_per_port_writes_two_chains() {
         .expect("the link records");
     let mut pieces = Vec::new();
     for (mux, tapes) in muxes.into_iter().zip(&tapes) {
-        let chain = ethernet::pieces(tapes, &mux.close().expect("closes")).expect("pieces");
-        let alone = ethernet::read(&chain, link.queues).expect("a chain reads alone");
+        let chain = example_capture::pieces(tapes, &mux.close().expect("closes")).expect("pieces");
+        let alone = example_ethernet::read(&chain, link.queues).expect("a chain reads alone");
         assert_eq!(
             alone.ports.iter().filter(|p| p.frames > 0).count(),
             1,
@@ -140,7 +140,7 @@ fn a_mux_per_port_writes_two_chains() {
         );
         pieces.extend(chain);
     }
-    let read = ethernet::read(&pieces, link.queues).expect("both chains read");
+    let read = example_ethernet::read(&pieces, link.queues).expect("both chains read");
     for port in [0, 1] {
         assert_eq!(read.ports[port].frames, captured.ports[port].frames);
         assert_eq!(read.ports[port].matched, 2 * captured.ports[port].ipv4);
@@ -156,7 +156,7 @@ fn the_link_runs_at_its_load() {
             .collect();
         let wire: u64 = traffic
             .iter()
-            .map(|(_, f)| f.len() as u64 + ethernet::WIRE_EXTRA_BYTES)
+            .map(|(_, f)| f.len() as u64 + example_ethernet::WIRE_EXTRA_BYTES)
             .sum();
         // a ms at 10 Gbps is 1.25 MB on the wire
         let percent = wire as f64 / 1_250_000.0 * 100.0;
@@ -177,7 +177,7 @@ fn decoded_headers_say_what_the_frame_holds() {
     let traffic = Traffic::new(Link::full().micros(100).queues(1), Rx { port: 1, queue: 0 }).all();
     let (mut tcp, mut udp) = (0, 0);
     for (_, f) in &traffic {
-        let Some((ip, l4)) = ethernet::decode_frame(f) else {
+        let Some((ip, l4)) = example_ethernet::decode_frame(f) else {
             continue;
         };
         assert_eq!(usize::from(ip.len) + 14, f.len(), "the IPv4 length");
@@ -216,7 +216,7 @@ fn the_page_gives_what_the_link_takes() {
     let per_frame_byte = sizes.read.piece_bytes as f64 / frame_bytes as f64;
     let (_, ipv4) = sizes.track(1);
     let (_, l4) = sizes.track(2);
-    let per_header = |b: ethernet::TrackBytes, items: u64| {
+    let per_header = |b: example_ethernet::TrackBytes, items: u64| {
         (b.chunk_bytes + b.summary_bytes) as f64 / items as f64
     };
     let (n_ip, _) = sizes.track(1);
@@ -227,7 +227,7 @@ fn the_page_gives_what_the_link_takes() {
     let second = about(sizes.read.piece_bytes * 100);
     let port = about(frame_bytes * 100 / 2);
     // a piece in memory, against what a second of the link takes
-    let piece = ww_tape_example::ethernet::ram::RamCapture::full().piece_bytes;
+    let piece = example_ethernet::ram::RamCapture::full().piece_bytes;
     let piece_ms = (piece as f64 / (sizes.read.piece_bytes * 100) as f64 * 1e3).round();
     for phrase in [
         format!(
@@ -242,7 +242,7 @@ fn the_page_gives_what_the_link_takes() {
         format!("The [[mux]] cuts a piece every 64 MiB, about {piece_ms} ms of the link"),
         format!(
             "The link sends one in {} million frames of a port",
-            ethernet::RESET_EVERY / 1_000_000
+            example_ethernet::RESET_EVERY / 1_000_000
         ),
     ] {
         assert!(

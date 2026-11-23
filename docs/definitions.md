@@ -69,7 +69,7 @@ and closes a track:
 
 ```rust
 use ww_tape::{MemSink, SyncPolicy, TapeWriter};
-use ww_tape_example::{Mode, definitions};
+use example_drive::{Mode, definitions};
 
 // The definitions, and the numbers they gave the drive's clocks and tracks.
 let (mut defs, numbers) = definitions(25_000, true, 32 << 20).expect("the drive's definitions");
@@ -142,7 +142,7 @@ close behind.
 
 A put is idempotent, so the producer keeps no memory of what it put before. The drive's recorder puts the mode before
 each one-second [[block]], 901 times while it writes the first piece. Only four of those puts write, as `cargo run -p
-ww_tape_example` prints. They are idle at the start, its copy at 40 seconds, run at minute 1 and its copy at 96 seconds.
+example_drive` prints. They are idle at the start, its copy at 40 seconds, run at minute 1 and its copy at 96 seconds.
 The piece ends just short of 28 MiB, before the record of run lies 32 MiB behind, so no other put writes.
 
 The writer puts [[definitions]] the same way before every block of data, by the [[layout]]'s own policy. The drawing

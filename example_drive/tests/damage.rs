@@ -9,11 +9,10 @@
     reason = "tests compute expected values freely"
 )]
 
+use example_capture::about;
+use example_drive::{Damaged, Drive, EARLIER_CHAIN, Error, FAULT_MINUTE, FLIP_MINUTE, LOST_UNIT};
 use ww_tape::BlockKind;
 use ww_tape::reader::Found;
-use ww_tape_example::{
-    Damaged, Drive, EARLIER_CHAIN, Error, FAULT_MINUTE, FLIP_MINUTE, LOST_UNIT, about,
-};
 
 const US_PER_S: i64 = 1_000_000;
 

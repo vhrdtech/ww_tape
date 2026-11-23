@@ -64,7 +64,7 @@ segment, and its CRC fails.
 
 The cost is that segment: one second of `phase_a`, 25 000 of the run's 90 million samples. Every other block of the
 piece reads, and so does every other track in the same second. The fault at minute 52 is untouched. `cargo run -p
-ww_tape_example` prints these numbers, and [`ww_tape_example/src/damage.rs`] makes the damage.
+example_drive` prints these numbers, and [`example_drive/src/damage.rs`] makes the damage.
 
 A [[reader]] meets the flip in two places. [`TapeReader::verify`] checks the piece against its [[content hash]] and
 finds that it no longer holds. Reading by the [[final index]], [`TapeReader::read_block`] fails for that one chunk and
@@ -107,7 +107,7 @@ This walk counts what a flipped bit costs, as a test or a salvage tool would:
 ```rust
 use ww_tape::{FileBlocks, Recovery};
 
-let drive = ww_tape_example::Drive::scaled(1000).expect("1000 divides the rates");
+let drive = example_drive::Drive::scaled(1000).expect("1000 divides the rates");
 let recording = drive.record().expect("the run records");
 let (piece, byte) = recording.story_flip().expect("the run reaches minute 50");
 let damaged = recording.flip(piece, byte).expect("the byte lies in the piece");
@@ -165,7 +165,7 @@ reads from the newest checkpoint. Drawn by <code>ww_tape_figures</code> from the
 data, where 4 KiB is a larger share.</figcaption>
 </figure>
 
-At full scale, the piece holds 3445 blocks that its index lists. `cargo run -p ww_tape_example` prints what each damage
+At full scale, the piece holds 3445 blocks that its index lists. `cargo run -p example_drive` prints what each damage
 leaves:
 
 | Damage | The reader finds the piece by | Content hash | Blocks that read | Definitions found |

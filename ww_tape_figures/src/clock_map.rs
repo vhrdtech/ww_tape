@@ -1,12 +1,12 @@
-//! `clock_map.svg`: the drive's clock map ([ww_tape_example::definitions]) from the board's µs since boot to the
+//! `clock_map.svg`: the drive's clock map ([example_drive::definitions]) from the board's µs since boot to the
 //! host's ns since the Unix epoch, drawn as how far the host's time runs from the board's count read as host time.
 //! A second, dashed line shows the map a host would write had it stepped its clock forward at minute 30: a second
 //! segment, checked to keep the map increasing.
 
 use anyhow::{Context, ensure};
+use example_drive::{BOOT_UNIX_NS, CRASH_MINUTE, definitions};
 use shrink_wrap::prelude::*;
 use ww_tape::{Describe, MapSegment, Rounding, segments_increasing};
-use ww_tape_example::{BOOT_UNIX_NS, CRASH_MINUTE, definitions};
 
 use crate::OrDebug;
 use crate::svg::Svg;

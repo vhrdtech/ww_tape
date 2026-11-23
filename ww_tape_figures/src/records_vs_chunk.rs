@@ -1,8 +1,9 @@
-//! `records_vs_chunk.svg`: the drive's first 96 CAN frames on `can0` ([ww_tape_example::frame]) stored twice, as a
+//! `records_vs_chunk.svg`: the drive's first 96 CAN frames on `can0` ([example_drive::frame]) stored twice, as a
 //! records block and as an events chunk, both drawn to one scale of bytes. Each part's place and length is read
 //! back from the block [ww_tape] wrote.
 
 use anyhow::{Context, ensure};
+use example_drive::{Drive, DriveNumbers, frame, key};
 use ww_tape::RecordTrack;
 use ww_tape::chunk::write_chunk;
 use ww_tape::payloads::EncodedPayloads;
@@ -11,7 +12,6 @@ use ww_tape::{
     Block, BlockId, BlockKind, BlockWriter, CRC_LEN, ClockTime, ColumnKind, ColumnSpec, HEADER_LEN,
     SessionTag,
 };
-use ww_tape_example::{Drive, DriveNumbers, frame, key};
 
 use crate::OrDebug;
 use crate::svg::Svg;

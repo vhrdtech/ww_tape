@@ -1,14 +1,14 @@
 //! The layout figures of the format reference, byte by byte, from the first piece of the drive's recording
-//! ([ww_tape_example]) at 1/1000 of its data: `chunk_head.svg`, the head of the first `phase_a` chunk;
+//! ([example_drive]) at 1/1000 of its data: `chunk_head.svg`, the head of the first `phase_a` chunk;
 //! `index_entry.svg`, that chunk's entry in the final index; `tail.svg`, the piece's tail. Every field drawn is
 //! checked against what [ww_tape] reads from the same bytes.
 
 use anyhow::{Context, ensure};
+use example_drive::{Drive, key};
 use ww_tape::index::IndexBlock;
 use ww_tape::{
     Block, BlockKind, CRC_LEN, CloseReason, ColumnKind, FileBlocks, HEADER_LEN, TAIL_LEN, Tail,
 };
-use ww_tape_example::{Drive, key};
 
 use crate::OrDebug;
 use crate::layout::{Field, Grid, Row, hex_start, le};

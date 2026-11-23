@@ -4,8 +4,8 @@
 //!
 //! The receiver digitizes a band at 1 billion complex samples a second, 4 GB/s as 16-bit I and Q. Its channelizer
 //! splits the band into [Wideband::channels] channels of equal width, each at its share of the rate. Each channel is
-//! the RF capture's signal ([crate::rf::Signal::channel]) at that rate, with noise of its own, as `ComplexI16` with
-//! the summaries of [crate::rf::summaries].
+//! the RF capture's signal ([example_capture::rf::Signal::channel]) at that rate, with noise of its own, as `ComplexI16` with
+//! the summaries of [example_capture::rf::summaries].
 //!
 //! A track has one producer, so one thread encodes one channel's samples, hashes them and computes the leaves of
 //! their summaries. Channel `k` goes to mux `k % muxes`, and each mux writes a chain of its own from its own thread,
@@ -15,7 +15,7 @@
 //! each piece's tree, a few hundred bytes per node, against megabytes of samples per node.
 //!
 //! ```
-//! use ww_tape_example::wideband::{Source, Wideband};
+//! use example_wideband::{Source, Wideband};
 //! let wb = Wideband::scaled(100_000).expect("100 000 divides the rate").ms(2_000);
 //! let tapes = ww_tape::MemTapes::new();
 //! let mux = ww_tape_mux::TapeMux::create(
@@ -27,11 +27,17 @@
 //!     ww_tape_mux::MuxOptions::default(),
 //! )?;
 //! let recorded = wb.record(&[&mux], &Source::Live)?;
-//! let pieces = ww_tape_example::ethernet::pieces(&tapes, &mux.close()?)?;
-//! let back = ww_tape_example::wideband::read_channel(&pieces, 3)?;
+//! let pieces = example_capture::pieces(&tapes, &mux.close()?)?;
+//! let back = example_wideband::read_channel(&pieces, 3)?;
 //! assert_eq!(back.len() as u64, 2 * recorded.samples[3]);
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
+#![allow(
+    clippy::arithmetic_side_effects,
+    clippy::as_conversions,
+    reason = "the case computes times, counts and offsets of a capture it makes itself from its settings, far from any \
+              limit, and reads no bytes of others"
+)]
 
 use core::cell::Cell;
 
@@ -46,7 +52,7 @@ use ww_tape_summary::Summary;
 
 pub mod ram;
 
-use crate::rf::{API_ROOT, Rf, RfError, Signal, clock, iq_shape};
+use example_capture::rf::{API_ROOT, Rf, RfError, Signal, clock, iq_shape};
 
 /// The receiver's rate in all, complex samples a second.
 pub const RATE_HZ: u32 = 1_000_000_000;
@@ -145,7 +151,7 @@ impl Wideband {
                 bytes: exact_units::Bytes::new(self.piece_bytes),
                 ..CutPolicy::default()
             },
-            ..crate::ethernet::chain_options()
+            ..example_capture::chain_options()
         }
     }
 

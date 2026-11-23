@@ -10,9 +10,9 @@
 //! decoded items come out of a [TimeMerge] in time order: each burst right after the chunk its first sample is in.
 //!
 //! ```
-//! let rf = ww_tape_example::rf::Rf::scaled(1000).expect("1000 divides the rate").seconds(10);
+//! let rf = example_capture::rf::Rf::scaled(1000).expect("1000 divides the rate").seconds(10);
 //! let dir = std::env::temp_dir().join(format!("ww_tape_rf_chains_doc_{}", std::process::id()));
-//! let written = ww_tape_example::rf_chains::Chains::new(rf).write_followed(&dir)?;
+//! let written = example_rf::chains::Chains::new(rf).write_followed(&dir)?;
 //! assert_eq!(written.followed.bursts.len(), 1, "a burst at 7.3 s");
 //! std::fs::remove_dir_all(&dir)?;
 //! # Ok::<(), Box<dyn std::error::Error>>(())
@@ -37,7 +37,7 @@ use ww_tape_fs::follow::{
 use ww_tape_fs::{Files, FsError};
 use ww_tape_mux::{EventsHandle, EventsOptions, MuxError, MuxOptions, SeriesOptions};
 
-use crate::rf::{API_ROOT, Rf, RfError, clock, iq_key};
+use example_capture::rf::{API_ROOT, Rf, RfError, clock, iq_key};
 
 /// The owner of both chains: one process writes them.
 const OWNER: OwnerId = OwnerId([0x5d; 32]);

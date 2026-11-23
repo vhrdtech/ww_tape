@@ -4,16 +4,14 @@ Guidance for AI code assistants working in this repository.
 
 ## What this is
 
-ww_tape is the tape format of [WireWeaver](https://github.com/vhrdtech/wire_weaver): tracks of typed records
-in self-checking, variable-length blocks, for live feeds, log files and raw media. It is layer 3 (storage) of
-WireWeaver.
+ww_tape is the tape format of [WireWeaver](https://github.com/vhrdtech/wire_weaver): tracks of typed records in
+self-checking, variable-length blocks, for live feeds, log files and raw media. It is layer 3 (storage) of WireWeaver.
 
 It takes [shrink_wrap](https://github.com/romixlab/shrink_wrap) and
 [exact_units](https://github.com/romixlab/exact_units) by git, and `ww_version` from
-[ww_base](https://github.com/vhrdtech/ww_base). Of the framework it needs only one
-dev-dependency, `wire_weaver_evolution`, for the API snapshot check.
-
-WireWeaver (the link tap, the client's recorder, `ww explain`) and applications take it by git.
+[ww_base](https://github.com/vhrdtech/ww_base). Of the framework it needs only one dev-dependency,
+`wire_weaver_evolution`, for the API snapshot check. WireWeaver (the link tap, the client's recorder, `ww explain`) and
+applications take it by git.
 
 Read `docs/concepts.md` first (the words), then the pages in the order `docs/index.md` lists them. `docs/format.md`
 is the reference, block by block.
@@ -42,7 +40,9 @@ chapter reads and how it marks terms, links code and includes tested code.
 | `ww_tape_bench_report/` | a bench report as its JSON holds it: commit, build, host and machine, tables with their load; serde only |
 | `ww_tape_codecs_benchmarks/` | float sample codecs on simulated, decoded and sensor data |
 | `ww_tape_benchmarks/` | one binary per bench: `summaries`, `tracks`, `chunks`, `drive`, `event_times`, `starts`, `relations`, `mem_reader`, `carried`, `memory`, `rf_core`, `rf_chain`, `handles`, `read_check` (README lists what each measures) |
-| `ww_tape_example/` | the book's running example: the drive motor controller's hour at any scale, a crash at any byte, the resume; the RF capture (`rf`); `cargo run -p ww_tape_example` prints the story's numbers |
+| `example_drive/` | the book's running example: the drive motor controller's hour at any scale, a crash at any byte, the resume; `cargo run -p example_drive` prints the story's numbers |
+| `example_capture/` | what the cases share: the memory window and its triage (`window`), the RF signal (`rf`), deterministic chain options |
+| `example_rf/`, `example_ethernet/`, `example_wideband/` | the cases: the RF capture into a piece or two chains; a 10 Gbps link over receive queues and muxes; a 1 GS/s receiver in channels; `ram` of the last two into the memory window, keeping the pieces around each TCP reset or burst |
 | `ww_tape_figures/` | the book's figures that show bytes or numbers, drawn from blocks ww_tape writes into `docs/plots/` (`just book-figures`; a test checks them) |
 | `fuzz/` | cargo-fuzz targets (`tape-*`), a workspace of its own on nightly; each target calls `ww_tape_fuzz` |
 | `docs/` | the pages of the format; `figures/` drawings by hand, `plots/` drawn by `ww_tape_figures`, `shots/` eventfull screenshots of recorded data (`just book-shots` copies them from an eventfull checkout) |

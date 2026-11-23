@@ -9,9 +9,9 @@
 
 use std::path::Path;
 
+use example_drive::Drive;
+use example_drive::writing::Writing;
 use ww_tape::SyncPolicy;
-use ww_tape_example::Drive;
-use ww_tape_example::writing::Writing;
 
 #[test]
 fn part_iii_prints_what_the_chapters_quote() {
@@ -28,7 +28,7 @@ fn part_iii_prints_what_the_chapters_quote() {
     assert_eq!(
         w.to_string(),
         want,
-        "tests/writing.out is what the program prints from `Writing the drive's hour` on: copy it from `cargo run -p ww_tape_example`"
+        "tests/writing.out is what the program prints from `Writing the drive's hour` on: copy it from `cargo run -p example_drive`"
     );
 
     let every_block = w

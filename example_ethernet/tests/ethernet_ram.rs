@@ -12,17 +12,15 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use example_capture::window::Window;
+use example_ethernet::ram::{RamCapture, RamError, RamRun, Reset, kept_track, resets_spec};
+use example_ethernet::{Link, Rx, Traffic, decode_frame, frames_id};
 use ww_tape::payloads::Payloads;
 use ww_tape::times::{EventTimes, RelationColumn, StoredRelations};
 use ww_tape::{
     BlockKind, ByteSource, ChainOptions, ClockNum, MemTapes, OwnerId, TapeReader, TrackDef,
     TrackNum,
 };
-use ww_tape_example::ethernet::ram::{
-    RamCapture, RamError, RamRun, Reset, kept_track, resets_spec,
-};
-use ww_tape_example::ethernet::{self, Link, Rx, Traffic, decode_frame, frames_id};
-use ww_tape_example::window::Window;
 use ww_tape_mux::{MuxOptions, TapeMux};
 
 /// 5 ms of the link in `chains` chains, a reset in every 5 000 frames, chunks of 16 KiB of frames, pieces of
@@ -199,7 +197,7 @@ fn keeps_the_pieces_around_each_reset(chains: u32) {
 
     // the results' chain holds the resets and the pieces kept
     let closed = results.close().expect("the results close");
-    let pieces = ethernet::pieces(&results_tapes, &closed).expect("the results' pieces");
+    let pieces = example_capture::pieces(&results_tapes, &closed).expect("the results' pieces");
     let (resets, kept_items) = results_of(&pieces, c.link, chains);
     let mut found: Vec<Reset> = run
         .resets
@@ -231,7 +229,7 @@ fn results_of(pieces: &[Vec<u8>], link: Link, chains: u32) -> (Vec<Reset>, Vec<K
     let mut buf = Vec::new();
     let mut tracks: Vec<(Result<Rx, u32>, TrackDef<'static>)> = Vec::new();
     for rx in link.rxs() {
-        let relation = vec![ethernet::frame_relation(rx)].leak();
+        let relation = vec![example_ethernet::frame_relation(rx)].leak();
         tracks.push((
             Ok(rx),
             resets_spec(rx, ClockNum::MIN, relation).numbered(TrackNum::MIN),

@@ -29,7 +29,7 @@ need, two checkpoints, the final index, the close with its padding, and the 164-
 </figure>
 
 The drive's first piece holds the first 15 minutes of the run in about 29 MB. The [[series chunks]] of `phase_a` take
-most of it, and the blocks a [[reader]] uses to find its way take about 2.7 % of it. `cargo run -p ww_tape_example` prints this table
+most of it, and the blocks a [[reader]] uses to find its way take about 2.7 % of it. `cargo run -p example_drive` prints this table
 and that share:
 
 | Blocks | Count | Bytes |
@@ -100,7 +100,7 @@ first piece:
 
 ```rust
 use ww_tape::{PIECE_ALIGN, TapeReader};
-use ww_tape_example::Drive;
+use example_drive::Drive;
 
 let drive = Drive::scaled(1000).expect("1000 divides the rates");
 let recording = drive.record().expect("the run records");

@@ -2,8 +2,8 @@
 //! track's decoded items are the same, though the bytes differ with the order the threads' units reach the queue.
 #![allow(clippy::expect_used, reason = "tests fail by panicking")]
 
-use ww_tape_example::Drive;
-use ww_tape_example::handles::{decode, record};
+use example_drive::Drive;
+use example_drive::handles::{decode, record};
 
 #[test]
 fn one_thread_per_source_writes_the_items_of_the_story() {

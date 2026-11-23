@@ -67,7 +67,7 @@ number into an id.
 
 ```rust
 use ww_tape::{Dimension, track_id};
-use ww_tape_example::{definitions, key};
+use example_drive::{definitions, key};
 
 // The key of can0 is the hash of its path in the drive's API.
 let can0 = key("can0");
@@ -100,7 +100,7 @@ recording. That frame is the emergency frame the board sends when it faults at m
 
 ```rust
 // can0 runs at 1 kHz: a frame is due every 1000 µs.
-assert_eq!(ww_tape_example::emergency_frame(1000), 3_120_000);
+assert_eq!(example_drive::emergency_frame(1000), 3_120_000);
 ```
 
 A [[reader]] addresses an item by its [[track id]] and item number, never by where it lies in a file. A file that keeps
@@ -128,7 +128,7 @@ hour, the board's count runs 72 ms ahead of the host's:
 ```rust
 use shrink_wrap::prelude::*;
 use ww_tape::{Describe, Rounding, Slot};
-use ww_tape_example::{BOOT_UNIX_NS, definitions};
+use example_drive::{BOOT_UNIX_NS, definitions};
 
 let (defs, numbers) = definitions(25_000, true, 32 << 20).expect("the drive's definitions");
 let map = Slot::Map { from: numbers.board_clock, to: numbers.host_clock };

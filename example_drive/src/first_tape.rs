@@ -2,7 +2,7 @@
 //!
 //! The chapter (`docs/first_tape.md`) includes the marked sections of this file: the drive's run written into a new
 //! file and closed ([write()]), then the file opened and its tracks listed ([tracks]).
-//! `cargo run -p ww_tape_example --bin first_tape` runs both on the drive's first minute.
+//! `cargo run -p example_drive --bin first_tape` runs both on the drive's first minute.
 
 use std::path::Path;
 use ww_tape::TrackNum;

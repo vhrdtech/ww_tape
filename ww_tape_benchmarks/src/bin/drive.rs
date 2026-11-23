@@ -1,4 +1,4 @@
-//! The book's running example at full scale: the drive motor controller's hour ([ww_tape_example::Drive::full]),
+//! The book's running example at full scale: the drive motor controller's hour ([example_drive::Drive::full]),
 //! recorded into a chain of pieces in memory. Prints what the recording holds by block kind, the bytes per item of its
 //! streams, and the time it takes to record the hour with and without summaries (the example makes the signals as it
 //! goes, so this is not the writer's cost alone; `chunks` measures that), the best of `--rounds` rounds, with the load average before and after each table.
@@ -11,10 +11,10 @@
 )]
 
 use clap::Parser;
+use example_drive::{Drive, Recording, frame};
 use std::time::Instant;
 use ww_tape::{BlockKind, FLAG_REPEAT, FileBlocks};
 use ww_tape_bench::{Bench, Cell, Common, Measure};
-use ww_tape_example::{Drive, Recording, frame};
 
 #[derive(Parser)]
 #[command(

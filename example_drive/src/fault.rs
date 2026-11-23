@@ -858,7 +858,7 @@ pub fn clock(us: i64) -> String {
     format!("{}:{:02}.{:03}", ms / 60_000, ms / 1000 % 60, ms % 1000)
 }
 
-/// What Part IV's program finds at the fault and what each step reads, as `cargo run -p ww_tape_example` prints it.
+/// What Part IV's program finds at the fault and what each step reads, as `cargo run -p example_drive` prints it.
 impl core::fmt::Display for Fault {
     fn fmt(&self, out: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let f = self;

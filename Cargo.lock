@@ -483,6 +483,68 @@ dependencies = [
 ]
 
 [[package]]
+name = "example_capture"
+version = "0.4.0"
+dependencies = [
+ "exact_units",
+ "libm",
+ "shrink_wrap",
+ "ww_tape",
+ "ww_tape_mux",
+ "ww_tape_summary",
+]
+
+[[package]]
+name = "example_drive"
+version = "0.4.0"
+dependencies = [
+ "exact_units",
+ "example_capture",
+ "libm",
+ "shrink_wrap",
+ "tokio",
+ "ww_tape",
+ "ww_tape_fs",
+ "ww_tape_mux",
+ "ww_tape_summary",
+]
+
+[[package]]
+name = "example_ethernet"
+version = "0.4.0"
+dependencies = [
+ "exact_units",
+ "example_capture",
+ "shrink_wrap",
+ "ww_tape",
+ "ww_tape_mux",
+]
+
+[[package]]
+name = "example_rf"
+version = "0.4.0"
+dependencies = [
+ "exact_units",
+ "example_capture",
+ "shrink_wrap",
+ "ww_tape",
+ "ww_tape_fs",
+ "ww_tape_mux",
+]
+
+[[package]]
+name = "example_wideband"
+version = "0.4.0"
+dependencies = [
+ "exact_units",
+ "example_capture",
+ "shrink_wrap",
+ "ww_tape",
+ "ww_tape_mux",
+ "ww_tape_summary",
+]
+
+[[package]]
 name = "fastrand"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1365,13 +1427,17 @@ dependencies = [
  "anyhow",
  "clap",
  "exact_units",
+ "example_capture",
+ "example_drive",
+ "example_ethernet",
+ "example_rf",
+ "example_wideband",
  "libm",
  "shrink_wrap",
  "vc_build",
  "ww_tape",
  "ww_tape_bench",
  "ww_tape_codecs",
- "ww_tape_example",
  "ww_tape_fs",
  "ww_tape_mux",
  "ww_tape_summary",
@@ -1400,30 +1466,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "ww_tape_example"
-version = "0.4.0"
-dependencies = [
- "exact_units",
- "libm",
- "shrink_wrap",
- "tokio",
- "ww_tape",
- "ww_tape_fs",
- "ww_tape_mux",
- "ww_tape_summary",
-]
-
-[[package]]
 name = "ww_tape_figures"
 version = "0.4.0"
 dependencies = [
  "anyhow",
  "exact_units",
+ "example_drive",
+ "example_ethernet",
  "libm",
  "shrink_wrap",
  "ww_tape",
  "ww_tape_bench_report",
- "ww_tape_example",
  "ww_tape_summary",
 ]
 
@@ -1478,11 +1531,11 @@ dependencies = [
  "blake3",
  "crc",
  "exact_units",
+ "example_drive",
  "shrink_wrap",
  "smol",
  "tokio",
  "ww_tape",
- "ww_tape_example",
  "ww_tape_fs",
  "ww_tape_mux",
  "ww_tape_summary",

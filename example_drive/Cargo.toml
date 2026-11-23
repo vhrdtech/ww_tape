@@ -1,5 +1,5 @@
 [package]
-name = "ww_tape_example"
+name = "example_drive"
 version.workspace = true
 authors.workspace = true
 description = "The drive motor controller's recording that the book's figures, code and numbers use, at any scale"
@@ -10,10 +10,11 @@ repository.workspace = true
 homepage.workspace = true
 publish = false
 # the story's numbers; `--bin first_tape` runs the program of the chapter "A first tape"
-default-run = "ww_tape_example"
+default-run = "example_drive"
 
 [dependencies]
 exact_units = { workspace = true, features = ["counting", "information"] }
+example_capture.workspace = true
 libm.workspace = true
 shrink_wrap.workspace = true
 ww_tape = { workspace = true, features = ["std"] }

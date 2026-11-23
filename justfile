@@ -237,7 +237,7 @@ book-prose:
     fi
     spl check --progress never {{ prose_lints }}
 
-# Copy the data figures eventfull renders from ww_tape_example's tapes into docs/shots, with the eventfull commit they
+# Copy the data figures eventfull renders from example_drive's tapes into docs/shots, with the eventfull commit they
 # came from; refuses when that checkout's shots differ from its commit. No eventfull build here
 [group('book')]
 book-shots eventfull="../eventfull":

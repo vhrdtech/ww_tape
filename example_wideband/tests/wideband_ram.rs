@@ -14,16 +14,16 @@
 
 use std::collections::BTreeMap;
 
+use example_capture::pieces;
+use example_capture::rf::{BURST_MS, BURSTS_MS, Signal, iq_shape};
+use example_wideband::ram::{Burst, RfCapture, RfRun, bursts_spec, kept_track};
+use example_wideband::{Source, channel_id};
 use ww_tape::payloads::Payloads;
 use ww_tape::samples::Samples;
 use ww_tape::times::EventTimes;
 use ww_tape::{
     BlockKind, ChainOptions, ClockNum, ColumnKind, MemTapes, OwnerId, TapeReader, TrackNum,
 };
-use ww_tape_example::ethernet::pieces;
-use ww_tape_example::rf::{BURST_MS, BURSTS_MS, Signal, iq_shape};
-use ww_tape_example::wideband::ram::{Burst, RfCapture, RfRun, bursts_spec, kept_track};
-use ww_tape_example::wideband::{Source, channel_id};
 use ww_tape_mux::{MuxOptions, TapeMux};
 
 /// A minute at 1/5 000 of the rate: 2 channels of 25 kS/s, pieces of 13 KB.

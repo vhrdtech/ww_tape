@@ -9,7 +9,7 @@ takes gigabytes, more than the disk of a common PC writes. How does an analyser 
 
 It captures into memory at the line rate, analyses each stretch there while the capture goes on, and writes only what
 matters to disk. The case here is an analyser on a tap of a full-duplex Ethernet link. Its traffic is synthetic, made
-by `ww_tape_example::ethernet` from fixed numbers, so every run sees the same frames.
+by `example_ethernet` from fixed numbers, so every run sees the same frames.
 
 ## Frames as events
 
@@ -20,7 +20,7 @@ the event's [[payload]]. The track's items are plain bytes with no type, `RawByt
 A capture thread takes the frames in batches, as a network card hands them over, and pushes each batch in one call:
 
 ```rs
---8<-- "ww_tape_example/src/ethernet/mod.rs:capture"
+--8<-- "example_ethernet/src/lib.rs:capture"
 ```
 
 The handle copies the batch into its open [[events chunk]] and seals the chunk at 1 MiB of frames. It compresses the
@@ -30,7 +30,7 @@ records instead, as a `Foreign` item with the media type `application/vnd.tcpdum
 ??? example "What the example uses here: `Link`"
 
     ```rs
-    --8<-- "ww_tape_example/src/ethernet/mod.rs:link"
+    --8<-- "example_ethernet/src/lib.rs:link"
     ```
 
 ## Decoded layers as tracks
@@ -46,13 +46,13 @@ A decoded header must lead back to its frame. Each item of `ipv4` and `l4` keeps
 relation named `frame`:
 
 ```rs
---8<-- "ww_tape_example/src/ethernet/mod.rs:frame_relation"
+--8<-- "example_ethernet/src/lib.rs:frame_relation"
 ```
 
 The decoder thread pushes the headers of a batch with their frames' numbers, one value each:
 
 ```rs
---8<-- "ww_tape_example/src/ethernet/mod.rs:decoded"
+--8<-- "example_ethernet/src/lib.rs:decoded"
 ```
 
 The numbers only grow, so the relation is a [[monotone relation]]. The index then keeps each chunk's smallest and
@@ -65,7 +65,7 @@ The link carries the simple mix of frame lengths that network tests use: 7 frame
 1514. Three flows in four are TCP and the rest UDP. The payloads are random bytes, as encrypted traffic is, so they do
 not compress. Each direction runs at the line rate, 10 Gbps of frames, their preambles and gaps included.
 
-`cargo run --release -p ww_tape_example --bin ethernet_sizes` records 10 ms of the link into one chain and reads it
+`cargo run --release -p example_ethernet --bin ethernet_sizes` records 10 ms of the link into one chain and reads it
 back:
 
 --8<-- "docs/plots/ethernet_sizes.txt"
@@ -91,7 +91,7 @@ piece holds something worth keeping. A kept piece is copied whole to the chain's
 reads alone. Every other piece leaves memory unwritten ([`MemTapes::remove`]).
 
 ```rs
---8<-- "ww_tape_example/src/ethernet/ram.rs:ram_capture"
+--8<-- "example_ethernet/src/ram.rs:ram_capture"
 ```
 
 A verdict often depends on what came before. The window therefore keeps [`Window::before`] pieces after it read them,
@@ -109,7 +109,7 @@ The analyser here looks for TCP resets, the frames that end a connection abruptl
 frames of a port. The analyser decodes every frame of each piece and tests its flags:
 
 ```rs
---8<-- "ww_tape_example/src/ethernet/ram.rs:look"
+--8<-- "example_ethernet/src/ram.rs:look"
 ```
 
 Its findings go to a second chain, the results, which a mux of its own writes to disk beside the kept pieces. Each

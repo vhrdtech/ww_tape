@@ -71,7 +71,7 @@ The drive writes its log lines and temperatures into one records block a second.
 
 ```rust
 use ww_tape::{Block, BlockId, BlockKind, BlockWriter, ClockTime, SessionTag};
-use ww_tape_example::definitions;
+use example_drive::definitions;
 
 // The numbers the drive's definitions give its board clock and its tracks.
 let (_, numbers) = definitions(25_000, true, 32 << 20).expect("the drive's definitions");

@@ -80,13 +80,13 @@ A cut by age makes the file's bytes depend on the clock. The drive's recorder co
 minutes of the run make:
 
 ```rs
---8<-- "ww_tape_example/src/record.rs:options"
+--8<-- "example_drive/src/record.rs:options"
 ```
 
 ??? example "What the example uses here: `Drive`"
 
     ```rs
-    --8<-- "ww_tape_example/src/lib.rs:drive_item"
+    --8<-- "example_drive/src/lib.rs:drive_item"
     ```
 
 A recorder that writes a [`PieceChain`] itself and must know in which piece a chunk lands asks [`PieceChain::cut_due`]
@@ -95,15 +95,15 @@ chunk. A chunk thus lies whole in one piece, and its [[handle]] never notices th
 The drive's recorder only starts the mux with these options, and hands it the acts through its handles:
 
 ```rs
---8<-- "ww_tape_example/src/record.rs:create"
+--8<-- "example_drive/src/record.rs:create"
 ```
 
 ??? example "What the example uses here: `Act`, `Recorder`"
 
     ```rs
-    --8<-- "ww_tape_example/src/record.rs:act_item"
+    --8<-- "example_drive/src/record.rs:act_item"
 
-    --8<-- "ww_tape_example/src/record.rs:recorder_item"
+    --8<-- "example_drive/src/record.rs:recorder_item"
     ```
 
 ### Nothing waits for a cut

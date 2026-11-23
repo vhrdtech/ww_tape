@@ -1,9 +1,9 @@
-//! `prefix_resync.svg` and `loss_cases.svg`: the drive's last piece ([ww_tape_example]) at 1/1000 of its data,
+//! `prefix_resync.svg` and `loss_cases.svg`: the drive's last piece ([example_drive]) at 1/1000 of its data,
 //! damaged as the book's chapter "Damage" tells, and what each reader still gets from it.
 
 use anyhow::{Context, ensure};
+use example_drive::{Damaged, Drive, Recording, walk};
 use ww_tape::Recovery;
-use ww_tape_example::{Damaged, Drive, Recording, walk};
 
 use crate::OrDebug;
 use crate::crash::{LEFT, Part, ROW_H, ROW_W, Span, View, kib, legend, spans};

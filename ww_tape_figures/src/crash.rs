@@ -1,12 +1,12 @@
-//! `crash.svg` and `resume.svg`: the drive's story crash ([ww_tape_example]) at 1/1000 of its data, its checkpoints
+//! `crash.svg` and `resume.svg`: the drive's story crash ([example_drive]) at 1/1000 of its data, its checkpoints
 //! every 3 KiB instead of every 4 MiB so that several fit the drawing. The piece the crash tore, read back by
 //! [TapeReader] and resumed; the resumed chain is checked to hold the bytes of the one written without the crash.
 
 use anyhow::{Context, ensure};
+use example_drive::Drive;
 use ww_tape::index::IndexBlock;
 use ww_tape::reader::Found;
 use ww_tape::{BlockKind, FLAG_REPEAT, FLAG_WITH_NEXT, FileBlocks, Recovery, TapeReader};
-use ww_tape_example::Drive;
 
 use crate::OrDebug;
 use crate::svg::Svg;

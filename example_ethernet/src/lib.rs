@@ -24,7 +24,7 @@
 //! headers it decodes. One track has one producer, so the queues are what spreads a port's line rate over cores.
 //!
 //! ```
-//! let link = ww_tape_example::ethernet::Link::full().micros(200);
+//! let link = example_ethernet::Link::full().micros(200);
 //! let tapes = ww_tape::MemTapes::new();
 //! let mux = ww_tape_mux::TapeMux::create(
 //!     tapes.clone(),
@@ -35,11 +35,17 @@
 //!     ww_tape_mux::MuxOptions::default(),
 //! )?;
 //! let captured = link.record(&[&mux])?;
-//! let pieces = ww_tape_example::ethernet::pieces(&tapes, &mux.close()?)?;
-//! let read = ww_tape_example::ethernet::read(&pieces, link.queues)?;
+//! let pieces = example_capture::pieces(&tapes, &mux.close()?)?;
+//! let read = example_ethernet::read(&pieces, link.queues)?;
 //! assert_eq!(read.ports[0].frames, captured.ports[0].frames);
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
+#![allow(
+    clippy::arithmetic_side_effects,
+    clippy::as_conversions,
+    reason = "the case computes times, counts and offsets of a capture it makes itself from its settings, far from any \
+              limit, and reads no bytes of others"
+)]
 
 pub mod ram;
 
@@ -47,18 +53,17 @@ use std::sync::mpsc;
 use std::thread::ScopedJoinHandle;
 
 use shrink_wrap::prelude::*;
-use ww_tape::index::IndexPolicy;
+use ww_tape::OwnerId;
 use ww_tape::payloads::Payloads;
 use ww_tape::times::{EventTimes, RelationColumn, StoredRelations};
 use ww_tape::{
-    BlockKind, ChainPiece, ClockNum, ClockOrigin, ClockSpec, Ends, EventsDef, Items, Magnitude,
-    MemTapes, RelationDef, RelationIndex, RelationTarget, RelationValues, Segment, TapeReader,
-    Tapes, TrackId, TrackKey, TrackKind, TrackNum, TrackRepeat, TrackSpec, clock_key, track_key,
+    BlockKind, ClockNum, ClockOrigin, ClockSpec, Ends, EventsDef, Items, Magnitude, MemTapes,
+    RelationDef, RelationIndex, RelationTarget, RelationValues, Segment, TapeReader, Tapes,
+    TrackId, TrackKey, TrackKind, TrackNum, TrackRepeat, TrackSpec, clock_key, track_key,
 };
-use ww_tape::{ChainOptions, ClockRef, OwnerId, SyncPolicy, WriterOptions};
 use ww_tape_mux::{Event, EventsOptions, MuxError, MuxOptions, TapeMux};
 
-use crate::signals::hash;
+use example_capture::{chain_options, hash, pieces};
 
 /// The root of the analyser's API: its track and clock keys start from it.
 const API_ROOT: u64 = 0xe7_0001;
@@ -927,45 +932,6 @@ pub struct Captured {
     pub ports: [Sent; 2],
 }
 
-/// The bytes of each piece of a chain in memory.
-///
-/// # Errors
-///
-/// A piece the store doesn't hold.
-pub fn pieces(
-    tapes: &MemTapes,
-    closed: &[ChainPiece<u64>],
-) -> Result<Vec<Vec<u8>>, EthError<ww_tape::MemError>> {
-    closed
-        .iter()
-        .map(|p| {
-            tapes
-                .get(&p.tape)
-                .map_err(EthError::Mem)?
-                .ok_or(EthError::Settings("a closed piece"))?
-                .to_vec()
-                .map_err(EthError::Mem)
-        })
-        .collect()
-}
-
-/// How the analyser's chain is written: one piece, no sync, no checkpoint by time and no wall clock, so its bytes
-/// depend only on the order the handles' chunks reach the mux.
-pub fn chain_options() -> ChainOptions {
-    ChainOptions {
-        writer: WriterOptions {
-            sync: SyncPolicy::None,
-            index: IndexPolicy {
-                interval: None,
-                ..IndexPolicy::default()
-            },
-            clock: ClockRef::NONE,
-            ..WriterOptions::default()
-        },
-        ..ChainOptions::default()
-    }
-}
-
 impl Link {
     /// Record the capture into one chain in memory and read it back: what each track takes.
     ///
@@ -1215,6 +1181,8 @@ pub enum EthError<E = core::convert::Infallible> {
     Thread(&'static str),
     /// The chain in memory.
     Mem(ww_tape::MemError),
+    /// A closed piece of the chain in memory.
+    Pieces(example_capture::PieceError),
     /// Reading the chain back.
     Open(ww_tape::reader::ReadError<E>),
     /// The times, payloads or relation values of a chunk.
@@ -1233,6 +1201,7 @@ impl<E: core::fmt::Debug> core::fmt::Display for EthError<E> {
             Self::Mux(e) => write!(f, "the mux: {e:?}"),
             Self::Thread(what) => write!(f, "{what} stopped"),
             Self::Mem(e) => write!(f, "the chain in memory: {e:?}"),
+            Self::Pieces(e) => write!(f, "{e}"),
             Self::Open(e) => write!(f, "reading the chain: {e:?}"),
             Self::Times(e) => write!(f, "a chunk's times or relation: {e:?}"),
             Self::Payloads(e) => write!(f, "a chunk's payloads: {e:?}"),
@@ -1243,6 +1212,12 @@ impl<E: core::fmt::Debug> core::fmt::Display for EthError<E> {
 }
 
 impl<E: core::fmt::Debug> core::error::Error for EthError<E> {}
+
+impl<E> From<example_capture::PieceError> for EthError<E> {
+    fn from(e: example_capture::PieceError) -> Self {
+        Self::Pieces(e)
+    }
+}
 
 impl<E> From<MuxError<E>> for EthError<E> {
     fn from(e: MuxError<E>) -> Self {

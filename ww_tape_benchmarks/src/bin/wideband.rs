@@ -1,4 +1,4 @@
-//! The wideband receiver of `ww_tape_example::wideband` at full speed: 1 GS/s of IQ in channels, each a producer
+//! The wideband receiver of `example_wideband` at full speed: 1 GS/s of IQ in channels, each a producer
 //! thread, over one or several muxes, into a store that keeps no bytes and into chains of piece files.
 //!
 //! Each channel's thread pushes chunks made before the run (`--replay-chunks` of them, again and again), so the run
@@ -6,7 +6,7 @@
 //! files there, and a reader then draws one channel's overview from its summaries. Each table carries the load
 //! average before and after it.
 //!
-//! The tables `window` and `triage` capture a 250 MS/s receiver into a window in memory (`wideband::ram`) while the
+//! The tables `window` and `triage` capture a 250 MS/s receiver into a window in memory (`example_wideband::ram`) while the
 //! triage detects energy in each piece's summary nodes and keeps the pieces around a burst. One run replays its
 //! chunks, for speed; one makes the signal as it goes for `--live-ms`, bursts and all, and keeps them in piece files
 //! in `--dir`.
@@ -19,14 +19,14 @@
 )]
 
 use clap::Parser;
+use example_capture::chain_options;
+use example_wideband::ram::RfCapture;
+use example_wideband::{RATE_HZ, Source, Wideband, overview};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use ww_tape::{Codec, MemTapes, OwnerId, Tapes};
 use ww_tape_bench::{Bench, Cell, Common, Discard};
 use ww_tape_benchmarks::{TRIAGE_COLUMNS, WINDOW_COLUMNS, WindowRun, triage_row, window_row};
-use ww_tape_example::ethernet::chain_options;
-use ww_tape_example::wideband::ram::RfCapture;
-use ww_tape_example::wideband::{RATE_HZ, Source, Wideband, overview};
 use ww_tape_fs::{FileSource, Files};
 use ww_tape_mux::{MuxOptions, TapeMux};
 

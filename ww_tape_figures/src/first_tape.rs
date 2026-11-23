@@ -1,12 +1,12 @@
-//! `first_tape.svg`: the file the program of the chapter "A first tape" writes ([ww_tape_example::first_tape]), the
+//! `first_tape.svg`: the file the program of the chapter "A first tape" writes ([example_drive::first_tape]), the
 //! drive's first minute at full rate. Its first seconds and its end are drawn to scale on rows of 16 KiB, every block
 //! named by what it holds, and its first KiB enlarged to name every put; the blocks in between are counted.
 
 use anyhow::{Context, ensure};
+use example_drive::{Drive, DriveNumbers};
 use shrink_wrap::prelude::*;
 use ww_tape::RecordTrack;
 use ww_tape::{BlockKind, Describe, FLAG_REPEAT, FileBlocks};
-use ww_tape_example::{Drive, DriveNumbers};
 
 use crate::OrDebug;
 use crate::svg::Svg;
@@ -111,7 +111,7 @@ fn spans() -> anyhow::Result<(u64, Vec<Span>)> {
     }
     let drive = Drive::full().minutes(1);
     let numbers: DriveNumbers = drive.numbers()?;
-    ww_tape_example::first_tape::write(&path, &drive)?;
+    example_drive::first_tape::write(&path, &drive)?;
     let bytes = std::fs::read(&path)?;
     std::fs::remove_dir_all(&dir)?;
     let len = u64::try_from(bytes.len())?;

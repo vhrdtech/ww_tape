@@ -3,6 +3,7 @@
 //! is the same.
 
 use core::f64::consts::PI;
+use example_capture::hash;
 
 /// Microseconds of the board's clock in one millisecond.
 pub(crate) const US_PER_MS: i64 = 1_000;
@@ -69,14 +70,6 @@ impl Mode {
     }
 }
 // --8<-- [end:mode_type_item]
-
-/// A number from `seed` and `n`, the same for the same pair (SplitMix64).
-pub(crate) fn hash(seed: u64, n: u64) -> u64 {
-    let mut z = seed ^ n.wrapping_mul(0x9e37_79b9_7f4a_7c15);
-    z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-    z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
-    z ^ (z >> 31)
-}
 
 /// The peak phase current at `ms` since boot, mA: none while idle; in run a cycle of five minutes from 5 A up to
 /// 30 A and down again; rising past the limit in the last 20 ms before the fault, none after it.

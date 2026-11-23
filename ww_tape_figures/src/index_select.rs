@@ -1,12 +1,12 @@
 //! `index_select.svg`: the index entries of `phase_a` and `can0` in the last piece of the drive's hour
-//! ([ww_tape_example]) at 1/1000 of its data, each over the ticks it covers, and the entries the query of the chapter
-//! "Reading a tape" keeps: [ww_tape_example::fault::find] for `phase_a`, the same ticks for `can0`.
+//! ([example_drive]) at 1/1000 of its data, each over the ticks it covers, and the entries the query of the chapter
+//! "Reading a tape" keeps: [example_drive::fault::find] for `phase_a`, the same ticks for `can0`.
 
 use anyhow::{Context, ensure};
+use example_drive::fault::{fault_us, find, open};
+use example_drive::{Drive, key};
 use ww_tape::index::IndexEntry;
 use ww_tape::{BlockKind, TapeReader};
-use ww_tape_example::fault::{fault_us, find, open};
-use ww_tape_example::{Drive, key};
 
 use crate::OrDebug;
 use crate::svg::Svg;
