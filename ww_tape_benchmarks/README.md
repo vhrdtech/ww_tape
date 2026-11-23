@@ -2,6 +2,8 @@
 
 Benchmarks of `ww_tape`, one binary each. The float sample codecs are measured in `ww_tape_codecs_benchmarks`.
 
+## The binaries
+
 Every binary prints Markdown tables, each with the load average before and after it, and writes them as JSON with
 `--json FILE`. `--help` lists a binary's settings. `just bench-book` runs the benches of the book's "Sizes and speeds"
 into `docs/bench/`:
@@ -25,11 +27,10 @@ into `docs/bench/`:
 | `read_check` | `just bench-read-check` | `TapeReader::read_block` of chunks and records blocks in memory, payload CRCs checked and not |
 | `handles` | `just bench-handles` | events and series handles on a `TapeMux` against one thread writing a chain directly, by tracks |
 
-The `summaries` binary measures series summaries in MB/s of sample bytes per element type. It measures three paths:
-the `RAW` codec alone, `SeriesSummaries::push` with every statistic, and both.
+## Summaries and tracks
 
-It prints the CPU's vector extensions
-and the load average with them.
+The `summaries` binary measures series summaries in MB/s of sample bytes per element type. It measures three paths:
+the `RAW` codec alone, `SeriesSummaries::push` with every statistic, and both. It prints the CPU's vector extensions and the load average with them.
 
 ```sh
 just bench-summaries
@@ -55,6 +56,8 @@ just bench-tracks
 just bench-tracks --tracks 100000
 ```
 
+## RF capture
+
 The `rf_core` binary times the writer and the reader on the RF capture of `example_rf`, on one core. The
 samples of each chunk are made before it and not timed. It prints, per codec, what the writer spends on a chunk: the
 codec, `TapeWriter::write_chunk` and the summaries. Then it reads a capture in memory, every chunk checked and decoded.
@@ -67,6 +70,8 @@ reads one second, counting the bytes and reads.
 just bench-rf-core
 just bench-rf-chain --dir /data/rf --gib 100 --remove
 ```
+
+## Ethernet and wideband
 
 The `ethernet` binary records the protocol analyser of `example_ethernet` at full speed. It takes both
 directions of a 10 Gbps link at its line rate, with a capture and a decoder thread per receive queue. A run per number
