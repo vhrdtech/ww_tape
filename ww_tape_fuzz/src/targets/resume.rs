@@ -374,7 +374,10 @@ pub fn resume(data: &[u8]) {
     let Ok((mut w, resumed)) = TapeWriter::resume_on(sink, options(aligned)) else {
         return;
     };
-    assert!(resumed.kept_bytes <= bytes.len() as u64);
+    assert!(
+        resumed.kept_bytes <= bytes.len() as u64,
+        "a resume keeps no more than the file"
+    );
     no_good_block_cut(&template[..], &bytes, resumed.kept_bytes);
     assert_eq!(
         resumed.kept_bytes + resumed.dropped_bytes,
@@ -384,7 +387,8 @@ pub fn resume(data: &[u8]) {
         resumed
             .entries
             .iter()
-            .all(|e| e.offset < resumed.kept_bytes)
+            .all(|e| e.offset < resumed.kept_bytes),
+        "every kept entry lies in the kept bytes"
     );
     let (defs, on) = resumed_definitions(&resumed);
     for k in 0..2 {

@@ -465,7 +465,7 @@ fn lookups(r: &TapeReader<&[u8]>, i: usize) {
                 assert!(slot.is_definition(), "a definition's slot");
                 assert_eq!(item.slot, *slot);
                 assert_eq!(ItemHash::of(&item.item), item.hash);
-                assert!(item.offset < place);
+                assert!(item.offset < place, "an item starts before its place");
             }
             named_within_marked(r, i, &defs);
         }

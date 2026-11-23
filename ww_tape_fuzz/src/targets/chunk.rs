@@ -25,7 +25,7 @@ pub(crate) fn walk(data: &[u8]) {
     }
     if let Ok(b) = salvaged {
         if b.is_intact() {
-            assert!(Block::read(data).is_ok());
+            assert!(Block::read(data).is_ok(), "an intact block reads");
         }
         if let Some(c) = b.chunk() {
             let _ = c.head();
@@ -33,9 +33,12 @@ pub(crate) fn walk(data: &[u8]) {
                 let _ = c.column_damaged(&col);
             }
             let bad: Vec<usize> = c.bad_segments().collect();
-            assert!(bad.iter().all(|s| *s < c.segment_count()));
+            assert!(
+                bad.iter().all(|s| *s < c.segment_count()),
+                "a bad segment is one of the chunk's"
+            );
             if b.is_intact() {
-                assert!(bad.is_empty());
+                assert!(bad.is_empty(), "an intact chunk has no bad segment");
             }
         }
     }
