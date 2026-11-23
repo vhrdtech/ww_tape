@@ -2021,8 +2021,8 @@ them from the items' bytes, and `Payloads::read` reads them back by item.
   - Each group's lengths less that minimum follow, bit-packed at its width.
   - Payloads of one length cost the records only, and a record's start places a group's payloads without the groups
     before it.
-- **Payloads** (`ColumnKind::Payloads`): the items' bytes back to back, `RAW` and read in place, or `LZ4` (48) when that
-  is smaller, decoded once when the chunk is opened.
+- **Payloads** (`ColumnKind::Payloads`): the items' bytes back to back, `RAW` and read in place, or a payload codec such
+  as `LZ4` (48), decoded once when the chunk is opened.
 
 A group's lengths are stored in one form only:
 
@@ -2037,6 +2037,36 @@ the same total.
 
 `Payloads::is_suspect` reports as suspect only the items of a group that fails, or raw items with a byte in a bad
 segment. A damaged lz4 column makes every item suspect.
+
+### 14.1 Choosing the codec {#choosing-the-payload-codec}
+
+The writer picks the payloads column's codec per track, chunk by chunk (`payloads::PayloadCodec`). The choice is not
+stored anywhere but in each column's codec byte, so a reader needs nothing else.
+
+| Choice | Payloads column |
+|---|---|
+| `Auto`, the default | each codec of `payloads::CODERS` tried in order; the first smallest kept when smaller than raw, else `RAW` |
+| `Raw` | `RAW` always; no encoder runs |
+| `Named(codec)` | that codec always, smaller or not; a number that is no payload codec is refused (`EncodeError::UnknownCodec`) |
+
+`Raw` suits payloads that don't compress, such as encrypted traffic: it spends no time on an encoder.
+`EventsOptions::payload_codec` sets the choice of an events handle. A caller that encodes its own chunks for a `ChunkSender` or a `TapeWriter` passes
+it to `EncodedPayloads::encode_with` or `from_parts`.
+
+### 14.2 Adding a codec {#adding-a-payload-codec}
+
+`payloads::CODERS` is the registry of payload codecs past `RAW`: each entry a codec number, an encoder and a decoder.
+Adding a codec takes three steps and no format break:
+
+1. Take a free codec number and add its row to the codec ids of [The chunk head](#the-chunk-head).
+2. Add its `PayloadCoder` to `CODERS`: encoder, decoder, and a decoded length capped as `LZ4_DECODED_MAX` caps lz4's.
+3. Give its decoder a fuzz target and a hostile target, as every decoder has.
+
+Files written before read as they did. A reader without the new entry refuses only that payloads column
+(`PayloadsError::UnknownCodec`) and still reads the chunk's times and relations.
+
+`Auto` tries every entry of `CODERS`, so a new entry changes what `Auto` writes for payloads it codes smaller. That is
+a change of written bytes: a breaking CHANGELOG entry and new golden files, as any such change.
 
 ## 15 Reserved numbers {#reserved-numbers}
 

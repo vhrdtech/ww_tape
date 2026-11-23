@@ -6,6 +6,7 @@ use crate::chunk::{ColumnSpec, chunk_len, write_chunk};
 use crate::tests::id;
 use crate::times::{EncodedTimes, EventTimes};
 use crate::{Block, ChunkHead};
+use alloc::borrow::Cow;
 use std::vec::Vec;
 
 /// xorshift64*, fixed seed.
@@ -512,7 +513,8 @@ fn from_parts_encodes_as_items_do() {
     for (name, w) in workloads() {
         let lens: Vec<u32> = w.iter().map(|p| p.len() as u32).collect();
         let raw: Vec<u8> = w.concat();
-        let parts = EncodedPayloads::from_parts(&lens, &raw, vec![7; 3]).unwrap();
+        let parts =
+            EncodedPayloads::from_parts(PayloadCodec::Auto, &lens, &raw, vec![7; 3]).unwrap();
         let items = EncodedPayloads::encode(w.iter().map(Vec::as_slice)).unwrap();
         assert_eq!(parts, items, "{name}");
         let taken = parts
@@ -522,11 +524,99 @@ fn from_parts_encodes_as_items_do() {
         assert_eq!(taken, given, "{name}: the columns");
     }
     assert_eq!(
-        EncodedPayloads::from_parts(&[1, 2], b"ab", Vec::new()),
+        EncodedPayloads::from_parts(PayloadCodec::Auto, &[1, 2], b"ab", Vec::new()),
         Err(EncodeError::Lengths)
     );
     assert_eq!(
-        EncodedPayloads::from_parts(&[], b"", Vec::new()),
+        EncodedPayloads::from_parts(PayloadCodec::Auto, &[], b"", Vec::new()),
         Err(EncodeError::Empty)
     );
+}
+
+/// Read back the payloads `w` encoded with `codec`, checking the column's codec.
+fn round_trip(w: &[Vec<u8>], codec: PayloadCodec, want: Codec) {
+    let enc = EncodedPayloads::encode_with(codec, w.iter().map(Vec::as_slice)).unwrap();
+    assert_eq!(enc.codec(), want, "{codec:?}");
+    let n = w.len();
+    let starts: Vec<i64> = (0..n as i64).collect();
+    let times = EncodedTimes::encode(&starts, None, None).unwrap();
+    let b = write(
+        &times
+            .head
+            .chunk_head(TrackId::new(7), TrackNum::new(2), ItemNum::new(0)),
+        times.columns().chain(enc.columns()),
+    );
+    let block = Block::read(&b).unwrap();
+    let c = block.chunk().unwrap();
+    check(&Payloads::read(&c).unwrap().unwrap(), w);
+}
+
+/// Raw and a named codec are kept whatever their size; a number that is no payload codec is refused.
+#[test]
+fn a_named_codec_is_kept() {
+    for (name, w) in workloads() {
+        if name == "empty" {
+            continue;
+        }
+        round_trip(&w, PayloadCodec::Raw, Codec::RAW);
+        round_trip(&w, PayloadCodec::Named(Codec::RAW), Codec::RAW);
+        round_trip(&w, PayloadCodec::LZ4, Codec::LZ4);
+        let auto = EncodedPayloads::encode(w.iter().map(Vec::as_slice)).unwrap();
+        let raw =
+            EncodedPayloads::encode_with(PayloadCodec::Raw, w.iter().map(Vec::as_slice)).unwrap();
+        assert_eq!(raw.columns()[0], auto.columns()[0], "{name}: the lengths");
+        assert_eq!(raw.columns()[1].1, w.concat(), "{name}: raw bytes as given");
+    }
+    assert_eq!(
+        EncodedPayloads::encode_with(PayloadCodec::Named(Codec::SERIES), [&b"ab"[..]]),
+        Err(EncodeError::UnknownCodec(Codec::SERIES))
+    );
+}
+
+/// A coder that must not run.
+const NEVER: PayloadCoder = PayloadCoder {
+    codec: Codec::LZ4,
+    name: "never",
+    max_len: |n| n,
+    encode: |_, _| panic!("a coder ran"),
+    decoded_len: |_| panic!("a coder ran"),
+    decode: |_, _| panic!("a coder ran"),
+};
+
+/// A coder of codec `c` whose columns are `n` bytes of `c`.
+macro_rules! fixed {
+    ($c:expr, $n:expr) => {
+        PayloadCoder {
+            codec: Codec($c),
+            name: "fixed",
+            max_len: |_| $n,
+            encode: |_, out| {
+                out.fill($c);
+                Ok($n)
+            },
+            decoded_len: |_| panic!("not read"),
+            decode: |_, _| panic!("not read"),
+        }
+    };
+}
+
+/// Raw runs no coder; Auto tries each, keeping the first of the smallest, and raw when none is smaller.
+#[test]
+fn auto_keeps_the_smallest_and_raw_runs_no_coder() {
+    let raw: Vec<u8> = (0..20).collect();
+    let lens = [10, 10];
+    let pack = |coders: &[PayloadCoder], codec| {
+        encode::pack_in(coders, codec, &lens, Cow::Borrowed(&raw), Vec::new()).unwrap()
+    };
+    let p = pack(&[NEVER], PayloadCodec::Raw);
+    assert_eq!((p.codec(), p.columns()[1].1), (Codec::RAW, &raw[..]));
+    let p = pack(&[NEVER], PayloadCodec::Named(Codec::RAW));
+    assert_eq!(p.codec(), Codec::RAW);
+    let coders = [fixed!(60, 12), fixed!(61, 8), fixed!(62, 8), fixed!(63, 20)];
+    let p = pack(&coders, PayloadCodec::Auto);
+    assert_eq!((p.codec(), p.columns()[1].1), (Codec(61), &[61u8; 8][..]));
+    let p = pack(&coders, PayloadCodec::Named(Codec(63)));
+    assert_eq!((p.codec(), p.columns()[1].1), (Codec(63), &[63u8; 20][..]));
+    let p = pack(&[fixed!(63, 20)], PayloadCodec::Auto);
+    assert_eq!((p.codec(), p.columns()[1].1), (Codec::RAW, &raw[..]));
 }

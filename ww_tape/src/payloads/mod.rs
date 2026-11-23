@@ -14,7 +14,8 @@
 //! `i`'s payload is found from one record and one group of lengths.
 //!
 //! **Payloads** ([ColumnKind::Payloads]) are the items' bytes back to back, in item order: [Codec::RAW], read in
-//! place, or [Codec::LZ4], decoded once when the chunk is opened. The encoder takes lz4 when it is smaller.
+//! place, or a codec of [CODERS] ([Codec::LZ4] today), decoded once when the chunk is opened. The writer picks the
+//! codec per track ([PayloadCodec]); by default it takes lz4 when that is smaller.
 //!
 //! A chunk has both columns or neither (every payload empty). Numbers are little endian, unaligned. A payloads column
 //! in the reserved [Codec::SERIES] stands alone; this reader refuses it ([PayloadsError::UnknownCodec]).
@@ -36,19 +37,20 @@
 //! suspect; an lz4 column with a byte in a bad segment makes every item suspect, its payloads read as decoded when
 //! the block still decodes to its stated length, else empty.
 
+mod codecs;
 mod encode;
 #[cfg(test)]
 mod tests;
 
+pub use codecs::{CODERS, PayloadCodec, PayloadCoder, coder};
 pub use encode::{EncodeError, EncodedPayloads};
 
 use crate::BlockKind;
 use crate::bitpack::GROUP;
 use crate::chunk::{Chunk, Codec, Column, ColumnKind};
 use crate::from_file::u32_to_usize;
-use crate::lz4::{Lz4Error, lz4_decode, lz4_decoded_len};
+use crate::lz4::Lz4Error;
 use crate::times::ColumnError;
-use alloc::vec;
 use alloc::vec::Vec;
 use core::ops::Range;
 use ww_tape_codecs::lengths::Lengths;
@@ -148,13 +150,11 @@ impl<'b> Payloads<'b> {
             .ok_or(PayloadsError::Missing(ColumnKind::PayloadLengths))?;
         let n = u32_to_usize(chunk.head().count);
         let l = Lengths::split(n, lengths.bytes, tail).map_err(corrupt_lengths)?;
-        let (l, bytes) = if payloads.codec == Codec::LZ4 {
+        let (l, bytes) = if let Some(coder) = coder(payloads.codec) {
             // at most LZ4_DECODED_MAX, and what the block can fill
-            let len = lz4_decoded_len(payloads.bytes).map_err(PayloadsError::Lz4)?;
-            let l = l.with_total(Some(len));
+            let out = coder.decode(payloads.bytes)?;
+            let l = l.with_total(Some(out.len()));
             l.check().map_err(corrupt_lengths)?;
-            let mut out = vec![0u8; len];
-            lz4_decode(payloads.bytes, &mut out).map_err(PayloadsError::Lz4)?;
             (l, Bytes::Decoded(out))
         } else {
             let l = l.with_total(Some(payloads.bytes.len()));
@@ -185,13 +185,9 @@ impl<'b> Payloads<'b> {
         let n = u32_to_usize(chunk.head().count);
         let l = Lengths::split(n, lengths.bytes, tail).map_err(corrupt_lengths)?;
         let damaged = chunk.column_damaged(&payloads);
-        let (bytes, total, all_suspect, bad) = if payloads.codec == Codec::LZ4 {
+        let (bytes, total, all_suspect, bad) = if let Some(coder) = coder(payloads.codec) {
             // at most LZ4_DECODED_MAX, and what the block can fill
-            let decoded = lz4_decoded_len(payloads.bytes).ok().and_then(|len| {
-                let mut out = vec![0u8; len];
-                lz4_decode(payloads.bytes, &mut out).ok().map(|_| out)
-            });
-            match decoded {
+            match coder.decode(payloads.bytes).ok() {
                 Some(out) => {
                     let total = out.len();
                     (Bytes::Decoded(out), Some(total), damaged, Vec::new())
@@ -393,7 +389,7 @@ fn columns<'b>(chunk: &Chunk<'b>) -> Result<Option<(Column<'b>, Column<'b>)>, Pa
     if l.codec != LENGTHS {
         return Err(PayloadsError::UnknownCodec(l.kind, l.codec));
     }
-    if p.codec != Codec::RAW && p.codec != Codec::LZ4 {
+    if p.codec != Codec::RAW && coder(p.codec).is_none() {
         return Err(PayloadsError::UnknownCodec(p.kind, p.codec));
     }
     Ok(Some((l, p)))

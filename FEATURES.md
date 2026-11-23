@@ -283,9 +283,9 @@ Column codecs with no notion of a block, in the crate `ww_tape_codecs`.
 
 - ✅ **CODEC-3 Payloads** · `v0.5`
 
-  Item payloads are a column of bit-packed lengths and a column of bytes, stored raw or as lz4, whichever is smaller. A damaged column is salvaged group by group, and only a bad group's items are marked.
+  Item payloads are a column of bit-packed lengths and a column of bytes, stored raw or as lz4. The writer picks the codec per track: by default whichever is smaller, raw always for payloads that don't compress, or a named codec. A later codec is a new entry in a registry, never a format break. A damaged column is salvaged group by group, and only a bad group's items are marked.
 
-  Read more: [Payloads](docs/columns.md#payloads). Golden file `v1-payloads.hex`; fuzz target `tape-payloads`.
+  Read more: [Payloads](docs/columns.md#payloads), [Adding a codec](docs/format.md#adding-a-payload-codec). Golden file `v1-payloads.hex`; fuzz target `tape-payloads`.
 
 - ✅ **CODEC-4 ALP for floats** · `v0.5`
 

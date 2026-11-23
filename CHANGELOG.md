@@ -10,9 +10,12 @@ benchmarks, golden files and book pages.
 
 - A memory tape of this process reads without payload CRCs by default; `PayloadCheck::Always` checks them (REPO-1).
 - `OpenOptions` gains `check_payloads`: a struct literal adds it or `..OpenOptions::default()` (REPO-1).
+- `EncodedPayloads::from_parts` takes a `PayloadCodec` first; pass `PayloadCodec::Auto` for the bytes as before (CODEC-3).
 
 ### Features
 
+- The payload codec is a writer's choice per track: `PayloadCodec` Auto, Raw or named; `EventsOptions::payload_codec` (CODEC-3).
+- Payload codecs past raw sit in the `payloads::CODERS` registry; format.md says how a codec is added (CODEC-3).
 - `Block::read_unverified` skips payload CRCs, not structure checks; `Block::checked` says how a block was read (REPO-1).
 - `just bench-read-check` times `read_block` of chunks and records blocks, payload CRCs checked and not (REPO-1).
 - `Drive::record_unplaced` records the drive's hour through the mux without a writer round trip per act (EX-3).

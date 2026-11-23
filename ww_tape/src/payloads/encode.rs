@@ -1,10 +1,10 @@
 //! Encoding a chunk's payloads into its two columns.
 
 use super::LENGTHS;
+use super::codecs::{CODERS, PayloadCodec, PayloadCoder, coder_in};
 use crate::chunk::{Codec, ColumnKind, ColumnSpec};
-use crate::lz4::{LZ4_DECODED_MAX, Lz4Error, lz4_encode, lz4_max_len};
+use crate::lz4::{LZ4_DECODED_MAX, Lz4Error};
 use alloc::borrow::Cow;
-use alloc::vec;
 use alloc::vec::Vec;
 use ww_tape_codecs::lengths::encode_lengths;
 
@@ -22,6 +22,8 @@ pub enum EncodeError {
     Lz4(Lz4Error),
     /// The lengths don't add up to the payload bytes.
     Lengths,
+    /// [PayloadCodec::Named] names a codec that isn't a payload codec of this crate.
+    UnknownCodec(Codec),
 }
 
 impl core::fmt::Display for EncodeError {
@@ -34,6 +36,7 @@ impl core::fmt::Display for EncodeError {
             }
             Self::Lz4(_) => write!(f, "lz4 encoder refused the payloads"),
             Self::Lengths => write!(f, "lengths don't add up to the payload bytes"),
+            Self::UnknownCodec(c) => write!(f, "no payload codec {}", c.0),
         }
     }
 }
@@ -56,10 +59,18 @@ pub struct EncodedPayloads {
 }
 
 impl EncodedPayloads {
-    /// Encode the payloads of a chunk's items, in item order. The payloads column is [Codec::LZ4] when that is
-    /// smaller than the bytes as they are, else [Codec::RAW]. The same payloads give the same bytes (lz4: see
-    /// [crate::lz4]).
+    /// Encode the payloads of a chunk's items, in item order, in [PayloadCodec::Auto]: the payloads column is
+    /// [Codec::LZ4] when that is smaller than the bytes as they are, else [Codec::RAW]. The same payloads give the
+    /// same bytes (lz4: see [crate::lz4]).
     pub fn encode<'a>(items: impl IntoIterator<Item = &'a [u8]>) -> Result<Self, EncodeError> {
+        Self::encode_with(PayloadCodec::Auto, items)
+    }
+
+    /// [Self::encode] with the payloads column's codec picked by `codec`.
+    pub fn encode_with<'a>(
+        codec: PayloadCodec,
+        items: impl IntoIterator<Item = &'a [u8]>,
+    ) -> Result<Self, EncodeError> {
         let mut lens: Vec<u32> = Vec::new();
         let mut raw: Vec<u8> = Vec::new();
         for item in items {
@@ -78,13 +89,18 @@ impl EncodedPayloads {
             lens.push(item_len);
             raw.extend_from_slice(item);
         }
-        Self::pack(&lens, Cow::Owned(raw), Vec::new())
+        pack_in(CODERS, codec, &lens, Cow::Owned(raw), Vec::new())
     }
 
-    /// Encode payloads given as their lengths in item order and their bytes one after another, as [Self::encode]
-    /// does: the same bytes. The payloads column goes into `out`, a buffer to reuse (its bytes are dropped). Refused
-    /// when the lengths don't add up to the bytes.
-    pub fn from_parts(lens: &[u32], raw: &[u8], out: Vec<u8>) -> Result<Self, EncodeError> {
+    /// Encode payloads given as their lengths in item order and their bytes one after another, as
+    /// [Self::encode_with] does: the same bytes. The payloads column goes into `out`, a buffer to reuse (its bytes
+    /// are dropped). Refused when the lengths don't add up to the bytes.
+    pub fn from_parts(
+        codec: PayloadCodec,
+        lens: &[u32],
+        raw: &[u8],
+        out: Vec<u8>,
+    ) -> Result<Self, EncodeError> {
         if raw.len() > LZ4_DECODED_MAX {
             return Err(EncodeError::TooLong { len: raw.len() });
         }
@@ -97,45 +113,10 @@ impl EncodedPayloads {
         if sum != Some(raw.len()) {
             return Err(EncodeError::Lengths);
         }
-        Self::pack(lens, Cow::Borrowed(raw), out)
+        pack_in(CODERS, codec, lens, Cow::Borrowed(raw), out)
     }
 
-    /// Encode lengths `lens` and payload bytes `raw` checked before, the payloads column into `out`.
-    fn pack(lens: &[u32], raw: Cow<'_, [u8]>, mut out: Vec<u8>) -> Result<Self, EncodeError> {
-        if lens.is_empty() {
-            return Err(EncodeError::Empty);
-        }
-        let lengths = encode_lengths(lens).ok_or(EncodeError::TooLong { len: raw.len() })?;
-        let max = lz4_max_len(raw.len());
-        if out.capacity() < max {
-            // a fresh buffer comes zeroed from the allocator
-            out = vec![0; max];
-        } else {
-            out.clear();
-            out.resize(max, 0);
-        }
-        let n = lz4_encode(&raw, &mut out).map_err(EncodeError::Lz4)?;
-        let (payloads, codec) = if n < raw.len() {
-            out.truncate(n);
-            (out, Codec::LZ4)
-        } else {
-            match raw {
-                Cow::Owned(raw) => (raw, Codec::RAW),
-                Cow::Borrowed(raw) => {
-                    out.clear();
-                    out.extend_from_slice(raw);
-                    (out, Codec::RAW)
-                }
-            }
-        };
-        Ok(Self {
-            lengths,
-            payloads,
-            codec,
-        })
-    }
-
-    /// The codec of the payloads column: [Codec::RAW] or [Codec::LZ4].
+    /// The codec of the payloads column: [Codec::RAW] or one of [CODERS].
     pub fn codec(&self) -> Codec {
         self.codec
     }
@@ -176,4 +157,57 @@ impl EncodedPayloads {
             ),
         ]
     }
+}
+
+/// Encode lengths `lens` and payload bytes `raw` checked before, the payloads column into `out`, its codec picked by
+/// `codec` among `coders`.
+pub(super) fn pack_in(
+    coders: &[PayloadCoder],
+    codec: PayloadCodec,
+    lens: &[u32],
+    raw: Cow<'_, [u8]>,
+    mut out: Vec<u8>,
+) -> Result<EncodedPayloads, EncodeError> {
+    if lens.is_empty() {
+        return Err(EncodeError::Empty);
+    }
+    let lengths = encode_lengths(lens).ok_or(EncodeError::TooLong { len: raw.len() })?;
+    let (candidates, keep_any) = match codec {
+        PayloadCodec::Auto => (coders, false),
+        PayloadCodec::Raw => (&[][..], false),
+        PayloadCodec::Named(Codec::RAW) => (&[][..], false),
+        PayloadCodec::Named(c) => {
+            let coder = coder_in(coders, c).ok_or(EncodeError::UnknownCodec(c))?;
+            (core::slice::from_ref(coder), true)
+        }
+    };
+    // `out` holds the best column so far, `spare` the next candidate's
+    let mut best: Option<Codec> = None;
+    let mut best_len = raw.len();
+    let mut spare = Vec::new();
+    for coder in candidates {
+        let buf = if best.is_none() { &mut out } else { &mut spare };
+        let n = coder.encode_into(&raw, buf)?;
+        if keep_any || n < best_len {
+            if best.is_some() {
+                core::mem::swap(&mut out, &mut spare);
+            }
+            best = Some(coder.codec);
+            best_len = n;
+        }
+    }
+    let (payloads, codec) = match (best, raw) {
+        (Some(codec), _) => (out, codec),
+        (None, Cow::Owned(raw)) => (raw, Codec::RAW),
+        (None, Cow::Borrowed(raw)) => {
+            out.clear();
+            out.extend_from_slice(raw);
+            (out, Codec::RAW)
+        }
+    };
+    Ok(EncodedPayloads {
+        lengths,
+        payloads,
+        codec,
+    })
 }

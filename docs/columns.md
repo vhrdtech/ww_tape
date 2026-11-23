@@ -96,7 +96,9 @@ caller tells the writer where the relation starts again. [Relation breaks](forma
 
 An events chunk stores the [[payloads]] in two columns. The lengths are packed per group of 128 above the group's
 shortest payload. The payload bytes follow back to back, stored raw or compressed with lz4 when that is smaller. A
-reader of a compressed column decodes it once, whole, when it opens the chunk.
+writer may also keep a track's payloads raw always, or name a codec
+([Choosing the codec](format.md#choosing-the-payload-codec)). A reader of a compressed column decodes it once, whole,
+when it opens the chunk.
 
 The drive's frames have 12 bytes each: a 4-byte identifier and 8 bytes of data. Their lengths cost 0.10 bytes per frame.
 Their payloads cost 0.73 bytes per frame, and lz4 was smaller than raw in all 3600 chunks.

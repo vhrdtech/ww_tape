@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use exact_units::Bytes;
 use ww_tape::chunk::Chunk;
-use ww_tape::payloads::EncodedPayloads;
+use ww_tape::payloads::{EncodedPayloads, PayloadCodec};
 use ww_tape::times::{EncodedRelation, EncodedTimes, EventTimes};
 use ww_tape::{ColumnSpec, Describe, Ends, ItemNum, Tapes, TrackDef, TrackId, TrackKind, TrackNum};
 use ww_tape_summary::{EventFields, EventRuns};
@@ -44,6 +44,10 @@ pub struct EventsOptions {
     pub summaries: bool,
     /// The track's first item: past 0 when a resumed chain goes on with the track.
     pub first_item: ItemNum,
+    /// How each chunk's payloads column is coded: [PayloadCodec::Auto] tries LZ4 and keeps it when smaller,
+    /// [PayloadCodec::Raw] runs no encoder (payloads that don't compress). A codec this crate doesn't know is refused
+    /// when the handle opens.
+    pub payload_codec: PayloadCodec,
 }
 
 impl Default for EventsOptions {
@@ -54,6 +58,7 @@ impl Default for EventsOptions {
             latency: Some(LATENCY_DEFAULT),
             summaries: true,
             first_item: ItemNum::new(0),
+            payload_codec: PayloadCodec::Auto,
         }
     }
 }
@@ -123,6 +128,7 @@ pub(crate) struct EventsChunk {
     stored: Vec<Stored>,
     chunk_items: usize,
     chunk_bytes: usize,
+    payload_codec: PayloadCodec,
     /// The first item of the open chunk
     next_item: u64,
     starts: Vec<i64>,
@@ -345,8 +351,13 @@ impl EventsChunk {
         let ends = self.fields.latest_end.then_some(self.ends.as_slice());
         let flags = self.fields.flags.then_some(self.flags.as_slice());
         let times = EncodedTimes::encode(&self.starts, ends, flags).map_err(EncodeError::Times)?;
-        let payloads = EncodedPayloads::from_parts(&self.lens, &self.payload, buffers.buffer())
-            .map_err(EncodeError::Payloads)?;
+        let payloads = EncodedPayloads::from_parts(
+            self.payload_codec,
+            &self.lens,
+            &self.payload,
+            buffers.buffer(),
+        )
+        .map_err(EncodeError::Payloads)?;
         let relations = self
             .stored
             .iter()
@@ -500,6 +511,12 @@ fn events_chunk(def: &TrackDef<'_>, options: EventsOptions) -> Option<EventsChun
         .ok()
         .filter(|n| (1..=ww_tape::times::ITEMS_MAX).contains(n))?;
     let chunk_bytes = usize::try_from(options.chunk_bytes.get()).ok()?;
+    if let PayloadCodec::Named(c) = options.payload_codec
+        && c != ww_tape::Codec::RAW
+        && ww_tape::payloads::coder(c).is_none()
+    {
+        return None;
+    }
     let relations = ww_tape::times::StoredRelations::of(def);
     let stored: Vec<Stored> = (0..u16::try_from(ww_tape::RELATIONS_MAX).ok()?)
         .filter(|i| relations.stored.contains(*i))
@@ -516,6 +533,7 @@ fn events_chunk(def: &TrackDef<'_>, options: EventsOptions) -> Option<EventsChun
         stored,
         chunk_items,
         chunk_bytes,
+        payload_codec: options.payload_codec,
         next_item: options.first_item.get(),
         starts: Vec::new(),
         ends: Vec::new(),

@@ -225,6 +225,11 @@ macro_rules! buffered {
 
 /// Sends chunks of one events or series track, encoded by the caller.
 ///
+/// The caller picks the payload codec of an events chunk as it encodes it:
+/// [EncodedPayloads::from_parts](ww_tape::payloads::EncodedPayloads::from_parts) or
+/// [encode_with](ww_tape::payloads::EncodedPayloads::encode_with) with a
+/// [PayloadCodec](ww_tape::payloads::PayloadCodec), into a [Self::buffer].
+///
 /// The caller numbers the items: a chunk's `first_item` follows the last one sent. Many handles may serve other
 /// tracks; this track has only this one.
 pub struct ChunkSender<T: Tapes> {

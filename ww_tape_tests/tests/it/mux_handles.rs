@@ -11,7 +11,7 @@ use exact_units::{Count, Magnitude};
 use shrink_wrap::prelude::*;
 use ww_tape::chunk::ChunkHead;
 use ww_tape::index::{IndexEntry, IndexPolicy};
-use ww_tape::payloads::{EncodedPayloads, Payloads};
+use ww_tape::payloads::{EncodedPayloads, PayloadCodec, Payloads};
 use ww_tape::samples::Samples;
 use ww_tape::times::{EncodedRelation, EncodedTimes, EventTimes, RelationColumn};
 use ww_tape::{
@@ -325,7 +325,7 @@ fn an_events_handle_refuses_bad_items() {
 
 /// The bytes the items of [item] track `k` write through a chain directly, with the item tree of each piece
 /// ended before each cut: what one events handle writes through the mux.
-fn direct_events(k: u32, items: u64, chunk_items: u64) -> Vec<Vec<u8>> {
+fn direct_events(k: u32, items: u64, chunk_items: u64, codec: PayloadCodec) -> Vec<Vec<u8>> {
     let mem = MemTapes::new();
     let mut defs = Definitions::new();
     let c = defs.define_clock(clock()).unwrap();
@@ -359,7 +359,7 @@ fn direct_events(k: u32, items: u64, chunk_items: u64) -> Vec<Vec<u8>> {
             fields.flags.then_some(&flags[..]),
         )
         .unwrap();
-        let payloads = EncodedPayloads::encode(all.iter().map(|i| &i.3[..])).unwrap();
+        let payloads = EncodedPayloads::encode_with(codec, all.iter().map(|i| &i.3[..])).unwrap();
         let relations: Vec<EncodedRelation> = if k == 2 {
             [(0u16, true), (2, false)]
                 .iter()
@@ -398,11 +398,16 @@ fn direct_events(k: u32, items: u64, chunk_items: u64) -> Vec<Vec<u8>> {
     pieces(&mem)
 }
 
-/// One events handle writes the bytes the same chunks and item trees write through a chain directly: the encoding,
-/// the payload hash and the summary split change no byte.
+/// One events handle writes the bytes the same chunks and item trees write through a chain directly, in each payload
+/// codec: the encoding, the payload hash and the summary split change no byte.
 #[test]
 fn one_events_handle_writes_the_bytes_of_a_chain_written_directly() {
-    for k in [0, 2] {
+    for (k, codec) in [
+        (0, PayloadCodec::Auto),
+        (2, PayloadCodec::Auto),
+        (2, PayloadCodec::Raw),
+        (2, PayloadCodec::LZ4),
+    ] {
         let mem = MemTapes::new();
         let mux = TapeMux::create(
             mem.clone(),
@@ -421,6 +426,7 @@ fn one_events_handle_writes_the_bytes_of_a_chain_written_directly() {
                 EventsOptions {
                     chunk_items: 1500,
                     latency: None,
+                    payload_codec: codec,
                     ..EventsOptions::default()
                 },
             )
@@ -433,10 +439,38 @@ fn one_events_handle_writes_the_bytes_of_a_chain_written_directly() {
         h.finish().unwrap();
         mux.close().unwrap();
         let got = pieces(&mem);
-        let want = direct_events(k, 40_000, 1500);
+        let want = direct_events(k, 40_000, 1500, codec);
         assert!(got.len() > 3, "the chain is cut");
-        assert!(got == want, "track {k}: the same pieces");
+        assert!(got == want, "track {k} {codec:?}: the same pieces");
+        if codec == PayloadCodec::Raw {
+            assert!(
+                got != direct_events(k, 40_000, 1500, PayloadCodec::Auto),
+                "raw payloads differ from the lz4 that auto takes"
+            );
+        }
     }
+}
+
+/// An events handle refuses a payload codec that is no payload codec of ww_tape.
+#[test]
+fn an_events_handle_refuses_an_unknown_payload_codec() {
+    let mux = TapeMux::create(
+        MemTapes::new(),
+        OWNER,
+        0,
+        &[],
+        options(5),
+        MuxOptions::default(),
+    )
+    .unwrap();
+    let c = mux.define_clock(clock()).unwrap();
+    let track = mux.define_track(events_track(0, c)).unwrap();
+    let options = EventsOptions {
+        payload_codec: PayloadCodec::Named(ww_tape::Codec::SERIES),
+        ..EventsOptions::default()
+    };
+    assert!(mux.events(track, options).is_err());
+    mux.close().unwrap();
 }
 
 /// The pieces one events handle writes for the first `items` items of [item] track `k`, cut at `chunk_items` items
