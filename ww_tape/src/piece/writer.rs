@@ -722,6 +722,8 @@ impl<T: PieceStore> PieceChain<T> {
                     self.store
                         .remove(&c.tape)
                         .map_err(sink_err("removing a piece"))?;
+                    // a failure part way lists the pieces still there
+                    self.closed.retain(|k| k.tape != c.tape);
                 }
             }
             PieceTapes::One => {

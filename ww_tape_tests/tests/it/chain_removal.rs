@@ -169,6 +169,14 @@ fn a_crash_during_retention_leaves_a_chain_that_resumes() {
     write(&mut c, &defs, 0, 9);
     let e = c.remove(&[0, 1, 2]).unwrap_err();
     assert!(matches!(e, WriteError::Sink { .. }), "{e:?}");
+    // the piece deleted before the failure is no longer listed
+    let listed: Vec<u64> = c
+        .closed()
+        .iter()
+        .filter_map(|p| p.piece.ident)
+        .map(|i| i.seq)
+        .collect();
+    assert_eq!(listed, [1, 2, 3]);
     drop(c);
     assert_eq!(mem.keys().unwrap(), [1, 2, 3, 4]);
 
