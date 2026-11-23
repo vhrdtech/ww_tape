@@ -301,9 +301,21 @@ pub struct TrackFacts {
     pub monotone: RelationSet,
     /// The relation whose values' smallest and largest go into each chunk's index entry.
     pub range: Option<u16>,
+    /// The tiles of a grid's fixed axes, whose tile number goes into each chunk's index entry;
+    /// [TileLayout::SERIES](crate::TileLayout::SERIES) for a series or an events track.
+    pub tiles: crate::TileLayout,
 }
 
 impl TrackFacts {
+    /// The tile number a chunk of the track with `head` goes into its index entry with; None for a series or events
+    /// track, and for coordinates the grid doesn't hold.
+    pub(crate) fn tile_number(&self, head: &crate::ChunkHead) -> Option<u128> {
+        if self.tiles.axes() == 0 {
+            return None;
+        }
+        self.tiles.pack(&head.tile)
+    }
+
     /// The facts of track definition `t`.
     pub(crate) fn of(t: &crate::TrackDef<'_>) -> Self {
         let relations = crate::times::StoredRelations::of(t);
@@ -320,6 +332,11 @@ impl TrackFacts {
             stored: relations.stored,
             monotone: relations.monotone,
             range,
+            // a held definition was checked, its layout with it
+            tiles: t
+                .series()
+                .and_then(|s| s.tile_layout().ok())
+                .unwrap_or(crate::TileLayout::SERIES),
         }
     }
 }
@@ -1121,9 +1138,16 @@ impl Definitions {
                 Err(DescribeError::StateChunk { track })
             }
             (BlockKind::Events, None) => Ok(()),
-            (BlockKind::Series, Some(period)) => crate::SeriesGrid::of_chunk(head, period)
-                .map(|_| ())
-                .map_err(|error| DescribeError::Kind { track, error }),
+            (BlockKind::Series, Some(period)) => {
+                let tile = match t.tiles.holds(&head.tile) {
+                    true => Ok(()),
+                    false => Err(crate::SeriesError::TileOutside {
+                        first_item: head.first_item,
+                    }),
+                };
+                tile.and_then(|()| crate::SeriesGrid::of_chunk(head, period).map(|_| ()))
+                    .map_err(|error| DescribeError::Kind { track, error })
+            }
             _ => Err(DescribeError::WrongKind { track }),
         }
     }

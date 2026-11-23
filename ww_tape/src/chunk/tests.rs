@@ -40,6 +40,7 @@ fn events(first_item: u64, n: u32) -> (ChunkHead, Vec<Vec<u8>>) {
         time_mode: 0,
         end_mode: EndMode::Durations,
         grid: None,
+        tile: crate::TileCoords::NONE,
     };
     let cols = vec![
         i64s(starts),
@@ -73,6 +74,7 @@ fn series(first: u64, n: u32) -> (ChunkHead, Vec<Vec<u8>>) {
         time_mode: 0,
         end_mode: EndMode::Absent,
         grid: Some(crate::SeriesGrid::start(0, 0, crate::Magnitude::ONE)),
+        tile: crate::TileCoords::NONE,
     };
     let ch = |c: u64| -> Vec<u8> {
         (0..u64::from(n))
@@ -778,4 +780,72 @@ fn a_scale_error_keeps_its_cause() {
     use core::error::Error as _;
     let e = ChunkError::Scale(shrink_wrap::Error::NestingTooDeep);
     assert!(e.source().is_some(), "the encoder's error is the source");
+}
+
+/// A grid chunk of tile (7, 3, 2, 5) reads back with its coordinates and samples; its head is the series chunk's
+/// with byte 82 the count of fixed axes and 16 bytes of coordinates after the scale.
+#[test]
+fn a_grid_chunk_carries_its_tile_coordinates() {
+    let (series, cols) = series(10, 50);
+    let tile = TileCoords::new(&[7, 3, 2, 5]).unwrap();
+    let head = ChunkHead { tile, ..series };
+    let bytes = encode(&head, &series_columns(&cols), 1, 0);
+    let plain = encode(&series, &series_columns(&cols), 1, 0);
+    assert_eq!(bytes.len(), plain.len() + 16);
+    assert_eq!(bytes[82], 4);
+    assert_eq!(plain[82], 0);
+    let b = Block::read(&bytes).unwrap();
+    let c = b.chunk().unwrap();
+    assert_eq!(c.head, head);
+    assert_eq!(c.head.tile.as_slice(), [7, 3, 2, 5]);
+    assert_eq!(ChunkHead::read_head(&bytes).unwrap(), head);
+    assert_eq!(
+        c.column(0).unwrap().bytes,
+        Block::read(&plain)
+            .unwrap()
+            .chunk()
+            .unwrap()
+            .column(0)
+            .unwrap()
+            .bytes
+    );
+    let most = TileCoords::new(&[u32::MAX; GRID_FIXED_AXES_MAX]).unwrap();
+    let head = ChunkHead {
+        tile: most,
+        ..series
+    };
+    let bytes = encode(&head, &series_columns(&cols), 1, 0);
+    assert_eq!(ChunkHead::read_head(&bytes).unwrap().tile, most);
+}
+
+/// Byte 82 of a series chunk past GRID_FIXED_AXES_MAX is refused as a bound, its CRCs made good; an events chunk
+/// takes no tile coordinates.
+#[test]
+fn tile_coordinates_are_bounded_and_series_only() {
+    let (series, cols) = series(0, 20);
+    let good = encode(&series, &series_columns(&cols), 1, 0);
+    let mut bad = good.clone();
+    bad[82] = u8::try_from(GRID_FIXED_AXES_MAX + 1).unwrap();
+    assert!(
+        ChunkHead::head_len(&bad).is_ok(),
+        "the payload offset still reads"
+    );
+    assert!(matches!(restamp(&mut bad), Err(ChunkHeadError::Bound(_))));
+    // a count that runs the coordinates into the column table: the CRC fails or the head is out of range
+    let mut bad = good.clone();
+    bad[82] = 1;
+    assert!(Block::read(&bad).is_err());
+    assert!(ChunkHead::read_head(&bad).is_err());
+
+    let (events, cols) = events(0, 3);
+    let head = ChunkHead {
+        tile: TileCoords::new(&[1]).unwrap(),
+        ..events
+    };
+    let specs: Vec<ColumnSpec> = event_columns(&cols).iter().map(|c| c.0).collect();
+    let mut buf = vec![0u8; chunk_len(&head, &specs, 0) + 64];
+    assert_eq!(
+        write_chunk(&mut buf, id(1), &head, &event_columns(&cols), 0),
+        Err(ChunkError::Invalid("an events chunk with tile coordinates"))
+    );
 }

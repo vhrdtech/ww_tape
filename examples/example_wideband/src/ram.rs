@@ -17,7 +17,7 @@
 
 use shrink_wrap::prelude::*;
 use ww_tape::{
-    ClockNum, Codec, Ends, EventsDef, Items, MemError, MemPiece, PieceStore, Segment, SeriesDef,
+    ClockNum, Codec, Ends, EventsDef, GridDef, Items, MemError, MemPiece, PieceStore, Segment,
     TapeReader, TrackId, TrackKind, TrackRepeat, TrackSpec, track_key,
 };
 use ww_tape_mux::{Event, EventsHandle, EventsOptions, MuxError, TapeMux};
@@ -281,7 +281,7 @@ where
     R::Key: Send,
     R::Error: Send + Sync,
 {
-    def: SeriesDef<'static>,
+    def: GridDef<'static>,
     power_min: f32,
     channels: Vec<Channel<R>>,
     kept: KeptLog<R>,
@@ -304,7 +304,7 @@ where
     /// A definition or handle `results` refused.
     pub fn new(
         c: &RfCapture,
-        def: SeriesDef<'static>,
+        def: GridDef<'static>,
         results: &TapeMux<R>,
     ) -> Result<Self, MuxError<R::Error>> {
         let clock = results.define_clock(clock())?;

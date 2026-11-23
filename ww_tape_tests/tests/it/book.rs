@@ -326,6 +326,7 @@ fn format_page_chunk_head_offsets_read_a_chunk() {
         time_mode: 0,
         end_mode: EndMode::Absent,
         grid: Some(grid),
+        tile: ww_tape::TileCoords::NONE,
     };
     let samples: Vec<u8> = [1i16, 2, 3, 4]
         .iter()
@@ -355,7 +356,7 @@ fn format_page_chunk_head_offsets_read_a_chunk() {
     assert_eq!(f("latest end") as i64, last_tick);
     assert_eq!(f("segment shift"), 16);
     assert_eq!(f("columns n"), 1);
-    assert_eq!(f("time mode"), 0);
+    assert_eq!(f("mode"), 0, "a series of no fixed axes");
     assert_eq!(f("end mode"), 0);
     assert_eq!(f("grid index"), 96);
     assert_eq!(f("grid tick") as i64, 5_000);
@@ -366,6 +367,38 @@ fn format_page_chunk_head_offsets_read_a_chunk() {
         .unwrap()
         .0;
     assert_eq!(bytes[scale_at..scale_at + 2], [0xfa, 0x00], "10⁻³ is fa 00");
+    assert_eq!(
+        bytes[scale_at + 2],
+        ColumnKind::Samples.to_u8(),
+        "no coordinates"
+    );
+    grid_chunk_places_its_coordinates(&head_layout, head, scale_at + 2);
+}
+
+/// The chunk of tile (7, 3) of a grid of two fixed axes, else `head`: the mode byte says 2, the coordinates follow the
+/// scale at `coords_at`.
+fn grid_chunk_places_its_coordinates(
+    head_layout: &[(usize, String, String)],
+    head: ChunkHead,
+    coords_at: usize,
+) {
+    let tile = ww_tape::TileCoords::new(&[7, 3]).unwrap();
+    let head = ChunkHead { tile, ..head };
+    let samples = [0u8; 8];
+    let spec = ColumnSpec {
+        kind: ColumnKind::Samples,
+        codec: Codec::RAW,
+        param: 0,
+        len: samples.len(),
+    };
+    let mut buf = vec![0u8; ww_tape::chunk::chunk_len(&head, &[spec], 0)];
+    let id = BlockId::new(SessionTag::from_u32(0xc0ffee), 8);
+    let n = ww_tape::chunk::write_chunk(&mut buf, id, &head, &[(spec, &samples)], 0).unwrap();
+    let bytes = &buf[..n];
+    assert_eq!(ChunkHead::read_head(bytes).unwrap(), head);
+    assert_eq!(field(head_layout, bytes, "mode"), 2);
+    assert_eq!(bytes[coords_at..coords_at + 8], [7, 0, 0, 0, 3, 0, 0, 0]);
+    assert_eq!(bytes[coords_at + 8], ColumnKind::Samples.to_u8());
 }
 
 /// The rows of the Markdown table whose header row starts with `header`, as cells.
@@ -383,6 +416,35 @@ fn table(page: &str, header: &str) -> Vec<Vec<String>> {
                 .collect()
         })
         .collect()
+}
+
+/// The page's weather ensemble: its tiles per axis, their bits and the tile number of tile (7, 3, 2, 5), from
+/// `TileLayout`.
+#[test]
+fn format_page_tile_number_is_the_layouts() {
+    let page = read("../docs/format.md").replace('\n', " ");
+    let l = ww_tape::TileLayout::new(&[(51, 1), (37, 1), (721, 180), (1440, 180)]).unwrap();
+    let [a, b, c, d] = l.tiles() else {
+        unreachable!("four axes")
+    };
+    let [wa, wb, wc, wd] = l.widths() else {
+        unreachable!("four axes")
+    };
+    assert!(page.contains(&format!(
+        "Its axes have {a}, {b}, {c} and {d} tiles, which take {wa}, {wb}, {wc} and {wd} bits, {} in all.",
+        l.bits()
+    )));
+    let n = l
+        .pack(&ww_tape::TileCoords::new(&[7, 3, 2, 5]).unwrap())
+        .unwrap();
+    let shifts = [u32::from(wb + wc + wd), u32::from(wc + wd), u32::from(*wd)];
+    assert_eq!(n, 7 << shifts[0] | 3 << shifts[1] | 2 << shifts[2] | 5);
+    assert!(page.contains(&format!(
+        "Tile (7, 3, 2, 5) is `7 << {} | 3 << {} | 2 << {} | 5`.",
+        shifts[0], shifts[1], shifts[2]
+    )));
+    assert_eq!(ww_tape::TileLayout::new(&[(10, 1); 20]).unwrap().bits(), 80);
+    assert!(page.contains("Twenty axes of 10 values each take 80 bits"));
 }
 
 /// The block kinds table on the page against `BlockKind`.
@@ -480,6 +542,14 @@ fn page_caps() -> Vec<(&'static str, u64)> {
             "SERIES_CHANNELS_MAX",
             ww_tape::series::SERIES_CHANNELS_MAX.into(),
         ),
+        (
+            "GRID_FIXED_AXES_MAX",
+            ww_tape::grid::GRID_FIXED_AXES_MAX as u64,
+        ),
+        ("AXIS_NAME_LEN_MAX", ww_tape::grid::AXIS_NAME_LEN_MAX as u64),
+        ("GRID_LISTED_MAX", ww_tape::grid::GRID_LISTED_MAX.into()),
+        ("GRID_TILE_CELLS_MAX", ww_tape::grid::GRID_TILE_CELLS_MAX),
+        ("TILE_NUMBER_BITS", ww_tape::grid::TILE_NUMBER_BITS.into()),
         ("GAP_MAX_MAX", ww_tape::GAP_MAX_MAX.into()),
         ("GAP_PROBES_MAX", ww_tape::GAP_PROBES_MAX.into()),
         ("GAP_CHECKS_MAX", ww_tape::GAP_CHECKS_MAX.into()),
@@ -658,10 +728,14 @@ fn format_page_relations_and_owner_read_a_chain() {
     let page = std::fs::read_to_string("../docs/format.md").unwrap();
     for line in [
         "15 u8 flags: bit 0 repeat, bit 1 range",
-        "72 u64 smallest value of the track's range relation in the chunk (flag bit 1), else 0",
-        "80 u64 its largest value, else 0          88 [32] a chunk's unit hash, else 0",
+        "bit 3 relation break, bit 4 tile",
+        "72 u64 smallest value of the track's range relation in an events chunk (flag bit 1), else 0",
+        "80 u64 its largest value, else 0",
+        "72 u128 a grid chunk's tile number (flag bit 4) in place of the range, else 0",
+        "88 [32] a chunk's unit hash, else 0",
         "32 u32  entries offset from the block start",
-        "58 u16  entry length, 120",
+        "58 u16  entry length, 128",
+        "120 [8] reserved: written zero, not read",
         "146 u8   integrity (Integrity)",
     ] {
         assert!(page.contains(line), "docs/format.md: {line:?}");
@@ -728,7 +802,7 @@ fn format_page_relations_and_owner_read_a_chain() {
     let ix = &second[final_at..];
     let entries_at = u32::from_le_bytes(ix[32..36].try_into().unwrap()) as usize;
     let entry_len = usize::from(u16::from_le_bytes([ix[58], ix[59]]));
-    assert_eq!(entry_len, 120);
+    assert_eq!(entry_len, 128);
     let n = u32::from_le_bytes(ix[12..16].try_into().unwrap()) as usize;
     let e = (0..n)
         .map(|i| &ix[entries_at + i * entry_len..][..entry_len])
@@ -738,5 +812,6 @@ fn format_page_relations_and_owner_read_a_chain() {
     assert_eq!(u64::from_le_bytes(e[72..80].try_into().unwrap()), 105);
     assert_eq!(u64::from_le_bytes(e[80..88].try_into().unwrap()), 107);
     assert_eq!(e[88..120], entry.unit.0);
+    assert_eq!(e[120..128], [0; 8], "reserved");
     assert_ne!(entry.unit, ww_tape::UnitHash::NONE);
 }

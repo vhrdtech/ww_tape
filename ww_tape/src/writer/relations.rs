@@ -231,6 +231,13 @@ impl Relations {
             .map(|col| col.range())
     }
 
+    /// The tile number of grid chunk `c` by the definition placed of its track; None for a series or events chunk
+    /// and for coordinates the grid doesn't hold (a damaged block a resume keeps).
+    pub(crate) fn tile(&self, c: &Chunk<'_>) -> Option<u128> {
+        let head = c.head();
+        self.facts.get(&head.track_number)?.tile_number(&head)
+    }
+
     /// Track `key`'s next chunk is checked against `from` for monotone relation `relation`, not against the values
     /// before it, and is marked [FLAG_RELATION_BREAK](crate::FLAG_RELATION_BREAK).
     pub(crate) fn accept_break(&mut self, key: TrackIdent, relation: u16, from: u64) {

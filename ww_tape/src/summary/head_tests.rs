@@ -153,7 +153,7 @@ fn head_read_checks_the_header() {
 /// The definitions of series track 1 on clock 1 (1 ns ticks): i16 samples on one channel, one per 1000 ticks.
 fn series_definitions() -> Vec<crate::Describe<'static>> {
     use crate::{
-        ClockDef, ClockOrigin, Describe, SeriesDef, TrackDef, TrackKind, TrackRepeat, clock_key,
+        ClockDef, ClockOrigin, Describe, GridDef, TrackDef, TrackKind, TrackRepeat, clock_key,
         track_key,
     };
     use shrink_wrap::prelude::*;
@@ -174,7 +174,7 @@ fn series_definitions() -> Vec<crate::Describe<'static>> {
             items: crate::Items::numbers::<i16>(None),
             label: "signal",
             repeat: TrackRepeat::Stream,
-            kind: TrackKind::Series(SeriesDef::of::<i16>(1, crate::Ratio64::int(1000).unwrap())),
+            kind: TrackKind::Series(GridDef::of::<i16>(1, crate::Ratio64::int(1000).unwrap())),
             relations: RefVec::Slice { slice: &[] },
             owner: [0; 32],
         }),
@@ -259,6 +259,7 @@ fn a_core_only_tape_lists_verifies_and_skips_summary_blocks() {
             time_mode: 0,
             end_mode: EndMode::Absent,
             grid: Some(SeriesGrid::start(0, 0, Magnitude::ONE)),
+            tile: crate::TileCoords::NONE,
         };
         let col = ColumnSpec {
             kind: ColumnKind::Samples,

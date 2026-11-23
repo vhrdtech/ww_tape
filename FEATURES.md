@@ -95,6 +95,16 @@ The bytes of blocks, records, chunks, sessions and the index, in the crate `ww_t
 
   Read more: [Fewer checks, sealed later](docs/integrity.md).
 
+- 🚧 **FMT-15 Grids: series tracks with fixed axes**
+
+  A `GridDef` takes up to 31 fixed axes beside time, each cut into tiles, with regular or listed coordinates and a downsample flag. A series is the grid of none and keeps its bytes. A chunk holds one tile, and its head carries the tile's coordinates. Its index entry packs them into a tile number: bit fields of ⌈log2(tiles)⌉ bits per axis in a u128. `TapeReader::grid_tiles` finds the chunks of a time range and a box of cells from the index alone.
+
+  Index entries are 128 bytes: the fields before keep their offsets and bytes 120..128 are reserved for every kind. Each index block declares its entry length, and readers read the first 120 bytes of each entry, so pieces of 120-byte entries still read.
+
+  Open: a handle that writes a grid's time steps as tiles, summaries per tile, space overviews, a book chapter.
+
+  Read more: [Fixed axes and tiles](docs/format.md#fixed-axes-and-tiles), [Index entries](docs/format.md#index-entries). Golden files `v1-index.hex`, `v1-grid-{1,2,5,31}.hex`; tests `grids.rs`, `reserved.rs`, `grid::tests`, `index::tests`; fuzz targets `tape-grid`, `tape-grid-hostile`, `tape-index`.
+
 ## Tracks, clocks and definitions (`TRACK`)
 
 Clocks, track identity, definitions on track 0, state, what items are and how tracks are numbered, in the crate `ww_tape`.

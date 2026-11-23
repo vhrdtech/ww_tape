@@ -155,7 +155,7 @@ fn rounded_on_the_pages(
         ),
         (
             "definitions.md",
-            format!("ends just short of {} MiB", len.div_ceil(1 << 20)),
+            format!("ends at about {} MiB", (len + (1 << 19)) >> 20),
         ),
         ("anatomy.md", format!("of the run in about {}", about(len))),
         (

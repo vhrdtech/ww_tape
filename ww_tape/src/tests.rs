@@ -1216,7 +1216,7 @@ pub(crate) fn test_series_track(
         clock,
         items: crate::Items::numbers::<i16>(None),
         repeat: crate::TrackRepeat::Stream,
-        kind: crate::TrackKind::Series(crate::SeriesDef::of::<i16>(channels, period)),
+        kind: crate::TrackKind::Series(crate::GridDef::of::<i16>(channels, period)),
         ..t.clone()
     })
 }
@@ -1983,6 +1983,7 @@ fn chunk_on(number: u32, id: TrackId) -> (ChunkHead, (ColumnSpec, Vec<u8>)) {
         time_mode: 0,
         end_mode: EndMode::Absent,
         grid: None,
+        tile: crate::TileCoords::NONE,
     };
     let spec = ColumnSpec {
         kind: ColumnKind::Starts,

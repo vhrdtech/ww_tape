@@ -22,16 +22,20 @@
 //!          block), u64::MAX for none
 //!  56 u16  flags: bit 0 final (entries sorted by track id, then offset, state records of one block in block order; a directory
 //!          of tracks follows)
-//!  58 u16  entry length, 120 (a reader takes longer entries and reads their first 120 bytes)
+//!  58 u16  entry length, 128 (a reader reads an entry's first 120 bytes: it takes longer entries, and refuses
+//!          shorter ones than 120)
 //!  60 ...  n × track: id u64, first entry u32, entry count u32, CRC-32C of its entries u32, reserved u32
 //!  ...     entries, each:
 //!            0 u64 offset of the block in the piece    8 u32 its length        12 u8 its block kind
-//!           13 u8  summary level (0 for other kinds)   14 u8 summary tree      15 u8 flags: bit 0 repeat, bit 1 range, bit 2 unhashed (no unit hash), bit 3 relation break
+//!           13 u8  summary level (0 for other kinds)   14 u8 summary tree      15 u8 flags: bit 0 repeat, bit 1 range, bit 2 unhashed (no unit hash), bit 3 relation break, bit 4 tile
 //!           16 u64 track id (0: none)                 24 u32 track number      28 u32 0 (a state record's below)
 //!           32 u64 first item number                  40 u64 items (samples, records)
 //!           48 i64 first tick                         56 i64 last tick         64 i64 latest end
-//!           72 u64 smallest value of the track's range relation in the chunk (flag bit 1), else 0
-//!           80 u64 its largest value, else 0          88 [32] a chunk's unit hash, else 0
+//!           72 u64 smallest value of the track's range relation in an events chunk (flag bit 1), else 0
+//!           80 u64 its largest value, else 0
+//!           72 u128 a grid chunk's tile number (flag bit 4) in place of the range, else 0
+//!           88 [32] a chunk's unit hash, else 0
+//!          120 [8] reserved: written zero, not read
 //! len-4 u32 CRC over bytes 0..len-4, as in every block
 //! ```
 //!
@@ -64,13 +68,18 @@ use crate::{
 };
 use crate::{ItemNum, TrackId};
 
-/// Bytes of one index entry.
-pub const ENTRY_LEN: usize = 120;
+/// Bytes of one index entry a writer writes.
+pub const ENTRY_LEN: usize = 128;
+/// Bytes of an entry a reader reads, all but the reserved ones: the shortest entry length it takes. Pieces whose
+/// entries are this long, written before the entry grew to [ENTRY_LEN], read as they did.
+pub const ENTRY_READ_LEN: usize = ENTRY_RESERVED_AT;
 
-/// Where an entry's range ([IndexEntry::range]) starts.
+/// Where an entry's range ([IndexEntry::range]) or tile number ([IndexEntry::tile]) starts.
 const ENTRY_RANGE_AT: usize = 72;
 /// Where an entry's unit hash ([UnitHash]) starts.
 const ENTRY_UNIT_AT: usize = 88;
+/// Where an entry's unit hash ends and its reserved bytes start: zero as written, not read.
+const ENTRY_RESERVED_AT: usize = 120;
 /// Bytes of one track in a final index's directory.
 pub const TRACK_LEN: usize = 24;
 /// Bytes of the fixed part of an index head (32..60).
@@ -99,8 +108,11 @@ const ENTRY_RANGE: u8 = 2;
 pub const ENTRY_UNHASHED: u8 = 4;
 /// Entry flag: the chunk is marked [FLAG_RELATION_BREAK](crate::FLAG_RELATION_BREAK).
 const ENTRY_BREAK: u8 = 8;
+/// Entry flag: the entry carries its grid chunk's tile number ([IndexEntry::tile]).
+const ENTRY_TILE: u8 = 16;
 /// Entry flag bits this build knows; an entry with another set is refused ([IndexError::Invalid]).
-const ENTRY_FLAGS_KNOWN: u8 = ENTRY_REPEAT | ENTRY_RANGE | ENTRY_UNHASHED | ENTRY_BREAK;
+const ENTRY_FLAGS_KNOWN: u8 =
+    ENTRY_REPEAT | ENTRY_RANGE | ENTRY_UNHASHED | ENTRY_BREAK | ENTRY_TILE;
 /// Where an entry's flag byte is.
 const ENTRY_FLAGS_AT: usize = 15;
 /// Offset that means none.
@@ -174,6 +186,10 @@ pub struct IndexEntry {
     /// The smallest and the largest value of the chunk's range relation ([RelationIndex::Range](crate::RelationIndex::Range)),
     /// as its writer saw them; None for other blocks, a track without one, and an entry a reader made by a scan.
     pub range: Option<(u64, u64)>,
+    /// The tile number of a grid chunk's tile coordinates ([TileLayout::pack](crate::TileLayout::pack)), as its
+    /// writer packed them by the grid's definition; None for other blocks, a series chunk (no fixed axes) and an
+    /// entry a reader made by a scan.
+    pub tile: Option<u128>,
 }
 
 /// What an index entry of a state record says, see the [module docs](self).
@@ -304,6 +320,7 @@ impl IndexEntry {
             unit: UnitHash::NONE,
             unhashed: false,
             range: None,
+            tile: None,
         };
         match block.kind {
             BlockKind::Index
@@ -364,6 +381,7 @@ impl IndexEntry {
             unit: UnitHash::NONE,
             unhashed: false,
             range: None,
+            tile: None,
         })
     }
 
@@ -411,6 +429,7 @@ impl IndexEntry {
                 self.tree,
                 (if self.repeat { ENTRY_REPEAT } else { 0 })
                     | (if self.range.is_some() { ENTRY_RANGE } else { 0 })
+                    | (if self.tile.is_some() { ENTRY_TILE } else { 0 })
                     | (if self.relation_break { ENTRY_BREAK } else { 0 })
                     | (if self.unhashed { ENTRY_UNHASHED } else { 0 }),
             ])
@@ -434,17 +453,22 @@ impl IndexEntry {
                 *d = s;
             }
         }
-        if let Some(unit) = out.get_mut(ENTRY_UNIT_AT..) {
+        if let Some(tile) = self.tile
+            && let Some(at) = out.get_mut(ENTRY_RANGE_AT..ENTRY_UNIT_AT)
+        {
+            at.copy_from_slice(&tile.to_le_bytes());
+        }
+        if let Some(unit) = out.get_mut(ENTRY_UNIT_AT..ENTRY_RESERVED_AT) {
             unit.copy_from_slice(&self.unit.0);
         }
         out
     }
 
-    /// Read an entry from its [ENTRY_LEN] bytes and check it, as every reader of an index does: its flags are known
+    /// Read an entry from its first [ENTRY_READ_LEN] bytes and check it, as every reader of an index does: its flags are known
     /// ([IndexError::Invalid]), an unhashed entry holds no unit hash, it names a block
-    /// ([IndexError::BadEntries]), a range is a chunk's, its smallest value at most its largest, and a relation break
-    /// an events chunk's.
-    pub(crate) fn read(b: &[u8; ENTRY_LEN]) -> Result<Self, IndexError> {
+    /// ([IndexError::BadEntries]), a range is a chunk's, its smallest value at most its largest, a tile number a series
+    /// chunk's without a range, and a relation break an events chunk's.
+    pub(crate) fn read(b: &[u8; ENTRY_READ_LEN]) -> Result<Self, IndexError> {
         let flags = b.get(ENTRY_FLAGS_AT).copied().unwrap_or(0);
         if flags & !ENTRY_FLAGS_KNOWN != 0 {
             return Err(IndexError::Invalid("an entry flag this build doesn't know"));
@@ -456,9 +480,9 @@ impl IndexEntry {
         }
     }
 
-    /// Read an entry from its [ENTRY_LEN] bytes, unchecked: [IndexBlock::read] and [IndexBlock::track_entries] check
+    /// Read an entry from its first [ENTRY_READ_LEN] bytes, unchecked: [IndexBlock::read] and [IndexBlock::track_entries] check
     /// each entry they hand out.
-    pub fn decode(b: &[u8; ENTRY_LEN]) -> Self {
+    pub fn decode(b: &[u8; ENTRY_READ_LEN]) -> Self {
         #[rustfmt::skip]
         let [
             o0, o1, o2, o3, o4, o5, o6, o7, l0, l1, l2, l3, kind, level, tree, flags,
@@ -493,11 +517,16 @@ impl IndexEntry {
                     u64::from_le_bytes([z0, z1, z2, z3, z4, z5, z6, z7]),
                 )
             }),
+            tile: (flags & ENTRY_TILE != 0).then(|| {
+                u128::from_le_bytes([
+                    a0, a1, a2, a3, a4, a5, a6, a7, z0, z1, z2, z3, z4, z5, z6, z7,
+                ])
+            }),
         }
     }
 
-    /// Whether the entry names a block ([Self::is_in_range]) and its range, if any, is a chunk's and doesn't
-    /// decrease.
+    /// Whether the entry names a block ([Self::is_in_range]), its range, if any, is a chunk's and doesn't
+    /// decrease, and a tile number is a series chunk's, never beside a range.
     fn is_valid(&self) -> bool {
         let range = match self.range {
             None => true,
@@ -505,9 +534,10 @@ impl IndexEntry {
                 lo <= hi && matches!(self.kind, BlockKind::Events | BlockKind::Series)
             }
         };
+        let tile = self.tile.is_none() || (self.kind == BlockKind::Series && self.range.is_none());
         let mark = !self.relation_break || self.kind == BlockKind::Events;
         let unit = !self.unhashed || self.unit.is_none();
-        range && mark && unit && self.is_in_range()
+        range && tile && mark && unit && self.is_in_range()
     }
 
     /// Whether the entry names a block a reader may fetch: its length that of a block, its end within a u64.
@@ -925,7 +955,7 @@ impl<'b> IndexBlock<'b> {
             .checked_mul(entry_len)
             .and_then(|b| b.checked_add(entries_at))
             .and_then(|b| b.checked_add(CRC_LEN));
-        if entry_len < ENTRY_LEN
+        if entry_len < ENTRY_READ_LEN
             || dir_end != Some(entries_at)
             || body != Some(len)
             || (kind == IndexKind::Checkpoint && tracks != 0)
@@ -1011,15 +1041,15 @@ impl<'b> IndexBlock<'b> {
         self.entry_bytes(i).map(IndexEntry::decode)
     }
 
-    /// The first [ENTRY_LEN] bytes of entry `i`, None past the last or when only the head was read.
-    fn entry_bytes(&self, i: usize) -> Option<&'b [u8; ENTRY_LEN]> {
+    /// The first [ENTRY_READ_LEN] bytes of entry `i`, None past the last or when only the head was read.
+    fn entry_bytes(&self, i: usize) -> Option<&'b [u8; ENTRY_READ_LEN]> {
         if i >= self.entries {
             return None;
         }
         let at = self.entry_offset(i)?;
         self.bytes
             .get(at..at.checked_add(self.entry_len)?)?
-            .first_chunk::<ENTRY_LEN>()
+            .first_chunk::<ENTRY_READ_LEN>()
     }
 
     /// Every entry; none when only the head was read.
@@ -1073,8 +1103,8 @@ impl<'b> IndexBlock<'b> {
         if bytes.len() != n || CRC.checksum(bytes) != list.crc {
             return Err(IndexError::BadEntries);
         }
-        // entry_len is at least ENTRY_LEN, checked when the head was read
-        let entry = |e: &'e [u8]| e.first_chunk::<ENTRY_LEN>();
+        // entry_len is at least ENTRY_READ_LEN, checked when the head was read
+        let entry = |e: &'e [u8]| e.first_chunk::<ENTRY_READ_LEN>();
         let mut prev = None;
         for e in bytes.chunks_exact(self.entry_len).filter_map(entry) {
             let e = IndexEntry::read(e)?;
@@ -1132,7 +1162,7 @@ pub const DEFAULT_CHECKPOINT_BYTES: exact_units::Bytes<u64> = exact_units::Bytes
 #[cfg(feature = "alloc")]
 mod build;
 #[cfg(feature = "alloc")]
-pub(crate) use build::{Indexer, TrackIdent, next_starts};
+pub(crate) use build::{ChunkExtras, Indexer, TrackIdent, next_starts};
 
 #[cfg(test)]
 mod tests;

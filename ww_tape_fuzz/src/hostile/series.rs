@@ -8,8 +8,8 @@ use super::{Draw, SESSION, clock_item, definition, describe_block};
 use shrink_wrap::prelude::*;
 use ww_tape::TrackId;
 use ww_tape::{
-    BlockId, BlockKind, ChunkHead, Codec, ColumnKind, ColumnSpec, Describe, EndMode, Magnitude,
-    Ratio64, SampleShape, Segment, SeriesDef, SeriesGrid, TrackDef, TrackKind, track_key,
+    BlockId, BlockKind, ChunkHead, Codec, ColumnKind, ColumnSpec, Describe, EndMode, GridDef,
+    Magnitude, Ratio64, SampleShape, Segment, SeriesGrid, TrackDef, TrackKind, track_key,
 };
 use ww_tape::{ClockNum, TrackNum};
 
@@ -19,12 +19,13 @@ pub(crate) const TRACK: u32 = 1;
 /// The describe record of series track [TRACK] on clock 1 with numbers of `shape`'s element, its channels, `period` and
 /// `scale`; empty when it doesn't encode.
 pub(crate) fn track_item(shape: SampleShape, period: Ratio64, scale: Magnitude) -> Vec<u8> {
-    let def = SeriesDef {
+    let def = GridDef {
         channels: UNib32(shape.channels),
         period,
         scale,
         summaries: None,
         media: None,
+        axes: RefVec::new(),
     };
     let track = Describe::Track(TrackDef {
         number: TrackNum::new(TRACK),
@@ -107,6 +108,7 @@ pub fn series(data: &[u8]) -> Vec<u8> {
             time_mode: 0,
             end_mode: EndMode::Absent,
             grid: Some(grid),
+            tile: ww_tape::TileCoords::NONE,
         });
         first = first.saturating_add(u64::from(count) + u64::from(d.u8() % 3));
     }

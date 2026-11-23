@@ -38,8 +38,8 @@ fn sample_type() -> TypeRef<'static> {
     }
 }
 
-fn def() -> SeriesDef<'static> {
-    SeriesDef {
+fn def() -> GridDef<'static> {
+    GridDef {
         summaries: Some(SeriesSummarySpec {
             base_shift: 6,
             stats: SeriesStats::all(d(Element::I32)),
@@ -49,7 +49,7 @@ fn def() -> SeriesDef<'static> {
             media: RefVec::Slice { slice: &[1, 2, 3] },
             stream: UNib32(1),
         }),
-        ..SeriesDef::of::<Fixed<Ampere, Milli, i32>>(3, period())
+        ..GridDef::of::<Fixed<Ampere, Milli, i32>>(3, period())
     }
 }
 
@@ -70,7 +70,7 @@ fn def_takes_element_and_scale_from_the_type() {
     assert_eq!(def.scale, milli());
     assert_eq!(def.check(), Ok(()));
     let bytes = encode(&def);
-    assert_eq!(SeriesDef::from_ww_bytes(&bytes).unwrap(), def);
+    assert_eq!(GridDef::from_ww_bytes(&bytes).unwrap(), def);
     assert_eq!(
         items(),
         Items::Numbers {
@@ -114,15 +114,15 @@ fn def_takes_element_and_scale_from_the_type() {
 #[test]
 fn bad_defs_are_refused_on_decode() {
     let bad = [
-        SeriesDef {
+        GridDef {
             channels: UNib32(0),
             ..def()
         },
-        SeriesDef {
+        GridDef {
             channels: UNib32(SERIES_CHANNELS_MAX + 1),
             ..def()
         },
-        SeriesDef {
+        GridDef {
             summaries: Some(SeriesSummarySpec {
                 base_shift: 2,
                 stats: SeriesStats::all(d(Element::I32)),
@@ -130,7 +130,7 @@ fn bad_defs_are_refused_on_decode() {
             }),
             ..def()
         },
-        SeriesDef {
+        GridDef {
             summaries: Some(SeriesSummarySpec {
                 base_shift: 6,
                 stats: SeriesStats::default(),
@@ -142,7 +142,7 @@ fn bad_defs_are_refused_on_decode() {
     for def in bad {
         assert!(def.check().is_err(), "{def:?}");
         let bytes = encode(&def);
-        assert!(SeriesDef::from_ww_bytes(&bytes).is_err(), "{def:?}");
+        assert!(GridDef::from_ww_bytes(&bytes).is_err(), "{def:?}");
     }
 }
 
@@ -157,7 +157,7 @@ fn a_series_track_is_checked_with_its_items() {
             element,
             unit: None,
         },
-        kind: TrackKind::Series(SeriesDef { summaries, ..def() }),
+        kind: TrackKind::Series(GridDef { summaries, ..def() }),
         ..ok.clone()
     };
     let power = Some(SeriesSummarySpec {
@@ -319,6 +319,7 @@ fn head_on(grid: SeriesGrid, first: u64, count: u32) -> ChunkHead {
         time_mode: 0,
         end_mode: EndMode::Absent,
         grid: Some(grid),
+        tile: crate::TileCoords::NONE,
     }
 }
 

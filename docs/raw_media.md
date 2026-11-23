@@ -60,7 +60,7 @@ A reader of a file finds the newest [[piece]] from the end, by its [[tail]]. On 
 nothing, and a stale tail there would pass for the newest piece. A reader of a raw medium therefore walks forward, from
 the start or from a hint the medium layer gives ([`OpenOptions::start`]).
 
-The drive's card shows the difference. It holds about 115 MB, and today's run wrote about 72 MB of it before the power
+The drive's card shows the difference. It holds about 116 MB, and today's run wrote about 72 MB of it before the power
 failed. Read as a raw medium, the card gives today's 3 pieces, the last one ending at the torn block. The earlier run's
 other 43 MB or so stay behind as stale data. Read as a file, the card gives 4 pieces, and the fourth is the earlier
 run's last piece, found by its tail.

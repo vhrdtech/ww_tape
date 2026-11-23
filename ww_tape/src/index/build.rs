@@ -282,16 +282,10 @@ impl Indexer {
     }
 
     /// Note the block `bytes` (exactly one block, written by this writer) placed at `offset` in the piece, a chunk
-    /// with its unit hash `unit` and its range relation's smallest and largest value `range`. Its CRC is not checked
-    /// again: a chunk block's head is read by its head CRC.
-    pub(crate) fn placed(
-        &mut self,
-        offset: u64,
-        bytes: &[u8],
-        unit: UnitHash,
-        range: Option<(u64, u64)>,
-    ) {
-        let mut entries = of_placed(offset, bytes, unit, range);
+    /// with what its entry carries beside its head (`extras`). Its CRC is not checked again: a chunk block's head is
+    /// read by its head CRC.
+    pub(crate) fn placed(&mut self, offset: u64, bytes: &[u8], extras: ChunkExtras) {
+        let mut entries = of_placed(offset, bytes, extras);
         if self.unhashed {
             for e in &mut entries {
                 e.unhashed = true;
@@ -643,14 +637,34 @@ fn add_to_range(
         });
 }
 
+/// What a chunk's index entry carries beside what its head says, from its payload and its track's definition.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ChunkExtras {
+    /// [IndexEntry::unit].
+    pub unit: UnitHash,
+    /// [IndexEntry::range].
+    pub range: Option<(u64, u64)>,
+    /// [IndexEntry::tile].
+    pub tile: Option<u128>,
+}
+
+impl ChunkExtras {
+    /// The entry of chunk `c` at `offset`, `len` bytes long, carrying these; None when `len` is over
+    /// [MAX_BLOCK_LEN](crate::MAX_BLOCK_LEN).
+    pub(crate) fn entry(self, offset: u64, len: usize, c: &Chunk<'_>) -> Option<IndexEntry> {
+        IndexEntry::of_chunk(offset, len, &c.head()).map(|e| IndexEntry {
+            unit: self.unit,
+            range: self.range,
+            tile: self.tile,
+            relation_break: c.relation_break(),
+            ..e
+        })
+    }
+}
+
 /// The entries of the block `bytes` (exactly one) a writer placed at `offset`: a chunk block's head is checked by its
 /// head CRC alone, without a pass over the payload; other blocks by their CRC.
-fn of_placed(
-    offset: u64,
-    bytes: &[u8],
-    unit: UnitHash,
-    range: Option<(u64, u64)>,
-) -> Vec<IndexEntry> {
+fn of_placed(offset: u64, bytes: &[u8], extras: ChunkExtras) -> Vec<IndexEntry> {
     let chunk = bytes.len() > HEADER_LEN
         && le_u8(bytes, 4) == Some(VERSION)
         && le_u8(bytes, 5).is_some_and(|k| {
@@ -660,15 +674,7 @@ fn of_placed(
         let Ok(c) = Chunk::read_head(bytes) else {
             return Vec::new();
         };
-        return IndexEntry::of_chunk(offset, bytes.len(), &c.head())
-            .map(|e| IndexEntry {
-                unit,
-                range,
-                relation_break: c.relation_break(),
-                ..e
-            })
-            .into_iter()
-            .collect();
+        return extras.entry(offset, bytes.len(), &c).into_iter().collect();
     }
     Block::read(bytes).map_or_else(|_| Vec::new(), |b| IndexEntry::all_of_block(offset, &b))
 }

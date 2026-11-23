@@ -1,10 +1,10 @@
-//! Series tracks: what a fixed-rate series is ([SeriesDef]), where its samples are in time ([SeriesGrid]) and
+//! Series tracks: what a fixed-rate series is ([GridDef]), where its samples are in time ([SeriesGrid]) and
 //! how its numbers come from wire_weaver's quantity types ([SeriesValue]).
 //!
 //! A series track ([TrackKind::Series](crate::TrackKind::Series)) holds samples at an exact period, with no time per
 //! sample. Its items are numbers ([Items::Numbers](crate::Items::Numbers)): the stored element ([ElementDesc]) and
 //! the exact_units type of one value, its unit and scale (a [TypeRef](crate::TypeRef): `Fixed<Ampere, Milli, i32>`, a `ww_si`
-//! quantity). Its [SeriesDef] says the rest of what a sample is: the channels of that element ([SampleShape] with
+//! quantity). Its [GridDef] says the rest of what a sample is: the channels of that element ([SampleShape] with
 //! the items' element), the period in ticks of the track's clock per sample (a [Ratio64], exact: 48 kHz on a 1 ns
 //! clock is `62500/3`), the scale of the stored numbers at the start, the summaries the writer builds
 //! ([SeriesSummarySpec]) and, for samples kept in a media file, the stream they are in ([MediaStream]).
@@ -106,6 +106,9 @@ use exact_units::{
 };
 use shrink_wrap::prelude::*;
 
+#[cfg(feature = "std")]
+use crate::grid::FixedAxisOwned;
+use crate::grid::{FixedAxis, GRID_FIXED_AXES_MAX, TileLayout, check_axes};
 use crate::summary::SeriesSummarySpec;
 use crate::{BlockKind, ChunkHead, ElementDesc, ItemNum, Sample, SampleShape};
 
@@ -118,7 +121,7 @@ pub const SERIES_CHANNELS_MAX: u32 = u16::MAX as u32;
 
 /// A fixed-rate series: scalar or vector samples of the track's element, see the [module docs](self).
 #[derive_shrink_wrap(owned(feature = "std"), derive(Debug, PartialEq, Clone), validate = def_valid)]
-pub struct SeriesDef<'i> {
+pub struct GridDef<'i> {
     /// Elements of a sample, 1 to [SERIES_CHANNELS_MAX]; the element and the value type are the track's items
     /// ([Items::Numbers](crate::Items::Numbers)).
     pub channels: UNib32,
@@ -131,6 +134,9 @@ pub struct SeriesDef<'i> {
     pub summaries: Option<SeriesSummarySpec>,
     /// The samples are in a media file's stream, decoded on demand, not in chunks.
     pub media: Option<MediaStream<'i>>,
+    /// The fixed axes beside time, at most [GRID_FIXED_AXES_MAX](crate::grid::GRID_FIXED_AXES_MAX); none for a
+    /// series ([grid](crate::grid)).
+    pub axes: RefVec<'i, FixedAxis<'i>>,
 }
 
 /// Where a series' samples are in a media file.
@@ -170,6 +176,9 @@ pub enum SeriesError {
     GridTooClose { first_item: ItemNum },
     /// The grid's scale doesn't encode in [SCALE_LEN_MAX] bytes.
     ScaleTooLong { first_item: ItemNum },
+    /// A chunk's tile coordinates name no tile of its grid: not one per fixed axis, or one past its axis' tiles
+    /// ([TileLayout::holds]).
+    TileOutside { first_item: ItemNum },
 }
 
 impl core::fmt::Display for SeriesError {
@@ -193,6 +202,10 @@ impl core::fmt::Display for SeriesError {
                 "chunk at sample {first_item}: grid starts later, at sample {grid_index}"
             ),
             Self::TickOverflow { index } => write!(f, "sample {index}: tick past i64"),
+            Self::TileOutside { first_item } => write!(
+                f,
+                "chunk at sample {first_item}: tile coordinates name no tile of its grid"
+            ),
             Self::ChunkTicks { first_item } => write!(
                 f,
                 "chunk at sample {first_item}: first or last tick not its samples' on its grid"
@@ -343,21 +356,43 @@ pub(crate) fn read_scale(bytes: &[u8]) -> Result<Magnitude, shrink_wrap::Error> 
     }
 }
 
-/// The parts of a [SeriesDef] its check on decode looks at, borrowed or owned.
+/// The parts of a [GridDef] its check on decode looks at, borrowed or owned.
 trait DefParts {
     fn parts(&self) -> (u32, Option<SeriesSummarySpec>);
+    /// The tile layout of the fixed axes, checked ([check_axes]).
+    fn layout(&self) -> Result<TileLayout, SeriesError>;
 }
 
-impl DefParts for SeriesDef<'_> {
+impl DefParts for GridDef<'_> {
     fn parts(&self) -> (u32, Option<SeriesSummarySpec>) {
         (self.channels.0, self.summaries)
+    }
+
+    fn layout(&self) -> Result<TileLayout, SeriesError> {
+        let mut axes = [const { None }; GRID_FIXED_AXES_MAX];
+        let mut n = 0usize;
+        for a in self.axes.iter() {
+            let slot = axes
+                .get_mut(n)
+                .ok_or(SeriesError::Def("more fixed axes than GRID_FIXED_AXES_MAX"))?;
+            let Ok(a) = a else {
+                return Err(SeriesError::Def("a fixed axis that doesn't read"));
+            };
+            *slot = Some(a);
+            n = n.saturating_add(1);
+        }
+        check_axes(axes.iter().take(n).flatten())
     }
 }
 
 #[cfg(feature = "std")]
-impl DefParts for SeriesDefOwned {
+impl DefParts for GridDefOwned {
     fn parts(&self) -> (u32, Option<SeriesSummarySpec>) {
         (self.channels.0, self.summaries)
+    }
+
+    fn layout(&self) -> Result<TileLayout, SeriesError> {
+        check_axes(self.axes.iter())
     }
 }
 
@@ -367,7 +402,9 @@ impl DefParts for SeriesDefOwned {
 )]
 fn def_valid(d: &impl DefParts) -> Result<(), shrink_wrap::Error> {
     let (channels, summaries) = d.parts();
-    check_def(channels, summaries).map_err(|_| shrink_wrap::Error::SubtypeOutOfRange)
+    check_def(channels, summaries)
+        .and_then(|()| d.layout().map(|_| ()))
+        .map_err(|_| shrink_wrap::Error::SubtypeOutOfRange)
 }
 
 /// The rules of a definition's channels and summaries; the period and scale are valid by their types.
@@ -388,16 +425,17 @@ fn check_def(channels: u32, summaries: Option<SeriesSummarySpec>) -> Result<(), 
     Ok(())
 }
 
-impl<'i> SeriesDef<'i> {
+impl<'i> GridDef<'i> {
     /// A series of `channels` channels of `V`, whose scale `V` gives, one sample per `period` ticks. The track's
     /// items are [Items::numbers](crate::Items::numbers) of `V`.
     pub fn of<V: SeriesValue>(channels: u32, period: Ratio64) -> Self {
-        SeriesDef {
+        GridDef {
             channels: UNib32(channels),
             period,
             scale: V::SCALE,
             summaries: None,
             media: None,
+            axes: RefVec::new(),
         }
     }
 
@@ -405,7 +443,14 @@ impl<'i> SeriesDef<'i> {
     /// its ranges. What the element asks of the summaries is the track's check ([TrackDef::check_kind](
     /// crate::TrackDef::check_kind)).
     pub fn check(&self) -> Result<(), SeriesError> {
-        check_def(self.channels.0, self.summaries)
+        check_def(self.channels.0, self.summaries)?;
+        self.layout().map(|_| ())
+    }
+
+    /// The tiles of the fixed axes and the bit fields of the tile number, checked as a decoded definition is
+    /// ([grid](crate::grid#tiles)); [TileLayout::SERIES] for a series.
+    pub fn tile_layout(&self) -> Result<TileLayout, SeriesError> {
+        self.layout()
     }
 
     /// The shape of a sample: `channels` of `element`, the track's items' element.
@@ -422,7 +467,7 @@ impl<'i> SeriesDef<'i> {
 /// A type whose values a series stores as numbers of an element at a fixed scale: a plain number, an exact_units
 /// `Fixed` or `Complex`.
 ///
-/// It gives a track's items ([Items::numbers](crate::Items::numbers)) their element, a [SeriesDef] its scale and
+/// It gives a track's items ([Items::numbers](crate::Items::numbers)) their element, a [GridDef] its scale and
 /// puts a value's numbers into a column.
 pub trait SeriesValue: Copy {
     /// The scalar a column holds.

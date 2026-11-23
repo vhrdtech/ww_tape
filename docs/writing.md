@@ -142,12 +142,12 @@ The writer's own blocks hold what a [[reader]] needs to find and understand the 
 | events chunks | the recorder | 3600 | 8400924 |
 | series chunks | the recorder | 3600 | 99617283 |
 | summary blocks | the mux | 2948 | 3301304 |
-| checkpoints | the writer | 24 | 1486296 |
-| final index | the writer | 4 | 1661440 |
-| close | the writer | 4 | 11614 |
+| checkpoints | the writer | 24 | 1584128 |
+| final index | the writer | 4 | 1772160 |
+| close | the writer | 4 | 11958 |
 | tail | the writer | 4 | 656 |
 
-The writer's own blocks take 3.2 MB of the hour's 115 MB, 2.7 %. Most of that is index: the checkpoints while the pieces
+The writer's own blocks take 3.4 MB of the hour's 116 MB, 2.9 %. Most of that is index: the checkpoints while the pieces
 grow, and each piece's final index. The 32 blocks of puts hold every definition and mode change of four pieces in 5.5
 kB.
 
@@ -219,12 +219,12 @@ drive's file, the next second's put of the mode places the summary first, so the
 <code>ww_tape_figures</code> from the drive's first minute at full rate.</figcaption>
 </figure>
 
-Alignment costs the drive more than a series alone. The hour takes 129 MB aligned against 115 MB, 12 % more. In the
+Alignment costs the drive more than a series alone. The hour takes 129 MB aligned against 116 MB, 12 % more. In the
 aligned drive file, 0 of the 2948 summary blocks lie in a gap. Each second starts with a put of the mode and a records
 block, before the next series chunk. Every put and every block handed over places the waiting deferred blocks first,
 even a put that writes nothing.
 
-A file of `phase_a` alone takes 112 MB aligned against 104 MB, 7.3 % more. There 2724 of the 2933 summary blocks fill
+A file of `phase_a` alone takes 112 MB aligned against 105 MB, 7.3 % more. There 2724 of the 2933 summary blocks fill
 gaps. Alignment therefore suits a file that holds mostly series and is read by memory maps or direct input and
 output. Alignment is optional: where space matters more than such reads, leave the file unaligned. The drive's
 recorder keeps its mixed file unaligned.

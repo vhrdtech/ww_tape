@@ -21,9 +21,9 @@ const PAYLOAD_SHOWN: usize = 16;
 /// The numbers the captions in `docs/format.md` state: a changed recording fails here until they follow.
 const CAPTION_SAMPLES: u32 = 1500;
 const CAPTION_PAYLOAD_AT: usize = 115;
-const CAPTION_ENTRY_AT: usize = 396;
+const CAPTION_ENTRY_AT: usize = 412;
 const CAPTION_PIECE_LEN: u64 = 8192;
-const CAPTION_CLOSE_AT: u64 = 6308;
+const CAPTION_CLOSE_AT: u64 = 6486;
 
 /// The bytes of the drive's first piece.
 fn first_piece() -> anyhow::Result<Vec<u8>> {
@@ -350,7 +350,7 @@ pub fn index_entry() -> anyhow::Result<String> {
     let ix = IndexBlock::read(&block).or_debug()?;
     let entries_at = usize::try_from(le(index, 32, 4)?)?;
     let entry_len = usize::try_from(le(index, 58, 2)?)?;
-    ensure!(entry_len == 120, "entries of 120 bytes");
+    ensure!(entry_len == 128, "entries of 128 bytes");
     let (i, entry) = ix
         .entries()
         .enumerate()
@@ -359,7 +359,7 @@ pub fn index_entry() -> anyhow::Result<String> {
     let from = entries_at + i * entry_len;
     ensure!(
         from == CAPTION_ENTRY_AT,
-        "format.md's caption: the entry at byte {CAPTION_ENTRY_AT}"
+        "format.md's caption: the entry at byte {CAPTION_ENTRY_AT}, not {from}"
     );
     let e = index
         .get(from..from + entry_len)
@@ -390,12 +390,16 @@ pub fn index_entry() -> anyhow::Result<String> {
         le(e, 64, 8)?.cast_signed() == entry.latest_end,
         "latest end at 64"
     );
-    ensure!(entry.range.is_none(), "no range relation");
-    ensure!(le(e, 72, 16)? == 0, "no range relation");
+    ensure!(
+        entry.range.is_none() && entry.tile.is_none(),
+        "no range relation or tile number"
+    );
+    ensure!(le(e, 72, 16)? == 0, "no range relation or tile number");
     ensure!(
         e.get(88..120) == Some(entry.unit.0.as_slice()),
         "unit hash at 88"
     );
+    ensure!(le(e, 120, 8)? == 0, "reserved at 120");
 
     let fields = vec![
         Field::new(0, 8, "offset", entry.offset.to_string(), "green"),
@@ -424,9 +428,9 @@ pub fn index_entry() -> anyhow::Result<String> {
         Field::new(48, 8, "first tick", entry.first_tick.to_string(), "amber"),
         Field::new(56, 8, "last tick", entry.last_tick.to_string(), "amber"),
         Field::new(64, 8, "latest end", entry.latest_end.to_string(), "amber"),
-        Field::new(72, 8, "range min", "0: none".into(), "ink"),
-        Field::new(80, 8, "range max", "0: none".into(), "ink"),
+        Field::new(72, 16, "range or tile number", "0: none".into(), "ink"),
         Field::new(88, 32, "unit hash", hex_start(&entry.unit.0, 8), "accent"),
+        Field::new(120, 8, "reserved", "0".into(), "ink"),
     ];
     let rows = rows_of(0, entry_len, "entry");
     let g = Grid::BYTES;
@@ -434,7 +438,7 @@ pub fn index_entry() -> anyhow::Result<String> {
         g.width(),
         g.height(rows.len()),
         &format!(
-            "The {entry_len}-byte index entry of a series chunk: its offset, length and kind, its track, its first item, item count and ticks, no range relation, and its unit hash"
+            "The {entry_len}-byte index entry of a series chunk: its offset, length and kind, its track, its first item, item count and ticks, no range relation or tile number, and its unit hash"
         ),
     );
     g.draw(&mut s, e, entries_at + i * entry_len, &fields, &rows)?;
@@ -481,11 +485,13 @@ pub fn tail() -> anyhow::Result<String> {
     ensure!(le(&bytes, 152, 8)? == ident.seq, "sequence at 152");
     ensure!(
         t.piece_len == CAPTION_PIECE_LEN,
-        "format.md's caption: a piece of {CAPTION_PIECE_LEN} bytes, its close at {CAPTION_CLOSE_AT}, sequence 0"
+        "format.md's caption: a piece of {CAPTION_PIECE_LEN} bytes, not {}",
+        t.piece_len
     );
     ensure!(
         t.close_offset == CAPTION_CLOSE_AT,
-        "format.md's caption: a piece of {CAPTION_PIECE_LEN} bytes, its close at {CAPTION_CLOSE_AT}, sequence 0"
+        "format.md's caption: a piece of {CAPTION_PIECE_LEN} bytes, its close at {CAPTION_CLOSE_AT}, not {}",
+        t.close_offset
     );
     ensure!(
         ident.seq == 0,

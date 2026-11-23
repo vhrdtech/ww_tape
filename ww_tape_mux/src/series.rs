@@ -39,7 +39,7 @@ pub struct SeriesOptions {
     pub latency: Option<Duration>,
     /// The codec of the sample column.
     pub codec: Codec,
-    /// Whether the mux builds the summaries the track declares ([SeriesDef::summaries](ww_tape::SeriesDef)).
+    /// Whether the mux builds the summaries the track declares ([GridDef::summaries](ww_tape::GridDef)).
     pub summaries: bool,
     /// The track's first sample: past 0 when a resumed chain goes on with the track.
     pub first_item: ItemNum,
@@ -190,6 +190,7 @@ impl<S: Scalar + Sample> SeriesChunk<S> {
             time_mode: 0,
             end_mode: EndMode::Absent,
             grid: Some(self.grid),
+            tile: ww_tape::TileCoords::NONE,
         };
         let spec = ColumnSpec {
             kind: ColumnKind::Samples,

@@ -7,9 +7,9 @@ use shrink_wrap::prelude::*;
 
 #[cfg(feature = "std")]
 use crate::FullVersionOwned;
-use crate::series::SeriesDef;
+use crate::series::GridDef;
 #[cfg(feature = "std")]
-use crate::series::SeriesDefOwned;
+use crate::series::GridDefOwned;
 use crate::series::SeriesValue;
 use crate::{
     ClockKey, ClockNum, ElementDesc, FNV_OFFSET, FullVersion, SampleShape, TrackId, TrackKey,
@@ -562,7 +562,7 @@ pub enum Items<'i> {
     ShrinkWrap(TypeRef<'i>),
     /// Plain bytes with no type: a frame as received, a file's contents.
     RawBytes,
-    /// Numbers of one element each: a series' samples ([SeriesDef::channels](crate::SeriesDef::channels) of them),
+    /// Numbers of one element each: a series' samples ([GridDef::channels](crate::GridDef::channels) of them),
     /// or an events track whose item is one element, little-endian in its container
     /// ([ElementDesc::container_bits]).
     Numbers {
@@ -789,7 +789,7 @@ pub enum TrackKind<'i> {
     Events(EventsDef),
     /// Samples at an exact period, no time per sample: in series chunks ([BlockKind::Series](crate::BlockKind::Series)),
     /// each timed and scaled by the [SeriesGrid](crate::series::SeriesGrid) its head carries.
-    Series(SeriesDef<'i>),
+    Series(GridDef<'i>),
 }
 
 /// An events track: what its chunks may hold besides starts and payloads.
@@ -866,7 +866,7 @@ pub fn track_id<'a>(key: TrackKey, dimensions: impl IntoIterator<Item = Dimensio
 
 impl<'i> TrackDef<'i> {
     /// The series definition of a series track, None for an events track.
-    pub fn series(&self) -> Option<&SeriesDef<'i>> {
+    pub fn series(&self) -> Option<&GridDef<'i>> {
         match &self.kind {
             TrackKind::Series(s) => Some(s),
             _ => None,
@@ -884,7 +884,7 @@ impl<'i> TrackDef<'i> {
 
     /// Check what the kind asks of the track: a series has the plain policy (its chunks are data and carry their
     /// grids), its items are numbers of an element the raw codec codes, its summaries fit the element (at most 2
-    /// parts, power only of a pair) and its [SeriesDef] is valid.
+    /// parts, power only of a pair) and its [GridDef] is valid.
     pub fn check_kind(&self) -> Result<(), crate::SeriesError> {
         use crate::SeriesError::Def;
         let Some(s) = self.series() else {

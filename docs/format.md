@@ -280,15 +280,18 @@ off size field
          ends column.
  80  u8  segment shift: the payload is checked in segments of 2^shift bytes (16: 64 KiB)
  81  u8  columns n, 1 and up
- 82  u8  time mode, the time codec's (events; 0 in series chunks)
+ 82  u8  mode: an events chunk's time mode, the time codec's; a series chunk's fixed axes a, 0 to
+         GRID_FIXED_AXES_MAX (0: a series of no fixed axes, GridDef)
  83  u8  end mode (events: EndMode; 0 in series chunks)
  84 ...  series chunks only, the grid of the samples (SeriesGrid):
          84 u64  grid index: the sample the grid counts from, at most the first item
          92 i64  grid tick: the tick of that sample; sample i is at grid tick + (i - grid index) · period,
-                 rounded down, the period the track's SeriesDef gives
+                 rounded down, the period the track's GridDef gives
         100  u8  scale length s, 1 to SCALE_LEN_MAX
         101 ...  scale: what a stored number is worth in the sample type's unit, as the shrink_wrap bytes of an
                  exact_units Magnitude (10⁻³ is fa 00)
+            ...  a × u32 tile coordinate: the chunk's tile along each fixed axis, its first cell over the axis'
+                 tile extent (TileCoords; none for a series)
     ...  n × column: kind u8, codec u8, param u16, offset u32 (from the payload start; the first 0, ascending)
     ...  segment CRCs: one u32 per segment of the payload, CRC-32C of its bytes
     ...  zeros up to the payload offset
@@ -856,7 +859,7 @@ Two changes give a track a new key:
 A writer lists every block it places in **index** blocks (kind 7). A reader then finds blocks without a scan.
 
 Every few MiB of blocks (`ww_tape::IndexPolicy`, 4 MiB by default), the writer places a **checkpoint**. A checkpoint is
-an index block with one 120-byte entry per block placed since the previous checkpoint, and a pointer back at that
+an index block with one 128-byte entry per block placed since the previous checkpoint, and a pointer back at that
 checkpoint.
 
 <figure class="ww-figure" markdown="0">
@@ -902,25 +905,32 @@ off size field
          block), u64::MAX for none
  56 u16  flags: bit 0 final (entries sorted by track id, then offset, state records of one block in block order; a directory
          of tracks follows)
- 58 u16  entry length, 120 (a reader takes longer entries and reads their first 120 bytes)
+ 58 u16  entry length, 128 (a reader reads an entry's first 120 bytes: it takes longer entries, and refuses
+         shorter ones than 120)
  60 ...  n × track: id u64, first entry u32, entry count u32, CRC-32C of its entries u32, reserved u32
  ...     entries, each:
            0 u64 offset of the block in the piece    8 u32 its length        12 u8 its block kind
-          13 u8  summary level (0 for other kinds)   14 u8 summary tree      15 u8 flags: bit 0 repeat, bit 1 range, bit 2 unhashed (no unit hash), bit 3 relation break
+          13 u8  summary level (0 for other kinds)   14 u8 summary tree      15 u8 flags: bit 0 repeat, bit 1 range, bit 2 unhashed (no unit hash), bit 3 relation break, bit 4 tile
           16 u64 track id (0: none)                 24 u32 track number      28 u32 0 (a state record's below)
           32 u64 first item number                  40 u64 items (samples, records)
           48 i64 first tick                         56 i64 last tick         64 i64 latest end
-          72 u64 smallest value of the track's range relation in the chunk (flag bit 1), else 0
-          80 u64 its largest value, else 0          88 [32] a chunk's unit hash, else 0
+          72 u64 smallest value of the track's range relation in an events chunk (flag bit 1), else 0
+          80 u64 its largest value, else 0
+          72 u128 a grid chunk's tile number (flag bit 4) in place of the range, else 0
+          88 [32] a chunk's unit hash, else 0
+         120 [8] reserved: written zero, not read
 len-4 u32 CRC over bytes 0..len-4, as in every block
 ```
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/plots/index_entry.svg"
-<figcaption>The entry of the same <code>phase_a</code> chunk in the piece's final index, at byte 396 of the index block: the
+<figcaption>The entry of the same <code>phase_a</code> chunk in the piece's final index, at byte 412 of the index block: the
 chunk's offset, length and kind, its track, its items and ticks, no range relation, and its unit hash. Drawn by
 <code>ww_tape_figures</code> from the drive's recording at 1/1000 of its data.</figcaption>
 </figure>
+
+Bytes 72..88 of an events chunk's entry hold the range of its track's range relation. A grid chunk's entry holds its
+tile number there instead ([The tile number](#the-tile-number)). A series chunk of no fixed axes leaves them zero.
 
 A final index longer than `INDEX_LEN_MAX` (1 MiB) is several final blocks. Each holds whole tracks in ascending track id
 and points back at the one before.
@@ -1143,7 +1153,7 @@ append head (kind 13), APPEND_HEAD_LEN bytes, right after the tail of the close 
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/plots/tail.svg"
-<figcaption>The tail of the drive's first piece: the last 164 bytes of its 8,192. It names the close at byte 6,308 and its
+<figcaption>The tail of the drive's first piece: the last 164 bytes of its 8,192. It names the close at byte 6,486 and its
 length, the reason 1 (closed) and the flags 1 (the piece has a head). The content hash, the ids and the sequence
 number 0 follow. Drawn by <code>ww_tape_figures</code> from the drive's recording at 1/1000 of its data.</figcaption>
 </figure>
@@ -1393,8 +1403,8 @@ Rot that zeroes the end of a complete close across a sector boundary looks the s
 bytes cannot tell it from a crash, and a stricter rule would refuse real crashes. Reading and verify never change a
 file.
 
-Take a 12,288-byte piece closed three times, whose last final index starts at offset 9544 of the file. Zeros from 9644
-to the end cross the sector boundary at 9728, so a resume cuts the 2,744 bytes from 9544 on.
+Take a 12,288-byte piece closed three times, whose last final index starts at offset 9513 of the file. Zeros from 9613
+to the end cross the sector boundary at 9728, so a resume cuts the 2,775 bytes from 9513 on.
 
 For example, one flipped bit makes the last tail fail its CRC, so the reader takes the close before it. The resume
 refuses and keeps every byte, also when the tail's last byte is zero.
@@ -1785,7 +1795,7 @@ A **series track** holds samples at an exact period, with no time per sample. It
 | element | the stored `ElementDesc` of one channel of a sample |
 | unit | the type of one value: a `TypeRef` to an exact_units `Fixed<Ampere, Milli, i32>` or a `ww_si` quantity; None for a plain number |
 
-Its `TrackDef` kind is a `SeriesDef`, which holds:
+Its `TrackDef` kind is a `GridDef`, which holds:
 
 | Field | What |
 |---|---|
@@ -1794,8 +1804,9 @@ Its `TrackDef` kind is a `SeriesDef`, which holds:
 | scale | what a stored number is worth, as a `Magnitude`: `10⁻³` for that `Fixed` |
 | summaries | the summaries the writer builds (`SeriesSummarySpec`) |
 | stream | for samples kept in a media file, the stream they are in |
+| axes | the fixed axes beside time, none for a series ([Fixed axes and tiles](#fixed-axes-and-tiles)) |
 
-`Items::numbers::<Fixed<Ampere, Milli, i32>>(..)` takes the element from the type, and `SeriesDef::of` the scale
+`Items::numbers::<Fixed<Ampere, Milli, i32>>(..)` takes the element from the type, and `GridDef::of` the scale
 (`ww_tape::SeriesValue`). A writer refuses a series whose element the raw codec doesn't code. Its summaries need an
 element of at most 2 parts.
 
@@ -1903,6 +1914,75 @@ therefore goes on with the bytes it would have had without the crash.
 
 `Chunk::flag_runs` reads the runs in place. `FlagRuns::spans` cuts a chunk's samples where their word changes, and
 `FlagRunsBuilder` writes the column as samples come.
+
+### 12.5 Fixed axes and tiles {#fixed-axes-and-tiles}
+
+A series track may have **[[fixed axes|fixed axis]]** beside time: the pixels of an image, the members of an
+ensemble. Time stays the one axis that grows and the one with a clock. A fixed axis
+has a known extent in cells.
+
+A `GridDef` holds at most `GRID_FIXED_AXES_MAX` (31) of them, 32 axes with time. A series is the case of none.
+
+A series definition takes 0 or 1 byte more than before fixed axes. The empty list of axes is one nibble: it fills a free
+half byte, or takes a new byte (`phase_a` of the drive, with summaries). Its chunk heads keep their bytes. Its
+index entries keep bytes 0..120 at their places, and every entry grew to 128 bytes.
+
+Each fixed axis (`FixedAxis`) holds:
+
+| Field | What |
+|---|---|
+| name | 1 to `AXIS_NAME_LEN_MAX` (64) bytes: `x`, `latitude`, `member` |
+| extent | cells along the axis, 1 and up |
+| tile extent | cells of the axis one tile holds, 1 to the extent |
+| unit, scale | an exact_units type and the `Magnitude` a coordinate number is worth in it, as a series' samples have; None for a plain number |
+| coordinates | where the cells are: regular, cell `i` at `origin + i · step` with a step not 0, or listed, one value per cell |
+| downsample | whether space overviews halve the axis: yes for x and y, no for an ensemble member or a pressure level |
+
+Listed coordinates are strictly increasing or strictly decreasing, at most `GRID_LISTED_MAX` (65,536) of them. A reader
+refuses a definition that breaks one of these rules when it decodes it.
+
+#### 12.5.1 Tiles {#tiles}
+
+A chunk of a grid holds one **[[tile]]**: a run of time steps and one box of cells along the fixed axes. Each fixed
+axis is cut into tiles of its tile extent. The last tile of an axis holds the cells left over. A tile is named by
+its **tile coordinates**, one per fixed axis: its first cell divided by the axis' tile extent.
+
+The chunk head carries them after the scale, one u32 per fixed axis, and byte 82 holds their count
+([The chunk head](#the-chunk-head)). A head thus reads without the definition. A writer refuses a chunk whose
+coordinates name no tile of its grid (`SeriesError::TileOutside`).
+
+Inside a tile the cells run time outermost, then the fixed axes in definition order, row-major. One time step of a
+tile is therefore one contiguous slab, at most `GRID_TILE_CELLS_MAX` cells, and a series' samples keep their order.
+
+#### 12.5.2 The tile number {#the-tile-number}
+
+The chunk's index entry carries its coordinates packed into one **[[tile number]]**, a u128 at bytes 72..88 under
+flag bit 4 ([Index entries](#index-entries)). An entry has a fixed size, so it holds one field for all fixed axes,
+not a slot per axis.
+
+Each fixed axis gets a bit field of ⌈log2(tiles)⌉ bits, its tiles being the extent over the tile extent, rounded up.
+The last axis takes the lowest bits. The widths come from the definition and are never stored; together they are at
+most `TILE_NUMBER_BITS` (128), which a reader checks when it decodes the definition.
+
+Take a weather ensemble of 51 members, 37 pressure levels, 721 latitudes and 1440 longitudes, in tiles of 1, 1, 180
+and 180 cells. Its axes have 51, 37, 5 and 8 tiles, which take 6, 6, 3 and 3 bits, 18 in all. Tile (7, 3, 2, 5) is
+`7 << 12 | 3 << 6 | 2 << 3 | 5`.
+
+A reader takes a coordinate back by shift and mask, without division and without the other axes. Twenty axes of 10
+values each take 80 bits, a grid that a u64 of tiles could not number.
+
+#### 12.5.3 Finding the tiles of a box {#finding-the-tiles-of-a-box}
+
+A box query asks for a time range and a box of cells, a range of cells per fixed axis. `TileLayout::tile_box` turns the
+box into a range of tile coordinates per axis (`TileBox`). `TapeReader::grid_tiles` then keeps the track's index
+entries whose ticks meet the time range and whose tile number lies in every range.
+
+The query reads the index alone: no chunk is read. An entry a reader made by scanning a stretch no index covers holds no
+tile number. For such an entry the query reads the chunk's head, a few hundred bytes. So it does for an entry whose
+tile number names no tile of the grid.
+
+The box carries the layout it was made for, and a tile number reads only by its own grid's layout. The query
+therefore refuses a box whose layout differs from the track's definition at a chunk (`ReadError::GridLayout`).
 
 ## 13 Sample codecs {#sample-codecs}
 
@@ -2148,13 +2228,18 @@ A value past its cap is damage, refused with an error; no file a writer of this 
 | `SLOPE_MAX` | 2^55 | a start group's slope (Q16 ticks per item) |
 | `ITEMS_MAX` | 16 Mi | the items of an events chunk |
 | `INDEX_LEN_MAX` | 1 MiB | an index block a writer makes, and a reader looks for from the end |
-| `CHECKPOINT_ENTRIES_MAX` | 8737 | entries a writer puts in a checkpoint index block |
+| `CHECKPOINT_ENTRIES_MAX` | 8191 | entries a writer puts in a checkpoint index block |
 | `NODE_SHIFT_MAX` | 62 | a summary node's items, as a power of 2 |
 | `LEVEL_MAX` | 15 | a summary tree's level |
 | `SCALE_LEN_MAX` | 64 | the scale bytes of a series chunk or summary |
 | `FACTOR_MAX` | 2^53 | a factor to the common scale (`ww_tape_summary`) |
 | `SeriesSummarySpec::BASE_SHIFT_MAX` | 24 | a series summary's base node, as a power of 2 |
 | `SERIES_CHANNELS_MAX` | 65535 | a series track's channels |
+| `GRID_FIXED_AXES_MAX` | 31 | a grid's fixed axes, and a grid chunk's tile coordinates |
+| `AXIS_NAME_LEN_MAX` | 64 | a fixed axis' name bytes |
+| `GRID_LISTED_MAX` | 65536 | the listed coordinates of a fixed axis |
+| `GRID_TILE_CELLS_MAX` | 64 Mi | the cells of one time step of a grid's tile |
+| `TILE_NUMBER_BITS` | 128 | the bits of a grid's tile number fields together |
 | `GAP_MAX_MAX` | 64 MiB | a layout's gap |
 | `GAP_PROBES_MAX` | 8192 | the resume places a reader probes in one gap |
 | `GAP_CHECKS_MAX` | 4 | the blocks a reader checks whole past one gap |

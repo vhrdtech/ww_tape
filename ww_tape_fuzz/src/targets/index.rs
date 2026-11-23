@@ -287,6 +287,13 @@ pub fn index(data: &[u8]) {
                     u64::from_le_bytes(c[1..9].try_into().expect("8 bytes sliced")),
                 )
             }),
+            // a grid chunk's tile number; one beside a range or on another kind is refused
+            tile: (c[0] & 0x20 != 0).then(|| {
+                u128::from(u64::from_le_bytes(
+                    c[1..9].try_into().expect("8 bytes sliced"),
+                ))
+                .wrapping_shl(u32::from(c[0]))
+            }),
         })
         .collect();
     let kind = if flag & 1 == 1 {
@@ -314,6 +321,7 @@ pub fn index(data: &[u8]) {
             && e.range.is_none_or(|(lo, hi)| {
                 lo <= hi && matches!(e.kind, BlockKind::Events | BlockKind::Series)
             })
+            && (e.tile.is_none() || (e.kind == BlockKind::Series && e.range.is_none()))
     }) && (kind == IndexKind::Checkpoint
         || entries.windows(2).all(|w| {
             w[0].track_id != w[1].track_id

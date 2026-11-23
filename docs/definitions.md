@@ -64,7 +64,7 @@ An [[epoch]] clock must come with its link, which [`Definitions::define_clock_wi
 [`Definitions::close`] drops a track, and the clocks, maps and [[bundles]] that no held track names go with it. The
 container reports how many definitions it holds and their size in bytes, and the application decides how many to keep.
 
-The drive holds 8 definitions in 468 bytes. The test below takes them from the example, [[puts]] the mode three times
+The drive holds 8 definitions in 469 bytes. The test below takes them from the example, [[puts]] the mode three times
 and closes a track:
 
 ```rust
@@ -74,7 +74,7 @@ use example_drive::{Mode, definitions};
 // The definitions, and the numbers they gave the drive's clocks and tracks.
 let (mut defs, numbers) = definitions(25_000, true, 32 << 20).expect("the drive's definitions");
 let (can0, mode) = (numbers.can0, numbers.mode);
-assert_eq!((defs.len(), defs.bytes()), (8, 468));
+assert_eq!((defs.len(), defs.bytes()), (8, 469));
 
 let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
 // The first put writes the mode, with the definitions it needs.
@@ -143,7 +143,7 @@ close behind.
 A put is idempotent, so the producer keeps no memory of what it put before. The drive's recorder puts the mode before
 each one-second [[block]], 901 times while it writes the first piece. Only four of those puts write, as `cargo run -p
 example_drive` prints. They are idle at the start, its copy at 40 seconds, run at minute 1 and its copy at 96 seconds.
-The piece ends just short of 28 MiB, before the record of run lies 32 MiB behind, so no other put writes.
+The piece ends at about 28 MiB, before the record of run lies 32 MiB behind, so no other put writes.
 
 The writer puts [[definitions]] the same way before every block of data, by the [[layout]]'s own policy. The drawing
 shows the rule shrunk, so that a whole cycle fits on one line.

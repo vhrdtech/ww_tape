@@ -4,7 +4,7 @@
 
 use crate::definitions::base_defs;
 use crate::pieces::{chunk, column, records};
-use ww_tape::index::{IndexBlock, IndexKind, IndexPolicy};
+use ww_tape::index::{ENTRY_LEN, IndexBlock, IndexKind, IndexPolicy};
 use ww_tape::{
     BlockId, BlockKind, ChainOptions, CutPolicy, FileBlocks, Layout, MemPieces, MemSink, OwnerId,
     PieceChain, PieceTapes, SyncPolicy, TapeReader, TapeWriter, TrackHash, WriterOptions,
@@ -186,8 +186,9 @@ fn reserved_header_flags_on_other_blocks_are_not_read() {
     }
 }
 
-/// A checkpoint whose entries are longer than 120 bytes (a later writer's), the extra bytes not zero: a reader
-/// takes each entry's first 120 bytes, and the piece reads as with 120-byte entries.
+/// A checkpoint whose entries are longer than [ENTRY_LEN] bytes (a later writer's), the extra bytes and the
+/// reserved bytes 120..128 not zero: a reader takes each entry's first [ENTRY_LEN] bytes, reads none of the reserved
+/// ones, and the piece reads as with entries of [ENTRY_LEN] bytes.
 #[test]
 fn index_entries_longer_than_a_reader_knows_read_end_to_end() {
     let base = unclosed();
@@ -208,14 +209,16 @@ fn index_entries_longer_than_a_reader_knows_read_end_to_end() {
     let extra = 24;
     let entries_at = u32::from_le_bytes(block[32..36].try_into().unwrap()) as usize;
     let mut wide = block[..entries_at].to_vec();
-    for e in block[entries_at..block.len() - 4].chunks(120) {
-        wide.extend_from_slice(e);
+    for e in block[entries_at..block.len() - 4].chunks(ENTRY_LEN) {
+        assert_eq!(e[120..ENTRY_LEN], [0; 8], "reserved bytes are written zero");
+        wide.extend_from_slice(&e[..120]);
+        wide.extend([0x5a; 8]);
         wide.extend(std::iter::repeat_n(0xa5, extra));
     }
     wide.extend([0; 4]);
     let len = wide.len() as u32;
     wide[8..12].copy_from_slice(&len.to_le_bytes());
-    wide[58..60].copy_from_slice(&(120 + extra as u16).to_le_bytes());
+    wide[58..60].copy_from_slice(&(ENTRY_LEN as u16 + extra as u16).to_le_bytes());
     let head = crc::Crc::<u32>::new(&crc::CRC_32_ISCSI);
     let mut d = head.digest();
     d.update(&wide[..28]);

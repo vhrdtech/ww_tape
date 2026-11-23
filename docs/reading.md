@@ -11,7 +11,7 @@ range, and looks up the [[state]] in force there. Each step uses what a closed [
 and in its index.
 
 The example is a query on the drive's recording for the second around the fault at minute 52 of its hour. The recording
-is a chain of four [[pieces]], about 115 MB in all. Every number below comes from [`src/fault.rs`]. This program
+is a chain of four [[pieces]], about 116 MB in all. Every number below comes from [`src/fault.rs`]. This program
 runs each step on that recording and counts the bytes it reads. `cargo run -p example_drive` prints them.
 
 ## Byte sources
@@ -104,7 +104,7 @@ file. The example asks for `phase_a` in the second either side of the fault:
     ```
 
 `phase_a`'s list in the last piece holds 1 638 entries, its chunks and its summary blocks. The query keeps two of
-them, the chunks from 51:59.000 to 51:59.999 and from 52:00.000 to 52:00.999. It reads about 197 KB in 3 reads,
+them, the chunks from 51:59.000 to 51:59.999 and from 52:00.000 to 52:00.999. It reads about 210 KB in 3 reads,
 almost all of them the track's list. A track with a chunk every second has a long list, and a reader that queries it
 often keeps the list in memory.
 
@@ -158,7 +158,7 @@ record is the [[state copy]] which the [[writer]] adds after the record the cut 
 from 52:00, the mode is `fault: overcurrent`, from 52:00, and lies about 2 KB behind.
 
 The number of `mode` is only the file's name for the track, so the reader first finds it by its key among the
-definitions in force. With that, both lookups together read about 4 KB in 10 reads. Each record lies within [[near]],
+definitions in force. With that, both lookups together read about 4.2 KB in 10 reads. Each record lies within [[near]],
 32 MiB, so a reader of the last piece alone finds both.
 
 [`TapeReader::definitions_at`] answers the same question for every [[definition]] at once: the clocks, the clock map

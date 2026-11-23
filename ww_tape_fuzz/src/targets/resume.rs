@@ -84,6 +84,7 @@ pub(crate) fn chunk(t: u64, number: TrackNum, k: u64) -> (ChunkHead, Vec<u8>) {
         time_mode: 0,
         end_mode: EndMode::Absent,
         grid: None,
+        tile: ww_tape::TileCoords::NONE,
     };
     (head, starts)
 }

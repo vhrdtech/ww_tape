@@ -51,11 +51,11 @@ Verify also replays the piece block by block, as its [[writer]] placed them. Eac
 the writer makes of the block at its offset. Each track's row in the close must match the track's blocks. A writer that
 wrote a wrong index therefore fails too, not only a changed byte.
 
-Verify reads every byte. For the drive's chain it reads about 119 MB in 41 472 reads. That is about 3.8 MB more
-than the recording's 115 MB. Verify reads each block's 32-byte header before the block, 13 816 headers in all.
+Verify reads every byte. For the drive's chain it reads about 119 MB in 41 472 reads. That is about 3.9 MB more
+than the recording's 116 MB. Verify reads each block's 32-byte header before the block, 13 816 headers in all.
 
-Verify reads each [[final index]] whole, about 1.7 MB in all. It then reads the index entries again, one by one
-as it replays the blocks: about 1.7 MB more. It does not read the closes and tails, about 12 KB in all.
+Verify reads each [[final index]] whole, about 1.8 MB in all. It then reads the first 120 bytes of each index entry again,
+one by one as it replays the blocks: about 1.7 MB more. It does not read the closes and tails, about 13 KB in all.
 
 All four pieces hold. An archive runs verify once after a transfer and on a schedule, never on each open.
 
@@ -109,7 +109,7 @@ copied piece give the same hash for the same range:
     ```
 
 For the frames of minutes 51 to 53, items 3 060 000 to 3 179 999 of `can0`, the range hash folds 120 chunks. Each
-unit hash comes from its index entry, so the fold reads no payload: the chain's reader reads about 541 KB in 15 reads.
+unit hash comes from its index entry, so the fold reads no payload: the chain's reader reads about 577 KB in 15 reads.
 The hashes in the chain and in the last piece alone are equal. A program that analysed those frames can store the
 range hash beside its result. Anyone can later check that a file still holds that input.
 

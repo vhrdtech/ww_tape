@@ -30,6 +30,7 @@ fn entry(track_id: u64, offset: u64) -> IndexEntry {
             1 => Some((0, 0)),
             _ => Some((offset, u64::MAX - offset)),
         },
+        tile: None,
     }
 }
 
@@ -222,6 +223,7 @@ fn entries_of_blocks() {
         time_mode: 0,
         end_mode: EndMode::Durations,
         grid: None,
+        tile: crate::TileCoords::NONE,
     };
     let col = [0u8; 24];
     let cols = [(
@@ -570,7 +572,7 @@ fn refused_both_ways(change: impl Fn(&mut [u8]), error: IndexError) {
 #[test]
 fn an_entry_is_checked_the_same_on_every_read() {
     refused_both_ways(|e| e[15] |= ENTRY_UNHASHED, IndexError::BadEntries);
-    for bit in 4..8 {
+    for bit in 5..8 {
         refused_both_ways(
             |e| e[15] |= 1 << bit,
             IndexError::Invalid("an entry flag this build doesn't know"),
@@ -597,5 +599,91 @@ fn an_entry_is_checked_the_same_on_every_read() {
             e[12] = BlockKind::Series.to_u8();
         },
         IndexError::BadEntries,
+    );
+    // a tile number on an events chunk, and beside a range on a series chunk
+    refused_both_ways(|e| e[15] = ENTRY_TILE, IndexError::BadEntries);
+    refused_both_ways(
+        |e| {
+            e[15] = ENTRY_TILE | ENTRY_RANGE;
+            e[12] = BlockKind::Series.to_u8();
+        },
+        IndexError::BadEntries,
+    );
+}
+
+/// Grid chunks' tile numbers, 0 and all 128 bits among them, read back from bytes 72..88 under flag bit 4; a series
+/// chunk's entry without one keeps those bytes zero.
+#[test]
+fn tile_numbers_round_trip() {
+    let tiles = [
+        None,
+        Some(0),
+        Some(1),
+        Some(7 << 12 | 3 << 6 | 2 << 3 | 5),
+        Some(u128::MAX),
+    ];
+    let entries: Vec<_> = tiles
+        .iter()
+        .enumerate()
+        .map(|(i, tile)| IndexEntry {
+            kind: BlockKind::Series,
+            range: None,
+            tile: *tile,
+            ..entry(1, 1000 + i as u64 * 300)
+        })
+        .collect();
+    let head = IndexHead {
+        kind: IndexKind::Checkpoint,
+        self_offset: 4000,
+        prev: None,
+    };
+    let bytes = write(&head, &entries);
+    let ix = IndexBlock::read(&Block::read(&bytes).unwrap()).unwrap();
+    assert_eq!(ix.entries().collect::<Vec<_>>(), entries);
+    let at = HEADER_LEN + INDEX_FIXED_LEN;
+    let first = &bytes[at..at + ENTRY_LEN];
+    assert_eq!(first[ENTRY_FLAGS_AT] & ENTRY_TILE, 0);
+    assert_eq!(first[ENTRY_RANGE_AT..ENTRY_UNIT_AT], [0; 16]);
+    let last = &bytes[at + 4 * ENTRY_LEN..at + 5 * ENTRY_LEN];
+    assert_eq!(last[ENTRY_FLAGS_AT] & ENTRY_TILE, ENTRY_TILE);
+    assert_eq!(last[ENTRY_RANGE_AT..ENTRY_UNIT_AT], [0xff; 16]);
+}
+
+/// A checkpoint whose entries are `len` bytes, each the first `len` bytes of a written one, its head saying so and
+/// its CRCs made good.
+fn entries_cut_to(entries: &[IndexEntry], len: usize) -> Vec<u8> {
+    let head = IndexHead {
+        kind: IndexKind::Checkpoint,
+        self_offset: 4000,
+        prev: None,
+    };
+    let bytes = write(&head, entries);
+    let at = HEADER_LEN + INDEX_FIXED_LEN;
+    let mut out = bytes[..at].to_vec();
+    for e in bytes[at..bytes.len() - CRC_LEN].chunks(ENTRY_LEN) {
+        out.extend_from_slice(&e[..len]);
+    }
+    out.extend([0; CRC_LEN]);
+    let n = out.len() as u32;
+    out[8..12].copy_from_slice(&n.to_le_bytes());
+    out[58..60].copy_from_slice(&(len as u16).to_le_bytes());
+    restamp_head(&mut out);
+    seal(&mut out);
+    out
+}
+
+/// Entries of [ENTRY_READ_LEN] bytes, as pieces written before the entry grew to [ENTRY_LEN] hold, read as the
+/// written ones; one byte shorter is refused.
+#[test]
+fn entries_of_the_read_length_read_and_shorter_are_refused() {
+    let entries: Vec<_> = (0..4).map(|i| entry(i / 2, 1000 + i * 300)).collect();
+    let old = entries_cut_to(&entries, ENTRY_READ_LEN);
+    let ix = IndexBlock::read(&Block::read(&old).unwrap()).unwrap();
+    assert_eq!(ix.entry_len(), ENTRY_READ_LEN);
+    assert_eq!(ix.entries().collect::<Vec<_>>(), entries);
+    let short = entries_cut_to(&entries, ENTRY_READ_LEN - 1);
+    assert_eq!(
+        IndexBlock::read(&Block::read(&short).unwrap()).err(),
+        Some(IndexError::BadHead)
     );
 }

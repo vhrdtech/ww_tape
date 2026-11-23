@@ -21,8 +21,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use ww_tape::chunk::ChunkHead;
 use ww_tape::{
     ALIGNMENT, BlockKind, BlockWriter, ClockOrigin, ClockSpec, ClockTime, Codec, ColumnKind,
-    ColumnSpec, Definitions, EndMode, EventsDef, FullVersion, Items, Magnitude, Ratio64, Segment,
-    SeriesDef, SeriesGrid, SyncPolicy, TapeSink, TapeWriter, TrackKind, TrackSpec, Version,
+    ColumnSpec, Definitions, EndMode, EventsDef, FullVersion, GridDef, Items, Magnitude, Ratio64,
+    Segment, SeriesGrid, SyncPolicy, TapeSink, TapeWriter, TrackKind, TrackSpec, Version,
     clock_key, track_key,
 };
 use ww_tape::{ClockNum, TrackNum};
@@ -228,7 +228,7 @@ fn series(piece: u64, chunk: usize) -> anyhow::Result<Row> {
     let period = Ratio64::new(62_500, 3).ok_or_else(|| any("48 kHz on a 1 ns clock"))?;
     let mut defs = Definitions::new();
     let clock = defs.define_clock(clock()).map_err(any)?;
-    let spec = track(1, clock, TrackKind::Series(SeriesDef::of::<i16>(1, period)));
+    let spec = track(1, clock, TrackKind::Series(GridDef::of::<i16>(1, period)));
     let track_id = spec.id();
     let number = defs.define_track(spec).map_err(any)?;
     let samples: Vec<u8> = (0..chunk).map(|i| (i * 31 % 251) as u8).collect();
@@ -263,6 +263,7 @@ fn series(piece: u64, chunk: usize) -> anyhow::Result<Row> {
             time_mode: 0,
             end_mode: EndMode::Absent,
             grid: Some(grid),
+            tile: ww_tape::TileCoords::NONE,
         };
         w.write_chunk(&defs, &head, &columns).map_err(any)?;
         k += 1;

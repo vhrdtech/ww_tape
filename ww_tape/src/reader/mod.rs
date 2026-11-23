@@ -29,7 +29,7 @@ use exact_units::{Bytes, Count, Ratio64};
 use crate::bytes::le_u8;
 use crate::chunk::{CHUNK_HEAD_PREFIX, ChunkHead};
 use crate::index::{
-    ENTRY_LEN, HEAD_LEN_PREFIX, INDEX_LEN_MAX, IndexBlock, IndexEntry, IndexError, IndexKind,
+    ENTRY_READ_LEN, HEAD_LEN_PREFIX, INDEX_LEN_MAX, IndexBlock, IndexEntry, IndexError, IndexKind,
 };
 use crate::piece::{
     APPEND_HEAD_LEN, AppendHead, ChainReport, Close, CloseBlock, ContentHash, HeadLink, HeadStatus,
@@ -43,8 +43,10 @@ use crate::{
     TrackNum, VERSION, block_len,
 };
 
+mod grid;
 mod state;
 mod verify;
+pub use grid::GridTile;
 pub use state::{DefinitionsAt, Lookup, Lost, STATE_CACHE_MAX, STATE_READ_MAX, StateItem};
 pub use verify::VERIFY_LISTS_MAX;
 
@@ -157,6 +159,9 @@ pub enum ReadError<E> {
         track_id: TrackId,
         relation: Option<u16>,
     },
+    /// A box query's chunk at `offset` of track `track_id` is of a grid whose layout isn't the box's, or no
+    /// definition of its track in force there reads: the box was made for another grid.
+    GridLayout { offset: u64, track_id: TrackId },
 }
 
 impl<E: core::fmt::Debug> core::fmt::Display for ReadError<E> {
@@ -189,6 +194,11 @@ impl<E: core::fmt::Debug> core::fmt::Display for ReadError<E> {
                 f,
                 "chunk at byte {offset} of track {track_id}: monotone relation {relation:?} goes below the chunk \
                  before, with no break marked"
+            ),
+            Self::GridLayout { offset, track_id } => write!(
+                f,
+                "chunk at byte {offset} of track {track_id}: its grid's layout isn't the box's, or its definition \
+                 doesn't read"
             ),
         }
     }
@@ -1726,8 +1736,10 @@ impl<S: ByteSource> TapeReader<S> {
         let fits = |e: &IndexEntry| {
             usize::try_from(e.len).is_ok_and(|len| in_piece::<S::Error>(p, e.offset, len).is_ok())
         };
-        let mut listed =
-            verify::Lists::new(|at, b: &mut [u8; ENTRY_LEN]| self.src.read_at(at, b), fits);
+        let mut listed = verify::Lists::new(
+            |at, b: &mut [u8; ENTRY_READ_LEN]| self.src.read_at(at, b),
+            fits,
+        );
         for (at, count, step) in lists {
             listed.add(at, count, step);
         }

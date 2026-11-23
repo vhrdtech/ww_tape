@@ -12,7 +12,7 @@ use ww_tape::TrackNum;
 
 use shrink_wrap::prelude::*;
 use ww_tape::chunk::ColumnKind;
-use ww_tape::index::{ENTRY_LEN, IndexEntry};
+use ww_tape::index::{ENTRY_READ_LEN, IndexEntry};
 use ww_tape::payloads::{Payloads, PayloadsError};
 use ww_tape::reader::{ByteSource, OutOfRange, ReadError};
 use ww_tape::samples::{SampleShape, Samples};
@@ -644,7 +644,8 @@ pub struct Checked {
 pub struct VerifyCost {
     /// Blocks read, before the close records: the walk's and the final indexes'.
     pub blocks: u64,
-    /// Bytes of the final indexes, and of their entries.
+    /// Bytes of the final indexes, and of their entries as verify reads them again (the first `ENTRY_READ_LEN`
+    /// bytes of each).
     pub index: u64,
     pub entries: u64,
     /// Bytes of the close records and tails, which the walk stops before.
@@ -691,7 +692,7 @@ pub fn verify_cost<S: ByteSource>(
             }
             at += b.len() as u64;
         }
-        cost.entries += reader.closed_entries(i)?.len() as u64 * ENTRY_LEN as u64;
+        cost.entries += reader.closed_entries(i)?.len() as u64 * ENTRY_READ_LEN as u64;
         cost.unread += bytes.len() as u64 - close;
     }
     Ok(cost)

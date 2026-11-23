@@ -116,12 +116,17 @@
 //! | [CLOSE_SUMMARY_MAX](piece::CLOSE_SUMMARY_MAX) | 1 MiB | the body of the summary block a close names |
 //! | [REMOVED_PIECES_MAX] | 65536 | the removed pieces one close names |
 //! | [INDEX_LEN_MAX](index::INDEX_LEN_MAX) | 1 MiB | an index block a writer makes, and a reader looks for from the end |
-//! | [CHECKPOINT_ENTRIES_MAX](index::CHECKPOINT_ENTRIES_MAX) | 8737 | entries a writer puts in a checkpoint index block |
+//! | [CHECKPOINT_ENTRIES_MAX](index::CHECKPOINT_ENTRIES_MAX) | 8191 | entries a writer puts in a checkpoint index block |
 //! | [NODE_SHIFT_MAX](summary::NODE_SHIFT_MAX) | 62 | a summary node's items, as a power of 2 |
 //! | [LEVEL_MAX](summary::LEVEL_MAX) | 15 | a summary tree's level |
 //! | [SCALE_LEN_MAX](series::SCALE_LEN_MAX) | 64 | the scale bytes of a series chunk or summary |
 //! | [SeriesSummarySpec::BASE_SHIFT_MAX](summary::SeriesSummarySpec::BASE_SHIFT_MAX) | 24 | a series summary's base node, as a power of 2 |
 //! | [SERIES_CHANNELS_MAX](series::SERIES_CHANNELS_MAX) | 65535 | a series track's channels |
+//! | [GRID_FIXED_AXES_MAX](grid::GRID_FIXED_AXES_MAX) | 31 | a grid's fixed axes, and a grid chunk's tile coordinates |
+//! | [AXIS_NAME_LEN_MAX](grid::AXIS_NAME_LEN_MAX) | 64 | a fixed axis' name bytes |
+//! | [GRID_LISTED_MAX](grid::GRID_LISTED_MAX) | 65536 | the listed coordinates of a fixed axis |
+//! | [GRID_TILE_CELLS_MAX](grid::GRID_TILE_CELLS_MAX) | 64 Mi | the cells of one time step of a grid's tile |
+//! | [TILE_NUMBER_BITS](grid::TILE_NUMBER_BITS) | 128 | the bits of a grid's tile number fields together |
 //! | [GAP_MAX_MAX] | 64 MiB | a layout's gap |
 //! | [GAP_PROBES_MAX] | 8192 | the resume places a reader probes in one gap |
 //! | [GAP_CHECKS_MAX] | 4 | the blocks a reader checks whole past one gap |
@@ -221,10 +226,14 @@ pub use samples::{
     ELEMENT_PARTS_MAX, Element, ElementDesc, Sample, SampleError, SampleShape, Samples,
 };
 
-pub mod series;
-pub use series::{MediaStream, SeriesDef, SeriesError, SeriesGrid, SeriesValue};
+pub mod grid;
+pub use grid::{AxisCoords, FixedAxis, TileBox, TileCoords, TileLayout};
 #[cfg(feature = "std")]
-pub use series::{MediaStreamOwned, SeriesDefOwned};
+pub use grid::{AxisCoordsOwned, FixedAxisOwned};
+pub mod series;
+pub use series::{GridDef, MediaStream, SeriesError, SeriesGrid, SeriesValue};
+#[cfg(feature = "std")]
+pub use series::{GridDefOwned, MediaStreamOwned};
 #[cfg(feature = "alloc")]
 pub use series::{SeriesStretch, SeriesTimeline};
 
@@ -244,7 +253,7 @@ pub use piece::{
 pub mod reader;
 #[cfg(feature = "alloc")]
 pub use reader::{
-    ByteSource, OpenOptions, PayloadCheck, PieceInfo, RangeHash, ReadError, TapeReader,
+    ByteSource, GridTile, OpenOptions, PayloadCheck, PieceInfo, RangeHash, ReadError, TapeReader,
     Verification,
 };
 

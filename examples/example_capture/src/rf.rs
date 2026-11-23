@@ -22,7 +22,7 @@ use ww_tape::samples::{Scalar, encode, max_encoded_len};
 use ww_tape::summary::{SeriesStats, SeriesSummarySpec};
 use ww_tape::{
     BlockKind, ClockNum, ClockOrigin, ClockSpec, Codec, ColumnKind, ColumnSpec, Definitions,
-    ElementDesc, EndMode, Items, Magnitude, Ratio64, SampleShape, Segment, SeriesDef, SeriesGrid,
+    ElementDesc, EndMode, GridDef, Items, Magnitude, Ratio64, SampleShape, Segment, SeriesGrid,
     TrackKey, TrackKind, TrackRepeat, TrackSpec, clock_key, track_key,
 };
 use ww_tape_summary::{SeriesStart, SeriesSummaries};
@@ -130,14 +130,15 @@ impl Rf {
     }
 
     /// The track `iq`'s definition.
-    pub fn def(&self) -> Option<SeriesDef<'static>> {
+    pub fn def(&self) -> Option<GridDef<'static>> {
         // --8<-- [start:def]
-        let def = SeriesDef {
+        let def = GridDef {
             channels: UNib32(1), // one sample of IQ_ELEMENT at a time
             period: Ratio64::new(1_000_000_000, u64::from(self.rate_hz))?, // 50 ns at 20 MS/s
             scale: Magnitude::ONE, // one step of the converter
             summaries: self.summaries.then(summaries), // extremes and power per 1024 samples
             media: None,
+            axes: RefVec::new(), // no fixed axes: a series
         };
         // --8<-- [end:def]
         Some(def)
@@ -225,6 +226,7 @@ impl Rf {
             time_mode: 0,
             end_mode: EndMode::Absent,
             grid: Some(grid),
+            tile: ww_tape::TileCoords::NONE,
         };
         let spec = ColumnSpec {
             kind: ColumnKind::Samples,

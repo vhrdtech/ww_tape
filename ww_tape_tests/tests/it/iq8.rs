@@ -8,7 +8,7 @@ use ww_tape::chunk::ChunkHead;
 use ww_tape::samples::Samples;
 use ww_tape::{
     BlockKind, ClockDef, ClockOrigin, Codec, ColumnKind, ColumnSpec, Definitions, Describe,
-    ElementDesc, EndMode, Items, Magnitude, MemSink, Ratio64, SeriesDef, SeriesGrid, SyncPolicy,
+    ElementDesc, EndMode, GridDef, Items, Magnitude, MemSink, Ratio64, SeriesGrid, SyncPolicy,
     TapeReader, TapeWriter, TrackDef, TrackKind, TrackRepeat, clock_key, track_key,
 };
 use ww_tape::{ClockNum, TrackNum};
@@ -30,12 +30,13 @@ fn iq8_track() -> TrackDef<'static> {
         parts: UNib32(2),
         zero: Ratio64::new(255, 2),
     };
-    let series = SeriesDef {
+    let series = GridDef {
         channels: UNib32(1),
         period: Ratio64::new(1250, 3).expect("2.4 MS/s on a 1 ns clock"),
         scale: Magnitude::ONE,
         summaries: None,
         media: None,
+        axes: RefVec::new(),
     };
     TrackDef {
         number: TrackNum::new(1),
@@ -111,6 +112,7 @@ fn an_8_bit_iq_track_is_stored_as_the_radio_sends_it() {
         time_mode: 0,
         end_mode: EndMode::Absent,
         grid: Some(grid),
+        tile: ww_tape::TileCoords::NONE,
     };
     let spec = ColumnSpec {
         kind: ColumnKind::Samples,

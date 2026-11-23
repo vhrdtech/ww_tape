@@ -229,6 +229,78 @@ pub fn series_hostile(data: &[u8]) {
     series::query(&t, u64::from(count), 1);
 }
 
+/// The track id and tile layout of the grid track a block of definitions names; None when it names none. A grid
+/// that decodes has a layout: its axes were checked on decode.
+fn grid_def(b: &[u8]) -> Option<(ww_tape::TrackId, ww_tape::TileLayout, Vec<u32>)> {
+    let block = Block::read(b).ok()?;
+    let r = block.records().flatten().nth(1)?;
+    let Describe::Track(t) = Describe::from_ww_bytes(r.item).ok()? else {
+        return None;
+    };
+    let TrackKind::Series(s) = &t.kind else {
+        return None;
+    };
+    let l = s.tile_layout().expect("a decoded grid's axes were checked");
+    let extents = s
+        .axes
+        .iter()
+        .map(|a| a.map(|a| a.extent.0))
+        .collect::<Result<_, _>>()
+        .expect("a decoded grid's axes read");
+    Some((t.id(), l, extents))
+}
+
+/// `tape-grid-hostile`: a grid track of hostile axes and grid chunks of hostile tile coordinates.
+///
+/// Each head reads alone as from the whole block; coordinates the grid holds pack to a tile number that unpacks to
+/// them and lies in the box of the whole grid, others pack to none. Read as a tape, the box of the whole grid finds
+/// only tiles the grid holds: from the tile numbers of a checkpoint's entries, packed or hostile, or from the chunk
+/// heads where an entry holds none or one the grid holds no tile of.
+pub fn grid_hostile(data: &[u8]) {
+    let f = hostile::grid(data);
+    let bs = blocks(&f);
+    let def = bs.first().and_then(|b| grid_def(b));
+    let whole = def.as_ref().and_then(|(_, l, extents)| {
+        let cells: Vec<_> = extents.iter().map(|e| 0..*e).collect();
+        l.tile_box(&cells)
+    });
+    for b in bs.iter().skip(1) {
+        chunk::walk(b);
+        let Ok(h) = ChunkHead::read_head(b) else {
+            continue;
+        };
+        assert!(
+            h.tile.len() <= ww_tape::grid::GRID_FIXED_AXES_MAX,
+            "a head reads at most GRID_FIXED_AXES_MAX coordinates"
+        );
+        if let (Some((_, l, _)), Some(whole)) = (&def, &whole) {
+            match l.pack(&h.tile) {
+                Some(n) => {
+                    assert_eq!(l.unpack(n), Some(h.tile));
+                    assert!(whole.holds(n), "the whole grid holds the tile number");
+                    assert!(whole.holds_coords(&h.tile), "the whole grid holds the tile");
+                }
+                None => {
+                    assert!(
+                        !l.holds(&h.tile),
+                        "a tile that doesn't pack isn't the grid's"
+                    );
+                    assert!(!whole.holds_coords(&h.tile), "nor in the whole grid's box");
+                }
+            }
+        }
+    }
+    if let (Some((id, l, _)), Some(whole)) = (&def, &whole)
+        && let Ok(r) = TapeReader::open(&f[..])
+        && !r.pieces().is_empty()
+        && let Ok(found) = r.grid_tiles(0, *id, i64::MIN..i64::MAX, whole)
+    {
+        for t in found {
+            assert!(l.holds(&t.tile), "{:?}", t.tile);
+        }
+    }
+}
+
 /// `tape-summary-hostile`: a summary block of a hostile head, scale or node values, every node and column read.
 pub fn summary_hostile(data: &[u8]) {
     let b = hostile::summary(data);

@@ -26,10 +26,11 @@ const GRID_FIELDS: [Field<'static>; 3] = [
     Field::new(TABLE + 16, 1, &[SCALE_LEN_MAX as u64]),
 ];
 
-/// Where the column table of the chunk `b` starts, from its own head: after the grid and scale of a series chunk.
+/// Where the column table of the chunk `b` starts, from its own head: after the grid, scale and tile coordinates of
+/// a series chunk.
 pub(crate) fn table(b: &[u8]) -> usize {
     if get(b, 5, 1) == u64::from(BlockKind::Series.to_u8()) {
-        TABLE + SERIES_GRID_LEN + get(b, TABLE + 16, 1) as usize
+        TABLE + SERIES_GRID_LEN + get(b, TABLE + 16, 1) as usize + 4 * get(b, 82, 1) as usize
     } else {
         TABLE
     }
@@ -196,6 +197,7 @@ pub fn chunk(data: &[u8]) -> Vec<u8> {
                 Magnitude::pow10(-((d.u8() % 19) as i8)),
             )
         }),
+        tile: ww_tape::TileCoords::NONE,
     };
     let mut b = build(&head, &columns);
     hit_head(&mut d, &mut b);

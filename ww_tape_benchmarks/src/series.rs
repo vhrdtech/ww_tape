@@ -3,8 +3,8 @@
 use shrink_wrap::prelude::*;
 use ww_tape::chunk::ChunkHead;
 use ww_tape::{
-    BlockKind, ClockOrigin, ClockSpec, Definitions, EndMode, ItemNum, Magnitude, Ratio64, Segment,
-    SeriesDef, SeriesGrid, TrackKind, TrackNum, TrackSpec, clock_key, track_key,
+    BlockKind, ClockOrigin, ClockSpec, Definitions, EndMode, GridDef, ItemNum, Magnitude, Ratio64,
+    Segment, SeriesGrid, TrackKind, TrackNum, TrackSpec, clock_key, track_key,
 };
 
 /// The track's period: 48 kHz on a 1 ns clock.
@@ -33,7 +33,7 @@ pub fn definitions() -> anyhow::Result<(Definitions, TrackNum)> {
             items: ww_tape::Items::numbers::<i16>(None),
             label: "bench",
             repeat: ww_tape::TrackRepeat::Stream,
-            kind: TrackKind::Series(SeriesDef::of::<i16>(1, period())),
+            kind: TrackKind::Series(GridDef::of::<i16>(1, period())),
             relations: RefVec::Slice { slice: &[] },
             owner: [0; 32],
         })
@@ -61,5 +61,6 @@ pub fn head(track: TrackNum, k: u64, count: u32) -> anyhow::Result<ChunkHead> {
         time_mode: 0,
         end_mode: EndMode::Absent,
         grid: Some(grid),
+        tile: ww_tape::TileCoords::NONE,
     })
 }
