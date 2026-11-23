@@ -6,6 +6,9 @@
 //! not at the link's pace, so a run says how fast the analyser could record against the link it watches. Each table
 //! carries the load average before and after it.
 //!
+//! The table `payload` records the link with random payloads and with a synthetic plaintext mix, each with the `frames`
+//! payloads coded raw and tried with LZ4: the bytes kept and the CPU time a frame takes.
+//!
 //! The tables `window` and `triage` capture the link into a window in memory (`example_ethernet::ram`) while the triage reads
 //! each piece and keeps those around a TCP reset: in one chain, whose mux writes both ports, and in a chain per port,
 //! each with a mux and a triage thread of its own; into memory, then into piece files in `--dir`.
@@ -20,11 +23,12 @@
 use clap::Parser;
 use example_capture::chain_options;
 use example_ethernet::ram::RamCapture;
-use example_ethernet::{Captured, LINE_BPS, Link, RESET_EVERY};
+use example_ethernet::{Captured, LINE_BPS, Link, PayloadMix, RESET_EVERY};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
+use ww_tape::payloads::PayloadCodec;
 use ww_tape::{ChainOptions, CutPolicy, MemTapes, OwnerId, Tapes};
-use ww_tape_bench::{Bench, Cell, Common, Discard};
+use ww_tape_bench::{Bench, Cell, Common, Discard, cpu_time};
 use ww_tape_benchmarks::{TRIAGE_COLUMNS, WINDOW_COLUMNS, WindowRun, triage_row, window_row};
 use ww_tape_fs::Files;
 use ww_tape_mux::{MuxOptions, TapeMux};
@@ -83,6 +87,8 @@ const RESULTS_OWNER: OwnerId = OwnerId([0xe8; 32]);
 struct Run {
     captured: Captured,
     wall: Duration,
+    /// CPU time of every thread of the process, None where the system doesn't say.
+    cpu: Option<Duration>,
     written: u64,
     waits: u64,
 }
@@ -96,6 +102,7 @@ where
     T::Error: Send + Sync + core::fmt::Debug,
 {
     let refs: Vec<&TapeMux<T>> = muxes.iter().collect();
+    let cpu_start = cpu_time();
     let captured = link.record(&refs).map_err(err)?;
     let (mut written, mut waits) = (0, 0);
     for mux in muxes {
@@ -108,9 +115,11 @@ where
         written += closed.iter().map(|p| p.piece.len).sum::<u64>();
         waits += stats.waits;
     }
+    let wall = start.elapsed();
     Ok(Run {
         captured,
-        wall: start.elapsed(),
+        wall,
+        cpu: cpu_time().zip(cpu_start).map(|(end, start)| end - start),
         written,
         waits,
     })
@@ -202,8 +211,73 @@ fn main() -> anyhow::Result<()> {
         std::fs::remove_dir_all(dir)?;
     }
     println!("{}", bench.push(table));
+    payloads(&args, &mut bench)?;
     windows(&args, &mut bench)?;
     bench.finish()
+}
+
+/// The table `payload`: the link with random and with plaintext payloads, the `frames` payloads coded raw and tried
+/// with LZ4, into a store that keeps no bytes; what the chain takes and the CPU time a frame costs.
+fn payloads(args: &Args, bench: &mut Bench) -> anyhow::Result<()> {
+    let queues = 2;
+    let mut table = bench.table(
+        "payload",
+        &format!(
+            "{} ms of both directions of a 10 Gbps link at {} % load, {queues} receive queues a port, one chain, no \
+             bytes kept. The `frames` payloads are random bytes or a synthetic mix of plaintext protocols, coded raw \
+             or tried with LZ4 (`Auto`). CPU is that of every thread of the process, capture, decoders and the \
+             mux's writing thread, per frame.",
+            args.ms, args.load
+        ),
+        &[
+            "Payloads",
+            "Codec",
+            "Frames",
+            "Wall ms",
+            "M frames/s",
+            "Chain MB",
+            "Bytes per frame",
+            "CPU ns per frame",
+        ],
+    );
+    for mix in [PayloadMix::Random, PayloadMix::Plain] {
+        for (codec, name) in [(PayloadCodec::Raw, "Raw"), (PayloadCodec::Auto, "Auto")] {
+            let link = Link::full()
+                .micros(args.ms * 1_000)
+                .load(args.load)
+                .queues(queues)
+                .payload(mix)
+                .payload_codec(codec);
+            let start = Instant::now();
+            let mux = TapeMux::create(
+                Discard::default(),
+                OWNER,
+                0,
+                &[],
+                options(args.piece_mib),
+                MuxOptions::default(),
+            )
+            .map_err(err)?;
+            let r = run(link, vec![mux], start)?;
+            let [a, b] = &r.captured.ports;
+            let frames = a.frames + b.frames;
+            table.row(vec![
+                Cell::text(mix.name()),
+                Cell::text(name),
+                Cell::count(frames),
+                Cell::num(r.wall.as_secs_f64() * 1e3, 0),
+                Cell::num(frames as f64 / r.wall.as_secs_f64() / 1e6, 2),
+                Cell::num(r.written as f64 / 1e6, 0),
+                Cell::num(r.written as f64 / frames as f64, 1),
+                r.cpu.map_or_else(
+                    || Cell::text("unknown"),
+                    |cpu| Cell::num(cpu.as_secs_f64() * 1e9 / frames as f64, 0),
+                ),
+            ]);
+        }
+    }
+    println!("{}", bench.push(table));
+    Ok(())
 }
 
 /// The tables `window` and `triage`: the link into a window in memory, in one chain and in a chain per port, the

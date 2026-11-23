@@ -385,6 +385,12 @@ The book's running example and its other cases: `example_drive`, `example_rf`, `
 
   Read more: [The pipeline](docs/protocol_analyser.md#the-pipeline), [example_capture](example_capture/README.md). Tests `window.rs`.
 
+- ✅ **EX-6 Payload compression measured on the cases**
+
+  `example_ethernet` records its `frames` payloads raw, as its payloads are random like encrypted traffic, and `Link::payload(PayloadMix::Plain)` makes a synthetic plaintext mix whose payloads compress. `just bench-ethernet` measures both mixes with `PayloadCodec` Raw and Auto: the bytes kept and the CPU time a frame takes. `just bench-wideband` measures the bytes and CPU time a sample takes under each sample codec.
+
+  Read more: [Keeping what matters of a 10 Gbps link](docs/protocol_analyser.md), [Keeping the bursts of a fast band](docs/wideband.md). Test `ethernet.rs`.
+
 ## Repository (`REPO`)
 
 Crates, checks, fuzzing and benches.

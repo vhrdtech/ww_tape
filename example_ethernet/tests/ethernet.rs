@@ -13,7 +13,8 @@
 )]
 
 use example_capture::about;
-use example_ethernet::{Link, Rx, Traffic, digest};
+use example_ethernet::{Link, PayloadMix, Rx, Traffic, digest};
+use ww_tape::payloads::PayloadCodec;
 use ww_tape::{ChainOptions, MemTapes, OwnerId};
 use ww_tape_mux::{MuxOptions, TapeMux};
 
@@ -263,4 +264,43 @@ fn grouped(n: u64) -> String {
         out.push(c);
     }
     out
+}
+
+/// The bytes the `frames` track's chunks take over the same frames under `mix` and `codec`, and the frames' digests.
+fn frames_bytes(mix: PayloadMix, codec: PayloadCodec) -> (u64, Vec<u64>) {
+    let link = Link::full()
+        .micros(2_000)
+        .queues(2)
+        .payload(mix)
+        .payload_codec(codec);
+    let (_, read) = record(link);
+    let bytes = read.ports.iter().map(|p| p.bytes[0].chunk_bytes).sum();
+    (
+        bytes,
+        read.ports.iter().flat_map(|p| p.digests.clone()).collect(),
+    )
+}
+
+#[test]
+fn plain_payloads_compress_and_random_ones_do_not() {
+    let (random_raw, random_digests) = frames_bytes(PayloadMix::Random, PayloadCodec::Raw);
+    let (random_auto, random_auto_digests) = frames_bytes(PayloadMix::Random, PayloadCodec::Auto);
+    let (plain_raw, plain_digests) = frames_bytes(PayloadMix::Plain, PayloadCodec::Raw);
+    let (plain_auto, plain_auto_digests) = frames_bytes(PayloadMix::Plain, PayloadCodec::Auto);
+    // the codec never changes what a reader gets back
+    assert_eq!(random_digests, random_auto_digests);
+    assert_eq!(plain_digests, plain_auto_digests);
+    assert_ne!(
+        random_digests, plain_digests,
+        "the mixes are different bytes"
+    );
+    // the plaintext mix takes about the same raw, and under half with LZ4
+    assert!(plain_raw.abs_diff(random_raw) * 20 < random_raw);
+    assert!(plain_auto * 2 < plain_raw, "{plain_auto} of {plain_raw}");
+    // random payloads gain at most the repeated headers
+    assert!(random_auto <= random_raw);
+    assert!(
+        random_auto * 10 > random_raw * 9,
+        "{random_auto} of {random_raw}"
+    );
 }

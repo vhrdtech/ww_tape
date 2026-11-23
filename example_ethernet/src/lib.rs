@@ -16,7 +16,9 @@
 //!
 //! The traffic is synthetic and a pure function of the frame's number ([Traffic]): the simple IMIX of 7 frames of
 //! 60 bytes, 4 of 590 and 1 of 1514, over [FLOWS] flows, three in four of them TCP. The payloads are random bytes,
-//! as encrypted traffic is, so they don't compress. A port sends its frames back to back at the link's load. One frame
+//! as encrypted traffic is ([PayloadMix::Random]), so they don't compress, and the `frames` track is written raw
+//! ([Link::payload_codec]). [PayloadMix::Plain] makes them the text of a plaintext protocol instead, to measure what
+//! compression saves where it can. A port sends its frames back to back at the link's load. One frame
 //! in [Link::reset_every] is a TCP reset ([L4::is_reset]) on a TCP flow: the rare event [ram]'s analyser looks for.
 //!
 //! [Link::record] records both ports through one [TapeMux] or a mux per port, each into a chain of its own. Per
@@ -54,7 +56,7 @@ use std::thread::ScopedJoinHandle;
 
 use shrink_wrap::prelude::*;
 use ww_tape::OwnerId;
-use ww_tape::payloads::Payloads;
+use ww_tape::payloads::{PayloadCodec, Payloads};
 use ww_tape::times::{EventTimes, RelationColumn, StoredRelations};
 use ww_tape::{
     BlockKind, ClockNum, ClockOrigin, ClockSpec, Ends, EventsDef, Items, Magnitude, MemTapes,
@@ -128,8 +130,34 @@ pub struct Link {
     pub queues: u32,
     /// One frame of a port in this many is a TCP reset, where its flow is TCP; 0 for none.
     pub reset_every: u64,
+    /// What the frames' payloads are made of.
+    pub payload: PayloadMix,
+    /// How each chunk of `frames` codes its payloads column: [PayloadCodec::Raw] by default, as the random payloads
+    /// do not compress and LZ4 would only cost its time.
+    pub payload_codec: PayloadCodec,
 }
 // --8<-- [end:link]
+
+/// What the bytes after a frame's headers are.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub enum PayloadMix {
+    /// Random bytes, as encrypted traffic is: they don't compress.
+    #[default]
+    Random,
+    /// The text of plaintext protocols: HTTP requests and responses, JSON and log lines, drawn from a small
+    /// vocabulary with counters, so headers repeat as they do on a real link. Synthetic.
+    Plain,
+}
+
+impl PayloadMix {
+    /// Its name, as the bench prints it.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Random => "random",
+            Self::Plain => "plain",
+        }
+    }
+}
 
 impl Link {
     /// A second of the link at its line rate in both directions, two receive queues a port, chunks of `frames` of
@@ -141,6 +169,21 @@ impl Link {
             chunk_bytes: 1 << 20,
             queues: 2,
             reset_every: RESET_EVERY,
+            payload: PayloadMix::Random,
+            payload_codec: PayloadCodec::Raw,
+        }
+    }
+
+    /// The same capture with payloads of `payload`.
+    pub const fn payload(self, payload: PayloadMix) -> Self {
+        Self { payload, ..self }
+    }
+
+    /// The same capture with the `frames` payloads coded by `payload_codec`.
+    pub const fn payload_codec(self, payload_codec: PayloadCodec) -> Self {
+        Self {
+            payload_codec,
+            ..self
         }
     }
 
@@ -250,6 +293,7 @@ impl Link {
             EventsOptions {
                 chunk_bytes: exact_units::Bytes::new(self.chunk_bytes),
                 latency: None, // a capture at line rate fills its chunks
+                payload_codec: self.payload_codec,
                 ..EventsOptions::default()
             },
         )?;
@@ -442,6 +486,49 @@ pub struct Traffic {
     end_ps: u64,
 }
 
+/// Lines of the plaintext protocols' text, the vocabulary of [PayloadMix::Plain].
+const PLAIN_LINES: [&str; 12] = [
+    "GET /api/v1/items/{} HTTP/1.1\r\nHost: shop.example.test\r\nUser-Agent: curl/8.5.0\r\nAccept: */*\r\n\r\n",
+    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nCache-Control: no-store\r\nServer: nginx\r\n\r\n",
+    "{\"id\":{},\"state\":\"ok\",\"items\":[{\"sku\":\"A-{}\",\"qty\":1},{\"sku\":\"B-{}\",\"qty\":2}]}\n",
+    "POST /api/v1/orders HTTP/1.1\r\nHost: shop.example.test\r\nContent-Type: application/json\r\n\r\n",
+    "<14>1 2026-11-23T09:{}:00Z gw-1 sshd 812 - - Accepted publickey for deploy from 10.0.0.{}\n",
+    "{\"level\":\"info\",\"msg\":\"request done\",\"status\":200,\"ms\":{},\"path\":\"/api/v1/items\"}\n",
+    "SELECT id, name, price FROM items WHERE id = {} AND active = 1;\r\n",
+    "HTTP/1.1 304 Not Modified\r\nETag: \"{}\"\r\nDate: Mon, 23 Nov 2026 09:00:00 GMT\r\n\r\n",
+    "220 mail.example.test ESMTP ready\r\nEHLO client-{}.example.test\r\n250 OK\r\n",
+    "<html><head><title>Items</title></head><body><ul><li>item {}</li><li>item {}</li></ul></body></html>\n",
+    "{\"jsonrpc\":\"2.0\",\"id\":{},\"method\":\"get_status\",\"params\":[]}\n",
+    "Cookie: session=0123456789abcdef; theme=dark; lang=en; id={}\r\n",
+];
+
+/// A pool of [PAYLOAD_POOL_BYTES] bytes of plaintext protocol text: the lines of [PLAIN_LINES] in the order `seed`
+/// draws them, each `{}` a number it draws. Frames take their payloads from random offsets, so a payload starts in
+/// the middle of a line, as a segment does.
+fn plain_pool(seed: u64) -> Vec<u8> {
+    let mut pool = Vec::with_capacity(PAYLOAD_POOL_BYTES + 256);
+    let mut n = 0u64;
+    while pool.len() < PAYLOAD_POOL_BYTES {
+        let line = PLAIN_LINES
+            .get(usize::try_from(hash(seed, n) % PLAIN_LINES.len() as u64).unwrap_or(0))
+            .copied()
+            .unwrap_or_default();
+        for (i, part) in line.split("{}").enumerate() {
+            if i > 0 {
+                pool.extend_from_slice(
+                    (hash(seed ^ 1, n * 8 + i as u64) % 1000)
+                        .to_string()
+                        .as_bytes(),
+                );
+            }
+            pool.extend_from_slice(part.as_bytes());
+        }
+        n += 1;
+    }
+    pool.truncate(PAYLOAD_POOL_BYTES);
+    pool
+}
+
 /// What a port's frame is, before its bytes: its choices, its flow and its length.
 struct Shape {
     h: u64,
@@ -456,9 +543,12 @@ impl Traffic {
     /// The traffic of receive queue `rx` of `link`.
     pub fn new(link: Link, rx: Rx) -> Self {
         let seed = POOL_SEED ^ u64::from(rx.port);
-        let pool = (0..PAYLOAD_POOL_BYTES / 8)
-            .flat_map(|i| hash(seed, i as u64).to_le_bytes())
-            .collect();
+        let pool = match link.payload {
+            PayloadMix::Random => (0..PAYLOAD_POOL_BYTES / 8)
+                .flat_map(|i| hash(seed, i as u64).to_le_bytes())
+                .collect(),
+            PayloadMix::Plain => plain_pool(seed),
+        };
         Self {
             link,
             rx,

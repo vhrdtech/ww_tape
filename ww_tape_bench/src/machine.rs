@@ -1,5 +1,7 @@
 //! The machine a bench runs on and its load average: what a reader needs to weigh a time.
 
+use std::time::Duration;
+
 use ww_tape_bench_report::{Build, Load, Machine};
 
 /// The load average now; None where the system doesn't say (not Linux).
@@ -21,6 +23,25 @@ pub fn machine() -> Machine {
         extensions: extensions(),
         memory_bytes: memory_bytes(),
     }
+}
+
+/// The CPU time this process has used so far, user and system of all its threads; None where the system doesn't say
+/// (not Linux). Its resolution is a clock tick of 10 ms.
+pub fn cpu_time() -> Option<Duration> {
+    cpu_time_of(&std::fs::read_to_string("/proc/self/stat").ok()?)
+}
+
+/// The CPU time in the text of `/proc/PID/stat`: `utime` and `stime`, the 14th and 15th fields, in clock ticks of
+/// 10 ms (`USER_HZ` is 100 on every Linux ABI).
+fn cpu_time_of(stat: &str) -> Option<Duration> {
+    // the command name, field 2, may hold spaces and parentheses: the fields restart after its last `)`
+    let rest = stat.get(stat.rfind(')')? + 1..)?;
+    let mut fields = rest.split_whitespace().skip(11);
+    let user: u64 = fields.next()?.parse().ok()?;
+    let system: u64 = fields.next()?.parse().ok()?;
+    Some(Duration::from_millis(
+        user.checked_add(system)?.checked_mul(10)?,
+    ))
 }
 
 /// Bytes of memory the system has: `MemTotal` of `/proc/meminfo`; None where it doesn't say (not Linux).
@@ -93,4 +114,16 @@ fn extensions() -> Vec<String> {
 #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
 fn extensions() -> Vec<String> {
     Vec::new()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cpu_time_adds_user_and_system_ticks_after_a_command_name_with_parentheses() {
+        let stat = "42 (a (b) c) S 1 2 3 4 5 6 7 8 9 10 250 50 0 0 20 0 1 0 100";
+        assert_eq!(cpu_time_of(stat), Some(Duration::from_millis(3_000)));
+        assert_eq!(cpu_time_of("42 (x) S 1"), None);
+    }
 }
