@@ -124,9 +124,12 @@ fn box_steps(steps: Range<u64>, cells: &[Range<u32>]) -> Vec<i32> {
     out
 }
 
+/// A tile's handle, its cells along each fixed axis and the next time step it writes.
+type TileHandle = (GridHandle<MemPieces, i32>, Vec<Range<u32>>, u64);
+
 /// Write the grid on `mux`, a handle per tile, each from its time step in `from`, then close.
 fn write(mux: TapeMux<MemPieces>, track: TrackNum, from: &[u64]) {
-    let mut handles: Vec<(GridHandle<MemPieces, i32>, Vec<Range<u32>>, u64)> = tiles()
+    let mut handles: Vec<TileHandle> = tiles()
         .iter()
         .zip(from)
         .map(|(t, &first)| {
