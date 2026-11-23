@@ -26,6 +26,7 @@ mod definitions;
 mod durable;
 mod files;
 mod follow;
+mod grids;
 mod head_copies;
 mod integrity;
 mod iq8;

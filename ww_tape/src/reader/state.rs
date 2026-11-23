@@ -751,6 +751,7 @@ mod tests {
             unit: crate::piece::UnitHash::NONE,
             unhashed: false,
             range: None,
+            tile: None,
         };
         (
             e,

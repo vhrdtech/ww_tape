@@ -34,6 +34,7 @@ fn at(offset: u64, len: u32) -> IndexEntry {
         unhashed: false,
         unit: ww_tape::UnitHash::NONE,
         range: None,
+        tile: None,
     }
 }
 

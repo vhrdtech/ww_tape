@@ -1311,7 +1311,9 @@ impl<S: TapeSink> TapeWriter<S> {
         let flags = u16::from_le_bytes([header[6], header[7]]);
         let repeat = kind == BlockKind::Records && flags & crate::FLAG_REPEAT != 0;
         let counted = !repeat && !crate::index::is_structural(kind);
-        let again = self.index(block, crc, counted, unit, range);
+        let tile = chunk.as_ref().and_then(|c| self.relations.tile(c));
+        let extras = crate::index::ChunkExtras { unit, range, tile };
+        let again = self.index(block, crc, counted, extras);
         // a counted block of data goes into its tracks' hashes once: written again with the same bytes it adds
         // nothing, with other bytes it takes the place of the one before
         let tally = counted && again != Again::Same;
@@ -1414,14 +1416,13 @@ impl<S: TapeSink> TapeWriter<S> {
 
     /// List `block`, placed here, in the index as readers take it: a counted block with the id of the last one is
     /// that block again, unlisted with the same bytes, in its place with other bytes. A chunk's entry carries
-    /// `unit` and `range`.
+    /// `extras`.
     fn index(
         &mut self,
         block: &[u8],
         crc: [u8; crate::CRC_LEN],
         counted: bool,
-        unit: UnitHash,
-        range: Option<(u64, u64)>,
+        extras: crate::index::ChunkExtras,
     ) -> Again {
         let id = block_id(block);
         let last = self
@@ -1434,11 +1435,11 @@ impl<S: TapeSink> TapeWriter<S> {
             }
             Some((.., offset)) => {
                 self.indexer.replaced(offset);
-                self.indexer.placed(self.bytes, block, unit, range);
+                self.indexer.placed(self.bytes, block, extras);
                 Again::Replaced
             }
             None => {
-                self.indexer.placed(self.bytes, block, unit, range);
+                self.indexer.placed(self.bytes, block, extras);
                 Again::New
             }
         };

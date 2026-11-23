@@ -107,6 +107,15 @@ fn entries(d: &mut Draw<'_>, n: usize, sorted: bool) -> Vec<IndexEntry> {
                 BlockKind::Summary,
                 BlockKind::Records,
             ][d.below(4)];
+            let range = matches!(kind, BlockKind::Events | BlockKind::Series)
+                .then(|| {
+                    let lo = u64::from(d.u8());
+                    (lo, lo + (u64::from(d.u8()) << 8))
+                })
+                .filter(|_| d.bool());
+            // a grid chunk's tile number, any bits: the index carries it as written
+            let tile = (kind == BlockKind::Series && range.is_none() && d.bool())
+                .then(|| u128::from(d.u16()) << (d.u8() % 112));
             IndexEntry {
                 offset: 64 * i as u64 + u64::from(d.u8()),
                 len: 36 + u32::from(d.u8()),
@@ -125,12 +134,8 @@ fn entries(d: &mut Draw<'_>, n: usize, sorted: bool) -> Vec<IndexEntry> {
                 relation_break: false,
                 unit: ww_tape::UnitHash([d.u8(); 32]),
                 unhashed: false,
-                range: matches!(kind, BlockKind::Events | BlockKind::Series)
-                    .then(|| {
-                        let lo = u64::from(d.u8());
-                        (lo, lo + (u64::from(d.u8()) << 8))
-                    })
-                    .filter(|_| d.bool()),
+                range,
+                tile,
             }
         })
         .collect();

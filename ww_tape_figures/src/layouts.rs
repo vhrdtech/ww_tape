@@ -390,8 +390,11 @@ pub fn index_entry() -> anyhow::Result<String> {
         le(e, 64, 8)?.cast_signed() == entry.latest_end,
         "latest end at 64"
     );
-    ensure!(entry.range.is_none(), "no range relation");
-    ensure!(le(e, 72, 16)? == 0, "no range relation");
+    ensure!(
+        entry.range.is_none() && entry.tile.is_none(),
+        "no range relation or tile number"
+    );
+    ensure!(le(e, 72, 16)? == 0, "no range relation or tile number");
     ensure!(
         e.get(88..120) == Some(entry.unit.0.as_slice()),
         "unit hash at 88"
@@ -425,8 +428,7 @@ pub fn index_entry() -> anyhow::Result<String> {
         Field::new(48, 8, "first tick", entry.first_tick.to_string(), "amber"),
         Field::new(56, 8, "last tick", entry.last_tick.to_string(), "amber"),
         Field::new(64, 8, "latest end", entry.latest_end.to_string(), "amber"),
-        Field::new(72, 8, "range min", "0: none".into(), "ink"),
-        Field::new(80, 8, "range max", "0: none".into(), "ink"),
+        Field::new(72, 16, "range or tile number", "0: none".into(), "ink"),
         Field::new(88, 32, "unit hash", hex_start(&entry.unit.0, 8), "accent"),
         Field::new(120, 8, "reserved", "0".into(), "ink"),
     ];
@@ -436,7 +438,7 @@ pub fn index_entry() -> anyhow::Result<String> {
         g.width(),
         g.height(rows.len()),
         &format!(
-            "The {entry_len}-byte index entry of a series chunk: its offset, length and kind, its track, its first item, item count and ticks, no range relation, and its unit hash"
+            "The {entry_len}-byte index entry of a series chunk: its offset, length and kind, its track, its first item, item count and ticks, no range relation or tile number, and its unit hash"
         ),
     );
     g.draw(&mut s, e, entries_at + i * entry_len, &fields, &rows)?;

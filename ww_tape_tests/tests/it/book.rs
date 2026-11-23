@@ -691,8 +691,11 @@ fn format_page_relations_and_owner_read_a_chain() {
     let page = std::fs::read_to_string("../docs/format.md").unwrap();
     for line in [
         "15 u8 flags: bit 0 repeat, bit 1 range",
-        "72 u64 smallest value of the track's range relation in the chunk (flag bit 1), else 0",
-        "80 u64 its largest value, else 0          88 [32] a chunk's unit hash, else 0",
+        "bit 3 relation break, bit 4 tile",
+        "72 u64 smallest value of the track's range relation in an events chunk (flag bit 1), else 0",
+        "80 u64 its largest value, else 0",
+        "72 u128 a grid chunk's tile number (flag bit 4) in place of the range, else 0",
+        "88 [32] a chunk's unit hash, else 0",
         "32 u32  entries offset from the block start",
         "58 u16  entry length, 128",
         "120 [8] reserved: written zero, not read",

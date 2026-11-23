@@ -176,6 +176,9 @@ pub enum SeriesError {
     GridTooClose { first_item: ItemNum },
     /// The grid's scale doesn't encode in [SCALE_LEN_MAX] bytes.
     ScaleTooLong { first_item: ItemNum },
+    /// A chunk's tile coordinates name no tile of its grid: not one per fixed axis, or one past its axis' tiles
+    /// ([TileLayout::holds]).
+    TileOutside { first_item: ItemNum },
 }
 
 impl core::fmt::Display for SeriesError {
@@ -199,6 +202,10 @@ impl core::fmt::Display for SeriesError {
                 "chunk at sample {first_item}: grid starts later, at sample {grid_index}"
             ),
             Self::TickOverflow { index } => write!(f, "sample {index}: tick past i64"),
+            Self::TileOutside { first_item } => write!(
+                f,
+                "chunk at sample {first_item}: tile coordinates name no tile of its grid"
+            ),
             Self::ChunkTicks { first_item } => write!(
                 f,
                 "chunk at sample {first_item}: first or last tick not its samples' on its grid"

@@ -30,6 +30,7 @@ fn entry(track_id: u64, offset: u64) -> IndexEntry {
             1 => Some((0, 0)),
             _ => Some((offset, u64::MAX - offset)),
         },
+        tile: None,
     }
 }
 
@@ -571,7 +572,7 @@ fn refused_both_ways(change: impl Fn(&mut [u8]), error: IndexError) {
 #[test]
 fn an_entry_is_checked_the_same_on_every_read() {
     refused_both_ways(|e| e[15] |= ENTRY_UNHASHED, IndexError::BadEntries);
-    for bit in 4..8 {
+    for bit in 5..8 {
         refused_both_ways(
             |e| e[15] |= 1 << bit,
             IndexError::Invalid("an entry flag this build doesn't know"),
@@ -599,6 +600,53 @@ fn an_entry_is_checked_the_same_on_every_read() {
         },
         IndexError::BadEntries,
     );
+    // a tile number on an events chunk, and beside a range on a series chunk
+    refused_both_ways(|e| e[15] = ENTRY_TILE, IndexError::BadEntries);
+    refused_both_ways(
+        |e| {
+            e[15] = ENTRY_TILE | ENTRY_RANGE;
+            e[12] = BlockKind::Series.to_u8();
+        },
+        IndexError::BadEntries,
+    );
+}
+
+/// Grid chunks' tile numbers, 0 and all 128 bits among them, read back from bytes 72..88 under flag bit 4; a series
+/// chunk's entry without one keeps those bytes zero.
+#[test]
+fn tile_numbers_round_trip() {
+    let tiles = [
+        None,
+        Some(0),
+        Some(1),
+        Some(7 << 12 | 3 << 6 | 2 << 3 | 5),
+        Some(u128::MAX),
+    ];
+    let entries: Vec<_> = tiles
+        .iter()
+        .enumerate()
+        .map(|(i, tile)| IndexEntry {
+            kind: BlockKind::Series,
+            range: None,
+            tile: *tile,
+            ..entry(1, 1000 + i as u64 * 300)
+        })
+        .collect();
+    let head = IndexHead {
+        kind: IndexKind::Checkpoint,
+        self_offset: 4000,
+        prev: None,
+    };
+    let bytes = write(&head, &entries);
+    let ix = IndexBlock::read(&Block::read(&bytes).unwrap()).unwrap();
+    assert_eq!(ix.entries().collect::<Vec<_>>(), entries);
+    let at = HEADER_LEN + INDEX_FIXED_LEN;
+    let first = &bytes[at..at + ENTRY_LEN];
+    assert_eq!(first[ENTRY_FLAGS_AT] & ENTRY_TILE, 0);
+    assert_eq!(first[ENTRY_RANGE_AT..ENTRY_UNIT_AT], [0; 16]);
+    let last = &bytes[at + 4 * ENTRY_LEN..at + 5 * ENTRY_LEN];
+    assert_eq!(last[ENTRY_FLAGS_AT] & ENTRY_TILE, ENTRY_TILE);
+    assert_eq!(last[ENTRY_RANGE_AT..ENTRY_UNIT_AT], [0xff; 16]);
 }
 
 /// A checkpoint whose entries are `len` bytes, each the first `len` bytes of a written one, its head saying so and
