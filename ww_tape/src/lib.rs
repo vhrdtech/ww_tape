@@ -222,7 +222,7 @@ pub use samples::{
 };
 
 pub mod grid;
-pub use grid::{AxisCoords, FixedAxis, TileCoords, TileLayout};
+pub use grid::{AxisCoords, FixedAxis, TileBox, TileCoords, TileLayout};
 #[cfg(feature = "std")]
 pub use grid::{AxisCoordsOwned, FixedAxisOwned};
 pub mod series;
@@ -248,7 +248,7 @@ pub use piece::{
 pub mod reader;
 #[cfg(feature = "alloc")]
 pub use reader::{
-    ByteSource, OpenOptions, PayloadCheck, PieceInfo, RangeHash, ReadError, TapeReader,
+    ByteSource, GridTile, OpenOptions, PayloadCheck, PieceInfo, RangeHash, ReadError, TapeReader,
     Verification,
 };
 

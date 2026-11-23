@@ -382,6 +382,15 @@ impl TileLayout {
         (rest == 0 && self.holds(&out)).then_some(out)
     }
 
+    /// The bits the fields take in a tile number.
+    pub fn field_bits(&self) -> u128 {
+        // bits is at most 128: a shift of 0 to 128, 128 leaving none
+        u128::MAX
+            .checked_shr(TILE_NUMBER_BITS.saturating_sub(self.bits()))
+            .filter(|_| self.bits() != 0)
+            .unwrap_or(0)
+    }
+
     /// The coordinate of axis `axis` in a tile number by shift and mask alone, without the others; None past the
     /// fixed axes.
     pub fn coord(&self, number: u128, axis: usize) -> Option<u32> {
@@ -399,7 +408,7 @@ impl TileLayout {
             return None;
         }
         let mut out = TileBox {
-            axes: self.axes,
+            layout: *self,
             ranges: [(0, 0); GRID_FIXED_AXES_MAX],
         };
         for ((r, c), &(extent, tile)) in out.ranges.iter_mut().zip(cells).zip(&self.extents) {
@@ -434,10 +443,12 @@ fn set<T>(a: &mut [T], i: usize, v: T) {
     }
 }
 
-/// The tiles a box of cells meets, a half-open range of tile coordinates per fixed axis ([TileLayout::tile_box]).
+/// The tiles a box of cells meets in a grid, a half-open range of tile coordinates per fixed axis
+/// ([TileLayout::tile_box]).
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct TileBox {
-    axes: u8,
+    /// The grid's layout, whose tile numbers the box tests.
+    layout: TileLayout,
     ranges: [(u32, u32); GRID_FIXED_AXES_MAX],
 }
 
@@ -449,15 +460,32 @@ impl TileBox {
 
     /// The range of tile coordinates per fixed axis, half-open.
     pub fn ranges(&self) -> &[(u32, u32)] {
-        self.ranges.get(..usize::from(self.axes)).unwrap_or(&[])
+        self.ranges.get(..self.layout.axes()).unwrap_or(&[])
     }
 
-    /// Whether the tile of tile number `number` lies in the box, each axis tested by shift and mask alone.
-    pub fn holds(&self, layout: &TileLayout, number: u128) -> bool {
-        self.ranges().iter().enumerate().all(|(axis, (lo, hi))| {
-            layout
-                .coord(number, axis)
-                .is_some_and(|c| *lo <= c && c < *hi)
-        })
+    /// The layout of the grid the box is in.
+    pub fn layout(&self) -> &TileLayout {
+        &self.layout
+    }
+
+    /// Whether the tile of tile number `number` lies in the box, each axis tested by shift and mask alone; a number
+    /// with bits set outside the fields lies in no box.
+    pub fn holds(&self, number: u128) -> bool {
+        number & !self.layout.field_bits() == 0
+            && self.ranges().iter().enumerate().all(|(axis, (lo, hi))| {
+                self.layout
+                    .coord(number, axis)
+                    .is_some_and(|c| *lo <= c && c < *hi)
+            })
+    }
+
+    /// Whether the tile at `coords` lies in the box: one coordinate per fixed axis, each in its range.
+    pub fn holds_coords(&self, coords: &TileCoords) -> bool {
+        coords.len() == self.layout.axes()
+            && coords
+                .as_slice()
+                .iter()
+                .zip(self.ranges())
+                .all(|(c, (lo, hi))| *lo <= *c && *c < *hi)
     }
 }

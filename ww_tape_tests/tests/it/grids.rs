@@ -1,5 +1,8 @@
-//! A grid track written and read back by its tiles (FMT-15): each chunk's index entry carries its tile number, and
-//! the writer refuses coordinates outside the grid.
+//! A grid track written and read back by its tiles (FMT-15): each chunk's index entry carries its tile number, the
+//! writer refuses coordinates outside the grid, and a box query finds the tiles of a time range and a box of cells
+//! from the index alone, also over a stretch a reader scanned.
+
+use std::ops::Range;
 
 use shrink_wrap::prelude::*;
 use ww_tape::chunk::ChunkHead;
@@ -220,4 +223,90 @@ fn coordinates_outside_the_grid_are_refused() {
         );
         assert_eq!(w.chunks(), 0);
     }
+}
+
+/// The tiles a box query must find: every chunk whose ticks meet `time` and whose tile lies in the box, found by
+/// reading every chunk's head.
+fn by_heads(
+    r: &TapeReader<&[u8]>,
+    g: &Written,
+    time: &Range<i64>,
+    cells: &[Range<u32>],
+) -> Vec<u64> {
+    let mut buf = vec![];
+    let tiles = g.layout.tile_box(cells).unwrap();
+    r.track_entries(0, g.id)
+        .unwrap()
+        .into_iter()
+        .filter(|e| {
+            let h = r.read_chunk_head(0, e, &mut buf).unwrap();
+            h.first_tick < time.end && time.start <= h.last_tick && tiles.holds_coords(&h.tile)
+        })
+        .map(|e| e.offset)
+        .collect()
+}
+
+/// Boxes and time ranges, edge tiles and empty boxes among them.
+fn queries() -> Vec<(Range<i64>, Vec<Range<u32>>)> {
+    let all = i64::MIN..i64::MAX;
+    let run1 = START + 4_000..START + 8_000;
+    vec![
+        (all.clone(), vec![0..5, 0..4, 0..10]),
+        (all.clone(), vec![2..3, 0..4, 9..10]),
+        (run1.clone(), vec![4..5, 1..2, 0..4]),
+        (run1, vec![0..1, 0..4, 3..6]),
+        (START + 3_000..START + 4_001, vec![0..5, 0..4, 6..9]),
+        (all.clone(), vec![3..3, 0..4, 0..10]),
+        (all, vec![5..9, 0..4, 0..10]),
+        (i64::MIN..START, vec![0..5, 0..4, 0..10]),
+    ]
+}
+
+/// A box query finds the tiles reading every head finds, from the final index, from checkpoints and over a stretch
+/// a reader scanned (entries without a tile number): the same tiles, in file order.
+#[test]
+fn a_box_query_finds_the_tiles_every_head_names() {
+    for (checkpoint, close) in [(1 << 20, true), (2048, false), (1 << 20, false)] {
+        let g = write(&EXTENTS, checkpoint, close);
+        let r = TapeReader::open(&g.bytes[..]).unwrap();
+        let entries = r.track_entries(0, g.id).unwrap();
+        let scanned = entries.iter().filter(|e| e.tile.is_none()).count();
+        match (close, checkpoint) {
+            (true, _) => assert_eq!(scanned, 0),
+            (false, 2048) => assert!(scanned > 0 && scanned < entries.len(), "{scanned}"),
+            _ => assert_eq!(scanned, entries.len()),
+        }
+        let sizes: Vec<usize> = queries()
+            .iter()
+            .map(|(time, cells)| by_heads(&r, &g, time, cells).len())
+            .collect();
+        assert_eq!(sizes, [36, 3, 2, 1, 6, 0, 0, 0]);
+        for (time, cells) in queries() {
+            let tiles = g.layout.tile_box(&cells).unwrap();
+            let found = r.grid_tiles(0, g.id, time.clone(), &tiles).unwrap();
+            let offsets: Vec<u64> = found.iter().map(|t| t.entry.offset).collect();
+            assert_eq!(
+                offsets,
+                by_heads(&r, &g, &time, &cells),
+                "{time:?} {cells:?}"
+            );
+            for t in &found {
+                assert!(tiles.holds_coords(&t.tile));
+            }
+        }
+    }
+}
+
+/// A box query on a series is a time query: each chunk whose ticks meet the range, no coordinates.
+#[test]
+fn a_box_query_on_a_series_tests_time_alone() {
+    let g = write(&[], 1 << 20, true);
+    let r = TapeReader::open(&g.bytes[..]).unwrap();
+    let tiles = g.layout.tile_box(&[]).unwrap();
+    let found = r
+        .grid_tiles(0, g.id, START + 4_000..START + 4_001, &tiles)
+        .unwrap();
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].entry.first_item, ItemNum::new(4));
+    assert!(found[0].tile.is_empty());
 }

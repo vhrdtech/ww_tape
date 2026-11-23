@@ -43,8 +43,10 @@ use crate::{
     TrackNum, VERSION, block_len,
 };
 
+mod grid;
 mod state;
 mod verify;
+pub use grid::GridTile;
 pub use state::{DefinitionsAt, Lookup, Lost, STATE_CACHE_MAX, STATE_READ_MAX, StateItem};
 pub use verify::VERIFY_LISTS_MAX;
 

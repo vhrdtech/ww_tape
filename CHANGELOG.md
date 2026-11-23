@@ -21,6 +21,7 @@ benchmarks, golden files and book pages.
 - A grid chunk's head carries its tile coordinates after the scale, their count at byte 82 (FMT-15).
 - A grid chunk's index entry carries its tile number at bytes 72..88 (FMT-15).
 - The writer refuses a grid chunk whose coordinates name no tile of its grid (FMT-15).
+- `TapeReader::grid_tiles` finds the chunks of a time range and a box of cells (`TileBox`) from the index (FMT-15).
 
 ## [0.6.0] - 2026-11-23
 

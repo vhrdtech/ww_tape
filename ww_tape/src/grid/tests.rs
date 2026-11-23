@@ -64,7 +64,7 @@ fn a_series_layout_has_no_fields_and_tile_number_0() {
     assert_eq!(l.unpack(1), None, "a bit outside the fields");
     let b = l.tile_box(&[]).unwrap();
     assert!(!b.is_empty());
-    assert!(b.holds(&l, 0));
+    assert!(b.holds(0));
 }
 
 #[test]
@@ -121,8 +121,8 @@ fn a_box_turns_into_tile_ranges_clipped_to_the_extent() {
     assert_eq!(b.ranges(), [(7, 8), (0, 37), (0, 3), (5, 8)]);
     let inside = l.pack(&TileCoords::new(&[7, 30, 2, 7]).unwrap()).unwrap();
     let outside = l.pack(&TileCoords::new(&[7, 30, 3, 7]).unwrap()).unwrap();
-    assert!(b.holds(&l, inside));
-    assert!(!b.holds(&l, outside));
+    assert!(b.holds(inside));
+    assert!(!b.holds(outside));
     let empty = l.tile_box(&[7..7, 0..37, 0..721, 0..1440]).unwrap();
     assert!(empty.is_empty());
     let past = l.tile_box(&[60..70, 0..37, 0..721, 0..1440]).unwrap();
