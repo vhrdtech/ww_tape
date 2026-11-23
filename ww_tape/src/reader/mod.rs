@@ -159,6 +159,9 @@ pub enum ReadError<E> {
         track_id: TrackId,
         relation: Option<u16>,
     },
+    /// A box query's chunk at `offset` of track `track_id` is of a grid whose layout isn't the box's, or no
+    /// definition of its track in force there reads: the box was made for another grid.
+    GridLayout { offset: u64, track_id: TrackId },
 }
 
 impl<E: core::fmt::Debug> core::fmt::Display for ReadError<E> {
@@ -191,6 +194,11 @@ impl<E: core::fmt::Debug> core::fmt::Display for ReadError<E> {
                 f,
                 "chunk at byte {offset} of track {track_id}: monotone relation {relation:?} goes below the chunk \
                  before, with no break marked"
+            ),
+            Self::GridLayout { offset, track_id } => write!(
+                f,
+                "chunk at byte {offset} of track {track_id}: its grid's layout isn't the box's, or its definition \
+                 doesn't read"
             ),
         }
     }

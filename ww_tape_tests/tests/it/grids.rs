@@ -6,12 +6,12 @@ use std::ops::Range;
 
 use shrink_wrap::prelude::*;
 use ww_tape::chunk::ChunkHead;
-use ww_tape::index::IndexPolicy;
+use ww_tape::index::{IndexEntry, IndexHead, IndexKind, IndexPolicy, index_len, write_index};
 use ww_tape::{
-    AxisCoords, BlockKind, ClockNum, Codec, ColumnKind, ColumnSpec, DescribeError, EndMode,
-    FixedAxis, GridDef, ItemNum, Magnitude, MemSink, Ratio64, Segment, SeriesError, SyncPolicy,
-    TapeReader, TapeWriter, TileCoords, TileLayout, TrackDef, TrackId, TrackKind, TrackNum,
-    TrackRepeat, WriteError, track_key,
+    AxisCoords, Block, BlockId, BlockKind, ClockNum, Codec, ColumnKind, ColumnSpec, DescribeError,
+    EndMode, FixedAxis, GridDef, ItemNum, Magnitude, MemSink, Ratio64, ReadError, Segment,
+    SeriesError, SyncPolicy, TapeReader, TapeWriter, TileCoords, TileLayout, TrackDef, TrackId,
+    TrackKind, TrackNum, TrackRepeat, WriteError, track_key,
 };
 
 use crate::definitions::{CLOCK, clock};
@@ -383,5 +383,94 @@ fn golden_grids() {
         let entries = r.track_entries(0, g.id).unwrap();
         assert!(entries.iter().all(|e| e.tile.is_some()));
         crate::reclose::golden(&g.bytes, &format!("v1-grid-{n}.hex"));
+    }
+}
+
+/// A box made for another grid is refused, at the first chunk it would test: its layout isn't the track's.
+#[test]
+fn a_box_of_another_grid_is_refused() {
+    let g = write(&EXTENTS, 1 << 20, true);
+    let r = TapeReader::open(&g.bytes[..]).unwrap();
+    let cells = [0..5, 0..4, 0..10];
+    let other = TileLayout::new(&[(5, 2), (4, 4), (10, 2)]).unwrap();
+    for tiles in [
+        other.tile_box(&cells).unwrap(),
+        TileLayout::SERIES.tile_box(&[]).unwrap(),
+    ] {
+        let e = r
+            .grid_tiles(0, g.id, i64::MIN..i64::MAX, &tiles)
+            .unwrap_err();
+        assert!(
+            matches!(e, ReadError::GridLayout { track_id, .. } if track_id == g.id),
+            "{e}"
+        );
+    }
+    let own = g.layout.tile_box(&cells).unwrap();
+    assert_eq!(
+        r.grid_tiles(0, g.id, i64::MIN..i64::MAX, &own)
+            .unwrap()
+            .len(),
+        36
+    );
+}
+
+/// An empty time range meets no chunk, also one whose ticks span it.
+#[test]
+fn an_empty_time_range_finds_no_chunk() {
+    let g = write(&EXTENTS, 1 << 20, true);
+    let r = TapeReader::open(&g.bytes[..]).unwrap();
+    let tiles = g.layout.tile_box(&[0..5, 0..4, 0..10]).unwrap();
+    let mid = START + 1_500;
+    assert!(
+        !r.grid_tiles(0, g.id, mid..mid + 1, &tiles)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(r.grid_tiles(0, g.id, mid..mid, &tiles).unwrap().is_empty());
+}
+
+/// An entry whose tile number has bits outside the fields names no tile of the grid: the query reads its chunk's head
+/// instead and finds the tile there, as for an entry without a number.
+#[test]
+fn a_tile_number_outside_the_fields_falls_back_to_the_head() {
+    let g = write(&EXTENTS, 1 << 20, false);
+    let mut bytes = g.bytes.clone();
+    // a checkpoint over every block, each grid chunk's number with its top bit set
+    let mut entries = vec![];
+    let mut at = 0;
+    let mut last = None;
+    while let Some(b) = bytes.get(at..).and_then(|r| Block::read(r).ok()) {
+        for mut e in IndexEntry::all_of_block(at as u64, &b) {
+            if e.kind == BlockKind::Series {
+                let h = ChunkHead::read_head(b.bytes()).unwrap();
+                e.tile = Some(g.layout.pack(&h.tile).unwrap() | 1 << 127);
+            }
+            entries.push(e);
+        }
+        last = Some((b.session, b.seq));
+        at += b.bytes().len();
+    }
+    assert_eq!(at, bytes.len());
+    let (session, seq) = last.unwrap();
+    let mut buf = vec![0u8; index_len(entries.len(), 0)];
+    let head = IndexHead {
+        kind: IndexKind::Checkpoint,
+        self_offset: at as u64,
+        prev: None,
+    };
+    let n = write_index(&mut buf, BlockId::new(session, seq + 1), &head, &entries).unwrap();
+    bytes.extend_from_slice(&buf[..n]);
+    let r = TapeReader::open(&bytes[..]).unwrap();
+    let listed = r.track_entries(0, g.id).unwrap();
+    assert!(listed.iter().all(|e| e.tile.is_some_and(|n| n >> 127 == 1)));
+    let plain = TapeReader::open(&g.bytes[..]).unwrap();
+    for (time, cells) in queries() {
+        let tiles = g.layout.tile_box(&cells).unwrap();
+        let found = r.grid_tiles(0, g.id, time.clone(), &tiles).unwrap();
+        let scanned = plain.grid_tiles(0, g.id, time, &tiles).unwrap();
+        let tiles_of = |v: &[ww_tape::GridTile]| -> Vec<(u64, TileCoords)> {
+            v.iter().map(|t| (t.entry.offset, t.tile)).collect()
+        };
+        assert_eq!(tiles_of(&found), tiles_of(&scanned), "{cells:?}");
     }
 }

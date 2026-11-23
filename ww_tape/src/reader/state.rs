@@ -391,6 +391,13 @@ impl<S: ByteSource> TapeReader<S> {
         Ok(found)
     }
 
+    /// The hash of the record of `slot` in force at `offset` in piece `i`, from the index alone: the newest one whose
+    /// block starts before `offset`.
+    pub(super) fn hash_at(&self, i: usize, slot: Slot, offset: u64) -> R<Option<ItemHash>, S> {
+        let ix = self.state_index(i)?;
+        Ok(ix.of_slot(slot, offset).next_back().map(|(_, s)| s.hash))
+    }
+
     /// The newest record of piece `i` whose item hashes to `hash`, of any slot. Its `uncovered` stretches run from
     /// the record to the piece's end.
     pub fn item_by_hash(&self, i: usize, hash: ItemHash) -> R<Lookup, S> {
