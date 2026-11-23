@@ -209,7 +209,7 @@ fn place_chunk<T: Tapes>(
     st: &mut State<'_, T>,
     head: &ChunkHead,
     columns: &[(ColumnSpec, Vec<u8>)],
-    hash: [u8; 32],
+    hash: Option<[u8; 32]>,
     summary: Option<Box<ChunkSummary>>,
 ) -> Result<(), WriteError<T::Error>> {
     // the chain cuts before the chunk: the trees end in the piece their items are in
@@ -217,7 +217,10 @@ fn place_chunk<T: Tapes>(
         end_trees(chain, defs, st)?;
     }
     let refs: Vec<(ColumnSpec, &[u8])> = columns.iter().map(|(c, b)| (*c, b.as_slice())).collect();
-    chain.write_chunk_hashed(defs, head, &refs, hash)?;
+    match hash {
+        Some(hash) => chain.write_chunk_hashed(defs, head, &refs, hash)?,
+        None => chain.write_chunk(defs, head, &refs)?,
+    };
     match summary {
         Some(s) => {
             if let Added::Refused = st.trees.add(chain, defs, head, *s)? {

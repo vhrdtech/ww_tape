@@ -67,7 +67,7 @@
 //!  88 u32  flags: bit 0 has a previous piece                        92 u32 previous session tag (0: none or unknown)
 //!  96 [32] previous piece's content hash                           128 [16] previous piece's id
 //! 144 u16  track row length, 96 (a reader takes longer rows and reads their first 96 bytes)
-//! 146 u8   integrity (Integrity): 0 Full, 1 CrcOnly, 2 None (written Full; a reader refuses another)    147 [5] reserved
+//! 146 u8   integrity (Integrity): 0 Full, 1 CrcOnly, 2 None (a reader refuses another value)    147 [5] reserved
 //! 152 ...  tracks × 96, one per track carried over from the pieces before:
 //!            0 u64 id    8 u32 number
 //!           12 u32 flags, as a close row's: bit 0 incomplete (from the pieces before); bit 1, a head row's only:
@@ -755,8 +755,8 @@ pub struct PieceHead {
     /// piece head naming the session just ended, so stale blocks behind the end of data never pass for a new
     /// session.
     pub prev_session: SessionTag,
-    /// What the piece's writer computed. This build writes and reads [Integrity::Full] only and refuses the others
-    /// as a level it doesn't handle ([IndexError::UnhandledIntegrity]).
+    /// What the piece's writer computed ([Integrity]): below [Integrity::Full], the hashes it names are absent and
+    /// hold zero.
     pub integrity: Integrity,
 }
 
@@ -830,11 +830,6 @@ pub fn write_piece_head(
     head: &PieceHead,
     tracks: &[TrackStart],
 ) -> Result<usize, IndexError> {
-    if head.integrity != Integrity::Full {
-        return Err(IndexError::UnhandledIntegrity {
-            level: head.integrity,
-        });
-    }
     let len = piece_head_len(tracks.len());
     let (b, count) = block_buf(buf, len, tracks.len())?;
     put_header(b, BlockKind::PieceHead, len, count, id)
@@ -971,9 +966,6 @@ impl<'b> PieceHeadBlock<'b> {
             0,
         )?;
         let integrity = level_of(block)?;
-        if integrity != Integrity::Full {
-            return Err(IndexError::UnhandledIntegrity { level: integrity });
-        }
         known_row_flags(
             rows,
             row,
@@ -991,8 +983,8 @@ impl<'b> PieceHeadBlock<'b> {
     }
 
     #[cfg(feature = "alloc")]
-    /// The links of a good piece head block whose integrity level this build refuses ([Self::read]'s
-    /// [IndexError::UnhandledIntegrity] or [IndexError::UnknownIntegrity]), with that error: what a chain check and a
+    /// The links of a good piece head block whose integrity level this build doesn't know ([Self::read]'s
+    /// [IndexError::UnknownIntegrity]), with that error: what a chain check and a
     /// raw medium's walk need of a piece they refuse to read. None for a block that is no such head.
     pub(crate) fn refused(block: &Block<'_>) -> Option<(HeadLink, IndexError)> {
         body(
@@ -1003,11 +995,7 @@ impl<'b> PieceHeadBlock<'b> {
             0,
         )
         .ok()?;
-        let error = match level_of(block) {
-            Ok(Integrity::Full) => return None,
-            Ok(level) => IndexError::UnhandledIntegrity { level },
-            Err(e) => e,
-        };
+        let error = level_of(block).err()?;
         Some((read_link(block.bytes())?, error))
     }
 

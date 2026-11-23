@@ -26,7 +26,7 @@
 //!  60 ...  n × track: id u64, first entry u32, entry count u32, CRC-32C of its entries u32, reserved u32
 //!  ...     entries, each:
 //!            0 u64 offset of the block in the piece    8 u32 its length        12 u8 its block kind
-//!           13 u8  summary level (0 for other kinds)   14 u8 summary tree      15 u8 flags: bit 0 repeat, bit 1 range, bit 2 unhashed (reserved, 0), bit 3 relation break
+//!           13 u8  summary level (0 for other kinds)   14 u8 summary tree      15 u8 flags: bit 0 repeat, bit 1 range, bit 2 unhashed (no unit hash), bit 3 relation break
 //!           16 u64 track id (0: none)                 24 u32 track number      28 u32 0 (a state record's below)
 //!           32 u64 first item number                  40 u64 items (samples, records)
 //!           48 i64 first tick                         56 i64 last tick         64 i64 latest end
@@ -93,10 +93,9 @@ pub const RECORDS_TRACK_ID: TrackId = TrackId::new(0);
 const ENTRY_REPEAT: u8 = 1;
 /// Entry flag: the entry carries the range of its chunk's range relation.
 const ENTRY_RANGE: u8 = 2;
-/// Entry flag: the chunk's unit hash was not computed, set on each entry of a piece of
-/// [Integrity::CrcOnly](crate::Integrity::CrcOnly) or [Integrity::None](crate::Integrity::None).
-///
-/// Written 0; a reader of this build refuses an index with it set ([IndexError::Unhashed]).
+/// Entry flag: no unit hash was computed, set on each entry a writer of
+/// [Integrity::CrcOnly](crate::Integrity::CrcOnly) or [Integrity::None](crate::Integrity::None) lists. The unit hash
+/// field holds zero ([IndexEntry::unhashed]).
 pub const ENTRY_UNHASHED: u8 = 4;
 /// Entry flag: the chunk is marked [FLAG_RELATION_BREAK](crate::FLAG_RELATION_BREAK).
 const ENTRY_BREAK: u8 = 8;
@@ -166,9 +165,12 @@ pub struct IndexEntry {
     /// The events chunk is marked [FLAG_RELATION_BREAK](crate::FLAG_RELATION_BREAK): its track's monotone relations
     /// start again, no order across its start.
     pub relation_break: bool,
-    /// A chunk's unit hash, which its track's hash takes in; [UnitHash::NONE] for other blocks and for an entry a
-    /// reader made by a scan.
+    /// A chunk's unit hash, which its track's hash takes in; [UnitHash::NONE] for other blocks, for an entry a
+    /// reader made by a scan and for an [unhashed](Self::unhashed) entry.
     pub unit: UnitHash,
+    /// Its writer computed no unit hash ([ENTRY_UNHASHED]): a piece below
+    /// [Integrity::Full](crate::Integrity::Full).
+    pub unhashed: bool,
     /// The smallest and the largest value of the chunk's range relation ([RelationIndex::Range](crate::RelationIndex::Range)),
     /// as its writer saw them; None for other blocks, a track without one, and an entry a reader made by a scan.
     pub range: Option<(u64, u64)>,
@@ -300,6 +302,7 @@ impl IndexEntry {
             repeat: false,
             relation_break: false,
             unit: UnitHash::NONE,
+            unhashed: false,
             range: None,
         };
         match block.kind {
@@ -359,6 +362,7 @@ impl IndexEntry {
             repeat: false,
             relation_break: false,
             unit: UnitHash::NONE,
+            unhashed: false,
             range: None,
         })
     }
@@ -407,7 +411,8 @@ impl IndexEntry {
                 self.tree,
                 (if self.repeat { ENTRY_REPEAT } else { 0 })
                     | (if self.range.is_some() { ENTRY_RANGE } else { 0 })
-                    | (if self.relation_break { ENTRY_BREAK } else { 0 }),
+                    | (if self.relation_break { ENTRY_BREAK } else { 0 })
+                    | (if self.unhashed { ENTRY_UNHASHED } else { 0 }),
             ])
             .chain(self.track_id.get().to_le_bytes())
             .chain(self.number.to_le_bytes())
@@ -436,14 +441,11 @@ impl IndexEntry {
     }
 
     /// Read an entry from its [ENTRY_LEN] bytes and check it, as every reader of an index does: its flags are known
-    /// and of the level this build handles ([IndexError::Unhashed], [IndexError::Invalid]), it names a block
+    /// ([IndexError::Invalid]), an unhashed entry holds no unit hash, it names a block
     /// ([IndexError::BadEntries]), a range is a chunk's, its smallest value at most its largest, and a relation break
     /// an events chunk's.
     pub(crate) fn read(b: &[u8; ENTRY_LEN]) -> Result<Self, IndexError> {
         let flags = b.get(ENTRY_FLAGS_AT).copied().unwrap_or(0);
-        if flags & ENTRY_UNHASHED != 0 {
-            return Err(IndexError::Unhashed);
-        }
         if flags & !ENTRY_FLAGS_KNOWN != 0 {
             return Err(IndexError::Invalid("an entry flag this build doesn't know"));
         }
@@ -483,6 +485,7 @@ impl IndexEntry {
             latest_end: i64::from_le_bytes([e0, e1, e2, e3, e4, e5, e6, e7]),
             repeat: flags & ENTRY_REPEAT != 0,
             relation_break: flags & ENTRY_BREAK != 0,
+            unhashed: flags & ENTRY_UNHASHED != 0,
             unit: UnitHash(u),
             range: (flags & ENTRY_RANGE != 0).then(|| {
                 (
@@ -503,7 +506,8 @@ impl IndexEntry {
             }
         };
         let mark = !self.relation_break || self.kind == BlockKind::Events;
-        range && mark && self.is_in_range()
+        let unit = !self.unhashed || self.unit.is_none();
+        range && mark && unit && self.is_in_range()
     }
 
     /// Whether the entry names a block a reader may fetch: its length that of a block, its end within a u64.
@@ -594,14 +598,6 @@ pub enum IndexError {
     UnknownIntegrity {
         level: u8,
     },
-    /// A piece head of an integrity level this build doesn't read or write (all but
-    /// [Integrity::Full](crate::piece::Integrity::Full)): a level, not damage.
-    UnhandledIntegrity {
-        level: crate::piece::Integrity,
-    },
-    /// An index entry is marked unhashed ([ENTRY_UNHASHED]), an integrity level this build doesn't handle: a level,
-    /// not damage.
-    Unhashed,
     /// The buffer is shorter than the block.
     Full {
         needed: usize,
@@ -634,19 +630,6 @@ impl core::fmt::Display for IndexError {
             Self::BadEntries => write!(f, "a track's entries don't match their CRC or list"),
             Self::UnknownIntegrity { level } => {
                 write!(f, "integrity byte {level} is no integrity level")
-            }
-            Self::UnhandledIntegrity { level } => {
-                write!(
-                    f,
-                    "integrity level {}, which this build doesn't handle",
-                    u8::from(*level)
-                )
-            }
-            Self::Unhashed => {
-                write!(
-                    f,
-                    "an unhashed entry: an integrity level this build doesn't handle"
-                )
             }
             Self::Full { needed } => write!(f, "the buffer is short: {needed} bytes needed"),
             Self::Invalid(what) => write!(f, "{what}"),

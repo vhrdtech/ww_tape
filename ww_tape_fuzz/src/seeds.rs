@@ -167,6 +167,8 @@ const GOLDEN_SAMPLES: &str = include_str!("../../ww_tape/golden/v1-samples.hex")
 const GOLDEN_SERIES: &str = include_str!("../../ww_tape/golden/v1-series.hex");
 const GOLDEN_SUMMARY: &str = include_str!("../../ww_tape_summary/golden/v1-summary.hex");
 const GOLDEN_TIMES: &str = include_str!("../../ww_tape/golden/v1-times.hex");
+const GOLDEN_CRC_ONLY: &str = include_str!("../../ww_tape/golden/v1-level-crc-only.hex");
+const GOLDEN_NONE: &str = include_str!("../../ww_tape/golden/v1-level-none.hex");
 
 /// Each block of a golden file as a seed of `target`.
 fn golden_blocks(target: &'static str, file: &str, text: &str) -> Vec<Seed> {
@@ -670,6 +672,14 @@ fn resume_seeds() -> Vec<Seed> {
             vec![mode, 0x00, 0x30, 0xc8, 0x00, 0x01],
         ));
     }
+    // cut halfway at CrcOnly (+8) and None (+16): a piece with a head, aligned or not, and a chain, open or closed
+    for mode in [8, 9, 12, 14, 16, 17, 20, 22u8] {
+        out.push(seed(
+            "tape-resume",
+            format!("mode{mode}-half"),
+            vec![mode, 0x00, 0x30],
+        ));
+    }
     out.extend(stream("tape-resume", 0x5eed_0000_7e50_0001));
     out
 }
@@ -734,7 +744,7 @@ fn reclose_seeds() -> Vec<Seed> {
 /// halfway, its last piece with a flipped byte in its head and one in its middle, and the file without its second
 /// piece, its last piece naming that one removed.
 fn chain_seeds() -> Vec<Seed> {
-    let (whole, last) = crate::targets::chain_template(false, true);
+    let (whole, last) = crate::targets::chain_template(false, true, ww_tape::Integrity::Full);
     let half = last + (whole.len() - last) / 2;
     let torn = whole[..half].to_vec();
     let mut damaged = whole.clone();
@@ -789,11 +799,36 @@ fn stores_seeds() -> Vec<Seed> {
     out
 }
 
+/// Inputs of `tape-seal`: each mode unmutated, each with a flip in the middle of the tape; then a stream.
+fn seal_seeds() -> Vec<Seed> {
+    let mut out = vec![];
+    for mode in 0..16u8 {
+        out.push(seed("tape-seal", format!("mode{mode:02}"), vec![mode]));
+        out.push(seed(
+            "tape-seal",
+            format!("mode{mode:02}-flip"),
+            vec![mode, 0x00, 0x08, 0x10],
+        ));
+    }
+    out.extend(stream("tape-seal", 0x5eed_0000_5ea1_0001));
+    out
+}
+
 /// Every seed file of every target.
 pub fn all() -> Vec<Seed> {
     let mut out = vec![];
     let concat = |text: &str| golden(text).concat();
     out.push(seed("tape-reader", "golden-v1-file", concat(GOLDEN_V1)));
+    out.push(seed(
+        "tape-reader",
+        "golden-v1-level-crc-only",
+        concat(GOLDEN_CRC_ONLY),
+    ));
+    out.push(seed(
+        "tape-reader",
+        "golden-v1-level-none",
+        concat(GOLDEN_NONE),
+    ));
     out.push(seed(
         "tape-reader",
         "golden-v1-index-piece",
@@ -803,6 +838,7 @@ pub fn all() -> Vec<Seed> {
     out.extend(resume_seeds());
     out.extend(reclose_seeds());
     out.extend(stores_seeds());
+    out.extend(seal_seeds());
     out.extend(chain_seeds());
     out.extend(golden_blocks("tape-chunk", "v1-chunks", GOLDEN_CHUNKS));
     out.extend(golden_blocks("tape-index", "v1-index", GOLDEN_INDEX));

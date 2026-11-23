@@ -996,6 +996,7 @@ impl<S: TapeSink> TapeWriter<S> {
             true => 0,
             false => b.id.seq.wrapping_add(1),
         };
+        self.set_level(head.integrity);
         self.indexer.start(tracks);
         self.indexer.seed_close(&b.rows);
         self.head = Some((*head, tracks.clone()));
@@ -1028,6 +1029,7 @@ impl<S: TapeSink> TapeWriter<S> {
                         None => 0,
                     };
                     let tracks: Vec<_> = h.tracks().collect();
+                    self.set_level(head.integrity);
                     self.indexer.start(&tracks);
                     self.head = Some((head, tracks));
                 }

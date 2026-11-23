@@ -302,7 +302,9 @@ impl<T: Tapes> ChunkSender<T> {
         let specs: Vec<ColumnSpec> = columns.iter().map(|(c, _)| *c).collect();
         let bytes = ww_tape::chunk::chunk_len(&head, &specs, 0);
         // the payload hashed here, on the producer's thread, not on the writing thread
-        let hash = ww_tape::piece::columns_payload_hash(columns.iter().map(|(_, b)| b.as_slice()));
+        let hash = self.s.shared.hash_payloads.then(|| {
+            ww_tape::piece::columns_payload_hash(columns.iter().map(|(_, b)| b.as_slice()))
+        });
         let work = Work::Chunk {
             from: self.s.slot.clone(),
             head: Box::new(head),

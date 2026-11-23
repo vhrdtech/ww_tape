@@ -84,8 +84,15 @@ pub fn handles_missing(page: &str) -> anyhow::Result<Vec<String>> {
 
 /// What the prose of "When bytes go bad" writes from the read_check report in [BENCH_DIR]: the pins it lacks in
 /// `page`.
-pub fn read_check_missing(page: &str) -> anyhow::Result<Vec<String>> {
-    let pins = bench::read_check(&bench::read(std::path::Path::new(BENCH_DIR))?)?;
+pub fn damage_missing(page: &str) -> anyhow::Result<Vec<String>> {
+    let pins = bench::damage(&bench::read(std::path::Path::new(BENCH_DIR))?)?;
+    Ok(bench::missing(&pins, page))
+}
+
+/// What the prose of "Fewer checks, sealed later" writes from the levels report in [BENCH_DIR]: the pins it lacks in
+/// `page`.
+pub fn integrity_missing(page: &str) -> anyhow::Result<Vec<String>> {
+    let pins = bench::integrity(&bench::read(std::path::Path::new(BENCH_DIR))?)?;
     Ok(bench::missing(&pins, page))
 }
 

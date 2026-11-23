@@ -277,6 +277,7 @@ pub fn index(data: &[u8]) {
             last_tick: 1,
             latest_end: 2,
             repeat: c[0] & 0x80 != 0,
+            unhashed: false,
             relation_break: false,
             unit: ww_tape::UnitHash::NONE,
             // a chunk's range relation, both values round-tripped; one that decreases or sits on another kind is refused

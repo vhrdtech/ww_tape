@@ -90,6 +90,7 @@ fn entry_past_the_piece_is_an_error() {
             latest_end: 0,
             repeat: false,
             relation_break: false,
+            unhashed: false,
             unit: ww_tape::UnitHash::NONE,
             range: None,
         };
@@ -143,6 +144,7 @@ fn an_entry_longer_than_any_block_is_refused_before_reading() {
         latest_end: 0,
         repeat: false,
         relation_break: false,
+        unhashed: false,
         unit: ww_tape::UnitHash::NONE,
         range: None,
     };
@@ -227,14 +229,14 @@ fn a_final_index_out_of_order_is_refused_by_every_path() {
     assert!(bad(r.entries(i).map(|_| ())));
 }
 
-/// A piece head of an integrity level this build doesn't handle (byte 146), its CRC good, is refused by a
-/// `FileBlocks` walk with either recovery, as a chunk of such a level is: reported and stepped over.
+/// A piece head of an integrity level this build doesn't know (byte 146), its CRC good, is refused by a `FileBlocks`
+/// walk with either recovery: reported and stepped over.
 #[test]
-fn file_blocks_refuse_a_piece_head_of_another_integrity_level() {
+fn file_blocks_refuse_a_piece_head_of_an_unknown_integrity_level() {
     use ww_tape::{BlockError, FileBlocks, FileError, Recovery};
     let (_, files) = write(PieceTapes::One, 0x5eed);
     let at = TapeReader::open(&files[0][..]).unwrap().pieces()[1].start as usize;
-    for level in [1u8, 2, 200] {
+    for level in [3u8, 200] {
         let mut bytes = files[0].clone();
         bytes[at + 146] = level;
         reseal_block(&mut bytes, at);

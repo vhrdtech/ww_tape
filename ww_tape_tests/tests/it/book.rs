@@ -627,14 +627,14 @@ fn format_page_piece_rows_read_a_chain() {
 
 /// The integrity reservations on the page against their constants: written as full integrity, refused otherwise.
 #[test]
-fn format_page_integrity_reservations_are_the_constants() {
+fn format_page_integrity_fields_are_the_constants() {
     let page = std::fs::read_to_string("../docs/format.md").unwrap();
     assert_eq!(ww_tape::FLAG_PAYLOAD_UNCHECKED, 1 << 3);
     assert!(
         page.contains("bit 3 on a\n         chunk its payload unchecked (FLAG_PAYLOAD_UNCHECKED")
     );
     assert_eq!(ww_tape::index::ENTRY_UNHASHED, 1 << 2);
-    assert!(page.contains("bit 2 unhashed (reserved, 0)"));
+    assert!(page.contains("bit 2 unhashed (no unit hash)"));
     use ww_tape::Integrity;
     let levels = [
         (Integrity::Full, 0, "Full"),
@@ -648,7 +648,6 @@ fn format_page_integrity_reservations_are_the_constants() {
         assert_eq!(format!("{level:?}"), name);
     }
     assert!(page.contains("146 u8   integrity (Integrity): 0 Full, 1 CrcOnly, 2 None"));
-    assert!(page.contains("| piece head byte 146 `integrity`, header flag bit 3 `FLAG_PAYLOAD_UNCHECKED`, index entry flag bit 2 `ENTRY_UNHASHED` |"));
 }
 
 /// The index entry's range pair, flag bit 1 and unit hash, the head and close rows' owner and the piece head's
@@ -696,19 +695,17 @@ fn format_page_relations_and_owner_read_a_chain() {
     let done = chain.close().unwrap();
     assert_eq!(done.len(), 2);
     let second = tapes.get(&done[1].tape).unwrap().unwrap().to_vec().unwrap();
-    // byte 146 of the piece head, the first block: Full; 1 there, its CRC made good, is CrcOnly, which is refused
+    // byte 146 of the piece head, the first block: Full; 3 there, its CRC made good, is no level, which is refused
     assert_eq!(second[146], 0);
-    let mut crc_only = second.clone();
-    crc_only[146] = 1;
-    let head_len = ww_tape::block_len(&crc_only).unwrap();
-    let crc = crc::Crc::<u32>::new(&crc::CRC_32_ISCSI).checksum(&crc_only[..head_len - 4]);
-    crc_only[head_len - 4..head_len].copy_from_slice(&crc.to_le_bytes());
-    let refused = ww_tape::TapeReader::open(&crc_only[..]).unwrap();
+    let mut unknown = second.clone();
+    unknown[146] = 3;
+    let head_len = ww_tape::block_len(&unknown).unwrap();
+    let crc = crc::Crc::<u32>::new(&crc::CRC_32_ISCSI).checksum(&unknown[..head_len - 4]);
+    unknown[head_len - 4..head_len].copy_from_slice(&crc.to_le_bytes());
+    let refused = ww_tape::TapeReader::open(&unknown[..]).unwrap();
     assert_eq!(
         refused.pieces()[0].head_error,
-        Some(ww_tape::index::IndexError::UnhandledIntegrity {
-            level: ww_tape::Integrity::CrcOnly
-        })
+        Some(ww_tape::index::IndexError::UnknownIntegrity { level: 3 })
     );
     // the head row carries the track over with its owner (head rows from 152)
     let head_row = 32 + 120;

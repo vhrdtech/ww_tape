@@ -365,6 +365,7 @@ pub(crate) fn options(copy_spacing: u64) -> WriterOptions {
             copy_spacing: exact_units::Bytes::new(copy_spacing),
             ..NearPolicy::default()
         },
+        integrity: ww_tape::Integrity::Full,
     }
 }
 

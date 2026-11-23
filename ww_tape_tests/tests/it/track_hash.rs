@@ -59,6 +59,7 @@ fn options(shape: Shape) -> ChainOptions {
             layout: shape.layout,
             producer: "track_hash".to_owned(),
             near: NearPolicy::default(),
+            integrity: ww_tape::Integrity::Full,
         },
         cut: CutPolicy {
             chunks: if shape.cut == 0 {

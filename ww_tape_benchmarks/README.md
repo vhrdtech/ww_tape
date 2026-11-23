@@ -25,6 +25,7 @@ into `docs/bench/`:
 | `ethernet` | `just bench-ethernet` | a protocol analyser on both directions of a 10 Gbps link: receive queues a port, one mux or two, against the link; the link into a window in memory, the triage's speed and the bytes it keeps |
 | `wideband` | `just bench-wideband` | a wideband receiver at 1 GS/s in channels over one or several muxes, against its rate; one channel's overview read from its summaries; 250 MS/s into a window in memory, the triage's speed and the bytes it keeps |
 | `read_check` | `just bench-read-check` | `TapeReader::read_block` of chunks and records blocks in memory, payload CRCs checked and not |
+| `levels` | `just bench-levels` | `write_chunk` at each integrity level into a reserved memory tape, and `MemTapes::seal` of the lower levels |
 | `handles` | `just bench-handles` | events and series handles on a `TapeMux` against one thread writing a chain directly, by tracks |
 
 ## Summaries and tracks

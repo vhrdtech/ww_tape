@@ -67,10 +67,23 @@ fn damage_numbers_come_from_reports() {
     let page =
         std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs/damage.md"))
             .unwrap();
-    let problems = ww_tape_figures::read_check_missing(&page).unwrap();
+    let problems = ww_tape_figures::damage_missing(&page).unwrap();
     assert!(
         problems.is_empty(),
         "docs/damage.md writes numbers the read_check report doesn't hold:\n{}",
+        problems.join("\n")
+    );
+}
+
+#[test]
+fn integrity_numbers_come_from_reports() {
+    let page =
+        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs/integrity.md"))
+            .unwrap();
+    let problems = ww_tape_figures::integrity_missing(&page).unwrap();
+    assert!(
+        problems.is_empty(),
+        "docs/integrity.md writes numbers the levels report doesn't hold:\n{}",
         problems.join("\n")
     );
 }

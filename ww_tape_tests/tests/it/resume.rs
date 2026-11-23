@@ -161,10 +161,16 @@ pub(crate) fn options(alignment: u32) -> WriterOptions {
             memory_max: exact_units::Count::new(3),
             ..NearPolicy::default()
         },
+        integrity: ww_tape::Integrity::Full,
     }
 }
 
 pub(crate) fn head() -> PieceHead {
+    head_at(ww_tape::Integrity::Full)
+}
+
+/// [head] of a piece of `level`.
+pub(crate) fn head_at(integrity: ww_tape::Integrity) -> PieceHead {
     let owner = OwnerId([3; 32]);
     PieceHead {
         ident: PieceIdent {
@@ -174,12 +180,17 @@ pub(crate) fn head() -> PieceHead {
         },
         prev: None,
         prev_session: SessionTag::NONE,
-        integrity: ww_tape::Integrity::Full,
+        integrity,
     }
 }
 
 /// A first piece of `ops` on a memory sink with `options`, begun but given no call yet.
 pub(crate) fn begin(alignment: u32) -> TapeWriter<MemSink> {
+    begin_at(alignment, ww_tape::Integrity::Full)
+}
+
+/// [begin] with a piece of `level`.
+pub(crate) fn begin_at(alignment: u32, level: ww_tape::Integrity) -> TapeWriter<MemSink> {
     let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     let o = options(alignment);
     w.set_layout(o.layout).unwrap();
@@ -187,7 +198,7 @@ pub(crate) fn begin(alignment: u32) -> TapeWriter<MemSink> {
     w.set_index_policy(o.index)
         .expect("a policy with room for a piece head");
     w.set_near_policy(o.near);
-    w.begin_piece(&head(), &[]).unwrap();
+    w.begin_piece(&head_at(level), &[]).unwrap();
     w
 }
 
@@ -285,8 +296,8 @@ fn lost(op: &Op, made: &Made, i: usize, piece: u64, next: u64, kept: u64) -> boo
 }
 
 /// The piece of `ops` written without a crash, and where each call was made.
-fn reference(alignment: u32, ops: &[Op]) -> (Vec<u8>, Made) {
-    let mut w = begin(alignment);
+fn reference(alignment: u32, ops: &[Op], level: ww_tape::Integrity) -> (Vec<u8>, Made) {
+    let mut w = begin_at(alignment, level);
     let mut defs = base_defs().clone();
     let mut made = Made {
         seqs: vec![],
@@ -394,9 +405,9 @@ fn blocks_around(bytes: &[u8], at: u64) -> String {
 /// bytes, and so the content hash, of the piece written without the crash: with deferred blocks, checkpoints,
 /// definitions put again and copied, state items put, a memory small enough to forget, definitions made mid-piece,
 /// and cuts inside the end of the piece.
-fn cut_anywhere(alignment: u32) {
+fn cut_anywhere(alignment: u32, level: ww_tape::Integrity) {
     let ops = ops(8);
-    let (want, made) = reference(alignment, &ops);
+    let (want, made) = reference(alignment, &ops, level);
     let r = TapeReader::open(&want[..]).unwrap();
     let entries = r.entries(0).unwrap();
     let defs = r.track_entries(0, ww_tape::index::STATE_TRACK_ID).unwrap();
@@ -442,12 +453,13 @@ fn cut_anywhere(alignment: u32) {
         ended += usize::from(resumed.ended.is_some());
         if w.bytes() == 0 {
             // cut inside the head: the piece starts again
-            w.begin_piece(&head(), &[]).unwrap();
+            w.begin_piece(&head_at(level), &[]).unwrap();
         }
+        assert_eq!(w.integrity(), level, "the level its head names");
         let got = close_resumed(w, &ops, &made, resumed.kept_bytes);
         assert!(
             got == want,
-            "alignment {alignment}, cut at {cut} of {}, kept {}\nwant\n{}\ngot\n{}",
+            "{level:?}, alignment {alignment}, cut at {cut} of {}, kept {}\nwant\n{}\ngot\n{}",
             want.len(),
             resumed.kept_bytes,
             blocks_around(&want, cut as u64),
@@ -459,12 +471,22 @@ fn cut_anywhere(alignment: u32) {
 
 #[test]
 fn a_piece_cut_anywhere_resumes_to_the_same_bytes() {
-    cut_anywhere(0);
+    cut_anywhere(0, ww_tape::Integrity::Full);
 }
 
 #[test]
 fn an_aligned_piece_cut_anywhere_resumes_to_the_same_bytes() {
-    cut_anywhere(ALIGNMENT);
+    cut_anywhere(ALIGNMENT, ww_tape::Integrity::Full);
+}
+
+/// Below Integrity::Full a resume replays the piece unhashed and goes on at the level its head names, whatever the
+/// options say: the same bytes as without the crash.
+#[test]
+fn a_piece_below_full_cut_anywhere_resumes_to_the_same_bytes() {
+    for level in [ww_tape::Integrity::CrcOnly, ww_tape::Integrity::None] {
+        cut_anywhere(0, level);
+        cut_anywhere(ALIGNMENT, level);
+    }
 }
 
 /// A resume whose options contradict the layout the piece describes is refused before the piece is touched: an
@@ -473,7 +495,7 @@ fn an_aligned_piece_cut_anywhere_resumes_to_the_same_bytes() {
 fn a_resume_with_another_alignment_is_refused() {
     let ops = ops(8);
     for (written, given) in [(ALIGNMENT, 0), (0, ALIGNMENT)] {
-        let (want, _) = reference(written, &ops);
+        let (want, _) = reference(written, &ops, ww_tape::Integrity::Full);
         let cut = want.len() / 2;
         let mut sink = MemSink::new();
         sink.write_all(&want[..cut]).unwrap();
@@ -515,7 +537,7 @@ fn a_resume_with_another_alignment_is_refused() {
 #[test]
 fn a_piece_without_its_layout_resumes_unchecked() {
     let ops = ops(2);
-    let (want, _) = reference(0, &ops);
+    let (want, _) = reference(0, &ops, ww_tape::Integrity::Full);
     let r = TapeReader::open(&want[..]).unwrap();
     let first = (r.track_entries(0, ww_tape::index::STATE_TRACK_ID).unwrap())
         .into_iter()
@@ -535,7 +557,7 @@ fn resume_reopens_an_unclosed_file() {
     let dir = scratch("resume_file");
     let path = dir.join("p.wwt");
     let ops = ops(6);
-    let (want, made) = reference(0, &ops);
+    let (want, made) = reference(0, &ops, ww_tape::Integrity::Full);
     let cut = want.len() * 2 / 3;
     std::fs::write(&path, &want[..cut]).unwrap();
     let (mut w, resumed) = ww_tape_fs::writer::resume(&path, options(0)).unwrap();
@@ -573,7 +595,7 @@ fn resume_reopens_an_unclosed_file() {
 #[test]
 fn a_damaged_block_of_definitions_is_put_again_after_a_resume() {
     let ops = ops(12);
-    let (want, made) = reference(0, &ops);
+    let (want, made) = reference(0, &ops, ww_tape::Integrity::Full);
     let r = TapeReader::open(&want[..]).unwrap();
     let cut = want.len() / 2;
     let newest = r
@@ -638,7 +660,7 @@ fn close_hash(bytes: &[u8], id: TrackId) -> ww_tape::TrackHash {
 #[test]
 fn a_damaged_chunk_kept_by_a_resume_counts_in_its_track_hash() {
     let ops = ops(12);
-    let (want, made) = reference(0, &ops);
+    let (want, made) = reference(0, &ops, ww_tape::Integrity::Full);
     let r = TapeReader::open(&want[..]).unwrap();
     let cut = want.len() / 2;
     let listed = r
@@ -681,7 +703,7 @@ fn close_rows(bytes: &[u8]) -> Vec<ww_tape::piece::TrackRange> {
 #[test]
 fn a_damaged_record_block_kept_by_a_resume_marks_its_tracks_incomplete() {
     let ops = ops(12);
-    let (want, made) = reference(0, &ops);
+    let (want, made) = reference(0, &ops, ww_tape::Integrity::Full);
     assert!(close_rows(&want).iter().all(|t| !t.incomplete));
     let r = TapeReader::open(&want[..]).unwrap();
     let cut = want.len() / 2;
@@ -1957,26 +1979,15 @@ fn with_head_level(bytes: &[u8], level: u8) -> Vec<u8> {
     b
 }
 
-/// A piece whose head is of an integrity level this build doesn't handle, its CRC good, is listed with that error
+/// A piece whose head names an integrity level this build doesn't know, its CRC good, is listed with that error
 /// and refused with it by every lookup, the chain check and a resume: never read as damage or as a piece without a
 /// head, never appended to.
 #[test]
-fn a_piece_of_another_integrity_level_is_refused_everywhere() {
+fn a_piece_of_an_unknown_integrity_level_is_refused_everywhere() {
+    use ww_tape::ReadError;
     use ww_tape::index::IndexError;
-    use ww_tape::{Integrity, ReadError};
     let levels = [
-        (
-            1,
-            IndexError::UnhandledIntegrity {
-                level: Integrity::CrcOnly,
-            },
-        ),
-        (
-            2,
-            IndexError::UnhandledIntegrity {
-                level: Integrity::None,
-            },
-        ),
+        (3, IndexError::UnknownIntegrity { level: 3 }),
         (9, IndexError::UnknownIntegrity { level: 9 }),
     ];
     for closed in [false, true] {
@@ -2030,10 +2041,10 @@ fn a_piece_of_another_integrity_level_is_refused_everywhere() {
     }
 }
 
-/// A one-file chain whose closed last piece has a head of another integrity level is refused with that level by
+/// A one-file chain whose closed last piece has a head of an unknown integrity level is refused with that level by
 /// a resume, which would start a new piece behind it.
 #[test]
-fn a_chain_whose_last_piece_is_of_another_level_is_refused() {
+fn a_chain_whose_last_piece_is_of_an_unknown_level_is_refused() {
     use ww_tape::index::IndexError;
     let dir = scratch("other_level");
     let at = dir.join("one.wwt");
@@ -2051,11 +2062,9 @@ fn a_chain_whose_last_piece_is_of_another_level_is_refused() {
         .last()
         .unwrap()
         .start as usize;
-    let changed = [&bytes[..last], &with_head_level(&bytes[last..], 1)].concat();
+    let changed = [&bytes[..last], &with_head_level(&bytes[last..], 9)].concat();
     std::fs::write(&at, &changed).unwrap();
-    let error = IndexError::UnhandledIntegrity {
-        level: ww_tape::Integrity::CrcOnly,
-    };
+    let error = IndexError::UnknownIntegrity { level: 9 };
     let resumed =
         ww_tape_fs::chain::resume(&at, OwnerId([9; 32]), 0, one_file_options()).map(|(_, r)| r);
     assert!(
@@ -2063,4 +2072,32 @@ fn a_chain_whose_last_piece_is_of_another_level_is_refused() {
         "{resumed:?}"
     );
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// A piece of `level` holding the first half of [ops], closed with a summary, then written on after its close with
+/// the second half and closed again: two closes, an append head and a close summary.
+pub(crate) fn written_on(alignment: u32, level: ww_tape::Integrity) -> Vec<u8> {
+    let all = ops(6);
+    let (first, second) = all.split_at(all.len() / 2);
+    let mut w = begin_at(alignment, level);
+    let mut defs = base_defs().clone();
+    for op in first {
+        apply(&mut w, &mut defs, *op);
+    }
+    let tape = w.sink().tape();
+    w.close_with_summary(ww_tape::piece::CloseReason::Closed, b"first half")
+        .unwrap();
+    let mem = MemTapes::new();
+    let mut sink = mem.create(&0).unwrap();
+    sink.write_all(&tape.to_vec().unwrap()).unwrap();
+    sink.close().unwrap();
+    drop(sink);
+    let sink = mem.reopen(&0).unwrap().unwrap();
+    let (mut w, resumed) = TapeWriter::resume_on(sink, options(alignment)).unwrap();
+    assert!(resumed.after_close.is_some(), "written on after its close");
+    for op in second {
+        apply(&mut w, &mut defs, *op);
+    }
+    w.close().unwrap();
+    mem.get(&0).unwrap().unwrap().to_vec().unwrap()
 }

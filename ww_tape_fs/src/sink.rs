@@ -138,6 +138,12 @@ impl FileSink {
         Ok(lock::open_existing(path)?.map(|file| Self::locked(file, path, false)))
     }
 
+    /// The file at `path` to write over in place, holding pieces back to back, locked as a writer's: a seal's
+    /// ([crate::writer::seal]). None when it isn't there.
+    pub(crate) fn to_overwrite(path: &Path) -> Result<Option<Self>, FsError> {
+        Ok(lock::open_to_overwrite(path)?.map(|file| Self::locked(file, path, true)))
+    }
+
     /// A new file at `path`, holding pieces back to back with `pieces`, synced with its directory.
     fn new_file(path: &Path, pieces: bool) -> Result<Self, FsError> {
         let (file, _) = lock::open(path, Open::New)?;
@@ -242,6 +248,22 @@ impl FileSink {
         self.warning.as_ref()
     }
 
+    /// Write `bytes` over the file's bytes at `offset` in the piece, not past its end.
+    pub(crate) fn write_at(&self, offset: u64, bytes: &[u8]) -> Result<(), FsError> {
+        let what = "writing over the file";
+        let end = file_offset(self.base, offset)
+            .and_then(|at| file_offset(at, crate::seal::wide(bytes.len())))
+            .map_err(io_err(what, &self.path))?;
+        if end > self.len()? {
+            return Err(io_err(what, &self.path)(
+                io::ErrorKind::UnexpectedEof.into(),
+            ));
+        }
+        file_offset(self.base, offset)
+            .and_then(|at| write_file_at(self.file.file(), at, bytes))
+            .map_err(io_err(what, &self.path))
+    }
+
     /// The whole length of the file.
     fn len(&self) -> Result<u64, FsError> {
         Ok(self
@@ -256,6 +278,38 @@ impl FileSink {
 #[cfg(unix)]
 fn read_file_at(file: &File, offset: u64, buf: &mut [u8]) -> io::Result<()> {
     std::os::unix::fs::FileExt::read_exact_at(file, buf, offset)
+}
+
+#[cfg(unix)]
+fn write_file_at(file: &File, offset: u64, bytes: &[u8]) -> io::Result<()> {
+    std::os::unix::fs::FileExt::write_all_at(file, bytes, offset)
+}
+
+#[cfg(windows)]
+fn write_file_at(file: &File, mut offset: u64, mut bytes: &[u8]) -> io::Result<()> {
+    while !bytes.is_empty() {
+        match std::os::windows::fs::FileExt::seek_write(file, bytes, offset)? {
+            0 => return Err(io::ErrorKind::WriteZero.into()),
+            n => {
+                let past_end = || io::Error::from(io::ErrorKind::InvalidData);
+                bytes = bytes.get(n..).ok_or_else(past_end)?;
+                let n =
+                    u64::try_from(n).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+                offset = offset.checked_add(n).ok_or_else(past_end)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(any(unix, windows)))]
+fn write_file_at(mut file: &File, offset: u64, bytes: &[u8]) -> io::Result<()> {
+    use std::io::Seek;
+    let back = file.stream_position()?;
+    file.seek(io::SeekFrom::Start(offset))?;
+    let w = file.write_all(bytes);
+    file.seek(io::SeekFrom::Start(back))?;
+    w
 }
 
 #[cfg(windows)]

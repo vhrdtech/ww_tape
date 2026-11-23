@@ -122,6 +122,7 @@ fn entries(d: &mut Draw<'_>, n: usize, sorted: bool) -> Vec<IndexEntry> {
                 repeat: d.bool(),
                 relation_break: false,
                 unit: ww_tape::UnitHash([d.u8(); 32]),
+                unhashed: false,
                 range: matches!(kind, BlockKind::Events | BlockKind::Series)
                     .then(|| {
                         let lo = u64::from(d.u8());

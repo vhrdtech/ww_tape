@@ -48,6 +48,7 @@ pub(crate) fn options() -> ww_tape::WriterOptions {
             .on_sd_card()
             .with_definitions(policy(1024, 2)),
         producer: "state".to_owned(),
+        integrity: ww_tape::Integrity::Full,
         near: NearPolicy {
             copy_spacing: exact_units::Bytes::new(512),
             memory_max: exact_units::Count::new(4),

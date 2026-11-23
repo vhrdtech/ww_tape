@@ -120,7 +120,7 @@ off size field
   5  u8  kind: 1 records, 3 and up other kinds (BlockKind); 2 is reserved (RESERVED_KIND)
   6 u16  flags: bit 0 body coded (FLAG_BODY_CODED, records blocks only), bit 1 state records a writer put or
          copied (FLAG_REPEAT), bit 2 puts that belong with the next block (FLAG_WITH_NEXT), bit 3 on a
-         chunk its payload unchecked (FLAG_PAYLOAD_UNCHECKED, reserved: 0, a reader refuses it), bit 4 on an
+         chunk its payload unchecked (FLAG_PAYLOAD_UNCHECKED: segment CRCs 0, the block CRC over the head), bit 4 on an
          events chunk a break in its track's monotone relations (FLAG_RELATION_BREAK); others 0 (a reader
          ignores bits it doesn't know)
   8 u32  len: the whole block, header and CRC included
@@ -906,7 +906,7 @@ off size field
  60 ...  n × track: id u64, first entry u32, entry count u32, CRC-32C of its entries u32, reserved u32
  ...     entries, each:
            0 u64 offset of the block in the piece    8 u32 its length        12 u8 its block kind
-          13 u8  summary level (0 for other kinds)   14 u8 summary tree      15 u8 flags: bit 0 repeat, bit 1 range, bit 2 unhashed (reserved, 0), bit 3 relation break
+          13 u8  summary level (0 for other kinds)   14 u8 summary tree      15 u8 flags: bit 0 repeat, bit 1 range, bit 2 unhashed (no unit hash), bit 3 relation break
           16 u64 track id (0: none)                 24 u32 track number      28 u32 0 (a state record's below)
           32 u64 first item number                  40 u64 items (samples, records)
           48 i64 first tick                         56 i64 last tick         64 i64 latest end
@@ -1090,7 +1090,7 @@ piece head (kind 10)
  88 u32  flags: bit 0 has a previous piece                        92 u32 previous session tag (0: none or unknown)
  96 [32] previous piece's content hash                           128 [16] previous piece's id
 144 u16  track row length, 96 (a reader takes longer rows and reads their first 96 bytes)
-146 u8   integrity (Integrity): 0 Full, 1 CrcOnly, 2 None (written Full; a reader refuses another)    147 [5] reserved
+146 u8   integrity (Integrity): 0 Full, 1 CrcOnly, 2 None (a reader refuses another value)    147 [5] reserved
 152 ...  tracks × 96, one per track carried over from the pieces before:
            0 u64 id    8 u32 number
           12 u32 flags, as a close row's: bit 0 incomplete (from the pieces before); bit 1, a head row's only:
@@ -1305,7 +1305,7 @@ reads as removed, not head cut ([Pieces removed on purpose](pieces.md#pieces-rem
 - whether the chain's start was deleted (`head_cut`) or removed on purpose (`head_removed`, the count of pieces);
 - how the chain ends;
 - the pieces that do not belong (`strays`): a second piece with one sequence number, or a piece of another owner;
-- the pieces whose head is of an integrity level the reader does not handle (`refused`);
+- the pieces whose head names an integrity level the reader does not know (`refused`);
 - the pieces the closes at hand name as removed (`removed`).
 
 `ChainReport::is_whole` says whether all is well, and takes removed pieces as part of a whole chain.
@@ -1563,7 +1563,7 @@ A `PieceInfo` also lists what a scan met:
 - `gaps`: the blank or bad stretches the session's data goes on after, as offset and length;
 - `replaced`: the blocks a later copy with the same session and seq but other bytes replaced ([Duplicates](#duplicates));
 - `version`: the format version of a piece of another version, which every lookup refuses ([below](#versions-and-unknown-blocks));
-- `head_error`: why a good piece head did not read as the head, as an integrity level this reader does not handle.
+- `head_error`: why a good piece head did not read as the head, as an integrity level this reader does not know.
 
 Every lookup in a piece whose head is of such a level returns that error (`ReadError::Index`).
 
@@ -1762,7 +1762,7 @@ Each report is a `FileError` variant:
 | `Truncated` | Resync | the bytes end inside a block |
 | `Conflict` | Resync | two good blocks with one session and seq but other bytes |
 | `Stale` | Resync | a good block of another session where no session may start; skipped by its length |
-| `Refused` | both | a block of an integrity level this reader does not handle; not damage, stepped over by its length |
+| `Refused` | both | a piece head of an integrity level this reader does not know; not damage, stepped over by its length |
 
 A closed piece whose final index does not read stays a closed piece. `TapeReader::entries` fails on it, while
 `TapeReader::track_entries` still gives each track whose own list reads. The reader does not read such a piece from its
@@ -2079,7 +2079,6 @@ Some numbers are reserved: later features then need no format change. Readers of
 | column kind 7 (`ColumnKind::PAYLOAD_LEAF`) | one leaf of the items' payload struct, the param naming the leaf |
 | block kinds 11 and 12 (`BlockKind::POSTINGS`, `DICTIONARY`) | a relation's index per events chunk: each distinct value with its items; the distinct values and each item's index into them. Skipped by readers; writers refuse a definition that asks for one |
 | `RelationValues::IndexOnly` | values given with each item only to feed an index, no column; writers refuse it until an index is built |
-| piece head byte 146 `integrity`, header flag bit 3 `FLAG_PAYLOAD_UNCHECKED`, index entry flag bit 2 `ENTRY_UNHASHED` | integrity levels below `Full`: a piece of level `CrcOnly` computes no hashes and marks each index entry `ENTRY_UNHASHED`; a piece of level `None` also skips payload CRCs (chunk head CRCs and structure blocks stay checked) and marks each chunk `FLAG_PAYLOAD_UNCHECKED`. Written as `Full` and 0; a reader refuses `CrcOnly` and `None` as levels it doesn't handle (`IndexError::UnhandledIntegrity`), another byte as `IndexError::UnknownIntegrity`, the bits as `BlockError::PayloadUnchecked` and `IndexError::Unhashed`, never as damage |
 | summary head bytes 54..56 | the first channel or leaf of the block, 0 today |
 
 ## 16 Policies and their defaults {#policies-and-their-defaults}

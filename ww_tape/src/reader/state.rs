@@ -749,6 +749,7 @@ mod tests {
             repeat: false,
             relation_break: false,
             unit: crate::piece::UnitHash::NONE,
+            unhashed: false,
             range: None,
         };
         (

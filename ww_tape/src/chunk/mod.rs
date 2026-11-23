@@ -295,8 +295,7 @@ pub const CHUNK_HEAD_PREFIX: usize = HEADER_LEN + 4;
 impl ChunkHead {
     /// Bytes of the head of the chunk block whose first [CHUNK_HEAD_PREFIX] bytes are `header`: what
     /// [Self::read_head] needs, the bytes up to the payload. A block of another kind or format version, or with a
-    /// coded body, is [BlockError::NotChunk]; one marked [FLAG_PAYLOAD_UNCHECKED](crate::FLAG_PAYLOAD_UNCHECKED) is
-    /// [BlockError::PayloadUnchecked].
+    /// coded body, is [BlockError::NotChunk].
     pub fn head_len(header: &[u8]) -> Result<usize, BlockError> {
         let len = crate::block_len(header)?;
         if header.len() < CHUNK_HEAD_PREFIX {
@@ -311,9 +310,6 @@ impl ChunkHead {
             || flags & FLAG_BODY_CODED != 0
         {
             return Err(BlockError::NotChunk);
-        }
-        if flags & crate::FLAG_PAYLOAD_UNCHECKED != 0 {
-            return Err(BlockError::PayloadUnchecked);
         }
         payload_offset(header, len).map_err(BlockError::Chunk)
     }
@@ -679,6 +675,33 @@ impl<'b> ChunkWriter<'b> {
         self.payload.get_mut(from..to)
     }
 
+    /// Write the head CRC and a block CRC over the head alone, the segment CRCs left zero, the header marked
+    /// [FLAG_PAYLOAD_UNCHECKED](crate::FLAG_PAYLOAD_UNCHECKED): a chunk of a piece of
+    /// [Integrity::None](crate::Integrity::None). Returns the block's length.
+    pub fn finish_unchecked(self) -> usize {
+        if let Some(f) = self.pre.get_mut(6..).and_then(|r| r.first_chunk_mut::<2>()) {
+            *f = (u16::from_le_bytes(*f) | crate::FLAG_PAYLOAD_UNCHECKED).to_le_bytes();
+        }
+        self.seg_crcs.fill(0);
+        let after_crc = [
+            self.fixed.as_slice(),
+            self.grid,
+            self.entries,
+            self.seg_crcs,
+            self.padding,
+        ];
+        let mut d = CRC.digest();
+        d.update(self.pre);
+        after_crc.iter().for_each(|p| d.update(p));
+        *self.head_crc = d.finalize().to_le_bytes();
+        let mut d = CRC.digest();
+        d.update(self.pre);
+        d.update(self.head_crc);
+        after_crc.iter().for_each(|p| d.update(p));
+        *self.crc = d.finalize().to_le_bytes();
+        self.len
+    }
+
     /// Write the segment CRCs, the head CRC and the block CRC; returns the block's length.
     pub fn finish(self) -> usize {
         let mut payload_crc: Option<u32> = None;
@@ -717,7 +740,8 @@ impl<'b> ChunkWriter<'b> {
 }
 
 /// Rewrite the head CRC and the block CRC of a good chunk block whose header changed (its seq), from the segment
-/// CRCs it holds: no pass over the payload. An error says why the block's head is out of range (its head CRC is not
+/// CRCs it holds: no pass over the payload. A block marked [FLAG_PAYLOAD_UNCHECKED](crate::FLAG_PAYLOAD_UNCHECKED)
+/// gets a block CRC over its head alone. An error says why the block's head is out of range (its head CRC is not
 /// checked: the header changed); nothing is written then.
 pub(crate) fn restamp(block: &mut [u8]) -> Result<(), ChunkHeadError> {
     let payload_at = payload_offset(block, block.len())?;
@@ -731,10 +755,12 @@ pub(crate) fn restamp(block: &mut [u8]) -> Result<(), ChunkHeadError> {
     let seg_crcs = block
         .get(l.table_end..l.seg_crcs_end)
         .ok_or(ChunkHeadError::BadHead)?;
+    let unchecked = le_u16(block, 6).is_some_and(|f| f & crate::FLAG_PAYLOAD_UNCHECKED != 0);
     let mut payload_crc: Option<u32> = None;
     for (segment, c) in payload
         .chunks(l.seg_len.get())
         .zip(seg_crcs.as_chunks::<SEGMENT_CRC_LEN>().0)
+        .filter(|_| !unchecked)
     {
         let c = u32::from_le_bytes(*c);
         payload_crc = Some(match payload_crc {
@@ -770,6 +796,39 @@ pub(crate) fn restamp(block: &mut [u8]) -> Result<(), ChunkHeadError> {
     Ok(())
 }
 
+/// Fill the segment CRCs and the block CRC of the chunk block `block` marked
+/// [FLAG_PAYLOAD_UNCHECKED](crate::FLAG_PAYLOAD_UNCHECKED), clear the mark and rewrite its head CRC: the block a
+/// writer of [Integrity::Full](crate::Integrity::Full) writes from the same chunk. An error says why the block's head
+/// is out of range; nothing is written then.
+pub(crate) fn fill_payload_crcs(block: &mut [u8]) -> Result<(), ChunkHeadError> {
+    let payload_at = payload_offset(block, block.len())?;
+    let l = Layout::of(
+        block.get(..payload_at).ok_or(ChunkHeadError::BadHead)?,
+        block.len(),
+    )?;
+    let flags = le_u16(block, 6).ok_or(ChunkHeadError::BadHead)? & !crate::FLAG_PAYLOAD_UNCHECKED;
+    block
+        .get_mut(6..8)
+        .ok_or(ChunkHeadError::BadHead)?
+        .copy_from_slice(&flags.to_le_bytes());
+    let (head, rest) = block
+        .split_at_mut_checked(payload_at)
+        .ok_or(ChunkHeadError::BadHead)?;
+    let payload = rest
+        .get(..l.payload_end.saturating_sub(payload_at))
+        .ok_or(ChunkHeadError::BadHead)?;
+    let slots = head
+        .get_mut(l.table_end..l.seg_crcs_end)
+        .ok_or(ChunkHeadError::BadHead)?;
+    for (segment, slot) in payload
+        .chunks(l.seg_len.get())
+        .zip(slots.as_chunks_mut::<SEGMENT_CRC_LEN>().0)
+    {
+        *slot = CRC.checksum(segment).to_le_bytes();
+    }
+    restamp(block)
+}
+
 /// Write a whole chunk block with `columns` copied in; returns its length.
 pub fn write_chunk(
     buf: &mut [u8],
@@ -777,6 +836,18 @@ pub fn write_chunk(
     head: &ChunkHead,
     columns: &[(ColumnSpec, &[u8])],
     padding: usize,
+) -> Result<usize, ChunkError> {
+    encode_chunk(buf, id, head, columns, padding, true)
+}
+
+/// [write_chunk], with its payload CRCs (`payload_crcs`) or without them ([ChunkWriter::finish_unchecked]).
+pub(crate) fn encode_chunk(
+    buf: &mut [u8],
+    id: crate::BlockId,
+    head: &ChunkHead,
+    columns: &[(ColumnSpec, &[u8])],
+    padding: usize,
+    payload_crcs: bool,
 ) -> Result<usize, ChunkError> {
     let mut specs = [ColumnSpec {
         kind: ColumnKind::Other(0),
@@ -808,7 +879,10 @@ pub fn write_chunk(
             .ok_or(ChunkError::Invalid("a column the writer was not made with"))?
             .copy_from_slice(bytes);
     }
-    Ok(w.finish())
+    Ok(match payload_crcs {
+        true => w.finish(),
+        false => w.finish_unchecked(),
+    })
 }
 
 fn check_head(head: &ChunkHead, kinds: impl Iterator<Item = ColumnKind>) -> Result<(), ChunkError> {
@@ -1104,6 +1178,9 @@ pub struct Chunk<'b> {
     seg_len: NonZeroUsize,
     /// End of the column entries in the head
     table_end: usize,
+    /// The block is marked [FLAG_PAYLOAD_UNCHECKED](crate::FLAG_PAYLOAD_UNCHECKED): its segment CRCs are zero and its
+    /// block CRC covers the head only
+    unchecked: bool,
 }
 
 impl<'b> Chunk<'b> {
@@ -1124,7 +1201,15 @@ impl<'b> Chunk<'b> {
             block_crc: le_u32(block, h.layout.payload_end).ok_or(ChunkHeadError::BadHead)?,
             seg_len: h.layout.seg_len,
             table_end: h.layout.table_end,
+            unchecked: le_u16(block, 6).is_some_and(|f| f & crate::FLAG_PAYLOAD_UNCHECKED != 0),
         })
+    }
+
+    /// Whether the chunk's writer computed no CRCs over its payload
+    /// ([FLAG_PAYLOAD_UNCHECKED](crate::FLAG_PAYLOAD_UNCHECKED), [Integrity::None](crate::Integrity::None)): its
+    /// payload is taken as it is, and no segment reads as bad.
+    pub fn is_unchecked(&self) -> bool {
+        self.unchecked
     }
 
     /// The bytes of the head that say what the chunk holds, not where it lies, for its track hash
@@ -1227,6 +1312,9 @@ impl<'b> Chunk<'b> {
 
     /// Whether segment `i` doesn't match its CRC; false past the last segment.
     fn segment_bad(&self, i: usize) -> bool {
+        if self.unchecked {
+            return false;
+        }
         match (self.segment(i), self.seg_crcs.get(i)) {
             (Some(s), Some(c)) => CRC.checksum(s) != u32::from_le_bytes(*c),
             _ => false,
@@ -1234,9 +1322,18 @@ impl<'b> Chunk<'b> {
     }
 
     /// Check every segment against its CRC and the block CRC against them: true when all match. One pass over the
-    /// payload.
+    /// payload. A chunk marked [FLAG_PAYLOAD_UNCHECKED](crate::FLAG_PAYLOAD_UNCHECKED) has its block CRC checked
+    /// over its head alone and its padding read; its segment CRC slots must be zero.
     pub(crate) fn check_payload(&self) -> bool {
         let mut combined = CRC.checksum(self.head_bytes);
+        if self.unchecked {
+            return combined == self.block_crc
+                && self.seg_crcs.iter().all(|c| *c == [0; SEGMENT_CRC_LEN])
+                && self
+                    .payload
+                    .last_chunk::<PAYLOAD_PADDING>()
+                    .is_some_and(|p| p.iter().all(|b| *b == 0));
+        }
         for (s, crc) in self.segments() {
             let c = CRC.checksum(s);
             if c != crc {
@@ -1255,7 +1352,7 @@ impl<'b> Chunk<'b> {
     pub fn bad_segments(&self) -> impl Iterator<Item = usize> + '_ {
         self.segments()
             .enumerate()
-            .filter(|(_, (s, c))| CRC.checksum(s) != *c)
+            .filter(|(_, (s, c))| !self.unchecked && CRC.checksum(s) != *c)
             .map(|(i, _)| i)
     }
 

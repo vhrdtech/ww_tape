@@ -70,9 +70,18 @@ pub(crate) struct Indexer {
     /// The close record the writer went on after: the final index lists only the entries past it, chained back to
     /// that close's final index
     closed: Option<(u64, Option<u64>)>,
+    /// The piece is below [Integrity::Full](crate::Integrity::Full): its entries are marked unhashed, no unit goes
+    /// into a track's hash, and each close row's hash is absent (zero, marked incomplete)
+    unhashed: bool,
 }
 
 impl Indexer {
+    /// Hash the tracks and mark the entries hashed (`hashed`), or neither: a piece below
+    /// [Integrity::Full](crate::Integrity::Full).
+    pub(crate) fn set_hashed(&mut self, hashed: bool) {
+        self.unhashed = !hashed;
+    }
+
     pub(crate) fn new(policy: IndexPolicy) -> Self {
         Self {
             policy,
@@ -186,7 +195,9 @@ impl Indexer {
             incomplete: false,
         });
         t.number = number;
-        t.hash = unit(&t.hash);
+        if !self.unhashed {
+            t.hash = unit(&t.hash);
+        }
         t.records = t.records.saturating_add(records);
         t.touched = true;
         self.tallies.insert(key, t);
@@ -280,7 +291,12 @@ impl Indexer {
         unit: UnitHash,
         range: Option<(u64, u64)>,
     ) {
-        let entries = of_placed(offset, bytes, unit, range);
+        let mut entries = of_placed(offset, bytes, unit, range);
+        if self.unhashed {
+            for e in &mut entries {
+                e.unhashed = true;
+            }
+        }
         self.placed_entries(&entries, bytes.len());
     }
 
@@ -536,6 +552,13 @@ impl Indexer {
             if let Some(t) = self.tallies.get(key).filter(|t| !t.touched) {
                 row.hash = t.hash;
                 row.incomplete |= t.incomplete;
+            }
+        }
+        // below Integrity::Full no hash is known: zero, and incomplete, so a piece of Full after it says so too
+        if self.unhashed {
+            for row in rows.values_mut() {
+                row.hash = TrackHash::START;
+                row.incomplete = true;
             }
         }
         rows.into_values().collect()

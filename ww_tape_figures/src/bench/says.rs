@@ -614,7 +614,7 @@ pub fn handles(r: &Reports) -> anyhow::Result<Vec<(String, String)>> {
 
 /// The numbers the prose of "When bytes go bad" computes from the read_check report, as it writes them, and what
 /// each is. The page holds each one ([missing]).
-pub fn read_check(r: &Reports) -> anyhow::Result<Vec<(String, String)>> {
+pub fn damage(r: &Reports) -> anyhow::Result<Vec<(String, String)>> {
     let t = table(&r.read_check, "read")?;
     let ns = |block: &str, check: &str| value(t, row(t, &[block, check])?, "ns per block");
     let share = |block: &str| -> anyhow::Result<f64> {
@@ -634,6 +634,36 @@ pub fn read_check(r: &Reports) -> anyhow::Result<Vec<(String, String)>> {
         (
             "an unchecked read of a records block against a checked one".to_owned(),
             percent(records),
+        ),
+    ])
+}
+
+/// The numbers the prose of "Fewer checks, sealed later" computes from the levels report, as it writes them, and what
+/// each is. The page holds each one ([missing]).
+pub fn integrity(r: &Reports) -> anyhow::Result<Vec<(String, String)>> {
+    let percent = |v: f64| format!("{} %", sig(v * 100.0, 2));
+    let w = table(&r.levels, "write")?;
+    let s = table(&r.levels, "seal")?;
+    let write = |level: &str| value(w, row(w, &["series 1 MiB", level])?, "ns per chunk");
+    let full = write("Full")?;
+    let (crc_only, none) = (write("CrcOnly")? / full, write("None")? / full);
+    ensure!(
+        none < crc_only && crc_only < 1.0,
+        "the page says each lower level writes faster: {crc_only}, {none}"
+    );
+    let seal = value(s, row(s, &["series 1 MiB", "None"])?, "ns per chunk")? / full;
+    Ok(vec![
+        (
+            "a 1 MiB series chunk written at CrcOnly against Full".to_owned(),
+            percent(crc_only),
+        ),
+        (
+            "a 1 MiB series chunk written at None against Full".to_owned(),
+            percent(none),
+        ),
+        (
+            "the seal of a 1 MiB series chunk of None against writing it at Full".to_owned(),
+            percent(seal),
         ),
     ])
 }

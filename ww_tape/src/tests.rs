@@ -1738,25 +1738,77 @@ fn check_defs<'a, 'd: 'a>(
     table.check_batch(defs.iter().zip(&items).map(|(d, i)| (*d, i.as_slice())))
 }
 
-/// A chunk block marked FLAG_PAYLOAD_UNCHECKED (header bit 3, reserved) is refused by read and salvage alike as a
-/// level this build doesn't handle, not as damage, and so is its head read alone; the flag on another kind of block
-/// is not read.
-#[test]
-fn a_chunk_with_its_payload_unchecked_is_refused_as_a_level() {
-    let starts = [1i64, 2, 3];
-    let enc = crate::times::EncodedTimes::encode(&starts, None, None).unwrap();
+/// A chunk of `starts` on track 9 as block `seq`, its payload CRCs written (`crcs`) or not.
+fn starts_chunk(seq: u64, starts: &[i64], crcs: bool) -> Vec<u8> {
+    let enc = crate::times::EncodedTimes::encode(starts, None, None).unwrap();
     let cols: std::vec::Vec<_> = enc.columns().collect();
     let specs: std::vec::Vec<crate::ColumnSpec> = cols.iter().map(|c| c.0).collect();
     let head = enc
         .head
         .chunk_head(TrackId::new(9), TrackNum::new(1), ItemNum::new(0));
     let mut buf = std::vec![0u8; crate::chunk::chunk_len(&head, &specs, 0)];
-    let n = crate::chunk::write_chunk(&mut buf, id(1), &head, &cols, 0).unwrap();
+    let n = crate::chunk::encode_chunk(&mut buf, id(seq), &head, &cols, 0, crcs).unwrap();
     buf.truncate(n);
+    buf
+}
+
+/// A chunk block marked FLAG_PAYLOAD_UNCHECKED (Integrity::None) reads by its head, its payload taken as it is: every
+/// read says Unprotected, no segment is bad, a flipped payload bit goes unnoticed and a flipped head bit doesn't. Its
+/// CRCs filled in, it is the chunk a writer of Integrity::Full writes.
+#[test]
+fn a_chunk_with_its_payload_unchecked_reads_unprotected() {
+    let starts = [1i64, 2, 3];
+    let full = starts_chunk(1, &starts, true);
+    let mut buf = starts_chunk(1, &starts, false);
+    assert_eq!(buf.len(), full.len(), "the same layout");
+    let b = Block::read(&buf).unwrap();
     assert_eq!(
-        Block::read(&buf).unwrap().flags & crate::FLAG_PAYLOAD_UNCHECKED,
-        0
+        b.flags & crate::FLAG_PAYLOAD_UNCHECKED,
+        crate::FLAG_PAYLOAD_UNCHECKED
     );
+    assert_eq!(b.checked(), crate::Checked::Unprotected);
+    assert!(b.is_intact());
+    let c = b.chunk().unwrap();
+    assert!(c.is_unchecked());
+    assert_eq!(c.bad_segments().count(), 0);
+    assert_eq!(
+        c.head(),
+        Block::read(&full).unwrap().chunk().unwrap().head()
+    );
+    assert_eq!(
+        Block::salvage(&buf).unwrap().checked(),
+        crate::Checked::Unprotected
+    );
+    assert_eq!(
+        Block::read_unverified(&buf).unwrap().checked(),
+        crate::Checked::Unprotected
+    );
+    assert!(crate::ChunkHead::read_head(&buf).is_ok());
+    // the payload unchecked: a flip in it reads
+    let payload_at = c.payload_offset();
+    let mut flipped = buf.clone();
+    flipped[payload_at] ^= 1;
+    assert_eq!(
+        Block::read(&flipped).unwrap().checked(),
+        crate::Checked::Unprotected
+    );
+    // the head checked: a flip there doesn't
+    let mut flipped = buf.clone();
+    flipped[40] ^= 1;
+    assert!(Block::read(&flipped).is_err());
+    // the CRCs filled in: the bytes of a full chunk
+    crate::chunk::fill_payload_crcs(&mut buf).unwrap();
+    assert_eq!(buf, full);
+    assert_eq!(
+        Block::read(&buf).unwrap().checked(),
+        crate::Checked::Verified
+    );
+}
+
+/// A chunk marked FLAG_PAYLOAD_UNCHECKED that holds segment CRCs is no chunk any writer writes: refused, as damage.
+#[test]
+fn a_chunk_marked_unchecked_with_segment_crcs_is_refused() {
+    let mut buf = starts_chunk(1, &[1, 2, 3], true);
     crate::restamp(
         &mut buf,
         id(1),
@@ -1764,41 +1816,19 @@ fn a_chunk_with_its_payload_unchecked_is_refused_as_a_level() {
         crate::Reread::Whole,
     )
     .unwrap();
+    assert_eq!(Block::read(&buf).err(), Some(crate::BlockError::BadCrc));
     assert_eq!(
-        Block::read(&buf).err(),
-        Some(crate::BlockError::PayloadUnchecked)
-    );
-    assert_eq!(
-        Block::salvage(&buf).err(),
-        Some(crate::BlockError::PayloadUnchecked)
-    );
-    assert_eq!(
-        crate::ChunkHead::read_head(&buf).err(),
-        Some(crate::BlockError::PayloadUnchecked)
+        Block::salvage(&buf).unwrap().checked(),
+        crate::Checked::Damaged
     );
 }
 
-/// A chunk marked FLAG_PAYLOAD_UNCHECKED between good blocks is refused as a level and stepped over by its length in
-/// both recoveries: the blocks after it read, nothing is cut, salvaged or reported bad.
+/// A chunk marked FLAG_PAYLOAD_UNCHECKED between good blocks reads as a good block in both recoveries: nothing is
+/// cut, refused, salvaged or reported bad.
 #[test]
-fn a_walk_steps_over_a_chunk_with_its_payload_unchecked() {
+fn a_walk_reads_a_chunk_with_its_payload_unchecked() {
     let (before, _) = tape(3);
-    let enc = crate::times::EncodedTimes::encode(&[1i64, 2, 3], None, None).unwrap();
-    let cols: std::vec::Vec<_> = enc.columns().collect();
-    let specs: std::vec::Vec<crate::ColumnSpec> = cols.iter().map(|c| c.0).collect();
-    let head = enc
-        .head
-        .chunk_head(TrackId::new(9), TrackNum::new(1), ItemNum::new(0));
-    let mut chunk = std::vec![0u8; crate::chunk::chunk_len(&head, &specs, 0)];
-    let n = crate::chunk::write_chunk(&mut chunk, id(3), &head, &cols, 0).unwrap();
-    chunk.truncate(n);
-    crate::restamp(
-        &mut chunk,
-        id(3),
-        crate::FLAG_PAYLOAD_UNCHECKED,
-        crate::Reread::Whole,
-    )
-    .unwrap();
+    let chunk = starts_chunk(3, &[1, 2, 3], false);
     let mut after = Vec::new();
     for seq in 4..6 {
         after.extend(records_block(id(seq), &[(1, at(C1, 50), b"a")]));
@@ -1813,13 +1843,8 @@ fn a_walk_steps_over_a_chunk_with_its_payload_unchecked() {
                 Err(e) => errors.push(format!("{e:?}")),
             }
         }
-        assert_eq!(seqs, [0, 1, 2, 4, 5], "{recovery:?}");
-        let refused = FileError::Refused {
-            offset: before.len() as u64,
-            error: BlockError::PayloadUnchecked,
-            len: n as u64,
-        };
-        assert_eq!(errors, [format!("{refused:?}")], "{recovery:?}");
+        assert_eq!(seqs, [0, 1, 2, 3, 4, 5], "{recovery:?}");
+        assert!(errors.is_empty(), "{recovery:?}: {errors:?}");
     }
 }
 

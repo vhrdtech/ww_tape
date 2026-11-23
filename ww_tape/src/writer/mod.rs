@@ -50,9 +50,9 @@ use crate::clock::ClockRef;
 use crate::index::{IndexPolicy, Indexer, RECORDS_TRACK_ID, STATE_TRACK_ID, TrackIdent};
 use crate::open::{RecordRef, write_records};
 use crate::piece::{
-    Close, CloseReason, ContentHash, OwnerId, PIECE_ALIGN, PieceHead, PieceId, PieceIdent,
-    TAIL_LEN, Tail, TrackHash, TrackStart, UnitHash, close_len, close_padding, hash_block,
-    piece_head_len, write_close, write_piece_head,
+    Close, CloseReason, ContentHash, Integrity, OwnerId, PIECE_ALIGN, PieceHead, PieceId,
+    PieceIdent, TAIL_LEN, Tail, TrackHash, TrackStart, UnitHash, close_len, close_padding,
+    hash_block, piece_head_len, write_close, write_piece_head,
 };
 use crate::reader::wide;
 use crate::sink::{TapeSink, Tapes, sink_err};
@@ -69,6 +69,7 @@ pub(crate) mod kept;
 pub mod near;
 mod relations;
 pub mod resume;
+mod seal;
 pub use carried::CARRIED_BLOCK_LEN;
 pub use error::{CutError, InputError, RemovedRefusal, ResumeError, WriteError};
 pub use kept::KEPT_BYTES_MAX;
@@ -76,6 +77,7 @@ pub use near::NearPolicy;
 use near::Rule;
 pub(crate) use relations::Newest;
 pub use resume::{RESUME_LOOK_MAX, RESUME_PROBES_MAX, Resumed};
+pub use seal::{SealError, Sealed};
 
 /// When a [TapeWriter] syncs the data to the disk, besides at [TapeWriter::close].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -132,6 +134,9 @@ pub struct WriterOptions {
     pub near: NearPolicy,
     /// [TapeWriter::set_clock]: when intervals are up (the system clock with `std`).
     pub clock: ClockRef,
+    /// Which CRCs and hashes the pieces this writer starts get ([Integrity]), named in each piece head. A piece the
+    /// writer goes on with (a resume, [TapeWriter::begin_piece]) keeps the level its head names.
+    pub integrity: Integrity,
 }
 
 impl Default for WriterOptions {
@@ -143,6 +148,7 @@ impl Default for WriterOptions {
             producer: String::new(),
             near: NearPolicy::default(),
             clock: ClockRef::default(),
+            integrity: Integrity::Full,
         }
     }
 }
@@ -185,8 +191,13 @@ pub struct TapeWriter<S: TapeSink> {
     /// A checkpoint waits for the gap before the next aligned chunk
     index_due: bool,
     last_checkpoint: Option<u64>,
-    /// The piece's content hash so far: BLAKE3 of its bytes, each chunk payload by its hash
+    /// The piece's content hash so far: BLAKE3 of its bytes, each chunk payload by its hash; untouched below
+    /// [Integrity::Full]
     hash: blake3::Hasher,
+    /// The level of this piece, as its head names it; [Integrity::Full] for a file without a piece head
+    level: Integrity,
+    /// The level of the pieces this writer starts ([WriterOptions::integrity])
+    level_next: Integrity,
     /// The piece head written first, and its track starts
     head: Option<(PieceHead, Vec<TrackStart>)>,
     /// The state records of the piece the writer remembers
@@ -361,6 +372,8 @@ impl<S: TapeSink> TapeWriter<S> {
             index_due: false,
             last_checkpoint: now,
             hash: blake3::Hasher::new(),
+            level: Integrity::Full,
+            level_next: Integrity::Full,
             head: None,
             near: near::Near::default(),
             near_policy: NearPolicy::default(),
@@ -389,6 +402,7 @@ impl<S: TapeSink> TapeWriter<S> {
         self.set_index_policy(options.index)?;
         self.set_near_policy(options.near);
         self.set_clock(options.clock.clone());
+        self.level_next = options.integrity;
         Ok(())
     }
 
@@ -1030,6 +1044,7 @@ impl<S: TapeSink> TapeWriter<S> {
         let n = write_piece_head(&mut buf, self.structural_id(), head, tracks)
             .map_err(WriteError::Index)?;
         buf.truncate(n);
+        self.set_level(head.integrity);
         self.indexer.start(tracks);
         self.write_own(&buf)?;
         self.head = Some((*head, tracks.to_vec()));
@@ -1038,6 +1053,17 @@ impl<S: TapeSink> TapeWriter<S> {
         self.head_put = false;
         self.carried_due = !tracks.is_empty();
         self.ensure_head()
+    }
+
+    /// Compute the CRCs and hashes of `level` in this piece from its head on.
+    pub(crate) fn set_level(&mut self, level: Integrity) {
+        self.level = level;
+        self.indexer.set_hashed(level == Integrity::Full);
+    }
+
+    /// The level of the piece being written, as its head names it ([Integrity::Full] without a head).
+    pub fn integrity(&self) -> Integrity {
+        self.level
     }
 
     /// Where the next block goes, from the start of the piece.
@@ -1261,13 +1287,25 @@ impl<S: TapeSink> TapeWriter<S> {
         payload: Option<[u8; 32]>,
     ) -> Result<UnitHash, WriteError<S::Error>> {
         let bytes = self.end_after(block.len())?;
-        let chunk = hash_block(&mut self.hash, block, payload);
-        // the unit hash goes into the chunk's index entry and its track's hash: computed once, here
-        let unit = chunk.as_ref().map_or(UnitHash::NONE, |(c, payload)| {
-            TrackHash::chunk_unit(c, payload)
-        });
+        // below Integrity::Full nothing is hashed: the chunk is only read, by its head
+        let (chunk, unit) = match self.level {
+            Integrity::Full => {
+                let chunk = hash_block(&mut self.hash, block, payload);
+                // the unit hash goes into the chunk's index entry and its track's hash: computed once, here
+                let unit = chunk.as_ref().map_or(UnitHash::NONE, |(c, payload)| {
+                    TrackHash::chunk_unit(c, payload)
+                });
+                (chunk.map(|(c, _)| c), unit)
+            }
+            Integrity::CrcOnly | Integrity::None => (
+                crate::Block::read_trusted(block)
+                    .ok()
+                    .and_then(|b| b.chunk()),
+                UnitHash::NONE,
+            ),
+        };
         // the range from the chunk's own column, by the definition placed before it: a resume derives the same
-        let range = chunk.as_ref().and_then(|(c, _)| self.relations.range(c));
+        let range = chunk.as_ref().and_then(|c| self.relations.range(c));
         // blocks the file structure adds are not counted: seq stays the producer's count of its own blocks
         let kind = BlockKind::from_u8(header[5]);
         let flags = u16::from_le_bytes([header[6], header[7]]);
@@ -1282,7 +1320,7 @@ impl<S: TapeSink> TapeWriter<S> {
                 self.indexer.undo_block();
             }
             self.indexer.begin_block();
-            if let Some((c, _)) = &chunk {
+            if let Some(c) = &chunk {
                 let head = c.head();
                 self.indexer
                     .tally_chunk(head.track_number, head.track_id, &unit);
@@ -1390,7 +1428,7 @@ impl<S: TapeSink> TapeWriter<S> {
             .last_counted
             .filter(|(last, ..)| counted && id == Some(*last));
         let again = match last {
-            Some((_, len, c, _)) if len == block.len() && c == crc => {
+            Some((_, len, c, at)) if len == block.len() && c == crc && self.same_as(at, block) => {
                 self.indexer.placed_unlisted(block.len());
                 Again::Same
             }
@@ -1408,6 +1446,19 @@ impl<S: TapeSink> TapeWriter<S> {
             self.last_counted = Some((id, block.len(), crc, self.bytes));
         }
         again
+    }
+
+    /// Whether the block at `at` holds the bytes of `block`, which has its length and CRC. Below
+    /// [Integrity::None] the CRC covers them all; at None a chunk's covers its head only, so its payload is read back
+    /// and compared (a block written again is rare). A read that fails says no.
+    fn same_as(&self, at: u64, block: &[u8]) -> bool {
+        let unchecked =
+            crate::bytes::le_u16(block, 6).is_some_and(|f| f & crate::FLAG_PAYLOAD_UNCHECKED != 0);
+        if !unchecked {
+            return true;
+        }
+        let mut old = vec![0u8; block.len()];
+        self.sink.read_at(at, &mut old).is_ok() && old == block
     }
 
     /// After every counted block, whoever placed it: a checkpoint when due (in an aligned file, in the gap before
@@ -1746,7 +1797,8 @@ impl<S: TapeSink> TapeWriter<S> {
         let len = crate::chunk::chunk_len(head, &specs, padding);
         let mut buf = core::mem::take(&mut self.chunk_buf);
         buf.resize(len, 0);
-        let r = crate::chunk::write_chunk(&mut buf, self.next_id(), head, columns, padding)
+        let crcs = self.level != Integrity::None;
+        let r = crate::chunk::encode_chunk(&mut buf, self.next_id(), head, columns, padding, crcs)
             .map_err(WriteError::Chunk)
             .and_then(|n| {
                 buf.truncate(n);
@@ -2287,6 +2339,7 @@ impl<S: TapeSink> TapeWriter<S> {
             producer: self.producer.clone(),
             near: self.near_policy,
             clock: self.clock.clone(),
+            integrity: self.level_next,
         }
     }
 
@@ -2309,7 +2362,11 @@ impl<S: TapeSink> TapeWriter<S> {
         self.session = next.session;
         self.relations.take_newest(&next.newest);
         self.kept = kept::Kept::default();
-        self.write_piece_head(&next.head, &next.tracks)?;
+        let head = PieceHead {
+            integrity: self.level_next,
+            ..next.head
+        };
+        self.write_piece_head(&head, &next.tracks)?;
         self.keep_after(next.kept);
         Ok(())
     }
@@ -2359,16 +2416,34 @@ impl<S: TapeSink> TapeWriter<S> {
         }
         self.flush_deferred()?;
         self.ensure_head()?;
-        // the caller's summary, right before the final index, with the id of the blocks the file structure adds
+        let (closed, ..) = self.write_end(how, summary, None)?;
+        if how != End::CutInPlace {
+            self.sink
+                .close()
+                .map_err(sink_err("marking the piece closed"))?;
+        }
+        Ok(Ended {
+            closed,
+            next_seq: self.next_seq,
+            session: self.session,
+            sink: self.sink,
+        })
+    }
+
+    /// Write the end of the piece as `how` says: the caller's `summary` block, the final index, the close record and
+    /// the tail, synced after the final index and after the tail ([Self::end]); gives the piece closed, where its close
+    /// record starts and what it says. With `fits` (where the end starts and its length), an end of another length is
+    /// refused before any byte of it is written ([SealError::Moved]): a seal writes it over the end it replaces.
+    fn write_end(
+        &mut self,
+        how: End,
+        summary: Option<Vec<u8>>,
+        fits: Option<(u64, u64)>,
+    ) -> Result<(Closed, u64, Close), WriteError<S::Error>> {
         let summary = match summary {
             Some(mut block) => {
                 crate::set_id(&mut block, self.structural_id()).map_err(WriteError::Block)?;
-                let at = self.offset();
-                let len = u32::try_from(block.len()).map_err(|_overflow| {
-                    WriteError::Index(IndexError::Invalid("a summary block past u32::MAX bytes"))
-                })?;
-                self.write_own(&block)?;
-                Some((at, len))
+                Some(block)
             }
             None => None,
         };
@@ -2378,17 +2453,52 @@ impl<S: TapeSink> TapeWriter<S> {
         if parts.is_empty() && self.closed_at.is_some() {
             parts.push(Vec::new());
         }
+        // the final index blocks, each pointing back at the one before, placed after the summary
+        let summary_len = summary.as_ref().map_or(0, Vec::len);
+        let mut at = self.end_after(summary_len)?;
+        let mut finals = Vec::with_capacity(parts.len());
         for part in parts {
-            let at = self.offset();
             let b = Indexer::final_block(&part, at, prev, self.structural_id())
                 .map_err(WriteError::Index)?;
-            self.write_own(&b)?;
             prev = Some(at);
+            at = at.saturating_add(wide(b.len()));
+            finals.push(b);
+        }
+        let ranges = self.indexer.track_ranges();
+        let removed = self.removed.len();
+        let padding = close_padding(at, ranges.len(), removed);
+        let close_len = close_len(ranges.len(), removed).saturating_add(padding);
+        if let Some((from, len)) = fits {
+            let end = at
+                .saturating_add(wide(close_len))
+                .saturating_add(wide(TAIL_LEN));
+            if self.offset() != from || end.checked_sub(from) != Some(len) {
+                return Err(WriteError::Seal(SealError::Moved { offset: from }));
+            }
+        }
+        // the caller's summary, right before the final index, with the id of the blocks the file structure adds
+        let summary = match summary {
+            Some(block) => {
+                let at = self.offset();
+                let len = u32::try_from(block.len()).map_err(|_overflow| {
+                    WriteError::Index(IndexError::Invalid("a summary block past u32::MAX bytes"))
+                })?;
+                self.write_own(&block)?;
+                Some((at, len))
+            }
+            None => None,
+        };
+        for b in &finals {
+            self.write_own(b)?;
         }
         // the blocks and the final index reach the disk before a close record names them: a close and tail found
         // whole after a crash then never stand for bytes a disk never got
         self.sync()?;
-        let hash = ContentHash(*self.hash.clone().finalize().as_bytes());
+        // below Integrity::Full the content hash is absent: zero, read as absent by the head's level
+        let hash = match self.level {
+            Integrity::Full => ContentHash(*self.hash.clone().finalize().as_bytes()),
+            Integrity::CrcOnly | Integrity::None => ContentHash::default(),
+        };
         let ident = self.head.as_ref().map(|(h, _)| h.ident);
         let (reason, continued) = match how {
             End::Close(reason) => (reason, false),
@@ -2407,13 +2517,10 @@ impl<S: TapeSink> TapeWriter<S> {
             ident,
             next,
         };
-        let ranges = self.indexer.track_ranges();
         let tracks = self.next_tracks(&ranges);
         let close_offset = self.offset();
         // the piece ends, after its tail, on a multiple of PIECE_ALIGN
-        let removed = self.removed.len();
-        let padding = close_padding(close_offset, ranges.len(), removed);
-        let mut buf = vec![0u8; close_len(ranges.len(), removed).saturating_add(padding)];
+        let mut buf = vec![0u8; close_len];
         let n = write_close(
             &mut buf,
             self.structural_id(),
@@ -2450,26 +2557,16 @@ impl<S: TapeSink> TapeWriter<S> {
         tail.write(&mut tb, self.structural_id());
         self.write_own(&tb)?;
         self.sync()?;
-        if how != End::CutInPlace {
-            self.sink
-                .close()
-                .map_err(sink_err("marking the piece closed"))?;
-        }
-        let start = self.sink.base().saturating_add(self.start);
-        Ok(Ended {
-            closed: Closed {
-                hash,
-                len: self.bytes,
-                ident,
-                next,
-                start,
-                tracks,
-                states_unknown: 0,
-            },
-            next_seq: self.next_seq,
-            session: self.session,
-            sink: self.sink,
-        })
+        let closed = Closed {
+            hash,
+            len: self.bytes,
+            ident,
+            next,
+            start: self.sink.base().saturating_add(self.start),
+            tracks,
+            states_unknown: 0,
+        };
+        Ok((closed, close_offset, close))
     }
 
     /// Where each track goes on in the next piece, from the ranges `ranges` of this one.

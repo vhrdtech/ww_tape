@@ -1,0 +1,13 @@
+| Chunk | Level | ns per chunk | ns per byte | GB/s |
+|---|---|---:|---:|---:|
+| series 1 MiB | Full | 396 865 | 0.378 | 2.64 |
+| series 1 MiB | CrcOnly | 133 066 | 0.127 | 7.88 |
+| series 1 MiB | None | 99 634 | 0.095 | 10.52 |
+| series 4 MiB | Full | 1 709 624 | 0.408 | 2.45 |
+| series 4 MiB | CrcOnly | 611 222 | 0.146 | 6.86 |
+| series 4 MiB | None | 454 212 | 0.108 | 9.23 |
+| events 16 KiB | Full | 8034 | 0.490 | 2.04 |
+| events 16 KiB | CrcOnly | 3637 | 0.222 | 4.50 |
+| events 16 KiB | None | 3036 | 0.185 | 5.40 |
+
+`just bench-levels` on build-1, load average 5.94 before, 5.94 after.

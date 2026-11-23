@@ -7,7 +7,9 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use super::segments::{SegmentError, Segments};
 use super::{BaseRefused, TapeSink, Tapes, check_base};
-use crate::reader::{ByteSource, OutOfRange};
+use crate::TapeWriter;
+use crate::reader::{ByteSource, OutOfRange, TapeReader};
+use crate::writer::{Sealed, WriteError};
 
 /// Why a [MemSink], [MemTape] or [MemTapes] failed or refused; a refusal of [MemTapes] names the tape by its key
 /// `K`.
@@ -192,11 +194,22 @@ impl MemSink {
 impl<K> MemSink<K> {
     /// An empty sink over new bytes, held.
     fn empty() -> Self {
-        let tape = MemTape::default();
-        tape.0.held.store(true, Ordering::Release);
+        Self::empty_at(0)
+    }
+
+    /// An empty sink over new bytes whose first byte comes at offset `front`, held.
+    fn empty_at(front: u64) -> Self {
+        let tape = MemTape(
+            Arc::new(MemBytes {
+                bytes: RwLock::new(Segments::starting_at(front)),
+                closed: AtomicBool::new(false),
+                held: AtomicBool::new(true),
+            }),
+            PhantomData,
+        );
         Self {
             tape,
-            base: 0,
+            base: front,
             whole: false,
         }
     }
@@ -382,6 +395,70 @@ impl<K: Ord + Clone> MemTapes<K> {
         sink.whole = true;
         tape.0.closed.store(false, Ordering::Release);
         Ok(Some(sink))
+    }
+
+    /// Raise the closed tape under `key` to [Integrity::Full](crate::Integrity::Full) ([TapeWriter::seal_on]): its
+    /// pieces sealed in order, the first after the piece `after` when it follows a piece sealed before; None when
+    /// there is no tape under `key`.
+    ///
+    /// The sealed copy takes the tape's place, at the same offsets: a [MemTape] a reader already holds keeps the old
+    /// bytes and reads on as before, and readers opened afterwards read the sealed ones. A tape still being written
+    /// is not sealed ([MemError::Unclosed]), nor one a writer took while it was sealed ([MemError::Locked]). Gives
+    /// each piece sealed: the last is what the tape after it takes as `after`. A tape whose pieces are all of Full,
+    /// given no `after`, stays as it is and gives none.
+    pub fn seal(
+        &self,
+        key: &K,
+        after: Option<&Sealed>,
+    ) -> Result<Option<Vec<Sealed>>, WriteError<MemError<K>>>
+    where
+        K: core::fmt::Debug + 'static,
+    {
+        let refused = |error| WriteError::Sink {
+            what: "sealing a memory tape",
+            error,
+        };
+        let Some(tape) = self.get(key).map_err(refused)? else {
+            return Ok(None);
+        };
+        if !tape.is_closed() {
+            return Err(refused(MemError::Unclosed(key.clone())));
+        }
+        let reader = TapeReader::open(tape.clone()).map_err(WriteError::Read)?;
+        if after.is_none()
+            && reader
+                .pieces()
+                .iter()
+                .all(|p| p.integrity() == crate::Integrity::Full)
+        {
+            return Ok(Some(Vec::new()));
+        }
+        let pieces: Vec<(u64, u64)> = reader
+            .pieces()
+            .iter()
+            .map(|p| (p.start, p.end.saturating_sub(p.start)))
+            .collect();
+        let front = tape.start().map_err(refused)?;
+        let mut out = MemSink::empty_at(front);
+        out.whole = pieces.len() > 1 || front > 0;
+        // one extent for the copy, as long as the tape
+        out.reserve(tape.held().map_err(refused)?);
+        let mut sealed: Vec<Sealed> = Vec::with_capacity(pieces.len());
+        for piece in pieces {
+            out.rebase(piece.0).map_err(refused)?;
+            let (s, sink) = TapeWriter::seal_on(&tape, piece, out, sealed.last().or(after))?;
+            out = sink;
+            sealed.push(s);
+        }
+        out.close().map_err(refused)?;
+        let mut map = self.lock().map_err(refused)?;
+        match map.get_mut(key) {
+            Some(t) if Arc::ptr_eq(&t.0, &tape.0) && !t.0.held.load(Ordering::Acquire) => {
+                *t = out.tape();
+                Ok(Some(sealed))
+            }
+            _ => Err(refused(MemError::Locked(key.clone()))),
+        }
     }
 
     fn lock(&self) -> Result<std::sync::MutexGuard<'_, BTreeMap<K, MemTape<K>>>, MemError<K>> {

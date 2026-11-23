@@ -348,6 +348,8 @@ pub(crate) fn options(drive: &Drive) -> ChainOptions {
             },
             // no clock: no sync, checkpoint or cut is due by time, so the bytes follow from the acts alone
             clock: ClockRef::NONE,
+            // every CRC and hash: the drive's log is kept and handed on
+            integrity: ww_tape::Integrity::Full,
         },
         cut: CutPolicy {
             bytes: exact_units::Bytes::new(0),

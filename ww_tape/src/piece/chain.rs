@@ -3,7 +3,7 @@
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
 
-use super::{CloseReason, ContentHash, PieceId, PieceIdent, RemovedPiece};
+use super::{CloseReason, ContentHash, Integrity, PieceId, PieceIdent, RemovedPiece};
 use crate::index::IndexError;
 
 /// What a reader knows of one piece: its head and, when it was closed, its end.
@@ -22,6 +22,9 @@ pub struct PieceSummary {
     /// The pieces of the chain its close in force names as removed on purpose ([RemovedPiece]), ascending by sequence
     /// number.
     pub removed: Vec<RemovedPiece>,
+    /// The piece's level, from its head; None when the head didn't read. Below [Integrity::Full] its content hash is
+    /// absent: a link from it is by id and sequence number only ([ChainLink::Unproven]).
+    pub integrity: Option<Integrity>,
 }
 
 /// How a piece's head read, for [PieceSummary::head].
@@ -31,8 +34,8 @@ pub enum HeadStatus {
     Read,
     /// Lost (damaged): ident from the close, previous piece unknown (None).
     Lost,
-    /// A head of an integrity level this build refuses (the error, [IndexError::UnhandledIntegrity] or
-    /// [IndexError::UnknownIntegrity]): ident and previous piece from it, the piece's contents unread.
+    /// A head of an integrity level this build doesn't know (the error, [IndexError::UnknownIntegrity]): ident and
+    /// previous piece from it, the piece's contents unread.
     Refused(IndexError),
 }
 
@@ -42,6 +45,9 @@ pub enum ChainLink {
     /// The later head names the earlier piece by hash and id, and the earlier piece's last close, a cut, names the
     /// later id.
     Linked,
+    /// As [Self::Linked] by id, but the earlier piece is below [Integrity::Full]: it has no content hash, so the link
+    /// is not proven by hash.
+    Unproven,
     /// Pieces between them are missing.
     Gap { missing: u64 },
     /// Adjacent sequence numbers, but the hashes or ids don't match, or the earlier piece's last close is no cut: not
@@ -86,8 +92,8 @@ pub struct ChainReport {
     pub end: ChainEnd,
     /// Two pieces with one sequence number or of another owner than the first: left out of `order`.
     pub strays: Vec<usize>,
-    /// Pieces whose head is of an integrity level this build refuses ([HeadStatus::Refused]): linked as their heads
-    /// say, their contents unread.
+    /// Pieces whose head is of an integrity level this build doesn't know ([HeadStatus::Refused]): linked as their
+    /// heads say, their contents unread.
     pub refused: Vec<usize>,
     /// The pieces the closes at hand name as removed, ascending by sequence number.
     ///
@@ -99,16 +105,24 @@ pub struct ChainReport {
 }
 
 impl ChainReport {
-    /// Every piece there or removed on purpose, linked, from the first to a close record of the last.
+    /// [Self::is_whole], each link proven by hash: no piece but the last below [Integrity::Full].
+    pub fn is_proven(&self) -> bool {
+        self.is_whole() && !self.links.contains(&ChainLink::Unproven)
+    }
+
+    /// Every piece there or removed on purpose, linked, from the first to a close record of the last; a link by id
+    /// alone ([ChainLink::Unproven]) counts.
     pub fn is_whole(&self) -> bool {
         !self.head_cut
             && self.strays.is_empty()
             && self.refused.is_empty()
             && matches!(self.end, ChainEnd::Closed { .. })
-            && self
-                .links
-                .iter()
-                .all(|l| matches!(l, ChainLink::Linked | ChainLink::Removed { .. }))
+            && self.links.iter().all(|l| {
+                matches!(
+                    l,
+                    ChainLink::Linked | ChainLink::Unproven | ChainLink::Removed { .. }
+                )
+            })
     }
 }
 
@@ -245,10 +259,13 @@ fn link(a: &PieceSummary, b: &PieceSummary, removed: &Removed) -> ChainLink {
             ChainLink::Removed { pieces: missing },
         ),
     };
+    // below Integrity::Full a's hash is absent: b's head is checked by the id it names, never by a zero hash
+    let unhashed = span.is_none() && a.integrity.is_some_and(|l| l != Integrity::Full);
     // only a close by a cut names a piece after it
     match (next == Some(named), b.head) {
         (true, HeadStatus::Lost) => ChainLink::HeadLost,
-        (true, _) if b.prev == Some(before) => linked,
+        (true, _) if unhashed && b.prev.map(|(_, id)| id) == Some(before.1) => ChainLink::Unproven,
+        (true, _) if !unhashed && b.prev == Some(before) => linked,
         _ => ChainLink::Broken,
     }
 }

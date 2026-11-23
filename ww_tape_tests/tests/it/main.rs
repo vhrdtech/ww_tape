@@ -27,6 +27,7 @@ mod durable;
 mod files;
 mod follow;
 mod head_copies;
+mod integrity;
 mod iq8;
 mod item_gap;
 mod lock;

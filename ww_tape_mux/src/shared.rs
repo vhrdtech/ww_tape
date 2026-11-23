@@ -57,8 +57,9 @@ pub(crate) enum Work<T: Tapes> {
         from: Arc<Slot<T::Error>>,
         head: Box<ChunkHead>,
         columns: Vec<(ColumnSpec, Vec<u8>)>,
-        /// The payload's hash, computed by the handle ([ww_tape::piece::columns_payload_hash])
-        hash: [u8; 32],
+        /// The payload's hash, computed by the handle ([ww_tape::piece::columns_payload_hash]); None below
+        /// [Integrity::Full](ww_tape::Integrity::Full)
+        hash: Option<[u8; 32]>,
         /// The leaves of the track's summaries the handle computed
         summary: Option<Box<ChunkSummary>>,
     },
@@ -210,11 +211,15 @@ pub(crate) struct Shared<T: Tapes> {
     pub seals: Mutex<Vec<Weak<dyn Seal<T>>>>,
     /// What the open chunks' deadlines count from
     pub epoch: Instant,
+    /// The chain's pieces are of [Integrity::Full](ww_tape::Integrity::Full): a handle hashes each chunk's payload on
+    /// its own thread
+    pub hash_payloads: bool,
 }
 
 impl<T: Tapes> Shared<T> {
-    pub(crate) fn new(queue_bytes: u64) -> Self {
+    pub(crate) fn new(queue_bytes: u64, hash_payloads: bool) -> Self {
         Self {
+            hash_payloads,
             queue: Queue::new(queue_bytes),
             failure: OnceLock::new(),
             counters: Counters::default(),

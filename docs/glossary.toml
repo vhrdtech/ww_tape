@@ -228,6 +228,12 @@ short = "One line of an index block: where a block lies, its kind, its track, an
 chapter = "../reading/"
 
 [[term]]
+name = "integrity level"
+forms = ["integrity levels"]
+short = "Which CRCs and hashes the writer of a piece computed, as its piece head names it: Full, CrcOnly or None."
+chapter = "../integrity/"
+
+[[term]]
 name = "item"
 forms = ["items"]
 short = "One value on a track, whose bytes the track's definition explains: an event on an events track, a sample on a series."

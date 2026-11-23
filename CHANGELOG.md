@@ -8,6 +8,9 @@ benchmarks, golden files and book pages.
 
 ### Breaking
 
+- `WriterOptions` gains `integrity`: a struct literal adds it or `..WriterOptions::default()` (FMT-14).
+- `IndexEntry::unhashed`, `PieceSummary::integrity`, `Verification::integrity` and `RangeHash::unprotected` are new fields (FMT-14).
+- `IndexError::UnhandledIntegrity`, `IndexError::Unhashed` and `BlockError::PayloadUnchecked` are gone: every level reads (FMT-14).
 - A memory tape of this process reads without payload CRCs by default; `PayloadCheck::Always` checks them (REPO-1).
 - `OpenOptions` gains `check_payloads`: a struct literal adds it or `..OpenOptions::default()` (REPO-1).
 - `EncodedPayloads::from_parts` takes a `PayloadCodec` first; pass `PayloadCodec::Auto` for the bytes as before (CODEC-3).
@@ -20,6 +23,14 @@ benchmarks, golden files and book pages.
 ### Features
 
 - `example_ethernet` decodes a piece's chunks on a rayon pool, 2 threads a chain; `bench-ethernet` sweeps its size (EX-8).
+- Pieces of `Integrity::CrcOnly` skip hashes, of `None` payload CRCs too; readers read every level (FMT-14).
+- `Checked::Unprotected`, `ChainLink::Unproven` and `RangeHash::unprotected` say what a lower level left unchecked (FMT-14).
+- Mux handles hash no payload when the chain's pieces are below `Integrity::Full` (FMT-14).
+- `TapeWriter::seal_on` and `MemTapes::seal` raise a closed piece to `Integrity::Full`, the bytes a Full writer writes (FMT-14).
+- Book page "Fewer checks, sealed later": the integrity levels, the seal and their measured cost (FMT-14).
+- `just bench-levels` times chunk writes at each integrity level and the seal of the lower ones (FMT-14).
+- Fuzz target `tape-seal`: mutated pieces and chains below Full give Full's bytes or a refusal (FMT-14).
+- `ww_tape_fs::writer::seal` seals a closed file in place, crash-safe: each piece head is written last (FMT-14).
 - `example_ethernet` writes its `frames` raw by default; `Link::payload(PayloadMix::Plain)` makes compressible payloads (EX-6).
 - `just bench-ethernet` measures bytes kept and CPU per frame for random and plaintext payloads, Raw and Auto (EX-6).
 - `just bench-wideband` reports bytes and CPU time per sample under each sample codec (EX-6).

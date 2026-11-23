@@ -224,12 +224,15 @@ pub(super) struct Replay<L> {
     /// The first chunk whose monotone relation goes below the one before without a break: its offset, track id and
     /// relation (None: the range relation, from a damaged chunk's entry)
     order: Option<(u64, TrackId, Option<u16>)>,
+    /// The piece is below [Integrity::Full](crate::Integrity::Full): its entries are unhashed, its tracks not hashed,
+    /// each close row's hash absent (zero, incomplete)
+    unhashed: bool,
 }
 
 impl<L: Listed> Replay<L> {
     /// A replay of a piece whose head rows are `starts`, whose final index lists `listed` (in file order) and whose
-    /// close starts at `end`.
-    pub(super) fn new(starts: &[TrackStart], listed: L, end: u64) -> Self {
+    /// close starts at `end`; `unhashed` for a piece below [Integrity::Full](crate::Integrity::Full).
+    pub(super) fn new(starts: &[TrackStart], listed: L, end: u64, unhashed: bool) -> Self {
         let mut r = Self {
             at: 0,
             end,
@@ -247,6 +250,7 @@ impl<L: Listed> Replay<L> {
             incomplete: BTreeSet::new(),
             tops: BTreeMap::new(),
             order: None,
+            unhashed,
         };
         for t in starts {
             let key = (t.track_id, t.owner);
@@ -335,16 +339,21 @@ impl<L: Listed> Replay<L> {
 
     /// Fold `unit` into track `key`'s hash.
     fn fold(&mut self, key: Key, unit: impl FnOnce(&TrackHash) -> TrackHash) {
+        if self.unhashed {
+            self.touched.insert(key);
+            return;
+        }
         let before = self.hashes.get(&key).copied();
         let h = unit(&before.unwrap_or(TrackHash::START));
         self.hashes.insert(key, h);
         self.touched.insert(key);
     }
 
-    /// The good block `block` at the place walked, `chunk` it read as a chunk with its payload hash. A block the index
+    /// The good block `block` at the place walked, `chunk` it read as a chunk with its payload hash (None in a piece
+    /// below [Integrity::Full](crate::Integrity::Full)). A block the index
     /// lists there must be listed with the entries its writer made of it; a block its writer would list must be
     /// listed, unless it is a byte-identical copy of the listed block before it (written again), which adds nothing.
-    pub(super) fn block(&mut self, block: &[u8], chunk: Option<(Chunk<'_>, [u8; 32])>) {
+    pub(super) fn block(&mut self, block: &[u8], chunk: Option<(Chunk<'_>, Option<[u8; 32]>)>) {
         let at = self.at;
         self.at = at.saturating_add(wide(block.len()));
         self.steps = self.steps.saturating_add(1);
@@ -359,9 +368,10 @@ impl<L: Listed> Replay<L> {
         };
         let repeat = b.kind == BlockKind::Records && b.flags & FLAG_REPEAT != 0;
         let counted = !repeat && !is_structural(b.kind);
-        let unit = chunk.as_ref().map_or(UnitHash::NONE, |(c, payload)| {
-            TrackHash::chunk_unit(c, payload)
-        });
+        let unit = match &chunk {
+            Some((c, Some(payload))) if !self.unhashed => TrackHash::chunk_unit(c, payload),
+            _ => UnitHash::NONE,
+        };
         let range = chunk.as_ref().and_then(|(c, _)| {
             let relation = self.facts.get(&c.head().track_number)?.range?;
             RelationColumn::open(c, relation, |_| false)
@@ -382,6 +392,9 @@ impl<L: Listed> Replay<L> {
             None if matches!(b.kind, BlockKind::Events | BlockKind::Series) => Vec::new(),
             None => IndexEntry::all_of_block(at, &b),
         };
+        for e in &mut expected {
+            e.unhashed = self.unhashed;
+        }
         let mut listed = self.take_listed(at, expected.len().saturating_add(1));
         if listed.is_empty() {
             let copy = !self.prev.is_empty() && self.prev == block;
@@ -561,6 +574,13 @@ impl<L: Listed> Replay<L> {
         for r in rows {
             let key = (r.track_id, r.owner);
             rowed.insert(key);
+            // below Integrity::Full a row's hash is absent: zero, marked incomplete
+            if self.unhashed {
+                if !r.incomplete || r.hash != TrackHash::START {
+                    return false;
+                }
+                continue;
+            }
             let incomplete = self.incomplete.contains(&key);
             if incomplete != r.incomplete {
                 return false;
@@ -652,7 +672,7 @@ mod tests {
             blocks.push(b);
         }
         let entries = wide(listed.len());
-        let mut r = Replay::new(&[], InOrder(listed.into()), at + off);
+        let mut r = Replay::new(&[], InOrder(listed.into()), at + off, false);
         for (k, b) in blocks.iter().enumerate() {
             match k % 2 {
                 0 => r.block(b, None),
