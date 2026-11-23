@@ -904,3 +904,44 @@ fn a_lowest_piece_without_its_head_is_refused_untouched() {
     );
     assert!(snapshot(&dir) == before, "a refused resume wrote");
 }
+
+/// A piece cut whole with torn bytes after its tail (a crash during the cut), the next piece missing: as the chain's
+/// end it is repaired and the next piece starts; with a hole past it the resume is refused and nothing is cut.
+#[test]
+fn a_torn_cut_piece_is_repaired_only_when_the_resume_goes_on() {
+    let defs = defs();
+    let each = options(PieceTapes::Each);
+    for end in [true, false] {
+        let dir = scratch(&format!("torn_cut_{end}"));
+        let mut c = ww_tape_fs::chain::create(&dir, OWNER, 0, &[], each.clone()).unwrap();
+        write(&mut c, &defs, 0, 13);
+        drop(c);
+        let third = dir.join(ww_tape_fs::piece_name(3));
+        let whole = std::fs::read(&third).unwrap();
+        let mut torn = whole.clone();
+        torn.extend_from_slice(b"WWT");
+        std::fs::write(&third, &torn).unwrap();
+        let gone: &[u64] = if end { &[4, 5, 6] } else { &[4] };
+        for seq in gone {
+            std::fs::remove_file(dir.join(ww_tape_fs::piece_name(*seq))).unwrap();
+        }
+        let before = snapshot(&dir);
+        let r = ww_tape_fs::chain::resume(&dir, OWNER, 0, each.clone());
+        if end {
+            let (c, _) = r.unwrap();
+            assert_eq!((c.seq(), c.closed().len()), (4, 4));
+            assert_eq!(
+                std::fs::read(&third).unwrap(),
+                whole,
+                "the torn bytes are cut"
+            );
+        } else {
+            let e = r.err().unwrap();
+            assert!(
+                matches!(e, WriteError::Resume(ResumeError::Gap { from: 4, to: 5 })),
+                "{e:?}"
+            );
+            assert!(snapshot(&dir) == before, "a refused resume wrote");
+        }
+    }
+}

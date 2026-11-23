@@ -174,17 +174,17 @@ impl<T: PieceStore> PieceChain<T> {
     }
 
     /// [Self::resume_on] of a chain whose pieces are tapes of their own. The pieces are read first and the holes
-    /// between them checked; only then is a piece written: the last one resumed, or a cut piece a crash left unmarked
-    /// marked closed. A refused resume writes nothing.
+    /// between them checked; only then is a piece written: a piece cut whole that a crash left unmarked, or torn after
+    /// its tail, is made so, and the last piece is resumed. A resume refused for the chain (a hole, a lost head) writes
+    /// nothing. A refusal by the last piece's own resume ([TapeWriter::resume_on]) comes after those repairs: the bytes
+    /// after a cut piece's tail are dropped and its closed mark set, as any later resume would do.
     fn resume_each(
         mut store: T,
         owner: OwnerId,
         chain: u64,
         options: ChainOptions,
     ) -> Result<(Self, Resumed), WriteError<T::Error>> {
-        // a resume that finds its last piece cut after all marks it and reads the chain again, once
-        let mut again = true;
-        let (walk, key, reopened) = loop {
+        let (walk, key, reopened) = {
             let walk = walk_each(&mut store)?;
             check_gaps(&walk.closed, walk.last_seen.as_ref(), &walk.gaps)?;
             // the lowest piece at hand after deleted ones, its head unread: no piece before it to start it again
@@ -196,29 +196,37 @@ impl<T: PieceStore> PieceChain<T> {
                     seq: Some(walk.seq),
                 }));
             }
-            for key in &walk.unmarked {
-                if let Some(mut sink) = store
+            // the holes hold: the pieces cut whole that a crash left unmarked or torn after their tail are made so
+            for key in &walk.repair {
+                let Some(sink) = store
                     .reopen(key)
                     .map_err(sink_err("reopening a piece cut whole"))?
-                {
-                    sink.close()
-                        .map_err(sink_err("marking a piece cut whole closed"))?;
+                else {
+                    continue;
+                };
+                match TapeWriter::resume_on(sink, options.writer.clone()) {
+                    Err(WriteError::Resume(ResumeError::Continued { .. })) => {}
+                    Err(e) => return Err(e),
+                    Ok(_) => {
+                        return Err(WriteError::Index(IndexError::Invalid(
+                            "a piece read as cut resumes as unclosed",
+                        )));
+                    }
                 }
             }
             let key = store.key_of(walk.seq);
             if walk.last_seen.is_none() {
-                break (walk, key, None);
-            }
-            let sink = store
-                .reopen(&key)
-                .map_err(sink_err("reopening the last piece"))?
-                .ok_or(WriteError::Index(IndexError::Invalid(
-                    "the last piece of the chain is gone",
-                )))?;
-            match TapeWriter::resume_on(sink, options.writer.clone()) {
-                // cut whole before a crash took its mark: marked now, read as closed
-                Err(WriteError::Resume(ResumeError::Continued { .. })) if again => again = false,
-                r => break (walk, key, Some(r?)),
+                (walk, key, None)
+            } else {
+                let sink = store
+                    .reopen(&key)
+                    .map_err(sink_err("reopening the last piece"))?
+                    .ok_or(WriteError::Index(IndexError::Invalid(
+                        "the last piece of the chain is gone",
+                    )))?;
+                // the walk read every piece closed by a cut as closed: the last piece isn't one
+                let r = TapeWriter::resume_on(sink, options.writer.clone())?;
+                (walk, key, Some(r))
             }
         };
         let Walk {
@@ -816,8 +824,9 @@ struct Walk<K> {
     closed: Vec<Done<K>>,
     /// Pieces missing between those at hand: (from, to, how many closed pieces come before them)
     gaps: Vec<(u64, u64, usize)>,
-    /// Pieces cut whole that a crash left unmarked ([TapeSink::close]): read as closed, marked once the holes hold
-    unmarked: Vec<K>,
+    /// Pieces cut whole that a crash left unmarked ([TapeSink::close]) or with torn bytes after their tail: read as
+    /// closed, made so ([TapeWriter::resume_on] gives [ResumeError::Continued]) once the holes hold
+    repair: Vec<K>,
     /// The last piece's seq: the one to resume, or the one to start
     seq: u64,
     /// The last piece, as a reader finds it; None when there is none and it is to be started
@@ -837,7 +846,7 @@ fn walk_each<T: PieceStore>(store: &mut T) -> Result<Walk<T::Key>, WriteError<T:
     let mut walk = Walk {
         closed: Vec::new(),
         gaps: Vec::new(),
-        unmarked: Vec::new(),
+        repair: Vec::new(),
         seq: 0,
         last_seen: None,
     };
@@ -853,7 +862,13 @@ fn walk_each<T: PieceStore>(store: &mut T) -> Result<Walk<T::Key>, WriteError<T:
             .map_err(sink_err("opening a closed piece"))?;
         // a piece the chain goes on from: cut, closed by its last close record
         let (cut, seen) = match &named {
-            Some(src) => (cut_piece(src)?, Some(seen_in(src)?)),
+            Some(src) => {
+                let cut = cut_piece(src)?;
+                if cut.as_ref().is_some_and(|c| c.torn) {
+                    walk.repair.push(key.clone());
+                }
+                (cut, Some(seen_in(src)?))
+            }
             // a store that marks pieces closed may hold one a crash left unmarked: read through its sink
             None => match store
                 .reopen(&key)
@@ -863,7 +878,7 @@ fn walk_each<T: PieceStore>(store: &mut T) -> Result<Walk<T::Key>, WriteError<T:
                     let src = SinkSource(&sink);
                     let cut = cut_piece(&src)?;
                     if cut.is_some() {
-                        walk.unmarked.push(key.clone());
+                        walk.repair.push(key.clone());
                     }
                     (cut, Some(seen_in(&src)?))
                 }
@@ -871,7 +886,7 @@ fn walk_each<T: PieceStore>(store: &mut T) -> Result<Walk<T::Key>, WriteError<T:
             },
         };
         match (cut, seen) {
-            (Some((piece, last)), _) => {
+            (Some(CutPiece { piece, last, .. }), _) => {
                 walk.closed.push((ChainPiece { tape: key, piece }, last));
                 walk.seq = walk.seq.checked_add(1).ok_or_else(too_many)?;
             }
@@ -1012,17 +1027,35 @@ struct LastPiece {
     removed: Vec<RemovedPiece>,
 }
 
-/// The piece in `src` when the chain goes on from it: one piece, closed by a cut (its last close record names the
-/// next piece), no bytes after its tail; None for any other.
-fn cut_piece<B: ByteSource>(src: &B) -> Result<Option<(Closed, LastPiece)>, WriteError<B::Error>> {
+/// A piece the chain goes on from, read by [cut_piece].
+struct CutPiece {
+    piece: Closed,
+    last: LastPiece,
+    /// Bytes follow its tail, torn by a crash during the cut: a resume of the piece cuts them
+    /// ([ResumeError::Continued]), or refuses a good block among them.
+    torn: bool,
+}
+
+/// The piece in `src` when the chain goes on from it: closed by a cut (its last close record names the next piece);
+/// None for any other.
+fn cut_piece<B: ByteSource>(src: &B) -> Result<Option<CutPiece>, WriteError<B::Error>> {
     let reader = TapeReader::open(src).map_err(WriteError::Read)?;
-    let cut = matches!(reader.pieces(), [p] if p.start == 0
-        && p.is_closed()
-        && p.close.as_ref().is_some_and(|(c, _)| c.next.is_some()));
-    match cut {
-        true => read_closed_at(&reader, 0).map(Some),
-        false => Ok(None),
-    }
+    let end = match reader.pieces().first() {
+        Some(p)
+            if p.start == 0
+                && p.is_closed()
+                && p.close.as_ref().is_some_and(|(c, _)| c.next.is_some()) =>
+        {
+            p.end
+        }
+        _ => return Ok(None),
+    };
+    let size = src
+        .size()
+        .map_err(crate::sink::sink_err("reading a piece's length"))?;
+    let torn = reader.pieces().len() > 1 || size > end;
+    let (piece, last) = read_closed_at(&reader, 0)?;
+    Ok(Some(CutPiece { piece, last, torn }))
 }
 
 /// Closed piece `i` of `reader`, from its tail, close and head.
