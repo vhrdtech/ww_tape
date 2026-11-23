@@ -131,8 +131,8 @@ impl<B: ByteSource> Src<'_, B> {
 }
 
 impl<S: TapeSink> TapeWriter<S> {
-    /// Write the closed piece `src` holds from `start` on, `len` bytes, into `out` at [Integrity::Full], see the
-    /// [module docs](self): the bytes a writer of that level writes from the same calls, at the same offsets. After a
+    /// Write the closed piece `src` holds from `start` on, `len` bytes, into `out` at [Integrity::Full]: the bytes a
+    /// writer of that level writes from the same calls, at the same offsets. Each block keeps its length. After a
     /// piece sealed before it, `after` gives that piece, whose content hash this piece's head names; None keeps the
     /// head's link as it is. Gives the piece sealed and `out`.
     ///

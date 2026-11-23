@@ -156,7 +156,10 @@ pub fn seal(data: &[u8]) {
             let r = TapeReader::open(&got[..]).expect("a sealed tape opens");
             for i in 0..r.pieces().len() {
                 assert_eq!(r.pieces()[i].integrity(), Integrity::Full);
-                assert!(r.verify(i).expect("a sealed piece verifies").holds);
+                assert!(
+                    r.verify(i).expect("a sealed piece verifies").holds,
+                    "a sealed piece holds against its index"
+                );
             }
         }
         Ok(None) => unreachable!("the tape is there"),
