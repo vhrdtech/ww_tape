@@ -47,7 +47,7 @@ fn stops<T: Tapes>(chain: &mut PieceChain<T>, e: &WriteError<T::Error>) -> bool 
 struct State<'a, T: Tapes> {
     shared: &'a Shared<T>,
     trees: Trees,
-    /// Open chunks sealed for their latency that found the queue closed: placed before the close
+    /// Open chunks completed for their latency that found the queue closed: placed before the close
     late: Vec<(Work<T>, u64)>,
     /// The blocks a resume kept of the piece whose trees are still to be rebuilt: before the first write, so the
     /// tracks are defined again by then
@@ -90,7 +90,7 @@ pub(crate) fn run<T: Tapes>(
         let now = Instant::now();
         // a quiet handle's open chunk goes behind what its handle sent before
         let late = &mut st.late;
-        open::seal_due(&shared, now, false, &mut |work, bytes| {
+        open::complete_due(&shared, now, false, &mut |work, bytes| {
             if let Err(work) = shared.queue.push_control(work, false) {
                 late.push((work, bytes));
             }
@@ -391,7 +391,7 @@ fn refused<T: Tapes>(
     }
 }
 
-/// Close the chain for `reason`: every open chunk sealed and placed, the summary trees ended; every piece.
+/// Close the chain for `reason`: every open chunk completed and placed, the summary trees ended; every piece.
 fn close<T: Tapes>(
     mut chain: PieceChain<T>,
     defs: &mut Definitions,
@@ -400,7 +400,7 @@ fn close<T: Tapes>(
 ) -> Result<Vec<ChainPiece<T::Key>>, MuxError<T::Error>> {
     let shared = st.shared;
     let mut last = std::mem::take(&mut st.late);
-    open::seal_due(shared, Instant::now(), true, &mut |work, bytes| {
+    open::complete_due(shared, Instant::now(), true, &mut |work, bytes| {
         last.push((work, bytes));
     });
     for (work, bytes) in last {

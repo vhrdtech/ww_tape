@@ -25,8 +25,8 @@
 //!
 //! # Latency
 //!
-//! A typed handle's open chunk is shared with the writing thread. The producer seals it when full; the writing
-//! thread seals it when its first item has waited the handle's latency ([EventsOptions::latency]), so a quiet
+//! A typed handle's open chunk is shared with the writing thread. The producer completes it when full; the writing
+//! thread completes it when its first item has waited the handle's latency ([EventsOptions::latency]), so a quiet
 //! producer's items still reach the tape. Either way the chunk goes into the queue behind every unit the handle
 //! sent before.
 //!
@@ -68,9 +68,9 @@
 //! threads and tasks wait in one line, served in the order they came.
 //!
 //! The futures are cancel-safe. A send dropped while it waits leaves the line and sends nothing. A typed handle's
-//! push dropped while it waits keeps the chunks it sealed: the handle's next push, seal, finish or drop sends them
-//! first, so no item is lost and the track stays in order. A control call dropped once sent is done all the same. A
-//! timeout of the caller's runtime bounds a wait. A typed handle's drop sends its open chunk blocking: async code
+//! push dropped while it waits keeps the chunks it completed: the handle's next push, complete, finish or drop sends
+//! them first, so no item is lost and the track stays in order. A control call dropped once sent is done all the same.
+//! A timeout of the caller's runtime bounds a wait. A typed handle's drop sends its open chunk blocking: async code
 //! ends a handle with its `finish_async`.
 //!
 //! # Close and drop
@@ -175,8 +175,8 @@ pub struct MuxStats {
     pub refused: u64,
     /// Units sent before a failure and never placed.
     pub lost: u64,
-    /// Open chunks of quiet handles the writing thread sealed when their latency was up.
-    pub latency_seal_count: u64,
+    /// Open chunks of quiet handles the writing thread completed when their latency was up.
+    pub latency_complete_count: u64,
     /// Whether the mux failed ([MuxError::Failed]).
     pub failed: bool,
 }

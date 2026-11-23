@@ -83,7 +83,7 @@ The bytes of blocks, records, chunks, sessions and the index, in the crate `ww_t
 
 - ✅ **FMT-13 Sample flags in series chunks**
 
-  A series chunk keeps its samples' flag words as runs of consecutive samples sharing a word, in a `Flags` column of codec `FLAG_RUNS`. Only a chunk with a flagged sample has the column, so an unflagged series keeps its bytes. A chunk holds at most `FLAG_RUNS_MAX` (4096) runs; the writer seals it before one more. Readers take the runs per chunk (`Chunk::flag_runs`, `SeriesSamples::flag_runs`), and summaries derive their flags from them.
+  A series chunk keeps its samples' flag words as runs of consecutive samples sharing a word, in a `Flags` column of codec `FLAG_RUNS`. Only a chunk with a flagged sample has the column, so an unflagged series keeps its bytes. A chunk holds at most `FLAG_RUNS_MAX` (4096) runs; the writer completes it before one more. Readers take the runs per chunk (`Chunk::flag_runs`, `SeriesSamples::flag_runs`), and summaries derive their flags from them.
 
   Read more: [Sample flags](docs/format.md#sample-flags). Golden file `v1-series.hex`; tests `series_flags.rs`, `mux_resume.rs`; fuzz targets `tape-flags`, `tape-flags-hostile`.
 
@@ -217,7 +217,7 @@ The writing thread and its handles, in the crate `ww_tape_mux`.
 
 - ✅ **MUX-3 Async waits for the mux and the followers**
 
-  Every call of the mux, its handles and the followers that waits has an `_async` twin. Threads and tasks wait in the same line, in arrival order, and a blocking call parks its thread on the same future. No crate depends on an async runtime: the writing thread, or a follower's own waiting thread, wakes the task. A send dropped while it waits leaves the line, and a typed handle sends the chunks a dropped push sealed on its next call.
+  Every call of the mux, its handles and the followers that waits has an `_async` twin. Threads and tasks wait in the same line, in arrival order, and a blocking call parks its thread on the same future. No crate depends on an async runtime: the writing thread, or a follower's own waiting thread, wakes the task. A send dropped while it waits leaves the line, and a typed handle sends the chunks a dropped push completed on its next call.
 
   Open: a typed handle's drop still sends blocking, so async code ends a handle with `finish_async`.
 

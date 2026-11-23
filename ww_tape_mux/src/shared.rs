@@ -14,7 +14,7 @@ use ww_tape::{
 
 use crate::MuxStats;
 use crate::error::{MuxError, Unit};
-use crate::open::Seal;
+use crate::open::Complete;
 use crate::progress::Watch;
 use crate::queue::{Queue, lock};
 use crate::reply::ReplyTx;
@@ -181,7 +181,7 @@ pub(crate) struct Counters {
     pub placed_bytes: AtomicU64,
     pub refused: AtomicU64,
     pub lost: AtomicU64,
-    pub latency_seal_count: AtomicU64,
+    pub latency_complete_count: AtomicU64,
 }
 
 impl Counters {
@@ -207,8 +207,8 @@ pub(crate) struct Shared<T: Tapes> {
     pub counters: Counters,
     pub queue_bytes: u64,
     pub watch: Arc<Watch>,
-    /// The open chunks of the typed handles, which the writing thread seals when their latency is up
-    pub seals: Mutex<Vec<Weak<dyn Seal<T>>>>,
+    /// The open chunks of the typed handles, which the writing thread completes when their latency is up
+    pub open_chunks: Mutex<Vec<Weak<dyn Complete<T>>>>,
     /// What the open chunks' deadlines count from
     pub epoch: Instant,
     /// The chain's pieces are of [Integrity::Full](ww_tape::Integrity::Full): a handle hashes each chunk's payload on
@@ -225,7 +225,7 @@ impl<T: Tapes> Shared<T> {
             counters: Counters::default(),
             queue_bytes,
             watch: Arc::new(Watch::new()),
-            seals: Mutex::new(Vec::new()),
+            open_chunks: Mutex::new(Vec::new()),
             epoch: Instant::now(),
         }
     }
@@ -263,7 +263,7 @@ impl<T: Tapes> Shared<T> {
             placed_bytes: get(&c.placed_bytes),
             refused: get(&c.refused),
             lost: get(&c.lost),
-            latency_seal_count: get(&c.latency_seal_count),
+            latency_complete_count: get(&c.latency_complete_count),
             failed: self.failure.get().is_some(),
         }
     }

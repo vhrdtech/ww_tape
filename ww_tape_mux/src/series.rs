@@ -19,7 +19,7 @@ use crate::TapeMux;
 use crate::error::{CallError, EncodeError, ItemError, MuxError};
 use crate::events::{CHUNK_BYTES_DEFAULT, LATENCY_DEFAULT};
 use crate::handle::{Backlog, Pressure, Sender, Sent};
-use crate::open::{Buffers, Encoder, Open, Sealed};
+use crate::open::{Buffers, Completed, Encoder, Open};
 use crate::queue::lock;
 use crate::summaries::ChunkSummary;
 
@@ -31,10 +31,10 @@ pub const CHUNK_SAMPLES_DEFAULT: u32 = 65_536;
 pub struct SeriesOptions {
     /// Samples of a chunk at most, 1 and up.
     pub chunk_samples: u32,
-    /// Bytes of a chunk's samples as they come, at most: the chunk is sealed at the samples that fill it.
+    /// Bytes of a chunk's samples as they come, at most: the chunk is completed at the samples that fill it.
     pub chunk_bytes: Bytes<u32>,
-    /// How long the first sample of an open chunk waits at most before the writing thread seals the chunk; None:
-    /// until the chunk is full or sealed by the producer.
+    /// How long the first sample of an open chunk waits at most before the writing thread completes the chunk; None:
+    /// until the chunk is full or completed by the producer.
     pub latency: Option<Duration>,
     /// The codec of the sample column.
     pub codec: Codec,
@@ -117,13 +117,13 @@ impl<S: Scalar + Sample> Leaves<S> {
         }
     }
 
-    /// Seal the open part and take every leaf.
-    fn seal(&mut self) -> Result<Vec<SeriesLeaf>, BuildError> {
+    /// Complete the open part and take every leaf.
+    fn complete(&mut self) -> Result<Vec<SeriesLeaf>, BuildError> {
         match self {
-            Self::Same(l) => l.seal().map(|()| l.take_leaves()),
-            Self::I16(l) => l.seal().map(|()| l.take_leaves()),
-            Self::I32(l) => l.seal().map(|()| l.take_leaves()),
-            Self::I64(l) => l.seal().map(|()| l.take_leaves()),
+            Self::Same(l) => l.complete().map(|()| l.take_leaves()),
+            Self::I16(l) => l.complete().map(|()| l.take_leaves()),
+            Self::I32(l) => l.complete().map(|()| l.take_leaves()),
+            Self::I64(l) => l.complete().map(|()| l.take_leaves()),
         }
     }
 }
@@ -159,7 +159,7 @@ impl<S: Scalar + Sample> SeriesChunk<S> {
         ItemNum::new(self.next_item.saturating_add(n))
     }
 
-    fn encode(&mut self, buffers: &dyn Buffers) -> Result<Option<Sealed>, EncodeError> {
+    fn encode(&mut self, buffers: &dyn Buffers) -> Result<Option<Completed>, EncodeError> {
         let frames = self.frames();
         if frames == 0 {
             return Ok(None);
@@ -213,14 +213,14 @@ impl<S: Scalar + Sample> SeriesChunk<S> {
                 shape: self.shape,
                 period: self.period,
                 spec: *spec,
-                leaves: leaves.seal().map_err(EncodeError::Summary)?,
+                leaves: leaves.complete().map_err(EncodeError::Summary)?,
             }),
             None => None,
         };
         self.next_item = self.next_item.saturating_add(u64::from(count));
         self.samples.clear();
         self.runs.clear();
-        Ok(Some(Sealed {
+        Ok(Some(Completed {
             head,
             columns,
             summary,
@@ -229,7 +229,7 @@ impl<S: Scalar + Sample> SeriesChunk<S> {
 }
 
 impl<S: Scalar + Sample + Send> Encoder for SeriesChunk<S> {
-    fn seal(&mut self, buffers: &dyn Buffers) -> Result<Option<Sealed>, EncodeError> {
+    fn complete(&mut self, buffers: &dyn Buffers) -> Result<Option<Completed>, EncodeError> {
         self.encode(buffers)
     }
 }
@@ -238,11 +238,11 @@ impl<S: Scalar + Sample + Send> Encoder for SeriesChunk<S> {
 ///
 /// Samples are encoded into the open chunk on the producer's thread, its payload hashed there too, and the
 /// statistics of the summaries' level-0 nodes computed; the writing thread only places the chunk and builds the
-/// levels above. A chunk is sealed when it holds [SeriesOptions::chunk_samples] samples or
+/// levels above. A chunk is completed when it holds [SeriesOptions::chunk_samples] samples or
 /// [SeriesOptions::chunk_bytes] bytes, at a new grid ([Self::regrid]), before samples that would start a flag run past
-/// [FLAG_RUNS_MAX](ww_tape::flag_runs::FLAG_RUNS_MAX) ([Self::push_flagged]), by [Self::seal], and by the writing thread
-/// when its first sample waited [SeriesOptions::latency]. Dropping the handle seals and sends the open chunk;
-/// [Self::finish] does so and returns the error.
+/// [FLAG_RUNS_MAX](ww_tape::flag_runs::FLAG_RUNS_MAX) ([Self::push_flagged]), by [Self::complete], and by the writing
+/// thread when its first sample waited [SeriesOptions::latency]. Dropping the handle completes and sends the open
+/// chunk; [Self::finish] does so and returns the error.
 pub struct SeriesHandle<T: Tapes, S: Scalar + Sample + Send + 'static> {
     s: Sender<T>,
     open: Arc<Open<T, SeriesChunk<S>>>,
@@ -375,7 +375,7 @@ struct Read<'a, 'b> {
 }
 
 impl Read<'_, '_> {
-    /// The leaves of the samples decoded as `S`, sealed at the chunk's end as the handle seals them.
+    /// The leaves of the samples decoded as `S`, completed at the chunk's end as the handle completes them.
     fn leaves<S: Scalar + Sample>(&self) -> Option<Vec<SeriesLeaf>> {
         let n = self.samples.count().checked_mul(self.samples.lanes())?;
         let mut values = vec![S::default(); n];
@@ -383,7 +383,7 @@ impl Read<'_, '_> {
         let mut leaves =
             Leaves::<S>::new(self.shape, self.grid, self.first_item, self.spec).ok()?;
         leaves.push_runs(&values, &self.runs).ok()?;
-        leaves.seal().ok()
+        leaves.complete().ok()
     }
 }
 
@@ -468,7 +468,7 @@ where
 
     /// Add samples as [Self::push] does, each flagged `flags`: kept in the chunk's flag runs
     /// ([Chunk::flag_runs](ww_tape::Chunk::flag_runs)) and ORed into the summary nodes they fall in. A chunk holds
-    /// at most [FLAG_RUNS_MAX](ww_tape::flag_runs::FLAG_RUNS_MAX) runs: samples that would start one more seal it
+    /// at most [FLAG_RUNS_MAX](ww_tape::flag_runs::FLAG_RUNS_MAX) runs: samples that would start one more complete it
     /// first.
     pub fn push_flagged(
         &mut self,
@@ -483,8 +483,8 @@ where
 
     /// [Self::push] as a future, waiting for room by waker.
     ///
-    /// Dropped while it waits, the samples stay added and the chunks they sealed stay with the handle: its next
-    /// push, regrid, seal, finish or drop sends those chunks first.
+    /// Dropped while it waits, the samples stay added and the chunks they completed stay with the handle: its next
+    /// push, regrid, complete, finish or drop sends those chunks first.
     pub async fn push_async(&mut self, samples: &[S]) -> Result<Option<Sent>, MuxError<T::Error>> {
         self.push_flagged_async(samples, 0).await
     }
@@ -515,9 +515,12 @@ where
         }
         let mut rest = samples;
         while !rest.is_empty() {
-            // a chunk holds at most FLAG_RUNS_MAX runs: one more seals it first
+            // a chunk holds at most FLAG_RUNS_MAX runs: one more completes it first
             if !e.runs.fits(flags)
-                && let Some(unit) = self.open.seal_locked(&mut e).map_err(CallError::Encode)?
+                && let Some(unit) = self
+                    .open
+                    .complete_locked(&mut e)
+                    .map_err(CallError::Encode)?
             {
                 self.backlog.push(unit);
             }
@@ -538,16 +541,19 @@ where
             e.samples.extend_from_slice(now);
             rest = later;
             if e.frames() >= e.chunk_frames
-                && let Some(unit) = self.open.seal_locked(&mut e).map_err(CallError::Encode)?
+                && let Some(unit) = self
+                    .open
+                    .complete_locked(&mut e)
+                    .map_err(CallError::Encode)?
             {
                 self.backlog.push(unit);
             }
         }
-        // dropped before sending: the writing thread may need the chunk to seal it
+        // dropped before sending: the writing thread may need the chunk to complete it
         Ok(e.frames() > 0)
     }
 
-    /// Start the open chunk's latency once the chunks sealed before are queued, so the writing thread seals it
+    /// Start the open chunk's latency once the chunks completed before are queued, so the writing thread completes it
     /// behind them, never ahead.
     fn opened(&self, open: bool) {
         if open {
@@ -556,7 +562,7 @@ where
     }
 
     /// Put the samples from the next one on grid `g`: a new grid (a gap, a restart) or the same grid at a new scale.
-    /// The open chunk is sealed and sent first. Refused when the grid starts after the next sample, a new grid's
+    /// The open chunk is completed and sent first. Refused when the grid starts after the next sample, a new grid's
     /// first sample isn't more than a period after the last sample's tick, or the scale has no common scale with
     /// the ones before.
     pub fn regrid(&mut self, g: SeriesGrid) -> Result<Option<Sent>, MuxError<T::Error>> {
@@ -598,53 +604,61 @@ where
             l.set_scale(g.scale)
                 .map_err(|err| CallError::Encode(EncodeError::Summary(err)))?;
         }
-        if let Some(unit) = self.open.seal_locked(&mut e).map_err(CallError::Encode)? {
+        if let Some(unit) = self
+            .open
+            .complete_locked(&mut e)
+            .map_err(CallError::Encode)?
+        {
             self.backlog.push(unit);
         }
         e.grid = g;
         Ok(())
     }
 
-    /// Seal the open chunk and send it now; None when it holds no sample.
-    pub fn seal(&mut self) -> Result<Option<Sent>, MuxError<T::Error>> {
-        self.seal_open()?;
+    /// Complete the open chunk and send it now; None when it holds no sample.
+    pub fn complete(&mut self) -> Result<Option<Sent>, MuxError<T::Error>> {
+        self.complete_open()?;
         self.backlog.send(&self.s)
     }
 
-    /// [Self::seal] as a future; dropped while it waits, the chunk stays with the handle, as for [Self::push_async].
-    pub async fn seal_async(&mut self) -> Result<Option<Sent>, MuxError<T::Error>> {
-        self.seal_open()?;
+    /// [Self::complete] as a future; dropped while waiting, the chunk stays with the handle, as for [Self::push_async].
+    pub async fn complete_async(&mut self) -> Result<Option<Sent>, MuxError<T::Error>> {
+        self.complete_open()?;
         self.backlog.send_async(&self.s).await
     }
 
-    fn seal_open(&mut self) -> Result<(), MuxError<T::Error>> {
+    fn complete_open(&mut self) -> Result<(), MuxError<T::Error>> {
         let mut e = lock(&self.open.encoder);
-        if let Some(unit) = self.open.seal_locked(&mut e).map_err(CallError::Encode)? {
+        if let Some(unit) = self
+            .open
+            .complete_locked(&mut e)
+            .map_err(CallError::Encode)?
+        {
             self.backlog.push(unit);
         }
         Ok(())
     }
 
-    /// Seal and send the open chunk, then return once everything this handle sent is placed.
+    /// Complete and send the open chunk, then return once everything this handle sent is placed.
     pub fn finish(mut self) -> Result<(), MuxError<T::Error>> {
-        self.seal()?;
+        self.complete()?;
         self.s.flush(false)
     }
 
     /// [Self::finish] as a future. Async code finishes a handle so: its drop sends what it holds blocking.
     pub async fn finish_async(mut self) -> Result<(), MuxError<T::Error>> {
-        self.seal_async().await?;
+        self.complete_async().await?;
         self.s.flush_async(false).await
     }
 }
 
 impl<T: Tapes, S: Scalar + Sample + Send + 'static> Drop for SeriesHandle<T, S> {
-    /// Seal and send the open chunk and any chunk a dropped async call left, as far as the mux takes them; waits
+    /// Complete and send the open chunk and any chunk a dropped async call left, as far as the mux takes them; waits
     /// for room on this thread.
     fn drop(&mut self) {
         let unit = {
             let mut e = lock(&self.open.encoder);
-            self.open.seal_locked(&mut e)
+            self.open.complete_locked(&mut e)
         };
         if let Ok(Some(unit)) = unit {
             self.backlog.push(unit);

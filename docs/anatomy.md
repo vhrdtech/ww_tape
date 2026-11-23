@@ -127,9 +127,9 @@ A [[writer]] given the same input writes the same bytes, for these reasons:
 - The writer ends blocks by size rather than by time.
 - Every [[codec]] is integer-only, or uses arithmetic that every platform rounds the same way.
 
-A [[producer]] gives up this property for the blocks it seals on a timer, and for the [[pieces]] it [[cuts]] by age. The
-lz4 codec is one more exception. An lz4-coded [[payload]] [[column]] is byte-identical only for one version of the lz4
-library, and only on targets of one pointer width and byte order. The exception does not affect decoding.
+A [[producer]] gives up this property for the chunks it completes on a timer, and for the [[pieces]] it [[cuts]] by age.
+The lz4 codec is one more exception. An lz4-coded [[payload]] [[column]] is byte-identical only for one version of the
+lz4 library, and only on targets of one pointer width and byte order. The exception does not affect decoding.
 
 Deterministic output makes files comparable by hash. A test can pin a file's exact bytes, and two machines that recorded
 the same feed can confirm that they hold the same data. The drive's recording relies on it: a [[resume]] after the crash

@@ -23,7 +23,7 @@ A capture thread takes the frames in batches, as a network card hands them over,
 --8<-- "examples/example_ethernet/src/lib.rs:capture"
 ```
 
-The handle copies the batch into its open [[events chunk]] and seals the chunk at 1 MiB of frames. It codes the
+The handle copies the batch into its open [[events chunk]] and completes the chunk at 1 MiB of frames. It codes the
 [[payload]] column with the track's payload codec, here `Raw`, and hashes it on the capture thread ([why raw](#compressing-the-payloads)). A tool that already writes the pcap format could store those
 records instead, as a `Foreign` item with the media type `application/vnd.tcpdump.pcap` ([Tracks](tracks.md)).
 

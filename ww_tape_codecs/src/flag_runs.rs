@@ -25,7 +25,7 @@ use crate::bytes::le_u32;
 /// Bytes of one run.
 pub const FLAG_RUN_LEN: usize = 12;
 
-/// Most runs of one chunk: 48 KiB of column. A writer seals a chunk before a run past it.
+/// Most runs of one chunk: 48 KiB of column. A writer completes a chunk before a run past it.
 pub const FLAG_RUNS_MAX: usize = 4096;
 
 /// A run of consecutive samples sharing one flags word.

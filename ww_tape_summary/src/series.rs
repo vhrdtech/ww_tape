@@ -1063,7 +1063,7 @@ mod builder {
 
     /// The pass over a series' samples: the statistics of each level-0 node, on the thread that has the samples.
     ///
-    /// Samples go in as [SeriesSummaries::push] takes them. A node that fills is a whole [SeriesLeaf]; [Self::seal]
+    /// Samples go in as [SeriesSummaries::push] takes them. A node that fills is a whole [SeriesLeaf]; [Self::complete]
     /// ends the samples so far as a part, at the end of a chunk. The leaves go, in order, to a [SeriesTree], which
     /// merges the parts of a node and builds the levels above.
     pub struct SeriesLeaves<T: Scalar> {
@@ -1181,7 +1181,7 @@ mod builder {
                     .ok_or(past)?;
                 rest = later;
                 if self.next_item & self.d.node_mask == 0 {
-                    self.seal()?;
+                    self.complete()?;
                 }
             }
             Ok(())
@@ -1308,7 +1308,7 @@ mod builder {
         }
 
         /// End the open part as a leaf, whole when its node filled: at the end of a chunk, and at the end.
-        pub fn seal(&mut self) -> Result<(), BuildError> {
+        pub fn complete(&mut self) -> Result<(), BuildError> {
             self.flush_acc()?;
             if let Some((node, samples)) = self.part.take() {
                 let first_item = self
@@ -1689,7 +1689,7 @@ mod builder {
         /// Write the open nodes of every level, partial ones included, as blocks. Call it once, after the last
         /// sample.
         pub fn finish(&mut self) -> Result<(), BuildError> {
-            self.leaves.seal()?;
+            self.leaves.complete()?;
             self.take_leaves()?;
             self.tree.finish()
         }

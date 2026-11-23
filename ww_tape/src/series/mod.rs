@@ -21,7 +21,7 @@
 //!   the samples are cut into chunks;
 //! - a change of scale (a prefix change of an autoranging device) keeps the grid ([SeriesGrid::rescaled]): the
 //!   stored numbers of the chunk mean `number · scale` of the sample type's unit; a chunk has one scale, so a writer
-//!   seals the open chunk at a change of scale;
+//!   completes the open chunk at a change of scale;
 //! - a gap or a restart on the same clock starts a new grid ([SeriesGrid::start]) whose first sample is more than a
 //!   period after the last tick of the chunk before ([is_gap]); a device restart that is a new clock is a new track on that clock.
 //!
@@ -68,7 +68,7 @@
 //! | reads | from the start, item by item, all columns in step | any sample range, a group of 128 alone, in place |
 //! | codecs | delta, delta of delta, packed, prefix code, XOR; picked per column and batch | raw device formats, delta and delta of delta bit-packed per group, ALP for floats |
 //! | costs | MCU-sized: a few hundred instructions per item, a few KB of flash | host-sized: SIMD unpack kernels, about 0.2 ns per value |
-//! | scale | a prefix run and a number type per item (`Quantity`) or in the type (`Fixed`); a prefix change restarts the numeric column | one scale per chunk; a prefix change seals the chunk |
+//! | scale | a prefix run and a number type per item (`Quantity`) or in the type (`Fixed`); a prefix change restarts the numeric column | one scale per chunk; a prefix change completes the chunk |
 //!
 //! Neither is a container of the other. A batch is decoded once on the host and its numbers coded again for the
 //! file: the wire codec is tuned for a small encoder, the file codec for random access and fast reads.
@@ -84,10 +84,10 @@
 //!    numbers into the open chunk's column, channels interleaved. The scale never changes.
 //! 3. `T` is a `ww_si` quantity: its prefix is the grid's scale (`Prefix::magnitude`); while it stays the same,
 //!    the number of its `NumericValue` goes into the column as the track's element, widened exactly (an `i16` into
-//!    an `i32` column), never narrowed. An item with another prefix seals the chunk; the next chunk carries the same
-//!    grid with the new scale ([SeriesGrid::rescaled]). The `Series` itself restarts its numeric column at the same
-//!    item, so both layers break at the same place.
-//! 4. A sealed column is coded with [samples::encode](crate::samples::encode) in the track's codec and written as a
+//!    an `i32` column), never narrowed. An item with another prefix completes the chunk; the next chunk carries the
+//!    same grid with the new scale ([SeriesGrid::rescaled]). The `Series` itself restarts its numeric column at the
+//!    same item, so both layers break at the same place.
+//! 4. A completed column is coded with [samples::encode](crate::samples::encode) in the track's codec and written as a
 //!    chunk whose head carries its grid and the ticks [SeriesGrid::chunk_ticks] gives.
 //!
 //! The batch's time column (`Series<Timed<T>>`) is not stored: the grid gives every sample's tick. A host checks it

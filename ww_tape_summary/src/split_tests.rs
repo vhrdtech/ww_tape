@@ -21,7 +21,7 @@ fn chunks(n: usize, max: u64, rng: &mut Rng) -> Vec<usize> {
     out
 }
 
-/// Series leaves sealed at every chunk's end and merged by the tree give the blocks the whole builder gives: integer
+/// Series leaves completed at every chunk's end and merged by the tree give the blocks the whole builder gives: integer
 /// statistics merge exactly.
 #[test]
 fn series_leaves_and_tree_write_what_the_whole_builder_writes() {
@@ -59,7 +59,7 @@ fn series_leaves_and_tree_write_what_the_whole_builder_writes() {
             want.extend(whole.take_blocks());
             // the producer's half
             leaves.push(chunk, 0).unwrap();
-            leaves.seal().unwrap();
+            leaves.complete().unwrap();
             // the writing thread's half
             tree.samples(n as u64).unwrap();
             for leaf in leaves.take_leaves() {
@@ -96,7 +96,7 @@ fn series_tree_refuses_leaves_out_of_order() {
     let mut leaves =
         SeriesLeaves::<i16>::new(shape, Magnitude::ONE, ItemNum::new(0), spec).unwrap();
     leaves.push(&[1, 2, 3], 0).unwrap();
-    leaves.seal().unwrap();
+    leaves.complete().unwrap();
     let leaf = leaves.take_leaves().pop().unwrap();
     let mut tree = SeriesTree::new(start, spec).unwrap();
     assert!(
@@ -113,7 +113,7 @@ fn series_tree_refuses_leaves_out_of_order() {
     tree.push_leaf(leaf).unwrap();
 }
 
-/// Event runs sealed at every chunk's end give the tree what the items one by one give it.
+/// Event runs completed at every chunk's end give the tree what the items one by one give it.
 #[test]
 fn event_runs_write_what_the_items_write() {
     let mut rng = Rng(11);
@@ -134,7 +134,7 @@ fn event_runs_write_what_the_items_write() {
                 runs.push(s, e, f).unwrap();
             }
             at += n;
-            runs.seal();
+            runs.complete();
             for (first, run) in runs.take_runs() {
                 assert_eq!(first, tree.next_item(), "runs follow each other");
                 tree.push_run(run).unwrap();
@@ -190,12 +190,12 @@ fn event_runs_take_columns_as_items() {
                 .unwrap();
                 at += n;
                 if n % 3 == 0 {
-                    one.seal();
-                    cols.seal();
+                    one.complete();
+                    cols.complete();
                 }
             }
-            one.seal();
-            cols.seal();
+            one.complete();
+            cols.complete();
             assert_eq!(cols.next_item(), one.next_item(), "first item {first}");
             assert_eq!(cols.take_runs(), one.take_runs(), "first item {first}");
         }

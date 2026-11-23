@@ -18,7 +18,7 @@ impl LevelNode for EventNode {
 /// Default most bytes of an event tree block.
 pub const EVENT_BLOCK_BYTES: Bytes<u32> = Bytes::new(4096);
 
-/// A run of consecutive items whose summary is known (a sealed group of the time codec): count, starts, flags OR,
+/// A run of consecutive items whose summary is known (a completed group of the time codec): count, starts, flags OR,
 /// latest end.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct ItemRun {
@@ -34,7 +34,7 @@ pub struct ItemRun {
     pub latest_end: i64,
 }
 
-/// Builds the item tree of one event track as items are sealed, and encodes its summary blocks.
+/// Builds the item tree of one event track as items are completed, and encodes its summary blocks.
 ///
 /// Items go in in item order ([Self::push] one by one, [Self::push_run] a run inside one level-0 node). Finished
 /// blocks wait in [Self::take_blocks] for [TapeWriter::defer_block](ww_tape::TapeWriter::defer_block); [Self::finish]
@@ -243,7 +243,7 @@ impl EventTree {
 /// The runs of an event track's items, one per level-0 node at most, as the producer of the items computes them:
 /// for [EventTree::push_run] on the writing thread.
 ///
-/// Items go in in order of start ([Self::push]). A run ends where its level-0 node ends and at [Self::seal], at the
+/// Items go in in order of start ([Self::push]). A run ends where its level-0 node ends and at [Self::complete], at the
 /// end of a chunk; [Self::take_runs] gives the runs so far with their first items.
 pub struct EventRuns {
     fields: EventFields,
@@ -311,7 +311,7 @@ impl EventRuns {
         self.last_start = Some(start);
         self.next_item = end_item;
         if end_item.is_multiple_of(1 << EVENT_BASE_SHIFT) {
-            self.seal();
+            self.complete();
         }
         Ok(())
     }
@@ -396,7 +396,7 @@ impl EventRuns {
             }
             self.next_item = self.next_item.saturating_add(count);
             if self.next_item.is_multiple_of(1 << EVENT_BASE_SHIFT) {
-                self.seal();
+                self.complete();
             }
             at = to;
         }
@@ -405,7 +405,7 @@ impl EventRuns {
     }
 
     /// End the open run: at the end of a chunk.
-    pub fn seal(&mut self) {
+    pub fn complete(&mut self) {
         if let Some((first, run)) = self.open.take() {
             self.runs.push((ItemNum::new(first), run));
         }

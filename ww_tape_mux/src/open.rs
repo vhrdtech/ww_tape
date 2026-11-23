@@ -1,4 +1,4 @@
-//! The open chunk of a typed handle: filled on the producer's thread, sealed there when full, and by the writing
+//! The open chunk of a typed handle: filled on the producer's thread, completed there when full, and by the writing
 //! thread when its latency is up, so a quiet producer's items still reach the tape.
 
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -13,8 +13,8 @@ use crate::queue::lock;
 use crate::shared::{Counters, Shared, Slot, Work};
 use crate::summaries::ChunkSummary;
 
-/// A chunk sealed by its encoder: what goes into the queue.
-pub(crate) struct Sealed {
+/// A chunk completed by its encoder: what goes into the queue.
+pub(crate) struct Completed {
     pub head: ChunkHead,
     pub columns: Vec<(ColumnSpec, Vec<u8>)>,
     pub summary: Option<ChunkSummary>,
@@ -33,18 +33,18 @@ impl<E> Buffers for Slot<E> {
 
 /// What a typed handle's open chunk does.
 pub(crate) trait Encoder: Send {
-    /// Seal the items so far into a chunk, its columns in buffers of `buffers`; None when there are none.
-    fn seal(&mut self, buffers: &dyn Buffers) -> Result<Option<Sealed>, EncodeError>;
+    /// Complete the items so far into a chunk, its columns in buffers of `buffers`; None when there are none.
+    fn complete(&mut self, buffers: &dyn Buffers) -> Result<Option<Completed>, EncodeError>;
 }
 
-/// An open chunk the writing thread may seal.
-pub(crate) trait Seal<T: Tapes>: Send + Sync {
+/// An open chunk the writing thread may complete.
+pub(crate) trait Complete<T: Tapes>: Send + Sync {
     /// When its latency is up, in nanoseconds from the mux's epoch; None while it holds no item.
     fn due_ns(&self) -> Option<u64>;
-    /// Seal it and hand the unit to `out` while the chunk is still held, so the unit is queued before any later
+    /// Complete it and hand the unit to `out` while the chunk is still held, so the unit is queued before any later
     /// chunk of its handle. With `due_by`, only when its latency is up by then, and not when its producer holds it
-    /// (the producer seals it then); without, waiting for the producer. Whether it sealed a unit.
-    fn seal_unit(&self, due_by: Option<u64>, out: &mut dyn FnMut(Work<T>, u64)) -> bool;
+    /// (the producer completes it then); without, waiting for the producer. Whether it completed a unit.
+    fn complete_unit(&self, due_by: Option<u64>, out: &mut dyn FnMut(Work<T>, u64)) -> bool;
 }
 
 /// A handle's open chunk, shared with the writing thread.
@@ -64,7 +64,7 @@ where
     T::Key: Send,
     T::Sink: Send,
 {
-    /// The open chunk of `encoder`, registered with the mux for latency seals when `latency` is given.
+    /// The open chunk of `encoder`, registered with the mux to complete for its latency when `latency` is given.
     pub(crate) fn register(
         shared: &Arc<Shared<T>>,
         from: Arc<Slot<T::Error>>,
@@ -79,11 +79,11 @@ where
             from,
             shared: Arc::downgrade(shared),
         });
-        let mine: Arc<dyn Seal<T>> = open.clone();
+        let mine: Arc<dyn Complete<T>> = open.clone();
         let weak = Arc::downgrade(&mine);
-        let mut seals = lock(&shared.seals);
-        seals.retain(|w| w.strong_count() > 0);
-        seals.push(weak);
+        let mut open_chunks = lock(&shared.open_chunks);
+        open_chunks.retain(|w| w.strong_count() > 0);
+        open_chunks.push(weak);
         open
     }
 
@@ -105,18 +105,18 @@ where
 }
 
 impl<T: Tapes, E: Encoder> Open<T, E> {
-    /// Seal `encoder`, held by the caller: the unit and the bytes it takes of the queue's budget.
-    pub(crate) fn seal_locked(
+    /// Complete `encoder`, held by the caller: the unit and the bytes it takes of the queue's budget.
+    pub(crate) fn complete_locked(
         &self,
         encoder: &mut E,
     ) -> Result<Option<(Work<T>, u64)>, EncodeError> {
         self.due.store(0, Ordering::Relaxed);
-        let Some(s) = encoder.seal(self.from.as_ref())? else {
+        let Some(s) = encoder.complete(self.from.as_ref())? else {
             return Ok(None);
         };
         let specs: Vec<ColumnSpec> = s.columns.iter().map(|(c, _)| *c).collect();
         let bytes = ww_tape::chunk::chunk_len(&s.head, &specs, 0);
-        // hashed here, on the thread that seals; below Integrity::Full not at all
+        // hashed here, on the thread that completes; below Integrity::Full not at all
         let hash = self
             .shared
             .upgrade()
@@ -135,7 +135,7 @@ impl<T: Tapes, E: Encoder> Open<T, E> {
     }
 }
 
-impl<T: Tapes + 'static, E: Encoder + 'static> Seal<T> for Open<T, E>
+impl<T: Tapes + 'static, E: Encoder + 'static> Complete<T> for Open<T, E>
 where
     T::Error: Send + Sync,
     T::Key: Send,
@@ -145,7 +145,7 @@ where
         self.due.load(Ordering::Relaxed).checked_sub(1)
     }
 
-    fn seal_unit(&self, due_by: Option<u64>, out: &mut dyn FnMut(Work<T>, u64)) -> bool {
+    fn complete_unit(&self, due_by: Option<u64>, out: &mut dyn FnMut(Work<T>, u64)) -> bool {
         let mut e = match due_by {
             None => lock(&self.encoder),
             Some(_) => match self.encoder.try_lock() {
@@ -158,13 +158,13 @@ where
                 }
             },
         };
-        // looked at again with the chunk held: its producer may have sealed it since
+        // looked at again with the chunk held: its producer may have completed it since
         if let Some(now) = due_by
             && !self.due_ns().is_some_and(|d| d <= now)
         {
             return false;
         }
-        match self.seal_locked(&mut e) {
+        match self.complete_locked(&mut e) {
             Ok(Some((work, bytes))) => {
                 out(work, bytes);
                 true
@@ -183,16 +183,16 @@ where
 
 /// The earliest deadline of an open chunk, as an instant.
 pub(crate) fn next_due<T: Tapes>(shared: &Shared<T>) -> Option<Instant> {
-    let ns = lock(&shared.seals)
+    let ns = lock(&shared.open_chunks)
         .iter()
         .filter_map(|w| w.upgrade()?.due_ns())
         .min()?;
     shared.epoch.checked_add(Duration::from_nanos(ns))
 }
 
-/// Seal the open chunks whose latency is up at `now`, each unit handed to `out` while its chunk is held; with `all`,
-/// every open chunk, waiting for its producer.
-pub(crate) fn seal_due<T: Tapes>(
+/// Complete the open chunks whose latency is up at `now`, each unit handed to `out` while its chunk is held; with
+/// `all`, every open chunk, waiting for its producer.
+pub(crate) fn complete_due<T: Tapes>(
     shared: &Shared<T>,
     now: Instant,
     all: bool,
@@ -200,14 +200,14 @@ pub(crate) fn seal_due<T: Tapes>(
 ) {
     let now_ns =
         u64::try_from(now.saturating_duration_since(shared.epoch).as_nanos()).unwrap_or(u64::MAX);
-    let open: Vec<Arc<dyn Seal<T>>> = lock(&shared.seals)
+    let open: Vec<Arc<dyn Complete<T>>> = lock(&shared.open_chunks)
         .iter()
         .filter_map(Weak::upgrade)
         .collect();
     for o in open {
         let due_by = (!all).then_some(now_ns);
-        if (all || o.due_ns().is_some_and(|d| d <= now_ns)) && o.seal_unit(due_by, out) {
-            Counters::add(&shared.counters.latency_seal_count, u64::from(!all));
+        if (all || o.due_ns().is_some_and(|d| d <= now_ns)) && o.complete_unit(due_by, out) {
+            Counters::add(&shared.counters.latency_complete_count, u64::from(!all));
         }
     }
 }

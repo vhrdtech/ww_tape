@@ -177,7 +177,7 @@ fn series_defs() -> &'static ww_tape::Definitions {
 }
 
 /// Write the open column as chunks of at most [CHUNK_MAX] samples on `grid`.
-fn seal(
+fn complete(
     w: &mut TapeWriter<ww_tape_fs::FileSink>,
     grid: SeriesGrid,
     first: &mut u64,
@@ -269,16 +269,16 @@ pub(crate) fn write(path: &std::path::Path) {
                 None
             };
             if let Some(g) = new {
-                seal(&mut w, grid, &mut next, &mut column);
+                complete(&mut w, grid, &mut next, &mut column);
                 grid = g;
             }
             column.extend(numbers);
             if column.len() as u64 >= CHUNK_MAX * u64::from(CHANNELS) {
-                seal(&mut w, grid, &mut next, &mut column);
+                complete(&mut w, grid, &mut next, &mut column);
             }
         }
     }
-    seal(&mut w, grid, &mut next, &mut column);
+    complete(&mut w, grid, &mut next, &mut column);
     w.close().unwrap();
 }
 
@@ -845,7 +845,7 @@ fn summarized(w: &mut TapeWriter<ww_tape_fs::FileSink>, from: u64, to: u64) -> u
             w.defer_block(series_defs(), b).unwrap();
             given += 1;
         }
-        seal(w, grid, &mut next, &mut column);
+        complete(w, grid, &mut next, &mut column);
     }
     s.finish().unwrap();
     for b in s.take_blocks() {

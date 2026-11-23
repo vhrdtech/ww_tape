@@ -15,7 +15,7 @@ use ww_tape_summary::{EventFields, EventRuns};
 use crate::TapeMux;
 use crate::error::{CallError, EncodeError, ItemError, MuxError};
 use crate::handle::{Backlog, Pressure, Sender, Sent, common};
-use crate::open::{Buffers, Encoder, Open, Sealed};
+use crate::open::{Buffers, Completed, Encoder, Open};
 use crate::summaries::ChunkSummary;
 
 /// Default of [EventsOptions::chunk_items].
@@ -35,10 +35,10 @@ pub const ITEM_BYTES_MAX: usize = 16 << 20;
 pub struct EventsOptions {
     /// Items of a chunk at most, 1 to [ITEMS_MAX](ww_tape::times::ITEMS_MAX).
     pub chunk_items: u32,
-    /// Payload bytes of a chunk at most; an item that would pass it seals the chunk before it.
+    /// Payload bytes of a chunk at most; an item that would pass it completes the chunk before it.
     pub chunk_bytes: Bytes<u32>,
-    /// How long the first item of an open chunk waits at most before the writing thread seals the chunk; None:
-    /// until the chunk is full or sealed by the producer.
+    /// How long the first item of an open chunk waits at most before the writing thread completes the chunk; None:
+    /// until the chunk is full or completed by the producer.
     pub latency: Option<Duration>,
     /// Whether the mux builds the track's item tree, each piece's in that piece.
     pub summaries: bool,
@@ -158,7 +158,7 @@ impl EventsChunk {
 
     /// How many items from the front of `items` the open chunk takes, each checked against the track and the items
     /// before; why the next one is refused when that is where they stop. An item that would pass the chunk's items
-    /// stops them unchecked, one that would pass its bytes checked: the chunk is sealed before it.
+    /// stops them unchecked, one that would pass its bytes checked: the chunk is completed before it.
     ///
     /// One pass finds where the chunk is full and whether any item before is refused, without a branch per check;
     /// only then [Self::take_one_by_one] finds which.
@@ -181,7 +181,7 @@ impl EventsChunk {
             last = it.start;
         }
         let taken = run.get(..n).unwrap_or_default();
-        // the item past the bytes is refused before the chunk is sealed for it
+        // the item past the bytes is refused before the chunk is completed for it
         let next_refused = n < run.len() && run.get(n).is_some_and(|it| self.refuses(it, last));
         if refused || next_refused || self.decreases(taken) {
             return self.take_one_by_one(items);
@@ -344,7 +344,7 @@ impl EventsChunk {
         self.last_start = Some(last.start);
     }
 
-    fn encode(&mut self, buffers: &dyn Buffers) -> Result<Option<Sealed>, EncodeError> {
+    fn encode(&mut self, buffers: &dyn Buffers) -> Result<Option<Completed>, EncodeError> {
         if self.starts.is_empty() {
             return Ok(None);
         }
@@ -379,7 +379,7 @@ impl EventsChunk {
             .chain(relations.iter().map(EncodedRelation::column).map(copy))
             .collect();
         let summary = self.runs.as_mut().map(|runs| {
-            runs.seal();
+            runs.complete();
             ChunkSummary::Events {
                 fields: self.fields,
                 runs: runs.take_runs(),
@@ -392,7 +392,7 @@ impl EventsChunk {
         self.payload.clear();
         self.lens.clear();
         self.values.iter_mut().for_each(Vec::clear);
-        Ok(Some(Sealed {
+        Ok(Some(Completed {
             head,
             columns,
             summary,
@@ -401,7 +401,7 @@ impl EventsChunk {
 }
 
 impl Encoder for EventsChunk {
-    fn seal(&mut self, buffers: &dyn Buffers) -> Result<Option<Sealed>, EncodeError> {
+    fn complete(&mut self, buffers: &dyn Buffers) -> Result<Option<Completed>, EncodeError> {
         self.encode(buffers)
     }
 }
@@ -410,9 +410,9 @@ impl Encoder for EventsChunk {
 ///
 /// Items are encoded into the open chunk on the producer's thread, its payload hashed there too, and the leaves of
 /// the track's item tree computed; the writing thread only places the chunk and builds the levels above. A chunk
-/// is sealed when it holds [EventsOptions::chunk_items] items or [EventsOptions::chunk_bytes] payload bytes, by
-/// [Self::seal], and by the writing thread when its first item waited [EventsOptions::latency]. Dropping the handle
-/// seals and sends the open chunk; [Self::finish] does so and returns the error.
+/// is completed when it holds [EventsOptions::chunk_items] items or [EventsOptions::chunk_bytes] payload bytes, by
+/// [Self::complete], and by the writing thread when its first item waited [EventsOptions::latency]. Dropping the handle
+/// completes and sends the open chunk; [Self::finish] does so and returns the error.
 pub struct EventsHandle<T: Tapes> {
     s: Sender<T>,
     open: Arc<Open<T, EventsChunk>>,
@@ -494,7 +494,7 @@ pub(crate) fn read_summary(def: &TrackDef<'_>, chunk: &Chunk<'_>) -> Option<Chun
     let mut runs = EventRuns::new(fields, chunk.head().first_item);
     runs.push_columns(&starts, ends.as_deref(), flags.as_deref())
         .ok()?;
-    runs.seal();
+    runs.complete();
     Some(ChunkSummary::Events {
         fields,
         runs: runs.take_runs(),
@@ -607,8 +607,8 @@ where
 
     /// [Self::push] as a future, waiting for room by waker.
     ///
-    /// Dropped while it waits, the item stays added and the chunk it sealed stays with the handle: its next push,
-    /// seal, finish or drop sends that chunk first.
+    /// Dropped while it waits, the item stays added and the chunk it completed stays with the handle: its next push,
+    /// complete, finish or drop sends that chunk first.
     pub async fn push_async(
         &mut self,
         start: i64,
@@ -650,8 +650,8 @@ where
         refused.map_or(Ok(sent), |r| Err(r.into()))
     }
 
-    /// Check and add items, the chunks they seal into the backlog: whether the open chunk holds items after, and why
-    /// an item was refused when one was.
+    /// Check and add items, the chunks they complete into the backlog: whether the open chunk holds items after, and
+    /// why an item was refused when one was.
     fn add(
         &mut self,
         items: &[Event<'_>],
@@ -670,18 +670,18 @@ where
             }
             // full, or the next item doesn't fit
             if e.items() >= e.chunk_items || !rest.is_empty() {
-                match self.open.seal_locked(&mut e) {
+                match self.open.complete_locked(&mut e) {
                     Ok(Some(unit)) => self.backlog.push(unit),
                     Ok(None) => {}
                     Err(err) => return Ok((e.items() > 0, Some(CallError::Encode(err)))),
                 }
             }
         }
-        // dropped before sending: the writing thread may need the chunk to seal it
+        // dropped before sending: the writing thread may need the chunk to complete it
         Ok((e.items() > 0, None))
     }
 
-    /// Start the open chunk's latency once the chunks sealed before are queued, so the writing thread seals it
+    /// Start the open chunk's latency once the chunks completed before are queued, so the writing thread completes it
     /// behind them, never ahead.
     fn opened(&self, open: bool) {
         if open {
@@ -689,46 +689,50 @@ where
         }
     }
 
-    /// Seal the open chunk and send it now; None when it holds no item.
-    pub fn seal(&mut self) -> Result<Option<Sent>, MuxError<T::Error>> {
-        self.seal_open()?;
+    /// Complete the open chunk and send it now; None when it holds no item.
+    pub fn complete(&mut self) -> Result<Option<Sent>, MuxError<T::Error>> {
+        self.complete_open()?;
         self.backlog.send(&self.s)
     }
 
-    /// [Self::seal] as a future; dropped while it waits, the chunk stays with the handle, as for [Self::push_async].
-    pub async fn seal_async(&mut self) -> Result<Option<Sent>, MuxError<T::Error>> {
-        self.seal_open()?;
+    /// [Self::complete] as a future; dropped while waiting, the chunk stays with the handle, as for [Self::push_async].
+    pub async fn complete_async(&mut self) -> Result<Option<Sent>, MuxError<T::Error>> {
+        self.complete_open()?;
         self.backlog.send_async(&self.s).await
     }
 
-    fn seal_open(&mut self) -> Result<(), MuxError<T::Error>> {
+    fn complete_open(&mut self) -> Result<(), MuxError<T::Error>> {
         let mut e = crate::queue::lock(&self.open.encoder);
-        if let Some(unit) = self.open.seal_locked(&mut e).map_err(CallError::Encode)? {
+        if let Some(unit) = self
+            .open
+            .complete_locked(&mut e)
+            .map_err(CallError::Encode)?
+        {
             self.backlog.push(unit);
         }
         Ok(())
     }
 
-    /// Seal and send the open chunk, then return once everything this handle sent is placed.
+    /// Complete and send the open chunk, then return once everything this handle sent is placed.
     pub fn finish(mut self) -> Result<(), MuxError<T::Error>> {
-        self.seal()?;
+        self.complete()?;
         self.s.flush(false)
     }
 
     /// [Self::finish] as a future. Async code finishes a handle so: its drop sends what it holds blocking.
     pub async fn finish_async(mut self) -> Result<(), MuxError<T::Error>> {
-        self.seal_async().await?;
+        self.complete_async().await?;
         self.s.flush_async(false).await
     }
 }
 
 impl<T: Tapes> Drop for EventsHandle<T> {
-    /// Seal and send the open chunk and any chunk a dropped async call left, as far as the mux takes them; waits
+    /// Complete and send the open chunk and any chunk a dropped async call left, as far as the mux takes them; waits
     /// for room on this thread.
     fn drop(&mut self) {
         let unit = {
             let mut e = crate::queue::lock(&self.open.encoder);
-            self.open.seal_locked(&mut e)
+            self.open.complete_locked(&mut e)
         };
         if let Ok(Some(unit)) = unit {
             self.backlog.push(unit);

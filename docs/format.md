@@ -1826,7 +1826,7 @@ the samples are cut into chunks.
 #### 12.1.1 Changing scale or starting a grid {#changing-scale-or-starting-a-grid}
 
 With `SeriesGrid::rescaled`, a prefix change of an autoranging device keeps the grid at another scale. A chunk has one
-scale, and a writer therefore seals the open chunk there.
+scale, and a writer therefore completes the open chunk there.
 
 `SeriesGrid::start` starts a new grid at a gap or a restart on the same clock. Such a grid starts more than a period,
 rounded up, after the last tick of the chunk before, as `series::is_gap` checks. A device restart that starts a new
@@ -1869,7 +1869,7 @@ scale, and says where the gaps are (`gap_before`).
 A received `Series<Fixed<..>>` batch goes into chunk columns as integers. `SeriesValue::write_parts` puts each item's
 stored number into the column as it is.
 
-A `ww_si` quantity's prefix becomes the grid's scale. A change of prefix seals the chunk at the same item where the
+A `ww_si` quantity's prefix becomes the grid's scale. A change of prefix completes the chunk at the same item where the
 `Series` restarts its numeric column.
 
 The wire codecs of `Series<T>` and these sample codecs are separate layers. A batch is decoded once on the host and
@@ -1894,7 +1894,7 @@ costs no byte.
 The runs lie within the chunk's samples and apart. Two runs that touch have other words, since a writer merges them.
 The column is therefore in one form only, and a reader refuses any other (`FlagRunsError`).
 
-A chunk holds at most `FLAG_RUNS_MAX` (4096) runs, 48 KiB. A writer seals the chunk before samples that would start
+A chunk holds at most `FLAG_RUNS_MAX` (4096) runs, 48 KiB. A writer completes the chunk before samples that would start
 one more.
 
 The chunk is the source of the flags. The series summaries OR them into their nodes. A writer resumed after a crash

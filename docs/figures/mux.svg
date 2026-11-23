@@ -44,7 +44,7 @@
   <text x="458" y="138" class="small">puts definitions and state</text>
   <text x="458" y="158" class="small">builds the summary levels</text>
   <text x="458" y="178" class="small">cuts, syncs, checkpoints</text>
-  <text x="458" y="198" class="small">seals a quiet handle's chunk</text>
+  <text x="458" y="198" class="small">completes a quiet handle's chunk</text>
   <text x="458" y="218" class="small">closes the chain</text>
   <path d="M552 232 V262" class="line"/>
   <path d="M552 268 l-4 -8 h8 Z" class="line head"/>

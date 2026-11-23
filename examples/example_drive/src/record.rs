@@ -474,7 +474,7 @@ where
             let options = SeriesOptions {
                 chunk_samples: u32::MAX,
                 chunk_bytes: exact_units::Bytes::new(u32::MAX),
-                latency: None, // a chunk is sealed after each block of the run, not by time
+                latency: None, // a chunk is completed after each block of the run, not by time
                 codec: PHASE_CODEC,
                 summaries: self.drive.summaries,
                 first_item: head.first_item,
@@ -530,7 +530,7 @@ where
                 let values = chunk_values(&self.drive, head, columns)?;
                 let phase_a = self.phase_handle(head)?;
                 phase_a.push(&values)?;
-                phase_a.seal()?; // a chunk a block of the run
+                phase_a.complete()?; // a chunk a block of the run
             }
             // the mux builds the summaries of `phase_a` itself
             Act::Summary(_) => return Ok(made),

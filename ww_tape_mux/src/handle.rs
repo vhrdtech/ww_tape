@@ -132,7 +132,7 @@ impl<T: Tapes> Sender<T> {
     }
 }
 
-/// Units a typed handle sealed and has yet to queue, oldest first.
+/// Units a typed handle completed and has yet to queue, oldest first.
 ///
 /// An async call dropped while it waits for room leaves its units here, and the handle's next call sends them
 /// before its own, so no item is lost and the track's chunks stay in order.

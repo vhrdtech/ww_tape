@@ -319,10 +319,10 @@ fn chunks_carry_their_samples_flags() {
     );
 }
 
-/// A series handle seals its open chunk before samples that would start a flag run past `FLAG_RUNS_MAX`: the chunk
+/// A series handle completes its open chunk before samples that would start a flag run past `FLAG_RUNS_MAX`: the chunk
 /// holds that many runs, the next chunk starts with those samples.
 #[test]
-fn a_handle_seals_a_chunk_full_of_flag_runs() {
+fn a_handle_completes_a_chunk_full_of_flag_runs() {
     use ww_tape::flag_runs::FLAG_RUNS_MAX;
     use ww_tape_mux::{MuxOptions, SeriesOptions, TapeMux};
     let mem = ww_tape::MemTapes::new();

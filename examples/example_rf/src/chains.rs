@@ -364,7 +364,7 @@ impl Chains {
             decoded_mux.events(
                 track,
                 EventsOptions {
-                    latency: None, // the decoder seals each second's finds
+                    latency: None, // the decoder completes each second's finds
                     ..EventsOptions::default()
                 },
             )
@@ -421,7 +421,7 @@ impl Chains {
     }
 }
 
-/// Push find `d` into its track; a power closes a second, so the second's finds are sealed and sent: the reader
+/// Push find `d` into its track; a power closes a second, so the second's finds are completed and sent: the reader
 /// gets them in time order, a second at a time.
 fn put(
     bursts: &mut EventsHandle<Files>,
@@ -437,9 +437,9 @@ fn put(
             bursts.push(start, end, 0, &p.to_le_bytes())?;
         }
         Decoded::Power { at, power: p } => {
-            bursts.seal()?;
+            bursts.complete()?;
             power.push(at, at, 0, &p.to_le_bytes())?;
-            power.seal()?;
+            power.complete()?;
         }
     }
     Ok(())

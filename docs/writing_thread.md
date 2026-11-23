@@ -85,8 +85,8 @@ newest item into each new piece and writes copies by its own rule.
 ```
 
 Another thread pushes the CAN frames of `can0` in batches of 4096 into an [`EventsHandle`]. A third pushes a second of
-phase current at a time into a [`SeriesHandle`]. Each handle ends with `finish`, which seals its open chunk and sends
-it:
+phase current at a time into a [`SeriesHandle`]. Each handle ends with `finish`, which completes its open chunk and
+sends it:
 
 ```rs
 --8<-- "examples/example_drive/src/handles.rs:can0"
@@ -107,17 +107,17 @@ That recording drives the same handles from one thread in a fixed order, so it w
 
 ## Typed handles encode on their own thread
 
-An [`EventsHandle`] or a [`SeriesHandle`] keeps an open chunk. A push adds items to it, and the handle seals the chunk
-when it is full: 4096 items or 1 MiB of payload by default. Sealing encodes the chunk's [[columns]] and hashes its
-payload with [[BLAKE3]], the costliest pass of a write. It also computes the leaves of the track's [[summary]], such
+An [`EventsHandle`] or a [`SeriesHandle`] keeps an open chunk. A push adds items to it, and the handle completes the
+chunk when it is full: 4096 items or 1 MiB of payload by default. Completing encodes the chunk's [[columns]] and hashes
+its payload with [[BLAKE3]], the costliest pass of a write. It also computes the leaves of the track's [[summary]], such
 as a series' statistics per group of samples.
 
 All of this runs on the producer's thread, so the work spreads over the producers. The writing thread places the
 chunk with its hash given, and builds the summary levels above the leaves. It keeps one summary tree per track and
 [[piece]] and ends it before each cut.
 
-A producer may go quiet with a chunk half full. The writing thread then seals the chunk itself once its first item has
-waited the handle's latency, 1 second by default ([`EventsOptions::latency`]). A quiet source's items thus reach the
+A producer may go quiet with a chunk half full. The writing thread then completes the chunk itself once its first item
+has waited the handle's latency, 1 second by default ([`EventsOptions::latency`]). A quiet source's items thus reach the
 tape within that time, behind every unit the handle sent before.
 
 Pushing items one at a time costs a call per item. [`EventsHandle::push_all`] takes a batch, which the handle encodes
@@ -207,7 +207,7 @@ for it, and both wait in one line. The writing thread wakes them, so the crate n
 none. The writing thread itself stays an operating system thread, since its writes and syncs block.
 
 The futures are cancel-safe. A send dropped while it waits leaves the line and sends nothing. A typed handle's push
-dropped while it waits keeps the chunk it sealed. The handle sends that chunk first on its next call, so no item is
+dropped while it waits keeps the chunk it completed. The handle sends that chunk first on its next call, so no item is
 lost. The test
 below ends an events handle and the mux from a task:
 
@@ -237,7 +237,7 @@ Each chain has one writer. A file sink locks the file it writes, so a second wri
 lock holds against another process and against the same one.
 
 Data from other processes therefore travels to the writing process over a channel of the program's own, such as a
-socket or shared memory. A sealed chunk or a block is plain bytes. The writing process hands each unit to a
+socket or shared memory. A completed chunk or a block is plain bytes. The writing process hands each unit to a
 [`RelayHandle`] or a [`ChunkSender`].
 
 ## How fast the mux writes

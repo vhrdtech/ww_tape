@@ -140,7 +140,7 @@
 //!
 //! The same input gives the same bytes: blocks hold no wall time, definitions go in the order they are made, what a
 //! writer puts and copies follows from the blocks before ([writer]) and blocks are cut by size, not by time, unless
-//! the producer seals them on a timer.
+//! the producer completes them on a timer.
 //! One exception: an [lz4] payload column is identical only for one `lz4_flex` version on targets of the
 //! same pointer width and endianness (decoding is unaffected).
 

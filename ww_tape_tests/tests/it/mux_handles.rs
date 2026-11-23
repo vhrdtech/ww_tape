@@ -1,5 +1,5 @@
 //! Typed track handles on a [TapeMux]: events and series encoded on the producers' threads, their summaries built
-//! per piece on the writing thread, a quiet handle's chunk sealed by its latency (MUX-2).
+//! per piece on the writing thread, a quiet handle's chunk completed by its latency (MUX-2).
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -599,7 +599,7 @@ fn a_batch_takes_the_items_before_a_refused_one() {
         Err(MuxError::Call(CallError::Item { item, why })) => (item, why),
         other => panic!("refused at the call: {other:?}"),
     };
-    // refused, not sealed for, when it would also pass the chunk's bytes
+    // refused, not completed for, when it would also pass the chunk's bytes
     let mut b = mux
         .events(
             mux.define_track(events_track(3, c)).unwrap(),
@@ -741,10 +741,10 @@ fn a_series_handle_writes_samples_and_their_summaries() {
     }
 }
 
-/// A quiet handle's item reaches the tape by its latency alone: the writing thread seals its open chunk, no call of
+/// A quiet handle's item reaches the tape by its latency alone: the writing thread completes its open chunk, no call of
 /// the producer's needed.
 #[test]
-fn a_quiet_handles_chunk_is_sealed_by_its_latency() {
+fn a_quiet_handles_chunk_is_completed_by_its_latency() {
     let mux = TapeMux::create(
         MemTapes::new(),
         OWNER,
@@ -766,22 +766,22 @@ fn a_quiet_handles_chunk_is_sealed_by_its_latency() {
         )
         .unwrap();
     h.push(1, 1, 0, b"alone").unwrap();
-    // waits for the writing thread to seal and place it, whatever the time it takes
+    // waits for the writing thread to complete and place it, whatever the time it takes
     while mux.stats().placed_units == 0 {
         thread::yield_now();
     }
     let stats = mux.stats();
-    assert_eq!(stats.latency_seal_count, 1);
+    assert_eq!(stats.latency_complete_count, 1);
     assert_eq!(h.next_item(), ItemNum::new(1));
     drop(h);
     mux.close().unwrap();
 }
 
 /// Eight producers, each pushing bursts on its own track and pausing with a chunk open until the writing thread
-/// sealed one by its latency, while a reader reads every piece the chain has closed: no item is lost or out of
-/// order, whichever side sealed each chunk.
+/// completed one by its latency, while a reader reads every piece the chain has closed: no item is lost or out of
+/// order, whichever side completed each chunk.
 #[test]
-fn latency_seals_under_load_lose_nothing() {
+fn latency_completes_under_load_lose_nothing() {
     const PRODUCERS: u32 = 8;
     const ITEMS: u64 = 3_000;
     let mem = MemTapes::new();
@@ -857,11 +857,11 @@ fn latency_seals_under_load_lose_nothing() {
                         let sent = h
                             .push_related(start, end, flags, &payload, &values)
                             .unwrap();
-                        // a burst, then a pause with the chunk open: until the writing thread seals a chunk by
+                        // a burst, then a pause with the chunk open: until the writing thread completes a chunk by
                         // its latency, this one or another producer's, which holds items too
                         if sent.is_none() && (i + k as u64).is_multiple_of(37) {
-                            let before = mux.stats().latency_seal_count;
-                            while mux.stats().latency_seal_count == before {
+                            let before = mux.stats().latency_complete_count;
+                            while mux.stats().latency_complete_count == before {
                                 thread::yield_now();
                             }
                         }
@@ -879,8 +879,8 @@ fn latency_seals_under_load_lose_nothing() {
     let stats = mux.stats();
     mux.close().unwrap();
     assert!(
-        stats.latency_seal_count > 0,
-        "the writing thread sealed quiet chunks"
+        stats.latency_complete_count > 0,
+        "the writing thread completed quiet chunks"
     );
     let pieces = pieces(&mem);
     for (k, def) in defs.iter().enumerate() {
