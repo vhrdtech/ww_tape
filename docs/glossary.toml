@@ -192,6 +192,12 @@ short = "The index block at the end of a closed piece, listing every block by tr
 chapter = "../anatomy/"
 
 [[term]]
+name = "fixed axis"
+forms = ["fixed axes"]
+short = "An axis of a series track beside time, of a known extent in cells: the pixels of an image, the members of an ensemble."
+chapter = "../format/#fixed-axes-and-tiles"
+
+[[term]]
 name = "fixed point"
 forms = ["fixed-point"]
 short = "Numbers stored as integers with one scale for the whole track, such as current in steps of 1 mA."
@@ -539,6 +545,18 @@ name = "tick"
 forms = ["ticks"]
 short = "One count of a clock; every time on a tape is a whole number of ticks."
 chapter = "../clocks/"
+
+[[term]]
+name = "tile"
+forms = ["tiles"]
+short = "What one chunk of a series track with fixed axes holds: a run of time steps and one box of cells along those axes."
+chapter = "../format/#tiles"
+
+[[term]]
+name = "tile number"
+forms = ["tile numbers"]
+short = "A chunk's tile coordinates packed into bit fields of a u128 in its index entry, so a box query finds tiles from the index alone."
+chapter = "../format/#the-tile-number"
 
 [[term]]
 name = "time group"

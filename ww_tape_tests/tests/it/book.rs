@@ -418,6 +418,35 @@ fn table(page: &str, header: &str) -> Vec<Vec<String>> {
         .collect()
 }
 
+/// The page's weather ensemble: its tiles per axis, their bits and the tile number of tile (7, 3, 2, 5), from
+/// `TileLayout`.
+#[test]
+fn format_page_tile_number_is_the_layouts() {
+    let page = read("../docs/format.md").replace('\n', " ");
+    let l = ww_tape::TileLayout::new(&[(51, 1), (37, 1), (721, 180), (1440, 180)]).unwrap();
+    let [a, b, c, d] = l.tiles() else {
+        unreachable!("four axes")
+    };
+    let [wa, wb, wc, wd] = l.widths() else {
+        unreachable!("four axes")
+    };
+    assert!(page.contains(&format!(
+        "Its axes have {a}, {b}, {c} and {d} tiles, which take {wa}, {wb}, {wc} and {wd} bits, {} in all.",
+        l.bits()
+    )));
+    let n = l
+        .pack(&ww_tape::TileCoords::new(&[7, 3, 2, 5]).unwrap())
+        .unwrap();
+    let shifts = [u32::from(wb + wc + wd), u32::from(wc + wd), u32::from(*wd)];
+    assert_eq!(n, 7 << shifts[0] | 3 << shifts[1] | 2 << shifts[2] | 5);
+    assert!(page.contains(&format!(
+        "Tile (7, 3, 2, 5) is `7 << {} | 3 << {} | 2 << {} | 5`.",
+        shifts[0], shifts[1], shifts[2]
+    )));
+    assert_eq!(ww_tape::TileLayout::new(&[(10, 1); 20]).unwrap().bits(), 80);
+    assert!(page.contains("Twenty axes of 10 values each take 80 bits"));
+}
+
 /// The block kinds table on the page against `BlockKind`.
 #[test]
 fn format_page_kinds_are_block_kinds() {
@@ -513,6 +542,14 @@ fn page_caps() -> Vec<(&'static str, u64)> {
             "SERIES_CHANNELS_MAX",
             ww_tape::series::SERIES_CHANNELS_MAX.into(),
         ),
+        (
+            "GRID_FIXED_AXES_MAX",
+            ww_tape::grid::GRID_FIXED_AXES_MAX as u64,
+        ),
+        ("AXIS_NAME_LEN_MAX", ww_tape::grid::AXIS_NAME_LEN_MAX as u64),
+        ("GRID_LISTED_MAX", ww_tape::grid::GRID_LISTED_MAX.into()),
+        ("GRID_TILE_CELLS_MAX", ww_tape::grid::GRID_TILE_CELLS_MAX),
+        ("TILE_NUMBER_BITS", ww_tape::grid::TILE_NUMBER_BITS.into()),
         ("GAP_MAX_MAX", ww_tape::GAP_MAX_MAX.into()),
         ("GAP_PROBES_MAX", ww_tape::GAP_PROBES_MAX.into()),
         ("GAP_CHECKS_MAX", ww_tape::GAP_CHECKS_MAX.into()),

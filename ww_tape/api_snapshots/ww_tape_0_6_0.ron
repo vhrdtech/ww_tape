@@ -1,6 +1,6 @@
 // ww_tape 0.6.0 traits and types, saved by `ww api save`.
 // Do not edit, bump the crate version and save a new snapshot instead.
-// shrink_wrap sha256: b874aa2d1772ce30973de84a6597a7af727a88d8275251cea7aeb24642c64001
+// shrink_wrap sha256: ed51ce16d5bb38b0c02ae929685408a2dd554f4210322e43157f539eb7f4665c
 (magic: 2837124336, ww_self_version: (major: 0, minor: 4, patch: 0), root: (docs: [
     "Tape blocks: the unit a producer of records hands over, a live consumer reads and a log file is made of.",
     "",
@@ -126,6 +126,11 @@
     "| [SCALE_LEN_MAX](series::SCALE_LEN_MAX) | 64 | the scale bytes of a series chunk or summary |",
     "| [SeriesSummarySpec::BASE_SHIFT_MAX](summary::SeriesSummarySpec::BASE_SHIFT_MAX) | 24 | a series summary\'s base node, as a power of 2 |",
     "| [SERIES_CHANNELS_MAX](series::SERIES_CHANNELS_MAX) | 65535 | a series track\'s channels |",
+    "| [GRID_FIXED_AXES_MAX](grid::GRID_FIXED_AXES_MAX) | 31 | a grid\'s fixed axes, and a grid chunk\'s tile coordinates |",
+    "| [AXIS_NAME_LEN_MAX](grid::AXIS_NAME_LEN_MAX) | 64 | a fixed axis\' name bytes |",
+    "| [GRID_LISTED_MAX](grid::GRID_LISTED_MAX) | 65536 | the listed coordinates of a fixed axis |",
+    "| [GRID_TILE_CELLS_MAX](grid::GRID_TILE_CELLS_MAX) | 64 Mi | the cells of one time step of a grid\'s tile |",
+    "| [TILE_NUMBER_BITS](grid::TILE_NUMBER_BITS) | 128 | the bits of a grid\'s tile number fields together |",
     "| [GAP_MAX_MAX] | 64 MiB | a layout\'s gap |",
     "| [GAP_PROBES_MAX] | 8192 | the resume places a reader probes in one gap |",
     "| [GAP_CHECKS_MAX] | 4 | the blocks a reader checks whole past one gap |",
