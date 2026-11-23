@@ -103,9 +103,11 @@ The bytes of blocks, records, chunks, sessions and the index, in the crate `ww_t
 
   A `GridHandle` (`TapeMux::grid`, `grid_box`) takes a time step of the grid or of a box of its tiles and splits it into the open chunk of each tile. The tiles' chunks are completed together, by steps, bytes or latency. Edge tiles hold the cells left over, and a tile no box holds is never written. A tile's time step that fits no chunk or block is refused, never split. A series is the grid of no fixed axes and writes the bytes it wrote before.
 
-  Open: summaries per tile, space overviews, a book chapter.
+  Each tile has a time pyramid of its own: an item is a time step, a node holds the statistics of the tile's cells over its time run, per channel. A tile's summary block carries header flag `FLAG_TILE` and the tile's coordinates after the scale, and its index entry the tile number. Series summary blocks keep their bytes. `TapeReader::grid_summaries` finds a level's blocks of the tiles in a box, and `region_timeline` merges their nodes into the box's timeline, weighting each tile by cells times steps. A tile partly in the box counts whole. A resumed mux rebuilds the tile trees as it does the series trees.
 
-  Read more: [Fixed axes and tiles](docs/format.md#fixed-axes-and-tiles), [Index entries](docs/format.md#index-entries), [Typed handles encode on their own thread](docs/writing_thread.md#typed-handles-encode-on-their-own-thread). Golden files `v1-index.hex`, `v1-grid-{1,2,5,31}.hex`; tests `grids.rs`, `mux_grids.rs`, `reserved.rs`, `grid::tests`, `index::tests`; fuzz targets `tape-grid`, `tape-grid-hostile`, `tape-index`.
+  Open: space overviews, a book chapter.
+
+  Read more: [Fixed axes and tiles](docs/format.md#fixed-axes-and-tiles), [Summaries of tiles](docs/format.md#summaries-of-tiles), [Index entries](docs/format.md#index-entries), [Typed handles encode on their own thread](docs/writing_thread.md#typed-handles-encode-on-their-own-thread). Golden files `v1-index.hex`, `v1-grid-{1,2,5,31}.hex`, `v1-grid-summary.hex`; tests `grids.rs`, `mux_grids.rs`, `mux_grid_summaries.rs`, `reserved.rs`, `grid::tests`, `index::tests`, `tile_tests`; fuzz targets `tape-grid`, `tape-grid-hostile`, `tape-index`, `tape-summary`, `tape-summary-hostile`.
 
 ## Tracks, clocks and definitions (`TRACK`)
 
