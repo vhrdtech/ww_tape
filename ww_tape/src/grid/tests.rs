@@ -215,10 +215,39 @@ fn a_grid_def_reads_back_with_its_axes_and_layout() {
     }
 }
 
+/// A series takes 0 or 1 byte for its empty list of axes, one nibble: the bytes of `SeriesDef` before fixed axes,
+/// then those of the grid of no fixed axes.
 #[test]
-fn a_series_def_takes_one_byte_for_its_axes() {
+fn a_series_def_takes_0_or_1_byte_for_its_axes() {
     let series = grid(&[]);
     assert_eq!(series.tile_layout().unwrap(), TileLayout::SERIES);
+    let hex = |v: &[u8]| {
+        v.iter()
+            .map(|b| std::format!("{b:02x}"))
+            .collect::<std::string::String>()
+    };
+    // the nibble fills the last byte's free half
+    let plain = GridDef::of::<i32>(1, Ratio64::new(1000, 1).unwrap());
+    assert_eq!(hex(&encode(&plain)), "108768010000");
+    // the drive's phase_a, with summaries: one byte more
+    let summarized = GridDef {
+        scale: Magnitude::pow10(-3),
+        summaries: Some(crate::summary::SeriesSummarySpec {
+            base_shift: 10,
+            stats: crate::summary::SeriesStats {
+                min: true,
+                max: true,
+                sum: true,
+                sum_sq: true,
+                ..crate::summary::SeriesStats::default()
+            },
+            clip: None,
+        }),
+        ..GridDef::of::<i16>(1, Ratio64::new(1_000_000, 25_000).unwrap())
+    };
+    let before = "102801fa400af00103";
+    assert_eq!(hex(&encode(&summarized)), "102801fa400af0010003");
+    assert_eq!(encode(&summarized).len(), before.len() / 2 + 1);
     let one = grid(core::slice::from_ref(&WEATHER_AXES[0]));
     assert!(encode(&one).len() > encode(&series).len());
 }

@@ -1921,8 +1921,11 @@ A series track may have **[[fixed axes|fixed axis]]** beside time: the pixels of
 ensemble. Time stays the one axis that grows and the one with a clock. A fixed axis
 has a known extent in cells.
 
-A `GridDef` holds at most `GRID_FIXED_AXES_MAX` (31) of them, 32 axes with time. A series is the case of none. Its
-definition then takes one byte more than before fixed axes, and its chunk heads and index entries keep their bytes.
+A `GridDef` holds at most `GRID_FIXED_AXES_MAX` (31) of them, 32 axes with time. A series is the case of none.
+
+A series definition takes 0 or 1 byte more than before fixed axes. The empty list of axes is one nibble: it fills a free
+half byte, or takes a new byte (`phase_a` of the drive, with summaries). Its chunk heads keep their bytes. Its
+index entries keep bytes 0..120 at their places, and every entry grew to 128 bytes.
 
 Each fixed axis (`FixedAxis`) holds:
 
@@ -1975,7 +1978,11 @@ box into a range of tile coordinates per axis (`TileBox`). `TapeReader::grid_til
 entries whose ticks meet the time range and whose tile number lies in every range.
 
 The query reads the index alone: no chunk is read. An entry a reader made by scanning a stretch no index covers holds no
-tile number. For such an entry the query reads the chunk's head, a few hundred bytes.
+tile number. For such an entry the query reads the chunk's head, a few hundred bytes. So it does for an entry whose
+tile number names no tile of the grid.
+
+The box carries the layout it was made for, and a tile number reads only by its own grid's layout. The query
+therefore refuses a box whose layout differs from the track's definition at a chunk (`ReadError::GridLayout`).
 
 ## 13 Sample codecs {#sample-codecs}
 

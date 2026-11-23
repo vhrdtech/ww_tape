@@ -10,7 +10,7 @@ benchmarks, golden files and book pages.
 
 - Index entries are 128 bytes, 120..128 reserved; goldens rewritten. Pieces of 120-byte entries still read (FMT-15).
 - `SeriesDef` is `GridDef`: a series is the grid of no fixed axes (FMT-15).
-- `GridDef` gains `axes`, its fixed axes: a struct literal adds `axes: RefVec::new()`; a series definition grows a byte (FMT-15).
+- `GridDef` gains fixed `axes`: struct literals add `axes: RefVec::new()`; a series definition grows 0 or 1 byte (FMT-15).
 - `ChunkHead` gains `tile`, a grid chunk's tile coordinates: a struct literal adds `tile: TileCoords::NONE` (FMT-15).
 - `IndexEntry::decode` takes the first `ENTRY_READ_LEN` (120) bytes of an entry, not `ENTRY_LEN` (FMT-15).
 - `IndexEntry` gains `tile` and `TrackFacts` gains `tiles`: struct literals add `tile: None`, `tiles: TileLayout::SERIES` (FMT-15).
@@ -21,7 +21,7 @@ benchmarks, golden files and book pages.
 - A grid chunk's head carries its tile coordinates after the scale, their count at byte 82 (FMT-15).
 - A grid chunk's index entry carries its tile number at bytes 72..88 (FMT-15).
 - The writer refuses a grid chunk whose coordinates name no tile of its grid (FMT-15).
-- `TapeReader::grid_tiles` finds the chunks of a time range and a box of cells (`TileBox`) from the index (FMT-15).
+- `TapeReader::grid_tiles` finds a time range's chunks in a box of cells from the index, refusing another grid's box (FMT-15).
 
 ## [0.6.0] - 2026-11-23
 
