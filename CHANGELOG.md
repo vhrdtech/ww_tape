@@ -17,6 +17,7 @@ benchmarks, golden files and book pages.
 
 ### Features
 
+- `example_ethernet` decodes the chunks of a piece on a rayon pool: `RamCapture::triage_threads`, 4 by default (EX-8).
 - `example_ethernet` writes its `frames` raw by default; `Link::payload(PayloadMix::Plain)` makes compressible payloads (EX-6).
 - `just bench-ethernet` measures bytes kept and CPU per frame for random and plaintext payloads, Raw and Auto (EX-6).
 - `just bench-wideband` reports bytes and CPU time per sample under each sample codec (EX-6).

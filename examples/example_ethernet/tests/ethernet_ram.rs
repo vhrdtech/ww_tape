@@ -27,6 +27,7 @@ use ww_tape_mux::{MuxOptions, TapeMux};
 /// 128 KiB.
 fn capture(chains: u32) -> RamCapture {
     RamCapture {
+        triage_threads: 2,
         link: Link {
             chunk_bytes: 16 << 10,
             ..Link::full().micros(5_000).queues(2).resets(5_000)

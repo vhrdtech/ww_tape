@@ -391,6 +391,12 @@ The book's running example and its other cases: `example_drive`, `example_rf`, `
 
   Read more: [Keeping what matters of a 10 Gbps link](docs/protocol_analyser.md), [Keeping the bursts of a fast band](docs/wideband.md). Test `ethernet.rs`.
 
+- 🚧 **EX-8 Rayon on the cases' captured data**
+
+  `example_ethernet`'s triage decodes the chunks of a closed piece on a rayon pool of `RamCapture::triage_threads` threads, apart from the capture's own threads. rayon is a dependency of the example crates only. Measured and left sequential: the kept pieces' copy (slower in parallel) and `example_wideband`'s triage (the capture slows).
+
+  Read more: [Keeping what matters of a 10 Gbps link](docs/protocol_analyser.md). Test `ethernet_ram.rs`.
+
 ## Repository (`REPO`)
 
 Crates, checks, fuzzing and benches.

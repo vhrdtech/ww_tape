@@ -44,6 +44,7 @@ impl Analyser for Picks {
 /// store. With `hold`, the analyser waits until the capture ended.
 fn triaged(window: Window, keep: fn(u64) -> bool, hold: bool) -> (Triaged, MemTapes, Vec<u64>) {
     let c = RamCapture {
+        triage_threads: 2,
         link: Link {
             chunk_bytes: 16 << 10,
             ..Link::full().micros(2_000)
@@ -136,6 +137,7 @@ fn fifth(seq: u64) -> bool {
 #[test]
 fn each_chain_has_a_triage_of_its_own() {
     let c = RamCapture {
+        triage_threads: 2,
         link: Link {
             chunk_bytes: 16 << 10,
             ..Link::full().micros(2_000)
@@ -229,6 +231,7 @@ fn a_capture_needs_a_chain() {
 #[test]
 fn a_reader_follows_the_window_while_it_runs() {
     let c = RamCapture {
+        triage_threads: 2,
         link: Link {
             chunk_bytes: 16 << 10,
             ..Link::full().micros(2_000)

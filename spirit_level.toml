@@ -126,8 +126,8 @@ published = ["ww_tape", "ww_tape_codecs"]
 reason = "ww_tape and ww_tape_codecs are published; every other crate is a build unit and says publish = false"
 
 [lints.no-sys-crates]
-allow = ["cc"]
-reason = "cc is a build-dependency of blake3, built pure: its build script compiles no C (AGENTS.md, Dependencies)"
+allow = ["cc", "rayon-core"]
+reason = "cc is a build-dependency of blake3, built pure: its build script compiles no C. rayon-core sets `links` only so that one copy is linked, and has no build step (AGENTS.md, Dependencies)"
 
 [lints.commit-subject-length]
 after = "17ad6a7185a627efb58e066af34e83de9f078d97"

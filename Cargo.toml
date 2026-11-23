@@ -54,6 +54,8 @@ libc = { version = "0.2", default-features = false }
 libm = { version = "0.2", default-features = false, features = ["arch"] }
 # exact: ww_tape lz4 payload columns must compress to the same bytes (ww_tape_codecs/src/lz4.rs)
 lz4_flex = { version = "=0.14.0", default-features = false, features = ["safe-decode", "checked-decode"] }
+# the example crates' data-parallel triage and kept pieces; never a dependency of a ww_tape library
+rayon = { version = "1.10", default-features = false }
 # ww_tape_fs on unix: a file sink's flock and the file system type of its file (fstatfs)
 rustix = { version = "1.1", default-features = false, features = ["event", "fs", "pipe", "std"] }
 # the bench reports, and the book's figures that read them

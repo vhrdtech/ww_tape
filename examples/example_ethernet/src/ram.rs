@@ -16,6 +16,9 @@
 //! A reset names its frame by its item number in the queue's `frames`. The frame lies in the kept piece of its chain
 //! the analyser found it in, and a reader finds it by that number there.
 
+use std::sync::Arc;
+
+use rayon::prelude::*;
 use shrink_wrap::prelude::*;
 use ww_tape::payloads::Payloads;
 use ww_tape::times::EventTimes;
@@ -49,6 +52,9 @@ pub struct RamCapture {
     /// Bytes of a piece in memory at most: the unit the window keeps or drops.
     pub piece_bytes: u64,
     pub window: Window,
+    /// Threads the triages of every chain share to decode the chunks of a piece in parallel. The capture's own threads
+    /// keep their cores: more triage threads speed the triage but slow the capture.
+    pub triage_threads: u32,
 }
 // --8<-- [end:ram_capture]
 
@@ -65,6 +71,7 @@ impl RamCapture {
                 before: 1,
                 after: 1,
             },
+            triage_threads: 4,
         }
     }
 
@@ -102,6 +109,13 @@ impl RamCapture {
         if !(1..=2).contains(&self.chains) || kept.len() != self.chains as usize {
             return Err(RamError::Chains);
         }
+        let pool = Arc::new(
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(self.triage_threads.max(1) as usize)
+                .thread_name(|i| format!("triage-{i}"))
+                .build()
+                .map_err(RamError::Pool)?,
+        );
         let clock = results.define_clock(clock()).map_err(RamError::Results)?;
         let chains = kept
             .into_iter()
@@ -109,7 +123,7 @@ impl RamCapture {
             .map(|(kept, chain)| {
                 Ok(window::Chain {
                     kept,
-                    analyser: Resets::new(&self.link, chain, self.chains, clock, results)?,
+                    analyser: Resets::new(&self.link, (chain, self.chains), clock, &pool, results)?,
                 })
             })
             .collect::<Result<Vec<_>, _>>()
@@ -330,7 +344,7 @@ where
     queues: Vec<Queue<R>>,
     kept: KeptLog<R>,
     found: Vec<Reset>,
-    buf: Vec<u8>,
+    pool: Arc<rayon::ThreadPool>,
 }
 
 impl<R> Resets<R>
@@ -340,17 +354,18 @@ where
     R::Key: Send,
     R::Error: Send + Sync,
 {
-    /// The analyser of chain `chain` of `chains`: the receive queues of `link`'s ports `p` with `p % chains ==
-    /// chain`, its results' tracks defined on `results` on `clock`.
+    /// The analyser of chain `chain` of `chains`, as `(chain, chains)`: the receive queues of `link`'s ports `p` with
+    /// `p % chains == chain`, its results' tracks defined on `results` on `clock`. The chunks of a piece are decoded on
+    /// `pool`.
     ///
     /// # Errors
     ///
     /// A definition or handle `results` refused.
     pub fn new(
         link: &Link,
-        chain: u32,
-        chains: u32,
+        (chain, chains): (u32, u32),
         clock: ClockNum,
+        pool: &Arc<rayon::ThreadPool>,
         results: &TapeMux<R>,
     ) -> Result<Self, MuxError<R::Error>> {
         let options = EventsOptions {
@@ -373,7 +388,7 @@ where
             queues,
             kept: KeptLog::new(kept),
             found: Vec::new(),
-            buf: Vec::new(),
+            pool: Arc::clone(pool),
         })
     }
 
@@ -399,35 +414,41 @@ fn resets_of(
     (chain, seq): (u32, u64),
     rx: Rx,
     frames: TrackId,
-    buf: &mut Vec<u8>,
 ) -> Result<Vec<Reset>, EthError<MemError>> {
-    let mut out = Vec::new();
-    for entry in piece.track_entries(0, frames)? {
-        if entry.kind != BlockKind::Events {
-            continue;
-        }
-        let block = piece.read_block(0, &entry, buf)?;
-        let chunk = block.chunk().ok_or(EthError::Read("a chunk"))?;
-        let times = EventTimes::read(&chunk)?;
-        let payloads = Payloads::read(&chunk)?.ok_or(EthError::Read("payloads"))?;
-        for j in 0..times.len() {
-            let frame = payloads.get(j).ok_or(EthError::Read("a frame"))?;
-            if let Some((ipv4, Some(l4))) = decode_frame(frame)
-                && l4.is_reset()
-            {
-                out.push(Reset {
-                    tick: times.start(j),
-                    rx,
-                    frame: entry.first_item.get() + j as u64,
-                    ipv4,
-                    l4,
-                    chain,
-                    piece: seq,
-                });
+    let entries: Vec<_> = piece
+        .track_entries(0, frames)?
+        .into_iter()
+        .filter(|entry| entry.kind == BlockKind::Events)
+        .collect();
+    // the chunks of a piece are independent: each worker decodes whole chunks, the resets stay in chunk order
+    let per_chunk = entries
+        .par_iter()
+        .map_init(Vec::new, |buf, entry| {
+            let block = piece.read_block(0, entry, buf)?;
+            let chunk = block.chunk().ok_or(EthError::Read("a chunk"))?;
+            let times = EventTimes::read(&chunk)?;
+            let payloads = Payloads::read(&chunk)?.ok_or(EthError::Read("payloads"))?;
+            let mut out = Vec::new();
+            for j in 0..times.len() {
+                let frame = payloads.get(j).ok_or(EthError::Read("a frame"))?;
+                if let Some((ipv4, Some(l4))) = decode_frame(frame)
+                    && l4.is_reset()
+                {
+                    out.push(Reset {
+                        tick: times.start(j),
+                        rx,
+                        frame: entry.first_item.get() + j as u64,
+                        ipv4,
+                        l4,
+                        chain,
+                        piece: seq,
+                    });
+                }
             }
-        }
-    }
-    Ok(out)
+            Ok::<_, EthError<MemError>>(out)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(per_chunk.concat())
 }
 // --8<-- [end:look]
 
@@ -443,7 +464,9 @@ where
     fn look(&mut self, seq: u64, piece: &TapeReader<MemTape>) -> Result<bool, Self::Error> {
         let mut hit = false;
         for q in &mut self.queues {
-            let found = resets_of(piece, (self.chain, seq), q.rx, q.frames, &mut self.buf)
+            let found = self
+                .pool
+                .install(|| resets_of(piece, (self.chain, seq), q.rx, q.frames))
                 .map_err(LookError::Piece)?;
             let payloads: Vec<[u8; RESET_BYTES]> = found.iter().map(Reset::to_bytes).collect();
             let frames: Vec<u64> = found.iter().map(|r| r.frame).collect();
@@ -481,6 +504,8 @@ pub enum RamError<K, R> {
     Chains,
     /// The results' mux refused a definition or a handle, or the last chunk of one.
     Results(MuxError<R>),
+    /// The triage's thread pool didn't start.
+    Pool(rayon::ThreadPoolBuildError),
     /// The capture, the window or the analyser.
     Run(RunError<EthError<MemError>, K, LookError<EthError<MemError>, R>>),
 }
@@ -490,6 +515,7 @@ impl<K: core::fmt::Debug, R: core::fmt::Debug> core::fmt::Display for RamError<K
         match self {
             Self::Chains => f.write_str("1 or 2 chains, a kept store each"),
             Self::Results(e) => write!(f, "the results: {e:?}"),
+            Self::Pool(e) => write!(f, "the triage's threads: {e}"),
             Self::Run(e) => write!(f, "{e}"),
         }
     }

@@ -135,6 +135,8 @@ or the docs page they change.
 - No C build step: `lz4_flex` is pure Rust and pinned exactly, since payload columns must compress to the same bytes.
 - `cc` stays, allowed in `no-sys-crates`: it is a build-dependency of `blake3`. `blake3` is built `pure`, so its build
   script only probes for a C compiler and compiles no C.
+- `rayon-core` stays, allowed in `no-sys-crates`: its `links` key only lets one copy be linked. It has no build step.
+  rayon is a dependency of the example crates only, never of a ww_tape library.
 
 ## Changelogs, commits and versions
 
