@@ -35,7 +35,10 @@ fn read_all(t: &EventTimes<'_>) {
         let _ = (t.start(i), t.end(i), t.flag(i), t.is_suspect(i));
     }
     for g in 0..s.group_count() {
-        assert!(t.decode_group_ends(g, &mut buf) <= GROUP);
+        assert!(
+            t.decode_group_ends(g, &mut buf) <= GROUP,
+            "a group decodes at most its size"
+        );
         let _ = t.group_flags(g);
         if let Ends::Durations(d) = t.ends() {
             let _ = d.group_bound(g);
@@ -51,7 +54,7 @@ fn read_all(t: &EventTimes<'_>) {
         s.first_tick(),
         s.last_tick(),
     ] {
-        assert!(s.lower_bound(q) <= t.len());
+        assert!(s.lower_bound(q) <= t.len(), "a bound within the times");
         let _ = s.last_at_or_before(q);
     }
     let _ = t.suspect_items().count();
@@ -64,7 +67,10 @@ fn read_relation(r: &RelationColumn<'_>) {
     }
     let (lo, hi) = r.range();
     for q in [0, 1, lo, hi, hi.saturating_add(1), u64::MAX] {
-        assert!(r.lower_bound(q).is_none_or(|i| i <= r.len()));
+        assert!(
+            r.lower_bound(q).is_none_or(|i| i <= r.len()),
+            "a bound within the times"
+        );
     }
 }
 

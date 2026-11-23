@@ -1,2 +1,4 @@
 allow-unwrap-in-tests = true        # a test that unwraps fails at the unwrap, which is what a test should do
 cognitive-complexity-threshold = 20 # spirit_level's tier value: 17 reads fine, 21 and 25 too long
+allow-print-in-tests = true         # a test may print what it saw
+max-fn-params-bools = 1             # two bool parameters are a call site nobody can read; an enum or a struct says what each means

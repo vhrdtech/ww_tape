@@ -42,7 +42,8 @@ pub(crate) fn read<T: Sample>(
             let (samples, range) = s
                 .group_bytes(g)
                 .expect("a column that checks holds every group below group_count");
-            assert!(samples.end <= count && range.end <= bytes.len());
+            assert!(samples.end <= count, "samples within the count");
+            assert!(range.end <= bytes.len(), "a range within the bytes");
         }
     }
 }
@@ -113,7 +114,8 @@ fn round_values<T: Sample>(codec: Codec, shape: SampleShape, values: Vec<T>, fro
     assert!(
         back.iter()
             .zip(&values)
-            .all(|(a, b)| a.to_bits() == b.to_bits())
+            .all(|(a, b)| a.to_bits() == b.to_bits()),
+        "the columns decode to the values written"
     );
     let from = from % (count + 1);
     let mut tail = vec![T::default(); (count - from) * lanes];
@@ -121,7 +123,8 @@ fn round_values<T: Sample>(codec: Codec, shape: SampleShape, values: Vec<T>, fro
     assert!(
         tail.iter()
             .zip(&values[from * lanes..])
-            .all(|(a, b)| a.to_bits() == b.to_bits())
+            .all(|(a, b)| a.to_bits() == b.to_bits()),
+        "a tail decodes to the values written"
     );
 }
 

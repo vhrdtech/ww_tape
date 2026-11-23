@@ -114,10 +114,6 @@ where
 ///   mid-write leaves it;
 /// - `close`: close the chain and end.
 #[test]
-#[expect(
-    clippy::print_stdout,
-    reason = "the child answers the test that started it"
-)]
 fn follow_child() {
     let Some(dir) = std::env::var_os(CHILD_DIR_ENV) else {
         return;

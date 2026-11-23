@@ -61,16 +61,19 @@ check:
 
 # Format, manifests, spelling, clippy and rustdoc as CI runs them, warnings are errors; then `just api-check` and
 # every lint of spirit_level.toml (`spl check`)
-lint:
-    cargo fmt --all --check
-    cd fuzz && cargo +{{ nightly }} fmt --check
-    cargo sort -w -g --check
+lint: fmt-check
     typos
     cargo clippy --workspace --all-targets -- -D warnings
     cargo clippy --workspace --all-targets --all-features -- -D warnings
     RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features
     just api-check
     spl check --progress never
+
+# The formatting of the workspace and the fuzz workspace, and the order of the manifests
+fmt-check:
+    cargo fmt --all --check
+    cd fuzz && cargo +{{ nightly }} fmt --check
+    cargo sort -w -g --check
 
 # ww_tape's version and wire line against its newest snapshot (`ww api check`); skipped with a note without `ww`
 api-check:

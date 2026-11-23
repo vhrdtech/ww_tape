@@ -11,10 +11,8 @@ pub(crate) fn check(runs: &FlagRuns<'_>, count: u32, column: &[u8]) {
     let mut at = 0u32;
     let mut b = FlagRunsBuilder::new();
     for (span, flags) in runs.spans(count) {
-        assert!(
-            span.start == at && span.end > at,
-            "spans cover the samples in order"
-        );
+        assert_eq!(span.start, at, "spans cover the samples in order");
+        assert!(span.end > at, "a span holds a sample");
         assert_eq!(
             runs.flags_at(span.start),
             flags,

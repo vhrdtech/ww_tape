@@ -57,7 +57,10 @@ fn verify_reads_linear(data: &[u8]) {
         src.read.set(0);
         let mut buf = Vec::new();
         if let Ok(Some(body)) = r.close_summary(i, &mut buf) {
-            assert!(body.len() <= ww_tape::piece::CLOSE_SUMMARY_MAX);
+            assert!(
+                body.len() <= ww_tape::piece::CLOSE_SUMMARY_MAX,
+                "a close summary stays within its cap"
+            );
         }
         assert!(
             src.read.get() <= (ww_tape::piece::CLOSE_SUMMARY_MAX + 36) as u64,
@@ -102,10 +105,13 @@ pub(crate) fn walk(data: &[u8], recovery: Recovery, medium: Medium) -> Vec<Vec<u
         if let Ok(b) = &b {
             let bytes = b.bytes().to_vec();
             if b.is_intact() {
-                assert!(Block::read(&bytes).is_ok());
+                assert!(Block::read(&bytes).is_ok(), "an intact block reads");
             } else {
                 assert_eq!(recovery, Recovery::Resync);
-                assert!(Block::salvage(&bytes).is_ok_and(|b| !b.is_intact()));
+                assert!(
+                    Block::salvage(&bytes).is_ok_and(|b| !b.is_intact()),
+                    "a resynced block salvages as damaged"
+                );
             }
             let mut plain = Vec::new();
             let decoded = b.decode(&mut plain);

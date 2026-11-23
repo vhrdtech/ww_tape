@@ -24,7 +24,8 @@ pub(crate) fn walk(data: &[u8]) {
         let (first, items) = h
             .node_items(i as u64)
             .expect("every node of a read block has items");
-        assert!(items >= 1 && first >= h.first_item.get());
+        assert!(items >= 1, "a node covers an item");
+        assert!(first >= h.first_item.get(), "nodes follow each other");
         let _ = s.event_node(i);
         let _ = s.series_node(i);
         for ch in 0..4 {
@@ -33,7 +34,7 @@ pub(crate) fn walk(data: &[u8]) {
                 for c in 0..3 {
                     if let Some(col) = s.series_column(stat, ch, c) {
                         assert_eq!(col.len(), s.node_count());
-                        assert!(col.get(i).is_some());
+                        assert!(col.get(i).is_some(), "a column holds every item");
                     }
                 }
             }
@@ -46,7 +47,7 @@ pub(crate) fn walk(data: &[u8]) {
         b.seq.wrapping_add(1),
     );
     set_id(&mut copy, id).expect("a good block renumbers");
-    assert!(Block::read(&copy).is_ok());
+    assert!(Block::read(&copy).is_ok(), "the copy reads");
 }
 
 /// Every block reads back, and the level-0 nodes cover `[first, end)` once.
@@ -56,7 +57,11 @@ fn check(blocks: &[Vec<u8>], first: u64, end: u64) {
         walk(b);
         let s = Summary::of_block(&Block::read(b).expect("written good")).expect("a summary");
         let h = s.head();
-        assert!(h.first_item.get() >= first && h.first_item.get() + h.items <= end);
+        assert!(h.first_item.get() >= first, "a child starts in its parent");
+        assert!(
+            h.first_item.get() + h.items <= end,
+            "a child ends in its parent"
+        );
         if h.level == 0 {
             covered += h.items;
         }

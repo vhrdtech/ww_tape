@@ -21,7 +21,7 @@ fn read_all(p: &Payloads<'_>, want: Option<&[Vec<u8>]>) {
             assert_eq!(got, Some(w.as_slice()), "item {i}");
         }
     }
-    assert!(p.get(p.len()).is_none());
+    assert!(p.get(p.len()).is_none(), "no payload past the end");
     assert_eq!(p.iter().len(), p.len());
     for (i, it) in p.iter().enumerate() {
         assert_eq!(
@@ -101,7 +101,7 @@ pub fn payloads(data: &[u8]) {
         .expect("columns");
     for (i, w) in items.iter().enumerate() {
         assert_eq!(p.get(i), Some(w.as_slice()));
-        assert!(!p.is_suspect(i));
+        assert!(!p.is_suspect(i), "an intact payload is not suspect");
     }
     let at = chunk.payload_offset() + flip % (len - 4 - chunk.payload_offset());
     let mut flipped = buf.clone();

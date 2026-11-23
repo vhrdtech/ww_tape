@@ -59,6 +59,7 @@ benchmarks, golden files and book pages.
 
 ### Fixes
 
+- `rust-version` is 1.99, the oldest Rust the WireWeaver git dependencies build with; it said 1.89 (REPO-84).
 - The book shows one screenshot of a pair per scheme; Rust code has a palette in both schemes (BOOK-1).
 - A resumed `TapeMux` writes no summary tree for a track its handle writes without summaries (MUX-2).
 - `TapeMux::sync`, `flush` and `cut` return only once `ProgressWatch` shows their bytes and piece (READ-6).

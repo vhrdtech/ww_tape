@@ -10,8 +10,8 @@ use ww_tape::index::{
 };
 use ww_tape::piece::{CloseBlock, PieceHeadBlock};
 use ww_tape::{
-    Block, BlockKind, IndexError, Layout, Medium, OpenOptions, OwnerId, Ratio64, ReadError, Tail,
-    TapeReader, TrackHash,
+    Block, BlockKind, IndexError, Layout, Medium, OpenOptions, OwnerId, PieceInfo, Ratio64,
+    ReadError, Tail, TapeReader, TrackHash,
 };
 
 /// Look at everything the block decoders give for `data`.
@@ -45,55 +45,65 @@ pub(crate) fn decode(data: &[u8]) {
     let _ = Tail::read(data);
 }
 
+/// The entries of piece `i` point within the bytes, a chunk's head reads alone, and a series' timeline holds items.
+fn piece_entries(r: &TapeReader<&[u8]>, i: usize, p: &PieceInfo, data: &[u8]) {
+    if let Ok(entries) = r.entries(i) {
+        let mut series = Vec::new();
+        for e in &entries {
+            assert!(
+                p.start + e.offset < data.len() as u64,
+                "an entry points within the bytes"
+            );
+            let mut buf = vec![];
+            let block = r.read_block(i, e, &mut buf);
+            let chunk = block
+                .as_ref()
+                .ok()
+                .and_then(|b| b.chunk())
+                .map(|c| c.head());
+            let mut hbuf = vec![];
+            let head = r.read_chunk_head(i, e, &mut hbuf);
+            // a whole chunk block that reads has a head that reads alone, the same one, when it is the chunk
+            // its entry names; else the index is damaged
+            if let Some(c) = chunk {
+                let named = e.kind == c.kind
+                    && e.track_id == c.track_id
+                    && e.number == c.track_number.get()
+                    && e.first_item == c.first_item
+                    && e.count == u64::from(c.count);
+                match named {
+                    true => assert_eq!(head.ok(), Some(c), "a good chunk's head reads alone"),
+                    false => assert!(
+                        matches!(head, Err(ReadError::Index(IndexError::BadEntries))),
+                        "a chunk other than its entry names is refused"
+                    ),
+                }
+            }
+            if e.kind == BlockKind::Series && !series.contains(&e.track_id) {
+                series.push(e.track_id);
+            }
+        }
+        for track_id in series {
+            if let Ok((t, _)) = r.series_timeline(i, track_id, Ratio64::new(5, 3).unwrap()) {
+                for s in t.stretches() {
+                    assert!(s.first_item < s.end_item, "a span holds an item");
+                }
+            }
+        }
+    }
+}
+
 pub(crate) fn read(data: &[u8], options: OpenOptions) {
     let Ok(r) = TapeReader::open_with(data, options) else {
         return;
     };
     let mut end = 0;
     for (i, p) in r.pieces().iter().enumerate() {
-        assert!(p.start >= end && p.end >= p.start && p.end <= data.len() as u64);
+        assert!(p.start >= end, "pieces follow each other");
+        assert!(p.end >= p.start, "a piece ends after it starts");
+        assert!(p.end <= data.len() as u64, "a piece ends within the bytes");
         end = p.end;
-        if let Ok(entries) = r.entries(i) {
-            let mut series = Vec::new();
-            for e in &entries {
-                assert!(p.start + e.offset < data.len() as u64);
-                let mut buf = vec![];
-                let block = r.read_block(i, e, &mut buf);
-                let chunk = block
-                    .as_ref()
-                    .ok()
-                    .and_then(|b| b.chunk())
-                    .map(|c| c.head());
-                let mut hbuf = vec![];
-                let head = r.read_chunk_head(i, e, &mut hbuf);
-                // a whole chunk block that reads has a head that reads alone, the same one, when it is the chunk
-                // its entry names; else the index is damaged
-                if let Some(c) = chunk {
-                    let named = e.kind == c.kind
-                        && e.track_id == c.track_id
-                        && e.number == c.track_number.get()
-                        && e.first_item == c.first_item
-                        && e.count == u64::from(c.count);
-                    match named {
-                        true => assert_eq!(head.ok(), Some(c), "a good chunk's head reads alone"),
-                        false => assert!(
-                            matches!(head, Err(ReadError::Index(IndexError::BadEntries))),
-                            "a chunk other than its entry names is refused"
-                        ),
-                    }
-                }
-                if e.kind == BlockKind::Series && !series.contains(&e.track_id) {
-                    series.push(e.track_id);
-                }
-            }
-            for track_id in series {
-                if let Ok((t, _)) = r.series_timeline(i, track_id, Ratio64::new(5, 3).unwrap()) {
-                    for s in t.stretches() {
-                        assert!(s.first_item < s.end_item);
-                    }
-                }
-            }
-        }
+        piece_entries(&r, i, p, data);
         let _ = r.track_entries(i, TrackId::new(0));
         relations_in_order(&r, i);
     }
@@ -115,8 +125,11 @@ pub(crate) fn read(data: &[u8], options: OpenOptions) {
             ItemNum::new(0)..ItemNum::new(u64::MAX),
             TrackHash::START,
         ) {
-            assert!(h.read <= h.chunks);
-            assert!(h.chunks <= data.len() as u64 / 36 + 1);
+            assert!(h.read <= h.chunks, "no more chunks read than listed");
+            assert!(
+                h.chunks <= data.len() as u64 / 36 + 1,
+                "no more chunks than the bytes hold"
+            );
         }
     }
 }

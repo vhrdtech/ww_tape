@@ -572,7 +572,7 @@ struct SyncLog {
     syncs: AtomicU64,
     /// The piece of the last sync and its bytes then.
     key: AtomicU64,
-    size: AtomicU64,
+    size_bytes: AtomicU64,
     /// Blocks written since the last sync.
     writes: AtomicU64,
     /// The run's time at the last sync.
@@ -609,7 +609,7 @@ impl TapeSink for SyncSink {
         let log = &self.log;
         log.syncs.fetch_add(1, Ordering::Relaxed);
         log.key.store(self.key, Ordering::Relaxed);
-        log.size.store(self.inner.size()?, Ordering::Relaxed);
+        log.size_bytes.store(self.inner.size()?, Ordering::Relaxed);
         log.writes.store(0, Ordering::Relaxed);
         log.at_ms.store(self.clock.now_ms(), Ordering::Relaxed);
         log.all
@@ -735,7 +735,7 @@ fn sync_loss(recording: &Recording, acts: &[Act], policy: SyncPolicy) -> Result<
     Ok(SyncLoss {
         policy,
         syncs: before.syncs,
-        bytes: crash.saturating_sub(pieces_before + before.size),
+        bytes: crash.saturating_sub(pieces_before + before.size_bytes),
         // the blocks written since, and the torn one
         blocks: before.writes,
         ms: clock.now_ms().saturating_sub(before.at_ms),
@@ -809,7 +809,7 @@ pub fn sync_offsets(drive: &Drive, policy: SyncPolicy) -> Result<Vec<u64>, Error
 struct Synced {
     syncs: u64,
     key: u64,
-    size: u64,
+    size_bytes: u64,
     writes: u64,
     at_ms: u64,
 }
@@ -819,7 +819,7 @@ impl Synced {
         Self {
             syncs: log.syncs.load(Ordering::Relaxed),
             key: log.key.load(Ordering::Relaxed),
-            size: log.size.load(Ordering::Relaxed),
+            size_bytes: log.size_bytes.load(Ordering::Relaxed),
             writes: log.writes.load(Ordering::Relaxed),
             at_ms: log.at_ms.load(Ordering::Relaxed),
         }

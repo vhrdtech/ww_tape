@@ -640,7 +640,8 @@ mod scalar {
     /// Add the samples of `ch` (integers up to 32 bits) through `kernel`: every statistic is exact, so the batch's
     /// totals are the same in any order of addition.
     fn narrow_add<T: Scalar + Narrow>(acc: &mut Acc<T>, xs: &[T], ch: Channel<T>, kernel: Kernel) {
-        debug_assert!(T::INT && T::SQ_EXACT, "a narrow type's squares sum exactly");
+        debug_assert!(T::INT, "a narrow type is an integer");
+        debug_assert!(T::SQ_EXACT, "a narrow type's squares sum exactly");
         let mut b = IntBatch::NEW;
         if ch.complex {
             int_channel::<T, 2>(kernel, xs, ch.stride, ch.at, ch.lo, ch.hi, &mut b);
