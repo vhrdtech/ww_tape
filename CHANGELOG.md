@@ -27,6 +27,7 @@ benchmarks, golden files and book pages.
 - `region_timeline` merges the tiles' nodes in a box into a region's timeline, at tile resolution (FMT-15).
 - The writer refuses a summary block naming a tile its grid doesn't hold, or none on a grid (FMT-15).
 - `GridHandle` builds each tile's summaries; a resumed mux rebuilds the tile trees of the torn piece (FMT-15).
+- `ww_tape_fs::check` verifies and range-hashes many pieces at once; cargo feature `parallel` spreads them over rayon (FS-2).
 
 ## [0.7.0] - 2026-11-23
 

@@ -14,6 +14,8 @@
 //!   checks, [follow::TrackFollower] one track's items, [follow::TimeMerge] merges several chains by time.
 //! - [mux] opens a chain in a directory written from a [TapeMux](ww_tape_mux::TapeMux)'s writing thread:
 //!   [mux::create], [mux::resume].
+//! - [check] verifies and range-hashes every piece named, one at a time or, with the `parallel` cargo feature, in
+//!   parallel over rayon's threads: [check::verify_each], [check::range_hash_each] and their `_parallel` twins.
 //!
 //! A file sink is the only writer of its file while it lives: it holds the kernel's exclusive lock on the open file
 //! (`flock` on unix, a sharing mode that admits no second writer on Windows). A second sink of the same file, under
@@ -46,6 +48,7 @@
 )]
 
 pub mod chain;
+pub mod check;
 pub mod follow;
 mod lock;
 pub mod mux;

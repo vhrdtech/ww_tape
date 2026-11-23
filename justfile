@@ -172,13 +172,20 @@ bench-levels *args:
 bench-mem-reader *args:
     cargo run -q --release -p ww_tape_benchmarks --bin mem_reader -- {{ args }}
 
+# verify, range_hash and resume over a chain's pieces: one piece at a time against pieces in parallel with rayon,
+# and BLAKE3's own multithreaded hashing for comparison (FS-2); writes tens of GB under `--dir` (default target/,
+# removed after); `just bench-archive-parallel --help`
+bench-archive-parallel *args:
+    cargo run -q --release -p ww_tape_benchmarks --bin archive_parallel -- {{ args }}
+
 # Every bench the book draws from ("Sizes and speeds", "The definitions a new piece carries", "Writing from many
-# threads", "When bytes go bad", "Keeping what matters of a 10 Gbps link", "Keeping the bursts of a fast band"), at
+# threads", "When bytes go bad", "Checking many pieces at once", "Keeping what matters of a 10 Gbps link", "Keeping the bursts of a fast band"), at
 # release, into docs/bench/*.json; then the charts and tables drawn from them (`just book-figures`). `just jobs=N
 # bench-book` caps the build's jobs. Each bench runs on one core, except rf_chain (8 workers and a writer thread),
 # handles (up to 16 producer threads and a writing thread), ethernet (up to 16 producer threads and two muxes) and
 # wideband (up to 16 channel threads and 4 muxes). ethernet writes about 5 GB into target/bench-ethernet and wideband
-# about 3 GB into target/bench-wideband; each removes its chains.
+# about 3 GB into target/bench-wideband; each removes its chains. archive_parallel writes about 21 GB into
+# target/bench-archive-parallel and removes it; it wants a quiet machine.
 # rf_chain needs `rf_gib` GiB free on the disk of `rf_dir` (100 GiB by default), and removes its chain after the read:
 # `just rf_dir=/data/rf bench-book` puts it elsewhere.
 # A report names the commit it ran, so the tree must be clean, and every bench is built before the first report is written
@@ -201,6 +208,7 @@ bench-book:
     just bench-levels --json docs/bench/levels.json
     just bench-ethernet --dir target/bench-ethernet --json docs/bench/ethernet.json
     just bench-wideband --dir target/bench-wideband --json docs/bench/wideband.json
+    just bench-archive-parallel --json docs/bench/archive_parallel.json
 
 # Build the book (docs/, zensical.toml) into site/ with Zensical
 [group('book')]

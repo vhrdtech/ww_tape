@@ -27,6 +27,7 @@ into `docs/bench/`:
 | `read_check` | `just bench-read-check` | `TapeReader::read_block` of chunks and records blocks in memory, payload CRCs checked and not |
 | `levels` | `just bench-levels` | `write_chunk` at each integrity level into a reserved memory tape, and `MemPieces::seal` of the lower levels |
 | `handles` | `just bench-handles` | events and series handles on a `TapeMux` against one thread writing a chain directly, by tracks |
+| `archive_parallel` | `just bench-archive-parallel` | `verify`, `range_hash` and `resume` over a chain's pieces: one piece at a time against pieces in parallel with rayon, and BLAKE3's own multithreaded hashing for comparison |
 
 ## Summaries and tracks
 
@@ -103,4 +104,24 @@ before it, and one makes the signal as it goes for `--live-ms`, with its bursts.
 ```sh
 just bench-wideband --dir target/bench-wideband
 just bench-wideband --ms 500 --channels 8,16 --muxes 1,2,4,8
+```
+
+## Verify, range-hash and resume in parallel
+
+The `archive_parallel` binary writes three piece sets under `--dir`, each sized so its own operation does real
+BLAKE3 work:
+
+- a closed chain at `Integrity::Full`, for `verify`;
+- a closed chain at `Integrity::CrcOnly`, for `range_hash`: its index entries carry no stated unit hash, so
+  `range_hash` reads and hashes every chunk's payload;
+- several single-piece chains left unclosed, for `resume`'s content-hash walk.
+
+Each operation is timed one piece at a time, then with pieces in parallel over rayon's thread pool. A last table
+hashes each piece set's raw bytes with BLAKE3 alone, single- and multithreaded (`update_rayon`), as a ceiling.
+A piece's content hash chains and substitutes chunk payloads, so `update_rayon` can't replace it inside `verify`.
+The piece sets are removed when the bench finishes.
+
+```sh
+just bench-archive-parallel
+just bench-archive-parallel --dir /data/bench-archive --verify-gib 40 --range-gib 20
 ```
