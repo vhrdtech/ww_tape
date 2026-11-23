@@ -20,7 +20,6 @@
 use ww_tape::ItemNum;
 
 use clap::Parser;
-use shrink_wrap::prelude::*;
 use std::hint::black_box;
 use std::io;
 use std::time::Instant;
@@ -29,10 +28,9 @@ use ww_tape::chunk::{chunk_len, write_chunk};
 use ww_tape::piece::payload_hash;
 use ww_tape::reader::ByteSource;
 use ww_tape::{
-    ALIGNMENT, Block, BlockId, BlockKind, ChainOptions, Codec, ColumnKind, ColumnSpec, CutPolicy,
-    Definitions, ItemHash, Layout, MemSink, MemTapes, OpenOptions, OwnerId, PayloadCheck,
-    PieceChain, PieceTapes, Segment, SeriesTimeline, SessionTag, SyncPolicy, TapeReader, TapeSink,
-    TapeWriter, TrackHash, TrackKind, TrackSpec, WriterOptions, track_key,
+    ALIGNMENT, Block, BlockId, ChainOptions, Codec, ColumnKind, ColumnSpec, CutPolicy, Definitions,
+    ItemHash, Layout, MemSink, MemTapes, OwnerId, PieceChain, PieceTapes, SeriesTimeline,
+    SessionTag, SyncPolicy, TapeReader, TapeSink, TapeWriter, TrackHash, WriterOptions,
 };
 use ww_tape_bench::{Bench, Cell, Common, Measure, ns_per_try};
 use ww_tape_benchmarks::series::{definitions, head, period};
@@ -268,8 +266,6 @@ fn main() -> anyhow::Result<()> {
         let table = timeline(&bench, &defs, track, &columns, count, &args, alignment)?;
         println!("{}", bench.push(table));
     }
-    let table = payload_check(&bench, &columns, count, &args)?;
-    println!("{}", bench.push(table));
     bench.finish()
 }
 
@@ -296,113 +292,6 @@ impl ByteSource for Counted {
         self.read.set(self.read.get() + buf.len() as u64);
         Ok(())
     }
-}
-
-/// Bytes of the item of each records block of [payload_check]: a records block of about 4 KiB.
-const RECORD_ITEM_LEN: usize = 4000;
-
-/// What `TapeReader::read_block` costs per block with the CRCs over payloads checked and not
-/// (`OpenOptions::check_payloads`): `--chunks` series chunks and as many records blocks of one 4,000-byte record, in a
-/// tape in memory; ns per block and GB/s.
-fn payload_check(
-    bench: &Bench,
-    columns: &[(ColumnSpec, &[u8])],
-    count: u32,
-    args: &Args,
-) -> anyhow::Result<Measure> {
-    let mut table = bench.table(
-        "payload-check",
-        &format!(
-            "`TapeReader::read_block` of {} chunks and {} records blocks in memory, payload CRCs checked and not.",
-            args.chunks, args.chunks
-        ),
-        &["Block", "Payload CRCs", "Bytes per block", "ns per block", "GB/s"],
-    );
-    let e = |e: ww_tape::WriteError<_>| anyhow::anyhow!("{e:?}");
-    let (mut defs, track) = definitions()?;
-    let events = defs
-        .define_track(TrackSpec {
-            key: track_key(0xc4, &[Segment::Name("events")]),
-            clock: ww_tape::ClockNum::new(1),
-            dimensions: RefVec::Slice { slice: &[] },
-            items: ww_tape::Items::numbers::<i16>(None),
-            label: "bench",
-            repeat: ww_tape::TrackRepeat::Stream,
-            kind: TrackKind::Events(ww_tape::EventsDef::INSTANTS),
-            relations: RefVec::Slice { slice: &[] },
-            owner: [0; 32],
-        })
-        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
-    let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
-    // bytes that don't compress, so a records block keeps its 4,000-byte item whole
-    let mut x = 0x9e37_79b9_7f4a_7c15u64;
-    let item: Vec<u8> = (0..RECORD_ITEM_LEN)
-        .map(|_| {
-            x ^= x << 13;
-            x ^= x >> 7;
-            x ^= x << 17;
-            x as u8
-        })
-        .collect();
-    for k in 0..u64::from(args.chunks) {
-        w.write_chunk(&defs, &head(track, k, count)?, columns)
-            .map_err(e)?;
-        let mut buf = vec![0u8; RECORD_ITEM_LEN + 256];
-        let clock = ww_tape::ClockNum::new(1);
-        let mut b = ww_tape::BlockWriter::new(&mut buf, BlockKind::Records, w.next_id(), &[clock])
-            .map_err(|e| anyhow::anyhow!("{e:?}"))?;
-        b.push(
-            events,
-            ww_tape::ClockTime::new(clock, k.cast_signed()),
-            &[&item],
-        )
-        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
-        let n = b.finish();
-        w.write_block(&defs, &buf[..n]).map_err(e)?;
-    }
-    let tape = w.sink().tape();
-    w.close().map_err(e)?;
-    let bytes = tape.to_vec().map_err(|e| anyhow::anyhow!("{e:?}"))?;
-    let re = |e: ww_tape::ReadError<ww_tape::reader::OutOfRange>| anyhow::anyhow!("{e:?}");
-    for check in [PayloadCheck::Always, PayloadCheck::Never] {
-        let options = OpenOptions {
-            check_payloads: check,
-            ..OpenOptions::default()
-        };
-        let r = TapeReader::open_with(bytes.as_slice(), options).map_err(re)?;
-        let entries = r.entries(0).map_err(re)?;
-        for (name, kind) in [
-            ("chunk", BlockKind::Series),
-            ("records", BlockKind::Records),
-        ] {
-            // the records blocks written above, not the definitions and the state the writer adds
-            let these: Vec<_> = entries
-                .iter()
-                .filter(|x| x.kind == kind && x.len as usize > RECORD_ITEM_LEN)
-                .collect();
-            anyhow::ensure!(!these.is_empty(), "no {name} blocks");
-            let len =
-                these.iter().map(|x| u64::from(x.len)).sum::<u64>() as f64 / these.len() as f64;
-            let mut buf = Vec::new();
-            let ns = ns_per_try(args.rounds, these.len(), |i| {
-                black_box(r.read_block(0, these[i], &mut buf).map_err(re)?);
-                Ok(())
-            })?;
-            let what = if check == PayloadCheck::Always {
-                "checked"
-            } else {
-                "not checked"
-            };
-            table.row(vec![
-                Cell::text(name),
-                Cell::text(what),
-                Cell::num(len, 0),
-                Cell::num(ns, 0),
-                Cell::num(len / ns, 2),
-            ]);
-        }
-    }
-    Ok(table)
 }
 
 /// What a series timeline of a track of `--chunks` chunks costs a reader, from the chunk heads alone

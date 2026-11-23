@@ -41,7 +41,7 @@ chapter reads and how it marks terms, links code and includes tested code.
 | `ww_tape_bench/` | what every bench binary shares: `--json`, `--color`, `--version`, completion, the timing loop, the run's report |
 | `ww_tape_bench_report/` | a bench report as its JSON holds it: commit, build, host and machine, tables with their load; serde only |
 | `ww_tape_codecs_benchmarks/` | float sample codecs on simulated, decoded and sensor data |
-| `ww_tape_benchmarks/` | one binary per bench: `summaries`, `tracks`, `chunks`, `drive`, `event_times`, `starts`, `relations`, `mem_reader`, `carried`, `memory`, `rf_core`, `rf_chain`, `handles` (README lists what each measures) |
+| `ww_tape_benchmarks/` | one binary per bench: `summaries`, `tracks`, `chunks`, `drive`, `event_times`, `starts`, `relations`, `mem_reader`, `carried`, `memory`, `rf_core`, `rf_chain`, `handles`, `read_check` (README lists what each measures) |
 | `ww_tape_example/` | the book's running example: the drive motor controller's hour at any scale, a crash at any byte, the resume; the RF capture (`rf`); `cargo run -p ww_tape_example` prints the story's numbers |
 | `ww_tape_figures/` | the book's figures that show bytes or numbers, drawn from blocks ww_tape writes into `docs/plots/` (`just book-figures`; a test checks them) |
 | `fuzz/` | cargo-fuzz targets (`tape-*`), a workspace of its own on nightly; each target calls `ww_tape_fuzz` |

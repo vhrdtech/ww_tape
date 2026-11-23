@@ -14,7 +14,7 @@ benchmarks, golden files and book pages.
 ### Features
 
 - `Block::read_unverified` skips payload CRCs, not structure checks; `Block::checked` says how a block was read (REPO-1).
-- `just bench-chunks` times `read_block` of chunks and records blocks with payload CRCs checked and not (REPO-1).
+- `just bench-read-check` times `read_block` of chunks and records blocks, payload CRCs checked and not (REPO-1).
 - `Drive::record_unplaced` records the drive's hour through the mux without a writer round trip per act (EX-3).
 - Book pages "Every frame of a 10 Gbps link" and "A billion samples a second", measured by their benches (EX-2).
 - `ww_tape_example::ethernet`: a protocol analyser's frames and decoded headers, spread over receive queues and muxes (EX-2).

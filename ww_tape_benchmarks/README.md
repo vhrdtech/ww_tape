@@ -22,6 +22,7 @@ into `docs/bench/`:
 | `carried` | `just bench-carried` | the definitions a piece carries for the tracks of its head, and the most a cut carries |
 | `ethernet` | `just bench-ethernet` | a protocol analyser on both directions of a 10 Gbps link: receive queues a port, one mux or two, against the link |
 | `wideband` | `just bench-wideband` | a wideband receiver at 1 GS/s in channels over one or several muxes, against its rate; one channel's overview read from its summaries |
+| `read_check` | `just bench-read-check` | `TapeReader::read_block` of chunks and records blocks in memory, payload CRCs checked and not |
 | `handles` | `just bench-handles` | events and series handles on a `TapeMux` against one thread writing a chain directly, by tracks |
 
 The `summaries` binary measures series summaries in MB/s of sample bytes per element type. It measures three paths:
