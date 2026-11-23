@@ -4,6 +4,7 @@
 //! | Module or item | What |
 //! |---|---|
 //! | [window] | the memory window: muxes write chains of pieces in memory, a triage per chain reads each piece as it closes and keeps the ones worth keeping |
+//! | [files] | where a headless binary keeps what its triage keeps: directories of piece files |
 //! | [rf] | the RF signal and its track `iq`, recorded by the RF capture and by each channel of the wideband receiver |
 //! | [chain_options] | a chain whose bytes depend only on what is written |
 //! | [pieces] | the bytes of the closed pieces of a chain in memory |
@@ -16,6 +17,7 @@
               from any limit, and read no bytes of others"
 )]
 
+pub mod files;
 pub mod rf;
 pub mod window;
 

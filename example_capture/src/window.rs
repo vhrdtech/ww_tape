@@ -319,6 +319,51 @@ pub struct MemChain {
     pub watch: ProgressWatch,
 }
 
+/// A piece a chain of the memory window began, as a [Follower] sees it.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct Cut {
+    /// The chain, by its place in the chains given to [start].
+    pub chain: usize,
+    /// The sequence number of the piece begun: the pieces before it closed.
+    pub piece: u64,
+    /// Pieces of the chain in memory, the one begun included.
+    pub held: usize,
+}
+
+/// Follows the chains of a memory window from another thread, as a viewer does: which pieces they begin.
+#[derive(Clone, Debug, Default)]
+pub struct Follower {
+    /// Per chain: the version of its progress last seen, and the piece being written then.
+    seen: Vec<(u64, u64)>,
+}
+
+impl Follower {
+    /// Wait up to `timeout` on each chain in turn for a change: the pieces begun since the last call.
+    ///
+    /// # Errors
+    ///
+    /// The memory pieces of a chain failed.
+    pub fn next(&mut self, chains: &[MemChain], timeout: Duration) -> Result<Vec<Cut>, MemError> {
+        self.seen.resize(chains.len(), (0, 0));
+        let mut cuts = Vec::new();
+        for (chain, (c, (version, piece))) in chains.iter().zip(&mut self.seen).enumerate() {
+            let Some(p) = c.watch.wait_past_for(*version, timeout) else {
+                continue;
+            };
+            *version = p.version;
+            if p.piece > *piece {
+                *piece = p.piece;
+                cuts.push(Cut {
+                    chain,
+                    piece: p.piece,
+                    held: c.pieces.keys()?.len(),
+                });
+            }
+        }
+        Ok(cuts)
+    }
+}
+
 /// A capture into the memory window, running: its capture thread and a triage thread per chain.
 ///
 /// [Self::chains] hands out the window while it runs, so a viewer follows it live; [Self::join] waits for the end.

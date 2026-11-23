@@ -9,6 +9,8 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 publish = false
+# the headless pipeline; `--bin ethernet_sizes` prints what each track takes
+default-run = "example_ethernet"
 
 [dependencies]
 exact_units = { workspace = true, features = ["counting", "information"] }

@@ -490,6 +490,7 @@ dependencies = [
  "libm",
  "shrink_wrap",
  "ww_tape",
+ "ww_tape_fs",
  "ww_tape_mux",
  "ww_tape_summary",
 ]
