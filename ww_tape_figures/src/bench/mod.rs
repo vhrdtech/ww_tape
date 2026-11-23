@@ -10,6 +10,7 @@
 //! - `bench_handles_machine.txt`: the same for the handles report of "Writing from many threads".
 //! - `bench_read_check_machine.txt`: the same for the read_check report of "When bytes go bad".
 //! - `bench_levels_machine.txt`: the same for the levels report of "Fewer checks, sealed later".
+//! - `bench_archive_parallel_machine.txt`: the same for the archive_parallel report of "Checking many pieces at once".
 //! - `bench_cases_machine.txt`: the same for the reports of the two case pages, "Keeping what matters of a 10 Gbps
 //!   link" and "Keeping the bursts of a fast band".
 //!
@@ -42,6 +43,7 @@ pub struct Reports {
     levels: Report,
     ethernet: Report,
     wideband: Report,
+    archive_parallel: Report,
 }
 
 /// The reports in `dir`, each a release build of a clean commit.
@@ -68,6 +70,7 @@ pub fn read(dir: &Path) -> anyhow::Result<Reports> {
         levels: r("levels")?,
         ethernet: r("ethernet")?,
         wideband: r("wideband")?,
+        archive_parallel: r("archive_parallel")?,
     })
 }
 
@@ -477,6 +480,10 @@ pub fn figures(dir: &Path) -> anyhow::Result<Vec<(String, String)>> {
             machine_of(&[&r.levels])?,
         ),
         (
+            "bench_archive_parallel_machine.txt".to_owned(),
+            machine_of(&[&r.archive_parallel])?,
+        ),
+        (
             "bench_cases_machine.txt".to_owned(),
             machine_of(&[&r.ethernet, &r.wideband])?,
         ),
@@ -518,6 +525,10 @@ pub fn figures(dir: &Path) -> anyhow::Result<Vec<(String, String)>> {
         (&r.wideband, "overview"),
         (&r.wideband, "window"),
         (&r.wideband, "triage"),
+        (&r.archive_parallel, "verify"),
+        (&r.archive_parallel, "range_hash"),
+        (&r.archive_parallel, "resume"),
+        (&r.archive_parallel, "blake3_raw"),
     ] {
         let name = format!("bench_{}_{id}.txt", report.bench);
         out.push((name, markdown(report, id)?));
