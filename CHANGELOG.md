@@ -6,6 +6,10 @@ benchmarks, golden files and book pages.
 
 ## [Unreleased]
 
+### Features
+
+- `ww_tape_fs::check` verifies and range-hashes many pieces at once; cargo feature `parallel` spreads them over rayon (FS-2).
+
 ## [0.6.0] - 2026-11-23
 
 ### Breaking

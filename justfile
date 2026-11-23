@@ -172,6 +172,12 @@ bench-levels *args:
 bench-mem-reader *args:
     cargo run -q --release -p ww_tape_benchmarks --bin mem_reader -- {{ args }}
 
+# verify, range_hash and resume over a chain's pieces: one piece at a time against pieces in parallel with rayon,
+# and BLAKE3's own multithreaded hashing for comparison (FS-2); writes tens of GB under `--dir` (default target/,
+# removed after); `just bench-archive-parallel --help`
+bench-archive-parallel *args:
+    cargo run -q --release -p ww_tape_benchmarks --bin archive_parallel -- {{ args }}
+
 # Every bench the book draws from ("Sizes and speeds", "The definitions a new piece carries", "Writing from many
 # threads", "When bytes go bad", "Keeping what matters of a 10 Gbps link", "Keeping the bursts of a fast band"), at
 # release, into docs/bench/*.json; then the charts and tables drawn from them (`just book-figures`). `just jobs=N

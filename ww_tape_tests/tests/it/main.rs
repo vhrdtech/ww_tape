@@ -18,6 +18,7 @@
 mod appends;
 mod book;
 mod chains;
+mod check_parallel;
 mod checks;
 mod clock;
 mod crafted;

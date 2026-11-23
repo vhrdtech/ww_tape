@@ -64,7 +64,7 @@ crate's module docs.
 | [`ww_tape`](ww_tape) | Tape blocks: tracks of typed records in self-checking, variable-length blocks, for live feeds and log files |
 | [`ww_tape_bench`](ww_tape_bench) | What every ww_tape bench binary shares: its command line, its timing loop, and its report with the build, machine and load |
 | [`ww_tape_bench_report`](ww_tape_bench_report) | The report of a ww_tape bench run as its JSON holds it: build, commit, machine, tables and load |
-| [`ww_tape_benchmarks`](ww_tape_benchmarks) | Benchmarks of ww_tape: summaries, tracks, carried definitions, starts, relations, the writer's cost per chunk and its heap, the RF capture, the protocol analyser, the wideband receiver, the mux's handles |
+| [`ww_tape_benchmarks`](ww_tape_benchmarks) | Benchmarks of ww_tape: summaries, tracks, carried definitions, starts, relations, the writer's cost per chunk and its heap, the RF capture, the protocol analyser, the wideband receiver, the mux's handles, a chain's pieces verified and range-hashed in parallel |
 | [`ww_tape_codecs`](ww_tape_codecs) | Column codecs of ww_tape: bit packing, CRC-32C, varints, lz4, samples, times, payload lengths and summary kernels, with no notion of a block |
 | [`ww_tape_codecs_benchmarks`](ww_tape_codecs_benchmarks) | Benchmarks of ww_tape_codecs: the float sample codec and bench-only ones on simulated, decoded and sensor data |
 | [`ww_tape_figures`](ww_tape_figures) | The figures of ww_tape's book pages that hold bytes or numbers, drawn as SVG from blocks ww_tape writes |

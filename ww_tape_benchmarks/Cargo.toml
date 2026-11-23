@@ -2,7 +2,7 @@
 name = "ww_tape_benchmarks"
 version.workspace = true
 authors.workspace = true
-description = "Benchmarks of ww_tape: summaries, tracks, carried definitions, starts, relations, the writer's cost per chunk and its heap, the RF capture, the protocol analyser, the wideband receiver, the mux's handles"
+description = "Benchmarks of ww_tape: summaries, tracks, carried definitions, starts, relations, the writer's cost per chunk and its heap, the RF capture, the protocol analyser, the wideband receiver, the mux's handles, a chain's pieces verified and range-hashed in parallel"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -12,6 +12,7 @@ publish = false
 
 [dependencies]
 anyhow.workspace = true
+blake3 = { workspace = true, features = ["rayon"] }
 clap = { workspace = true, features = ["derive"] }
 exact_units = { workspace = true, features = ["counting", "information"] }
 example_capture.workspace = true
@@ -20,6 +21,7 @@ example_ethernet.workspace = true
 example_rf.workspace = true
 example_wideband.workspace = true
 libm.workspace = true
+rayon.workspace = true
 shrink_wrap.workspace = true
 vc_build.workspace = true
 ww_tape = { workspace = true, features = ["std"] }

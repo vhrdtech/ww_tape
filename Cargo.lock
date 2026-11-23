@@ -233,6 +233,7 @@ dependencies = [
  "cfg-if",
  "constant_time_eq",
  "cpufeatures",
+ "rayon-core",
 ]
 
 [[package]]
@@ -1466,6 +1467,7 @@ name = "ww_tape_benchmarks"
 version = "0.6.0"
 dependencies = [
  "anyhow",
+ "blake3",
  "clap",
  "exact_units",
  "example_capture",
@@ -1474,6 +1476,7 @@ dependencies = [
  "example_rf",
  "example_wideband",
  "libm",
+ "rayon",
  "shrink_wrap",
  "vc_build",
  "ww_tape",
@@ -1526,6 +1529,7 @@ name = "ww_tape_fs"
 version = "0.6.0"
 dependencies = [
  "libc",
+ "rayon",
  "rustix",
  "shrink_wrap",
  "ww_tape",
