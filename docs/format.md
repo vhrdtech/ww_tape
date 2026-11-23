@@ -856,7 +856,7 @@ Two changes give a track a new key:
 A writer lists every block it places in **index** blocks (kind 7). A reader then finds blocks without a scan.
 
 Every few MiB of blocks (`ww_tape::IndexPolicy`, 4 MiB by default), the writer places a **checkpoint**. A checkpoint is
-an index block with one 120-byte entry per block placed since the previous checkpoint, and a pointer back at that
+an index block with one 128-byte entry per block placed since the previous checkpoint, and a pointer back at that
 checkpoint.
 
 <figure class="ww-figure" markdown="0">
@@ -902,7 +902,8 @@ off size field
          block), u64::MAX for none
  56 u16  flags: bit 0 final (entries sorted by track id, then offset, state records of one block in block order; a directory
          of tracks follows)
- 58 u16  entry length, 120 (a reader takes longer entries and reads their first 120 bytes)
+ 58 u16  entry length, 128 (a reader reads an entry's first 120 bytes: it takes longer entries, and refuses
+         shorter ones than 120)
  60 ...  n × track: id u64, first entry u32, entry count u32, CRC-32C of its entries u32, reserved u32
  ...     entries, each:
            0 u64 offset of the block in the piece    8 u32 its length        12 u8 its block kind
@@ -912,12 +913,13 @@ off size field
           48 i64 first tick                         56 i64 last tick         64 i64 latest end
           72 u64 smallest value of the track's range relation in the chunk (flag bit 1), else 0
           80 u64 its largest value, else 0          88 [32] a chunk's unit hash, else 0
+         120 [8] reserved: written zero, not read
 len-4 u32 CRC over bytes 0..len-4, as in every block
 ```
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/plots/index_entry.svg"
-<figcaption>The entry of the same <code>phase_a</code> chunk in the piece's final index, at byte 396 of the index block: the
+<figcaption>The entry of the same <code>phase_a</code> chunk in the piece's final index, at byte 412 of the index block: the
 chunk's offset, length and kind, its track, its items and ticks, no range relation, and its unit hash. Drawn by
 <code>ww_tape_figures</code> from the drive's recording at 1/1000 of its data.</figcaption>
 </figure>
@@ -1143,7 +1145,7 @@ append head (kind 13), APPEND_HEAD_LEN bytes, right after the tail of the close 
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/plots/tail.svg"
-<figcaption>The tail of the drive's first piece: the last 164 bytes of its 8,192. It names the close at byte 6,308 and its
+<figcaption>The tail of the drive's first piece: the last 164 bytes of its 8,192. It names the close at byte 6,484 and its
 length, the reason 1 (closed) and the flags 1 (the piece has a head). The content hash, the ids and the sequence
 number 0 follow. Drawn by <code>ww_tape_figures</code> from the drive's recording at 1/1000 of its data.</figcaption>
 </figure>
@@ -1393,8 +1395,8 @@ Rot that zeroes the end of a complete close across a sector boundary looks the s
 bytes cannot tell it from a crash, and a stricter rule would refuse real crashes. Reading and verify never change a
 file.
 
-Take a 12,288-byte piece closed three times, whose last final index starts at offset 9544 of the file. Zeros from 9644
-to the end cross the sector boundary at 9728, so a resume cuts the 2,744 bytes from 9544 on.
+Take a 12,288-byte piece closed three times, whose last final index starts at offset 9513 of the file. Zeros from 9613
+to the end cross the sector boundary at 9728, so a resume cuts the 2,775 bytes from 9513 on.
 
 For example, one flipped bit makes the last tail fail its CRC, so the reader takes the close before it. The resume
 refuses and keeps every byte, also when the tail's last byte is zero.
@@ -2148,7 +2150,7 @@ A value past its cap is damage, refused with an error; no file a writer of this 
 | `SLOPE_MAX` | 2^55 | a start group's slope (Q16 ticks per item) |
 | `ITEMS_MAX` | 16 Mi | the items of an events chunk |
 | `INDEX_LEN_MAX` | 1 MiB | an index block a writer makes, and a reader looks for from the end |
-| `CHECKPOINT_ENTRIES_MAX` | 8737 | entries a writer puts in a checkpoint index block |
+| `CHECKPOINT_ENTRIES_MAX` | 8191 | entries a writer puts in a checkpoint index block |
 | `NODE_SHIFT_MAX` | 62 | a summary node's items, as a power of 2 |
 | `LEVEL_MAX` | 15 | a summary tree's level |
 | `SCALE_LEN_MAX` | 64 | the scale bytes of a series chunk or summary |

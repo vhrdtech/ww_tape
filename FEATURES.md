@@ -95,6 +95,14 @@ The bytes of blocks, records, chunks, sessions and the index, in the crate `ww_t
 
   Read more: [Fewer checks, sealed later](docs/integrity.md).
 
+- 🚧 **FMT-15 Grids: series tracks with fixed axes**
+
+  Index entries are 128 bytes: the fields before keep their offsets and bytes 120..128 are reserved for every kind. Each index block declares its entry length, and readers read the first 120 bytes of each entry, so pieces of 120-byte entries still read.
+
+  Open: `GridDef` with fixed axes, tile coordinates in chunk heads, the tile number in index entries, the box query.
+
+  Read more: [Index entries](docs/format.md#index-entries). Golden file `v1-index.hex`; tests `reserved.rs`, `index::tests`; fuzz target `tape-index`.
+
 ## Tracks, clocks and definitions (`TRACK`)
 
 Clocks, track identity, definitions on track 0, state, what items are and how tracks are numbered, in the crate `ww_tape`.

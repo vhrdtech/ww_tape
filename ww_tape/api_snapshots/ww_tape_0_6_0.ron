@@ -1,6 +1,6 @@
 // ww_tape 0.6.0 traits and types, saved by `ww api save`.
 // Do not edit, bump the crate version and save a new snapshot instead.
-// shrink_wrap sha256: 82efeb377e87008acfd21cfed09e56a29879ded773cae61d07a5a629b88eca1e
+// shrink_wrap sha256: 3391af218d91b1d12ac40fc12906ba6bc608c183e9d5e2399fa824453d122c3e
 (magic: 2837124336, ww_self_version: (major: 0, minor: 4, patch: 0), root: (docs: [
     "Tape blocks: the unit a producer of records hands over, a live consumer reads and a log file is made of.",
     "",
@@ -120,7 +120,7 @@
     "| [CLOSE_SUMMARY_MAX](piece::CLOSE_SUMMARY_MAX) | 1 MiB | the body of the summary block a close names |",
     "| [REMOVED_PIECES_MAX] | 65536 | the removed pieces one close names |",
     "| [INDEX_LEN_MAX](index::INDEX_LEN_MAX) | 1 MiB | an index block a writer makes, and a reader looks for from the end |",
-    "| [CHECKPOINT_ENTRIES_MAX](index::CHECKPOINT_ENTRIES_MAX) | 8737 | entries a writer puts in a checkpoint index block |",
+    "| [CHECKPOINT_ENTRIES_MAX](index::CHECKPOINT_ENTRIES_MAX) | 8191 | entries a writer puts in a checkpoint index block |",
     "| [NODE_SHIFT_MAX](summary::NODE_SHIFT_MAX) | 62 | a summary node\'s items, as a power of 2 |",
     "| [LEVEL_MAX](summary::LEVEL_MAX) | 15 | a summary tree\'s level |",
     "| [SCALE_LEN_MAX](series::SCALE_LEN_MAX) | 64 | the scale bytes of a series chunk or summary |",

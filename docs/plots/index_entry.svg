@@ -1,5 +1,5 @@
-<svg class="ww-svg" viewBox="0 0 652 722" width="652" height="722" role="img" aria-label="The 120-byte index entry of a series chunk: its offset, length and kind, its track, its first item, item count and ticks, no range relation, and its unit hash" xmlns="http://www.w3.org/2000/svg">
-<text x="82.0" y="46.5" text-anchor="end" class="soft mono">396</text>
+<svg class="ww-svg" viewBox="0 0 652 722" width="652" height="722" role="img" aria-label="The 128-byte index entry of a series chunk: its offset, length and kind, its track, its first item, item count and ticks, no range relation, and its unit hash" xmlns="http://www.w3.org/2000/svg">
+<text x="82.0" y="46.5" text-anchor="end" class="soft mono">412</text>
 <text x="52.0" y="46.5" text-anchor="end" class="strong">entry</text>
 <rect x="93.0" y="30.0" width="32.0" height="24.0" rx="3" class="tint-green"/>
 <text x="109.0" y="46.5" text-anchor="middle" class="mono">d7</text>
@@ -51,7 +51,7 @@
 <path d="M604.0 56.0 v4 H634.0 v-4" class="purple"/>
 <text x="619.0" y="75.0" text-anchor="middle" class="purple">flags</text>
 <text x="619.0" y="90.0" text-anchor="middle" class="soft small">0</text>
-<text x="82.0" y="134.5" text-anchor="end" class="soft mono">412</text>
+<text x="82.0" y="134.5" text-anchor="end" class="soft mono">428</text>
 <rect x="93.0" y="118.0" width="32.0" height="24.0" rx="3" class="tint-blue"/>
 <text x="109.0" y="134.5" text-anchor="middle" class="mono">f2</text>
 <rect x="127.0" y="118.0" width="32.0" height="24.0" rx="3" class="tint-blue"/>
@@ -93,7 +93,7 @@
 <path d="M502.0 144.0 v4 H634.0 v-4" class="ink"/>
 <text x="568.0" y="163.0" text-anchor="middle" class="ink">reserved</text>
 <text x="568.0" y="178.0" text-anchor="middle" class="soft small">0</text>
-<text x="82.0" y="222.5" text-anchor="end" class="soft mono">428</text>
+<text x="82.0" y="222.5" text-anchor="end" class="soft mono">444</text>
 <rect x="93.0" y="206.0" width="32.0" height="24.0" rx="3" class="tint-amber"/>
 <text x="109.0" y="222.5" text-anchor="middle" class="mono">00</text>
 <rect x="127.0" y="206.0" width="32.0" height="24.0" rx="3" class="tint-amber"/>
@@ -132,7 +132,7 @@
 <path d="M366.0 232.0 v4 H634.0 v-4" class="amber"/>
 <text x="500.0" y="251.0" text-anchor="middle" class="amber">items</text>
 <text x="500.0" y="266.0" text-anchor="middle" class="soft small">1500</text>
-<text x="82.0" y="310.5" text-anchor="end" class="soft mono">444</text>
+<text x="82.0" y="310.5" text-anchor="end" class="soft mono">460</text>
 <rect x="93.0" y="294.0" width="32.0" height="24.0" rx="3" class="tint-amber"/>
 <text x="109.0" y="310.5" text-anchor="middle" class="mono">00</text>
 <rect x="127.0" y="294.0" width="32.0" height="24.0" rx="3" class="tint-amber"/>
@@ -171,7 +171,7 @@
 <path d="M366.0 320.0 v4 H634.0 v-4" class="amber"/>
 <text x="500.0" y="339.0" text-anchor="middle" class="amber">last tick</text>
 <text x="500.0" y="354.0" text-anchor="middle" class="soft small">59960000</text>
-<text x="82.0" y="398.5" text-anchor="end" class="soft mono">460</text>
+<text x="82.0" y="398.5" text-anchor="end" class="soft mono">476</text>
 <rect x="93.0" y="382.0" width="32.0" height="24.0" rx="3" class="tint-amber"/>
 <text x="109.0" y="398.5" text-anchor="middle" class="mono">c0</text>
 <rect x="127.0" y="382.0" width="32.0" height="24.0" rx="3" class="tint-amber"/>
@@ -210,7 +210,7 @@
 <path d="M366.0 408.0 v4 H634.0 v-4" class="ink"/>
 <text x="500.0" y="427.0" text-anchor="middle" class="ink">range min</text>
 <text x="500.0" y="442.0" text-anchor="middle" class="soft small">0: none</text>
-<text x="82.0" y="486.5" text-anchor="end" class="soft mono">476</text>
+<text x="82.0" y="486.5" text-anchor="end" class="soft mono">492</text>
 <rect x="93.0" y="470.0" width="32.0" height="24.0" rx="3" class="tint-ink"/>
 <text x="109.0" y="486.5" text-anchor="middle" class="mono">00</text>
 <rect x="127.0" y="470.0" width="32.0" height="24.0" rx="3" class="tint-ink"/>
@@ -247,7 +247,7 @@
 <text x="228.0" y="515.0" text-anchor="middle" class="ink">range max</text>
 <text x="228.0" y="530.0" text-anchor="middle" class="soft small">0: none</text>
 <path d="M366.0 496.0 v4 H634.0 v-4" class="accent"/>
-<text x="82.0" y="574.5" text-anchor="end" class="soft mono">492</text>
+<text x="82.0" y="574.5" text-anchor="end" class="soft mono">508</text>
 <rect x="93.0" y="558.0" width="32.0" height="24.0" rx="3" class="tint-accent"/>
 <text x="109.0" y="574.5" text-anchor="middle" class="mono">77</text>
 <rect x="127.0" y="558.0" width="32.0" height="24.0" rx="3" class="tint-accent"/>
@@ -283,7 +283,7 @@
 <path d="M94.0 584.0 v4 H634.0 v-4" class="accent"/>
 <text x="364.0" y="603.0" text-anchor="middle" class="accent">unit hash</text>
 <text x="364.0" y="618.0" text-anchor="middle" class="soft small">fdbe5089e65d546c…</text>
-<text x="82.0" y="662.5" text-anchor="end" class="soft mono">508</text>
+<text x="82.0" y="662.5" text-anchor="end" class="soft mono">524</text>
 <rect x="93.0" y="646.0" width="32.0" height="24.0" rx="3" class="tint-accent"/>
 <text x="109.0" y="662.5" text-anchor="middle" class="mono">99</text>
 <rect x="127.0" y="646.0" width="32.0" height="24.0" rx="3" class="tint-accent"/>
@@ -300,5 +300,24 @@
 <text x="313.0" y="662.5" text-anchor="middle" class="mono">97</text>
 <rect x="331.0" y="646.0" width="32.0" height="24.0" rx="3" class="tint-accent"/>
 <text x="347.0" y="662.5" text-anchor="middle" class="mono">ac</text>
+<rect x="365.0" y="646.0" width="32.0" height="24.0" rx="3" class="tint-ink"/>
+<text x="381.0" y="662.5" text-anchor="middle" class="mono">00</text>
+<rect x="399.0" y="646.0" width="32.0" height="24.0" rx="3" class="tint-ink"/>
+<text x="415.0" y="662.5" text-anchor="middle" class="mono">00</text>
+<rect x="433.0" y="646.0" width="32.0" height="24.0" rx="3" class="tint-ink"/>
+<text x="449.0" y="662.5" text-anchor="middle" class="mono">00</text>
+<rect x="467.0" y="646.0" width="32.0" height="24.0" rx="3" class="tint-ink"/>
+<text x="483.0" y="662.5" text-anchor="middle" class="mono">00</text>
+<rect x="501.0" y="646.0" width="32.0" height="24.0" rx="3" class="tint-ink"/>
+<text x="517.0" y="662.5" text-anchor="middle" class="mono">00</text>
+<rect x="535.0" y="646.0" width="32.0" height="24.0" rx="3" class="tint-ink"/>
+<text x="551.0" y="662.5" text-anchor="middle" class="mono">00</text>
+<rect x="569.0" y="646.0" width="32.0" height="24.0" rx="3" class="tint-ink"/>
+<text x="585.0" y="662.5" text-anchor="middle" class="mono">00</text>
+<rect x="603.0" y="646.0" width="32.0" height="24.0" rx="3" class="tint-ink"/>
+<text x="619.0" y="662.5" text-anchor="middle" class="mono">00</text>
 <path d="M94.0 672.0 v4 H362.0 v-4" class="accent"/>
+<path d="M366.0 672.0 v4 H634.0 v-4" class="ink"/>
+<text x="500.0" y="691.0" text-anchor="middle" class="ink">reserved</text>
+<text x="500.0" y="706.0" text-anchor="middle" class="soft small">0</text>
 </svg>

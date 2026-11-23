@@ -661,7 +661,8 @@ fn format_page_relations_and_owner_read_a_chain() {
         "72 u64 smallest value of the track's range relation in the chunk (flag bit 1), else 0",
         "80 u64 its largest value, else 0          88 [32] a chunk's unit hash, else 0",
         "32 u32  entries offset from the block start",
-        "58 u16  entry length, 120",
+        "58 u16  entry length, 128",
+        "120 [8] reserved: written zero, not read",
         "146 u8   integrity (Integrity)",
     ] {
         assert!(page.contains(line), "docs/format.md: {line:?}");
@@ -728,7 +729,7 @@ fn format_page_relations_and_owner_read_a_chain() {
     let ix = &second[final_at..];
     let entries_at = u32::from_le_bytes(ix[32..36].try_into().unwrap()) as usize;
     let entry_len = usize::from(u16::from_le_bytes([ix[58], ix[59]]));
-    assert_eq!(entry_len, 120);
+    assert_eq!(entry_len, 128);
     let n = u32::from_le_bytes(ix[12..16].try_into().unwrap()) as usize;
     let e = (0..n)
         .map(|i| &ix[entries_at + i * entry_len..][..entry_len])
@@ -738,5 +739,6 @@ fn format_page_relations_and_owner_read_a_chain() {
     assert_eq!(u64::from_le_bytes(e[72..80].try_into().unwrap()), 105);
     assert_eq!(u64::from_le_bytes(e[80..88].try_into().unwrap()), 107);
     assert_eq!(e[88..120], entry.unit.0);
+    assert_eq!(e[120..128], [0; 8], "reserved");
     assert_ne!(entry.unit, ww_tape::UnitHash::NONE);
 }

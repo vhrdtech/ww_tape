@@ -599,3 +599,42 @@ fn an_entry_is_checked_the_same_on_every_read() {
         IndexError::BadEntries,
     );
 }
+
+/// A checkpoint whose entries are `len` bytes, each the first `len` bytes of a written one, its head saying so and
+/// its CRCs made good.
+fn entries_cut_to(entries: &[IndexEntry], len: usize) -> Vec<u8> {
+    let head = IndexHead {
+        kind: IndexKind::Checkpoint,
+        self_offset: 4000,
+        prev: None,
+    };
+    let bytes = write(&head, entries);
+    let at = HEADER_LEN + INDEX_FIXED_LEN;
+    let mut out = bytes[..at].to_vec();
+    for e in bytes[at..bytes.len() - CRC_LEN].chunks(ENTRY_LEN) {
+        out.extend_from_slice(&e[..len]);
+    }
+    out.extend([0; CRC_LEN]);
+    let n = out.len() as u32;
+    out[8..12].copy_from_slice(&n.to_le_bytes());
+    out[58..60].copy_from_slice(&(len as u16).to_le_bytes());
+    restamp_head(&mut out);
+    seal(&mut out);
+    out
+}
+
+/// Entries of [ENTRY_READ_LEN] bytes, as pieces written before the entry grew to [ENTRY_LEN] hold, read as the
+/// written ones; one byte shorter is refused.
+#[test]
+fn entries_of_the_read_length_read_and_shorter_are_refused() {
+    let entries: Vec<_> = (0..4).map(|i| entry(i / 2, 1000 + i * 300)).collect();
+    let old = entries_cut_to(&entries, ENTRY_READ_LEN);
+    let ix = IndexBlock::read(&Block::read(&old).unwrap()).unwrap();
+    assert_eq!(ix.entry_len(), ENTRY_READ_LEN);
+    assert_eq!(ix.entries().collect::<Vec<_>>(), entries);
+    let short = entries_cut_to(&entries, ENTRY_READ_LEN - 1);
+    assert_eq!(
+        IndexBlock::read(&Block::read(&short).unwrap()).err(),
+        Some(IndexError::BadHead)
+    );
+}

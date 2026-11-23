@@ -1,6 +1,6 @@
 //! Index, close, piece head and tail blocks: an index's entry offset, directory, self and previous offsets, entry
-//! length and entries (flags, range pair and unit hash among them; entries longer than [ENTRY_LEN], well formed or
-//! not); a close's offsets and track ranges; a piece head's tracks and integrity level; a tail's piece length and
+//! length and entries (flags, range pair and unit hash among them; entries longer than [ENTRY_LEN] or as long as
+//! [ENTRY_READ_LEN], well formed or not); a close's offsets and track ranges; a piece head's tracks and integrity level; a tail's piece length and
 //! close offset.
 
 use ww_tape::ItemNum;
@@ -11,8 +11,8 @@ use super::{
 use ww_tape::TrackId;
 use ww_tape::TrackNum;
 use ww_tape::index::{
-    CHECKPOINT_ENTRIES_MAX, ENTRY_LEN, INDEX_LEN_MAX, IndexEntry, IndexHead, IndexKind, TRACK_LEN,
-    index_len, track_count, write_index,
+    CHECKPOINT_ENTRIES_MAX, ENTRY_LEN, ENTRY_READ_LEN, INDEX_LEN_MAX, IndexEntry, IndexHead,
+    IndexKind, TRACK_LEN, index_len, track_count, write_index,
 };
 use ww_tape::piece::{
     Close, CloseReason, ContentHash, OwnerId, PieceHead, PieceId, PieceIdent, REMOVED_PIECES_MAX,
@@ -39,7 +39,7 @@ const INDEX_FIELDS: [Field<'static>; 6] = [
 const ENTRY_FLAGS: &[u64] = &[1, 2, ww_tape::index::ENTRY_UNHASHED as u64, 8, 0xFF];
 
 /// The fields of an index entry starting at `at`.
-pub(crate) fn entry_fields(at: usize) -> [Field<'static>; 16] {
+pub(crate) fn entry_fields(at: usize) -> [Field<'static>; 17] {
     [
         Field::new(at, 8, &[MAX_BLOCK_LEN as u64]),
         Field::new(at + 8, 4, &[MAX_BLOCK_LEN as u64]),
@@ -58,6 +58,8 @@ pub(crate) fn entry_fields(at: usize) -> [Field<'static>; 16] {
         Field::new(at + 72, 8, &[u64::MAX]),
         Field::new(at + 80, 8, &[0]),
         Field::new(at + 88, 8, &[]),
+        // the reserved bytes, which a reader doesn't read
+        Field::new(at + 120, 8, &[]),
     ]
 }
 
@@ -308,12 +310,13 @@ pub(crate) fn close_fields<'c>(
     f
 }
 
-/// Most bytes [widen_entries] adds to each entry.
-const ENTRY_EXTRA_MAX: usize = 64;
+/// Most bytes [resize_entries] adds to each entry.
+const ENTRY_EXTRA_MAX: usize = 16;
 
-/// The index block `b` with each entry `extra` bytes longer, the extra bytes `fill` and the head's entry length
-/// saying so: a well-formed index of a later writer, once resealed.
-fn widen_entries(b: &[u8], extra: usize, fill: u8) -> Vec<u8> {
+/// The index block `b` with each entry `len` bytes long, the head's entry length saying so: its first `len` bytes,
+/// then `fill` past [ENTRY_LEN]. Longer is a later writer's index, [ENTRY_READ_LEN] an earlier writer's, both well
+/// formed once resealed; shorter is refused.
+fn resize_entries(b: &[u8], len: usize, fill: u8) -> Vec<u8> {
     let entries_at = get(b, 32, 4) as usize;
     let n = get(b, 12, 4) as usize;
     let Some(entries) = span(b, entries_at, entries_at + n * ENTRY_LEN) else {
@@ -321,13 +324,13 @@ fn widen_entries(b: &[u8], extra: usize, fill: u8) -> Vec<u8> {
     };
     let mut out = b[..entries_at].to_vec();
     for e in entries.chunks(ENTRY_LEN) {
-        out.extend_from_slice(e);
-        out.extend(std::iter::repeat_n(fill, extra));
+        out.extend_from_slice(&e[..len.min(ENTRY_LEN)]);
+        out.extend(std::iter::repeat_n(fill, len.saturating_sub(ENTRY_LEN)));
     }
     out.extend_from_slice(&[0; 4]);
-    let len = out.len();
-    out[8..12].copy_from_slice(&(len as u32).to_le_bytes());
-    out[58..60].copy_from_slice(&((ENTRY_LEN + extra) as u16).to_le_bytes());
+    let total = out.len();
+    out[8..12].copy_from_slice(&(total as u32).to_le_bytes());
+    out[58..60].copy_from_slice(&(len as u16).to_le_bytes());
     out
 }
 
@@ -437,12 +440,23 @@ pub fn index(data: &[u8]) -> Vec<u8> {
             } else {
                 IndexKind::Checkpoint
             };
-            let n = d.below(8);
+            // at most 6 entries: a final index of them, widened, stays within the builders' 1 KiB
+            let n = d.below(7);
             let e = entries(&mut d, n, kind == IndexKind::Final);
             let mut b = index_block(&mut d, id, kind, &e);
-            if d.u8().is_multiple_of(4) {
-                b = widen_entries(&b, 1 + d.below(ENTRY_EXTRA_MAX), d.u8());
-                reseal_index(&mut b);
+            match d.u8() % 8 {
+                0 | 1 => {
+                    let len = ENTRY_LEN + 1 + d.below(ENTRY_EXTRA_MAX);
+                    b = resize_entries(&b, len, d.u8());
+                    reseal_index(&mut b);
+                }
+                2 => {
+                    // an earlier writer's entries, or one byte short of them
+                    let len = ENTRY_READ_LEN - d.below(2);
+                    b = resize_entries(&b, len, 0);
+                    reseal_index(&mut b);
+                }
+                _ => {}
             }
             hit_index(&mut d, &mut b);
             reseal_index(&mut b);

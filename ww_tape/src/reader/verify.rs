@@ -22,7 +22,7 @@ use core::cmp::Reverse;
 
 use shrink_wrap::DeserializeShrinkWrap;
 
-use crate::index::{ENTRY_LEN, IndexEntry, STATE_TRACK_ID, in_file_order, is_structural};
+use crate::index::{ENTRY_READ_LEN, IndexEntry, STATE_TRACK_ID, in_file_order, is_structural};
 use crate::piece::{OwnerId, TrackHash, TrackRange, TrackStart, UnitHash};
 use crate::times::RelationColumn;
 use crate::{Block, BlockKind, Chunk, Describe, FLAG_REPEAT, RecordTrack, Slot, TrackFacts};
@@ -76,7 +76,7 @@ struct Cursor {
 }
 
 /// The entries of a final index's track lists merged into file order, read one at a time by `read` (the first
-/// [ENTRY_LEN] bytes at a place in the source): it holds one entry per list. Each entry is checked as every read of
+/// [ENTRY_READ_LEN] bytes at a place in the source): it holds one entry per list. Each entry is checked as every read of
 /// an index checks it, the merged stream must be in file order ([in_file_order]), and `fits` must take each entry
 /// (within the piece); else the stream ends and isn't [good](Listed::good).
 pub(super) struct Lists<F, G, E> {
@@ -92,7 +92,7 @@ pub(super) struct Lists<F, G, E> {
 
 impl<F, G, E> Lists<F, G, E>
 where
-    F: FnMut(u64, &mut [u8; ENTRY_LEN]) -> Result<(), E>,
+    F: FnMut(u64, &mut [u8; ENTRY_READ_LEN]) -> Result<(), E>,
     G: Fn(&IndexEntry) -> bool,
 {
     /// A merge of no lists yet.
@@ -138,7 +138,7 @@ where
         if c.left == 0 || self.bad {
             return;
         }
-        let mut b = [0u8; ENTRY_LEN];
+        let mut b = [0u8; ENTRY_READ_LEN];
         if let Err(e) = (self.read)(c.at, &mut b) {
             self.error = Some(e);
             self.bad = true;
@@ -158,7 +158,7 @@ where
 
 impl<F, G, E> Listed for Lists<F, G, E>
 where
-    F: FnMut(u64, &mut [u8; ENTRY_LEN]) -> Result<(), E>,
+    F: FnMut(u64, &mut [u8; ENTRY_READ_LEN]) -> Result<(), E>,
     G: Fn(&IndexEntry) -> bool,
 {
     fn peek(&self) -> Option<u64> {

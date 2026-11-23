@@ -79,7 +79,7 @@ was not synced when the power failed at minute 37:
 | `Interval(1 s)` | 2223 | 30866 | 3 | 1.000 s |
 | `EveryBlocks(1)` | 8526 | 1263 | 0 | 0.333 s |
 | `EveryBlocks(256)` | 36 | 622577 | 75 | 20.000 s |
-| `None` | 4 | 13410910 | 1611 | 420.000 s |
+| `None` | 4 | 13423182 | 1611 | 420.000 s |
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/plots/sync_loss.svg"

@@ -122,7 +122,7 @@ holds the chunks of samples back until the decoder's next second shows that no b
 ```
 
 `cargo run --release -p example_rf DIR` writes the minute at 1/100 of the rate. The chain `iq`
-holds 60 pieces of 38 MB together, a piece per second, and `decoded` one piece of 20 KB. The reader merges 6000 chunks
+holds 60 pieces of 38 MB together, a piece per second, and `decoded` one piece of 25 KB. The reader merges 6000 chunks
 and 65 finds, none of them late. Each burst comes right after the chunk that holds its first sample. The burst at
 7.3 s comes after the chunk from sample 1 460 000.
 
