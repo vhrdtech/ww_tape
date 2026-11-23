@@ -56,6 +56,8 @@ An unchecked read takes 47 % of the time of a checked one for a chunk, mostly it
 
 --8<-- "docs/plots/bench_read_check_machine.txt"
 
+A writer may skip checks too, and a seal adds them later: [Fewer checks, sealed later](integrity.md).
+
 ## What the flipped bit costs
 
 In the drive's last piece, a flipped bit about 9.7 MB in lands in the chunk of `phase_a` that starts at 50:00. The chunk

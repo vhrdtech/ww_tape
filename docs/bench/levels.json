@@ -1,0 +1,325 @@
+{
+  "format": 1,
+  "bench": "levels",
+  "version": "0.4.0 (f39d29d5, commit 23 Nov 2026 06:37 UTC)",
+  "commit": "f39d29d5",
+  "dirty": false,
+  "build": {
+    "profile": "release",
+    "opt_level": "3",
+    "jobs": null
+  },
+  "settings": [
+    [
+      "MiB",
+      "64"
+    ],
+    [
+      "rounds",
+      "5"
+    ]
+  ],
+  "machine": {
+    "host": "build-1",
+    "virtual_machine": true,
+    "cpu": "AMD EPYC-Genoa Processor",
+    "cpus": 14,
+    "arch": "x86_64",
+    "extensions": [
+      "sse4.2",
+      "avx2",
+      "avx512bw+vl"
+    ],
+    "memory_bytes": 37816606720
+  },
+  "tables": [
+    {
+      "id": "write",
+      "title": "`TapeWriter::write_chunk` into a reserved memory tape, 64 MiB of chunks of each shape, at each level.",
+      "columns": [
+        "Chunk",
+        "Level",
+        "ns per chunk",
+        "ns per byte",
+        "GB/s"
+      ],
+      "rows": [
+        [
+          "series 1 MiB",
+          "Full",
+          {
+            "value": 396864.75,
+            "digits": 0
+          },
+          {
+            "value": 0.3784797191619873,
+            "digits": 3
+          },
+          {
+            "value": 2.64214949803428,
+            "digits": 2
+          }
+        ],
+        [
+          "series 1 MiB",
+          "CrcOnly",
+          {
+            "value": 133066.234375,
+            "digits": 0
+          },
+          {
+            "value": 0.12690185010433197,
+            "digits": 3
+          },
+          {
+            "value": 7.880105760300997,
+            "digits": 2
+          }
+        ],
+        [
+          "series 1 MiB",
+          "None",
+          {
+            "value": 99634.140625,
+            "digits": 0
+          },
+          {
+            "value": 0.09501852095127106,
+            "digits": 3
+          },
+          {
+            "value": 10.524264006517596,
+            "digits": 2
+          }
+        ],
+        [
+          "series 4 MiB",
+          "Full",
+          {
+            "value": 1709624.1875,
+            "digits": 0
+          },
+          {
+            "value": 0.40760616958141327,
+            "digits": 3
+          },
+          {
+            "value": 2.453348537454522,
+            "digits": 2
+          }
+        ],
+        [
+          "series 4 MiB",
+          "CrcOnly",
+          {
+            "value": 611221.875,
+            "digits": 0
+          },
+          {
+            "value": 0.14572665095329285,
+            "digits": 3
+          },
+          {
+            "value": 6.862162778450951,
+            "digits": 2
+          }
+        ],
+        [
+          "series 4 MiB",
+          "None",
+          {
+            "value": 454211.75,
+            "digits": 0
+          },
+          {
+            "value": 0.10829252004623413,
+            "digits": 3
+          },
+          {
+            "value": 9.234248123259691,
+            "digits": 2
+          }
+        ],
+        [
+          "events 16 KiB",
+          "Full",
+          {
+            "value": 8034.471435546875,
+            "digits": 0
+          },
+          {
+            "value": 0.4903852194547653,
+            "digits": 3
+          },
+          {
+            "value": 2.039213174311921,
+            "digits": 2
+          }
+        ],
+        [
+          "events 16 KiB",
+          "CrcOnly",
+          {
+            "value": 3637.334716796875,
+            "digits": 0
+          },
+          {
+            "value": 0.22200529277324677,
+            "digits": 3
+          },
+          {
+            "value": 4.504397113727314,
+            "digits": 2
+          }
+        ],
+        [
+          "events 16 KiB",
+          "None",
+          {
+            "value": 3036.304443359375,
+            "digits": 0
+          },
+          {
+            "value": 0.18532131612300873,
+            "digits": 3
+          },
+          {
+            "value": 5.396033337774489,
+            "digits": 2
+          }
+        ]
+      ],
+      "load_before": {
+        "one": 5.94,
+        "five": 8.43,
+        "fifteen": 12.11
+      },
+      "load_after": {
+        "one": 5.94,
+        "five": 8.43,
+        "fifteen": 12.11
+      },
+      "seconds": 2.346995259
+    },
+    {
+      "id": "seal",
+      "title": "`MemTapes::seal` of a closed piece of 64 MiB of chunks of each shape, to Full.",
+      "columns": [
+        "Chunk",
+        "From",
+        "ns per chunk",
+        "ns per byte",
+        "GB/s"
+      ],
+      "rows": [
+        [
+          "series 1 MiB",
+          "CrcOnly",
+          {
+            "value": 442960.828125,
+            "digits": 0
+          },
+          {
+            "value": 0.4224403649568558,
+            "digits": 3
+          },
+          {
+            "value": 2.3671980306667213,
+            "digits": 2
+          }
+        ],
+        [
+          "series 1 MiB",
+          "None",
+          {
+            "value": 416530.546875,
+            "digits": 0
+          },
+          {
+            "value": 0.3972344845533371,
+            "digits": 3
+          },
+          {
+            "value": 2.51740480468213,
+            "digits": 2
+          }
+        ],
+        [
+          "series 4 MiB",
+          "CrcOnly",
+          {
+            "value": 1776375.8125,
+            "digits": 0
+          },
+          {
+            "value": 0.4235209971666336,
+            "digits": 3
+          },
+          {
+            "value": 2.3611580221288335,
+            "digits": 2
+          }
+        ],
+        [
+          "series 4 MiB",
+          "None",
+          {
+            "value": 1588339.5625,
+            "digits": 0
+          },
+          {
+            "value": 0.3786896616220474,
+            "digits": 3
+          },
+          {
+            "value": 2.6406847119001986,
+            "digits": 2
+          }
+        ],
+        [
+          "events 16 KiB",
+          "CrcOnly",
+          {
+            "value": 8938.82958984375,
+            "digits": 0
+          },
+          {
+            "value": 0.5455828607082367,
+            "digits": 3
+          },
+          {
+            "value": 1.8329021529412992,
+            "digits": 2
+          }
+        ],
+        [
+          "events 16 KiB",
+          "None",
+          {
+            "value": 8218.854736328125,
+            "digits": 0
+          },
+          {
+            "value": 0.5016390830278397,
+            "digits": 3
+          },
+          {
+            "value": 1.9934650904074447,
+            "digits": 2
+          }
+        ]
+      ],
+      "load_before": {
+        "one": 5.94,
+        "five": 8.43,
+        "fifteen": 12.11
+      },
+      "load_after": {
+        "one": 5.94,
+        "five": 8.43,
+        "fifteen": 12.11
+      },
+      "seconds": 2.347018939
+    }
+  ]
+}

@@ -87,13 +87,13 @@ The bytes of blocks, records, chunks, sessions and the index, in the crate `ww_t
 
   Read more: [Sample flags](docs/format.md#sample-flags). Golden file `v1-series.hex`; tests `series_flags.rs`, `mux_resume.rs`; fuzz targets `tape-flags`, `tape-flags-hostile`.
 
-- 🚧 **FMT-14 Integrity levels and a seal**
+- ✅ **FMT-14 Integrity levels and a seal**
 
   A piece names its level in its head: `Full` computes every CRC and hash, `CrcOnly` no hashes, `None` no payload CRCs either. Below `Full` the hashes hold zero and each index entry is marked unhashed; at `None` each chunk is marked `FLAG_PAYLOAD_UNCHECKED` and reads as `Checked::Unprotected`. Chunk head CRCs and every structure block stay checked, so framing, resume and salvage work at every level. Verify checks the structure, the chain check links by id (`ChainLink::Unproven`), and `range_hash` hashes the chunks' bytes.
 
-  Open: a seal that fills in the CRCs and hashes in place.
+  A seal raises a closed piece to `Full`, byte for byte what a `Full` writer writes from the same calls: `TapeWriter::seal_on`, `MemTapes::seal` (a sealed copy swapped in), `ww_tape_fs::writer::seal` (in place, each piece head written last). Golden pieces per level, the fuzz target `tape-seal`, `tape-resume` at every level, and the bench `levels`.
 
-  Read more: [Damage and recovery](docs/damage.md).
+  Read more: [Fewer checks, sealed later](docs/integrity.md).
 
 ## Tracks, clocks and definitions (`TRACK`)
 
