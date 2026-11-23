@@ -285,7 +285,7 @@ Everything that names a path, in the crate `ww_tape_fs`.
   A bench measured this first: pieces in parallel won clearly, over one piece at a time and over BLAKE3's own
   multithreaded hashing of one piece.
 
-  Read more: [Sizes and speeds](docs/sizes.md#verifying-and-range-hashing-a-chains-pieces-in-parallel). Tests
+  Read more: [Checking many pieces at once](docs/check_pieces.md). Tests
   `ww_tape_tests/tests/it/check_parallel.rs`.
 
 ## Codecs (`CODEC`)
