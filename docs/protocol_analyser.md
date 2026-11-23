@@ -77,9 +77,13 @@ therefore takes about 2.4 GB on a tape.
 
 ## A window in memory
 
-Memory takes the link at its line rate where a disk does not. So the analyser records into a [[chain]] of pieces in
-memory, a [`MemTapes`] that keeps each [[piece]] as a tape of its own. The [[mux]] cuts a piece every 64 MiB, about
-28 ms of the link. The pieces held in memory form the **window**: the newest stretch of the capture.
+Memory takes the link at its line rate where a disk does not. So the analyser records into a [[chain]] of pieces kept
+in memory, a [`MemTapes`] that holds each [[piece]] apart. The [[mux]] cuts a piece every 64 MiB, about 28 ms of the
+link, as it does in a chain of piece files.
+
+The pieces held in memory form the **memory window**: the tape of the capture held in RAM, its newest stretch. Each
+piece holds the same tracks, blocks and summaries a piece in a file holds, and the tracks run across the pieces. The
+oldest pieces leave memory as the capture goes on.
 
 A mux writes its chain from one thread, which copies every byte of the capture into memory. One such thread for both
 ports falls just short of the link's pace, as the bench below shows. So each port goes into a chain of its own, with a
@@ -102,6 +106,22 @@ Each chain's window has a size, [`Window::bytes_max`]. An analyser that falls be
 full. The oldest pieces then leave memory unread, and [`Triaged::overrun`] counts them, as a capture card counts the
 frames it drops. The test `tests/window.rs` holds the analyser back until the capture ends and checks that every piece
 was read or counted.
+
+## The pipeline
+
+The crate's binary runs the analyser headless: `cargo run --release -p example_ethernet -- DIR` captures a second of
+the link and keeps the pieces around each reset under `DIR`. Its `main` reads like a block diagram of the threads and
+what connects them:
+
+```rs
+--8<-- "example_ethernet/src/main.rs:main"
+```
+
+[`RamCapture::start`] starts the capture threads, the muxes and a triage thread per chain, and returns at once. The
+[`RamRunning`] it gives hands out the memory window while the capture runs: per chain a [`MemChain`], its pieces in
+memory and the [`ProgressWatch`] of its mux. A viewer in another thread follows the window from it, as `follow` does
+here with a [`Follower`], and reads each closed piece as the triage does. The triage removes a piece once no verdict
+can keep it, so a viewer finds the newest pieces only. [`RamRunning::join`] waits for the end.
 
 ## The analyser: TCP resets
 

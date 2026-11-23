@@ -1,13 +1,17 @@
-//! A capture into memory at line rate: a window of the newest pieces in RAM, an analyser that reads each piece as it
-//! closes, and only the pieces worth keeping copied to a store of their own.
+//! A capture into memory at line rate: the memory window, an analyser that reads each piece as it closes, and only the
+//! pieces worth keeping copied to a store of their own.
 //!
-//! A [TapeMux] writes the capture into a chain of pieces in a [MemTapes], a tape per piece
-//! ([PieceTapes::Each](ww_tape::PieceTapes)), cut by size. A mux has one writing thread, so [run] spreads a capture
-//! faster than one thread copies over several chains, each with a mux of its own. [triage] runs beside each chain in
-//! the same process, on a thread of its own. It waits on
-//! the mux's [ProgressWatch], opens each piece once it closes ([TapeReader] over the [MemTape], no copy) and asks the
-//! [Analyser] whether to keep it. A kept piece is copied whole to the kept store, such as a directory of piece files,
-//! where it reads alone. Every other piece leaves memory ([MemTapes::remove]).
+//! The memory window is a chain of pieces kept in memory: the tape of the capture held in RAM, its newest stretch. A
+//! [TapeMux] writes it into a [MemTapes] that holds each piece apart ([PieceTapes::Each](ww_tape::PieceTapes)), cut by
+//! size. Each piece holds the same tracks, blocks and summaries a piece in a file holds, and the tracks run across the
+//! pieces. A mux has one writing thread, so [start] spreads a capture faster than one thread copies over several
+//! chains, each with a mux of its own.
+//!
+//! [triage] runs beside each chain in the same process, on a thread of its own. It waits on the mux's
+//! [ProgressWatch], opens each piece once it closes ([TapeReader] over the [MemTape], no copy) and asks the [Analyser]
+//! whether to keep it. A kept piece is copied whole to the kept store, such as a directory of piece files, where it
+//! reads alone. Every other piece leaves memory ([MemTapes::remove]). [start] returns a [Running] capture that hands
+//! out each chain ([MemChain]), so a viewer follows the window while the capture runs ([Follower]).
 //!
 //! [Window::before] and [Window::after] keep the pieces around a kept one too, so the analyser's verdict on one piece
 //! keeps what led up to it and what followed. The pieces before wait in memory, already read, until no later verdict
@@ -139,7 +143,7 @@ pub struct Triaged {
     pub copying: Duration,
 }
 
-/// Run the window over the capture that `watch`'s mux writes into `ram`, a tape per piece, until the mux ends.
+/// Run the window over the capture that `watch`'s mux writes into `ram`, each piece held apart, until the mux ends.
 ///
 /// `analyser` reads every piece as it closes. The kept ones go to `kept` under their own sequence numbers, and every
 /// piece leaves memory once no verdict can keep it.
@@ -440,8 +444,8 @@ impl<X, C, K: Tapes, A: Analyser> Running<X, C, K, A> {
 
 /// Start a capture into the memory window, a chain in memory for each of `chains`, each read by a triage of its own.
 ///
-/// `record` writes the capture through a mux per chain, each into a chain in memory cut by `options`, a tape per
-/// piece, on a capture thread. [triage] runs each chain's analyser over it on a thread of its own, `window` holding
+/// `record` writes the capture through a mux per chain, each into a chain in memory cut by `options`, each piece
+/// held apart, on a capture thread. [triage] runs each chain's analyser over it on a thread of its own, `window` holding
 /// each chain's pieces.
 ///
 /// The mux of `chains[c]` writes chain `c`. A mux has one writing thread, so a capture faster than one thread copies
@@ -732,7 +736,7 @@ pub fn span(piece: &TapeReader<MemTape>) -> Result<Option<(i64, i64)>, ReadError
     Ok(span)
 }
 
-/// Bytes the tapes of `ram` hold, the one being written included.
+/// Bytes the pieces of `ram` hold, the one being written included.
 fn held<K, A>(ram: &MemTapes) -> Result<u64, WindowError<K, A>> {
     let mut held = 0;
     for key in ram.keys().map_err(WindowError::Ram)? {
@@ -747,7 +751,7 @@ fn held<K, A>(ram: &MemTapes) -> Result<u64, WindowError<K, A>> {
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum WindowError<K, A> {
-    /// The memory tapes failed.
+    /// The memory pieces failed.
     Ram(MemError),
     /// A piece in memory didn't open.
     Read(ReadError<MemError>),
@@ -761,7 +765,7 @@ pub enum WindowError<K, A> {
 impl<K: core::fmt::Debug, A: core::fmt::Debug> core::fmt::Display for WindowError<K, A> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::Ram(e) => write!(f, "the memory tapes: {e}"),
+            Self::Ram(e) => write!(f, "the memory pieces: {e}"),
             Self::Read(e) => write!(f, "a piece in memory: {e:?}"),
             Self::Gone(seq) => write!(f, "piece {seq} left memory before its verdict"),
             Self::Kept(e) => write!(f, "the kept store: {e:?}"),

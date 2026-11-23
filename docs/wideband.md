@@ -59,9 +59,11 @@ function, which the overview below uses too:
 
 ## A window in memory
 
-The receiver records into a window in memory, as the protocol analyser does in [Keeping what matters of a 10 Gbps
-link](protocol_analyser.md#a-window-in-memory). A [[mux]] writes the [[chain]] into a [`MemTapes`], a piece every
-64 MiB. A triage thread opens each piece as it closes and asks the analyser whether it holds a burst.
+The receiver records into the memory window, as the protocol analyser does in [Keeping what matters of a 10 Gbps
+link](protocol_analyser.md#a-window-in-memory). The window is a [[chain]] of pieces kept in memory, the tape of the
+capture held in RAM. A [[mux]] writes the chain into a [`MemTapes`], a piece every 64 MiB. Each piece holds the same
+tracks, blocks and summaries a piece in a file holds. A triage thread opens each piece as it closes and asks the
+analyser whether it holds a burst.
 
 A piece with a burst is copied to a piece file, with one piece before it and one after it. Every other piece leaves
 memory unwritten. The band takes fewer bytes a second than the link, and one chain keeps up with it, as the bench below
@@ -77,6 +79,15 @@ bursts of 2 ms each, so the disk sees a few pieces a minute.
 
 The test `tests/wideband_ram.rs` records a minute at 1/5 000 of the rate. It checks that each channel's five bursts are
 found and that their samples lie in the kept pieces. It also checks that those pieces hold the signal's own samples.
+
+The crate's binary runs the receiver headless: `cargo run --release -p example_wideband -- DIR` captures 10 s of the
+band, past its first burst, and keeps the pieces around each burst under `DIR`. Its `main` names each thread and what
+it feeds, and [`RfCapture::start`] hands out the memory window while the capture runs, as the analyser's
+[pipeline](protocol_analyser.md#the-pipeline) does:
+
+```rs
+--8<-- "example_wideband/src/main.rs:main"
+```
 
 ## What one PC holds and keeps
 

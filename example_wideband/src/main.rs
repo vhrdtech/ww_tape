@@ -30,18 +30,24 @@ use ww_tape::{ChainPiece, OwnerId};
 /// The owner of the results' chain.
 const RESULTS_OWNER: OwnerId = OwnerId([0x5e; 32]);
 
+// --8<-- [start:main]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (dir, ms) = args()?;
     let capture = capture(ms);
+    // where the triage keeps: DIR/kept-0/ for the pieces, DIR/results/ for what the analyser finds
     let [kept] = <[Files; 1]>::try_from(files::kept(&dir, 1)?).map_err(|_k| "one kept store")?;
     let results = files::results(&dir, RESULTS_OWNER)?;
+    // a producer thread per channel -> one mux -> the memory window -> a triage thread
     let running = capture.start(Source::Live, kept, &results)?;
+    // a viewer beside the triage: the pieces the chain begins
     follow(&running)?;
+    // the capture ended, the triage read its last piece
     let ran = running.join()?;
     let closed = results.close()?;
     report(&capture, &ran, &closed);
     Ok(())
 }
+// --8<-- [end:main]
 
 /// The directory to keep into and the milliseconds to capture.
 fn args() -> Result<(PathBuf, u64), Box<dyn std::error::Error>> {

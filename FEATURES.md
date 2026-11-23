@@ -379,13 +379,11 @@ The book's running example and its other cases: `example_drive`, `example_rf`, `
 
   Read more: [Keeping what matters of a 10 Gbps link](docs/protocol_analyser.md), [Keeping the bursts of a fast band](docs/wideband.md). Tests `window.rs`, `ethernet_ram.rs`, `wideband_ram.rs`.
 
-- 🚧 **EX-5 A crate per case, its pipeline a library**
+- ✅ **EX-5 A crate per case, its pipeline a library**
 
-  Each case is a crate of its own: `example_drive` the book's running example, `example_rf`, `example_ethernet` and `example_wideband`. What they share, the memory window and the RF signal, is in `example_capture`, so no case depends on another.
+  Each case is a crate of its own: `example_drive` the book's running example, `example_rf`, `example_ethernet` and `example_wideband`. What they share, the memory window and the RF signal, is in `example_capture`, so no case depends on another. `window::start` and each case's `start` return a running pipeline. It hands out its memory window, the pieces in memory and each mux's watch, so a viewer follows it live. Each case has a headless binary whose `main` reads like a block diagram of its threads.
 
-  Open: each case's pipeline as a library that hands out its memory window while it runs, and a headless binary whose `main` reads like a block diagram.
-
-  Read more: [example_capture](example_capture/README.md).
+  Read more: [The pipeline](docs/protocol_analyser.md#the-pipeline), [example_capture](example_capture/README.md). Tests `window.rs`.
 
 ## Repository (`REPO`)
 

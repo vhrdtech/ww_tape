@@ -25,9 +25,12 @@ use example_rf::chains::{Chains, ChainsError, Decoded, Followed, Written, follow
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (dir, rf) = args()?;
     let chains = Chains::new(rf);
+    // a mux per chain: DIR/iq/ and DIR/decoded/
     let open = chains.open(&dir)?;
     let (written, followed) = std::thread::scope(|s| {
+        // the reader thread follows both chains and merges them by time
         let reader = s.spawn(|| follow(&rf, &Chains::iq_dir(&dir), &Chains::decoded_dir(&dir)));
+        // the radio thread -> iq, and hands each chunk to the decoder thread -> decoded
         let written = chains.record(open)?;
         let followed = reader
             .join()

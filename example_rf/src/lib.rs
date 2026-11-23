@@ -119,7 +119,7 @@ pub struct Captured {
     pub summary_blocks: u64,
     /// Bytes of those summary blocks.
     pub summary_bytes: u64,
-    /// The piece's bytes, when it was recorded in memory ([Rf::record]); else empty.
+    /// The piece's bytes, when it was recorded in memory ([record]); else empty.
     pub bytes: Vec<u8>,
 }
 
