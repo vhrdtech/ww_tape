@@ -47,15 +47,15 @@ The drive's host relays the board's tape into a chain cut every 15 minutes. It w
 the chain's policy:
 
 ```rs
---8<-- "example_drive/src/writing.rs:relay"
+--8<-- "examples/example_drive/src/writing.rs:relay"
 ```
 
 ??? example "What the example uses here: `board_tape`, `options`"
 
     ```rs
-    --8<-- "example_drive/src/writing.rs:board_tape_item"
+    --8<-- "examples/example_drive/src/writing.rs:board_tape_item"
 
-    --8<-- "example_drive/src/record.rs:options_item"
+    --8<-- "examples/example_drive/src/record.rs:options_item"
     ```
 
 The board writes its hour as one tape of 116 MB, with about 13700 data blocks. It keeps near at 1 MiB, since a viewer

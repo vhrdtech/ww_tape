@@ -1,9 +1,9 @@
 | Kept to | Chains | Queues a port | Triage MB/s | Of the pace | Kept pieces | Kept % | Results KB | To disk MB per s | Copy MB/s |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| memory | 1 | 2 | 2797 | 1.2 | 3 | 4.2 | 4 | 101.2 | 3348 |
-| memory | 1 | 4 | 2787 | 1.2 | 3 | 4.3 | 4 | 101.3 | 3304 |
-| memory | 2 | 2 | 2698 | 2.2 | 3 | 4.2 | 4 | 101.1 | 3467 |
-| memory | 2 | 4 | 2020 | 1.6 | 3 | 4.3 | 4 | 102.1 | 2946 |
-| piece files | 2 | 4 | 2038 | 1.6 | 3 | 4.3 | 4 | 101.7 | 382 |
+| memory | 1 | 2 | 4729 | 1.9 | 3 | 4.1 | 4 | 101.3 | 2697 |
+| memory | 1 | 4 | 4743 | 1.9 | 3 | 4.1 | 4 | 101.2 | 2926 |
+| memory | 2 | 2 | 4473 | 3.6 | 3 | 4.2 | 4 | 102.2 | 2784 |
+| memory | 2 | 4 | 3807 | 3.1 | 3 | 4.2 | 4 | 102.1 | 2000 |
+| piece files | 2 | 4 | 3993 | 3.2 | 3 | 4.2 | 4 | 102.2 | 445 |
 
-`just bench-ethernet` on gpd-omarchy, load average 4.06 before, 4.83 after.
+`just bench-ethernet` on gpd-omarchy, load average 4.52 before, 5.61 after.

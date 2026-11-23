@@ -20,17 +20,17 @@ the event's [[payload]]. The track's items are plain bytes with no type, `RawByt
 A capture thread takes the frames in batches, as a network card hands them over, and pushes each batch in one call:
 
 ```rs
---8<-- "example_ethernet/src/lib.rs:capture"
+--8<-- "examples/example_ethernet/src/lib.rs:capture"
 ```
 
-The handle copies the batch into its open [[events chunk]] and seals the chunk at 1 MiB of frames. It compresses the
-payloads with LZ4 and hashes them on the capture thread. A tool that already writes the pcap format could store those
+The handle copies the batch into its open [[events chunk]] and seals the chunk at 1 MiB of frames. It codes the
+[[payload]] column with the track's payload codec, here `Raw`, and hashes it on the capture thread ([why raw](#compressing-the-payloads)). A tool that already writes the pcap format could store those
 records instead, as a `Foreign` item with the media type `application/vnd.tcpdump.pcap` ([Tracks](tracks.md)).
 
 ??? example "What the example uses here: `Link`"
 
     ```rs
-    --8<-- "example_ethernet/src/lib.rs:link"
+    --8<-- "examples/example_ethernet/src/lib.rs:link"
     ```
 
 ## Decoded layers as tracks
@@ -46,13 +46,13 @@ A decoded header must lead back to its frame. Each item of `ipv4` and `l4` keeps
 relation named `frame`:
 
 ```rs
---8<-- "example_ethernet/src/lib.rs:frame_relation"
+--8<-- "examples/example_ethernet/src/lib.rs:frame_relation"
 ```
 
 The decoder thread pushes the headers of a batch with their frames' numbers, one value each:
 
 ```rs
---8<-- "example_ethernet/src/lib.rs:decoded"
+--8<-- "examples/example_ethernet/src/lib.rs:decoded"
 ```
 
 The numbers only grow, so the relation is a [[monotone relation]]. The index then keeps each chunk's smallest and
@@ -70,15 +70,15 @@ back:
 
 --8<-- "docs/plots/ethernet_sizes.txt"
 
-10 ms of the link hold 65 663 frames of 23 MB in both directions. The chain takes 1.023 bytes per byte of the frames.
-The frames' own chunks take a little less than their bytes, since LZ4 finds repeats among the headers. A decoded header
+10 ms of the link hold 65 663 frames of 23 MB in both directions. The chain takes 1.051 bytes per byte of the frames.
+The frames' own chunks are raw, so each takes its bytes and a little more. A decoded header
 takes about 7 bytes in the chain, against 12 or 8 bytes as the decoder gives it. A second of the link at its line rate
-therefore takes about 2.4 GB on a tape.
+therefore takes about 2.5 GB on a tape.
 
 ## A window in memory
 
 Memory takes the link at its line rate where a disk does not. So the analyser records into a [[chain]] of pieces kept
-in memory, a [`MemTapes`] that holds each [[piece]] apart. The [[mux]] cuts a piece every 64 MiB, about 28 ms of the
+in memory, a [`MemTapes`] that holds each [[piece]] apart. The [[mux]] cuts a piece every 64 MiB, about 27 ms of the
 link, as it does in a chain of piece files.
 
 The pieces held in memory form the **memory window**: the tape of the capture held in RAM, its newest stretch. Each
@@ -95,7 +95,7 @@ piece holds something worth keeping. A kept piece is copied whole to the chain's
 reads alone. Every other piece leaves memory unwritten ([`MemTapes::remove`]).
 
 ```rs
---8<-- "example_ethernet/src/ram.rs:ram_capture"
+--8<-- "examples/example_ethernet/src/ram.rs:ram_capture"
 ```
 
 A verdict often depends on what came before. The window therefore keeps [`Window::before`] pieces after it read them,
@@ -114,7 +114,7 @@ the link and keeps the pieces around each reset under `DIR`. Its `main` reads li
 what connects them:
 
 ```rs
---8<-- "example_ethernet/src/main.rs:main"
+--8<-- "examples/example_ethernet/src/main.rs:main"
 ```
 
 [`RamCapture::start`] starts the capture threads, the muxes and a triage thread per chain, and returns at once. The
@@ -129,7 +129,7 @@ The analyser here looks for TCP resets, the frames that end a connection abruptl
 frames of a port. The analyser decodes every frame of each piece and tests its flags:
 
 ```rs
---8<-- "example_ethernet/src/ram.rs:look"
+--8<-- "examples/example_ethernet/src/ram.rs:look"
 ```
 
 Its findings go to a second chain, the results, which a mux of its own writes to disk beside the kept pieces. Each
@@ -172,7 +172,7 @@ writes per second of the link, the results included.
 ## Writing every frame to disk
 
 Some captures must keep every frame. The analyser then writes its chain straight to piece files, and the disk sets the
-pace. A chain at the line rate writes about 2.4 GB a second.
+pace. A chain at the line rate writes about 2.5 GB a second.
 
 One track has one producer: its handle encodes and hashes its chunks on that producer's thread. A port's 1.2 GB of
 frames a second on one thread is more than one core encodes, hashes and copies. So each port spreads its flows over
@@ -188,3 +188,27 @@ disk:
 The waits count the times a handle found the mux's queue full. Without a disk, enough receive queues keep up with the
 link. With a disk, the disk is the limit, which is why the analyser keeps the link in memory and writes only what it
 keeps.
+
+## Compressing the payloads
+
+A [[track]]'s writer chooses how each chunk codes its payload column. `Raw` runs no encoder. `Auto` tries LZ4 and keeps
+it when it is smaller ([Choosing the codec](format.md#choosing-the-payload-codec)). The capture above records the
+`frames` track `Raw`, because its payloads are random bytes, as encrypted traffic is. The `ipv4` and `l4` tracks keep
+`Auto`: their repeated headers do compress.
+
+`just bench-ethernet` records the link with both choices. It also records a second mix of payloads, made by
+`PayloadMix::Plain`: plaintext protocols (HTTP, JSON, log lines and SQL) drawn from a small vocabulary. The mix is synthetic. It stands
+for the traffic of an unencrypted network, where each frame repeats the headers of its neighbours.
+
+The run writes into a store that keeps no bytes, with 2 receive queues a port in one chain. "CPU ns per frame" counts every thread of the
+process, the one that makes the frames included, so the difference between two rows is what the codec costs.
+
+--8<-- "docs/plots/bench_ethernet_payload.txt"
+
+On random payloads, LZ4 saves the few percent that the repeated headers of a chunk give. It costs the encoder's CPU
+time on every byte it cannot shrink, so the `Raw` rows run faster. On plaintext, LZ4 cuts the chain to a quarter of its
+bytes, at the price of more CPU time per frame.
+
+Which is worth it depends on what the chain is short of: the disk's bytes or the capture's cores. This capture is
+limited by its cores and its payloads are random, so it is `Raw`. A link of plaintext protocols recorded to a disk that
+is the limit wants `Auto`.

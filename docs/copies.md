@@ -28,13 +28,13 @@ the heads and closes are already in memory. Its [`ChainReport`] lists each link,
 that belong to another chain. [`ChainReport::is_whole`] says that every piece is there and linked.
 
 ```rs
---8<-- "example_drive/src/fault.rs:check"
+--8<-- "examples/example_drive/src/fault.rs:check"
 ```
 
 ??? example "What the example uses here: `Checked`"
 
     ```rs
-    --8<-- "example_drive/src/fault.rs:checked_item"
+    --8<-- "examples/example_drive/src/fault.rs:checked_item"
     ```
 
 The drive's chain has three links between its four pieces, and all three are linked. The report also tells a chain whose
@@ -97,15 +97,15 @@ zero bytes, and returns a [`RangeHash`]. The result depends only on those chunks
 copied piece give the same hash for the same range:
 
 ```rs
---8<-- "example_drive/src/fault.rs:range"
+--8<-- "examples/example_drive/src/fault.rs:range"
 ```
 
 ??? example "What the example uses here: `frame_items`, `SameFrames`"
 
     ```rs
-    --8<-- "example_drive/src/fault.rs:frame_items_item"
+    --8<-- "examples/example_drive/src/fault.rs:frame_items_item"
 
-    --8<-- "example_drive/src/fault.rs:same_frames_type_item"
+    --8<-- "examples/example_drive/src/fault.rs:same_frames_type_item"
     ```
 
 For the frames of minutes 51 to 53, items 3 060 000 to 3 179 999 of `can0`, the range hash folds 120 chunks. Each

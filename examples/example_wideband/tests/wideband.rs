@@ -134,7 +134,7 @@ fn the_overview_finds_the_bursts_from_the_summaries() {
 
 /// The text of the book page `name`, its line breaks as spaces.
 fn page(name: &str) -> String {
-    let path = format!("{}/../docs/{name}", env!("CARGO_MANIFEST_DIR"));
+    let path = format!("{}/../../docs/{name}", env!("CARGO_MANIFEST_DIR"));
     let text = std::fs::read_to_string(&path).expect("the page is there");
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }

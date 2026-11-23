@@ -23,6 +23,9 @@ benchmarks, golden files and book pages.
 - Pieces of `Integrity::CrcOnly` skip hashes, of `None` payload CRCs too; readers read every level (FMT-14).
 - `Checked::Unprotected`, `ChainLink::Unproven` and `RangeHash::unprotected` say what a lower level left unchecked (FMT-14).
 - Mux handles hash no payload when the chain's pieces are below `Integrity::Full` (FMT-14).
+- `example_ethernet` writes its `frames` raw by default; `Link::payload(PayloadMix::Plain)` makes compressible payloads (EX-6).
+- `just bench-ethernet` measures bytes kept and CPU per frame for random and plaintext payloads, Raw and Auto (EX-6).
+- `just bench-wideband` reports bytes and CPU time per sample under each sample codec (EX-6).
 - The payload codec is a writer's choice per track: `PayloadCodec` Auto, Raw or named; `EventsOptions::payload_codec` (CODEC-3).
 - Payload codecs past raw sit in the `payloads::CODERS` registry; format.md says how a codec is added (CODEC-3).
 - `Block::read_unverified` skips payload CRCs, not structure checks; `Block::checked` says how a block was read (REPO-1).

@@ -34,7 +34,7 @@ mod machine;
 mod rng;
 
 pub use discard::{Discard, DiscardSink, NoSource};
-pub use machine::{build, load, machine};
+pub use machine::{build, cpu_time, load, machine};
 pub use rng::Rng;
 pub use ww_tape_bench_report::{Build, Cell, FORMAT, Load, Machine, Report, Table};
 

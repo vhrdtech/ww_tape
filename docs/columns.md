@@ -30,17 +30,17 @@ the starts with [`EncodedTimes::encode`] and the frames with [`EncodedPayloads::
 the chunk head, since they know the first and last tick:
 
 ```rs
---8<-- "example_drive/src/record.rs:frames"
+--8<-- "examples/example_drive/src/record.rs:frames"
 ```
 
 ??? example "What the example uses here: `DriveNumbers`, `key`, `Act`"
 
     ```rs
-    --8<-- "example_drive/src/defs.rs:ids_item"
+    --8<-- "examples/example_drive/src/defs.rs:ids_item"
 
-    --8<-- "example_drive/src/defs.rs:key_item"
+    --8<-- "examples/example_drive/src/defs.rs:key_item"
 
-    --8<-- "example_drive/src/record.rs:act_item"
+    --8<-- "examples/example_drive/src/record.rs:act_item"
     ```
 
 The two `None`s say that the frames have no ends and no flags. A track of spans passes the ends, and one with a severity

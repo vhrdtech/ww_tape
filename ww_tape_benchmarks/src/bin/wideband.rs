@@ -25,7 +25,7 @@ use example_wideband::{RATE_HZ, Source, Wideband, overview};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use ww_tape::{Codec, MemTapes, OwnerId, Tapes};
-use ww_tape_bench::{Bench, Cell, Common, Discard};
+use ww_tape_bench::{Bench, Cell, Common, Discard, cpu_time};
 use ww_tape_benchmarks::{TRIAGE_COLUMNS, WINDOW_COLUMNS, WindowRun, triage_row, window_row};
 use ww_tape_fs::{FileSource, Files};
 use ww_tape_mux::{MuxOptions, TapeMux};
@@ -75,6 +75,8 @@ const RESULTS_OWNER: OwnerId = OwnerId([0x5e; 32]);
 struct Run {
     samples: u64,
     wall: Duration,
+    /// CPU time of every thread of the process, None where the system doesn't say.
+    cpu: Option<Duration>,
     written: u64,
     waits: u64,
     pieces: Vec<Vec<PathBuf>>,
@@ -94,6 +96,7 @@ where
     T::Error: Send + Sync + core::fmt::Debug,
 {
     let refs: Vec<&TapeMux<T>> = muxes.iter().collect();
+    let cpu_start = cpu_time();
     let recorded = wb.record(&refs, source).map_err(err)?;
     let (mut written, mut waits) = (0, 0);
     for mux in muxes {
@@ -109,6 +112,7 @@ where
     Ok(Run {
         samples: recorded.samples.iter().sum(),
         wall: start.elapsed(),
+        cpu: cpu_time().zip(cpu_start).map(|(end, start)| end - start),
         written,
         waits,
         pieces: Vec::new(),
@@ -144,6 +148,8 @@ fn main() -> anyhow::Result<()> {
             "MS/s",
             "Of 1 GS/s",
             "MB/s written",
+            "Bytes per sample",
+            "CPU ns per sample",
             "Waits",
         ],
     );
@@ -410,6 +416,11 @@ fn row(store: &str, wb: &Wideband, muxes: usize, r: &Run) -> Vec<Cell> {
         Cell::num(msps, 0),
         Cell::num(msps * 1e6 / f64::from(RATE_HZ), 2),
         Cell::num(r.written as f64 / secs / 1e6, 0),
+        Cell::num(r.written as f64 / r.samples as f64, 2),
+        r.cpu.map_or_else(
+            || Cell::text("unknown"),
+            |cpu| Cell::num(cpu.as_secs_f64() * 1e9 / r.samples as f64, 1),
+        ),
         Cell::count(r.waits),
     ]
 }

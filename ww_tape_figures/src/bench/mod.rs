@@ -502,6 +502,7 @@ pub fn figures(dir: &Path) -> anyhow::Result<Vec<(String, String)>> {
         (&r.handles, "iq"),
         (&r.read_check, "read"),
         (&r.ethernet, "writer"),
+        (&r.ethernet, "payload"),
         (&r.ethernet, "window"),
         (&r.ethernet, "triage"),
         (&r.wideband, "writer"),
