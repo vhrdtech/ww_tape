@@ -222,9 +222,9 @@ pub use samples::{
 };
 
 pub mod series;
-pub use series::{MediaStream, SeriesDef, SeriesError, SeriesGrid, SeriesValue};
+pub use series::{GridDef, MediaStream, SeriesError, SeriesGrid, SeriesValue};
 #[cfg(feature = "std")]
-pub use series::{MediaStreamOwned, SeriesDefOwned};
+pub use series::{GridDefOwned, MediaStreamOwned};
 #[cfg(feature = "alloc")]
 pub use series::{SeriesStretch, SeriesTimeline};
 

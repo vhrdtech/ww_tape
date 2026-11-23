@@ -944,7 +944,7 @@ fn series_head_caps() {
 /// The series track the tests write, on `clock` (1 ns ticks): i16 samples on one channel, one per 1000 ticks.
 fn series_track(clock: ClockNum) -> ww_tape::TrackSpec<'static> {
     use shrink_wrap::prelude::*;
-    use ww_tape::{SeriesDef, TrackKind, TrackRepeat, TrackSpec, track_key};
+    use ww_tape::{GridDef, TrackKind, TrackRepeat, TrackSpec, track_key};
     TrackSpec {
         key: track_key(0x5e, &[ww_tape::Segment::Name("signal")]),
         clock,
@@ -952,7 +952,7 @@ fn series_track(clock: ClockNum) -> ww_tape::TrackSpec<'static> {
         items: ww_tape::Items::numbers::<i16>(None),
         label: "signal",
         repeat: TrackRepeat::Stream,
-        kind: TrackKind::Series(SeriesDef::of::<i16>(1, Ratio64::int(1000).unwrap())),
+        kind: TrackKind::Series(GridDef::of::<i16>(1, Ratio64::int(1000).unwrap())),
         relations: RefVec::Slice { slice: &[] },
         owner: [0; 32],
     }

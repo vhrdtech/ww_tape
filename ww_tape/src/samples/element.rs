@@ -395,7 +395,7 @@ impl core::fmt::Display for ElementDesc {
 ///
 /// A column holds one channel or several interleaved; the [Codec](crate::Codec) of the column says how the values
 /// are coded, apart from this. A track's shape is its [Items::Numbers](crate::Items::Numbers) element and its
-/// [SeriesDef::channels](crate::SeriesDef::channels) ([TrackDef::series_shape](crate::TrackDef::series_shape)).
+/// [GridDef::channels](crate::GridDef::channels) ([TrackDef::series_shape](crate::TrackDef::series_shape)).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SampleShape {
     pub element: ElementDesc,

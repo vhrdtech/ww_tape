@@ -16,8 +16,8 @@ use ww_tape::chunk::ChunkHead;
 use ww_tape::samples::{Samples, encode, max_encoded_len};
 use ww_tape::{
     BlockKind, ClockDef, ClockOrigin, Codec, ColumnKind, ColumnSpec, Describe, DescribeOwned,
-    EndMode, FileBlocks, FullVersion, Layout, Magnitude, Producer, Ratio64, Recovery, SampleShape,
-    Segment, SeriesDef, SeriesGrid, SeriesTimeline, SeriesValue, SyncPolicy, TapeReader,
+    EndMode, FileBlocks, FullVersion, GridDef, Layout, Magnitude, Producer, Ratio64, Recovery,
+    SampleShape, Segment, SeriesGrid, SeriesTimeline, SeriesValue, SyncPolicy, TapeReader,
     TapeWriter, TrackDef, TrackKind, TypeRef, Version, clock_key, track_key,
 };
 
@@ -119,8 +119,8 @@ fn sample_type() -> TypeRef<'static> {
     }
 }
 
-fn series_def() -> SeriesDef<'static> {
-    SeriesDef::of::<MicroAmps>(CHANNELS, period())
+fn series_def() -> GridDef<'static> {
+    GridDef::of::<MicroAmps>(CHANNELS, period())
 }
 
 /// The definitions of the recording.

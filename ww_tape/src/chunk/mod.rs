@@ -25,7 +25,7 @@
 //!  84 ...  series chunks only, the grid of the samples (SeriesGrid):
 //!          84 u64  grid index: the sample the grid counts from, at most the first item
 //!          92 i64  grid tick: the tick of that sample; sample i is at grid tick + (i - grid index) · period,
-//!                  rounded down, the period the track's SeriesDef gives
+//!                  rounded down, the period the track's GridDef gives
 //!         100  u8  scale length s, 1 to SCALE_LEN_MAX
 //!         101 ...  scale: what a stored number is worth in the sample type's unit, as the shrink_wrap bytes of an
 //!                  exact_units Magnitude (10⁻³ is fa 00)

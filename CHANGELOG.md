@@ -9,6 +9,7 @@ benchmarks, golden files and book pages.
 ### Breaking
 
 - Index entries are 128 bytes, 120..128 reserved; goldens rewritten. Pieces of 120-byte entries still read (FMT-15).
+- `SeriesDef` is `GridDef`: a series is the grid of no fixed axes (FMT-15).
 - `IndexEntry::decode` takes the first `ENTRY_READ_LEN` (120) bytes of an entry, not `ENTRY_LEN` (FMT-15).
 
 ## [0.6.0] - 2026-11-23

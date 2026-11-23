@@ -19,7 +19,7 @@ and the drive's phase current are series. A sample needs no time of its own, sin
 therefore stores only values, in [[series chunks]], and the drive's `phase_a` costs about 1.1 bytes per
 sample ([Sizes and speeds](sizes.md#bytes-per-item)).
 
-The track's items and its definition, a [`SeriesDef`], say what a sample is:
+The track's items and its definition, a [`GridDef`], say what a sample is:
 
 | Field | What it says | `phase_a` | `iq`, an RF capture |
 |---|---|---|---|

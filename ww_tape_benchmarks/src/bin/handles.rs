@@ -30,8 +30,8 @@ use ww_tape::samples::{encode, max_encoded_len};
 use ww_tape::times::EncodedTimes;
 use ww_tape::{
     BlockKind, ChainOptions, ClockNum, ClockOrigin, ClockSpec, ColumnKind, ColumnSpec, CutPolicy,
-    Definitions, EndMode, EventsDef, ItemNum, Items, OwnerId, PieceChain, PieceTapes, Segment,
-    SeriesDef, SyncPolicy, TrackId, TrackKind, TrackNum, TrackRepeat, TrackSpec, WriterOptions,
+    Definitions, EndMode, EventsDef, GridDef, ItemNum, Items, OwnerId, PieceChain, PieceTapes,
+    Segment, SyncPolicy, TrackId, TrackKind, TrackNum, TrackRepeat, TrackSpec, WriterOptions,
     clock_key, track_key,
 };
 use ww_tape_bench::{Bench, Cell, Common, Discard};
@@ -124,7 +124,7 @@ fn track(load: Load, k: u32, clock: ClockNum, rf: &Rf) -> anyhow::Result<TrackSp
     let (items, kind) = match load {
         Load::Events => (Items::RawBytes, TrackKind::Events(EventsDef::INSTANTS)),
         Load::Iq => {
-            let def: SeriesDef<'static> = rf.def().ok_or_else(|| anyhow::anyhow!("the rate"))?;
+            let def: GridDef<'static> = rf.def().ok_or_else(|| anyhow::anyhow!("the rate"))?;
             (
                 Items::Numbers {
                     element: IQ_ELEMENT,

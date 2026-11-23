@@ -12,8 +12,8 @@ use ww_tape::summary::{SeriesStats, SeriesSummarySpec};
 use ww_tape::times::EventTimes;
 use ww_tape::{
     BlockKind, ChainOptions, ClockNum, ClockOrigin, ClockSpec, ColumnKind, CutPolicy, Element,
-    ElementDesc, EventsDef, ItemNum, Items, MemPieces, OwnerId, PieceStore, PieceTapes, Ratio64,
-    SampleShape, SeriesDef, SyncPolicy, TapeReader, TapeSink, TrackId, TrackKind, TrackNum,
+    ElementDesc, EventsDef, GridDef, ItemNum, Items, MemPieces, OwnerId, PieceStore, PieceTapes,
+    Ratio64, SampleShape, SyncPolicy, TapeReader, TapeSink, TrackId, TrackKind, TrackNum,
     TrackRepeat, TrackSpec, WriterOptions, clock_key, track_key,
 };
 use ww_tape_mux::{EventsOptions, MuxOptions, SeriesOptions, TapeMux};
@@ -68,7 +68,7 @@ fn clock() -> ClockSpec<'static> {
 
 /// Series track `k` of [SAMPLES]: i16 on two channels, a sample per [PERIOD] ticks, with extremes and sums per 256.
 fn series_track(k: u32, clock: ClockNum) -> TrackSpec<'static> {
-    let mut def = SeriesDef::of::<i16>(2, Ratio64::int(PERIOD as u64).unwrap());
+    let mut def = GridDef::of::<i16>(2, Ratio64::int(PERIOD as u64).unwrap());
     def.summaries = Some(SeriesSummarySpec {
         base_shift: 8,
         stats: SeriesStats {

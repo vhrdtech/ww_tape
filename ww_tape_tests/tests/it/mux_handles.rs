@@ -16,10 +16,10 @@ use ww_tape::samples::Samples;
 use ww_tape::times::{EncodedRelation, EncodedTimes, EventTimes, RelationColumn};
 use ww_tape::{
     BlockKind, ChainOptions, ClockNum, ClockOrigin, ClockSpec, ColumnKind, CutPolicy, Definitions,
-    Element, ElementDesc, Ends, EventsDef, ItemNum, Items, MemPieces, OwnerId, PieceChain,
-    PieceTapes, Ratio64, RelationDef, RelationIndex, RelationValues, SeriesDef, SeriesGrid,
-    SyncPolicy, TapeReader, TrackId, TrackKind, TrackNum, TrackRepeat, TrackSpec, WriterOptions,
-    clock_key, track_key,
+    Element, ElementDesc, Ends, EventsDef, GridDef, ItemNum, Items, MemPieces, OwnerId, PieceChain,
+    PieceTapes, Ratio64, RelationDef, RelationIndex, RelationValues, SeriesGrid, SyncPolicy,
+    TapeReader, TrackId, TrackKind, TrackNum, TrackRepeat, TrackSpec, WriterOptions, clock_key,
+    track_key,
 };
 use ww_tape_mux::{Event, EventsOptions, MuxOptions, SeriesOptions, TapeMux};
 use ww_tape_summary::{EventFields, EventTree, SeriesStats, SeriesSummarySpec, Summary};
@@ -130,7 +130,7 @@ pub(crate) const SPEC: SeriesSummarySpec = SeriesSummarySpec {
 
 /// A series of i16 on two channels, a sample per 1000 ticks, summarised as [SPEC].
 pub(crate) fn series_track(clock: ClockNum) -> TrackSpec<'static> {
-    let mut def = SeriesDef::of::<i16>(2, Ratio64::int(1000).unwrap());
+    let mut def = GridDef::of::<i16>(2, Ratio64::int(1000).unwrap());
     def.summaries = Some(SPEC);
     TrackSpec {
         key: track_key(0x4d, &[ww_tape::Segment::Name("signal")]),

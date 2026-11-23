@@ -41,7 +41,7 @@ pub struct SeriesSamples {
     pub first: ItemNum,
     pub count: u32,
     /// The grid and scale of the samples: sample `i` lies at `grid_tick + (i - grid_index) * period`, the period
-    /// the track's [ww_tape::SeriesDef] states.
+    /// the track's [ww_tape::GridDef] states.
     pub grid: SeriesGrid,
     /// The samples' shape, from the track's definition.
     pub shape: SampleShape,

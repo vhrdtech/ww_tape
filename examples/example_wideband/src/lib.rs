@@ -45,7 +45,7 @@ use std::sync::Arc;
 use ww_tape::reader::ByteSource;
 use ww_tape::samples::Samples;
 use ww_tape::{
-    BlockKind, ChainOptions, Codec, ColumnKind, CutPolicy, ItemNum, PieceStore, Segment, SeriesDef,
+    BlockKind, ChainOptions, Codec, ColumnKind, CutPolicy, GridDef, ItemNum, PieceStore, Segment,
     TapeReader, TrackId, TrackKey, TrackNum, TrackSpec, track_key,
 };
 use ww_tape_mux::{MuxError, SeriesOptions, TapeMux};
@@ -470,7 +470,7 @@ pub fn overview<S: ByteSource>(
 /// A summary block that doesn't read.
 pub fn summary_nodes<S: ByteSource>(
     reader: &TapeReader<S>,
-    def: &SeriesDef<'_>,
+    def: &GridDef<'_>,
     id: TrackId,
     level: u8,
     buf: &mut Vec<u8>,

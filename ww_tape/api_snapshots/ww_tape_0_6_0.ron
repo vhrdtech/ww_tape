@@ -1,6 +1,6 @@
 // ww_tape 0.6.0 traits and types, saved by `ww api save`.
 // Do not edit, bump the crate version and save a new snapshot instead.
-// shrink_wrap sha256: 3391af218d91b1d12ac40fc12906ba6bc608c183e9d5e2399fa824453d122c3e
+// shrink_wrap sha256: 65abe7940110c3c5d167f432768ecd7d193fbc217502142286766e6b07f82bd6
 (magic: 2837124336, ww_self_version: (major: 0, minor: 4, patch: 0), root: (docs: [
     "Tape blocks: the unit a producer of records hands over, a live consumer reads and a log file is made of.",
     "",
@@ -662,7 +662,7 @@
             "Plain bytes with no type: a frame as received, a file\'s contents.",
         ], ident: "RawBytes", fields: Unit, discriminant: 2, since: None),
         (docs: [
-            "Numbers of one element each: a series\' samples ([SeriesDef::channels](crate::SeriesDef::channels) of them),",
+            "Numbers of one element each: a series\' samples ([GridDef::channels](crate::GridDef::channels) of them),",
             "or an events track whose item is one element, little-endian in its container",
             "([ElementDesc::container_bits]).",
         ], ident: "Numbers", fields: Named([
@@ -848,7 +848,7 @@
     ]), sparse: false, path: None, instance_of: None, extra: None)), crate_idx: 0),
     InLine(ty: Struct((size: Unsized, crate_idx: 0, docs: [
         "A fixed-rate series: scalar or vector samples of the track\'s element, see the [module docs](self).",
-    ], ident: "SeriesDef", generics: [], fields: Named([
+    ], ident: "GridDef", generics: [], fields: Named([
         (ident: Some("channels"), default: None, since: None, ty: NumericAny(Base(UNib32)), docs: [
             "Elements of a sample, 1 to [SERIES_CHANNELS_MAX]; the element and the value type are the track\'s items",
             "([Items::Numbers](crate::Items::Numbers)).",

@@ -7,10 +7,10 @@ use crate::Error;
 use shrink_wrap::prelude::*;
 use ww_tape::summary::{SeriesStats, SeriesSummarySpec};
 use ww_tape::{
-    ClockMap, ClockOrigin, ClockSpec, Definitions, Describe, EventsDef, FullVersion, Items,
-    Magnitude, MapSegment, MemError, PieceStore, Ratio64, SampleShape, Segment, SeriesDef,
-    SeriesValue, StatePolicy, TrackKey, TrackKind, TrackRepeat, TrackSpec, UNIX_CLOCK_KEY, Version,
-    clock_key, track_key,
+    ClockMap, ClockOrigin, ClockSpec, Definitions, Describe, EventsDef, FullVersion, GridDef,
+    Items, Magnitude, MapSegment, MemError, PieceStore, Ratio64, SampleShape, Segment, SeriesValue,
+    StatePolicy, TrackKey, TrackKind, TrackRepeat, TrackSpec, UNIX_CLOCK_KEY, Version, clock_key,
+    track_key,
 };
 use ww_tape_mux::TapeMux;
 
@@ -134,15 +134,15 @@ pub fn phase_summaries() -> SeriesSummarySpec {
 
 // --8<-- [start:phase_def_item]
 /// The `phase_a` series definition at `hz` samples a second.
-pub fn phase_def(hz: u32, summaries: bool) -> Option<SeriesDef<'static>> {
-    let mut def = SeriesDef::of::<i16>(1, Ratio64::new(1_000_000, u64::from(hz))?);
+pub fn phase_def(hz: u32, summaries: bool) -> Option<GridDef<'static>> {
+    let mut def = GridDef::of::<i16>(1, Ratio64::new(1_000_000, u64::from(hz))?);
     def.scale = Magnitude::pow10(-3);
     def.summaries = summaries.then(phase_summaries);
     Some(def)
 }
 
 /// The shape of `phase_a`'s samples: its track's items are i16 numbers, one channel.
-pub fn phase_shape(def: &SeriesDef<'_>) -> SampleShape {
+pub fn phase_shape(def: &GridDef<'_>) -> SampleShape {
     def.shape(<i16 as SeriesValue>::ELEMENT)
 }
 // --8<-- [end:phase_def_item]

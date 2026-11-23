@@ -285,7 +285,7 @@ off size field
  84 ...  series chunks only, the grid of the samples (SeriesGrid):
          84 u64  grid index: the sample the grid counts from, at most the first item
          92 i64  grid tick: the tick of that sample; sample i is at grid tick + (i - grid index) · period,
-                 rounded down, the period the track's SeriesDef gives
+                 rounded down, the period the track's GridDef gives
         100  u8  scale length s, 1 to SCALE_LEN_MAX
         101 ...  scale: what a stored number is worth in the sample type's unit, as the shrink_wrap bytes of an
                  exact_units Magnitude (10⁻³ is fa 00)
@@ -1787,7 +1787,7 @@ A **series track** holds samples at an exact period, with no time per sample. It
 | element | the stored `ElementDesc` of one channel of a sample |
 | unit | the type of one value: a `TypeRef` to an exact_units `Fixed<Ampere, Milli, i32>` or a `ww_si` quantity; None for a plain number |
 
-Its `TrackDef` kind is a `SeriesDef`, which holds:
+Its `TrackDef` kind is a `GridDef`, which holds:
 
 | Field | What |
 |---|---|
@@ -1797,7 +1797,7 @@ Its `TrackDef` kind is a `SeriesDef`, which holds:
 | summaries | the summaries the writer builds (`SeriesSummarySpec`) |
 | stream | for samples kept in a media file, the stream they are in |
 
-`Items::numbers::<Fixed<Ampere, Milli, i32>>(..)` takes the element from the type, and `SeriesDef::of` the scale
+`Items::numbers::<Fixed<Ampere, Milli, i32>>(..)` takes the element from the type, and `GridDef::of` the scale
 (`ww_tape::SeriesValue`). A writer refuses a series whose element the raw codec doesn't code. Its summaries need an
 element of at most 2 parts.
 

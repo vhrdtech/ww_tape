@@ -7,8 +7,8 @@ use std::thread;
 use shrink_wrap::prelude::*;
 use ww_tape::{
     BlockKind, ChainOptions, ChainPiece, ClockNum, ClockOrigin, ClockSpec, EventsDef, FileBlocks,
-    Items, Magnitude, MemPieces, OwnerId, Ratio64, Recovery, Segment, SeriesDef, TrackKind,
-    TrackNum, TrackRepeat, TrackSpec, clock_key, track_key,
+    GridDef, Items, Magnitude, MemPieces, OwnerId, Ratio64, Recovery, Segment, TrackKind, TrackNum,
+    TrackRepeat, TrackSpec, clock_key, track_key,
 };
 use ww_tape_mux::{Event, EventsOptions, MuxOptions, SeriesOptions, TapeMux};
 
@@ -63,10 +63,7 @@ pub fn levels_track(clock: ClockNum) -> TrackSpec<'static> {
         items: Items::numbers::<i16>(None),
         label: "levels",
         repeat: TrackRepeat::Stream,
-        kind: TrackKind::Series(SeriesDef::of::<i16>(
-            1,
-            Ratio64::int(1).expect("1 is not 0"),
-        )),
+        kind: TrackKind::Series(GridDef::of::<i16>(1, Ratio64::int(1).expect("1 is not 0"))),
         relations: RefVec::Slice { slice: &[] },
         owner: [0; 32],
     }
