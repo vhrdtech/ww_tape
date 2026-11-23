@@ -114,14 +114,25 @@ fn head(id: TrackId, run: u64, tile: TileCoords) -> ChunkHead {
 /// Write the grid of `extents`, every tile of every run, with a checkpoint every `checkpoint` bytes; closed when
 /// `close`, else the bytes a crash leaves.
 fn write(extents: &[(u32, u32)], checkpoint: u64, close: bool) -> Written {
-    let axes = axes(extents);
-    let track = grid_track(&axes);
+    write_tiles(&axes(extents), all_tiles, checkpoint, close)
+}
+
+/// Write the grid of `axes`, the tiles `tiles` picks of its layout in every run, with a checkpoint every
+/// `checkpoint` bytes; closed when `close`, else the bytes a crash leaves.
+fn write_tiles(
+    axes: &[FixedAxis<'_>],
+    tiles: fn(&TileLayout) -> Vec<TileCoords>,
+    checkpoint: u64,
+    close: bool,
+) -> Written {
+    let track = grid_track(axes);
     let layout = track.series().unwrap().tile_layout().unwrap();
     let id = track.id();
     let mut defs = ww_tape::Definitions::new();
     crate::definitions::hold(&mut defs, &[clock(CLOCK), ww_tape::Describe::Track(track)]).unwrap();
     let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     let tape = w.sink().tape();
+    w.set_session(crate::id(0).session).unwrap();
     w.set_index_policy(IndexPolicy {
         bytes: exact_units::Bytes::new(checkpoint),
         interval: None,
@@ -136,7 +147,7 @@ fn write(extents: &[(u32, u32)], checkpoint: u64, close: bool) -> Written {
         len: samples.len(),
     };
     for run in 0..RUNS {
-        for tile in all_tiles(&layout) {
+        for tile in tiles(&layout) {
             w.write_chunk(&defs, &head(id, run, tile), &[(spec, &samples[..])])
                 .unwrap();
         }
@@ -309,4 +320,68 @@ fn a_box_query_on_a_series_tests_time_alone() {
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].entry.first_item, ItemNum::new(4));
     assert!(found[0].tile.is_empty());
+}
+
+/// Coordinates of the golden grids' axes, listed: as many as the longest axis' cells.
+static LISTED: [i64; 4] = [-500, 0, 250, 1_000_000];
+
+/// The axes of a golden grid of `n` fixed axes: 2 to 4 cells, tiles of 1 to 2, regular and listed coordinates in
+/// turn, a scale and a downsample flag each.
+fn golden_axes(n: u32) -> Vec<FixedAxis<'static>> {
+    (0..n)
+        .map(|k| {
+            let extent = 2 + k % 3;
+            FixedAxis {
+                name: Box::leak(format!("axis{k}").into_boxed_str()),
+                extent: UNib32(extent),
+                tile_extent: UNib32(1 + k % 2),
+                unit: None,
+                scale: Magnitude::pow10(-(k as i8 % 4)),
+                coords: match k % 2 {
+                    0 => AxisCoords::Regular {
+                        origin: -i64::from(k),
+                        step: 1 + i64::from(k),
+                    },
+                    _ => AxisCoords::Listed(RefVec::Slice {
+                        slice: &LISTED[..extent as usize],
+                    }),
+                },
+                downsample: k % 3 != 2,
+            }
+        })
+        .collect()
+}
+
+/// Three tiles of a layout: the first, the last and one between.
+fn three_tiles(layout: &TileLayout) -> Vec<TileCoords> {
+    let first: Vec<u32> = layout.tiles().iter().map(|_| 0).collect();
+    let last: Vec<u32> = layout.tiles().iter().map(|t| t - 1).collect();
+    let mid: Vec<u32> = layout
+        .tiles()
+        .iter()
+        .enumerate()
+        .map(|(k, t)| k as u32 % t)
+        .collect();
+    [first, mid, last]
+        .iter()
+        .map(|c| TileCoords::new(c).unwrap())
+        .collect()
+}
+
+/// A golden piece per axis count, 1, 2, 5 and 31 fixed axes: the grid's definition, its chunks' tile coordinates and
+/// their entries' tile numbers pin their bytes (`WW_TAPE_GOLDEN=update` rewrites them). The same input gives the same
+/// bytes.
+#[test]
+fn golden_grids() {
+    for n in [1, 2, 5, 31] {
+        let g = write_tiles(&golden_axes(n), three_tiles, 1 << 20, true);
+        assert_eq!(g.layout.axes(), n as usize);
+        let again = write_tiles(&golden_axes(n), three_tiles, 1 << 20, true);
+        assert_eq!(g.bytes, again.bytes, "{n} axes");
+        let r = TapeReader::open(&g.bytes[..]).unwrap();
+        assert!(r.verify(0).unwrap().holds);
+        let entries = r.track_entries(0, g.id).unwrap();
+        assert!(entries.iter().all(|e| e.tile.is_some()));
+        crate::reclose::golden(&g.bytes, &format!("v1-grid-{n}.hex"));
+    }
 }
