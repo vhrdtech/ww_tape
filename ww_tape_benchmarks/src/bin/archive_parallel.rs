@@ -14,6 +14,11 @@
 //! literal substitution: a piece's content hash is a chained hash with chunk payloads substituted by their own
 //! hash, not one contiguous buffer, so `update_rayon` can't simply replace it inside [TapeReader::verify].
 //!
+//! Every timed pass is preceded by reading every piece once, so both strategies run on warm pages and the speedup
+//! is not the page cache's. The two strategies run `--rounds` times each, alternating which goes first, and the
+//! tables give the shortest, median and longest run. A speedup above the thread count means the two runs did not
+//! see the same cache or load: the bench says so, and its report is not to be published. Run it on a quiet machine.
+//!
 //! The generated pieces are removed when the bench finishes.
 #![allow(
     clippy::arithmetic_side_effects,
@@ -75,6 +80,9 @@ struct Args {
     /// Threads that make and code chunks while generating the verify and range-hash chains.
     #[arg(long, default_value_t = 8)]
     workers: usize,
+    /// Times each strategy is run, alternating which runs first.
+    #[arg(long, default_value_t = 5)]
+    rounds: usize,
     /// Keep the generated piece sets instead of removing them at the end.
     #[arg(long)]
     keep: bool,
@@ -343,33 +351,86 @@ fn gb_per_s(bytes: u64, wall: Duration) -> f64 {
     bytes as f64 / 1e9 / wall.as_secs_f64()
 }
 
+/// The shortest, middle and longest of `runs`, seconds.
+fn spread(runs: &[Duration]) -> (f64, f64, f64) {
+    let mut secs: Vec<f64> = runs.iter().map(Duration::as_secs_f64).collect();
+    secs.sort_by(f64::total_cmp);
+    let (min, max) = (secs.first().copied(), secs.last().copied());
+    let median = secs.get(secs.len() / 2).copied();
+    (
+        min.unwrap_or(0.0),
+        median.unwrap_or(0.0),
+        max.unwrap_or(0.0),
+    )
+}
+
+/// Runs `a` and `b` `rounds` times each, alternating which goes first, so neither always runs on the cache the other
+/// left behind; each run warms the page cache itself.
+fn alternate(
+    rounds: usize,
+    mut a: impl FnMut() -> anyhow::Result<Duration>,
+    mut b: impl FnMut() -> anyhow::Result<Duration>,
+) -> anyhow::Result<(Vec<Duration>, Vec<Duration>)> {
+    let (mut runs_a, mut runs_b) = (Vec::new(), Vec::new());
+    for round in 0..rounds.max(1) {
+        if round % 2 == 0 {
+            runs_a.push(a()?);
+            runs_b.push(b()?);
+        } else {
+            runs_b.push(b()?);
+            runs_a.push(a()?);
+        }
+    }
+    Ok((runs_a, runs_b))
+}
+
 fn op_table(
     bench: &mut Bench,
     id: &str,
     about: &str,
     bytes: u64,
     pieces: usize,
-    seq: Duration,
-    par: Duration,
+    (seq, par): (Vec<Duration>, Vec<Duration>),
 ) {
     let mut table = bench.table(
         id,
         about,
-        &["Strategy", "Wall", "Throughput", "Speedup vs sequential"],
+        &[
+            "Strategy",
+            "Shortest s",
+            "Median s",
+            "Longest s",
+            "GB/s at the median",
+            "Speedup at the median",
+        ],
     );
+    let (seq_min, seq_median, seq_max) = spread(&seq);
+    let (par_min, par_median, par_max) = spread(&par);
+    let speedup = seq_median / par_median;
     table.row(vec![
         Cell::text(format!("{pieces} pieces one at a time")),
-        Cell::num(seq.as_secs_f64(), 1),
-        Cell::num(gb_per_s(bytes, seq), 2),
+        Cell::num(seq_min, 2),
+        Cell::num(seq_median, 2),
+        Cell::num(seq_max, 2),
+        Cell::num(bytes as f64 / 1e9 / seq_median, 2),
         Cell::num(1.0, 2),
     ]);
     table.row(vec![
         Cell::text(format!("{pieces} pieces in parallel (rayon)")),
-        Cell::num(par.as_secs_f64(), 1),
-        Cell::num(gb_per_s(bytes, par), 2),
-        Cell::num(seq.as_secs_f64() / par.as_secs_f64(), 2),
+        Cell::num(par_min, 2),
+        Cell::num(par_median, 2),
+        Cell::num(par_max, 2),
+        Cell::num(bytes as f64 / 1e9 / par_median, 2),
+        Cell::num(speedup, 2),
     ]);
     println!("{}", bench.push(table));
+    let threads = rayon::current_num_threads() as f64;
+    if speedup > threads {
+        println!(
+            "WARNING: {id}: {speedup:.1}x on {threads} threads is more than the threads give; \
+             the two runs did not see the same cache or load. Do not publish this report."
+        );
+    }
 }
 
 /// The three piece sets this bench measures, generated once, and the paths and bytes of each.
@@ -409,7 +470,7 @@ fn generate(bench: &mut Bench, args: &Args, rf: Rf) -> anyhow::Result<Sets> {
         Cell::num(gib(verify_bytes), 2),
         Cell::count(verify.len() as u64),
         Cell::num(verify_time.as_secs_f64(), 1),
-        Cell::num(gb_per_s(verify_bytes, verify_time), 0),
+        Cell::num(gb_per_s(verify_bytes, verify_time), 2),
     ]);
 
     let range_time = write_chain(
@@ -427,7 +488,7 @@ fn generate(bench: &mut Bench, args: &Args, rf: Rf) -> anyhow::Result<Sets> {
         Cell::num(gib(range_bytes), 2),
         Cell::count(range.len() as u64),
         Cell::num(range_time.as_secs_f64(), 1),
-        Cell::num(gb_per_s(range_bytes, range_time), 0),
+        Cell::num(gb_per_s(range_bytes, range_time), 2),
     ]);
 
     let resume_mib = args.resume_mib;
@@ -468,7 +529,7 @@ fn generate(bench: &mut Bench, args: &Args, rf: Rf) -> anyhow::Result<Sets> {
         Cell::num(gib(resume_bytes), 2),
         Cell::count(resume.len() as u64),
         Cell::num(resume_time.as_secs_f64(), 1),
-        Cell::num(gb_per_s(resume_bytes, resume_time), 0),
+        Cell::num(gb_per_s(resume_bytes, resume_time), 2),
     ]);
     println!("{}", bench.push(table));
 
@@ -523,52 +584,62 @@ fn main() -> anyhow::Result<()> {
 
     let track_id = iq_key().id();
 
-    let v_seq = timed_seq(&verify_pieces, verify_piece)?;
-    let v_par = timed_par(&verify_pieces, verify_piece)?;
+    let v = alternate(
+        args.rounds,
+        || timed_seq(&verify_pieces, verify_piece),
+        || timed_par(&verify_pieces, verify_piece),
+    )?;
     op_table(
         &mut bench,
         "verify",
         "TapeReader::verify over every piece of verify_chain, each replayed and content-hashed whole.",
         verify_bytes,
         verify_pieces.len(),
-        v_seq,
-        v_par,
+        v,
     );
 
     // Rf::iq_track defines the track with TrackSpec::owner all zero ("the owner of the piece"): the stored rows
     // keep that literal sentinel, so range_hash is asked for OwnerId::NONE, not the chain's own OwnerId.
-    let r_seq = timed_seq(&range_pieces, |p| {
-        range_hash_piece(p, track_id, OwnerId::NONE)
-    })?;
-    let r_par = timed_par(&range_pieces, |p| {
-        range_hash_piece(p, track_id, OwnerId::NONE)
-    })?;
+    let r = alternate(
+        args.rounds,
+        || {
+            timed_seq(&range_pieces, |p| {
+                range_hash_piece(p, track_id, OwnerId::NONE)
+            })
+        },
+        || {
+            timed_par(&range_pieces, |p| {
+                range_hash_piece(p, track_id, OwnerId::NONE)
+            })
+        },
+    )?;
     op_table(
         &mut bench,
         "range_hash",
         "TapeReader::range_hash over every piece of range_chain: no stated unit hash, so every chunk's payload is read and hashed.",
         range_bytes,
         range_pieces.len(),
-        r_seq,
-        r_par,
+        r,
     );
 
     let resume_options = writer_options(Integrity::Full);
-    let s_seq = timed_seq(&resume_pieces, |p| resume_piece(p, &resume_options))?;
-    let s_par = timed_par(&resume_pieces, |p| resume_piece(p, &resume_options))?;
+    let s = alternate(
+        args.rounds,
+        || timed_seq(&resume_pieces, |p| resume_piece(p, &resume_options)),
+        || timed_par(&resume_pieces, |p| resume_piece(p, &resume_options)),
+    )?;
     op_table(
         &mut bench,
         "resume",
         "ww_tape_fs::writer::resume over every unclosed piece of resume_pieces: a from-scratch content-hash walk, as a crash leaves one.",
         resume_bytes,
         resume_pieces.len(),
-        s_seq,
-        s_par,
+        s,
     );
 
     let mut table = bench.table(
         "blake3_raw",
-        "For comparison: BLAKE3 of a piece's raw bytes, one piece at a time, single- and multithreaded (update_rayon). A piece's content hash is a chained hash with chunk payloads substituted by their own hash, not one contiguous buffer, so this is a ceiling, not a literal stand-in for the rows above.",
+        "For comparison: BLAKE3 of a piece's raw bytes, one piece at a time, single- and multithreaded (update_rayon), GB/s at the median. A piece's content hash is a chained hash with chunk payloads substituted by their own hash, not one contiguous buffer, so this is a ceiling, not a literal stand-in for the rows above.",
         &["Set", "GiB", "Single-threaded", "update_rayon", "Ratio"],
     );
     for (name, paths, bytes) in [
@@ -576,14 +647,18 @@ fn main() -> anyhow::Result<()> {
         ("range_chain", &range_pieces, range_bytes),
         ("resume_pieces", &resume_pieces, resume_bytes),
     ] {
-        let single = raw_hash_seq(paths, false)?;
-        let multi = raw_hash_seq(paths, true)?;
+        let (single, multi) = alternate(
+            args.rounds,
+            || raw_hash_seq(paths, false),
+            || raw_hash_seq(paths, true),
+        )?;
+        let (single, multi) = (spread(&single).1, spread(&multi).1);
         table.row(vec![
             Cell::text(name),
             Cell::num(gib(bytes), 2),
-            Cell::num(gb_per_s(bytes, single), 2),
-            Cell::num(gb_per_s(bytes, multi), 2),
-            Cell::num(single.as_secs_f64() / multi.as_secs_f64(), 2),
+            Cell::num(bytes as f64 / 1e9 / single, 2),
+            Cell::num(bytes as f64 / 1e9 / multi, 2),
+            Cell::num(single / multi, 2),
         ]);
     }
     println!("{}", bench.push(table));
