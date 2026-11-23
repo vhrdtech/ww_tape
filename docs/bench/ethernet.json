@@ -1,8 +1,8 @@
 {
   "format": 1,
   "bench": "ethernet",
-  "version": "0.4.0 (7fea9cdb5, commit 23 Nov 2026 06:12 UTC)",
-  "commit": "7fea9cdb5",
+  "version": "0.4.0 (efd5078cf, commit 23 Nov 2026 06:12 UTC)",
+  "commit": "efd5078cf",
   "dirty": false,
   "build": {
     "profile": "release",

@@ -1,1 +1,1 @@
-The benches ran on gpd-omarchy, a machine with 24 logical CPUs (AMD Ryzen AI 9 HX 370 w/ Radeon 890M, x86_64) and 30 GiB of memory. Each was a release build at opt-level 3 of commit `7fea9cdb5`, built with 8 jobs. The load average ran from 4.59 to 6.84 across the tables.
+The benches ran on gpd-omarchy, a machine with 24 logical CPUs (AMD Ryzen AI 9 HX 370 w/ Radeon 890M, x86_64) and 30 GiB of memory. Each was a release build at opt-level 3 of commit `efd5078cf`, built with 8 jobs. The load average ran from 4.59 to 6.84 across the tables.
