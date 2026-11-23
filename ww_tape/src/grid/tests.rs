@@ -134,6 +134,36 @@ fn a_one_tile_axis_packs_beside_128_bits() {
 }
 
 #[test]
+fn edge_tiles_hold_the_cells_left_over() {
+    let l = TileLayout::new(&weather()).unwrap();
+    assert_eq!(l.cell_range(2, 0), Some(0..180));
+    // latitude 721 in tiles of 180: the fifth tile holds 1 row
+    assert_eq!(l.cell_range(2, 4), Some(720..721));
+    assert_eq!(l.cell_range(2, 5), None);
+    assert_eq!(l.cell_range(4, 0), None);
+    let inner = TileCoords::new(&[7, 3, 2, 5]).unwrap();
+    assert_eq!(l.tile_cells(&inner), Some(180 * 180));
+    let edge = TileCoords::new(&[50, 36, 4, 7]).unwrap();
+    assert_eq!(l.tile_cells(&edge), Some(180));
+    assert_eq!(
+        l.tile_cells(&TileCoords::new(&[51, 0, 0, 0]).unwrap()),
+        None
+    );
+    assert_eq!(TileLayout::SERIES.tile_cells(&TileCoords::NONE), Some(1));
+    // every tile's cells together are the grid's cells
+    let small = TileLayout::new(&[(5, 2), (7, 3)]).unwrap();
+    let mut all = 0;
+    for a in 0..3 {
+        for b in 0..3 {
+            all += small
+                .tile_cells(&TileCoords::new(&[a, b]).unwrap())
+                .unwrap();
+        }
+    }
+    assert_eq!(all, 35);
+}
+
+#[test]
 fn a_box_turns_into_tile_ranges_clipped_to_the_extent() {
     let l = TileLayout::new(&weather()).unwrap();
     let b = l.tile_box(&[7..8, 0..37, 179..361, 1000..5000]).unwrap();
