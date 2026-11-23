@@ -22,7 +22,7 @@ pub mod rf;
 pub mod window;
 
 use ww_tape::index::IndexPolicy;
-use ww_tape::{ChainOptions, ChainPiece, ClockRef, MemError, MemTapes, SyncPolicy, WriterOptions};
+use ww_tape::{ChainOptions, ChainPiece, ClockRef, MemError, MemPieces, SyncPolicy, WriterOptions};
 
 /// How a case's chain is written: one piece, no sync, no checkpoint by time and no wall clock, so its bytes
 /// depend only on the order the handles' chunks reach the mux.
@@ -46,7 +46,7 @@ pub fn chain_options() -> ChainOptions {
 /// # Errors
 ///
 /// A piece the store doesn't hold.
-pub fn pieces(tapes: &MemTapes, closed: &[ChainPiece<u64>]) -> Result<Vec<Vec<u8>>, PieceError> {
+pub fn pieces(tapes: &MemPieces, closed: &[ChainPiece<u64>]) -> Result<Vec<Vec<u8>>, PieceError> {
     closed
         .iter()
         .map(|p| {

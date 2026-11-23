@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use ww_tape::{ItemNum, MemTapes, OwnerId, TrackNum};
+use ww_tape::{ItemNum, MemPieces, OwnerId, TrackNum};
 use ww_tape_mux::{MuxOptions, TapeMux};
 
 use crate::follow::{define, options, send, walk};
@@ -13,7 +13,7 @@ const OWNER: OwnerId = OwnerId([0x6e; 32]);
 /// synced, and reports the end.
 #[test]
 fn the_progress_watch_wakes_a_reader_in_the_writers_process() {
-    let mem = MemTapes::new();
+    let mem = MemPieces::new();
     let mux = TapeMux::create(
         mem.clone(),
         OWNER,
@@ -64,7 +64,7 @@ fn the_progress_watch_wakes_a_reader_in_the_writers_process() {
 /// that asks the watch right after one sees the synced bytes, the placed chunk and the new piece.
 #[test]
 fn the_watch_shows_a_sync_flush_and_cut_before_they_return() {
-    let mem = MemTapes::new();
+    let mem = MemPieces::new();
     let mux = TapeMux::create(
         mem.clone(),
         OWNER,

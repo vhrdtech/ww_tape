@@ -4,7 +4,7 @@
 
 use example_drive::Error;
 use example_drive::producers::{self, Counts, LEVELS, OWNER, PINGS};
-use ww_tape::{ChainOptions, MemTapes};
+use ww_tape::{ChainOptions, MemPieces};
 use ww_tape_mux::{Event, EventsOptions, MuxOptions, SeriesOptions, TapeMux};
 
 fn counts() -> Counts {
@@ -25,7 +25,7 @@ fn threads_write_every_item() {
 /// [producers::threads], the same calls as `_async`, on tokio tasks: two push pings, a third pushes levels, each
 /// its own task. `smol::spawn` schedules the same futures the same way.
 async fn tasks() -> Result<Counts, Error> {
-    let tapes = MemTapes::new();
+    let tapes = MemPieces::new();
     let mux = TapeMux::create(
         tapes.clone(),
         OWNER,

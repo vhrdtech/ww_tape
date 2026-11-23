@@ -111,7 +111,7 @@ use exact_units::Bytes;
 use ww_tape::index::IndexEntry;
 use ww_tape::{
     ChainOptions, ChainPiece, ClockNum, ClockSpec, CloseReason, Definitions, Describe, MapSegment,
-    OwnerId, PieceChain, Resumed, Tapes, TrackNum, TrackSpec, TrackStart,
+    OwnerId, PieceChain, PieceStore, Resumed, TrackNum, TrackSpec, TrackStart,
 };
 
 pub use error::{CallError, EncodeError, ItemError, MuxError, Unit};
@@ -182,14 +182,14 @@ pub struct MuxStats {
 }
 
 /// Writes one chain from a thread of its own, for producers on any thread; see the [crate docs](crate).
-pub struct TapeMux<T: Tapes> {
+pub struct TapeMux<T: PieceStore> {
     shared: Arc<Shared<T>>,
     thread: Option<JoinHandle<()>>,
 }
 
 impl<T> TapeMux<T>
 where
-    T: Tapes + Send + 'static,
+    T: PieceStore + Send + 'static,
     T::Sink: Send,
     T::Key: Send,
     T::Error: Send + Sync,
@@ -236,9 +236,9 @@ where
         })
     }
 
-    /// Start chain `chain` of `owner` in `tapes` ([PieceChain::create_on]) and write it from a new writing thread.
+    /// Start chain `chain` of `owner` in `store` ([PieceChain::create_on]) and write it from a new writing thread.
     pub fn create(
-        tapes: T,
+        store: T,
         owner: OwnerId,
         chain: u64,
         tracks: &[TrackStart],
@@ -246,11 +246,11 @@ where
         mux: MuxOptions,
     ) -> Result<Self, MuxError<T::Error>> {
         let chain =
-            PieceChain::create_on(tapes, owner, chain, tracks, options).map_err(MuxError::Start)?;
+            PieceChain::create_on(store, owner, chain, tracks, options).map_err(MuxError::Start)?;
         Self::start(chain, Definitions::new(), mux)
     }
 
-    /// Reopen chain `chain` of `owner` in `tapes` ([PieceChain::resume_on]) and write on from a new writing thread.
+    /// Reopen chain `chain` of `owner` in `store` ([PieceChain::resume_on]) and write on from a new writing thread.
     ///
     /// The definitions start empty and number as the resumed piece does ([Resumed::numbers]): a track or clock
     /// defined again gets its number back. Its items go on after those [Resumed::entries] and the closed pieces
@@ -268,14 +268,14 @@ where
     /// default; one is dropped when a handle without summaries is made for its track (a [ChunkSender], a handle
     /// with summaries off), or when the track's next chunk comes without a summary.
     pub fn resume(
-        tapes: T,
+        store: T,
         owner: OwnerId,
         chain: u64,
         options: ChainOptions,
         mux: MuxOptions,
     ) -> Result<(Self, Resumed), MuxError<T::Error>> {
         let (chain, resumed) =
-            PieceChain::resume_on(tapes, owner, chain, options).map_err(MuxError::Start)?;
+            PieceChain::resume_on(store, owner, chain, options).map_err(MuxError::Start)?;
         Ok((Self::start_resumed(chain, &resumed, mux)?, resumed))
     }
 
@@ -529,7 +529,7 @@ where
     }
 }
 
-impl<T: Tapes> Drop for TapeMux<T> {
+impl<T: PieceStore> Drop for TapeMux<T> {
     /// Place what was sent, sync, and leave the piece unclosed, as after a crash.
     fn drop(&mut self) {
         if let Some(t) = self.thread.take() {

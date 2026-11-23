@@ -15,7 +15,7 @@ use std::sync::mpsc;
 use example_capture::window::{Analyser, Chain, RunError, Triaged, Window, run, start};
 use example_ethernet::ram::RamCapture;
 use example_ethernet::{Link, Rx, frames_id};
-use ww_tape::{MemTape, MemTapes, OwnerId, TapeReader};
+use ww_tape::{MemPiece, MemPieces, OwnerId, TapeReader};
 
 /// Keeps the pieces `keep` names; before its first look it waits for `go`, when there is one.
 #[derive(Debug)]
@@ -28,14 +28,14 @@ struct Picks {
 impl Analyser for Picks {
     type Error = mpsc::RecvError;
 
-    fn look(&mut self, seq: u64, _: &TapeReader<MemTape>) -> Result<bool, Self::Error> {
+    fn look(&mut self, seq: u64, _: &TapeReader<MemPiece>) -> Result<bool, Self::Error> {
         if let Some(go) = self.go.take() {
             go.recv()?;
         }
         Ok((self.keep)(seq))
     }
 
-    fn kept(&mut self, seq: u64, _: &TapeReader<MemTape>) -> Result<(), Self::Error> {
+    fn kept(&mut self, seq: u64, _: &TapeReader<MemPiece>) -> Result<(), Self::Error> {
         self.kept.push(seq);
         Ok(())
     }
@@ -43,7 +43,7 @@ impl Analyser for Picks {
 
 /// 2 ms of the link in pieces of 64 KiB through `window`, `picks` reading them: what the triage did, and the kept
 /// store. With `hold`, the analyser waits until the capture ended.
-fn triaged(window: Window, keep: fn(u64) -> bool, hold: bool) -> (Triaged, MemTapes, Vec<u64>) {
+fn triaged(window: Window, keep: fn(u64) -> bool, hold: bool) -> (Triaged, MemPieces, Vec<u64>) {
     let c = RamCapture {
         triage_threads: NonZeroU32::new(2),
         link: Link {
@@ -60,7 +60,7 @@ fn triaged(window: Window, keep: fn(u64) -> bool, hold: bool) -> (Triaged, MemTa
         go: hold.then_some(go),
         kept: Vec::new(),
     };
-    let kept = MemTapes::new();
+    let kept = MemPieces::new();
     let (ran, chains) = run(
         OwnerId([0xe7; 32]),
         c.chain_options(),
@@ -77,7 +77,7 @@ fn triaged(window: Window, keep: fn(u64) -> bool, hold: bool) -> (Triaged, MemTa
     )
     .expect("the capture runs");
     let [triaged] = <[Triaged; 1]>::try_from(ran.triaged).expect("a chain");
-    let [chain] = <[Chain<MemTapes, Picks>; 1]>::try_from(chains).expect("a chain");
+    let [chain] = <[Chain<MemPieces, Picks>; 1]>::try_from(chains).expect("a chain");
     (triaged, kept, chain.analyser.kept)
 }
 
@@ -152,7 +152,7 @@ fn each_chain_has_a_triage_of_its_own() {
         go: None,
         kept: Vec::new(),
     };
-    let (kept0, kept1) = (MemTapes::new(), MemTapes::new());
+    let (kept0, kept1) = (MemPieces::new(), MemPieces::new());
     let (ran, chains) = run(
         OwnerId([0xe7; 32]),
         c.chain_options(),
@@ -218,7 +218,7 @@ fn a_capture_needs_a_chain() {
         chains: 1,
         ..RamCapture::full()
     };
-    let chains: Vec<Chain<MemTapes, Picks>> = Vec::new();
+    let chains: Vec<Chain<MemPieces, Picks>> = Vec::new();
     let ran = run(
         OwnerId([0xe7; 32]),
         c.chain_options(),
@@ -248,7 +248,7 @@ fn a_reader_follows_the_window_while_it_runs() {
         c.chain_options(),
         c.window,
         vec![Chain {
-            kept: MemTapes::new(),
+            kept: MemPieces::new(),
             analyser: Picks {
                 keep: fifth,
                 go: Some(go),

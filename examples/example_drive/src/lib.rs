@@ -10,7 +10,7 @@
 //! | `temp` | board temperature, 1 Hz | records blocks |
 //!
 //! Every track runs on the board's µs timer since boot; a clock map takes it to the host's wall clock. The host
-//! records the run into a chain of pieces in memory ([ww_tape::MemTapes]). The drive runs from minute 1
+//! records the run into a chain of pieces in memory ([ww_tape::MemPieces]). The drive runs from minute 1
 //! ([RUN_MINUTE]) and faults on overcurrent at minute 52 ([FAULT_MINUTE]); in the story the host loses power at minute
 //! 37 ([CRASH_MINUTE]) and resumes.
 //!

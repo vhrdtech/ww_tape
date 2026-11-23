@@ -325,7 +325,7 @@ fn chunks_carry_their_samples_flags() {
 fn a_handle_completes_a_chunk_full_of_flag_runs() {
     use ww_tape::flag_runs::FLAG_RUNS_MAX;
     use ww_tape_mux::{MuxOptions, SeriesOptions, TapeMux};
-    let mem = ww_tape::MemTapes::new();
+    let mem = ww_tape::MemPieces::new();
     let options = ww_tape::ChainOptions {
         writer: options(false),
         ..ww_tape::ChainOptions::default()

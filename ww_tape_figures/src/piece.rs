@@ -7,7 +7,7 @@ use ww_tape::index::IndexPolicy;
 use ww_tape::piece::{CloseBlock, close_len};
 use ww_tape::{
     BlockKind, BlockWriter, ChainOptions, ClockTime, Codec, ColumnKind, ColumnSpec, CutPolicy,
-    Definitions, EndMode, FLAG_REPEAT, FileBlocks, MemTapes, OwnerId, PieceChain, SyncPolicy,
+    Definitions, EndMode, FLAG_REPEAT, FileBlocks, MemPieces, OwnerId, PieceChain, SyncPolicy,
     TrackRepeat, WriterOptions,
 };
 use ww_tape::{ClockNum, TrackNum};
@@ -147,7 +147,7 @@ fn parts() -> anyhow::Result<(u64, Vec<Span>)> {
         log: define_track(&mut defs, LOG, clock, "log", TrackRepeat::Stream)?,
         frames: define_track(&mut defs, FRAMES, clock, "frames", TrackRepeat::Stream)?,
     };
-    let mut chain = PieceChain::create_on(MemTapes::new(), OwnerId([0xf1; 32]), 0, &[], options)?;
+    let mut chain = PieceChain::create_on(MemPieces::new(), OwnerId([0xf1; 32]), 0, &[], options)?;
     for k in 0..4 {
         let w = chain.writer()?;
         let line = log_line(w, on, i64::try_from(k)? * 40)?;
@@ -161,7 +161,7 @@ fn parts() -> anyhow::Result<(u64, Vec<Span>)> {
         };
         chain.write_chunk(&defs, &head, &[(spec, &starts)])?;
     }
-    let tapes = chain.tapes().clone();
+    let tapes = chain.store().clone();
     chain.close()?;
     let bytes = tapes.get(&0)?.context("the closed piece")?.to_vec()?;
     let len = u64::try_from(bytes.len())?;

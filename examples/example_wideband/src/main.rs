@@ -21,7 +21,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use example_capture::files::{self, Files};
+use example_capture::files::{self, FilePieces};
 use example_capture::window::Follower;
 use example_wideband::Source;
 use example_wideband::ram::{RfCapture, RfRun, RfRunning};
@@ -35,7 +35,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (dir, ms) = args()?;
     let capture = capture(ms);
     // where the triage keeps: DIR/kept-0/ for the pieces, DIR/results/ for what the analyser finds
-    let [kept] = <[Files; 1]>::try_from(files::kept(&dir, 1)?).map_err(|_k| "one kept store")?;
+    let [kept] =
+        <[FilePieces; 1]>::try_from(files::kept(&dir, 1)?).map_err(|_k| "one kept store")?;
     let results = files::results(&dir, RESULTS_OWNER)?;
     // a producer thread per channel -> one mux -> the memory window -> a triage thread
     let running = capture.start(Source::Live, kept, &results)?;
@@ -75,7 +76,7 @@ fn capture(ms: u64) -> RfCapture {
 
 /// Follow the memory window while the capture runs, as a viewer would: print each piece the chain begins and the
 /// pieces it holds in memory.
-fn follow(running: &RfRunning<Files, Files>) -> Result<(), ww_tape::MemError> {
+fn follow(running: &RfRunning<FilePieces, FilePieces>) -> Result<(), ww_tape::MemError> {
     let mut follower = Follower::default();
     while !running.is_finished() {
         for cut in follower.next(running.chains(), Duration::from_millis(50))? {

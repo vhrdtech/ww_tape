@@ -1,4 +1,4 @@
-//! The bytes of a [MemTape](super::MemTape): extents that are filled and never moved, and the bounds that mark where
+//! The bytes of a [MemPiece](super::MemPiece): extents that are filled and never moved, and the bounds that mark where
 //! pieces start.
 //!
 //! Appending fills the last extent and then adds a new one as large as the tape holds, at least [EXTENT_MIN] and at

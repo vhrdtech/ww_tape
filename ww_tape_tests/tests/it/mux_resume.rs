@@ -5,8 +5,8 @@
 use exact_units::Count;
 use ww_tape::index::IndexPolicy;
 use ww_tape::{
-    BlockKind, ChainOptions, CutPolicy, ItemNum, Layout, MemTapes, OwnerId, PieceTapes, SeriesGrid,
-    SyncPolicy, TapeReader, TrackId, TrackNum, WriterOptions,
+    BlockKind, ChainOptions, CutPolicy, ItemNum, Layout, MemPieces, OwnerId, PieceTapes,
+    SeriesGrid, SyncPolicy, TapeReader, TrackId, TrackNum, WriterOptions,
 };
 use ww_tape_mux::{Event, EventsOptions, MuxOptions, SeriesHandle, SeriesOptions, TapeMux};
 
@@ -91,7 +91,7 @@ pub(crate) fn sample_flags(i: u64) -> u32 {
 }
 
 /// Push samples `from..to` to `series`, flagged when `flagged`: each stretch of one flags word in one push.
-fn push_samples(series: &mut SeriesHandle<MemTapes, i16>, from: u64, to: u64, flagged: bool) {
+fn push_samples(series: &mut SeriesHandle<MemPieces, i16>, from: u64, to: u64, flagged: bool) {
     let mut i = from;
     while i < to {
         let flags = if flagged { sample_flags(i) } else { 0 };
@@ -123,7 +123,7 @@ pub(crate) fn series_spec(c: ww_tape::ClockNum, flagged: bool) -> ww_tape::Track
 
 /// Define the clock and the two tracks of `run` on `mux`, in the same order each time, so a resumed mux gives the
 /// numbers back.
-fn define(mux: &TapeMux<MemTapes>, run: Run) -> Tracks {
+fn define(mux: &TapeMux<MemPieces>, run: Run) -> Tracks {
     let c = mux.define_clock(clock()).unwrap();
     let e = events_track(1, c);
     let s = series_spec(c, run.flagged);
@@ -136,7 +136,7 @@ fn define(mux: &TapeMux<MemTapes>, run: Run) -> Tracks {
 
 /// Write `run` on `mux` from item `events_from` of the events track and sample `samples_from` of the series on,
 /// then close it.
-fn write(mux: TapeMux<MemTapes>, run: Run, t: &Tracks, events_from: u64, samples_from: u64) {
+fn write(mux: TapeMux<MemPieces>, run: Run, t: &Tracks, events_from: u64, samples_from: u64) {
     let mut events = mux
         .events(
             t.events.0,
@@ -181,7 +181,7 @@ fn write(mux: TapeMux<MemTapes>, run: Run, t: &Tracks, events_from: u64, samples
 
 /// The pieces of `run` written whole.
 fn whole_run(run: Run) -> Vec<Vec<u8>> {
-    let mem = MemTapes::new();
+    let mem = MemPieces::new();
     let mux = TapeMux::create(
         mem.clone(),
         OWNER,

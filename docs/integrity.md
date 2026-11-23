@@ -34,7 +34,7 @@ A seal raises a closed piece to `Full` later, at save time or whenever there is 
 skipped and writes every block in its place, so the piece keeps its length and its offsets. The sealed piece holds the
 bytes a writer at `Full` writes from the same calls.
 
-- [`MemTapes::seal`] swaps a sealed copy in, while a reader holding the old tape reads on.
+- [`MemPieces::seal`] swaps a sealed copy in, while a reader holding the old tape reads on.
 - [`ww_tape_fs::writer::seal`] seals a file in place and writes each piece head last. A crash before that leaves the
   piece at its old level, and a seal again finishes it.
 - A chain is sealed from its first piece on, since each piece's id comes from the content hash of the piece before.

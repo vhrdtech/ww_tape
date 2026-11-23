@@ -19,12 +19,12 @@ use ww_tape::times::{EncodedRelation, EncodedTimes};
 use ww_tape::writer::NearPolicy;
 use ww_tape::{
     ALIGNMENT, BlockKind, ChainOptions, ChunkHead, ColumnSpec, CutPolicy, Definitions, Describe,
-    FileBlocks, InputError, Layout, MemError, MemSink, MemTapes, OwnerId, PieceChain, PieceHead,
-    PieceIdent, Recovery, RelationDef, RelationIndex, RelationValues, ResumeError, SessionTag,
-    Slot, StatePolicy, SyncPolicy, TapeReader, TapeSink, TapeWriter, Tapes, TrackDef, WriteError,
-    WriterOptions,
+    FileBlocks, InputError, Layout, MemError, MemPieces, MemSink, OwnerId, PieceChain, PieceHead,
+    PieceIdent, PieceStore, Recovery, RelationDef, RelationIndex, RelationValues, ResumeError,
+    SessionTag, Slot, StatePolicy, SyncPolicy, TapeReader, TapeSink, TapeWriter, TrackDef,
+    WriteError, WriterOptions,
 };
-use ww_tape_fs::{Files, FsError, piece_name};
+use ww_tape_fs::{FilePieces, FsError, piece_name};
 
 /// One call a test makes: on a writer (each but a put places one counted block) or on the definitions.
 #[derive(Clone, Copy, Debug)]
@@ -786,7 +786,7 @@ fn an_incomplete_track_hash_stays_marked_in_later_pieces() {
         unreachable!("track() gives a track")
     };
     for (i, f) in done.iter().enumerate() {
-        let b = std::fs::read(Files::new(&dir).path_of(f.tape)).unwrap();
+        let b = std::fs::read(FilePieces::new(&dir).path_of(f.tape)).unwrap();
         let r = TapeReader::open(&b[..]).unwrap();
         let p = &r.pieces()[0];
         let row = p
@@ -831,7 +831,7 @@ fn a_chain_in_memory_reads_and_matches_files() {
         },
     };
     let owner = OwnerId([5; 32]);
-    let mem = MemTapes::new();
+    let mem = MemPieces::new();
     let mut in_mem = PieceChain::create_on(mem.clone(), owner, 1, &[], opts.clone()).unwrap();
     let mut on_disk = ww_tape_fs::chain::create(&dir, owner, 1, &[], opts).unwrap();
     let (mut a, mut b) = (base_defs().clone(), base_defs().clone());
@@ -860,7 +860,7 @@ fn a_chain_in_memory_reads_and_matches_files() {
         let bytes = tape.to_vec().unwrap();
         assert_eq!(
             bytes,
-            std::fs::read(Files::new(&dir).path_of(fb.tape)).unwrap()
+            std::fs::read(FilePieces::new(&dir).path_of(fb.tape)).unwrap()
         );
         assert_eq!(fa.tape, fb.tape);
         assert_eq!(fa.piece.hash, fb.piece.hash);
@@ -874,7 +874,7 @@ fn a_chain_in_memory_reads_and_matches_files() {
 }
 
 /// The calls of a chain: each chunk through [PieceChain::write_chunk], so cuts come before chunks.
-fn apply_chain<F: Tapes>(c: &mut PieceChain<F>, defs: &mut Definitions, op: Op) {
+fn apply_chain<F: PieceStore>(c: &mut PieceChain<F>, defs: &mut Definitions, op: Op) {
     match op {
         Op::Chunk(t, k) => {
             let (h, b) = chunk(t, k);
@@ -926,7 +926,7 @@ fn reference_chain(dir: &Path, ops: &[Op]) -> (Vec<PathBuf>, Made) {
         .close()
         .unwrap()
         .into_iter()
-        .map(|f| Files::new(dir).path_of(f.tape))
+        .map(|f| FilePieces::new(dir).path_of(f.tape))
         .collect();
     let mut placed = BTreeMap::new();
     for p in &paths {
@@ -941,7 +941,7 @@ fn reference_chain(dir: &Path, ops: &[Op]) -> (Vec<PathBuf>, Made) {
 }
 
 /// Give a chain resumed keeping `kept` bytes of its last piece the calls it lost.
-fn replay_chain<F: Tapes>(c: &mut PieceChain<F>, ops: &[Op], made: &Made, kept: u64) {
+fn replay_chain<F: PieceStore>(c: &mut PieceChain<F>, ops: &[Op], made: &Made, kept: u64) {
     let next = c.writer().unwrap().next_seq();
     let piece = c.seq();
     let mut defs = base_defs().clone();
@@ -952,13 +952,13 @@ fn replay_chain<F: Tapes>(c: &mut PieceChain<F>, ops: &[Op], made: &Made, kept: 
     }
 }
 
-/// A chain in memory left unclosed resumes on the same [MemTapes] and ends as one written in one go.
+/// A chain in memory left unclosed resumes on the same [MemPieces] and ends as one written in one go.
 #[test]
 fn a_chain_in_memory_resumes() {
     let tmp = scratch("mem_resume");
     let ops = ops(10);
     let (paths, made) = reference_chain(&tmp, &ops);
-    let mem = MemTapes::new();
+    let mem = MemPieces::new();
     let mut c =
         PieceChain::create_on(mem.clone(), OwnerId([9; 32]), 0, &[], chain_options()).unwrap();
     let mut defs = base_defs().clone();
@@ -980,7 +980,12 @@ fn a_chain_in_memory_resumes() {
         );
     }
     // no piece of a chain in a place: nothing to resume
-    assert!(Files::new(&tmp.join("none")).closed(&0).unwrap().is_none());
+    assert!(
+        FilePieces::new(&tmp.join("none"))
+            .closed(&0)
+            .unwrap()
+            .is_none()
+    );
     assert!(
         ww_tape_fs::chain::resume(&tmp.join("none"), OwnerId([9; 32]), 0, chain_options()).is_err()
     );
@@ -989,7 +994,7 @@ fn a_chain_in_memory_resumes() {
 
 /// Where a test keeps a chain of pieces in one file: on disk or in memory, through the same test body.
 trait OneFile {
-    type F: Tapes<Key = u64> + Clone;
+    type F: PieceStore<Key = u64> + Clone;
     /// A fresh place named `name` holding `bytes` as the chain's file; the store and the file's key.
     fn plant(&self, name: &str, bytes: &[u8]) -> (Self::F, u64);
     /// The bytes of the file under `key`.
@@ -999,13 +1004,13 @@ trait OneFile {
 struct OnDisk(PathBuf);
 
 impl OneFile for OnDisk {
-    type F = Files;
-    fn plant(&self, name: &str, bytes: &[u8]) -> (Files, u64) {
+    type F = FilePieces;
+    fn plant(&self, name: &str, bytes: &[u8]) -> (FilePieces, u64) {
         let path = self.0.join(name);
         std::fs::write(&path, bytes).unwrap();
-        (Files::file(&path), 0)
+        (FilePieces::file(&path), 0)
     }
-    fn bytes(&self, f: &Files, key: u64) -> Vec<u8> {
+    fn bytes(&self, f: &FilePieces, key: u64) -> Vec<u8> {
         std::fs::read(f.path_of(key)).unwrap()
     }
 }
@@ -1013,21 +1018,21 @@ impl OneFile for OnDisk {
 struct InMemory;
 
 impl OneFile for InMemory {
-    type F = MemTapes;
-    fn plant(&self, _: &str, bytes: &[u8]) -> (MemTapes, u64) {
-        let mem = MemTapes::new();
+    type F = MemPieces;
+    fn plant(&self, _: &str, bytes: &[u8]) -> (MemPieces, u64) {
+        let mem = MemPieces::new();
         let mut sink = mem.create_whole(&0).unwrap();
         sink.write_all(bytes).unwrap();
         (mem, 0)
     }
-    fn bytes(&self, f: &MemTapes, key: u64) -> Vec<u8> {
+    fn bytes(&self, f: &MemPieces, key: u64) -> Vec<u8> {
         f.get(&key).unwrap().unwrap().to_vec().unwrap()
     }
 }
 
 /// Where a test keeps a chain of a file per piece: on disk or in memory, through the same test body.
 trait EachPiece {
-    type F: Tapes<Key = u64> + Clone;
+    type F: PieceStore<Key = u64> + Clone;
     /// A fresh place for run `run` holding the closed pieces `done` and, unless None, the start of the next piece
     /// as an unclosed one.
     fn plant(&self, run: usize, done: &[Vec<u8>], open: Option<&[u8]>) -> Self::F;
@@ -1036,8 +1041,8 @@ trait EachPiece {
 }
 
 impl EachPiece for OnDisk {
-    type F = Files;
-    fn plant(&self, run: usize, done: &[Vec<u8>], open: Option<&[u8]>) -> Files {
+    type F = FilePieces;
+    fn plant(&self, run: usize, done: &[Vec<u8>], open: Option<&[u8]>) -> FilePieces {
         let d = self.0.join(format!("run{run}"));
         std::fs::create_dir(&d).unwrap();
         for (j, w) in done.iter().enumerate() {
@@ -1046,17 +1051,17 @@ impl EachPiece for OnDisk {
         if let Some(open) = open {
             std::fs::write(d.join(piece_name(done.len() as u64)), open).unwrap();
         }
-        Files::new(&d)
+        FilePieces::new(&d)
     }
-    fn bytes(&self, f: &Files, seq: u64) -> Vec<u8> {
+    fn bytes(&self, f: &FilePieces, seq: u64) -> Vec<u8> {
         std::fs::read(f.path_of(seq)).unwrap()
     }
 }
 
 impl EachPiece for InMemory {
-    type F = MemTapes;
-    fn plant(&self, _: usize, done: &[Vec<u8>], open: Option<&[u8]>) -> MemTapes {
-        let mem = MemTapes::new();
+    type F = MemPieces;
+    fn plant(&self, _: usize, done: &[Vec<u8>], open: Option<&[u8]>) -> MemPieces {
+        let mem = MemPieces::new();
         for (j, w) in done.iter().enumerate() {
             let mut s = mem.create(&(j as u64)).unwrap();
             s.write_all(w).unwrap();
@@ -1068,7 +1073,7 @@ impl EachPiece for InMemory {
         }
         mem
     }
-    fn bytes(&self, f: &MemTapes, seq: u64) -> Vec<u8> {
+    fn bytes(&self, f: &MemPieces, seq: u64) -> Vec<u8> {
         f.get(&seq).unwrap().unwrap().to_vec().unwrap()
     }
 }
@@ -1104,7 +1109,7 @@ fn chain_cut_anywhere<P: EachPiece>(
                 .unwrap_or_else(|e| panic!("piece {i}, cut {cut:?}: {e}"));
             assert_eq!(c.closed().len(), i);
             replay_chain(&mut c, ops, made, resumed.kept_bytes);
-            let f = c.tapes().clone();
+            let f = c.store().clone();
             let got = c.close().unwrap();
             assert_eq!(got.len(), want.len(), "piece {i}, cut {cut:?}");
             for (j, w) in want.iter().enumerate() {
@@ -1189,7 +1194,7 @@ fn one_file_is_its_pieces<P: OneFile>(place: &P, scratch_dir: &Path) {
         }
         apply_chain(&mut c, &mut defs, *op);
     }
-    let f = c.tapes().clone();
+    let f = c.store().clone();
     let done = c.close().unwrap();
     assert_eq!(done.len(), paths.len());
     let got = place.bytes(&f, path);
@@ -1269,7 +1274,7 @@ fn one_file_cut_anywhere<P: OneFile>(
                 "piece {i}, cut {cut}"
             );
             replay_chain(&mut c, &ops, &made, resumed.kept_bytes);
-            let f = c.tapes().clone();
+            let f = c.store().clone();
             let got = c.close().unwrap();
             assert_eq!(got.len(), pieces.len(), "piece {i}, cut {cut}");
             let bytes = place.bytes(&f, path);
@@ -1306,7 +1311,7 @@ fn one_file_reopened<P: OneFile>(place: &P) {
         for op in part {
             apply_chain(&mut c, defs, *op);
         }
-        let f = c.tapes().clone();
+        let f = c.store().clone();
         (f, c.close().unwrap())
     };
     let mut defs = base_defs().clone();
@@ -1330,7 +1335,7 @@ fn one_file_reopened<P: OneFile>(place: &P) {
     assert!((0..r.pieces().len()).all(|i| r.verify(i).map(|v| v.holds).unwrap()));
 
     // the same calls in one session: every track's hash is the same
-    let mem = MemTapes::new();
+    let mem = MemPieces::new();
     let mut c = PieceChain::create_on(mem, OwnerId([9; 32]), 0, &[], one_file_options()).unwrap();
     let mut defs = base_defs().clone();
     for op in &ops {
@@ -1431,7 +1436,7 @@ fn a_second_writer_of_one_file_is_refused() {
         ..chain_options()
     };
     let owner = OwnerId([7; 32]);
-    fn write<F: Tapes>(c: &mut PieceChain<F>, k: u64) {
+    fn write<F: PieceStore>(c: &mut PieceChain<F>, k: u64) {
         let (h, b) = chunk(0, k);
         c.write_chunk(base_defs(), &h, &column(&b)).unwrap();
     }
@@ -1456,7 +1461,7 @@ fn a_second_writer_of_one_file_is_refused() {
     let r = TapeReader::open(&bytes[..]).unwrap();
     assert!(r.chain().is_whole(), "{:?}", r.chain());
 
-    let mem = MemTapes::new();
+    let mem = MemPieces::new();
     let mut a = PieceChain::create_on(mem.clone(), owner, 0, &[], options()).unwrap();
     assert!(locked(PieceChain::resume_on(
         mem.clone(),
@@ -2087,7 +2092,7 @@ pub(crate) fn written_on(alignment: u32, level: ww_tape::Integrity) -> Vec<u8> {
     let tape = w.sink().tape();
     w.close_with_summary(ww_tape::piece::CloseReason::Closed, b"first half")
         .unwrap();
-    let mem = MemTapes::new();
+    let mem = MemPieces::new();
     let mut sink = mem.create(&0).unwrap();
     sink.write_all(&tape.to_vec().unwrap()).unwrap();
     sink.close().unwrap();

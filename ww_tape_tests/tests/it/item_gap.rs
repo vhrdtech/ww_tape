@@ -3,7 +3,7 @@
 //! resume keeps it all.
 
 use ww_tape::{
-    ChainOptions, ItemNum, MemTapes, OwnerId, PieceChain, PieceTapes, SyncPolicy, TapeReader,
+    ChainOptions, ItemNum, MemPieces, OwnerId, PieceChain, PieceTapes, SyncPolicy, TapeReader,
     TrackHash, WriterOptions,
 };
 
@@ -26,7 +26,7 @@ fn options() -> ChainOptions {
 fn an_item_number_gap_between_chunks_reads_as_lost_items() {
     let defs = base_defs();
     let owner = OwnerId([0x9a; 32]);
-    let mem = MemTapes::new();
+    let mem = MemPieces::new();
     let mut chain = PieceChain::create_on(mem.clone(), owner, 0, &[], options()).unwrap();
     for k in [0, 2] {
         let (h, c) = chunk(0, k);

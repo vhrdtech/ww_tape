@@ -6,7 +6,7 @@ use crate::definitions::base_defs;
 use crate::pieces::{chunk, column, records};
 use ww_tape::index::{IndexBlock, IndexKind, IndexPolicy};
 use ww_tape::{
-    BlockId, BlockKind, ChainOptions, CutPolicy, FileBlocks, Layout, MemSink, MemTapes, OwnerId,
+    BlockId, BlockKind, ChainOptions, CutPolicy, FileBlocks, Layout, MemPieces, MemSink, OwnerId,
     PieceChain, PieceTapes, SyncPolicy, TapeReader, TapeWriter, TrackHash, WriterOptions,
 };
 use ww_tape::{Medium, OpenOptions};
@@ -268,7 +268,7 @@ fn a_raw_medium_reads_appended_pieces() {
             ..CutPolicy::default()
         },
     };
-    let mem = MemTapes::new();
+    let mem = MemPieces::new();
     let mut c = PieceChain::create_on(mem.clone(), OwnerId([8; 32]), 0, &[], options).unwrap();
     let defs = base_defs();
     for k in 0..16 {

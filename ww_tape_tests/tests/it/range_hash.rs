@@ -10,7 +10,7 @@ use crate::pieces::{chunk, column, records};
 use ww_tape::index::IndexPolicy;
 use ww_tape::piece::payload_hash;
 use ww_tape::{
-    ChainOptions, Closed, CutPolicy, FileBlocks, MemTapes, OwnerId, PieceChain, PieceTapes,
+    ChainOptions, Closed, CutPolicy, FileBlocks, MemPieces, OwnerId, PieceChain, PieceTapes,
     SyncPolicy, TapeReader, TrackHash, WriterOptions,
 };
 
@@ -66,7 +66,7 @@ pub(crate) fn write_at(
             ..CutPolicy::default()
         },
     };
-    let mut c = PieceChain::create_on(MemTapes::new(), OwnerId([4; 32]), 0, &[], options).unwrap();
+    let mut c = PieceChain::create_on(MemPieces::new(), OwnerId([4; 32]), 0, &[], options).unwrap();
     let defs = base_defs();
     let mut next = [0u64; 3];
     for n in 0..60 {
@@ -80,7 +80,7 @@ pub(crate) fn write_at(
             w.write_block(defs, &records(id, n)).unwrap();
         }
     }
-    let mem = c.tapes().clone();
+    let mem = c.store().clone();
     let done = c.close().unwrap();
     let mut keys: Vec<u64> = vec![];
     for f in &done {

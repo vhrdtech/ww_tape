@@ -21,7 +21,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use example_capture::files;
-use example_capture::files::Files;
+use example_capture::files::FilePieces;
 use example_capture::window::Follower;
 use example_ethernet::Link;
 use example_ethernet::ram::{RamCapture, RamRun, RamRunning};
@@ -78,7 +78,7 @@ fn capture(ms: u64) -> RamCapture {
 
 /// Follow the memory window while the capture runs, as a viewer would: print each piece a chain begins and the
 /// pieces it holds in memory.
-fn follow(running: &RamRunning<Files, Files>) -> Result<(), ww_tape::MemError> {
+fn follow(running: &RamRunning<FilePieces, FilePieces>) -> Result<(), ww_tape::MemError> {
     let mut follower = Follower::default();
     while !running.is_finished() {
         for cut in follower.next(running.chains(), Duration::from_millis(50))? {

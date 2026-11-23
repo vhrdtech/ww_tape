@@ -8,7 +8,7 @@ use std::task::{Context, Poll, Waker};
 use std::time::{Duration, Instant};
 
 use ww_tape::chunk::ChunkHead;
-use ww_tape::{ItemNum, Tapes, TrackNum};
+use ww_tape::{ItemNum, PieceStore, TrackNum};
 
 use crate::queue::lock;
 use crate::wait::{block_on, block_on_until, register, wake_all};
@@ -63,7 +63,7 @@ impl Watch {
     }
 
     /// Publish where the writer is, with `chunk` the head of a chunk just placed; waiters wake when it changed.
-    pub(crate) fn publish<T: Tapes>(
+    pub(crate) fn publish<T: PieceStore>(
         &self,
         chain: &mut ww_tape::PieceChain<T>,
         chunk: Option<&ChunkHead>,
@@ -113,7 +113,7 @@ impl Watch {
 
 /// Wakes a reader in the writer's process when the writing thread placed more ([crate::TapeMux::watch]).
 ///
-/// A reader of the same tapes ([ww_tape::MemTapes], or files) waits here instead of polling, then reads the piece up
+/// A reader of the same tapes ([ww_tape::MemPieces], or files) waits here instead of polling, then reads the piece up
 /// to [Progress::piece_bytes]. Cloned freely; it outlives the mux, whose end it reports ([Progress::ended]).
 ///
 /// A [sync](crate::TapeMux::sync), flush or cut shows here before it returns.

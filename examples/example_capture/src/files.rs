@@ -6,7 +6,7 @@
 use std::path::Path;
 
 use ww_tape::OwnerId;
-pub use ww_tape_fs::Files;
+pub use ww_tape_fs::FilePieces;
 use ww_tape_fs::FsError;
 use ww_tape_mux::{MuxError, MuxOptions, TapeMux};
 
@@ -15,12 +15,12 @@ use ww_tape_mux::{MuxError, MuxOptions, TapeMux};
 /// # Errors
 ///
 /// A directory that could not be created.
-pub fn kept(dir: &Path, chains: u32) -> std::io::Result<Vec<Files>> {
+pub fn kept(dir: &Path, chains: u32) -> std::io::Result<Vec<FilePieces>> {
     (0..chains)
         .map(|chain| {
             let d = dir.join(format!("kept-{chain}"));
             std::fs::create_dir_all(&d)?;
-            Ok(Files::new(&d))
+            Ok(FilePieces::new(&d))
         })
         .collect()
 }
@@ -31,7 +31,7 @@ pub fn kept(dir: &Path, chains: u32) -> std::io::Result<Vec<Files>> {
 /// # Errors
 ///
 /// A directory that could not be created, or the mux that didn't start.
-pub fn results(dir: &Path, owner: OwnerId) -> Result<TapeMux<Files>, ResultsError> {
+pub fn results(dir: &Path, owner: OwnerId) -> Result<TapeMux<FilePieces>, ResultsError> {
     let d = dir.join("results");
     std::fs::create_dir_all(&d).map_err(ResultsError::Dir)?;
     ww_tape_fs::mux::create(

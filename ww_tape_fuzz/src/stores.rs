@@ -3,8 +3,8 @@
 //! The operations: chunks written, cuts, crashes and resumes, closes, removed pieces and dropped fronts.
 //! The model knows the chain's pieces and the chunks each holds. After an operation that changes pieces, and at the
 //! end, every tape of the store is read back by a [TapeReader] and its pieces, their chunks and which are closed
-//! must be the model's. [MemTapes] and a store of files (`ww_tape_fs::Files`, in the integration tests) run the same
-//! operations, so both keep the same contract.
+//! must be the model's. [MemPieces] and a store of files (`ww_tape_fs::FilePieces`, in the integration tests) run the
+//! same operations, so both keep the same contract.
 //!
 //! Input: a mode byte (bit 0 a chain in one tape, else a tape per piece; bit 1 aligned), then one byte per
 //! operation: 0 to 3 write a chunk of track `byte >> 7`, 4 cuts, 5 crashes and resumes, 6 closes (the next write
@@ -17,7 +17,8 @@ use std::collections::BTreeSet;
 use ww_tape::chunk::ChunkHead;
 use ww_tape::{
     ByteSource, ChainOptions, Codec, ColumnKind, ColumnSpec, CutPolicy, Definitions, FileBlocks,
-    MemError, MemTape, MemTapes, OwnerId, PieceChain, PieceTapes, TapeReader, Tapes, TrackNum,
+    MemError, MemPiece, MemPieces, OwnerId, PieceChain, PieceStore, PieceTapes, TapeReader,
+    TrackNum,
 };
 
 use crate::targets::{Defined, chunk_of, options, template_definitions};
@@ -25,12 +26,12 @@ use crate::targets::{Defined, chunk_of, options, template_definitions};
 /// Operations of one run at most.
 pub const OPS_MAX: usize = 256;
 
-/// A store the model drives: the [Tapes] a chain writes on, and its tapes listed, read and removed.
+/// A store the model drives: the [PieceStore] a chain writes on, and its tapes listed, read and removed.
 pub trait ModelStore {
-    type Tapes: Tapes<Key = u64>;
+    type Store: PieceStore<Key = u64>;
 
-    /// The tapes, for a chain to create or resume on: every one shares the same bytes.
-    fn tapes(&self) -> Self::Tapes;
+    /// The store, for a chain to create or resume on: every one shares the same bytes.
+    fn piece_store(&self) -> Self::Store;
 
     /// Every key with a tape, in order.
     fn keys(&self) -> Vec<u64>;
@@ -41,15 +42,15 @@ pub trait ModelStore {
     /// Remove the closed tape under `key`: whether it was there.
     fn remove(&mut self, key: u64) -> bool;
 
-    /// Free the pieces of the tape under `key` before `to` ([MemTapes::drop_front]): the first byte kept, None when
+    /// Free the pieces of the tape under `key` before `to` ([MemPieces::drop_front]): the first byte kept, None when
     /// the store can't.
     fn drop_front(&mut self, key: u64, to: u64) -> Option<u64>;
 }
 
-impl ModelStore for MemTapes {
-    type Tapes = Self;
+impl ModelStore for MemPieces {
+    type Store = Self;
 
-    fn tapes(&self) -> Self {
+    fn piece_store(&self) -> Self {
         self.clone()
     }
 
@@ -58,7 +59,7 @@ impl ModelStore for MemTapes {
     }
 
     fn bytes(&self, key: u64) -> Option<(u64, Vec<u8>)> {
-        let tape: MemTape = self.get(&key).expect("memory")?;
+        let tape: MemPiece = self.get(&key).expect("memory")?;
         Some((
             tape.start().expect("memory"),
             tape.to_vec().expect("memory"),
@@ -121,7 +122,7 @@ pub fn run<T: ModelStore>(store: T, data: &[u8]) -> Outcome {
         one,
     };
     m.chain = Some(
-        PieceChain::create_on(m.store.tapes(), OWNER, 0, &[], m.options.clone())
+        PieceChain::create_on(m.store.piece_store(), OWNER, 0, &[], m.options.clone())
             .expect("a chain starts"),
     );
     let mut ops = ops.iter().take(OPS_MAX);
@@ -163,7 +164,7 @@ struct Model<T: ModelStore> {
     store: T,
     options: ChainOptions,
     /// None after a close, until the next write resumes
-    chain: Option<PieceChain<T::Tapes>>,
+    chain: Option<PieceChain<T::Store>>,
     /// Every piece the chain started, removed ones included
     pieces: Vec<Piece>,
     /// Pieces removed or dropped
@@ -174,10 +175,11 @@ struct Model<T: ModelStore> {
 
 impl<T: ModelStore> Model<T> {
     /// The chain, resumed after a close; None after a close and a removal.
-    fn chain(&mut self) -> Option<&mut PieceChain<T::Tapes>> {
+    fn chain(&mut self) -> Option<&mut PieceChain<T::Store>> {
         if self.chain.is_none() && self.gone.is_empty() {
-            let (c, _) = PieceChain::resume_on(self.store.tapes(), OWNER, 0, self.options.clone())
-                .expect("a closed chain resumes");
+            let (c, _) =
+                PieceChain::resume_on(self.store.piece_store(), OWNER, 0, self.options.clone())
+                    .expect("a closed chain resumes");
             // the last piece is written on after its close record
             self.pieces.last_mut().expect("a piece").closed = false;
             self.chain = Some(c);
@@ -225,8 +227,9 @@ impl<T: ModelStore> Model<T> {
             .expect("deferred blocks write");
         // the open piece is left as it is
         drop(c);
-        let (c, _) = PieceChain::resume_on(self.store.tapes(), OWNER, 0, self.options.clone())
-            .expect("a crashed chain resumes");
+        let (c, _) =
+            PieceChain::resume_on(self.store.piece_store(), OWNER, 0, self.options.clone())
+                .expect("a crashed chain resumes");
         self.chain = Some(c);
     }
 

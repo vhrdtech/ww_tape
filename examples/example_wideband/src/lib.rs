@@ -17,7 +17,7 @@
 //! ```
 //! use example_wideband::{Source, Wideband};
 //! let wb = Wideband::scaled(100_000).expect("100 000 divides the rate").ms(2_000);
-//! let tapes = ww_tape::MemTapes::new();
+//! let tapes = ww_tape::MemPieces::new();
 //! let mux = ww_tape_mux::TapeMux::create(
 //!     tapes.clone(),
 //!     ww_tape::OwnerId([0x5d; 32]),
@@ -45,8 +45,8 @@ use std::sync::Arc;
 use ww_tape::reader::ByteSource;
 use ww_tape::samples::Samples;
 use ww_tape::{
-    BlockKind, ChainOptions, Codec, ColumnKind, CutPolicy, ItemNum, Segment, SeriesDef, TapeReader,
-    Tapes, TrackId, TrackKey, TrackNum, TrackSpec, track_key,
+    BlockKind, ChainOptions, Codec, ColumnKind, CutPolicy, ItemNum, PieceStore, Segment, SeriesDef,
+    TapeReader, TrackId, TrackKey, TrackNum, TrackSpec, track_key,
 };
 use ww_tape_mux::{MuxError, SeriesOptions, TapeMux};
 use ww_tape_summary::Summary;
@@ -188,7 +188,7 @@ impl Wideband {
         source: &Source,
     ) -> Result<Recorded, WidebandError<T::Error>>
     where
-        T: Tapes + Send + 'static,
+        T: PieceStore + Send + 'static,
         T::Sink: Send,
         T::Key: Send,
         T::Error: Send + Sync,
@@ -226,7 +226,7 @@ impl Wideband {
         source: &Source,
     ) -> Result<u64, WidebandError<T::Error>>
     where
-        T: Tapes + Send + 'static,
+        T: PieceStore + Send + 'static,
         T::Sink: Send,
         T::Key: Send,
         T::Error: Send + Sync,
@@ -319,7 +319,7 @@ fn define<'m, T>(
     muxes: &[&'m TapeMux<T>],
 ) -> Result<Vec<ChannelTrack<'m, T>>, WidebandError<T::Error>>
 where
-    T: Tapes + Send + 'static,
+    T: PieceStore + Send + 'static,
     T::Sink: Send,
     T::Key: Send,
     T::Error: Send + Sync,

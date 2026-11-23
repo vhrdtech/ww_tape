@@ -306,7 +306,7 @@ chapter = "../events/"
 [[term]]
 name = "piece"
 forms = ["pieces"]
-short = "A file of a recording that reads alone: a head, blocks, checkpoints, and at its end a final index, a close and a tail."
+short = "A part of a recording that reads alone, a file or bytes in memory: a head, blocks, checkpoints, and at its end a final index, a close and a tail."
 chapter = "../anatomy/"
 
 [[term]]
@@ -496,7 +496,7 @@ chapter = "../definitions/"
 [[term]]
 name = "store"
 forms = ["stores"]
-short = "A set of sinks for the pieces of a chain, such as a directory of files; any type that implements `Tapes`; the book never uses store as a verb."
+short = "A set of sinks for the pieces of a chain, such as a directory of files; any type that implements `PieceStore`; the book never uses store as a verb."
 chapter = "../writing/"
 
 [[term]]

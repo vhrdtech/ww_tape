@@ -1,10 +1,10 @@
-//! Files of ww_tape: a [TapeSink](ww_tape::TapeSink) that writes a file, a [Tapes](ww_tape::Tapes) store of piece
+//! Files of ww_tape: a [TapeSink](ww_tape::TapeSink) that writes a file, a [PieceStore](ww_tape::PieceStore) of piece
 //! files, and writers, chains and muxes opened by path.
 //!
 //! - [FileSink] writes one file under its final name from the start: a new file of one piece, created exclusively, a
 //!   file appended to in place, or a file that holds every piece of a chain. Whether a piece is open, closed or torn
 //!   is read from its bytes (its close and tail), never from its name.
-//! - [Files] keeps the pieces of a [PieceChain](ww_tape::PieceChain) in files: each piece a file of a directory,
+//! - [FilePieces] keeps the pieces of a [PieceChain](ww_tape::PieceChain) in files: each piece a file of a directory,
 //!   named by its seq ([piece_name]), or every piece in one file.
 //! - [FileSource] reads a file back, a closed piece or any tape, as a [ByteSource](ww_tape::ByteSource).
 //! - [writer] opens a [TapeWriter](ww_tape::TapeWriter) on a path: [writer::create], [writer::append],
@@ -55,4 +55,4 @@ pub mod writer;
 
 pub use chain::piece_name;
 pub use lock::{FsWarning, SharedFs};
-pub use sink::{FileSink, FileSource, Files, FsError};
+pub use sink::{FilePieces, FileSink, FileSource, FsError};

@@ -24,8 +24,8 @@ use ww_tape::piece::{TAIL_LEN, close_padding};
 use ww_tape::samples::{Samples, encode, max_encoded_len};
 use ww_tape::{
     Block, BlockKind, Clock, ClockRef, Codec, ColumnKind, FLAG_REPEAT, FileBlocks, Layout,
-    MemError, MemSink, MemTape, MemTapes, Recovery, Slot, SyncPolicy, TapeReader, TapeSink,
-    TapeWriter, Tapes,
+    MemError, MemPiece, MemPieces, MemSink, PieceStore, Recovery, Slot, SyncPolicy, TapeReader,
+    TapeSink, TapeWriter,
 };
 use ww_tape_mux::{MuxOptions, RelayMode, TapeMux};
 
@@ -566,7 +566,7 @@ impl Clock for RunClock {
     }
 }
 
-/// What the sinks of a [SyncTapes] did: syncs, and where the last one left the piece it synced.
+/// What the sinks of a [SyncPieces] did: syncs, and where the last one left the piece it synced.
 #[derive(Default)]
 struct SyncLog {
     syncs: AtomicU64,
@@ -581,10 +581,10 @@ struct SyncLog {
     all: std::sync::Mutex<Vec<(u64, u64)>>,
 }
 
-/// [MemTapes] whose sinks log their syncs.
+/// [MemPieces] whose sinks log their syncs.
 #[derive(Clone)]
-struct SyncTapes {
-    inner: MemTapes,
+struct SyncPieces {
+    inner: MemPieces,
     log: Arc<SyncLog>,
     clock: RunClock,
 }
@@ -652,7 +652,7 @@ impl TapeSink for SyncSink {
     }
 }
 
-impl SyncTapes {
+impl SyncPieces {
     fn wrap(&self, key: u64, inner: MemSink) -> SyncSink {
         SyncSink {
             inner,
@@ -663,36 +663,36 @@ impl SyncTapes {
     }
 }
 
-impl Tapes for SyncTapes {
+impl PieceStore for SyncPieces {
     type Key = u64;
     type Error = MemError;
     type Sink = SyncSink;
-    type Source = MemTape;
+    type Source = MemPiece;
 
     fn key_of(&self, seq: u64) -> u64 {
         self.inner.key_of(seq)
     }
 
     fn create(&mut self, key: &u64) -> Result<SyncSink, MemError> {
-        let sink = Tapes::create(&mut self.inner, key)?;
+        let sink = PieceStore::create(&mut self.inner, key)?;
         Ok(self.wrap(*key, sink))
     }
 
     fn reopen(&mut self, key: &u64) -> Result<Option<SyncSink>, MemError> {
-        Ok(Tapes::reopen(&mut self.inner, key)?.map(|s| self.wrap(*key, s)))
+        Ok(PieceStore::reopen(&mut self.inner, key)?.map(|s| self.wrap(*key, s)))
     }
 
-    fn closed(&self, key: &u64) -> Result<Option<MemTape>, MemError> {
-        Tapes::closed(&self.inner, key)
+    fn closed(&self, key: &u64) -> Result<Option<MemPiece>, MemError> {
+        PieceStore::closed(&self.inner, key)
     }
 
     fn create_whole(&mut self, key: &u64) -> Result<SyncSink, MemError> {
-        let sink = Tapes::create_whole(&mut self.inner, key)?;
+        let sink = PieceStore::create_whole(&mut self.inner, key)?;
         Ok(self.wrap(*key, sink))
     }
 
     fn open_whole(&mut self, key: &u64) -> Result<Option<SyncSink>, MemError> {
-        Ok(Tapes::open_whole(&mut self.inner, key)?.map(|s| self.wrap(*key, s)))
+        Ok(PieceStore::open_whole(&mut self.inner, key)?.map(|s| self.wrap(*key, s)))
     }
 }
 
@@ -756,10 +756,10 @@ fn closed_bytes(recording: &Recording, piece: u64) -> u64 {
 fn logged(
     drive: &Drive,
     policy: SyncPolicy,
-) -> Result<(Recorder<SyncTapes>, SyncTapes, RunClock), Error> {
+) -> Result<(Recorder<SyncPieces>, SyncPieces, RunClock), Error> {
     let clock = RunClock::default();
-    let tapes = SyncTapes {
-        inner: MemTapes::new(),
+    let tapes = SyncPieces {
+        inner: MemPieces::new(),
         log: Arc::default(),
         clock: clock.clone(),
     };
@@ -982,7 +982,7 @@ fn relay(recording: &Recording, acts: &[Act]) -> Result<Relay, Error> {
     let drive = recording.drive;
     let board = board_tape(&drive, acts)?;
     // --8<-- [start:relay]
-    let tapes = MemTapes::new();
+    let tapes = MemPieces::new();
     let mux = TapeMux::create(
         tapes.clone(),
         OWNER,

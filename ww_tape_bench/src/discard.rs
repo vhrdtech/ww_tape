@@ -4,7 +4,7 @@ use std::io;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use ww_tape::reader::ByteSource;
-use ww_tape::{TapeSink, Tapes};
+use ww_tape::{PieceStore, TapeSink};
 
 /// A store whose tapes keep no bytes, counting what is written into all of them.
 #[derive(Clone, Default)]
@@ -75,7 +75,7 @@ impl TapeSink for DiscardSink {
     }
 }
 
-impl Tapes for Discard {
+impl PieceStore for Discard {
     type Key = u64;
     type Error = io::Error;
     type Sink = DiscardSink;

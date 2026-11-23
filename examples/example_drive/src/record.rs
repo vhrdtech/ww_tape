@@ -14,9 +14,9 @@ use ww_tape::times::EncodedTimes;
 use ww_tape::writer::NearPolicy;
 use ww_tape::{
     BlockId, BlockKind, BlockWriter, ChainOptions, ChainPiece, ClockRef, ClockTime, Codec,
-    ColumnKind, ColumnSpec, CutPolicy, Definitions, EndMode, FileBlocks, MemError, MemTapes,
-    PieceTapes, Recovery, Resumed, SeriesGrid, SessionTag, StatePolicy, SyncPolicy, TapeReader,
-    TapeSink, Tapes, WriterOptions,
+    ColumnKind, ColumnSpec, CutPolicy, Definitions, EndMode, FileBlocks, MemError, MemPieces,
+    PieceStore, PieceTapes, Recovery, Resumed, SeriesGrid, SessionTag, StatePolicy, SyncPolicy,
+    TapeReader, TapeSink, WriterOptions,
 };
 use ww_tape_mux::{
     ChunkSender, MuxOptions, ProgressWatch, RecordsHandle, SeriesHandle, SeriesOptions,
@@ -372,7 +372,7 @@ fn mux_options() -> MuxOptions {
 
 // --8<-- [start:recorder_item]
 /// A chain written through a mux, one handle for each kind of act.
-pub(crate) struct Recorder<T: Tapes = MemTapes> {
+pub(crate) struct Recorder<T: PieceStore = MemPieces> {
     mux: TapeMux<T>,
     drive: Drive,
     /// The numbers the mux gave the drive's clocks and tracks.
@@ -392,7 +392,7 @@ pub(crate) struct Recorder<T: Tapes = MemTapes> {
 
 impl<T> Recorder<T>
 where
-    T: Tapes<Error = MemError> + Clone + Send + 'static,
+    T: PieceStore<Error = MemError> + Clone + Send + 'static,
     T::Sink: Send,
     T::Key: Send,
 {
@@ -748,7 +748,7 @@ pub struct Crash {
 /// A recording a crash cut off: the pieces closed before it and the unclosed piece it tore.
 pub struct Crashed {
     drive: Drive,
-    tapes: MemTapes,
+    tapes: MemPieces,
     made: Vec<Made>,
     /// Where the crash happened.
     pub crash: Crash,
@@ -818,7 +818,7 @@ pub(crate) fn drive_definitions(drive: &Drive) -> Result<(Definitions, DriveNumb
 fn close(
     drive: Drive,
     r: Recorder,
-    tapes: &MemTapes,
+    tapes: &MemPieces,
     mut made: Vec<Made>,
     placed: bool,
 ) -> Result<Recording, Error> {
@@ -901,8 +901,8 @@ fn settle(made: &mut [Made], pieces: &[Vec<u8>]) -> Result<(), Error> {
 
 /// A store holding the pieces `done`, closed, and the first `offset` bytes of `torn` as the unclosed piece after
 /// them: a chain cut off at that byte.
-fn plant(done: &[Vec<u8>], torn: &[u8], offset: usize) -> Result<MemTapes, Error> {
-    let tapes = MemTapes::new();
+fn plant(done: &[Vec<u8>], torn: &[u8], offset: usize) -> Result<MemPieces, Error> {
+    let tapes = MemPieces::new();
     for (seq, bytes) in (0u64..).zip(done) {
         let mut sink = tapes.create(&seq)?;
         sink.write_all(bytes)?;
@@ -948,7 +948,7 @@ impl Drive {
     /// [Drive::record], made while the producer and the writer thread overlap. The recording cannot [Recording::crash]:
     /// it does not know where each act was written.
     pub fn record_unplaced(&self) -> Result<Recording, Error> {
-        let tapes = MemTapes::new();
+        let tapes = MemPieces::new();
         let mut r = Recorder::create(self, &tapes)?.unplaced();
         let mut made = Vec::new();
         for act in Acts::lean(*self)? {
@@ -960,7 +960,7 @@ impl Drive {
     /// Record `acts`, made by [Drive::acts] of a run that differs from this one in its byte policies only: the same
     /// recording as [Drive::record], without making the acts again.
     pub(crate) fn record_acts(&self, acts: &[Act]) -> Result<Recording, Error> {
-        let tapes = MemTapes::new();
+        let tapes = MemPieces::new();
         let mut r = Recorder::create(self, &tapes)?;
         // the mux builds the summaries itself, as the acts of a lean run say
         let made = acts

@@ -91,7 +91,7 @@ The bytes of blocks, records, chunks, sessions and the index, in the crate `ww_t
 
   A piece names its level in its head: `Full` computes every CRC and hash, `CrcOnly` no hashes, `None` no payload CRCs either. Below `Full` the hashes hold zero and each index entry is marked unhashed; at `None` each chunk is marked `FLAG_PAYLOAD_UNCHECKED` and reads as `Checked::Unprotected`. Chunk head CRCs and every structure block stay checked, so framing, resume and salvage work at every level. Verify checks the structure, the chain check links by id (`ChainLink::Unproven`), and `range_hash` hashes the chunks' bytes.
 
-  A seal raises a closed piece to `Full`, byte for byte what a `Full` writer writes from the same calls. It comes as `TapeWriter::seal_on`, `MemTapes::seal` (a sealed copy swapped in), `ww_tape_fs::writer::seal` (in place, each piece head written last). Tests: golden pieces per level, the fuzz target `tape-seal`, `tape-resume` at every level, and the bench `levels`.
+  A seal raises a closed piece to `Full`, byte for byte what a `Full` writer writes from the same calls. It comes as `TapeWriter::seal_on`, `MemPieces::seal` (a sealed copy swapped in), `ww_tape_fs::writer::seal` (in place, each piece head written last). Tests: golden pieces per level, the fuzz target `tape-seal`, `tape-resume` at every level, and the bench `levels`.
 
   Read more: [Fewer checks, sealed later](docs/integrity.md).
 
@@ -423,7 +423,7 @@ Crates, checks, fuzzing and benches.
 
   `ww_tape` writes and reads tapes on sinks and sources without std, `ww_tape_codecs` holds the codecs and `ww_tape_summary` the summaries. `ww_tape_fs` holds everything that names a path. The writer, chain and resume build with alloc only, and the codecs build for wasm32 without std.
 
-  The codecs work on slices. Memory tapes keep their bytes in extents that never move, and `MemTapes::drop_front` frees a tape's oldest pieces. A reader checks payload CRCs as `OpenOptions::check_payloads` says: by default a file is checked and a memory tape of this process is not.
+  The codecs work on slices. Memory tapes keep their bytes in extents that never move, and `MemPieces::drop_front` frees a tape's oldest pieces. A reader checks payload CRCs as `OpenOptions::check_payloads` says: by default a file is checked and a memory tape of this process is not.
 
   Open: std-free definition records (owned types in `shrink_wrap` and `ww_version`), integrity levels, a seal.
 

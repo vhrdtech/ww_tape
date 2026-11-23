@@ -2,7 +2,7 @@
 //! of this process wrote is read unchecked and a file checked; either can be asked for.
 
 use ww_tape::{
-    BlockError, BlockKind, Checked, IndexEntry, MemTapes, OpenOptions, PayloadCheck, PieceTapes,
+    BlockError, BlockKind, Checked, IndexEntry, MemPieces, OpenOptions, PayloadCheck, PieceTapes,
     ReadError, TapeReader, TapeSink,
 };
 
@@ -23,8 +23,8 @@ fn chain() -> (Vec<u8>, IndexEntry, u64) {
 }
 
 /// `bytes` as a closed memory tape.
-fn in_memory(bytes: &[u8]) -> ww_tape::MemTape {
-    let tapes = MemTapes::new();
+fn in_memory(bytes: &[u8]) -> ww_tape::MemPiece {
+    let tapes = MemPieces::new();
     let mut sink = tapes.create_whole(&0).unwrap();
     sink.write_all(bytes).unwrap();
     sink.close().unwrap();

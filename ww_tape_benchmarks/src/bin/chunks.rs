@@ -29,7 +29,7 @@ use ww_tape::piece::payload_hash;
 use ww_tape::reader::ByteSource;
 use ww_tape::{
     ALIGNMENT, Block, BlockId, ChainOptions, Codec, ColumnKind, ColumnSpec, CutPolicy, Definitions,
-    ItemHash, Layout, MemSink, MemTapes, OwnerId, PieceChain, PieceTapes, SeriesTimeline,
+    ItemHash, Layout, MemPieces, MemSink, OwnerId, PieceChain, PieceTapes, SeriesTimeline,
     SessionTag, SyncPolicy, TapeReader, TapeSink, TapeWriter, TrackHash, WriterOptions,
 };
 use ww_tape_bench::{Bench, Cell, Common, Measure, ns_per_try};
@@ -204,7 +204,7 @@ fn main() -> anyhow::Result<()> {
     drop(mem);
     // a chain in one memory tape, a piece per CHAIN_CUT_CHUNKS chunks: growing the tape copies only the open piece
     let mut chain = PieceChain::create_on(
-        MemTapes::new(),
+        MemPieces::new(),
         OwnerId([1; 32]),
         0,
         &[],

@@ -8,8 +8,8 @@ use std::time::Instant;
 
 use ww_tape::chunk::ChunkHead;
 use ww_tape::{
-    ChainPiece, CloseReason, ColumnSpec, Definitions, DescribeError, Tapes, TrackFacts, TrackNum,
-    WriteError,
+    ChainPiece, CloseReason, ColumnSpec, Definitions, DescribeError, PieceStore, TrackFacts,
+    TrackNum, WriteError,
 };
 
 use crate::MuxStats;
@@ -49,10 +49,10 @@ pub(crate) type Done<E> = ReplyTx<Result<(), MuxError<E>>>;
 
 /// The reply to a close: every piece of the chain.
 pub(crate) type ClosedTx<T> =
-    ReplyTx<Result<Vec<ChainPiece<<T as Tapes>::Key>>, MuxError<<T as Tapes>::Error>>>;
+    ReplyTx<Result<Vec<ChainPiece<<T as PieceStore>::Key>>, MuxError<<T as PieceStore>::Error>>>;
 
 /// What goes through the queue.
-pub(crate) enum Work<T: Tapes> {
+pub(crate) enum Work<T: PieceStore> {
     Chunk {
         from: Arc<Slot<T::Error>>,
         head: Box<ChunkHead>,
@@ -122,7 +122,7 @@ pub(crate) enum Work<T: Tapes> {
     Stop,
 }
 
-impl<T: Tapes> Work<T> {
+impl<T: PieceStore> Work<T> {
     /// The unit a handle sent, for [MuxError::Full]; a control's work gives none.
     pub(crate) fn into_unit(self) -> Option<Unit> {
         match self {
@@ -200,7 +200,7 @@ impl Counters {
 }
 
 /// What the writing thread, the control and the handles share.
-pub(crate) struct Shared<T: Tapes> {
+pub(crate) struct Shared<T: PieceStore> {
     pub queue: Queue<Work<T>>,
     /// The failure that stopped the chain, set once.
     pub failure: OnceLock<Arc<WriteError<T::Error>>>,
@@ -216,7 +216,7 @@ pub(crate) struct Shared<T: Tapes> {
     pub hash_payloads: bool,
 }
 
-impl<T: Tapes> Shared<T> {
+impl<T: PieceStore> Shared<T> {
     pub(crate) fn new(queue_bytes: u64, hash_payloads: bool) -> Self {
         Self {
             hash_payloads,

@@ -13,8 +13,9 @@ use ww_tape::index::IndexPolicy;
 use ww_tape::piece::payload_hash;
 use ww_tape::writer::NearPolicy;
 use ww_tape::{
-    BlockKind, ChainOptions, ChainPiece, Closed, CutPolicy, Describe, FileBlocks, Layout, MemTapes,
-    OwnerId, PieceChain, PieceTapes, SyncPolicy, TapeReader, TrackDef, TrackHash, WriterOptions,
+    BlockKind, ChainOptions, ChainPiece, Closed, CutPolicy, Describe, FileBlocks, Layout,
+    MemPieces, OwnerId, PieceChain, PieceTapes, SyncPolicy, TapeReader, TrackDef, TrackHash,
+    WriterOptions,
 };
 
 /// How a recording of the same tracks is written.
@@ -73,7 +74,7 @@ fn options(shape: Shape) -> ChainOptions {
 }
 
 /// The bytes of the tapes the pieces `done` were written to, in the order written.
-fn files_of(mem: &MemTapes, done: &[ChainPiece<u64>]) -> Vec<u8> {
+fn files_of(mem: &MemPieces, done: &[ChainPiece<u64>]) -> Vec<u8> {
     let mut keys: Vec<u64> = vec![];
     for f in done {
         if !keys.contains(&f.tape) {
@@ -106,11 +107,11 @@ fn write(shape: Shape) -> (Vec<Closed>, Vec<u8>) {
     let mut defs = base_defs().clone();
     crate::definitions::hold(&mut defs, core::slice::from_ref(&state(10))).unwrap();
     let mut c =
-        PieceChain::create_on(MemTapes::new(), OwnerId([5; 32]), 0, &[], options(shape)).unwrap();
+        PieceChain::create_on(MemPieces::new(), OwnerId([5; 32]), 0, &[], options(shape)).unwrap();
     for k in 0..12u64 {
         if shape.resume && k == 6 {
             c.writer().unwrap().flush_deferred().unwrap();
-            let mem = c.tapes().clone();
+            let mem = c.store().clone();
             // a crash: the open piece is left as it is
             drop(c);
             (c, _) = PieceChain::resume_on(mem, OwnerId([5; 32]), 0, options(shape)).unwrap();
@@ -155,7 +156,7 @@ fn write(shape: Shape) -> (Vec<Closed>, Vec<u8>) {
             }
         }
     }
-    let mem = c.tapes().clone();
+    let mem = c.store().clone();
     let done = c.close().unwrap();
     let bytes = files_of(&mem, &done);
     (pieces(done), bytes)
@@ -369,7 +370,7 @@ fn write_owned(tracks: &[TrackDef<'static>]) -> Vec<Closed> {
         resume: false,
     };
     let mut c =
-        PieceChain::create_on(MemTapes::new(), OwnerId([5; 32]), 0, &[], options(shape)).unwrap();
+        PieceChain::create_on(MemPieces::new(), OwnerId([5; 32]), 0, &[], options(shape)).unwrap();
     for k in 0..8 {
         for (i, t) in tracks.iter().enumerate() {
             let (mut h, b) = chunk(i as u64, k);
@@ -415,7 +416,7 @@ fn tracks_of_one_key_with_two_owners_are_two_tracks() {
     all.push(Describe::Track(tb.clone()));
     let defs = crate::definitions::held(&all);
     let mut c = PieceChain::create_on(
-        MemTapes::new(),
+        MemPieces::new(),
         OwnerId([5; 32]),
         0,
         &[],

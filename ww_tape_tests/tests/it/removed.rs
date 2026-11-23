@@ -5,13 +5,13 @@ use crate::reclose::close;
 use ww_tape::piece::{ChainLink, ContentHash, PieceHead, PieceId, PieceIdent, RemovedPiece};
 use ww_tape::sink::TapeSink;
 use ww_tape::{
-    InputError, MemSink, MemTapes, OwnerId, RemovedRefusal, SessionTag, SyncPolicy, TapeReader,
+    InputError, MemPieces, MemSink, OwnerId, RemovedRefusal, SessionTag, SyncPolicy, TapeReader,
     TapeWriter, WriteError, WriterOptions,
 };
 
 /// The bytes of each piece of a chain in memory, in order.
 fn pieces() -> Vec<Vec<u8>> {
-    let mem = MemTapes::new();
+    let mem = MemPieces::new();
     let keys = chain_in_memory(&mem);
     assert!(keys.len() >= 4, "{} pieces", keys.len());
     keys.iter()

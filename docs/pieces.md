@@ -163,14 +163,14 @@ The drive's chain without piece 0 shows it. [`check_chain`] finds 3 pieces from 
 hold. The report says head cut, and so not whole. Piece 1 defines every track at its start, the carried ones. A chain
 with deleted pieces cannot be resumed, since a resume starts from the first piece.
 
-A chain in memory keeps a bounded window the same way. [`MemTapes::remove`] takes a closed piece out of the store. A
+A chain in memory keeps a bounded window the same way. [`MemPieces::remove`] takes a closed piece out of the store. A
 reader that already holds the piece reads on unchanged. The piece still being written is not removed
 ([`MemError::Unclosed`]).
 
-A chain in one memory tape keeps its window with [`MemTapes::drop_front`]. The call frees the oldest pieces whole, in blocks of
-memory of up to 64 MiB. Offsets don't move: the tape now starts at its first kept piece
-([`ByteSource::start`]). A reader opened on it finds the pieces from there, as a head cut. The piece being
-written stays, and a read of a dropped piece fails with [`MemError::Dropped`].
+A chain in one memory tape keeps its window with [`MemPieces::drop_front`]. The call frees the oldest pieces whole, in
+blocks of memory of up to 64 MiB. Offsets don't move: the tape now starts at its first kept piece
+([`ByteSource::start`]). A reader opened on it finds the pieces from there, as a head cut. The piece being written
+stays, and a read of a dropped piece fails with [`MemError::Dropped`].
 
 ### Pieces removed on purpose
 

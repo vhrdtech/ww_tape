@@ -1,16 +1,16 @@
-//! Piece files: [FileSink], [Files] and [FileSource].
+//! Piece files: [FileSink], [FilePieces] and [FileSource].
 
 use std::fs::File;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use ww_tape::reader::ByteSource;
-use ww_tape::sink::{BaseRefused, TapeSink, Tapes, check_base};
+use ww_tape::sink::{BaseRefused, PieceStore, TapeSink, check_base};
 
 use crate::chain::piece_name;
 use crate::lock::{self, FsWarning, Locked, Open};
 
-/// Why a [FileSink], [Files] or [FileSource] failed or refused.
+/// Why a [FileSink], [FilePieces] or [FileSource] failed or refused.
 ///
 /// Its text names the file, what was done and the kind of failure or refusal once: `x.wwt: locked by another writer`;
 /// the system's error of [FsError::Io] is its [source](core::error::Error::source).
@@ -109,7 +109,7 @@ impl FileSink {
         Self::new_file(path, false)
     }
 
-    /// A new file at `path` for pieces back to back ([Tapes::create_whole]), created exclusively as
+    /// A new file at `path` for pieces back to back ([PieceStore::create_whole]), created exclusively as
     /// [Self::create]; the file and its directory are synced.
     pub fn create_whole(path: &Path) -> Result<Self, FsError> {
         Self::new_file(path, true)
@@ -126,7 +126,7 @@ impl FileSink {
         Ok(sink)
     }
 
-    /// The file at `path`, appended to in place, closed or not ([Tapes::open_whole]); None when it isn't
+    /// The file at `path`, appended to in place, closed or not ([PieceStore::open_whole]); None when it isn't
     /// there.
     pub fn open_whole(path: &Path) -> Result<Option<Self>, FsError> {
         Ok(lock::open_existing(path)?.map(|file| Self::locked(file, path, true)))
@@ -341,10 +341,10 @@ fn read_file_at(mut file: &File, offset: u64, buf: &mut [u8]) -> io::Result<()> 
     r
 }
 
-/// Piece files: a [Tapes] store of [FileSink]s keyed by a piece's seq, each piece a file of a directory, or every
+/// Piece files: a [PieceStore] of [FileSink]s keyed by a piece's seq, each piece a file of a directory, or every
 /// key the one file that holds all pieces of a chain.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Files(Names);
+pub struct FilePieces(Names);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Names {
@@ -354,7 +354,7 @@ enum Names {
     File(PathBuf),
 }
 
-impl Files {
+impl FilePieces {
     /// The pieces in `dir` (which must exist), key `seq` the file `dir/`[piece_name] (`seq`).
     pub fn new(dir: &Path) -> Self {
         Self(Names::Dir(dir.to_path_buf()))
@@ -375,7 +375,7 @@ impl Files {
     }
 }
 
-impl Tapes for Files {
+impl PieceStore for FilePieces {
     type Key = u64;
     type Error = FsError;
     type Sink = FileSink;

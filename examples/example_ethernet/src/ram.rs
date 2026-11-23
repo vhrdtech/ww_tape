@@ -24,8 +24,9 @@ use shrink_wrap::prelude::*;
 use ww_tape::payloads::Payloads;
 use ww_tape::times::EventTimes;
 use ww_tape::{
-    BlockKind, ChainOptions, ClockNum, CutPolicy, Ends, EventsDef, Items, MemError, MemTape,
-    RelationDef, Segment, TapeReader, Tapes, TrackId, TrackKind, TrackRepeat, TrackSpec, track_key,
+    BlockKind, ChainOptions, ClockNum, CutPolicy, Ends, EventsDef, Items, MemError, MemPiece,
+    PieceStore, RelationDef, Segment, TapeReader, TrackId, TrackKind, TrackRepeat, TrackSpec,
+    track_key,
 };
 use ww_tape_mux::{Event, EventsHandle, EventsOptions, MuxError, TapeMux};
 
@@ -111,9 +112,9 @@ impl RamCapture {
         results: &TapeMux<R>,
     ) -> Result<RamRunning<K, R>, RamError<K::Error, R::Error>>
     where
-        K: Tapes + Send + 'static,
+        K: PieceStore + Send + 'static,
         K::Error: Send,
-        R: Tapes + Send + 'static,
+        R: PieceStore + Send + 'static,
         R::Sink: Send,
         R::Key: Send,
         R::Error: Send + Sync,
@@ -163,9 +164,9 @@ impl RamCapture {
         results: &TapeMux<R>,
     ) -> Result<RamRun, RamError<K::Error, R::Error>>
     where
-        K: Tapes + Send + 'static,
+        K: PieceStore + Send + 'static,
         K::Error: Send,
-        R: Tapes + Send + 'static,
+        R: PieceStore + Send + 'static,
         R::Sink: Send,
         R::Key: Send,
         R::Error: Send + Sync,
@@ -177,8 +178,8 @@ impl RamCapture {
 /// A capture of the link into memory, running ([RamCapture::start]).
 pub struct RamRunning<K, R>
 where
-    K: Tapes,
-    R: Tapes + Send + 'static,
+    K: PieceStore,
+    R: PieceStore + Send + 'static,
     R::Sink: Send,
     R::Key: Send,
     R::Error: Send + Sync,
@@ -188,8 +189,8 @@ where
 
 impl<K, R> RamRunning<K, R>
 where
-    K: Tapes,
-    R: Tapes + Send + 'static,
+    K: PieceStore,
+    R: PieceStore + Send + 'static,
     R::Sink: Send,
     R::Key: Send,
     R::Error: Send + Sync,
@@ -331,7 +332,7 @@ pub fn kept_track(chain: u32, clock: ClockNum) -> TrackSpec<'static> {
 /// A receive queue as the analyser reads and reports it.
 struct Queue<R>
 where
-    R: Tapes + Send + 'static,
+    R: PieceStore + Send + 'static,
     R::Sink: Send,
     R::Key: Send,
     R::Error: Send + Sync,
@@ -347,7 +348,7 @@ where
 /// that hold one and pushes its results.
 pub struct Resets<R>
 where
-    R: Tapes + Send + 'static,
+    R: PieceStore + Send + 'static,
     R::Sink: Send,
     R::Key: Send,
     R::Error: Send + Sync,
@@ -361,7 +362,7 @@ where
 
 impl<R> Resets<R>
 where
-    R: Tapes + Send + 'static,
+    R: PieceStore + Send + 'static,
     R::Sink: Send,
     R::Key: Send,
     R::Error: Send + Sync,
@@ -422,7 +423,7 @@ where
 /// The resets among the frames of queue `frames` (its id) in piece `seq` of chain `chain`: each frame decoded, its
 /// TCP flags tested.
 fn resets_of(
-    piece: &TapeReader<MemTape>,
+    piece: &TapeReader<MemPiece>,
     (chain, seq): (u32, u64),
     rx: Rx,
     frames: TrackId,
@@ -466,14 +467,14 @@ fn resets_of(
 
 impl<R> Analyser for Resets<R>
 where
-    R: Tapes + Send + 'static,
+    R: PieceStore + Send + 'static,
     R::Sink: Send,
     R::Key: Send,
     R::Error: Send + Sync,
 {
     type Error = LookError<EthError<MemError>, R::Error>;
 
-    fn look(&mut self, seq: u64, piece: &TapeReader<MemTape>) -> Result<bool, Self::Error> {
+    fn look(&mut self, seq: u64, piece: &TapeReader<MemPiece>) -> Result<bool, Self::Error> {
         let mut hit = false;
         for q in &mut self.queues {
             let found = self
@@ -501,7 +502,7 @@ where
         Ok(hit)
     }
 
-    fn kept(&mut self, seq: u64, piece: &TapeReader<MemTape>) -> Result<(), Self::Error> {
+    fn kept(&mut self, seq: u64, piece: &TapeReader<MemPiece>) -> Result<(), Self::Error> {
         self.kept
             .note(seq, piece)
             .map_err(|e| LookError::Piece(e.into()))

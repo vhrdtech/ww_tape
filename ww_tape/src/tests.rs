@@ -1389,7 +1389,7 @@ fn seq_order_and_duplicates() {
 /// The synced bytes stay where the last sync left them: 0 before it, every byte written at it.
 #[test]
 fn synced_bytes_follow_each_sync() {
-    let tapes = crate::MemTapes::<u64>::new();
+    let tapes = crate::MemPieces::<u64>::new();
     let (defs, file, ends) = defined_tape(2);
     let mut w = TapeWriter::create_on(tapes.create_whole(&0).unwrap(), SyncPolicy::None);
     w.write_block(&defs, &file[..ends[0]]).unwrap();
@@ -1408,7 +1408,7 @@ fn synced_bytes_follow_each_sync() {
 /// its own layout and producer, so the prefix walk reads both.
 #[test]
 fn writer_appends_a_second_session() {
-    let tapes = crate::MemTapes::<u64>::new();
+    let tapes = crate::MemPieces::<u64>::new();
     let (defs, file, ends) = defined_tape(3);
     let mut w = TapeWriter::create_on(tapes.create_whole(&0).unwrap(), SyncPolicy::EveryBlocks(2));
     let mut start = 0;
@@ -2046,7 +2046,7 @@ fn a_memory_sink_refusing_a_base_says_why() {
     assert_eq!(e, MemError::Base(BaseRefused::OnePiece));
     assert!(e.source().is_none(), "the text says why: {e}");
 
-    let tapes = MemTapes::<u64>::new();
+    let tapes = MemPieces::<u64>::new();
     let mut whole = tapes.create_whole(&0).unwrap();
     whole.write_all(b"abc").unwrap();
     whole.rebase(3).unwrap();

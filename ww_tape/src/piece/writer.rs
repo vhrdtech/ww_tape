@@ -1,5 +1,5 @@
 //! [PieceChain]: a recording written as a chain of pieces, cut at chunk boundaries, on files or any store of
-//! [Tapes]: each piece a tape of its own, or all of them back to back in one tape ([PieceTapes]).
+//! [PieceStore]: each piece a tape of its own, or all of them back to back in one tape ([PieceTapes]).
 
 use crate::TrackNum;
 use alloc::collections::{BTreeMap, BTreeSet};
@@ -11,7 +11,7 @@ use exact_units::{Bytes, Count};
 use super::{CloseReason, OwnerId, PieceHead, PieceId, PieceIdent, TAIL_LEN, TrackStart, UnitHash};
 use crate::index::{IndexEntry, IndexError, TrackIdent};
 use crate::reader::{ByteSource, TapeReader};
-use crate::sink::{TapeSink, Tapes, sink_err};
+use crate::sink::{PieceStore, TapeSink, sink_err};
 use crate::writer::kept::Kept;
 use crate::writer::resume::SinkSource;
 use crate::writer::{
@@ -64,13 +64,13 @@ pub struct ChunkPlaced {
     pub unit: UnitHash,
 }
 
-/// How a [PieceChain] keeps its pieces in its [Tapes].
+/// How a [PieceChain] keeps its pieces in its [PieceStore].
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
 pub enum PieceTapes {
-    /// Each piece a tape of its own, piece `seq` under [Tapes::key_of] (`seq`): a file per piece in a directory.
+    /// Each piece a tape of its own, piece `seq` under [PieceStore::key_of] (`seq`): a file per piece in a directory.
     #[default]
     Each,
-    /// All pieces back to back in one tape, under [Tapes::key_of] (0): one file. A cut starts the next piece right
+    /// All pieces back to back in one tape, under [PieceStore::key_of] (0): one file. A cut starts the next piece right
     /// behind the last ([TapeWriter::cut_in_place]); a resume goes on in the last piece when it is unclosed, else
     /// starts a new one behind it.
     One,
@@ -84,10 +84,10 @@ pub struct ChainPiece<K> {
     pub piece: Closed,
 }
 
-/// Writes one recording as pieces on the tapes of a store of [Tapes] (files by default), each piece a tape of its
+/// Writes one recording as pieces on the tapes of a [PieceStore] (files by default), each piece a tape of its
 /// own or all in one ([PieceTapes]), cutting by a [CutPolicy] before a chunk.
-pub struct PieceChain<T: Tapes> {
-    tapes: T,
+pub struct PieceChain<T: PieceStore> {
+    store: T,
     pieces: PieceTapes,
     /// None after a failed cut: the chain takes no more blocks
     writer: Option<TapeWriter<T::Sink>>,
@@ -108,24 +108,24 @@ pub struct ChainOptions {
     pub tapes: PieceTapes,
 }
 
-impl<T: Tapes> PieceChain<T> {
-    /// Start chain `chain` of `owner` in `tapes` with its first piece, id [PieceId::first_of] `(owner, chain)`;
+impl<T: PieceStore> PieceChain<T> {
+    /// Start chain `chain` of `owner` in `store` with its first piece, id [PieceId::first_of] `(owner, chain)`;
     /// `tracks` say where items of tracks carried over from elsewhere continue (empty for a new recording). Each
     /// chain of a owner takes its own number, so its pieces and session tag are its own. With [PieceTapes::One] the
-    /// tape that holds every piece is made with [Tapes::create_whole].
+    /// tape that holds every piece is made with [PieceStore::create_whole].
     pub fn create_on(
-        mut tapes: T,
+        mut store: T,
         owner: OwnerId,
         chain: u64,
         tracks: &[TrackStart],
         options: ChainOptions,
     ) -> Result<Self, WriteError<T::Error>> {
-        let first = tapes.key_of(0);
+        let first = store.key_of(0);
         let sink = match options.tapes {
-            PieceTapes::Each => tapes
+            PieceTapes::Each => store
                 .create(&first)
                 .map_err(sink_err("creating the first piece"))?,
-            PieceTapes::One => tapes
+            PieceTapes::One => store
                 .create_whole(&first)
                 .map_err(sink_err("creating the tape of the chain"))?,
         };
@@ -134,7 +134,7 @@ impl<T: Tapes> PieceChain<T> {
         reserve_piece(&mut writer, options.cut);
         writer.begin_piece(&first_head(owner, chain, options.writer.integrity), tracks)?;
         Ok(Self {
-            tapes,
+            store,
             pieces: options.tapes,
             writer: Some(writer),
             cut: options.cut,
@@ -144,7 +144,7 @@ impl<T: Tapes> PieceChain<T> {
         })
     }
 
-    /// Reopen chain `chain` of `owner` in `tapes` to write on, after a crash or after its close: the pieces closed by
+    /// Reopen chain `chain` of `owner` in `store` to write on, after a crash or after its close: the pieces closed by
     /// a cut are read from their tails ([Self::closed]), the last piece is resumed ([TapeWriter::resume_on]): an
     /// unclosed one goes on after its last good block, a closed one is written on after its last close record. After
     /// a crash between a cut's close and the next piece's start, the next piece is started as the cut would have.
@@ -156,20 +156,20 @@ impl<T: Tapes> PieceChain<T> {
     /// every write session in a piece of its own gives the calls a resume asks for again, then cuts
     /// ([Self::cut_now]).
     pub fn resume_on(
-        tapes: T,
+        store: T,
         owner: OwnerId,
         chain: u64,
         options: ChainOptions,
     ) -> Result<(Self, Resumed), WriteError<T::Error>> {
         match options.tapes {
-            PieceTapes::Each => Self::resume_each(tapes, owner, chain, options),
-            PieceTapes::One => Self::resume_one(tapes, owner, chain, options),
+            PieceTapes::Each => Self::resume_each(store, owner, chain, options),
+            PieceTapes::One => Self::resume_one(store, owner, chain, options),
         }
     }
 
     /// [Self::resume_on] of a chain whose pieces are tapes of their own.
     fn resume_each(
-        mut tapes: T,
+        mut store: T,
         owner: OwnerId,
         chain: u64,
         options: ChainOptions,
@@ -177,8 +177,8 @@ impl<T: Tapes> PieceChain<T> {
         let mut closed: Vec<Done<T::Key>> = Vec::new();
         let mut seq = 0u64;
         let (key, reopened) = loop {
-            let key = tapes.key_of(seq);
-            let named = tapes
+            let key = store.key_of(seq);
+            let named = store
                 .closed(&key)
                 .map_err(sink_err("opening a closed piece"))?;
             // a piece the chain goes on from: cut, closed by its last close record
@@ -189,7 +189,7 @@ impl<T: Tapes> PieceChain<T> {
             let (piece, last) = match cut {
                 Some(done) => done,
                 None => {
-                    let Some(sink) = tapes
+                    let Some(sink) = store
                         .reopen(&key)
                         .map_err(sink_err("reopening the last piece"))?
                     else {
@@ -198,7 +198,7 @@ impl<T: Tapes> PieceChain<T> {
                     match TapeWriter::resume_on(sink, options.writer.clone()) {
                         // cut whole before a crash took its mark: marked now, read as closed
                         Err(WriteError::Resume(ResumeError::Continued { .. })) => {
-                            let src = tapes
+                            let src = store
                                 .closed(&key)
                                 .map_err(sink_err("opening a closed piece"))?
                                 .ok_or(WriteError::Index(IndexError::Invalid(
@@ -214,7 +214,7 @@ impl<T: Tapes> PieceChain<T> {
             seq = seq.checked_add(1).ok_or_else(too_many)?;
         };
         let newest = newest_in(&closed, |done, e, buf| {
-            let src = tapes
+            let src = store
                 .closed(&done.tape)
                 .map_err(sink_err("opening a closed piece"))?
                 .ok_or(WriteError::Index(IndexError::Invalid(
@@ -244,7 +244,7 @@ impl<T: Tapes> PieceChain<T> {
                     return Err(WriteError::Resume(ResumeError::NoPiece));
                 };
                 let next = next_piece(&done.piece, last)?;
-                let sink = tapes
+                let sink = store
                     .create(&key)
                     .map_err(sink_err("creating the next piece"))?;
                 let mut w = TapeWriter::start_next(sink, &options.writer, next)?;
@@ -256,7 +256,7 @@ impl<T: Tapes> PieceChain<T> {
         writer.take_newest(&newest);
         Ok((
             Self {
-                tapes,
+                store,
                 pieces: options.tapes,
                 writer: Some(writer),
                 cut: options.cut,
@@ -270,13 +270,13 @@ impl<T: Tapes> PieceChain<T> {
 
     /// [Self::resume_on] of a chain whose pieces are all in one tape.
     fn resume_one(
-        mut tapes: T,
+        mut store: T,
         owner: OwnerId,
         chain: u64,
         options: ChainOptions,
     ) -> Result<(Self, Resumed), WriteError<T::Error>> {
-        let key = tapes.key_of(0);
-        let Some(mut sink) = tapes
+        let key = store.key_of(0);
+        let Some(mut sink) = store
             .open_whole(&key)
             .map_err(sink_err("opening the tape of the chain"))?
         else {
@@ -340,7 +340,7 @@ impl<T: Tapes> PieceChain<T> {
         writer.take_newest(&newest);
         Ok((
             Self {
-                tapes,
+                store,
                 pieces: options.tapes,
                 writer: Some(writer),
                 cut: options.cut,
@@ -372,16 +372,16 @@ impl<T: Tapes> PieceChain<T> {
         self.seq
     }
 
-    /// The store of the pieces' tapes, for reading them ([crate::MemTapes::get]).
-    pub fn tapes(&self) -> &T {
-        &self.tapes
+    /// The store of the pieces' tapes, for reading them ([crate::MemPieces::get]).
+    pub fn store(&self) -> &T {
+        &self.store
     }
 
     /// The key of the tape piece `seq` is in.
     fn tape_of(&self, seq: u64) -> T::Key {
         match self.pieces {
-            PieceTapes::Each => self.tapes.key_of(seq),
-            PieceTapes::One => self.tapes.key_of(0),
+            PieceTapes::Each => self.store.key_of(seq),
+            PieceTapes::One => self.store.key_of(0),
         }
     }
 
@@ -585,8 +585,8 @@ impl<T: Tapes> PieceChain<T> {
         let tape = self.tape_of(self.seq);
         let cut = match self.pieces {
             PieceTapes::Each => {
-                let key = self.tapes.key_of(seq);
-                current.cut_with(defs, &mut self.tapes, &key)
+                let key = self.store.key_of(seq);
+                current.cut_with(defs, &mut self.store, &key)
             }
             PieceTapes::One => current.cut_in_place(defs),
         };

@@ -5,7 +5,7 @@ use std::path::Path;
 use ww_tape::writer::{Resumed, WriteError};
 use ww_tape::{ChainOptions, OwnerId, PieceChain, PieceTapes, TrackStart};
 
-use crate::sink::{Files, FsError, none_at};
+use crate::sink::{FilePieces, FsError, none_at};
 
 /// Name of piece `seq` in its chain's directory: the sequence number in 8 digits, so names sort in chain order.
 pub fn piece_name(seq: u64) -> String {
@@ -20,7 +20,7 @@ pub fn create(
     chain: u64,
     tracks: &[TrackStart],
     options: ChainOptions,
-) -> Result<PieceChain<Files>, WriteError<FsError>> {
+) -> Result<PieceChain<FilePieces>, WriteError<FsError>> {
     PieceChain::create_on(files_at(dir, &options), owner, chain, tracks, options)
 }
 
@@ -34,7 +34,7 @@ pub fn resume(
     owner: OwnerId,
     chain: u64,
     options: ChainOptions,
-) -> Result<(PieceChain<Files>, Resumed), WriteError<FsError>> {
+) -> Result<(PieceChain<FilePieces>, Resumed), WriteError<FsError>> {
     let files = files_at(dir, &options);
     if none_at(&files.path_of(0)) {
         return Err(WriteError::Sink {
@@ -46,9 +46,9 @@ pub fn resume(
 }
 
 /// The piece files of a chain at `path`: a directory, or with [PieceTapes::One] the file.
-fn files_at(path: &Path, options: &ChainOptions) -> Files {
+fn files_at(path: &Path, options: &ChainOptions) -> FilePieces {
     match options.tapes {
-        PieceTapes::Each => Files::new(path),
-        PieceTapes::One => Files::file(path),
+        PieceTapes::Each => FilePieces::new(path),
+        PieceTapes::One => FilePieces::file(path),
     }
 }

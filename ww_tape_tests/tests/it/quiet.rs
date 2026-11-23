@@ -6,7 +6,7 @@ use ww_tape::TrackId;
 use ww_tape::index::IndexPolicy;
 use ww_tape::{ClockNum, TrackNum};
 use ww_tape::{
-    CutPolicy, Definitions, InputError, MemSink, MemTapes, OwnerId, PieceChain, SessionTag, Slot,
+    CutPolicy, Definitions, InputError, MemPieces, MemSink, OwnerId, PieceChain, SessionTag, Slot,
     SyncPolicy, TapeReader, TapeSink, TapeWriter, WriteError,
 };
 
@@ -16,7 +16,7 @@ use crate::pieces::{chunk, column};
 /// A chain of three pieces in memory: tracks 1 and 2 give data in the first, then only track 2. The bytes of each
 /// piece, oldest first.
 fn quiet_chain(defs: &Definitions) -> Vec<Vec<u8>> {
-    let mem = MemTapes::new();
+    let mem = MemPieces::new();
     let mut chain = PieceChain::create_on(
         mem.clone(),
         OwnerId([0x51; 32]),
@@ -238,7 +238,7 @@ fn golden(bytes: &[u8], name: &str) {
 fn a_chain_with_its_policy_lowered_cuts_and_writes_on() {
     let defs = base_defs();
     let mut chain = PieceChain::create_on(
-        MemTapes::new(),
+        MemPieces::new(),
         OwnerId([0x53; 32]),
         0,
         &[],
@@ -323,7 +323,7 @@ fn a_call_whose_definitions_fit_no_piece_is_refused_without_a_cut() {
     let defs = base_defs();
     for (max, admitted) in [(3, false), (4, true)] {
         let mut chain = PieceChain::create_on(
-            MemTapes::new(),
+            MemPieces::new(),
             OwnerId([0x55; 32]),
             0,
             &[],
@@ -365,7 +365,7 @@ fn a_refused_new_track_in_a_full_piece_cuts_no_piece() {
     all.extend((1..=2).map(|n| crate::definitions::track(n, CLOCK)));
     all.push(crate::definitions::track(3, 9));
     let defs = crate::definitions::held(&all);
-    let mem = MemTapes::new();
+    let mem = MemPieces::new();
     let mut chain = PieceChain::create_on(
         mem.clone(),
         OwnerId([0x56; 32]),
@@ -411,7 +411,7 @@ fn a_refused_chunk_cuts_no_piece_when_a_cut_is_due() {
     all.extend((1..=2).map(|n| crate::definitions::track(n, CLOCK)));
     all.push(crate::definitions::track(3, 9));
     let defs = crate::definitions::held(&all);
-    let mem = MemTapes::new();
+    let mem = MemPieces::new();
     let mut chain = PieceChain::create_on(
         mem.clone(),
         OwnerId([0x57; 32]),
@@ -565,7 +565,7 @@ fn chain_options(max: u64, chunks: u64) -> ww_tape::ChainOptions {
 }
 
 /// Write chunk 0 of tracks 0 to 199 into `chain`, which cuts by itself as pieces fill: 200 tracks counted in.
-fn admit(chain: &mut PieceChain<MemTapes>, defs: &Definitions) -> u64 {
+fn admit(chain: &mut PieceChain<MemPieces>, defs: &Definitions) -> u64 {
     for t in 0..200 {
         let (h, c) = chunk(t, 0);
         chain.write_chunk(defs, &h, &column(&c)).unwrap();
@@ -584,7 +584,7 @@ fn a_map_defined_after_the_tracks_keeps_the_chain_writing() {
     all.extend((1..=200).map(|n| crate::definitions::track(n, CLOCK)));
     for chunks in [0, 4] {
         let mut defs = crate::definitions::held(&all);
-        let mem = MemTapes::new();
+        let mem = MemPieces::new();
         let mut chain = PieceChain::create_on(
             mem.clone(),
             OwnerId([0x71; 32]),
@@ -642,7 +642,7 @@ fn maps_added_to_tracks_on_their_own_clocks_keep_the_chain_writing() {
     all.push(crate::definitions::track(1, CLOCK));
     let mut defs = crate::definitions::held(&all);
     let mut chain = PieceChain::create_on(
-        MemTapes::new(),
+        MemPieces::new(),
         OwnerId([0x73; 32]),
         0,
         &rows,
@@ -671,7 +671,7 @@ fn definitions_grown_after_admission_keep_the_chain_writing() {
     let mut all = vec![crate::definitions::clock(CLOCK)];
     all.extend((1..=200).map(|n| crate::definitions::track(n, CLOCK)));
     let mut defs = crate::definitions::held(&all);
-    let mem = MemTapes::new();
+    let mem = MemPieces::new();
     let mut chain = PieceChain::create_on(
         mem.clone(),
         OwnerId([0x75; 32]),
@@ -711,7 +711,7 @@ fn a_cut_short_of_room_leaves_out_the_oldest_and_a_reader_names_them() {
         all.push(crate::definitions::track(k, 1000 + k));
     }
     let mut defs = crate::definitions::held(&all);
-    let mem = MemTapes::new();
+    let mem = MemPieces::new();
     let mut chain = PieceChain::create_on(
         mem.clone(),
         OwnerId([0x76; 32]),
@@ -809,7 +809,7 @@ fn a_marked_row_whose_definition_the_piece_holds_is_not_named() {
 }
 
 /// Whether every piece of `pieces` (tapes in `mem`) holds data: a chunk or a record of some track.
-fn all_hold_data(mem: &MemTapes, pieces: &[ww_tape::ChainPiece<u64>]) -> bool {
+fn all_hold_data(mem: &MemPieces, pieces: &[ww_tape::ChainPiece<u64>]) -> bool {
     pieces.iter().all(|p| {
         let bytes = mem.get(&p.tape).unwrap().unwrap().to_vec().unwrap();
         let r = TapeReader::open(&bytes[..]).unwrap();
@@ -823,7 +823,7 @@ fn all_hold_data(mem: &MemTapes, pieces: &[ww_tape::ChainPiece<u64>]) -> bool {
 
 /// The chain of [a_cut_short_of_room_leaves_out_the_oldest_and_a_reader_names_them] cut after the maps came: the
 /// chain, its tapes and the numbers of the tracks the cut left out.
-fn left_out_chain(policy: u64) -> (PieceChain<MemTapes>, MemTapes, Definitions, Vec<u32>) {
+fn left_out_chain(policy: u64) -> (PieceChain<MemPieces>, MemPieces, Definitions, Vec<u32>) {
     let n = 300u32;
     let host = 9_000;
     let mut all = vec![crate::definitions::clock(host)];
@@ -832,7 +832,7 @@ fn left_out_chain(policy: u64) -> (PieceChain<MemTapes>, MemTapes, Definitions, 
         all.push(crate::definitions::track(k, 1000 + k));
     }
     let mut defs = crate::definitions::held(&all);
-    let mem = MemTapes::new();
+    let mem = MemPieces::new();
     let mut chain = PieceChain::create_on(
         mem.clone(),
         OwnerId([0x77; 32]),
@@ -892,7 +892,7 @@ fn data_on_a_track_left_out_by_a_lowered_policy_writes_on() {
     let mut all = vec![crate::definitions::clock(CLOCK)];
     all.extend((1..=120).map(|n| crate::definitions::track(n, CLOCK)));
     let defs = crate::definitions::held(&all);
-    let mem = MemTapes::new();
+    let mem = MemPieces::new();
     let mut chain = PieceChain::create_on(
         mem.clone(),
         OwnerId([0x78; 32]),
@@ -1033,7 +1033,7 @@ fn random_schedules_refuse_no_counted_in_track_and_leave_no_piece_empty() {
             all.push(crate::definitions::track(k, clock));
         }
         let mut defs = crate::definitions::held(&all);
-        let mem = MemTapes::new();
+        let mem = MemPieces::new();
         let policy = 12 + rng.below(60);
         let chunks = if rng.below(2) == 0 {
             0
@@ -1055,7 +1055,7 @@ fn random_schedules_refuse_no_counted_in_track_and_leave_no_piece_empty() {
         let mut maps_left = own_clock.clone();
         let mut policy = policy;
         let mut last = 1u32;
-        let mut write = |chain: &mut PieceChain<MemTapes>,
+        let mut write = |chain: &mut PieceChain<MemPieces>,
                          defs: &Definitions,
                          k: u32,
                          data_in: &mut Vec<std::collections::BTreeSet<TrackId>>,
@@ -1158,7 +1158,7 @@ fn defs_with_state() -> Definitions {
 /// A chain of two pieces in memory: track 10's state put once, then a chunk of track 1 in each piece. The bytes of
 /// each piece, oldest first.
 fn state_chain(defs: &Definitions) -> Vec<Vec<u8>> {
-    let mem = MemTapes::new();
+    let mem = MemPieces::new();
     let mut chain = PieceChain::create_on(
         mem.clone(),
         OwnerId([0x53; 32]),

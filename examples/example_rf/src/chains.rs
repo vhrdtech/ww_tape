@@ -34,7 +34,7 @@ use ww_tape::{
 use ww_tape_fs::follow::{
     ChainFollower, FollowError, FollowOptions, TimeMerge, TrackItem, TrackItems,
 };
-use ww_tape_fs::{Files, FsError};
+use ww_tape_fs::{FilePieces, FsError};
 use ww_tape_mux::{EventsHandle, EventsOptions, MuxError, MuxOptions, SeriesOptions, TapeMux};
 
 use example_capture::rf::{API_ROOT, Rf, RfError, clock, iq_key};
@@ -222,8 +222,8 @@ fn chain_options(chunks: u64) -> ChainOptions {
 
 /// The chains of a capture, started ([Chains::open]): a mux each, and the numbers of their tracks.
 pub struct Open {
-    pub iq_mux: TapeMux<Files>,
-    pub decoded_mux: TapeMux<Files>,
+    pub iq_mux: TapeMux<FilePieces>,
+    pub decoded_mux: TapeMux<FilePieces>,
     pub iq: TrackNum,
     pub bursts: TrackNum,
     pub power: TrackNum,
@@ -424,8 +424,8 @@ impl Chains {
 /// Push find `d` into its track; a power closes a second, so the second's finds are completed and sent: the reader
 /// gets them in time order, a second at a time.
 fn put(
-    bursts: &mut EventsHandle<Files>,
-    power: &mut EventsHandle<Files>,
+    bursts: &mut EventsHandle<FilePieces>,
+    power: &mut EventsHandle<FilePieces>,
     d: Decoded,
 ) -> Result<(), ChainsError> {
     match d {

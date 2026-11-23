@@ -30,9 +30,9 @@ reports its size and completes the piece at the close. To resume a piece, it als
 Two sinks come with the crates. A [`MemSink`] keeps the bytes in memory, where a [`TapeReader`] reads them while they
 are written. A [`FileSink`], in the crate `ww_tape_fs`, writes a file.
 
-A [[chain]] needs one sink per piece, so it takes a [[store]] instead: any type that implements [`Tapes`]. A store makes
-the sink of each piece under a key. [`MemTapes`] keeps every piece in memory, and [`Files`] keeps them in a directory or
-in one file. A [[raw medium]] or a network store needs a sink and a store of its own.
+A [[chain]] needs one sink per piece, so it takes a [[store]] instead: any type that implements [`PieceStore`]. A store
+makes the sink of each piece under a key. [`MemPieces`] keeps every piece in memory, and [`FilePieces`] keeps them in a
+directory or in one file. A [[raw medium]] or a network store needs a sink and a store of its own.
 
 ### Errors of sinks and stores
 

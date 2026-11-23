@@ -402,7 +402,7 @@ fn write_chain(dir: &Path, n: u64) -> Vec<PathBuf> {
         .close()
         .unwrap()
         .into_iter()
-        .map(|f| ww_tape_fs::Files::new(dir).path_of(f.tape))
+        .map(|f| ww_tape_fs::FilePieces::new(dir).path_of(f.tape))
         .collect()
 }
 
@@ -448,7 +448,7 @@ fn a_chain_cuts_when_its_piece_is_full_of_state_entries() {
         .close()
         .unwrap()
         .into_iter()
-        .map(|f| ww_tape_fs::Files::new(&dir).path_of(f.tape))
+        .map(|f| ww_tape_fs::FilePieces::new(&dir).path_of(f.tape))
         .collect();
     assert_eq!(pieces.len(), 2);
     let bytes = std::fs::read(&pieces[1]).unwrap();
@@ -796,7 +796,7 @@ fn index_golden() {
         .close()
         .unwrap()
         .into_iter()
-        .map(|f| ww_tape_fs::Files::new(&dir).path_of(f.tape))
+        .map(|f| ww_tape_fs::FilePieces::new(&dir).path_of(f.tape))
         .collect();
     let mut hex = String::new();
     for p in &paths {
@@ -873,7 +873,7 @@ fn incomplete_golden() {
         .close()
         .unwrap()
         .into_iter()
-        .map(|f| ww_tape_fs::Files::new(&dir).path_of(f.tape))
+        .map(|f| ww_tape_fs::FilePieces::new(&dir).path_of(f.tape))
         .collect();
     assert_eq!(paths.len(), 2);
     let Describe::Track(t9) = crate::definitions::track(9, crate::definitions::CLOCK) else {
@@ -1265,7 +1265,7 @@ fn every_block_of_data_has_its_definitions_behind_it() {
 }
 
 /// A chain of pieces in memory; the keys of its tapes.
-pub(crate) fn chain_in_memory(mem: &ww_tape::MemTapes) -> Vec<u64> {
+pub(crate) fn chain_in_memory(mem: &ww_tape::MemPieces) -> Vec<u64> {
     let mut chain = PieceChain::create_on(
         mem.clone(),
         OwnerId([0x44; 32]),
@@ -1306,7 +1306,7 @@ pub(crate) fn chain_in_memory(mem: &ww_tape::MemTapes) -> Vec<u64> {
 /// remaining piece gives its definitions and its newest state from its own head.
 #[test]
 fn a_chain_in_memory_without_its_first_pieces_is_head_cut() {
-    let mem = ww_tape::MemTapes::new();
+    let mem = ww_tape::MemPieces::new();
     let paths = chain_in_memory(&mem);
     assert!(paths.len() >= 4, "{} pieces", paths.len());
     let bytes: Vec<Vec<u8>> = paths
@@ -1378,7 +1378,7 @@ fn a_chain_in_memory_without_its_first_pieces_is_head_cut() {
 /// removed piece reads it on.
 #[test]
 fn mem_tapes_remove_a_closed_piece_only() {
-    let mem = ww_tape::MemTapes::new();
+    let mem = ww_tape::MemPieces::new();
     let mut chain = PieceChain::create_on(
         mem.clone(),
         OwnerId([0x45; 32]),
@@ -1400,19 +1400,19 @@ fn mem_tapes_remove_a_closed_piece_only() {
     assert!(mem.keys().unwrap().is_empty());
     assert!(TapeReader::open(&reader.to_vec().unwrap()[..]).is_ok());
     // the name is free again
-    assert!(ww_tape::Tapes::create(&mut mem.clone(), &open).is_ok());
+    assert!(ww_tape::PieceStore::create(&mut mem.clone(), &open).is_ok());
 }
 
 /// A refusal of a memory store names the tape by its key, as a value of the key's type.
 #[test]
 fn a_memory_store_refusal_names_its_key() {
-    let mem: ww_tape::MemTapes = ww_tape::MemTapes::new();
+    let mem: ww_tape::MemPieces = ww_tape::MemPieces::new();
     let _sink = mem.create(&7).unwrap();
     let exists = mem.create(&7).unwrap_err();
     assert_eq!(exists, ww_tape::MemError::Exists(7));
     assert_eq!(exists.to_string(), "the memory tape 7 exists");
     assert_eq!(mem.reopen(&7).err(), Some(ww_tape::MemError::Locked(7)));
-    let named: ww_tape::MemTapes<(u8, &str)> = ww_tape::MemTapes::new();
+    let named: ww_tape::MemPieces<(u8, &str)> = ww_tape::MemPieces::new();
     let _sink = named.create(&(1, "run")).unwrap();
     assert_eq!(
         named.remove(&(1, "run")),

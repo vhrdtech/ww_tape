@@ -272,9 +272,9 @@ pub use open::{Definitions, DescribeError, Numbers, RecordRef, STATE_ITEM_MAX, T
 #[cfg(feature = "alloc")]
 pub mod sink;
 #[cfg(feature = "std")]
-pub use sink::{MemError, MemSink, MemTape, MemTapes};
+pub use sink::{MemError, MemPiece, MemPieces, MemSink};
 #[cfg(feature = "alloc")]
-pub use sink::{TapeSink, Tapes};
+pub use sink::{PieceStore, TapeSink};
 #[cfg(feature = "alloc")]
 mod clock;
 #[cfg(feature = "std")]

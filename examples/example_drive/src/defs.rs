@@ -8,8 +8,8 @@ use shrink_wrap::prelude::*;
 use ww_tape::summary::{SeriesStats, SeriesSummarySpec};
 use ww_tape::{
     ClockMap, ClockOrigin, ClockSpec, Definitions, Describe, EventsDef, FullVersion, Items,
-    Magnitude, MapSegment, MemError, Ratio64, SampleShape, Segment, SeriesDef, SeriesValue,
-    StatePolicy, Tapes, TrackKey, TrackKind, TrackRepeat, TrackSpec, UNIX_CLOCK_KEY, Version,
+    Magnitude, MapSegment, MemError, PieceStore, Ratio64, SampleShape, Segment, SeriesDef,
+    SeriesValue, StatePolicy, TrackKey, TrackKind, TrackRepeat, TrackSpec, UNIX_CLOCK_KEY, Version,
     clock_key, track_key,
 };
 use ww_tape_mux::TapeMux;
@@ -218,7 +218,7 @@ pub(crate) fn define_on_mux<T>(
     near: u32,
 ) -> Result<DriveNumbers, Error>
 where
-    T: Tapes<Error = MemError> + Send + 'static,
+    T: PieceStore<Error = MemError> + Send + 'static,
     T::Sink: Send,
     T::Key: Send,
 {

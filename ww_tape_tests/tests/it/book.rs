@@ -565,7 +565,7 @@ fn crate_docs_caps_are_the_constants() {
 /// row lengths at the page's offsets, the hash a fold of the track's records.
 #[test]
 fn format_page_piece_rows_read_a_chain() {
-    use ww_tape::{ChainOptions, MemTapes, OwnerId, PieceChain, TrackHash};
+    use ww_tape::{ChainOptions, MemPieces, OwnerId, PieceChain, TrackHash};
     let pieces = layout("32 [16] piece id");
     let at = |name: &str| {
         pieces
@@ -574,7 +574,7 @@ fn format_page_piece_rows_read_a_chain() {
             .map(|(o, _, _)| *o)
             .collect::<Vec<_>>()
     };
-    let tapes = MemTapes::new();
+    let tapes = MemPieces::new();
     let mut chain = PieceChain::create_on(
         tapes.clone(),
         OwnerId([7; 32]),
@@ -654,7 +654,7 @@ fn format_page_integrity_fields_are_the_constants() {
 /// integrity byte on the page, read from a chain of two pieces of a track with a range relation and an owner.
 #[test]
 fn format_page_relations_and_owner_read_a_chain() {
-    use ww_tape::{ChainOptions, Describe, MemTapes, OwnerId, PieceChain, TrackDef};
+    use ww_tape::{ChainOptions, Describe, MemPieces, OwnerId, PieceChain, TrackDef};
     let page = std::fs::read_to_string("../docs/format.md").unwrap();
     for line in [
         "15 u8 flags: bit 0 repeat, bit 1 range",
@@ -673,7 +673,7 @@ fn format_page_relations_and_owner_read_a_chain() {
     let def = Describe::Track(TrackDef { owner, ..t });
     let defs =
         crate::definitions::held(&[crate::definitions::clock(crate::definitions::CLOCK), def]);
-    let tapes = MemTapes::new();
+    let tapes = MemPieces::new();
     let mut chain = PieceChain::create_on(
         tapes.clone(),
         OwnerId([7; 32]),

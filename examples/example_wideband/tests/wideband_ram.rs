@@ -22,7 +22,7 @@ use ww_tape::payloads::Payloads;
 use ww_tape::samples::Samples;
 use ww_tape::times::EventTimes;
 use ww_tape::{
-    BlockKind, ChainOptions, ClockNum, ColumnKind, MemTapes, OwnerId, TapeReader, TrackNum,
+    BlockKind, ChainOptions, ClockNum, ColumnKind, MemPieces, OwnerId, TapeReader, TrackNum,
 };
 use ww_tape_mux::{MuxOptions, TapeMux};
 
@@ -32,9 +32,9 @@ fn capture() -> RfCapture {
 }
 
 /// Run `c` live: what it did, the kept store and the results' pieces.
-fn run(c: &RfCapture) -> (RfRun, MemTapes, Vec<Vec<u8>>) {
-    let kept = MemTapes::new();
-    let results_tapes = MemTapes::new();
+fn run(c: &RfCapture) -> (RfRun, MemPieces, Vec<Vec<u8>>) {
+    let kept = MemPieces::new();
+    let results_tapes = MemPieces::new();
     let results = TapeMux::create(
         results_tapes.clone(),
         OwnerId([0x5e; 32]),

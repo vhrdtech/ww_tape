@@ -3,7 +3,7 @@
 The files of [ww_tape](../ww_tape):
 
 - `FileSink`, a sink that writes a tape into a file under its final name, new or appended in place;
-- `Files`, a store that keeps each piece of a chain in a file of a directory, or every piece in one file;
+- `FilePieces`, a store that keeps each piece of a chain in a file of a directory, or every piece in one file;
 - `FileSource`, which reads a closed piece back.
 
 A file sink holds the kernel's exclusive lock on its open file, so a second writer of the same file is refused. A

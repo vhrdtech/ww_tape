@@ -5,7 +5,7 @@
 use ww_tape::index::IndexEntry;
 use ww_tape::sink::TapeSink;
 use ww_tape::{
-    BlockKind, Checked, Integrity, ItemNum, MemTapes, OwnerId, PieceTapes, Sealed, TapeReader,
+    BlockKind, Checked, Integrity, ItemNum, MemPieces, OwnerId, PieceTapes, Sealed, TapeReader,
     TrackHash, piece::ChainLink,
 };
 
@@ -137,8 +137,8 @@ fn a_chain_of_each_level_is_full_without_its_hashes() {
 }
 
 /// A store holding `tapes`, each closed: under keys 0, 1, ..., a tape of several pieces for [PieceTapes::One].
-fn store(tapes: &[Vec<u8>], whole: bool) -> MemTapes {
-    let mem = MemTapes::new();
+fn store(tapes: &[Vec<u8>], whole: bool) -> MemPieces {
+    let mem = MemPieces::new();
     for (k, bytes) in (0u64..).zip(tapes) {
         let mut sink = match whole {
             true => mem.create_whole(&k),
@@ -217,7 +217,7 @@ fn a_piece_written_on_after_its_close_seals_to_full() {
 fn a_seal_refuses_what_it_cannot_raise_and_leaves_readers_alone() {
     use ww_tape::{SealError, WriteError};
     let bytes = crate::resume::written_on(0, Integrity::CrcOnly);
-    let mem = MemTapes::new();
+    let mem = MemPieces::new();
     let mut open = mem.create(&0).unwrap();
     open.write_all(&bytes).unwrap();
     assert!(matches!(

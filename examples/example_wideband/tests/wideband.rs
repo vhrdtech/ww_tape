@@ -16,12 +16,12 @@ use example_capture::about;
 use example_capture::pieces;
 use example_capture::rf::{BURSTS_MS, Signal};
 use example_wideband::{Source, Wideband, overview, read_channel};
-use ww_tape::{MemTapes, OwnerId};
+use ww_tape::{MemPieces, OwnerId};
 use ww_tape_mux::{MuxOptions, TapeMux};
 
 /// Record `wb` live through `muxes` muxes in memory: each chain's pieces.
 fn record(wb: Wideband, muxes: usize) -> Vec<Vec<Vec<u8>>> {
-    let tapes: Vec<MemTapes> = (0..muxes).map(|_| MemTapes::new()).collect();
+    let tapes: Vec<MemPieces> = (0..muxes).map(|_| MemPieces::new()).collect();
     let m: Vec<_> = tapes
         .iter()
         .enumerate()

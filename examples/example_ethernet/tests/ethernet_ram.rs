@@ -19,7 +19,7 @@ use example_ethernet::{Link, Rx, Traffic, decode_frame, frames_id};
 use ww_tape::payloads::Payloads;
 use ww_tape::times::{EventTimes, RelationColumn, StoredRelations};
 use ww_tape::{
-    BlockKind, ByteSource, ChainOptions, ClockNum, MemTapes, OwnerId, TapeReader, TrackDef,
+    BlockKind, ByteSource, ChainOptions, ClockNum, MemPieces, OwnerId, TapeReader, TrackDef,
     TrackNum,
 };
 use ww_tape_mux::{MuxOptions, TapeMux};
@@ -94,7 +94,7 @@ fn frames_of(piece: &[u8], link: Link) -> BTreeMap<(u32, u32, u64), (i64, Vec<u8
 
 /// Each kept piece reads alone, its frames those the link sent with those numbers and of its chain's ports, and each
 /// reset's frame lies in the piece the analyser found it in.
-fn kept_pieces_hold_their_frames(c: &RamCapture, run: &RamRun, kept: &[MemTapes]) {
+fn kept_pieces_hold_their_frames(c: &RamCapture, run: &RamRun, kept: &[MemPieces]) {
     let truth = traffic(c.link);
     let mut kept_frames = BTreeMap::new();
     for (chain, (t, kept)) in (0..).zip(run.triaged.iter().zip(kept)) {
@@ -139,8 +139,8 @@ fn a_chain_per_port_keeps_the_pieces_around_each_reset() {
 
 fn keeps_the_pieces_around_each_reset(chains: u32) {
     let c = capture(chains);
-    let kept: Vec<MemTapes> = (0..chains).map(|_| MemTapes::new()).collect();
-    let results_tapes = MemTapes::new();
+    let kept: Vec<MemPieces> = (0..chains).map(|_| MemPieces::new()).collect();
+    let results_tapes = MemPieces::new();
     let results = TapeMux::create(
         results_tapes.clone(),
         OwnerId([0xe8; 32]),
@@ -284,9 +284,9 @@ fn a_quiet_link_keeps_nothing() {
         link: capture(2).link.resets(0),
         ..capture(2)
     };
-    let kept = [MemTapes::new(), MemTapes::new()];
+    let kept = [MemPieces::new(), MemPieces::new()];
     let results = TapeMux::create(
-        MemTapes::new(),
+        MemPieces::new(),
         OwnerId([0xe8; 32]),
         0,
         &[],
@@ -308,9 +308,9 @@ fn a_quiet_link_keeps_nothing() {
 #[test]
 fn a_kept_piece_ends_on_its_tail() {
     let c = capture(1);
-    let kept = [MemTapes::new()];
+    let kept = [MemPieces::new()];
     let results = TapeMux::create(
-        MemTapes::new(),
+        MemPieces::new(),
         OwnerId([0xe8; 32]),
         0,
         &[],
@@ -337,7 +337,7 @@ fn a_kept_piece_ends_on_its_tail() {
 #[test]
 fn a_kept_store_per_chain() {
     let results = TapeMux::create(
-        MemTapes::new(),
+        MemPieces::new(),
         OwnerId([0xe8; 32]),
         0,
         &[],
@@ -346,7 +346,7 @@ fn a_kept_store_per_chain() {
     )
     .expect("the results' mux");
     for (chains, stores) in [(2, 1), (1, 2), (0, 0), (3, 3)] {
-        let kept: Vec<MemTapes> = (0..stores).map(|_| MemTapes::new()).collect();
+        let kept: Vec<MemPieces> = (0..stores).map(|_| MemPieces::new()).collect();
         let r = capture(chains).run(kept, &results);
         assert!(
             matches!(r, Err(RamError::Chains)),
@@ -360,8 +360,8 @@ fn a_kept_store_per_chain() {
 /// threads. Each kept piece holds the frames the link sent, and each reset's frame lies in its piece. Where the pieces
 /// are cut depends on the capture's timing, so their numbers are left out.
 fn outcome(c: &RamCapture) -> (Vec<Reset>, Vec<Reset>) {
-    let kept: Vec<MemTapes> = (0..c.chains).map(|_| MemTapes::new()).collect();
-    let results_tapes = MemTapes::new();
+    let kept: Vec<MemPieces> = (0..c.chains).map(|_| MemPieces::new()).collect();
+    let results_tapes = MemPieces::new();
     let results = TapeMux::create(
         results_tapes.clone(),
         OwnerId([0xe8; 32]),

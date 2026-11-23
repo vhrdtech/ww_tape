@@ -196,7 +196,7 @@ fn piece_chain_write_chunk_says_which_piece_it_landed_in() {
 fn a_chunk_placed_states_the_unit_of_its_index_entry() {
     for tapes in [ww_tape::PieceTapes::One, ww_tape::PieceTapes::Each] {
         let mut chain = ww_tape::PieceChain::create_on(
-            ww_tape::MemTapes::new(),
+            ww_tape::MemPieces::new(),
             OwnerId([0x46; 32]),
             0,
             &[],
@@ -226,7 +226,7 @@ fn a_chunk_placed_states_the_unit_of_its_index_entry() {
             }
         }
         assert_eq!(placed.last().unwrap().seq, 3, "{tapes:?}: three cuts");
-        let mem = chain.tapes().clone();
+        let mem = chain.store().clone();
         chain.close().unwrap();
 
         for p in &placed {

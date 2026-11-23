@@ -61,7 +61,7 @@ function, which the overview below uses too:
 
 The receiver records into the memory window, as the protocol analyser does in [Keeping what matters of a 10 Gbps
 link](protocol_analyser.md#a-window-in-memory). The window is a [[chain]] of pieces kept in memory, the tape of the
-capture held in RAM. A [[mux]] writes the chain into a [`MemTapes`], a piece every 64 MiB. Each piece holds the same
+capture held in RAM. A [[mux]] writes the chain into a [`MemPieces`], a piece every 64 MiB. Each piece holds the same
 tracks, blocks and summaries a piece in a file holds. A triage thread opens each piece as it closes and asks the
 analyser whether it holds a burst.
 

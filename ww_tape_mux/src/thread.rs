@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use ww_tape::chunk::ChunkHead;
 use ww_tape::index::IndexEntry;
 use ww_tape::{
-    ChainPiece, CloseReason, ColumnSpec, Definitions, PieceChain, Slot as DefSlot, Tapes,
+    ChainPiece, CloseReason, ColumnSpec, Definitions, PieceChain, PieceStore, Slot as DefSlot,
     WriteError,
 };
 
@@ -18,16 +18,16 @@ use crate::shared::{BlockHow, ClosedTx, Counters, RelayMode, Shared, Slot, Work}
 use crate::summaries::{Added, ChunkSummary, Trees};
 
 /// How the thread ended.
-enum Exit<T: Tapes> {
+enum Exit<T: PieceStore> {
     Close(CloseReason, ClosedTx<T>),
     /// Dropped, or the queue ended after a failure: the piece stays unclosed.
     Stop,
 }
 
 /// Closes the queue when the thread ends, by return or by panic, so no sender waits for it.
-struct CloseOnExit<'a, T: Tapes>(&'a Shared<T>);
+struct CloseOnExit<'a, T: PieceStore>(&'a Shared<T>);
 
-impl<T: Tapes> Drop for CloseOnExit<'_, T> {
+impl<T: PieceStore> Drop for CloseOnExit<'_, T> {
     fn drop(&mut self) {
         self.0.queue.close();
         self.0.watch.end();
@@ -36,7 +36,7 @@ impl<T: Tapes> Drop for CloseOnExit<'_, T> {
 
 /// Whether `e` leaves the chain unable to write on: a failed write or sync, a cut that could not start the next
 /// piece. Any other refusal wrote nothing.
-fn stops<T: Tapes>(chain: &mut PieceChain<T>, e: &WriteError<T::Error>) -> bool {
+fn stops<T: PieceStore>(chain: &mut PieceChain<T>, e: &WriteError<T::Error>) -> bool {
     matches!(
         e,
         WriteError::Sink { .. } | WriteError::Failed | WriteError::Read(_)
@@ -44,7 +44,7 @@ fn stops<T: Tapes>(chain: &mut PieceChain<T>, e: &WriteError<T::Error>) -> bool 
 }
 
 /// What the writing thread works on besides the chain and its definitions.
-struct State<'a, T: Tapes> {
+struct State<'a, T: PieceStore> {
     shared: &'a Shared<T>,
     trees: Trees,
     /// Open chunks completed for their latency that found the queue closed: placed before the close
@@ -55,7 +55,7 @@ struct State<'a, T: Tapes> {
 }
 
 /// The thread: place every unit until a close or a stop, ticking every `tick`.
-pub(crate) fn run<T: Tapes>(
+pub(crate) fn run<T: PieceStore>(
     mut chain: PieceChain<T>,
     mut defs: Definitions,
     rebuild: Option<Vec<IndexEntry>>,
@@ -124,7 +124,7 @@ fn far() -> Instant {
 }
 
 /// The time-driven chores: sync and checkpoints by time; a cut by age while no chunk comes.
-fn chores<T: Tapes>(chain: &mut PieceChain<T>, defs: &Definitions, st: &mut State<'_, T>) {
+fn chores<T: PieceStore>(chain: &mut PieceChain<T>, defs: &Definitions, st: &mut State<'_, T>) {
     let shared = st.shared;
     // nothing is written before the trees of a resumed piece are rebuilt
     if shared.failure.get().is_some() || st.rebuild.is_some() {
@@ -150,7 +150,7 @@ fn chores<T: Tapes>(chain: &mut PieceChain<T>, defs: &Definitions, st: &mut Stat
 
 /// Rebuild the summary trees of a resumed piece, once, before the first write: a failure stops the chain, a refusal
 /// is counted.
-fn rebuilt<T: Tapes>(chain: &mut PieceChain<T>, defs: &Definitions, st: &mut State<'_, T>) {
+fn rebuilt<T: PieceStore>(chain: &mut PieceChain<T>, defs: &Definitions, st: &mut State<'_, T>) {
     let Some(entries) = st.rebuild.take() else {
         return;
     };
@@ -168,7 +168,7 @@ fn rebuilt<T: Tapes>(chain: &mut PieceChain<T>, defs: &Definitions, st: &mut Sta
 }
 
 /// Whether placing `work` writes: it waits for the rebuild of a resumed piece's trees.
-fn writes<T: Tapes>(work: &Work<T>) -> bool {
+fn writes<T: PieceStore>(work: &Work<T>) -> bool {
     matches!(
         work,
         Work::Chunk { .. }
@@ -181,7 +181,7 @@ fn writes<T: Tapes>(work: &Work<T>) -> bool {
 }
 
 /// End the summary trees of the piece and cut to a new one.
-fn cut<T: Tapes>(
+fn cut<T: PieceStore>(
     chain: &mut PieceChain<T>,
     defs: &Definitions,
     st: &mut State<'_, T>,
@@ -191,7 +191,7 @@ fn cut<T: Tapes>(
 }
 
 /// End the summary trees of the piece: before a cut and the close.
-fn end_trees<T: Tapes>(
+fn end_trees<T: PieceStore>(
     chain: &mut PieceChain<T>,
     defs: &Definitions,
     st: &mut State<'_, T>,
@@ -203,7 +203,7 @@ fn end_trees<T: Tapes>(
 }
 
 /// Place a typed handle's or a chunk sender's chunk, its summary into its track's tree.
-fn place_chunk<T: Tapes>(
+fn place_chunk<T: PieceStore>(
     chain: &mut PieceChain<T>,
     defs: &Definitions,
     st: &mut State<'_, T>,
@@ -233,7 +233,7 @@ fn place_chunk<T: Tapes>(
 }
 
 /// Place `work` of `bytes`; the exit when it ends the thread.
-fn place<T: Tapes>(
+fn place<T: PieceStore>(
     chain: &mut PieceChain<T>,
     defs: &mut Definitions,
     st: &mut State<'_, T>,
@@ -336,7 +336,7 @@ fn place<T: Tapes>(
 }
 
 /// A block placed as `how` says.
-fn place_block<T: Tapes>(
+fn place_block<T: PieceStore>(
     chain: &mut PieceChain<T>,
     defs: &mut Definitions,
     how: BlockHow,
@@ -354,7 +354,7 @@ fn place_block<T: Tapes>(
 }
 
 /// Count a data unit of `bytes` placed; a refusal goes to its handle, a failure stops the chain.
-fn placed<T: Tapes>(
+fn placed<T: PieceStore>(
     chain: &mut PieceChain<T>,
     shared: &Shared<T>,
     from: &Slot<T::Error>,
@@ -379,7 +379,7 @@ fn placed<T: Tapes>(
 }
 
 /// A control call's error: a failure stops the chain, any other refusal is the caller's.
-fn refused<T: Tapes>(
+fn refused<T: PieceStore>(
     chain: &mut PieceChain<T>,
     shared: &Shared<T>,
     e: WriteError<T::Error>,
@@ -392,7 +392,7 @@ fn refused<T: Tapes>(
 }
 
 /// Close the chain for `reason`: every open chunk completed and placed, the summary trees ended; every piece.
-fn close<T: Tapes>(
+fn close<T: PieceStore>(
     mut chain: PieceChain<T>,
     defs: &mut Definitions,
     st: &mut State<'_, T>,

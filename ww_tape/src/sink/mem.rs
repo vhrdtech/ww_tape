@@ -1,4 +1,4 @@
-//! Pieces in memory: [MemSink], [MemTape] and [MemTapes].
+//! Pieces in memory: [MemSink], [MemPiece] and [MemPieces].
 
 use std::collections::BTreeMap;
 use std::marker::PhantomData;
@@ -6,12 +6,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 use super::segments::{SegmentError, Segments};
-use super::{BaseRefused, TapeSink, Tapes, check_base};
+use super::{BaseRefused, PieceStore, TapeSink, check_base};
 use crate::TapeWriter;
 use crate::reader::{ByteSource, OutOfRange, TapeReader};
 use crate::writer::{Sealed, WriteError};
 
-/// Why a [MemSink], [MemTape] or [MemTapes] failed or refused; a refusal of [MemTapes] names the tape by its key
+/// Why a [MemSink], [MemPiece] or [MemPieces] failed or refused; a refusal of [MemPieces] names the tape by its key
 /// `K`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
@@ -20,13 +20,13 @@ pub enum MemError<K = u64> {
     Exists(K),
     /// Another sink writes the tape: one writer per tape ([crate::sink]).
     Locked(K),
-    /// [MemTapes::remove] of a tape still being written.
+    /// [MemPieces::remove] of a tape still being written.
     Unclosed(K),
     /// A writer panicked while it held the bytes: they may be half written.
     Poisoned,
     /// A read past the end of the bytes.
     OutOfRange,
-    /// A read or truncate before `front`, the first byte kept: [MemTapes::drop_front] freed the bytes before it.
+    /// A read or truncate before `front`, the first byte kept: [MemPieces::drop_front] freed the bytes before it.
     Dropped { front: u64 },
     /// A piece start refused: past the end of the bytes, or any but 0 on a sink of one piece.
     Base(BaseRefused),
@@ -74,28 +74,28 @@ impl<K> From<BaseRefused> for MemError<K> {
 }
 
 /// Bytes in memory that a [MemSink] writes and readers read at the same time: a [ByteSource] whose size grows. `K`
-/// is the key type of the [MemTapes] it is kept in, named by its errors.
+/// is the key type of the [MemPieces] it is kept in, named by its errors.
 ///
 /// The bytes are kept in extents that are filled and never moved, so appending copies nothing written before and a
-/// reader waits only for the bytes being appended. [MemTapes::drop_front] frees the oldest pieces of a tape of several; offsets stay as
-/// they were, and the tape's [ByteSource::start] moves to the first byte kept.
-pub struct MemTape<K = u64>(Arc<MemBytes>, PhantomData<fn() -> K>);
+/// reader waits only for the bytes being appended. [MemPieces::drop_front] frees the oldest pieces of a tape of
+/// several; offsets stay as they were, and the tape's [ByteSource::start] moves to the first byte kept.
+pub struct MemPiece<K = u64>(Arc<MemBytes>, PhantomData<fn() -> K>);
 
-impl<K> Clone for MemTape<K> {
+impl<K> Clone for MemPiece<K> {
     fn clone(&self) -> Self {
         Self(Arc::clone(&self.0), PhantomData)
     }
 }
 
-impl<K> Default for MemTape<K> {
+impl<K> Default for MemPiece<K> {
     fn default() -> Self {
         Self(Arc::default(), PhantomData)
     }
 }
 
-impl<K> core::fmt::Debug for MemTape<K> {
+impl<K> core::fmt::Debug for MemPiece<K> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_tuple("MemTape").field(&self.0).finish()
+        f.debug_tuple("MemPiece").field(&self.0).finish()
     }
 }
 
@@ -107,7 +107,7 @@ struct MemBytes {
     held: AtomicBool,
 }
 
-impl<K> MemTape<K> {
+impl<K> MemPiece<K> {
     /// A copy of the bytes kept, from [ByteSource::start] to the end.
     pub fn to_vec(&self) -> Result<Vec<u8>, MemError<K>> {
         let segments = self.read()?;
@@ -153,7 +153,7 @@ impl<K> MemTape<K> {
     }
 }
 
-impl<K: core::fmt::Debug + 'static> ByteSource for MemTape<K> {
+impl<K: core::fmt::Debug + 'static> ByteSource for MemPiece<K> {
     type Error = MemError<K>;
 
     fn size(&self) -> Result<u64, MemError<K>> {
@@ -174,18 +174,18 @@ impl<K: core::fmt::Debug + 'static> ByteSource for MemTape<K> {
     }
 }
 
-/// A piece in memory, readers reading its [MemTape] as it grows; `K` as for [MemTape].
+/// A piece in memory, readers reading its [MemPiece] as it grows; `K` as for [MemPiece].
 #[derive(Debug)]
 pub struct MemSink<K = u64> {
-    tape: MemTape<K>,
+    tape: MemPiece<K>,
     /// Where the piece being written starts in the bytes
     base: u64,
-    /// The tape holds pieces back to back ([Tapes::create_whole], [Tapes::open_whole])
+    /// The tape holds pieces back to back ([PieceStore::create_whole], [PieceStore::open_whole])
     whole: bool,
 }
 
 impl MemSink {
-    /// An empty sink, not kept in any [MemTapes].
+    /// An empty sink, not kept in any [MemPieces].
     pub fn new() -> Self {
         Self::empty()
     }
@@ -199,7 +199,7 @@ impl<K> MemSink<K> {
 
     /// An empty sink over new bytes whose first byte comes at offset `front`, held.
     fn empty_at(front: u64) -> Self {
-        let tape = MemTape(
+        let tape = MemPiece(
             Arc::new(MemBytes {
                 bytes: RwLock::new(Segments::starting_at(front)),
                 closed: AtomicBool::new(false),
@@ -215,7 +215,7 @@ impl<K> MemSink<K> {
     }
 
     /// The bytes, for readers.
-    pub fn tape(&self) -> MemTape<K> {
+    pub fn tape(&self) -> MemPiece<K> {
         self.tape.clone()
     }
 }
@@ -289,33 +289,33 @@ impl Default for MemSink {
     }
 }
 
-/// Pieces in memory by key, shared by every clone: a store of [Tapes] (keyed by a piece's seq with `K = u64`), and
+/// Pieces in memory by key, shared by every clone: a [PieceStore] (keyed by a piece's seq with `K = u64`), and
 /// where its readers find each piece ([Self::get]).
 ///
-/// Another key lets an application keep the pieces of many chains in one map, behind a [Tapes] of its own that names
-/// each chain's keys.
+/// Another key lets an application keep the pieces of many chains in one map, behind a [PieceStore] of its own that
+/// names each chain's keys.
 #[derive(Clone, Debug)]
-pub struct MemTapes<K = u64>(Arc<Mutex<BTreeMap<K, MemTape<K>>>>);
+pub struct MemPieces<K = u64>(Arc<Mutex<BTreeMap<K, MemPiece<K>>>>);
 
-impl<K> Default for MemTapes<K> {
+impl<K> Default for MemPieces<K> {
     fn default() -> Self {
         Self(Arc::default())
     }
 }
 
-impl<K: Ord + Clone> MemTapes<K> {
+impl<K: Ord + Clone> MemPieces<K> {
     pub fn new() -> Self {
         Self::default()
     }
 
     /// The bytes under `key`, closed or not.
-    pub fn get(&self, key: &K) -> Result<Option<MemTape<K>>, MemError<K>> {
+    pub fn get(&self, key: &K) -> Result<Option<MemPiece<K>>, MemError<K>> {
         Ok(self.lock()?.get(key).cloned())
     }
 
     /// Take the closed piece under `key` out of the map: true when it was there, false when it was not.
     ///
-    /// A [MemTape] a reader already holds keeps its bytes (they are freed with the last holder), and reads on as
+    /// A [MemPiece] a reader already holds keeps its bytes (they are freed with the last holder), and reads on as
     /// before: nothing a reader holds ever changes or fails. After the call [Self::get] and [Self::closed] find
     /// nothing under `key`. A piece still being written is not removed: [MemError::Unclosed], so a writer never
     /// writes into bytes nobody can find. Removing the oldest pieces of a chain leaves a head cut
@@ -333,11 +333,11 @@ impl<K: Ord + Clone> MemTapes<K> {
     /// Free the oldest pieces of the tape under `key` that end at or before `to`, an offset in the tape: the first
     /// byte it keeps ([ByteSource::start]), None when there is no tape under `key`.
     ///
-    /// Meant for a tape of several pieces ([Tapes::create_whole]) whose oldest pieces are no longer needed, while a
-    /// writer goes on in it or after it closed. Pieces are dropped whole, and the piece being written never: a `to`
-    /// inside a piece keeps that piece. The memory is freed in extents of up to 64 MiB: the one a cut falls inside
-    /// goes with a later cut past it. Offsets don't move: a [PieceInfo](crate::PieceInfo) a reader holds stays
-    /// valid for the pieces kept, a read of a dropped one fails with [MemError::Dropped], and a
+    /// Meant for a tape of several pieces ([PieceStore::create_whole]) whose oldest pieces are no longer needed, while
+    /// a writer goes on in it or after it closed. Pieces are dropped whole, and the piece being written never: a `to`
+    /// inside a piece keeps that piece. The memory is freed in extents of up to 64 MiB: the one a cut falls inside goes
+    /// with a later cut past it. Offsets don't move: a [PieceInfo](crate::PieceInfo) a reader holds stays valid for the
+    /// pieces kept, a read of a dropped one fails with [MemError::Dropped], and a
     /// [TapeReader](crate::TapeReader) opened afterwards finds the pieces from the new start on. As for
     /// [Self::remove], the chain then has a head cut and is not resumed.
     pub fn drop_front(&self, key: &K, to: u64) -> Result<Option<u64>, MemError<K>> {
@@ -352,7 +352,7 @@ impl<K: Ord + Clone> MemTapes<K> {
         Ok(self.lock()?.keys().cloned().collect())
     }
 
-    /// A new sink under `key` ([Tapes::create]): [MemError::Exists] when the key has a tape.
+    /// A new sink under `key` ([PieceStore::create]): [MemError::Exists] when the key has a tape.
     pub fn create(&self, key: &K) -> Result<MemSink<K>, MemError<K>> {
         let mut map = self.lock()?;
         if map.contains_key(key) {
@@ -363,7 +363,7 @@ impl<K: Ord + Clone> MemTapes<K> {
         Ok(sink)
     }
 
-    /// The tape under `key` to write on ([Tapes::reopen]): unclosed, to resume, or closed, to write on after its
+    /// The tape under `key` to write on ([PieceStore::reopen]): unclosed, to resume, or closed, to write on after its
     /// close; it keeps its mark of closed.
     pub fn reopen(&self, key: &K) -> Result<Option<MemSink<K>>, MemError<K>> {
         self.lock()?
@@ -372,12 +372,12 @@ impl<K: Ord + Clone> MemTapes<K> {
             .transpose()
     }
 
-    /// The closed tape under `key` ([Tapes::closed]).
-    pub fn closed(&self, key: &K) -> Result<Option<MemTape<K>>, MemError<K>> {
+    /// The closed tape under `key` ([PieceStore::closed]).
+    pub fn closed(&self, key: &K) -> Result<Option<MemPiece<K>>, MemError<K>> {
         Ok(self.lock()?.get(key).filter(|t| t.is_closed()).cloned())
     }
 
-    /// A new tape of several pieces under `key` ([Tapes::create_whole]).
+    /// A new tape of several pieces under `key` ([PieceStore::create_whole]).
     pub fn create_whole(&self, key: &K) -> Result<MemSink<K>, MemError<K>> {
         let mut sink = self.create(key)?;
         sink.whole = true;
@@ -385,7 +385,7 @@ impl<K: Ord + Clone> MemTapes<K> {
     }
 
     /// The tape of several pieces under `key`, which is written again: it reads as unclosed until its next close
-    /// ([Tapes::open_whole]).
+    /// ([PieceStore::open_whole]).
     pub fn open_whole(&self, key: &K) -> Result<Option<MemSink<K>>, MemError<K>> {
         let map = self.lock()?;
         let Some(tape) = map.get(key) else {
@@ -401,7 +401,7 @@ impl<K: Ord + Clone> MemTapes<K> {
     /// pieces sealed in order, the first after the piece `after` when it follows a piece sealed before; None when
     /// there is no tape under `key`.
     ///
-    /// The sealed copy takes the tape's place, at the same offsets: a [MemTape] a reader already holds keeps the old
+    /// The sealed copy takes the tape's place, at the same offsets: a [MemPiece] a reader already holds keeps the old
     /// bytes and reads on as before, and readers opened afterwards read the sealed ones. A tape still being written
     /// is not sealed ([MemError::Unclosed]), nor one a writer took while it was sealed ([MemError::Locked]). Gives
     /// each piece sealed: the last is what the tape after it takes as `after`. A tape whose pieces are all of Full,
@@ -461,16 +461,16 @@ impl<K: Ord + Clone> MemTapes<K> {
         }
     }
 
-    fn lock(&self) -> Result<std::sync::MutexGuard<'_, BTreeMap<K, MemTape<K>>>, MemError<K>> {
+    fn lock(&self) -> Result<std::sync::MutexGuard<'_, BTreeMap<K, MemPiece<K>>>, MemError<K>> {
         self.0.lock().map_err(|_poisoned| MemError::Poisoned)
     }
 }
 
-impl Tapes for MemTapes<u64> {
+impl PieceStore for MemPieces<u64> {
     type Key = u64;
     type Error = MemError;
     type Sink = MemSink;
-    type Source = MemTape;
+    type Source = MemPiece;
 
     fn key_of(&self, seq: u64) -> u64 {
         seq
@@ -484,7 +484,7 @@ impl Tapes for MemTapes<u64> {
         Self::reopen(self, key)
     }
 
-    fn closed(&self, key: &u64) -> Result<Option<MemTape>, MemError> {
+    fn closed(&self, key: &u64) -> Result<Option<MemPiece>, MemError> {
         Self::closed(self, key)
     }
 

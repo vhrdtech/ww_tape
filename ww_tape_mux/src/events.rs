@@ -9,7 +9,9 @@ use exact_units::Bytes;
 use ww_tape::chunk::Chunk;
 use ww_tape::payloads::{EncodedPayloads, PayloadCodec};
 use ww_tape::times::{EncodedRelation, EncodedTimes, EventTimes};
-use ww_tape::{ColumnSpec, Describe, Ends, ItemNum, Tapes, TrackDef, TrackId, TrackKind, TrackNum};
+use ww_tape::{
+    ColumnSpec, Describe, Ends, ItemNum, PieceStore, TrackDef, TrackId, TrackKind, TrackNum,
+};
 use ww_tape_summary::{EventFields, EventRuns};
 
 use crate::TapeMux;
@@ -413,7 +415,7 @@ impl Encoder for EventsChunk {
 /// is completed when it holds [EventsOptions::chunk_items] items or [EventsOptions::chunk_bytes] payload bytes, by
 /// [Self::complete], and by the writing thread when its first item waited [EventsOptions::latency]. Dropping the handle
 /// completes and sends the open chunk; [Self::finish] does so and returns the error.
-pub struct EventsHandle<T: Tapes> {
+pub struct EventsHandle<T: PieceStore> {
     s: Sender<T>,
     open: Arc<Open<T, EventsChunk>>,
     backlog: Backlog<T>,
@@ -424,7 +426,7 @@ common!(EventsHandle);
 
 impl<T> TapeMux<T>
 where
-    T: Tapes + Send + 'static,
+    T: PieceStore + Send + 'static,
     T::Sink: Send,
     T::Key: Send,
     T::Error: Send + Sync,
@@ -547,7 +549,7 @@ fn events_chunk(def: &TrackDef<'_>, options: EventsOptions) -> Option<EventsChun
     })
 }
 
-impl<T: Tapes> EventsHandle<T>
+impl<T: PieceStore> EventsHandle<T>
 where
     T: 'static,
     T::Error: Send + Sync,
@@ -726,7 +728,7 @@ where
     }
 }
 
-impl<T: Tapes> Drop for EventsHandle<T> {
+impl<T: PieceStore> Drop for EventsHandle<T> {
     /// Complete and send the open chunk and any chunk a dropped async call left, as far as the mux takes them; waits
     /// for room on this thread.
     fn drop(&mut self) {

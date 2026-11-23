@@ -14,7 +14,7 @@ use ww_tape::payloads::Payloads;
 use ww_tape::samples::{SampleShape, Samples};
 use ww_tape::times::EventTimes;
 use ww_tape::{
-    BlockId, BlockKind, Element, ElementDesc, FileBlocks, MemTapes, RecordTrack, Recovery,
+    BlockId, BlockKind, Element, ElementDesc, FileBlocks, MemPieces, RecordTrack, Recovery,
     SessionTag, TrackNum,
 };
 use ww_tape_mux::{Event, EventsOptions, MuxOptions, SeriesOptions, TapeMux};
@@ -52,7 +52,7 @@ pub struct ViaHandles {
 /// A setting of `drive` the recording can't be made with, or a mux or handle call that failed.
 pub fn record(drive: &Drive) -> Result<ViaHandles, Error> {
     // --8<-- [start:create]
-    let mux_tapes = MemTapes::new();
+    let mux_tapes = MemPieces::new();
     let mux = TapeMux::create(
         mux_tapes.clone(),
         OWNER,

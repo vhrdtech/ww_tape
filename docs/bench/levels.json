@@ -203,7 +203,7 @@
     },
     {
       "id": "seal",
-      "title": "`MemTapes::seal` of a closed piece of 64 MiB of chunks of each shape, to Full.",
+      "title": "`MemPieces::seal` of a closed piece of 64 MiB of chunks of each shape, to Full.",
       "columns": [
         "Chunk",
         "From",

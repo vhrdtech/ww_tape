@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use ww_tape::index::IndexPolicy;
 use ww_tape::{
-    BlockKind, ChainOptions, Clock, ClockRef, CutPolicy, FileBlocks, MemSink, MemTapes, OwnerId,
+    BlockKind, ChainOptions, Clock, ClockRef, CutPolicy, FileBlocks, MemPieces, MemSink, OwnerId,
     PieceChain, PieceTapes, Recovery, SyncPolicy, TapeWriter, WriterOptions,
 };
 
@@ -28,9 +28,9 @@ impl Clock for HandClock {
     }
 }
 
-fn chain(clock: ClockRef) -> PieceChain<MemTapes> {
+fn chain(clock: ClockRef) -> PieceChain<MemPieces> {
     PieceChain::create_on(
-        MemTapes::new(),
+        MemPieces::new(),
         OwnerId([7; 32]),
         0,
         &[],

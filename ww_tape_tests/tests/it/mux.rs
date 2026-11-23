@@ -9,9 +9,9 @@ use exact_units::{Bytes, Count};
 use ww_tape::index::IndexPolicy;
 use ww_tape::piece::check_chain;
 use ww_tape::{
-    BlockKind, ChainOptions, CutPolicy, Definitions, Describe, ItemNum, Layout, MemError, MemSink,
-    MemTape, MemTapes, OwnerId, PieceChain, PieceTapes, SyncPolicy, TapeReader, TapeSink, Tapes,
-    TrackNum, WriterOptions,
+    BlockKind, ChainOptions, CutPolicy, Definitions, Describe, ItemNum, Layout, MemError, MemPiece,
+    MemPieces, MemSink, OwnerId, PieceChain, PieceStore, PieceTapes, SyncPolicy, TapeReader,
+    TapeSink, TrackNum, WriterOptions,
 };
 use ww_tape_mux::{MuxError, MuxOptions, Pressure, RelayMode, Sent, TapeMux, Unit};
 
@@ -39,7 +39,7 @@ fn defs() -> Definitions {
 /// Define [batch] on `mux`: each track and clock gets the number [defs] gives it.
 fn define<T>(mux: &TapeMux<T>)
 where
-    T: Tapes + Send + 'static,
+    T: PieceStore + Send + 'static,
     T::Sink: Send,
     T::Key: Send,
     T::Error: Send + Sync + std::fmt::Debug,
@@ -73,7 +73,7 @@ fn options(chunks: u64) -> ChainOptions {
 }
 
 /// The bytes of pieces 0, 1, ... of `mem`, while there are any.
-pub(crate) fn pieces(mem: &MemTapes) -> Vec<Vec<u8>> {
+pub(crate) fn pieces(mem: &MemPieces) -> Vec<Vec<u8>> {
     (0..)
         .map_while(|seq| mem.get(&seq).unwrap())
         .map(|t| t.to_vec().unwrap())
@@ -118,7 +118,7 @@ pub(crate) fn whole(pieces: &[Vec<u8>]) {
 }
 
 /// Track `t`'s chunk `k` ([chunk]), as a [ww_tape_mux::ChunkSender] takes it.
-fn send_chunk<T: Tapes>(
+fn send_chunk<T: PieceStore>(
     s: &ww_tape_mux::ChunkSender<T>,
     t: u64,
     k: u64,
@@ -131,7 +131,7 @@ fn send_chunk<T: Tapes>(
 /// One producer through the mux writes the bytes the same calls write on a chain directly.
 #[test]
 fn one_producer_writes_the_bytes_of_a_chain_written_directly() {
-    let direct = MemTapes::new();
+    let direct = MemPieces::new();
     let defs = defs();
     let mut chain = PieceChain::create_on(direct.clone(), OWNER, 0, &[], options(5)).unwrap();
     for k in 0..12u64 {
@@ -151,7 +151,7 @@ fn one_producer_writes_the_bytes_of_a_chain_written_directly() {
     }
     chain.close().unwrap();
 
-    let mem = MemTapes::new();
+    let mem = MemPieces::new();
     let mux = TapeMux::create(
         mem.clone(),
         OWNER,
@@ -187,7 +187,7 @@ fn one_producer_writes_the_bytes_of_a_chain_written_directly() {
 #[test]
 fn eight_threads_write_one_chain() {
     const CHUNKS: u64 = 300;
-    let mem = MemTapes::new();
+    let mem = MemPieces::new();
     let mux = TapeMux::create(
         mem.clone(),
         OWNER,
@@ -235,7 +235,7 @@ fn eight_threads_write_one_chain() {
 /// A store of tapes in memory whose sinks write only while the gate is open, and fail once told to.
 #[derive(Clone, Default)]
 pub(crate) struct Rigged {
-    pub(crate) mem: MemTapes,
+    pub(crate) mem: MemPieces,
     pub(crate) rig: Arc<Rig>,
 }
 
@@ -306,11 +306,11 @@ impl TapeSink for RiggedSink {
     }
 }
 
-impl Tapes for Rigged {
+impl PieceStore for Rigged {
     type Key = u64;
     type Error = MemError<u64>;
     type Sink = RiggedSink;
-    type Source = MemTape<u64>;
+    type Source = MemPiece<u64>;
     fn key_of(&self, seq: u64) -> u64 {
         self.mem.key_of(seq)
     }
@@ -325,7 +325,7 @@ impl Tapes for Rigged {
         let rig = self.rig.clone();
         Ok(self.mem.reopen(key)?.map(|sink| RiggedSink { sink, rig }))
     }
-    fn closed(&self, key: &u64) -> Result<Option<MemTape<u64>>, Self::Error> {
+    fn closed(&self, key: &u64) -> Result<Option<MemPiece<u64>>, Self::Error> {
         self.mem.closed(key)
     }
     fn create_whole(&mut self, key: &u64) -> Result<RiggedSink, Self::Error> {
@@ -490,7 +490,7 @@ fn a_failed_sink_reaches_every_handle() {
 /// A unit the writer refuses comes back from that handle's next call; other handles and the mux write on.
 #[test]
 fn a_refused_unit_comes_back_from_its_handle() {
-    let mem = MemTapes::new();
+    let mem = MemPieces::new();
     let mux = TapeMux::create(
         mem.clone(),
         OWNER,
@@ -573,7 +573,7 @@ fn a_close_with_handles_out_refuses_their_later_calls() {
 /// chain, and every chunk a producer got [Sent::Queued] for is in it.
 #[test]
 fn cuts_and_a_close_under_live_handles() {
-    let mem = MemTapes::new();
+    let mem = MemPieces::new();
     // a small queue: the producers send as fast as they can until the close
     let small = MuxOptions {
         queue_bytes: Bytes::new(256 << 10),
@@ -621,7 +621,7 @@ fn cuts_and_a_close_under_live_handles() {
 
 /// The chain [crash_ops] writes through a mux dropped unclosed: the bytes of its pieces, the last unclosed.
 fn crashed_chain() -> Vec<Vec<u8>> {
-    let mem = MemTapes::new();
+    let mem = MemPieces::new();
     let mux = TapeMux::create(
         mem.clone(),
         OWNER,
@@ -649,8 +649,8 @@ fn crashed_chain() -> Vec<Vec<u8>> {
 }
 
 /// A store holding the closed pieces `done` and the unclosed start `open` of the next.
-fn plant(done: &[Vec<u8>], open: Option<&[u8]>) -> MemTapes {
-    let mem = MemTapes::new();
+fn plant(done: &[Vec<u8>], open: Option<&[u8]>) -> MemPieces {
+    let mem = MemPieces::new();
     for (j, w) in done.iter().enumerate() {
         let mut s = mem.create(&(j as u64)).unwrap();
         s.write_all(w).unwrap();

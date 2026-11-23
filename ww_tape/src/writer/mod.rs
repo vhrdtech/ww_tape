@@ -55,7 +55,7 @@ use crate::piece::{
     hash_block, piece_head_len, write_close, write_piece_head,
 };
 use crate::reader::wide;
-use crate::sink::{TapeSink, Tapes, sink_err};
+use crate::sink::{PieceStore, TapeSink, sink_err};
 use crate::state::{ItemHash, Slot};
 use crate::{
     BlockId, BlockKind, ClockTime, Definitions, Describe, DescribeError, IndexError, Layout,
@@ -424,7 +424,7 @@ impl<S: TapeSink> TapeWriter<S> {
     }
 
     /// A writer appending to the bytes already in `sink` in a new session, such as a file opened to append or a
-    /// memory tape of [MemTapes::open_whole](crate::MemTapes::open_whole): offsets in the index count from the
+    /// memory tape of [MemPieces::open_whole](crate::MemPieces::open_whole): offsets in the index count from the
     /// sink's length now, and the session's blocks start with its definitions, which a reader takes as the next part
     /// of the bytes.
     ///
@@ -2176,7 +2176,7 @@ impl<S: TapeSink> TapeWriter<S> {
 
     /// End this piece as a cut (a [Close] naming the next piece) and start the next piece of the chain on the tape `tapes` makes
     /// under `next`, see [Self::cut_on].
-    pub fn cut_with<T: Tapes<Sink = S, Error = S::Error>>(
+    pub fn cut_with<T: PieceStore<Sink = S, Error = S::Error>>(
         self,
         defs: &Definitions,
         tapes: &mut T,
@@ -2289,7 +2289,7 @@ impl<S: TapeSink> TapeWriter<S> {
     /// sink, as [Self::cut_on] does on a new one: the sink's window ([TapeSink::rebase]) moves to the end of this
     /// piece, a multiple of [PIECE_ALIGN] when this one started on one. The sink stays open: it isn't closed, a
     /// file stays as it is. A sink of one piece ([TapeSink::holds_pieces] false) is refused before anything is
-    /// written: a file of several pieces is made by [Tapes::create_whole].
+    /// written: a file of several pieces is made by [PieceStore::create_whole].
     ///
     /// A refusal before the cut, this one or one of [Self::cut_on]'s, hands the writer back in [CutError::writer], to
     /// go on with.

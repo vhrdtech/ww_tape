@@ -11,6 +11,9 @@ benchmarks, golden files and book pages.
 - `EventsHandle::seal` and `SeriesHandle::seal` are `complete`, `seal_async` is `complete_async`: seal names the integrity raise only (MUX-2).
 - `MuxStats::latency_seal_count` is `latency_complete_count` (MUX-2).
 - `SeriesLeaves::seal` and `EventRuns::seal` are `complete` (SUM-1).
+- A store takes the piece names: `Tapes` is `PieceStore`, `MemTapes` is `MemPieces`, `MemTape` is `MemPiece` (WRITE-1, WRITE-5).
+- `ww_tape_fs::Files` is `FilePieces` (FS-1).
+- `PieceChain::tapes` is `store` (WRITE-1).
 
 ## [0.5.0] - 2026-11-23
 

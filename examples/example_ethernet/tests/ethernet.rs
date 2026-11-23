@@ -15,12 +15,12 @@
 use example_capture::about;
 use example_ethernet::{Link, PayloadMix, Rx, Traffic, digest};
 use ww_tape::payloads::PayloadCodec;
-use ww_tape::{ChainOptions, MemTapes, OwnerId};
+use ww_tape::{ChainOptions, MemPieces, OwnerId};
 use ww_tape_mux::{MuxOptions, TapeMux};
 
 /// Record `link` into one chain in memory: what it sent, and the chain read back.
 fn record(link: Link) -> (example_ethernet::Captured, example_ethernet::ReadBack) {
-    let tapes = MemTapes::new();
+    let tapes = MemPieces::new();
     let mux = TapeMux::create(
         tapes.clone(),
         OwnerId([0xe7; 32]),
@@ -113,7 +113,7 @@ fn the_queues_split_the_ports_frames() {
 #[test]
 fn a_mux_per_port_writes_two_chains() {
     let link = Link::full().micros(1_000);
-    let tapes = [MemTapes::new(), MemTapes::new()];
+    let tapes = [MemPieces::new(), MemPieces::new()];
     let muxes: Vec<_> = (0..2)
         .map(|chain| {
             TapeMux::create(

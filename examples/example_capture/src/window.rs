@@ -2,15 +2,15 @@
 //! pieces worth keeping copied to a store of their own.
 //!
 //! The memory window is a chain of pieces kept in memory: the tape of the capture held in RAM, its newest stretch. A
-//! [TapeMux] writes it into a [MemTapes] that holds each piece apart ([PieceTapes::Each](ww_tape::PieceTapes)), cut by
+//! [TapeMux] writes it into a [MemPieces] that holds each piece apart ([PieceTapes::Each](ww_tape::PieceTapes)), cut by
 //! size. Each piece holds the same tracks, blocks and summaries a piece in a file holds, and the tracks run across the
 //! pieces. A mux has one writing thread, so [start] spreads a capture faster than one thread copies over several
 //! chains, each with a mux of its own.
 //!
 //! [triage] runs beside each chain in the same process, on a thread of its own. It waits on the mux's
-//! [ProgressWatch], opens each piece once it closes ([TapeReader] over the [MemTape], no copy) and asks the [Analyser]
+//! [ProgressWatch], opens each piece once it closes ([TapeReader] over the [MemPiece], no copy) and asks the [Analyser]
 //! whether to keep it. A kept piece is copied whole to the kept store, such as a directory of piece files, where it
-//! reads alone. Every other piece leaves memory ([MemTapes::remove]). [start] returns a [Running] capture that hands
+//! reads alone. Every other piece leaves memory ([MemPieces::remove]). [start] returns a [Running] capture that hands
 //! out each chain ([MemChain]), so a viewer follows the window while the capture runs ([Follower]).
 //!
 //! [Window::before] and [Window::after] keep the pieces around a kept one too, so the analyser's verdict on one piece
@@ -20,19 +20,19 @@
 //!
 //! ```
 //! use example_capture::window::{Analyser, Window, kept_spec, triage};
-//! use ww_tape::{ChainOptions, CutPolicy, MemTapes, OwnerId, PieceTapes, Segment, track_key};
+//! use ww_tape::{ChainOptions, CutPolicy, MemPieces, OwnerId, PieceTapes, Segment, track_key};
 //! use ww_tape_mux::{Event, EventsOptions, MuxOptions, TapeMux};
 //!
 //! // keeps every third piece
 //! struct Third;
 //! impl Analyser for Third {
 //!     type Error = std::convert::Infallible;
-//!     fn look(&mut self, seq: u64, _: &ww_tape::TapeReader<ww_tape::MemTape>) -> Result<bool, Self::Error> {
+//!     fn look(&mut self, seq: u64, _: &ww_tape::TapeReader<ww_tape::MemPiece>) -> Result<bool, Self::Error> {
 //!         Ok(seq % 3 == 0)
 //!     }
 //! }
 //!
-//! let ram = MemTapes::new();
+//! let ram = MemPieces::new();
 //! let options = ChainOptions {
 //!     cut: CutPolicy { bytes: exact_units::Bytes::new(16 << 10), ..CutPolicy::default() },
 //!     tapes: PieceTapes::Each,
@@ -43,7 +43,7 @@
 //! let clock = mux.define_clock(example_capture::rf::clock())?;
 //! let track = mux.define_track(kept_spec(track_key(1, &[Segment::Name("ticks")]), clock))?;
 //! let mut ticks = mux.events(track, EventsOptions { chunk_items: 256, latency: None, ..EventsOptions::default() })?;
-//! let mut kept = MemTapes::new();
+//! let mut kept = MemPieces::new();
 //! let triaged = std::thread::scope(|s| {
 //!     let t = s.spawn(|| triage(&ram, &watch, Window::default(), &mut kept, &mut Third));
 //!     for k in 0..20_000 {
@@ -67,8 +67,9 @@ use std::time::{Duration, Instant};
 use shrink_wrap::prelude::*;
 use ww_tape::reader::ReadError;
 use ww_tape::{
-    ByteSource, ChainOptions, ClockNum, Ends, EventsDef, Items, MemError, MemTape, MemTapes,
-    OwnerId, PieceTapes, TapeReader, TapeSink, Tapes, TrackKey, TrackKind, TrackRepeat, TrackSpec,
+    ByteSource, ChainOptions, ClockNum, Ends, EventsDef, Items, MemError, MemPiece, MemPieces,
+    OwnerId, PieceStore, PieceTapes, TapeReader, TapeSink, TrackKey, TrackKind, TrackRepeat,
+    TrackSpec,
 };
 use ww_tape_mux::{Event, EventsHandle, MuxError, MuxOptions, ProgressWatch, TapeMux};
 
@@ -103,10 +104,10 @@ pub trait Analyser {
     type Error: core::fmt::Debug;
 
     /// Read piece `seq` of the capture, closed: whether to keep it.
-    fn look(&mut self, seq: u64, piece: &TapeReader<MemTape>) -> Result<bool, Self::Error>;
+    fn look(&mut self, seq: u64, piece: &TapeReader<MemPiece>) -> Result<bool, Self::Error>;
 
     /// Piece `seq` reached the kept store; `piece` reads it. Called in the order of `seq`.
-    fn kept(&mut self, _seq: u64, _piece: &TapeReader<MemTape>) -> Result<(), Self::Error> {
+    fn kept(&mut self, _seq: u64, _piece: &TapeReader<MemPiece>) -> Result<(), Self::Error> {
         Ok(())
     }
 }
@@ -114,11 +115,11 @@ pub trait Analyser {
 impl<A: Analyser + ?Sized> Analyser for &mut A {
     type Error = A::Error;
 
-    fn look(&mut self, seq: u64, piece: &TapeReader<MemTape>) -> Result<bool, A::Error> {
+    fn look(&mut self, seq: u64, piece: &TapeReader<MemPiece>) -> Result<bool, A::Error> {
         (**self).look(seq, piece)
     }
 
-    fn kept(&mut self, seq: u64, piece: &TapeReader<MemTape>) -> Result<(), A::Error> {
+    fn kept(&mut self, seq: u64, piece: &TapeReader<MemPiece>) -> Result<(), A::Error> {
         (**self).kept(seq, piece)
     }
 }
@@ -151,8 +152,8 @@ pub struct Triaged {
 /// # Errors
 ///
 /// A piece that doesn't read or copy, a kept store that refused a piece, or the analyser's error.
-pub fn triage<K: Tapes, A: Analyser>(
-    ram: &MemTapes,
+pub fn triage<K: PieceStore, A: Analyser>(
+    ram: &MemPieces,
     watch: &ProgressWatch,
     window: Window,
     kept: &mut K,
@@ -202,7 +203,7 @@ struct Run {
 impl Run {
     /// Bring memory under the window's bytes before piece `seq` is read: the pieces read leave first, oldest first,
     /// then the pieces not yet read. Whether `seq` is still there to read.
-    fn make_room<K, A>(&mut self, ram: &MemTapes, seq: u64) -> Result<bool, WindowError<K, A>> {
+    fn make_room<K, A>(&mut self, ram: &MemPieces, seq: u64) -> Result<bool, WindowError<K, A>> {
         let mut held = held(ram)?;
         self.out.held_max = self.out.held_max.max(held);
         while held > self.window.bytes_max {
@@ -229,11 +230,11 @@ impl Run {
     }
 
     /// Read piece `seq` and keep it, with those around it, or hold it in memory for a later verdict.
-    fn piece<K: Tapes, A: Analyser>(
+    fn piece<K: PieceStore, A: Analyser>(
         &mut self,
-        ram: &MemTapes,
+        ram: &MemPieces,
         seq: u64,
-        tape: &MemTape,
+        tape: &MemPiece,
         kept: &mut K,
         analyser: &mut A,
     ) -> Result<(), WindowError<K::Error, A::Error>> {
@@ -266,12 +267,12 @@ impl Run {
     }
 
     /// Copy piece `seq` to the kept store, tell the analyser and take it out of memory.
-    fn keep<K: Tapes, A: Analyser>(
+    fn keep<K: PieceStore, A: Analyser>(
         &mut self,
-        ram: &MemTapes,
+        ram: &MemPieces,
         seq: u64,
-        tape: &MemTape,
-        reader: &TapeReader<MemTape>,
+        tape: &MemPiece,
+        reader: &TapeReader<MemPiece>,
         kept: &mut K,
         analyser: &mut A,
     ) -> Result<(), WindowError<K::Error, A::Error>> {
@@ -313,12 +314,12 @@ pub struct Chain<K, A> {
 /// that writes them.
 ///
 /// The pieces hold the same tracks, blocks and summaries a piece in a file holds. A closed piece reads alone
-/// ([MemTapes::closed], [TapeReader::open]); the piece being written has no close yet. The triage removes each piece
-/// once no verdict can keep it, so a piece a reader looks for may be gone. A reader that holds a [MemTape] keeps its
+/// ([MemPieces::closed], [TapeReader::open]); the piece being written has no close yet. The triage removes each piece
+/// once no verdict can keep it, so a piece a reader looks for may be gone. A reader that holds a [MemPiece] keeps its
 /// bytes in memory until it drops it, past [Window::bytes_max].
 #[derive(Clone)]
 pub struct MemChain {
-    pub pieces: MemTapes,
+    pub pieces: MemPieces,
     /// Wakes a reader on each change of the chain: a chunk written, a piece cut, the end.
     pub watch: ProgressWatch,
 }
@@ -371,7 +372,7 @@ impl Follower {
 /// A capture into the memory window, running: its capture thread and a triage thread per chain.
 ///
 /// [Self::chains] hands out the window while it runs, so a viewer follows it live; [Self::join] waits for the end.
-pub struct Running<X, C, K: Tapes, A: Analyser> {
+pub struct Running<X, C, K: PieceStore, A: Analyser> {
     chains: Vec<MemChain>,
     capture: JoinHandle<Captured<X, C>>,
     #[expect(
@@ -393,7 +394,7 @@ struct Captured<X, C> {
     capture_time: Duration,
 }
 
-impl<X, C, K: Tapes, A: Analyser> Running<X, C, K, A> {
+impl<X, C, K: PieceStore, A: Analyser> Running<X, C, K, A> {
     /// The window's chains in the order of the chains given to [start], each the memory pieces of its mux.
     pub fn chains(&self) -> &[MemChain] {
         &self.chains
@@ -463,10 +464,10 @@ pub fn start<K, A, X, C>(
     options: ChainOptions,
     window: Window,
     chains: Vec<Chain<K, A>>,
-    record: impl FnOnce(&[&TapeMux<MemTapes>]) -> Result<X, C> + Send + 'static,
+    record: impl FnOnce(&[&TapeMux<MemPieces>]) -> Result<X, C> + Send + 'static,
 ) -> Result<Running<X, C, K, A>, RunError<C, K::Error, A::Error>>
 where
-    K: Tapes + Send + 'static,
+    K: PieceStore + Send + 'static,
     A: Analyser + Send + 'static,
     A::Error: Send,
     K::Error: Send,
@@ -480,7 +481,7 @@ where
         tapes: PieceTapes::Each,
         ..options
     };
-    let rams: Vec<MemTapes> = chains.iter().map(|_| MemTapes::new()).collect();
+    let rams: Vec<MemPieces> = chains.iter().map(|_| MemPieces::new()).collect();
     let muxes = rams
         .iter()
         .zip(0..)
@@ -552,10 +553,10 @@ pub fn run<K, A, X, C>(
     options: ChainOptions,
     window: Window,
     chains: Vec<Chain<K, A>>,
-    record: impl FnOnce(&[&TapeMux<MemTapes>]) -> Result<X, C> + Send + 'static,
+    record: impl FnOnce(&[&TapeMux<MemPieces>]) -> Result<X, C> + Send + 'static,
 ) -> Result<(Ran<X>, Vec<Chain<K, A>>), RunError<C, K::Error, A::Error>>
 where
-    K: Tapes + Send + 'static,
+    K: PieceStore + Send + 'static,
     A: Analyser + Send + 'static,
     A::Error: Send,
     K::Error: Send,
@@ -655,7 +656,7 @@ pub fn kept_spec(key: TrackKey, clock: ClockNum) -> TrackSpec<'static> {
 /// one. The log sorts the spans by their start before it pushes them.
 pub struct KeptLog<T>
 where
-    T: Tapes + Send + 'static,
+    T: PieceStore + Send + 'static,
     T::Sink: Send,
     T::Key: Send,
     T::Error: Send + Sync,
@@ -666,7 +667,7 @@ where
 
 impl<T> KeptLog<T>
 where
-    T: Tapes + Send + 'static,
+    T: PieceStore + Send + 'static,
     T::Sink: Send,
     T::Key: Send,
     T::Error: Send + Sync,
@@ -687,7 +688,7 @@ where
     pub fn note(
         &mut self,
         seq: u64,
-        piece: &TapeReader<MemTape>,
+        piece: &TapeReader<MemPiece>,
     ) -> Result<(), ReadError<MemError>> {
         if let Some((start, end)) = span(piece)? {
             self.spans.push((start, end, seq));
@@ -720,7 +721,7 @@ where
 /// # Errors
 ///
 /// A piece whose index doesn't read.
-pub fn span(piece: &TapeReader<MemTape>) -> Result<Option<(i64, i64)>, ReadError<MemError>> {
+pub fn span(piece: &TapeReader<MemPiece>) -> Result<Option<(i64, i64)>, ReadError<MemError>> {
     let mut span: Option<(i64, i64)> = None;
     for e in piece.entries(0)? {
         if !matches!(
@@ -737,7 +738,7 @@ pub fn span(piece: &TapeReader<MemTape>) -> Result<Option<(i64, i64)>, ReadError
 }
 
 /// Bytes the pieces of `ram` hold, the one being written included.
-fn held<K, A>(ram: &MemTapes) -> Result<u64, WindowError<K, A>> {
+fn held<K, A>(ram: &MemPieces) -> Result<u64, WindowError<K, A>> {
     let mut held = 0;
     for key in ram.keys().map_err(WindowError::Ram)? {
         if let Some(tape) = ram.get(&key).map_err(WindowError::Ram)? {

@@ -24,7 +24,7 @@ use ww_tape::writer::NearPolicy;
 use ww_tape::{
     BlockId, BlockKind, BlockWriter, ChainOptions, ClockOrigin, ClockSpec, ClockTime, Codec,
     ColumnKind, ColumnSpec, CutPolicy, Definitions, EndMode, EventsDef, FullVersion, Layout,
-    Magnitude, MemSink, MemTapes, PieceChain, PieceTapes, Segment, SessionTag, SyncPolicy,
+    Magnitude, MemPieces, MemSink, PieceChain, PieceTapes, Segment, SessionTag, SyncPolicy,
     TapeReader, TapeSink, TapeWriter, TrackKind, TrackSpec, Version, WriterOptions, clock_key,
     track_key,
 };
@@ -178,7 +178,7 @@ pub(crate) fn chain_options(aligned: bool, level: ww_tape::Integrity) -> ChainOp
 }
 
 pub(crate) fn chain_chunk(
-    c: &mut PieceChain<MemTapes>,
+    c: &mut PieceChain<MemPieces>,
     defs: &Definitions,
     on: Defined,
     t: u64,
@@ -195,7 +195,12 @@ pub(crate) fn chain_chunk(
         .expect("a chunk writes");
 }
 
-pub(crate) fn chain_records(c: &mut PieceChain<MemTapes>, defs: &Definitions, on: Defined, n: u64) {
+pub(crate) fn chain_records(
+    c: &mut PieceChain<MemPieces>,
+    defs: &Definitions,
+    on: Defined,
+    n: u64,
+) {
     let w = c.writer().expect("a chain writing");
     let id = w.next_id();
     w.write_block(defs, &records(id, on.clock, on.records, n))
@@ -211,7 +216,7 @@ pub(crate) fn chain_template(
 ) -> (Vec<u8>, usize) {
     let options = chain_options(aligned, level);
     let mut c =
-        PieceChain::create_on(MemTapes::new(), OWNER, 0, &[], options).expect("a chain starts");
+        PieceChain::create_on(MemPieces::new(), OWNER, 0, &[], options).expect("a chain starts");
     let (defs, on) = template_definitions();
     for k in 0..7 {
         chain_chunk(&mut c, &defs, on, 0, k);
@@ -221,7 +226,7 @@ pub(crate) fn chain_template(
     let w = c.writer().expect("a chain writing");
     w.flush_deferred().expect("deferred blocks write");
     let last = w.sink().base();
-    let mem = c.tapes().clone();
+    let mem = c.store().clone();
     if closed {
         c.close().expect("a chain closes");
     }
@@ -493,7 +498,7 @@ fn resume_chain(
     last: usize,
     open: Option<&[u8]>,
 ) {
-    let mem = MemTapes::new();
+    let mem = MemPieces::new();
     mem.create_whole(&CHAIN_TAPE)
         .expect("memory takes a file")
         .write_all(bytes)
@@ -510,7 +515,7 @@ fn resume_chain(
         chain_records(&mut c, &defs, on, 200 + k);
         chain_chunk(&mut c, &defs, on, 0, 100 + k);
     }
-    let mem = c.tapes().clone();
+    let mem = c.store().clone();
     let done = c.close().expect("a resumed chain closes");
     let out = mem
         .get(&CHAIN_TAPE)

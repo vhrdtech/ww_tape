@@ -4,7 +4,7 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 
 use ww_tape::chunk::ChunkHead;
-use ww_tape::{Block, BlockKind, ColumnSpec, Tapes, TrackFacts, TrackNum};
+use ww_tape::{Block, BlockKind, ColumnSpec, PieceStore, TrackFacts, TrackNum};
 
 use crate::error::{CallError, MuxError};
 use crate::queue::Pushed;
@@ -35,14 +35,14 @@ pub enum Sent {
 }
 
 /// What every handle holds: the mux's share, its own, its pressure and its track.
-pub(crate) struct Sender<T: Tapes> {
+pub(crate) struct Sender<T: PieceStore> {
     pub(crate) shared: Arc<Shared<T>>,
     pub(crate) slot: Arc<Slot<T::Error>>,
     pub(crate) pressure: Pressure,
     track: Option<TrackNum>,
 }
 
-impl<T: Tapes> Sender<T> {
+impl<T: PieceStore> Sender<T> {
     pub(crate) fn new(shared: Arc<Shared<T>>, track: Option<TrackNum>) -> Self {
         Self {
             shared,
@@ -136,9 +136,9 @@ impl<T: Tapes> Sender<T> {
 ///
 /// An async call dropped while it waits for room leaves its units here, and the handle's next call sends them
 /// before its own, so no item is lost and the track's chunks stay in order.
-pub(crate) struct Backlog<T: Tapes>(VecDeque<(Option<Work<T>>, u64)>);
+pub(crate) struct Backlog<T: PieceStore>(VecDeque<(Option<Work<T>>, u64)>);
 
-impl<T: Tapes> Backlog<T> {
+impl<T: PieceStore> Backlog<T> {
     pub(crate) fn new() -> Self {
         Self(VecDeque::new())
     }
@@ -178,7 +178,7 @@ macro_rules! common {
         common!($name, s);
     };
     ($name:ident, $s:ident) => {
-        impl<T: Tapes> $name<T> {
+        impl<T: PieceStore> $name<T> {
             /// What the handle does when the queue has no room.
             #[must_use]
             pub fn pressure(mut self, pressure: Pressure) -> Self {
@@ -214,7 +214,7 @@ pub(crate) use common;
 /// The handle API of the handles that send buffers they fill.
 macro_rules! buffered {
     ($name:ident) => {
-        impl<T: Tapes> $name<T> {
+        impl<T: PieceStore> $name<T> {
             /// An empty buffer for the next unit: one the mux gave back once placed, else a new one.
             pub fn buffer(&self) -> Vec<u8> {
                 self.s.slot.buffer()
@@ -232,7 +232,7 @@ macro_rules! buffered {
 ///
 /// The caller numbers the items: a chunk's `first_item` follows the last one sent. Many handles may serve other
 /// tracks; this track has only this one.
-pub struct ChunkSender<T: Tapes> {
+pub struct ChunkSender<T: PieceStore> {
     s: Sender<T>,
     track: TrackNum,
     kind: BlockKind,
@@ -241,7 +241,7 @@ pub struct ChunkSender<T: Tapes> {
 common!(ChunkSender);
 buffered!(ChunkSender);
 
-impl<T: Tapes> ChunkSender<T> {
+impl<T: PieceStore> ChunkSender<T> {
     pub(crate) fn new(shared: Arc<Shared<T>>, track: TrackNum, facts: TrackFacts) -> Self {
         let kind = match facts.period {
             Some(_) => BlockKind::Series,
@@ -320,14 +320,14 @@ impl<T: Tapes> ChunkSender<T> {
 ///
 /// The mux numbers each block as the writer's next, whatever id it was built with. Any number of these handles may
 /// write the same tracks.
-pub struct RecordsHandle<T: Tapes> {
+pub struct RecordsHandle<T: PieceStore> {
     s: Sender<T>,
 }
 
 common!(RecordsHandle);
 buffered!(RecordsHandle);
 
-impl<T: Tapes> RecordsHandle<T> {
+impl<T: PieceStore> RecordsHandle<T> {
     pub(crate) fn new(shared: Arc<Shared<T>>) -> Self {
         Self {
             s: Sender::new(shared, None),
@@ -362,7 +362,7 @@ impl<T: Tapes> RecordsHandle<T> {
 }
 
 /// Passes on another producer's blocks: a link tap's, or those that came over a socket from another process.
-pub struct RelayHandle<T: Tapes> {
+pub struct RelayHandle<T: PieceStore> {
     s: Sender<T>,
     mode: RelayMode,
 }
@@ -370,7 +370,7 @@ pub struct RelayHandle<T: Tapes> {
 common!(RelayHandle);
 buffered!(RelayHandle);
 
-impl<T: Tapes> RelayHandle<T> {
+impl<T: PieceStore> RelayHandle<T> {
     pub(crate) fn new(shared: Arc<Shared<T>>, mode: RelayMode) -> Self {
         Self {
             s: Sender::new(shared, None),
@@ -405,7 +405,7 @@ impl<T: Tapes> RelayHandle<T> {
 /// Puts the items of one state track, on change: the writer puts them again where readers need them.
 ///
 /// Any number of these handles may put on the same track.
-pub struct StateHandle<T: Tapes> {
+pub struct StateHandle<T: PieceStore> {
     s: Sender<T>,
     track: TrackNum,
 }
@@ -413,7 +413,7 @@ pub struct StateHandle<T: Tapes> {
 common!(StateHandle);
 buffered!(StateHandle);
 
-impl<T: Tapes> StateHandle<T> {
+impl<T: PieceStore> StateHandle<T> {
     pub(crate) fn new(shared: Arc<Shared<T>>, track: TrackNum) -> Self {
         Self {
             s: Sender::new(shared, Some(track)),

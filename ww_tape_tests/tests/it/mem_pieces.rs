@@ -1,15 +1,15 @@
-//! Memory tapes: pieces in segments, and the oldest pieces of a tape of several dropped ([MemTapes::drop_front]).
+//! Memory tapes: pieces in segments, and the oldest pieces of a tape of several dropped ([MemPieces::drop_front]).
 
 use ww_tape::{
-    ByteSource, ItemNum, MemError, MemTapes, OwnerId, PieceTapes, ReadError, TapeReader, TrackHash,
+    ByteSource, ItemNum, MemError, MemPieces, OwnerId, PieceTapes, ReadError, TapeReader, TrackHash,
 };
 
 use crate::range_hash::write;
 
 /// A chain of several pieces in one memory tape, the same tape copied: (tapes, key, bytes).
-fn one_tape() -> (MemTapes, u64, Vec<u8>) {
+fn one_tape() -> (MemPieces, u64, Vec<u8>) {
     let (_, bytes) = write(PieceTapes::One, 0xd20f);
-    let tapes = MemTapes::new();
+    let tapes = MemPieces::new();
     let mut sink = tapes.create_whole(&0).unwrap();
     ww_tape::TapeSink::write_all(&mut sink, &bytes[0]).unwrap();
     ww_tape::TapeSink::close(&mut sink).unwrap();
@@ -23,7 +23,7 @@ fn dropped_pieces_leave_the_rest_where_it_was() {
     let (_, bytes) = write(PieceTapes::One, 0xd20f);
     let full = TapeReader::open(&bytes[0][..]).unwrap();
     assert!(full.pieces().len() >= 5, "{} pieces", full.pieces().len());
-    let tapes = MemTapes::new();
+    let tapes = MemPieces::new();
     let mut sink = tapes.create_whole(&0).unwrap();
     // each piece written as its own: the sink seals a segment per piece
     for p in full.pieces() {

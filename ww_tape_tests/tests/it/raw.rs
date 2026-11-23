@@ -8,8 +8,8 @@ use ww_tape::state::DefinitionKind;
 use ww_tape::times::EncodedTimes;
 use ww_tape::{
     Block, BlockId, BlockKind, Definitions, Describe, DescribeError, Dimension, ENCODING_NAME_MAX,
-    ElementDesc, EventsDef, FileBlocks, Foreign, FullVersion, Items, MEDIA_TYPE_MAX, MemSink,
-    MemTapes, OwnerId, PieceChain, RecordRef, Recovery, RelationDef, Schema, Segment, SessionTag,
+    ElementDesc, EventsDef, FileBlocks, Foreign, FullVersion, Items, MEDIA_TYPE_MAX, MemPieces,
+    MemSink, OwnerId, PieceChain, RecordRef, Recovery, RelationDef, Schema, Segment, SessionTag,
     Slot, SyncPolicy, TapeReader, TapeWriter, TrackDef, TrackKind, TrackRepeat, TypeRef, Version,
     track_key,
 };
@@ -234,7 +234,7 @@ fn a_named_format_carries_its_schema() {
     assert_eq!(s.hash.as_slice(), proto_hash());
 
     // a cut carries the schema with the quiet track
-    let mem = MemTapes::new();
+    let mem = MemPieces::new();
     let mut chain = PieceChain::create_on(
         mem.clone(),
         OwnerId([0x52; 32]),

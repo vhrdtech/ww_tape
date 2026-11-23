@@ -119,7 +119,7 @@ fn a_full_cap_never_stops_a_cut() {
     }
     let pieces = chain.close().unwrap();
     assert!(pieces.len() >= 2, "the chain cut");
-    let bytes = std::fs::read(ww_tape_fs::Files::new(&dir).path_of(pieces[0].tape)).unwrap();
+    let bytes = std::fs::read(ww_tape_fs::FilePieces::new(&dir).path_of(pieces[0].tape)).unwrap();
     let data = data_on(&bytes, 2);
     assert!(
         writes_of(

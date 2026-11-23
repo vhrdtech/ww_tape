@@ -10,7 +10,7 @@ use ww_tape::writer::{
 use ww_tape::{Integrity, TapeReader};
 
 use crate::seal::InPlace;
-use crate::sink::{FileSink, FileSource, Files, FsError, none_at};
+use crate::sink::{FilePieces, FileSink, FileSource, FsError, none_at};
 
 /// A new file at `path`, created exclusively under its final name; fails if `path` is there ([FileSink::create]).
 pub fn create(
@@ -61,7 +61,7 @@ pub fn cut(
     defs: &Definitions,
     next_path: &Path,
 ) -> Result<(Closed, TapeWriter<FileSink>), CutError<FileSink>> {
-    writer.cut_with(defs, &mut Files::file(next_path), &0)
+    writer.cut_with(defs, &mut FilePieces::file(next_path), &0)
 }
 
 /// Raise the closed file at `path` to [Integrity::Full] in place.

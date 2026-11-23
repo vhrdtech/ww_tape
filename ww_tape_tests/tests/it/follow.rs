@@ -15,7 +15,7 @@ use ww_tape::payloads::EncodedPayloads;
 use ww_tape::times::EncodedTimes;
 use ww_tape::{
     BlockKind, ChainOptions, Cut, CutPolicy, Describe, FileBlocks, ItemNum, Layout, OwnerId,
-    PieceTapes, SyncPolicy, Tapes, TrackId, WriterOptions,
+    PieceStore, PieceTapes, SyncPolicy, TrackId, WriterOptions,
 };
 use ww_tape_fs::follow::{
     ChainFollower, FollowOptions, FollowStart, Followed, TimeMerge, TrackItem, TrackItems,
@@ -57,7 +57,7 @@ pub(crate) fn options(chunks: u64) -> ChainOptions {
 /// Define [base]'s clock and tracks on `mux`; a sender for each of the first [TRACKS] tracks.
 pub(crate) fn define<T>(mux: &TapeMux<T>) -> Vec<ChunkSender<T>>
 where
-    T: Tapes + Send + 'static,
+    T: PieceStore + Send + 'static,
     T::Sink: Send,
     T::Key: Send,
     T::Error: Send + Sync + std::fmt::Debug,
@@ -97,7 +97,7 @@ fn events_chunk(t: u64, k: u64) -> (ChunkHead, Vec<(ColumnSpec, Vec<u8>)>) {
 }
 
 /// Send chunk `k` of track `t` ([events_chunk]).
-pub(crate) fn send<T: Tapes>(s: &ChunkSender<T>, t: u64, k: u64)
+pub(crate) fn send<T: PieceStore>(s: &ChunkSender<T>, t: u64, k: u64)
 where
     T::Error: std::fmt::Debug,
 {

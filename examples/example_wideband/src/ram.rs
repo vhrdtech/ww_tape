@@ -17,8 +17,8 @@
 
 use shrink_wrap::prelude::*;
 use ww_tape::{
-    ClockNum, Codec, Ends, EventsDef, Items, MemError, MemTape, Segment, SeriesDef, TapeReader,
-    Tapes, TrackId, TrackKind, TrackRepeat, TrackSpec, track_key,
+    ClockNum, Codec, Ends, EventsDef, Items, MemError, MemPiece, PieceStore, Segment, SeriesDef,
+    TapeReader, TrackId, TrackKind, TrackRepeat, TrackSpec, track_key,
 };
 use ww_tape_mux::{Event, EventsHandle, EventsOptions, MuxError, TapeMux};
 
@@ -101,9 +101,9 @@ impl RfCapture {
         results: &TapeMux<R>,
     ) -> Result<RfRunning<K, R>, RfError<K::Error, R::Error>>
     where
-        K: Tapes + Send + 'static,
+        K: PieceStore + Send + 'static,
         K::Error: Send,
-        R: Tapes + Send + 'static,
+        R: PieceStore + Send + 'static,
         R::Sink: Send,
         R::Key: Send,
         R::Error: Send + Sync,
@@ -141,9 +141,9 @@ impl RfCapture {
         results: &TapeMux<R>,
     ) -> Result<RfRun, RfError<K::Error, R::Error>>
     where
-        K: Tapes + Send + 'static,
+        K: PieceStore + Send + 'static,
         K::Error: Send,
-        R: Tapes + Send + 'static,
+        R: PieceStore + Send + 'static,
         R::Sink: Send,
         R::Key: Send,
         R::Error: Send + Sync,
@@ -155,8 +155,8 @@ impl RfCapture {
 /// A capture of the receiver into memory, running ([RfCapture::start]).
 pub struct RfRunning<K, R>
 where
-    K: Tapes,
-    R: Tapes + Send + 'static,
+    K: PieceStore,
+    R: PieceStore + Send + 'static,
     R::Sink: Send,
     R::Key: Send,
     R::Error: Send + Sync,
@@ -166,8 +166,8 @@ where
 
 impl<K, R> RfRunning<K, R>
 where
-    K: Tapes,
-    R: Tapes + Send + 'static,
+    K: PieceStore,
+    R: PieceStore + Send + 'static,
     R::Sink: Send,
     R::Key: Send,
     R::Error: Send + Sync,
@@ -258,7 +258,7 @@ pub fn kept_track(clock: ClockNum) -> TrackSpec<'static> {
 /// A channel as the analyser reads and reports it.
 struct Channel<R>
 where
-    R: Tapes + Send + 'static,
+    R: PieceStore + Send + 'static,
     R::Sink: Send,
     R::Key: Send,
     R::Error: Send + Sync,
@@ -276,7 +276,7 @@ where
 /// burst and pushes its results.
 pub struct Bursts<R>
 where
-    R: Tapes + Send + 'static,
+    R: PieceStore + Send + 'static,
     R::Sink: Send,
     R::Key: Send,
     R::Error: Send + Sync,
@@ -291,7 +291,7 @@ where
 
 impl<R> Bursts<R>
 where
-    R: Tapes + Send + 'static,
+    R: PieceStore + Send + 'static,
     R::Sink: Send,
     R::Key: Send,
     R::Error: Send + Sync,
@@ -357,7 +357,7 @@ where
 /// Push burst `b` into its channel's `bursts`.
 fn push<R>(handle: &mut EventsHandle<R>, b: &Burst) -> Result<(), MuxError<R::Error>>
 where
-    R: Tapes + Send + 'static,
+    R: PieceStore + Send + 'static,
     R::Sink: Send,
     R::Key: Send,
     R::Error: Send + Sync,
@@ -373,14 +373,14 @@ where
 
 impl<R> Analyser for Bursts<R>
 where
-    R: Tapes + Send + 'static,
+    R: PieceStore + Send + 'static,
     R::Sink: Send,
     R::Key: Send,
     R::Error: Send + Sync,
 {
     type Error = LookError<WidebandError<MemError>, R::Error>;
 
-    fn look(&mut self, _seq: u64, piece: &TapeReader<MemTape>) -> Result<bool, Self::Error> {
+    fn look(&mut self, _seq: u64, piece: &TapeReader<MemPiece>) -> Result<bool, Self::Error> {
         let mut hit = false;
         for c in &mut self.channels {
             // --8<-- [start:detect]
@@ -410,7 +410,7 @@ where
         Ok(hit)
     }
 
-    fn kept(&mut self, seq: u64, piece: &TapeReader<MemTape>) -> Result<(), Self::Error> {
+    fn kept(&mut self, seq: u64, piece: &TapeReader<MemPiece>) -> Result<(), Self::Error> {
         self.kept
             .note(seq, piece)
             .map_err(|e| LookError::Piece(e.into()))

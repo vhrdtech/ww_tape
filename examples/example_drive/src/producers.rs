@@ -7,7 +7,7 @@ use std::thread;
 use shrink_wrap::prelude::*;
 use ww_tape::{
     BlockKind, ChainOptions, ChainPiece, ClockNum, ClockOrigin, ClockSpec, EventsDef, FileBlocks,
-    Items, Magnitude, MemTapes, OwnerId, Ratio64, Recovery, Segment, SeriesDef, TrackKind,
+    Items, Magnitude, MemPieces, OwnerId, Ratio64, Recovery, Segment, SeriesDef, TrackKind,
     TrackNum, TrackRepeat, TrackSpec, clock_key, track_key,
 };
 use ww_tape_mux::{Event, EventsOptions, MuxOptions, SeriesOptions, TapeMux};
@@ -88,7 +88,7 @@ pub struct Counts {
 /// # Errors
 ///
 /// A piece `tapes` doesn't hold, or whose bytes don't read.
-pub fn pieces_of(tapes: &MemTapes, closed: &[ChainPiece<u64>]) -> Result<Vec<Vec<u8>>, Error> {
+pub fn pieces_of(tapes: &MemPieces, closed: &[ChainPiece<u64>]) -> Result<Vec<Vec<u8>>, Error> {
     closed
         .iter()
         .map(|p| {
@@ -139,7 +139,7 @@ pub fn read_back(
 ///
 /// A mux or handle call that failed.
 pub fn threads() -> Result<Counts, Error> {
-    let tapes = MemTapes::new();
+    let tapes = MemPieces::new();
     let mux = TapeMux::create(
         tapes.clone(),
         OWNER,

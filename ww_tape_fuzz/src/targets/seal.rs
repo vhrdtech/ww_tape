@@ -1,4 +1,4 @@
-//! `MemTapes::seal` of a closed piece or chain written at a level below Full, mutated by the input. It never panics.
+//! `MemPieces::seal` of a closed piece or chain written at a level below Full, mutated by the input. It never panics.
 //! Unmutated, the sealed tape is the one a writer of Full writes from the same calls. Mutated, a seal refuses and
 //! leaves the tape as it was, leaves a tape of Full pieces as it is, or gives a tape whose pieces are all of Full and
 //! verify.
@@ -10,7 +10,7 @@ use std::sync::OnceLock;
 
 use ww_tape::piece::{CloseReason, OwnerId, PieceHead, PieceId, PieceIdent};
 use ww_tape::{
-    ChainOptions, Integrity, MemSink, MemTapes, PieceChain, SessionTag, TapeReader, TapeSink,
+    ChainOptions, Integrity, MemPieces, MemSink, PieceChain, SessionTag, TapeReader, TapeSink,
     TapeWriter,
 };
 
@@ -62,7 +62,7 @@ fn piece(aligned: bool, level: Integrity) -> Vec<u8> {
     let tape = w.sink().tape();
     w.close_with_summary(CloseReason::Closed, b"seal")
         .expect("a piece closes");
-    let mem = MemTapes::new();
+    let mem = MemPieces::new();
     let mut sink = mem.create(&0).expect("a new tape");
     sink.write_all(&tape.to_vec().expect("the bytes"))
         .expect("memory takes the bytes");
@@ -87,7 +87,7 @@ fn piece(aligned: bool, level: Integrity) -> Vec<u8> {
 /// A chain of `level` in one tape: chunks and records over several pieces, closed.
 fn chain(aligned: bool, level: Integrity) -> Vec<u8> {
     let o: ChainOptions = chain_options(aligned, level);
-    let mut c = PieceChain::create_on(MemTapes::new(), OwnerId([1; 32]), 0, &[], o)
+    let mut c = PieceChain::create_on(MemPieces::new(), OwnerId([1; 32]), 0, &[], o)
         .expect("a chain starts");
     let (defs, on) = template_definitions();
     for k in 0..7 {
@@ -95,7 +95,7 @@ fn chain(aligned: bool, level: Integrity) -> Vec<u8> {
         chain_records(&mut c, &defs, on, k);
         chain_chunk(&mut c, &defs, on, 1, k);
     }
-    let mem = c.tapes().clone();
+    let mem = c.store().clone();
     c.close().expect("a chain closes");
     mem.get(&0)
         .expect("memory")
@@ -126,7 +126,7 @@ pub fn seal(data: &[u8]) {
         let at = usize::from(u16::from_le_bytes([*lo, *hi])) % bytes.len();
         bytes[at] ^= bits;
     }
-    let mem = MemTapes::new();
+    let mem = MemPieces::new();
     let mut sink = match mode & 8 != 0 {
         true => mem.create_whole(&0),
         false => mem.create(&0),

@@ -1,7 +1,7 @@
 //! The longest a reader of a memory piece waits while the piece is written: a writer appends `--piece-mib` MiB in
 //! 64 KiB blocks to a `MemSink`, a reader reads 4 KiB at the start of it every few µs and times each `read_at`.
 //! Prints a Markdown table of the worst and the 99.9th percentile wait, with and without `TapeSink::reserve` of the
-//! piece's size up front (what `PieceChain` does for a `MemTapes` piece), the worst of `--rounds` rounds each, with
+//! piece's size up front (what `PieceChain` does for a `MemPieces` piece), the worst of `--rounds` rounds each, with
 //! the load average before and after each table.
 #![allow(
     clippy::arithmetic_side_effects,

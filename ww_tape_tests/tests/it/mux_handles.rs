@@ -16,7 +16,7 @@ use ww_tape::samples::Samples;
 use ww_tape::times::{EncodedRelation, EncodedTimes, EventTimes, RelationColumn};
 use ww_tape::{
     BlockKind, ChainOptions, ClockNum, ClockOrigin, ClockSpec, ColumnKind, CutPolicy, Definitions,
-    Element, ElementDesc, Ends, EventsDef, ItemNum, Items, MemTapes, OwnerId, PieceChain,
+    Element, ElementDesc, Ends, EventsDef, ItemNum, Items, MemPieces, OwnerId, PieceChain,
     PieceTapes, Ratio64, RelationDef, RelationIndex, RelationValues, SeriesDef, SeriesGrid,
     SyncPolicy, TapeReader, TrackId, TrackKind, TrackNum, TrackRepeat, TrackSpec, WriterOptions,
     clock_key, track_key,
@@ -219,7 +219,7 @@ fn read_events(pieces: &[Vec<u8>], def: &ww_tape::TrackDef<'_>) -> (Vec<Item>, V
 #[test]
 fn events_handles_write_instants_spans_flags_and_relations() {
     const ITEMS: u64 = 20_000;
-    let mem = MemTapes::new();
+    let mem = MemPieces::new();
     let mux = TapeMux::create(
         mem.clone(),
         OWNER,
@@ -278,7 +278,7 @@ fn events_handles_write_instants_spans_flags_and_relations() {
 fn an_events_handle_refuses_bad_items() {
     use ww_tape_mux::{CallError, ItemError, MuxError};
     let mux = TapeMux::create(
-        MemTapes::new(),
+        MemPieces::new(),
         OWNER,
         0,
         &[],
@@ -326,7 +326,7 @@ fn an_events_handle_refuses_bad_items() {
 /// The bytes the items of [item] track `k` write through a chain directly, with the item tree of each piece
 /// ended before each cut: what one events handle writes through the mux.
 fn direct_events(k: u32, items: u64, chunk_items: u64, codec: PayloadCodec) -> Vec<Vec<u8>> {
-    let mem = MemTapes::new();
+    let mem = MemPieces::new();
     let mut defs = Definitions::new();
     let c = defs.define_clock(clock()).unwrap();
     let track = defs.define_track(events_track(k, c)).unwrap();
@@ -408,7 +408,7 @@ fn one_events_handle_writes_the_bytes_of_a_chain_written_directly() {
         (2, PayloadCodec::Raw),
         (2, PayloadCodec::LZ4),
     ] {
-        let mem = MemTapes::new();
+        let mem = MemPieces::new();
         let mux = TapeMux::create(
             mem.clone(),
             OWNER,
@@ -455,7 +455,7 @@ fn one_events_handle_writes_the_bytes_of_a_chain_written_directly() {
 #[test]
 fn an_events_handle_refuses_an_unknown_payload_codec() {
     let mux = TapeMux::create(
-        MemTapes::new(),
+        MemPieces::new(),
         OWNER,
         0,
         &[],
@@ -476,7 +476,7 @@ fn an_events_handle_refuses_an_unknown_payload_codec() {
 /// The pieces one events handle writes for the first `items` items of [item] track `k`, cut at `chunk_items` items
 /// and `chunk_bytes` payload bytes: pushed one by one when `batches` is empty, else in batches of those lengths.
 fn events_pieces(k: u32, items: u64, chunk_bytes: u32, batches: &[usize]) -> Vec<Vec<u8>> {
-    let mem = MemTapes::new();
+    let mem = MemPieces::new();
     let mux = TapeMux::create(
         mem.clone(),
         OWNER,
@@ -555,7 +555,7 @@ fn events_pushed_in_batches_write_the_bytes_of_items_one_by_one() {
 #[test]
 fn a_batch_takes_the_items_before_a_refused_one() {
     use ww_tape_mux::{CallError, ItemError, MuxError};
-    let mem = MemTapes::new();
+    let mem = MemPieces::new();
     let mux = TapeMux::create(
         mem.clone(),
         OWNER,
@@ -646,7 +646,7 @@ fn a_batch_takes_the_items_before_a_refused_one() {
 #[test]
 fn a_series_handle_writes_samples_and_their_summaries() {
     const FRAMES: usize = 300_000;
-    let mem = MemTapes::new();
+    let mem = MemPieces::new();
     let mux = TapeMux::create(
         mem.clone(),
         OWNER,
@@ -746,7 +746,7 @@ fn a_series_handle_writes_samples_and_their_summaries() {
 #[test]
 fn a_quiet_handles_chunk_is_completed_by_its_latency() {
     let mux = TapeMux::create(
-        MemTapes::new(),
+        MemPieces::new(),
         OWNER,
         0,
         &[],
@@ -784,7 +784,7 @@ fn a_quiet_handles_chunk_is_completed_by_its_latency() {
 fn latency_completes_under_load_lose_nothing() {
     const PRODUCERS: u32 = 8;
     const ITEMS: u64 = 3_000;
-    let mem = MemTapes::new();
+    let mem = MemPieces::new();
     let mux = TapeMux::create(
         mem.clone(),
         OWNER,

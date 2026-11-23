@@ -141,7 +141,7 @@ fn chunk_block(id: ww_tape::BlockId, t: u64, k: u64) -> Vec<u8> {
 /// chunks, two per piece.
 #[test]
 fn a_chain_cuts_before_a_chunk_passed_on_whole() {
-    use ww_tape::{BlockId, Layout, MemTapes, PieceChain, SessionTag};
+    use ww_tape::{BlockId, Layout, MemPieces, PieceChain, SessionTag};
 
     let options = ChainOptions {
         cut: CutPolicy {
@@ -152,7 +152,7 @@ fn a_chain_cuts_before_a_chunk_passed_on_whole() {
     };
     let producer = BlockId::new(SessionTag::random(), 1);
     for how in ["relay", "adopt", "write"] {
-        let mem = MemTapes::new();
+        let mem = MemPieces::new();
         let mut chain =
             PieceChain::create_on(mem.clone(), OwnerId([0xd9; 32]), 0, &[], options.clone())
                 .unwrap();

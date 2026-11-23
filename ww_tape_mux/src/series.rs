@@ -11,7 +11,8 @@ use ww_tape::flag_runs::FlagRunsBuilder;
 use ww_tape::samples::{Sample, Samples, Scalar as ScalarKind, encode, max_encoded_len};
 use ww_tape::{
     BlockKind, ChunkHead, Codec, ColumnKind, ColumnSpec, Describe, EndMode, FlagRuns, ItemNum,
-    Ratio64, SampleError, SampleShape, SeriesError, SeriesGrid, Tapes, TrackDef, TrackId, TrackNum,
+    PieceStore, Ratio64, SampleError, SampleShape, SeriesError, SeriesGrid, TrackDef, TrackId,
+    TrackNum,
 };
 use ww_tape_summary::{BuildError, Scalar, SeriesLeaf, SeriesLeaves, SeriesSummarySpec};
 
@@ -243,14 +244,14 @@ impl<S: Scalar + Sample + Send> Encoder for SeriesChunk<S> {
 /// [FLAG_RUNS_MAX](ww_tape::flag_runs::FLAG_RUNS_MAX) ([Self::push_flagged]), by [Self::complete], and by the writing
 /// thread when its first sample waited [SeriesOptions::latency]. Dropping the handle completes and sends the open
 /// chunk; [Self::finish] does so and returns the error.
-pub struct SeriesHandle<T: Tapes, S: Scalar + Sample + Send + 'static> {
+pub struct SeriesHandle<T: PieceStore, S: Scalar + Sample + Send + 'static> {
     s: Sender<T>,
     open: Arc<Open<T, SeriesChunk<S>>>,
     backlog: Backlog<T>,
     track: TrackNum,
 }
 
-impl<T: Tapes, S: Scalar + Sample + Send + 'static> SeriesHandle<T, S> {
+impl<T: PieceStore, S: Scalar + Sample + Send + 'static> SeriesHandle<T, S> {
     /// What the handle does when the queue has no room.
     #[must_use]
     pub fn pressure(mut self, pressure: Pressure) -> Self {
@@ -281,7 +282,7 @@ impl<T: Tapes, S: Scalar + Sample + Send + 'static> SeriesHandle<T, S> {
 
 impl<T> TapeMux<T>
 where
-    T: Tapes + Send + 'static,
+    T: PieceStore + Send + 'static,
     T::Sink: Send,
     T::Key: Send,
     T::Error: Send + Sync,
@@ -443,7 +444,7 @@ fn series_chunk<S: Scalar + Sample>(
     }))
 }
 
-impl<T: Tapes, S: Scalar + Sample + Send + 'static> SeriesHandle<T, S>
+impl<T: PieceStore, S: Scalar + Sample + Send + 'static> SeriesHandle<T, S>
 where
     T: 'static,
     T::Error: Send + Sync,
@@ -652,7 +653,7 @@ where
     }
 }
 
-impl<T: Tapes, S: Scalar + Sample + Send + 'static> Drop for SeriesHandle<T, S> {
+impl<T: PieceStore, S: Scalar + Sample + Send + 'static> Drop for SeriesHandle<T, S> {
     /// Complete and send the open chunk and any chunk a dropped async call left, as far as the mux takes them; waits
     /// for room on this thread.
     fn drop(&mut self) {

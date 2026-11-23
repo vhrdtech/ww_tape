@@ -2,13 +2,13 @@
 //! the crate `ww_tape_fs`).
 //!
 //! A sink appends, syncs, closes and, for [TapeWriter::resume_on](crate::TapeWriter::resume_on), reads back and
-//! truncates. A store of [Tapes] makes the sink of each piece of a [PieceChain](crate::PieceChain) by its key:
-//! [MemTapes] keeps each piece in memory under its key, where a [TapeReader](crate::TapeReader) reads it while it
-//! is written ([MemTape] is a [ByteSource]); `ww_tape_fs::Files` keeps each piece in a file of a directory, under
+//! truncates. A [PieceStore] makes the sink of each piece of a [PieceChain](crate::PieceChain) by its key:
+//! [MemPieces] keeps each piece in memory under its key, where a [TapeReader](crate::TapeReader) reads it while it
+//! is written ([MemPiece] is a [ByteSource]); `ww_tape_fs::FilePieces` keeps each piece in a file of a directory, under
 //! its final name from the start: whether it is closed is read from its bytes.
 //!
-//! A chain may also keep all its pieces in one file or memory tape ([Tapes::create_whole],
-//! [Tapes::open_whole]): the writer of the next piece goes on in the same sink, whose window
+//! A chain may also keep all its pieces in one file or memory tape ([PieceStore::create_whole],
+//! [PieceStore::open_whole]): the writer of the next piece goes on in the same sink, whose window
 //! ([TapeSink::base], [TapeSink::rebase]) starts where the piece before ended, so offsets, reads and truncates count
 //! from the piece's start as in a file of its own.
 //!
@@ -24,11 +24,11 @@ mod mem;
 #[cfg(feature = "std")]
 mod segments;
 #[cfg(feature = "std")]
-pub use mem::{MemError, MemSink, MemTape, MemTapes};
+pub use mem::{MemError, MemPiece, MemPieces, MemSink};
 
 /// Where a [TapeWriter](crate::TapeWriter) appends its bytes.
 pub trait TapeSink {
-    /// Why an operation failed, or the sink's store refused ([Tapes::Error]).
+    /// Why an operation failed, or the sink's store refused ([PieceStore::Error]).
     type Error: core::error::Error + 'static;
 
     /// Append `bytes` at the end.
@@ -60,7 +60,7 @@ pub trait TapeSink {
         0
     }
 
-    /// Whether the sink holds pieces back to back ([Tapes::create_whole], [Tapes::open_whole], a file
+    /// Whether the sink holds pieces back to back ([PieceStore::create_whole], [PieceStore::open_whole], a file
     /// appended to in place), so a writer may cut in place ([TapeWriter::cut_in_place](crate::TapeWriter::cut_in_place)).
     /// A sink of one piece (a new file of its own, a piece of a chain of files) doesn't.
     fn holds_pieces(&self) -> bool {
@@ -104,11 +104,11 @@ pub fn check_base(base: u64, whole: u64, pieces: bool) -> Result<u64, BaseRefuse
     Ok(base)
 }
 
-/// A store of tapes by key: makes the tape of each piece of a [PieceChain](crate::PieceChain), reopens one to
-/// write on and reads a closed one.
+/// A store of pieces by key: makes the sink of each piece of a [PieceChain](crate::PieceChain), reopens one to
+/// write on and reads a closed one; under one key it may also keep every piece of a chain back to back.
 ///
-/// A store keeps one writer per tape: a second sink of a tape a sink holds is refused.
-pub trait Tapes {
+/// A store keeps one writer per key: a second sink of bytes a sink holds is refused.
+pub trait PieceStore {
     /// What names a tape in the store.
     type Key: Ord + Clone + core::fmt::Debug;
     /// Why an operation failed or was refused: the tape is there already, another writer holds it.

@@ -1272,8 +1272,8 @@ two checkpoints, the final index, the close with its padding, and the 164-byte t
 <code>ww_tape_figures</code> from a small piece that <code>PieceChain</code> wrote.</figcaption>
 </figure>
 
-`ww_tape::PieceChain` writes the pieces as `dir/00000000.wwt`, `00000001.wwt` and so on, through `ww_tape_fs::Files`. It
-cuts before a chunk by size, chunk count or age (`CutPolicy`).
+`ww_tape::PieceChain` writes the pieces as `dir/00000000.wwt`, `00000001.wwt` and so on, through
+`ww_tape_fs::FilePieces`. It cuts before a chunk by size, chunk count or age (`CutPolicy`).
 
 `TapeWriter::cut_with` cuts by hand.
 
@@ -1507,7 +1507,7 @@ the head of the next piece starts that piece again.
 
 The resume refuses a last piece whose head is damaged, with `WriteError::Index`. Keeping its blocks would leave them
 outside the chain, and dropping them would lose more than a torn end. A chain kept in memory from which
-`MemTapes::remove` took pieces, or whose front `MemTapes::drop_front` dropped, is not resumed.
+`MemPieces::remove` took pieces, or whose front `MemPieces::drop_front` dropped, is not resumed.
 
 ### 9.7 Monotone relations after a resume {#monotone-relations-after-a-resume}
 

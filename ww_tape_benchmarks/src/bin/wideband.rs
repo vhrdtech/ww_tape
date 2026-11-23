@@ -24,10 +24,10 @@ use example_wideband::ram::RfCapture;
 use example_wideband::{RATE_HZ, Source, Wideband, overview};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
-use ww_tape::{Codec, MemTapes, OwnerId, Tapes};
+use ww_tape::{Codec, MemPieces, OwnerId, PieceStore};
 use ww_tape_bench::{Bench, Cell, Common, Discard, cpu_time};
 use ww_tape_benchmarks::{TRIAGE_COLUMNS, WINDOW_COLUMNS, WindowRun, triage_row, window_row};
-use ww_tape_fs::{FileSource, Files};
+use ww_tape_fs::{FilePieces, FileSource};
 use ww_tape_mux::{MuxOptions, TapeMux};
 
 #[derive(Parser)]
@@ -90,7 +90,7 @@ fn run<T>(
     start: Instant,
 ) -> anyhow::Result<Run>
 where
-    T: Tapes + Send + 'static,
+    T: PieceStore + Send + 'static,
     T::Sink: Send,
     T::Key: Send,
     T::Error: Send + Sync + core::fmt::Debug,
@@ -282,7 +282,7 @@ fn windows(args: &Args, bench: &mut Bench) -> anyhow::Result<()> {
         ..full
     };
     let source = replayed.wb.replay(args.replay_chunks);
-    let r = window_run(&replayed, source, MemTapes::new(), mem_results()?)?;
+    let r = window_run(&replayed, source, MemPieces::new(), mem_results()?)?;
     rows("memory", "replayed", args.ms, &r);
     let live = RfCapture {
         wb: full.wb.ms(args.live_ms),
@@ -307,12 +307,12 @@ fn windows(args: &Args, bench: &mut Bench) -> anyhow::Result<()> {
                 MuxOptions::default(),
             )
             .map_err(err)?;
-            let r = window_run(&live, Source::Live, Files::new(&kept_dir), results)?;
+            let r = window_run(&live, Source::Live, FilePieces::new(&kept_dir), results)?;
             rows("piece files", "live", args.live_ms, &r);
             std::fs::remove_dir_all(dir)?;
         }
         None => {
-            let r = window_run(&live, Source::Live, MemTapes::new(), mem_results()?)?;
+            let r = window_run(&live, Source::Live, MemPieces::new(), mem_results()?)?;
             rows("memory", "live", args.live_ms, &r);
         }
     }
@@ -322,9 +322,9 @@ fn windows(args: &Args, bench: &mut Bench) -> anyhow::Result<()> {
 }
 
 /// A mux of the analyser's results in memory.
-fn mem_results() -> anyhow::Result<TapeMux<MemTapes>> {
+fn mem_results() -> anyhow::Result<TapeMux<MemPieces>> {
     TapeMux::create(
-        MemTapes::new(),
+        MemPieces::new(),
         RESULTS_OWNER,
         0,
         &[],
@@ -342,9 +342,9 @@ fn window_run<K, R>(
     results: TapeMux<R>,
 ) -> anyhow::Result<WindowRun>
 where
-    K: Tapes + Send + 'static,
+    K: PieceStore + Send + 'static,
     K::Error: Send + core::fmt::Debug,
-    R: Tapes + Send + 'static,
+    R: PieceStore + Send + 'static,
     R::Sink: Send,
     R::Key: Send,
     R::Error: Send + Sync + core::fmt::Debug,

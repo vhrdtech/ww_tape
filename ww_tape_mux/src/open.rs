@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex, TryLockError, Weak};
 use std::time::{Duration, Instant};
 
 use ww_tape::chunk::ChunkHead;
-use ww_tape::{ColumnSpec, Tapes};
+use ww_tape::{ColumnSpec, PieceStore};
 
 use crate::error::EncodeError;
 use crate::queue::lock;
@@ -38,7 +38,7 @@ pub(crate) trait Encoder: Send {
 }
 
 /// An open chunk the writing thread may complete.
-pub(crate) trait Complete<T: Tapes>: Send + Sync {
+pub(crate) trait Complete<T: PieceStore>: Send + Sync {
     /// When its latency is up, in nanoseconds from the mux's epoch; None while it holds no item.
     fn due_ns(&self) -> Option<u64>;
     /// Complete it and hand the unit to `out` while the chunk is still held, so the unit is queued before any later
@@ -48,7 +48,7 @@ pub(crate) trait Complete<T: Tapes>: Send + Sync {
 }
 
 /// A handle's open chunk, shared with the writing thread.
-pub(crate) struct Open<T: Tapes, E> {
+pub(crate) struct Open<T: PieceStore, E> {
     pub encoder: Mutex<E>,
     /// One past the deadline in nanoseconds from the epoch; 0 while empty
     due: AtomicU64,
@@ -58,7 +58,7 @@ pub(crate) struct Open<T: Tapes, E> {
     shared: Weak<Shared<T>>,
 }
 
-impl<T: Tapes + 'static, E: Encoder + 'static> Open<T, E>
+impl<T: PieceStore + 'static, E: Encoder + 'static> Open<T, E>
 where
     T::Error: Send + Sync,
     T::Key: Send,
@@ -104,7 +104,7 @@ where
     }
 }
 
-impl<T: Tapes, E: Encoder> Open<T, E> {
+impl<T: PieceStore, E: Encoder> Open<T, E> {
     /// Complete `encoder`, held by the caller: the unit and the bytes it takes of the queue's budget.
     pub(crate) fn complete_locked(
         &self,
@@ -135,7 +135,7 @@ impl<T: Tapes, E: Encoder> Open<T, E> {
     }
 }
 
-impl<T: Tapes + 'static, E: Encoder + 'static> Complete<T> for Open<T, E>
+impl<T: PieceStore + 'static, E: Encoder + 'static> Complete<T> for Open<T, E>
 where
     T::Error: Send + Sync,
     T::Key: Send,
@@ -182,7 +182,7 @@ where
 }
 
 /// The earliest deadline of an open chunk, as an instant.
-pub(crate) fn next_due<T: Tapes>(shared: &Shared<T>) -> Option<Instant> {
+pub(crate) fn next_due<T: PieceStore>(shared: &Shared<T>) -> Option<Instant> {
     let ns = lock(&shared.open_chunks)
         .iter()
         .filter_map(|w| w.upgrade()?.due_ns())
@@ -192,7 +192,7 @@ pub(crate) fn next_due<T: Tapes>(shared: &Shared<T>) -> Option<Instant> {
 
 /// Complete the open chunks whose latency is up at `now`, each unit handed to `out` while its chunk is held; with
 /// `all`, every open chunk, waiting for its producer.
-pub(crate) fn complete_due<T: Tapes>(
+pub(crate) fn complete_due<T: PieceStore>(
     shared: &Shared<T>,
     now: Instant,
     all: bool,

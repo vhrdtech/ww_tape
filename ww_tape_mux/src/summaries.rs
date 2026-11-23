@@ -14,8 +14,8 @@ use shrink_wrap::DeserializeShrinkWrap;
 use ww_tape::chunk::ChunkHead;
 use ww_tape::index::IndexEntry;
 use ww_tape::{
-    Block, BlockKind, Definitions, Describe, FromFile, ItemNum, MAX_BLOCK_LEN, PieceChain, Ratio64,
-    SampleShape, Slot, TapeSink, Tapes, TrackId, TrackNum, WriteError,
+    Block, BlockKind, Definitions, Describe, FromFile, ItemNum, MAX_BLOCK_LEN, PieceChain,
+    PieceStore, Ratio64, SampleShape, Slot, TapeSink, TrackId, TrackNum, WriteError,
 };
 use ww_tape_summary::{
     BuildError, EventFields, EventTree, ItemRun, SeriesLeaf, SeriesStart, SeriesSummarySpec,
@@ -136,7 +136,7 @@ impl Trees {
     /// back and added as its handle added it. The kept summary blocks are not deferred again; those lost are, in the
     /// order they were made. Before anything else is written after the resume. The chunks whose summaries didn't
     /// fit their tree, refused.
-    pub(crate) fn rebuild<T: Tapes>(
+    pub(crate) fn rebuild<T: PieceStore>(
         &mut self,
         chain: &mut PieceChain<T>,
         defs: &Definitions,
@@ -188,7 +188,7 @@ impl Trees {
     }
 
     /// Defer the summary blocks `blocks` into the piece, but those the piece kept at a resume.
-    fn defer<T: Tapes>(
+    fn defer<T: PieceStore>(
         &mut self,
         chain: &mut PieceChain<T>,
         defs: &Definitions,
@@ -214,7 +214,7 @@ impl Trees {
     }
 
     /// End every tree: their last blocks deferred into the piece. Before every cut and the close.
-    pub(crate) fn end<T: Tapes>(
+    pub(crate) fn end<T: PieceStore>(
         &mut self,
         chain: &mut PieceChain<T>,
         defs: &Definitions,
@@ -234,7 +234,7 @@ impl Trees {
     ///
     /// The trees are of one piece. The mux ends them before each cut it makes; a cut the chain made inside a write
     /// (a piece out of room for its state entries) ends them here, their last blocks then in the next piece.
-    pub(crate) fn add<T: Tapes>(
+    pub(crate) fn add<T: PieceStore>(
         &mut self,
         chain: &mut PieceChain<T>,
         defs: &Definitions,

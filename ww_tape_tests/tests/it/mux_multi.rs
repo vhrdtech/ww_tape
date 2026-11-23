@@ -12,9 +12,9 @@ use ww_tape::summary::{SeriesStats, SeriesSummarySpec};
 use ww_tape::times::EventTimes;
 use ww_tape::{
     BlockKind, ChainOptions, ClockNum, ClockOrigin, ClockSpec, ColumnKind, CutPolicy, Element,
-    ElementDesc, EventsDef, ItemNum, Items, MemTapes, OwnerId, PieceTapes, Ratio64, SampleShape,
-    SeriesDef, SyncPolicy, TapeReader, TapeSink, Tapes, TrackId, TrackKind, TrackNum, TrackRepeat,
-    TrackSpec, WriterOptions, clock_key, track_key,
+    ElementDesc, EventsDef, ItemNum, Items, MemPieces, OwnerId, PieceStore, PieceTapes, Ratio64,
+    SampleShape, SeriesDef, SyncPolicy, TapeReader, TapeSink, TrackId, TrackKind, TrackNum,
+    TrackRepeat, TrackSpec, WriterOptions, clock_key, track_key,
 };
 use ww_tape_mux::{EventsOptions, MuxOptions, SeriesOptions, TapeMux};
 
@@ -135,7 +135,7 @@ struct Tracks {
 
 fn define<T>(samples: &TapeMux<T>, events: &TapeMux<T>) -> Tracks
 where
-    T: Tapes + Send + 'static,
+    T: PieceStore + Send + 'static,
     T::Sink: Send,
     T::Key: Send,
     T::Error: Send + Sync + std::fmt::Debug,
@@ -164,7 +164,7 @@ fn write<T>(
     series: &[(u64, u64)],
     events: &[(u64, u64)],
 ) where
-    T: Tapes + Send + Sync + 'static,
+    T: PieceStore + Send + Sync + 'static,
     T::Sink: Send,
     T::Key: Send,
     T::Error: Send + Sync + std::fmt::Debug,
@@ -220,7 +220,7 @@ fn write<T>(
 }
 
 /// The bytes of pieces 0, 1, ... of `mem`, while there are any.
-pub(crate) fn pieces(mem: &MemTapes) -> Vec<Vec<u8>> {
+pub(crate) fn pieces(mem: &MemPieces) -> Vec<Vec<u8>> {
     (0..)
         .map_while(|seq| mem.get(&seq).unwrap())
         .map(|t| t.to_vec().unwrap())
@@ -228,8 +228,8 @@ pub(crate) fn pieces(mem: &MemTapes) -> Vec<Vec<u8>> {
 }
 
 /// A store holding the closed pieces `done` and the start `open` of the next, unclosed.
-pub(crate) fn plant(done: &[Vec<u8>], open: &[u8]) -> MemTapes {
-    let mem = MemTapes::new();
+pub(crate) fn plant(done: &[Vec<u8>], open: &[u8]) -> MemPieces {
+    let mem = MemPieces::new();
     for (j, w) in done.iter().enumerate() {
         let mut s = mem.create(&(j as u64)).unwrap();
         s.write_all(w).unwrap();
@@ -324,7 +324,7 @@ pub(crate) fn next_item(done: &[Vec<u8>], entries: &[IndexEntry], id: TrackId) -
 /// Write the first part of both chains and crash: both muxes dropped unclosed, as the process ends. The pieces of
 /// each chain, the last unclosed.
 fn crashed() -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
-    let (a, b) = (MemTapes::new(), MemTapes::new());
+    let (a, b) = (MemPieces::new(), MemPieces::new());
     let samples = TapeMux::create(
         a.clone(),
         OWNER,

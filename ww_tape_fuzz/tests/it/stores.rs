@@ -2,8 +2,8 @@
 
 use std::path::{Path, PathBuf};
 
-use ww_tape::MemTapes;
-use ww_tape_fs::Files;
+use ww_tape::MemPieces;
+use ww_tape_fs::FilePieces;
 use ww_tape_fuzz::stores::{ModelStore, OPS_MAX, run};
 
 /// xorshift64: the same inputs on every run.
@@ -32,7 +32,7 @@ impl FileStore {
     }
 
     fn path(&self, key: u64) -> PathBuf {
-        Files::new(&self.0).path_of(key)
+        FilePieces::new(&self.0).path_of(key)
     }
 }
 
@@ -43,10 +43,10 @@ impl Drop for FileStore {
 }
 
 impl ModelStore for FileStore {
-    type Tapes = Files;
+    type Store = FilePieces;
 
-    fn tapes(&self) -> Files {
-        Files::new(&self.0)
+    fn piece_store(&self) -> FilePieces {
+        FilePieces::new(&self.0)
     }
 
     fn keys(&self) -> Vec<u64> {
@@ -75,7 +75,7 @@ fn files_keep_the_model_as_memory_does() {
         let mut data = input(0x000f_11e5 + seed, 80);
         data[0] = seed as u8 & 3;
         let files = run(FileStore::new(&seed.to_string()), &data);
-        let mem = run(MemTapes::new(), &data);
+        let mem = run(MemPieces::new(), &data);
         if data[0] & 1 == 0 || mem.gone == 0 {
             assert_eq!(files, mem, "seed {seed}");
         }
@@ -89,7 +89,7 @@ fn memory_tapes_keep_the_model() {
     for seed in 0..64u64 {
         let mut data = input(0x0057_07e5 + seed, 120);
         data[0] = seed as u8 & 3;
-        let got = run(MemTapes::new(), &data);
+        let got = run(MemPieces::new(), &data);
         cut[usize::from(data[0] & 1)] += usize::from(got.gone > 0 && !got.pieces.is_empty());
     }
     assert!(

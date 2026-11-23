@@ -27,7 +27,7 @@
 //!
 //! ```
 //! let link = example_ethernet::Link::full().micros(200);
-//! let tapes = ww_tape::MemTapes::new();
+//! let tapes = ww_tape::MemPieces::new();
 //! let mux = ww_tape_mux::TapeMux::create(
 //!     tapes.clone(),
 //!     ww_tape::OwnerId([0xe7; 32]),
@@ -59,8 +59,8 @@ use ww_tape::OwnerId;
 use ww_tape::payloads::{PayloadCodec, Payloads};
 use ww_tape::times::{EventTimes, RelationColumn, StoredRelations};
 use ww_tape::{
-    BlockKind, ClockNum, ClockOrigin, ClockSpec, Ends, EventsDef, Items, Magnitude, MemTapes,
-    RelationDef, RelationIndex, RelationTarget, RelationValues, Segment, TapeReader, Tapes,
+    BlockKind, ClockNum, ClockOrigin, ClockSpec, Ends, EventsDef, Items, Magnitude, MemPieces,
+    PieceStore, RelationDef, RelationIndex, RelationTarget, RelationValues, Segment, TapeReader,
     TrackId, TrackKey, TrackKind, TrackNum, TrackRepeat, TrackSpec, clock_key, track_key,
 };
 use ww_tape_mux::{Event, EventsOptions, MuxError, MuxOptions, TapeMux};
@@ -229,7 +229,7 @@ impl Link {
     /// A setting the capture can't be made with, or a mux or handle call that failed.
     pub fn record<T>(&self, muxes: &[&TapeMux<T>]) -> Result<Captured, EthError<T::Error>>
     where
-        T: Tapes + Send + 'static,
+        T: PieceStore + Send + 'static,
         T::Sink: Send,
         T::Key: Send,
         T::Error: Send + Sync,
@@ -282,7 +282,7 @@ impl Link {
         (to_decoder, from_decoder): &(mpsc::SyncSender<Batch>, mpsc::Receiver<Batch>),
     ) -> Result<Sent, EthError<T::Error>>
     where
-        T: Tapes + Send + 'static,
+        T: PieceStore + Send + 'static,
         T::Sink: Send,
         T::Key: Send,
         T::Error: Send + Sync,
@@ -347,7 +347,7 @@ fn decode_rx<T>(
     to_capture: &mpsc::SyncSender<Batch>,
 ) -> Result<(u64, u64), EthError<T::Error>>
 where
-    T: Tapes + Send + 'static,
+    T: PieceStore + Send + 'static,
     T::Sink: Send,
     T::Key: Send,
     T::Error: Send + Sync,
@@ -954,7 +954,7 @@ pub fn frames_id(rx: Rx) -> TrackId {
 /// No mux, or a definition a mux refused.
 pub fn define<T>(link: &Link, muxes: &[&TapeMux<T>]) -> Result<Vec<RxTracks>, EthError<T::Error>>
 where
-    T: Tapes + Send + 'static,
+    T: PieceStore + Send + 'static,
     T::Sink: Send,
     T::Key: Send,
     T::Error: Send + Sync,
@@ -1029,7 +1029,7 @@ impl Link {
     ///
     /// A setting the capture can't be made with, or a chain that doesn't read back as written.
     pub fn sizes(&self) -> Result<Sizes, EthError<ww_tape::MemError>> {
-        let tapes = MemTapes::new();
+        let tapes = MemPieces::new();
         let mux = TapeMux::create(
             tapes.clone(),
             OWNER,

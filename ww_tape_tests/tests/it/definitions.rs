@@ -1315,7 +1315,7 @@ fn a_resumed_piece_takes_the_definitions_passed() {
     };
     let owner = OwnerId([6; 32]);
     let defs = held(&[clock(CLOCK), track(5, CLOCK), track(9, CLOCK)]);
-    let write = |c: &mut ww_tape::PieceChain<ww_tape_fs::Files>,
+    let write = |c: &mut ww_tape::PieceChain<ww_tape_fs::FilePieces>,
                  defs: &Definitions,
                  track: u32,
                  from: i64| {
@@ -1337,7 +1337,7 @@ fn a_resumed_piece_takes_the_definitions_passed() {
     write(&mut c, &defs, 9, 30);
     write(&mut c, &defs, 5, 40);
     let pieces = c.close().unwrap();
-    let bytes = std::fs::read(ww_tape_fs::Files::new(&dir).path_of(pieces[2].tape)).unwrap();
+    let bytes = std::fs::read(ww_tape_fs::FilePieces::new(&dir).path_of(pieces[2].tape)).unwrap();
     let r = TapeReader::open(&bytes[..]).unwrap();
     for b in record_blocks(&bytes)
         .iter()

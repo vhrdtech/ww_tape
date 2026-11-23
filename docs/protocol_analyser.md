@@ -78,7 +78,7 @@ therefore takes about 2.5 GB on a tape.
 ## A window in memory
 
 Memory takes the link at its line rate where a disk does not. So the analyser records into a [[chain]] of pieces kept
-in memory, a [`MemTapes`] that holds each [[piece]] apart. The [[mux]] cuts a piece every 64 MiB, about 27 ms of the
+in memory, a [`MemPieces`] that holds each [[piece]] apart. The [[mux]] cuts a piece every 64 MiB, about 27 ms of the
 link, as it does in a chain of piece files.
 
 The pieces held in memory form the **memory window**: the tape of the capture held in RAM, its newest stretch. Each
@@ -92,7 +92,7 @@ with a mux of its own and a triage thread of its own ([`RamCapture::chains`]).
 A triage thread reads each chain's window while the capture goes on. It waits on the mux's [`ProgressWatch`] and opens
 each piece as it closes, a [`TapeReader`] over the bytes in memory without a copy. The analyser decides whether the
 piece holds something worth keeping. A kept piece is copied whole to the chain's own directory of piece files, where it
-reads alone. Every other piece leaves memory unwritten ([`MemTapes::remove`]).
+reads alone. Every other piece leaves memory unwritten ([`MemPieces::remove`]).
 
 The chunks of a piece are independent, so the analyser decodes them in parallel on a rayon pool, shared by the chains'
 triages. By default the pool has 2 threads a chain ([`RamCapture::triage_threads`]). Nothing keeps the pool off the

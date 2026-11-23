@@ -29,10 +29,10 @@ use std::num::NonZeroU32;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use ww_tape::payloads::PayloadCodec;
-use ww_tape::{ChainOptions, CutPolicy, MemTapes, OwnerId, Tapes};
+use ww_tape::{ChainOptions, CutPolicy, MemPieces, OwnerId, PieceStore};
 use ww_tape_bench::{Bench, Cell, Common, Discard, cpu_time};
 use ww_tape_benchmarks::{TRIAGE_COLUMNS, WINDOW_COLUMNS, WindowRun, triage_row, window_row};
-use ww_tape_fs::Files;
+use ww_tape_fs::FilePieces;
 use ww_tape_mux::{MuxOptions, TapeMux};
 
 #[derive(Parser)]
@@ -102,7 +102,7 @@ struct Run {
 /// Record `link` through `muxes` and close them: what the run took since `start`.
 fn run<T>(link: Link, muxes: Vec<TapeMux<T>>, start: Instant) -> anyhow::Result<Run>
 where
-    T: Tapes + Send + 'static,
+    T: PieceStore + Send + 'static,
     T::Sink: Send,
     T::Key: Send,
     T::Error: Send + Sync + core::fmt::Debug,
@@ -344,9 +344,9 @@ fn windows(args: &Args, bench: &mut Bench) -> anyhow::Result<()> {
         triage.row([head.to_vec(), triage_row(r)].concat());
     };
     let in_memory = |c: &RamCapture| -> anyhow::Result<WindowRun> {
-        let kept: Vec<MemTapes> = (0..c.chains).map(|_| MemTapes::new()).collect();
+        let kept: Vec<MemPieces> = (0..c.chains).map(|_| MemPieces::new()).collect();
         let results = TapeMux::create(
-            MemTapes::new(),
+            MemPieces::new(),
             RESULTS_OWNER,
             0,
             &[],
@@ -393,7 +393,7 @@ fn windows(args: &Args, bench: &mut Bench) -> anyhow::Result<()> {
         for chain in 0..chains {
             let d = dir.join(format!("kept-{chain}"));
             std::fs::create_dir_all(&d)?;
-            kept.push(Files::new(&d));
+            kept.push(FilePieces::new(&d));
         }
         let c = capture(chains, queues, None);
         let results = ww_tape_fs::mux::create(
@@ -417,9 +417,9 @@ fn windows(args: &Args, bench: &mut Bench) -> anyhow::Result<()> {
 /// Run capture `c`, kept pieces into `kept`, results through `results`, closed after.
 fn window_run<K, R>(c: &RamCapture, kept: Vec<K>, results: TapeMux<R>) -> anyhow::Result<WindowRun>
 where
-    K: Tapes + Send + 'static,
+    K: PieceStore + Send + 'static,
     K::Error: Send + core::fmt::Debug,
-    R: Tapes + Send + 'static,
+    R: PieceStore + Send + 'static,
     R::Sink: Send,
     R::Key: Send,
     R::Error: Send + Sync + core::fmt::Debug,

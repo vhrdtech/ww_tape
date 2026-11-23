@@ -1,5 +1,5 @@
 //! What a writer costs per chunk at each integrity level (`WriterOptions::integrity`), and what sealing a piece of a
-//! lower level costs (`MemTapes::seal`): i16 series chunks of 1 and 4 MiB and events chunks of 16 KiB, into a memory
+//! lower level costs (`MemPieces::seal`): i16 series chunks of 1 and 4 MiB and events chunks of 16 KiB, into a memory
 //! tape reserved before the timer starts. Prints Markdown tables of ns per chunk, ns per byte and GB/s, the best of
 //! `--rounds` rounds, with the load average around them. The book's "When bytes go bad" draws from the report
 //! (`--json`).
@@ -19,9 +19,9 @@ use std::time::Instant;
 use ww_tape::chunk::ChunkHead;
 use ww_tape::piece::{OwnerId, PieceHead, PieceId, PieceIdent};
 use ww_tape::{
-    BlockKind, Codec, ColumnKind, ColumnSpec, Definitions, EndMode, Integrity, ItemNum, MemSink,
-    MemTapes, Segment, SessionTag, SyncPolicy, TapeSink, TapeWriter, TrackKind, TrackNum,
-    TrackSpec, track_key,
+    BlockKind, Codec, ColumnKind, ColumnSpec, Definitions, EndMode, Integrity, ItemNum, MemPieces,
+    MemSink, Segment, SessionTag, SyncPolicy, TapeSink, TapeWriter, TrackKind, TrackNum, TrackSpec,
+    track_key,
 };
 use ww_tape_bench::{Bench, Cell, Common, Measure};
 use ww_tape_benchmarks::series::{definitions, head};
@@ -157,7 +157,7 @@ fn measure(bench: &Bench, args: &Args) -> anyhow::Result<(Measure, Measure)> {
     let mut seal = bench.table(
         "seal",
         &format!(
-            "`MemTapes::seal` of a closed piece of {} MiB of chunks of each shape, to Full.",
+            "`MemPieces::seal` of a closed piece of {} MiB of chunks of each shape, to Full.",
             args.mib
         ),
         &["Chunk", "From", "ns per chunk", "ns per byte", "GB/s"],
@@ -200,7 +200,7 @@ fn measure(bench: &Bench, args: &Args) -> anyhow::Result<(Measure, Measure)> {
             }
             let mut best = f64::MAX;
             for _ in 0..args.rounds {
-                let mem = MemTapes::new();
+                let mem = MemPieces::new();
                 let mut sink = mem.create(&0).map_err(|e| anyhow::anyhow!("{e:?}"))?;
                 sink.write_all(&piece)
                     .map_err(|e| anyhow::anyhow!("{e:?}"))?;

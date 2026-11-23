@@ -8,7 +8,7 @@ use std::task::{Context, Waker};
 use std::thread;
 use std::time::Duration;
 
-use ww_tape::{ItemNum, Layout, Tapes, TrackNum};
+use ww_tape::{ItemNum, Layout, PieceStore, TrackNum};
 use ww_tape_fs::follow::{ChainFollower, FollowOptions, TrackItem};
 use ww_tape_mux::{
     ChunkSender, EventsOptions, MuxError, MuxOptions, Pressure, Progress, Sent, TapeMux,
@@ -44,7 +44,7 @@ fn pends<F: Future>(f: F) -> bool {
 }
 
 /// Track `t`'s chunk `k` ([chunk]), sent as a future.
-async fn send_chunk<T: Tapes>(
+async fn send_chunk<T: PieceStore>(
     s: &ChunkSender<T>,
     t: u64,
     k: u64,
