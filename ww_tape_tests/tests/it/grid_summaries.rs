@@ -489,6 +489,27 @@ fn a_tile_tree_started_again_mid_node_counts_once() {
     });
 }
 
+/// Tiles of two scales merge at the finer, an empty tile adds nothing, a sparse tile only its steps, and tiles
+/// ending at different steps at the piece's end give the nodes they reach.
+#[test]
+fn a_region_timeline_follows_uneven_tiles() {
+    timelines_follow_the_model(|t| {
+        let c = t.as_slice();
+        let mut p = even(t);
+        if c[0] == 1 {
+            p.scale = Magnitude::pow10(-3);
+        }
+        match (c[0], c[2]) {
+            (0, 1) => p.chunks.clear(),
+            (2, 1) => p.chunks = vec![0..20, 40..60],
+            (_, 2) => p.chunks.truncate(2),
+            (_, 3) => p.chunks = vec![0..20, 20..33],
+            _ => {}
+        }
+        p
+    });
+}
+
 /// A summary block naming a tile its grid doesn't hold, or none on a grid, is refused before it is written.
 #[test]
 fn a_tile_summary_outside_the_grid_is_refused() {
