@@ -86,8 +86,7 @@ fn piece(aligned: bool, level: Integrity) -> Vec<u8> {
 
 /// A chain of `level` in one tape: chunks and records over several pieces, closed.
 fn chain(aligned: bool, level: Integrity) -> Vec<u8> {
-    let mut o: ChainOptions = chain_options(aligned);
-    o.writer.integrity = level;
+    let o: ChainOptions = chain_options(aligned, level);
     let mut c = PieceChain::create_on(MemTapes::new(), OwnerId([1; 32]), 0, &[], o)
         .expect("a chain starts");
     let (defs, on) = template_definitions();

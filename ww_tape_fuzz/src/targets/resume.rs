@@ -9,7 +9,7 @@
 //! left closed but damaged is kept as it is: the chain starts a new piece behind it.
 //!
 //! Input: a mode byte (bit 0 aligned; bit 2 a file of several pieces; bit 1 no piece head for a single piece, the last
-//! piece closed for a file of several), a cut (u16 little endian, modulo the last piece's length + 1), then flips of
+//! piece closed for a file of several; bits 3 to 4 the pieces' level: 0 Full, 1 CrcOnly, 2 and 3 None), a cut (u16 little endian, modulo the last piece's length + 1), then flips of
 //! three bytes each (an offset, u16 little endian, modulo the cut last piece's length, and the bits to flip).
 use std::sync::OnceLock;
 use ww_tape::ItemNum;
@@ -106,9 +106,18 @@ pub(crate) fn write_chunk<S: TapeSink>(
         .expect("a chunk writes");
 }
 
-/// An unclosed piece: rounds of chunks, records and deferred records, a clock and a track defined after half of
-/// them; the writer puts the definitions each block needs before it.
-fn template(aligned: bool, head: bool) -> Vec<u8> {
+/// The level of mode bits 3 to 4.
+pub(crate) fn level(mode: u8) -> ww_tape::Integrity {
+    match (mode >> 3) & 3 {
+        0 => ww_tape::Integrity::Full,
+        1 => ww_tape::Integrity::CrcOnly,
+        _ => ww_tape::Integrity::None,
+    }
+}
+
+/// An unclosed piece of `level`: rounds of chunks, records and deferred records, a clock and a track defined after
+/// half of them; the writer puts the definitions each block needs before it.
+fn template(aligned: bool, head: bool, level: ww_tape::Integrity) -> Vec<u8> {
     let o = options(aligned);
     let mut w = TapeWriter::create_on(MemSink::new(), o.sync);
     w.set_layout(o.layout).expect("a new piece takes a layout");
@@ -126,7 +135,7 @@ fn template(aligned: bool, head: bool) -> Vec<u8> {
             },
             prev: None,
             prev_session: SessionTag::NONE,
-            integrity: ww_tape::Integrity::Full,
+            integrity: level,
         };
         w.begin_piece(&h, &[]).expect("a head writes");
     }
@@ -154,10 +163,13 @@ const OWNER: OwnerId = OwnerId([1; 32]);
 /// The tape of a chain in memory: a chain in one tape is under the key of its first piece.
 const CHAIN_TAPE: u64 = 0;
 
-pub(crate) fn chain_options(aligned: bool) -> ChainOptions {
+pub(crate) fn chain_options(aligned: bool, level: ww_tape::Integrity) -> ChainOptions {
     ChainOptions {
         tapes: PieceTapes::One,
-        writer: options(aligned),
+        writer: WriterOptions {
+            integrity: level,
+            ..options(aligned)
+        },
         cut: CutPolicy {
             chunks: exact_units::Count::new(4),
             ..CutPolicy::default()
@@ -190,11 +202,16 @@ pub(crate) fn chain_records(c: &mut PieceChain<MemTapes>, defs: &Definitions, on
         .expect("a records block writes");
 }
 
-/// A file of several pieces: three closed, the last one closed too when `closed`, else stopped after its
+/// A file of several pieces of `level`: three closed, the last one closed too when `closed`, else stopped after its
 /// deferred blocks; the bytes and where the last piece starts.
-pub(crate) fn chain_template(aligned: bool, closed: bool) -> (Vec<u8>, usize) {
-    let mut c = PieceChain::create_on(MemTapes::new(), OWNER, 0, &[], chain_options(aligned))
-        .expect("a chain starts");
+pub(crate) fn chain_template(
+    aligned: bool,
+    closed: bool,
+    level: ww_tape::Integrity,
+) -> (Vec<u8>, usize) {
+    let options = chain_options(aligned, level);
+    let mut c =
+        PieceChain::create_on(MemTapes::new(), OWNER, 0, &[], options).expect("a chain starts");
     let (defs, on) = template_definitions();
     for k in 0..7 {
         chain_chunk(&mut c, &defs, on, 0, k);
@@ -220,7 +237,7 @@ pub(crate) fn chain_template(aligned: bool, closed: bool) -> (Vec<u8>, usize) {
 /// The closed chain of [chain_template] with its second piece removed and named so by a record appended to its last
 /// piece: a seed of the readers and of `check_chain` linking over removed pieces.
 pub(crate) fn removed_chain() -> Vec<u8> {
-    let (whole, _) = chain_template(false, true);
+    let (whole, _) = chain_template(false, true, ww_tape::Integrity::Full);
     let r = TapeReader::open(&whole[..]).expect("a closed chain opens");
     let spans: Vec<(usize, usize)> = r
         .pieces()
@@ -339,14 +356,15 @@ fn resumed_definitions(resumed: &ww_tape::Resumed) -> (Definitions, Defined) {
 }
 
 /// The templates by mode, made once: the bytes and where the last piece starts.
-fn templates() -> &'static [(Vec<u8>, usize); 8] {
-    static T: OnceLock<[(Vec<u8>, usize); 8]> = OnceLock::new();
+fn templates() -> &'static [(Vec<u8>, usize); 32] {
+    static T: OnceLock<[(Vec<u8>, usize); 32]> = OnceLock::new();
     T.get_or_init(|| {
         core::array::from_fn(|m| {
+            let level = level(m as u8);
             if m & 4 == 0 {
-                (template(m & 1 != 0, m & 2 == 0), 0)
+                (template(m & 1 != 0, m & 2 == 0, level), 0)
             } else {
-                chain_template(m & 1 != 0, m & 2 != 0)
+                chain_template(m & 1 != 0, m & 2 != 0, level)
             }
         })
     })
@@ -355,7 +373,7 @@ fn templates() -> &'static [(Vec<u8>, usize); 8] {
 pub fn resume(data: &[u8]) {
     let (mode, rest) = data.split_first().map_or((0, data), |(m, r)| (*m, r));
     let aligned = mode & 1 != 0;
-    let (template, last) = &templates()[usize::from(mode & 7)];
+    let (template, last) = &templates()[usize::from(mode & 31)];
     let mut bytes = template.clone();
     let (cut, flips) = match rest {
         [a, b, flips @ ..] => (usize::from(u16::from_le_bytes([*a, *b])), flips),
@@ -372,7 +390,7 @@ pub fn resume(data: &[u8]) {
     }
     if mode & 4 != 0 {
         let open = (mode & 2 == 0).then(|| &template[*last..]);
-        resume_chain(aligned, &bytes, *last, open);
+        resume_chain((aligned, level(mode)), &bytes, *last, open);
         return;
     }
     let mut sink = MemSink::new();
@@ -463,15 +481,21 @@ fn folds_alike(out: &[u8], final_index: Option<u64>) {
     }
 }
 
-/// Resume the chain of `bytes`, whose pieces before `last` are whole, and close it; `open` the last piece before the
-/// input mutated it, when it was unclosed.
-fn resume_chain(aligned: bool, bytes: &[u8], last: usize, open: Option<&[u8]>) {
+/// Resume the chain of `bytes`, whose pieces before `last` are whole, written at `level`, and close it; `open` the
+/// last piece before the input mutated it, when it was unclosed.
+fn resume_chain(
+    (aligned, level): (bool, ww_tape::Integrity),
+    bytes: &[u8],
+    last: usize,
+    open: Option<&[u8]>,
+) {
     let mem = MemTapes::new();
     mem.create_whole(&CHAIN_TAPE)
         .expect("memory takes a file")
         .write_all(bytes)
         .expect("memory takes the bytes");
-    let Ok((mut c, resumed)) = PieceChain::resume_on(mem, OWNER, 0, chain_options(aligned)) else {
+    let options = chain_options(aligned, level);
+    let Ok((mut c, resumed)) = PieceChain::resume_on(mem, OWNER, 0, options) else {
         return;
     };
     if let (Some(template), Some(piece)) = (open, bytes.get(last..)) {

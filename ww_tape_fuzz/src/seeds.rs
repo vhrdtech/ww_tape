@@ -670,6 +670,14 @@ fn resume_seeds() -> Vec<Seed> {
             vec![mode, 0x00, 0x30, 0xc8, 0x00, 0x01],
         ));
     }
+    // cut halfway at CrcOnly (+8) and None (+16): a piece with a head, aligned or not, and a chain, open or closed
+    for mode in [8, 9, 12, 14, 16, 17, 20, 22u8] {
+        out.push(seed(
+            "tape-resume",
+            format!("mode{mode}-half"),
+            vec![mode, 0x00, 0x30],
+        ));
+    }
     out.extend(stream("tape-resume", 0x5eed_0000_7e50_0001));
     out
 }
@@ -734,7 +742,7 @@ fn reclose_seeds() -> Vec<Seed> {
 /// halfway, its last piece with a flipped byte in its head and one in its middle, and the file without its second
 /// piece, its last piece naming that one removed.
 fn chain_seeds() -> Vec<Seed> {
-    let (whole, last) = crate::targets::chain_template(false, true);
+    let (whole, last) = crate::targets::chain_template(false, true, ww_tape::Integrity::Full);
     let half = last + (whole.len() - last) / 2;
     let torn = whole[..half].to_vec();
     let mut damaged = whole.clone();
