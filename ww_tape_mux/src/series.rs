@@ -216,6 +216,8 @@ impl<S: Scalar + Sample> SeriesChunk<S> {
                 period: self.period,
                 spec: *spec,
                 leaves: leaves.complete().map_err(EncodeError::Summary)?,
+                tile: ww_tape::TileCoords::NONE,
+                tile_cells: 1,
             }),
             None => None,
         };
@@ -363,6 +365,8 @@ pub(crate) fn read_summary(def: &TrackDef<'_>, chunk: &Chunk<'_>) -> Option<Chun
         period: series.period,
         spec,
         leaves,
+        tile: ww_tape::TileCoords::NONE,
+        tile_cells: 1,
     })
 }
 

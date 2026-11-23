@@ -15,7 +15,7 @@ use ww_tape::chunk::ChunkHead;
 use ww_tape::index::IndexEntry;
 use ww_tape::{
     Block, BlockKind, Definitions, Describe, FromFile, ItemNum, MAX_BLOCK_LEN, PieceChain,
-    PieceStore, Ratio64, SampleShape, Slot, TapeSink, TrackId, TrackNum, WriteError,
+    PieceStore, Ratio64, SampleShape, Slot, TapeSink, TileCoords, TrackId, TrackNum, WriteError,
 };
 use ww_tape_summary::{
     BuildError, EventFields, EventTree, ItemRun, SeriesLeaf, SeriesStart, SeriesSummarySpec,
@@ -23,6 +23,10 @@ use ww_tape_summary::{
 };
 
 /// The leaves of one chunk's items, as its handle computed them.
+#[expect(
+    clippy::large_enum_variant,
+    reason = "one per chunk, moved once to the writing thread; a boxed tile would cost an allocation per chunk"
+)]
 pub(crate) enum ChunkSummary {
     Events {
         fields: EventFields,
@@ -34,6 +38,10 @@ pub(crate) enum ChunkSummary {
         period: Ratio64,
         spec: SeriesSummarySpec,
         leaves: Vec<SeriesLeaf>,
+        /// The grid tile the chunk holds, [TileCoords::NONE] for a series: each tile has a tree of its own
+        tile: TileCoords,
+        /// Cells of one time step of the tile, 1 for a series
+        tile_cells: u64,
     },
 }
 
@@ -78,45 +86,51 @@ pub(crate) enum Added {
     Refused,
 }
 
-/// A summary block by what it covers: its track, tree, level and items. A piece holds one block of each.
+/// A summary block by what it covers: its track, tile, tree, level and items. A piece holds one block of each.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct Covers {
     track_id: TrackId,
-    number: u32,
-    tree: u8,
+    number: TrackNum,
+    tile: TileCoords,
+    /// The block's tree is a series': else an event tree
+    series: bool,
     level: u8,
     first_item: u64,
     count: u64,
 }
 
 impl Covers {
-    fn of(e: &IndexEntry) -> Option<Self> {
-        (e.kind == BlockKind::Summary).then_some(Self {
-            track_id: e.track_id,
-            number: e.number,
-            tree: e.tree,
-            level: e.level,
-            first_item: e.first_item.get(),
-            count: e.count,
+    fn of_block(block: &[u8]) -> Option<Self> {
+        let h = Block::read(block).ok()?.summary_head()?;
+        Some(Self {
+            track_id: h.track_id,
+            number: h.track_number,
+            tile: h.tile,
+            series: h.tree == ww_tape_summary::Tree::Series,
+            level: h.level,
+            first_item: h.first_item.get(),
+            count: h.items,
         })
     }
 
-    fn of_block(block: &[u8]) -> Option<Self> {
-        let b = Block::read(block).ok()?;
-        Self::of(&IndexEntry::of_block(0, &b)?)
+    fn key(&self) -> Key {
+        (self.number, self.tile)
     }
 }
 
-/// The summary trees of the piece being written, one per track with leaves in it.
+/// A tree's track and tile: a series and an events track have one tree, a grid one per tile.
+type Key = (TrackNum, TileCoords);
+
+/// The summary trees of the piece being written, one per track, or per tile of a grid, with leaves in it.
 pub(crate) struct Trees {
     /// The piece the trees are of
     seq: u64,
-    trees: BTreeMap<TrackNum, Tree>,
+    trees: BTreeMap<Key, Tree>,
     /// Summary blocks of the piece a resume kept: placed before the crash, not deferred again
     kept: BTreeSet<Covers>,
     /// Trees a resume rebuilt of which the piece kept no block: the mux may not have built them (a track written
     /// without summaries), dropped when their track's next chunk comes without a summary
-    unconfirmed: BTreeSet<TrackNum>,
+    unconfirmed: BTreeSet<Key>,
     /// Tracks a handle without summaries was made for: a resume that comes after builds no tree for them
     plain: BTreeSet<TrackNum>,
 }
@@ -143,9 +157,18 @@ impl Trees {
         entries: &[IndexEntry],
     ) -> Result<u64, WriteError<T::Error>> {
         self.seq = chain.seq();
-        self.kept = entries.iter().filter_map(Covers::of).collect();
-        let mut refused = 0u64;
         let mut buf = Vec::new();
+        // a kept block is known by its head: a tile's coordinates are in it, an entry a scan made has no tile number
+        self.kept = BTreeSet::new();
+        for e in entries.iter().filter(|e| e.kind == BlockKind::Summary) {
+            if let Some(c) = read_block(chain.writer()?.sink(), e, &mut buf)
+                .map_err(ww_tape::sink::sink_err("reading a kept summary block back"))?
+                .and_then(|()| Covers::of_block(&buf))
+            {
+                self.kept.insert(c);
+            }
+        }
+        let mut refused = 0u64;
         let plain: BTreeSet<u32> = self.plain.iter().map(|t| t.get()).collect();
         for e in entries
             .iter()
@@ -161,11 +184,11 @@ impl Trees {
                 refused = refused.saturating_add(1);
             }
         }
-        let kept_of: BTreeSet<u32> = self.kept.iter().map(|c| c.number).collect();
+        let kept_of: BTreeSet<Key> = self.kept.iter().map(Covers::key).collect();
         self.unconfirmed = self
             .trees
             .keys()
-            .filter(|t| !kept_of.contains(&t.get()))
+            .filter(|k| !kept_of.contains(k))
             .copied()
             .collect();
         Ok(refused)
@@ -175,16 +198,21 @@ impl Trees {
     /// kept, is none the run built.
     pub(crate) fn drop_rebuilt(&mut self, track: TrackNum) {
         self.plain.insert(track);
-        self.unconfirmed.remove(&track);
-        self.trees.remove(&track);
+        self.unconfirmed.retain(|k| k.0 != track);
+        self.trees.retain(|k, _| k.0 != track);
     }
 
-    /// A chunk of `track` placed without a summary: a tree rebuilt at the resume that no kept block confirms is
-    /// dropped, as the mux didn't build it.
+    /// A chunk of `track` placed without a summary: the trees rebuilt at the resume of the track's tiles that no
+    /// kept block confirms are dropped, as the mux didn't build them.
     pub(crate) fn plain(&mut self, track: TrackNum) {
-        if self.unconfirmed.remove(&track) {
-            self.trees.remove(&track);
-        }
+        let trees = &mut self.trees;
+        self.unconfirmed.retain(|k| {
+            let ours = k.0 == track;
+            if ours {
+                trees.remove(k);
+            }
+            !ours
+        });
     }
 
     /// Defer the summary blocks `blocks` into the piece, but those the piece kept at a resume.
@@ -245,9 +273,9 @@ impl Trees {
             self.end(chain, defs)?;
         }
         self.enter(chain.seq());
-        let track = head.track_number;
+        let track = (head.track_number, head.tile);
         self.unconfirmed.remove(&track);
-        // a gap in the items (a chunk dropped) ends the track's tree: the next one starts past it
+        // a gap in the items (a chunk dropped) ends the tile's tree: the next one starts past it
         if self
             .trees
             .get(&track)
@@ -272,12 +300,14 @@ impl Trees {
         Ok(Added::Done)
     }
 
-    /// Put the leaves of the chunk `head` into its track's tree, started at the chunk when the piece has none.
+    /// Put the leaves of the chunk `head` into its track's or tile's tree, started at the chunk when the piece has
+    /// none.
     fn grow(&mut self, head: &ChunkHead, summary: ChunkSummary) -> Result<(), BuildError> {
         let track = head.track_number;
+        let key = (track, head.tile);
         match summary {
             ChunkSummary::Events { fields, runs } => {
-                let tree = self.trees.entry(track).or_insert_with(|| {
+                let tree = self.trees.entry(key).or_insert_with(|| {
                     Tree::Events(EventTree::new(
                         head.track_id,
                         track,
@@ -300,11 +330,18 @@ impl Trees {
                 period,
                 spec,
                 leaves,
+                tile,
+                tile_cells,
             } => {
                 let grid = head
                     .grid
                     .ok_or(BuildError::Invalid("a series chunk without a grid"))?;
-                let tree = match self.trees.entry(track) {
+                if tile != head.tile {
+                    return Err(BuildError::Invalid(
+                        "leaves of another tile than the chunk's",
+                    ));
+                }
+                let tree = match self.trees.entry(key) {
                     std::collections::btree_map::Entry::Occupied(o) => o.into_mut(),
                     std::collections::btree_map::Entry::Vacant(v) => {
                         let start = SeriesStart {
@@ -314,8 +351,8 @@ impl Trees {
                             first_item: head.first_item,
                             grid,
                             period,
-                            tile: ww_tape::TileCoords::NONE,
-                            tile_cells: 1,
+                            tile,
+                            tile_cells,
                         };
                         v.insert(Tree::Series(Box::new(SeriesTree::new(start, spec)?)))
                     }
@@ -334,6 +371,22 @@ impl Trees {
     }
 }
 
+/// The block of entry `e` of the piece `sink` writes, read back into `buf`; None when its length is no block's.
+fn read_block<S: TapeSink>(
+    sink: &S,
+    e: &IndexEntry,
+    buf: &mut Vec<u8>,
+) -> Result<Option<()>, S::Error> {
+    // the resume walked the block whole: its length is a block's
+    let Ok(len) = FromFile::new(e.len).at_most(MAX_BLOCK_LEN) else {
+        return Ok(None);
+    };
+    buf.clear();
+    buf.resize(len, 0);
+    sink.read_at(e.offset, buf)?;
+    Ok(Some(()))
+}
+
 /// The chunk of entry `e` of the piece `sink` writes, read back into `buf`, and its summary as its handle computed
 /// it; None for a block that doesn't read as a chunk of a track `defs` holds with summaries.
 fn read_back<S: TapeSink>(
@@ -342,13 +395,9 @@ fn read_back<S: TapeSink>(
     e: &IndexEntry,
     buf: &mut Vec<u8>,
 ) -> Result<Option<(ChunkHead, ChunkSummary)>, S::Error> {
-    // the resume walked the block whole: its length is a block's
-    let Ok(len) = FromFile::new(e.len).at_most(MAX_BLOCK_LEN) else {
+    if read_block(sink, e, buf)?.is_none() {
         return Ok(None);
-    };
-    buf.clear();
-    buf.resize(len, 0);
-    sink.read_at(e.offset, buf)?;
+    }
     let Some(chunk) = Block::read(buf).ok().and_then(|b| b.chunk()) else {
         return Ok(None);
     };
