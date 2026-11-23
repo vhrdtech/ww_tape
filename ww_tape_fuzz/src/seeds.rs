@@ -167,6 +167,8 @@ const GOLDEN_SAMPLES: &str = include_str!("../../ww_tape/golden/v1-samples.hex")
 const GOLDEN_SERIES: &str = include_str!("../../ww_tape/golden/v1-series.hex");
 const GOLDEN_SUMMARY: &str = include_str!("../../ww_tape_summary/golden/v1-summary.hex");
 const GOLDEN_TIMES: &str = include_str!("../../ww_tape/golden/v1-times.hex");
+const GOLDEN_CRC_ONLY: &str = include_str!("../../ww_tape/golden/v1-level-crc-only.hex");
+const GOLDEN_NONE: &str = include_str!("../../ww_tape/golden/v1-level-none.hex");
 
 /// Each block of a golden file as a seed of `target`.
 fn golden_blocks(target: &'static str, file: &str, text: &str) -> Vec<Seed> {
@@ -817,6 +819,16 @@ pub fn all() -> Vec<Seed> {
     let mut out = vec![];
     let concat = |text: &str| golden(text).concat();
     out.push(seed("tape-reader", "golden-v1-file", concat(GOLDEN_V1)));
+    out.push(seed(
+        "tape-reader",
+        "golden-v1-level-crc-only",
+        concat(GOLDEN_CRC_ONLY),
+    ));
+    out.push(seed(
+        "tape-reader",
+        "golden-v1-level-none",
+        concat(GOLDEN_NONE),
+    ));
     out.push(seed(
         "tape-reader",
         "golden-v1-index-piece",

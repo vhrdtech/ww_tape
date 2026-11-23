@@ -321,3 +321,41 @@ fn files_seal_in_place_to_the_chain_written_at_full() {
     assert!(std::fs::read(&path).unwrap() == cut);
     _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A piece of `level`: two chunks and a records block, closed with a summary, written on after its close with a
+/// chunk and closed again.
+fn golden_piece(level: Integrity) -> Vec<u8> {
+    use crate::pieces::{chunk, column};
+    let defs = crate::definitions::base_defs();
+    let mut w = crate::resume::begin_at(0, level);
+    for k in 0..2 {
+        let (h, b) = chunk(0, k);
+        w.write_chunk(defs, &h, &column(&b)).unwrap();
+    }
+    crate::reclose::write(&mut w, [7]);
+    let tape = w.sink().tape();
+    w.close_with_summary(ww_tape::piece::CloseReason::Closed, b"one")
+        .unwrap();
+    let (mut w, _) = crate::reclose::reopen(&tape.to_vec().unwrap(), 0);
+    let (h, b) = chunk(0, 2);
+    w.write_chunk(defs, &h, &column(&b)).unwrap();
+    crate::reclose::close(w)
+}
+
+/// One golden piece per level pins the level byte, the unchecked chunks, the unhashed entries and the absent hashes
+/// (`WW_TAPE_GOLDEN=update` rewrites them); sealed, each lower one is Full's.
+#[test]
+fn golden_levels() {
+    let full = golden_piece(Integrity::Full);
+    for (level, name) in [
+        (Integrity::Full, "v1-level-full.hex"),
+        (Integrity::CrcOnly, "v1-level-crc-only.hex"),
+        (Integrity::None, "v1-level-none.hex"),
+    ] {
+        let bytes = golden_piece(level);
+        crate::reclose::golden(&bytes, name);
+        let mem = store(&[bytes], false);
+        mem.seal(&0, None).unwrap().unwrap();
+        assert!(mem.get(&0).unwrap().unwrap().to_vec().unwrap() == full);
+    }
+}
