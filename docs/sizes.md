@@ -264,6 +264,17 @@ back.
 
 The writer thread is busy the whole run and sustains 19 million samples a second, just short of the capture.
 
+## Pieces in parallel
+
+`bench-archive-parallel` (FS-2), 14 cores, warm cache:
+
+| Op | Speedup |
+|---|---:|
+| `verify` | 13x |
+| `range_hash` | 11x |
+| `resume` | 6x |
+| BLAKE3 ceiling | 2x |
+
 ## Running the measurements again
 
 One recipe reruns every number on this page:
@@ -273,9 +284,8 @@ just jobs=4 bench-book   # every bench at release, into docs/bench/*.json
 just book-figures        # the charts and tables of this page, from those files
 ```
 
-Each bench runs on one core, except the RF chain with its worker threads. `bench-book` refuses a tree with changes,
-since a report names its commit. The RF chain needs as many GiB of free disk as `rf_gib` names, in `rf_dir` under
-`target/` by default.
+Each bench runs on one core, except the RF chain. `bench-book` refuses a tree with changes: a report names its
+commit. The RF chain needs as many GiB of free disk as `rf_gib` names (`rf_dir`, `target/` by default).
 
 Run the recipe on a quiet machine, and compare the load average under each table with your own run. `--help` lists
 each bench's settings.

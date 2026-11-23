@@ -17,6 +17,7 @@ benchmarks, golden files and book pages.
 - `GridHandle` splits a grid's time steps into the open chunk of each tile; `TapeMux::grid_box` writes one box (FMT-15).
 - A tile's time step over a chunk's bytes or a block is refused with `CallError::StepTooLarge` (FMT-15).
 - `TileLayout::cell_range` and `tile_cells` give a tile's cells, fewer at an axis' far edge (FMT-15).
+- `ww_tape_fs::check` verifies and range-hashes many pieces at once; cargo feature `parallel` spreads them over rayon (FS-2).
 
 ## [0.7.0] - 2026-11-23
 

@@ -1,0 +1,366 @@
+{
+  "format": 1,
+  "bench": "archive_parallel",
+  "version": "0.6.0 (9659308c-dirty, commit 23 Nov 2026 10:20 UTC)",
+  "commit": "9659308c",
+  "dirty": true,
+  "build": {
+    "profile": "release",
+    "opt_level": "3",
+    "jobs": 10
+  },
+  "settings": [
+    [
+      "verify GiB",
+      "10"
+    ],
+    [
+      "range GiB",
+      "6"
+    ],
+    [
+      "resume pieces",
+      "12"
+    ],
+    [
+      "workers",
+      "8"
+    ]
+  ],
+  "machine": {
+    "host": "build-1",
+    "virtual_machine": true,
+    "cpu": "AMD EPYC-Genoa Processor",
+    "cpus": 14,
+    "arch": "x86_64",
+    "extensions": [
+      "sse4.2",
+      "avx2",
+      "avx512bw+vl"
+    ],
+    "memory_bytes": 37816606720
+  },
+  "tables": [
+    {
+      "id": "generate",
+      "title": "The three piece sets this bench measures, generated once.",
+      "columns": [
+        "Set",
+        "GiB",
+        "Pieces",
+        "Generated in",
+        "Write rate"
+      ],
+      "rows": [
+        [
+          "verify_chain (Integrity::Full)",
+          {
+            "value": 10.00018310546875,
+            "digits": 2
+          },
+          {
+            "value": 20.0,
+            "digits": 0
+          },
+          {
+            "value": 162.649754875,
+            "digits": 1
+          },
+          {
+            "value": 0.06601679084147466,
+            "digits": 0
+          }
+        ],
+        [
+          "range_chain (Integrity::CrcOnly)",
+          {
+            "value": 6.000221252441406,
+            "digits": 2
+          },
+          {
+            "value": 12.0,
+            "digits": 0
+          },
+          {
+            "value": 82.748193008,
+            "digits": 1
+          },
+          {
+            "value": 0.0778589631724904,
+            "digits": 0
+          }
+        ],
+        [
+          "resume_pieces (unclosed)",
+          {
+            "value": 4.501707460731268,
+            "digits": 2
+          },
+          {
+            "value": 12.0,
+            "digits": 0
+          },
+          {
+            "value": 80.108903304,
+            "digits": 1
+          },
+          {
+            "value": 0.06033875612623254,
+            "digits": 0
+          }
+        ]
+      ],
+      "load_before": {
+        "one": 3.98,
+        "five": 4.83,
+        "fifteen": 4.62
+      },
+      "load_after": {
+        "one": 18.42,
+        "five": 10.43,
+        "fifteen": 6.89
+      },
+      "seconds": 325.673172471
+    },
+    {
+      "id": "verify",
+      "title": "TapeReader::verify over every piece of verify_chain, each replayed and content-hashed whole.",
+      "columns": [
+        "Strategy",
+        "Wall",
+        "Throughput",
+        "Speedup vs sequential"
+      ],
+      "rows": [
+        [
+          "20 pieces one at a time",
+          {
+            "value": 18.949057853,
+            "digits": 1
+          },
+          {
+            "value": 0.5666569246502158,
+            "digits": 2
+          },
+          {
+            "value": 1.0,
+            "digits": 2
+          }
+        ],
+        [
+          "20 pieces in parallel (rayon)",
+          {
+            "value": 0.584286842,
+            "digits": 1
+          },
+          {
+            "value": 18.37730045613452,
+            "digits": 2
+          },
+          {
+            "value": 32.43108776527951,
+            "digits": 2
+          }
+        ]
+      ],
+      "load_before": {
+        "one": 16.27,
+        "five": 10.58,
+        "fifteen": 7.04
+      },
+      "load_after": {
+        "one": 16.27,
+        "five": 10.58,
+        "fifteen": 7.04
+      },
+      "seconds": 0.0000109
+    },
+    {
+      "id": "range_hash",
+      "title": "TapeReader::range_hash over every piece of range_chain: no stated unit hash, so every chunk's payload is read and hashed.",
+      "columns": [
+        "Strategy",
+        "Wall",
+        "Throughput",
+        "Speedup vs sequential"
+      ],
+      "rows": [
+        [
+          "12 pieces one at a time",
+          {
+            "value": 3.483878439,
+            "digits": 1
+          },
+          {
+            "value": 1.8492862551912936,
+            "digits": 2
+          },
+          {
+            "value": 1.0,
+            "digits": 2
+          }
+        ],
+        [
+          "12 pieces in parallel (rayon)",
+          {
+            "value": 0.314043533,
+            "digits": 1
+          },
+          {
+            "value": 20.515272040325698,
+            "digits": 2
+          },
+          {
+            "value": 11.093616243961948,
+            "digits": 2
+          }
+        ]
+      ],
+      "load_before": {
+        "one": 15.28,
+        "five": 10.47,
+        "fifteen": 7.02
+      },
+      "load_after": {
+        "one": 15.28,
+        "five": 10.47,
+        "fifteen": 7.02
+      },
+      "seconds": 9.111e-6
+    },
+    {
+      "id": "resume",
+      "title": "ww_tape_fs::writer::resume over every unclosed piece of resume_pieces: a from-scratch content-hash walk, as a crash leaves one.",
+      "columns": [
+        "Strategy",
+        "Wall",
+        "Throughput",
+        "Speedup vs sequential"
+      ],
+      "rows": [
+        [
+          "12 pieces one at a time",
+          {
+            "value": 3.449801389,
+            "digits": 1
+          },
+          {
+            "value": 1.4011448877644357,
+            "digits": 2
+          },
+          {
+            "value": 1.0,
+            "digits": 2
+          }
+        ],
+        [
+          "12 pieces in parallel (rayon)",
+          {
+            "value": 0.584963707,
+            "digits": 1
+          },
+          {
+            "value": 8.26319910476087,
+            "digits": 2
+          },
+          {
+            "value": 5.89746226597952,
+            "digits": 2
+          }
+        ]
+      ],
+      "load_before": {
+        "one": 14.13,
+        "five": 10.39,
+        "fifteen": 7.03
+      },
+      "load_after": {
+        "one": 14.13,
+        "five": 10.39,
+        "fifteen": 7.03
+      },
+      "seconds": 7.98e-6
+    },
+    {
+      "id": "blake3_raw",
+      "title": "For comparison: BLAKE3 of a piece's raw bytes, one piece at a time, single- and multithreaded (update_rayon). A piece's content hash is a chained hash with chunk payloads substituted by their own hash, not one contiguous buffer, so this is a ceiling, not a literal stand-in for the rows above.",
+      "columns": [
+        "Set",
+        "GiB",
+        "Single-threaded",
+        "update_rayon",
+        "Ratio"
+      ],
+      "rows": [
+        [
+          "verify_chain",
+          {
+            "value": 10.00018310546875,
+            "digits": 2
+          },
+          {
+            "value": 2.5763315110890925,
+            "digits": 2
+          },
+          {
+            "value": 5.840451387942876,
+            "digits": 2
+          },
+          {
+            "value": 2.2669642329817803,
+            "digits": 2
+          }
+        ],
+        [
+          "range_chain",
+          {
+            "value": 6.000221252441406,
+            "digits": 2
+          },
+          {
+            "value": 2.4449065432854837,
+            "digits": 2
+          },
+          {
+            "value": 5.310714382858155,
+            "digits": 2
+          },
+          {
+            "value": 2.172154349802499,
+            "digits": 2
+          }
+        ],
+        [
+          "resume_pieces",
+          {
+            "value": 4.501707460731268,
+            "digits": 2
+          },
+          {
+            "value": 2.439743027675191,
+            "digits": 2
+          },
+          {
+            "value": 4.939969916891275,
+            "digits": 2
+          },
+          {
+            "value": 2.0247910787549324,
+            "digits": 2
+          }
+        ]
+      ],
+      "load_before": {
+        "one": 14.13,
+        "five": 10.39,
+        "fifteen": 7.03
+      },
+      "load_after": {
+        "one": 13.23,
+        "five": 10.73,
+        "fifteen": 7.31
+      },
+      "seconds": 44.350336682
+    }
+  ]
+}

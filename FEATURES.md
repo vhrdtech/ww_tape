@@ -285,6 +285,21 @@ Everything that names a path, in the crate `ww_tape_fs`.
 
   Read more: [Files and syncing](docs/files.md), [Writing a file durably](docs/format.md#writing-a-file-durably).
 
+- ✅ **FS-2 Verifying and range-hashing pieces in parallel**
+
+  Each piece's `verify` or `range_hash` is independent of every other piece's. `ww_tape_fs::check` gives both over
+  many piece files at once:
+
+  - `verify_each` and `range_hash_each`: one piece at a time.
+  - `verify_each_parallel` and `range_hash_each_parallel`: the same pieces over rayon's thread pool, behind the
+    cargo feature `parallel`, the same results in the same order (a test proves it).
+
+  A bench measured this first: pieces in parallel won clearly, over one piece at a time and over BLAKE3's own
+  multithreaded hashing of one piece.
+
+  Read more: [Sizes and speeds](docs/sizes.md#verifying-and-range-hashing-a-chains-pieces-in-parallel). Tests
+  `ww_tape_tests/tests/it/check_parallel.rs`.
+
 ## Codecs (`CODEC`)
 
 Column codecs with no notion of a block, in the crate `ww_tape_codecs`.

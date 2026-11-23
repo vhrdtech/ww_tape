@@ -14,7 +14,14 @@ homepage.workspace = true
 libc.workspace = true
 rustix.workspace = true
 
+[features]
+# Verifies and range-hashes many pieces at once, spread over rayon's thread pool, instead of one at a time
+# (FS-2). ww_tape's own core keeps no thread pool and builds without std; this feature is ww_tape_fs's own, std
+# already being this crate's own requirement.
+parallel = ["dep:rayon"]
+
 [dependencies]
+rayon = { workspace = true, optional = true }
 shrink_wrap = { workspace = true, features = ["std"] }
 ww_tape = { workspace = true, features = ["std"] }
 ww_tape_mux.workspace = true
