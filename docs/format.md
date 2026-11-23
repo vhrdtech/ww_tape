@@ -121,8 +121,8 @@ off size field
   6 u16  flags: bit 0 body coded (FLAG_BODY_CODED, records blocks only), bit 1 state records a writer put or
          copied (FLAG_REPEAT), bit 2 puts that belong with the next block (FLAG_WITH_NEXT), bit 3 on a
          chunk its payload unchecked (FLAG_PAYLOAD_UNCHECKED: segment CRCs 0, the block CRC over the head), bit 4 on an
-         events chunk a break in its track's monotone relations (FLAG_RELATION_BREAK); others 0 (a reader
-         ignores bits it doesn't know)
+         events chunk a break in its track's monotone relations (FLAG_RELATION_BREAK), bit 5 on a summary block
+         a grid tile's tree, its tile after the scale (FLAG_TILE); others 0 (a reader ignores bits it doesn't know)
   8 u32  len: the whole block, header and CRC included
  12 u32  records in the block
  16 u64  seq: the block number in its session, from 0, +1 per block; a gap is lost blocks. Index, close, tail and
@@ -184,6 +184,7 @@ Header bytes 6..8 hold flags. A reader ignores the bits it doesn't know.
 | 2 | `FLAG_WITH_NEXT` | a block of puts that belongs with the block after it ([State tracks](#state-tracks)) |
 | 3 | `FLAG_PAYLOAD_UNCHECKED` | a chunk whose payload went unchecked; reserved, and a reader refuses it |
 | 4 | `FLAG_RELATION_BREAK` | an events chunk where a track's monotone relations start again ([below](#relation-breaks)) |
+| 5 | `FLAG_TILE` | a summary block of a grid tile's tree, its tile after the scale ([Summaries of tiles](#summaries-of-tiles)) |
 
 ### 3.3 Records blocks {#records-blocks}
 
@@ -506,7 +507,9 @@ off size field
  88 i64  latest end: the largest end of a covered item, at least the last tick
  96 ...  scale of a series: what a stored minimum, maximum or sum is worth in the sample type's unit, as the
          shrink_wrap bytes of an exact_units Magnitude (10⁻³ is fa 00); squares and powers are at its square
-96+s ... body: columns of n values each, n the node count, little-endian, back to back
+96+s ... a tile's block only (header flag FLAG_TILE): u8 fixed axes a, 1 to GRID_FIXED_AXES_MAX, then a × u32 tile
+         coordinates, as a grid chunk's head carries them (TileCoords)
+ ...  ... body: columns of n values each, n the node count, little-endian, back to back
 len-4 u32 CRC over bytes 0..len-4, as in every block
 ```
 
@@ -1984,6 +1987,24 @@ tile number names no tile of the grid.
 The box carries the layout it was made for, and a tile number reads only by its own grid's layout. The query
 therefore refuses a box whose layout differs from the track's definition at a chunk (`ReadError::GridLayout`).
 
+#### 12.5.4 Summaries of tiles {#summaries-of-tiles}
+
+Each tile of a grid has a [summary tree](#summary-nodes) of its own, the time pyramid of that tile. An item of the
+tree is a time step. A node holds `2^base_shift` time steps of the tile, and each cell of each step is a sample of its
+statistics. A level-0 node of a tile of 6 cells and 16 time steps thus summarises 96 samples per channel. Nothing is
+downsampled along the fixed axes.
+
+A tile's summary block carries header flag 5 (`FLAG_TILE`) and, after the scale, the count of fixed axes and the
+tile's coordinates, one u32 each, as the chunk head does ([Summary blocks](#summary-blocks)). Its index entry carries
+the tile number under flag bit 4, as the tile's chunks' entries do. A series has one tree, and its blocks keep the
+bytes they had before grids: no flag, no tile. A writer refuses a summary block of a grid's tile its grid doesn't
+hold, or a series block without a tile on a grid (`SeriesError::TileOutside`).
+
+`TapeReader::grid_summaries` finds the summary blocks of one level of the tiles a box meets, as `grid_tiles` finds
+their chunks. `ww_tape_summary::region_timeline` reads them and merges, per node, the nodes of every tile into a
+region's timeline. A node summarises a whole tile, so a tile partly inside the box counts whole: the timeline is at
+tile resolution. Each tile weighs by its cells, so an edge tile with fewer cells weighs less.
+
 ## 13 Sample codecs {#sample-codecs}
 
 [Series](series.md) explains series, sample codecs and why fixed point comes first.
@@ -2159,7 +2180,7 @@ Some numbers are reserved: later features then need no format change. Readers of
 | column kind 7 (`ColumnKind::PAYLOAD_LEAF`) | one leaf of the items' payload struct, the param naming the leaf |
 | block kinds 11 and 12 (`BlockKind::POSTINGS`, `DICTIONARY`) | a relation's index per events chunk: each distinct value with its items; the distinct values and each item's index into them. Skipped by readers; writers refuse a definition that asks for one |
 | `RelationValues::IndexOnly` | values given with each item only to feed an index, no column; writers refuse it until an index is built |
-| summary head bytes 54..56 | the first channel or leaf of the block, 0 today |
+| summary head bytes 54..56 | the first channel or leaf of the block, 0 today; a grid's tile goes after the scale ([Summaries of tiles](#summaries-of-tiles)) |
 
 ## 16 Policies and their defaults {#policies-and-their-defaults}
 
