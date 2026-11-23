@@ -1,8 +1,8 @@
 {
   "format": 1,
   "bench": "ethernet",
-  "version": "0.4.0 (48e606940, commit 23 Nov 2026 05:02 UTC)",
-  "commit": "48e606940",
+  "version": "0.4.0 (cbe2be50c, commit 23 Nov 2026 05:02 UTC)",
+  "commit": "cbe2be50c",
   "dirty": false,
   "build": {
     "profile": "release",
