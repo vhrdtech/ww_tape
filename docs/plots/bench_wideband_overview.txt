@@ -1,6 +1,6 @@
 | Level | Samples a node | Nodes | ms | Bytes read | Reads | Chain bytes |
 |---:|---:|---:|---:|---:|---:|---:|
-| 2 | 262 144 | 239 | 2.6 | 286 778 | 18 | 763 666 432 |
-| 3 | 4 194 304 | 15 | 0.2 | 277 104 | 11 | 763 666 432 |
+| 2 | 262 144 | 239 | 0.2 | 288 401 | 18 | 763 670 528 |
+| 3 | 4 194 304 | 15 | 0.1 | 278 727 | 11 | 763 670 528 |
 
-`just bench-wideband` on alma-1b, load average 10.08 before, 10.08 after.
+`just bench-wideband` on gpd-omarchy, load average 6.61 before, 6.61 after.

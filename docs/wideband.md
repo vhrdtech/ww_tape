@@ -66,8 +66,8 @@ tracks, blocks and summaries a piece in a file holds. A triage thread opens each
 analyser whether it holds a burst.
 
 A piece with a burst is copied to a piece file, with one piece before it and one after it. Every other piece leaves
-memory unwritten. The band takes fewer bytes a second than the link, and one chain keeps up with it, as the bench below
-shows.
+memory unwritten. The band takes fewer bytes a second than the link. In the bench below the replayed run keeps up with it in one chain,
+and the live run is held back by the signal's maths.
 
 ```rs
 --8<-- "examples/example_wideband/src/ram.rs:rf_capture"
@@ -143,7 +143,7 @@ muxes and codec. With the most channels and muxes it then writes chains of piece
 --8<-- "docs/plots/bench_wideband_writer.txt"
 
 The column "Of 1 GS/s" is the samples recorded a second against the receiver's rate. The waits count the times a handle
-found its mux's queue full. Without a disk, enough channels and muxes come near the full rate. With a disk, a second of
+found its mux's queue full. Without a disk, enough channels and muxes reach the full rate. With a disk, a second of
 the receiver is about 3.1 GB, more than one disk of a common PC writes in a second. That is why the receiver keeps the
 band in memory and writes only the bursts.
 

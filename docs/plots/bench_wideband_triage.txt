@@ -1,6 +1,6 @@
 | Kept to | Source | Signal ms | Triage MB/s | Of the pace | Kept pieces | Kept % | Results KB | To disk MB per s | Copy MB/s |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---|
-| memory | replayed | 1000 | 14 259 | 18.7 | 0 | 0.0 | 4 | 0.0 | none kept |
-| piece files | live | 60 000 | 16 031 | 21.0 | 28 | 4.1 | 8 | 31.4 | 663 |
+| memory | replayed | 1000 | 33 495 | 43.9 | 0 | 0.0 | 4 | 0.0 | none kept |
+| piece files | live | 60 000 | 35 113 | 46.0 | 23 | 3.4 | 8 | 25.8 | 649 |
 
-`just bench-wideband` on alma-1b, load average 10.08 before, 3.79 after.
+`just bench-wideband` on gpd-omarchy, load average 6.61 before, 5.15 after.

@@ -86,7 +86,7 @@ piece holds the same tracks, blocks and summaries a piece in a file holds, and t
 oldest pieces leave memory as the capture goes on.
 
 A mux writes its chain from one thread, which copies every byte of the capture into memory. One such thread for both
-ports falls just short of the link's pace, as the bench below shows. So each port goes into a chain of its own, with a
+ports keeps the link's pace with little to spare, as the bench below shows. So each port goes into a chain of its own, with a
 mux of its own and a triage thread of its own ([`RamCapture::chains`]).
 
 A triage thread reads each chain's window while the capture goes on. It waits on the mux's [`ProgressWatch`] and opens
