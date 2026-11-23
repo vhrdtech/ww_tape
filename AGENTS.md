@@ -39,7 +39,7 @@ chapter reads and how it marks terms, links code and includes tested code.
 | `ww_tape_bench/` | what every bench binary shares: `--json`, `--color`, `--version`, completion, the timing loop, the run's report |
 | `ww_tape_bench_report/` | a bench report as its JSON holds it: commit, build, host and machine, tables with their load; serde only |
 | `ww_tape_codecs_benchmarks/` | float sample codecs on simulated, decoded and sensor data |
-| `ww_tape_benchmarks/` | one binary per bench: `summaries`, `tracks`, `chunks`, `drive`, `event_times`, `starts`, `relations`, `mem_reader`, `carried`, `memory`, `rf_core`, `rf_chain`, `handles`, `read_check` (README lists what each measures) |
+| `ww_tape_benchmarks/` | one binary per bench: `summaries`, `tracks`, `chunks`, `drive`, `event_times`, `starts`, `relations`, `mem_reader`, `carried`, `memory`, `rf_core`, `rf_chain`, `handles`, `read_check`, `levels` (README lists what each measures) |
 | `examples/example_drive/` | the book's running example: the drive motor controller's hour at any scale, a crash at any byte, the resume; `cargo run -p example_drive` prints the story's numbers |
 | `examples/example_capture/` | what the cases share: the memory window and its triage (`window`), the RF signal (`rf`), deterministic chain options |
 | `examples/example_rf/`, `examples/example_ethernet/`, `examples/example_wideband/` | the cases: the RF capture into a piece or two chains; a 10 Gbps link over receive queues and muxes; a 1 GS/s receiver in channels; `ram` of the last two into the memory window, keeping the pieces around each TCP reset or burst |

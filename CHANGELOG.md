@@ -24,6 +24,7 @@ benchmarks, golden files and book pages.
 - `Checked::Unprotected`, `ChainLink::Unproven` and `RangeHash::unprotected` say what a lower level left unchecked (FMT-14).
 - Mux handles hash no payload when the chain's pieces are below `Integrity::Full` (FMT-14).
 - `TapeWriter::seal_on` and `MemTapes::seal` raise a closed piece to `Integrity::Full`, the bytes a Full writer writes (FMT-14).
+- `just bench-levels` times chunk writes at each integrity level and the seal of the lower ones (FMT-14).
 - Fuzz target `tape-seal`: mutated pieces and chains below Full give Full's bytes or a refusal (FMT-14).
 - `ww_tape_fs::writer::seal` seals a closed file in place, crash-safe: each piece head is written last (FMT-14).
 - `example_ethernet` writes its `frames` raw by default; `Link::payload(PayloadMix::Plain)` makes compressible payloads (EX-6).

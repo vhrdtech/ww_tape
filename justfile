@@ -161,6 +161,10 @@ bench-handles *args:
 bench-read-check *args:
     cargo run -q --release -p ww_tape_benchmarks --bin read_check -- {{ args }}
 
+# ns per chunk written at each integrity level, and of a seal to Full, series and events chunks in memory (FMT-14); `just bench-levels --help`
+bench-levels *args:
+    cargo run -q --release -p ww_tape_benchmarks --bin levels -- {{ args }}
+
 # Worst wait of a reader of a memory piece while it is written, with and without reserving it (WRITE-5); `just bench-mem-reader --help`
 bench-mem-reader *args:
     cargo run -q --release -p ww_tape_benchmarks --bin mem_reader -- {{ args }}
@@ -191,6 +195,7 @@ bench-book:
     just bench-rf-chain --dir {{ rf_dir }} --gib {{ rf_gib }} --remove --json docs/bench/rf_chain.json
     just bench-handles --json docs/bench/handles.json
     just bench-read-check --json docs/bench/read_check.json
+    just bench-levels --json docs/bench/levels.json
     just bench-ethernet --dir target/bench-ethernet --json docs/bench/ethernet.json
     just bench-wideband --dir target/bench-wideband --json docs/bench/wideband.json
 
