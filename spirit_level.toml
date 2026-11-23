@@ -1,14 +1,12 @@
 # spirit_level configuration: https://github.com/romixlab/spirit_level (book: configuration)
-# Sets beyond the tier's ladder that this repo already passes: waivers-strict (lint exceptions as #[expect]),
-# printing-strict (no printing outside the binary), state-paranoid (lock().unwrap() counted per crate), licences
-# (dependency licences against deny.toml), msrv (the declared rust-version built), commits (subject length, Fixes:
-# tag), contracts (sized integers across a boundary), workspace-strict (internal crates unpublished), panics-paranoid
-# (assertions that say what broke, bounded reads), stop-gaps-strict (no stop-gap comments), determinism (libm floats,
-# fixed-seed hashing, exact floats), manifest-strict (every feature documented).
-# Left out: build-strict, contracts-strict and layers need a crate map (and semver-checks a published crate); the
-# others have findings: api, clippy-pedantic, deps-strict, panics-strict, repo-strict, size-strict, structure, tests,
-# tests-strict, units-strict, units-paranoid.
-extends = ["small-workspace", "ai", "waivers-strict", "printing-strict", "state-paranoid", "licences", "msrv", "commits", "contracts", "workspace-strict", "panics-paranoid", "stop-gaps-strict", "determinism", "manifest-strict"]
+# Sets beyond the tier's ladder: every set that fits the repo, without the medium or big tier's own raises.
+# Passing: waivers-strict, printing-strict, state-paranoid, licences, msrv, commits, contracts, workspace-strict,
+# panics-paranoid, stop-gaps-strict, determinism, manifest-strict. With findings left at warn: clippy-pedantic (the
+# Clippy set not yet on in Cargo.toml), panics-strict, tests, size-strict, structure, repo-strict, tests-strict, api,
+# units-strict, units-paranoid.
+# Left out: build-strict and layers need a crate map, not written yet; contracts-strict needs a crate map and a
+# release on crates.io for semver-checks; deps-strict adds only the workspace-hack lints, and the workspace has none.
+extends = ["small-workspace", "ai", "waivers-strict", "printing-strict", "state-paranoid", "licences", "msrv", "commits", "contracts", "workspace-strict", "panics-paranoid", "stop-gaps-strict", "determinism", "manifest-strict", "clippy-pedantic", "panics-strict", "tests", "size-strict", "structure", "repo-strict", "tests-strict", "api", "units-strict", "units-paranoid"]
 
 # Override a lint: a level and/or parameters, always with a reason, optionally an expiry.
 # [lints.crate-lines]
@@ -153,6 +151,7 @@ after = "17ad6a7185a627efb58e066af34e83de9f078d97"
 reason = "history up to main's tip of 21 Nov 2026 is pushed and cannot be rewritten"
 
 [lints.fixes-tag]
+level = "deny"
 after = "17ad6a7185a627efb58e066af34e83de9f078d97"
 reason = "history up to main's tip of 21 Nov 2026 is pushed and cannot be rewritten"
 
@@ -473,5 +472,13 @@ level = "deny"
 reason = "no finding left; a new one fails the run"
 
 [lints.unit-suffix]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.agent-rules-match-lints]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.taplo-fmt]
 level = "deny"
 reason = "no finding left; a new one fails the run"
