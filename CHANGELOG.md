@@ -11,6 +11,8 @@ benchmarks, golden files and book pages.
 - `SeriesHandle` and `SeriesOptions` are `GridHandle` and `GridOptions`; `TapeMux::series` is `TapeMux::grid` (FMT-15).
 - `GridOptions::chunk_samples` is `chunk_steps`, `CHUNK_SAMPLES_DEFAULT` is `CHUNK_STEPS_DEFAULT` (FMT-15).
 - `ItemError::PartialFrame { stride }` is `PartialStep { scalars }`: a push takes whole time steps (FMT-15).
+- `PieceStore` gains `first_from`, `remove` and `drop_front`: a store of its own implements them (WRITE-16).
+- `ResumeError` gains `Gap` and `HeadLost`, `RemovedRefusal` gains `NotAtHand` and `InTape`, `FsError` gains `Whole` (WRITE-16).
 
 ### Features
 
@@ -18,6 +20,9 @@ benchmarks, golden files and book pages.
 - A tile's time step over a chunk's bytes or a block is refused with `CallError::StepTooLarge` (FMT-15).
 - `TileLayout::cell_range` and `tile_cells` give a tile's cells, fewer at an axis' far edge (FMT-15).
 - `ww_tape_fs::check` verifies and range-hashes many pieces at once; cargo feature `parallel` spreads them over rayon (FS-2).
+- A chain resumes from its lowest piece, over holes its closes name as removed; others refuse with `ResumeError::Gap` (WRITE-16).
+- `PieceChain::remove` names, syncs, then deletes removed pieces; a crash between leaves a chain that resumes (WRITE-16).
+- `TapeWriter::close_and_go_on` closes the piece, synced, and writes on after the close as a resume would (WRITE-16).
 
 ## [0.7.0] - 2026-11-23
 

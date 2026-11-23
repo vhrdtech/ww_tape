@@ -2162,6 +2162,52 @@ impl<S: TapeSink> TapeWriter<S> {
         &self.removed
     }
 
+    /// Close the piece now ([CloseReason::Closed]), synced, and go on writing after that close: the writer a resume
+    /// of the closed piece gives ([Self::resume_on]), so the calls after it write what they would after a close and a
+    /// resume. The newest state items and relation values of the pieces before stay, for the next cut. A crash after
+    /// the call finds the piece closed by this close, with the pieces [Self::record_removed] named in it. Nothing is
+    /// written when nothing came since the close in force. Gives the close in force.
+    ///
+    /// After a failure the writer is gone: the piece is closed, or reads as a crash left it.
+    pub fn close_and_go_on(self) -> Result<(Self, Closed), WriteError<S::Error>> {
+        self.check()?;
+        if !self.removed_added
+            && self.deferred.is_empty()
+            && let Some(c) = self.closed_at.filter(|_| self.append_head.is_some())
+        {
+            let ranges = self.indexer.track_ranges();
+            let len = self
+                .bytes
+                .checked_sub(wide(crate::piece::APPEND_HEAD_LEN))
+                .ok_or(WriteError::Index(IndexError::Invalid(
+                    "an append head past the piece's bytes",
+                )))?;
+            let closed = Closed {
+                hash: c.hash,
+                len,
+                ident: self.head.as_ref().map(|(h, _)| h.ident),
+                next: None,
+                start: self.sink.base().saturating_add(self.start),
+                tracks: self.next_tracks(&ranges),
+                states_unknown: 0,
+            };
+            return Ok((self, closed));
+        }
+        let options = self.options();
+        let kept = self.kept.clone();
+        let newest = self.relations.newest().clone();
+        let ended = self.end(End::Kept, None)?;
+        let (mut w, _) = Self::resume_on(ended.sink, options)?;
+        w.keep_after(kept);
+        w.take_newest(&newest);
+        Ok((w, ended.closed))
+    }
+
+    /// The piece's head, written or read back by a resume; None before one.
+    pub(crate) fn piece_head(&self) -> Option<&PieceHead> {
+        self.head.as_ref().map(|(h, _)| h)
+    }
+
     /// [Self::close_as] with a summary of the caller's own: `body`, at most
     /// [CLOSE_SUMMARY_MAX](crate::piece::CLOSE_SUMMARY_MAX) bytes, goes into a summary block right before the final
     /// index, which the close names ([Close::summary]) and its content hash covers. A reader of the tail reads it back
@@ -2418,7 +2464,7 @@ impl<S: TapeSink> TapeWriter<S> {
         self.flush_deferred()?;
         self.ensure_head()?;
         let (closed, ..) = self.write_end(how, summary, None)?;
-        if how != End::CutInPlace {
+        if !matches!(how, End::CutInPlace | End::Kept) {
             self.sink
                 .close()
                 .map_err(sink_err("marking the piece closed"))?;
@@ -2503,6 +2549,7 @@ impl<S: TapeSink> TapeWriter<S> {
         let ident = self.head.as_ref().map(|(h, _)| h.ident);
         let (reason, continued) = match how {
             End::Close(reason) => (reason, false),
+            End::Kept => (CloseReason::Closed, false),
             End::Cut | End::CutInPlace => (CloseReason::Closed, true),
         };
         let next = ident
@@ -2840,6 +2887,8 @@ enum End {
     Cut,
     /// Closed by a cut, the next piece behind it in the same sink, which stays open.
     CutInPlace,
+    /// Closed ([CloseReason::Closed]), the sink kept open to write on after the close ([TapeWriter::close_and_go_on]).
+    Kept,
 }
 
 /// A piece just ended, the session and seq after its last block, and its sink.

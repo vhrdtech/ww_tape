@@ -8,7 +8,10 @@ use core::time::Duration;
 use exact_units::units::Chunk;
 use exact_units::{Bytes, Count};
 
-use super::{CloseReason, OwnerId, PieceHead, PieceId, PieceIdent, TAIL_LEN, TrackStart, UnitHash};
+use super::{
+    CloseReason, OwnerId, PieceHead, PieceId, PieceIdent, Removed, RemovedPiece, TAIL_LEN,
+    TrackStart, UnitHash,
+};
 use crate::index::{IndexEntry, IndexError, TrackIdent};
 use crate::reader::{ByteSource, TapeReader};
 use crate::sink::{PieceStore, TapeSink, sink_err};
@@ -144,7 +147,10 @@ impl<T: PieceStore> PieceChain<T> {
         })
     }
 
-    /// Reopen chain `chain` of `owner` in `store` to write on, after a crash or after its close: the pieces closed by
+    /// Reopen chain `chain` of `owner` in `store` to write on, after a crash or after its close, from the lowest piece
+    /// there ([PieceStore::first_from]): the pieces before it were deleted (a head cut). A hole between pieces is walked
+    /// over when the closes at hand name its pieces as removed on purpose and link both ends, as
+    /// [ChainLink::Removed](super::ChainLink::Removed); any other is refused ([ResumeError::Gap]). The pieces closed by
     /// a cut are read from their tails ([Self::closed]), the last piece is resumed ([TapeWriter::resume_on]): an
     /// unclosed one goes on after its last good block, a closed one is written on after its last close record. After
     /// a crash between a cut's close and the next piece's start, the next piece is started as the cut would have.
@@ -175,7 +181,15 @@ impl<T: PieceStore> PieceChain<T> {
         options: ChainOptions,
     ) -> Result<(Self, Resumed), WriteError<T::Error>> {
         let mut closed: Vec<Done<T::Key>> = Vec::new();
-        let mut seq = 0u64;
+        // a head cut starts the chain at hand: the lowest piece there
+        let Some(mut seq) = store
+            .first_from(0)
+            .map_err(sink_err("finding the lowest piece"))?
+        else {
+            return Err(WriteError::Resume(ResumeError::NoPiece));
+        };
+        // pieces missing between those at hand: (from, to, closed before them)
+        let mut gaps: Vec<(u64, u64, usize)> = Vec::new();
         let (key, reopened) = loop {
             let key = store.key_of(seq);
             let named = store
@@ -193,7 +207,19 @@ impl<T: PieceStore> PieceChain<T> {
                         .reopen(&key)
                         .map_err(sink_err("reopening the last piece"))?
                     else {
-                        break (key, None);
+                        // the end of the chain, or pieces missing before later ones
+                        let after = seq.checked_add(1).ok_or_else(too_many)?;
+                        match store
+                            .first_from(after)
+                            .map_err(sink_err("finding the next piece"))?
+                        {
+                            None => break (key, None),
+                            Some(next) => {
+                                gaps.push((seq, next, closed.len()));
+                                seq = next;
+                                continue;
+                            }
+                        }
                     };
                     match TapeWriter::resume_on(sink, options.writer.clone()) {
                         // cut whole before a crash took its mark: marked now, read as closed
@@ -222,13 +248,22 @@ impl<T: PieceStore> PieceChain<T> {
                 )))?;
             read_listed(&src, done.piece.start, e, buf)
         })?;
+        check_gaps(&closed, reopened.as_ref().map(|(w, _)| w), &gaps)?;
         let (mut writer, resumed) = match reopened {
             Some((mut w, resumed)) => {
                 headed(&w)?;
                 reserve_piece(&mut w, options.cut);
                 if w.bytes() == 0 {
-                    // cut off inside its head: the piece starts again (a first piece without carried-over tracks)
+                    // cut off inside its head: the piece starts again (a first piece without carried-over tracks),
+                    // unless the piece before it is gone
+                    let after_gap = gaps.last().is_some_and(|g| g.1 == seq);
                     match closed.last() {
+                        _ if after_gap => {
+                            return Err(WriteError::Resume(ResumeError::HeadLost { seq }));
+                        }
+                        None if seq != 0 => {
+                            return Err(WriteError::Resume(ResumeError::HeadLost { seq }));
+                        }
                         None => {
                             w.begin_piece(&first_head(owner, chain, options.writer.integrity), &[])?
                         }
@@ -293,19 +328,16 @@ impl<T: PieceStore> PieceChain<T> {
         let newest = newest_in(&closed, |done, e, buf| {
             read_listed(&SinkSource(&sink), done.piece.start, e, buf)
         })?;
-        #[expect(
-            clippy::map_err_ignore,
-            reason = "a TryFromIntError says only that the number is out of range, which this error says"
-        )]
-        let seq = u64::try_from(closed.len()).map_err(|_| too_many())?;
-        // the bytes after the last piece cut: the last piece, or nothing
+        // the bytes after the last piece cut: the last piece, or every byte the tape keeps
         let open_at = match closed.last() {
             Some((f, _)) => f
                 .piece
                 .start
                 .checked_add(f.piece.len)
                 .ok_or_else(too_many)?,
-            None => 0,
+            None => sink
+                .front()
+                .map_err(crate::sink::sink_err("finding the tape's first byte"))?,
         };
         sink.rebase(open_at)
             .map_err(crate::sink::sink_err("finding the last piece"))?;
@@ -314,8 +346,11 @@ impl<T: PieceStore> PieceChain<T> {
             headed(&w)?;
             reserve_piece(&mut w, options.cut);
             if w.bytes() == 0 {
-                // cut off inside its head: the piece starts again
+                // cut off inside its head: the piece starts again, unless the pieces before it were dropped
                 match closed.last() {
+                    None if open_at != 0 => {
+                        return Err(WriteError::Resume(ResumeError::HeadLost { seq: 0 }));
+                    }
                     None => {
                         w.begin_piece(&first_head(owner, chain, options.writer.integrity), &[])?
                     }
@@ -338,6 +373,13 @@ impl<T: PieceStore> PieceChain<T> {
             (w, resumed)
         };
         writer.take_newest(&newest);
+        // the pieces before the first at hand may be dropped: the seq is the head's
+        let seq = writer
+            .piece_head()
+            .map(|h| h.ident.seq)
+            .ok_or(WriteError::Index(IndexError::Invalid(
+                "the last piece of the chain has no readable piece head",
+            )))?;
         Ok((
             Self {
                 store,
@@ -605,6 +647,119 @@ impl<T: PieceStore> PieceChain<T> {
         Ok(())
     }
 
+    /// Remove the closed pieces of sequence numbers `seqs` from the store, on purpose, so that the chain still reads
+    /// and resumes, also after a crash part way.
+    ///
+    /// A piece after one that stays is named first ([TapeWriter::record_removed]) in the piece being written, with
+    /// the rows the removed pieces held of pieces gone before; that piece is then closed and synced, and goes on after
+    /// its close ([TapeWriter::close_and_go_on]). Only then are the pieces taken out of the store, oldest first
+    /// ([PieceStore::remove]). The pieces before every piece that stays need no row: the chain reads as cut at its
+    /// head ([ChainReport::head_cut](super::ChainReport::head_cut)), as after retention. In a chain in one tape
+    /// ([PieceTapes::One]) only those go, as the front of the tape ([PieceStore::drop_front]).
+    ///
+    /// Refused ([crate::InputError::Removed]) before anything is written: a piece that is not a closed piece of the
+    /// chain at hand ([RemovedRefusal::NotAtHand](crate::writer::RemovedRefusal::NotAtHand)), the piece being written
+    /// among them; a piece inside a tape of several after one that stays
+    /// ([RemovedRefusal::InTape](crate::writer::RemovedRefusal::InTape)); rows [TapeWriter::record_removed] refuses.
+    pub fn remove(&mut self, seqs: &[u64]) -> Result<(), WriteError<T::Error>> {
+        use crate::writer::{InputError, RemovedRefusal};
+        let refuse = |why| Err(WriteError::Input(InputError::Removed(why)));
+        let seq_of = |c: &ChainPiece<T::Key>| c.piece.ident.map(|i| i.seq);
+        let mut gone: BTreeSet<u64> = BTreeSet::new();
+        for &seq in seqs {
+            if !self.closed.iter().any(|c| seq_of(c) == Some(seq)) {
+                return refuse(RemovedRefusal::NotAtHand { seq });
+            }
+            gone.insert(seq);
+        }
+        if gone.is_empty() {
+            return Ok(());
+        }
+        let kept: BTreeSet<u64> = self
+            .closed
+            .iter()
+            .filter_map(seq_of)
+            .filter(|s| !gone.contains(s))
+            .chain([self.seq])
+            .collect();
+        // the lowest piece that stays: the pieces before it go as a head cut
+        let lowest = self
+            .closed
+            .iter()
+            .filter_map(seq_of)
+            .find(|s| !gone.contains(s))
+            .unwrap_or(self.seq);
+        if self.pieces == PieceTapes::One
+            && let Some(&seq) = gone.iter().find(|&&s| s > lowest)
+        {
+            return refuse(RemovedRefusal::InTape { seq });
+        }
+        let removed: Vec<ChainPiece<T::Key>> = self
+            .closed
+            .iter()
+            .filter(|c| seq_of(c).is_some_and(|s| gone.contains(&s)))
+            .cloned()
+            .collect();
+        let mut rows: Vec<RemovedPiece> = Vec::new();
+        for c in &removed {
+            let Some(ident) = c.piece.ident.filter(|i| i.seq > lowest) else {
+                continue;
+            };
+            rows.push(RemovedPiece {
+                seq: ident.seq,
+                id: ident.id,
+                hash: c.piece.hash,
+            });
+        }
+        // the rows a removed piece holds of pieces gone before: named again, or the hole they cover reads as a gap
+        if self.pieces == PieceTapes::Each {
+            for c in &removed {
+                let Some(src) = self
+                    .store
+                    .closed(&c.tape)
+                    .map_err(sink_err("opening a piece to remove"))?
+                else {
+                    continue;
+                };
+                let reader = TapeReader::open(&src).map_err(WriteError::Read)?;
+                let held = reader.pieces().first().map(|p| p.removed.clone());
+                rows.extend(
+                    held.unwrap_or_default()
+                        .into_iter()
+                        .filter(|r| r.seq > lowest && !kept.contains(&r.seq)),
+                );
+            }
+        }
+        if !rows.is_empty() {
+            self.writer()?.record_removed(&rows)?;
+            let w = self.writer.take().ok_or(WriteError::Failed)?;
+            let (w, _) = w.close_and_go_on()?;
+            self.writer = Some(w);
+        }
+        match self.pieces {
+            PieceTapes::Each => {
+                for c in &removed {
+                    self.store
+                        .remove(&c.tape)
+                        .map_err(sink_err("removing a piece"))?;
+                }
+            }
+            PieceTapes::One => {
+                let to = removed
+                    .iter()
+                    .map(|c| c.piece.start.saturating_add(c.piece.len))
+                    .fold(0, u64::max);
+                let tape = self.store.key_of(0);
+                self.store
+                    .drop_front(&tape, to)
+                    .map_err(sink_err("dropping the front of the tape"))?;
+            }
+        }
+        self.closed
+            .retain(|c| !seq_of(c).is_some_and(|s| gone.contains(&s)));
+        Ok(())
+    }
+
     /// Close the last piece ([CloseReason::Closed]); every piece of the chain.
     pub fn close(self) -> Result<Vec<ChainPiece<T::Key>>, WriteError<T::Error>> {
         self.close_as(CloseReason::Closed)
@@ -654,6 +809,46 @@ fn next_piece<E>(done: &Closed, last: &LastPiece) -> Result<NextPiece, WriteErro
     )?;
     next.kept = last.kept.clone();
     Ok(next)
+}
+
+/// Refuse each gap of `gaps` (pieces `from..to` missing after the first `before` pieces of `closed`) that the closes at
+/// hand don't name as removed on purpose, as [check_chain](super::check_chain) links over them
+/// ([ChainLink::Removed](super::ChainLink::Removed)): every missing piece named, agreed; the cut before the gap names
+/// the first one's id; the head after it names the last one's hash and id. The piece after the last gap is `last` when
+/// it is resumed, else a closed one.
+fn check_gaps<K, S: TapeSink>(
+    closed: &[Done<K>],
+    last: Option<&TapeWriter<S>>,
+    gaps: &[(u64, u64, usize)],
+) -> Result<(), WriteError<S::Error>> {
+    if gaps.is_empty() {
+        return Ok(());
+    }
+    let resumed: &[RemovedPiece] = last.map_or(&[], |w| w.removed());
+    let removed = Removed::of_rows(closed.iter().flat_map(|(_, l)| &l.removed).chain(resumed));
+    for &(from, to, before) in gaps {
+        let gap = WriteError::Resume(ResumeError::Gap { from, to });
+        let Some((first, end)) = removed.span(from, to) else {
+            return Err(gap);
+        };
+        let cut = before
+            .checked_sub(1)
+            .and_then(|i| closed.get(i))
+            .and_then(|(done, _)| done.piece.next);
+        let head = match (closed.get(before), last) {
+            (Some((_, l)), _) => Some(l.head.prev),
+            (None, Some(w)) => match w.piece_head() {
+                Some(h) => Some(h.prev),
+                // cut off inside its head: the piece before it is gone, so it can't start again
+                None => return Err(WriteError::Resume(ResumeError::HeadLost { seq: to })),
+            },
+            (None, None) => None,
+        };
+        if cut != Some(first.id) || head != Some(Some((end.hash, end.id))) {
+            return Err(gap);
+        }
+    }
+    Ok(())
 }
 
 fn too_many<E>() -> WriteError<E> {
@@ -709,6 +904,8 @@ struct LastPiece {
     last_chunks: BTreeMap<TrackIdent, IndexEntry>,
     /// The newest item of each state track of its next head that reads in it, for the next cut to carry
     kept: Kept,
+    /// The pieces of the chain its close in force names as removed on purpose
+    removed: Vec<RemovedPiece>,
 }
 
 /// The closed piece in `src`, from its tail, close and head.
@@ -790,6 +987,7 @@ fn read_closed_at<B: ByteSource>(
             ranges: newest,
             last_chunks,
             kept,
+            removed: p.removed.clone(),
         },
     ))
 }

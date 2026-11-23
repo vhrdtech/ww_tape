@@ -196,12 +196,17 @@ pub fn check_chain(pieces: &[PieceSummary]) -> ChainReport {
 }
 
 /// The removed pieces the closes at hand name, by sequence number; None for one two closes name differently.
-struct Removed(BTreeMap<u64, Option<RemovedPiece>>);
+pub(crate) struct Removed(BTreeMap<u64, Option<RemovedPiece>>);
 
 impl Removed {
     fn of<'p>(pieces: impl Iterator<Item = &'p PieceSummary>) -> Self {
+        Self::of_rows(pieces.flat_map(|p| &p.removed))
+    }
+
+    /// The rows `rows` of the closes at hand.
+    pub(crate) fn of_rows<'r>(rows: impl Iterator<Item = &'r RemovedPiece>) -> Self {
         let mut m: BTreeMap<u64, Option<RemovedPiece>> = BTreeMap::new();
-        for r in pieces.flat_map(|p| &p.removed) {
+        for r in rows {
             m.entry(r.seq)
                 .and_modify(|e| {
                     if *e != Some(*r) {
@@ -214,7 +219,7 @@ impl Removed {
     }
 
     /// The first and the last of the pieces of sequence numbers `from..to` when every one of them is named, agreed.
-    fn span(&self, from: u64, to: u64) -> Option<(RemovedPiece, RemovedPiece)> {
+    pub(crate) fn span(&self, from: u64, to: u64) -> Option<(RemovedPiece, RemovedPiece)> {
         let mut expect = from;
         let mut ends: Option<(RemovedPiece, RemovedPiece)> = None;
         // keys are distinct and ascending: each must be the next seq

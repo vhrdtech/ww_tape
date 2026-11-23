@@ -650,6 +650,10 @@ impl TapeSink for SyncSink {
     fn rebase(&mut self, base: u64) -> Result<(), MemError> {
         self.inner.rebase(base)
     }
+
+    fn front(&self) -> Result<u64, MemError> {
+        self.inner.front()
+    }
 }
 
 impl SyncPieces {
@@ -693,6 +697,18 @@ impl PieceStore for SyncPieces {
 
     fn open_whole(&mut self, key: &u64) -> Result<Option<SyncSink>, MemError> {
         Ok(PieceStore::open_whole(&mut self.inner, key)?.map(|s| self.wrap(*key, s)))
+    }
+
+    fn first_from(&self, from: u64) -> Result<Option<u64>, MemError> {
+        PieceStore::first_from(&self.inner, from)
+    }
+
+    fn remove(&mut self, key: &u64) -> Result<bool, MemError> {
+        PieceStore::remove(&mut self.inner, key)
+    }
+
+    fn drop_front(&mut self, key: &u64, to: u64) -> Result<Option<u64>, MemError> {
+        PieceStore::drop_front(&mut self.inner, key, to)
     }
 }
 

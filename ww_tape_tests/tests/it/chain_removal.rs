@@ -1,0 +1,475 @@
+//! Pieces of a chain removed on purpose while it is written ([PieceChain::remove]), and the resume of a chain whose
+//! first or middle pieces are gone: from its lowest piece, over holes its closes name.
+
+use std::path::Path;
+
+use crate::pieces::{chunk, column, scratch};
+use crate::reclose::close;
+use ww_tape::piece::{ChainEnd, ChainLink, ChainReport};
+use ww_tape::sink::TapeSink;
+use ww_tape::{
+    ChainOptions, CutPolicy, Definitions, InputError, MemError, MemPiece, MemPieces, MemSink,
+    OwnerId, PieceChain, PieceStore, PieceTapes, RemovedRefusal, ResumeError, SyncPolicy,
+    TapeReader, TapeWriter, WriteError, WriterOptions,
+};
+
+const OWNER: OwnerId = OwnerId([0x52; 32]);
+
+fn options(tapes: PieceTapes) -> ChainOptions {
+    ChainOptions {
+        tapes,
+        writer: WriterOptions {
+            sync: SyncPolicy::None,
+            ..Default::default()
+        },
+        cut: CutPolicy {
+            chunks: exact_units::Count::new(2),
+            ..Default::default()
+        },
+    }
+}
+
+fn defs() -> Definitions {
+    crate::definitions::base_defs().clone()
+}
+
+/// Chunks `from..to` of track 0, two to a piece.
+fn write<T: PieceStore>(c: &mut PieceChain<T>, defs: &Definitions, from: u64, to: u64) {
+    for k in from..to {
+        let (h, b) = chunk(0, k);
+        c.write_chunk(defs, &h, &column(&b)).unwrap();
+    }
+}
+
+/// The pieces of `mem`, by key, back to back.
+fn bytes_of(mem: &MemPieces) -> Vec<u8> {
+    mem.keys()
+        .unwrap()
+        .iter()
+        .flat_map(|k| mem.get(k).unwrap().unwrap().to_vec().unwrap())
+        .collect()
+}
+
+fn report(bytes: &[u8]) -> ChainReport {
+    TapeReader::open(bytes).unwrap().chain()
+}
+
+/// Every link holds, by hash or over named removed pieces, and the chain ends at a close.
+fn linked(c: &ChainReport) {
+    assert!(
+        c.links
+            .iter()
+            .all(|l| matches!(l, ChainLink::Linked | ChainLink::Removed { .. })),
+        "{:?}",
+        c.links
+    );
+    assert!(c.strays.is_empty(), "{:?}", c.strays);
+    assert!(matches!(c.end, ChainEnd::Closed { .. }), "{:?}", c.end);
+}
+
+/// A chain in memory at piece 4 after 8 chunks, pieces 0..4 closed.
+fn chain_at_four(mem: &MemPieces, tapes: PieceTapes) -> PieceChain<MemPieces> {
+    let defs = defs();
+    let mut c = PieceChain::create_on(mem.clone(), OWNER, 0, &[], options(tapes)).unwrap();
+    write(&mut c, &defs, 0, 9);
+    assert_eq!(c.seq(), 4);
+    c
+}
+
+/// Memory pieces whose removals fail after `left` of them: a crash part way through [PieceChain::remove].
+struct Faulty {
+    mem: MemPieces,
+    left: usize,
+}
+
+impl PieceStore for Faulty {
+    type Key = u64;
+    type Error = MemError;
+    type Sink = MemSink;
+    type Source = MemPiece;
+    fn key_of(&self, seq: u64) -> u64 {
+        seq
+    }
+    fn create(&mut self, key: &u64) -> Result<MemSink, MemError> {
+        self.mem.create(key)
+    }
+    fn reopen(&mut self, key: &u64) -> Result<Option<MemSink>, MemError> {
+        self.mem.reopen(key)
+    }
+    fn closed(&self, key: &u64) -> Result<Option<MemPiece>, MemError> {
+        self.mem.closed(key)
+    }
+    fn create_whole(&mut self, key: &u64) -> Result<MemSink, MemError> {
+        self.mem.create_whole(key)
+    }
+    fn open_whole(&mut self, key: &u64) -> Result<Option<MemSink>, MemError> {
+        self.mem.open_whole(key)
+    }
+    fn first_from(&self, from: u64) -> Result<Option<u64>, MemError> {
+        self.mem.first_from(from)
+    }
+    fn remove(&mut self, key: &u64) -> Result<bool, MemError> {
+        self.left = self.left.checked_sub(1).ok_or(MemError::Poisoned)?;
+        PieceStore::remove(&mut self.mem, key)
+    }
+    fn drop_front(&mut self, key: &u64, to: u64) -> Result<Option<u64>, MemError> {
+        self.mem.drop_front(key, to)
+    }
+}
+
+/// Retention: the first pieces removed while the chain is written, a crash, a resume from the lowest piece left.
+/// The chain reads as head cut, every link held; no row is written for a head.
+#[test]
+fn a_chain_resumes_after_its_first_pieces_are_removed() {
+    let defs = defs();
+    let mem = MemPieces::new();
+    let mut c = chain_at_four(&mem, PieceTapes::Each);
+    let before = mem.get(&4).unwrap().unwrap().to_vec().unwrap();
+    c.remove(&[0, 1]).unwrap();
+    assert_eq!(mem.keys().unwrap(), [2, 3, 4]);
+    assert_eq!(c.closed().len(), 2);
+    assert_eq!(
+        mem.get(&4).unwrap().unwrap().to_vec().unwrap(),
+        before,
+        "a head removal writes no row"
+    );
+    write(&mut c, &defs, 9, 12);
+    drop(c);
+
+    let (mut c, _) =
+        PieceChain::resume_on(mem.clone(), OWNER, 0, options(PieceTapes::Each)).unwrap();
+    assert_eq!(c.seq(), 5);
+    assert_eq!(c.closed().len(), 3);
+    write(&mut c, &defs, 12, 15);
+    c.close().unwrap();
+
+    let r = report(&bytes_of(&mem));
+    assert!(r.head_cut);
+    assert_eq!(r.head_removed, 0);
+    linked(&r);
+    assert!(r.links.iter().all(|l| *l == ChainLink::Linked));
+}
+
+/// Retention that a crash stops after the first of three removals: a head cut at piece 1, which resumes.
+#[test]
+fn a_crash_during_retention_leaves_a_chain_that_resumes() {
+    let defs = defs();
+    let mem = MemPieces::new();
+    let mut c = PieceChain::create_on(
+        Faulty {
+            mem: mem.clone(),
+            left: 1,
+        },
+        OWNER,
+        0,
+        &[],
+        options(PieceTapes::Each),
+    )
+    .unwrap();
+    write(&mut c, &defs, 0, 9);
+    let e = c.remove(&[0, 1, 2]).unwrap_err();
+    assert!(matches!(e, WriteError::Sink { .. }), "{e:?}");
+    drop(c);
+    assert_eq!(mem.keys().unwrap(), [1, 2, 3, 4]);
+
+    let (mut c, _) =
+        PieceChain::resume_on(mem.clone(), OWNER, 0, options(PieceTapes::Each)).unwrap();
+    assert_eq!((c.seq(), c.closed().len()), (4, 3));
+    c.remove(&[1, 2]).unwrap();
+    write(&mut c, &defs, 9, 10);
+    c.close().unwrap();
+    let r = report(&bytes_of(&mem));
+    assert!(r.head_cut);
+    linked(&r);
+}
+
+/// Pieces from the middle removed: named in the piece written, closed and synced there, then deleted. A crash
+/// after more chunks, a resume over the hole, and the chain reads whole.
+#[test]
+fn a_chain_resumes_over_pieces_removed_from_its_middle() {
+    let defs = defs();
+    let mem = MemPieces::new();
+    let mut c = chain_at_four(&mem, PieceTapes::Each);
+    // --8<-- [start:remove]
+    // pieces 1 and 2 named in piece 4, which is closed and synced, then taken out of the store
+    c.remove(&[1, 2]).unwrap();
+    assert_eq!(mem.keys().unwrap(), [0, 3, 4]);
+    // --8<-- [end:remove]
+    let named: Vec<u64> = c
+        .writer()
+        .unwrap()
+        .removed()
+        .iter()
+        .map(|r| r.seq)
+        .collect();
+    assert_eq!(named, [1, 2]);
+    // the rows are in a close of piece 4 before any piece goes: a crash right now reads whole
+    let now = report(&bytes_of(&mem));
+    assert_eq!(now.links[0], ChainLink::Removed { pieces: 2 });
+    write(&mut c, &defs, 9, 10);
+    drop(c);
+
+    // --8<-- [start:resume]
+    // a crash, then a resume over the hole: pieces 0 and 3 closed, piece 4 written on
+    let (mut c, _) =
+        PieceChain::resume_on(mem.clone(), OWNER, 0, options(PieceTapes::Each)).unwrap();
+    assert_eq!((c.seq(), c.closed().len()), (4, 2));
+    // --8<-- [end:resume]
+    write(&mut c, &defs, 10, 13);
+    c.close().unwrap();
+    let r = report(&bytes_of(&mem));
+    assert_eq!(r.links[0], ChainLink::Removed { pieces: 2 });
+    linked(&r);
+    assert!(r.is_whole());
+    assert_eq!(r.removed.iter().map(|p| p.seq).collect::<Vec<_>>(), [1, 2]);
+}
+
+/// A crash between the rows and the deletes, or between two deletes: the chain resumes and reads whole, and the
+/// removal is made again.
+#[test]
+fn a_crash_between_naming_and_deleting_leaves_a_chain_that_resumes() {
+    for left in [0, 1] {
+        let defs = defs();
+        let mem = MemPieces::new();
+        let mut c = PieceChain::create_on(
+            Faulty {
+                mem: mem.clone(),
+                left,
+            },
+            OWNER,
+            0,
+            &[],
+            options(PieceTapes::Each),
+        )
+        .unwrap();
+        write(&mut c, &defs, 0, 9);
+        c.remove(&[1, 2]).unwrap_err();
+        drop(c);
+        let r = report(&bytes_of(&mem));
+        linked(&r);
+        assert!(r.links.contains(&ChainLink::Linked), "{:?}", r.links);
+
+        let (mut c, _) =
+            PieceChain::resume_on(mem.clone(), OWNER, 0, options(PieceTapes::Each)).unwrap();
+        assert_eq!(c.seq(), 4, "left {left}");
+        c.remove(
+            &c.closed()
+                .iter()
+                .filter_map(|p| p.piece.ident)
+                .map(|i| i.seq)
+                .filter(|s| (1..3).contains(s))
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+        assert_eq!(mem.keys().unwrap(), [0, 3, 4]);
+        c.close().unwrap();
+        let r = report(&bytes_of(&mem));
+        assert_eq!(r.links[0], ChainLink::Removed { pieces: 2 });
+        assert!(r.is_whole(), "left {left}: {r:?}");
+    }
+}
+
+/// A removed piece's rows of a hole removed before are named again by the piece written, so the hole they cover
+/// still links.
+#[test]
+fn removing_the_piece_that_names_a_hole_names_it_again() {
+    let defs = defs();
+    let mem = MemPieces::new();
+    let mut c = chain_at_four(&mem, PieceTapes::Each);
+    // piece 4 names 2; then piece 4 is cut and itself removed from the middle
+    c.remove(&[2]).unwrap();
+    write(&mut c, &defs, 9, 14);
+    assert_eq!(c.seq(), 6);
+    c.remove(&[4]).unwrap();
+    let named: Vec<u64> = c
+        .writer()
+        .unwrap()
+        .removed()
+        .iter()
+        .map(|r| r.seq)
+        .collect();
+    assert_eq!(named, [2, 4]);
+    drop(c);
+    let (c, _) = PieceChain::resume_on(mem.clone(), OWNER, 0, options(PieceTapes::Each)).unwrap();
+    c.close().unwrap();
+    let r = report(&bytes_of(&mem));
+    assert!(r.is_whole(), "{r:?}");
+}
+
+/// A piece missing from the middle without a row naming it: the resume is refused, naming the missing pieces.
+#[test]
+fn a_resume_over_an_unnamed_hole_is_refused() {
+    let mem = MemPieces::new();
+    let c = chain_at_four(&mem, PieceTapes::Each);
+    c.close().unwrap();
+    assert!(mem.remove(&1).unwrap());
+    assert!(mem.remove(&2).unwrap());
+    let e = PieceChain::resume_on(mem.clone(), OWNER, 0, options(PieceTapes::Each))
+        .err()
+        .unwrap();
+    assert!(
+        matches!(e, WriteError::Resume(ResumeError::Gap { from: 1, to: 3 })),
+        "{e:?}"
+    );
+    assert!(e.to_string().contains("1..3"), "{e}");
+    assert!(!report(&bytes_of(&mem)).is_whole());
+}
+
+/// What [PieceChain::remove] refuses, before anything is written or deleted.
+#[test]
+fn a_removal_takes_only_closed_pieces_at_hand() {
+    let mem = MemPieces::new();
+    let mut c = chain_at_four(&mem, PieceTapes::Each);
+    let refused = |e: WriteError<MemError>| match e {
+        WriteError::Input(InputError::Removed(r)) => r,
+        e => panic!("{e:?}"),
+    };
+    assert_eq!(
+        refused(c.remove(&[4]).unwrap_err()),
+        RemovedRefusal::NotAtHand { seq: 4 }
+    );
+    assert_eq!(
+        refused(c.remove(&[1, 9]).unwrap_err()),
+        RemovedRefusal::NotAtHand { seq: 9 }
+    );
+    assert_eq!(mem.keys().unwrap(), [0, 1, 2, 3, 4]);
+    c.remove(&[]).unwrap();
+}
+
+/// A chain in one memory tape: its first pieces go as the tape's front ([MemPieces::drop_front]), and it resumes from
+/// the first piece kept; a piece from the middle of the tape is refused.
+#[test]
+fn a_chain_in_one_memory_tape_resumes_after_its_front_is_dropped() {
+    let defs = defs();
+    let mem = MemPieces::new();
+    let mut c = chain_at_four(&mem, PieceTapes::One);
+    let refused = c.remove(&[2]).unwrap_err();
+    assert!(
+        matches!(
+            refused,
+            WriteError::Input(InputError::Removed(RemovedRefusal::InTape { seq: 2 }))
+        ),
+        "{refused:?}"
+    );
+    let third = c.closed()[2].piece.start;
+    c.remove(&[0, 1]).unwrap();
+    assert!(ww_tape::ByteSource::start(&mem.get(&0).unwrap().unwrap()).unwrap() <= third);
+    write(&mut c, &defs, 9, 10);
+    drop(c);
+
+    let (mut c, _) =
+        PieceChain::resume_on(mem.clone(), OWNER, 0, options(PieceTapes::One)).unwrap();
+    assert_eq!((c.seq(), c.closed().len()), (4, 2));
+    write(&mut c, &defs, 10, 13);
+    let pieces = c.close().unwrap();
+    assert_eq!(pieces.len(), 5);
+    let tape = mem.get(&0).unwrap().unwrap();
+    let r = TapeReader::open(tape).unwrap().chain();
+    assert!(r.head_cut);
+    linked(&r);
+}
+
+/// A writer's close in place gives the bytes of a close, a resume and the same calls after it: chunks and state
+/// items on both sides of the close.
+#[test]
+fn a_close_in_place_writes_what_a_close_and_a_resume_do() {
+    let mut defs = defs();
+    crate::definitions::hold(
+        &mut defs,
+        core::slice::from_ref(&crate::definitions::state(5)),
+    )
+    .unwrap();
+    let calls = |w: &mut TapeWriter<MemSink>, from: u64, to: u64| {
+        for k in from..to {
+            w.put(&defs, ww_tape::TrackNum::new(5), k as i64, &[k as u8])
+                .unwrap();
+            let (h, b) = chunk(0, k);
+            w.write_chunk(&defs, &h, &column(&b)).unwrap();
+        }
+    };
+    let mut a = crate::resume::begin(0);
+    calls(&mut a, 0, 3);
+    let (a, first) = a.close_and_go_on().unwrap();
+    let (mut a, again) = a.close_and_go_on().unwrap();
+    assert_eq!(again, first, "nothing since: nothing written");
+    calls(&mut a, 3, 6);
+    let a = close(a);
+
+    let mut b = crate::resume::begin(0);
+    calls(&mut b, 0, 3);
+    let closed = close(b);
+    assert_eq!(a[..closed.len()], closed[..]);
+    let mut sink = MemSink::new();
+    sink.write_all(&closed).unwrap();
+    let (mut b, _) = TapeWriter::resume_on(sink, crate::resume::options(0)).unwrap();
+    calls(&mut b, 3, 6);
+    let b = close(b);
+    let at = a.iter().zip(&b).position(|(x, y)| x != y);
+    assert_eq!((a.len(), at), (b.len(), None));
+    let r = TapeReader::open(&a[..]).unwrap();
+    assert_eq!(r.closes(0).unwrap().len(), 2);
+    assert!(r.verify(0).unwrap().holds);
+}
+
+/// Piece files: the head deleted by hand resumes as a head cut; a middle removal resumes over its hole; a file
+/// deleted from the middle by hand is refused, naming it.
+#[test]
+fn a_chain_of_files_resumes_from_its_lowest_piece() {
+    let defs = defs();
+    let dir = scratch("chain_removal");
+    let each = options(PieceTapes::Each);
+    let mut c = ww_tape_fs::chain::create(&dir, OWNER, 0, &[], each.clone()).unwrap();
+    write(&mut c, &defs, 0, 13);
+    assert_eq!(c.seq(), 6);
+    c.remove(&[3, 4]).unwrap();
+    drop(c);
+    std::fs::remove_file(dir.join(ww_tape_fs::piece_name(0))).unwrap();
+
+    let (mut c, _) = ww_tape_fs::chain::resume(&dir, OWNER, 0, each.clone()).unwrap();
+    assert_eq!((c.seq(), c.closed().len()), (6, 3));
+    write(&mut c, &defs, 13, 14);
+    c.close().unwrap();
+    let r = report(&files_of(&dir));
+    assert!(r.head_cut);
+    assert_eq!(r.links[1], ChainLink::Removed { pieces: 2 });
+    linked(&r);
+
+    std::fs::remove_file(dir.join(ww_tape_fs::piece_name(2))).unwrap();
+    let e = ww_tape_fs::chain::resume(&dir, OWNER, 0, each.clone())
+        .err()
+        .unwrap();
+    assert!(
+        matches!(e, WriteError::Resume(ResumeError::Gap { from: 2, to: 5 })),
+        "{e:?}"
+    );
+
+    for seq in [1, 5, 6] {
+        std::fs::remove_file(dir.join(ww_tape_fs::piece_name(seq))).unwrap();
+    }
+    let e = ww_tape_fs::chain::resume(&dir, OWNER, 0, each)
+        .err()
+        .unwrap();
+    assert!(
+        matches!(
+            e,
+            WriteError::Sink {
+                error: ww_tape_fs::FsError::NoPiece(_),
+                ..
+            }
+        ),
+        "{e:?}"
+    );
+}
+
+/// The piece files of `dir` in name order, back to back.
+fn files_of(dir: &Path) -> Vec<u8> {
+    let mut names: Vec<_> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .collect();
+    names.sort();
+    names
+        .iter()
+        .flat_map(|p| std::fs::read(p).unwrap())
+        .collect()
+}

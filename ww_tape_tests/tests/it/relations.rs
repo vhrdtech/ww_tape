@@ -843,6 +843,18 @@ impl ww_tape::PieceStore for Recorded {
     fn open_whole(&mut self, key: &u64) -> Result<Option<MemSink>, ww_tape::MemError> {
         self.tapes.open_whole(key)
     }
+
+    fn first_from(&self, from: u64) -> Result<Option<u64>, ww_tape::MemError> {
+        self.tapes.first_from(from)
+    }
+
+    fn remove(&mut self, key: &u64) -> Result<bool, ww_tape::MemError> {
+        ww_tape::PieceStore::remove(&mut self.tapes, key)
+    }
+
+    fn drop_front(&mut self, key: &u64, to: u64) -> Result<Option<u64>, ww_tape::MemError> {
+        self.tapes.drop_front(key, to)
+    }
 }
 
 /// A resume of a chain reads a track's last chunk only in the newest piece that holds a chunk of the track: piece 0's

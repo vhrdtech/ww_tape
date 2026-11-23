@@ -107,4 +107,16 @@ impl PieceStore for Discard {
     fn open_whole(&mut self, _: &u64) -> io::Result<Option<DiscardSink>> {
         Ok(None)
     }
+
+    fn first_from(&self, _: u64) -> io::Result<Option<u64>> {
+        Ok(None)
+    }
+
+    fn remove(&mut self, _: &u64) -> io::Result<bool> {
+        Ok(false)
+    }
+
+    fn drop_front(&mut self, _: &u64, _: u64) -> io::Result<Option<u64>> {
+        Ok(None)
+    }
 }

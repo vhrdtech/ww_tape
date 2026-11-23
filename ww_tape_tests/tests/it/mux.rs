@@ -304,6 +304,9 @@ impl TapeSink for RiggedSink {
     fn rebase(&mut self, base: u64) -> Result<(), Self::Error> {
         self.sink.rebase(base)
     }
+    fn front(&self) -> Result<u64, Self::Error> {
+        self.sink.front()
+    }
 }
 
 impl PieceStore for Rigged {
@@ -341,6 +344,15 @@ impl PieceStore for Rigged {
             .mem
             .open_whole(key)?
             .map(|sink| RiggedSink { sink, rig }))
+    }
+    fn first_from(&self, from: u64) -> Result<Option<u64>, Self::Error> {
+        self.mem.first_from(from)
+    }
+    fn remove(&mut self, key: &u64) -> Result<bool, Self::Error> {
+        PieceStore::remove(&mut self.mem, key)
+    }
+    fn drop_front(&mut self, key: &u64, to: u64) -> Result<Option<u64>, Self::Error> {
+        self.mem.drop_front(key, to)
     }
 }
 

@@ -93,6 +93,12 @@ pub enum RemovedRefusal {
     /// The close would name more than `max` removed pieces
     /// ([REMOVED_PIECES_MAX](crate::piece::REMOVED_PIECES_MAX)).
     TooMany { max: usize },
+    /// The piece of sequence number `seq` is not a closed piece of the chain at hand: [PieceChain::remove](crate::PieceChain::remove)
+    /// takes only those.
+    NotAtHand { seq: u64 },
+    /// The piece of sequence number `seq` lies inside a tape of several pieces, after one that stays: only the front
+    /// of such a tape is freed.
+    InTape { seq: u64 },
 }
 
 /// Why a resume cuts nothing ([WriteError::Resume]): the bytes of the piece stay as they are.
@@ -119,6 +125,13 @@ pub enum ResumeError {
     /// the close before it: damage, not a torn end. Only an end the bytes stop inside of, or blank (zero) bytes, is
     /// cut.
     Damaged { offset: u64 },
+    /// The pieces of sequence numbers `from..to` are missing from the middle of the chain, and the closes at hand don't
+    /// name them as removed on purpose ([TapeWriter::record_removed](super::TapeWriter::record_removed)) or name them
+    /// with ends that don't link to the pieces on either side.
+    Gap { from: u64, to: u64 },
+    /// The lowest piece at hand comes after removed pieces and was cut off inside its head: its head can't be
+    /// written again.
+    HeadLost { seq: u64 },
 }
 
 /// Why a cut ([TapeWriter::cut_on], [TapeWriter::cut_with], [TapeWriter::cut_in_place]) failed: the error, and the
@@ -258,6 +271,13 @@ impl core::fmt::Display for InputError {
             Self::Removed(RemovedRefusal::TooMany { max }) => {
                 write!(f, "more than {max} removed pieces in one close")
             }
+            Self::Removed(RemovedRefusal::NotAtHand { seq }) => {
+                write!(f, "piece {seq} is not a closed piece of the chain at hand")
+            }
+            Self::Removed(RemovedRefusal::InTape { seq }) => write!(
+                f,
+                "piece {seq} lies inside the chain's tape after a piece that stays: only the tape's front is freed"
+            ),
             Self::Flags { kind, flags } => write!(
                 f,
                 "a caller's block of kind {kind:?} with header flags {flags:#06x}: it takes {:#06x}",
@@ -294,6 +314,14 @@ impl core::fmt::Display for ResumeError {
                 f,
                 "the piece goes on in the next piece ({:02x?}): only the last piece of a chain is written on",
                 next.0
+            ),
+            Self::Gap { from, to } => write!(
+                f,
+                "pieces {from}..{to} of the chain are missing and not named as removed on purpose"
+            ),
+            Self::HeadLost { seq } => write!(
+                f,
+                "the lowest piece at hand, {seq}, was cut off inside its head"
             ),
             Self::Damaged { offset } => write!(
                 f,

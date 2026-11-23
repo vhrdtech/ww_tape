@@ -155,6 +155,11 @@ impl<S: TapeSink> ByteSource for SinkSource<'_, S> {
     fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), S::Error> {
         self.0.read_at(offset, buf)
     }
+
+    /// The sink's first byte, counted from its base as its reads are.
+    fn start(&self) -> Result<u64, S::Error> {
+        Ok(self.0.front()?.saturating_sub(self.0.base()))
+    }
 }
 
 /// One step of the walk: a block (good or not) or a stretch that holds none.
