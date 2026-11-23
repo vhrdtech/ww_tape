@@ -404,7 +404,8 @@ impl<K: Ord + Clone> MemTapes<K> {
     /// The sealed copy takes the tape's place, at the same offsets: a [MemTape] a reader already holds keeps the old
     /// bytes and reads on as before, and readers opened afterwards read the sealed ones. A tape still being written
     /// is not sealed ([MemError::Unclosed]), nor one a writer took while it was sealed ([MemError::Locked]). Gives
-    /// each piece sealed: the last is what the tape after it takes as `after`.
+    /// each piece sealed: the last is what the tape after it takes as `after`. A tape whose pieces are all of Full,
+    /// given no `after`, stays as it is and gives none.
     pub fn seal(
         &self,
         key: &K,
@@ -423,8 +424,16 @@ impl<K: Ord + Clone> MemTapes<K> {
         if !tape.is_closed() {
             return Err(refused(MemError::Unclosed(key.clone())));
         }
-        let pieces: Vec<(u64, u64)> = TapeReader::open(tape.clone())
-            .map_err(WriteError::Read)?
+        let reader = TapeReader::open(tape.clone()).map_err(WriteError::Read)?;
+        if after.is_none()
+            && reader
+                .pieces()
+                .iter()
+                .all(|p| p.integrity() == crate::Integrity::Full)
+        {
+            return Ok(Some(Vec::new()));
+        }
+        let pieces: Vec<(u64, u64)> = reader
             .pieces()
             .iter()
             .map(|p| (p.start, p.end.saturating_sub(p.start)))

@@ -170,6 +170,10 @@ fn a_sealed_chain_is_the_chain_written_at_full() {
                 let got = mem.get(&k).unwrap().unwrap().to_vec().unwrap();
                 assert!(got == *f, "{level:?} {tapes:?} tape {k}");
             }
+            if level == Integrity::Full {
+                assert!(sealed.is_empty(), "a chain of Full stays as it is");
+                continue;
+            }
             assert_eq!(sealed.len(), full_done.len());
             for (s, d) in sealed.iter().zip(&full_done) {
                 assert_eq!(
@@ -195,7 +199,10 @@ fn a_piece_written_on_after_its_close_seals_to_full() {
             let s = mem.seal(&0, None).unwrap().unwrap();
             let got = mem.get(&0).unwrap().unwrap().to_vec().unwrap();
             assert!(got == full, "{level:?} alignment {alignment}");
-            assert_eq!(s[0].was, level);
+            assert_eq!(
+                s.first().map(|s| s.was),
+                (level != Integrity::Full).then_some(level)
+            );
             mem.seal(&0, None).unwrap().unwrap();
             assert!(mem.get(&0).unwrap().unwrap().to_vec().unwrap() == full);
             let r = TapeReader::open(&full[..]).unwrap();
@@ -247,4 +254,70 @@ fn a_seal_refuses_what_it_cannot_raise_and_leaves_readers_alone() {
     mem.seal(&0, None).unwrap().unwrap();
     assert!(held.to_vec().unwrap() == bytes);
     assert!(mem.get(&0).unwrap().unwrap().to_vec().unwrap() != bytes);
+}
+
+/// Files of a chain of each level, sealed in place file by file, hold the bytes of the chain written at Full; a
+/// file whose blocks were sealed but not its head (a crash before the head's write) seals to Full too; a file a
+/// writer holds or with an unclosed piece is refused and left as it is.
+#[test]
+fn files_seal_in_place_to_the_chain_written_at_full() {
+    use ww_tape::{SealError, WriteError};
+    let dir = crate::pieces::scratch("seal_in_place");
+    for tapes in [PieceTapes::Each, PieceTapes::One] {
+        let (_, full) = write_at(tapes, 0x5ea1, Integrity::Full);
+        for level in [Integrity::CrcOnly, Integrity::None] {
+            let (_, bytes) = write_at(tapes, 0x5ea1, level);
+            let paths: Vec<_> = bytes
+                .iter()
+                .enumerate()
+                .map(|(i, b)| {
+                    let p = dir.join(format!("{level:?}-{tapes:?}-{i}.wwt"));
+                    std::fs::write(&p, b).unwrap();
+                    p
+                })
+                .collect();
+            let mut last: Option<Sealed> = None;
+            for p in &paths {
+                let s = ww_tape_fs::writer::seal(p, last.as_ref()).unwrap();
+                last = s.last().cloned().or(last);
+            }
+            for (p, f) in paths.iter().zip(&full) {
+                let got = std::fs::read(p).unwrap();
+                let first = got.iter().zip(f).position(|(a, b)| a != b);
+                assert!(got == *f, "{level:?} {tapes:?} {} {} {first:?}", got.len(), f.len());
+            }
+            // the first file sealed but for its head: sealed again, it is Full's
+            let head = TapeReader::open(&bytes[0][..]).unwrap().entries(0).unwrap();
+            let head_len = head.first().map_or(0, |e| e.offset) as usize;
+            let mut crashed = full[0].clone();
+            crashed[..head_len].copy_from_slice(&bytes[0][..head_len]);
+            assert_eq!(
+                TapeReader::open(&crashed[..]).unwrap().pieces()[0].integrity(),
+                level
+            );
+            std::fs::write(&paths[0], &crashed).unwrap();
+            ww_tape_fs::writer::seal(&paths[0], None).unwrap();
+            assert!(std::fs::read(&paths[0]).unwrap() == full[0]);
+        }
+    }
+    let (_, bytes) = write_at(PieceTapes::Each, 0x5ea1, Integrity::None);
+    let path = dir.join("held.wwt");
+    std::fs::write(&path, &bytes[0]).unwrap();
+    let held = ww_tape_fs::FileSink::reopen(&path).unwrap().unwrap();
+    assert!(matches!(
+        ww_tape_fs::writer::seal(&path, None),
+        Err(WriteError::Sink {
+            error: ww_tape_fs::FsError::Locked(_),
+            ..
+        })
+    ));
+    drop(held);
+    let cut = &bytes[0][..bytes[0].len() - 8];
+    std::fs::write(&path, cut).unwrap();
+    assert!(matches!(
+        ww_tape_fs::writer::seal(&path, None),
+        Err(WriteError::Seal(SealError::NotClosed))
+    ));
+    assert!(std::fs::read(&path).unwrap() == cut);
+    _ = std::fs::remove_dir_all(&dir);
 }

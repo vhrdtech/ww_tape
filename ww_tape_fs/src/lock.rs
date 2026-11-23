@@ -45,9 +45,9 @@ pub(crate) struct Locked {
 /// a FIFO would wait for its other end).
 pub(crate) fn open(path: &Path, how: Open) -> Result<(Locked, bool), FsError> {
     check_type(path)?;
-    let (file, created) = match open_file(path, true) {
+    let (file, created) = match open_file(path, Access::Create) {
         Ok(f) => (f, true),
-        Err(FsError::Exists(_)) if how == Open::Either => (open_file(path, false)?, false),
+        Err(FsError::Exists(_)) if how == Open::Either => (open_file(path, Access::Append)?, false),
         Err(e) => return Err(e),
     };
     Ok((Locked::take(checked(file, path)?, path)?, created))
@@ -55,8 +55,19 @@ pub(crate) fn open(path: &Path, how: Open) -> Result<(Locked, bool), FsError> {
 
 /// The file there at `path`, opened to read and append and locked as [open]; None when the name isn't there.
 pub(crate) fn open_existing(path: &Path) -> Result<Option<Locked>, FsError> {
+    open_there(path, Access::Append)
+}
+
+/// The file there at `path`, opened to read and to write over its bytes at any offset, and locked as [open]; None
+/// when the name isn't there. A write at an offset of a file opened to append would land at its end.
+pub(crate) fn open_to_overwrite(path: &Path) -> Result<Option<Locked>, FsError> {
+    open_there(path, Access::Overwrite)
+}
+
+/// The file there at `path`, opened as `how` says and locked; None when the name isn't there.
+fn open_there(path: &Path, how: Access) -> Result<Option<Locked>, FsError> {
     check_type(path)?;
-    match open_file(path, false) {
+    match open_file(path, how) {
         Ok(file) => Ok(Some(Locked::take(checked(file, path)?, path)?)),
         Err(FsError::Io { error, .. }) if error.kind() == io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(e),
@@ -82,10 +93,26 @@ fn checked(file: File, path: &Path) -> Result<File, FsError> {
     Ok(file)
 }
 
-/// `path` opened to read and append, created with `new` (refused when it is there).
-fn open_file(path: &Path, new: bool) -> Result<File, FsError> {
+/// How [open_file] opens a file to read and write.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum Access {
+    /// A new file, appended to: refused when it is there
+    Create,
+    /// The file there, appended to
+    Append,
+    /// The file there, written at any offset ([open_to_overwrite])
+    Overwrite,
+}
+
+/// `path` opened to read and write as `how` says.
+fn open_file(path: &Path, how: Access) -> Result<File, FsError> {
+    let new = how == Access::Create;
     let mut options = OpenOptions::new();
-    options.read(true).append(true).create_new(new);
+    options.read(true).create_new(new);
+    match how {
+        Access::Create | Access::Append => options.append(true),
+        Access::Overwrite => options.write(true),
+    };
     #[cfg(windows)]
     {
         use std::os::windows::fs::OpenOptionsExt;
