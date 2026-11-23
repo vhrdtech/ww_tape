@@ -70,7 +70,7 @@ pub fn chunk(data: &[u8]) {
     }
     let series = data[0] & 1 == 1;
     let n = 1 + (data[1] % 4) as usize;
-    let flip = u32::from_le_bytes(data[2..6].try_into().unwrap()) as usize;
+    let flip = u32::from_le_bytes(data[2..6].try_into().expect("4 bytes sliced")) as usize;
     let body = &data[6..];
     let per = body.len() / n;
     let mut cols = vec![];
@@ -132,7 +132,11 @@ pub fn chunk(data: &[u8]) {
     assert!(Block::read(&buf[..len]).is_err(), "a flipped bit is seen");
     if at >= payload && at < len - 4 {
         let b = Block::salvage(&buf[..len]).expect("a payload flip leaves the head good");
-        let bad: Vec<usize> = b.chunk().unwrap().bad_segments().collect();
+        let bad: Vec<usize> = b
+            .chunk()
+            .expect("a salvaged chunk block is a chunk")
+            .bad_segments()
+            .collect();
         assert_eq!(bad, [(at - payload) >> 16]);
     }
 }
