@@ -207,7 +207,7 @@ pub(crate) fn seal_due<T: Tapes>(
     for o in open {
         let due_by = (!all).then_some(now_ns);
         if (all || o.due_ns().is_some_and(|d| d <= now_ns)) && o.seal_unit(due_by, out) {
-            Counters::add(&shared.counters.latency_seals, u64::from(!all));
+            Counters::add(&shared.counters.latency_seal_count, u64::from(!all));
         }
     }
 }

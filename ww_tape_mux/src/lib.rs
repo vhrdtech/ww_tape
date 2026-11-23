@@ -176,7 +176,7 @@ pub struct MuxStats {
     /// Units sent before a failure and never placed.
     pub lost: u64,
     /// Open chunks of quiet handles the writing thread sealed when their latency was up.
-    pub latency_seals: u64,
+    pub latency_seal_count: u64,
     /// Whether the mux failed ([MuxError::Failed]).
     pub failed: bool,
 }

@@ -181,7 +181,7 @@ pub(crate) struct Counters {
     pub placed_bytes: AtomicU64,
     pub refused: AtomicU64,
     pub lost: AtomicU64,
-    pub latency_seals: AtomicU64,
+    pub latency_seal_count: AtomicU64,
 }
 
 impl Counters {
@@ -263,7 +263,7 @@ impl<T: Tapes> Shared<T> {
             placed_bytes: get(&c.placed_bytes),
             refused: get(&c.refused),
             lost: get(&c.lost),
-            latency_seals: get(&c.latency_seals),
+            latency_seal_count: get(&c.latency_seal_count),
             failed: self.failure.get().is_some(),
         }
     }
