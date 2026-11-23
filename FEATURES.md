@@ -101,9 +101,13 @@ The bytes of blocks, records, chunks, sessions and the index, in the crate `ww_t
 
   Index entries are 128 bytes: the fields before keep their offsets and bytes 120..128 are reserved for every kind. Each index block declares its entry length, and readers read the first 120 bytes of each entry, so pieces of 120-byte entries still read.
 
-  A `GridHandle` (`TapeMux::grid`, `grid_box`) takes a time step of the grid or of a box of its tiles and splits it into the open chunk of each tile. The tiles' chunks are completed together, by steps, bytes or latency. Edge tiles hold the cells left over, and a tile no box holds is never written. A tile's time step that fits no chunk or block is refused, never split. A series is the grid of no fixed axes and writes the bytes it wrote before.
+  A `GridHandle` (`TapeMux::grid`, `grid_box`) takes a time step of the grid or of a box of its tiles. It splits the step into the open chunk of each tile. The tiles' chunks are completed together, by steps, bytes or latency.
 
-  Each tile has a time pyramid of its own: an item is a time step, a node holds the statistics of the tile's cells over its time run, per channel. A tile's summary block carries header flag `FLAG_TILE` and the tile's coordinates after the scale, and its index entry the tile number. Series summary blocks keep their bytes. `TapeReader::grid_summaries` finds a level's blocks of the tiles in a box, and `region_timeline` merges their nodes into the box's timeline, weighting each tile by cells times steps. A tile partly in the box counts whole. A resumed mux rebuilds the tile trees as it does the series trees.
+  Edge tiles hold the cells left over, and a tile no box holds is never written. A tile's time step that fits no chunk or block is refused, never split. A series is the grid of no fixed axes and writes the bytes it wrote before.
+
+  Each tile has a time pyramid of its own. An item is a time step, and a node holds the statistics of the tile's cells over its time run, per channel. A tile's summary block carries header flag `FLAG_TILE` and the tile's coordinates after the scale. Its index entry carries the tile number. Series summary blocks keep their bytes.
+
+  `TapeReader::grid_summaries` finds a level's blocks of the tiles in a box. `region_timeline` merges their nodes into the box's timeline, weighting each tile by cells times steps. A tile partly in the box counts whole. A resumed mux rebuilds the tile trees as it does the series trees.
 
   Open: space overviews, a book chapter.
 

@@ -1994,7 +1994,7 @@ tree is a time step. A node holds `2^base_shift` time steps of the tile, and eac
 statistics. A level-0 node of a tile of 6 cells and 16 time steps thus summarises 96 samples per channel. Nothing is
 downsampled along the fixed axes.
 
-A tile's summary block carries header flag 5 (`FLAG_TILE`) and, after the scale, the count of fixed axes and the
+A tile's summary block carries header flag 5 (`FLAG_TILE`). After the scale it holds the count of fixed axes and the
 tile's coordinates, one u32 each, as the chunk head does ([Summary blocks](#summary-blocks)). Its index entry carries
 the tile number under flag bit 4, as the tile's chunks' entries do. A series has one tree, and its blocks keep the
 bytes they had before grids: no flag, no tile. A writer refuses a summary block of a grid's tile its grid doesn't

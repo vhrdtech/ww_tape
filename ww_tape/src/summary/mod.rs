@@ -80,7 +80,7 @@
 //!
 //! A grid's chunks each hold one tile ([grid](crate::grid#tiles)), and each tile has a series tree of its own: an item
 //! is a time step of the tile, a node summarises the tile's cells over its time run, every cell a sample of the
-//! statistics. Its blocks carry the header flag [FLAG_TILE](crate::FLAG_TILE) and the tile's coordinates after the
+//! statistics. Its blocks carry the header flag [FLAG_TILE] and the tile's coordinates after the
 //! scale ([SummaryHead::tile]); their index entries carry the tile number, as the tile's chunks' do. A series, of no
 //! fixed axes, has one tree and blocks without the flag, as before grids.
 //!
