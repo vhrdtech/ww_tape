@@ -771,7 +771,7 @@ fn a_quiet_handles_chunk_is_sealed_by_its_latency() {
         thread::yield_now();
     }
     let stats = mux.stats();
-    assert_eq!(stats.latency_seals, 1);
+    assert_eq!(stats.latency_seal_count, 1);
     assert_eq!(h.next_item(), ItemNum::new(1));
     drop(h);
     mux.close().unwrap();
@@ -860,8 +860,8 @@ fn latency_seals_under_load_lose_nothing() {
                         // a burst, then a pause with the chunk open: until the writing thread seals a chunk by
                         // its latency, this one or another producer's, which holds items too
                         if sent.is_none() && (i + k as u64).is_multiple_of(37) {
-                            let before = mux.stats().latency_seals;
-                            while mux.stats().latency_seals == before {
+                            let before = mux.stats().latency_seal_count;
+                            while mux.stats().latency_seal_count == before {
                                 thread::yield_now();
                             }
                         }
@@ -879,7 +879,7 @@ fn latency_seals_under_load_lose_nothing() {
     let stats = mux.stats();
     mux.close().unwrap();
     assert!(
-        stats.latency_seals > 0,
+        stats.latency_seal_count > 0,
         "the writing thread sealed quiet chunks"
     );
     let pieces = pieces(&mem);

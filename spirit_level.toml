@@ -1,5 +1,14 @@
 # spirit_level configuration: https://github.com/romixlab/spirit_level (book: configuration)
-extends = ["small-workspace", "ai"]
+# Sets beyond the tier's ladder that this repo already passes: waivers-strict (lint exceptions as #[expect]),
+# printing-strict (no printing outside the binary), state-paranoid (lock().unwrap() counted per crate), licences
+# (dependency licences against deny.toml), msrv (the declared rust-version built), commits (subject length, Fixes:
+# tag), contracts (sized integers across a boundary), workspace-strict (internal crates unpublished), panics-paranoid
+# (assertions that say what broke, bounded reads), stop-gaps-strict (no stop-gap comments), determinism (libm floats,
+# fixed-seed hashing, exact floats), manifest-strict (every feature documented).
+# Left out: build-strict, contracts-strict and layers need a crate map (and semver-checks a published crate); the
+# others have findings: api, clippy-pedantic, deps-strict, panics-strict, repo-strict, size-strict, structure, tests,
+# tests-strict, units-strict, units-paranoid.
+extends = ["small-workspace", "ai", "waivers-strict", "printing-strict", "state-paranoid", "licences", "msrv", "commits", "contracts", "workspace-strict", "panics-paranoid", "stop-gaps-strict", "determinism", "manifest-strict"]
 
 # Override a lint: a level and/or parameters, always with a reason, optionally an expiry.
 # [lints.crate-lines]
@@ -163,6 +172,10 @@ reason = "history up to main's tip of 21 Nov 2026 is pushed and cannot be rewrit
 level = "deny"
 reason = "no finding left; a new one fails the run"
 
+[lints.book-build-stamp]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
 [lints.book-deploy]
 level = "deny"
 reason = "no finding left; a new one fails the run"
@@ -323,10 +336,6 @@ reason = "no finding left; a new one fails the run"
 level = "deny"
 reason = "no finding left; a new one fails the run"
 
-[lints.float-determinism]
-level = "deny"
-reason = "no finding left; a new one fails the run"
-
 [lints.float-partial-cmp-unwrap]
 level = "deny"
 reason = "no finding left; a new one fails the run"
@@ -352,6 +361,10 @@ level = "deny"
 reason = "no finding left; a new one fails the run"
 
 [lints.lock-held-across]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.lock-unwrap]
 level = "deny"
 reason = "no finding left; a new one fails the run"
 
@@ -407,10 +420,6 @@ reason = "no finding left; a new one fails the run"
 level = "deny"
 reason = "no finding left; a new one fails the run"
 
-[lints.random-state-hash]
-level = "deny"
-reason = "no finding left; a new one fails the run"
-
 [lints.readme-badges]
 level = "deny"
 reason = "no finding left; a new one fails the run"
@@ -460,5 +469,9 @@ level = "deny"
 reason = "no finding left; a new one fails the run"
 
 [lints.workspace-dependencies]
+level = "deny"
+reason = "no finding left; a new one fails the run"
+
+[lints.unit-suffix]
 level = "deny"
 reason = "no finding left; a new one fails the run"

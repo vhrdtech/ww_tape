@@ -109,6 +109,10 @@ str_to_string = "warn"                   # to_owned says what happens: a copy of
 too_long_first_doc_paragraph = "warn"    # agents write long doc summaries; the first paragraph is one short sentence
 unnecessary_safety_doc = "warn"          # a # Safety section on a safe function sends readers looking for a contract that is not there
 use_self = "warn"                        # Self follows a rename
+float_cmp_const = "deny"                 # comparing a float to a constant exactly is almost always a bug
+imprecise_flops = "deny"                 # hypot, ln_1p and friends are more precise than the formula written out
+iter_over_hash_type = "deny"             # iteration over a hash map changes order from run to run, and the bytes with it
+lossy_float_literal = "deny"             # a float literal that does not fit its type silently becomes another number
 
 [profile.dev]
 debug = false
