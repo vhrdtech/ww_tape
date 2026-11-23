@@ -200,7 +200,7 @@ pub fn times(data: &[u8]) {
     if data.len() < 10 {
         return;
     }
-    let flip = u32::from_le_bytes(data[..4].try_into().unwrap()) as usize;
+    let flip = u32::from_le_bytes(data[..4].try_into().expect("4 bytes sliced")) as usize;
     let mode = data[4];
     let mut t = i64::from_le_bytes([data[5], data[6], data[7], data[8], 0, 0, 0, 0]) << (mode & 31);
     let Some((patch, items)) = data[10..].split_at_checked(usize::from(data[9] % 64)) else {

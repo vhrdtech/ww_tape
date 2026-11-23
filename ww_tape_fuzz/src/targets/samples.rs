@@ -52,7 +52,7 @@ pub(crate) fn read<T: Sample>(
 /// another layout takes the values a raw column of the input holds.
 fn round<T: Sample>(codec: Codec, shape: SampleShape, data: &[u8], from: usize) {
     let w = (T::SCALAR.bits() / 8).max(1) as usize;
-    let lanes = shape.lanes().unwrap() as usize;
+    let lanes = shape.lanes().expect("1 to 4 channels of 1 or 2 parts") as usize;
     let lane = shape.element.lane();
     if lane.exponent_bits != 0 {
         let per = lane.bits as usize * lanes;
@@ -99,7 +99,7 @@ fn round<T: Sample>(codec: Codec, shape: SampleShape, data: &[u8], from: usize) 
 
 /// Code whole samples `values` and decode them back, whole and from `from` on.
 fn round_values<T: Sample>(codec: Codec, shape: SampleShape, values: Vec<T>, from: usize) {
-    let lanes = shape.lanes().unwrap() as usize;
+    let lanes = shape.lanes().expect("1 to 4 channels of 1 or 2 parts") as usize;
     let count = values.len() / lanes;
     let Ok(max) = max_encoded_len(codec, shape, count) else {
         return;

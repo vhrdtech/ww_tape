@@ -84,7 +84,11 @@ fn piece_entries(r: &TapeReader<&[u8]>, i: usize, p: &PieceInfo, data: &[u8]) {
             }
         }
         for track_id in series {
-            if let Ok((t, _)) = r.series_timeline(i, track_id, Ratio64::new(5, 3).unwrap()) {
+            if let Ok((t, _)) = r.series_timeline(
+                i,
+                track_id,
+                Ratio64::new(5, 3).expect("5/3 is a valid ratio"),
+            ) {
                 for s in t.stretches() {
                     assert!(s.first_item < s.end_item, "a span holds an item");
                 }
@@ -258,7 +262,7 @@ pub fn index(data: &[u8]) {
         .0
         .iter()
         .map(|c| IndexEntry {
-            offset: u64::from_le_bytes(c[1..9].try_into().unwrap()),
+            offset: u64::from_le_bytes(c[1..9].try_into().expect("8 bytes sliced")),
             // a header and a CRC at least, as write_index takes
             len: u32::from(c[0]) + 36,
             kind: BlockKind::from_u8(c[0]),
@@ -279,7 +283,7 @@ pub fn index(data: &[u8]) {
             range: (c[0] & 0x40 != 0).then(|| {
                 (
                     u64::from(c[2]),
-                    u64::from_le_bytes(c[1..9].try_into().unwrap()),
+                    u64::from_le_bytes(c[1..9].try_into().expect("8 bytes sliced")),
                 )
             }),
         })
@@ -325,7 +329,7 @@ pub fn index(data: &[u8]) {
     ) {
         Ok(n) if valid => n,
         Err(ww_tape::IndexError::Invalid(_)) if !valid => return,
-        r => panic!("write_index gave {r:?} for entries that are valid: {valid}"),
+        r => unreachable!("write_index gave {r:?} for entries that are valid: {valid}"),
     };
     let b = Block::read(&buf[..n]).expect("written good");
     let ix = IndexBlock::read(&b).expect("an index");
