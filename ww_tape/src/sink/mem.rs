@@ -441,6 +441,8 @@ impl<K: Ord + Clone> MemTapes<K> {
         let front = tape.start().map_err(refused)?;
         let mut out = MemSink::empty_at(front);
         out.whole = pieces.len() > 1 || front > 0;
+        // one extent for the copy, as long as the tape
+        out.reserve(tape.held().map_err(refused)?);
         let mut sealed: Vec<Sealed> = Vec::with_capacity(pieces.len());
         for piece in pieces {
             out.rebase(piece.0).map_err(refused)?;
