@@ -60,6 +60,12 @@ pub trait TapeSink {
         0
     }
 
+    /// Offset in the bytes of the first byte there is: 0, or where [MemPieces::drop_front] freed the bytes before it.
+    /// Counted as [Self::base] is, from the start of the bytes.
+    fn front(&self) -> Result<u64, Self::Error> {
+        Ok(0)
+    }
+
     /// Whether the sink holds pieces back to back ([PieceStore::create_whole], [PieceStore::open_whole], a file
     /// appended to in place), so a writer may cut in place ([TapeWriter::cut_in_place](crate::TapeWriter::cut_in_place)).
     /// A sink of one piece (a new file of its own, a piece of a chain of files) doesn't.
@@ -139,6 +145,20 @@ pub trait PieceStore {
 
     /// The tape of several pieces under `key`, appended to in place, closed or not; None when there is none.
     fn open_whole(&mut self, key: &Self::Key) -> Result<Option<Self::Sink>, Self::Error>;
+
+    /// The lowest sequence number from `from` on whose piece has a tape of its own
+    /// ([PieceTapes::Each](crate::PieceTapes)); None when no piece from `from` on has one. A resume starts at the
+    /// lowest piece there and looks past a missing one with it.
+    fn first_from(&self, from: u64) -> Result<Option<u64>, Self::Error>;
+
+    /// Take the tape `key` of a closed piece out of the store, durably: a file is deleted and its directory synced.
+    /// False when there was none.
+    fn remove(&mut self, key: &Self::Key) -> Result<bool, Self::Error>;
+
+    /// Free the pieces of the tape of several pieces under `key` that end at or before `to`, an offset in the tape
+    /// at a piece start: the first byte it keeps, None when there is no tape under `key`. A store that can't free the
+    /// front of a tape (a file) refuses with its error.
+    fn drop_front(&mut self, key: &Self::Key, to: u64) -> Result<Option<u64>, Self::Error>;
 }
 
 /// A sink's error as the [WriteError::Sink] of `what` the writer was doing, for `map_err` where a sink is opened.

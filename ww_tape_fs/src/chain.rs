@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use ww_tape::writer::{Resumed, WriteError};
-use ww_tape::{ChainOptions, OwnerId, PieceChain, PieceTapes, TrackStart};
+use ww_tape::{ChainOptions, OwnerId, PieceChain, PieceStore, PieceTapes, TrackStart};
 
 use crate::sink::{FilePieces, FsError, none_at};
 
@@ -25,9 +25,9 @@ pub fn create(
 }
 
 /// Reopen chain `chain` of `owner` in `dir` (with [PieceTapes::One] the file) after a crash, see
-/// [PieceChain::resume_on].
+/// [PieceChain::resume_on]: from the lowest piece file there, past pieces removed on purpose.
 ///
-/// A chain that isn't there, `dir` missing or without a first piece, is [FsError::NoPiece] naming `dir`, told apart
+/// A chain that isn't there, `dir` missing or without a piece file, is [FsError::NoPiece] naming `dir`, told apart
 /// from a failure.
 pub fn resume(
     dir: &Path,
@@ -36,7 +36,17 @@ pub fn resume(
     options: ChainOptions,
 ) -> Result<(PieceChain<FilePieces>, Resumed), WriteError<FsError>> {
     let files = files_at(dir, &options);
-    if none_at(&files.path_of(0)) {
+    let none = match options.tapes {
+        PieceTapes::Each => files
+            .first_from(0)
+            .map_err(|error| WriteError::Sink {
+                what: "opening a chain to resume",
+                error,
+            })?
+            .is_none(),
+        PieceTapes::One => none_at(&files.path_of(0)),
+    };
+    if none {
         return Err(WriteError::Sink {
             what: "opening a chain to resume",
             error: FsError::NoPiece(dir.to_path_buf()),

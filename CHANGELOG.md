@@ -15,6 +15,8 @@ benchmarks, golden files and book pages.
 - `SeriesStart` gains `tile` and `tile_cells`: a series' literal adds `tile: TileCoords::NONE, tile_cells: 1` (FMT-15).
 - A tile's summary block sets `FLAG_TILE`, its tile after the scale; 0.7 readers refuse it: upgrade readers (FMT-15).
 - A tile's summary index entry carries its tile number; 0.7 readers refuse that index block (FMT-15).
+- `PieceStore` gains `first_from`, `remove` and `drop_front`: a store of its own implements them (WRITE-16).
+- `ResumeError` gains `Gap` and `HeadLost { seq: Option<u64> }`, `RemovedRefusal` gains `NotAtHand` and `InTape`, `FsError` gains `Whole` (WRITE-16).
 
 ### Features
 
@@ -28,6 +30,9 @@ benchmarks, golden files and book pages.
 - The writer refuses a summary block naming a tile its grid doesn't hold, or none on a grid (FMT-15).
 - `GridHandle` builds each tile's summaries; a resumed mux rebuilds the tile trees of the torn piece (FMT-15).
 - `ww_tape_fs::check` verifies and range-hashes many pieces at once; cargo feature `parallel` spreads them over rayon (FS-2).
+- A chain resumes from its lowest piece, over holes its closes name as removed; others refuse with `ResumeError::Gap` (WRITE-16).
+- `PieceChain::remove` names, syncs, then deletes removed pieces; a crash between leaves a chain that resumes (WRITE-16).
+- `TapeWriter::close_and_go_on` closes the piece, synced, and writes on after the close as a resume would (WRITE-16).
 
 ## [0.7.0] - 2026-11-23
 

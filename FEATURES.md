@@ -215,6 +215,12 @@ Writing pieces and chains, resuming them, and sinks in memory, in the crate `ww_
 
   Read more: [Pieces removed on purpose](docs/pieces.md#pieces-removed-on-purpose). Golden file `v1-removed.hex`.
 
+- ✅ **WRITE-16 Resume after removed pieces**
+
+  A chain resumes from its lowest piece at hand, so retention and a writer that restarts work together. A hole in the middle is walked over when the closes at hand name its pieces as removed on purpose. Any other hole is refused. `PieceChain::remove` removes closed pieces in one call. It names them in the piece written, closes and syncs it (`TapeWriter::close_and_go_on`), then takes the pieces out of the store.
+
+  Read more: [Removing pieces while the chain is written](docs/pieces.md#removing-pieces-while-the-chain-is-written). Tests `ww_tape_tests/tests/it/chain_removal.rs`.
+
 ## Writing from many threads (`MUX`)
 
 The writing thread and its handles, in the crate `ww_tape_mux`.

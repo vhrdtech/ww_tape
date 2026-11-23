@@ -37,6 +37,9 @@ pub enum FsError {
     /// The file system of `path` takes no writes ([io::ErrorKind::ReadOnlyFilesystem]): a read-only mount or medium.
     /// Read the file with [crate::FileSource] instead.
     ReadOnly(PathBuf),
+    /// The front of the file of a chain whose pieces are all in one ([ww_tape::PieceTapes::One]) at `path` is not
+    /// freed: a file keeps every byte ([ww_tape::PieceStore::drop_front]).
+    Whole(PathBuf),
 }
 
 impl core::fmt::Display for FsError {
@@ -50,6 +53,11 @@ impl core::fmt::Display for FsError {
             Self::NotAFile(p) => write!(f, "{}: not a regular file", p.display()),
             Self::NoPiece(p) => write!(f, "{}: no piece to resume", p.display()),
             Self::ReadOnly(p) => write!(f, "{}: on a read-only file system", p.display()),
+            Self::Whole(p) => write!(
+                f,
+                "{}: a file keeps every byte, its front is not freed",
+                p.display()
+            ),
             Self::Base { path, refused } => {
                 write!(
                     f,
@@ -409,6 +417,54 @@ impl PieceStore for FilePieces {
     fn open_whole(&mut self, key: &u64) -> Result<Option<FileSink>, FsError> {
         FileSink::open_whole(&self.path_of(*key))
     }
+
+    /// The lowest piece file of the directory from `from` on, by its name ([piece_name]); names of another shape
+    /// are passed over. The file of a chain in one file is piece 0.
+    fn first_from(&self, from: u64) -> Result<Option<u64>, FsError> {
+        let dir = match &self.0 {
+            Names::Dir(dir) => dir,
+            Names::File(path) => return Ok((from == 0 && !none_at(path)).then_some(0)),
+        };
+        let entries = match std::fs::read_dir(dir) {
+            Ok(entries) => entries,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(io_err("listing the chain's directory", dir)(e)),
+        };
+        let mut lowest: Option<u64> = None;
+        for entry in entries {
+            let entry = entry.map_err(io_err("listing the chain's directory", dir))?;
+            let Some(seq) = entry.file_name().to_str().and_then(seq_of_name) else {
+                continue;
+            };
+            if seq >= from && lowest.is_none_or(|l| seq < l) {
+                lowest = Some(seq);
+            }
+        }
+        Ok(lowest)
+    }
+
+    /// Delete the piece's file and sync its directory, so the removal survives a crash.
+    fn remove(&mut self, key: &u64) -> Result<bool, FsError> {
+        let path = self.path_of(*key);
+        match std::fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(false),
+            Err(e) => return Err(io_err("removing the piece's file", &path)(e)),
+        }
+        sync_dir(&path).map_err(io_err("syncing the directory", &path))?;
+        Ok(true)
+    }
+
+    /// Refused ([FsError::Whole]): a file keeps every byte.
+    fn drop_front(&mut self, key: &u64, _to: u64) -> Result<Option<u64>, FsError> {
+        Err(FsError::Whole(self.path_of(*key)))
+    }
+}
+
+/// The seq a piece file's name gives: [piece_name] of it, nothing else.
+fn seq_of_name(name: &str) -> Option<u64> {
+    let seq: u64 = name.strip_suffix(".wwt")?.parse().ok()?;
+    (piece_name(seq) == name).then_some(seq)
 }
 
 /// A file read by positional reads, a closed piece or any tape: the [ByteSource] of a file for a

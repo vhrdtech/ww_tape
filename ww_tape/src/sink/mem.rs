@@ -258,6 +258,10 @@ impl<K: core::fmt::Debug + 'static> TapeSink for MemSink<K> {
         self.base
     }
 
+    fn front(&self) -> Result<u64, MemError<K>> {
+        Ok(self.tape.read()?.front())
+    }
+
     fn holds_pieces(&self) -> bool {
         self.whole
     }
@@ -319,8 +323,9 @@ impl<K: Ord + Clone> MemPieces<K> {
     /// before: nothing a reader holds ever changes or fails. After the call [Self::get] and [Self::closed] find
     /// nothing under `key`. A piece still being written is not removed: [MemError::Unclosed], so a writer never
     /// writes into bytes nobody can find. Removing the oldest pieces of a chain leaves a head cut
-    /// ([ChainReport::head_cut](crate::piece::ChainReport::head_cut)); a [PieceChain](crate::PieceChain) resumes only
-    /// from its first piece, so a chain with removed pieces is not resumed.
+    /// ([ChainReport::head_cut](crate::piece::ChainReport::head_cut)), which a [PieceChain](crate::PieceChain) resumes
+    /// from its lowest piece; pieces from the middle are removed with [PieceChain::remove](crate::PieceChain::remove),
+    /// which names them first.
     pub fn remove(&self, key: &K) -> Result<bool, MemError<K>> {
         let mut map = self.lock()?;
         match map.get(key) {
@@ -339,7 +344,7 @@ impl<K: Ord + Clone> MemPieces<K> {
     /// with a later cut past it. Offsets don't move: a [PieceInfo](crate::PieceInfo) a reader holds stays valid for the
     /// pieces kept, a read of a dropped one fails with [MemError::Dropped], and a
     /// [TapeReader](crate::TapeReader) opened afterwards finds the pieces from the new start on. As for
-    /// [Self::remove], the chain then has a head cut and is not resumed.
+    /// [Self::remove], the chain then has a head cut, and resumes from its first piece kept.
     pub fn drop_front(&self, key: &K, to: u64) -> Result<Option<u64>, MemError<K>> {
         let Some(tape) = self.get(key)? else {
             return Ok(None);
@@ -494,5 +499,17 @@ impl PieceStore for MemPieces<u64> {
 
     fn open_whole(&mut self, key: &u64) -> Result<Option<MemSink>, MemError> {
         Self::open_whole(self, key)
+    }
+
+    fn first_from(&self, from: u64) -> Result<Option<u64>, MemError> {
+        Ok(self.lock()?.range(from..).next().map(|(k, _)| *k))
+    }
+
+    fn remove(&mut self, key: &u64) -> Result<bool, MemError> {
+        Self::remove(self, key)
+    }
+
+    fn drop_front(&mut self, key: &u64, to: u64) -> Result<Option<u64>, MemError> {
+        Self::drop_front(self, key, to)
     }
 }

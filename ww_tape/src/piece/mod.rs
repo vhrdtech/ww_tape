@@ -1520,6 +1520,8 @@ pub(crate) fn chained(prev: &ContentHash) -> blake3::Hasher {
 #[cfg(feature = "alloc")]
 mod chain;
 #[cfg(feature = "alloc")]
+pub(crate) use chain::Removed;
+#[cfg(feature = "alloc")]
 pub use chain::{ChainEnd, ChainLink, ChainReport, HeadStatus, PieceSummary, check_chain};
 
 #[cfg(feature = "alloc")]
