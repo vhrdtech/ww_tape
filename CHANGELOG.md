@@ -6,6 +6,8 @@ benchmarks, golden files and book pages.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-24
+
 ### Breaking
 
 - `SeriesHandle` and `SeriesOptions` are `GridHandle` and `GridOptions`; `TapeMux::series` is `TapeMux::grid` (FMT-15).
