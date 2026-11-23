@@ -254,7 +254,8 @@ fn grid_def(b: &[u8]) -> Option<(ww_tape::TrackId, ww_tape::TileLayout, Vec<u32>
 ///
 /// Each head reads alone as from the whole block; coordinates the grid holds pack to a tile number that unpacks to
 /// them and lies in the box of the whole grid, others pack to none. Read as a tape, the box of the whole grid finds
-/// only tiles the grid holds, from the chunk heads (a scan's entries hold no tile number).
+/// only tiles the grid holds: from the tile numbers of a checkpoint's entries, packed or hostile, or from the chunk
+/// heads where an entry holds none or one the grid holds no tile of.
 pub fn grid_hostile(data: &[u8]) {
     let f = hostile::grid(data);
     let bs = blocks(&f);

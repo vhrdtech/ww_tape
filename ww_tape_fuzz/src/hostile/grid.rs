@@ -4,13 +4,15 @@
 //! count at byte 82, their values) take hostile values.
 
 use super::chunk::{build, reseal, table};
+use super::index::{index_block, reseal_index};
 use super::{Draw, SESSION, clock_item, definition, get, put};
 use shrink_wrap::prelude::*;
 use ww_tape::grid::{GRID_FIXED_AXES_MAX, GRID_LISTED_MAX, GRID_TILE_CELLS_MAX};
+use ww_tape::index::{IndexEntry, IndexKind};
 use ww_tape::{
-    AxisCoords, BlockId, BlockKind, BlockWriter, ChunkHead, ClockNum, Codec, ColumnKind,
+    AxisCoords, Block, BlockId, BlockKind, BlockWriter, ChunkHead, ClockNum, Codec, ColumnKind,
     ColumnSpec, Describe, EndMode, FixedAxis, GridDef, ItemNum, Magnitude, Ratio64, SeriesGrid,
-    TileCoords, TrackDef, TrackKind, TrackNum, track_key,
+    TileCoords, TileLayout, TrackDef, TrackKind, TrackNum, track_key,
 };
 
 /// The track number of the hostile grid.
@@ -120,7 +122,8 @@ fn describe_block(id: BlockId, items: &[&[u8]]) -> Vec<u8> {
 /// A block of definitions of a grid track with hostile axes, then grid chunks of it with hostile tile coordinates.
 ///
 /// Each chunk is written with coordinates drawn near its axes' tile counts; then byte 82 (the count) or a
-/// coordinate may take a hostile value, the head CRC made to hold, so a reader takes the head.
+/// coordinate may take a hostile value, the head CRC made to hold, so a reader takes the head. A checkpoint index may
+/// follow, whose chunk entries carry the tile number the grid packs, a hostile one or none.
 pub fn grid(data: &[u8]) -> Vec<u8> {
     let mut d = Draw::new(data);
     let (shape, lists) = axes(&mut d);
@@ -198,5 +201,42 @@ pub fn grid(data: &[u8]) -> Vec<u8> {
         reseal(&mut b, false);
         out.extend(b);
     }
+    if d.bool() {
+        let extents: Vec<(u32, u32)> = shape.iter().map(|&(e, t, ..)| (e, t)).collect();
+        checkpoint(&mut d, &mut out, TileLayout::new(&extents).ok());
+    }
     out
+}
+
+/// A checkpoint index of the blocks in `f` put after them: each chunk's entry carries the tile number `layout` packs
+/// its head's coordinates to, a hostile number (bits outside the fields, any bits) or none.
+fn checkpoint(d: &mut Draw<'_>, f: &mut Vec<u8>, layout: Option<TileLayout>) {
+    let mut entries = vec![];
+    let mut at = 0;
+    while let Some(b) = f.get(at..).and_then(|r| Block::read(r).ok()) {
+        let len = b.bytes().len();
+        for mut e in IndexEntry::all_of_block(at as u64, &b) {
+            if e.kind == BlockKind::Series {
+                let packed = ChunkHead::read_head(b.bytes())
+                    .ok()
+                    .zip(layout)
+                    .and_then(|(h, l)| l.pack(&h.tile));
+                let outside = layout.map_or(0, |l| !l.field_bits());
+                let mut bits = d.bits();
+                e.tile = match d.u8() % 4 {
+                    0 => None,
+                    1 => Some(packed.unwrap_or(0) | (outside & u128::from(bits.u64()) << 64)),
+                    2 => Some(u128::from(bits.u64()) << 64 | u128::from(bits.u64())),
+                    _ => packed,
+                };
+            }
+            entries.push(e);
+        }
+        at += len;
+    }
+    let mut b = index_block(d, BlockId::new(SESSION, 9), IndexKind::Checkpoint, &entries);
+    put(&mut b, 40, 8, f.len() as u64);
+    put(&mut b, 48, 8, u64::MAX);
+    reseal_index(&mut b);
+    f.extend(b);
 }
