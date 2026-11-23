@@ -83,11 +83,8 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-binstall
-      # spl, spirit_level's CLI, at 0.7.6 (the book extension `spl` in the justfile is the same release)
-      # spl 0.7.6 has a warning of its own (unused workspace dependency anstyle); allow it for this install only
-      - run: cargo install --locked --git https://github.com/romixlab/spirit_level --rev af0208e6dbad4206aaf1064f51df138be47d60b9 spirit_level_cli
-        env:
-          CARGO_BUILD_WARNINGS: allow
+      # spl, spirit_level's CLI, at 0.7.11 (the book extension `spl` in the justfile is the same release)
+      - run: cargo install --locked --git https://github.com/romixlab/spirit_level --rev 6ac1ed4ea481c91f971bb5fc5e4ac11d6a80767e spirit_level_cli
       - run: spl tools needed --spec --missing | xargs -r cargo binstall -y
       # cargo-msrv builds the workspace on the declared rust-version (Cargo.toml) to check that it is the real minimum
       - run: rustup toolchain install 1.99.0 --profile minimal
@@ -157,9 +154,6 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: just
-      # spl, spirit_level's CLI, at 0.7.6 (the book extension `spl` in the justfile is the same release)
-      # spl 0.7.6 has a warning of its own (unused workspace dependency anstyle); allow it for this install only
-      - run: cargo install --locked --git https://github.com/romixlab/spirit_level --rev af0208e6dbad4206aaf1064f51df138be47d60b9 spirit_level_cli
-        env:
-          CARGO_BUILD_WARNINGS: allow
+      # spl, spirit_level's CLI, at 0.7.11 (the book extension `spl` in the justfile is the same release)
+      - run: cargo install --locked --git https://github.com/romixlab/spirit_level --rev 6ac1ed4ea481c91f971bb5fc5e4ac11d6a80767e spirit_level_cli
       - run: just book-check
