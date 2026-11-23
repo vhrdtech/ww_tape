@@ -122,7 +122,8 @@ off size field
          copied (FLAG_REPEAT), bit 2 puts that belong with the next block (FLAG_WITH_NEXT), bit 3 on a
          chunk its payload unchecked (FLAG_PAYLOAD_UNCHECKED: segment CRCs 0, the block CRC over the head), bit 4 on an
          events chunk a break in its track's monotone relations (FLAG_RELATION_BREAK), bit 5 on a summary block
-         a grid tile's tree, its tile after the scale (FLAG_TILE); others 0 (a reader ignores bits it doesn't know)
+         a grid tile's tree, its tile after the scale (FLAG_TILE: it changes the layout, so a reader
+         without it refuses the block); others 0, and a reader ignores them
   8 u32  len: the whole block, header and CRC included
  12 u32  records in the block
  16 u64  seq: the block number in its session, from 0, +1 per block; a gap is lost blocks. Index, close, tail and
@@ -175,7 +176,8 @@ block by its length, and the block is not damage.
 
 ### 3.2 Header flags {#header-flags}
 
-Header bytes 6..8 hold flags. A reader ignores the bits it doesn't know.
+Header bytes 6..8 hold flags. A reader ignores the bits it doesn't know, except bit 5 on a summary block. That bit
+moves the block's body behind the tile, so a reader without it refuses the block.
 
 | Bit | Flag | Marks |
 |---:|---|---|

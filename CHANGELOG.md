@@ -13,14 +13,14 @@ benchmarks, golden files and book pages.
 - `ItemError::PartialFrame { stride }` is `PartialStep { scalars }`: a push takes whole time steps (FMT-15).
 - `SummaryHead` gains `tile`, a grid tile's coordinates: a struct literal adds `tile: TileCoords::NONE` (FMT-15).
 - `SeriesStart` gains `tile` and `tile_cells`: a series' literal adds `tile: TileCoords::NONE, tile_cells: 1` (FMT-15).
+- A tile's summary block sets `FLAG_TILE`, its tile after the scale; 0.7 readers refuse it: upgrade readers (FMT-15).
+- A tile's summary index entry carries its tile number; 0.7 readers refuse that index block (FMT-15).
 
 ### Features
 
 - `GridHandle` splits a grid's time steps into the open chunk of each tile; `TapeMux::grid_box` writes one box (FMT-15).
 - A tile's time step over a chunk's bytes or a block is refused with `CallError::StepTooLarge` (FMT-15).
 - `TileLayout::cell_range` and `tile_cells` give a tile's cells, fewer at an axis' far edge (FMT-15).
-- A grid tile's summary block carries header flag `FLAG_TILE` and its tile after the scale; series blocks unchanged (FMT-15).
-- A grid tile's summary block's index entry carries its tile number at bytes 72..88, as its chunks' do (FMT-15).
 - A grid tile's summary tree: an item is a time step, a node the tile's cells over its steps (FMT-15).
 - `SeriesLeaves::of_tile` computes a tile's leaves, a time step of the tile's cells per item (FMT-15).
 - `TapeReader::grid_summaries` finds the summary blocks of a level of the tiles in a box (FMT-15).
