@@ -26,6 +26,7 @@ benchmarks, golden files and book pages.
 - `TapeReader::grid_summaries` finds the summary blocks of a level of the tiles in a box (FMT-15).
 - `region_timeline` merges the tiles' nodes in a box into a region's timeline, at tile resolution (FMT-15).
 - The writer refuses a summary block naming a tile its grid doesn't hold, or none on a grid (FMT-15).
+- `GridHandle` builds each tile's summaries; a resumed mux rebuilds the tile trees of the torn piece (FMT-15).
 
 ## [0.7.0] - 2026-11-23
 
