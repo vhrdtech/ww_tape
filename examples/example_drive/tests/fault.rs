@@ -70,7 +70,7 @@ fn part_iv_finds_the_fault_and_prints_what_the_chapters_quote() {
 /// A page of the book with its line breaks and indents as single spaces, so that a phrase matches across lines.
 fn page(name: &str) -> String {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../docs")
+        .join("../../docs")
         .join(name);
     let text = std::fs::read_to_string(&path).expect("a book page");
     text.split_whitespace().collect::<Vec<_>>().join(" ")

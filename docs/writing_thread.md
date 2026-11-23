@@ -48,7 +48,7 @@ A mux this small still shows the shape. Two sensors push pings on their own even
 its own handle into one chain in memory, joins, and the mux closes:
 
 ```rs
---8<-- "example_drive/src/producers.rs:threads"
+--8<-- "examples/example_drive/src/producers.rs:threads"
 ```
 
 Reading the chain back after the close shows every item of every thread arrived.
@@ -57,7 +57,7 @@ Every blocking call has an async twin, named with `_async`. The same three sourc
 threads, push and close the same way:
 
 ```rs
---8<-- "example_drive/tests/producers.rs:tasks"
+--8<-- "examples/example_drive/tests/producers.rs:tasks"
 ```
 
 `smol::spawn` schedules the same futures the same way; neither runtime is a dependency of `ww_tape_mux`.
@@ -68,20 +68,20 @@ The drive's hour ([What a tape holds](tape.md)) shows the pattern with four thre
 defines the clocks and tracks on it:
 
 ```rs
---8<-- "example_drive/src/handles.rs:create"
+--8<-- "examples/example_drive/src/handles.rs:create"
 ```
 
 ??? example "What the example uses here: `define_on_mux`"
 
     ```rs
-    --8<-- "example_drive/src/defs.rs:define_on_mux"
+    --8<-- "examples/example_drive/src/defs.rs:define_on_mux"
     ```
 
 One thread puts the mode each time it changes. The [[state track]] needs no put at each use. The writer carries the
 newest item into each new piece and writes copies by its own rule.
 
 ```rs
---8<-- "example_drive/src/handles.rs:mode"
+--8<-- "examples/example_drive/src/handles.rs:mode"
 ```
 
 Another thread pushes the CAN frames of `can0` in batches of 4096 into an [`EventsHandle`]. A third pushes a second of
@@ -89,16 +89,16 @@ phase current at a time into a [`SeriesHandle`]. Each handle ends with `finish`,
 it:
 
 ```rs
---8<-- "example_drive/src/handles.rs:can0"
+--8<-- "examples/example_drive/src/handles.rs:can0"
 
---8<-- "example_drive/src/handles.rs:phase_a"
+--8<-- "examples/example_drive/src/handles.rs:phase_a"
 ```
 
 A fourth thread sends the log lines and temperatures as records blocks through a [`RecordsHandle`]. When every thread
 is done, the program closes the mux, which places what was sent and closes the chain:
 
 ```rs
---8<-- "example_drive/src/handles.rs:close"
+--8<-- "examples/example_drive/src/handles.rs:close"
 ```
 
 Which unit reaches the queue first depends on the threads, so the bytes of the chain differ from run to run. What

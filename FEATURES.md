@@ -357,7 +357,7 @@ The book's running example and its other cases: `example_drive`, `example_rf`, `
 
   `example_drive` records the drive motor controller's hour: log lines, mode, CAN frames, phase current with summaries and temperature, in a chain of pieces. `Drive::scaled` shrinks the data and the byte policies for figures, and a crash at any byte resumes to the bytes of the run without it. The RF capture (`example_rf`) records ComplexI16 IQ at 20 MS/s as the book's case for high rates. `cargo run -p example_drive` prints the story's numbers, and the tests pin them.
 
-  Read more: [example_drive](example_drive/README.md), [example_rf](example_rf/README.md). Tests `story.rs`, `damage.rs`, `rf.rs`.
+  Read more: [example_drive](examples/example_drive/README.md), [example_rf](examples/example_rf/README.md). Tests `story.rs`, `damage.rs`, `rf.rs`.
 
 - ✅ **EX-2 A 10 Gbps link and a 1 GS/s receiver**
 
@@ -383,7 +383,7 @@ The book's running example and its other cases: `example_drive`, `example_rf`, `
 
   Each case is a crate of its own: `example_drive` the book's running example, `example_rf`, `example_ethernet` and `example_wideband`. What they share, the memory window and the RF signal, is in `example_capture`, so no case depends on another. `window::start` and each case's `start` return a running pipeline. It hands out its memory window, the pieces in memory and each mux's watch, so a viewer follows it live. Each case has a headless binary whose `main` reads like a block diagram of its threads.
 
-  Read more: [The pipeline](docs/protocol_analyser.md#the-pipeline), [example_capture](example_capture/README.md). Tests `window.rs`.
+  Read more: [The pipeline](docs/protocol_analyser.md#the-pipeline), [example_capture](examples/example_capture/README.md). Tests `window.rs`.
 
 - ✅ **EX-6 Payload compression measured on the cases**
 

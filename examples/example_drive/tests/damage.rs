@@ -18,7 +18,7 @@ const US_PER_S: i64 = 1_000_000;
 
 /// A book page with its line breaks as spaces.
 fn page(name: &str) -> String {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../docs/").to_owned() + name;
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/").to_owned() + name;
     let text = std::fs::read_to_string(&path).expect("a book page");
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }

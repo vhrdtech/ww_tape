@@ -20,7 +20,7 @@ the event's [[payload]]. The track's items are plain bytes with no type, `RawByt
 A capture thread takes the frames in batches, as a network card hands them over, and pushes each batch in one call:
 
 ```rs
---8<-- "example_ethernet/src/lib.rs:capture"
+--8<-- "examples/example_ethernet/src/lib.rs:capture"
 ```
 
 The handle copies the batch into its open [[events chunk]] and seals the chunk at 1 MiB of frames. It codes the
@@ -30,7 +30,7 @@ records instead, as a `Foreign` item with the media type `application/vnd.tcpdum
 ??? example "What the example uses here: `Link`"
 
     ```rs
-    --8<-- "example_ethernet/src/lib.rs:link"
+    --8<-- "examples/example_ethernet/src/lib.rs:link"
     ```
 
 ## Decoded layers as tracks
@@ -46,13 +46,13 @@ A decoded header must lead back to its frame. Each item of `ipv4` and `l4` keeps
 relation named `frame`:
 
 ```rs
---8<-- "example_ethernet/src/lib.rs:frame_relation"
+--8<-- "examples/example_ethernet/src/lib.rs:frame_relation"
 ```
 
 The decoder thread pushes the headers of a batch with their frames' numbers, one value each:
 
 ```rs
---8<-- "example_ethernet/src/lib.rs:decoded"
+--8<-- "examples/example_ethernet/src/lib.rs:decoded"
 ```
 
 The numbers only grow, so the relation is a [[monotone relation]]. The index then keeps each chunk's smallest and
@@ -95,7 +95,7 @@ piece holds something worth keeping. A kept piece is copied whole to the chain's
 reads alone. Every other piece leaves memory unwritten ([`MemTapes::remove`]).
 
 ```rs
---8<-- "example_ethernet/src/ram.rs:ram_capture"
+--8<-- "examples/example_ethernet/src/ram.rs:ram_capture"
 ```
 
 A verdict often depends on what came before. The window therefore keeps [`Window::before`] pieces after it read them,
@@ -114,7 +114,7 @@ the link and keeps the pieces around each reset under `DIR`. Its `main` reads li
 what connects them:
 
 ```rs
---8<-- "example_ethernet/src/main.rs:main"
+--8<-- "examples/example_ethernet/src/main.rs:main"
 ```
 
 [`RamCapture::start`] starts the capture threads, the muxes and a triage thread per chain, and returns at once. The
@@ -129,7 +129,7 @@ The analyser here looks for TCP resets, the frames that end a connection abruptl
 frames of a port. The analyser decodes every frame of each piece and tests its flags:
 
 ```rs
---8<-- "example_ethernet/src/ram.rs:look"
+--8<-- "examples/example_ethernet/src/ram.rs:look"
 ```
 
 Its findings go to a second chain, the results, which a mux of its own writes to disk beside the kept pieces. Each

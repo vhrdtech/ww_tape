@@ -29,13 +29,13 @@ A series declares its statistics in its definition, a [`SeriesSummarySpec`]. The
 the maximum, the sum and the sum of squares. From them a viewer draws the envelope and the root mean square:
 
 ```rs
---8<-- "example_drive/src/defs.rs:spec"
+--8<-- "examples/example_drive/src/defs.rs:spec"
 ```
 
 ??? example "What the example uses here: `phase_def, phase_shape`"
 
     ```rs
-    --8<-- "example_drive/src/defs.rs:phase_def_item"
+    --8<-- "examples/example_drive/src/defs.rs:phase_def_item"
     ```
 
 A node holds no ticks, since the chunks' [[grids]] give every sample's tick. A [[summary block|summary]] holds the
@@ -55,32 +55,32 @@ The viewer picks the coarsest level whose nodes still outnumber its 600 columns.
 nodes, and no column falls between two:
 
 ```rs
---8<-- "example_drive/src/fault.rs:level"
+--8<-- "examples/example_drive/src/fault.rs:level"
 ```
 
 ??? example "What the example uses here: `the fault's constants`, `series_def`, `column_of`, `nodes`"
 
     ```rs
-    --8<-- "example_drive/src/fault.rs:fault_consts_item"
+    --8<-- "examples/example_drive/src/fault.rs:fault_consts_item"
 
-    --8<-- "example_drive/src/fault.rs:series_def_item"
+    --8<-- "examples/example_drive/src/fault.rs:series_def_item"
 
-    --8<-- "example_drive/src/fault.rs:column_of_item"
+    --8<-- "examples/example_drive/src/fault.rs:column_of_item"
 
-    --8<-- "example_drive/src/fault.rs:nodes_item"
+    --8<-- "examples/example_drive/src/fault.rs:nodes_item"
     ```
 
 For the hour of `phase_a` that is level 1, nodes of 16 384 samples. The viewer reads the summary blocks of that level
 in each piece, and merges each node into the column its first sample falls in:
 
 ```rs
---8<-- "example_drive/src/fault.rs:nodes"
+--8<-- "examples/example_drive/src/fault.rs:nodes"
 ```
 
 ??? example "What the example uses here: `column_of`"
 
     ```rs
-    --8<-- "example_drive/src/fault.rs:column_of_item"
+    --8<-- "examples/example_drive/src/fault.rs:column_of_item"
     ```
 
 The overview reads 175 summary blocks with 5 497 nodes: about 194 KB in 175 reads, and no sample. Finding those
@@ -126,17 +126,17 @@ The crate `ww_tape_summary` builds the trees as the items arrive: an [`EventTree
 period:
 
 ```rs
---8<-- "example_drive/src/record.rs:summaries"
+--8<-- "examples/example_drive/src/record.rs:summaries"
 ```
 
 ??? example "What the example uses here: `DriveNumbers`, `key`, `phase_def, phase_shape`"
 
     ```rs
-    --8<-- "example_drive/src/defs.rs:ids_item"
+    --8<-- "examples/example_drive/src/defs.rs:ids_item"
 
-    --8<-- "example_drive/src/defs.rs:key_item"
+    --8<-- "examples/example_drive/src/defs.rs:key_item"
 
-    --8<-- "example_drive/src/defs.rs:phase_def_item"
+    --8<-- "examples/example_drive/src/defs.rs:phase_def_item"
     ```
 
 Each second, the recorder pushes the second's samples. A level that fills a block gives that block, and the recorder
@@ -144,13 +144,13 @@ hands it to the [[writer]] with [`TapeWriter::defer_block`]. The writer places a
 an aligned file into the gap before a chunk's payload:
 
 ```rs
---8<-- "example_drive/src/record.rs:push"
+--8<-- "examples/example_drive/src/record.rs:push"
 ```
 
 ??? example "What the example uses here: `Act`"
 
     ```rs
-    --8<-- "example_drive/src/record.rs:act_item"
+    --8<-- "examples/example_drive/src/record.rs:act_item"
     ```
 
 At the end of the run, [`SeriesSummaries::finish`] gives the blocks of the partial nodes. The first piece of the

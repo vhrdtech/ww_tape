@@ -92,7 +92,7 @@ fn the_full_hour_is_the_same_every_run_and_tells_the_story() -> Result<(), Error
 }
 
 fn page(name: &str) -> String {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../docs/").to_owned() + name;
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/").to_owned() + name;
     let text = std::fs::read_to_string(&path).expect("a book page");
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }

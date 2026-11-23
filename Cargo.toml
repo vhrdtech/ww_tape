@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["example_capture", "example_drive", "example_ethernet", "example_rf", "example_wideband", "ww_tape", "ww_tape_bench", "ww_tape_bench_report", "ww_tape_benchmarks", "ww_tape_codecs", "ww_tape_codecs_benchmarks", "ww_tape_figures", "ww_tape_fs", "ww_tape_fuzz", "ww_tape_mux", "ww_tape_summary", "ww_tape_tests"]
+members = ["examples/example_capture", "examples/example_drive", "examples/example_ethernet", "examples/example_rf", "examples/example_wideband", "ww_tape", "ww_tape_bench", "ww_tape_bench_report", "ww_tape_benchmarks", "ww_tape_codecs", "ww_tape_codecs_benchmarks", "ww_tape_figures", "ww_tape_fs", "ww_tape_fuzz", "ww_tape_mux", "ww_tape_summary", "ww_tape_tests"]
 # cargo-fuzz targets, a workspace of its own (nightly)
 exclude = ["fuzz"]
 
@@ -15,11 +15,11 @@ homepage = "https://tape.vhrd.tech/"
 license = "MIT"
 
 [workspace.dependencies]
-example_capture = { path = "./example_capture" }
-example_drive = { path = "./example_drive" }
-example_ethernet = { path = "./example_ethernet" }
-example_rf = { path = "./example_rf" }
-example_wideband = { path = "./example_wideband" }
+example_capture = { path = "./examples/example_capture" }
+example_drive = { path = "./examples/example_drive" }
+example_ethernet = { path = "./examples/example_ethernet" }
+example_rf = { path = "./examples/example_rf" }
+example_wideband = { path = "./examples/example_wideband" }
 ww_tape = { version = "0.4.0", path = "./ww_tape", default-features = false }
 ww_tape_bench = { path = "./ww_tape_bench" }
 ww_tape_bench_report = { path = "./ww_tape_bench_report" }

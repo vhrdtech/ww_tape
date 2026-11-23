@@ -64,7 +64,7 @@ segment, and its CRC fails.
 
 The cost is that segment: one second of `phase_a`, 25 000 of the run's 90 million samples. Every other block of the
 piece reads, and so does every other track in the same second. The fault at minute 52 is untouched. `cargo run -p
-example_drive` prints these numbers, and [`example_drive/src/damage.rs`] makes the damage.
+example_drive` prints these numbers, and [`examples/example_drive/src/damage.rs`] makes the damage.
 
 A [[reader]] meets the flip in two places. [`TapeReader::verify`] checks the piece against its [[content hash]] and
 finds that it no longer holds. Reading by the [[final index]], [`TapeReader::read_block`] fails for that one chunk and

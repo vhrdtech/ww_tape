@@ -57,7 +57,7 @@ a second. Each sample is a pair of values, the in-phase I and the quadrature Q, 
 The track's items are numbers of two parts, a 16-bit signed integer each:
 
 ```rs
---8<-- "example_capture/src/rf.rs:element"
+--8<-- "examples/example_capture/src/rf.rs:element"
 ```
 
 A sample's I and Q lie side by side in the column. Every codec codes them as two lanes, so neither needs a track of
@@ -65,13 +65,13 @@ its own. The converter gives 12 bits in each 16-bit word. The summaries keep the
 shows where a signal is on the air:
 
 ```rs
---8<-- "example_capture/src/rf.rs:def"
+--8<-- "examples/example_capture/src/rf.rs:def"
 ```
 
 ??? example "What the example uses here: `Rf`"
 
     ```rs
-    --8<-- "example_capture/src/rf.rs:rf_item"
+    --8<-- "examples/example_capture/src/rf.rs:rf_item"
     ```
 
 The track stores the samples in the converter's packed form, `PACKED12_LSB`: 12 bits per value, as the front end
@@ -97,7 +97,7 @@ Each kind goes into a [[chain]] of its own, `iq` and `decoded`. A reader of the 
 each chain is cut at its own size. One process writes both, each through a [`TapeMux`] of its own:
 
 ```rs
---8<-- "example_rf/src/chains.rs:two_muxes"
+--8<-- "examples/example_rf/src/chains.rs:two_muxes"
 ```
 
 A radio thread pushes each chunk's samples into the series handle of `iq` and hands them to a decoder thread through
@@ -105,7 +105,7 @@ a bounded queue. The decoder pushes a span per burst into the track `bursts` and
 track `power`. It seals each second's finds, so they reach the tape a second at a time and in time order:
 
 ```rs
---8<-- "example_rf/src/chains.rs:threads"
+--8<-- "examples/example_rf/src/chains.rs:threads"
 ```
 
 Each mux places the units of its own handles on its own writing thread, so neither chain waits for the other's
@@ -118,7 +118,7 @@ at its start. The two tracks of `decoded` form one source, since the decoder sen
 holds the chunks of samples back until the decoder's next second shows that no burst comes before them:
 
 ```rs
---8<-- "example_rf/src/chains.rs:follow"
+--8<-- "examples/example_rf/src/chains.rs:follow"
 ```
 
 `cargo run --release -p example_rf DIR` writes the minute at 1/100 of the rate. The chain `iq`
@@ -145,19 +145,19 @@ The program reads the chunk that holds 51:59.980 and the 500 samples from there.
 number with the grid, then decodes from that sample on:
 
 ```rs
---8<-- "example_drive/src/fault.rs:current"
+--8<-- "examples/example_drive/src/fault.rs:current"
 ```
 
 ??? example "What the example uses here: `fault_us`, `the fault's constants`, `series_def`, `Current`"
 
     ```rs
-    --8<-- "example_drive/src/fault.rs:fault_us_item"
+    --8<-- "examples/example_drive/src/fault.rs:fault_us_item"
 
-    --8<-- "example_drive/src/fault.rs:fault_consts_item"
+    --8<-- "examples/example_drive/src/fault.rs:fault_consts_item"
 
-    --8<-- "example_drive/src/fault.rs:series_def_item"
+    --8<-- "examples/example_drive/src/fault.rs:series_def_item"
 
-    --8<-- "example_drive/src/fault.rs:current_type_item"
+    --8<-- "examples/example_drive/src/fault.rs:current_type_item"
     ```
 
 The chunk holds 25 000 samples in a block of about 28 KB, at period 40/1 µs and scale 10⁻³. The first sample read is

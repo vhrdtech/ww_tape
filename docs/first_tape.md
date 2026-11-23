@@ -21,7 +21,7 @@ It writes the drive's first minute into a file `drive.wwt` in a directory of the
 names the file. Then it opens the file and prints one line for each [[track]]:
 
 ```text
---8<-- "example_drive/tests/first_tape.out"
+--8<-- "examples/example_drive/tests/first_tape.out"
 ```
 
 The counts follow from the drive's rates, which [What a tape holds](tape.md) lists. A second holds three log lines,
@@ -53,25 +53,25 @@ shows how to define a track of your own.
 host receives them, and four calls of the writer take them. A fifth call [[closes|close]] the file:
 
 ```rs
---8<-- "example_drive/src/first_tape.rs:write"
+--8<-- "examples/example_drive/src/first_tape.rs:write"
 ```
 
 ??? example "What the example uses here: `Drive`, `Drive::acts`, `Drive::definitions`, `Act`, `records_block`, `DriveNumbers`, `Mode`"
 
     ```rs
-    --8<-- "example_drive/src/lib.rs:drive_item"
+    --8<-- "examples/example_drive/src/lib.rs:drive_item"
 
-    --8<-- "example_drive/src/record.rs:drive_acts_item"
+    --8<-- "examples/example_drive/src/record.rs:drive_acts_item"
 
-    --8<-- "example_drive/src/record.rs:drive_definitions_item"
+    --8<-- "examples/example_drive/src/record.rs:drive_definitions_item"
 
-    --8<-- "example_drive/src/record.rs:act_item"
+    --8<-- "examples/example_drive/src/record.rs:act_item"
 
-    --8<-- "example_drive/src/record.rs:records_block_item"
+    --8<-- "examples/example_drive/src/record.rs:records_block_item"
 
-    --8<-- "example_drive/src/defs.rs:ids_item"
+    --8<-- "examples/example_drive/src/defs.rs:ids_item"
 
-    --8<-- "example_drive/src/signals.rs:mode_type_item"
+    --8<-- "examples/example_drive/src/signals.rs:mode_type_item"
     ```
 
 The program drives the writer from one thread, which then waits for every write. A recorder with several sources, or
@@ -82,16 +82,16 @@ A [[handle]] of the mux takes each kind of act: the mode's puts, the records blo
 samples. The drive's own recorder works so. It defines the clocks and tracks on the mux, then makes the handles:
 
 ```rs
---8<-- "example_drive/src/record.rs:create"
+--8<-- "examples/example_drive/src/record.rs:create"
 
---8<-- "example_drive/src/record.rs:handles"
+--8<-- "examples/example_drive/src/record.rs:handles"
 ```
 
 The recorder gives each act to its handle, in the order the host receives them, and waits until the mux has placed
 it:
 
 ```rs
---8<-- "example_drive/src/record.rs:apply"
+--8<-- "examples/example_drive/src/record.rs:apply"
 ```
 
 The recorder never passes a definition. The summaries of `phase_a` come from the mux: the handle of samples builds
@@ -104,9 +104,9 @@ writes needs none of this and uses the writer's own calls.
 ??? example "What the example uses here: `Recorder`"
 
     ```rs
-    --8<-- "example_drive/src/record.rs:recorder_item"
+    --8<-- "examples/example_drive/src/record.rs:recorder_item"
 
-    --8<-- "example_drive/src/record.rs:series"
+    --8<-- "examples/example_drive/src/record.rs:series"
     ```
 
 Each call of the writer does one job:
@@ -123,13 +123,13 @@ The application makes a [[records block]] itself with a [`BlockWriter`]. It push
 [[track]] and time, and the [`BlockWriter`] adds the [[block header]] and the checksum:
 
 ```rs
---8<-- "example_drive/src/record.rs:records"
+--8<-- "examples/example_drive/src/record.rs:records"
 ```
 
 ??? example "What the example uses here: `DriveNumbers`"
 
     ```rs
-    --8<-- "example_drive/src/defs.rs:ids_item"
+    --8<-- "examples/example_drive/src/defs.rs:ids_item"
     ```
 
 A [[chunk]] takes more work, since its times and values go into encoded [[columns]]. [`Drive::acts`] does that work
@@ -163,13 +163,13 @@ A [[reader]] starts at the end of the [[piece]]. It finds the [[tail]] there, an
 [[final index]]. The program reads the whole file into memory and opens it with [`TapeReader::open`]:
 
 ```rs
---8<-- "example_drive/src/first_tape.rs:read"
+--8<-- "examples/example_drive/src/first_tape.rs:read"
 ```
 
 ??? example "What the example uses here: `Track, Items`"
 
     ```rs
-    --8<-- "example_drive/src/first_tape.rs:tracks_types_item"
+    --8<-- "examples/example_drive/src/first_tape.rs:tracks_types_item"
     ```
 
 The close record holds a range for each [[track]]: its [[items]], its [[chunks]] and its times in the piece. The

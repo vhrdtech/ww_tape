@@ -22,7 +22,7 @@ Each channel is a [[series]] track `iq` with a producer thread of its own. The t
 a series handle. The handle packs them at 12 bits and cuts them into chunks of 1 MiB of samples:
 
 ```rs
---8<-- "example_wideband/src/lib.rs:channel"
+--8<-- "examples/example_wideband/src/lib.rs:channel"
 ```
 
 The split into channels is what lets the work spread. A track has one producer, and its handle does the costly work on
@@ -32,7 +32,7 @@ serves one channel's 125 million samples a second, not the whole band.
 ??? example "What the example uses here: `Wideband`"
 
     ```rs
-    --8<-- "example_wideband/src/lib.rs:wideband"
+    --8<-- "examples/example_wideband/src/lib.rs:wideband"
     ```
 
 ## Energy in the summary nodes
@@ -46,7 +46,7 @@ with a threshold. The carriers of the band add up to 1 050 steps of amplitude, a
 1.5 million, [`POWER_MIN`], lies between a quiet node and one that holds a burst:
 
 ```rs
---8<-- "example_wideband/src/ram.rs:detect"
+--8<-- "examples/example_wideband/src/ram.rs:detect"
 ```
 
 Consecutive loud nodes make one burst, from the first node's start to the last node's end. A burst may cross from one
@@ -54,7 +54,7 @@ Consecutive loud nodes make one burst, from the first node's start to the last n
 function, which the overview below uses too:
 
 ```rs
---8<-- "example_wideband/src/lib.rs:summary_nodes"
+--8<-- "examples/example_wideband/src/lib.rs:summary_nodes"
 ```
 
 ## A window in memory
@@ -70,7 +70,7 @@ memory unwritten. The band takes fewer bytes a second than the link, and one cha
 shows.
 
 ```rs
---8<-- "example_wideband/src/ram.rs:rf_capture"
+--8<-- "examples/example_wideband/src/ram.rs:rf_capture"
 ```
 
 The analyser's findings go to a chain of results on disk. Each channel has a track `bursts`, one span per burst with its
@@ -86,7 +86,7 @@ it feeds, and [`RfCapture::start`] hands out the memory window while the capture
 [pipeline](protocol_analyser.md#the-pipeline) does:
 
 ```rs
---8<-- "example_wideband/src/main.rs:main"
+--8<-- "examples/example_wideband/src/main.rs:main"
 ```
 
 ## What one PC holds and keeps
@@ -117,7 +117,7 @@ the smallest and largest I and Q and the mean and largest power `I² + Q²` of i
 blocks of one level:
 
 ```rs
---8<-- "example_wideband/src/lib.rs:overview"
+--8<-- "examples/example_wideband/src/lib.rs:overview"
 ```
 
 Each piece has a tree of its own. The nodes at a piece's ends may therefore hold fewer samples. The test finds the five

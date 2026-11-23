@@ -15,26 +15,26 @@ A [[series chunk]] of the drive holds a second of `phase_a`: 25 000 samples as `
 [`ww_tape::samples::encode`] into one samples [[column]], and builds the head from the track's [[grid]]:
 
 ```rs
---8<-- "example_drive/src/record.rs:samples"
+--8<-- "examples/example_drive/src/record.rs:samples"
 ```
 
 ??? example "What the example uses here: `DriveNumbers`, `key`, `phase_def, phase_shape`, `Act`"
 
     ```rs
-    --8<-- "example_drive/src/defs.rs:ids_item"
+    --8<-- "examples/example_drive/src/defs.rs:ids_item"
 
-    --8<-- "example_drive/src/defs.rs:key_item"
+    --8<-- "examples/example_drive/src/defs.rs:key_item"
 
-    --8<-- "example_drive/src/defs.rs:phase_def_item"
+    --8<-- "examples/example_drive/src/defs.rs:phase_def_item"
 
-    --8<-- "example_drive/src/record.rs:act_item"
+    --8<-- "examples/example_drive/src/record.rs:act_item"
     ```
 
 A recorder that writes through a [`TapeMux`] leaves the encoding to the handle of the track. The drive's recorder gives
 the [`SeriesHandle`] the codec of the column, and then only the samples of each second:
 
 ```rs
---8<-- "example_drive/src/record.rs:series"
+--8<-- "examples/example_drive/src/record.rs:series"
 ```
 
 The head's first and last tick come from the grid, by [`SeriesGrid::chunk_ticks`], and every sample's tick follows from
