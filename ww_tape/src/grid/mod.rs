@@ -359,7 +359,13 @@ impl TileLayout {
             return None;
         }
         let mut n = 0u128;
-        for (c, shift) in coords.as_slice().iter().zip(&self.shifts) {
+        let fields = coords
+            .as_slice()
+            .iter()
+            .zip(self.widths())
+            .zip(&self.shifts);
+        // a field of width 0 holds coordinate 0 only (holds checked it) and may sit at shift 128
+        for ((c, _), shift) in fields.filter(|((_, w), _)| **w != 0) {
             n |= u128::from(*c).checked_shl(u32::from(*shift))?;
         }
         Some(n)

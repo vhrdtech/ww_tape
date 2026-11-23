@@ -115,6 +115,25 @@ fn fields_over_128_bits_are_refused_and_128_taken() {
 }
 
 #[test]
+fn a_one_tile_axis_packs_beside_128_bits() {
+    // an axis of one tile takes no bits, its field at shift 128 above the others
+    let one = [
+        (1, 1),
+        (u32::MAX, 1),
+        (u32::MAX, 1),
+        (u32::MAX, 1),
+        (u32::MAX, 1),
+    ];
+    let l = TileLayout::new(&one).unwrap();
+    assert_eq!(l.bits(), 128);
+    for c in [[0, 0, 0, 0, 0], [0, u32::MAX - 1, 7, 0, u32::MAX - 1]] {
+        let c = TileCoords::new(&c).unwrap();
+        assert!(l.holds(&c));
+        assert_eq!(l.unpack(l.pack(&c).unwrap()), Some(c));
+    }
+}
+
+#[test]
 fn a_box_turns_into_tile_ranges_clipped_to_the_extent() {
     let l = TileLayout::new(&weather()).unwrap();
     let b = l.tile_box(&[7..8, 0..37, 179..361, 1000..5000]).unwrap();
