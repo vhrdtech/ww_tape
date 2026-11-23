@@ -114,3 +114,23 @@ fn summaries_reach_the_tile_head() {
     assert!(tiles > 50, "{tiles} of 1000 tile heads read whole");
     assert!(refused > 5, "{refused} of 1000 tile heads refused");
 }
+
+/// Of the hostile grid files whose grid definition decodes, some hold tile summary blocks the box of the whole grid
+/// finds and merges into a region's timeline, by their entries' tile numbers and by their heads.
+#[test]
+fn grid_files_reach_the_tile_summaries() {
+    let (mut defined, mut found, mut by_number, mut by_head, mut merged) = (0, 0, 0, 0, 0);
+    for input in inputs(2000) {
+        let r = ww_tape_fuzz::targets::summary_reach(&hostile::grid(&input));
+        defined += usize::from(r.defined);
+        found += usize::from(r.found > 0);
+        by_number += usize::from(r.found > r.scanned);
+        by_head += usize::from(r.scanned > 0);
+        merged += usize::from(r.nodes > 0);
+    }
+    assert!(defined > 200, "{defined} of 2000 grids decode");
+    assert!(found * 8 > defined, "{found} of {defined} find summaries");
+    assert!(merged * 8 > defined, "{merged} of {defined} merge nodes");
+    assert!(by_number > 10, "{by_number} found by tile number");
+    assert!(by_head > 10, "{by_head} found by head");
+}

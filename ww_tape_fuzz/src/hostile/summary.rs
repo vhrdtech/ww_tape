@@ -177,8 +177,6 @@ pub fn summary(data: &[u8]) -> Vec<u8> {
     let i = d.below(blocks.len());
     let mut b = blocks.swap_remove(i);
     let body_at = HEADER_LEN + SUMMARY_FIXED_LEN;
-    // a tile's axis count and coordinates sit after the scale
-    let tile_at = body_at + get(&b, HEADER_LEN + 52, 2) as usize;
     match d.u8() % 12 {
         9 => hit(&mut d, &mut b, LEN_FIELD),
         10 => {
@@ -186,22 +184,7 @@ pub fn summary(data: &[u8]) -> Vec<u8> {
             let flags = get(&b, 6, 2) ^ u64::from(ww_tape::FLAG_TILE);
             put(&mut b, 6, 2, flags);
         }
-        11 => {
-            // the axis count or one coordinate of a tile
-            let axis = d.below(4);
-            let f = if axis == 0 {
-                Field::new(
-                    tile_at,
-                    1,
-                    &[GRID_FIXED_AXES_MAX as u64, GRID_FIXED_AXES_MAX as u64 + 1],
-                )
-            } else {
-                Field::new(tile_at + 1 + 4 * (axis - 1), 4, &[u32::MAX as u64])
-            };
-            if f.at + f.width <= b.len().saturating_sub(4) {
-                hit(&mut d, &mut b, f);
-            }
-        }
+        11 => hit_tile(&mut d, &mut b),
         1 | 2 => {
             let f = HEADER_FIELDS[d.below(HEADER_FIELDS.len())];
             hit(&mut d, &mut b, f);
@@ -220,4 +203,23 @@ pub fn summary(data: &[u8]) -> Vec<u8> {
     }
     seal(&mut b);
     b
+}
+
+/// Write a hostile value over the axis count or one coordinate of the tile after the scale of summary block `b`,
+/// where the field lies before the CRC.
+pub(crate) fn hit_tile(d: &mut Draw<'_>, b: &mut [u8]) {
+    let tile_at = HEADER_LEN + SUMMARY_FIXED_LEN + get(b, HEADER_LEN + 52, 2) as usize;
+    let axis = d.below(4);
+    let f = if axis == 0 {
+        Field::new(
+            tile_at,
+            1,
+            &[GRID_FIXED_AXES_MAX as u64, GRID_FIXED_AXES_MAX as u64 + 1],
+        )
+    } else {
+        Field::new(tile_at + 1 + 4 * (axis - 1), 4, &[u32::MAX as u64])
+    };
+    if f.at + f.width <= b.len().saturating_sub(4) {
+        hit(d, b, f);
+    }
 }
