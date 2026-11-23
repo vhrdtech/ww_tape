@@ -106,6 +106,9 @@ use exact_units::{
 };
 use shrink_wrap::prelude::*;
 
+#[cfg(feature = "std")]
+use crate::grid::FixedAxisOwned;
+use crate::grid::{FixedAxis, GRID_FIXED_AXES_MAX, TileLayout, check_axes};
 use crate::summary::SeriesSummarySpec;
 use crate::{BlockKind, ChunkHead, ElementDesc, ItemNum, Sample, SampleShape};
 
@@ -131,6 +134,9 @@ pub struct GridDef<'i> {
     pub summaries: Option<SeriesSummarySpec>,
     /// The samples are in a media file's stream, decoded on demand, not in chunks.
     pub media: Option<MediaStream<'i>>,
+    /// The fixed axes beside time, at most [GRID_FIXED_AXES_MAX](crate::grid::GRID_FIXED_AXES_MAX); none for a
+    /// series ([grid](crate::grid)).
+    pub axes: RefVec<'i, FixedAxis<'i>>,
 }
 
 /// Where a series' samples are in a media file.
@@ -346,11 +352,29 @@ pub(crate) fn read_scale(bytes: &[u8]) -> Result<Magnitude, shrink_wrap::Error> 
 /// The parts of a [GridDef] its check on decode looks at, borrowed or owned.
 trait DefParts {
     fn parts(&self) -> (u32, Option<SeriesSummarySpec>);
+    /// The tile layout of the fixed axes, checked ([check_axes]).
+    fn layout(&self) -> Result<TileLayout, SeriesError>;
 }
 
 impl DefParts for GridDef<'_> {
     fn parts(&self) -> (u32, Option<SeriesSummarySpec>) {
         (self.channels.0, self.summaries)
+    }
+
+    fn layout(&self) -> Result<TileLayout, SeriesError> {
+        let mut axes = [const { None }; GRID_FIXED_AXES_MAX];
+        let mut n = 0usize;
+        for a in self.axes.iter() {
+            let slot = axes
+                .get_mut(n)
+                .ok_or(SeriesError::Def("more fixed axes than GRID_FIXED_AXES_MAX"))?;
+            let Ok(a) = a else {
+                return Err(SeriesError::Def("a fixed axis that doesn't read"));
+            };
+            *slot = Some(a);
+            n = n.saturating_add(1);
+        }
+        check_axes(axes.iter().take(n).flatten())
     }
 }
 
@@ -358,6 +382,10 @@ impl DefParts for GridDef<'_> {
 impl DefParts for GridDefOwned {
     fn parts(&self) -> (u32, Option<SeriesSummarySpec>) {
         (self.channels.0, self.summaries)
+    }
+
+    fn layout(&self) -> Result<TileLayout, SeriesError> {
+        check_axes(self.axes.iter())
     }
 }
 
@@ -367,7 +395,9 @@ impl DefParts for GridDefOwned {
 )]
 fn def_valid(d: &impl DefParts) -> Result<(), shrink_wrap::Error> {
     let (channels, summaries) = d.parts();
-    check_def(channels, summaries).map_err(|_| shrink_wrap::Error::SubtypeOutOfRange)
+    check_def(channels, summaries)
+        .and_then(|()| d.layout().map(|_| ()))
+        .map_err(|_| shrink_wrap::Error::SubtypeOutOfRange)
 }
 
 /// The rules of a definition's channels and summaries; the period and scale are valid by their types.
@@ -398,6 +428,7 @@ impl<'i> GridDef<'i> {
             scale: V::SCALE,
             summaries: None,
             media: None,
+            axes: RefVec::new(),
         }
     }
 
@@ -405,7 +436,14 @@ impl<'i> GridDef<'i> {
     /// its ranges. What the element asks of the summaries is the track's check ([TrackDef::check_kind](
     /// crate::TrackDef::check_kind)).
     pub fn check(&self) -> Result<(), SeriesError> {
-        check_def(self.channels.0, self.summaries)
+        check_def(self.channels.0, self.summaries)?;
+        self.layout().map(|_| ())
+    }
+
+    /// The tiles of the fixed axes and the bit fields of the tile number, checked as a decoded definition is
+    /// ([grid](crate::grid#tiles)); [TileLayout::SERIES] for a series.
+    pub fn tile_layout(&self) -> Result<TileLayout, SeriesError> {
+        self.layout()
     }
 
     /// The shape of a sample: `channels` of `element`, the track's items' element.

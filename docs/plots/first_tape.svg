@@ -15,41 +15,41 @@
 <rect x="99.9" y="100.0" width="3.5" height="30.0" rx="1.5" class="tint-purple"/>
 <rect x="104.1" y="100.0" width="62.0" height="30.0" rx="1.5" class="tint-blue"/>
 <text x="135.1" y="119.5" text-anchor="middle" class="small">can0</text>
-<rect x="166.7" y="100.0" width="3.5" height="30.0" rx="1.5" class="tint-purple"/>
-<rect x="170.8" y="100.0" width="504.9" height="30.0" rx="1.5" class="tint-blue"/>
+<rect x="166.7" y="100.0" width="3.6" height="30.0" rx="1.5" class="tint-purple"/>
+<rect x="170.9" y="100.0" width="504.8" height="30.0" rx="1.5" class="tint-blue"/>
 <text x="423.3" y="119.5" text-anchor="middle" class="small">phase_a: a second of samples</text>
-<rect x="76.3" y="138.0" width="364.5" height="30.0" rx="1.5" class="tint-blue"/>
-<rect x="441.4" y="138.0" width="5.6" height="30.0" rx="1.5" class="tint-blue"/>
-<rect x="447.6" y="138.0" width="62.4" height="30.0" rx="1.5" class="tint-blue"/>
-<text x="478.8" y="157.5" text-anchor="middle" class="small">can0</text>
-<rect x="510.6" y="138.0" width="165.1" height="30.0" rx="1.5" class="tint-blue"/>
+<rect x="76.3" y="138.0" width="364.6" height="30.0" rx="1.5" class="tint-blue"/>
+<rect x="441.5" y="138.0" width="5.6" height="30.0" rx="1.5" class="tint-blue"/>
+<rect x="447.7" y="138.0" width="62.4" height="30.0" rx="1.5" class="tint-blue"/>
+<text x="478.9" y="157.5" text-anchor="middle" class="small">can0</text>
+<rect x="510.7" y="138.0" width="165.0" height="30.0" rx="1.5" class="tint-blue"/>
 <rect x="76.3" y="176.0" width="599.4" height="30.0" rx="1.5" class="tint-blue"/>
 <text x="376.0" y="195.5" text-anchor="middle" class="small">phase_a: a second of samples</text>
 <rect x="76.3" y="214.0" width="104.4" height="30.0" rx="1.5" class="tint-blue"/>
 <rect x="181.3" y="214.0" width="40.6" height="30.0" rx="1.5" class="tint-teal"/>
 <rect x="222.5" y="214.0" width="5.6" height="30.0" rx="1.5" class="tint-blue"/>
-<rect x="228.7" y="214.0" width="62.6" height="30.0" rx="1.5" class="tint-blue"/>
+<rect x="228.8" y="214.0" width="62.6" height="30.0" rx="1.5" class="tint-blue"/>
 <text x="260.0" y="233.5" text-anchor="middle" class="small">can0</text>
 <rect x="291.9" y="214.0" width="383.8" height="30.0" rx="1.5" class="tint-blue"/>
 <text x="483.8" y="233.5" text-anchor="middle" class="small">phase_a: a second of samples</text>
 <rect x="76.3" y="252.0" width="486.2" height="30.0" rx="1.5" class="tint-blue"/>
 <rect x="563.1" y="252.0" width="40.6" height="30.0" rx="1.5" class="tint-teal"/>
 <rect x="604.3" y="252.0" width="5.6" height="30.0" rx="1.5" class="tint-blue"/>
-<rect x="610.5" y="252.0" width="62.6" height="30.0" rx="1.5" class="tint-blue"/>
-<text x="641.8" y="271.5" text-anchor="middle" class="small">can0</text>
-<rect x="673.7" y="252.0" width="2.0" height="30.0" rx="1.5" class="tint-blue"/>
-<rect x="76.3" y="324.0" width="189.0" height="30.0" rx="1.5" class="tint-blue"/>
-<rect x="265.9" y="324.0" width="32.4" height="30.0" rx="1.5" class="tint-teal"/>
+<rect x="610.6" y="252.0" width="62.6" height="30.0" rx="1.5" class="tint-blue"/>
+<text x="641.9" y="271.5" text-anchor="middle" class="small">can0</text>
+<rect x="673.8" y="252.0" width="1.9" height="30.0" rx="1.5" class="tint-blue"/>
+<rect x="76.3" y="324.0" width="189.1" height="30.0" rx="1.5" class="tint-blue"/>
+<rect x="266.0" y="324.0" width="32.4" height="30.0" rx="1.5" class="tint-teal"/>
 <rect x="299.0" y="324.0" width="35.9" height="30.0" rx="1.5" class="tint-teal"/>
-<rect x="335.5" y="324.0" width="10.2" height="30.0" rx="1.5" class="tint-teal"/>
+<rect x="335.6" y="324.0" width="10.2" height="30.0" rx="1.5" class="tint-teal"/>
 <rect x="346.3" y="324.0" width="4.3" height="30.0" rx="1.5" class="tint-teal"/>
-<rect x="351.2" y="324.0" width="324.5" height="30.0" rx="1.5" class="tint-amber"/>
-<text x="513.4" y="343.5" text-anchor="middle" class="small">final index</text>
+<rect x="351.3" y="324.0" width="324.4" height="30.0" rx="1.5" class="tint-amber"/>
+<text x="513.5" y="343.5" text-anchor="middle" class="small">final index</text>
 <rect x="76.3" y="362.0" width="599.4" height="30.0" rx="1.5" class="tint-amber"/>
 <rect x="76.3" y="400.0" width="266.1" height="30.0" rx="1.5" class="tint-amber"/>
 <rect x="343.0" y="400.0" width="31.3" height="30.0" rx="1.5" class="tint-green"/>
-<rect x="374.9" y="400.0" width="144.6" height="30.0" rx="1.5" class="faint hatch"/>
-<text x="447.2" y="419.5" text-anchor="middle" class="small">zero padding</text>
+<rect x="375.0" y="400.0" width="144.6" height="30.0" rx="1.5" class="faint hatch"/>
+<text x="447.3" y="419.5" text-anchor="middle" class="small">zero padding</text>
 <rect x="520.1" y="400.0" width="0.8" height="30.0" rx="1.5" class="tint-green"/>
 <rect x="520.3" y="400.0" width="5.4" height="30.0" rx="1.5" class="tint-green"/>
 <text x="68.0" y="49.5" text-anchor="end" class="small soft">first KiB</text>

@@ -221,6 +221,10 @@ pub use samples::{
     ELEMENT_PARTS_MAX, Element, ElementDesc, Sample, SampleError, SampleShape, Samples,
 };
 
+pub mod grid;
+pub use grid::{AxisCoords, FixedAxis, TileCoords, TileLayout};
+#[cfg(feature = "std")]
+pub use grid::{AxisCoordsOwned, FixedAxisOwned};
 pub mod series;
 pub use series::{GridDef, MediaStream, SeriesError, SeriesGrid, SeriesValue};
 #[cfg(feature = "std")]

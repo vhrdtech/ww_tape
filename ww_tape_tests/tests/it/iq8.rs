@@ -36,6 +36,7 @@ fn iq8_track() -> TrackDef<'static> {
         scale: Magnitude::ONE,
         summaries: None,
         media: None,
+        axes: RefVec::new(),
     };
     TrackDef {
         number: TrackNum::new(1),

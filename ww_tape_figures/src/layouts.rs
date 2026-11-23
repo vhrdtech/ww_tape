@@ -23,7 +23,7 @@ const CAPTION_SAMPLES: u32 = 1500;
 const CAPTION_PAYLOAD_AT: usize = 115;
 const CAPTION_ENTRY_AT: usize = 412;
 const CAPTION_PIECE_LEN: u64 = 8192;
-const CAPTION_CLOSE_AT: u64 = 6484;
+const CAPTION_CLOSE_AT: u64 = 6486;
 
 /// The bytes of the drive's first piece.
 fn first_piece() -> anyhow::Result<Vec<u8>> {

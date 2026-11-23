@@ -25,6 +25,7 @@ pub(crate) fn track_item(shape: SampleShape, period: Ratio64, scale: Magnitude) 
         scale,
         summaries: None,
         media: None,
+        axes: RefVec::new(),
     };
     let track = Describe::Track(TrackDef {
         number: TrackNum::new(TRACK),

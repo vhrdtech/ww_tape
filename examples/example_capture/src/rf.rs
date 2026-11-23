@@ -138,6 +138,7 @@ impl Rf {
             scale: Magnitude::ONE, // one step of the converter
             summaries: self.summaries.then(summaries), // extremes and power per 1024 samples
             media: None,
+            axes: RefVec::new(), // no fixed axes: a series
         };
         // --8<-- [end:def]
         Some(def)

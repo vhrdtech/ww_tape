@@ -3,31 +3,31 @@
 <text x="664.0" y="20.0" text-anchor="end" class="soft small">arcs: each checkpoint points back to the one before</text>
 <rect x="24.5" y="96.0" width="15.1" height="30.0" rx="1" class="tint-green"/>
 <rect x="40.6" y="96.0" width="1.0" height="30.0" rx="1" class="tint-purple"/>
-<rect x="42.6" y="96.0" width="12.8" height="30.0" rx="1" class="tint-purple"/>
+<rect x="42.6" y="96.0" width="12.9" height="30.0" rx="1" class="tint-purple"/>
 <rect x="56.5" y="96.0" width="12.0" height="30.0" rx="1" class="tint-blue"/>
 <rect x="69.5" y="96.0" width="4.4" height="30.0" rx="1" class="tint-purple"/>
-<rect x="74.9" y="96.0" width="42.9" height="30.0" rx="1" class="tint-blue"/>
+<rect x="75.0" y="96.0" width="42.9" height="30.0" rx="1" class="tint-blue"/>
 <rect x="118.8" y="96.0" width="55.7" height="30.0" rx="1" class="tint-amber"/>
-<rect x="175.5" y="96.0" width="3.7" height="30.0" rx="1" class="tint-purple"/>
+<rect x="175.6" y="96.0" width="3.7" height="30.0" rx="1" class="tint-purple"/>
 <rect x="180.2" y="96.0" width="1.9" height="30.0" rx="1" class="tint-purple"/>
 <rect x="183.1" y="96.0" width="11.9" height="30.0" rx="1" class="tint-blue"/>
-<rect x="196.0" y="96.0" width="43.3" height="30.0" rx="1" class="tint-blue"/>
-<rect x="240.2" y="96.0" width="23.3" height="30.0" rx="1" class="tint-amber"/>
+<rect x="196.0" y="96.0" width="43.2" height="30.0" rx="1" class="tint-blue"/>
+<rect x="240.3" y="96.0" width="23.3" height="30.0" rx="1" class="tint-amber"/>
 <rect x="264.6" y="96.0" width="12.0" height="30.0" rx="1" class="tint-blue"/>
-<rect x="277.5" y="96.0" width="47.2" height="30.0" rx="1" class="tint-blue"/>
-<rect x="325.7" y="96.0" width="7.1" height="30.0" rx="1" class="tint-amber"/>
-<rect x="333.8" y="96.0" width="11.9" height="30.0" rx="1" class="tint-blue"/>
+<rect x="277.6" y="96.0" width="47.2" height="30.0" rx="1" class="tint-blue"/>
+<rect x="325.8" y="96.0" width="7.1" height="30.0" rx="1" class="tint-amber"/>
+<rect x="333.9" y="96.0" width="11.9" height="30.0" rx="1" class="tint-blue"/>
 <rect x="346.8" y="96.0" width="48.4" height="30.0" rx="1" class="tint-blue"/>
 <rect x="396.2" y="96.0" width="12.0" height="30.0" rx="1" class="tint-blue"/>
 <rect x="409.2" y="96.0" width="10.3" height="30.0" rx="1" class="tint-amber"/>
 <rect x="420.5" y="96.0" width="46.9" height="30.0" rx="1" class="tint-blue"/>
 <rect x="468.4" y="96.0" width="12.1" height="30.0" rx="1" class="tint-blue"/>
-<rect x="481.5" y="96.0" width="43.3" height="30.0" rx="1" class="tint-blue"/>
+<rect x="481.5" y="96.0" width="43.2" height="30.0" rx="1" class="tint-blue"/>
 <rect x="525.8" y="96.0" width="10.3" height="30.0" rx="1" class="tint-amber"/>
 <rect x="537.1" y="96.0" width="1.8" height="30.0" rx="1" class="tint-purple"/>
 <rect x="539.9" y="96.0" width="1.5" height="30.0" rx="1" class="tint-blue"/>
 <rect x="542.4" y="96.0" width="12.1" height="30.0" rx="1" class="tint-blue"/>
-<rect x="555.5" y="96.0" width="43.3" height="30.0" rx="1" class="tint-blue"/>
+<rect x="555.5" y="96.0" width="43.2" height="30.0" rx="1" class="tint-blue"/>
 <path d="M599.8 96.0 h12.1 v30 h-12.1 Z" class="thin dash"/>
 <rect x="599.8" y="96.0" width="5.6" height="30.0" rx="1" class="tint-accent"/>
 <rect x="607.8" y="96.0" width="56.2" height="30.0" rx="1" class="faint"/>
@@ -40,8 +40,8 @@
 <path d="M329.3 94.5 l-3.5 -6 h7 Z" class="thin head"/>
 <path d="M530.9 94.0 C530.9 66.0 414.4 66.0 414.4 89.0" class="thin"/>
 <path d="M414.4 94.5 l-3.5 -6 h7 Z" class="thin head"/>
-<path d="M525.3 130.0 v4 H619.3 v-4" class="thin"/>
-<path d="M525.3 136.0 L24.0 172.0 M619.3 136.0 L664.0 172.0" class="thin dash"/>
+<path d="M525.3 130.0 v4 H619.2 v-4" class="thin"/>
+<path d="M525.3 136.0 L24.0 172.0 M619.2 136.0 L664.0 172.0" class="thin dash"/>
 <text x="24.0" y="192.0" text-anchor="start" class="small">from the newest checkpoint on</text>
 <rect x="24.5" y="206.0" width="76.3" height="30.0" rx="1" class="tint-amber"/>
 <text x="62.6" y="225.5" text-anchor="middle" class="small">checkpoint</text>

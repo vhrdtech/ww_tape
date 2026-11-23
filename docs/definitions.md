@@ -64,7 +64,7 @@ An [[epoch]] clock must come with its link, which [`Definitions::define_clock_wi
 [`Definitions::close`] drops a track, and the clocks, maps and [[bundles]] that no held track names go with it. The
 container reports how many definitions it holds and their size in bytes, and the application decides how many to keep.
 
-The drive holds 8 definitions in 468 bytes. The test below takes them from the example, [[puts]] the mode three times
+The drive holds 8 definitions in 469 bytes. The test below takes them from the example, [[puts]] the mode three times
 and closes a track:
 
 ```rust
@@ -74,7 +74,7 @@ use example_drive::{Mode, definitions};
 // The definitions, and the numbers they gave the drive's clocks and tracks.
 let (mut defs, numbers) = definitions(25_000, true, 32 << 20).expect("the drive's definitions");
 let (can0, mode) = (numbers.can0, numbers.mode);
-assert_eq!((defs.len(), defs.bytes()), (8, 468));
+assert_eq!((defs.len(), defs.bytes()), (8, 469));
 
 let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
 // The first put writes the mode, with the definitions it needs.

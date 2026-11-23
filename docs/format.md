@@ -1145,7 +1145,7 @@ append head (kind 13), APPEND_HEAD_LEN bytes, right after the tail of the close 
 
 <figure class="ww-figure" markdown="0">
 --8<-- "docs/plots/tail.svg"
-<figcaption>The tail of the drive's first piece: the last 164 bytes of its 8,192. It names the close at byte 6,484 and its
+<figcaption>The tail of the drive's first piece: the last 164 bytes of its 8,192. It names the close at byte 6,486 and its
 length, the reason 1 (closed) and the flags 1 (the piece has a head). The content hash, the ids and the sequence
 number 0 follow. Drawn by <code>ww_tape_figures</code> from the drive's recording at 1/1000 of its data.</figcaption>
 </figure>
