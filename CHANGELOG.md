@@ -14,6 +14,7 @@ benchmarks, golden files and book pages.
 - `ww_tape_example` is `example_drive`; the cases are `example_rf`, `example_ethernet`, `example_wideband`, shared parts `example_capture` (EX-5).
 - `window::run`, `RamCapture::run` and `RfCapture::run` take their kept stores and source by value (EX-5).
 - The RF recording is `example_rf::{record, record_on, write_file}`; `cargo run -p example_rf` runs the two chains (EX-5).
+- `MuxStats::latency_seals` is `latency_seal_count`, a unit in its name (MUX-1).
 
 ### Features
 

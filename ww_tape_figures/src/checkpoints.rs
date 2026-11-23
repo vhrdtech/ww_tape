@@ -13,7 +13,7 @@ use crate::svg::Svg;
 /// An arrow head at `to`, pointing from `from`.
 fn head(s: &mut Svg, from: (f64, f64), to: (f64, f64), class: &str) {
     let (dx, dy) = (to.0 - from.0, to.1 - from.1);
-    let n = (dx * dx + dy * dy).sqrt().max(1e-9);
+    let n = dx.hypot(dy).max(1e-9);
     let (ux, uy) = (dx / n, dy / n);
     let (bx, by) = (to.0 - 7.0 * ux, to.1 - 7.0 * uy);
     s.path(
