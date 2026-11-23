@@ -100,7 +100,7 @@ each chain is cut at its own size. One process writes both, each through a [`Tap
 --8<-- "examples/example_rf/src/chains.rs:two_muxes"
 ```
 
-A radio thread pushes each chunk's samples into the series handle of `iq` and hands them to a decoder thread through
+A radio thread pushes each chunk's samples into the grid handle of `iq` and hands them to a decoder thread through
 a bounded queue. The decoder pushes a span per burst into the track `bursts` and a power reading per second into the
 track `power`. It completes each second's finds, so they reach the tape a second at a time and in time order:
 

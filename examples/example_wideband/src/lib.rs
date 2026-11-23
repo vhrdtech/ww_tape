@@ -48,7 +48,7 @@ use ww_tape::{
     BlockKind, ChainOptions, Codec, ColumnKind, CutPolicy, GridDef, ItemNum, PieceStore, Segment,
     TapeReader, TrackId, TrackKey, TrackNum, TrackSpec, track_key,
 };
-use ww_tape_mux::{MuxError, SeriesOptions, TapeMux};
+use ww_tape_mux::{GridOptions, MuxError, TapeMux};
 use ww_tape_summary::Summary;
 
 pub mod ram;
@@ -234,13 +234,13 @@ impl Wideband {
         let rf = self.channel();
         let chunks = self.channel_samples().div_ceil(u64::from(rf.chunk_samples));
         // --8<-- [start:channel]
-        let mut iq = mux.series::<i16>(
+        let mut iq = mux.grid::<i16>(
             track,
-            SeriesOptions {
-                chunk_samples: rf.chunk_samples,
+            GridOptions {
+                chunk_steps: rf.chunk_samples,
                 latency: None, // the receiver fills every chunk
                 codec: self.codec,
-                ..SeriesOptions::default() // chunks of 1 MiB of samples at most, summaries on
+                ..GridOptions::default() // chunks of 1 MiB of samples at most, summaries on
             },
         )?;
         // --8<-- [end:channel]

@@ -35,7 +35,7 @@ use ww_tape::{
     clock_key, track_key,
 };
 use ww_tape_bench::{Bench, Cell, Common, Discard};
-use ww_tape_mux::{Event, EventsOptions, MuxOptions, SeriesOptions, TapeMux};
+use ww_tape_mux::{Event, EventsOptions, GridOptions, MuxOptions, TapeMux};
 use ww_tape_summary::{EventFields, EventTree, SeriesStart, SeriesSummaries};
 
 #[derive(Parser)]
@@ -433,12 +433,12 @@ fn mux(w: &Work<'_>, batch: bool) -> anyhow::Result<Run> {
                 }
                 Load::Iq => {
                     let mut h = mux
-                        .series::<i16>(
+                        .grid::<i16>(
                             num,
-                            SeriesOptions {
-                                chunk_samples: w.rf.chunk_samples,
+                            GridOptions {
+                                chunk_steps: w.rf.chunk_samples,
                                 codec: w.rf.codec,
-                                ..SeriesOptions::default()
+                                ..GridOptions::default()
                             },
                         )
                         .map_err(err)?;

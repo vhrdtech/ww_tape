@@ -29,7 +29,7 @@ Each kind of data has its handle:
 | [`StateHandle`] | a [[state item]], on change | a put |
 | [`RecordsHandle`] | a [[records block]] built with a [`BlockWriter`] | the block |
 | [`EventsHandle`] | items of one events [[track]], one by one or in batches | an [[events chunk]] it encodes |
-| [`SeriesHandle`] | [[samples]] of one series track | a [[series chunk]] it encodes |
+| [`GridHandle`] | time steps of one series track: its [[samples]], or the cells of its [[tiles]] | a [[series chunk]] per tile, which it encodes |
 | [`ChunkSender`] | a [[chunk]] the caller encoded | the chunk |
 | [`RelayHandle`] | another [[producer]]'s blocks | each block, as a [[relay]] passes it |
 
@@ -44,7 +44,7 @@ the queue is full, and the thread wakes by itself when a sync or a checkpoint fa
 ## A small mux
 
 A mux this small still shows the shape. Two sensors push pings on their own events track, each in one call to
-[`EventsHandle::push_all`]. A third pushes levels on a series track with [`SeriesHandle::push`]. Each thread holds
+[`EventsHandle::push_all`]. A third pushes levels on a series track with [`GridHandle::push`]. Each thread holds
 its own handle into one chain in memory, joins, and the mux closes:
 
 ```rs
@@ -85,7 +85,7 @@ newest item into each new piece and writes copies by its own rule.
 ```
 
 Another thread pushes the CAN frames of `can0` in batches of 4096 into an [`EventsHandle`]. A third pushes a second of
-phase current at a time into a [`SeriesHandle`]. Each handle ends with `finish`, which completes its open chunk and
+phase current at a time into a [`GridHandle`]. Each handle ends with `finish`, which completes its open chunk and
 sends it:
 
 ```rs
@@ -107,10 +107,16 @@ That recording drives the same handles from one thread in a fixed order, so it w
 
 ## Typed handles encode on their own thread
 
-An [`EventsHandle`] or a [`SeriesHandle`] keeps an open chunk. A push adds items to it, and the handle completes the
+An [`EventsHandle`] or a [`GridHandle`] keeps an open chunk. A push adds items to it, and the handle completes the
 chunk when it is full: 4096 items or 1 MiB of payload by default. Completing encodes the chunk's [[columns]] and hashes
 its payload with [[BLAKE3]], the costliest pass of a write. It also computes the leaves of the track's [[summary]], such
 as a series' statistics per group of samples.
+
+A series track with [[fixed axes]] keeps a chunk per [[tile]]. Its [`GridHandle`] takes a time step of the whole grid,
+or of a box of tiles ([`TapeMux::grid_box`]), and splits it into the open chunk of each tile. The tiles' chunks hold
+the same time steps and are completed together. Several producers may each write a box of their own, and a tile that
+no box holds is never written. A tile's time step must fit a chunk and a block: a handle refuses a larger one with
+[`CallError::StepTooLarge`] and never splits it.
 
 All of this runs on the producer's thread, so the work spreads over the producers. The writing thread places the
 chunk with its hash given, and builds the summary levels above the leaves. It keeps one summary tree per track and

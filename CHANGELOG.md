@@ -6,6 +6,18 @@ benchmarks, golden files and book pages.
 
 ## [Unreleased]
 
+### Breaking
+
+- `SeriesHandle` and `SeriesOptions` are `GridHandle` and `GridOptions`; `TapeMux::series` is `TapeMux::grid` (FMT-15).
+- `GridOptions::chunk_samples` is `chunk_steps`, `CHUNK_SAMPLES_DEFAULT` is `CHUNK_STEPS_DEFAULT` (FMT-15).
+- `ItemError::PartialFrame { stride }` is `PartialStep { scalars }`: a push takes whole time steps (FMT-15).
+
+### Features
+
+- `GridHandle` splits a grid's time steps into the open chunk of each tile; `TapeMux::grid_box` writes one box (FMT-15).
+- A tile's time step over a chunk's bytes or a block is refused with `CallError::StepTooLarge` (FMT-15).
+- `TileLayout::cell_range` and `tile_cells` give a tile's cells, fewer at an axis' far edge (FMT-15).
+
 ## [0.7.0] - 2026-11-23
 
 ### Breaking

@@ -1,4 +1,4 @@
-<svg class="ww-svg" viewBox="0 0 680 320" width="680" height="320" role="img" aria-label="Four producer threads each hold a handle: a state handle, a records handle, an events handle and a series handle. The events and series handles encode their chunks, hash the payloads and compute the summary leaves on the producer's thread. Every handle sends finished units into one queue bounded by bytes. The writing thread takes the units in the order they came and places them with the piece chain: puts, cuts, summary levels above the leaves, syncs, checkpoints and the close. Its bytes go to the store of the chain. A progress watch tells readers in the same process what was placed" xmlns="http://www.w3.org/2000/svg">
+<svg class="ww-svg" viewBox="0 0 680 320" width="680" height="320" role="img" aria-label="Four producer threads each hold a handle: a state handle, a records handle, an events handle and a grid handle. The events and grid handles encode their chunks, hash the payloads and compute the summary leaves on the producer's thread. Every handle sends finished units into one queue bounded by bytes. The writing thread takes the units in the order they came and places them with the piece chain: puts, cuts, summary levels above the leaves, syncs, checkpoints and the close. Its bytes go to the store of the chain. A progress watch tells readers in the same process what was placed" xmlns="http://www.w3.org/2000/svg">
   <!-- producers and their handles -->
   <text x="20" y="20" class="soft small">producer threads, each with its handle</text>
   <rect x="20.5" y="30" width="190" height="44" rx="4" class="tint-blue"/>
@@ -12,7 +12,7 @@
   <text x="34" y="170" class="mono small">EventsHandle::push_all</text>
   <rect x="20.5" y="186" width="190" height="44" rx="4" class="tint-blue"/>
   <text x="34" y="205" class="small">phase current</text>
-  <text x="34" y="222" class="mono small">SeriesHandle::push</text>
+  <text x="34" y="222" class="mono small">GridHandle::push</text>
   <text x="20" y="252" class="soft small">a typed handle encodes its chunk,</text>
   <text x="20" y="268" class="soft small">hashes the payload and computes</text>
   <text x="20" y="284" class="soft small">the summary leaves on this thread</text>

@@ -21,13 +21,13 @@ use ww_tape::{
     TapeReader, TrackId, TrackKind, TrackNum, TrackRepeat, TrackSpec, WriterOptions, clock_key,
     track_key,
 };
-use ww_tape_mux::{Event, EventsOptions, MuxOptions, SeriesOptions, TapeMux};
+use ww_tape_mux::{Event, EventsOptions, GridOptions, MuxOptions, TapeMux};
 use ww_tape_summary::{EventFields, EventTree, SeriesStats, SeriesSummarySpec, Summary};
 
 const OWNER: OwnerId = OwnerId([0x4d; 32]);
 
 /// A chain cut every `chunks` chunk blocks, with no sync and no checkpoint by time.
-fn options(chunks: u64) -> ChainOptions {
+pub(crate) fn options(chunks: u64) -> ChainOptions {
     ChainOptions {
         cut: CutPolicy {
             chunks: Count::new(chunks),
@@ -663,11 +663,11 @@ fn a_series_handle_writes_samples_and_their_summaries() {
         .map(|i| ((i as i64 * 7919) % 20_011 - 10_000) as i16)
         .collect();
     let mut h = mux
-        .series::<i16>(
+        .grid::<i16>(
             track,
-            SeriesOptions {
-                chunk_samples: 10_000,
-                ..SeriesOptions::default()
+            GridOptions {
+                chunk_steps: 10_000,
+                ..GridOptions::default()
             },
         )
         .unwrap();

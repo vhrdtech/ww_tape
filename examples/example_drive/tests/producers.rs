@@ -5,7 +5,7 @@
 use example_drive::Error;
 use example_drive::producers::{self, Counts, LEVELS, OWNER, PINGS};
 use ww_tape::{ChainOptions, MemPieces};
-use ww_tape_mux::{Event, EventsOptions, MuxOptions, SeriesOptions, TapeMux};
+use ww_tape_mux::{Event, EventsOptions, GridOptions, MuxOptions, TapeMux};
 
 fn counts() -> Counts {
     Counts {
@@ -48,7 +48,7 @@ async fn tasks() -> Result<Counts, Error> {
     let mut a = mux.events_async(pings_a, EventsOptions::default()).await?;
     let mut b = mux.events_async(pings_b, EventsOptions::default()).await?;
     let mut c = mux
-        .series_async::<i16>(levels, SeriesOptions::default())
+        .grid_async::<i16>(levels, GridOptions::default())
         .await?;
 
     let t_a = tokio::spawn(async move {

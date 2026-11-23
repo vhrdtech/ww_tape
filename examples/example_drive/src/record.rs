@@ -19,8 +19,8 @@ use ww_tape::{
     TapeReader, TapeSink, WriterOptions,
 };
 use ww_tape_mux::{
-    ChunkSender, MuxOptions, ProgressWatch, RecordsHandle, SeriesHandle, SeriesOptions,
-    StateHandle, TapeMux,
+    ChunkSender, GridHandle, GridOptions, MuxOptions, ProgressWatch, RecordsHandle, StateHandle,
+    TapeMux,
 };
 use ww_tape_summary::{SeriesStart, SeriesSummaries};
 
@@ -382,7 +382,7 @@ pub(crate) struct Recorder<T: PieceStore = MemPieces> {
     records: RecordsHandle<T>,
     can0: ChunkSender<T>,
     /// Made at the first chunk of `phase_a` it is given, which says where the track goes on from.
-    phase_a: Option<SeriesHandle<T, i16>>,
+    phase_a: Option<GridHandle<T, i16>>,
     watch: ProgressWatch,
     /// The piece and its bytes after the last act.
     seen: (u64, u64),
@@ -469,11 +469,11 @@ where
     }
 
     /// The handle of `phase_a`, started at the item and tick of `head` when it has none yet.
-    fn phase_handle(&mut self, head: &ChunkHead) -> Result<&mut SeriesHandle<T, i16>, Error> {
+    fn phase_handle(&mut self, head: &ChunkHead) -> Result<&mut GridHandle<T, i16>, Error> {
         if self.phase_a.is_none() {
             // --8<-- [start:series]
-            let options = SeriesOptions {
-                chunk_samples: u32::MAX,
+            let options = GridOptions {
+                chunk_steps: u32::MAX,
                 chunk_bytes: exact_units::Bytes::new(u32::MAX),
                 latency: None, // a chunk is completed after each block of the run, not by time
                 codec: PHASE_CODEC,
@@ -481,7 +481,7 @@ where
                 first_item: head.first_item,
                 first_tick: head.first_tick,
             };
-            let mut phase_a = self.mux.series::<i16>(self.numbers.phase_a, options)?;
+            let mut phase_a = self.mux.grid::<i16>(self.numbers.phase_a, options)?;
             if head.first_item.get() > 0 {
                 // a resumed track goes on on the grid the run started with, from sample 0
                 let def = crate::defs::phase_def(self.drive.phase_hz, self.drive.summaries)

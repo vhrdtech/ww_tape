@@ -325,7 +325,7 @@ fn chunks_carry_their_samples_flags() {
 #[test]
 fn a_handle_completes_a_chunk_full_of_flag_runs() {
     use ww_tape::flag_runs::FLAG_RUNS_MAX;
-    use ww_tape_mux::{MuxOptions, SeriesOptions, TapeMux};
+    use ww_tape_mux::{GridOptions, MuxOptions, TapeMux};
     let mem = ww_tape::MemPieces::new();
     let options = ww_tape::ChainOptions {
         writer: options(false),
@@ -338,11 +338,11 @@ fn a_handle_completes_a_chunk_full_of_flag_runs() {
     let id = spec.key.id();
     let track = mux.define_track(spec).unwrap();
     let mut series = mux
-        .series::<i16>(
+        .grid::<i16>(
             track,
-            SeriesOptions {
+            GridOptions {
                 latency: None,
-                ..SeriesOptions::default()
+                ..GridOptions::default()
             },
         )
         .unwrap();
