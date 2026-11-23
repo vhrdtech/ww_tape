@@ -789,6 +789,21 @@ fn stores_seeds() -> Vec<Seed> {
     out
 }
 
+/// Inputs of `tape-seal`: each mode unmutated, each with a flip in the middle of the tape; then a stream.
+fn seal_seeds() -> Vec<Seed> {
+    let mut out = vec![];
+    for mode in 0..16u8 {
+        out.push(seed("tape-seal", format!("mode{mode:02}"), vec![mode]));
+        out.push(seed(
+            "tape-seal",
+            format!("mode{mode:02}-flip"),
+            vec![mode, 0x00, 0x08, 0x10],
+        ));
+    }
+    out.extend(stream("tape-seal", 0x5eed_0000_5ea1_0001));
+    out
+}
+
 /// Every seed file of every target.
 pub fn all() -> Vec<Seed> {
     let mut out = vec![];
@@ -803,6 +818,7 @@ pub fn all() -> Vec<Seed> {
     out.extend(resume_seeds());
     out.extend(reclose_seeds());
     out.extend(stores_seeds());
+    out.extend(seal_seeds());
     out.extend(chain_seeds());
     out.extend(golden_blocks("tape-chunk", "v1-chunks", GOLDEN_CHUNKS));
     out.extend(golden_blocks("tape-index", "v1-index", GOLDEN_INDEX));

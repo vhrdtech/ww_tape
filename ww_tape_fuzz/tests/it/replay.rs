@@ -59,6 +59,7 @@ replays! {
     replay_tape_reclose: "tape-reclose";
     replay_tape_resume: "tape-resume";
     replay_tape_samples: "tape-samples";
+    replay_tape_seal: "tape-seal";
     replay_tape_series: "tape-series";
     replay_tape_stores: "tape-stores";
     replay_tape_summary: "tape-summary";

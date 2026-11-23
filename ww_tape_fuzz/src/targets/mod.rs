@@ -10,6 +10,7 @@ mod reader;
 mod reclose;
 mod resume;
 mod samples;
+mod seal;
 mod series;
 mod stores;
 mod summary;
@@ -32,6 +33,7 @@ pub(crate) use resume::{
     Defined, chain_template, chunk as chunk_of, options, removed_chain, template_definitions,
 };
 pub use samples::samples;
+pub use seal::seal;
 pub use series::series;
 pub use stores::stores;
 pub use summary::summary;
@@ -41,7 +43,7 @@ pub use times::times;
 pub type Target = fn(&[u8]);
 
 /// Every ww_tape fuzz target by its name in `fuzz/Cargo.toml`.
-pub const ALL: [(&str, Target); 23] = [
+pub const ALL: [(&str, Target); 24] = [
     ("tape-chunk", chunk),
     ("tape-index", index),
     ("tape-payloads", payloads),
@@ -65,6 +67,7 @@ pub const ALL: [(&str, Target); 23] = [
     ("tape-flags", flags),
     ("tape-flags-hostile", flags_hostile),
     ("tape-stores", stores),
+    ("tape-seal", seal),
 ];
 
 /// The target named `name`.

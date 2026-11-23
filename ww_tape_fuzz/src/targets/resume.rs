@@ -88,7 +88,7 @@ pub(crate) fn chunk(t: u64, number: TrackNum, k: u64) -> (ChunkHead, Vec<u8>) {
     (head, starts)
 }
 
-fn write_chunk<S: TapeSink>(
+pub(crate) fn write_chunk<S: TapeSink>(
     w: &mut TapeWriter<S>,
     defs: &Definitions,
     on: Defined,
@@ -154,7 +154,7 @@ const OWNER: OwnerId = OwnerId([1; 32]);
 /// The tape of a chain in memory: a chain in one tape is under the key of its first piece.
 const CHAIN_TAPE: u64 = 0;
 
-fn chain_options(aligned: bool) -> ChainOptions {
+pub(crate) fn chain_options(aligned: bool) -> ChainOptions {
     ChainOptions {
         tapes: PieceTapes::One,
         writer: options(aligned),
@@ -165,7 +165,13 @@ fn chain_options(aligned: bool) -> ChainOptions {
     }
 }
 
-fn chain_chunk(c: &mut PieceChain<MemTapes>, defs: &Definitions, on: Defined, t: u64, k: u64) {
+pub(crate) fn chain_chunk(
+    c: &mut PieceChain<MemTapes>,
+    defs: &Definitions,
+    on: Defined,
+    t: u64,
+    k: u64,
+) {
     let (h, b) = chunk(t, on.chunks[t as usize], k);
     let spec = ColumnSpec {
         kind: ColumnKind::Starts,
@@ -177,7 +183,7 @@ fn chain_chunk(c: &mut PieceChain<MemTapes>, defs: &Definitions, on: Defined, t:
         .expect("a chunk writes");
 }
 
-fn chain_records(c: &mut PieceChain<MemTapes>, defs: &Definitions, on: Defined, n: u64) {
+pub(crate) fn chain_records(c: &mut PieceChain<MemTapes>, defs: &Definitions, on: Defined, n: u64) {
     let w = c.writer().expect("a chain writing");
     let id = w.next_id();
     w.write_block(defs, &records(id, on.clock, on.records, n))
