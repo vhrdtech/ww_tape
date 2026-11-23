@@ -9,6 +9,8 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 publish = false
+# the two-chain pipeline; `--bin rf_piece` prints the sizes of the capture as one piece
+default-run = "example_rf"
 
 [dependencies]
 exact_units = { workspace = true, features = ["counting", "information"] }

@@ -28,14 +28,14 @@ use shrink_wrap::prelude::*;
 use ww_tape::index::IndexPolicy;
 use ww_tape::{
     ChainOptions, ClockNum, ClockRef, CutPolicy, Ends, EventsDef, ItemNum, Items, OwnerId,
-    PieceTapes, Segment, SyncPolicy, TrackKey, TrackKind, TrackRepeat, TrackSpec, WriterOptions,
-    track_key,
+    PieceTapes, Segment, SyncPolicy, TrackKey, TrackKind, TrackNum, TrackRepeat, TrackSpec,
+    WriterOptions, track_key,
 };
 use ww_tape_fs::follow::{
     ChainFollower, FollowError, FollowOptions, TimeMerge, TrackItem, TrackItems,
 };
 use ww_tape_fs::{Files, FsError};
-use ww_tape_mux::{EventsHandle, EventsOptions, MuxError, MuxOptions, SeriesOptions};
+use ww_tape_mux::{EventsHandle, EventsOptions, MuxError, MuxOptions, SeriesOptions, TapeMux};
 
 use example_capture::rf::{API_ROOT, Rf, RfError, clock, iq_key};
 
@@ -220,6 +220,15 @@ fn chain_options(chunks: u64) -> ChainOptions {
     }
 }
 
+/// The chains of a capture, started ([Chains::open]): a mux each, and the numbers of their tracks.
+pub struct Open {
+    pub iq_mux: TapeMux<Files>,
+    pub decoded_mux: TapeMux<Files>,
+    pub iq: TrackNum,
+    pub bursts: TrackNum,
+    pub power: TrackNum,
+}
+
 /// What [Chains::write] wrote.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Written {
@@ -260,35 +269,35 @@ impl Chains {
     }
 
     /// Write the capture into the chains `iq` and `decoded` under `dir`, as the [module docs](self) say.
+    ///
+    /// # Errors
+    ///
+    /// A chain that didn't start, or the radio's, the decoder's or a mux's error.
     pub fn write(&self, dir: &Path) -> Result<Written, ChainsError> {
-        self.write_with(dir, || Ok(()))
+        self.record(self.open(dir)?)
     }
 
     /// Write the capture as [Self::write] does while a reader in another thread follows both chains ([follow]).
     pub fn write_followed(&self, dir: &Path) -> Result<WrittenFollowed, ChainsError> {
-        let rf = self.rf;
-        let (iq, decoded) = (Self::iq_dir(dir), Self::decoded_dir(dir));
+        let (rf, iq, decoded) = (self.rf, Self::iq_dir(dir), Self::decoded_dir(dir));
+        let open = self.open(dir)?;
         std::thread::scope(|s| {
-            let mut reader = None;
-            let (rf, iq, decoded) = (&rf, &iq, &decoded);
-            let written = self.write_with(dir, || {
-                reader = Some(s.spawn(move || follow(rf, iq, decoded)));
-                Ok(())
-            })?;
+            let reader = s.spawn(|| follow(&rf, &iq, &decoded));
+            let written = self.record(open)?;
             let followed = reader
-                .ok_or(ChainsError::Thread("the reader"))?
                 .join()
                 .map_err(|_e| ChainsError::Thread("the reader"))??;
             Ok(WrittenFollowed { written, followed })
         })
     }
 
-    /// Write the capture, calling `started` once both chains are there.
-    fn write_with(
-        &self,
-        dir: &Path,
-        started: impl FnOnce() -> Result<(), ChainsError>,
-    ) -> Result<Written, ChainsError> {
+    /// Start the chains `iq` and `decoded` under `dir`, a mux each, their clock and tracks defined: what a reader
+    /// follows from now on.
+    ///
+    /// # Errors
+    ///
+    /// A directory or a mux that didn't start, or a definition refused.
+    pub fn open(&self, dir: &Path) -> Result<Open, ChainsError> {
         let rf = self.rf;
         for d in [Self::iq_dir(dir), Self::decoded_dir(dir)] {
             std::fs::create_dir_all(d).map_err(ChainsError::Io)?;
@@ -317,7 +326,30 @@ impl Chains {
         let power =
             decoded_mux.define_track(decoded_track(power_key(), "power", Ends::Instants, c))?;
         // --8<-- [end:two_muxes]
-        started()?;
+        Ok(Open {
+            iq_mux,
+            decoded_mux,
+            iq,
+            bursts,
+            power,
+        })
+    }
+
+    /// Record the capture into the chains [Self::open] started: a radio thread pushes the samples into `iq` and
+    /// hands them to a decoder thread, which pushes what it finds into `decoded`. Both chains close at the end.
+    ///
+    /// # Errors
+    ///
+    /// The radio's, the decoder's or a mux's error.
+    pub fn record(&self, open: Open) -> Result<Written, ChainsError> {
+        let rf = self.rf;
+        let Open {
+            iq_mux,
+            decoded_mux,
+            iq,
+            bursts,
+            power,
+        } = open;
         // --8<-- [start:threads]
         let mut samples = iq_mux.series::<i16>(
             iq,
