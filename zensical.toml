@@ -51,6 +51,7 @@ nav = [
     { "Damage and media" = [
             "damage.md",
             "integrity.md",
+            "check_pieces.md",
             "raw_media.md"
         ]
     },
