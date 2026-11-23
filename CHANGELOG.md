@@ -6,6 +6,15 @@ benchmarks, golden files and book pages.
 
 ## [Unreleased]
 
+### Breaking
+
+- `SummaryHead` gains `tile`, a grid tile's coordinates: a struct literal adds `tile: TileCoords::NONE` (FMT-15).
+
+### Features
+
+- A grid tile's summary block carries header flag `FLAG_TILE` and its tile after the scale; series blocks unchanged (FMT-15).
+- A grid tile's summary block's index entry carries its tile number at bytes 72..88, as its chunks' do (FMT-15).
+
 ## [0.7.0] - 2026-11-23
 
 ### Breaking

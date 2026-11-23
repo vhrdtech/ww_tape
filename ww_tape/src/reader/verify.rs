@@ -379,15 +379,22 @@ impl<L: Listed> Replay<L> {
                 .flatten()
                 .map(|col| col.range())
         });
-        let tile = chunk.as_ref().and_then(|(c, _)| {
-            let head = c.head();
-            self.facts.get(&head.track_number)?.tile_number(&head)
-        });
+        let tile = match &chunk {
+            Some((c, _)) => {
+                let head = c.head();
+                self.facts
+                    .get(&head.track_number)
+                    .and_then(|f| f.tile_number(&head.tile))
+            }
+            None => b
+                .summary_head()
+                .and_then(|h| self.facts.get(&h.track_number)?.tile_number(&h.tile)),
+        };
         let extras = crate::index::ChunkExtras { unit, range, tile };
         let mut expected: Vec<IndexEntry> = match &chunk {
             Some((c, _)) => extras.entry(at, block.len(), c).into_iter().collect(),
             None if matches!(b.kind, BlockKind::Events | BlockKind::Series) => Vec::new(),
-            None => IndexEntry::all_of_block(at, &b),
+            None => extras.summary_entries(at, &b),
         };
         for e in &mut expected {
             e.unhashed = self.unhashed;

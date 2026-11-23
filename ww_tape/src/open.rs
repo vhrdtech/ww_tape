@@ -307,13 +307,13 @@ pub struct TrackFacts {
 }
 
 impl TrackFacts {
-    /// The tile number a chunk of the track with `head` goes into its index entry with; None for a series or events
-    /// track, and for coordinates the grid doesn't hold.
-    pub(crate) fn tile_number(&self, head: &crate::ChunkHead) -> Option<u128> {
+    /// The tile number a chunk or summary block of the track with tile coordinates `tile` goes into its index entry
+    /// with; None for a series or events track, and for coordinates the grid doesn't hold.
+    pub(crate) fn tile_number(&self, tile: &crate::TileCoords) -> Option<u128> {
         if self.tiles.axes() == 0 {
             return None;
         }
-        self.tiles.pack(&head.tile)
+        self.tiles.pack(tile)
     }
 
     /// The facts of track definition `t`.

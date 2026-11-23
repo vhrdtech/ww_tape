@@ -1547,6 +1547,7 @@ mod builder {
                     first_tick: self.tick(first_item)?,
                     last_tick,
                     latest_end: last_tick,
+                    tile: ww_tape::TileCoords::NONE,
                 };
                 let refs: Vec<&[ChannelStats]> =
                     nodes.iter().map(|n| n.channels.as_slice()).collect();

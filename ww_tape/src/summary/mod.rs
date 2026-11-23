@@ -60,7 +60,9 @@
 //!  88 i64  latest end: the largest end of a covered item, at least the last tick
 //!  96 ...  scale of a series: what a stored minimum, maximum or sum is worth in the sample type's unit, as the
 //!          shrink_wrap bytes of an exact_units Magnitude (10⁻³ is fa 00); squares and powers are at its square
-//! 96+s ... body: columns of n values each, n the node count, little-endian, back to back
+//! 96+s ... a tile's block only (header flag FLAG_TILE): u8 fixed axes a, 1 to GRID_FIXED_AXES_MAX, then a × u32 tile
+//!          coordinates, as a grid chunk's head carries them (TileCoords)
+//!  ...  ... body: columns of n values each, n the node count, little-endian, back to back
 //! len-4 u32 CRC over bytes 0..len-4, as in every block
 //! ```
 //!
@@ -74,6 +76,14 @@
 //! ElementDesc::summary_element): for an element with a zero `p/q`, `q · sample - p` in a signed integer of twice
 //! the container's bits, at the block's scale over `q`.
 //!
+//! # Tiles
+//!
+//! A grid's chunks each hold one tile ([grid](crate::grid#tiles)), and each tile has a series tree of its own: an item
+//! is a time step of the tile, a node summarises the tile's cells over its time run, every cell a sample of the
+//! statistics. Its blocks carry the header flag [FLAG_TILE](crate::FLAG_TILE) and the tile's coordinates after the
+//! scale ([SummaryHead::tile]); their index entries carry the tile number, as the tile's chunks' do. A series, of no
+//! fixed axes, has one tree and blocks without the flag, as before grids.
+//!
 //! Summary blocks are small (a few KiB) and rebuilt from the data when lost. In an aligned file the writer places them
 //! in the gap before the next aligned chunk payload ([TapeWriter::defer_block](crate::TapeWriter::defer_block)).
 
@@ -86,7 +96,8 @@ use crate::bytes::{
 };
 use crate::{BlockKind, BoundError, CRC_LEN, HEADER_LEN, MAGIC, MAX_BLOCK_LEN, TrackNum, VERSION};
 
-use crate::{Element, ElementDesc};
+use crate::grid::GRID_FIXED_AXES_MAX;
+use crate::{Element, ElementDesc, FLAG_TILE, TileCoords};
 mod spec;
 pub use spec::{ClipRange, SeriesStats, SeriesSummarySpec, Stat, components, is_complex};
 
@@ -228,6 +239,8 @@ pub struct SummaryHead {
     pub last_tick: i64,
     /// The largest end of a covered item; the last tick for instants and series.
     pub latest_end: i64,
+    /// The tile of a grid whose tree the block belongs to; none for a series and an event tree.
+    pub tile: TileCoords,
 }
 
 /// What a summary block stores per node, by its tree.
@@ -312,6 +325,7 @@ impl SummaryHead {
                 bytes: block.len(),
             }));
         }
+        let flags = le_u16(header, 6).ok_or(short)?;
         let (head_scale_body, _crc) = block
             .split_last_chunk::<CRC_LEN>()
             .filter(|(b, _)| b.len() >= SCALE_AT)
@@ -329,10 +343,15 @@ impl SummaryHead {
         }
         let fields = le_u16(b, 48).ok_or(short)?;
         let scale_len = file_u16(b, 52).ok_or(short)?.at_most(SCALE_LEN_MAX)?;
-        let (scale_bytes, body) = b
+        let (scale_bytes, rest) = b
             .get(SCALE_AT..)
             .and_then(|rest| rest.split_at_checked(scale_len))
             .ok_or(SummaryError::Invalid("scale past the end"))?;
+        let (tile, body) = if flags & FLAG_TILE != 0 {
+            read_tile(rest)?
+        } else {
+            (TileCoords::NONE, rest)
+        };
         // a channel takes at least 4 bytes of every node
         let channels_max = u16::try_from(body.len()).unwrap_or(u16::MAX);
         let channels = file_u16(b, 50).ok_or(short)?.bounded(channels_max)?;
@@ -371,6 +390,7 @@ impl SummaryHead {
             first_tick: le_i64(b, 72).ok_or(short)?,
             last_tick: le_i64(b, 80).ok_or(short)?,
             latest_end: le_i64(b, 88).ok_or(short)?,
+            tile,
         };
         head.check()?;
         // a node takes at least 4 bytes of the body
@@ -400,6 +420,9 @@ impl SummaryHead {
         }
         if self.node_shift > NODE_SHIFT_MAX {
             return Err(SummaryError::Invalid("node shift past 62"));
+        }
+        if !self.tile.is_empty() && self.tree != Tree::Series {
+            return Err(SummaryError::Invalid("a tile in an event tree"));
         }
         if self.last_tick < self.first_tick || self.latest_end < self.last_tick {
             return Err(SummaryError::Invalid(
@@ -548,7 +571,40 @@ pub fn summary_len(head: &SummaryHead) -> Result<usize, SummaryError> {
         .and_then(|(n, len)| n.checked_mul(len))
         .and_then(|n| n.checked_add(SUMMARY_MIN_LEN))
         .and_then(|n| n.checked_add(scale_len))
+        .and_then(|n| n.checked_add(tile_len(&head.tile)))
         .ok_or(SummaryError::TooLong { len: usize::MAX })
+}
+
+/// Bytes of a block's tile after its scale: none for a series, else the axis count and a u32 coordinate per axis.
+fn tile_len(tile: &TileCoords) -> usize {
+    if tile.is_empty() {
+        return 0;
+    }
+    // at most GRID_FIXED_AXES_MAX coordinates: 1 + 4 · 31 bytes
+    tile.len().saturating_mul(4).saturating_add(1)
+}
+
+/// The tile of a block marked [FLAG_TILE] at the start of `rest` (the bytes after its scale) and the bytes after it.
+fn read_tile(rest: &[u8]) -> Result<(TileCoords, &[u8]), SummaryError> {
+    let axes = file_u8(rest, 0)
+        .ok_or(SummaryError::Invalid("tile past the end"))?
+        .at_most(GRID_FIXED_AXES_MAX)?;
+    if axes == 0 {
+        return Err(SummaryError::Invalid("a tile of no fixed axes"));
+    }
+    let (coords, body) = rest
+        .get(1..)
+        .and_then(|r| r.split_at_checked(axes.saturating_mul(4)))
+        .ok_or(SummaryError::Invalid("tile past the end"))?;
+    let mut out = [0u32; GRID_FIXED_AXES_MAX];
+    for (d, c) in out.iter_mut().zip(coords.chunks_exact(4)) {
+        *d = le_u32(c, 0).ok_or(SummaryError::Invalid("tile past the end"))?;
+    }
+    let tile = out
+        .get(..axes)
+        .and_then(TileCoords::new)
+        .ok_or(SummaryError::Invalid("tile past the end"))?;
+    Ok((tile, body))
 }
 
 /// A head field past the block the writer sized: never, every offset is inside [SUMMARY_MIN_LEN].
@@ -586,6 +642,9 @@ impl<'b> SummaryWriter<'b> {
         buf.fill(0);
         crate::put_header(buf, BlockKind::Summary, len, count, id)
             .ok_or(SummaryError::TooLong { len })?;
+        if !head.tile.is_empty() && bytes::put_u16(buf, 6, FLAG_TILE).is_none() {
+            return Err(OWN_LAYOUT);
+        }
         let (element, described, fields, channels) = match head.layout {
             Layout::Events(f) => (0, [0; 4], f.bits(), 0),
             Layout::Series {
@@ -623,12 +682,24 @@ impl<'b> SummaryWriter<'b> {
         if written.contains(&None) {
             return Err(OWN_LAYOUT);
         }
-        let body_at = SCALE_AT.checked_add(scale.len()).ok_or(OWN_LAYOUT)?;
+        let tile_at = SCALE_AT.checked_add(scale.len()).ok_or(OWN_LAYOUT)?;
+        let body_at = tile_at
+            .checked_add(tile_len(&head.tile))
+            .ok_or(OWN_LAYOUT)?;
         let (head_bytes, rest) = buf.split_at_mut_checked(body_at).ok_or(OWN_LAYOUT)?;
         head_bytes
-            .get_mut(SCALE_AT..)
+            .get_mut(SCALE_AT..tile_at)
             .ok_or(OWN_LAYOUT)?
             .copy_from_slice(scale);
+        if let Some((axes, coords)) = head_bytes
+            .get_mut(tile_at..)
+            .and_then(|t| t.split_first_mut())
+        {
+            *axes = u8::try_from(head.tile.len()).map_err(|_e| OWN_LAYOUT)?;
+            for (d, c) in coords.chunks_exact_mut(4).zip(head.tile.as_slice()) {
+                d.copy_from_slice(&c.to_le_bytes());
+            }
+        }
         let (body, crc) = rest.split_last_chunk_mut::<CRC_LEN>().ok_or(OWN_LAYOUT)?;
         Ok(SummaryWriter {
             head: head_bytes,
