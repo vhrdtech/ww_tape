@@ -11,12 +11,13 @@
 
 use std::sync::mpsc;
 
-use example_capture::window::{Analyser, Chain, RunError, Triaged, Window, run};
+use example_capture::window::{Analyser, Chain, RunError, Triaged, Window, run, start};
 use example_ethernet::ram::RamCapture;
 use example_ethernet::{Link, Rx, frames_id};
 use ww_tape::{MemTape, MemTapes, OwnerId, TapeReader};
 
 /// Keeps the pieces `keep` names; before its first look it waits for `go`, when there is one.
+#[derive(Debug)]
 struct Picks {
     keep: fn(u64) -> bool,
     go: Option<mpsc::Receiver<()>>,
@@ -52,21 +53,21 @@ fn triaged(window: Window, keep: fn(u64) -> bool, hold: bool) -> (Triaged, MemTa
         window,
     };
     let (go_tx, go) = mpsc::channel();
-    let mut picks = Picks {
+    let picks = Picks {
         keep,
         go: hold.then_some(go),
         kept: Vec::new(),
     };
-    let mut kept = MemTapes::new();
-    let ran = run(
+    let kept = MemTapes::new();
+    let (ran, chains) = run(
         OwnerId([0xe7; 32]),
         c.chain_options(),
         window,
-        &mut [Chain {
-            kept: &mut kept,
-            analyser: &mut picks,
+        vec![Chain {
+            kept: kept.clone(),
+            analyser: picks,
         }],
-        |muxes| {
+        move |muxes| {
             let r = c.link.record(muxes);
             go_tx.send(()).ok();
             r
@@ -74,7 +75,8 @@ fn triaged(window: Window, keep: fn(u64) -> bool, hold: bool) -> (Triaged, MemTa
     )
     .expect("the capture runs");
     let [triaged] = <[Triaged; 1]>::try_from(ran.triaged).expect("a chain");
-    (triaged, kept, picks.kept)
+    let [chain] = <[Chain<MemTapes, Picks>; 1]>::try_from(chains).expect("a chain");
+    (triaged, kept, chain.analyser.kept)
 }
 
 #[test]
@@ -147,23 +149,22 @@ fn each_chain_has_a_triage_of_its_own() {
         go: None,
         kept: Vec::new(),
     };
-    let (mut kept0, mut kept1) = (MemTapes::new(), MemTapes::new());
-    let (mut picks0, mut picks1) = (picks(), picks());
-    let ran = run(
+    let (kept0, kept1) = (MemTapes::new(), MemTapes::new());
+    let (ran, chains) = run(
         OwnerId([0xe7; 32]),
         c.chain_options(),
         c.window,
-        &mut [
+        vec![
             Chain {
-                kept: &mut kept0,
-                analyser: &mut picks0,
+                kept: kept0.clone(),
+                analyser: picks(),
             },
             Chain {
-                kept: &mut kept1,
-                analyser: &mut picks1,
+                kept: kept1.clone(),
+                analyser: picks(),
             },
         ],
-        |muxes| {
+        move |muxes| {
             assert_eq!(muxes.len(), 2, "a mux per chain");
             c.link.record(muxes)
         },
@@ -171,8 +172,8 @@ fn each_chain_has_a_triage_of_its_own() {
     .expect("the capture runs");
     assert_eq!(ran.triaged.len(), 2);
     for (port, (t, kept, picks)) in [
-        (&ran.triaged[0], &kept0, &picks0),
-        (&ran.triaged[1], &kept1, &picks1),
+        (&ran.triaged[0], &kept0, &chains[0].analyser),
+        (&ran.triaged[1], &kept1, &chains[1].analyser),
     ]
     .into_iter()
     .zip(0u32..)
@@ -214,13 +215,77 @@ fn a_capture_needs_a_chain() {
         chains: 1,
         ..RamCapture::full()
     };
-    let chains: &mut [Chain<'_, MemTapes, Picks>] = &mut [];
+    let chains: Vec<Chain<MemTapes, Picks>> = Vec::new();
     let ran = run(
         OwnerId([0xe7; 32]),
         c.chain_options(),
         c.window,
         chains,
-        |muxes| c.link.record(muxes),
+        move |muxes| c.link.record(muxes),
     );
     assert!(matches!(ran, Err(RunError::NoChain)), "{ran:?}");
+}
+
+#[test]
+fn a_reader_follows_the_window_while_it_runs() {
+    let c = RamCapture {
+        link: Link {
+            chunk_bytes: 16 << 10,
+            ..Link::full().micros(2_000)
+        },
+        chains: 1,
+        piece_bytes: 64 << 10,
+        window: Window::default(),
+    };
+    // the analyser waits for the reader, so the first pieces stay in memory until it read them
+    let (go_tx, go) = mpsc::channel();
+    let running = start(
+        OwnerId([0xe7; 32]),
+        c.chain_options(),
+        c.window,
+        vec![Chain {
+            kept: MemTapes::new(),
+            analyser: Picks {
+                keep: fifth,
+                go: Some(go),
+                kept: Vec::new(),
+            },
+        }],
+        move |muxes| c.link.record(muxes),
+    )
+    .expect("the capture starts");
+    assert_eq!(running.chains().len(), 1, "a chain per port");
+    let chain = running.chains()[0].clone();
+    let mut version = 0;
+    let progress = loop {
+        let p = chain.watch.wait_past(version);
+        version = p.version;
+        if p.piece >= 2 || p.ended {
+            break p;
+        }
+    };
+    assert!(progress.piece >= 2, "two pieces closed: {}", progress.piece);
+    let frames: Vec<_> = c.link.rxs().map(frames_id).collect();
+    for seq in 0..2 {
+        let piece = chain
+            .pieces
+            .closed(&seq)
+            .expect("the window")
+            .expect("a closed piece, not yet triaged");
+        let r = TapeReader::open(piece).expect("a piece in memory reads alone");
+        let chunks = r.entries(0).expect("the index");
+        assert!(
+            chunks.iter().any(|e| frames.contains(&e.track_id)),
+            "piece {seq} holds frames"
+        );
+    }
+    go_tx.send(()).expect("the analyser waits");
+    let (ran, _) = running.join().expect("the capture runs");
+    let t = &ran.triaged[0];
+    assert_eq!(t.looked, t.pieces, "every piece read");
+    assert!(t.overrun.is_empty(), "{t:?}");
+    assert!(
+        chain.pieces.keys().expect("the keys").is_empty(),
+        "every piece left memory"
+    );
 }

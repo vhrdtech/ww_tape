@@ -26,12 +26,12 @@ use ww_tape::{
 use ww_tape_mux::{Event, EventsHandle, EventsOptions, MuxError, TapeMux};
 
 use crate::{
-    EthError, IPV4_BYTES, Ipv4, L4, L4_BYTES, Link, OWNER, Rx, clock, decode_frame, frame_relation,
-    frames_id,
+    Captured, EthError, IPV4_BYTES, Ipv4, L4, L4_BYTES, Link, OWNER, Rx, clock, decode_frame,
+    frame_relation, frames_id,
 };
 use example_capture::chain_options;
 use example_capture::window::{
-    self, Analyser, KeptLog, LookError, RunError, Triaged, Window, kept_spec,
+    self, Analyser, KeptLog, LookError, MemChain, RunError, Triaged, Window, kept_spec,
 };
 
 /// The root of the results' API: their track and clock keys start from it.
@@ -79,19 +79,20 @@ impl RamCapture {
         }
     }
 
-    /// Record the link into memory, keep the pieces of chain `c` around each reset in `kept[c]` and the analysers'
-    /// results through `results`, as the [module docs](self) say.
+    /// Start recording the link into memory, the pieces of chain `c` around each reset kept in `kept[c]` and the
+    /// analysers' results pushed through `results`, as the [module docs](self) say. The capture runs on threads of
+    /// its own; the [RamRunning] it gives hands out the memory window while it runs.
     ///
     /// # Errors
     ///
-    /// Not a kept store per chain, or the capture's, a triage's or the results' error.
-    pub fn run<K, R>(
+    /// Not a kept store per chain, a results' definition or handle refused, or a mux or thread that didn't start.
+    pub fn start<K, R>(
         &self,
-        kept: &mut [K],
+        kept: Vec<K>,
         results: &TapeMux<R>,
-    ) -> Result<RamRun, RamError<K::Error, R::Error>>
+    ) -> Result<RamRunning<K, R>, RamError<K::Error, R::Error>>
     where
-        K: Tapes + Send,
+        K: Tapes + Send + 'static,
         K::Error: Send,
         R: Tapes + Send + 'static,
         R::Sink: Send,
@@ -102,8 +103,8 @@ impl RamCapture {
             return Err(RamError::Chains);
         }
         let clock = results.define_clock(clock()).map_err(RamError::Results)?;
-        let mut chains = kept
-            .iter_mut()
+        let chains = kept
+            .into_iter()
             .zip(0..)
             .map(|(kept, chain)| {
                 Ok(window::Chain {
@@ -113,14 +114,78 @@ impl RamCapture {
             })
             .collect::<Result<Vec<_>, _>>()
             .map_err(RamError::Results)?;
-        let ran = window::run(
+        let link = self.link;
+        let running = window::start(
             OWNER,
             self.chain_options(),
             self.window,
-            &mut chains,
-            |muxes| self.link.record(muxes),
+            chains,
+            move |muxes| link.record(muxes),
         )
         .map_err(RamError::Run)?;
+        Ok(RamRunning { running })
+    }
+
+    /// Record the link into memory as [Self::start] does and wait for the end.
+    ///
+    /// # Errors
+    ///
+    /// What [Self::start] and [RamRunning::join] fail with.
+    pub fn run<K, R>(
+        &self,
+        kept: Vec<K>,
+        results: &TapeMux<R>,
+    ) -> Result<RamRun, RamError<K::Error, R::Error>>
+    where
+        K: Tapes + Send + 'static,
+        K::Error: Send,
+        R: Tapes + Send + 'static,
+        R::Sink: Send,
+        R::Key: Send,
+        R::Error: Send + Sync,
+    {
+        self.start(kept, results)?.join()
+    }
+}
+
+/// A capture of the link into memory, running ([RamCapture::start]).
+pub struct RamRunning<K, R>
+where
+    K: Tapes,
+    R: Tapes + Send + 'static,
+    R::Sink: Send,
+    R::Key: Send,
+    R::Error: Send + Sync,
+{
+    running: window::Running<Captured, EthError<MemError>, K, Resets<R>>,
+}
+
+impl<K, R> RamRunning<K, R>
+where
+    K: Tapes,
+    R: Tapes + Send + 'static,
+    R::Sink: Send,
+    R::Key: Send,
+    R::Error: Send + Sync,
+{
+    /// The memory window, a chain per port ([RamCapture::chains]): its pieces in memory and the watch of its mux.
+    pub fn chains(&self) -> &[MemChain] {
+        self.running.chains()
+    }
+
+    /// Whether the capture and every triage ended.
+    pub fn is_finished(&self) -> bool {
+        self.running.is_finished()
+    }
+
+    /// Wait for the end: what the ports sent, what each chain's window kept and every reset found. The results'
+    /// handles end, so `results` may close after.
+    ///
+    /// # Errors
+    ///
+    /// The capture's, a triage's or the results' error.
+    pub fn join(self) -> Result<RamRun, RamError<K::Error, R::Error>> {
+        let (ran, chains) = self.running.join().map_err(RamError::Run)?;
         let mut resets = Vec::new();
         for c in chains {
             resets.extend(c.analyser.finish().map_err(RamError::Results)?);
@@ -138,7 +203,7 @@ impl RamCapture {
 /// found.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RamRun {
-    pub captured: crate::Captured,
+    pub captured: Captured,
     /// [Ran::capture_time](example_capture::window::Ran::capture_time).
     pub capture_time: core::time::Duration,
     /// A [Triaged] per chain.

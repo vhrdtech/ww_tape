@@ -57,6 +57,7 @@
 //! ```
 
 use std::collections::VecDeque;
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use shrink_wrap::prelude::*;
@@ -297,36 +298,131 @@ impl Run {
     }
 }
 
-/// A chain of a capture in memory as [run] reads it: the store its kept pieces go to and its analyser.
-pub struct Chain<'k, K, A> {
-    pub kept: &'k mut K,
+/// A chain of a capture in memory as [start] reads it: the store its kept pieces go to and its analyser.
+#[derive(Debug)]
+pub struct Chain<K, A> {
+    pub kept: K,
     pub analyser: A,
 }
 
-/// Capture into a window in memory, a chain in memory for each of `chains`, each read by a triage of its own.
+/// A chain of the memory window as a reader beside the triage sees it: its pieces in memory and the watch of the mux
+/// that writes them.
+///
+/// The pieces hold the same tracks, blocks and summaries a piece in a file holds. A closed piece reads alone
+/// ([MemTapes::closed], [TapeReader::open]); the piece being written has no close yet. The triage removes each piece
+/// once no verdict can keep it, so a piece a reader looks for may be gone. A reader that holds a [MemTape] keeps its
+/// bytes in memory until it drops it, past [Window::bytes_max].
+#[derive(Clone)]
+pub struct MemChain {
+    pub pieces: MemTapes,
+    /// Wakes a reader on each change of the chain: a chunk written, a piece cut, the end.
+    pub watch: ProgressWatch,
+}
+
+/// A capture into the memory window, running: its capture thread and a triage thread per chain.
+///
+/// [Self::chains] hands out the window while it runs, so a viewer follows it live; [Self::join] waits for the end.
+pub struct Running<X, C, K: Tapes, A: Analyser> {
+    chains: Vec<MemChain>,
+    capture: JoinHandle<Captured<X, C>>,
+    #[expect(
+        clippy::type_complexity,
+        reason = "a triage thread's result and the chain it hands back"
+    )]
+    triages: Vec<
+        JoinHandle<(
+            Result<Triaged, WindowError<K::Error, A::Error>>,
+            Chain<K, A>,
+        )>,
+    >,
+}
+
+/// What the capture thread hands back: what `record` returned, each mux's close and the time until the last one.
+struct Captured<X, C> {
+    recorded: Result<X, C>,
+    closed: Vec<Result<(), MuxError<MemError>>>,
+    capture_time: Duration,
+}
+
+impl<X, C, K: Tapes, A: Analyser> Running<X, C, K, A> {
+    /// The window's chains in the order of the chains given to [start], each the memory pieces of its mux.
+    pub fn chains(&self) -> &[MemChain] {
+        &self.chains
+    }
+
+    /// Whether the capture and every triage ended.
+    pub fn is_finished(&self) -> bool {
+        self.capture.is_finished() && self.triages.iter().all(JoinHandle::is_finished)
+    }
+
+    /// Wait until the capture and every triage ended: what they did, and each chain's kept store and analyser.
+    ///
+    /// # Errors
+    ///
+    /// The capture's error, a mux's, a triage's, or a thread that panicked.
+    #[expect(
+        clippy::type_complexity,
+        reason = "what ran, and the chains handed back"
+    )]
+    pub fn join(self) -> Result<(Ran<X>, Vec<Chain<K, A>>), RunError<C, K::Error, A::Error>> {
+        // a mux closed, or dropped after a failed capture, ends its triage
+        let captured = self
+            .capture
+            .join()
+            .map_err(|_panic| RunError::Thread("the capture"))?;
+        let mut triaged = Vec::with_capacity(self.triages.len());
+        let mut chains = Vec::with_capacity(self.triages.len());
+        for t in self.triages {
+            let (t, chain) = t.join().map_err(|_panic| RunError::Thread("a triage"))?;
+            triaged.push(t);
+            chains.push(chain);
+        }
+        let recorded = captured.recorded.map_err(RunError::Capture)?;
+        for c in captured.closed {
+            c.map_err(RunError::Mux)?;
+        }
+        let ran = Ran {
+            recorded,
+            capture_time: captured.capture_time,
+            triaged: triaged
+                .into_iter()
+                .collect::<Result<_, _>>()
+                .map_err(RunError::Window)?,
+        };
+        Ok((ran, chains))
+    }
+}
+
+/// Start a capture into the memory window, a chain in memory for each of `chains`, each read by a triage of its own.
 ///
 /// `record` writes the capture through a mux per chain, each into a chain in memory cut by `options`, a tape per
-/// piece. [triage] runs each chain's analyser over it on a thread of its own, `window` holding each chain's pieces.
+/// piece, on a capture thread. [triage] runs each chain's analyser over it on a thread of its own, `window` holding
+/// each chain's pieces.
 ///
 /// The mux of `chains[c]` writes chain `c`. A mux has one writing thread, so a capture faster than one thread copies
-/// spreads over several chains. What `record` returned and what each chain's triage did. The muxes close once
-/// `record` returns, so `record` ends its handles first.
+/// spreads over several chains. The muxes close once `record` returns, so `record` ends its handles first.
 ///
 /// # Errors
 ///
-/// No chain, the capture's error, a mux's, or a triage's.
-pub fn run<K, A, X, C>(
+/// No chain, a mux that didn't start, or a thread that didn't.
+#[expect(
+    clippy::type_complexity,
+    reason = "the running capture, generic over what it runs"
+)]
+pub fn start<K, A, X, C>(
     owner: OwnerId,
     options: ChainOptions,
     window: Window,
-    chains: &mut [Chain<'_, K, A>],
-    record: impl FnOnce(&[&TapeMux<MemTapes>]) -> Result<X, C>,
-) -> Result<Ran<X>, RunError<C, K::Error, A::Error>>
+    chains: Vec<Chain<K, A>>,
+    record: impl FnOnce(&[&TapeMux<MemTapes>]) -> Result<X, C> + Send + 'static,
+) -> Result<Running<X, C, K, A>, RunError<C, K::Error, A::Error>>
 where
-    K: Tapes + Send,
-    A: Analyser + Send,
+    K: Tapes + Send + 'static,
+    A: Analyser + Send + 'static,
     A::Error: Send,
     K::Error: Send,
+    X: Send + 'static,
+    C: Send + 'static,
 {
     if chains.is_empty() {
         return Err(RunError::NoChain);
@@ -351,42 +447,76 @@ where
         })
         .collect::<Result<Vec<_>, _>>()
         .map_err(RunError::Mux)?;
-    let watches: Vec<ProgressWatch> = muxes.iter().map(TapeMux::watch).collect();
-    let start = Instant::now();
-    std::thread::scope(|s| {
-        let triages: Vec<_> = chains
-            .iter_mut()
-            .zip(&rams)
-            .zip(&watches)
-            .map(|((c, ram), watch)| {
-                s.spawn(move || triage(ram, watch, window, c.kept, &mut c.analyser))
-            })
-            .collect();
-        let recorded = record(&muxes.iter().collect::<Vec<_>>());
-        // a mux closed, or dropped after a failed capture, ends its triage
-        let closed: Vec<_> = muxes.into_iter().map(TapeMux::close).collect();
-        let capture_time = start.elapsed();
-        let mut triaged = Vec::with_capacity(triages.len());
-        for t in triages {
-            let t = t.join().map_err(|_panic| RunError::Thread("a triage"))?;
-            triaged.push(t);
-        }
-        let recorded = recorded.map_err(RunError::Capture)?;
-        for c in closed {
-            c.map_err(RunError::Mux)?;
-        }
-        Ok(Ran {
-            recorded,
-            capture_time,
-            triaged: triaged
-                .into_iter()
-                .collect::<Result<_, _>>()
-                .map_err(RunError::Window)?,
+    let mem: Vec<MemChain> = rams
+        .into_iter()
+        .zip(&muxes)
+        .map(|(pieces, mux)| MemChain {
+            pieces,
+            watch: mux.watch(),
         })
+        .collect();
+    let mut triages = Vec::with_capacity(chains.len());
+    for (mut c, m) in chains.into_iter().zip(mem.iter().cloned()) {
+        let t = std::thread::Builder::new()
+            .name("triage".to_owned())
+            .spawn(move || {
+                let t = triage(&m.pieces, &m.watch, window, &mut c.kept, &mut c.analyser);
+                (t, c)
+            })
+            .map_err(RunError::Spawn)?;
+        triages.push(t);
+    }
+    let start = Instant::now();
+    let capture = std::thread::Builder::new()
+        .name("capture".to_owned())
+        .spawn(move || {
+            let recorded = record(&muxes.iter().collect::<Vec<_>>());
+            let closed = muxes
+                .into_iter()
+                .map(|m| m.close().map(|_pieces| ()))
+                .collect();
+            Captured {
+                recorded,
+                closed,
+                capture_time: start.elapsed(),
+            }
+        })
+        .map_err(RunError::Spawn)?;
+    Ok(Running {
+        chains: mem,
+        capture,
+        triages,
     })
 }
 
-/// What [run] gives: what the capture returned and what each chain's triage did.
+/// Capture into the memory window and wait for the end: [start], then [Running::join].
+///
+/// # Errors
+///
+/// What [start] and [Running::join] fail with.
+#[expect(
+    clippy::type_complexity,
+    reason = "what ran, and the chains handed back"
+)]
+pub fn run<K, A, X, C>(
+    owner: OwnerId,
+    options: ChainOptions,
+    window: Window,
+    chains: Vec<Chain<K, A>>,
+    record: impl FnOnce(&[&TapeMux<MemTapes>]) -> Result<X, C> + Send + 'static,
+) -> Result<(Ran<X>, Vec<Chain<K, A>>), RunError<C, K::Error, A::Error>>
+where
+    K: Tapes + Send + 'static,
+    A: Analyser + Send + 'static,
+    A::Error: Send,
+    K::Error: Send,
+    X: Send + 'static,
+    C: Send + 'static,
+{
+    start(owner, options, window, chains, record)?.join()
+}
+
+/// What a capture into the memory window gives: what the capture returned and what each chain's triage did.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Ran<X> {
     pub recorded: X,
@@ -397,16 +527,18 @@ pub struct Ran<X> {
     pub triaged: Vec<Triaged>,
 }
 
-/// Why [run] failed: `C` is the capture's error, `K` the kept store's, `A` the analyser's.
+/// Why a capture into the memory window failed: `C` is the capture's error, `K` the kept store's, `A` the analyser's.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum RunError<C, K, A> {
-    /// [run] was given no chain.
+    /// [start] was given no chain.
     NoChain,
     Capture(C),
     /// A mux of a chain in memory.
     Mux(MuxError<MemError>),
     Window(WindowError<K, A>),
+    /// A thread didn't start.
+    Spawn(std::io::Error),
     /// A thread panicked.
     Thread(&'static str),
 }
@@ -420,6 +552,7 @@ impl<C: core::fmt::Debug, K: core::fmt::Debug, A: core::fmt::Debug> core::fmt::D
             Self::Capture(e) => write!(f, "the capture: {e:?}"),
             Self::Mux(e) => write!(f, "a mux in memory: {e:?}"),
             Self::Window(e) => write!(f, "{e}"),
+            Self::Spawn(e) => write!(f, "a thread of the capture didn't start: {e}"),
             Self::Thread(what) => write!(f, "{what} panicked"),
         }
     }

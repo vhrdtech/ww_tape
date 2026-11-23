@@ -33,7 +33,7 @@ fn capture() -> RfCapture {
 
 /// Run `c` live: what it did, the kept store and the results' pieces.
 fn run(c: &RfCapture) -> (RfRun, MemTapes, Vec<Vec<u8>>) {
-    let mut kept = MemTapes::new();
+    let kept = MemTapes::new();
     let results_tapes = MemTapes::new();
     let results = TapeMux::create(
         results_tapes.clone(),
@@ -45,7 +45,7 @@ fn run(c: &RfCapture) -> (RfRun, MemTapes, Vec<Vec<u8>>) {
     )
     .expect("the results' mux");
     let run = c
-        .run(&Source::Live, &mut kept, &results)
+        .run(Source::Live, kept.clone(), &results)
         .expect("the capture runs");
     let closed = results.close().expect("the results close");
     let results = pieces(&results_tapes, &closed).expect("the results' pieces");

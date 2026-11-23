@@ -40,6 +40,7 @@
 )]
 
 use core::cell::Cell;
+use std::sync::Arc;
 
 use ww_tape::reader::ByteSource;
 use ww_tape::samples::Samples;
@@ -82,8 +83,9 @@ pub enum Source {
     /// The signal itself, made chunk by chunk as the thread goes.
     Live,
     /// Each channel's first chunks, made before and pushed again and again: what a bench takes, so that it times
-    /// the recorder and not the signal's maths. The samples past the first chunks are not the signal's.
-    Replay(Vec<Vec<Vec<i16>>>),
+    /// the recorder and not the signal's maths. The samples past the first chunks are not the signal's. Shared, so a
+    /// clone for a capture thread copies no samples.
+    Replay(Arc<Vec<Vec<Vec<i16>>>>),
 }
 
 impl Wideband {
@@ -171,7 +173,7 @@ impl Wideband {
                     .collect()
             })
             .collect();
-        Source::Replay(rings)
+        Source::Replay(Arc::new(rings))
     }
 
     /// Record the capture, channel `k` into the chain of `muxes[k % muxes.len()]`, each channel from a thread of its

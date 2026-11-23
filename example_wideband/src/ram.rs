@@ -25,7 +25,7 @@ use ww_tape_mux::{Event, EventsHandle, EventsOptions, MuxError, TapeMux};
 use crate::{Recorded, Source, Wideband, WidebandError, channel_id, summary_nodes};
 use example_capture::rf::clock;
 use example_capture::window::{
-    self, Analyser, KeptLog, LookError, RunError, Triaged, Window, kept_spec,
+    self, Analyser, KeptLog, LookError, MemChain, RunError, Triaged, Window, kept_spec,
 };
 
 /// The root of the results' API: their track and clock keys start from it.
@@ -86,20 +86,22 @@ impl RfCapture {
         })
     }
 
-    /// Record the receiver into memory from `source`, keep the pieces around each burst in `kept` and the
-    /// analyser's results through `results`, as the [module docs](self) say.
+    /// Start recording the receiver into memory from `source`, the pieces around each burst kept in `kept` and the
+    /// analyser's results pushed through `results`, as the [module docs](self) say. The capture runs on threads of
+    /// its own; the [RfRunning] it gives hands out the memory window while it runs.
     ///
     /// # Errors
     ///
-    /// The capture's, the triage's or the results' error.
-    pub fn run<K, R>(
+    /// A channel's rate without a sample period, a results' definition or handle refused, or a mux or thread that
+    /// didn't start.
+    pub fn start<K, R>(
         &self,
-        source: &Source,
-        kept: &mut K,
+        source: Source,
+        kept: K,
         results: &TapeMux<R>,
-    ) -> Result<RfRun, RfError<K::Error, R::Error>>
+    ) -> Result<RfRunning<K, R>, RfError<K::Error, R::Error>>
     where
-        K: Tapes + Send,
+        K: Tapes + Send + 'static,
         K::Error: Send,
         R: Tapes + Send + 'static,
         R::Sink: Send,
@@ -111,19 +113,85 @@ impl RfCapture {
             .channel()
             .def()
             .ok_or(RfError::Settings("a channel's rate"))?;
-        let mut chain = [window::Chain {
+        let chain = window::Chain {
             kept,
             analyser: Bursts::new(self, def, results).map_err(RfError::Results)?,
-        }];
-        let ran = window::run(
+        };
+        let wb = self.wb;
+        let running = window::start(
             OWNER,
             self.wb.chain_options(),
             self.window,
-            &mut chain,
-            |muxes| self.wb.record(muxes, source),
+            vec![chain],
+            move |muxes| wb.record(muxes, &source),
         )
         .map_err(RfError::Run)?;
-        let [window::Chain { analyser, .. }] = chain;
+        Ok(RfRunning { running })
+    }
+
+    /// Record the receiver into memory as [Self::start] does and wait for the end.
+    ///
+    /// # Errors
+    ///
+    /// What [Self::start] and [RfRunning::join] fail with.
+    pub fn run<K, R>(
+        &self,
+        source: Source,
+        kept: K,
+        results: &TapeMux<R>,
+    ) -> Result<RfRun, RfError<K::Error, R::Error>>
+    where
+        K: Tapes + Send + 'static,
+        K::Error: Send,
+        R: Tapes + Send + 'static,
+        R::Sink: Send,
+        R::Key: Send,
+        R::Error: Send + Sync,
+    {
+        self.start(source, kept, results)?.join()
+    }
+}
+
+/// A capture of the receiver into memory, running ([RfCapture::start]).
+pub struct RfRunning<K, R>
+where
+    K: Tapes,
+    R: Tapes + Send + 'static,
+    R::Sink: Send,
+    R::Key: Send,
+    R::Error: Send + Sync,
+{
+    running: window::Running<Recorded, WidebandError<MemError>, K, Bursts<R>>,
+}
+
+impl<K, R> RfRunning<K, R>
+where
+    K: Tapes,
+    R: Tapes + Send + 'static,
+    R::Sink: Send,
+    R::Key: Send,
+    R::Error: Send + Sync,
+{
+    /// The memory window: one chain, its pieces in memory and the watch of its mux.
+    pub fn chains(&self) -> &[MemChain] {
+        self.running.chains()
+    }
+
+    /// Whether the capture and the triage ended.
+    pub fn is_finished(&self) -> bool {
+        self.running.is_finished()
+    }
+
+    /// Wait for the end: what each channel pushed, what the window kept and every burst found. The results' handles
+    /// end, so `results` may close after.
+    ///
+    /// # Errors
+    ///
+    /// The capture's, the triage's or the results' error.
+    pub fn join(self) -> Result<RfRun, RfError<K::Error, R::Error>> {
+        let (ran, chains) = self.running.join().map_err(RfError::Run)?;
+        let [window::Chain { analyser, .. }] = <[_; 1]>::try_from(chains)
+            .map_err(|_chains| RfError::Settings("a triage of the one chain"))?;
         let bursts = analyser.finish().map_err(RfError::Results)?;
         let [triaged] = <[Triaged; 1]>::try_from(ran.triaged)
             .map_err(|_triaged| RfError::Settings("a triage of the one chain"))?;

@@ -276,7 +276,7 @@ fn windows(args: &Args, bench: &mut Bench) -> anyhow::Result<()> {
         ..full
     };
     let source = replayed.wb.replay(args.replay_chunks);
-    let r = window_run(&replayed, &source, &mut MemTapes::new(), mem_results()?)?;
+    let r = window_run(&replayed, source, MemTapes::new(), mem_results()?)?;
     rows("memory", "replayed", args.ms, &r);
     let live = RfCapture {
         wb: full.wb.ms(args.live_ms),
@@ -301,12 +301,12 @@ fn windows(args: &Args, bench: &mut Bench) -> anyhow::Result<()> {
                 MuxOptions::default(),
             )
             .map_err(err)?;
-            let r = window_run(&live, &Source::Live, &mut Files::new(&kept_dir), results)?;
+            let r = window_run(&live, Source::Live, Files::new(&kept_dir), results)?;
             rows("piece files", "live", args.live_ms, &r);
             std::fs::remove_dir_all(dir)?;
         }
         None => {
-            let r = window_run(&live, &Source::Live, &mut MemTapes::new(), mem_results()?)?;
+            let r = window_run(&live, Source::Live, MemTapes::new(), mem_results()?)?;
             rows("memory", "live", args.live_ms, &r);
         }
     }
@@ -331,12 +331,12 @@ fn mem_results() -> anyhow::Result<TapeMux<MemTapes>> {
 /// Run capture `c` from `source`, kept pieces into `kept`, results through `results`, closed after.
 fn window_run<K, R>(
     c: &RfCapture,
-    source: &Source,
-    kept: &mut K,
+    source: Source,
+    kept: K,
     results: TapeMux<R>,
 ) -> anyhow::Result<WindowRun>
 where
-    K: Tapes + Send,
+    K: Tapes + Send + 'static,
     K::Error: Send + core::fmt::Debug,
     R: Tapes + Send + 'static,
     R::Sink: Send,

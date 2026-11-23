@@ -137,7 +137,7 @@ fn a_chain_per_port_keeps_the_pieces_around_each_reset() {
 
 fn keeps_the_pieces_around_each_reset(chains: u32) {
     let c = capture(chains);
-    let mut kept: Vec<MemTapes> = (0..chains).map(|_| MemTapes::new()).collect();
+    let kept: Vec<MemTapes> = (0..chains).map(|_| MemTapes::new()).collect();
     let results_tapes = MemTapes::new();
     let results = TapeMux::create(
         results_tapes.clone(),
@@ -148,7 +148,7 @@ fn keeps_the_pieces_around_each_reset(chains: u32) {
         MuxOptions::default(),
     )
     .expect("the results' mux");
-    let run = c.run(&mut kept, &results).expect("the capture runs");
+    let run = c.run(kept.to_vec(), &results).expect("the capture runs");
     assert_eq!(run.triaged.len(), chains as usize);
     let pieces: u64 = run.triaged.iter().map(|t| t.pieces).sum();
     assert!(pieces > 40, "{pieces} pieces");
@@ -282,7 +282,7 @@ fn a_quiet_link_keeps_nothing() {
         link: capture(2).link.resets(0),
         ..capture(2)
     };
-    let mut kept = [MemTapes::new(), MemTapes::new()];
+    let kept = [MemTapes::new(), MemTapes::new()];
     let results = TapeMux::create(
         MemTapes::new(),
         OwnerId([0xe8; 32]),
@@ -292,7 +292,7 @@ fn a_quiet_link_keeps_nothing() {
         MuxOptions::default(),
     )
     .expect("the results' mux");
-    let run = c.run(&mut kept, &results).expect("the capture runs");
+    let run = c.run(kept.to_vec(), &results).expect("the capture runs");
     assert!(run.resets.is_empty());
     for (t, kept) in run.triaged.iter().zip(&kept) {
         assert!(t.kept.is_empty());
@@ -306,7 +306,7 @@ fn a_quiet_link_keeps_nothing() {
 #[test]
 fn a_kept_piece_ends_on_its_tail() {
     let c = capture(1);
-    let mut kept = [MemTapes::new()];
+    let kept = [MemTapes::new()];
     let results = TapeMux::create(
         MemTapes::new(),
         OwnerId([0xe8; 32]),
@@ -316,7 +316,7 @@ fn a_kept_piece_ends_on_its_tail() {
         MuxOptions::default(),
     )
     .expect("the results' mux");
-    let run = c.run(&mut kept, &results).expect("the capture runs");
+    let run = c.run(kept.to_vec(), &results).expect("the capture runs");
     for seq in &run.triaged[0].kept {
         let tape = kept[0]
             .closed(seq)
@@ -344,8 +344,8 @@ fn a_kept_store_per_chain() {
     )
     .expect("the results' mux");
     for (chains, stores) in [(2, 1), (1, 2), (0, 0), (3, 3)] {
-        let mut kept: Vec<MemTapes> = (0..stores).map(|_| MemTapes::new()).collect();
-        let r = capture(chains).run(&mut kept, &results);
+        let kept: Vec<MemTapes> = (0..stores).map(|_| MemTapes::new()).collect();
+        let r = capture(chains).run(kept, &results);
         assert!(
             matches!(r, Err(RamError::Chains)),
             "{chains} chains, {stores} stores"

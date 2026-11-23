@@ -251,7 +251,7 @@ fn windows(args: &Args, bench: &mut Bench) -> anyhow::Result<()> {
     };
     for &chains in &args.window_chains {
         for &queues in &args.window_queues {
-            let mut kept: Vec<MemTapes> = (0..chains).map(|_| MemTapes::new()).collect();
+            let kept: Vec<MemTapes> = (0..chains).map(|_| MemTapes::new()).collect();
             let results = TapeMux::create(
                 MemTapes::new(),
                 RESULTS_OWNER,
@@ -261,7 +261,7 @@ fn windows(args: &Args, bench: &mut Bench) -> anyhow::Result<()> {
                 MuxOptions::default(),
             )
             .map_err(err)?;
-            let r = window_run(&capture(chains, queues), &mut kept, results)?;
+            let r = window_run(&capture(chains, queues), kept, results)?;
             rows("memory", chains, queues, &r);
         }
     }
@@ -292,7 +292,7 @@ fn windows(args: &Args, bench: &mut Bench) -> anyhow::Result<()> {
             MuxOptions::default(),
         )
         .map_err(err)?;
-        let r = window_run(&capture(chains, queues), &mut kept, results)?;
+        let r = window_run(&capture(chains, queues), kept, results)?;
         rows("piece files", chains, queues, &r);
         std::fs::remove_dir_all(dir)?;
     }
@@ -302,13 +302,9 @@ fn windows(args: &Args, bench: &mut Bench) -> anyhow::Result<()> {
 }
 
 /// Run capture `c`, kept pieces into `kept`, results through `results`, closed after.
-fn window_run<K, R>(
-    c: &RamCapture,
-    kept: &mut [K],
-    results: TapeMux<R>,
-) -> anyhow::Result<WindowRun>
+fn window_run<K, R>(c: &RamCapture, kept: Vec<K>, results: TapeMux<R>) -> anyhow::Result<WindowRun>
 where
-    K: Tapes + Send,
+    K: Tapes + Send + 'static,
     K::Error: Send + core::fmt::Debug,
     R: Tapes + Send + 'static,
     R::Sink: Send,
