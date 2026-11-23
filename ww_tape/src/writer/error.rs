@@ -129,9 +129,10 @@ pub enum ResumeError {
     /// name them as removed on purpose ([TapeWriter::record_removed](super::TapeWriter::record_removed)) or name them
     /// with ends that don't link to the pieces on either side.
     Gap { from: u64, to: u64 },
-    /// The lowest piece at hand comes after removed pieces and was cut off inside its head: its head can't be
-    /// written again.
-    HeadLost { seq: u64 },
+    /// A piece after removed pieces was cut off inside its head: the piece before it is gone, so its head can't be
+    /// written again. `seq` is its sequence number, None when nothing at hand gives it (the front of a tape of several
+    /// whose earlier pieces were dropped).
+    HeadLost { seq: Option<u64> },
 }
 
 /// Why a cut ([TapeWriter::cut_on], [TapeWriter::cut_with], [TapeWriter::cut_in_place]) failed: the error, and the
@@ -319,9 +320,13 @@ impl core::fmt::Display for ResumeError {
                 f,
                 "pieces {from}..{to} of the chain are missing and not named as removed on purpose"
             ),
-            Self::HeadLost { seq } => write!(
+            Self::HeadLost { seq: Some(seq) } => write!(
                 f,
-                "the lowest piece at hand, {seq}, was cut off inside its head"
+                "piece {seq}, after removed pieces, was cut off inside its head"
+            ),
+            Self::HeadLost { seq: None } => write!(
+                f,
+                "the first piece kept in the tape was cut off inside its head"
             ),
             Self::Damaged { offset } => write!(
                 f,

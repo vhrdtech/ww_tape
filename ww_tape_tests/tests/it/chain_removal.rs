@@ -835,3 +835,39 @@ fn a_resume_after_a_removal_at_every_block_boundary_matches_the_run_without_a_cr
     }
     assert!(runs > 20, "{runs} crashes");
 }
+
+/// A tape of several pieces whose every closed piece was dropped, and whose next piece has no byte: the piece can't
+/// start again and its place in the chain is unknown, so the resume names no sequence number.
+#[test]
+fn a_tape_dropped_to_a_lost_head_names_no_piece() {
+    let defs = defs();
+    let mem = MemPieces::new();
+    let mut c =
+        PieceChain::create_on(mem.clone(), OWNER, 0, &[], options(PieceTapes::One)).unwrap();
+    write(&mut c, &defs, 0, 9);
+    let starts: Vec<u64> = c.closed().iter().map(|p| p.piece.start).collect();
+    let end = c
+        .closed()
+        .last()
+        .map(|p| p.piece.start + p.piece.len)
+        .unwrap();
+    drop(c);
+    let bytes = mem.get(&0).unwrap().unwrap().to_vec().unwrap();
+
+    // the same closed pieces, the next piece cut off before its head, then every closed piece dropped
+    let torn = MemPieces::new();
+    let mut sink = torn.create_whole(&0).unwrap();
+    sink.write_all(&bytes[..end as usize]).unwrap();
+    for s in starts.iter().skip(1).chain([&end]) {
+        sink.rebase(*s).unwrap();
+    }
+    drop(sink);
+    assert_eq!(torn.drop_front(&0, end).unwrap(), Some(end));
+    let e = PieceChain::resume_on(torn, OWNER, 0, options(PieceTapes::One))
+        .err()
+        .unwrap();
+    assert!(
+        matches!(e, WriteError::Resume(ResumeError::HeadLost { seq: None })),
+        "{e:?}"
+    );
+}

@@ -234,10 +234,14 @@ impl<T: PieceStore> PieceChain<T> {
                     let after_gap = gaps.last().is_some_and(|g| g.1 == seq);
                     match closed.last() {
                         _ if after_gap => {
-                            return Err(WriteError::Resume(ResumeError::HeadLost { seq }));
+                            return Err(WriteError::Resume(ResumeError::HeadLost {
+                                seq: Some(seq),
+                            }));
                         }
                         None if seq != 0 => {
-                            return Err(WriteError::Resume(ResumeError::HeadLost { seq }));
+                            return Err(WriteError::Resume(ResumeError::HeadLost {
+                                seq: Some(seq),
+                            }));
                         }
                         None => {
                             w.begin_piece(&first_head(owner, chain, options.writer.integrity), &[])?
@@ -324,7 +328,7 @@ impl<T: PieceStore> PieceChain<T> {
                 // cut off inside its head: the piece starts again, unless the pieces before it were dropped
                 match closed.last() {
                     None if open_at != 0 => {
-                        return Err(WriteError::Resume(ResumeError::HeadLost { seq: 0 }));
+                        return Err(WriteError::Resume(ResumeError::HeadLost { seq: None }));
                     }
                     None => {
                         w.begin_piece(&first_head(owner, chain, options.writer.integrity), &[])?
@@ -927,7 +931,7 @@ fn check_gaps<K, E>(
             (None, Some(s)) => match s.head {
                 Some(h) => Some(h.prev),
                 // cut off inside its head: the piece before it is gone, so it can't start again
-                None => return Err(WriteError::Resume(ResumeError::HeadLost { seq: to })),
+                None => return Err(WriteError::Resume(ResumeError::HeadLost { seq: Some(to) })),
             },
             (None, None) => None,
         };

@@ -12,7 +12,7 @@ benchmarks, golden files and book pages.
 - `GridOptions::chunk_samples` is `chunk_steps`, `CHUNK_SAMPLES_DEFAULT` is `CHUNK_STEPS_DEFAULT` (FMT-15).
 - `ItemError::PartialFrame { stride }` is `PartialStep { scalars }`: a push takes whole time steps (FMT-15).
 - `PieceStore` gains `first_from`, `remove` and `drop_front`: a store of its own implements them (WRITE-16).
-- `ResumeError` gains `Gap` and `HeadLost`, `RemovedRefusal` gains `NotAtHand` and `InTape`, `FsError` gains `Whole` (WRITE-16).
+- `ResumeError` gains `Gap` and `HeadLost { seq: Option<u64> }`, `RemovedRefusal` gains `NotAtHand` and `InTape`, `FsError` gains `Whole` (WRITE-16).
 
 ### Features
 
