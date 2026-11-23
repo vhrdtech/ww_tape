@@ -51,6 +51,10 @@ impl<S: ByteSource> TapeReader<S> {
     /// whose tile lies in `tiles`, in file order: the blocks of each tile's time pyramid ([summary](
     /// crate::summary#tiles)) a region's timeline merges. Found as [Self::grid_tiles] finds chunks: by the entries'
     /// tile numbers, reading the head only of a block whose entry has none; a series' blocks by their time alone.
+    ///
+    /// A found block's [GridTile::tile] comes from its index entry, unread: a caller reading the block checks it
+    /// against the block's head ([SummaryHead::tile](crate::summary::SummaryHead::tile)) before trusting either, as
+    /// `ww_tape_summary::region_timeline` does.
     pub fn grid_summaries(
         &self,
         i: usize,
