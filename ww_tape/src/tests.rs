@@ -1983,6 +1983,7 @@ fn chunk_on(number: u32, id: TrackId) -> (ChunkHead, (ColumnSpec, Vec<u8>)) {
         time_mode: 0,
         end_mode: EndMode::Absent,
         grid: None,
+        tile: crate::TileCoords::NONE,
     };
     let spec = ColumnSpec {
         kind: ColumnKind::Starts,

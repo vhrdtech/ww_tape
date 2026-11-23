@@ -190,6 +190,7 @@ impl<S: Scalar + Sample> SeriesChunk<S> {
             time_mode: 0,
             end_mode: EndMode::Absent,
             grid: Some(self.grid),
+            tile: ww_tape::TileCoords::NONE,
         };
         let spec = ColumnSpec {
             kind: ColumnKind::Samples,

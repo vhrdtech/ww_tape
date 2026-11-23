@@ -226,6 +226,7 @@ impl Rf {
             time_mode: 0,
             end_mode: EndMode::Absent,
             grid: Some(grid),
+            tile: ww_tape::TileCoords::NONE,
         };
         let spec = ColumnSpec {
             kind: ColumnKind::Samples,

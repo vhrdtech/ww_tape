@@ -259,6 +259,7 @@ fn a_core_only_tape_lists_verifies_and_skips_summary_blocks() {
             time_mode: 0,
             end_mode: EndMode::Absent,
             grid: Some(SeriesGrid::start(0, 0, Magnitude::ONE)),
+            tile: crate::TileCoords::NONE,
         };
         let col = ColumnSpec {
             kind: ColumnKind::Samples,

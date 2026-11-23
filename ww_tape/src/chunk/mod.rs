@@ -20,7 +20,8 @@
 //!          ends column.
 //!  80  u8  segment shift: the payload is checked in segments of 2^shift bytes (16: 64 KiB)
 //!  81  u8  columns n, 1 and up
-//!  82  u8  time mode, the time codec's (events; 0 in series chunks)
+//!  82  u8  mode: an events chunk's time mode, the time codec's; a series chunk's fixed axes a, 0 to
+//!          GRID_FIXED_AXES_MAX (0: a series of no fixed axes, GridDef)
 //!  83  u8  end mode (events: EndMode; 0 in series chunks)
 //!  84 ...  series chunks only, the grid of the samples (SeriesGrid):
 //!          84 u64  grid index: the sample the grid counts from, at most the first item
@@ -29,6 +30,8 @@
 //!         100  u8  scale length s, 1 to SCALE_LEN_MAX
 //!         101 ...  scale: what a stored number is worth in the sample type's unit, as the shrink_wrap bytes of an
 //!                  exact_units Magnitude (10⁻³ is fa 00)
+//!             ...  a × u32 tile coordinate: the chunk's tile along each fixed axis, its first cell over the axis'
+//!                  tile extent (TileCoords; none for a series)
 //!     ...  n × column: kind u8, codec u8, param u16, offset u32 (from the payload start; the first 0, ascending)
 //!     ...  segment CRCs: one u32 per segment of the payload, CRC-32C of its bytes
 //!     ...  zeros up to the payload offset
@@ -74,6 +77,7 @@ use core::num::NonZeroUsize;
 
 use crate::TrackNum;
 use crate::bytes::{file_u8, file_u32, le_i64, le_u8, le_u16, le_u32, le_u64};
+use crate::grid::{GRID_FIXED_AXES_MAX, TileCoords};
 use crate::series::{SCALE_LEN_MAX, SeriesGrid, read_scale, scale_bytes};
 use crate::{
     BlockError, BlockKind, BoundError, CRC_LEN, FLAG_BODY_CODED, HEADER_LEN, MAX_BLOCK_LEN, VERSION,
@@ -109,6 +113,25 @@ const GRID_TICK_AT: usize = FIXED_END + 8;
 const GRID_SCALE_LEN_AT: usize = FIXED_END + 16;
 /// Where a series chunk's scale starts.
 const GRID_SCALE_AT: usize = FIXED_END + SERIES_GRID_LEN;
+/// Where a chunk's mode byte is: an events chunk's time mode, a series chunk's count of fixed axes.
+const AXES_AT: usize = 82;
+
+/// Bytes of the tile coordinates of `axes` fixed axes; `axes` is at most [GRID_FIXED_AXES_MAX].
+const fn tile_coords_len(axes: usize) -> usize {
+    axes.saturating_mul(4)
+}
+
+/// Byte 82 of `head`: the time mode of an events chunk, the count of fixed axes of a series chunk.
+fn mode_byte(head: &ChunkHead) -> Result<u8, ChunkError> {
+    match head.kind {
+        BlockKind::Series => u8::try_from(head.tile.len())
+            .ok()
+            .ok_or(ChunkError::Invalid(
+                "more fixed axes than GRID_FIXED_AXES_MAX",
+            )),
+        _ => Ok(head.time_mode),
+    }
+}
 /// Bytes of a segment writers use, 2^[SEGMENT_SHIFT].
 const SEGMENT_BYTES: usize = 1 << SEGMENT_SHIFT;
 /// Bytes of a segment CRC.
@@ -287,6 +310,9 @@ pub struct ChunkHead {
     pub end_mode: EndMode,
     /// The grid and scale of a series chunk's samples; None in an events chunk.
     pub grid: Option<SeriesGrid>,
+    /// The tile a series chunk of a grid holds, one coordinate per fixed axis ([grid](crate::grid#tiles)); none in a
+    /// series of no fixed axes and in an events chunk.
+    pub tile: TileCoords,
 }
 
 /// Bytes of a chunk block [ChunkHead::head_len] reads: the block header and the payload offset.
@@ -409,16 +435,19 @@ pub fn chunk_head_len(head: &ChunkHead, columns: usize, payload_len: usize) -> u
         .saturating_add(crcs)
 }
 
-/// The grid bytes of a series chunk's head (84..101 + scale), none in an events chunk.
+/// Bytes of a chunk's tile coordinates at most: a u32 per fixed axis.
+const TILE_COORDS_LEN_MAX: usize = 4 * GRID_FIXED_AXES_MAX;
+
+/// The grid bytes of a series chunk's head (84..101 + scale + tile coordinates), none in an events chunk.
 struct GridBytes {
-    buf: [u8; SERIES_GRID_LEN + SCALE_LEN_MAX],
+    buf: [u8; SERIES_GRID_LEN + SCALE_LEN_MAX + TILE_COORDS_LEN_MAX],
     len: usize,
 }
 
 impl GridBytes {
     /// The bytes of `head`'s grid; an error when its scale doesn't encode or takes more than [SCALE_LEN_MAX].
     fn of(head: &ChunkHead) -> Result<Self, ChunkError> {
-        let mut buf = [0u8; SERIES_GRID_LEN + SCALE_LEN_MAX];
+        let mut buf = [0u8; SERIES_GRID_LEN + SCALE_LEN_MAX + TILE_COORDS_LEN_MAX];
         let Some(g) = head.grid else {
             return Ok(Self { buf, len: 0 });
         };
@@ -434,13 +463,16 @@ impl GridBytes {
             .into_iter()
             .chain(g.grid_tick.to_le_bytes())
             .chain([s])
-            .chain(scale.into_iter().take(scale_len));
+            .chain(scale.into_iter().take(scale_len))
+            .chain(head.tile.as_slice().iter().flat_map(|c| c.to_le_bytes()));
         for (d, b) in buf.iter_mut().zip(fields) {
             *d = b;
         }
         Ok(Self {
             buf,
-            len: SERIES_GRID_LEN.saturating_add(scale_len),
+            len: SERIES_GRID_LEN
+                .saturating_add(scale_len)
+                .saturating_add(tile_coords_len(head.tile.len())),
         })
     }
 
@@ -625,7 +657,7 @@ impl<'b> ChunkWriter<'b> {
             .chain([
                 SEGMENT_SHIFT,
                 column_count,
-                head.time_mode,
+                mode_byte(head)?,
                 head.end_mode.to_u8(),
             ]);
         for (d, s) in fixed.iter_mut().zip(fields) {
@@ -926,6 +958,9 @@ fn check_head(head: &ChunkHead, kinds: impl Iterator<Item = ColumnKind>) -> Resu
         (BlockKind::Events, Some(_)) => {
             return Err(ChunkError::Invalid("an events chunk with a grid"));
         }
+        (BlockKind::Events, None) if !head.tile.is_empty() => {
+            return Err(ChunkError::Invalid("an events chunk with tile coordinates"));
+        }
         _ => {}
     }
     let mut any = false;
@@ -1041,9 +1076,14 @@ impl Layout {
                 if scale_len == 0 {
                     return Err(ChunkHeadError::BadHead);
                 }
+                let axes = file_u8(head, AXES_AT)
+                    .ok_or(ChunkHeadError::BadHead)?
+                    .at_most(GRID_FIXED_AXES_MAX)
+                    .map_err(ChunkHeadError::Bound)?;
                 FIXED_END
                     .checked_add(SERIES_GRID_LEN)
                     .and_then(|n| n.checked_add(scale_len))
+                    .and_then(|n| n.checked_add(tile_coords_len(axes)))
                     .ok_or(ChunkHeadError::BadHead)?
             }
             _ => FIXED_END,
@@ -1077,13 +1117,25 @@ impl Layout {
 /// The fixed part of the head of `block` of `kind`, with its grid in a series chunk (its scale ending at
 /// `table_start`); None when the block is shorter, the end mode unknown or the scale not one.
 fn read_fixed(block: &[u8], kind: BlockKind, table_start: usize) -> Option<ChunkHead> {
-    let grid = match kind {
-        BlockKind::Series => Some(SeriesGrid {
-            grid_index: le_u64(block, FIXED_END)?,
-            grid_tick: le_i64(block, GRID_TICK_AT)?,
-            scale: read_scale(block.get(GRID_SCALE_AT..table_start)?).ok()?,
-        }),
-        _ => None,
+    let mode = le_u8(block, AXES_AT)?;
+    let (grid, tile, time_mode) = match kind {
+        BlockKind::Series => {
+            // the layout bounded the axes and put the coordinates last before the column table
+            let coords_at = table_start.checked_sub(tile_coords_len(usize::from(mode)))?;
+            let mut coords = [0u32; GRID_FIXED_AXES_MAX];
+            let bytes = block.get(coords_at..table_start)?.as_chunks::<4>().0;
+            for (d, c) in coords.iter_mut().zip(bytes) {
+                *d = u32::from_le_bytes(*c);
+            }
+            let grid = SeriesGrid {
+                grid_index: le_u64(block, FIXED_END)?,
+                grid_tick: le_i64(block, GRID_TICK_AT)?,
+                scale: read_scale(block.get(GRID_SCALE_AT..coords_at)?).ok()?,
+            };
+            let tile = TileCoords::new(coords.get(..usize::from(mode))?)?;
+            (Some(grid), tile, 0)
+        }
+        _ => (None, TileCoords::NONE, mode),
     };
     Some(ChunkHead {
         kind,
@@ -1094,9 +1146,10 @@ fn read_fixed(block: &[u8], kind: BlockKind, table_start: usize) -> Option<Chunk
         first_tick: le_i64(block, 56)?,
         last_tick: le_i64(block, 64)?,
         latest_end: le_i64(block, 72)?,
-        time_mode: le_u8(block, 82)?,
+        time_mode,
         end_mode: EndMode::from_u8(le_u8(block, 83)?)?,
         grid,
+        tile,
     })
 }
 

@@ -222,6 +222,7 @@ fn entries_of_blocks() {
         time_mode: 0,
         end_mode: EndMode::Durations,
         grid: None,
+        tile: crate::TileCoords::NONE,
     };
     let col = [0u8; 24];
     let cols = [(

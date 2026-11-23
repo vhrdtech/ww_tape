@@ -462,6 +462,7 @@ impl TimeHead {
             time_mode: self.time_mode.to_u8(),
             end_mode: self.end_mode,
             grid: None,
+            tile: crate::TileCoords::NONE,
         }
     }
 }

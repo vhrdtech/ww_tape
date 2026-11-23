@@ -1032,6 +1032,7 @@ fn summaries_fill_alignment_gaps() {
                 time_mode: 0,
                 end_mode: EndMode::Absent,
                 grid: Some(ww_tape::SeriesGrid::start(0, 0, Magnitude::ONE)),
+                tile: ww_tape::TileCoords::NONE,
             };
             let col = ColumnSpec {
                 kind: ColumnKind::Samples,

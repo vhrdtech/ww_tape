@@ -263,6 +263,7 @@ fn series(piece: u64, chunk: usize) -> anyhow::Result<Row> {
             time_mode: 0,
             end_mode: EndMode::Absent,
             grid: Some(grid),
+            tile: ww_tape::TileCoords::NONE,
         };
         w.write_chunk(&defs, &head, &columns).map_err(any)?;
         k += 1;

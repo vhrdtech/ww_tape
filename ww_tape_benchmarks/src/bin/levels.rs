@@ -119,6 +119,7 @@ fn events_head(track: TrackNum, k: u64) -> ChunkHead {
         time_mode: 0,
         end_mode: EndMode::Absent,
         grid: None,
+        tile: ww_tape::TileCoords::NONE,
     }
 }
 

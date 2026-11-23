@@ -196,6 +196,7 @@ pub fn chunk(data: &[u8]) -> Vec<u8> {
                 Magnitude::pow10(-((d.u8() % 19) as i8)),
             )
         }),
+        tile: ww_tape::TileCoords::NONE,
     };
     let mut b = build(&head, &columns);
     hit_head(&mut d, &mut b);

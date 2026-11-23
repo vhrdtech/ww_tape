@@ -280,7 +280,8 @@ off size field
          ends column.
  80  u8  segment shift: the payload is checked in segments of 2^shift bytes (16: 64 KiB)
  81  u8  columns n, 1 and up
- 82  u8  time mode, the time codec's (events; 0 in series chunks)
+ 82  u8  mode: an events chunk's time mode, the time codec's; a series chunk's fixed axes a, 0 to
+         GRID_FIXED_AXES_MAX (0: a series of no fixed axes, GridDef)
  83  u8  end mode (events: EndMode; 0 in series chunks)
  84 ...  series chunks only, the grid of the samples (SeriesGrid):
          84 u64  grid index: the sample the grid counts from, at most the first item
@@ -289,6 +290,8 @@ off size field
         100  u8  scale length s, 1 to SCALE_LEN_MAX
         101 ...  scale: what a stored number is worth in the sample type's unit, as the shrink_wrap bytes of an
                  exact_units Magnitude (10⁻³ is fa 00)
+            ...  a × u32 tile coordinate: the chunk's tile along each fixed axis, its first cell over the axis'
+                 tile extent (TileCoords; none for a series)
     ...  n × column: kind u8, codec u8, param u16, offset u32 (from the payload start; the first 0, ascending)
     ...  segment CRCs: one u32 per segment of the payload, CRC-32C of its bytes
     ...  zeros up to the payload offset

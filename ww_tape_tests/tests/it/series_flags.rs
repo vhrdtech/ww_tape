@@ -134,6 +134,7 @@ fn write_from(
             time_mode: 0,
             end_mode: EndMode::Absent,
             grid: Some(grid),
+            tile: ww_tape::TileCoords::NONE,
         };
         let mut flags = vec![];
         runs.write(&mut flags);

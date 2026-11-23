@@ -326,6 +326,7 @@ fn format_page_chunk_head_offsets_read_a_chunk() {
         time_mode: 0,
         end_mode: EndMode::Absent,
         grid: Some(grid),
+        tile: ww_tape::TileCoords::NONE,
     };
     let samples: Vec<u8> = [1i16, 2, 3, 4]
         .iter()
@@ -355,7 +356,7 @@ fn format_page_chunk_head_offsets_read_a_chunk() {
     assert_eq!(f("latest end") as i64, last_tick);
     assert_eq!(f("segment shift"), 16);
     assert_eq!(f("columns n"), 1);
-    assert_eq!(f("time mode"), 0);
+    assert_eq!(f("mode"), 0, "a series of no fixed axes");
     assert_eq!(f("end mode"), 0);
     assert_eq!(f("grid index"), 96);
     assert_eq!(f("grid tick") as i64, 5_000);
@@ -366,6 +367,38 @@ fn format_page_chunk_head_offsets_read_a_chunk() {
         .unwrap()
         .0;
     assert_eq!(bytes[scale_at..scale_at + 2], [0xfa, 0x00], "10⁻³ is fa 00");
+    assert_eq!(
+        bytes[scale_at + 2],
+        ColumnKind::Samples.to_u8(),
+        "no coordinates"
+    );
+    grid_chunk_places_its_coordinates(&head_layout, head, scale_at + 2);
+}
+
+/// The chunk of tile (7, 3) of a grid of two fixed axes, else `head`: the mode byte says 2, the coordinates follow the
+/// scale at `coords_at`.
+fn grid_chunk_places_its_coordinates(
+    head_layout: &[(usize, String, String)],
+    head: ChunkHead,
+    coords_at: usize,
+) {
+    let tile = ww_tape::TileCoords::new(&[7, 3]).unwrap();
+    let head = ChunkHead { tile, ..head };
+    let samples = [0u8; 8];
+    let spec = ColumnSpec {
+        kind: ColumnKind::Samples,
+        codec: Codec::RAW,
+        param: 0,
+        len: samples.len(),
+    };
+    let mut buf = vec![0u8; ww_tape::chunk::chunk_len(&head, &[spec], 0)];
+    let id = BlockId::new(SessionTag::from_u32(0xc0ffee), 8);
+    let n = ww_tape::chunk::write_chunk(&mut buf, id, &head, &[(spec, &samples)], 0).unwrap();
+    let bytes = &buf[..n];
+    assert_eq!(ChunkHead::read_head(bytes).unwrap(), head);
+    assert_eq!(field(head_layout, bytes, "mode"), 2);
+    assert_eq!(bytes[coords_at..coords_at + 8], [7, 0, 0, 0, 3, 0, 0, 0]);
+    assert_eq!(bytes[coords_at + 8], ColumnKind::Samples.to_u8());
 }
 
 /// The rows of the Markdown table whose header row starts with `header`, as cells.
