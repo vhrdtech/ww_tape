@@ -179,7 +179,9 @@ pub struct History {
 }
 
 impl History {
-    /// Whether every record of the key behind the place is among the items.
+    /// Whether every record of the key in this piece behind the place is among the items. Records in the pieces
+    /// before never are: [TapeReader::key_at] says whether the piece may lack the key's newest one
+    /// ([Lookup::not_carried]).
     pub fn is_whole(&self) -> bool {
         self.lost.is_empty() && self.uncovered.is_empty() && !self.spent
     }
@@ -718,6 +720,10 @@ impl<S: ByteSource> TapeReader<S> {
     /// prefix of at most [KEY_HEAD_LEN](crate::KEY_HEAD_LEN) bytes; past that [KeySlot::sure] says which only the
     /// record decides. Keys of one [KeyId] are one slot. A deletion is the index's mark, which no record checks
     /// here; [Self::keys_at] reads the records.
+    ///
+    /// The slots say nothing of what they may miss: keys the piece doesn't carry from the pieces before, records in
+    /// blocks that don't read or in bytes the index doesn't cover. A caller that needs the set whole asks
+    /// [Self::keys_at] ([KeysAt::is_whole]).
     pub fn key_slots(
         &self,
         i: usize,
