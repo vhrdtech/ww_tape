@@ -46,11 +46,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             about(view.bytes)
         );
     }
+    // a level-0 node covers 16 readings
+    let cools = story.sweep_peaks.iter().position(|peak| *peak < 3_000);
     println!(
-        "hot row's first tile, peak per node: {:?}",
-        story.sweep_peaks
+        "hot row's first tile: peak {} in node 0, below 30 °C from node {}",
+        story.sweep_peaks[0],
+        cools.unwrap_or(0)
     );
-    println!("heater's tile, peak per node: {:?}", story.heater_peaks);
+    let (low, high) = (
+        story.heater_peaks.iter().min().unwrap_or(&0),
+        story.heater_peaks.iter().max().unwrap_or(&0),
+    );
+    println!("the heater's tile: peaks from {low} to {high}");
     Ok(())
 }
 // --8<-- [end:main]

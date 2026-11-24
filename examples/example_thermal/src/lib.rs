@@ -403,6 +403,7 @@ pub struct Story {
     /// the first 10 s.
     pub whole: usize,
     pub one_tile: usize,
+    pub whole_first: usize,
     pub box_chunks: usize,
     /// Each overview level over the whole run, and the views.
     pub level_rows: Vec<LevelRow>,
@@ -469,6 +470,7 @@ impl Thermal {
             raw_bytes: self.steps * u64::from(h) * u64::from(w) * 2,
             chain_bytes: rec.pieces.iter().map(|p| p.len() as u64).sum(),
             whole: self.box_query(&rec, 0..self.ticks(), 0..h, 0..w)?.len(),
+            whole_first: self.box_query(&rec, 0..self.tick(100), 0..h, 0..w)?.len(),
             one_tile: self
                 .box_query(&rec, 0..self.ticks(), hot_row.clone(), 0..tile_x)?
                 .len(),

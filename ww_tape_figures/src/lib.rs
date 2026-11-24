@@ -58,6 +58,7 @@ mod index_select;
 mod layout;
 mod layouts;
 mod piece;
+mod plate;
 mod puts;
 mod records_vs_chunk;
 mod summary_tree;
@@ -103,6 +104,7 @@ pub fn figures() -> anyhow::Result<Vec<(String, String)>> {
         ("piece.svg", piece::piece()?),
         ("puts.svg", puts::puts()?),
         ("grids.svg", grids::grids()?),
+        ("plate_tiles.svg", plate::plate_tiles()?),
         (
             "records_vs_chunk.svg",
             records_vs_chunk::records_vs_chunk()?,

@@ -43,6 +43,12 @@ short = "Anything with a length that reads bytes at an offset, such as a byte sl
 chapter = "../reading/"
 
 [[term]]
+name = "box query"
+forms = ["box queries"]
+short = "A search of the index for the chunks of a time range and a box of cells, by the tile numbers of its entries, with no chunk read."
+chapter = "../grids/"
+
+[[term]]
 name = "CAN"
 long = "Controller Area Network"
 short = "The vehicle bus whose frames the drive's track `can0` records, about a thousand per second."
@@ -220,6 +226,12 @@ name = "grid"
 forms = ["grids"]
 short = "The tick of one sample and the scale of the stored numbers that a series chunk carries, which place its samples in time."
 chapter = "../series/"
+
+[[term]]
+name = "grid track"
+forms = ["grid tracks"]
+short = "A series track with fixed axes beside time, such as a thermal field or an image sequence; a series is the grid track of none."
+chapter = "../grids/"
 
 [[term]]
 name = "handle"
@@ -469,6 +481,12 @@ name = "slot"
 forms = ["slots"]
 short = "The place a definition or state item fills, such as a track's number; a newer record in the slot replaces the older one."
 chapter = "../definitions/"
+
+[[term]]
+name = "space overview"
+forms = ["space overviews"]
+short = "Chunks of a grid track that hold the smallest value, the largest value and the mean of each block of cells, one level per halving of the downsampled axes."
+chapter = "../grids/"
 
 [[term]]
 name = "stale data"
