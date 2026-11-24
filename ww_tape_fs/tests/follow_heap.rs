@@ -19,7 +19,7 @@ use ww_tape::{
     TrackRepeat, TrackSpec, Version, clock_key, track_key,
 };
 use ww_tape_fs::follow::{ChainFollower, FollowOptions};
-use ww_tape_testalloc::{Counting, live_bytes, peak_of};
+use ww_tape_testalloc::{Counting, thread_heap_of};
 
 #[global_allocator]
 static ALLOC: Counting = Counting::new();
@@ -86,7 +86,7 @@ fn follow_peak(path: &std::path::Path, from: usize) -> (usize, usize, usize) {
         at = b.offset as usize + b.block.bytes().len();
     }
     assert_eq!(at, from, "`from` is where a block starts");
-    let ((blocks, bytes), peak) = peak_of(|| {
+    let ((blocks, bytes), heap) = thread_heap_of(|| {
         let (mut blocks, mut bytes) = (0usize, 0usize);
         while let Some(b) = f.try_next().unwrap() {
             blocks += 1;
@@ -94,7 +94,7 @@ fn follow_peak(path: &std::path::Path, from: usize) -> (usize, usize, usize) {
         }
         (blocks, bytes)
     });
-    (blocks, bytes, peak)
+    (blocks, bytes, heap.peak_bytes)
 }
 
 /// The heap of a follower over a group of puts of [GROUP_BYTES_MAX] on as many tracks as items: once with the
@@ -199,14 +199,12 @@ fn relay_held(defs: &Definitions, blocks: &[Vec<u8>]) -> (usize, usize, usize) {
     let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     let (_, last) = blocks.split_last().unwrap();
     assert_ne!(*last, [] as [Vec<u8>; 0]);
-    let before = live_bytes();
-    let ((), peak) = peak_of(|| {
+    let ((), heap) = thread_heap_of(|| {
         for b in &blocks[..blocks.len() - 1] {
             w.put_block(defs, b).unwrap();
         }
     });
-    let held = live_bytes() - before;
-    (held, peak, w.relay_held_bytes())
+    (heap.held_bytes, heap.peak_bytes, w.relay_held_bytes())
 }
 
 /// What a relay holds of a group stays within what it counts against [RELAY_HELD_BYTES_MAX], its peak too: for a group

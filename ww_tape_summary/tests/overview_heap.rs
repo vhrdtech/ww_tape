@@ -8,10 +8,16 @@
 //! The heap of an overview level as it is built: its statistics and nothing per source cell.
 
 use ww_tape_summary::OverviewCells;
-use ww_tape_testalloc::{Counting, peak_of};
+use ww_tape_testalloc::{Counting, thread_heap_of};
 
 #[global_allocator]
 static ALLOC: Counting = Counting::new();
+
+/// The peak heap `f` adds on this thread.
+fn peak_of<T>(f: impl FnOnce() -> T) -> (T, usize) {
+    let (out, heap) = thread_heap_of(f);
+    (out, heap.peak_bytes)
+}
 
 /// Bytes a level of `cells` cells holds: min, max and sum per scalar of an `elem`-byte element and a `sum`-byte sum,
 /// a u32 count per cell, and a little for the axes.
@@ -20,7 +26,8 @@ fn level_bytes(cells: usize, elem: usize, sum: usize) -> usize {
 }
 
 /// A 512 by 512 tile of u16, halved twice: each level holds its statistics, an i64 sum each, and no table of the
-/// source cells; a f32 tile the same with f64 sums.
+/// source cells; a f32 tile the same with f64 sums. The builder takes no codec `Kernel` and calls none, so one run
+/// covers it on every CPU.
 #[test]
 fn a_level_holds_its_statistics_only() {
     let side = 512usize;
