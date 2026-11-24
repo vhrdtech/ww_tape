@@ -522,14 +522,18 @@ impl Held {
 /// The block `held` of `file`, read again: an error when other bytes lie there now (damage, or a writer that wrote
 /// there since).
 fn read_held(mut file: &File, held: Held) -> Result<BlockBuf, FollowError> {
-    let invalid = |what: String| FollowError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, what));
+    let invalid =
+        |what: String| FollowError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, what));
     file.seek(SeekFrom::Start(held.offset))?;
     let mut bytes = vec![0u8; held.len];
     file.read_exact(&mut bytes)?;
     let block = BlockBuf::new(bytes)
         .map_err(|e| invalid(format!("the block held at byte {}: {e}", held.offset)))?;
     if Held::of(held.offset, &block).crc != held.crc {
-        return Err(invalid(format!("the block held at byte {} changed", held.offset)));
+        return Err(invalid(format!(
+            "the block held at byte {} changed",
+            held.offset
+        )));
     }
     Ok(block)
 }

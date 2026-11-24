@@ -31,10 +31,10 @@ pub use grid::grid;
 pub use index::index;
 pub use payloads::payloads;
 pub use records::records;
-pub use runs::{runs, runs_template};
-pub(crate) use runs::{LARGE as runs_large, item as runs_item, marked as runs_marked};
 #[cfg(test)]
 pub(crate) use runs::long_bytes as runs_long;
+pub(crate) use runs::{LARGE as runs_large, item as runs_item, marked as runs_marked};
+pub use runs::{runs, runs_template};
 pub(crate) use samples::CODECS;
 pub use samples::samples;
 pub use series::series;

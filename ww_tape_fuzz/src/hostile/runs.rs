@@ -60,9 +60,7 @@ fn long_template() -> Vec<u8> {
     let mut f = template_bytes().to_vec();
     let (_, on) = state_definitions(None);
     let last = blocks(&f).last().map(|(at, ..)| *at).unwrap_or(0);
-    let seq = ww_tape::Block::read(&f[last..])
-        .map(|b| b.seq)
-        .unwrap_or(0);
+    let seq = ww_tape::Block::read(&f[last..]).map(|b| b.seq).unwrap_or(0);
     for k in 0..RUN_BLOCKS_MAX {
         let mut buf = [0u8; 96];
         let mut b = ww_tape::BlockWriter::new(

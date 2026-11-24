@@ -6,8 +6,8 @@ use std::time::{Duration, Instant};
 use ww_tape::chunk::ChunkHead;
 use ww_tape::index::IndexEntry;
 use ww_tape::{
-    ChainPiece, CloseReason, ColumnSpec, Definitions, GroupPut, PieceChain, PieceStore, Slot as DefSlot,
-    UnitChunk, WriteError,
+    ChainPiece, CloseReason, ColumnSpec, Definitions, GroupPut, PieceChain, PieceStore,
+    Slot as DefSlot, UnitChunk, WriteError,
 };
 
 use crate::define;
@@ -359,7 +359,8 @@ fn place<T: PieceStore>(
             } else {
                 Counters::add(&shared.counters.lost, 1);
             }
-            puts.into_iter().for_each(|(_, _, item)| from.give_back(item));
+            puts.into_iter()
+                .for_each(|(_, _, item)| from.give_back(item));
         }
         Work::DefineTrack { item, reply } => reply.send(define::hold_track(defs, &item)),
         Work::DefineClock { items, reply } => reply.send(define::hold_clock(defs, &items)),

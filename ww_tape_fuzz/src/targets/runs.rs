@@ -97,14 +97,20 @@ fn invariants(f: &[u8]) {
     if let Some(last) = out.last()
         && !too_long
     {
-        assert!(!marked(f, *last), "a follower hands out a marked block last");
+        assert!(
+            !marked(f, *last),
+            "a follower hands out a marked block last"
+        );
     }
     let mut sink = MemSink::new();
     sink.write_all(f).expect("a memory sink takes the bytes");
     if let Ok((_, resumed)) = TapeWriter::resume_on(sink, hostile::state_options())
         && let Some(run) = &resumed.dropped_run
     {
-        assert_eq!(run.start, resumed.kept_bytes, "a dropped run starts where the kept bytes end");
+        assert_eq!(
+            run.start, resumed.kept_bytes,
+            "a dropped run starts where the kept bytes end"
+        );
     }
 }
 
@@ -134,7 +140,10 @@ pub fn runs(data: &[u8]) {
     for k in 0..1 + d.below(5) as i64 {
         let len = [8, 300, LARGE, 50 << 10][d.below(4)];
         let tracks: &[usize] = [&[0usize][..], &[1], &[0, 1]][d.below(3)];
-        let items: Vec<(usize, Vec<u8>)> = tracks.iter().map(|t| (*t, item(k + 100, *t, len))).collect();
+        let items: Vec<(usize, Vec<u8>)> = tracks
+            .iter()
+            .map(|t| (*t, item(k + 100, *t, len)))
+            .collect();
         let puts: Vec<GroupPut<'_>> = items
             .iter()
             .map(|(t, i)| GroupPut {
@@ -170,7 +179,13 @@ pub fn runs(data: &[u8]) {
     if let Ok(r) = TapeReader::open(f) {
         for t in 0..2 {
             let got = r
-                .state_at(0, Slot::State { track: on.states[t] }, u64::MAX)
+                .state_at(
+                    0,
+                    Slot::State {
+                        track: on.states[t],
+                    },
+                    u64::MAX,
+                )
                 .ok()
                 .and_then(|l| l.item)
                 .map(|i| i.item);
@@ -207,11 +222,21 @@ pub fn runs(data: &[u8]) {
     let r = TapeReader::open(&bytes[..]).expect("the resumed piece reads");
     for (t, i) in items {
         let got = r
-            .state_at(0, Slot::State { track: on.states[*t] }, u64::MAX)
+            .state_at(
+                0,
+                Slot::State {
+                    track: on.states[*t],
+                },
+                u64::MAX,
+            )
             .expect("a lookup")
             .item
             .map(|x| x.item);
-        assert_eq!(got.as_deref(), Some(&i[..]), "the group given again is in force");
+        assert_eq!(
+            got.as_deref(),
+            Some(&i[..]),
+            "the group given again is in force"
+        );
     }
 }
 
@@ -227,7 +252,10 @@ mod tests {
         let (out, too_long) = followed(f);
         assert!(too_long, "the follower stops at the run");
         let run_at = hostile::runs_template().len() as u64;
-        assert!(out.iter().all(|o| *o < run_at), "none of the run handed out");
+        assert!(
+            out.iter().all(|o| *o < run_at),
+            "none of the run handed out"
+        );
         let r = TapeReader::open(f).expect("the piece opens");
         let p = &r.pieces()[0];
         assert_eq!(p.dropped_runs.first().map(|(at, _)| *at), Some(run_at));

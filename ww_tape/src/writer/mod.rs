@@ -703,10 +703,12 @@ impl<S: TapeSink> TapeWriter<S> {
             tracks.push(p.track);
         }
         if bytes > GROUP_BYTES_MAX {
-            return Err(WriteError::Input(InputError::Group(GroupRefusal::TooLong {
-                len: bytes,
-                max: GROUP_BYTES_MAX,
-            })));
+            return Err(WriteError::Input(InputError::Group(
+                GroupRefusal::TooLong {
+                    len: bytes,
+                    max: GROUP_BYTES_MAX,
+                },
+            )));
         }
         if puts.is_empty() {
             return Ok(Vec::new());
@@ -719,7 +721,9 @@ impl<S: TapeSink> TapeWriter<S> {
             let facts = defs
                 .track(p.track)
                 .ok_or(DescribeError::UnknownTrack { track: p.track })?;
-            let policy = facts.state.ok_or(DescribeError::NotState { track: p.track })?;
+            let policy = facts
+                .state
+                .ok_or(DescribeError::NotState { track: p.track })?;
             self.work.hash(p.item.len());
             cands.push(Candidate {
                 slot: Slot::State { track: p.track },
@@ -738,7 +742,10 @@ impl<S: TapeSink> TapeWriter<S> {
         self.place_deferred()?;
         self.ensure_carried(defs)?;
         let chosen = self.put_chosen(&cands, false)?;
-        Ok(chosen.get(first..).map(<[bool]>::to_vec).unwrap_or_default())
+        Ok(chosen
+            .get(first..)
+            .map(<[bool]>::to_vec)
+            .unwrap_or_default())
     }
 
     /// Put the typed item `item` on track 0, after its bundle where `defs` holds it and it doesn't lie close behind:
