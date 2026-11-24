@@ -571,8 +571,8 @@ const PAIR: [[u8; 16]; 2] = [
 ];
 
 /// A put by key whose key has the id of another live key is refused ([DescribeError::KeyCollision]): a listing
-/// would show only one of them. Once the other key is deleted the put goes, and so does the same key again; the
-/// relay of a producer's block is checked as a put is.
+/// would show only one of them. Once the other key is deleted the put goes, and so does the same key again; a
+/// producer's block is checked as a put is ([a_producers_block_of_a_colliding_key_is_refused]).
 #[test]
 fn a_key_of_another_live_keys_id_is_refused() {
     let [a, b] = PAIR;
@@ -596,6 +596,99 @@ fn a_key_of_another_live_keys_id_is_refused() {
         e,
         WriteError::Describe(DescribeError::KeyCollision { .. })
     ));
+}
+
+/// The blocks of keyed records a producer writes for `puts`, each a key and its value: what a relay passes on.
+fn keyed_blocks(puts: &[(&[u8], &[u8])]) -> Vec<Vec<u8>> {
+    let defs = defs();
+    let (mem, mut chain) = chain_with(wide_options());
+    for (i, (k, v)) in puts.iter().enumerate() {
+        chain
+            .put_key(&defs, KEYED, i64::try_from(i).unwrap(), k, v)
+            .unwrap();
+    }
+    let pieces = chain.close().unwrap();
+    crate::definitions::record_blocks(&piece_bytes(&mem, pieces[0].tape))
+        .into_iter()
+        .filter(|b| ww_tape::Block::read(&b.bytes).unwrap().is_keyed())
+        .map(|b| b.bytes)
+        .collect()
+}
+
+/// Pass the producer's block `block` into `chain` as `how` says: relayed or adopted.
+fn pass(
+    chain: &mut PieceChain<MemPieces>,
+    how: &str,
+    block: &[u8],
+) -> Result<(), WriteError<<MemPieces as ww_tape::PieceStore>::Error>> {
+    let defs = defs();
+    match how {
+        "relay" => chain.relay_block(&mut defs.clone(), block),
+        _ => chain.adopt_block(&defs, block),
+    }
+}
+
+/// A producer's block of keyed records relayed, adopted or put whose key has the id of another live key is refused
+/// as a put by key is ([DescribeError::KeyCollision]).
+#[test]
+fn a_producers_block_of_a_colliding_key_is_refused() {
+    let [a, b] = PAIR;
+    let defs = defs();
+    let blocks = keyed_blocks(&[(&b, b"3")]);
+    assert_eq!(blocks.len(), 1);
+    let collides = |e: &WriteError<_>| matches!(e, WriteError::Describe(DescribeError::KeyCollision { track }) if *track == KEYED);
+    for how in ["relay", "adopt"] {
+        let (_, mut chain) = chain_with(wide_options());
+        chain.put_key(&defs, KEYED, 0, &a, b"1").unwrap();
+        let e = pass(&mut chain, how, &blocks[0]).unwrap_err();
+        assert!(collides(&e), "{how}: {e}");
+    }
+    let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
+    w.put_key(&defs, KEYED, 0, &a, b"1").unwrap();
+    let e = w.put_block(&defs, &blocks[0]).unwrap_err();
+    assert!(collides(&e), "put_block: {e}");
+}
+
+/// A producer's block of keyed records relayed, adopted or put that would bring the carry past the index policy's
+/// state entries is refused as a put by key is ([InputError::CarryFull]).
+#[test]
+fn a_producers_block_past_the_carry_limit_is_refused() {
+    let defs = defs();
+    let blocks = keyed_blocks(&[(b"/new", b"v")]);
+    let full = |e: &WriteError<_>| {
+        matches!(
+            e,
+            WriteError::Input(InputError::CarryFull {
+                limit: CarryLimit::StateEntries,
+                ..
+            })
+        )
+    };
+    // the keys a carry of 40 entries holds: the definitions of the clock and the track, the layout, the producer
+    // and one put
+    let keys = 40 - 2 - 2 - 1;
+    for how in ["relay", "adopt"] {
+        let (_, mut chain) = chain_with(options(40, 64 << 20));
+        for n in 0..keys {
+            chain
+                .put_key(&defs, KEYED, i64::from(n), &key(n), b"v")
+                .unwrap();
+        }
+        let e = pass(&mut chain, how, &blocks[0]).unwrap_err();
+        assert!(full(&e), "{how}: {e}");
+    }
+    let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
+    w.set_index_policy(IndexPolicy {
+        state_entries_max: exact_units::Count::new(40),
+        ..IndexPolicy::default()
+    })
+    .unwrap();
+    for n in 0..keys {
+        w.put_key(&defs, KEYED, i64::from(n), &key(n), b"v")
+            .unwrap();
+    }
+    let e = w.put_block(&defs, &blocks[0]).unwrap_err();
+    assert!(full(&e), "put_block: {e}");
 }
 
 /// A cut of a small store: the second piece's head row marked, its carry of the live keys after the track's
