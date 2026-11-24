@@ -245,7 +245,7 @@ fn the_page_says_what_the_plate_measures() {
         story
             .views
             .iter()
-            .all(|v| v.chunks == story.tiles.0 as u64 * story.tiles.1 as u64)
+            .all(|v| v.chunks == u64::from(story.tiles.0) * u64::from(story.tiles.1))
     );
     // "the levels above level 0 add up to about the size of the cells as written": within 5 %
     let above: u64 = story.level_rows[1..].iter().map(|r| r.bytes).sum();

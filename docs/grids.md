@@ -27,8 +27,9 @@ The track's definition names the two axes:
 --8<-- "examples/example_thermal/src/lib.rs:def"
 ```
 
-A series track has no fixed axes. Time is the one axis with a clock and the one that grows. A cell holds the value of one place at one time, as one sample of a series does. The
-channels of a sample, such as the red, green and blue of a pixel, stay inside the cell and are not an axis.
+A series track has no fixed axes, and a grid track adds them. Time is the one axis with a clock and the one that
+grows. A cell holds the value of one place at one time, as one sample of a series does. The channels of a sample,
+such as the red, green and blue of a pixel, stay inside the cell and are not an axis.
 
 The readings come from one function of the cell and the reading:
 
@@ -155,8 +156,9 @@ assert_eq!(layout.level_for(&[4.0, 4.0]), 2);
 
 An overview belongs to one tile: it summarises the tile's own cells. A level therefore exists only while each
 downsampled tile extent halves evenly. A tile of 32 cells halves 5 times. A tile of 60 cells halves twice, because
-60 is 4 times an odd number. Past that level a cell would straddle two tiles. A tile extent gives as many levels as it
-has trailing zero bits, at most [`GRID_OVERVIEW_LEVELS_MAX`].
+60 is 4 times an odd number. Past that level a cell would straddle two tiles.
+
+A tile extent gives as many levels as it has trailing zero bits, at most [`GRID_OVERVIEW_LEVELS_MAX`].
 
 The image sequence shows what this costs. Its frames are 480 × 640 pixels, and each pixel has three channels.
 A bright square moves along a gradient.
