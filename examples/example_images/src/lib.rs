@@ -218,6 +218,7 @@ impl Images {
             kind: TrackKind::Series(self.def(&axes).ok_or("the period")?),
             relations: RefVec::Slice { slice: &[] },
             owner: [0; 32],
+            defined_twice: false,
         };
         let id = spec.key.id();
         let track = mux.define_track(spec)?;
