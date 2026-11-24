@@ -2070,6 +2070,9 @@ policy counts the unit's bytes and chunks after it, overview chunks among a piec
 A unit has at most `UNIT_CHUNKS_MAX` (17) chunks: a tile chunk and one overview chunk per level. A writer refuses a
 marked chunk that would make a longer unit, a relayed one too (`InputError::UnitTooLong`).
 
+`TapeWriter::write_chunk_unit` checks each chunk before it writes the first. A chunk that fails after that leaves a
+torn unit: the writer stops, so no later chunk joins the unit, and a resume drops it.
+
 A crash inside a unit leaves a run of marked chunks at the end of the piece. The resume drops it whole
 ([What a resume keeps](#what-a-resume-keeps)), and the handle sends the tile chunk again from its first time step.
 So a run with a crash writes the bytes of one without. A tile chunk sent without overviews (`ChunkSender`, a relay of

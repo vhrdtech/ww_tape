@@ -1789,7 +1789,10 @@ impl<S: TapeSink> TapeWriter<S> {
     /// between them, so a resume after a crash inside the unit drops all of it ([Self::resume_on]) and the call is
     /// given again. A grid tile chunk and its overview chunks are such a unit ([grid](crate::grid#overviews)). The
     /// chunks are of one track, else [InputError::UnitTracks] and nothing is written; each is written as
-    /// [Self::write_chunk] or, with its payload hash, [Self::write_chunk_hashed] writes it. Where each landed.
+    /// [Self::write_chunk] or, with its payload hash, [Self::write_chunk_hashed] writes it. Every chunk's head and
+    /// columns are checked before the first is written. A chunk that fails after that (a sink error, a column shorter
+    /// than its spec) leaves a torn unit: the writer stops ([WriteError::Failed]), so no later chunk joins it, and a
+    /// resume drops it. Where each landed.
     pub fn write_chunk_unit(
         &mut self,
         defs: &Definitions,
@@ -1804,10 +1807,22 @@ impl<S: TapeSink> TapeWriter<S> {
                 max: UNIT_CHUNKS_MAX,
             }));
         }
+        // each chunk is checked before the first is written: a refused one leaves no unit open
+        for c in chunks {
+            self.check_chunk(defs, c.head, c.columns)?;
+        }
         let last = chunks.len().saturating_sub(1);
         let mut placed = Vec::with_capacity(chunks.len());
         for (i, c) in chunks.iter().enumerate() {
-            placed.push(self.write_chunk_as(defs, c.head, c.columns, c.payload_hash, i < last)?);
+            match self.write_chunk_as(defs, c.head, c.columns, c.payload_hash, i < last) {
+                Ok(p) => placed.push(p),
+                // the unit's chunks so far would take the next call's: the writer stops, a resume drops the unit
+                Err(e) if i > 0 => {
+                    self.failed = true;
+                    return Err(e);
+                }
+                Err(e) => return Err(e),
+            }
         }
         Ok(placed)
     }
@@ -1834,6 +1849,35 @@ impl<S: TapeSink> TapeWriter<S> {
         self.unit_open
     }
 
+    /// Check a chunk's head and column table against `defs`, and its longest length: refused before anything is
+    /// allocated or put. The head and the column table are checked again as the chunk is encoded: the payload is the
+    /// caller's columns, copied, not read back. The column specs, and the longest the block can be.
+    fn check_chunk(
+        &self,
+        defs: &Definitions,
+        head: &crate::ChunkHead,
+        columns: &[(crate::ColumnSpec, &[u8])],
+    ) -> Result<(Vec<crate::ColumnSpec>, usize), WriteError<S::Error>> {
+        defs.check_chunk_head(head).map_err(WriteError::Describe)?;
+        let specs: Vec<crate::ColumnSpec> = columns.iter().map(|(c, _)| *c).collect();
+        if head.kind == crate::BlockKind::Events {
+            defs.check_relation_columns(head.track_number, &specs)
+                .map_err(WriteError::Describe)?;
+        }
+        // the longest the block can be, its padding at most the alignment
+        let chunk_max = crate::chunk::chunk_len(
+            head,
+            &specs,
+            crate::from_file::u32_to_usize(self.alignment()),
+        );
+        if chunk_max > crate::MAX_BLOCK_LEN {
+            return Err(WriteError::Chunk(crate::chunk::ChunkError::TooLong {
+                len: chunk_max,
+            }));
+        }
+        Ok((specs, chunk_max))
+    }
+
     fn write_chunk_as(
         &mut self,
         defs: &Definitions,
@@ -1845,25 +1889,7 @@ impl<S: TapeSink> TapeWriter<S> {
         self.check()?;
         self.check_unit(head.kind, with_next)?;
         self.want(&[head.track_number]);
-        // the head and the column table are checked here and as the chunk is encoded: the payload is the caller's
-        // columns, copied, not read back
-        defs.check_chunk_head(head).map_err(WriteError::Describe)?;
-        let specs: Vec<crate::ColumnSpec> = columns.iter().map(|(c, _)| *c).collect();
-        if head.kind == crate::BlockKind::Events {
-            defs.check_relation_columns(head.track_number, &specs)
-                .map_err(WriteError::Describe)?;
-        }
-        // the longest the block can be, its padding at most the alignment: refused before anything is allocated or put
-        let chunk_max = crate::chunk::chunk_len(
-            head,
-            &specs,
-            crate::from_file::u32_to_usize(self.alignment()),
-        );
-        if chunk_max > crate::MAX_BLOCK_LEN {
-            return Err(WriteError::Chunk(crate::chunk::ChunkError::TooLong {
-                len: chunk_max,
-            }));
-        }
+        let (specs, chunk_max) = self.check_chunk(defs, head, columns)?;
         let needs = self.needed(defs, &[head.track_number]);
         self.track_room(defs, &[head.track_number])?;
         self.room(0, !self.head_put)?;

@@ -772,3 +772,63 @@ fn a_unit_longer_than_its_cap_is_refused() {
         "a refused chunk writes nothing"
     );
 }
+
+/// A unit whose later chunk the writer refuses leaves no unit open: a chunk refused as input is found before the
+/// first chunk is written, and a chunk that fails after it stops the writer, so the next call's chunks never join the
+/// torn unit.
+#[test]
+fn a_unit_refused_midway_leaves_no_unit_open() {
+    let (defs, mut w, id, tiles) = unit_writer();
+    let samples = [0u8; 4 * STEPS as usize];
+    let columns = samples_column(&samples, samples.len());
+    let first = head(id, 0, tiles[0]);
+    // a level past the grid's: no overviews on this grid
+    let bad = ChunkHead {
+        level: 1,
+        ..head(id, 0, tiles[1])
+    };
+    let tape = w.sink().tape();
+    let before = tape.to_vec().unwrap();
+    let open = w.unit_open();
+    let unit = [&first, &bad].map(|h| ww_tape::UnitChunk {
+        head: h,
+        columns: &columns,
+        payload_hash: None,
+    });
+    assert!(w.write_chunk_unit(&defs, &unit).is_err());
+    assert!(
+        tape.to_vec().unwrap() == before,
+        "a refused unit writes nothing"
+    );
+    assert_eq!(w.unit_open(), open, "a refused unit opens none");
+    let next = head(id, 0, tiles[1]);
+    let good = [&first, &next].map(|h| ww_tape::UnitChunk {
+        head: h,
+        columns: &columns,
+        payload_hash: None,
+    });
+    w.write_chunk_unit(&defs, &good).unwrap();
+    assert!(!w.unit_open());
+
+    // a column shorter than its spec says: found as the second chunk is encoded, after the first is written
+    let short = samples_column(&samples[..4], samples.len());
+    let (one, second) = (head(id, 1, tiles[0]), head(id, 1, tiles[1]));
+    let torn = [
+        ww_tape::UnitChunk {
+            head: &one,
+            columns: &columns,
+            payload_hash: None,
+        },
+        ww_tape::UnitChunk {
+            head: &second,
+            columns: &short,
+            payload_hash: None,
+        },
+    ];
+    let err = w.write_chunk_unit(&defs, &torn);
+    assert!(err.is_err(), "{err:?}");
+    assert!(
+        matches!(w.write_chunk_unit(&defs, &good), Err(WriteError::Failed)),
+        "a writer with a torn unit takes no more chunks"
+    );
+}
