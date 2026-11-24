@@ -163,4 +163,36 @@ mod tests {
         t.saw(&block(0, b"data"));
         assert!(t.next_due().is_none());
     }
+
+    /// The upper bound of a call's puts holds a definition written twice at once and its copy.
+    #[test]
+    fn the_upper_bound_of_puts_counts_the_copy() {
+        use crate::writer::{Candidate, Item, Rule, puts_len, puts_len_upper};
+        use crate::{RecordRef, RecordTrack, TrackNum, state::ItemHash};
+        // long enough that the slack of one record's bound holds no second block
+        let bytes = vec![0x5a; 1000];
+        let c = Candidate {
+            slot: Slot::Track {
+                number: TrackNum::new(9),
+            },
+            rule: Rule {
+                near: exact_units::Bytes::new(0),
+                copies: exact_units::Count::new(1),
+                spacing: exact_units::Bytes::new(0),
+                twice: true,
+            },
+            track: RecordTrack::Definitions,
+            at: None,
+            hash: ItemHash::of(&bytes),
+            item: Item::Given(&bytes),
+        };
+        let one = puts_len::<()>(&[RecordRef {
+            track: RecordTrack::Definitions,
+            at: None,
+            item: &bytes,
+        }])
+        .unwrap();
+        let upper = puts_len_upper(&[c]);
+        assert!(upper >= one.saturating_mul(2), "{upper} < 2 * {one}");
+    }
 }

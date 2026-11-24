@@ -3070,12 +3070,17 @@ fn puts_len<E>(records: &[RecordRef<'_>]) -> Result<usize, WriteError<E>> {
 }
 
 /// At least the bytes of the blocks of puts holding all of `cands`, without making them: each record in a block of
-/// its own at most.
+/// its own at most, and a definition written twice at once ([Rule::twice]) with its copy.
 fn puts_len_upper(cands: &[Candidate<'_>]) -> usize {
     cands.iter().fold(0usize, |n, c| {
-        n.saturating_add(c.item.bytes().len())
+        let one = c
+            .item
+            .bytes()
+            .len()
             .saturating_add(crate::MAX_RECORD_HEAD)
-            .saturating_add(crate::open::EMPTY_LEN)
+            .saturating_add(crate::open::EMPTY_LEN);
+        // a definition written twice at once has its copy after the run
+        n.saturating_add(one.saturating_mul(if c.rule.twice { 2 } else { 1 }))
     })
 }
 
