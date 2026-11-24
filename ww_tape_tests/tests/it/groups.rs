@@ -560,3 +560,40 @@ fn a_damaged_one_block_group_is_lost_alone() {
         }
     }
 }
+
+/// A follower hands out no block of a group with a block that doesn't read, as a scan drops it, and goes on with the
+/// blocks after it.
+#[test]
+fn a_follower_hands_out_no_block_of_a_damaged_group() {
+    let d = closed_on_card();
+    for k in 0..3 {
+        let bad = blanked(&d.bytes, d.blocks[k]);
+        let dir = scratch("groups_follow_damaged");
+        let path = dir.join("tape.wwt");
+        append(&path, &bad);
+        let mut f = ChainFollower::new(
+            &path,
+            FollowOptions {
+                tapes: PieceTapes::One,
+                ..FollowOptions::default()
+            },
+        )
+        .unwrap();
+        let mut got = Vec::new();
+        while let Some(b) = f.try_next().unwrap() {
+            got.push(b.offset as usize);
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+        for (at, _) in &d.blocks {
+            assert!(
+                !got.contains(at),
+                "block {k} blanked: the group's block at {at} handed out"
+            );
+        }
+        let end = d.blocks[2].0 + d.blocks[2].1;
+        assert!(
+            got.iter().any(|o| *o >= end),
+            "block {k} blanked: the blocks after it"
+        );
+    }
+}

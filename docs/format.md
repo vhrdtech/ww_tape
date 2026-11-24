@@ -815,7 +815,7 @@ Readers take a run whole or not at all:
 | Reader | A run |
 |---|---|
 | a scan of a piece | its entries only once the block it belongs to is taken, or a close, a close summary or an index, which the writer never writes inside a run; the rest are listed in `PieceInfo::dropped_runs` and their blocks in no entry |
-| a follower (`ChainFollower`) | its blocks only with the last one; until then it keeps their places, at most `RUN_BLOCKS_MAX`, and reads their bytes again then (`FollowError::RunTooLong` past it) |
+| a follower (`ChainFollower`) | its blocks only with the last one; until then it keeps their places, at most `RUN_BLOCKS_MAX`, and reads their bytes again then (`FollowError::RunTooLong` past it); a damaged group none, as a scan |
 | a resume | drops a run at the end of what it keeps (`Resumed::dropped_run`) |
 | a lookup through the index of a closed piece | a block of a group only when every block of its group reads; any other block alone |
 

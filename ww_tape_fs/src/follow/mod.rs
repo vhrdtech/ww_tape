@@ -9,7 +9,8 @@
 //! them out with it. So it never hands out a block that doesn't check, and never one that a resume took back, and a
 //! group of puts ([TapeWriter::put_group](ww_tape::TapeWriter::put_group)) or a unit of chunks reaches its reader
 //! whole. Of a held block it keeps only the place, at most [RUN_BLOCKS_MAX] of them, and reads its bytes again as it
-//! hands it out; it takes the definitions a block carries as it hands the block out.
+//! hands it out; it takes the definitions a block carries as it hands the block out. A group of puts with a block
+//! that doesn't read it hands out none of, as a scan drops it ([FLAG_GROUP]).
 //!
 //! At the tail of a piece whose close names a next piece, the follower moves to the next piece's file
 //! ([crate::piece_name]); in a chain of one file ([PieceTapes::One]) the next piece follows in the same file. A piece
@@ -36,8 +37,8 @@ use std::time::{Duration, Instant};
 use ww_tape::index::{IndexBlock, IndexKind};
 use ww_tape::piece::Tail;
 use ww_tape::{
-    BlockBuf, BlockKind, Cut, Definitions, DescribeError, FLAG_WITH_NEXT, FileBlocks, FileError,
-    Medium, PieceTapes, RUN_BLOCKS_MAX, RecordTrack, WalkPoint,
+    BlockBuf, BlockKind, Cut, Definitions, DescribeError, FLAG_GROUP, FLAG_WITH_NEXT, FileBlocks,
+    FileError, Medium, PieceTapes, RUN_BLOCKS_MAX, RecordTrack, WalkPoint,
 };
 
 pub use merge::{Merged, TimeMerge};
@@ -376,6 +377,8 @@ impl ChainFollower {
         let mut walk = FileBlocks::resume(file, self.point);
         self.stopped = None;
         let mut held: Vec<Held> = Vec::new();
+        // after damage: the blocks of a group up to the first unmarked one are dropped, as a scan drops them
+        let mut after_damage = false;
         while let Some(next) = walk.next_block() {
             let bytes = match next {
                 Ok(b) if b.is_intact() => b.bytes().to_vec(),
@@ -386,7 +389,15 @@ impl ChainFollower {
                     self.stopped = Some(why);
                     break;
                 }
-                // a gap, a block stepped over, a later copy that comes next: the walk goes on
+                // damage: a block of a group that doesn't read takes the whole group with it
+                Err(
+                    FileError::Gap { .. } | FileError::Bad { .. } | FileError::Truncated { .. },
+                ) => {
+                    held.retain(|h| !h.group);
+                    after_damage = true;
+                    continue;
+                }
+                // a block stepped over, a later copy that comes next: the walk goes on
                 Err(_) => continue,
             };
             let offset = walk.offset();
@@ -396,6 +407,12 @@ impl ChainFollower {
             let Some(point) = walk.point() else {
                 break;
             };
+            let flags = block.block().flags;
+            if after_damage && flags & FLAG_GROUP != 0 {
+                after_damage = flags & FLAG_WITH_NEXT != 0;
+                continue;
+            }
+            after_damage = false;
             if held_back(&block) {
                 if held.len() >= RUN_BLOCKS_MAX.saturating_sub(1) {
                     let start = held.first().map_or(offset, |h| h.offset);
@@ -500,6 +517,8 @@ enum Ready {
 struct Held {
     offset: u64,
     len: usize,
+    /// Whether it is a block of a group of puts ([FLAG_GROUP])
+    group: bool,
     /// Its CRC, the last 4 bytes: bytes read again with another are not this block
     crc: [u8; 4],
 }
@@ -514,6 +533,7 @@ impl Held {
         Self {
             offset,
             len: bytes.len(),
+            group: block.block().flags & FLAG_GROUP != 0,
             crc,
         }
     }
