@@ -20,6 +20,7 @@ benchmarks, golden files and book pages.
 - `PieceInfo::dropped_runs` and `Resumed::dropped_run` name the runs a reader or a resume dropped (WRITE-17).
 - A follower keeps a run's block places, not bytes, and takes definitions as it hands blocks out (WRITE-17).
 - `GroupHandle::put_group` refuses a track twice or items past `GROUP_BYTES_MAX` at the call (`CallError::Group`) (WRITE-17).
+- A relay holds a producer's group of puts until its last block and writes it whole (WRITE-17).
 - The book explains grids in "Fields and images over time", with `example_thermal` and `example_images` as tested cases (BOOK-5).
 
 ## [0.9.0] - 2026-11-24

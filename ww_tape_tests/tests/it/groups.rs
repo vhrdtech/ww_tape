@@ -8,12 +8,13 @@ use std::path::Path;
 
 use ww_tape::index::IndexPolicy;
 use ww_tape::{
-    ChainOptions, CutPolicy, DescribeError, GROUP_BYTES_MAX, GroupPut, GroupRefusal, InputError,
-    MemSink, PieceChain, PieceTapes, Slot, TapeReader, TapeSink, TapeWriter, TrackNum, WriteError,
+    Block, ChainOptions, CutPolicy, DescribeError, FLAG_GROUP, FLAG_GROUP_START, FLAG_WITH_NEXT,
+    GROUP_BYTES_MAX, GroupPut, GroupRefusal, InputError, MemSink, PieceChain, PieceTapes, Slot,
+    TapeReader, TapeSink, TapeWriter, TrackNum, WriteError,
 };
 use ww_tape_fs::follow::{ChainFollower, FollowOptions};
 
-use crate::definitions::{Rig, begin_numbered, held, options, state};
+use crate::definitions::{Rig, begin_numbered, held, options, record_blocks, state};
 use crate::pieces::scratch;
 
 /// The state tracks of the groups.
@@ -727,4 +728,108 @@ fn a_group_whose_first_block_is_damaged_is_dropped_whole() {
         &one.a,
         "C of one block damaged",
     );
+}
+
+/// The blocks of the large group of [written], as a producer sends them.
+fn large_blocks(w: &Written) -> Vec<Vec<u8>> {
+    record_blocks(&w.bytes)
+        .into_iter()
+        .filter(|b| b.repeat && b.offset >= w.start as u64 && b.offset < w.end as u64)
+        .map(|b| b.bytes)
+        .collect()
+}
+
+/// A relay holds a producer's group until its last block, then writes it whole as a group: a crash of the relay
+/// between the group's blocks leaves none of it in force. Blocks of a group whose first block the relay never saw
+/// are passed over.
+#[test]
+fn a_relay_writes_a_producer_group_whole() {
+    let w = written();
+    let blocks = large_blocks(&w);
+    assert_eq!(blocks.len(), 3, "the large group takes three blocks");
+    let none = vec![None; TRACKS.len()];
+    let new: Vec<_> = w.new.iter().cloned().map(Some).collect();
+
+    let mut relay = rig();
+    let tape = relay.sink().tape();
+    let start = tape.to_vec().unwrap().len();
+    let mut defs = relay.defs.clone();
+    for (k, b) in blocks.iter().enumerate() {
+        relay.w.relay_block(&mut defs, b).unwrap();
+        let want = if k + 1 == blocks.len() { &new } else { &none };
+        assert_eq!(
+            &in_force(&tape.to_vec().unwrap()),
+            want,
+            "a crash after block {k}"
+        );
+    }
+    let bytes = tape.to_vec().unwrap();
+    let flags: Vec<u16> = record_blocks(&bytes)
+        .into_iter()
+        .filter(|b| b.repeat && b.offset >= start as u64)
+        .map(|b| Block::read(&b.bytes).unwrap().flags)
+        .collect();
+    assert!(!flags.is_empty());
+    for (k, f) in flags.iter().enumerate() {
+        assert_ne!(
+            f & FLAG_GROUP,
+            0,
+            "block {k} of the relayed group is marked a group's"
+        );
+        assert_eq!(
+            f & FLAG_GROUP_START != 0,
+            k == 0,
+            "block {k}: only the first starts the group"
+        );
+        assert_eq!(
+            f & FLAG_WITH_NEXT == 0,
+            k + 1 == flags.len(),
+            "block {k}: only the last is unmarked"
+        );
+    }
+
+    let mut late = rig();
+    let tape = late.sink().tape();
+    let mut defs = late.defs.clone();
+    for b in &blocks[1..] {
+        late.w.relay_block(&mut defs, b).unwrap();
+    }
+    assert_eq!(
+        in_force(&tape.to_vec().unwrap()),
+        none,
+        "the rest of a group is passed over"
+    );
+}
+
+/// A cut of a relay's chain between a producer group's blocks carries the group held to the next piece, which
+/// holds the group whole; the piece before holds none of it.
+#[test]
+fn a_relayed_group_held_over_a_cut_is_whole_in_the_next_piece() {
+    let w = written();
+    let blocks = large_blocks(&w);
+    let mem = ww_tape::MemPieces::new();
+    let o = ChainOptions {
+        cut: CutPolicy::default(),
+        writer: options(u64::MAX),
+        tapes: PieceTapes::Each,
+    };
+    let mut chain =
+        PieceChain::create_on(mem.clone(), ww_tape::OwnerId([0x3d; 32]), 0, &[], o).unwrap();
+    let mut batch = crate::definitions::base(ww_tape::Layout::UNALIGNED)[2..].to_vec();
+    batch.extend(TRACKS.map(state));
+    let mut defs = held(&batch);
+    chain.relay_block(&mut defs, &blocks[0]).unwrap();
+    chain.cut_now(&defs).unwrap();
+    for b in &blocks[1..] {
+        chain.relay_block(&mut defs, b).unwrap();
+    }
+    chain.close().unwrap();
+    let pieces: Vec<Vec<Option<Vec<u8>>>> = mem
+        .keys()
+        .unwrap()
+        .iter()
+        .map(|k| in_force(&mem.get(k).unwrap().unwrap().to_vec().unwrap()))
+        .collect();
+    let new: Vec<_> = w.new.iter().cloned().map(Some).collect();
+    assert_eq!(pieces, vec![vec![None; TRACKS.len()], new]);
 }

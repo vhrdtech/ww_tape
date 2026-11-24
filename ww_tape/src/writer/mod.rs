@@ -200,6 +200,8 @@ pub struct TapeWriter<S: TapeSink> {
     unit_chunks: usize,
     /// The blocks of the open run so far, all marked [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT); 0 with none open
     run_blocks: usize,
+    /// A producer's group of puts held until its last block ([Self::put_block]); carried over a cut
+    relay_group: Option<RelayGroup>,
     last_checkpoint: Option<u64>,
     /// The piece's content hash so far: BLAKE3 of its bytes, each chunk payload by its hash; untouched below
     /// [Integrity::Full]
@@ -466,6 +468,7 @@ impl<S: TapeSink> TapeWriter<S> {
             unit_open: false,
             unit_chunks: 0,
             run_blocks: 0,
+            relay_group: None,
             last_checkpoint: now,
             hash: blake3::Hasher::new(),
             level: Integrity::Full,
@@ -2276,6 +2279,16 @@ impl<S: TapeSink> TapeWriter<S> {
     /// track's definitions. A record on a track that isn't a state track of `defs`, or on another clock than its
     /// track's, or a definition other than the one held, is refused before anything is put. The block itself is not
     /// written.
+    ///
+    /// A block of a producer's group ([FLAG_GROUP](crate::FLAG_GROUP)) is held until the group's last block, not
+    /// marked [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT); then the records of all its blocks are put as one group, as
+    /// [Self::put_group] puts one. A group is held from its first block ([FLAG_GROUP_START](crate::FLAG_GROUP_START))
+    /// on and carried over a cut. A block of a group whose first block wasn't held is passed over. A block that
+    /// isn't a block of a group, a refused block, or the first block of another group drops the group held: the
+    /// producer tore it. A group of more than [RUN_BLOCKS_MAX](crate::RUN_BLOCKS_MAX) blocks
+    /// ([InputError::RunTooLong]) or more than [GROUP_BYTES_MAX] bytes of records ([GroupRefusal::TooLong]) is
+    /// dropped and refused. A group whose put is refused at its last block (no room: [IndexError::StateEntries])
+    /// stays held without that block, to be given again.
     pub fn put_block(
         &mut self,
         defs: &Definitions,
@@ -2286,16 +2299,96 @@ impl<S: TapeSink> TapeWriter<S> {
         let mut buf = Vec::new();
         let b = b.decode(&mut buf).map_err(WriteError::Block)?;
         if b.kind != BlockKind::Records {
+            self.relay_group = None;
             return Err(WriteError::Input(InputError::Unknown {
                 version: b.version,
                 kind: b.kind,
             }));
         }
+        if b.flags & crate::FLAG_GROUP == 0 {
+            self.relay_group = None;
+            let mut cands = Vec::new();
+            self.block_cands(defs, &b, &mut BlockSeen::default(), &mut cands)?;
+            self.room(0, !self.head_put)?;
+            self.place_deferred()?;
+            self.ensure_carried(defs)?;
+            return self.put_last(&cands).map(|_| ());
+        }
+        let mut group = if b.flags & crate::FLAG_GROUP_START != 0 {
+            self.relay_group = None;
+            RelayGroup::default()
+        } else {
+            match self.relay_group.take() {
+                Some(g) => g,
+                // the rest of a group whose first block this writer didn't hold: it can't be whole
+                None => return Ok(()),
+            }
+        };
+        let last = b.flags & crate::FLAG_WITH_NEXT == 0;
+        let before = (group.cands.len(), group.bytes, group.seen.clone());
+        let mut cands = Vec::new();
+        self.block_cands(defs, &b, &mut group.seen, &mut cands)?;
+        group.blocks = group.blocks.saturating_add(1);
+        if group.blocks > crate::RUN_BLOCKS_MAX {
+            return Err(WriteError::Input(InputError::RunTooLong {
+                max: crate::RUN_BLOCKS_MAX,
+            }));
+        }
+        for c in cands {
+            if let Item::Given(item) = c.item {
+                group.bytes = group.bytes.saturating_add(item.len());
+            }
+            group.cands.push(c.owned());
+        }
+        if group.bytes > GROUP_BYTES_MAX {
+            return Err(WriteError::Input(InputError::Group(
+                GroupRefusal::TooLong {
+                    len: group.bytes,
+                    max: GROUP_BYTES_MAX,
+                },
+            )));
+        }
+        if !last {
+            self.relay_group = Some(group);
+            return Ok(());
+        }
+        match self.put_relay_group(defs, &group.cands) {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                let (len, bytes, seen) = before;
+                group.cands.truncate(len);
+                group.blocks = group.blocks.saturating_sub(1);
+                group.bytes = bytes;
+                group.seen = seen;
+                self.relay_group = Some(group);
+                Err(e)
+            }
+        }
+    }
+
+    /// Put the records of a producer's group held ([Self::put_block]) as one group.
+    fn put_relay_group(
+        &mut self,
+        defs: &Definitions,
+        cands: &[Candidate<'_>],
+    ) -> Result<(), WriteError<S::Error>> {
+        self.admit(cands.len())?;
+        self.room(0, !self.head_put)?;
+        self.place_deferred()?;
+        self.ensure_carried(defs)?;
+        self.put_chosen(cands, PutsEnd::Group).map(|_| ())
+    }
+
+    /// Push the records of block `b` of puts to put onto `out`, each after what it needs ([Self::put_block]); `seen`
+    /// holds what earlier blocks of its group pushed.
+    fn block_cands<'b>(
+        &mut self,
+        defs: &Definitions,
+        b: &crate::Block<'b>,
+        seen: &mut BlockSeen,
+        out: &mut Vec<Candidate<'b>>,
+    ) -> Result<(), WriteError<S::Error>> {
         let rule = self.definitions_rule();
-        let mut cands: Vec<Candidate<'_>> = Vec::new();
-        let mut seen = BTreeSet::new();
-        // the hash of the newest record of each state track in the block: the same item again adds nothing
-        let mut newest: alloc::collections::BTreeMap<TrackNum, ItemHash> = Default::default();
         for r in b.records() {
             let r = r.map_err(WriteError::Block)?;
             let (RecordTrack::Data(track), Some(at)) = (r.track, r.at) else {
@@ -2319,21 +2412,21 @@ impl<S: TapeSink> TapeWriter<S> {
                         _ => vec![slot],
                     };
                     let mut needs = Vec::new();
-                    self.push_needs(defs, named, &mut seen, &mut needs);
-                    cands.extend(needs);
+                    self.push_needs(defs, named, &mut seen.slots, &mut needs);
+                    out.extend(needs);
                     continue;
                 }
                 if let Describe::Item(item) = &d {
                     let bundle: Vec<u8> = item.ty.bundle.iter().filter_map(Result::ok).collect();
                     if let Some((slot, _)) = defs.bundle(&bundle) {
                         let mut needs = Vec::new();
-                        self.push_needs(defs, [slot], &mut seen, &mut needs);
-                        cands.extend(needs);
+                        self.push_needs(defs, [slot], &mut seen.slots, &mut needs);
+                        out.extend(needs);
                     }
                 }
                 self.work.hash(r.item.len());
                 let hash = ItemHash::of(r.item);
-                cands.push(Candidate {
+                out.push(Candidate {
                     slot: Slot::of_definition(&d, || hash),
                     rule,
                     track: RecordTrack::Definitions,
@@ -2350,13 +2443,14 @@ impl<S: TapeSink> TapeWriter<S> {
             }
             self.work.hash(r.item.len());
             let hash = ItemHash::of(r.item);
-            if newest.insert(track, hash) == Some(hash) {
+            // the same item again on a state track adds nothing
+            if seen.newest.insert(track, hash) == Some(hash) {
                 continue;
             }
             let mut needs = Vec::new();
-            self.push_needs(defs, defs.needs(track), &mut seen, &mut needs);
-            cands.extend(needs);
-            cands.push(Candidate {
+            self.push_needs(defs, defs.needs(track), &mut seen.slots, &mut needs);
+            out.extend(needs);
+            out.push(Candidate {
                 slot: Slot::State { track },
                 rule: self.rule(policy),
                 track: r.track,
@@ -2365,15 +2459,13 @@ impl<S: TapeSink> TapeWriter<S> {
                 item: Item::Given(r.item),
             });
         }
-        self.room(0, !self.head_put)?;
-        self.place_deferred()?;
-        self.ensure_carried(defs)?;
-        self.put_last(&cands).map(|_| ())
+        Ok(())
     }
 
     /// Pass on a live producer's block, as a relay does: a block of puts ([FLAG_REPEAT](crate::FLAG_REPEAT)) has its
-    /// definitions held in `defs` ([Definitions::take_block]) and its records put ([Self::put_block]); any other
-    /// block is written under `defs` ([Self::write_block]).
+    /// definitions held in `defs` ([Definitions::take_block]) and its records put ([Self::put_block]), a group's
+    /// held until its last block; any other block drops a group held and is written under `defs`
+    /// ([Self::write_block]).
     pub fn relay_block(
         &mut self,
         defs: &mut Definitions,
@@ -2382,6 +2474,7 @@ impl<S: TapeSink> TapeWriter<S> {
         let b = crate::Block::read(block).map_err(WriteError::Block)?;
         if !b.is_repeat() {
             self.check()?;
+            self.relay_group = None;
             return self.write_read(defs, &b).map(|_| ());
         }
         let mut buf = Vec::new();
@@ -2518,10 +2611,12 @@ impl<S: TapeSink> TapeWriter<S> {
         let options = self.options();
         let kept = self.kept.clone();
         let newest = self.relations.newest().clone();
+        let relay_group = self.relay_group.clone();
         let ended = self.end(End::Kept, None)?;
         let (mut w, _) = Self::resume_on(ended.sink, options)?;
         w.keep_after(kept);
         w.take_newest(&newest);
+        w.relay_group = relay_group;
         Ok((w, ended.closed))
     }
 
@@ -2589,6 +2684,7 @@ impl<S: TapeSink> TapeWriter<S> {
         let options = w.options();
         let newest = w.relations.newest().clone();
         let kept = core::mem::take(&mut w.kept);
+        let relay_group = w.relay_group.take();
         let done = w.end(End::Cut, None)?;
         let mut next_piece = NextPiece::after(
             &rows.head,
@@ -2601,6 +2697,7 @@ impl<S: TapeSink> TapeWriter<S> {
         next_piece.kept = kept;
         let mut next = Self::start_next(next()?, &options, next_piece)?;
         next.put_carried(&rows.carried)?;
+        next.relay_group = relay_group;
         let mut closed = done.closed;
         closed.tracks = next.head_rows().to_vec();
         closed.states_unknown = rows.states_unknown;
@@ -2672,6 +2769,7 @@ impl<S: TapeSink> TapeWriter<S> {
         let options = w.options();
         let newest = w.relations.newest().clone();
         let kept = core::mem::take(&mut w.kept);
+        let relay_group = w.relay_group.take();
         let mut done = w.end(End::CutInPlace, None)?;
         let mut next_piece = NextPiece::after(
             &rows.head,
@@ -2694,6 +2792,7 @@ impl<S: TapeSink> TapeWriter<S> {
             .map_err(sink_err("starting the next piece behind the last"))?;
         let mut next = Self::start_next(done.sink, &options, next_piece)?;
         next.put_carried(&rows.carried)?;
+        next.relay_group = relay_group;
         done.closed.tracks = next.head_rows().to_vec();
         done.closed.states_unknown = rows.states_unknown;
         Ok((done.closed, next))
@@ -3088,6 +3187,45 @@ impl Candidate<'static> {
             hash: held.hash,
         }
     }
+}
+
+impl Candidate<'_> {
+    /// The candidate with its item's bytes its own.
+    fn owned(self) -> Candidate<'static> {
+        Candidate {
+            slot: self.slot,
+            rule: self.rule,
+            track: self.track,
+            at: self.at,
+            item: match self.item {
+                Item::Held(b) => Item::Held(b),
+                Item::Given(b) => Item::Owned(b.to_vec()),
+                Item::Owned(b) => Item::Owned(b),
+            },
+            hash: self.hash,
+        }
+    }
+}
+
+/// What the blocks of puts a writer put so far of one producer's block or group pushed ([TapeWriter::put_block]).
+#[derive(Clone, Debug, Default)]
+struct BlockSeen {
+    /// The definitions pushed
+    slots: BTreeSet<Slot>,
+    /// The hash of the newest record of each state track
+    newest: alloc::collections::BTreeMap<TrackNum, ItemHash>,
+}
+
+/// A producer's group of puts a writer holds until its last block ([TapeWriter::put_block]).
+#[derive(Clone, Debug, Default)]
+struct RelayGroup {
+    /// The records of its blocks so far, to put
+    cands: Vec<Candidate<'static>>,
+    /// Its blocks so far, at most [RUN_BLOCKS_MAX](crate::RUN_BLOCKS_MAX)
+    blocks: usize,
+    /// The bytes of the records' items so far, at most [GROUP_BYTES_MAX]
+    bytes: usize,
+    seen: BlockSeen,
 }
 
 /// The records of `cands` that `chosen` marks, in order.

@@ -870,6 +870,11 @@ items may take more blocks than its bytes say, and the writer refuses it whole.
 `PieceChain::put_group` cuts before a group that the piece has no room for and puts it whole into the next piece.
 No cut falls inside a group, nor a checkpoint or a deferred block.
 
+A relay (`TapeWriter::relay_block`) holds a producer's group from its first block to its last, then puts its
+records as one group. A cut carries the group held to the next piece. The rest of a group whose first block the relay
+didn't see is passed over. A block that tears the group drops it: another group's first block, or a block that isn't
+a group's.
+
 A crash inside a group leaves a run of marked blocks at the end of the piece. The resume drops it and names it in
 `Resumed::dropped_run`, and the application gives the group again. The group given again writes the bytes the run
 without the crash has.

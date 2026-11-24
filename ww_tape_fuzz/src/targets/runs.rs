@@ -5,7 +5,8 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use ww_tape::{
-    GroupPut, Medium, MemSink, OpenOptions, PieceTapes, Slot, TapeReader, TapeSink, TapeWriter,
+    FLAG_GROUP, FLAG_GROUP_START, FLAG_WITH_NEXT, FileBlocks, GroupPut, Medium, MemSink,
+    OpenOptions, PieceTapes, Recovery, Slot, TapeReader, TapeSink, TapeWriter,
 };
 use ww_tape_fs::follow::{ChainFollower, FollowError, FollowOptions};
 
@@ -165,9 +166,56 @@ fn damaged(
 /// `tape-runs-hostile`: every reader of a run template under attack keeps to the invariants of a run.
 ///
 /// The attacks ([hostile::runs]) take marks away or add them behind good CRCs, damage, zero or cut inside runs, and
-/// make a run longer than a writer makes.
+/// make a run longer than a writer makes. A relay of the blocks that read writes groups only whole.
 pub fn runs_hostile(data: &[u8]) {
-    invariants(&hostile::runs(data));
+    let f = hostile::runs(data);
+    invariants(&f);
+    relayed(&f);
+}
+
+/// The blocks of `f` that read, passed on by a relay ([TapeWriter::relay_block]): the relay writes each group of
+/// puts whole, so its tape keeps to the invariants and every group in it starts with a block marked
+/// [FLAG_GROUP_START] and ends with an unmarked one.
+fn relayed(f: &[u8]) {
+    let o = hostile::state_options();
+    let mut w = TapeWriter::create_on(MemSink::new(), o.sync);
+    w.set_index_policy(o.index).expect("a policy");
+    w.set_near_policy(o.near);
+    w.set_layout(o.layout).expect("a layout");
+    w.set_producer(&o.producer);
+    let tape = w.sink().tape();
+    let (mut defs, _) = hostile::state_definitions(None);
+    let mut rd = FileBlocks::with_recovery(f, Recovery::Resync);
+    while let Some(b) = rd.next_block() {
+        let Ok(b) = b else { continue };
+        // a block the relay refuses is the producer's fault; the relay goes on
+        _ = w.relay_block(&mut defs, b.bytes());
+    }
+    _ = w.sync();
+    drop(w);
+    let out = tape.to_vec().expect("the bytes");
+    invariants(&out);
+    let mut rd = FileBlocks::with_recovery(&out[..], Recovery::Prefix);
+    let mut in_group = false;
+    while let Some(Ok(b)) = rd.next_block() {
+        if b.flags & FLAG_GROUP == 0 {
+            assert!(
+                !in_group,
+                "a block at {} inside a relayed group",
+                rd.offset()
+            );
+            continue;
+        }
+        let start = b.flags & FLAG_GROUP_START != 0;
+        assert_eq!(
+            start,
+            !in_group,
+            "a relayed group's block at {} starts it",
+            rd.offset()
+        );
+        in_group = b.flags & FLAG_WITH_NEXT != 0;
+    }
+    assert!(!in_group, "a relayed group ends whole");
 }
 
 /// `tape-runs`: groups of puts the input sizes, cut at a byte the input picks, read whole or not at all.
