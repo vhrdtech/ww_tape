@@ -532,7 +532,7 @@ fn decode(kernel: Kernel, src: &[u8], width: u8, base: i64, slope: i64, out: &mu
         }),
         #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
         Kernel::Neon if width > 0 => with_reach(src, neon::reach(width), |s| {
-            neon::decode(s, width, base, slope, out)
+            neon::decode(s, width, base, slope, out);
         }),
         _ => {
             let mut r = [0u32; GROUP];

@@ -10,7 +10,13 @@
 #![warn(clippy::undocumented_unsafe_blocks)]
 
 use super::{GROUP, mask32};
-use core::arch::aarch64::*;
+use core::arch::aarch64::{
+    int32x4_t, int64x2_t, int64x2x4_t, uint8x16_t, uint8x16x2_t, uint32x4_t, uint32x4x2_t,
+    vaddq_s64, vaddw_high_u32, vaddw_u32, vandq_u32, vdupq_n_s64, vdupq_n_u32, vget_low_u32,
+    vld1q_s32, vld1q_s64, vld1q_u8, vld1q_u8_x2, vorrq_u32, vqtbl2q_u8, vreinterpretq_s64_u64,
+    vreinterpretq_u32_u8, vreinterpretq_u64_s64, vshlq_u32, vsraq_n_s64, vst1q_s64_x4,
+    vst1q_u32_x2,
+};
 
 /// Values per step.
 const STEP: usize = 8;
@@ -182,9 +188,9 @@ unsafe fn steps(src: &[u8], w: u8, f: impl FnMut(usize, uint32x4_t, uint32x4_t))
     // SAFETY: the caller's contract.
     unsafe {
         if t.hi_needed {
-            steps_with::<true>(src, w, t, f)
+            steps_with::<true>(src, w, t, f);
         } else {
-            steps_with::<false>(src, w, t, f)
+            steps_with::<false>(src, w, t, f);
         }
     }
 }
