@@ -121,6 +121,8 @@ pub enum EncodeError {
     Summary(BuildError),
     /// The flag runs of a series chunk.
     FlagRuns(ww_tape::FlagRunsError),
+    /// A grid tile's space overviews.
+    Overview(ww_tape_summary::overview::OverviewError),
 }
 
 impl core::fmt::Display for EncodeError {
@@ -131,6 +133,7 @@ impl core::fmt::Display for EncodeError {
             Self::Samples(e) => write!(f, "encoding samples: {e}"),
             Self::Summary(e) => write!(f, "building summaries: {e}"),
             Self::FlagRuns(e) => write!(f, "encoding flag runs: {e}"),
+            Self::Overview(e) => write!(f, "building overviews: {e}"),
         }
     }
 }
@@ -143,6 +146,7 @@ impl core::error::Error for EncodeError {
             Self::Samples(e) => Some(e),
             Self::Summary(e) => Some(e),
             Self::FlagRuns(e) => Some(e),
+            Self::Overview(e) => Some(e),
         }
     }
 }

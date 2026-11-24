@@ -600,6 +600,20 @@ impl<T: PieceStore> PieceChain<T> {
         self.write_chunk_as(defs, head, columns, Some(payload_hash))
     }
 
+    /// A chunk that belongs in the piece of the chunk written before it, as a grid tile chunk's overview chunks do
+    /// ([grid](crate::grid#overviews)): no cut by the policy comes before it, so a resumed piece that kept a chunk
+    /// holds its followers or lost them, never has them in the next piece. With the hash of its payload given or
+    /// not, as [Self::write_chunk_hashed] and [Self::write_chunk].
+    pub fn write_follower(
+        &mut self,
+        defs: &Definitions,
+        head: &ChunkHead,
+        columns: &[(ColumnSpec, &[u8])],
+        payload_hash: Option<[u8; 32]>,
+    ) -> Result<ChunkPlaced, WriteError<T::Error>> {
+        self.place_chunk(defs, head, columns, payload_hash)
+    }
+
     fn write_chunk_as(
         &mut self,
         defs: &Definitions,
@@ -610,6 +624,17 @@ impl<T: PieceStore> PieceChain<T> {
         if self.cut_due() {
             self.cut_for(defs, head.track_number)?;
         }
+        self.place_chunk(defs, head, columns, payload_hash)
+    }
+
+    /// Write a chunk into the current piece, or the next when its definitions fit no room left.
+    fn place_chunk(
+        &mut self,
+        defs: &Definitions,
+        head: &ChunkHead,
+        columns: &[(ColumnSpec, &[u8])],
+        payload_hash: Option<[u8; 32]>,
+    ) -> Result<ChunkPlaced, WriteError<T::Error>> {
         let Placed { offset, len, unit } = self.with_room(defs, |w| match payload_hash {
             Some(h) => w.write_chunk_hashed(defs, head, columns, h),
             None => w.write_chunk(defs, head, columns),

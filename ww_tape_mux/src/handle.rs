@@ -109,8 +109,11 @@ impl<T: PieceStore> Sender<T> {
     /// Keep the buffers of a unit not sent.
     fn recycle(&self, work: Option<Work<T>>) {
         match work {
-            Some(Work::Chunk { columns, .. }) => columns
+            Some(Work::Chunk {
+                columns, overviews, ..
+            }) => columns
                 .into_iter()
+                .chain(overviews.into_iter().flat_map(|o| o.columns))
                 .for_each(|(_, b)| self.slot.give_back(b)),
             Some(Work::Block { block, .. }) => self.slot.give_back(block),
             Some(Work::Put { item, .. }) => self.slot.give_back(item),
@@ -311,6 +314,7 @@ impl<T: PieceStore> ChunkSender<T> {
             columns,
             hash,
             summary: None,
+            overviews: Vec::new(),
         };
         Ok((work, u64::try_from(bytes).unwrap_or(u64::MAX)))
     }

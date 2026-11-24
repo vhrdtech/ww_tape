@@ -62,6 +62,8 @@ pub(crate) enum Work<T: PieceStore> {
         hash: Option<[u8; 32]>,
         /// The leaves of the track's summaries the handle computed
         summary: Option<Box<ChunkSummary>>,
+        /// A grid tile chunk's overview chunks, placed right after it in the same piece
+        overviews: Vec<Follower>,
     },
     Block {
         from: Arc<Slot<T::Error>>,
@@ -120,6 +122,14 @@ pub(crate) enum Work<T: PieceStore> {
     },
     /// The mux dropped: place what came before, leave the piece unclosed.
     Stop,
+}
+
+/// A chunk placed right after the chunk of its unit, in the same piece: a grid tile chunk's overview.
+pub(crate) struct Follower {
+    pub head: ChunkHead,
+    pub columns: Vec<(ColumnSpec, Vec<u8>)>,
+    /// As [Work::Chunk]'s hash
+    pub hash: Option<[u8; 32]>,
 }
 
 impl<T: PieceStore> Work<T> {

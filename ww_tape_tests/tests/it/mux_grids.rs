@@ -491,7 +491,8 @@ fn a_tile_step_over_a_chunk_or_a_block_is_refused() {
         mux_ok.grid::<i32>(track, edge),
         Err(MuxError::Call(CallError::StepTooLarge { bytes, .. })) if bytes == Bytes::new(2048)
     ));
-    // 2^24 cells of 8 bytes: 128 MiB a step, more than a block
+    // 2^24 cells of 8 bytes: 128 MiB a step, more than a block; its level-1 overview, three columns of half the
+    // cells, is the larger chunk at 192 MiB
     let big = GridOptions {
         chunk_bytes: Bytes::new(u32::MAX),
         ..grid_options(10)
@@ -499,7 +500,7 @@ fn a_tile_step_over_a_chunk_or_a_block_is_refused() {
     assert_eq!(
         refusal(&[(1 << 24, 1 << 24)], None, big),
         CallError::StepTooLarge {
-            bytes: Bytes::new(1 << 27),
+            bytes: Bytes::new(3 << 26),
             max: Bytes::new(MAX_BLOCK_LEN as u64)
         }
     );

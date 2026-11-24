@@ -14,7 +14,7 @@ use crate::define;
 use crate::error::MuxError;
 use crate::open;
 use crate::queue::Popped;
-use crate::shared::{BlockHow, ClosedTx, Counters, RelayMode, Shared, Slot, Work};
+use crate::shared::{BlockHow, ClosedTx, Counters, Follower, RelayMode, Shared, Slot, Work};
 use crate::summaries::{Added, ChunkSummary, Trees};
 
 /// How the thread ended.
@@ -158,13 +158,45 @@ fn rebuilt<T: PieceStore>(chain: &mut PieceChain<T>, defs: &Definitions, st: &mu
     if shared.failure.get().is_some() {
         return;
     }
-    match st.trees.rebuild(chain, defs, &entries) {
-        Ok(refused) => Counters::add(&shared.counters.refused, refused),
+    let r = st.trees.rebuild(chain, defs, &entries).and_then(|refused| {
+        Counters::add(&shared.counters.refused, refused);
+        rebuild_overviews(chain, defs, &entries, shared.hash_payloads)
+    });
+    match r {
+        Ok(()) => {}
         Err(e) if stops(chain, &e) => {
             shared.fail(e);
         }
         Err(_) => Counters::add(&shared.counters.refused, 1),
     }
+}
+
+/// Write the overview chunks a resumed piece of blocks `entries` lost after the tile chunks it kept, as their handles
+/// made them, hashed with `hash`.
+fn rebuild_overviews<T: PieceStore>(
+    chain: &mut PieceChain<T>,
+    defs: &Definitions,
+    entries: &[IndexEntry],
+    hash: bool,
+) -> Result<(), WriteError<T::Error>> {
+    let lost = {
+        let sink = chain.writer()?.sink();
+        crate::overview::lost_overviews(defs, entries, &mut |e, buf| {
+            crate::summaries::read_block(sink, e, buf).map(|r| r.is_some())
+        })
+        .map_err(ww_tape::sink::sink_err("reading a kept chunk back"))?
+    };
+    let followers: Vec<Follower> = lost
+        .into_iter()
+        .map(|c| Follower {
+            hash: hash.then(|| {
+                ww_tape::piece::columns_payload_hash(c.columns.iter().map(|(_, b)| b.as_slice()))
+            }),
+            head: c.head,
+            columns: c.columns,
+        })
+        .collect();
+    place_followers(chain, defs, &followers)
 }
 
 /// Whether placing `work` writes: it waits for the rebuild of a resumed piece's trees.
@@ -232,6 +264,20 @@ fn place_chunk<T: PieceStore>(
     Ok(())
 }
 
+/// Place the chunks that follow a chunk in its piece, a grid tile chunk's overviews, in order: no cut comes between.
+fn place_followers<T: PieceStore>(
+    chain: &mut PieceChain<T>,
+    defs: &Definitions,
+    followers: &[Follower],
+) -> Result<(), WriteError<T::Error>> {
+    for f in followers {
+        let refs: Vec<(ColumnSpec, &[u8])> =
+            f.columns.iter().map(|(c, b)| (*c, b.as_slice())).collect();
+        chain.write_follower(defs, &f.head, &refs, f.hash)?;
+    }
+    Ok(())
+}
+
 /// Place `work` of `bytes`; the exit when it ends the thread.
 fn place<T: PieceStore>(
     chain: &mut PieceChain<T>,
@@ -252,9 +298,11 @@ fn place<T: PieceStore>(
             columns,
             hash,
             summary,
+            overviews,
         } => {
             if !failed {
-                let r = place_chunk(chain, defs, st, &head, &columns, hash, summary);
+                let r = place_chunk(chain, defs, st, &head, &columns, hash, summary)
+                    .and_then(|()| place_followers(chain, defs, &overviews));
                 let ok = r.is_ok();
                 placed(chain, shared, &from, r, bytes);
                 if ok {
@@ -263,7 +311,10 @@ fn place<T: PieceStore>(
             } else {
                 Counters::add(&shared.counters.lost, 1);
             }
-            for (_, buf) in columns {
+            for (_, buf) in columns
+                .into_iter()
+                .chain(overviews.into_iter().flat_map(|o| o.columns))
+            {
                 from.give_back(buf);
             }
         }

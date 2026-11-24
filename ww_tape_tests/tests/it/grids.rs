@@ -237,6 +237,51 @@ fn coordinates_outside_the_grid_are_refused() {
     }
 }
 
+/// An overview chunk of a level past its grid's levels is refused before anything is written: a tile extent of 3
+/// halves no time.
+#[test]
+fn an_overview_past_the_grid_levels_is_refused() {
+    let axes = axes(&EXTENTS);
+    let track = grid_track(&axes);
+    let id = track.id();
+    let mut defs = ww_tape::Definitions::new();
+    crate::definitions::hold(&mut defs, &[clock(CLOCK), ww_tape::Describe::Track(track)]).unwrap();
+    let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
+    let stats = [0u8; 4 * STEPS as usize];
+    let columns: Vec<(ColumnSpec, &[u8])> = [
+        ColumnKind::OverviewMin,
+        ColumnKind::OverviewMax,
+        ColumnKind::OverviewMean,
+    ]
+    .into_iter()
+    .map(|kind| {
+        let spec = ColumnSpec {
+            kind,
+            codec: Codec::RAW,
+            param: 0,
+            len: stats.len(),
+        };
+        (spec, &stats[..])
+    })
+    .collect();
+    let h = ww_tape::ChunkHead {
+        level: 1,
+        ..head(id, 0, TileCoords::new(&[0, 0, 0]).unwrap())
+    };
+    let r = w.write_chunk(&defs, &h, &columns);
+    assert!(
+        matches!(
+            r,
+            Err(WriteError::Describe(DescribeError::Kind {
+                error: SeriesError::LevelOutside { level: 1, .. },
+                ..
+            }))
+        ),
+        "{r:?}"
+    );
+    assert_eq!(w.chunks(), 0);
+}
+
 /// The tiles a box query must find: every chunk whose ticks meet `time` and whose tile lies in the box, found by
 /// reading every chunk's head.
 fn by_heads(

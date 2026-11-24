@@ -13,6 +13,7 @@ benchmarks, golden files and book pages.
 - Column kinds 9, 10 and 11 hold overview min, max and mean, only in overview chunks (FMT-15).
 - `TileLayout` carries the downsampled axes: `grid_tiles` refuses a box whose layout lacks the definition's (FMT-15).
 - `SeriesError` gains `LevelOutside`: a writer refuses an overview level past the grid's levels (FMT-15).
+- A grid with downsampled axes and even tile extents gets overview chunks; `CallError::StepTooLarge` counts them (FMT-15).
 
 ### Features
 
@@ -20,6 +21,8 @@ benchmarks, golden files and book pages.
 - `Overview` reads an overview chunk's min, max and mean columns in place (FMT-15).
 - `grid_tiles` finds the overview chunks of the level its box's layout is of (FMT-15).
 - `OverviewCells` halves a tile's cells level by level: min, max and means rounded ties to even (FMT-15).
+- `GridHandle` writes each tile chunk's overview chunks after it; a resumed mux writes those a crash lost (FMT-15).
+- `PieceChain::write_follower` writes a chunk into the piece of the chunk before it, no cut between (FMT-15).
 
 ## [0.8.1] - 2026-11-24
 
