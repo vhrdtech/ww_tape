@@ -6,12 +6,29 @@ benchmarks, golden files and book pages.
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-11-24
+
 ### Features
 
 - The book explains grids in "Fields and images over time", with `example_thermal` and `example_images` as tested cases (BOOK-5).
+- `ChainFollower::track_of` and `TrackItems::owned` follow one owner's track; `ChainFollower::owner` names the piece's owner (READ-6).
+- `ChunkSender::send_placed` gives a `Placing` receipt: the chunk's piece, offset, length and unit hash once placed (MUX-4).
+- `TapeMux::summarized_chunks` gives a `ChunkSender` whose chunks carry `Leaves`: the mux's summary tree, as a typed handle's (MUX-4).
+- `ChunkSender::event_runs` and `sample_leaves` compute a chunk's leaves on the caller's thread; `EventRuns::fields` names its fields (MUX-4).
+- `TapeMux::put_item` puts a typed item and carries it into later pieces as `ItemCarry` says; `release_item` ends it (MUX-4).
+- `TapeWriter::carried_owners` names the owners of the tracks a piece head carries; `track_owner` names one track's (MUX-4).
+- `Definitions::track_identity` gives a held track's id and owner (READ-6).
 - The book moves to the `vhrd_zensical` kit: renamed extension ids and assets, abbreviations in `docs/abbreviations.toml` (BOOK-6).
 - spirit_level checks the big tier with a crate map of layers; Clippy's pedantic set is on (REPO-86).
 - `Starts` and `Payloads` borrowed iterate in a `for` loop: `IntoIterator` for `&Starts` and `&Payloads` (REPO-86).
+
+### Fixes
+
+- An `ItemCarry::Owner` item follows its owner's first data into a piece whose head carries none of its tracks (MUX-4).
+- Carrying held items never cuts: an item a full piece refuses waits for the next (MUX-4).
+- A `put_item` that cuts carries the held items into the piece it starts (MUX-4).
+- `TapeMux::put_item` refuses an item past `HELD_ITEMS_MAX` or `HELD_ITEM_BYTES_MAX` held, as `CallError::HeldItems` (MUX-4).
+- A second `Placing::try_take` gives None, not a lost placement (MUX-4).
 
 ## [0.9.0] - 2026-11-24
 

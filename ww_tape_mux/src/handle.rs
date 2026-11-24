@@ -4,9 +4,14 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 
 use ww_tape::chunk::ChunkHead;
-use ww_tape::{Block, BlockKind, ColumnSpec, PieceStore, TrackFacts, TrackNum};
+use ww_tape::{
+    Block, BlockKind, ColumnSpec, ItemNum, PieceStore, Sample, SeriesGrid, TrackFacts, TrackNum,
+};
+use ww_tape_summary::{BuildError, EventRuns, Scalar};
 
 use crate::error::{CallError, MuxError};
+use crate::leaves::{Leaves, SampleLeaves, SummaryOf};
+use crate::placing::{PlacedTx, Placing};
 use crate::queue::Pushed;
 use crate::reply::reply;
 use crate::shared::{BlockHow, RelayMode, Shared, Slot, Work};
@@ -239,13 +244,20 @@ pub struct ChunkSender<T: PieceStore> {
     s: Sender<T>,
     track: TrackNum,
     kind: BlockKind,
+    /// The track's tree, for a summarized sender ([crate::TapeMux::summarized_chunks])
+    summary: Option<SummaryOf>,
 }
 
 common!(ChunkSender);
 buffered!(ChunkSender);
 
 impl<T: PieceStore> ChunkSender<T> {
-    pub(crate) fn new(shared: Arc<Shared<T>>, track: TrackNum, facts: &TrackFacts) -> Self {
+    pub(crate) fn new(
+        shared: Arc<Shared<T>>,
+        track: TrackNum,
+        facts: &TrackFacts,
+        summary: Option<SummaryOf>,
+    ) -> Self {
         let kind = match facts.period {
             Some(_) => BlockKind::Series,
             None => BlockKind::Events,
@@ -254,6 +266,32 @@ impl<T: PieceStore> ChunkSender<T> {
             s: Sender::new(shared, Some(track)),
             track,
             kind,
+            summary,
+        }
+    }
+
+    /// Whether the sender's chunks go into the track's summary tree with the leaves sent with them.
+    pub fn is_summarized(&self) -> bool {
+        self.summary.is_some()
+    }
+
+    /// Runs of the items of a summarized events track from `first_item` on, of the fields its tree has: fed the
+    /// items as they come, they give each chunk's [Leaves]. None for a sender without summaries or of a series.
+    pub fn event_runs(&self, first_item: ItemNum) -> Option<EventRuns> {
+        self.summary.and_then(|s| s.event_runs(first_item))
+    }
+
+    /// Leaves of the samples of one chunk of a summarized series, from time step `first_item` on, on `grid`, as a
+    /// [GridHandle](crate::GridHandle) computes them: [Leaves::series] once the chunk's samples are in. None for a
+    /// sender without summaries, of an events track or of samples of another scalar.
+    pub fn sample_leaves<S: Scalar + Sample>(
+        &self,
+        first_item: ItemNum,
+        grid: SeriesGrid,
+    ) -> Result<Option<SampleLeaves<S>>, BuildError> {
+        match self.summary {
+            Some(s) => s.sample_leaves(first_item, grid),
+            None => Ok(None),
         }
     }
 
@@ -263,13 +301,14 @@ impl<T: PieceStore> ChunkSender<T> {
     }
 
     /// Send a chunk: its head and its columns, each spec's length that of its bytes. A chunk of another track or
-    /// kind, or a column whose length is off, is refused before it is sent ([CallError]).
+    /// kind, or a column whose length is off, is refused before it is sent ([CallError]); so is any chunk of a
+    /// summarized sender, whose chunks go with their leaves ([Self::send_placed]).
     pub fn send(
         &self,
         head: ChunkHead,
         columns: Vec<(ColumnSpec, Vec<u8>)>,
     ) -> Result<Sent, MuxError<T::Error>> {
-        let (work, bytes) = self.unit(Box::new(head), columns)?;
+        let (work, bytes) = self.unit(Box::new(head), columns, None)?;
         self.s.send(work, bytes)
     }
 
@@ -279,8 +318,45 @@ impl<T: PieceStore> ChunkSender<T> {
         head: ChunkHead,
         columns: Vec<(ColumnSpec, Vec<u8>)>,
     ) -> Result<Sent, MuxError<T::Error>> {
-        let (work, bytes) = self.unit(Box::new(head), columns)?;
+        let (work, bytes) = self.unit(Box::new(head), columns, None)?;
         self.s.send_async(work, bytes).await
+    }
+
+    /// [Self::send], with a receipt that gives where the chunk was placed ([Placement](crate::Placement)) once it
+    /// is; None when the chunk was dropped for want of room ([Pressure::Drop]). A reader in this process reads the
+    /// chunk back from its piece at the placement, before the chain is synced.
+    ///
+    /// A summarized sender's chunk comes with its `leaves`, computed as the sender's [Self::event_runs] or
+    /// [Self::sample_leaves] give them; a sender without summaries takes none ([CallError::WrongLeaves]).
+    pub fn send_placed(
+        &self,
+        head: ChunkHead,
+        columns: Vec<(ColumnSpec, Vec<u8>)>,
+        leaves: Option<Leaves>,
+    ) -> Result<Option<Placing>, MuxError<T::Error>> {
+        block_on(self.send_placed_async(head, columns, leaves))
+    }
+
+    /// [Self::send_placed] as a future, waiting for room by waker. Dropped while it waits, the chunk is not sent.
+    pub async fn send_placed_async(
+        &self,
+        head: ChunkHead,
+        columns: Vec<(ColumnSpec, Vec<u8>)>,
+        leaves: Option<Leaves>,
+    ) -> Result<Option<Placing>, MuxError<T::Error>> {
+        let (tx, placing) = Placing::new();
+        let (mut work, bytes) = self.unit(Box::new(head), columns, Some(tx))?;
+        if let Work::Chunk { head, summary, .. } = &mut work {
+            *summary = match (self.summary, leaves) {
+                (Some(s), Some(l)) => Some(Box::new(s.summary(l, head)?)),
+                (None, None) => None,
+                _ => return Err(CallError::WrongLeaves.into()),
+            };
+        }
+        Ok(match self.s.send_async(work, bytes).await? {
+            Sent::Queued => Some(placing),
+            Sent::Dropped => None,
+        })
     }
 
     /// The unit of a chunk checked as [Self::send] says, its payload hashed.
@@ -288,6 +364,7 @@ impl<T: PieceStore> ChunkSender<T> {
         &self,
         head: Box<ChunkHead>,
         columns: Vec<(ColumnSpec, Vec<u8>)>,
+        placed: Option<PlacedTx>,
     ) -> Result<(Work<T>, u64), MuxError<T::Error>> {
         if head.track_number != self.track {
             return Err(CallError::WrongTrack {
@@ -302,6 +379,10 @@ impl<T: PieceStore> ChunkSender<T> {
         if columns.iter().any(|(c, b)| c.len != b.len()) {
             return Err(CallError::ColumnLength.into());
         }
+        // a summarized sender's chunk goes with its leaves: send_placed sets them
+        if self.summary.is_some() && placed.is_none() {
+            return Err(CallError::WrongLeaves.into());
+        }
         let specs: Vec<ColumnSpec> = columns.iter().map(|(c, _)| *c).collect();
         let bytes = ww_tape::chunk::chunk_len(&head, &specs, 0);
         // the payload hashed here, on the producer's thread, not on the writing thread
@@ -315,6 +396,7 @@ impl<T: PieceStore> ChunkSender<T> {
             hash,
             summary: None,
             overviews: Vec::new(),
+            placed,
         };
         Ok((work, u64::try_from(bytes).unwrap_or(u64::MAX)))
     }

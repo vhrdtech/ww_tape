@@ -243,7 +243,7 @@ pub(crate) struct Rigged {
 pub(crate) struct Rig {
     open: Mutex<bool>,
     opened: Condvar,
-    fail: AtomicBool,
+    pub(crate) fail: AtomicBool,
     writes: AtomicU64,
 }
 

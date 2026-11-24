@@ -155,6 +155,7 @@ impl<T: PieceStore, E: Encoder> Open<T, E> {
                 hash,
                 summary: s.summary.map(Box::new),
                 overviews,
+                placed: None,
             };
             any = true;
             out((work, u64::try_from(bytes).unwrap_or(u64::MAX)));

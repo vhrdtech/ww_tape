@@ -518,7 +518,7 @@ impl<S: TapeSink> TapeWriter<S> {
     fn new_tracks(&self, defs: &Definitions, tracks: &[TrackNum]) -> BTreeSet<TrackIdent> {
         tracks
             .iter()
-            .filter_map(|n| defs.track_key(*n))
+            .filter_map(|n| defs.track_identity(*n))
             .map(|(id, owner)| (id, OwnerId(owner)))
             .filter(|k| !self.indexer.has_row(k))
             .collect()
@@ -867,7 +867,7 @@ impl<S: TapeSink> TapeWriter<S> {
         rows.iter()
             .filter_map(|r| {
                 let key = (r.track_id, r.owner);
-                (defs.track_key(r.track_number) == Some((key.0, key.1.0))).then_some(())?;
+                (defs.track_identity(r.track_number) == Some((key.0, key.1.0))).then_some(())?;
                 let policy = defs.track(r.track_number)?.state?;
                 let state = self.kept.get(r.track_number, key)?;
                 Some((r.track_number, (policy, state)))
@@ -916,6 +916,36 @@ impl<S: TapeSink> TapeWriter<S> {
     pub fn want(&mut self, tracks: &[TrackNum]) {
         self.wanted.clear();
         self.wanted.extend_from_slice(tracks);
+    }
+
+    /// The owners of the tracks whose definitions the piece head carries ([TrackStart::not_carried] not set), each
+    /// once, ascending; a track of all-zero owner counts as the piece's own owner's. Empty without a head.
+    pub fn carried_owners(&self, defs: &Definitions) -> Vec<OwnerId> {
+        let rows: Vec<TrackStart> = self
+            .head_rows()
+            .iter()
+            .filter(|r| !r.not_carried)
+            .copied()
+            .collect();
+        let owners: BTreeSet<OwnerId> = carried::numbers(defs, &rows)
+            .into_iter()
+            .filter_map(|n| self.track_owner(defs, n))
+            .collect();
+        owners.into_iter().collect()
+    }
+
+    /// The owner of track `number` held in `defs`: its [TrackDef::owner](crate::TrackDef::owner), the piece's own
+    /// owner when that is all zeros ([OwnerId::NONE] without a head). None when `defs` holds no such track.
+    pub fn track_owner(&self, defs: &Definitions, number: TrackNum) -> Option<OwnerId> {
+        let (_, o) = defs.track_identity(number)?;
+        if o != [0; 32] {
+            return Some(OwnerId(o));
+        }
+        Some(
+            self.head
+                .as_ref()
+                .map_or(OwnerId::NONE, |(h, _)| h.ident.owner),
+        )
     }
 
     /// The rows of the piece head this writer wrote or resumed after; none without a head.
@@ -1657,7 +1687,7 @@ impl<S: TapeSink> TapeWriter<S> {
         from: u64,
     ) -> Result<(), WriteError<S::Error>> {
         self.check()?;
-        let (Some(facts), Some((id, _))) = (defs.track(track), defs.track_key(track)) else {
+        let (Some(facts), Some((id, _))) = (defs.track(track), defs.track_identity(track)) else {
             return Err(WriteError::Describe(DescribeError::UnknownTrack { track }));
         };
         let monotone = (facts.stored & facts.monotone).contains(relation);
@@ -2460,7 +2490,7 @@ impl<S: TapeSink> TapeWriter<S> {
         let states_unknown = tracks
             .iter()
             .filter(|t| !t.not_carried && !states.contains_key(&t.track_number))
-            .filter(|t| defs.track_key(t.track_number) == Some((t.track_id, t.owner.0)))
+            .filter(|t| defs.track_identity(t.track_number) == Some((t.track_id, t.owner.0)))
             .filter(|t| {
                 defs.track(t.track_number)
                     .is_some_and(|f| f.state.is_some())
