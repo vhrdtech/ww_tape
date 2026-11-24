@@ -2494,6 +2494,8 @@ would pass one:
 | `DEFERRED_BYTES_MAX` | 1 MiB | the deferred blocks a writer keeps before it writes them out |
 | `UNIT_CHUNKS_MAX` | 17 | the chunks of one unit a writer writes or relays: a tile chunk and its overviews |
 | `RUN_BLOCKS_MAX` | 4096 | the blocks of one run marked `FLAG_WITH_NEXT` and the block it belongs with, a writer writes or a follower holds |
+| `RELAY_GROUPS_MAX` | 16 | the producers whose groups of puts a relay holds at once |
+| `RELAY_HELD_BYTES_MAX` | 128 MiB | the bytes of items of the groups of puts a relay holds at once |
 | `VERIFY_LISTS_MAX` | 466432 | the track lists of a final index one verify takes |
 | `TRACKS_PER_PIECE_MAX` | 466430 | the tracks with data in one piece, so its close fits a block |
 | `HEAD_TRACKS_MAX` | 699006 | the tracks a piece head carries over the chain, so the head fits a block |
