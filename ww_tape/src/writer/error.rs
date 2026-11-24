@@ -85,6 +85,22 @@ pub enum InputError {
     /// [TapeWriter::write_chunk_unit](super::TapeWriter::write_chunk_unit), that would make a unit longer than `max`
     /// chunks ([UNIT_CHUNKS_MAX](super::UNIT_CHUNKS_MAX)). Nothing is written.
     UnitTooLong { max: usize },
+    /// A group of puts ([TapeWriter::put_group](super::TapeWriter::put_group)) the writer refuses: see
+    /// [GroupRefusal].
+    Group(GroupRefusal),
+    /// A call that would make a run of blocks marked [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT) and the block they
+    /// belong with longer than `max` blocks ([RUN_BLOCKS_MAX](crate::RUN_BLOCKS_MAX)). Nothing is written.
+    RunTooLong { max: usize },
+}
+
+/// Why [TapeWriter::put_group](super::TapeWriter::put_group) refuses a group ([InputError::Group]); nothing is written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum GroupRefusal {
+    /// The group's items take `len` bytes, more than [GROUP_BYTES_MAX](super::GROUP_BYTES_MAX) (`max`).
+    TooLong { len: usize, max: usize },
+    /// The group puts on track `track` twice: a slot takes one item per group.
+    SlotTwice { track: crate::TrackNum },
 }
 
 /// Why [TapeWriter::record_removed](super::TapeWriter::record_removed) refuses removed pieces ([InputError::Removed]).
@@ -265,6 +281,17 @@ impl core::fmt::Display for InputError {
             ),
             Self::UnitTracks => f.write_str("a unit of chunks of more than one track"),
             Self::UnitTooLong { max } => write!(f, "a unit of more than {max} chunks"),
+            Self::RunTooLong { max } => write!(
+                f,
+                "a run of blocks belonging with the next of more than {max} blocks"
+            ),
+            Self::Group(GroupRefusal::TooLong { len, max }) => write!(
+                f,
+                "a group of puts of {len} bytes of items: a group holds at most {max}"
+            ),
+            Self::Group(GroupRefusal::SlotTwice { track }) => {
+                write!(f, "a group of puts names track {track:?} twice")
+            }
             Self::SummaryTooLong { len, max } => write!(
                 f,
                 "a close's summary of {len} bytes: it holds at most {max}"

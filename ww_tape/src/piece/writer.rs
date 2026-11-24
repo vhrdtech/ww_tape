@@ -541,6 +541,17 @@ impl<T: PieceStore> PieceChain<T> {
         self.with_room(defs, |w| w.put(defs, track, ticks, item))
     }
 
+    /// Put a group of state tracks' items, taken whole or not at all ([TapeWriter::put_group]). When the piece has no
+    /// room for the group's state entries, the chain cuts before it and puts it whole in the new piece: never a cut
+    /// inside it.
+    pub fn put_group(
+        &mut self,
+        defs: &Definitions,
+        puts: &[crate::GroupPut<'_>],
+    ) -> Result<Vec<bool>, WriteError<T::Error>> {
+        self.with_room(defs, |w| w.put_group(defs, puts))
+    }
+
     /// Put a typed item ([TapeWriter::put_item]).
     pub fn put_item(
         &mut self,

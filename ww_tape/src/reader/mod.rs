@@ -341,6 +341,12 @@ pub struct PieceInfo {
     /// Blocks a scan took in place of the block before them: the same session and seq with other bytes (the later
     /// copy wins); their offsets. A copy with the same bytes is dropped silently.
     pub replaced: Vec<u64>,
+    /// Runs of blocks marked [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT) a scan met without the block they belong with
+    /// after them: offset and length of each. A crash inside a group of puts
+    /// ([TapeWriter::put_group](crate::TapeWriter::put_group)) or a unit of chunks leaves one at the end of the
+    /// piece; damage, a gap or a piece's end met inside a run leave one too. The scan lists none of their blocks in
+    /// [TapeReader::entries], so a lookup takes a run whole or not at all.
+    pub dropped_runs: Vec<(u64, u64)>,
     /// The format version of a piece of another one: its first block met is good and of that version, and the
     /// stretch from it to the end of the scan is read no further ([ReadError::Version] from every lookup).
     pub version: Option<u8>,
@@ -390,6 +396,7 @@ impl PieceInfo {
             cut: None,
             gaps: Vec::new(),
             replaced: Vec::new(),
+            dropped_runs: Vec::new(),
             version: None,
             entries: Some(Vec::new()),
             cut_walk: None,
@@ -1102,6 +1109,9 @@ impl<S: ByteSource> TapeReader<S> {
         piece.end = piece.end.max(from);
         // offset in the piece of the last block taken that is in the seq order: the one a replacement replaces
         let mut last_counted: Option<u64> = None;
+        // the blocks marked FLAG_WITH_NEXT since the last block taken without it: listed with the block they belong
+        // with, dropped when anything else ends the run
+        let mut run: Option<HeldRun> = None;
         while at < hi {
             let mut replaces = false;
             let got = self.good_block(at, hi)?;
@@ -1132,6 +1142,7 @@ impl<S: ByteSource> TapeReader<S> {
                 if replaces {
                     piece.replaced.pop();
                 }
+                drop_run(&mut piece, &mut run);
                 if piece.end > piece.start {
                     set_scanned(&mut piece, since(at, from));
                     piece.settle_close();
@@ -1148,6 +1159,7 @@ impl<S: ByteSource> TapeReader<S> {
                 if let Some(next) = self.past_gap(at, hi, &walk)?
                     && let Some(len) = next.checked_sub(at)
                 {
+                    drop_run(&mut piece, &mut run);
                     piece.gaps.push((at, len));
                     at = next;
                     continue;
@@ -1165,16 +1177,22 @@ impl<S: ByteSource> TapeReader<S> {
             };
             let block = ob.block();
             walk.take(&block);
-            if replaces
-                && let Some(gone) = last_counted
-                && let Some(list) = piece.entries.as_mut()
-            {
-                list.retain(|e| e.offset != gone);
+            if replaces && let Some(gone) = last_counted {
+                if let Some(list) = piece.entries.as_mut() {
+                    list.retain(|e| e.offset != gone);
+                }
+                if let Some(r) = run.as_mut() {
+                    r.entries.retain(|e| e.offset != gone);
+                }
             }
             // the piece starts at or before every block of it the scan takes
             let in_piece = at.checked_sub(piece.start);
             if !is_free(&block) {
                 last_counted = in_piece;
+            }
+            if crate::index::is_structural(block.kind) {
+                // a block a run never holds: the run ended without the block it belongs with
+                drop_run(&mut piece, &mut run);
             }
             match block.kind {
                 BlockKind::PieceHead if at != piece.start => {
@@ -1209,10 +1227,25 @@ impl<S: ByteSource> TapeReader<S> {
                     at = end;
                     continue;
                 }
+                _ if block.flags & crate::FLAG_WITH_NEXT != 0 => {
+                    let r = run.get_or_insert_with(|| HeldRun {
+                        at,
+                        end,
+                        entries: Vec::new(),
+                    });
+                    r.end = end;
+                    if let Some(off) = in_piece {
+                        r.entries.extend(IndexEntry::all_of_block(off, &block));
+                    }
+                }
                 _ => {
+                    let held = run.take();
                     if let Some(off) = in_piece
                         && let Some(list) = piece.entries.as_mut()
                     {
+                        if let Some(h) = held {
+                            list.extend(h.entries);
+                        }
                         list.extend(IndexEntry::all_of_block(off, &block));
                     }
                 }
@@ -1228,6 +1261,7 @@ impl<S: ByteSource> TapeReader<S> {
             at = end;
             piece.end = at;
         }
+        drop_run(&mut piece, &mut run);
         let scanned = since(piece.end.max(at), from);
         set_scanned(&mut piece, scanned);
         piece.settle_close();
@@ -2265,6 +2299,22 @@ fn read_len(left: u64, buf: usize) -> usize {
 fn since(to: u64, from: u64) -> u64 {
     debug_assert!(to >= from, "a scan only goes forward");
     to.saturating_sub(from)
+}
+
+/// The blocks marked [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT) a scan took since the last block without it.
+struct HeldRun {
+    /// Where the run starts and ends in the source
+    at: u64,
+    end: u64,
+    /// The entries of its blocks, listed once the block they belong with is taken
+    entries: Vec<IndexEntry>,
+}
+
+/// End `run` without the block it belongs with: its blocks are listed in [PieceInfo::dropped_runs], not as entries.
+fn drop_run(piece: &mut PieceInfo, run: &mut Option<HeldRun>) {
+    if let Some(r) = run.take() {
+        piece.dropped_runs.push((r.at, r.end.saturating_sub(r.at)));
+    }
 }
 
 fn set_scanned(p: &mut PieceInfo, n: u64) {

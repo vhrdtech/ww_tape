@@ -71,7 +71,7 @@ mod relations;
 pub mod resume;
 mod seal;
 pub use carried::CARRIED_BLOCK_LEN;
-pub use error::{CutError, InputError, RemovedRefusal, ResumeError, WriteError};
+pub use error::{CutError, GroupRefusal, InputError, RemovedRefusal, ResumeError, WriteError};
 pub use kept::KEPT_BYTES_MAX;
 pub use near::NearPolicy;
 use near::Rule;
@@ -198,6 +198,8 @@ pub struct TapeWriter<S: TapeSink> {
     unit_open: bool,
     /// The chunks of the open unit so far, all marked [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT); 0 with none open
     unit_chunks: usize,
+    /// The blocks of the open run so far, all marked [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT); 0 with none open
+    run_blocks: usize,
     last_checkpoint: Option<u64>,
     /// The piece's content hash so far: BLAKE3 of its bytes, each chunk payload by its hash; untouched below
     /// [Integrity::Full]
@@ -352,6 +354,33 @@ pub struct UnitChunk<'a> {
 /// Most bytes of a block of definitions or of puts the writer makes; a longer record gets a block of its own.
 pub const DEFINITION_BLOCK_LEN: usize = 64 << 10;
 
+/// Most bytes of the items of one group of puts ([TapeWriter::put_group]).
+pub const GROUP_BYTES_MAX: usize = 64 << 20;
+
+const _: () = {
+    // a group's puts: a block holds at least half of DEFINITION_BLOCK_LEN of items, or one longer item
+    let group_blocks = 2 * GROUP_BYTES_MAX / DEFINITION_BLOCK_LEN + 1;
+    assert!(
+        group_blocks < crate::RUN_BLOCKS_MAX,
+        "a group of puts fits a run with its definitions"
+    );
+    assert!(
+        2 * UNIT_CHUNKS_MAX < crate::RUN_BLOCKS_MAX,
+        "a unit's chunks fit a run with their puts"
+    );
+};
+
+/// A put of a group ([TapeWriter::put_group]): `item` on state track `track` at `ticks` of its clock.
+#[derive(Copy, Clone, Debug)]
+pub struct GroupPut<'a> {
+    /// The state track.
+    pub track: TrackNum,
+    /// The time of the put, in ticks of the track's clock.
+    pub ticks: i64,
+    /// The item's bytes.
+    pub item: &'a [u8],
+}
+
 /// Most bytes of deferred blocks a [TapeWriter] keeps before writing them out anyway.
 pub const DEFERRED_BYTES_MAX: usize = 1 << 20;
 
@@ -400,6 +429,7 @@ impl<S: TapeSink> TapeWriter<S> {
             index_due: false,
             unit_open: false,
             unit_chunks: 0,
+            run_blocks: 0,
             last_checkpoint: now,
             hash: blake3::Hasher::new(),
             level: Integrity::Full,
@@ -634,6 +664,83 @@ impl<S: TapeSink> TapeWriter<S> {
         self.put_last(&cands)
     }
 
+    /// Put `puts` as one group: a reader takes all of them or none. Each is a put on its state track as [Self::put]
+    /// makes one, the near rule deciding whether it is written; the records written and the definitions they need
+    /// go in blocks of puts one after the other, each but the last marked [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT).
+    /// A crash inside the group leaves a run of marked blocks at the end of the piece, which a resume drops whole
+    /// ([Self::resume_on]); a reader of the piece before the resume and a follower show none of it. Which puts were
+    /// written, one flag each.
+    ///
+    /// The group is checked whole before anything is written: every track a state track of `defs`, each item at
+    /// most [STATE_ITEM_MAX] bytes, no track twice ([GroupRefusal::SlotTwice]), the items at most
+    /// [GROUP_BYTES_MAX] bytes together ([GroupRefusal::TooLong]), and the piece's room for the state entries of all
+    /// it writes ([IndexError::StateEntries]: [crate::PieceChain::put_group] cuts first then, never inside).
+    pub fn put_group(
+        &mut self,
+        defs: &Definitions,
+        puts: &[GroupPut<'_>],
+    ) -> Result<Vec<bool>, WriteError<S::Error>> {
+        self.check()?;
+        let mut tracks = Vec::with_capacity(puts.len());
+        let mut seen = BTreeSet::new();
+        let mut bytes = 0usize;
+        for p in puts {
+            let facts = defs
+                .track(p.track)
+                .ok_or(DescribeError::UnknownTrack { track: p.track })?;
+            facts
+                .state
+                .ok_or(DescribeError::NotState { track: p.track })?;
+            if p.item.len() > STATE_ITEM_MAX {
+                return Err(DescribeError::TooLong { len: p.item.len() }.into());
+            }
+            if !seen.insert(p.track) {
+                return Err(WriteError::Input(InputError::Group(
+                    GroupRefusal::SlotTwice { track: p.track },
+                )));
+            }
+            bytes = bytes.saturating_add(p.item.len());
+            tracks.push(p.track);
+        }
+        if bytes > GROUP_BYTES_MAX {
+            return Err(WriteError::Input(InputError::Group(GroupRefusal::TooLong {
+                len: bytes,
+                max: GROUP_BYTES_MAX,
+            })));
+        }
+        if puts.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.want(&tracks);
+        self.track_room(defs, &tracks)?;
+        let mut cands = self.needed(defs, &tracks);
+        let first = cands.len();
+        for p in puts {
+            let facts = defs
+                .track(p.track)
+                .ok_or(DescribeError::UnknownTrack { track: p.track })?;
+            let policy = facts.state.ok_or(DescribeError::NotState { track: p.track })?;
+            self.work.hash(p.item.len());
+            cands.push(Candidate {
+                slot: Slot::State { track: p.track },
+                rule: self.rule(policy),
+                track: RecordTrack::Data(p.track),
+                at: Some(ClockTime {
+                    clock: facts.clock,
+                    ticks: p.ticks,
+                }),
+                hash: ItemHash::of(p.item),
+                item: Item::Given(p.item),
+            });
+        }
+        self.admit(cands.len())?;
+        self.room(0, !self.head_put)?;
+        self.place_deferred()?;
+        self.ensure_carried(defs)?;
+        let chosen = self.put_chosen(&cands, false)?;
+        Ok(chosen.get(first..).map(<[bool]>::to_vec).unwrap_or_default())
+    }
+
     /// Put the typed item `item` on track 0, after its bundle where `defs` holds it and it doesn't lie close behind:
     /// written unless the same item lies within track 0's `near` ([crate::Layout::definitions]) and no copy is due.
     /// Whether it was written.
@@ -675,17 +782,18 @@ impl<S: TapeSink> TapeWriter<S> {
 
     /// Put `cands` ([Self::choose]); whether the last one was written.
     fn put_last(&mut self, cands: &[Candidate<'_>]) -> Result<bool, WriteError<S::Error>> {
-        self.put_chosen(cands, false)
+        let chosen = self.put_chosen(cands, false)?;
+        Ok(chosen.last().copied().unwrap_or(false))
     }
 
-    /// Put `cands` ([Self::choose]), the last block marked as belonging with the next with `with_next`; whether the
-    /// last one was written.
+    /// Put `cands` ([Self::choose]), the last block marked as belonging with the next with `with_next`; which of
+    /// them were written, one flag each.
     /// Refused with nothing written when the piece has no room for the state entries of those chosen.
     fn put_chosen(
         &mut self,
         cands: &[Candidate<'_>],
         with_next: bool,
-    ) -> Result<bool, WriteError<S::Error>> {
+    ) -> Result<Vec<bool>, WriteError<S::Error>> {
         // a call that needs a definition or puts an item uses the layout and the producer: a copy is due as for a
         // definition, where the piece has room for it
         let copies = if cands.is_empty() {
@@ -704,9 +812,9 @@ impl<S: TapeSink> TapeWriter<S> {
             chosen = self.choose(&all)?;
         }
         self.room(chosen.iter().filter(|c| **c).count(), false)?;
-        let writes = !cands.is_empty() && chosen.last().copied().unwrap_or(false);
         self.write_chosen(&all, &chosen, with_next)?;
-        Ok(writes)
+        let head = chosen.len().saturating_sub(cands.len());
+        Ok(chosen.get(head..).map(<[bool]>::to_vec).unwrap_or_default())
     }
 
     /// How a put of a record of a state track of `policy` decides.
@@ -801,7 +909,7 @@ impl<S: TapeSink> TapeWriter<S> {
 
     /// Before a block of data needing `cands`: put them, belonging with it.
     fn put_needed(&mut self, cands: &[Candidate<'_>]) -> Result<(), WriteError<S::Error>> {
-        self.put_chosen(cands, true).map(|_| ())
+        self.put_chosen(cands, true).map(drop)
     }
 
     /// The blocks of definitions the tracks of head rows `rows` carry ([carried]), as candidates to put, taking at
@@ -1023,6 +1131,8 @@ impl<S: TapeSink> TapeWriter<S> {
             },
         )?;
         let last = blocks.len().saturating_sub(1);
+        let marked = if with_next { blocks.len() } else { last };
+        self.check_run(marked)?;
         for (i, mut b) in blocks.into_iter().enumerate() {
             if i < last || with_next {
                 crate::mark_with_next(&mut b).map_err(WriteError::Block)?;
@@ -1258,6 +1368,12 @@ impl<S: TapeSink> TapeWriter<S> {
             (false, _) => 0,
             (true, true) => self.unit_chunks.saturating_add(1),
             (true, false) => self.unit_chunks,
+        };
+        // a marked block was checked against RUN_BLOCKS_MAX ([Self::check_run]): never near usize::MAX
+        self.run_blocks = if with_next {
+            self.run_blocks.saturating_add(1)
+        } else {
+            0
         };
         self.unit_open = with_next;
         let unit = self.account_hashed(block, header, *crc, payload)?;
@@ -1838,6 +1954,20 @@ impl<S: TapeSink> TapeWriter<S> {
         if with_next && chunk && self.unit_chunks.saturating_add(2) > UNIT_CHUNKS_MAX {
             return Err(WriteError::Input(InputError::UnitTooLong {
                 max: UNIT_CHUNKS_MAX,
+            }));
+        }
+        if with_next {
+            self.check_run(1)?;
+        }
+        Ok(())
+    }
+
+    /// Refuse `marked` more blocks marked [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT) that would make the open run,
+    /// with one block after them, longer than [RUN_BLOCKS_MAX](crate::RUN_BLOCKS_MAX) blocks.
+    fn check_run(&self, marked: usize) -> Result<(), WriteError<S::Error>> {
+        if self.run_blocks.saturating_add(marked).saturating_add(1) > crate::RUN_BLOCKS_MAX {
+            return Err(WriteError::Input(InputError::RunTooLong {
+                max: crate::RUN_BLOCKS_MAX,
             }));
         }
         Ok(())

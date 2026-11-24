@@ -114,6 +114,11 @@ pub struct Resumed {
     /// The state of a close record found without a whole tail after it (a crash in the end of the piece): the piece
     /// was being ended, and is open again.
     pub ended: Option<CloseReason>,
+    /// The run of blocks belonging with a block after them ([FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT)) that the resume
+    /// dropped at the end of what it kept, from [Self::kept_bytes] on: a group of puts
+    /// ([TapeWriter::put_group](super::TapeWriter::put_group)) or a unit of chunks a crash tore, or puts whose block
+    /// of data never came. None when the kept bytes end in a whole run or none.
+    pub dropped_run: Option<core::ops::Range<u64>>,
     /// The layout the piece names, which the options were checked against; None when no layout record was kept.
     pub layout: Option<crate::Layout>,
     /// The last close record kept: the writer writes on after it. A closed piece is written on after its close and
@@ -142,6 +147,7 @@ impl Resumed {
             cut: None,
             entries: Vec::new(),
             ended: None,
+            dropped_run: None,
             layout: None,
             after_close: None,
             numbers: crate::Numbers::new(),
@@ -319,6 +325,9 @@ struct KeptEnd {
     last: u64,
     /// Whether that step is a counted block
     counted: bool,
+    /// The blocks marked [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT) after it: a run the block it belongs with never
+    /// followed
+    run: Option<core::ops::Range<u64>>,
 }
 
 impl KeptEnd {
@@ -326,10 +335,13 @@ impl KeptEnd {
         if let What::Block { flags, .. } = s.what
             && flags & crate::FLAG_WITH_NEXT != 0
         {
+            let start = self.run.as_ref().map_or(s.at, |r| r.start);
+            self.run = Some(start..s.end());
             return;
         }
         self.last = s.end();
         self.counted = s.counted();
+        self.run = None;
     }
 }
 
@@ -988,6 +1000,7 @@ impl<S: TapeSink> TapeWriter<S> {
             cut,
             entries,
             ended,
+            dropped_run: kept.run.clone(),
             layout: named.layout,
             after_close,
             numbers: named.numbers,

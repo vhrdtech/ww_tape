@@ -102,6 +102,7 @@
 //! | [MAX_BLOCK_LEN] | 64 MiB | a block's length |
 //! | [DECODED_BODY_MAX](body::DECODED_BODY_MAX) | 64 MiB - 36 | a coded body's decoded length |
 //! | [LZ4_DECODED_MAX](lz4::LZ4_DECODED_MAX) | 64 MiB | an lz4 column's decoded length |
+//! | [RUN_BLOCKS_MAX] | 4096 | the blocks of one run marked FLAG_WITH_NEXT and the block it belongs with |
 //! | [MAX_BLOCK_CLOCKS] | 16 | the clocks of one block's clock table |
 //! | [MAX_RECORD_HEAD] | 25 | a record head's bytes |
 //! | [MAX_CLOCK_TABLE] | 81 | a clock table's bytes |
@@ -297,8 +298,8 @@ pub use clock::{Clock, ClockRef};
 pub mod writer;
 #[cfg(feature = "alloc")]
 pub use writer::{
-    CARRIED_BLOCK_LEN, Closed, CutError, DEFER_WINDOW, HEAD_ENTRIES, InputError, NearPolicy,
-    Placed, PutWork, RemovedRefusal, ResumeError, Resumed, SealError, Sealed, SyncPolicy,
+    CARRIED_BLOCK_LEN, Closed, CutError, DEFER_WINDOW, GROUP_BYTES_MAX, GroupPut, GroupRefusal,
+    HEAD_ENTRIES, InputError, NearPolicy, Placed, PutWork, RemovedRefusal, ResumeError, Resumed, SealError, Sealed, SyncPolicy,
     TapeWriter, UnitChunk, WriteError, WriterOptions,
 };
 
@@ -334,6 +335,14 @@ pub const FLAG_REPEAT: u16 = 1 << 1;
 /// A writer resumed after a crash drops such blocks at the end of what it keeps, and the call given again writes them
 /// as it did. A reader takes the block as any other; a follower hands it out with the block it belongs to.
 pub const FLAG_WITH_NEXT: u16 = 1 << 2;
+
+/// Most blocks of one run: the blocks marked [FLAG_WITH_NEXT] in a row and the block they belong with.
+///
+/// A writer refuses a call that would make a longer run ([InputError::RunTooLong]): a group of puts
+/// ([TapeWriter::put_group]) of [GROUP_BYTES_MAX] takes at most `2 * GROUP_BYTES_MAX / DEFINITION_BLOCK_LEN + 1`
+/// blocks of puts and a unit [UNIT_CHUNKS_MAX](writer::UNIT_CHUNKS_MAX) chunks, each with its puts, so neither
+/// reaches it. A follower holds a run's places until its last block comes and stops at a longer one.
+pub const RUN_BLOCKS_MAX: usize = 4096;
 /// Header flag on chunk blocks: the payload's CRCs were not computed, set on each chunk a writer of
 /// [Integrity::None] encodes.
 ///
