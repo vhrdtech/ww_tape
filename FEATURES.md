@@ -155,11 +155,11 @@ Clocks, track identity, definitions on track 0, state, what items are and how tr
 
 - 🚧 **TRACK-7 Track and clock numbers given by the definitions**
 
-  An application defines a track or a clock without a number (`TrackSpec`, `ClockSpec`), and `Definitions` gives it the lowest number not taken. The same track identity (key, dimensions, owner) or clock key gets its number back, also after a close. A number never goes to another track or clock. A resume reads the piece's numbers back (`Resumed::numbers`, `Definitions::with_numbers`), and a reader finds a track's number by its id (`DefinitionsAt::track_number`).
+  An application defines a track or a clock without a number (`TrackSpec`, `ClockSpec`), and `Definitions` gives it the lowest number not taken. The same track identity (key, dimensions, owner) or clock key gets its number back, also after a close. A number never goes to another track or clock. A resume reads the numbers back (`Resumed::numbers`, `Definitions::with_numbers`), a chain's from every piece present, counting unread ones (`Resumed::numbers_unread`). A track or clock defined only in a removed piece loses its number, and a reader finds a track's number by its id (`DefinitionsAt::track_number`).
 
-  Open: a chain resume that starts a new piece reads no closed piece, so its numbers start anew.
+  Open: `TapeWriter::resume_on` alone, outside a chain, reads a closed piece's numbers only from its head's puts and after its last close.
 
-  Read more: [Number, key and id](docs/tracks.md#number-key-and-id), [The definitions an application holds](docs/definitions.md#the-definitions-an-application-holds).
+  Read more: [Number, key and id](docs/tracks.md#number-key-and-id), [The definitions an application holds](docs/definitions.md#the-definitions-an-application-holds), `ww_tape_tests/tests/it/chain_numbers.rs`.
 
 ## Writer (`WRITE`)
 

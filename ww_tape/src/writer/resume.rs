@@ -121,9 +121,16 @@ pub struct Resumed {
     /// goes on after them.
     pub after_close: Option<Close>,
     /// Which number stands for which track and clock in the definitions the resume read: the walked blocks, and the
-    /// puts after the head of a piece written on after its close. An application numbers with them
-    /// ([crate::Definitions::with_numbers]), so the tracks and clocks it defines again keep their numbers.
+    /// puts after the head of a piece written on after its close. A chain's resume ([crate::PieceChain::resume_on])
+    /// takes those of its pieces present first, the last one's up to its last close, also when it starts a new
+    /// piece. An application numbers with them ([crate::Definitions::with_numbers]), so the tracks and clocks it
+    /// defines again keep their numbers.
     pub numbers: crate::Numbers,
+    /// Track and clock definitions a chain's resume could not read in the pieces before the resumed piece's own
+    /// writes: blocks that don't read, items that don't decode, and one per piece whose lookup budget
+    /// ([OpenOptions::state_read_max](crate::OpenOptions::state_read_max)) ran out. Not zero, some numbers may be
+    /// missing from [Self::numbers], and a track or clock defined again may get a new one.
+    pub numbers_unread: usize,
 }
 
 impl Resumed {
@@ -138,6 +145,7 @@ impl Resumed {
             layout: None,
             after_close: None,
             numbers: crate::Numbers::new(),
+            numbers_unread: 0,
         }
     }
 }
@@ -983,6 +991,7 @@ impl<S: TapeSink> TapeWriter<S> {
             layout: named.layout,
             after_close,
             numbers: named.numbers,
+            numbers_unread: 0,
         };
         Ok((w, resumed))
     }

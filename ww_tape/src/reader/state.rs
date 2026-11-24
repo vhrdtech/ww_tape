@@ -302,6 +302,7 @@ impl StateIndex {
     }
 
     /// The definition slots with an entry whose block starts before `before`.
+    #[cfg(test)]
     fn definition_slots(&self, before: u64) -> Vec<Slot> {
         self.slots(before, Slot::is_definition)
     }
@@ -412,8 +413,18 @@ impl<S: ByteSource> TapeReader<S> {
     /// Every definition in force at `offset` in piece `i` (`u64::MAX`: at its end): each definition slot's newest
     /// record whose block starts before `offset`, an older one where that block doesn't read.
     pub fn definitions_at(&self, i: usize, offset: u64) -> R<DefinitionsAt, S> {
+        self.definitions_of(i, offset, Slot::is_definition)
+    }
+
+    /// [Self::definitions_at] of only the definition slots `of` takes: a lookup that reads no other block.
+    pub(crate) fn definitions_of(
+        &self,
+        i: usize,
+        offset: u64,
+        of: impl Fn(&Slot) -> bool,
+    ) -> R<DefinitionsAt, S> {
         let ix = self.state_index(i)?;
-        let slots = ix.definition_slots(offset);
+        let slots = ix.slots(offset, |s| s.is_definition() && of(s));
         let wanted: BTreeSet<(Slot, ItemHash)> = slots
             .iter()
             .flat_map(|slot| ix.of_slot(*slot, offset).map(|(_, s)| (s.slot, s.hash)))

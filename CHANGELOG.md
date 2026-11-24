@@ -6,6 +6,16 @@ benchmarks, golden files and book pages.
 
 ## [Unreleased]
 
+### Features
+
+- `Resumed::numbers_unread` counts the track and clock definitions a chain resume could not read (TRACK-7).
+
+### Fixes
+
+- A chain resume reads its numbers from every closed piece present, also when it starts a new piece (TRACK-7).
+- A chain resumed after its close keeps the numbers of tracks and clocks its last piece defined (TRACK-7).
+- A chain resume reads only the track and clock definitions of its pieces, never their bundles or schemas (TRACK-7).
+
 ## [0.8.0] - 2026-11-24
 
 ### Breaking
