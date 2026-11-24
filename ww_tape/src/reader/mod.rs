@@ -1346,6 +1346,9 @@ impl<S: ByteSource> TapeReader<S> {
     /// state records, one entry each), in file order. A closed piece
     /// reads only the final index's head and that track's entries.
     ///
+    /// A grid track's entries include its overview chunks ([IndexEntry::level] not 0, [grid](crate::grid#overviews)):
+    /// a caller after the chunks as written skips them, as [Self::series_timeline] and [Self::grid_tiles] do.
+    ///
     /// The range relation of a track never decreases ([RelationIndex::Range](crate::RelationIndex::Range) is only on a
     /// monotone relation): each chunk's range starts at or above the top of the range before it of its track number,
     /// but at a chunk marked as a break ([IndexEntry::relation_break]); else [ReadError::RelationOrder].
