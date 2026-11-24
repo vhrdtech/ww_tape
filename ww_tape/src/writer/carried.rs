@@ -95,7 +95,7 @@ impl Source<'_> {
 /// id and owner, in the order of the rows; another row is passed over.
 pub(crate) fn numbers(defs: &Definitions, rows: &[TrackStart]) -> Vec<TrackNum> {
     rows.iter()
-        .filter(|r| defs.track_key(r.track_number) == Some((r.track_id, r.owner.0)))
+        .filter(|r| defs.track_identity(r.track_number) == Some((r.track_id, r.owner.0)))
         .map(|r| r.track_number)
         .collect()
 }

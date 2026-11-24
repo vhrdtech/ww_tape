@@ -65,7 +65,7 @@ impl Default for GridOptions {
 
 /// A series' leaves in the scalar its statistics are kept in: the samples' own, or a wider one for an element
 /// with a zero.
-enum Leaves<S: Scalar> {
+pub(crate) enum Leaves<S: Scalar> {
     Same(SeriesLeaves<S>),
     I16(SeriesLeaves<i16>),
     I32(SeriesLeaves<i32>),
@@ -74,7 +74,7 @@ enum Leaves<S: Scalar> {
 
 impl<S: Scalar + Sample> Leaves<S> {
     /// The leaves of a tile of `cells` cells per time step (1 for a series) from time step `first_item` on.
-    fn new(
+    pub(crate) fn new(
         shape: SampleShape,
         grid: SeriesGrid,
         first_item: ItemNum,
@@ -100,7 +100,7 @@ impl<S: Scalar + Sample> Leaves<S> {
         })
     }
 
-    fn push(&mut self, samples: &[S], flags: u32) -> Result<(), BuildError> {
+    pub(crate) fn push(&mut self, samples: &[S], flags: u32) -> Result<(), BuildError> {
         match self {
             Self::Same(l) => l.push(samples, flags),
             Self::I16(l) => l.push_from(samples, flags),
@@ -119,7 +119,7 @@ impl<S: Scalar + Sample> Leaves<S> {
         }
     }
 
-    fn set_scale(&mut self, scale: exact_units::Magnitude) -> Result<(), BuildError> {
+    pub(crate) fn set_scale(&mut self, scale: exact_units::Magnitude) -> Result<(), BuildError> {
         match self {
             Self::Same(l) => l.set_scale(scale),
             Self::I16(l) => l.set_scale(scale),
@@ -129,7 +129,7 @@ impl<S: Scalar + Sample> Leaves<S> {
     }
 
     /// Complete the open part and take every leaf.
-    fn complete(&mut self) -> Result<Vec<SeriesLeaf>, BuildError> {
+    pub(crate) fn complete(&mut self) -> Result<Vec<SeriesLeaf>, BuildError> {
         match self {
             Self::Same(l) => l.complete().map(|()| l.take_leaves()),
             Self::I16(l) => l.complete().map(|()| l.take_leaves()),

@@ -62,6 +62,15 @@ pub enum CallError {
     /// A group of puts a [GroupHandle](crate::GroupHandle) refuses: it names a track twice, or its items are too long
     /// ([GroupPut::check](ww_tape::GroupPut::check)).
     Group(GroupRefusal),
+    /// Summary leaves that don't fit the chunk sender: given to a sender without summaries, missing on a summarized
+    /// one, of another kind or fields than the track's tree, or of a grid's tile.
+    WrongLeaves,
+    /// An item to hold for later pieces ([crate::ItemCarry]) past what the mux holds: [HELD_ITEMS_MAX] items, or
+    /// [HELD_ITEM_BYTES_MAX] bytes of them. Nothing was written: release one ([crate::TapeMux::release_item]).
+    ///
+    /// [HELD_ITEMS_MAX]: crate::HELD_ITEMS_MAX
+    /// [HELD_ITEM_BYTES_MAX]: crate::HELD_ITEM_BYTES_MAX
+    HeldItems { items: usize, bytes: Bytes<u64> },
 }
 
 /// Why a typed handle refuses an item.
@@ -193,6 +202,12 @@ impl core::fmt::Display for CallError {
                 "a group's items take {len} bytes, more than {max}"
             ),
             Self::Group(r) => write!(f, "a group refused: {r:?}"),
+            Self::WrongLeaves => f.write_str("summary leaves that don't fit the chunk sender's track"),
+            Self::HeldItems { items, bytes } => write!(
+                f,
+                "one item more to hold past the cap: {items} items of {} bytes held",
+                bytes.get()
+            ),
         }
     }
 }

@@ -265,6 +265,12 @@ The writing thread and its handles, in the crate `ww_tape_mux`.
 
   Read more: [Threads and tasks](docs/writing_thread.md#threads-and-tasks). Tests `mux_async.rs` on tokio's two schedulers and smol.
 
+- ✅ **MUX-4 A producer's own chunks, receipts and carried items**
+
+  A sender from `TapeMux::summarized_chunks` takes each chunk a producer encoded with its summary leaves. The writing thread joins them into the track's tree, ends it at its cuts and rebuilds it after a resume. `ChunkSender::send_placed` gives a receipt naming the chunk's piece, offset, length and unit hash. `TapeMux::put_item` puts a typed item again in each piece a cut starts: every piece, or those holding a track of its owner. Carrying never cuts, and the held items are capped.
+
+  Read more: [A producer's own chunks](docs/own_chunks.md). Tests `mux_leaves.rs`, `mux_placing.rs`, `mux_items.rs`.
+
 ## Reader (`READ`)
 
 Reading by position, checks and hashes, hostile bytes and live chains, in the crates `ww_tape` and `ww_tape_fs`.
@@ -301,7 +307,7 @@ Reading by position, checks and hashes, hostile bytes and live chains, in the cr
 
 - ✅ **READ-6 Followers of a live chain**
 
-  `ww_tape_fs::follow::ChainFollower` reads a chain while another process writes it, piece after piece, and hands out only blocks that check. A torn end is read again once a resume has cut it back, and a block the resume took back is never handed out. `TrackFollower` decodes one track and reports item-number gaps as lost items. `TimeMerge` merges chains by time, and `TapeMux::watch` shows readers in the writer's process what is written and synced.
+  `ww_tape_fs::follow::ChainFollower` reads a chain while another process writes it, piece after piece, and hands out only blocks that check. A torn end is read again once a resume has cut it back, and a block the resume took back is never handed out. `TrackFollower` decodes one track and reports item-number gaps as lost items; `ChainFollower::track_of` follows one owner's track in a chain several owners write. `TimeMerge` merges chains by time, and `TapeMux::watch` shows readers in the writer's process what is written and synced.
 
   Read more: [Following a chain while it is written](docs/growing_pieces.md#following-a-chain-while-it-is-written). Tests `follow.rs` (a writer process killed and resumed), `progress.rs`.
 

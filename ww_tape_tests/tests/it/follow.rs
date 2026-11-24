@@ -76,7 +76,7 @@ where
 
 /// Chunk `k` of track `t` with the items of [chunk], times encoded as a reader decodes them, each item's number
 /// as its payload.
-fn events_chunk(t: u64, k: u64) -> (ChunkHead, Vec<(ColumnSpec, Vec<u8>)>) {
+pub(crate) fn events_chunk(t: u64, k: u64) -> (ChunkHead, Vec<(ColumnSpec, Vec<u8>)>) {
     let (head, _) = chunk(t, k);
     let first = head.first_item.get();
     let starts: Vec<i64> = (first..first + 50)
@@ -620,6 +620,64 @@ fn a_track_follower_gives_events_and_lost_items() {
         };
         assert_eq!(*i, want);
     }
+}
+
+/// In a chain two owners write, a track follower of one owner passes over the chunks of the other owner's track of
+/// the same id; one of the piece's own owner takes the tracks defined with an owner of all zeros; one of any owner
+/// takes chunks of both.
+#[test]
+fn a_track_follower_of_an_owner_skips_another_owners_chunks() {
+    const RUN: OwnerId = OwnerId([0xa1; 32]);
+    let dir = scratch("follow-owner");
+    let mux =
+        ww_tape_fs::mux::create(&dir, OWNER, 0, &[], options(2), MuxOptions::default()).unwrap();
+    let senders = define(&mux);
+    let Describe::Track(t) = crate::definitions::track(2, crate::definitions::CLOCK) else {
+        unreachable!("track() gives a track")
+    };
+    let mut spec = t.spec();
+    spec.owner = RUN.0;
+    let run_track = mux.define_track(spec).unwrap();
+    assert_ne!(
+        run_track, t.number,
+        "another owner's track of the same id has a number of its own"
+    );
+    let run = mux.chunks(run_track).unwrap();
+    for k in 0..4 {
+        send(&senders[1], 1, k);
+        let (mut head, columns) = events_chunk(1, k + 10);
+        head.track_number = run_track;
+        run.send(head, columns).unwrap();
+    }
+    drop((senders, run));
+    mux.close().unwrap();
+
+    let firsts = |mut track: ww_tape_fs::follow::TrackFollower| {
+        let mut out = Vec::new();
+        while let Some(i) = track.wait_next().unwrap() {
+            if let TrackItem::Event { item, .. } = i {
+                out.push(item.get());
+            }
+        }
+        out
+    };
+    let follow = || ChainFollower::new(&dir, FollowOptions::default()).unwrap();
+    let own = firsts(follow().track_of(chunk_id(1), OWNER));
+    assert_eq!(own, (0..200).collect::<Vec<u64>>());
+    let theirs = firsts(follow().track_of(chunk_id(1), RUN));
+    assert_eq!(theirs, (500..700).collect::<Vec<u64>>());
+    let none = firsts(follow().track_of(chunk_id(1), OwnerId([0xb2; 32])));
+    assert!(none.is_empty(), "no chunk of a third owner");
+    let any = firsts(follow().track(chunk_id(1)));
+    // one numbering over both owners' chunks: those behind the items given are passed over
+    assert!(
+        any.contains(&0),
+        "a follower of any owner takes the piece owner's chunks"
+    );
+    assert!(
+        any.contains(&500),
+        "a follower of any owner takes the other owner's chunks"
+    );
 }
 
 /// A track follower of a series track gives its chunks' samples and flag runs as a reader of the closed file decodes

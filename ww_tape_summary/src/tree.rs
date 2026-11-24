@@ -273,6 +273,11 @@ impl EventRuns {
         ItemNum::new(self.next_item)
     }
 
+    /// What the tree the runs go into stores besides each node's ticks.
+    pub fn fields(&self) -> EventFields {
+        self.fields
+    }
+
     /// Add the next item: its start, end (the start for an instant) and flags, as [EventTree::push] takes them.
     pub fn push(&mut self, start: i64, end: i64, flags: u32) -> Result<(), BuildError> {
         if self.last_start.is_some_and(|last| start < last) {

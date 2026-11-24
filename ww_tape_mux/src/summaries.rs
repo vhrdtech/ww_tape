@@ -45,6 +45,31 @@ pub(crate) enum ChunkSummary {
     },
 }
 
+impl ChunkSummary {
+    /// Whether the leaves cover exactly the items of the chunk of `head`: from its first item, one after another, as
+    /// many as it holds (time steps for a series).
+    pub(crate) fn covers(&self, head: &ChunkHead) -> bool {
+        let spans: Vec<(u64, u64)> = match self {
+            Self::Events { runs, .. } => runs.iter().map(|(f, r)| (f.get(), r.count)).collect(),
+            Self::Series { leaves, .. } => leaves
+                .iter()
+                .map(|l| (l.first_item.get(), l.samples))
+                .collect(),
+        };
+        let mut next = head.first_item.get();
+        for (first, n) in spans {
+            if first != next {
+                return false;
+            }
+            let Some(after) = next.checked_add(n) else {
+                return false;
+            };
+            next = after;
+        }
+        head.first_item.get().checked_add(u64::from(head.count)) == Some(next)
+    }
+}
+
 enum Tree {
     Events(EventTree),
     Series(Box<SeriesTree>),
@@ -275,6 +300,15 @@ impl Trees {
         self.enter(chain.seq());
         let track = (head.track_number, head.tile);
         self.unconfirmed.remove(&track);
+        // leaves of other items than the chunk's: refused before anything goes into the tree, which ends here
+        if !summary.covers(head) {
+            if let Some(mut tree) = self.trees.remove(&track)
+                && let Ok(blocks) = tree.finish()
+            {
+                self.defer(chain, defs, blocks)?;
+            }
+            return Ok(Added::Refused);
+        }
         // a gap in the items (a chunk dropped) ends the tile's tree: the next one starts past it
         if self
             .trees

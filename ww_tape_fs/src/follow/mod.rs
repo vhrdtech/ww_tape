@@ -35,11 +35,11 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use ww_tape::index::{IndexBlock, IndexKind};
-use ww_tape::piece::Tail;
+use ww_tape::piece::{PieceHeadBlock, Tail};
 use ww_tape::{
     BlockBuf, BlockKind, Cut, Definitions, DescribeError, FLAG_GROUP, FLAG_GROUP_START,
-    FLAG_WITH_NEXT, FileBlocks, FileError, Medium, PieceTapes, RUN_BLOCKS_MAX, RecordTrack,
-    WalkPoint,
+    FLAG_WITH_NEXT, FileBlocks, FileError, Medium, OwnerId, PieceTapes, RUN_BLOCKS_MAX,
+    RecordTrack, WalkPoint,
 };
 
 pub use merge::{Merged, TimeMerge};
@@ -165,6 +165,8 @@ pub struct ChainFollower {
     closed: bool,
     /// Why the last walk stopped short of the end of its file.
     stopped: Option<Cut>,
+    /// The owner the newest piece head read names
+    owner: Option<OwnerId>,
     wake: Wake,
 }
 
@@ -186,6 +188,7 @@ impl ChainFollower {
             again: None,
             closed: false,
             stopped: None,
+            owner: None,
             wake: Wake::new(watched),
         };
         match options.start {
@@ -264,14 +267,29 @@ impl ChainFollower {
         }
     }
 
-    /// Follow the items of the track of id `id` from here on ([TrackItems]).
+    /// Follow the items of the track of id `id` from here on, whoever owns it ([TrackItems]).
     pub fn track(self, id: ww_tape::TrackId) -> TrackFollower {
         TrackFollower::new(self, TrackItems::new(id))
+    }
+
+    /// Follow the items of the track of id `id` and owner `owner` ([TrackItems::owned]): in a chain several owners
+    /// write, the chunks of another owner's track of the same id are passed over.
+    ///
+    /// A track defined with an owner of all zeros is its piece's owner's, so `track_of(id, OwnerId::NONE)` follows
+    /// it only in a chain whose pieces name [OwnerId::NONE]; on an owned chain, give the chain's owner.
+    pub fn track_of(self, id: ww_tape::TrackId, owner: ww_tape::OwnerId) -> TrackFollower {
+        TrackFollower::new(self, TrackItems::owned(id, owner))
     }
 
     /// The definitions the blocks handed out so far carry (and with [FollowStart::End] those of the piece before).
     pub fn definitions(&self) -> &Definitions {
         &self.defs
+    }
+
+    /// The owner the newest piece head read names ([ww_tape::PieceIdent::owner]), also one read before the blocks
+    /// handed out ([FollowStart::End]); None before the first.
+    pub fn owner(&self) -> Option<OwnerId> {
+        self.owner
     }
 
     /// The piece read now; None while there is none.
@@ -439,12 +457,19 @@ impl ChainFollower {
     fn queue(&mut self, piece: u64, offset: u64, block: BlockBuf) -> Option<u64> {
         self.closed = false;
         let mut next_piece = None;
-        if block.block().kind == BlockKind::Tail {
-            match Tail::read(block.bytes()).map(|t| t.next) {
+        let b = block.block();
+        match b.kind {
+            BlockKind::PieceHead => {
+                if let Ok(h) = PieceHeadBlock::read(&b) {
+                    self.owner = Some(h.head().ident.owner);
+                }
+            }
+            BlockKind::Tail => match Tail::read(block.bytes()).map(|t| t.next) {
                 Ok(Some(_)) => next_piece = piece.checked_add(1),
                 Ok(None) => self.closed = true,
                 Err(_) => {}
-            }
+            },
+            _ => {}
         }
         self.ready.push_back(Ready::Block(Followed {
             piece,
