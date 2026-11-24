@@ -986,15 +986,6 @@ A record it couldn't read leaves the row unmarked, and so does a piece resumed a
 `Closed::keys_unknown` counts such tracks. Keys deleted while the writer doesn't know every key count under
 `NearPolicy::kept_bytes_max`. Past it they are forgotten, and the track's rows stay unmarked from then on.
 
-Damage inside a piece may hide a track the writer never learns. A resume meets it as junk, or as a damaged block or
-a keyed record of a track whose definition didn't read ([What a resume keeps](#what-a-resume-keeps)). A crash's torn
-end is no such damage: the resume cuts it off. After such damage the writer doubts the keys of every keyed track it
-doesn't know yet. The piece's close and every later head set flag bit 1 (`PieceHead::unlisted_keys_unknown`,
-`Close::unlisted_keys_unknown`). A track without a row in such a head may have keys in the pieces before.
-
-This has a cost: a keyed track first defined after the damage never reads whole in a piece alone, for the rest of
-the chain. Its definition may lie in the damaged bytes with older keys, so a new track and a lost one look the same.
-
 A piece resumed alone whose head marks a row but whose carry a crash dropped refuses to carry again
 (`ResumeError::KeysUnknown`). A `PieceChain` resume reads the keys from the piece before. A call whose definitions
 don't hold the track is refused naming it (`ResumeError::KeysUndefined`). The mark on the row of a track that isn't
@@ -1006,7 +997,8 @@ piece's start. `KeysAt::not_carried` says so, and so does `Lookup::not_carried` 
 
 The piece's carry is the blocks after its head that belong with the next. A record found
 only there may be stale too, so the key reads as not whole. A first piece holds every record of the track. So does
-a piece whose head has no row of the track, unless the head sets flag bit 1.
+a piece whose head has no row of the track, unless the head sets flag bit 1
+([After damage inside a piece](#after-damage-inside-a-piece)).
 
 A keyed track is never left out of a cut ([Carried definitions](carried_definitions.md#when-they-dont-fit)). The
 writer refuses a `put_key` that would make the carry too large for a piece. Its `InputError::CarryFull` names the
@@ -1030,6 +1022,18 @@ is checked the same way.
 The check knows only the keys the writer knows. While the track's row would stay unmarked, a key whose id only an
 older piece's key holds is not refused. The two keys then share a slot as in a file of another writer, and a lookup
 by key still finds each.
+
+##### 5.4.1.1 After damage inside a piece {#after-damage-inside-a-piece}
+
+Damage inside a piece may hide a track the writer never learns. A resume meets it as junk, a damaged block, or a
+keyed record whose track's definition didn't read ([What a resume keeps](#what-a-resume-keeps)). A crash's torn end
+is no such damage: the resume cuts it off. After such damage the writer doubts the keys of every keyed track it
+doesn't know yet. The piece's close and every later head set flag bit 1 (`PieceHead::unlisted_keys_unknown`,
+`Close::unlisted_keys_unknown`).
+
+A track without a row in such a head may have keys in the pieces before. This has a cost: a keyed track first
+defined after the damage never reads whole in a piece alone, for the rest of the chain. Its definition may lie in
+the damaged bytes with older keys, so a new track and a lost one look the same.
 
 ### 5.5 Deferred blocks {#deferred-blocks}
 
