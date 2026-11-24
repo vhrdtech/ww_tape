@@ -65,6 +65,7 @@ use alloc::collections::{BTreeMap, BTreeSet};
 
 mod carried;
 mod error;
+mod group_records;
 pub(crate) mod kept;
 mod keyed;
 pub mod near;
@@ -267,6 +268,8 @@ pub struct TapeWriter<S: TapeSink> {
     /// ([PieceHead::unlisted_keys_unknown]): the keys of every other keyed track are doubted, and the next head and
     /// this piece's close say so. None while no such bytes were met.
     unlisted: Option<BTreeSet<TrackIdent>>,
+    /// The state records of the group of puts met last, held until its last block ([group_records])
+    group_records: group_records::GroupRecords,
 }
 
 /// What a cut starts the next piece with: this piece's head, the next head's rows and the definitions of their tracks.
@@ -586,6 +589,7 @@ impl<S: TapeSink> TapeWriter<S> {
             keys_base: None,
             wanted: Vec::new(),
             unlisted: None,
+            group_records: group_records::GroupRecords::default(),
         }
     }
 
@@ -2120,6 +2124,8 @@ impl<S: TapeSink> TapeWriter<S> {
         };
         let repeat = b.is_repeat();
         let keyed = b.is_keyed();
+        let (take, torn) = self.group_records.begin(b.flags);
+        self.void_records(torn);
         let mut tracks = Vec::new();
         for r in b.records().flatten() {
             if let RecordTrack::Data(track) = r.track
@@ -2135,31 +2141,11 @@ impl<S: TapeSink> TapeWriter<S> {
             let Some(slot) = Slot::of(r.track, r.item, keyed) else {
                 continue;
             };
-            if let Slot::State { track } = slot
+            // a state record gives its track a row
+            if let Slot::State { track } | Slot::Keyed { track, .. } = slot
                 && let Some(key) = self.indexer.key_of(track, None)
             {
                 self.indexer.state_placed(key, track);
-                self.kept
-                    .placed(track, key, r.at, r.item, self.kept_bytes_max());
-            }
-            // a keyed record gives its track a row, and its key to the next cut's carry; one of a track whose
-            // definition the writer never read leaves the keys of every track it doesn't know in doubt
-            if let Slot::Keyed { track, .. } = slot {
-                match self.indexer.key_of(track, None) {
-                    Some(key) => {
-                        self.indexer.state_placed(key, track);
-                        let complete = self.keys_from_start(track);
-                        self.kept.key_placed(
-                            track,
-                            key,
-                            r.at,
-                            r.item,
-                            complete,
-                            self.kept_bytes_max(),
-                        );
-                    }
-                    None => self.unlisted_doubted(),
-                }
             }
             if matches!(slot, Slot::Track { .. })
                 && let Ok(Describe::Track(t)) =
@@ -2169,12 +2155,72 @@ impl<S: TapeSink> TapeWriter<S> {
                 self.relations
                     .define(t.number, &crate::open::TrackFacts::of(&t));
             }
-            self.near
-                .wrote(slot, Some(ItemHash::of(r.item)), at, &self.near_policy);
+            match take {
+                group_records::Take::Now => self.take_record(slot, r.at, r.item, at),
+                group_records::Take::Hold => self.group_records.hold(slot, r.at, r.item, at),
+                group_records::Take::Void => {
+                    if let Slot::Keyed { track, .. } = slot {
+                        self.doubt_keys(track);
+                    }
+                }
+            }
+        }
+        for h in self.group_records.end(b.flags) {
+            self.take_record(h.slot, h.at, &h.item, h.block_at);
         }
         tracks.sort_unstable();
         tracks.dedup();
         tracks
+    }
+
+    /// Take the state record `item` in `slot` at `at`, of the block placed at `block_at`: noted as lying there
+    /// ([near]), a state track's item as in force, a keyed one's key into the next cut's carry. A keyed record of a
+    /// track whose definition the writer never read leaves the keys of every track it doesn't know in doubt.
+    fn take_record(&mut self, slot: Slot, at: Option<ClockTime>, item: &[u8], block_at: u64) {
+        match slot {
+            Slot::State { track } => {
+                if let Some(key) = self.indexer.key_of(track, None) {
+                    self.kept
+                        .placed(track, key, at, item, self.kept_bytes_max());
+                }
+            }
+            Slot::Keyed { track, .. } => match self.indexer.key_of(track, None) {
+                Some(key) => {
+                    let complete = self.keys_from_start(track);
+                    self.kept
+                        .key_placed(track, key, at, item, complete, self.kept_bytes_max());
+                }
+                None => self.unlisted_doubted(),
+            },
+            _ => {}
+        }
+        self.near
+            .wrote(slot, Some(ItemHash::of(item)), block_at, &self.near_policy);
+    }
+
+    /// A keyed record of track `track` not taken: the track's keys may miss it ([Self::take_record]).
+    pub(crate) fn doubt_keys(&mut self, track: TrackNum) {
+        match self.indexer.key_of(track, None) {
+            Some(key) => self.kept.keys_doubted(track, key),
+            None => self.unlisted_doubted(),
+        }
+    }
+
+    /// The records `held` of a group a reader drops, voided by damage or torn: none is taken, and the keys of the
+    /// tracks of keyed ones are doubted.
+    fn void_records(&mut self, held: Vec<group_records::Held>) {
+        for h in held {
+            if let Slot::Keyed { track, .. } = h.slot {
+                self.doubt_keys(track);
+            }
+        }
+    }
+
+    /// Damage met in a resume: a block that doesn't read or bytes no block explains. It voids the group of puts it
+    /// falls in ([group_records]).
+    pub(crate) fn group_damaged(&mut self) {
+        let held = self.group_records.damage();
+        self.void_records(held);
     }
 
     /// List `block`, placed here, in the index as readers take it: a counted block with the id of the last one is

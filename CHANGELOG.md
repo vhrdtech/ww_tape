@@ -31,6 +31,10 @@ benchmarks, golden files and book pages.
 - A put by key past the carry's limit, or of another live key's id, is refused (TRACK-8).
 - Groups of puts take keys and deletions: `put_group`, a relayed group and the mux's `GroupHandle` (TRACK-8).
 
+### Fixes
+
+- A resume takes nothing of a group of puts with a damaged block, as readers drop it (WRITE-17).
+
 ## [0.10.1] - 2026-11-24
 
 ### Features

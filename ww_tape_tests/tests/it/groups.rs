@@ -1252,3 +1252,49 @@ fn a_refused_block_that_tears_a_group_names_the_torn_group() {
         "its own refusal: {again:?}"
     );
 }
+
+/// An unclosed piece with the large group inside it, a block of it damaged, resumed: a reader drops the group, so
+/// the resume takes none of its items as lying near or in force, and the same group put again is written whole and
+/// in force on every track.
+#[test]
+fn a_resume_takes_nothing_of_a_damaged_group() {
+    let defs = rig().defs;
+    for k in 0..3 {
+        let mut w = rig();
+        let tape = w.sink().tape();
+        put_group(&mut w, &items(1, 8)).unwrap();
+        let start = tape.to_vec().unwrap().len();
+        let new = items(100, LARGE);
+        put_group(&mut w, &new).unwrap();
+        let end = tape.to_vec().unwrap().len();
+        // past a checkpoint, which lists the group's blocks
+        crate::definitions::write_records(&mut w, 50, 40);
+        drop(w);
+        let bytes = tape.to_vec().unwrap();
+        let r = TapeReader::open(&bytes[..]).unwrap();
+        let mut blocks: Vec<(usize, usize)> = r
+            .entries(0)
+            .unwrap()
+            .iter()
+            .map(|e| (e.offset as usize, e.len as usize))
+            .filter(|(o, _)| *o >= start && *o < end)
+            .collect();
+        blocks.dedup();
+        assert_eq!(blocks.len(), 3, "the large group takes three blocks");
+        let mut sink = MemSink::new();
+        sink.write_all(&flipped(&bytes, blocks[k])).unwrap();
+        let tape = sink.tape();
+        let (resumed, _) = TapeWriter::resume_on(sink, options(u64::MAX)).unwrap();
+        let mut again = Rig {
+            w: resumed,
+            defs: defs.clone(),
+        };
+        assert_eq!(
+            put_group(&mut again, &new).unwrap(),
+            vec![true; 3],
+            "block {k} damaged"
+        );
+        let want: Vec<_> = new.iter().cloned().map(Some).collect();
+        assert_eq!(in_force(&tape.to_vec().unwrap()), want, "block {k} damaged");
+    }
+}

@@ -1188,6 +1188,8 @@ impl<S: TapeSink> TapeWriter<S> {
         let end = self.end_after(bytes.len())?;
         self.hash.update(bytes);
         self.indexer.placed_entries(entries, bytes.len());
+        // a reader drops the group of puts the block may fall in: its records are not taken
+        self.group_damaged();
         // its range relation's values go up to its range's top, as its writer saw them; its other values are unread
         for e in entries
             .iter()
@@ -1200,13 +1202,12 @@ impl<S: TapeSink> TapeWriter<S> {
                     .seed_damaged(key, e.range.map(|(_, hi)| hi), e.relation_break);
             }
         }
-        // a keyed record unread: its track's keys may miss it; of a track the writer doesn't know, every such track's
+        // a keyed record unread: its track's keys may miss it; of a track the writer doesn't know, every such track's.
+        // A block naming only an unknown track's definition sets no doubt: the keyed records of that track are what
+        // the keys may miss, and their own entries name them
         for e in entries.iter().filter_map(IndexEntry::state) {
             if let crate::state::Slot::Keyed { track, .. } = e.slot {
-                match self.indexer.key_of(track, None) {
-                    Some(key) => self.kept.keys_doubted(track, key),
-                    None => self.unlisted_doubted(),
-                }
+                self.doubt_keys(track);
             }
         }
         self.bytes = end;
@@ -1265,6 +1266,7 @@ impl<S: TapeSink> TapeWriter<S> {
             let known: Vec<_> = self.indexer.known().collect();
             self.kept.all_keys_doubted(known);
             self.unlisted_doubted();
+            self.group_damaged();
         }
         while at < end {
             let n = usize::try_from(end.saturating_sub(at))

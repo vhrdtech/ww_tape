@@ -433,3 +433,62 @@ fn a_mux_group_puts_keys_and_deletions() {
     want.0.insert(a.to_vec(), b"1".to_vec());
     assert_eq!(seen(&piece_bytes(&mem, pieces[0].tape), 0), want);
 }
+
+/// A chain with keys `/a` and `/b` and a plain item, the mixed group, then data blocks past a checkpoint, dropped
+/// unclosed: the group lies inside the piece. The offsets of the group's blocks.
+fn mid_piece_group() -> (MemPieces, Vec<usize>) {
+    let defs = defs();
+    let (mem, mut chain) = chain_with(crate::keyed_carry::checkpointed());
+    chain.put_key(&defs, KEYED, 0, b"/a", b"1").unwrap();
+    chain.put_key(&defs, KEYED, 1, b"/b", b"1").unwrap();
+    chain.put(&defs, PLAIN, 2, b"before").unwrap();
+    let start = piece_bytes(&mem, 0).len();
+    chain.put_group(&defs, &mixed_group()).unwrap();
+    let end = piece_bytes(&mem, 0).len();
+    let session = ww_tape::SessionTag::writable(0x6461_7461);
+    for n in 0..60 {
+        let block = crate::pieces::records(ww_tape::BlockId::new(session, n), 6000 + n as i64);
+        chain.adopt_block(&defs, &block).unwrap();
+    }
+    drop(chain);
+    let blocks = boundaries(&piece_bytes(&mem, 0))
+        .into_iter()
+        .filter(|b| (start..end).contains(b))
+        .collect();
+    (mem, blocks)
+}
+
+/// A group inside a piece with one of its blocks damaged, the plain one or the keyed one: a reader takes none of the
+/// group; the chain's resume takes none of its keys either and, as the damage may have hidden others, doubts the
+/// keyed track, so the next cut carries no key of it as whole and a reader of the next piece names its keys not whole.
+#[test]
+fn a_damaged_group_inside_a_piece_leaves_its_keys_doubted() {
+    let defs = defs();
+    let (_, blocks) = mid_piece_group();
+    assert!(blocks.len() >= 2, "{blocks:?}");
+    let (before, _) = before_after();
+    for at in blocks {
+        let (mem, _) = mid_piece_group();
+        crate::keyed_carry::flip(&mem, 0, at + 33);
+        assert_eq!(
+            seen(&piece_bytes(&mem, 0), 0),
+            (before.0.clone(), false, before.2.clone()),
+            "damage at {at}"
+        );
+        let (mut chain, _) =
+            PieceChain::resume_on(mem.clone(), OWNER, 0, crate::keyed_carry::checkpointed())
+                .unwrap();
+        chain.cut_now(&defs).unwrap();
+        let pieces = chain.close().unwrap();
+        let next = piece_bytes(&mem, pieces.last().unwrap().tape);
+        let (keys, whole) = keys_of(&next, 0);
+        assert!(!whole, "damage at {at}: {keys:?}");
+        assert!(
+            !keys.contains_key(&b"/c"[..]),
+            "damage at {at}: a key of the dropped group"
+        );
+        // the plain item of the dropped group isn't carried: the one before it, or none where the damage hid it
+        let plain = plain_of(&next, 0);
+        assert_ne!(plain.as_deref(), Some(&b"after"[..]), "damage at {at}");
+    }
+}
