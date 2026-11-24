@@ -17,6 +17,8 @@ blake3.workspace = true
 crc.workspace = true
 exact_units = { workspace = true, features = ["counting", "electrical", "information", "shrink_wrap", "std", "time"] }
 example_drive.workspace = true
+example_images.workspace = true
+example_thermal.workspace = true
 shrink_wrap = { workspace = true, features = ["std"] }
 smol.workspace = true
 tokio.workspace = true
