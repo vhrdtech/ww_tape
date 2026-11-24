@@ -59,8 +59,8 @@ gives the same number back. So does the same track key with the same dimensions,
 
 A [[resume]] gives the numbers the [[tape]] already holds, in [`Resumed::numbers`]. [`Definitions::with_numbers`] starts
 a container with them, so every clock and track defined again keeps its number and a new one takes a number not yet
-taken. A [[chain]]'s resume reads them from every [[piece]] still there, the last one up to its last
-[[close]], also when it starts a new piece. A track or clock defined only in a piece removed since loses its number:
+taken. A [[chain]]'s resume reads them from every [[piece]] still there, the last one up to its [[close]],
+also when it starts a new piece. A track or clock defined only in a piece removed since loses its number:
 no piece left names it. [`Resumed::numbers_unread`] counts the definitions the resume could not read, damaged or
 past its budget: a track or clock among them may get a new number.
 

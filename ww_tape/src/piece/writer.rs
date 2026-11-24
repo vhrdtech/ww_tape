@@ -1005,7 +1005,7 @@ fn too_many<E>() -> WriteError<E> {
 fn closed_in<S: TapeSink, K: Clone>(
     sink: &S,
     key: &K,
-) -> Result<(Vec<Done<K>>, ChainNumbers), WriteError<S::Error>> {
+) -> Result<ClosedIn<K>, WriteError<S::Error>> {
     let src = SinkSource(sink);
     let reader = TapeReader::open(&src).map_err(WriteError::Read)?;
     let pieces = reader.pieces();
@@ -1032,6 +1032,9 @@ fn closed_in<S: TapeSink, K: Clone>(
 
 /// A closed piece of a chain, and what the piece after it starts from.
 type Done<K> = (ChainPiece<K>, LastPiece);
+
+/// The closed pieces of a tape of pieces, and the numbers of every piece in it ([closed_in]).
+type ClosedIn<K> = (Vec<Done<K>>, ChainNumbers);
 
 /// Each track's last chunk in a piece, by its entry.
 type LastChunks = BTreeMap<TrackIdent, IndexEntry>;
