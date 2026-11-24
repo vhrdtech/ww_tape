@@ -1136,3 +1136,81 @@ fn a_relay_refuses_what_it_cannot_hold_and_names_a_torn_group() {
         Err(WriteError::Input(InputError::Group(GroupRefusal::NoStart { session: s }))) if s == first
     ));
 }
+
+/// `block` with header flags `flags`, its CRCs written again.
+fn with_flags(block: &[u8], flags: u16) -> Vec<u8> {
+    let mut b = block.to_vec();
+    Block::read(&b).unwrap();
+    b[6..8].copy_from_slice(&flags.to_le_bytes());
+    let n = b.len() - ww_tape::CRC_LEN;
+    let crc = crc::Crc::<u32>::new(&crc::CRC_32_ISCSI).checksum(&b[..n]);
+    b[n..].copy_from_slice(&crc.to_le_bytes());
+    Block::read(&b).unwrap();
+    b
+}
+
+/// The blocks of puts of `items`, each put on track `track` after the tracks' definitions, as a producer sends them.
+fn puts_on(track: u32, items: &[&[u8]]) -> Vec<Vec<u8>> {
+    let mut w = rig();
+    let tape = w.sink().tape();
+    put_group(&mut w, &self::items(1, 8)).unwrap();
+    let start = tape.to_vec().unwrap().len() as u64;
+    for (k, item) in items.iter().enumerate() {
+        assert!(
+            w.w.put(&w.defs, TrackNum::new(track), k as i64 + 20, item)
+                .unwrap()
+        );
+    }
+    record_blocks(&tape.to_vec().unwrap())
+        .into_iter()
+        .filter(|b| b.repeat && b.offset >= start)
+        .map(|b| b.bytes)
+        .collect()
+}
+
+/// `blocks` marked as one group of puts: each [FLAG_GROUP], the first [FLAG_GROUP_START], all but the last
+/// [FLAG_WITH_NEXT].
+fn as_group(blocks: &[Vec<u8>]) -> Vec<Vec<u8>> {
+    let last = blocks.len() - 1;
+    blocks
+        .iter()
+        .enumerate()
+        .map(|(k, b)| {
+            let mut f = ww_tape::FLAG_REPEAT | FLAG_GROUP;
+            if k == 0 {
+                f |= FLAG_GROUP_START;
+            }
+            if k < last {
+                f |= FLAG_WITH_NEXT;
+            }
+            with_flags(b, f)
+        })
+        .collect()
+}
+
+/// A relayed group that puts a state track twice is refused as [Self::put_group] refuses one, the same item again
+/// or another: a hostile producer can't fill a group with tiny items on one track. None of it is written.
+#[test]
+fn a_relayed_group_putting_a_track_twice_is_refused() {
+    let other = puts_on(TRACKS[0], &[b"x", b"y"]);
+    assert_eq!(other.len(), 2, "one block per put");
+    let same = vec![other[0].clone(), other[0].clone()];
+    for (what, blocks) in [("another item", other), ("the same item", same)] {
+        let group = as_group(&blocks);
+        let mut relay = rig();
+        let tape = relay.sink().tape();
+        let mut defs = relay.defs.clone();
+        relay.w.relay_block(&mut defs, &group[0]).unwrap();
+        assert!(matches!(
+            relay.w.relay_block(&mut defs, &group[1]),
+            Err(WriteError::Input(InputError::Group(GroupRefusal::SlotTwice { track })))
+                if track == TrackNum::new(TRACKS[0])
+        ));
+        assert_eq!(relay.w.relay_held_bytes(), 0, "the group is dropped");
+        assert_eq!(
+            in_force(&tape.to_vec().unwrap()),
+            vec![None; TRACKS.len()],
+            "{what}: none of the group"
+        );
+    }
+}

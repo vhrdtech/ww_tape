@@ -78,7 +78,7 @@ pub use kept::KEPT_BYTES_MAX;
 pub use near::NearPolicy;
 use near::Rule;
 pub(crate) use relations::Newest;
-pub use relay::{RELAY_GROUPS_MAX, RELAY_HELD_BYTES_MAX};
+pub use relay::{RELAY_GROUPS_MAX, RELAY_HELD_BYTES_MAX, RELAY_RECORD_OVERHEAD};
 pub use resume::{RESUME_LOOK_MAX, RESUME_PROBES_MAX, Resumed};
 pub use seal::{SealError, Sealed};
 
@@ -2417,15 +2417,17 @@ impl<S: TapeSink> TapeWriter<S> {
     /// marked [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT); then the records of all its blocks are put as one group, as
     /// [Self::put_group] puts one. A group is held from its first block ([FLAG_GROUP_START](crate::FLAG_GROUP_START))
     /// on, under the session tag of its producer's blocks, and carried over a cut. Blocks of other producers between
-    /// its blocks go through and leave it whole; groups of at most [RELAY_GROUPS_MAX] producers with at most
-    /// [RELAY_HELD_BYTES_MAX] bytes of items together are held at once.
+    /// its blocks go through and leave it whole; groups of at most [RELAY_GROUPS_MAX] producers costing at most
+    /// [RELAY_HELD_BYTES_MAX] together are held at once, each record its bytes and [RELAY_RECORD_OVERHEAD]. As
+    /// [Self::put_group] does, a group puts one item per state track ([GroupRefusal::SlotTwice]).
     ///
     /// A group held is never dropped without an error naming it ([InputError::Group]):
     /// - a block of its producer that isn't a group's, or the first block of another group, tears it
     ///   ([GroupRefusal::Torn]): that block is put, the error comes after;
     /// - more than [RUN_BLOCKS_MAX](crate::RUN_BLOCKS_MAX) blocks ([InputError::RunTooLong]), more than
-    ///   [GROUP_BYTES_MAX] bytes of items ([GroupRefusal::TooLong]), more than [RELAY_HELD_BYTES_MAX] held
-    ///   ([GroupRefusal::HeldTooLong]), or a block refused, drops it.
+    ///   [GROUP_BYTES_MAX] bytes of items ([GroupRefusal::TooLong]), a state track twice
+    ///   ([GroupRefusal::SlotTwice]), more than [RELAY_HELD_BYTES_MAX] held ([GroupRefusal::HeldTooLong]), or a
+    ///   block refused, drops it.
     ///
     /// A block of a group not held is refused ([GroupRefusal::NoStart]), and so is a first block past
     /// [RELAY_GROUPS_MAX] ([GroupRefusal::TooManyHeld]). A group whose put is refused at its last block (no room:
@@ -2472,15 +2474,18 @@ impl<S: TapeSink> TapeWriter<S> {
                 None => return Err(group_refused(GroupRefusal::NoStart { session })),
             }
         };
-        self.add_relay_block(defs, &b, &mut group)?;
-        let len = self.relay_groups.bytes().saturating_add(group.bytes);
-        if len > RELAY_HELD_BYTES_MAX {
-            return Err(group_refused(GroupRefusal::HeldTooLong {
-                session,
-                len,
-                max: RELAY_HELD_BYTES_MAX,
-            }));
-        }
+        let added = self.add_relay_block(defs, &b, &mut group).and_then(|()| {
+            let len = self.relay_groups.held().saturating_add(group.held);
+            if len > RELAY_HELD_BYTES_MAX {
+                return Err(group_refused(GroupRefusal::HeldTooLong {
+                    session,
+                    len,
+                    max: RELAY_HELD_BYTES_MAX,
+                }));
+            }
+            Ok(())
+        });
+        added?;
         if b.flags & crate::FLAG_WITH_NEXT != 0 {
             self.relay_groups.hold(session, group);
             return torn_error(session, torn);
@@ -2498,6 +2503,12 @@ impl<S: TapeSink> TapeWriter<S> {
         torn_error(session, torn)
     }
 
+    /// What the groups of puts this writer holds for a relay cost, as [RELAY_HELD_BYTES_MAX] counts it: each record's
+    /// bytes and [RELAY_RECORD_OVERHEAD].
+    pub fn relay_held_bytes(&self) -> usize {
+        self.relay_groups.held()
+    }
+
     /// Put the records of block `b` of puts, none of a group, as one call ([Self::put_block]).
     fn put_one_block(
         &mut self,
@@ -2513,16 +2524,25 @@ impl<S: TapeSink> TapeWriter<S> {
     }
 
     /// Add the records of block `b` of a producer's group to `group` ([Self::put_block]), refused past
-    /// [RUN_BLOCKS_MAX](crate::RUN_BLOCKS_MAX) blocks or [GROUP_BYTES_MAX] bytes of items.
+    /// [RUN_BLOCKS_MAX](crate::RUN_BLOCKS_MAX) blocks, [GROUP_BYTES_MAX] bytes of items or a second item on a state
+    /// track ([GroupRefusal::SlotTwice]).
     fn add_relay_block(
         &mut self,
         defs: &Definitions,
         b: &crate::Block<'_>,
         group: &mut RelayGroup,
     ) -> Result<(), WriteError<S::Error>> {
-        group.before = (group.cands.len(), group.bytes, group.seen.clone());
+        group.before = (
+            group.cands.len(),
+            group.bytes,
+            group.held,
+            group.seen.clone(),
+        );
         let mut cands = Vec::new();
         self.block_cands(defs, b, &mut group.seen, &mut cands)?;
+        if let Some(track) = group.seen.twice {
+            return Err(group_refused(GroupRefusal::SlotTwice { track }));
+        }
         group.blocks = group.blocks.saturating_add(1);
         if group.blocks > crate::RUN_BLOCKS_MAX {
             return Err(WriteError::Input(InputError::RunTooLong {
@@ -2533,6 +2553,10 @@ impl<S: TapeSink> TapeWriter<S> {
             if let Item::Given(item) = c.item {
                 group.bytes = group.bytes.saturating_add(item.len());
             }
+            group.held = group
+                .held
+                .saturating_add(c.item.bytes().len())
+                .saturating_add(RELAY_RECORD_OVERHEAD);
             group.cands.push(c.owned());
         }
         if group.bytes > GROUP_BYTES_MAX {
@@ -2621,8 +2645,12 @@ impl<S: TapeSink> TapeWriter<S> {
             }
             self.work.hash(r.item.len());
             let hash = ItemHash::of(r.item);
-            // the same item again on a state track adds nothing
-            if seen.newest.insert(track, hash) == Some(hash) {
+            // the same item again on a state track adds nothing; a group's slot takes one item (put_block)
+            let before = seen.newest.insert(track, hash);
+            if before.is_some() && seen.twice.is_none() {
+                seen.twice = Some(track);
+            }
+            if before == Some(hash) {
                 continue;
             }
             let mut needs = Vec::new();
@@ -3398,6 +3426,8 @@ struct BlockSeen {
     slots: BTreeSet<Slot>,
     /// The hash of the newest record of each state track
     newest: alloc::collections::BTreeMap<TrackNum, ItemHash>,
+    /// The first state track with a second record
+    twice: Option<TrackNum>,
 }
 
 /// A producer's group of puts a writer holds until its last block ([TapeWriter::put_block]).
@@ -3409,18 +3439,21 @@ struct RelayGroup {
     blocks: usize,
     /// The bytes of the records' items so far, at most [GROUP_BYTES_MAX]
     bytes: usize,
+    /// What its records cost held: each one's bytes and [RELAY_RECORD_OVERHEAD]
+    held: usize,
     seen: BlockSeen,
-    /// The records, bytes and what was seen before its last block: [Self::undo_last]
-    before: (usize, usize, BlockSeen),
+    /// The records, bytes, cost and what was seen before its last block: [Self::undo_last]
+    before: (usize, usize, usize, BlockSeen),
 }
 
 impl RelayGroup {
     /// Take its last block out again, as before [TapeWriter::put_block] added it.
     fn undo_last(&mut self) {
-        let (len, bytes, seen) = core::mem::take(&mut self.before);
+        let (len, bytes, held, seen) = core::mem::take(&mut self.before);
         self.cands.truncate(len);
         self.blocks = self.blocks.saturating_sub(1);
         self.bytes = bytes;
+        self.held = held;
         self.seen = seen;
     }
 }

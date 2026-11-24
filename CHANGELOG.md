@@ -24,6 +24,7 @@ benchmarks, golden files and book pages.
 - `GroupHandle::put_group` refuses a track twice or items past `GROUP_BYTES_MAX` at the call (`CallError::Group`) (WRITE-17).
 - A relay holds a producer's group of puts until its last block and writes it whole (WRITE-17).
 - A relay holds a group per producer, so interleaved producers keep their groups; a dropped group is an error (WRITE-17).
+- A relayed group puts one item per state track; held records count their overhead against `RELAY_HELD_BYTES_MAX` (WRITE-17).
 - A track with `defined_twice` has each definition it needs written in two blocks at once (TRACK-9).
 - Header bit 7 `FLAG_TWICE` marks such blocks; each copy follows its run, and a resume writes missing copies (TRACK-9).
 - The book explains grids in "Fields and images over time", with `example_thermal` and `example_images` as tested cases (BOOK-5).

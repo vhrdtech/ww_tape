@@ -11,9 +11,24 @@ use crate::SessionTag;
 /// The producers whose groups of puts a relay holds at once ([TapeWriter::relay_block](super::TapeWriter::relay_block)).
 pub const RELAY_GROUPS_MAX: usize = 16;
 
-/// The bytes of items in all the groups of puts a relay holds at once: two groups of
-/// [GROUP_BYTES_MAX](super::GROUP_BYTES_MAX).
+/// The bytes all the groups of puts a relay holds at once cost.
+///
+/// That is two groups of [GROUP_BYTES_MAX](super::GROUP_BYTES_MAX); a record held costs its bytes and
+/// [RELAY_RECORD_OVERHEAD].
 pub const RELAY_HELD_BYTES_MAX: usize = 2 * super::GROUP_BYTES_MAX;
+
+/// The bytes a record of a group a relay holds costs besides its own.
+///
+/// They cover the record's place in the group, at most twice over while the group's list grows, and what the group
+/// notes of its track and definitions.
+pub const RELAY_RECORD_OVERHEAD: usize = 512;
+
+const _: () = {
+    assert!(
+        3 * core::mem::size_of::<super::Candidate<'static>>() + 128 <= RELAY_RECORD_OVERHEAD,
+        "a record's overhead covers its place in a growing list and the group's notes"
+    );
+};
 
 /// The groups held, by the session tag of their producer's blocks.
 #[derive(Clone, Debug, Default)]
@@ -37,10 +52,10 @@ impl RelayGroups {
         self.held.len()
     }
 
-    /// The bytes of items of all the groups held.
-    pub(super) fn bytes(&self) -> usize {
+    /// What all the groups held cost ([RELAY_HELD_BYTES_MAX]).
+    pub(super) fn held(&self) -> usize {
         self.held
             .values()
-            .fold(0usize, |n, g| n.saturating_add(g.bytes))
+            .fold(0usize, |n, g| n.saturating_add(g.held))
     }
 }

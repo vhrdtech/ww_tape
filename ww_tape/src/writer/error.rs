@@ -100,7 +100,7 @@ pub enum InputError {
 pub enum GroupRefusal {
     /// The group's items take `len` bytes, more than [GROUP_BYTES_MAX](super::GROUP_BYTES_MAX) (`max`).
     TooLong { len: usize, max: usize },
-    /// The group puts on track `track` twice: a slot takes one item per group.
+    /// The group puts on track `track` twice: a slot takes one item per group, relayed or not.
     SlotTwice { track: crate::TrackNum },
     /// The producer of session `session` tore the group a relay held of it after `blocks` blocks: its block was the
     /// first of another group or none of a group's. That block is put; the group held is dropped.
@@ -111,7 +111,8 @@ pub enum GroupRefusal {
     /// The first block of a group of the producer of session `session` while the relay holds groups of `max`
     /// producers ([RELAY_GROUPS_MAX](super::RELAY_GROUPS_MAX)). The group is passed over.
     TooManyHeld { session: SessionTag, max: usize },
-    /// A block that would bring the items of the groups a relay holds to `len` bytes, more than
+    /// A block that would bring what the groups a relay holds cost to `len` bytes, each record its bytes and
+    /// [RELAY_RECORD_OVERHEAD](super::RELAY_RECORD_OVERHEAD), more than
     /// [RELAY_HELD_BYTES_MAX](super::RELAY_HELD_BYTES_MAX) (`max`). The group of session `session` is dropped.
     HeldTooLong {
         session: SessionTag,

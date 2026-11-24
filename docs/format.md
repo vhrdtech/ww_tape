@@ -919,8 +919,9 @@ A relay (`TapeWriter::relay_block`) holds a producer's group from its first bloc
 records as one group. It holds a group per producer, by the session tag of its blocks. Another producer's blocks
 between a group's blocks so go through and leave the group whole. A cut carries the groups held to the next piece.
 
-The relay holds groups of at most `RELAY_GROUPS_MAX` (16) producers at once, with at most `RELAY_HELD_BYTES_MAX`
-(128 MiB) of items together. It never drops a group without an error naming it (`InputError::Group`):
+The relay holds groups of at most `RELAY_GROUPS_MAX` (16) producers at once, costing at most `RELAY_HELD_BYTES_MAX`
+(128 MiB) together. A record costs its bytes and `RELAY_RECORD_OVERHEAD` (512). As `put_group`, a relayed group puts
+one item per state track. The relay never drops a group without an error naming it (`InputError::Group`):
 
 | Block | Error |
 |---|---|
@@ -928,6 +929,7 @@ The relay holds groups of at most `RELAY_GROUPS_MAX` (16) producers at once, wit
 | a block of a group whose first block the relay didn't hold | `GroupRefusal::NoStart` |
 | a first block while groups of 16 producers are held | `GroupRefusal::TooManyHeld` |
 | a block past `RELAY_HELD_BYTES_MAX` held | `GroupRefusal::HeldTooLong` |
+| a second item on a state track in the group | `GroupRefusal::SlotTwice` |
 
 A crash inside a group leaves a run of marked blocks at the end of the piece. The resume drops it and names it in
 `Resumed::dropped_run`, and the application gives the group again. The group given again writes the bytes the run
@@ -2495,7 +2497,8 @@ would pass one:
 | `UNIT_CHUNKS_MAX` | 17 | the chunks of one unit a writer writes or relays: a tile chunk and its overviews |
 | `RUN_BLOCKS_MAX` | 4096 | the blocks of one run marked `FLAG_WITH_NEXT` and the block it belongs with, a writer writes or a follower holds |
 | `RELAY_GROUPS_MAX` | 16 | the producers whose groups of puts a relay holds at once |
-| `RELAY_HELD_BYTES_MAX` | 128 MiB | the bytes of items of the groups of puts a relay holds at once |
+| `RELAY_HELD_BYTES_MAX` | 128 MiB | what the groups of puts a relay holds at once cost: each record's bytes and overhead |
+| `RELAY_RECORD_OVERHEAD` | 512 | what a record of a group a relay holds costs besides its bytes |
 | `VERIFY_LISTS_MAX` | 466432 | the track lists of a final index one verify takes |
 | `TRACKS_PER_PIECE_MAX` | 466430 | the tracks with data in one piece, so its close fits a block |
 | `HEAD_TRACKS_MAX` | 699006 | the tracks a piece head carries over the chain, so the head fits a block |
