@@ -37,7 +37,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     for view in &story.views {
         println!(
-            "{} cells a pixel: level {}, {} × {} cells, {} chunks, {}",
+            "{} cells per pixel: level {}, {} × {} cells, {} chunks, {}",
             view.cells_per_pixel,
             view.level,
             view.cells.0,

@@ -38,6 +38,12 @@ fn grouped(n: u64) -> String {
     out.chars().rev().collect()
 }
 
+/// Readings a second as the page says them: "ten" for a period of 100 ms.
+fn ten(period_ns: u64) -> &'static str {
+    assert_eq!(1_000_000_000 / period_ns, 10);
+    "ten"
+}
+
 /// The same recording twice gives the same bytes.
 #[test]
 fn the_same_plate_gives_the_same_bytes() {
@@ -151,10 +157,11 @@ fn the_page_says_what_the_plate_measures() {
     let page = page("grids.md");
     let cells = u64::from(plate.width) * u64::from(plate.height);
     let secs = |ns: u64| ns / 1_000_000_000;
-    let box_tiles = story.box_chunks;
+    let box_tiles = story.box_tiles;
     let peak = story.sweep_peaks[0];
     let mut phrases = vec![
         format!("A plate of {} temperature sensors", grouped(cells)),
+        format!("reads {} times a second.", ten(PERIOD_NS)),
         format!(
             "The plate has {} rows of {} sensors.",
             plate.height, plate.width

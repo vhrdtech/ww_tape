@@ -412,6 +412,8 @@ pub struct Story {
     pub one_tile: usize,
     pub whole_first: usize,
     pub box_chunks: usize,
+    /// Distinct tiles of that box.
+    pub box_tiles: usize,
     /// Each overview level over the whole run, and the views.
     pub level_rows: Vec<LevelRow>,
     pub views: Vec<ViewRow>,
@@ -483,6 +485,11 @@ impl Thermal {
                 .box_query(&rec, 0..self.ticks(), hot_row.clone(), 0..self.tile)?
                 .len(),
             box_chunks: part.len(),
+            box_tiles: part
+                .iter()
+                .map(|t| t.tile)
+                .collect::<std::collections::BTreeSet<_>>()
+                .len(),
             level_rows,
             views,
             sweep_peaks: peaks(hot_row, 0..self.tile)?,

@@ -8,7 +8,7 @@
 //! use example_images::Images;
 //! let images = Images::frames();
 //! let rec = images.record()?;
-//! // a thumbnail of frame 3 at 16 cells a pixel reads far less than the frame
+//! // a thumbnail of frame 3 at 16 cells per pixel reads far less than the frame
 //! let thumb = images.view(&rec, 3, 0..480, 0..640, 16.0)?;
 //! assert_eq!(thumb.level, 4);
 //! assert!(thumb.bytes < images.frame_bytes());
@@ -337,7 +337,7 @@ pub struct TileRow {
     pub tile_bits: u32,
     /// Overview levels above the pixels as written.
     pub levels: u8,
-    /// The level, chunks and bytes of a thumbnail of the whole frame at 16 cells a pixel.
+    /// The level, chunks and bytes of a thumbnail of the whole frame at 16 cells per pixel.
     pub thumb_level: u8,
     pub thumb_chunks: u64,
     pub thumb_bytes: u64,

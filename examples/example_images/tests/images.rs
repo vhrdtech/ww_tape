@@ -13,7 +13,7 @@
 
 use example_capture::about;
 use example_images::{
-    CHANNELS, Images, SQUARE_COLUMNS, SQUARE_ROWS, STORY_FRAME, THUMB_CELLS_PER_PIXEL,
+    CHANNELS, Images, PERIOD_NS, SQUARE_COLUMNS, SQUARE_ROWS, STORY_FRAME, THUMB_CELLS_PER_PIXEL,
 };
 use ww_tape_summary::overview::div_even;
 
@@ -34,6 +34,12 @@ fn grouped(n: u64) -> String {
         out.push(d);
     }
     out.chars().rev().collect()
+}
+
+/// Frames a second as the page says them: "ten" for a period of 100 ms.
+fn ten(period_ns: u64) -> &'static str {
+    assert_eq!(1_000_000_000 / period_ns, 10);
+    "ten"
 }
 
 /// The same recording twice gives the same bytes.
@@ -125,8 +131,9 @@ fn the_page_says_what_the_camera_measures() {
     let pixels = u64::from(images.width) * u64::from(images.height);
     let mut phrases = vec![
         format!(
-            "A camera delivers {} pixels ten times a second.",
-            grouped(pixels)
+            "A camera delivers {} pixels {} times a second.",
+            grouped(pixels),
+            ten(PERIOD_NS)
         ),
         format!(
             "Its frames are {} × {} pixels, and each pixel has three channels.",

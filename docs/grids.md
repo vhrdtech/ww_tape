@@ -27,7 +27,8 @@ The track's definition names the two axes:
 --8<-- "examples/example_thermal/src/lib.rs:def"
 ```
 
-A series track has no fixed axes, and a grid track adds them. Time is the one axis with a clock and the one that
+A series track has no fixed axes, and a grid track adds them. A grid track is not the [[grid]] of a series chunk, which
+only places that chunk's samples in time. Time is the one axis with a clock and the one that
 grows. A cell holds the value of one place at one time, as one sample of a series does. The channels of a sample,
 such as the red, green and blue of a pixel, stay inside the cell and are not an axis.
 
@@ -180,8 +181,8 @@ frame. Two limits show. The tiles of 60 stop at level 2, so the thumbnail reads 
 of 64 take. The tiles of 240 × 320 read the thumbnail in 4 chunks, but the square needs about 4 times the bytes.
 
 An overview saves bytes, not chunks. A thumbnail at any level reads one overview chunk per tile, so many small tiles
-mean many small reads. A tile extent is therefore a choice between a cheap box query and a cheap overview, and a power
-of two keeps every level.
+mean many small reads. A tile extent is therefore a choice between a cheap box query and a cheap overview.
+A power of two gives the most levels: log2 of the extent, at most [`GRID_OVERVIEW_LEVELS_MAX`].
 
 ```rust
 use example_images::Images;

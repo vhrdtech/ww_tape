@@ -224,13 +224,13 @@ chapter = "../raw_media/"
 [[term]]
 name = "grid"
 forms = ["grids"]
-short = "The tick of one sample and the scale of the stored numbers that a series chunk carries, which place its samples in time."
+short = "The tick of one sample and the scale of the stored numbers that a series chunk carries, which place its samples in time; not a grid track."
 chapter = "../series/"
 
 [[term]]
 name = "grid track"
 forms = ["grid tracks"]
-short = "A series track with fixed axes beside time, such as a thermal field or an image sequence."
+short = "A series track with fixed axes beside time, such as a thermal field or an image sequence; not the grid of a series chunk."
 chapter = "../grids/"
 
 [[term]]
