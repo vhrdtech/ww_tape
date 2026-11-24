@@ -2427,7 +2427,8 @@ impl<S: TapeSink> TapeWriter<S> {
     /// - more than [RUN_BLOCKS_MAX](crate::RUN_BLOCKS_MAX) blocks ([InputError::RunTooLong]), more than
     ///   [GROUP_BYTES_MAX] bytes of items ([GroupRefusal::TooLong]), a state track twice
     ///   ([GroupRefusal::SlotTwice]), more than [RELAY_HELD_BYTES_MAX] held ([GroupRefusal::HeldTooLong]), or a
-    ///   block refused, drops it.
+    ///   block refused, drops it. A first block that tears its producer's group held and is refused itself is
+    ///   named [GroupRefusal::Torn]; given again, it names its own refusal.
     ///
     /// A block of a group not held is refused ([GroupRefusal::NoStart]), and so is a first block past
     /// [RELAY_GROUPS_MAX] ([GroupRefusal::TooManyHeld]). A group whose put is refused at its last block (no room:
@@ -2485,7 +2486,13 @@ impl<S: TapeSink> TapeWriter<S> {
             }
             Ok(())
         });
-        added?;
+        if let Err(e) = added {
+            // the group torn is the loss to name; the block given again, with nothing held, names its own refusal
+            return match torn {
+                Some(g) => torn_error(session, Some(g)),
+                None => Err(e),
+            };
+        }
         if b.flags & crate::FLAG_WITH_NEXT != 0 {
             self.relay_groups.hold(session, group);
             return torn_error(session, torn);

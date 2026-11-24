@@ -1214,3 +1214,40 @@ fn a_relayed_group_putting_a_track_twice_is_refused() {
         );
     }
 }
+
+/// A producer's first block of a new group tears the group held of it; when that block is refused too, the error
+/// names the torn group, and the block given again names its own refusal.
+#[test]
+fn a_refused_block_that_tears_a_group_names_the_torn_group() {
+    let a = producer(100, b"a", 0x100);
+    // a group of one block on track 13, a track the relay doesn't hold
+    let mut w = begin_numbered(options(u64::MAX), ww_tape::Layout::UNALIGNED, &[state(13)]);
+    w.define(&state(13)).unwrap();
+    let tape = w.sink().tape();
+    w.w.put(&w.defs, TrackNum::new(13), 1, b"other").unwrap();
+    let start = tape.to_vec().unwrap().len() as u64;
+    w.w.put(&w.defs, TrackNum::new(13), 2, b"unknown").unwrap();
+    let unknown: Vec<_> = record_blocks(&tape.to_vec().unwrap())
+        .into_iter()
+        .filter(|b| b.repeat && b.offset >= start)
+        .map(|b| as_producer(&b.bytes, 0x100))
+        .collect();
+    let unknown = as_group(&unknown);
+    assert_eq!(unknown.len(), 1);
+
+    let mut relay = rig();
+    let mut defs = relay.defs.clone();
+    relay.w.relay_block(&mut defs, &a.group[0]).unwrap();
+    assert!(matches!(
+        relay.w.put_block(&defs, &unknown[0]),
+        Err(WriteError::Input(InputError::Group(GroupRefusal::Torn {
+            blocks: 1,
+            ..
+        })))
+    ));
+    let again = relay.w.put_block(&defs, &unknown[0]);
+    assert!(
+        matches!(again, Err(WriteError::Describe(_))),
+        "its own refusal: {again:?}"
+    );
+}
