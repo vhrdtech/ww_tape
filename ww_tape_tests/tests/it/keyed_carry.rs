@@ -480,6 +480,15 @@ fn a_put_past_the_carry_entries_is_refused() {
     apply(&mut chain, &mut model, 200, &key(1), None);
     apply(&mut chain, &mut model, 201, &key(n), Some(b"new"));
     assert!(chain.put_key(&defs, KEYED, 202, &key(n + 1), b"v").is_err());
+    // at the limit a track the carry doesn't hold yet has no room for its definitions until keys are deleted
+    let e = chain.put(&defs, PLAIN, 203, b"p").unwrap_err();
+    assert!(
+        matches!(e, WriteError::Input(InputError::CarriedEntries { .. })),
+        "{e}"
+    );
+    apply(&mut chain, &mut model, 204, &key(2), None);
+    apply(&mut chain, &mut model, 205, &key(3), None);
+    chain.put(&defs, PLAIN, 206, b"p").unwrap();
 }
 
 /// A put by key whose live keys' items would take more than the bytes the writer keeps is refused, naming that

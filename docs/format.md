@@ -858,7 +858,10 @@ The next head marks the track's row `TrackStart::keys_carried` (row flag bit 2) 
 It knows them when it saw every record of the track since its first. It sees them in this piece, in the carry of the
 piece before, or through the index of the closed pieces a chain's resume reads.
 
-A record it couldn't read leaves the row unmarked, and so does a piece resumed alone after its carry was lost. `Closed::keys_unknown` counts such tracks.
+A record it couldn't read leaves the row unmarked, and so does a piece resumed alone after its carry was lost.
+`Closed::keys_unknown` counts such tracks. Keys deleted while the writer doesn't know every key count under
+`NearPolicy::kept_bytes_max`. Past it they are forgotten, and the track's rows stay unmarked from then on.
+
 A piece resumed alone whose head marks a row but whose carry a crash dropped refuses to carry again
 (`ResumeError::KeysUnknown`). A `PieceChain` resume reads the keys from the piece before. A call whose definitions
 don't hold the track is refused naming it (`ResumeError::KeysUndefined`). The mark on the row of a track that isn't
@@ -880,9 +883,16 @@ limit (`CarryLimit`):
 A change of a live key that keeps its size and a deletion are never refused for them. The room for one put more
 lets a change or a deletion land in a piece a cut made for it.
 
+At the `StateEntries` limit that one put is all the room left. A call on a track whose definitions the carry doesn't
+hold yet needs more for them, so it is refused (`InputError::CarriedEntries`) until keys are deleted.
+
 The writer also refuses a `put_key` whose key has the key id of another live key of the track
 (`DescribeError::KeyCollision`). So a listing never hides a live key. The relay of a producer's block of keyed records
 is checked the same way.
+
+The check knows only the keys the writer knows. While the track's row would stay unmarked, a key whose id only an
+older piece's key holds is not refused. The two keys then share a slot as in a file of another writer, and a lookup
+by key still finds each.
 
 ### 5.4 Deferred blocks {#deferred-blocks}
 

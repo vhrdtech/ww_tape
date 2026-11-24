@@ -53,6 +53,10 @@ pub(crate) fn carry_entries(kept: &Kept, defs: &Definitions, tracks: &[TrackNum]
 /// when they bring the live keys of the keyed tracks past `limits` ([InputError::CarryFull]): a record per key, the
 /// definitions of their tracks, the layout, the producer and one put more must fit a piece, and the keys' items the
 /// bytes kept. Puts that make the keys fewer or shorter are never refused for the limits.
+///
+/// Only the keys `kept` holds are checked: while a track's keys aren't complete ([super::kept::Keys::complete]), a
+/// key of the id of a key only the pieces before hold goes. The two then share a slot, and a lookup by key still
+/// finds each.
 pub(crate) fn check<E>(
     kept: &Kept,
     defs: &Definitions,

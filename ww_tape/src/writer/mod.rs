@@ -582,6 +582,10 @@ impl<S: TapeSink> TapeWriter<S> {
     /// made for it, since that cut carries the keyed tracks and then the call's tracks' definitions first. A piece
     /// that refuses an admitted call with [IndexError::StateEntries] is full, and one cut makes room: data on a track
     /// is never refused for good, and no cut made for a call leaves a piece empty.
+    ///
+    /// At the key limit ([CarryLimit::StateEntries]) the keyed tracks' carry leaves room for one put alone: a call on
+    /// a track whose definitions the carry doesn't hold yet, with its puts, needs more and is refused here until keys
+    /// are deleted.
     fn admit(
         &mut self,
         defs: &Definitions,
