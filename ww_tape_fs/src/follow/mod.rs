@@ -37,8 +37,9 @@ use std::time::{Duration, Instant};
 use ww_tape::index::{IndexBlock, IndexKind};
 use ww_tape::piece::Tail;
 use ww_tape::{
-    BlockBuf, BlockKind, Cut, Definitions, DescribeError, FLAG_GROUP, FLAG_WITH_NEXT, FileBlocks,
-    FileError, Medium, PieceTapes, RUN_BLOCKS_MAX, RecordTrack, WalkPoint,
+    BlockBuf, BlockKind, Cut, Definitions, DescribeError, FLAG_GROUP, FLAG_GROUP_START,
+    FLAG_WITH_NEXT, FileBlocks, FileError, Medium, PieceTapes, RUN_BLOCKS_MAX, RecordTrack,
+    WalkPoint,
 };
 
 pub use merge::{Merged, TimeMerge};
@@ -377,7 +378,8 @@ impl ChainFollower {
         let mut walk = FileBlocks::resume(file, self.point);
         self.stopped = None;
         let mut held: Vec<Held> = Vec::new();
-        // after damage: the blocks of a group up to the first unmarked one are dropped, as a scan drops them
+        // after damage: the blocks of a group without a start up to the first unmarked one are dropped, as a scan
+        // drops them
         let mut after_damage = false;
         while let Some(next) = walk.next_block() {
             let bytes = match next {
@@ -408,7 +410,7 @@ impl ChainFollower {
                 break;
             };
             let flags = block.block().flags;
-            if after_damage && flags & FLAG_GROUP != 0 {
+            if after_damage && flags & FLAG_GROUP != 0 && flags & FLAG_GROUP_START == 0 {
                 after_damage = flags & FLAG_WITH_NEXT != 0;
                 continue;
             }

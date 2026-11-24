@@ -22,8 +22,8 @@
 //!          chunk its payload unchecked (FLAG_PAYLOAD_UNCHECKED: segment CRCs 0, the block CRC over the head), bit 4 on an
 //!          events chunk a break in its track's monotone relations (FLAG_RELATION_BREAK), bit 5 on a summary block
 //!          a grid tile's tree, its tile after the scale (FLAG_TILE: it changes the layout, so a reader
-//!          without it refuses the block), bit 8 on a block of puts one of a group (FLAG_GROUP); others
-//!          0, and a reader ignores them
+//!          without it refuses the block), bit 8 on a block of puts one of a group (FLAG_GROUP), bit 9
+//!          on a group's first block (FLAG_GROUP_START); others 0, and a reader ignores them
 //!   8 u32  len: the whole block, header and CRC included
 //!  12 u32  records in the block
 //!  16 u64  seq: the block number in its session, from 0, +1 per block; a gap is lost blocks. Index, close, tail and
@@ -354,6 +354,11 @@ pub const RUN_BLOCKS_MAX: usize = 4096;
 /// whole group when one of its blocks doesn't read ([FLAG_WITH_NEXT]), and only a group: a run of other puts loses
 /// only the block that doesn't read.
 pub const FLAG_GROUP: u16 = 1 << 8;
+/// Header flag on the first block of a group of puts, with [FLAG_GROUP].
+///
+/// It only marks. After damage a reader that knows it takes a group that starts with it whole: the damage hit no block
+/// of it. A block of a group without it may be the rest of a group the damage hit, and goes with it.
+pub const FLAG_GROUP_START: u16 = 1 << 9;
 /// Header flag on chunk blocks: the payload's CRCs were not computed, set on each chunk a writer of
 /// [Integrity::None] encodes.
 ///
@@ -1082,6 +1087,14 @@ pub(crate) fn mark_with_next_trusted(block: &mut [u8]) -> Result<(), BlockError>
 /// [set_id], and mark the block as one of put or copied state records ([FLAG_REPEAT]).
 pub fn mark_repeat(block: &mut [u8], id: BlockId) -> Result<(), BlockError> {
     restamp(block, id, FLAG_REPEAT, Reread::Whole)
+}
+
+/// Mark the whole, good block `block` as the first of a group of puts ([FLAG_GROUP_START]), its CRCs rewritten.
+#[cfg(feature = "alloc")]
+pub(crate) fn mark_group_start(block: &mut [u8]) -> Result<(), BlockError> {
+    let b = Block::read(block)?;
+    let id = BlockId::new(b.session, b.seq);
+    restamp(block, id, FLAG_GROUP_START, Reread::Whole)
 }
 
 /// Mark the whole, good events chunk block `block` as a break in its track's monotone relations.

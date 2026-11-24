@@ -123,8 +123,8 @@ off size field
          chunk its payload unchecked (FLAG_PAYLOAD_UNCHECKED: segment CRCs 0, the block CRC over the head), bit 4 on an
          events chunk a break in its track's monotone relations (FLAG_RELATION_BREAK), bit 5 on a summary block
          a grid tile's tree, its tile after the scale (FLAG_TILE: it changes the layout, so a reader
-         without it refuses the block), bit 8 on a block of puts one of a group (FLAG_GROUP); others
-         0, and a reader ignores them
+         without it refuses the block), bit 8 on a block of puts one of a group (FLAG_GROUP), bit 9
+         on a group's first block (FLAG_GROUP_START); others 0, and a reader ignores them
   8 u32  len: the whole block, header and CRC included
  12 u32  records in the block
  16 u64  seq: the block number in its session, from 0, +1 per block; a gap is lost blocks. Index, close, tail and
@@ -189,6 +189,7 @@ moves the block's body behind the tile, so a reader without it refuses the block
 | 4 | `FLAG_RELATION_BREAK` | an events chunk where a track's monotone relations start again ([below](#relation-breaks)) |
 | 5 | `FLAG_TILE` | a summary block of a grid tile's tree, its tile after the scale ([Summaries of tiles](#summaries-of-tiles)) |
 | 8 | `FLAG_GROUP` | a block of puts of a group, taken whole or not at all ([Groups of puts](#groups-of-puts)); it only marks, and a reader that doesn't know it reads the block as any block of puts |
+| 9 | `FLAG_GROUP_START` | the first block of a group, with `FLAG_GROUP`; it only marks, as bit 8 |
 
 ### 3.3 Records blocks {#records-blocks}
 
@@ -832,10 +833,11 @@ before the group stays in force, and each reader lists what it dropped.
 
 A block that doesn't read hides its own marks, so readers drop what may belong with it:
 
-- a scan, after damage, the blocks of a group up to the first one not marked `FLAG_WITH_NEXT`;
-- a lookup through the index, a block of a group after a block of puts that doesn't read.
+- a scan or a follower, after damage, the blocks of a group without `FLAG_GROUP_START` up to the first one not
+  marked `FLAG_WITH_NEXT`;
+- a lookup through the index, a block of a group whose blocks back to its start don't all read.
 
-A group right after a damaged one may so be dropped too.
+A group that starts after the damage carries its start mark, so it stays whole.
 
 `TapeWriter::put_block` puts a producer's block of puts by the writer's own rule. `relay_block` passes a live producer's
 stream on.
@@ -846,7 +848,7 @@ stream on.
 Each put decides by the near rule as `TapeWriter::put` does, so a group writes only the items not in force close
 behind. The records it writes and the definitions they need go into blocks of puts one after the other, every block
 but the last marked `FLAG_WITH_NEXT`. A group is so a run whose last block is a block of puts. The bytes are those of
-puts, each block of a group marked `FLAG_GROUP` (bit 8).
+puts, each block of a group marked `FLAG_GROUP` (bit 8) and its first block `FLAG_GROUP_START` (bit 9).
 
 The flag only marks. A reader that doesn't know it reads the blocks as any blocks of puts. It loses nothing a crash
 leaves, since a group is a run. A reader that knows it also drops a damaged group whole ([Marking blocks of puts](#marking-blocks-of-puts)).

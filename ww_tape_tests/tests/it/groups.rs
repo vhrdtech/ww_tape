@@ -597,3 +597,134 @@ fn a_follower_hands_out_no_block_of_a_damaged_group() {
         );
     }
 }
+
+/// A closed piece on an SD card layout: group A, a block of data, group C of `c_len`-byte items, a block of data.
+/// The bytes, the block of data between A and C, C's blocks, and the items of A and C.
+struct AroundData {
+    bytes: Vec<u8>,
+    data: (usize, usize),
+    c: Vec<(usize, usize)>,
+    a: Vec<Vec<u8>>,
+    c_items: Vec<Vec<u8>>,
+}
+
+fn around_data(c_len: usize) -> AroundData {
+    let mut w = begin_numbered(
+        options(u64::MAX),
+        ww_tape::Layout::UNALIGNED.on_sd_card(),
+        &TRACKS.map(state),
+    );
+    for d in &TRACKS.map(state) {
+        w.define(d).unwrap();
+    }
+    let tape = w.sink().tape();
+    let a = items(1, 8);
+    put_group(&mut w, &a).unwrap();
+    let data_at = tape.to_vec().unwrap().len();
+    crate::definitions::write_records(&mut w, 10, 1);
+    let c_at = tape.to_vec().unwrap().len();
+    let c_items = items(60, c_len);
+    put_group(&mut w, &c_items).unwrap();
+    let c_end = tape.to_vec().unwrap().len();
+    crate::definitions::write_records(&mut w, 20, 1);
+    w.w.close().unwrap();
+    let bytes = tape.to_vec().unwrap();
+    let r = TapeReader::open(&bytes[..]).unwrap();
+    let mut c: Vec<(usize, usize)> = r
+        .entries(0)
+        .unwrap()
+        .iter()
+        .map(|e| (e.offset as usize, e.len as usize))
+        .filter(|(o, _)| *o >= c_at && *o < c_end)
+        .collect();
+    c.dedup();
+    AroundData {
+        bytes,
+        data: (data_at, c_at - data_at),
+        c,
+        a,
+        c_items,
+    }
+}
+
+/// What both readers hold in force at the end of the bytes, `flipped` read through the final index and `gap` by a
+/// raw scan; asserted equal to `want` on every track.
+fn both_hold(flipped_bytes: &[u8], gap: &[u8], want: &[Vec<u8>], what: &str) {
+    let readers = [
+        TapeReader::open(flipped_bytes).unwrap(),
+        TapeReader::open_with(gap, raw()).unwrap(),
+    ];
+    for (n, r) in readers.iter().enumerate() {
+        for (t, (item, _)) in in_force_of(r).into_iter().enumerate() {
+            assert_eq!(
+                item.as_ref(),
+                Some(&want[t]),
+                "{what}: reader {n}, track {t}"
+            );
+        }
+    }
+}
+
+/// Damage to a block of data before a group costs the group nothing: it starts after the damage, with its start
+/// mark, so a scan and a lookup through the index both hold it whole, a group of one block or of three.
+#[test]
+fn a_group_that_starts_after_damage_is_whole() {
+    for c_len in [8, LARGE] {
+        let d = around_data(c_len);
+        assert_eq!(d.c.len(), if c_len == 8 { 1 } else { 3 });
+        both_hold(
+            &flipped(&d.bytes, d.data),
+            &blanked(&d.bytes, d.data),
+            &d.c_items,
+            &format!("data damaged, C of {c_len}"),
+        );
+        let got = followed(&blanked(&d.bytes, d.data));
+        for (at, _) in &d.c {
+            assert!(
+                got.contains(at),
+                "data damaged, C of {c_len}: the follower hands out C's block at {at}"
+            );
+        }
+    }
+}
+
+/// The offsets of every block a follower hands out of a file holding `bytes`.
+fn followed(bytes: &[u8]) -> Vec<usize> {
+    let dir = scratch("groups_followed");
+    let path = dir.join("tape.wwt");
+    append(&path, bytes);
+    let mut f = ChainFollower::new(
+        &path,
+        FollowOptions {
+            tapes: PieceTapes::One,
+            ..FollowOptions::default()
+        },
+    )
+    .unwrap();
+    let mut got = Vec::new();
+    while let Some(b) = f.try_next().unwrap() {
+        got.push(b.offset as usize);
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+    got
+}
+
+/// Damage to the first block of a group drops the whole group in both readers: the rest of it carries no start
+/// mark, so the group before it stays in force.
+#[test]
+fn a_group_whose_first_block_is_damaged_is_dropped_whole() {
+    let d = around_data(LARGE);
+    both_hold(
+        &flipped(&d.bytes, d.c[0]),
+        &blanked(&d.bytes, d.c[0]),
+        &d.a,
+        "C's first block damaged",
+    );
+    let one = around_data(8);
+    both_hold(
+        &flipped(&one.bytes, one.c[0]),
+        &blanked(&one.bytes, one.c[0]),
+        &one.a,
+        "C of one block damaged",
+    );
+}

@@ -12,15 +12,16 @@
 //! | its [RUN_BLOCKS_MAX]th block, marked | dropped, with the blocks after it up to its first unmarked one |
 //!
 //! A group of puts ([TapeWriter::put_group](crate::TapeWriter::put_group)) is taken whole or not at all, damaged too:
-//! its blocks are marked [FLAG_GROUP]. A block that doesn't read hides its own marks, so after damage a scan drops the
-//! blocks of a group up to the first one not marked [FLAG_WITH_NEXT]: they may be the rest of a group the damage hit.
+//! its blocks are marked [FLAG_GROUP], its first one [FLAG_GROUP_START]. A block that doesn't read hides its own
+//! marks, so after damage a scan drops the blocks of a group without a start, up to the first one not marked
+//! [FLAG_WITH_NEXT]: they may be the rest of a group the damage hit. A group that starts after the damage is whole.
 //! Damage costs no other block: a run of other puts, or of chunks, loses only what doesn't read.
 
 use alloc::vec::Vec;
 
 use super::PieceInfo;
 use crate::index::IndexEntry;
-use crate::{Block, FLAG_GROUP, FLAG_WITH_NEXT, RUN_BLOCKS_MAX};
+use crate::{Block, FLAG_GROUP, FLAG_GROUP_START, FLAG_WITH_NEXT, RUN_BLOCKS_MAX};
 
 /// A block of a run a scan holds.
 struct Held {
@@ -38,7 +39,7 @@ struct Held {
 enum Mode {
     /// Holds marked blocks until the block they belong with
     Hold,
-    /// After damage: drops blocks of a group up to the first unmarked one
+    /// After damage: drops blocks of a group without a start up to the first unmarked one
     AfterDamage,
     /// After a run longer than [RUN_BLOCKS_MAX]: drops every block up to the first unmarked one
     TooLong,
@@ -70,7 +71,7 @@ impl Runs {
         let marked = block.flags & FLAG_WITH_NEXT != 0;
         let group = block.flags & FLAG_GROUP != 0;
         let dropped = match self.mode {
-            Mode::AfterDamage => group,
+            Mode::AfterDamage => group && block.flags & FLAG_GROUP_START == 0,
             Mode::TooLong => true,
             Mode::Hold => false,
         };
@@ -120,7 +121,7 @@ impl Runs {
     }
 
     /// Damage at the scan's place: the held blocks of a group are dropped, the other held blocks listed, and the
-    /// blocks of a group after it are dropped up to the first unmarked one.
+    /// blocks of a group without a start after it are dropped up to the first unmarked one.
     pub(super) fn damaged(&mut self, piece: &mut PieceInfo) {
         for h in self.held.drain(..) {
             if h.group {

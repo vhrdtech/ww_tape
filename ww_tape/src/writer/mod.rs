@@ -378,7 +378,8 @@ enum PutsEnd {
     Last,
     /// Every block is marked: a block of data they serve follows.
     WithNext,
-    /// The last block is unmarked and every block is marked [FLAG_GROUP](crate::FLAG_GROUP): a group of puts.
+    /// The last block is unmarked, every block is marked [FLAG_GROUP](crate::FLAG_GROUP) and the first one
+    /// [FLAG_GROUP_START](crate::FLAG_GROUP_START): a group of puts.
     Group,
 }
 
@@ -1171,6 +1172,9 @@ impl<S: TapeSink> TapeWriter<S> {
         for (i, mut b) in blocks.into_iter().enumerate() {
             if i < last || with_next {
                 crate::mark_with_next(&mut b).map_err(WriteError::Block)?;
+            }
+            if i == 0 && end == PutsEnd::Group {
+                crate::mark_group_start(&mut b).map_err(WriteError::Block)?;
             }
             self.write_own(&b)?;
         }
