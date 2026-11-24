@@ -418,7 +418,7 @@ The pages in `docs/`.
 
 - ✅ **BOOK-7 The book kit from PyPI**
 
-  The justfile pins `vhrd-zensical[zensical]==0.2.0` from PyPI, not the git tag: `just book-check` installs a wheel
+  The justfile pins `vhrd-zensical[zensical]==0.2.1` from PyPI, not the git tag: `just book-check` installs a wheel
   and compiles nothing.
 
   Read more: [For writers](docs/writers.md).

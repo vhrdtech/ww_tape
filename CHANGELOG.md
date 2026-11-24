@@ -8,7 +8,7 @@ benchmarks, golden files and book pages.
 
 ### Features
 
-- The book kit pins `vhrd-zensical[zensical]==0.2.0` from PyPI, not the git tag (BOOK-7).
+- The book kit pins `vhrd-zensical[zensical]==0.2.1` from PyPI, not the git tag (BOOK-7).
 
 ## [0.9.1] - 2026-11-24
 
