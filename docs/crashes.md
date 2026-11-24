@@ -120,9 +120,10 @@ simply puts again what it uses, as it did before the crash.
 
 Some puts only mean something together. An application that keeps its settings on [[state tracks]] changes a limit
 and its unit in one step. A reader that saw the new limit with the old unit would read a wrong setting.
+
 `TapeWriter::put_group` puts such items as one group. Its blocks but the last are marked `FLAG_WITH_NEXT`, as puts
-before a block of data are, and the last block of puts ends the group. A group may hold keys of a keyed state track
-too, put or deleted, such as the entries of a settings store changed in one step.
+before a block of data are, and the last block of puts ends the group. A group may also put or delete keys of a
+keyed state track, such as the entries of a settings store.
 
 A crash inside the group leaves marked blocks at the end of the piece and no last one. A reader of the piece before
 the [[resume]] takes none of them, and a follower hands out none. The resume drops them and says so in

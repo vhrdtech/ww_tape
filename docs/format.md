@@ -889,11 +889,13 @@ stream on.
 
 `TapeWriter::put_group` puts items on several state tracks as one **group**: a reader takes all of them or none.
 A put of a group is an item (`GroupItem::State`) or a key's value or deletion on a keyed track (`GroupItem::Key`,
-[Keyed state tracks](#keyed-state-tracks)). Each put decides by the near rule as `TapeWriter::put` does, so a group
-writes only the items not in force close behind. A group's keyed records go into blocks of their own, marked
-`FLAG_KEYED`, among its other blocks. The records it writes and the definitions they need go into blocks of puts one after the other, every block
-but the last marked `FLAG_WITH_NEXT`. A group is so a run whose last block is a block of puts. The bytes are those of
-puts, each block of a group marked `FLAG_GROUP` (bit 8) and its first block `FLAG_GROUP_START` (bit 9).
+[Keyed state tracks](#keyed-state-tracks)).
+
+Each put decides by the near rule as `TapeWriter::put` does, so a group writes only the items not in force close behind.
+A group's keyed records go into blocks of their own, marked `FLAG_KEYED`, among its other blocks. The records it writes
+and the definitions they need go into blocks of puts one after the other, every block but the last marked
+`FLAG_WITH_NEXT`. A group is so a run whose last block is a block of puts. The bytes are those of puts, each block of a
+group marked `FLAG_GROUP` (bit 8) and its first block `FLAG_GROUP_START` (bit 9).
 
 The flag only marks. A reader that doesn't know it reads the blocks as any blocks of puts. It loses nothing a crash
 leaves, since a group is a run. A reader that knows it also drops a damaged group whole ([Marking blocks of puts](#marking-blocks-of-puts)).
