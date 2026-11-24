@@ -46,6 +46,7 @@ Start where your question is:
 - [What a tape holds](tape.md): tracks and items, the three uses, the goals, pieces and chains, and the crates.
 - [A first tape](first_tape.md): a program that writes a tape file and reads it back.
 - [Reading a tape](reading.md): find one second in a long recording with a few small reads.
+- [Fields and images over time](grids.md): a thermal plate and a camera on tracks with fixed axes, read by box, region and level.
 - [When bytes go bad](damage.md): what a flipped bit costs, and how a reader reads past it.
 - [WireWeaver and logring](related_books.md): the framework tapes belong to, and the store for firmware.
 - [Format reference](format.md): every block byte by byte, for a reader in another language.

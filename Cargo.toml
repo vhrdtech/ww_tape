@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["examples/example_capture", "examples/example_drive", "examples/example_ethernet", "examples/example_rf", "examples/example_wideband", "ww_tape", "ww_tape_bench", "ww_tape_bench_report", "ww_tape_benchmarks", "ww_tape_codecs", "ww_tape_codecs_benchmarks", "ww_tape_figures", "ww_tape_fs", "ww_tape_fuzz", "ww_tape_mux", "ww_tape_summary", "ww_tape_tests"]
+members = ["examples/example_capture", "examples/example_drive", "examples/example_ethernet", "examples/example_images", "examples/example_rf", "examples/example_thermal", "examples/example_wideband", "ww_tape", "ww_tape_bench", "ww_tape_bench_report", "ww_tape_benchmarks", "ww_tape_codecs", "ww_tape_codecs_benchmarks", "ww_tape_figures", "ww_tape_fs", "ww_tape_fuzz", "ww_tape_mux", "ww_tape_summary", "ww_tape_tests"]
 # cargo-fuzz targets, a workspace of its own (nightly)
 exclude = ["fuzz"]
 
@@ -19,7 +19,9 @@ license = "MIT"
 example_capture = { path = "./examples/example_capture" }
 example_drive = { path = "./examples/example_drive" }
 example_ethernet = { path = "./examples/example_ethernet" }
+example_images = { path = "./examples/example_images" }
 example_rf = { path = "./examples/example_rf" }
+example_thermal = { path = "./examples/example_thermal" }
 example_wideband = { path = "./examples/example_wideband" }
 ww_tape = { version = "0.9.0", path = "./ww_tape", default-features = false }
 ww_tape_bench = { path = "./ww_tape_bench" }
@@ -141,7 +143,13 @@ opt-level = 3
 [profile.test.package.example_ethernet]
 opt-level = 3
 
+[profile.test.package.example_images]
+opt-level = 3
+
 [profile.test.package.example_rf]
+opt-level = 3
+
+[profile.test.package.example_thermal]
 opt-level = 3
 
 [profile.test.package.example_wideband]

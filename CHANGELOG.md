@@ -6,6 +6,10 @@ benchmarks, golden files and book pages.
 
 ## [Unreleased]
 
+### Features
+
+- The book explains grids in "Fields and images over time", with `example_thermal` and `example_images` as tested cases (BOOK-5).
+
 ## [0.9.0] - 2026-11-24
 
 ### Breaking

@@ -26,4 +26,5 @@ pages! {
     Anatomy = "anatomy.md";
     Damage = "damage.md";
     RawMedia = "raw_media.md";
+    Grids = "grids.md";
 }
