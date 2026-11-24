@@ -16,11 +16,12 @@ benchmarks, golden files and book pages.
 - `TapeMux::put_item` puts a typed item and carries it into later pieces as `ItemCarry` says; `release_item` ends it (MUX-4).
 - `TapeWriter::carried_owners` names the owners of the tracks a piece head carries; `track_owner` names one track's (MUX-4).
 - `Definitions::track_identity` gives a held track's id and owner (READ-6).
+- The book moves to the `vhrd_zensical` kit: renamed extension ids and assets, abbreviations in `docs/abbreviations.toml` (BOOK-6).
 
 ### Fixes
 
-- An `ItemCarry::Owner` item reaches a piece whose head carries no track of its owner, at the owner's first data there (MUX-4).
-- Carrying held items never cuts: an item a piece has no room for is refused there, counted, and put in the next (MUX-4).
+- An `ItemCarry::Owner` item follows its owner's first data into a piece whose head carries none of its tracks (MUX-4).
+- Carrying held items never cuts: an item a full piece refuses waits for the next (MUX-4).
 - A `put_item` that cuts carries the held items into the piece it starts (MUX-4).
 - `TapeMux::put_item` refuses an item past `HELD_ITEMS_MAX` or `HELD_ITEM_BYTES_MAX` held, as `CallError::HeldItems` (MUX-4).
 - A second `Placing::try_take` gives None, not a lost placement (MUX-4).
