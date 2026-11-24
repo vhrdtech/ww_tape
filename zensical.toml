@@ -153,6 +153,10 @@ pymdownx.highlight = {
   anchor_linenums = true,
   line_spans = "__span",
   pygments_lang_class = true,
+  extend_pygments_lang = [
+    { name = "console", lang = "spl-console" },
+    { name = "rust", lang = "spl-rust" },
+  ],
 }
 pymdownx.inlinehilite = {}
 pymdownx.keys = {}
