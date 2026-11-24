@@ -179,6 +179,8 @@ pub enum SeriesError {
     /// A chunk's tile coordinates name no tile of its grid: not one per fixed axis, or one past its axis' tiles
     /// ([TileLayout::holds]).
     TileOutside { first_item: ItemNum },
+    /// A chunk's overview level is past its grid's levels ([TileLayout::overview_levels]).
+    LevelOutside { first_item: ItemNum, level: u8 },
 }
 
 impl core::fmt::Display for SeriesError {
@@ -205,6 +207,10 @@ impl core::fmt::Display for SeriesError {
             Self::TileOutside { first_item } => write!(
                 f,
                 "chunk at sample {first_item}: tile coordinates name no tile of its grid"
+            ),
+            Self::LevelOutside { first_item, level } => write!(
+                f,
+                "chunk at sample {first_item}: overview level {level} past its grid's levels"
             ),
             Self::ChunkTicks { first_item } => write!(
                 f,

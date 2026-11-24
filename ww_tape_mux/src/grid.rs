@@ -378,6 +378,7 @@ impl<S: Scalar + Sample> GridChunks<S> {
             end_mode: EndMode::Absent,
             grid: Some(self.grid),
             tile: tile.coords,
+            level: 0,
         };
         let spec = ColumnSpec {
             kind: ColumnKind::Samples,
@@ -696,6 +697,7 @@ fn grid_chunks<S: Scalar + Sample>(
         end_mode: EndMode::Absent,
         grid: Some(grid),
         tile: coords.first().copied().unwrap_or_default(),
+        level: 0,
     };
     let Some(chunk_steps) = chunk_steps::<S>(&head, shape, stride, tile_cells, options)? else {
         return Ok(None);

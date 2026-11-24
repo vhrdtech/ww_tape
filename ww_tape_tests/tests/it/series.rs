@@ -212,6 +212,7 @@ fn complete(
             end_mode: EndMode::Absent,
             grid: Some(grid),
             tile: ww_tape::TileCoords::NONE,
+            level: 0,
         };
         let spec = ColumnSpec {
             kind: ColumnKind::Samples,
@@ -587,6 +588,7 @@ fn writer_refuses_what_a_series_track_does_not_hold() {
         end_mode: EndMode::Absent,
         grid: Some(grid),
         tile: ww_tape::TileCoords::NONE,
+        level: 0,
     };
     let bytes = [0u8; 32];
     let spec = ColumnSpec {
@@ -675,6 +677,7 @@ fn caller_chunks_are_checked_once() {
         end_mode: EndMode::Absent,
         grid: Some(grid),
         tile: ww_tape::TileCoords::NONE,
+        level: 0,
     };
     let samples = [3u8; 32];
     let spec = ColumnSpec {
@@ -770,6 +773,7 @@ fn writer_refuses_chunks_too_long_without_a_panic() {
         end_mode: EndMode::Absent,
         grid: Some(grid),
         tile: ww_tape::TileCoords::NONE,
+        level: 0,
     };
     let samples = [0u8; 32];
     let spec = ColumnSpec {

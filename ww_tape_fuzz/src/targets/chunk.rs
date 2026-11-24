@@ -112,6 +112,7 @@ pub fn chunk(data: &[u8]) {
         },
         grid: series.then_some(ww_tape::SeriesGrid::start(0, 0, ww_tape::Magnitude::ONE)),
         tile: ww_tape::TileCoords::NONE,
+        level: 0,
     };
     let specs: Vec<ColumnSpec> = cols.iter().map(|c| c.0).collect();
     let mut buf = vec![0u8; chunk_len(&head, &specs, 0)];

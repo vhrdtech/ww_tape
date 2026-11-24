@@ -109,6 +109,7 @@ pub fn series(data: &[u8]) -> Vec<u8> {
             end_mode: EndMode::Absent,
             grid: Some(grid),
             tile: ww_tape::TileCoords::NONE,
+            level: 0,
         });
         first = first.saturating_add(u64::from(count) + u64::from(d.u8() % 3));
     }

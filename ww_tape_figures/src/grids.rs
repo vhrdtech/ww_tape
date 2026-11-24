@@ -46,6 +46,7 @@ fn head(grid: SeriesGrid, first: u64) -> anyhow::Result<ChunkHead> {
         end_mode: EndMode::Absent,
         grid: Some(grid),
         tile: ww_tape::TileCoords::NONE,
+        level: 0,
     };
     let samples: Vec<u8> = (0..COUNT).flat_map(|i| (i as i16).to_le_bytes()).collect();
     let spec = ColumnSpec {

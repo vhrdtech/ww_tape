@@ -320,6 +320,7 @@ fn head_on(grid: SeriesGrid, first: u64, count: u32) -> ChunkHead {
         end_mode: EndMode::Absent,
         grid: Some(grid),
         tile: crate::TileCoords::NONE,
+        level: 0,
     }
 }
 

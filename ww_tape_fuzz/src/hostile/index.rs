@@ -120,7 +120,14 @@ fn entries(d: &mut Draw<'_>, n: usize, sorted: bool) -> Vec<IndexEntry> {
                 offset: 64 * i as u64 + u64::from(d.u8()),
                 len: 36 + u32::from(d.u8()),
                 kind,
-                level: d.u8() % 3,
+                // an overview level only on a grid chunk's entry, beside its tile number
+                level: {
+                    let level = d.u8() % 3;
+                    match (kind, tile) {
+                        (BlockKind::Events, _) | (BlockKind::Series, None) => 0,
+                        _ => level,
+                    }
+                },
                 tree: d.u8() % 3,
                 track_id: TrackId::new(u64::from(d.u8() % 4)),
                 number: u32::from(d.u8() % 4),

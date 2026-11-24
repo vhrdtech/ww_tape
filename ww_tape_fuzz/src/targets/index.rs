@@ -314,14 +314,20 @@ pub fn index(data: &[u8]) {
         self_offset: u64::from(flag),
         prev: (flag & 2 == 2).then_some(7),
     };
-    // write_index refuses an entry whose end passes a u64, a range that decreases or sits on no chunk's entry, and
-    // in a final index a track whose blocks overlap (only a state record's entries share a block)
+    // write_index refuses an entry whose end passes a u64, a range that decreases or sits on no chunk's entry, a
+    // level on an events chunk's or past GRID_OVERVIEW_LEVELS_MAX on a series chunk's, and in a final index a track
+    // whose blocks overlap (only a state record's entries share a block)
     let valid = entries.iter().all(|e| {
         e.offset.checked_add(u64::from(e.len)).is_some()
             && e.range.is_none_or(|(lo, hi)| {
                 lo <= hi && matches!(e.kind, BlockKind::Events | BlockKind::Series)
             })
             && (e.tile.is_none() || (e.kind == BlockKind::Series && e.range.is_none()))
+            && match e.kind {
+                BlockKind::Events => e.level == 0,
+                BlockKind::Series => e.level <= ww_tape::grid::GRID_OVERVIEW_LEVELS_MAX,
+                _ => true,
+            }
     }) && (kind == IndexKind::Checkpoint
         || entries.windows(2).all(|w| {
             w[0].track_id != w[1].track_id

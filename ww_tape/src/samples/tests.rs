@@ -227,6 +227,7 @@ fn samples_golden() {
         end_mode: crate::EndMode::Absent,
         grid: Some(crate::SeriesGrid::start(1000, 0, crate::Magnitude::ONE)),
         tile: crate::TileCoords::NONE,
+        level: 0,
     };
     let spec = |codec, param, len| crate::ColumnSpec {
         kind: crate::ColumnKind::Samples,

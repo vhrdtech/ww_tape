@@ -198,6 +198,7 @@ pub fn chunk(data: &[u8]) -> Vec<u8> {
             )
         }),
         tile: ww_tape::TileCoords::NONE,
+        level: 0,
     };
     let mut b = build(&head, &columns);
     hit_head(&mut d, &mut b);

@@ -108,6 +108,7 @@ fn head(id: TrackId, run: u64, tile: TileCoords) -> ChunkHead {
         end_mode: EndMode::Absent,
         grid: Some(grid),
         tile,
+        level: 0,
     }
 }
 

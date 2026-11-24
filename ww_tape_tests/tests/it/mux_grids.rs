@@ -353,6 +353,7 @@ fn direct_series(batches: &[(u64, u32)], chunk: u64) -> Vec<Vec<u8>> {
             end_mode: EndMode::Absent,
             grid: Some(grid),
             tile: TileCoords::NONE,
+            level: 0,
         };
         let mut columns = vec![(
             ColumnSpec {

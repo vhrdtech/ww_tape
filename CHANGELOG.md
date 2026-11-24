@@ -6,6 +6,20 @@ benchmarks, golden files and book pages.
 
 ## [Unreleased]
 
+### Breaking
+
+- A grid chunk's byte 83 holds its overview level; 0.8 readers refuse overview chunks: upgrade readers (FMT-15).
+- `ChunkHead` gains `level`: a struct literal adds `level: 0` (FMT-15).
+- Column kinds 9, 10 and 11 hold overview min, max and mean, only in overview chunks (FMT-15).
+- `TileLayout` carries the downsampled axes: `grid_tiles` refuses a box whose layout lacks the definition's (FMT-15).
+- `SeriesError` gains `LevelOutside`: a writer refuses an overview level past the grid's levels (FMT-15).
+
+### Features
+
+- `TileLayout::overview`, `overview_levels` and `level_for` give a grid's space overview levels and pick one (FMT-15).
+- `Overview` reads an overview chunk's min, max and mean columns in place (FMT-15).
+- `grid_tiles` finds the overview chunks of the level its box's layout is of (FMT-15).
+
 ## [0.8.1] - 2026-11-24
 
 ### Features

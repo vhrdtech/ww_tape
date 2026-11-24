@@ -41,6 +41,7 @@ fn events(first_item: u64, n: u32) -> (ChunkHead, Vec<Vec<u8>>) {
         end_mode: EndMode::Durations,
         grid: None,
         tile: crate::TileCoords::NONE,
+        level: 0,
     };
     let cols = vec![
         i64s(starts),
@@ -75,6 +76,7 @@ fn series(first: u64, n: u32) -> (ChunkHead, Vec<Vec<u8>>) {
         end_mode: EndMode::Absent,
         grid: Some(crate::SeriesGrid::start(0, 0, crate::Magnitude::ONE)),
         tile: crate::TileCoords::NONE,
+        level: 0,
     };
     let ch = |c: u64| -> Vec<u8> {
         (0..u64::from(n))
@@ -848,4 +850,126 @@ fn tile_coordinates_are_bounded_and_series_only() {
         write_chunk(&mut buf, id(1), &head, &event_columns(&cols), 0),
         Err(ChunkError::Invalid("an events chunk with tile coordinates"))
     );
+}
+
+/// An overview chunk of tile (1, 2) at level 3: three statistics columns of two channels each.
+fn overview(level: u8) -> (ChunkHead, Vec<Vec<u8>>) {
+    let (series, cols) = series(0, 4);
+    let head = ChunkHead {
+        tile: TileCoords::new(&[1, 2]).unwrap(),
+        level,
+        ..series
+    };
+    let mut stats = cols.clone();
+    stats.push(cols[0].iter().rev().copied().collect());
+    (head, stats)
+}
+
+fn overview_columns(cols: &[Vec<u8>]) -> Vec<(ColumnSpec, &[u8])> {
+    vec![
+        raw(ColumnKind::OverviewMin, 0, &cols[0]),
+        raw(ColumnKind::OverviewMax, 0, &cols[1]),
+        raw(ColumnKind::OverviewMean, 0, &cols[2]),
+    ]
+}
+
+/// An overview chunk's level is byte 83 and comes back in its head and its index entry; the column kinds are 9, 10
+/// and 11. A grid chunk of the cells as written keeps byte 83 at 0.
+#[test]
+fn an_overview_chunk_carries_its_level_in_byte_83() {
+    let (head, cols) = overview(3);
+    let bytes = encode(&head, &overview_columns(&cols), 1, 0);
+    assert_eq!(bytes[83], 3);
+    let b = Block::read(&bytes).unwrap();
+    let c = b.chunk().unwrap();
+    assert_eq!(c.head, head);
+    assert_eq!(ChunkHead::read_head(&bytes).unwrap(), head);
+    let kinds: Vec<u8> = c.columns().map(|c| c.kind.to_u8()).collect();
+    assert_eq!(kinds, [9, 10, 11]);
+    let entry = crate::index::IndexEntry::of_chunk(0, bytes.len(), &c.head).unwrap();
+    assert_eq!(entry.level, 3);
+
+    let (series, cols) = series(0, 4);
+    let plain = ChunkHead {
+        tile: TileCoords::new(&[1, 2]).unwrap(),
+        ..series
+    };
+    let bytes = encode(&plain, &series_columns(&cols), 1, 0);
+    assert_eq!(bytes[83], 0);
+    assert_eq!(Block::read(&bytes).unwrap().chunk().unwrap().head.level, 0);
+}
+
+/// A writer refuses an overview level past GRID_OVERVIEW_LEVELS_MAX, one on a chunk of no fixed axes or an events
+/// chunk, an overview with a samples column or without each statistic once, and a chunk as written with a
+/// statistic.
+#[test]
+fn overview_chunks_are_checked_on_write() {
+    let refused = |head: &ChunkHead, cols: &[(ColumnSpec, &[u8])]| {
+        let specs: Vec<ColumnSpec> = cols.iter().map(|c| c.0).collect();
+        let mut buf = vec![0u8; chunk_len(head, &specs, 0) + 64];
+        match write_chunk(&mut buf, id(1), head, cols, 0) {
+            Err(ChunkError::Invalid(why)) => why,
+            other => panic!("{other:?}"),
+        }
+    };
+    let (head, cols) = overview(GRID_OVERVIEW_LEVELS_MAX);
+    encode(&head, &overview_columns(&cols), 1, 0);
+    let past = ChunkHead {
+        level: GRID_OVERVIEW_LEVELS_MAX + 1,
+        ..head
+    };
+    assert_eq!(
+        refused(&past, &overview_columns(&cols)),
+        "an overview level over GRID_OVERVIEW_LEVELS_MAX"
+    );
+    let no_axes = ChunkHead {
+        tile: TileCoords::NONE,
+        ..head
+    };
+    assert_eq!(
+        refused(&no_axes, &overview_columns(&cols)),
+        "an overview level on a chunk of no fixed axes"
+    );
+    let (events, ecols) = events(0, 3);
+    let events = ChunkHead { level: 1, ..events };
+    assert_eq!(
+        refused(&events, &event_columns(&ecols)),
+        "an overview level on a chunk of no fixed axes"
+    );
+    let mut with_samples = overview_columns(&cols);
+    with_samples.push(raw(ColumnKind::Samples, 0, &cols[0]));
+    assert_eq!(
+        refused(&head, &with_samples),
+        "an overview chunk with a samples column"
+    );
+    let stats =
+        "an overview chunk without one min, max and mean column each, or another chunk with one";
+    let all = overview_columns(&cols);
+    assert_eq!(refused(&head, &all[..2]), stats);
+    let twice = [all[0], all[0], all[1], all[2]];
+    assert_eq!(refused(&head, &twice), stats);
+    let (series, scols) = series(0, 4);
+    let mut plain = series_columns(&scols);
+    plain.push(all[2]);
+    assert_eq!(refused(&series, &plain), stats);
+}
+
+/// A read refuses byte 83 of a series chunk past GRID_OVERVIEW_LEVELS_MAX, or not 0 in a series of no fixed axes,
+/// its CRCs made good.
+#[test]
+fn overview_levels_are_checked_on_read() {
+    let (head, cols) = overview(1);
+    let good = encode(&head, &overview_columns(&cols), 1, 0);
+    let mut bad = good.clone();
+    bad[83] = GRID_OVERVIEW_LEVELS_MAX + 1;
+    restamp(&mut bad).unwrap();
+    assert!(Block::read(&bad).map_or(true, |b| b.chunk().is_none()));
+    assert!(ChunkHead::read_head(&bad).is_err());
+
+    let (series, cols) = series(0, 4);
+    let mut bad = encode(&series, &series_columns(&cols), 1, 0);
+    bad[83] = 1;
+    restamp(&mut bad).unwrap();
+    assert!(Block::read(&bad).map_or(true, |b| b.chunk().is_none()));
+    assert!(ChunkHead::read_head(&bad).is_err());
 }

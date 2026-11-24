@@ -127,6 +127,7 @@
 //! | [AXIS_NAME_LEN_MAX](grid::AXIS_NAME_LEN_MAX) | 64 | a fixed axis' name bytes |
 //! | [GRID_LISTED_MAX](grid::GRID_LISTED_MAX) | 65536 | the listed coordinates of a fixed axis |
 //! | [GRID_TILE_CELLS_MAX](grid::GRID_TILE_CELLS_MAX) | 64 Mi | the cells of one time step of a grid's tile |
+//! | [GRID_OVERVIEW_LEVELS_MAX](grid::GRID_OVERVIEW_LEVELS_MAX) | 16 | a grid chunk's overview level |
 //! | [TILE_NUMBER_BITS](grid::TILE_NUMBER_BITS) | 128 | the bits of a grid's tile number fields together |
 //! | [GAP_MAX_MAX] | 64 MiB | a layout's gap |
 //! | [GAP_PROBES_MAX] | 8192 | the resume places a reader probes in one gap |
@@ -228,7 +229,7 @@ pub use samples::{
 };
 
 pub mod grid;
-pub use grid::{AxisCoords, FixedAxis, TileBox, TileCoords, TileLayout};
+pub use grid::{AxisCoords, FixedAxis, Overview, OverviewError, TileBox, TileCoords, TileLayout};
 #[cfg(feature = "std")]
 pub use grid::{AxisCoordsOwned, FixedAxisOwned};
 pub mod series;

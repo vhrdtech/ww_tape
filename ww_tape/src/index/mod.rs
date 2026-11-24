@@ -27,7 +27,7 @@
 //!  60 ...  n × track: id u64, first entry u32, entry count u32, CRC-32C of its entries u32, reserved u32
 //!  ...     entries, each:
 //!            0 u64 offset of the block in the piece    8 u32 its length        12 u8 its block kind
-//!           13 u8  summary level (0 for other kinds)   14 u8 summary tree      15 u8 flags: bit 0 repeat, bit 1 range, bit 2 unhashed (no unit hash), bit 3 relation break, bit 4 tile
+//!           13 u8  summary or overview level (else 0) 14 u8 summary tree      15 u8 flags: bit 0 repeat, bit 1 range, bit 2 unhashed (no unit hash), bit 3 relation break, bit 4 tile
 //!           16 u64 track id (0: none)                 24 u32 track number      28 u32 0 (a state record's below)
 //!           32 u64 first item number                  40 u64 items (samples, records)
 //!           48 i64 first tick                         56 i64 last tick         64 i64 latest end
@@ -60,6 +60,7 @@
 use crate::TrackNum;
 use crate::bytes::{file_u16, file_u32, le_u16, le_u32, le_u64};
 use crate::chunk::u32_len;
+use crate::grid::GRID_OVERVIEW_LEVELS_MAX;
 use crate::piece::UnitHash;
 use crate::state::{ItemHash, Slot};
 use crate::{
@@ -153,7 +154,7 @@ pub struct IndexEntry {
     /// The whole block's length.
     pub len: u32,
     pub kind: BlockKind,
-    /// A summary block's level, else 0.
+    /// A summary block's level, a grid chunk's overview level ([ChunkHead::level]), else 0.
     pub level: u8,
     /// A summary block's tree (1 events, 2 series), else 0.
     pub tree: u8,
@@ -366,7 +367,7 @@ impl IndexEntry {
             offset,
             len: u32::try_from(len).ok()?,
             kind: head.kind,
-            level: 0,
+            level: head.level,
             tree: 0,
             track_id: head.track_id,
             number: head.track_number.get(),
@@ -541,7 +542,13 @@ impl IndexEntry {
                         && self.tree == crate::summary::Tree::Series.to_u8())));
         let mark = !self.relation_break || self.kind == BlockKind::Events;
         let unit = !self.unhashed || self.unit.is_none();
-        range && tile && mark && unit && self.is_in_range()
+        // an overview is a grid chunk's; a scan's entry of one carries no tile number, the reader reads its head
+        let level = match self.kind {
+            BlockKind::Events => self.level == 0,
+            BlockKind::Series => self.level <= GRID_OVERVIEW_LEVELS_MAX,
+            _ => true,
+        };
+        range && tile && mark && unit && level && self.is_in_range()
     }
 
     /// Whether the entry names a block a reader may fetch: its length that of a block, its end within a u64.

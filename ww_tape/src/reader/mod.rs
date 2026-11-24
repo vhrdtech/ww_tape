@@ -1511,7 +1511,8 @@ impl<S: ByteSource> TapeReader<S> {
         let mut heads = Vec::new();
         let mut errors = Vec::new();
         for e in self.track_entries(i, track_id)? {
-            if e.kind != BlockKind::Series {
+            // overview chunks repeat the time runs of the chunks they summarise
+            if e.kind != BlockKind::Series || e.level != 0 {
                 continue;
             }
             let offset = start.saturating_add(e.offset);

@@ -285,7 +285,8 @@ off size field
  81  u8  columns n, 1 and up
  82  u8  mode: an events chunk's time mode, the time codec's; a series chunk's fixed axes a, 0 to
          GRID_FIXED_AXES_MAX (0: a series of no fixed axes, GridDef)
- 83  u8  end mode (events: EndMode; 0 in series chunks)
+ 83  u8  end byte: an events chunk's end mode (EndMode); a series chunk's overview level k, 0 for the cells
+         as written, 1 to GRID_OVERVIEW_LEVELS_MAX for space overview k of a grid of fixed axes
  84 ...  series chunks only, the grid of the samples (SeriesGrid):
          84 u64  grid index: the sample the grid counts from, at most the first item
          92 i64  grid tick: the tick of that sample; sample i is at grid tick + (i - grid index) · period,
@@ -323,6 +324,9 @@ The column kinds (`ColumnKind`):
 | 6 | `Samples` | a series' samples; the param names the first channel ([Sample codecs](#sample-codecs)) |
 | 7 | reserved (`ColumnKind::PAYLOAD_LEAF`) | |
 | 8 | `Relation` | one relation's values, a u64 per item ([below](#relation-columns)) |
+| 9 | `OverviewMin` | an overview chunk's smallest value per cell and channel ([Space overviews](#space-overviews)) |
+| 10 | `OverviewMax` | an overview chunk's largest value per cell and channel |
+| 11 | `OverviewMean` | an overview chunk's mean per cell and channel |
 
 The codec ids (`Codec`):
 
@@ -915,7 +919,7 @@ off size field
  60 ...  n × track: id u64, first entry u32, entry count u32, CRC-32C of its entries u32, reserved u32
  ...     entries, each:
            0 u64 offset of the block in the piece    8 u32 its length        12 u8 its block kind
-          13 u8  summary level (0 for other kinds)   14 u8 summary tree      15 u8 flags: bit 0 repeat, bit 1 range, bit 2 unhashed (no unit hash), bit 3 relation break, bit 4 tile
+          13 u8  summary or overview level (else 0) 14 u8 summary tree      15 u8 flags: bit 0 repeat, bit 1 range, bit 2 unhashed (no unit hash), bit 3 relation break, bit 4 tile
           16 u64 track id (0: none)                 24 u32 track number      28 u32 0 (a state record's below)
           32 u64 first item number                  40 u64 items (samples, records)
           48 i64 first tick                         56 i64 last tick         64 i64 latest end
@@ -2016,6 +2020,36 @@ their chunks. `ww_tape_summary::region_timeline` reads them and merges, per node
 region's timeline. A node summarises a whole tile, so a tile partly inside the box counts whole: the timeline is at
 tile resolution. Each tile weighs by its cells, so an edge tile with fewer cells weighs less.
 
+#### 12.5.5 Space overviews {#space-overviews}
+
+A timeline zooms time; a field viewer zooms space at one moment. The time pyramid serves the first. **Space
+overviews** serve the second: overview level k halves every fixed axis marked `downsample` k times. The other fixed
+axes and time stay at full resolution. A one-axis series has no overviews, and its bytes are unchanged.
+
+A cell of level k covers `2^k` cells as written along each downsampled axis, fewer at the axis' far edge. It holds
+three statistics per channel and time step: the smallest value of its source cells, the largest and the mean. The
+mean of an integer element is rounded to the nearest integer, ties to even; a float's mean is summed in f64.
+
+Each tile as written has its own overview tile per level, with the same tile coordinates and tile number. Its tile
+extent along a downsampled axis is the tile extent over `2^k` (`TileLayout::overview`). The levels go on as long as
+every downsampled tile extent halves evenly (`TileLayout::overview_levels`), so a cell has one size across the whole
+grid. A tile extent of 256 gives up to 8 levels, and one of 180 gives 2.
+
+An overview chunk is a series chunk of the same track. Byte 83 of its head holds the level, and its tile coordinates
+are its source tile's. It holds the time steps of the chunk it summarises, with the same grid and scale. Its payload
+holds one `OverviewMin`, `OverviewMax` and `OverviewMean` column each, laid out and coded as a samples column, and the
+flag runs of its time steps; it holds no samples column. Any other chunk holds none of the three columns. Its index
+entry carries the level in the summary-level byte and the tile number under flag bit 4. A reader of format 0.8
+refuses an overview chunk: its byte 83 was 0 in every series chunk.
+
+`ww_tape::Overview` reads the three columns in place, each of the tile's cells at the level times the chunk's time
+steps. A viewer picks a level with `TileLayout::level_for`: the highest whose cell is at most a pixel along every
+downsampled axis.
+
+An overview saves bytes per tile, not tiles. A zoomed-out view of the whole grid at level k still reads every tile's
+overview chunk, each `2^(d·k)` times smaller for d downsampled axes. A grid of a few hundred tiles reads well at any
+level. A mosaic of many small tiles gets few levels and many reads.
+
 ## 13 Sample codecs {#sample-codecs}
 
 [Series](series.md) explains series, sample codecs and why fixed point comes first.
@@ -2271,6 +2305,7 @@ A value past its cap is damage, refused with an error; no file a writer of this 
 | `AXIS_NAME_LEN_MAX` | 64 | a fixed axis' name bytes |
 | `GRID_LISTED_MAX` | 65536 | the listed coordinates of a fixed axis |
 | `GRID_TILE_CELLS_MAX` | 64 Mi | the cells of one time step of a grid's tile |
+| `GRID_OVERVIEW_LEVELS_MAX` | 16 | a grid chunk's overview level |
 | `TILE_NUMBER_BITS` | 128 | the bits of a grid's tile number fields together |
 | `GAP_MAX_MAX` | 64 MiB | a layout's gap |
 | `GAP_PROBES_MAX` | 8192 | the resume places a reader probes in one gap |

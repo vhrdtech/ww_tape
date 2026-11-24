@@ -264,6 +264,7 @@ fn a_core_only_tape_lists_verifies_and_skips_summary_blocks() {
             end_mode: EndMode::Absent,
             grid: Some(SeriesGrid::start(0, 0, Magnitude::ONE)),
             tile: crate::TileCoords::NONE,
+            level: 0,
         };
         let col = ColumnSpec {
             kind: ColumnKind::Samples,

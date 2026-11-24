@@ -54,6 +54,7 @@ pub fn flags(data: &[u8]) -> Vec<u8> {
             Magnitude::ONE,
         )),
         tile: ww_tape::TileCoords::NONE,
+        level: 0,
     };
     let spec = |kind, codec, len| ColumnSpec {
         kind,

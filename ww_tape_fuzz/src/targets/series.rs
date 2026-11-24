@@ -30,6 +30,7 @@ pub(crate) fn head_on(period: Ratio64, grid: SeriesGrid, first: u64, count: u32)
         end_mode: EndMode::Absent,
         grid: Some(grid),
         tile: ww_tape::TileCoords::NONE,
+        level: 0,
     }
 }
 

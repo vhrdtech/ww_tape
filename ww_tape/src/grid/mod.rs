@@ -25,9 +25,36 @@
 //! as a series' samples): regular, an origin and a step ([AxisCoords::Regular]), or listed, one value per cell
 //! ([AxisCoords::Listed]): pressure levels, ensemble members, the values of a sweep. A fixed axis has no clock; time
 //! stays the one axis with a clock.
+//!
+//! # Overviews
+//!
+//! A grid whose fixed axes include ones marked `downsample` ([FixedAxis]; x, y, z; not an ensemble member or a pressure
+//! level) may carry **space overviews**: overview level k halves every downsampled axis k times and keeps the
+//! other axes and time as they are. A cell of level k covers `2^k` cells as written along each downsampled axis,
+//! fewer at the axis' far edge, and holds their smallest value, their largest and their mean, per channel and time
+//! step.
+//!
+//! Each tile as written has its own overview tile per level: the same tile coordinates and tile number, a tile extent
+//! of `tile extent / 2^k` along each downsampled axis ([TileLayout::overview]). The levels go on as long as every
+//! downsampled tile extent halves evenly ([TileLayout::overview_levels]), so cells stay the same size across tiles: a
+//! tile extent of 256 gives up to 8 levels, one of 180 gives 2.
+//!
+//! An overview chunk is a series chunk of the same track whose head carries its level (byte 83,
+//! [ChunkHead::level](crate::ChunkHead::level)) and the time steps of the chunk it summarises; its index entry
+//! carries the level in the summary-level byte. Its payload holds a min, a max and a mean column, each laid out and
+//! coded as a samples column ([Overview]), and the flag runs of the time steps. A reader picks a level for a view
+//! with [TileLayout::level_for] and finds its tiles with a box of that level's layout
+//! ([TapeReader::grid_tiles](crate::TapeReader::grid_tiles)).
+//!
+//! An overview saves bytes per tile, not tiles: a zoomed-out view of the whole grid at level k reads every tile's
+//! overview chunk, each `2^(d·k)` times smaller for d downsampled axes. A grid of a few hundred tiles reads well at
+//! any level; a mosaic of many small tiles gets few levels and many reads.
 
+mod overview;
 #[cfg(test)]
 mod tests;
+
+pub use overview::{Overview, OverviewError};
 
 use core::ops::Range;
 
@@ -54,6 +81,10 @@ pub const TILE_NUMBER_BITS: u32 = u128::BITS;
     reason = "usize is at most 64 bits (chunk's const assert); From is not const"
 )]
 pub const GRID_TILE_CELLS_MAX: u64 = MAX_BLOCK_LEN as u64;
+
+/// Highest overview level of a grid chunk ([ChunkHead::level](crate::ChunkHead::level)): a tile of `2^16` cells
+/// along a downsampled axis reaches it, and one time step of a tile holds at most [GRID_TILE_CELLS_MAX] cells.
+pub const GRID_OVERVIEW_LEVELS_MAX: u8 = 16;
 
 /// A fixed axis of a grid: its name, extent, tiles and coordinates; see the [module docs](self).
 #[derive_shrink_wrap(owned(feature = "std"), derive(Debug, PartialEq, Eq, Clone))]
@@ -93,6 +124,8 @@ pub(crate) trait AxisParts {
     fn extents(&self) -> (u32, u32);
     /// Whether the coordinates are valid for the axis' extent ([check_coords]).
     fn coords_valid(&self) -> bool;
+    /// Whether space overviews halve the axis.
+    fn downsample(&self) -> bool;
 }
 
 impl AxisParts for FixedAxis<'_> {
@@ -110,6 +143,10 @@ impl AxisParts for FixedAxis<'_> {
             AxisCoords::Listed(v) => listed_valid(self.extent.0, v.len(), v.iter().map(Result::ok)),
             AxisCoords::Unknown(_) => true,
         }
+    }
+
+    fn downsample(&self) -> bool {
+        self.downsample
     }
 }
 
@@ -131,6 +168,10 @@ impl AxisParts for FixedAxisOwned {
             }
             AxisCoordsOwned::Unknown(_) => true,
         }
+    }
+
+    fn downsample(&self) -> bool {
+        self.downsample
     }
 }
 
@@ -165,6 +206,7 @@ pub(crate) fn check_axes<'a, A: AxisParts + 'a>(
     use SeriesError::Def;
     let mut tile_cells = 1u64;
     let mut extents = [(0u32, 0u32); GRID_FIXED_AXES_MAX];
+    let mut downsample = 0u32;
     let mut n = 0usize;
     for a in axes {
         let slot = extents
@@ -193,9 +235,15 @@ pub(crate) fn check_axes<'a, A: AxisParts + 'a>(
                 "a tile's cells of one time step over GRID_TILE_CELLS_MAX",
             ))?;
         *slot = (extent, tile);
+        if a.downsample() {
+            // n is below GRID_FIXED_AXES_MAX, 31: the bit fits a u32
+            downsample |= 1u32
+                .checked_shl(u32::try_from(n).unwrap_or(u32::MAX))
+                .unwrap_or(0);
+        }
         n = n.saturating_add(1);
     }
-    TileLayout::new(extents.get(..n).unwrap_or(&[]))
+    TileLayout::new(extents.get(..n).unwrap_or(&[])).map(|l| l.with_downsample(downsample))
 }
 
 /// The tile coordinates of a chunk: one per fixed axis of its grid, none for a series. Ordered by their count, then
@@ -267,6 +315,10 @@ pub struct TileLayout {
     widths: [u8; GRID_FIXED_AXES_MAX],
     /// Where each axis' field starts in the number: the widths of the axes after it.
     shifts: [u8; GRID_FIXED_AXES_MAX],
+    /// The axes space overviews halve, bit `i` for fixed axis `i`.
+    downsample: u32,
+    /// The overview level the layout is of, 0 for the cells as written.
+    level: u8,
 }
 
 /// Bits a field of `tiles` values takes: ⌈log2(tiles)⌉, 0 for one tile.
@@ -286,6 +338,8 @@ impl TileLayout {
         extents: [(0, 0); GRID_FIXED_AXES_MAX],
         widths: [0; GRID_FIXED_AXES_MAX],
         shifts: [0; GRID_FIXED_AXES_MAX],
+        downsample: 0,
+        level: 0,
     };
 
     /// The layout of fixed axes of `(extent, tile extent)` each, in definition order; refused past
@@ -327,6 +381,114 @@ impl TileLayout {
     /// Fixed axes, 0 for a series.
     pub fn axes(&self) -> usize {
         usize::from(self.axes)
+    }
+
+    /// The layout with space overviews halving the fixed axes whose bit is set in `axes`, bit `i` for axis `i`; bits
+    /// past the fixed axes are dropped. A [GridDef](crate::GridDef)'s layout has the bits of its axes marked
+    /// `downsample` ([FixedAxis]).
+    #[must_use]
+    pub fn with_downsample(mut self, axes: u32) -> Self {
+        let all = 1u32
+            .checked_shl(u32::from(self.axes))
+            .map_or(u32::MAX, |b| b.wrapping_sub(1));
+        self.downsample = axes & all;
+        self
+    }
+
+    /// The axes space overviews halve, bit `i` for fixed axis `i`.
+    pub fn downsample(&self) -> u32 {
+        self.downsample
+    }
+
+    /// The overview level the layout is of: 0 for the cells as written, k for [Self::overview] k.
+    pub fn level(&self) -> u8 {
+        self.level
+    }
+
+    /// The downsampled axes' extents and tile extents, in definition order.
+    fn downsampled(&self) -> impl Iterator<Item = &(u32, u32)> {
+        self.extents()
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| {
+                u32::try_from(*i)
+                    .ok()
+                    .and_then(|i| self.downsample.checked_shr(i))
+                    .is_some_and(|b| b & 1 != 0)
+            })
+            .map(|(_, e)| e)
+    }
+
+    /// Space overview levels the grid has above the cells as written: as often as every downsampled axis' tile
+    /// extent halves evenly, at most [GRID_OVERVIEW_LEVELS_MAX]; 0 without a downsampled axis, and for an overview's
+    /// own layout.
+    ///
+    /// An overview tile summarises one tile as written ([grid](self#overviews)), so a tile extent of 256 gives up to 8
+    /// levels and one of 180 gives 2: a mosaic of many small tiles gets few levels.
+    pub fn overview_levels(&self) -> u8 {
+        if self.level != 0 {
+            return 0;
+        }
+        let levels = self
+            .downsampled()
+            .map(|(_, tile)| tile.trailing_zeros())
+            .min()
+            .unwrap_or(0);
+        u8::try_from(levels)
+            .unwrap_or(u8::MAX)
+            .min(GRID_OVERVIEW_LEVELS_MAX)
+    }
+
+    /// The layout of overview level `level`: each downsampled axis of `ceil(extent / 2^level)` cells in tiles of
+    /// `tile extent / 2^level`, the other axes as they are; the same tiles, coordinates and tile numbers as the cells
+    /// as written. Level 0 is this layout; None past [Self::overview_levels] or for an overview's own layout.
+    pub fn overview(&self, level: u8) -> Option<Self> {
+        if self.level != 0 || level > self.overview_levels() {
+            return None;
+        }
+        let mut out = *self;
+        out.level = level;
+        let k = u32::from(level);
+        for (i, e) in out.extents.iter_mut().enumerate().take(self.axes()) {
+            let bit = u32::try_from(i)
+                .ok()
+                .and_then(|i| self.downsample.checked_shr(i));
+            if bit.is_some_and(|b| b & 1 != 0) {
+                // the tile extent has at least `level` trailing zeros, so k is at most GRID_OVERVIEW_LEVELS_MAX
+                let step = 1u32.checked_shl(k)?;
+                *e = (e.0.div_ceil(step), e.1.checked_shr(k)?);
+            }
+        }
+        Some(out)
+    }
+
+    /// The overview level for a view of `cells_per_pixel` cells as written per pixel along each fixed axis: the
+    /// highest level whose cell, `2^level` cells along each downsampled axis, is at most a pixel along every
+    /// downsampled axis, capped at [Self::overview_levels]. Axes not downsampled are not looked at; 0 for a slice
+    /// of another length, or a pixel of less than 2 cells (or not a number) along a downsampled axis.
+    pub fn level_for(&self, cells_per_pixel: &[f64]) -> u8 {
+        if cells_per_pixel.len() != self.axes() {
+            return 0;
+        }
+        let mut level = self.overview_levels();
+        for (i, px) in cells_per_pixel.iter().enumerate() {
+            let bit = u32::try_from(i)
+                .ok()
+                .and_then(|i| self.downsample.checked_shr(i));
+            if !bit.is_some_and(|b| b & 1 != 0) {
+                continue;
+            }
+            while level > 0 {
+                let cell = 1u32
+                    .checked_shl(u32::from(level))
+                    .map_or(f64::INFINITY, f64::from);
+                if cell <= *px {
+                    break;
+                }
+                level = level.saturating_sub(1);
+            }
+        }
+        level
     }
 
     /// Tiles along each fixed axis: the extent over the tile extent, rounded up.

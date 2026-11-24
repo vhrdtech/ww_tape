@@ -186,6 +186,7 @@ pub fn grid(data: &[u8]) -> Vec<u8> {
             end_mode: EndMode::Absent,
             grid: Some(grid),
             tile: TileCoords::new(&coords).expect("at most GRID_FIXED_AXES_MAX coordinates"),
+            level: 0,
         };
         let mut b = build(&head, &[(spec, &samples)]);
         match d.u8() % 4 {
