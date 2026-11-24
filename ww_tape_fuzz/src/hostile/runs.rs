@@ -54,14 +54,14 @@ fn template() -> Vec<u8> {
     tape.to_vec().expect("the bytes")
 }
 
-/// The template with a run of [RUN_BLOCKS_MAX] blocks of puts marked [FLAG_WITH_NEXT] at its end, one more than a
-/// writer makes with the block it would belong with.
+/// The template with a run of [RUN_BLOCKS_MAX] blocks of puts marked [FLAG_WITH_NEXT] at its end and an unmarked
+/// one after them: longer than any run a writer makes.
 fn long_template() -> Vec<u8> {
     let mut f = template_bytes().to_vec();
     let (_, on) = state_definitions(None);
     let last = blocks(&f).last().map(|(at, ..)| *at).unwrap_or(0);
     let seq = ww_tape::Block::read(&f[last..]).map(|b| b.seq).unwrap_or(0);
-    for k in 0..RUN_BLOCKS_MAX {
+    for k in 0..=RUN_BLOCKS_MAX {
         let mut buf = [0u8; 96];
         let mut b = ww_tape::BlockWriter::new(
             &mut buf,
@@ -78,7 +78,11 @@ fn long_template() -> Vec<u8> {
         .expect("a record fits");
         let len = b.finish();
         let block = &mut buf[..len];
-        let flags = FLAG_REPEAT | FLAG_WITH_NEXT;
+        let flags = if k < RUN_BLOCKS_MAX {
+            FLAG_REPEAT | FLAG_WITH_NEXT
+        } else {
+            FLAG_REPEAT
+        };
         block[6..8].copy_from_slice(&flags.to_le_bytes());
         seal(block);
         f.extend_from_slice(block);

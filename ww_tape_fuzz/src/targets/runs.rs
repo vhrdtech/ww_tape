@@ -317,4 +317,24 @@ mod tests {
         assert_eq!(p.dropped_runs.first().map(|(at, _)| *at), Some(run_at));
         invariants(f);
     }
+
+    /// A scan drops a run of more blocks than [ww_tape::RUN_BLOCKS_MAX] with its unmarked last block, as a follower
+    /// stops at it: it lists none of its blocks.
+    #[test]
+    fn a_scan_drops_a_run_too_long() {
+        let f = hostile::runs_long();
+        let run_at = hostile::runs_template().len() as u64;
+        let r = TapeReader::open(f).expect("the piece opens");
+        let p = &r.pieces()[0];
+        let entries = r.entries(0).expect("the entries");
+        assert!(
+            entries.iter().all(|e| p.start + e.offset < run_at),
+            "no block of the run is listed"
+        );
+        assert_eq!(
+            p.dropped_runs.iter().map(|(at, len)| at + len).max(),
+            Some(f.len() as u64),
+            "the run's last block is dropped too"
+        );
+    }
 }

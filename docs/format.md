@@ -820,7 +820,8 @@ Readers take a run whole or not at all:
 | a lookup through the index of a closed piece | a block of a group only when every block of its group reads; any other block alone |
 
 A scan drops a run that the end of the bytes, a tail or a piece head cuts: what a crash tears. So no reader shows
-part of a run that a crash tore.
+part of a run that a crash tore. A scan also drops a run longer than `RUN_BLOCKS_MAX`, up to its first unmarked block,
+as a follower stops at one.
 
 Damage inside a run hurts its blocks only, unless they are of a group of puts ([Groups of puts](#groups-of-puts)).
 A group is taken whole or not at all, damaged too, so a block of a group that doesn't read drops the whole group. A

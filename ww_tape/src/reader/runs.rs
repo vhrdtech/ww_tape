@@ -9,6 +9,7 @@
 //! | a close, a close summary or an index (the writer writes none inside a run) | listed |
 //! | the end of the scan, a tail, a piece head or an append head (a crash tore it) | dropped |
 //! | a gap or a bad block (damage) | its blocks of a group dropped, its other blocks listed |
+//! | its [RUN_BLOCKS_MAX]th block, marked | dropped, with the blocks after it up to its first unmarked one |
 //!
 //! A group of puts ([TapeWriter::put_group](crate::TapeWriter::put_group)) is taken whole or not at all, damaged too:
 //! its blocks are marked [FLAG_GROUP]. A block that doesn't read hides its own marks, so after damage a scan drops the
@@ -19,7 +20,7 @@ use alloc::vec::Vec;
 
 use super::PieceInfo;
 use crate::index::IndexEntry;
-use crate::{Block, FLAG_GROUP, FLAG_WITH_NEXT};
+use crate::{Block, FLAG_GROUP, FLAG_WITH_NEXT, RUN_BLOCKS_MAX};
 
 /// A block of a run a scan holds.
 struct Held {
@@ -39,6 +40,8 @@ enum Mode {
     Hold,
     /// After damage: drops blocks of a group up to the first unmarked one
     AfterDamage,
+    /// After a run longer than [RUN_BLOCKS_MAX]: drops every block up to the first unmarked one
+    TooLong,
 }
 
 /// The run a scan holds and what it does with the next blocks.
@@ -56,7 +59,7 @@ impl Runs {
     }
 
     /// Take `block` of data or puts, from `at` to `end` in the source and at `in_piece` in the piece: held when marked
-    /// [FLAG_WITH_NEXT], else listed with the run it ends; dropped after damage.
+    /// [FLAG_WITH_NEXT], else listed with the run it ends; dropped after damage or a run too long.
     pub(super) fn take(
         &mut self,
         piece: &mut PieceInfo,
@@ -66,7 +69,12 @@ impl Runs {
     ) {
         let marked = block.flags & FLAG_WITH_NEXT != 0;
         let group = block.flags & FLAG_GROUP != 0;
-        if self.mode == Mode::AfterDamage && group {
+        let dropped = match self.mode {
+            Mode::AfterDamage => group,
+            Mode::TooLong => true,
+            Mode::Hold => false,
+        };
+        if dropped {
             push_dropped(piece, at, end);
             if !marked {
                 self.mode = Mode::Hold;
@@ -76,6 +84,13 @@ impl Runs {
         self.mode = Mode::Hold;
         let entries = in_piece.map_or_else(Vec::new, |off| IndexEntry::all_of_block(off, block));
         if marked {
+            if self.held.len() >= RUN_BLOCKS_MAX.saturating_sub(1) {
+                // longer than any writer makes, as a follower stops at it
+                self.drop_torn(piece);
+                push_dropped(piece, at, end);
+                self.mode = Mode::TooLong;
+                return;
+            }
             self.held.push(Held {
                 at,
                 end,
