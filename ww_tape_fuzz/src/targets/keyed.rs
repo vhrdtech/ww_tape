@@ -8,8 +8,8 @@ use ww_tape::index::{
 };
 use ww_tape::{
     Block, BlockId, BlockKind, BlockWriter, ClockNum, ClockTime, FLAG_KEYED, FLAG_REPEAT, ItemNum,
-    KEY_HEAD_LEN, KeyId, KeyedItem, Medium, MemSink, OpenOptions, ResumeError, STATE_KEY_LEN_MAX,
-    SessionTag, TapeReader, TapeSink, TapeWriter, TrackId, TrackNum, WriteError,
+    KEY_HEAD_LEN, KeyId, KeyedItem, Medium, MemSink, OpenOptions, ReadError, ResumeError,
+    STATE_KEY_LEN_MAX, SessionTag, TapeReader, TapeSink, TapeWriter, TrackId, TrackNum, WriteError,
 };
 
 /// `tape-keyed`: the input as a keyed item, as the items of a keyed block, and as the keyed fields of index entries.
@@ -396,8 +396,23 @@ fn model(r: &TapeReader<&[u8]>, len: u64, track: TrackNum) {
 }
 
 /// A resume of `f`: when it resumes, a new key put and a close a reader finds, the key in force at its end; or the
-/// put refused when the piece's carry is lost.
+/// put refused when the piece's carry is lost. A final index refused before the resume stays in the piece: a lookup
+/// after it may be refused the same way.
 fn resume(f: &[u8]) {
+    let refused = |b: &[u8]| match TapeReader::open(b) {
+        Ok(r) => r
+            .key_at(
+                0,
+                hostile::keyed_definitions(None).1.keyed,
+                b"/resumed",
+                u64::MAX,
+            )
+            .err()
+            .filter(|e| matches!(e, ReadError::Index(_)))
+            .map(|e| e.to_string()),
+        Err(_) => None,
+    };
+    let refused_before = refused(f);
     let mut sink = MemSink::new();
     sink.write_all(f).expect("memory takes the bytes");
     let tape = sink.tape();
@@ -418,9 +433,18 @@ fn resume(f: &[u8]) {
     let out = tape.to_vec().expect("the bytes");
     let r = TapeReader::open(&out[..]).expect("a closed piece opens");
     let last = r.pieces().len().checked_sub(1).expect("a piece");
-    let found = r
-        .key_at(last, on.keyed, b"/resumed", u64::MAX)
-        .expect("a lookup");
+    let found = match r.key_at(last, on.keyed, b"/resumed", u64::MAX) {
+        Ok(found) => found,
+        Err(e @ ReadError::Index(_)) if refused_before.is_some() => {
+            assert_eq!(
+                refused_before,
+                Some(e.to_string()),
+                "refused as before the resume"
+            );
+            return;
+        }
+        Err(e) => panic!("a lookup: {e:?}"),
+    };
     assert_eq!(
         found
             .item
