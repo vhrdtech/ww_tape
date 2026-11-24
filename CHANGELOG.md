@@ -6,6 +6,8 @@ benchmarks, golden files and book pages.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-24
+
 ### Breaking
 
 - A scan drops a run torn before its last block: no record of a torn group or unit (WRITE-17).
