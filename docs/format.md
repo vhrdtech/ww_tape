@@ -860,7 +860,9 @@ piece before, or through the index of the closed pieces a chain's resume reads.
 
 A record it couldn't read leaves the row unmarked, and so does a piece resumed alone after its carry was lost. `Closed::keys_unknown` counts such tracks.
 A piece resumed alone whose head marks a row but whose carry a crash dropped refuses to carry again
-(`ResumeError::KeysUnknown`). A `PieceChain` resume reads the keys from the piece before.
+(`ResumeError::KeysUnknown`). A `PieceChain` resume reads the keys from the piece before. A call whose definitions
+don't hold the track is refused naming it (`ResumeError::KeysUndefined`). The mark on the row of a track that isn't
+keyed is passed over, by the writer as by a reader.
 
 A piece that follows another may leave the track's row unmarked. A reader of it can't know the keys in force at the
 piece's start. `KeysAt::not_carried` says so, and so does `Lookup::not_carried` of a key it found no record of; their

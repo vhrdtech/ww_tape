@@ -12,7 +12,7 @@ use ww_tape::{
     WriteError, WriterOptions,
 };
 
-use crate::keyed::{KEYED, defs};
+use crate::keyed::{KEYED, PLAIN, defs};
 
 const OWNER: OwnerId = OwnerId([0x4c; 32]);
 
@@ -298,6 +298,85 @@ fn a_lone_resume_without_the_keys_refuses_to_carry() {
         matches!(e, WriteError::Resume(ResumeError::KeysUnknown { track }) if track == KEYED),
         "{e}"
     );
+}
+
+/// A chain with a plain state track, and a keyed one with a key when `with_key`, cut, dropped right after the cut:
+/// the second piece holds its head alone, the carry lost. The bytes of that head, its rows in order.
+fn cut_head(with_key: bool) -> (MemPieces, Vec<u8>, Vec<TrackStart>) {
+    let defs = defs();
+    let (mem, mut chain) = chain_with(wide_options());
+    chain.put(&defs, PLAIN, 1, b"idle").unwrap();
+    if with_key {
+        chain.put_key(&defs, KEYED, 2, b"/a", b"1").unwrap();
+    }
+    chain.cut_now(&defs).unwrap();
+    drop(chain);
+    let bytes = piece_bytes(&mem, 1);
+    let head = bytes[..boundaries(&bytes)[1]].to_vec();
+    let rows = TapeReader::open(&head[..]).unwrap().pieces()[0]
+        .head
+        .clone()
+        .unwrap()
+        .1;
+    (mem, head, rows)
+}
+
+/// The head `head` with row `i` marked keys carried behind a good CRC: 32 bytes of header, 120 of the head's fixed
+/// part, rows of 96 bytes with their flags at 12.
+fn mark_row(head: &mut [u8], i: usize) {
+    head[32 + 120 + 96 * i + 12] |= 0x04;
+    let n = head.len();
+    let crc = crate::range_hash::crc32c(&[&head[..n - 4]]);
+    head[n - 4..].copy_from_slice(&crc.to_le_bytes());
+}
+
+/// A keys-carried mark on the row of a track that isn't keyed, behind a good CRC, with the carry lost: the writer
+/// passes it over as a reader does, alone and through its chain, and the next call goes.
+#[test]
+fn a_keys_carried_mark_on_a_plain_row_is_passed_over() {
+    let defs = defs();
+    let (mem, mut head, rows) = cut_head(false);
+    assert!(rows.iter().all(|r| r.track_number != KEYED));
+    let i = rows.iter().position(|r| r.track_number == PLAIN).unwrap();
+    assert!(!rows[i].keys_carried);
+    mark_row(&mut head, i);
+    let r = TapeReader::open(&head[..]).unwrap();
+    assert!(r.pieces()[0].head.as_ref().unwrap().1[i].keys_carried);
+    let mut sink = MemSink::new();
+    sink.write_all(&head).unwrap();
+    let (mut w, _) = TapeWriter::resume_on(sink, wide_options().writer).unwrap();
+    w.put(&defs, PLAIN, 10, b"run").unwrap();
+    let mut piece = mem.reopen(&1).unwrap().unwrap();
+    piece.truncate(0).unwrap();
+    piece.write_all(&head).unwrap();
+    drop(piece);
+    let (mut chain, _) = PieceChain::resume_on(mem.clone(), OWNER, 0, wide_options()).unwrap();
+    chain.put(&defs, PLAIN, 10, b"run").unwrap();
+    chain.close().unwrap();
+}
+
+/// A call after a crash dropped a carry of keys, given definitions without the keyed track, is refused naming the
+/// track ([ResumeError::KeysUndefined]): the carry can't be put again without it.
+#[test]
+fn a_lost_carry_without_its_keyed_track_is_refused_by_name() {
+    let (mem, _, _) = cut_head(true);
+    // track 10 another track than the keyed one the head names: the keyed track not held
+    let ww_tape::Describe::Track(t) = crate::definitions::state(KEYED.get()) else {
+        unreachable!("state() gives a track")
+    };
+    let other = ww_tape::Describe::Track(ww_tape::TrackDef {
+        key: ww_tape::track_key(0xae, &[ww_tape::Segment::Index(KEYED.get())]),
+        ..t
+    });
+    let mut plain = crate::definitions::base_defs().clone();
+    crate::definitions::hold(&mut plain, &[other, crate::definitions::state(PLAIN.get())]).unwrap();
+    let (mut chain, _) = PieceChain::resume_on(mem.clone(), OWNER, 0, wide_options()).unwrap();
+    let e = chain.put(&plain, PLAIN, 10, b"run").unwrap_err();
+    assert!(
+        matches!(e, WriteError::Resume(ResumeError::KeysUndefined { track }) if track == KEYED),
+        "{e}"
+    );
+    chain.put(&defs(), PLAIN, 10, b"run").unwrap();
 }
 
 /// A piece after another whose head row of a keyed track isn't marked carried: a reader names its keys as not

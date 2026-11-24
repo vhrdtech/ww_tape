@@ -12,7 +12,7 @@ use ww_tape::{
 use crate::definitions::{CLOCK, base_defs, hold, record_blocks, state, track};
 
 pub(crate) const KEYED: TrackNum = TrackNum::new(10);
-const PLAIN: TrackNum = TrackNum::new(11);
+pub(crate) const PLAIN: TrackNum = TrackNum::new(11);
 
 /// Keyed state track `number` on [CLOCK].
 pub(crate) fn keyed(number: u32) -> Describe<'static> {

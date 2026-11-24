@@ -1173,14 +1173,17 @@ impl<S: TapeSink> TapeWriter<S> {
             .as_ref()
             .map(|(_, rows)| rows.clone())
             .unwrap_or_default();
-        // a carry the head promises keys for, put again after a crash, needs every one of them and the track
-        let keyed = self.keyed_rows(defs, &rows);
+        // a carry the head promises keys for, put again after a crash, needs every one of them and the track; a mark
+        // on the row of a track the definitions hold as not keyed is passed over, as a reader passes it over
         for r in rows.iter().filter(|r| r.keys_carried) {
-            if !keyed.contains(&(r.track_number, (r.track_id, r.owner))) {
-                return Err(DescribeError::UnknownTrack {
+            if defs.track_key(r.track_number) != Some((r.track_id, r.owner.0)) {
+                return Err(ResumeError::KeysUndefined {
                     track: r.track_number,
                 }
                 .into());
+            }
+            if defs.track(r.track_number).is_none_or(|f| !f.keyed) {
+                continue;
             }
             if !self.keys_complete(r.track_number, (r.track_id, r.owner)) {
                 return Err(ResumeError::KeysUnknown {

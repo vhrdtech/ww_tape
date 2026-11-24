@@ -176,6 +176,10 @@ pub enum ResumeError {
     ///
     /// [TrackStart::keys_carried]: crate::piece::TrackStart::keys_carried
     KeysUnknown { track: crate::TrackNum },
+    /// The piece's carry of keyed state track `track`, which its head promises, was lost in a crash, and the call's
+    /// definitions don't hold the track under its row's id: the carry can't be put again without it. Pass the
+    /// definitions the resume read back ([Resumed](super::Resumed)).
+    KeysUndefined { track: crate::TrackNum },
 }
 
 /// Why a cut ([TapeWriter::cut_on], [TapeWriter::cut_with], [TapeWriter::cut_in_place]) failed: the error, and the
@@ -372,6 +376,10 @@ impl core::fmt::Display for ResumeError {
             Self::HeadLost { seq: Some(seq) } => write!(
                 f,
                 "piece {seq}, after removed pieces, was cut off inside its head"
+            ),
+            Self::KeysUndefined { track } => write!(
+                f,
+                "the piece's carry of keyed track {track} was lost and the call's definitions don't hold the track: pass those the resume read"
             ),
             Self::KeysUnknown { track } => write!(
                 f,
