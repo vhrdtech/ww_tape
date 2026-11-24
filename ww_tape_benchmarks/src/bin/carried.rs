@@ -154,6 +154,7 @@ fn tracks_on(
             hash: TrackHash::START,
             incomplete: false,
             not_carried: false,
+            keys_carried: false,
         });
     }
     Ok((every, one, rows))

@@ -8,8 +8,8 @@ use ww_tape::index::{
 };
 use ww_tape::{
     Block, BlockId, BlockKind, BlockWriter, ClockNum, ClockTime, FLAG_KEYED, FLAG_REPEAT, ItemNum,
-    KEY_HEAD_LEN, KeyId, KeyedItem, Medium, MemSink, OpenOptions, STATE_KEY_LEN_MAX, SessionTag,
-    TapeReader, TapeSink, TapeWriter, TrackId, TrackNum,
+    KEY_HEAD_LEN, KeyId, KeyedItem, Medium, MemSink, OpenOptions, ResumeError, STATE_KEY_LEN_MAX,
+    SessionTag, TapeReader, TapeSink, TapeWriter, TrackId, TrackNum, WriteError,
 };
 
 /// `tape-keyed`: the input as a keyed item, as the items of a keyed block, and as the keyed fields of index entries.
@@ -309,6 +309,10 @@ fn prefix_lookups(r: &TapeReader<&[u8]>, i: usize, track: TrackNum, prefix: &[u8
     let Ok(at) = r.keys_at(i, track, prefix, place) else {
         return;
     };
+    let first = r.pieces().get(i).is_some_and(|p| {
+        p.head_error.is_none() && p.head.as_ref().is_none_or(|(h, _)| h.prev.is_none())
+    });
+    assert!(!(first && at.not_carried), "a first piece holds every key");
     for (key, item) in &at.items {
         let k = item.keyed().expect("a keyed record");
         assert_eq!(k.key, &key[..]);
@@ -391,7 +395,8 @@ fn model(r: &TapeReader<&[u8]>, len: u64, track: TrackNum) {
     }
 }
 
-/// A resume of `f`: when it resumes, a new key put and a close a reader finds, the key in force at its end.
+/// A resume of `f`: when it resumes, a new key put and a close a reader finds, the key in force at its end; or the
+/// put refused when the piece's carry is lost.
 fn resume(f: &[u8]) {
     let mut sink = MemSink::new();
     sink.write_all(f).expect("memory takes the bytes");
@@ -400,8 +405,15 @@ fn resume(f: &[u8]) {
         return;
     };
     let (defs, on) = hostile::keyed_definitions(Some(&resumed));
-    w.put_key(&defs, on.keyed, 1000, b"/resumed", b"v")
-        .expect("a resumed piece takes puts");
+    match w.put_key(&defs, on.keyed, 1000, b"/resumed", b"v") {
+        Ok(_) => {}
+        // a carry a crash dropped, which a piece resumed alone can't put again
+        Err(WriteError::Resume(ResumeError::KeysUnknown { track })) => {
+            assert_eq!(track, on.keyed);
+            return;
+        }
+        Err(e) => panic!("a resumed piece takes puts: {e}"),
+    }
     w.close().expect("a resumed piece closes");
     let out = tape.to_vec().expect("the bytes");
     let r = TapeReader::open(&out[..]).expect("a closed piece opens");

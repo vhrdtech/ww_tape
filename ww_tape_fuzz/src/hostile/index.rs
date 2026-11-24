@@ -405,6 +405,7 @@ pub(crate) fn piece_head_block(d: &mut Draw<'_>, id: BlockId) -> Vec<u8> {
             hash: TrackHash([d.u8(); 32]),
             incomplete: d.bool(),
             not_carried: d.bool(),
+            keys_carried: d.bool(),
         })
         .collect();
     let head = PieceHead {

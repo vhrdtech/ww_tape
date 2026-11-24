@@ -36,6 +36,7 @@ mod integrity;
 mod iq8;
 mod item_gap;
 mod keyed;
+mod keyed_carry;
 mod lock;
 mod media;
 mod mem_pieces;

@@ -208,12 +208,16 @@ pub struct KeysAt {
     pub uncovered: Vec<Range<u64>>,
     /// The lookup's budget ran out: the keys not yet read are not among the items.
     pub spent: bool,
+    /// The piece doesn't carry the keys in force at its start ([TrackStart::keys_carried]): a key whose records lie
+    /// only in the pieces before is not among the items.
+    pub not_carried: bool,
 }
 
 impl KeysAt {
-    /// Whether every block read, the budget lasted and the index covers the piece to the place.
+    /// Whether every block read, the budget lasted, the index covers the piece to the place and the piece carries
+    /// the keys in force at its start.
     pub fn is_whole(&self) -> bool {
-        self.lost.is_empty() && self.uncovered.is_empty() && !self.spent
+        self.lost.is_empty() && self.uncovered.is_empty() && !self.spent && !self.not_carried
     }
 }
 
@@ -239,13 +243,16 @@ pub struct Lookup {
     /// The lookup's budget ([OpenOptions::state_read_max](super::OpenOptions::state_read_max)) ran out before it found a record that reads: older candidates were
     /// not read.
     pub spent: bool,
+    /// A key lookup ([TapeReader::key_at], [TapeReader::state_at] of a [Slot::Keyed]) found no record, and the piece doesn't carry the keys in force at its
+    /// start ([TrackStart::keys_carried]): the key's record may lie only in the pieces before.
+    pub not_carried: bool,
 }
 
 impl Lookup {
-    /// Whether nothing newer can hide: every block read, the budget lasted and the index covers the stretch to the
-    /// place.
+    /// Whether nothing newer can hide: every block read, the budget lasted, the index covers the stretch to the
+    /// place and, for a key, the piece carries the keys in force at its start or holds a record of it.
     pub fn is_whole(&self) -> bool {
-        self.lost.is_empty() && self.uncovered.is_empty() && !self.spent
+        self.lost.is_empty() && self.uncovered.is_empty() && !self.spent && !self.not_carried
     }
 }
 
@@ -508,6 +515,9 @@ impl<S: ByteSource> TapeReader<S> {
         let mut found = self.first_good(i, &candidates)?;
         let from = found.item.as_ref().map_or(0, |s| s.offset);
         found.uncovered = uncovered(self.piece(i)?, from..offset);
+        if let Slot::Keyed { track, .. } = slot {
+            found.not_carried = found.item.is_none() && self.keys_not_carried(i, track)?;
+        }
         Ok(found)
     }
 
@@ -600,6 +610,19 @@ impl<S: ByteSource> TapeReader<S> {
         Ok(out)
     }
 
+    /// The keyed state tracks with records in piece `i`, from the index alone.
+    pub(crate) fn keyed_tracks_in(&self, i: usize) -> R<BTreeSet<TrackNum>, S> {
+        let ix = self.state_index(i)?;
+        Ok(ix
+            .slots(u64::MAX, |s| matches!(s, Slot::Keyed { .. }))
+            .into_iter()
+            .filter_map(|s| match s {
+                Slot::Keyed { track, .. } => Some(track),
+                _ => None,
+            })
+            .collect())
+    }
+
     /// The index entries of key `key`'s records on keyed state track `track` in piece `i`, oldest first, from the
     /// index alone. Another key of the same [KeyId] would share them; the records decide ([Self::key_at]).
     pub fn key_entries(
@@ -652,6 +675,7 @@ impl<S: ByteSource> TapeReader<S> {
         }
         let from = found.item.as_ref().map_or(0, |s| s.offset);
         found.uncovered = uncovered(self.piece(i)?, from..offset);
+        found.not_carried = found.item.is_none() && self.keys_not_carried(i, track)?;
         Ok(found)
     }
 
@@ -759,7 +783,27 @@ impl<S: ByteSource> TapeReader<S> {
             }
         }
         out.uncovered = uncovered(self.piece(i)?, 0..offset);
+        out.not_carried = self.keys_not_carried(i, track)?;
         Ok(out)
+    }
+
+    /// Whether piece `i` may lack the keys of keyed state track `track` in force at its start: its head doesn't read,
+    /// or it follows another piece and its head's row of the track isn't marked [TrackStart::keys_carried]. A
+    /// track without a row has no records before the piece.
+    fn keys_not_carried(&self, i: usize, track: TrackNum) -> R<bool, S> {
+        let piece = self.piece(i)?;
+        if piece.head_error.is_some() {
+            return Ok(true);
+        }
+        let Some((head, rows)) = &piece.head else {
+            return Ok(false);
+        };
+        if head.prev.is_none() {
+            return Ok(false);
+        }
+        Ok(rows
+            .iter()
+            .any(|r| r.track_number == track && !r.keys_carried))
     }
 
     /// The first of `candidates` (newest first) whose record reads and is the one its entry names.

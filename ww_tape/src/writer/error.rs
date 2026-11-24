@@ -85,6 +85,35 @@ pub enum InputError {
     /// [TapeWriter::write_chunk_unit](super::TapeWriter::write_chunk_unit), that would make a unit longer than `max`
     /// chunks ([UNIT_CHUNKS_MAX](super::UNIT_CHUNKS_MAX)). Nothing is written.
     UnitTooLong { max: usize },
+    /// A put by key that would make the keys every cut carries take `needed` of `limit`'s `max`: a piece could not
+    /// hold them with the layout, the producer and one put more. Nothing is written; a deletion makes room.
+    CarryFull {
+        needed: usize,
+        max: usize,
+        limit: CarryLimit,
+    },
+}
+
+/// The limit a put by key would bring the carry of every live key past ([InputError::CarryFull]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum CarryLimit {
+    /// The index policy's state entries a piece lists
+    /// ([IndexPolicy::state_entries_max](crate::index::IndexPolicy::state_entries_max)): the definitions of the
+    /// keyed tracks, a record per live key, the layout, the producer and one put.
+    StateEntries,
+    /// The bytes of state items the writer keeps for its cuts
+    /// ([NearPolicy::kept_bytes_max](super::NearPolicy::kept_bytes_max)): the items of the live keys.
+    KeptBytes,
+}
+
+impl core::fmt::Display for CarryLimit {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(match self {
+            Self::StateEntries => "the index policy's state_entries_max",
+            Self::KeptBytes => "the near policy's kept_bytes_max",
+        })
+    }
 }
 
 /// Why [TapeWriter::record_removed](super::TapeWriter::record_removed) refuses removed pieces ([InputError::Removed]).
@@ -141,6 +170,12 @@ pub enum ResumeError {
     /// ([Self::GoodBlockAfterCut], [Self::Damaged]). `seq` is its sequence number, None when nothing at hand gives it
     /// (the front of a tape of several whose earlier pieces were dropped).
     HeadLost { seq: Option<u64> },
+    /// The piece's carry of keyed state track `track`, which its head promises ([TrackStart::keys_carried]), was lost
+    /// in a crash, and the writer doesn't know every live key to put it again: only the pieces before hold them.
+    /// Resume the piece through its chain ([PieceChain::resume_on](crate::PieceChain::resume_on)).
+    ///
+    /// [TrackStart::keys_carried]: crate::piece::TrackStart::keys_carried
+    KeysUnknown { track: crate::TrackNum },
 }
 
 /// Why a cut ([TapeWriter::cut_on], [TapeWriter::cut_with], [TapeWriter::cut_in_place]) failed: the error, and the
@@ -263,6 +298,10 @@ impl core::fmt::Display for InputError {
                 f,
                 "the call's definitions and puts take {needed} state entries with the layout and the producer, more than the index policy's {max}"
             ),
+            Self::CarryFull { needed, max, limit } => write!(
+                f,
+                "the live keys a cut carries would take {needed}, more than {limit} ({max}): delete keys first"
+            ),
             Self::UnitTracks => f.write_str("a unit of chunks of more than one track"),
             Self::UnitTooLong { max } => write!(f, "a unit of more than {max} chunks"),
             Self::SummaryTooLong { len, max } => write!(
@@ -333,6 +372,10 @@ impl core::fmt::Display for ResumeError {
             Self::HeadLost { seq: Some(seq) } => write!(
                 f,
                 "piece {seq}, after removed pieces, was cut off inside its head"
+            ),
+            Self::KeysUnknown { track } => write!(
+                f,
+                "the piece's carry of keyed track {track} was lost and its keys lie only in the pieces before: resume it through its chain"
             ),
             Self::HeadLost { seq: None } => write!(
                 f,

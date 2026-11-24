@@ -577,6 +577,7 @@ pub(crate) fn next_starts<'r>(
         .map(|t| {
             let t = TrackStart {
                 not_carried: false,
+                keys_carried: false,
                 ..*t
             };
             ((t.track_id, t.owner), t)
@@ -592,6 +593,7 @@ pub(crate) fn next_starts<'r>(
             hash: TrackHash::START,
             incomplete: false,
             not_carried: false,
+            keys_carried: false,
         });
         s.track_number = t.track_number;
         s.hash = t.hash;

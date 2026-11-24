@@ -893,13 +893,19 @@ fn first_head(owner: OwnerId, chain: u64, integrity: crate::Integrity) -> PieceH
 
 /// The piece after the closed piece `done`, continued, as its cut would have started it.
 fn next_piece<E>(done: &Closed, last: &LastPiece) -> Result<NextPiece, WriteError<E>> {
-    let mut next = NextPiece::after(
-        &last.head,
-        done,
-        last.next_tracks.clone(),
-        last.session,
-        last.next_seq,
-    )?;
+    // a keyed track whose keys the piece before holds whole is carried whole, as the cut would have
+    let tracks = last
+        .next_tracks
+        .iter()
+        .map(|t| TrackStart {
+            keys_carried: last
+                .kept
+                .keys(t.track_number, (t.track_id, t.owner))
+                .is_some_and(|k| k.complete),
+            ..*t
+        })
+        .collect();
+    let mut next = NextPiece::after(&last.head, done, tracks, last.session, last.next_seq)?;
     next.kept = last.kept.clone();
     Ok(next)
 }
@@ -1205,6 +1211,7 @@ fn read_closed_at<B: ByteSource>(
             start: p.start,
             tracks: next_tracks.clone(),
             states_unknown: 0,
+            keys_unknown: 0,
         },
         LastPiece {
             continued: close.next.is_some(),
@@ -1286,7 +1293,8 @@ impl ChainNumbers {
 }
 
 /// The newest item of each state track of rows `rows` in piece `i` of `reader` that reads, oldest first: what the
-/// writer of the piece kept for its cut ([crate::writer]). A state that only older pieces hold isn't read.
+/// writer of the piece kept for its cut ([crate::writer]), and every live key of each keyed state track. A state
+/// that only older pieces hold isn't read; the keys are complete when the piece carried those in force at its start.
 fn kept_of<B: ByteSource>(
     reader: &TapeReader<B>,
     i: usize,
@@ -1306,6 +1314,12 @@ fn kept_of<B: ByteSource>(
             kept.placed(track, *key, s.at, &s.item, usize::MAX);
         }
     }
+    // every live key of each keyed track as of the close: the piece's own and those its head carried
+    let p = reader.pieces().get(i);
+    let head_rows = p.and_then(|p| p.head.as_ref()).map_or(&[][..], |(_, r)| r);
+    let before = p.and_then(|p| p.close_offset).unwrap_or(u64::MAX);
+    crate::writer::resume::read_keys(reader, i, head_rows, &keys, before, &mut kept)
+        .map_err(WriteError::Read)?;
     Ok(kept)
 }
 

@@ -87,6 +87,40 @@ use crate::{
 /// Bytes the walk reads and hashes at once in a stretch that holds no block.
 const JUNK_READ_MAX: usize = 1 << 20;
 
+/// Take into `kept` the live keys of each keyed state track of piece `i` of `reader` in force at `before`: the
+/// tracks with keyed records in the piece and those whose head row `rows` marks [TrackStart::keys_carried]. A
+/// track's keys are complete when every record read and the piece carries the keys in force at its start
+/// ([KeysAt::is_whole](crate::reader::KeysAt::is_whole)). `idents` gives the track each number stands for; a track
+/// it doesn't name is passed over.
+pub(crate) fn read_keys<B: ByteSource>(
+    reader: &TapeReader<B>,
+    i: usize,
+    rows: &[TrackStart],
+    idents: &BTreeMap<crate::TrackNum, crate::index::TrackIdent>,
+    before: u64,
+    kept: &mut super::kept::Kept,
+) -> Result<(), ReadError<B::Error>> {
+    let mut tracks = reader.keyed_tracks_in(i)?;
+    tracks.extend(
+        rows.iter()
+            .filter(|r| r.keys_carried)
+            .map(|r| r.track_number),
+    );
+    for n in tracks {
+        let Some(ident) = idents.get(&n).copied() else {
+            continue;
+        };
+        let keys = reader.keys_at(i, n, b"", before)?;
+        let mut items: Vec<_> = keys.items.values().collect();
+        items.sort_by_key(|s| s.offset);
+        for s in items {
+            kept.key_placed(n, ident, s.at, &s.item, true, usize::MAX);
+        }
+        kept.keys_known(n, ident, keys.is_whole());
+    }
+    Ok(())
+}
+
 /// Bytes past where the reader stopped that a resume looks through for a good block before it cuts them off.
 ///
 /// A torn block is at most [MAX_BLOCK_LEN] long, and a block flushed before it lies right after it: twice that.
@@ -842,6 +876,19 @@ impl<S: TapeSink> TapeWriter<S> {
         // blocks, and bytes no block explains
         if let Some(b) = &base {
             w.take_base(b);
+            // the blocks before the close aren't replayed: the keys in force at it are read through the index
+            // once a call needs them ([TapeWriter::load_keys])
+            let (_, head_rows) = &b.head;
+            let idents: BTreeMap<_, _> = head_rows
+                .iter()
+                .map(|r| (r.track_number, (r.track_id, r.owner)))
+                .chain(
+                    b.rows
+                        .iter()
+                        .map(|r| (r.track_number, (r.track_id, r.owner))),
+                )
+                .collect();
+            w.keys_base = Some((b.close_at, idents, super::kept::Kept::default()));
         }
         let start = base.as_ref().map_or(0, |b| b.close_at);
         let mut hash = blake3::Hasher::new();
@@ -978,6 +1025,14 @@ impl<S: TapeSink> TapeWriter<S> {
         // the definitions of the tracks the head carries follow the layout and the producer: lost with them, the next
         // call given definitions puts them
         w.carried_due = !past_head && w.head.as_ref().is_some_and(|(_, rows)| !rows.is_empty());
+        // keys whose carry was lost with it are known only through the pieces before ([TapeWriter::keep_after])
+        if w.carried_due {
+            let rows: Vec<TrackStart> = w.head.iter().flat_map(|(_, r)| r).copied().collect();
+            for r in rows.iter().filter(|r| r.keys_carried) {
+                w.kept
+                    .keys_known(r.track_number, (r.track_id, r.owner), false);
+            }
+        }
         if write_on {
             w.write_on()?;
         } else if kept.counted {
@@ -1116,6 +1171,14 @@ impl<S: TapeSink> TapeWriter<S> {
                     .seed_damaged(key, e.range.map(|(_, hi)| hi), e.relation_break);
             }
         }
+        // a keyed record unread: its track's keys may miss it
+        for e in entries.iter().filter(|e| e.key.is_some()) {
+            if let Some(track) = e.track()
+                && let Some(key) = self.indexer.key_of(track, Some(e.track_id))
+            {
+                self.kept.keys_doubted(track, key);
+            }
+        }
         self.bytes = end;
         self.blocks = self.blocks.saturating_add(1);
         let data = match kind {
@@ -1165,6 +1228,11 @@ impl<S: TapeSink> TapeWriter<S> {
     fn replay_junk(&mut self, step: &Step, buf: &mut Vec<u8>) -> Result<(), WriteError<S::Error>> {
         let mut at = step.at;
         let end = step.end();
+        if at < end {
+            // bytes no block explains may hold keyed records
+            self.keys_doubt = true;
+            self.kept.all_keys_doubted();
+        }
         while at < end {
             let n = usize::try_from(end.saturating_sub(at))
                 .map_or(JUNK_READ_MAX, |n| n.min(JUNK_READ_MAX));

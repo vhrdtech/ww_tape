@@ -847,7 +847,37 @@ about 2^32 BLAKE3 hashes. A lookup of one key (`TapeReader::key_at`) reads each 
 A listing (`keys_at`) reads the newest record of each slot, so it shows only the newer of two keys that share one.
 Whether a key lives is the record's to say: the index's deletion mark lists slots (`key_slots`) without reading one.
 
-A cut carries no keys into the new piece yet.
+A cut carries every live key into the new piece: after the track's definition, one record per key, its newest
+value at the time of its last put, in key order, in blocks of puts marked `FLAG_KEYED` of at most
+`CARRIED_BLOCK_LEN` (4 KiB). A deleted key is not carried. The carry is part of the cut's blocks that belong with
+the first block of data (`FLAG_WITH_NEXT`), so a crash keeps all of it or none, and the next call puts it again.
+
+The next head marks the track's row `TrackStart::keys_carried` (row flag bit 2) when the writer knew every live key:
+it saw every record of the track since its first, in this piece, in the carry of the piece before, or through the
+index of the closed pieces a chain's resume reads. A record it couldn't read, or a piece resumed alone after its
+carry was lost, leaves the row unmarked, and `Closed::keys_unknown` counts such tracks. A resume of a piece alone
+whose head marks a row but whose carry a crash dropped refuses to carry again (`ResumeError::KeysUnknown`): a
+`PieceChain` resume reads the keys from the piece before.
+
+A reader of a piece that follows another and whose row of the track isn't marked can't know the keys in force at the
+piece's start. `KeysAt::not_carried` says so, and so does `Lookup::not_carried` of a key it found no record of; their
+`is_whole()` is false then. A first piece, or a track without a row in the head, holds every record of the track.
+
+A keyed track is never left out of a cut ([Carried definitions](carried_definitions.md#when-they-dont-fit)). The
+writer refuses a `put_key` that would make the carry too large for a piece, with `InputError::CarryFull` naming the
+limit (`CarryLimit`):
+
+| Limit | What must fit it |
+|---|---|
+| `StateEntries`: `IndexPolicy::state_entries_max` | the definitions of the keyed tracks, a record per live key, the layout, the producer and one put |
+| `KeptBytes`: `NearPolicy::kept_bytes_max` | the items of the live keys, which the writer keeps for its cuts |
+
+A change of a live key that keeps its size and a deletion are never refused for them. The room for one put more
+lets a change or a deletion land in a piece a cut made for it.
+
+The writer also refuses a `put_key` whose key has the key id of another live key of the track
+(`DescribeError::KeyCollision`), so a listing never hides a live key. The relay of a producer's block of keyed records
+is checked the same way.
 
 ### 5.4 Deferred blocks {#deferred-blocks}
 
@@ -1163,7 +1193,8 @@ piece head (kind 10)
 152 ...  tracks × 96, one per track carried over from the pieces before:
            0 u64 id    8 u32 number
           12 u32 flags, as a close row's: bit 0 incomplete (from the pieces before); bit 1, a head row's only:
-                 not carried, the piece holds no definition of the track, its cut had no room for it
+                 not carried, the piece holds no definition of the track, its cut had no room for it; bit 2, a
+                 head row's only: keys carried, the piece carries every live key of this keyed state track
           16 u64 next item (the first item number this piece holds)
           24 i64 from tick (no item of the track here starts before it)
           32 [32] owner (TrackDef::owner; zeros: the piece's owner)
@@ -1323,6 +1354,9 @@ A head row's flag bit 1 (`TrackStart::not_carried`) says the piece doesn't carry
 room for it in the index. A close row never sets it, and the next cut sets it afresh. A reader of the piece without
 the pieces before names such a track in `DefinitionsAt::not_carried`. A marked row whose definition is in force all
 the same is not named.
+
+A head row's flag bit 2 (`TrackStart::keys_carried`) says the piece carries every key of the keyed state track live
+at its start ([Keyed state tracks](#keyed-state-tracks)). A close row never sets it, and the next cut sets it afresh.
 
 ## 8 Tape pieces {#tape-pieces}
 

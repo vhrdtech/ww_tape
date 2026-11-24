@@ -11,11 +11,11 @@ use ww_tape::{
 
 use crate::definitions::{CLOCK, base_defs, hold, record_blocks, state, track};
 
-const KEYED: TrackNum = TrackNum::new(10);
+pub(crate) const KEYED: TrackNum = TrackNum::new(10);
 const PLAIN: TrackNum = TrackNum::new(11);
 
 /// Keyed state track `number` on [CLOCK].
-fn keyed(number: u32) -> Describe<'static> {
+pub(crate) fn keyed(number: u32) -> Describe<'static> {
     let Describe::Track(t) = track(number, CLOCK) else {
         unreachable!("track() gives a track")
     };
@@ -26,7 +26,7 @@ fn keyed(number: u32) -> Describe<'static> {
 }
 
 /// The tests' definitions with keyed track [KEYED] and plain state track [PLAIN].
-fn defs() -> Definitions {
+pub(crate) fn defs() -> Definitions {
     let mut defs = base_defs().clone();
     hold(&mut defs, &[keyed(KEYED.get()), state(PLAIN.get())]).unwrap();
     defs

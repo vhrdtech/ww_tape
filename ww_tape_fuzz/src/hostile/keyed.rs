@@ -1,6 +1,7 @@
-//! Keyed state records and their index entries: a piece a writer wrote with puts and deletions of keys on a keyed
-//! state track, then its keyed blocks and the keyed fields of its index's state entries (flags, key length, key head,
-//! key hash) take hostile values behind good CRCs, or the piece is cut.
+//! Keyed state records and their index entries: a piece a cut started, carrying the live keys of a keyed state track,
+//! then written with puts and deletions of keys; its keyed blocks, the keyed fields of its index's state entries (flags,
+//! key length, key head, key hash) and its head row's flags take hostile values behind good CRCs, or the piece is
+//! cut.
 
 use std::sync::OnceLock;
 
@@ -126,7 +127,8 @@ pub(crate) fn definitions(resumed: Option<&ww_tape::Resumed>) -> (Definitions, K
     (defs, KeyedTracks { clock, keyed })
 }
 
-/// The template: rounds of puts and deletions over [keys], a value per round; closed.
+/// The template: rounds of puts and deletions over [keys], a value per round, in a first piece; a cut, which
+/// carries every live key into the second piece and marks its head row; more rounds there; the second piece closed.
 fn template() -> Vec<u8> {
     let o = options();
     let mut w = TapeWriter::create_on(MemSink::new(), o.sync);
@@ -135,8 +137,22 @@ fn template() -> Vec<u8> {
     w.set_near_policy(o.near);
     w.set_layout(o.layout).expect("a new piece takes a layout");
     w.set_producer(&o.producer);
+    w.set_session(ww_tape::SessionTag::writable(0x6b65_7964))
+        .expect("a writable session");
+    let owner = ww_tape::OwnerId([0x6b; 32]);
+    let head = ww_tape::PieceHead {
+        ident: ww_tape::PieceIdent {
+            id: ww_tape::piece::PieceId::first(&owner),
+            owner,
+            seq: 0,
+        },
+        prev: None,
+        prev_session: ww_tape::SessionTag::NONE,
+        integrity: ww_tape::Integrity::Full,
+    };
+    w.begin_piece(&head, &[]).expect("a first piece");
     let (defs, on) = definitions(None);
-    for k in 0..ROUNDS {
+    let put = |w: &mut TapeWriter<MemSink>, k: i64| {
         for (i, key) in keys().iter().enumerate() {
             let round = k as usize + i;
             if round % 5 == 4 {
@@ -146,6 +162,15 @@ fn template() -> Vec<u8> {
                 w.put_key(&defs, on.keyed, k, key, &value).expect("a put");
             }
         }
+    };
+    for k in 0..ROUNDS / 2 {
+        put(&mut w, k);
+    }
+    let (_, mut w) = w
+        .cut_on(&definitions(None).0, MemSink::new())
+        .expect("the cut");
+    for k in ROUNDS / 2..ROUNDS {
+        put(&mut w, k);
     }
     let tape = w.sink().tape();
     w.close().expect("the template closes");
@@ -215,6 +240,26 @@ fn hit_keyed(d: &mut Draw<'_>, b: &mut [u8]) {
     seal(b);
 }
 
+/// Hostile flags in a row of the piece head at the start of `f` (keys carried or not, not carried, an unknown bit),
+/// its CRC computed again.
+fn hit_head_row(d: &mut Draw<'_>, f: &mut [u8]) {
+    let Ok(b) = ww_tape::Block::read(f) else {
+        return;
+    };
+    if b.kind != BlockKind::PieceHead {
+        return;
+    }
+    let len = b.len();
+    // the rows start after the 32-byte header and the 120-byte fixed part, 96 bytes each, flags at 12
+    let rows = (len - 32 - 120 - 4) / 96;
+    if rows == 0 {
+        return;
+    }
+    let at = 32 + 120 + 96 * d.below(rows) + 12;
+    f[at] ^= [0x04, 0x02, 0x06, 0x08][d.below(4)];
+    seal(&mut f[..len]);
+}
+
 /// A hostile piece of [keyed] and what was done to it.
 pub struct KeyedAttacked {
     pub bytes: Vec<u8>,
@@ -244,8 +289,14 @@ pub fn attacked(data: &[u8]) -> KeyedAttacked {
         .filter(|(at, len, _)| ww_tape::Block::read(&f[*at..at + len]).is_ok_and(|b| b.is_keyed()))
         .collect();
     for _ in 0..1 + d.below(4) {
-        // 0: an index's state entry, 1: a keyed block behind a good CRC, 2: damage to one
-        let attack = d.below(3);
+        // 0: an index's state entry, 1: a keyed block behind a good CRC, 2: damage to one, 3: the piece head's row
+        // flags behind a good CRC
+        let attack = d.below(4);
+        if attack == 3 {
+            hit_head_row(&mut d, &mut f);
+            forged = true;
+            continue;
+        }
         let pick = if attack == 0 { &indexes } else { &keyed };
         let Some((at, len, _)) = pick.get(d.below(pick.len().max(1))) else {
             continue;

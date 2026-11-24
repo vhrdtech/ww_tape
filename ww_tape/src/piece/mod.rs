@@ -71,7 +71,8 @@
 //! 152 ...  tracks × 96, one per track carried over from the pieces before:
 //!            0 u64 id    8 u32 number
 //!           12 u32 flags, as a close row's: bit 0 incomplete (from the pieces before); bit 1, a head row's only:
-//!                  not carried, the piece holds no definition of the track, its cut had no room for it
+//!                  not carried, the piece holds no definition of the track, its cut had no room for it; bit 2, a
+//!                  head row's only: keys carried, the piece carries every live key of this keyed state track
 //!           16 u64 next item (the first item number this piece holds)
 //!           24 i64 from tick (no item of the track here starts before it)
 //!           32 [32] owner (TrackDef::owner; zeros: the piece's owner)
@@ -227,6 +228,9 @@ const ROW_INCOMPLETE: u32 = 1;
 /// A piece head's track row flag: the piece doesn't carry the track's definition, its cut had no room for it
 /// ([TrackStart::not_carried]). A close's row never holds it.
 const ROW_NOT_CARRIED: u32 = 2;
+/// A piece head's track row flag on a keyed state track: the piece carries every key live at its start
+/// ([TrackStart::keys_carried]). A close's row never holds it.
+const ROW_KEYS_CARRIED: u32 = 4;
 /// Where a close names its row length.
 const CLOSE_ROW_LEN_AT: usize = 34;
 /// Where a close record's tracks start.
@@ -677,6 +681,10 @@ pub struct TrackStart {
     /// policy's state entries. A reader of the piece without the pieces before names the track as not carried
     /// ([DefinitionsAt::not_carried](crate::reader::DefinitionsAt::not_carried)).
     pub not_carried: bool,
+    /// The piece carries every key of this keyed state track live at its start, right after its definition: a
+    /// reader of the piece alone finds each of them. Without it, in a piece after another, a key's record in force
+    /// may lie only in the pieces before ([KeysAt::not_carried](crate::reader::KeysAt::not_carried)).
+    pub keys_carried: bool,
 }
 
 /// The items and ticks of one track's chunk blocks in a piece, its counted records and its hash, from its close.
@@ -859,7 +867,9 @@ fn fill_piece_head(b: &mut [u8], head: &PieceHead, tracks: &[TrackStart]) -> Opt
     for (row, t) in rows.zip(tracks) {
         put_u64(row, 0, t.track_id.get())?;
         put_u32(row, 8, t.track_number.get())?;
-        let flags = row_flags(t.incomplete) | if t.not_carried { ROW_NOT_CARRIED } else { 0 };
+        let flags = row_flags(t.incomplete)
+            | if t.not_carried { ROW_NOT_CARRIED } else { 0 }
+            | if t.keys_carried { ROW_KEYS_CARRIED } else { 0 };
         put_u32(row, HEAD_ROW_FLAGS_AT, flags)?;
         put_u64(row, 16, t.next_item.get())?;
         put_i64(row, 24, t.from_tick)?;
@@ -970,7 +980,7 @@ impl<'b> PieceHeadBlock<'b> {
             rows,
             row,
             HEAD_ROW_FLAGS_AT,
-            ROW_INCOMPLETE | ROW_NOT_CARRIED,
+            ROW_INCOMPLETE | ROW_NOT_CARRIED | ROW_KEYS_CARRIED,
         )?;
         let link = read_link(block.bytes()).ok_or(IndexError::BadHead)?;
         let head = PieceHead {
@@ -1022,6 +1032,7 @@ impl<'b> PieceHeadBlock<'b> {
                 hash: TrackHash(array(row, 64)?),
                 incomplete: le_u32(row, HEAD_ROW_FLAGS_AT)? & ROW_INCOMPLETE != 0,
                 not_carried: le_u32(row, HEAD_ROW_FLAGS_AT)? & ROW_NOT_CARRIED != 0,
+                keys_carried: le_u32(row, HEAD_ROW_FLAGS_AT)? & ROW_KEYS_CARRIED != 0,
             })
         })
     }

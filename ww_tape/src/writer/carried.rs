@@ -10,10 +10,16 @@
 //! A state track carries its newest item ([super::kept]) right after its definition, in the same block: a reader of
 //! the piece alone finds the state in force as it finds the track. Its record takes one state entry more.
 //!
+//! A keyed state track carries every live key ([super::kept::Keys]) after its definition: one record per key, its
+//! newest value, in key order, in blocks of at most [CARRIED_BLOCK_LEN] of their own (a track's keys may take
+//! several). Each takes a state entry.
+//!
 //! A piece carries every definition while the chain's tracks fit the index policy's state entries. A cut is never
 //! refused for them: past that room, [fit] carries what fits, by priority, and the next head names each track left
-//! out, those with the oldest data. The tracks of the call the cut is made for come first, so a call the writer
-//! admitted ([entries]) always fits the piece a cut made for it.
+//! out, those with the oldest data. A keyed track is never left out: it comes first, with every key, and the writer
+//! refuses a put that would make its keys too many for a piece ([CarryLimit](super::CarryLimit)). The tracks of the
+//! call the cut is made for come next, so a call the writer admitted ([entries]) always fits the piece a cut made
+//! for it.
 
 use crate::TrackNum;
 use alloc::collections::{BTreeMap, BTreeSet};
@@ -36,21 +42,35 @@ fn record_len(item_len: usize) -> usize {
 /// What a track needs carried: its bundles, its clock chain and its own records ([Source::split]).
 type Needs = (Vec<Slot>, Vec<Slot>, Vec<Slot>);
 
-/// What a cut carries from: the definitions held, and the length of the newest item of each state track it carries
-/// ([super::kept]), by track number.
+/// What a cut carries from: the definitions held, the length of the newest item of each state track it carries
+/// ([super::kept]), by track number, and the live keys of each keyed track it carries, in key order, with the
+/// length of each key's item.
 #[derive(Copy, Clone)]
 pub(crate) struct Source<'a> {
     pub(crate) defs: &'a Definitions,
     pub(crate) states: &'a BTreeMap<TrackNum, usize>,
+    pub(crate) keys: &'a BTreeMap<TrackNum, Vec<Slot>>,
+    pub(crate) key_lens: &'a BTreeMap<Slot, usize>,
 }
 
 impl Source<'_> {
-    /// The bytes a record of `slot` takes: a definition `defs` holds or a state item carried; 0 for another.
+    /// The bytes a record of `slot` takes: a definition `defs` holds, a state item or a key carried; 0 for another.
     fn slot_len(&self, slot: &Slot) -> usize {
         match slot {
             Slot::State { track } => self.states.get(track).map_or(0, |l| record_len(*l)),
+            Slot::Keyed { .. } => self.key_lens.get(slot).map_or(0, |l| record_len(*l)),
             _ => self.defs.get(slot).map_or(0, |i| record_len(i.len())),
         }
+    }
+
+    /// The keys of tracks `numbers` carry, in the order of the numbers, each a group of its own.
+    fn key_items(&self, numbers: &[TrackNum]) -> Vec<Vec<Slot>> {
+        numbers
+            .iter()
+            .filter_map(|n| self.keys.get(n))
+            .flatten()
+            .map(|s| vec![*s])
+            .collect()
     }
 
     /// What track `number` needs carried ([Definitions::needs]): its bundles, its clock chain (clocks, then maps) and
@@ -101,7 +121,16 @@ pub(crate) fn blocks(from: Source<'_>, numbers: &[TrackNum]) -> Vec<Vec<Slot>> {
     for (chain, tracks) in &groups {
         pack(from, chain, tracks, &mut out);
     }
+    pack(from, &[], &from.key_items(numbers), &mut out);
     out
+}
+
+/// The state entries the keys of tracks `numbers` take when carried.
+fn key_entries(from: Source<'_>, numbers: &[TrackNum]) -> usize {
+    numbers
+        .iter()
+        .filter_map(|n| from.keys.get(n))
+        .fold(0usize, |n, k| n.saturating_add(k.len()))
 }
 
 /// The state entries the definitions data on `tracks` needs take together ([Definitions::needs], each slot once):
@@ -120,12 +149,15 @@ pub(crate) fn entries(defs: &Definitions, tracks: &[TrackNum]) -> usize {
 /// plus one). All of them in [blocks] when those fit beside it. Else once each, no block repeating a chain, in this
 /// priority while room lasts:
 ///
+/// 0. the keyed tracks (those [Source::keys] holds), each with its bundles, its chain, its definition and every
+///    key, whatever room is left: the writer keeps them within it ([CarryLimit](super::CarryLimit));
 /// 1. the tracks of `wanted`, each with its bundles, its chain and its definition;
 /// 2. the clocks and maps the other tracks need;
 /// 3. each track of `ranked` (newest data first) with the bundles it needs, when its whole chain is in.
 ///
-/// A track that doesn't fit is left out. Bundles, chains, then tracks in the order of the head rows, packed into
-/// blocks of at most [CARRIED_BLOCK_LEN]. A call admitted by the writer so fits the piece a cut made for it.
+/// A track that doesn't fit is left out. Bundles, chains, tracks in the order of the head rows, then the keys,
+/// packed into blocks of at most [CARRIED_BLOCK_LEN]. A call admitted by the writer so fits the piece a cut made for
+/// it.
 pub(crate) fn fit(
     from: Source<'_>,
     numbers: &[TrackNum],
@@ -152,6 +184,28 @@ pub(crate) fn fit(
     let mut held: BTreeSet<Slot> = BTreeSet::new();
     let mut chains = Vec::new();
     let mut taken = BTreeSet::new();
+    // 0. the keyed tracks whole, with their keys
+    let keyed: Vec<TrackNum> = numbers
+        .iter()
+        .filter(|n| from.keys.contains_key(n))
+        .copied()
+        .collect();
+    for n in &keyed {
+        let Some((b, chain, own)) = needs.get(n) else {
+            continue;
+        };
+        let new = b
+            .iter()
+            .chain(chain)
+            .filter(|s| !held.contains(*s))
+            .count()
+            .saturating_add(own.len());
+        chains.extend(chain.iter().filter(|s| !held.contains(*s)).copied());
+        held.extend(b.iter().chain(chain).chain(own).copied());
+        taken.insert(*n);
+        left = left.saturating_sub(new);
+    }
+    left = left.saturating_sub(key_entries(from, &keyed));
     // 1. the wanted tracks whole
     for n in wanted {
         let Some((b, chain, own)) = needs.get(n) else {
@@ -222,6 +276,7 @@ pub(crate) fn fit(
     pack(from, &[], &bundles, &mut out);
     pack(from, &[], &chains, &mut out);
     pack(from, &[], &tracks, &mut out);
+    pack(from, &[], &from.key_items(&keyed), &mut out);
     (out, dropped)
 }
 

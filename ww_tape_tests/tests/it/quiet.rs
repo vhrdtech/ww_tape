@@ -636,6 +636,7 @@ fn maps_added_to_tracks_on_their_own_clocks_keep_the_chain_writing() {
             hash: ww_tape::TrackHash::START,
             incomplete: false,
             not_carried: false,
+            keys_carried: false,
         });
         all.push(d);
     }
@@ -773,6 +774,7 @@ fn a_marked_row_whose_definition_the_piece_holds_is_not_named() {
         hash: ww_tape::TrackHash::START,
         incomplete: false,
         not_carried: true,
+        keys_carried: false,
     };
     let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     w.set_session(SessionTag::writable(0x7175_6968)).unwrap();
@@ -959,6 +961,7 @@ fn a_marked_row_whose_number_another_track_took_is_named() {
         hash: ww_tape::TrackHash::START,
         incomplete: false,
         not_carried: true,
+        keys_carried: false,
     };
     let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     w.set_session(SessionTag::writable(0x7175_6969)).unwrap();

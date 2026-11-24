@@ -38,7 +38,8 @@
 //! in 2^64 pairs, but a key set crafted for it costs about 2^32 BLAKE3 hashes. A lookup of one key
 //! ([TapeReader::key_at](crate::reader::TapeReader::key_at)) reads the full key of each record and stays exact; a
 //! listing ([TapeReader::keys_at](crate::reader::TapeReader::keys_at)) reads the newest record of each slot and so
-//! shows only the newer of two keys that share one.
+//! shows only the newer of two keys that share one. A writer refuses a key of another live key's id
+//! ([DescribeError::KeyCollision](crate::DescribeError::KeyCollision)), so only bytes written otherwise hold two.
 
 use shrink_wrap::prelude::*;
 

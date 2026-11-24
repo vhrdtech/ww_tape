@@ -136,6 +136,9 @@ pub enum DescribeError {
     KeyTooLong { len: usize },
     /// A keyed state item that doesn't read.
     KeyedItem(crate::KeyedError),
+    /// A put by key whose key has the [KeyId](crate::KeyId) of another live key of track `track`: the two would
+    /// share a slot, and a listing of the keys would show only one ([TapeReader::keys_at](crate::TapeReader::keys_at)).
+    KeyCollision { track: TrackNum },
     /// A relayed definition other than the one held in its slot: a relay holds a block's definitions before it
     /// puts the block ([crate::TapeWriter::relay_block]).
     NotHeld { slot: Slot },
@@ -286,6 +289,10 @@ impl core::fmt::Display for DescribeError {
                 "track {track} is not keyed state: nothing of it is put by key"
             ),
             Self::KeyedItem(e) => write!(f, "a keyed state item: {e}"),
+            Self::KeyCollision { track } => write!(
+                f,
+                "a key of track {track} has the key id of another live key: put it under another key"
+            ),
             Self::KeyTooLong { len } => write!(
                 f,
                 "a key of {len} bytes is longer than {}",
