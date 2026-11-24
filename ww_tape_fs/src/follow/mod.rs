@@ -251,6 +251,9 @@ impl ChainFollower {
 
     /// Follow the items of the track of id `id` and owner `owner` ([TrackItems::owned]): in a chain several owners
     /// write, the chunks of another owner's track of the same id are passed over.
+    ///
+    /// A track defined with an owner of all zeros is its piece's owner's, so `track_of(id, OwnerId::NONE)` follows
+    /// it only in a chain whose pieces name [OwnerId::NONE]; on an owned chain, give the chain's owner.
     pub fn track_of(self, id: ww_tape::TrackId, owner: ww_tape::OwnerId) -> TrackFollower {
         TrackFollower::new(self, TrackItems::owned(id, owner))
     }

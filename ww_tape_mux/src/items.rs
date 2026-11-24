@@ -28,6 +28,9 @@ pub enum ItemCarry {
     /// That piece and each later piece that carries or writes a track of this owner ([ww_tape::TrackDef::owner],
     /// all zeros the chain's own), until released: a run's description, in every piece that holds the run's
     /// tracks. In a piece whose head carries none, it follows the owner's first data there.
+    ///
+    /// A track of all-zero owner is the chain's owner's: give that owner for them. `Owner(OwnerId::NONE)` is due
+    /// only on a chain whose own owner is [OwnerId::NONE].
     Owner(OwnerId),
 }
 
