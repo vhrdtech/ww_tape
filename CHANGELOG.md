@@ -6,6 +6,8 @@ benchmarks, golden files and book pages.
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-11-24
+
 ### Features
 
 - spirit_level checks the big tier with a crate map of layers; Clippy's pedantic set is on (REPO-86).
