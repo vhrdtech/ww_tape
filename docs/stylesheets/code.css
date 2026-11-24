@@ -4,65 +4,48 @@
   padding-right: 4.5rem;
 }
 
-/* Rust: the Pygments token classes, one palette per scheme. Keywords red, types blue, functions and macros purple,
-   lifetimes and attributes amber, strings green, numbers teal, comments grey italic. Each colour is at least 4.5:1
-   on the code background (#f6f6f6 light, the slate code background dark). */
+/* Code colours: GitHub's palette over the token classes Pygments gives. The theme folds them into a few colours
+   (TOML keys, macros, dates and booleans plain; types in the keyword colour); here each kind keeps its own. */
 [data-md-color-scheme="default"] {
-  --ww-hl-keyword: #b3121a;
-  --ww-hl-type: #1f5aa6;
-  --ww-hl-function: #7a3fa0;
-  --ww-hl-macro: #8a2f8f;
-  --ww-hl-lifetime: #8a4f06;
-  --ww-hl-attribute: #8a4f06;
-  --ww-hl-string: #1f6f35;
-  --ww-hl-number: #11676b;
-  --ww-hl-comment: #5d636a;
-  --ww-hl-const: #a24a00;
+  --sl-code-keyword: #cf222e;
+  --sl-code-string: #0a3069;
+  --sl-code-constant: #0550ae;
+  --sl-code-function: #8250df;
+  --sl-code-type: #953800;
+  --sl-code-comment: #6e7781;
+  --sl-code-punct: #57606a;
+  --sl-code-prompt: #116329;
 }
+
 [data-md-color-scheme="slate"] {
-  --ww-hl-keyword: #ff7a72;
-  --ww-hl-type: #8db8f0;
-  --ww-hl-function: #cfa8ee;
-  --ww-hl-macro: #e5a0e8;
-  --ww-hl-lifetime: #ecbd6a;
-  --ww-hl-attribute: #e0b060;
-  --ww-hl-string: #8fd6a1;
-  --ww-hl-number: #7fd6d3;
-  --ww-hl-comment: #9a9da1;
-  --ww-hl-const: #f0a870;
+  --sl-code-keyword: #ff7b72;
+  --sl-code-string: #a5d6ff;
+  --sl-code-constant: #79c0ff;
+  --sl-code-function: #d2a8ff;
+  --sl-code-type: #ffa657;
+  --sl-code-comment: #8b949e;
+  --sl-code-punct: #9ea7b3;
+  --sl-code-prompt: #7ee787;
 }
-.md-typeset .language-rust .k,
-.md-typeset .language-rust .kd,
-.md-typeset .language-rust .kp,
-.md-typeset .language-rust .kn,
-.md-typeset .language-rust .kr { color: var(--ww-hl-keyword); }
-.md-typeset .language-rust .kc,
-.md-typeset .language-rust .no { color: var(--ww-hl-const); }
-.md-typeset .language-rust .kt,
-.md-typeset .language-rust .nc,
-.md-typeset .language-rust .nn,
-.md-typeset .language-rust .bp,
-.md-typeset .language-rust .nb { color: var(--ww-hl-type); }
-.md-typeset .language-rust .nf { color: var(--ww-hl-function); }
-.md-typeset .language-rust .fm { color: var(--ww-hl-macro); }
-.md-typeset .language-rust .nl { color: var(--ww-hl-lifetime); }
-.md-typeset .language-rust .cp,
-.md-typeset .language-rust .nd,
-.md-typeset .language-rust .na { color: var(--ww-hl-attribute); }
-.md-typeset .language-rust .s,
-.md-typeset .language-rust .s1,
-.md-typeset .language-rust .s2,
-.md-typeset .language-rust .sa,
-.md-typeset .language-rust .sb,
-.md-typeset .language-rust .sc { color: var(--ww-hl-string); }
-.md-typeset .language-rust .m,
-.md-typeset .language-rust .mi,
-.md-typeset .language-rust .mf,
-.md-typeset .language-rust .mh,
-.md-typeset .language-rust .mb,
-.md-typeset .language-rust .mo { color: var(--ww-hl-number); }
-.md-typeset .language-rust .c,
-.md-typeset .language-rust .c1,
-.md-typeset .language-rust .cm,
-.md-typeset .language-rust .cs,
-.md-typeset .language-rust .sd { color: var(--ww-hl-comment); font-style: italic; }
+
+.md-typeset .highlight :is(.k, .kd, .kn, .kp, .kr, .ow) { color: var(--sl-code-keyword); }
+.md-typeset .highlight :is(.s, .s1, .s2, .sb, .sc, .si, .ss, .sh, .sx, .cpf) { color: var(--sl-code-string); }
+.md-typeset .highlight :is(.se, .sr) { color: var(--sl-code-constant); }
+.md-typeset .highlight :is(.m, .mb, .mf, .mh, .mi, .mo, .il, .ld, .kc, .no, .bp, .na, .nv, .vc, .vg, .vi) {
+  color: var(--sl-code-constant);
+}
+.md-typeset .highlight :is(.nf, .fm, .nd, .cp) { color: var(--sl-code-function); }
+.md-typeset .highlight :is(.kt, .nc, .nb, .ne, .nn) { color: var(--sl-code-type); }
+.md-typeset .highlight :is(.c, .c1, .ch, .cm, .cs, .sd) { color: var(--sl-code-comment); font-style: italic; }
+.md-typeset .highlight :is(.o, .p) { color: var(--sl-code-punct); }
+.md-typeset .highlight .n { color: var(--md-code-fg-color); }
+.md-typeset .highlight .gp { color: var(--sl-code-prompt); font-weight: 600; }
+.md-typeset .highlight .go { color: var(--sl-code-comment); }
+
+/* TOML: keys as names of things, table headers as types */
+.md-typeset .language-toml.highlight .n { color: var(--sl-code-constant); }
+.md-typeset .language-toml.highlight .k { color: var(--sl-code-type); font-weight: 600; }
+
+/* Shell sessions (spl_book_ext's spl-console lexer): the command, its subcommands, its flags */
+.md-typeset .language-console.highlight .nf { font-weight: 600; }
+.md-typeset .language-console.highlight .nt { color: var(--sl-code-type); }
