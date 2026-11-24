@@ -70,13 +70,15 @@ pub(crate) type PlacedTx = ReplyTx<Result<Placement, Unplaced>>;
 /// bounds those not yet answered.
 pub struct Placing {
     rx: ReplyRx<Result<Placement, Unplaced>>,
+    /// [Self::try_take] gave the answer
+    taken: bool,
 }
 
 impl Placing {
     /// A receipt and the writing thread's side of it.
     pub(crate) fn new() -> (PlacedTx, Self) {
         let (tx, rx) = reply();
-        (tx, Self { rx })
+        (tx, Self { rx, taken: false })
     }
 
     /// Wait for the placement.
@@ -84,9 +86,14 @@ impl Placing {
         block_on(self)
     }
 
-    /// The placement when the writing thread answered, else None; never waits.
+    /// The placement when the writing thread answered, else None; never waits. Once it gave the answer, None.
     pub fn try_take(&mut self) -> Option<Result<Placement, Unplaced>> {
-        self.rx.try_take().map(|r| r.unwrap_or(Err(Unplaced::Lost)))
+        if self.taken {
+            return None;
+        }
+        let r = self.rx.try_take()?;
+        self.taken = true;
+        Some(r.unwrap_or(Err(Unplaced::Lost)))
     }
 }
 

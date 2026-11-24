@@ -23,6 +23,7 @@ benchmarks, golden files and book pages.
 - Carrying held items never cuts: an item a piece has no room for is refused there, counted, and put in the next (MUX-4).
 - A `put_item` that cuts carries the held items into the piece it starts (MUX-4).
 - `TapeMux::put_item` refuses an item past `HELD_ITEMS_MAX` or `HELD_ITEM_BYTES_MAX` held, as `CallError::HeldItems` (MUX-4).
+- A second `Placing::try_take` gives None, not a lost placement (MUX-4).
 
 ## [0.9.0] - 2026-11-24
 

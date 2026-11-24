@@ -94,3 +94,23 @@ fn a_placement_reads_back_from_one_file_also_after_a_resume() {
     drop(senders);
     mux.close().unwrap();
 }
+
+#[test]
+fn a_receipt_taken_once_gives_nothing_more() {
+    let dir = scratch("placing-take");
+    let mux =
+        ww_tape_fs::mux::create(&dir, OWNER, 0, &[], options(0), MuxOptions::default()).unwrap();
+    let senders = define(&mux);
+    let (head, columns) = events_chunk(1, 0);
+    let mut placing = senders[1]
+        .send_placed(head, columns, None)
+        .unwrap()
+        .expect("a waiting sender drops nothing");
+    // the flush is placed behind the chunk: its receipt is out
+    senders[1].flush().unwrap();
+    let p = placing.try_take().expect("answered").unwrap();
+    assert_eq!(p.first_item, head.first_item);
+    assert_eq!(placing.try_take(), None, "the answer is given once");
+    drop(senders);
+    mux.close().unwrap();
+}
