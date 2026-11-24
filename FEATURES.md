@@ -400,7 +400,7 @@ The pages in `docs/`.
 
 - ✅ **BOOK-5 Fields and images over time**
 
-  A chapter explains grid tracks: fixed axes, tiles, the box query, the time pyramid of a region, and the space overviews with how a viewer picks a level. It also shows where per-tile overviews end. Two cases run in tests: `example_thermal`, a plate of sensors, and `example_images`, an image sequence in three tile sizes. Every number on the page comes from their runs.
+  A chapter explains grid tracks: fixed axes, tiles and the box query. It covers the time pyramid of a region and the space overviews, with the level a viewer picks. It also shows where per-tile overviews end. Two cases run in tests: `example_thermal`, a plate of sensors, and `example_images`, an image sequence in three tile sizes. Every number on the page comes from their runs.
 
   Read more: [Fields and images over time](docs/grids.md), [example_thermal](examples/example_thermal/README.md), [example_images](examples/example_images/README.md). Tests `thermal.rs`, `images.rs`.
 

@@ -5,8 +5,8 @@ level: advanced
 # Fields and images over time
 
 A plate of 12 288 temperature sensors reads ten times a second. A camera delivers 307 200 pixels ten times a second.
-Each reading is a whole field of values, and a viewer wants a corner of one moment, one corner over the whole run, or
-the whole field from far away. How does a tape hold such a field so that each view reads a small part of it?
+Each reading is a whole field of values. A viewer wants a corner of one moment, one corner over the whole run, or the
+whole field from far away. How does a tape hold such a field so that each view reads a small part of it?
 
 The tape keeps it as a [[grid track]]: a [[series]] track with [[fixed axes|fixed axis]] beside time. The writer cuts
 the field into [[tiles|tile]] and keeps two coarse views, one for zooming in time and one for zooming in space. The
@@ -14,9 +14,10 @@ crate `example_thermal` records the plate, and `example_images` records the came
 
 ## Cells on fixed axes
 
-The plate has 128 sensors along `x` and 96 along `y`. It reads in steps of 0.01 °C, once per 100 ms, for 60 s. The
-run is 600 readings of 12 288 cells, and the cells take 15 MB as written. The track's definition names the two axes
-and the sample type:
+The plate has 128 sensors along `x` and 96 along `y`. It reads in steps of 0.01 °C, once per 100 ms, for 60 s.
+The run is 600 readings of 12 288 cells. The cells take 15 MB as written.
+
+The track's definition names the two axes:
 
 ```rs
 --8<-- "examples/example_thermal/src/lib.rs:axes"
@@ -30,11 +31,11 @@ A series is the grid track with no fixed axes, and it keeps the bytes it always 
 and the one that grows. A cell holds the value of one place at one time, as one sample of a series does. The
 channels of a sample, such as the red, green and blue of a pixel, stay inside the cell and are not an axis.
 
-??? example "What the example uses here: the plate's readings"
+The readings come from one function of the cell and the reading:
 
-    ```rs
-    --8<-- "examples/example_thermal/src/lib.rs:value"
-    ```
+```rs
+--8<-- "examples/example_thermal/src/lib.rs:value"
+```
 
 A hot spot crosses the plate's middle row at one cell every 5 readings. A heater near the lower right corner stays
 warm.
@@ -60,8 +61,8 @@ completes the chunks of all tiles together:
 --8<-- "examples/example_thermal/src/lib.rs:record"
 ```
 
-A chunk holds 100 readings, so each tile has 6 chunks and the run has 72. Nothing about the chunk size is special to
-grids: the writer cuts a tile's chunk by readings, bytes or latency, as it does for a series.
+A chunk holds 100 readings, so each tile has 6 chunks and the run has 72 in all. The writer cuts a tile's chunk by readings,
+bytes or latency, as it does for a series.
 
 ## The box query
 
@@ -73,9 +74,9 @@ tile number, and it reads no chunk to do so:
 --8<-- "examples/example_thermal/src/lib.rs:box_query"
 ```
 
-The tile in the hot row's first column holds 6 chunks over the whole run. A box of 16 rows and 40 columns meets 2 tiles,
-so it finds 2 chunks in the first 10 s, where the whole plate has 12. The query returns index entries, and the viewer
-reads only the chunks it wants.
+The tile in the hot row's first column holds 6 chunks over the whole run. A box of 16 rows and 40 columns meets 2 tiles.
+It finds 2 chunks in the first 10 s, where the whole plate has 12 of them. The query returns index entries.
+The viewer reads only the chunks it wants.
 
 ```rust
 use example_thermal::Thermal;
@@ -88,7 +89,7 @@ assert_eq!(tiles.ranges(), [(1, 2), (0, 2)]);
 ## A region over time
 
 A timeline of the plate's hot corner needs no cell. The writer keeps a [[summary node]] per tile for every 16 readings
-of the tile, and the nodes of a tile form the same tree a series has ([Summaries](summaries.md)). A viewer merges the
+of the tile. The nodes of a tile form the same tree a series has ([Summaries](summaries.md)). A viewer merges the
 nodes of the tiles in a box into the timeline of that region:
 
 ```rs
@@ -102,9 +103,11 @@ from node 9, when the spot has left the tile. The heater's tile stays between 40
 ## Zooming out in space
 
 A viewer that draws the whole plate in 8 columns of pixels needs far fewer cells than the plate has. The writer therefore
-keeps [[space overviews|space overview]]. Overview level `k` halves each downsampled axis `k` times, and it keeps every
-reading. Each cell of a level holds the smallest value, the largest value and the mean of the cells it covers. The
-chunk of a tile and its overview chunks go to the tape as one unit, so a crash never leaves a tile without its views.
+keeps [[space overviews|space overview]]. Overview level `k` halves each downsampled axis `k` times.
+It keeps every reading.
+
+Each cell of a level holds the smallest value, the largest value and the mean of the cells it covers. A
+tile's chunk and its overview chunks go to the tape as one unit, so a crash never splits them.
 
 The levels of the plate:
 
@@ -117,11 +120,11 @@ The levels of the plate:
 | 4 | 8 × 6 | 72 | 184 KB |
 | 5 | 4 × 3 | 72 | 55 KB |
 
-The chain with its overviews takes 30 MB, twice the cells as written. The sum of the levels above level 0 is about the
-size of level 0, since each level holds three values per cell on a quarter of the cells.
+The chain with its overviews takes 30 MB, twice the cells as written.
+The levels above level 0 add up to about the size of the cells as written. Each level holds three values per cell on a quarter of the cells.
 
 A viewer picks the level from the cells one pixel covers. `TileLayout::level_for` returns the highest level whose cell
-still fits in a pixel. The viewer then finds the chunks of that level with a box in that level's cells, and reads the
+still fits in a pixel. The viewer then finds the chunks of that level with a box in that level's cells. It reads the
 mean, the smallest or the largest column of each:
 
 ```rs
@@ -149,11 +152,13 @@ assert_eq!(layout.level_for(&[4.0, 4.0]), 2);
 ## Where overviews end
 
 An overview belongs to one tile: it summarises the tile's own cells. A level therefore exists only while each
-downsampled tile extent halves evenly. A tile of 32 cells halves 5 times, a tile of 60 cells only twice, since
-60 is 4 times 15. Past that level a cell would straddle two tiles.
+downsampled tile extent halves evenly. A tile of 32 cells halves 5 times. A tile of 60 cells halves twice, because
+60 is 4 times an odd number. Past that level a cell would straddle two tiles.
 
-The image sequence shows what this costs. Its frames are 640 × 480 pixels, and each pixel has three channels. A bright
-square moves along a gradient. The same 10 frames, 922 KB each, in three tile sizes:
+The image sequence shows what this costs. Its frames are 640 × 480 pixels, and each pixel has three channels.
+A bright square moves along a gradient.
+
+The same 10 frames, 922 KB each, in three tile sizes:
 
 ```rs
 --8<-- "examples/example_images/src/lib.rs:def"
@@ -165,8 +170,8 @@ square moves along a gradient. The same 10 frames, 922 KB each, in three tile si
 | 60 × 60 | 8 × 11 | 2 | 19 MB | level 2, 88 chunks, 187 KB | 4 chunks, 44 KB |
 | 240 × 320 | 2 × 2 | 4 | 18 MB | level 4, 4 chunks, 11 KB | 2 chunks, 461 KB |
 
-The thumbnail is the whole frame at 16 cells a pixel, and the square is the 100 × 100 pixels it covers at frame 3.
-Two limits show. The tiles of 60 stop at level 2, so the thumbnail reads about 8 times the bytes of the tiles of 64. The
+The thumbnail is the whole frame at 16 cells a pixel, and the square is the 100 × 100 pixels it covers in the fourth frame.
+Two limits show. The tiles of 60 stop at level 2, so the thumbnail reads about 8 times the bytes that the tiles of 64 take. The
 tiles of 240 × 320 read the thumbnail in 4 chunks, but the square needs about 4 times the bytes.
 
 An overview saves bytes, not chunks. A thumbnail at any level reads one overview chunk per tile, so many small tiles

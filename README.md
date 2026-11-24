@@ -59,7 +59,9 @@ crate's module docs.
 | [`example_capture`](examples/example_capture) | What the ww_tape book's cases share: the capture into a window in memory and its triage, the RF signal |
 | [`example_drive`](examples/example_drive) | The drive motor controller's recording that the book's figures, code and numbers use, at any scale |
 | [`example_ethernet`](examples/example_ethernet) | The ww_tape book's protocol analyser: both directions of a 10 Gbps Ethernet link, captured into memory and triaged |
+| [`example_images`](examples/example_images) | The ww_tape book's image sequence: frames of pixels on a 2-D grid over time, read by box and level |
 | [`example_rf`](examples/example_rf) | The ww_tape book's RF capture: IQ at 20 MS/s into a piece, or into two chains from two muxes, followed live |
+| [`example_thermal`](examples/example_thermal) | The ww_tape book's thermal field: a plate of sensors on a 2-D grid over time, read by box, region and level |
 | [`example_wideband`](examples/example_wideband) | The ww_tape book's wideband receiver: 1 GS/s of IQ in channels over several muxes, captured into memory and triaged |
 | [`ww_tape`](ww_tape) | Tape blocks: tracks of typed records in self-checking, variable-length blocks, for live feeds and log files |
 | [`ww_tape_bench`](ww_tape_bench) | What every ww_tape bench binary shares: its command line, its timing loop, and its report with the build, machine and load |

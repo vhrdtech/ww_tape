@@ -170,11 +170,11 @@ fn the_page_says_what_the_plate_measures() {
             story.tile_bits
         ),
         format!(
-            "A chunk holds {} readings, so each tile has {} chunks and the run has {}.",
+            "A chunk holds {} readings, so each tile has {} chunks and the run has {} in all.",
             plate.chunk_steps, story.one_tile, story.whole
         ),
         format!(
-            "so it finds {} chunks in the first 10 s, where the whole plate has {}.",
+            "It finds {} chunks in the first 10 s, where the whole plate has {} of them.",
             story.box_chunks, story.whole_first
         ),
         format!(
