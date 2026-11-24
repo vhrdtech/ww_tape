@@ -10,8 +10,8 @@ use ww_tape::index::IndexPolicy;
 use ww_tape::{
     Block, ChainOptions, CutPolicy, Describe, DescribeError, FLAG_GROUP, FLAG_GROUP_START,
     FLAG_TWICE, FLAG_WITH_NEXT, FileBlocks, GROUP_BYTES_MAX, GroupPut, GroupRefusal, InputError,
-    MemSink, PieceChain, PieceTapes, Recovery, Slot, TapeReader, TapeSink, TapeWriter, TrackDef,
-    TrackNum, WriteError,
+    MemSink, PieceChain, PieceTapes, RELAY_GROUPS_MAX, Recovery, SessionTag, Slot, TapeReader,
+    TapeSink, TapeWriter, TrackDef, TrackNum, WriteError,
 };
 use ww_tape_fs::follow::{ChainFollower, FollowOptions};
 
@@ -742,7 +742,7 @@ fn large_blocks(w: &Written) -> Vec<Vec<u8>> {
 
 /// A relay holds a producer's group until its last block, then writes it whole as a group: a crash of the relay
 /// between the group's blocks leaves none of it in force. Blocks of a group whose first block the relay never saw
-/// are passed over.
+/// are refused and passed over.
 #[test]
 fn a_relay_writes_a_producer_group_whole() {
     let w = written();
@@ -793,7 +793,15 @@ fn a_relay_writes_a_producer_group_whole() {
     let tape = late.sink().tape();
     let mut defs = late.defs.clone();
     for b in &blocks[1..] {
-        late.w.relay_block(&mut defs, b).unwrap();
+        assert!(
+            matches!(
+                late.w.relay_block(&mut defs, b),
+                Err(WriteError::Input(InputError::Group(
+                    GroupRefusal::NoStart { .. }
+                )))
+            ),
+            "the rest of a group is refused"
+        );
     }
     assert_eq!(
         in_force(&tape.to_vec().unwrap()),
@@ -982,4 +990,149 @@ fn a_group_on_tracks_defined_twice_is_dropped_or_kept_at_each_block() {
             );
         }
     }
+}
+
+/// `block` as producer `session` sends it: the same seq, its session tag `session`.
+fn as_producer(block: &[u8], session: u32) -> Vec<u8> {
+    let mut b = block.to_vec();
+    let seq = Block::read(&b).unwrap().seq;
+    ww_tape::set_id(
+        &mut b,
+        ww_tape::BlockId::new(SessionTag::from_u32(session), seq),
+    )
+    .unwrap();
+    b
+}
+
+/// The blocks of puts a producer of session `session` sends after its definitions: a group of [LARGE]-byte items
+/// made from `seed` on [TRACKS], in three blocks, then a put of `single` on track [TRACKS]\[0], none of a group.
+/// The group's items too.
+struct Producer {
+    group: Vec<Vec<u8>>,
+    single: Vec<Vec<u8>>,
+    items: Vec<Vec<u8>>,
+}
+
+fn producer(seed: u8, single: &[u8], session: u32) -> Producer {
+    let mut w = rig();
+    let tape = w.sink().tape();
+    put_group(&mut w, &items(1, 8)).unwrap();
+    let start = tape.to_vec().unwrap().len() as u64;
+    let items = items(seed, LARGE);
+    put_group(&mut w, &items).unwrap();
+    let end = tape.to_vec().unwrap().len() as u64;
+    assert!(
+        w.w.put(&w.defs, TrackNum::new(TRACKS[0]), 9, single)
+            .unwrap()
+    );
+    let blocks: Vec<_> = record_blocks(&tape.to_vec().unwrap())
+        .into_iter()
+        .filter(|b| b.repeat && b.offset >= start)
+        .collect();
+    let of = |keep: &dyn Fn(u64) -> bool| -> Vec<Vec<u8>> {
+        blocks
+            .iter()
+            .filter(|b| keep(b.offset))
+            .map(|b| as_producer(&b.bytes, session))
+            .collect()
+    };
+    let group = of(&|o| o < end);
+    assert_eq!(group.len(), 3, "the group takes three blocks");
+    Producer {
+        group,
+        single: of(&|o| o >= end),
+        items,
+    }
+}
+
+/// A relay holds a group per producer: another producer's put between the group's blocks goes through, and the
+/// group is whole at its last block.
+#[test]
+fn a_relayed_group_stays_whole_past_another_producers_put() {
+    let a = producer(100, b"a", 0x100);
+    let b = producer(150, b"between", 0x200);
+    let mut relay = rig();
+    let tape = relay.sink().tape();
+    let mut defs = relay.defs.clone();
+    relay.w.relay_block(&mut defs, &a.group[0]).unwrap();
+    for s in &b.single {
+        relay.w.relay_block(&mut defs, s).unwrap();
+    }
+    let mut between = vec![None; TRACKS.len()];
+    between[0] = Some(b"between".to_vec());
+    assert_eq!(
+        in_force(&tape.to_vec().unwrap()),
+        between,
+        "B's put went through"
+    );
+    for g in &a.group[1..] {
+        relay.w.relay_block(&mut defs, g).unwrap();
+    }
+    let whole: Vec<_> = a.items.iter().cloned().map(Some).collect();
+    assert_eq!(in_force(&tape.to_vec().unwrap()), whole, "A's group whole");
+}
+
+/// Two producers' groups relayed block by block in turn are each written whole at their last block.
+#[test]
+fn two_relayed_groups_interleaved_are_each_whole() {
+    let a = producer(100, b"a", 0x100);
+    let b = producer(150, b"b", 0x200);
+    let mut relay = rig();
+    let tape = relay.sink().tape();
+    let mut defs = relay.defs.clone();
+    let none = vec![None; TRACKS.len()];
+    for k in 0..2 {
+        relay.w.relay_block(&mut defs, &a.group[k]).unwrap();
+        relay.w.relay_block(&mut defs, &b.group[k]).unwrap();
+        assert_eq!(in_force(&tape.to_vec().unwrap()), none, "after block {k}");
+    }
+    relay.w.relay_block(&mut defs, &a.group[2]).unwrap();
+    let of = |p: &Producer| -> Vec<_> { p.items.iter().cloned().map(Some).collect() };
+    assert_eq!(in_force(&tape.to_vec().unwrap()), of(&a), "A whole");
+    relay.w.relay_block(&mut defs, &b.group[2]).unwrap();
+    assert_eq!(in_force(&tape.to_vec().unwrap()), of(&b), "B whole after A");
+}
+
+/// A relay never drops a group without saying so: groups of more than [RELAY_GROUPS_MAX] producers at once are
+/// refused, a block of a group not held is refused, and a producer's own put inside its group tears it with an error
+/// after the put.
+#[test]
+fn a_relay_refuses_what_it_cannot_hold_and_names_a_torn_group() {
+    let a = producer(100, b"single", 0x100);
+    let mut relay = rig();
+    let tape = relay.sink().tape();
+    let mut defs = relay.defs.clone();
+    for p in 0..RELAY_GROUPS_MAX as u32 {
+        let first = as_producer(&a.group[0], 0x1000 + p);
+        relay.w.relay_block(&mut defs, &first).unwrap();
+    }
+    let late = 0x1000 + RELAY_GROUPS_MAX as u32;
+    let session = SessionTag::from_u32(late);
+    assert!(matches!(
+        relay.w.relay_block(&mut defs, &as_producer(&a.group[0], late)),
+        Err(WriteError::Input(InputError::Group(GroupRefusal::TooManyHeld { session: s, max })))
+            if s == session && max == RELAY_GROUPS_MAX
+    ));
+    assert!(matches!(
+        relay.w.relay_block(&mut defs, &as_producer(&a.group[1], late)),
+        Err(WriteError::Input(InputError::Group(GroupRefusal::NoStart { session: s }))) if s == session
+    ));
+
+    let first = SessionTag::from_u32(0x1000);
+    let single = as_producer(&a.single[0], 0x1000);
+    assert!(matches!(
+        relay.w.relay_block(&mut defs, &single),
+        Err(WriteError::Input(InputError::Group(GroupRefusal::Torn { session: s, blocks: 1 }))) if s == first
+    ));
+    let mut put = vec![None; TRACKS.len()];
+    put[0] = Some(b"single".to_vec());
+    assert_eq!(
+        in_force(&tape.to_vec().unwrap()),
+        put,
+        "the put that tore the group is written"
+    );
+    assert!(matches!(
+        relay.w.relay_block(&mut defs, &as_producer(&a.group[1], 0x1000)),
+        Err(WriteError::Input(InputError::Group(GroupRefusal::NoStart { session: s }))) if s == first
+    ));
 }

@@ -105,6 +105,8 @@
 //! | [DECODED_BODY_MAX](body::DECODED_BODY_MAX) | 64 MiB - 36 | a coded body's decoded length |
 //! | [LZ4_DECODED_MAX](lz4::LZ4_DECODED_MAX) | 64 MiB | an lz4 column's decoded length |
 //! | [RUN_BLOCKS_MAX] | 4096 | the blocks of one run marked FLAG_WITH_NEXT and the block it belongs with |
+//! | [RELAY_GROUPS_MAX] | 16 | the producers whose groups of puts a relay holds at once |
+//! | [RELAY_HELD_BYTES_MAX] | 128 MiB | the bytes of items of the groups of puts a relay holds at once |
 //! | [MAX_BLOCK_CLOCKS] | 16 | the clocks of one block's clock table |
 //! | [MAX_RECORD_HEAD] | 25 | a record head's bytes |
 //! | [MAX_CLOCK_TABLE] | 81 | a clock table's bytes |
@@ -301,8 +303,9 @@ pub mod writer;
 #[cfg(feature = "alloc")]
 pub use writer::{
     CARRIED_BLOCK_LEN, Closed, CutError, DEFER_WINDOW, GROUP_BYTES_MAX, GroupPut, GroupRefusal,
-    HEAD_ENTRIES, InputError, NearPolicy, Placed, PutWork, RemovedRefusal, ResumeError, Resumed,
-    SealError, Sealed, SyncPolicy, TapeWriter, UnitChunk, WriteError, WriterOptions,
+    HEAD_ENTRIES, InputError, NearPolicy, Placed, PutWork, RELAY_GROUPS_MAX, RELAY_HELD_BYTES_MAX,
+    RemovedRefusal, ResumeError, Resumed, SealError, Sealed, SyncPolicy, TapeWriter, UnitChunk,
+    WriteError, WriterOptions,
 };
 
 /// `WWTP`

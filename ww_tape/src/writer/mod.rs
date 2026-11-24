@@ -68,6 +68,7 @@ mod error;
 pub(crate) mod kept;
 pub mod near;
 mod relations;
+mod relay;
 pub mod resume;
 mod seal;
 mod twice;
@@ -77,6 +78,7 @@ pub use kept::KEPT_BYTES_MAX;
 pub use near::NearPolicy;
 use near::Rule;
 pub(crate) use relations::Newest;
+pub use relay::{RELAY_GROUPS_MAX, RELAY_HELD_BYTES_MAX};
 pub use resume::{RESUME_LOOK_MAX, RESUME_PROBES_MAX, Resumed};
 pub use seal::{SealError, Sealed};
 
@@ -201,8 +203,8 @@ pub struct TapeWriter<S: TapeSink> {
     unit_chunks: usize,
     /// The blocks of the open run so far, all marked [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT); 0 with none open
     run_blocks: usize,
-    /// A producer's group of puts held until its last block ([Self::put_block]); carried over a cut
-    relay_group: Option<RelayGroup>,
+    /// Each producer's group of puts held until its last block ([Self::put_block]); carried over a cut
+    relay_groups: relay::RelayGroups,
     /// The blocks of definitions written twice at once and the copies due ([twice])
     twice: twice::Twice,
     /// The copies due are being written
@@ -473,7 +475,7 @@ impl<S: TapeSink> TapeWriter<S> {
             unit_open: false,
             unit_chunks: 0,
             run_blocks: 0,
-            relay_group: None,
+            relay_groups: relay::RelayGroups::default(),
             twice: twice::Twice::default(),
             twice_writing: false,
             last_checkpoint: now,
@@ -2414,12 +2416,20 @@ impl<S: TapeSink> TapeWriter<S> {
     /// A block of a producer's group ([FLAG_GROUP](crate::FLAG_GROUP)) is held until the group's last block, not
     /// marked [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT); then the records of all its blocks are put as one group, as
     /// [Self::put_group] puts one. A group is held from its first block ([FLAG_GROUP_START](crate::FLAG_GROUP_START))
-    /// on and carried over a cut. A block of a group whose first block wasn't held is passed over. A block that
-    /// isn't a block of a group, a refused block, or the first block of another group drops the group held: the
-    /// producer tore it. A group of more than [RUN_BLOCKS_MAX](crate::RUN_BLOCKS_MAX) blocks
-    /// ([InputError::RunTooLong]) or more than [GROUP_BYTES_MAX] bytes of records ([GroupRefusal::TooLong]) is
-    /// dropped and refused. A group whose put is refused at its last block (no room: [IndexError::StateEntries])
-    /// stays held without that block, to be given again.
+    /// on, under the session tag of its producer's blocks, and carried over a cut. Blocks of other producers between
+    /// its blocks go through and leave it whole; groups of at most [RELAY_GROUPS_MAX] producers with at most
+    /// [RELAY_HELD_BYTES_MAX] bytes of items together are held at once.
+    ///
+    /// A group held is never dropped without an error naming it ([InputError::Group]):
+    /// - a block of its producer that isn't a group's, or the first block of another group, tears it
+    ///   ([GroupRefusal::Torn]): that block is put, the error comes after;
+    /// - more than [RUN_BLOCKS_MAX](crate::RUN_BLOCKS_MAX) blocks ([InputError::RunTooLong]), more than
+    ///   [GROUP_BYTES_MAX] bytes of items ([GroupRefusal::TooLong]), more than [RELAY_HELD_BYTES_MAX] held
+    ///   ([GroupRefusal::HeldTooLong]), or a block refused, drops it.
+    ///
+    /// A block of a group not held is refused ([GroupRefusal::NoStart]), and so is a first block past
+    /// [RELAY_GROUPS_MAX] ([GroupRefusal::TooManyHeld]). A group whose put is refused at its last block (no room:
+    /// [IndexError::StateEntries]) stays held without that block, to be given again.
     pub fn put_block(
         &mut self,
         defs: &Definitions,
@@ -2430,35 +2440,89 @@ impl<S: TapeSink> TapeWriter<S> {
         let mut buf = Vec::new();
         let b = b.decode(&mut buf).map_err(WriteError::Block)?;
         if b.kind != BlockKind::Records {
-            self.relay_group = None;
             return Err(WriteError::Input(InputError::Unknown {
                 version: b.version,
                 kind: b.kind,
             }));
         }
+        let session = b.session;
         if b.flags & crate::FLAG_GROUP == 0 {
-            self.relay_group = None;
-            let mut cands = Vec::new();
-            self.block_cands(defs, &b, &mut BlockSeen::default(), &mut cands)?;
-            self.room(0, !self.head_put)?;
-            self.place_deferred()?;
-            self.ensure_carried(defs)?;
-            return self.put_last(&cands).map(|_| ());
+            let torn = self.relay_groups.take(session);
+            if let Err(e) = self.put_one_block(defs, &b) {
+                // refused, the block tore nothing yet: given again, it tears the group and says so
+                if let Some(g) = torn {
+                    self.relay_groups.hold(session, g);
+                }
+                return Err(e);
+            }
+            return torn_error(session, torn);
         }
-        let mut group = if b.flags & crate::FLAG_GROUP_START != 0 {
-            self.relay_group = None;
-            RelayGroup::default()
+        let held = self.relay_groups.take(session);
+        let (mut group, torn) = if b.flags & crate::FLAG_GROUP_START != 0 {
+            if held.is_none() && self.relay_groups.len() >= RELAY_GROUPS_MAX {
+                return Err(group_refused(GroupRefusal::TooManyHeld {
+                    session,
+                    max: RELAY_GROUPS_MAX,
+                }));
+            }
+            (RelayGroup::default(), held)
         } else {
-            match self.relay_group.take() {
-                Some(g) => g,
-                // the rest of a group whose first block this writer didn't hold: it can't be whole
-                None => return Ok(()),
+            match held {
+                Some(g) => (g, None),
+                None => return Err(group_refused(GroupRefusal::NoStart { session })),
             }
         };
-        let last = b.flags & crate::FLAG_WITH_NEXT == 0;
-        let before = (group.cands.len(), group.bytes, group.seen.clone());
+        self.add_relay_block(defs, &b, &mut group)?;
+        let len = self.relay_groups.bytes().saturating_add(group.bytes);
+        if len > RELAY_HELD_BYTES_MAX {
+            return Err(group_refused(GroupRefusal::HeldTooLong {
+                session,
+                len,
+                max: RELAY_HELD_BYTES_MAX,
+            }));
+        }
+        if b.flags & crate::FLAG_WITH_NEXT != 0 {
+            self.relay_groups.hold(session, group);
+            return torn_error(session, torn);
+        }
+        if let Err(e) = self.put_relay_group(defs, &group.cands) {
+            group.undo_last();
+            // held as before the block, to be given again: a group of one block holds nothing yet
+            match (group.blocks, torn) {
+                (0, Some(g)) => self.relay_groups.hold(session, g),
+                (0, None) => {}
+                _ => self.relay_groups.hold(session, group),
+            }
+            return Err(e);
+        }
+        torn_error(session, torn)
+    }
+
+    /// Put the records of block `b` of puts, none of a group, as one call ([Self::put_block]).
+    fn put_one_block(
+        &mut self,
+        defs: &Definitions,
+        b: &crate::Block<'_>,
+    ) -> Result<(), WriteError<S::Error>> {
         let mut cands = Vec::new();
-        self.block_cands(defs, &b, &mut group.seen, &mut cands)?;
+        self.block_cands(defs, b, &mut BlockSeen::default(), &mut cands)?;
+        self.room(0, !self.head_put)?;
+        self.place_deferred()?;
+        self.ensure_carried(defs)?;
+        self.put_last(&cands).map(drop)
+    }
+
+    /// Add the records of block `b` of a producer's group to `group` ([Self::put_block]), refused past
+    /// [RUN_BLOCKS_MAX](crate::RUN_BLOCKS_MAX) blocks or [GROUP_BYTES_MAX] bytes of items.
+    fn add_relay_block(
+        &mut self,
+        defs: &Definitions,
+        b: &crate::Block<'_>,
+        group: &mut RelayGroup,
+    ) -> Result<(), WriteError<S::Error>> {
+        group.before = (group.cands.len(), group.bytes, group.seen.clone());
+        let mut cands = Vec::new();
+        self.block_cands(defs, b, &mut group.seen, &mut cands)?;
         group.blocks = group.blocks.saturating_add(1);
         if group.blocks > crate::RUN_BLOCKS_MAX {
             return Err(WriteError::Input(InputError::RunTooLong {
@@ -2472,29 +2536,12 @@ impl<S: TapeSink> TapeWriter<S> {
             group.cands.push(c.owned());
         }
         if group.bytes > GROUP_BYTES_MAX {
-            return Err(WriteError::Input(InputError::Group(
-                GroupRefusal::TooLong {
-                    len: group.bytes,
-                    max: GROUP_BYTES_MAX,
-                },
-            )));
+            return Err(group_refused(GroupRefusal::TooLong {
+                len: group.bytes,
+                max: GROUP_BYTES_MAX,
+            }));
         }
-        if !last {
-            self.relay_group = Some(group);
-            return Ok(());
-        }
-        match self.put_relay_group(defs, &group.cands) {
-            Ok(()) => Ok(()),
-            Err(e) => {
-                let (len, bytes, seen) = before;
-                group.cands.truncate(len);
-                group.blocks = group.blocks.saturating_sub(1);
-                group.bytes = bytes;
-                group.seen = seen;
-                self.relay_group = Some(group);
-                Err(e)
-            }
-        }
+        Ok(())
     }
 
     /// Put the records of a producer's group held ([Self::put_block]) as one group.
@@ -2595,8 +2642,8 @@ impl<S: TapeSink> TapeWriter<S> {
 
     /// Pass on a live producer's block, as a relay does: a block of puts ([FLAG_REPEAT](crate::FLAG_REPEAT)) has its
     /// definitions held in `defs` ([Definitions::take_block]) and its records put ([Self::put_block]), a group's
-    /// held until its last block; any other block drops a group held and is written under `defs`
-    /// ([Self::write_block]).
+    /// held until its last block; any other block is written under `defs` ([Self::write_block]), and tears the group
+    /// held of its producer ([GroupRefusal::Torn]).
     pub fn relay_block(
         &mut self,
         defs: &mut Definitions,
@@ -2605,8 +2652,14 @@ impl<S: TapeSink> TapeWriter<S> {
         let b = crate::Block::read(block).map_err(WriteError::Block)?;
         if !b.is_repeat() {
             self.check()?;
-            self.relay_group = None;
-            return self.write_read(defs, &b).map(|_| ());
+            let torn = self.relay_groups.take(b.session);
+            if let Err(e) = self.write_read(defs, &b) {
+                if let Some(g) = torn {
+                    self.relay_groups.hold(b.session, g);
+                }
+                return Err(e);
+            }
+            return torn_error(b.session, torn);
         }
         let mut buf = Vec::new();
         defs.take_block(&b.decode(&mut buf).map_err(WriteError::Block)?)?;
@@ -2742,12 +2795,12 @@ impl<S: TapeSink> TapeWriter<S> {
         let options = self.options();
         let kept = self.kept.clone();
         let newest = self.relations.newest().clone();
-        let relay_group = self.relay_group.clone();
+        let relay_groups = self.relay_groups.clone();
         let ended = self.end(End::Kept, None)?;
         let (mut w, _) = Self::resume_on(ended.sink, options)?;
         w.keep_after(kept);
         w.take_newest(&newest);
-        w.relay_group = relay_group;
+        w.relay_groups = relay_groups;
         Ok((w, ended.closed))
     }
 
@@ -2815,7 +2868,7 @@ impl<S: TapeSink> TapeWriter<S> {
         let options = w.options();
         let newest = w.relations.newest().clone();
         let kept = core::mem::take(&mut w.kept);
-        let relay_group = w.relay_group.take();
+        let relay_groups = core::mem::take(&mut w.relay_groups);
         let done = w.end(End::Cut, None)?;
         let mut next_piece = NextPiece::after(
             &rows.head,
@@ -2828,7 +2881,7 @@ impl<S: TapeSink> TapeWriter<S> {
         next_piece.kept = kept;
         let mut next = Self::start_next(next()?, &options, next_piece)?;
         next.put_carried(&rows.carried)?;
-        next.relay_group = relay_group;
+        next.relay_groups = relay_groups;
         let mut closed = done.closed;
         closed.tracks = next.head_rows().to_vec();
         closed.states_unknown = rows.states_unknown;
@@ -2900,7 +2953,7 @@ impl<S: TapeSink> TapeWriter<S> {
         let options = w.options();
         let newest = w.relations.newest().clone();
         let kept = core::mem::take(&mut w.kept);
-        let relay_group = w.relay_group.take();
+        let relay_groups = core::mem::take(&mut w.relay_groups);
         let mut done = w.end(End::CutInPlace, None)?;
         let mut next_piece = NextPiece::after(
             &rows.head,
@@ -2923,7 +2976,7 @@ impl<S: TapeSink> TapeWriter<S> {
             .map_err(sink_err("starting the next piece behind the last"))?;
         let mut next = Self::start_next(done.sink, &options, next_piece)?;
         next.put_carried(&rows.carried)?;
-        next.relay_group = relay_group;
+        next.relay_groups = relay_groups;
         done.closed.tracks = next.head_rows().to_vec();
         done.closed.states_unknown = rows.states_unknown;
         Ok((done.closed, next))
@@ -3357,6 +3410,38 @@ struct RelayGroup {
     /// The bytes of the records' items so far, at most [GROUP_BYTES_MAX]
     bytes: usize,
     seen: BlockSeen,
+    /// The records, bytes and what was seen before its last block: [Self::undo_last]
+    before: (usize, usize, BlockSeen),
+}
+
+impl RelayGroup {
+    /// Take its last block out again, as before [TapeWriter::put_block] added it.
+    fn undo_last(&mut self) {
+        let (len, bytes, seen) = core::mem::take(&mut self.before);
+        self.cands.truncate(len);
+        self.blocks = self.blocks.saturating_sub(1);
+        self.bytes = bytes;
+        self.seen = seen;
+    }
+}
+
+/// A refusal of a group of puts.
+fn group_refused<E>(r: GroupRefusal) -> WriteError<E> {
+    WriteError::Input(InputError::Group(r))
+}
+
+/// The error naming the group `torn` of the producer of `session` dropped, if any ([GroupRefusal::Torn]).
+fn torn_error<E>(
+    session: crate::SessionTag,
+    torn: Option<RelayGroup>,
+) -> Result<(), WriteError<E>> {
+    match torn {
+        Some(g) => Err(group_refused(GroupRefusal::Torn {
+            session,
+            blocks: g.blocks,
+        })),
+        None => Ok(()),
+    }
 }
 
 /// The records of `cands` that `chosen` marks, in order.

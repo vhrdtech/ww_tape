@@ -916,9 +916,18 @@ A group on a track defined twice ([above](#definitions-written-twice-at-once)) o
 a damaged copy leaves the group whole.
 
 A relay (`TapeWriter::relay_block`) holds a producer's group from its first block to its last, then puts its
-records as one group. A cut carries the group held to the next piece. The rest of a group whose first block the relay
-didn't see is passed over. A block that tears the group drops it: another group's first block, or a block that isn't
-a group's.
+records as one group. It holds a group per producer, by the session tag of its blocks. Another producer's blocks
+between a group's blocks so go through and leave the group whole. A cut carries the groups held to the next piece.
+
+The relay holds groups of at most `RELAY_GROUPS_MAX` (16) producers at once, with at most `RELAY_HELD_BYTES_MAX`
+(128 MiB) of items together. It never drops a group without an error naming it (`InputError::Group`):
+
+| Block | Error |
+|---|---|
+| a block of the group's producer that isn't a group's, or another group's first | `GroupRefusal::Torn`, after the block is put |
+| a block of a group whose first block the relay didn't hold | `GroupRefusal::NoStart` |
+| a first block while groups of 16 producers are held | `GroupRefusal::TooManyHeld` |
+| a block past `RELAY_HELD_BYTES_MAX` held | `GroupRefusal::HeldTooLong` |
 
 A crash inside a group leaves a run of marked blocks at the end of the piece. The resume drops it and names it in
 `Resumed::dropped_run`, and the application gives the group again. The group given again writes the bytes the run
