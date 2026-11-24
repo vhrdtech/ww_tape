@@ -267,7 +267,7 @@ impl Images {
                 let cols = at
                     .cell_range(1, found.tile.as_slice()[1])
                     .ok_or("columns")?;
-                let n = (rows.len() * cols.len()) as usize;
+                let n = rows.len() * cols.len();
                 let all = n * head.count as usize;
                 // a chunk of level 0 holds the pixels, an overview its min, max and mean
                 let mut values = vec![0u8; all * CHANNELS as usize];

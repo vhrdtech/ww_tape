@@ -155,7 +155,7 @@ fn the_page_says_what_the_plate_measures() {
             plate.width, plate.height
         ),
         format!(
-            "The run is {} readings of {} cells, and the cells take {} as written.",
+            "The run is {} readings of {} cells. The cells take {} as written.",
             plate.steps,
             grouped(cells),
             about(story.raw_bytes)
@@ -184,7 +184,7 @@ fn the_page_says_what_the_plate_measures() {
         format!(
             "the largest value of node 0 is {}, which is {:.2} °C.",
             story.sweep_peaks[0],
-            story.sweep_peaks[0] as f64 / 100.0 - 0.0
+            f64::from(i32::try_from(story.sweep_peaks[0]).expect("small")) / 100.0
         ),
         format!(
             "from node {}, when the spot has left the tile",

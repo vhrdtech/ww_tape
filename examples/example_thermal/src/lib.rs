@@ -303,7 +303,7 @@ impl Thermal {
                     at.cell_range(1, found.tile.as_slice()[1]),
                 );
                 let (rows, cols) = (rows.ok_or("a row range")?, cols.ok_or("a column range")?);
-                let n = (rows.len() * cols.len()) as usize;
+                let n = rows.len() * cols.len();
                 let nth = (step - head.first_item.get()) as usize * n;
                 // the chunk is of level 0 when the view is: its samples are the cells themselves
                 let mut lo = vec![0i16; n];

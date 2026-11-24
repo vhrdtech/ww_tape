@@ -50,7 +50,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cools = story.sweep_peaks.iter().position(|peak| *peak < 3_000);
     println!(
         "hot row's first tile: peak {} in node 0, below 30 °C from node {}",
-        story.sweep_peaks[0],
+        story.sweep_peaks.first().unwrap_or(&0),
         cools.unwrap_or(0)
     );
     let (low, high) = (

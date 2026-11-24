@@ -2,6 +2,10 @@
 //! query over two of them, and the plate's space overview levels. The tiles and levels come from the layout of the
 //! plate's definition, and the tiles the box finds from `TapeReader::grid_tiles` on a recording of the plate at a
 //! sixth of its readings.
+#![allow(
+    clippy::indexing_slicing,
+    reason = "the layout of the plate's two fixed axes has two entries"
+)]
 
 use anyhow::{Context, ensure};
 use example_thermal::Thermal;
@@ -105,7 +109,11 @@ pub fn plate_tiles() -> anyhow::Result<String> {
             BOX.0[1],
             BOX.1[0],
             BOX.1[1],
-            found.iter().map(|t| t.tile).collect::<std::collections::BTreeSet<_>>().len()
+            found
+                .iter()
+                .map(|t| t.tile)
+                .collect::<std::collections::BTreeSet<_>>()
+                .len()
         ),
     );
     // the levels, each half the size of the one before
