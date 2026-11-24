@@ -16,6 +16,7 @@ benchmarks, golden files and book pages.
 - A track with `defined_twice` has each definition it needs written in two blocks at once (TRACK-9).
 - Header bit 7 `FLAG_TWICE` marks such blocks; each copy follows its run, and a resume writes missing copies (TRACK-9).
 - The book explains grids in "Fields and images over time", with `example_thermal` and `example_images` as tested cases (BOOK-5).
+- The book moves to the `vhrd_zensical` kit: renamed extension ids and assets, abbreviations in `docs/abbreviations.toml` (BOOK-6).
 
 ## [0.9.0] - 2026-11-24
 
