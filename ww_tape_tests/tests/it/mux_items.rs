@@ -4,8 +4,8 @@
 
 use shrink_wrap::prelude::*;
 use ww_tape::{
-    DefinitionKind, Describe, FullVersion, ItemHash, MemPieces, OwnerId, Slot, TapeReader, TypeRef,
-    TypedItem, Version,
+    Block, DefinitionKind, Describe, FullVersion, ItemHash, MemPieces, OwnerId, RecordTrack, Slot,
+    TapeReader, TypeRef, TypedItem, Version,
 };
 use ww_tape_mux::{ItemCarry, MuxOptions, TapeMux};
 
@@ -35,6 +35,34 @@ fn holds(p: &[u8], h: ItemHash) -> bool {
         kind: DefinitionKind::Item,
         hash: h,
     })
+}
+
+/// How many records of piece `p`'s track 0 hold the item of hash `h`.
+fn copies(p: &[u8], h: ItemHash) -> usize {
+    let mut n = 0;
+    let mut at = 0;
+    while let Some(rest) = p.get(at..) {
+        let Ok(len) = ww_tape::block_len(rest) else {
+            break;
+        };
+        let b = Block::read(rest).unwrap();
+        let mut buf = Vec::new();
+        let b = b.decode(&mut buf).unwrap();
+        n += b
+            .records()
+            .filter_map(Result::ok)
+            .filter(|r| r.track == RecordTrack::Definitions && ItemHash::of(r.item) == h)
+            .count();
+        at += len;
+    }
+    n
+}
+
+/// A mux on `mem` whose pieces list at most `room` state entries, cutting on no count of chunks.
+fn tight(mem: &MemPieces, room: u64) -> TapeMux<MemPieces> {
+    let mut o = options(0);
+    o.writer.index.state_entries_max = exact_units::Count::new(room);
+    TapeMux::create(mem.clone(), OWNER, 0, &[], o, MuxOptions::default()).unwrap()
 }
 
 #[test]
@@ -146,4 +174,79 @@ fn an_owners_track_first_written_after_a_cut_brings_its_item() {
         holds(&p[2], owned),
         "the piece whose head carries the run's track"
     );
+}
+
+#[test]
+fn a_put_that_cuts_carries_the_held_items_into_its_piece() {
+    let mem = MemPieces::new();
+    // the piece head, the clock and tracks, and five items
+    let mux = tight(&mem, 9);
+    let senders = define(&mux);
+    send(&senders[0], 0, 0);
+    let names: [&'static [u8]; 4] = [b"i0", b"i1", b"i2", b"i3"];
+    let held: Vec<ItemHash> = names
+        .iter()
+        .map(|n| mux.put_item(&item(n), ItemCarry::Every).unwrap())
+        .collect();
+    let first = mux.put_item(&item(b"o1"), ItemCarry::Once).unwrap();
+    // no room for a sixth: the put cuts before it
+    let second = mux.put_item(&item(b"o2"), ItemCarry::Once).unwrap();
+    drop(senders);
+    mux.close().unwrap();
+
+    let p = pieces(&mem);
+    assert_eq!(p.len(), 2, "one cut, by the put");
+    assert_eq!(copies(&p[0], first), 1);
+    assert_eq!(copies(&p[0], second), 0, "the put cut before its item");
+    assert_eq!(copies(&p[1], second), 1);
+    assert_eq!(
+        copies(&p[1], first),
+        0,
+        "an item put once stays in its piece"
+    );
+    for h in held {
+        assert_eq!(copies(&p[0], h), 1);
+        assert_eq!(
+            copies(&p[1], h),
+            1,
+            "carried into the piece the put started"
+        );
+    }
+}
+
+#[test]
+fn a_held_item_a_piece_has_no_room_for_waits_for_the_next() {
+    let mem = MemPieces::new();
+    // room for three of the four items after the piece head, the clock and tracks
+    let mux = tight(&mem, 7);
+    let senders = define(&mux);
+    send(&senders[0], 0, 0);
+    let names: [&'static [u8]; 4] = [b"i0", b"i1", b"i2", b"i3"];
+    let held: Vec<ItemHash> = names
+        .iter()
+        .map(|n| mux.put_item(&item(n), ItemCarry::Every).unwrap())
+        .collect();
+    mux.cut().unwrap();
+    send(&senders[0], 0, 1);
+    mux.flush().unwrap();
+    let refused = mux.stats().refused;
+    drop(senders);
+    mux.close().unwrap();
+
+    let p = pieces(&mem);
+    // i3 cut to piece 1, which carries i0 and i1 after it and has no room for i2; the cut carries i0, i1 and i2
+    assert_eq!(
+        p.len(),
+        3,
+        "a carry never cuts: no piece more than the puts and the cut start"
+    );
+    assert_eq!(
+        refused, 2,
+        "i2 in piece 1 and i3 in piece 2, each refused once"
+    );
+    let in_piece: Vec<Vec<usize>> = p
+        .iter()
+        .map(|p| held.iter().map(|h| copies(p, *h)).collect())
+        .collect();
+    assert_eq!(in_piece, [[1, 1, 1, 0], [1, 1, 0, 1], [1, 1, 1, 0]]);
 }

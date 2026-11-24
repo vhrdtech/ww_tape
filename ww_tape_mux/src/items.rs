@@ -6,7 +6,7 @@ use std::collections::BTreeSet;
 use shrink_wrap::DeserializeShrinkWrap;
 use ww_tape::{
     Block, Definitions, Describe, DescribeError, ItemHash, OwnerId, PieceChain, PieceStore,
-    RecordTrack, TrackNum, WriteError,
+    RecordTrack, TrackNum, TypedItem, WriteError,
 };
 
 /// Which pieces a typed item put through the mux is in.
@@ -22,37 +22,49 @@ pub enum ItemCarry {
     Owner(OwnerId),
 }
 
-/// The items held for later pieces, in the order they were put; the piece the chain writes and those of them in it.
+/// The items held for later pieces, in the order they were put, and which of them are in the piece the chain writes.
 pub(crate) struct Held {
-    seq: u64,
-    in_piece: BTreeSet<ItemHash>,
+    piece: InPiece,
     items: Vec<(ItemHash, Vec<u8>, ItemCarry)>,
+}
+
+/// The piece the chain writes, as the held items last saw it.
+struct InPiece {
+    seq: u64,
+    /// Held items in it, put or refused there
+    has: BTreeSet<ItemHash>,
+    /// Started by a cut the held items are not yet carried after
+    fresh: bool,
+}
+
+impl InPiece {
+    /// Follow the chain into the piece it writes: none of the held items is in a piece just started.
+    fn follow<T: PieceStore>(&mut self, chain: &PieceChain<T>) {
+        if chain.seq() != self.seq {
+            self.seq = chain.seq();
+            self.has.clear();
+            self.fresh = true;
+        }
+    }
 }
 
 impl Held {
     pub(crate) fn new(seq: u64) -> Self {
         Self {
-            seq,
-            in_piece: BTreeSet::new(),
+            piece: InPiece {
+                seq,
+                has: BTreeSet::new(),
+                fresh: false,
+            },
             items: Vec::new(),
         }
-    }
-
-    /// Follow the chain into the piece it writes: none of the held items is in a piece just started.
-    fn follow<T: PieceStore>(&mut self, chain: &PieceChain<T>) -> bool {
-        if chain.seq() == self.seq {
-            return false;
-        }
-        self.seq = chain.seq();
-        self.in_piece.clear();
-        true
     }
 
     /// Whether [Self::carry] asks which tracks a unit wrote: an item of an owner is held and not yet in the piece.
     pub(crate) fn wants_tracks(&self) -> bool {
         self.items
             .iter()
-            .any(|(h, _, c)| matches!(c, ItemCarry::Owner(_)) && !self.in_piece.contains(h))
+            .any(|(h, _, c)| matches!(c, ItemCarry::Owner(_)) && !self.piece.has.contains(h))
     }
 
     /// Put the item `bytes` encode (a [Describe::Item]), and hold it as `carry` says. One held already under the
@@ -64,10 +76,12 @@ impl Held {
         bytes: Vec<u8>,
         carry: ItemCarry,
     ) -> Result<ItemHash, WriteError<T::Error>> {
-        put(chain, defs, &bytes)?;
+        let r = put(chain, defs, &bytes);
+        // a put may cut before the item: the piece it starts is one [Self::carry] fills
+        self.piece.follow(chain);
+        r?;
         let hash = ItemHash::of(&bytes);
-        self.follow(chain);
-        self.in_piece.insert(hash);
+        self.piece.has.insert(hash);
         self.items.retain(|(h, _, _)| *h != hash);
         if carry != ItemCarry::Once {
             self.items.push((hash, bytes, carry));
@@ -82,18 +96,21 @@ impl Held {
         self.items.len() != before
     }
 
-    /// After a unit that wrote on `wrote`: put the held items not yet in the piece the chain writes. After a cut,
-    /// those carried into every piece and those of an owner of a track the piece head carries; at any unit, those
-    /// of an owner of a track in `wrote`.
+    /// After a unit that wrote on `wrote`: put the held items not yet in the piece the chain writes; the puts
+    /// refused. In a piece a cut started, those carried into every piece and those of an owner of a track the piece
+    /// head carries; at any unit, those of an owner of a track in `wrote`. A carry never cuts: an item the piece has
+    /// no room for is refused there, once, and put in the next piece. A failure ([crate::thread::stops]) ends it.
     pub(crate) fn carry<T: PieceStore>(
         &mut self,
         chain: &mut PieceChain<T>,
         defs: &Definitions,
         wrote: &[TrackNum],
-    ) -> Result<(), WriteError<T::Error>> {
-        let cut = self.follow(chain);
+    ) -> Result<u64, WriteError<T::Error>> {
+        let piece = &mut self.piece;
+        piece.follow(chain);
+        let cut = core::mem::take(&mut piece.fresh);
         if self.items.is_empty() || (!cut && wrote.is_empty()) {
-            return Ok(());
+            return Ok(0);
         }
         let w = chain.writer()?;
         let mut owners = if cut {
@@ -102,18 +119,23 @@ impl Held {
             Vec::new()
         };
         owners.extend(wrote.iter().filter_map(|n| w.track_owner(defs, *n)));
+        let mut refused = 0_u64;
         for (hash, bytes, carry) in &self.items {
             let due = match carry {
                 ItemCarry::Owner(o) => owners.contains(o),
                 ItemCarry::Every | ItemCarry::Once => cut,
             };
-            if due && !self.in_piece.contains(hash) {
-                put(chain, defs, bytes)?;
-                self.in_piece.insert(*hash);
+            if !due || piece.has.contains(hash) {
+                continue;
             }
+            match put_here(chain, defs, bytes) {
+                Err(e) if crate::thread::stops(chain, &e) => return Err(e),
+                Err(_) => refused = refused.saturating_add(1),
+                Ok(()) => {}
+            }
+            piece.has.insert(*hash);
         }
-        // a put that cut again starts another piece: its items go in on the next call
-        Ok(())
+        Ok(refused)
     }
 }
 
@@ -140,14 +162,30 @@ pub(crate) fn block_tracks(block: &[u8]) -> Vec<TrackNum> {
     tracks.into_iter().collect()
 }
 
-/// Put the typed item `bytes` encode.
+/// Put the typed item `bytes` encode, on a new piece when the piece has no room for it.
 fn put<T: PieceStore>(
     chain: &mut PieceChain<T>,
     defs: &Definitions,
     bytes: &[u8],
 ) -> Result<(), WriteError<T::Error>> {
+    let item = item_of::<T>(bytes)?;
+    chain.put_item(defs, &item).map(|_| ())
+}
+
+/// Put the typed item `bytes` encode in the piece the chain writes, never cutting.
+fn put_here<T: PieceStore>(
+    chain: &mut PieceChain<T>,
+    defs: &Definitions,
+    bytes: &[u8],
+) -> Result<(), WriteError<T::Error>> {
+    let item = item_of::<T>(bytes)?;
+    chain.writer()?.put_item(defs, &item).map(|_| ())
+}
+
+/// The typed item `bytes` encode, as [TapeMux::put_item](crate::TapeMux::put_item) encoded it.
+fn item_of<T: PieceStore>(bytes: &[u8]) -> Result<TypedItem<'_>, WriteError<T::Error>> {
     match Describe::from_ww_bytes(bytes).map_err(DescribeError::Decode)? {
-        Describe::Item(item) => chain.put_item(defs, &item).map(|_| ()),
+        Describe::Item(item) => Ok(item),
         _ => Err(DescribeError::Unknown.into()),
     }
 }

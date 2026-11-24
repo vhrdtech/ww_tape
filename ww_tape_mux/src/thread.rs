@@ -38,7 +38,7 @@ impl<T: PieceStore> Drop for CloseOnExit<'_, T> {
 
 /// Whether `e` leaves the chain unable to write on: a failed write or sync, a cut that could not start the next
 /// piece. Any other refusal wrote nothing.
-fn stops<T: PieceStore>(chain: &mut PieceChain<T>, e: &WriteError<T::Error>) -> bool {
+pub(crate) fn stops<T: PieceStore>(chain: &mut PieceChain<T>, e: &WriteError<T::Error>) -> bool {
     matches!(
         e,
         WriteError::Sink { .. } | WriteError::Failed | WriteError::Read(_)
@@ -190,7 +190,7 @@ fn carry_items<T: PieceStore>(
     let r = st.items.carry(chain, defs, &st.wrote);
     st.wrote.clear();
     match r {
-        Ok(()) => {}
+        Ok(refused) => Counters::add(&shared.counters.refused, refused),
         Err(e) if stops(chain, &e) => {
             shared.fail(e);
         }

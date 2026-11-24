@@ -20,6 +20,8 @@ benchmarks, golden files and book pages.
 ### Fixes
 
 - An `ItemCarry::Owner` item reaches a piece whose head carries no track of its owner, at the owner's first data there (MUX-4).
+- Carrying held items never cuts: an item a piece has no room for is refused there, counted, and put in the next (MUX-4).
+- A `put_item` that cuts carries the held items into the piece it starts (MUX-4).
 
 ## [0.9.0] - 2026-11-24
 
