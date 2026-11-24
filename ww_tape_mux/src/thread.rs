@@ -427,10 +427,13 @@ fn place<T: PieceStore>(
         Work::PutItem { item, carry, reply } => {
             let r = match shared.failure.get() {
                 Some(f) => Err(MuxError::Failed(f.clone())),
-                None => st
-                    .items
-                    .put(chain, defs, item, carry)
-                    .map_err(|e| refused(chain, shared, e)),
+                None => match st.items.admit(&item, carry) {
+                    Err(e) => Err(MuxError::Call(e)),
+                    Ok(()) => st
+                        .items
+                        .put(chain, defs, item, carry)
+                        .map_err(|e| refused(chain, shared, e)),
+                },
             };
             reply.send(r);
         }

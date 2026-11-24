@@ -3,11 +3,20 @@
 
 use std::collections::BTreeSet;
 
+use exact_units::Bytes;
 use shrink_wrap::DeserializeShrinkWrap;
 use ww_tape::{
     Block, Definitions, Describe, DescribeError, ItemHash, OwnerId, PieceChain, PieceStore,
     RecordTrack, TrackNum, TypedItem, WriteError,
 };
+
+use crate::error::CallError;
+
+/// Items held for later pieces ([ItemCarry::Every], [ItemCarry::Owner]), at most: one more is refused.
+pub const HELD_ITEMS_MAX: usize = 1024;
+
+/// Bytes of the items held for later pieces, encoded, at most: an item past it is refused.
+pub const HELD_ITEM_BYTES_MAX: usize = 4 << 20;
 
 /// Which pieces a typed item put through the mux is in.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -67,8 +76,29 @@ impl Held {
             .any(|(h, _, c)| matches!(c, ItemCarry::Owner(_)) && !self.piece.has.contains(h))
     }
 
-    /// Put the item `bytes` encode (a [Describe::Item]), and hold it as `carry` says. One held already under the
-    /// same hash takes the new carry.
+    /// Refuse to hold the item `bytes` encode when holding it as `carry` says would pass [HELD_ITEMS_MAX] or
+    /// [HELD_ITEM_BYTES_MAX]; one held already under the same hash takes no more room.
+    pub(crate) fn admit(&self, bytes: &[u8], carry: ItemCarry) -> Result<(), CallError> {
+        let hash = ItemHash::of(bytes);
+        if carry == ItemCarry::Once || self.items.iter().any(|(h, _, _)| *h == hash) {
+            return Ok(());
+        }
+        let held: usize = self.items.iter().map(|(_, b, _)| b.len()).sum();
+        let fits = self.items.len() < HELD_ITEMS_MAX
+            && held
+                .checked_add(bytes.len())
+                .is_some_and(|n| n <= HELD_ITEM_BYTES_MAX);
+        if fits {
+            return Ok(());
+        }
+        Err(CallError::HeldItems {
+            items: self.items.len(),
+            bytes: Bytes::new(u64::try_from(held).unwrap_or(u64::MAX)),
+        })
+    }
+
+    /// Put the item `bytes` encode (a [Describe::Item]), and hold it as `carry` says ([Self::admit] said yes). One
+    /// held already under the same hash takes the new carry.
     pub(crate) fn put<T: PieceStore>(
         &mut self,
         chain: &mut PieceChain<T>,

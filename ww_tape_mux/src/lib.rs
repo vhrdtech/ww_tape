@@ -90,6 +90,8 @@
 //! | [MuxOptions::queue_bytes] | 64 MiB by default | the bytes of units sent and not yet placed |
 //! | [RETURNED_BUFFERS_MAX] | 64 | buffers a handle keeps for reuse |
 //! | [ITEM_BYTES_MAX] | 16 MiB | the payload of one item an [EventsHandle] takes |
+//! | [HELD_ITEMS_MAX] | 1024 | typed items held for later pieces ([TapeMux::put_item]) |
+//! | [HELD_ITEM_BYTES_MAX] | 4 MiB | the bytes of the typed items held for later pieces |
 
 mod define;
 mod error;
@@ -128,7 +130,7 @@ pub use events::{
 };
 pub use grid::{CHUNK_STEPS_DEFAULT, GridHandle, GridOptions};
 pub use handle::{ChunkSender, Pressure, RecordsHandle, RelayHandle, Sent, StateHandle};
-pub use items::ItemCarry;
+pub use items::{HELD_ITEM_BYTES_MAX, HELD_ITEMS_MAX, ItemCarry};
 pub use leaves::{Leaves, SampleLeaves};
 pub use placing::{Placement, Placing, Unplaced};
 pub use progress::{Progress, ProgressWatch, TrackProgress, WaitPast};

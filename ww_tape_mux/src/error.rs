@@ -60,6 +60,12 @@ pub enum CallError {
     /// Summary leaves that don't fit the chunk sender: given to a sender without summaries, missing on a summarized
     /// one, of another kind or fields than the track's tree, or of a grid's tile.
     WrongLeaves,
+    /// An item to hold for later pieces ([crate::ItemCarry]) past what the mux holds: [HELD_ITEMS_MAX] items, or
+    /// [HELD_ITEM_BYTES_MAX] bytes of them. Nothing was written: release one ([crate::TapeMux::release_item]).
+    ///
+    /// [HELD_ITEMS_MAX]: crate::HELD_ITEMS_MAX
+    /// [HELD_ITEM_BYTES_MAX]: crate::HELD_ITEM_BYTES_MAX
+    HeldItems { items: usize, bytes: Bytes<u64> },
 }
 
 /// Why a typed handle refuses an item.
@@ -184,6 +190,11 @@ impl core::fmt::Display for CallError {
                 max.get()
             ),
             Self::WrongLeaves => f.write_str("summary leaves that don't fit the chunk sender's track"),
+            Self::HeldItems { items, bytes } => write!(
+                f,
+                "one item more to hold past the cap: {items} items of {} bytes held",
+                bytes.get()
+            ),
         }
     }
 }

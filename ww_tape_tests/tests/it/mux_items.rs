@@ -7,7 +7,9 @@ use ww_tape::{
     Block, DefinitionKind, Describe, FullVersion, ItemHash, MemPieces, OwnerId, RecordTrack, Slot,
     TapeReader, TypeRef, TypedItem, Version,
 };
-use ww_tape_mux::{ItemCarry, MuxOptions, TapeMux};
+use ww_tape_mux::{
+    CallError, HELD_ITEM_BYTES_MAX, HELD_ITEMS_MAX, ItemCarry, MuxError, MuxOptions, TapeMux,
+};
 
 use crate::follow::{OWNER, define, events_chunk, options, send};
 use crate::mux_multi::pieces;
@@ -249,4 +251,90 @@ fn a_held_item_a_piece_has_no_room_for_waits_for_the_next() {
         .map(|p| held.iter().map(|h| copies(p, *h)).collect())
         .collect();
     assert_eq!(in_piece, [[1, 1, 1, 0], [1, 1, 0, 1], [1, 1, 1, 0]]);
+}
+
+/// A typed item of value `v`, owned.
+fn owned_item(v: Vec<u8>) -> TypedItem<'static> {
+    TypedItem {
+        value: RefVec::Slice {
+            slice: Vec::leak(v),
+        },
+        ..item(b"")
+    }
+}
+
+#[test]
+fn held_items_past_their_caps_are_refused_before_a_write() {
+    let mem = MemPieces::new();
+    let mux = TapeMux::create(
+        mem.clone(),
+        OWNER,
+        0,
+        &[],
+        options(0),
+        MuxOptions::default(),
+    )
+    .unwrap();
+    let senders = define(&mux);
+    send(&senders[0], 0, 0);
+    let held: Vec<ItemHash> = (0..HELD_ITEMS_MAX)
+        .map(|i| {
+            let v = u32::try_from(i).unwrap().to_le_bytes().to_vec();
+            mux.put_item(&owned_item(v), ItemCarry::Every).unwrap()
+        })
+        .collect();
+    let one_more = owned_item(b"one more".to_vec());
+    let r = mux.put_item(&one_more, ItemCarry::Every);
+    assert!(
+        matches!(r, Err(MuxError::Call(CallError::HeldItems { items, .. })) if items == HELD_ITEMS_MAX),
+        "{r:?}"
+    );
+    let once = mux.put_item(&one_more, ItemCarry::Once).unwrap();
+    // an item held already takes no more room
+    mux.put_item(
+        &owned_item(0_u32.to_le_bytes().to_vec()),
+        ItemCarry::Owner(RUN),
+    )
+    .unwrap();
+    for h in &held {
+        assert!(mux.release_item(*h).unwrap());
+    }
+    // by bytes: items of 60,000 bytes until one is refused
+    let size = 60_000;
+    let big = |i: usize| {
+        owned_item(
+            [
+                u32::try_from(i).unwrap().to_le_bytes().to_vec(),
+                vec![7; size],
+            ]
+            .concat(),
+        )
+    };
+    let mut n = 0;
+    let r = loop {
+        match mux.put_item(&big(n), ItemCarry::Every) {
+            Ok(_) => n += 1,
+            Err(e) => break e,
+        }
+    };
+    assert!(
+        matches!(r, MuxError::Call(CallError::HeldItems { items, .. }) if items == n),
+        "{r:?}"
+    );
+    assert!(n * size <= HELD_ITEM_BYTES_MAX, "{n} items held");
+    assert!(
+        (n + 1) * (size + 64) > HELD_ITEM_BYTES_MAX,
+        "refused at the cap: {n} items held"
+    );
+    let refused = ww_tape::open::encode(&Describe::Item(big(n))).unwrap();
+    drop(senders);
+    mux.close().unwrap();
+    let p = pieces(&mem);
+    assert_eq!(p.len(), 1);
+    assert_eq!(copies(&p[0], once), 1, "an item put once is never held");
+    assert_eq!(
+        copies(&p[0], ItemHash::of(&refused)),
+        0,
+        "a refused item is not written"
+    );
 }
