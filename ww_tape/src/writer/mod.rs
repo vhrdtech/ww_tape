@@ -1059,15 +1059,18 @@ impl<S: TapeSink> TapeWriter<S> {
             return;
         };
         let rows = self.head_rows().to_vec();
+        let bytes_max = self.kept_bytes_max();
         let mut base = kept::Kept::default();
         let src = resume::SinkSource(&self.sink);
         let read = match crate::TapeReader::open(&src) {
-            Ok(r) => resume::read_keys(&r, 0, &rows, &idents, before, &mut base),
+            Ok(r) => resume::read_keys(&r, 0, &rows, &idents, before, bytes_max, &mut base),
             Err(e) => Err(e),
         };
         if read.is_ok() {
             base.keys_after(inherited);
             self.kept.keys_after(base);
+            // the plain items placed since the close, forgotten first to make room for the keys
+            self.kept.trim(bytes_max);
         } else {
             self.keys_doubt = true;
             self.kept.all_keys_doubted();

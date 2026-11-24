@@ -1318,7 +1318,8 @@ fn kept_of<B: ByteSource>(
     let p = reader.pieces().get(i);
     let head_rows = p.and_then(|p| p.head.as_ref()).map_or(&[][..], |(_, r)| r);
     let before = p.and_then(|p| p.close_offset).unwrap_or(u64::MAX);
-    crate::writer::resume::read_keys(reader, i, head_rows, &keys, before, &mut kept)
+    // uncapped like the plain items: the writer's keep_after counts both under its kept_bytes_max
+    crate::writer::resume::read_keys(reader, i, head_rows, &keys, before, usize::MAX, &mut kept)
         .map_err(WriteError::Read)?;
     Ok(kept)
 }

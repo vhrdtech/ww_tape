@@ -355,12 +355,8 @@ fn a_keys_carried_mark_on_a_plain_row_is_passed_over() {
     chain.close().unwrap();
 }
 
-/// A call after a crash dropped a carry of keys, given definitions without the keyed track, is refused naming the
-/// track ([ResumeError::KeysUndefined]): the carry can't be put again without it.
-#[test]
-fn a_lost_carry_without_its_keyed_track_is_refused_by_name() {
-    let (mem, _, _) = cut_head(true);
-    // track 10 another track than the keyed one the head names: the keyed track not held
+/// The tests' definitions with track 10 another track than [KEYED], plain: [PLAIN] without the keyed track.
+fn plain_defs() -> ww_tape::Definitions {
     let ww_tape::Describe::Track(t) = crate::definitions::state(KEYED.get()) else {
         unreachable!("state() gives a track")
     };
@@ -370,6 +366,16 @@ fn a_lost_carry_without_its_keyed_track_is_refused_by_name() {
     });
     let mut plain = crate::definitions::base_defs().clone();
     crate::definitions::hold(&mut plain, &[other, crate::definitions::state(PLAIN.get())]).unwrap();
+    plain
+}
+
+/// A call after a crash dropped a carry of keys, given definitions without the keyed track, is refused naming the
+/// track ([ResumeError::KeysUndefined]): the carry can't be put again without it.
+#[test]
+fn a_lost_carry_without_its_keyed_track_is_refused_by_name() {
+    let (mem, _, _) = cut_head(true);
+    // track 10 another track than the keyed one the head names: the keyed track not held
+    let plain = plain_defs();
     let (mut chain, _) = PieceChain::resume_on(mem.clone(), OWNER, 0, wide_options()).unwrap();
     let e = chain.put(&plain, PLAIN, 10, b"run").unwrap_err();
     assert!(
@@ -503,6 +509,41 @@ fn a_put_past_the_kept_bytes_is_refused() {
     // a shorter value of a live key goes
     chain.put_key(&defs, KEYED, 4, &key(0), b"short").unwrap();
     chain.put_key(&defs, KEYED, 5, &key(3), &big).unwrap();
+}
+
+/// A closed piece written on again: a plain item put before a call reads the piece's keys through its index, then a
+/// cut, which reads them. They count under the bytes kept, so the plain item is forgotten and the cut doesn't carry
+/// it.
+#[test]
+fn keys_read_after_a_close_count_under_the_kept_bytes() {
+    let defs = defs();
+    let o = options(1 << 20, 1000);
+    let (mem, mut chain) = chain_with(o.clone());
+    let big = vec![7u8; 300];
+    for n in 0..3 {
+        chain
+            .put_key(&defs, KEYED, n, &key(n as u32), &big)
+            .unwrap();
+    }
+    chain.close().unwrap();
+    let (mut chain, _) = PieceChain::resume_on(mem.clone(), OWNER, 0, o).unwrap();
+    // definitions without a keyed track: the keys of the closed piece aren't read yet
+    chain.put(&plain_defs(), PLAIN, 10, &[1u8; 200]).unwrap();
+    // the cut reads the keys and carries them first
+    chain.cut_now(&defs).unwrap();
+    let pieces = chain.close().unwrap();
+    let second = piece_bytes(&mem, pieces[1].tape);
+    let r = TapeReader::open(&second[..]).unwrap();
+    let plain = r
+        .state_at(0, ww_tape::Slot::State { track: PLAIN }, u64::MAX)
+        .unwrap();
+    assert!(
+        plain.item.is_none(),
+        "the plain item forgotten, not carried"
+    );
+    let (keys, whole) = keys_of(&second, 0);
+    assert!(whole);
+    assert_eq!(keys.len(), 3);
 }
 
 /// Two keys found to share a [KeyId]: the same 8-byte head, length 16 and first 8 bytes of BLAKE3,

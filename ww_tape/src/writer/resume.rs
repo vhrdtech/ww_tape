@@ -91,13 +91,14 @@ const JUNK_READ_MAX: usize = 1 << 20;
 /// tracks with keyed records in the piece and those whose head row `rows` marks [TrackStart::keys_carried]. A
 /// track's keys are complete when every record read and the piece carries the keys in force at its start
 /// ([KeysAt::is_whole](crate::reader::KeysAt::is_whole)). `idents` gives the track each number stands for; a track
-/// it doesn't name is passed over.
+/// it doesn't name is passed over. The keys count under `bytes_max`, the plain items of `kept` forgotten first.
 pub(crate) fn read_keys<B: ByteSource>(
     reader: &TapeReader<B>,
     i: usize,
     rows: &[TrackStart],
     idents: &BTreeMap<crate::TrackNum, crate::index::TrackIdent>,
     before: u64,
+    bytes_max: usize,
     kept: &mut super::kept::Kept,
 ) -> Result<(), ReadError<B::Error>> {
     let mut tracks = reader.keyed_tracks_in(i)?;
@@ -114,7 +115,7 @@ pub(crate) fn read_keys<B: ByteSource>(
         let mut items: Vec<_> = keys.items.values().collect();
         items.sort_by_key(|s| s.offset);
         for s in items {
-            kept.key_placed(n, ident, s.at, &s.item, true, usize::MAX);
+            kept.key_placed(n, ident, s.at, &s.item, true, bytes_max);
         }
         kept.keys_known(n, ident, keys.is_whole());
     }

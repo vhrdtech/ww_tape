@@ -226,7 +226,7 @@ impl Kept {
 
     /// Forget the plain items placed longest ago until those, the keyed items and the keys deleted take at most
     /// `bytes_max` bytes, or no plain item is left; then, still past it, the keys deleted ([Keys::seal]).
-    fn trim(&mut self, bytes_max: usize) {
+    pub(crate) fn trim(&mut self, bytes_max: usize) {
         let total = |k: &Self| {
             k.bytes
                 .saturating_add(k.keyed_bytes)
