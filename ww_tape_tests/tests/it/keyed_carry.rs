@@ -544,6 +544,33 @@ fn a_key_deleted_after_a_doubted_cut_stays_deleted() {
     assert!(!whole);
 }
 
+/// A keyed track first defined after a resume past junk: the junk can't hold its records, so its keys are known
+/// whole and the next cut marks its row carried, while the track the junk may hold records of stays doubted.
+#[test]
+fn a_keyed_track_defined_after_junk_is_carried() {
+    let mut defs = defs();
+    let later = ww_tape::TrackNum::new(12);
+    crate::definitions::hold(&mut defs, &[crate::keyed::keyed(later.get())]).unwrap();
+    let (mem, last, bytes, at) = deletion_chain(false);
+    let checkpoint = blocks_of(&bytes, ww_tape::BlockKind::Index)
+        .into_iter()
+        .find(|c| *c > at)
+        .unwrap();
+    flip(&mem, last, checkpoint + 40);
+    let (mut chain, _) = PieceChain::resume_on(mem.clone(), OWNER, 0, checkpointed()).unwrap();
+    chain.put_key(&defs, later, 7000, b"/n", b"new").unwrap();
+    chain.cut_now(&defs).unwrap();
+    let pieces = chain.close().unwrap();
+    assert_eq!(pieces[0].piece.keys_unknown, 1, "the doubted track alone");
+    let next = piece_bytes(&mem, pieces[1].tape);
+    let r = TapeReader::open(&next[..]).unwrap();
+    let (_, rows) = r.pieces()[0].head.as_ref().unwrap();
+    let row = |n| rows.iter().find(|t| t.track_number == n).unwrap();
+    assert!(row(later).keys_carried);
+    assert!(!row(KEYED).keys_carried);
+    assert!(r.keys_at(0, later, b"", u64::MAX).unwrap().is_whole());
+}
+
 /// A crash right after a cut drops the piece's carry, and a resume of that piece alone, without its chain, can't
 /// put the keys again: the first call is refused ([ResumeError::KeysUnknown]).
 #[test]

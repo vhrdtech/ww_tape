@@ -246,9 +246,6 @@ pub struct TapeWriter<S: TapeSink> {
     /// The tracks of the newest call that wrote or was to write data or a put: the next cut carries their
     /// definitions first ([Self::want])
     wanted: Vec<TrackNum>,
-    /// A resume kept bytes of the piece it couldn't read: the keys of a keyed track the writer sees from then on may
-    /// miss some ([Self::keys_from_start])
-    keys_doubt: bool,
     /// The close in force of a resumed closed piece, before which the writer hasn't read the keys yet, the track
     /// each number stood for there, and the keys of the pieces before it ([Self::load_keys])
     keys_base: Option<(u64, BTreeMap<TrackNum, TrackIdent>, kept::Kept)>,
@@ -435,7 +432,6 @@ impl<S: TapeSink> TapeWriter<S> {
             removed: Vec::new(),
             removed_added: false,
             carried_due: false,
-            keys_doubt: false,
             keys_base: None,
             wanted: Vec::new(),
         }
@@ -1043,8 +1039,8 @@ impl<S: TapeSink> TapeWriter<S> {
 
     /// Read the keys in force at the close of a resumed closed piece through its index, once a call given `defs`
     /// needs them: one by key (`keyed`), or one whose `defs` hold a track of that piece as keyed. The keys the
-    /// writer learned after the close go over them. An index that doesn't read leaves every keyed track's keys in
-    /// doubt ([Self::keys_doubt]): the next cut doesn't mark them carried.
+    /// writer learned after the close go over them. An index that doesn't read leaves the keys of the piece's tracks
+    /// in doubt ([kept::Kept::all_keys_doubted]): the next cut doesn't mark them carried.
     pub(crate) fn load_keys(&mut self, defs: &Definitions, keyed: bool) {
         let Some((_, idents, _)) = &self.keys_base else {
             // a call: no older keys follow ([Self::keep_after] comes before any)
@@ -1075,18 +1071,21 @@ impl<S: TapeSink> TapeWriter<S> {
             // the plain items placed since the close, forgotten first to make room for the keys
             self.kept.trim(bytes_max);
         } else {
-            self.keys_doubt = true;
-            self.kept.all_keys_doubted();
+            self.kept.all_keys_doubted(idents.into_values());
         }
         self.kept.seal_keys();
     }
 
     /// Whether the writer sees every record of keyed state track `number` from its first on when it sees those of
     /// this piece: a piece without a head or first in its chain, a track without a row in the head, or one whose
-    /// row is marked [TrackStart::keys_carried]; never after bytes it couldn't read ([Self::keys_doubt]), nor before
-    /// it read the keys of a resumed closed piece ([Self::load_keys]).
+    /// row is marked [TrackStart::keys_carried]; never for a track known before bytes it couldn't read
+    /// ([kept::Kept::is_doubted]), nor before it read the keys of a resumed closed piece ([Self::load_keys]).
     pub(crate) fn keys_from_start(&self, number: TrackNum) -> bool {
-        if self.keys_doubt || self.keys_base.is_some() {
+        let doubted = self
+            .indexer
+            .key_of(number, None)
+            .is_some_and(|k| self.kept.is_doubted(k));
+        if doubted || self.keys_base.is_some() {
             return false;
         }
         let Some((head, rows)) = &self.head else {
@@ -1336,7 +1335,6 @@ impl<S: TapeSink> TapeWriter<S> {
         // the layout and the producer follow every piece head, the definitions of the tracks it carries them
         self.head_put = false;
         self.carried_due = !tracks.is_empty();
-        self.keys_doubt = false;
         self.ensure_head()
     }
 

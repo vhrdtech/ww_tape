@@ -1236,9 +1236,9 @@ impl<S: TapeSink> TapeWriter<S> {
         let mut at = step.at;
         let end = step.end();
         if at < end {
-            // bytes no block explains may hold keyed records
-            self.keys_doubt = true;
-            self.kept.all_keys_doubted();
+            // bytes no block explains may hold keyed records of the tracks known so far
+            let known: Vec<_> = self.indexer.known().collect();
+            self.kept.all_keys_doubted(known);
         }
         while at < end {
             let n = usize::try_from(end.saturating_sub(at))

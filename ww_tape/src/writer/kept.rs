@@ -204,9 +204,9 @@ pub(crate) struct Kept {
     gone_bytes: usize,
     /// No older keys follow: every track's keys are sealed, those first seen later too ([Self::seal_keys])
     sealed: bool,
-    /// Bytes no block explains were seen: every track's keys are doubted, those first seen later and those older
-    /// keys bring too ([Self::all_keys_doubted])
-    all_doubted: bool,
+    /// The tracks whose keys are doubted for bytes no block explains: those the writer knew then, also when first
+    /// seen later or brought by older keys ([Self::all_keys_doubted])
+    doubted: BTreeSet<TrackIdent>,
 }
 
 impl Kept {
@@ -298,7 +298,7 @@ impl Kept {
     /// The keys of track `number` standing for `key`, made with `complete` when the track has none or stood for
     /// another track.
     fn keys_entry(&mut self, number: TrackNum, key: TrackIdent, complete: bool) -> &mut Keys {
-        let (sealed, doubted) = (self.sealed, self.all_doubted);
+        let (sealed, doubted) = (self.sealed, self.doubted.contains(&key));
         let new = || Keys {
             sealed,
             doubted,
@@ -324,12 +324,20 @@ impl Kept {
         self.keys_entry(number, key, false).doubt();
     }
 
-    /// Every keyed track's keys may miss some: bytes no block explains may hold their records.
-    pub(crate) fn all_keys_doubted(&mut self) {
-        self.all_doubted = true;
+    /// The keys of every keyed track among `tracks`, the tracks the writer knows, and of every track with keys may
+    /// miss some: bytes no block explains may hold their records. A track first defined later can't have records
+    /// there.
+    pub(crate) fn all_keys_doubted(&mut self, tracks: impl IntoIterator<Item = TrackIdent>) {
+        self.doubted.extend(tracks);
         for k in self.keyed.values_mut() {
+            self.doubted.insert(k.key);
             k.doubt();
         }
+    }
+
+    /// Whether the keys of the track `key` stands for are doubted ([Self::all_keys_doubted]).
+    pub(crate) fn is_doubted(&self, key: TrackIdent) -> bool {
+        self.doubted.contains(&key)
     }
 
     /// The live keys of keyed state track `number` while it stands for `key`.
@@ -377,7 +385,7 @@ impl Kept {
         let mut out = Self::default();
         let mut newer = core::mem::take(self);
         out.keyed = core::mem::take(&mut newer.keyed);
-        out.all_doubted = newer.all_doubted;
+        out.doubted = core::mem::take(&mut newer.doubted);
         out.keys_after(older.take_keys());
         for from in [older, newer] {
             for (_, n) in &from.by_age {
@@ -393,8 +401,8 @@ impl Kept {
     /// stay as they are.
     pub(crate) fn keys_after(&mut self, mut older: Self) {
         let mut keyed = core::mem::take(&mut older.keyed);
-        if self.all_doubted {
-            for k in keyed.values_mut() {
+        for k in keyed.values_mut() {
+            if self.doubted.contains(&k.key) {
                 k.doubt();
             }
         }
