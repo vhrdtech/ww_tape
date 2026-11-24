@@ -83,8 +83,8 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-binstall
-      # spl, spirit_level's CLI, at 0.7.12 (the book extension `spl` in the justfile is the same release)
-      - run: cargo install --locked --git https://github.com/romixlab/spirit_level --rev a601c43fb76b3a1f127229750ce81d97fca50f46 spirit_level_cli
+      # spl, spirit_level's CLI, at 0.8.0 (the book extension `spl` in the justfile is the same release)
+      - run: cargo install --locked --git https://github.com/romixlab/spirit_level --rev 4da75c23764c53f6851ddc184045071989925b4f spirit_level_cli
       - run: spl tools needed --spec --missing | xargs -r cargo binstall -y
       # cargo-msrv builds the workspace on the declared rust-version (Cargo.toml) to check that it is the real minimum
       - run: rustup toolchain install 1.99.0 --profile minimal
@@ -154,6 +154,6 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: just
-      # spl, spirit_level's CLI, at 0.7.12 (the book extension `spl` in the justfile is the same release)
-      - run: cargo install --locked --git https://github.com/romixlab/spirit_level --rev a601c43fb76b3a1f127229750ce81d97fca50f46 spirit_level_cli
+      # spl, spirit_level's CLI, at 0.8.0 (the book extension `spl` in the justfile is the same release)
+      - run: cargo install --locked --git https://github.com/romixlab/spirit_level --rev 4da75c23764c53f6851ddc184045071989925b4f spirit_level_cli
       - run: just book-check
