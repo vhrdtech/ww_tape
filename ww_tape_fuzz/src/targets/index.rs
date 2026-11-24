@@ -72,7 +72,7 @@ fn piece_entries(r: &TapeReader<&[u8]>, i: usize, p: &PieceInfo, data: &[u8]) {
                     && e.first_item == c.first_item
                     && e.count == u64::from(c.count);
                 if named {
-                    assert_eq!(head.ok(), Some(c), "a good chunk's head reads alone")
+                    assert_eq!(head.ok(), Some(c), "a good chunk's head reads alone");
                 } else {
                     assert!(
                         matches!(head, Err(ReadError::Index(IndexError::BadEntries))),

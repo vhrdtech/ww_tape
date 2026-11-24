@@ -127,7 +127,7 @@ where
         wall,
         cpu: cpu_time()
             .zip(cpu_start)
-            .map(|(end, start)| end.checked_sub(start).unwrap()),
+            .and_then(|(end, start)| end.checked_sub(start)),
         written,
         waits,
     })

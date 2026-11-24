@@ -81,9 +81,8 @@ pub(crate) fn sample(i: u64) -> [i16; 2] {
 /// The flags of sample `i` of a flagged series: stretches of no flag and of a few words, some longer than a chunk.
 pub(crate) fn sample_flags(i: u64) -> u32 {
     match (i / 150) % 7 {
-        1 => 1,
+        1 | 3 => 1,
         2 => 4,
-        3 => 1,
         4 if i % 300 < 20 => 1 << (i % 3),
         _ if (i / 1050) % 5 == 4 => 2,
         _ => 0,

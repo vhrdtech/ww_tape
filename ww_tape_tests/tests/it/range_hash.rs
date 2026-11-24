@@ -505,7 +505,7 @@ fn a_range_hash_folds_a_chunk_written_again_once() {
             assert!(
                 matches!(got, Err(ww_tape::ReadError::Overlap { offset, .. }) if offset == to as u64),
                 "{got:?}"
-            )
+            );
         }
     }
 }

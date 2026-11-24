@@ -34,6 +34,10 @@ struct Counting;
 static LIVE: AtomicUsize = AtomicUsize::new(0);
 static PEAK: AtomicUsize = AtomicUsize::new(0);
 
+#[expect(
+    unsafe_code,
+    reason = "a GlobalAlloc is an unsafe trait: the count wraps System and changes no pointer"
+)]
 // SAFETY: every call goes to the system allocator with the same layout; the counters only observe.
 unsafe impl GlobalAlloc for Counting {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {

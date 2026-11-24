@@ -35,7 +35,7 @@ pub(crate) fn of_version(bytes: &[u8], version: u8) -> Vec<u8> {
 /// of a codec this writer doesn't know is refused without a byte written (writing side point 9).
 #[test]
 fn a_callers_block_the_writer_does_not_know_is_refused() {
-    let mut w = begin(options(u64::MAX));
+    let mut w = begin(&options(u64::MAX));
     write_records(&mut w, 0, 1);
     let tape = w.sink().tape();
     let len = tape.to_vec().unwrap().len();
@@ -93,7 +93,7 @@ fn flagged(block: &[u8], flags: u16) -> Vec<u8> {
 /// deferred.
 #[test]
 fn a_callers_block_with_flags_its_kind_does_not_take_is_refused() {
-    let mut w = begin(options(u64::MAX));
+    let mut w = begin(&options(u64::MAX));
     write_records(&mut w, 0, 1);
     let tape = w.sink().tape();
     let len = tape.to_vec().unwrap().len();
@@ -116,7 +116,7 @@ fn a_callers_block_with_flags_its_kind_does_not_take_is_refused() {
             };
             for call in calls {
                 let r = match call {
-                    0 => w.write_block(&b).map(|()| ()),
+                    0 => w.write_block(&b),
                     1 => w.w.adopt_block(&w.defs, &b).map(|_| ()),
                     _ => w.defer_block(b.clone()),
                 };
@@ -189,7 +189,7 @@ fn the_layout_and_the_producer_are_the_writers() {
 /// record didn't survive takes the options' (writing side review 2, point 12).
 #[test]
 fn a_resume_checks_the_layout_and_producer_it_is_given() {
-    let mut w = begin(options(u64::MAX));
+    let mut w = begin(&options(u64::MAX));
     w.set_index_policy(ww_tape::index::IndexPolicy {
         bytes: exact_units::Bytes::new(512),
         interval: None,
@@ -236,7 +236,7 @@ fn a_resume_checks_the_layout_and_producer_it_is_given() {
 /// this version (reading side review 2, point 7); its lookups name the version, the piece before it reads.
 #[test]
 fn a_piece_of_another_version_is_reported_where_it_is_met() {
-    let mut w = begin(options(u64::MAX));
+    let mut w = begin(&options(u64::MAX));
     let tape = w.sink().tape();
     write_records(&mut w, 0, 2);
     w.w.close().unwrap();
@@ -270,7 +270,7 @@ fn a_piece_of_another_version_is_reported_where_it_is_met() {
 #[test]
 fn state_entries_are_capped() {
     let five = [crate::definitions::state(5)];
-    let mut w = crate::definitions::begin_numbered(options(u64::MAX), Layout::UNALIGNED, &five);
+    let mut w = crate::definitions::begin_numbered(&options(u64::MAX), Layout::UNALIGNED, &five);
     crate::definitions::define_all(&mut w, &five);
     let tape = w.sink().tape();
     let defs = w.defs.clone();

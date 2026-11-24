@@ -212,7 +212,7 @@ pub fn grid(data: &[u8]) -> Vec<u8> {
         }
         .min(GRID_OVERVIEW_LEVELS_MAX);
         let head = ChunkHead { level, ..head };
-        let columns = overview_columns(&mut d, &head, layout);
+        let columns = overview_columns(&mut d, &head, layout.as_ref());
         let columns: Vec<(ColumnSpec, &[u8])> = columns.iter().map(|(s, b)| (*s, &b[..])).collect();
         let mut b = build(&head, &columns);
         // one chunk in two keeps its head: a scan stops at the first that doesn't read
@@ -250,10 +250,16 @@ pub fn grid(data: &[u8]) -> Vec<u8> {
     }
     // past the input's end too: every draw is 0 there
     if !d.bool() {
-        summaries(&mut d, &mut out, &shape, grid_track(&fixed).id(), layout);
+        summaries(
+            &mut d,
+            &mut out,
+            &shape,
+            grid_track(&fixed).id(),
+            layout.as_ref(),
+        );
     }
     if d.u8() % 3 != 1 {
-        checkpoint(&mut d, &mut out, layout);
+        checkpoint(&mut d, &mut out, layout.as_ref());
     }
     out
 }
@@ -267,7 +273,7 @@ const OVERVIEW_CELLS_DRAWN_MAX: u64 = 64;
 fn overview_columns(
     d: &mut Draw<'_>,
     head: &ChunkHead,
-    layout: Option<TileLayout>,
+    layout: Option<&TileLayout>,
 ) -> Vec<(ColumnSpec, Vec<u8>)> {
     let raw = |kind, bytes: Vec<u8>| {
         let spec = ColumnSpec {
@@ -318,7 +324,7 @@ fn summaries(
     f: &mut Vec<u8>,
     shape: &[AxisShape],
     track_id: TrackId,
-    layout: Option<TileLayout>,
+    layout: Option<&TileLayout>,
 ) {
     let samples = SampleShape::new(ElementDesc::of(Element::I32), 1);
     for _ in 0..=d.below(3) {
@@ -387,7 +393,7 @@ fn summaries(
 /// A checkpoint index of the blocks in `f` put after them: each chunk's or summary block's entry carries the tile
 /// number `layout` packs its head's coordinates to, a hostile number (bits outside the fields, any bits) or none; a
 /// chunk's entry carries its level or now and then another.
-fn checkpoint(d: &mut Draw<'_>, f: &mut Vec<u8>, layout: Option<TileLayout>) {
+fn checkpoint(d: &mut Draw<'_>, f: &mut Vec<u8>, layout: Option<&TileLayout>) {
     let mut entries = vec![];
     let mut at = 0;
     while let Some(b) = f.get(at..).and_then(|r| Block::read(r).ok()) {

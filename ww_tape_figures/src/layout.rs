@@ -2,6 +2,7 @@
 //! its name and what it holds. `block.svg` and the layout figures of the format reference draw on it.
 
 use anyhow::{Context, ensure};
+use std::fmt::Write as _;
 
 use crate::svg::Svg;
 
@@ -179,9 +180,18 @@ pub fn le(b: &[u8], at: usize, n: usize) -> anyhow::Result<u64> {
         .fold(0u64, |v, byte| (v << 8) | u64::from(*byte)))
 }
 
+/// `b` in lower-case hex, two digits a byte.
+pub fn hex(b: &[u8]) -> String {
+    b.iter().fold(String::new(), |mut s, x| {
+        #[expect(clippy::expect_used, reason = "writing to a String cannot fail")]
+        write!(s, "{x:02x}").expect("a String takes any text");
+        s
+    })
+}
+
 /// The first bytes of `b` as hex and an ellipsis: a hash or an id, shortened to fit its field.
 pub fn hex_start(b: &[u8], n: usize) -> String {
-    let mut s: String = b.iter().take(n).map(|x| format!("{x:02x}")).collect();
+    let mut s = hex(b.get(..n).unwrap_or(b));
     if b.len() > n {
         s.push('…');
     }

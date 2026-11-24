@@ -21,6 +21,8 @@ use ww_tape::{
     TapeWriter, TrackDef, TrackKind, TypeRef, Version, clock_key, track_key,
 };
 
+use crate::pieces::push_hex;
+
 const TRACK_NUM: TrackNum = TrackNum::new(TRACK);
 
 const CLOCK: ClockNum = ClockNum::new(1);
@@ -538,9 +540,7 @@ fn series_file_is_deterministic_and_golden() {
     let mut hex = String::new();
     let mut rd = FileBlocks::with_recovery(&bytes[..], Recovery::Prefix);
     while let Some(block) = rd.next_block() {
-        for x in block.unwrap().bytes() {
-            hex.push_str(&format!("{x:02x}"));
-        }
+        push_hex(&mut hex, block.unwrap().bytes());
         hex.push('\n');
     }
     let golden =

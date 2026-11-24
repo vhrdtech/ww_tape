@@ -13,6 +13,7 @@
 use anyhow::{Context, ensure};
 use example_drive::writing::{SYNC_POLICIES, phase_values, series_tape, sync_offsets};
 use example_drive::{Act, Drive, DriveNumbers};
+use std::fmt::Write as _;
 use ww_tape::TrackNum;
 use ww_tape::piece::close_padding;
 use ww_tape::times::TimeMode;
@@ -552,18 +553,16 @@ pub fn delta_group() -> anyhow::Result<String> {
         &vlo.to_string(),
         &vhi.to_string(),
     );
-    let path: String = values
-        .iter()
-        .enumerate()
-        .map(|(j, v)| {
-            format!(
-                "{}{:.1} {:.1}",
-                if j == 0 { "M" } else { " L" },
-                Plot::x(j),
-                p1.y(f64::from(*v))
-            )
-        })
-        .collect();
+    let mut path = String::new();
+    for (j, v) in values.iter().enumerate() {
+        write!(
+            path,
+            "{}{:.1} {:.1}",
+            if j == 0 { "M" } else { " L" },
+            Plot::x(j),
+            p1.y(f64::from(*v))
+        )?;
+    }
     s.path(&path, "line");
     p2.frame(
         &mut s,

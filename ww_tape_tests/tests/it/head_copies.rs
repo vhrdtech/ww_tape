@@ -187,12 +187,12 @@ fn the_gap_rules_come_from_the_layouts_copy() {
                 (p.gaps.as_slice(), p.cut, p.end),
                 (&[(offset, len)][..], None, file.len() as u64),
                 "spacing {spacing}"
-            )
+            );
         } else {
             assert!(
                 p.gaps.is_empty() && p.end == offset,
                 "spacing {spacing}: {p:?}"
-            )
+            );
         }
     }
 }

@@ -944,12 +944,12 @@ fn a_damaged_lowest_piece_is_refused_with_its_own_error() {
                     WriteError::Resume(ResumeError::GoodBlockAfterCut { .. })
                 ),
                 "{own:?}"
-            )
+            );
         } else {
             assert!(
                 matches!(own, WriteError::Resume(ResumeError::Damaged { .. })),
                 "{own:?}"
-            )
+            );
         }
         assert_eq!(format!("{e:?}"), format!("{own:?}"));
         assert!(snapshot(&dir) == before, "a refused resume wrote");

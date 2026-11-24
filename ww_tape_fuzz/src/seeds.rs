@@ -805,7 +805,13 @@ fn reclose_seeds() -> Vec<Seed> {
 /// halfway, its last piece with a flipped byte in its head and one in its middle, and the file without its second
 /// piece, its last piece naming that one removed.
 fn chain_seeds() -> Vec<Seed> {
-    let (whole, last) = crate::targets::chain_template(false, true, ww_tape::Integrity::Full);
+    let (whole, last) = crate::targets::chain_template(
+        crate::targets::ChainTemplateMode {
+            aligned: false,
+            closed: true,
+        },
+        ww_tape::Integrity::Full,
+    );
     let half = last + (whole.len() - last) / 2;
     let torn = whole[..half].to_vec();
     let mut damaged = whole.clone();

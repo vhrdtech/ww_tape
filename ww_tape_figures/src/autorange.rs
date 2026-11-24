@@ -3,6 +3,7 @@
 //! up to sample 9 999 and 10⁻⁶ A from 10 000. Its summary nodes of 4096 samples come from the blocks
 //! [SeriesSummaries] writes: the node across the change is kept at the common scale of both.
 
+use std::fmt::Write as _;
 use ww_tape::ItemNum;
 
 use anyhow::{Context, ensure};
@@ -185,12 +186,13 @@ pub fn autorange() -> anyhow::Result<String> {
         for (k, v) in values.iter().enumerate().step_by(50) {
             let i = head.first_item.get() + k as u64;
             let a = f64::from(*v).max(1.0) * unit;
-            d.push_str(&format!(
+            write!(
+                d,
                 "{}{:.1} {:.1} ",
                 if d.is_empty() { "M" } else { "L" },
                 x(i),
                 y(a)
-            ));
+            )?;
         }
     }
     s.path(d.trim_end(), "line");

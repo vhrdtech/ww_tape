@@ -4,7 +4,7 @@
 
 use crate::Times;
 use crate::known::is_known;
-use ww_tape_fuzz::case::{Outcome, run};
+use ww_tape_fuzz::case::{Outcome, hex, run};
 use ww_tape_fuzz::targets;
 
 /// Inputs per decoder group: a block each.
@@ -75,10 +75,7 @@ fn stream(name: &str, target: fn(&[u8]), seed: u64, cases: usize, shard: usize) 
             Outcome::Panic(at, msg) => format!("{at}: {msg}"),
             other => format!("{other:?}"),
         };
-        failures
-            .entry(key)
-            .or_insert_with(|| (0, data.iter().map(|b| format!("{b:02x}")).collect()))
-            .0 += 1;
+        failures.entry(key).or_insert_with(|| (0, hex(data))).0 += 1;
     }
     times.report(&format!("{name} shard {shard}"));
     eprintln!("{name} shard {shard}: {known} known failures");

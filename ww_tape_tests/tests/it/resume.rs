@@ -2003,7 +2003,7 @@ fn a_piece_of_an_unknown_integrity_level_is_refused_everywhere() {
             w.write_block(base_defs(), &records(id, k)).unwrap();
         }
         if closed {
-            drop(w.close().unwrap())
+            drop(w.close().unwrap());
         } else {
             w.flush_deferred().unwrap();
             drop(w);

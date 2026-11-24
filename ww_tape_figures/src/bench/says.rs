@@ -184,7 +184,7 @@ fn named(report: &Report, out: &mut BTreeSet<String>) {
         for c in t.rows.iter().flatten() {
             match c {
                 Cell::Text(s) => add(s),
-                c => {
+                c @ Cell::Num { .. } => {
                     let shown = shown(c);
                     add(&shown);
                     if let Some(v) = c.value() {

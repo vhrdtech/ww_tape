@@ -2,7 +2,7 @@
 //! another, any sequence of close, reopen, append and crash against a model, and the scans and the checkpoint walk
 //! past inner closes.
 
-use crate::pieces::records;
+use crate::pieces::{push_hex, records};
 use crate::resume::{begin, head, options};
 use ww_tape::RecordTrack;
 use ww_tape::index::{IndexEntry, IndexKind};
@@ -984,9 +984,7 @@ pub(crate) fn golden(bytes: &[u8], name: &str) {
     let mut hex = String::new();
     let mut rd = FileBlocks::new(bytes);
     while let Some(b) = rd.next_block() {
-        for byte in b.unwrap().bytes() {
-            hex.push_str(&format!("{byte:02x}"));
-        }
+        push_hex(&mut hex, b.unwrap().bytes());
         hex.push('\n');
     }
     let golden = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

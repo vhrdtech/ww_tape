@@ -316,7 +316,7 @@ mod tests {
             assert!(s.len() <= 2 * ITEMS_EACH + 1, "{n} items: {}", s.len());
             assert!(s.windows(2).all(|w| w[0] < w[1]), "{n} items: ascending");
             if n <= ITEMS_EACH {
-                assert_eq!(s, (0..n).collect::<Vec<_>>())
+                assert_eq!(s, (0..n).collect::<Vec<_>>());
             } else {
                 assert_eq!(s[..ITEMS_EACH / 2], (0..ITEMS_EACH / 2).collect::<Vec<_>>());
                 assert_eq!(

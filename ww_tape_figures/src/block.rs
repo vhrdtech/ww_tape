@@ -140,7 +140,7 @@ fn fields() -> anyhow::Result<(Vec<u8>, Vec<Field>)> {
         );
         let shown = match std::str::from_utf8(item) {
             Ok(s) if s.chars().all(|c| c.is_ascii_graphic()) => format!("\"{s}\""),
-            _ => item.iter().map(|b| format!("{b:02x}")).collect(),
+            _ => crate::layout::hex(item),
         };
         push(&mut f, item.to_vec(), "item", shown, "ink");
     }

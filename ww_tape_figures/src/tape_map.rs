@@ -4,6 +4,7 @@
 
 use anyhow::{Context, ensure};
 use example_drive::Drive;
+use std::fmt::Write as _;
 use ww_tape::chunk::ColumnKind;
 use ww_tape::samples::{SampleShape, Samples};
 use ww_tape::{BlockKind, Element, ElementDesc, FLAG_REPEAT, FileBlocks};
@@ -210,7 +211,7 @@ pub fn tape_map() -> anyhow::Result<String> {
     lane(&mut s, log_y, 12.0, "log");
     let mut d = String::new();
     for &at in &h.log {
-        d.push_str(&format!("M{:.1} {log_y:.1} v12 ", x_of(at)));
+        write!(d, "M{:.1} {log_y:.1} v12 ", x_of(at))?;
     }
     s.path(d.trim_end(), "blue");
 
@@ -240,11 +241,12 @@ pub fn tape_map() -> anyhow::Result<String> {
     for (c, e) in h.envelope.iter().enumerate() {
         if let Some((lo, hi)) = e {
             let x = left + c as f64 + 0.5;
-            d.push_str(&format!(
+            write!(
+                d,
                 "M{x:.1} {:.1} V{:.1} ",
                 y_ma(*hi),
                 y_ma(*lo).max(y_ma(*hi) + 0.8)
-            ));
+            )?;
         }
     }
     s.path(d.trim_end(), "blue");

@@ -2,6 +2,7 @@
 
 use ww_tape::ItemNum;
 
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use ww_tape::TrackId;
 use ww_tape::index::RECORDS_TRACK_ID;
@@ -16,6 +17,13 @@ use ww_tape::{
     EndMode, FileBlocks, OwnerId, PieceChain, Recovery, SessionTag, Slot, SyncPolicy, TapeReader,
     TapeWriter,
 };
+
+/// `bytes` appended to `out` as lowercase hex, two digits each: the shape a golden file's byte dump is built in.
+pub(crate) fn push_hex(out: &mut String, bytes: &[u8]) {
+    for byte in bytes {
+        write!(out, "{byte:02x}").unwrap();
+    }
+}
 
 /// A fresh scratch directory.
 pub(crate) fn scratch(name: &str) -> PathBuf {
@@ -804,9 +812,7 @@ fn index_golden() {
         let bytes = std::fs::read(p).unwrap();
         let mut rd = FileBlocks::new(&bytes[..]);
         while let Some(b) = rd.next_block() {
-            for byte in b.unwrap().bytes() {
-                hex.push_str(&format!("{byte:02x}"));
-            }
+            push_hex(&mut hex, b.unwrap().bytes());
             hex.push('\n');
         }
     }
@@ -899,9 +905,7 @@ fn incomplete_golden() {
     let mut hex = String::new();
     for bytes in &pieces {
         for line in bytes.chunks(64) {
-            for byte in line {
-                hex.push_str(&format!("{byte:02x}"));
-            }
+            push_hex(&mut hex, line);
             hex.push('\n');
         }
         hex.push('\n');

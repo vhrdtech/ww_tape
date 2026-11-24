@@ -11,7 +11,7 @@ use ww_tape::{
 };
 
 use crate::definitions::{CLOCK, base_defs};
-use crate::pieces::{chunk, column};
+use crate::pieces::{chunk, column, push_hex};
 
 /// A chain of three pieces in memory: tracks 1 and 2 give data in the first, then only track 2. The bytes of each
 /// piece, oldest first.
@@ -214,9 +214,7 @@ fn not_carried_golden() {
 fn golden(bytes: &[u8], name: &str) {
     let mut hex = String::new();
     for line in bytes.chunks(64) {
-        for byte in line {
-            hex.push_str(&format!("{byte:02x}"));
-        }
+        push_hex(&mut hex, line);
         hex.push('\n');
     }
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

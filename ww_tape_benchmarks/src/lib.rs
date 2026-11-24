@@ -11,6 +11,7 @@
     clippy::as_conversions,
     clippy::cast_precision_loss,
     clippy::expect_used,
+    clippy::missing_panics_doc,
     reason = "a bench reads no file of others: it computes sizes and rates freely, and fails by panicking"
 )]
 

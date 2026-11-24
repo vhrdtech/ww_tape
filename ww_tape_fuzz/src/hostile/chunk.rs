@@ -127,11 +127,10 @@ pub(crate) fn hit_head(d: &mut Draw<'_>, b: &mut [u8]) {
             let f = HEADER_FIELDS[d.below(HEADER_FIELDS.len())];
             hit(d, b, f);
         }
-        4..8 => hit_some(d, b, &HEAD_FIELDS),
         8..10 if get(b, 5, 1) == u64::from(BlockKind::Series.to_u8()) => {
             hit_some(d, b, &GRID_FIELDS);
         }
-        8..10 => hit_some(d, b, &HEAD_FIELDS),
+        4..10 => hit_some(d, b, &HEAD_FIELDS),
         _ => {
             let i = d.below(columns + 1);
             let fields = column_fields(b, i);

@@ -5,6 +5,7 @@
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::RefCell;
+use std::fmt::Write as _;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Once;
 use std::time::{Duration, Instant};
@@ -36,6 +37,10 @@ impl Capped {
     }
 }
 
+#[expect(
+    unsafe_code,
+    reason = "a GlobalAlloc is an unsafe trait: the cap wraps System and changes no pointer"
+)]
 // SAFETY: every call goes to System with the caller's layout and pointer unchanged; a refused allocation returns null,
 // which GlobalAlloc allows.
 unsafe impl GlobalAlloc for Capped {
@@ -184,4 +189,14 @@ pub fn minimize(target: fn(&[u8]), input: &[u8]) -> Vec<u8> {
         }
     }
     best
+}
+
+/// `data` as lowercase hex, two digits per byte: the shape a seed or a failing case is reported in.
+pub fn hex(data: &[u8]) -> String {
+    let mut out = String::with_capacity(data.len() * 2);
+    for b in data {
+        // a write into a String never fails
+        let _ = write!(out, "{b:02x}");
+    }
+    out
 }

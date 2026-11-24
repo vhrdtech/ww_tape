@@ -519,7 +519,7 @@ fn an_items_variant_this_crate_does_not_know_reads_as_unknown() {
     );
 
     // a relay holds the producer's definition and puts its bytes before the track's data, stored as given
-    let mut w = begin(options(u64::MAX));
+    let mut w = begin(&options(u64::MAX));
     let tape = w.sink().tape();
     let producer = BlockId::new(SessionTag::random(), 7);
     let mut out = Vec::new();

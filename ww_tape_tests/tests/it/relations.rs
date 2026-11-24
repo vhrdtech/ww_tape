@@ -428,10 +428,10 @@ fn chunk_block(id: ww_tape::BlockId, first: u64, sources: &[u64], keys: &[u64]) 
 }
 
 /// Whether `r` refuses track 3's chunk from item `item` for a decrease of its monotone relation `source`.
-fn decrease<T: std::fmt::Debug, E>(r: Result<T, WriteError<E>>, item: u64) -> bool {
+fn decrease<T: std::fmt::Debug, E>(r: &Result<T, WriteError<E>>, item: u64) -> bool {
     matches!(
         r,
-        Err(WriteError::Describe(DescribeError::RelationDecrease { track: TRACK_3, relation: 0, item: i })) if i == ItemNum::new(item)
+        Err(WriteError::Describe(DescribeError::RelationDecrease { track: TRACK_3, relation: 0, item: i })) if *i == ItemNum::new(item)
     )
 }
 
@@ -440,11 +440,14 @@ fn a_monotone_relation_never_decreases_across_chunks() {
     let defs = crate::definitions::held(&[clock(CLOCK), decoded()]);
     let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
     write_chunk(&mut w, &defs, 0, &[100, 101], &[1, 1]).unwrap();
-    assert!(decrease(write_chunk(&mut w, &defs, 2, &[5, 6], &[1, 1]), 2));
+    assert!(decrease(
+        &write_chunk(&mut w, &defs, 2, &[5, 6], &[1, 1]),
+        2
+    ));
     // a whole block, given or adopted, as well
     let block = chunk_block(w.next_id(), 2, &[5, 6], &[1, 1]);
-    assert!(decrease(w.write_block(&defs, &block), 2));
-    assert!(decrease(w.adopt_block(&defs, &block), 2));
+    assert!(decrease(&w.write_block(&defs, &block), 2));
+    assert!(decrease(&w.adopt_block(&defs, &block), 2));
     // the same value again goes on
     write_chunk(&mut w, &defs, 2, &[101, 102], &[1, 1]).unwrap();
     // a block taking the last one's place is checked against the one before that
@@ -461,7 +464,7 @@ fn a_monotone_relation_never_decreases_across_chunks() {
         &[100, 101],
         &[2, 2],
     );
-    assert!(decrease(w.write_block(&defs, &below), 2));
+    assert!(decrease(&w.write_block(&defs, &below), 2));
 }
 
 /// A whole chunk block of track 4 of 600 items with raw starts: longer than any gap before an aligned payload.
@@ -509,7 +512,10 @@ fn a_deferred_chunk_counts_before_the_chunks_after_it() {
     w.defer_block(&defs, long_block()).unwrap();
     w.defer_block(&defs, chunk_block(w.next_id(), 0, &[100, 101], &[1, 1]))
         .unwrap();
-    assert!(decrease(write_chunk(&mut w, &defs, 2, &[5, 6], &[1, 1]), 2));
+    assert!(decrease(
+        &write_chunk(&mut w, &defs, 2, &[5, 6], &[1, 1]),
+        2
+    ));
     write_chunk(&mut w, &defs, 2, &[101, 102], &[1, 1]).unwrap();
     w.close().unwrap();
     let bytes = tape.to_vec().unwrap();
@@ -579,7 +585,7 @@ fn a_deferred_chunk_of_an_owned_track_never_decreases() {
         w.defer_block(&defs, chunk_block(w.next_id(), 0, &[100, 101], &[1, 1]))
             .unwrap();
         let second = w.defer_block(&defs, chunk_block(w.next_id(), 2, &[5, 6], &[1, 1]));
-        assert!(decrease(second, 2), "owner {owner:?}");
+        assert!(decrease(&second, 2), "owner {owner:?}");
         w.close().unwrap();
     }
 }
@@ -607,18 +613,18 @@ fn a_monotone_relation_never_decreases_across_cuts_and_resumes() {
         let mut c = PieceChain::create_on(mem.clone(), owner, 0, &[], options()).unwrap();
         write(&mut c, 0, &[100, 101]).unwrap();
         // the next chunk goes into a piece of its own
-        assert!(decrease(write(&mut c, 2, &[5, 6]), 2), "{files:?}: cut");
+        assert!(decrease(&write(&mut c, 2, &[5, 6]), 2), "{files:?}: cut");
         write(&mut c, 2, &[101, 102]).unwrap();
         // a crash in the open piece: its chunk is read back
         drop(c);
         let (mut c, _) = PieceChain::resume_on(mem.clone(), owner, 0, options()).unwrap();
-        assert!(decrease(write(&mut c, 4, &[5, 6]), 4), "{files:?}: resume");
+        assert!(decrease(&write(&mut c, 4, &[5, 6]), 4), "{files:?}: resume");
         // a crash right after a cut: the pieces closed before hold the newest values
         c.cut_now(&defs).unwrap();
         drop(c);
         let (mut c, _) = PieceChain::resume_on(mem.clone(), owner, 0, options()).unwrap();
         assert!(
-            decrease(write(&mut c, 4, &[5, 6]), 4),
+            decrease(&write(&mut c, 4, &[5, 6]), 4),
             "{files:?}: resume after a cut"
         );
         write(&mut c, 4, &[102, 103]).unwrap();
