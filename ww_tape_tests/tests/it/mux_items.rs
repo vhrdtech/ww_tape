@@ -18,7 +18,7 @@ const RUN: OwnerId = OwnerId([0xa1; 32]);
 const GONE: OwnerId = OwnerId([0xb2; 32]);
 
 /// A typed item of value `v`.
-fn item(v: &'static [u8]) -> TypedItem<'static> {
+pub(crate) fn item(v: &'static [u8]) -> TypedItem<'static> {
     TypedItem {
         ty: TypeRef {
             bundle: RefVec::Slice { slice: &[] },
@@ -40,7 +40,7 @@ fn holds(p: &[u8], h: ItemHash) -> bool {
 }
 
 /// How many records of piece `p`'s track 0 hold the item of hash `h`.
-fn copies(p: &[u8], h: ItemHash) -> usize {
+pub(crate) fn copies(p: &[u8], h: ItemHash) -> usize {
     let mut n = 0;
     let mut at = 0;
     while let Some(rest) = p.get(at..) {
@@ -337,4 +337,60 @@ fn held_items_past_their_caps_are_refused_before_a_write() {
         0,
         "a refused item is not written"
     );
+}
+
+/// A clock the test moves.
+#[derive(Clone, Default)]
+struct TestClock(std::sync::Arc<std::sync::atomic::AtomicU64>);
+
+impl ww_tape::Clock for TestClock {
+    fn now_ms(&self) -> u64 {
+        self.0.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+#[test]
+fn cuts_by_count_and_by_age_carry_each_held_item_once() {
+    let mem = MemPieces::new();
+    let clock = TestClock::default();
+    let mut o = options(2);
+    o.cut.interval = Some(std::time::Duration::from_secs(10));
+    o.writer.clock = ww_tape::ClockRef::new(clock.clone());
+    let mux = TapeMux::create(
+        mem.clone(),
+        OWNER,
+        0,
+        &[],
+        o,
+        MuxOptions {
+            tick: std::time::Duration::from_millis(1),
+            ..MuxOptions::default()
+        },
+    )
+    .unwrap();
+    let senders = define(&mux);
+    let every = mux.put_item(&item(b"every"), ItemCarry::Every).unwrap();
+    let own = mux
+        .put_item(&item(b"own"), ItemCarry::Owner(OWNER))
+        .unwrap();
+    // two chunks a piece: pieces 0 and 1 by count
+    for k in 0..3 {
+        send(&senders[0], 0, k);
+    }
+    mux.flush().unwrap();
+    // piece 1 holds a chunk: once it is older than the interval, a tick cuts it
+    clock
+        .0
+        .fetch_add(11_000, std::sync::atomic::Ordering::SeqCst);
+    crate::mux::until(|| mem.get(&2).unwrap().is_some());
+    send(&senders[0], 0, 3);
+    drop(senders);
+    mux.close().unwrap();
+
+    let p = pieces(&mem);
+    assert_eq!(p.len(), 3, "a cut by count, then one by age");
+    for (i, p) in p.iter().enumerate() {
+        assert_eq!(copies(p, every), 1, "piece {i}");
+        assert_eq!(copies(p, own), 1, "piece {i}: the chain's own tracks");
+    }
 }
