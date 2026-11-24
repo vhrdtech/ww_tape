@@ -1044,6 +1044,8 @@ impl<S: TapeSink> TapeWriter<S> {
     /// doubt ([Self::keys_doubt]): the next cut doesn't mark them carried.
     pub(crate) fn load_keys(&mut self, defs: &Definitions, keyed: bool) {
         let Some((_, idents, _)) = &self.keys_base else {
+            // a call: no older keys follow ([Self::keep_after] comes before any)
+            self.kept.seal_keys();
             return;
         };
         let needed = keyed
@@ -1070,6 +1072,7 @@ impl<S: TapeSink> TapeWriter<S> {
             self.keys_doubt = true;
             self.kept.all_keys_doubted();
         }
+        self.kept.seal_keys();
     }
 
     /// Whether the writer sees every record of keyed state track `number` from its first on when it sees those of

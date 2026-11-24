@@ -55,6 +55,11 @@ pub(crate) struct Keys {
     ids: BTreeMap<KeyId, Vec<u8>>,
     /// The keys deleted while the keys are not complete: older keys taken after these ([Kept::after]) stay deleted
     gone: BTreeSet<Vec<u8>>,
+    /// Bytes of the keys in [Self::gone], counted under the bytes kept ([Kept::trim])
+    gone_bytes: usize,
+    /// Older keys are never taken after these: none can follow ([Kept::seal_keys]), or the keys deleted since were
+    /// forgotten to keep within the bytes kept
+    sealed: bool,
     /// Bytes of the live keys' items
     bytes: usize,
     /// Every record of the track since its first was seen: the live keys are all of them
@@ -68,6 +73,8 @@ impl Keys {
             live: BTreeMap::new(),
             ids: BTreeMap::new(),
             gone: BTreeSet::new(),
+            gone_bytes: 0,
+            sealed: false,
             bytes: 0,
             complete,
         }
@@ -94,12 +101,14 @@ impl Keys {
     fn take(&mut self, keyed: KeyedItem<'_>, at: Option<ClockTime>, item: &[u8], placed: u64) {
         self.remove(keyed.key);
         if keyed.value.is_none() {
-            if !self.complete {
-                self.gone.insert(keyed.key.to_vec());
+            if !self.complete && !self.sealed && self.gone.insert(keyed.key.to_vec()) {
+                self.gone_bytes = self.gone_bytes.saturating_add(keyed.key.len());
             }
             return;
         }
-        self.gone.remove(keyed.key);
+        if self.gone.remove(keyed.key) {
+            self.gone_bytes = self.gone_bytes.saturating_sub(keyed.key.len());
+        }
         if let Some(id) = KeyId::of(keyed.key) {
             self.ids.insert(id, keyed.key.to_vec());
         }
@@ -127,10 +136,17 @@ impl Keys {
         }
     }
 
-    /// These keys after `older`, the keys of the same track before them: these alone when complete, else `older`'s
-    /// live keys less those these deleted, then these, complete when `older` is.
+    /// Take no older keys after these from here on, and forget the keys deleted ([Self::gone]).
+    fn seal(&mut self) {
+        self.gone.clear();
+        self.gone_bytes = 0;
+        self.sealed = true;
+    }
+
+    /// These keys after `older`, the keys of the same track before them: these alone when complete or sealed, else
+    /// `older`'s live keys less those these deleted, then these, complete when `older` is.
     fn after(self, older: Self) -> Self {
-        if self.complete || older.key != self.key {
+        if self.complete || self.sealed || older.key != self.key {
             return self;
         }
         let mut out = older;
@@ -152,6 +168,10 @@ impl Keys {
         if out.complete {
             out.gone.clear();
         }
+        out.gone_bytes = out
+            .gone
+            .iter()
+            .fold(0usize, |n, k| n.saturating_add(k.len()));
         out
     }
 }
@@ -168,6 +188,10 @@ pub(crate) struct Kept {
     keyed: BTreeMap<TrackNum, Keys>,
     /// Bytes of the keyed items, [Keys::bytes] of every track
     keyed_bytes: usize,
+    /// Bytes of the keys deleted, [Keys::gone_bytes] of every track
+    gone_bytes: usize,
+    /// No older keys follow: every track's keys are sealed, those first seen later too ([Self::seal_keys])
+    sealed: bool,
 }
 
 impl Kept {
@@ -201,15 +225,36 @@ impl Kept {
         self.trim(bytes_max);
     }
 
-    /// Forget the plain items placed longest ago until those and the keyed items take at most `bytes_max` bytes, or
-    /// no plain item is left.
+    /// Forget the plain items placed longest ago until those, the keyed items and the keys deleted take at most
+    /// `bytes_max` bytes, or no plain item is left; then, still past it, the keys deleted ([Keys::seal]).
     fn trim(&mut self, bytes_max: usize) {
-        while self.bytes.saturating_add(self.keyed_bytes) > bytes_max {
+        let total = |k: &Self| {
+            k.bytes
+                .saturating_add(k.keyed_bytes)
+                .saturating_add(k.gone_bytes)
+        };
+        while total(self) > bytes_max {
             let Some((_, oldest)) = self.by_age.first().copied() else {
                 break;
             };
             self.forget(oldest);
         }
+        if total(self) > bytes_max && self.gone_bytes > 0 {
+            self.seal_keys();
+        }
+    }
+
+    /// No older keys follow ([Self::keys_after]): the keys deleted are forgotten, and keys that aren't complete stay
+    /// so.
+    pub(crate) fn seal_keys(&mut self) {
+        if self.sealed && self.gone_bytes == 0 {
+            return;
+        }
+        for k in self.keyed.values_mut() {
+            k.seal();
+        }
+        self.sealed = true;
+        self.sum_keyed();
     }
 
     /// Keyed record `item` on keyed state track `number` at `at`, standing for `key`: a value or a deletion of its
@@ -238,12 +283,14 @@ impl Kept {
     /// The keys of track `number` standing for `key`, made with `complete` when the track has none or stood for
     /// another track.
     fn keys_entry(&mut self, number: TrackNum, key: TrackIdent, complete: bool) -> &mut Keys {
-        let keys = self
-            .keyed
-            .entry(number)
-            .or_insert_with(|| Keys::new(key, complete));
+        let sealed = self.sealed;
+        let new = || Keys {
+            sealed,
+            ..Keys::new(key, complete)
+        };
+        let keys = self.keyed.entry(number).or_insert_with(new);
         if keys.key != key {
-            *keys = Keys::new(key, complete);
+            *keys = new();
         }
         keys
     }
@@ -286,6 +333,10 @@ impl Kept {
             .keyed
             .values()
             .fold(0usize, |n, k| n.saturating_add(k.bytes));
+        self.gone_bytes = self
+            .keyed
+            .values()
+            .fold(0usize, |n, k| n.saturating_add(k.gone_bytes));
     }
 
     /// Forget the item of track `number`: its newest record lies in a block that doesn't read.
@@ -408,5 +459,62 @@ mod tests {
         assert!(k.get(TrackNum::new(1), KEY).is_some());
         assert!(k.get(TrackNum::new(2), KEY).is_none());
         assert_eq!(k.bytes(), 1);
+    }
+
+    /// The keyed item of `key`, its value `value`, or a deletion for None.
+    fn keyed(key: &[u8], value: Option<&[u8]>) -> Vec<u8> {
+        let mut out = vec![];
+        KeyedItem { key, value }.encode_into(&mut out).unwrap();
+        out
+    }
+
+    /// Keys deleted while a track's keys aren't complete are kept for keys older than them to follow, at most the
+    /// bytes kept: past them they are forgotten, and older keys taken later can no longer bring a deleted key back.
+    #[test]
+    fn keys_deleted_while_incomplete_stay_within_the_bytes_kept() {
+        let n = TrackNum::new(1);
+        let mut older = Kept::default();
+        older.key_placed(n, KEY, None, &keyed(b"/k/0", Some(b"v")), true, 1 << 20);
+        let mut k = Kept::default();
+        for i in 0..100u32 {
+            let key = alloc::format!("/k/{i}");
+            k.key_placed(n, KEY, None, &keyed(key.as_bytes(), None), false, 64);
+            assert!(
+                k.gone_bytes <= 64,
+                "{} bytes of deleted keys kept",
+                k.gone_bytes
+            );
+        }
+        k.keys_after(older);
+        let keys = k.keys(n, KEY).unwrap();
+        assert!(
+            keys.live.is_empty(),
+            "a deleted key came back: {:?}",
+            keys.live.keys()
+        );
+        assert!(!keys.complete, "the older keys weren't taken");
+    }
+
+    /// Once no older keys follow ([Kept::seal_keys], at each call), the keys deleted are forgotten and no more are
+    /// kept.
+    #[test]
+    fn sealed_keys_keep_no_deleted_keys() {
+        let n = TrackNum::new(1);
+        let mut k = Kept::default();
+        k.key_placed(n, KEY, None, &keyed(b"/a", None), false, 1 << 20);
+        assert_eq!(k.gone_bytes, 2);
+        k.seal_keys();
+        assert_eq!(k.gone_bytes, 0);
+        k.key_placed(n, KEY, None, &keyed(b"/b", None), false, 1 << 20);
+        k.key_placed(
+            TrackNum::new(2),
+            KEY,
+            None,
+            &keyed(b"/c", None),
+            false,
+            1 << 20,
+        );
+        assert_eq!(k.gone_bytes, 0);
+        assert!(k.keyed.values().all(|k| k.gone.is_empty()));
     }
 }
