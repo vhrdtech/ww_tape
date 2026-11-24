@@ -127,7 +127,7 @@ fn series_def(b: &[u8]) -> Option<(SampleShape, Ratio64)> {
 }
 
 /// Decode a samples column as `T` whole, from `from` on and group by group.
-fn decode_column(
+pub(crate) fn decode_column(
     column: &ww_tape::chunk::Column<'_>,
     shape: SampleShape,
     count: usize,
@@ -229,9 +229,25 @@ pub fn series_hostile(data: &[u8]) {
     series::query(&t, u64::from(count), 1);
 }
 
-/// The track id and tile layout of the grid track a block of definitions names; None when it names none. A grid
-/// that decodes has a layout: its axes were checked on decode.
-pub(crate) fn grid_def(b: &[u8]) -> Option<(ww_tape::TrackId, ww_tape::TileLayout, Vec<u32>)> {
+/// A grid track a block of definitions names: its id, tile layout and the shape of a cell.
+pub(crate) struct GridOf {
+    pub id: ww_tape::TrackId,
+    pub layout: ww_tape::TileLayout,
+    pub shape: Option<SampleShape>,
+}
+
+impl GridOf {
+    /// The box of every cell of the grid at overview level `level`; None past the grid's levels.
+    pub fn whole(&self, level: u8) -> Option<ww_tape::TileBox> {
+        let at = self.layout.overview(level)?;
+        let cells: Vec<_> = at.extents().iter().map(|(e, _)| 0..*e).collect();
+        at.tile_box(&cells)
+    }
+}
+
+/// The grid track a block of definitions names; None when it names none. A grid that decodes has a layout: its
+/// axes were checked on decode.
+pub(crate) fn grid_def(b: &[u8]) -> Option<GridOf> {
     let block = Block::read(b).ok()?;
     let r = block.records().flatten().nth(1)?;
     let Describe::Track(t) = Describe::from_ww_bytes(r.item).ok()? else {
@@ -241,13 +257,21 @@ pub(crate) fn grid_def(b: &[u8]) -> Option<(ww_tape::TrackId, ww_tape::TileLayou
         return None;
     };
     let l = s.tile_layout().expect("a decoded grid's axes were checked");
-    let extents = s
+    let extents: Vec<u32> = s
         .axes
         .iter()
         .map(|a| a.map(|a| a.extent.0))
         .collect::<Result<_, _>>()
         .expect("a decoded grid's axes read");
-    Some((t.id(), l, extents))
+    assert!(
+        l.extents().iter().map(|(e, _)| *e).eq(extents),
+        "the layout has the definition's extents"
+    );
+    Some(GridOf {
+        id: t.id(),
+        layout: l,
+        shape: t.series_shape(),
+    })
 }
 
 /// `tape-grid-hostile`: a grid track of hostile axes and grid chunks of hostile tile coordinates.
@@ -261,10 +285,7 @@ pub fn grid_hostile(data: &[u8]) {
     let f = hostile::grid(data);
     let bs = blocks(&f);
     let def = bs.first().and_then(|b| grid_def(b));
-    let whole = def.as_ref().and_then(|(_, l, extents)| {
-        let cells: Vec<_> = extents.iter().map(|e| 0..*e).collect();
-        l.tile_box(&cells)
-    });
+    let whole = def.as_ref().and_then(|g| g.whole(0));
     for b in bs.iter().skip(1) {
         chunk::walk(b);
         let Ok(h) = ChunkHead::read_head(b) else {
@@ -274,7 +295,12 @@ pub fn grid_hostile(data: &[u8]) {
             h.tile.len() <= ww_tape::grid::GRID_FIXED_AXES_MAX,
             "a head reads at most GRID_FIXED_AXES_MAX coordinates"
         );
-        if let (Some((_, l, _)), Some(whole)) = (&def, &whole) {
+        assert!(
+            h.level <= ww_tape::grid::GRID_OVERVIEW_LEVELS_MAX,
+            "a head reads at most GRID_OVERVIEW_LEVELS_MAX"
+        );
+        if let (Some(g), Some(whole)) = (&def, &whole) {
+            let l = &g.layout;
             match l.pack(&h.tile) {
                 Some(n) => {
                     assert_eq!(l.unpack(n), Some(h.tile));
@@ -289,18 +315,21 @@ pub fn grid_hostile(data: &[u8]) {
                     assert!(!whole.holds_coords(&h.tile), "nor in the whole grid's box");
                 }
             }
+            if let (Ok(blk), Some(shape)) = (Block::salvage(b), g.shape)
+                && let Some(c) = blk.chunk()
+            {
+                super::grid::overview(&c, l, shape);
+            }
         }
     }
-    if let (Some((id, l, _)), Some(whole)) = (&def, &whole)
+    if let Some(g) = &def
         && let Ok(r) = TapeReader::open(&f[..])
         && !r.pieces().is_empty()
     {
-        if let Ok(found) = r.grid_tiles(0, *id, i64::MIN..i64::MAX, whole) {
-            for t in found {
-                assert!(l.holds(&t.tile), "{:?}", t.tile);
-            }
+        super::grid::chunks(&r, g);
+        if let Some(whole) = &whole {
+            super::grid::summaries(&r, g.id, &g.layout, whole);
         }
-        super::grid::summaries(&r, *id, l, whole);
     }
 }
 

@@ -135,6 +135,16 @@ pub const FIXED_INPUTS: &[(&str, &str, &str)] = &[
         "salvage-misses-a-prefix-block",
         "57575450010a00009c00000000000000000000000000000002000d60000000000202020202020202020202020202020201010101010101010101010101010101010101010101010101010101010101010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000060000000000000008e297a4457575450010100004500000002000000000000000000000002000d6000000000000008006d6564696105060014600000000000100000000200000000000201052aa15eba1357575450010100005100000001000000010000000000000000000000000000000000000000000000000000000000000000000000000060000000000000007d6ad47257575450010106004000000002000000000000000000000013d3c00b00000000000014600000000000000000010000000000000201052a0003000001dec8d0315757545001010600000000030000000000000002000d6000000000010109062803030303030303030303030303030303030303030303030303030303030303030303030303030303624adc215700000000000013d304040000000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000057570000000000000000000057575450010100005100000001000000030000000000000002000d6000000000010109062803030303030303030303030303030303030303030303030303030303030303030303030303030303624adc215700000000000013d3",
     ),
+    (
+        "tape-grid",
+        "overview-layout-tile-cells-past-u64",
+        "1087dcfffffe7fdc24ff03684001e280000000005940780000bc3561b2",
+    ),
+    (
+        "tape-index",
+        "events-entry-with-a-level",
+        "01030000010100004700010001000057000100000000010109001e000000000000000000000000000000000000a50000000000002600000000d02649ef",
+    ),
 ];
 
 fn seed(target: &'static str, name: impl Into<String>, bytes: Vec<u8>) -> Seed {
@@ -832,12 +842,12 @@ fn stream(target: &'static str, mut x: u64) -> Vec<Seed> {
     out
 }
 
-/// Grid files with tile summaries a region's timeline merges, as `tape-grid` inputs: the first
-/// [GRID_FILE_SEEDS] hostile grid files of a stream that reach merged nodes.
+/// Grid files as `tape-grid` inputs: the first [GRID_FILE_SEEDS] hostile grid files of a stream with tile summaries a
+/// region's timeline merges, then the first [GRID_FILE_SEEDS] with overview chunks whose columns read.
 fn grid_files() -> Vec<Seed> {
     let mut x = 0x9e37_79b9_7f4a_7c15_u64;
-    let mut out = vec![];
-    for _ in 0..4096 {
+    let (mut nodes, mut overviews) = (vec![], vec![]);
+    for _ in 0..GRID_FILE_INPUTS {
         let input: Vec<u8> = (0..STREAM_INPUT_LEN)
             .map(|_| {
                 x ^= x << 13;
@@ -847,22 +857,26 @@ fn grid_files() -> Vec<Seed> {
             })
             .collect();
         let file = crate::hostile::grid(&input);
-        if crate::targets::summary_reach(&file).nodes > 0 {
-            out.push(seed(
-                "tape-grid",
-                format!("grid-file-{:02}", out.len()),
-                file,
-            ));
-            if out.len() == GRID_FILE_SEEDS {
-                break;
-            }
+        let reach = crate::targets::grid_reach(&file);
+        if reach.nodes > 0 && nodes.len() < GRID_FILE_SEEDS {
+            let name = format!("grid-file-{:02}", nodes.len());
+            nodes.push(seed("tape-grid", name, file));
+        } else if reach.overviews > 0 && overviews.len() < GRID_FILE_SEEDS {
+            let name = format!("grid-overview-{:02}", overviews.len());
+            overviews.push(seed("tape-grid", name, file));
+        }
+        if nodes.len() == GRID_FILE_SEEDS && overviews.len() == GRID_FILE_SEEDS {
+            break;
         }
     }
-    out
+    nodes.extend(overviews);
+    nodes
 }
 
-/// Grid files among the `tape-grid` seeds.
+/// Grid files of each kind among the `tape-grid` seeds.
 const GRID_FILE_SEEDS: usize = 8;
+/// Most stream inputs drawn for the grid files: about one in a thousand reads overview chunks.
+const GRID_FILE_INPUTS: usize = 1 << 15;
 
 /// Inputs of `tape-stores`: each mode with a run of writes, a cut, a crash, a close and a removal in turn; then a
 /// stream.

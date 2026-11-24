@@ -44,7 +44,14 @@ pub(crate) fn entry_fields(at: usize) -> [Field<'static>; 17] {
         Field::new(at, 8, &[MAX_BLOCK_LEN as u64]),
         Field::new(at + 8, 4, &[MAX_BLOCK_LEN as u64]),
         Field::new(at + 12, 1, &[3, 4, 6, 7, 9]),
-        Field::new(at + 13, 1, &[ww_tape_summary::NODE_SHIFT_MAX as u64]),
+        Field::new(
+            at + 13,
+            1,
+            &[
+                ww_tape_summary::NODE_SHIFT_MAX as u64,
+                ww_tape::grid::GRID_OVERVIEW_LEVELS_MAX as u64,
+            ],
+        ),
         Field::new(at + 14, 1, &[1, 2]),
         Field::new(at + 15, 1, ENTRY_FLAGS),
         Field::new(at + 16, 8, &[]),

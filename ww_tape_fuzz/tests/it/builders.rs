@@ -121,7 +121,7 @@ fn summaries_reach_the_tile_head() {
 fn grid_files_reach_the_tile_summaries() {
     let (mut defined, mut found, mut by_number, mut by_head, mut merged) = (0, 0, 0, 0, 0);
     for input in inputs(2000) {
-        let r = ww_tape_fuzz::targets::summary_reach(&hostile::grid(&input));
+        let r = ww_tape_fuzz::targets::grid_reach(&hostile::grid(&input));
         defined += usize::from(r.defined);
         found += usize::from(r.found > 0);
         by_number += usize::from(r.found > r.scanned);
@@ -133,4 +133,15 @@ fn grid_files_reach_the_tile_summaries() {
     assert!(merged * 8 > defined, "{merged} of {defined} merge nodes");
     assert!(by_number > 10, "{by_number} found by tile number");
     assert!(by_head > 10, "{by_head} found by head");
+}
+
+/// Of 20000 hostile grid files, some hold overview chunks the box of the whole grid at their level finds and whose
+/// min, max and mean columns read.
+#[test]
+fn grid_files_reach_the_overview_columns() {
+    let overviews = inputs(20_000)
+        .iter()
+        .filter(|input| ww_tape_fuzz::targets::grid_reach(&hostile::grid(input)).overviews > 0)
+        .count();
+    assert!(overviews > 15, "{overviews} of 20000 read overview chunks");
 }

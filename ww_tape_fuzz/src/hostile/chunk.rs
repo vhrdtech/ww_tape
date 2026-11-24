@@ -56,7 +56,7 @@ pub(crate) const HEAD_FIELDS: [Field<'static>; 11] = [
     ),
     Field::new(81, 1, &[MAX_COLUMNS as u64]),
     Field::new(82, 1, &[]),
-    Field::new(83, 1, &[]),
+    Field::new(83, 1, &[ww_tape::grid::GRID_OVERVIEW_LEVELS_MAX as u64]),
 ];
 
 /// The fields of column `i`'s entry in the table of the chunk `b`: kind, codec, param, offset.

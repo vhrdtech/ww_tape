@@ -1,15 +1,19 @@
 //! Grid tracks: the describe record of a grid track whose fixed axes take hostile values (more axes than
 //! `GRID_FIXED_AXES_MAX`, extents and tile extents at 0, 1 and past the caps, listed coordinates out of order or of
 //! another length, steps of 0, names empty or past `AXIS_NAME_LEN_MAX`), and grid chunks whose tile coordinates (their
-//! count at byte 82, their values) take hostile values, and tile summary blocks whose tile (its axis count and
-//! coordinates after the scale) takes hostile values.
+//! count at byte 82, their values) and overview level (byte 83) take hostile values, overview chunks whose min, max
+//! and mean columns hold the cells of their level's tile or not, or lack one, and tile summary blocks whose tile (its
+//! axis count and coordinates after the scale) takes hostile values.
 
 use super::chunk::{build, reseal, table};
 use super::index::{index_block, reseal_index};
 use super::summary::hit_tile;
 use super::{Draw, SESSION, clock_item, definition, get, put, seal};
 use shrink_wrap::prelude::*;
-use ww_tape::grid::{GRID_FIXED_AXES_MAX, GRID_LISTED_MAX, GRID_TILE_CELLS_MAX};
+use ww_tape::chunk::COLUMN_ENTRY_LEN;
+use ww_tape::grid::{
+    GRID_FIXED_AXES_MAX, GRID_LISTED_MAX, GRID_OVERVIEW_LEVELS_MAX, GRID_TILE_CELLS_MAX,
+};
 use ww_tape::index::{IndexEntry, IndexKind};
 use ww_tape::{
     AxisCoords, Block, BlockId, BlockKind, BlockWriter, ChunkHead, ClockNum, Codec, ColumnKind,
@@ -125,8 +129,9 @@ fn describe_block(id: BlockId, items: &[&[u8]]) -> Vec<u8> {
 
 /// A block of definitions of a grid track with hostile axes, then grid chunks of it with hostile tile coordinates.
 ///
-/// Each chunk is written with coordinates drawn near its axes' tile counts; then byte 82 (the count) or a
-/// coordinate may take a hostile value, the head CRC made to hold, so a reader takes the head. A checkpoint index may
+/// Each chunk is written with coordinates drawn near its axes' tile counts, at level 0 or as an overview chunk of a
+/// level drawn near the grid's levels (`overview_columns`); then byte 82 (the count), a coordinate or byte 83 (the
+/// level) may take a hostile value, the head CRC made to hold, so a reader takes the head. A checkpoint index may
 /// follow, whose chunk entries carry the tile number the grid packs, a hostile one or none.
 pub fn grid(data: &[u8]) -> Vec<u8> {
     let mut d = Draw::new(data);
@@ -153,20 +158,29 @@ pub fn grid(data: &[u8]) -> Vec<u8> {
     let item = definition(&Describe::Track(grid_track(&fixed)));
     let mut out = describe_block(BlockId::new(SESSION, 0), &[&clock_item(), &item]);
     let grid = SeriesGrid::start(0, 0, Magnitude::ONE);
-    let samples = [0u8; 4];
-    let spec = ColumnSpec {
-        kind: ColumnKind::Samples,
-        codec: Codec::RAW,
-        param: 0,
-        len: samples.len(),
-    };
+    let extents: Vec<(u32, u32)> = shape.iter().map(|&(e, t, ..)| (e, t)).collect();
+    let downsample = shape
+        .iter()
+        .enumerate()
+        .filter(|(_, (_, tile, ..))| tile % 2 == 0)
+        .fold(0u32, |m, (i, _)| {
+            m | 1u32.checked_shl(i as u32).unwrap_or(0)
+        });
+    let layout = TileLayout::new(&extents)
+        .ok()
+        .map(|l| l.with_downsample(downsample));
+    let levels = layout.map_or(0, |l| l.overview_levels());
     for k in 0..1 + d.below(4) {
         let coords: Vec<u32> = shape
             .iter()
             .take(GRID_FIXED_AXES_MAX)
             .map(|&(extent, tile, ..)| {
+                // half the time a tile of the grid, so chunks are found and their overviews read
                 let tiles = u64::from(extent.div_ceil(tile.max(1)));
-                d.value(32, &[tiles], &[tiles.saturating_sub(1), 0]) as u32
+                match d.bool() {
+                    true => (d.u64() % tiles.max(1)) as u32,
+                    false => d.value(32, &[tiles], &[tiles.saturating_sub(1), 0]) as u32,
+                }
             })
             .collect();
         let first = k as u64;
@@ -188,8 +202,34 @@ pub fn grid(data: &[u8]) -> Vec<u8> {
             tile: TileCoords::new(&coords).expect("at most GRID_FIXED_AXES_MAX coordinates"),
             level: 0,
         };
-        let mut b = build(&head, &[(spec, &samples)]);
-        match d.u8() % 4 {
+        let level = match d.u8() % 4 {
+            _ if coords.is_empty() => 0,
+            0 => 0,
+            1 | 2 => 1 + d.below(usize::from(levels.max(1))) as u8,
+            _ => d.value(8, &[u64::from(levels)], &[u64::from(levels) + 1]) as u8,
+        }
+        .min(GRID_OVERVIEW_LEVELS_MAX);
+        let head = ChunkHead { level, ..head };
+        let columns = overview_columns(&mut d, &head, layout);
+        let columns: Vec<(ColumnSpec, &[u8])> = columns.iter().map(|(s, b)| (*s, &b[..])).collect();
+        let mut b = build(&head, &columns);
+        // one chunk in two keeps its head: a scan stops at the first that doesn't read
+        match d.u8() % 8 {
+            // a column's kind: one of the three missing, twice or beside a samples column
+            5 if level > 0 => {
+                let at = table(&b) + COLUMN_ENTRY_LEN * d.below(3);
+                put(&mut b, at, 1, d.value(8, &[], &[9, 10, 11, 1]));
+            }
+            4 => put(
+                &mut b,
+                83,
+                1,
+                d.value(
+                    8,
+                    &[u64::from(GRID_OVERVIEW_LEVELS_MAX), u64::from(levels)],
+                    &[u64::from(level)],
+                ),
+            ),
             0 => put(
                 &mut b,
                 82,
@@ -206,8 +246,6 @@ pub fn grid(data: &[u8]) -> Vec<u8> {
         reseal(&mut b, false);
         out.extend(b);
     }
-    let extents: Vec<(u32, u32)> = shape.iter().map(|&(e, t, ..)| (e, t)).collect();
-    let layout = TileLayout::new(&extents).ok();
     // past the input's end too: every draw is 0 there
     if !d.bool() {
         summaries(&mut d, &mut out, &shape, grid_track(&fixed).id(), layout);
@@ -216,6 +254,55 @@ pub fn grid(data: &[u8]) -> Vec<u8> {
         checkpoint(&mut d, &mut out, layout);
     }
     out
+}
+
+/// Most cells an overview column holds: the blocks stay small.
+const OVERVIEW_CELLS_DRAWN_MAX: u64 = 64;
+
+/// The columns of chunk `head`: a samples column of one cell at level 0; at an overview level the min, max and mean
+/// columns, each of the cells the level's tile holds (at most [OVERVIEW_CELLS_DRAWN_MAX], else a few) or one more or
+/// less now and then.
+fn overview_columns(
+    d: &mut Draw<'_>,
+    head: &ChunkHead,
+    layout: Option<TileLayout>,
+) -> Vec<(ColumnSpec, Vec<u8>)> {
+    let raw = |kind, bytes: Vec<u8>| {
+        let spec = ColumnSpec {
+            kind,
+            codec: Codec::RAW,
+            param: 0,
+            len: bytes.len(),
+        };
+        (spec, bytes)
+    };
+    if head.level == 0 {
+        return vec![raw(ColumnKind::Samples, vec![0; 4])];
+    }
+    let cells = layout
+        .and_then(|l| l.overview(head.level))
+        .and_then(|o| o.tile_cells(&head.tile))
+        .filter(|c| *c <= OVERVIEW_CELLS_DRAWN_MAX)
+        .unwrap_or(1 + d.below(4) as u64);
+    let cells = match d.u8() % 8 {
+        0 => cells + 1,
+        1 => cells - 1,
+        _ => cells,
+    };
+    let mut bits = d.bits();
+    [
+        ColumnKind::OverviewMin,
+        ColumnKind::OverviewMax,
+        ColumnKind::OverviewMean,
+    ]
+    .into_iter()
+    .map(|kind| {
+        let bytes = (0..cells)
+            .flat_map(|_| (bits.u64() as i32 >> 8).to_le_bytes())
+            .collect();
+        raw(kind, bytes)
+    })
+    .collect()
 }
 
 /// Most cells of a hostile tile's time step: the blocks stay small.
@@ -296,7 +383,8 @@ fn summaries(
 }
 
 /// A checkpoint index of the blocks in `f` put after them: each chunk's or summary block's entry carries the tile
-/// number `layout` packs its head's coordinates to, a hostile number (bits outside the fields, any bits) or none.
+/// number `layout` packs its head's coordinates to, a hostile number (bits outside the fields, any bits) or none; a
+/// chunk's entry carries its level or now and then another.
 fn checkpoint(d: &mut Draw<'_>, f: &mut Vec<u8>, layout: Option<TileLayout>) {
     let mut entries = vec![];
     let mut at = 0;
@@ -318,6 +406,10 @@ fn checkpoint(d: &mut Draw<'_>, f: &mut Vec<u8>, layout: Option<TileLayout>) {
                     2 => Some(u128::from(bits.u64()) << 64 | u128::from(bits.u64())),
                     _ => packed,
                 };
+            }
+            if e.kind == BlockKind::Series && d.u8().is_multiple_of(8) {
+                // a level other than the chunk's: the box of that level finds the entry, and reads the chunk
+                e.level = d.below(usize::from(GRID_OVERVIEW_LEVELS_MAX) + 1) as u8;
             }
             entries.push(e);
         }
