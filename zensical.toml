@@ -74,11 +74,11 @@ nav = [
 
 # figures.css: the classes of the SVG figures the pages inline from docs/figures and docs/plots, light and dark;
 # shots.css: shows the light or the dark screenshot of a pair per scheme;
-# hero.css: the logo at the top of index.md; spl-refs.css and spl-refs.js: the cards of glossary terms and code links,
-# written by `spl book refs` (`just book-refs`)
-extra_css = ["stylesheets/vhrd.css", "stylesheets/figures.css", "stylesheets/tables.css", "stylesheets/code.css", "stylesheets/shots.css", "stylesheets/hero.css", "stylesheets/spl-refs.css"]
-# javascripts/book-stamp-age.js is written by `just book-refs` (spl book stamp), not in git
-extra_javascript = ["javascripts/spl-refs.js", "javascripts/book-stamp-age.js"]
+# hero.css: the logo at the top of index.md; vz-refs.css and vz-refs.js: the cards of glossary terms and code links;
+# vz-code.css: the code colours; all three written by `vz prep` (`just book-refs`)
+extra_css = ["stylesheets/vhrd.css", "stylesheets/figures.css", "stylesheets/tables.css", "stylesheets/code.css", "stylesheets/shots.css", "stylesheets/hero.css", "stylesheets/vz-refs.css", "stylesheets/vz-code.css"]
+# javascripts/vz-stamp-age.js is written by `just book-refs` (`vz prep`), not in git
+extra_javascript = ["javascripts/vz-refs.js", "javascripts/vz-stamp-age.js"]
 
 [project.theme]
 # overrides/main.html: the reading level badge above a page's title, from its `level:` front matter (docs/levels.md);
@@ -156,8 +156,8 @@ pymdownx.highlight = {
   line_spans = "__span",
   pygments_lang_class = true,
   extend_pygments_lang = [
-    { name = "console", lang = "spl-console" },
-    { name = "rust", lang = "spl-rust" },
+    { name = "console", lang = "vz-console" },
+    { name = "rust", lang = "vz-rust" },
   ],
 }
 pymdownx.inlinehilite = {}
@@ -181,10 +181,9 @@ pymdownx.tasklist = {
 }
 pymdownx.tilde = {}
 # `[[term]]`: a glossary term from docs/glossary.toml, its entry on hover; glossary.md lists every entry
-"spl_book_ext.glossary" = {}
-# CAN, SD and every abbreviation of the long-forms table of spirit_level.toml: its long form on hover, through `abbr`
-# above; `spl book refs` writes the table to target/spl-book/abbreviations.json
-"spl_book_ext.abbreviations" = {}
+"vhrd_zensical.glossary" = {}
+# CAN, SD and every abbreviation of docs/abbreviations.toml: its long form on hover, through `abbr` above
+"vhrd_zensical.abbreviations" = {}
 # [`Name`], [`file.rs`], [`file.rs:section`]: an item or file of these crates, the format's and the running example's:
 # its code on hover, its lines on GitHub on click; a name that matches nothing fails the build
-"spl_book_ext.code_refs" = { crates = ["ww_tape", "ww_tape_codecs", "ww_tape_summary", "ww_tape_fs", "ww_tape_mux", "example_capture", "example_drive", "example_ethernet", "example_rf", "example_wideband"] }
+"vhrd_zensical.code_refs" = { crates = ["ww_tape", "ww_tape_codecs", "ww_tape_summary", "ww_tape_fs", "ww_tape_mux", "example_capture", "example_drive", "example_ethernet", "example_rf", "example_wideband"] }

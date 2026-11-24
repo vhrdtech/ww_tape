@@ -103,8 +103,8 @@ A name in square brackets and backticks links code. ``[`TapeWriter::resume_on`]`
 a file, and ``[`crashes.rs:resume`]`` a marked section of a file. The reader sees the code in a card and opens its
 lines on GitHub.
 
-`just book-refs` checks every mark and link, and every build runs it. An unknown term, or a name that no item matches,
-fails the build. A renamed item thus fails the book in the same change that renames it.
+`just book-refs` checks every mark and link, and every build runs it. An unknown term, or a name that no item
+matches, fails the build. A renamed item thus fails the book in the same change that renames it.
 
 The book uses one name for each thing. Where two words could name one thing, the glossary entry decides, and the other
 word goes into its forms.
@@ -114,14 +114,14 @@ word goes into its forms.
 Prose writes an abbreviation alone and never spells it out: "a PC", never `a personal computer (PC)`. The
 `abbreviation-first-use` lint in `spirit_level.toml` holds two lists, and every abbreviation goes into one of them.
 
-| List | Holds | In the book |
+| Place | Holds | In the book |
 |---|---|---|
-| `known` | ones every reader knows, and names in capitals: PC, USB, AMD, EPYC | plain |
-| `long-forms` | every other, with its long form: CAN, SD, CRC, IQ, MCU | its long form on hover |
+| `known` in `spirit_level.toml` | ones every reader knows, and names in capitals: PC, USB, AMD, EPYC | plain |
+| `docs/abbreviations.toml` | every other, with its long form: CAN, SD, CRC, IQ, MCU | its long form on hover |
 
-A new abbreviation that a reader may not know goes into `long-forms`. `just book-refs` writes the table, and the
-build marks each use so that the reader sees the long form under the pointer. The lint fails an abbreviation in
-neither list, and prose that spells out one of either list.
+A new abbreviation that a reader may not know goes into `docs/abbreviations.toml`. The build reads the file and
+marks each use so that the reader sees the long form under the pointer. The lint fails an abbreviation in neither
+place, and prose that spells out one of either.
 
 ## Code on a page
 

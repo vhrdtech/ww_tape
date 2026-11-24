@@ -1,4 +1,4 @@
-# The book's glossary, one entry per term, read by spl_book_ext (spirit_level's book page "References in prose").
+# The book's glossary, one entry per term, read by vhrd_zensical (the book kit's page "References in prose").
 # `[[term]]` in a page links the term to its entry on glossary.md and shows `short` on hover; `forms` are the other
 # words the term takes in prose; `long` is an abbreviation's long form; `chapter` is the page that explains the term.
 

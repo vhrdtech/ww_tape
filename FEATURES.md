@@ -414,6 +414,14 @@ The pages in `docs/`.
 
   Read more: [Fields and images over time](docs/grids.md), [example_thermal](examples/example_thermal/README.md), [example_images](examples/example_images/README.md). Tests `thermal.rs`, `images.rs`.
 
+- ✅ **BOOK-6 The book kit from its own repository**
+
+  The book pins `vhrd_zensical` in the justfile; `vz prep` writes the code index, the cards and the footer stamp,
+  replacing spirit_level's book extension. The lexers are now `vz-console` and `vz-rust`, and the long forms of
+  `abbreviation-first-use` live in `docs/abbreviations.toml`, read by the kit, not `spirit_level.toml`.
+
+  Read more: [For writers](docs/writers.md).
+
 ## Example and cases (`EX`)
 
 The book's running example and its other cases: `example_drive`, `example_rf`, `example_ethernet` and `example_wideband`, with what they share in `example_capture`.
