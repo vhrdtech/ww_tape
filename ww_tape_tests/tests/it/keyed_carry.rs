@@ -427,7 +427,7 @@ fn a_put_past_the_kept_bytes_is_refused() {
 }
 
 /// Two keys found to share a [KeyId]: the same 8-byte head, length 16 and first 8 bytes of BLAKE3,
-/// `9f4df4fa77ba1a80`. Found by Pollard's rho with distinguished points (20 low zero bits) over
+/// `0x9f4d_f4fa_77ba_1a80`. Found by Pollard's rho with distinguished points (20 low zero bits) over
 /// `x -> first 8 bytes, little endian, of BLAKE3("/store/k" ++ x as 8 bytes little endian)`, on 2 threads, about
 /// 2^32 hashes.
 const PAIR: [[u8; 16]; 2] = [

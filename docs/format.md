@@ -847,24 +847,27 @@ about 2^32 BLAKE3 hashes. A lookup of one key (`TapeReader::key_at`) reads each 
 A listing (`keys_at`) reads the newest record of each slot, so it shows only the newer of two keys that share one.
 Whether a key lives is the record's to say: the index's deletion mark lists slots (`key_slots`) without reading one.
 
-A cut carries every live key into the new piece: after the track's definition, one record per key, its newest
-value at the time of its last put, in key order, in blocks of puts marked `FLAG_KEYED` of at most
-`CARRIED_BLOCK_LEN` (4 KiB). A deleted key is not carried. The carry is part of the cut's blocks that belong with
-the first block of data (`FLAG_WITH_NEXT`), so a crash keeps all of it or none, and the next call puts it again.
+#### 5.3.1 Keys carried at a cut {#keys-carried-at-a-cut}
 
-The next head marks the track's row `TrackStart::keys_carried` (row flag bit 2) when the writer knew every live key:
-it saw every record of the track since its first, in this piece, in the carry of the piece before, or through the
-index of the closed pieces a chain's resume reads. A record it couldn't read, or a piece resumed alone after its
-carry was lost, leaves the row unmarked, and `Closed::keys_unknown` counts such tracks. A resume of a piece alone
-whose head marks a row but whose carry a crash dropped refuses to carry again (`ResumeError::KeysUnknown`): a
-`PieceChain` resume reads the keys from the piece before.
+A cut carries every live key into the new piece, after the track's definition. Each key gets one record with the
+value of its last put, in key order. The records go in blocks of puts marked `FLAG_KEYED`, each at most
+`CARRIED_BLOCK_LEN` (4 KiB). A deleted key is not carried. The carry belongs with the first block of data
+(`FLAG_WITH_NEXT`): a crash keeps all of it or none, and the next call puts it again.
 
-A reader of a piece that follows another and whose row of the track isn't marked can't know the keys in force at the
+The next head marks the track's row `TrackStart::keys_carried` (row flag bit 2) when the writer knew every live key.
+It knows them when it saw every record of the track since its first. It sees them in this piece, in the carry of the
+piece before, or through the index of the closed pieces a chain's resume reads.
+
+A record it couldn't read leaves the row unmarked, and so does a piece resumed alone after its carry was lost. `Closed::keys_unknown` counts such tracks.
+A piece resumed alone whose head marks a row but whose carry a crash dropped refuses to carry again
+(`ResumeError::KeysUnknown`). A `PieceChain` resume reads the keys from the piece before.
+
+A piece that follows another may leave the track's row unmarked. A reader of it can't know the keys in force at the
 piece's start. `KeysAt::not_carried` says so, and so does `Lookup::not_carried` of a key it found no record of; their
 `is_whole()` is false then. A first piece, or a track without a row in the head, holds every record of the track.
 
 A keyed track is never left out of a cut ([Carried definitions](carried_definitions.md#when-they-dont-fit)). The
-writer refuses a `put_key` that would make the carry too large for a piece, with `InputError::CarryFull` naming the
+writer refuses a `put_key` that would make the carry too large for a piece. Its `InputError::CarryFull` names the
 limit (`CarryLimit`):
 
 | Limit | What must fit it |
@@ -876,7 +879,7 @@ A change of a live key that keeps its size and a deletion are never refused for 
 lets a change or a deletion land in a piece a cut made for it.
 
 The writer also refuses a `put_key` whose key has the key id of another live key of the track
-(`DescribeError::KeyCollision`), so a listing never hides a live key. The relay of a producer's block of keyed records
+(`DescribeError::KeyCollision`). So a listing never hides a live key. The relay of a producer's block of keyed records
 is checked the same way.
 
 ### 5.4 Deferred blocks {#deferred-blocks}

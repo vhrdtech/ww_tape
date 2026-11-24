@@ -24,7 +24,7 @@ benchmarks, golden files and book pages.
 - The index lists a keyed record by key head, length and hash: `key_entries` and `key_slots` read the index only (TRACK-8).
 - `key_at`, `key_history` and `keys_at` read a key's record at a place, its history and a prefix's live keys (TRACK-8).
 - Fuzz targets `tape-keyed` and `tape-keyed-hostile` check keyed items, entries, lookups and resume (TRACK-8).
-- A cut carries every live key of a keyed track; a piece read alone holds them, or says it doesn't (TRACK-8).
+- A cut carries every live key of a keyed track; a piece read alone holds them or says not (TRACK-8).
 - A put by key past the carry's limit, or of another live key's id, is refused (TRACK-8).
 - The book explains grids in "Fields and images over time", with `example_thermal` and `example_images` as tested cases (BOOK-5).
 

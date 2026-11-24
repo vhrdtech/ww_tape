@@ -62,8 +62,8 @@ contract: a new piece carries every definition while the chain's tracks fit its 
 that room, the tracks with the oldest data are left out. The next head flags their rows, the close counts them (`Closed::not_carried`) and a reader of
 the piece names them (`DefinitionsAt::not_carried`).
 
-A keyed state track is never left out. It goes first, with every live key, and the writer refuses a put that would
-make its keys too many for a piece ([Keyed state tracks](format.md#keyed-state-tracks)).
+A keyed state track is never left out. It goes first, with every live key. The writer refuses a put that would make
+its keys too many for a piece ([Keyed state tracks](format.md#keyed-state-tracks)).
 
 The room is counted in entries, not bytes, so a label's length changes it little. `just bench-carried` measures how
 many tracks a cut carries whole, each with its own definition and no bundle:
