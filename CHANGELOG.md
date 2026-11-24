@@ -6,6 +6,8 @@ benchmarks, golden files and book pages.
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-11-24
+
 ### Features
 
 - `Resumed::numbers_unread` counts the track and clock definitions a chain resume could not read (TRACK-7).
