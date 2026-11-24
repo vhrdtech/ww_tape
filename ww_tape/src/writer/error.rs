@@ -129,7 +129,8 @@ impl core::fmt::Display for CarryLimit {
 pub enum GroupRefusal {
     /// The group's items take `len` bytes, more than [GROUP_BYTES_MAX](super::GROUP_BYTES_MAX) (`max`).
     TooLong { len: usize, max: usize },
-    /// The group puts on track `track` twice: a slot takes one item per group, relayed or not.
+    /// The group puts on track `track` twice, or on a key of keyed track `track` twice: a slot takes one item per
+    /// group, relayed or not.
     SlotTwice { track: crate::TrackNum },
     /// The producer of session `session` tore the group a relay held of it after `blocks` blocks: its block was the
     /// first of another group or none of a group's. That block is put; the group held is dropped.
@@ -137,9 +138,6 @@ pub enum GroupRefusal {
     /// A block of a group of the producer of session `session` whose group the relay doesn't hold: its first block
     /// never came, or the group was dropped. The block is passed over.
     NoStart { session: SessionTag },
-    /// A block of keyed state records ([FLAG_KEYED](crate::FLAG_KEYED)) of a group of the producer of session
-    /// `session`: a group holds no keyed records. The group is dropped.
-    Keyed { session: SessionTag },
     /// The first block of a group of the producer of session `session` while the relay holds groups of `max`
     /// producers ([RELAY_GROUPS_MAX](super::RELAY_GROUPS_MAX)). The group is passed over.
     TooManyHeld { session: SessionTag, max: usize },
@@ -363,10 +361,6 @@ impl core::fmt::Display for InputError {
             Self::Group(GroupRefusal::NoStart { session }) => write!(
                 f,
                 "a block of a group of puts of producer {session:?} whose group no relay holds: passed over"
-            ),
-            Self::Group(GroupRefusal::Keyed { session }) => write!(
-                f,
-                "a block of keyed records in a group of puts of producer {session:?}: a group holds none, dropped"
             ),
             Self::Group(GroupRefusal::TooManyHeld { session, max }) => write!(
                 f,

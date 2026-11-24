@@ -30,8 +30,21 @@ pub enum Unit {
         item: Vec<u8>,
         keyed: bool,
     },
-    /// A group of puts of a [GroupHandle](crate::GroupHandle): track, time and item each.
-    Group(Vec<(TrackNum, i64, Vec<u8>)>),
+    /// A group of puts of a [GroupHandle](crate::GroupHandle).
+    Group(Vec<GroupUnitPut>),
+}
+
+/// A put of a group a [GroupHandle](crate::GroupHandle) sent ([Unit::Group]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GroupUnitPut {
+    /// The state track.
+    pub track: TrackNum,
+    /// The time of the put, in ticks of the track's clock.
+    pub ticks: i64,
+    /// The item; with `keyed`, a key and its value or deletion as a [KeyedItem](ww_tape::KeyedItem) encodes them.
+    pub item: Vec<u8>,
+    /// Whether the put is by key, on a keyed state track.
+    pub keyed: bool,
 }
 
 /// What a handle refuses at the call, before anything is sent.

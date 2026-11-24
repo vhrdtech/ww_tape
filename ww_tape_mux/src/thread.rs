@@ -6,12 +6,13 @@ use std::time::{Duration, Instant};
 use ww_tape::chunk::ChunkHead;
 use ww_tape::index::{IndexEntry, IndexError};
 use ww_tape::{
-    ChainPiece, ChunkPlaced, CloseReason, ColumnSpec, Definitions, DescribeError, GroupPut,
-    KeyedItem, PieceChain, PieceStore, Slot as DefSlot, TapeSink, TrackNum, UnitChunk, WriteError,
+    ChainPiece, ChunkPlaced, CloseReason, ColumnSpec, Definitions, DescribeError, GroupItem,
+    GroupPut, KeyedItem, PieceChain, PieceStore, Slot as DefSlot, TapeSink, TrackNum, UnitChunk,
+    WriteError,
 };
 
 use crate::define;
-use crate::error::MuxError;
+use crate::error::{GroupUnitPut, MuxError};
 use crate::items::{self, Held};
 use crate::open;
 use crate::placing::{Placement, Unplaced};
@@ -435,19 +436,11 @@ fn place<T: PieceStore>(
             if failed {
                 Counters::add(&shared.counters.lost, 1);
             } else {
-                let group: Vec<GroupPut<'_>> = puts
-                    .iter()
-                    .map(|(track, ticks, item)| GroupPut {
-                        track: *track,
-                        ticks: *ticks,
-                        item,
-                    })
-                    .collect();
-                let r = chain.put_group(defs, &group).map(drop);
+                let r = put_group(chain, defs, &puts);
                 placed(chain, shared, &from, r, bytes);
             }
-            for (_, _, item) in puts {
-                from.give_back(item);
+            for p in puts {
+                from.give_back(p.item);
             }
         }
         Work::PutItem { item, carry, reply } => {
@@ -523,6 +516,29 @@ fn put_unit<T: PieceStore>(
         None => chain.delete_key(defs, track, ticks, k.key),
     }
     .map(|_| ())
+}
+
+/// The group of puts `puts` put whole ([PieceChain::put_group]).
+fn put_group<T: PieceStore>(
+    chain: &mut PieceChain<T>,
+    defs: &Definitions,
+    puts: &[GroupUnitPut],
+) -> Result<(), WriteError<T::Error>> {
+    let mut group = Vec::with_capacity(puts.len());
+    for p in puts {
+        let item = if p.keyed {
+            // the handle encoded it: a key within the cap
+            GroupItem::Key(KeyedItem::read(&p.item).map_err(DescribeError::KeyedItem)?)
+        } else {
+            GroupItem::State(&p.item)
+        };
+        group.push(GroupPut {
+            track: p.track,
+            ticks: p.ticks,
+            item,
+        });
+    }
+    chain.put_group(defs, &group).map(drop)
 }
 
 /// A block placed as `how` says.

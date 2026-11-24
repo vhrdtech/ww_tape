@@ -123,7 +123,7 @@ use ww_tape::{
     TypedItem,
 };
 
-pub use error::{CallError, EncodeError, ItemError, MuxError, Unit};
+pub use error::{CallError, EncodeError, GroupUnitPut, ItemError, MuxError, Unit};
 pub use events::{
     CHUNK_BYTES_DEFAULT, CHUNK_ITEMS_DEFAULT, Event, EventsHandle, EventsOptions, ITEM_BYTES_MAX,
     LATENCY_DEFAULT,
@@ -479,7 +479,8 @@ where
         }
     }
 
-    /// A handle that puts groups of items on state tracks `tracks`, each group taken whole or not at all.
+    /// A handle that puts groups of items on state tracks `tracks`, and keys' values and deletions on those keyed,
+    /// each group taken whole or not at all.
     pub fn group(&self, tracks: &[TrackNum]) -> Result<GroupHandle<T>, MuxError<T::Error>> {
         block_on(self.group_async(tracks))
     }
@@ -489,13 +490,22 @@ where
         &self,
         tracks: &[TrackNum],
     ) -> Result<GroupHandle<T>, MuxError<T::Error>> {
+        let mut keyed = Vec::new();
         for &track in tracks {
             match self.facts(track).await? {
-                Some(f) if f.state.is_some() => {}
+                Some(f) if f.state.is_some() => {
+                    if f.keyed {
+                        keyed.push(track);
+                    }
+                }
                 _ => return Err(CallError::Kind { track }.into()),
             }
         }
-        Ok(GroupHandle::new(self.shared.clone(), tracks.to_vec()))
+        Ok(GroupHandle::new(
+            self.shared.clone(),
+            tracks.to_vec(),
+            keyed,
+        ))
     }
 
     /// A handle that sends records blocks.

@@ -307,10 +307,10 @@ pub use clock::{Clock, ClockRef};
 pub mod writer;
 #[cfg(feature = "alloc")]
 pub use writer::{
-    CARRIED_BLOCK_LEN, CarryLimit, Closed, CutError, DEFER_WINDOW, GROUP_BYTES_MAX, GroupPut,
-    GroupRefusal, HEAD_ENTRIES, InputError, NearPolicy, Placed, PutWork, RELAY_GROUPS_MAX,
-    RELAY_HELD_BYTES_MAX, RELAY_RECORD_OVERHEAD, RemovedRefusal, ResumeError, Resumed, SealError,
-    Sealed, SyncPolicy, TapeWriter, UnitChunk, WriteError, WriterOptions,
+    CARRIED_BLOCK_LEN, CarryLimit, Closed, CutError, DEFER_WINDOW, GROUP_BYTES_MAX, GroupItem,
+    GroupPut, GroupRefusal, HEAD_ENTRIES, InputError, NearPolicy, Placed, PutWork,
+    RELAY_GROUPS_MAX, RELAY_HELD_BYTES_MAX, RELAY_RECORD_OVERHEAD, RemovedRefusal, ResumeError,
+    Resumed, SealError, Sealed, SyncPolicy, TapeWriter, UnitChunk, WriteError, WriterOptions,
 };
 
 /// `WWTP`

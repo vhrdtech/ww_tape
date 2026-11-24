@@ -13,7 +13,7 @@ use ww_tape::{
 };
 
 use crate::MuxStats;
-use crate::error::{MuxError, Unit};
+use crate::error::{GroupUnitPut, MuxError, Unit};
 use crate::items::ItemCarry;
 use crate::open::Complete;
 use crate::placing::PlacedTx;
@@ -82,10 +82,10 @@ pub(crate) enum Work<T: PieceStore> {
         /// The item is a [KeyedItem](ww_tape::KeyedItem): put by key
         keyed: bool,
     },
-    /// A group of puts, taken whole or not at all ([ww_tape::TapeWriter::put_group]): track, time and item each.
+    /// A group of puts, taken whole or not at all ([ww_tape::TapeWriter::put_group]).
     PutGroup {
         from: Arc<Slot<T::Error>>,
-        puts: Vec<(TrackNum, i64, Vec<u8>)>,
+        puts: Vec<GroupUnitPut>,
     },
     /// A typed item, encoded as its definition ([ww_tape::Describe::Item]), to put and hold as `carry` says.
     PutItem {

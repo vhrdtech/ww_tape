@@ -5,12 +5,12 @@ use std::sync::Arc;
 
 use ww_tape::chunk::ChunkHead;
 use ww_tape::{
-    Block, BlockKind, ColumnSpec, GroupPut, ItemNum, KeyedItem, PieceStore, Sample, SeriesGrid,
-    TrackFacts, TrackNum,
+    Block, BlockKind, ColumnSpec, GroupItem, GroupPut, ItemNum, KeyedItem, PieceStore,
+    STATE_KEY_LEN_MAX, Sample, SeriesGrid, TrackFacts, TrackNum,
 };
 use ww_tape_summary::{BuildError, EventRuns, Scalar};
 
-use crate::error::{CallError, MuxError};
+use crate::error::{CallError, GroupUnitPut, MuxError};
 use crate::leaves::{Leaves, SampleLeaves, SummaryOf};
 use crate::placing::{PlacedTx, Placing};
 use crate::queue::Pushed;
@@ -123,9 +123,9 @@ impl<T: PieceStore> Sender<T> {
                 .for_each(|(_, b)| self.slot.give_back(b)),
             Some(Work::Block { block, .. }) => self.slot.give_back(block),
             Some(Work::Put { item, .. }) => self.slot.give_back(item),
-            Some(Work::PutGroup { puts, .. }) => puts
-                .into_iter()
-                .for_each(|(_, _, item)| self.slot.give_back(item)),
+            Some(Work::PutGroup { puts, .. }) => {
+                puts.into_iter().for_each(|p| self.slot.give_back(p.item))
+            }
             _ => {}
         }
     }
@@ -632,24 +632,27 @@ impl<T: PieceStore> StateHandle<T> {
     }
 }
 
-/// Puts groups of items of some state tracks, each group taken whole or not at all
-/// ([TapeWriter::put_group](ww_tape::TapeWriter::put_group)): a crash inside a group leaves none of it after a resume,
-/// and readers show all of it or none.
+/// Puts groups of items of some state tracks, and of keys' values and deletions of keyed ones, each group taken whole
+/// or not at all ([TapeWriter::put_group](ww_tape::TapeWriter::put_group)): a crash inside a group leaves none of it
+/// after a resume, and readers show all of it or none.
 ///
 /// Any number of these handles may put on the same tracks, and [StateHandle]s too.
 pub struct GroupHandle<T: PieceStore> {
     s: Sender<T>,
     tracks: Vec<TrackNum>,
+    /// Those of `tracks` that are keyed
+    keyed: Vec<TrackNum>,
 }
 
 common!(GroupHandle);
 buffered!(GroupHandle);
 
 impl<T: PieceStore> GroupHandle<T> {
-    pub(crate) fn new(shared: Arc<Shared<T>>, tracks: Vec<TrackNum>) -> Self {
+    pub(crate) fn new(shared: Arc<Shared<T>>, tracks: Vec<TrackNum>, keyed: Vec<TrackNum>) -> Self {
         Self {
             s: Sender::new(shared, None),
             tracks,
+            keyed,
         }
     }
 
@@ -659,8 +662,11 @@ impl<T: PieceStore> GroupHandle<T> {
     }
 
     /// Put `puts` as one group. Refused at the call, before its items are copied: a put on a track not of this
-    /// handle ([CallError::Kind]), and a group naming a track twice or whose items take more than
-    /// [GROUP_BYTES_MAX](ww_tape::GROUP_BYTES_MAX) bytes ([CallError::Group]).
+    /// handle ([CallError::Kind]), an item on a keyed track or a key on one that isn't ([CallError::Keyed]), a key
+    /// longer than [STATE_KEY_LEN_MAX](ww_tape::STATE_KEY_LEN_MAX) ([CallError::KeyTooLong]), and a group naming a
+    /// track or a key twice or whose items take more than [GROUP_BYTES_MAX](ww_tape::GROUP_BYTES_MAX) bytes
+    /// ([CallError::Group]). The keys are checked against each other and the live keys where the writer puts the
+    /// group ([TapeWriter::put_group](ww_tape::TapeWriter::put_group)).
     ///
     /// A group takes its items' bytes and a share for each put of the queue's budget
     /// ([MuxOptions::queue_bytes](crate::MuxOptions::queue_bytes)). One larger than the whole budget waits until the
@@ -678,19 +684,49 @@ impl<T: PieceStore> GroupHandle<T> {
     }
 
     fn unit(&self, puts: &[GroupPut<'_>]) -> Result<(Work<T>, u64), MuxError<T::Error>> {
-        if let Some(p) = puts.iter().find(|p| !self.tracks.contains(&p.track)) {
-            return Err(CallError::Kind { track: p.track }.into());
+        for p in puts {
+            let track = p.track;
+            if !self.tracks.contains(&track) {
+                return Err(CallError::Kind { track }.into());
+            }
+            let keyed = self.keyed.contains(&track);
+            match p.item {
+                GroupItem::State(_) if keyed => {
+                    return Err(CallError::Keyed { track, keyed }.into());
+                }
+                GroupItem::Key(_) if !keyed => return Err(CallError::Keyed { track, keyed }.into()),
+                GroupItem::Key(k) if k.key.len() > STATE_KEY_LEN_MAX => {
+                    return Err(CallError::KeyTooLong { len: k.key.len() }.into());
+                }
+                _ => {}
+            }
         }
         GroupPut::check(puts).map_err(CallError::Group)?;
         let mut bytes = 0u64;
         let mut items = Vec::with_capacity(puts.len());
         for p in puts {
             let mut buf = self.s.slot.buffer();
-            buf.extend_from_slice(p.item);
+            let keyed = match p.item {
+                GroupItem::State(item) => {
+                    buf.extend_from_slice(item);
+                    false
+                }
+                GroupItem::Key(k) => {
+                    // checked above: a key within the cap encodes
+                    k.encode_into(&mut buf)
+                        .ok_or(CallError::KeyTooLong { len: k.key.len() })?;
+                    true
+                }
+            };
             bytes = bytes
                 .saturating_add(block_bytes(&buf))
                 .saturating_add(PUT_OVERHEAD_BYTES);
-            items.push((p.track, p.ticks, buf));
+            items.push(GroupUnitPut {
+                track: p.track,
+                ticks: p.ticks,
+                item: buf,
+                keyed,
+            });
         }
         let work = Work::PutGroup {
             from: self.s.slot.clone(),

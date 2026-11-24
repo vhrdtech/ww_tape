@@ -41,7 +41,7 @@ fn put_group(w: &mut Rig, items: &[Vec<u8>]) -> Result<Vec<bool>, WriteError<ww_
         .map(|(t, item)| GroupPut {
             track: TrackNum::new(*t),
             ticks: 7,
-            item,
+            item: ww_tape::GroupItem::State(item),
         })
         .collect();
     w.w.put_group(&w.defs, &puts)
@@ -216,7 +216,7 @@ fn a_group_the_writer_refuses_writes_nothing() {
     let twice = [10, 11, 10].map(|t| GroupPut {
         track: TrackNum::new(t),
         ticks: 1,
-        item: b"x",
+        item: ww_tape::GroupItem::State(b"x"),
     });
     assert!(matches!(
         w.w.put_group(&w.defs, &twice),
@@ -226,7 +226,7 @@ fn a_group_the_writer_refuses_writes_nothing() {
     let long = [10, 11].map(|t| GroupPut {
         track: TrackNum::new(t),
         ticks: 1,
-        item: &big,
+        item: ww_tape::GroupItem::State(&big),
     });
     assert!(matches!(
         w.w.put_group(&w.defs, &long),
@@ -236,7 +236,7 @@ fn a_group_the_writer_refuses_writes_nothing() {
     let events = [GroupPut {
         track: TrackNum::new(1),
         ticks: 1,
-        item: b"x",
+        item: ww_tape::GroupItem::State(b"x"),
     }];
     assert!(matches!(
         w.w.put_group(&w.defs, &events),
@@ -275,7 +275,7 @@ fn a_chain_cuts_before_a_group_never_inside() {
             .map(|(t, item)| GroupPut {
                 track: TrackNum::new(*t),
                 ticks: i64::from(round),
-                item,
+                item: ww_tape::GroupItem::State(item),
             })
             .collect();
         let seq = chain.seq();

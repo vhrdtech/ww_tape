@@ -16,6 +16,8 @@ benchmarks, golden files and book pages.
 - Head row flag bit 2 (`ROW_KEYS_CARRIED`) marks a carried keyed track; older readers refuse such heads (TRACK-8).
 - `TrackStart` gains `keys_carried`, `Closed` gains `keys_unknown`, `KeysAt` and `Lookup` gain `not_carried` (TRACK-8).
 - Head and close flag bit 1 (`unlisted_keys_unknown`): after damage, a keyed track without a row may have older keys (TRACK-8).
+- `GroupPut::item` is a `GroupItem`, `State` or `Key`: build puts with `GroupPut::state` (TRACK-8).
+- `mux::Unit::Group` holds `GroupUnitPut`s, each with `keyed` (TRACK-8).
 - `InputError::CarryFull`, `ResumeError::KeysUnknown`, `ResumeError::KeysUndefined` and `DescribeError::KeyCollision` are new variants (TRACK-8).
 
 ### Features
@@ -27,7 +29,7 @@ benchmarks, golden files and book pages.
 - Fuzz targets `tape-keyed` and `tape-keyed-hostile` check keyed items, entries, lookups and resume (TRACK-8).
 - A cut carries every live key of a keyed track; a piece read alone holds them or says not (TRACK-8).
 - A put by key past the carry's limit, or of another live key's id, is refused (TRACK-8).
-- `put_group` refuses a keyed track; a relay refuses a keyed block in a group (`GroupRefusal::Keyed`) (TRACK-8).
+- Groups of puts take keys and deletions: `put_group`, a relayed group and the mux's `GroupHandle` (TRACK-8).
 
 ## [0.10.1] - 2026-11-24
 

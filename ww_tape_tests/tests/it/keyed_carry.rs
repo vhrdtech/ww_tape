@@ -14,12 +14,12 @@ use ww_tape::{
 
 use crate::keyed::{KEYED, PLAIN, defs};
 
-const OWNER: OwnerId = OwnerId([0x4c; 32]);
+pub(crate) const OWNER: OwnerId = OwnerId([0x4c; 32]);
 
 /// The live keys a test expects, with their values.
-type Model = BTreeMap<Vec<u8>, Vec<u8>>;
+pub(crate) type Model = BTreeMap<Vec<u8>, Vec<u8>>;
 
-fn options(entries_max: u64, kept_bytes_max: u64) -> ChainOptions {
+pub(crate) fn options(entries_max: u64, kept_bytes_max: u64) -> ChainOptions {
     ChainOptions {
         tapes: PieceTapes::Each,
         writer: WriterOptions {
@@ -38,23 +38,23 @@ fn options(entries_max: u64, kept_bytes_max: u64) -> ChainOptions {
     }
 }
 
-fn wide_options() -> ChainOptions {
+pub(crate) fn wide_options() -> ChainOptions {
     options(1 << 20, 64 << 20)
 }
 
-fn chain_with(options: ChainOptions) -> (MemPieces, PieceChain<MemPieces>) {
+pub(crate) fn chain_with(options: ChainOptions) -> (MemPieces, PieceChain<MemPieces>) {
     let mem = MemPieces::new();
     let chain = PieceChain::create_on(mem.clone(), OWNER, 0, &[], options).unwrap();
     (mem, chain)
 }
 
 /// Key `n` of the tests: `/p/` then its number, so the keys sort by it.
-fn key(n: u32) -> Vec<u8> {
+pub(crate) fn key(n: u32) -> Vec<u8> {
     format!("/p/{n:05}").into_bytes()
 }
 
 /// A value of 40 bytes for key `n`, put the `round`th time.
-fn value(n: u32, round: u32) -> Vec<u8> {
+pub(crate) fn value(n: u32, round: u32) -> Vec<u8> {
     format!("{n:05}-{round:05}-").repeat(4).into_bytes()
 }
 
@@ -77,7 +77,7 @@ fn apply(
 }
 
 /// The live keys of [KEYED] in piece `i` of `bytes` as of its end, and whether the reader holds them whole.
-fn keys_of(bytes: &[u8], i: usize) -> (Model, bool) {
+pub(crate) fn keys_of(bytes: &[u8], i: usize) -> (Model, bool) {
     let r = TapeReader::open(bytes).unwrap();
     let at = r.keys_at(i, KEYED, b"", u64::MAX).unwrap();
     let keys = at
@@ -88,7 +88,7 @@ fn keys_of(bytes: &[u8], i: usize) -> (Model, bool) {
     (keys, at.is_whole())
 }
 
-fn piece_bytes(mem: &MemPieces, key: u64) -> Vec<u8> {
+pub(crate) fn piece_bytes(mem: &MemPieces, key: u64) -> Vec<u8> {
     mem.get(&key).unwrap().unwrap().to_vec().unwrap()
 }
 
@@ -215,7 +215,7 @@ fn a_closed_piece_written_on_again_carries_its_keys() {
 }
 
 /// The block boundaries of the piece `bytes` from its start, each block's end, as its headers name them.
-fn boundaries(bytes: &[u8]) -> Vec<usize> {
+pub(crate) fn boundaries(bytes: &[u8]) -> Vec<usize> {
     let mut out = vec![0];
     let mut at = 0usize;
     while let Some(h) = bytes.get(at..at + 32) {
@@ -352,7 +352,7 @@ fn a_crash_inside_the_close_of_a_cut_keeps_every_key() {
 }
 
 /// [wide_options] with a checkpoint every 1 KiB: a block that doesn't read stands by its entry.
-fn checkpointed() -> ChainOptions {
+pub(crate) fn checkpointed() -> ChainOptions {
     let mut o = wide_options();
     o.writer.index.bytes = exact_units::Bytes::new(1024);
     o
@@ -432,7 +432,7 @@ fn keys_before_a_damaged_piece_dont_make_its_keys_whole() {
 }
 
 /// The offsets of the blocks of kind `kind` in the piece `bytes`.
-fn blocks_of(bytes: &[u8], kind: ww_tape::BlockKind) -> Vec<usize> {
+pub(crate) fn blocks_of(bytes: &[u8], kind: ww_tape::BlockKind) -> Vec<usize> {
     boundaries(bytes)
         .into_iter()
         .filter(|at| {
@@ -445,7 +445,7 @@ fn blocks_of(bytes: &[u8], kind: ww_tape::BlockKind) -> Vec<usize> {
 }
 
 /// Piece `key` of `mem` with byte `at` flipped.
-fn flip(mem: &MemPieces, key: u64, at: usize) {
+pub(crate) fn flip(mem: &MemPieces, key: u64, at: usize) {
     let mut bytes = piece_bytes(mem, key);
     bytes[at] ^= 0x55;
     let mut sink = mem.reopen(&key).unwrap().unwrap();
@@ -885,7 +885,7 @@ fn keys_read_after_a_close_count_under_the_kept_bytes() {
 /// `0x9f4d_f4fa_77ba_1a80`. Found by Pollard's rho with distinguished points (20 low zero bits) over
 /// `x -> first 8 bytes, little endian, of BLAKE3("/store/k" ++ x as 8 bytes little endian)`, on 2 threads, about
 /// 2^32 hashes.
-const PAIR: [[u8; 16]; 2] = [
+pub(crate) const PAIR: [[u8; 16]; 2] = [
     [
         0x2f, 0x73, 0x74, 0x6f, 0x72, 0x65, 0x2f, 0x6b, 0xdc, 0x4f, 0x5a, 0x16, 0xd0, 0x38, 0x52,
         0x28,
@@ -1179,57 +1179,4 @@ fn a_torn_end_leaves_no_doubt() {
     assert!(!head.unlisted_keys_unknown);
     assert!(keyed_row(&next).unwrap().keys_carried);
     assert_eq!(keys_of(&next, 0), (model, true));
-}
-
-/// A group of puts never holds a keyed track: `put_group` refuses one before anything is written
-/// ([DescribeError::Keyed]), a key's value goes by `put_key`.
-#[test]
-fn a_group_of_puts_refuses_a_keyed_track() {
-    let defs = defs();
-    let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
-    let puts = [
-        ww_tape::GroupPut {
-            track: PLAIN,
-            ticks: 0,
-            item: b"idle",
-        },
-        ww_tape::GroupPut {
-            track: KEYED,
-            ticks: 0,
-            item: b"/a",
-        },
-    ];
-    let e = w.put_group(&defs, &puts).unwrap_err();
-    assert!(
-        matches!(e, WriteError::Describe(DescribeError::Keyed { track }) if track == KEYED),
-        "{e}"
-    );
-}
-
-/// A producer's keyed block marked as the first block of a group: a relay refuses it (`GroupRefusal::Keyed`) and
-/// holds no group of that producer.
-#[test]
-fn a_relayed_group_refuses_a_keyed_block() {
-    let defs = defs();
-    let mut block = keyed_blocks(&[(b"/a", b"1")]).remove(0);
-    // header flags bit 8 FLAG_GROUP and bit 9 FLAG_GROUP_START, the CRC computed again
-    block[7] |= 0x03;
-    let n = block.len();
-    let crc = crate::range_hash::crc32c(&[&block[..n - 4]]);
-    block[n - 4..].copy_from_slice(&crc.to_le_bytes());
-    let b = ww_tape::Block::read(&block).unwrap();
-    assert!(b.is_keyed());
-    assert_ne!(b.flags & ww_tape::FLAG_GROUP_START, 0);
-    let mut w = TapeWriter::create_on(MemSink::new(), SyncPolicy::None);
-    let e = w.put_block(&defs, &block).unwrap_err();
-    assert!(
-        matches!(
-            e,
-            WriteError::Input(ww_tape::InputError::Group(
-                ww_tape::GroupRefusal::Keyed { .. }
-            ))
-        ),
-        "{e}"
-    );
-    assert_eq!(w.relay_held_bytes(), 0);
 }

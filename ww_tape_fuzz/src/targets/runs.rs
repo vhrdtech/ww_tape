@@ -247,7 +247,7 @@ pub fn runs(data: &[u8]) {
             .map(|(t, i)| GroupPut {
                 track: on.states[*t],
                 ticks: k,
-                item: i,
+                item: ww_tape::GroupItem::State(i),
             })
             .collect();
         let start = w.bytes();
@@ -317,7 +317,7 @@ pub fn runs(data: &[u8]) {
         .map(|(t, i)| GroupPut {
             track: on.states[*t],
             ticks: 0,
-            item: i,
+            item: ww_tape::GroupItem::State(i),
         })
         .collect();
     again.put_group(&defs, &puts).expect("the group again");
