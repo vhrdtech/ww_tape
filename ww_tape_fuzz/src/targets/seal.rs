@@ -50,6 +50,7 @@ fn piece(aligned: bool, level: Integrity) -> Vec<u8> {
         prev: None,
         prev_session: SessionTag::NONE,
         integrity: level,
+        unlisted_keys_unknown: false,
     };
     w.begin_piece(&head, &[]).expect("a head writes");
     let (defs, on) = template_definitions();

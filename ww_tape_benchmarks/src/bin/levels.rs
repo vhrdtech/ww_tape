@@ -139,6 +139,7 @@ fn writer(level: Integrity, bytes: usize) -> anyhow::Result<TapeWriter<MemSink>>
         prev: None,
         prev_session: SessionTag::NONE,
         integrity: level,
+        unlisted_keys_unknown: false,
     };
     w.begin_piece(&head, &[])
         .map_err(|e| anyhow::anyhow!("{e:?}"))?;

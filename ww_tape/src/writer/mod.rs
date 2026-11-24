@@ -249,6 +249,11 @@ pub struct TapeWriter<S: TapeSink> {
     /// The close in force of a resumed closed piece, before which the writer hasn't read the keys yet, the track
     /// each number stood for there, and the keys of the pieces before it ([Self::load_keys])
     keys_base: Option<(u64, BTreeMap<TrackNum, TrackIdent>, kept::Kept)>,
+    /// The tracks known when the writer first met bytes that may hold keyed records of tracks it doesn't know, or
+    /// those of the piece head's rows when the head says the pieces before met such bytes
+    /// ([PieceHead::unlisted_keys_unknown]): the keys of every other keyed track are doubted, and the next head and
+    /// this piece's close say so. None while no such bytes were met.
+    unlisted: Option<BTreeSet<TrackIdent>>,
 }
 
 /// What a cut starts the next piece with: this piece's head, the next head's rows and the definitions of their tracks.
@@ -434,6 +439,7 @@ impl<S: TapeSink> TapeWriter<S> {
             carried_due: false,
             keys_base: None,
             wanted: Vec::new(),
+            unlisted: None,
         }
     }
 
@@ -1081,11 +1087,13 @@ impl<S: TapeSink> TapeWriter<S> {
     /// row is marked [TrackStart::keys_carried]; never for a track known before bytes it couldn't read
     /// ([kept::Kept::is_doubted]), nor before it read the keys of a resumed closed piece ([Self::load_keys]).
     pub(crate) fn keys_from_start(&self, number: TrackNum) -> bool {
-        let doubted = self
-            .indexer
-            .key_of(number, None)
-            .is_some_and(|k| self.kept.is_doubted(k));
-        if doubted || self.keys_base.is_some() {
+        let key = self.indexer.key_of(number, None);
+        let doubted = key.is_some_and(|k| self.kept.is_doubted(k));
+        let unlisted = self
+            .unlisted
+            .as_ref()
+            .is_some_and(|known| key.is_none_or(|k| !known.contains(&k)));
+        if doubted || unlisted || self.keys_base.is_some() {
             return false;
         }
         let Some((head, rows)) = &self.head else {
@@ -1096,6 +1104,23 @@ impl<S: TapeSink> TapeWriter<S> {
                 .iter()
                 .find(|r| r.track_number == number)
                 .is_none_or(|r| r.keys_carried)
+    }
+
+    /// Bytes met may hold keyed records of tracks the writer doesn't know: a track's definition among them would be
+    /// lost with its records. The keys of every keyed track not known now are doubted from here on, in this piece and
+    /// the pieces after it ([PieceHead::unlisted_keys_unknown]).
+    pub(crate) fn unlisted_doubted(&mut self) {
+        if self.unlisted.is_none() {
+            self.unlisted = Some(self.indexer.known().collect());
+        }
+    }
+
+    /// The piece head says the pieces before met bytes that may hold keyed records of tracks without a row
+    /// (`unlisted`): the keys of every track but those of its rows are doubted ([Self::unlisted_doubted]).
+    pub(crate) fn unlisted_from_head(&mut self, unlisted: bool) {
+        if unlisted {
+            self.unlisted_doubted();
+        }
     }
 
     /// Whether the writer knows every live key of keyed state track `number` standing for `key` ([kept::Keys]).
@@ -1361,6 +1386,8 @@ impl<S: TapeSink> TapeWriter<S> {
         self.indexer.start(tracks);
         self.write_own(&buf)?;
         self.head = Some((*head, tracks.to_vec()));
+        self.unlisted = None;
+        self.unlisted_from_head(head.unlisted_keys_unknown);
         self.near.clear();
         // the layout and the producer follow every piece head, the definitions of the tracks it carries them
         self.head_put = false;
@@ -1731,14 +1758,24 @@ impl<S: TapeSink> TapeWriter<S> {
                 self.kept
                     .placed(track, key, r.at, r.item, self.kept_bytes_max());
             }
-            // a keyed record gives its track a row, and its key to the next cut's carry
-            if let Slot::Keyed { track, .. } = slot
-                && let Some(key) = self.indexer.key_of(track, None)
-            {
-                self.indexer.state_placed(key, track);
-                let complete = self.keys_from_start(track);
-                self.kept
-                    .key_placed(track, key, r.at, r.item, complete, self.kept_bytes_max());
+            // a keyed record gives its track a row, and its key to the next cut's carry; one of a track whose
+            // definition the writer never read leaves the keys of every track it doesn't know in doubt
+            if let Slot::Keyed { track, .. } = slot {
+                match self.indexer.key_of(track, None) {
+                    Some(key) => {
+                        self.indexer.state_placed(key, track);
+                        let complete = self.keys_from_start(track);
+                        self.kept.key_placed(
+                            track,
+                            key,
+                            r.at,
+                            r.item,
+                            complete,
+                            self.kept_bytes_max(),
+                        );
+                    }
+                    None => self.unlisted_doubted(),
+                }
             }
             if matches!(slot, Slot::Track { .. })
                 && let Ok(Describe::Track(t)) =
@@ -2736,11 +2773,12 @@ impl<S: TapeSink> TapeWriter<S> {
         let options = w.options();
         let newest = w.relations.newest().clone();
         let kept = core::mem::take(&mut w.kept);
+        let unlisted = w.unlisted.is_some();
         let done = w.end(End::Cut, None)?;
         let mut next_piece = NextPiece::after(
             &rows.head,
             &done.closed,
-            rows.tracks,
+            (rows.tracks, unlisted),
             done.session,
             done.next_seq,
         )?;
@@ -2838,11 +2876,12 @@ impl<S: TapeSink> TapeWriter<S> {
         let options = w.options();
         let newest = w.relations.newest().clone();
         let kept = core::mem::take(&mut w.kept);
+        let unlisted = w.unlisted.is_some();
         let mut done = w.end(End::CutInPlace, None)?;
         let mut next_piece = NextPiece::after(
             &rows.head,
             &done.closed,
-            rows.tracks,
+            (rows.tracks, unlisted),
             done.session,
             done.next_seq,
         )?;
@@ -3057,6 +3096,7 @@ impl<S: TapeSink> TapeWriter<S> {
             summary,
             ident,
             next,
+            unlisted_keys_unknown: self.unlisted.is_some(),
         };
         let tracks = self.next_tracks(&ranges);
         let close_offset = self.offset();
@@ -3345,12 +3385,13 @@ pub(crate) struct NextPiece {
 
 impl NextPiece {
     /// The piece after the one headed `head` that ended as `done`, continued: its id [PieceId::after] that one's id
-    /// and content hash, its head naming that piece, its track starts `tracks`; seqs go on in `session` from
+    /// and content hash, its head naming that piece, its track starts `tracks`, and whether keyed tracks without a
+    /// row may have keys before it (`unlisted`, [PieceHead::unlisted_keys_unknown]); seqs go on in `session` from
     /// `next_seq`.
     pub(crate) fn after<E>(
         head: &PieceHead,
         done: &Closed,
-        tracks: Vec<TrackStart>,
+        (tracks, unlisted): (Vec<TrackStart>, bool),
         session: SessionTag,
         next_seq: u64,
     ) -> Result<Self, WriteError<E>> {
@@ -3371,6 +3412,7 @@ impl NextPiece {
                 prev: Some((done.hash, head.ident.id)),
                 prev_session: session,
                 integrity: crate::Integrity::Full,
+                unlisted_keys_unknown: unlisted,
             },
             tracks,
             session,

@@ -182,6 +182,7 @@ fn start(rows: &[TrackStart], policy: Count<Entry, u64>) -> anyhow::Result<TapeW
         prev: Some((ContentHash([1; 32]), PieceId::first(&owner))),
         prev_session: SessionTag::NONE,
         integrity: ww_tape::Integrity::Full,
+        unlisted_keys_unknown: false,
     };
     w.begin_piece(&head, rows).map_err(e)?;
     Ok(w)
@@ -295,6 +296,7 @@ fn after_cut(n: u32, item_len: usize, state: bool) -> anyhow::Result<u64> {
         prev: None,
         prev_session: SessionTag::NONE,
         integrity: ww_tape::Integrity::Full,
+        unlisted_keys_unknown: false,
     };
     w.begin_piece(&head, &[]).map_err(e)?;
     let item = vec![0x5a; item_len];

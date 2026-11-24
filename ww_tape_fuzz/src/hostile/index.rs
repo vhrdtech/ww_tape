@@ -301,6 +301,7 @@ pub(crate) fn close_block(
         summary: None,
         ident: d.bool().then(|| ident(d)),
         next: None,
+        unlisted_keys_unknown: false,
     };
     let mut seq = 0u64;
     let removed: Vec<RemovedPiece> = (0..d.below(4))
@@ -415,6 +416,7 @@ pub(crate) fn piece_head_block(d: &mut Draw<'_>, id: BlockId) -> Vec<u8> {
             .then(|| (ContentHash([d.u8(); 32]), PieceId([d.u8() | 1; 16]))),
         prev_session: SessionTag::from_u32(d.u32()),
         integrity: ww_tape::Integrity::Full,
+        unlisted_keys_unknown: false,
     };
     let mut buf = vec![0u8; piece_head_len(tracks.len())];
     let n = write_piece_head(&mut buf, id, &head, &tracks).expect("a valid piece head");

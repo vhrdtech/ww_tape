@@ -17,6 +17,7 @@ fn piece_head_round_trip() {
         prev: Some((ContentHash([7; 32]), PieceId([3; 16]))),
         prev_session: crate::SessionTag::writable(0x1234_abcd),
         integrity: crate::Integrity::Full,
+        unlisted_keys_unknown: false,
     };
     let tracks = [
         TrackStart {
@@ -73,6 +74,7 @@ fn piece_head_round_trip() {
         prev: None,
         prev_session: crate::SessionTag::NONE,
         integrity: crate::Integrity::Full,
+        unlisted_keys_unknown: false,
     };
     let n = write_piece_head(&mut buf, id(0), &first, &[]).unwrap();
     let block = Block::read(&buf[..n]).unwrap();
@@ -90,6 +92,7 @@ fn close_and_tail_round_trip() {
         summary: Some((4 << 20, 4096)),
         ident: Some(ident(1)),
         next: Some(PieceId([0x55; 16])),
+        unlisted_keys_unknown: false,
     };
     let tracks = [TrackRange {
         track_id: TrackId::new(11),
@@ -377,6 +380,7 @@ fn close_padding_is_checked_against_the_length() {
         summary: None,
         ident: None,
         next: None,
+        unlisted_keys_unknown: false,
     };
     let mut buf = vec![0u8; close_len(0, 0) + 64];
     let n = write_close(&mut buf, id(5), &close, (&[], &[]), 64).unwrap();
@@ -403,6 +407,7 @@ fn a_piece_head_reads_each_integrity_level() {
         prev: None,
         prev_session: crate::SessionTag::NONE,
         integrity: Integrity::Full,
+        unlisted_keys_unknown: false,
     };
     let mut buf = vec![0u8; piece_head_len(0)];
     let n = write_piece_head(&mut buf, id(0), &head, &[]).unwrap();
@@ -484,6 +489,7 @@ fn plain_close() -> Close {
         summary: None,
         ident: Some(ident(9)),
         next: None,
+        unlisted_keys_unknown: false,
     }
 }
 

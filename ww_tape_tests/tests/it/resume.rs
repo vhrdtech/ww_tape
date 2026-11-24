@@ -181,6 +181,7 @@ pub(crate) fn head_at(integrity: ww_tape::Integrity) -> PieceHead {
         prev: None,
         prev_session: SessionTag::NONE,
         integrity,
+        unlisted_keys_unknown: false,
     }
 }
 

@@ -45,6 +45,7 @@ fn close_only(final_index: u64) -> Vec<u8> {
         summary: None,
         ident: None,
         next: None,
+        unlisted_keys_unknown: false,
     };
     let mut bytes = vec![0u8; close_len(0, 0)];
     let n = write_close(&mut bytes, id(0), &close, (&[], &[]), 0).unwrap();

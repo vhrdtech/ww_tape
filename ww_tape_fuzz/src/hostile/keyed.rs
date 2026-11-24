@@ -149,6 +149,7 @@ fn template() -> Vec<u8> {
         prev: None,
         prev_session: ww_tape::SessionTag::NONE,
         integrity: ww_tape::Integrity::Full,
+        unlisted_keys_unknown: false,
     };
     w.begin_piece(&head, &[]).expect("a first piece");
     let (defs, on) = definitions(None);

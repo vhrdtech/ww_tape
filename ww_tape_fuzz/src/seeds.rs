@@ -555,6 +555,7 @@ fn close_only(final_index: u64, piece_len: Option<u64>) -> Vec<u8> {
         summary: None,
         ident: None,
         next: None,
+        unlisted_keys_unknown: false,
     };
     let mut b = vec![0u8; close_len(0, 0)];
     let n = write_close(&mut b, BlockId::new(SESSION, 0), &close, (&[], &[]), 0).expect("a close");
@@ -645,6 +646,7 @@ fn session(layout: Layout, n: u64) -> Vec<u8> {
         prev: None,
         prev_session: SessionTag::NONE,
         integrity: ww_tape::Integrity::Full,
+        unlisted_keys_unknown: false,
     };
     let len = write_piece_head(&mut out, BlockId::new(SESSION, 0), &head, &[]).expect("a head");
     out.truncate(len);

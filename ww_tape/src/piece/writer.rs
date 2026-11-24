@@ -888,6 +888,7 @@ fn first_head(owner: OwnerId, chain: u64, integrity: crate::Integrity) -> PieceH
         prev: None,
         prev_session: SessionTag::NONE,
         integrity,
+        unlisted_keys_unknown: false,
     }
 }
 
@@ -905,7 +906,13 @@ fn next_piece<E>(done: &Closed, last: &LastPiece) -> Result<NextPiece, WriteErro
             ..*t
         })
         .collect();
-    let mut next = NextPiece::after(&last.head, done, tracks, last.session, last.next_seq)?;
+    let mut next = NextPiece::after(
+        &last.head,
+        done,
+        (tracks, last.unlisted),
+        last.session,
+        last.next_seq,
+    )?;
     next.kept = last.kept.clone();
     Ok(next)
 }
@@ -1129,6 +1136,9 @@ struct LastPiece {
     kept: Kept,
     /// The pieces of the chain its close in force names as removed on purpose
     removed: Vec<RemovedPiece>,
+    /// Its close in force says keyed tracks without a row in the next head may have keys before it
+    /// ([crate::piece::Close::unlisted_keys_unknown])
+    unlisted: bool,
 }
 
 /// A piece the chain goes on from, read by [cut_piece].
@@ -1223,6 +1233,7 @@ fn read_closed_at<B: ByteSource>(
             last_chunks,
             kept,
             removed: p.removed.clone(),
+            unlisted: close.unlisted_keys_unknown || head.unlisted_keys_unknown,
         },
     ))
 }

@@ -315,6 +315,7 @@ mod tests {
             prev: None,
             prev_session: a,
             integrity: crate::Integrity::Full,
+            unlisted_keys_unknown: false,
         };
         let mut h = alloc::vec![0u8; piece_head_len(0)];
         write_piece_head(&mut h, crate::BlockId::new(b, 0), &head, &[]).unwrap();

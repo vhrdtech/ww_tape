@@ -1097,6 +1097,8 @@ impl<S: TapeSink> TapeWriter<S> {
         self.indexer.start(tracks);
         self.indexer.seed_close(&b.rows);
         self.head = Some((*head, tracks.clone()));
+        // the close says whether its writer met bytes it couldn't read, which the writer here doesn't read again
+        self.unlisted_from_head(head.unlisted_keys_unknown || b.close.unlisted_keys_unknown);
         self.bytes = b.close_at;
         self.chunks = b
             .rows
@@ -1129,6 +1131,7 @@ impl<S: TapeSink> TapeWriter<S> {
                     self.set_level(head.integrity);
                     self.indexer.start(&tracks);
                     self.head = Some((head, tracks));
+                    self.unlisted_from_head(head.unlisted_keys_unknown);
                 }
                 self.account(block, header, *crc).map(drop)
             }
@@ -1178,12 +1181,13 @@ impl<S: TapeSink> TapeWriter<S> {
                     .seed_damaged(key, e.range.map(|(_, hi)| hi), e.relation_break);
             }
         }
-        // a keyed record unread: its track's keys may miss it
+        // a keyed record unread: its track's keys may miss it; of a track the writer doesn't know, every such track's
         for e in entries.iter().filter_map(IndexEntry::state) {
-            if let crate::state::Slot::Keyed { track, .. } = e.slot
-                && let Some(key) = self.indexer.key_of(track, None)
-            {
-                self.kept.keys_doubted(track, key);
+            if let crate::state::Slot::Keyed { track, .. } = e.slot {
+                match self.indexer.key_of(track, None) {
+                    Some(key) => self.kept.keys_doubted(track, key),
+                    None => self.unlisted_doubted(),
+                }
             }
         }
         self.bytes = end;
@@ -1236,9 +1240,11 @@ impl<S: TapeSink> TapeWriter<S> {
         let mut at = step.at;
         let end = step.end();
         if at < end {
-            // bytes no block explains may hold keyed records of the tracks known so far
+            // bytes no block explains may hold keyed records of the tracks known so far, and the definitions and
+            // keyed records of tracks the writer doesn't know
             let known: Vec<_> = self.indexer.known().collect();
             self.kept.all_keys_doubted(known);
+            self.unlisted_doubted();
         }
         while at < end {
             let n = usize::try_from(end.saturating_sub(at))

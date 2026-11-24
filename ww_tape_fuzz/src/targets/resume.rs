@@ -162,6 +162,7 @@ fn template(aligned: bool, head: bool, level: ww_tape::Integrity) -> Vec<u8> {
             prev: None,
             prev_session: SessionTag::NONE,
             integrity: level,
+            unlisted_keys_unknown: false,
         };
         w.begin_piece(&h, &[]).expect("a head writes");
     }

@@ -254,6 +254,7 @@ fn main() -> anyhow::Result<()> {
         prev: None,
         prev_session: SessionTag::NONE,
         integrity: ww_tape::Integrity::Full,
+        unlisted_keys_unknown: false,
     };
     w.set_producer("bench");
     w.begin_piece(&head, &[]).map_err(e)?;

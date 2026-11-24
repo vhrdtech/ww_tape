@@ -108,6 +108,7 @@ pub(crate) fn build(aligned: bool, appends: &[u8]) -> (Vec<u8>, Vec<Made>) {
         prev: None,
         prev_session: SessionTag::NONE,
         integrity: ww_tape::Integrity::Full,
+        unlisted_keys_unknown: false,
     };
     w.begin_piece(&head, &[]).expect("a head writes");
     append(&mut w, &first, 0, 3);

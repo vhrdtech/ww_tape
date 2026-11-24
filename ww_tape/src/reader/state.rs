@@ -788,9 +788,6 @@ impl<S: ByteSource> TapeReader<S> {
         Ok(out)
     }
 
-    /// Whether piece `i` may lack the keys of keyed state track `track` in force at its start: its head doesn't read,
-    /// or it follows another piece and its head's row of the track isn't marked [TrackStart::keys_carried]. A
-    /// track without a row has no records before the piece.
     /// Whether the key lookup `found` in piece `i` may miss a newer record in the pieces before: the piece doesn't
     /// carry the keys of `track` in force at its start, and it found no record or only one the piece's carry holds,
     /// which may be stale.
@@ -830,6 +827,10 @@ impl<S: ByteSource> TapeReader<S> {
         Ok(true)
     }
 
+    /// Whether piece `i` may lack the keys of keyed state track `track` in force at its start: its head doesn't read,
+    /// or it follows another piece and its head's row of the track isn't marked [TrackStart::keys_carried]. A track
+    /// without a row has no records before the piece, unless the head says the pieces before met bytes their writer
+    /// couldn't read ([PieceHead::unlisted_keys_unknown](crate::piece::PieceHead::unlisted_keys_unknown)).
     fn keys_not_carried(&self, i: usize, track: TrackNum) -> R<bool, S> {
         let piece = self.piece(i)?;
         if piece.head_error.is_some() {
@@ -843,7 +844,8 @@ impl<S: ByteSource> TapeReader<S> {
         }
         Ok(rows
             .iter()
-            .any(|r| r.track_number == track && !r.keys_carried))
+            .find(|r| r.track_number == track)
+            .map_or(head.unlisted_keys_unknown, |r| !r.keys_carried))
     }
 
     /// The first of `candidates` (newest first) whose record reads and is the one its entry names.

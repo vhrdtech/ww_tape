@@ -191,6 +191,7 @@ fn golden_removed() {
         prev: Some((ContentHash([2; 32]), id(2))),
         prev_session: SessionTag::NONE,
         integrity: ww_tape::Integrity::Full,
+        unlisted_keys_unknown: false,
     };
     w.begin_piece(&head, &[]).unwrap();
     crate::reclose::write(&mut w, 0..2);
@@ -364,6 +365,7 @@ fn the_writer_names_at_most_removed_pieces_max() {
         prev: Some((ContentHash([1; 32]), PieceId([8; 16]))),
         prev_session: SessionTag::NONE,
         integrity: ww_tape::Integrity::Full,
+        unlisted_keys_unknown: false,
     };
     let row = |seq: u64| RemovedPiece {
         seq,

@@ -552,10 +552,11 @@ fn a_key_deleted_after_a_doubted_cut_stays_deleted() {
     );
 }
 
-/// A keyed track first defined after a resume past junk: the junk can't hold its records, so its keys are known
-/// whole and the next cut marks its row carried, while the track the junk may hold records of stays doubted.
+/// A keyed track first defined after a resume past junk: the junk may hold an earlier definition of it with its
+/// records, so its keys are doubted like those of the tracks known before, and the next head says that tracks
+/// without a row may have keys before it.
 #[test]
-fn a_keyed_track_defined_after_junk_is_carried() {
+fn a_keyed_track_defined_after_junk_is_doubted() {
     let mut defs = defs();
     let later = ww_tape::TrackNum::new(12);
     crate::definitions::hold(&mut defs, &[crate::keyed::keyed(later.get())]).unwrap();
@@ -569,14 +570,15 @@ fn a_keyed_track_defined_after_junk_is_carried() {
     chain.put_key(&defs, later, 7000, b"/n", b"new").unwrap();
     chain.cut_now(&defs).unwrap();
     let pieces = chain.close().unwrap();
-    assert_eq!(pieces[0].piece.keys_unknown, 1, "the doubted track alone");
+    assert_eq!(pieces[0].piece.keys_unknown, 2, "both keyed tracks");
     let next = piece_bytes(&mem, pieces[1].tape);
     let r = TapeReader::open(&next[..]).unwrap();
-    let (_, rows) = r.pieces()[0].head.as_ref().unwrap();
+    let (head, rows) = r.pieces()[0].head.as_ref().unwrap();
+    assert!(head.unlisted_keys_unknown);
     let row = |n| rows.iter().find(|t| t.track_number == n).unwrap();
-    assert!(row(later).keys_carried);
+    assert!(!row(later).keys_carried);
     assert!(!row(KEYED).keys_carried);
-    assert!(r.keys_at(0, later, b"", u64::MAX).unwrap().is_whole());
+    assert!(!r.keys_at(0, later, b"", u64::MAX).unwrap().is_whole());
 }
 
 /// A deletion in a block that doesn't read leaves the key live to the writer, so the next cut carries its older
@@ -723,6 +725,7 @@ fn a_piece_without_its_keys_reads_as_not_whole() {
         prev: Some((ww_tape::ContentHash([1; 32]), first)),
         prev_session: ww_tape::SessionTag::NONE,
         integrity: ww_tape::Integrity::Full,
+        unlisted_keys_unknown: false,
     };
     let ww_tape::Describe::Track(t) = crate::keyed::keyed(KEYED.get()) else {
         unreachable!("keyed() gives a track")
@@ -1041,4 +1044,142 @@ fn keyed_carried_golden() {
     assert!(keyed_row(&second).unwrap().keys_carried);
     assert_eq!(keys_of(&second, 0), (model, true));
     crate::quiet::golden(&second, "v1-keyed-carried.hex");
+}
+
+/// A first piece with keys /a and /b and data past a checkpoint, dropped unclosed, then every block between its head
+/// and its first keyed block damaged: the layout, the producer and the keyed track's definition. The keyed records
+/// read; their track's definition doesn't.
+fn definition_damaged() -> MemPieces {
+    let defs = defs();
+    let (mem, mut chain) = chain_with(checkpointed());
+    let mut model = Model::new();
+    apply(&mut chain, &mut model, 1, b"/a", Some(b"va"));
+    apply(&mut chain, &mut model, 2, b"/b", Some(b"vb"));
+    let session = ww_tape::SessionTag::writable(0x6461_7461);
+    for n in 0..60 {
+        let block = crate::pieces::records(ww_tape::BlockId::new(session, n), 6000 + n as i64);
+        chain.adopt_block(&defs, &block).unwrap();
+    }
+    drop(chain);
+    let bytes = piece_bytes(&mem, 0);
+    let bs = boundaries(&bytes);
+    let first_keyed = *bs
+        .iter()
+        .find(|at| {
+            bytes
+                .get(**at..)
+                .and_then(|b| ww_tape::Block::read(b).ok())
+                .is_some_and(|b| b.is_keyed())
+        })
+        .unwrap();
+    for at in bs.iter().filter(|a| **a > 0 && **a < first_keyed) {
+        flip(&mem, 0, at + 40);
+    }
+    mem
+}
+
+/// The head of the only piece of `bytes`, and whether the reader holds the keys of [KEYED] whole.
+fn head_and_whole(bytes: &[u8]) -> (ww_tape::PieceHead, bool) {
+    let r = TapeReader::open(bytes).unwrap();
+    let head = r.pieces()[0].head.as_ref().unwrap().0;
+    (head, r.keys_at(0, KEYED, b"", u64::MAX).unwrap().is_whole())
+}
+
+/// The keyed track's definition damaged, its records good: the writer never learns the track, so a resume doubts
+/// every keyed track it doesn't know. A key put after the resume joins keys that read as not whole.
+#[test]
+fn a_keyed_track_whose_definition_is_damaged_is_doubted() {
+    let defs = defs();
+    let mem = definition_damaged();
+    let (mut chain, _) = PieceChain::resume_on(mem.clone(), OWNER, 0, checkpointed()).unwrap();
+    chain.put_key(&defs, KEYED, 10, b"/c", b"vc").unwrap();
+    chain.cut_now(&defs).unwrap();
+    let pieces = chain.close().unwrap();
+    assert_eq!(pieces[0].piece.keys_unknown, 1);
+    let next = piece_bytes(&mem, pieces[1].tape);
+    let (keys, whole) = keys_of(&next, 0);
+    assert_eq!(keys.keys().collect::<Vec<_>>(), [b"/c"]);
+    assert!(!whole, "a partial set reads as whole");
+    assert!(head_and_whole(&next).0.unlisted_keys_unknown);
+    assert!(!keyed_row(&next).unwrap().keys_carried);
+}
+
+/// The keyed track's definition damaged and the track untouched until the next piece: that piece's head has no row
+/// of it, and says that a track without a row may have keys before it. So do the heads after it, also after their
+/// first pieces are removed and the chain resumes.
+#[test]
+fn a_keyed_track_first_put_after_damage_never_reads_whole() {
+    let defs = defs();
+    let mem = definition_damaged();
+    let (mut chain, _) = PieceChain::resume_on(mem.clone(), OWNER, 0, checkpointed()).unwrap();
+    chain.put(&defs, PLAIN, 10, b"run").unwrap();
+    chain.cut_now(&defs).unwrap();
+    chain.put_key(&defs, KEYED, 11, b"/c", b"vc").unwrap();
+    chain.cut_now(&defs).unwrap();
+    chain.put_key(&defs, KEYED, 12, b"/d", b"vd").unwrap();
+    let piece1 = piece_bytes(&mem, 1);
+    assert!(keyed_row(&piece1).is_none());
+    assert!(!head_and_whole(&piece1).1, "no row reads as whole");
+    chain.remove(&[0, 1]).unwrap();
+    drop(chain);
+    let (mut chain, _) = PieceChain::resume_on(mem.clone(), OWNER, 0, checkpointed()).unwrap();
+    chain.put_key(&defs, KEYED, 13, b"/e", b"ve").unwrap();
+    chain.cut_now(&defs).unwrap();
+    let pieces = chain.close().unwrap();
+    for p in &pieces {
+        let bytes = piece_bytes(&mem, p.tape);
+        let (head, whole) = head_and_whole(&bytes);
+        assert!(head.unlisted_keys_unknown, "piece {}", p.tape);
+        assert!(!whole, "piece {}", p.tape);
+    }
+    assert_eq!(pieces.last().unwrap().tape, 3);
+}
+
+/// A crash between a cut's close and the next head, after damage: the chain's resume starts the next piece from the
+/// closed piece alone, whose close says the next head sets its flag.
+#[test]
+fn a_cut_lost_after_damage_keeps_the_flag() {
+    let defs = defs();
+    let mem = definition_damaged();
+    let (mut chain, _) = PieceChain::resume_on(mem.clone(), OWNER, 0, checkpointed()).unwrap();
+    chain.put(&defs, PLAIN, 10, b"run").unwrap();
+    chain.cut_now(&defs).unwrap();
+    drop(chain);
+    // the next piece never made: its sink sealed, then taken out
+    let mut mem = mem;
+    mem.reopen(&1).unwrap().unwrap().close().unwrap();
+    assert!(ww_tape::PieceStore::remove(&mut mem, &1).unwrap());
+    let (mut chain, _) = PieceChain::resume_on(mem.clone(), OWNER, 0, checkpointed()).unwrap();
+    chain.put_key(&defs, KEYED, 11, b"/c", b"vc").unwrap();
+    chain.close().unwrap();
+    let (head, whole) = head_and_whole(&piece_bytes(&mem, 1));
+    assert!(head.unlisted_keys_unknown);
+    assert!(!whole);
+}
+
+/// A crash's torn end is cut, not damage: the resume doesn't doubt the tracks it doesn't know, and the next cut
+/// carries every key whole.
+#[test]
+fn a_torn_end_leaves_no_doubt() {
+    let defs = defs();
+    let (mem, mut chain) = chain_with(wide_options());
+    let mut model = Model::new();
+    apply(&mut chain, &mut model, 1, b"/a", Some(b"va"));
+    apply(&mut chain, &mut model, 2, b"/b", Some(b"vb"));
+    chain.put(&defs, PLAIN, 3, b"run").unwrap();
+    drop(chain);
+    let bytes = piece_bytes(&mem, 0);
+    let end = *boundaries(&bytes).last().unwrap();
+    let mut sink = mem.reopen(&0).unwrap().unwrap();
+    sink.truncate(u64::try_from(end - 7).unwrap()).unwrap();
+    drop(sink);
+    let (mut chain, _) = PieceChain::resume_on(mem.clone(), OWNER, 0, wide_options()).unwrap();
+    apply(&mut chain, &mut model, 4, b"/c", Some(b"vc"));
+    chain.cut_now(&defs).unwrap();
+    let pieces = chain.close().unwrap();
+    let next = piece_bytes(&mem, pieces[1].tape);
+    let (head, _) = head_and_whole(&next);
+    assert!(!head.unlisted_keys_unknown);
+    assert!(keyed_row(&next).unwrap().keys_carried);
+    assert_eq!(keys_of(&next, 0), (model, true));
 }
