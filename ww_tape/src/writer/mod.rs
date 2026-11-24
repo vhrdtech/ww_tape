@@ -634,7 +634,7 @@ impl<S: TapeSink> TapeWriter<S> {
             hash: ItemHash::of(item),
             item: Item::Given(item),
         });
-        self.admit(cands.len())?;
+        self.admit(entries_max(&cands))?;
         self.room(0, !self.head_put)?;
         self.place_deferred()?;
         self.ensure_carried(defs)?;
@@ -677,7 +677,7 @@ impl<S: TapeSink> TapeWriter<S> {
             hash,
             item: Item::Owned(bytes),
         });
-        self.admit(cands.len())?;
+        self.admit(entries_max(&cands))?;
         self.room(0, !self.head_put)?;
         self.place_deferred()?;
         self.ensure_carried(defs)?;
@@ -3043,6 +3043,14 @@ struct Deferred {
     tracks: Vec<TrackNum>,
     /// Those of them without a row in the close when it was deferred: counted as with data ([TapeWriter::track_room])
     keys: BTreeSet<TrackIdent>,
+}
+
+/// The state entries `cands` take at most: two of each written twice at once ([Rule::twice]).
+fn entries_max(cands: &[Candidate<'_>]) -> usize {
+    cands
+        .iter()
+        .map(|c| if c.rule.twice { 2 } else { 1 })
+        .fold(0usize, usize::saturating_add)
 }
 
 /// Bytes of the blocks of puts holding `records`, as [TapeWriter::write_puts] writes them.

@@ -5,9 +5,9 @@
 use ww_tape::index::IndexPolicy;
 use ww_tape::writer::NearPolicy;
 use ww_tape::{
-    Block, ClockNum, Definitions, Describe, FLAG_TWICE, FLAG_WITH_NEXT, FileBlocks, Layout,
-    MemSink, Recovery, Slot, SyncPolicy, TapeReader, TapeSink, TapeWriter, TrackDef, TrackNum,
-    UnitChunk, WriterOptions,
+    Block, ClockNum, Definitions, Describe, FLAG_TWICE, FLAG_WITH_NEXT, FileBlocks, InputError,
+    Layout, MemSink, Recovery, Slot, SyncPolicy, TapeReader, TapeSink, TapeWriter, TrackDef,
+    TrackNum, UnitChunk, WriteError, WriterOptions,
 };
 
 use crate::definitions::{CLOCK, clock, held, on_tracks, record_blocks, track, writes_of};
@@ -467,4 +467,31 @@ fn a_piece_carrying_tracks_written_twice_resumes_to_the_same_bytes() {
         .collect();
     assert!(survives(&whole, &carried));
     same_bytes_after_any_crash(&whole, 0, &defs, &calls, &made);
+}
+
+/// A put is admitted by the state entries its definitions take with their copies: at a policy of 6, the layout,
+/// the producer, the clock and [STATE] (each twice) and the item need 7, so the put is refused with
+/// [InputError::CarriedEntries] before anything is written.
+#[test]
+fn a_put_is_admitted_by_the_entries_its_copies_take() {
+    let defs = held(&calls_batch());
+    let mut w = begin();
+    w.set_index_policy(IndexPolicy {
+        state_entries_max: exact_units::Count::new(6),
+        ..IndexPolicy::default()
+    })
+    .unwrap();
+    let held = w.sink().tape().held().unwrap();
+    let r = w.put(&defs, TrackNum::new(STATE), 0, &[0; 8]);
+    assert!(
+        matches!(
+            r,
+            Err(WriteError::Input(InputError::CarriedEntries {
+                needed: 7,
+                max: 6
+            }))
+        ),
+        "{r:?}"
+    );
+    assert_eq!(w.sink().tape().held().unwrap(), held, "nothing written");
 }
