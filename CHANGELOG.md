@@ -10,6 +10,7 @@ benchmarks, golden files and book pages.
 
 - spirit_level checks the big tier with a crate map of layers; Clippy's pedantic set is on (REPO-86).
 - `IntoIterator` for `&Starts` and `&Payloads`: a `for` loop takes them borrowed (REPO-86).
+- The book kit pins `vhrd-zensical[zensical]==0.2.1` from PyPI, not the git tag (BOOK-7).
 
 ## [0.10.0] - 2026-11-24
 

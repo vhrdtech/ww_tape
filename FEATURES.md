@@ -432,6 +432,11 @@ The pages in `docs/`.
   replacing spirit_level's book extension. The lexers are now `vz-console` and `vz-rust`, and the long forms of
   `abbreviation-first-use` live in `docs/abbreviations.toml`, read by the kit, not `spirit_level.toml`.
 
+- ✅ **BOOK-7 The book kit from PyPI**
+
+  The justfile pins `vhrd-zensical[zensical]==0.2.1` from PyPI, not the git tag: `just book-check` installs a wheel
+  and compiles nothing.
+
   Read more: [For writers](docs/writers.md).
 
 ## Example and cases (`EX`)
