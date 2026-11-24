@@ -10,6 +10,8 @@ benchmarks, golden files and book pages.
 
 - The book explains grids in "Fields and images over time", with `example_thermal` and `example_images` as tested cases (BOOK-5).
 - The book moves to the `vhrd_zensical` kit: renamed extension ids and assets, abbreviations in `docs/abbreviations.toml` (BOOK-6).
+- spirit_level checks the big tier with a crate map of layers; Clippy's pedantic set is on (REPO-86).
+- `Starts` and `Payloads` borrowed iterate in a `for` loop: `IntoIterator` for `&Starts` and `&Payloads` (REPO-86).
 
 ## [0.9.0] - 2026-11-24
 

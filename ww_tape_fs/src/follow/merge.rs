@@ -95,6 +95,7 @@ impl<T> TimeMerge<T> {
         )]
         self.sources
             .get_mut(source)
+            // spirit-level: allow(panic-in-library) expires=2027-06-30 a source index the merge gave is the caller's precondition, under # Panics of mark
             .unwrap_or_else(|| panic!("source {source} of a merge of {n}"))
     }
 

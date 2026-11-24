@@ -11,7 +11,7 @@
 [![crates.io](https://img.shields.io/crates/v/ww_tape_codecs)](https://crates.io/crates/ww_tape_codecs)
 [![docs.rs](https://img.shields.io/docsrs/ww_tape)](https://docs.rs/ww_tape)
 [![docs.rs](https://img.shields.io/docsrs/ww_tape_codecs)](https://docs.rs/ww_tape_codecs)
-[![spirit level](.github/spl-badge.svg)](https://spl.vhrd.tech/tiers/small-workspace/)
+[![spirit level](.github/spl-badge.svg)](https://spl.vhrd.tech/tiers/big/)
 
 > Tracks of typed records in self-checking, variable-length blocks, for live feeds, log files and raw media.
 
@@ -54,27 +54,27 @@ crate's module docs.
 ## Repository layout
 
 <!-- spirit-level:crates -->
-| Crate | Description |
-|---|---|
-| [`example_capture`](examples/example_capture) | What the ww_tape book's cases share: the capture into a window in memory and its triage, the RF signal |
-| [`example_drive`](examples/example_drive) | The drive motor controller's recording that the book's figures, code and numbers use, at any scale |
-| [`example_ethernet`](examples/example_ethernet) | The ww_tape book's protocol analyser: both directions of a 10 Gbps Ethernet link, captured into memory and triaged |
-| [`example_images`](examples/example_images) | The ww_tape book's image sequence: frames of pixels on a 2-D grid over time, read by box and level |
-| [`example_rf`](examples/example_rf) | The ww_tape book's RF capture: IQ at 20 MS/s into a piece, or into two chains from two muxes, followed live |
-| [`example_thermal`](examples/example_thermal) | The ww_tape book's thermal field: a plate of sensors on a 2-D grid over time, read by box, region and level |
-| [`example_wideband`](examples/example_wideband) | The ww_tape book's wideband receiver: 1 GS/s of IQ in channels over several muxes, captured into memory and triaged |
-| [`ww_tape`](ww_tape) | Tape blocks: tracks of typed records in self-checking, variable-length blocks, for live feeds and log files |
-| [`ww_tape_bench`](ww_tape_bench) | What every ww_tape bench binary shares: its command line, its timing loop, and its report with the build, machine and load |
-| [`ww_tape_bench_report`](ww_tape_bench_report) | The report of a ww_tape bench run as its JSON holds it: build, commit, machine, tables and load |
-| [`ww_tape_benchmarks`](ww_tape_benchmarks) | Benchmarks of ww_tape: summaries, tracks, carried definitions, starts, relations, the writer's cost per chunk and its heap, the RF capture, the protocol analyser, the wideband receiver, the mux's handles, a chain's pieces verified and range-hashed in parallel |
-| [`ww_tape_codecs`](ww_tape_codecs) | Column codecs of ww_tape: bit packing, CRC-32C, varints, lz4, samples, times, payload lengths and summary kernels, with no notion of a block |
-| [`ww_tape_codecs_benchmarks`](ww_tape_codecs_benchmarks) | Benchmarks of ww_tape_codecs: the float sample codec and bench-only ones on simulated, decoded and sensor data |
-| [`ww_tape_figures`](ww_tape_figures) | The figures of ww_tape's book pages that hold bytes or numbers, drawn as SVG from blocks ww_tape writes |
-| [`ww_tape_fs`](ww_tape_fs) | Files of ww_tape: a file sink and store of piece files, their lock, and writers, chains and muxes opened by path |
-| [`ww_tape_fuzz`](ww_tape_fuzz) | Fuzz target bodies, hostile block builders and seed replay for ww_tape's decoders |
-| [`ww_tape_mux`](ww_tape_mux) | A writing thread for ww_tape chains: producers on any thread send through handles and a byte-bounded queue |
-| [`ww_tape_summary`](ww_tape_summary) | Summary trees of ww_tape tracks: event item trees and series statistics, built into summary blocks and read from them |
-| [`ww_tape_tests`](ww_tape_tests) | Integration tests of ww_tape and its file layer, through their public API |
+| Crate | Layer | Description |
+|---|---|---|
+| [`ww_tape_codecs`](ww_tape_codecs) | codecs | Column codecs of ww_tape: bit packing, CRC-32C, varints, lz4, samples, times, payload lengths and summary kernels, with no notion of a block |
+| [`ww_tape`](ww_tape) | core | Tape blocks: tracks of typed records in self-checking, variable-length blocks, for live feeds and log files |
+| [`ww_tape_summary`](ww_tape_summary) | summary | Summary trees of ww_tape tracks: event item trees and series statistics, built into summary blocks and read from them |
+| [`ww_tape_mux`](ww_tape_mux) | mux | A writing thread for ww_tape chains: producers on any thread send through handles and a byte-bounded queue |
+| [`ww_tape_fs`](ww_tape_fs) | fs | Files of ww_tape: a file sink and store of piece files, their lock, and writers, chains and muxes opened by path |
+| [`example_capture`](examples/example_capture) | examples | What the ww_tape book's cases share: the capture into a window in memory and its triage, the RF signal |
+| [`example_drive`](examples/example_drive) | examples | The drive motor controller's recording that the book's figures, code and numbers use, at any scale |
+| [`example_ethernet`](examples/example_ethernet) | examples | The ww_tape book's protocol analyser: both directions of a 10 Gbps Ethernet link, captured into memory and triaged |
+| [`example_images`](examples/example_images) | examples | The ww_tape book's image sequence: frames of pixels on a 2-D grid over time, read by box and level |
+| [`example_rf`](examples/example_rf) | examples | The ww_tape book's RF capture: IQ at 20 MS/s into a piece, or into two chains from two muxes, followed live |
+| [`example_thermal`](examples/example_thermal) | examples | The ww_tape book's thermal field: a plate of sensors on a 2-D grid over time, read by box, region and level |
+| [`example_wideband`](examples/example_wideband) | examples | The ww_tape book's wideband receiver: 1 GS/s of IQ in channels over several muxes, captured into memory and triaged |
+| [`ww_tape_fuzz`](ww_tape_fuzz) | fuzz | Fuzz target bodies, hostile block builders and seed replay for ww_tape's decoders |
+| [`ww_tape_tests`](ww_tape_tests) | tests | Integration tests of ww_tape and its file layer, through their public API |
+| [`ww_tape_bench`](ww_tape_bench) | benches | What every ww_tape bench binary shares: its command line, its timing loop, and its report with the build, machine and load |
+| [`ww_tape_bench_report`](ww_tape_bench_report) | benches | The report of a ww_tape bench run as its JSON holds it: build, commit, machine, tables and load |
+| [`ww_tape_benchmarks`](ww_tape_benchmarks) | benches | Benchmarks of ww_tape: summaries, tracks, carried definitions, starts, relations, the writer's cost per chunk and its heap, the RF capture, the protocol analyser, the wideband receiver, the mux's handles, a chain's pieces verified and range-hashed in parallel |
+| [`ww_tape_codecs_benchmarks`](ww_tape_codecs_benchmarks) | benches | Benchmarks of ww_tape_codecs: the float sample codec and bench-only ones on simulated, decoded and sensor data |
+| [`ww_tape_figures`](ww_tape_figures) | figures | The figures of ww_tape's book pages that hold bytes or numbers, drawn as SVG from blocks ww_tape writes |
 <!-- /spirit-level:crates -->
 
 Beside the crates:

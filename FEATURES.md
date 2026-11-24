@@ -474,6 +474,15 @@ Crates, checks, fuzzing and benches.
 
   Read more: [Sizes and speeds](docs/sizes.md).
 
+- ✅ **REPO-86 The big tier of spirit_level, with a crate map**
+
+  `spirit_level.toml` extends the big tier, the ai add-on and the units sets.
+
+  - The crate map puts every crate in a layer, from the codecs up to the figures. spl checks each edge of cargo's graph against it.
+  - `ww_tape_codecs`, `ww_tape` and `ww_tape_summary` are marked no_std and wasm, and spl builds them so.
+  - The workspace forbids unsafe code. The crates the map marks unsafe allow it in their own `[lints]`.
+  - Clippy's pedantic and cargo groups are on.
+
 - 🚧 **REPO-1 Crates by what they touch**
 
   `ww_tape` writes and reads tapes on sinks and sources without std, `ww_tape_codecs` holds the codecs and `ww_tape_summary` the summaries. `ww_tape_fs` holds everything that names a path. The writer, chain and resume build with alloc only, and the codecs build for wasm32 without std.
