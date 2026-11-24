@@ -511,8 +511,8 @@ fn junk_in_a_resumed_piece_leaves_its_keys_unknown() {
 
 /// A piece resumed past junk, so its cut leaves the next piece's row unmarked; that piece deletes a live key and
 /// closes; a chain resume writes on it, reading its keys through its index over the whole keys of the piece before.
-/// The deleted key doesn't come back: the keys read from an index that aren't whole stay doubted, so the next cut
-/// doesn't mark them carried and a reader names them not whole.
+/// The deleted key doesn't come back: the keys read from an index that aren't whole stay doubted and take no older
+/// keys, so the next cut doesn't carry it nor mark the keys carried, and a reader names them not whole.
 #[test]
 fn a_key_deleted_after_a_doubted_cut_stays_deleted() {
     let defs = defs();
@@ -536,12 +536,20 @@ fn a_key_deleted_after_a_doubted_cut_stays_deleted() {
     chain.put_key(&defs, KEYED, 8000, b"/z", b"again").unwrap();
     chain.cut_now(&defs).unwrap();
     let pieces = chain.close().unwrap();
-    let (keys, whole) = keys_of(&piece_bytes(&mem, pieces.last().unwrap().tape), 0);
+    let last = piece_bytes(&mem, pieces.last().unwrap().tape);
+    let (keys, whole) = keys_of(&last, 0);
     assert!(
-        !(whole && keys.contains_key(&key(2))),
-        "the deleted key came back as whole"
+        !keys.contains_key(&key(2)),
+        "the deleted key came back into the carry"
     );
     assert!(!whole);
+    // a lookup of the deleted key finds none, or says it may lie in the pieces before
+    let r = TapeReader::open(&last[..]).unwrap();
+    let k = r.key_at(0, KEYED, &key(2), u64::MAX).unwrap();
+    assert!(
+        k.item.is_none() || !k.is_whole(),
+        "key_at finds the deleted key as whole"
+    );
 }
 
 /// A keyed track first defined after a resume past junk: the junk can't hold its records, so its keys are known

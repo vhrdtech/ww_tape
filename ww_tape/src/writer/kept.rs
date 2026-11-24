@@ -153,17 +153,14 @@ impl Keys {
         self.sealed = true;
     }
 
-    /// These keys after `older`, the keys of the same track before them: these alone when complete or sealed, else
-    /// `older`'s live keys less those these deleted, then these, complete when `older` is and none of these was
-    /// doubted.
+    /// These keys after `older`, the keys of the same track before them: these alone when complete, sealed or
+    /// doubted (they may miss deletions of older keys), else `older`'s live keys less those these deleted, then these,
+    /// complete when `older` is.
     fn after(self, older: Self) -> Self {
-        if self.complete || self.sealed || older.key != self.key {
+        if self.complete || self.sealed || self.doubted || older.key != self.key {
             return self;
         }
         let mut out = older;
-        if self.doubted {
-            out.doubt();
-        }
         for k in &self.gone {
             out.remove(k);
         }
