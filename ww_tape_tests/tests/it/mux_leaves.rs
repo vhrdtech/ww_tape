@@ -185,12 +185,15 @@ fn a_senders_tree_resumes_to_the_bytes_of_an_events_handle_after_a_crash_anywher
 const SAMPLES: u64 = 7 * 4096;
 const CHUNK_STEPS: u64 = 1024;
 
-/// The series run through a grid handle, or through a summarized sender whose chunks hold the raw samples and
-/// whose leaves come from the sender's sample leaves; the pieces.
-fn series_run(sender: bool) -> Vec<Vec<u8>> {
-    let mem = MemPieces::new();
-    let mux =
-        TapeMux::create(mem.clone(), OWNER, 0, &[], options(), MuxOptions::default()).unwrap();
+/// The series track of the run, defined on `mux` the same way each time: its number, id, shape and period.
+fn series_define(
+    mux: &TapeMux<MemPieces>,
+) -> (
+    TrackNum,
+    TrackId,
+    ww_tape::samples::SampleShape,
+    ww_tape::Ratio64,
+) {
     let c = mux.define_clock(clock()).unwrap();
     let spec = crate::mux_handles::series_track(c);
     let id = spec.key.id();
@@ -200,71 +203,95 @@ fn series_run(sender: bool) -> Vec<Vec<u8>> {
         .series_shape()
         .unwrap();
     let track = mux.define_track(spec).unwrap();
-    let grid = SeriesGrid::start(0, 0, exact_units::Magnitude::ONE);
-    let samples = |from: u64, to: u64| -> Vec<i16> {
-        (from..to).flat_map(crate::mux_resume::sample).collect()
-    };
-    if sender {
-        let s = mux.summarized_chunks(track).unwrap();
-        let period = mux
-            .definitions()
+    let period = mux
+        .definitions()
+        .unwrap()
+        .track(track)
+        .unwrap()
+        .period
+        .unwrap();
+    (track, id, shape, period)
+}
+
+/// The run's samples `from..to`.
+fn series_samples(from: u64, to: u64) -> Vec<i16> {
+    (from..to).flat_map(crate::mux_resume::sample).collect()
+}
+
+/// The run's grid.
+fn series_grid() -> SeriesGrid {
+    SeriesGrid::start(0, 0, exact_units::Magnitude::ONE)
+}
+
+/// The series run from time step `from` on through a summarized sender whose chunks hold the raw samples and whose
+/// leaves come from the sender's sample leaves, then the close.
+fn series_by_sender(mux: TapeMux<MemPieces>, from: u64) {
+    let (track, id, shape, period) = series_define(&mux);
+    let grid = series_grid();
+    let s = mux.summarized_chunks(track).unwrap();
+    for k in from / CHUNK_STEPS..SAMPLES / CHUNK_STEPS {
+        let first = ItemNum::new(k * CHUNK_STEPS);
+        let values = series_samples(k * CHUNK_STEPS, (k + 1) * CHUNK_STEPS);
+        let mut bytes = vec![0; max_encoded_len(Codec::RAW, shape, values.len()).unwrap()];
+        let len = encode(Codec::RAW, shape, &values, &mut bytes).unwrap();
+        bytes.truncate(len);
+        let (first_tick, last_tick) = grid.chunk_ticks(period, first, CHUNK_STEPS as u32).unwrap();
+        let head = ChunkHead {
+            kind: BlockKind::Series,
+            track_id: id,
+            track_number: track,
+            first_item: first,
+            count: CHUNK_STEPS as u32,
+            first_tick,
+            last_tick,
+            latest_end: last_tick,
+            time_mode: 0,
+            end_mode: EndMode::Absent,
+            grid: Some(grid),
+            tile: TileCoords::NONE,
+            level: 0,
+        };
+        let column = ColumnSpec {
+            kind: ColumnKind::Samples,
+            codec: Codec::RAW,
+            param: 0,
+            len: bytes.len(),
+        };
+        let mut leaves = s.sample_leaves::<i16>(first, grid).unwrap().unwrap();
+        leaves.push(&values, 0).unwrap();
+        let leaves = Leaves::series(leaves).unwrap();
+        s.send_placed(head, vec![(column, bytes)], Some(leaves))
             .unwrap()
-            .track(track)
-            .unwrap()
-            .period
             .unwrap();
-        for k in 0..SAMPLES / CHUNK_STEPS {
-            let first = ItemNum::new(k * CHUNK_STEPS);
-            let values = samples(k * CHUNK_STEPS, (k + 1) * CHUNK_STEPS);
-            let mut bytes = vec![0; max_encoded_len(Codec::RAW, shape, values.len()).unwrap()];
-            let len = encode(Codec::RAW, shape, &values, &mut bytes).unwrap();
-            bytes.truncate(len);
-            let (first_tick, last_tick) =
-                grid.chunk_ticks(period, first, CHUNK_STEPS as u32).unwrap();
-            let head = ChunkHead {
-                kind: BlockKind::Series,
-                track_id: id,
-                track_number: track,
-                first_item: first,
-                count: CHUNK_STEPS as u32,
-                first_tick,
-                last_tick,
-                latest_end: last_tick,
-                time_mode: 0,
-                end_mode: EndMode::Absent,
-                grid: Some(grid),
-                tile: TileCoords::NONE,
-                level: 0,
-            };
-            let column = ColumnSpec {
-                kind: ColumnKind::Samples,
-                codec: Codec::RAW,
-                param: 0,
-                len: bytes.len(),
-            };
-            let mut leaves = s.sample_leaves::<i16>(first, grid).unwrap().unwrap();
-            leaves.push(&values, 0).unwrap();
-            let leaves = Leaves::series(leaves).unwrap();
-            s.send_placed(head, vec![(column, bytes)], Some(leaves))
-                .unwrap()
-                .unwrap();
-        }
-        s.flush().unwrap();
-    } else {
-        let mut g = mux
-            .grid::<i16>(
-                track,
-                GridOptions {
-                    chunk_steps: CHUNK_STEPS as u32,
-                    latency: None,
-                    ..GridOptions::default()
-                },
-            )
-            .unwrap();
-        g.regrid(grid).unwrap();
-        g.push(&samples(0, SAMPLES)).unwrap();
-        g.finish().unwrap();
     }
+    s.flush().unwrap();
+    drop(s);
+    mux.close().unwrap();
+}
+
+/// The series run through a grid handle, or through a summarized sender ([series_by_sender]); the pieces.
+fn series_run(sender: bool) -> Vec<Vec<u8>> {
+    let mem = MemPieces::new();
+    let mux =
+        TapeMux::create(mem.clone(), OWNER, 0, &[], options(), MuxOptions::default()).unwrap();
+    if sender {
+        series_by_sender(mux, 0);
+        return pieces(&mem);
+    }
+    let (track, ..) = series_define(&mux);
+    let mut g = mux
+        .grid::<i16>(
+            track,
+            GridOptions {
+                chunk_steps: CHUNK_STEPS as u32,
+                latency: None,
+                ..GridOptions::default()
+            },
+        )
+        .unwrap();
+    g.regrid(series_grid()).unwrap();
+    g.push(&series_samples(0, SAMPLES)).unwrap();
+    g.finish().unwrap();
     mux.close().unwrap();
     pieces(&mem)
 }
@@ -279,6 +306,33 @@ fn a_senders_sample_leaves_give_the_bytes_of_a_grid_handle() {
 }
 
 /// A summarized sender takes its chunks with leaves only; a sender without summaries takes none.
+#[test]
+fn a_senders_series_tree_resumes_to_the_bytes_of_a_grid_handle_after_a_crash_anywhere() {
+    let want = series_run(false);
+    let mut crashes = 0;
+    for (p, piece) in want.iter().enumerate() {
+        let (done, _) = want.split_at(p);
+        for at in cut_points(piece, 20) {
+            if p + 1 == want.len() && at == piece.len() {
+                continue;
+            }
+            let mem = plant(done, &piece[..at]);
+            let (mux, resumed) =
+                TapeMux::resume(mem.clone(), OWNER, 0, options(), MuxOptions::default()).unwrap();
+            let id = series_define(&mux).1;
+            let from = next_item(done, &resumed.entries, id);
+            series_by_sender(mux, from);
+            assert!(
+                pieces(&mem) == want,
+                "a crash in piece {p} at {at} of {}",
+                piece.len()
+            );
+            crashes += 1;
+        }
+    }
+    assert!(crashes > 20, "{crashes} crashes");
+}
+
 #[test]
 fn leaves_go_only_with_a_summarized_sender() {
     let mem = MemPieces::new();
