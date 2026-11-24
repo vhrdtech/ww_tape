@@ -16,11 +16,90 @@ use ww_tape::{
 ///
 /// An item that reads encodes to bytes that read the same; its key id is valid and decides only the prefixes the key
 /// has. A keyed block reads exactly when each of its items does, and lists each record under its key id. A keyed
-/// entry is written exactly when its fields are where a key may be, and reads back as written.
+/// entry is written exactly when its fields are where a key may be, and reads back as written. A group of puts and
+/// deletions of keys is refused exactly when it names a key twice, and else reads as its puts applied in order.
 pub fn keyed(data: &[u8]) {
     item(data);
     block(data);
     entries(data);
+    group(data);
+}
+
+/// The input as a group of puts on a keyed track after a few keys put alone: a byte saying put or delete and the key's
+/// length, the key, then for a put a byte giving the value's length and the value.
+fn group(data: &[u8]) {
+    let mut rest = data;
+    let mut puts: Vec<(&[u8], Option<&[u8]>)> = vec![];
+    while let Some((&op, tail)) = rest.split_first() {
+        let n = usize::from(op & 0x0f).min(tail.len());
+        let (key, tail) = tail.split_at(n);
+        let (value, tail) = if op & 0x80 != 0 {
+            (None, tail)
+        } else {
+            let Some((&m, tail)) = tail.split_first() else {
+                break;
+            };
+            let (v, tail) = tail.split_at(usize::from(m % 64).min(tail.len()));
+            (Some(v), tail)
+        };
+        puts.push((key, value));
+        rest = tail;
+        if puts.len() == 24 {
+            break;
+        }
+    }
+    let (defs, on) = hostile::keyed_definitions(None);
+    let mut w = hostile::keyed_writer();
+    let mut model = std::collections::BTreeMap::new();
+    for key in [&b"/a"[..], b"/b", b""] {
+        w.put_key(&defs, on.keyed, 0, key, b"before")
+            .expect("a put");
+        model.insert(key.to_vec(), b"before".to_vec());
+    }
+    let group: Vec<ww_tape::GroupPut<'_>> = puts
+        .iter()
+        .map(|(k, v)| match v {
+            Some(v) => ww_tape::GroupPut::key(on.keyed, 1, k, v),
+            None => ww_tape::GroupPut::delete_key(on.keyed, 1, k),
+        })
+        .collect();
+    let twice = puts
+        .iter()
+        .enumerate()
+        .any(|(i, (k, _))| puts[..i].iter().any(|(o, _)| o == k));
+    match w.put_group(&defs, &group) {
+        Err(WriteError::Input(ww_tape::InputError::Group(ww_tape::GroupRefusal::SlotTwice {
+            ..
+        }))) => {
+            assert!(twice, "refused for a key twice");
+            return;
+        }
+        Err(e) => panic!("a group of keys refused: {e}"),
+        Ok(_) => assert!(!twice, "a key twice is refused"),
+    }
+    for (k, v) in &puts {
+        match v {
+            Some(v) => model.insert(k.to_vec(), v.to_vec()),
+            None => model.remove(*k),
+        };
+    }
+    let tape = w.sink().tape();
+    w.close().expect("the piece closes");
+    let bytes = tape.to_vec().expect("the bytes");
+    let at = TapeReader::open(&bytes[..])
+        .expect("a closed piece opens")
+        .keys_at(0, on.keyed, b"", u64::MAX)
+        .expect("a lookup");
+    assert!(at.is_whole(), "a first piece holds every key");
+    let got: std::collections::BTreeMap<Vec<u8>, Vec<u8>> = at
+        .items
+        .iter()
+        .map(|(k, s)| {
+            let v = s.keyed().and_then(|k| k.value).expect("a live key's value");
+            (k.clone(), v.to_vec())
+        })
+        .collect();
+    assert_eq!(got, model, "the keys in force after the group");
 }
 
 /// The input as one keyed item.

@@ -34,7 +34,9 @@ pub use keyed::{
     KeyedAttacked, KeyedTracks, attacked as keyed_attacked, keyed, keyed_template,
     keys as keyed_keys, prefixes as keyed_prefixes,
 };
-pub(crate) use keyed::{definitions as keyed_definitions, options as keyed_options};
+pub(crate) use keyed::{
+    definitions as keyed_definitions, fresh_writer as keyed_writer, options as keyed_options,
+};
 pub use payloads::payloads;
 pub use records::records;
 #[cfg(test)]

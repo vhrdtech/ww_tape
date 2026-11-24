@@ -1,7 +1,7 @@
 //! Keyed state records and their index entries: a piece a cut started, carrying the live keys of a keyed state track,
-//! then written with puts and deletions of keys; its keyed blocks, the keyed fields of its index's state entries (flags,
-//! key length, key head, key hash) and its head row's flags take hostile values behind good CRCs, or the piece is
-//! cut.
+//! then written with puts and deletions of keys, alone and in groups of puts. Its keyed blocks, the keyed fields of
+//! its index's state entries (flags, key length, key head, key hash) and its head row's flags take hostile values
+//! behind good CRCs, a keyed block or a block of a group is damaged, or the piece is cut.
 
 use std::sync::OnceLock;
 
@@ -128,9 +128,8 @@ pub(crate) fn definitions(resumed: Option<&ww_tape::Resumed>) -> (Definitions, K
     (defs, KeyedTracks { clock, keyed })
 }
 
-/// The template: rounds of puts and deletions over [keys], a value per round, in a first piece; a cut, which
-/// carries every live key into the second piece and marks its head row; more rounds there; the second piece closed.
-fn template() -> Vec<u8> {
+/// A writer on a new first piece in memory, with [options].
+pub(crate) fn fresh_writer() -> TapeWriter<MemSink> {
     let o = options();
     let mut w = TapeWriter::create_on(MemSink::new(), o.sync);
     w.set_index_policy(o.index)
@@ -153,16 +152,46 @@ fn template() -> Vec<u8> {
         unlisted_keys_unknown: false,
     };
     w.begin_piece(&head, &[]).expect("a first piece");
+    w
+}
+
+/// The template: rounds of puts and deletions over [keys], a value per round, every other round one group of puts,
+/// in a first piece; a cut, which carries every live key into the second piece and marks its head row; more rounds
+/// there; the second piece closed.
+fn template() -> Vec<u8> {
+    let mut w = fresh_writer();
     let (defs, on) = definitions(None);
     let put = |w: &mut TapeWriter<MemSink>, k: i64| {
+        let values: Vec<Vec<u8>> = (0..keys().len())
+            .map(|i| {
+                let round = k as usize + i;
+                vec![(round % 7) as u8; round % 11]
+            })
+            .collect();
+        let mut group = Vec::new();
         for (i, key) in keys().iter().enumerate() {
             let round = k as usize + i;
             if round % 5 == 4 {
-                w.delete_key(&defs, on.keyed, k, key).expect("a deletion");
+                group.push(ww_tape::GroupPut::delete_key(on.keyed, k, key));
             } else if round % 3 != 2 {
-                let value = vec![(round % 7) as u8; round % 11];
-                w.put_key(&defs, on.keyed, k, key, &value).expect("a put");
+                group.push(ww_tape::GroupPut::key(on.keyed, k, key, &values[i]));
             }
+        }
+        if k % 2 == 1 {
+            w.put_group(&defs, &group).expect("a group");
+            return;
+        }
+        for p in &group {
+            match p.item {
+                ww_tape::GroupItem::Key(ww_tape::KeyedItem {
+                    key,
+                    value: Some(v),
+                }) => w.put_key(&defs, on.keyed, k, key, v).expect("a put"),
+                ww_tape::GroupItem::Key(ww_tape::KeyedItem { key, value: None }) => {
+                    w.delete_key(&defs, on.keyed, k, key).expect("a deletion")
+                }
+                ww_tape::GroupItem::State(_) => unreachable!("the template puts keys only"),
+            };
         }
     };
     for k in 0..ROUNDS / 2 {
@@ -296,16 +325,28 @@ pub fn attacked(data: &[u8]) -> KeyedAttacked {
         .iter()
         .filter(|(at, len, _)| ww_tape::Block::read(&f[*at..at + len]).is_ok_and(|b| b.is_keyed()))
         .collect();
+    let groups: Vec<_> = all
+        .iter()
+        .filter(|(at, len, _)| {
+            ww_tape::Block::read(&f[*at..at + len])
+                .is_ok_and(|b| b.flags & ww_tape::FLAG_GROUP != 0)
+        })
+        .collect();
+    assert!(!groups.is_empty(), "the template puts groups");
     for _ in 0..=d.below(4) {
         // 0: an index's state entry, 1: a keyed block behind a good CRC, 2: damage to one, 3: the piece head's row
-        // flags behind a good CRC
-        let attack = d.below(4);
+        // flags behind a good CRC, 4: damage to a block of a group of puts
+        let attack = d.below(5);
         if attack == 3 {
             hit_head_row(&mut d, &mut f);
             forged = true;
             continue;
         }
-        let pick = if attack == 0 { &indexes } else { &keyed };
+        let pick = match attack {
+            0 => &indexes,
+            4 => &groups,
+            _ => &keyed,
+        };
         let Some((at, len, _)) = pick.get(d.below(pick.len().max(1))) else {
             continue;
         };
