@@ -6,6 +6,8 @@ benchmarks, golden files and book pages.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-24
+
 ### Breaking
 
 - A grid chunk's byte 83 holds its overview level; 0.8 readers read overview chunks as damaged: upgrade readers (FMT-15).
