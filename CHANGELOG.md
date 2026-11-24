@@ -6,6 +6,10 @@ benchmarks, golden files and book pages.
 
 ## [Unreleased]
 
+### Fixes
+
+- A chain resume reads its numbers from every closed piece present, also when it starts a new piece (TRACK-7).
+
 ## [0.8.0] - 2026-11-24
 
 ### Breaking

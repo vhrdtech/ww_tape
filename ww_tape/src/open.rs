@@ -544,6 +544,17 @@ impl Numbers {
         }
     }
 
+    /// Take every number `later` gives, over those taken here: a number it gives another track or clock loses the
+    /// one it stood for here.
+    pub(crate) fn take_all(&mut self, later: &Self) {
+        for (number, (id, owner)) in &later.track_keys {
+            self.take_track(*number, *id, *owner);
+        }
+        for (number, key) in &later.clock_keys {
+            self.take_clock(*number, *key);
+        }
+    }
+
     /// The number of the track of id `id` and owner `owner`, else the lowest not taken.
     fn track_for(&self, id: TrackId, owner: [u8; 32]) -> Result<TrackNum, DescribeError> {
         if let Some(n) = self.track(id, owner) {

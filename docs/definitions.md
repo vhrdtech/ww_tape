@@ -57,6 +57,11 @@ the [[writer]] places each definition just before the first data that needs it.
 number it gives, the lowest not yet taken, so the application never picks a number. Defining the same clock key again
 gives the same number back. So does the same track key with the same dimensions, in any order.
 
+A [[resume]] gives the numbers the [[tape]] already holds, in [`Resumed::numbers`]. [`Definitions::with_numbers`] starts
+a container with them, so every clock and track defined again keeps its number and a new one takes a number not yet
+taken. A [[chain]]'s resume reads them from every [[closed|close]] [[piece]] still there, also when it starts a
+new piece.
+
 Each definition is checked against those already held. A track or a map must name clocks that the container holds.
 An [[epoch]] clock must come with its link, which [`Definitions::define_clock_with_maps`] defines with it.
 [`Definitions::define_all`] holds several maps, bundles or schemas at once.

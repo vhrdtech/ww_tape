@@ -42,7 +42,7 @@ fn write<T: PieceStore>(c: &mut PieceChain<T>, defs: &Definitions, from: u64, to
 }
 
 /// The pieces of `mem`, by key, back to back.
-fn bytes_of(mem: &MemPieces) -> Vec<u8> {
+pub(crate) fn bytes_of(mem: &MemPieces) -> Vec<u8> {
     mem.keys()
         .unwrap()
         .iter()
@@ -50,12 +50,12 @@ fn bytes_of(mem: &MemPieces) -> Vec<u8> {
         .collect()
 }
 
-fn report(bytes: &[u8]) -> ChainReport {
+pub(crate) fn report(bytes: &[u8]) -> ChainReport {
     TapeReader::open(bytes).unwrap().chain()
 }
 
 /// Every link holds, by hash or over named removed pieces, and the chain ends at a close.
-fn linked(c: &ChainReport) {
+pub(crate) fn linked(c: &ChainReport) {
     assert!(
         c.links
             .iter()

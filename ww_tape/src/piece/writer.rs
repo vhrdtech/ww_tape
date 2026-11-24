@@ -297,6 +297,8 @@ impl<T: PieceStore> PieceChain<T> {
             }
         };
         writer.take_newest(&newest);
+        let mut resumed = resumed;
+        resumed.numbers = numbers_in(&closed, &resumed.numbers);
         Ok((
             Self {
                 store,
@@ -381,6 +383,8 @@ impl<T: PieceStore> PieceChain<T> {
             (w, resumed)
         };
         writer.take_newest(&newest);
+        let mut resumed = resumed;
+        resumed.numbers = numbers_in(&closed, &resumed.numbers);
         // the pieces before the first at hand may be dropped: the seq is the head's
         let seq = writer
             .piece_head()
@@ -1032,6 +1036,8 @@ struct LastPiece {
     kept: Kept,
     /// The pieces of the chain its close in force names as removed on purpose
     removed: Vec<RemovedPiece>,
+    /// Which number stands for which track and clock in it ([numbers_of])
+    numbers: crate::Numbers,
 }
 
 /// A piece the chain goes on from, read by [cut_piece].
@@ -1101,6 +1107,7 @@ fn read_closed_at<B: ByteSource>(
     let next_tracks = crate::index::next_starts(starts, ranges);
     let (newest, last_chunks) = last_chunks_of(reader, i, ranges)?;
     let kept = kept_of(reader, i, &next_tracks)?;
+    let numbers = numbers_of(reader, i)?;
     Ok((
         Closed {
             hash: close.hash,
@@ -1121,8 +1128,50 @@ fn read_closed_at<B: ByteSource>(
             last_chunks,
             kept,
             removed: p.removed.clone(),
+            numbers,
         },
     ))
+}
+
+/// Which number stands for which track and clock in piece `i` of `reader`: its head's rows, then the track and clock
+/// definitions in force at its end, then its close's rows. A definition that doesn't read, or past the reader's
+/// budget, gives none.
+fn numbers_of<B: ByteSource>(
+    reader: &TapeReader<B>,
+    i: usize,
+) -> Result<crate::Numbers, WriteError<B::Error>> {
+    let mut numbers = crate::Numbers::new();
+    let Some(p) = reader.pieces().get(i) else {
+        return Ok(numbers);
+    };
+    for r in p.head.iter().flat_map(|(_, rows)| rows) {
+        numbers.take_track(r.track_number, r.track_id, r.owner.0);
+    }
+    let defs = reader
+        .definitions_at(i, u64::MAX)
+        .map_err(WriteError::Read)?;
+    for s in defs.items.values() {
+        match <crate::Describe<'_> as shrink_wrap::DeserializeShrinkWrap>::from_ww_bytes(&s.item) {
+            Ok(crate::Describe::Track(t)) => numbers.take_track(t.number, t.id(), t.owner),
+            Ok(crate::Describe::Clock(c)) => numbers.take_clock(c.number, c.key),
+            _ => {}
+        }
+    }
+    for r in p.close.iter().flat_map(|(_, rows)| rows) {
+        numbers.take_track(r.track_number, r.track_id, r.owner.0);
+    }
+    Ok(numbers)
+}
+
+/// The numbers of the closed pieces `closed`, oldest first, then `own` (the resumed piece's) over them: what an
+/// application numbers the tracks and clocks it defines again by ([Resumed::numbers]).
+fn numbers_in<K>(closed: &[Done<K>], own: &crate::Numbers) -> crate::Numbers {
+    let mut numbers = crate::Numbers::new();
+    for (_, last) in closed {
+        numbers.take_all(&last.numbers);
+    }
+    numbers.take_all(own);
+    numbers
 }
 
 /// The newest item of each state track of rows `rows` in piece `i` of `reader` that reads, oldest first: what the

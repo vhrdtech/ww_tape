@@ -17,6 +17,7 @@
 
 mod appends;
 mod book;
+mod chain_numbers;
 mod chain_removal;
 mod chains;
 mod check_parallel;
