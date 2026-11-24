@@ -32,6 +32,7 @@ nav = [
     { "Writing" = [
             "writing.md",
             "writing_thread.md",
+            "own_chunks.md",
             "files.md",
             "pieces.md",
             "crashes.md",

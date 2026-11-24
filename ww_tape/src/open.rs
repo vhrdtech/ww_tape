@@ -777,9 +777,9 @@ impl Definitions {
         self.tracks.get(&number).map(|t| t.facts)
     }
 
-    /// The id and owner of held track `number`, as its definition says.
+    /// The id and owner of held track `number`, as its definition says: all zeros for the piece's owner.
     #[cfg(feature = "alloc")]
-    pub(crate) fn track_key(&self, number: TrackNum) -> Option<(TrackId, [u8; 32])> {
+    pub fn track_identity(&self, number: TrackNum) -> Option<(TrackId, [u8; 32])> {
         self.tracks.get(&number).map(|t| t.key)
     }
 

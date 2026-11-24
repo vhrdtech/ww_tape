@@ -8,13 +8,15 @@ use std::time::Instant;
 
 use ww_tape::chunk::ChunkHead;
 use ww_tape::{
-    ChainPiece, CloseReason, ColumnSpec, Definitions, DescribeError, PieceStore, TrackFacts,
-    TrackNum, WriteError,
+    ChainPiece, CloseReason, ColumnSpec, Definitions, DescribeError, ItemHash, PieceStore,
+    TrackFacts, TrackNum, WriteError,
 };
 
 use crate::MuxStats;
 use crate::error::{MuxError, Unit};
+use crate::items::ItemCarry;
 use crate::open::Complete;
+use crate::placing::PlacedTx;
 use crate::progress::Watch;
 use crate::queue::{Queue, lock};
 use crate::reply::ReplyTx;
@@ -64,6 +66,8 @@ pub(crate) enum Work<T: PieceStore> {
         summary: Option<Box<ChunkSummary>>,
         /// A grid tile chunk's overview chunks, placed right after it in the same piece
         overviews: Vec<Follower>,
+        /// Where to say the chunk was placed ([crate::ChunkSender::send_placed])
+        placed: Option<PlacedTx>,
     },
     Block {
         from: Arc<Slot<T::Error>>,
@@ -77,6 +81,17 @@ pub(crate) enum Work<T: PieceStore> {
         item: Vec<u8>,
         /// The item is a [KeyedItem](ww_tape::KeyedItem): put by key
         keyed: bool,
+    },
+    /// A typed item, encoded as its definition ([ww_tape::Describe::Item]), to put and hold as `carry` says.
+    PutItem {
+        item: Vec<u8>,
+        carry: ItemCarry,
+        reply: ReplyTx<Result<ItemHash, MuxError<T::Error>>>,
+    },
+    /// Hold a typed item no more.
+    ReleaseItem {
+        hash: ItemHash,
+        reply: ReplyTx<bool>,
     },
     /// A track, encoded ([crate::define::track]).
     DefineTrack {

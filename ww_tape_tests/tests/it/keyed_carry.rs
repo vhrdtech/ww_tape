@@ -693,11 +693,17 @@ fn a_lost_carry_without_its_keyed_track_is_refused_by_name() {
         matches!(e, WriteError::Resume(ResumeError::KeysUndefined { track }) if track == KEYED),
         "{e}"
     );
-    assert!(piece_bytes(&mem, 1) == resumed, "the refused call wrote nothing");
+    assert!(
+        piece_bytes(&mem, 1) == resumed,
+        "the refused call wrote nothing"
+    );
     chain.put(&defs(), PLAIN, 10, b"run").unwrap();
     chain.put_key(&defs(), KEYED, 11, b"/b", b"2").unwrap();
     chain.close().unwrap();
-    let model = Model::from([(b"/a".to_vec(), b"1".to_vec()), (b"/b".to_vec(), b"2".to_vec())]);
+    let model = Model::from([
+        (b"/a".to_vec(), b"1".to_vec()),
+        (b"/b".to_vec(), b"2".to_vec()),
+    ]);
     assert_eq!(keys_of(&piece_bytes(&mem, 1), 0), (model, true));
 }
 

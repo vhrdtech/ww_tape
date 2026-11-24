@@ -7,10 +7,12 @@
 //! |---|---|---|
 //! | [EventsHandle] | items of one events track, one by one or in batches ([Event]), encoded into chunks on its thread | [PieceChain::write_chunk_hashed] |
 //! | [GridHandle] | time steps of one series track (its samples, or its tiles' cells), encoded the same way, a chunk per tile | [PieceChain::write_chunk_hashed] |
-//! | [ChunkSender] | a chunk of one events or series track, encoded by the caller | [PieceChain::write_chunk] |
+//! | [ChunkSender] | a chunk of one events or series track, encoded by the caller; with its summary [Leaves] from [TapeMux::summarized_chunks] | [PieceChain::write_chunk], a [Placement] back on [ChunkSender::send_placed] |
 //! | [RecordsHandle] | a records block ([ww_tape::BlockWriter]) | the writer's next block ([PieceChain::write_block]) |
 //! | [RelayHandle] | another producer's block | [PieceChain::relay_block] or [PieceChain::adopt_block] |
 //! | [StateHandle] | a state item, on change; a key's value or deletion on a keyed track | [PieceChain::put], [PieceChain::put_key], [PieceChain::delete_key] |
+//!
+//! Typed items go through [TapeMux::put_item], carried into later pieces as their [ItemCarry] says.
 //!
 //! The writing thread places units in the order they came, and does the chores: puts of definitions and state,
 //! cuts by the chain's policy, sync and checkpoints by time ([MuxOptions::tick]), the close. Handles never pass
@@ -88,14 +90,19 @@
 //! | [MuxOptions::queue_bytes] | 64 MiB by default | the bytes of units sent and not yet placed |
 //! | [RETURNED_BUFFERS_MAX] | 64 | buffers a handle keeps for reuse |
 //! | [ITEM_BYTES_MAX] | 16 MiB | the payload of one item an [EventsHandle] takes |
+//! | [HELD_ITEMS_MAX] | 1024 | typed items held for later pieces ([TapeMux::put_item]) |
+//! | [HELD_ITEM_BYTES_MAX] | 4 MiB | the bytes of the typed items held for later pieces |
 
 mod define;
 mod error;
 mod events;
 mod grid;
 mod handle;
+mod items;
+mod leaves;
 mod open;
 mod overview;
+mod placing;
 mod progress;
 mod queue;
 mod reply;
@@ -111,8 +118,9 @@ use std::time::Duration;
 use exact_units::Bytes;
 use ww_tape::index::IndexEntry;
 use ww_tape::{
-    ChainOptions, ChainPiece, ClockNum, ClockSpec, CloseReason, Definitions, Describe, MapSegment,
-    OwnerId, PieceChain, PieceStore, Resumed, TrackNum, TrackSpec, TrackStart,
+    ChainOptions, ChainPiece, ClockNum, ClockSpec, CloseReason, Definitions, Describe, ItemHash,
+    MapSegment, OwnerId, PieceChain, PieceStore, Resumed, TrackNum, TrackSpec, TrackStart,
+    TypedItem,
 };
 
 pub use error::{CallError, EncodeError, ItemError, MuxError, Unit};
@@ -122,6 +130,9 @@ pub use events::{
 };
 pub use grid::{CHUNK_STEPS_DEFAULT, GridHandle, GridOptions};
 pub use handle::{ChunkSender, Pressure, RecordsHandle, RelayHandle, Sent, StateHandle};
+pub use items::{HELD_ITEM_BYTES_MAX, HELD_ITEMS_MAX, ItemCarry};
+pub use leaves::{Leaves, SampleLeaves};
+pub use placing::{Placement, Placing, Unplaced};
 pub use progress::{Progress, ProgressWatch, TrackProgress, WaitPast};
 pub use shared::{RETURNED_BUFFERS_MAX, RelayMode};
 
@@ -351,6 +362,48 @@ where
         Ok(self.shared.control_async(w, rx).await??)
     }
 
+    /// Put typed item `item` on track 0 ([PieceChain::put_item]) once every unit sent before is placed, and hold it
+    /// for the pieces later cuts start as `carry` says: a cut carries track definitions, not typed items. Its hash,
+    /// which [Self::release_item] takes.
+    ///
+    /// A resumed mux holds no item: put them again after the resume, as the tracks are defined again.
+    pub fn put_item(
+        &self,
+        item: &TypedItem<'_>,
+        carry: ItemCarry,
+    ) -> Result<ItemHash, MuxError<T::Error>> {
+        block_on(self.put_item_async(item, carry))
+    }
+
+    /// [Self::put_item] as a future.
+    pub async fn put_item_async(
+        &self,
+        item: &TypedItem<'_>,
+        carry: ItemCarry,
+    ) -> Result<ItemHash, MuxError<T::Error>> {
+        let item = ww_tape::open::encode(&Describe::Item(item.clone()))?;
+        let (tx, rx) = reply();
+        let w = Work::PutItem {
+            item,
+            carry,
+            reply: tx,
+        };
+        self.shared.control_async(w, rx).await?
+    }
+
+    /// Hold item `hash` ([Self::put_item]) no more: later pieces don't get it. Whether it was held.
+    pub fn release_item(&self, hash: ItemHash) -> Result<bool, MuxError<T::Error>> {
+        block_on(self.release_item_async(hash))
+    }
+
+    /// [Self::release_item] as a future.
+    pub async fn release_item_async(&self, hash: ItemHash) -> Result<bool, MuxError<T::Error>> {
+        let (tx, rx) = reply();
+        self.shared
+            .control_async(Work::ReleaseItem { hash, reply: tx }, rx)
+            .await
+    }
+
     /// A copy of the definitions the mux holds, as of every unit sent before.
     pub fn definitions(&self) -> Result<Definitions, MuxError<T::Error>> {
         block_on(self.definitions_async())
@@ -377,8 +430,34 @@ where
         match self.facts(track).await? {
             Some(f) if f.state.is_none() => {
                 self.plain(track).await?;
-                Ok(ChunkSender::new(self.shared.clone(), track, f))
+                Ok(ChunkSender::new(self.shared.clone(), track, f, None))
             }
+            _ => Err(CallError::Kind { track }.into()),
+        }
+    }
+
+    /// A sender of chunks of events or series track `track` whose chunks go with their summary leaves
+    /// ([ChunkSender::send_placed]): the writing thread joins them into the track's tree as it does a typed
+    /// handle's, ends it before each cut and at the close, and a resumed mux rebuilds it from the chunks kept.
+    /// Refused for a track without summaries, a grid of tiles or a media track ([CallError::Kind]).
+    pub fn summarized_chunks(&self, track: TrackNum) -> Result<ChunkSender<T>, MuxError<T::Error>> {
+        block_on(self.summarized_chunks_async(track))
+    }
+
+    /// [Self::summarized_chunks] as a future.
+    pub async fn summarized_chunks_async(
+        &self,
+        track: TrackNum,
+    ) -> Result<ChunkSender<T>, MuxError<T::Error>> {
+        let facts = self.facts(track).await?.filter(|f| f.state.is_none());
+        let bytes = self.track_def(track).await?;
+        let summary =
+            match <Describe<'_> as shrink_wrap::DeserializeShrinkWrap>::from_ww_bytes(&bytes) {
+                Ok(Describe::Track(def)) => leaves::SummaryOf::of(&def),
+                _ => None,
+            };
+        match (facts, summary) {
+            (Some(f), Some(s)) => Ok(ChunkSender::new(self.shared.clone(), track, f, Some(s))),
             _ => Err(CallError::Kind { track }.into()),
         }
     }

@@ -242,6 +242,39 @@ fn whole_run(per_tile: bool, summaries: bool) -> (Vec<Vec<u8>>, TrackId) {
     (pieces(&mem), id)
 }
 
+/// Cuts every few chunks between the units of a grid with overviews (a tile chunk and its overview chunks) carry
+/// each held item into every piece once, and leave every unit whole.
+#[test]
+fn cuts_between_grid_units_carry_each_held_item_once() {
+    use crate::mux_items::{copies, item};
+    let mem = MemPieces::new();
+    let mux = TapeMux::create(
+        mem.clone(),
+        OWNER,
+        0,
+        &[],
+        options(5),
+        MuxOptions::default(),
+    )
+    .unwrap();
+    let (track, _) = define(&mux, false);
+    let every = mux
+        .put_item(&item(b"every"), ww_tape_mux::ItemCarry::Every)
+        .unwrap();
+    let own = mux
+        .put_item(&item(b"own"), ww_tape_mux::ItemCarry::Owner(OWNER))
+        .unwrap();
+    write(mux, track, &[]);
+    let p = pieces(&mem);
+    assert!(p.len() > 3, "{} pieces", p.len());
+    for (i, p) in p.iter().enumerate() {
+        assert_eq!(copies(p, every), 1, "piece {i}");
+        assert_eq!(copies(p, own), 1, "piece {i}");
+        let r = TapeReader::open(p.as_slice()).unwrap();
+        assert!(r.verify(0).unwrap().holds, "piece {i} verifies");
+    }
+}
+
 /// Axes of the golden overview: x of 4 cells in one tile, a band of 1 kept, y of 3 cells in tiles of 2 (its edge
 /// tile of 1 cell); x and y halve once.
 const GOLDEN_AXES: [(u32, u32, bool); 3] = [(4, 4, true), (1, 1, false), (3, 2, true)];

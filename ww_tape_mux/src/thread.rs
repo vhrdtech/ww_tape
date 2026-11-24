@@ -4,15 +4,17 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use ww_tape::chunk::ChunkHead;
-use ww_tape::index::IndexEntry;
+use ww_tape::index::{IndexEntry, IndexError};
 use ww_tape::{
-    ChainPiece, CloseReason, ColumnSpec, Definitions, DescribeError, KeyedItem, PieceChain,
-    PieceStore, Slot as DefSlot, TrackNum, UnitChunk, WriteError,
+    ChainPiece, ChunkPlaced, CloseReason, ColumnSpec, Definitions, DescribeError, KeyedItem,
+    PieceChain, PieceStore, Slot as DefSlot, TapeSink, TrackNum, UnitChunk, WriteError,
 };
 
 use crate::define;
 use crate::error::MuxError;
+use crate::items::{self, Held};
 use crate::open;
+use crate::placing::{Placement, Unplaced};
 use crate::queue::Popped;
 use crate::shared::{BlockHow, ClosedTx, Counters, Follower, RelayMode, Shared, Slot, Work};
 use crate::summaries::{Added, ChunkSummary, Trees};
@@ -36,7 +38,7 @@ impl<T: PieceStore> Drop for CloseOnExit<'_, T> {
 
 /// Whether `e` leaves the chain unable to write on: a failed write or sync, a cut that could not start the next
 /// piece. Any other refusal wrote nothing.
-fn stops<T: PieceStore>(chain: &mut PieceChain<T>, e: &WriteError<T::Error>) -> bool {
+pub(crate) fn stops<T: PieceStore>(chain: &mut PieceChain<T>, e: &WriteError<T::Error>) -> bool {
     matches!(
         e,
         WriteError::Sink { .. } | WriteError::Failed | WriteError::Read(_)
@@ -52,6 +54,10 @@ struct State<'a, T: PieceStore> {
     /// The blocks a resume kept of the piece whose trees are still to be rebuilt: before the first write, so the
     /// tracks are defined again by then
     rebuild: Option<Vec<IndexEntry>>,
+    /// Typed items put again in each piece a cut starts
+    items: Held,
+    /// The data tracks the unit placed last wrote on, for the items of their owners
+    wrote: Vec<TrackNum>,
 }
 
 /// The thread: place every unit until a close or a stop, ticking every `tick`.
@@ -68,6 +74,8 @@ pub(crate) fn run<T: PieceStore>(
         trees: Trees::new(chain.seq()),
         late: Vec::new(),
         rebuild,
+        items: Held::new(chain.seq()),
+        wrote: Vec::new(),
     };
     let mut next_tick = Instant::now().checked_add(tick);
     let exit = loop {
@@ -78,6 +86,7 @@ pub(crate) fn run<T: PieceStore>(
         match shared.queue.pop(deadline) {
             Popped::Unit(work, bytes) => {
                 let exit = place(&mut chain, &mut defs, &mut st, work, bytes);
+                carry_items(&mut chain, &defs, &mut st);
                 shared.queue.release(bytes);
                 shared.watch.publish(&mut chain, None);
                 if let Some(exit) = exit {
@@ -97,6 +106,7 @@ pub(crate) fn run<T: PieceStore>(
         });
         if next_tick.is_some_and(|t| now >= t) {
             chores(&mut chain, &defs, &mut st);
+            carry_items(&mut chain, &defs, &mut st);
             shared.watch.publish(&mut chain, None);
             next_tick = now.checked_add(tick);
         }
@@ -167,6 +177,27 @@ fn rebuilt<T: PieceStore>(chain: &mut PieceChain<T>, defs: &Definitions, st: &mu
     }
 }
 
+/// Put the held typed items into a piece a cut just started: a failure stops the chain, a refusal is counted.
+fn carry_items<T: PieceStore>(
+    chain: &mut PieceChain<T>,
+    defs: &Definitions,
+    st: &mut State<'_, T>,
+) {
+    let shared = st.shared;
+    if shared.failure.get().is_some() {
+        return;
+    }
+    let r = st.items.carry(chain, defs, &st.wrote);
+    st.wrote.clear();
+    match r {
+        Ok(refused) => Counters::add(&shared.counters.refused, refused),
+        Err(e) if stops(chain, &e) => {
+            shared.fail(e);
+        }
+        Err(_) => Counters::add(&shared.counters.refused, 1),
+    }
+}
+
 /// Whether placing `work` writes: it waits for the rebuild of a resumed piece's trees.
 fn writes<T: PieceStore>(work: &Work<T>) -> bool {
     matches!(
@@ -174,6 +205,7 @@ fn writes<T: PieceStore>(work: &Work<T>) -> bool {
         Work::Chunk { .. }
             | Work::Block { .. }
             | Work::Put { .. }
+            | Work::PutItem { .. }
             | Work::Cut { .. }
             | Work::Flush { sync: true, .. }
             | Work::Close { .. }
@@ -218,7 +250,7 @@ fn place_chunk<T: PieceStore>(
     st: &mut State<'_, T>,
     c: &Placing<'_>,
     summary: Option<Box<ChunkSummary>>,
-) -> Result<(), WriteError<T::Error>> {
+) -> Result<Placement, WriteError<T::Error>> {
     let Placing {
         head,
         columns,
@@ -230,11 +262,11 @@ fn place_chunk<T: PieceStore>(
         end_trees(chain, defs, st)?;
     }
     let refs: Vec<(ColumnSpec, &[u8])> = columns.iter().map(|(c, b)| (*c, b.as_slice())).collect();
-    if overviews.is_empty() {
+    let first = if overviews.is_empty() {
         match hash {
             Some(hash) => chain.write_chunk_hashed(defs, head, &refs, hash)?,
             None => chain.write_chunk(defs, head, &refs)?,
-        };
+        }
     } else {
         let follower_refs: Vec<Vec<(ColumnSpec, &[u8])>> = overviews
             .iter()
@@ -257,8 +289,17 @@ fn place_chunk<T: PieceStore>(
                 }),
         )
         .collect();
-        chain.write_unit(defs, &unit)?;
-    }
+        // a unit of one chunk and its overviews places that chunk first
+        let placed = chain.write_unit(defs, &unit)?;
+        placed
+            .first()
+            .copied()
+            .ok_or(WriteError::Index(IndexError::Invalid(
+                "a unit placed no chunk",
+            )))?
+    };
+    // read before the summary, whose defer may cut: the piece the chunk went into, a cut coming before a chunk
+    let placed = placement(chain, head, &first);
     // a summary block is placed after the unit, never inside it
     match summary {
         Some(s) => {
@@ -268,7 +309,26 @@ fn place_chunk<T: PieceStore>(
         }
         None => st.trees.plain(head.track_number),
     }
-    Ok(())
+    Ok(placed)
+}
+
+/// The receipt of a chunk of `head` placed at `p`, in the piece the chain writes now: read right after the chunk.
+fn placement<T: PieceStore>(
+    chain: &mut PieceChain<T>,
+    head: &ChunkHead,
+    p: &ChunkPlaced,
+) -> Placement {
+    let piece_start = chain.writer().map_or(0, |w| w.sink().base());
+    Placement {
+        track: head.track_number,
+        first_item: head.first_item,
+        count: head.count,
+        piece: p.seq,
+        piece_start,
+        offset: p.offset,
+        len: p.len,
+        unit: p.unit,
+    }
 }
 
 /// Place `work` of `bytes`; the exit when it ends the thread.
@@ -292,6 +352,7 @@ fn place<T: PieceStore>(
             hash,
             summary,
             overviews,
+            placed: receipt,
         } => {
             if !failed {
                 let c = Placing {
@@ -301,10 +362,25 @@ fn place<T: PieceStore>(
                     overviews: &overviews,
                 };
                 let r = place_chunk(chain, defs, st, &c, summary);
+                let answer = match &r {
+                    Ok(p) => Ok(*p),
+                    Err(_) => Err(Unplaced::Refused),
+                };
                 let ok = r.is_ok();
-                placed(chain, shared, &from, r, bytes);
+                placed(chain, shared, &from, r.map(|_| ()), bytes);
                 if ok {
                     shared.watch.publish(chain, Some(&head));
+                    st.wrote.push(head.track_number);
+                    st.wrote
+                        .extend(overviews.iter().map(|o| o.head.track_number));
+                }
+                // a failure that stopped the chain lost the chunk; any other refusal is the sender's
+                let answer = match answer {
+                    Err(_) if shared.failure.get().is_some() => Err(Unplaced::Lost),
+                    a => a,
+                };
+                if let Some(tx) = receipt {
+                    tx.send(answer);
                 }
             } else {
                 Counters::add(&shared.counters.lost, 1);
@@ -323,6 +399,9 @@ fn place<T: PieceStore>(
         } => {
             if !failed {
                 let r = place_block(chain, defs, how, &mut block);
+                if r.is_ok() && st.items.wants_tracks() {
+                    st.wrote = items::block_tracks(&block);
+                }
                 placed(chain, shared, &from, r, bytes);
             } else {
                 Counters::add(&shared.counters.lost, 1);
@@ -342,12 +421,29 @@ fn place<T: PieceStore>(
                 } else {
                     chain.put(defs, track, ticks, &item).map(|_| ())
                 };
+                if r.is_ok() {
+                    st.wrote.push(track);
+                }
                 placed(chain, shared, &from, r, bytes);
             } else {
                 Counters::add(&shared.counters.lost, 1);
             }
             from.give_back(item);
         }
+        Work::PutItem { item, carry, reply } => {
+            let r = match shared.failure.get() {
+                Some(f) => Err(MuxError::Failed(f.clone())),
+                None => match st.items.admit(&item, carry) {
+                    Err(e) => Err(MuxError::Call(e)),
+                    Ok(()) => st
+                        .items
+                        .put(chain, defs, item, carry)
+                        .map_err(|e| refused(chain, shared, e)),
+                },
+            };
+            reply.send(r);
+        }
+        Work::ReleaseItem { hash, reply } => reply.send(st.items.release(hash)),
         Work::DefineTrack { item, reply } => reply.send(define::hold_track(defs, &item)),
         Work::DefineClock { items, reply } => reply.send(define::hold_clock(defs, &items)),
         Work::DefineAll { items, reply } => reply.send(define::hold_all(defs, &items)),

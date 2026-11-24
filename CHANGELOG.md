@@ -26,8 +26,28 @@ benchmarks, golden files and book pages.
 - Fuzz targets `tape-keyed` and `tape-keyed-hostile` check keyed items, entries, lookups and resume (TRACK-8).
 - A cut carries every live key of a keyed track; a piece read alone holds them or says not (TRACK-8).
 - A put by key past the carry's limit, or of another live key's id, is refused (TRACK-8).
+
+## [0.9.1] - 2026-11-24
+
+### Features
+
 - The book explains grids in "Fields and images over time", with `example_thermal` and `example_images` as tested cases (BOOK-5).
+- `ChainFollower::track_of` and `TrackItems::owned` follow one owner's track; `ChainFollower::owner` names the piece's owner (READ-6).
+- `ChunkSender::send_placed` gives a `Placing` receipt: the chunk's piece, offset, length and unit hash once placed (MUX-4).
+- `TapeMux::summarized_chunks` gives a `ChunkSender` whose chunks carry `Leaves`: the mux's summary tree, as a typed handle's (MUX-4).
+- `ChunkSender::event_runs` and `sample_leaves` compute a chunk's leaves on the caller's thread; `EventRuns::fields` names its fields (MUX-4).
+- `TapeMux::put_item` puts a typed item and carries it into later pieces as `ItemCarry` says; `release_item` ends it (MUX-4).
+- `TapeWriter::carried_owners` names the owners of the tracks a piece head carries; `track_owner` names one track's (MUX-4).
+- `Definitions::track_identity` gives a held track's id and owner (READ-6).
 - The book moves to the `vhrd_zensical` kit: renamed extension ids and assets, abbreviations in `docs/abbreviations.toml` (BOOK-6).
+
+### Fixes
+
+- An `ItemCarry::Owner` item follows its owner's first data into a piece whose head carries none of its tracks (MUX-4).
+- Carrying held items never cuts: an item a full piece refuses waits for the next (MUX-4).
+- A `put_item` that cuts carries the held items into the piece it starts (MUX-4).
+- `TapeMux::put_item` refuses an item past `HELD_ITEMS_MAX` or `HELD_ITEM_BYTES_MAX` held, as `CallError::HeldItems` (MUX-4).
+- A second `Placing::try_take` gives None, not a lost placement (MUX-4).
 
 ## [0.9.0] - 2026-11-24
 

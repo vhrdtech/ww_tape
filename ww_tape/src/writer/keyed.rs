@@ -30,7 +30,7 @@ pub(crate) struct Limits {
 /// The keyed state tracks of `kept` that `defs` holds as keyed under the number and id they stand for.
 fn keyed_tracks(kept: &Kept, defs: &Definitions) -> BTreeSet<TrackNum> {
     kept.keyed_tracks()
-        .filter(|(n, ident)| defs.track_key(*n) == Some((ident.0, ident.1.0)))
+        .filter(|(n, ident)| defs.track_identity(*n) == Some((ident.0, ident.1.0)))
         .filter(|(n, _)| defs.track(*n).is_some_and(|f| f.keyed))
         .map(|(n, _)| n)
         .collect()

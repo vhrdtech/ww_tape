@@ -530,7 +530,7 @@ impl<S: TapeSink> TapeWriter<S> {
     fn new_tracks(&self, defs: &Definitions, tracks: &[TrackNum]) -> BTreeSet<TrackIdent> {
         tracks
             .iter()
-            .filter_map(|n| defs.track_key(*n))
+            .filter_map(|n| defs.track_identity(*n))
             .map(|(id, owner)| (id, OwnerId(owner)))
             .filter(|k| !self.indexer.has_row(k))
             .collect()
@@ -702,7 +702,7 @@ impl<S: TapeSink> TapeWriter<S> {
             .encode_into(&mut item)
             .ok_or(DescribeError::KeyTooLong { len })?;
         let ident = defs
-            .track_key(track)
+            .track_identity(track)
             .map(|(id, owner)| (id, OwnerId(owner)))
             .ok_or(DescribeError::UnknownTrack { track })?;
         let put = keyed::KeyPut {
@@ -1029,7 +1029,7 @@ impl<S: TapeSink> TapeWriter<S> {
         rows.iter()
             .filter_map(|r| {
                 let key = (r.track_id, r.owner);
-                (defs.track_key(r.track_number) == Some((key.0, key.1.0))).then_some(())?;
+                (defs.track_identity(r.track_number) == Some((key.0, key.1.0))).then_some(())?;
                 let policy = defs.track(r.track_number)?.state?;
                 let state = self.kept.get(r.track_number, key)?;
                 Some((r.track_number, (policy, state)))
@@ -1108,7 +1108,7 @@ impl<S: TapeSink> TapeWriter<S> {
     /// The keyed state tracks of head rows `rows` that `defs` holds under the row's number, id and owner.
     fn keyed_rows(&self, defs: &Definitions, rows: &[TrackStart]) -> Vec<(TrackNum, TrackIdent)> {
         rows.iter()
-            .filter(|r| defs.track_key(r.track_number) == Some((r.track_id, r.owner.0)))
+            .filter(|r| defs.track_identity(r.track_number) == Some((r.track_id, r.owner.0)))
             .filter(|r| defs.track(r.track_number).is_some_and(|f| f.keyed))
             .map(|r| (r.track_number, (r.track_id, r.owner)))
             .collect()
@@ -1157,6 +1157,36 @@ impl<S: TapeSink> TapeWriter<S> {
         self.wanted.extend_from_slice(tracks);
     }
 
+    /// The owners of the tracks whose definitions the piece head carries ([TrackStart::not_carried] not set), each
+    /// once, ascending; a track of all-zero owner counts as the piece's own owner's. Empty without a head.
+    pub fn carried_owners(&self, defs: &Definitions) -> Vec<OwnerId> {
+        let rows: Vec<TrackStart> = self
+            .head_rows()
+            .iter()
+            .filter(|r| !r.not_carried)
+            .copied()
+            .collect();
+        let owners: BTreeSet<OwnerId> = carried::numbers(defs, &rows)
+            .into_iter()
+            .filter_map(|n| self.track_owner(defs, n))
+            .collect();
+        owners.into_iter().collect()
+    }
+
+    /// The owner of track `number` held in `defs`: its [TrackDef::owner](crate::TrackDef::owner), the piece's own
+    /// owner when that is all zeros ([OwnerId::NONE] without a head). None when `defs` holds no such track.
+    pub fn track_owner(&self, defs: &Definitions, number: TrackNum) -> Option<OwnerId> {
+        let (_, o) = defs.track_identity(number)?;
+        if o != [0; 32] {
+            return Some(OwnerId(o));
+        }
+        Some(
+            self.head
+                .as_ref()
+                .map_or(OwnerId::NONE, |(h, _)| h.ident.owner),
+        )
+    }
+
     /// The rows of the piece head this writer wrote or resumed after; none without a head.
     fn head_rows(&self) -> &[TrackStart] {
         self.head
@@ -1181,7 +1211,7 @@ impl<S: TapeSink> TapeWriter<S> {
         // a carry the head promises keys for, put again after a crash, needs every one of them and the track; a mark
         // on the row of a track the definitions hold as not keyed is passed over, as a reader passes it over
         for r in rows.iter().filter(|r| r.keys_carried) {
-            if defs.track_key(r.track_number) != Some((r.track_id, r.owner.0)) {
+            if defs.track_identity(r.track_number) != Some((r.track_id, r.owner.0)) {
                 return Err(ResumeError::KeysUndefined {
                     track: r.track_number,
                 }
@@ -1920,7 +1950,7 @@ impl<S: TapeSink> TapeWriter<S> {
         from: u64,
     ) -> Result<(), WriteError<S::Error>> {
         self.check()?;
-        let (Some(facts), Some((id, _))) = (defs.track(track), defs.track_key(track)) else {
+        let (Some(facts), Some((id, _))) = (defs.track(track), defs.track_identity(track)) else {
             return Err(WriteError::Describe(DescribeError::UnknownTrack { track }));
         };
         let monotone = (facts.stored & facts.monotone).contains(relation);
@@ -2453,7 +2483,7 @@ impl<S: TapeSink> TapeWriter<S> {
                 return Err(DescribeError::TooLong { len: r.item.len() }.into());
             }
             if let Slot::Keyed { .. } = slot
-                && let Some((id, owner)) = defs.track_key(track)
+                && let Some((id, owner)) = defs.track_identity(track)
             {
                 let item = crate::KeyedItem::read(r.item).map_err(DescribeError::KeyedItem)?;
                 key_puts.push(keyed::KeyPut {
@@ -2764,7 +2794,7 @@ impl<S: TapeSink> TapeWriter<S> {
         let states_unknown = tracks
             .iter()
             .filter(|t| !t.not_carried && !states.contains_key(&t.track_number))
-            .filter(|t| defs.track_key(t.track_number) == Some((t.track_id, t.owner.0)))
+            .filter(|t| defs.track_identity(t.track_number) == Some((t.track_id, t.owner.0)))
             .filter(|t| {
                 defs.track(t.track_number)
                     .is_some_and(|f| f.state.is_some())
