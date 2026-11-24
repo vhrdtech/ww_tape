@@ -241,8 +241,8 @@ fn hit_keyed(d: &mut Draw<'_>, b: &mut [u8]) {
     seal(b);
 }
 
-/// Hostile flags in a row of the piece head at the start of `f` (keys carried or not, not carried, an unknown bit),
-/// its CRC computed again.
+/// Hostile flags in the piece head at the start of `f`, its CRC computed again: in a row (keys carried or not, not
+/// carried, an unknown bit), or the head's own bit 1 (keyed tracks without a row may have keys before the piece).
 fn hit_head_row(d: &mut Draw<'_>, f: &mut [u8]) {
     let Ok(b) = ww_tape::Block::read(f) else {
         return;
@@ -251,6 +251,12 @@ fn hit_head_row(d: &mut Draw<'_>, f: &mut [u8]) {
         return;
     }
     let len = b.len();
+    if d.below(3) == 0 {
+        // the head's flags at byte 88
+        f[88] ^= 0x02;
+        seal(&mut f[..len]);
+        return;
+    }
     // the rows start after the 32-byte header and the 120-byte fixed part, 96 bytes each, flags at 12
     let rows = (len - 32 - 120 - 4) / 96;
     if rows == 0 {
