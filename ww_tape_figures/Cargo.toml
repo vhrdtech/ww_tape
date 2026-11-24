@@ -15,6 +15,7 @@ anyhow.workspace = true
 exact_units = { workspace = true, features = ["counting", "information"] }
 example_drive.workspace = true
 example_ethernet.workspace = true
+example_thermal.workspace = true
 libm.workspace = true
 shrink_wrap.workspace = true
 ww_tape = { workspace = true, features = ["std"] }

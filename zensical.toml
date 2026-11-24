@@ -45,6 +45,7 @@ nav = [
             "events.md",
             "series.md",
             "summaries.md",
+            "grids.md",
             "copies.md"
         ]
     },
