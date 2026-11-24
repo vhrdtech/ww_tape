@@ -249,10 +249,9 @@ impl<E: core::error::Error + 'static> core::error::Error for MuxError<E> {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
             Self::Failed(e) => Some(e.as_ref()),
-            Self::Refused(e) => Some(e),
+            Self::Refused(e) | Self::Start(e) => Some(e),
             Self::Call(e) => Some(e),
             Self::Describe(e) => Some(e),
-            Self::Start(e) => Some(e),
             Self::Spawn(e) => Some(e),
             Self::Closed | Self::Full(_) => None,
         }

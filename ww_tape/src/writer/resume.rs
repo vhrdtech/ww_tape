@@ -972,7 +972,7 @@ impl<S: TapeSink> TapeWriter<S> {
         w.hash = hash;
         let entries = w.indexer.entries().to_vec();
         let after_close = closes.last_key_value().map(|(_, (_, c))| *c);
-        w.take_head_puts(past_head, &named.read, base.is_some())?;
+        w.take_head_puts(past_head, base.is_some().then_some(&named.read))?;
         // the definitions of the tracks the head carries follow the layout and the producer: lost with them, the next
         // call given definitions puts them
         w.carried_due = !past_head && w.head.as_ref().is_some_and(|(_, rows)| !rows.is_empty());
@@ -998,19 +998,18 @@ impl<S: TapeSink> TapeWriter<S> {
     }
 
     /// Take the layout and the producer the piece holds: put when a block lies `past_head` (they follow the head
-    /// first), so a use copies them as the writer before the crash did; of a `closed` piece, whose record of what lies
-    /// near starts empty, those `read` after its head ([Named::read]) are its first records.
+    /// first), so a use copies them as the writer before the crash did; of a closed piece, whose record of what lies
+    /// near starts empty, those `read_of_closed` after its head ([Named::read]) are its first records.
     fn take_head_puts(
         &mut self,
         past_head: bool,
-        read: &BTreeMap<Slot, (ItemHash, u64)>,
-        closed: bool,
+        read_of_closed: Option<&BTreeMap<Slot, (ItemHash, u64)>>,
     ) -> Result<(), WriteError<S::Error>> {
         self.head_put = past_head;
         if past_head {
             self.head_items = self.head_candidates()?;
         }
-        if closed {
+        if let Some(read) = read_of_closed {
             for (slot, (hash, at)) in read {
                 self.near.wrote(*slot, Some(*hash), *at, &self.near_policy);
             }
@@ -1133,9 +1132,9 @@ impl<S: TapeSink> TapeWriter<S> {
                 self.indexer.begin_block();
                 if let Some(track) = e.track() {
                     if e.unit == crate::piece::UnitHash::NONE {
-                        self.indexer.tally_unread(track, e.track_id)
+                        self.indexer.tally_unread(track, e.track_id);
                     } else {
-                        self.indexer.tally_chunk(track, e.track_id, &e.unit)
+                        self.indexer.tally_chunk(track, e.track_id, &e.unit);
                     }
                 }
             }

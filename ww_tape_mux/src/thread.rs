@@ -55,6 +55,10 @@ struct State<'a, T: PieceStore> {
 }
 
 /// The thread: place every unit until a close or a stop, ticking every `tick`.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "the thread owns its handle on the shared state until it exits"
+)]
 pub(crate) fn run<T: PieceStore>(
     mut chain: PieceChain<T>,
     mut defs: Definitions,

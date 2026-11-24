@@ -309,9 +309,9 @@ impl<L: Listed> Replay<L> {
                 break;
             };
             if group.len() < max {
-                group.push(e)
+                group.push(e);
             } else {
-                self.same = false
+                self.same = false;
             }
         }
         self.group_max = self.group_max.max(group.len());
@@ -355,7 +355,7 @@ impl<L: Listed> Replay<L> {
     /// below [Integrity::Full](crate::Integrity::Full)). A block the index
     /// lists there must be listed with the entries its writer made of it; a block its writer would list must be
     /// listed, unless it is a byte-identical copy of the listed block before it (written again), which adds nothing.
-    pub(super) fn block(&mut self, block: &[u8], chunk: Option<(Chunk<'_>, Option<[u8; 32]>)>) {
+    pub(super) fn block(&mut self, block: &[u8], chunk: Option<&(Chunk<'_>, Option<[u8; 32]>)>) {
         let at = self.at;
         self.at = at.saturating_add(wide(block.len()));
         self.steps = self.steps.saturating_add(1);
@@ -370,18 +370,18 @@ impl<L: Listed> Replay<L> {
         };
         let repeat = b.kind == BlockKind::Records && b.flags & FLAG_REPEAT != 0;
         let counted = !repeat && !is_structural(b.kind);
-        let unit = match &chunk {
+        let unit = match chunk {
             Some((c, Some(payload))) if !self.unhashed => TrackHash::chunk_unit(c, payload),
             _ => UnitHash::NONE,
         };
-        let range = chunk.as_ref().and_then(|(c, _)| {
+        let range = chunk.and_then(|(c, _)| {
             let relation = self.facts.get(&c.head().track_number)?.range?;
             RelationColumn::open(c, relation, |_| false)
                 .ok()
                 .flatten()
                 .map(|col| col.range())
         });
-        let tile = match &chunk {
+        let tile = match chunk {
             Some((c, _)) => {
                 let head = c.head();
                 self.facts
@@ -393,7 +393,7 @@ impl<L: Listed> Replay<L> {
                 .and_then(|h| self.facts.get(&h.track_number)?.tile_number(&h.tile)),
         };
         let extras = crate::index::ChunkExtras { unit, range, tile };
-        let mut expected: Vec<IndexEntry> = match &chunk {
+        let mut expected: Vec<IndexEntry> = match chunk {
             Some((c, _)) => extras.entry(at, block.len(), c).into_iter().collect(),
             None if matches!(b.kind, BlockKind::Events | BlockKind::Series) => Vec::new(),
             None => extras.summary_entries(at, &b),
@@ -416,7 +416,7 @@ impl<L: Listed> Replay<L> {
         }
         self.prev.clear();
         self.prev.extend_from_slice(block);
-        if counted && let Some((c, _)) = &chunk {
+        if counted && let Some((c, _)) = chunk {
             let head = c.head();
             if let Some(key) = self.key_of(head.track_number, Some(head.track_id)) {
                 self.fold(key, |h| h.then(&unit));
@@ -514,7 +514,7 @@ impl<L: Listed> Replay<L> {
                             self.touched.insert(key);
                             self.incomplete.insert(key);
                         } else {
-                            self.fold(key, |h| h.then(&e.unit))
+                            self.fold(key, |h| h.then(&e.unit));
                         }
                     }
                 }

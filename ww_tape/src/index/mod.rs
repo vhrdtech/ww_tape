@@ -353,7 +353,7 @@ impl IndexEntry {
                 }
             }
             BlockKind::Records => e.repeat = block.is_repeat(),
-            _ => {}
+            BlockKind::Other(_) => {}
         }
         Some(e)
     }

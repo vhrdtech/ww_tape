@@ -245,7 +245,7 @@ common!(ChunkSender);
 buffered!(ChunkSender);
 
 impl<T: PieceStore> ChunkSender<T> {
-    pub(crate) fn new(shared: Arc<Shared<T>>, track: TrackNum, facts: TrackFacts) -> Self {
+    pub(crate) fn new(shared: Arc<Shared<T>>, track: TrackNum, facts: &TrackFacts) -> Self {
         let kind = match facts.period {
             Some(_) => BlockKind::Series,
             None => BlockKind::Events,
@@ -269,7 +269,7 @@ impl<T: PieceStore> ChunkSender<T> {
         head: ChunkHead,
         columns: Vec<(ColumnSpec, Vec<u8>)>,
     ) -> Result<Sent, MuxError<T::Error>> {
-        let (work, bytes) = self.unit(head, columns)?;
+        let (work, bytes) = self.unit(Box::new(head), columns)?;
         self.s.send(work, bytes)
     }
 
@@ -279,14 +279,14 @@ impl<T: PieceStore> ChunkSender<T> {
         head: ChunkHead,
         columns: Vec<(ColumnSpec, Vec<u8>)>,
     ) -> Result<Sent, MuxError<T::Error>> {
-        let (work, bytes) = self.unit(head, columns)?;
+        let (work, bytes) = self.unit(Box::new(head), columns)?;
         self.s.send_async(work, bytes).await
     }
 
     /// The unit of a chunk checked as [Self::send] says, its payload hashed.
     fn unit(
         &self,
-        head: ChunkHead,
+        head: Box<ChunkHead>,
         columns: Vec<(ColumnSpec, Vec<u8>)>,
     ) -> Result<(Work<T>, u64), MuxError<T::Error>> {
         if head.track_number != self.track {
@@ -310,7 +310,7 @@ impl<T: PieceStore> ChunkSender<T> {
         });
         let work = Work::Chunk {
             from: self.s.slot.clone(),
-            head: Box::new(head),
+            head,
             columns,
             hash,
             summary: None,

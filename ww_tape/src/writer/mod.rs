@@ -1453,7 +1453,7 @@ impl<S: TapeSink> TapeWriter<S> {
             {
                 self.indexer.define(t.number, t.id(), OwnerId(t.owner));
                 self.relations
-                    .define(t.number, crate::open::TrackFacts::of(&t));
+                    .define(t.number, &crate::open::TrackFacts::of(&t));
             }
             self.near
                 .wrote(slot, Some(ItemHash::of(r.item)), at, &self.near_policy);
@@ -1595,7 +1595,7 @@ impl<S: TapeSink> TapeWriter<S> {
                 .indexer
                 .key_of(c.head().track_number, Some(c.head().track_id))
         {
-            self.relations.deferred(key, &c, facts);
+            self.relations.deferred(key, &c, &facts);
         }
         let tracks = data_tracks(&b);
         let d = Deferred {

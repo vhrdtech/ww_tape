@@ -195,7 +195,7 @@ pub(crate) fn workloads() -> Vec<(&'static str, Vec<i64>)> {
         .map(|_| r.next() as i64)
         .chain([i64::MIN, i64::MAX, 0])
         .collect();
-    extremes.sort();
+    extremes.sort_unstable();
     w.push(("extremes", extremes));
     w.push((
         "frames on 1 ns",
@@ -717,9 +717,7 @@ fn times_deterministic_and_golden() {
     assert_eq!(blocks, golden_blocks(), "two encodes of the same times");
     let mut hex = String::new();
     for b in &blocks {
-        for x in b {
-            hex.push_str(&std::format!("{x:02x}"));
-        }
+        hex.push_str(&crate::tests::hex(b));
         hex.push('\n');
     }
     let golden = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("golden/v1-times.hex");
@@ -1197,13 +1195,13 @@ fn mutated_starts_read_in_order_or_not_at_all() {
                 for g in 0..s.group_count() {
                     let items = g * GROUP..((g + 1) * GROUP).min(s.len());
                     let got: Vec<i64> = items.clone().map(|i| s.get(i)).collect();
-                    if !times.is_suspect(items.start) {
+                    if times.is_suspect(items.start) {
+                        suspect += 1;
+                    } else {
                         assert!(
                             got.windows(2).all(|w| w[0] <= w[1]),
                             "{what}: group {g} decreases, not suspect"
                         );
-                    } else {
-                        suspect += 1;
                     }
                 }
             }

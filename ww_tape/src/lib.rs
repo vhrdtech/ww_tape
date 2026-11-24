@@ -821,13 +821,17 @@ impl<'b> BlockWriter<'b> {
         Ok(())
     }
 
-    /// Write the header's length and count and the CRC; returns the block's length (`&buf[..len]` is the block).
     /// Set the header flags (0 when not set), before [Self::finish]: [FLAG_REPEAT] on blocks of put or copied state records.
     pub fn set_flags(&mut self, flags: u16) {
         // new wrote the header: buf holds HEADER_LEN bytes
         _ = bytes::put_u16(self.buf, 6, flags);
     }
 
+    /// Write the header's length and count and the CRC; returns the block's length (`&buf[..len]` is the block).
+    ///
+    /// # Panics
+    ///
+    /// Never: [Self::new] and the writes after it leave room for the CRC.
     pub fn finish(self) -> usize {
         let pos = self.state.pos;
         let (body, rest) = self.buf.split_at_mut(pos.min(self.buf.len()));

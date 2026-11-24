@@ -201,8 +201,8 @@ pub(crate) struct Relations {
 
 impl Relations {
     /// Track number `number` has the relations of `facts` from here on: its definition was placed.
-    pub(crate) fn define(&mut self, number: TrackNum, facts: TrackFacts) {
-        self.facts.insert(number, facts);
+    pub(crate) fn define(&mut self, number: TrackNum, facts: &TrackFacts) {
+        self.facts.insert(number, *facts);
     }
 
     /// Whether track number `number` takes records of data in caller's blocks: none of a series or a state track;
@@ -321,7 +321,7 @@ impl Relations {
 
     /// Take the newest values of the monotone relations of the events chunk `c` of track `key`, deferred: it is
     /// placed before any later block of its track, so a chunk after it is checked against it.
-    pub(crate) fn deferred(&mut self, key: TrackIdent, c: &Chunk<'_>, facts: TrackFacts) {
+    pub(crate) fn deferred(&mut self, key: TrackIdent, c: &Chunk<'_>, facts: &TrackFacts) {
         if c.relation_break() {
             self.newest.restart(key);
         }
@@ -329,8 +329,11 @@ impl Relations {
     }
 
     /// Take the values of chunk `c` of track `key`, by `facts` or else the definition placed.
-    fn take_values(&mut self, key: TrackIdent, c: &Chunk<'_>, facts: Option<TrackFacts>) {
-        let Some(facts) = facts.or_else(|| self.facts.get(&c.head().track_number).copied()) else {
+    fn take_values(&mut self, key: TrackIdent, c: &Chunk<'_>, facts: Option<&TrackFacts>) {
+        let Some(facts) = facts
+            .or_else(|| self.facts.get(&c.head().track_number))
+            .copied()
+        else {
             return;
         };
         // a chunk that reads holds a column of each stored relation: the newest values are known again

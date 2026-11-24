@@ -377,7 +377,7 @@ where
         match self.facts(track).await? {
             Some(f) if f.state.is_none() => {
                 self.plain(track).await?;
-                Ok(ChunkSender::new(self.shared.clone(), track, f))
+                Ok(ChunkSender::new(self.shared.clone(), track, &f))
             }
             _ => Err(CallError::Kind { track }.into()),
         }

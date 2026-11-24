@@ -106,6 +106,10 @@ pub const fn coded_len_max(len: usize) -> usize {
 ///
 /// When lz4 does not shrink the block, the block is written as it is, not coded. The session, seq, other flags and
 /// record count stay.
+///
+/// # Panics
+///
+/// Never: `out` is cut to [coded_len_max], which leaves lz4_flex its maximum output size for the body.
 pub fn code_body(block: &[u8], codec: BodyCodec, out: &mut [u8]) -> Result<usize, CodeError> {
     let b = Block::read(block).map_err(CodeError::Block)?;
     let bad_length = CodeError::Block(BlockError::BadLength(

@@ -116,6 +116,10 @@ impl<T: PieceStore> PieceChain<T> {
     /// `tracks` say where items of tracks carried over from elsewhere continue (empty for a new recording). Each
     /// chain of a owner takes its own number, so its pieces and session tag are its own. With [PieceTapes::One] the
     /// tape that holds every piece is made with [PieceStore::create_whole].
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "a chain's constructors take their options by value, as TapeWriter::resume_on does"
+    )]
     pub fn create_on(
         mut store: T,
         owner: OwnerId,
@@ -161,6 +165,10 @@ impl<T: PieceStore> PieceChain<T> {
     /// of its own: only a torn end is cut, and a resume that would drop more is refused. An application that starts
     /// every write session in a piece of its own gives the calls a resume asks for again, then cuts
     /// ([Self::cut_now]).
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "a chain's constructors take their options by value, as TapeWriter::resume_on does"
+    )]
     pub fn resume_on(
         store: T,
         owner: OwnerId,
@@ -168,8 +176,8 @@ impl<T: PieceStore> PieceChain<T> {
         options: ChainOptions,
     ) -> Result<(Self, Resumed), WriteError<T::Error>> {
         match options.tapes {
-            PieceTapes::Each => Self::resume_each(store, owner, chain, options),
-            PieceTapes::One => Self::resume_one(store, owner, chain, options),
+            PieceTapes::Each => Self::resume_each(store, owner, chain, &options),
+            PieceTapes::One => Self::resume_one(store, owner, chain, &options),
         }
     }
 
@@ -184,7 +192,7 @@ impl<T: PieceStore> PieceChain<T> {
         mut store: T,
         owner: OwnerId,
         chain: u64,
-        options: ChainOptions,
+        options: &ChainOptions,
     ) -> Result<(Self, Resumed), WriteError<T::Error>> {
         let (walk, key, reopened) = {
             let walk = walk_each(&mut store)?;
@@ -314,7 +322,7 @@ impl<T: PieceStore> PieceChain<T> {
         mut store: T,
         owner: OwnerId,
         chain: u64,
-        options: ChainOptions,
+        options: &ChainOptions,
     ) -> Result<(Self, Resumed), WriteError<T::Error>> {
         let key = store.key_of(0);
         let Some(mut sink) = store
@@ -545,6 +553,10 @@ impl<T: PieceStore> PieceChain<T> {
 
     /// A small block placed in the next gap ([TapeWriter::defer_block]).
     /// When the piece has no room for the state entries of the definitions it needs, on a new piece.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "the signature of TapeWriter::defer_block, which keeps the block; the chain copies it for a retry"
+    )]
     pub fn defer_block(
         &mut self,
         defs: &Definitions,

@@ -303,13 +303,10 @@ impl SeriesGrid {
     /// The grid of a series chunk's head, checked: its first and last tick are its samples' on the grid, its scale encodes
     /// in [SCALE_LEN_MAX] bytes.
     pub fn of_chunk(head: &ChunkHead, period: Ratio64) -> Result<Self, SeriesError> {
-        let grid = match (head.kind, head.grid) {
-            (BlockKind::Series, Some(g)) => g,
-            _ => {
-                return Err(SeriesError::NotSeriesChunk {
-                    first_item: head.first_item,
-                });
-            }
+        let (BlockKind::Series, Some(grid)) = (head.kind, head.grid) else {
+            return Err(SeriesError::NotSeriesChunk {
+                first_item: head.first_item,
+            });
         };
         let (first, last) = grid.chunk_ticks(period, head.first_item, head.count)?;
         if head.first_tick != first || head.last_tick != last {

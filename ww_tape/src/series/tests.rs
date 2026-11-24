@@ -542,7 +542,7 @@ fn many_heads_out_of_order() {
     let (forward, _) = SeriesTimeline::from_chunks(p, &heads);
     heads.reverse();
     let (t, errors) = SeriesTimeline::from_chunks(p, &heads);
-    assert!(errors.is_empty());
+    assert_eq!(errors, []);
     assert_eq!(t, forward);
     assert_eq!(t.stretches().len(), 1, "one grid, one stretch");
 }

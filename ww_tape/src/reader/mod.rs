@@ -1794,7 +1794,7 @@ impl<S: ByteSource> TapeReader<S> {
                                 .and_then(|b| b.chunk())
                                 .map(|c| (c, None))
                         };
-                        replay.block(block, chunk);
+                        replay.block(block, chunk.as_ref());
                     }
                     Walked::Raw(raw) => {
                         pos = pos.saturating_add(wide(raw.len()));

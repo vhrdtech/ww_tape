@@ -1108,6 +1108,10 @@ fn opt(v: Option<u64>) -> u64 {
     v.unwrap_or(NONE)
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "the outer None is a buffer too short, the inner one a field written as NONE"
+)]
 fn get_opt(b: &[u8], at: usize) -> Option<Option<u64>> {
     le_u64(b, at).map(|v| Some(v).filter(|v| *v != NONE))
 }

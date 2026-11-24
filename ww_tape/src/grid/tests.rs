@@ -251,11 +251,7 @@ fn a_grid_def_reads_back_with_its_axes_and_layout() {
 fn a_series_def_takes_0_or_1_byte_for_its_axes() {
     let series = grid(&[]);
     assert_eq!(series.tile_layout().unwrap(), TileLayout::SERIES);
-    let hex = |v: &[u8]| {
-        v.iter()
-            .map(|b| std::format!("{b:02x}"))
-            .collect::<std::string::String>()
-    };
+    let hex = crate::tests::hex;
     // the nibble fills the last byte's free half
     let plain = GridDef::of::<i32>(1, Ratio64::new(1000, 1).unwrap());
     assert_eq!(hex(&encode(&plain)), "108768010000");
