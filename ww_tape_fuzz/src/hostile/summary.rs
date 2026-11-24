@@ -62,7 +62,7 @@ fn events(d: &mut Draw<'_>) -> Vec<Vec<u8>> {
     tree.set_max_block_bytes(exact_units::Bytes::new(bytes));
     let mut t = i64::from(d.u8()) - 128;
     let mut r = d.bits();
-    for _ in 0..1 + d.below(64) {
+    for _ in 0..=d.below(64) {
         let x = r.u8();
         t += i64::from(x >> 2);
         let pushed = if x & 0x80 != 0 {

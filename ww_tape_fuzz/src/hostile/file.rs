@@ -95,7 +95,7 @@ pub fn file(data: &[u8]) -> Vec<u8> {
     }
     if d.bool() {
         seq += 1;
-        let starts: Vec<i64> = (0..1 + d.below(40) as i64).map(|i| i * 3).collect();
+        let starts: Vec<i64> = (0..=(d.below(40) as i64)).map(|i| i * 3).collect();
         let t = EncodedTimes::encode(&starts, None, None).expect("valid times");
         let cols: Vec<_> = t.columns().collect();
         let mut b = build(

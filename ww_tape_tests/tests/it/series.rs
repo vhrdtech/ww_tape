@@ -21,6 +21,8 @@ use ww_tape::{
     TapeWriter, TrackDef, TrackKind, TypeRef, Version, clock_key, track_key,
 };
 
+use crate::pieces::push_hex;
+
 const TRACK_NUM: TrackNum = TrackNum::new(TRACK);
 
 const CLOCK: ClockNum = ClockNum::new(1);
@@ -101,7 +103,7 @@ where
     [V; 2]: for<'i> shrink_wrap::series::SeriesColumns<'i>,
 {
     let s = Series::<[V; 2]>::from_ww_bytes(bytes).unwrap();
-    for item in s.iter() {
+    for item in &s {
         for v in item {
             let mut n = [0i32; 1];
             assert_eq!(v.write_parts(&mut n), 1);
@@ -539,9 +541,7 @@ fn series_file_is_deterministic_and_golden() {
     let mut hex = String::new();
     let mut rd = FileBlocks::with_recovery(&bytes[..], Recovery::Prefix);
     while let Some(block) = rd.next_block() {
-        for x in block.unwrap().bytes() {
-            hex.push_str(&format!("{x:02x}"));
-        }
+        push_hex(&mut hex, block.unwrap().bytes());
         hex.push('\n');
     }
     let golden =

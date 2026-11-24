@@ -45,7 +45,7 @@ fn put_var(out: &mut Vec<u8>, v: Var) {
 fn slot_bits(n: u64) -> u32 {
     match n {
         0 | 1 => 0,
-        n => u64::BITS - (n - 1).leading_zeros(),
+        n => (n - 1).bit_width(),
     }
 }
 
@@ -105,7 +105,7 @@ pub fn records(data: &[u8]) -> Vec<u8> {
         MAX_BLOCK_LEN as u64,
         u64::from(u32::MAX),
     ];
-    for _ in 0..1 + d.below(3) {
+    for _ in 0..=d.below(3) {
         let at = d.below(vars.len());
         vars[at] = match d.u8() % 4 {
             3 => Var::Overlong,

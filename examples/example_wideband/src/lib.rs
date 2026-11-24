@@ -260,18 +260,15 @@ impl Wideband {
             let (first, count) = rf.chunk_range(c);
             let count = u64::from(count).min(self.channel_samples().saturating_sub(first));
             let n = usize::try_from(count * 2).unwrap_or(0);
-            let chunk = match ring {
-                Some(ring) => {
-                    let at = usize::try_from(c % ring.len() as u64).unwrap_or(0);
-                    ring.get(at)
-                        .and_then(|r| r.get(..n))
-                        .ok_or(WidebandError::Settings("a replayed chunk"))?
-                }
-                None => {
-                    values.resize(n, 0);
-                    signal.fill(first, &mut values);
-                    &values
-                }
+            let chunk = if let Some(ring) = ring {
+                let at = usize::try_from(c % ring.len() as u64).unwrap_or(0);
+                ring.get(at)
+                    .and_then(|r| r.get(..n))
+                    .ok_or(WidebandError::Settings("a replayed chunk"))?
+            } else {
+                values.resize(n, 0);
+                signal.fill(first, &mut values);
+                &values
             };
             iq.push(chunk)?;
             pushed += count;

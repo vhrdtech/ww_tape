@@ -13,13 +13,15 @@
 )]
 
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::process::ExitCode;
-use ww_tape_fuzz::case::{Capped, minimize, run};
+use ww_tape_fuzz::case::{CAPPED, hex as to_hex, minimize, run};
 use ww_tape_fuzz::{seeds, targets};
+use ww_tape_testalloc::Counting;
 
 #[global_allocator]
-static ALLOCATOR: Capped = Capped;
+static ALLOCATOR: Counting = CAPPED;
 
 fn target(name: &str) -> Result<targets::Target, String> {
     targets::by_name(name).ok_or_else(|| format!("no target {name}"))
@@ -82,7 +84,8 @@ fn main_inner(args: &[String]) -> Result<String, String> {
             }
             let mut out = format!("{passed} passed\n");
             for (place, (n, first, outcome)) in &places {
-                out += &format!("{place}: {n} files, first {first}\n  {outcome}\n");
+                writeln!(out, "{place}: {n} files, first {first}\n  {outcome}")
+                    .map_err(|e| e.to_string())?;
             }
             Ok(out)
         }
@@ -90,8 +93,7 @@ fn main_inner(args: &[String]) -> Result<String, String> {
             let t = target(name)?;
             let small = minimize(t, &hex(input)?);
             let outcome = run(t, &small).0;
-            let hex: String = small.iter().map(|b| format!("{b:02x}")).collect();
-            Ok(format!("{hex}\n{outcome:?}"))
+            Ok(format!("{}\n{outcome:?}", to_hex(&small)))
         }
         _ => Err(
             "usage: ww_tape_fuzz_seeds write [DIR] | run TARGET PATH... | minimize TARGET HEX"

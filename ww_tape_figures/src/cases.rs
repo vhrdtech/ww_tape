@@ -3,6 +3,7 @@
 
 use crate::OrDebug;
 use example_ethernet::Link;
+use std::fmt::Write as _;
 
 /// What 10 ms of the link at its line rate take, track by track: items, bytes per item stored and as received.
 pub fn ethernet_sizes() -> anyhow::Result<String> {
@@ -20,10 +21,11 @@ pub fn ethernet_sizes() -> anyhow::Result<String> {
     for (t, (name, raw)) in ["frames", "ipv4", "l4"].into_iter().zip(raw).enumerate() {
         let (items, b) = s.track(t);
         let stored = (b.chunk_bytes + b.summary_bytes) as f64 / items.max(1) as f64;
-        out.push_str(&format!(
-            "| `{name}` | {items} | {raw:.1} | {stored:.1} | {} | {} |\n",
+        writeln!(
+            out,
+            "| `{name}` | {items} | {raw:.1} | {stored:.1} | {} | {} |",
             b.chunks, b.summary_bytes
-        ));
+        )?;
     }
     out.push_str(
         "\n10 ms of both directions at the line rate, two receive queues a port, one chain. Drawn by \

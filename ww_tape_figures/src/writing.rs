@@ -13,6 +13,7 @@
 use anyhow::{Context, ensure};
 use example_drive::writing::{SYNC_POLICIES, phase_values, series_tape, sync_offsets};
 use example_drive::{Act, Drive, DriveNumbers};
+use std::fmt::Write as _;
 use ww_tape::TrackNum;
 use ww_tape::piece::close_padding;
 use ww_tape::times::TimeMode;
@@ -100,7 +101,7 @@ fn aligned_row(s: &mut Svg, blocks: &[Placed], heads: &[u64], v: View, y: f64, f
         if w >= text_w + 6.0 {
             s.text(label_from + w / 2.0, y + 19.5, "middle", "small", name);
         } else if !name.is_empty() && b.part != Part::Puts {
-            let mid = (x0 + x1) / 2.0;
+            let mid = f64::midpoint(x0, x1);
             let lift = if mid - text_w / 2.0 < above_end {
                 12.0
             } else {
@@ -266,8 +267,7 @@ pub fn deferred() -> anyhow::Result<String> {
         LEFT * 2.0 + ROW_W,
         bottom + 92.0,
         &format!(
-            "Three files, each row from the end of one series chunk to the end of the next. Not aligned, the blocks follow each other and the {}. Aligned, in a file of phase_a alone, the summary fills the gap and the {}. Aligned, in the drive's file, the put of the mode places the summary first and the {}",
-            plain, alone_note, mixed_note
+            "Three files, each row from the end of one series chunk to the end of the next. Not aligned, the blocks follow each other and the {plain}. Aligned, in a file of phase_a alone, the summary fills the gap and the {alone_note}. Aligned, in the drive's file, the put of the mode places the summary first and the {mixed_note}"
         ),
     );
     s.text(
@@ -553,18 +553,16 @@ pub fn delta_group() -> anyhow::Result<String> {
         &vlo.to_string(),
         &vhi.to_string(),
     );
-    let path: String = values
-        .iter()
-        .enumerate()
-        .map(|(j, v)| {
-            format!(
-                "{}{:.1} {:.1}",
-                if j == 0 { "M" } else { " L" },
-                Plot::x(j),
-                p1.y(f64::from(*v))
-            )
-        })
-        .collect();
+    let mut path = String::new();
+    for (j, v) in values.iter().enumerate() {
+        write!(
+            path,
+            "{}{:.1} {:.1}",
+            if j == 0 { "M" } else { " L" },
+            Plot::x(j),
+            p1.y(f64::from(*v))
+        )?;
+    }
     s.path(&path, "line");
     p2.frame(
         &mut s,
@@ -679,7 +677,7 @@ pub fn sync_loss() -> anyhow::Result<String> {
         let label = if last < from {
             format!("lost: {} back to its last sync", kib(lost))
         } else {
-            format!("lost: {} bytes", lost)
+            format!("lost: {lost} bytes")
         };
         s.text(v.x(to), yy - 8.0, "end", "accent small", &label);
     }
@@ -774,7 +772,7 @@ pub fn cut() -> anyhow::Result<String> {
     );
     mark(
         &mut s,
-        (xp0 + xp1) / 2.0,
+        f64::midpoint(xp0, xp1),
         y0,
         "middle",
         &format!("padding, {pad} bytes"),

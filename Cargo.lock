@@ -1507,6 +1507,7 @@ dependencies = [
  "ww_tape_fs",
  "ww_tape_mux",
  "ww_tape_summary",
+ "ww_tape_testalloc",
 ]
 
 [[package]]
@@ -1557,6 +1558,7 @@ dependencies = [
  "shrink_wrap",
  "ww_tape",
  "ww_tape_mux",
+ "ww_tape_testalloc",
 ]
 
 [[package]]
@@ -1570,6 +1572,7 @@ dependencies = [
  "ww_tape",
  "ww_tape_fs",
  "ww_tape_summary",
+ "ww_tape_testalloc",
 ]
 
 [[package]]
@@ -1590,7 +1593,12 @@ dependencies = [
  "shrink_wrap",
  "ww_tape",
  "ww_tape_codecs",
+ "ww_tape_testalloc",
 ]
+
+[[package]]
+name = "ww_tape_testalloc"
+version = "0.10.0"
 
 [[package]]
 name = "ww_tape_tests"

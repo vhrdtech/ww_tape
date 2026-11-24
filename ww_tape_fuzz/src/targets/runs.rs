@@ -51,13 +51,12 @@ fn followed(bytes: &[u8]) -> (Vec<u64>, bool) {
                     );
                     out.push(b.offset);
                 }
-                Ok(None) => break,
                 Err(FollowError::Definitions { .. }) => {}
                 Err(FollowError::RunTooLong { .. }) => {
                     too_long = true;
                     break;
                 }
-                Err(_) => break,
+                Ok(None) | Err(_) => break,
             }
         }
     }
@@ -236,7 +235,7 @@ pub fn runs(data: &[u8]) {
     let (defs, on) = hostile::state_definitions(None);
     // per group: its start and end, and its items by track
     let mut groups: Vec<Group> = Vec::new();
-    for k in 0..1 + d.below(5) as i64 {
+    for k in 0..=(d.below(5) as i64) {
         let len = [8, 300, LARGE, 50 << 10][d.below(4)];
         let tracks: &[usize] = [&[0usize][..], &[1], &[0, 1]][d.below(3)];
         let items: Vec<(usize, Vec<u8>)> = tracks

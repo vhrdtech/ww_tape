@@ -83,7 +83,7 @@ pub fn flags(data: &[u8]) -> Vec<u8> {
         u64::from(u32::MAX),
         (FLAG_RUN_LEN * n) as u64,
     ];
-    for _ in 0..1 + d.below(3) {
+    for _ in 0..=d.below(3) {
         let run = at + FLAG_RUN_LEN * d.below(n);
         match d.u8() % 10 {
             0..3 => hit(&mut d, &mut b, Field::new(run, 4, caps)),

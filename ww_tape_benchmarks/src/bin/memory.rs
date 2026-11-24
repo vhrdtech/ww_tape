@@ -12,12 +12,11 @@
 )]
 
 use ww_tape::ItemNum;
+use ww_tape_testalloc::{Counting, baseline, live_bytes, peak_bytes};
 
 use clap::Parser;
 use shrink_wrap::prelude::*;
-use std::alloc::{GlobalAlloc, Layout, System};
 use std::io;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use ww_tape::chunk::ChunkHead;
 use ww_tape::{
     ALIGNMENT, BlockKind, BlockWriter, ClockOrigin, ClockSpec, ClockTime, Codec, ColumnKind,
@@ -28,40 +27,8 @@ use ww_tape::{
 use ww_tape::{ClockNum, TrackNum};
 use ww_tape_bench::{Bench, Cell, Common};
 
-/// The system allocator, counting the bytes live and their peak.
-struct Counting;
-
-static LIVE: AtomicUsize = AtomicUsize::new(0);
-static PEAK: AtomicUsize = AtomicUsize::new(0);
-
-// SAFETY: every call goes to the system allocator with the same layout; the counters only observe.
-unsafe impl GlobalAlloc for Counting {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        // SAFETY: the caller's contract for `alloc` holds for `System` too.
-        let p = unsafe { System.alloc(layout) };
-        if !p.is_null() {
-            let live = LIVE.fetch_add(layout.size(), Ordering::Relaxed) + layout.size();
-            PEAK.fetch_max(live, Ordering::Relaxed);
-        }
-        p
-    }
-
-    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        // SAFETY: `ptr` came from `alloc` with this layout.
-        unsafe { System.dealloc(ptr, layout) };
-        LIVE.fetch_sub(layout.size(), Ordering::Relaxed);
-    }
-}
-
 #[global_allocator]
-static ALLOC: Counting = Counting;
-
-/// Starts counting from the bytes live now: returns them, and sets the peak to them.
-fn baseline() -> usize {
-    let live = LIVE.load(Ordering::Relaxed);
-    PEAK.store(live, Ordering::Relaxed);
-    live
-}
+static ALLOC: Counting = Counting::new();
 
 #[derive(Parser)]
 #[command(
@@ -198,7 +165,7 @@ fn records(tracks: u32, piece: u64, block: usize) -> anyhow::Result<Row> {
     let mut buf = vec![0u8; block];
     let start = baseline();
     let mut w = TapeWriter::create_on(Discard { bytes: 0 }, SyncPolicy::None);
-    let new = LIVE.load(Ordering::Relaxed) - start;
+    let new = live_bytes() - start;
     let mut n = 0u32;
     while w.sink().bytes < piece {
         let t = numbers
@@ -213,12 +180,12 @@ fn records(tracks: u32, piece: u64, block: usize) -> anyhow::Result<Row> {
             .map_err(any)?;
         n = n.wrapping_add(1);
     }
-    let open = PEAK.load(Ordering::Relaxed) - start;
+    let open = peak_bytes() - start;
     w.close().map_err(any)?;
     Ok(Row {
         new,
         open,
-        peak: PEAK.load(Ordering::Relaxed) - start,
+        peak: peak_bytes() - start,
         blocks: u64::from(n),
     })
 }
@@ -245,7 +212,7 @@ fn series(piece: u64, chunk: usize) -> anyhow::Result<Row> {
     let start = baseline();
     let mut w = TapeWriter::create_on(Discard { bytes: 0 }, SyncPolicy::None);
     w.set_alignment(ALIGNMENT).map_err(any)?;
-    let new = LIVE.load(Ordering::Relaxed) - start;
+    let new = live_bytes() - start;
     let mut k = 0u64;
     while w.sink().bytes < piece {
         let first = k * u64::from(count);
@@ -270,12 +237,12 @@ fn series(piece: u64, chunk: usize) -> anyhow::Result<Row> {
         w.write_chunk(&defs, &head, &columns).map_err(any)?;
         k += 1;
     }
-    let open = PEAK.load(Ordering::Relaxed) - start;
+    let open = peak_bytes() - start;
     w.close().map_err(any)?;
     Ok(Row {
         new,
         open,
-        peak: PEAK.load(Ordering::Relaxed) - start,
+        peak: peak_bytes() - start,
         blocks: k,
     })
 }

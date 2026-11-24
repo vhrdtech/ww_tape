@@ -285,7 +285,7 @@ fn block<T: Narrow, const C: usize>(b: &[[T; C]], lo: T, hi: T, out: &mut IntBat
             let (h, l) = x.sq();
             *qh = qh.plus(h);
             *ql = ql.plus(l);
-            clip |= (x <= lo) | (x >= hi);
+            clip |= (x <= lo) || (x >= hi);
         }
         n = n.wrapping_add(1);
         clipped = clipped.wrapping_add(u32::from(clip));

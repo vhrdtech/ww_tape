@@ -52,6 +52,10 @@ pub fn pings_track(clock: ClockNum, name: &'static str) -> TrackSpec<'static> {
 }
 
 /// The series track `levels`: one channel of `i16`, a sample a tick.
+///
+/// # Panics
+///
+/// Never: the rate 1 is not 0.
 #[expect(
     clippy::expect_used,
     reason = "1 is not 0: Ratio64::int(1) is always Some"

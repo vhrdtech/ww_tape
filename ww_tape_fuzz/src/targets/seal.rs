@@ -110,9 +110,10 @@ fn templates() -> &'static [Vec<u8>; 16] {
     T.get_or_init(|| {
         core::array::from_fn(|m| {
             let m = m as u8;
-            match m & 8 != 0 {
-                true => chain(m & 4 != 0, level(m)),
-                false => piece(m & 4 != 0, level(m)),
+            if m & 8 != 0 {
+                chain(m & 4 != 0, level(m))
+            } else {
+                piece(m & 4 != 0, level(m))
             }
         })
     })
@@ -127,9 +128,10 @@ pub fn seal(data: &[u8]) {
         bytes[at] ^= bits;
     }
     let mem = MemPieces::new();
-    let mut sink = match mode & 8 != 0 {
-        true => mem.create_whole(&0),
-        false => mem.create(&0),
+    let mut sink = if mode & 8 != 0 {
+        mem.create_whole(&0)
+    } else {
+        mem.create(&0)
     }
     .expect("a new tape");
     sink.write_all(&bytes).expect("memory takes the bytes");
@@ -143,7 +145,7 @@ pub fn seal(data: &[u8]) {
         .to_vec()
         .expect("the bytes");
     if bytes == *template {
-        let full = &templates()[usize::from(mode & 12)];
+        let full = &templates()[usize::from(mode & 0b1100)];
         assert!(got == *full, "a sealed tape is Full's");
         let sealed = sealed.expect("an unmutated tape seals").expect("the tape");
         assert_eq!(sealed.is_empty(), level(mode) == Integrity::Full);

@@ -22,23 +22,32 @@ const RELATION_COUNT: usize = 4;
 /// Bytes of a relation column's head in the starts codec after its count: mode, first, last.
 const RELATION_HEAD: usize = 17;
 
-/// The fields of group `g`'s record in a column of `kind` starting at `at`; a relation column's count, head and
-/// records by its codec (`any`: the durations record) and its own mode byte.
-fn record_fields(
-    kind: ColumnKind,
+/// How [record_fields] reads a column: whether its starts are in linear mode, and whether a relation column at
+/// this call is read by its own codec (the durations record) rather than by its mode byte.
+#[derive(Clone, Copy)]
+struct FieldsMode {
     linear: bool,
     any: bool,
+}
+
+/// The fields of group `g`'s record in a column of `kind` starting at `at`; a relation column's count, head and
+/// records by its codec (`mode.any`: the durations record) and its own mode byte.
+fn record_fields(
+    kind: ColumnKind,
+    mode: FieldsMode,
     b: &[u8],
     at: usize,
     g: usize,
 ) -> Vec<Field<'static>> {
     match kind {
-        ColumnKind::Relation if any => {
+        ColumnKind::Relation if mode.any => {
             let mut f = vec![Field::new(at, RELATION_COUNT, &[0, 1])];
             f.extend(record_fields(
                 ColumnKind::Ends,
-                linear,
-                false,
+                FieldsMode {
+                    linear: mode.linear,
+                    any: false,
+                },
                 b,
                 at + RELATION_COUNT,
                 g,
@@ -57,15 +66,17 @@ fn record_fields(
             ];
             f.extend(record_fields(
                 ColumnKind::Starts,
-                mode_linear,
-                false,
+                FieldsMode {
+                    linear: mode_linear,
+                    any: false,
+                },
                 b,
                 at + RELATION_HEAD,
                 g,
             ));
             f
         }
-        ColumnKind::Starts if !linear => vec![Field::new(at, 8, &[SLOPE_MAX as u64])],
+        ColumnKind::Starts if !mode.linear => vec![Field::new(at, 8, &[SLOPE_MAX as u64])],
         ColumnKind::Starts => {
             let r = at + g * STARTS_RECORD;
             vec![
@@ -141,7 +152,7 @@ pub fn times(data: &[u8]) -> Vec<u8> {
     let linear = enc.head.time_mode == ww_tape::times::TimeMode::Linear;
     // the chunk's columns are in the order written
     let kinds: Vec<ColumnKind> = cols.iter().map(|c| c.0.kind).collect();
-    for _ in 0..1 + d.below(3) {
+    for _ in 0..=d.below(3) {
         match d.u8() % 8 {
             7 => hit_head(&mut d, &mut b),
             6 => {
@@ -157,7 +168,7 @@ pub fn times(data: &[u8]) -> Vec<u8> {
                 let g = d.below(groups + 1);
                 if let Some(at) = column_start(&b, i) {
                     let any = cols[i].0.codec == DURATIONS;
-                    let fields = record_fields(kinds[i], linear, any, &b, at, g);
+                    let fields = record_fields(kinds[i], FieldsMode { linear, any }, &b, at, g);
                     let f = fields[d.below(fields.len())];
                     hit(&mut d, &mut b, f);
                 }

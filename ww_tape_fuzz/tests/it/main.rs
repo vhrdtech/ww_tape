@@ -27,10 +27,11 @@ mod stores;
 mod stream;
 
 use std::time::Duration;
-use ww_tape_fuzz::case::Capped;
+use ww_tape_fuzz::case::CAPPED;
+use ww_tape_testalloc::Counting;
 
 #[global_allocator]
-static ALLOCATOR: Capped = Capped;
+static ALLOCATOR: Counting = CAPPED;
 
 /// The wall-clock time of the cases of a run, for its report only: no outcome depends on it.
 #[derive(Default)]

@@ -61,6 +61,10 @@ struct State<'a, T: PieceStore> {
 }
 
 /// The thread: place every unit until a close or a stop, ticking every `tick`.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "the thread owns its handle on the shared state until it exits"
+)]
 pub(crate) fn run<T: PieceStore>(
     mut chain: PieceChain<T>,
     mut defs: Definitions,
@@ -355,7 +359,9 @@ fn place<T: PieceStore>(
             overviews,
             placed: receipt,
         } => {
-            if !failed {
+            if failed {
+                Counters::add(&shared.counters.lost, 1);
+            } else {
                 let c = Placing {
                     head: &head,
                     columns: &columns,
@@ -383,8 +389,6 @@ fn place<T: PieceStore>(
                 if let Some(tx) = receipt {
                     tx.send(answer);
                 }
-            } else {
-                Counters::add(&shared.counters.lost, 1);
             }
             for (_, buf) in columns
                 .into_iter()
@@ -398,14 +402,14 @@ fn place<T: PieceStore>(
             how,
             mut block,
         } => {
-            if !failed {
+            if failed {
+                Counters::add(&shared.counters.lost, 1);
+            } else {
                 let r = place_block(chain, defs, how, &mut block);
                 if r.is_ok() && st.items.wants_tracks() {
                     st.wrote = items::block_tracks(&block);
                 }
                 placed(chain, shared, &from, r, bytes);
-            } else {
-                Counters::add(&shared.counters.lost, 1);
             }
             from.give_back(block);
         }
@@ -415,19 +419,21 @@ fn place<T: PieceStore>(
             ticks,
             item,
         } => {
-            if !failed {
+            if failed {
+                Counters::add(&shared.counters.lost, 1);
+            } else {
                 let r = chain.put(defs, track, ticks, &item).map(|_| ());
                 if r.is_ok() {
                     st.wrote.push(track);
                 }
                 placed(chain, shared, &from, r, bytes);
-            } else {
-                Counters::add(&shared.counters.lost, 1);
             }
             from.give_back(item);
         }
         Work::PutGroup { from, puts } => {
-            if !failed {
+            if failed {
+                Counters::add(&shared.counters.lost, 1);
+            } else {
                 let group: Vec<GroupPut<'_>> = puts
                     .iter()
                     .map(|(track, ticks, item)| GroupPut {
@@ -438,11 +444,10 @@ fn place<T: PieceStore>(
                     .collect();
                 let r = chain.put_group(defs, &group).map(drop);
                 placed(chain, shared, &from, r, bytes);
-            } else {
-                Counters::add(&shared.counters.lost, 1);
             }
-            puts.into_iter()
-                .for_each(|(_, _, item)| from.give_back(item));
+            for (_, _, item) in puts {
+                from.give_back(item);
+            }
         }
         Work::PutItem { item, carry, reply } => {
             let r = match shared.failure.get() {

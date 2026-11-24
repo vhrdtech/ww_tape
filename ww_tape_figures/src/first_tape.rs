@@ -182,7 +182,7 @@ fn wrap(line: &str, width: f64) -> Vec<String> {
     for part in line.split_inclusive(", ") {
         match out.last_mut() {
             Some(last) if 6.6 * (last.len() + part.len()) as f64 + 6.0 <= width => {
-                last.push_str(part)
+                last.push_str(part);
             }
             _ => out.push(part.to_owned()),
         }

@@ -2,6 +2,7 @@
 
 use ww_tape::ItemNum;
 
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use ww_tape::TrackId;
 use ww_tape::index::RECORDS_TRACK_ID;
@@ -16,6 +17,13 @@ use ww_tape::{
     EndMode, FLAG_WITH_NEXT, FileBlocks, OwnerId, PieceChain, Recovery, SessionTag, Slot,
     SyncPolicy, TapeReader, TapeWriter,
 };
+
+/// `bytes` appended to `out` as lowercase hex, two digits each: the shape a golden file's byte dump is built in.
+pub(crate) fn push_hex(out: &mut String, bytes: &[u8]) {
+    for byte in bytes {
+        write!(out, "{byte:02x}").unwrap();
+    }
+}
 
 /// A fresh scratch directory.
 pub(crate) fn scratch(name: &str) -> PathBuf {
@@ -132,7 +140,7 @@ fn create_keeps_an_unclosed_file() {
     // a crash: the writer goes without closing
     drop(w);
     let before = std::fs::read(&path).unwrap();
-    assert!(!before.is_empty());
+    assert_ne!(before, [] as [u8; 0]);
     let r = ww_tape_fs::writer::create(&path, SyncPolicy::None);
     assert!(
         matches!(
@@ -562,10 +570,9 @@ fn piece_reads_alone_and_links(i: usize, f: &[u8], has_next: bool) -> ww_tape::p
     let (head, starts) = p.head.as_ref().unwrap();
     assert_eq!(head.ident.seq, i as u64);
     // every piece carries the definitions
-    assert!(
-        !r.track_entries(0, ww_tape::index::STATE_TRACK_ID)
-            .unwrap()
-            .is_empty()
+    assert_ne!(
+        r.track_entries(0, ww_tape::index::STATE_TRACK_ID).unwrap(),
+        [] as [ww_tape::IndexEntry; 0]
     );
     // items continue: the head's starts are where the previous piece's ranges ended
     let (_, ranges) = p.close.as_ref().unwrap();
@@ -822,9 +829,7 @@ fn index_golden() {
         let bytes = std::fs::read(p).unwrap();
         let mut rd = FileBlocks::new(&bytes[..]);
         while let Some(b) = rd.next_block() {
-            for byte in b.unwrap().bytes() {
-                hex.push_str(&format!("{byte:02x}"));
-            }
+            push_hex(&mut hex, b.unwrap().bytes());
             hex.push('\n');
         }
     }
@@ -917,9 +922,7 @@ fn incomplete_golden() {
     let mut hex = String::new();
     for bytes in &pieces {
         for line in bytes.chunks(64) {
-            for byte in line {
-                hex.push_str(&format!("{byte:02x}"));
-            }
+            push_hex(&mut hex, line);
             hex.push('\n');
         }
         hex.push('\n');
@@ -1262,7 +1265,7 @@ fn every_block_of_data_has_its_definitions_behind_it() {
             .iter()
             .map(|e| e.offset)
             .collect();
-        assert!(!data.is_empty());
+        assert_ne!(data, [] as [u64; 0]);
         for at in data {
             for slot in [
                 Slot::Track {
@@ -1418,7 +1421,7 @@ fn mem_tapes_remove_a_closed_piece_only() {
     assert_eq!(done.len(), 1);
     assert!(mem.remove(&open).unwrap());
     assert!(!mem.remove(&open).unwrap());
-    assert!(mem.keys().unwrap().is_empty());
+    assert_eq!(mem.keys().unwrap(), [] as [u64; 0]);
     assert!(TapeReader::open(&reader.to_vec().unwrap()[..]).is_ok());
     // the name is free again
     assert!(ww_tape::PieceStore::create(&mut mem.clone(), &open).is_ok());

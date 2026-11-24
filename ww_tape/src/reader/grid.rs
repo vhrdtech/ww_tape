@@ -116,15 +116,14 @@ impl<S: ByteSource> TapeReader<S> {
             if tiles.is_empty() {
                 continue;
             }
-            let tile = match entry.tile.and_then(|n| layout.unpack(n)) {
-                Some(c) => tiles.holds_coords(&c).then_some(c),
-                None => {
-                    let tile = match of {
-                        Of::Chunks => self.read_chunk_head(i, &entry, &mut buf)?.tile,
-                        Of::Summaries(_) => self.read_summary_tile(i, &entry, &mut buf)?,
-                    };
-                    tiles.holds_coords(&tile).then_some(tile)
-                }
+            let tile = if let Some(c) = entry.tile.and_then(|n| layout.unpack(n)) {
+                tiles.holds_coords(&c).then_some(c)
+            } else {
+                let tile = match of {
+                    Of::Chunks => self.read_chunk_head(i, &entry, &mut buf)?.tile,
+                    Of::Summaries(_) => self.read_summary_tile(i, &entry, &mut buf)?,
+                };
+                tiles.holds_coords(&tile).then_some(tile)
             };
             if let Some(tile) = tile {
                 out.push(GridTile { entry, tile });

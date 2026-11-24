@@ -30,6 +30,7 @@ ww_tape_codecs = { workspace = true, features = ["std"] }
 ww_tape_fs.workspace = true
 ww_tape_mux.workspace = true
 ww_tape_summary = { workspace = true, features = ["std"] }
+ww_tape_testalloc.workspace = true
 
 [build-dependencies]
 vc_build.workspace = true

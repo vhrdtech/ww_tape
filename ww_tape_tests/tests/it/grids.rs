@@ -468,12 +468,14 @@ fn an_empty_time_range_finds_no_chunk() {
     let r = TapeReader::open(&g.bytes[..]).unwrap();
     let tiles = g.layout.tile_box(&[0..5, 0..4, 0..10]).unwrap();
     let mid = START + 1_500;
-    assert!(
-        !r.grid_tiles(0, g.id, mid..mid + 1, &tiles)
-            .unwrap()
-            .is_empty()
+    assert_ne!(
+        r.grid_tiles(0, g.id, mid..mid + 1, &tiles).unwrap(),
+        [] as [ww_tape::GridTile; 0]
     );
-    assert!(r.grid_tiles(0, g.id, mid..mid, &tiles).unwrap().is_empty());
+    assert_eq!(
+        r.grid_tiles(0, g.id, mid..mid, &tiles).unwrap(),
+        [] as [ww_tape::GridTile; 0]
+    );
 }
 
 /// An entry whose tile number has bits outside the fields names no tile of the grid: the query reads its chunk's head
@@ -637,7 +639,7 @@ fn a_unit_is_written_whole_and_dropped_whole() {
                 .nth(2)
                 .map(|(o, b)| *o as usize + b.len())
                 .unwrap();
-            for cut in [start + 1, (start + end) / 2, end - 1] {
+            for cut in [start + 1, usize::midpoint(start, end), end - 1] {
                 let mut sink = MemSink::new();
                 ww_tape::TapeSink::write_all(&mut sink, &bytes[..cut]).unwrap();
                 let (_, resumed) =

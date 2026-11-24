@@ -10,6 +10,7 @@
     clippy::expect_used,
     clippy::indexing_slicing,
     clippy::let_underscore_must_use,
+    clippy::missing_panics_doc,
     clippy::panic,
     clippy::unreachable,
     clippy::unwrap_used,

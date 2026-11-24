@@ -70,7 +70,7 @@ fn every_burst_is_found_and_its_pieces_kept() {
     let t = &run.triaged;
     assert!(t.pieces > 200, "{} pieces", t.pieces);
     assert_eq!(t.looked, t.pieces);
-    assert!(t.overrun.is_empty());
+    assert_eq!(t.overrun, [] as [u64; 0]);
 
     // on each channel, one burst found around each true one, and none elsewhere
     for k in 0..c.wb.channels {
@@ -86,7 +86,7 @@ fn every_burst_is_found_and_its_pieces_kept() {
     }
 
     // only a small part of the minute reaches the kept store
-    assert!(!t.kept.is_empty());
+    assert_ne!(t.kept, [] as [u64; 0]);
     assert!(
         t.kept_bytes * 10 < t.piece_bytes,
         "{} of {} bytes kept",
@@ -210,7 +210,7 @@ fn a_detector_above_the_bursts_keeps_nothing() {
         ..capture()
     };
     let (run, kept, _) = run(&c);
-    assert!(run.bursts.is_empty());
-    assert!(run.triaged.kept.is_empty());
-    assert!(kept.keys().expect("the keys").is_empty());
+    assert_eq!(run.bursts, [] as [example_wideband::ram::Burst; 0]);
+    assert_eq!(run.triaged.kept, [] as [u64; 0]);
+    assert_eq!(kept.keys().expect("the keys"), [] as [u64; 0]);
 }

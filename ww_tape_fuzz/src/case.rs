@@ -1,73 +1,27 @@
 //! One case of a fuzz target, as a test or a tool runs it: its panic and any allocation over [ALLOC_MAX] are the
 //! outcome of the case, not of the process.
 //!
-//! A binary that runs cases declares [Capped] its global allocator.
+//! A binary that runs cases declares [CAPPED] its global allocator.
 
-use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::RefCell;
+use std::fmt::Write as _;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Once;
 use std::time::{Duration, Instant};
+
+use ww_tape_testalloc::{Counting, take_largest};
 
 /// Largest single allocation a case may make: 128 MiB, the fuzz recipes' `-malloc_limit_mb`.
 pub const ALLOC_MAX: usize = 128 << 20;
 /// Allocations past this are refused outright, which aborts the process; up to it an allocation over [ALLOC_MAX] is
 /// made and only reported.
-const ALLOC_REFUSED: usize = 1 << 30;
+pub const ALLOC_REFUSED: usize = 1 << 30;
 
-// spirit-level: allow(thread-local-state) an allocator gets no state passed; per thread, cases keep apart
-std::thread_local! {
-    /// The largest allocation over [ALLOC_MAX] this thread made since it was last taken, 0 for none: per thread, so
-    /// cases run in parallel by a test harness don't see each other's allocations.
-    static OVER: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
-}
-
-/// The system allocator, noting every single allocation over [ALLOC_MAX] for [run]; a binary declares it with
-/// `#[global_allocator] static ALLOCATOR: Capped = Capped;`.
-pub struct Capped;
-
-impl Capped {
-    fn note(size: usize) -> bool {
-        if size > ALLOC_MAX {
-            // a thread being torn down has no slot left: its allocations belong to no case
-            let _ = OVER.try_with(|o| o.set(o.get().max(size)));
-        }
-        size <= ALLOC_REFUSED
-    }
-}
-
-// SAFETY: every call goes to System with the caller's layout and pointer unchanged; a refused allocation returns null,
-// which GlobalAlloc allows.
-unsafe impl GlobalAlloc for Capped {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        if !Self::note(layout.size()) {
-            return std::ptr::null_mut();
-        }
-        // SAFETY: the caller's layout, as GlobalAlloc::alloc requires.
-        unsafe { System.alloc(layout) }
-    }
-
-    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-        if !Self::note(layout.size()) {
-            return std::ptr::null_mut();
-        }
-        // SAFETY: the caller's layout, as GlobalAlloc::alloc_zeroed requires.
-        unsafe { System.alloc_zeroed(layout) }
-    }
-
-    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        if !Self::note(new_size) {
-            return std::ptr::null_mut();
-        }
-        // SAFETY: the caller's pointer, layout and size, as GlobalAlloc::realloc requires.
-        unsafe { System.realloc(ptr, layout, new_size) }
-    }
-
-    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        // SAFETY: the caller's pointer and layout, as GlobalAlloc::dealloc requires.
-        unsafe { System.dealloc(ptr, layout) }
-    }
-}
+/// The allocator of a binary that runs cases.
+///
+/// It notes each thread's largest allocation for [run] and refuses those past [ALLOC_REFUSED]. A binary declares
+/// `#[global_allocator] static ALLOCATOR: Counting = CAPPED;`.
+pub const CAPPED: Counting = Counting::refusing_over(ALLOC_REFUSED);
 
 // spirit-level: allow(thread-local-state) a panic hook gets no state passed; per thread, cases keep apart
 thread_local! {
@@ -113,13 +67,13 @@ pub enum Outcome {
 /// Run `target` on `data`; the wall-clock time it took is for reports only.
 pub fn run(target: fn(&[u8]), data: &[u8]) -> (Outcome, Duration) {
     quiet_panics();
-    OVER.with(|o| o.set(0));
+    take_largest();
     let start = Instant::now();
     IN_CASE.with(|c| c.set(true));
     let r = catch_unwind(AssertUnwindSafe(|| target(data)));
     IN_CASE.with(|c| c.set(false));
     let took = start.elapsed();
-    let over = OVER.with(|o| o.replace(0));
+    let largest = take_largest();
     let outcome = match r {
         Err(_) => {
             let (at, msg) = LAST_PANIC
@@ -127,7 +81,7 @@ pub fn run(target: fn(&[u8]), data: &[u8]) -> (Outcome, Duration) {
                 .unwrap_or_default();
             Outcome::Panic(at, msg)
         }
-        Ok(()) if over > 0 => Outcome::Alloc(over),
+        Ok(()) if largest > ALLOC_MAX => Outcome::Alloc(largest),
         Ok(()) => Outcome::Ok,
     };
     (outcome, took)
@@ -184,4 +138,14 @@ pub fn minimize(target: fn(&[u8]), input: &[u8]) -> Vec<u8> {
         }
     }
     best
+}
+
+/// `data` as lowercase hex, two digits per byte: the shape a seed or a failing case is reported in.
+pub fn hex(data: &[u8]) -> String {
+    let mut out = String::with_capacity(data.len() * 2);
+    for b in data {
+        // a write into a String never fails
+        let _ = write!(out, "{b:02x}");
+    }
+    out
 }

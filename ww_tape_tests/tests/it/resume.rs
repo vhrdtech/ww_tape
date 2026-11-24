@@ -632,7 +632,7 @@ fn a_damaged_block_of_definitions_is_put_again_after_a_resume() {
         .map(|e| e.offset)
         .filter(|at| *at >= kept)
         .collect();
-    assert!(!data.is_empty());
+    assert_ne!(data, [] as [u64; 0]);
     for at in data {
         for slot in [
             Slot::Track {
@@ -842,7 +842,7 @@ fn a_chain_in_memory_reads_and_matches_files() {
     // the open piece reads while it is written
     let live = mem.get(&in_mem.seq()).unwrap().unwrap();
     let r = TapeReader::open(live.clone()).unwrap();
-    assert!(!r.pieces().is_empty());
+    assert_ne!(r.pieces(), []);
     assert!(
         r.entries(0)
             .unwrap()
@@ -968,8 +968,8 @@ fn a_chain_in_memory_resumes() {
     drop(c);
     let (mut c, resumed) =
         PieceChain::resume_on(mem.clone(), OwnerId([9; 32]), 0, chain_options()).unwrap();
-    assert!(!resumed.entries.is_empty());
-    assert!(!c.closed().is_empty());
+    assert_ne!(resumed.entries, [] as [ww_tape::IndexEntry; 0]);
+    assert_ne!(c.closed(), []);
     replay_chain(&mut c, &ops, &made, resumed.kept_bytes);
     let got = c.close().unwrap();
     assert_eq!(got.len(), paths.len());
@@ -1625,7 +1625,7 @@ fn a_resume_never_cuts_off_good_blocks() {
     let tape = sink.tape();
     match TapeWriter::resume_on(sink, WriterOptions::default()) {
         Err(WriteError::Resume(ResumeError::GoodBlockAfterCut { offset })) => {
-            assert_eq!(offset, starts[starts.len() - 2] as u64)
+            assert_eq!(offset, starts[starts.len() - 2] as u64);
         }
         other => panic!("{:?}", other.map(|(_, r)| r)),
     }
@@ -1724,7 +1724,7 @@ fn a_resume_of_a_whole_close_cuts_only_the_junk_after_its_tail() {
     std::fs::write(&path, &bytes).unwrap();
     match ww_tape_fs::writer::resume(&path, WriterOptions::default()) {
         Err(WriteError::Resume(ResumeError::Damaged { offset })) => {
-            assert_eq!(offset, done.len() as u64)
+            assert_eq!(offset, done.len() as u64);
         }
         other => panic!("{:?}", other.map(|(_, r)| r)),
     }
@@ -1737,7 +1737,7 @@ fn a_resume_of_a_whole_close_cuts_only_the_junk_after_its_tail() {
     std::fs::write(&path, &bytes).unwrap();
     match ww_tape_fs::writer::resume(&path, WriterOptions::default()) {
         Err(WriteError::Resume(ResumeError::GoodBlockAfterCut { offset })) => {
-            assert_eq!(offset, done.len() as u64)
+            assert_eq!(offset, done.len() as u64);
         }
         other => panic!("{:?}", other.map(|(_, r)| r)),
     }
@@ -2002,12 +2002,11 @@ fn a_piece_of_an_unknown_integrity_level_is_refused_everywhere() {
             let id = w.next_id();
             w.write_block(base_defs(), &records(id, k)).unwrap();
         }
-        match closed {
-            true => drop(w.close().unwrap()),
-            false => {
-                w.flush_deferred().unwrap();
-                drop(w);
-            }
+        if closed {
+            drop(w.close().unwrap());
+        } else {
+            w.flush_deferred().unwrap();
+            drop(w);
         }
         let good = tape.to_vec().unwrap();
         for (level, error) in levels {

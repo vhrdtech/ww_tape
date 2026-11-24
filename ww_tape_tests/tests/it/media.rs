@@ -95,7 +95,7 @@ fn walk(bytes: &[u8], medium: Medium) -> (Vec<(SessionTag, u64)>, Vec<FileError>
                 if b.kind == BlockKind::Records
                     && b.first_track() != Some(RecordTrack::Definitions) =>
             {
-                got.push((b.session, b.seq))
+                got.push((b.session, b.seq));
             }
             Ok(_) => {}
             Err(e) => errors.push(e),
@@ -184,7 +184,7 @@ fn a_records_block_of_another_session_is_stale_on_a_file() {
                 if b.kind == BlockKind::Records
                     && b.first_track() != Some(RecordTrack::Definitions) =>
             {
-                got.push(b.seq)
+                got.push(b.seq);
             }
             Ok(_) => {}
             Err(FileError::Stale { session, .. }) if session == OLD => stale += 1,
@@ -408,7 +408,7 @@ fn a_duplicate_block_is_not_a_cut() {
     let r = TapeReader::open_with(&dup[..], raw()).unwrap();
     let p = &r.pieces()[0];
     assert_eq!((p.end, p.cut), (dup.len() as u64, None));
-    assert!(p.replaced.is_empty());
+    assert_eq!(p.replaced, [] as [u64; 0]);
     assert_eq!(
         listed_blocks(&r),
         7,
@@ -544,7 +544,7 @@ fn a_layout_past_the_gap_limits_is_refused() {
         // a byte after it: no gap rules, the end of data at once
         bytes.push(0x41);
         let (got, errors) = walk(&bytes, Medium::Raw);
-        assert!(got.is_empty());
+        assert_eq!(got, [] as [(ww_tape::SessionTag, u64); 0]);
         assert!(
             matches!(errors[..], [FileError::Cut { offset: o, .. }] if o == len as u64),
             "{errors:?}"
@@ -820,7 +820,7 @@ fn a_raw_piece_is_one_session() {
             }
             let first_old = first_old.unwrap();
             assert!(first_old >= piece_head_len(0) as u64);
-            assert!(got.is_empty());
+            assert_eq!(got, [] as [(ww_tape::SessionTag, u64); 0]);
             assert!(
                 matches!(errors[..], [FileError::Cut { offset, why: Cut::Stale { session } }] if offset == first_old && session == OLD),
                 "{errors:?}"
@@ -946,7 +946,7 @@ fn resync_misses_no_block(bytes: &[u8], medium: Medium) -> Result<(), String> {
                 met.push((offset, len));
             }
             Err(FileError::Conflict { offset, block, .. }) => {
-                met.push((offset, block.len() as u64))
+                met.push((offset, block.len() as u64));
             }
             Err(_) => {}
         }
@@ -1126,7 +1126,7 @@ fn resync_reads_every_block_prefix_reads_in_damaged_files() {
             records(BlockId::new(OLD, rng.below(12) as u64)),
             session(OLD, NEW, layout, rng.below(3) as u64),
         ];
-        for _ in 0..1 + rng.below(4) {
+        for _ in 0..=rng.below(4) {
             match rng.below(4) {
                 0 => {
                     let at = rng.below(file.len());

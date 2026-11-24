@@ -204,7 +204,7 @@ where
         };
         // looked at again with the chunk held: its producer may have completed it since
         if let Some(now) = due_by
-            && !self.due_ns().is_some_and(|d| d <= now)
+            && self.due_ns().is_none_or(|d| d > now)
         {
             return false;
         }

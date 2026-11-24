@@ -65,6 +65,10 @@ pub const fn lz4_max_len(len: usize) -> usize {
 }
 
 /// Code `raw` into `out` (at least [lz4_max_len] bytes); returns the bytes written.
+///
+/// # Panics
+///
+/// Never: the block handed to lz4_flex is its maximum output size for `raw`.
 pub fn lz4_encode(raw: &[u8], out: &mut [u8]) -> Result<usize, Lz4Error> {
     let too_long = Lz4Error::TooLong { len: raw.len() };
     if raw.len() > LZ4_DECODED_MAX {

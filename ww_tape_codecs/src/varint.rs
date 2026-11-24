@@ -5,11 +5,7 @@ use crate::FromFile;
 /// Bytes a `uvar` of `v` takes: 1 to 10.
 pub const fn uvar_len(v: u64) -> usize {
     // 7 bits a byte; v | 1 keeps 0 at one byte
-    #[expect(
-        clippy::arithmetic_side_effects,
-        reason = "v | 1 is nonzero: at most 63 leading zeros, under u64::BITS"
-    )]
-    let bits = u64::BITS - (v | 1).leading_zeros();
+    let bits = (v | 1).bit_width();
     // bits is 1 to 64: the quotient is 1 to 10, a usize on every target
     #[expect(
         clippy::as_conversions,

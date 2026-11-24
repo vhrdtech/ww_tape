@@ -141,15 +141,19 @@ impl<'b, const R: usize> Groups<'b, R> {
         for g in 0..self.count() {
             let r = self.record(g);
             if Width::from_file((self.layout.width)(r)).is_err() {
-                return Err(self.corrupt("width over 64"));
+                return Err(Self::corrupt("width over 64"));
             }
             match self.placed(g) {
                 Some(p) if p.offset == at => at = p.end,
-                _ => return Err(self.corrupt("group offset not where the previous group ends")),
+                _ => {
+                    return Err(Self::corrupt(
+                        "group offset not where the previous group ends",
+                    ));
+                }
             }
         }
         if at != self.data_len {
-            return Err(self.corrupt("packed values don't end at the column's end"));
+            return Err(Self::corrupt("packed values don't end at the column's end"));
         }
         Ok(())
     }
@@ -196,7 +200,7 @@ impl<'b, const R: usize> Groups<'b, R> {
         fits.then_some(p)
     }
 
-    fn corrupt(&self, what: &'static str) -> ColumnError {
+    fn corrupt(what: &'static str) -> ColumnError {
         ColumnError::Corrupt(what)
     }
 }

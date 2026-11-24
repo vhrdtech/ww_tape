@@ -152,7 +152,7 @@ mod tests {
         assert!(v.is(5));
         assert!(!v.is(6));
         let big = FromFile::new(u64::MAX);
-        assert!(big.at_most(usize::MAX).is_ok() == (usize::BITS >= 64));
+        assert_eq!(big.at_most(usize::MAX).is_ok(), (usize::BITS >= 64));
         assert!(big.below(usize::MAX).is_err());
         assert_eq!(format!("{v:?}"), "FromFile(5)");
     }

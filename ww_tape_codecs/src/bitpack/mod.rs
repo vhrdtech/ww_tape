@@ -272,12 +272,7 @@ impl Width {
 
 /// Bits needed to hold `x`: 0 for 0, 64 for values from 2^63.
 pub const fn width_of(x: u64) -> u32 {
-    #[expect(
-        clippy::arithmetic_side_effects,
-        reason = "leading_zeros is at most u64::BITS"
-    )]
-    let w = u64::BITS - x.leading_zeros();
-    w
+    x.bit_width()
 }
 
 /// Bytes of `n` values packed at `width` bits; usize::MAX, a length no slice holds, when it is more.
@@ -517,7 +512,7 @@ fn decode(kernel: Kernel, src: &[u8], width: u8, base: i64, slope: i64, out: &mu
     if width > KERNEL_WIDTH_MAX_BYTE {
         let mut r = [0u64; GROUP];
         with_reach(src, scalar_reach(width), |s| {
-            unpack_scalar64(s, width, &mut r)
+            unpack_scalar64(s, width, &mut r);
         });
         let mut p = 0i64;
         for (o, x) in out.iter_mut().zip(r) {
@@ -529,11 +524,11 @@ fn decode(kernel: Kernel, src: &[u8], width: u8, base: i64, slope: i64, out: &mu
     match kernel {
         #[cfg(target_arch = "x86_64")]
         Kernel::Avx2 if width > 0 => with_reach(src, avx2::reach(width), |s| {
-            avx2::decode(s, width, base, slope, out)
+            avx2::decode(s, width, base, slope, out);
         }),
         #[cfg(target_arch = "x86_64")]
         Kernel::Avx512 if width > 0 => with_reach(src, avx512::reach(width), |s| {
-            avx512::decode(s, width, base, slope, out)
+            avx512::decode(s, width, base, slope, out);
         }),
         #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
         Kernel::Neon if width > 0 => with_reach(src, neon::reach(width), |s| {
@@ -543,7 +538,7 @@ fn decode(kernel: Kernel, src: &[u8], width: u8, base: i64, slope: i64, out: &mu
             let mut r = [0u32; GROUP];
             if width > 0 {
                 with_reach(src, scalar_reach(width), |s| {
-                    unpack_scalar(s, width, &mut r)
+                    unpack_scalar(s, width, &mut r);
                 });
             }
             // a running sum of the slope: no multiply per value

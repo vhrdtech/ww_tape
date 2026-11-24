@@ -472,7 +472,7 @@ impl Indexer {
                             .checked_add(run.len())
                             .is_some_and(|n| n <= FINAL_ENTRIES_MAX) =>
                     {
-                        p.extend_from_slice(run)
+                        p.extend_from_slice(run);
                     }
                     _ => parts.push(run.to_vec()),
                 }

@@ -23,6 +23,7 @@ pub use says::{Says, damage, handles, integrity, missing, says};
 
 use anyhow::{Context, ensure};
 use chart::{Chart, Panel, Series};
+use std::fmt::Write as _;
 use std::path::Path;
 use ww_tape_bench_report::{Cell, Report, Table};
 
@@ -377,17 +378,18 @@ fn markdown(report: &Report, id: &str) -> anyhow::Result<String> {
         .iter()
         .map(|c| if c.value().is_some() { "---:" } else { "---" })
         .collect();
-    out.push_str(&format!("|{}|\n", align.join("|")));
+    writeln!(out, "|{}|", align.join("|"))?;
     for r in &t.rows {
         let cells: Vec<String> = r.iter().map(shown).collect();
-        out.push_str(&format!("| {} |\n", cells.join(" | ")));
+        writeln!(out, "| {} |", cells.join(" | "))?;
     }
-    out.push_str(&format!(
+    write!(
+        out,
         "\n`just bench-{}` on {}, load average {}.\n",
         report.bench.replace('_', "-"),
         report.machine.host,
         t.load()
-    ));
+    )?;
     Ok(out)
 }
 

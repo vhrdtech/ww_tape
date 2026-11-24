@@ -56,10 +56,15 @@ impl<T> Drop for ReplyTx<T> {
 }
 
 impl<T> ReplyRx<T> {
-    /// The reply once the sending side is gone, else None; never waits. Taken once: a later call gives `Some(None)`.
-    pub(crate) fn try_take(&mut self) -> Option<Option<T>> {
+    /// The reply once the sending side is gone, else pending; never waits. Taken once: a later call gives
+    /// `Ready(None)`.
+    pub(crate) fn try_take(&mut self) -> Poll<Option<T>> {
         let mut s = lock(&self.0);
-        s.done.then(|| s.value.take())
+        if s.done {
+            Poll::Ready(s.value.take())
+        } else {
+            Poll::Pending
+        }
     }
 }
 
