@@ -203,7 +203,8 @@ fn entries(data: &[u8]) {
 ///
 /// A key's lookup hands out only a record of that key before the place, its history only that key's records newest
 /// first, a listing only live keys in order that may have the prefix and only values of keys that have it. Nothing
-/// forged, a lookup that differs from the template's names why. A resume of the piece takes a new key and closes.
+/// forged, a lookup that differs from the template's names why. A resume of the piece takes a new key and closes; a
+/// resume that cuts after the key starts a piece whose keys read whole only when they are those of the piece before.
 pub fn keyed_hostile(data: &[u8]) {
     let a = hostile::keyed_attacked(data);
     let f = a.bytes;
@@ -219,6 +220,7 @@ pub fn keyed_hostile(data: &[u8]) {
         }
     }
     resume(&f);
+    resume_and_cut(&f);
 }
 
 /// A file; a raw medium; a cache too small for the piece; read budgets that run out.
@@ -450,5 +452,64 @@ fn resume(f: &[u8]) {
             .item
             .and_then(|s| s.keyed().and_then(|k| k.value.map(<[u8]>::to_vec))),
         Some(b"v".to_vec())
+    );
+}
+
+/// A resume of `f`, a new key put and a cut: the next piece, read alone, holds every key the resumed piece holds at
+/// its end, with its value, or says it may not. Where the cut is refused before the piece ends (no piece head), or a
+/// reader refuses the resumed piece's lookups, nothing is compared.
+fn resume_and_cut(f: &[u8]) {
+    let mut sink = MemSink::new();
+    sink.write_all(f).expect("memory takes the bytes");
+    let tape = sink.tape();
+    let Ok((mut w, resumed)) = TapeWriter::resume_on(sink, hostile::keyed_options()) else {
+        return;
+    };
+    let (defs, on) = hostile::keyed_definitions(Some(&resumed));
+    if w.put_key(&defs, on.keyed, 1000, b"/resumed", b"v").is_err() {
+        return;
+    }
+    let next = MemSink::new();
+    let next_tape = next.tape();
+    let (_, w) = match w.cut_on(&defs, next) {
+        Ok(cut) => cut,
+        // refused before the piece ended, the writer handed back: a piece whose head the attack spoiled
+        Err(e) if e.writer.is_some() => return,
+        Err(e) => panic!("a resumed piece that took a key cuts: {}", e.error),
+    };
+    w.close().expect("the piece after the cut closes");
+    let before = tape.to_vec().expect("the bytes");
+    let after = next_tape.to_vec().expect("the bytes");
+    let got = TapeReader::open(&after[..])
+        .expect("the piece after the cut opens")
+        .keys_at(0, on.keyed, b"", u64::MAX)
+        .expect("a lookup in the piece after the cut");
+    if !got.is_whole() {
+        return;
+    }
+    let r = TapeReader::open(&before[..]).expect("the resumed piece opens");
+    let last = r.pieces().len().checked_sub(1).expect("a piece");
+    let want = match r.keys_at(last, on.keyed, b"", u64::MAX) {
+        Ok(want) => want,
+        Err(ReadError::Index(_)) => return,
+        Err(e) => panic!("a lookup in the resumed piece: {e:?}"),
+    };
+    let values = |k: &ww_tape::reader::KeysAt| -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
+        k.items
+            .iter()
+            .map(|(key, s)| {
+                let value = s.keyed().and_then(|k| k.value.map(<[u8]>::to_vec));
+                (key.clone(), value)
+            })
+            .collect()
+    };
+    assert!(
+        want.is_whole(),
+        "the piece after the cut reads whole, the resumed piece doesn't"
+    );
+    assert_eq!(
+        values(&got),
+        values(&want),
+        "the carry differs from the keys in force"
     );
 }
