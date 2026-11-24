@@ -64,6 +64,8 @@ pub(crate) struct Keys {
     bytes: usize,
     /// Every record of the track since its first was seen: the live keys are all of them
     pub(crate) complete: bool,
+    /// A record of the track didn't read: the keys stay incomplete whatever older keys are taken after them
+    doubted: bool,
 }
 
 impl Keys {
@@ -77,6 +79,7 @@ impl Keys {
             sealed: false,
             bytes: 0,
             complete,
+            doubted: false,
         }
     }
 
@@ -137,6 +140,12 @@ impl Keys {
         }
     }
 
+    /// A record of the track didn't read: the keys may miss it.
+    fn doubt(&mut self) {
+        self.complete = false;
+        self.doubted = true;
+    }
+
     /// Take no older keys after these from here on, and forget the keys deleted ([Self::gone]).
     fn seal(&mut self) {
         self.gone.clear();
@@ -145,12 +154,16 @@ impl Keys {
     }
 
     /// These keys after `older`, the keys of the same track before them: these alone when complete or sealed, else
-    /// `older`'s live keys less those these deleted, then these, complete when `older` is.
+    /// `older`'s live keys less those these deleted, then these, complete when `older` is and none of these was
+    /// doubted.
     fn after(self, older: Self) -> Self {
         if self.complete || self.sealed || older.key != self.key {
             return self;
         }
         let mut out = older;
+        if self.doubted {
+            out.doubt();
+        }
         for k in &self.gone {
             out.remove(k);
         }
@@ -191,6 +204,9 @@ pub(crate) struct Kept {
     gone_bytes: usize,
     /// No older keys follow: every track's keys are sealed, those first seen later too ([Self::seal_keys])
     sealed: bool,
+    /// Bytes no block explains were seen: every track's keys are doubted, those first seen later and those older
+    /// keys bring too ([Self::all_keys_doubted])
+    all_doubted: bool,
 }
 
 impl Kept {
@@ -282,9 +298,11 @@ impl Kept {
     /// The keys of track `number` standing for `key`, made with `complete` when the track has none or stood for
     /// another track.
     fn keys_entry(&mut self, number: TrackNum, key: TrackIdent, complete: bool) -> &mut Keys {
-        let sealed = self.sealed;
+        let (sealed, doubted) = (self.sealed, self.all_doubted);
         let new = || Keys {
             sealed,
+            doubted,
+            complete: complete && !doubted,
             ..Keys::new(key, complete)
         };
         let keys = self.keyed.entry(number).or_insert_with(new);
@@ -294,21 +312,23 @@ impl Kept {
         keys
     }
 
-    /// Whether the keys of keyed state track `number`, standing for `key`, are all of them: given an empty set of
-    /// keys when it has none yet.
+    /// Whether the keys of keyed state track `number`, standing for `key`, are all of them, unless doubted: given an
+    /// empty set of keys when it has none yet.
     pub(crate) fn keys_known(&mut self, number: TrackNum, key: TrackIdent, complete: bool) {
-        self.keys_entry(number, key, complete).complete = complete;
+        let keys = self.keys_entry(number, key, complete);
+        keys.complete = complete && !keys.doubted;
     }
 
     /// The keys of track `number` may miss some: a record of it doesn't read.
     pub(crate) fn keys_doubted(&mut self, number: TrackNum, key: TrackIdent) {
-        self.keys_entry(number, key, false).complete = false;
+        self.keys_entry(number, key, false).doubt();
     }
 
     /// Every keyed track's keys may miss some: bytes no block explains may hold their records.
     pub(crate) fn all_keys_doubted(&mut self) {
+        self.all_doubted = true;
         for k in self.keyed.values_mut() {
-            k.complete = false;
+            k.doubt();
         }
     }
 
@@ -357,6 +377,7 @@ impl Kept {
         let mut out = Self::default();
         let mut newer = core::mem::take(self);
         out.keyed = core::mem::take(&mut newer.keyed);
+        out.all_doubted = newer.all_doubted;
         out.keys_after(older.take_keys());
         for from in [older, newer] {
             for (_, n) in &from.by_age {
@@ -372,6 +393,11 @@ impl Kept {
     /// stay as they are.
     pub(crate) fn keys_after(&mut self, mut older: Self) {
         let mut keyed = core::mem::take(&mut older.keyed);
+        if self.all_doubted {
+            for k in keyed.values_mut() {
+                k.doubt();
+            }
+        }
         for (n, k) in core::mem::take(&mut self.keyed) {
             let k = match keyed.remove(&n) {
                 Some(old) => k.after(old),

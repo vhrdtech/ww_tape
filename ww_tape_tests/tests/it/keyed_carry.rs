@@ -423,6 +423,17 @@ fn a_keyed_block_that_doesnt_read_leaves_its_keys_unknown() {
     assert!(!whole);
 }
 
+/// The same after a cut, resumed through the chain: the keys of the piece before don't make the doubted keys of the
+/// resumed piece complete, so the deleted key doesn't come back as whole.
+#[test]
+fn keys_before_a_damaged_piece_dont_make_its_keys_whole() {
+    let (mem, pieces) = resume_damaged(true);
+    assert_eq!(pieces.len(), 3);
+    assert_eq!(pieces[1].piece.keys_unknown, 1);
+    let (_, whole) = keys_of(&piece_bytes(&mem, pieces[2].tape), 0);
+    assert!(!whole);
+}
+
 /// A crash right after a cut drops the piece's carry, and a resume of that piece alone, without its chain, can't
 /// put the keys again: the first call is refused ([ResumeError::KeysUnknown]).
 #[test]
