@@ -294,6 +294,8 @@ pub fn index(data: &[u8]) {
                 ))
                 .wrapping_shl(u32::from(c[0]))
             }),
+            key: None,
+            deleted: false,
         })
         .collect();
     let kind = if flag & 1 == 1 {

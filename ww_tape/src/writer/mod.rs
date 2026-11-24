@@ -608,7 +608,88 @@ impl<S: TapeSink> TapeWriter<S> {
         let facts = defs
             .track(track)
             .ok_or(DescribeError::UnknownTrack { track })?;
+        if facts.keyed {
+            return Err(DescribeError::Keyed { track }.into());
+        }
+        self.put_state(defs, track, facts, ticks, Slot::State { track }, item)
+    }
+
+    /// Put the value `value` of key `key` on keyed state track `track` of `defs` at `ticks` of its clock, as
+    /// [Self::put] puts an item: the key's newest record and its copies decide per key. A key is at most
+    /// [STATE_KEY_LEN_MAX](crate::STATE_KEY_LEN_MAX) bytes. Whether it was written.
+    pub fn put_key(
+        &mut self,
+        defs: &Definitions,
+        track: TrackNum,
+        ticks: i64,
+        key: &[u8],
+        value: &[u8],
+    ) -> Result<bool, WriteError<S::Error>> {
+        self.put_keyed(
+            defs,
+            track,
+            ticks,
+            crate::KeyedItem {
+                key,
+                value: Some(value),
+            },
+        )
+    }
+
+    /// Put the deletion of key `key` on keyed state track `track` of `defs` at `ticks` of its clock: from there on
+    /// the key has no value. Written as [Self::put_key] writes a value. Whether it was written.
+    pub fn delete_key(
+        &mut self,
+        defs: &Definitions,
+        track: TrackNum,
+        ticks: i64,
+        key: &[u8],
+    ) -> Result<bool, WriteError<S::Error>> {
+        self.put_keyed(defs, track, ticks, crate::KeyedItem { key, value: None })
+    }
+
+    /// Put the keyed item `keyed` on keyed state track `track` of `defs`.
+    fn put_keyed(
+        &mut self,
+        defs: &Definitions,
+        track: TrackNum,
+        ticks: i64,
+        keyed: crate::KeyedItem<'_>,
+    ) -> Result<bool, WriteError<S::Error>> {
+        self.check()?;
+        self.want(&[track]);
+        let facts = defs
+            .track(track)
+            .ok_or(DescribeError::UnknownTrack { track })?;
+        if !facts.keyed {
+            return Err(match facts.state {
+                Some(_) => DescribeError::NotKeyed { track },
+                None => DescribeError::NotState { track },
+            }
+            .into());
+        }
+        let len = keyed.key.len();
+        let key = crate::KeyId::of(keyed.key).ok_or(DescribeError::KeyTooLong { len })?;
+        let mut item = Vec::new();
+        keyed
+            .encode_into(&mut item)
+            .ok_or(DescribeError::KeyTooLong { len })?;
+        let slot = Slot::Keyed { track, key };
+        self.put_state(defs, track, facts, ticks, slot, &item)
+    }
+
+    /// Put `item` in `slot` of state track `track` (of `facts`) at `ticks`, after what the track needs.
+    fn put_state(
+        &mut self,
+        defs: &Definitions,
+        track: TrackNum,
+        facts: crate::open::TrackFacts,
+        ticks: i64,
+        slot: Slot,
+        item: &[u8],
+    ) -> Result<bool, WriteError<S::Error>> {
         let policy = facts.state.ok_or(DescribeError::NotState { track })?;
+        let clock = facts.clock;
         if item.len() > STATE_ITEM_MAX {
             return Err(DescribeError::TooLong { len: item.len() }.into());
         }
@@ -617,13 +698,10 @@ impl<S: TapeSink> TapeWriter<S> {
         let mut cands = self.needed(defs, &[track]);
         self.work.hash(item.len());
         cands.push(Candidate {
-            slot: Slot::State { track },
+            slot,
             rule: self.rule(policy),
             track: RecordTrack::Data(track),
-            at: Some(ClockTime {
-                clock: facts.clock,
-                ticks,
-            }),
+            at: Some(ClockTime { clock, ticks }),
             hash: ItemHash::of(item),
             item: Item::Given(item),
         });
@@ -793,7 +871,7 @@ impl<S: TapeSink> TapeWriter<S> {
         with_next: bool,
     ) -> Result<(), WriteError<S::Error>> {
         let records = chosen_records(cands, chosen);
-        for r in &records {
+        for (r, _) in &records {
             self.work.copy(r.item.len());
         }
         self.write_puts(&records, with_next)
@@ -998,13 +1076,13 @@ impl<S: TapeSink> TapeWriter<S> {
             .collect()
     }
 
-    /// Write `records` as blocks marked [FLAG_REPEAT](crate::FLAG_REPEAT), with the seq of the last counted block,
+    /// Write `records` as blocks marked [FLAG_REPEAT](crate::FLAG_REPEAT) ([put_blocks]), with the seq of the last counted block,
     /// not counted themselves; the call that writes them checked their room first ([Self::room]).
     /// Every block but the last is marked [FLAG_WITH_NEXT](crate::FLAG_WITH_NEXT), the last one too with `with_next`:
     /// the call goes on with a block of data they serve.
     fn write_puts(
         &mut self,
-        records: &[RecordRef<'_>],
+        records: &[PutRef<'_>],
         with_next: bool,
     ) -> Result<(), WriteError<S::Error>> {
         if records.is_empty() {
@@ -1012,16 +1090,10 @@ impl<S: TapeSink> TapeWriter<S> {
         }
         let id = self.structural_id();
         let mut blocks = Vec::new();
-        write_records(
-            records,
-            DEFINITION_BLOCK_LEN,
-            crate::FLAG_REPEAT,
-            || id,
-            |b| {
-                blocks.push(b.to_vec());
-                Ok::<(), DescribeError>(())
-            },
-        )?;
+        put_blocks(records, id, |b| {
+            blocks.push(b.to_vec());
+            Ok::<(), DescribeError>(())
+        })?;
         let last = blocks.len().saturating_sub(1);
         for (i, mut b) in blocks.into_iter().enumerate() {
             if i < last || with_next {
@@ -1425,6 +1497,7 @@ impl<S: TapeSink> TapeWriter<S> {
             return Vec::new();
         };
         let repeat = b.is_repeat();
+        let keyed = b.is_keyed();
         let mut tracks = Vec::new();
         for r in b.records().flatten() {
             if let RecordTrack::Data(track) = r.track
@@ -1437,7 +1510,7 @@ impl<S: TapeSink> TapeWriter<S> {
                 }
                 continue;
             }
-            let Some(slot) = Slot::of(r.track, r.item) else {
+            let Some(slot) = Slot::of(r.track, r.item, keyed) else {
                 continue;
             };
             if let Slot::State { track } = slot
@@ -1446,6 +1519,12 @@ impl<S: TapeSink> TapeWriter<S> {
                 self.indexer.state_placed(key, track);
                 self.kept
                     .placed(track, key, r.at, r.item, self.kept_bytes_max());
+            }
+            // a keyed record gives its track a row; no cut carries its keys yet: TODO(TRACK-8)
+            if let Slot::Keyed { track, .. } = slot
+                && let Some(key) = self.indexer.key_of(track, None)
+            {
+                self.indexer.state_placed(key, track);
             }
             if matches!(slot, Slot::Track { .. })
                 && let Ok(Describe::Track(t)) =
@@ -2125,8 +2204,9 @@ impl<S: TapeSink> TapeWriter<S> {
         let rule = self.definitions_rule();
         let mut cands: Vec<Candidate<'_>> = Vec::new();
         let mut seen = BTreeSet::new();
-        // the hash of the newest record of each state track in the block: the same item again adds nothing
-        let mut newest: alloc::collections::BTreeMap<TrackNum, ItemHash> = Default::default();
+        // the hash of the newest record of each state slot in the block: the same item again adds nothing
+        let mut newest: alloc::collections::BTreeMap<Slot, ItemHash> = Default::default();
+        let keyed = b.is_keyed();
         for r in b.records() {
             let r = r.map_err(WriteError::Block)?;
             let (RecordTrack::Data(track), Some(at)) = (r.track, r.at) else {
@@ -2176,19 +2256,26 @@ impl<S: TapeSink> TapeWriter<S> {
             };
             let facts = defs.check_on_track(track, at)?;
             let policy = facts.state.ok_or(DescribeError::NotState { track })?;
+            let slot = match (facts.keyed, keyed) {
+                (false, false) => Slot::State { track },
+                (true, true) => Slot::of(r.track, r.item, true)
+                    .ok_or(WriteError::Block(crate::BlockError::BadRecords))?,
+                (true, false) => return Err(DescribeError::Keyed { track }.into()),
+                (false, true) => return Err(DescribeError::NotKeyed { track }.into()),
+            };
             if r.item.len() > STATE_ITEM_MAX {
                 return Err(DescribeError::TooLong { len: r.item.len() }.into());
             }
             self.work.hash(r.item.len());
             let hash = ItemHash::of(r.item);
-            if newest.insert(track, hash) == Some(hash) {
+            if newest.insert(slot, hash) == Some(hash) {
                 continue;
             }
             let mut needs = Vec::new();
             self.push_needs(defs, defs.needs(track), &mut seen, &mut needs);
             cands.extend(needs);
             cands.push(Candidate {
-                slot: Slot::State { track },
+                slot,
                 rule: self.rule(policy),
                 track: r.track,
                 at: Some(at),
@@ -2921,18 +3008,41 @@ impl Candidate<'static> {
     }
 }
 
+/// A record to put, and whether it is a keyed state record ([Slot::Keyed]).
+type PutRef<'c> = (RecordRef<'c>, bool);
+
 /// The records of `cands` that `chosen` marks, in order.
-fn chosen_records<'c>(cands: &'c [Candidate<'_>], chosen: &[bool]) -> Vec<RecordRef<'c>> {
+fn chosen_records<'c>(cands: &'c [Candidate<'_>], chosen: &[bool]) -> Vec<PutRef<'c>> {
     cands
         .iter()
         .zip(chosen)
         .filter(|(_, c)| **c)
-        .map(|(c, _)| RecordRef {
-            track: c.track,
-            at: c.at,
-            item: c.item.bytes(),
+        .map(|(c, _)| {
+            let r = RecordRef {
+                track: c.track,
+                at: c.at,
+                item: c.item.bytes(),
+            };
+            (r, matches!(c.slot, Slot::Keyed { .. }))
         })
         .collect()
+}
+
+/// Make the blocks of puts holding `records`, each of id `id`, into `out`, in order: blocks marked
+/// [FLAG_REPEAT](crate::FLAG_REPEAT), a run of keyed state records in blocks of their own marked
+/// [FLAG_KEYED](crate::FLAG_KEYED) too.
+fn put_blocks<E: From<DescribeError>>(
+    records: &[PutRef<'_>],
+    id: BlockId,
+    mut out: impl FnMut(&[u8]) -> Result<(), E>,
+) -> Result<(), E> {
+    for run in records.chunk_by(|a, b| a.1 == b.1) {
+        let keyed = run.first().is_some_and(|(_, k)| *k);
+        let flags = crate::FLAG_REPEAT | if keyed { crate::FLAG_KEYED } else { 0 };
+        let refs: Vec<RecordRef<'_>> = run.iter().map(|(r, _)| *r).collect();
+        write_records(&refs, DEFINITION_BLOCK_LEN, flags, || id, &mut out)?;
+    }
+    Ok(())
 }
 
 /// A block waiting for the gap before an aligned chunk payload, its definitions put when it came, and where the
@@ -2947,18 +3057,12 @@ struct Deferred {
 }
 
 /// Bytes of the blocks of puts holding `records`, as [TapeWriter::write_puts] writes them.
-fn puts_len<E>(records: &[RecordRef<'_>]) -> Result<usize, WriteError<E>> {
+fn puts_len<E>(records: &[PutRef<'_>]) -> Result<usize, WriteError<E>> {
     let mut len = 0usize;
-    write_records(
-        records,
-        DEFINITION_BLOCK_LEN,
-        crate::FLAG_REPEAT,
-        || BlockId::new(SessionTag::NONE, 0),
-        |b| {
-            len = len.saturating_add(b.len());
-            Ok::<(), DescribeError>(())
-        },
-    )?;
+    put_blocks(records, BlockId::new(SessionTag::NONE, 0), |b| {
+        len = len.saturating_add(b.len());
+        Ok::<(), DescribeError>(())
+    })?;
     Ok(len)
 }
 

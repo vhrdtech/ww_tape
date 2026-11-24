@@ -6,6 +6,21 @@ benchmarks, golden files and book pages.
 
 ## [Unreleased]
 
+### Breaking
+
+- Header bit 6 (`FLAG_KEYED`) marks keyed state blocks; older readers misread them: upgrade readers (TRACK-8).
+- Index entry flags bit 5 and 6 mark keyed records and deletions; older readers refuse such entries (TRACK-8).
+- `IndexEntry` gains `key` and `deleted`, `StateEntry` gains `deleted`: struct literals add them (TRACK-8).
+- `Slot` gains `Keyed`; `Slot::of` takes whether the record's block is keyed (TRACK-8).
+- `TrackFacts` gains `keyed`; `mux::Unit::Put` gains `keyed`; `DescribeError` and `CallError` gain variants (TRACK-8).
+
+### Features
+
+- `TrackRepeat::Keyed`: a state track of many keys, the newest record per key in force (TRACK-8).
+- `put_key` and `delete_key` on `TapeWriter`, `PieceChain` and the mux's `StateHandle` put by key (TRACK-8).
+- The index lists a keyed record by key head, length and hash: `key_entries` and `key_slots` read the index only (TRACK-8).
+- `key_at`, `key_history` and `keys_at` read a key's record at a place, its history and a prefix's live keys (TRACK-8).
+
 ## [0.9.0] - 2026-11-24
 
 ### Breaking

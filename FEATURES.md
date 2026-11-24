@@ -163,6 +163,14 @@ Clocks, track identity, definitions on track 0, state, what items are and how tr
 
   Read more: [Number, key and id](docs/tracks.md#number-key-and-id), [The definitions an application holds](docs/definitions.md#the-definitions-an-application-holds), `ww_tape_tests/tests/it/chain_numbers.rs`.
 
+- 🚧 **TRACK-8 Keyed state tracks**
+
+  A keyed state track (`TrackRepeat::Keyed`) holds many slots, one per key of at most 1024 bytes, the newest record per key in force. `put_key` and `delete_key` put a key's value or end it, on the writer, a chain and the mux's `StateHandle`, near its use per key. The index lists each record by its key's first 8 bytes, length and 64-bit hash. A key's records and a prefix's live keys so are found without reading blocks (`key_entries`, `key_slots`). `key_at`, `key_history` and `keys_at` read the records, and the full key decides a hash collision.
+
+  Open: a cut carries no keys into the new piece; a put whose key id equals another live key's is not refused yet.
+
+  Read more: [Keyed state tracks](docs/format.md#keyed-state-tracks), [State entries](docs/format.md#state-entries). Golden file `v1-keyed.hex`; tests `keyed.rs`, `state::tests`, `index::tests`.
+
 ## Writer (`WRITE`)
 
 Writing pieces and chains, resuming them, and sinks in memory, in the crate `ww_tape`.

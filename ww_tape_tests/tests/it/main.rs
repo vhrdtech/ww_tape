@@ -35,6 +35,7 @@ mod head_copies;
 mod integrity;
 mod iq8;
 mod item_gap;
+mod keyed;
 mod lock;
 mod media;
 mod mem_pieces;

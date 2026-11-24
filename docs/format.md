@@ -123,7 +123,9 @@ off size field
          chunk its payload unchecked (FLAG_PAYLOAD_UNCHECKED: segment CRCs 0, the block CRC over the head), bit 4 on an
          events chunk a break in its track's monotone relations (FLAG_RELATION_BREAK), bit 5 on a summary block
          a grid tile's tree, its tile after the scale (FLAG_TILE: it changes the layout, so a reader
-         without it refuses the block); others 0, and a reader ignores them
+         without it refuses the block), bit 6 on a records block marked FLAG_REPEAT its records keyed state
+         (FLAG_KEYED: each item a key and a value, so a reader without it refuses the block); others 0, and a
+         reader ignores them
   8 u32  len: the whole block, header and CRC included
  12 u32  records in the block
  16 u64  seq: the block number in its session, from 0, +1 per block; a gap is lost blocks. Index, close, tail and
@@ -176,8 +178,9 @@ block by its length, and the block is not damage.
 
 ### 3.2 Header flags {#header-flags}
 
-Header bytes 6..8 hold flags. A reader ignores the bits it doesn't know, except bit 5 on a summary block. That bit
-moves the block's body behind the tile, so a reader without it refuses the block.
+Header bytes 6..8 hold flags. A reader ignores the bits it doesn't know, except bit 5 on a summary block and bit 6 on a
+records block. Bit 5 moves the block's body behind the tile, and bit 6 makes each item a key and a value. A reader
+without them refuses the block.
 
 | Bit | Flag | Marks |
 |---:|---|---|
@@ -187,6 +190,7 @@ moves the block's body behind the tile, so a reader without it refuses the block
 | 3 | `FLAG_PAYLOAD_UNCHECKED` | a chunk whose payload went unchecked; reserved, and a reader refuses it |
 | 4 | `FLAG_RELATION_BREAK` | an events chunk where a track's monotone relations start again ([below](#relation-breaks)) |
 | 5 | `FLAG_TILE` | a summary block of a grid tile's tree, its tile after the scale ([Summaries of tiles](#summaries-of-tiles)) |
+| 6 | `FLAG_KEYED` | a block of puts whose records are keyed state ([Keyed state tracks](#keyed-state-tracks)) |
 
 ### 3.3 Records blocks {#records-blocks}
 
@@ -810,7 +814,41 @@ A run of such blocks ends in the block they belong to, all from one writer call.
 `TapeWriter::put_block` puts a producer's block of puts by the writer's own rule. `relay_block` passes a live producer's
 stream on.
 
-### 5.3 Deferred blocks {#deferred-blocks}
+### 5.3 Keyed state tracks {#keyed-state-tracks}
+
+A track whose `repeat` is `TrackRepeat::Keyed` holds many slots, one per **key**. A key is at most `STATE_KEY_LEN_MAX`
+(1024) bytes, and the newest record of each key is in force.
+
+The application puts a key's value with `TapeWriter::put_key` and ends the key with `delete_key`. A deletion is a
+record too, so the older values stay in the file.
+
+The writer keeps each key near its use and copies it as `StatePolicy` says, per key, as for any slot. A plain `put`
+on a keyed track is refused, and so is `put_key` on a plain one.
+
+The records of a keyed track go in blocks of puts of their own, marked `FLAG_KEYED` (header bit 6). The index then
+lists each record by its key without the definitions. Each item is the key, then the value
+([`state` module docs](https://github.com/vhrdtech/ww_tape/blob/main/ww_tape/src/state.rs)):
+
+```text
+uvar head: key length << 1 | 1 for a deletion; the length at most STATE_KEY_LEN_MAX (1024)
+key bytes
+value bytes, the rest of the item: none in a deletion
+```
+
+A records block marked `FLAG_KEYED` but not `FLAG_REPEAT` is refused. So is one that holds a record of track 0 or an
+item that doesn't read this way.
+
+The index knows a key by its **key id** (`KeyId`): its first 8 bytes, its length and a 64-bit BLAKE3 hash ([State
+entries](#state-entries)). The head is zero past the key's end. Key ids sort by those bytes first, so a key range is one
+stretch of the sorted entries. A key of at most 8 bytes is whole in the index.
+
+Two keys of the same id share a slot. By chance that is about one pair in 2^64, but a key set crafted for it costs
+about 2^32 BLAKE3 hashes. A lookup of one key (`TapeReader::key_at`) reads each record's full key and stays exact.
+A listing (`keys_at`) reads the newest record of each slot, so it shows only the newer of two keys that share one.
+
+A cut carries no keys into the new piece yet.
+
+### 5.4 Deferred blocks {#deferred-blocks}
 
 `TapeWriter::defer_block` puts the definitions of a deferred block when the block is deferred, and places the block
 later with no puts.
@@ -921,13 +959,14 @@ off size field
  60 ...  n × track: id u64, first entry u32, entry count u32, CRC-32C of its entries u32, reserved u32
  ...     entries, each:
            0 u64 offset of the block in the piece    8 u32 its length        12 u8 its block kind
-          13 u8  summary or overview level (else 0) 14 u8 summary tree      15 u8 flags: bit 0 repeat, bit 1 range, bit 2 unhashed (no unit hash), bit 3 relation break, bit 4 tile
+          13 u8  summary or overview level (else 0) 14 u8 summary tree      15 u8 flags: bit 0 repeat, bit 1 range, bit 2 unhashed (no unit hash), bit 3 relation break, bit 4 tile, bit 5 keyed, bit 6 deleted
           16 u64 track id (0: none)                 24 u32 track number      28 u32 0 (a state record's below)
           32 u64 first item number                  40 u64 items (samples, records)
           48 i64 first tick                         56 i64 last tick         64 i64 latest end
           72 u64 smallest value of the track's range relation in an events chunk (flag bit 1), else 0
           80 u64 its largest value, else 0
           72 u128 a grid chunk's tile number (flag bit 4) in place of the range, else 0
+          72 [16] a keyed state record's key id (flag bit 5) in place of the range, below
           88 [32] a chunk's unit hash, else 0
          120 [8] reserved: written zero, not read
 len-4 u32 CRC over bytes 0..len-4, as in every block
@@ -941,7 +980,8 @@ chunk's offset, length and kind, its track, its items and ticks, no range relati
 </figure>
 
 Bytes 72..88 of an events chunk's entry hold the range of its track's range relation. A grid chunk's entry holds its
-tile number there instead ([The tile number](#the-tile-number)). A series chunk of no fixed axes leaves them zero.
+tile number there instead ([The tile number](#the-tile-number)), and a keyed state record's entry its key id ([State
+entries](#state-entries)). A series chunk of no fixed axes leaves them zero.
 
 A final index longer than `INDEX_LEN_MAX` (1 MiB) is several final blocks. Each holds whole tracks in ascending track id
 and points back at the one before.
@@ -959,11 +999,14 @@ Beside the block's offset, length and kind, a state entry holds:
 
 ```text
  13 u8  the record's slot: 0 a state track's record, else what it defines (DefinitionKind)
- 15 u8  bit 0: the block is marked FLAG_REPEAT
+ 15 u8  bit 0: the block is marked FLAG_REPEAT; bit 5: a keyed state record (its block marked FLAG_KEYED);
+        bit 6: that record is a deletion
  24 u32 the state track, or the number the definition defines (a track's, a clock's, a map's from clock)
- 28 u32 a map's to clock, else 0
+ 28 u32 a map's to clock, a keyed record's key length (at most STATE_KEY_LEN_MAX), else 0
  32 u64 0, reserved for the record's item number       40 u64 0, reserved
  48 16 bytes the item's hash (ItemHash)                 64 i64 the record's time in ticks, 0 on track 0
+ 72 [8] a keyed record's key head: its first 8 bytes, zero past its end (KeyId), else 0
+ 80 u64 a keyed record's key hash: BLAKE3 of the key, its first 8 bytes, else 0
 ```
 
 The slot codes (`DefinitionKind`) are:
@@ -971,6 +1014,10 @@ The slot codes (`DefinitionKind`) are:
 - 1 producer, 2 track, 3 bundle, 4 clock;
 - 5 map, 6 item, 7 layout, 8 schema;
 - 9 to 15 for a definition the writer doesn't know: its discriminant plus 1, at most 15.
+
+A record of a keyed state track has slot code 0 and entry flag bit 5. Bytes 28..32 hold its key length. Bytes 72..80
+hold the key's first 8 bytes and 80..88 its hash ([Keyed state tracks](#keyed-state-tracks)). Flag bit 6 marks a deletion, so a
+reader lists the live keys of a range from the index alone.
 
 A code is a `Describe` variant's discriminant plus 1. A newer writer therefore lists a definition under the code an
 older reader computes for it. The older reader's content check then agrees with the entries.
@@ -2355,6 +2402,7 @@ A value past its cap is damage, refused with an error; no file a writer of this 
 | `GAP_MAX_MAX` | 64 MiB | a layout's gap |
 | `GAP_PROBES_MAX` | 8192 | the resume places a reader probes in one gap |
 | `GAP_CHECKS_MAX` | 4 | the blocks a reader checks whole past one gap |
+| `STATE_KEY_LEN_MAX` | 1024 | a keyed state record's key bytes |
 | `STATE_READ_MAX` | 1 GiB | the bytes of blocks one state lookup reads |
 | `LAYOUT_READ_MAX` | 256 MiB | the bytes of definitions blocks a reader reads to find a piece's layout |
 

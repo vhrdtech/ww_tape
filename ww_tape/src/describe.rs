@@ -731,6 +731,11 @@ pub enum TrackRepeat {
     /// so that a copy lies at most `near` behind wherever it is used, and a reader takes the nearest record behind a
     /// place.
     State(StatePolicy),
+    /// Each record is the state of one key from then on, many keys on one track: a writer puts a key's value
+    /// ([TapeWriter::put_key](crate::TapeWriter::put_key)) or its deletion
+    /// ([TapeWriter::delete_key](crate::TapeWriter::delete_key)) as [StatePolicy] says, per key, and a reader takes
+    /// the newest record of each key behind a place ([state](crate::state)).
+    Keyed(StatePolicy),
 }
 
 /// How a writer repeats the items of a state track, or of track 0 ([Layout::definitions]).
@@ -763,12 +768,20 @@ impl TrackRepeat {
     /// A state track repeated as [StatePolicy::DEFAULT].
     pub const STATE: Self = Self::State(StatePolicy::DEFAULT);
 
+    /// A keyed state track repeated as [StatePolicy::DEFAULT].
+    pub const KEYED: Self = Self::Keyed(StatePolicy::DEFAULT);
+
     /// The state policy, None for a stream.
     pub const fn state(self) -> Option<StatePolicy> {
         match self {
-            Self::State(p) => Some(p),
+            Self::State(p) | Self::Keyed(p) => Some(p),
             Self::Stream | Self::Unknown(_) => None,
         }
+    }
+
+    /// Whether the track is keyed ([Self::Keyed]).
+    pub const fn is_keyed(self) -> bool {
+        matches!(self, Self::Keyed(_))
     }
 }
 

@@ -75,6 +75,8 @@ pub(crate) enum Work<T: PieceStore> {
         track: TrackNum,
         ticks: i64,
         item: Vec<u8>,
+        /// The item is a [KeyedItem](ww_tape::KeyedItem): put by key
+        keyed: bool,
     },
     /// A track, encoded ([crate::define::track]).
     DefineTrack {
@@ -138,7 +140,9 @@ impl<T: PieceStore> Work<T> {
         match self {
             Self::Chunk { head, columns, .. } => Some(Unit::Chunk { head, columns }),
             Self::Block { block, .. } => Some(Unit::Block(block)),
-            Self::Put { ticks, item, .. } => Some(Unit::Put { ticks, item }),
+            Self::Put {
+                ticks, item, keyed, ..
+            } => Some(Unit::Put { ticks, item, keyed }),
             _ => None,
         }
     }

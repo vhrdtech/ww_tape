@@ -31,6 +31,8 @@ fn entry(track_id: u64, offset: u64) -> IndexEntry {
             _ => Some((offset, u64::MAX - offset)),
         },
         tile: None,
+        key: None,
+        deleted: false,
     }
 }
 
@@ -574,12 +576,13 @@ fn refused_both_ways(change: impl Fn(&mut [u8]), error: IndexError) {
 #[test]
 fn an_entry_is_checked_the_same_on_every_read() {
     refused_both_ways(|e| e[15] |= ENTRY_UNHASHED, IndexError::BadEntries);
-    for bit in 5..8 {
-        refused_both_ways(
-            |e| e[15] |= 1 << bit,
-            IndexError::Invalid("an entry flag this build doesn't know"),
-        );
-    }
+    refused_both_ways(
+        |e| e[15] |= 1 << 7,
+        IndexError::Invalid("an entry flag this build doesn't know"),
+    );
+    // a key or a deletion on a chunk's entry
+    refused_both_ways(|e| e[15] |= ENTRY_KEYED, IndexError::BadEntries);
+    refused_both_ways(|e| e[15] |= ENTRY_DELETED, IndexError::BadEntries);
     refused_both_ways(
         |e| {
             e[15] |= ENTRY_RANGE;
@@ -621,6 +624,8 @@ fn summary_entries_carry_tile_numbers() {
         tree: t.to_u8(),
         range: None,
         tile: Some(7 << 12 | 3 << 6 | 2 << 3 | 5),
+        key: None,
+        deleted: false,
         ..entry(1, 1000)
     };
     let head = IndexHead {
@@ -660,6 +665,8 @@ fn tile_numbers_round_trip() {
             kind: BlockKind::Series,
             range: None,
             tile: *tile,
+            key: None,
+            deleted: false,
             ..entry(1, 1000 + i as u64 * 300)
         })
         .collect();
@@ -728,6 +735,8 @@ fn overview_levels_of_entries_are_checked() {
         kind: BlockKind::Series,
         range: None,
         tile: Some(5),
+        key: None,
+        deleted: false,
         level: 2,
         ..entry(1, 400)
     };
@@ -737,6 +746,8 @@ fn overview_levels_of_entries_are_checked() {
     };
     let scanned = IndexEntry {
         tile: None,
+        key: None,
+        deleted: false,
         ..series
     };
     for e in [series, top, scanned] {

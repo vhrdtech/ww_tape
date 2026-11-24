@@ -127,6 +127,15 @@ pub enum DescribeError {
     StateRecord { track: TrackNum },
     /// A put on a track whose records are events.
     NotState { track: TrackNum },
+    /// A put without a key on a keyed state track: its items are put by key
+    /// ([TapeWriter::put_key](crate::TapeWriter::put_key)).
+    Keyed { track: TrackNum },
+    /// A put by key on a track that isn't keyed state.
+    NotKeyed { track: TrackNum },
+    /// A key of `len` bytes, longer than [STATE_KEY_LEN_MAX](crate::STATE_KEY_LEN_MAX).
+    KeyTooLong { len: usize },
+    /// A keyed state item that doesn't read.
+    KeyedItem(crate::KeyedError),
     /// A relayed definition other than the one held in its slot: a relay holds a block's definitions before it
     /// puts the block ([crate::TapeWriter::relay_block]).
     NotHeld { slot: Slot },
@@ -269,6 +278,19 @@ impl core::fmt::Display for DescribeError {
                     "track {track} is not a state track: nothing of it is put"
                 )
             }
+            Self::Keyed { track } => {
+                write!(f, "track {track} is keyed state: its items are put by key")
+            }
+            Self::NotKeyed { track } => write!(
+                f,
+                "track {track} is not keyed state: nothing of it is put by key"
+            ),
+            Self::KeyedItem(e) => write!(f, "a keyed state item: {e}"),
+            Self::KeyTooLong { len } => write!(
+                f,
+                "a key of {len} bytes is longer than {}",
+                crate::STATE_KEY_LEN_MAX
+            ),
             Self::DefinitionBlock => write!(
                 f,
                 "a caller's block holds definitions: keep them in Definitions, the writer puts them"
@@ -293,6 +315,8 @@ pub struct TrackFacts {
     pub clock: ClockNum,
     /// [TrackDef::repeat](crate::TrackDef::repeat)'s policy, None for a stream.
     pub state: Option<StatePolicy>,
+    /// The track is keyed state ([TrackRepeat::Keyed](crate::TrackRepeat::Keyed)): its items are put by key.
+    pub keyed: bool,
     /// The period of a series track, in ticks per sample; None for an events track.
     pub period: Option<crate::Ratio64>,
     /// Which relations, by index, keep their values in a column.
@@ -328,6 +352,7 @@ impl TrackFacts {
         Self {
             clock: t.clock,
             state: t.repeat.state(),
+            keyed: t.repeat.is_keyed(),
             period: t.series().map(|s| s.period),
             stored: relations.stored,
             monotone: relations.monotone,

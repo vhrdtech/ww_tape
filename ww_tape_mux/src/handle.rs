@@ -4,7 +4,7 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 
 use ww_tape::chunk::ChunkHead;
-use ww_tape::{Block, BlockKind, ColumnSpec, PieceStore, TrackFacts, TrackNum};
+use ww_tape::{Block, BlockKind, ColumnSpec, KeyedItem, PieceStore, TrackFacts, TrackNum};
 
 use crate::error::{CallError, MuxError};
 use crate::queue::Pushed;
@@ -406,22 +406,25 @@ impl<T: PieceStore> RelayHandle<T> {
     }
 }
 
-/// Puts the items of one state track, on change: the writer puts them again where readers need them.
+/// Puts the items of one state track, on change: the writer puts them again where readers need them. On a keyed
+/// state track it puts by key ([Self::put_key], [Self::delete_key]).
 ///
 /// Any number of these handles may put on the same track.
 pub struct StateHandle<T: PieceStore> {
     s: Sender<T>,
     track: TrackNum,
+    keyed: bool,
 }
 
 common!(StateHandle);
 buffered!(StateHandle);
 
 impl<T: PieceStore> StateHandle<T> {
-    pub(crate) fn new(shared: Arc<Shared<T>>, track: TrackNum) -> Self {
+    pub(crate) fn new(shared: Arc<Shared<T>>, track: TrackNum, keyed: bool) -> Self {
         Self {
             s: Sender::new(shared, Some(track)),
             track,
+            keyed,
         }
     }
 
@@ -430,27 +433,114 @@ impl<T: PieceStore> StateHandle<T> {
         self.track
     }
 
-    /// Put `item` at `ticks` of the track's clock.
+    /// Put `item` at `ticks` of the track's clock. Refused at the call on a keyed track ([CallError::Keyed]).
     pub fn put(&self, ticks: i64, item: &[u8]) -> Result<Sent, MuxError<T::Error>> {
-        let (work, bytes) = self.unit(ticks, item);
+        let (work, bytes) = self.unit(ticks, item)?;
         self.s.send(work, bytes)
     }
 
     /// [Self::put] as a future, waiting for room by waker. Dropped while it waits, the item is not put.
     pub async fn put_async(&self, ticks: i64, item: &[u8]) -> Result<Sent, MuxError<T::Error>> {
-        let (work, bytes) = self.unit(ticks, item);
+        let (work, bytes) = self.unit(ticks, item)?;
         self.s.send_async(work, bytes).await
     }
 
-    fn unit(&self, ticks: i64, item: &[u8]) -> (Work<T>, u64) {
+    /// Put `value` of key `key` at `ticks` of the track's clock ([PieceChain::put_key](ww_tape::PieceChain::put_key)).
+    /// Refused at the call on a track that isn't keyed ([CallError::Keyed]) and for a key longer than
+    /// [STATE_KEY_LEN_MAX](ww_tape::STATE_KEY_LEN_MAX).
+    pub fn put_key(
+        &self,
+        ticks: i64,
+        key: &[u8],
+        value: &[u8],
+    ) -> Result<Sent, MuxError<T::Error>> {
+        let (work, bytes) = self.keyed_unit(
+            ticks,
+            KeyedItem {
+                key,
+                value: Some(value),
+            },
+        )?;
+        self.s.send(work, bytes)
+    }
+
+    /// [Self::put_key] as a future, waiting for room by waker.
+    pub async fn put_key_async(
+        &self,
+        ticks: i64,
+        key: &[u8],
+        value: &[u8],
+    ) -> Result<Sent, MuxError<T::Error>> {
+        let (work, bytes) = self.keyed_unit(
+            ticks,
+            KeyedItem {
+                key,
+                value: Some(value),
+            },
+        )?;
+        self.s.send_async(work, bytes).await
+    }
+
+    /// Put the deletion of key `key` at `ticks` of the track's clock, refused as [Self::put_key] is.
+    pub fn delete_key(&self, ticks: i64, key: &[u8]) -> Result<Sent, MuxError<T::Error>> {
+        let (work, bytes) = self.keyed_unit(ticks, KeyedItem { key, value: None })?;
+        self.s.send(work, bytes)
+    }
+
+    /// [Self::delete_key] as a future, waiting for room by waker.
+    pub async fn delete_key_async(
+        &self,
+        ticks: i64,
+        key: &[u8],
+    ) -> Result<Sent, MuxError<T::Error>> {
+        let (work, bytes) = self.keyed_unit(ticks, KeyedItem { key, value: None })?;
+        self.s.send_async(work, bytes).await
+    }
+
+    fn unit(&self, ticks: i64, item: &[u8]) -> Result<(Work<T>, u64), MuxError<T::Error>> {
+        if self.keyed {
+            return Err(CallError::Keyed {
+                track: self.track,
+                keyed: true,
+            }
+            .into());
+        }
         let mut buf = self.s.slot.buffer();
         buf.extend_from_slice(item);
-        let bytes = block_bytes(&buf).saturating_add(PUT_OVERHEAD_BYTES);
+        Ok(self.put_work(ticks, buf, false))
+    }
+
+    fn keyed_unit(
+        &self,
+        ticks: i64,
+        keyed: KeyedItem<'_>,
+    ) -> Result<(Work<T>, u64), MuxError<T::Error>> {
+        if !self.keyed {
+            return Err(CallError::Keyed {
+                track: self.track,
+                keyed: false,
+            }
+            .into());
+        }
+        let mut buf = self.s.slot.buffer();
+        if keyed.encode_into(&mut buf).is_none() {
+            self.s.slot.give_back(buf);
+            return Err(CallError::KeyTooLong {
+                len: keyed.key.len(),
+            }
+            .into());
+        }
+        Ok(self.put_work(ticks, buf, true))
+    }
+
+    fn put_work(&self, ticks: i64, item: Vec<u8>, keyed: bool) -> (Work<T>, u64) {
+        let bytes = block_bytes(&item).saturating_add(PUT_OVERHEAD_BYTES);
         let work = Work::Put {
             from: self.s.slot.clone(),
             track: self.track,
             ticks,
-            item: buf,
+            item,
+            keyed,
         };
         (work, bytes)
     }

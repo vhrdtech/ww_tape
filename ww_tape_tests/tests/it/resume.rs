@@ -387,7 +387,7 @@ fn blocks_around(bytes: &[u8], at: u64) -> String {
         let slots: Vec<Option<Slot>> = if b.kind == BlockKind::Records {
             b.records()
                 .flatten()
-                .map(|r| Slot::of(r.track, r.item))
+                .map(|r| Slot::of(r.track, r.item, b.is_keyed()))
                 .collect()
         } else {
             vec![]

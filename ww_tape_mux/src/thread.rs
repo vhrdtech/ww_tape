@@ -6,8 +6,8 @@ use std::time::{Duration, Instant};
 use ww_tape::chunk::ChunkHead;
 use ww_tape::index::IndexEntry;
 use ww_tape::{
-    ChainPiece, CloseReason, ColumnSpec, Definitions, PieceChain, PieceStore, Slot as DefSlot,
-    UnitChunk, WriteError,
+    ChainPiece, CloseReason, ColumnSpec, Definitions, DescribeError, KeyedItem, PieceChain,
+    PieceStore, Slot as DefSlot, TrackNum, UnitChunk, WriteError,
 };
 
 use crate::define;
@@ -334,9 +334,14 @@ fn place<T: PieceStore>(
             track,
             ticks,
             item,
+            keyed,
         } => {
             if !failed {
-                let r = chain.put(defs, track, ticks, &item).map(|_| ());
+                let r = if keyed {
+                    put_keyed(chain, defs, track, ticks, &item)
+                } else {
+                    chain.put(defs, track, ticks, &item).map(|_| ())
+                };
                 placed(chain, shared, &from, r, bytes);
             } else {
                 Counters::add(&shared.counters.lost, 1);
@@ -382,6 +387,23 @@ fn place<T: PieceStore>(
         Work::Stop => return Some(Exit::Stop),
     }
     None
+}
+
+/// Put the keyed item `item`, a key and its value or deletion as a handle encoded it, on keyed track `track`.
+fn put_keyed<T: PieceStore>(
+    chain: &mut PieceChain<T>,
+    defs: &Definitions,
+    track: TrackNum,
+    ticks: i64,
+    item: &[u8],
+) -> Result<(), WriteError<T::Error>> {
+    // the handle encoded it: a key within the cap
+    let k = KeyedItem::read(item).map_err(DescribeError::KeyedItem)?;
+    match k.value {
+        Some(value) => chain.put_key(defs, track, ticks, k.key, value),
+        None => chain.delete_key(defs, track, ticks, k.key),
+    }
+    .map(|_| ())
 }
 
 /// A block placed as `how` says.

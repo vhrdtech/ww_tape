@@ -211,7 +211,7 @@ fn not_carried_golden() {
 }
 
 /// `bytes` as the golden file `name` holds them in hex, 64 bytes a line; `WW_TAPE_GOLDEN=update` rewrites it.
-fn golden(bytes: &[u8], name: &str) {
+pub(crate) fn golden(bytes: &[u8], name: &str) {
     let mut hex = String::new();
     for line in bytes.chunks(64) {
         for byte in line {

@@ -10,7 +10,7 @@
 //! | [ChunkSender] | a chunk of one events or series track, encoded by the caller | [PieceChain::write_chunk] |
 //! | [RecordsHandle] | a records block ([ww_tape::BlockWriter]) | the writer's next block ([PieceChain::write_block]) |
 //! | [RelayHandle] | another producer's block | [PieceChain::relay_block] or [PieceChain::adopt_block] |
-//! | [StateHandle] | a state item, on change | [PieceChain::put] |
+//! | [StateHandle] | a state item, on change; a key's value or deletion on a keyed track | [PieceChain::put], [PieceChain::put_key], [PieceChain::delete_key] |
 //!
 //! The writing thread places units in the order they came, and does the chores: puts of definitions and state,
 //! cuts by the chain's policy, sync and checkpoints by time ([MuxOptions::tick]), the close. Handles never pass
@@ -391,7 +391,9 @@ where
     /// [Self::state] as a future.
     pub async fn state_async(&self, track: TrackNum) -> Result<StateHandle<T>, MuxError<T::Error>> {
         match self.facts(track).await? {
-            Some(f) if f.state.is_some() => Ok(StateHandle::new(self.shared.clone(), track)),
+            Some(f) if f.state.is_some() => {
+                Ok(StateHandle::new(self.shared.clone(), track, f.keyed))
+            }
             _ => Err(CallError::Kind { track }.into()),
         }
     }

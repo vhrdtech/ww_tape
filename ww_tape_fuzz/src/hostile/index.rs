@@ -150,6 +150,8 @@ fn entries(d: &mut Draw<'_>, n: usize, sorted: bool) -> Vec<IndexEntry> {
                 unhashed: false,
                 range,
                 tile,
+                key: None,
+                deleted: false,
             }
         })
         .collect();

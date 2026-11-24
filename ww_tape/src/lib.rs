@@ -22,7 +22,9 @@
 //!          chunk its payload unchecked (FLAG_PAYLOAD_UNCHECKED: segment CRCs 0, the block CRC over the head), bit 4 on an
 //!          events chunk a break in its track's monotone relations (FLAG_RELATION_BREAK), bit 5 on a summary block
 //!          a grid tile's tree, its tile after the scale (FLAG_TILE: it changes the layout, so a reader
-//!          without it refuses the block); others 0, and a reader ignores them
+//!          without it refuses the block), bit 6 on a records block marked FLAG_REPEAT its records keyed state
+//!          (FLAG_KEYED: each item a key and a value, so a reader without it refuses the block); others 0, and a
+//!          reader ignores them
 //!   8 u32  len: the whole block, header and CRC included
 //!  12 u32  records in the block
 //!  16 u64  seq: the block number in its session, from 0, +1 per block; a gap is lost blocks. Index, close, tail and
@@ -134,6 +136,7 @@
 //! | [GAP_CHECKS_MAX] | 4 | the blocks a reader checks whole past one gap |
 //! | [RESYNC_AHEAD_MAX] | 128 MiB | the bytes a salvage walk ([Recovery::Resync]) reads ahead |
 //! | [RESYNC_SEQS_MAX] | 65536 | the data blocks a salvage walk remembers by session and seq, for conflicts |
+//! | [STATE_KEY_LEN_MAX] | 1024 | a keyed state record's key bytes |
 //! | [STATE_READ_MAX](reader::STATE_READ_MAX) | 1 GiB | the bytes of blocks one state lookup reads |
 //! | [LAYOUT_READ_MAX](reader::LAYOUT_READ_MAX) | 256 MiB | the bytes of definitions blocks a reader reads to find a piece's layout |
 //! | [VERIFY_LISTS_MAX](reader::VERIFY_LISTS_MAX) | 466432 | the track lists of a final index one verify takes, one entry held each |
@@ -202,7 +205,9 @@ pub use numbers::{
     ClockKey, ClockNum, ItemNum, RecordTrack, RelationSet, TrackId, TrackKey, TrackNum,
 };
 pub mod state;
-pub use state::{DefinitionKind, ItemHash, Slot};
+pub use state::{
+    DefinitionKind, ItemHash, KEY_HEAD_LEN, KeyId, KeyedError, KeyedItem, STATE_KEY_LEN_MAX, Slot,
+};
 
 pub mod summary;
 pub use summary::{EventFields, SummaryError, SummaryHead};
@@ -352,6 +357,13 @@ pub const FLAG_RELATION_BREAK: u16 = 1 << 4;
 ///
 /// Its index entry carries the tile number, as the tile's chunks' entries do.
 pub const FLAG_TILE: u16 = 1 << 5;
+/// Header flag on records blocks marked [FLAG_REPEAT]: every record is a keyed state record, its item a
+/// [KeyedItem] ([state]).
+///
+/// A keyed state track's records sit in blocks of their own, so the index lists each record by its key without the
+/// definitions. A records block with the flag and without [FLAG_REPEAT], or with a record of track 0 or an item that
+/// doesn't read as a [KeyedItem], is refused ([BlockError::BadRecords]).
+pub const FLAG_KEYED: u16 = 1 << 6;
 /// Block kind 2, which earlier drafts gave describe blocks: reserved, never written, read as a kind this reader
 /// doesn't know.
 pub const RESERVED_KIND: u8 = 2;
@@ -1293,6 +1305,9 @@ impl<'b> Block<'b> {
         if self.version == VERSION && records && self.is_coded() && self.coded().is_none() {
             return Err(BlockError::BadRecords);
         }
+        if self.is_keyed() && !self.is_repeat() {
+            return Err(BlockError::BadRecords);
+        }
         if !self.has_records() || self.plain_body().is_none() {
             return Ok(());
         }
@@ -1301,8 +1316,12 @@ impl<'b> Block<'b> {
         }
         // a record takes 2 bytes at least: no more of them than body bytes
         let mut n = 0u32;
+        let keyed = self.is_keyed();
         for r in self.records() {
-            r?;
+            let r = r?;
+            if keyed && !state::keyed_record(r.track, r.item) {
+                return Err(BlockError::BadRecords);
+            }
             n = n.checked_add(1).ok_or(BlockError::BadRecords)?;
         }
         if n != self.record_count {
@@ -1314,6 +1333,11 @@ impl<'b> Block<'b> {
     /// Whether the block holds put or copied state records ([FLAG_REPEAT]).
     pub fn is_repeat(&self) -> bool {
         self.flags & FLAG_REPEAT != 0
+    }
+
+    /// Whether the block is a records block of keyed state records ([FLAG_KEYED]).
+    pub fn is_keyed(&self) -> bool {
+        self.kind == BlockKind::Records && self.flags & FLAG_KEYED != 0
     }
 
     /// Whether the block is an events chunk whose track's monotone relations start again ([FLAG_RELATION_BREAK]).

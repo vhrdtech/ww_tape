@@ -541,6 +541,29 @@ impl<T: PieceStore> PieceChain<T> {
         self.with_room(defs, |w| w.put(defs, track, ticks, item))
     }
 
+    /// Put a key's value on a keyed state track ([TapeWriter::put_key]).
+    pub fn put_key(
+        &mut self,
+        defs: &Definitions,
+        track: TrackNum,
+        ticks: i64,
+        key: &[u8],
+        value: &[u8],
+    ) -> Result<bool, WriteError<T::Error>> {
+        self.with_room(defs, |w| w.put_key(defs, track, ticks, key, value))
+    }
+
+    /// Put a key's deletion on a keyed state track ([TapeWriter::delete_key]).
+    pub fn delete_key(
+        &mut self,
+        defs: &Definitions,
+        track: TrackNum,
+        ticks: i64,
+        key: &[u8],
+    ) -> Result<bool, WriteError<T::Error>> {
+        self.with_room(defs, |w| w.delete_key(defs, track, ticks, key))
+    }
+
     /// Put a typed item ([TapeWriter::put_item]).
     pub fn put_item(
         &mut self,
