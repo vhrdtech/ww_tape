@@ -82,7 +82,8 @@ extra_javascript = ["javascripts/spl-refs.js", "javascripts/book-stamp-age.js"]
 
 [project.theme]
 # overrides/main.html: the reading level badge above a page's title, from its `level:` front matter (docs/levels.md);
-# overrides/partials/copyright.html: the build stamp in the footer
+# overrides/partials/copyright.html: the build stamp in the footer;
+# overrides/partials/header.html: the header with the book name linking to the home page
 custom_dir = "overrides"
 favicon = "assets/ww_tape_icon.svg"
 logo = "assets/ww_tape_icon.svg"
@@ -154,6 +155,10 @@ pymdownx.highlight = {
   anchor_linenums = true,
   line_spans = "__span",
   pygments_lang_class = true,
+  extend_pygments_lang = [
+    { name = "console", lang = "spl-console" },
+    { name = "rust", lang = "spl-rust" },
+  ],
 }
 pymdownx.inlinehilite = {}
 pymdownx.keys = {}
