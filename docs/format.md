@@ -823,15 +823,19 @@ A scan drops a run that the end of the bytes, a tail or a piece head cuts: what 
 part of a run that a crash tore. A scan also drops a run longer than `RUN_BLOCKS_MAX`, up to its first unmarked block,
 as a follower stops at one.
 
-A scan that starts inside a run, at `OpenOptions::start` on a raw medium, takes the run's tail as a run: it doesn't
-read the blocks before its start.
+A raw medium's scan from `OpenOptions::start` inside a run takes the run's tail as a run. It doesn't read the blocks
+before its start.
 
 Damage inside a run hurts its blocks only, unless they are of a group of puts ([Groups of puts](#groups-of-puts)).
-A group is taken whole or not at all, damaged too, so a block of a group that doesn't read drops the whole group. A
-block that doesn't read hides its own marks. After damage, a scan so drops the blocks of a group up to the first one
-not marked `FLAG_WITH_NEXT`. A lookup through the index drops a block of a group whose group has a block that doesn't
-read, or after a block of puts that doesn't read. Both list what they dropped, and the state before the group stays
-in force. A group right after a damaged one may so be dropped too.
+A group is taken whole or not at all, damaged too: a block of it that doesn't read drops the whole group. The state
+before the group stays in force, and each reader lists what it dropped.
+
+A block that doesn't read hides its own marks, so readers drop what may belong with it:
+
+- a scan, after damage, the blocks of a group up to the first one not marked `FLAG_WITH_NEXT`;
+- a lookup through the index, a block of a group after a block of puts that doesn't read.
+
+A group right after a damaged one may so be dropped too.
 
 `TapeWriter::put_block` puts a producer's block of puts by the writer's own rule. `relay_block` passes a live producer's
 stream on.
@@ -842,9 +846,10 @@ stream on.
 Each put decides by the near rule as `TapeWriter::put` does, so a group writes only the items not in force close
 behind. The records it writes and the definitions they need go into blocks of puts one after the other, every block
 but the last marked `FLAG_WITH_NEXT`. A group is so a run whose last block is a block of puts. The bytes are those of
-puts, each block of a group marked `FLAG_GROUP` (bit 8). The flag only marks: a reader that doesn't know it reads
-the blocks as any blocks of puts, and loses nothing a crash leaves, since a group is a run. A reader that knows it
-also drops a damaged group whole ([Marking blocks of puts](#marking-blocks-of-puts)).
+puts, each block of a group marked `FLAG_GROUP` (bit 8).
+
+The flag only marks. A reader that doesn't know it reads the blocks as any blocks of puts. It loses nothing a crash
+leaves, since a group is a run. A reader that knows it also drops a damaged group whole ([Marking blocks of puts](#marking-blocks-of-puts)).
 
 The writer checks the whole group before it writes the first block:
 
