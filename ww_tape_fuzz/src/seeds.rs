@@ -51,6 +51,11 @@ pub const FIXED_INPUTS: &[(&str, &str, &str)] = &[
     ),
     ("tape-resume", "closed-last-piece-damaged", "070030c80101"),
     (
+        "tape-runs",
+        "headless-puts-resume-in-their-session",
+        "010000000000002800000054c2c2fb",
+    ),
+    (
         "tape-reclose",
         "empty-append-has-its-own-final-index",
         "0801000c",

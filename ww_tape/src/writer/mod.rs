@@ -2096,9 +2096,13 @@ impl<S: TapeSink> TapeWriter<S> {
         if counted && matches!(kind, BlockKind::Events | BlockKind::Series) {
             self.chunks = self.chunks.saturating_add(1);
         }
-        if counted && let Some(id) = block_id(block) {
+        // every block is of the writer's session, as a block of another session starts that session
+        // ([Self::write_block]): a piece of puts alone resumes in its session
+        if let Some(id) = block_id(block) {
             self.session = id.session;
-            self.next_seq = id.seq.wrapping_add(1);
+            if counted {
+                self.next_seq = id.seq.wrapping_add(1);
+            }
         }
         Ok(unit)
     }

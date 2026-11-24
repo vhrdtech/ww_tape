@@ -2106,3 +2106,38 @@ pub(crate) fn written_on(alignment: u32, level: ww_tape::Integrity) -> Vec<u8> {
     w.close().unwrap();
     mem.get(&0).unwrap().unwrap().to_vec().unwrap()
 }
+
+/// A piece without a head whose blocks are all puts, cut inside its last block: the resume takes the session of its
+/// blocks, so a put after it lies in that session and a reader takes it.
+#[test]
+fn a_piece_of_puts_alone_resumes_in_its_session() {
+    let mut defs = base_defs().clone();
+    crate::definitions::hold(&mut defs, &[state(10)]).unwrap();
+    let on = TrackNum::new(10);
+    let o = crate::definitions::options(u64::MAX);
+    let mut w = TapeWriter::create_on(MemSink::new(), o.sync);
+    w.set_index_policy(o.index).unwrap();
+    w.set_layout(o.layout).unwrap();
+    w.set_producer(&o.producer);
+    w.set_session(ww_tape::SessionTag::writable(0x7075_7473))
+        .unwrap();
+    let tape = w.sink().tape();
+    w.put(&defs, on, 0, b"first").unwrap();
+    let kept = tape.to_vec().unwrap().len();
+    w.put(&defs, on, 1, b"second").unwrap();
+    let bytes = tape.to_vec().unwrap();
+    let mut sink = MemSink::new();
+    sink.write_all(&bytes[..kept + 20]).unwrap();
+    let tape = sink.tape();
+    let (mut w, resumed) = TapeWriter::resume_on(sink, o).unwrap();
+    assert_eq!(resumed.kept_bytes, kept as u64);
+    assert!(w.put(&defs, on, 2, b"third").unwrap());
+    let bytes = tape.to_vec().unwrap();
+    let r = TapeReader::open(&bytes[..]).unwrap();
+    let got = r
+        .state_at(0, ww_tape::Slot::State { track: on }, u64::MAX)
+        .unwrap()
+        .item
+        .map(|i| i.item);
+    assert_eq!(got.as_deref(), Some(&b"third"[..]));
+}

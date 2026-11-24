@@ -34,6 +34,7 @@ benchmarks, golden files and book pages.
 ### Fixes
 
 - A resume takes nothing of a group of puts with a damaged block, as readers drop it (WRITE-17).
+- A piece of puts alone, without a head, resumes in its own session: readers take the blocks after (WRITE-2).
 
 ## [0.10.1] - 2026-11-24
 
